@@ -2463,6 +2463,10 @@ class App(tk.Tk):
         self.last_selected_dataset_side = "origin"
         self.ssh_busy_count = 0
         self.ssh_actions_locked = False
+        self._dataset_proc_lock = threading.Lock()
+        self._active_dataset_proc: Optional[subprocess.Popen[str]] = None
+        self._active_dataset_action: str = ""
+        self._dataset_cancel_requested = False
         self.pool_props_loading_count = 0
         self._busy_cursor = "wait" if os.name == "nt" else "watch"
         self.selected_imported_pool: Optional[Tuple[str, str]] = None
@@ -3089,6 +3093,25 @@ class App(tk.Tk):
         def _append() -> None:
             self.app_log_text.configure(state="normal")
             self.app_log_text.insert("end", f"[{level.upper()}] {message}\n")
+            self.app_log_text.see("end")
+            self.app_log_text.configure(state="disabled")
+        self.after(0, _append)
+
+    def _app_log_cancel_action(self) -> None:
+        def _append() -> None:
+            self.app_log_text.configure(state="normal")
+            self.app_log_text.insert("end", "[ACTION] ")
+            start = self.app_log_text.index("end-1c")
+            label = tr("log_dataset_cancel_action")
+            self.app_log_text.insert("end", label)
+            end = self.app_log_text.index("end-1c")
+            self.app_log_text.insert("end", "\n")
+            tag = f"cancel_action_{int(time.time() * 1000)}"
+            self.app_log_text.tag_add(tag, start, end)
+            self.app_log_text.tag_configure(tag, foreground=UI_ACTION_UMOUNT, underline=True)
+            self.app_log_text.tag_bind(tag, "<Button-1>", lambda _e: self._cancel_dataset_operation())
+            self.app_log_text.tag_bind(tag, "<Enter>", lambda _e: self.app_log_text.configure(cursor="hand2"))
+            self.app_log_text.tag_bind(tag, "<Leave>", lambda _e: self.app_log_text.configure(cursor=""))
             self.app_log_text.see("end")
             self.app_log_text.configure(state="disabled")
         self.after(0, _append)
@@ -4020,7 +4043,9 @@ class App(tk.Tk):
         self.level_running = True
         ssh_busy(1)
         self._update_level_button_state()
+        self._app_log_cancel_action()
         self._app_log("normal", tr("log_level_exec_start"))
+        self._app_log("info", tr("log_dataset_progress_tab"))
         self._ssh_log(f"$ {cmd}")
 
         def worker() -> None:
@@ -4035,6 +4060,7 @@ class App(tk.Tk):
                     bufsize=1,
                     executable="/bin/bash",
                 )
+                self._set_active_dataset_process(proc, tr("datasets_level_btn"))
             except Exception as exc:
                 self._app_log("normal", trf("log_level_exec_spawn_error", error=exc))
                 ssh_busy(-1)
@@ -4046,13 +4072,18 @@ class App(tk.Tk):
                 if proc.stdout is not None:
                     self._stream_process_output(proc.stdout)
                 rc = proc.wait()
-                if rc == 0:
+                with self._dataset_proc_lock:
+                    cancelled = self._dataset_cancel_requested
+                if cancelled:
+                    self._app_log("normal", tr("log_dataset_cancel_done"))
+                elif rc == 0:
                     self._app_log("normal", tr("log_level_exec_ok"))
                 else:
                     self._app_log("normal", trf("log_level_exec_fail_code", code=rc))
             except Exception as exc:
                 self._app_log("normal", trf("log_level_exec_runtime_error", error=exc))
             finally:
+                self._clear_active_dataset_process(proc)
                 ssh_busy(-1)
                 self.after(0, self._finish_level_command)
                 self.after(0, self.refresh_all_connections)
@@ -4066,7 +4097,9 @@ class App(tk.Tk):
         self.level_running = True
         ssh_busy(1)
         self._update_level_button_state()
+        self._app_log_cancel_action()
         self._app_log("normal", tr("log_copy_exec_start"))
+        self._app_log("info", tr("log_dataset_progress_tab"))
         self._ssh_log(f"$ {cmd}")
 
         def worker() -> None:
@@ -4081,6 +4114,7 @@ class App(tk.Tk):
                     bufsize=1,
                     executable="/bin/bash",
                 )
+                self._set_active_dataset_process(proc, tr("copy_snapshot_btn"))
             except Exception as exc:
                 self._app_log("normal", trf("log_copy_exec_spawn_error", error=exc))
                 ssh_busy(-1)
@@ -4092,13 +4126,18 @@ class App(tk.Tk):
                 if proc.stdout is not None:
                     self._stream_process_output(proc.stdout)
                 rc = proc.wait()
-                if rc == 0:
+                with self._dataset_proc_lock:
+                    cancelled = self._dataset_cancel_requested
+                if cancelled:
+                    self._app_log("normal", tr("log_dataset_cancel_done"))
+                elif rc == 0:
                     self._app_log("normal", tr("log_copy_exec_ok"))
                 else:
                     self._app_log("normal", trf("log_copy_exec_fail_code", code=rc))
             except Exception as exc:
                 self._app_log("normal", trf("log_copy_exec_runtime_error", error=exc))
             finally:
+                self._clear_active_dataset_process(proc)
                 ssh_busy(-1)
                 self.after(0, self._finish_level_command)
                 if dst_conn_id:
@@ -4123,6 +4162,46 @@ class App(tk.Tk):
         tail = buf.strip()
         if tail:
             self._ssh_log(tail)
+
+    def _set_active_dataset_process(self, proc: subprocess.Popen[str], action: str) -> None:
+        with self._dataset_proc_lock:
+            self._active_dataset_proc = proc
+            self._active_dataset_action = action
+            self._dataset_cancel_requested = False
+
+    def _clear_active_dataset_process(self, proc: Optional[subprocess.Popen[str]] = None) -> None:
+        with self._dataset_proc_lock:
+            if proc is None or self._active_dataset_proc is proc:
+                self._active_dataset_proc = None
+                self._active_dataset_action = ""
+                self._dataset_cancel_requested = False
+
+    def _cancel_dataset_operation(self) -> None:
+        with self._dataset_proc_lock:
+            proc = self._active_dataset_proc
+            action = self._active_dataset_action
+            if proc is None or proc.poll() is not None:
+                proc = None
+            else:
+                self._dataset_cancel_requested = True
+        if proc is None:
+            self._app_log("info", tr("log_dataset_cancel_noop"))
+            return
+        self._app_log("normal", trf("log_dataset_cancel_requested", action=action or "-"))
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+
+        def _kill_later(p: subprocess.Popen[str]) -> None:
+            time.sleep(1.5)
+            if p.poll() is None:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+
+        threading.Thread(target=lambda: _kill_later(proc), daemon=True).start()
 
     def _finish_level_command(self) -> None:
         self.level_running = False
