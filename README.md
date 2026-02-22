@@ -40,6 +40,51 @@ pip install -r requirements.txt
 python app.py
 ```
 
+## Empaquetado multiplataforma (Windows, Linux, macOS)
+
+Se usa `PyInstaller` para generar binarios standalone.
+
+### Dependencias de build
+
+```bash
+python3 -m pip install -r requirements.txt
+python3 -m pip install -r requirements-build.txt
+```
+
+### Generar paquete (en el sistema actual)
+
+```bash
+python3 packaging/build.py
+```
+
+Salida:
+- Binario: `dist/ZFSMgr` (o `dist/ZFSMgr.exe` en Windows)
+- Artefacto empaquetado: `dist/packages/`
+
+### Instalacion local del binario generado
+
+- Linux:
+```bash
+bash packaging/install-linux.sh
+```
+
+- macOS:
+```bash
+bash packaging/install-macos.sh
+```
+
+- Windows (PowerShell):
+```powershell
+.\packaging\install-windows.ps1
+```
+
+### Build para las 3 plataformas con GitHub Actions
+
+Incluido workflow: `.github/workflows/build-packages.yml`
+
+- Lanza el workflow manualmente (`workflow_dispatch`) o por push.
+- Genera artefactos para `ubuntu`, `windows` y `macos` en `dist/packages/`.
+
 ## Camino concreto para tener `py-libzfs` operativo
 
 `py-libzfs` no suele estar disponible como `pip install py-libzfs` en PyPI.

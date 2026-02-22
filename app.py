@@ -66,8 +66,34 @@ except Exception:  # pragma: no cover - entorno sin pypsrp
 
 
 APP_DIR = Path(__file__).resolve().parent
-CONNECTIONS_FILE = APP_DIR / "connections.ini"
-LEGACY_CONNECTIONS_FILE = APP_DIR / "connections.json"
+
+
+def _resource_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", "")
+        if meipass:
+            return Path(meipass)
+        return Path(sys.executable).resolve().parent
+    return APP_DIR
+
+
+def _config_dir() -> Path:
+    if os.name == "nt":
+        base = Path(os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming")))
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
+    cfg = base / "ZFSMgr"
+    cfg.mkdir(parents=True, exist_ok=True)
+    return cfg
+
+
+RESOURCE_DIR = _resource_dir()
+CONFIG_DIR = _config_dir()
+CONNECTIONS_FILE = CONFIG_DIR / "connections.ini"
+LEGACY_CONNECTIONS_FILE = CONFIG_DIR / "connections.json"
+LEGACY_CONNECTIONS_FALLBACK = APP_DIR / "connections.json"
 COMMAND_TIMEOUT_SECONDS = 20
 # PSRP suele tardar bastante mas en abrir sesion/ejecutar.
 PSRP_TIMEOUT_SECONDS = 60
@@ -145,7 +171,9 @@ EDITABLE_DATASET_PROPS_SNAPSHOT: set[str] = set()
 
 def _load_i18n() -> None:
     global I18N
-    locales_dir = APP_DIR / "locales"
+    locales_dir = RESOURCE_DIR / "locales"
+    if not locales_dir.exists():
+        locales_dir = APP_DIR / "locales"
     merged: Dict[str, Dict[str, str]] = {}
     for code in LANG_OPTIONS.keys():
         path = locales_dir / f"{code}.json"
@@ -346,7 +374,7 @@ class ConnectionStore:
         if self.path.suffix == ".ini" and self.path.exists():
             self._load_ini()
             return
-        if self.path.suffix == ".ini" and LEGACY_CONNECTIONS_FILE.exists():
+        if self.path.suffix == ".ini" and (LEGACY_CONNECTIONS_FILE.exists() or LEGACY_CONNECTIONS_FALLBACK.exists()):
             self._load_legacy_json()
             self.save()
             return
@@ -367,6 +395,7 @@ class ConnectionStore:
         for profile in self.connections:
             sec = f"connection:{profile.id}"
             cfg[sec] = self._profile_to_mapping(profile)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("w", encoding="utf-8") as fh:
             cfg.write(fh)
 
@@ -403,7 +432,8 @@ class ConnectionStore:
 
     def _load_legacy_json(self) -> None:
         try:
-            raw = json.loads(LEGACY_CONNECTIONS_FILE.read_text(encoding="utf-8"))
+            legacy_path = LEGACY_CONNECTIONS_FILE if LEGACY_CONNECTIONS_FILE.exists() else LEGACY_CONNECTIONS_FALLBACK
+            raw = json.loads(legacy_path.read_text(encoding="utf-8"))
             self.connections = [self._profile_from_mapping(item) for item in raw]
         except Exception:
             self.connections = []
