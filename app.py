@@ -3890,6 +3890,7 @@ class App(tk.Tk):
             finally:
                 ssh_busy(-1)
                 self.after(0, self._finish_level_command)
+                self.after(0, self.refresh_all_connections)
 
         threading.Thread(target=worker, daemon=True).start()
 
