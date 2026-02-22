@@ -94,6 +94,7 @@ CONFIG_DIR = _config_dir()
 CONNECTIONS_FILE = CONFIG_DIR / "connections.ini"
 LEGACY_CONNECTIONS_FILE = CONFIG_DIR / "connections.json"
 LEGACY_CONNECTIONS_FALLBACK = APP_DIR / "connections.json"
+LEGACY_INI_FALLBACK = APP_DIR / "connections.ini"
 COMMAND_TIMEOUT_SECONDS = 20
 # PSRP suele tardar bastante mas en abrir sesion/ejecutar.
 PSRP_TIMEOUT_SECONDS = 60
@@ -374,6 +375,11 @@ class ConnectionStore:
         if self.path.suffix == ".ini" and self.path.exists():
             self._load_ini()
             return
+        if self.path.suffix == ".ini" and LEGACY_INI_FALLBACK.exists():
+            # Migracion automatica desde el ini historico en el directorio de la app.
+            self._load_ini(LEGACY_INI_FALLBACK)
+            self.save()
+            return
         if self.path.suffix == ".ini" and (LEGACY_CONNECTIONS_FILE.exists() or LEGACY_CONNECTIONS_FALLBACK.exists()):
             self._load_legacy_json()
             self.save()
@@ -418,9 +424,10 @@ class ConnectionStore:
                 return c
         return None
 
-    def _load_ini(self) -> None:
+    def _load_ini(self, ini_path: Optional[Path] = None) -> None:
+        path = ini_path or self.path
         cfg = configparser.ConfigParser()
-        cfg.read(self.path, encoding="utf-8")
+        cfg.read(path, encoding="utf-8")
         conns: List[ConnectionProfile] = []
         for section in cfg.sections():
             if not section.startswith("connection:"):
