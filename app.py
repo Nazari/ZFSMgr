@@ -600,6 +600,9 @@ class BaseExecutor:
     def rename_dataset(self, dataset: str, new_name: str) -> str:
         raise NotImplementedError
 
+    def destroy_dataset(self, dataset: str) -> str:
+        raise NotImplementedError
+
 
 class LocalExecutor(BaseExecutor):
     def _zpool_cmd(self, args: str) -> str:
@@ -777,6 +780,9 @@ class LocalExecutor(BaseExecutor):
 
     def rename_dataset(self, dataset: str, new_name: str) -> str:
         return self._zfs_cmd(f"rename {shlex.quote(dataset)} {shlex.quote(new_name)}")
+
+    def destroy_dataset(self, dataset: str) -> str:
+        return self._zfs_cmd(f"destroy {shlex.quote(dataset)}")
 
 
 class SSHExecutor(BaseExecutor):
@@ -1030,6 +1036,9 @@ class SSHExecutor(BaseExecutor):
     def rename_dataset(self, dataset: str, new_name: str) -> str:
         return self._run(self._zfs_cmd(f"rename {shlex.quote(dataset)} {shlex.quote(new_name)}"), sudo=True)
 
+    def destroy_dataset(self, dataset: str) -> str:
+        return self._run(self._zfs_cmd(f"destroy {shlex.quote(dataset)}"), sudo=True)
+
 
 class PSRPExecutor(BaseExecutor):
     def _client(self):
@@ -1212,6 +1221,12 @@ class PSRPExecutor(BaseExecutor):
             return "'" + s.replace("'", "''") + "'"
 
         return self._run_ps(f"zfs rename {_ps_quote(dataset)} {_ps_quote(new_name)}")
+
+    def destroy_dataset(self, dataset: str) -> str:
+        def _ps_quote(s: str) -> str:
+            return "'" + s.replace("'", "''") + "'"
+
+        return self._run_ps(f"zfs destroy {_ps_quote(dataset)}")
 
 
 def make_executor(profile: ConnectionProfile) -> BaseExecutor:
@@ -2598,6 +2613,15 @@ class App(tk.Tk):
         )
         self.modify_btn.configure(state="disabled")
         ToolTip(self.modify_btn, tr("modify_dataset_tooltip"))
+        self.delete_dataset_btn = ttk.Button(self.tab_datasets, text=tr("delete_dataset_btn"), command=self._delete_dataset)
+        self.delete_dataset_btn.grid(
+            row=6,
+            column=0,
+            sticky="w",
+            pady=(6, 0),
+        )
+        self.delete_dataset_btn.configure(state="disabled")
+        ToolTip(self.delete_dataset_btn, tr("delete_dataset_tooltip"))
 
         right = ttk.Frame(paned, padding=(6, 6, 10, 10))
         right.columnconfigure(0, weight=1)
@@ -3845,6 +3869,45 @@ class App(tk.Tk):
 
         threading.Thread(target=worker_load, daemon=True).start()
 
+    def _delete_dataset(self) -> None:
+        if self._reject_if_ssh_busy():
+            return
+        selected = self._get_dataset_for_create()
+        if not selected:
+            messagebox.showwarning(tr("delete_dataset_btn"), tr("create_dataset_select_required"))
+            return
+        side, _selection_label, dataset_path, conn_id = selected
+        profile = self.store.get(conn_id)
+        if not profile:
+            return
+
+        msg1 = trf("delete_dataset_confirm_1", dataset=dataset_path, name=profile.name)
+        if not messagebox.askyesno(tr("confirm"), msg1):
+            return
+        msg2 = trf("delete_dataset_confirm_2", dataset=dataset_path, name=profile.name)
+        if not messagebox.askyesno(tr("confirm"), msg2):
+            return
+
+        self._app_log("normal", trf("log_delete_dataset_start", name=profile.name, dataset=dataset_path))
+        self._ssh_log(f"[ACTION] {trf('log_delete_dataset_start', name=profile.name, dataset=dataset_path)}")
+
+        def worker() -> None:
+            try:
+                execu = make_executor(profile)
+                out = execu.destroy_dataset(dataset_path)
+                self._app_log("info", trf("log_delete_dataset_done", name=profile.name, dataset=dataset_path))
+                if (out or "").strip():
+                    self._app_log("debug", out.strip())
+            except Exception as exc:
+                self._app_log("normal", trf("log_delete_dataset_error", name=profile.name, dataset=dataset_path, error=exc))
+                self.after(0, lambda: messagebox.showerror(tr("delete_dataset_btn"), str(exc)))
+            finally:
+                self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{conn_id}:")}
+                self.after(0, lambda: self._refresh_connection_by_id(conn_id))
+                self.after(0, lambda: self._load_side_datasets(side))
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _run_level_command(self, cmd: str) -> None:
         if self.level_running:
             self._app_log("normal", tr("log_level_already_running"))
@@ -4240,6 +4303,7 @@ class App(tk.Tk):
         has_dataset_target = self._get_dataset_for_create() is not None
         create_enabled = bool((self.ssh_busy_count == 0) and has_dataset_target)
         modify_enabled = bool((self.ssh_busy_count == 0) and has_dataset_target)
+        delete_enabled = bool((self.ssh_busy_count == 0) and has_dataset_target)
         self._app_log(
             "debug",
             trf(
@@ -4256,6 +4320,7 @@ class App(tk.Tk):
         self.sync_btn.configure(state="normal" if enabled else "disabled")
         self.create_btn.configure(state="normal" if create_enabled else "disabled")
         self.modify_btn.configure(state="normal" if modify_enabled else "disabled")
+        self.delete_dataset_btn.configure(state="normal" if delete_enabled else "disabled")
 
     def _render_datasets_tree(self, tree: ttk.Treeview, datasets: List[Dict[str, str]]) -> None:
         for iid in tree.get_children():
