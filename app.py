@@ -95,6 +95,7 @@ CONNECTIONS_FILE = CONFIG_DIR / "connections.ini"
 LEGACY_CONNECTIONS_FILE = CONFIG_DIR / "connections.json"
 LEGACY_CONNECTIONS_FALLBACK = APP_DIR / "connections.json"
 LEGACY_INI_FALLBACK = APP_DIR / "connections.ini"
+INSTANCE_LOCK_FILE = CONFIG_DIR / "app.lock"
 COMMAND_TIMEOUT_SECONDS = 20
 # PSRP suele tardar bastante mas en abrir sesion/ejecutar.
 PSRP_TIMEOUT_SECONDS = 60
@@ -259,6 +260,62 @@ def save_preferred_language_to_ini(path: Path, language_code: str) -> None:
 
 class PasswordCryptoError(RuntimeError):
     pass
+
+
+class SingleInstanceLock:
+    """Evita ejecutar mas de una instancia simultanea de la aplicacion."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.fd: Optional[Any] = None
+
+    def acquire(self) -> bool:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.fd = open(self.path, "a+")
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                self.fd.seek(0)
+                # Bloquea 1 byte de forma no bloqueante.
+                msvcrt.locking(self.fd.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self.fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.fd.seek(0)
+            self.fd.truncate()
+            self.fd.write(str(os.getpid()))
+            self.fd.flush()
+            return True
+        except Exception:
+            try:
+                self.fd.close()
+            except Exception:
+                pass
+            self.fd = None
+            return False
+
+    def release(self) -> None:
+        if not self.fd:
+            return
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                self.fd.seek(0)
+                msvcrt.locking(self.fd.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self.fd.fileno(), fcntl.LOCK_UN)
+        except Exception:
+            pass
+        try:
+            self.fd.close()
+        except Exception:
+            pass
+        self.fd = None
 
 
 class ToolTip:
@@ -5102,9 +5159,15 @@ def main() -> None:
     if saved_lang:
         CURRENT_LANG = saved_lang
 
+    lock = SingleInstanceLock(INSTANCE_LOCK_FILE)
+    if not lock.acquire():
+        _show_startup_error("ZFSMgr ya esta en ejecucion. Cierra la instancia activa antes de abrir otra.")
+        raise SystemExit(1)
+
     try:
         store = prompt_master_password_and_load_store()
     except KeyboardInterrupt:
+        lock.release()
         raise SystemExit(130)
 
     if os.name == "nt":
@@ -5120,11 +5183,15 @@ def main() -> None:
         app = App(store=store, startup_sudo_ok=None)
     except Exception as exc:
         _show_startup_error(f"{exc}\n\n{traceback.format_exc()}")
+        lock.release()
         raise SystemExit(1)
     try:
         app.mainloop()
     except KeyboardInterrupt:
+        lock.release()
         raise SystemExit(130)
+    finally:
+        lock.release()
 
 
 if __name__ == "__main__":
