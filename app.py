@@ -3511,7 +3511,6 @@ class App(tk.Tk):
             cmd = f"{send_side} | {recv_side}"
 
         self._app_log("info", trf("log_level_missing_snapshots", count=len(missing), snaps=', '.join(missing)))
-        self._app_log("normal", tr("log_level_command_header"))
         self._app_log("normal", cmd)
         self._run_level_command(cmd)
 
