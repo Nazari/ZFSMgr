@@ -78,6 +78,7 @@
   "modify_dataset_tooltip": "Load and modify editable properties of the selected dataset",
   "delete_dataset_btn": "Delete",
   "delete_dataset_tooltip": "Delete the selected dataset",
+  "delete_dataset_select_required": "Select a dataset or snapshot on source or destination to delete",
   "delete_dataset_confirm_1": "Dataset \"{dataset}\" on \"{name}\" will be deleted.\n\nDo you want to continue?",
   "delete_dataset_confirm_2": "FINAL CONFIRMATION\n\nDataset \"{dataset}\" on \"{name}\" will be deleted.\n\nThis action is destructive. Confirm deletion?",
   "delete_dataset_recursive_confirm": "Dataset \"{dataset}\" on \"{name}\" has children/snapshots.\n\nRecursive mode (-r) is required and will also delete those children.\n\nDo you want to continue with recursive delete?",

@@ -78,6 +78,7 @@
   "modify_dataset_tooltip": "加载并修改所选数据集的可编辑属性",
   "delete_dataset_btn": "删除",
   "delete_dataset_tooltip": "删除所选数据集",
+  "delete_dataset_select_required": "请在源端或目标端选择要删除的数据集或快照",
   "delete_dataset_confirm_1": "将删除 \"{name}\" 上的数据集 \"{dataset}\"。\n\n是否继续？",
   "delete_dataset_confirm_2": "最终确认\n\n将删除 \"{name}\" 上的数据集 \"{dataset}\"。\n\n此操作具有破坏性。确认删除？",
   "delete_dataset_recursive_confirm": "数据集 \"{name}\" / \"{dataset}\" 存在子项/快照。\n\n必须使用递归模式（-r），并会一并删除这些子项。\n\n是否继续递归删除？",

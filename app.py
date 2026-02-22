@@ -3762,6 +3762,28 @@ class App(tk.Tk):
                 return cand
         return candidates[0]
 
+    def _get_target_for_delete(self) -> Optional[Tuple[str, str, str, str]]:
+        # Devuelve (side, selection_label, dataset_or_snapshot, conn_id)
+        origin_ds = self.origin_dataset_var.get().strip()
+        dest_ds = self.dest_dataset_var.get().strip()
+        origin_sel = self.origin_pool_var.get().strip()
+        dest_sel = self.dest_pool_var.get().strip()
+        candidates: List[Tuple[str, str, str, str]] = []
+        if origin_ds and origin_sel in self.dataset_pool_options:
+            cid, _pool = self.dataset_pool_options[origin_sel]
+            candidates.append(("origin", origin_sel, origin_ds, cid))
+        if dest_ds and dest_sel in self.dataset_pool_options:
+            cid, _pool = self.dataset_pool_options[dest_sel]
+            candidates.append(("dest", dest_sel, dest_ds, cid))
+        if not candidates:
+            return None
+        if len(candidates) == 1:
+            return candidates[0]
+        for cand in candidates:
+            if cand[0] == self.last_selected_dataset_side:
+                return cand
+        return candidates[0]
+
     def _create_dataset(self) -> None:
         if self._reject_if_ssh_busy():
             return
@@ -3883,9 +3905,9 @@ class App(tk.Tk):
     def _delete_dataset(self) -> None:
         if self._reject_if_ssh_busy():
             return
-        selected = self._get_dataset_for_create()
+        selected = self._get_target_for_delete()
         if not selected:
-            messagebox.showwarning(tr("delete_dataset_btn"), tr("create_dataset_select_required"))
+            messagebox.showwarning(tr("delete_dataset_btn"), tr("delete_dataset_select_required"))
             return
         side, _selection_label, dataset_path, conn_id = selected
         profile = self.store.get(conn_id)
@@ -4100,7 +4122,7 @@ class App(tk.Tk):
             self._render_dataset_properties("dest", None)
             return
         iid = str(selected[0]).strip()
-        if not iid or "@" in iid:
+        if not iid:
             self.dest_dataset_var.set("")
             self._render_dataset_properties("dest", None)
             return
@@ -4336,9 +4358,10 @@ class App(tk.Tk):
         origin_snapshot_ok = bool(origin_sel and str(origin_sel[0]).strip() == src and "@" in src)
         copy_enabled = bool((not self.level_running) and (self.ssh_busy_count == 0) and origin_snapshot_ok and dest_selected_ok)
         has_dataset_target = self._get_dataset_for_create() is not None
+        has_delete_target = self._get_target_for_delete() is not None
         create_enabled = bool((self.ssh_busy_count == 0) and has_dataset_target)
         modify_enabled = bool((self.ssh_busy_count == 0) and has_dataset_target)
-        delete_enabled = bool((self.ssh_busy_count == 0) and has_dataset_target)
+        delete_enabled = bool((self.ssh_busy_count == 0) and has_delete_target)
         self._app_log(
             "debug",
             trf(

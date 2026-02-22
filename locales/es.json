@@ -78,6 +78,7 @@
   "modify_dataset_tooltip": "Cargar y modificar propiedades editables del dataset seleccionado",
   "delete_dataset_btn": "Borrar",
   "delete_dataset_tooltip": "Borrar el dataset seleccionado",
+  "delete_dataset_select_required": "Selecciona un dataset o snapshot en origen o destino para borrar",
   "delete_dataset_confirm_1": "Se va a borrar el dataset \"{dataset}\" en \"{name}\".\n\nDeseas continuar?",
   "delete_dataset_confirm_2": "CONFIRMACION FINAL\n\nSe borrara el dataset \"{dataset}\" en \"{name}\".\n\nEsta accion es destructiva. Confirmas el borrado?",
   "delete_dataset_recursive_confirm": "El dataset \"{dataset}\" en \"{name}\" tiene hijos/snapshots.\n\nPara borrarlo debes usar modo recursivo (-r), lo que eliminara tambien esos hijos.\n\nDeseas continuar con borrado recursivo?",
