@@ -3361,7 +3361,7 @@ class App(tk.Tk):
             return
         progress_stage = ""
         if shutil.which("pv"):
-            progress_stage = "pv -trab"
+            progress_stage = "pv -f -trab"
             self._app_log("info", tr("log_level_progress_pv"))
         elif shutil.which("dd"):
             progress_stage = "dd bs=4M status=progress"
@@ -3477,7 +3477,7 @@ class App(tk.Tk):
             return
         progress_stage = ""
         if shutil.which("pv"):
-            progress_stage = "pv -trab"
+            progress_stage = "pv -f -trab"
             self._app_log("info", tr("log_level_progress_pv"))
         elif shutil.which("dd"):
             progress_stage = "dd bs=4M status=progress"
@@ -3876,10 +3876,7 @@ class App(tk.Tk):
             assert proc is not None
             try:
                 if proc.stdout is not None:
-                    for line in proc.stdout:
-                        txt = line.rstrip("\n")
-                        if txt:
-                            self._ssh_log(txt)
+                    self._stream_process_output(proc.stdout)
                 rc = proc.wait()
                 if rc == 0:
                     self._app_log("normal", tr("log_level_exec_ok"))
@@ -3925,10 +3922,7 @@ class App(tk.Tk):
             assert proc is not None
             try:
                 if proc.stdout is not None:
-                    for line in proc.stdout:
-                        txt = line.rstrip("\n")
-                        if txt:
-                            self._ssh_log(txt)
+                    self._stream_process_output(proc.stdout)
                 rc = proc.wait()
                 if rc == 0:
                     self._app_log("normal", tr("log_copy_exec_ok"))
@@ -3941,6 +3935,24 @@ class App(tk.Tk):
                 self.after(0, self._finish_level_command)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _stream_process_output(self, stream: Any) -> None:
+        # Captura progreso tipo pv/dd que usa '\r' (sin '\n') y salida normal por lineas.
+        buf = ""
+        while True:
+            ch = stream.read(1)
+            if ch == "":
+                break
+            if ch in ("\n", "\r"):
+                txt = buf.strip()
+                if txt:
+                    self._ssh_log(txt)
+                buf = ""
+            else:
+                buf += ch
+        tail = buf.strip()
+        if tail:
+            self._ssh_log(tail)
 
     def _finish_level_command(self) -> None:
         self.level_running = False
