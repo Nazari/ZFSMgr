@@ -2436,7 +2436,16 @@ class App(tk.Tk):
         SSH_LOG_HOOK = self._ssh_log
         SSH_BUSY_HOOK = self._on_ssh_busy_delta
         self._load_connections_list()
+        self.after(30, self._ensure_main_window_visible)
         self.after(100, self.refresh_all_connections)
+
+    def _ensure_main_window_visible(self) -> None:
+        try:
+            self.deiconify()
+            self.lift()
+            self.focus_force()
+        except Exception:
+            pass
 
     def _apply_theme(self) -> None:
         self.configure(bg=UI_BG)
@@ -4953,7 +4962,11 @@ def main() -> None:
         except Exception:
             pass
 
-    app = App(store=store, startup_sudo_ok=None)
+    try:
+        app = App(store=store, startup_sudo_ok=None)
+    except Exception as exc:
+        _show_startup_error(f"{exc}\n\n{traceback.format_exc()}")
+        raise SystemExit(1)
     try:
         app.mainloop()
     except KeyboardInterrupt:
