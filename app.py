@@ -4422,39 +4422,54 @@ class App(tk.Tk):
             tree.delete(iid)
 
         inserted: set[str] = set()
+        dataset_names: List[str] = []
+        snapshots: List[Tuple[str, str]] = []
         for item in sorted(datasets, key=lambda d: d.get("name", "")):
-            full = item.get("name", "").strip()
+            full = (item.get("name", "") or "").strip()
             if not full:
                 continue
-            dataset_full = full
-            snapshot_name = ""
             if "@" in full:
-                dataset_full, snapshot_name = full.split("@", 1)
+                ds, snap = full.split("@", 1)
+                snapshots.append((ds, snap))
+            else:
+                dataset_names.append(full)
+
+        def _ensure_dataset_path(dataset_full: str) -> str:
             parts = dataset_full.split("/")
             accum = ""
             parent = ""
-            for idx, part in enumerate(parts):
+            for part in parts:
                 accum = part if not accum else f"{accum}/{part}"
                 if accum not in inserted:
-                    if idx == len(parts) - 1 and not snapshot_name:
-                        values = ()
-                    else:
-                        values = ()
-                    tree.insert(parent, "end", iid=accum, text=part, values=values, open=False)
+                    tree.insert(parent, "end", iid=accum, text=part, values=(), open=False)
                     inserted.add(accum)
                 parent = accum
-            if snapshot_name:
-                snapshot_iid = f"{dataset_full}@{snapshot_name}"
-                if snapshot_iid not in inserted:
-                    tree.insert(
-                        parent,
-                        "end",
-                        iid=snapshot_iid,
-                        text=f"@{snapshot_name}",
-                        values=(),
-                        open=False,
-                    )
-                    inserted.add(snapshot_iid)
+            return parent
+
+        # Primero inserta jerarquia de datasets.
+        for dataset_full in dataset_names:
+            _ensure_dataset_path(dataset_full)
+
+        # Luego snapshots, colocandolos al inicio de su dataset padre
+        # para que aparezcan antes que subdatasets.
+        for dataset_full, snap in sorted(snapshots, key=lambda x: (x[0], x[1])):
+            parent = _ensure_dataset_path(dataset_full)
+            snapshot_iid = f"{dataset_full}@{snap}"
+            if snapshot_iid in inserted:
+                continue
+            children = list(tree.get_children(parent))
+            insert_index = 0
+            while insert_index < len(children) and "@" in str(children[insert_index]):
+                insert_index += 1
+            tree.insert(
+                parent,
+                insert_index,
+                iid=snapshot_iid,
+                text=f"@{snap}",
+                values=(),
+                open=False,
+            )
+            inserted.add(snapshot_iid)
 
     def _render_connection_state(self, profile: ConnectionProfile) -> None:
         state = self.states.get(profile.id, ConnectionState(message=tr("status_no_data")))
