@@ -3919,11 +3919,11 @@ class App(tk.Tk):
                             self._app_log("normal", trf("log_delete_dataset_recursive_start", name=profile.name, dataset=dataset_path))
                             threading.Thread(target=lambda: worker(True), daemon=True).start()
                         else:
-                            self._app_log("normal", trf("log_delete_dataset_error", name=profile.name, dataset=dataset_path, error=exc))
+                            self._app_log("normal", trf("log_delete_dataset_error", name=profile.name, dataset=dataset_path, error=err_txt))
 
                     self.after(0, _ask_recursive)
                     return
-                self._app_log("normal", trf("log_delete_dataset_error", name=profile.name, dataset=dataset_path, error=exc))
+                self._app_log("normal", trf("log_delete_dataset_error", name=profile.name, dataset=dataset_path, error=err_txt))
                 self.after(0, lambda: messagebox.showerror(tr("delete_dataset_btn"), err_txt))
             finally:
                 self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{conn_id}:")}
