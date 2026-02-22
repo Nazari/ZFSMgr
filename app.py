@@ -600,7 +600,7 @@ class BaseExecutor:
     def rename_dataset(self, dataset: str, new_name: str) -> str:
         raise NotImplementedError
 
-    def destroy_dataset(self, dataset: str) -> str:
+    def destroy_dataset(self, dataset: str, recursive: bool = False) -> str:
         raise NotImplementedError
 
 
@@ -781,8 +781,9 @@ class LocalExecutor(BaseExecutor):
     def rename_dataset(self, dataset: str, new_name: str) -> str:
         return self._zfs_cmd(f"rename {shlex.quote(dataset)} {shlex.quote(new_name)}")
 
-    def destroy_dataset(self, dataset: str) -> str:
-        return self._zfs_cmd(f"destroy {shlex.quote(dataset)}")
+    def destroy_dataset(self, dataset: str, recursive: bool = False) -> str:
+        flag = "-r " if recursive else ""
+        return self._zfs_cmd(f"destroy {flag}{shlex.quote(dataset)}")
 
 
 class SSHExecutor(BaseExecutor):
@@ -1036,8 +1037,9 @@ class SSHExecutor(BaseExecutor):
     def rename_dataset(self, dataset: str, new_name: str) -> str:
         return self._run(self._zfs_cmd(f"rename {shlex.quote(dataset)} {shlex.quote(new_name)}"), sudo=True)
 
-    def destroy_dataset(self, dataset: str) -> str:
-        return self._run(self._zfs_cmd(f"destroy {shlex.quote(dataset)}"), sudo=True)
+    def destroy_dataset(self, dataset: str, recursive: bool = False) -> str:
+        flag = "-r " if recursive else ""
+        return self._run(self._zfs_cmd(f"destroy {flag}{shlex.quote(dataset)}"), sudo=True)
 
 
 class PSRPExecutor(BaseExecutor):
@@ -1222,11 +1224,11 @@ class PSRPExecutor(BaseExecutor):
 
         return self._run_ps(f"zfs rename {_ps_quote(dataset)} {_ps_quote(new_name)}")
 
-    def destroy_dataset(self, dataset: str) -> str:
+    def destroy_dataset(self, dataset: str, recursive: bool = False) -> str:
         def _ps_quote(s: str) -> str:
             return "'" + s.replace("'", "''") + "'"
-
-        return self._run_ps(f"zfs destroy {_ps_quote(dataset)}")
+        flag = "-r " if recursive else ""
+        return self._run_ps(f"zfs destroy {flag}{_ps_quote(dataset)}")
 
 
 def make_executor(profile: ConnectionProfile) -> BaseExecutor:
@@ -3891,16 +3893,38 @@ class App(tk.Tk):
         self._app_log("normal", trf("log_delete_dataset_start", name=profile.name, dataset=dataset_path))
         self._ssh_log(f"[ACTION] {trf('log_delete_dataset_start', name=profile.name, dataset=dataset_path)}")
 
-        def worker() -> None:
+        def worker(recursive: bool = False) -> None:
             try:
                 execu = make_executor(profile)
-                out = execu.destroy_dataset(dataset_path)
-                self._app_log("info", trf("log_delete_dataset_done", name=profile.name, dataset=dataset_path))
+                out = execu.destroy_dataset(dataset_path, recursive=recursive)
+                if recursive:
+                    self._app_log("info", trf("log_delete_dataset_done_recursive", name=profile.name, dataset=dataset_path))
+                else:
+                    self._app_log("info", trf("log_delete_dataset_done", name=profile.name, dataset=dataset_path))
                 if (out or "").strip():
                     self._app_log("debug", out.strip())
             except Exception as exc:
+                err_txt = str(exc)
+                lower_err = err_txt.lower()
+                needs_recursive = (not recursive) and ("has children" in lower_err or "tiene hijos" in lower_err)
+                if needs_recursive:
+                    self._app_log("normal", trf("log_delete_dataset_needs_recursive", name=profile.name, dataset=dataset_path))
+
+                    def _ask_recursive() -> None:
+                        ask = messagebox.askyesno(
+                            tr("confirm"),
+                            trf("delete_dataset_recursive_confirm", dataset=dataset_path, name=profile.name),
+                        )
+                        if ask:
+                            self._app_log("normal", trf("log_delete_dataset_recursive_start", name=profile.name, dataset=dataset_path))
+                            threading.Thread(target=lambda: worker(True), daemon=True).start()
+                        else:
+                            self._app_log("normal", trf("log_delete_dataset_error", name=profile.name, dataset=dataset_path, error=exc))
+
+                    self.after(0, _ask_recursive)
+                    return
                 self._app_log("normal", trf("log_delete_dataset_error", name=profile.name, dataset=dataset_path, error=exc))
-                self.after(0, lambda: messagebox.showerror(tr("delete_dataset_btn"), str(exc)))
+                self.after(0, lambda: messagebox.showerror(tr("delete_dataset_btn"), err_txt))
             finally:
                 self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{conn_id}:")}
                 self.after(0, lambda: self._refresh_connection_by_id(conn_id))
