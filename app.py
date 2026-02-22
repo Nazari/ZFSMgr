@@ -3526,7 +3526,7 @@ class App(tk.Tk):
         self._app_log("normal", trf("log_copy_plan", src=src_snapshot, dst=dst_dataset))
         self._app_log("normal", tr("log_copy_command_header"))
         self._app_log("normal", cmd)
-        self._run_copy_command(cmd)
+        self._run_copy_command(cmd, dst_conn_id=dst_conn_id)
 
     def _sync_datasets(self) -> None:
         if self._reject_if_ssh_busy():
@@ -3987,7 +3987,7 @@ class App(tk.Tk):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _run_copy_command(self, cmd: str) -> None:
+    def _run_copy_command(self, cmd: str, dst_conn_id: Optional[str] = None) -> None:
         if self.level_running:
             self._app_log("normal", tr("log_copy_already_running"))
             return
@@ -4029,6 +4029,8 @@ class App(tk.Tk):
             finally:
                 ssh_busy(-1)
                 self.after(0, self._finish_level_command)
+                if dst_conn_id:
+                    self.after(0, lambda: self._refresh_connection_by_id(dst_conn_id))
 
         threading.Thread(target=worker, daemon=True).start()
 
