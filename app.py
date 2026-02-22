@@ -597,6 +597,9 @@ class BaseExecutor:
     def set_dataset_properties(self, dataset: str, properties: Dict[str, str]) -> str:
         raise NotImplementedError
 
+    def rename_dataset(self, dataset: str, new_name: str) -> str:
+        raise NotImplementedError
+
 
 class LocalExecutor(BaseExecutor):
     def _zpool_cmd(self, args: str) -> str:
@@ -771,6 +774,9 @@ class LocalExecutor(BaseExecutor):
             self._zfs_cmd(f"set {shlex.quote(assignment)} {shlex.quote(dataset)}")
             logs.append(assignment)
         return "\n".join(logs)
+
+    def rename_dataset(self, dataset: str, new_name: str) -> str:
+        return self._zfs_cmd(f"rename {shlex.quote(dataset)} {shlex.quote(new_name)}")
 
 
 class SSHExecutor(BaseExecutor):
@@ -1021,6 +1027,9 @@ class SSHExecutor(BaseExecutor):
             logs.append(assignment)
         return "\n".join(logs)
 
+    def rename_dataset(self, dataset: str, new_name: str) -> str:
+        return self._run(self._zfs_cmd(f"rename {shlex.quote(dataset)} {shlex.quote(new_name)}"), sudo=True)
+
 
 class PSRPExecutor(BaseExecutor):
     def _client(self):
@@ -1197,6 +1206,12 @@ class PSRPExecutor(BaseExecutor):
             self._run_ps(f"zfs set {_ps_quote(assignment)} {_ps_quote(dataset)}")
             logs.append(assignment)
         return "\n".join(logs)
+
+    def rename_dataset(self, dataset: str, new_name: str) -> str:
+        def _ps_quote(s: str) -> str:
+            return "'" + s.replace("'", "''") + "'"
+
+        return self._run_ps(f"zfs rename {_ps_quote(dataset)} {_ps_quote(new_name)}")
 
 
 def make_executor(profile: ConnectionProfile) -> BaseExecutor:
@@ -2230,12 +2245,13 @@ class CreateDatasetDialog(tk.Toplevel):
 class ModifyDatasetDialog(tk.Toplevel):
     def __init__(self, master: tk.Misc, dataset_path: str, properties: List[Dict[str, str]]) -> None:
         super().__init__(master)
+        self.dataset_path = dataset_path
         self.title(tr("modify_dataset_title"))
         self.resizable(True, True)
         self.transient(master)
         self.columnconfigure(0, weight=1)
         self.rowconfigure(2, weight=1)
-        self.result: Optional[Dict[str, str]] = None
+        self.result: Optional[Dict[str, Any]] = None
 
         ttk.Label(self, text=trf("modify_dataset_target", dataset=dataset_path), padding=(10, 8)).grid(row=0, column=0, sticky="w")
         dataset_type = ""
@@ -2254,8 +2270,15 @@ class ModifyDatasetDialog(tk.Toplevel):
             row=1, column=0, sticky="w"
         )
 
+        rename_row = ttk.Frame(self, padding=(10, 0, 10, 6))
+        rename_row.grid(row=2, column=0, sticky="ew")
+        rename_row.columnconfigure(1, weight=1)
+        ttk.Label(rename_row, text=tr("modify_dataset_rename_label")).grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.rename_var = tk.StringVar(value=dataset_path)
+        ttk.Entry(rename_row, textvariable=self.rename_var).grid(row=0, column=1, sticky="ew")
+
         table = ttk.Frame(self, padding=(10, 0, 10, 0))
-        table.grid(row=2, column=0, sticky="nsew")
+        table.grid(row=3, column=0, sticky="nsew")
         table.columnconfigure(0, weight=1)
         table.rowconfigure(1, weight=1)
 
@@ -2346,7 +2369,7 @@ class ModifyDatasetDialog(tk.Toplevel):
             row_idx += 1
 
         actions = ttk.Frame(self, padding=(10, 10))
-        actions.grid(row=3, column=0, sticky="e")
+        actions.grid(row=4, column=0, sticky="e")
         ttk.Button(actions, text=tr("cancel"), command=self.destroy).grid(row=0, column=0, padx=4)
         ttk.Button(actions, text=tr("modify_dataset_apply"), command=self._accept).grid(row=0, column=1, padx=4)
 
@@ -2364,7 +2387,10 @@ class ModifyDatasetDialog(tk.Toplevel):
             new = var.get()
             if new != old:
                 changes[prop] = new
-        self.result = changes
+        rename_to = (self.rename_var.get() or "").strip()
+        if rename_to == self.dataset_path:
+            rename_to = ""
+        self.result = {"changes": changes, "rename_to": rename_to}
         self.destroy()
 
 
@@ -3753,22 +3779,40 @@ class App(tk.Tk):
             def _open_dialog() -> None:
                 dlg = ModifyDatasetDialog(self, dataset_path=dataset_path, properties=props)
                 self.wait_window(dlg)
-                changes = dlg.result or {}
-                if not changes:
+                payload = dlg.result or {}
+                changes = payload.get("changes", {}) if isinstance(payload, dict) else {}
+                rename_to = str(payload.get("rename_to", "")).strip() if isinstance(payload, dict) else ""
+                if not changes and not rename_to:
                     self._app_log("info", tr("log_modify_dataset_no_changes"))
                     return
-                self._app_log(
-                    "normal",
-                    trf("log_modify_dataset_apply_start", name=profile.name, dataset=dataset_path, count=len(changes)),
-                )
+                if changes:
+                    self._app_log(
+                        "normal",
+                        trf("log_modify_dataset_apply_start", name=profile.name, dataset=dataset_path, count=len(changes)),
+                    )
+                if rename_to:
+                    self._app_log(
+                        "normal",
+                        trf("log_modify_dataset_rename_start", name=profile.name, dataset=dataset_path, new_name=rename_to),
+                    )
 
                 def worker_apply() -> None:
                     try:
                         execu = make_executor(profile)
-                        out = execu.set_dataset_properties(dataset_path, changes)
-                        self._app_log("info", trf("log_modify_dataset_apply_done", name=profile.name, dataset=dataset_path))
-                        if (out or "").strip():
-                            self._app_log("debug", out.strip())
+                        current_name = dataset_path
+                        if changes:
+                            out = execu.set_dataset_properties(current_name, changes)
+                            self._app_log("info", trf("log_modify_dataset_apply_done", name=profile.name, dataset=current_name))
+                            if (out or "").strip():
+                                self._app_log("debug", out.strip())
+                        if rename_to:
+                            out_rename = execu.rename_dataset(current_name, rename_to)
+                            self._app_log(
+                                "info",
+                                trf("log_modify_dataset_rename_done", name=profile.name, dataset=current_name, new_name=rename_to),
+                            )
+                            if (out_rename or "").strip():
+                                self._app_log("debug", out_rename.strip())
                     except Exception as exc:
                         self._app_log(
                             "normal",
