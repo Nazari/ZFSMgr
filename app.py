@@ -3537,7 +3537,20 @@ class App(tk.Tk):
             )
             return
 
-        send_raw = f"zfs send -wLec {shlex.quote(src_snapshot)}"
+        recursive_choice = messagebox.askyesnocancel(
+            tr("confirm"),
+            trf("copy_recursive_question", src=src_snapshot, dst=dst_dataset),
+        )
+        if recursive_choice is None:
+            self._app_log("info", tr("log_copy_recursive_cancelled"))
+            return
+        recursive_send = bool(recursive_choice)
+        if recursive_send:
+            self._app_log("info", tr("log_copy_recursive_yes"))
+            send_raw = f"zfs send -wLecR {shlex.quote(src_snapshot)}"
+        else:
+            self._app_log("info", tr("log_copy_recursive_no"))
+            send_raw = f"zfs send -wLec {shlex.quote(src_snapshot)}"
         recv_raw = f"zfs recv -F -e {shlex.quote(dst_dataset)}"
         send_cmd = sudo_wrap(src_profile, send_raw, preserve_stdin_stream=False)
         recv_cmd = sudo_wrap(dst_profile, recv_raw, preserve_stdin_stream=True)
