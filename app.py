@@ -2620,60 +2620,45 @@ class App(tk.Tk):
         self.tab_datasets.columnconfigure(0, weight=1)
         self.left_tabs.add(self.tab_datasets, text=tr("tab_datasets"))
         ttk.Label(self.tab_datasets, text=tr("datasets_sync_title")).grid(row=0, column=0, sticky="w")
-        self.level_btn = ttk.Button(self.tab_datasets, text=tr("datasets_level_btn"), command=self._level_datasets)
-        self.level_btn.grid(
-            row=1,
-            column=0,
-            sticky="w",
-            pady=(6, 0),
-        )
-        self.level_btn.configure(state="disabled")
-        ToolTip(self.level_btn, tr("datasets_level_tooltip"))
-        self.copy_btn = ttk.Button(self.tab_datasets, text=tr("copy_snapshot_btn"), command=self._copy_snapshot_to_dataset)
-        self.copy_btn.grid(
-            row=2,
-            column=0,
-            sticky="w",
-            pady=(6, 0),
-        )
-        self.copy_btn.configure(state="disabled")
-        ToolTip(self.copy_btn, tr("copy_snapshot_tooltip"))
-        self.sync_btn = ttk.Button(self.tab_datasets, text=tr("datasets_sync_btn"), command=self._sync_datasets)
-        self.sync_btn.grid(
-            row=3,
-            column=0,
-            sticky="w",
-            pady=(6, 0),
-        )
-        self.sync_btn.configure(state="disabled")
-        ToolTip(self.sync_btn, tr("datasets_sync_tooltip"))
-        self.create_btn = ttk.Button(self.tab_datasets, text=tr("create_dataset_btn"), command=self._create_dataset)
-        self.create_btn.grid(
-            row=4,
-            column=0,
-            sticky="w",
-            pady=(6, 0),
-        )
+        edit_box = ttk.LabelFrame(self.tab_datasets, text=tr("datasets_box_edit"), padding=(8, 6))
+        edit_box.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        for i in range(3):
+            edit_box.columnconfigure(i, weight=1)
+
+        self.create_btn = ttk.Button(edit_box, text=tr("create_dataset_btn"), command=self._create_dataset)
+        self.create_btn.grid(row=0, column=0, sticky="ew", padx=(0, 6))
         self.create_btn.configure(state="disabled")
         ToolTip(self.create_btn, tr("create_dataset_tooltip"))
-        self.modify_btn = ttk.Button(self.tab_datasets, text=tr("modify_dataset_btn"), command=self._modify_dataset)
-        self.modify_btn.grid(
-            row=5,
-            column=0,
-            sticky="w",
-            pady=(6, 0),
-        )
+
+        self.modify_btn = ttk.Button(edit_box, text=tr("modify_dataset_btn"), command=self._modify_dataset)
+        self.modify_btn.grid(row=0, column=1, sticky="ew", padx=3)
         self.modify_btn.configure(state="disabled")
         ToolTip(self.modify_btn, tr("modify_dataset_tooltip"))
-        self.delete_dataset_btn = ttk.Button(self.tab_datasets, text=tr("delete_dataset_btn"), command=self._delete_dataset)
-        self.delete_dataset_btn.grid(
-            row=6,
-            column=0,
-            sticky="w",
-            pady=(6, 0),
-        )
+
+        self.delete_dataset_btn = ttk.Button(edit_box, text=tr("delete_dataset_btn"), command=self._delete_dataset)
+        self.delete_dataset_btn.grid(row=0, column=2, sticky="ew", padx=(6, 0))
         self.delete_dataset_btn.configure(state="disabled")
         ToolTip(self.delete_dataset_btn, tr("delete_dataset_tooltip"))
+
+        transfer_box = ttk.LabelFrame(self.tab_datasets, text=tr("datasets_box_transfer"), padding=(8, 6))
+        transfer_box.grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        for i in range(3):
+            transfer_box.columnconfigure(i, weight=1)
+
+        self.copy_btn = ttk.Button(transfer_box, text=tr("copy_snapshot_btn"), command=self._copy_snapshot_to_dataset)
+        self.copy_btn.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        self.copy_btn.configure(state="disabled")
+        ToolTip(self.copy_btn, tr("copy_snapshot_tooltip"))
+
+        self.level_btn = ttk.Button(transfer_box, text=tr("datasets_level_btn"), command=self._level_datasets)
+        self.level_btn.grid(row=0, column=1, sticky="ew", padx=3)
+        self.level_btn.configure(state="disabled")
+        ToolTip(self.level_btn, tr("datasets_level_tooltip"))
+
+        self.sync_btn = ttk.Button(transfer_box, text=tr("datasets_sync_btn"), command=self._sync_datasets)
+        self.sync_btn.grid(row=0, column=2, sticky="ew", padx=(6, 0))
+        self.sync_btn.configure(state="disabled")
+        ToolTip(self.sync_btn, tr("datasets_sync_tooltip"))
 
         right = ttk.Frame(paned, padding=(6, 6, 10, 10))
         right.columnconfigure(0, weight=1)

@@ -71,6 +71,8 @@
   "label_no_importable_pools": "(Sin pools importables)",
   "label_select_pool": "(Selecciona un pool)",
   "datasets_sync_title": "Acciones disponibles",
+  "datasets_box_edit": "Gestion de dataset",
+  "datasets_box_transfer": "Transferencia entre origen y destino",
   "datasets_sync_btn": "Sincronizar",
   "create_dataset_btn": "Crear",
   "create_dataset_tooltip": "Crear un dataset nuevo debajo del dataset seleccionado",

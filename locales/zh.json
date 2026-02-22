@@ -71,6 +71,8 @@
   "label_no_importable_pools": "（无可导入池）",
   "label_select_pool": "（请选择一个池）",
   "datasets_sync_title": "可用操作",
+  "datasets_box_edit": "数据集管理",
+  "datasets_box_transfer": "源与目标间传输",
   "datasets_sync_btn": "同步",
   "create_dataset_btn": "创建",
   "create_dataset_tooltip": "在所选数据集下创建新数据集",
