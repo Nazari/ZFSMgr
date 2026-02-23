@@ -2945,7 +2945,6 @@ class App(tk.Tk):
         self.conn_context_menu.add_command(label=tr("action_delete"), command=self.delete_connection)
         self.conn_context_menu.add_separator()
         self.conn_context_menu.add_command(label=tr("action_refresh"), command=self.refresh_selected)
-        self.conn_context_menu.add_command(label=tr("action_connect_all"), command=self.connect_all)
 
         self.tab_datasets = ttk.Frame(self.left_tabs, padding=8)
         self.tab_datasets.columnconfigure(0, weight=1)
@@ -4240,7 +4239,6 @@ class App(tk.Tk):
         self.conn_context_menu.entryconfigure(0, state=("normal" if has_sel else "disabled"))
         self.conn_context_menu.entryconfigure(1, state=("normal" if has_sel else "disabled"))
         self.conn_context_menu.entryconfigure(3, state=("normal" if has_sel else "disabled"))
-        self.conn_context_menu.entryconfigure(4, state="normal")
         self._show_context_menu(self.conn_context_menu, event)
         return "break"
 
