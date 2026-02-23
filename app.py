@@ -4081,9 +4081,9 @@ class App(tk.Tk):
                 execu = make_executor(profile)
                 out = execu.destroy_dataset(dataset_path, recursive=recursive)
                 if recursive:
-                    self._app_log("info", trf("log_delete_dataset_done_recursive", name=profile.name, dataset=dataset_path))
+                    self._app_log("normal", trf("log_delete_dataset_done_recursive", name=profile.name, dataset=dataset_path))
                 else:
-                    self._app_log("info", trf("log_delete_dataset_done", name=profile.name, dataset=dataset_path))
+                    self._app_log("normal", trf("log_delete_dataset_done", name=profile.name, dataset=dataset_path))
                 if (out or "").strip():
                     self._app_log("debug", out.strip())
             except Exception as exc:
