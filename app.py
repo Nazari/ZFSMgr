@@ -2643,6 +2643,7 @@ class App(tk.Tk):
             initial_status = tr("status_ready")
         self.status_var = tk.StringVar(value=initial_status)
         self.ssh_last_line_var = tk.StringVar(value="")
+        self.dataset_action_target_var = tk.StringVar(value="")
 
         self.priv_var = tk.StringVar(value=tr("priv_unknown"))
 
@@ -2719,8 +2720,14 @@ class App(tk.Tk):
         self.tab_datasets.columnconfigure(0, weight=1)
         self.left_tabs.add(self.tab_datasets, text=tr("tab_datasets"))
         ttk.Label(self.tab_datasets, text=tr("datasets_sync_title")).grid(row=0, column=0, sticky="w")
+        ttk.Label(self.tab_datasets, textvariable=self.dataset_action_target_var, foreground=UI_MUTED).grid(
+            row=1,
+            column=0,
+            sticky="w",
+            pady=(2, 0),
+        )
         edit_box = ttk.LabelFrame(self.tab_datasets, text=tr("datasets_box_edit"), padding=(8, 6))
-        edit_box.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        edit_box.grid(row=2, column=0, sticky="ew", pady=(6, 0))
         for i in range(3):
             edit_box.columnconfigure(i, weight=1)
 
@@ -2751,7 +2758,7 @@ class App(tk.Tk):
         self.datasets_context_menu.add_command(label=tr("delete_dataset_btn"), command=self._delete_dataset)
 
         transfer_box = ttk.LabelFrame(self.tab_datasets, text=tr("datasets_box_transfer"), padding=(8, 6))
-        transfer_box.grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        transfer_box.grid(row=3, column=0, sticky="ew", pady=(6, 0))
         for i in range(3):
             transfer_box.columnconfigure(i, weight=1)
 
@@ -4643,6 +4650,12 @@ class App(tk.Tk):
         self.create_btn.configure(state="normal" if create_enabled else "disabled")
         self.modify_btn.configure(state="normal" if modify_enabled else "disabled")
         self.delete_dataset_btn.configure(state="normal" if delete_enabled else "disabled")
+        delete_target = self._get_target_for_delete()
+        if delete_target:
+            _side, _sel, target, _cid = delete_target
+            self.dataset_action_target_var.set(trf("datasets_selected_target", dataset=target))
+        else:
+            self.dataset_action_target_var.set("")
 
     def _render_datasets_tree(self, tree: ttk.Treeview, datasets: List[Dict[str, str]]) -> None:
         for iid in tree.get_children():
