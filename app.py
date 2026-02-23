@@ -2276,14 +2276,19 @@ class CreateDatasetDialog(tk.Toplevel):
         self.volsize_entry = ttk.Entry(frm, textvariable=self.var_volsize, width=24)
         self.volsize_entry.grid(row=2, column=1, sticky="w", pady=4)
 
-        ttk.Label(frm, text=tr("create_dataset_blocksize")).grid(row=3, column=0, sticky="w", padx=(0, 8), pady=4)
-        ttk.Entry(frm, textvariable=self.var_blocksize, width=24).grid(row=3, column=1, sticky="w", pady=4)
+        self.blocksize_label = ttk.Label(frm, text=tr("create_dataset_blocksize"))
+        self.blocksize_label.grid(row=3, column=0, sticky="w", padx=(0, 8), pady=4)
+        self.blocksize_entry = ttk.Entry(frm, textvariable=self.var_blocksize, width=24)
+        self.blocksize_entry.grid(row=3, column=1, sticky="w", pady=4)
 
         opts = ttk.Frame(frm)
         opts.grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 2))
-        ttk.Checkbutton(opts, text=tr("create_dataset_opt_parents"), variable=self.var_parents).grid(row=0, column=0, sticky="w", padx=(0, 8))
-        ttk.Checkbutton(opts, text=tr("create_dataset_opt_sparse"), variable=self.var_sparse).grid(row=0, column=1, sticky="w", padx=(0, 8))
-        ttk.Checkbutton(opts, text=tr("create_dataset_opt_nomount"), variable=self.var_nomount).grid(row=0, column=2, sticky="w")
+        self.parents_chk = ttk.Checkbutton(opts, text=tr("create_dataset_opt_parents"), variable=self.var_parents)
+        self.parents_chk.grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.sparse_chk = ttk.Checkbutton(opts, text=tr("create_dataset_opt_sparse"), variable=self.var_sparse)
+        self.sparse_chk.grid(row=0, column=1, sticky="w", padx=(0, 8))
+        self.nomount_chk = ttk.Checkbutton(opts, text=tr("create_dataset_opt_nomount"), variable=self.var_nomount)
+        self.nomount_chk.grid(row=0, column=2, sticky="w")
         self.snapshot_recursive_chk = ttk.Checkbutton(
             opts,
             text=tr("create_dataset_snapshot_recursive"),
@@ -2358,7 +2363,26 @@ class CreateDatasetDialog(tk.Toplevel):
                 self.volsize_label.grid_remove()
                 self.volsize_entry.grid_remove()
                 self.var_volsize.set("")
-            self.snapshot_recursive_chk.configure(state=("normal" if is_snapshot else "disabled"))
+            if is_snapshot:
+                self.blocksize_label.grid_remove()
+                self.blocksize_entry.grid_remove()
+                self.var_blocksize.set("")
+                self.parents_chk.grid_remove()
+                self.sparse_chk.grid_remove()
+                self.nomount_chk.grid_remove()
+                self.var_parents.set(False)
+                self.var_sparse.set(False)
+                self.var_nomount.set(False)
+                self.snapshot_recursive_chk.grid()
+                self.snapshot_recursive_chk.configure(state="normal")
+            else:
+                self.blocksize_label.grid()
+                self.blocksize_entry.grid()
+                self.parents_chk.grid()
+                self.sparse_chk.grid()
+                self.nomount_chk.grid()
+                self.snapshot_recursive_chk.grid_remove()
+                self.snapshot_recursive_chk.configure(state="disabled")
             if is_snapshot:
                 cur = self.var_path.get().strip()
                 if "@" not in cur:
