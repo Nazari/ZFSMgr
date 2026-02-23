@@ -2804,7 +2804,6 @@ class App(tk.Tk):
         self.imported_table_columns: List[Tuple[str, int, str]] = [
             (tr("col_pool"), 220, "w"),
             (tr("col_connection"), 180, "w"),
-            (tr("col_action"), 110, "w"),
             (tr("col_size"), 120, "e"),
             (tr("col_used"), 120, "e"),
             (tr("col_free"), 120, "e"),
@@ -2812,6 +2811,15 @@ class App(tk.Tk):
             (tr("col_dedup"), 90, "e"),
         ]
         self.imported_table_rows = self._build_plain_table(imp_top, self.imported_table_columns)
+        self.imported_pool_context_menu = tk.Menu(
+            self,
+            tearoff=False,
+            bg=UI_PANEL_BG,
+            fg=UI_TEXT,
+            activebackground=UI_SELECTION,
+            activeforeground=UI_TEXT,
+        )
+        self.imported_pool_context_menu.add_command(label=tr("export_btn"), command=self._export_selected_imported_pool)
 
         imp_props = ttk.LabelFrame(imp_split, text=tr("pool_properties_title"))
         imp_props.columnconfigure(0, weight=1)
@@ -3105,6 +3113,7 @@ class App(tk.Tk):
         action_callback: Optional[Callable[[], None]] = None,
         action_color: Optional[str] = None,
         on_row_click: Optional[Callable[[], None]] = None,
+        on_row_context: Optional[Callable[[Any], None]] = None,
         selected: bool = False,
     ) -> None:
         if selected:
@@ -3121,6 +3130,10 @@ class App(tk.Tk):
             row.bind("<Button-5>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
         if on_row_click is not None:
             row.bind("<Button-1>", lambda _e, cb=on_row_click: cb())
+        if on_row_context is not None:
+            row.bind("<Button-3>", lambda e, cb=on_row_context: cb(e))
+            row.bind("<Button-2>", lambda e, cb=on_row_context: cb(e))
+            row.bind("<Control-Button-1>", lambda e, cb=on_row_context: cb(e))
         for idx, (_title, width, anchor) in enumerate(columns):
             text = values[idx] if idx < len(values) else ""
             if action_col is not None and idx == action_col and text and action_callback is not None:
@@ -3148,6 +3161,10 @@ class App(tk.Tk):
                 lbl = tk.Label(row, text=text, bg=bg, fg=UI_TEXT, anchor=anchor, padx=6, pady=3)
                 if on_row_click is not None:
                     lbl.bind("<Button-1>", lambda _e, cb=on_row_click: cb())
+                if on_row_context is not None:
+                    lbl.bind("<Button-3>", lambda e, cb=on_row_context: cb(e))
+                    lbl.bind("<Button-2>", lambda e, cb=on_row_context: cb(e))
+                    lbl.bind("<Control-Button-1>", lambda e, cb=on_row_context: cb(e))
             if isinstance(scroll_canvas, tk.Canvas):
                 lbl.bind("<MouseWheel>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
                 lbl.bind("<Button-4>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
@@ -4752,16 +4769,14 @@ class App(tk.Tk):
                     [
                         pool_name,
                         conn.name,
-                        tr("export_btn"),
                         pool.get("size", ""),
                         pool.get("used", ""),
                         pool.get("free", ""),
                         pool.get("compressratio", "-"),
                         pool.get("dedup", "-"),
                     ],
-                    action_col=2,
-                    action_callback=lambda p=pool_name, cid=conn.id: self.export_pool_by_name(p, conn_id=cid),
                     on_row_click=lambda cid=conn.id, p=pool_name: self._on_select_imported_pool(cid, p),
+                    on_row_context=lambda e, cid=conn.id, p=pool_name: self._on_imported_pool_context(cid, p, e),
                     selected=bool(self.selected_imported_pool == (conn.id, pool_name)),
                 )
                 row_idx += 1
@@ -4772,7 +4787,7 @@ class App(tk.Tk):
                 self.imported_table_rows,
                 0,
                 self.imported_table_columns,
-                [tr("label_no_pools"), "", "", "", "", "", "", ""],
+                [tr("label_no_pools"), "", "", "", "", "", ""],
             )
             self._render_pool_properties_rows([])
         else:
@@ -4784,6 +4799,26 @@ class App(tk.Tk):
                 self._load_selected_pool_properties()
             else:
                 self._render_pool_properties_rows([])
+
+    def _on_imported_pool_context(self, conn_id: str, pool_name: str, event: Any) -> None:
+        if self._reject_if_ssh_busy():
+            return
+        self.selected_imported_pool = (conn_id, pool_name)
+        self._render_all_imported_pools()
+        try:
+            self.imported_pool_context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            try:
+                self.imported_pool_context_menu.grab_release()
+            except Exception:
+                pass
+
+    def _export_selected_imported_pool(self) -> None:
+        sel = self.selected_imported_pool
+        if not sel:
+            return
+        conn_id, pool_name = sel
+        self.export_pool_by_name(pool_name, conn_id=conn_id)
 
     def _render_all_importable_pools(self) -> None:
         self._clear_plain_table(self.importable_table_rows)
