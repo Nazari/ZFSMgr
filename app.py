@@ -3161,6 +3161,7 @@ class App(tk.Tk):
             app_tab,
             height=8,
             state="disabled",
+            font=("TkDefaultFont", 9),
             bg=UI_PANEL_BG,
             fg=UI_TEXT,
             insertbackground=UI_TEXT,
@@ -3178,6 +3179,7 @@ class App(tk.Tk):
             height=8,
             state="disabled",
             wrap="none",
+            font=("TkDefaultFont", 9),
             bg=UI_PANEL_BG,
             fg=UI_TEXT,
             insertbackground=UI_TEXT,
@@ -3469,13 +3471,17 @@ class App(tk.Tk):
         wanted = order.get(level.lower(), 0)
         return wanted <= current
 
+    def _log_timestamp(self) -> str:
+        return time.strftime("%Y-%m-%d %H:%M:%S")
+
     def _app_log(self, level: str, message: str) -> None:
         if not self._should_log(level):
             return
         safe_message = self._mask_sensitive_text(message)
         def _append() -> None:
+            ts = self._log_timestamp()
             self.app_log_text.configure(state="normal")
-            self.app_log_text.insert("end", f"[{level.upper()}] {safe_message}\n")
+            self.app_log_text.insert("end", f"[{ts}] [{level.upper()}] {safe_message}\n")
             self.app_log_text.see("end")
             self.app_log_text.configure(state="disabled")
         self.after(0, _append)
@@ -3486,11 +3492,13 @@ class App(tk.Tk):
             one_line = " | ".join(part.strip() for part in (safe_message or "").splitlines() if part.strip())
             if not one_line:
                 return
+            ts = self._log_timestamp()
+            line = f"[{ts}] {one_line}"
             self.ssh_log_text.configure(state="normal")
-            self.ssh_log_text.insert("end", one_line + "\n")
+            self.ssh_log_text.insert("end", line + "\n")
             self.ssh_log_text.see("end")
             self.ssh_log_text.configure(state="disabled")
-            last_line = one_line.strip()
+            last_line = line.strip()
             if len(last_line) > 60:
                 last_line = last_line[:60]
             self.ssh_last_line_var.set(f"{tr('log_ssh_last_prefix')}{last_line}")
