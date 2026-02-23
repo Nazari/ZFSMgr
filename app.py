@@ -6253,7 +6253,7 @@ class App(tk.Tk):
                     self.after(0, self._render_all_importable_pools)
                     self.after(0, self._update_if_selected, profile_id)
                     self.after(0, self._refresh_datasets_if_tab_visible)
-            self._app_log("info", tr("log_parallel_refresh_end"))
+            self._app_log("normal", tr("log_parallel_refresh_end"))
 
         threading.Thread(target=worker, daemon=True).start()
 
