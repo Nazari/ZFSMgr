@@ -4685,12 +4685,23 @@ class App(tk.Tk):
         mount_q = shlex.quote(mountpoint)
         env_prefix = (
             "set -e; "
-            f"DATASET={dataset_q}; MP={mount_q}; "
+            f"DATASET={dataset_q}; MP_HINT={mount_q}; "
             "TMP_SUFFIX=\"$(printf '%s' \"$DATASET\" | tr '/' '_')\"; "
             "TMP_ROOT=\"/tmp/zfsmgr-breakdown-$TMP_SUFFIX\"; "
         )
-        prep_cmd = env_prefix + "mkdir -p \"$TMP_ROOT\""
+        prep_cmd = env_prefix + (
+            "MP=\"$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true)\"; "
+            "[ -n \"$MP\" ] && [ \"$MP\" != \"none\" ] || MP=\"$MP_HINT\"; "
+            "[ -n \"$MP\" ] && [ \"$MP\" != \"none\" ] || { echo \"[BREAKDOWN][ERROR] mountpoint invalid for $DATASET\"; exit 21; }; "
+            "[ -d \"$MP\" ] || { echo \"[BREAKDOWN][ERROR] mountpoint does not exist: $MP\"; exit 22; }; "
+            "mkdir -p \"$TMP_ROOT\"; "
+            "printf '[BREAKDOWN] dataset=%s mountpoint=%s\\n' \"$DATASET\" \"$MP\""
+        )
         loop_cmd = env_prefix + (
+            "MP=\"$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true)\"; "
+            "[ -n \"$MP\" ] && [ \"$MP\" != \"none\" ] || MP=\"$MP_HINT\"; "
+            "[ -n \"$MP\" ] && [ \"$MP\" != \"none\" ] || { echo \"[BREAKDOWN][ERROR] mountpoint invalid for $DATASET\"; exit 23; }; "
+            "[ -d \"$MP\" ] || { echo \"[BREAKDOWN][ERROR] mountpoint does not exist: $MP\"; exit 24; }; "
             "find \"$MP\" -mindepth 1 -maxdepth 1 -type d | while IFS= read -r d; do "
             "n=\"$(basename \"$d\")\"; "
             "safe=\"$(printf '%s' \"$n\" | tr ' ' '_' | tr -cd 'A-Za-z0-9_.:-')\"; "
