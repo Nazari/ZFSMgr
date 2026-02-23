@@ -4685,7 +4685,8 @@ class App(tk.Tk):
         mount_q = shlex.quote(mountpoint)
         env_prefix = (
             f"DATASET={dataset_q}; MP={mount_q}; "
-            "TMP_ROOT=\"/tmp/zfsmgr-breakdown-${DATASET//\\//_}\"; "
+            "TMP_SUFFIX=\"$(printf '%s' \"$DATASET\" | tr '/' '_')\"; "
+            "TMP_ROOT=\"/tmp/zfsmgr-breakdown-$TMP_SUFFIX\"; "
         )
         prep_cmd = env_prefix + "mkdir -p \"$TMP_ROOT\""
         loop_cmd = env_prefix + (
