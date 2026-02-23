@@ -2647,7 +2647,7 @@ class App(tk.Tk):
             initial_status = tr("status_ready")
         self.status_var = tk.StringVar(value=initial_status)
         self.ssh_last_line_var = tk.StringVar(value="")
-        self.dataset_action_target_var = tk.StringVar(value="")
+        self.dataset_action_target_var = tk.StringVar(value=trf("datasets_selected_target", dataset=tr("label_none")))
         self.transfer_origin_target_var = tk.StringVar(value=f"{tr('datasets_origin')}: {tr('label_none')}")
         self.transfer_dest_target_var = tk.StringVar(value=f"{tr('datasets_dest')}: {tr('label_none')}")
 
@@ -2657,13 +2657,12 @@ class App(tk.Tk):
         main_split.grid(row=0, column=0, sticky="nsew")
 
         top_container = ttk.Frame(main_split)
-        top_container.columnconfigure(0, weight=1)
+        top_container.columnconfigure(0, weight=0)
+        top_container.columnconfigure(1, weight=1)
         top_container.rowconfigure(0, weight=1)
 
-        paned = ttk.Panedwindow(top_container, orient=tk.HORIZONTAL)
-        paned.grid(row=0, column=0, sticky="nsew")
-
-        left = ttk.Frame(paned, padding=(10, 6, 6, 10))
+        left = ttk.Frame(top_container, padding=(10, 6, 6, 10))
+        left.grid(row=0, column=0, sticky="nsew")
         left.columnconfigure(0, weight=1)
         left.rowconfigure(0, weight=1)
 
@@ -2729,7 +2728,14 @@ class App(tk.Tk):
         edit_box = ttk.LabelFrame(self.tab_datasets, text=tr("datasets_box_edit"), padding=(8, 6))
         edit_box.grid(row=1, column=0, sticky="ew", pady=(6, 0))
         edit_box.columnconfigure(0, weight=1)
-        ttk.Label(edit_box, textvariable=self.dataset_action_target_var, foreground=UI_MUTED).grid(
+        self.dataset_selected_label = ttk.Label(
+            edit_box,
+            textvariable=self.dataset_action_target_var,
+            foreground=UI_MUTED,
+            justify="left",
+            wraplength=220,
+        )
+        self.dataset_selected_label.grid(
             row=0,
             column=0,
             sticky="w",
@@ -2765,13 +2771,27 @@ class App(tk.Tk):
         transfer_box = ttk.LabelFrame(self.tab_datasets, text=tr("datasets_box_transfer"), padding=(8, 6))
         transfer_box.grid(row=2, column=0, sticky="ew", pady=(6, 0))
         transfer_box.columnconfigure(0, weight=1)
-        ttk.Label(transfer_box, textvariable=self.transfer_origin_target_var, foreground=UI_MUTED).grid(
+        self.transfer_origin_label = ttk.Label(
+            transfer_box,
+            textvariable=self.transfer_origin_target_var,
+            foreground=UI_MUTED,
+            justify="left",
+            wraplength=220,
+        )
+        self.transfer_origin_label.grid(
             row=0,
             column=0,
             sticky="w",
             pady=(0, 2),
         )
-        ttk.Label(transfer_box, textvariable=self.transfer_dest_target_var, foreground=UI_MUTED).grid(
+        self.transfer_dest_label = ttk.Label(
+            transfer_box,
+            textvariable=self.transfer_dest_target_var,
+            foreground=UI_MUTED,
+            justify="left",
+            wraplength=220,
+        )
+        self.transfer_dest_label.grid(
             row=1,
             column=0,
             sticky="w",
@@ -2793,11 +2813,21 @@ class App(tk.Tk):
         self.sync_btn.configure(state="disabled")
         ToolTip(self.sync_btn, tr("datasets_sync_tooltip"))
 
-        right = ttk.Frame(paned, padding=(6, 6, 10, 10))
+        right = ttk.Frame(top_container, padding=(6, 6, 10, 10))
+        right.grid(row=0, column=1, sticky="nsew")
         right.columnconfigure(0, weight=1)
         right.rowconfigure(0, weight=1)
-        paned.add(left, weight=1)
-        paned.add(right, weight=2)
+
+        # Sin barra de redimensionado: panel izquierdo fijo al 70% del ancho previo (~33% -> ~23%).
+        def _sync_left_width(event: Any) -> None:
+            width = max(260, int(event.width * 0.23))
+            top_container.grid_columnconfigure(0, minsize=width)
+            wrap = max(180, width - 40)
+            self.dataset_selected_label.configure(wraplength=wrap)
+            self.transfer_origin_label.configure(wraplength=wrap)
+            self.transfer_dest_label.configure(wraplength=wrap)
+
+        top_container.bind("<Configure>", _sync_left_width, add="+")
 
         self.right_conn_detail = ttk.Frame(right)
         self.right_conn_detail.grid(row=0, column=0, sticky="nsew")
@@ -4820,7 +4850,7 @@ class App(tk.Tk):
             conn_label = (profile.name if profile else target_conn_id).strip() or target_conn_id
             self.dataset_action_target_var.set(trf("datasets_selected_target", dataset=f"{conn_label}::{target}"))
         else:
-            self.dataset_action_target_var.set("")
+            self.dataset_action_target_var.set(trf("datasets_selected_target", dataset=tr("label_none")))
 
     def _update_transfer_selection_labels(self, src_dataset: str, dst_dataset: str) -> None:
         src_label = tr("label_none")
