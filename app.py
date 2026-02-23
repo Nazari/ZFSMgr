@@ -4533,7 +4533,7 @@ class App(tk.Tk):
             if profile.conn_type == "LOCAL":
                 base = f"sh -lc {shlex.quote(raw_cmd)}"
                 if profile.use_sudo:
-                    return f"sudo {base}"
+                    return f"sudo -n {base}"
                 return base
             ssh_parts: List[str] = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
             if profile.port and profile.port != 22:
@@ -4545,19 +4545,22 @@ class App(tk.Tk):
                 target_host = f"{profile.username}@{profile.host}"
             remote = f"sh -lc {shlex.quote(raw_cmd)}"
             if profile.use_sudo:
-                remote = f"sudo {remote}"
+                if profile.password:
+                    remote = f"printf '%s\\n' {shlex.quote(profile.password)} | sudo -S -p '' {remote}"
+                else:
+                    remote = f"sudo -n {remote}"
             ssh_parts.append(shlex.quote(target_host))
             ssh_parts.append(shlex.quote(remote))
             return " ".join(ssh_parts)
 
         dataset_q = shlex.quote(dataset_name)
         mount_q = shlex.quote(mountpoint)
-        prep_cmd = (
+        env_prefix = (
             f"DATASET={dataset_q}; MP={mount_q}; "
             "TMP_ROOT=\"/tmp/zfsmgr-breakdown-${DATASET//\\//_}\"; "
-            "mkdir -p \"$TMP_ROOT\""
         )
-        loop_cmd = (
+        prep_cmd = env_prefix + "mkdir -p \"$TMP_ROOT\""
+        loop_cmd = env_prefix + (
             "for d in \"$MP\"/*; do "
             "[ -d \"$d\" ] || continue; "
             "n=\"$(basename \"$d\")\"; "
@@ -4570,13 +4573,16 @@ class App(tk.Tk):
             "zfs mount \"$child\"; "
             "done"
         )
+        wrapped_prep = _wrap_for_profile(prep_cmd)
+        wrapped_loop = _wrap_for_profile(loop_cmd)
         self._app_log(
             "normal",
             trf("log_breakdown_plan_generated", dataset=dataset_name, name=profile.name, selection=selection_label),
         )
         self._app_log("normal", tr("log_breakdown_plan_header"))
-        self._app_log("normal", _wrap_for_profile(prep_cmd))
-        self._app_log("normal", _wrap_for_profile(loop_cmd))
+        self._app_log("normal", wrapped_prep)
+        self._app_log("normal", wrapped_loop)
+        self._run_breakdown_command(f"{wrapped_prep} && {wrapped_loop}", conn_id=conn_id)
 
     def _get_dataset_for_create(self) -> Optional[Tuple[str, str, str, str]]:
         # Devuelve (side, selection_label, dataset, conn_id)
@@ -4905,6 +4911,60 @@ class App(tk.Tk):
                 self.after(0, self._finish_level_command)
                 if dst_conn_id:
                     self.after(0, lambda: self._refresh_connection_by_id(dst_conn_id))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _run_breakdown_command(self, cmd: str, conn_id: Optional[str] = None) -> None:
+        if self.level_running:
+            self._app_log("normal", tr("log_copy_already_running"))
+            return
+        self.level_running = True
+        ssh_busy(1)
+        self._update_level_button_state()
+        self._app_log("normal", tr("log_breakdown_exec_start"))
+        self._app_log("info", tr("log_dataset_progress_tab"))
+        self._ssh_log(f"$ {cmd}")
+
+        def worker() -> None:
+            proc: Optional[subprocess.Popen[str]] = None
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    executable="/bin/bash",
+                )
+                self._set_active_dataset_process(proc, tr("datasets_breakdown_btn"))
+            except Exception as exc:
+                self._app_log("normal", trf("log_breakdown_exec_spawn_error", error=exc))
+                ssh_busy(-1)
+                self.after(0, self._finish_level_command)
+                return
+
+            assert proc is not None
+            try:
+                if proc.stdout is not None:
+                    self._stream_process_output(proc.stdout)
+                rc = proc.wait()
+                with self._dataset_proc_lock:
+                    cancelled = self._dataset_cancel_requested
+                if cancelled:
+                    self._app_log("normal", tr("log_dataset_cancel_done"))
+                elif rc == 0:
+                    self._app_log("normal", tr("log_breakdown_exec_ok"))
+                else:
+                    self._app_log("normal", trf("log_breakdown_exec_fail_code", code=rc))
+            except Exception as exc:
+                self._app_log("normal", trf("log_breakdown_exec_runtime_error", error=exc))
+            finally:
+                self._clear_active_dataset_process(proc)
+                ssh_busy(-1)
+                self.after(0, self._finish_level_command)
+                if conn_id:
+                    self.after(0, lambda: self._refresh_connection_by_id(conn_id))
 
         threading.Thread(target=worker, daemon=True).start()
 
