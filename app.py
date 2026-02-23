@@ -653,12 +653,21 @@ def build_remote_zfs_cmd(os_type: str, binary: str, args: str) -> str:
 
 
 def run_with_timeout(fn: Callable[[], Any], timeout_seconds: int, error_message: str) -> Any:
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(fn)
-        try:
-            return future.result(timeout=timeout_seconds)
-        except concurrent.futures.TimeoutError as exc:
-            raise ExecutorError(f"{error_message} (timeout {timeout_seconds}s)") from exc
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(fn)
+    try:
+        result = future.result(timeout=timeout_seconds)
+    except concurrent.futures.TimeoutError as exc:
+        future.cancel()
+        # No esperar al worker colgado (ej. socket/WSMan bloqueado).
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise ExecutorError(f"{error_message} (timeout {timeout_seconds}s)") from exc
+    except Exception:
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        pool.shutdown(wait=False, cancel_futures=True)
+        return result
 
 
 def parse_imported_pool_rows(text: str) -> List[Dict[str, str]]:
