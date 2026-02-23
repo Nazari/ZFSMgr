@@ -3671,6 +3671,7 @@ class App(tk.Tk):
                 pady=3,
                 justify="left",
                 wraplength=900,
+                font=("TkFixedFont", 9),
             )
             lbl.pack()
             self._app_log_tipwindow = tw
@@ -3772,6 +3773,7 @@ class App(tk.Tk):
                 pady=3,
                 justify="left",
                 wraplength=900,
+                font=("TkFixedFont", 9),
             )
             lbl.pack()
             self._ssh_log_tipwindow = tw
