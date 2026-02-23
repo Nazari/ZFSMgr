@@ -695,6 +695,9 @@ class BaseExecutor:
     def list_pool_properties(self, pool: str) -> List[Dict[str, str]]:
         raise NotImplementedError
 
+    def pool_status_verbose(self, pool: str) -> str:
+        raise NotImplementedError
+
     def create_dataset(self, dataset_path: str, options: Dict[str, Any]) -> str:
         raise NotImplementedError
 
@@ -864,6 +867,9 @@ class LocalExecutor(BaseExecutor):
                 continue
             rows.append({"property": parts[1], "value": parts[2], "source": parts[3]})
         return rows
+
+    def pool_status_verbose(self, pool: str) -> str:
+        return self._zpool_cmd(f"status -v {shlex.quote(pool)}")
 
     def create_dataset(self, dataset_path: str, options: Dict[str, Any]) -> str:
         cmd = build_zfs_create_cmd(dataset_path, options)
@@ -1126,6 +1132,9 @@ class SSHExecutor(BaseExecutor):
             rows.append({"property": parts[1], "value": parts[2], "source": parts[3]})
         return rows
 
+    def pool_status_verbose(self, pool: str) -> str:
+        return self._run(self._zpool_cmd(f"status -v {shlex.quote(pool)}"), sudo=True)
+
     def create_dataset(self, dataset_path: str, options: Dict[str, Any]) -> str:
         cmd = build_zfs_create_cmd(dataset_path, options)
         return self._run(self._zfs_cmd(cmd), sudo=True)
@@ -1307,6 +1316,9 @@ class PSRPExecutor(BaseExecutor):
                 continue
             rows.append({"property": parts[1], "value": parts[2], "source": parts[3]})
         return rows
+
+    def pool_status_verbose(self, pool: str) -> str:
+        return self._run_ps(f"zpool status -v {pool}")
 
     def create_dataset(self, dataset_path: str, options: Dict[str, Any]) -> str:
         cmd = build_zfs_create_cmd(dataset_path, options)
@@ -2621,7 +2633,12 @@ class App(tk.Tk):
         self._ssh_last_line_full: str = ""
         self._app_log_tipwindow: Optional[tk.Toplevel] = None
         self._app_log_tip_text: str = ""
+        self._pool_status_tipwindow: Optional[tk.Toplevel] = None
+        self._pool_status_tip_text: str = ""
         self.pool_properties_cache: Dict[str, List[Dict[str, str]]] = {}
+        self.pool_status_cache: Dict[str, str] = {}
+        self.pool_status_loading: set[str] = set()
+        self.pool_status_lock = threading.Lock()
 
         self._apply_theme()
         self._build_ui()
@@ -3446,6 +3463,8 @@ class App(tk.Tk):
         action_color: Optional[str] = None,
         on_row_click: Optional[Callable[[], None]] = None,
         on_row_context: Optional[Callable[[Any], None]] = None,
+        on_cell_hover: Optional[Callable[[int, str, Any], None]] = None,
+        on_cell_leave: Optional[Callable[[], None]] = None,
         selected: bool = False,
     ) -> None:
         if selected:
@@ -3489,6 +3508,11 @@ class App(tk.Tk):
                     ),
                 )
                 lbl.bind("<Leave>", lambda _e, w=lbl, c=base_action_color: w.configure(cursor="", fg=c))
+                if on_cell_hover is not None:
+                    lbl.bind("<Enter>", lambda e, i=idx, t=text, cb=on_cell_hover: cb(i, t, e), add="+")
+                    lbl.bind("<Motion>", lambda e, i=idx, t=text, cb=on_cell_hover: cb(i, t, e), add="+")
+                if on_cell_leave is not None:
+                    lbl.bind("<Leave>", lambda _e, cb=on_cell_leave: cb(), add="+")
             else:
                 lbl = tk.Label(row, text=text, bg=bg, fg=UI_TEXT, anchor=anchor, padx=6, pady=3)
                 if on_row_click is not None:
@@ -3497,6 +3521,11 @@ class App(tk.Tk):
                     lbl.bind("<Button-3>", lambda e, cb=on_row_context: cb(e))
                     lbl.bind("<Button-2>", lambda e, cb=on_row_context: cb(e))
                     lbl.bind("<Control-Button-1>", lambda e, cb=on_row_context: cb(e))
+                if on_cell_hover is not None:
+                    lbl.bind("<Enter>", lambda e, i=idx, t=text, cb=on_cell_hover: cb(i, t, e))
+                    lbl.bind("<Motion>", lambda e, i=idx, t=text, cb=on_cell_hover: cb(i, t, e))
+                if on_cell_leave is not None:
+                    lbl.bind("<Leave>", lambda _e, cb=on_cell_leave: cb())
             if isinstance(scroll_canvas, tk.Canvas):
                 lbl.bind("<MouseWheel>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
                 lbl.bind("<Button-4>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
@@ -3759,6 +3788,92 @@ class App(tk.Tk):
                 pass
         self._ssh_log_tipwindow = None
         self._ssh_log_tip_text = ""
+
+    def _pool_status_cache_key(self, conn_id: str, pool_name: str) -> str:
+        return f"{conn_id}:{pool_name}"
+
+    def _prefetch_imported_pool_status(self, conn_id: str, pool_name: str) -> None:
+        key = self._pool_status_cache_key(conn_id, pool_name)
+        with self.pool_status_lock:
+            if key in self.pool_status_cache or key in self.pool_status_loading:
+                return
+            self.pool_status_loading.add(key)
+
+        profile = self.store.get(conn_id)
+        if not profile:
+            with self.pool_status_lock:
+                self.pool_status_loading.discard(key)
+            return
+
+        def worker() -> None:
+            text = ""
+            try:
+                execu = make_executor(profile)
+                text = (execu.pool_status_verbose(pool_name) or "").strip()
+            except Exception as exc:
+                text = str(exc).strip()
+            if not text:
+                text = "(sin salida)"
+            with self.pool_status_lock:
+                self.pool_status_cache[key] = text
+                self.pool_status_loading.discard(key)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_pool_status_tooltip(self, text: str, x: int, y: int) -> None:
+        if self._pool_status_tipwindow is not None and text == self._pool_status_tip_text:
+            try:
+                self._pool_status_tipwindow.wm_geometry(f"+{x}+{y}")
+            except Exception:
+                pass
+            return
+        self._hide_pool_status_tooltip()
+        try:
+            tw = tk.Toplevel(self)
+            tw.wm_overrideredirect(True)
+            tw.wm_geometry(f"+{x}+{y}")
+            lbl = tk.Label(
+                tw,
+                text=text,
+                bg=UI_PANEL_BG,
+                fg=UI_TEXT,
+                relief="solid",
+                borderwidth=1,
+                padx=6,
+                pady=3,
+                justify="left",
+                wraplength=1100,
+                font=("TkFixedFont", 9),
+            )
+            lbl.pack()
+            self._pool_status_tipwindow = tw
+            self._pool_status_tip_text = text
+        except Exception:
+            self._pool_status_tipwindow = None
+            self._pool_status_tip_text = ""
+
+    def _hide_pool_status_tooltip(self, _event: Any = None) -> None:
+        if self._pool_status_tipwindow is not None:
+            try:
+                self._pool_status_tipwindow.destroy()
+            except Exception:
+                pass
+        self._pool_status_tipwindow = None
+        self._pool_status_tip_text = ""
+
+    def _on_imported_pool_cell_hover(self, conn_id: str, pool_name: str, col_idx: int, _cell_text: str, event: Any) -> None:
+        # Solo tooltip sobre la columna "Pool".
+        if col_idx != 1:
+            self._hide_pool_status_tooltip()
+            return
+        key = self._pool_status_cache_key(conn_id, pool_name)
+        text = ""
+        with self.pool_status_lock:
+            text = self.pool_status_cache.get(key, "")
+        if not text:
+            self._prefetch_imported_pool_status(conn_id, pool_name)
+            text = f"zpool status -v {pool_name}\n..."
+        self._show_pool_status_tooltip(text, event.x_root + 12, event.y_root + 12)
 
     def _mask_sensitive_text(self, text: str) -> str:
         out = text or ""
@@ -5480,6 +5595,7 @@ class App(tk.Tk):
             self._load_datasets_for_active_connection()
 
     def _render_all_imported_pools(self) -> None:
+        self._hide_pool_status_tooltip()
         self._clear_plain_table(self.imported_table_rows)
         row_idx = 0
         visible_keys: set[str] = set()
@@ -5491,6 +5607,7 @@ class App(tk.Tk):
                 pool_name = pool.get("pool", "")
                 key = f"{conn.id}:{pool_name}"
                 visible_keys.add(key)
+                self._prefetch_imported_pool_status(conn.id, pool_name)
                 self._add_plain_row(
                     self.imported_table_rows,
                     row_idx,
@@ -5506,6 +5623,8 @@ class App(tk.Tk):
                     ],
                     on_row_click=lambda cid=conn.id, p=pool_name: self._on_select_imported_pool(cid, p),
                     on_row_context=lambda e, cid=conn.id, p=pool_name: self._on_imported_pool_context(cid, p, e),
+                    on_cell_hover=lambda col, txt, e, cid=conn.id, p=pool_name: self._on_imported_pool_cell_hover(cid, p, col, txt, e),
+                    on_cell_leave=self._hide_pool_status_tooltip,
                     selected=bool(self.selected_imported_pool == (conn.id, pool_name)),
                 )
                 row_idx += 1
@@ -5816,6 +5935,13 @@ class App(tk.Tk):
                     self.pool_properties_cache = {
                         k: v for k, v in self.pool_properties_cache.items() if not k.startswith(f"{profile_id}:")
                     }
+                    with self.pool_status_lock:
+                        self.pool_status_cache = {
+                            k: v for k, v in self.pool_status_cache.items() if not k.startswith(f"{profile_id}:")
+                        }
+                        self.pool_status_loading = {
+                            k for k in self.pool_status_loading if not k.startswith(f"{profile_id}:")
+                        }
                     self.after(0, self._load_connections_list)
                     self.after(0, self._render_all_imported_pools)
                     self.after(0, self._render_all_importable_pools)
