@@ -2984,7 +2984,31 @@ class App(tk.Tk):
         ds_oy.grid(row=0, column=1, sticky="ns")
         ds_ox = ttk.Scrollbar(origin_tree_wrap, orient="horizontal", command=self.datasets_tree_origin.xview)
         ds_ox.grid(row=1, column=0, sticky="ew")
-        self.datasets_tree_origin.configure(yscrollcommand=ds_oy.set, xscrollcommand=ds_ox.set)
+        def _origin_auto_yset(first: str, last: str) -> None:
+            ds_oy.set(first, last)
+            try:
+                need = not (float(first) <= 0.0 and float(last) >= 1.0)
+            except Exception:
+                need = True
+            if need:
+                ds_oy.grid()
+            else:
+                ds_oy.grid_remove()
+
+        def _origin_auto_xset(first: str, last: str) -> None:
+            ds_ox.set(first, last)
+            try:
+                need = not (float(first) <= 0.0 and float(last) >= 1.0)
+            except Exception:
+                need = True
+            if need:
+                ds_ox.grid()
+            else:
+                ds_ox.grid_remove()
+
+        self.datasets_tree_origin.configure(yscrollcommand=_origin_auto_yset, xscrollcommand=_origin_auto_xset)
+        ds_oy.grid_remove()
+        ds_ox.grid_remove()
         self.datasets_tree_origin.bind("<<TreeviewSelect>>", self._on_origin_tree_selected)
         self.datasets_tree_origin.bind("<Button-3>", lambda e: self._on_dataset_tree_context("origin", e))
         self.datasets_tree_origin.bind("<Button-2>", lambda e: self._on_dataset_tree_context("origin", e))
@@ -3005,7 +3029,31 @@ class App(tk.Tk):
         ds_dy.grid(row=0, column=1, sticky="ns")
         ds_dx = ttk.Scrollbar(dest_tree_wrap, orient="horizontal", command=self.datasets_tree_dest.xview)
         ds_dx.grid(row=1, column=0, sticky="ew")
-        self.datasets_tree_dest.configure(yscrollcommand=ds_dy.set, xscrollcommand=ds_dx.set)
+        def _dest_auto_yset(first: str, last: str) -> None:
+            ds_dy.set(first, last)
+            try:
+                need = not (float(first) <= 0.0 and float(last) >= 1.0)
+            except Exception:
+                need = True
+            if need:
+                ds_dy.grid()
+            else:
+                ds_dy.grid_remove()
+
+        def _dest_auto_xset(first: str, last: str) -> None:
+            ds_dx.set(first, last)
+            try:
+                need = not (float(first) <= 0.0 and float(last) >= 1.0)
+            except Exception:
+                need = True
+            if need:
+                ds_dx.grid()
+            else:
+                ds_dx.grid_remove()
+
+        self.datasets_tree_dest.configure(yscrollcommand=_dest_auto_yset, xscrollcommand=_dest_auto_xset)
+        ds_dy.grid_remove()
+        ds_dx.grid_remove()
         self.datasets_tree_dest.bind("<<TreeviewSelect>>", self._on_dest_tree_selected)
         self.datasets_tree_dest.bind("<Button-3>", lambda e: self._on_dataset_tree_context("dest", e))
         self.datasets_tree_dest.bind("<Button-2>", lambda e: self._on_dataset_tree_context("dest", e))
@@ -3172,7 +3220,19 @@ class App(tk.Tk):
             rows_canvas.grid(row=1, column=0, sticky="nsew")
             ybar = ttk.Scrollbar(wrap, orient="vertical", command=rows_canvas.yview)
             ybar.grid(row=1, column=1, sticky="ns")
-            rows_canvas.configure(yscrollcommand=ybar.set)
+            def _auto_yset(first: str, last: str) -> None:
+                ybar.set(first, last)
+                try:
+                    need = not (float(first) <= 0.0 and float(last) >= 1.0)
+                except Exception:
+                    need = True
+                if need:
+                    ybar.grid()
+                else:
+                    ybar.grid_remove()
+
+            rows_canvas.configure(yscrollcommand=_auto_yset)
+            ybar.grid_remove()
 
             rows = ttk.Frame(rows_canvas)
             rows_canvas.create_window((0, 0), window=rows, anchor="nw")
@@ -3206,7 +3266,19 @@ class App(tk.Tk):
         rows_canvas.grid(row=1, column=0, sticky="nsew")
         ybar = ttk.Scrollbar(wrap, orient="vertical", command=rows_canvas.yview)
         ybar.grid(row=1, column=1, sticky="ns")
-        rows_canvas.configure(yscrollcommand=ybar.set)
+        def _auto_yset(first: str, last: str) -> None:
+            ybar.set(first, last)
+            try:
+                need = not (float(first) <= 0.0 and float(last) >= 1.0)
+            except Exception:
+                need = True
+            if need:
+                ybar.grid()
+            else:
+                ybar.grid_remove()
+
+        rows_canvas.configure(yscrollcommand=_auto_yset)
+        ybar.grid_remove()
 
         rows = ttk.Frame(rows_canvas)
         rows_window = rows_canvas.create_window((0, 0), window=rows, anchor="nw", width=total_width)
@@ -3220,8 +3292,20 @@ class App(tk.Tk):
             header_canvas.xview(*args)
 
         xbar.configure(command=_xview)
-        rows_canvas.configure(xscrollcommand=xbar.set)
-        header_canvas.configure(xscrollcommand=xbar.set)
+        def _auto_xset(first: str, last: str) -> None:
+            xbar.set(first, last)
+            try:
+                need = not (float(first) <= 0.0 and float(last) >= 1.0)
+            except Exception:
+                need = True
+            if need:
+                xbar.grid()
+            else:
+                xbar.grid_remove()
+
+        rows_canvas.configure(xscrollcommand=_auto_xset)
+        header_canvas.configure(xscrollcommand=_auto_xset)
+        xbar.grid_remove()
 
         def _sync_scroll(_event: Any = None) -> None:
             rows_canvas.itemconfigure(rows_window, width=total_width)
