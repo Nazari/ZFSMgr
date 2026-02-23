@@ -3033,6 +3033,10 @@ class App(tk.Tk):
         self.breakdown_btn.grid(row=1, column=0, sticky="ew")
         self.breakdown_btn.configure(state="disabled")
         ToolTip(self.breakdown_btn, tr("datasets_breakdown_tooltip"))
+        self.assemble_btn = ttk.Button(breakdown_box, text=tr("datasets_assemble_btn"), command=self._assemble_dataset_plan)
+        self.assemble_btn.grid(row=2, column=0, sticky="ew", pady=(4, 0))
+        self.assemble_btn.configure(state="disabled")
+        ToolTip(self.assemble_btn, tr("datasets_assemble_tooltip"))
 
         right = ttk.Frame(top_container, padding=(6, 6, 10, 10))
         right.grid(row=0, column=1, sticky="nsew")
@@ -5051,6 +5055,156 @@ class App(tk.Tk):
         self._app_log("normal", wrapped_cmd)
         self._run_breakdown_command(wrapped_cmd, conn_id=conn_id)
 
+    def _assemble_dataset_plan(self) -> None:
+        if self._reject_if_ssh_busy():
+            return
+        target = self._get_dataset_for_create()
+        if not target:
+            self._app_log("normal", tr("create_dataset_select_required"))
+            return
+        side, selection_label, dataset_name, conn_id = target
+        if "@" in dataset_name:
+            self._app_log("normal", tr("create_dataset_select_required"))
+            return
+        profile = self.store.get(conn_id)
+        if not profile:
+            self._app_log("normal", tr("create_dataset_select_required"))
+            return
+        row = self._find_selected_dataset_row(side, dataset_name)
+        mountpoint = ((row or {}).get("mountpoint", "") or "").strip()
+        if not mountpoint or mountpoint.lower() == "none":
+            self._app_log("normal", trf("log_assemble_invalid_mountpoint", dataset=dataset_name, name=profile.name))
+            return
+        if profile.conn_type not in {"LOCAL", "SSH"}:
+            self._app_log("normal", trf("log_assemble_transport_unsupported", ctype=profile.conn_type))
+            return
+
+        def _wrap_for_profile(raw_cmd: str) -> str:
+            if profile.conn_type == "LOCAL":
+                base = f"sh -lc {shlex.quote(raw_cmd)}"
+                if profile.use_sudo:
+                    return f"sudo -n {base}"
+                return base
+            ssh_parts: List[str] = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+            if profile.port and profile.port != 22:
+                ssh_parts.extend(["-p", str(profile.port)])
+            if profile.key_path:
+                ssh_parts.extend(["-i", shlex.quote(profile.key_path)])
+            target_host = profile.host
+            if profile.username:
+                target_host = f"{profile.username}@{profile.host}"
+            remote = f"sh -lc {shlex.quote(raw_cmd)}"
+            if profile.use_sudo:
+                if profile.password:
+                    remote = f"printf '%s\\n' {shlex.quote(profile.password)} | sudo -S -p '' {remote}"
+                else:
+                    remote = f"sudo -n {remote}"
+            ssh_parts.append(shlex.quote(target_host))
+            ssh_parts.append(shlex.quote(remote))
+            return " ".join(ssh_parts)
+
+        dataset_q = shlex.quote(dataset_name)
+        mount_q = shlex.quote(mountpoint)
+        assemble_cmd = (
+            "set -e; "
+            f"DATASET={dataset_q}; MP_HINT={mount_q}; "
+            "TMP_SUFFIX=\"$(printf '%s' \"$DATASET\" | tr '/' '_')\"; "
+            "TMP_ROOT=\"/tmp/zfsmgr-assemble-$TMP_SUFFIX\"; "
+            "ORIG_MP=\"$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true)\"; "
+            "[ -n \"$ORIG_MP\" ] && [ \"$ORIG_MP\" != \"none\" ] || ORIG_MP=\"$MP_HINT\"; "
+            "[ -n \"$ORIG_MP\" ] && [ \"$ORIG_MP\" != \"none\" ] || { echo \"[ASSEMBLE][ERROR] mountpoint invalid for $DATASET\"; exit 31; }; "
+            "case \"$ORIG_MP\" in /*) ;; *) echo \"[ASSEMBLE][ERROR] mountpoint is not a path: $ORIG_MP\"; exit 32 ;; esac; "
+            "mkdir -p \"$TMP_ROOT\"; "
+            "MOUNTED=\"$(zfs get -H -o value mounted \"$DATASET\" 2>/dev/null || true)\"; "
+            "ACTIVE_MP=\"$(zfs mount 2>/dev/null | awk -v ds=\"$DATASET\" '$1==ds {print $2; exit}')\"; "
+            "TEMP_MOUNTED=0; "
+            "MP=\"$ORIG_MP\"; "
+            "if [ -n \"$ACTIVE_MP\" ] && [ -d \"$ACTIVE_MP\" ]; then "
+            "MP=\"$ACTIVE_MP\"; "
+            "elif [ -d \"$ORIG_MP\" ]; then "
+            "MP=\"$ORIG_MP\"; "
+            "else "
+            "TMP_MP=\"$TMP_ROOT/__dataset_root\"; "
+            "mkdir -p \"$TMP_MP\"; "
+            "zfs unmount \"$DATASET\" >/dev/null 2>&1 || true; "
+            "zfs set mountpoint=\"$TMP_MP\" \"$DATASET\"; "
+            "zfs mount \"$DATASET\"; "
+            "MP=\"$TMP_MP\"; "
+            "TEMP_MOUNTED=1; "
+            "fi; "
+            "cleanup() { "
+            "rc=$?; "
+            "if [ \"$TEMP_MOUNTED\" = \"1\" ]; then "
+            "zfs unmount \"$DATASET\" >/dev/null 2>&1 || true; "
+            "zfs set mountpoint=\"$ORIG_MP\" \"$DATASET\" >/dev/null 2>&1 || true; "
+            "fi; "
+            "exit \"$rc\"; "
+            "}; "
+            "trap cleanup EXIT INT TERM; "
+            "[ -d \"$MP\" ] || { echo \"[ASSEMBLE][ERROR] active mountpoint does not exist: $MP\"; exit 33; }; "
+            "printf '[ASSEMBLE] dataset=%s mounted=%s original_mp=%s active_mp=%s\\n' \"$DATASET\" \"$MOUNTED\" \"$ORIG_MP\" \"$MP\"; "
+            "found=0; "
+            "while IFS= read -r child; do "
+            "[ -n \"$child\" ] || continue; "
+            "[ \"$child\" = \"$DATASET\" ] && continue; "
+            "found=1; "
+            "{ "
+            "name=\"${child##*/}\"; "
+            "dest=\"$MP/$name\"; "
+            "mkdir -p \"$dest\"; "
+            "child_tmp=\"$TMP_ROOT/$name\"; "
+            "j=1; "
+            "while [ -e \"$child_tmp\" ]; do "
+            "child_tmp=\"$TMP_ROOT/${name}-$j\"; "
+            "j=$((j+1)); "
+            "done; "
+            "child_mp=\"$(zfs get -H -o value mountpoint \"$child\" 2>/dev/null || true)\"; "
+            "child_mounted=\"$(zfs get -H -o value mounted \"$child\" 2>/dev/null || true)\"; "
+            "child_active=\"$(zfs mount 2>/dev/null | awk -v ds=\"$child\" '$1==ds {print $2; exit}')\"; "
+            "CHILD_TEMP=0; "
+            "CHILD_PATH=''; "
+            "if [ -n \"$child_active\" ] && [ -d \"$child_active\" ]; then "
+            "CHILD_PATH=\"$child_active\"; "
+            "elif [ \"$child_mounted\" = \"yes\" ] && [ -n \"$child_mp\" ] && [ \"$child_mp\" != \"none\" ] && [ -d \"$child_mp\" ]; then "
+            "CHILD_PATH=\"$child_mp\"; "
+            "else "
+            "mkdir -p \"$child_tmp\"; "
+            "zfs unmount \"$child\" >/dev/null 2>&1 || true; "
+            "zfs set mountpoint=\"$child_tmp\" \"$child\"; "
+            "zfs mount \"$child\"; "
+            "CHILD_PATH=\"$child_tmp\"; "
+            "CHILD_TEMP=1; "
+            "fi; "
+            "[ -d \"$CHILD_PATH\" ] || { echo \"[ASSEMBLE][ERROR] child mount not available: $child\"; exit 34; }; "
+            "rsync -aHAWXS --remove-source-files \"$CHILD_PATH\"/ \"$dest\"/; "
+            "find \"$CHILD_PATH\" -mindepth 1 -type d -empty -delete; "
+            "if [ \"$CHILD_TEMP\" = \"1\" ]; then "
+            "zfs unmount \"$child\" >/dev/null 2>&1 || true; "
+            "if [ -n \"$child_mp\" ] && [ \"$child_mp\" != \"none\" ]; then "
+            "zfs set mountpoint=\"$child_mp\" \"$child\" >/dev/null 2>&1 || true; "
+            "fi; "
+            "rmdir \"$child_tmp\" >/dev/null 2>&1 || true; "
+            "fi; "
+            "zfs destroy -r \"$child\"; "
+            "printf '[ASSEMBLE] %s -> %s and removed dataset\\n' \"$child\" \"$dest\"; "
+            "} || { "
+            "printf '[ASSEMBLE][ERROR] failed processing %s\\n' \"$child\"; "
+            "continue; "
+            "}; "
+            "done < <(zfs list -H -o name -t filesystem,volume -r \"$DATASET\" | awk -v root=\"$DATASET\" 'NR>1 && index($0, root\"/\")==1') ; "
+            "if [ \"$found\" = \"0\" ]; then "
+            "echo \"[ASSEMBLE] no child datasets found in $DATASET\"; "
+            "fi"
+        )
+        wrapped_cmd = _wrap_for_profile(assemble_cmd)
+        self._app_log(
+            "normal",
+            trf("log_assemble_plan_generated", dataset=dataset_name, name=profile.name, selection=selection_label),
+        )
+        self._app_log("normal", tr("log_assemble_plan_header"))
+        self._app_log("normal", wrapped_cmd)
+        self._run_assemble_command(wrapped_cmd, conn_id=conn_id)
+
     def _get_dataset_for_create(self) -> Optional[Tuple[str, str, str, str]]:
         # Devuelve (side, selection_label, dataset, conn_id)
         origin_ds = self.origin_dataset_var.get().strip()
@@ -5487,6 +5641,74 @@ class App(tk.Tk):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _run_assemble_command(self, cmd: str, conn_id: Optional[str] = None) -> None:
+        if self.level_running:
+            self._app_log("normal", tr("log_copy_already_running"))
+            return
+        self.level_running = True
+        ssh_busy(1)
+        self._update_level_button_state()
+        self._app_log("normal", tr("log_assemble_exec_start"))
+        self._app_log("info", tr("log_dataset_progress_tab"))
+        self._ssh_log(f"$ {cmd}")
+
+        def worker() -> None:
+            proc: Optional[subprocess.Popen[str]] = None
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    executable="/bin/bash",
+                )
+                self._set_active_dataset_process(proc, tr("datasets_assemble_btn"))
+            except Exception as exc:
+                self._app_log("normal", trf("log_assemble_exec_spawn_error", error=exc))
+                ssh_busy(-1)
+                self.after(0, self._finish_level_command)
+                return
+
+            assert proc is not None
+            try:
+                if proc.stdout is not None:
+                    self._stream_process_output(proc.stdout)
+                rc = proc.wait()
+                with self._dataset_proc_lock:
+                    cancelled = self._dataset_cancel_requested
+                if cancelled:
+                    self._app_log("normal", tr("log_dataset_cancel_done"))
+                elif rc == 0:
+                    self._app_log("normal", tr("log_assemble_exec_ok"))
+                else:
+                    self._app_log("normal", trf("log_assemble_exec_fail_code", code=rc))
+            except Exception as exc:
+                self._app_log("normal", trf("log_assemble_exec_runtime_error", error=exc))
+            finally:
+                self._clear_active_dataset_process(proc)
+                ssh_busy(-1)
+                self.after(0, self._finish_level_command)
+                if conn_id:
+                    self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{conn_id}:")}
+                    self.pool_properties_cache = {
+                        k: v for k, v in self.pool_properties_cache.items() if not k.startswith(f"{conn_id}:")
+                    }
+                    with self.pool_status_lock:
+                        self.pool_status_cache = {
+                            k: v for k, v in self.pool_status_cache.items() if not k.startswith(f"{conn_id}:")
+                        }
+                        self.pool_status_loading = {
+                            k for k in self.pool_status_loading if not k.startswith(f"{conn_id}:")
+                        }
+                    profile = self.store.get(conn_id)
+                    if profile:
+                        self._app_log("info", trf("log_refresh_connection", name=profile.name))
+                    self.after(100, lambda: self._refresh_connection_by_id(conn_id))
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _stream_process_output(self, stream: Any) -> None:
         # Captura progreso tipo pv/dd que usa '\r' (sin '\n') y salida normal por lineas.
         buf = ""
@@ -5866,6 +6088,7 @@ class App(tk.Tk):
         modify_enabled = bool((self.ssh_busy_count == 0) and has_dataset_target)
         delete_enabled = bool((self.ssh_busy_count == 0) and has_delete_target)
         breakdown_enabled = bool((self.ssh_busy_count == 0) and has_dataset_target)
+        assemble_enabled = bool((self.ssh_busy_count == 0) and has_dataset_target)
         self._app_log(
             "debug",
             trf(
@@ -5884,6 +6107,7 @@ class App(tk.Tk):
         self.modify_btn.configure(state="normal" if modify_enabled else "disabled")
         self.delete_dataset_btn.configure(state="normal" if delete_enabled else "disabled")
         self.breakdown_btn.configure(state="normal" if breakdown_enabled else "disabled")
+        self.assemble_btn.configure(state="normal" if assemble_enabled else "disabled")
         delete_target = self._get_target_for_delete()
         if delete_target:
             _side, _sel, target, target_conn_id = delete_target
