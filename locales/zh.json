@@ -130,6 +130,7 @@
   "priv_not_checked": "未检查",
   "log_section": "应用日志",
   "log_level": "级别：",
+  "cancel_operation_btn": "取消",
   "log_clear": "清空",
   "log_copy": "复制",
   "log_copied": "应用日志已复制到剪贴板",

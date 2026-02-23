@@ -2913,12 +2913,14 @@ class App(tk.Tk):
 
         log_controls = ttk.Frame(log_frame)
         log_controls.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        log_controls.columnconfigure(4, weight=1)
+        log_controls.columnconfigure(2, weight=1)
 
         ttk.Label(log_controls, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
-        ttk.Label(log_controls, textvariable=self.priv_var).grid(row=0, column=1, sticky="w", padx=(10, 0))
+        self.cancel_dataset_btn = ttk.Button(log_controls, text=tr("cancel_operation_btn"), command=self._cancel_dataset_operation)
+        self.cancel_dataset_btn.grid(row=0, column=1, sticky="w", padx=(10, 0))
+        self.cancel_dataset_btn.configure(state="disabled")
 
-        ttk.Label(log_controls, text=tr("log_level")).grid(row=0, column=5, sticky="e")
+        ttk.Label(log_controls, text=tr("log_level")).grid(row=0, column=3, sticky="e")
         self.app_log_level_var = tk.StringVar(value="normal")
         self.app_log_level_combo = ttk.Combobox(
             log_controls,
@@ -2927,12 +2929,12 @@ class App(tk.Tk):
             state="readonly",
             width=10,
         )
-        self.app_log_level_combo.grid(row=0, column=6, sticky="w", padx=(6, 0))
+        self.app_log_level_combo.grid(row=0, column=4, sticky="w", padx=(6, 0))
         self.app_log_level_combo.bind("<<ComboboxSelected>>", lambda _e: self._app_log("info", tr("log_level_updated")))
         self.log_clear_btn = ttk.Button(log_controls, text=tr("log_clear"), command=self._clear_app_log)
-        self.log_clear_btn.grid(row=0, column=7, sticky="w", padx=(8, 0))
+        self.log_clear_btn.grid(row=0, column=5, sticky="w", padx=(8, 0))
         self.log_copy_btn = ttk.Button(log_controls, text=tr("log_copy"), command=self._copy_app_log)
-        self.log_copy_btn.grid(row=0, column=8, sticky="w", padx=(6, 0))
+        self.log_copy_btn.grid(row=0, column=6, sticky="w", padx=(6, 0))
 
         logs_split = ttk.Panedwindow(log_frame, orient=tk.HORIZONTAL)
         logs_split.grid(row=2, column=0, sticky="nsew")
@@ -3153,25 +3155,6 @@ class App(tk.Tk):
         def _append() -> None:
             self.app_log_text.configure(state="normal")
             self.app_log_text.insert("end", f"[{level.upper()}] {safe_message}\n")
-            self.app_log_text.see("end")
-            self.app_log_text.configure(state="disabled")
-        self.after(0, _append)
-
-    def _app_log_cancel_action(self) -> None:
-        def _append() -> None:
-            self.app_log_text.configure(state="normal")
-            self.app_log_text.insert("end", "[ACTION] ")
-            start = self.app_log_text.index("end-1c")
-            label = tr("log_dataset_cancel_action")
-            self.app_log_text.insert("end", label)
-            end = self.app_log_text.index("end-1c")
-            self.app_log_text.insert("end", "\n")
-            tag = f"cancel_action_{int(time.time() * 1000)}"
-            self.app_log_text.tag_add(tag, start, end)
-            self.app_log_text.tag_configure(tag, foreground=UI_ACTION_UMOUNT, underline=True)
-            self.app_log_text.tag_bind(tag, "<Button-1>", lambda _e: self._cancel_dataset_operation())
-            self.app_log_text.tag_bind(tag, "<Enter>", lambda _e: self.app_log_text.configure(cursor="hand2"))
-            self.app_log_text.tag_bind(tag, "<Leave>", lambda _e: self.app_log_text.configure(cursor=""))
             self.app_log_text.see("end")
             self.app_log_text.configure(state="disabled")
         self.after(0, _append)
@@ -4122,7 +4105,6 @@ class App(tk.Tk):
         self.level_running = True
         ssh_busy(1)
         self._update_level_button_state()
-        self._app_log_cancel_action()
         self._app_log("normal", tr("log_level_exec_start"))
         self._app_log("info", tr("log_dataset_progress_tab"))
         self._ssh_log(f"$ {cmd}")
@@ -4176,7 +4158,6 @@ class App(tk.Tk):
         self.level_running = True
         ssh_busy(1)
         self._update_level_button_state()
-        self._app_log_cancel_action()
         self._app_log("normal", tr("log_copy_exec_start"))
         self._app_log("info", tr("log_dataset_progress_tab"))
         self._ssh_log(f"$ {cmd}")
@@ -4247,6 +4228,7 @@ class App(tk.Tk):
             self._active_dataset_proc = proc
             self._active_dataset_action = action
             self._dataset_cancel_requested = False
+        self.after(0, lambda: self.cancel_dataset_btn.configure(state="normal"))
 
     def _clear_active_dataset_process(self, proc: Optional[subprocess.Popen[str]] = None) -> None:
         with self._dataset_proc_lock:
@@ -4254,6 +4236,7 @@ class App(tk.Tk):
                 self._active_dataset_proc = None
                 self._active_dataset_action = ""
                 self._dataset_cancel_requested = False
+        self.after(0, lambda: self.cancel_dataset_btn.configure(state="disabled"))
 
     def _cancel_dataset_operation(self) -> None:
         with self._dataset_proc_lock:
