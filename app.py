@@ -2854,11 +2854,12 @@ class App(tk.Tk):
         # Sin barra de redimensionado: panel izquierdo de ancho fijo.
         def _init_fixed_left_width() -> None:
             base_width = max(top_container.winfo_width(), self.winfo_width(), 1200)
+            current_height = max(self.winfo_height(), top_container.winfo_height(), 700)
             width = max(260, int(base_width * 0.23))
             top_container.grid_columnconfigure(0, minsize=width)
             self._left_tabs_fixed_width = width
             cur_min_w, cur_min_h = self.minsize()
-            min_h = cur_min_h if cur_min_h > 0 else 600
+            min_h = max(cur_min_h, current_height) if cur_min_h > 0 else current_height
             self.minsize(max(cur_min_w, width * 4), min_h)
             wrap = max(180, width - 40)
             self.dataset_selected_label.configure(wraplength=wrap)
