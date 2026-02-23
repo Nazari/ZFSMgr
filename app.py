@@ -2999,18 +2999,17 @@ class App(tk.Tk):
         status_box = ttk.Frame(log_controls)
         status_box.grid(row=0, column=0, sticky="nw")
         ttk.Label(status_box, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
+        self.ssh_last_line_label = ttk.Label(status_box, textvariable=self.ssh_last_line_var, width=62, anchor="w")
+        self.ssh_last_line_label.grid(row=1, column=0, sticky="w", pady=(2, 0))
         self.cancel_dataset_btn = ttk.Button(
             status_box,
             text=tr("cancel_operation_btn"),
             width=8,
             command=self._cancel_dataset_operation,
         )
-        self.cancel_dataset_btn.grid(row=1, column=0, sticky="w", pady=(4, 0))
+        self.cancel_dataset_btn.grid(row=2, column=0, sticky="w", pady=(4, 0))
         self.cancel_dataset_btn.configure(state="disabled")
         self.cancel_dataset_btn.grid_remove()
-
-        self.ssh_last_line_label = ttk.Label(log_controls, textvariable=self.ssh_last_line_var, width=62, anchor="w")
-        self.ssh_last_line_label.grid(row=0, column=1, sticky="ew", padx=(10, 10))
 
         right_controls = ttk.Frame(log_controls)
         right_controls.grid(row=0, column=2, sticky="e")
