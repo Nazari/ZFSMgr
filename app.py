@@ -3272,6 +3272,16 @@ class App(tk.Tk):
         main_split.add(top_container, weight=4)
         main_split.add(log_container, weight=1)
 
+        def _enforce_dataset_tab_visibility() -> None:
+            try:
+                self.update_idletasks()
+                min_top = max(420, int(self.tab_datasets.winfo_reqheight() + 24))
+                main_split.paneconfigure(top_container, minsize=min_top)
+            except Exception:
+                pass
+
+        self.after_idle(_enforce_dataset_tab_visibility)
+
         self._app_log("normal", tr("log_app_started"))
         self.origin_dataset_var.trace_add("write", lambda *_a: self._update_level_button_state())
         self.dest_dataset_var.trace_add("write", lambda *_a: self._update_level_button_state())
