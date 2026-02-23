@@ -421,6 +421,7 @@ class ConnectionState:
     ok: bool = False
     message: str = ""
     sudo_ok: Optional[bool] = None
+    zfs_version: Optional[str] = None
     imported: List[Dict[str, str]] = None
     importable: List[Dict[str, str]] = None
     imported_devices: Dict[str, List[Dict[str, Any]]] = None
@@ -577,6 +578,61 @@ class ExecutorError(RuntimeError):
     pass
 
 
+def parse_openzfs_version(text: str) -> Optional[Tuple[int, int, int]]:
+    if not text:
+        return None
+    patterns = [
+        r"\bzfs(?:-kmod)?[-\s]+(\d+)\.(\d+)(?:\.(\d+))?\b",
+        r"\bopenzfs(?:[-\s]+version)?[:\s]+(\d+)\.(\d+)(?:\.(\d+))?\b",
+        r"\b(\d+)\.(\d+)(?:\.(\d+))?\b",
+    ]
+    lower = text.lower()
+    for pat in patterns:
+        m = re.search(pat, lower)
+        if not m:
+            continue
+        major = int(m.group(1))
+        minor = int(m.group(2))
+        patch = int(m.group(3) or 0)
+        # Evita capturar versiones ajenas (kernel, powershell, etc.).
+        if major > 10:
+            continue
+        return (major, minor, patch)
+    return None
+
+
+def format_openzfs_version(version: Optional[Tuple[int, int, int]]) -> str:
+    if not version:
+        return "-"
+    return f"{version[0]}.{version[1]}.{version[2]}"
+
+
+def build_send_flag_candidates(version: Optional[Tuple[int, int, int]], recursive: bool) -> List[str]:
+    # Para OpenZFS 2.3/2.4 preferimos -wLec (+R si procede).
+    if version is None or (version and (version[0], version[1]) >= (2, 3)):
+        candidates = ["wLecR" if recursive else "wLec", "wLeR" if recursive else "wLe", "wR" if recursive else "w"]
+    elif version and (version[0], version[1]) >= (2, 1):
+        candidates = ["wLeR" if recursive else "wLe", "wR" if recursive else "w"]
+    else:
+        candidates = ["wR" if recursive else "w"]
+    deduped: List[str] = []
+    for item in candidates:
+        if item not in deduped:
+            deduped.append(item)
+    return deduped
+
+
+def zpool_import_probe_commands(version: Optional[Tuple[int, int, int]]) -> List[str]:
+    # Mantiene compatibilidad: en 2.4 priorizamos -s, en 2.3 probamos "import" primero.
+    if version and (version[0], version[1]) >= (2, 4):
+        ordered = ["import -s", "import", "import -H -o name"]
+    elif version and (version[0], version[1]) >= (2, 3):
+        ordered = ["import", "import -s", "import -H -o name"]
+    else:
+        ordered = ["import", "import -H -o name", "import -s"]
+    return ordered
+
+
 def build_zfs_binary_cmd(binary: str, args: str) -> str:
     # Orden de resolucion:
     # 1) PATH actual
@@ -661,6 +717,8 @@ def format_bytes_compact(raw_value: str) -> str:
 class BaseExecutor:
     def __init__(self, profile: ConnectionProfile) -> None:
         self.profile = profile
+        self._zfs_version: Optional[Tuple[int, int, int]] = None
+        self._zfs_version_checked = False
 
     def check_connection(self) -> Tuple[bool, str]:
         raise NotImplementedError
@@ -713,6 +771,18 @@ class BaseExecutor:
     def destroy_dataset(self, dataset: str, recursive: bool = False) -> str:
         raise NotImplementedError
 
+    def _detect_zfs_version(self) -> Optional[Tuple[int, int, int]]:
+        return None
+
+    def get_zfs_version(self) -> Optional[Tuple[int, int, int]]:
+        if not self._zfs_version_checked:
+            self._zfs_version_checked = True
+            try:
+                self._zfs_version = self._detect_zfs_version()
+            except Exception:
+                self._zfs_version = None
+        return self._zfs_version
+
 
 class LocalExecutor(BaseExecutor):
     def _zpool_cmd(self, args: str, timeout_seconds: Optional[int] = COMMAND_TIMEOUT_SECONDS) -> str:
@@ -753,6 +823,13 @@ class LocalExecutor(BaseExecutor):
         except Exception as exc:
             return False, trf("local_connection_error_no_libzfs", error=exc)
 
+    def _detect_zfs_version(self) -> Optional[Tuple[int, int, int]]:
+        try:
+            out = self._zfs_cmd("version", timeout_seconds=10)
+            return parse_openzfs_version(out)
+        except Exception:
+            return None
+
     def check_sudo(self) -> Optional[bool]:
         import subprocess
 
@@ -791,23 +868,18 @@ class LocalExecutor(BaseExecutor):
         return rows
 
     def list_importable_pools(self) -> List[Dict[str, str]]:
-        outputs: List[str] = []
-        for args in ("import -s", "import"):
+        ver = self.get_zfs_version()
+        for args in zpool_import_probe_commands(ver):
             try:
-                outputs.append(self._zpool_cmd(args))
-            except Exception:
-                pass
-        for out in outputs:
-            rows = parse_zpool_import_output(out)
-            if rows:
-                return rows
-        for args in ("import -H -o name",):
-            try:
-                rows = parse_importable_name_lines(self._zpool_cmd(args))
+                out = self._zpool_cmd(args)
+                if args.endswith("-H -o name"):
+                    rows = parse_importable_name_lines(out)
+                else:
+                    rows = parse_zpool_import_output(out)
                 if rows:
                     return rows
             except Exception:
-                pass
+                continue
         return []
 
     def list_datasets(self, pool: str) -> List[Dict[str, str]]:
@@ -1016,6 +1088,27 @@ class SSHExecutor(BaseExecutor):
         except Exception as exc:
             return False, str(exc)
 
+    def _detect_zfs_version(self) -> Optional[Tuple[int, int, int]]:
+        commands = [self._zfs_cmd("version"), "zfs version"]
+        for cmd in commands:
+            try:
+                out = self._run(cmd, sudo=False, timeout_seconds=10)
+                ver = parse_openzfs_version(out)
+                if ver:
+                    return ver
+            except Exception:
+                continue
+        if self.profile.use_sudo:
+            for cmd in commands:
+                try:
+                    out = self._run(cmd, sudo=True, timeout_seconds=10)
+                    ver = parse_openzfs_version(out)
+                    if ver:
+                        return ver
+                except Exception:
+                    continue
+        return None
+
     def check_sudo(self) -> Optional[bool]:
         try:
             self._run("true", sudo=True)
@@ -1052,23 +1145,18 @@ class SSHExecutor(BaseExecutor):
         return rows
 
     def list_importable_pools(self) -> List[Dict[str, str]]:
-        outputs: List[str] = []
-        for args in ("import -s", "import"):
+        ver = self.get_zfs_version()
+        for args in zpool_import_probe_commands(ver):
             try:
-                outputs.append(self._run(self._zpool_cmd(args), sudo=True))
-            except Exception:
-                pass
-        for out in outputs:
-            rows = parse_zpool_import_output(out)
-            if rows:
-                return rows
-        for args in ("import -H -o name",):
-            try:
-                rows = parse_importable_name_lines(self._run(self._zpool_cmd(args), sudo=True))
+                out = self._run(self._zpool_cmd(args), sudo=True)
+                if args.endswith("-H -o name"):
+                    rows = parse_importable_name_lines(out)
+                else:
+                    rows = parse_zpool_import_output(out)
                 if rows:
                     return rows
             except Exception:
-                pass
+                continue
         return []
 
     def list_datasets(self, pool: str) -> List[Dict[str, str]]:
@@ -1208,6 +1296,13 @@ class PSRPExecutor(BaseExecutor):
         except Exception as exc:
             return False, str(exc)
 
+    def _detect_zfs_version(self) -> Optional[Tuple[int, int, int]]:
+        try:
+            out = self._run_ps("zfs version", timeout_seconds=15)
+            return parse_openzfs_version(out)
+        except Exception:
+            return None
+
     def check_sudo(self) -> Optional[bool]:
         script = (
             "$id=[Security.Principal.WindowsIdentity]::GetCurrent();"
@@ -1241,22 +1336,18 @@ class PSRPExecutor(BaseExecutor):
         return rows
 
     def list_importable_pools(self) -> List[Dict[str, str]]:
-        outputs: List[str] = []
-        for cmd in ("zpool import -s", "zpool import"):
+        ver = self.get_zfs_version()
+        for cmd in zpool_import_probe_commands(ver):
             try:
-                outputs.append(self._run_ps(cmd))
+                out = self._run_ps(f"zpool {cmd}" if not cmd.startswith("import") else f"zpool {cmd}")
+                if cmd.endswith("-H -o name"):
+                    rows = parse_importable_name_lines(out)
+                else:
+                    rows = parse_zpool_import_output(out)
+                if rows:
+                    return rows
             except Exception:
-                pass
-        for out in outputs:
-            rows = parse_zpool_import_output(out)
-            if rows:
-                return rows
-        try:
-            rows = parse_importable_name_lines(self._run_ps("zpool import -H -o name"))
-            if rows:
-                return rows
-        except Exception:
-            pass
+                continue
         return []
 
     def list_datasets(self, pool: str) -> List[Dict[str, str]]:
@@ -2041,6 +2132,11 @@ class ConnectionDialog(tk.Toplevel):
                 self._log(f"[ERROR] {trf('log_ssh_test_cmd_failed', error=err or out)}")
                 return False
             self._log(f"[INFO] {trf('log_ssh_remote_host', output=out or tr('label_no_output'))}")
+            zfs_ver_code, zfs_ver_out, _zfs_ver_err = _exec(client, build_remote_zfs_cmd(profile.os_type, "zfs", "version"))
+            if zfs_ver_code == 0:
+                parsed_ver = parse_openzfs_version(zfs_ver_out)
+                if parsed_ver:
+                    self._log(f"[INFO] OpenZFS: {format_openzfs_version(parsed_ver)}")
 
             use_sudo_for_checks = profile.use_sudo and bool(profile.password)
             if profile.use_sudo and not profile.password:
@@ -4033,6 +4129,40 @@ class App(tk.Tk):
             self.right_datasets_detail.grid_remove()
             self.right_conn_detail.grid()
 
+    def _conn_openzfs_version(self, conn_id: str) -> Optional[Tuple[int, int, int]]:
+        state = self.states.get(conn_id)
+        if state and state.zfs_version and state.zfs_version != "-":
+            parsed = parse_openzfs_version(state.zfs_version)
+            if parsed:
+                return parsed
+        return None
+
+    def _build_send_cmd_candidates(
+        self,
+        src_conn_id: str,
+        src_dataset: str,
+        target_snapshot: str,
+        recursive: bool,
+        incremental_base: Optional[str] = None,
+    ) -> List[str]:
+        version = self._conn_openzfs_version(src_conn_id)
+        flags = build_send_flag_candidates(version, recursive=recursive)
+        commands: List[str] = []
+        for flag in flags:
+            if incremental_base:
+                cmd = (
+                    f"zfs send -{flag} -I "
+                    f"{shlex.quote(incremental_base)} {shlex.quote(target_snapshot)}"
+                )
+            else:
+                cmd = f"zfs send -{flag} {shlex.quote(target_snapshot)}"
+            commands.append(cmd)
+        self._app_log(
+            "debug",
+            f"OpenZFS src={src_dataset} version={format_openzfs_version(version)} send_flags={', '.join(flags)}",
+        )
+        return commands
+
     def _level_datasets(self) -> None:
         if self._reject_if_ssh_busy():
             return
@@ -4235,7 +4365,14 @@ class App(tk.Tk):
         if common:
             base_snap = common[-1]
             base_full = f"{src_dataset}@{base_snap}"
-            send_raw = f"zfs send -wLecR -I {shlex.quote(base_full)} {shlex.quote(target_full)}"
+            send_candidates = self._build_send_cmd_candidates(
+                src_conn_id=src_conn_id,
+                src_dataset=src_dataset,
+                target_snapshot=target_full,
+                recursive=True,
+                incremental_base=base_full,
+            )
+            send_raw = send_candidates[0]
             recv_raw = f"zfs recv -F {shlex.quote(dst_dataset)}"
             send_cmd = sudo_wrap(src_profile, send_raw, preserve_stdin_stream=False)
             recv_cmd = sudo_wrap(dst_profile, recv_raw, preserve_stdin_stream=True)
@@ -4244,7 +4381,14 @@ class App(tk.Tk):
                 trf("log_level_incremental_plan", src=src_dataset, dst=dst_dataset, base=base_snap, target=target_snap),
             )
         else:
-            send_raw = f"zfs send -wLecR {shlex.quote(target_full)}"
+            send_candidates = self._build_send_cmd_candidates(
+                src_conn_id=src_conn_id,
+                src_dataset=src_dataset,
+                target_snapshot=target_full,
+                recursive=True,
+                incremental_base=None,
+            )
+            send_raw = send_candidates[0]
             recv_raw = f"zfs recv -F {shlex.quote(dst_dataset)}"
             send_cmd = sudo_wrap(src_profile, send_raw, preserve_stdin_stream=False)
             recv_cmd = sudo_wrap(dst_profile, recv_raw, preserve_stdin_stream=True)
@@ -4283,7 +4427,18 @@ class App(tk.Tk):
 
         self._app_log("info", trf("log_level_missing_snapshots", count=len(missing), snaps=', '.join(missing)))
         self._app_log("normal", cmd)
-        self._run_level_command(cmd)
+        extra_cmds: List[str] = []
+        if len(send_candidates) > 1:
+            for alt_send_raw in send_candidates[1:]:
+                alt_send_cmd = sudo_wrap(src_profile, alt_send_raw, preserve_stdin_stream=False)
+                alt_send_side = wrap_outer_exec(src_profile, alt_send_cmd)
+                if not alt_send_side:
+                    continue
+                if progress_stage:
+                    extra_cmds.append(f"{alt_send_side} | {progress_stage} | {recv_side}")
+                else:
+                    extra_cmds.append(f"{alt_send_side} | {recv_side}")
+        self._run_level_command(cmd, fallback_cmds=extra_cmds)
 
     def _copy_snapshot_to_dataset(self) -> None:
         if self._reject_if_ssh_busy():
@@ -4382,10 +4537,16 @@ class App(tk.Tk):
         recursive_send = bool(recursive_choice)
         if recursive_send:
             self._app_log("info", tr("log_copy_recursive_yes"))
-            send_raw = f"zfs send -wLecR {shlex.quote(src_snapshot)}"
         else:
             self._app_log("info", tr("log_copy_recursive_no"))
-            send_raw = f"zfs send -wLec {shlex.quote(src_snapshot)}"
+        send_candidates = self._build_send_cmd_candidates(
+            src_conn_id=src_conn_id,
+            src_dataset=src_snapshot.split("@", 1)[0],
+            target_snapshot=src_snapshot,
+            recursive=recursive_send,
+            incremental_base=None,
+        )
+        send_raw = send_candidates[0]
         recv_raw = f"zfs recv -F -e {shlex.quote(dst_dataset)}"
         send_cmd = sudo_wrap(src_profile, send_raw, preserve_stdin_stream=False)
         recv_cmd = sudo_wrap(dst_profile, recv_raw, preserve_stdin_stream=True)
@@ -4411,7 +4572,18 @@ class App(tk.Tk):
         self._app_log("normal", trf("log_copy_plan", src=src_snapshot, dst=dst_dataset))
         self._app_log("normal", tr("log_copy_command_header"))
         self._app_log("normal", cmd)
-        self._run_copy_command(cmd, dst_conn_id=dst_conn_id)
+        extra_cmds: List[str] = []
+        if len(send_candidates) > 1:
+            for alt_send_raw in send_candidates[1:]:
+                alt_send_cmd = sudo_wrap(src_profile, alt_send_raw, preserve_stdin_stream=False)
+                alt_send_side = wrap_outer_exec(src_profile, alt_send_cmd)
+                if not alt_send_side:
+                    continue
+                if progress_stage:
+                    extra_cmds.append(f"{alt_send_side} | {progress_stage} | {recv_side}")
+                else:
+                    extra_cmds.append(f"{alt_send_side} | {recv_side}")
+        self._run_copy_command(cmd, dst_conn_id=dst_conn_id, fallback_cmds=extra_cmds)
 
     def _sync_datasets(self) -> None:
         if self._reject_if_ssh_busy():
@@ -4977,7 +5149,7 @@ class App(tk.Tk):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _run_level_command(self, cmd: str) -> None:
+    def _run_level_command(self, cmd: str, fallback_cmds: Optional[List[str]] = None) -> None:
         if self.level_running:
             self._app_log("normal", tr("log_level_already_running"))
             return
@@ -4990,36 +5162,52 @@ class App(tk.Tk):
 
         def worker() -> None:
             proc: Optional[subprocess.Popen[str]] = None
+            commands = [cmd] + list(fallback_cmds or [])
+            last_rc = 0
+            executed_any = False
             try:
-                proc = subprocess.Popen(
-                    cmd,
-                    shell=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                    executable="/bin/bash",
-                )
-                self._set_active_dataset_process(proc, tr("datasets_level_btn"))
+                for idx, current_cmd in enumerate(commands):
+                    if idx > 0:
+                        self._app_log("info", f"Retry send flags fallback {idx}/{len(commands) - 1}")
+                        self._ssh_log(f"$ {current_cmd}")
+                    proc = subprocess.Popen(
+                        current_cmd,
+                        shell=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                        executable="/bin/bash",
+                    )
+                    executed_any = True
+                    self._set_active_dataset_process(proc, tr("datasets_level_btn"))
+                    if proc.stdout is not None:
+                        self._stream_process_output(proc.stdout)
+                    last_rc = proc.wait()
+                    if last_rc == 0:
+                        break
+                    if idx < len(commands) - 1:
+                        self._app_log("info", f"Fallo comando (rc={last_rc}), probando fallback")
+                        self._clear_active_dataset_process(proc)
+                        proc = None
             except Exception as exc:
                 self._app_log("normal", trf("log_level_exec_spawn_error", error=exc))
                 ssh_busy(-1)
                 self.after(0, self._finish_level_command)
                 return
 
-            assert proc is not None
             try:
-                if proc.stdout is not None:
-                    self._stream_process_output(proc.stdout)
-                rc = proc.wait()
+                if not executed_any:
+                    self._app_log("normal", trf("log_level_exec_fail_code", code=1))
+                    return
                 with self._dataset_proc_lock:
                     cancelled = self._dataset_cancel_requested
                 if cancelled:
                     self._app_log("normal", tr("log_dataset_cancel_done"))
-                elif rc == 0:
+                elif last_rc == 0:
                     self._app_log("normal", tr("log_level_exec_ok"))
                 else:
-                    self._app_log("normal", trf("log_level_exec_fail_code", code=rc))
+                    self._app_log("normal", trf("log_level_exec_fail_code", code=last_rc))
             except Exception as exc:
                 self._app_log("normal", trf("log_level_exec_runtime_error", error=exc))
             finally:
@@ -5030,7 +5218,12 @@ class App(tk.Tk):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _run_copy_command(self, cmd: str, dst_conn_id: Optional[str] = None) -> None:
+    def _run_copy_command(
+        self,
+        cmd: str,
+        dst_conn_id: Optional[str] = None,
+        fallback_cmds: Optional[List[str]] = None,
+    ) -> None:
         if self.level_running:
             self._app_log("normal", tr("log_copy_already_running"))
             return
@@ -5043,36 +5236,52 @@ class App(tk.Tk):
 
         def worker() -> None:
             proc: Optional[subprocess.Popen[str]] = None
+            commands = [cmd] + list(fallback_cmds or [])
+            last_rc = 0
+            executed_any = False
             try:
-                proc = subprocess.Popen(
-                    cmd,
-                    shell=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                    executable="/bin/bash",
-                )
-                self._set_active_dataset_process(proc, tr("copy_snapshot_btn"))
+                for idx, current_cmd in enumerate(commands):
+                    if idx > 0:
+                        self._app_log("info", f"Retry send flags fallback {idx}/{len(commands) - 1}")
+                        self._ssh_log(f"$ {current_cmd}")
+                    proc = subprocess.Popen(
+                        current_cmd,
+                        shell=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                        executable="/bin/bash",
+                    )
+                    executed_any = True
+                    self._set_active_dataset_process(proc, tr("copy_snapshot_btn"))
+                    if proc.stdout is not None:
+                        self._stream_process_output(proc.stdout)
+                    last_rc = proc.wait()
+                    if last_rc == 0:
+                        break
+                    if idx < len(commands) - 1:
+                        self._app_log("info", f"Fallo comando (rc={last_rc}), probando fallback")
+                        self._clear_active_dataset_process(proc)
+                        proc = None
             except Exception as exc:
                 self._app_log("normal", trf("log_copy_exec_spawn_error", error=exc))
                 ssh_busy(-1)
                 self.after(0, self._finish_level_command)
                 return
 
-            assert proc is not None
             try:
-                if proc.stdout is not None:
-                    self._stream_process_output(proc.stdout)
-                rc = proc.wait()
+                if not executed_any:
+                    self._app_log("normal", trf("log_copy_exec_fail_code", code=1))
+                    return
                 with self._dataset_proc_lock:
                     cancelled = self._dataset_cancel_requested
                 if cancelled:
                     self._app_log("normal", tr("log_dataset_cancel_done"))
-                elif rc == 0:
+                elif last_rc == 0:
                     self._app_log("normal", tr("log_copy_exec_ok"))
                 else:
-                    self._app_log("normal", trf("log_copy_exec_fail_code", code=rc))
+                    self._app_log("normal", trf("log_copy_exec_fail_code", code=last_rc))
             except Exception as exc:
                 self._app_log("normal", trf("log_copy_exec_runtime_error", error=exc))
             finally:
@@ -5934,6 +6143,7 @@ class App(tk.Tk):
                         local_state.ok = ok
                         local_state.message = msg
                         if ok:
+                            local_state.zfs_version = format_openzfs_version(execu.get_zfs_version())
                             local_state.sudo_ok = execu.check_sudo()
                             local_state.imported = execu.list_imported_pools()
                             local_state.imported_devices = {}
@@ -5990,6 +6200,8 @@ class App(tk.Tk):
                             sudo=state.sudo_ok,
                         ),
                     )
+                    if state.zfs_version:
+                        self._app_log("debug", f"OpenZFS {profile.name}: {state.zfs_version}")
                     self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{profile_id}:")}
                     self.pool_properties_cache = {
                         k: v for k, v in self.pool_properties_cache.items() if not k.startswith(f"{profile_id}:")
