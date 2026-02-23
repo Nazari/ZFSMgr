@@ -2696,6 +2696,17 @@ class App(tk.Tk):
         self.delete_dataset_btn.grid(row=0, column=2, sticky="ew", padx=(6, 0))
         self.delete_dataset_btn.configure(state="disabled")
         ToolTip(self.delete_dataset_btn, tr("delete_dataset_tooltip"))
+        self.datasets_context_menu = tk.Menu(
+            self,
+            tearoff=False,
+            bg=UI_PANEL_BG,
+            fg=UI_TEXT,
+            activebackground=UI_SELECTION,
+            activeforeground=UI_TEXT,
+        )
+        self.datasets_context_menu.add_command(label=tr("create_dataset_btn"), command=self._create_dataset)
+        self.datasets_context_menu.add_command(label=tr("modify_dataset_btn"), command=self._modify_dataset)
+        self.datasets_context_menu.add_command(label=tr("delete_dataset_btn"), command=self._delete_dataset)
 
         transfer_box = ttk.LabelFrame(self.tab_datasets, text=tr("datasets_box_transfer"), padding=(8, 6))
         transfer_box.grid(row=2, column=0, sticky="ew", pady=(6, 0))
@@ -2838,6 +2849,9 @@ class App(tk.Tk):
         ds_ox.grid(row=1, column=0, sticky="ew")
         self.datasets_tree_origin.configure(yscrollcommand=ds_oy.set, xscrollcommand=ds_ox.set)
         self.datasets_tree_origin.bind("<<TreeviewSelect>>", self._on_origin_tree_selected)
+        self.datasets_tree_origin.bind("<Button-3>", lambda e: self._on_dataset_tree_context("origin", e))
+        self.datasets_tree_origin.bind("<Button-2>", lambda e: self._on_dataset_tree_context("origin", e))
+        self.datasets_tree_origin.bind("<Control-Button-1>", lambda e: self._on_dataset_tree_context("origin", e))
 
         dest_tree_wrap = ttk.LabelFrame(datasets_row, text=tr("datasets_dest"))
         dest_tree_wrap.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
@@ -2856,6 +2870,9 @@ class App(tk.Tk):
         ds_dx.grid(row=1, column=0, sticky="ew")
         self.datasets_tree_dest.configure(yscrollcommand=ds_dy.set, xscrollcommand=ds_dx.set)
         self.datasets_tree_dest.bind("<<TreeviewSelect>>", self._on_dest_tree_selected)
+        self.datasets_tree_dest.bind("<Button-3>", lambda e: self._on_dataset_tree_context("dest", e))
+        self.datasets_tree_dest.bind("<Button-2>", lambda e: self._on_dataset_tree_context("dest", e))
+        self.datasets_tree_dest.bind("<Control-Button-1>", lambda e: self._on_dataset_tree_context("dest", e))
 
         props_row = ttk.Frame(ds_split)
         props_row.columnconfigure(0, weight=1)
@@ -4299,6 +4316,31 @@ class App(tk.Tk):
         self.dest_dataset_var.set(iid)
         self._render_dataset_properties("dest", self._find_selected_dataset_row("dest", iid))
         self._update_level_button_state()
+
+    def _on_dataset_tree_context(self, side: str, event: Any) -> str:
+        if self._reject_if_ssh_busy():
+            return "break"
+        tree = self.datasets_tree_origin if side == "origin" else self.datasets_tree_dest
+        iid = str(tree.identify_row(event.y) or "").strip()
+        if not iid:
+            return "break"
+        tree.selection_set(iid)
+        tree.focus(iid)
+        if side == "origin":
+            self._on_origin_tree_selected()
+        else:
+            self._on_dest_tree_selected()
+        self.datasets_context_menu.entryconfigure(0, state=self.create_btn.cget("state"))
+        self.datasets_context_menu.entryconfigure(1, state=self.modify_btn.cget("state"))
+        self.datasets_context_menu.entryconfigure(2, state=self.delete_dataset_btn.cget("state"))
+        try:
+            self.datasets_context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            try:
+                self.datasets_context_menu.grab_release()
+            except Exception:
+                pass
+        return "break"
 
     def _load_datasets_for_active_connection(self) -> None:
         self._refresh_dataset_pool_options_global()
