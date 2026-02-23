@@ -2569,6 +2569,9 @@ class App(tk.Tk):
         self._busy_cursor = "wait" if os.name == "nt" else "watch"
         self.selected_imported_pool: Optional[Tuple[str, str]] = None
         self.selected_importable_pool: Optional[Tuple[str, str, str]] = None  # (conn_id, pool_name, state)
+        self._active_context_menu: Optional[tk.Menu] = None
+        self._context_menu_global_bindings: List[Tuple[str, str]] = []
+        self._context_menu_unmap_bind_id: Optional[str] = None
         self.pool_properties_cache: Dict[str, List[Dict[str, str]]] = {}
 
         self._apply_theme()
@@ -3313,6 +3316,55 @@ class App(tk.Tk):
 
         apply_widget(self)
         self.update_idletasks()
+
+    def _dismiss_active_context_menu(self, unpost: bool = True) -> None:
+        menu = self._active_context_menu
+        if menu and unpost:
+            try:
+                menu.unpost()
+            except Exception:
+                pass
+        if menu and self._context_menu_unmap_bind_id:
+            try:
+                menu.unbind("<Unmap>", self._context_menu_unmap_bind_id)
+            except Exception:
+                pass
+        self._context_menu_unmap_bind_id = None
+        for sequence, bind_id in self._context_menu_global_bindings:
+            try:
+                self.unbind_all(sequence, bind_id)
+            except Exception:
+                pass
+        self._context_menu_global_bindings.clear()
+        self._active_context_menu = None
+
+    def _on_context_menu_global_click(self, event: Any) -> None:
+        menu = self._active_context_menu
+        if not menu:
+            return
+        widget_name = str(getattr(event, "widget", ""))
+        if widget_name and widget_name.startswith(str(menu)):
+            return
+        self._dismiss_active_context_menu(unpost=True)
+
+    def _on_context_menu_unmap(self, _event: Any) -> None:
+        self._dismiss_active_context_menu(unpost=False)
+
+    def _show_context_menu(self, menu: tk.Menu, event: Any) -> None:
+        self._dismiss_active_context_menu(unpost=True)
+        self._active_context_menu = menu
+        for sequence in ("<Button-1>", "<Button-2>", "<Button-3>", "<Escape>"):
+            bind_id = self.bind_all(sequence, self._on_context_menu_global_click, add="+")
+            if bind_id:
+                self._context_menu_global_bindings.append((sequence, bind_id))
+        self._context_menu_unmap_bind_id = menu.bind("<Unmap>", self._on_context_menu_unmap, add="+")
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            try:
+                menu.grab_release()
+            except Exception:
+                pass
 
     def _reject_if_ssh_busy(self) -> bool:
         if self.ssh_busy_count > 0:
@@ -4418,13 +4470,7 @@ class App(tk.Tk):
         self.datasets_context_menu.entryconfigure(0, state=self.create_btn.cget("state"))
         self.datasets_context_menu.entryconfigure(1, state=self.modify_btn.cget("state"))
         self.datasets_context_menu.entryconfigure(2, state=self.delete_dataset_btn.cget("state"))
-        try:
-            self.datasets_context_menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            try:
-                self.datasets_context_menu.grab_release()
-            except Exception:
-                pass
+        self._show_context_menu(self.datasets_context_menu, event)
         return "break"
 
     def _load_datasets_for_active_connection(self) -> None:
@@ -4814,13 +4860,7 @@ class App(tk.Tk):
             return
         self.selected_imported_pool = (conn_id, pool_name)
         self._render_all_imported_pools()
-        try:
-            self.imported_pool_context_menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            try:
-                self.imported_pool_context_menu.grab_release()
-            except Exception:
-                pass
+        self._show_context_menu(self.imported_pool_context_menu, event)
 
     def _export_selected_imported_pool(self) -> None:
         sel = self.selected_imported_pool
@@ -4877,13 +4917,7 @@ class App(tk.Tk):
         self.selected_importable_pool = (conn_id, pool_name, pool_state)
         import_enabled = pool_state.upper() == "ONLINE"
         self.importable_pool_context_menu.entryconfigure(0, state=("normal" if import_enabled else "disabled"))
-        try:
-            self.importable_pool_context_menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            try:
-                self.importable_pool_context_menu.grab_release()
-            except Exception:
-                pass
+        self._show_context_menu(self.importable_pool_context_menu, event)
 
     def _import_selected_importable_pool(self) -> None:
         sel = self.selected_importable_pool
