@@ -5142,7 +5142,22 @@ class App(tk.Tk):
                 ssh_busy(-1)
                 self.after(0, self._finish_level_command)
                 if conn_id:
-                    self.after(0, lambda: self._refresh_connection_by_id(conn_id))
+                    self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{conn_id}:")}
+                    self.pool_properties_cache = {
+                        k: v for k, v in self.pool_properties_cache.items() if not k.startswith(f"{conn_id}:")
+                    }
+                    with self.pool_status_lock:
+                        self.pool_status_cache = {
+                            k: v for k, v in self.pool_status_cache.items() if not k.startswith(f"{conn_id}:")
+                        }
+                        self.pool_status_loading = {
+                            k for k in self.pool_status_loading if not k.startswith(f"{conn_id}:")
+                        }
+                    profile = self.store.get(conn_id)
+                    if profile:
+                        self._app_log("info", trf("log_refresh_connection", name=profile.name))
+                    # Diferido minimo para evitar carrera con el desbloqueo de UI/SSH.
+                    self.after(100, lambda: self._refresh_connection_by_id(conn_id))
 
         threading.Thread(target=worker, daemon=True).start()
 
