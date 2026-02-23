@@ -3327,18 +3327,35 @@ class App(tk.Tk):
         ssh_last_panel.grid(row=1, column=0, sticky="nsew")
         ssh_last_panel.columnconfigure(0, weight=1)
         ssh_last_panel.rowconfigure(0, weight=1)
-        self.ssh_last_line_label = tk.Label(
+        self.ssh_last_line_text = tk.Text(
             ssh_last_panel,
-            textvariable=self.ssh_last_line_var,
+            height=4,
+            state="disabled",
+            wrap="word",
+            font=("TkDefaultFont", 9),
             bg=UI_PANEL_BG,
             fg=UI_TEXT,
-            anchor="nw",
-            justify="left",
-            wraplength=320,
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=UI_BORDER,
+            highlightcolor=UI_ACCENT,
         )
-        self.ssh_last_line_label.grid(row=0, column=0, sticky="nsew")
-        self.ssh_last_line_label.bind("<Configure>", lambda e: self.ssh_last_line_label.configure(wraplength=max(80, e.width - 8)))
-        self.ssh_last_line_label.bind("<Configure>", lambda _e: self._refresh_ssh_last_line_summary(), add="+")
+        self.ssh_last_line_text.grid(row=0, column=0, sticky="nsew")
+        self.ssh_last_line_scroll = ttk.Scrollbar(ssh_last_panel, orient="vertical", command=self.ssh_last_line_text.yview)
+        self.ssh_last_line_scroll.grid(row=0, column=1, sticky="ns")
+        def _ssh_last_auto_yset(first: str, last: str) -> None:
+            self.ssh_last_line_scroll.set(first, last)
+            try:
+                need = not (float(first) <= 0.0 and float(last) >= 1.0)
+            except Exception:
+                need = True
+            if need:
+                self.ssh_last_line_scroll.grid()
+            else:
+                self.ssh_last_line_scroll.grid_remove()
+        self.ssh_last_line_text.configure(yscrollcommand=_ssh_last_auto_yset)
+        self.ssh_last_line_scroll.grid_remove()
+        self.ssh_last_line_text.bind("<Configure>", lambda _e: self._refresh_ssh_last_line_summary(), add="+")
 
         # Panel derecho: tabs de logs arriba y controles debajo.
         right_logs = ttk.Frame(log_body)
@@ -3712,6 +3729,12 @@ class App(tk.Tk):
         self._hide_ssh_log_tooltip()
         self._ssh_last_line_full = ""
         self.ssh_last_line_var.set("")
+        try:
+            self.ssh_last_line_text.configure(state="normal")
+            self.ssh_last_line_text.delete("1.0", "end")
+            self.ssh_last_line_text.configure(state="disabled")
+        except Exception:
+            pass
         for widget in (self.app_log_text, self.ssh_log_text):
             widget.configure(state="normal")
             widget.delete("1.0", "end")
@@ -3849,9 +3872,24 @@ class App(tk.Tk):
         full = (self._ssh_last_line_full or "").strip()
         if not full:
             self.ssh_last_line_var.set("")
+            try:
+                self.ssh_last_line_text.configure(state="normal")
+                self.ssh_last_line_text.delete("1.0", "end")
+                self.ssh_last_line_text.configure(state="disabled")
+            except Exception:
+                pass
             return
         prefix = tr("log_ssh_last_prefix")
-        self.ssh_last_line_var.set(f"{prefix}{full}")
+        text = f"{prefix}{full}"
+        self.ssh_last_line_var.set(text)
+        try:
+            self.ssh_last_line_text.configure(state="normal")
+            self.ssh_last_line_text.delete("1.0", "end")
+            self.ssh_last_line_text.insert("1.0", text)
+            self.ssh_last_line_text.configure(state="disabled")
+            self.ssh_last_line_text.yview_moveto(0.0)
+        except Exception:
+            pass
 
     def _ssh_log(self, message: str) -> None:
         safe_message = self._mask_sensitive_text(message)
