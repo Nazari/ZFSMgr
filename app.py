@@ -2601,6 +2601,7 @@ class App(tk.Tk):
         else:
             initial_status = tr("status_ready")
         self.status_var = tk.StringVar(value=initial_status)
+        self.ssh_last_line_var = tk.StringVar(value="")
 
         self.priv_var = tk.StringVar(value=tr("priv_unknown"))
 
@@ -2913,14 +2914,16 @@ class App(tk.Tk):
 
         log_controls = ttk.Frame(log_frame)
         log_controls.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        log_controls.columnconfigure(2, weight=1)
+        log_controls.columnconfigure(3, weight=1)
 
         ttk.Label(log_controls, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
+        self.ssh_last_line_label = ttk.Label(log_controls, textvariable=self.ssh_last_line_var)
+        self.ssh_last_line_label.grid(row=0, column=1, sticky="w", padx=(10, 0))
         self.cancel_dataset_btn = ttk.Button(log_controls, text=tr("cancel_operation_btn"), command=self._cancel_dataset_operation)
-        self.cancel_dataset_btn.grid(row=0, column=1, sticky="w", padx=(10, 0))
+        self.cancel_dataset_btn.grid(row=0, column=2, sticky="w", padx=(10, 0))
         self.cancel_dataset_btn.configure(state="disabled")
 
-        ttk.Label(log_controls, text=tr("log_level")).grid(row=0, column=3, sticky="e")
+        ttk.Label(log_controls, text=tr("log_level")).grid(row=0, column=4, sticky="e")
         self.app_log_level_var = tk.StringVar(value="normal")
         self.app_log_level_combo = ttk.Combobox(
             log_controls,
@@ -2929,12 +2932,12 @@ class App(tk.Tk):
             state="readonly",
             width=10,
         )
-        self.app_log_level_combo.grid(row=0, column=4, sticky="w", padx=(6, 0))
+        self.app_log_level_combo.grid(row=0, column=5, sticky="w", padx=(6, 0))
         self.app_log_level_combo.bind("<<ComboboxSelected>>", lambda _e: self._app_log("info", tr("log_level_updated")))
         self.log_clear_btn = ttk.Button(log_controls, text=tr("log_clear"), command=self._clear_app_log)
-        self.log_clear_btn.grid(row=0, column=5, sticky="w", padx=(8, 0))
+        self.log_clear_btn.grid(row=0, column=6, sticky="w", padx=(8, 0))
         self.log_copy_btn = ttk.Button(log_controls, text=tr("log_copy"), command=self._copy_app_log)
-        self.log_copy_btn.grid(row=0, column=6, sticky="w", padx=(6, 0))
+        self.log_copy_btn.grid(row=0, column=7, sticky="w", padx=(6, 0))
 
         logs_split = ttk.Panedwindow(log_frame, orient=tk.HORIZONTAL)
         logs_split.grid(row=2, column=0, sticky="nsew")
@@ -3166,6 +3169,10 @@ class App(tk.Tk):
             self.ssh_log_text.insert("end", safe_message.rstrip() + "\n")
             self.ssh_log_text.see("end")
             self.ssh_log_text.configure(state="disabled")
+            last_line = (safe_message or "").strip()
+            if len(last_line) > 60:
+                last_line = last_line[:60]
+            self.ssh_last_line_var.set(f"{tr('log_ssh_last_prefix')}{last_line}")
         self.after(0, _append)
 
     def _mask_sensitive_text(self, text: str) -> str:

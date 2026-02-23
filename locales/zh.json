@@ -130,6 +130,7 @@
   "priv_not_checked": "未检查",
   "log_section": "应用日志",
   "log_level": "级别：",
+  "log_ssh_last_prefix": "SSH：",
   "cancel_operation_btn": "取消",
   "log_clear": "清空",
   "log_copy": "复制",

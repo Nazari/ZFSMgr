@@ -130,6 +130,7 @@
   "priv_not_checked": "not checked",
   "log_section": "Application log",
   "log_level": "Level:",
+  "log_ssh_last_prefix": "SSH: ",
   "cancel_operation_btn": "Cancel",
   "log_clear": "Clear",
   "log_copy": "Copy",
