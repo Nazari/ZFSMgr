@@ -3518,11 +3518,6 @@ class App(tk.Tk):
 
     def _load_connections_list(self) -> None:
         selected_id = self.selected_conn_id
-        try:
-            current_xview = self.conn_list.xview()
-            preserve_xview = bool(current_xview and current_xview[0] > 0.0)
-        except Exception:
-            preserve_xview = False
         self.conn_list.delete(0, tk.END)
         selected_index: Optional[int] = None
         for idx, c in enumerate(self.store.connections):
@@ -3532,11 +3527,10 @@ class App(tk.Tk):
             self.conn_list.insert(tk.END, f"{mark} {c.name} [{c.os_type}/{method}]")
             if c.id == selected_id:
                 selected_index = idx
-        if not preserve_xview:
-            try:
-                self.conn_list.xview_moveto(0.0)
-            except Exception:
-                pass
+        try:
+            self.conn_list.xview_moveto(0.0)
+        except Exception:
+            pass
         if selected_index is not None:
             self.conn_list.selection_clear(0, tk.END)
             self.conn_list.selection_set(selected_index)
