@@ -67,6 +67,10 @@ def build() -> Path:
                 "--onedir",
                 "--osx-bundle-identifier",
                 "com.zfsmgr.app",
+                "--hidden-import",
+                "tkinter",
+                "--hidden-import",
+                "_tkinter",
             ]
         )
     else:

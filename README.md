@@ -79,6 +79,7 @@ Esto instala:
 bash packaging/install-macos.sh
 ```
 Instala `~/Applications/ZFSMgr.app`, listo para abrir con doble click.
+Si no arranca al doble click, revisa: `~/Library/Application Support/ZFSMgr/startup_error.log`.
 
 - Windows (PowerShell):
 ```powershell

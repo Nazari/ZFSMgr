@@ -28,6 +28,30 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+
+def _configure_tk_env_for_frozen_macos() -> None:
+    """Set TCL/TK env vars for PyInstaller bundles on macOS before importing tkinter."""
+    if sys.platform != "darwin" or not getattr(sys, "frozen", False):
+        return
+    meipass = getattr(sys, "_MEIPASS", "")
+    if not meipass:
+        return
+    base = Path(meipass)
+    # PyInstaller may place Tcl/Tk under different paths depending on Python build.
+    candidates_tcl = [base / "tcl", base / "tcl8.6", base / "lib" / "tcl8.6"]
+    candidates_tk = [base / "tk", base / "tk8.6", base / "lib" / "tk8.6"]
+    for cand in candidates_tcl:
+        if cand.exists():
+            os.environ.setdefault("TCL_LIBRARY", str(cand))
+            break
+    for cand in candidates_tk:
+        if cand.exists():
+            os.environ.setdefault("TK_LIBRARY", str(cand))
+            break
+
+
+_configure_tk_env_for_frozen_macos()
+
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -6872,7 +6896,27 @@ def _show_startup_error(message: str) -> None:
         messagebox.showerror(tr("app_title"), message, parent=root)
         root.destroy()
     except tk.TclError:
+        if sys.platform == "darwin":
+            try:
+                safe = message.replace("\\", "\\\\").replace('"', '\\"')
+                subprocess.run(
+                    ["osascript", "-e", f'display alert "{tr("app_title")}" message "{safe}"'],
+                    check=False,
+                )
+            except Exception:
+                pass
         print(message, file=sys.stderr)
+
+
+def _write_startup_error_log(message: str) -> None:
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        path = CONFIG_DIR / "startup_error.log"
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        with path.open("a", encoding="utf-8", errors="replace") as fh:
+            fh.write(f"[{ts}] {message}\n")
+    except Exception:
+        pass
 
 
 def _change_master_password(current_password: str, new_password: str) -> None:
@@ -6942,4 +6986,15 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as exc:
+        detail = f"{exc}\n\n{traceback.format_exc()}"
+        _write_startup_error_log(detail)
+        _show_startup_error(
+            f"{tr('app_title')} failed to start.\n\n{detail}\n\n"
+            f"Log: {CONFIG_DIR / 'startup_error.log'}"
+        )
+        raise
