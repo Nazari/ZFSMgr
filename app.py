@@ -3581,6 +3581,7 @@ class App(tk.Tk):
                 padx=6,
                 pady=3,
                 justify="left",
+                wraplength=900,
             )
             lbl.pack()
             self._ssh_log_tipwindow = tw
