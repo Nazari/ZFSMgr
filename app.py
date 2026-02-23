@@ -4683,26 +4683,42 @@ class App(tk.Tk):
 
         dataset_q = shlex.quote(dataset_name)
         mount_q = shlex.quote(mountpoint)
-        env_prefix = (
+        breakdown_cmd = (
             "set -e; "
             f"DATASET={dataset_q}; MP_HINT={mount_q}; "
             "TMP_SUFFIX=\"$(printf '%s' \"$DATASET\" | tr '/' '_')\"; "
             "TMP_ROOT=\"/tmp/zfsmgr-breakdown-$TMP_SUFFIX\"; "
-        )
-        prep_cmd = env_prefix + (
-            "MP=\"$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true)\"; "
-            "[ -n \"$MP\" ] && [ \"$MP\" != \"none\" ] || MP=\"$MP_HINT\"; "
-            "[ -n \"$MP\" ] && [ \"$MP\" != \"none\" ] || { echo \"[BREAKDOWN][ERROR] mountpoint invalid for $DATASET\"; exit 21; }; "
-            "[ -d \"$MP\" ] || { echo \"[BREAKDOWN][ERROR] mountpoint does not exist: $MP\"; exit 22; }; "
+            "ORIG_MP=\"$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true)\"; "
+            "[ -n \"$ORIG_MP\" ] && [ \"$ORIG_MP\" != \"none\" ] || ORIG_MP=\"$MP_HINT\"; "
+            "[ -n \"$ORIG_MP\" ] && [ \"$ORIG_MP\" != \"none\" ] || { echo \"[BREAKDOWN][ERROR] mountpoint invalid for $DATASET\"; exit 21; }; "
+            "case \"$ORIG_MP\" in /*) ;; *) echo \"[BREAKDOWN][ERROR] mountpoint is not a path: $ORIG_MP\"; exit 22 ;; esac; "
             "mkdir -p \"$TMP_ROOT\"; "
-            "printf '[BREAKDOWN] dataset=%s mountpoint=%s\\n' \"$DATASET\" \"$MP\""
-        )
-        loop_cmd = env_prefix + (
-            "MP=\"$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true)\"; "
-            "[ -n \"$MP\" ] && [ \"$MP\" != \"none\" ] || MP=\"$MP_HINT\"; "
-            "[ -n \"$MP\" ] && [ \"$MP\" != \"none\" ] || { echo \"[BREAKDOWN][ERROR] mountpoint invalid for $DATASET\"; exit 23; }; "
-            "[ -d \"$MP\" ] || { echo \"[BREAKDOWN][ERROR] mountpoint does not exist: $MP\"; exit 24; }; "
-            "find \"$MP\" -mindepth 1 -maxdepth 1 -type d | while IFS= read -r d; do "
+            "MOUNTED=\"$(zfs get -H -o value mounted \"$DATASET\" 2>/dev/null || true)\"; "
+            "TEMP_MOUNTED=0; "
+            "MP=\"$ORIG_MP\"; "
+            "if [ \"$MOUNTED\" != \"yes\" ]; then "
+            "TMP_MP=\"$TMP_ROOT/__dataset_root\"; "
+            "mkdir -p \"$TMP_MP\"; "
+            "zfs set mountpoint=\"$TMP_MP\" \"$DATASET\"; "
+            "zfs mount \"$DATASET\"; "
+            "MP=\"$TMP_MP\"; "
+            "TEMP_MOUNTED=1; "
+            "fi; "
+            "cleanup() { "
+            "rc=$?; "
+            "if [ \"$TEMP_MOUNTED\" = \"1\" ]; then "
+            "zfs unmount \"$DATASET\" >/dev/null 2>&1 || true; "
+            "zfs set mountpoint=\"$ORIG_MP\" \"$DATASET\" >/dev/null 2>&1 || true; "
+            "fi; "
+            "exit \"$rc\"; "
+            "}; "
+            "trap cleanup EXIT INT TERM; "
+            "[ -d \"$MP\" ] || { echo \"[BREAKDOWN][ERROR] active mountpoint does not exist: $MP\"; exit 23; }; "
+            "printf '[BREAKDOWN] dataset=%s mounted=%s original_mp=%s active_mp=%s\\n' \"$DATASET\" \"$MOUNTED\" \"$ORIG_MP\" \"$MP\"; "
+            "found=0; "
+            "for d in \"$MP\"/*; do "
+            "[ -d \"$d\" ] || continue; "
+            "found=1; "
             "n=\"$(basename \"$d\")\"; "
             "safe=\"$(printf '%s' \"$n\" | tr ' ' '_' | tr -cd 'A-Za-z0-9_.:-')\"; "
             "[ -n \"$safe\" ] || safe=\"dir\"; "
@@ -4717,21 +4733,22 @@ class App(tk.Tk):
             "zfs create -o mountpoint=\"$tmp\" \"$child\"; "
             "rsync -aHAWXS --remove-source-files \"$d\"/ \"$tmp\"/; "
             "find \"$d\" -mindepth 1 -type d -empty -delete; "
-            "zfs set mountpoint=\"$d\" \"$child\"; "
+            "zfs set mountpoint=\"$ORIG_MP/$n\" \"$child\"; "
             "zfs mount \"$child\"; "
-            "printf '[BREAKDOWN] %s -> %s\\n' \"$d\" \"$child\"; "
-            "done"
+            "printf '[BREAKDOWN] %s -> %s (mp=%s)\\n' \"$d\" \"$child\" \"$ORIG_MP/$n\"; "
+            "done; "
+            "if [ \"$found\" = \"0\" ]; then "
+            "echo \"[BREAKDOWN] no subdirectories found in $MP\"; "
+            "fi"
         )
-        wrapped_prep = _wrap_for_profile(prep_cmd)
-        wrapped_loop = _wrap_for_profile(loop_cmd)
+        wrapped_cmd = _wrap_for_profile(breakdown_cmd)
         self._app_log(
             "normal",
             trf("log_breakdown_plan_generated", dataset=dataset_name, name=profile.name, selection=selection_label),
         )
         self._app_log("normal", tr("log_breakdown_plan_header"))
-        self._app_log("normal", wrapped_prep)
-        self._app_log("normal", wrapped_loop)
-        self._run_breakdown_command(f"{wrapped_prep} && {wrapped_loop}", conn_id=conn_id)
+        self._app_log("normal", wrapped_cmd)
+        self._run_breakdown_command(wrapped_cmd, conn_id=conn_id)
 
     def _get_dataset_for_create(self) -> Optional[Tuple[str, str, str, str]]:
         # Devuelve (side, selection_label, dataset, conn_id)
