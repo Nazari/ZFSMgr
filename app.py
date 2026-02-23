@@ -6149,7 +6149,7 @@ class App(tk.Tk):
             def refresh_one(profile: ConnectionProfile) -> Tuple[str, ConnectionState]:
                 state = ConnectionState()
                 conn_label = profile.transport if profile.os_type == "Windows" else profile.conn_type
-                self._app_log("info", f"Inicio refresh: {profile.name} [{conn_label}]")
+                self._app_log("normal", f"Inicio refresh: {profile.name} [{conn_label}]")
                 try:
                     def refresh_profile() -> ConnectionState:
                         local_state = ConnectionState()
@@ -6173,16 +6173,17 @@ class App(tk.Tk):
                             local_state.importable = execu.list_importable_pools()
                         return local_state
 
+                    timeout_seconds = PSRP_TIMEOUT_SECONDS + 10 if profile.conn_type == "PSRP" else REFRESH_TIMEOUT_SECONDS
                     state = run_with_timeout(
                         refresh_profile,
-                        REFRESH_TIMEOUT_SECONDS,
+                        timeout_seconds,
                         trf("error_timeout_refresh_connection", name=profile.name),
                     )
                 except Exception as exc:
                     state.ok = False
                     state.message = str(exc)
                 self._app_log(
-                    "info",
+                    "normal",
                     f"Fin refresh: {profile.name} [{conn_label}] -> {'OK' if state.ok else 'ERROR'} ({state.message})",
                 )
                 return profile.id, state
