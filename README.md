@@ -67,6 +67,10 @@ Salida:
 ```bash
 bash packaging/install-linux.sh
 ```
+Esto instala:
+- Binario en `~/.local/bin/ZFSMgr`
+- Lanzador nativo en `~/.local/share/applications/zfsmgr.desktop`
+- Icono en `~/.local/share/icons/hicolor/scalable/apps/zfsmgr.svg`
 
 - macOS:
 ```bash
