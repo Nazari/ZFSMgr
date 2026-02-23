@@ -6148,6 +6148,8 @@ class App(tk.Tk):
         def worker() -> None:
             def refresh_one(profile: ConnectionProfile) -> Tuple[str, ConnectionState]:
                 state = ConnectionState()
+                conn_label = profile.transport if profile.os_type == "Windows" else profile.conn_type
+                self._app_log("info", f"Inicio refresh: {profile.name} [{conn_label}]")
                 try:
                     def refresh_profile() -> ConnectionState:
                         local_state = ConnectionState()
@@ -6179,6 +6181,10 @@ class App(tk.Tk):
                 except Exception as exc:
                     state.ok = False
                     state.message = str(exc)
+                self._app_log(
+                    "info",
+                    f"Fin refresh: {profile.name} [{conn_label}] -> {'OK' if state.ok else 'ERROR'} ({state.message})",
+                )
                 return profile.id, state
 
             max_workers = max(1, min(8, len(profiles)))
