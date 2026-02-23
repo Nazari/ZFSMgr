@@ -2717,7 +2717,32 @@ class App(tk.Tk):
         conn_y.grid(row=0, column=1, sticky="ns")
         conn_x = ttk.Scrollbar(conn_frame, orient="horizontal", command=self.conn_list.xview)
         conn_x.grid(row=1, column=0, sticky="ew")
-        self.conn_list.configure(yscrollcommand=conn_y.set, xscrollcommand=conn_x.set)
+
+        def _auto_yset(first: str, last: str) -> None:
+            conn_y.set(first, last)
+            try:
+                need = not (float(first) <= 0.0 and float(last) >= 1.0)
+            except Exception:
+                need = True
+            if need:
+                conn_y.grid()
+            else:
+                conn_y.grid_remove()
+
+        def _auto_xset(first: str, last: str) -> None:
+            conn_x.set(first, last)
+            try:
+                need = not (float(first) <= 0.0 and float(last) >= 1.0)
+            except Exception:
+                need = True
+            if need:
+                conn_x.grid()
+            else:
+                conn_x.grid_remove()
+
+        self.conn_list.configure(yscrollcommand=_auto_yset, xscrollcommand=_auto_xset)
+        conn_y.grid_remove()
+        conn_x.grid_remove()
         self.conn_list.bind("<<ListboxSelect>>", self.on_select_connection)
         self.conn_list.bind("<Double-Button-1>", self.on_double_click_connection)
 
