@@ -3149,9 +3149,10 @@ class App(tk.Tk):
     def _app_log(self, level: str, message: str) -> None:
         if not self._should_log(level):
             return
+        safe_message = self._mask_sensitive_text(message)
         def _append() -> None:
             self.app_log_text.configure(state="normal")
-            self.app_log_text.insert("end", f"[{level.upper()}] {message}\n")
+            self.app_log_text.insert("end", f"[{level.upper()}] {safe_message}\n")
             self.app_log_text.see("end")
             self.app_log_text.configure(state="disabled")
         self.after(0, _append)
@@ -3176,12 +3177,32 @@ class App(tk.Tk):
         self.after(0, _append)
 
     def _ssh_log(self, message: str) -> None:
+        safe_message = self._mask_sensitive_text(message)
         def _append() -> None:
             self.ssh_log_text.configure(state="normal")
-            self.ssh_log_text.insert("end", message.rstrip() + "\n")
+            self.ssh_log_text.insert("end", safe_message.rstrip() + "\n")
             self.ssh_log_text.see("end")
             self.ssh_log_text.configure(state="disabled")
         self.after(0, _append)
+
+    def _mask_sensitive_text(self, text: str) -> str:
+        out = text or ""
+        # Enmascara passwords configurados (tal cual y escapados en shell/log).
+        for conn in self.store.connections:
+            pwd = (conn.password or "").strip()
+            if not pwd:
+                continue
+            variants = {
+                pwd,
+                shlex.quote(pwd),
+                pwd.replace("'", "\\'"),
+            }
+            for v in variants:
+                if v:
+                    out = out.replace(v, "*")
+        # Fallback generico: printf/sudo con password inline.
+        out = re.sub(r"(printf\s+'%s\\n'\s+)(\S+)", r"\1*", out)
+        return out
 
     def _on_ssh_busy_delta(self, delta: int) -> None:
         def _apply() -> None:
