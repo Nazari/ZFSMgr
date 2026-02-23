@@ -2724,29 +2724,30 @@ class App(tk.Tk):
         self.tab_datasets.columnconfigure(0, weight=1)
         self.left_tabs.add(self.tab_datasets, text=tr("tab_datasets"))
         ttk.Label(self.tab_datasets, text=tr("datasets_sync_title")).grid(row=0, column=0, sticky="w")
-        ttk.Label(self.tab_datasets, textvariable=self.dataset_action_target_var, foreground=UI_MUTED).grid(
-            row=1,
-            column=0,
-            sticky="w",
-            pady=(2, 0),
-        )
         edit_box = ttk.LabelFrame(self.tab_datasets, text=tr("datasets_box_edit"), padding=(8, 6))
-        edit_box.grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        edit_box.grid(row=1, column=0, sticky="ew", pady=(6, 0))
         for i in range(3):
             edit_box.columnconfigure(i, weight=1)
+        ttk.Label(edit_box, textvariable=self.dataset_action_target_var, foreground=UI_MUTED).grid(
+            row=0,
+            column=0,
+            columnspan=3,
+            sticky="w",
+            pady=(0, 4),
+        )
 
         self.create_btn = ttk.Button(edit_box, text=tr("create_dataset_btn"), command=self._create_dataset)
-        self.create_btn.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        self.create_btn.grid(row=1, column=0, sticky="ew", padx=(0, 6))
         self.create_btn.configure(state="disabled")
         ToolTip(self.create_btn, tr("create_dataset_tooltip"))
 
         self.modify_btn = ttk.Button(edit_box, text=tr("modify_dataset_btn"), command=self._modify_dataset)
-        self.modify_btn.grid(row=0, column=1, sticky="ew", padx=3)
+        self.modify_btn.grid(row=1, column=1, sticky="ew", padx=3)
         self.modify_btn.configure(state="disabled")
         ToolTip(self.modify_btn, tr("modify_dataset_tooltip"))
 
         self.delete_dataset_btn = ttk.Button(edit_box, text=tr("delete_dataset_btn"), command=self._delete_dataset)
-        self.delete_dataset_btn.grid(row=0, column=2, sticky="ew", padx=(6, 0))
+        self.delete_dataset_btn.grid(row=1, column=2, sticky="ew", padx=(6, 0))
         self.delete_dataset_btn.configure(state="disabled")
         ToolTip(self.delete_dataset_btn, tr("delete_dataset_tooltip"))
         self.datasets_context_menu = tk.Menu(
@@ -2762,7 +2763,7 @@ class App(tk.Tk):
         self.datasets_context_menu.add_command(label=tr("delete_dataset_btn"), command=self._delete_dataset)
 
         transfer_box = ttk.LabelFrame(self.tab_datasets, text=tr("datasets_box_transfer"), padding=(8, 6))
-        transfer_box.grid(row=3, column=0, sticky="ew", pady=(6, 0))
+        transfer_box.grid(row=2, column=0, sticky="ew", pady=(6, 0))
         for i in range(3):
             transfer_box.columnconfigure(i, weight=1)
 
