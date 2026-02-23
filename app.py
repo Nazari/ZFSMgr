@@ -1291,13 +1291,16 @@ class PSRPExecutor(BaseExecutor):
             return PSRPClient(**kwargs)
 
     def _run_ps(self, script: str, timeout_seconds: Optional[int] = PSRP_TIMEOUT_SECONDS) -> str:
-        try:
+        def _exec_ps() -> Tuple[str, Any, bool]:
             client = self._client()
+            return client.execute_ps(script)
+
+        try:
             if timeout_seconds is None:
-                output, streams, had_errors = client.execute_ps(script)
+                output, streams, had_errors = _exec_ps()
             else:
                 output, streams, had_errors = run_with_timeout(
-                    lambda: client.execute_ps(script),
+                    _exec_ps,
                     timeout_seconds,
                     tr("error_timeout_ps_remote"),
                 )
