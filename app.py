@@ -699,24 +699,24 @@ class BaseExecutor:
 
 
 class LocalExecutor(BaseExecutor):
-    def _zpool_cmd(self, args: str) -> str:
+    def _zpool_cmd(self, args: str, timeout_seconds: Optional[int] = COMMAND_TIMEOUT_SECONDS) -> str:
         import subprocess
 
         cmd = build_zfs_binary_cmd("zpool", args)
         try:
-            proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS)
+            proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout_seconds)
         except subprocess.TimeoutExpired as exc:
             raise ExecutorError(f"Timeout ejecutando: {cmd}") from exc
         if proc.returncode != 0:
             raise ExecutorError(proc.stderr.strip() or proc.stdout.strip() or f"Fallo ejecutando: {cmd}")
         return proc.stdout
 
-    def _zfs_cmd(self, args: str) -> str:
+    def _zfs_cmd(self, args: str, timeout_seconds: Optional[int] = COMMAND_TIMEOUT_SECONDS) -> str:
         import subprocess
 
         cmd = build_zfs_binary_cmd("zfs", args)
         try:
-            proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS)
+            proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout_seconds)
         except subprocess.TimeoutExpired as exc:
             raise ExecutorError(f"Timeout ejecutando: {cmd}") from exc
         if proc.returncode != 0:
@@ -877,7 +877,7 @@ class LocalExecutor(BaseExecutor):
 
     def destroy_dataset(self, dataset: str, recursive: bool = False) -> str:
         flag = "-r " if recursive else ""
-        return self._zfs_cmd(f"destroy {flag}{shlex.quote(dataset)}")
+        return self._zfs_cmd(f"destroy {flag}{shlex.quote(dataset)}", timeout_seconds=None)
 
 
 class SSHExecutor(BaseExecutor):
@@ -928,7 +928,12 @@ class SSHExecutor(BaseExecutor):
         client.connect(**kwargs)
         return client
 
-    def _run(self, command: str, sudo: bool = False) -> str:
+    def _run(
+        self,
+        command: str,
+        sudo: bool = False,
+        timeout_seconds: Optional[int] = COMMAND_TIMEOUT_SECONDS,
+    ) -> str:
         ssh_busy(1)
         try:
             client = self._connect()
@@ -943,7 +948,7 @@ class SSHExecutor(BaseExecutor):
                 if self.profile.password:
                     cmd = f"sudo -S -p '' -k sh -lc {shlex.quote(command)}"
                     ssh_trace(f"{target} $ {cmd}")
-                    stdin, stdout, stderr = client.exec_command(cmd, timeout=COMMAND_TIMEOUT_SECONDS)
+                    stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout_seconds)
                     stdin.write(self.profile.password + "\n")
                     stdin.flush()
                     try:
@@ -954,15 +959,15 @@ class SSHExecutor(BaseExecutor):
                     # Sin password configurado: falla rapido sin quedarse esperando prompt.
                     cmd = f"sudo -n sh -lc {shlex.quote(command)}"
                     ssh_trace(f"{target} $ {cmd}")
-                    _stdin, stdout, stderr = client.exec_command(cmd, timeout=COMMAND_TIMEOUT_SECONDS)
+                    _stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout_seconds)
             else:
                 shell_cmd = self._wrap_remote_shell(cmd)
                 ssh_trace(f"{target} $ {shell_cmd}")
-                _stdin, stdout, stderr = client.exec_command(shell_cmd, timeout=COMMAND_TIMEOUT_SECONDS)
+                _stdin, stdout, stderr = client.exec_command(shell_cmd, timeout=timeout_seconds)
 
             start = time.monotonic()
             while not stdout.channel.exit_status_ready():
-                if time.monotonic() - start > COMMAND_TIMEOUT_SECONDS:
+                if timeout_seconds is not None and (time.monotonic() - start > timeout_seconds):
                     try:
                         stdout.channel.close()
                     except Exception:
@@ -1133,7 +1138,7 @@ class SSHExecutor(BaseExecutor):
 
     def destroy_dataset(self, dataset: str, recursive: bool = False) -> str:
         flag = "-r " if recursive else ""
-        return self._run(self._zfs_cmd(f"destroy {flag}{shlex.quote(dataset)}"), sudo=True)
+        return self._run(self._zfs_cmd(f"destroy {flag}{shlex.quote(dataset)}"), sudo=True, timeout_seconds=None)
 
 
 class PSRPExecutor(BaseExecutor):
@@ -1154,14 +1159,17 @@ class PSRPExecutor(BaseExecutor):
             cert_validation=False,
         )
 
-    def _run_ps(self, script: str) -> str:
+    def _run_ps(self, script: str, timeout_seconds: Optional[int] = PSRP_TIMEOUT_SECONDS) -> str:
         try:
             client = self._client()
-            output, streams, had_errors = run_with_timeout(
-                lambda: client.execute_ps(script),
-                PSRP_TIMEOUT_SECONDS,
-                tr("error_timeout_ps_remote"),
-            )
+            if timeout_seconds is None:
+                output, streams, had_errors = client.execute_ps(script)
+            else:
+                output, streams, had_errors = run_with_timeout(
+                    lambda: client.execute_ps(script),
+                    timeout_seconds,
+                    tr("error_timeout_ps_remote"),
+                )
             if had_errors:
                 err = "\n".join(getattr(streams, "error", []) or [])
                 raise ExecutorError(err or tr("error_ps_remote"))
@@ -1322,7 +1330,7 @@ class PSRPExecutor(BaseExecutor):
         def _ps_quote(s: str) -> str:
             return "'" + s.replace("'", "''") + "'"
         flag = "-r " if recursive else ""
-        return self._run_ps(f"zfs destroy {flag}{_ps_quote(dataset)}")
+        return self._run_ps(f"zfs destroy {flag}{_ps_quote(dataset)}", timeout_seconds=None)
 
 
 def make_executor(profile: ConnectionProfile) -> BaseExecutor:
