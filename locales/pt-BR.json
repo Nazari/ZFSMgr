@@ -82,6 +82,7 @@
   "datasets_box_edit": "Dataset management",
   "datasets_box_transfer": "Transfer between source and destination",
   "datasets_sync_btn": "Synchronize",
+  "datasets_breakdown_tooltip": "Criar um subdataset por diretorio e mover o conteudo (executa a acao)",
   "create_dataset_btn": "Create",
   "create_dataset_tooltip": "Create a new dataset under the selected dataset",
   "modify_dataset_btn": "Modify",
