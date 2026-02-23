@@ -2818,16 +2818,17 @@ class App(tk.Tk):
         right.columnconfigure(0, weight=1)
         right.rowconfigure(0, weight=1)
 
-        # Sin barra de redimensionado: panel izquierdo fijo al 70% del ancho previo (~33% -> ~23%).
-        def _sync_left_width(event: Any) -> None:
-            width = max(260, int(event.width * 0.23))
+        # Sin barra de redimensionado: panel izquierdo de ancho fijo.
+        def _init_fixed_left_width() -> None:
+            base_width = max(top_container.winfo_width(), self.winfo_width(), 1200)
+            width = max(260, int(base_width * 0.23))
             top_container.grid_columnconfigure(0, minsize=width)
             wrap = max(180, width - 40)
             self.dataset_selected_label.configure(wraplength=wrap)
             self.transfer_origin_label.configure(wraplength=wrap)
             self.transfer_dest_label.configure(wraplength=wrap)
 
-        top_container.bind("<Configure>", _sync_left_width, add="+")
+        self.after_idle(_init_fixed_left_width)
 
         self.right_conn_detail = ttk.Frame(right)
         self.right_conn_detail.grid(row=0, column=0, sticky="nsew")
