@@ -84,7 +84,7 @@
   "datasets_box_breakdown": "Dataset breakdown",
   "datasets_sync_btn": "Synchronize",
   "datasets_breakdown_btn": "Break down",
-  "datasets_breakdown_tooltip": "Create one child dataset per directory and move its content (plan only, no execution)",
+  "datasets_breakdown_tooltip": "Create one child dataset per directory and move its content (executes the action)",
   "create_dataset_btn": "Create",
   "create_dataset_tooltip": "Create a new dataset under the selected dataset",
   "modify_dataset_btn": "Modify",

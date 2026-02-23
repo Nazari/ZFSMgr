@@ -84,7 +84,7 @@
   "datasets_box_breakdown": "数据集拆分",
   "datasets_sync_btn": "同步",
   "datasets_breakdown_btn": "拆分",
-  "datasets_breakdown_tooltip": "按目录创建子数据集并迁移其内容（仅生成计划，不执行）",
+  "datasets_breakdown_tooltip": "按目录创建子数据集并迁移其内容（会执行该操作）",
   "create_dataset_btn": "创建",
   "create_dataset_tooltip": "在所选数据集下创建新数据集",
   "modify_dataset_btn": "修改",

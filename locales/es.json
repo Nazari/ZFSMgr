@@ -84,7 +84,7 @@
   "datasets_box_breakdown": "Desglosar dataset",
   "datasets_sync_btn": "Sincronizar",
   "datasets_breakdown_btn": "Desglosar",
-  "datasets_breakdown_tooltip": "Crear subdatasets por directorio y mover su contenido (solo plan, sin ejecutar)",
+  "datasets_breakdown_tooltip": "Crear subdatasets por directorio y mover su contenido (ejecuta la acción)",
   "create_dataset_btn": "Crear",
   "create_dataset_tooltip": "Crear un dataset nuevo debajo del dataset seleccionado",
   "modify_dataset_btn": "Modificar",
