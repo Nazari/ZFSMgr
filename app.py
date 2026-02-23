@@ -3071,10 +3071,45 @@ class App(tk.Tk):
         wrap.columnconfigure(0, weight=1)
         wrap.rowconfigure(1, weight=1)
 
-        header_canvas = tk.Canvas(wrap, bg=UI_PANEL_BG, highlightthickness=1, highlightbackground=UI_BORDER)
+        total_width = sum(max(0, width) for _title, width, _anchor in columns)
+
+        if not enable_xscroll:
+            header = tk.Frame(wrap, bg=UI_PANEL_BG, highlightthickness=1, highlightbackground=UI_BORDER)
+            header.grid(row=0, column=0, sticky="ew")
+            for idx, (title, width, anchor) in enumerate(columns):
+                lbl = tk.Label(
+                    header,
+                    text=title,
+                    bg=UI_PANEL_BG,
+                    fg=UI_TEXT,
+                    anchor=anchor,
+                    padx=6,
+                    pady=4,
+                    font=("TkDefaultFont", 10, "bold"),
+                )
+                lbl.grid(row=0, column=idx, sticky="nsew")
+                header.grid_columnconfigure(idx, minsize=width, weight=0)
+
+            rows_canvas = tk.Canvas(wrap, bg=UI_PANEL_BG, highlightthickness=1, highlightbackground=UI_BORDER)
+            rows_canvas.grid(row=1, column=0, sticky="nsew")
+            ybar = ttk.Scrollbar(wrap, orient="vertical", command=rows_canvas.yview)
+            ybar.grid(row=1, column=1, sticky="ns")
+            rows_canvas.configure(yscrollcommand=ybar.set)
+
+            rows = ttk.Frame(rows_canvas)
+            rows_canvas.create_window((0, 0), window=rows, anchor="nw")
+            rows._scroll_canvas = rows_canvas  # type: ignore[attr-defined]
+
+            def _sync_scroll(_event: Any = None) -> None:
+                rows_canvas.configure(scrollregion=rows_canvas.bbox("all"))
+
+            rows.bind("<Configure>", _sync_scroll)
+            return rows
+
+        header_canvas = tk.Canvas(wrap, bg=UI_PANEL_BG, highlightthickness=1, highlightbackground=UI_BORDER, height=30)
         header_canvas.grid(row=0, column=0, sticky="ew")
         header = tk.Frame(header_canvas, bg=UI_PANEL_BG)
-        header_canvas.create_window((0, 0), window=header, anchor="nw")
+        header_window = header_canvas.create_window((0, 0), window=header, anchor="nw", width=total_width)
         for idx, (title, width, anchor) in enumerate(columns):
             lbl = tk.Label(
                 header,
@@ -3096,28 +3131,29 @@ class App(tk.Tk):
         rows_canvas.configure(yscrollcommand=ybar.set)
 
         rows = ttk.Frame(rows_canvas)
-        rows_canvas.create_window((0, 0), window=rows, anchor="nw")
+        rows_window = rows_canvas.create_window((0, 0), window=rows, anchor="nw", width=total_width)
         rows._scroll_canvas = rows_canvas  # type: ignore[attr-defined]
 
+        xbar = ttk.Scrollbar(wrap, orient="horizontal")
+        xbar.grid(row=2, column=0, sticky="ew")
+
+        def _xview(*args: Any) -> None:
+            rows_canvas.xview(*args)
+            header_canvas.xview(*args)
+
+        xbar.configure(command=_xview)
+        rows_canvas.configure(xscrollcommand=xbar.set)
+        header_canvas.configure(xscrollcommand=xbar.set)
+
         def _sync_scroll(_event: Any = None) -> None:
-            rows_canvas.configure(scrollregion=rows_canvas.bbox("all"))
-            header_canvas.configure(scrollregion=header_canvas.bbox("all"))
+            rows_canvas.itemconfigure(rows_window, width=total_width)
+            header_canvas.itemconfigure(header_window, width=total_width)
+            rows_canvas.configure(scrollregion=(0, 0, total_width, max(rows.winfo_reqheight(), rows_canvas.winfo_height())))
+            header_canvas.configure(scrollregion=(0, 0, total_width, max(header.winfo_reqheight(), header_canvas.winfo_height())))
 
         rows.bind("<Configure>", _sync_scroll)
         header.bind("<Configure>", _sync_scroll)
-
-        if enable_xscroll:
-            xbar = ttk.Scrollbar(wrap, orient="horizontal")
-            xbar.grid(row=2, column=0, sticky="ew")
-
-            def _xview(*args: Any) -> None:
-                rows_canvas.xview(*args)
-                header_canvas.xview(*args)
-
-            xbar.configure(command=_xview)
-            rows_canvas.configure(xscrollcommand=xbar.set)
-            header_canvas.configure(xscrollcommand=xbar.set)
-
+        _sync_scroll()
         return rows
 
     def _on_table_mousewheel(self, event: Any, canvas: tk.Canvas) -> None:
