@@ -1542,6 +1542,21 @@ def build_zpool_import_cmd(pool: str, options: Dict[str, Any]) -> str:
 
 
 def build_zfs_create_cmd(dataset_path: str, options: Dict[str, Any]) -> str:
+    ds_type = (options.get("ds_type") or "filesystem").strip().lower()
+    if ds_type == "snapshot":
+        parts = ["snapshot"]
+        if options.get("snapshot_recursive"):
+            parts.append("-r")
+        for prop in options.get("properties", []):
+            p = str(prop).strip()
+            if p:
+                parts.extend(["-o", shlex.quote(p)])
+        extra = (options.get("extra_args") or "").strip()
+        if extra:
+            parts.extend(shlex.split(extra))
+        parts.append(shlex.quote(dataset_path))
+        return " ".join(parts)
+
     parts = ["create"]
     if options.get("parents"):
         parts.append("-p")
@@ -1552,7 +1567,6 @@ def build_zfs_create_cmd(dataset_path: str, options: Dict[str, Any]) -> str:
     blocksize = (options.get("blocksize") or "").strip()
     if blocksize:
         parts.extend(["-b", shlex.quote(blocksize)])
-    ds_type = (options.get("ds_type") or "filesystem").strip().lower()
     volsize = (options.get("volsize") or "").strip()
     if ds_type == "volume" and volsize:
         parts.extend(["-V", shlex.quote(volsize)])
@@ -2206,7 +2220,7 @@ class ImportDialog(tk.Toplevel):
 
 
 class CreateDatasetDialog(tk.Toplevel):
-    def __init__(self, master: tk.Misc, initial_path: str) -> None:
+    def __init__(self, master: tk.Misc, initial_path: str, base_dataset: str = "") -> None:
         super().__init__(master)
         self.title(tr("create_dataset_title"))
         self.resizable(False, False)
@@ -2214,6 +2228,7 @@ class CreateDatasetDialog(tk.Toplevel):
         self.result: Optional[Dict[str, Any]] = None
 
         self.var_path = tk.StringVar(value=initial_path)
+        self.base_dataset = base_dataset.strip()
         self.var_type = tk.StringVar(value="filesystem")
         self.var_volsize = tk.StringVar()
         self.var_blocksize = tk.StringVar()
@@ -2221,6 +2236,7 @@ class CreateDatasetDialog(tk.Toplevel):
         self.var_parents = tk.BooleanVar(value=True)
         self.var_sparse = tk.BooleanVar(value=False)
         self.var_nomount = tk.BooleanVar(value=False)
+        self.var_snapshot_recursive = tk.BooleanVar(value=False)
         self.prop_vars: Dict[str, tk.StringVar] = {}
 
         frm = ttk.Frame(self, padding=12)
@@ -2231,7 +2247,7 @@ class CreateDatasetDialog(tk.Toplevel):
         ttk.Entry(frm, textvariable=self.var_path, width=56).grid(row=0, column=1, sticky="ew", pady=4)
 
         ttk.Label(frm, text=tr("create_dataset_type")).grid(row=1, column=0, sticky="w", padx=(0, 8), pady=4)
-        type_combo = ttk.Combobox(frm, textvariable=self.var_type, values=["filesystem", "volume"], state="readonly", width=18)
+        type_combo = ttk.Combobox(frm, textvariable=self.var_type, values=["filesystem", "volume", "snapshot"], state="readonly", width=18)
         type_combo.grid(row=1, column=1, sticky="w", pady=4)
 
         self.volsize_label = ttk.Label(frm, text=tr("create_dataset_volsize"))
@@ -2247,6 +2263,12 @@ class CreateDatasetDialog(tk.Toplevel):
         ttk.Checkbutton(opts, text=tr("create_dataset_opt_parents"), variable=self.var_parents).grid(row=0, column=0, sticky="w", padx=(0, 8))
         ttk.Checkbutton(opts, text=tr("create_dataset_opt_sparse"), variable=self.var_sparse).grid(row=0, column=1, sticky="w", padx=(0, 8))
         ttk.Checkbutton(opts, text=tr("create_dataset_opt_nomount"), variable=self.var_nomount).grid(row=0, column=2, sticky="w")
+        self.snapshot_recursive_chk = ttk.Checkbutton(
+            opts,
+            text=tr("create_dataset_snapshot_recursive"),
+            variable=self.var_snapshot_recursive,
+        )
+        self.snapshot_recursive_chk.grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
         props_frame = ttk.LabelFrame(frm, text=tr("create_dataset_properties"))
         props_frame.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(6, 2))
@@ -2304,7 +2326,9 @@ class CreateDatasetDialog(tk.Toplevel):
         ttk.Button(actions, text=tr("create_dataset_btn"), command=self._accept).grid(row=0, column=1, padx=4)
 
         def _toggle_type(*_args: Any) -> None:
-            is_volume = self.var_type.get().strip().lower() == "volume"
+            sel_type = self.var_type.get().strip().lower()
+            is_volume = sel_type == "volume"
+            is_snapshot = sel_type == "snapshot"
             if is_volume:
                 self.volsize_label.grid()
                 self.volsize_entry.grid()
@@ -2313,6 +2337,19 @@ class CreateDatasetDialog(tk.Toplevel):
                 self.volsize_label.grid_remove()
                 self.volsize_entry.grid_remove()
                 self.var_volsize.set("")
+            self.snapshot_recursive_chk.configure(state=("normal" if is_snapshot else "disabled"))
+            if is_snapshot:
+                cur = self.var_path.get().strip()
+                if "@" not in cur:
+                    base = self.base_dataset or cur
+                    base = base.split("@", 1)[0]
+                    if base:
+                        self.var_path.set(f"{base}@snap")
+            else:
+                cur = self.var_path.get().strip()
+                if "@" in cur:
+                    self.var_path.set(cur.split("@", 1)[0])
+                self.var_snapshot_recursive.set(False)
 
         self.var_type.trace_add("write", _toggle_type)
         _toggle_type()
@@ -2331,6 +2368,9 @@ class CreateDatasetDialog(tk.Toplevel):
         if not path:
             messagebox.showerror(tr("validation_title"), tr("create_dataset_path_required"), parent=self)
             return
+        if ds_type == "snapshot" and "@" not in path:
+            messagebox.showerror(tr("validation_title"), tr("create_dataset_snapshot_required"), parent=self)
+            return
         if ds_type == "volume" and not volsize:
             messagebox.showerror(tr("validation_title"), tr("create_dataset_volsize_required"), parent=self)
             return
@@ -2347,6 +2387,7 @@ class CreateDatasetDialog(tk.Toplevel):
             "parents": self.var_parents.get(),
             "sparse": self.var_sparse.get(),
             "nomount": self.var_nomount.get(),
+            "snapshot_recursive": self.var_snapshot_recursive.get(),
             "properties": props,
             "extra_args": self.var_extra.get().strip(),
         }
@@ -3939,7 +3980,7 @@ class App(tk.Tk):
             return
 
         initial_path = f"{base_dataset}/{tr('create_dataset_default_name')}"
-        dlg = CreateDatasetDialog(self, initial_path=initial_path)
+        dlg = CreateDatasetDialog(self, initial_path=initial_path, base_dataset=base_dataset)
         self.wait_window(dlg)
         if not dlg.result:
             return
