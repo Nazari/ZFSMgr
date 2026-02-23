@@ -4684,22 +4684,31 @@ class App(tk.Tk):
         dataset_q = shlex.quote(dataset_name)
         mount_q = shlex.quote(mountpoint)
         env_prefix = (
+            "set -e; "
             f"DATASET={dataset_q}; MP={mount_q}; "
             "TMP_SUFFIX=\"$(printf '%s' \"$DATASET\" | tr '/' '_')\"; "
             "TMP_ROOT=\"/tmp/zfsmgr-breakdown-$TMP_SUFFIX\"; "
         )
         prep_cmd = env_prefix + "mkdir -p \"$TMP_ROOT\""
         loop_cmd = env_prefix + (
-            "for d in \"$MP\"/*; do "
-            "[ -d \"$d\" ] || continue; "
+            "find \"$MP\" -mindepth 1 -maxdepth 1 -type d | while IFS= read -r d; do "
             "n=\"$(basename \"$d\")\"; "
-            "child=\"$DATASET/$n\"; "
-            "tmp=\"$TMP_ROOT/$n\"; "
+            "safe=\"$(printf '%s' \"$n\" | tr ' ' '_' | tr -cd 'A-Za-z0-9_.:-')\"; "
+            "[ -n \"$safe\" ] || safe=\"dir\"; "
+            "child=\"$DATASET/$safe\"; "
+            "tmp=\"$TMP_ROOT/$safe\"; "
+            "i=1; "
+            "while zfs list -H -o name \"$child\" >/dev/null 2>&1; do "
+            "child=\"$DATASET/${safe}-$i\"; "
+            "tmp=\"$TMP_ROOT/${safe}-$i\"; "
+            "i=$((i+1)); "
+            "done; "
             "zfs create -o mountpoint=\"$tmp\" \"$child\"; "
             "rsync -aHAWXS --remove-source-files \"$d\"/ \"$tmp\"/; "
             "find \"$d\" -mindepth 1 -type d -empty -delete; "
             "zfs set mountpoint=\"$d\" \"$child\"; "
             "zfs mount \"$child\"; "
+            "printf '[BREAKDOWN] %s -> %s\\n' \"$d\" \"$child\"; "
             "done"
         )
         wrapped_prep = _wrap_for_profile(prep_cmd)
