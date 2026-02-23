@@ -2648,6 +2648,8 @@ class App(tk.Tk):
         self.status_var = tk.StringVar(value=initial_status)
         self.ssh_last_line_var = tk.StringVar(value="")
         self.dataset_action_target_var = tk.StringVar(value="")
+        self.transfer_origin_target_var = tk.StringVar(value=f"{tr('datasets_origin')}: {tr('label_none')}")
+        self.transfer_dest_target_var = tk.StringVar(value=f"{tr('datasets_dest')}: {tr('label_none')}")
 
         self.priv_var = tk.StringVar(value=tr("priv_unknown"))
 
@@ -2763,19 +2765,31 @@ class App(tk.Tk):
         transfer_box = ttk.LabelFrame(self.tab_datasets, text=tr("datasets_box_transfer"), padding=(8, 6))
         transfer_box.grid(row=2, column=0, sticky="ew", pady=(6, 0))
         transfer_box.columnconfigure(0, weight=1)
+        ttk.Label(transfer_box, textvariable=self.transfer_origin_target_var, foreground=UI_MUTED).grid(
+            row=0,
+            column=0,
+            sticky="w",
+            pady=(0, 2),
+        )
+        ttk.Label(transfer_box, textvariable=self.transfer_dest_target_var, foreground=UI_MUTED).grid(
+            row=1,
+            column=0,
+            sticky="w",
+            pady=(0, 4),
+        )
 
         self.copy_btn = ttk.Button(transfer_box, text=tr("copy_snapshot_btn"), command=self._copy_snapshot_to_dataset)
-        self.copy_btn.grid(row=0, column=0, sticky="ew")
+        self.copy_btn.grid(row=2, column=0, sticky="ew")
         self.copy_btn.configure(state="disabled")
         ToolTip(self.copy_btn, tr("copy_snapshot_tooltip"))
 
         self.level_btn = ttk.Button(transfer_box, text=tr("datasets_level_btn"), command=self._level_datasets)
-        self.level_btn.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        self.level_btn.grid(row=3, column=0, sticky="ew", pady=(4, 0))
         self.level_btn.configure(state="disabled")
         ToolTip(self.level_btn, tr("datasets_level_tooltip"))
 
         self.sync_btn = ttk.Button(transfer_box, text=tr("datasets_sync_btn"), command=self._sync_datasets)
-        self.sync_btn.grid(row=2, column=0, sticky="ew", pady=(4, 0))
+        self.sync_btn.grid(row=4, column=0, sticky="ew", pady=(4, 0))
         self.sync_btn.configure(state="disabled")
         ToolTip(self.sync_btn, tr("datasets_sync_tooltip"))
 
@@ -4770,6 +4784,7 @@ class App(tk.Tk):
     def _update_level_button_state(self) -> None:
         src = self.origin_dataset_var.get().strip()
         dst = self.dest_dataset_var.get().strip()
+        self._update_transfer_selection_labels(src, dst)
         origin_sel = self.datasets_tree_origin.selection()
         dest_sel = self.datasets_tree_dest.selection()
         origin_selected_ok = bool(origin_sel and str(origin_sel[0]).strip() == src and "@" not in src)
@@ -4807,6 +4822,24 @@ class App(tk.Tk):
             self.dataset_action_target_var.set(trf("datasets_selected_target", dataset=f"{conn_label}::{target}"))
         else:
             self.dataset_action_target_var.set("")
+
+    def _update_transfer_selection_labels(self, src_dataset: str, dst_dataset: str) -> None:
+        src_label = tr("label_none")
+        dst_label = tr("label_none")
+        src_pool_sel = self.origin_pool_var.get().strip()
+        dst_pool_sel = self.dest_pool_var.get().strip()
+        if src_dataset and src_pool_sel in self.dataset_pool_options:
+            src_conn_id, _src_pool = self.dataset_pool_options[src_pool_sel]
+            src_profile = self.store.get(src_conn_id)
+            src_conn = (src_profile.name if src_profile else src_conn_id).strip() or src_conn_id
+            src_label = f"{src_conn}::{src_dataset}"
+        if dst_dataset and dst_pool_sel in self.dataset_pool_options:
+            dst_conn_id, _dst_pool = self.dataset_pool_options[dst_pool_sel]
+            dst_profile = self.store.get(dst_conn_id)
+            dst_conn = (dst_profile.name if dst_profile else dst_conn_id).strip() or dst_conn_id
+            dst_label = f"{dst_conn}::{dst_dataset}"
+        self.transfer_origin_target_var.set(f"{tr('datasets_origin')}: {src_label}")
+        self.transfer_dest_target_var.set(f"{tr('datasets_dest')}: {dst_label}")
 
     def _render_datasets_tree(self, tree: ttk.Treeview, datasets: List[Dict[str, str]]) -> None:
         for iid in tree.get_children():
