@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
 
@@ -2593,6 +2594,7 @@ class App(tk.Tk):
         self._context_menu_global_bindings: List[Tuple[str, str]] = []
         self._context_menu_unmap_bind_id: Optional[str] = None
         self._persistent_log_lock = threading.Lock()
+        self._ssh_last_line_full: str = ""
         self.pool_properties_cache: Dict[str, List[Dict[str, str]]] = {}
 
         self._apply_theme()
@@ -3132,6 +3134,7 @@ class App(tk.Tk):
         ttk.Label(status_box, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
         self.ssh_last_line_label = ttk.Label(status_box, textvariable=self.ssh_last_line_var, width=62, anchor="w")
         self.ssh_last_line_label.grid(row=1, column=0, sticky="w", pady=(2, 0))
+        self.ssh_last_line_label.bind("<Configure>", lambda _e: self._refresh_ssh_last_line_summary())
         self.cancel_dataset_btn = ttk.Button(
             status_box,
             text=tr("cancel_operation_btn"),
@@ -3460,6 +3463,8 @@ class App(tk.Tk):
 
     def _clear_app_log(self) -> None:
         self._hide_ssh_log_tooltip()
+        self._ssh_last_line_full = ""
+        self.ssh_last_line_var.set("")
         for widget in (self.app_log_text, self.ssh_log_text):
             widget.configure(state="normal")
             widget.delete("1.0", "end")
@@ -3537,6 +3542,38 @@ class App(tk.Tk):
             self._append_persistent_log(APP_LOG_FILE, line)
         self.after(0, _append)
 
+    def _refresh_ssh_last_line_summary(self) -> None:
+        full = (self._ssh_last_line_full or "").strip()
+        if not full:
+            self.ssh_last_line_var.set("")
+            return
+        prefix = tr("log_ssh_last_prefix")
+        text = f"{prefix}{full}"
+        try:
+            available_px = max(0, int(self.ssh_last_line_label.winfo_width()) - 8)
+            if available_px <= 0:
+                self.ssh_last_line_var.set(text)
+                return
+            font_name = str(self.ssh_last_line_label.cget("font") or "TkDefaultFont")
+            fnt = tkfont.nametofont(font_name)
+            if fnt.measure(text) <= available_px:
+                self.ssh_last_line_var.set(text)
+                return
+            ellipsis = "..."
+            lo, hi = 0, len(full)
+            best = ""
+            while lo <= hi:
+                mid = (lo + hi) // 2
+                cand = f"{prefix}{full[:mid]}{ellipsis}"
+                if fnt.measure(cand) <= available_px:
+                    best = cand
+                    lo = mid + 1
+                else:
+                    hi = mid - 1
+            self.ssh_last_line_var.set(best or (prefix + ellipsis))
+        except Exception:
+            self.ssh_last_line_var.set(text)
+
     def _ssh_log(self, message: str) -> None:
         safe_message = self._mask_sensitive_text(message)
         def _append() -> None:
@@ -3550,10 +3587,8 @@ class App(tk.Tk):
             self.ssh_log_text.see("end")
             self.ssh_log_text.configure(state="disabled")
             self._append_persistent_log(SSH_EXEC_LOG_FILE, line)
-            last_line = line.strip()
-            if len(last_line) > 60:
-                last_line = last_line[:60]
-            self.ssh_last_line_var.set(f"{tr('log_ssh_last_prefix')}{last_line}")
+            self._ssh_last_line_full = line
+            self._refresh_ssh_last_line_summary()
         self.after(0, _append)
 
     def _on_ssh_log_hover(self, event: Any) -> None:
