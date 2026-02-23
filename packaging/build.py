@@ -42,13 +42,13 @@ def build() -> Path:
         raise SystemExit(f"Missing app entrypoint: {APP}")
 
     PACKAGES.mkdir(parents=True, exist_ok=True)
+    is_macos = sys.platform == "darwin"
     cmd = [
         sys.executable,
         "-m",
         "PyInstaller",
         "--noconfirm",
         "--clean",
-        "--onefile",
         "--windowed",
         "--name",
         NAME,
@@ -60,7 +60,27 @@ def build() -> Path:
         "paramiko",
         str(APP),
     ]
+    if is_macos:
+        # En macOS preferimos .app nativo para ejecutar con doble click en Finder.
+        cmd.extend(
+            [
+                "--onedir",
+                "--osx-bundle-identifier",
+                "com.zfsmgr.app",
+            ]
+        )
+    else:
+        cmd.append("--onefile")
     _run(cmd)
+
+    if is_macos:
+        app_bundle = DIST / f"{NAME}.app"
+        if app_bundle.exists():
+            return app_bundle
+        fallback = DIST / NAME
+        if fallback.exists():
+            return fallback
+        raise SystemExit(f"Expected built app bundle not found: {app_bundle}")
 
     exe = DIST / (f"{NAME}.exe" if os.name == "nt" else NAME)
     if not exe.exists():
@@ -81,7 +101,10 @@ def package_binary(binary: Path) -> Path:
     else:
         out = PACKAGES / f"{base}.tar.gz"
         with tarfile.open(out, "w:gz") as tf:
-            tf.add(binary, arcname=binary.name)
+            if binary.is_dir():
+                tf.add(binary, arcname=binary.name)
+            else:
+                tf.add(binary, arcname=binary.name)
     return out
 
 

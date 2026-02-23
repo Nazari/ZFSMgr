@@ -58,7 +58,9 @@ python3 packaging/build.py
 ```
 
 Salida:
-- Binario: `dist/ZFSMgr` (o `dist/ZFSMgr.exe` en Windows)
+- Linux: `dist/ZFSMgr`
+- Windows: `dist/ZFSMgr.exe`
+- macOS: `dist/ZFSMgr.app` (bundle nativo para Finder)
 - Artefacto empaquetado: `dist/packages/`
 
 ### Instalacion local del binario generado
@@ -76,6 +78,7 @@ Esto instala:
 ```bash
 bash packaging/install-macos.sh
 ```
+Instala `~/Applications/ZFSMgr.app`, listo para abrir con doble click.
 
 - Windows (PowerShell):
 ```powershell
