@@ -3978,10 +3978,6 @@ class App(tk.Tk):
     def _show_context_menu(self, menu: tk.Menu, event: Any) -> None:
         self._dismiss_active_context_menu(unpost=True)
         self._active_context_menu = menu
-        for sequence in ("<Button-1>", "<Button-2>", "<Button-3>", "<Escape>"):
-            bind_id = self.bind_all(sequence, self._on_context_menu_global_click, add="+")
-            if bind_id:
-                self._context_menu_global_bindings.append((sequence, bind_id))
         self._context_menu_unmap_bind_id = menu.bind("<Unmap>", self._on_context_menu_unmap, add="+")
         try:
             menu.tk_popup(event.x_root, event.y_root)
@@ -3990,6 +3986,17 @@ class App(tk.Tk):
                 menu.grab_release()
             except Exception:
                 pass
+        # El mismo click derecho que abre el menu puede disparar los bind_all
+        # de cierre inmediato si se registran antes del popup.
+        self.after_idle(self._arm_context_menu_dismiss_bindings)
+
+    def _arm_context_menu_dismiss_bindings(self) -> None:
+        if not self._active_context_menu:
+            return
+        for sequence in ("<Button-1>", "<Button-2>", "<Button-3>", "<Escape>"):
+            bind_id = self.bind_all(sequence, self._on_context_menu_global_click, add="+")
+            if bind_id:
+                self._context_menu_global_bindings.append((sequence, bind_id))
 
     def _reject_if_ssh_busy(self) -> bool:
         if self.ssh_busy_count > 0:
