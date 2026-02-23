@@ -111,6 +111,14 @@ LANG_OPTIONS = {
     "es": "Español",
     "en": "English",
     "zh": "中文",
+    "de": "Deutsch",
+    "fr": "Français",
+    "it": "Italiano",
+    "ru": "Русский",
+    "pt-BR": "Português (Brasil)",
+    "pt": "Português",
+    "eu": "Euskara",
+    "ca": "Català",
 }
 LANG_LABEL_TO_CODE = {v: k for k, v in LANG_OPTIONS.items()}
 CURRENT_LANG = "es"
