@@ -40,6 +40,13 @@ def _add_data_arg(src: Path, dest: str) -> str:
 def build() -> Path:
     if not APP.exists():
         raise SystemExit(f"Missing app entrypoint: {APP}")
+    try:
+        import cryptography  # noqa: F401
+    except Exception as exc:
+        raise SystemExit(
+            "Missing dependency 'cryptography'. Install build deps first:\n"
+            "  python3 -m pip install -r requirements.txt -r requirements-build.txt"
+        ) from exc
 
     PACKAGES.mkdir(parents=True, exist_ok=True)
     is_macos = sys.platform == "darwin"
@@ -58,6 +65,8 @@ def build() -> Path:
         "pypsrp",
         "--collect-submodules",
         "paramiko",
+        "--collect-submodules",
+        "cryptography",
         str(APP),
     ]
     if is_macos:
