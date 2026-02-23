@@ -357,7 +357,7 @@
   "export_done_title": "导出完成",
   "export_done_msg": "池 \"{pool}\" 导出成功。\n\n输出：\n{output}",
   "export_error_title": "导出池错误",
-  "datasets_sync_tooltip": "将数据集挂载到临时目录，并执行 rsync -HAWXS 从源端到目标端",
+  "datasets_sync_tooltip": "将数据集挂载到临时目录，并执行 rsync -aHAWXS 从源端到目标端",
   "datasets_sync_requested": "已请求同步（尚未实现）",
   "sync_missing_selection": "同步需要同时选择源和目标数据集",
   "sync_snapshot_selected": "同步必须选择数据集，不能选择快照",

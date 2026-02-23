@@ -357,7 +357,7 @@
   "export_done_title": "Exportacion completada",
   "export_done_msg": "Pool \"{pool}\" exportado correctamente.\n\nSalida:\n{output}",
   "export_error_title": "Error exportando pool",
-  "datasets_sync_tooltip": "Montar datasets en directorios temporales y realizar un rsync -HAWXS de origen a destino",
+  "datasets_sync_tooltip": "Montar datasets en directorios temporales y realizar un rsync -aHAWXS de origen a destino",
   "datasets_sync_requested": "Sincronizar solicitado (pendiente de implementar)",
   "sync_missing_selection": "Sincronizar requiere dataset origen y destino seleccionados",
   "sync_snapshot_selected": "Sincronizar requiere seleccionar datasets, no snapshots",
