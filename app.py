@@ -1268,15 +1268,27 @@ class PSRPExecutor(BaseExecutor):
             raise ExecutorError("PowerShell Remoting requiere password")
 
         server = self.profile.host
-        return PSRPClient(
-            server=server,
-            username=self.profile.username,
-            password=self.profile.password,
-            ssl=self.profile.use_ssl,
-            port=self.profile.port or (5986 if self.profile.use_ssl else 5985),
-            auth=self.profile.auth or "ntlm",
-            cert_validation=False,
-        )
+        kwargs: Dict[str, Any] = {
+            "server": server,
+            "username": self.profile.username,
+            "password": self.profile.password,
+            "ssl": self.profile.use_ssl,
+            "port": self.profile.port or (5986 if self.profile.use_ssl else 5985),
+            "auth": self.profile.auth or "ntlm",
+            "cert_validation": False,
+            # Evita bloqueos largos en transporte WSMan/HTTP(S).
+            "connection_timeout": 8,
+            "operation_timeout": 15,
+            "read_timeout": 20,
+        }
+        try:
+            return PSRPClient(**kwargs)
+        except TypeError:
+            # Compatibilidad con versiones de pypsrp que no exponen todos los timeouts.
+            kwargs.pop("read_timeout", None)
+            kwargs.pop("operation_timeout", None)
+            kwargs.pop("connection_timeout", None)
+            return PSRPClient(**kwargs)
 
     def _run_ps(self, script: str, timeout_seconds: Optional[int] = PSRP_TIMEOUT_SECONDS) -> str:
         try:
