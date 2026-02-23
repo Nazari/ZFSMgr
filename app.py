@@ -2815,35 +2815,17 @@ class App(tk.Tk):
         self.tab_datasets = ttk.Frame(self.left_tabs, padding=8)
         self.tab_datasets.columnconfigure(0, weight=1)
         self.left_tabs.add(self.tab_datasets, text=tr("tab_datasets"))
-        edit_box = ttk.LabelFrame(self.tab_datasets, text=tr("datasets_box_edit"), padding=(8, 6))
-        edit_box.grid(row=0, column=0, sticky="ew", pady=(0, 0))
-        edit_box.columnconfigure(0, weight=1)
-        self.dataset_selected_label = ttk.Label(
-            edit_box,
-            textvariable=self.dataset_action_target_var,
-            foreground=UI_MUTED,
-            justify="left",
-            wraplength=220,
-        )
-        self.dataset_selected_label.grid(
-            row=0,
-            column=0,
-            sticky="w",
-            pady=(0, 4),
-        )
-
-        self.create_btn = ttk.Button(edit_box, text=tr("create_dataset_btn"), command=self._create_dataset)
-        self.create_btn.grid(row=1, column=0, sticky="ew")
+        # Acciones de gestion solo via menu contextual (sin caja/botones visibles).
+        hidden_actions = ttk.Frame(self.tab_datasets)
+        self.create_btn = ttk.Button(hidden_actions, text=tr("create_dataset_btn"), command=self._create_dataset)
         self.create_btn.configure(state="disabled")
         ToolTip(self.create_btn, tr("create_dataset_tooltip"))
 
-        self.modify_btn = ttk.Button(edit_box, text=tr("modify_dataset_btn"), command=self._modify_dataset)
-        self.modify_btn.grid(row=2, column=0, sticky="ew", pady=(4, 0))
+        self.modify_btn = ttk.Button(hidden_actions, text=tr("modify_dataset_btn"), command=self._modify_dataset)
         self.modify_btn.configure(state="disabled")
         ToolTip(self.modify_btn, tr("modify_dataset_tooltip"))
 
-        self.delete_dataset_btn = ttk.Button(edit_box, text=tr("delete_dataset_btn"), command=self._delete_dataset)
-        self.delete_dataset_btn.grid(row=3, column=0, sticky="ew", pady=(4, 0))
+        self.delete_dataset_btn = ttk.Button(hidden_actions, text=tr("delete_dataset_btn"), command=self._delete_dataset)
         self.delete_dataset_btn.configure(state="disabled")
         ToolTip(self.delete_dataset_btn, tr("delete_dataset_tooltip"))
         self.datasets_context_menu = tk.Menu(
@@ -2859,7 +2841,7 @@ class App(tk.Tk):
         self.datasets_context_menu.add_command(label=tr("delete_dataset_btn"), command=self._delete_dataset)
 
         transfer_box = ttk.LabelFrame(self.tab_datasets, text=tr("datasets_box_transfer"), padding=(8, 6))
-        transfer_box.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        transfer_box.grid(row=0, column=0, sticky="ew", pady=(0, 0))
         transfer_box.columnconfigure(0, weight=1)
         self.transfer_origin_label = ttk.Label(
             transfer_box,
@@ -2904,7 +2886,7 @@ class App(tk.Tk):
         ToolTip(self.sync_btn, tr("datasets_sync_tooltip"))
 
         breakdown_box = ttk.LabelFrame(self.tab_datasets, text=tr("datasets_box_breakdown"), padding=(8, 6))
-        breakdown_box.grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        breakdown_box.grid(row=1, column=0, sticky="ew", pady=(6, 0))
         breakdown_box.columnconfigure(0, weight=1)
         ttk.Label(
             breakdown_box,
@@ -2935,7 +2917,6 @@ class App(tk.Tk):
             min_h = max(cur_min_h, target_min_height) if cur_min_h > 0 else target_min_height
             self.minsize(max(cur_min_w, width * 4), min_h)
             wrap = max(180, width - 40)
-            self.dataset_selected_label.configure(wraplength=wrap)
             self.transfer_origin_label.configure(wraplength=wrap)
             self.transfer_dest_label.configure(wraplength=wrap)
 
