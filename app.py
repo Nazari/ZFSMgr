@@ -5653,6 +5653,10 @@ def _ask_master_password() -> Optional[str]:
             lang_label_var.set(tr("language"))
             ok_btn.configure(text=tr("accept"))
             cancel_btn.configure(text=tr("cancel"))
+            try:
+                change_btn.configure(text=tr("master_change_btn"))
+            except Exception:
+                pass
 
         def on_lang_change(_event: Any = None) -> None:
             global CURRENT_LANG
@@ -5668,6 +5672,73 @@ def _ask_master_password() -> Optional[str]:
         def on_cancel() -> None:
             result["password"] = None
             root.destroy()
+
+        def on_change_password() -> None:
+            dlg = tk.Toplevel(root)
+            dlg.title(tr("master_change_title"))
+            dlg.resizable(False, False)
+            dlg.transient(root)
+            dlg.attributes("-topmost", True)
+            dlg.columnconfigure(0, weight=1)
+            dlg.rowconfigure(0, weight=1)
+
+            current_var = tk.StringVar()
+            new_var = tk.StringVar()
+            confirm_var = tk.StringVar()
+
+            body = ttk.Frame(dlg, padding=12)
+            body.grid(row=0, column=0, sticky="nsew")
+            body.columnconfigure(1, weight=1)
+
+            ttk.Label(body, text=tr("master_current_password")).grid(row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 6))
+            cur_entry = ttk.Entry(body, textvariable=current_var, show="*", width=34)
+            cur_entry.grid(row=0, column=1, sticky="ew", pady=(0, 6))
+
+            ttk.Label(body, text=tr("master_new_password")).grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(0, 6))
+            new_entry = ttk.Entry(body, textvariable=new_var, show="*", width=34)
+            new_entry.grid(row=1, column=1, sticky="ew", pady=(0, 6))
+
+            ttk.Label(body, text=tr("master_confirm_password")).grid(row=2, column=0, sticky="w", padx=(0, 8), pady=(0, 8))
+            confirm_entry = ttk.Entry(body, textvariable=confirm_var, show="*", width=34)
+            confirm_entry.grid(row=2, column=1, sticky="ew", pady=(0, 8))
+
+            def close_dlg() -> None:
+                try:
+                    dlg.grab_release()
+                except Exception:
+                    pass
+                dlg.destroy()
+
+            def apply_change() -> None:
+                current_password = current_var.get()
+                new_password = new_var.get()
+                confirm_password = confirm_var.get()
+                if new_password != confirm_password:
+                    messagebox.showerror(tr("master_change_title"), tr("master_change_mismatch"), parent=dlg)
+                    return
+                try:
+                    _change_master_password(current_password, new_password)
+                except Exception as exc:
+                    messagebox.showerror(tr("master_change_title"), str(exc), parent=dlg)
+                    return
+                messagebox.showinfo(tr("master_change_title"), tr("master_change_success"), parent=dlg)
+                close_dlg()
+
+            actions = ttk.Frame(body)
+            actions.grid(row=3, column=0, columnspan=2, sticky="e")
+            ttk.Button(actions, text=tr("accept"), command=apply_change).grid(row=0, column=0, padx=(0, 6))
+            ttk.Button(actions, text=tr("cancel"), command=close_dlg).grid(row=0, column=1)
+
+            dlg.protocol("WM_DELETE_WINDOW", close_dlg)
+            dlg.bind("<Return>", lambda _e: apply_change())
+            dlg.bind("<Escape>", lambda _e: close_dlg())
+            dlg.update_idletasks()
+            dlg.deiconify()
+            dlg.lift()
+            dlg.focus_force()
+            cur_entry.focus_set()
+            dlg.grab_set()
+            dlg.wait_window()
 
         frm = ttk.Frame(root, padding=12)
         frm.grid(row=0, column=0, sticky="nsew")
@@ -5691,10 +5762,12 @@ def _ask_master_password() -> Optional[str]:
 
         actions = ttk.Frame(frm)
         actions.grid(row=3, column=0, columnspan=2, sticky="e")
+        change_btn = ttk.Button(actions, command=on_change_password)
+        change_btn.grid(row=0, column=0, padx=(0, 6))
         ok_btn = ttk.Button(actions, command=on_ok)
-        ok_btn.grid(row=0, column=0, padx=(0, 6))
+        ok_btn.grid(row=0, column=1, padx=(0, 6))
         cancel_btn = ttk.Button(actions, command=on_cancel)
-        cancel_btn.grid(row=0, column=1)
+        cancel_btn.grid(row=0, column=2)
 
         apply_language()
         root.update_idletasks()
@@ -5724,6 +5797,14 @@ def _show_startup_error(message: str) -> None:
         root.destroy()
     except tk.TclError:
         print(message, file=sys.stderr)
+
+
+def _change_master_password(current_password: str, new_password: str) -> None:
+    if not new_password:
+        raise ValueError(tr("master_empty_error"))
+    store = ConnectionStore(CONNECTIONS_FILE, current_password)
+    store.cipher = SecretCipher(new_password)
+    store.save()
 
 
 def prompt_master_password_and_load_store() -> ConnectionStore:
