@@ -2778,14 +2778,14 @@ class App(tk.Tk):
         style.configure("TMenubutton", background=UI_PANEL_BG, foreground=UI_TEXT, bordercolor=UI_BORDER, padding=(8, 4))
         style.map("TMenubutton", background=[("active", "#eaf2f7"), ("disabled", "#edf1f4")], foreground=[("disabled", UI_MUTED)])
         style.configure("TNotebook", background=UI_BG, borderwidth=0)
-        base_font = ("TkDefaultFont", 10)
-        selected_font = ("TkDefaultFont", 11, "bold")
-        style.configure("TNotebook.Tab", background="#e9eef2", foreground=UI_TEXT, padding=(10, 6), font=base_font)
+        base_font = ("TkDefaultFont", 9)
+        selected_font = ("TkDefaultFont", 10, "bold")
+        style.configure("TNotebook.Tab", background="#e9eef2", foreground=UI_TEXT, padding=(8, 3), font=base_font)
         style.map(
             "TNotebook.Tab",
             background=[("selected", UI_PANEL_BG)],
             foreground=[("selected", UI_ACCENT)],
-            padding=[("selected", (14, 9)), ("!selected", (10, 6))],
+            padding=[("selected", (10, 5)), ("!selected", (8, 3))],
             font=[("selected", selected_font), ("!selected", base_font)],
         )
         style.configure("Treeview", background=UI_PANEL_BG, fieldbackground=UI_PANEL_BG, foreground=UI_TEXT, bordercolor=UI_BORDER)
