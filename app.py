@@ -2868,32 +2868,13 @@ class App(tk.Tk):
 
         self.tab_connections = ttk.Frame(self.left_tabs, padding=8)
         self.tab_connections.columnconfigure(0, weight=1)
-        self.tab_connections.rowconfigure(2, weight=1)
+        self.tab_connections.rowconfigure(1, weight=1)
         self.left_tabs.add(self.tab_connections, text=tr("tab_connections"))
 
         ttk.Label(self.tab_connections, text=tr("tab_connections")).grid(row=0, column=0, sticky="w")
 
-        self.actions_btn = ttk.Menubutton(self.tab_connections, text=tr("actions"))
-        self.actions_btn.grid(row=1, column=0, sticky="w", pady=(4, 8))
-        self.actions_menu = tk.Menu(
-            self.actions_btn,
-            tearoff=False,
-            bg=UI_PANEL_BG,
-            fg=UI_TEXT,
-            activebackground=UI_SELECTION,
-            activeforeground=UI_TEXT,
-        )
-        self.actions_menu.add_command(label=tr("action_new"), command=self.add_connection)
-        self.actions_menu.add_command(label=tr("action_edit"), command=self.edit_connection)
-        self.actions_menu.add_command(label=tr("action_delete"), command=self.delete_connection)
-        self.actions_menu.add_separator()
-        self.actions_menu.add_command(label=tr("action_refresh"), command=self.refresh_selected)
-        self.actions_menu.add_command(label=tr("action_refresh_all"), command=self.refresh_all_connections)
-        self.actions_menu.add_command(label=tr("action_connect_all"), command=self.connect_all)
-        self.actions_btn.configure(menu=self.actions_menu)
-
         conn_frame = ttk.Frame(self.tab_connections)
-        conn_frame.grid(row=2, column=0, sticky="nsew")
+        conn_frame.grid(row=1, column=0, sticky="nsew", pady=(4, 8))
         conn_frame.columnconfigure(0, weight=1)
         conn_frame.rowconfigure(0, weight=1)
         self.conn_list = tk.Listbox(
@@ -2941,6 +2922,30 @@ class App(tk.Tk):
         conn_x.grid_remove()
         self.conn_list.bind("<<ListboxSelect>>", self.on_select_connection)
         self.conn_list.bind("<Double-Button-1>", self.on_double_click_connection)
+        self.conn_list.bind("<Button-3>", self._on_connection_context)
+        self.conn_list.bind("<Button-2>", self._on_connection_context)
+        self.conn_list.bind("<Control-Button-1>", self._on_connection_context)
+
+        conn_buttons = ttk.Frame(self.tab_connections)
+        conn_buttons.grid(row=2, column=0, sticky="w")
+        self.new_conn_btn = ttk.Button(conn_buttons, text=tr("action_new"), command=self.add_connection)
+        self.new_conn_btn.grid(row=0, column=0, sticky="w")
+        self.refresh_all_btn = ttk.Button(conn_buttons, text=tr("action_refresh_all"), command=self.refresh_all_connections)
+        self.refresh_all_btn.grid(row=0, column=1, sticky="w", padx=(8, 0))
+
+        self.conn_context_menu = tk.Menu(
+            self,
+            tearoff=False,
+            bg=UI_PANEL_BG,
+            fg=UI_TEXT,
+            activebackground=UI_SELECTION,
+            activeforeground=UI_TEXT,
+        )
+        self.conn_context_menu.add_command(label=tr("action_edit"), command=self.edit_connection)
+        self.conn_context_menu.add_command(label=tr("action_delete"), command=self.delete_connection)
+        self.conn_context_menu.add_separator()
+        self.conn_context_menu.add_command(label=tr("action_refresh"), command=self.refresh_selected)
+        self.conn_context_menu.add_command(label=tr("action_connect_all"), command=self.connect_all)
 
         self.tab_datasets = ttk.Frame(self.left_tabs, padding=8)
         self.tab_datasets.columnconfigure(0, weight=1)
@@ -4089,10 +4094,8 @@ class App(tk.Tk):
     def _set_actions_locked(self, locked: bool) -> None:
         state = "disabled" if locked else "normal"
         combo_state = "disabled" if locked else "readonly"
-        try:
-            self.actions_btn.configure(state=state)
-        except Exception:
-            pass
+        self.new_conn_btn.configure(state=state)
+        self.refresh_all_btn.configure(state=state)
         self.conn_list.configure(state=state)
         self.origin_pool_combo.configure(state=combo_state)
         self.dest_pool_combo.configure(state=combo_state)
@@ -4216,6 +4219,30 @@ class App(tk.Tk):
         self.conn_list.activate(idx)
         self.on_select_connection()
         self.refresh_selected()
+
+    def _on_connection_context(self, event: Any) -> str:
+        if self._reject_if_ssh_busy():
+            return "break"
+        idx = self.conn_list.nearest(event.y)
+        if idx < 0 or idx >= self.conn_list.size():
+            return "break"
+        bbox = self.conn_list.bbox(idx)
+        if not bbox:
+            return "break"
+        x, y, w, h = bbox
+        if not (x <= event.x <= x + w and y <= event.y <= y + h):
+            return "break"
+        self.conn_list.selection_clear(0, tk.END)
+        self.conn_list.selection_set(idx)
+        self.conn_list.activate(idx)
+        self.on_select_connection()
+        has_sel = self._selected_profile() is not None
+        self.conn_context_menu.entryconfigure(0, state=("normal" if has_sel else "disabled"))
+        self.conn_context_menu.entryconfigure(1, state=("normal" if has_sel else "disabled"))
+        self.conn_context_menu.entryconfigure(3, state=("normal" if has_sel else "disabled"))
+        self.conn_context_menu.entryconfigure(4, state="normal")
+        self._show_context_menu(self.conn_context_menu, event)
+        return "break"
 
     def _on_left_tab_changed(self, _event: Any = None) -> None:
         current = self.left_tabs.select()
