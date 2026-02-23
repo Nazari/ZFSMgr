@@ -96,6 +96,10 @@ LEGACY_CONNECTIONS_FILE = CONFIG_DIR / "connections.json"
 LEGACY_CONNECTIONS_FALLBACK = APP_DIR / "connections.json"
 LEGACY_INI_FALLBACK = APP_DIR / "connections.ini"
 INSTANCE_LOCK_FILE = CONFIG_DIR / "app.lock"
+APP_LOG_FILE = CONFIG_DIR / "application.log"
+SSH_EXEC_LOG_FILE = CONFIG_DIR / "ssh_execution.log"
+LOG_ROTATE_MAX_BYTES = 5 * 1024 * 1024
+LOG_ROTATE_BACKUP_COUNT = 5
 COMMAND_TIMEOUT_SECONDS = 20
 # PSRP suele tardar bastante mas en abrir sesion/ejecutar.
 PSRP_TIMEOUT_SECONDS = 60
@@ -2580,6 +2584,7 @@ class App(tk.Tk):
         self._active_context_menu: Optional[tk.Menu] = None
         self._context_menu_global_bindings: List[Tuple[str, str]] = []
         self._context_menu_unmap_bind_id: Optional[str] = None
+        self._persistent_log_lock = threading.Lock()
         self.pool_properties_cache: Dict[str, List[Dict[str, str]]] = {}
 
         self._apply_theme()
@@ -3474,16 +3479,53 @@ class App(tk.Tk):
     def _log_timestamp(self) -> str:
         return time.strftime("%Y-%m-%d %H:%M:%S")
 
+    def _rotate_log_file_if_needed(self, path: Path, incoming_len: int) -> None:
+        try:
+            if not path.exists():
+                return
+            if path.stat().st_size + incoming_len <= LOG_ROTATE_MAX_BYTES:
+                return
+            oldest = path.with_name(f"{path.name}.{LOG_ROTATE_BACKUP_COUNT}")
+            if oldest.exists():
+                try:
+                    oldest.unlink()
+                except Exception:
+                    pass
+            for idx in range(LOG_ROTATE_BACKUP_COUNT - 1, 0, -1):
+                src = path.with_name(f"{path.name}.{idx}")
+                dst = path.with_name(f"{path.name}.{idx + 1}")
+                if src.exists():
+                    try:
+                        src.rename(dst)
+                    except Exception:
+                        pass
+            path.rename(path.with_name(f"{path.name}.1"))
+        except Exception:
+            pass
+
+    def _append_persistent_log(self, path: Path, line: str) -> None:
+        text = (line or "").rstrip() + "\n"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with self._persistent_log_lock:
+                self._rotate_log_file_if_needed(path, len(text.encode("utf-8")))
+                with path.open("a", encoding="utf-8") as fh:
+                    fh.write(text)
+        except Exception:
+            pass
+
     def _app_log(self, level: str, message: str) -> None:
         if not self._should_log(level):
             return
         safe_message = self._mask_sensitive_text(message)
         def _append() -> None:
             ts = self._log_timestamp()
+            line = f"[{ts}] [{level.upper()}] {safe_message}"
             self.app_log_text.configure(state="normal")
-            self.app_log_text.insert("end", f"[{ts}] [{level.upper()}] {safe_message}\n")
+            self.app_log_text.insert("end", line + "\n")
             self.app_log_text.see("end")
             self.app_log_text.configure(state="disabled")
+            self._append_persistent_log(APP_LOG_FILE, line)
         self.after(0, _append)
 
     def _ssh_log(self, message: str) -> None:
@@ -3498,6 +3540,7 @@ class App(tk.Tk):
             self.ssh_log_text.insert("end", line + "\n")
             self.ssh_log_text.see("end")
             self.ssh_log_text.configure(state="disabled")
+            self._append_persistent_log(SSH_EXEC_LOG_FILE, line)
             last_line = line.strip()
             if len(last_line) > 60:
                 last_line = last_line[:60]
