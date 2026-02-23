@@ -2934,18 +2934,16 @@ class App(tk.Tk):
         self.log_copy_btn = ttk.Button(log_controls, text=tr("log_copy"), command=self._copy_app_log)
         self.log_copy_btn.grid(row=0, column=8, sticky="w", padx=(6, 0))
 
-        self.log_tabs = ttk.Notebook(log_frame)
-        self.log_tabs.grid(row=2, column=0, sticky="nsew")
+        logs_split = ttk.Panedwindow(log_frame, orient=tk.HORIZONTAL)
+        logs_split.grid(row=2, column=0, sticky="nsew")
 
-        app_tab = ttk.Frame(self.log_tabs)
+        app_tab = ttk.LabelFrame(logs_split, text=tr("log_tab_app"), padding=(6, 6))
         app_tab.columnconfigure(0, weight=1)
         app_tab.rowconfigure(0, weight=1)
-        self.log_tabs.add(app_tab, text=tr("log_tab_app"))
 
-        ssh_tab = ttk.Frame(self.log_tabs)
+        ssh_tab = ttk.LabelFrame(logs_split, text=tr("log_tab_ssh"), padding=(6, 6))
         ssh_tab.columnconfigure(0, weight=1)
         ssh_tab.rowconfigure(0, weight=1)
-        self.log_tabs.add(ssh_tab, text=tr("log_tab_ssh"))
 
         self.app_log_text = tk.Text(
             app_tab,
@@ -2978,6 +2976,8 @@ class App(tk.Tk):
         ssh_log_y = ttk.Scrollbar(ssh_tab, orient="vertical", command=self.ssh_log_text.yview)
         ssh_log_y.grid(row=0, column=1, sticky="ns")
         self.ssh_log_text.configure(yscrollcommand=ssh_log_y.set)
+        logs_split.add(app_tab, weight=1)
+        logs_split.add(ssh_tab, weight=1)
 
         main_split.add(top_container, weight=4)
         main_split.add(log_container, weight=1)
@@ -3121,24 +3121,24 @@ class App(tk.Tk):
             self.conn_list.activate(selected_index)
 
     def _clear_app_log(self) -> None:
-        widget = self._active_log_widget()
-        widget.configure(state="normal")
-        widget.delete("1.0", "end")
-        widget.configure(state="disabled")
+        for widget in (self.app_log_text, self.ssh_log_text):
+            widget.configure(state="normal")
+            widget.delete("1.0", "end")
+            widget.configure(state="disabled")
 
     def _copy_app_log(self) -> None:
-        widget = self._active_log_widget()
-        text = widget.get("1.0", "end-1c")
+        app_text = self.app_log_text.get("1.0", "end-1c")
+        ssh_text = self.ssh_log_text.get("1.0", "end-1c")
+        text = (
+            f"[{tr('log_tab_app')}]\n"
+            f"{app_text}\n\n"
+            f"[{tr('log_tab_ssh')}]\n"
+            f"{ssh_text}"
+        )
         self.clipboard_clear()
         self.clipboard_append(text)
         self.update_idletasks()
         self._app_log("info", tr("log_copied"))
-
-    def _active_log_widget(self) -> tk.Text:
-        current = str(self.log_tabs.select())
-        if current and self.log_tabs.tab(current, "text") == tr("log_tab_ssh"):
-            return self.ssh_log_text
-        return self.app_log_text
 
     def _should_log(self, level: str) -> bool:
         order = {"normal": 0, "info": 1, "debug": 2}
