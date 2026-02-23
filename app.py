@@ -2568,6 +2568,7 @@ class App(tk.Tk):
         self.pool_props_loading_count = 0
         self._busy_cursor = "wait" if os.name == "nt" else "watch"
         self.selected_imported_pool: Optional[Tuple[str, str]] = None
+        self.selected_importable_pool: Optional[Tuple[str, str, str]] = None  # (conn_id, pool_name, state)
         self.pool_properties_cache: Dict[str, List[Dict[str, str]]] = {}
 
         self._apply_theme()
@@ -2839,12 +2840,20 @@ class App(tk.Tk):
         self.importable_table_columns: List[Tuple[str, int, str]] = [
             (tr("col_connection"), 180, "w"),
             (tr("col_pool"), 180, "w"),
-            (tr("col_action"), 110, "w"),
             (tr("col_id"), 170, "w"),
             (tr("col_state"), 100, "w"),
             (tr("col_status"), 420, "w"),
         ]
         self.importable_table_rows = self._build_plain_table(avail_frame, self.importable_table_columns)
+        self.importable_pool_context_menu = tk.Menu(
+            self,
+            tearoff=False,
+            bg=UI_PANEL_BG,
+            fg=UI_TEXT,
+            activebackground=UI_SELECTION,
+            activeforeground=UI_TEXT,
+        )
+        self.importable_pool_context_menu.add_command(label=tr("import_btn"), command=self._import_selected_importable_pool)
         pools_tabs.add(imp_frame, text=tr("pools_imported"))
         pools_tabs.add(avail_frame, text=tr("pools_importable"))
 
@@ -4823,6 +4832,7 @@ class App(tk.Tk):
     def _render_all_importable_pools(self) -> None:
         self._clear_plain_table(self.importable_table_rows)
         row_idx = 0
+        visible_keys: set[str] = set()
         for conn in self.store.connections:
             state = self.states.get(conn.id)
             if not state or not state.importable:
@@ -4830,7 +4840,8 @@ class App(tk.Tk):
             for pool in state.importable:
                 pool_name = pool.get("pool", "")
                 pool_state = (pool.get("state", "") or "").strip()
-                action_text = tr("import_btn") if pool_state.upper() == "ONLINE" else ""
+                key = f"{conn.id}:{pool_name}:{pool_state.upper()}"
+                visible_keys.add(key)
                 self._add_plain_row(
                     self.importable_table_rows,
                     row_idx,
@@ -4838,23 +4849,50 @@ class App(tk.Tk):
                     [
                         conn.name,
                         pool_name,
-                        action_text,
                         pool.get("id", ""),
                         pool_state,
                         pool.get("status", ""),
                     ],
-                    action_col=2 if action_text else None,
-                    action_callback=(lambda p=pool_name, cid=conn.id: self.import_pool_by_name(p, conn_id=cid)) if action_text else None,
+                    on_row_context=lambda e, cid=conn.id, p=pool_name, st=pool_state: self._on_importable_pool_context(cid, p, st, e),
                 )
                 row_idx += 1
 
         if row_idx == 0:
+            self.selected_importable_pool = None
             self._add_plain_row(
                 self.importable_table_rows,
                 0,
                 self.importable_table_columns,
-                [tr("label_no_importable_pools"), "", "", "", "", ""],
+                [tr("label_no_importable_pools"), "", "", "", ""],
             )
+        else:
+            if self.selected_importable_pool:
+                sel_key = f"{self.selected_importable_pool[0]}:{self.selected_importable_pool[1]}:{self.selected_importable_pool[2].upper()}"
+                if sel_key not in visible_keys:
+                    self.selected_importable_pool = None
+
+    def _on_importable_pool_context(self, conn_id: str, pool_name: str, pool_state: str, event: Any) -> None:
+        if self._reject_if_ssh_busy():
+            return
+        self.selected_importable_pool = (conn_id, pool_name, pool_state)
+        import_enabled = pool_state.upper() == "ONLINE"
+        self.importable_pool_context_menu.entryconfigure(0, state=("normal" if import_enabled else "disabled"))
+        try:
+            self.importable_pool_context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            try:
+                self.importable_pool_context_menu.grab_release()
+            except Exception:
+                pass
+
+    def _import_selected_importable_pool(self) -> None:
+        sel = self.selected_importable_pool
+        if not sel:
+            return
+        conn_id, pool_name, pool_state = sel
+        if pool_state.upper() != "ONLINE":
+            return
+        self.import_pool_by_name(pool_name, conn_id=conn_id)
 
     def _on_select_imported_pool(self, conn_id: str, pool_name: str) -> None:
         if self._reject_if_ssh_busy():
