@@ -29,7 +29,6 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import tkinter as tk
-import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
 
@@ -3285,9 +3284,19 @@ class App(tk.Tk):
 
         log_body = ttk.Frame(log_frame)
         log_body.grid(row=0, column=0, sticky="nsew")
-        log_body.columnconfigure(0, weight=1)
-        log_body.columnconfigure(1, weight=2)
+        log_body.columnconfigure(0, weight=1, uniform="logcols")
+        log_body.columnconfigure(1, weight=2, uniform="logcols")
         log_body.rowconfigure(0, weight=1)
+        def _sync_log_columns(_event: Any = None) -> None:
+            try:
+                width = max(3, log_body.winfo_width())
+                left_w = max(160, width // 3)
+                right_w = max(260, width - left_w)
+                log_body.grid_columnconfigure(0, minsize=left_w)
+                log_body.grid_columnconfigure(1, minsize=right_w)
+            except Exception:
+                pass
+        log_body.bind("<Configure>", _sync_log_columns)
 
         # Panel izquierdo: estado (max 3 lineas) y ultima linea SSH.
         left_info = ttk.Frame(log_body)
@@ -3318,14 +3327,18 @@ class App(tk.Tk):
         ssh_last_panel.grid(row=1, column=0, sticky="nsew")
         ssh_last_panel.columnconfigure(0, weight=1)
         ssh_last_panel.rowconfigure(0, weight=1)
-        self.ssh_last_line_label = ttk.Label(
+        self.ssh_last_line_label = tk.Label(
             ssh_last_panel,
             textvariable=self.ssh_last_line_var,
+            bg=UI_PANEL_BG,
+            fg=UI_TEXT,
             anchor="nw",
             justify="left",
+            wraplength=320,
         )
         self.ssh_last_line_label.grid(row=0, column=0, sticky="nsew")
-        self.ssh_last_line_label.bind("<Configure>", lambda _e: self._refresh_ssh_last_line_summary())
+        self.ssh_last_line_label.bind("<Configure>", lambda e: self.ssh_last_line_label.configure(wraplength=max(80, e.width - 8)))
+        self.ssh_last_line_label.bind("<Configure>", lambda _e: self._refresh_ssh_last_line_summary(), add="+")
 
         # Panel derecho: tabs de logs arriba y controles debajo.
         right_logs = ttk.Frame(log_body)
@@ -3838,31 +3851,7 @@ class App(tk.Tk):
             self.ssh_last_line_var.set("")
             return
         prefix = tr("log_ssh_last_prefix")
-        text = f"{prefix}{full}"
-        try:
-            available_px = max(0, int(self.ssh_last_line_label.winfo_width()) - 8)
-            if available_px <= 0:
-                self.ssh_last_line_var.set(text)
-                return
-            font_name = str(self.ssh_last_line_label.cget("font") or "TkDefaultFont")
-            fnt = tkfont.nametofont(font_name)
-            if fnt.measure(text) <= available_px:
-                self.ssh_last_line_var.set(text)
-                return
-            ellipsis = "..."
-            lo, hi = 0, len(full)
-            best = ""
-            while lo <= hi:
-                mid = (lo + hi) // 2
-                cand = f"{prefix}{full[:mid]}{ellipsis}"
-                if fnt.measure(cand) <= available_px:
-                    best = cand
-                    lo = mid + 1
-                else:
-                    hi = mid - 1
-            self.ssh_last_line_var.set(best or (prefix + ellipsis))
-        except Exception:
-            self.ssh_last_line_var.set(text)
+        self.ssh_last_line_var.set(f"{prefix}{full}")
 
     def _ssh_log(self, message: str) -> None:
         safe_message = self._mask_sensitive_text(message)
