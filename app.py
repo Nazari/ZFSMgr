@@ -3177,6 +3177,7 @@ class App(tk.Tk):
             ssh_tab,
             height=8,
             state="disabled",
+            wrap="none",
             bg=UI_PANEL_BG,
             fg=UI_TEXT,
             insertbackground=UI_TEXT,
@@ -3187,7 +3188,13 @@ class App(tk.Tk):
         self.ssh_log_text.grid(row=0, column=0, sticky="nsew")
         ssh_log_y = ttk.Scrollbar(ssh_tab, orient="vertical", command=self.ssh_log_text.yview)
         ssh_log_y.grid(row=0, column=1, sticky="ns")
-        self.ssh_log_text.configure(yscrollcommand=ssh_log_y.set)
+        ssh_log_x = ttk.Scrollbar(ssh_tab, orient="horizontal", command=self.ssh_log_text.xview)
+        ssh_log_x.grid(row=1, column=0, sticky="ew")
+        self.ssh_log_text.configure(yscrollcommand=ssh_log_y.set, xscrollcommand=ssh_log_x.set)
+        self._ssh_log_tipwindow: Optional[tk.Toplevel] = None
+        self._ssh_log_tip_text: str = ""
+        self.ssh_log_text.bind("<Motion>", self._on_ssh_log_hover)
+        self.ssh_log_text.bind("<Leave>", self._hide_ssh_log_tooltip)
         logs_split.add(app_tab, weight=1)
         logs_split.add(ssh_tab, weight=1)
 
@@ -3436,6 +3443,7 @@ class App(tk.Tk):
             self.conn_list.activate(selected_index)
 
     def _clear_app_log(self) -> None:
+        self._hide_ssh_log_tooltip()
         for widget in (self.app_log_text, self.ssh_log_text):
             widget.configure(state="normal")
             widget.delete("1.0", "end")
@@ -3475,15 +3483,69 @@ class App(tk.Tk):
     def _ssh_log(self, message: str) -> None:
         safe_message = self._mask_sensitive_text(message)
         def _append() -> None:
+            one_line = " | ".join(part.strip() for part in (safe_message or "").splitlines() if part.strip())
+            if not one_line:
+                return
             self.ssh_log_text.configure(state="normal")
-            self.ssh_log_text.insert("end", safe_message.rstrip() + "\n")
+            self.ssh_log_text.insert("end", one_line + "\n")
             self.ssh_log_text.see("end")
             self.ssh_log_text.configure(state="disabled")
-            last_line = (safe_message or "").strip()
+            last_line = one_line.strip()
             if len(last_line) > 60:
                 last_line = last_line[:60]
             self.ssh_last_line_var.set(f"{tr('log_ssh_last_prefix')}{last_line}")
         self.after(0, _append)
+
+    def _on_ssh_log_hover(self, event: Any) -> None:
+        try:
+            index = self.ssh_log_text.index(f"@{event.x},{event.y}")
+            line_no = index.split(".", 1)[0]
+            line_text = self.ssh_log_text.get(f"{line_no}.0", f"{line_no}.end").strip()
+        except Exception:
+            line_text = ""
+        if not line_text:
+            self._hide_ssh_log_tooltip()
+            return
+        if self._ssh_log_tipwindow is not None and line_text == self._ssh_log_tip_text:
+            try:
+                self._ssh_log_tipwindow.wm_geometry(f"+{event.x_root + 12}+{event.y_root + 12}")
+            except Exception:
+                pass
+            return
+        self._show_ssh_log_tooltip(line_text, event.x_root + 12, event.y_root + 12)
+
+    def _show_ssh_log_tooltip(self, text: str, x: int, y: int) -> None:
+        self._hide_ssh_log_tooltip()
+        try:
+            tw = tk.Toplevel(self)
+            tw.wm_overrideredirect(True)
+            tw.wm_geometry(f"+{x}+{y}")
+            lbl = tk.Label(
+                tw,
+                text=text,
+                bg=UI_PANEL_BG,
+                fg=UI_TEXT,
+                relief="solid",
+                borderwidth=1,
+                padx=6,
+                pady=3,
+                justify="left",
+            )
+            lbl.pack()
+            self._ssh_log_tipwindow = tw
+            self._ssh_log_tip_text = text
+        except Exception:
+            self._ssh_log_tipwindow = None
+            self._ssh_log_tip_text = ""
+
+    def _hide_ssh_log_tooltip(self, _event: Any = None) -> None:
+        if self._ssh_log_tipwindow is not None:
+            try:
+                self._ssh_log_tipwindow.destroy()
+            except Exception:
+                pass
+        self._ssh_log_tipwindow = None
+        self._ssh_log_tip_text = ""
 
     def _mask_sensitive_text(self, text: str) -> str:
         out = text or ""
