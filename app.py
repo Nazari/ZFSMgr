@@ -2900,8 +2900,8 @@ class App(tk.Tk):
         imp_top.rowconfigure(0, weight=1)
 
         self.imported_table_columns: List[Tuple[str, int, str]] = [
-            (tr("col_pool"), 220, "w"),
             (tr("col_connection"), 180, "w"),
+            (tr("col_pool"), 220, "w"),
             (tr("col_size"), 120, "e"),
             (tr("col_used"), 120, "e"),
             (tr("col_free"), 120, "e"),
@@ -5208,8 +5208,8 @@ class App(tk.Tk):
                     row_idx,
                     self.imported_table_columns,
                     [
-                        pool_name,
                         conn.name,
+                        pool_name,
                         pool.get("size", ""),
                         pool.get("used", ""),
                         pool.get("free", ""),
