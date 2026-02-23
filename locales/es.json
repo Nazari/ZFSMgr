@@ -343,6 +343,8 @@
   "log_dataset_cancel_requested": "Cancelacion solicitada para la accion: {action}",
   "log_dataset_cancel_noop": "No hay una operacion de dataset en ejecucion para cancelar",
   "log_dataset_cancel_done": "Operacion cancelada",
+  "close_blocked_dataset_action": "Hay una accion de datasets en ejecucion.\n\nNo se puede cerrar la aplicacion hasta que termine o se cancele para evitar dejar datasets en estado inconsistente.",
+  "log_close_blocked_dataset_action": "Cierre bloqueado: hay una accion de datasets en ejecucion",
   "log_level_missing_selection": "Nivelar requiere dataset origen y destino seleccionados",
   "log_level_snapshot_selected": "Nivelar requiere seleccionar datasets, no snapshots",
   "log_level_invalid_pool": "No se pudo resolver pool origen/destino para nivelar",

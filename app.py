@@ -2787,6 +2787,7 @@ class App(tk.Tk):
         self._build_ui()
         SSH_LOG_HOOK = self._ssh_log
         SSH_BUSY_HOOK = self._on_ssh_busy_delta
+        self.protocol("WM_DELETE_WINDOW", self._on_main_close)
         self._load_connections_list()
         self.after(30, self._ensure_main_window_visible)
         self.after(100, self.refresh_all_connections)
@@ -2798,6 +2799,26 @@ class App(tk.Tk):
             self.focus_force()
         except Exception:
             pass
+
+    def _dataset_action_running(self) -> bool:
+        if self.level_running:
+            return True
+        with self._dataset_proc_lock:
+            proc = self._active_dataset_proc
+            if proc is None:
+                return False
+            return proc.poll() is None
+
+    def _on_main_close(self) -> None:
+        if self._dataset_action_running():
+            self._app_log("normal", tr("log_close_blocked_dataset_action"))
+            messagebox.showwarning(
+                tr("app_title"),
+                tr("close_blocked_dataset_action"),
+                parent=self,
+            )
+            return
+        self.destroy()
 
     def _apply_theme(self) -> None:
         self.configure(bg=UI_BG)

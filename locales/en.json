@@ -343,6 +343,8 @@
   "log_dataset_cancel_requested": "Cancellation requested for action: {action}",
   "log_dataset_cancel_noop": "No dataset operation is currently running to cancel",
   "log_dataset_cancel_done": "Operation cancelled",
+  "close_blocked_dataset_action": "A dataset action is currently running.\n\nThe application cannot be closed until it finishes or is cancelled to avoid leaving datasets in an inconsistent state.",
+  "log_close_blocked_dataset_action": "Close blocked: a dataset action is currently running",
   "log_level_missing_selection": "Level requires both source and destination datasets selected",
   "log_level_snapshot_selected": "Level requires dataset selection, not snapshots",
   "log_level_invalid_pool": "Could not resolve source/destination pool for leveling",
