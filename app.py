@@ -4804,8 +4804,10 @@ class App(tk.Tk):
         self.delete_dataset_btn.configure(state="normal" if delete_enabled else "disabled")
         delete_target = self._get_target_for_delete()
         if delete_target:
-            _side, _sel, target, _cid = delete_target
-            self.dataset_action_target_var.set(trf("datasets_selected_target", dataset=target))
+            _side, _sel, target, target_conn_id = delete_target
+            profile = self.store.get(target_conn_id)
+            conn_label = (profile.name if profile else target_conn_id).strip() or target_conn_id
+            self.dataset_action_target_var.set(trf("datasets_selected_target", dataset=f"{conn_label}::{target}"))
         else:
             self.dataset_action_target_var.set("")
 
