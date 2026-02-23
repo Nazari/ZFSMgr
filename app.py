@@ -6161,6 +6161,25 @@ class App(tk.Tk):
             return
 
         def worker() -> None:
+            def psrp_connectivity_hint(message: str) -> Optional[str]:
+                msg = (message or "").lower()
+                tokens = (
+                    "no route to host",
+                    "connection timed out",
+                    "timed out",
+                    "failed to establish a new connection",
+                    "connection refused",
+                    "max retries exceeded",
+                    "network is unreachable",
+                )
+                if not any(t in msg for t in tokens):
+                    return None
+                return (
+                    "Sugerencia PSRP: no hay conectividad WinRM. "
+                    "Verifica listener/puerto 5986 (o 5985), firewall en Windows "
+                    "y conectividad desde Linux (ej. `nc -vz host 5986`)."
+                )
+
             def refresh_one(profile: ConnectionProfile) -> Tuple[str, ConnectionState]:
                 state = ConnectionState()
                 conn_label = profile.transport if profile.os_type == "Windows" else profile.conn_type
@@ -6201,6 +6220,10 @@ class App(tk.Tk):
                     "normal",
                     f"Fin refresh: {profile.name} [{conn_label}] -> {'OK' if state.ok else 'ERROR'} ({state.message})",
                 )
+                if not state.ok and profile.conn_type == "PSRP":
+                    hint = psrp_connectivity_hint(state.message)
+                    if hint:
+                        self._app_log("normal", hint)
                 return profile.id, state
 
             max_workers = max(1, min(8, len(profiles)))
