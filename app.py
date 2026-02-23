@@ -2814,7 +2814,7 @@ class App(tk.Tk):
             (tr("col_compressratio"), 110, "e"),
             (tr("col_dedup"), 90, "e"),
         ]
-        self.imported_table_rows = self._build_plain_table(imp_top, self.imported_table_columns)
+        self.imported_table_rows = self._build_plain_table(imp_top, self.imported_table_columns, enable_xscroll=True)
         self.imported_pool_context_menu = tk.Menu(
             self,
             tearoff=False,
@@ -2847,7 +2847,7 @@ class App(tk.Tk):
             (tr("col_state"), 100, "w"),
             (tr("col_status"), 420, "w"),
         ]
-        self.importable_table_rows = self._build_plain_table(avail_frame, self.importable_table_columns)
+        self.importable_table_rows = self._build_plain_table(avail_frame, self.importable_table_columns, enable_xscroll=True)
         self.importable_pool_context_menu = tk.Menu(
             self,
             tearoff=False,
@@ -3060,14 +3060,21 @@ class App(tk.Tk):
         self.dest_dataset_var.trace_add("write", lambda *_a: self._update_level_button_state())
         self._on_left_tab_changed()
 
-    def _build_plain_table(self, parent: ttk.Frame, columns: List[Tuple[str, int, str]]) -> ttk.Frame:
+    def _build_plain_table(
+        self,
+        parent: ttk.Frame,
+        columns: List[Tuple[str, int, str]],
+        enable_xscroll: bool = False,
+    ) -> ttk.Frame:
         wrap = ttk.Frame(parent)
         wrap.grid(row=0, column=0, sticky="nsew")
         wrap.columnconfigure(0, weight=1)
         wrap.rowconfigure(1, weight=1)
 
-        header = tk.Frame(wrap, bg=UI_PANEL_BG, highlightthickness=1, highlightbackground=UI_BORDER)
-        header.grid(row=0, column=0, sticky="ew")
+        header_canvas = tk.Canvas(wrap, bg=UI_PANEL_BG, highlightthickness=1, highlightbackground=UI_BORDER)
+        header_canvas.grid(row=0, column=0, sticky="ew")
+        header = tk.Frame(header_canvas, bg=UI_PANEL_BG)
+        header_canvas.create_window((0, 0), window=header, anchor="nw")
         for idx, (title, width, anchor) in enumerate(columns):
             lbl = tk.Label(
                 header,
@@ -3082,20 +3089,35 @@ class App(tk.Tk):
             lbl.grid(row=0, column=idx, sticky="nsew")
             header.grid_columnconfigure(idx, minsize=width, weight=0)
 
-        canvas = tk.Canvas(wrap, bg=UI_PANEL_BG, highlightthickness=1, highlightbackground=UI_BORDER)
-        canvas.grid(row=1, column=0, sticky="nsew")
-        ybar = ttk.Scrollbar(wrap, orient="vertical", command=canvas.yview)
+        rows_canvas = tk.Canvas(wrap, bg=UI_PANEL_BG, highlightthickness=1, highlightbackground=UI_BORDER)
+        rows_canvas.grid(row=1, column=0, sticky="nsew")
+        ybar = ttk.Scrollbar(wrap, orient="vertical", command=rows_canvas.yview)
         ybar.grid(row=1, column=1, sticky="ns")
-        canvas.configure(yscrollcommand=ybar.set)
+        rows_canvas.configure(yscrollcommand=ybar.set)
 
-        rows = ttk.Frame(canvas)
-        canvas.create_window((0, 0), window=rows, anchor="nw")
-        rows._scroll_canvas = canvas  # type: ignore[attr-defined]
+        rows = ttk.Frame(rows_canvas)
+        rows_canvas.create_window((0, 0), window=rows, anchor="nw")
+        rows._scroll_canvas = rows_canvas  # type: ignore[attr-defined]
 
         def _sync_scroll(_event: Any = None) -> None:
-            canvas.configure(scrollregion=canvas.bbox("all"))
+            rows_canvas.configure(scrollregion=rows_canvas.bbox("all"))
+            header_canvas.configure(scrollregion=header_canvas.bbox("all"))
 
         rows.bind("<Configure>", _sync_scroll)
+        header.bind("<Configure>", _sync_scroll)
+
+        if enable_xscroll:
+            xbar = ttk.Scrollbar(wrap, orient="horizontal")
+            xbar.grid(row=2, column=0, sticky="ew")
+
+            def _xview(*args: Any) -> None:
+                rows_canvas.xview(*args)
+                header_canvas.xview(*args)
+
+            xbar.configure(command=_xview)
+            rows_canvas.configure(xscrollcommand=xbar.set)
+            header_canvas.configure(xscrollcommand=xbar.set)
+
         return rows
 
     def _on_table_mousewheel(self, event: Any, canvas: tk.Canvas) -> None:
