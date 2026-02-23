@@ -2811,6 +2811,17 @@ class App(tk.Tk):
             padding=[("selected", (10, 5)), ("!selected", (8, 3))],
             font=[("selected", selected_font), ("!selected", base_font)],
         )
+        # Notebook compacto para el bloque de logs (Aplicacion/Ejecucion SSH).
+        log_tab_font = ("TkDefaultFont", 8)
+        style.configure("Log.TNotebook", background=UI_BG, borderwidth=0, tabmargins=(0, 0, 0, 0))
+        style.configure("Log.TNotebook.Tab", background="#e9eef2", foreground=UI_TEXT, padding=(4, 1), font=log_tab_font)
+        style.map(
+            "Log.TNotebook.Tab",
+            background=[("selected", UI_PANEL_BG)],
+            foreground=[("selected", UI_ACCENT)],
+            padding=[("selected", (4, 1)), ("!selected", (4, 1))],
+            font=[("selected", log_tab_font), ("!selected", log_tab_font)],
+        )
         style.configure("Treeview", background=UI_PANEL_BG, fieldbackground=UI_PANEL_BG, foreground=UI_TEXT, bordercolor=UI_BORDER)
         style.configure("Treeview.Heading", background="#e5edf3", foreground=UI_TEXT)
         style.map("Treeview", background=[("selected", UI_SELECTION)], foreground=[("selected", UI_TEXT)])
@@ -3363,7 +3374,7 @@ class App(tk.Tk):
         right_logs.columnconfigure(0, weight=1)
         right_logs.rowconfigure(0, weight=1)
 
-        logs_tabs = ttk.Notebook(right_logs)
+        logs_tabs = ttk.Notebook(right_logs, style="Log.TNotebook")
         logs_tabs.grid(row=0, column=0, sticky="nsew")
 
         app_tab = ttk.Frame(logs_tabs, padding=(6, 6))
