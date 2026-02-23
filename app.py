@@ -3168,7 +3168,7 @@ class App(tk.Tk):
 
         log_controls = ttk.Frame(log_frame)
         log_controls.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        log_controls.columnconfigure(2, weight=1)
+        log_controls.columnconfigure(1, weight=1)
 
         left_controls_box = tk.Frame(log_controls, bg=UI_BG, highlightthickness=1, highlightbackground=UI_BORDER)
         left_controls_box.grid(row=0, column=0, sticky="w")
@@ -3191,12 +3191,14 @@ class App(tk.Tk):
         self.log_copy_btn.grid(row=0, column=3, sticky="w", padx=(6, 0))
 
         status_box_wrap = tk.Frame(log_controls, bg=UI_BG, highlightthickness=1, highlightbackground=UI_BORDER)
-        status_box_wrap.grid(row=0, column=1, sticky="w", padx=(16, 0))
+        status_box_wrap.grid(row=0, column=1, sticky="ew", padx=(16, 0))
+        status_box_wrap.grid_columnconfigure(0, weight=1)
         status_box = ttk.Frame(status_box_wrap, padding=(6, 4))
-        status_box.grid(row=0, column=0, sticky="w")
-        ttk.Label(status_box, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
-        self.ssh_last_line_label = ttk.Label(status_box, textvariable=self.ssh_last_line_var, width=62, anchor="w")
-        self.ssh_last_line_label.grid(row=1, column=0, sticky="w", pady=(2, 0))
+        status_box.grid(row=0, column=0, sticky="ew")
+        status_box.grid_columnconfigure(0, weight=1)
+        ttk.Label(status_box, textvariable=self.status_var, anchor="w").grid(row=0, column=0, sticky="ew")
+        self.ssh_last_line_label = ttk.Label(status_box, textvariable=self.ssh_last_line_var, anchor="w")
+        self.ssh_last_line_label.grid(row=1, column=0, sticky="ew", pady=(2, 0))
         self.ssh_last_line_label.bind("<Configure>", lambda _e: self._refresh_ssh_last_line_summary())
         self.cancel_dataset_btn = ttk.Button(
             status_box,
