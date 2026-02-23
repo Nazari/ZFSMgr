@@ -2595,6 +2595,8 @@ class App(tk.Tk):
         self._context_menu_unmap_bind_id: Optional[str] = None
         self._persistent_log_lock = threading.Lock()
         self._ssh_last_line_full: str = ""
+        self._app_log_tipwindow: Optional[tk.Toplevel] = None
+        self._app_log_tip_text: str = ""
         self.pool_properties_cache: Dict[str, List[Dict[str, str]]] = {}
 
         self._apply_theme()
@@ -3178,6 +3180,7 @@ class App(tk.Tk):
             app_tab,
             height=8,
             state="disabled",
+            wrap="none",
             font=("TkDefaultFont", 9),
             bg=UI_PANEL_BG,
             fg=UI_TEXT,
@@ -3189,7 +3192,11 @@ class App(tk.Tk):
         self.app_log_text.grid(row=0, column=0, sticky="nsew")
         app_log_y = ttk.Scrollbar(app_tab, orient="vertical", command=self.app_log_text.yview)
         app_log_y.grid(row=0, column=1, sticky="ns")
-        self.app_log_text.configure(yscrollcommand=app_log_y.set)
+        app_log_x = ttk.Scrollbar(app_tab, orient="horizontal", command=self.app_log_text.xview)
+        app_log_x.grid(row=1, column=0, sticky="ew")
+        self.app_log_text.configure(yscrollcommand=app_log_y.set, xscrollcommand=app_log_x.set)
+        self.app_log_text.bind("<Motion>", self._on_app_log_hover)
+        self.app_log_text.bind("<Leave>", self._hide_app_log_tooltip)
 
         self.ssh_log_text = tk.Text(
             ssh_tab,
@@ -3462,6 +3469,7 @@ class App(tk.Tk):
             self.conn_list.activate(selected_index)
 
     def _clear_app_log(self) -> None:
+        self._hide_app_log_tooltip()
         self._hide_ssh_log_tooltip()
         self._ssh_last_line_full = ""
         self.ssh_last_line_var.set("")
@@ -3534,13 +3542,68 @@ class App(tk.Tk):
         safe_message = self._mask_sensitive_text(message)
         def _append() -> None:
             ts = self._log_timestamp()
-            line = f"[{ts}] [{level.upper()}] {safe_message}"
+            one_line = " | ".join(part.strip() for part in (safe_message or "").splitlines() if part.strip())
+            if not one_line:
+                return
+            line = f"[{ts}] [{level.upper()}] {one_line}"
             self.app_log_text.configure(state="normal")
             self.app_log_text.insert("end", line + "\n")
             self.app_log_text.see("end")
             self.app_log_text.configure(state="disabled")
             self._append_persistent_log(APP_LOG_FILE, line)
         self.after(0, _append)
+
+    def _on_app_log_hover(self, event: Any) -> None:
+        try:
+            index = self.app_log_text.index(f"@{event.x},{event.y}")
+            line_no = index.split(".", 1)[0]
+            line_text = self.app_log_text.get(f"{line_no}.0", f"{line_no}.end").strip()
+        except Exception:
+            line_text = ""
+        if not line_text:
+            self._hide_app_log_tooltip()
+            return
+        if self._app_log_tipwindow is not None and line_text == self._app_log_tip_text:
+            try:
+                self._app_log_tipwindow.wm_geometry(f"+{event.x_root + 12}+{event.y_root + 12}")
+            except Exception:
+                pass
+            return
+        self._show_app_log_tooltip(line_text, event.x_root + 12, event.y_root + 12)
+
+    def _show_app_log_tooltip(self, text: str, x: int, y: int) -> None:
+        self._hide_app_log_tooltip()
+        try:
+            tw = tk.Toplevel(self)
+            tw.wm_overrideredirect(True)
+            tw.wm_geometry(f"+{x}+{y}")
+            lbl = tk.Label(
+                tw,
+                text=text,
+                bg=UI_PANEL_BG,
+                fg=UI_TEXT,
+                relief="solid",
+                borderwidth=1,
+                padx=6,
+                pady=3,
+                justify="left",
+                wraplength=900,
+            )
+            lbl.pack()
+            self._app_log_tipwindow = tw
+            self._app_log_tip_text = text
+        except Exception:
+            self._app_log_tipwindow = None
+            self._app_log_tip_text = ""
+
+    def _hide_app_log_tooltip(self, _event: Any = None) -> None:
+        if self._app_log_tipwindow is not None:
+            try:
+                self._app_log_tipwindow.destroy()
+            except Exception:
+                pass
+        self._app_log_tipwindow = None
+        self._app_log_tip_text = ""
 
     def _refresh_ssh_last_line_summary(self) -> None:
         full = (self._ssh_last_line_full or "").strip()
