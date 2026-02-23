@@ -3153,10 +3153,28 @@ class App(tk.Tk):
 
         log_controls = ttk.Frame(log_frame)
         log_controls.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        log_controls.columnconfigure(1, weight=1)
+        log_controls.columnconfigure(2, weight=1)
+
+        left_controls = ttk.Frame(log_controls)
+        left_controls.grid(row=0, column=0, sticky="w")
+        ttk.Label(left_controls, text=tr("log_level")).grid(row=0, column=0, sticky="w")
+        self.app_log_level_var = tk.StringVar(value="normal")
+        self.app_log_level_combo = ttk.Combobox(
+            left_controls,
+            textvariable=self.app_log_level_var,
+            values=["normal", "info", "debug"],
+            state="readonly",
+            width=10,
+        )
+        self.app_log_level_combo.grid(row=0, column=1, sticky="w", padx=(6, 0))
+        self.app_log_level_combo.bind("<<ComboboxSelected>>", lambda _e: self._app_log("info", tr("log_level_updated")))
+        self.log_clear_btn = ttk.Button(left_controls, text=tr("log_clear"), command=self._clear_app_log)
+        self.log_clear_btn.grid(row=0, column=2, sticky="w", padx=(8, 0))
+        self.log_copy_btn = ttk.Button(left_controls, text=tr("log_copy"), command=self._copy_app_log)
+        self.log_copy_btn.grid(row=0, column=3, sticky="w", padx=(6, 0))
 
         status_box = ttk.Frame(log_controls)
-        status_box.grid(row=0, column=0, sticky="nw")
+        status_box.grid(row=0, column=1, sticky="w", padx=(16, 0))
         ttk.Label(status_box, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
         self.ssh_last_line_label = ttk.Label(status_box, textvariable=self.ssh_last_line_var, width=62, anchor="w")
         self.ssh_last_line_label.grid(row=1, column=0, sticky="w", pady=(2, 0))
@@ -3170,24 +3188,6 @@ class App(tk.Tk):
         self.cancel_dataset_btn.grid(row=2, column=0, sticky="w", pady=(4, 0))
         self.cancel_dataset_btn.configure(state="disabled")
         self.cancel_dataset_btn.grid_remove()
-
-        right_controls = ttk.Frame(log_controls)
-        right_controls.grid(row=0, column=2, sticky="e")
-        ttk.Label(right_controls, text=tr("log_level")).grid(row=0, column=0, sticky="e")
-        self.app_log_level_var = tk.StringVar(value="normal")
-        self.app_log_level_combo = ttk.Combobox(
-            right_controls,
-            textvariable=self.app_log_level_var,
-            values=["normal", "info", "debug"],
-            state="readonly",
-            width=10,
-        )
-        self.app_log_level_combo.grid(row=0, column=1, sticky="w", padx=(6, 0))
-        self.app_log_level_combo.bind("<<ComboboxSelected>>", lambda _e: self._app_log("info", tr("log_level_updated")))
-        self.log_clear_btn = ttk.Button(right_controls, text=tr("log_clear"), command=self._clear_app_log)
-        self.log_clear_btn.grid(row=0, column=2, sticky="w", padx=(8, 0))
-        self.log_copy_btn = ttk.Button(right_controls, text=tr("log_copy"), command=self._copy_app_log)
-        self.log_copy_btn.grid(row=0, column=3, sticky="w", padx=(6, 0))
 
         logs_split = ttk.Panedwindow(log_frame, orient=tk.HORIZONTAL)
         logs_split.grid(row=2, column=0, sticky="nsew")
