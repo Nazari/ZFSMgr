@@ -3620,7 +3620,11 @@ class App(tk.Tk):
             method = c.transport if c.os_type == "Windows" else "SSH"
             st = self.states.get(c.id)
             mark = "[x]" if st and st.ok else "[ ]"
-            self.conn_list.insert(tk.END, f"{mark} {c.name} [{c.os_type}/{method}]")
+            zfs_ver = "-"
+            if st and st.zfs_version:
+                zfs_ver = st.zfs_version
+            zfs_txt = zfs_ver if zfs_ver != "-" else tr("label_unknown")
+            self.conn_list.insert(tk.END, f"{mark} {c.name} [{c.os_type}/{method}] | OpenZFS: {zfs_txt}")
             if c.id == selected_id:
                 selected_index = idx
         try:
