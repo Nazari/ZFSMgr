@@ -3281,60 +3281,66 @@ class App(tk.Tk):
         log_frame = ttk.LabelFrame(log_container, text=tr("log_section"), padding=(8, 6))
         log_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=(0, 10))
         log_frame.columnconfigure(0, weight=1)
-        log_frame.rowconfigure(2, weight=1)
+        log_frame.rowconfigure(0, weight=1)
 
-        log_controls = ttk.Frame(log_frame)
-        log_controls.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        log_controls.columnconfigure(1, weight=1)
+        log_body = ttk.Frame(log_frame)
+        log_body.grid(row=0, column=0, sticky="nsew")
+        log_body.columnconfigure(0, weight=1)
+        log_body.columnconfigure(1, weight=2)
+        log_body.rowconfigure(0, weight=1)
 
-        left_controls_box = tk.Frame(log_controls, bg=UI_BG, highlightthickness=1, highlightbackground=UI_BORDER)
-        left_controls_box.grid(row=0, column=0, sticky="w")
-        left_controls = ttk.Frame(left_controls_box, padding=(6, 4))
-        left_controls.grid(row=0, column=0, sticky="w")
-        ttk.Label(left_controls, text=tr("log_level")).grid(row=0, column=0, sticky="w")
-        self.app_log_level_var = tk.StringVar(value="normal")
-        self.app_log_level_combo = ttk.Combobox(
-            left_controls,
-            textvariable=self.app_log_level_var,
-            values=["normal", "info", "debug"],
-            state="readonly",
-            width=10,
+        # Panel izquierdo: estado (max 3 lineas) y ultima linea SSH.
+        left_info = ttk.Frame(log_body)
+        left_info.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        left_info.columnconfigure(0, weight=1)
+        left_info.rowconfigure(1, weight=1)
+
+        status_title = re.split(r"[:：]", tr("status_ready"), maxsplit=1)[0].strip() or tr("status_ready")
+        ssh_title = tr("log_ssh_last_prefix").rstrip(":： ").strip() or "SSH"
+
+        status_panel = ttk.LabelFrame(left_info, text=status_title, padding=(6, 6))
+        status_panel.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        status_panel.columnconfigure(0, weight=1)
+        self.status_label = tk.Label(
+            status_panel,
+            textvariable=self.status_var,
+            bg=UI_PANEL_BG,
+            fg=UI_TEXT,
+            justify="left",
+            anchor="nw",
+            height=3,
+            wraplength=320,
         )
-        self.app_log_level_combo.grid(row=0, column=1, sticky="w", padx=(6, 0))
-        self.app_log_level_combo.bind("<<ComboboxSelected>>", lambda _e: self._app_log("info", tr("log_level_updated")))
-        self.log_clear_btn = ttk.Button(left_controls, text=tr("log_clear"), command=self._clear_app_log)
-        self.log_clear_btn.grid(row=0, column=2, sticky="w", padx=(8, 0))
-        self.log_copy_btn = ttk.Button(left_controls, text=tr("log_copy"), command=self._copy_app_log)
-        self.log_copy_btn.grid(row=0, column=3, sticky="w", padx=(6, 0))
+        self.status_label.grid(row=0, column=0, sticky="nsew")
+        self.status_label.bind("<Configure>", lambda e: self.status_label.configure(wraplength=max(80, e.width - 8)))
 
-        status_box_wrap = tk.Frame(log_controls, bg=UI_BG, highlightthickness=1, highlightbackground=UI_BORDER)
-        status_box_wrap.grid(row=0, column=1, sticky="ew", padx=(16, 0))
-        status_box_wrap.grid_columnconfigure(0, weight=1)
-        status_box = ttk.Frame(status_box_wrap, padding=(6, 4))
-        status_box.grid(row=0, column=0, sticky="ew")
-        status_box.grid_columnconfigure(0, weight=1)
-        ttk.Label(status_box, textvariable=self.status_var, anchor="w").grid(row=0, column=0, sticky="ew")
-        self.ssh_last_line_label = ttk.Label(status_box, textvariable=self.ssh_last_line_var, anchor="w")
-        self.ssh_last_line_label.grid(row=1, column=0, sticky="ew", pady=(2, 0))
+        ssh_last_panel = ttk.LabelFrame(left_info, text=ssh_title, padding=(6, 6))
+        ssh_last_panel.grid(row=1, column=0, sticky="nsew")
+        ssh_last_panel.columnconfigure(0, weight=1)
+        ssh_last_panel.rowconfigure(0, weight=1)
+        self.ssh_last_line_label = ttk.Label(
+            ssh_last_panel,
+            textvariable=self.ssh_last_line_var,
+            anchor="nw",
+            justify="left",
+        )
+        self.ssh_last_line_label.grid(row=0, column=0, sticky="nsew")
         self.ssh_last_line_label.bind("<Configure>", lambda _e: self._refresh_ssh_last_line_summary())
-        self.cancel_dataset_btn = ttk.Button(
-            status_box,
-            text=tr("cancel_operation_btn"),
-            width=8,
-            command=self._cancel_dataset_operation,
-        )
-        self.cancel_dataset_btn.grid(row=2, column=0, sticky="w", pady=(4, 0))
-        self.cancel_dataset_btn.configure(state="disabled")
-        self.cancel_dataset_btn.grid_remove()
 
-        logs_split = ttk.Panedwindow(log_frame, orient=tk.HORIZONTAL)
-        logs_split.grid(row=2, column=0, sticky="nsew")
+        # Panel derecho: tabs de logs arriba y controles debajo.
+        right_logs = ttk.Frame(log_body)
+        right_logs.grid(row=0, column=1, sticky="nsew")
+        right_logs.columnconfigure(0, weight=1)
+        right_logs.rowconfigure(0, weight=1)
 
-        app_tab = ttk.LabelFrame(logs_split, text=tr("log_tab_app"), padding=(6, 6))
+        logs_tabs = ttk.Notebook(right_logs)
+        logs_tabs.grid(row=0, column=0, sticky="nsew")
+
+        app_tab = ttk.Frame(logs_tabs, padding=(6, 6))
         app_tab.columnconfigure(0, weight=1)
         app_tab.rowconfigure(0, weight=1)
 
-        ssh_tab = ttk.LabelFrame(logs_split, text=tr("log_tab_ssh"), padding=(6, 6))
+        ssh_tab = ttk.Frame(logs_tabs, padding=(6, 6))
         ssh_tab.columnconfigure(0, weight=1)
         ssh_tab.rowconfigure(0, weight=1)
 
@@ -3383,8 +3389,36 @@ class App(tk.Tk):
         self._ssh_log_tip_text: str = ""
         self.ssh_log_text.bind("<Motion>", self._on_ssh_log_hover)
         self.ssh_log_text.bind("<Leave>", self._hide_ssh_log_tooltip)
-        logs_split.add(app_tab, weight=1)
-        logs_split.add(ssh_tab, weight=1)
+        logs_tabs.add(app_tab, text=tr("log_tab_app"))
+        logs_tabs.add(ssh_tab, text=tr("log_tab_ssh"))
+
+        log_controls = ttk.Frame(right_logs)
+        log_controls.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        log_controls.columnconfigure(1, weight=1)
+        ttk.Label(log_controls, text=tr("log_level")).grid(row=0, column=0, sticky="w")
+        self.app_log_level_var = tk.StringVar(value="normal")
+        self.app_log_level_combo = ttk.Combobox(
+            log_controls,
+            textvariable=self.app_log_level_var,
+            values=["normal", "info", "debug"],
+            state="readonly",
+            width=10,
+        )
+        self.app_log_level_combo.grid(row=0, column=1, sticky="w", padx=(6, 0))
+        self.app_log_level_combo.bind("<<ComboboxSelected>>", lambda _e: self._app_log("info", tr("log_level_updated")))
+        self.log_clear_btn = ttk.Button(log_controls, text=tr("log_clear"), command=self._clear_app_log)
+        self.log_clear_btn.grid(row=0, column=2, sticky="w", padx=(8, 0))
+        self.log_copy_btn = ttk.Button(log_controls, text=tr("log_copy"), command=self._copy_app_log)
+        self.log_copy_btn.grid(row=0, column=3, sticky="w", padx=(6, 0))
+        self.cancel_dataset_btn = ttk.Button(
+            log_controls,
+            text=tr("cancel_operation_btn"),
+            width=8,
+            command=self._cancel_dataset_operation,
+        )
+        self.cancel_dataset_btn.grid(row=0, column=4, sticky="e", padx=(12, 0))
+        self.cancel_dataset_btn.configure(state="disabled")
+        self.cancel_dataset_btn.grid_remove()
 
         main_split.add(top_container, weight=4)
         main_split.add(log_container, weight=1)
