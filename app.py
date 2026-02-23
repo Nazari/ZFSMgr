@@ -2982,30 +2982,41 @@ class App(tk.Tk):
 
         log_controls = ttk.Frame(log_frame)
         log_controls.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        log_controls.columnconfigure(3, weight=1)
+        log_controls.columnconfigure(1, weight=1)
 
-        ttk.Label(log_controls, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
-        self.ssh_last_line_label = ttk.Label(log_controls, textvariable=self.ssh_last_line_var)
-        self.ssh_last_line_label.grid(row=0, column=1, sticky="w", padx=(10, 0))
-        self.cancel_dataset_btn = ttk.Button(log_controls, text=tr("cancel_operation_btn"), command=self._cancel_dataset_operation)
-        self.cancel_dataset_btn.grid(row=0, column=2, sticky="w", padx=(10, 0))
+        status_box = ttk.Frame(log_controls)
+        status_box.grid(row=0, column=0, sticky="nw")
+        ttk.Label(status_box, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
+        self.cancel_dataset_btn = ttk.Button(
+            status_box,
+            text=tr("cancel_operation_btn"),
+            width=8,
+            command=self._cancel_dataset_operation,
+        )
+        self.cancel_dataset_btn.grid(row=1, column=0, sticky="w", pady=(4, 0))
         self.cancel_dataset_btn.configure(state="disabled")
+        self.cancel_dataset_btn.grid_remove()
 
-        ttk.Label(log_controls, text=tr("log_level")).grid(row=0, column=4, sticky="e")
+        self.ssh_last_line_label = ttk.Label(log_controls, textvariable=self.ssh_last_line_var, width=62, anchor="w")
+        self.ssh_last_line_label.grid(row=0, column=1, sticky="ew", padx=(10, 10))
+
+        right_controls = ttk.Frame(log_controls)
+        right_controls.grid(row=0, column=2, sticky="e")
+        ttk.Label(right_controls, text=tr("log_level")).grid(row=0, column=0, sticky="e")
         self.app_log_level_var = tk.StringVar(value="normal")
         self.app_log_level_combo = ttk.Combobox(
-            log_controls,
+            right_controls,
             textvariable=self.app_log_level_var,
             values=["normal", "info", "debug"],
             state="readonly",
             width=10,
         )
-        self.app_log_level_combo.grid(row=0, column=5, sticky="w", padx=(6, 0))
+        self.app_log_level_combo.grid(row=0, column=1, sticky="w", padx=(6, 0))
         self.app_log_level_combo.bind("<<ComboboxSelected>>", lambda _e: self._app_log("info", tr("log_level_updated")))
-        self.log_clear_btn = ttk.Button(log_controls, text=tr("log_clear"), command=self._clear_app_log)
-        self.log_clear_btn.grid(row=0, column=6, sticky="w", padx=(8, 0))
-        self.log_copy_btn = ttk.Button(log_controls, text=tr("log_copy"), command=self._copy_app_log)
-        self.log_copy_btn.grid(row=0, column=7, sticky="w", padx=(6, 0))
+        self.log_clear_btn = ttk.Button(right_controls, text=tr("log_clear"), command=self._clear_app_log)
+        self.log_clear_btn.grid(row=0, column=2, sticky="w", padx=(8, 0))
+        self.log_copy_btn = ttk.Button(right_controls, text=tr("log_copy"), command=self._copy_app_log)
+        self.log_copy_btn.grid(row=0, column=3, sticky="w", padx=(6, 0))
 
         logs_split = ttk.Panedwindow(log_frame, orient=tk.HORIZONTAL)
         logs_split.grid(row=2, column=0, sticky="nsew")
@@ -4419,7 +4430,7 @@ class App(tk.Tk):
             self._active_dataset_proc = proc
             self._active_dataset_action = action
             self._dataset_cancel_requested = False
-        self.after(0, lambda: self.cancel_dataset_btn.configure(state="normal"))
+        self.after(0, lambda: self._set_cancel_button_visibility(True, enabled=True))
 
     def _clear_active_dataset_process(self, proc: Optional[subprocess.Popen[str]] = None) -> None:
         with self._dataset_proc_lock:
@@ -4427,7 +4438,17 @@ class App(tk.Tk):
                 self._active_dataset_proc = None
                 self._active_dataset_action = ""
                 self._dataset_cancel_requested = False
-        self.after(0, lambda: self.cancel_dataset_btn.configure(state="disabled"))
+        self.after(0, lambda: self._set_cancel_button_visibility(False, enabled=False))
+
+    def _set_cancel_button_visibility(self, visible: bool, enabled: bool) -> None:
+        try:
+            self.cancel_dataset_btn.configure(state=("normal" if enabled else "disabled"))
+            if visible:
+                self.cancel_dataset_btn.grid()
+            else:
+                self.cancel_dataset_btn.grid_remove()
+        except Exception:
+            pass
 
     def _cancel_dataset_operation(self) -> None:
         with self._dataset_proc_lock:
