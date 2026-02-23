@@ -2887,6 +2887,21 @@ class App(tk.Tk):
         self.sync_btn.configure(state="disabled")
         ToolTip(self.sync_btn, tr("datasets_sync_tooltip"))
 
+        breakdown_box = ttk.LabelFrame(self.tab_datasets, text=tr("datasets_box_breakdown"), padding=(8, 6))
+        breakdown_box.grid(row=3, column=0, sticky="ew", pady=(6, 0))
+        breakdown_box.columnconfigure(0, weight=1)
+        ttk.Label(
+            breakdown_box,
+            textvariable=self.dataset_action_target_var,
+            foreground=UI_MUTED,
+            justify="left",
+            wraplength=220,
+        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
+        self.breakdown_btn = ttk.Button(breakdown_box, text=tr("datasets_breakdown_btn"), command=self._breakdown_dataset_plan)
+        self.breakdown_btn.grid(row=1, column=0, sticky="ew")
+        self.breakdown_btn.configure(state="disabled")
+        ToolTip(self.breakdown_btn, tr("datasets_breakdown_tooltip"))
+
         right = ttk.Frame(top_container, padding=(6, 6, 10, 10))
         right.grid(row=0, column=1, sticky="nsew")
         right.columnconfigure(0, weight=1)
@@ -4486,6 +4501,79 @@ class App(tk.Tk):
         for line in [*pre_steps, rsync_cmd, *post_steps]:
             self._app_log("normal", line)
 
+    def _breakdown_dataset_plan(self) -> None:
+        if self._reject_if_ssh_busy():
+            return
+        target = self._get_dataset_for_create()
+        if not target:
+            self._app_log("normal", tr("create_dataset_select_required"))
+            return
+        side, selection_label, dataset_name, conn_id = target
+        if "@" in dataset_name:
+            self._app_log("normal", tr("create_dataset_select_required"))
+            return
+        profile = self.store.get(conn_id)
+        if not profile:
+            self._app_log("normal", tr("create_dataset_select_required"))
+            return
+        row = self._find_selected_dataset_row(side, dataset_name)
+        mountpoint = ((row or {}).get("mountpoint", "") or "").strip()
+        if not mountpoint or mountpoint.lower() == "none":
+            self._app_log("normal", trf("log_breakdown_invalid_mountpoint", dataset=dataset_name, name=profile.name))
+            return
+        if profile.conn_type not in {"LOCAL", "SSH"}:
+            self._app_log("normal", trf("log_breakdown_transport_unsupported", ctype=profile.conn_type))
+            return
+
+        def _wrap_for_profile(raw_cmd: str) -> str:
+            if profile.conn_type == "LOCAL":
+                base = f"sh -lc {shlex.quote(raw_cmd)}"
+                if profile.use_sudo:
+                    return f"sudo {base}"
+                return base
+            ssh_parts: List[str] = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+            if profile.port and profile.port != 22:
+                ssh_parts.extend(["-p", str(profile.port)])
+            if profile.key_path:
+                ssh_parts.extend(["-i", shlex.quote(profile.key_path)])
+            target_host = profile.host
+            if profile.username:
+                target_host = f"{profile.username}@{profile.host}"
+            remote = f"sh -lc {shlex.quote(raw_cmd)}"
+            if profile.use_sudo:
+                remote = f"sudo {remote}"
+            ssh_parts.append(shlex.quote(target_host))
+            ssh_parts.append(shlex.quote(remote))
+            return " ".join(ssh_parts)
+
+        dataset_q = shlex.quote(dataset_name)
+        mount_q = shlex.quote(mountpoint)
+        prep_cmd = (
+            f"DATASET={dataset_q}; MP={mount_q}; "
+            "TMP_ROOT=\"/tmp/zfsmgr-breakdown-${DATASET//\\//_}\"; "
+            "mkdir -p \"$TMP_ROOT\""
+        )
+        loop_cmd = (
+            "for d in \"$MP\"/*; do "
+            "[ -d \"$d\" ] || continue; "
+            "n=\"$(basename \"$d\")\"; "
+            "child=\"$DATASET/$n\"; "
+            "tmp=\"$TMP_ROOT/$n\"; "
+            "zfs create -o mountpoint=\"$tmp\" \"$child\"; "
+            "rsync -aHAWXS --remove-source-files \"$d\"/ \"$tmp\"/; "
+            "find \"$d\" -mindepth 1 -type d -empty -delete; "
+            "zfs set mountpoint=\"$d\" \"$child\"; "
+            "zfs mount \"$child\"; "
+            "done"
+        )
+        self._app_log(
+            "normal",
+            trf("log_breakdown_plan_generated", dataset=dataset_name, name=profile.name, selection=selection_label),
+        )
+        self._app_log("normal", tr("log_breakdown_plan_header"))
+        self._app_log("normal", _wrap_for_profile(prep_cmd))
+        self._app_log("normal", _wrap_for_profile(loop_cmd))
+
     def _get_dataset_for_create(self) -> Optional[Tuple[str, str, str, str]]:
         # Devuelve (side, selection_label, dataset, conn_id)
         origin_ds = self.origin_dataset_var.get().strip()
@@ -5194,6 +5282,7 @@ class App(tk.Tk):
         create_enabled = bool((self.ssh_busy_count == 0) and has_dataset_target)
         modify_enabled = bool((self.ssh_busy_count == 0) and has_dataset_target)
         delete_enabled = bool((self.ssh_busy_count == 0) and has_delete_target)
+        breakdown_enabled = bool((self.ssh_busy_count == 0) and has_dataset_target)
         self._app_log(
             "debug",
             trf(
@@ -5211,6 +5300,7 @@ class App(tk.Tk):
         self.create_btn.configure(state="normal" if create_enabled else "disabled")
         self.modify_btn.configure(state="normal" if modify_enabled else "disabled")
         self.delete_dataset_btn.configure(state="normal" if delete_enabled else "disabled")
+        self.breakdown_btn.configure(state="normal" if breakdown_enabled else "disabled")
         delete_target = self._get_target_for_delete()
         if delete_target:
             _side, _sel, target, target_conn_id = delete_target
