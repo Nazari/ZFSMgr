@@ -3687,6 +3687,7 @@ class App(tk.Tk):
         row_index: int,
         columns: List[Tuple[str, int, str]],
         values: List[str],
+        text_colors: Optional[Dict[int, str]] = None,
         action_col: Optional[int] = None,
         action_callback: Optional[Callable[[], None]] = None,
         action_color: Optional[str] = None,
@@ -3743,7 +3744,8 @@ class App(tk.Tk):
                 if on_cell_leave is not None:
                     lbl.bind("<Leave>", lambda _e, cb=on_cell_leave: cb(), add="+")
             else:
-                lbl = tk.Label(row, text=text, bg=bg, fg=UI_TEXT, anchor=anchor, padx=6, pady=3)
+                fg_color = (text_colors or {}).get(idx, UI_TEXT)
+                lbl = tk.Label(row, text=text, bg=bg, fg=fg_color, anchor=anchor, padx=6, pady=3)
                 if on_row_click is not None:
                     lbl.bind("<Button-1>", lambda _e, cb=on_row_click: cb())
                 if on_row_context is not None:
@@ -6365,6 +6367,7 @@ class App(tk.Tk):
             for pool in state.importable:
                 pool_name = pool.get("pool", "")
                 pool_state = (pool.get("state", "") or "").strip()
+                state_color = UI_ACTION_MOUNT if pool_state.upper() == "ONLINE" else UI_ACTION_UMOUNT
                 key = f"{conn.id}:{pool_name}:{pool_state.upper()}"
                 visible_keys.add(key)
                 self._add_plain_row(
@@ -6378,6 +6381,7 @@ class App(tk.Tk):
                         pool_state,
                         pool.get("status", ""),
                     ],
+                    text_colors={3: state_color},
                     on_row_context=lambda e, cid=conn.id, p=pool_name, st=pool_state: self._on_importable_pool_context(cid, p, st, e),
                 )
                 row_idx += 1
