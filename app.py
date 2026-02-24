@@ -3026,9 +3026,13 @@ class App(tk.Tk):
             activebackground=UI_SELECTION,
             activeforeground=UI_TEXT,
         )
+        self._dataset_context_side = "origin"
         self.datasets_context_menu.add_command(label=tr("create_dataset_btn"), command=self._create_dataset)
         self.datasets_context_menu.add_command(label=tr("modify_dataset_btn"), command=self._modify_dataset)
         self.datasets_context_menu.add_command(label=tr("delete_dataset_btn"), command=self._delete_dataset)
+        self.datasets_context_menu.add_separator()
+        self.datasets_context_menu.add_command(label=tr("action_mount"), command=lambda: self._run_dataset_mount_action(self._dataset_context_side, True))
+        self.datasets_context_menu.add_command(label=tr("action_umount"), command=lambda: self._run_dataset_mount_action(self._dataset_context_side, False))
 
         transfer_box = ttk.LabelFrame(self.tab_datasets, text=tr("datasets_box_transfer"), padding=(8, 6))
         transfer_box.grid(row=0, column=0, sticky="ew", pady=(0, 0))
@@ -3332,7 +3336,6 @@ class App(tk.Tk):
         self.origin_props_columns: List[Tuple[str, int, str]] = [
             (tr("col_property"), 180, "w"),
             (tr("col_value"), 280, "w"),
-            (tr("col_action"), 90, "w"),
         ]
         self.origin_props_rows = self._build_plain_table(origin_props, self.origin_props_columns)
 
@@ -3343,7 +3346,6 @@ class App(tk.Tk):
         self.dest_props_columns: List[Tuple[str, int, str]] = [
             (tr("col_property"), 180, "w"),
             (tr("col_value"), 280, "w"),
-            (tr("col_action"), 90, "w"),
         ]
         self.dest_props_rows = self._build_plain_table(dest_props, self.dest_props_columns)
         ds_split.add(datasets_row, weight=3)
@@ -6006,11 +6008,32 @@ class App(tk.Tk):
             self._on_origin_tree_selected()
         else:
             self._on_dest_tree_selected()
+        self._dataset_context_side = side
         self.datasets_context_menu.entryconfigure(0, state=self.create_btn.cget("state"))
         self.datasets_context_menu.entryconfigure(1, state=self.modify_btn.cget("state"))
         self.datasets_context_menu.entryconfigure(2, state=self.delete_dataset_btn.cget("state"))
+        can_mount, can_umount = self._dataset_mount_context_states(side)
+        self.datasets_context_menu.entryconfigure(4, state=("normal" if can_mount else "disabled"))
+        self.datasets_context_menu.entryconfigure(5, state=("normal" if can_umount else "disabled"))
         self._show_context_menu(self.datasets_context_menu, event)
         return "break"
+
+    def _dataset_mount_context_states(self, side: str) -> Tuple[bool, bool]:
+        selection = self.origin_pool_var.get().strip() if side == "origin" else self.dest_pool_var.get().strip()
+        dataset = self.origin_dataset_var.get().strip() if side == "origin" else self.dest_dataset_var.get().strip()
+        if not selection or not dataset or selection not in self.dataset_pool_options:
+            return False, False
+        if "@" in dataset:
+            return False, False
+        row = self._find_selected_dataset_row(side, dataset)
+        if not row:
+            return False, False
+        mounted_val = (row.get("mounted", "") or "").strip().lower()
+        mountpoint_val = (row.get("mountpoint", "") or "").strip().lower()
+        canmount_val = (row.get("canmount", "") or "").strip().lower()
+        can_mount = mounted_val in {"no", "off", "false"} and bool(mountpoint_val) and mountpoint_val != "none" and canmount_val != "off"
+        can_umount = mounted_val in {"yes", "on", "true"}
+        return can_mount, can_umount
 
     def _load_datasets_for_active_connection(self) -> None:
         self._refresh_dataset_pool_options_global()
@@ -6133,15 +6156,6 @@ class App(tk.Tk):
         self._clear_plain_table(rows_frame)
         if not row:
             return
-        mounted_val = (row.get("mounted", "") or "").strip().lower()
-        mountpoint_val = (row.get("mountpoint", "") or "").strip().lower()
-        canmount_val = (row.get("canmount", "") or "").strip().lower()
-        can_offer_mount = bool(mountpoint_val and mountpoint_val != "none" and canmount_val != "off")
-        mounted_action = ""
-        if mounted_val in {"yes", "on", "true"}:
-            mounted_action = tr("action_umount")
-        elif mounted_val in {"no", "off", "false"} and can_offer_mount:
-            mounted_action = tr("action_mount")
         ordered = [
             (tr("datasets_dataset"), row.get("name", "")),
             ("mountpoint", row.get("mountpoint", "")),
@@ -6155,30 +6169,12 @@ class App(tk.Tk):
             if key in consumed:
                 continue
             ordered.append((key, row.get(key, "")))
-        ordered_with_action: List[Tuple[str, str, str]] = []
-        for key, value in ordered:
-            action = mounted_action if key == "Mounted" else ""
-            ordered_with_action.append((key, value, action))
-        # Si alguna propiedad tiene accion, debe aparecer primero.
-        ordered_with_action.sort(key=lambda item: 0 if item[2] else 1)
-
-        for idx, (key, value, action) in enumerate(ordered_with_action):
-            action_col = None
-            action_cb: Optional[Callable[[], None]] = None
-            action_color: Optional[str] = None
-            if action:
-                do_mount = action == tr("action_mount")
-                action_col = 2
-                action_cb = lambda s=side, m=do_mount: self._run_dataset_mount_action(s, m)
-                action_color = UI_ACTION_MOUNT if do_mount else UI_ACTION_UMOUNT
+        for idx, (key, value) in enumerate(ordered):
             self._add_plain_row(
                 rows_frame,
                 idx,
                 columns,
-                [key, value, action],
-                action_col=action_col,
-                action_callback=action_cb,
-                action_color=action_color,
+                [key, value],
             )
 
     def _run_dataset_mount_action(self, side: str, do_mount: bool) -> None:
