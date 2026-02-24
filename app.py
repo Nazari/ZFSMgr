@@ -3588,7 +3588,11 @@ class App(tk.Tk):
             (tr("col_property"), 180, "w"),
             (tr("col_value"), 280, "w"),
         ]
-        self.dataset_props_rows = self._build_plain_table(dataset_props_table_wrap, self.dataset_props_columns)
+        self.dataset_props_rows = self._build_plain_table(
+            dataset_props_table_wrap,
+            self.dataset_props_columns,
+            enable_xscroll=True,
+        )
 
         log_container = ttk.Frame(main_layout)
         log_container.grid(row=1, column=0, sticky="nsew")
