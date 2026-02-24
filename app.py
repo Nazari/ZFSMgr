@@ -2912,6 +2912,7 @@ class App(tk.Tk):
         self.dataset_snapshot_more_col_id = "snap_more"
         self.dataset_snapshots_by_side: Dict[str, Dict[str, List[str]]] = {"origin": {}, "dest": {}}
         self.dataset_root_snapshots_by_side: Dict[str, Dict[str, List[str]]] = {"origin": {}, "dest": {}}
+        self._last_dataset_props_sig: str = ""
 
         self._apply_theme()
         self._build_ui()
@@ -3237,11 +3238,14 @@ class App(tk.Tk):
             base_width = max(top_container.winfo_width(), self.winfo_width(), 1200)
             current_height = max(self.winfo_height(), top_container.winfo_height(), 700)
             target_min_height = int(current_height * 1.15)
-            width = max(170, int(base_width * 0.1472))
+            width = max(120, int(base_width * 0.11776))
             top_container.grid_columnconfigure(0, minsize=width)
             # Mantener visible el detalle derecho (Origen/Destino/Propiedades).
             top_container.grid_columnconfigure(1, minsize=520)
             self._left_tabs_fixed_width = width
+            left.configure(width=width)
+            left.grid_propagate(False)
+            self.left_tabs.configure(width=width)
             cur_min_w, cur_min_h = self.minsize()
             min_h = max(cur_min_h, target_min_height) if cur_min_h > 0 else target_min_height
             self.minsize(max(cur_min_w, width * 4), min_h)
@@ -6459,13 +6463,24 @@ class App(tk.Tk):
     def _render_dataset_properties(self, side: str, row: Optional[Dict[str, str]]) -> None:
         rows_frame = self.dataset_props_rows
         columns = self.dataset_props_columns
-        self._clear_plain_table(rows_frame)
         if not row:
+            self._last_dataset_props_sig = ""
+            self._clear_plain_table(rows_frame)
             self.dataset_props_selected_var.set(trf("datasets_selected_target", dataset=tr("label_none")))
             return
+        sig = json.dumps(row, sort_keys=True, ensure_ascii=False)
+        if sig == self._last_dataset_props_sig:
+            return
+        self._last_dataset_props_sig = sig
         self.dataset_props_selected_var.set(
             trf("datasets_selected_target", dataset=str(row.get("name", "") or tr("label_none")))
         )
+        parent = rows_frame.master
+        try:
+            parent.grid_remove()
+        except Exception:
+            pass
+        self._clear_plain_table(rows_frame)
         ordered = [
             (tr("datasets_dataset"), row.get("name", "")),
             ("mountpoint", row.get("mountpoint", "")),
@@ -6486,6 +6501,10 @@ class App(tk.Tk):
                 columns,
                 [key, value],
             )
+        try:
+            parent.grid()
+        except Exception:
+            pass
 
     def _run_dataset_mount_action(self, side: str, do_mount: bool) -> None:
         selection = self.origin_pool_var.get().strip() if side == "origin" else self.dest_pool_var.get().strip()
@@ -7105,6 +7124,8 @@ class App(tk.Tk):
                 return profile.id, state
 
             max_workers = max(1, min(8, len(profiles)))
+            batch_mode = len(profiles) > 1
+            refreshed_ids: List[str] = []
             self._app_log("info", trf("log_parallel_refresh_start", count=len(profiles), workers=max_workers))
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
                 future_map = {pool.submit(refresh_one, p): p for p in profiles}
@@ -7117,6 +7138,7 @@ class App(tk.Tk):
                         state = ConnectionState(ok=False, message=str(exc))
 
                     self.states[profile_id] = state
+                    refreshed_ids.append(profile_id)
                     self._app_log(
                         "info",
                         trf(
@@ -7149,11 +7171,26 @@ class App(tk.Tk):
                         self.pool_status_loading = {
                             k for k in self.pool_status_loading if not k.startswith(f"{profile_id}:")
                         }
-                    self.after(0, self._load_connections_list)
-                    self.after(0, self._render_all_imported_pools)
-                    self.after(0, self._render_all_importable_pools)
-                    self.after(0, self._update_if_selected, profile_id)
-                    self.after(0, self._refresh_datasets_if_tab_visible)
+
+                    if not batch_mode:
+                        self.after(0, self._load_connections_list)
+                        self.after(0, self._render_all_imported_pools)
+                        self.after(0, self._render_all_importable_pools)
+                        self.after(0, self._update_if_selected, profile_id)
+                        self.after(0, self._refresh_datasets_if_tab_visible)
+
+            if batch_mode:
+                def apply_batch_refresh() -> None:
+                    self._load_connections_list()
+                    self._render_all_imported_pools()
+                    self._render_all_importable_pools()
+                    sel = self.selected_conn_id
+                    if sel and sel in set(refreshed_ids):
+                        profile = self.store.get(sel)
+                        if profile:
+                            self._render_connection_state(profile)
+                    self._refresh_datasets_if_tab_visible()
+                self.after(0, apply_batch_refresh)
             self._app_log("normal", tr("log_parallel_refresh_end"))
 
         threading.Thread(target=worker, daemon=True).start()
