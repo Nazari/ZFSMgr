@@ -3027,10 +3027,14 @@ class App(tk.Tk):
 
         self.priv_var = tk.StringVar(value=tr("priv_unknown"))
 
-        main_split = ttk.Panedwindow(self, orient=tk.VERTICAL)
-        main_split.grid(row=0, column=0, sticky="nsew")
+        main_layout = ttk.Frame(self)
+        main_layout.grid(row=0, column=0, sticky="nsew")
+        main_layout.columnconfigure(0, weight=1)
+        main_layout.rowconfigure(0, weight=4)
+        main_layout.rowconfigure(1, weight=1)
 
-        top_container = ttk.Frame(main_split)
+        top_container = ttk.Frame(main_layout)
+        top_container.grid(row=0, column=0, sticky="nsew")
         top_container.columnconfigure(0, weight=0)
         top_container.columnconfigure(1, weight=1)
         top_container.rowconfigure(0, weight=1)
@@ -3255,10 +3259,14 @@ class App(tk.Tk):
         imp_frame = ttk.Frame(pools_tabs, padding=6)
         imp_frame.columnconfigure(0, weight=1)
         imp_frame.rowconfigure(0, weight=1)
-        imp_split = ttk.Panedwindow(imp_frame, orient=tk.VERTICAL)
-        imp_split.grid(row=0, column=0, sticky="nsew")
+        imp_layout = ttk.Frame(imp_frame)
+        imp_layout.grid(row=0, column=0, sticky="nsew")
+        imp_layout.columnconfigure(0, weight=1)
+        imp_layout.rowconfigure(0, weight=2)
+        imp_layout.rowconfigure(1, weight=1)
 
-        imp_top = ttk.Frame(imp_split)
+        imp_top = ttk.Frame(imp_layout)
+        imp_top.grid(row=0, column=0, sticky="nsew", pady=(0, 6))
         imp_top.columnconfigure(0, weight=1)
         imp_top.rowconfigure(0, weight=1)
 
@@ -3282,7 +3290,8 @@ class App(tk.Tk):
         )
         self.imported_pool_context_menu.add_command(label=tr("export_btn"), command=self._export_selected_imported_pool)
 
-        imp_props = ttk.LabelFrame(imp_split, text=tr("pool_properties_title"))
+        imp_props = ttk.LabelFrame(imp_layout, text=tr("pool_properties_title"))
+        imp_props.grid(row=1, column=0, sticky="nsew")
         imp_props.columnconfigure(0, weight=1)
         imp_props.rowconfigure(0, weight=1)
         self.pool_props_columns: List[Tuple[str, int, str]] = [
@@ -3291,8 +3300,6 @@ class App(tk.Tk):
             (tr("col_source"), 140, "w"),
         ]
         self.pool_props_rows = self._build_plain_table(imp_props, self.pool_props_columns)
-        imp_split.add(imp_top, weight=2)
-        imp_split.add(imp_props, weight=1)
 
         avail_frame = ttk.Frame(pools_tabs, padding=6)
         avail_frame.columnconfigure(0, weight=1)
@@ -3480,7 +3487,8 @@ class App(tk.Tk):
         ]
         self.dataset_props_rows = self._build_plain_table(dataset_props_table_wrap, self.dataset_props_columns)
 
-        log_container = ttk.Frame(main_split)
+        log_container = ttk.Frame(main_layout)
+        log_container.grid(row=1, column=0, sticky="nsew")
         log_container.columnconfigure(0, weight=1)
         log_container.rowconfigure(0, weight=1)
         log_frame = ttk.LabelFrame(log_container, text=tr("log_section"), padding=(8, 6))
@@ -3628,14 +3636,11 @@ class App(tk.Tk):
         self.cancel_dataset_btn.configure(state="disabled")
         self.cancel_dataset_btn.grid_remove()
 
-        main_split.add(top_container, weight=4)
-        main_split.add(log_container, weight=1)
-
         def _enforce_dataset_tab_visibility() -> None:
             try:
                 self.update_idletasks()
                 min_top = max(420, int(self.tab_datasets.winfo_reqheight() + 24))
-                main_split.paneconfigure(top_container, minsize=min_top)
+                main_layout.grid_rowconfigure(0, minsize=min_top)
             except Exception:
                 pass
 
