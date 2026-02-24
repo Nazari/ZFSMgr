@@ -3343,11 +3343,11 @@ class App(tk.Tk):
 
         datasets_row = ttk.Frame(ds_split)
         datasets_row.columnconfigure(0, weight=1)
-        datasets_row.columnconfigure(1, weight=1)
         datasets_row.rowconfigure(0, weight=1)
+        datasets_row.rowconfigure(1, weight=1)
 
         origin_tree_wrap = ttk.LabelFrame(datasets_row, text=tr("datasets_origin"))
-        origin_tree_wrap.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        origin_tree_wrap.grid(row=0, column=0, sticky="nsew", pady=(0, 6))
         origin_tree_wrap.columnconfigure(0, weight=1)
         origin_tree_wrap.rowconfigure(0, weight=1)
         self.datasets_tree_origin = ttk.Treeview(
@@ -3392,7 +3392,7 @@ class App(tk.Tk):
         self.datasets_tree_origin.bind("<Control-Button-1>", lambda e: self._on_dataset_tree_context("origin", e))
 
         dest_tree_wrap = ttk.LabelFrame(datasets_row, text=tr("datasets_dest"))
-        dest_tree_wrap.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        dest_tree_wrap.grid(row=1, column=0, sticky="nsew", pady=(6, 0))
         dest_tree_wrap.columnconfigure(0, weight=1)
         dest_tree_wrap.rowconfigure(0, weight=1)
         self.datasets_tree_dest = ttk.Treeview(
@@ -3438,28 +3438,17 @@ class App(tk.Tk):
 
         props_row = ttk.Frame(ds_split)
         props_row.columnconfigure(0, weight=1)
-        props_row.columnconfigure(1, weight=1)
         props_row.rowconfigure(0, weight=1)
 
-        origin_props = ttk.LabelFrame(props_row, text=tr("dataset_properties"))
-        origin_props.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        origin_props.columnconfigure(0, weight=1)
-        origin_props.rowconfigure(0, weight=1)
-        self.origin_props_columns: List[Tuple[str, int, str]] = [
+        dataset_props = ttk.LabelFrame(props_row, text=tr("dataset_properties"))
+        dataset_props.grid(row=0, column=0, sticky="nsew")
+        dataset_props.columnconfigure(0, weight=1)
+        dataset_props.rowconfigure(0, weight=1)
+        self.dataset_props_columns: List[Tuple[str, int, str]] = [
             (tr("col_property"), 180, "w"),
             (tr("col_value"), 280, "w"),
         ]
-        self.origin_props_rows = self._build_plain_table(origin_props, self.origin_props_columns)
-
-        dest_props = ttk.LabelFrame(props_row, text=tr("dataset_properties"))
-        dest_props.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
-        dest_props.columnconfigure(0, weight=1)
-        dest_props.rowconfigure(0, weight=1)
-        self.dest_props_columns: List[Tuple[str, int, str]] = [
-            (tr("col_property"), 180, "w"),
-            (tr("col_value"), 280, "w"),
-        ]
-        self.dest_props_rows = self._build_plain_table(dest_props, self.dest_props_columns)
+        self.dataset_props_rows = self._build_plain_table(dataset_props, self.dataset_props_columns)
         ds_split.add(datasets_row, weight=3)
         ds_split.add(props_row, weight=1)
 
@@ -6208,8 +6197,8 @@ class App(tk.Tk):
         return None
 
     def _render_dataset_properties(self, side: str, row: Optional[Dict[str, str]]) -> None:
-        rows_frame = self.origin_props_rows if side == "origin" else self.dest_props_rows
-        columns = self.origin_props_columns if side == "origin" else self.dest_props_columns
+        rows_frame = self.dataset_props_rows
+        columns = self.dataset_props_columns
         self._clear_plain_table(rows_frame)
         if not row:
             return
