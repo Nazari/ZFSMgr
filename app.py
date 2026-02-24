@@ -614,8 +614,10 @@ class ConnectionStore:
     def _decode_username(self, raw_username: str) -> str:
         try:
             return self.cipher.decrypt(raw_username)
-        except PasswordCryptoError as exc:
-            raise ValueError(str(exc)) from exc
+        except PasswordCryptoError:
+            # El usuario ya no se cifra en el INI; si falla descifrado,
+            # tratamos el valor como texto plano.
+            return raw_username
 
     def _profile_from_mapping(self, data: Dict[str, Any]) -> ConnectionProfile:
         conn_type = str(data.get("conn_type", "SSH")).upper()
@@ -654,7 +656,7 @@ class ConnectionStore:
             "transport": profile.transport,
             "host": profile.host,
             "port": str(profile.port),
-            "username": self.cipher.encrypt(profile.username),
+            "username": profile.username,
             "password": self.cipher.encrypt(profile.password),
             "key_path": profile.key_path,
             "use_ssl": str(bool(profile.use_ssl)),
