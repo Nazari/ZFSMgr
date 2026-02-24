@@ -6956,10 +6956,27 @@ class App(tk.Tk):
                 if sel_key not in visible_keys:
                     self.selected_imported_pool = None
             if self.selected_imported_pool:
-                self._load_selected_pool_properties()
+                self._render_selected_pool_properties_from_cache()
             else:
                 self._render_pool_properties_rows([])
                 self._render_pool_status_text("")
+
+    def _render_selected_pool_properties_from_cache(self) -> None:
+        if not self.selected_imported_pool:
+            self._render_pool_properties_rows([])
+            self._render_pool_status_text("")
+            return
+        conn_id, pool_name = self.selected_imported_pool
+        props_cache_key = f"{conn_id}:{pool_name}"
+        status_cache_key = self._pool_status_cache_key(conn_id, pool_name)
+        if props_cache_key in self.pool_properties_cache:
+            self._render_pool_properties_rows(self.pool_properties_cache.get(props_cache_key, []))
+        else:
+            self._render_pool_properties_rows([])
+        if status_cache_key in self.pool_status_cache:
+            self._render_pool_status_text(self.pool_status_cache.get(status_cache_key, ""))
+        else:
+            self._render_pool_status_text("")
 
     def _on_imported_pool_context(self, conn_id: str, pool_name: str, event: Any) -> None:
         if self._reject_if_ssh_busy():
