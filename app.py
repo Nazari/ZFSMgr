@@ -3304,7 +3304,6 @@ class App(tk.Tk):
         self.pool_props_rows = self._build_plain_table(
             imp_props,
             self.pool_props_columns,
-            always_show_yscroll=True,
         )
         imp_detail_tabs.add(imp_props, text=tr("pool_properties_title"))
 
