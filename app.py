@@ -3552,16 +3552,13 @@ class App(tk.Tk):
         right_logs.columnconfigure(0, weight=1)
         right_logs.rowconfigure(0, weight=1)
 
-        logs_tabs = ttk.Notebook(right_logs, style="Log.TNotebook")
-        logs_tabs.grid(row=0, column=0, sticky="nsew")
+        self.logs_tabs = ttk.Notebook(right_logs, style="Log.TNotebook")
+        self.logs_tabs.grid(row=0, column=0, sticky="nsew")
+        self.connection_log_tabs: Dict[str, Dict[str, Any]] = {}
 
-        app_tab = ttk.Frame(logs_tabs, padding=(6, 6))
+        app_tab = ttk.Frame(self.logs_tabs, padding=(6, 6))
         app_tab.columnconfigure(0, weight=1)
         app_tab.rowconfigure(0, weight=1)
-
-        ssh_tab = ttk.Frame(logs_tabs, padding=(6, 6))
-        ssh_tab.columnconfigure(0, weight=1)
-        ssh_tab.rowconfigure(0, weight=1)
 
         self.app_log_text = tk.Text(
             app_tab,
@@ -3584,32 +3581,7 @@ class App(tk.Tk):
         self.app_log_text.configure(yscrollcommand=app_log_y.set, xscrollcommand=app_log_x.set)
         self.app_log_text.bind("<Motion>", self._on_app_log_hover)
         self.app_log_text.bind("<Leave>", self._hide_app_log_tooltip)
-
-        self.ssh_log_text = tk.Text(
-            ssh_tab,
-            height=8,
-            state="disabled",
-            wrap="none",
-            font=("TkDefaultFont", 9),
-            bg=UI_PANEL_BG,
-            fg=UI_TEXT,
-            insertbackground=UI_TEXT,
-            highlightthickness=1,
-            highlightbackground=UI_BORDER,
-            highlightcolor=UI_ACCENT,
-        )
-        self.ssh_log_text.grid(row=0, column=0, sticky="nsew")
-        ssh_log_y = ttk.Scrollbar(ssh_tab, orient="vertical", command=self.ssh_log_text.yview)
-        ssh_log_y.grid(row=0, column=1, sticky="ns")
-        ssh_log_x = ttk.Scrollbar(ssh_tab, orient="horizontal", command=self.ssh_log_text.xview)
-        ssh_log_x.grid(row=1, column=0, sticky="ew")
-        self.ssh_log_text.configure(yscrollcommand=ssh_log_y.set, xscrollcommand=ssh_log_x.set)
-        self._ssh_log_tipwindow: Optional[tk.Toplevel] = None
-        self._ssh_log_tip_text: str = ""
-        self.ssh_log_text.bind("<Motion>", self._on_ssh_log_hover)
-        self.ssh_log_text.bind("<Leave>", self._hide_ssh_log_tooltip)
-        logs_tabs.add(app_tab, text=tr("log_tab_app"))
-        logs_tabs.add(ssh_tab, text=tr("log_tab_ssh"))
+        self.logs_tabs.add(app_tab, text=tr("log_tab_app"))
 
         log_controls = ttk.Frame(right_logs)
         log_controls.grid(row=1, column=0, sticky="ew", pady=(6, 0))
@@ -3914,10 +3886,83 @@ class App(tk.Tk):
             self.conn_list.selection_clear(0, tk.END)
             self.conn_list.selection_set(selected_index)
             self.conn_list.activate(selected_index)
+        self._sync_connection_log_tabs()
+
+    def _sync_connection_log_tabs(self) -> None:
+        wanted = {c.id: c.name for c in self.store.connections}
+        existing = set(self.connection_log_tabs.keys())
+        # Eliminar tabs de conexiones borradas.
+        for conn_id in sorted(existing - set(wanted.keys())):
+            entry = self.connection_log_tabs.pop(conn_id, None)
+            if not entry:
+                continue
+            frame = entry.get("frame")
+            try:
+                if frame is not None:
+                    self.logs_tabs.forget(frame)
+            except Exception:
+                pass
+        # Crear/actualizar tabs de conexiones actuales.
+        for conn in self.store.connections:
+            if conn.id not in self.connection_log_tabs:
+                frame = ttk.Frame(self.logs_tabs, padding=(6, 6))
+                frame.columnconfigure(0, weight=1)
+                frame.rowconfigure(0, weight=1)
+                txt = tk.Text(
+                    frame,
+                    height=8,
+                    state="disabled",
+                    wrap="none",
+                    font=("TkDefaultFont", 9),
+                    bg=UI_PANEL_BG,
+                    fg=UI_TEXT,
+                    insertbackground=UI_TEXT,
+                    highlightthickness=1,
+                    highlightbackground=UI_BORDER,
+                    highlightcolor=UI_ACCENT,
+                )
+                txt.grid(row=0, column=0, sticky="nsew")
+                ybar = ttk.Scrollbar(frame, orient="vertical", command=txt.yview)
+                ybar.grid(row=0, column=1, sticky="ns")
+                xbar = ttk.Scrollbar(frame, orient="horizontal", command=txt.xview)
+                xbar.grid(row=1, column=0, sticky="ew")
+                txt.configure(yscrollcommand=ybar.set, xscrollcommand=xbar.set)
+                self.logs_tabs.add(frame, text=conn.name)
+                self.connection_log_tabs[conn.id] = {"frame": frame, "text": txt}
+            else:
+                frame = self.connection_log_tabs[conn.id]["frame"]
+                try:
+                    self.logs_tabs.tab(frame, text=conn.name)
+                except Exception:
+                    pass
+
+    def _append_line_to_log_widget(self, widget: tk.Text, line: str) -> None:
+        widget.configure(state="normal")
+        widget.insert("end", line + "\n")
+        widget.see("end")
+        widget.configure(state="disabled")
+
+    def _resolve_conn_id_from_ssh_line(self, line: str) -> Optional[str]:
+        try:
+            m = re.search(r"([A-Za-z0-9._-]+):(\d+)\s+\$", line)
+            if not m:
+                return None
+            host = m.group(1).strip().lower()
+            port = int(m.group(2))
+        except Exception:
+            return None
+        # Primero por host+port exacto.
+        for conn in self.store.connections:
+            if conn.host.strip().lower() == host and int(conn.port or 22) == port:
+                return conn.id
+        # Fallback por host.
+        for conn in self.store.connections:
+            if conn.host.strip().lower() == host:
+                return conn.id
+        return None
 
     def _clear_app_log(self) -> None:
         self._hide_app_log_tooltip()
-        self._hide_ssh_log_tooltip()
         self._ssh_last_line_full = ""
         self.ssh_last_line_var.set("")
         try:
@@ -3926,20 +3971,29 @@ class App(tk.Tk):
             self.ssh_last_line_text.configure(state="disabled")
         except Exception:
             pass
-        for widget in (self.app_log_text, self.ssh_log_text):
+        widgets: List[tk.Text] = [self.app_log_text]
+        for entry in self.connection_log_tabs.values():
+            txt = entry.get("text")
+            if isinstance(txt, tk.Text):
+                widgets.append(txt)
+        for widget in widgets:
             widget.configure(state="normal")
             widget.delete("1.0", "end")
             widget.configure(state="disabled")
 
     def _copy_app_log(self) -> None:
         app_text = self.app_log_text.get("1.0", "end-1c")
-        ssh_text = self.ssh_log_text.get("1.0", "end-1c")
-        text = (
-            f"[{tr('log_tab_app')}]\n"
-            f"{app_text}\n\n"
-            f"[{tr('log_tab_ssh')}]\n"
-            f"{ssh_text}"
-        )
+        chunks = [f"[{tr('log_tab_app')}]\n{app_text}"]
+        for conn in self.store.connections:
+            entry = self.connection_log_tabs.get(conn.id)
+            if not entry:
+                continue
+            txt = entry.get("text")
+            if not isinstance(txt, tk.Text):
+                continue
+            body = txt.get("1.0", "end-1c")
+            chunks.append(f"[{conn.name}]\n{body}")
+        text = "\n\n".join(chunks)
         self.clipboard_clear()
         self.clipboard_append(text)
         self.update_idletasks()
@@ -4116,10 +4170,12 @@ class App(tk.Tk):
         def _append() -> None:
             if self._is_closing:
                 return
-            self.ssh_log_text.configure(state="normal")
-            self.ssh_log_text.insert("end", line + "\n")
-            self.ssh_log_text.see("end")
-            self.ssh_log_text.configure(state="disabled")
+            self._append_line_to_log_widget(self.app_log_text, line)
+            conn_id = self._resolve_conn_id_from_ssh_line(line)
+            if conn_id and conn_id in self.connection_log_tabs:
+                txt = self.connection_log_tabs[conn_id].get("text")
+                if isinstance(txt, tk.Text):
+                    self._append_line_to_log_widget(txt, line)
             self._ssh_last_line_full = line
             self._refresh_ssh_last_line_summary()
         try:
@@ -4171,59 +4227,6 @@ class App(tk.Tk):
         total = len(parts)
         for idx, part in enumerate(parts, start=1):
             self._app_log("info", f"{action_label} subcmd [{idx}/{total}]: {part}")
-
-    def _on_ssh_log_hover(self, event: Any) -> None:
-        try:
-            index = self.ssh_log_text.index(f"@{event.x},{event.y}")
-            line_no = index.split(".", 1)[0]
-            line_text = self.ssh_log_text.get(f"{line_no}.0", f"{line_no}.end").strip()
-        except Exception:
-            line_text = ""
-        if not line_text:
-            self._hide_ssh_log_tooltip()
-            return
-        if self._ssh_log_tipwindow is not None and line_text == self._ssh_log_tip_text:
-            try:
-                self._ssh_log_tipwindow.wm_geometry(f"+{event.x_root + 12}+{event.y_root + 12}")
-            except Exception:
-                pass
-            return
-        self._show_ssh_log_tooltip(line_text, event.x_root + 12, event.y_root + 12)
-
-    def _show_ssh_log_tooltip(self, text: str, x: int, y: int) -> None:
-        self._hide_ssh_log_tooltip()
-        try:
-            tw = tk.Toplevel(self)
-            tw.wm_overrideredirect(True)
-            tw.wm_geometry(f"+{x}+{y}")
-            lbl = tk.Label(
-                tw,
-                text=text,
-                bg=UI_PANEL_BG,
-                fg=UI_TEXT,
-                relief="solid",
-                borderwidth=1,
-                padx=6,
-                pady=3,
-                justify="left",
-                wraplength=900,
-                font=("TkFixedFont", 9),
-            )
-            lbl.pack()
-            self._ssh_log_tipwindow = tw
-            self._ssh_log_tip_text = text
-        except Exception:
-            self._ssh_log_tipwindow = None
-            self._ssh_log_tip_text = ""
-
-    def _hide_ssh_log_tooltip(self, _event: Any = None) -> None:
-        if self._ssh_log_tipwindow is not None:
-            try:
-                self._ssh_log_tipwindow.destroy()
-            except Exception:
-                pass
-        self._ssh_log_tipwindow = None
-        self._ssh_log_tip_text = ""
 
     def _pool_status_cache_key(self, conn_id: str, pool_name: str) -> str:
         return f"{conn_id}:{pool_name}"
