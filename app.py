@@ -6546,6 +6546,16 @@ class App(tk.Tk):
         if profile:
             self._run_background_refresh([profile])
 
+    def _refresh_connection_after_pool_action(self, conn_id: str, conn_name: str) -> None:
+        # Fuerza refresco dirigido de la conexion afectada tras importar/exportar.
+        self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{conn_id}:")}
+        self.pool_properties_cache = {k: v for k, v in self.pool_properties_cache.items() if not k.startswith(f"{conn_id}:")}
+        with self.pool_status_lock:
+            self.pool_status_cache = {k: v for k, v in self.pool_status_cache.items() if not k.startswith(f"{conn_id}:")}
+            self.pool_status_loading = {k for k in self.pool_status_loading if not k.startswith(f"{conn_id}:")}
+        self._app_log("info", trf("log_refresh_connection", name=conn_name))
+        self._refresh_connection_by_id(conn_id)
+
     def refresh_all_connections(self) -> None:
         if self._reject_if_ssh_busy():
             return
@@ -6715,9 +6725,11 @@ class App(tk.Tk):
         self._ssh_log(f"[ACTION] {trf('log_import_requested', name=profile.name, pool=pool_name)}")
 
         def worker() -> None:
+            refresh_needed = False
             try:
                 execu = make_executor(profile)
                 out = execu.import_pool(pool_name, dlg.result or {})
+                refresh_needed = True
                 self._app_log("info", trf("log_import_done", name=profile.name, pool=pool_name))
                 self._app_log("debug", trf("log_import_output", name=profile.name, pool=pool_name, output=out.strip() or tr("label_no_output")))
                 self._ssh_log(f"[ACTION-END] {trf('log_import_done', name=profile.name, pool=pool_name)}")
@@ -6734,7 +6746,8 @@ class App(tk.Tk):
                 detail = f"{exc}\n\n{traceback.format_exc()}"
                 self.after(0, lambda: messagebox.showerror(tr("import_error_title"), detail))
             finally:
-                self.after(0, lambda: self._refresh_connection_by_id(profile.id))
+                if refresh_needed:
+                    self.after(0, lambda: self._refresh_connection_after_pool_action(profile.id, profile.name))
 
         threading.Thread(target=worker, daemon=True).start()
 
