@@ -6951,11 +6951,29 @@ class App(tk.Tk):
         if props_cache_key in self.pool_properties_cache:
             self._render_pool_properties_rows(self.pool_properties_cache.get(props_cache_key, []))
         else:
-            self._render_pool_properties_rows([])
+            # Fallback local sin ejecutar comandos remotos.
+            basic_rows: List[Dict[str, str]] = []
+            profile = self.store.get(conn_id)
+            state = self.states.get(conn_id)
+            pool_row: Optional[Dict[str, str]] = None
+            if state and state.imported:
+                for row in state.imported:
+                    if (row.get("pool", "") or "").strip() == pool_name:
+                        pool_row = row
+                        break
+            if profile:
+                basic_rows.append({"property": "connection", "value": profile.name, "source": "cache"})
+            basic_rows.append({"property": "pool", "value": pool_name, "source": "cache"})
+            if pool_row:
+                for key in ("size", "used", "free", "compressratio", "dedup"):
+                    val = (pool_row.get(key, "") or "").strip()
+                    if val:
+                        basic_rows.append({"property": key, "value": val, "source": "cache"})
+            self._render_pool_properties_rows(basic_rows if basic_rows else [])
         if status_cache_key in self.pool_status_cache:
             self._render_pool_status_text(self.pool_status_cache.get(status_cache_key, ""))
         else:
-            self._render_pool_status_text("")
+            self._render_pool_status_text("(sin estado en cache)")
 
     def _on_imported_pool_context(self, conn_id: str, pool_name: str, event: Any) -> None:
         if self._reject_if_ssh_busy():
