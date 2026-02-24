@@ -3230,6 +3230,7 @@ class App(tk.Tk):
         right.grid(row=0, column=1, sticky="nsew")
         right.columnconfigure(0, weight=1)
         right.rowconfigure(0, weight=1)
+        combo_field_bg = ttk.Style().lookup("TCombobox", "fieldbackground") or UI_PANEL_BG
 
         # Sin barra de redimensionado: panel izquierdo de ancho fijo.
         def _init_fixed_left_width() -> None:
@@ -3343,7 +3344,7 @@ class App(tk.Tk):
         datasets_main.grid(row=0, column=0, sticky="nsew")
         # Propiedades a ancho fijo (sin crecer al redimensionar horizontalmente).
         datasets_main.columnconfigure(0, weight=1)
-        datasets_main.columnconfigure(1, weight=0, minsize=360)
+        datasets_main.columnconfigure(1, weight=0, minsize=288)
         datasets_main.rowconfigure(0, weight=1)
 
         datasets_row = ttk.Frame(datasets_main)
@@ -3361,14 +3362,14 @@ class App(tk.Tk):
         self.origin_pool_combo = ttk.Combobox(origin_top, textvariable=self.origin_pool_var, state="readonly", width=21)
         self.origin_pool_combo.grid(row=0, column=0, sticky="w", padx=(0, 2))
         self.origin_pool_combo.bind("<<ComboboxSelected>>", self._on_origin_pool_selected)
-        self.origin_root_snaps_wrap = tk.Frame(origin_top, bg=UI_PANEL_BG)
+        self.origin_root_snaps_wrap = tk.Frame(origin_top, bg=combo_field_bg)
         self.origin_root_snaps_wrap.grid(row=0, column=1, sticky="w")
         self.origin_root_snap_labels: List[tk.Label] = []
         for idx in range(self.dataset_snapshot_max_cols):
             lbl = tk.Label(
                 self.origin_root_snaps_wrap,
                 text="",
-                bg=UI_PANEL_BG,
+                bg=combo_field_bg,
                 fg=UI_TEXT,
                 relief="solid",
                 borderwidth=1,
@@ -3379,12 +3380,12 @@ class App(tk.Tk):
             )
             lbl.grid(row=0, column=idx, sticky="ew", padx=(0, 2))
             lbl.bind("<Button-1>", lambda _e, s="origin", i=idx: self._on_root_snapshot_cell_click(s, i))
-            self.origin_root_snaps_wrap.grid_columnconfigure(idx, minsize=110, weight=0)
+            self.origin_root_snaps_wrap.grid_columnconfigure(idx, weight=0)
             self.origin_root_snap_labels.append(lbl)
         self.origin_root_snap_more = tk.Label(
             self.origin_root_snaps_wrap,
             text="",
-            bg=UI_PANEL_BG,
+            bg=combo_field_bg,
             fg=UI_TEXT,
             relief="solid",
             borderwidth=1,
@@ -3394,7 +3395,7 @@ class App(tk.Tk):
             cursor="hand2",
         )
         self.origin_root_snap_more.grid(row=0, column=self.dataset_snapshot_max_cols, sticky="ew")
-        self.origin_root_snaps_wrap.grid_columnconfigure(self.dataset_snapshot_max_cols, minsize=45, weight=0)
+        self.origin_root_snaps_wrap.grid_columnconfigure(self.dataset_snapshot_max_cols, weight=0)
         self.origin_root_snap_more.bind("<Button-1>", lambda _e, s="origin": self._on_root_snapshot_more_click(s))
         self.datasets_tree_origin = ttk.Treeview(
             origin_tree_wrap,
@@ -3453,14 +3454,14 @@ class App(tk.Tk):
         self.dest_pool_combo = ttk.Combobox(dest_top, textvariable=self.dest_pool_var, state="readonly", width=21)
         self.dest_pool_combo.grid(row=0, column=0, sticky="w", padx=(0, 2))
         self.dest_pool_combo.bind("<<ComboboxSelected>>", self._on_dest_pool_selected)
-        self.dest_root_snaps_wrap = tk.Frame(dest_top, bg=UI_PANEL_BG)
+        self.dest_root_snaps_wrap = tk.Frame(dest_top, bg=combo_field_bg)
         self.dest_root_snaps_wrap.grid(row=0, column=1, sticky="w")
         self.dest_root_snap_labels: List[tk.Label] = []
         for idx in range(self.dataset_snapshot_max_cols):
             lbl = tk.Label(
                 self.dest_root_snaps_wrap,
                 text="",
-                bg=UI_PANEL_BG,
+                bg=combo_field_bg,
                 fg=UI_TEXT,
                 relief="solid",
                 borderwidth=1,
@@ -3471,12 +3472,12 @@ class App(tk.Tk):
             )
             lbl.grid(row=0, column=idx, sticky="ew", padx=(0, 2))
             lbl.bind("<Button-1>", lambda _e, s="dest", i=idx: self._on_root_snapshot_cell_click(s, i))
-            self.dest_root_snaps_wrap.grid_columnconfigure(idx, minsize=110, weight=0)
+            self.dest_root_snaps_wrap.grid_columnconfigure(idx, weight=0)
             self.dest_root_snap_labels.append(lbl)
         self.dest_root_snap_more = tk.Label(
             self.dest_root_snaps_wrap,
             text="",
-            bg=UI_PANEL_BG,
+            bg=combo_field_bg,
             fg=UI_TEXT,
             relief="solid",
             borderwidth=1,
@@ -3486,7 +3487,7 @@ class App(tk.Tk):
             cursor="hand2",
         )
         self.dest_root_snap_more.grid(row=0, column=self.dataset_snapshot_max_cols, sticky="ew")
-        self.dest_root_snaps_wrap.grid_columnconfigure(self.dataset_snapshot_max_cols, minsize=45, weight=0)
+        self.dest_root_snaps_wrap.grid_columnconfigure(self.dataset_snapshot_max_cols, weight=0)
         self.dest_root_snap_more.bind("<Button-1>", lambda _e, s="dest": self._on_root_snapshot_more_click(s))
         self.datasets_tree_dest = ttk.Treeview(
             dest_tree_wrap,
@@ -6144,7 +6145,16 @@ class App(tk.Tk):
         for idx, lbl in enumerate(labels):
             txt = f"@{snaps[idx]}" if idx < len(snaps) else ""
             lbl.configure(text=txt)
-        more_lbl.configure(text=("..." if len(snaps) > self.dataset_snapshot_max_cols else ""))
+            if txt:
+                lbl.grid()
+            else:
+                lbl.grid_remove()
+        if len(snaps) > self.dataset_snapshot_max_cols:
+            more_lbl.configure(text="...")
+            more_lbl.grid()
+        else:
+            more_lbl.configure(text="")
+            more_lbl.grid_remove()
 
     def _on_root_snapshot_cell_click(self, side: str, snap_idx: int) -> None:
         if self._reject_if_ssh_busy():
