@@ -2919,7 +2919,7 @@ class App(tk.Tk):
         self._snapshot_cell_editor: Optional[ttk.Combobox] = None
         self._snapshot_cell_editor_side: str = ""
         self._snapshot_cell_editor_dataset: str = ""
-        self._snapshot_dropdown_menu: Optional[tk.Menu] = None
+        self._snapshot_cell_popup: Optional[tk.Toplevel] = None
         base_size = int(tkfont.nametofont("TkDefaultFont").actual("size") or 9)
         self.snapshot_font_normal = ("TkDefaultFont", base_size)
         self._last_dataset_props_sig: str = ""
@@ -6398,12 +6398,12 @@ class App(tk.Tk):
         self._snapshot_cell_editor = None
         self._snapshot_cell_editor_side = ""
         self._snapshot_cell_editor_dataset = ""
-        if self._snapshot_dropdown_menu is not None:
+        if self._snapshot_cell_popup is not None:
             try:
-                self._snapshot_dropdown_menu.unpost()
+                self._snapshot_cell_popup.destroy()
             except Exception:
                 pass
-            self._snapshot_dropdown_menu = None
+            self._snapshot_cell_popup = None
 
     def _open_snapshot_dropdown(self, side: str, tree: ttk.Treeview, dataset_iid: str) -> None:
         dataset_iid = (dataset_iid or "").strip()
@@ -6414,21 +6414,54 @@ class App(tk.Tk):
             return
         x, y, w, h = bbox
         snaps = self.dataset_snapshots_by_side.get(side, {}).get(dataset_iid, [])
+        if not snaps:
+            return
         self._hide_snapshot_dropdown()
-        menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label="(none)", command=lambda: self._set_dataset_selection(side, dataset_iid, None))
-        for snap in snaps:
-            menu.add_command(
-                label=f"@{snap}",
-                command=(lambda s=snap: self._set_dataset_selection(side, dataset_iid, s)),
-            )
-        self._snapshot_dropdown_menu = menu
+
+        options = ["(none)"] + [f"@{snap}" for snap in snaps]
+        current_snap = self.dataset_selected_snapshot_by_side.get(side, {}).get(dataset_iid, "")
+        selected_value = f"@{current_snap}" if current_snap else "(none)"
+
+        popup = tk.Toplevel(self)
+        popup.overrideredirect(True)
+        popup.transient(self)
+        popup.lift()
         try:
-            self._dismiss_active_context_menu(unpost=True)
-            self._active_context_menu = menu
-            self._context_menu_unmap_bind_id = menu.bind("<Unmap>", self._on_context_menu_unmap, add="+")
-            menu.post(tree.winfo_rootx() + x, tree.winfo_rooty() + y + h)
-            self.after_idle(self._arm_context_menu_dismiss_bindings)
+            popup.attributes("-topmost", True)
+        except Exception:
+            pass
+        popup.geometry(f"{max(100, w)}x{max(24, h)}+{tree.winfo_rootx() + x}+{tree.winfo_rooty() + y}")
+        self._snapshot_cell_popup = popup
+
+        value_var = tk.StringVar(value=selected_value)
+        combo = ttk.Combobox(
+            popup,
+            textvariable=value_var,
+            state="readonly",
+            values=options,
+        )
+        combo.pack(fill="both", expand=True)
+        self._snapshot_cell_editor = combo
+        self._snapshot_cell_editor_side = side
+        self._snapshot_cell_editor_dataset = dataset_iid
+
+        def _apply_selection(_event: Any = None) -> None:
+            raw = (value_var.get() or "").strip()
+            snap = raw[1:] if raw.startswith("@") else ""
+            self._set_dataset_selection(side, dataset_iid, snap or None)
+
+        def _on_escape(_event: Any = None) -> str:
+            self._hide_snapshot_dropdown()
+            return "break"
+
+        combo.bind("<<ComboboxSelected>>", _apply_selection)
+        combo.bind("<Return>", _apply_selection)
+        combo.bind("<Escape>", _on_escape)
+        combo.bind("<FocusOut>", lambda _e: self._hide_snapshot_dropdown())
+
+        try:
+            combo.focus_set()
+            combo.after(20, lambda: combo.event_generate("<Down>"))
         except Exception:
             pass
 
@@ -6887,7 +6920,7 @@ class App(tk.Tk):
             if selected_snap and selected_snap not in snaps_sorted:
                 self.dataset_selected_snapshot_by_side.get(side, {}).pop(dataset_full, None)
                 selected_snap = ""
-            values: List[str] = [f"@{selected_snap}" if selected_snap else ""]
+            values: List[str] = [f"@{selected_snap}" if selected_snap else ("(none)" if snaps_sorted else "")]
             if dataset_full in inserted:
                 try:
                     tree.item(dataset_full, values=tuple(values))
