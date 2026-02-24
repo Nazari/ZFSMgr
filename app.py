@@ -6308,6 +6308,8 @@ class App(tk.Tk):
             tree.selection_remove(tree.selection())
         except Exception:
             pass
+        # Fuerza seleccion explicita de la raiz (pool) como dataset origen/destino.
+        self._hide_snapshot_dropdown()
         self._set_dataset_selection(side, pool, None)
 
     def _on_root_snapshot_cell_click(self, side: str, snap_idx: int) -> None:
@@ -6457,7 +6459,6 @@ class App(tk.Tk):
         combo.bind("<<ComboboxSelected>>", _apply_selection)
         combo.bind("<Return>", _apply_selection)
         combo.bind("<Escape>", _on_escape)
-        combo.bind("<FocusOut>", lambda _e: self._hide_snapshot_dropdown())
 
         try:
             combo.focus_set()
