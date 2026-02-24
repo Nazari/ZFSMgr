@@ -1429,6 +1429,10 @@ class PSRPExecutor(BaseExecutor):
             client = self._client()
             return client.execute_ps(script)
 
+        target = f"{self.profile.username + '@' if self.profile.username else ''}{self.profile.host}:{self.profile.port or (5986 if self.profile.use_ssl else 5985)}"
+        one_line = " ".join((script or "").split())
+        ssh_trace(f"{target} $ powershell -NoProfile -NonInteractive -Command {shlex.quote(one_line)}")
+
         for attempt in (1, 2):
             try:
                 if timeout_seconds is None:
