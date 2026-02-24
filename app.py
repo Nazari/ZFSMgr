@@ -1481,6 +1481,18 @@ class PSRPExecutor(BaseExecutor):
                     )
                 if had_errors:
                     err = _psrp_errors_to_text(streams)
+                    if "Invoke-Expression" in err or "ParameterBindingValidationException" in err:
+                        if timeout_seconds is None:
+                            output, streams, had_errors = _exec_ps_encoded()
+                        else:
+                            output, streams, had_errors = run_with_timeout(
+                                _exec_ps_encoded,
+                                timeout_seconds,
+                                tr("error_timeout_ps_remote"),
+                            )
+                        if not had_errors:
+                            return output or ""
+                        err = _psrp_errors_to_text(streams)
                     out_text = (output or "").strip()
                     if out_text:
                         # Incluye salida de PowerShell para diagnosticar fallos remotos
