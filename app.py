@@ -3352,7 +3352,7 @@ class App(tk.Tk):
         self.datasets_tree_origin.heading("#0", text=tr("datasets_dataset"))
         self.datasets_tree_origin.column("#0", width=560, minwidth=260, anchor="w", stretch=True)
         for idx, col_id in enumerate(self.dataset_snapshot_col_ids, start=1):
-            self.datasets_tree_origin.heading(col_id, text=f"S{idx}")
+            self.datasets_tree_origin.heading(col_id, text=f"snap {idx}")
             self.datasets_tree_origin.column(col_id, width=110, minwidth=90, anchor="w", stretch=False)
         self.datasets_tree_origin.heading(self.dataset_snapshot_more_col_id, text="...")
         self.datasets_tree_origin.column(self.dataset_snapshot_more_col_id, width=45, minwidth=40, anchor="center", stretch=False)
@@ -3408,7 +3408,7 @@ class App(tk.Tk):
         self.datasets_tree_dest.heading("#0", text=tr("datasets_dataset"))
         self.datasets_tree_dest.column("#0", width=560, minwidth=260, anchor="w", stretch=True)
         for idx, col_id in enumerate(self.dataset_snapshot_col_ids, start=1):
-            self.datasets_tree_dest.heading(col_id, text=f"S{idx}")
+            self.datasets_tree_dest.heading(col_id, text=f"snap {idx}")
             self.datasets_tree_dest.column(col_id, width=110, minwidth=90, anchor="w", stretch=False)
         self.datasets_tree_dest.heading(self.dataset_snapshot_more_col_id, text="...")
         self.datasets_tree_dest.column(self.dataset_snapshot_more_col_id, width=45, minwidth=40, anchor="center", stretch=False)
