@@ -514,6 +514,7 @@ class ConnectionState:
     imported: List[Dict[str, str]] = None
     importable: List[Dict[str, str]] = None
     imported_devices: Dict[str, List[Dict[str, Any]]] = None
+    imported_status: Dict[str, str] = None
 
     def __post_init__(self) -> None:
         if self.imported is None:
@@ -522,6 +523,8 @@ class ConnectionState:
             self.importable = []
         if self.imported_devices is None:
             self.imported_devices = {}
+        if self.imported_status is None:
+            self.imported_status = {}
 
 
 class ConnectionStore:
@@ -3312,7 +3315,11 @@ class App(tk.Tk):
             (tr("col_value"), 320, "w"),
             (tr("col_source"), 140, "w"),
         ]
-        self.pool_props_rows = self._build_plain_table(imp_props, self.pool_props_columns)
+        self.pool_props_rows = self._build_plain_table(
+            imp_props,
+            self.pool_props_columns,
+            always_show_yscroll=True,
+        )
         imp_detail_tabs.add(imp_props, text=tr("pool_properties_title"))
 
         imp_status = ttk.Frame(imp_detail_tabs, padding=4)
@@ -3818,6 +3825,7 @@ class App(tk.Tk):
         parent: ttk.Frame,
         columns: List[Tuple[str, int, str]],
         enable_xscroll: bool = False,
+        always_show_yscroll: bool = False,
     ) -> ttk.Frame:
         wrap = ttk.Frame(parent)
         wrap.grid(row=0, column=0, sticky="nsew")
@@ -3849,6 +3857,9 @@ class App(tk.Tk):
             ybar.grid(row=1, column=1, sticky="ns")
             def _auto_yset(first: str, last: str) -> None:
                 ybar.set(first, last)
+                if always_show_yscroll:
+                    ybar.grid()
+                    return
                 try:
                     need = not (float(first) <= 0.0 and float(last) >= 1.0)
                 except Exception:
@@ -3859,7 +3870,10 @@ class App(tk.Tk):
                     ybar.grid_remove()
 
             rows_canvas.configure(yscrollcommand=_auto_yset)
-            ybar.grid_remove()
+            if always_show_yscroll:
+                ybar.grid()
+            else:
+                ybar.grid_remove()
 
             rows = ttk.Frame(rows_canvas)
             rows_canvas.create_window((0, 0), window=rows, anchor="nw")
@@ -3895,6 +3909,9 @@ class App(tk.Tk):
         ybar.grid(row=1, column=1, sticky="ns")
         def _auto_yset(first: str, last: str) -> None:
             ybar.set(first, last)
+            if always_show_yscroll:
+                ybar.grid()
+                return
             try:
                 need = not (float(first) <= 0.0 and float(last) >= 1.0)
             except Exception:
@@ -3905,7 +3922,10 @@ class App(tk.Tk):
                 ybar.grid_remove()
 
         rows_canvas.configure(yscrollcommand=_auto_yset)
-        ybar.grid_remove()
+        if always_show_yscroll:
+            ybar.grid()
+        else:
+            ybar.grid_remove()
 
         rows = ttk.Frame(rows_canvas)
         rows_window = rows_canvas.create_window((0, 0), window=rows, anchor="nw", width=total_width)
@@ -7264,6 +7284,18 @@ class App(tk.Tk):
                             # en algunos destinos (especialmente PSRP/Windows) esta
                             # consulta puede bloquearse y provocar desconexiones falsas.
                             local_state.imported_devices = {}
+                            # Precargar estado verbose por pool para el tab Estado.
+                            status_map: Dict[str, str] = {}
+                            for pool_row in local_state.imported:
+                                pool_name = (pool_row.get("pool", "") or "").strip()
+                                if not pool_name:
+                                    continue
+                                try:
+                                    txt = (execu.pool_status_verbose(pool_name) or "").strip()
+                                    status_map[pool_name] = txt or "(sin salida)"
+                                except Exception as exc:
+                                    status_map[pool_name] = str(exc)
+                            local_state.imported_status = status_map
                             local_state.importable = execu.list_importable_pools()
                         return local_state
 
@@ -7347,6 +7379,16 @@ class App(tk.Tk):
                     self._app_log("debug", f"OpenZFS {profile.name}: {state.zfs_version}")
                 # Mantener cache de propiedades/estado de pools entre refrescos
                 # para evitar re-ejecutar zpool get/status al hacer click en pools importados.
+                status_prefix = f"{profile_id}:"
+                with self.pool_status_lock:
+                    self.pool_status_cache = {
+                        k: v for k, v in self.pool_status_cache.items() if not k.startswith(status_prefix)
+                    }
+                    for pool_name, status_text in (state.imported_status or {}).items():
+                        self.pool_status_cache[f"{profile_id}:{pool_name}"] = (status_text or "").strip() or "(sin salida)"
+                    self.pool_status_loading = {
+                        k for k in self.pool_status_loading if not k.startswith(status_prefix)
+                    }
 
                 if not batch_mode:
                     self.after(0, self._load_connections_list)
