@@ -217,6 +217,8 @@ def main() -> int:
     ap.add_argument("--conn-password", default="")
     ap.add_argument("--host", default="", help="Sobrescribe host de la conexion")
     ap.add_argument("--port", type=int, default=0, help="Sobrescribe puerto de la conexion")
+    ap.add_argument("--username", default="", help="Sobrescribe usuario de la conexion")
+    ap.add_argument("--auth", default="", help="Sobrescribe auth PSRP (ntlm/basic/kerberos)")
     args = ap.parse_args()
 
     profile, ini_path = load_profile(args.master_password, args.connection)
@@ -226,6 +228,10 @@ def main() -> int:
         profile.host = args.host
     if args.port:
         profile.port = int(args.port)
+    if args.username:
+        profile.username = args.username
+    if args.auth:
+        profile.auth = args.auth
 
     if profile.conn_type != "PSRP":
         raise RuntimeError(f"La conexion {profile.name} no es PSRP (es {profile.conn_type})")
@@ -238,7 +244,10 @@ def main() -> int:
 
     dataset = args.dataset.strip()
     hint = args.mountpoint_hint.strip()
-    print(f"[RUN] connection={profile.name} ini={ini_path} host={profile.host}:{profile.port}")
+    print(
+        f"[RUN] connection={profile.name} ini={ini_path} host={profile.host}:{profile.port} "
+        f"user={profile.username} auth={profile.auth}"
+    )
     print(f"[RUN] dataset={dataset}")
 
     try:
