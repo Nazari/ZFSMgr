@@ -3238,7 +3238,7 @@ class App(tk.Tk):
             base_width = max(top_container.winfo_width(), self.winfo_width(), 1200)
             current_height = max(self.winfo_height(), top_container.winfo_height(), 700)
             target_min_height = int(current_height * 1.15)
-            width = max(120, int(base_width * 0.11776))
+            width = max(120, int(base_width * 0.20608))
             top_container.grid_columnconfigure(0, minsize=width)
             # Mantener visible el detalle derecho (Origen/Destino/Propiedades).
             top_container.grid_columnconfigure(1, minsize=520)
@@ -4011,7 +4011,10 @@ class App(tk.Tk):
             if st and st.zfs_version:
                 zfs_ver = st.zfs_version
             zfs_txt = zfs_ver if zfs_ver != "-" else tr("label_unknown")
-            self.conn_list.insert(tk.END, f"{mark} {c.name} [{c.os_type}/{method}] | OpenZFS: {zfs_txt}")
+            self.conn_list.insert(
+                tk.END,
+                f"{mark} {c.name}\n[{c.os_type}/{method}] | OpenZFS: {zfs_txt}",
+            )
             if c.id == selected_id:
                 selected_index = idx
         try:
