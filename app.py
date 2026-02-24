@@ -3332,8 +3332,8 @@ class App(tk.Tk):
 
         datasets_main = ttk.Frame(self.right_datasets_detail)
         datasets_main.grid(row=0, column=0, sticky="nsew")
-        datasets_main.columnconfigure(0, weight=3)
-        datasets_main.columnconfigure(1, weight=2)
+        datasets_main.columnconfigure(0, weight=17)
+        datasets_main.columnconfigure(1, weight=8)
         datasets_main.rowconfigure(0, weight=1)
 
         datasets_row = ttk.Frame(datasets_main)
