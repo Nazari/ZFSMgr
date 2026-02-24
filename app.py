@@ -3293,8 +3293,10 @@ class App(tk.Tk):
         )
         self.imported_pool_context_menu.add_command(label=tr("export_btn"), command=self._export_selected_imported_pool)
 
-        imp_props = ttk.LabelFrame(imp_layout, text=tr("pool_properties_title"))
-        imp_props.grid(row=1, column=0, sticky="nsew")
+        imp_detail_tabs = ttk.Notebook(imp_layout)
+        imp_detail_tabs.grid(row=1, column=0, sticky="nsew")
+
+        imp_props = ttk.Frame(imp_detail_tabs, padding=4)
         imp_props.columnconfigure(0, weight=1)
         imp_props.rowconfigure(0, weight=1)
         self.pool_props_columns: List[Tuple[str, int, str]] = [
@@ -3303,6 +3305,31 @@ class App(tk.Tk):
             (tr("col_source"), 140, "w"),
         ]
         self.pool_props_rows = self._build_plain_table(imp_props, self.pool_props_columns)
+        imp_detail_tabs.add(imp_props, text=tr("pool_properties_title"))
+
+        imp_status = ttk.Frame(imp_detail_tabs, padding=4)
+        imp_status.columnconfigure(0, weight=1)
+        imp_status.rowconfigure(0, weight=1)
+        self.pool_status_text = tk.Text(
+            imp_status,
+            height=8,
+            state="disabled",
+            wrap="none",
+            font=("TkFixedFont", 9),
+            bg=UI_PANEL_BG,
+            fg=UI_TEXT,
+            insertbackground=UI_TEXT,
+            highlightthickness=1,
+            highlightbackground=UI_BORDER,
+            highlightcolor=UI_ACCENT,
+        )
+        self.pool_status_text.grid(row=0, column=0, sticky="nsew")
+        pool_status_y = ttk.Scrollbar(imp_status, orient="vertical", command=self.pool_status_text.yview)
+        pool_status_y.grid(row=0, column=1, sticky="ns")
+        pool_status_x = ttk.Scrollbar(imp_status, orient="horizontal", command=self.pool_status_text.xview)
+        pool_status_x.grid(row=1, column=0, sticky="ew")
+        self.pool_status_text.configure(yscrollcommand=pool_status_y.set, xscrollcommand=pool_status_x.set)
+        imp_detail_tabs.add(imp_status, text="zpool status -v")
 
         avail_frame = ttk.Frame(pools_tabs, padding=6)
         avail_frame.columnconfigure(0, weight=1)
@@ -6700,7 +6727,6 @@ class App(tk.Tk):
             self._load_datasets_for_active_connection()
 
     def _render_all_imported_pools(self) -> None:
-        self._hide_pool_status_tooltip()
         self._clear_plain_table(self.imported_table_rows)
         row_idx = 0
         visible_keys: set[str] = set()
@@ -6712,7 +6738,6 @@ class App(tk.Tk):
                 pool_name = pool.get("pool", "")
                 key = f"{conn.id}:{pool_name}"
                 visible_keys.add(key)
-                self._prefetch_imported_pool_status(conn.id, pool_name)
                 self._add_plain_row(
                     self.imported_table_rows,
                     row_idx,
@@ -6728,8 +6753,6 @@ class App(tk.Tk):
                     ],
                     on_row_click=lambda cid=conn.id, p=pool_name: self._on_select_imported_pool(cid, p),
                     on_row_context=lambda e, cid=conn.id, p=pool_name: self._on_imported_pool_context(cid, p, e),
-                    on_cell_hover=lambda col, txt, e, cid=conn.id, p=pool_name: self._on_imported_pool_cell_hover(cid, p, col, txt, e),
-                    on_cell_leave=self._hide_pool_status_tooltip,
                     selected=bool(self.selected_imported_pool == (conn.id, pool_name)),
                 )
                 row_idx += 1
@@ -6743,6 +6766,7 @@ class App(tk.Tk):
                 [tr("label_no_pools"), "", "", "", "", "", ""],
             )
             self._render_pool_properties_rows([])
+            self._render_pool_status_text("")
         else:
             if self.selected_imported_pool:
                 sel_key = f"{self.selected_imported_pool[0]}:{self.selected_imported_pool[1]}"
@@ -6752,6 +6776,7 @@ class App(tk.Tk):
                 self._load_selected_pool_properties()
             else:
                 self._render_pool_properties_rows([])
+                self._render_pool_status_text("")
 
     def _on_imported_pool_context(self, conn_id: str, pool_name: str, event: Any) -> None:
         if self._reject_if_ssh_busy():
@@ -6852,18 +6877,31 @@ class App(tk.Tk):
                 [row.get("property", ""), row.get("value", ""), row.get("source", "")],
             )
 
+    def _render_pool_status_text(self, text: str) -> None:
+        body = (text or "").strip()
+        if not body:
+            body = tr("label_select_pool")
+        self.pool_status_text.configure(state="normal")
+        self.pool_status_text.delete("1.0", "end")
+        self.pool_status_text.insert("1.0", body)
+        self.pool_status_text.configure(state="disabled")
+
     def _load_selected_pool_properties(self) -> None:
         if not self.selected_imported_pool:
             self._render_pool_properties_rows([])
+            self._render_pool_status_text("")
             return
         conn_id, pool_name = self.selected_imported_pool
         profile = self.store.get(conn_id)
         if not profile:
             self._render_pool_properties_rows([])
+            self._render_pool_status_text("")
             return
-        cache_key = f"{conn_id}:{pool_name}"
-        if cache_key in self.pool_properties_cache:
-            self._render_pool_properties_rows(self.pool_properties_cache[cache_key])
+        props_cache_key = f"{conn_id}:{pool_name}"
+        status_cache_key = self._pool_status_cache_key(conn_id, pool_name)
+        if props_cache_key in self.pool_properties_cache and status_cache_key in self.pool_status_cache:
+            self._render_pool_properties_rows(self.pool_properties_cache[props_cache_key])
+            self._render_pool_status_text(self.pool_status_cache.get(status_cache_key, ""))
             return
         self.status_var.set(trf("status_loading_pool_props", pool=pool_name, name=profile.name))
         self._app_log("info", trf("log_loading_pool_props", pool=pool_name, name=profile.name))
@@ -6878,14 +6916,23 @@ class App(tk.Tk):
                     REFRESH_TIMEOUT_SECONDS,
                     trf("error_timeout_refresh_connection", name=profile.name),
                 )
-                self.pool_properties_cache[cache_key] = rows
+                status_text = run_with_timeout(
+                    lambda: execu.pool_status_verbose(pool_name),
+                    REFRESH_TIMEOUT_SECONDS,
+                    trf("error_timeout_refresh_connection", name=profile.name),
+                )
+                self.pool_properties_cache[props_cache_key] = rows
+                with self.pool_status_lock:
+                    self.pool_status_cache[status_cache_key] = (status_text or "").strip()
                 self.after(0, lambda: self._render_pool_properties_rows(rows))
+                self.after(0, lambda: self._render_pool_status_text(status_text))
                 self.after(0, lambda: self.status_var.set(trf("status_pool_props_loaded", pool=pool_name, name=profile.name)))
                 self._app_log("debug", trf("log_pool_props_loaded", pool=pool_name, name=profile.name, count=len(rows)))
             except Exception as exc:
                 self._app_log("normal", trf("log_pool_props_error", pool=pool_name, name=profile.name, error=exc))
                 self.after(0, lambda: self.status_var.set(trf("status_pool_props_error", name=profile.name)))
                 self.after(0, lambda: self._render_pool_properties_rows([]))
+                self.after(0, lambda: self._render_pool_status_text(str(exc)))
             finally:
                 def _finish_pool_props_loading() -> None:
                     self.pool_props_loading_count = max(0, self.pool_props_loading_count - 1)
