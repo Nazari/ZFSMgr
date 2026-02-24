@@ -6185,15 +6185,27 @@ class App(tk.Tk):
     def _set_dataset_selection(self, side: str, dataset_iid: str, snapshot_name: Optional[str]) -> None:
         self._hide_snapshot_dropdown()
         dataset_iid = (dataset_iid or "").strip()
+        none_label = f"({tr('label_none')})"
+        snap_map = self.dataset_selected_snapshot_by_side.setdefault(side, {})
+        tree = self.datasets_tree_origin if side == "origin" else self.datasets_tree_dest
+
+        # Solo puede haber un snapshot seleccionado por panel.
+        prev_selected = list(snap_map.keys())
+        snap_map.clear()
+        for prev_dataset in prev_selected:
+            prev_snaps = self.dataset_snapshots_by_side.get(side, {}).get(prev_dataset, [])
+            prev_cell = none_label if prev_snaps else ""
+            try:
+                tree.item(prev_dataset, values=(prev_cell,))
+            except Exception:
+                pass
+
         if dataset_iid:
             if snapshot_name:
-                self.dataset_selected_snapshot_by_side.setdefault(side, {})[dataset_iid] = snapshot_name
-            else:
-                self.dataset_selected_snapshot_by_side.setdefault(side, {}).pop(dataset_iid, None)
-            tree = self.datasets_tree_origin if side == "origin" else self.datasets_tree_dest
+                snap_map[dataset_iid] = snapshot_name
             snaps = self.dataset_snapshots_by_side.get(side, {}).get(dataset_iid, [])
-            selected_snap = self.dataset_selected_snapshot_by_side.get(side, {}).get(dataset_iid, "")
-            cell_value = f"@{selected_snap}" if selected_snap else ("(none)" if snaps else "")
+            selected_snap = snap_map.get(dataset_iid, "")
+            cell_value = f"@{selected_snap}" if selected_snap else (none_label if snaps else "")
             try:
                 tree.item(dataset_iid, values=(cell_value,))
             except Exception:
@@ -6241,9 +6253,10 @@ class App(tk.Tk):
             return
         self._hide_snapshot_dropdown()
 
-        options = ["(none)"] + [f"@{snap}" for snap in snaps]
+        none_label = f"({tr('label_none')})"
+        options = [none_label] + [f"@{snap}" for snap in snaps]
         current_snap = self.dataset_selected_snapshot_by_side.get(side, {}).get(dataset_iid, "")
-        selected_value = f"@{current_snap}" if current_snap else "(none)"
+        selected_value = f"@{current_snap}" if current_snap else none_label
 
         popup = tk.Toplevel(self)
         popup.overrideredirect(True)
@@ -6721,7 +6734,8 @@ class App(tk.Tk):
             if selected_snap and selected_snap not in snaps_sorted:
                 self.dataset_selected_snapshot_by_side.get(side, {}).pop(dataset_full, None)
                 selected_snap = ""
-            values: List[str] = [f"@{selected_snap}" if selected_snap else ("(none)" if snaps_sorted else "")]
+            none_label = f"({tr('label_none')})"
+            values: List[str] = [f"@{selected_snap}" if selected_snap else (none_label if snaps_sorted else "")]
             if dataset_full in inserted:
                 try:
                     tree.item(dataset_full, values=tuple(values))
