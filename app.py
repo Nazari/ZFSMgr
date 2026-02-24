@@ -3112,11 +3112,12 @@ class App(tk.Tk):
         self.conn_list.bind("<Control-Button-1>", self._on_connection_context)
 
         conn_buttons = ttk.Frame(self.tab_connections)
-        conn_buttons.grid(row=2, column=0, sticky="w")
-        self.new_conn_btn = ttk.Button(conn_buttons, text=tr("action_new"), width=12, command=self.add_connection)
-        self.new_conn_btn.grid(row=0, column=0, sticky="w")
-        self.refresh_all_btn = ttk.Button(conn_buttons, text=tr("action_refresh_all"), width=12, command=self.refresh_all_connections)
-        self.refresh_all_btn.grid(row=0, column=1, sticky="w", padx=(8, 0))
+        conn_buttons.grid(row=2, column=0, sticky="ew")
+        conn_buttons.columnconfigure(0, weight=1)
+        self.new_conn_btn = ttk.Button(conn_buttons, text=tr("action_new"), command=self.add_connection)
+        self.new_conn_btn.grid(row=0, column=0, sticky="ew")
+        self.refresh_all_btn = ttk.Button(conn_buttons, text=tr("action_refresh_all"), command=self.refresh_all_connections)
+        self.refresh_all_btn.grid(row=1, column=0, sticky="ew", pady=(4, 0))
 
         self.conn_context_menu = tk.Menu(
             self,
