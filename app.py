@@ -3568,6 +3568,8 @@ class App(tk.Tk):
         props_row.grid(row=0, column=1, sticky="nsew")
         props_row.columnconfigure(0, weight=1)
         props_row.rowconfigure(0, weight=1)
+        props_row.configure(width=184)
+        props_row.grid_propagate(False)
 
         dataset_props = ttk.LabelFrame(props_row, text=tr("dataset_properties"))
         dataset_props.grid(row=0, column=0, sticky="nsew")
@@ -3584,6 +3586,7 @@ class App(tk.Tk):
         dataset_props_table_wrap.grid(row=1, column=0, sticky="nsew")
         dataset_props_table_wrap.columnconfigure(0, weight=1)
         dataset_props_table_wrap.rowconfigure(0, weight=1)
+        dataset_props_table_wrap.grid_propagate(False)
         self.dataset_props_columns: List[Tuple[str, int, str]] = [
             (tr("col_property"), 180, "w"),
             (tr("col_value"), 280, "w"),
