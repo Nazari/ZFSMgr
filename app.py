@@ -13,6 +13,7 @@ import concurrent.futures
 import configparser
 import base64
 import getpass
+import hashlib
 import json
 import os
 import queue
@@ -150,6 +151,10 @@ CURRENT_LANG = "es"
 I18N: Dict[str, Dict[str, str]] = {}
 SSH_LOG_HOOK: Optional[Callable[[str], None]] = None
 SSH_BUSY_HOOK: Optional[Callable[[int], None]] = None
+_SSH_SESSION_LOCK = threading.Lock()
+_SSH_SESSION_CACHE: Dict[str, Any] = {}
+_PSRP_SESSION_LOCK = threading.Lock()
+_PSRP_SESSION_CACHE: Dict[str, Any] = {}
 
 UI_BG = "#f3f6f8"
 UI_PANEL_BG = "#ffffff"
@@ -160,6 +165,66 @@ UI_BORDER = "#c9d5de"
 UI_SELECTION = "#d7ecf7"
 UI_ACTION_MOUNT = "#1f7a3f"
 UI_ACTION_UMOUNT = "#b54747"
+
+
+def _session_profile_key(profile: "ConnectionProfile") -> str:
+    return "|".join(
+        [
+            profile.conn_type,
+            profile.id,
+            profile.host,
+            str(profile.port or 0),
+            profile.username or "",
+            profile.key_path or "",
+            "1" if profile.use_ssl else "0",
+            profile.auth or "",
+            "1" if profile.use_sudo else "0",
+            # Incluye password para invalidar cache si cambia en memoria.
+            profile.password or "",
+        ]
+    )
+
+
+def _ssh_mux_path(profile: "ConnectionProfile") -> str:
+    mux_dir = CONFIG_DIR / "ssh_mux"
+    mux_dir.mkdir(parents=True, exist_ok=True)
+    base = f"{profile.username or ''}@{profile.host}:{profile.port or 22}"
+    tag = hashlib.sha1(base.encode("utf-8")).hexdigest()[:12]
+    return str(mux_dir / f"mux_{tag}")
+
+
+def _ssh_common_parts(profile: "ConnectionProfile", include_key: bool = True) -> List[str]:
+    parts: List[str] = [
+        "ssh",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+        "-o",
+        "ControlMaster=auto",
+        "-o",
+        "ControlPersist=300",
+        "-o",
+        f"ControlPath={_ssh_mux_path(profile)}",
+    ]
+    if profile.port and profile.port != 22:
+        parts.extend(["-p", str(profile.port)])
+    if include_key and profile.key_path:
+        parts.extend(["-i", shlex.quote(profile.key_path)])
+    return parts
+
+
+def _close_all_remote_sessions() -> None:
+    with _SSH_SESSION_LOCK:
+        clients = list(_SSH_SESSION_CACHE.values())
+        _SSH_SESSION_CACHE.clear()
+    for client in clients:
+        try:
+            client.close()
+        except Exception:
+            pass
+    with _PSRP_SESSION_LOCK:
+        _PSRP_SESSION_CACHE.clear()
 
 # Whitelist explicita de propiedades editables por tipo de dataset.
 # Nota: ademas se permite cualquier user-property (formato "namespace:prop").
@@ -1034,10 +1099,24 @@ class SSHExecutor(BaseExecutor):
     def _connect(self):
         if paramiko is None:
             raise ExecutorError("paramiko no instalado")
+        key = _session_profile_key(self.profile)
+        with _SSH_SESSION_LOCK:
+            cached = _SSH_SESSION_CACHE.get(key)
+            if cached is not None:
+                try:
+                    transport = cached.get_transport()
+                    if transport is not None and transport.is_active():
+                        return cached
+                except Exception:
+                    pass
+                try:
+                    cached.close()
+                except Exception:
+                    pass
+                _SSH_SESSION_CACHE.pop(key, None)
 
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
         kwargs: Dict[str, Any] = {
             "hostname": self.profile.host,
             "port": self.profile.port or 22,
@@ -1049,11 +1128,22 @@ class SSHExecutor(BaseExecutor):
             kwargs["key_filename"] = self.profile.key_path
         if self.profile.password:
             kwargs["password"] = self.profile.password
-
         kwargs["banner_timeout"] = 10
         kwargs["auth_timeout"] = 10
         client.connect(**kwargs)
+        with _SSH_SESSION_LOCK:
+            _SSH_SESSION_CACHE[key] = client
         return client
+
+    def _invalidate_session(self) -> None:
+        key = _session_profile_key(self.profile)
+        with _SSH_SESSION_LOCK:
+            client = _SSH_SESSION_CACHE.pop(key, None)
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
 
     def _run(
         self,
@@ -1110,8 +1200,11 @@ class SSHExecutor(BaseExecutor):
             if exit_code != 0:
                 raise ExecutorError(err.strip() or out.strip() or trf("error_executing", cmd=cmd))
             return out
+        except Exception as exc:
+            if not isinstance(exc, ExecutorError):
+                self._invalidate_session()
+            raise
         finally:
-            client.close()
             ssh_busy(-1)
 
     def check_connection(self) -> Tuple[bool, str]:
@@ -1294,6 +1387,12 @@ class PSRPExecutor(BaseExecutor):
         if not self.profile.password:
             raise ExecutorError("PowerShell Remoting requiere password")
 
+        key = _session_profile_key(self.profile)
+        with _PSRP_SESSION_LOCK:
+            cached = _PSRP_SESSION_CACHE.get(key)
+            if cached is not None:
+                return cached
+
         server = self.profile.host
         kwargs: Dict[str, Any] = {
             "server": server,
@@ -1309,36 +1408,49 @@ class PSRPExecutor(BaseExecutor):
             "read_timeout": 20,
         }
         try:
-            return PSRPClient(**kwargs)
+            client = PSRPClient(**kwargs)
         except TypeError:
             # Compatibilidad con versiones de pypsrp que no exponen todos los timeouts.
             kwargs.pop("read_timeout", None)
             kwargs.pop("operation_timeout", None)
             kwargs.pop("connection_timeout", None)
-            return PSRPClient(**kwargs)
+            client = PSRPClient(**kwargs)
+        with _PSRP_SESSION_LOCK:
+            _PSRP_SESSION_CACHE[key] = client
+        return client
+
+    def _invalidate_session(self) -> None:
+        key = _session_profile_key(self.profile)
+        with _PSRP_SESSION_LOCK:
+            _PSRP_SESSION_CACHE.pop(key, None)
 
     def _run_ps(self, script: str, timeout_seconds: Optional[int] = PSRP_TIMEOUT_SECONDS) -> str:
         def _exec_ps() -> Tuple[str, Any, bool]:
             client = self._client()
             return client.execute_ps(script)
 
-        try:
-            if timeout_seconds is None:
-                output, streams, had_errors = _exec_ps()
-            else:
-                output, streams, had_errors = run_with_timeout(
-                    _exec_ps,
-                    timeout_seconds,
-                    tr("error_timeout_ps_remote"),
-                )
-            if had_errors:
-                err = "\n".join(getattr(streams, "error", []) or [])
-                raise ExecutorError(err or tr("error_ps_remote"))
-            return output or ""
-        except ExecutorError:
-            raise
-        except Exception as exc:
-            raise ExecutorError(str(exc)) from exc
+        for attempt in (1, 2):
+            try:
+                if timeout_seconds is None:
+                    output, streams, had_errors = _exec_ps()
+                else:
+                    output, streams, had_errors = run_with_timeout(
+                        _exec_ps,
+                        timeout_seconds,
+                        tr("error_timeout_ps_remote"),
+                    )
+                if had_errors:
+                    err = "\n".join(getattr(streams, "error", []) or [])
+                    raise ExecutorError(err or tr("error_ps_remote"))
+                return output or ""
+            except ExecutorError:
+                raise
+            except Exception as exc:
+                self._invalidate_session()
+                if attempt == 1:
+                    continue
+                raise ExecutorError(str(exc)) from exc
+        raise ExecutorError(tr("error_ps_remote"))
 
     def check_connection(self) -> Tuple[bool, str]:
         try:
@@ -4461,19 +4573,7 @@ class App(tk.Tk):
                 return command
             if profile.conn_type != "SSH":
                 return None
-            ssh_parts: List[str] = ["ssh"]
-            ssh_parts.extend(
-                [
-                    "-o",
-                    "StrictHostKeyChecking=no",
-                    "-o",
-                    "UserKnownHostsFile=/dev/null",
-                ]
-            )
-            if profile.port and profile.port != 22:
-                ssh_parts.extend(["-p", str(profile.port)])
-            if profile.key_path:
-                ssh_parts.extend(["-i", shlex.quote(profile.key_path)])
+            ssh_parts: List[str] = _ssh_common_parts(profile, include_key=True)
             target = profile.host
             if profile.username:
                 target = f"{profile.username}@{profile.host}"
@@ -4483,19 +4583,7 @@ class App(tk.Tk):
 
         def wrap_inner_dest_exec(profile: ConnectionProfile, command: str, include_key: bool = True) -> Optional[str]:
             if profile.conn_type == "SSH":
-                ssh_parts: List[str] = ["ssh"]
-                ssh_parts.extend(
-                    [
-                        "-o",
-                        "StrictHostKeyChecking=no",
-                        "-o",
-                        "UserKnownHostsFile=/dev/null",
-                    ]
-                )
-                if profile.port and profile.port != 22:
-                    ssh_parts.extend(["-p", str(profile.port)])
-                if include_key and profile.key_path:
-                    ssh_parts.extend(["-i", shlex.quote(profile.key_path)])
+                ssh_parts: List[str] = _ssh_common_parts(profile, include_key=include_key)
                 target = profile.host
                 if profile.username:
                     target = f"{profile.username}@{profile.host}"
@@ -4539,19 +4627,8 @@ class App(tk.Tk):
             target = dst.host
             if dst.username:
                 target = f"{dst.username}@{dst.host}"
-            check_parts = [
-                "ssh",
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                "StrictHostKeyChecking=no",
-                "-o",
-                "UserKnownHostsFile=/dev/null",
-                "-o",
-                "ConnectTimeout=5",
-            ]
-            if dst.port and dst.port != 22:
-                check_parts.extend(["-p", str(dst.port)])
+            check_parts = _ssh_common_parts(dst, include_key=True)
+            check_parts.extend(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5"])
             check_parts.extend([shlex.quote(target), "true"])
             check_cmd = " ".join(check_parts)
 
@@ -4747,12 +4824,7 @@ class App(tk.Tk):
                 return command
             if profile.conn_type != "SSH":
                 return None
-            ssh_parts: List[str] = ["ssh"]
-            ssh_parts.extend(["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"])
-            if profile.port and profile.port != 22:
-                ssh_parts.extend(["-p", str(profile.port)])
-            if profile.key_path:
-                ssh_parts.extend(["-i", shlex.quote(profile.key_path)])
+            ssh_parts: List[str] = _ssh_common_parts(profile, include_key=True)
             target = profile.host
             if profile.username:
                 target = f"{profile.username}@{profile.host}"
@@ -4876,17 +4948,7 @@ class App(tk.Tk):
             return f"{profile.username}@{profile.host}" if profile.username else profile.host
 
         def ssh_prefix(profile: ConnectionProfile) -> str:
-            parts: List[str] = [
-                "ssh",
-                "-o",
-                "StrictHostKeyChecking=no",
-                "-o",
-                "UserKnownHostsFile=/dev/null",
-            ]
-            if profile.port and profile.port != 22:
-                parts.extend(["-p", str(profile.port)])
-            if profile.key_path:
-                parts.extend(["-i", shlex.quote(profile.key_path)])
+            parts: List[str] = _ssh_common_parts(profile, include_key=True)
             parts.append(shlex.quote(ssh_target(profile)))
             return " ".join(parts)
 
@@ -5092,11 +5154,7 @@ class App(tk.Tk):
                 if profile.use_sudo:
                     return f"sudo -n {base}"
                 return base
-            ssh_parts: List[str] = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
-            if profile.port and profile.port != 22:
-                ssh_parts.extend(["-p", str(profile.port)])
-            if profile.key_path:
-                ssh_parts.extend(["-i", shlex.quote(profile.key_path)])
+            ssh_parts: List[str] = _ssh_common_parts(profile, include_key=True)
             target_host = profile.host
             if profile.username:
                 target_host = f"{profile.username}@{profile.host}"
@@ -5219,11 +5277,7 @@ class App(tk.Tk):
                 if profile.use_sudo:
                     return f"sudo -n {base}"
                 return base
-            ssh_parts: List[str] = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
-            if profile.port and profile.port != 22:
-                ssh_parts.extend(["-p", str(profile.port)])
-            if profile.key_path:
-                ssh_parts.extend(["-i", shlex.quote(profile.key_path)])
+            ssh_parts: List[str] = _ssh_common_parts(profile, include_key=True)
             target_host = profile.host
             if profile.username:
                 target_host = f"{profile.username}@{profile.host}"
@@ -7124,9 +7178,11 @@ def main() -> None:
     try:
         app.mainloop()
     except KeyboardInterrupt:
+        _close_all_remote_sessions()
         lock.release()
         raise SystemExit(130)
     finally:
+        _close_all_remote_sessions()
         lock.release()
 
 
