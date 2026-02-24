@@ -3329,7 +3329,7 @@ class App(tk.Tk):
         pool_status_x = ttk.Scrollbar(imp_status, orient="horizontal", command=self.pool_status_text.xview)
         pool_status_x.grid(row=1, column=0, sticky="ew")
         self.pool_status_text.configure(yscrollcommand=pool_status_y.set, xscrollcommand=pool_status_x.set)
-        imp_detail_tabs.add(imp_status, text="zpool status -v")
+        imp_detail_tabs.add(imp_status, text="Estado")
 
         avail_frame = ttk.Frame(pools_tabs, padding=6)
         avail_frame.columnconfigure(0, weight=1)
@@ -4531,7 +4531,7 @@ class App(tk.Tk):
         self._context_menu_unmap_bind_id = None
         for sequence, bind_id in self._context_menu_global_bindings:
             try:
-                self.unbind_all(sequence, bind_id)
+                self.unbind(sequence, bind_id)
             except Exception:
                 pass
         self._context_menu_global_bindings.clear()
@@ -4568,7 +4568,7 @@ class App(tk.Tk):
         if not self._active_context_menu:
             return
         for sequence in ("<Button-1>", "<Button-2>", "<Button-3>", "<Escape>"):
-            bind_id = self.bind_all(sequence, self._on_context_menu_global_click, add="+")
+            bind_id = self.bind(sequence, self._on_context_menu_global_click, add="+")
             if bind_id:
                 self._context_menu_global_bindings.append((sequence, bind_id))
 
