@@ -1430,6 +1430,19 @@ class PSRPExecutor(BaseExecutor):
             _PSRP_SESSION_CACHE.pop(key, None)
 
     def _run_ps(self, script: str, timeout_seconds: Optional[int] = PSRP_TIMEOUT_SECONDS) -> str:
+        def _psrp_errors_to_text(streams: Any) -> str:
+            raw_errors = getattr(streams, "error", []) or []
+            parts: List[str] = []
+            for item in raw_errors:
+                try:
+                    msg = getattr(item, "message", None)
+                    txt = str(msg if msg is not None else item).strip()
+                except Exception:
+                    txt = ""
+                if txt:
+                    parts.append(txt)
+            return "\n".join(parts)
+
         def _exec_ps() -> Tuple[str, Any, bool]:
             client = self._client()
             return client.execute_ps(script)
@@ -1449,7 +1462,7 @@ class PSRPExecutor(BaseExecutor):
                         tr("error_timeout_ps_remote"),
                     )
                 if had_errors:
-                    err = "\n".join(getattr(streams, "error", []) or [])
+                    err = _psrp_errors_to_text(streams)
                     raise ExecutorError(err or tr("error_ps_remote"))
                 return output or ""
             except ExecutorError:
@@ -2366,7 +2379,16 @@ class ConnectionDialog(tk.Toplevel):
                 tr("error_timeout_ps_check"),
             )
             if had_errors:
-                errs = getattr(streams, "error", []) or []
+                errs_raw = getattr(streams, "error", []) or []
+                errs: List[str] = []
+                for item in errs_raw:
+                    try:
+                        msg = getattr(item, "message", None)
+                        txt = str(msg if msg is not None else item).strip()
+                    except Exception:
+                        txt = ""
+                    if txt:
+                        errs.append(txt)
                 self._log(f"[ERROR] {trf('log_psrp_failure', error='; '.join(errs) if errs else tr('label_remote_error'))}")
                 return False
             self._log(f"[OK] {trf('log_psrp_connected', version=output.strip() or tr('label_unknown'))}")
@@ -2398,7 +2420,16 @@ class ConnectionDialog(tk.Toplevel):
                 tr("error_timeout_ps_zpool"),
             )
             if zpool_errors:
-                errs = getattr(zpool_streams, "error", []) or []
+                errs_raw = getattr(zpool_streams, "error", []) or []
+                errs: List[str] = []
+                for item in errs_raw:
+                    try:
+                        msg = getattr(item, "message", None)
+                        txt = str(msg if msg is not None else item).strip()
+                    except Exception:
+                        txt = ""
+                    if txt:
+                        errs.append(txt)
                 self._log(f"[WARN] {trf('log_psrp_zpool_not_accessible', error='; '.join(errs) if errs else tr('label_remote_error'))}")
             else:
                 self._log(f"[OK] {trf('log_psrp_zpool_ok', pools=zpool_out.strip() or tr('label_none'))}")
