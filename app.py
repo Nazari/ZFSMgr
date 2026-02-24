@@ -3308,30 +3308,14 @@ class App(tk.Tk):
         self.right_datasets_detail = ttk.LabelFrame(right, text=tr("datasets_title"))
         self.right_datasets_detail.grid(row=0, column=0, sticky="nsew")
         self.right_datasets_detail.columnconfigure(0, weight=1)
-        self.right_datasets_detail.rowconfigure(1, weight=1)
+        self.right_datasets_detail.rowconfigure(0, weight=1)
 
-        selectors = ttk.Frame(self.right_datasets_detail)
-        selectors.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        selectors.columnconfigure(0, weight=1)
-        selectors.columnconfigure(1, weight=1)
-
-        origin_sel = ttk.LabelFrame(selectors, text=tr("datasets_select_origin"))
-        origin_sel.grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        origin_sel.columnconfigure(1, weight=1)
-        ttk.Label(origin_sel, text=tr("datasets_pool")).grid(row=0, column=0, sticky="w", padx=(6, 6), pady=(6, 4))
         self.origin_pool_var = tk.StringVar()
-        self.origin_pool_combo = ttk.Combobox(origin_sel, textvariable=self.origin_pool_var, state="readonly")
-        self.origin_pool_combo.grid(row=0, column=1, sticky="ew", padx=(0, 6), pady=(6, 4))
+        self.origin_pool_combo = ttk.Combobox(self.right_datasets_detail, textvariable=self.origin_pool_var, state="readonly")
         self.origin_pool_combo.bind("<<ComboboxSelected>>", self._on_origin_pool_selected)
         self.origin_dataset_var = tk.StringVar()
-
-        dest_sel = ttk.LabelFrame(selectors, text=tr("datasets_select_dest"))
-        dest_sel.grid(row=0, column=1, sticky="ew", padx=(6, 0))
-        dest_sel.columnconfigure(1, weight=1)
-        ttk.Label(dest_sel, text=tr("datasets_pool")).grid(row=0, column=0, sticky="w", padx=(6, 6), pady=(6, 4))
         self.dest_pool_var = tk.StringVar()
-        self.dest_pool_combo = ttk.Combobox(dest_sel, textvariable=self.dest_pool_var, state="readonly")
-        self.dest_pool_combo.grid(row=0, column=1, sticky="ew", padx=(0, 6), pady=(6, 4))
+        self.dest_pool_combo = ttk.Combobox(self.right_datasets_detail, textvariable=self.dest_pool_var, state="readonly")
         self.dest_pool_combo.bind("<<ComboboxSelected>>", self._on_dest_pool_selected)
         self.dest_dataset_var = tk.StringVar()
 
@@ -3339,7 +3323,7 @@ class App(tk.Tk):
         self.dataset_pool_options: Dict[str, Tuple[str, str]] = {}
 
         ds_split = ttk.Panedwindow(self.right_datasets_detail, orient=tk.VERTICAL)
-        ds_split.grid(row=1, column=0, sticky="nsew")
+        ds_split.grid(row=0, column=0, sticky="nsew")
 
         datasets_row = ttk.Frame(ds_split)
         datasets_row.columnconfigure(0, weight=1)
@@ -3348,19 +3332,22 @@ class App(tk.Tk):
 
         origin_tree_wrap = ttk.LabelFrame(datasets_row, text=tr("datasets_origin"))
         origin_tree_wrap.grid(row=0, column=0, sticky="nsew", pady=(0, 6))
-        origin_tree_wrap.columnconfigure(0, weight=1)
-        origin_tree_wrap.rowconfigure(0, weight=1)
+        origin_tree_wrap.columnconfigure(1, weight=1)
+        origin_tree_wrap.rowconfigure(1, weight=1)
+        ttk.Label(origin_tree_wrap, text=tr("datasets_pool")).grid(row=0, column=0, sticky="w", padx=(6, 6), pady=(4, 4))
+        self.origin_pool_combo.configure(width=42)
+        self.origin_pool_combo.grid(in_=origin_tree_wrap, row=0, column=1, sticky="e", padx=(0, 6), pady=(4, 4))
         self.datasets_tree_origin = ttk.Treeview(
             origin_tree_wrap,
             show="tree",
         )
         self.datasets_tree_origin.heading("#0", text=tr("datasets_dataset"))
         self.datasets_tree_origin.column("#0", width=560, anchor="w")
-        self.datasets_tree_origin.grid(row=0, column=0, sticky="nsew")
+        self.datasets_tree_origin.grid(row=1, column=0, columnspan=2, sticky="nsew")
         ds_oy = ttk.Scrollbar(origin_tree_wrap, orient="vertical", command=self.datasets_tree_origin.yview)
-        ds_oy.grid(row=0, column=1, sticky="ns")
+        ds_oy.grid(row=1, column=2, sticky="ns")
         ds_ox = ttk.Scrollbar(origin_tree_wrap, orient="horizontal", command=self.datasets_tree_origin.xview)
-        ds_ox.grid(row=1, column=0, sticky="ew")
+        ds_ox.grid(row=2, column=0, columnspan=2, sticky="ew")
         def _origin_auto_yset(first: str, last: str) -> None:
             ds_oy.set(first, last)
             try:
@@ -3393,19 +3380,22 @@ class App(tk.Tk):
 
         dest_tree_wrap = ttk.LabelFrame(datasets_row, text=tr("datasets_dest"))
         dest_tree_wrap.grid(row=1, column=0, sticky="nsew", pady=(6, 0))
-        dest_tree_wrap.columnconfigure(0, weight=1)
-        dest_tree_wrap.rowconfigure(0, weight=1)
+        dest_tree_wrap.columnconfigure(1, weight=1)
+        dest_tree_wrap.rowconfigure(1, weight=1)
+        ttk.Label(dest_tree_wrap, text=tr("datasets_pool")).grid(row=0, column=0, sticky="w", padx=(6, 6), pady=(4, 4))
+        self.dest_pool_combo.configure(width=42)
+        self.dest_pool_combo.grid(in_=dest_tree_wrap, row=0, column=1, sticky="e", padx=(0, 6), pady=(4, 4))
         self.datasets_tree_dest = ttk.Treeview(
             dest_tree_wrap,
             show="tree",
         )
         self.datasets_tree_dest.heading("#0", text=tr("datasets_dataset"))
         self.datasets_tree_dest.column("#0", width=560, anchor="w")
-        self.datasets_tree_dest.grid(row=0, column=0, sticky="nsew")
+        self.datasets_tree_dest.grid(row=1, column=0, columnspan=2, sticky="nsew")
         ds_dy = ttk.Scrollbar(dest_tree_wrap, orient="vertical", command=self.datasets_tree_dest.yview)
-        ds_dy.grid(row=0, column=1, sticky="ns")
+        ds_dy.grid(row=1, column=2, sticky="ns")
         ds_dx = ttk.Scrollbar(dest_tree_wrap, orient="horizontal", command=self.datasets_tree_dest.xview)
-        ds_dx.grid(row=1, column=0, sticky="ew")
+        ds_dx.grid(row=2, column=0, columnspan=2, sticky="ew")
         def _dest_auto_yset(first: str, last: str) -> None:
             ds_dy.set(first, last)
             try:
