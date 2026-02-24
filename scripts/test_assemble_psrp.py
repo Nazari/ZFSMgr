@@ -223,6 +223,7 @@ def main() -> int:
     ap.add_argument("--port", type=int, default=0, help="Sobrescribe puerto de la conexion")
     ap.add_argument("--username", default="", help="Sobrescribe usuario de la conexion")
     ap.add_argument("--auth", default="", help="Sobrescribe auth PSRP (ntlm/basic/kerberos)")
+    ap.add_argument("--debug-root", action="store_true", help="Depura la fase root en pasos cortos")
     args = ap.parse_args()
 
     profile, ini_path = load_profile(args.master_password, args.connection)
@@ -253,6 +254,28 @@ def main() -> int:
         f"user={profile.username} auth={profile.auth}"
     )
     print(f"[RUN] dataset={dataset}")
+
+    def run_step(label: str, cmd: str) -> None:
+        print(f"[STEP] {label}: {cmd}")
+        try:
+            out = execu._run_ps(cmd, timeout_seconds=30)
+            print(f"[STEP-OK] {label}: {(out or '').strip() or '<ok>'}")
+        except Exception as exc:
+            print(f"[STEP-ERR] {label}: {exc}")
+            raise
+
+    if args.debug_root:
+        try:
+            run_step("get_mountpoint", f"zfs get -H -o value mountpoint {dataset}")
+            run_step("get_driveletter", f"zfs get -H -o value driveletter {dataset}")
+            run_step("zfs_mount_line", f'zfs mount | findstr /I "{dataset}"')
+            run_step("set_driveletter_y", f"zfs set driveletter=Y {dataset}")
+            run_step("mount_dataset", f"zfs mount {dataset}")
+            run_step("mounted_prop", f"zfs get -H -o value mounted {dataset}")
+            run_step("test_y_drive", "$p='Y:\\\\'; if (Test-Path -LiteralPath $p) { 'Y_OK' } else { 'Y_NO' }")
+            run_step("test_z_drive", "$p='Z:\\\\'; if (Test-Path -LiteralPath $p) { 'Z_OK' } else { 'Z_NO' }")
+        except Exception:
+            return 3
 
     try:
         children_out = execu._run_ps(build_children_list_script(dataset), timeout_seconds=None)
