@@ -4011,8 +4011,8 @@ class App(tk.Tk):
             if st and st.zfs_version:
                 zfs_ver = st.zfs_version
             zfs_txt = zfs_ver if zfs_ver != "-" else tr("label_unknown")
-            self.conn_list.insert(tk.END, f"{mark} {c.name}")
-            self.conn_list.insert(tk.END, f"   [{c.os_type}/{method}] | OpenZFS: {zfs_txt}")
+            self.conn_list.insert(tk.END, f"{mark} {c.name}/{method}")
+            self.conn_list.insert(tk.END, f"   {c.os_type} | ZFS v{zfs_txt}")
             if c.id == selected_id:
                 selected_index = idx * 2
         try:
