@@ -3330,6 +3330,7 @@ class App(tk.Tk):
 
         ds_split = ttk.Panedwindow(self.right_datasets_detail, orient=tk.VERTICAL)
         ds_split.grid(row=0, column=0, sticky="nsew")
+        self.datasets_split = ds_split
 
         datasets_row = ttk.Frame(ds_split)
         datasets_row.columnconfigure(0, weight=1)
@@ -3337,7 +3338,7 @@ class App(tk.Tk):
         datasets_row.rowconfigure(1, weight=1)
 
         origin_tree_wrap = ttk.LabelFrame(datasets_row, text=tr("datasets_origin"))
-        origin_tree_wrap.grid(row=0, column=0, sticky="nsew", pady=(0, 6))
+        origin_tree_wrap.grid(row=0, column=0, sticky="nsew", pady=(0, 3))
         origin_tree_wrap.columnconfigure(1, weight=1)
         origin_tree_wrap.rowconfigure(1, weight=1)
         ttk.Label(origin_tree_wrap, text=tr("datasets_pool")).grid(row=0, column=0, sticky="w", padx=(6, 6), pady=(4, 4))
@@ -3393,7 +3394,7 @@ class App(tk.Tk):
         self.datasets_tree_origin.bind("<Control-Button-1>", lambda e: self._on_dataset_tree_context("origin", e))
 
         dest_tree_wrap = ttk.LabelFrame(datasets_row, text=tr("datasets_dest"))
-        dest_tree_wrap.grid(row=1, column=0, sticky="nsew", pady=(6, 0))
+        dest_tree_wrap.grid(row=1, column=0, sticky="nsew", pady=(3, 0))
         dest_tree_wrap.columnconfigure(1, weight=1)
         dest_tree_wrap.rowconfigure(1, weight=1)
         ttk.Label(dest_tree_wrap, text=tr("datasets_pool")).grid(row=0, column=0, sticky="w", padx=(6, 6), pady=(4, 4))
@@ -3472,7 +3473,7 @@ class App(tk.Tk):
             (tr("col_value"), 280, "w"),
         ]
         self.dataset_props_rows = self._build_plain_table(dataset_props_table_wrap, self.dataset_props_columns)
-        ds_split.add(datasets_row, weight=3)
+        ds_split.add(datasets_row, weight=2)
         ds_split.add(props_row, weight=1)
 
         log_container = ttk.Frame(main_split)
@@ -3635,11 +3636,24 @@ class App(tk.Tk):
                 pass
 
         self.after_idle(_enforce_dataset_tab_visibility)
+        self.after_idle(self._set_initial_equal_dataset_heights)
 
         self._app_log("normal", tr("log_app_started"))
         self.origin_dataset_var.trace_add("write", lambda *_a: self._update_level_button_state())
         self.dest_dataset_var.trace_add("write", lambda *_a: self._update_level_button_state())
         self._on_left_tab_changed()
+
+    def _set_initial_equal_dataset_heights(self) -> None:
+        """Inicializa alturas 1/3-1/3-1/3 para Origen/Destino/Propiedades."""
+        try:
+            self.update_idletasks()
+            split = getattr(self, "datasets_split", None)
+            if split is None:
+                return
+            total = max(1, int(split.winfo_height()))
+            split.sashpos(0, int((total * 2) / 3))
+        except Exception:
+            pass
 
     def _build_plain_table(
         self,
