@@ -9,7 +9,6 @@ Aplicacion grafica para gestionar pools ZFS locales/remotos:
 
 from __future__ import annotations
 
-import concurrent.futures
 import configparser
 import base64
 import getpass
@@ -7296,48 +7295,65 @@ class App(tk.Tk):
             batch_mode = len(profiles) > 1
             refreshed_ids: List[str] = []
             self._app_log("info", trf("log_parallel_refresh_start", count=len(profiles), workers=max_workers))
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-                future_map = {pool.submit(refresh_one, p): p for p in profiles}
-                for future in concurrent.futures.as_completed(future_map):
-                    profile = future_map[future]
+            work_q: queue.Queue[ConnectionProfile] = queue.Queue()
+            done_q: queue.Queue[Tuple[ConnectionProfile, str, ConnectionState]] = queue.Queue()
+            for p in profiles:
+                work_q.put(p)
+
+            def refresh_worker() -> None:
+                while True:
                     try:
-                        profile_id, state = future.result()
+                        p = work_q.get_nowait()
+                    except queue.Empty:
+                        break
+                    try:
+                        profile_id, state = refresh_one(p)
                     except Exception as exc:
-                        profile_id = profile.id
+                        profile_id = p.id
                         state = ConnectionState(ok=False, message=str(exc))
+                    finally:
+                        work_q.task_done()
+                    done_q.put((p, profile_id, state))
 
-                    self.states[profile_id] = state
-                    refreshed_ids.append(profile_id)
-                    self._app_log(
-                        "info",
-                        trf(
-                            "log_refresh_done",
-                            name=profile.name,
-                            result=tr("priv_ok") if state.ok else tr("label_error"),
-                            msg=state.message,
-                        ),
-                    )
-                    self._app_log(
-                        "debug",
-                        trf(
-                            "log_refresh_detail",
-                            name=profile.name,
-                            imported=len(state.imported),
-                            importable=len(state.importable),
-                            sudo=state.sudo_ok,
-                        ),
-                    )
-                    if state.zfs_version:
-                        self._app_log("debug", f"OpenZFS {profile.name}: {state.zfs_version}")
-                    # Mantener cache de propiedades/estado de pools entre refrescos
-                    # para evitar re-ejecutar zpool get/status al hacer click en pools importados.
+            for _ in range(max_workers):
+                threading.Thread(target=refresh_worker, daemon=True).start()
 
-                    if not batch_mode:
-                        self.after(0, self._load_connections_list)
-                        self.after(0, self._render_all_imported_pools)
-                        self.after(0, self._render_all_importable_pools)
-                        self.after(0, self._update_if_selected, profile_id)
-                        self.after(0, self._refresh_datasets_if_tab_visible)
+            remaining = len(profiles)
+            while remaining > 0:
+                profile, profile_id, state = done_q.get()
+                remaining -= 1
+                self.states[profile_id] = state
+                refreshed_ids.append(profile_id)
+                self._app_log(
+                    "info",
+                    trf(
+                        "log_refresh_done",
+                        name=profile.name,
+                        result=tr("priv_ok") if state.ok else tr("label_error"),
+                        msg=state.message,
+                    ),
+                )
+                self._app_log(
+                    "debug",
+                    trf(
+                        "log_refresh_detail",
+                        name=profile.name,
+                        imported=len(state.imported),
+                        importable=len(state.importable),
+                        sudo=state.sudo_ok,
+                    ),
+                )
+                if state.zfs_version:
+                    self._app_log("debug", f"OpenZFS {profile.name}: {state.zfs_version}")
+                # Mantener cache de propiedades/estado de pools entre refrescos
+                # para evitar re-ejecutar zpool get/status al hacer click en pools importados.
+
+                if not batch_mode:
+                    self.after(0, self._load_connections_list)
+                    self.after(0, self._render_all_imported_pools)
+                    self.after(0, self._render_all_importable_pools)
+                    self.after(0, self._update_if_selected, profile_id)
+                    self.after(0, self._refresh_datasets_if_tab_visible)
 
             if batch_mode:
                 def apply_batch_refresh() -> None:
