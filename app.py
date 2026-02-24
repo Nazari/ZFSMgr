@@ -3332,11 +3332,11 @@ class App(tk.Tk):
 
         origin_tree_wrap = ttk.LabelFrame(datasets_row, text=tr("datasets_origin"))
         origin_tree_wrap.grid(row=0, column=0, sticky="nsew", pady=(0, 6))
-        origin_tree_wrap.columnconfigure(1, weight=1)
+        origin_tree_wrap.columnconfigure(2, weight=1)
         origin_tree_wrap.rowconfigure(1, weight=1)
         ttk.Label(origin_tree_wrap, text=tr("datasets_pool")).grid(row=0, column=0, sticky="w", padx=(6, 6), pady=(4, 4))
         self.origin_pool_combo = ttk.Combobox(origin_tree_wrap, textvariable=self.origin_pool_var, state="readonly", width=42)
-        self.origin_pool_combo.grid(row=0, column=1, sticky="e", padx=(0, 6), pady=(4, 4))
+        self.origin_pool_combo.grid(row=0, column=1, sticky="w", padx=(0, 6), pady=(4, 4))
         self.origin_pool_combo.bind("<<ComboboxSelected>>", self._on_origin_pool_selected)
         self.datasets_tree_origin = ttk.Treeview(
             origin_tree_wrap,
@@ -3381,11 +3381,11 @@ class App(tk.Tk):
 
         dest_tree_wrap = ttk.LabelFrame(datasets_row, text=tr("datasets_dest"))
         dest_tree_wrap.grid(row=1, column=0, sticky="nsew", pady=(6, 0))
-        dest_tree_wrap.columnconfigure(1, weight=1)
+        dest_tree_wrap.columnconfigure(2, weight=1)
         dest_tree_wrap.rowconfigure(1, weight=1)
         ttk.Label(dest_tree_wrap, text=tr("datasets_pool")).grid(row=0, column=0, sticky="w", padx=(6, 6), pady=(4, 4))
         self.dest_pool_combo = ttk.Combobox(dest_tree_wrap, textvariable=self.dest_pool_var, state="readonly", width=42)
-        self.dest_pool_combo.grid(row=0, column=1, sticky="e", padx=(0, 6), pady=(4, 4))
+        self.dest_pool_combo.grid(row=0, column=1, sticky="w", padx=(0, 6), pady=(4, 4))
         self.dest_pool_combo.bind("<<ComboboxSelected>>", self._on_dest_pool_selected)
         self.datasets_tree_dest = ttk.Treeview(
             dest_tree_wrap,
@@ -6077,8 +6077,8 @@ class App(tk.Tk):
         self._refresh_dataset_pool_options_global()
         if not self.dataset_pool_options:
             self._app_log("info", tr("log_no_pools_for_datasets"))
-            self._render_datasets_tree(self.datasets_tree_origin, [])
-            self._render_datasets_tree(self.datasets_tree_dest, [])
+            self._render_datasets_tree(self.datasets_tree_origin, [], None)
+            self._render_datasets_tree(self.datasets_tree_dest, [], None)
             self._render_dataset_properties("origin", None)
             self._render_dataset_properties("dest", None)
             self._update_level_button_state()
@@ -6132,10 +6132,10 @@ class App(tk.Tk):
             datasets = self.datasets_cache[cache_key]
             self._app_log("debug", trf("log_datasets_from_cache", side=side, selection=selection, count=len(datasets)))
             if side == "origin":
-                self._render_datasets_tree(self.datasets_tree_origin, datasets)
+                self._render_datasets_tree(self.datasets_tree_origin, datasets, pool)
                 self._normalize_selected_dataset_var("origin", datasets)
             else:
-                self._render_datasets_tree(self.datasets_tree_dest, datasets)
+                self._render_datasets_tree(self.datasets_tree_dest, datasets, pool)
                 self._normalize_selected_dataset_var("dest", datasets)
             return
         self.status_var.set(trf("status_loading_datasets", pool=pool, name=profile.name))
@@ -6152,10 +6152,10 @@ class App(tk.Tk):
                 self.datasets_cache[cache_key] = datasets
                 self._app_log("debug", trf("log_datasets_loaded_side", side=side, name=profile.name, pool=pool, count=len(datasets)))
                 if side == "origin":
-                    self.after(0, lambda: self._render_datasets_tree(self.datasets_tree_origin, datasets))
+                    self.after(0, lambda p=pool: self._render_datasets_tree(self.datasets_tree_origin, datasets, p))
                     self.after(0, lambda: self._normalize_selected_dataset_var("origin", datasets))
                 else:
-                    self.after(0, lambda: self._render_datasets_tree(self.datasets_tree_dest, datasets))
+                    self.after(0, lambda p=pool: self._render_datasets_tree(self.datasets_tree_dest, datasets, p))
                     self.after(0, lambda: self._normalize_selected_dataset_var("dest", datasets))
                 self.after(0, lambda: self.status_var.set(trf("status_datasets_loaded", name=profile.name, pool=pool)))
             except Exception as exc:
@@ -6327,34 +6327,56 @@ class App(tk.Tk):
         self.transfer_origin_target_var.set(f"{tr('datasets_origin')}: {src_label}")
         self.transfer_dest_target_var.set(f"{tr('datasets_dest')}: {dst_label}")
 
-    def _render_datasets_tree(self, tree: ttk.Treeview, datasets: List[Dict[str, str]]) -> None:
+    def _render_datasets_tree(self, tree: ttk.Treeview, datasets: List[Dict[str, str]], root_dataset: Optional[str]) -> None:
         for iid in tree.get_children():
             tree.delete(iid)
 
         inserted: set[str] = set()
         dataset_names: List[str] = []
         snapshots: List[Tuple[str, str]] = []
+        root = (root_dataset or "").strip()
+
+        def _to_relative(full_name: str) -> str:
+            full = (full_name or "").strip()
+            if not full or not root:
+                return full
+            if full == root:
+                return ""
+            prefix = f"{root}/"
+            if full.startswith(prefix):
+                return full[len(prefix):]
+            return full
+
         for item in sorted(datasets, key=lambda d: d.get("name", "")):
             full = (item.get("name", "") or "").strip()
             if not full:
                 continue
             if "@" in full:
                 ds, snap = full.split("@", 1)
-                snapshots.append((ds, snap))
+                rel_ds = _to_relative(ds)
+                snapshots.append((ds, rel_ds, snap))
             else:
-                dataset_names.append(full)
+                if _to_relative(full):
+                    dataset_names.append(full)
 
         def _ensure_dataset_path(dataset_full: str) -> str:
-            parts = dataset_full.split("/")
-            accum = ""
-            parent = ""
+            rel_path = _to_relative(dataset_full)
+            if not rel_path:
+                return ""
+            parts = rel_path.split("/")
+            rel_accum = ""
+            parent_iid = ""
             for part in parts:
-                accum = part if not accum else f"{accum}/{part}"
-                if accum not in inserted:
-                    tree.insert(parent, "end", iid=accum, text=part, values=(), open=False)
-                    inserted.add(accum)
-                parent = accum
-            return parent
+                rel_accum = part if not rel_accum else f"{rel_accum}/{part}"
+                if root and not rel_accum.startswith(f"{root}/") and rel_accum != root:
+                    iid = f"{root}/{rel_accum}"
+                else:
+                    iid = rel_accum
+                if iid not in inserted:
+                    tree.insert(parent_iid, "end", iid=iid, text=part, values=(), open=False)
+                    inserted.add(iid)
+                parent_iid = iid
+            return parent_iid
 
         # Primero inserta jerarquia de datasets.
         for dataset_full in dataset_names:
@@ -6362,17 +6384,17 @@ class App(tk.Tk):
 
         # Luego snapshots, colocandolos al inicio de su dataset padre
         # para que aparezcan antes que subdatasets.
-        for dataset_full, snap in sorted(snapshots, key=lambda x: (x[0], x[1])):
+        for dataset_full, _rel_dataset, snap in sorted(snapshots, key=lambda x: (x[0], x[2])):
             parent = _ensure_dataset_path(dataset_full)
             snapshot_iid = f"{dataset_full}@{snap}"
             if snapshot_iid in inserted:
                 continue
-            children = list(tree.get_children(parent))
+            children = list(tree.get_children(parent or ""))
             insert_index = 0
             while insert_index < len(children) and "@" in str(children[insert_index]):
                 insert_index += 1
             tree.insert(
-                parent,
+                parent or "",
                 insert_index,
                 iid=snapshot_iid,
                 text=f"@{snap}",
