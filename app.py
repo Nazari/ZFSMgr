@@ -2914,7 +2914,6 @@ class App(tk.Tk):
         self.dataset_snapshot_col_ids = [f"snap{i}" for i in range(1, self.dataset_snapshot_max_cols + 1)]
         self.dataset_snapshot_more_col_id = "snap_more"
         self.dataset_snapshots_by_side: Dict[str, Dict[str, List[str]]] = {"origin": {}, "dest": {}}
-        self.dataset_root_snapshots_by_side: Dict[str, Dict[str, List[str]]] = {"origin": {}, "dest": {}}
         self.dataset_selected_snapshot_by_side: Dict[str, Dict[str, str]] = {"origin": {}, "dest": {}}
         self._snapshot_cell_editor: Optional[ttk.Combobox] = None
         self._snapshot_cell_editor_side: str = ""
@@ -3242,8 +3241,6 @@ class App(tk.Tk):
         right.grid(row=0, column=1, sticky="nsew")
         right.columnconfigure(0, weight=1)
         right.rowconfigure(0, weight=1)
-        combo_field_bg = ttk.Style().lookup("TCombobox", "fieldbackground") or UI_PANEL_BG
-
         # Sin barra de redimensionado: panel izquierdo de ancho fijo.
         def _init_fixed_left_width() -> None:
             base_width = max(top_container.winfo_width(), self.winfo_width(), 1200)
@@ -3383,58 +3380,6 @@ class App(tk.Tk):
         self.origin_pool_combo = ttk.Combobox(origin_top, textvariable=self.origin_pool_var, state="readonly", width=21)
         self.origin_pool_combo.grid(row=0, column=0, sticky="w", padx=(0, 2))
         self.origin_pool_combo.bind("<<ComboboxSelected>>", self._on_origin_pool_selected)
-        self.origin_root_dataset_lbl = tk.Label(
-            origin_top,
-            text="",
-            bg=combo_field_bg,
-            fg=UI_TEXT,
-            relief="solid",
-            borderwidth=1,
-            anchor="w",
-            padx=4,
-            pady=1,
-            cursor="hand2",
-            font=self.snapshot_font_normal,
-        )
-        self.origin_root_dataset_lbl.grid(row=0, column=1, sticky="w", padx=(0, 2))
-        self.origin_root_dataset_lbl.bind("<Button-1>", lambda _e: self._on_root_dataset_click("origin"))
-        self.origin_root_snaps_wrap = tk.Frame(origin_top, bg=combo_field_bg)
-        self.origin_root_snaps_wrap.grid(row=0, column=2, sticky="w")
-        self.origin_root_snap_labels: List[tk.Label] = []
-        for idx in range(self.dataset_snapshot_max_cols):
-            lbl = tk.Label(
-                self.origin_root_snaps_wrap,
-                text="",
-                bg=combo_field_bg,
-                fg=UI_TEXT,
-                relief="solid",
-                borderwidth=1,
-                anchor="w",
-                padx=4,
-                pady=1,
-                cursor="hand2",
-                font=self.snapshot_font_normal,
-            )
-            lbl.grid(row=0, column=idx, sticky="ew", padx=(0, 2))
-            lbl.bind("<Button-1>", lambda _e, s="origin", i=idx: self._on_root_snapshot_cell_click(s, i))
-            self.origin_root_snaps_wrap.grid_columnconfigure(idx, weight=0)
-            self.origin_root_snap_labels.append(lbl)
-        self.origin_root_snap_more = tk.Label(
-            self.origin_root_snaps_wrap,
-            text="",
-            bg=combo_field_bg,
-            fg=UI_TEXT,
-            relief="solid",
-            borderwidth=1,
-            anchor="center",
-            padx=4,
-            pady=1,
-            cursor="hand2",
-            font=self.snapshot_font_normal,
-        )
-        self.origin_root_snap_more.grid(row=0, column=self.dataset_snapshot_max_cols, sticky="ew")
-        self.origin_root_snaps_wrap.grid_columnconfigure(self.dataset_snapshot_max_cols, weight=0)
-        self.origin_root_snap_more.bind("<Button-1>", lambda _e, s="origin": self._on_root_snapshot_more_click(s))
         self.datasets_tree_origin = ttk.Treeview(
             origin_tree_wrap,
             columns=("snapshot",),
@@ -3492,58 +3437,6 @@ class App(tk.Tk):
         self.dest_pool_combo = ttk.Combobox(dest_top, textvariable=self.dest_pool_var, state="readonly", width=21)
         self.dest_pool_combo.grid(row=0, column=0, sticky="w", padx=(0, 2))
         self.dest_pool_combo.bind("<<ComboboxSelected>>", self._on_dest_pool_selected)
-        self.dest_root_dataset_lbl = tk.Label(
-            dest_top,
-            text="",
-            bg=combo_field_bg,
-            fg=UI_TEXT,
-            relief="solid",
-            borderwidth=1,
-            anchor="w",
-            padx=4,
-            pady=1,
-            cursor="hand2",
-            font=self.snapshot_font_normal,
-        )
-        self.dest_root_dataset_lbl.grid(row=0, column=1, sticky="w", padx=(0, 2))
-        self.dest_root_dataset_lbl.bind("<Button-1>", lambda _e: self._on_root_dataset_click("dest"))
-        self.dest_root_snaps_wrap = tk.Frame(dest_top, bg=combo_field_bg)
-        self.dest_root_snaps_wrap.grid(row=0, column=2, sticky="w")
-        self.dest_root_snap_labels: List[tk.Label] = []
-        for idx in range(self.dataset_snapshot_max_cols):
-            lbl = tk.Label(
-                self.dest_root_snaps_wrap,
-                text="",
-                bg=combo_field_bg,
-                fg=UI_TEXT,
-                relief="solid",
-                borderwidth=1,
-                anchor="w",
-                padx=4,
-                pady=1,
-                cursor="hand2",
-                font=self.snapshot_font_normal,
-            )
-            lbl.grid(row=0, column=idx, sticky="ew", padx=(0, 2))
-            lbl.bind("<Button-1>", lambda _e, s="dest", i=idx: self._on_root_snapshot_cell_click(s, i))
-            self.dest_root_snaps_wrap.grid_columnconfigure(idx, weight=0)
-            self.dest_root_snap_labels.append(lbl)
-        self.dest_root_snap_more = tk.Label(
-            self.dest_root_snaps_wrap,
-            text="",
-            bg=combo_field_bg,
-            fg=UI_TEXT,
-            relief="solid",
-            borderwidth=1,
-            anchor="center",
-            padx=4,
-            pady=1,
-            cursor="hand2",
-            font=self.snapshot_font_normal,
-        )
-        self.dest_root_snap_more.grid(row=0, column=self.dataset_snapshot_max_cols, sticky="ew")
-        self.dest_root_snaps_wrap.grid_columnconfigure(self.dataset_snapshot_max_cols, weight=0)
-        self.dest_root_snap_more.bind("<Button-1>", lambda _e, s="dest": self._on_root_snapshot_more_click(s))
         self.datasets_tree_dest = ttk.Treeview(
             dest_tree_wrap,
             columns=("snapshot",),
@@ -6249,7 +6142,6 @@ class App(tk.Tk):
             return
         self.origin_dataset_var.set("")
         self._render_dataset_properties("origin", None)
-        self._render_root_snapshot_cells("origin")
         self._update_snapshot_highlight("origin")
         self._load_side_datasets("origin")
         self._update_level_button_state()
@@ -6259,7 +6151,6 @@ class App(tk.Tk):
             return
         self.dest_dataset_var.set("")
         self._render_dataset_properties("dest", None)
-        self._render_root_snapshot_cells("dest")
         self._update_snapshot_highlight("dest")
         self._load_side_datasets("dest")
         self._update_level_button_state()
@@ -6270,78 +6161,6 @@ class App(tk.Tk):
             return ""
         _cid, pool = self.dataset_pool_options[selection]
         return pool
-
-    def _render_root_snapshot_cells(self, side: str) -> None:
-        pool = self._current_selected_pool_name(side)
-        snaps = self.dataset_root_snapshots_by_side.get(side, {}).get(pool, []) if pool else []
-        labels = self.origin_root_snap_labels if side == "origin" else self.dest_root_snap_labels
-        more_lbl = self.origin_root_snap_more if side == "origin" else self.dest_root_snap_more
-        root_lbl = self.origin_root_dataset_lbl if side == "origin" else self.dest_root_dataset_lbl
-        if pool:
-            root_lbl.configure(text=pool)
-            root_lbl.grid()
-        else:
-            root_lbl.configure(text="")
-            root_lbl.grid_remove()
-        for idx, lbl in enumerate(labels):
-            txt = f"@{snaps[idx]}" if idx < len(snaps) else ""
-            lbl.configure(text=txt, font=self.snapshot_font_normal)
-            if txt:
-                lbl.grid()
-            else:
-                lbl.grid_remove()
-        if len(snaps) > self.dataset_snapshot_max_cols:
-            more_lbl.configure(text="...", font=self.snapshot_font_normal)
-            more_lbl.grid()
-        else:
-            more_lbl.configure(text="", font=self.snapshot_font_normal)
-            more_lbl.grid_remove()
-
-    def _on_root_dataset_click(self, side: str) -> None:
-        if self._reject_if_ssh_busy():
-            return
-        pool = self._current_selected_pool_name(side)
-        if not pool:
-            return
-        tree = self.datasets_tree_origin if side == "origin" else self.datasets_tree_dest
-        try:
-            tree.selection_remove(tree.selection())
-        except Exception:
-            pass
-        # Fuerza seleccion explicita de la raiz (pool) como dataset origen/destino.
-        self._hide_snapshot_dropdown()
-        self._set_dataset_selection(side, pool, None)
-
-    def _on_root_snapshot_cell_click(self, side: str, snap_idx: int) -> None:
-        if self._reject_if_ssh_busy():
-            return
-        pool = self._current_selected_pool_name(side)
-        snaps = self.dataset_root_snapshots_by_side.get(side, {}).get(pool, []) if pool else []
-        if snap_idx >= len(snaps):
-            return
-        tree = self.datasets_tree_origin if side == "origin" else self.datasets_tree_dest
-        tree.selection_remove(tree.selection())
-        self._set_dataset_selection(side, pool, snaps[snap_idx])
-
-    def _on_root_snapshot_more_click(self, side: str) -> None:
-        if self._reject_if_ssh_busy():
-            return
-        pool = self._current_selected_pool_name(side)
-        snaps = self.dataset_root_snapshots_by_side.get(side, {}).get(pool, []) if pool else []
-        if len(snaps) <= self.dataset_snapshot_max_cols:
-            return
-        menu = tk.Menu(self, tearoff=0)
-        for snap in snaps[self.dataset_snapshot_max_cols:]:
-            menu.add_command(label=f"@{snap}", command=(lambda s=snap, sd=side, p=pool: self._set_dataset_selection(sd, p, s)))
-        try:
-            self._dismiss_active_context_menu(unpost=True)
-            self._active_context_menu = menu
-            self._context_menu_unmap_bind_id = menu.bind("<Unmap>", self._on_context_menu_unmap, add="+")
-            widget = self.origin_root_snap_more if side == "origin" else self.dest_root_snap_more
-            menu.post(widget.winfo_rootx(), widget.winfo_rooty() + widget.winfo_height())
-            self.after_idle(self._arm_context_menu_dismiss_bindings)
-        except Exception:
-            pass
 
     def _on_origin_tree_selected(self, _event: Any = None) -> None:
         if self._reject_if_ssh_busy():
@@ -6366,12 +6185,6 @@ class App(tk.Tk):
     def _set_dataset_selection(self, side: str, dataset_iid: str, snapshot_name: Optional[str]) -> None:
         self._hide_snapshot_dropdown()
         dataset_iid = (dataset_iid or "").strip()
-        if dataset_iid and dataset_iid == self._current_selected_pool_name(side):
-            tree = self.datasets_tree_origin if side == "origin" else self.datasets_tree_dest
-            try:
-                tree.selection_remove(tree.selection())
-            except Exception:
-                pass
         if dataset_iid:
             if snapshot_name:
                 self.dataset_selected_snapshot_by_side.setdefault(side, {})[dataset_iid] = snapshot_name
@@ -6536,8 +6349,6 @@ class App(tk.Tk):
             self._app_log("info", tr("log_no_pools_for_datasets"))
             self._render_datasets_tree("origin", self.datasets_tree_origin, [], None)
             self._render_datasets_tree("dest", self.datasets_tree_dest, [], None)
-            self._render_root_snapshot_cells("origin")
-            self._render_root_snapshot_cells("dest")
             self._render_dataset_properties("origin", None)
             self._render_dataset_properties("dest", None)
             self._update_level_button_state()
@@ -6575,8 +6386,6 @@ class App(tk.Tk):
             self.origin_pool_var.set(labels[0])
         if self.dest_pool_var.get() not in options:
             self.dest_pool_var.set(labels[0])
-        self._render_root_snapshot_cells("origin")
-        self._render_root_snapshot_cells("dest")
 
     def _load_side_datasets(self, side: str) -> None:
         selection = self.origin_pool_var.get().strip() if side == "origin" else self.dest_pool_var.get().strip()
@@ -6839,23 +6648,10 @@ class App(tk.Tk):
             tree.delete(iid)
 
         self.dataset_snapshots_by_side[side] = {}
-        self.dataset_root_snapshots_by_side[side] = {}
         inserted: set[str] = set()
-        dataset_names: List[str] = []
+        dataset_names: set[str] = set()
         snapshots: Dict[str, List[Tuple[str, str]]] = {}
-        root_snapshots: List[Tuple[str, str]] = []
         root = (root_dataset or "").strip()
-
-        def _to_relative(full_name: str) -> str:
-            full = (full_name or "").strip()
-            if not full or not root:
-                return full
-            if full == root:
-                return ""
-            prefix = f"{root}/"
-            if full.startswith(prefix):
-                return full[len(prefix):]
-            return full
 
         for item in sorted(datasets, key=lambda d: d.get("name", "")):
             full = (item.get("name", "") or "").strip()
@@ -6863,45 +6659,42 @@ class App(tk.Tk):
                 continue
             if "@" in full:
                 ds, snap = full.split("@", 1)
-                rel_ds = _to_relative(ds).strip()
-                if not rel_ds:
-                    creation = str(item.get("creation", "") or "").strip()
-                    root_snapshots.append((snap, creation))
-                    continue
                 creation = str(item.get("creation", "") or "").strip()
                 snapshots.setdefault(ds, []).append((snap, creation))
             else:
-                if _to_relative(full).strip():
-                    dataset_names.append(full)
+                dataset_names.add(full)
+
+        if root:
+            dataset_names.add(root)
 
         def _ensure_dataset_path(dataset_full: str) -> str:
-            rel_path = _to_relative(dataset_full)
-            if not rel_path:
+            full = (dataset_full or "").strip()
+            if not full:
                 return ""
-            parts = rel_path.split("/")
-            rel_accum = ""
+            if root and full == root:
+                parts = [root]
+            elif root and full.startswith(f"{root}/"):
+                parts = [root] + full[len(root) + 1 :].split("/")
+            else:
+                parts = full.split("/")
+            iid_accum = ""
             parent_iid = ""
             for part in parts:
-                rel_accum = part if not rel_accum else f"{rel_accum}/{part}"
-                if root and not rel_accum.startswith(f"{root}/") and rel_accum != root:
-                    iid = f"{root}/{rel_accum}"
-                else:
-                    iid = rel_accum
-                if iid not in inserted:
+                iid_accum = part if not iid_accum else f"{iid_accum}/{part}"
+                if iid_accum not in inserted:
                     tree.insert(
                         parent_iid,
                         "end",
-                        iid=iid,
+                        iid=iid_accum,
                         text=part,
                         values=("",),
-                        open=False,
+                        open=bool(root and iid_accum == root),
                     )
-                    inserted.add(iid)
-                parent_iid = iid
+                    inserted.add(iid_accum)
+                parent_iid = iid_accum
             return parent_iid
 
-        # Inserta jerarquia de datasets sin el nodo raiz (pool).
-        for dataset_full in dataset_names:
+        for dataset_full in sorted(dataset_names):
             _ensure_dataset_path(dataset_full)
 
         def _snap_sort_key(entry: Tuple[str, str]) -> Tuple[int, str]:
@@ -6912,8 +6705,7 @@ class App(tk.Tk):
                 ts = -1
             return (ts, snap_name)
 
-        # Renderiza snapshots como columnas por dataset.
-        for dataset_full in dataset_names:
+        for dataset_full in sorted(dataset_names):
             snaps = snapshots.get(dataset_full, [])
             snaps_sorted = [snap for snap, _creation in sorted(snaps, key=_snap_sort_key, reverse=True)]
             self.dataset_snapshots_by_side[side][dataset_full] = snaps_sorted
@@ -6927,10 +6719,6 @@ class App(tk.Tk):
                     tree.item(dataset_full, values=tuple(values))
                 except Exception:
                     pass
-        root_sorted = [snap for snap, _creation in sorted(root_snapshots, key=_snap_sort_key, reverse=True)]
-        if root:
-            self.dataset_root_snapshots_by_side[side][root] = root_sorted
-        self._render_root_snapshot_cells(side)
         self._update_snapshot_highlight(side)
 
     def _render_connection_state(self, profile: ConnectionProfile, refresh_tables: bool = True) -> None:
