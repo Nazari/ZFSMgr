@@ -3011,9 +3011,26 @@ class App(tk.Tk):
             padding=[("selected", (4, 1)), ("!selected", (4, 1))],
             font=[("selected", log_tab_font), ("!selected", log_tab_font)],
         )
-        style.configure("Treeview", background=UI_PANEL_BG, fieldbackground=UI_PANEL_BG, foreground=UI_TEXT, bordercolor=UI_BORDER)
+        tree_base = tkfont.nametofont("TkDefaultFont")
+        tree_family = str(tree_base.actual("family") or "TkDefaultFont")
+        tree_size = int(tree_base.actual("size") or 9)
+        tree_font_normal = (tree_family, tree_size)
+        tree_font_bold = (tree_family, tree_size, "bold")
+        style.configure(
+            "Treeview",
+            background=UI_PANEL_BG,
+            fieldbackground=UI_PANEL_BG,
+            foreground=UI_TEXT,
+            bordercolor=UI_BORDER,
+            font=tree_font_normal,
+        )
         style.configure("Treeview.Heading", background="#e5edf3", foreground=UI_TEXT)
-        style.map("Treeview", background=[("selected", UI_SELECTION)], foreground=[("selected", UI_TEXT)])
+        style.map(
+            "Treeview",
+            background=[("selected", UI_SELECTION)],
+            foreground=[("selected", UI_TEXT)],
+            font=[("selected", tree_font_bold), ("!selected", tree_font_normal)],
+        )
         style.configure("TCombobox", fieldbackground=UI_PANEL_BG, background=UI_PANEL_BG, foreground=UI_TEXT)
         style.configure("TEntry", fieldbackground=UI_PANEL_BG, foreground=UI_TEXT)
         style.configure("TCheckbutton", background=UI_BG, foreground=UI_TEXT)
