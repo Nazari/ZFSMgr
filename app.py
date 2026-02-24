@@ -3330,11 +3330,14 @@ class App(tk.Tk):
         self.datasets_cache: Dict[str, List[Dict[str, str]]] = {}
         self.dataset_pool_options: Dict[str, Tuple[str, str]] = {}
 
-        ds_split = ttk.Panedwindow(self.right_datasets_detail, orient=tk.VERTICAL)
-        ds_split.grid(row=0, column=0, sticky="nsew")
-        self.datasets_split = ds_split
+        datasets_main = ttk.Frame(self.right_datasets_detail)
+        datasets_main.grid(row=0, column=0, sticky="nsew")
+        datasets_main.columnconfigure(0, weight=3)
+        datasets_main.columnconfigure(1, weight=2)
+        datasets_main.rowconfigure(0, weight=1)
 
-        datasets_row = ttk.Frame(ds_split)
+        datasets_row = ttk.Frame(datasets_main)
+        datasets_row.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         datasets_row.columnconfigure(0, weight=1)
         datasets_row.rowconfigure(0, weight=1)
         datasets_row.rowconfigure(1, weight=1)
@@ -3353,7 +3356,7 @@ class App(tk.Tk):
             show="tree headings",
         )
         self.datasets_tree_origin.heading("#0", text=tr("datasets_dataset"))
-        self.datasets_tree_origin.column("#0", width=560, minwidth=260, anchor="w", stretch=True)
+        self.datasets_tree_origin.column("#0", width=280, minwidth=130, anchor="w", stretch=True)
         for idx, col_id in enumerate(self.dataset_snapshot_col_ids, start=1):
             self.datasets_tree_origin.heading(col_id, text=f"snap {idx}")
             self.datasets_tree_origin.column(col_id, width=110, minwidth=90, anchor="w", stretch=False)
@@ -3409,7 +3412,7 @@ class App(tk.Tk):
             show="tree headings",
         )
         self.datasets_tree_dest.heading("#0", text=tr("datasets_dataset"))
-        self.datasets_tree_dest.column("#0", width=560, minwidth=260, anchor="w", stretch=True)
+        self.datasets_tree_dest.column("#0", width=280, minwidth=130, anchor="w", stretch=True)
         for idx, col_id in enumerate(self.dataset_snapshot_col_ids, start=1):
             self.datasets_tree_dest.heading(col_id, text=f"snap {idx}")
             self.datasets_tree_dest.column(col_id, width=110, minwidth=90, anchor="w", stretch=False)
@@ -3451,7 +3454,8 @@ class App(tk.Tk):
         self.datasets_tree_dest.bind("<Button-2>", lambda e: self._on_dataset_tree_context("dest", e))
         self.datasets_tree_dest.bind("<Control-Button-1>", lambda e: self._on_dataset_tree_context("dest", e))
 
-        props_row = ttk.Frame(ds_split)
+        props_row = ttk.Frame(datasets_main)
+        props_row.grid(row=0, column=1, sticky="nsew")
         props_row.columnconfigure(0, weight=1)
         props_row.rowconfigure(0, weight=1)
 
@@ -3475,8 +3479,6 @@ class App(tk.Tk):
             (tr("col_value"), 280, "w"),
         ]
         self.dataset_props_rows = self._build_plain_table(dataset_props_table_wrap, self.dataset_props_columns)
-        ds_split.add(datasets_row, weight=2)
-        ds_split.add(props_row, weight=1)
 
         log_container = ttk.Frame(main_split)
         log_container.columnconfigure(0, weight=1)
@@ -3638,24 +3640,11 @@ class App(tk.Tk):
                 pass
 
         self.after_idle(_enforce_dataset_tab_visibility)
-        self.after_idle(self._set_initial_equal_dataset_heights)
 
         self._app_log("normal", tr("log_app_started"))
         self.origin_dataset_var.trace_add("write", lambda *_a: self._update_level_button_state())
         self.dest_dataset_var.trace_add("write", lambda *_a: self._update_level_button_state())
         self._on_left_tab_changed()
-
-    def _set_initial_equal_dataset_heights(self) -> None:
-        """Inicializa alturas 1/3-1/3-1/3 para Origen/Destino/Propiedades."""
-        try:
-            self.update_idletasks()
-            split = getattr(self, "datasets_split", None)
-            if split is None:
-                return
-            total = max(1, int(split.winfo_height()))
-            split.sashpos(0, int((total * 2) / 3))
-        except Exception:
-            pass
 
     def _build_plain_table(
         self,
