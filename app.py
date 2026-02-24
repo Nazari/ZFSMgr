@@ -6979,7 +6979,7 @@ class App(tk.Tk):
         if self._reject_if_ssh_busy():
             return
         self.selected_imported_pool = (conn_id, pool_name)
-        self._render_all_imported_pools()
+        self._render_selected_pool_properties_from_cache()
         self._show_context_menu(self.imported_pool_context_menu, event)
 
     def _export_selected_imported_pool(self) -> None:
