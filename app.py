@@ -6608,15 +6608,10 @@ class App(tk.Tk):
                             local_state.zfs_version = format_openzfs_version(execu.get_zfs_version())
                             local_state.sudo_ok = execu.check_sudo()
                             local_state.imported = execu.list_imported_pools()
+                            # No precargar dispositivos por pool durante refresh:
+                            # en algunos destinos (especialmente PSRP/Windows) esta
+                            # consulta puede bloquearse y provocar desconexiones falsas.
                             local_state.imported_devices = {}
-                            for pool_row in local_state.imported:
-                                pool_name = pool_row.get("pool", "").strip()
-                                if not pool_name:
-                                    continue
-                                try:
-                                    local_state.imported_devices[pool_name] = execu.list_pool_devices(pool_name)
-                                except Exception:
-                                    local_state.imported_devices[pool_name] = []
                             local_state.importable = execu.list_importable_pools()
                         return local_state
 
