@@ -2907,6 +2907,10 @@ class App(tk.Tk):
         self.pool_status_cache: Dict[str, str] = {}
         self.pool_status_loading: set[str] = set()
         self.pool_status_lock = threading.Lock()
+        self.dataset_snapshot_max_cols = 5
+        self.dataset_snapshot_col_ids = [f"snap{i}" for i in range(1, self.dataset_snapshot_max_cols + 1)]
+        self.dataset_snapshot_more_col_id = "snap_more"
+        self.dataset_snapshots_by_side: Dict[str, Dict[str, List[str]]] = {"origin": {}, "dest": {}}
 
         self._apply_theme()
         self._build_ui()
@@ -3342,10 +3346,16 @@ class App(tk.Tk):
         self.origin_pool_combo.bind("<<ComboboxSelected>>", self._on_origin_pool_selected)
         self.datasets_tree_origin = ttk.Treeview(
             origin_tree_wrap,
-            show="tree",
+            columns=tuple(self.dataset_snapshot_col_ids + [self.dataset_snapshot_more_col_id]),
+            show="tree headings",
         )
         self.datasets_tree_origin.heading("#0", text=tr("datasets_dataset"))
-        self.datasets_tree_origin.column("#0", width=560, anchor="w")
+        self.datasets_tree_origin.column("#0", width=560, minwidth=260, anchor="w", stretch=True)
+        for idx, col_id in enumerate(self.dataset_snapshot_col_ids, start=1):
+            self.datasets_tree_origin.heading(col_id, text=f"S{idx}")
+            self.datasets_tree_origin.column(col_id, width=110, minwidth=90, anchor="w", stretch=False)
+        self.datasets_tree_origin.heading(self.dataset_snapshot_more_col_id, text="...")
+        self.datasets_tree_origin.column(self.dataset_snapshot_more_col_id, width=45, minwidth=40, anchor="center", stretch=False)
         self.datasets_tree_origin.grid(row=1, column=0, columnspan=2, sticky="nsew")
         ds_oy = ttk.Scrollbar(origin_tree_wrap, orient="vertical", command=self.datasets_tree_origin.yview)
         ds_oy.grid(row=1, column=2, sticky="ns")
@@ -3377,6 +3387,7 @@ class App(tk.Tk):
         ds_oy.grid_remove()
         ds_ox.grid_remove()
         self.datasets_tree_origin.bind("<<TreeviewSelect>>", self._on_origin_tree_selected)
+        self.datasets_tree_origin.bind("<ButtonRelease-1>", lambda e: self._on_dataset_tree_click("origin", e), add="+")
         self.datasets_tree_origin.bind("<Button-3>", lambda e: self._on_dataset_tree_context("origin", e))
         self.datasets_tree_origin.bind("<Button-2>", lambda e: self._on_dataset_tree_context("origin", e))
         self.datasets_tree_origin.bind("<Control-Button-1>", lambda e: self._on_dataset_tree_context("origin", e))
@@ -3391,10 +3402,16 @@ class App(tk.Tk):
         self.dest_pool_combo.bind("<<ComboboxSelected>>", self._on_dest_pool_selected)
         self.datasets_tree_dest = ttk.Treeview(
             dest_tree_wrap,
-            show="tree",
+            columns=tuple(self.dataset_snapshot_col_ids + [self.dataset_snapshot_more_col_id]),
+            show="tree headings",
         )
         self.datasets_tree_dest.heading("#0", text=tr("datasets_dataset"))
-        self.datasets_tree_dest.column("#0", width=560, anchor="w")
+        self.datasets_tree_dest.column("#0", width=560, minwidth=260, anchor="w", stretch=True)
+        for idx, col_id in enumerate(self.dataset_snapshot_col_ids, start=1):
+            self.datasets_tree_dest.heading(col_id, text=f"S{idx}")
+            self.datasets_tree_dest.column(col_id, width=110, minwidth=90, anchor="w", stretch=False)
+        self.datasets_tree_dest.heading(self.dataset_snapshot_more_col_id, text="...")
+        self.datasets_tree_dest.column(self.dataset_snapshot_more_col_id, width=45, minwidth=40, anchor="center", stretch=False)
         self.datasets_tree_dest.grid(row=1, column=0, columnspan=2, sticky="nsew")
         ds_dy = ttk.Scrollbar(dest_tree_wrap, orient="vertical", command=self.datasets_tree_dest.yview)
         ds_dy.grid(row=1, column=2, sticky="ns")
@@ -3426,6 +3443,7 @@ class App(tk.Tk):
         ds_dy.grid_remove()
         ds_dx.grid_remove()
         self.datasets_tree_dest.bind("<<TreeviewSelect>>", self._on_dest_tree_selected)
+        self.datasets_tree_dest.bind("<ButtonRelease-1>", lambda e: self._on_dataset_tree_click("dest", e), add="+")
         self.datasets_tree_dest.bind("<Button-3>", lambda e: self._on_dataset_tree_context("dest", e))
         self.datasets_tree_dest.bind("<Button-2>", lambda e: self._on_dataset_tree_context("dest", e))
         self.datasets_tree_dest.bind("<Control-Button-1>", lambda e: self._on_dataset_tree_context("dest", e))
@@ -6016,38 +6034,72 @@ class App(tk.Tk):
     def _on_origin_tree_selected(self, _event: Any = None) -> None:
         if self._reject_if_ssh_busy():
             return
-        self.last_selected_dataset_side = "origin"
         selected = self.datasets_tree_origin.selection()
         if not selected:
-            self.origin_dataset_var.set("")
-            self._render_dataset_properties("origin", None)
+            self._set_dataset_selection("origin", "", None)
             return
         iid = str(selected[0]).strip()
-        if not iid:
-            self.origin_dataset_var.set("")
-            self._render_dataset_properties("origin", None)
-            return
-        self.origin_dataset_var.set(iid)
-        self._render_dataset_properties("origin", self._find_selected_dataset_row("origin", iid))
-        self._update_level_button_state()
+        self._set_dataset_selection("origin", iid, None)
 
     def _on_dest_tree_selected(self, _event: Any = None) -> None:
         if self._reject_if_ssh_busy():
             return
-        self.last_selected_dataset_side = "dest"
         selected = self.datasets_tree_dest.selection()
         if not selected:
-            self.dest_dataset_var.set("")
-            self._render_dataset_properties("dest", None)
+            self._set_dataset_selection("dest", "", None)
             return
         iid = str(selected[0]).strip()
-        if not iid:
-            self.dest_dataset_var.set("")
-            self._render_dataset_properties("dest", None)
-            return
-        self.dest_dataset_var.set(iid)
-        self._render_dataset_properties("dest", self._find_selected_dataset_row("dest", iid))
+        self._set_dataset_selection("dest", iid, None)
+
+    def _set_dataset_selection(self, side: str, dataset_iid: str, snapshot_name: Optional[str]) -> None:
+        dataset_iid = (dataset_iid or "").strip()
+        selected_name = f"{dataset_iid}@{snapshot_name}" if dataset_iid and snapshot_name else dataset_iid
+        self.last_selected_dataset_side = side
+        if side == "origin":
+            self.origin_dataset_var.set(selected_name)
+        else:
+            self.dest_dataset_var.set(selected_name)
+        row = self._find_selected_dataset_row(side, selected_name) if selected_name else None
+        self._render_dataset_properties(side, row)
         self._update_level_button_state()
+
+    def _on_dataset_tree_click(self, side: str, event: Any) -> None:
+        if self._reject_if_ssh_busy():
+            return
+        tree = self.datasets_tree_origin if side == "origin" else self.datasets_tree_dest
+        row_iid = str(tree.identify_row(event.y) or "").strip()
+        if not row_iid:
+            return
+        col_token = str(tree.identify_column(event.x) or "")
+        if not col_token.startswith("#"):
+            self._set_dataset_selection(side, row_iid, None)
+            return
+        try:
+            col_index = int(col_token[1:])
+        except ValueError:
+            self._set_dataset_selection(side, row_iid, None)
+            return
+        snapshots = self.dataset_snapshots_by_side.get(side, {}).get(row_iid, [])
+        if col_index == 0:
+            self._set_dataset_selection(side, row_iid, None)
+            return
+        if 1 <= col_index <= self.dataset_snapshot_max_cols:
+            snap_idx = col_index - 1
+            if snap_idx < len(snapshots):
+                self._set_dataset_selection(side, row_iid, snapshots[snap_idx])
+            else:
+                self._set_dataset_selection(side, row_iid, None)
+            return
+        if col_index == self.dataset_snapshot_max_cols + 1 and len(snapshots) > self.dataset_snapshot_max_cols:
+            menu = tk.Menu(self, tearoff=0)
+            for snap in snapshots[self.dataset_snapshot_max_cols:]:
+                menu.add_command(
+                    label=f"@{snap}",
+                    command=(lambda s=snap, d=row_iid, sd=side: self._set_dataset_selection(sd, d, s)),
+                )
+            self._show_context_menu(menu, event)
+            return
+        self._set_dataset_selection(side, row_iid, None)
 
     def _on_dataset_tree_context(self, side: str, event: Any) -> str:
         if self._reject_if_ssh_busy():
@@ -6093,8 +6145,8 @@ class App(tk.Tk):
         self._refresh_dataset_pool_options_global()
         if not self.dataset_pool_options:
             self._app_log("info", tr("log_no_pools_for_datasets"))
-            self._render_datasets_tree(self.datasets_tree_origin, [], None)
-            self._render_datasets_tree(self.datasets_tree_dest, [], None)
+            self._render_datasets_tree("origin", self.datasets_tree_origin, [], None)
+            self._render_datasets_tree("dest", self.datasets_tree_dest, [], None)
             self._render_dataset_properties("origin", None)
             self._render_dataset_properties("dest", None)
             self._update_level_button_state()
@@ -6148,10 +6200,10 @@ class App(tk.Tk):
             datasets = self.datasets_cache[cache_key]
             self._app_log("debug", trf("log_datasets_from_cache", side=side, selection=selection, count=len(datasets)))
             if side == "origin":
-                self._render_datasets_tree(self.datasets_tree_origin, datasets, pool)
+                self._render_datasets_tree("origin", self.datasets_tree_origin, datasets, pool)
                 self._normalize_selected_dataset_var("origin", datasets)
             else:
-                self._render_datasets_tree(self.datasets_tree_dest, datasets, pool)
+                self._render_datasets_tree("dest", self.datasets_tree_dest, datasets, pool)
                 self._normalize_selected_dataset_var("dest", datasets)
             return
         self.status_var.set(trf("status_loading_datasets", pool=pool, name=profile.name))
@@ -6168,10 +6220,10 @@ class App(tk.Tk):
                 self.datasets_cache[cache_key] = datasets
                 self._app_log("debug", trf("log_datasets_loaded_side", side=side, name=profile.name, pool=pool, count=len(datasets)))
                 if side == "origin":
-                    self.after(0, lambda p=pool: self._render_datasets_tree(self.datasets_tree_origin, datasets, p))
+                    self.after(0, lambda p=pool: self._render_datasets_tree("origin", self.datasets_tree_origin, datasets, p))
                     self.after(0, lambda: self._normalize_selected_dataset_var("origin", datasets))
                 else:
-                    self.after(0, lambda p=pool: self._render_datasets_tree(self.datasets_tree_dest, datasets, p))
+                    self.after(0, lambda p=pool: self._render_datasets_tree("dest", self.datasets_tree_dest, datasets, p))
                     self.after(0, lambda: self._normalize_selected_dataset_var("dest", datasets))
                 self.after(0, lambda: self.status_var.set(trf("status_datasets_loaded", name=profile.name, pool=pool)))
             except Exception as exc:
@@ -6285,10 +6337,11 @@ class App(tk.Tk):
         self._update_transfer_selection_labels(src, dst)
         origin_sel = self.datasets_tree_origin.selection()
         dest_sel = self.datasets_tree_dest.selection()
-        origin_selected_ok = bool(origin_sel and str(origin_sel[0]).strip() == src and "@" not in src)
+        src_dataset_only = src.split("@", 1)[0] if "@" in src else src
+        origin_selected_ok = bool(origin_sel and str(origin_sel[0]).strip() == src_dataset_only and "@" not in src)
         dest_selected_ok = bool(dest_sel and str(dest_sel[0]).strip() == dst and "@" not in dst)
         enabled = bool((not self.level_running) and (self.ssh_busy_count == 0) and origin_selected_ok and dest_selected_ok)
-        origin_snapshot_ok = bool(origin_sel and str(origin_sel[0]).strip() == src and "@" in src)
+        origin_snapshot_ok = bool(origin_sel and str(origin_sel[0]).strip() == src_dataset_only and "@" in src)
         copy_enabled = bool((not self.level_running) and (self.ssh_busy_count == 0) and origin_snapshot_ok and dest_selected_ok)
         has_dataset_target = self._get_dataset_for_create() is not None
         has_delete_target = self._get_target_for_delete() is not None
@@ -6343,13 +6396,20 @@ class App(tk.Tk):
         self.transfer_origin_target_var.set(f"{tr('datasets_origin')}: {src_label}")
         self.transfer_dest_target_var.set(f"{tr('datasets_dest')}: {dst_label}")
 
-    def _render_datasets_tree(self, tree: ttk.Treeview, datasets: List[Dict[str, str]], root_dataset: Optional[str]) -> None:
+    def _render_datasets_tree(
+        self,
+        side: str,
+        tree: ttk.Treeview,
+        datasets: List[Dict[str, str]],
+        root_dataset: Optional[str],
+    ) -> None:
         for iid in tree.get_children():
             tree.delete(iid)
 
+        self.dataset_snapshots_by_side[side] = {}
         inserted: set[str] = set()
         dataset_names: List[str] = []
-        snapshots: List[Tuple[str, str]] = []
+        snapshots: Dict[str, List[Tuple[str, str]]] = {}
         root = (root_dataset or "").strip()
 
         def _to_relative(full_name: str) -> str:
@@ -6369,10 +6429,13 @@ class App(tk.Tk):
                 continue
             if "@" in full:
                 ds, snap = full.split("@", 1)
-                rel_ds = _to_relative(ds)
-                snapshots.append((ds, rel_ds, snap))
+                rel_ds = _to_relative(ds).strip()
+                if not rel_ds:
+                    continue
+                creation = str(item.get("creation", "") or "").strip()
+                snapshots.setdefault(ds, []).append((snap, creation))
             else:
-                if _to_relative(full):
+                if _to_relative(full).strip():
                     dataset_names.append(full)
 
         def _ensure_dataset_path(dataset_full: str) -> str:
@@ -6389,35 +6452,45 @@ class App(tk.Tk):
                 else:
                     iid = rel_accum
                 if iid not in inserted:
-                    tree.insert(parent_iid, "end", iid=iid, text=part, values=(), open=False)
+                    tree.insert(
+                        parent_iid,
+                        "end",
+                        iid=iid,
+                        text=part,
+                        values=tuple("" for _ in (self.dataset_snapshot_col_ids + [self.dataset_snapshot_more_col_id])),
+                        open=False,
+                    )
                     inserted.add(iid)
                 parent_iid = iid
             return parent_iid
 
-        # Primero inserta jerarquia de datasets.
+        # Inserta jerarquia de datasets sin el nodo raiz (pool).
         for dataset_full in dataset_names:
             _ensure_dataset_path(dataset_full)
 
-        # Luego snapshots, colocandolos al inicio de su dataset padre
-        # para que aparezcan antes que subdatasets.
-        for dataset_full, _rel_dataset, snap in sorted(snapshots, key=lambda x: (x[0], x[2])):
-            parent = _ensure_dataset_path(dataset_full)
-            snapshot_iid = f"{dataset_full}@{snap}"
-            if snapshot_iid in inserted:
-                continue
-            children = list(tree.get_children(parent or ""))
-            insert_index = 0
-            while insert_index < len(children) and "@" in str(children[insert_index]):
-                insert_index += 1
-            tree.insert(
-                parent or "",
-                insert_index,
-                iid=snapshot_iid,
-                text=f"@{snap}",
-                values=(),
-                open=False,
-            )
-            inserted.add(snapshot_iid)
+        def _snap_sort_key(entry: Tuple[str, str]) -> Tuple[int, str]:
+            snap_name, creation = entry
+            try:
+                ts = int(creation)
+            except Exception:
+                ts = -1
+            return (ts, snap_name)
+
+        # Renderiza snapshots como columnas por dataset.
+        for dataset_full in dataset_names:
+            snaps = snapshots.get(dataset_full, [])
+            snaps_sorted = [snap for snap, _creation in sorted(snaps, key=_snap_sort_key, reverse=True)]
+            self.dataset_snapshots_by_side[side][dataset_full] = snaps_sorted
+            visible = snaps_sorted[: self.dataset_snapshot_max_cols]
+            values: List[str] = [f"@{snap}" for snap in visible]
+            while len(values) < self.dataset_snapshot_max_cols:
+                values.append("")
+            values.append("..." if len(snaps_sorted) > self.dataset_snapshot_max_cols else "")
+            if dataset_full in inserted:
+                try:
+                    tree.item(dataset_full, values=tuple(values))
+                except Exception:
+                    pass
 
     def _render_connection_state(self, profile: ConnectionProfile) -> None:
         state = self.states.get(profile.id, ConnectionState(message=tr("status_no_data")))
