@@ -5439,7 +5439,7 @@ class App(tk.Tk):
         if not mountpoint or mountpoint.lower() == "none":
             self._app_log("normal", trf("log_assemble_invalid_mountpoint", dataset=dataset_name, name=profile.name))
             return
-        if profile.conn_type not in {"LOCAL", "SSH"}:
+        if profile.conn_type not in {"LOCAL", "SSH", "PSRP"}:
             self._app_log("normal", trf("log_assemble_transport_unsupported", ctype=profile.conn_type))
             return
 
@@ -5463,8 +5463,96 @@ class App(tk.Tk):
             ssh_parts.append(shlex.quote(remote))
             return " ".join(ssh_parts)
 
+        def _ps_quote(value: str) -> str:
+            return "'" + (value or "").replace("'", "''") + "'"
+
+        def _build_psrp_assemble_script(dataset: str, mp_hint: str) -> str:
+            ds_q = _ps_quote(dataset)
+            mp_q = _ps_quote(mp_hint)
+            return (
+                "$ErrorActionPreference='Stop'; "
+                f"$dataset={ds_q}; $mpHint={mp_q}; "
+                "$tmpSuffix = ($dataset -replace '[^A-Za-z0-9_\\-]', '_'); "
+                "$tmpRoot = Join-Path $env:TEMP ('zfsmgr-assemble-' + $tmpSuffix); "
+                "New-Item -ItemType Directory -Path $tmpRoot -Force | Out-Null; "
+                "try { $origMp = (zfs get -H -o value mountpoint -- $dataset).Trim() } catch { $origMp = '' }; "
+                "if ([string]::IsNullOrWhiteSpace($origMp) -or $origMp -eq 'none') { $origMp = $mpHint }; "
+                "if ([string]::IsNullOrWhiteSpace($origMp) -or $origMp -eq 'none') { throw \"[ASSEMBLE][ERROR] mountpoint invalid for $dataset\" }; "
+                "$activeMp=''; "
+                "try { "
+                "  $mountedRows = zfs mount; "
+                "  foreach ($line in $mountedRows) { "
+                "    $parts = ($line -split '\\s+'); "
+                "    if ($parts.Length -ge 2 -and $parts[0] -eq $dataset) { $activeMp = $parts[1]; break } "
+                "  } "
+                "} catch { $activeMp='' }; "
+                "$tempMounted=$false; "
+                "$mp = if ($activeMp -and (Test-Path -LiteralPath $activeMp)) { $activeMp } else { $origMp }; "
+                "if (-not (Test-Path -LiteralPath $mp)) { "
+                "  $tmpMp = Join-Path $tmpRoot '__dataset_root'; "
+                "  New-Item -ItemType Directory -Path $tmpMp -Force | Out-Null; "
+                "  try { zfs unmount -- $dataset *> $null } catch {}; "
+                "  zfs set (\"mountpoint=\" + $tmpMp) -- $dataset | Out-Null; "
+                "  zfs mount -- $dataset | Out-Null; "
+                "  $mp = $tmpMp; "
+                "  $tempMounted = $true; "
+                "} "
+                "Write-Output (\"[ASSEMBLE] dataset={0} original_mp={1} active_mp={2}\" -f $dataset, $origMp, $mp); "
+                "$children = @(zfs list -H -o name -t filesystem,volume -r -- $dataset | Where-Object { $_ -like ($dataset + '/*') }); "
+                "if ($children.Count -eq 0) { Write-Output (\"[ASSEMBLE] no child datasets found in {0}\" -f $dataset); return }; "
+                "$children = $children | Sort-Object { ($_ -split '/').Count } -Descending; "
+                "foreach ($child in $children) { "
+                "  $rel = $child.Substring($dataset.Length + 1); "
+                "  $dest = Join-Path $mp $rel; "
+                "  New-Item -ItemType Directory -Path $dest -Force | Out-Null; "
+                "  $safeRel = ($rel -replace '[\\\\/:*?\"\"<>|]', '_'); "
+                "  $childTmp = Join-Path $tmpRoot $safeRel; "
+                "  $suffix=1; "
+                "  while (Test-Path -LiteralPath $childTmp) { $childTmp = Join-Path $tmpRoot ($safeRel + '-' + $suffix); $suffix++ }; "
+                "  New-Item -ItemType Directory -Path $childTmp -Force | Out-Null; "
+                "  $childMpOrig=''; "
+                "  try { $childMpOrig = (zfs get -H -o value mountpoint -- $child).Trim() } catch { $childMpOrig='' }; "
+                "  try { zfs unmount -- $child *> $null } catch {}; "
+                "  zfs set (\"mountpoint=\" + $childTmp) -- $child | Out-Null; "
+                "  zfs mount -- $child | Out-Null; "
+                "  $copied = $false; "
+                "  if (Get-Command robocopy -ErrorAction SilentlyContinue) { "
+                "    & robocopy $childTmp $dest /E /COPY:DATS /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null; "
+                "    if ($LASTEXITCODE -le 7) { $copied = $true } "
+                "  } "
+                "  if (-not $copied) { "
+                "    if (Test-Path -LiteralPath $childTmp) { "
+                "      Get-ChildItem -LiteralPath $childTmp -Force -ErrorAction SilentlyContinue | "
+                "        ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $dest -Recurse -Force -ErrorAction Stop } "
+                "    } "
+                "  } "
+                "  try { zfs unmount -- $child *> $null } catch {}; "
+                "  if (-not [string]::IsNullOrWhiteSpace($childMpOrig) -and $childMpOrig -ne 'none') { "
+                "    try { zfs set (\"mountpoint=\" + $childMpOrig) -- $child | Out-Null } catch {} "
+                "  } "
+                "  try { Remove-Item -LiteralPath $childTmp -Force -Recurse -ErrorAction SilentlyContinue } catch {}; "
+                "  zfs destroy -r -- $child | Out-Null; "
+                "  Write-Output (\"[ASSEMBLE] {0} -> {1} and removed dataset\" -f $child, $dest); "
+                "} "
+                "if ($tempMounted) { "
+                "  try { zfs unmount -- $dataset *> $null } catch {}; "
+                "  try { zfs set (\"mountpoint=\" + $origMp) -- $dataset | Out-Null } catch {}; "
+                "} "
+            )
+
         dataset_q = shlex.quote(dataset_name)
         mount_q = shlex.quote(mountpoint)
+        if profile.conn_type == "PSRP":
+            ps_cmd = _build_psrp_assemble_script(dataset_name, mountpoint)
+            self._app_log(
+                "normal",
+                trf("log_assemble_plan_generated", dataset=dataset_name, name=profile.name, selection=selection_label),
+            )
+            self._app_log("normal", tr("log_assemble_plan_header"))
+            self._app_log("normal", ps_cmd)
+            self._run_assemble_psrp_command(ps_cmd, profile, conn_id=conn_id)
+            return
+
         assemble_cmd = (
             "set -e; "
             f"DATASET={dataset_q}; MP_HINT={mount_q}; "
@@ -5584,6 +5672,43 @@ class App(tk.Tk):
         self._app_log("normal", tr("log_assemble_plan_header"))
         self._app_log("normal", wrapped_cmd)
         self._run_assemble_command(wrapped_cmd, conn_id=conn_id)
+
+    def _run_assemble_psrp_command(self, ps_script: str, profile: ConnectionProfile, conn_id: Optional[str] = None) -> None:
+        if self.level_running:
+            self._app_log("normal", tr("log_copy_already_running"))
+            return
+        self.level_running = True
+        ssh_busy(1)
+        self._update_level_button_state()
+        self._app_log("normal", tr("log_assemble_exec_start"))
+        self._app_log("info", tr("log_dataset_progress_tab"))
+        self._log_action_subcommands("Ensamblar", ps_script)
+        target = f"{profile.username + '@' if profile.username else ''}{profile.host}:{profile.port or (5986 if profile.use_ssl else 5985)}"
+        self._ssh_log(f"{target} $ powershell -NoProfile -NonInteractive -Command <assemble-script>")
+
+        def worker() -> None:
+            rc = 1
+            try:
+                execu = make_executor(profile)
+                if not isinstance(execu, PSRPExecutor):
+                    raise ExecutorError(trf("log_assemble_transport_unsupported", ctype=profile.conn_type))
+                out = execu._run_ps(ps_script, timeout_seconds=None)
+                if (out or "").strip():
+                    for line in out.splitlines():
+                        txt = (line or "").strip()
+                        if txt:
+                            self._ssh_log(txt)
+                rc = 0
+                self._app_log("normal", tr("log_assemble_exec_ok"))
+            except Exception as exc:
+                self._app_log("normal", trf("log_assemble_exec_runtime_error", error=exc))
+            finally:
+                ssh_busy(-1)
+                self.after(0, self._finish_level_command)
+                if conn_id and rc == 0:
+                    self.after(0, lambda cid=conn_id: self._update_caches_after_mutation([cid]))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _get_dataset_for_create(self) -> Optional[Tuple[str, str, str, str]]:
         # Devuelve (side, selection_label, dataset, conn_id)
