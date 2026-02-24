@@ -55,6 +55,7 @@ def _configure_tk_env_for_frozen_macos() -> None:
 _configure_tk_env_for_frozen_macos()
 
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
 
@@ -2912,6 +2913,10 @@ class App(tk.Tk):
         self.dataset_snapshot_more_col_id = "snap_more"
         self.dataset_snapshots_by_side: Dict[str, Dict[str, List[str]]] = {"origin": {}, "dest": {}}
         self.dataset_root_snapshots_by_side: Dict[str, Dict[str, List[str]]] = {"origin": {}, "dest": {}}
+        base_size = int(tkfont.nametofont("TkDefaultFont").actual("size") or 9)
+        self.snapshot_font_normal = ("TkDefaultFont", base_size)
+        self.snapshot_font_selected = ("TkDefaultFont", base_size + 2, "bold")
+        self._snapshot_tagged_row: Dict[str, str] = {"origin": "", "dest": ""}
         self._last_dataset_props_sig: str = ""
 
         self._apply_theme()
@@ -3409,6 +3414,7 @@ class App(tk.Tk):
                 padx=4,
                 pady=1,
                 cursor="hand2",
+                font=self.snapshot_font_normal,
             )
             lbl.grid(row=0, column=idx, sticky="ew", padx=(0, 2))
             lbl.bind("<Button-1>", lambda _e, s="origin", i=idx: self._on_root_snapshot_cell_click(s, i))
@@ -3425,6 +3431,7 @@ class App(tk.Tk):
             padx=4,
             pady=1,
             cursor="hand2",
+            font=self.snapshot_font_normal,
         )
         self.origin_root_snap_more.grid(row=0, column=self.dataset_snapshot_max_cols, sticky="ew")
         self.origin_root_snaps_wrap.grid_columnconfigure(self.dataset_snapshot_max_cols, weight=0)
@@ -3441,6 +3448,7 @@ class App(tk.Tk):
             self.datasets_tree_origin.column(col_id, width=110, minwidth=90, anchor="w", stretch=False)
         self.datasets_tree_origin.heading(self.dataset_snapshot_more_col_id, text="...")
         self.datasets_tree_origin.column(self.dataset_snapshot_more_col_id, width=45, minwidth=40, anchor="center", stretch=False)
+        self.datasets_tree_origin.tag_configure("snap_selected", font=self.snapshot_font_selected)
         self.datasets_tree_origin.grid(row=1, column=0, sticky="nsew")
         ds_oy = ttk.Scrollbar(origin_tree_wrap, orient="vertical", command=self.datasets_tree_origin.yview)
         ds_oy.grid(row=1, column=1, sticky="ns")
@@ -3501,6 +3509,7 @@ class App(tk.Tk):
                 padx=4,
                 pady=1,
                 cursor="hand2",
+                font=self.snapshot_font_normal,
             )
             lbl.grid(row=0, column=idx, sticky="ew", padx=(0, 2))
             lbl.bind("<Button-1>", lambda _e, s="dest", i=idx: self._on_root_snapshot_cell_click(s, i))
@@ -3517,6 +3526,7 @@ class App(tk.Tk):
             padx=4,
             pady=1,
             cursor="hand2",
+            font=self.snapshot_font_normal,
         )
         self.dest_root_snap_more.grid(row=0, column=self.dataset_snapshot_max_cols, sticky="ew")
         self.dest_root_snaps_wrap.grid_columnconfigure(self.dataset_snapshot_max_cols, weight=0)
@@ -3533,6 +3543,7 @@ class App(tk.Tk):
             self.datasets_tree_dest.column(col_id, width=110, minwidth=90, anchor="w", stretch=False)
         self.datasets_tree_dest.heading(self.dataset_snapshot_more_col_id, text="...")
         self.datasets_tree_dest.column(self.dataset_snapshot_more_col_id, width=45, minwidth=40, anchor="center", stretch=False)
+        self.datasets_tree_dest.tag_configure("snap_selected", font=self.snapshot_font_selected)
         self.datasets_tree_dest.grid(row=1, column=0, sticky="nsew")
         ds_dy = ttk.Scrollbar(dest_tree_wrap, orient="vertical", command=self.datasets_tree_dest.yview)
         ds_dy.grid(row=1, column=1, sticky="ns")
@@ -6229,6 +6240,7 @@ class App(tk.Tk):
         self.origin_dataset_var.set("")
         self._render_dataset_properties("origin", None)
         self._render_root_snapshot_cells("origin")
+        self._update_snapshot_highlight("origin")
         self._load_side_datasets("origin")
         self._update_level_button_state()
 
@@ -6238,6 +6250,7 @@ class App(tk.Tk):
         self.dest_dataset_var.set("")
         self._render_dataset_properties("dest", None)
         self._render_root_snapshot_cells("dest")
+        self._update_snapshot_highlight("dest")
         self._load_side_datasets("dest")
         self._update_level_button_state()
 
@@ -6255,16 +6268,16 @@ class App(tk.Tk):
         more_lbl = self.origin_root_snap_more if side == "origin" else self.dest_root_snap_more
         for idx, lbl in enumerate(labels):
             txt = f"@{snaps[idx]}" if idx < len(snaps) else ""
-            lbl.configure(text=txt)
+            lbl.configure(text=txt, font=self.snapshot_font_normal)
             if txt:
                 lbl.grid()
             else:
                 lbl.grid_remove()
         if len(snaps) > self.dataset_snapshot_max_cols:
-            more_lbl.configure(text="...")
+            more_lbl.configure(text="...", font=self.snapshot_font_normal)
             more_lbl.grid()
         else:
-            more_lbl.configure(text="")
+            more_lbl.configure(text="", font=self.snapshot_font_normal)
             more_lbl.grid_remove()
 
     def _on_root_snapshot_cell_click(self, side: str, snap_idx: int) -> None:
@@ -6334,7 +6347,53 @@ class App(tk.Tk):
             self.dest_dataset_var.set(selected_name)
         row = self._find_selected_dataset_row(side, selected_name) if selected_name else None
         self._render_dataset_properties(side, row)
+        self._update_snapshot_highlight(side)
         self._update_level_button_state()
+
+    def _update_snapshot_highlight(self, side: str) -> None:
+        selected = (self.origin_dataset_var.get().strip() if side == "origin" else self.dest_dataset_var.get().strip())
+        selected_ds = ""
+        selected_snap = ""
+        if "@" in selected:
+            selected_ds, selected_snap = selected.split("@", 1)
+
+        tree = self.datasets_tree_origin if side == "origin" else self.datasets_tree_dest
+        prev = self._snapshot_tagged_row.get(side, "")
+        if prev and tree.exists(prev):
+            try:
+                tags = [t for t in tree.item(prev, "tags") if t != "snap_selected"]
+                tree.item(prev, tags=tuple(tags))
+            except Exception:
+                pass
+        self._snapshot_tagged_row[side] = ""
+
+        if selected_snap and selected_ds and selected_ds != self._current_selected_pool_name(side) and tree.exists(selected_ds):
+            try:
+                tags = list(tree.item(selected_ds, "tags"))
+            except Exception:
+                tags = []
+            if "snap_selected" not in tags:
+                tags.append("snap_selected")
+            tree.item(selected_ds, tags=tuple(tags))
+            self._snapshot_tagged_row[side] = selected_ds
+
+        pool = self._current_selected_pool_name(side)
+        snaps = self.dataset_root_snapshots_by_side.get(side, {}).get(pool, []) if pool else []
+        labels = self.origin_root_snap_labels if side == "origin" else self.dest_root_snap_labels
+        more_lbl = self.origin_root_snap_more if side == "origin" else self.dest_root_snap_more
+        is_root_snapshot = bool(selected_snap and selected_ds and selected_ds == pool)
+        for idx, lbl in enumerate(labels):
+            snap_name = snaps[idx] if idx < len(snaps) else ""
+            if is_root_snapshot and selected_snap == snap_name and snap_name:
+                lbl.configure(font=self.snapshot_font_selected)
+            else:
+                lbl.configure(font=self.snapshot_font_normal)
+        if is_root_snapshot and selected_snap and selected_snap not in snaps[: self.dataset_snapshot_max_cols]:
+            more_lbl.configure(text=f"@{selected_snap}", font=self.snapshot_font_selected)
+            more_lbl.grid()
+        else:
+            more_lbl.configure(font=self.snapshot_font_normal)
+            self._render_root_snapshot_cells(side)
 
     def _on_dataset_tree_click(self, side: str, event: Any) -> None:
         if self._reject_if_ssh_busy():
@@ -6802,6 +6861,7 @@ class App(tk.Tk):
         if root:
             self.dataset_root_snapshots_by_side[side][root] = root_sorted
         self._render_root_snapshot_cells(side)
+        self._update_snapshot_highlight(side)
 
     def _render_connection_state(self, profile: ConnectionProfile, refresh_tables: bool = True) -> None:
         state = self.states.get(profile.id, ConnectionState(message=tr("status_no_data")))
