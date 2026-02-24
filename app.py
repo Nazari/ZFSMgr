@@ -5041,7 +5041,7 @@ class App(tk.Tk):
                     extra_cmds.append(f"{alt_send_side} | {progress_stage} | {recv_side}")
                 else:
                     extra_cmds.append(f"{alt_send_side} | {recv_side}")
-        self._run_level_command(cmd, fallback_cmds=extra_cmds)
+        self._run_level_command(cmd, fallback_cmds=extra_cmds, affected_conn_ids=[src_conn_id, dst_conn_id])
 
     def _copy_snapshot_to_dataset(self) -> None:
         if self._reject_if_ssh_busy():
@@ -5900,7 +5900,12 @@ class App(tk.Tk):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _run_level_command(self, cmd: str, fallback_cmds: Optional[List[str]] = None) -> None:
+    def _run_level_command(
+        self,
+        cmd: str,
+        fallback_cmds: Optional[List[str]] = None,
+        affected_conn_ids: Optional[List[str]] = None,
+    ) -> None:
         if self.level_running:
             self._app_log("normal", tr("log_level_already_running"))
             return
@@ -5917,6 +5922,7 @@ class App(tk.Tk):
             commands = [cmd] + list(fallback_cmds or [])
             last_rc = 0
             executed_any = False
+            cancelled = False
             try:
                 for idx, current_cmd in enumerate(commands):
                     if idx > 0:
@@ -5967,7 +5973,10 @@ class App(tk.Tk):
                 self._clear_active_dataset_process(proc)
                 ssh_busy(-1)
                 self.after(0, self._finish_level_command)
-                self.after(0, self.refresh_all_connections)
+                if executed_any and last_rc == 0 and not cancelled:
+                    conn_ids = [c for c in (affected_conn_ids or []) if c]
+                    if conn_ids:
+                        self.after(0, lambda ids=conn_ids: self._update_caches_after_mutation(ids))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -5993,6 +6002,7 @@ class App(tk.Tk):
             commands = [cmd] + list(fallback_cmds or [])
             last_rc = 0
             executed_any = False
+            cancelled = False
             try:
                 for idx, current_cmd in enumerate(commands):
                     if idx > 0:
@@ -6043,8 +6053,8 @@ class App(tk.Tk):
                 self._clear_active_dataset_process(proc)
                 ssh_busy(-1)
                 self.after(0, self._finish_level_command)
-                if dst_conn_id:
-                    self.after(0, lambda: self._refresh_connection_by_id(dst_conn_id))
+                if executed_any and last_rc == 0 and not cancelled and dst_conn_id:
+                    self.after(0, lambda cid=dst_conn_id: self._update_caches_after_mutation([cid]))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -6062,6 +6072,8 @@ class App(tk.Tk):
 
         def worker() -> None:
             proc: Optional[subprocess.Popen[str]] = None
+            rc = 1
+            cancelled = False
             try:
                 proc = subprocess.Popen(
                     cmd,
@@ -6098,26 +6110,8 @@ class App(tk.Tk):
                 self._clear_active_dataset_process(proc)
                 ssh_busy(-1)
                 self.after(0, self._finish_level_command)
-                if conn_id:
-                    self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{conn_id}:")}
-                    self.pool_properties_cache = {
-                        k: v for k, v in self.pool_properties_cache.items() if not k.startswith(f"{conn_id}:")
-                    }
-                    self.pool_props_loading_keys = {
-                        k for k in self.pool_props_loading_keys if not k.startswith(f"{conn_id}:")
-                    }
-                    with self.pool_status_lock:
-                        self.pool_status_cache = {
-                            k: v for k, v in self.pool_status_cache.items() if not k.startswith(f"{conn_id}:")
-                        }
-                        self.pool_status_loading = {
-                            k for k in self.pool_status_loading if not k.startswith(f"{conn_id}:")
-                        }
-                    profile = self.store.get(conn_id)
-                    if profile:
-                        self._app_log("info", trf("log_refresh_connection", name=profile.name))
-                    # Diferido minimo para evitar carrera con el desbloqueo de UI/SSH.
-                    self.after(100, lambda: self._refresh_connection_by_id(conn_id))
+                if conn_id and rc == 0 and not cancelled:
+                    self.after(0, lambda cid=conn_id: self._update_caches_after_mutation([cid]))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -6135,6 +6129,8 @@ class App(tk.Tk):
 
         def worker() -> None:
             proc: Optional[subprocess.Popen[str]] = None
+            rc = 1
+            cancelled = False
             try:
                 proc = subprocess.Popen(
                     cmd,
@@ -6171,25 +6167,8 @@ class App(tk.Tk):
                 self._clear_active_dataset_process(proc)
                 ssh_busy(-1)
                 self.after(0, self._finish_level_command)
-                if conn_id:
-                    self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{conn_id}:")}
-                    self.pool_properties_cache = {
-                        k: v for k, v in self.pool_properties_cache.items() if not k.startswith(f"{conn_id}:")
-                    }
-                    self.pool_props_loading_keys = {
-                        k for k in self.pool_props_loading_keys if not k.startswith(f"{conn_id}:")
-                    }
-                    with self.pool_status_lock:
-                        self.pool_status_cache = {
-                            k: v for k, v in self.pool_status_cache.items() if not k.startswith(f"{conn_id}:")
-                        }
-                        self.pool_status_loading = {
-                            k for k in self.pool_status_loading if not k.startswith(f"{conn_id}:")
-                        }
-                    profile = self.store.get(conn_id)
-                    if profile:
-                        self._app_log("info", trf("log_refresh_connection", name=profile.name))
-                    self.after(100, lambda: self._refresh_connection_by_id(conn_id))
+                if conn_id and rc == 0 and not cancelled:
+                    self.after(0, lambda cid=conn_id: self._update_caches_after_mutation([cid]))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -7332,7 +7311,6 @@ class App(tk.Tk):
                     )
                     if state.zfs_version:
                         self._app_log("debug", f"OpenZFS {profile.name}: {state.zfs_version}")
-                    self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{profile_id}:")}
                     # Mantener cache de propiedades/estado de pools entre refrescos
                     # para evitar re-ejecutar zpool get/status al hacer click en pools importados.
 
@@ -7370,6 +7348,23 @@ class App(tk.Tk):
         if current and str(current) == str(self.tab_datasets):
             self._load_datasets_for_active_connection()
 
+    def _update_caches_after_mutation(self, conn_ids: List[str]) -> None:
+        seen: set[str] = set()
+        for conn_id in conn_ids:
+            cid = (conn_id or "").strip()
+            if not cid or cid in seen:
+                continue
+            seen.add(cid)
+            self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{cid}:")}
+            self.pool_properties_cache = {
+                k: v for k, v in self.pool_properties_cache.items() if not k.startswith(f"{cid}:")
+            }
+            self.pool_props_loading_keys = {k for k in self.pool_props_loading_keys if not k.startswith(f"{cid}:")}
+            with self.pool_status_lock:
+                self.pool_status_cache = {k: v for k, v in self.pool_status_cache.items() if not k.startswith(f"{cid}:")}
+                self.pool_status_loading = {k for k in self.pool_status_loading if not k.startswith(f"{cid}:")}
+            self._refresh_connection_by_id(cid)
+
     def import_pool_by_name(self, pool_name: str, conn_id: Optional[str] = None) -> None:
         if self._reject_if_ssh_busy():
             return
@@ -7397,6 +7392,7 @@ class App(tk.Tk):
                 self._app_log("info", trf("log_import_done", name=profile.name, pool=pool_name))
                 self._app_log("debug", trf("log_import_output", name=profile.name, pool=pool_name, output=out.strip() or tr("label_no_output")))
                 self._ssh_log(f"[ACTION-END] {trf('log_import_done', name=profile.name, pool=pool_name)}")
+                self.after(0, lambda cid=profile.id: self._update_caches_after_mutation([cid]))
                 self.after(
                     0,
                     lambda: messagebox.showinfo(
@@ -7436,6 +7432,7 @@ class App(tk.Tk):
                 self._app_log("info", trf("log_export_done", name=profile.name, pool=pool_name))
                 self._app_log("debug", trf("log_export_output", name=profile.name, pool=pool_name, output=out.strip() or tr("label_no_output")))
                 self._ssh_log(f"[ACTION-END] {trf('log_export_done', name=profile.name, pool=pool_name)}")
+                self.after(0, lambda cid=profile.id: self._update_caches_after_mutation([cid]))
                 self.after(
                     0,
                     lambda: messagebox.showinfo(
