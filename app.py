@@ -2907,6 +2907,7 @@ class App(tk.Tk):
         self.pool_properties_cache: Dict[str, List[Dict[str, str]]] = {}
         self.pool_status_cache: Dict[str, str] = {}
         self.pool_status_loading: set[str] = set()
+        self.pool_props_loading_keys: set[str] = set()
         self.pool_status_lock = threading.Lock()
         self.dataset_snapshot_max_cols = 3
         self.dataset_snapshot_col_ids = [f"snap{i}" for i in range(1, self.dataset_snapshot_max_cols + 1)]
@@ -6102,6 +6103,9 @@ class App(tk.Tk):
                     self.pool_properties_cache = {
                         k: v for k, v in self.pool_properties_cache.items() if not k.startswith(f"{conn_id}:")
                     }
+                    self.pool_props_loading_keys = {
+                        k for k in self.pool_props_loading_keys if not k.startswith(f"{conn_id}:")
+                    }
                     with self.pool_status_lock:
                         self.pool_status_cache = {
                             k: v for k, v in self.pool_status_cache.items() if not k.startswith(f"{conn_id}:")
@@ -6171,6 +6175,9 @@ class App(tk.Tk):
                     self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{conn_id}:")}
                     self.pool_properties_cache = {
                         k: v for k, v in self.pool_properties_cache.items() if not k.startswith(f"{conn_id}:")
+                    }
+                    self.pool_props_loading_keys = {
+                        k for k in self.pool_props_loading_keys if not k.startswith(f"{conn_id}:")
                     }
                     with self.pool_status_lock:
                         self.pool_status_cache = {
@@ -7079,9 +7086,12 @@ class App(tk.Tk):
             self._render_pool_properties_rows(self.pool_properties_cache[props_cache_key])
             self._render_pool_status_text(self.pool_status_cache.get(status_cache_key, ""))
             return
+        if props_cache_key in self.pool_props_loading_keys:
+            return
         self.status_var.set(trf("status_loading_pool_props", pool=pool_name, name=profile.name))
         self._app_log("info", trf("log_loading_pool_props", pool=pool_name, name=profile.name))
         self.pool_props_loading_count += 1
+        self.pool_props_loading_keys.add(props_cache_key)
         self._refresh_busy_cursor()
 
         def worker() -> None:
@@ -7106,12 +7116,17 @@ class App(tk.Tk):
                 self._app_log("debug", trf("log_pool_props_loaded", pool=pool_name, name=profile.name, count=len(rows)))
             except Exception as exc:
                 self._app_log("normal", trf("log_pool_props_error", pool=pool_name, name=profile.name, error=exc))
+                # Cachea el error para evitar relanzar comandos al volver a seleccionar.
+                self.pool_properties_cache[props_cache_key] = []
+                with self.pool_status_lock:
+                    self.pool_status_cache[status_cache_key] = str(exc)
                 self.after(0, lambda: self.status_var.set(trf("status_pool_props_error", name=profile.name)))
                 self.after(0, lambda: self._render_pool_properties_rows([]))
                 self.after(0, lambda: self._render_pool_status_text(str(exc)))
             finally:
                 def _finish_pool_props_loading() -> None:
                     self.pool_props_loading_count = max(0, self.pool_props_loading_count - 1)
+                    self.pool_props_loading_keys.discard(props_cache_key)
                     self._refresh_busy_cursor()
                 self.after(0, _finish_pool_props_loading)
 
@@ -7303,6 +7318,9 @@ class App(tk.Tk):
                     self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{profile_id}:")}
                     self.pool_properties_cache = {
                         k: v for k, v in self.pool_properties_cache.items() if not k.startswith(f"{profile_id}:")
+                    }
+                    self.pool_props_loading_keys = {
+                        k for k in self.pool_props_loading_keys if not k.startswith(f"{profile_id}:")
                     }
                     with self.pool_status_lock:
                         self.pool_status_cache = {
