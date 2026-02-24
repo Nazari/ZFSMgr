@@ -3371,7 +3371,7 @@ class App(tk.Tk):
         datasets_main.grid(row=0, column=0, sticky="nsew")
         # Propiedades a ancho fijo (sin crecer al redimensionar horizontalmente).
         datasets_main.columnconfigure(0, weight=1)
-        datasets_main.columnconfigure(1, weight=0, minsize=288)
+        datasets_main.columnconfigure(1, weight=0, minsize=230)
         datasets_main.rowconfigure(0, weight=1)
 
         datasets_row = ttk.Frame(datasets_main)
