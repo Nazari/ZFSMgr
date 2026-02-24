@@ -5902,6 +5902,7 @@ class App(tk.Tk):
                 "$datasetDriveOrig=''; "
                 "try { $datasetDriveOrig = (zfs get -H -o value driveletter $dataset).Trim() } catch { $datasetDriveOrig='' }; "
                 "$datasetTempMp=''; "
+                "$datasetTempDrive=''; "
                 "$mp=''; "
                 "if (-not [string]::IsNullOrWhiteSpace($mpHint)) { "
                 "  if (Test-Path -LiteralPath $mpHint) { $mp = $mpHint } "
@@ -5925,7 +5926,23 @@ class App(tk.Tk):
                 "    $cand = $datasetDriveOrig; "
                 "    if ($cand.StartsWith('\\??\\')) { $cand = $cand.Substring(4) }; "
                 "    if ($cand -match '^[A-Za-z]:$') { $cand = ($cand + '\\') }; "
+                "    if (-not (Test-Path -LiteralPath $cand)) { "
+                "      try { zfs mount $dataset | Out-Null } catch {} "
+                "    } "
                 "    if (Test-Path -LiteralPath $cand) { $mp = $cand } "
+                "  } "
+                "} "
+                "if ([string]::IsNullOrWhiteSpace($mp) -or -not (Test-Path -LiteralPath $mp)) { "
+                "  $used = @{}; "
+                "  Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue | ForEach-Object { $used[$_.Name.ToUpper()] = $true }; "
+                "  $letters = @('Y','X','W','V','U','T','S','R','Q','P','O','N','M','L','K','J','I','H','G','F','E','D'); "
+                "  $free = $null; "
+                "  foreach ($l in $letters) { if (-not $used.ContainsKey($l)) { $free = $l; break } }; "
+                "  if ($free) { "
+                "    try { zfs set (\"driveletter=\" + $free) $dataset | Out-Null } catch {}; "
+                "    try { zfs mount $dataset | Out-Null } catch {}; "
+                "    $cand = ($free + ':\\'); "
+                "    if (Test-Path -LiteralPath $cand) { $mp = $cand; $datasetTempDrive = $free } "
                 "  } "
                 "} "
                 "if ([string]::IsNullOrWhiteSpace($mp) -or -not (Test-Path -LiteralPath $mp)) { "
@@ -5944,6 +5961,7 @@ class App(tk.Tk):
                 "Write-Output ('TMP_ROOT=' + $tmpRoot); "
                 "Write-Output ('DATASET_TEMP_MP=' + $datasetTempMp); "
                 "Write-Output ('DATASET_MP_ORIG=' + $datasetMpOrig); "
+                "Write-Output ('DATASET_TEMP_DRIVE=' + $datasetTempDrive); "
                 "Write-Output ('DATASET_DRIVE_ORIG=' + $datasetDriveOrig); "
             )
 
@@ -6034,21 +6052,29 @@ class App(tk.Tk):
             dataset_name: str,
             dataset_temp_mp: str,
             dataset_mp_orig: str,
+            dataset_temp_drive: str,
             dataset_drive_orig: str,
         ) -> str:
             ds_q = _ps_quote(dataset_name)
             dtmp_q = _ps_quote(dataset_temp_mp)
             dorig_q = _ps_quote(dataset_mp_orig)
+            dtd_q = _ps_quote(dataset_temp_drive)
             ddo_q = _ps_quote(dataset_drive_orig)
             return (
                 "$ErrorActionPreference='Stop'; "
-                f"$dataset={ds_q}; $datasetTempMp={dtmp_q}; $datasetMpOrig={dorig_q}; $datasetDriveOrig={ddo_q}; "
+                f"$dataset={ds_q}; $datasetTempMp={dtmp_q}; $datasetMpOrig={dorig_q}; $datasetTempDrive={dtd_q}; $datasetDriveOrig={ddo_q}; "
                 "if ($datasetTempMp) { "
                 "  try { zfs unmount $dataset | Out-Null } catch {}; "
                 "  if ($datasetMpOrig -and $datasetMpOrig -ne 'none') { "
                 "    try { zfs set (\"mountpoint=\" + $datasetMpOrig) $dataset | Out-Null } catch {} "
                 "  } else { "
                 "    try { zfs inherit mountpoint $dataset | Out-Null } catch {} "
+                "  } "
+                "}; "
+                "if ($datasetTempDrive) { "
+                "  try { zfs unmount $dataset | Out-Null } catch {}; "
+                "  if ($datasetDriveOrig -and $datasetDriveOrig -notmatch '^(off|none|-)$') { "
+                "    try { zfs set (\"driveletter=\" + $datasetDriveOrig) $dataset | Out-Null } catch {} "
                 "  } "
                 "}; "
             )
@@ -6088,6 +6114,7 @@ class App(tk.Tk):
                     tmp_root = prep_vals.get("TMP_ROOT", "")
                     dataset_temp_mp = prep_vals.get("DATASET_TEMP_MP", "")
                     dataset_mp_orig = prep_vals.get("DATASET_MP_ORIG", "")
+                    dataset_temp_drive = prep_vals.get("DATASET_TEMP_DRIVE", "")
                     dataset_drive_orig = prep_vals.get("DATASET_DRIVE_ORIG", "")
                     if not root_mp or not tmp_root:
                         raise ExecutorError("[ASSEMBLE][ERROR] root prepare failed")
@@ -6120,6 +6147,7 @@ class App(tk.Tk):
                         target_dataset,
                         dataset_temp_mp,
                         dataset_mp_orig,
+                        dataset_temp_drive,
                         dataset_drive_orig,
                     )
                     execu._run_ps(restore_script, timeout_seconds=None)
