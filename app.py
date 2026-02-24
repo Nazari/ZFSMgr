@@ -7059,7 +7059,7 @@ class App(tk.Tk):
         if self.selected_imported_pool == (conn_id, pool_name):
             return
         self.selected_imported_pool = (conn_id, pool_name)
-        self._render_all_imported_pools()
+        self._render_selected_pool_properties_from_cache()
 
     def _render_pool_properties_rows(self, rows: List[Dict[str, str]]) -> None:
         self._clear_plain_table(self.pool_props_rows)
