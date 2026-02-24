@@ -4011,12 +4011,10 @@ class App(tk.Tk):
             if st and st.zfs_version:
                 zfs_ver = st.zfs_version
             zfs_txt = zfs_ver if zfs_ver != "-" else tr("label_unknown")
-            self.conn_list.insert(
-                tk.END,
-                f"{mark} {c.name}\n[{c.os_type}/{method}] | OpenZFS: {zfs_txt}",
-            )
+            self.conn_list.insert(tk.END, f"{mark} {c.name}")
+            self.conn_list.insert(tk.END, f"   [{c.os_type}/{method}] | OpenZFS: {zfs_txt}")
             if c.id == selected_id:
-                selected_index = idx
+                selected_index = idx * 2
         try:
             self.conn_list.xview_moveto(0.0)
         except Exception:
@@ -4026,6 +4024,19 @@ class App(tk.Tk):
             self.conn_list.selection_set(selected_index)
             self.conn_list.activate(selected_index)
         self._sync_connection_log_tabs()
+
+    def _conn_profile_index_from_list_index(self, list_idx: int) -> Optional[int]:
+        if list_idx < 0:
+            return None
+        pidx = list_idx // 2
+        if 0 <= pidx < len(self.store.connections):
+            return pidx
+        return None
+
+    def _conn_list_primary_index(self, list_idx: int) -> int:
+        if list_idx < 0:
+            return -1
+        return (list_idx // 2) * 2
 
     def _sync_connection_log_tabs(self) -> None:
         wanted = {c.id: c.name for c in self.store.connections}
@@ -4596,8 +4607,9 @@ class App(tk.Tk):
         selected = self.conn_list.curselection()
         if selected:
             idx = selected[0]
-            if idx < len(self.store.connections):
-                profile = self.store.connections[idx]
+            pidx = self._conn_profile_index_from_list_index(idx)
+            if pidx is not None:
+                profile = self.store.connections[pidx]
                 self.selected_conn_id = profile.id
                 return profile
         if self.selected_conn_id:
@@ -4608,9 +4620,16 @@ class App(tk.Tk):
         profile = self._selected_profile()
         if not profile:
             return
+        selected = self.conn_list.curselection()
+        if selected:
+            primary = self._conn_list_primary_index(selected[0])
+            if primary >= 0 and primary != selected[0]:
+                self.conn_list.selection_clear(0, tk.END)
+                self.conn_list.selection_set(primary)
+                self.conn_list.activate(primary)
         self.selected_conn_id = profile.id
         self._app_log("info", trf("log_connection_selected", name=profile.name))
-        self._render_connection_state(profile)
+        self._render_connection_state(profile, refresh_tables=False)
 
     def on_double_click_connection(self, event: Any) -> None:
         if self._reject_if_ssh_busy():
@@ -4618,6 +4637,7 @@ class App(tk.Tk):
         idx = self.conn_list.nearest(event.y)
         if idx < 0:
             return
+        idx = self._conn_list_primary_index(idx)
         self.conn_list.selection_clear(0, tk.END)
         self.conn_list.selection_set(idx)
         self.conn_list.activate(idx)
@@ -4630,6 +4650,7 @@ class App(tk.Tk):
         idx = self.conn_list.nearest(event.y)
         if idx < 0 or idx >= self.conn_list.size():
             return "break"
+        idx = self._conn_list_primary_index(idx)
         bbox = self.conn_list.bbox(idx)
         if not bbox:
             return "break"
@@ -6733,7 +6754,7 @@ class App(tk.Tk):
             self.dataset_root_snapshots_by_side[side][root] = root_sorted
         self._render_root_snapshot_cells(side)
 
-    def _render_connection_state(self, profile: ConnectionProfile) -> None:
+    def _render_connection_state(self, profile: ConnectionProfile, refresh_tables: bool = True) -> None:
         state = self.states.get(profile.id, ConnectionState(message=tr("status_no_data")))
 
         self.status_var.set(trf("status_connection_fmt", name=profile.name, msg=state.message))
@@ -6748,9 +6769,9 @@ class App(tk.Tk):
                 admin_text = tr("priv_not_checked")
             self.priv_var.set(trf("priv_admin_fmt", name=profile.name, value=admin_text))
 
-        self._render_all_imported_pools()
-
-        self._render_all_importable_pools()
+        if refresh_tables:
+            self._render_all_imported_pools()
+            self._render_all_importable_pools()
         current = self.left_tabs.select()
         if current and str(current) == str(self.tab_datasets):
             self._load_datasets_for_active_connection()
