@@ -5899,7 +5899,10 @@ class App(tk.Tk):
                 "New-Item -ItemType Directory -Path $tmpRoot -Force | Out-Null; "
                 "$datasetMpOrig=''; "
                 "try { $datasetMpOrig = (zfs get -H -o value mountpoint $dataset).Trim() } catch { $datasetMpOrig='' }; "
+                "$datasetDriveOrig=''; "
+                "try { $datasetDriveOrig = (zfs get -H -o value driveletter $dataset).Trim() } catch { $datasetDriveOrig='' }; "
                 "$datasetTempMp=''; "
+                "$datasetTempDrive=''; "
                 "$mp=''; "
                 "if (-not [string]::IsNullOrWhiteSpace($mpHint)) { "
                 "  if (Test-Path -LiteralPath $mpHint) { $mp = $mpHint } "
@@ -5908,10 +5911,25 @@ class App(tk.Tk):
                 "  $tmpMp = Join-Path $tmpRoot '__dataset_root'; "
                 "  New-Item -ItemType Directory -Path $tmpMp -Force | Out-Null; "
                 "  try { zfs unmount $dataset *> $null } catch {}; "
-                "  zfs set (\"mountpoint=\" + $tmpMp) $dataset | Out-Null; "
-                "  zfs mount $dataset | Out-Null; "
-                "  $mp = $tmpMp; "
-                "  $datasetTempMp = $tmpMp; "
+                "  try { "
+                "    zfs set (\"mountpoint=\" + $tmpMp) $dataset | Out-Null; "
+                "    zfs mount $dataset | Out-Null; "
+                "    $mp = $tmpMp; "
+                "    $datasetTempMp = $tmpMp; "
+                "  } catch { "
+                "    $used = @{}; "
+                "    Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue | ForEach-Object { $used[$_.Name.ToUpper()] = $true }; "
+                "    $letters = @('Z','Y','X','W','V','U','T','S','R','Q','P','O','N','M','L','K','J','I','H','G','F','E','D'); "
+                "    $free = $null; "
+                "    foreach ($l in $letters) { if (-not $used.ContainsKey($l)) { $free = $l; break } }; "
+                "    if (-not $free) { throw }; "
+                "    zfs set (\"driveletter=\" + $free) $dataset | Out-Null; "
+                "    zfs mount $dataset | Out-Null; "
+                "    $cand = ($free + ':\\'); "
+                "    if (-not (Test-Path -LiteralPath $cand)) { throw }; "
+                "    $mp = $cand; "
+                "    $datasetTempDrive = $free; "
+                "  } "
                 "} "
                 "if ([string]::IsNullOrWhiteSpace($mp) -or -not (Test-Path -LiteralPath $mp)) { "
                 "  throw \"[ASSEMBLE][ERROR] cannot resolve dataset mount path for $dataset\" "
@@ -5920,6 +5938,8 @@ class App(tk.Tk):
                 "Write-Output ('TMP_ROOT=' + $tmpRoot); "
                 "Write-Output ('DATASET_TEMP_MP=' + $datasetTempMp); "
                 "Write-Output ('DATASET_MP_ORIG=' + $datasetMpOrig); "
+                "Write-Output ('DATASET_TEMP_DRIVE=' + $datasetTempDrive); "
+                "Write-Output ('DATASET_DRIVE_ORIG=' + $datasetDriveOrig); "
             )
 
         def _build_child_stage_script(dataset_name: str, child_name: str, root_mp: str, tmp_root: str) -> str:
@@ -5937,17 +5957,33 @@ class App(tk.Tk):
                 "New-Item -ItemType Directory -Path $stageTmp -Force | Out-Null; "
                 "$childTmp = Join-Path $tmpRoot ('child-' + $safeRel); "
                 "New-Item -ItemType Directory -Path $childTmp -Force | Out-Null; "
+                "$childSrc=''; "
                 "try { zfs unmount $child *> $null } catch {}; "
-                "zfs set (\"mountpoint=\" + $childTmp) $child | Out-Null; "
-                "zfs mount $child | Out-Null; "
-                "if (-not (Test-Path -LiteralPath $childTmp)) { throw \"[ASSEMBLE][ERROR] cannot access child mountpoint for $child\" }; "
+                "try { "
+                "  zfs set (\"mountpoint=\" + $childTmp) $child | Out-Null; "
+                "  zfs mount $child | Out-Null; "
+                "  if (Test-Path -LiteralPath $childTmp) { $childSrc = $childTmp } "
+                "} catch {} "
+                "if ([string]::IsNullOrWhiteSpace($childSrc)) { "
+                "  $used = @{}; "
+                "  Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue | ForEach-Object { $used[$_.Name.ToUpper()] = $true }; "
+                "  $letters = @('Z','Y','X','W','V','U','T','S','R','Q','P','O','N','M','L','K','J','I','H','G','F','E','D'); "
+                "  $free = $null; "
+                "  foreach ($l in $letters) { if (-not $used.ContainsKey($l)) { $free = $l; break } }; "
+                "  if (-not $free) { throw \"[ASSEMBLE][ERROR] cannot access child mountpoint for $child\" }; "
+                "  zfs set (\"driveletter=\" + $free) $child | Out-Null; "
+                "  zfs mount $child | Out-Null; "
+                "  $cand = ($free + ':\\'); "
+                "  if (-not (Test-Path -LiteralPath $cand)) { throw \"[ASSEMBLE][ERROR] cannot access child mountpoint for $child\" }; "
+                "  $childSrc = $cand; "
+                "} "
                 "$copiedStage = $false; "
                 "if (Get-Command robocopy -ErrorAction SilentlyContinue) { "
-                "  & robocopy $childTmp $stageTmp /E /COPY:DATS /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null; "
+                "  & robocopy $childSrc $stageTmp /E /COPY:DATS /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null; "
                 "  if ($LASTEXITCODE -le 7) { $copiedStage = $true } "
                 "} "
                 "if (-not $copiedStage) { "
-                "  Get-ChildItem -LiteralPath $childTmp -Force -ErrorAction SilentlyContinue | "
+                "  Get-ChildItem -LiteralPath $childSrc -Force -ErrorAction SilentlyContinue | "
                 "    ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $stageTmp -Recurse -Force -ErrorAction Stop } "
                 "} "
                 "try { zfs unmount $child *> $null } catch {}; "
@@ -5989,19 +6025,35 @@ class App(tk.Tk):
                 "Write-Output (\"[ASSEMBLE] {0} -> {1} and removed dataset\" -f $child, $dest); "
             )
 
-        def _build_root_restore_script(dataset_name: str, dataset_temp_mp: str, dataset_mp_orig: str) -> str:
+        def _build_root_restore_script(
+            dataset_name: str,
+            dataset_temp_mp: str,
+            dataset_mp_orig: str,
+            dataset_temp_drive: str,
+            dataset_drive_orig: str,
+        ) -> str:
             ds_q = _ps_quote(dataset_name)
             dtmp_q = _ps_quote(dataset_temp_mp)
             dorig_q = _ps_quote(dataset_mp_orig)
+            dtd_q = _ps_quote(dataset_temp_drive)
+            ddo_q = _ps_quote(dataset_drive_orig)
             return (
                 "$ErrorActionPreference='Stop'; "
-                f"$dataset={ds_q}; $datasetTempMp={dtmp_q}; $datasetMpOrig={dorig_q}; "
+                f"$dataset={ds_q}; $datasetTempMp={dtmp_q}; $datasetMpOrig={dorig_q}; $datasetTempDrive={dtd_q}; $datasetDriveOrig={ddo_q}; "
                 "if ($datasetTempMp) { "
                 "  try { zfs unmount $dataset | Out-Null } catch {}; "
                 "  if ($datasetMpOrig -and $datasetMpOrig -ne 'none') { "
                 "    try { zfs set (\"mountpoint=\" + $datasetMpOrig) $dataset | Out-Null } catch {} "
                 "  } else { "
                 "    try { zfs inherit mountpoint $dataset | Out-Null } catch {} "
+                "  } "
+                "}; "
+                "if ($datasetTempDrive) { "
+                "  try { zfs unmount $dataset | Out-Null } catch {}; "
+                "  if ($datasetDriveOrig -and $datasetDriveOrig -ne '-' -and $datasetDriveOrig -notmatch '^(off|none)$') { "
+                "    try { zfs set (\"driveletter=\" + $datasetDriveOrig) $dataset | Out-Null } catch {} "
+                "  } else { "
+                "    try { zfs inherit driveletter $dataset | Out-Null } catch {} "
                 "  } "
                 "}; "
             )
@@ -6041,6 +6093,8 @@ class App(tk.Tk):
                     tmp_root = prep_vals.get("TMP_ROOT", "")
                     dataset_temp_mp = prep_vals.get("DATASET_TEMP_MP", "")
                     dataset_mp_orig = prep_vals.get("DATASET_MP_ORIG", "")
+                    dataset_temp_drive = prep_vals.get("DATASET_TEMP_DRIVE", "")
+                    dataset_drive_orig = prep_vals.get("DATASET_DRIVE_ORIG", "")
                     if not root_mp or not tmp_root:
                         raise ExecutorError("[ASSEMBLE][ERROR] root prepare failed")
 
@@ -6068,7 +6122,13 @@ class App(tk.Tk):
                             if txt:
                                 self._ssh_log(txt)
 
-                    restore_script = _build_root_restore_script(target_dataset, dataset_temp_mp, dataset_mp_orig)
+                    restore_script = _build_root_restore_script(
+                        target_dataset,
+                        dataset_temp_mp,
+                        dataset_mp_orig,
+                        dataset_temp_drive,
+                        dataset_drive_orig,
+                    )
                     execu._run_ps(restore_script, timeout_seconds=None)
                     rc = 0 if not cancelled else 130
                 if cancelled:
