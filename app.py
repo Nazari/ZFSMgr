@@ -7316,19 +7316,8 @@ class App(tk.Tk):
                     if state.zfs_version:
                         self._app_log("debug", f"OpenZFS {profile.name}: {state.zfs_version}")
                     self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{profile_id}:")}
-                    self.pool_properties_cache = {
-                        k: v for k, v in self.pool_properties_cache.items() if not k.startswith(f"{profile_id}:")
-                    }
-                    self.pool_props_loading_keys = {
-                        k for k in self.pool_props_loading_keys if not k.startswith(f"{profile_id}:")
-                    }
-                    with self.pool_status_lock:
-                        self.pool_status_cache = {
-                            k: v for k, v in self.pool_status_cache.items() if not k.startswith(f"{profile_id}:")
-                        }
-                        self.pool_status_loading = {
-                            k for k in self.pool_status_loading if not k.startswith(f"{profile_id}:")
-                        }
+                    # Mantener cache de propiedades/estado de pools entre refrescos
+                    # para evitar re-ejecutar zpool get/status al hacer click en pools importados.
 
                     if not batch_mode:
                         self.after(0, self._load_connections_list)
