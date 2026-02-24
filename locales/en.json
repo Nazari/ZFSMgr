@@ -80,7 +80,7 @@
   "datasets_sync_title": "Available actions",
   "datasets_selected_target": "Selected: {dataset}",
   "datasets_box_edit": "Dataset management",
-  "datasets_box_transfer": "Transfer between source and destination",
+  "datasets_box_transfer": "Origen-->Destino",
   "datasets_box_breakdown": "Dataset breakdown",
   "datasets_sync_btn": "Synchronize",
   "datasets_breakdown_btn": "Break down",

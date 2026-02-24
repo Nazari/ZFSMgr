@@ -80,7 +80,7 @@
   "datasets_sync_title": "可用操作",
   "datasets_selected_target": "已选择：{dataset}",
   "datasets_box_edit": "数据集管理",
-  "datasets_box_transfer": "源与目标间传输",
+  "datasets_box_transfer": "Origen-->Destino",
   "datasets_box_breakdown": "数据集拆分",
   "datasets_sync_btn": "同步",
   "datasets_breakdown_btn": "拆分",

@@ -80,7 +80,7 @@
   "datasets_sync_title": "Acciones disponibles",
   "datasets_selected_target": "Seleccionado: {dataset}",
   "datasets_box_edit": "Gestion de dataset",
-  "datasets_box_transfer": "Transferencia entre origen y destino",
+  "datasets_box_transfer": "Origen-->Destino",
   "datasets_box_breakdown": "Desglosar dataset",
   "datasets_sync_btn": "Sincronizar",
   "datasets_breakdown_btn": "Desglosar",
