@@ -2919,6 +2919,7 @@ class App(tk.Tk):
         self._snapshot_cell_editor: Optional[ttk.Combobox] = None
         self._snapshot_cell_editor_side: str = ""
         self._snapshot_cell_editor_dataset: str = ""
+        self._snapshot_dropdown_menu: Optional[tk.Menu] = None
         base_size = int(tkfont.nametofont("TkDefaultFont").actual("size") or 9)
         self.snapshot_font_normal = ("TkDefaultFont", base_size)
         self._last_dataset_props_sig: str = ""
@@ -6397,6 +6398,12 @@ class App(tk.Tk):
         self._snapshot_cell_editor = None
         self._snapshot_cell_editor_side = ""
         self._snapshot_cell_editor_dataset = ""
+        if self._snapshot_dropdown_menu is not None:
+            try:
+                self._snapshot_dropdown_menu.unpost()
+            except Exception:
+                pass
+            self._snapshot_dropdown_menu = None
 
     def _open_snapshot_dropdown(self, side: str, tree: ttk.Treeview, dataset_iid: str) -> None:
         dataset_iid = (dataset_iid or "").strip()
@@ -6407,31 +6414,21 @@ class App(tk.Tk):
             return
         x, y, w, h = bbox
         snaps = self.dataset_snapshots_by_side.get(side, {}).get(dataset_iid, [])
-        values = [""] + [f"@{s}" for s in snaps]
-        current = self.dataset_selected_snapshot_by_side.get(side, {}).get(dataset_iid, "")
-        current_val = f"@{current}" if current else ""
         self._hide_snapshot_dropdown()
-        host = tree.master
-        editor = ttk.Combobox(host, state="readonly", values=values, width=max(8, (w // 8)))
-        editor.set(current_val if current_val in values else "")
-        # Superpone el editor en coordenadas del contenedor del tree.
-        rel_x = tree.winfo_x() + x
-        rel_y = tree.winfo_y() + y
-        editor.place(x=rel_x, y=rel_y, width=w, height=h)
-        self._snapshot_cell_editor = editor
-        self._snapshot_cell_editor_side = side
-        self._snapshot_cell_editor_dataset = dataset_iid
-
-        def _apply_selection(_event: Any = None) -> None:
-            val = (editor.get() or "").strip()
-            snap = val[1:] if val.startswith("@") else ""
-            self._set_dataset_selection(side, dataset_iid, snap or None)
-
-        editor.bind("<<ComboboxSelected>>", _apply_selection)
-        editor.bind("<Escape>", lambda _e: self._hide_snapshot_dropdown())
-        editor.focus_set()
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="(none)", command=lambda: self._set_dataset_selection(side, dataset_iid, None))
+        for snap in snaps:
+            menu.add_command(
+                label=f"@{snap}",
+                command=(lambda s=snap: self._set_dataset_selection(side, dataset_iid, s)),
+            )
+        self._snapshot_dropdown_menu = menu
         try:
-            editor.event_generate("<Down>")
+            self._dismiss_active_context_menu(unpost=True)
+            self._active_context_menu = menu
+            self._context_menu_unmap_bind_id = menu.bind("<Unmap>", self._on_context_menu_unmap, add="+")
+            menu.post(tree.winfo_rootx() + x, tree.winfo_rooty() + y + h)
+            self.after_idle(self._arm_context_menu_dismiss_bindings)
         except Exception:
             pass
 
