@@ -6620,12 +6620,17 @@ class App(tk.Tk):
                             local_state.importable = execu.list_importable_pools()
                         return local_state
 
-                    timeout_seconds = PSRP_TIMEOUT_SECONDS + 10 if profile.conn_type == "PSRP" else REFRESH_TIMEOUT_SECONDS
-                    state = run_with_timeout(
-                        refresh_profile,
-                        timeout_seconds,
-                        trf("error_timeout_refresh_connection", name=profile.name),
-                    )
+                    # En PSRP cada comando remoto ya tiene su propio timeout.
+                    # Evitar un timeout global corto de refresh que genera falsos ERROR
+                    # en conexiones lentas tras importar/exportar pools.
+                    if profile.conn_type == "PSRP":
+                        state = refresh_profile()
+                    else:
+                        state = run_with_timeout(
+                            refresh_profile,
+                            REFRESH_TIMEOUT_SECONDS,
+                            trf("error_timeout_refresh_connection", name=profile.name),
+                        )
                 except Exception as exc:
                     state.ok = False
                     state.message = str(exc)
