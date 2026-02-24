@@ -15,6 +15,7 @@ import base64
 import getpass
 import json
 import os
+import queue
 import re
 import shlex
 import shutil
@@ -676,21 +677,24 @@ def build_remote_zfs_cmd(os_type: str, binary: str, args: str) -> str:
 
 
 def run_with_timeout(fn: Callable[[], Any], timeout_seconds: int, error_message: str) -> Any:
-    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    future = pool.submit(fn)
+    result_q: queue.Queue[Tuple[bool, Any]] = queue.Queue(maxsize=1)
+
+    def _worker() -> None:
+        try:
+            result_q.put((True, fn()))
+        except Exception as exc:
+            result_q.put((False, exc))
+
+    # Daemon para no bloquear la salida del proceso si el worker queda colgado.
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
     try:
-        result = future.result(timeout=timeout_seconds)
-    except concurrent.futures.TimeoutError as exc:
-        future.cancel()
-        # No esperar al worker colgado (ej. socket/WSMan bloqueado).
-        pool.shutdown(wait=False, cancel_futures=True)
+        ok, payload = result_q.get(timeout=timeout_seconds)
+    except queue.Empty as exc:
         raise ExecutorError(f"{error_message} (timeout {timeout_seconds}s)") from exc
-    except Exception:
-        pool.shutdown(wait=False, cancel_futures=True)
-        raise
-    else:
-        pool.shutdown(wait=False, cancel_futures=True)
-        return result
+    if ok:
+        return payload
+    raise payload
 
 
 def parse_imported_pool_rows(text: str) -> List[Dict[str, str]]:
@@ -2773,6 +2777,8 @@ class App(tk.Tk):
         self._context_menu_global_bindings: List[Tuple[str, str]] = []
         self._context_menu_unmap_bind_id: Optional[str] = None
         self._persistent_log_lock = threading.Lock()
+        self._is_closing = False
+        self._app_log_level_cached = "normal"
         self._ssh_last_line_full: str = ""
         self._app_log_tipwindow: Optional[tk.Toplevel] = None
         self._app_log_tip_text: str = ""
@@ -2818,6 +2824,10 @@ class App(tk.Tk):
                 parent=self,
             )
             return
+        self._is_closing = True
+        global SSH_LOG_HOOK, SSH_BUSY_HOOK
+        SSH_LOG_HOOK = None
+        SSH_BUSY_HOOK = None
         self.destroy()
 
     def _apply_theme(self) -> None:
@@ -3499,7 +3509,7 @@ class App(tk.Tk):
             width=10,
         )
         self.app_log_level_combo.grid(row=0, column=1, sticky="w", padx=(6, 0))
-        self.app_log_level_combo.bind("<<ComboboxSelected>>", lambda _e: self._app_log("info", tr("log_level_updated")))
+        self.app_log_level_combo.bind("<<ComboboxSelected>>", self._on_log_level_changed)
         self.log_clear_btn = ttk.Button(log_controls, text=tr("log_clear"), command=self._clear_app_log)
         self.log_clear_btn.grid(row=0, column=2, sticky="w", padx=(8, 0))
         self.log_copy_btn = ttk.Button(log_controls, text=tr("log_copy"), command=self._copy_app_log)
@@ -3820,9 +3830,19 @@ class App(tk.Tk):
         self.update_idletasks()
         self._app_log("info", tr("log_copied"))
 
+    def _on_log_level_changed(self, _event: Any = None) -> None:
+        try:
+            level = (self.app_log_level_var.get() or "normal").lower()
+        except Exception:
+            level = "normal"
+        if level not in {"normal", "info", "debug"}:
+            level = "normal"
+        self._app_log_level_cached = level
+        self._app_log("info", tr("log_level_updated"))
+
     def _should_log(self, level: str) -> bool:
         order = {"normal": 0, "info": 1, "debug": 2}
-        current = order.get((self.app_log_level_var.get() or "normal").lower(), 0)
+        current = order.get((self._app_log_level_cached or "normal").lower(), 0)
         wanted = order.get(level.lower(), 0)
         return wanted <= current
 
@@ -3868,18 +3888,27 @@ class App(tk.Tk):
         if not self._should_log(level):
             return
         safe_message = self._mask_sensitive_text(message)
+        ts = self._log_timestamp()
+        one_line = " | ".join(part.strip() for part in (safe_message or "").splitlines() if part.strip())
+        if not one_line:
+            return
+        line = f"[{ts}] [{level.upper()}] {one_line}"
+        self._append_persistent_log(APP_LOG_FILE, line)
+
+        if self._is_closing:
+            return
+
         def _append() -> None:
-            ts = self._log_timestamp()
-            one_line = " | ".join(part.strip() for part in (safe_message or "").splitlines() if part.strip())
-            if not one_line:
+            if self._is_closing:
                 return
-            line = f"[{ts}] [{level.upper()}] {one_line}"
             self.app_log_text.configure(state="normal")
             self.app_log_text.insert("end", line + "\n")
             self.app_log_text.see("end")
             self.app_log_text.configure(state="disabled")
-            self._append_persistent_log(APP_LOG_FILE, line)
-        self.after(0, _append)
+        try:
+            self.after(0, _append)
+        except Exception:
+            pass
 
     def _on_app_log_hover(self, event: Any) -> None:
         try:
@@ -3959,20 +3988,29 @@ class App(tk.Tk):
 
     def _ssh_log(self, message: str) -> None:
         safe_message = self._mask_sensitive_text(message)
+        one_line = " | ".join(part.strip() for part in (safe_message or "").splitlines() if part.strip())
+        if not one_line:
+            return
+        ts = self._log_timestamp()
+        line = f"[{ts}] {one_line}"
+        self._append_persistent_log(SSH_EXEC_LOG_FILE, line)
+
+        if self._is_closing:
+            return
+
         def _append() -> None:
-            one_line = " | ".join(part.strip() for part in (safe_message or "").splitlines() if part.strip())
-            if not one_line:
+            if self._is_closing:
                 return
-            ts = self._log_timestamp()
-            line = f"[{ts}] {one_line}"
             self.ssh_log_text.configure(state="normal")
             self.ssh_log_text.insert("end", line + "\n")
             self.ssh_log_text.see("end")
             self.ssh_log_text.configure(state="disabled")
-            self._append_persistent_log(SSH_EXEC_LOG_FILE, line)
             self._ssh_last_line_full = line
             self._refresh_ssh_last_line_summary()
-        self.after(0, _append)
+        try:
+            self.after(0, _append)
+        except Exception:
+            pass
 
     def _on_ssh_log_hover(self, event: Any) -> None:
         try:
