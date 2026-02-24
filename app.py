@@ -3588,7 +3588,7 @@ class App(tk.Tk):
         dataset_props_table_wrap.rowconfigure(0, weight=1)
         dataset_props_table_wrap.grid_propagate(False)
         self.dataset_props_columns: List[Tuple[str, int, str]] = [
-            (tr("col_property"), 180, "w"),
+            (tr("col_property"), 108, "w"),
             (tr("col_value"), 280, "w"),
         ]
         self.dataset_props_rows = self._build_plain_table(
