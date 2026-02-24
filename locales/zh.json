@@ -141,7 +141,7 @@
   "priv_ok": "正常",
   "priv_no": "否",
   "priv_not_checked": "未检查",
-  "log_section": "应用日志",
+  "log_section": "Log combinado",
   "log_level": "级别：",
   "log_ssh_last_prefix": "SSH：",
   "cancel_operation_btn": "取消",

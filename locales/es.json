@@ -143,7 +143,7 @@
   "priv_ok": "OK",
   "priv_no": "NO",
   "priv_not_checked": "sin comprobar",
-  "log_section": "Log de la aplicacion",
+  "log_section": "Log combinado",
   "log_level": "Nivel:",
   "log_ssh_last_prefix": "SSH: ",
   "cancel_operation_btn": "Cancelar",
