@@ -3455,12 +3455,23 @@ class App(tk.Tk):
         dataset_props = ttk.LabelFrame(props_row, text=tr("dataset_properties"))
         dataset_props.grid(row=0, column=0, sticky="nsew")
         dataset_props.columnconfigure(0, weight=1)
-        dataset_props.rowconfigure(0, weight=1)
+        dataset_props.rowconfigure(1, weight=1)
+        self.dataset_props_selected_var = tk.StringVar(value=trf("datasets_selected_target", dataset=tr("label_none")))
+        ttk.Label(
+            dataset_props,
+            textvariable=self.dataset_props_selected_var,
+            anchor="w",
+            justify="left",
+        ).grid(row=0, column=0, sticky="ew", padx=(6, 6), pady=(4, 4))
+        dataset_props_table_wrap = ttk.Frame(dataset_props)
+        dataset_props_table_wrap.grid(row=1, column=0, sticky="nsew")
+        dataset_props_table_wrap.columnconfigure(0, weight=1)
+        dataset_props_table_wrap.rowconfigure(0, weight=1)
         self.dataset_props_columns: List[Tuple[str, int, str]] = [
             (tr("col_property"), 180, "w"),
             (tr("col_value"), 280, "w"),
         ]
-        self.dataset_props_rows = self._build_plain_table(dataset_props, self.dataset_props_columns)
+        self.dataset_props_rows = self._build_plain_table(dataset_props_table_wrap, self.dataset_props_columns)
         ds_split.add(datasets_row, weight=3)
         ds_split.add(props_row, weight=1)
 
@@ -6261,7 +6272,11 @@ class App(tk.Tk):
         columns = self.dataset_props_columns
         self._clear_plain_table(rows_frame)
         if not row:
+            self.dataset_props_selected_var.set(trf("datasets_selected_target", dataset=tr("label_none")))
             return
+        self.dataset_props_selected_var.set(
+            trf("datasets_selected_target", dataset=str(row.get("name", "") or tr("label_none")))
+        )
         ordered = [
             (tr("datasets_dataset"), row.get("name", "")),
             ("mountpoint", row.get("mountpoint", "")),
