@@ -1368,9 +1368,10 @@ class PSRPExecutor(BaseExecutor):
 
     def list_imported_pools(self) -> List[Dict[str, str]]:
         script = (
-            "$rows = zpool list -H -p -o name,size,alloc,free,cap,dedupratio | ForEach-Object { $_ -split '\\s+' };"
+            "$rows = zpool list -H -p -o name,size,alloc,free,cap,dedupratio;"
             "$out = @();"
-            "foreach ($r in $rows) {"
+            "foreach ($line in $rows) {"
+            "  $r = ($line -split '\\s+');"
             "  if ($r.Length -lt 6) { continue }"
             "  $name = $r[0]; $size = $r[1]; $used = $r[2]; $free = $r[3]; $dedup = $r[5];"
             "  try { $cr = (zfs get -H -o value compressratio $name).Trim() } catch { $cr = '-' }"
