@@ -5888,13 +5888,12 @@ class App(tk.Tk):
                 "$children -join \"`n\""
             )
 
-        def _build_child_script(dataset_name: str, mountpoint_hint: str, child_name: str) -> str:
+        def _build_root_prepare_script(dataset_name: str, mountpoint_hint: str) -> str:
             ds_q = _ps_quote(dataset_name)
             mp_q = _ps_quote(mountpoint_hint)
-            child_q = _ps_quote(child_name)
             return (
                 "$ErrorActionPreference='Stop'; "
-                f"$dataset={ds_q}; $mpHint={mp_q}; $child={child_q}; "
+                f"$dataset={ds_q}; $mpHint={mp_q}; "
                 "$tmpSuffix = ($dataset -replace '[^A-Za-z0-9_\\-]', '_'); "
                 "$tmpRoot = Join-Path $env:TEMP ('zfsmgr-assemble-' + $tmpSuffix); "
                 "New-Item -ItemType Directory -Path $tmpRoot -Force | Out-Null; "
@@ -5915,16 +5914,26 @@ class App(tk.Tk):
                 "if (-not (Test-Path -LiteralPath $mp)) { "
                 "  throw \"[ASSEMBLE][ERROR] cannot resolve dataset mount path for $dataset\" "
                 "}; "
+                "Write-Output ('ROOT_MP=' + $mp); "
+                "Write-Output ('TMP_ROOT=' + $tmpRoot); "
+                "Write-Output ('DATASET_TEMP_MP=' + $datasetTempMp); "
+                "Write-Output ('DATASET_MP_ORIG=' + $datasetMpOrig); "
+            )
+
+        def _build_child_stage_script(dataset_name: str, child_name: str, root_mp: str, tmp_root: str) -> str:
+            ds_q = _ps_quote(dataset_name)
+            child_q = _ps_quote(child_name)
+            root_q = _ps_quote(root_mp)
+            tmp_q = _ps_quote(tmp_root)
+            return (
+                "$ErrorActionPreference='Stop'; "
+                f"$dataset={ds_q}; $child={child_q}; $rootMp={root_q}; $tmpRoot={tmp_q}; "
                 "$rel = $child.Substring($dataset.Length + 1); "
-                "$dest = Join-Path $mp $rel; "
+                "$dest = Join-Path $rootMp $rel; "
                 "$safeRel = ($rel -replace '[\\\\/:*?\"\"<>|]', '_'); "
                 "$stageTmp = Join-Path $tmpRoot ('stage-' + $safeRel); "
-                "$suffix=1; "
-                "while (Test-Path -LiteralPath $stageTmp) { $stageTmp = Join-Path $tmpRoot (('stage-' + $safeRel) + '-' + $suffix); $suffix++ }; "
                 "New-Item -ItemType Directory -Path $stageTmp -Force | Out-Null; "
                 "$childTmp = Join-Path $tmpRoot ('child-' + $safeRel); "
-                "$suffix2=1; "
-                "while (Test-Path -LiteralPath $childTmp) { $childTmp = Join-Path $tmpRoot (('child-' + $safeRel) + '-' + $suffix2); $suffix2++ }; "
                 "New-Item -ItemType Directory -Path $childTmp -Force | Out-Null; "
                 "try { zfs unmount $child *> $null } catch {}; "
                 "zfs set (\"mountpoint=\" + $childTmp) $child | Out-Null; "
@@ -5948,6 +5957,19 @@ class App(tk.Tk):
                 "  } "
                 "} "
                 "if (-not $destroyed) { throw \"[ASSEMBLE][ERROR] cannot destroy child dataset after retries: $child\" }; "
+                "Write-Output ('STAGE_TMP=' + $stageTmp); "
+                "Write-Output ('CHILD_TMP=' + $childTmp); "
+                "Write-Output ('DEST_PATH=' + $dest); "
+            )
+
+        def _build_child_finalize_script(stage_tmp: str, child_tmp: str, dest_path: str, child_name: str) -> str:
+            stage_q = _ps_quote(stage_tmp)
+            child_tmp_q = _ps_quote(child_tmp)
+            dest_q = _ps_quote(dest_path)
+            child_q = _ps_quote(child_name)
+            return (
+                "$ErrorActionPreference='Stop'; "
+                f"$stageTmp={stage_q}; $childTmp={child_tmp_q}; $dest={dest_q}; $child={child_q}; "
                 "New-Item -ItemType Directory -Path $dest -Force | Out-Null; "
                 "$copiedDest = $false; "
                 "if (Get-Command robocopy -ErrorAction SilentlyContinue) { "
@@ -5960,6 +5982,18 @@ class App(tk.Tk):
                     "      ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $dest -Recurse -Force -ErrorAction Stop } "
                 "  } "
                 "} "
+                "try { Remove-Item -LiteralPath $stageTmp -Force -Recurse -ErrorAction SilentlyContinue } catch {}; "
+                "try { Remove-Item -LiteralPath $childTmp -Force -Recurse -ErrorAction SilentlyContinue } catch {}; "
+                "Write-Output (\"[ASSEMBLE] {0} -> {1} and removed dataset\" -f $child, $dest); "
+            )
+
+        def _build_root_restore_script(dataset_name: str, dataset_temp_mp: str, dataset_mp_orig: str) -> str:
+            ds_q = _ps_quote(dataset_name)
+            dtmp_q = _ps_quote(dataset_temp_mp)
+            dorig_q = _ps_quote(dataset_mp_orig)
+            return (
+                "$ErrorActionPreference='Stop'; "
+                f"$dataset={ds_q}; $datasetTempMp={dtmp_q}; $datasetMpOrig={dorig_q}; "
                 "if ($datasetTempMp) { "
                 "  try { zfs unmount $dataset | Out-Null } catch {}; "
                 "  if ($datasetMpOrig -and $datasetMpOrig -ne 'none') { "
@@ -5968,8 +6002,6 @@ class App(tk.Tk):
                 "    try { zfs inherit mountpoint $dataset | Out-Null } catch {} "
                 "  } "
                 "}; "
-                "try { Remove-Item -LiteralPath $stageTmp -Force -Recurse -ErrorAction SilentlyContinue } catch {}; "
-                "Write-Output (\"[ASSEMBLE] {0} -> {1} and removed dataset\" -f $child, $dest); "
             )
 
         def worker() -> None:
@@ -5996,18 +6028,46 @@ class App(tk.Tk):
                     self._ssh_log(f"[ASSEMBLE] no child datasets found in {target_dataset}")
                     rc = 0
                 else:
+                    prep_script = _build_root_prepare_script(target_dataset, hint_mountpoint)
+                    prep_out = execu._run_ps(prep_script, timeout_seconds=None)
+                    prep_vals: Dict[str, str] = {}
+                    for line in (prep_out or "").splitlines():
+                        if "=" in line:
+                            k, v = line.split("=", 1)
+                            prep_vals[k.strip()] = v.strip()
+                    root_mp = prep_vals.get("ROOT_MP", "")
+                    tmp_root = prep_vals.get("TMP_ROOT", "")
+                    dataset_temp_mp = prep_vals.get("DATASET_TEMP_MP", "")
+                    dataset_mp_orig = prep_vals.get("DATASET_MP_ORIG", "")
+                    if not root_mp or not tmp_root:
+                        raise ExecutorError("[ASSEMBLE][ERROR] root prepare failed")
+
                     for child in children:
                         if cancel_event.is_set():
                             cancelled = True
                             break
-                        child_script = _build_child_script(target_dataset, hint_mountpoint, child)
                         self._ssh_log(f"[ASSEMBLE] processing {child}")
-                        out = execu._run_ps(child_script, timeout_seconds=None)
-                        if (out or "").strip():
-                            for line in out.splitlines():
-                                txt = (line or "").strip()
-                                if txt:
-                                    self._ssh_log(txt)
+                        stage_script = _build_child_stage_script(target_dataset, child, root_mp, tmp_root)
+                        stage_out = execu._run_ps(stage_script, timeout_seconds=None)
+                        stage_vals: Dict[str, str] = {}
+                        for line in (stage_out or "").splitlines():
+                            if "=" in line:
+                                k, v = line.split("=", 1)
+                                stage_vals[k.strip()] = v.strip()
+                        stage_tmp = stage_vals.get("STAGE_TMP", "")
+                        child_tmp = stage_vals.get("CHILD_TMP", "")
+                        dest_path = stage_vals.get("DEST_PATH", "")
+                        if not stage_tmp or not dest_path:
+                            raise ExecutorError(f"[ASSEMBLE][ERROR] stage failed for {child}")
+                        finalize_script = _build_child_finalize_script(stage_tmp, child_tmp, dest_path, child)
+                        out = execu._run_ps(finalize_script, timeout_seconds=None)
+                        for line in (out or "").splitlines():
+                            txt = (line or "").strip()
+                            if txt:
+                                self._ssh_log(txt)
+
+                    restore_script = _build_root_restore_script(target_dataset, dataset_temp_mp, dataset_mp_orig)
+                    execu._run_ps(restore_script, timeout_seconds=None)
                     rc = 0 if not cancelled else 130
                 if cancelled:
                     self._app_log("normal", tr("log_dataset_cancel_done"))
