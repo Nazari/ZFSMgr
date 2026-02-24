@@ -2915,8 +2915,6 @@ class App(tk.Tk):
         self.dataset_root_snapshots_by_side: Dict[str, Dict[str, List[str]]] = {"origin": {}, "dest": {}}
         base_size = int(tkfont.nametofont("TkDefaultFont").actual("size") or 9)
         self.snapshot_font_normal = ("TkDefaultFont", base_size)
-        self.snapshot_font_selected = ("TkDefaultFont", base_size + 2, "bold")
-        self._snapshot_tagged_row: Dict[str, str] = {"origin": "", "dest": ""}
         self._last_dataset_props_sig: str = ""
 
         self._apply_theme()
@@ -3451,27 +3449,25 @@ class App(tk.Tk):
         self.origin_root_snap_more.grid(row=0, column=self.dataset_snapshot_max_cols, sticky="ew")
         self.origin_root_snaps_wrap.grid_columnconfigure(self.dataset_snapshot_max_cols, weight=0)
         self.origin_root_snap_more.bind("<Button-1>", lambda _e, s="origin": self._on_root_snapshot_more_click(s))
-        self.datasets_tree_origin = ttk.Treeview(origin_tree_wrap, show="tree")
+        self.datasets_tree_origin = ttk.Treeview(
+            origin_tree_wrap,
+            columns=tuple(self.dataset_snapshot_col_ids + [self.dataset_snapshot_more_col_id]),
+            show="tree headings",
+        )
         self.datasets_tree_origin.heading("#0", text=tr("datasets_dataset"))
         self.datasets_tree_origin.column("#0", width=320, minwidth=140, anchor="w", stretch=True)
-        self.datasets_tree_origin.tag_configure("snap_selected", font=self.snapshot_font_selected)
+        for idx, col_id in enumerate(self.dataset_snapshot_col_ids, start=1):
+            self.datasets_tree_origin.heading(col_id, text=f"snap {idx}")
+            self.datasets_tree_origin.column(col_id, width=110, minwidth=90, anchor="w", stretch=False)
+        self.datasets_tree_origin.heading(self.dataset_snapshot_more_col_id, text="...")
+        self.datasets_tree_origin.column(self.dataset_snapshot_more_col_id, width=45, minwidth=40, anchor="center", stretch=False)
         self.datasets_tree_origin.grid(row=1, column=0, sticky="nsew")
-        self.origin_snap_canvas = tk.Canvas(
-            origin_tree_wrap,
-            bg=UI_PANEL_BG,
-            highlightthickness=1,
-            highlightbackground=UI_BORDER,
-            bd=0,
-        )
-        self.origin_snap_canvas.grid(row=1, column=1, sticky="nsew")
-        origin_tree_wrap.columnconfigure(1, weight=0, minsize=390)
         ds_oy = ttk.Scrollbar(origin_tree_wrap, orient="vertical", command=self.datasets_tree_origin.yview)
-        ds_oy.grid(row=1, column=2, sticky="ns")
+        ds_oy.grid(row=1, column=1, sticky="ns")
         ds_ox = ttk.Scrollbar(origin_tree_wrap, orient="horizontal", command=self.datasets_tree_origin.xview)
-        ds_ox.grid(row=2, column=0, columnspan=2, sticky="ew")
+        ds_ox.grid(row=2, column=0, sticky="ew")
         def _origin_auto_yset(first: str, last: str) -> None:
             ds_oy.set(first, last)
-            self._redraw_snapshot_canvas("origin")
             try:
                 need = not (float(first) <= 0.0 and float(last) >= 1.0)
             except Exception:
@@ -3496,9 +3492,6 @@ class App(tk.Tk):
         ds_oy.grid_remove()
         ds_ox.grid_remove()
         self.datasets_tree_origin.bind("<<TreeviewSelect>>", self._on_origin_tree_selected)
-        self.datasets_tree_origin.bind("<Configure>", lambda _e: self._redraw_snapshot_canvas("origin"), add="+")
-        self.datasets_tree_origin.bind("<<TreeviewOpen>>", lambda _e: self._redraw_snapshot_canvas("origin"), add="+")
-        self.datasets_tree_origin.bind("<<TreeviewClose>>", lambda _e: self._redraw_snapshot_canvas("origin"), add="+")
         self.datasets_tree_origin.bind("<ButtonRelease-1>", lambda e: self._on_dataset_tree_click("origin", e), add="+")
         self.datasets_tree_origin.bind("<Button-3>", lambda e: self._on_dataset_tree_context("origin", e))
         self.datasets_tree_origin.bind("<Button-2>", lambda e: self._on_dataset_tree_context("origin", e))
@@ -3565,27 +3558,25 @@ class App(tk.Tk):
         self.dest_root_snap_more.grid(row=0, column=self.dataset_snapshot_max_cols, sticky="ew")
         self.dest_root_snaps_wrap.grid_columnconfigure(self.dataset_snapshot_max_cols, weight=0)
         self.dest_root_snap_more.bind("<Button-1>", lambda _e, s="dest": self._on_root_snapshot_more_click(s))
-        self.datasets_tree_dest = ttk.Treeview(dest_tree_wrap, show="tree")
+        self.datasets_tree_dest = ttk.Treeview(
+            dest_tree_wrap,
+            columns=tuple(self.dataset_snapshot_col_ids + [self.dataset_snapshot_more_col_id]),
+            show="tree headings",
+        )
         self.datasets_tree_dest.heading("#0", text=tr("datasets_dataset"))
         self.datasets_tree_dest.column("#0", width=320, minwidth=140, anchor="w", stretch=True)
-        self.datasets_tree_dest.tag_configure("snap_selected", font=self.snapshot_font_selected)
+        for idx, col_id in enumerate(self.dataset_snapshot_col_ids, start=1):
+            self.datasets_tree_dest.heading(col_id, text=f"snap {idx}")
+            self.datasets_tree_dest.column(col_id, width=110, minwidth=90, anchor="w", stretch=False)
+        self.datasets_tree_dest.heading(self.dataset_snapshot_more_col_id, text="...")
+        self.datasets_tree_dest.column(self.dataset_snapshot_more_col_id, width=45, minwidth=40, anchor="center", stretch=False)
         self.datasets_tree_dest.grid(row=1, column=0, sticky="nsew")
-        self.dest_snap_canvas = tk.Canvas(
-            dest_tree_wrap,
-            bg=UI_PANEL_BG,
-            highlightthickness=1,
-            highlightbackground=UI_BORDER,
-            bd=0,
-        )
-        self.dest_snap_canvas.grid(row=1, column=1, sticky="nsew")
-        dest_tree_wrap.columnconfigure(1, weight=0, minsize=390)
         ds_dy = ttk.Scrollbar(dest_tree_wrap, orient="vertical", command=self.datasets_tree_dest.yview)
-        ds_dy.grid(row=1, column=2, sticky="ns")
+        ds_dy.grid(row=1, column=1, sticky="ns")
         ds_dx = ttk.Scrollbar(dest_tree_wrap, orient="horizontal", command=self.datasets_tree_dest.xview)
-        ds_dx.grid(row=2, column=0, columnspan=2, sticky="ew")
+        ds_dx.grid(row=2, column=0, sticky="ew")
         def _dest_auto_yset(first: str, last: str) -> None:
             ds_dy.set(first, last)
-            self._redraw_snapshot_canvas("dest")
             try:
                 need = not (float(first) <= 0.0 and float(last) >= 1.0)
             except Exception:
@@ -3610,9 +3601,6 @@ class App(tk.Tk):
         ds_dy.grid_remove()
         ds_dx.grid_remove()
         self.datasets_tree_dest.bind("<<TreeviewSelect>>", self._on_dest_tree_selected)
-        self.datasets_tree_dest.bind("<Configure>", lambda _e: self._redraw_snapshot_canvas("dest"), add="+")
-        self.datasets_tree_dest.bind("<<TreeviewOpen>>", lambda _e: self._redraw_snapshot_canvas("dest"), add="+")
-        self.datasets_tree_dest.bind("<<TreeviewClose>>", lambda _e: self._redraw_snapshot_canvas("dest"), add="+")
         self.datasets_tree_dest.bind("<ButtonRelease-1>", lambda e: self._on_dataset_tree_click("dest", e), add="+")
         self.datasets_tree_dest.bind("<Button-3>", lambda e: self._on_dataset_tree_context("dest", e))
         self.datasets_tree_dest.bind("<Button-2>", lambda e: self._on_dataset_tree_context("dest", e))
@@ -6405,57 +6393,11 @@ class App(tk.Tk):
             self.dest_dataset_var.set(selected_name)
         row = self._find_selected_dataset_row(side, selected_name) if selected_name else None
         self._render_dataset_properties(side, row)
-        self._update_snapshot_highlight(side)
-        self._redraw_snapshot_canvas(side)
         self._update_level_button_state()
 
     def _update_snapshot_highlight(self, side: str) -> None:
-        selected = (self.origin_dataset_var.get().strip() if side == "origin" else self.dest_dataset_var.get().strip())
-        selected_ds = ""
-        selected_snap = ""
-        if "@" in selected:
-            selected_ds, selected_snap = selected.split("@", 1)
-
-        tree = self.datasets_tree_origin if side == "origin" else self.datasets_tree_dest
-        prev = self._snapshot_tagged_row.get(side, "")
-        if prev and tree.exists(prev):
-            try:
-                tags = [t for t in tree.item(prev, "tags") if t != "snap_selected"]
-                tree.item(prev, tags=tuple(tags))
-            except Exception:
-                pass
-        self._snapshot_tagged_row[side] = ""
-
-        if selected_snap and selected_ds and selected_ds != self._current_selected_pool_name(side) and tree.exists(selected_ds):
-            try:
-                tags = list(tree.item(selected_ds, "tags"))
-            except Exception:
-                tags = []
-            if "snap_selected" not in tags:
-                tags.append("snap_selected")
-            tree.item(selected_ds, tags=tuple(tags))
-            self._snapshot_tagged_row[side] = selected_ds
-
-        pool = self._current_selected_pool_name(side)
-        snaps = self.dataset_root_snapshots_by_side.get(side, {}).get(pool, []) if pool else []
-        labels = self.origin_root_snap_labels if side == "origin" else self.dest_root_snap_labels
-        more_lbl = self.origin_root_snap_more if side == "origin" else self.dest_root_snap_more
-        root_lbl = self.origin_root_dataset_lbl if side == "origin" else self.dest_root_dataset_lbl
-        is_root_snapshot = bool(selected_snap and selected_ds and selected_ds == pool)
-        is_root_dataset = bool((not selected_snap) and selected_ds and selected_ds == pool)
-        root_lbl.configure(font=(self.snapshot_font_selected if is_root_dataset else self.snapshot_font_normal))
-        for idx, lbl in enumerate(labels):
-            snap_name = snaps[idx] if idx < len(snaps) else ""
-            if is_root_snapshot and selected_snap == snap_name and snap_name:
-                lbl.configure(font=self.snapshot_font_selected)
-            else:
-                lbl.configure(font=self.snapshot_font_normal)
-        if is_root_snapshot and selected_snap and selected_snap not in snaps[: self.dataset_snapshot_max_cols]:
-            more_lbl.configure(text=f"@{selected_snap}", font=self.snapshot_font_selected)
-            more_lbl.grid()
-        else:
-            more_lbl.configure(font=self.snapshot_font_normal)
-            self._render_root_snapshot_cells(side)
+        # Resaltado especial de snapshots deshabilitado por preferencia de UI.
+        return
 
     def _on_dataset_tree_click(self, side: str, event: Any) -> None:
         if self._reject_if_ssh_busy():
@@ -6464,80 +6406,36 @@ class App(tk.Tk):
         row_iid = str(tree.identify_row(event.y) or "").strip()
         if not row_iid:
             return
-        self._set_dataset_selection(side, row_iid, None)
-
-    def _redraw_snapshot_canvas(self, side: str) -> None:
-        tree = self.datasets_tree_origin if side == "origin" else self.datasets_tree_dest
-        canvas = self.origin_snap_canvas if side == "origin" else self.dest_snap_canvas
-        if not tree.winfo_exists() or not canvas.winfo_exists():
+        col_token = str(tree.identify_column(event.x) or "")
+        if not col_token.startswith("#"):
+            self._set_dataset_selection(side, row_iid, None)
             return
-        canvas.delete("all")
-        selected = self.origin_dataset_var.get().strip() if side == "origin" else self.dest_dataset_var.get().strip()
-        sel_ds = selected.split("@", 1)[0] if "@" in selected else ""
-        sel_snap = selected.split("@", 1)[1] if "@" in selected else ""
-
-        def walk(parent: str = "") -> None:
-            for iid in tree.get_children(parent):
-                bbox = tree.bbox(iid)
-                if bbox:
-                    _x, y, _w, h = bbox
-                    snaps = self.dataset_snapshots_by_side.get(side, {}).get(iid, [])
-                    x = 4
-                    cell_w = 110
-                    for idx, snap in enumerate(snaps[: self.dataset_snapshot_max_cols]):
-                        font = self.snapshot_font_selected if (iid == sel_ds and snap == sel_snap) else self.snapshot_font_normal
-                        lbl = tk.Label(
-                            canvas,
-                            text=f"@{snap}",
-                            bg=UI_PANEL_BG,
-                            fg=UI_TEXT,
-                            relief="solid",
-                            borderwidth=1,
-                            padx=4,
-                            pady=1,
-                            anchor="w",
-                            cursor="hand2",
-                            font=font,
-                        )
-                        lbl.bind("<Button-1>", lambda _e, sd=side, d=iid, s=snap: self._set_dataset_selection(sd, d, s))
-                        canvas.create_window(x, y + 1, window=lbl, anchor="nw", width=cell_w, height=max(18, h - 2))
-                        x += cell_w + 4
-                    if len(snaps) > self.dataset_snapshot_max_cols:
-                        more_text = "..."
-                        more_font = self.snapshot_font_normal
-                        if iid == sel_ds and sel_snap and sel_snap not in snaps[: self.dataset_snapshot_max_cols]:
-                            more_text = f"@{sel_snap}"
-                            more_font = self.snapshot_font_selected
-                        more_lbl = tk.Label(
-                            canvas,
-                            text=more_text,
-                            bg=UI_PANEL_BG,
-                            fg=UI_TEXT,
-                            relief="solid",
-                            borderwidth=1,
-                            padx=4,
-                            pady=1,
-                            anchor="center",
-                            cursor="hand2",
-                            font=more_font,
-                        )
-                        def _open_more(_e: Any, sd: str = side, d: str = iid, snaps_list: List[str] = snaps) -> None:
-                            menu = tk.Menu(self, tearoff=0)
-                            for snap_name in snaps_list[self.dataset_snapshot_max_cols:]:
-                                menu.add_command(
-                                    label=f"@{snap_name}",
-                                    command=(lambda s=snap_name, ds=sd, dd=d: self._set_dataset_selection(ds, dd, s)),
-                                )
-                            self._show_context_menu(menu, _e)
-                        more_lbl.bind("<Button-1>", _open_more)
-                        canvas.create_window(x, y + 1, window=more_lbl, anchor="nw", width=45, height=max(18, h - 2))
-                walk(iid)
-
-        walk("")
         try:
-            canvas.configure(scrollregion=canvas.bbox("all") or (0, 0, canvas.winfo_width(), canvas.winfo_height()))
-        except Exception:
-            pass
+            col_index = int(col_token[1:])
+        except ValueError:
+            self._set_dataset_selection(side, row_iid, None)
+            return
+        snapshots = self.dataset_snapshots_by_side.get(side, {}).get(row_iid, [])
+        if col_index == 0:
+            self._set_dataset_selection(side, row_iid, None)
+            return
+        if 1 <= col_index <= self.dataset_snapshot_max_cols:
+            snap_idx = col_index - 1
+            if snap_idx < len(snapshots):
+                self._set_dataset_selection(side, row_iid, snapshots[snap_idx])
+            else:
+                self._set_dataset_selection(side, row_iid, None)
+            return
+        if col_index == self.dataset_snapshot_max_cols + 1 and len(snapshots) > self.dataset_snapshot_max_cols:
+            menu = tk.Menu(self, tearoff=0)
+            for snap in snapshots[self.dataset_snapshot_max_cols:]:
+                menu.add_command(
+                    label=f"@{snap}",
+                    command=(lambda s=snap, d=row_iid, sd=side: self._set_dataset_selection(sd, d, s)),
+                )
+            self._show_context_menu(menu, event)
+            return
+        self._set_dataset_selection(side, row_iid, None)
 
     def _on_dataset_tree_context(self, side: str, event: Any) -> str:
         if self._reject_if_ssh_busy():
