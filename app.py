@@ -3687,7 +3687,6 @@ class App(tk.Tk):
         row_index: int,
         columns: List[Tuple[str, int, str]],
         values: List[str],
-        text_colors: Optional[Dict[int, str]] = None,
         action_col: Optional[int] = None,
         action_callback: Optional[Callable[[], None]] = None,
         action_color: Optional[str] = None,
@@ -3696,6 +3695,7 @@ class App(tk.Tk):
         on_cell_hover: Optional[Callable[[int, str, Any], None]] = None,
         on_cell_leave: Optional[Callable[[], None]] = None,
         selected: bool = False,
+        text_colors: Optional[Dict[int, str]] = None,
     ) -> None:
         if selected:
             bg = UI_SELECTION
@@ -6357,48 +6357,51 @@ class App(tk.Tk):
         self.export_pool_by_name(pool_name, conn_id=conn_id)
 
     def _render_all_importable_pools(self) -> None:
-        self._clear_plain_table(self.importable_table_rows)
-        row_idx = 0
-        visible_keys: set[str] = set()
-        for conn in self.store.connections:
-            state = self.states.get(conn.id)
-            if not state or not state.importable:
-                continue
-            for pool in state.importable:
-                pool_name = pool.get("pool", "")
-                pool_state = (pool.get("state", "") or "").strip()
-                state_color = UI_ACTION_MOUNT if pool_state.upper() == "ONLINE" else UI_ACTION_UMOUNT
-                key = f"{conn.id}:{pool_name}:{pool_state.upper()}"
-                visible_keys.add(key)
+        try:
+            self._clear_plain_table(self.importable_table_rows)
+            row_idx = 0
+            visible_keys: set[str] = set()
+            for conn in self.store.connections:
+                state = self.states.get(conn.id)
+                if not state or not state.importable:
+                    continue
+                for pool in state.importable:
+                    pool_name = pool.get("pool", "")
+                    pool_state = (pool.get("state", "") or "").strip()
+                    state_color = UI_ACTION_MOUNT if pool_state.upper() == "ONLINE" else UI_ACTION_UMOUNT
+                    key = f"{conn.id}:{pool_name}:{pool_state.upper()}"
+                    visible_keys.add(key)
+                    self._add_plain_row(
+                        self.importable_table_rows,
+                        row_idx,
+                        self.importable_table_columns,
+                        [
+                            conn.name,
+                            pool_name,
+                            pool.get("id", ""),
+                            pool_state,
+                            pool.get("status", ""),
+                        ],
+                        on_row_context=lambda e, cid=conn.id, p=pool_name, st=pool_state: self._on_importable_pool_context(cid, p, st, e),
+                        text_colors={3: state_color},
+                    )
+                    row_idx += 1
+
+            if row_idx == 0:
+                self.selected_importable_pool = None
                 self._add_plain_row(
                     self.importable_table_rows,
-                    row_idx,
+                    0,
                     self.importable_table_columns,
-                    [
-                        conn.name,
-                        pool_name,
-                        pool.get("id", ""),
-                        pool_state,
-                        pool.get("status", ""),
-                    ],
-                    text_colors={3: state_color},
-                    on_row_context=lambda e, cid=conn.id, p=pool_name, st=pool_state: self._on_importable_pool_context(cid, p, st, e),
+                    [tr("label_no_importable_pools"), "", "", "", ""],
                 )
-                row_idx += 1
-
-        if row_idx == 0:
-            self.selected_importable_pool = None
-            self._add_plain_row(
-                self.importable_table_rows,
-                0,
-                self.importable_table_columns,
-                [tr("label_no_importable_pools"), "", "", "", ""],
-            )
-        else:
-            if self.selected_importable_pool:
-                sel_key = f"{self.selected_importable_pool[0]}:{self.selected_importable_pool[1]}:{self.selected_importable_pool[2].upper()}"
-                if sel_key not in visible_keys:
-                    self.selected_importable_pool = None
+            else:
+                if self.selected_importable_pool:
+                    sel_key = f"{self.selected_importable_pool[0]}:{self.selected_importable_pool[1]}:{self.selected_importable_pool[2].upper()}"
+                    if sel_key not in visible_keys:
+                        self.selected_importable_pool = None
+        except Exception as exc:
+            self._app_log("normal", f"Error renderizando pools importables: {exc}")
 
     def _on_importable_pool_context(self, conn_id: str, pool_name: str, pool_state: str, event: Any) -> None:
         if self._reject_if_ssh_busy():
