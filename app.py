@@ -3311,12 +3311,8 @@ class App(tk.Tk):
         self.right_datasets_detail.rowconfigure(0, weight=1)
 
         self.origin_pool_var = tk.StringVar()
-        self.origin_pool_combo = ttk.Combobox(self.right_datasets_detail, textvariable=self.origin_pool_var, state="readonly")
-        self.origin_pool_combo.bind("<<ComboboxSelected>>", self._on_origin_pool_selected)
         self.origin_dataset_var = tk.StringVar()
         self.dest_pool_var = tk.StringVar()
-        self.dest_pool_combo = ttk.Combobox(self.right_datasets_detail, textvariable=self.dest_pool_var, state="readonly")
-        self.dest_pool_combo.bind("<<ComboboxSelected>>", self._on_dest_pool_selected)
         self.dest_dataset_var = tk.StringVar()
 
         self.datasets_cache: Dict[str, List[Dict[str, str]]] = {}
@@ -3335,8 +3331,9 @@ class App(tk.Tk):
         origin_tree_wrap.columnconfigure(1, weight=1)
         origin_tree_wrap.rowconfigure(1, weight=1)
         ttk.Label(origin_tree_wrap, text=tr("datasets_pool")).grid(row=0, column=0, sticky="w", padx=(6, 6), pady=(4, 4))
-        self.origin_pool_combo.configure(width=42)
-        self.origin_pool_combo.grid(in_=origin_tree_wrap, row=0, column=1, sticky="e", padx=(0, 6), pady=(4, 4))
+        self.origin_pool_combo = ttk.Combobox(origin_tree_wrap, textvariable=self.origin_pool_var, state="readonly", width=42)
+        self.origin_pool_combo.grid(row=0, column=1, sticky="e", padx=(0, 6), pady=(4, 4))
+        self.origin_pool_combo.bind("<<ComboboxSelected>>", self._on_origin_pool_selected)
         self.datasets_tree_origin = ttk.Treeview(
             origin_tree_wrap,
             show="tree",
@@ -3383,8 +3380,9 @@ class App(tk.Tk):
         dest_tree_wrap.columnconfigure(1, weight=1)
         dest_tree_wrap.rowconfigure(1, weight=1)
         ttk.Label(dest_tree_wrap, text=tr("datasets_pool")).grid(row=0, column=0, sticky="w", padx=(6, 6), pady=(4, 4))
-        self.dest_pool_combo.configure(width=42)
-        self.dest_pool_combo.grid(in_=dest_tree_wrap, row=0, column=1, sticky="e", padx=(0, 6), pady=(4, 4))
+        self.dest_pool_combo = ttk.Combobox(dest_tree_wrap, textvariable=self.dest_pool_var, state="readonly", width=42)
+        self.dest_pool_combo.grid(row=0, column=1, sticky="e", padx=(0, 6), pady=(4, 4))
+        self.dest_pool_combo.bind("<<ComboboxSelected>>", self._on_dest_pool_selected)
         self.datasets_tree_dest = ttk.Treeview(
             dest_tree_wrap,
             show="tree",
