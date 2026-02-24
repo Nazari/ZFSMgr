@@ -2915,6 +2915,10 @@ class App(tk.Tk):
         self.dataset_snapshot_more_col_id = "snap_more"
         self.dataset_snapshots_by_side: Dict[str, Dict[str, List[str]]] = {"origin": {}, "dest": {}}
         self.dataset_root_snapshots_by_side: Dict[str, Dict[str, List[str]]] = {"origin": {}, "dest": {}}
+        self.dataset_selected_snapshot_by_side: Dict[str, Dict[str, str]] = {"origin": {}, "dest": {}}
+        self._snapshot_cell_editor: Optional[ttk.Combobox] = None
+        self._snapshot_cell_editor_side: str = ""
+        self._snapshot_cell_editor_dataset: str = ""
         base_size = int(tkfont.nametofont("TkDefaultFont").actual("size") or 9)
         self.snapshot_font_normal = ("TkDefaultFont", base_size)
         self._last_dataset_props_sig: str = ""
@@ -3432,16 +3436,13 @@ class App(tk.Tk):
         self.origin_root_snap_more.bind("<Button-1>", lambda _e, s="origin": self._on_root_snapshot_more_click(s))
         self.datasets_tree_origin = ttk.Treeview(
             origin_tree_wrap,
-            columns=tuple(self.dataset_snapshot_col_ids + [self.dataset_snapshot_more_col_id]),
+            columns=("snapshot",),
             show="tree headings",
         )
         self.datasets_tree_origin.heading("#0", text=tr("datasets_dataset"))
         self.datasets_tree_origin.column("#0", width=320, minwidth=140, anchor="w", stretch=True)
-        for idx, col_id in enumerate(self.dataset_snapshot_col_ids, start=1):
-            self.datasets_tree_origin.heading(col_id, text=f"snap {idx}")
-            self.datasets_tree_origin.column(col_id, width=110, minwidth=90, anchor="w", stretch=False)
-        self.datasets_tree_origin.heading(self.dataset_snapshot_more_col_id, text="...")
-        self.datasets_tree_origin.column(self.dataset_snapshot_more_col_id, width=45, minwidth=40, anchor="center", stretch=False)
+        self.datasets_tree_origin.heading("snapshot", text="Snapshot")
+        self.datasets_tree_origin.column("snapshot", width=180, minwidth=130, anchor="w", stretch=False)
         self.datasets_tree_origin.grid(row=1, column=0, sticky="nsew")
         ds_oy = ttk.Scrollbar(origin_tree_wrap, orient="vertical", command=self.datasets_tree_origin.yview)
         ds_oy.grid(row=1, column=1, sticky="ns")
@@ -3474,6 +3475,9 @@ class App(tk.Tk):
         ds_ox.grid_remove()
         self.datasets_tree_origin.bind("<<TreeviewSelect>>", self._on_origin_tree_selected)
         self.datasets_tree_origin.bind("<ButtonRelease-1>", lambda e: self._on_dataset_tree_click("origin", e), add="+")
+        self.datasets_tree_origin.bind("<MouseWheel>", lambda _e: self._hide_snapshot_dropdown(), add="+")
+        self.datasets_tree_origin.bind("<Button-4>", lambda _e: self._hide_snapshot_dropdown(), add="+")
+        self.datasets_tree_origin.bind("<Button-5>", lambda _e: self._hide_snapshot_dropdown(), add="+")
         self.datasets_tree_origin.bind("<Button-3>", lambda e: self._on_dataset_tree_context("origin", e))
         self.datasets_tree_origin.bind("<Button-2>", lambda e: self._on_dataset_tree_context("origin", e))
         self.datasets_tree_origin.bind("<Control-Button-1>", lambda e: self._on_dataset_tree_context("origin", e))
@@ -3541,16 +3545,13 @@ class App(tk.Tk):
         self.dest_root_snap_more.bind("<Button-1>", lambda _e, s="dest": self._on_root_snapshot_more_click(s))
         self.datasets_tree_dest = ttk.Treeview(
             dest_tree_wrap,
-            columns=tuple(self.dataset_snapshot_col_ids + [self.dataset_snapshot_more_col_id]),
+            columns=("snapshot",),
             show="tree headings",
         )
         self.datasets_tree_dest.heading("#0", text=tr("datasets_dataset"))
         self.datasets_tree_dest.column("#0", width=320, minwidth=140, anchor="w", stretch=True)
-        for idx, col_id in enumerate(self.dataset_snapshot_col_ids, start=1):
-            self.datasets_tree_dest.heading(col_id, text=f"snap {idx}")
-            self.datasets_tree_dest.column(col_id, width=110, minwidth=90, anchor="w", stretch=False)
-        self.datasets_tree_dest.heading(self.dataset_snapshot_more_col_id, text="...")
-        self.datasets_tree_dest.column(self.dataset_snapshot_more_col_id, width=45, minwidth=40, anchor="center", stretch=False)
+        self.datasets_tree_dest.heading("snapshot", text="Snapshot")
+        self.datasets_tree_dest.column("snapshot", width=180, minwidth=130, anchor="w", stretch=False)
         self.datasets_tree_dest.grid(row=1, column=0, sticky="nsew")
         ds_dy = ttk.Scrollbar(dest_tree_wrap, orient="vertical", command=self.datasets_tree_dest.yview)
         ds_dy.grid(row=1, column=1, sticky="ns")
@@ -3583,6 +3584,9 @@ class App(tk.Tk):
         ds_dx.grid_remove()
         self.datasets_tree_dest.bind("<<TreeviewSelect>>", self._on_dest_tree_selected)
         self.datasets_tree_dest.bind("<ButtonRelease-1>", lambda e: self._on_dataset_tree_click("dest", e), add="+")
+        self.datasets_tree_dest.bind("<MouseWheel>", lambda _e: self._hide_snapshot_dropdown(), add="+")
+        self.datasets_tree_dest.bind("<Button-4>", lambda _e: self._hide_snapshot_dropdown(), add="+")
+        self.datasets_tree_dest.bind("<Button-5>", lambda _e: self._hide_snapshot_dropdown(), add="+")
         self.datasets_tree_dest.bind("<Button-3>", lambda e: self._on_dataset_tree_context("dest", e))
         self.datasets_tree_dest.bind("<Button-2>", lambda e: self._on_dataset_tree_context("dest", e))
         self.datasets_tree_dest.bind("<Control-Button-1>", lambda e: self._on_dataset_tree_context("dest", e))
@@ -6357,6 +6361,7 @@ class App(tk.Tk):
         self._set_dataset_selection("dest", iid, None)
 
     def _set_dataset_selection(self, side: str, dataset_iid: str, snapshot_name: Optional[str]) -> None:
+        self._hide_snapshot_dropdown()
         dataset_iid = (dataset_iid or "").strip()
         if dataset_iid and dataset_iid == self._current_selected_pool_name(side):
             tree = self.datasets_tree_origin if side == "origin" else self.datasets_tree_dest
@@ -6364,6 +6369,11 @@ class App(tk.Tk):
                 tree.selection_remove(tree.selection())
             except Exception:
                 pass
+        if dataset_iid:
+            if snapshot_name:
+                self.dataset_selected_snapshot_by_side.setdefault(side, {})[dataset_iid] = snapshot_name
+            else:
+                self.dataset_selected_snapshot_by_side.setdefault(side, {}).pop(dataset_iid, None)
         selected_name = f"{dataset_iid}@{snapshot_name}" if dataset_iid and snapshot_name else dataset_iid
         self.last_selected_dataset_side = side
         if side == "origin":
@@ -6378,41 +6388,64 @@ class App(tk.Tk):
         # Resaltado especial de snapshots deshabilitado por preferencia de UI.
         return
 
+    def _hide_snapshot_dropdown(self) -> None:
+        if self._snapshot_cell_editor is not None:
+            try:
+                self._snapshot_cell_editor.destroy()
+            except Exception:
+                pass
+        self._snapshot_cell_editor = None
+        self._snapshot_cell_editor_side = ""
+        self._snapshot_cell_editor_dataset = ""
+
+    def _open_snapshot_dropdown(self, side: str, tree: ttk.Treeview, dataset_iid: str) -> None:
+        dataset_iid = (dataset_iid or "").strip()
+        if not dataset_iid:
+            return
+        bbox = tree.bbox(dataset_iid, "#1")
+        if not bbox:
+            return
+        x, y, w, h = bbox
+        snaps = self.dataset_snapshots_by_side.get(side, {}).get(dataset_iid, [])
+        values = [""] + [f"@{s}" for s in snaps]
+        current = self.dataset_selected_snapshot_by_side.get(side, {}).get(dataset_iid, "")
+        current_val = f"@{current}" if current else ""
+        self._hide_snapshot_dropdown()
+        editor = ttk.Combobox(tree, state="readonly", values=values, width=max(8, (w // 8)))
+        editor.set(current_val if current_val in values else "")
+        editor.place(x=x, y=y, width=w, height=h)
+        self._snapshot_cell_editor = editor
+        self._snapshot_cell_editor_side = side
+        self._snapshot_cell_editor_dataset = dataset_iid
+
+        def _apply_selection(_event: Any = None) -> None:
+            val = (editor.get() or "").strip()
+            snap = val[1:] if val.startswith("@") else ""
+            self._set_dataset_selection(side, dataset_iid, snap or None)
+
+        editor.bind("<<ComboboxSelected>>", _apply_selection)
+        editor.bind("<Escape>", lambda _e: self._hide_snapshot_dropdown())
+        editor.bind("<FocusOut>", lambda _e: self._hide_snapshot_dropdown())
+        editor.focus_set()
+        try:
+            editor.event_generate("<Down>")
+        except Exception:
+            pass
+
     def _on_dataset_tree_click(self, side: str, event: Any) -> None:
         if self._reject_if_ssh_busy():
             return
         tree = self.datasets_tree_origin if side == "origin" else self.datasets_tree_dest
         row_iid = str(tree.identify_row(event.y) or "").strip()
         if not row_iid:
+            self._hide_snapshot_dropdown()
             return
         col_token = str(tree.identify_column(event.x) or "")
-        if not col_token.startswith("#"):
+        if col_token in {"#0", ""}:
             self._set_dataset_selection(side, row_iid, None)
             return
-        try:
-            col_index = int(col_token[1:])
-        except ValueError:
-            self._set_dataset_selection(side, row_iid, None)
-            return
-        snapshots = self.dataset_snapshots_by_side.get(side, {}).get(row_iid, [])
-        if col_index == 0:
-            self._set_dataset_selection(side, row_iid, None)
-            return
-        if 1 <= col_index <= self.dataset_snapshot_max_cols:
-            snap_idx = col_index - 1
-            if snap_idx < len(snapshots):
-                self._set_dataset_selection(side, row_iid, snapshots[snap_idx])
-            else:
-                self._set_dataset_selection(side, row_iid, None)
-            return
-        if col_index == self.dataset_snapshot_max_cols + 1 and len(snapshots) > self.dataset_snapshot_max_cols:
-            menu = tk.Menu(self, tearoff=0)
-            for snap in snapshots[self.dataset_snapshot_max_cols:]:
-                menu.add_command(
-                    label=f"@{snap}",
-                    command=(lambda s=snap, d=row_iid, sd=side: self._set_dataset_selection(sd, d, s)),
-                )
-            self._show_context_menu(menu, event)
+        if col_token == "#1":
+            self._open_snapshot_dropdown(side, tree, row_iid)
             return
         self._set_dataset_selection(side, row_iid, None)
 
@@ -6819,7 +6852,7 @@ class App(tk.Tk):
                         "end",
                         iid=iid,
                         text=part,
-                        values=tuple("" for _ in (self.dataset_snapshot_col_ids + [self.dataset_snapshot_more_col_id])),
+                        values=("",),
                         open=False,
                     )
                     inserted.add(iid)
@@ -6843,11 +6876,11 @@ class App(tk.Tk):
             snaps = snapshots.get(dataset_full, [])
             snaps_sorted = [snap for snap, _creation in sorted(snaps, key=_snap_sort_key, reverse=True)]
             self.dataset_snapshots_by_side[side][dataset_full] = snaps_sorted
-            visible = snaps_sorted[: self.dataset_snapshot_max_cols]
-            values: List[str] = [f"@{snap}" for snap in visible]
-            while len(values) < self.dataset_snapshot_max_cols:
-                values.append("")
-            values.append("..." if len(snaps_sorted) > self.dataset_snapshot_max_cols else "")
+            selected_snap = self.dataset_selected_snapshot_by_side.get(side, {}).get(dataset_full, "")
+            if selected_snap and selected_snap not in snaps_sorted:
+                self.dataset_selected_snapshot_by_side.get(side, {}).pop(dataset_full, None)
+                selected_snap = ""
+            values: List[str] = [f"@{selected_snap}" if selected_snap else ""]
             if dataset_full in inserted:
                 try:
                     tree.item(dataset_full, values=tuple(values))
