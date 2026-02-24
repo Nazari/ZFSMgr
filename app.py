@@ -1447,17 +1447,35 @@ class PSRPExecutor(BaseExecutor):
             client = self._client()
             return client.execute_ps(script)
 
+        def _exec_ps_encoded() -> Tuple[str, Any, bool]:
+            client = self._client()
+            encoded = base64.b64encode((script or "").encode("utf-16-le")).decode("ascii")
+            cmd = f"powershell -NoProfile -NonInteractive -EncodedCommand {encoded}"
+            stdout, stderr, rc = client.execute_cmd(cmd)
+            if int(rc or 0) != 0:
+                raise ExecutorError((stderr or stdout or tr("error_ps_remote")).strip())
+            return (stdout or ""), None, False
+
         target = f"{self.profile.username + '@' if self.profile.username else ''}{self.profile.host}:{self.profile.port or (5986 if self.profile.use_ssl else 5985)}"
         one_line = " ".join((script or "").split())
         ssh_trace(f"{target} $ powershell -NoProfile -NonInteractive -Command {shlex.quote(one_line)}")
 
         for attempt in (1, 2):
             try:
+                def _run_exec() -> Tuple[str, Any, bool]:
+                    try:
+                        return _exec_ps()
+                    except Exception as ex:
+                        msg = str(ex)
+                        if "Invoke-Expression" in msg or "ParameterBindingValidationException" in msg:
+                            return _exec_ps_encoded()
+                        raise
+
                 if timeout_seconds is None:
-                    output, streams, had_errors = _exec_ps()
+                    output, streams, had_errors = _run_exec()
                 else:
                     output, streams, had_errors = run_with_timeout(
-                        _exec_ps,
+                        _run_exec,
                         timeout_seconds,
                         tr("error_timeout_ps_remote"),
                     )
