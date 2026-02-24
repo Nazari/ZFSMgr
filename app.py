@@ -4013,6 +4013,51 @@ class App(tk.Tk):
         except Exception:
             pass
 
+    def _split_top_level_pipes(self, cmd: str) -> List[str]:
+        parts: List[str] = []
+        if not cmd:
+            return parts
+        cur: List[str] = []
+        in_single = False
+        in_double = False
+        escape = False
+        for ch in cmd:
+            if escape:
+                cur.append(ch)
+                escape = False
+                continue
+            if ch == "\\" and not in_single:
+                cur.append(ch)
+                escape = True
+                continue
+            if ch == "'" and not in_double:
+                in_single = not in_single
+                cur.append(ch)
+                continue
+            if ch == '"' and not in_single:
+                in_double = not in_double
+                cur.append(ch)
+                continue
+            if ch == "|" and not in_single and not in_double:
+                part = "".join(cur).strip()
+                if part:
+                    parts.append(part)
+                cur = []
+                continue
+            cur.append(ch)
+        tail = "".join(cur).strip()
+        if tail:
+            parts.append(tail)
+        return parts
+
+    def _log_action_subcommands(self, action_label: str, cmd: str) -> None:
+        parts = self._split_top_level_pipes(cmd)
+        if not parts:
+            return
+        total = len(parts)
+        for idx, part in enumerate(parts, start=1):
+            self._app_log("info", f"{action_label} subcmd [{idx}/{total}]: {part}")
+
     def _on_ssh_log_hover(self, event: Any) -> None:
         try:
             index = self.ssh_log_text.index(f"@{event.x},{event.y}")
@@ -5009,8 +5054,11 @@ class App(tk.Tk):
 
         self._app_log("normal", trf("sync_plan_generated", src=src_dataset, dst=dst_dataset))
         self._app_log("normal", tr("sync_plan_header"))
-        for line in [*pre_steps, rsync_cmd, *post_steps]:
+        sync_lines = [*pre_steps, rsync_cmd, *post_steps]
+        for line in sync_lines:
             self._app_log("normal", line)
+        for line in sync_lines:
+            self._log_action_subcommands("Sincronizar", line)
 
     def _breakdown_dataset_plan(self) -> None:
         if self._reject_if_ssh_busy():
@@ -5540,6 +5588,7 @@ class App(tk.Tk):
         self._update_level_button_state()
         self._app_log("normal", tr("log_level_exec_start"))
         self._app_log("info", tr("log_dataset_progress_tab"))
+        self._log_action_subcommands("Nivelar", cmd)
         self._ssh_log(f"$ {cmd}")
 
         def worker() -> None:
@@ -5551,6 +5600,7 @@ class App(tk.Tk):
                 for idx, current_cmd in enumerate(commands):
                     if idx > 0:
                         self._app_log("info", f"Retry send flags fallback {idx}/{len(commands) - 1}")
+                        self._log_action_subcommands("Nivelar", current_cmd)
                         self._ssh_log(f"$ {current_cmd}")
                     proc = subprocess.Popen(
                         current_cmd,
@@ -5614,6 +5664,7 @@ class App(tk.Tk):
         self._update_level_button_state()
         self._app_log("normal", tr("log_copy_exec_start"))
         self._app_log("info", tr("log_dataset_progress_tab"))
+        self._log_action_subcommands("Copiar", cmd)
         self._ssh_log(f"$ {cmd}")
 
         def worker() -> None:
@@ -5625,6 +5676,7 @@ class App(tk.Tk):
                 for idx, current_cmd in enumerate(commands):
                     if idx > 0:
                         self._app_log("info", f"Retry send flags fallback {idx}/{len(commands) - 1}")
+                        self._log_action_subcommands("Copiar", current_cmd)
                         self._ssh_log(f"$ {current_cmd}")
                     proc = subprocess.Popen(
                         current_cmd,
@@ -5684,6 +5736,7 @@ class App(tk.Tk):
         self._update_level_button_state()
         self._app_log("normal", tr("log_breakdown_exec_start"))
         self._app_log("info", tr("log_dataset_progress_tab"))
+        self._log_action_subcommands("Desglosar", cmd)
         self._ssh_log(f"$ {cmd}")
 
         def worker() -> None:
@@ -5753,6 +5806,7 @@ class App(tk.Tk):
         self._update_level_button_state()
         self._app_log("normal", tr("log_assemble_exec_start"))
         self._app_log("info", tr("log_dataset_progress_tab"))
+        self._log_action_subcommands("Ensamblar", cmd)
         self._ssh_log(f"$ {cmd}")
 
         def worker() -> None:
