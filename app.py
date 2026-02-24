@@ -4906,6 +4906,23 @@ class App(tk.Tk):
             recv_cmd = sudo_wrap(dst_profile, recv_raw, preserve_stdin_stream=True)
             self._app_log("normal", trf("log_level_no_common_base", src=src_dataset, dst=dst_dataset, target=target_snap))
 
+        if src_profile.conn_type == "PSRP" or dst_profile.conn_type == "PSRP":
+            if not (src_profile.conn_type == "PSRP" and dst_profile.conn_type == "PSRP" and src_conn_id == dst_conn_id):
+                self._app_log(
+                    "normal",
+                    trf(
+                        "log_level_transport_unsupported",
+                        src=src_profile.conn_type,
+                        dst=dst_profile.conn_type,
+                    ),
+                )
+                return
+            ps_cmd = f"$ErrorActionPreference='Stop'; {send_raw} | {recv_raw}"
+            self._app_log("info", trf("log_level_missing_snapshots", count=len(missing), snaps=', '.join(missing)))
+            self._app_log("normal", ps_cmd)
+            self._run_level_psrp_command(ps_cmd, src_profile, affected_conn_ids=[src_conn_id, dst_conn_id])
+            return
+
         if src_profile.conn_type not in {"LOCAL", "SSH"} or dst_profile.conn_type not in {"LOCAL", "SSH"}:
             self._app_log(
                 "normal",
@@ -5027,7 +5044,14 @@ class App(tk.Tk):
                 )
             return f"sudo -n sh -lc {shlex.quote(base_cmd)}"
 
-        if src_profile.conn_type not in {"LOCAL", "SSH"} or dst_profile.conn_type not in {"LOCAL", "SSH"}:
+        if src_profile.conn_type == "PSRP" or dst_profile.conn_type == "PSRP":
+            if not (src_profile.conn_type == "PSRP" and dst_profile.conn_type == "PSRP" and src_conn_id == dst_conn_id):
+                self._app_log(
+                    "normal",
+                    trf("log_copy_transport_unsupported", src=src_profile.conn_type, dst=dst_profile.conn_type),
+                )
+                return
+        elif src_profile.conn_type not in {"LOCAL", "SSH"} or dst_profile.conn_type not in {"LOCAL", "SSH"}:
             self._app_log(
                 "normal",
                 trf("log_copy_transport_unsupported", src=src_profile.conn_type, dst=dst_profile.conn_type),
@@ -5055,6 +5079,13 @@ class App(tk.Tk):
         )
         send_raw = send_candidates[0]
         recv_raw = f"zfs recv -F -e {shlex.quote(dst_dataset)}"
+        if src_profile.conn_type == "PSRP" and dst_profile.conn_type == "PSRP" and src_conn_id == dst_conn_id:
+            ps_cmd = f"$ErrorActionPreference='Stop'; {send_raw} | {recv_raw}"
+            self._app_log("normal", trf("log_copy_plan", src=src_snapshot, dst=dst_dataset))
+            self._app_log("normal", tr("log_copy_command_header"))
+            self._app_log("normal", ps_cmd)
+            self._run_copy_psrp_command(ps_cmd, src_profile, dst_conn_id=dst_conn_id)
+            return
         send_cmd = sudo_wrap(src_profile, send_raw, preserve_stdin_stream=False)
         recv_cmd = sudo_wrap(dst_profile, recv_raw, preserve_stdin_stream=True)
         self._app_log("info", tr("log_copy_forced_local_execution"))
@@ -5152,6 +5183,9 @@ class App(tk.Tk):
                 return cmd
             if profile.conn_type == "SSH":
                 return f"{ssh_prefix(profile)} {shlex.quote(cmd)}"
+            if profile.conn_type == "PSRP":
+                target = f"{profile.username + '@' if profile.username else ''}{profile.host}:{profile.port or (5986 if profile.use_ssl else 5985)}"
+                return f"# PSRP {target} :: {cmd}"
             return f"# {tr('sync_unsupported_conn')} {profile.name} ({profile.conn_type})"
 
         tag = uuid.uuid4().hex[:8]
@@ -5317,7 +5351,7 @@ class App(tk.Tk):
         if not mountpoint or mountpoint.lower() == "none":
             self._app_log("normal", trf("log_breakdown_invalid_mountpoint", dataset=dataset_name, name=profile.name))
             return
-        if profile.conn_type not in {"LOCAL", "SSH"}:
+        if profile.conn_type not in {"LOCAL", "SSH", "PSRP"}:
             self._app_log("normal", trf("log_breakdown_transport_unsupported", ctype=profile.conn_type))
             return
 
@@ -5340,6 +5374,73 @@ class App(tk.Tk):
             ssh_parts.append(shlex.quote(target_host))
             ssh_parts.append(shlex.quote(remote))
             return " ".join(ssh_parts)
+
+        def _ps_quote(value: str) -> str:
+            return "'" + (value or "").replace("'", "''") + "'"
+
+        def _build_psrp_breakdown_script(dataset: str, mp_hint: str) -> str:
+            ds_q = _ps_quote(dataset)
+            mp_q = _ps_quote(mp_hint)
+            return (
+                "$ErrorActionPreference='Stop'; "
+                f"$dataset={ds_q}; $mpHint={mp_q}; "
+                "$tmpSuffix = ($dataset -replace '[^A-Za-z0-9_\\-]', '_'); "
+                "$tmpRoot = Join-Path $env:TEMP ('zfsmgr-breakdown-' + $tmpSuffix); "
+                "New-Item -ItemType Directory -Path $tmpRoot -Force | Out-Null; "
+                "try { $origMp = (zfs get -H -o value mountpoint -- $dataset).Trim() } catch { $origMp = '' }; "
+                "if ([string]::IsNullOrWhiteSpace($origMp) -or $origMp -eq 'none') { $origMp = $mpHint }; "
+                "if ([string]::IsNullOrWhiteSpace($origMp) -or $origMp -eq 'none') { throw \"[BREAKDOWN][ERROR] mountpoint invalid for $dataset\" }; "
+                "$activeMp=''; "
+                "try { "
+                "  $mountedRows = zfs mount; "
+                "  foreach ($line in $mountedRows) { "
+                "    $parts = ($line -split '\\s+'); "
+                "    if ($parts.Length -ge 2 -and $parts[0] -eq $dataset) { $activeMp = $parts[1]; break } "
+                "  } "
+                "} catch { $activeMp='' }; "
+                "$tempMounted=$false; "
+                "$mp = if ($activeMp -and (Test-Path -LiteralPath $activeMp)) { $activeMp } else { $origMp }; "
+                "if (-not (Test-Path -LiteralPath $mp)) { "
+                "  $tmpMp = Join-Path $tmpRoot '__dataset_root'; "
+                "  New-Item -ItemType Directory -Path $tmpMp -Force | Out-Null; "
+                "  try { zfs unmount -- $dataset *> $null } catch {}; "
+                "  zfs set (\"mountpoint=\" + $tmpMp) -- $dataset | Out-Null; "
+                "  zfs mount -- $dataset | Out-Null; "
+                "  $mp = $tmpMp; "
+                "  $tempMounted = $true; "
+                "} "
+                "$dirs = @(Get-ChildItem -LiteralPath $mp -Directory -Force -ErrorAction SilentlyContinue); "
+                "if ($dirs.Count -eq 0) { Write-Output (\"[BREAKDOWN] no subdirectories found in {0}\" -f $mp) } "
+                "foreach ($d in $dirs) { "
+                "  $n = $d.Name; "
+                "  $safe = ($n -replace '[^A-Za-z0-9_.:-]', '_'); "
+                "  if ([string]::IsNullOrWhiteSpace($safe)) { $safe = 'dir' }; "
+                "  $child = \"$dataset/$safe\"; "
+                "  $idx = 1; "
+                "  while ($true) { "
+                "    try { zfs list -H -o name -- $child *> $null; $child = \"$dataset/$safe-$idx\"; $idx++ } "
+                "    catch { break } "
+                "  } "
+                "  $tmp = Join-Path $tmpRoot ($child.Substring($dataset.Length + 1) -replace '[\\\\/:*?\"\"<>|]', '_'); "
+                "  zfs create -o (\"mountpoint=\" + $tmp) -- $child | Out-Null; "
+                "  New-Item -ItemType Directory -Path $tmp -Force | Out-Null; "
+                "  if (Get-Command robocopy -ErrorAction SilentlyContinue) { "
+                "    & robocopy $d.FullName $tmp /E /MOVE /COPY:DATS /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null; "
+                "  } else { "
+                "    Get-ChildItem -LiteralPath $d.FullName -Force -ErrorAction SilentlyContinue | "
+                "      ForEach-Object { Move-Item -LiteralPath $_.FullName -Destination $tmp -Force -ErrorAction Stop }; "
+                "  } "
+                "  $childFinalMp = Join-Path $origMp $n; "
+                "  zfs set (\"mountpoint=\" + $childFinalMp) -- $child | Out-Null; "
+                "  try { zfs unmount -- $child *> $null } catch {}; "
+                "  try { zfs mount -- $child *> $null } catch {}; "
+                "  Write-Output (\"[BREAKDOWN] {0} -> {1} (mp={2})\" -f $d.FullName, $child, $childFinalMp); "
+                "} "
+                "if ($tempMounted) { "
+                "  try { zfs unmount -- $dataset *> $null } catch {}; "
+                "  try { zfs set (\"mountpoint=\" + $origMp) -- $dataset | Out-Null } catch {}; "
+                "} "
+            )
 
         dataset_q = shlex.quote(dataset_name)
         mount_q = shlex.quote(mountpoint)
@@ -5411,6 +5512,17 @@ class App(tk.Tk):
             "echo \"[BREAKDOWN] no subdirectories found in $MP\"; "
             "fi"
         )
+        if profile.conn_type == "PSRP":
+            ps_cmd = _build_psrp_breakdown_script(dataset_name, mountpoint)
+            self._app_log(
+                "normal",
+                trf("log_breakdown_plan_generated", dataset=dataset_name, name=profile.name, selection=selection_label),
+            )
+            self._app_log("normal", tr("log_breakdown_plan_header"))
+            self._app_log("normal", ps_cmd)
+            self._run_breakdown_psrp_command(ps_cmd, profile, conn_id=conn_id)
+            return
+
         wrapped_cmd = _wrap_for_profile(breakdown_cmd)
         self._app_log(
             "normal",
@@ -6051,6 +6163,124 @@ class App(tk.Tk):
                 self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{conn_id}:")}
                 self.after(0, lambda: self._refresh_connection_by_id(conn_id))
                 self.after(0, lambda: self._load_side_datasets(side))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _run_level_psrp_command(
+        self,
+        ps_script: str,
+        profile: ConnectionProfile,
+        affected_conn_ids: Optional[List[str]] = None,
+    ) -> None:
+        if self.level_running:
+            self._app_log("normal", tr("log_level_already_running"))
+            return
+        self.level_running = True
+        ssh_busy(1)
+        self._update_level_button_state()
+        self._app_log("normal", tr("log_level_exec_start"))
+        self._app_log("info", tr("log_dataset_progress_tab"))
+        self._log_action_subcommands("Nivelar", ps_script)
+        target = f"{profile.username + '@' if profile.username else ''}{profile.host}:{profile.port or (5986 if profile.use_ssl else 5985)}"
+        self._ssh_log(f"{target} $ powershell -NoProfile -NonInteractive -Command <level-script>")
+
+        def worker() -> None:
+            rc = 1
+            try:
+                execu = make_executor(profile)
+                if not isinstance(execu, PSRPExecutor):
+                    raise ExecutorError(trf("log_level_transport_unsupported", src=profile.conn_type, dst=profile.conn_type))
+                out = execu._run_ps(ps_script, timeout_seconds=None)
+                if (out or "").strip():
+                    for line in out.splitlines():
+                        txt = (line or "").strip()
+                        if txt:
+                            self._ssh_log(txt)
+                rc = 0
+                self._app_log("normal", tr("log_level_exec_ok"))
+            except Exception as exc:
+                self._app_log("normal", trf("log_level_exec_runtime_error", error=exc))
+            finally:
+                ssh_busy(-1)
+                self.after(0, self._finish_level_command)
+                if rc == 0:
+                    conn_ids = [c for c in (affected_conn_ids or []) if c]
+                    if conn_ids:
+                        self.after(0, lambda ids=conn_ids: self._update_caches_after_mutation(ids))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _run_copy_psrp_command(self, ps_script: str, profile: ConnectionProfile, dst_conn_id: Optional[str] = None) -> None:
+        if self.level_running:
+            self._app_log("normal", tr("log_copy_already_running"))
+            return
+        self.level_running = True
+        ssh_busy(1)
+        self._update_level_button_state()
+        self._app_log("normal", tr("log_copy_exec_start"))
+        self._app_log("info", tr("log_dataset_progress_tab"))
+        self._log_action_subcommands("Copiar", ps_script)
+        target = f"{profile.username + '@' if profile.username else ''}{profile.host}:{profile.port or (5986 if profile.use_ssl else 5985)}"
+        self._ssh_log(f"{target} $ powershell -NoProfile -NonInteractive -Command <copy-script>")
+
+        def worker() -> None:
+            rc = 1
+            try:
+                execu = make_executor(profile)
+                if not isinstance(execu, PSRPExecutor):
+                    raise ExecutorError(trf("log_copy_transport_unsupported", src=profile.conn_type, dst=profile.conn_type))
+                out = execu._run_ps(ps_script, timeout_seconds=None)
+                if (out or "").strip():
+                    for line in out.splitlines():
+                        txt = (line or "").strip()
+                        if txt:
+                            self._ssh_log(txt)
+                rc = 0
+                self._app_log("normal", tr("log_copy_exec_ok"))
+            except Exception as exc:
+                self._app_log("normal", trf("log_copy_exec_runtime_error", error=exc))
+            finally:
+                ssh_busy(-1)
+                self.after(0, self._finish_level_command)
+                if rc == 0 and dst_conn_id:
+                    self.after(0, lambda cid=dst_conn_id: self._update_caches_after_mutation([cid]))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _run_breakdown_psrp_command(self, ps_script: str, profile: ConnectionProfile, conn_id: Optional[str] = None) -> None:
+        if self.level_running:
+            self._app_log("normal", tr("log_copy_already_running"))
+            return
+        self.level_running = True
+        ssh_busy(1)
+        self._update_level_button_state()
+        self._app_log("normal", tr("log_breakdown_exec_start"))
+        self._app_log("info", tr("log_dataset_progress_tab"))
+        self._log_action_subcommands("Desglosar", ps_script)
+        target = f"{profile.username + '@' if profile.username else ''}{profile.host}:{profile.port or (5986 if profile.use_ssl else 5985)}"
+        self._ssh_log(f"{target} $ powershell -NoProfile -NonInteractive -Command <breakdown-script>")
+
+        def worker() -> None:
+            rc = 1
+            try:
+                execu = make_executor(profile)
+                if not isinstance(execu, PSRPExecutor):
+                    raise ExecutorError(trf("log_breakdown_transport_unsupported", ctype=profile.conn_type))
+                out = execu._run_ps(ps_script, timeout_seconds=None)
+                if (out or "").strip():
+                    for line in out.splitlines():
+                        txt = (line or "").strip()
+                        if txt:
+                            self._ssh_log(txt)
+                rc = 0
+                self._app_log("normal", tr("log_breakdown_exec_ok"))
+            except Exception as exc:
+                self._app_log("normal", trf("log_breakdown_exec_runtime_error", error=exc))
+            finally:
+                ssh_busy(-1)
+                self.after(0, self._finish_level_command)
+                if conn_id and rc == 0:
+                    self.after(0, lambda cid=conn_id: self._update_caches_after_mutation([cid]))
 
         threading.Thread(target=worker, daemon=True).start()
 
