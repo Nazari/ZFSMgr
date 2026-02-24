@@ -3332,7 +3332,7 @@ class App(tk.Tk):
 
         origin_tree_wrap = ttk.LabelFrame(datasets_row, text=tr("datasets_origin"))
         origin_tree_wrap.grid(row=0, column=0, sticky="nsew", pady=(0, 6))
-        origin_tree_wrap.columnconfigure(2, weight=1)
+        origin_tree_wrap.columnconfigure(1, weight=1)
         origin_tree_wrap.rowconfigure(1, weight=1)
         ttk.Label(origin_tree_wrap, text=tr("datasets_pool")).grid(row=0, column=0, sticky="w", padx=(6, 6), pady=(4, 4))
         self.origin_pool_combo = ttk.Combobox(origin_tree_wrap, textvariable=self.origin_pool_var, state="readonly", width=42)
@@ -3381,7 +3381,7 @@ class App(tk.Tk):
 
         dest_tree_wrap = ttk.LabelFrame(datasets_row, text=tr("datasets_dest"))
         dest_tree_wrap.grid(row=1, column=0, sticky="nsew", pady=(6, 0))
-        dest_tree_wrap.columnconfigure(2, weight=1)
+        dest_tree_wrap.columnconfigure(1, weight=1)
         dest_tree_wrap.rowconfigure(1, weight=1)
         ttk.Label(dest_tree_wrap, text=tr("datasets_pool")).grid(row=0, column=0, sticky="w", padx=(6, 6), pady=(4, 4))
         self.dest_pool_combo = ttk.Combobox(dest_tree_wrap, textvariable=self.dest_pool_var, state="readonly", width=42)
@@ -3942,6 +3942,19 @@ class App(tk.Tk):
                 return conn.id
         return None
 
+    def _strip_conn_endpoint_from_log_line(self, line: str) -> str:
+        """Oculta prefijo 'usuario@host:port' en tabs por conexion."""
+        try:
+            m = re.match(
+                r"^(\[[^\]]+\]\s+)(?:\S+@)?([A-Za-z0-9._-]+):(\d+)\s+(.*)$",
+                line,
+            )
+            if m:
+                return f"{m.group(1)}{m.group(4)}".rstrip()
+        except Exception:
+            pass
+        return line
+
     def _clear_app_log(self) -> None:
         self._hide_app_log_tooltip()
         self._ssh_last_line_full = ""
@@ -4156,7 +4169,8 @@ class App(tk.Tk):
             if conn_id and conn_id in self.connection_log_tabs:
                 txt = self.connection_log_tabs[conn_id].get("text")
                 if isinstance(txt, tk.Text):
-                    self._append_line_to_log_widget(txt, line)
+                    conn_line = self._strip_conn_endpoint_from_log_line(line)
+                    self._append_line_to_log_widget(txt, conn_line)
             self._ssh_last_line_full = line
             self._refresh_ssh_last_line_summary()
         try:
