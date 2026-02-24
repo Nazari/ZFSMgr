@@ -6411,9 +6411,13 @@ class App(tk.Tk):
         current = self.dataset_selected_snapshot_by_side.get(side, {}).get(dataset_iid, "")
         current_val = f"@{current}" if current else ""
         self._hide_snapshot_dropdown()
-        editor = ttk.Combobox(tree, state="readonly", values=values, width=max(8, (w // 8)))
+        host = tree.master
+        editor = ttk.Combobox(host, state="readonly", values=values, width=max(8, (w // 8)))
         editor.set(current_val if current_val in values else "")
-        editor.place(x=x, y=y, width=w, height=h)
+        # Superpone el editor en coordenadas del contenedor del tree.
+        rel_x = tree.winfo_x() + x
+        rel_y = tree.winfo_y() + y
+        editor.place(x=rel_x, y=rel_y, width=w, height=h)
         self._snapshot_cell_editor = editor
         self._snapshot_cell_editor_side = side
         self._snapshot_cell_editor_dataset = dataset_iid
@@ -6425,7 +6429,6 @@ class App(tk.Tk):
 
         editor.bind("<<ComboboxSelected>>", _apply_selection)
         editor.bind("<Escape>", lambda _e: self._hide_snapshot_dropdown())
-        editor.bind("<FocusOut>", lambda _e: self._hide_snapshot_dropdown())
         editor.focus_set()
         try:
             editor.event_generate("<Down>")
