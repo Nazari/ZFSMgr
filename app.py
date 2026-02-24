@@ -1463,6 +1463,11 @@ class PSRPExecutor(BaseExecutor):
                     )
                 if had_errors:
                     err = _psrp_errors_to_text(streams)
+                    out_text = (output or "").strip()
+                    if out_text:
+                        # Incluye salida de PowerShell para diagnosticar fallos remotos
+                        # donde pypsrp solo entrega un ErrorRecord genérico.
+                        err = ((err + "\n") if err else "") + f"[stdout] {out_text}"
                     raise ExecutorError(err or tr("error_ps_remote"))
                 return output or ""
             except ExecutorError:
@@ -6031,6 +6036,7 @@ class App(tk.Tk):
                 else:
                     self._app_log("normal", tr("log_assemble_exec_ok"))
             except Exception as exc:
+                self._ssh_log(f"[ASSEMBLE][ERROR] {exc}")
                 self._app_log("normal", trf("log_assemble_exec_runtime_error", error=exc))
             finally:
                 self._clear_active_dataset_coop_action(cancel_event)
