@@ -215,11 +215,17 @@ def main() -> int:
     ap.add_argument("--dataset", default="games/Juegos/Applications/Windows")
     ap.add_argument("--mountpoint-hint", default="/mnt/games/Juegos/Applications/Windows")
     ap.add_argument("--conn-password", default="")
+    ap.add_argument("--host", default="", help="Sobrescribe host de la conexion")
+    ap.add_argument("--port", type=int, default=0, help="Sobrescribe puerto de la conexion")
     args = ap.parse_args()
 
     profile, ini_path = load_profile(args.master_password, args.connection)
     if args.conn_password:
         profile.password = args.conn_password
+    if args.host:
+        profile.host = args.host
+    if args.port:
+        profile.port = int(args.port)
 
     if profile.conn_type != "PSRP":
         raise RuntimeError(f"La conexion {profile.name} no es PSRP (es {profile.conn_type})")
@@ -232,7 +238,7 @@ def main() -> int:
 
     dataset = args.dataset.strip()
     hint = args.mountpoint_hint.strip()
-    print(f"[RUN] connection={profile.name} ini={ini_path}")
+    print(f"[RUN] connection={profile.name} ini={ini_path} host={profile.host}:{profile.port}")
     print(f"[RUN] dataset={dataset}")
 
     try:
