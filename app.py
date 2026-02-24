@@ -2907,7 +2907,7 @@ class App(tk.Tk):
         self.pool_status_cache: Dict[str, str] = {}
         self.pool_status_loading: set[str] = set()
         self.pool_status_lock = threading.Lock()
-        self.dataset_snapshot_max_cols = 3
+        self.dataset_snapshot_max_cols = 1
         self.dataset_snapshot_col_ids = [f"snap{i}" for i in range(1, self.dataset_snapshot_max_cols + 1)]
         self.dataset_snapshot_more_col_id = "snap_more"
         self.dataset_snapshots_by_side: Dict[str, Dict[str, List[str]]] = {"origin": {}, "dest": {}}
