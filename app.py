@@ -2891,6 +2891,7 @@ class App(tk.Tk):
         self._active_dataset_proc: Optional[subprocess.Popen[str]] = None
         self._active_dataset_action: str = ""
         self._dataset_cancel_requested = False
+        self._active_dataset_cancel_event: Optional[threading.Event] = None
         self.pool_props_loading_count = 0
         self._busy_cursor = "wait" if os.name == "nt" else "watch"
         self.selected_imported_pool: Optional[Tuple[str, str]] = None
@@ -5550,7 +5551,7 @@ class App(tk.Tk):
             )
             self._app_log("normal", tr("log_assemble_plan_header"))
             self._app_log("normal", ps_cmd)
-            self._run_assemble_psrp_command(ps_cmd, profile, conn_id=conn_id)
+            self._run_assemble_psrp_command(ps_cmd, profile, conn_id=conn_id, dataset_name=dataset_name, mountpoint_hint=mountpoint)
             return
 
         assemble_cmd = (
@@ -5673,7 +5674,14 @@ class App(tk.Tk):
         self._app_log("normal", wrapped_cmd)
         self._run_assemble_command(wrapped_cmd, conn_id=conn_id)
 
-    def _run_assemble_psrp_command(self, ps_script: str, profile: ConnectionProfile, conn_id: Optional[str] = None) -> None:
+    def _run_assemble_psrp_command(
+        self,
+        ps_script: str,
+        profile: ConnectionProfile,
+        conn_id: Optional[str] = None,
+        dataset_name: str = "",
+        mountpoint_hint: str = "",
+    ) -> None:
         if self.level_running:
             self._app_log("normal", tr("log_copy_already_running"))
             return
@@ -5685,27 +5693,140 @@ class App(tk.Tk):
         self._log_action_subcommands("Ensamblar", ps_script)
         target = f"{profile.username + '@' if profile.username else ''}{profile.host}:{profile.port or (5986 if profile.use_ssl else 5985)}"
         self._ssh_log(f"{target} $ powershell -NoProfile -NonInteractive -Command <assemble-script>")
+        cancel_event = threading.Event()
+        self._set_active_dataset_coop_action(tr("datasets_assemble_btn"), cancel_event)
+
+        def _ps_quote(value: str) -> str:
+            return "'" + (value or "").replace("'", "''") + "'"
+
+        def _build_children_list_script(dataset_name: str) -> str:
+            ds_q = _ps_quote(dataset_name)
+            return (
+                "$ErrorActionPreference='Stop'; "
+                f"$dataset={ds_q}; "
+                "$children = @(zfs list -H -o name -t filesystem,volume -r -- $dataset | "
+                "Where-Object { $_ -like ($dataset + '/*') }); "
+                "$children = $children | Sort-Object { ($_ -split '/').Count } -Descending; "
+                "$children -join \"`n\""
+            )
+
+        def _build_child_script(dataset_name: str, mountpoint_hint: str, child_name: str) -> str:
+            ds_q = _ps_quote(dataset_name)
+            mp_q = _ps_quote(mountpoint_hint)
+            child_q = _ps_quote(child_name)
+            return (
+                "$ErrorActionPreference='Stop'; "
+                f"$dataset={ds_q}; $mpHint={mp_q}; $child={child_q}; "
+                "$tmpSuffix = ($dataset -replace '[^A-Za-z0-9_\\-]', '_'); "
+                "$tmpRoot = Join-Path $env:TEMP ('zfsmgr-assemble-' + $tmpSuffix); "
+                "New-Item -ItemType Directory -Path $tmpRoot -Force | Out-Null; "
+                "try { $origMp = (zfs get -H -o value mountpoint -- $dataset).Trim() } catch { $origMp = '' }; "
+                "if ([string]::IsNullOrWhiteSpace($origMp) -or $origMp -eq 'none') { $origMp = $mpHint }; "
+                "if ([string]::IsNullOrWhiteSpace($origMp) -or $origMp -eq 'none') { throw \"[ASSEMBLE][ERROR] mountpoint invalid for $dataset\" }; "
+                "$activeMp=''; "
+                "try { "
+                "  $mountedRows = zfs mount; "
+                "  foreach ($line in $mountedRows) { "
+                "    $parts = ($line -split '\\s+'); "
+                "    if ($parts.Length -ge 2 -and $parts[0] -eq $dataset) { $activeMp = $parts[1]; break } "
+                "  } "
+                "} catch { $activeMp='' }; "
+                "$tempMounted=$false; "
+                "$mp = if ($activeMp -and (Test-Path -LiteralPath $activeMp)) { $activeMp } else { $origMp }; "
+                "if (-not (Test-Path -LiteralPath $mp)) { "
+                "  $tmpMp = Join-Path $tmpRoot '__dataset_root'; "
+                "  New-Item -ItemType Directory -Path $tmpMp -Force | Out-Null; "
+                "  try { zfs unmount -- $dataset *> $null } catch {}; "
+                "  zfs set (\"mountpoint=\" + $tmpMp) -- $dataset | Out-Null; "
+                "  zfs mount -- $dataset | Out-Null; "
+                "  $mp = $tmpMp; "
+                "  $tempMounted = $true; "
+                "} "
+                "$rel = $child.Substring($dataset.Length + 1); "
+                "$dest = Join-Path $mp $rel; "
+                "New-Item -ItemType Directory -Path $dest -Force | Out-Null; "
+                "$safeRel = ($rel -replace '[\\\\/:*?\"\"<>|]', '_'); "
+                "$childTmp = Join-Path $tmpRoot $safeRel; "
+                "$suffix=1; "
+                "while (Test-Path -LiteralPath $childTmp) { $childTmp = Join-Path $tmpRoot ($safeRel + '-' + $suffix); $suffix++ }; "
+                "New-Item -ItemType Directory -Path $childTmp -Force | Out-Null; "
+                "$childMpOrig=''; "
+                "try { $childMpOrig = (zfs get -H -o value mountpoint -- $child).Trim() } catch { $childMpOrig='' }; "
+                "try { zfs unmount -- $child *> $null } catch {}; "
+                "zfs set (\"mountpoint=\" + $childTmp) -- $child | Out-Null; "
+                "zfs mount -- $child | Out-Null; "
+                "$copied = $false; "
+                "if (Get-Command robocopy -ErrorAction SilentlyContinue) { "
+                "  & robocopy $childTmp $dest /E /COPY:DATS /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null; "
+                "  if ($LASTEXITCODE -le 7) { $copied = $true } "
+                "} "
+                "if (-not $copied) { "
+                "  if (Test-Path -LiteralPath $childTmp) { "
+                "    Get-ChildItem -LiteralPath $childTmp -Force -ErrorAction SilentlyContinue | "
+                "      ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $dest -Recurse -Force -ErrorAction Stop } "
+                "  } "
+                "} "
+                "try { zfs unmount -- $child *> $null } catch {}; "
+                "if (-not [string]::IsNullOrWhiteSpace($childMpOrig) -and $childMpOrig -ne 'none') { "
+                "  try { zfs set (\"mountpoint=\" + $childMpOrig) -- $child | Out-Null } catch {} "
+                "} "
+                "try { Remove-Item -LiteralPath $childTmp -Force -Recurse -ErrorAction SilentlyContinue } catch {}; "
+                "zfs destroy -r -- $child | Out-Null; "
+                "if ($tempMounted) { "
+                "  try { zfs unmount -- $dataset *> $null } catch {}; "
+                "  try { zfs set (\"mountpoint=\" + $origMp) -- $dataset | Out-Null } catch {}; "
+                "} "
+                "Write-Output (\"[ASSEMBLE] {0} -> {1} and removed dataset\" -f $child, $dest); "
+            )
 
         def worker() -> None:
             rc = 1
+            cancelled = False
             try:
                 execu = make_executor(profile)
                 if not isinstance(execu, PSRPExecutor):
                     raise ExecutorError(trf("log_assemble_transport_unsupported", ctype=profile.conn_type))
-                out = execu._run_ps(ps_script, timeout_seconds=None)
-                if (out or "").strip():
-                    for line in out.splitlines():
-                        txt = (line or "").strip()
-                        if txt:
-                            self._ssh_log(txt)
-                rc = 0
-                self._app_log("normal", tr("log_assemble_exec_ok"))
+                target_dataset = (dataset_name or "").strip()
+                hint_mountpoint = (mountpoint_hint or "").strip()
+                if not target_dataset:
+                    for part in (ps_script or "").split(";"):
+                        seg = part.strip()
+                        if seg.startswith("$dataset="):
+                            target_dataset = seg[len("$dataset="):].strip().strip("'").replace("''", "'")
+                        if seg.startswith("$mpHint="):
+                            hint_mountpoint = seg[len("$mpHint="):].strip().strip("'").replace("''", "'")
+
+                list_script = _build_children_list_script(target_dataset)
+                children_out = execu._run_ps(list_script, timeout_seconds=None)
+                children = [line.strip() for line in (children_out or "").splitlines() if line.strip()]
+                if not children:
+                    self._ssh_log(f"[ASSEMBLE] no child datasets found in {target_dataset}")
+                    rc = 0
+                else:
+                    for child in children:
+                        if cancel_event.is_set():
+                            cancelled = True
+                            break
+                        child_script = _build_child_script(target_dataset, hint_mountpoint, child)
+                        self._ssh_log(f"[ASSEMBLE] processing {child}")
+                        out = execu._run_ps(child_script, timeout_seconds=None)
+                        if (out or "").strip():
+                            for line in out.splitlines():
+                                txt = (line or "").strip()
+                                if txt:
+                                    self._ssh_log(txt)
+                    rc = 0 if not cancelled else 130
+                if cancelled:
+                    self._app_log("normal", tr("log_dataset_cancel_done"))
+                else:
+                    self._app_log("normal", tr("log_assemble_exec_ok"))
             except Exception as exc:
                 self._app_log("normal", trf("log_assemble_exec_runtime_error", error=exc))
             finally:
+                self._clear_active_dataset_coop_action(cancel_event)
                 ssh_busy(-1)
                 self.after(0, self._finish_level_command)
-                if conn_id and rc == 0:
+                if conn_id and rc == 0 and not cancelled:
                     self.after(0, lambda cid=conn_id: self._update_caches_after_mutation([cid]))
 
         threading.Thread(target=worker, daemon=True).start()
@@ -6228,6 +6349,15 @@ class App(tk.Tk):
             self._active_dataset_proc = proc
             self._active_dataset_action = action
             self._dataset_cancel_requested = False
+            self._active_dataset_cancel_event = None
+        self.after(0, lambda: self._set_cancel_button_visibility(True, enabled=True))
+
+    def _set_active_dataset_coop_action(self, action: str, cancel_event: threading.Event) -> None:
+        with self._dataset_proc_lock:
+            self._active_dataset_proc = None
+            self._active_dataset_action = action
+            self._dataset_cancel_requested = False
+            self._active_dataset_cancel_event = cancel_event
         self.after(0, lambda: self._set_cancel_button_visibility(True, enabled=True))
 
     def _clear_active_dataset_process(self, proc: Optional[subprocess.Popen[str]] = None) -> None:
@@ -6236,6 +6366,16 @@ class App(tk.Tk):
                 self._active_dataset_proc = None
                 self._active_dataset_action = ""
                 self._dataset_cancel_requested = False
+                self._active_dataset_cancel_event = None
+        self.after(0, lambda: self._set_cancel_button_visibility(False, enabled=False))
+
+    def _clear_active_dataset_coop_action(self, cancel_event: Optional[threading.Event] = None) -> None:
+        with self._dataset_proc_lock:
+            if cancel_event is None or self._active_dataset_cancel_event is cancel_event:
+                self._active_dataset_proc = None
+                self._active_dataset_action = ""
+                self._dataset_cancel_requested = False
+                self._active_dataset_cancel_event = None
         self.after(0, lambda: self._set_cancel_button_visibility(False, enabled=False))
 
     def _set_cancel_button_visibility(self, visible: bool, enabled: bool) -> None:
@@ -6252,14 +6392,19 @@ class App(tk.Tk):
         with self._dataset_proc_lock:
             proc = self._active_dataset_proc
             action = self._active_dataset_action
+            cancel_event = self._active_dataset_cancel_event
             if proc is None or proc.poll() is not None:
                 proc = None
             else:
                 self._dataset_cancel_requested = True
-        if proc is None:
+        if proc is None and cancel_event is None:
             self._app_log("info", tr("log_dataset_cancel_noop"))
             return
         self._app_log("normal", trf("log_dataset_cancel_requested", action=action or "-"))
+        if cancel_event is not None:
+            self._dataset_cancel_requested = True
+            cancel_event.set()
+            return
         try:
             proc.terminate()
         except Exception:
