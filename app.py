@@ -3737,17 +3737,27 @@ class App(tk.Tk):
         )
         self.app_log_level_combo.grid(row=0, column=1, sticky="w", padx=(6, 0))
         self.app_log_level_combo.bind("<<ComboboxSelected>>", self._on_log_level_changed)
+        self.log_max_lines_var = tk.StringVar(value="500")
+        self.log_max_lines_combo = ttk.Combobox(
+            log_controls,
+            textvariable=self.log_max_lines_var,
+            values=["100", "200", "500", "1000"],
+            state="readonly",
+            width=6,
+        )
+        self.log_max_lines_combo.grid(row=0, column=2, sticky="w", padx=(8, 0))
+        self.log_max_lines_combo.bind("<<ComboboxSelected>>", self._on_log_max_lines_changed)
         self.log_clear_btn = ttk.Button(log_controls, text=tr("log_clear"), command=self._clear_app_log)
-        self.log_clear_btn.grid(row=0, column=2, sticky="w", padx=(8, 0))
+        self.log_clear_btn.grid(row=0, column=3, sticky="w", padx=(8, 0))
         self.log_copy_btn = ttk.Button(log_controls, text=tr("log_copy"), command=self._copy_app_log)
-        self.log_copy_btn.grid(row=0, column=3, sticky="w", padx=(6, 0))
+        self.log_copy_btn.grid(row=0, column=4, sticky="w", padx=(6, 0))
         self.cancel_dataset_btn = ttk.Button(
             log_controls,
             text=tr("cancel_operation_btn"),
             width=8,
             command=self._cancel_dataset_operation,
         )
-        self.cancel_dataset_btn.grid(row=0, column=4, sticky="e", padx=(12, 0))
+        self.cancel_dataset_btn.grid(row=0, column=5, sticky="e", padx=(12, 0))
         self.cancel_dataset_btn.configure(state="disabled")
         self.cancel_dataset_btn.grid_remove()
 
@@ -4090,8 +4100,41 @@ class App(tk.Tk):
     def _append_line_to_log_widget(self, widget: tk.Text, line: str) -> None:
         widget.configure(state="normal")
         widget.insert("end", line + "\n")
+        self._trim_log_widget_lines(widget)
         widget.see("end")
         widget.configure(state="disabled")
+
+    def _max_log_lines(self) -> int:
+        try:
+            return max(1, int((self.log_max_lines_var.get() or "500").strip()))
+        except Exception:
+            return 500
+
+    def _trim_log_widget_lines(self, widget: tk.Text) -> None:
+        try:
+            limit = self._max_log_lines()
+            # "end-1c" evita contar la linea vacia final de Tk Text.
+            total_lines = int(widget.index("end-1c").split(".", 1)[0])
+            if total_lines <= limit:
+                return
+            remove = total_lines - limit
+            widget.delete("1.0", f"{remove + 1}.0")
+        except Exception:
+            pass
+
+    def _trim_all_log_widgets(self) -> None:
+        widgets: List[tk.Text] = [self.app_log_text]
+        for entry in self.connection_log_tabs.values():
+            txt = entry.get("text")
+            if isinstance(txt, tk.Text):
+                widgets.append(txt)
+        for w in widgets:
+            try:
+                w.configure(state="normal")
+                self._trim_log_widget_lines(w)
+                w.configure(state="disabled")
+            except Exception:
+                pass
 
     def _resolve_conn_id_from_ssh_line(self, line: str) -> Optional[str]:
         try:
@@ -4172,6 +4215,10 @@ class App(tk.Tk):
             level = "normal"
         self._app_log_level_cached = level
         self._app_log("info", tr("log_level_updated"))
+
+    def _on_log_max_lines_changed(self, _event: Any = None) -> None:
+        self._trim_all_log_widgets()
+        self._app_log("info", f"Max log lines: {self._max_log_lines()}")
 
     def _should_log(self, level: str) -> bool:
         order = {"normal": 0, "info": 1, "debug": 2}
@@ -4516,6 +4563,7 @@ class App(tk.Tk):
         self.origin_pool_combo.configure(state=combo_state)
         self.dest_pool_combo.configure(state=combo_state)
         self.app_log_level_combo.configure(state=combo_state)
+        self.log_max_lines_combo.configure(state=combo_state)
         # Importar/Exportar se bloquea por validacion en click handlers.
         self._update_level_button_state()
         self._refresh_busy_cursor()
