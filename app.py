@@ -3399,8 +3399,23 @@ class App(tk.Tk):
         self.origin_pool_combo = ttk.Combobox(origin_top, textvariable=self.origin_pool_var, state="readonly", width=21)
         self.origin_pool_combo.grid(row=0, column=0, sticky="w", padx=(0, 2))
         self.origin_pool_combo.bind("<<ComboboxSelected>>", self._on_origin_pool_selected)
+        self.origin_root_dataset_lbl = tk.Label(
+            origin_top,
+            text="",
+            bg=combo_field_bg,
+            fg=UI_TEXT,
+            relief="solid",
+            borderwidth=1,
+            anchor="w",
+            padx=4,
+            pady=1,
+            cursor="hand2",
+            font=self.snapshot_font_normal,
+        )
+        self.origin_root_dataset_lbl.grid(row=0, column=1, sticky="w", padx=(0, 2))
+        self.origin_root_dataset_lbl.bind("<Button-1>", lambda _e: self._on_root_dataset_click("origin"))
         self.origin_root_snaps_wrap = tk.Frame(origin_top, bg=combo_field_bg)
-        self.origin_root_snaps_wrap.grid(row=0, column=1, sticky="w")
+        self.origin_root_snaps_wrap.grid(row=0, column=2, sticky="w")
         self.origin_root_snap_labels: List[tk.Label] = []
         for idx in range(self.dataset_snapshot_max_cols):
             lbl = tk.Label(
@@ -3498,8 +3513,23 @@ class App(tk.Tk):
         self.dest_pool_combo = ttk.Combobox(dest_top, textvariable=self.dest_pool_var, state="readonly", width=21)
         self.dest_pool_combo.grid(row=0, column=0, sticky="w", padx=(0, 2))
         self.dest_pool_combo.bind("<<ComboboxSelected>>", self._on_dest_pool_selected)
+        self.dest_root_dataset_lbl = tk.Label(
+            dest_top,
+            text="",
+            bg=combo_field_bg,
+            fg=UI_TEXT,
+            relief="solid",
+            borderwidth=1,
+            anchor="w",
+            padx=4,
+            pady=1,
+            cursor="hand2",
+            font=self.snapshot_font_normal,
+        )
+        self.dest_root_dataset_lbl.grid(row=0, column=1, sticky="w", padx=(0, 2))
+        self.dest_root_dataset_lbl.bind("<Button-1>", lambda _e: self._on_root_dataset_click("dest"))
         self.dest_root_snaps_wrap = tk.Frame(dest_top, bg=combo_field_bg)
-        self.dest_root_snaps_wrap.grid(row=0, column=1, sticky="w")
+        self.dest_root_snaps_wrap.grid(row=0, column=2, sticky="w")
         self.dest_root_snap_labels: List[tk.Label] = []
         for idx in range(self.dataset_snapshot_max_cols):
             lbl = tk.Label(
@@ -6274,6 +6304,13 @@ class App(tk.Tk):
         snaps = self.dataset_root_snapshots_by_side.get(side, {}).get(pool, []) if pool else []
         labels = self.origin_root_snap_labels if side == "origin" else self.dest_root_snap_labels
         more_lbl = self.origin_root_snap_more if side == "origin" else self.dest_root_snap_more
+        root_lbl = self.origin_root_dataset_lbl if side == "origin" else self.dest_root_dataset_lbl
+        if pool:
+            root_lbl.configure(text=pool)
+            root_lbl.grid()
+        else:
+            root_lbl.configure(text="")
+            root_lbl.grid_remove()
         for idx, lbl in enumerate(labels):
             txt = f"@{snaps[idx]}" if idx < len(snaps) else ""
             lbl.configure(text=txt, font=self.snapshot_font_normal)
@@ -6287,6 +6324,19 @@ class App(tk.Tk):
         else:
             more_lbl.configure(text="", font=self.snapshot_font_normal)
             more_lbl.grid_remove()
+
+    def _on_root_dataset_click(self, side: str) -> None:
+        if self._reject_if_ssh_busy():
+            return
+        pool = self._current_selected_pool_name(side)
+        if not pool:
+            return
+        tree = self.datasets_tree_origin if side == "origin" else self.datasets_tree_dest
+        try:
+            tree.selection_remove(tree.selection())
+        except Exception:
+            pass
+        self._set_dataset_selection(side, pool, None)
 
     def _on_root_snapshot_cell_click(self, side: str, snap_idx: int) -> None:
         if self._reject_if_ssh_busy():
@@ -6341,7 +6391,7 @@ class App(tk.Tk):
 
     def _set_dataset_selection(self, side: str, dataset_iid: str, snapshot_name: Optional[str]) -> None:
         dataset_iid = (dataset_iid or "").strip()
-        if snapshot_name and dataset_iid and dataset_iid == self._current_selected_pool_name(side):
+        if dataset_iid and dataset_iid == self._current_selected_pool_name(side):
             tree = self.datasets_tree_origin if side == "origin" else self.datasets_tree_dest
             try:
                 tree.selection_remove(tree.selection())
@@ -6390,7 +6440,10 @@ class App(tk.Tk):
         snaps = self.dataset_root_snapshots_by_side.get(side, {}).get(pool, []) if pool else []
         labels = self.origin_root_snap_labels if side == "origin" else self.dest_root_snap_labels
         more_lbl = self.origin_root_snap_more if side == "origin" else self.dest_root_snap_more
+        root_lbl = self.origin_root_dataset_lbl if side == "origin" else self.dest_root_dataset_lbl
         is_root_snapshot = bool(selected_snap and selected_ds and selected_ds == pool)
+        is_root_dataset = bool((not selected_snap) and selected_ds and selected_ds == pool)
+        root_lbl.configure(font=(self.snapshot_font_selected if is_root_dataset else self.snapshot_font_normal))
         for idx, lbl in enumerate(labels):
             snap_name = snaps[idx] if idx < len(snaps) else ""
             if is_root_snapshot and selected_snap == snap_name and snap_name:
@@ -6747,8 +6800,21 @@ class App(tk.Tk):
         dest_sel = self.datasets_tree_dest.selection()
         src_dataset_only = src.split("@", 1)[0] if "@" in src else src
         origin_pool_name = self._current_selected_pool_name("origin")
-        origin_selected_ok = bool(origin_sel and str(origin_sel[0]).strip() == src_dataset_only and "@" not in src)
-        dest_selected_ok = bool(dest_sel and str(dest_sel[0]).strip() == dst and "@" not in dst)
+        dest_pool_name = self._current_selected_pool_name("dest")
+        origin_selected_ok = bool(
+            "@" not in src
+            and (
+                (origin_sel and str(origin_sel[0]).strip() == src_dataset_only)
+                or ((not origin_sel) and src_dataset_only == origin_pool_name)
+            )
+        )
+        dest_selected_ok = bool(
+            "@" not in dst
+            and (
+                (dest_sel and str(dest_sel[0]).strip() == dst)
+                or ((not dest_sel) and dst == dest_pool_name)
+            )
+        )
         enabled = bool((not self.level_running) and (self.ssh_busy_count == 0) and origin_selected_ok and dest_selected_ok)
         origin_snapshot_ok = bool(
             "@" in src
