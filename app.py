@@ -6445,7 +6445,14 @@ class App(tk.Tk):
             self._set_dataset_selection(side, row_iid, None)
             return
         if col_token == "#1":
-            self._open_snapshot_dropdown(side, tree, row_iid)
+            # Primero asegura la seleccion de fila; abre el dropdown despues
+            # para evitar que <<TreeviewSelect>> lo cierre inmediatamente.
+            try:
+                tree.selection_set(row_iid)
+                tree.focus(row_iid)
+            except Exception:
+                pass
+            self.after_idle(lambda s=side, t=tree, iid=row_iid: self._open_snapshot_dropdown(s, t, iid))
             return
         self._set_dataset_selection(side, row_iid, None)
 
