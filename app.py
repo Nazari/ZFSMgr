@@ -3230,7 +3230,7 @@ class App(tk.Tk):
             base_width = max(top_container.winfo_width(), self.winfo_width(), 1200)
             current_height = max(self.winfo_height(), top_container.winfo_height(), 700)
             target_min_height = int(current_height * 1.15)
-            width = max(260, int(base_width * 0.23))
+            width = max(260, int(base_width * 0.184))
             top_container.grid_columnconfigure(0, minsize=width)
             self._left_tabs_fixed_width = width
             cur_min_w, cur_min_h = self.minsize()
