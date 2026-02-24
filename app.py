@@ -6157,6 +6157,12 @@ class App(tk.Tk):
     def _on_origin_pool_selected(self, _event: Any = None) -> None:
         if self._reject_if_ssh_busy():
             return
+        self._hide_snapshot_dropdown()
+        self.dataset_selected_snapshot_by_side["origin"].clear()
+        try:
+            self.datasets_tree_origin.selection_remove(self.datasets_tree_origin.selection())
+        except Exception:
+            pass
         self.origin_dataset_var.set("")
         self._render_dataset_properties("origin", None)
         self._update_snapshot_highlight("origin")
@@ -6166,6 +6172,12 @@ class App(tk.Tk):
     def _on_dest_pool_selected(self, _event: Any = None) -> None:
         if self._reject_if_ssh_busy():
             return
+        self._hide_snapshot_dropdown()
+        self.dataset_selected_snapshot_by_side["dest"].clear()
+        try:
+            self.datasets_tree_dest.selection_remove(self.datasets_tree_dest.selection())
+        except Exception:
+            pass
         self.dest_dataset_var.set("")
         self._render_dataset_properties("dest", None)
         self._update_snapshot_highlight("dest")
