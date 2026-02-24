@@ -6190,6 +6190,14 @@ class App(tk.Tk):
                 self.dataset_selected_snapshot_by_side.setdefault(side, {})[dataset_iid] = snapshot_name
             else:
                 self.dataset_selected_snapshot_by_side.setdefault(side, {}).pop(dataset_iid, None)
+            tree = self.datasets_tree_origin if side == "origin" else self.datasets_tree_dest
+            snaps = self.dataset_snapshots_by_side.get(side, {}).get(dataset_iid, [])
+            selected_snap = self.dataset_selected_snapshot_by_side.get(side, {}).get(dataset_iid, "")
+            cell_value = f"@{selected_snap}" if selected_snap else ("(none)" if snaps else "")
+            try:
+                tree.item(dataset_iid, values=(cell_value,))
+            except Exception:
+                pass
         selected_name = f"{dataset_iid}@{snapshot_name}" if dataset_iid and snapshot_name else dataset_iid
         self.last_selected_dataset_side = side
         if side == "origin":
