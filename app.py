@@ -6214,7 +6214,8 @@ class App(tk.Tk):
     def _set_dataset_selection(self, side: str, dataset_iid: str, snapshot_name: Optional[str]) -> None:
         self._hide_snapshot_dropdown()
         dataset_iid = (dataset_iid or "").strip()
-        none_label = f"({tr('label_none')})"
+        raw_none = str(tr("label_none") or "").strip()
+        none_label = raw_none if (raw_none.startswith("(") and raw_none.endswith(")")) else f"({raw_none})"
         snap_map = self.dataset_selected_snapshot_by_side.setdefault(side, {})
         tree = self.datasets_tree_origin if side == "origin" else self.datasets_tree_dest
 
@@ -6282,7 +6283,8 @@ class App(tk.Tk):
             return
         self._hide_snapshot_dropdown()
 
-        none_label = f"({tr('label_none')})"
+        raw_none = str(tr("label_none") or "").strip()
+        none_label = raw_none if (raw_none.startswith("(") and raw_none.endswith(")")) else f"({raw_none})"
         options = [none_label] + [f"@{snap}" for snap in snaps]
         current_snap = self.dataset_selected_snapshot_by_side.get(side, {}).get(dataset_iid, "")
         selected_value = f"@{current_snap}" if current_snap else none_label
@@ -6763,7 +6765,8 @@ class App(tk.Tk):
             if selected_snap and selected_snap not in snaps_sorted:
                 self.dataset_selected_snapshot_by_side.get(side, {}).pop(dataset_full, None)
                 selected_snap = ""
-            none_label = f"({tr('label_none')})"
+            raw_none = str(tr("label_none") or "").strip()
+            none_label = raw_none if (raw_none.startswith("(") and raw_none.endswith(")")) else f"({raw_none})"
             values: List[str] = [f"@{selected_snap}" if selected_snap else (none_label if snaps_sorted else "")]
             if dataset_full in inserted:
                 try:
