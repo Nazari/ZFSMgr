@@ -5487,32 +5487,12 @@ class App(tk.Tk):
             pre_steps.extend(
                 [
                     run_on(src_profile, sudo_wrap(src_profile, f"mkdir -p {shlex.quote(src_tmp)}")),
-                    run_on(
-                        src_profile,
-                        sudo_wrap(
-                            src_profile,
-                            f"orig_mp=$(zfs get -H -o value mountpoint {src_q}); zfs set com.zfsmgr:orig_mountpoint=\"$orig_mp\" {src_q}",
-                        ),
-                    ),
-                    run_on(
-                        src_profile,
-                        sudo_wrap(src_profile, f"zfs set mountpoint={shlex.quote(src_tmp)} {src_q} && zfs mount {src_q}"),
-                    ),
+                    run_on(src_profile, sudo_wrap(src_profile, f"mount -t zfs {src_q} {shlex.quote(src_tmp)} || mount -t zfs -o zfsutil {src_q} {shlex.quote(src_tmp)}")),
                 ]
             )
             post_steps.extend(
                 [
-                    run_on(src_profile, sudo_wrap(src_profile, f"zfs unmount {src_q}")),
-                    run_on(
-                        src_profile,
-                        sudo_wrap(
-                            src_profile,
-                            f"orig_mp=$(zfs get -H -o value com.zfsmgr:orig_mountpoint {src_q} 2>/dev/null || true); "
-                            f'[ -n "$orig_mp" ] && zfs set mountpoint="$orig_mp" {src_q}; '
-                            f"zfs inherit com.zfsmgr:orig_mountpoint {src_q} >/dev/null 2>&1 || true; "
-                            f"zfs mount {src_q} >/dev/null 2>&1 || true",
-                        ),
-                    ),
+                    run_on(src_profile, sudo_wrap(src_profile, f"umount {shlex.quote(src_tmp)} || true")),
                     run_on(src_profile, sudo_wrap(src_profile, f"rmdir {shlex.quote(src_tmp)} || true")),
                 ]
             )
@@ -5521,32 +5501,12 @@ class App(tk.Tk):
             pre_steps.extend(
                 [
                     run_on(dst_profile, sudo_wrap(dst_profile, f"mkdir -p {shlex.quote(dst_tmp)}")),
-                    run_on(
-                        dst_profile,
-                        sudo_wrap(
-                            dst_profile,
-                            f"orig_mp=$(zfs get -H -o value mountpoint {dst_q}); zfs set com.zfsmgr:orig_mountpoint=\"$orig_mp\" {dst_q}",
-                        ),
-                    ),
-                    run_on(
-                        dst_profile,
-                        sudo_wrap(dst_profile, f"zfs set mountpoint={shlex.quote(dst_tmp)} {dst_q} && zfs mount {dst_q}"),
-                    ),
+                    run_on(dst_profile, sudo_wrap(dst_profile, f"mount -t zfs {dst_q} {shlex.quote(dst_tmp)} || mount -t zfs -o zfsutil {dst_q} {shlex.quote(dst_tmp)}")),
                 ]
             )
             post_steps.extend(
                 [
-                    run_on(dst_profile, sudo_wrap(dst_profile, f"zfs unmount {dst_q}")),
-                    run_on(
-                        dst_profile,
-                        sudo_wrap(
-                            dst_profile,
-                            f"orig_mp=$(zfs get -H -o value com.zfsmgr:orig_mountpoint {dst_q} 2>/dev/null || true); "
-                            f'[ -n "$orig_mp" ] && zfs set mountpoint="$orig_mp" {dst_q}; '
-                            f"zfs inherit com.zfsmgr:orig_mountpoint {dst_q} >/dev/null 2>&1 || true; "
-                            f"zfs mount {dst_q} >/dev/null 2>&1 || true",
-                        ),
-                    ),
+                    run_on(dst_profile, sudo_wrap(dst_profile, f"umount {shlex.quote(dst_tmp)} || true")),
                     run_on(dst_profile, sudo_wrap(dst_profile, f"rmdir {shlex.quote(dst_tmp)} || true")),
                 ]
             )
@@ -5873,20 +5833,25 @@ class App(tk.Tk):
             "if [ \"$MOUNTED\" = \"yes\" ] || [ -n \"$ACTIVE_MP\" ]; then WAS_MOUNTED=1; fi; "
             "TMP_MP=\"$TMP_ROOT/__dataset_root\"; "
             "mkdir -p \"$TMP_MP\"; "
-            "zfs unmount \"$DATASET\" >/dev/null 2>&1 || true; "
-            "zfs set mountpoint=\"$TMP_MP\" \"$DATASET\" >/dev/null 2>&1 || true; "
-            "if ! zfs mount \"$DATASET\" >/dev/null 2>&1; then "
+            "TEMP_KIND=''; "
+            "if mount -t zfs \"$DATASET\" \"$TMP_MP\" >/dev/null 2>&1 || mount -t zfs -o zfsutil \"$DATASET\" \"$TMP_MP\" >/dev/null 2>&1; then "
+            "MP=\"$TMP_MP\"; TEMP_KIND='manual'; "
+            "else "
+            "zfs mount \"$DATASET\" >/dev/null 2>&1 || true; "
             "ACTIVE_RETRY=\"$(zfs mount 2>/dev/null | awk -v ds=\"$DATASET\" '$1==ds {print $2; exit}')\"; "
-            "[ \"$ACTIVE_RETRY\" = \"$TMP_MP\" ] || { echo \"[ASSEMBLE][ERROR] cannot mount dataset in temp dir: $DATASET\"; exit 33; }; "
+            "[ -n \"$ACTIVE_RETRY\" ] && [ -d \"$ACTIVE_RETRY\" ] || { echo \"[BREAKDOWN][ERROR] cannot mount dataset: $DATASET\"; exit 33; }; "
+            "MP=\"$ACTIVE_RETRY\"; TEMP_KIND='zfs'; "
             "fi; "
-            "MP=\"$TMP_MP\"; "
             "TEMP_MOUNTED=1; "
             "cleanup() { "
             "rc=$?; "
             "if [ \"$TEMP_MOUNTED\" = \"1\" ]; then "
+            "if [ \"$TEMP_KIND\" = \"manual\" ]; then "
+            "umount \"$TMP_MP\" >/dev/null 2>&1 || true; "
+            "rmdir \"$TMP_MP\" >/dev/null 2>&1 || true; "
+            "elif [ \"$TEMP_KIND\" = \"zfs\" ] && [ \"$WAS_MOUNTED\" != \"1\" ]; then "
             "zfs unmount \"$DATASET\" >/dev/null 2>&1 || true; "
-            "zfs set mountpoint=\"$ORIG_MP\" \"$DATASET\" >/dev/null 2>&1 || true; "
-            "if [ \"$WAS_MOUNTED\" = \"1\" ]; then zfs mount \"$DATASET\" >/dev/null 2>&1 || true; fi; "
+            "fi; "
             "fi; "
             "exit \"$rc\"; "
             "}; "
@@ -5910,13 +5875,21 @@ class App(tk.Tk):
             "tmp=\"$TMP_ROOT/${safe}-$i\"; "
             "i=$((i+1)); "
             "done; "
-            "zfs create -o mountpoint=\"$tmp\" \"$child\"; "
-            "rsync -aHAWXS --remove-source-files \"$d\"/ \"$tmp\"/; "
-            "find \"$d\" -mindepth 1 -type d -empty -delete; "
-            "zfs set mountpoint=\"$ORIG_MP/$n\" \"$child\"; "
-            "zfs unmount \"$child\" >/dev/null 2>&1 || true; "
+            "zfs create -u \"$child\"; "
+            "CHILD_MP=''; CHILD_TEMP=0; "
+            "if mount -t zfs \"$child\" \"$tmp\" >/dev/null 2>&1 || mount -t zfs -o zfsutil \"$child\" \"$tmp\" >/dev/null 2>&1; then "
+            "CHILD_MP=\"$tmp\"; CHILD_TEMP=1; "
+            "else "
             "zfs mount \"$child\" >/dev/null 2>&1 || true; "
-            "printf '[BREAKDOWN] %s -> %s (mp=%s)\\n' \"$d\" \"$child\" \"$ORIG_MP/$n\"; "
+            "CHILD_MP=\"$(zfs mount 2>/dev/null | awk -v ds=\"$child\" '$1==ds {print $2; exit}')\"; "
+            "[ -n \"$CHILD_MP\" ] && [ -d \"$CHILD_MP\" ] || { echo \"[BREAKDOWN][ERROR] cannot mount child dataset: $child\"; continue; }; "
+            "fi; "
+            "rsync -aHAWXS --remove-source-files \"$d\"/ \"$CHILD_MP\"/; "
+            "find \"$d\" -mindepth 1 -type d -empty -delete; "
+            "if [ \"$CHILD_TEMP\" = \"1\" ]; then umount \"$tmp\" >/dev/null 2>&1 || true; rmdir \"$tmp\" >/dev/null 2>&1 || true; fi; "
+            "child_mp_final=\"$(zfs get -H -o value mountpoint \"$child\" 2>/dev/null || true)\"; "
+            "zfs mount \"$child\" >/dev/null 2>&1 || true; "
+            "printf '[BREAKDOWN] %s -> %s (mp=%s)\\n' \"$d\" \"$child\" \"$child_mp_final\"; "
             "} || { "
             "printf '[BREAKDOWN][ERROR] failed processing %s\\n' \"$d\"; "
             "continue; "
@@ -6133,17 +6106,25 @@ class App(tk.Tk):
             "else "
             "TMP_MP=\"$TMP_ROOT/__dataset_root\"; "
             "mkdir -p \"$TMP_MP\"; "
-            "zfs unmount \"$DATASET\" >/dev/null 2>&1 || true; "
-            "zfs set mountpoint=\"$TMP_MP\" \"$DATASET\"; "
-            "zfs mount \"$DATASET\"; "
-            "MP=\"$TMP_MP\"; "
+            "if mount -t zfs \"$DATASET\" \"$TMP_MP\" >/dev/null 2>&1 || mount -t zfs -o zfsutil \"$DATASET\" \"$TMP_MP\" >/dev/null 2>&1; then "
+            "MP=\"$TMP_MP\"; TEMP_KIND='manual'; "
+            "else "
+            "zfs mount \"$DATASET\" >/dev/null 2>&1 || true; "
+            "ACTIVE_RETRY=\"$(zfs mount 2>/dev/null | awk -v ds=\"$DATASET\" '$1==ds {print $2; exit}')\"; "
+            "[ -n \"$ACTIVE_RETRY\" ] && [ -d \"$ACTIVE_RETRY\" ] || { echo \"[ASSEMBLE][ERROR] cannot mount dataset: $DATASET\"; exit 33; }; "
+            "MP=\"$ACTIVE_RETRY\"; TEMP_KIND='zfs'; "
+            "fi; "
             "TEMP_MOUNTED=1; "
             "fi; "
             "cleanup() { "
             "rc=$?; "
             "if [ \"$TEMP_MOUNTED\" = \"1\" ]; then "
+            "if [ \"$TEMP_KIND\" = \"manual\" ]; then "
+            "umount \"$TMP_MP\" >/dev/null 2>&1 || true; "
+            "rmdir \"$TMP_MP\" >/dev/null 2>&1 || true; "
+            "elif [ \"$TEMP_KIND\" = \"zfs\" ] && [ \"$MOUNTED\" != \"yes\" ]; then "
             "zfs unmount \"$DATASET\" >/dev/null 2>&1 || true; "
-            "zfs set mountpoint=\"$ORIG_MP\" \"$DATASET\" >/dev/null 2>&1 || true; "
+            "fi; "
             "fi; "
             "exit \"$rc\"; "
             "}; "
@@ -6174,29 +6155,24 @@ class App(tk.Tk):
             "child_tmp=\"$TMP_ROOT/${safe_rel}-$j\"; "
             "j=$((j+1)); "
             "done; "
-            "child_mp=\"$(zfs get -H -o value mountpoint \"$child\" 2>/dev/null || true)\"; "
-            "child_mp_orig=\"$child_mp\"; "
             "CHILD_TEMP=0; "
             "CHILD_PATH=''; "
             "mkdir -p \"$child_tmp\"; "
-            "zfs unmount \"$child\" >/dev/null 2>&1 || true; "
-            "zfs set mountpoint=\"$child_tmp\" \"$child\" >/dev/null 2>&1 || true; "
-            "if ! zfs mount \"$child\" >/dev/null 2>&1; then "
+            "if mount -t zfs \"$child\" \"$child_tmp\" >/dev/null 2>&1 || mount -t zfs -o zfsutil \"$child\" \"$child_tmp\" >/dev/null 2>&1; then "
+            "CHILD_PATH=\"$child_tmp\"; CHILD_TEMP=1; "
+            "else "
+            "zfs mount \"$child\" >/dev/null 2>&1 || true; "
             "child_active_retry=\"$(zfs mount 2>/dev/null | awk -v ds=\"$child\" '$1==ds {print $2; exit}')\"; "
-            "[ \"$child_active_retry\" = \"$child_tmp\" ] || { echo \"[ASSEMBLE][ERROR] cannot mount child dataset in temp dir: $child\"; exit 34; }; "
+            "[ -n \"$child_active_retry\" ] && [ -d \"$child_active_retry\" ] || { echo \"[ASSEMBLE][ERROR] cannot mount child dataset: $child\"; exit 34; }; "
+            "CHILD_PATH=\"$child_active_retry\"; CHILD_TEMP=0; "
             "fi; "
-            "CHILD_PATH=\"$child_tmp\"; "
-            "CHILD_TEMP=1; "
             "[ -d \"$CHILD_PATH\" ] || { echo \"[ASSEMBLE][ERROR] child mount not available: $child\"; exit 34; }; "
             "SRC_REAL=\"$(readlink -f \"$CHILD_PATH\" 2>/dev/null || printf '%s' \"$CHILD_PATH\")\"; "
             "DST_REAL=\"$(readlink -f \"$dest\" 2>/dev/null || printf '%s' \"$dest\")\"; "
             "[ \"$SRC_REAL\" != \"$DST_REAL\" ] || { "
             "echo \"[ASSEMBLE][ERROR] source and destination resolve to same path for $child ($SRC_REAL)\"; "
             "if [ \"$CHILD_TEMP\" = \"1\" ]; then "
-            "zfs unmount \"$child\" >/dev/null 2>&1 || true; "
-            "if [ -n \"$child_mp_orig\" ] && [ \"$child_mp_orig\" != \"none\" ]; then "
-            "zfs set mountpoint=\"$child_mp_orig\" \"$child\" >/dev/null 2>&1 || true; "
-            "fi; "
+            "umount \"$child_tmp\" >/dev/null 2>&1 || true; "
             "rmdir \"$child_tmp\" >/dev/null 2>&1 || true; "
             "fi; "
             "exit 36; "
@@ -6204,19 +6180,13 @@ class App(tk.Tk):
             "rsync -aHAWXS \"$CHILD_PATH\"/ \"$dest\"/ || { "
             "echo \"[ASSEMBLE][ERROR] rsync failed for $child -> $dest\"; "
             "if [ \"$CHILD_TEMP\" = \"1\" ]; then "
-            "zfs unmount \"$child\" >/dev/null 2>&1 || true; "
-            "if [ -n \"$child_mp_orig\" ] && [ \"$child_mp_orig\" != \"none\" ]; then "
-            "zfs set mountpoint=\"$child_mp_orig\" \"$child\" >/dev/null 2>&1 || true; "
-            "fi; "
+            "umount \"$child_tmp\" >/dev/null 2>&1 || true; "
             "rmdir \"$child_tmp\" >/dev/null 2>&1 || true; "
             "fi; "
             "exit 35; "
             "}; "
             "if [ \"$CHILD_TEMP\" = \"1\" ]; then "
-            "zfs unmount \"$child\" >/dev/null 2>&1 || true; "
-            "if [ -n \"$child_mp_orig\" ] && [ \"$child_mp_orig\" != \"none\" ]; then "
-            "zfs set mountpoint=\"$child_mp_orig\" \"$child\" >/dev/null 2>&1 || true; "
-            "fi; "
+            "umount \"$child_tmp\" >/dev/null 2>&1 || true; "
             "rmdir \"$child_tmp\" >/dev/null 2>&1 || true; "
             "fi; "
             "zfs destroy -r \"$child\"; "
