@@ -5261,6 +5261,18 @@ class App(tk.Tk):
             self._app_log("normal", ps_cmd)
             self._run_copy_psrp_command(ps_cmd, src_profile, dst_conn_id=dst_conn_id)
             return
+        if src_profile.conn_type == "SSH" and dst_profile.conn_type == "SSH" and paramiko is not None:
+            self._app_log("normal", trf("log_copy_plan", src=src_snapshot, dst=dst_dataset))
+            self._app_log("normal", tr("log_copy_command_header"))
+            self._app_log("normal", "[paramiko-stream] zfs send | zfs recv")
+            self._run_copy_paramiko_command(
+                src_profile=src_profile,
+                dst_profile=dst_profile,
+                send_candidates=send_candidates,
+                recv_candidates=recv_candidates,
+                dst_conn_id=dst_conn_id,
+            )
+            return
         send_cmd = sudo_wrap(src_profile, send_raw, preserve_stdin_stream=False)
         recv_cmd = sudo_wrap(dst_profile, recv_raw, preserve_stdin_stream=True)
         self._app_log("info", tr("log_copy_forced_local_execution"))
@@ -6888,6 +6900,178 @@ class App(tk.Tk):
                 ssh_busy(-1)
                 self.after(0, self._finish_level_command)
                 if executed_any and last_rc == 0 and not cancelled and dst_conn_id:
+                    self.after(0, lambda cid=dst_conn_id: self._update_caches_after_mutation([cid]))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _run_copy_paramiko_command(
+        self,
+        src_profile: ConnectionProfile,
+        dst_profile: ConnectionProfile,
+        send_candidates: List[str],
+        recv_candidates: List[str],
+        dst_conn_id: Optional[str] = None,
+    ) -> None:
+        if self.level_running:
+            self._app_log("normal", tr("log_copy_already_running"))
+            return
+        if paramiko is None:
+            self._app_log("normal", tr("log_ssh_paramiko_missing"))
+            return
+        self.level_running = True
+        ssh_busy(1)
+        self._update_level_button_state()
+        self._app_log("normal", tr("log_copy_exec_start"))
+        self._app_log("info", tr("log_dataset_progress_tab"))
+        cancel_event = threading.Event()
+        self._set_active_dataset_coop_action(tr("copy_snapshot_btn"), cancel_event)
+
+        def _remote_exec_cmd(profile: ConnectionProfile, raw_cmd: str, keep_stdin: bool) -> Tuple[str, bool]:
+            cmd = raw_cmd
+            needs_password = False
+            if profile.use_sudo and profile.conn_type == "SSH":
+                if profile.password:
+                    cmd = f"sudo -S -p '' -k sh -lc {shlex.quote(raw_cmd)}"
+                    needs_password = True
+                else:
+                    cmd = f"sudo -n sh -lc {shlex.quote(raw_cmd)}"
+            wrap = SSHExecutor(profile)._wrap_remote_shell  # type: ignore[attr-defined]
+            return wrap(cmd), needs_password and keep_stdin
+
+        def _run_once(send_raw: str, recv_raw: str) -> Tuple[int, str]:
+            src_exec = make_executor(src_profile)
+            dst_exec = make_executor(dst_profile)
+            if not isinstance(src_exec, SSHExecutor) or not isinstance(dst_exec, SSHExecutor):
+                return 1, "copy paramiko supports only SSH->SSH"
+
+            src_client = src_exec._connect()  # type: ignore[attr-defined]
+            dst_client = dst_exec._connect()  # type: ignore[attr-defined]
+            send_cmd, send_keep_pwd = _remote_exec_cmd(src_profile, send_raw, keep_stdin=False)
+            recv_cmd, recv_keep_pwd = _remote_exec_cmd(dst_profile, recv_raw, keep_stdin=True)
+            src_target = f"{src_profile.username + '@' if src_profile.username else ''}{src_profile.host}:{src_profile.port or 22}"
+            dst_target = f"{dst_profile.username + '@' if dst_profile.username else ''}{dst_profile.host}:{dst_profile.port or 22}"
+            self._ssh_log(f"{src_target} $ {send_cmd}")
+            self._ssh_log(f"{dst_target} $ {recv_cmd}")
+            src_transport = src_client.get_transport()
+            dst_transport = dst_client.get_transport()
+            if src_transport is None or not src_transport.is_active() or dst_transport is None or not dst_transport.is_active():
+                return 1, "SSH transport inactive"
+            src_ch = src_transport.open_session()
+            dst_ch = dst_transport.open_session()
+            src_ch.exec_command(send_cmd)
+            dst_ch.exec_command(recv_cmd)
+            if src_profile.use_sudo and src_profile.password:
+                try:
+                    src_ch.send((src_profile.password or "") + "\n")
+                except Exception:
+                    pass
+            if dst_profile.use_sudo and dst_profile.password:
+                try:
+                    dst_ch.send((dst_profile.password or "") + "\n")
+                except Exception:
+                    pass
+            if send_keep_pwd:
+                try:
+                    src_ch.shutdown_write()
+                except Exception:
+                    pass
+
+            stderr_buf = ""
+            src_done = False
+            last_progress_at = 0.0
+            transferred = 0
+            while True:
+                if cancel_event.is_set():
+                    try:
+                        src_ch.close()
+                    except Exception:
+                        pass
+                    try:
+                        dst_ch.close()
+                    except Exception:
+                        pass
+                    return 130, "cancelled"
+                moved = False
+                if src_ch.recv_ready():
+                    data = src_ch.recv(131072)
+                    moved = True
+                    if data:
+                        transferred += len(data)
+                        dst_ch.sendall(data)
+                if src_ch.recv_stderr_ready():
+                    err = src_ch.recv_stderr(131072).decode("utf-8", errors="replace")
+                    if err:
+                        moved = True
+                        stderr_buf += err
+                        for ln in err.splitlines():
+                            if ln.strip():
+                                self._ssh_log(ln.strip())
+                if dst_ch.recv_stderr_ready():
+                    err = dst_ch.recv_stderr(131072).decode("utf-8", errors="replace")
+                    if err:
+                        moved = True
+                        stderr_buf += err
+                        for ln in err.splitlines():
+                            if ln.strip():
+                                self._ssh_log(ln.strip())
+                if src_ch.exit_status_ready() and not src_ch.recv_ready() and not src_done:
+                    src_done = True
+                    try:
+                        dst_ch.shutdown_write()
+                    except Exception:
+                        pass
+                now = time.monotonic()
+                if transferred > 0 and (now - last_progress_at) > 1.0:
+                    self._ssh_log(f"[copy] {format_size_short(transferred)} transferred")
+                    last_progress_at = now
+                if src_done and dst_ch.exit_status_ready() and not dst_ch.recv_ready() and not dst_ch.recv_stderr_ready():
+                    break
+                if not moved:
+                    time.sleep(0.02)
+
+            src_rc = src_ch.recv_exit_status() if src_ch.exit_status_ready() else 1
+            dst_rc = dst_ch.recv_exit_status() if dst_ch.exit_status_ready() else 1
+            if src_rc != 0 or dst_rc != 0:
+                return src_rc or dst_rc or 1, (stderr_buf.strip() or f"send_rc={src_rc} recv_rc={dst_rc}")
+            return 0, stderr_buf.strip()
+
+        def worker() -> None:
+            rc = 1
+            tried = 0
+            last_err = ""
+            combos: List[Tuple[str, str]] = []
+            for i, recv_raw in enumerate(recv_candidates):
+                for j, send_raw in enumerate(send_candidates):
+                    if i == 0 and j == 0:
+                        combos.insert(0, (send_raw, recv_raw))
+                    else:
+                        combos.append((send_raw, recv_raw))
+            combos = list(dict.fromkeys(combos))
+            try:
+                for idx, (send_raw, recv_raw) in enumerate(combos):
+                    if idx > 0:
+                        self._app_log("info", f"Retry send/recv fallback {idx}/{len(combos)-1}")
+                    tried += 1
+                    attempt_rc, attempt_err = _run_once(send_raw, recv_raw)
+                    if attempt_rc == 0:
+                        rc = 0
+                        break
+                    last_err = attempt_err
+                if cancel_event.is_set():
+                    self._app_log("normal", tr("log_dataset_cancel_done"))
+                elif rc == 0:
+                    self._app_log("normal", tr("log_copy_exec_ok"))
+                else:
+                    if last_err:
+                        self._ssh_log(last_err)
+                    self._app_log("normal", trf("log_copy_exec_fail_code", code=255))
+            except Exception as exc:
+                self._app_log("normal", trf("log_copy_exec_runtime_error", error=exc))
+            finally:
+                ssh_busy(-1)
+                self._clear_active_dataset_coop_action(cancel_event)
+                self.after(0, self._finish_level_command)
+                if rc == 0 and dst_conn_id:
                     self.after(0, lambda cid=dst_conn_id: self._update_caches_after_mutation([cid]))
 
         threading.Thread(target=worker, daemon=True).start()
