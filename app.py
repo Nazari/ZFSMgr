@@ -3547,9 +3547,10 @@ class App(tk.Tk):
         self.transfer_origin_label = ttk.Label(
             origin_top,
             textvariable=self.transfer_origin_target_var,
-            foreground=UI_MUTED,
+            foreground=UI_ACCENT,
             justify="left",
             wraplength=420,
+            font=("TkDefaultFont", 9, "bold"),
         )
         self.transfer_origin_label.grid(row=0, column=1, sticky="w")
         self.datasets_tree_origin = ttk.Treeview(
@@ -3613,9 +3614,10 @@ class App(tk.Tk):
         self.transfer_dest_label = ttk.Label(
             dest_top,
             textvariable=self.transfer_dest_target_var,
-            foreground=UI_MUTED,
+            foreground=UI_ACCENT,
             justify="left",
             wraplength=420,
+            font=("TkDefaultFont", 9, "bold"),
         )
         self.transfer_dest_label.grid(row=0, column=1, sticky="w")
         self.datasets_tree_dest = ttk.Treeview(
@@ -7801,14 +7803,16 @@ class App(tk.Tk):
             self.dataset_action_target_var.set(trf("datasets_selected_target", dataset=tr("label_none")))
 
     def _update_transfer_selection_labels(self, src_dataset: str, dst_dataset: str) -> None:
-        src_label = tr("label_none")
-        dst_label = tr("label_none")
-        if src_dataset:
-            src_label = src_dataset
-        if dst_dataset:
-            dst_label = dst_dataset
-        self.transfer_origin_target_var.set(f"Seleccion actual: {src_label}")
-        self.transfer_dest_target_var.set(f"Seleccion actual: {dst_label}")
+        def _fmt(value: str) -> str:
+            clean = (value or "").strip()
+            if not clean:
+                return f"Dataset: {tr('label_none')}"
+            kind = "Snapshot" if "@" in clean else "Dataset"
+            # Resaltado simple y robusto en ttk.Label (sin estilos parciales por texto).
+            return f"{kind}: <<{clean}>>"
+
+        self.transfer_origin_target_var.set(_fmt(src_dataset))
+        self.transfer_dest_target_var.set(_fmt(dst_dataset))
 
     def _render_datasets_tree(
         self,
