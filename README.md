@@ -40,6 +40,47 @@ pip install -r requirements.txt
 python app.py
 ```
 
+## Libreria Python reutilizable (`zfsmgr_actions`)
+
+Se incluye una API para usar acciones ZFS desde otras aplicaciones sin GUI.
+
+Importacion:
+
+```python
+from zfsmgr_actions import ZFSMgrActions
+```
+
+Ejemplo minimo:
+
+```python
+api = ZFSMgrActions(master_password="TU_PASSWORD_MAESTRA")
+
+# Listar conexiones disponibles
+conns = api.list_connections()
+
+# Exportar/importar pools
+api.export_pool("fc16", "games")
+api.import_pool("surface-psrp", "games", {"force": True})
+
+# Crear/modificar/borrar datasets
+api.create_dataset("surface-psrp", "games/Juegos/Test", {"type": "filesystem"})
+api.modify_dataset("surface-psrp", "games/Juegos/Test", {"compression": "lz4"})
+api.delete_dataset("surface-psrp", "games/Juegos/Test", recursive=False)
+```
+
+Acciones disponibles en `ZFSMgrActions`:
+- `list_connections`
+- `refresh_connection`
+- `list_importable_pools`
+- `list_datasets`
+- `import_pool`
+- `export_pool`
+- `create_dataset`
+- `modify_dataset`
+- `mount_dataset`
+- `unmount_dataset`
+- `delete_dataset`
+
 ## Empaquetado multiplataforma (Windows, Linux, macOS)
 
 Se usa `PyInstaller` para generar binarios standalone.
