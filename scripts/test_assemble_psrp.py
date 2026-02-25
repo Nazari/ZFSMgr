@@ -19,8 +19,8 @@ def build_children_list_script(dataset_name: str) -> str:
     return (
         "$ErrorActionPreference='Stop'; "
         f"$dataset={ds_q}; "
-        "$children = @(zfs list -H -o name -t filesystem,volume -r $dataset | "
-        "Where-Object { $_ -like ($dataset + '/*') }); "
+        "$children = @(zfs list -H -o name -r $dataset | "
+        "Where-Object { $_ -like ($dataset + '/*') -and $_ -notmatch '@' }); "
         "$children = $children | Sort-Object { ($_ -split '/').Count } -Descending; "
         "$children -join \"`n\""
     )
@@ -106,12 +106,16 @@ def build_child_stage_script(dataset_name: str, child_name: str, root_mp: str, t
         "$childTmp = Join-Path $tmpRoot ('child-' + $safeRel); "
         "New-Item -ItemType Directory -Path $childTmp -Force | Out-Null; "
         "$childSrc=''; "
-        "try { zfs unmount $child *> $null } catch {}; "
-        "try { "
-        "  zfs set (\"mountpoint=\" + $childTmp) $child | Out-Null; "
-        "  zfs mount $child | Out-Null; "
-        "  if (Test-Path -LiteralPath $childTmp) { $childSrc = $childTmp } "
-        "} catch {} "
+        "$candInRoot = Join-Path $rootMp $rel; "
+        "if (Test-Path -LiteralPath $candInRoot) { $childSrc = $candInRoot } "
+        "if ([string]::IsNullOrWhiteSpace($childSrc)) { "
+        "  try { zfs unmount $child *> $null } catch {}; "
+        "  try { "
+        "    zfs set (\"mountpoint=\" + $childTmp) $child | Out-Null; "
+        "    zfs mount $child | Out-Null; "
+        "    if (Test-Path -LiteralPath $childTmp) { $childSrc = $childTmp } "
+        "  } catch {} "
+        "} "
         "if ([string]::IsNullOrWhiteSpace($childSrc)) { "
         "  $used = @{}; "
         "  Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue | ForEach-Object { $used[$_.Name.ToUpper()] = $true }; "
@@ -266,6 +270,8 @@ def main() -> int:
 
     if args.debug_root:
         try:
+            run_step("list_dataset", f"zfs list -H -o name {dataset}")
+            run_step("list_recursive", f"zfs list -H -o name -r {dataset}")
             run_step("get_mountpoint", f"zfs get -H -o value mountpoint {dataset}")
             run_step("get_driveletter", f"zfs get -H -o value driveletter {dataset}")
             run_step("zfs_mount_line", f'zfs mount | findstr /I "{dataset}"')
