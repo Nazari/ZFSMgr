@@ -14,6 +14,8 @@ from app import (
     LocalExecutor,
     PSRPExecutor,
     SSHExecutor,
+    _ssh_common_parts,
+    build_send_flag_candidates,
     make_executor,
 )
 
@@ -129,17 +131,56 @@ class ZFSMgrActions:
         dest_dataset: str,
         recursive: bool = False,
     ) -> ActionResult:
-        if source_connection != dest_connection:
-            raise NotImplementedError("copy_snapshot entre conexiones distintas no soportado en esta API inicial")
         if "@" not in source_snapshot:
             raise ValueError("source_snapshot debe incluir @snapshot")
         if "@" in dest_dataset:
             raise ValueError("dest_dataset no puede ser snapshot")
-        profile, execu = self._profile_executor(source_connection)
-        flag = "wLecR" if recursive else "wLec"
-        cmd = f"zfs send -{flag} {shlex.quote(source_snapshot)} | zfs recv -F -e {shlex.quote(dest_dataset)}"
-        out = self._run_raw(profile, execu, cmd, sudo=True)
-        return ActionResult(profile.id, "copy_snapshot", f"{source_snapshot} -> {dest_dataset}", out or "")
+        src_profile, src_execu = self._profile_executor(source_connection)
+        dst_profile, _dst_execu = self._profile_executor(dest_connection)
+        recv_raw = f"zfs recv -F -e {shlex.quote(dest_dataset)}"
+
+        # Caso PSRP: solo soportado cuando origen y destino son la misma conexion PSRP.
+        if src_profile.conn_type == "PSRP" or dst_profile.conn_type == "PSRP":
+            if not (src_profile.conn_type == "PSRP" and dst_profile.conn_type == "PSRP" and src_profile.id == dst_profile.id):
+                raise NotImplementedError("copy_snapshot con PSRP solo soportado en la misma conexion")
+            flag = "wLecR" if recursive else "wLec"
+            cmd = f"zfs send -{flag} {shlex.quote(source_snapshot)} | {recv_raw}"
+            out = self._run_raw(src_profile, src_execu, cmd, sudo=False)
+            return ActionResult(src_profile.id, "copy_snapshot", f"{source_snapshot} -> {dest_dataset}", out or "")
+
+        if src_profile.conn_type not in {"LOCAL", "SSH"} or dst_profile.conn_type not in {"LOCAL", "SSH"}:
+            raise NotImplementedError(
+                f"copy_snapshot no soportado para {src_profile.conn_type} -> {dst_profile.conn_type}"
+            )
+
+        version = src_execu.get_zfs_version() if hasattr(src_execu, "get_zfs_version") else None
+        flags = build_send_flag_candidates(version, recursive=recursive)
+        send_raw_candidates = [f"zfs send -{flag} {shlex.quote(source_snapshot)}" for flag in flags]
+        recv_cmd = self._sudo_wrap(dst_profile, recv_raw, preserve_stdin_stream=True)
+        recv_side = self._outer_exec(dst_profile, recv_cmd)
+        if not recv_side:
+            raise RuntimeError("No se pudo construir comando de destino para recv")
+
+        last_err: Optional[Exception] = None
+        for send_raw in send_raw_candidates:
+            send_cmd = self._sudo_wrap(src_profile, send_raw, preserve_stdin_stream=False)
+            send_side = self._outer_exec(src_profile, send_cmd)
+            if not send_side:
+                raise RuntimeError("No se pudo construir comando de origen para send")
+            pipeline = f"{send_side} | {recv_side}"
+            try:
+                out = self._run_local_pipeline(pipeline)
+                return ActionResult(
+                    f"{src_profile.id}->{dst_profile.id}",
+                    "copy_snapshot",
+                    f"{source_snapshot} -> {dest_dataset}",
+                    out or "",
+                )
+            except Exception as exc:
+                last_err = exc
+        if last_err is not None:
+            raise last_err
+        raise RuntimeError("copy_snapshot failed")
 
     def level_datasets(
         self,
@@ -276,6 +317,47 @@ class ZFSMgrActions:
     def _profile_executor(self, connection: str) -> Tuple[ConnectionProfile, Any]:
         profile = self._profile(connection)
         return profile, make_executor(profile)
+
+    def _run_local_pipeline(self, command: str) -> str:
+        proc = subprocess.run(command, shell=True, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError((proc.stderr or proc.stdout or command).strip())
+        return (proc.stdout or "").strip()
+
+    def _outer_exec(self, profile: ConnectionProfile, command: str) -> Optional[str]:
+        if profile.conn_type == "LOCAL":
+            return command
+        if profile.conn_type != "SSH":
+            return None
+        parts: List[str] = _ssh_common_parts(profile, include_key=True)
+        target = profile.host
+        if profile.username:
+            target = f"{profile.username}@{profile.host}"
+        parts.append(shlex.quote(target))
+        parts.append(shlex.quote(command))
+        return " ".join(parts)
+
+    def _sudo_wrap(self, profile: ConnectionProfile, base_cmd: str, preserve_stdin_stream: bool = False) -> str:
+        if profile.conn_type != "SSH" or not profile.use_sudo:
+            return base_cmd
+        if profile.password:
+            if preserve_stdin_stream:
+                askpass_line = "printf '%s\\n' " + shlex.quote(profile.password)
+                return (
+                    "ask=$(mktemp); "
+                    "trap 'rm -f \"$ask\"' EXIT; "
+                    "{ printf '%s\\n' '#!/bin/sh'; "
+                    f"printf '%s\\n' {shlex.quote(askpass_line)}; "
+                    "} >\"$ask\"; "
+                    "chmod 700 \"$ask\"; "
+                    "SUDO_ASKPASS=\"$ask\" sudo -A -p '' sh -lc "
+                    f"{shlex.quote(base_cmd)}"
+                )
+            return (
+                f"printf '%s\\n' {shlex.quote(profile.password)} | "
+                f"sudo -S -p '' sh -lc {shlex.quote(base_cmd)}"
+            )
+        return f"sudo -n sh -lc {shlex.quote(base_cmd)}"
 
     def _run_raw(self, profile: ConnectionProfile, execu: Any, command: str, sudo: bool = False) -> str:
         if isinstance(execu, LocalExecutor):

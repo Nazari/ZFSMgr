@@ -86,6 +86,10 @@ Acciones disponibles en `ZFSMgrActions`:
 - `breakdown_dataset`
 - `assemble_dataset`
 
+Nota sobre `copy_snapshot`:
+- Soporta copia entre conexiones `LOCAL/SSH` distintas (pipeline local `send|recv`).
+- En `PSRP`, solo esta soportado cuando origen y destino son la misma conexion.
+
 ## Empaquetado multiplataforma (Windows, Linux, macOS)
 
 Se usa `PyInstaller` para generar binarios standalone.
