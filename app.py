@@ -246,16 +246,14 @@ def _ssh_outer_exec_command(
         return None
     target = f"{profile.username}@{profile.host}" if profile.username else profile.host
     if allow_password_auth and profile.password:
-        ssh_parts: List[str] = _ssh_common_parts(profile, include_key=False)
-        # Forzar autenticacion por password en modo no interactivo.
+        ssh_parts: List[str] = _ssh_common_parts(profile, include_key=include_key)
+        # Permitir password sin prompt interactivo, manteniendo pubkey si existe.
         ssh_parts.extend(
             [
                 "-o",
                 "BatchMode=no",
                 "-o",
-                "PubkeyAuthentication=no",
-                "-o",
-                "PreferredAuthentications=password,keyboard-interactive",
+                "PreferredAuthentications=publickey,password,keyboard-interactive",
                 "-o",
                 "NumberOfPasswordPrompts=1",
             ]
