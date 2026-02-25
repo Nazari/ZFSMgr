@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app import COMMAND_TIMEOUT_SECONDS, ConnectionStore, SSHExecutor, build_send_flag_candidates
+from app import COMMAND_TIMEOUT_SECONDS, CONNECTIONS_FILE, ConnectionStore, SSHExecutor, build_send_flag_candidates
 
 
 def _find_profile(store: ConnectionStore, name_or_id: str):
@@ -160,7 +160,7 @@ def main() -> int:
     ap.add_argument("--dst-password", default="", help="Override password destino (opcional)")
     args = ap.parse_args()
 
-    store = ConnectionStore(master_password=args.master_password)
+    store = ConnectionStore(CONNECTIONS_FILE, args.master_password)
     src = _find_profile(store, args.src)
     dst = _find_profile(store, args.dst)
     if src.conn_type != "SSH" or dst.conn_type != "SSH":
