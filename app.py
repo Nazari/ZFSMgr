@@ -1666,8 +1666,36 @@ class PSRPExecutor(BaseExecutor):
     def destroy_dataset(self, dataset: str, recursive: bool = False) -> str:
         def _ps_quote(s: str) -> str:
             return "'" + s.replace("'", "''") + "'"
-        flag = "-r " if recursive else ""
-        return self._run_ps(f"zfs destroy {flag}{_ps_quote(dataset)}", timeout_seconds=None)
+        ds_q = _ps_quote(dataset)
+        if not recursive:
+            # Conservador: deja que la UI pregunte confirmacion recursiva si aplica.
+            try:
+                return self._run_ps(f"zfs destroy {ds_q}", timeout_seconds=None)
+            except Exception:
+                return self._run_ps(f"zfs destroy -f {ds_q}", timeout_seconds=None)
+
+        # En Windows/PSRP puede fallar por dataset montado/bloqueado.
+        # Probamos variantes crecientes para datasets con hijos/dependencias.
+        commands = [
+            f"zfs destroy -r -f {ds_q}",
+            f"zfs destroy -R -f {ds_q}",
+            f"zfs destroy -r {ds_q}",
+            f"zfs destroy -R {ds_q}",
+        ]
+        last_err: Optional[Exception] = None
+        for cmd in commands:
+            try:
+                return self._run_ps(cmd, timeout_seconds=None)
+            except Exception as exc:
+                last_err = exc
+                # Reintento tras forzar desmontado del dataset raiz.
+                try:
+                    self._run_ps(f"zfs unmount -f {ds_q}", timeout_seconds=None)
+                except Exception:
+                    pass
+        if last_err is not None:
+            raise last_err
+        raise RuntimeError("destroy failed")
 
 
 def make_executor(profile: ConnectionProfile) -> BaseExecutor:
@@ -6428,7 +6456,12 @@ class App(tk.Tk):
             except Exception as exc:
                 err_txt = str(exc)
                 lower_err = err_txt.lower()
-                needs_recursive = (not recursive) and ("has children" in lower_err or "tiene hijos" in lower_err)
+                needs_recursive = (not recursive) and (
+                    "has children" in lower_err
+                    or "tiene hijos" in lower_err
+                    or "use '-r'" in lower_err
+                    or "use '-r' to destroy" in lower_err
+                )
                 if needs_recursive:
                     self._app_log("normal", trf("log_delete_dataset_needs_recursive", name=profile.name, dataset=dataset_path))
 
