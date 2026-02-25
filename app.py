@@ -193,6 +193,19 @@ def _ssh_mux_path(profile: "ConnectionProfile") -> str:
     return str(mux_dir / f"mux_{tag}")
 
 
+def _resolve_ssh_private_key_path(key_path: str) -> str:
+    path = (key_path or "").strip()
+    if not path:
+        return ""
+    expanded = os.path.expanduser(path)
+    # Si el usuario selecciona .pub, intentamos usar la privada homonima.
+    if expanded.endswith(".pub"):
+        candidate = expanded[:-4]
+        if os.path.exists(candidate):
+            return candidate
+    return expanded
+
+
 def _ssh_common_parts(profile: "ConnectionProfile", include_key: bool = True) -> List[str]:
     parts: List[str] = [
         "ssh",
@@ -209,8 +222,9 @@ def _ssh_common_parts(profile: "ConnectionProfile", include_key: bool = True) ->
     ]
     if profile.port and profile.port != 22:
         parts.extend(["-p", str(profile.port)])
-    if include_key and profile.key_path:
-        parts.extend(["-i", shlex.quote(profile.key_path)])
+    resolved_key = _resolve_ssh_private_key_path(profile.key_path)
+    if include_key and resolved_key:
+        parts.extend(["-i", shlex.quote(resolved_key)])
     return parts
 
 
@@ -1129,8 +1143,9 @@ class SSHExecutor(BaseExecutor):
             "timeout": 10,
             "look_for_keys": False,
         }
-        if self.profile.key_path:
-            kwargs["key_filename"] = self.profile.key_path
+        resolved_key = _resolve_ssh_private_key_path(self.profile.key_path)
+        if resolved_key:
+            kwargs["key_filename"] = resolved_key
         if self.profile.password:
             kwargs["password"] = self.profile.password
         kwargs["banner_timeout"] = 10
@@ -2309,9 +2324,10 @@ class ConnectionDialog(tk.Toplevel):
             "timeout": 10,
             "look_for_keys": False,
         }
-        if profile.key_path:
-            kwargs["key_filename"] = profile.key_path
-            self._log(f"[INFO] {trf('log_ssh_using_key', path=profile.key_path)}")
+        resolved_key = _resolve_ssh_private_key_path(profile.key_path)
+        if resolved_key:
+            kwargs["key_filename"] = resolved_key
+            self._log(f"[INFO] {trf('log_ssh_using_key', path=resolved_key)}")
         if profile.password:
             kwargs["password"] = profile.password
             self._log(f"[INFO] {tr('log_ssh_password_set')}")
@@ -4926,8 +4942,9 @@ class App(tk.Tk):
                     "banner_timeout": 8,
                     "auth_timeout": 8,
                 }
-                if src.key_path:
-                    kwargs["key_filename"] = src.key_path
+                resolved_key = _resolve_ssh_private_key_path(src.key_path)
+                if resolved_key:
+                    kwargs["key_filename"] = resolved_key
                 if src.password:
                     kwargs["password"] = src.password
                 try:
