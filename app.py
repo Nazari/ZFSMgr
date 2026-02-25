@@ -5642,7 +5642,11 @@ class App(tk.Tk):
                 "TMP_MP=''; TEMP_MOUNTED=0; "
                 "cleanup(){ "
                 "if [ \"$TEMP_MOUNTED\" = '1' ] && [ -n \"$TMP_MP\" ]; then "
-                "umount \"$TMP_MP\" >/dev/null 2>&1 || true; "
+                "if umount \"$TMP_MP\" >/dev/null 2>&1; then "
+                "echo '__ZFSMGR_EVT__|UMOUNT|ok|'\"$TMP_MP\"; "
+                "else "
+                "echo '__ZFSMGR_EVT__|UMOUNT|error|'\"$TMP_MP\"; "
+                "fi; "
                 "rmdir \"$TMP_MP\" >/dev/null 2>&1 || true; "
                 "fi; "
                 "}; "
@@ -5656,6 +5660,7 @@ class App(tk.Tk):
                 "if [ -n \"$TMP_MP\" ]; then "
                 "if mount -t zfs -o ro,zfsutil \"$DATASET\" \"$TMP_MP\" >/dev/null 2>&1 || mount -t zfs -o ro \"$DATASET\" \"$TMP_MP\" >/dev/null 2>&1; then "
                 "MP=\"$TMP_MP\"; TEMP_MOUNTED=1; "
+                "echo '__ZFSMGR_EVT__|MOUNT|ok|'\"$DATASET\"'|'\"$TMP_MP\"; "
                 "fi; "
                 "fi; "
                 "fi; "
@@ -5667,7 +5672,25 @@ class App(tk.Tk):
             out = execu._run(cmd, sudo=bool(profile.use_sudo), timeout_seconds=REFRESH_TIMEOUT_SECONDS)
         else:
             return []
-        result = [line.strip() for line in (out or "").splitlines() if line.strip()]
+        result: List[str] = []
+        for raw in (out or "").splitlines():
+            line = (raw or "").strip()
+            if not line:
+                continue
+            if line.startswith("__ZFSMGR_EVT__|"):
+                parts = line.split("|")
+                evt = parts[1] if len(parts) > 1 else ""
+                status = parts[2] if len(parts) > 2 else ""
+                if evt == "MOUNT":
+                    ds = parts[3] if len(parts) > 3 else dataset_name
+                    mp = parts[4] if len(parts) > 4 else ""
+                    self._app_log("normal", f"mount temporal {status}: {ds} -> {mp}")
+                    continue
+                if evt == "UMOUNT":
+                    mp = parts[3] if len(parts) > 3 else ""
+                    self._app_log("normal", f"umount temporal {status}: {mp}")
+                    continue
+            result.append(line)
         return list(dict.fromkeys(result))
 
     def _list_assemble_children(self, conn_id: str, pool_name: str, dataset_name: str, profile: ConnectionProfile) -> List[str]:
