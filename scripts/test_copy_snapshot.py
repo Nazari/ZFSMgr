@@ -105,7 +105,19 @@ def _stream_copy(
             moved = True
             if data:
                 transferred += len(data)
-                dst_ch.sendall(data)
+                try:
+                    dst_ch.sendall(data)
+                except OSError as exc:
+                    stderr_buf += f"\nrecv channel closed while streaming: {exc}"
+                    try:
+                        src_ch.close()
+                    except Exception:
+                        pass
+                    try:
+                        dst_ch.close()
+                    except Exception:
+                        pass
+                    return 1, stderr_buf.strip()
         if src_ch.recv_stderr_ready():
             err = src_ch.recv_stderr(131072).decode("utf-8", errors="replace")
             if err:
