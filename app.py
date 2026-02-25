@@ -6461,20 +6461,6 @@ class App(tk.Tk):
                     # Si no se puede verificar, mantenemos el resultado del comando.
                     still_exists = False
 
-                # En PSRP puede devolver "ok" sin eliminar si requiere -r/-R.
-                if still_exists and profile.conn_type == "PSRP" and not recursive and "@" not in dataset_path:
-                    self._app_log(
-                        "normal",
-                        trf("log_delete_dataset_recursive_start", name=profile.name, dataset=dataset_path),
-                    )
-                    out_retry = execu.destroy_dataset(dataset_path, recursive=True)
-                    if (out_retry or "").strip():
-                        out = (out or "") + ("\n" if out else "") + out_retry
-                    try:
-                        still_exists = _exists_after_delete()
-                    except Exception:
-                        still_exists = False
-
                 if still_exists:
                     raise RuntimeError(f"verification failed: dataset still exists ({dataset_path})")
 
@@ -6492,6 +6478,7 @@ class App(tk.Tk):
                     or "tiene hijos" in lower_err
                     or "use '-r'" in lower_err
                     or "use '-r' to destroy" in lower_err
+                    or "still exists" in lower_err
                 )
                 if needs_recursive:
                     self._app_log("normal", trf("log_delete_dataset_needs_recursive", name=profile.name, dataset=dataset_path))
