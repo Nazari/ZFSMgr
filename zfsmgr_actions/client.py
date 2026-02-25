@@ -14,6 +14,7 @@ from app import (
     LocalExecutor,
     PSRPExecutor,
     SSHExecutor,
+    _ssh_outer_exec_command,
     _ssh_common_parts,
     build_send_flag_candidates,
     make_executor,
@@ -403,17 +404,12 @@ class ZFSMgrActions:
         return (proc.stdout or "").strip()
 
     def _outer_exec(self, profile: ConnectionProfile, command: str) -> Optional[str]:
-        if profile.conn_type == "LOCAL":
-            return command
-        if profile.conn_type != "SSH":
-            return None
-        parts: List[str] = _ssh_common_parts(profile, include_key=True)
-        target = profile.host
-        if profile.username:
-            target = f"{profile.username}@{profile.host}"
-        parts.append(shlex.quote(target))
-        parts.append(shlex.quote(command))
-        return " ".join(parts)
+        return _ssh_outer_exec_command(
+            profile,
+            command,
+            include_key=True,
+            allow_password_auth=True,
+        )
 
     def _sudo_wrap(self, profile: ConnectionProfile, base_cmd: str, preserve_stdin_stream: bool = False) -> str:
         if profile.conn_type != "SSH" or not profile.use_sudo:

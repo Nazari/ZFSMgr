@@ -233,6 +233,53 @@ def _ssh_common_parts(profile: "ConnectionProfile", include_key: bool = True) ->
     return parts
 
 
+def _ssh_outer_exec_command(
+    profile: "ConnectionProfile",
+    remote_command: str,
+    *,
+    include_key: bool = True,
+    allow_password_auth: bool = False,
+) -> Optional[str]:
+    if profile.conn_type == "LOCAL":
+        return remote_command
+    if profile.conn_type != "SSH":
+        return None
+    target = f"{profile.username}@{profile.host}" if profile.username else profile.host
+    if allow_password_auth and profile.password:
+        ssh_parts: List[str] = _ssh_common_parts(profile, include_key=False)
+        # Forzar autenticacion por password en modo no interactivo.
+        ssh_parts.extend(
+            [
+                "-o",
+                "BatchMode=no",
+                "-o",
+                "PubkeyAuthentication=no",
+                "-o",
+                "PreferredAuthentications=password,keyboard-interactive",
+                "-o",
+                "NumberOfPasswordPrompts=1",
+            ]
+        )
+        ssh_parts.append(shlex.quote(target))
+        ssh_parts.append(shlex.quote(remote_command))
+        ssh_cmd = " ".join(ssh_parts)
+        askpass_line = "printf '%s\\n' " + shlex.quote(profile.password)
+        return (
+            "ask=$(mktemp); "
+            "trap 'rm -f \"$ask\"' EXIT; "
+            "{ printf '%s\\n' '#!/bin/sh'; "
+            f"printf '%s\\n' {shlex.quote(askpass_line)}; "
+            "} >\"$ask\"; "
+            "chmod 700 \"$ask\"; "
+            "DISPLAY=:0 SSH_ASKPASS=\"$ask\" SSH_ASKPASS_REQUIRE=force "
+            f"setsid -w {ssh_cmd} </dev/null"
+        )
+    ssh_parts = _ssh_common_parts(profile, include_key=include_key)
+    ssh_parts.append(shlex.quote(target))
+    ssh_parts.append(shlex.quote(remote_command))
+    return " ".join(ssh_parts)
+
+
 def _close_all_remote_sessions() -> None:
     with _SSH_SESSION_LOCK:
         clients = list(_SSH_SESSION_CACHE.values())
@@ -4877,30 +4924,20 @@ class App(tk.Tk):
             return
 
         def wrap_outer_exec(profile: ConnectionProfile, command: str) -> Optional[str]:
-            if profile.conn_type == "LOCAL":
-                return command
-            if profile.conn_type != "SSH":
-                return None
-            ssh_parts: List[str] = _ssh_common_parts(profile, include_key=True)
-            target = profile.host
-            if profile.username:
-                target = f"{profile.username}@{profile.host}"
-            ssh_parts.append(shlex.quote(target))
-            ssh_parts.append(shlex.quote(command))
-            return " ".join(ssh_parts)
+            return _ssh_outer_exec_command(
+                profile,
+                command,
+                include_key=True,
+                allow_password_auth=True,
+            )
 
         def wrap_inner_dest_exec(profile: ConnectionProfile, command: str, include_key: bool = True) -> Optional[str]:
-            if profile.conn_type == "SSH":
-                ssh_parts: List[str] = _ssh_common_parts(profile, include_key=include_key)
-                target = profile.host
-                if profile.username:
-                    target = f"{profile.username}@{profile.host}"
-                ssh_parts.append(shlex.quote(target))
-                ssh_parts.append(shlex.quote(command))
-                return " ".join(ssh_parts)
-            if profile.conn_type == "LOCAL":
-                return command
-            return None
+            return _ssh_outer_exec_command(
+                profile,
+                command,
+                include_key=include_key,
+                allow_password_auth=True,
+            )
 
         def sudo_wrap(profile: ConnectionProfile, base_cmd: str, preserve_stdin_stream: bool = False) -> str:
             if profile.conn_type != "SSH" or not profile.use_sudo:
@@ -5146,17 +5183,12 @@ class App(tk.Tk):
             return
 
         def wrap_outer_exec(profile: ConnectionProfile, command: str) -> Optional[str]:
-            if profile.conn_type == "LOCAL":
-                return command
-            if profile.conn_type != "SSH":
-                return None
-            ssh_parts: List[str] = _ssh_common_parts(profile, include_key=True)
-            target = profile.host
-            if profile.username:
-                target = f"{profile.username}@{profile.host}"
-            ssh_parts.append(shlex.quote(target))
-            ssh_parts.append(shlex.quote(command))
-            return " ".join(ssh_parts)
+            return _ssh_outer_exec_command(
+                profile,
+                command,
+                include_key=True,
+                allow_password_auth=True,
+            )
 
         def sudo_wrap(profile: ConnectionProfile, base_cmd: str, preserve_stdin_stream: bool = False) -> str:
             if profile.conn_type != "SSH" or not profile.use_sudo:
