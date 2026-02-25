@@ -717,12 +717,26 @@ def format_openzfs_version(version: Optional[Tuple[int, int, int]]) -> str:
 
 def build_send_flag_candidates(version: Optional[Tuple[int, int, int]], recursive: bool) -> List[str]:
     # Para OpenZFS 2.3/2.4 preferimos -wLec (+R si procede).
+    # Algunos destinos (p.ej. zfswin) fallan recibiendo streams raw (-w),
+    # asi que anadimos fallback no-raw al final.
     if version is None or (version and (version[0], version[1]) >= (2, 3)):
-        candidates = ["wLecR" if recursive else "wLec", "wLeR" if recursive else "wLe", "wR" if recursive else "w"]
+        candidates = [
+            "wLecR" if recursive else "wLec",
+            "wLeR" if recursive else "wLe",
+            "wR" if recursive else "w",
+            "LecR" if recursive else "Lec",
+            "LeR" if recursive else "Le",
+            "R" if recursive else "",
+        ]
     elif version and (version[0], version[1]) >= (2, 1):
-        candidates = ["wLeR" if recursive else "wLe", "wR" if recursive else "w"]
+        candidates = [
+            "wLeR" if recursive else "wLe",
+            "wR" if recursive else "w",
+            "LeR" if recursive else "Le",
+            "R" if recursive else "",
+        ]
     else:
-        candidates = ["wR" if recursive else "w"]
+        candidates = ["wR" if recursive else "w", "R" if recursive else ""]
     deduped: List[str] = []
     for item in candidates:
         if item not in deduped:
@@ -4807,12 +4821,18 @@ class App(tk.Tk):
         commands: List[str] = []
         for flag in flags:
             if incremental_base:
-                cmd = (
-                    f"zfs send -{flag} -I "
-                    f"{shlex.quote(incremental_base)} {shlex.quote(target_snapshot)}"
-                )
+                if flag:
+                    cmd = (
+                        f"zfs send -{flag} -I "
+                        f"{shlex.quote(incremental_base)} {shlex.quote(target_snapshot)}"
+                    )
+                else:
+                    cmd = (
+                        f"zfs send -I "
+                        f"{shlex.quote(incremental_base)} {shlex.quote(target_snapshot)}"
+                    )
             else:
-                cmd = f"zfs send -{flag} {shlex.quote(target_snapshot)}"
+                cmd = f"zfs send -{flag} {shlex.quote(target_snapshot)}" if flag else f"zfs send {shlex.quote(target_snapshot)}"
             commands.append(cmd)
         self._app_log(
             "debug",

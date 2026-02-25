@@ -155,7 +155,10 @@ class ZFSMgrActions:
 
         version = src_execu.get_zfs_version() if hasattr(src_execu, "get_zfs_version") else None
         flags = build_send_flag_candidates(version, recursive=recursive)
-        send_raw_candidates = [f"zfs send -{flag} {shlex.quote(source_snapshot)}" for flag in flags]
+        send_raw_candidates = [
+            (f"zfs send -{flag} {shlex.quote(source_snapshot)}" if flag else f"zfs send {shlex.quote(source_snapshot)}")
+            for flag in flags
+        ]
         recv_cmd = self._sudo_wrap(dst_profile, recv_raw, preserve_stdin_stream=True)
         recv_side = self._outer_exec(dst_profile, recv_cmd)
         if not recv_side:
@@ -237,10 +240,14 @@ class ZFSMgrActions:
             if common:
                 base = f"{source_dataset}@{common[-1]}"
                 send_raw_candidates.append(
-                    f"zfs send -{flag} -I {shlex.quote(base)} {shlex.quote(target)}"
+                    (
+                        f"zfs send -{flag} -I {shlex.quote(base)} {shlex.quote(target)}"
+                        if flag
+                        else f"zfs send -I {shlex.quote(base)} {shlex.quote(target)}"
+                    )
                 )
             else:
-                send_raw_candidates.append(f"zfs send -{flag} {shlex.quote(target)}")
+                send_raw_candidates.append(f"zfs send -{flag} {shlex.quote(target)}" if flag else f"zfs send {shlex.quote(target)}")
 
         recv_raw = f"zfs recv -F {shlex.quote(dest_dataset)}"
         recv_cmd = self._sudo_wrap(dst_profile, recv_raw, preserve_stdin_stream=True)
