@@ -5704,7 +5704,9 @@ class App(tk.Tk):
             self.after(0, lambda: messagebox.showerror(tr("datasets_breakdown_btn"), str(exc)))
             return
         if not dir_candidates:
-            self._app_log("normal", f"No hay directorios para desglosar en {profile.name}::{dataset_name}")
+            msg = f"No hay directorios para desglosar en {profile.name}::{dataset_name}"
+            self._app_log("normal", msg)
+            self.after(0, lambda m=msg: messagebox.showinfo(tr("datasets_breakdown_btn"), m))
             return
         selected_dirs = self._ask_multi_select(
             title=tr("datasets_breakdown_btn"),
@@ -5934,7 +5936,9 @@ class App(tk.Tk):
             self.after(0, lambda: messagebox.showerror(tr("datasets_assemble_btn"), str(exc)))
             return
         if not child_candidates:
-            self._app_log("normal", f"No hay subdatasets para ensamblar en {profile.name}::{dataset_name}")
+            msg = f"No hay subdatasets para ensamblar en {profile.name}::{dataset_name}"
+            self._app_log("normal", msg)
+            self.after(0, lambda m=msg: messagebox.showinfo(tr("datasets_assemble_btn"), m))
             return
         selected_children = self._ask_multi_select(
             title=tr("datasets_assemble_btn"),
