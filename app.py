@@ -3368,45 +3368,19 @@ class App(tk.Tk):
         transfer_box = ttk.LabelFrame(self.tab_datasets, text=tr("datasets_box_transfer"), padding=(8, 6))
         transfer_box.grid(row=0, column=0, sticky="ew", pady=(0, 0))
         transfer_box.columnconfigure(0, weight=1)
-        self.transfer_origin_label = ttk.Label(
-            transfer_box,
-            textvariable=self.transfer_origin_target_var,
-            foreground=UI_MUTED,
-            justify="left",
-            wraplength=220,
-        )
-        self.transfer_origin_label.grid(
-            row=0,
-            column=0,
-            sticky="w",
-            pady=(0, 2),
-        )
-        self.transfer_dest_label = ttk.Label(
-            transfer_box,
-            textvariable=self.transfer_dest_target_var,
-            foreground=UI_MUTED,
-            justify="left",
-            wraplength=220,
-        )
-        self.transfer_dest_label.grid(
-            row=1,
-            column=0,
-            sticky="w",
-            pady=(0, 4),
-        )
 
         self.copy_btn = ttk.Button(transfer_box, text=tr("copy_snapshot_btn"), command=self._copy_snapshot_to_dataset)
-        self.copy_btn.grid(row=2, column=0, sticky="ew")
+        self.copy_btn.grid(row=0, column=0, sticky="ew")
         self.copy_btn.configure(state="disabled")
         ToolTip(self.copy_btn, tr("copy_snapshot_tooltip"))
 
         self.level_btn = ttk.Button(transfer_box, text=tr("datasets_level_btn"), command=self._level_datasets)
-        self.level_btn.grid(row=3, column=0, sticky="ew", pady=(4, 0))
+        self.level_btn.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         self.level_btn.configure(state="disabled")
         ToolTip(self.level_btn, tr("datasets_level_tooltip"))
 
         self.sync_btn = ttk.Button(transfer_box, text=tr("datasets_sync_btn"), command=self._sync_datasets)
-        self.sync_btn.grid(row=4, column=0, sticky="ew", pady=(4, 0))
+        self.sync_btn.grid(row=2, column=0, sticky="ew", pady=(4, 0))
         self.sync_btn.configure(state="disabled")
         ToolTip(self.sync_btn, tr("datasets_sync_tooltip"))
 
@@ -3449,9 +3423,6 @@ class App(tk.Tk):
             cur_min_w, cur_min_h = self.minsize()
             min_h = max(cur_min_h, target_min_height) if cur_min_h > 0 else target_min_height
             self.minsize(max(cur_min_w, width * 4), min_h)
-            wrap = max(180, width - 40)
-            self.transfer_origin_label.configure(wraplength=wrap)
-            self.transfer_dest_label.configure(wraplength=wrap)
 
         self.after_idle(_init_fixed_left_width)
 
@@ -3569,9 +3540,18 @@ class App(tk.Tk):
         origin_tree_wrap.rowconfigure(1, weight=1)
         origin_top = ttk.Frame(origin_tree_wrap)
         origin_top.grid(row=0, column=0, sticky="w", padx=(6, 6), pady=(4, 4))
+        origin_top.columnconfigure(1, weight=1)
         self.origin_pool_combo = ttk.Combobox(origin_top, textvariable=self.origin_pool_var, state="readonly", width=21)
         self.origin_pool_combo.grid(row=0, column=0, sticky="w", padx=(0, 2))
         self.origin_pool_combo.bind("<<ComboboxSelected>>", self._on_origin_pool_selected)
+        self.transfer_origin_label = ttk.Label(
+            origin_top,
+            textvariable=self.transfer_origin_target_var,
+            foreground=UI_MUTED,
+            justify="left",
+            wraplength=420,
+        )
+        self.transfer_origin_label.grid(row=0, column=1, sticky="w")
         self.datasets_tree_origin = ttk.Treeview(
             origin_tree_wrap,
             columns=("snapshot",),
@@ -3626,9 +3606,18 @@ class App(tk.Tk):
         dest_tree_wrap.rowconfigure(1, weight=1)
         dest_top = ttk.Frame(dest_tree_wrap)
         dest_top.grid(row=0, column=0, sticky="w", padx=(6, 6), pady=(4, 4))
+        dest_top.columnconfigure(1, weight=1)
         self.dest_pool_combo = ttk.Combobox(dest_top, textvariable=self.dest_pool_var, state="readonly", width=21)
         self.dest_pool_combo.grid(row=0, column=0, sticky="w", padx=(0, 2))
         self.dest_pool_combo.bind("<<ComboboxSelected>>", self._on_dest_pool_selected)
+        self.transfer_dest_label = ttk.Label(
+            dest_top,
+            textvariable=self.transfer_dest_target_var,
+            foreground=UI_MUTED,
+            justify="left",
+            wraplength=420,
+        )
+        self.transfer_dest_label.grid(row=0, column=1, sticky="w")
         self.datasets_tree_dest = ttk.Treeview(
             dest_tree_wrap,
             columns=("snapshot",),
