@@ -3046,6 +3046,75 @@ class ModifyDatasetDialog(tk.Toplevel):
         self.destroy()
 
 
+class MultiSelectDialog(tk.Toplevel):
+    def __init__(
+        self,
+        master: tk.Misc,
+        title: str,
+        prompt: str,
+        items: List[str],
+        preselect_all: bool = True,
+    ) -> None:
+        super().__init__(master)
+        self.title(title)
+        self.transient(master)
+        self.resizable(True, True)
+        self.minsize(520, 380)
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+        self.result: Optional[List[str]] = None
+
+        ttk.Label(self, text=prompt, padding=(10, 10, 10, 6), justify="left", wraplength=640).grid(
+            row=0, column=0, sticky="ew"
+        )
+        body = ttk.Frame(self, padding=(10, 0, 10, 8))
+        body.grid(row=1, column=0, sticky="nsew")
+        body.columnconfigure(0, weight=1)
+        body.rowconfigure(0, weight=1)
+
+        self.listbox = tk.Listbox(body, selectmode="extended", exportselection=False)
+        self.listbox.grid(row=0, column=0, sticky="nsew")
+        ybar = ttk.Scrollbar(body, orient="vertical", command=self.listbox.yview)
+        ybar.grid(row=0, column=1, sticky="ns")
+        self.listbox.configure(yscrollcommand=ybar.set)
+        for item in items:
+            self.listbox.insert(tk.END, item)
+        if preselect_all:
+            self.listbox.selection_set(0, tk.END)
+
+        actions = ttk.Frame(self, padding=(10, 0, 10, 10))
+        actions.grid(row=2, column=0, sticky="ew")
+        actions.columnconfigure(0, weight=1)
+        left = ttk.Frame(actions)
+        left.grid(row=0, column=0, sticky="w")
+        ttk.Button(left, text="Seleccionar todo", command=self._select_all).grid(row=0, column=0, padx=(0, 6))
+        ttk.Button(left, text="Seleccionar ninguno", command=self._select_none).grid(row=0, column=1)
+        right = ttk.Frame(actions)
+        right.grid(row=0, column=1, sticky="e")
+        ttk.Button(right, text=tr("cancel"), command=self.destroy).grid(row=0, column=0, padx=(0, 6))
+        ttk.Button(right, text="Aceptar", command=self._accept).grid(row=0, column=1)
+
+        self.bind("<Escape>", lambda _e: self.destroy())
+        self.bind("<Return>", lambda _e: self._accept())
+        self.wait_visibility()
+        try:
+            self.grab_set()
+        except tk.TclError:
+            self.after(10, lambda: self.grab_set() if self.winfo_exists() else None)
+        self.focus_set()
+
+    def _select_all(self) -> None:
+        self.listbox.selection_set(0, tk.END)
+
+    def _select_none(self) -> None:
+        self.listbox.selection_clear(0, tk.END)
+
+    def _accept(self) -> None:
+        picked = [self.listbox.get(i) for i in self.listbox.curselection()]
+        self.result = picked
+        self.destroy()
+
+
 class App(tk.Tk):
     def __init__(self, store: ConnectionStore, startup_sudo_ok: Optional[bool] = None) -> None:
         super().__init__()
@@ -5532,6 +5601,77 @@ class App(tk.Tk):
         for line in sync_lines:
             self._log_action_subcommands("Sincronizar", line)
 
+    def _ask_multi_select(self, title: str, prompt: str, items: List[str]) -> Optional[List[str]]:
+        if not items:
+            return []
+        dlg = MultiSelectDialog(self, title=title, prompt=prompt, items=items, preselect_all=True)
+        self.wait_window(dlg)
+        return dlg.result
+
+    def _list_breakdown_dirs(self, profile: ConnectionProfile, dataset_name: str, mountpoint_hint: str) -> List[str]:
+        execu = make_executor(profile)
+        if isinstance(execu, PSRPExecutor):
+            ds_q = "'" + dataset_name.replace("'", "''") + "'"
+            mp_q = "'" + mountpoint_hint.replace("'", "''") + "'"
+            script = (
+                "$ErrorActionPreference='Stop'; "
+                f"$dataset={ds_q}; $mpHint={mp_q}; "
+                "$mp=''; "
+                "try { "
+                "  $mountedRows = zfs mount; "
+                "  foreach ($line in $mountedRows) { "
+                "    $parts = ($line -split '\\s+'); "
+                "    if ($parts.Length -ge 2 -and $parts[0] -eq $dataset) { $mp = $parts[1]; break } "
+                "  } "
+                "} catch { $mp='' }; "
+                "if ([string]::IsNullOrWhiteSpace($mp)) { "
+                "  try { $mp=(zfs get -H -o value mountpoint $dataset).Trim() } catch { $mp='' } "
+                "} "
+                "if ([string]::IsNullOrWhiteSpace($mp) -or $mp -eq 'none') { $mp = $mpHint }; "
+                "if ([string]::IsNullOrWhiteSpace($mp) -or -not (Test-Path -LiteralPath $mp)) { return }; "
+                "Get-ChildItem -LiteralPath $mp -Directory -Force -ErrorAction SilentlyContinue | "
+                "  Sort-Object Name | ForEach-Object { $_.Name }"
+            )
+            out = execu._run_ps(script, timeout_seconds=REFRESH_TIMEOUT_SECONDS)
+        elif isinstance(execu, (SSHExecutor, LocalExecutor)):
+            cmd = (
+                "set -e; "
+                f"DATASET={shlex.quote(dataset_name)}; MP_HINT={shlex.quote(mountpoint_hint)}; "
+                "ACTIVE_MP=\"$(zfs mount 2>/dev/null | awk -v ds=\"$DATASET\" '$1==ds {print $2; exit}')\"; "
+                "ORIG_MP=\"$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true)\"; "
+                "[ -n \"$ORIG_MP\" ] && [ \"$ORIG_MP\" != \"none\" ] || ORIG_MP=\"$MP_HINT\"; "
+                "MP=\"$ORIG_MP\"; [ -n \"$ACTIVE_MP\" ] && MP=\"$ACTIVE_MP\"; "
+                "[ -d \"$MP\" ] || exit 0; "
+                "find \"$MP\" -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' | sort -u"
+            )
+            out = execu._run(cmd, sudo=bool(profile.use_sudo), timeout_seconds=REFRESH_TIMEOUT_SECONDS)
+        else:
+            return []
+        result = [line.strip() for line in (out or "").splitlines() if line.strip()]
+        return list(dict.fromkeys(result))
+
+    def _list_assemble_children(self, conn_id: str, pool_name: str, dataset_name: str, profile: ConnectionProfile) -> List[str]:
+        cache_key = f"{conn_id}:{pool_name}"
+        rows = self.datasets_cache.get(cache_key, [])
+        if not rows:
+            execu = make_executor(profile)
+            rows = execu.list_datasets(pool_name)
+            self.datasets_cache[cache_key] = rows
+        base_depth = dataset_name.count("/")
+        children: List[str] = []
+        pref = dataset_name + "/"
+        for row in rows:
+            name = (row.get("name", "") or "").strip()
+            if not name or "@" in name:
+                continue
+            if not name.startswith(pref):
+                continue
+            if name.count("/") != base_depth + 1:
+                continue
+            children.append(name)
+        children.sort()
+        return children
+
     def _breakdown_dataset_plan(self) -> None:
         if self._reject_if_ssh_busy():
             return
@@ -5554,6 +5694,27 @@ class App(tk.Tk):
             return
         if profile.conn_type not in {"LOCAL", "SSH", "PSRP"}:
             self._app_log("normal", trf("log_breakdown_transport_unsupported", ctype=profile.conn_type))
+            return
+        try:
+            dir_candidates = self._list_breakdown_dirs(profile, dataset_name, mountpoint)
+        except Exception as exc:
+            self._app_log("normal", trf("log_breakdown_exec_runtime_error", error=exc))
+            self.after(0, lambda: messagebox.showerror(tr("datasets_breakdown_btn"), str(exc)))
+            return
+        if not dir_candidates:
+            self._app_log("normal", f"No hay directorios para desglosar en {profile.name}::{dataset_name}")
+            return
+        selected_dirs = self._ask_multi_select(
+            title=tr("datasets_breakdown_btn"),
+            prompt=f"Selecciona directorios a desglosar en {profile.name}::{dataset_name}",
+            items=dir_candidates,
+        )
+        if selected_dirs is None:
+            self._app_log("info", "Desglosar cancelado por usuario")
+            return
+        selected_dirs = [d.strip() for d in selected_dirs if d.strip()]
+        if not selected_dirs:
+            self._app_log("info", "Desglosar cancelado: no hay directorios seleccionados")
             return
 
         def _wrap_for_profile(raw_cmd: str) -> str:
@@ -5579,12 +5740,14 @@ class App(tk.Tk):
         def _ps_quote(value: str) -> str:
             return "'" + (value or "").replace("'", "''") + "'"
 
-        def _build_psrp_breakdown_script(dataset: str, mp_hint: str) -> str:
+        def _build_psrp_breakdown_script(dataset: str, mp_hint: str, selected_names: List[str]) -> str:
             ds_q = _ps_quote(dataset)
             mp_q = _ps_quote(mp_hint)
+            sel_ps = ", ".join(_ps_quote(x) for x in selected_names)
             return (
                 "$ErrorActionPreference='Stop'; "
                 f"$dataset={ds_q}; $mpHint={mp_q}; "
+                f"$selected=@({sel_ps}); "
                 "$tmpSuffix = ($dataset -replace '[^A-Za-z0-9_\\-]', '_'); "
                 "$tmpRoot = Join-Path $env:TEMP ('zfsmgr-breakdown-' + $tmpSuffix); "
                 "New-Item -ItemType Directory -Path $tmpRoot -Force | Out-Null; "
@@ -5613,6 +5776,7 @@ class App(tk.Tk):
                 "$dirs = @(Get-ChildItem -LiteralPath $mp -Directory -Force -ErrorAction SilentlyContinue); "
                 "if ($dirs.Count -eq 0) { Write-Output (\"[BREAKDOWN] no subdirectories found in {0}\" -f $mp) } "
                 "foreach ($d in $dirs) { "
+                "  if ($selected.Count -gt 0 -and -not ($selected -contains $d.Name)) { continue } "
                 "  $n = $d.Name; "
                 "  $safe = ($n -replace '[^A-Za-z0-9_.:-]', '_'); "
                 "  if ([string]::IsNullOrWhiteSpace($safe)) { $safe = 'dir' }; "
@@ -5645,9 +5809,12 @@ class App(tk.Tk):
 
         dataset_q = shlex.quote(dataset_name)
         mount_q = shlex.quote(mountpoint)
+        selected_dirs_array = " ".join(shlex.quote(x) for x in selected_dirs)
         breakdown_cmd = (
             "set -e; "
             f"DATASET={dataset_q}; MP_HINT={mount_q}; "
+            f"SELECTED_DIRS=({selected_dirs_array}); "
+            "is_selected_dir() { local s; for s in \"${SELECTED_DIRS[@]}\"; do [ \"$s\" = \"$1\" ] && return 0; done; return 1; }; "
             "TMP_SUFFIX=\"$(printf '%s' \"$DATASET\" | tr '/' '_')\"; "
             "TMP_ROOT=\"/tmp/zfsmgr-breakdown-$TMP_SUFFIX\"; "
             "ORIG_MP=\"$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true)\"; "
@@ -5684,9 +5851,10 @@ class App(tk.Tk):
             "found=0; "
             "for d in \"$MP\"/*; do "
             "[ -d \"$d\" ] || continue; "
-            "found=1; "
             "{ "
             "n=\"$(basename \"$d\")\"; "
+            "is_selected_dir \"$n\" || continue; "
+            "found=1; "
             "safe=\"$(printf '%s' \"$n\" | tr ' ' '_' | tr -cd 'A-Za-z0-9_.:-')\"; "
             "[ -n \"$safe\" ] || safe=\"dir\"; "
             "child=\"$DATASET/$safe\"; "
@@ -5714,7 +5882,7 @@ class App(tk.Tk):
             "fi"
         )
         if profile.conn_type == "PSRP":
-            ps_cmd = _build_psrp_breakdown_script(dataset_name, mountpoint)
+            ps_cmd = _build_psrp_breakdown_script(dataset_name, mountpoint, selected_dirs)
             self._app_log(
                 "normal",
                 trf("log_breakdown_plan_generated", dataset=dataset_name, name=profile.name, selection=selection_label),
@@ -5756,6 +5924,28 @@ class App(tk.Tk):
         if profile.conn_type not in {"LOCAL", "SSH", "PSRP"}:
             self._app_log("normal", trf("log_assemble_transport_unsupported", ctype=profile.conn_type))
             return
+        pool_name = dataset_name.split("/", 1)[0]
+        try:
+            child_candidates = self._list_assemble_children(conn_id, pool_name, dataset_name, profile)
+        except Exception as exc:
+            self._app_log("normal", trf("log_assemble_exec_runtime_error", error=exc))
+            self.after(0, lambda: messagebox.showerror(tr("datasets_assemble_btn"), str(exc)))
+            return
+        if not child_candidates:
+            self._app_log("normal", f"No hay subdatasets para ensamblar en {profile.name}::{dataset_name}")
+            return
+        selected_children = self._ask_multi_select(
+            title=tr("datasets_assemble_btn"),
+            prompt=f"Selecciona datasets a ensamblar en {profile.name}::{dataset_name}",
+            items=child_candidates,
+        )
+        if selected_children is None:
+            self._app_log("info", "Ensamblar cancelado por usuario")
+            return
+        selected_children = [d.strip() for d in selected_children if d.strip()]
+        if not selected_children:
+            self._app_log("info", "Ensamblar cancelado: no hay datasets seleccionados")
+            return
 
         def _wrap_for_profile(raw_cmd: str) -> str:
             if profile.conn_type == "LOCAL":
@@ -5780,12 +5970,14 @@ class App(tk.Tk):
         def _ps_quote(value: str) -> str:
             return "'" + (value or "").replace("'", "''") + "'"
 
-        def _build_psrp_assemble_script(dataset: str, mp_hint: str) -> str:
+        def _build_psrp_assemble_script(dataset: str, mp_hint: str, selected_ds: List[str]) -> str:
             ds_q = _ps_quote(dataset)
             mp_q = _ps_quote(mp_hint)
+            sel_ps = ", ".join(_ps_quote(x) for x in selected_ds)
             return (
                 "$ErrorActionPreference='Stop'; "
                 f"$dataset={ds_q}; $mpHint={mp_q}; "
+                f"$selected=@({sel_ps}); "
                 "$tmpSuffix = ($dataset -replace '[^A-Za-z0-9_\\-]', '_'); "
                 "$tmpRoot = ('/tmp/zfsmgr-assemble-' + $tmpSuffix); "
                 "$tmpRootWin = ($env:SystemDrive + ($tmpRoot -replace '/', '\\')); "
@@ -5815,6 +6007,7 @@ class App(tk.Tk):
                 "Write-Output (\"[ASSEMBLE] dataset={0} original_mp={1} active_mp={2}\" -f $dataset, $origMp, $mp); "
                 "$baseDepth = ($dataset -split '/').Count; "
                 "$children = @(zfs list -H -o name -r $dataset | Where-Object { $_ -like ($dataset + '/*') -and $_ -notmatch '@' -and (($_ -split '/').Count -eq ($baseDepth + 1)) }); "
+                "if ($selected.Count -gt 0) { $children = @($children | Where-Object { $selected -contains $_ }) }; "
                 "if ($children.Count -eq 0) { Write-Output (\"[ASSEMBLE] no child datasets found in {0}\" -f $dataset); return }; "
                 "$children = $children | Sort-Object { ($_ -split '/').Count } -Descending; "
                 "foreach ($child in $children) { "
@@ -5858,8 +6051,9 @@ class App(tk.Tk):
 
         dataset_q = shlex.quote(dataset_name)
         mount_q = shlex.quote(mountpoint)
+        selected_children_array = " ".join(shlex.quote(x) for x in selected_children)
         if profile.conn_type == "PSRP":
-            ps_cmd = _build_psrp_assemble_script(dataset_name, mountpoint)
+            ps_cmd = _build_psrp_assemble_script(dataset_name, mountpoint, selected_children)
             self._app_log(
                 "normal",
                 trf("log_assemble_plan_generated", dataset=dataset_name, name=profile.name, selection=selection_label),
@@ -5872,6 +6066,8 @@ class App(tk.Tk):
         assemble_cmd = (
             "set -e; "
             f"DATASET={dataset_q}; MP_HINT={mount_q}; "
+            f"SELECTED_CHILDREN=({selected_children_array}); "
+            "is_selected_child() { local s; for s in \"${SELECTED_CHILDREN[@]}\"; do [ \"$s\" = \"$1\" ] && return 0; done; return 1; }; "
             "TMP_SUFFIX=\"$(printf '%s' \"$DATASET\" | tr '/' '_')\"; "
             "TMP_ROOT=\"/tmp/zfsmgr-assemble-$TMP_SUFFIX\"; "
             "ORIG_MP=\"$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true)\"; "
@@ -5919,6 +6115,7 @@ class App(tk.Tk):
             "| while IFS= read -r child; do "
             "[ -n \"$child\" ] || continue; "
             "[ \"$child\" = \"$DATASET\" ] && continue; "
+            "is_selected_child \"$child\" || continue; "
             "{ "
             "rel=\"${child#\"$DATASET\"/}\"; "
             "dest=\"$MP/$rel\"; "
