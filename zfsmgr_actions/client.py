@@ -137,7 +137,15 @@ class ZFSMgrActions:
             raise ValueError("dest_dataset no puede ser snapshot")
         src_profile, src_execu = self._profile_executor(source_connection)
         dst_profile, _dst_execu = self._profile_executor(dest_connection)
-        recv_raw = f"zfs recv -F -e {shlex.quote(dest_dataset)}"
+        src_dataset = source_snapshot.split("@", 1)[0]
+        src_leaf = src_dataset.rsplit("/", 1)[-1]
+        recv_raw_candidates: List[str] = [f"zfs recv -F -e {shlex.quote(dest_dataset)}"]
+        if recursive:
+            recv_raw_candidates.append(f"zfs recv -F -d {shlex.quote(dest_dataset)}")
+        recv_raw_candidates.append(f"zfs recv -F {shlex.quote(dest_dataset)}")
+        recv_raw_candidates.append(f"zfs recv -F {shlex.quote(dest_dataset + '/' + src_leaf)}")
+        recv_raw_candidates = list(dict.fromkeys(recv_raw_candidates))
+        recv_raw = recv_raw_candidates[0]
 
         # Caso PSRP: solo soportado cuando origen y destino son la misma conexion PSRP.
         if src_profile.conn_type == "PSRP" or dst_profile.conn_type == "PSRP":
@@ -159,28 +167,28 @@ class ZFSMgrActions:
             (f"zfs send -{flag} {shlex.quote(source_snapshot)}" if flag else f"zfs send {shlex.quote(source_snapshot)}")
             for flag in flags
         ]
-        recv_cmd = self._sudo_wrap(dst_profile, recv_raw, preserve_stdin_stream=True)
-        recv_side = self._outer_exec(dst_profile, recv_cmd)
-        if not recv_side:
-            raise RuntimeError("No se pudo construir comando de destino para recv")
-
         last_err: Optional[Exception] = None
-        for send_raw in send_raw_candidates:
-            send_cmd = self._sudo_wrap(src_profile, send_raw, preserve_stdin_stream=False)
-            send_side = self._outer_exec(src_profile, send_cmd)
-            if not send_side:
-                raise RuntimeError("No se pudo construir comando de origen para send")
-            pipeline = f"{send_side} | {recv_side}"
-            try:
-                out = self._run_local_pipeline(pipeline)
-                return ActionResult(
-                    f"{src_profile.id}->{dst_profile.id}",
-                    "copy_snapshot",
-                    f"{source_snapshot} -> {dest_dataset}",
-                    out or "",
-                )
-            except Exception as exc:
-                last_err = exc
+        for recv_raw_item in recv_raw_candidates:
+            recv_cmd = self._sudo_wrap(dst_profile, recv_raw_item, preserve_stdin_stream=True)
+            recv_side = self._outer_exec(dst_profile, recv_cmd)
+            if not recv_side:
+                raise RuntimeError("No se pudo construir comando de destino para recv")
+            for send_raw in send_raw_candidates:
+                send_cmd = self._sudo_wrap(src_profile, send_raw, preserve_stdin_stream=False)
+                send_side = self._outer_exec(src_profile, send_cmd)
+                if not send_side:
+                    raise RuntimeError("No se pudo construir comando de origen para send")
+                pipeline = f"{send_side} | {recv_side}"
+                try:
+                    out = self._run_local_pipeline(pipeline)
+                    return ActionResult(
+                        f"{src_profile.id}->{dst_profile.id}",
+                        "copy_snapshot",
+                        f"{source_snapshot} -> {dest_dataset}",
+                        out or "",
+                    )
+                except Exception as exc:
+                    last_err = exc
         if last_err is not None:
             raise last_err
         raise RuntimeError("copy_snapshot failed")

@@ -5208,8 +5208,17 @@ class App(tk.Tk):
             recursive=recursive_send,
             incremental_base=None,
         )
+        src_dataset_name = src_snapshot.split("@", 1)[0]
+        src_leaf = src_dataset_name.rsplit("/", 1)[-1]
+        recv_candidates: List[str] = [f"zfs recv -F -e {shlex.quote(dst_dataset)}"]
+        if recursive_send:
+            recv_candidates.append(f"zfs recv -F -d {shlex.quote(dst_dataset)}")
+        recv_candidates.append(f"zfs recv -F {shlex.quote(dst_dataset)}")
+        recv_candidates.append(f"zfs recv -F {shlex.quote(dst_dataset + '/' + src_leaf)}")
+        # Deduplicar conservando orden.
+        recv_candidates = list(dict.fromkeys(recv_candidates))
         send_raw = send_candidates[0]
-        recv_raw = f"zfs recv -F -e {shlex.quote(dst_dataset)}"
+        recv_raw = recv_candidates[0]
         if src_profile.conn_type == "PSRP" and dst_profile.conn_type == "PSRP" and src_conn_id == dst_conn_id:
             ps_cmd = f"$ErrorActionPreference='Stop'; {send_raw} | {recv_raw}"
             self._app_log("normal", trf("log_copy_plan", src=src_snapshot, dst=dst_dataset))
@@ -5242,6 +5251,7 @@ class App(tk.Tk):
         self._app_log("normal", tr("log_copy_command_header"))
         self._app_log("normal", cmd)
         extra_cmds: List[str] = []
+        # Primero probar variantes de send con recv base.
         if len(send_candidates) > 1:
             for alt_send_raw in send_candidates[1:]:
                 alt_send_cmd = sudo_wrap(src_profile, alt_send_raw, preserve_stdin_stream=False)
@@ -5252,6 +5262,25 @@ class App(tk.Tk):
                     extra_cmds.append(f"{alt_send_side} | {progress_stage} | {recv_side}")
                 else:
                     extra_cmds.append(f"{alt_send_side} | {recv_side}")
+        # Si sigue fallando, variar también el recv (clave para destino Windows).
+        if len(recv_candidates) > 1:
+            for alt_recv_raw in recv_candidates[1:]:
+                alt_recv_cmd = sudo_wrap(dst_profile, alt_recv_raw, preserve_stdin_stream=True)
+                alt_recv_side = wrap_outer_exec(dst_profile, alt_recv_cmd)
+                if not alt_recv_side:
+                    continue
+                for alt_send_raw in send_candidates:
+                    alt_send_cmd = sudo_wrap(src_profile, alt_send_raw, preserve_stdin_stream=False)
+                    alt_send_side = wrap_outer_exec(src_profile, alt_send_cmd)
+                    if not alt_send_side:
+                        continue
+                    if progress_stage:
+                        extra_cmds.append(f"{alt_send_side} | {progress_stage} | {alt_recv_side}")
+                    else:
+                        extra_cmds.append(f"{alt_send_side} | {alt_recv_side}")
+        # Evitar reintentos duplicados.
+        if extra_cmds:
+            extra_cmds = list(dict.fromkeys(extra_cmds))
         self._run_copy_command(cmd, dst_conn_id=dst_conn_id, fallback_cmds=extra_cmds)
 
     def _sync_datasets(self) -> None:
