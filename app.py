@@ -19,6 +19,7 @@ import queue
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -213,6 +214,10 @@ def _ssh_common_parts(profile: "ConnectionProfile", include_key: bool = True) ->
         "StrictHostKeyChecking=no",
         "-o",
         "UserKnownHostsFile=/dev/null",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=12",
         "-o",
         "ControlMaster=auto",
         "-o",
@@ -6734,6 +6739,7 @@ class App(tk.Tk):
                         text=True,
                         bufsize=1,
                         executable="/bin/bash",
+                        start_new_session=True,
                     )
                     executed_any = True
                     self._set_active_dataset_process(proc, tr("datasets_level_btn"))
@@ -6814,6 +6820,7 @@ class App(tk.Tk):
                         text=True,
                         bufsize=1,
                         executable="/bin/bash",
+                        start_new_session=True,
                     )
                     executed_any = True
                     self._set_active_dataset_process(proc, tr("copy_snapshot_btn"))
@@ -6880,6 +6887,7 @@ class App(tk.Tk):
                     text=True,
                     bufsize=1,
                     executable="/bin/bash",
+                    start_new_session=True,
                 )
                 self._set_active_dataset_process(proc, tr("datasets_breakdown_btn"))
             except Exception as exc:
@@ -6937,6 +6945,7 @@ class App(tk.Tk):
                     text=True,
                     bufsize=1,
                     executable="/bin/bash",
+                    start_new_session=True,
                 )
                 self._set_active_dataset_process(proc, tr("datasets_assemble_btn"))
             except Exception as exc:
@@ -7049,7 +7058,10 @@ class App(tk.Tk):
             cancel_event.set()
             return
         try:
-            proc.terminate()
+            if hasattr(os, "killpg"):
+                os.killpg(proc.pid, signal.SIGTERM)
+            else:
+                proc.terminate()
         except Exception:
             pass
 
@@ -7057,7 +7069,10 @@ class App(tk.Tk):
             time.sleep(1.5)
             if p.poll() is None:
                 try:
-                    p.kill()
+                    if hasattr(os, "killpg"):
+                        os.killpg(p.pid, signal.SIGKILL)
+                    else:
+                        p.kill()
                 except Exception:
                     pass
 
