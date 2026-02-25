@@ -3385,24 +3385,25 @@ class App(tk.Tk):
         self.sync_btn.configure(state="disabled")
         ToolTip(self.sync_btn, tr("datasets_sync_tooltip"))
 
-        breakdown_box = ttk.LabelFrame(self.tab_datasets, text=tr("datasets_box_breakdown"), padding=(8, 6))
+        breakdown_box = ttk.LabelFrame(self.tab_datasets, text="Avanzado", padding=(8, 6))
         breakdown_box.grid(row=1, column=0, sticky="ew", pady=(6, 0))
         breakdown_box.columnconfigure(0, weight=1)
-        ttk.Label(
+        self.breakdown_selected_label = ttk.Label(
             breakdown_box,
             textvariable=self.dataset_action_target_var,
             foreground=UI_MUTED,
             justify="left",
             wraplength=220,
-        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
+        )
         self.breakdown_btn = ttk.Button(breakdown_box, text=tr("datasets_breakdown_btn"), command=self._breakdown_dataset_plan)
-        self.breakdown_btn.grid(row=1, column=0, sticky="ew")
+        self.breakdown_btn.grid(row=0, column=0, sticky="ew")
         self.breakdown_btn.configure(state="disabled")
         ToolTip(self.breakdown_btn, tr("datasets_breakdown_tooltip"))
         self.assemble_btn = ttk.Button(breakdown_box, text=tr("datasets_assemble_btn"), command=self._assemble_dataset_plan)
-        self.assemble_btn.grid(row=2, column=0, sticky="ew", pady=(4, 0))
+        self.assemble_btn.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         self.assemble_btn.configure(state="disabled")
         ToolTip(self.assemble_btn, tr("datasets_assemble_tooltip"))
+        self.breakdown_selected_label.grid(row=2, column=0, sticky="w", pady=(6, 0))
 
         right = ttk.Frame(top_container, padding=(6, 6, 10, 10))
         right.grid(row=0, column=1, sticky="nsew")
