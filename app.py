@@ -6439,11 +6439,17 @@ class App(tk.Tk):
         msg2 = trf("delete_dataset_confirm_2", dataset=dataset_path, name=profile.name)
         if not messagebox.askyesno(tr("confirm"), msg2):
             return
+        recursive_first = messagebox.askyesno(
+            tr("confirm"),
+            trf("delete_dataset_recursive_confirm", dataset=dataset_path, name=profile.name),
+        )
+        if recursive_first:
+            self._app_log("normal", trf("log_delete_dataset_recursive_start", name=profile.name, dataset=dataset_path))
 
         self._app_log("normal", trf("log_delete_dataset_start", name=profile.name, dataset=dataset_path))
         self._ssh_log(f"[ACTION] {trf('log_delete_dataset_start', name=profile.name, dataset=dataset_path)}")
 
-        def worker(recursive: bool = False) -> None:
+        def worker(recursive: bool = False, prompted_recursive: bool = False) -> None:
             try:
                 execu = make_executor(profile)
                 out = execu.destroy_dataset(dataset_path, recursive=recursive)
@@ -6480,7 +6486,7 @@ class App(tk.Tk):
                     or "use '-r' to destroy" in lower_err
                     or "still exists" in lower_err
                 )
-                if needs_recursive:
+                if needs_recursive and not prompted_recursive:
                     self._app_log("normal", trf("log_delete_dataset_needs_recursive", name=profile.name, dataset=dataset_path))
 
                     def _ask_recursive() -> None:
@@ -6490,12 +6496,14 @@ class App(tk.Tk):
                         )
                         if ask:
                             self._app_log("normal", trf("log_delete_dataset_recursive_start", name=profile.name, dataset=dataset_path))
-                            threading.Thread(target=lambda: worker(True), daemon=True).start()
+                            threading.Thread(target=lambda: worker(True, True), daemon=True).start()
                         else:
                             self._app_log("normal", trf("log_delete_dataset_error", name=profile.name, dataset=dataset_path, error=err_txt))
 
                     self.after(0, _ask_recursive)
                     return
+                if needs_recursive and prompted_recursive:
+                    self._app_log("normal", trf("log_delete_dataset_needs_recursive", name=profile.name, dataset=dataset_path))
                 self._app_log("normal", trf("log_delete_dataset_error", name=profile.name, dataset=dataset_path, error=err_txt))
                 self.after(0, lambda: messagebox.showerror(tr("delete_dataset_btn"), err_txt))
             finally:
@@ -6503,7 +6511,7 @@ class App(tk.Tk):
                 self.after(0, lambda: self._refresh_connection_by_id(conn_id))
                 self.after(0, lambda: self._load_side_datasets(side))
 
-        threading.Thread(target=worker, daemon=True).start()
+        threading.Thread(target=lambda: worker(recursive_first, True), daemon=True).start()
 
     def _run_level_psrp_command(
         self,
