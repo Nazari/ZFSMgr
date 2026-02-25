@@ -7350,6 +7350,14 @@ class App(tk.Tk):
         none_label = "(seleccione)"
         snap_map = self.dataset_selected_snapshot_by_side.setdefault(side, {})
         tree = self.datasets_tree_origin if side == "origin" else self.datasets_tree_dest
+        try:
+            if dataset_iid:
+                tree.selection_set(dataset_iid)
+                tree.focus(dataset_iid)
+            else:
+                tree.selection_remove(tree.selection())
+        except Exception:
+            pass
 
         # Solo puede haber un snapshot seleccionado por panel.
         prev_selected = list(snap_map.keys())
