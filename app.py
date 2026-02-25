@@ -7828,8 +7828,7 @@ class App(tk.Tk):
             if not clean:
                 return f"Dataset: {tr('label_none')}"
             kind = "Snapshot" if "@" in clean else "Dataset"
-            # Resaltado simple y robusto en ttk.Label (sin estilos parciales por texto).
-            return f"{kind}: <<{clean}>>"
+            return f"{kind}: {clean}"
 
         self.transfer_origin_target_var.set(_fmt(src_dataset))
         self.transfer_dest_target_var.set(_fmt(dst_dataset))
