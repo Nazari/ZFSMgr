@@ -6447,17 +6447,37 @@ class App(tk.Tk):
             try:
                 execu = make_executor(profile)
                 out = execu.destroy_dataset(dataset_path, recursive=recursive)
-                # Verificacion explicita: evitar falsos OK cuando el backend no elimina realmente.
-                try:
+
+                def _exists_after_delete() -> bool:
                     pool_name = dataset_path.split("/", 1)[0].split("@", 1)[0]
                     rows = execu.list_datasets(pool_name)
-                    still_exists = any((r.get("name", "").strip() == dataset_path) for r in rows)
-                    if still_exists:
-                        raise RuntimeError(f"verification failed: dataset still exists ({dataset_path})")
-                except Exception as verify_exc:
-                    # Si falla el chequeo de estado, solo propagamos si indica permanencia del dataset.
-                    if "still exists" in str(verify_exc):
-                        raise
+                    return any((r.get("name", "").strip() == dataset_path) for r in rows)
+
+                # Verificacion explicita: evitar falsos OK cuando el backend no elimina realmente.
+                still_exists = False
+                try:
+                    still_exists = _exists_after_delete()
+                except Exception:
+                    # Si no se puede verificar, mantenemos el resultado del comando.
+                    still_exists = False
+
+                # En PSRP puede devolver "ok" sin eliminar si requiere -r/-R.
+                if still_exists and profile.conn_type == "PSRP" and not recursive and "@" not in dataset_path:
+                    self._app_log(
+                        "normal",
+                        trf("log_delete_dataset_recursive_start", name=profile.name, dataset=dataset_path),
+                    )
+                    out_retry = execu.destroy_dataset(dataset_path, recursive=True)
+                    if (out_retry or "").strip():
+                        out = (out or "") + ("\n" if out else "") + out_retry
+                    try:
+                        still_exists = _exists_after_delete()
+                    except Exception:
+                        still_exists = False
+
+                if still_exists:
+                    raise RuntimeError(f"verification failed: dataset still exists ({dataset_path})")
+
                 if recursive:
                     self._app_log("normal", trf("log_delete_dataset_done_recursive", name=profile.name, dataset=dataset_path))
                 else:
