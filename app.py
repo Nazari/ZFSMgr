@@ -3391,9 +3391,10 @@ class App(tk.Tk):
         self.breakdown_selected_label = ttk.Label(
             breakdown_box,
             textvariable=self.dataset_action_target_var,
-            foreground=UI_MUTED,
+            foreground=UI_ACCENT,
             justify="left",
             wraplength=220,
+            font=("TkDefaultFont", 9, "bold"),
         )
         self.breakdown_btn = ttk.Button(breakdown_box, text=tr("datasets_breakdown_btn"), command=self._breakdown_dataset_plan)
         self.breakdown_btn.grid(row=0, column=0, sticky="ew")
