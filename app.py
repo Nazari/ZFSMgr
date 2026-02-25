@@ -133,6 +133,7 @@ PSRP_TIMEOUT_SECONDS = 60
 # Un refresco completo por conexion puede ejecutar varias comprobaciones remotas
 # secuenciales; 45s provoca timeouts falsos en PSRP.
 REFRESH_TIMEOUT_SECONDS = 120
+WINDOWS_CONN_BLOCK_MSG = "Conexiones Windows desactivadas temporalmente hasta OpenZFS 2.4"
 
 LANG_OPTIONS = {
     "es": "Español",
@@ -2235,6 +2236,10 @@ class ConnectionDialog(tk.Toplevel):
     def _build_profile_from_fields(self, show_errors: bool) -> Optional[ConnectionProfile]:
         name = self.var_name.get().strip()
         os_type = self.var_os.get().strip()
+        if os_type == "Windows":
+            if show_errors:
+                messagebox.showerror(tr("validation_title"), WINDOWS_CONN_BLOCK_MSG)
+            return None
         transport = self.var_win_transport.get().strip() if os_type == "Windows" else "SSH"
         ctype = "PSRP" if (os_type == "Windows" and transport == "PSRP") else "SSH"
         if not name:
@@ -8472,6 +8477,14 @@ class App(tk.Tk):
                 state = ConnectionState()
                 conn_label = profile.transport if profile.os_type == "Windows" else profile.conn_type
                 self._app_log("normal", f"Inicio refresh: {profile.name} [{conn_label}]")
+                if profile.os_type == "Windows":
+                    state.ok = False
+                    state.message = WINDOWS_CONN_BLOCK_MSG
+                    self._app_log(
+                        "normal",
+                        f"Fin refresh: {profile.name} [{conn_label}] -> ERROR ({state.message})",
+                    )
+                    return profile.id, state
                 try:
                     def refresh_profile() -> ConnectionState:
                         local_state = ConnectionState()
