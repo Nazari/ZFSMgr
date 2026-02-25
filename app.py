@@ -3805,7 +3805,7 @@ class App(tk.Tk):
         left_info.rowconfigure(1, weight=1)
 
         status_title = re.split(r"[:：]", tr("status_ready"), maxsplit=1)[0].strip() or tr("status_ready")
-        ssh_title = tr("log_ssh_last_prefix").rstrip(":： ").strip() or "SSH"
+        detail_title = "Detalle"
 
         status_panel = ttk.LabelFrame(left_info, text=status_title, padding=(6, 6))
         status_panel.grid(row=0, column=0, sticky="ew", pady=(0, 6))
@@ -3823,7 +3823,7 @@ class App(tk.Tk):
         self.status_label.grid(row=0, column=0, sticky="nsew")
         self.status_label.bind("<Configure>", lambda e: self.status_label.configure(wraplength=max(80, e.width - 8)))
 
-        ssh_last_panel = ttk.LabelFrame(left_info, text=ssh_title, padding=(6, 6))
+        ssh_last_panel = ttk.LabelFrame(left_info, text=detail_title, padding=(6, 6))
         ssh_last_panel.grid(row=1, column=0, sticky="nsew")
         ssh_last_panel.columnconfigure(0, weight=1)
         ssh_last_panel.rowconfigure(0, weight=1)
@@ -4469,6 +4469,8 @@ class App(tk.Tk):
             self.app_log_text.insert("end", line + "\n")
             self.app_log_text.see("end")
             self.app_log_text.configure(state="disabled")
+            self._ssh_last_line_full = line
+            self._refresh_ssh_last_line_summary()
         try:
             self.after(0, _append)
         except Exception:
@@ -4538,7 +4540,7 @@ class App(tk.Tk):
             except Exception:
                 pass
             return
-        prefix = tr("log_ssh_last_prefix")
+        prefix = "Detalle: "
         text = f"{prefix}{full}"
         self.ssh_last_line_var.set(text)
         try:
