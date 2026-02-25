@@ -3094,6 +3094,7 @@ class App(tk.Tk):
         self._snapshot_cell_editor_side: str = ""
         self._snapshot_cell_editor_dataset: str = ""
         self._snapshot_cell_popup: Optional[tk.Toplevel] = None
+        self._suspend_dataset_tree_select = False
         base_size = int(tkfont.nametofont("TkDefaultFont").actual("size") or 9)
         self.snapshot_font_normal = ("TkDefaultFont", base_size)
         self._last_dataset_props_sig: str = ""
@@ -7327,6 +7328,8 @@ class App(tk.Tk):
     def _on_origin_tree_selected(self, _event: Any = None) -> None:
         if self._reject_if_ssh_busy():
             return
+        if self._suspend_dataset_tree_select:
+            return
         selected = self.datasets_tree_origin.selection()
         if not selected:
             self._set_dataset_selection("origin", "", None)
@@ -7336,6 +7339,8 @@ class App(tk.Tk):
 
     def _on_dest_tree_selected(self, _event: Any = None) -> None:
         if self._reject_if_ssh_busy():
+            return
+        if self._suspend_dataset_tree_select:
             return
         selected = self.datasets_tree_dest.selection()
         if not selected:
@@ -7350,14 +7355,19 @@ class App(tk.Tk):
         none_label = "(seleccione)"
         snap_map = self.dataset_selected_snapshot_by_side.setdefault(side, {})
         tree = self.datasets_tree_origin if side == "origin" else self.datasets_tree_dest
+        self._suspend_dataset_tree_select = True
         try:
             if dataset_iid:
-                tree.selection_set(dataset_iid)
+                current = tuple(tree.selection())
+                if current != (dataset_iid,):
+                    tree.selection_set(dataset_iid)
                 tree.focus(dataset_iid)
             else:
                 tree.selection_remove(tree.selection())
         except Exception:
             pass
+        finally:
+            self._suspend_dataset_tree_select = False
 
         # Solo puede haber un snapshot seleccionado por panel.
         prev_selected = list(snap_map.keys())
