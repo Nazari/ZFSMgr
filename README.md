@@ -90,6 +90,10 @@ Nota sobre `copy_snapshot`:
 - Soporta copia entre conexiones `LOCAL/SSH` distintas (pipeline local `send|recv`).
 - En `PSRP`, solo esta soportado cuando origen y destino son la misma conexion.
 
+Nota sobre `level_datasets`:
+- Soporta nivelacion incremental entre conexiones `LOCAL/SSH` distintas.
+- En `PSRP`, solo esta soportado cuando origen y destino son la misma conexion.
+
 ## Empaquetado multiplataforma (Windows, Linux, macOS)
 
 Se usa `PyInstaller` para generar binarios standalone.

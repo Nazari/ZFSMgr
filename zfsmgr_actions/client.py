@@ -184,27 +184,90 @@ class ZFSMgrActions:
 
     def level_datasets(
         self,
-        connection: str,
+        source_connection: str,
         source_dataset: str,
         dest_dataset: str,
+        dest_connection: Optional[str] = None,
     ) -> ActionResult:
-        profile, execu = self._profile_executor(connection)
-        src_snaps = self._snapshot_names(execu, source_dataset)
-        dst_snaps = self._snapshot_names(execu, dest_dataset)
+        dst_connection = dest_connection or source_connection
+        src_profile, src_execu = self._profile_executor(source_connection)
+        dst_profile, dst_execu = self._profile_executor(dst_connection)
+
+        src_snaps = self._snapshot_names(src_execu, source_dataset)
+        dst_snaps = self._snapshot_names(dst_execu, dest_dataset)
         missing = [s for s in src_snaps if s not in dst_snaps]
         if not missing:
-            return ActionResult(profile.id, "level_datasets", f"{source_dataset} -> {dest_dataset}", "already leveled")
+            return ActionResult(
+                f"{src_profile.id}->{dst_profile.id}",
+                "level_datasets",
+                f"{source_dataset} -> {dest_dataset}",
+                "already leveled",
+            )
         common = [s for s in src_snaps if s in dst_snaps]
         target = f"{source_dataset}@{missing[-1]}"
-        if common:
-            base = f"{source_dataset}@{common[-1]}"
-            send = f"zfs send -wLecR -I {shlex.quote(base)} {shlex.quote(target)}"
-        else:
-            send = f"zfs send -wLecR {shlex.quote(target)}"
-        recv = f"zfs recv -F {shlex.quote(dest_dataset)}"
-        cmd = f"{send} | {recv}"
-        out = self._run_raw(profile, execu, cmd, sudo=True)
-        return ActionResult(profile.id, "level_datasets", f"{source_dataset} -> {dest_dataset}", out or "")
+
+        # PSRP: solo soportado en misma conexion.
+        if src_profile.conn_type == "PSRP" or dst_profile.conn_type == "PSRP":
+            if not (src_profile.conn_type == "PSRP" and dst_profile.conn_type == "PSRP" and src_profile.id == dst_profile.id):
+                raise NotImplementedError("level_datasets con PSRP solo soportado en la misma conexion")
+            if common:
+                base = f"{source_dataset}@{common[-1]}"
+                send = f"zfs send -wLecR -I {shlex.quote(base)} {shlex.quote(target)}"
+            else:
+                send = f"zfs send -wLecR {shlex.quote(target)}"
+            recv = f"zfs recv -F {shlex.quote(dest_dataset)}"
+            cmd = f"{send} | {recv}"
+            out = self._run_raw(src_profile, src_execu, cmd, sudo=False)
+            return ActionResult(
+                f"{src_profile.id}->{dst_profile.id}",
+                "level_datasets",
+                f"{source_dataset} -> {dest_dataset}",
+                out or "",
+            )
+
+        if src_profile.conn_type not in {"LOCAL", "SSH"} or dst_profile.conn_type not in {"LOCAL", "SSH"}:
+            raise NotImplementedError(
+                f"level_datasets no soportado para {src_profile.conn_type} -> {dst_profile.conn_type}"
+            )
+
+        version = src_execu.get_zfs_version() if hasattr(src_execu, "get_zfs_version") else None
+        send_flags = build_send_flag_candidates(version, recursive=True)
+        send_raw_candidates: List[str] = []
+        for flag in send_flags:
+            if common:
+                base = f"{source_dataset}@{common[-1]}"
+                send_raw_candidates.append(
+                    f"zfs send -{flag} -I {shlex.quote(base)} {shlex.quote(target)}"
+                )
+            else:
+                send_raw_candidates.append(f"zfs send -{flag} {shlex.quote(target)}")
+
+        recv_raw = f"zfs recv -F {shlex.quote(dest_dataset)}"
+        recv_cmd = self._sudo_wrap(dst_profile, recv_raw, preserve_stdin_stream=True)
+        recv_side = self._outer_exec(dst_profile, recv_cmd)
+        if not recv_side:
+            raise RuntimeError("No se pudo construir comando de destino para recv")
+
+        last_err: Optional[Exception] = None
+        for send_raw in send_raw_candidates:
+            send_cmd = self._sudo_wrap(src_profile, send_raw, preserve_stdin_stream=False)
+            send_side = self._outer_exec(src_profile, send_cmd)
+            if not send_side:
+                raise RuntimeError("No se pudo construir comando de origen para send")
+            pipeline = f"{send_side} | {recv_side}"
+            try:
+                out = self._run_local_pipeline(pipeline)
+                return ActionResult(
+                    f"{src_profile.id}->{dst_profile.id}",
+                    "level_datasets",
+                    f"{source_dataset} -> {dest_dataset}",
+                    out or "",
+                )
+            except Exception as exc:
+                last_err = exc
+        if last_err is not None:
+            raise last_err
+        raise RuntimeError("level_datasets failed")
 
     def sync_datasets(self, connection: str, source_dataset: str, dest_dataset: str) -> ActionResult:
         profile, execu = self._profile_executor(connection)
