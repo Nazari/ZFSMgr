@@ -7022,7 +7022,7 @@ class App(tk.Tk):
                         pass
                 now = time.monotonic()
                 if transferred > 0 and (now - last_progress_at) > 1.0:
-                    self._ssh_log(f"[copy] {format_size_short(transferred)} transferred")
+                    self._ssh_log(f"[copy] {format_bytes_compact(str(transferred))} transferred")
                     last_progress_at = now
                 if src_done and dst_ch.exit_status_ready() and not dst_ch.recv_ready() and not dst_ch.recv_stderr_ready():
                     break
