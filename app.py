@@ -7803,20 +7803,12 @@ class App(tk.Tk):
     def _update_transfer_selection_labels(self, src_dataset: str, dst_dataset: str) -> None:
         src_label = tr("label_none")
         dst_label = tr("label_none")
-        src_pool_sel = self.origin_pool_var.get().strip()
-        dst_pool_sel = self.dest_pool_var.get().strip()
-        if src_dataset and src_pool_sel in self.dataset_pool_options:
-            src_conn_id, _src_pool = self.dataset_pool_options[src_pool_sel]
-            src_profile = self.store.get(src_conn_id)
-            src_conn = (src_profile.name if src_profile else src_conn_id).strip() or src_conn_id
-            src_label = f"{src_conn}::{src_dataset}"
-        if dst_dataset and dst_pool_sel in self.dataset_pool_options:
-            dst_conn_id, _dst_pool = self.dataset_pool_options[dst_pool_sel]
-            dst_profile = self.store.get(dst_conn_id)
-            dst_conn = (dst_profile.name if dst_profile else dst_conn_id).strip() or dst_conn_id
-            dst_label = f"{dst_conn}::{dst_dataset}"
-        self.transfer_origin_target_var.set(f"{tr('datasets_origin')}: {src_label}")
-        self.transfer_dest_target_var.set(f"{tr('datasets_dest')}: {dst_label}")
+        if src_dataset:
+            src_label = src_dataset
+        if dst_dataset:
+            dst_label = dst_dataset
+        self.transfer_origin_target_var.set(f"Seleccion actual: {src_label}")
+        self.transfer_dest_target_var.set(f"Seleccion actual: {dst_label}")
 
     def _render_datasets_tree(
         self,
