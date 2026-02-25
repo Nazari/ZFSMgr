@@ -80,6 +80,11 @@ Acciones disponibles en `ZFSMgrActions`:
 - `mount_dataset`
 - `unmount_dataset`
 - `delete_dataset`
+- `copy_snapshot`
+- `level_datasets`
+- `sync_datasets`
+- `breakdown_dataset`
+- `assemble_dataset`
 
 ## Empaquetado multiplataforma (Windows, Linux, macOS)
 
