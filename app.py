@@ -1198,26 +1198,11 @@ class LocalExecutor(BaseExecutor):
             return proc.stdout or "recursive unmount OK"
         try:
             return self._zfs_cmd(f"unmount {quoted}")
-        except Exception as first_exc:
+        except Exception:
             try:
                 return self._zfs_cmd(f"unmount -f {quoted}")
-            except Exception:
-                import subprocess
-
-                fallback_cmd = (
-                    "set -e; "
-                    f"DATASET={quoted}; "
-                    "MPS=\"$(zfs mount 2>/dev/null | awk -v ds=\"$DATASET\" '$1==ds || index($1, ds\"/\")==1 {print $2}')\"; "
-                    "[ -n \"$MPS\" ] || exit 0; "
-                    "printf '%s\\n' \"$MPS\" | awk 'NF{print length, $0}' | sort -rn | cut -d' ' -f2- "
-                    "| while IFS= read -r mp; do umount \"$mp\" >/dev/null 2>&1 || true; done; "
-                    "LEFT=\"$(zfs mount 2>/dev/null | awk -v ds=\"$DATASET\" '$1==ds || index($1, ds\"/\")==1 {print $2}' | head -n1)\"; "
-                    "[ -z \"$LEFT\" ] || { echo \"cannot unmount dataset tree: $DATASET ($LEFT)\" >&2; exit 1; }"
-                )
-                proc = subprocess.run(fallback_cmd, shell=True, capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS)
-                if proc.returncode != 0:
-                    raise ExecutorError(proc.stderr.strip() or proc.stdout.strip() or str(first_exc))
-                return proc.stdout
+            except Exception as exc2:
+                raise ExecutorError(str(exc2))
 
     def list_pool_properties(self, pool: str) -> List[Dict[str, str]]:
         output = self._zpool_cmd(f"get -H all {shlex.quote(pool)}")
@@ -1541,27 +1526,11 @@ class SSHExecutor(BaseExecutor):
             return self._run(cmd, sudo=True)
         try:
             return self._run(self._zfs_cmd(f"unmount {quoted}"), sudo=True)
-        except Exception as first_exc:
+        except Exception:
             try:
                 return self._run(self._zfs_cmd(f"unmount -f {quoted}"), sudo=True)
-            except Exception:
-                fallback_cmd = (
-                    "set -e; "
-                    f"DATASET={quoted}; "
-                    "MPS=\"$(zfs mount 2>/dev/null | awk -v ds=\"$DATASET\" '$1==ds || index($1, ds\"/\")==1 {print $2}')\"; "
-                    "[ -n \"$MPS\" ] || exit 0; "
-                    "printf '%s\\n' \"$MPS\" | awk 'NF{print length, $0}' | sort -rn | cut -d' ' -f2- "
-                    "| while IFS= read -r mp; do umount \"$mp\" >/dev/null 2>&1 || true; done; "
-                    "LEFT=\"$(zfs mount 2>/dev/null | awk -v ds=\"$DATASET\" '$1==ds || index($1, ds\"/\")==1 {print $2}' | head -n1)\"; "
-                    "[ -z \"$LEFT\" ] || { echo \"cannot unmount dataset tree: $DATASET ($LEFT)\" >&2; exit 1; }"
-                )
-                try:
-                    out = self._run(fallback_cmd, sudo=True)
-                    if (out or "").strip():
-                        return out
-                    return "fallback umount tree OK"
-                except Exception:
-                    raise ExecutorError(str(first_exc))
+            except Exception as exc2:
+                raise ExecutorError(str(exc2))
 
     def list_pool_properties(self, pool: str) -> List[Dict[str, str]]:
         output = self._run(self._zpool_cmd(f"get -H all {shlex.quote(pool)}"), sudo=True)
@@ -8083,6 +8052,7 @@ class App(tk.Tk):
         dataset = self.origin_dataset_var.get().strip() if side == "origin" else self.dest_dataset_var.get().strip()
         if not selection or not dataset or selection not in self.dataset_pool_options:
             return
+        conn_id, pool = self.dataset_pool_options[selection]
         row = self._find_selected_dataset_row(side, dataset)
         if not row:
             return
@@ -8094,16 +8064,24 @@ class App(tk.Tk):
                 self._app_log("normal", trf("log_dataset_mount_not_allowed", dataset=dataset))
                 return
         else:
-            confirm_recursive = messagebox.askyesno(
-                tr("action_umount"),
-                f"¿Desmontar recursivamente {dataset} (subdatasets de hojas a raiz)?",
-                parent=self,
-            )
-            if not confirm_recursive:
-                self._app_log("info", f"Desmontar cancelado por usuario: {dataset}")
-                return
-            recursive_unmount = True
-        conn_id, pool = self.dataset_pool_options[selection]
+            rows = self.datasets_cache.get(f"{conn_id}:{pool}", [])
+            pref = dataset + "/"
+            mounted_children = [
+                r.get("name", "").strip()
+                for r in rows
+                if (r.get("name", "").strip().startswith(pref))
+                and ((r.get("mounted", "") or "").strip().lower() in {"yes", "on", "true"})
+            ]
+            if mounted_children:
+                confirm_recursive = messagebox.askyesno(
+                    tr("action_umount"),
+                    f"Hay {len(mounted_children)} subdatasets montados bajo {dataset}. ¿Desmontar recursivamente (hojas a raiz)?",
+                    parent=self,
+                )
+                if not confirm_recursive:
+                    self._app_log("info", f"Desmontar cancelado por usuario: {dataset}")
+                    return
+                recursive_unmount = True
         profile = self.store.get(conn_id)
         if not profile:
             return
