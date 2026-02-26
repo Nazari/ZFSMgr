@@ -8081,15 +8081,36 @@ class App(tk.Tk):
         threading.Thread(target=worker, daemon=True).start()
 
     def _normalize_selected_dataset_var(self, side: str, datasets: List[Dict[str, str]]) -> None:
-        names = {row.get("name", "").strip() for row in datasets if row.get("name", "").strip()}
-        if side == "origin":
-            if self.origin_dataset_var.get().strip() not in names:
-                self.origin_dataset_var.set("")
-                self._render_dataset_properties("origin", None)
-        else:
-            if self.dest_dataset_var.get().strip() not in names:
-                self.dest_dataset_var.set("")
-                self._render_dataset_properties("dest", None)
+        names_all = {row.get("name", "").strip() for row in datasets if row.get("name", "").strip()}
+        dataset_names = {n.split("@", 1)[0] for n in names_all}
+        current = self.origin_dataset_var.get().strip() if side == "origin" else self.dest_dataset_var.get().strip()
+
+        target_dataset = ""
+        target_snap: Optional[str] = None
+
+        if current:
+            if "@" in current:
+                ds, snap = current.split("@", 1)
+                ds = ds.strip()
+                snap = snap.strip()
+                if ds in dataset_names:
+                    if current in names_all and snap:
+                        target_dataset = ds
+                        target_snap = snap
+                    else:
+                        target_dataset = ds
+                else:
+                    target_dataset = ""
+            else:
+                if current in dataset_names:
+                    target_dataset = current
+                else:
+                    target_dataset = ""
+
+        # Mantiene sincronizado StringVar <-> Treeview tras recargas.
+        self._set_dataset_selection(side, target_dataset, target_snap)
+        if not target_dataset:
+            self._render_dataset_properties(side, None)
         self._update_level_button_state()
 
     def _find_selected_dataset_row(self, side: str, dataset_name: str) -> Optional[Dict[str, str]]:
