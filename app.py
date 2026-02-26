@@ -8159,6 +8159,7 @@ class App(tk.Tk):
                     var = tk.StringVar(value=value)
                     self._dataset_props_edit_vars[name] = var
                     self._dataset_props_original_values[name] = value
+                    var.trace_add("write", lambda *_a: self._update_dataset_props_apply_btn_state())
                     ent = ttk.Entry(line, textvariable=var)
                     ent.grid(row=0, column=1, sticky="nsew", padx=(2, 2), pady=2)
                     if isinstance(scroll_canvas, tk.Canvas):
@@ -8173,9 +8174,7 @@ class App(tk.Tk):
                     self._add_plain_row(rows_frame, row_idx, columns, [name, value])
                 row_idx += 1
             try:
-                self.dataset_props_apply_btn.configure(
-                    state=("normal" if bool(self._dataset_props_edit_vars) else "disabled")
-                )
+                self._update_dataset_props_apply_btn_state()
             except Exception:
                 pass
 
@@ -8191,6 +8190,20 @@ class App(tk.Tk):
                 self.after(0, lambda e=exc: self._add_plain_row(rows_frame, 1, columns, [tr("label_error"), str(e)]))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _dataset_props_has_changes(self) -> bool:
+        for prop, var in self._dataset_props_edit_vars.items():
+            old = self._dataset_props_original_values.get(prop, "")
+            if var.get() != old:
+                return True
+        return False
+
+    def _update_dataset_props_apply_btn_state(self) -> None:
+        try:
+            enabled = bool(self._dataset_props_ctx and self._dataset_props_edit_vars and self._dataset_props_has_changes())
+            self.dataset_props_apply_btn.configure(state=("normal" if enabled else "disabled"))
+        except Exception:
+            pass
 
     def _apply_right_panel_dataset_properties(self) -> None:
         if self._reject_if_ssh_busy():
@@ -8210,6 +8223,7 @@ class App(tk.Tk):
                 changes[prop] = new
         if not changes:
             self._app_log("info", tr("log_modify_dataset_no_changes"))
+            self._update_dataset_props_apply_btn_state()
             return
         self._app_log(
             "normal",
