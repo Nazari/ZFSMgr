@@ -650,6 +650,7 @@ class ConnectionState:
     imported_devices: Dict[str, List[Dict[str, Any]]] = None
     imported_status: Dict[str, str] = None
     mounted_datasets: List[Dict[str, str]] = None
+    dataset_properties: Dict[str, List[Dict[str, str]]] = None
 
     def __post_init__(self) -> None:
         if self.imported is None:
@@ -662,6 +663,8 @@ class ConnectionState:
             self.imported_status = {}
         if self.mounted_datasets is None:
             self.mounted_datasets = []
+        if self.dataset_properties is None:
+            self.dataset_properties = {}
 
 
 class ConnectionStore:
@@ -1039,6 +1042,9 @@ class BaseExecutor:
     def list_dataset_properties(self, dataset: str) -> List[Dict[str, str]]:
         raise NotImplementedError
 
+    def list_all_dataset_properties(self, pools: List[str]) -> Dict[str, List[Dict[str, str]]]:
+        raise NotImplementedError
+
     def set_dataset_properties(self, dataset: str, properties: Dict[str, str]) -> str:
         raise NotImplementedError
 
@@ -1268,6 +1274,23 @@ class LocalExecutor(BaseExecutor):
         except Exception:
             out = self._zfs_cmd(f"get -H -o property,value,source all {quoted}")
         return parse_zfs_get_properties(out)
+
+    def list_all_dataset_properties(self, pools: List[str]) -> Dict[str, List[Dict[str, str]]]:
+        grouped: Dict[str, List[Dict[str, str]]] = {}
+        seen: set[str] = set()
+        for pool in pools:
+            p = (pool or "").strip()
+            if not p or p in seen:
+                continue
+            seen.add(p)
+            quoted = shlex.quote(p)
+            try:
+                out = self._zfs_cmd(f"get -H -o name,property,value,source,readonly all -r {quoted}")
+            except Exception:
+                out = self._zfs_cmd(f"get -H -o name,property,value,source all -r {quoted}")
+            for ds, props in parse_zfs_get_properties_grouped(out).items():
+                grouped.setdefault(ds, []).extend(props)
+        return grouped
 
     def set_dataset_properties(self, dataset: str, properties: Dict[str, str]) -> str:
         logs: List[str] = []
@@ -1617,6 +1640,29 @@ class SSHExecutor(BaseExecutor):
             out = self._run(self._zfs_cmd(f"get -H -o property,value,source all {quoted}"), sudo=True)
         return parse_zfs_get_properties(out)
 
+    def list_all_dataset_properties(self, pools: List[str]) -> Dict[str, List[Dict[str, str]]]:
+        grouped: Dict[str, List[Dict[str, str]]] = {}
+        seen: set[str] = set()
+        for pool in pools:
+            p = (pool or "").strip()
+            if not p or p in seen:
+                continue
+            seen.add(p)
+            quoted = shlex.quote(p)
+            try:
+                out = self._run(
+                    self._zfs_cmd(f"get -H -o name,property,value,source,readonly all -r {quoted}"),
+                    sudo=True,
+                )
+            except Exception:
+                out = self._run(
+                    self._zfs_cmd(f"get -H -o name,property,value,source all -r {quoted}"),
+                    sudo=True,
+                )
+            for ds, props in parse_zfs_get_properties_grouped(out).items():
+                grouped.setdefault(ds, []).extend(props)
+        return grouped
+
     def set_dataset_properties(self, dataset: str, properties: Dict[str, str]) -> str:
         logs: List[str] = []
         for prop, value in properties.items():
@@ -1925,6 +1971,26 @@ class PSRPExecutor(BaseExecutor):
             out = self._run_ps(f"zfs get -H -o property,value,source all {_ps_quote(dataset)}")
         return parse_zfs_get_properties(out)
 
+    def list_all_dataset_properties(self, pools: List[str]) -> Dict[str, List[Dict[str, str]]]:
+        def _ps_quote(s: str) -> str:
+            return "'" + s.replace("'", "''") + "'"
+
+        grouped: Dict[str, List[Dict[str, str]]] = {}
+        seen: set[str] = set()
+        for pool in pools:
+            p = (pool or "").strip()
+            if not p or p in seen:
+                continue
+            seen.add(p)
+            p_q = _ps_quote(p)
+            try:
+                out = self._run_ps(f"zfs get -H -o name,property,value,source,readonly all -r {p_q}")
+            except Exception:
+                out = self._run_ps(f"zfs get -H -o name,property,value,source all -r {p_q}")
+            for ds, props in parse_zfs_get_properties_grouped(out).items():
+                grouped.setdefault(ds, []).extend(props)
+        return grouped
+
     def set_dataset_properties(self, dataset: str, properties: Dict[str, str]) -> str:
         def _ps_quote(s: str) -> str:
             return "'" + s.replace("'", "''") + "'"
@@ -2087,6 +2153,38 @@ def parse_zfs_get_properties(text: str) -> List[Dict[str, str]]:
             }
         )
     return rows
+
+
+def parse_zfs_get_properties_grouped(text: str) -> Dict[str, List[Dict[str, str]]]:
+    grouped: Dict[str, List[Dict[str, str]]] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        parts = line.split("\t")
+        if len(parts) >= 5:
+            ds, prop, value, source, readonly = parts[0], parts[1], parts[2], parts[3], parts[4]
+        elif len(parts) >= 4:
+            ds, prop, value, source = parts[0], parts[1], parts[2], parts[3]
+            readonly = ""
+        else:
+            sp = line.split(None, 4)
+            if len(sp) < 4:
+                continue
+            ds, prop, value, source = sp[0], sp[1], sp[2], sp[3]
+            readonly = sp[4] if len(sp) > 4 else ""
+        ds = ds.strip()
+        if not ds:
+            continue
+        grouped.setdefault(ds, []).append(
+            {
+                "property": (prop or "").strip(),
+                "value": (value or "").strip(),
+                "source": (source or "").strip(),
+                "readonly": (readonly or "").strip().lower(),
+            }
+        )
+    return grouped
 
 
 def _is_user_property(prop_name: str) -> bool:
@@ -3368,6 +3466,7 @@ class App(tk.Tk):
         self._pool_status_tipwindow: Optional[tk.Toplevel] = None
         self._pool_status_tip_text: str = ""
         self.pool_properties_cache: Dict[str, List[Dict[str, str]]] = {}
+        self.dataset_properties_cache: Dict[str, Dict[str, List[Dict[str, str]]]] = {}
         self.pool_status_cache: Dict[str, str] = {}
         self.pool_status_loading: set[str] = set()
         self.pool_props_loading_keys: set[str] = set()
@@ -8253,6 +8352,9 @@ class App(tk.Tk):
             try:
                 execu = make_executor(profile)
                 props = execu.list_dataset_properties(dataset_name)
+                # Actualiza cache por conexion para reusarla en siguientes selecciones.
+                conn_cache = self.dataset_properties_cache.setdefault(conn_id, {})
+                conn_cache[dataset_name] = props
                 self.after(0, lambda p=props: _render_loaded(p))
             except Exception as exc:
                 self._app_log("normal", trf("log_modify_dataset_load_error", name=profile.name, dataset=dataset_name, error=exc))
@@ -8260,7 +8362,12 @@ class App(tk.Tk):
                 self.after(0, lambda: self._add_plain_row(rows_frame, 0, columns, [tr("datasets_dataset"), dataset_name]))
                 self.after(0, lambda e=exc: self._add_plain_row(rows_frame, 1, columns, [tr("label_error"), str(e)]))
 
-        threading.Thread(target=worker, daemon=True).start()
+        # Preferir propiedades precargadas durante refresh para evitar consultas una a una.
+        preloaded = self.dataset_properties_cache.get(conn_id, {}).get(dataset_name)
+        if preloaded:
+            _render_loaded(preloaded)
+        else:
+            threading.Thread(target=worker, daemon=True).start()
 
     def _dataset_props_has_changes(self) -> bool:
         for prop, var in self._dataset_props_edit_vars.items():
@@ -9010,6 +9117,15 @@ class App(tk.Tk):
                                     status_map[pool_name] = str(exc)
                             local_state.imported_status = status_map
                             local_state.importable = execu.list_importable_pools()
+                            pool_names = [
+                                (r.get("pool", "") or "").strip()
+                                for r in local_state.imported
+                                if (r.get("pool", "") or "").strip()
+                            ]
+                            try:
+                                local_state.dataset_properties = execu.list_all_dataset_properties(pool_names)
+                            except Exception:
+                                local_state.dataset_properties = {}
                             try:
                                 local_state.mounted_datasets = execu.list_mounted_datasets()
                             except Exception:
@@ -9107,6 +9223,7 @@ class App(tk.Tk):
                     self.pool_status_loading = {
                         k for k in self.pool_status_loading if not k.startswith(status_prefix)
                     }
+                self.dataset_properties_cache[profile_id] = dict(state.dataset_properties or {})
 
                 if not batch_mode:
                     self.after(0, self._load_connections_list)
@@ -9153,6 +9270,7 @@ class App(tk.Tk):
             self.pool_properties_cache = {
                 k: v for k, v in self.pool_properties_cache.items() if not k.startswith(f"{cid}:")
             }
+            self.dataset_properties_cache.pop(cid, None)
             self.pool_props_loading_keys = {k for k in self.pool_props_loading_keys if not k.startswith(f"{cid}:")}
             with self.pool_status_lock:
                 self.pool_status_cache = {k: v for k, v in self.pool_status_cache.items() if not k.startswith(f"{cid}:")}
