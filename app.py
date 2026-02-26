@@ -1000,7 +1000,7 @@ class BaseExecutor:
     def mount_dataset(self, dataset: str) -> str:
         raise NotImplementedError
 
-    def unmount_dataset(self, dataset: str) -> str:
+    def unmount_dataset(self, dataset: str, recursive: bool = False) -> str:
         raise NotImplementedError
 
     def list_pool_properties(self, pool: str) -> List[Dict[str, str]]:
@@ -1177,8 +1177,25 @@ class LocalExecutor(BaseExecutor):
     def mount_dataset(self, dataset: str) -> str:
         return self._zfs_cmd(f"mount {shlex.quote(dataset)}")
 
-    def unmount_dataset(self, dataset: str) -> str:
+    def unmount_dataset(self, dataset: str, recursive: bool = False) -> str:
         quoted = shlex.quote(dataset)
+        if recursive:
+            import subprocess
+
+            cmd = (
+                "set -e; "
+                f"DATASET={quoted}; "
+                "zfs list -H -o name -t filesystem,volume -r \"$DATASET\" "
+                "| awk 'NF{d=gsub(/\\//,\"/\",$1); printf \"%08d\\t%s\\n\", d, $1}' "
+                "| sort -r | cut -f2- "
+                "| while IFS= read -r ds; do [ -n \"$ds\" ] && zfs unmount -f \"$ds\" >/dev/null 2>&1 || true; done; "
+                "LEFT=\"$(zfs mount 2>/dev/null | awk -v ds=\"$DATASET\" '$1==ds || index($1, ds\"/\")==1 {print $1}' | head -n1)\"; "
+                "[ -z \"$LEFT\" ] || { echo \"cannot unmount dataset tree: $DATASET ($LEFT)\" >&2; exit 1; }"
+            )
+            proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS)
+            if proc.returncode != 0:
+                raise ExecutorError(proc.stderr.strip() or proc.stdout.strip() or "recursive unmount failed")
+            return proc.stdout or "recursive unmount OK"
         try:
             return self._zfs_cmd(f"unmount {quoted}")
         except Exception as first_exc:
@@ -1508,8 +1525,20 @@ class SSHExecutor(BaseExecutor):
     def mount_dataset(self, dataset: str) -> str:
         return self._run(self._zfs_cmd(f"mount {shlex.quote(dataset)}"), sudo=True)
 
-    def unmount_dataset(self, dataset: str) -> str:
+    def unmount_dataset(self, dataset: str, recursive: bool = False) -> str:
         quoted = shlex.quote(dataset)
+        if recursive:
+            cmd = (
+                "set -e; "
+                f"DATASET={quoted}; "
+                "zfs list -H -o name -t filesystem,volume -r \"$DATASET\" "
+                "| awk 'NF{d=gsub(/\\//,\"/\",$1); printf \"%08d\\t%s\\n\", d, $1}' "
+                "| sort -r | cut -f2- "
+                "| while IFS= read -r ds; do [ -n \"$ds\" ] && zfs unmount -f \"$ds\" >/dev/null 2>&1 || true; done; "
+                "LEFT=\"$(zfs mount 2>/dev/null | awk -v ds=\"$DATASET\" '$1==ds || index($1, ds\"/\")==1 {print $1}' | head -n1)\"; "
+                "[ -z \"$LEFT\" ] || { echo \"cannot unmount dataset tree: $DATASET ($LEFT)\" >&2; exit 1; }"
+            )
+            return self._run(cmd, sudo=True)
         try:
             return self._run(self._zfs_cmd(f"unmount {quoted}"), sudo=True)
         except Exception as first_exc:
@@ -1806,7 +1835,21 @@ class PSRPExecutor(BaseExecutor):
     def mount_dataset(self, dataset: str) -> str:
         return self._run_ps(f"zfs mount {dataset}")
 
-    def unmount_dataset(self, dataset: str) -> str:
+    def unmount_dataset(self, dataset: str, recursive: bool = False) -> str:
+        if recursive:
+            ds_q = "'" + dataset.replace("'", "''") + "'"
+            script = (
+                "$ErrorActionPreference='Stop'; "
+                f"$ds={ds_q}; "
+                "$items = @(zfs list -H -o name -t filesystem,volume -r $ds | "
+                "ForEach-Object { [PSCustomObject]@{ name=$_; depth=(($_ -split '/').Count) } } | "
+                "Sort-Object depth -Descending); "
+                "foreach ($i in $items) { try { zfs unmount -f $i.name | Out-Null } catch {} }; "
+                "$left = @(zfs mount | ForEach-Object { ($_ -split '\\s+')[0] } | "
+                "Where-Object { $_ -eq $ds -or $_.StartsWith($ds + '/') }); "
+                "if ($left.Count -gt 0) { throw ('cannot unmount dataset tree: ' + $ds + ' (' + $left[0] + ')') }"
+            )
+            return self._run_ps(script)
         return self._run_ps(f"zfs unmount {dataset}")
 
     def list_pool_properties(self, pool: str) -> List[Dict[str, str]]:
@@ -8043,12 +8086,23 @@ class App(tk.Tk):
         row = self._find_selected_dataset_row(side, dataset)
         if not row:
             return
+        recursive_unmount = False
         if do_mount:
             mountpoint_val = (row.get("mountpoint", "") or "").strip().lower()
             canmount_val = (row.get("canmount", "") or "").strip().lower()
             if not mountpoint_val or mountpoint_val == "none" or canmount_val == "off":
                 self._app_log("normal", trf("log_dataset_mount_not_allowed", dataset=dataset))
                 return
+        else:
+            confirm_recursive = messagebox.askyesno(
+                tr("action_umount"),
+                f"¿Desmontar recursivamente {dataset} (subdatasets de hojas a raiz)?",
+                parent=self,
+            )
+            if not confirm_recursive:
+                self._app_log("info", f"Desmontar cancelado por usuario: {dataset}")
+                return
+            recursive_unmount = True
         conn_id, pool = self.dataset_pool_options[selection]
         profile = self.store.get(conn_id)
         if not profile:
@@ -8063,7 +8117,7 @@ class App(tk.Tk):
                 if do_mount:
                     out = execu.mount_dataset(dataset)
                 else:
-                    out = execu.unmount_dataset(dataset)
+                    out = execu.unmount_dataset(dataset, recursive=recursive_unmount)
                 self._app_log(
                     "info",
                     trf("log_dataset_mount_done", action=action_name, dataset=dataset, name=profile.name),
