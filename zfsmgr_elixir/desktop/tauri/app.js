@@ -23,6 +23,7 @@ const ui = {
   saveApiBtn: document.getElementById("saveApiBtn"),
   reloadBtn: document.getElementById("reloadBtn"),
   connectionsMeta: document.getElementById("connectionsMeta"),
+  actionStatus: document.getElementById("actionStatus"),
   connectionsBody: document.getElementById("connectionsBody"),
   selectedConn: document.getElementById("selectedConn"),
   poolList: document.getElementById("poolList"),
@@ -91,6 +92,13 @@ function appendLogLine(msg) {
   ui.logsBox.scrollTop = ui.logsBox.scrollHeight;
 }
 
+function setActionStatus(text, type = "neutral") {
+  ui.actionStatus.textContent = text;
+  ui.actionStatus.classList.remove("ok", "err");
+  if (type === "ok") ui.actionStatus.classList.add("ok");
+  if (type === "err") ui.actionStatus.classList.add("err");
+}
+
 function setButtonsDisabled(disabled) {
   for (const id of ACTION_BUTTON_IDS) {
     const btn = ui[id];
@@ -126,6 +134,22 @@ function validateNonEmpty(el, label) {
   if (!el.value.trim()) {
     markInvalid(el, `${label} is required`);
     throw new Error(`${label} is required`);
+  }
+}
+
+function assertKnownPool(poolName) {
+  if (!poolName) return;
+  if (state.pools.length > 0 && !state.pools.includes(poolName)) {
+    markInvalid(ui.poolName, "Pool not found in selected connection");
+    throw new Error(`Pool not found: ${poolName}`);
+  }
+}
+
+function assertKnownDataset(datasetName, inputEl, label = "Dataset") {
+  if (!datasetName) return;
+  if (state.datasets.length > 0 && !state.datasets.includes(datasetName)) {
+    markInvalid(inputEl, `${label} not found in selected pool`);
+    throw new Error(`${label} not found: ${datasetName}`);
   }
 }
 
@@ -212,11 +236,13 @@ async function loadConnections() {
 
     ui.connectionsBody.innerHTML = rows.map(rowHtml).join("");
     ui.connectionsMeta.textContent = `${rows.length} connection(s)`;
+    setActionStatus("Ready");
     updateSelectedConnLabel();
     await loadAutocompleteData();
   } catch (err) {
     ui.connectionsBody.innerHTML = "";
     ui.connectionsMeta.textContent = `Error: ${err.message}`;
+    setActionStatus(`Connections error: ${err.message}`, "err");
     updateSelectedConnLabel();
   }
 }
@@ -277,6 +303,7 @@ async function loadAutocompleteData() {
     state.datasets = [];
     setDatalistOptions(ui.poolList, []);
     setDatalistOptions(ui.datasetList, []);
+    setActionStatus("Autocomplete data unavailable for selected connection", "err");
   }
 }
 
@@ -297,6 +324,7 @@ async function refreshConnection(id) {
 
 async function runAction(path, body) {
   const conn = requireSelectedConnection();
+  setActionStatus(`Running ${path} on ${conn.name}...`);
 
   await fetchJson(`/connections/${conn.id}/actions/${path}`, {
     method: "POST",
@@ -304,23 +332,33 @@ async function runAction(path, body) {
   });
 
   await Promise.all([loadConnections(), loadLogs()]);
+  setActionStatus(`${path} completed on ${conn.name}`, "ok");
 }
 
 async function doImportPool() {
   validateNonEmpty(ui.poolName, "Pool");
-  await runAction("import_pool", { pool: ui.poolName.value.trim() });
+  const pool = ui.poolName.value.trim();
+  assertKnownPool(pool);
+  await runAction("import_pool", { pool });
 }
 
 async function doExportPool() {
   validateNonEmpty(ui.poolName, "Pool");
-  await runAction("export_pool", { pool: ui.poolName.value.trim() });
+  const pool = ui.poolName.value.trim();
+  assertKnownPool(pool);
+  await runAction("export_pool", { pool });
 }
 
 async function doCreateDataset() {
   const kind = ui.createKind.value;
   validateNonEmpty(ui.createDataset, "Dataset");
+  const dataset = ui.createDataset.value.trim();
+  if (state.datasets.length > 0 && state.datasets.includes(dataset)) {
+    markInvalid(ui.createDataset, "Dataset already exists");
+    throw new Error(`Dataset already exists: ${dataset}`);
+  }
   const body = {
-    dataset: ui.createDataset.value.trim(),
+    dataset,
     kind,
     recursive: ui.createRecursive.value === "true"
   };
@@ -334,39 +372,62 @@ async function doCreateDataset() {
 }
 
 async function doDeleteDataset() {
+  const dataset = ui.deleteDataset.value.trim();
   validateNonEmpty(ui.deleteDataset, "Dataset");
+  assertKnownDataset(dataset, ui.deleteDataset);
   await runAction("delete_dataset", {
-    dataset: ui.deleteDataset.value.trim(),
+    dataset,
     recursive: ui.deleteRecursive.value === "true"
   });
 }
 
 async function doRenameDataset() {
+  const source = ui.renameSource.value.trim();
+  const target = ui.renameTarget.value.trim();
   validateNonEmpty(ui.renameSource, "Rename source");
   validateNonEmpty(ui.renameTarget, "Rename target");
+  assertKnownDataset(source, ui.renameSource, "Source dataset");
+  if (state.datasets.length > 0 && state.datasets.includes(target)) {
+    markInvalid(ui.renameTarget, "Target already exists");
+    throw new Error(`Target dataset already exists: ${target}`);
+  }
   await runAction("rename_dataset", {
-    source: ui.renameSource.value.trim(),
-    target: ui.renameTarget.value.trim()
+    source,
+    target
   });
 }
 
 async function doSetProperty() {
+  const dataset = ui.propDataset.value.trim();
+  const prop = ui.propName.value.trim();
   validateNonEmpty(ui.propDataset, "Dataset");
   validateNonEmpty(ui.propName, "Property");
   validateNonEmpty(ui.propValue, "Value");
+  assertKnownDataset(dataset, ui.propDataset);
+  if (state.properties.length > 0 && !state.properties.includes(prop)) {
+    markInvalid(ui.propName, "Property not in editable list");
+    throw new Error(`Property not editable: ${prop}`);
+  }
   await runAction("set_property", {
-    dataset: ui.propDataset.value.trim(),
-    property: ui.propName.value.trim(),
+    dataset,
+    property: prop,
     value: ui.propValue.value.trim()
   });
 }
 
 async function doInheritProperty() {
+  const dataset = ui.propDataset.value.trim();
+  const prop = ui.propName.value.trim();
   validateNonEmpty(ui.propDataset, "Dataset");
   validateNonEmpty(ui.propName, "Property");
+  assertKnownDataset(dataset, ui.propDataset);
+  if (state.properties.length > 0 && !state.properties.includes(prop)) {
+    markInvalid(ui.propName, "Property not in editable list");
+    throw new Error(`Property not editable: ${prop}`);
+  }
   await runAction("inherit_property", {
-    dataset: ui.propDataset.value.trim(),
-    property: ui.propName.value.trim()
+    dataset,
+    property: prop
   });
 }
 
@@ -377,6 +438,7 @@ async function guardAction(fn) {
     await fn();
     await loadAutocompleteData();
   } catch (err) {
+    setActionStatus(err.message || "Action failed", "err");
     appendLogLine(`Action failed: ${err.message}`);
   } finally {
     setButtonsDisabled(false);

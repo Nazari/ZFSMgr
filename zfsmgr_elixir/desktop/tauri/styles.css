@@ -108,6 +108,28 @@ button:hover {
   word-break: break-word;
 }
 
+.action-status {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #f7fafc;
+  color: #2a3b47;
+  font-size: 12px;
+  padding: 7px 8px;
+  margin-bottom: 8px;
+}
+
+.action-status.ok {
+  border-color: #69a57a;
+  background: #eef9f1;
+  color: #1f5e35;
+}
+
+.action-status.err {
+  border-color: #c86f6f;
+  background: #fff1f1;
+  color: #7a2323;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
