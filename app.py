@@ -5773,7 +5773,7 @@ class App(tk.Tk):
             dir_candidates = self._list_breakdown_dirs(profile, dataset_name, mountpoint)
         except Exception as exc:
             self._app_log("normal", trf("log_breakdown_exec_runtime_error", error=exc))
-            self.after(0, lambda: messagebox.showerror(tr("datasets_breakdown_btn"), str(exc)))
+            self.after(0, lambda e=exc: messagebox.showerror(tr("datasets_breakdown_btn"), str(e)))
             return
         if not dir_candidates:
             msg = f"No hay directorios para desglosar en {profile.name}::{dataset_name}"
@@ -6016,7 +6016,7 @@ class App(tk.Tk):
             child_candidates = self._list_assemble_children(conn_id, pool_name, dataset_name, profile)
         except Exception as exc:
             self._app_log("normal", trf("log_assemble_exec_runtime_error", error=exc))
-            self.after(0, lambda: messagebox.showerror(tr("datasets_assemble_btn"), str(exc)))
+            self.after(0, lambda e=exc: messagebox.showerror(tr("datasets_assemble_btn"), str(e)))
             return
         if not child_candidates:
             msg = f"No hay subdatasets para ensamblar en {profile.name}::{dataset_name}"
@@ -6726,7 +6726,7 @@ class App(tk.Tk):
                     self._app_log("debug", out.strip())
             except Exception as exc:
                 self._app_log("normal", trf("log_create_dataset_error", name=profile.name, dataset=dataset_path, error=exc))
-                self.after(0, lambda: messagebox.showerror(tr("create_dataset_title"), str(exc)))
+                self.after(0, lambda e=exc: messagebox.showerror(tr("create_dataset_title"), str(e)))
             finally:
                 self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{conn_id}:")}
                 self.after(0, lambda: self._refresh_connection_by_id(conn_id))
@@ -6754,7 +6754,7 @@ class App(tk.Tk):
                 props = execu.list_dataset_properties(dataset_path)
             except Exception as exc:
                 self._app_log("normal", trf("log_modify_dataset_load_error", name=profile.name, dataset=dataset_path, error=exc))
-                self.after(0, lambda: messagebox.showerror(tr("modify_dataset_title"), str(exc)))
+                self.after(0, lambda e=exc: messagebox.showerror(tr("modify_dataset_title"), str(e)))
                 return
 
             def _open_dialog() -> None:
@@ -6799,7 +6799,7 @@ class App(tk.Tk):
                             "normal",
                             trf("log_modify_dataset_apply_error", name=profile.name, dataset=dataset_path, error=exc),
                         )
-                        self.after(0, lambda: messagebox.showerror(tr("modify_dataset_title"), str(exc)))
+                        self.after(0, lambda e=exc: messagebox.showerror(tr("modify_dataset_title"), str(e)))
                     finally:
                         self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{conn_id}:")}
                         self.after(0, lambda: self._refresh_connection_by_id(conn_id))
@@ -7916,7 +7916,7 @@ class App(tk.Tk):
                 self.after(0, lambda: self.status_var.set(trf("status_datasets_loaded", name=profile.name, pool=pool)))
             except Exception as exc:
                 self._app_log("normal", trf("log_datasets_load_error", side=side, error=exc))
-                self.after(0, lambda: messagebox.showerror(tr("datasets_title"), str(exc)))
+                self.after(0, lambda e=exc: messagebox.showerror(tr("datasets_title"), str(e)))
                 self.after(0, lambda: self.status_var.set(trf("status_datasets_error", name=profile.name)))
 
         threading.Thread(target=worker, daemon=True).start()
@@ -8030,7 +8030,7 @@ class App(tk.Tk):
                     "normal",
                     trf("log_dataset_mount_error", action=action_name, dataset=dataset, name=profile.name, error=exc),
                 )
-                self.after(0, lambda: messagebox.showerror(tr("datasets_title"), str(exc)))
+                self.after(0, lambda e=exc: messagebox.showerror(tr("datasets_title"), str(e)))
             finally:
                 cache_key = f"{conn_id}:{pool}"
                 self.datasets_cache.pop(cache_key, None)
@@ -8427,7 +8427,7 @@ class App(tk.Tk):
                     self.pool_status_cache[status_cache_key] = str(exc)
                 self.after(0, lambda: self.status_var.set(trf("status_pool_props_error", name=profile.name)))
                 self.after(0, lambda: self._render_pool_properties_rows([]))
-                self.after(0, lambda: self._render_pool_status_text(str(exc)))
+                self.after(0, lambda e=exc: self._render_pool_status_text(str(e)))
             finally:
                 def _finish_pool_props_loading() -> None:
                     self.pool_props_loading_count = max(0, self.pool_props_loading_count - 1)
