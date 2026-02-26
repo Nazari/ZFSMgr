@@ -3349,6 +3349,10 @@ class App(tk.Tk):
         base_size = int(tkfont.nametofont("TkDefaultFont").actual("size") or 9)
         self.snapshot_font_normal = ("TkDefaultFont", base_size)
         self._last_dataset_props_sig: str = ""
+        self._dataset_props_ctx: Optional[Tuple[str, str, str, str]] = None  # (side, conn_id, pool, dataset)
+        self._dataset_props_edit_vars: Dict[str, tk.StringVar] = {}
+        self._dataset_props_original_values: Dict[str, str] = {}
+        self._dataset_props_load_token: int = 0
 
         self._apply_theme()
         self._build_ui()
@@ -3954,6 +3958,15 @@ class App(tk.Tk):
             self.dataset_props_columns,
             enable_xscroll=True,
         )
+        dataset_props_actions = ttk.Frame(dataset_props)
+        dataset_props_actions.grid(row=2, column=0, sticky="e", padx=(6, 6), pady=(4, 6))
+        self.dataset_props_apply_btn = ttk.Button(
+            dataset_props_actions,
+            text=tr("modify_dataset_apply"),
+            command=self._apply_right_panel_dataset_properties,
+            state="disabled",
+        )
+        self.dataset_props_apply_btn.grid(row=0, column=0, sticky="e")
 
         log_container = ttk.Frame(main_layout)
         log_container.grid(row=1, column=0, sticky="nsew")
@@ -8058,46 +8071,170 @@ class App(tk.Tk):
         columns = self.dataset_props_columns
         if not row:
             self._last_dataset_props_sig = ""
+            self._dataset_props_ctx = None
+            self._dataset_props_load_token += 1
+            self._dataset_props_edit_vars = {}
+            self._dataset_props_original_values = {}
             self._clear_plain_table(rows_frame)
             self.dataset_props_selected_var.set(trf("datasets_selected_target", dataset=tr("label_none")))
+            try:
+                self.dataset_props_apply_btn.configure(state="disabled")
+            except Exception:
+                pass
             return
         sig = json.dumps(row, sort_keys=True, ensure_ascii=False)
         if sig == self._last_dataset_props_sig:
             return
         self._last_dataset_props_sig = sig
-        self.dataset_props_selected_var.set(
-            trf("datasets_selected_target", dataset=str(row.get("name", "") or tr("label_none")))
-        )
-        parent = rows_frame.master
+        dataset_name = str(row.get("name", "") or "").strip()
+        self.dataset_props_selected_var.set(trf("datasets_selected_target", dataset=dataset_name or tr("label_none")))
+        selection = self.origin_pool_var.get().strip() if side == "origin" else self.dest_pool_var.get().strip()
+        if not dataset_name or selection not in self.dataset_pool_options:
+            self._clear_plain_table(rows_frame)
+            self._add_plain_row(rows_frame, 0, columns, [tr("datasets_dataset"), dataset_name or tr("label_none")])
+            try:
+                self.dataset_props_apply_btn.configure(state="disabled")
+            except Exception:
+                pass
+            return
+        conn_id, pool = self.dataset_pool_options[selection]
+        ctx = (side, conn_id, pool, dataset_name)
+        self._dataset_props_ctx = ctx
+        self._dataset_props_edit_vars = {}
+        self._dataset_props_original_values = {}
         try:
-            parent.grid_remove()
+            self.dataset_props_apply_btn.configure(state="disabled")
         except Exception:
             pass
+
         self._clear_plain_table(rows_frame)
-        ordered = [
-            (tr("datasets_dataset"), row.get("name", "")),
-            ("mountpoint", row.get("mountpoint", "")),
-            ("Mounted", row.get("mounted", "")),
-            (tr("col_used"), row.get("used", "")),
-            (tr("col_compressratio"), row.get("compressratio", "")),
-            ("encryption", row.get("encryption", "")),
-        ]
-        consumed = {"name", "mountpoint", "mounted", "used", "compressratio", "encryption"}
-        for key in sorted(row.keys()):
-            if key in consumed:
-                continue
-            ordered.append((key, row.get(key, "")))
-        for idx, (key, value) in enumerate(ordered):
-            self._add_plain_row(
-                rows_frame,
-                idx,
-                columns,
-                [key, value],
-            )
-        try:
-            parent.grid()
-        except Exception:
-            pass
+        self._add_plain_row(rows_frame, 0, columns, [tr("datasets_dataset"), dataset_name])
+        self._add_plain_row(rows_frame, 1, columns, [tr("status"), "..."])
+        token = self._dataset_props_load_token = self._dataset_props_load_token + 1
+        profile = self.store.get(conn_id)
+        if not profile:
+            return
+
+        def _render_loaded(props: List[Dict[str, str]]) -> None:
+            if token != self._dataset_props_load_token or self._dataset_props_ctx != ctx:
+                return
+            self._clear_plain_table(rows_frame)
+            ordered_props: List[Dict[str, str]] = []
+            by_name = {str((p.get("property") or "")).strip(): p for p in props}
+            first_keys = ["mountpoint", "mounted", "used", "compressratio", "encryption"]
+            for fk in first_keys:
+                if fk in by_name:
+                    ordered_props.append(by_name[fk])
+            consumed = set(first_keys)
+            rest = [p for p in props if str((p.get("property") or "")).strip() not in consumed]
+            rest.sort(key=lambda p: str((p.get("property") or "")).strip().lower())
+            ordered_props.extend(rest)
+
+            dataset_type = ""
+            for prop in props:
+                if (prop.get("property", "") or "").strip().lower() == "type":
+                    dataset_type = (prop.get("value", "") or "").strip().lower()
+                    break
+
+            row_idx = 0
+            self._add_plain_row(rows_frame, row_idx, columns, [tr("datasets_dataset"), dataset_name])
+            row_idx += 1
+            for prop in ordered_props:
+                name = str((prop.get("property") or "")).strip()
+                value = str((prop.get("value") or ""))
+                source = str((prop.get("source") or ""))
+                readonly = str((prop.get("readonly") or ""))
+                editable = is_dataset_property_editable(name, dataset_type, source, readonly)
+                if editable:
+                    bg = UI_PANEL_BG if row_idx % 2 == 0 else "#f8fbfd"
+                    line = tk.Frame(rows_frame, bg=bg, highlightthickness=0)
+                    grid_row = row_idx * 2
+                    line.grid(row=grid_row, column=0, sticky="ew")
+                    scroll_canvas = getattr(rows_frame, "_scroll_canvas", None)
+                    if isinstance(scroll_canvas, tk.Canvas):
+                        line.bind("<MouseWheel>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                        line.bind("<Button-4>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                        line.bind("<Button-5>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                    tk.Label(line, text=name, bg=bg, fg=UI_TEXT, anchor="w", padx=6, pady=3).grid(row=0, column=0, sticky="nsew")
+                    var = tk.StringVar(value=value)
+                    self._dataset_props_edit_vars[name] = var
+                    self._dataset_props_original_values[name] = value
+                    ent = ttk.Entry(line, textvariable=var)
+                    ent.grid(row=0, column=1, sticky="nsew", padx=(2, 2), pady=2)
+                    if isinstance(scroll_canvas, tk.Canvas):
+                        ent.bind("<MouseWheel>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                        ent.bind("<Button-4>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                        ent.bind("<Button-5>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                    line.grid_columnconfigure(0, minsize=columns[0][1], weight=0)
+                    line.grid_columnconfigure(1, minsize=columns[1][1], weight=0)
+                    sep = tk.Frame(rows_frame, bg=UI_BORDER, height=1)
+                    sep.grid(row=grid_row + 1, column=0, sticky="ew")
+                else:
+                    self._add_plain_row(rows_frame, row_idx, columns, [name, value])
+                row_idx += 1
+            try:
+                self.dataset_props_apply_btn.configure(
+                    state=("normal" if bool(self._dataset_props_edit_vars) else "disabled")
+                )
+            except Exception:
+                pass
+
+        def worker() -> None:
+            try:
+                execu = make_executor(profile)
+                props = execu.list_dataset_properties(dataset_name)
+                self.after(0, lambda p=props: _render_loaded(p))
+            except Exception as exc:
+                self._app_log("normal", trf("log_modify_dataset_load_error", name=profile.name, dataset=dataset_name, error=exc))
+                self.after(0, lambda: self._clear_plain_table(rows_frame))
+                self.after(0, lambda: self._add_plain_row(rows_frame, 0, columns, [tr("datasets_dataset"), dataset_name]))
+                self.after(0, lambda e=exc: self._add_plain_row(rows_frame, 1, columns, [tr("label_error"), str(e)]))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_right_panel_dataset_properties(self) -> None:
+        if self._reject_if_ssh_busy():
+            return
+        ctx = self._dataset_props_ctx
+        if not ctx:
+            return
+        side, conn_id, _pool, dataset_name = ctx
+        profile = self.store.get(conn_id)
+        if not profile:
+            return
+        changes: Dict[str, str] = {}
+        for prop, var in self._dataset_props_edit_vars.items():
+            old = self._dataset_props_original_values.get(prop, "")
+            new = var.get()
+            if new != old:
+                changes[prop] = new
+        if not changes:
+            self._app_log("info", tr("log_modify_dataset_no_changes"))
+            return
+        self._app_log(
+            "normal",
+            trf("log_modify_dataset_apply_start", name=profile.name, dataset=dataset_name, count=len(changes)),
+        )
+
+        def worker() -> None:
+            try:
+                execu = make_executor(profile)
+                out = execu.set_dataset_properties(dataset_name, changes)
+                self._app_log("info", trf("log_modify_dataset_apply_done", name=profile.name, dataset=dataset_name))
+                if (out or "").strip():
+                    self._app_log("debug", out.strip())
+            except Exception as exc:
+                self._app_log(
+                    "normal",
+                    trf("log_modify_dataset_apply_error", name=profile.name, dataset=dataset_name, error=exc),
+                )
+                self.after(0, lambda e=exc: messagebox.showerror(tr("modify_dataset_title"), str(e)))
+            finally:
+                self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{conn_id}:")}
+                self.after(0, lambda: self._refresh_connection_by_id(conn_id))
+                self.after(0, lambda: self._load_side_datasets(side))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _run_dataset_mount_action(self, side: str, do_mount: bool) -> None:
         selection = self.origin_pool_var.get().strip() if side == "origin" else self.dest_pool_var.get().strip()
