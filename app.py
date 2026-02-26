@@ -8301,51 +8301,54 @@ class App(tk.Tk):
             row_idx = 0
             self._add_plain_row(rows_frame, row_idx, columns, [tr("datasets_dataset"), dataset_name])
             row_idx += 1
+            editable_count = 0
             for prop in ordered_props:
                 name = str((prop.get("property") or "")).strip()
                 value = str((prop.get("value") or ""))
                 source = str((prop.get("source") or ""))
                 readonly = str((prop.get("readonly") or ""))
                 editable = is_dataset_property_editable(name, dataset_type, source, readonly)
-                if editable:
-                    bg = UI_PANEL_BG if row_idx % 2 == 0 else "#f8fbfd"
-                    line = tk.Frame(rows_frame, bg=bg, highlightthickness=0)
-                    grid_row = row_idx * 2
-                    line.grid(row=grid_row, column=0, sticky="ew")
-                    scroll_canvas = getattr(rows_frame, "_scroll_canvas", None)
-                    if isinstance(scroll_canvas, tk.Canvas):
-                        line.bind("<MouseWheel>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
-                        line.bind("<Button-4>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
-                        line.bind("<Button-5>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
-                    tk.Label(line, text=name, bg=bg, fg=UI_TEXT, anchor="w", padx=6, pady=3).grid(row=0, column=0, sticky="nsew")
-                    var = tk.StringVar(value=value)
-                    self._dataset_props_edit_vars[name] = var
-                    inherit_var = tk.BooleanVar(value=False)
-                    self._dataset_props_inherit_vars[name] = inherit_var
-                    self._dataset_props_original_values[name] = value
-                    var.trace_add("write", lambda *_a: self._update_dataset_props_apply_btn_state())
-                    inherit_var.trace_add("write", lambda *_a: self._update_dataset_props_apply_btn_state())
-                    value_wrap = tk.Frame(line, bg=bg, highlightthickness=0)
-                    value_wrap.grid(row=0, column=1, sticky="nsew", padx=(2, 2), pady=2)
-                    value_wrap.grid_columnconfigure(0, weight=1)
-                    ent = ttk.Entry(value_wrap, textvariable=var)
-                    ent.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
-                    chk = ttk.Checkbutton(value_wrap, text="inherit", variable=inherit_var)
-                    chk.grid(row=0, column=1, sticky="e")
-                    if isinstance(scroll_canvas, tk.Canvas):
-                        ent.bind("<MouseWheel>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
-                        ent.bind("<Button-4>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
-                        ent.bind("<Button-5>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
-                        chk.bind("<MouseWheel>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
-                        chk.bind("<Button-4>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
-                        chk.bind("<Button-5>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
-                    line.grid_columnconfigure(0, minsize=columns[0][1], weight=0)
-                    line.grid_columnconfigure(1, minsize=columns[1][1], weight=0)
-                    sep = tk.Frame(rows_frame, bg=UI_BORDER, height=1)
-                    sep.grid(row=grid_row + 1, column=0, sticky="ew")
-                else:
-                    self._add_plain_row(rows_frame, row_idx, columns, [name, value])
+                if not editable:
+                    continue
+                editable_count += 1
+                bg = UI_PANEL_BG if row_idx % 2 == 0 else "#f8fbfd"
+                line = tk.Frame(rows_frame, bg=bg, highlightthickness=0)
+                grid_row = row_idx * 2
+                line.grid(row=grid_row, column=0, sticky="ew")
+                scroll_canvas = getattr(rows_frame, "_scroll_canvas", None)
+                if isinstance(scroll_canvas, tk.Canvas):
+                    line.bind("<MouseWheel>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                    line.bind("<Button-4>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                    line.bind("<Button-5>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                tk.Label(line, text=name, bg=bg, fg=UI_TEXT, anchor="w", padx=6, pady=3).grid(row=0, column=0, sticky="nsew")
+                var = tk.StringVar(value=value)
+                self._dataset_props_edit_vars[name] = var
+                inherit_var = tk.BooleanVar(value=False)
+                self._dataset_props_inherit_vars[name] = inherit_var
+                self._dataset_props_original_values[name] = value
+                var.trace_add("write", lambda *_a: self._update_dataset_props_apply_btn_state())
+                inherit_var.trace_add("write", lambda *_a: self._update_dataset_props_apply_btn_state())
+                value_wrap = tk.Frame(line, bg=bg, highlightthickness=0)
+                value_wrap.grid(row=0, column=1, sticky="nsew", padx=(2, 2), pady=2)
+                value_wrap.grid_columnconfigure(0, weight=1)
+                ent = ttk.Entry(value_wrap, textvariable=var)
+                ent.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
+                chk = ttk.Checkbutton(value_wrap, text="inherit", variable=inherit_var)
+                chk.grid(row=0, column=1, sticky="e")
+                if isinstance(scroll_canvas, tk.Canvas):
+                    ent.bind("<MouseWheel>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                    ent.bind("<Button-4>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                    ent.bind("<Button-5>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                    chk.bind("<MouseWheel>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                    chk.bind("<Button-4>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                    chk.bind("<Button-5>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                line.grid_columnconfigure(0, minsize=columns[0][1], weight=0)
+                line.grid_columnconfigure(1, minsize=columns[1][1], weight=0)
+                sep = tk.Frame(rows_frame, bg=UI_BORDER, height=1)
+                sep.grid(row=grid_row + 1, column=0, sticky="ew")
                 row_idx += 1
+            if editable_count == 0:
+                self._add_plain_row(rows_frame, row_idx, columns, [tr("status"), "Sin propiedades editables"])
             try:
                 self._update_dataset_props_apply_btn_state()
             except Exception:
