@@ -4,17 +4,19 @@ defmodule ZfsmgrElixir.Session do
   alias ZfsmgrElixir.Session.ConnectionSession
 
   def ensure_connection_session(connection_id) do
-    spec = {ConnectionSession, connection_id}
-
-    case DynamicSupervisor.start_child(ZfsmgrElixir.SessionSupervisor, spec) do
-      {:ok, pid} ->
+    case Registry.lookup(ZfsmgrElixir.SessionRegistry, connection_id) do
+      [{pid, _value}] ->
         {:ok, pid}
 
-      {:error, {:already_started, pid}} ->
-        {:ok, pid}
-
-      other ->
-        other
+      [] ->
+        case DynamicSupervisor.start_child(
+               ZfsmgrElixir.SessionSupervisor,
+               {ConnectionSession, connection_id}
+             ) do
+          {:ok, pid} -> {:ok, pid}
+          {:error, {:already_started, pid}} -> {:ok, pid}
+          other -> other
+        end
     end
   end
 end

@@ -7,7 +7,9 @@ defmodule ZfsmgrElixir.Application do
   def start(_type, _args) do
     children = [
       ZfsmgrElixir.Repo,
-      {DynamicSupervisor, strategy: :one_for_one, name: ZfsmgrElixir.SessionSupervisor}
+      {Registry, keys: :unique, name: ZfsmgrElixir.SessionRegistry},
+      {DynamicSupervisor, strategy: :one_for_one, name: ZfsmgrElixir.SessionSupervisor},
+      {ZfsmgrElixirWeb.Endpoint, []}
     ]
 
     opts = [strategy: :one_for_one, name: ZfsmgrElixir.Supervisor]

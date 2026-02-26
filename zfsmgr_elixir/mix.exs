@@ -23,7 +23,8 @@ defmodule ZfsmgrElixir.MixProject do
     [
       {:ecto_sql, "~> 3.12"},
       {:ecto_sqlite3, "~> 0.20"},
-      {:jason, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      {:plug_cowboy, "~> 2.7"}
     ]
   end
 

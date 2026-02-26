@@ -14,12 +14,26 @@ defmodule ZfsmgrElixir.Session.ConnectionSession do
     :last_refresh_at
   ]
 
-  def start_link(connection_id) do
-    GenServer.start_link(__MODULE__, connection_id)
+  def child_spec(connection_id) do
+    %{
+      id: {__MODULE__, connection_id},
+      start: {__MODULE__, :start_link, [connection_id]},
+      restart: :transient
+    }
   end
 
-  def refresh(pid) do
-    GenServer.call(pid, :refresh, 120_000)
+  def start_link(connection_id) do
+    GenServer.start_link(__MODULE__, connection_id, name: via(connection_id))
+  end
+
+  def refresh(connection_id_or_pid) do
+    case connection_id_or_pid do
+      pid when is_pid(pid) ->
+        GenServer.call(pid, :refresh, 120_000)
+
+      connection_id ->
+        GenServer.call(via(connection_id), :refresh, 120_000)
+    end
   end
 
   @impl true
@@ -40,5 +54,9 @@ defmodule ZfsmgrElixir.Session.ConnectionSession do
 
     {:reply, {:ok, %{connection_id: state.connection_id, refreshed_at: now}},
      %{state | status: :ok, last_refresh_at: now}}
+  end
+
+  defp via(connection_id) do
+    {:via, Registry, {ZfsmgrElixir.SessionRegistry, connection_id}}
   end
 end

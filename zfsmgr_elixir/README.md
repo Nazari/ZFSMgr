@@ -9,11 +9,27 @@ Incluye:
 - Contexto `ZfsmgrElixir.Core`.
 - Supervisor base de sesiones por conexion (`DynamicSupervisor`).
 - Cifrado simetrico minimo para secretos en `ZfsmgrElixir.Crypto`.
+- API HTTP base con Plug/Cowboy (`ZfsmgrElixirWeb.Endpoint`).
 
 ## Estado actual
 
-Esta fase no implementa aun UI LiveView ni ejecucion real de comandos ZFS/SSH/PSRP.
-Es la base de datos + arquitectura de procesos para avanzar por fases.
+Esta fase implementa:
+
+- Persistencia de conexiones y logs.
+- API REST base:
+  - `GET /api/health`
+  - `GET /api/connections`
+  - `POST /api/connections`
+  - `PUT /api/connections/:id`
+  - `DELETE /api/connections/:id`
+  - `POST /api/connections/:id/refresh`
+  - `GET /api/logs?limit=500`
+- Worker por conexion (`ConnectionSession`) con `refresh` base.
+
+Aun no implementa:
+
+- UI LiveView.
+- Ejecucion real de comandos ZFS/SSH/PSRP (el refresh de sesion actual es placeholder).
 
 ## Requisitos
 
@@ -27,6 +43,7 @@ cd zfsmgr_elixir
 mix deps.get
 mix ecto.create
 mix ecto.migrate
+mix run --no-halt
 mix test
 ```
 

@@ -9,6 +9,10 @@ config :zfsmgr_elixir, ZfsmgrElixir.Repo,
   stacktrace: true,
   show_sensitive_data_on_connection_error: true
 
+config :zfsmgr_elixir, ZfsmgrElixirWeb.Endpoint,
+  http: [ip: {127, 0, 0, 1}, port: 4001],
+  server: true
+
 if config_env() == :test do
   config :zfsmgr_elixir, ZfsmgrElixir.Repo,
     database: Path.expand("../zfsmgr_elixir_test.db", __DIR__),
