@@ -473,6 +473,43 @@ async function refreshConnection(id) {
   });
 }
 
+async function createConnectionInteractive() {
+  if (state.busy || state.refreshing) return;
+  const name = window.prompt("Nombre de conexión:", "");
+  if (!name || !name.trim()) return;
+  const host = window.prompt("Host:", "");
+  if (!host || !host.trim()) return;
+  const username = window.prompt("Usuario:", "");
+  if (username === null) return;
+  const portRaw = window.prompt("Puerto (default 22):", "22");
+  if (portRaw === null) return;
+  const keyPath = window.prompt("Ruta clave SSH (vacío si no aplica):", "") ?? "";
+  const password = window.prompt("Password (vacío si no aplica):", "") ?? "";
+  const osTypeRaw = window.prompt("Sistema operativo [Linux|MacOS|Windows]:", "Linux") ?? "Linux";
+  const osType = ["Linux", "MacOS", "Windows"].includes(osTypeRaw) ? osTypeRaw : "Linux";
+  const port = Number(portRaw || 22);
+
+  await withAction(`Crear conexión ${name.trim()}`, async () => {
+    await fetchJson("/connections", {
+      method: "POST",
+      body: JSON.stringify({
+        name: name.trim(),
+        conn_type: "SSH",
+        os_type: osType,
+        transport: "SSH",
+        host: host.trim(),
+        port: Number.isFinite(port) && port > 0 ? port : 22,
+        username: username.trim(),
+        key_path: keyPath.trim(),
+        password: password,
+        use_sudo: true,
+        is_active: true
+      })
+    });
+    await refreshAll();
+  });
+}
+
 async function importPool(pool) {
   const conn = selectedConnection();
   if (!conn) return;
@@ -531,6 +568,9 @@ function bindEvents() {
 
   ui.refreshAllBtn.addEventListener("click", async () => {
     await refreshAll();
+  });
+  ui.newConnBtn.addEventListener("click", async () => {
+    await createConnectionInteractive();
   });
 
   ui.connectionsBody.addEventListener("click", async (ev) => {

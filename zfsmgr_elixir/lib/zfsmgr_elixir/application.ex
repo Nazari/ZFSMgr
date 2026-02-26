@@ -2,6 +2,7 @@ defmodule ZfsmgrElixir.Application do
   @moduledoc false
 
   use Application
+  alias ZfsmgrElixir.Core
 
   @impl true
   def start(_type, _args) do
@@ -13,6 +14,10 @@ defmodule ZfsmgrElixir.Application do
     ]
 
     opts = [strategy: :one_for_one, name: ZfsmgrElixir.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    with {:ok, pid} <- Supervisor.start_link(children, opts) do
+      Task.start(fn -> Core.bootstrap_connections_from_legacy_ini() end)
+      {:ok, pid}
+    end
   end
 end
