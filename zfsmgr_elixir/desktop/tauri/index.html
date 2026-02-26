@@ -18,9 +18,10 @@
     </header>
 
     <main class="layout">
-      <section class="panel">
-        <h2>Connections</h2>
+      <section class="panel left-panel">
+        <h2>Connections & Actions</h2>
         <div id="connectionsMeta" class="meta"></div>
+
         <table>
           <thead>
             <tr>
@@ -33,10 +34,78 @@
           </thead>
           <tbody id="connectionsBody"></tbody>
         </table>
+
+        <div class="actions-wrap">
+          <h3>Selected connection</h3>
+          <div id="selectedConn" class="meta">(none)</div>
+
+          <div class="action-grid">
+            <div class="action-card">
+              <h4>Pool</h4>
+              <label>Pool name</label>
+              <input id="poolName" type="text" placeholder="games" />
+              <div class="row-btns">
+                <button id="importPoolBtn">Import</button>
+                <button id="exportPoolBtn">Export</button>
+              </div>
+            </div>
+
+            <div class="action-card">
+              <h4>Create dataset</h4>
+              <label>Dataset</label>
+              <input id="createDataset" type="text" placeholder="pool/path" />
+              <label>Kind</label>
+              <select id="createKind">
+                <option value="filesystem">filesystem</option>
+                <option value="volume">volume</option>
+                <option value="snapshot">snapshot</option>
+              </select>
+              <label>Volsize (volume)</label>
+              <input id="createVolsize" type="text" placeholder="10G" />
+              <label>Recursive (snapshot)</label>
+              <select id="createRecursive">
+                <option value="false" selected>false</option>
+                <option value="true">true</option>
+              </select>
+              <button id="createDatasetBtn">Create</button>
+            </div>
+
+            <div class="action-card">
+              <h4>Delete/Rename</h4>
+              <label>Dataset target</label>
+              <input id="deleteDataset" type="text" placeholder="pool/path" />
+              <label>Recursive delete</label>
+              <select id="deleteRecursive">
+                <option value="false" selected>false</option>
+                <option value="true">true</option>
+              </select>
+              <button id="deleteDatasetBtn">Delete</button>
+              <label>Rename source</label>
+              <input id="renameSource" type="text" placeholder="pool/source" />
+              <label>Rename target</label>
+              <input id="renameTarget" type="text" placeholder="pool/target" />
+              <button id="renameDatasetBtn">Rename</button>
+            </div>
+
+            <div class="action-card">
+              <h4>Properties</h4>
+              <label>Dataset</label>
+              <input id="propDataset" type="text" placeholder="pool/path" />
+              <label>Property</label>
+              <input id="propName" type="text" placeholder="mountpoint" />
+              <label>Value</label>
+              <input id="propValue" type="text" placeholder="/mnt/data" />
+              <div class="row-btns">
+                <button id="setPropBtn">Set</button>
+                <button id="inheritPropBtn">Inherit</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section class="panel">
-        <h2>Logs</h2>
+        <h2>Combined log</h2>
         <div class="controls">
           <label for="logLimit">Limit</label>
           <select id="logLimit">

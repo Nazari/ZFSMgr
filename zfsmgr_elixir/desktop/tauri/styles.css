@@ -60,7 +60,7 @@ button:hover {
 
 .layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1.25fr 1fr;
   gap: 12px;
   padding: 12px;
 }
@@ -73,9 +73,26 @@ button:hover {
   min-height: 360px;
 }
 
+.left-panel {
+  max-height: calc(100vh - 88px);
+  overflow: auto;
+}
+
 .panel h2 {
   margin: 0 0 8px;
   font-size: 16px;
+  color: var(--accent);
+}
+
+.panel h3 {
+  margin: 12px 0 6px;
+  font-size: 14px;
+  color: var(--accent);
+}
+
+.panel h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
   color: var(--accent);
 }
 
@@ -83,6 +100,7 @@ button:hover {
   color: var(--muted);
   font-size: 12px;
   margin-bottom: 8px;
+  word-break: break-word;
 }
 
 table {
@@ -103,6 +121,10 @@ thead th {
   background: #edf3f7;
 }
 
+.selected-row {
+  background: #eef6fb;
+}
+
 .controls {
   display: flex;
   align-items: center;
@@ -114,13 +136,42 @@ thead th {
   border: 1px solid var(--border);
   background: #fcfeff;
   min-height: 300px;
-  max-height: 500px;
+  max-height: calc(100vh - 180px);
   overflow: auto;
   padding: 8px;
   font-family: "DejaVu Sans Mono", "Noto Sans Mono", monospace;
   font-size: 12px;
   white-space: pre-wrap;
   line-height: 1.35;
+}
+
+.actions-wrap {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.action-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.action-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  background: #fafcfe;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.row-btns {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .ok {
