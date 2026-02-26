@@ -9,12 +9,17 @@ const state = {
   pools: [],
   datasetsByPool: {},
   importedPoolSelected: "",
+  importablePoolSelected: "",
   originPool: "",
   destPool: "",
   originDataset: "",
   destDataset: "",
+  originSnapshot: "",
+  destSnapshot: "",
   logs: [],
-  logLevel: "normal"
+  logLevel: "normal",
+  busy: false,
+  refreshing: false
 };
 
 const ui = {
@@ -134,6 +139,43 @@ function leftTab(name) {
   ui.rightDatasetsDetail.classList.toggle("active", !isConn);
 }
 
+function setBusy(isBusy, message = "") {
+  state.busy = isBusy;
+  const disable = isBusy || state.refreshing;
+  const ids = [
+    "reloadBtn",
+    "refreshAllBtn",
+    "copyBtn",
+    "levelBtn",
+    "syncBtn",
+    "breakdownBtn",
+    "assembleBtn",
+    "reloadLogsBtn",
+    "clearLogsBtn",
+    "copyLogsBtn"
+  ];
+  for (const id of ids) {
+    if (ui[id]) ui[id].disabled = disable;
+  }
+
+  if (disable) {
+    ui.connectionsBody.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    ui.importedPoolsBody.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    ui.importablePoolsBody.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  } else {
+    renderConnections();
+    renderPoolsTables();
+    updateActionButtons();
+  }
+
+  if (message) setStatus(message);
+}
+
+function setRefreshing(isRefreshing, message = "") {
+  state.refreshing = isRefreshing;
+  setBusy(state.busy, message);
+}
+
 function poolTab(name) {
   state.selectedPoolTab = name;
   const isImported = name === "imported";
@@ -166,6 +208,21 @@ function renderLogs() {
   if (lines.length) setLastDetail(lines[lines.length - 1]);
 }
 
+function appendLocalLog(level, source, message) {
+  const row = {
+    inserted_at: new Date().toISOString().replace("T", " ").slice(0, 19),
+    level,
+    source,
+    message
+  };
+  state.logs.push(row);
+  const maxLines = Number(ui.logLimit.value || 500);
+  if (state.logs.length > maxLines * 2) {
+    state.logs = state.logs.slice(-maxLines * 2);
+  }
+  renderLogs();
+}
+
 function renderConnections() {
   const conn = selectedConnection();
   ui.connectionsMeta.textContent = `${state.connections.length} conexiones`;
@@ -178,8 +235,8 @@ function renderConnections() {
         <td>${escapeHtml(c.host || "-")}</td>
         <td>${escapeHtml(c.port || "")}</td>
         <td>
-          <button data-use="${c.id}">Usar</button>
-          <button data-refresh="${c.id}">Refrescar</button>
+          <button data-use="${c.id}" ${state.busy || state.refreshing ? "disabled" : ""}>Usar</button>
+          <button data-refresh="${c.id}" ${state.busy || state.refreshing ? "disabled" : ""}>Refrescar</button>
         </td>
       </tr>`;
     })
@@ -195,7 +252,7 @@ function poolRowsHtml(action) {
     .map((pool) => `<tr class="${state.importedPoolSelected === pool ? "selected" : ""}">
       <td>${escapeHtml(conn.name)}</td>
       <td>${escapeHtml(pool)}</td>
-      <td><button data-${action}="${escapeHtml(pool)}">${action === "export" ? "Exportar" : "Importar"}</button></td>
+      <td><button data-${action}="${escapeHtml(pool)}" ${state.busy || state.refreshing ? "disabled" : ""}>${action === "export" ? "Exportar" : "Importar"}</button></td>
     </tr>`)
     .join("");
 }
@@ -242,6 +299,7 @@ function renderDatasets() {
   ui.originSelectedLabel.textContent = `Origen: ${state.originDataset || "(ninguno)"}`;
   ui.destSelectedLabel.textContent = `Destino: ${state.destDataset || "(ninguno)"}`;
   ui.actionSelectedLabel.textContent = `Seleccionado: ${state.originDataset || state.destDataset || "(ninguno)"}`;
+  updateActionButtons();
 }
 
 function renderDatasetProps() {
@@ -260,6 +318,41 @@ function renderDatasetProps() {
     ["mountpoint", "(n/a)"]
   ];
   ui.datasetPropsBody.innerHTML = rows.map((r) => `<tr><td>${escapeHtml(r[0])}</td><td>${escapeHtml(r[1])}</td></tr>`).join("");
+}
+
+function isSnapshotName(name) {
+  return String(name || "").includes("@");
+}
+
+function updateActionButtons() {
+  const originOk = !!state.originDataset;
+  const destOk = !!state.destDataset;
+  const originIsSnapshot = isSnapshotName(state.originDataset);
+  const originIsDataset = originOk && !originIsSnapshot;
+  const destIsDataset = destOk && !isSnapshotName(state.destDataset);
+
+  ui.copyBtn.disabled = state.busy || state.refreshing || !(originIsSnapshot && destIsDataset);
+  ui.levelBtn.disabled = state.busy || state.refreshing || !(originOk && destOk);
+  ui.syncBtn.disabled = state.busy || state.refreshing || !(originIsDataset && destIsDataset);
+  ui.breakdownBtn.disabled = state.busy || state.refreshing || !(originIsDataset || destIsDataset);
+  ui.assembleBtn.disabled = state.busy || state.refreshing || !(originIsDataset || destIsDataset);
+}
+
+async function withAction(label, fn) {
+  if (state.busy || state.refreshing) return;
+  setBusy(true, `${label}: en ejecucion...`);
+  appendLocalLog("normal", "application", `${label} iniciado`);
+  try {
+    await fn();
+    appendLocalLog("normal", "application", `${label} finalizado`);
+    setStatus(`${label}: OK`);
+  } catch (err) {
+    appendLocalLog("normal", "application", `${label} error: ${err.message}`);
+    setStatus(`${label}: ERROR`);
+    throw err;
+  } finally {
+    setBusy(false);
+  }
 }
 
 function renderPoolDetail() {
@@ -314,6 +407,7 @@ async function loadPoolsAndDatasets() {
     const poolsPayload = await fetchJson(`/connections/${conn.id}/pools`);
     state.pools = poolsPayload.pools || [];
     state.importedPoolSelected = state.pools[0] || "";
+    state.importablePoolSelected = state.pools[0] || "";
 
     for (const p of state.pools) {
       try {
@@ -331,9 +425,11 @@ async function loadPoolsAndDatasets() {
 
     if (state.originDataset && getPoolFromDataset(state.originDataset) !== state.originPool) {
       state.originDataset = "";
+      state.originSnapshot = "";
     }
     if (state.destDataset && getPoolFromDataset(state.destDataset) !== state.destPool) {
       state.destDataset = "";
+      state.destSnapshot = "";
     }
   } finally {
     renderPoolsTables();
@@ -351,34 +447,58 @@ async function loadLogs() {
 }
 
 async function refreshAll() {
-  await loadConnections();
-  await loadPoolsAndDatasets();
-  await loadLogs();
+  if (state.refreshing || state.busy) return;
+  setRefreshing(true, "Refresco en curso...");
+  appendLocalLog("normal", "application", "Refresco completo iniciado");
+  try {
+    await loadConnections();
+    await loadPoolsAndDatasets();
+    await loadLogs();
+    appendLocalLog("normal", "application", "Refresco completo finalizado");
+    setStatus("Refresco completo finalizado");
+  } finally {
+    setRefreshing(false);
+  }
 }
 
 async function refreshConnection(id) {
-  await fetchJson(`/connections/${id}/refresh`, { method: "POST" });
-  await refreshAll();
+  if (state.refreshing || state.busy) return;
+  const conn = state.connections.find((c) => Number(c.id) === Number(id));
+  const connName = conn?.name || `id=${id}`;
+  await withAction(`Refrescar ${connName}`, async () => {
+    await fetchJson(`/connections/${id}/refresh`, { method: "POST" });
+    await loadConnections();
+    await loadPoolsAndDatasets();
+    await loadLogs();
+  });
 }
 
 async function importPool(pool) {
   const conn = selectedConnection();
   if (!conn) return;
-  await fetchJson(`/connections/${conn.id}/actions/import_pool`, {
-    method: "POST",
-    body: JSON.stringify({ pool })
+  await withAction(`Importar pool ${pool}`, async () => {
+    await fetchJson(`/connections/${conn.id}/actions/import_pool`, {
+      method: "POST",
+      body: JSON.stringify({ pool })
+    });
+    await loadConnections();
+    await loadPoolsAndDatasets();
+    await loadLogs();
   });
-  await refreshAll();
 }
 
 async function exportPool(pool) {
   const conn = selectedConnection();
   if (!conn) return;
-  await fetchJson(`/connections/${conn.id}/actions/export_pool`, {
-    method: "POST",
-    body: JSON.stringify({ pool })
+  await withAction(`Exportar pool ${pool}`, async () => {
+    await fetchJson(`/connections/${conn.id}/actions/export_pool`, {
+      method: "POST",
+      body: JSON.stringify({ pool })
+    });
+    await loadConnections();
+    await loadPoolsAndDatasets();
+    await loadLogs();
   });
-  await refreshAll();
 }
 
 function copyLogs() {
@@ -414,11 +534,13 @@ function bindEvents() {
   });
 
   ui.connectionsBody.addEventListener("click", async (ev) => {
+    if (state.busy || state.refreshing) return;
     const useBtn = ev.target.closest("button[data-use]");
     if (useBtn) {
       state.selectedConnectionId = Number(useBtn.dataset.use);
       renderConnections();
       await loadPoolsAndDatasets();
+      setStatus("Conexion seleccionada");
       return;
     }
 
@@ -429,6 +551,7 @@ function bindEvents() {
   });
 
   ui.importedPoolsBody.addEventListener("click", async (ev) => {
+    if (state.busy || state.refreshing) return;
     const exp = ev.target.closest("button[data-export]");
     if (exp) {
       await exportPool(exp.dataset.export);
@@ -441,11 +564,13 @@ function bindEvents() {
         state.importedPoolSelected = poolCell.textContent?.trim() || "";
         renderPoolsTables();
         renderPoolDetail();
+        setStatus(`Pool seleccionado: ${state.importedPoolSelected}`);
       }
     }
   });
 
   ui.importablePoolsBody.addEventListener("click", async (ev) => {
+    if (state.busy || state.refreshing) return;
     const imp = ev.target.closest("button[data-import]");
     if (imp) {
       await importPool(imp.dataset.import);
@@ -453,33 +578,69 @@ function bindEvents() {
   });
 
   ui.originPoolSelect.addEventListener("change", () => {
+    if (state.busy || state.refreshing) return;
     state.originPool = ui.originPoolSelect.value;
     state.originDataset = "";
+    state.originSnapshot = "";
     renderDatasets();
     renderDatasetProps();
   });
 
   ui.destPoolSelect.addEventListener("change", () => {
+    if (state.busy || state.refreshing) return;
     state.destPool = ui.destPoolSelect.value;
     state.destDataset = "";
+    state.destSnapshot = "";
     renderDatasets();
     renderDatasetProps();
   });
 
   ui.originDatasetsBody.addEventListener("click", (ev) => {
+    if (state.busy || state.refreshing) return;
     const cell = ev.target.closest("td[data-origin-dataset]");
     if (!cell) return;
     state.originDataset = cell.dataset.originDataset || "";
+    state.originSnapshot = isSnapshotName(state.originDataset) ? state.originDataset.split("@", 2)[1] : "";
     renderDatasets();
     renderDatasetProps();
   });
 
   ui.destDatasetsBody.addEventListener("click", (ev) => {
+    if (state.busy || state.refreshing) return;
     const cell = ev.target.closest("td[data-dest-dataset]");
     if (!cell) return;
     state.destDataset = cell.dataset.destDataset || "";
+    state.destSnapshot = isSnapshotName(state.destDataset) ? state.destDataset.split("@", 2)[1] : "";
     renderDatasets();
     renderDatasetProps();
+  });
+
+  ui.copyBtn.addEventListener("click", async () => {
+    if (ui.copyBtn.disabled) return;
+    appendLocalLog("info", "application", `Copiar solicitado: ${state.originDataset} -> ${state.destDataset}`);
+    setStatus("Copiar: funcionalidad pendiente (backend)");
+  });
+  ui.levelBtn.addEventListener("click", async () => {
+    if (ui.levelBtn.disabled) return;
+    appendLocalLog("info", "application", `Nivelar solicitado: ${state.originDataset} -> ${state.destDataset}`);
+    setStatus("Nivelar: funcionalidad pendiente (backend)");
+  });
+  ui.syncBtn.addEventListener("click", async () => {
+    if (ui.syncBtn.disabled) return;
+    appendLocalLog("info", "application", `Sincronizar solicitado: ${state.originDataset} -> ${state.destDataset}`);
+    setStatus("Sincronizar: funcionalidad pendiente (backend)");
+  });
+  ui.breakdownBtn.addEventListener("click", async () => {
+    if (ui.breakdownBtn.disabled) return;
+    const ds = state.originDataset || state.destDataset;
+    appendLocalLog("info", "application", `Desglosar solicitado: ${ds}`);
+    setStatus("Desglosar: funcionalidad pendiente (backend)");
+  });
+  ui.assembleBtn.addEventListener("click", async () => {
+    if (ui.assembleBtn.disabled) return;
+    const ds = state.originDataset || state.destDataset;
+    appendLocalLog("info", "application", `Ensamblar solicitado: ${ds}`);
+    setStatus("Ensamblar: funcionalidad pendiente (backend)");
   });
 
   ui.logLevelSelect.addEventListener("change", () => {
@@ -488,6 +649,7 @@ function bindEvents() {
   });
 
   ui.reloadLogsBtn.addEventListener("click", async () => {
+    if (state.busy || state.refreshing) return;
     await loadLogs();
   });
 
@@ -505,6 +667,7 @@ async function boot() {
 
   try {
     await fetchJson("/health");
+    appendLocalLog("normal", "application", "Aplicacion iniciada");
     await refreshAll();
   } catch (err) {
     setStatus(`Error inicial: ${err.message}`);
