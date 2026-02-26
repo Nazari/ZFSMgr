@@ -23,13 +23,21 @@ Esta fase implementa:
   - `PUT /api/connections/:id`
   - `DELETE /api/connections/:id`
   - `POST /api/connections/:id/refresh`
+  - `POST /api/connections/:id/actions/import_pool`
+  - `POST /api/connections/:id/actions/export_pool`
+  - `POST /api/connections/:id/actions/create_dataset`
+  - `POST /api/connections/:id/actions/delete_dataset`
+  - `POST /api/connections/:id/actions/rename_dataset`
+  - `POST /api/connections/:id/actions/set_property`
+  - `POST /api/connections/:id/actions/inherit_property`
   - `GET /api/logs?limit=500`
-- Worker por conexion (`ConnectionSession`) con `refresh` base.
+- Worker por conexion (`ConnectionSession`) con `refresh` real.
+- Servicio reusable `ZfsmgrElixir.Zfs` para acciones ZFS (usable desde otras apps Elixir).
 
 Aun no implementa:
 
 - UI LiveView.
-- Ejecucion real de comandos ZFS/SSH/PSRP (el refresh de sesion actual es placeholder).
+- PSRP real (por ahora devuelve `:psrp_not_implemented`).
 
 ## Requisitos
 

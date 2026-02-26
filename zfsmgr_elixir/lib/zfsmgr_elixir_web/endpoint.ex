@@ -64,6 +64,55 @@ defmodule ZfsmgrElixirWeb.Endpoint do
     end
   end
 
+  post "/api/connections/:id/actions/import_pool" do
+    case RH.import_pool(id, conn.body_params) do
+      {:ok, payload} -> Json.send_json(conn, 200, payload)
+      {:error, payload} -> Json.send_json(conn, 422, payload)
+    end
+  end
+
+  post "/api/connections/:id/actions/export_pool" do
+    case RH.export_pool(id, conn.body_params) do
+      {:ok, payload} -> Json.send_json(conn, 200, payload)
+      {:error, payload} -> Json.send_json(conn, 422, payload)
+    end
+  end
+
+  post "/api/connections/:id/actions/create_dataset" do
+    case RH.create_dataset(id, conn.body_params) do
+      {:ok, payload} -> Json.send_json(conn, 200, payload)
+      {:error, payload} -> Json.send_json(conn, 422, payload)
+    end
+  end
+
+  post "/api/connections/:id/actions/delete_dataset" do
+    case RH.delete_dataset(id, conn.body_params) do
+      {:ok, payload} -> Json.send_json(conn, 200, payload)
+      {:error, payload} -> Json.send_json(conn, 422, payload)
+    end
+  end
+
+  post "/api/connections/:id/actions/rename_dataset" do
+    case RH.rename_dataset(id, conn.body_params) do
+      {:ok, payload} -> Json.send_json(conn, 200, payload)
+      {:error, payload} -> Json.send_json(conn, 422, payload)
+    end
+  end
+
+  post "/api/connections/:id/actions/set_property" do
+    case RH.set_dataset_property(id, conn.body_params) do
+      {:ok, payload} -> Json.send_json(conn, 200, payload)
+      {:error, payload} -> Json.send_json(conn, 422, payload)
+    end
+  end
+
+  post "/api/connections/:id/actions/inherit_property" do
+    case RH.inherit_dataset_property(id, conn.body_params) do
+      {:ok, payload} -> Json.send_json(conn, 200, payload)
+      {:error, payload} -> Json.send_json(conn, 422, payload)
+    end
+  end
+
   get "/api/logs" do
     limit = parse_limit(conn.params["limit"])
 

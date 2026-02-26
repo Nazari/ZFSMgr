@@ -7,6 +7,7 @@ defmodule ZfsmgrElixir.Session.ConnectionSession do
   """
 
   use GenServer
+  alias ZfsmgrElixir.{Core, Zfs}
 
   defstruct [
     :connection_id,
@@ -49,11 +50,25 @@ defmodule ZfsmgrElixir.Session.ConnectionSession do
 
   @impl true
   def handle_call(:refresh, _from, state) do
-    # Placeholder for next phase: run pooled SSH/PSRP refresh here.
     now = DateTime.utc_now()
 
-    {:reply, {:ok, %{connection_id: state.connection_id, refreshed_at: now}},
-     %{state | status: :ok, last_refresh_at: now}}
+    result =
+      with conn <- Core.get_connection!(state.connection_id),
+           {:ok, payload} <- Zfs.refresh_connection(conn) do
+        {:ok, Map.put(payload, :connection_id, state.connection_id)}
+      end
+
+    new_status =
+      case result do
+        {:ok, _} -> :ok
+        _ -> :error
+      end
+
+    {:reply, result, %{state | status: new_status, last_refresh_at: now}}
+  rescue
+    exc ->
+      {:reply, {:error, %{error: Exception.message(exc)}},
+       %{state | status: :error, last_refresh_at: now}}
   end
 
   defp via(connection_id) do
