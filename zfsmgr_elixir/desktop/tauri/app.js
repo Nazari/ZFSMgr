@@ -25,7 +25,13 @@ const ui = {
   connectionsMeta: document.getElementById("connectionsMeta"),
   actionStatus: document.getElementById("actionStatus"),
   connectionsBody: document.getElementById("connectionsBody"),
+  leftTabConnections: document.getElementById("leftTabConnections"),
+  leftTabDatasets: document.getElementById("leftTabDatasets"),
+  leftPanelConnections: document.getElementById("leftPanelConnections"),
+  leftPanelDatasets: document.getElementById("leftPanelDatasets"),
   selectedConn: document.getElementById("selectedConn"),
+  detailPools: document.getElementById("detailPools"),
+  detailDatasets: document.getElementById("detailDatasets"),
   poolList: document.getElementById("poolList"),
   datasetList: document.getElementById("datasetList"),
   propertyList: document.getElementById("propertyList"),
@@ -223,6 +229,34 @@ function updateSelectedConnLabel() {
     : "(none)";
 }
 
+function activateLeftTab(name) {
+  const isConnections = name === "connections";
+  ui.leftTabConnections.classList.toggle("active", isConnections);
+  ui.leftTabDatasets.classList.toggle("active", !isConnections);
+  ui.leftPanelConnections.classList.toggle("active", isConnections);
+  ui.leftPanelDatasets.classList.toggle("active", !isConnections);
+}
+
+function renderDetailLists() {
+  ui.detailPools.innerHTML = "";
+  ui.detailDatasets.innerHTML = "";
+
+  const pools = state.pools || [];
+  const datasets = state.datasets || [];
+
+  for (const p of pools) {
+    const li = document.createElement("li");
+    li.textContent = p;
+    ui.detailPools.appendChild(li);
+  }
+
+  for (const ds of datasets.slice(0, 400)) {
+    const li = document.createElement("li");
+    li.textContent = ds;
+    ui.detailDatasets.appendChild(li);
+  }
+}
+
 async function loadConnections() {
   ui.connectionsMeta.textContent = "Loading connections...";
   try {
@@ -273,6 +307,7 @@ async function loadAutocompleteData() {
     state.datasets = [];
     setDatalistOptions(ui.poolList, []);
     setDatalistOptions(ui.datasetList, []);
+    renderDetailLists();
     return;
   }
 
@@ -290,6 +325,7 @@ async function loadAutocompleteData() {
     if (!selectedPool) {
       state.datasets = [];
       setDatalistOptions(ui.datasetList, []);
+      renderDetailLists();
       return;
     }
 
@@ -298,12 +334,14 @@ async function loadAutocompleteData() {
     );
     state.datasets = datasetsPayload.datasets || [];
     setDatalistOptions(ui.datasetList, state.datasets);
+    renderDetailLists();
   } catch (_err) {
     state.pools = [];
     state.datasets = [];
     setDatalistOptions(ui.poolList, []);
     setDatalistOptions(ui.datasetList, []);
     setActionStatus("Autocomplete data unavailable for selected connection", "err");
+    renderDetailLists();
   }
 }
 
@@ -446,6 +484,8 @@ async function guardAction(fn) {
 }
 
 function bindEvents() {
+  activateLeftTab("connections");
+
   ui.saveApiBtn.addEventListener("click", () => {
     const next = ui.apiUrl.value.trim();
     if (!next) return;
@@ -468,6 +508,7 @@ function bindEvents() {
       ui.connectionsBody.innerHTML = state.connections.map(rowHtml).join("");
       updateSelectedConnLabel();
       loadAutocompleteData();
+      activateLeftTab("datasets");
       return;
     }
 
@@ -483,6 +524,9 @@ function bindEvents() {
   ui.poolName.addEventListener("change", () => {
     loadAutocompleteData();
   });
+
+  ui.leftTabConnections.addEventListener("click", () => activateLeftTab("connections"));
+  ui.leftTabDatasets.addEventListener("click", () => activateLeftTab("datasets"));
 
   for (const getInput of datasetInputs) {
     const input = getInput();
