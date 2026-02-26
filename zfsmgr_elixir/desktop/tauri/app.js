@@ -8,6 +8,16 @@ const state = {
   properties: []
 };
 
+const ACTION_BUTTON_IDS = [
+  "importPoolBtn",
+  "exportPoolBtn",
+  "createDatasetBtn",
+  "deleteDatasetBtn",
+  "renameDatasetBtn",
+  "setPropBtn",
+  "inheritPropBtn"
+];
+
 const ui = {
   apiUrl: document.getElementById("apiUrl"),
   saveApiBtn: document.getElementById("saveApiBtn"),
@@ -48,6 +58,13 @@ const ui = {
   logsBox: document.getElementById("logsBox")
 };
 
+const datasetInputs = [
+  () => ui.createDataset,
+  () => ui.deleteDataset,
+  () => ui.renameSource,
+  () => ui.propDataset
+];
+
 function getApiBase() {
   const persisted = localStorage.getItem(API_KEY);
   if (persisted && persisted.trim()) return persisted.trim();
@@ -67,6 +84,67 @@ function setDatalistOptions(el, values) {
   el.innerHTML = (values || [])
     .map((v) => `<option value="${String(v).replace(/"/g, "&quot;")}"></option>`)
     .join("");
+}
+
+function appendLogLine(msg) {
+  ui.logsBox.textContent = `${ui.logsBox.textContent}\n${msg}`.trim();
+  ui.logsBox.scrollTop = ui.logsBox.scrollHeight;
+}
+
+function setButtonsDisabled(disabled) {
+  for (const id of ACTION_BUTTON_IDS) {
+    const btn = ui[id];
+    if (btn) btn.disabled = disabled;
+  }
+}
+
+function clearInvalidMarks() {
+  const inputs = [
+    ui.poolName,
+    ui.createDataset,
+    ui.createVolsize,
+    ui.deleteDataset,
+    ui.renameSource,
+    ui.renameTarget,
+    ui.propDataset,
+    ui.propName,
+    ui.propValue
+  ];
+  inputs.forEach((el) => {
+    el.classList.remove("input-error");
+    el.title = "";
+  });
+}
+
+function markInvalid(el, reason) {
+  if (!el) return;
+  el.classList.add("input-error");
+  if (reason) el.title = reason;
+}
+
+function validateNonEmpty(el, label) {
+  if (!el.value.trim()) {
+    markInvalid(el, `${label} is required`);
+    throw new Error(`${label} is required`);
+  }
+}
+
+function getPoolFromDataset(dataset) {
+  const raw = (dataset || "").trim();
+  if (!raw) return "";
+  const idx = raw.indexOf("/");
+  return idx > 0 ? raw.slice(0, idx) : raw;
+}
+
+function propagateDatasetSelection(sourceInput) {
+  const value = sourceInput.value.trim();
+  if (!value) return;
+  for (const getInput of datasetInputs) {
+    const input = getInput();
+    if (input !== sourceInput && !input.value.trim()) {
+      input.value = value;
+    }
+  }
 }
 
 function requireSelectedConnection() {
@@ -177,7 +255,8 @@ async function loadAutocompleteData() {
     state.pools = poolsPayload.pools || [];
     setDatalistOptions(ui.poolList, state.pools);
 
-    const selectedPool = ui.poolName.value.trim() || state.pools[0] || "";
+    const fromDataset = getPoolFromDataset(ui.createDataset.value || ui.deleteDataset.value || ui.renameSource.value || ui.propDataset.value);
+    const selectedPool = fromDataset || ui.poolName.value.trim() || state.pools[0] || "";
     if (selectedPool && !ui.poolName.value.trim()) {
       ui.poolName.value = selectedPool;
     }
@@ -228,15 +307,18 @@ async function runAction(path, body) {
 }
 
 async function doImportPool() {
+  validateNonEmpty(ui.poolName, "Pool");
   await runAction("import_pool", { pool: ui.poolName.value.trim() });
 }
 
 async function doExportPool() {
+  validateNonEmpty(ui.poolName, "Pool");
   await runAction("export_pool", { pool: ui.poolName.value.trim() });
 }
 
 async function doCreateDataset() {
   const kind = ui.createKind.value;
+  validateNonEmpty(ui.createDataset, "Dataset");
   const body = {
     dataset: ui.createDataset.value.trim(),
     kind,
@@ -244,6 +326,7 @@ async function doCreateDataset() {
   };
 
   if (kind === "volume") {
+    validateNonEmpty(ui.createVolsize, "Volsize");
     body.volsize = ui.createVolsize.value.trim();
   }
 
@@ -251,6 +334,7 @@ async function doCreateDataset() {
 }
 
 async function doDeleteDataset() {
+  validateNonEmpty(ui.deleteDataset, "Dataset");
   await runAction("delete_dataset", {
     dataset: ui.deleteDataset.value.trim(),
     recursive: ui.deleteRecursive.value === "true"
@@ -258,6 +342,8 @@ async function doDeleteDataset() {
 }
 
 async function doRenameDataset() {
+  validateNonEmpty(ui.renameSource, "Rename source");
+  validateNonEmpty(ui.renameTarget, "Rename target");
   await runAction("rename_dataset", {
     source: ui.renameSource.value.trim(),
     target: ui.renameTarget.value.trim()
@@ -265,6 +351,9 @@ async function doRenameDataset() {
 }
 
 async function doSetProperty() {
+  validateNonEmpty(ui.propDataset, "Dataset");
+  validateNonEmpty(ui.propName, "Property");
+  validateNonEmpty(ui.propValue, "Value");
   await runAction("set_property", {
     dataset: ui.propDataset.value.trim(),
     property: ui.propName.value.trim(),
@@ -273,6 +362,8 @@ async function doSetProperty() {
 }
 
 async function doInheritProperty() {
+  validateNonEmpty(ui.propDataset, "Dataset");
+  validateNonEmpty(ui.propName, "Property");
   await runAction("inherit_property", {
     dataset: ui.propDataset.value.trim(),
     property: ui.propName.value.trim()
@@ -280,10 +371,15 @@ async function doInheritProperty() {
 }
 
 async function guardAction(fn) {
+  clearInvalidMarks();
+  setButtonsDisabled(true);
   try {
     await fn();
+    await loadAutocompleteData();
   } catch (err) {
-    ui.logsBox.textContent += `\nAction failed: ${err.message}`;
+    appendLogLine(`Action failed: ${err.message}`);
+  } finally {
+    setButtonsDisabled(false);
   }
 }
 
@@ -325,6 +421,18 @@ function bindEvents() {
   ui.poolName.addEventListener("change", () => {
     loadAutocompleteData();
   });
+
+  for (const getInput of datasetInputs) {
+    const input = getInput();
+    input.addEventListener("change", async () => {
+      propagateDatasetSelection(input);
+      const inferredPool = getPoolFromDataset(input.value);
+      if (inferredPool && inferredPool !== ui.poolName.value.trim()) {
+        ui.poolName.value = inferredPool;
+        await loadAutocompleteData();
+      }
+    });
+  }
 
   ui.importPoolBtn.addEventListener("click", () => guardAction(doImportPool));
   ui.exportPoolBtn.addEventListener("click", () => guardAction(doExportPool));
