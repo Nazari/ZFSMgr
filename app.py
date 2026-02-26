@@ -235,6 +235,7 @@ UI_BORDER = "#c9d5de"
 UI_SELECTION = "#d7ecf7"
 UI_ACTION_MOUNT = "#1f7a3f"
 UI_ACTION_UMOUNT = "#b54747"
+UI_WARNING = "#b06a00"
 
 
 def _session_profile_key(profile: "ConnectionProfile") -> str:
@@ -648,6 +649,7 @@ class ConnectionState:
     importable: List[Dict[str, str]] = None
     imported_devices: Dict[str, List[Dict[str, Any]]] = None
     imported_status: Dict[str, str] = None
+    mounted_datasets: List[Dict[str, str]] = None
 
     def __post_init__(self) -> None:
         if self.imported is None:
@@ -658,6 +660,8 @@ class ConnectionState:
             self.imported_devices = {}
         if self.imported_status is None:
             self.imported_status = {}
+        if self.mounted_datasets is None:
+            self.mounted_datasets = []
 
 
 class ConnectionStore:
@@ -936,6 +940,23 @@ def parse_imported_pool_rows(text: str) -> List[Dict[str, str]]:
     return rows
 
 
+def parse_zfs_mount_rows(text: str) -> List[Dict[str, str]]:
+    rows: List[Dict[str, str]] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        parts = re.split(r"\s+", line, maxsplit=1)
+        if len(parts) < 2:
+            continue
+        ds = parts[0].strip()
+        mp = parts[1].strip()
+        if not ds or not mp:
+            continue
+        rows.append({"dataset": ds, "mountpoint": mp})
+    return rows
+
+
 def _format_with_max_four_digits(value: float, unit: str) -> str:
     if value >= 1000:
         txt = f"{value:.0f}"
@@ -1007,6 +1028,9 @@ class BaseExecutor:
         raise NotImplementedError
 
     def pool_status_verbose(self, pool: str) -> str:
+        raise NotImplementedError
+
+    def list_mounted_datasets(self) -> List[Dict[str, str]]:
         raise NotImplementedError
 
     def create_dataset(self, dataset_path: str, options: Dict[str, Any]) -> str:
@@ -1225,6 +1249,10 @@ class LocalExecutor(BaseExecutor):
 
     def pool_status_verbose(self, pool: str) -> str:
         return self._zpool_cmd(f"status -v {shlex.quote(pool)}")
+
+    def list_mounted_datasets(self) -> List[Dict[str, str]]:
+        out = self._zfs_cmd("mount")
+        return parse_zfs_mount_rows(out)
 
     def create_dataset(self, dataset_path: str, options: Dict[str, Any]) -> str:
         cmd = build_zfs_create_cmd(dataset_path, options)
@@ -1560,6 +1588,10 @@ class SSHExecutor(BaseExecutor):
     def pool_status_verbose(self, pool: str) -> str:
         return self._run(self._zpool_cmd(f"status -v {shlex.quote(pool)}"), sudo=True)
 
+    def list_mounted_datasets(self) -> List[Dict[str, str]]:
+        out = self._run(self._zfs_cmd("mount"), sudo=True)
+        return parse_zfs_mount_rows(out)
+
     def create_dataset(self, dataset_path: str, options: Dict[str, Any]) -> str:
         cmd = build_zfs_create_cmd(dataset_path, options)
         return self._run(self._zfs_cmd(cmd), sudo=True)
@@ -1851,6 +1883,10 @@ class PSRPExecutor(BaseExecutor):
 
     def pool_status_verbose(self, pool: str) -> str:
         return self._run_ps(f"zpool status -v {pool}")
+
+    def list_mounted_datasets(self) -> List[Dict[str, str]]:
+        out = self._run_ps("zfs mount")
+        return parse_zfs_mount_rows(out)
 
     def create_dataset(self, dataset_path: str, options: Dict[str, Any]) -> str:
         cmd = build_zfs_create_cmd(dataset_path, options)
@@ -4036,6 +4072,7 @@ class App(tk.Tk):
         app_log_x = ttk.Scrollbar(app_tab, orient="horizontal", command=self.app_log_text.xview)
         app_log_x.grid(row=1, column=0, sticky="ew")
         self.app_log_text.configure(yscrollcommand=app_log_y.set, xscrollcommand=app_log_x.set)
+        self.app_log_text.tag_configure("warn", foreground=UI_WARNING)
         self.app_log_text.bind("<Motion>", self._on_app_log_hover)
         self.app_log_text.bind("<Leave>", self._hide_app_log_tooltip)
         self.logs_tabs.add(app_tab, text=tr("log_tab_app"))
@@ -4429,7 +4466,10 @@ class App(tk.Tk):
 
     def _append_line_to_log_widget(self, widget: tk.Text, line: str) -> None:
         widget.configure(state="normal")
-        widget.insert("end", line + "\n")
+        if "[WARNING]" in line:
+            widget.insert("end", line + "\n", ("warn",))
+        else:
+            widget.insert("end", line + "\n")
         self._trim_log_widget_lines(widget)
         widget.see("end")
         widget.configure(state="disabled")
@@ -4611,10 +4651,7 @@ class App(tk.Tk):
         def _append() -> None:
             if self._is_closing:
                 return
-            self.app_log_text.configure(state="normal")
-            self.app_log_text.insert("end", line + "\n")
-            self.app_log_text.see("end")
-            self.app_log_text.configure(state="disabled")
+            self._append_line_to_log_widget(self.app_log_text, line)
             self._ssh_last_line_full = line
             self._refresh_ssh_last_line_summary()
         try:
@@ -8073,7 +8110,8 @@ class App(tk.Tk):
             return
         recursive_unmount = False
         if do_mount:
-            mountpoint_val = (row.get("mountpoint", "") or "").strip().lower()
+            mountpoint_raw = (row.get("mountpoint", "") or "").strip()
+            mountpoint_val = mountpoint_raw.lower()
             canmount_val = (row.get("canmount", "") or "").strip().lower()
             if not mountpoint_val or mountpoint_val == "none" or canmount_val == "off":
                 self._app_log("normal", trf("log_dataset_mount_not_allowed", dataset=dataset))
@@ -8108,6 +8146,27 @@ class App(tk.Tk):
             try:
                 execu = make_executor(profile)
                 if do_mount:
+                    mounted_rows = execu.list_mounted_datasets()
+                    target_mp = (row.get("mountpoint", "") or "").strip()
+                    conflicts = sorted(
+                        {
+                            (r.get("dataset", "") or "").strip()
+                            for r in mounted_rows
+                            if (r.get("mountpoint", "") or "").strip() == target_mp
+                            and (r.get("dataset", "") or "").strip()
+                            and (r.get("dataset", "") or "").strip() != dataset
+                        }
+                    )
+                    if conflicts:
+                        conflict_text = ", ".join(conflicts)
+                        msg = (
+                            f"No se permite montar {dataset} en {target_mp}: "
+                            f"ya esta montado {conflict_text}. "
+                            "Por favor cambie el mountpoint."
+                        )
+                        self._app_log("warning", msg)
+                        self.after(0, lambda m=msg: messagebox.showwarning(tr("action_mount"), m))
+                        return
                     out = execu.mount_dataset(dataset)
                 else:
                     out = execu.unmount_dataset(dataset, recursive=recursive_unmount)
@@ -8610,6 +8669,24 @@ class App(tk.Tk):
             return
 
         def worker() -> None:
+            def find_duplicate_mountpoints(rows: List[Dict[str, str]]) -> Dict[str, List[str]]:
+                grouped: Dict[str, List[str]] = {}
+                for row in rows or []:
+                    mp = (row.get("mountpoint", "") or "").strip()
+                    ds = (row.get("dataset", "") or "").strip()
+                    if not mp or not ds:
+                        continue
+                    grouped.setdefault(mp, []).append(ds)
+                return {mp: sorted(set(dsets)) for mp, dsets in grouped.items() if len(set(dsets)) > 1}
+
+            def emit_duplicate_mountpoints_warning(profile: ConnectionProfile, state: ConnectionState) -> None:
+                duplicates = find_duplicate_mountpoints(state.mounted_datasets or [])
+                if not duplicates:
+                    return
+                for mp, datasets in sorted(duplicates.items()):
+                    ds_txt = ", ".join(datasets)
+                    self._app_log("warning", f"Mountpoint duplicado en {profile.name}: {mp} -> {ds_txt}")
+
             def psrp_connectivity_hint(message: str) -> Optional[str]:
                 msg = (message or "").lower()
                 tokens = (
@@ -8669,6 +8746,10 @@ class App(tk.Tk):
                                     status_map[pool_name] = str(exc)
                             local_state.imported_status = status_map
                             local_state.importable = execu.list_importable_pools()
+                            try:
+                                local_state.mounted_datasets = execu.list_mounted_datasets()
+                            except Exception:
+                                local_state.mounted_datasets = []
                         return local_state
 
                     # En PSRP cada comando remoto ya tiene su propio timeout.
@@ -8749,6 +8830,7 @@ class App(tk.Tk):
                 )
                 if state.zfs_version:
                     self._app_log("debug", f"OpenZFS {profile.name}: {state.zfs_version}")
+                emit_duplicate_mountpoints_warning(profile, state)
                 # Mantener cache de propiedades/estado de pools entre refrescos
                 # para evitar re-ejecutar zpool get/status al hacer click en pools importados.
                 status_prefix = f"{profile_id}:"
