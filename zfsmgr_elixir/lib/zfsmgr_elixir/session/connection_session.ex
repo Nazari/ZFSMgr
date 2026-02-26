@@ -67,6 +67,8 @@ defmodule ZfsmgrElixir.Session.ConnectionSession do
     {:reply, result, %{state | status: new_status, last_refresh_at: now}}
   rescue
     exc ->
+      now = DateTime.utc_now()
+
       {:reply, {:error, %{error: Exception.message(exc)}},
        %{state | status: :error, last_refresh_at: now}}
   end
