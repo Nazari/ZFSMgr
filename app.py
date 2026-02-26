@@ -1178,7 +1178,29 @@ class LocalExecutor(BaseExecutor):
         return self._zfs_cmd(f"mount {shlex.quote(dataset)}")
 
     def unmount_dataset(self, dataset: str) -> str:
-        return self._zfs_cmd(f"unmount {shlex.quote(dataset)}")
+        quoted = shlex.quote(dataset)
+        try:
+            return self._zfs_cmd(f"unmount {quoted}")
+        except Exception as first_exc:
+            try:
+                return self._zfs_cmd(f"unmount -f {quoted}")
+            except Exception:
+                import subprocess
+
+                fallback_cmd = (
+                    "set -e; "
+                    f"DATASET={quoted}; "
+                    "MPS=\"$(zfs mount 2>/dev/null | awk -v ds=\"$DATASET\" '$1==ds || index($1, ds\"/\")==1 {print $2}')\"; "
+                    "[ -n \"$MPS\" ] || exit 0; "
+                    "printf '%s\\n' \"$MPS\" | awk 'NF{print length, $0}' | sort -rn | cut -d' ' -f2- "
+                    "| while IFS= read -r mp; do umount \"$mp\" >/dev/null 2>&1 || true; done; "
+                    "LEFT=\"$(zfs mount 2>/dev/null | awk -v ds=\"$DATASET\" '$1==ds || index($1, ds\"/\")==1 {print $2}' | head -n1)\"; "
+                    "[ -z \"$LEFT\" ] || { echo \"cannot unmount dataset tree: $DATASET ($LEFT)\" >&2; exit 1; }"
+                )
+                proc = subprocess.run(fallback_cmd, shell=True, capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS)
+                if proc.returncode != 0:
+                    raise ExecutorError(proc.stderr.strip() or proc.stdout.strip() or str(first_exc))
+                return proc.stdout
 
     def list_pool_properties(self, pool: str) -> List[Dict[str, str]]:
         output = self._zpool_cmd(f"get -H all {shlex.quote(pool)}")
@@ -1487,7 +1509,30 @@ class SSHExecutor(BaseExecutor):
         return self._run(self._zfs_cmd(f"mount {shlex.quote(dataset)}"), sudo=True)
 
     def unmount_dataset(self, dataset: str) -> str:
-        return self._run(self._zfs_cmd(f"unmount {shlex.quote(dataset)}"), sudo=True)
+        quoted = shlex.quote(dataset)
+        try:
+            return self._run(self._zfs_cmd(f"unmount {quoted}"), sudo=True)
+        except Exception as first_exc:
+            try:
+                return self._run(self._zfs_cmd(f"unmount -f {quoted}"), sudo=True)
+            except Exception:
+                fallback_cmd = (
+                    "set -e; "
+                    f"DATASET={quoted}; "
+                    "MPS=\"$(zfs mount 2>/dev/null | awk -v ds=\"$DATASET\" '$1==ds || index($1, ds\"/\")==1 {print $2}')\"; "
+                    "[ -n \"$MPS\" ] || exit 0; "
+                    "printf '%s\\n' \"$MPS\" | awk 'NF{print length, $0}' | sort -rn | cut -d' ' -f2- "
+                    "| while IFS= read -r mp; do umount \"$mp\" >/dev/null 2>&1 || true; done; "
+                    "LEFT=\"$(zfs mount 2>/dev/null | awk -v ds=\"$DATASET\" '$1==ds || index($1, ds\"/\")==1 {print $2}' | head -n1)\"; "
+                    "[ -z \"$LEFT\" ] || { echo \"cannot unmount dataset tree: $DATASET ($LEFT)\" >&2; exit 1; }"
+                )
+                try:
+                    out = self._run(fallback_cmd, sudo=True)
+                    if (out or "").strip():
+                        return out
+                    return "fallback umount tree OK"
+                except Exception:
+                    raise ExecutorError(str(first_exc))
 
     def list_pool_properties(self, pool: str) -> List[Dict[str, str]]:
         output = self._run(self._zpool_cmd(f"get -H all {shlex.quote(pool)}"), sudo=True)
