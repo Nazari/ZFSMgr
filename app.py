@@ -149,6 +149,74 @@ LANG_OPTIONS = {
     "ca": "Català",
 }
 LANG_LABEL_TO_CODE = {v: k for k, v in LANG_OPTIONS.items()}
+
+
+def _create_zfsmgr_icon(size: int = 64) -> tk.PhotoImage:
+    img = tk.PhotoImage(width=size, height=size)
+    c_bg = "#0f1c2e"
+    c_panel = "#1f3554"
+    c_stage = "#2a4a6f"
+    c_gold = "#e8c76a"
+    c_white = "#f3f6fb"
+    c_linux = "#f6b73c"
+    c_macos = "#a8d4ff"
+    c_zfs = "#57c4c0"
+
+    img.put(c_bg, to=(0, 0, size, size))
+    pad = max(2, size // 16)
+    img.put(c_panel, to=(pad, pad, size - pad, size - pad))
+    img.put(c_stage, to=(pad * 2, size - (pad * 4), size - (pad * 2), size - (pad * 2)))
+
+    # Emblema ZFS
+    z_left = size // 6
+    z_top = size // 6
+    z_right = size - size // 6
+    z_bot = size // 2
+    img.put(c_zfs, to=(z_left, z_top, z_right, z_top + 4))
+    img.put(c_zfs, to=(z_left, z_bot - 4, z_right, z_bot))
+    for i in range(0, max(1, (z_right - z_left) // 4)):
+        x = z_right - (i * 2) - 4
+        y = z_top + (i * 2) + 4
+        if y < z_bot - 2 and x > z_left + 2:
+            img.put(c_zfs, to=(x, y, x + 2, y + 2))
+
+    # Director de orquesta (estilizado)
+    cx = size // 2
+    head = max(3, size // 14)
+    img.put(c_white, to=(cx - head, size // 2 + 2, cx + head, size // 2 + 2 + head))
+    img.put(c_white, to=(cx - 1, size // 2 + 2 + head, cx + 1, size - (pad * 5)))
+    img.put(c_white, to=(cx - size // 8, size - (pad * 7), cx + size // 8, size - (pad * 7) + 2))
+    # Batuta
+    bx = cx + size // 10
+    by = size // 2 + 2 + head
+    for i in range(0, size // 5):
+        img.put(c_gold, to=(bx + i, by - i, bx + i + 1, by - i + 1))
+
+    # Linux (izquierda) y macOS (derecha) minimalistas
+    lx = size // 5
+    ly = size - (pad * 6)
+    img.put(c_linux, to=(lx - 3, ly - 3, lx + 3, ly + 3))
+    rx = size - size // 5
+    ry = size - (pad * 6)
+    img.put(c_macos, to=(rx - 3, ry - 3, rx + 3, ry + 3))
+
+    # Marco fino
+    img.put(c_gold, to=(0, 0, size, 1))
+    img.put(c_gold, to=(0, size - 1, size, size))
+    img.put(c_gold, to=(0, 0, 1, size))
+    img.put(c_gold, to=(size - 1, 0, size, size))
+    return img
+
+
+def _apply_window_icon(win: tk.Misc) -> None:
+    try:
+        icon64 = _create_zfsmgr_icon(64)
+        icon32 = icon64.subsample(2, 2)
+        icon16 = icon64.subsample(4, 4)
+        win.iconphoto(True, icon64, icon32, icon16)  # type: ignore[attr-defined]
+        setattr(win, "_zfsmgr_icons", (icon64, icon32, icon16))
+    except Exception:
+        pass
 CURRENT_LANG = "es"
 I18N: Dict[str, Dict[str, str]] = {}
 SSH_LOG_HOOK: Optional[Callable[[str], None]] = None
@@ -3126,6 +3194,7 @@ class App(tk.Tk):
         global SSH_LOG_HOOK, SSH_BUSY_HOOK
         self.title(tr("app_title"))
         self.geometry("1200x700")
+        _apply_window_icon(self)
         self.startup_sudo_ok = startup_sudo_ok
 
         self.store = store
@@ -8755,6 +8824,7 @@ def _ask_master_password() -> Optional[str]:
         root.title(tr("master_title"))
         root.resizable(False, False)
         root.attributes("-topmost", True)
+        _apply_window_icon(root)
 
         result: Dict[str, Optional[str]] = {"password": None}
 
@@ -8873,11 +8943,18 @@ def _ask_master_password() -> Optional[str]:
             pady=(0, 8),
         )
 
+        ttk.Label(
+            frm,
+            text="Autor: Eladio Linares | Licencia: GNU",
+            justify="left",
+            foreground=UI_MUTED,
+        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(0, 8))
+
         entry = ttk.Entry(frm, textvariable=pass_var, show="*", width=38)
-        entry.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        entry.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 10))
 
         actions = ttk.Frame(frm)
-        actions.grid(row=3, column=0, columnspan=2, sticky="e")
+        actions.grid(row=4, column=0, columnspan=2, sticky="e")
         change_btn = ttk.Button(actions, command=on_change_password)
         change_btn.grid(row=0, column=0, padx=(0, 6))
         ok_btn = ttk.Button(actions, command=on_ok)

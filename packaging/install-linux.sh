@@ -22,10 +22,22 @@ chmod +x "$TARGET"
 mkdir -p "$ICON_DIR"
 cat >"$ICON_FILE" <<'EOF'
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <rect x="8" y="8" width="112" height="112" rx="16" fill="#1f5f7a"/>
-  <rect x="22" y="24" width="84" height="80" rx="8" fill="#f3f6f8"/>
-  <text x="64" y="56" text-anchor="middle" font-family="sans-serif" font-size="18" font-weight="700" fill="#1f5f7a">ZFS</text>
-  <text x="64" y="78" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#1f5f7a">Manager</text>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f1c2e"/>
+      <stop offset="100%" stop-color="#1f3554"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="116" height="116" rx="16" fill="url(#bg)"/>
+  <rect x="14" y="14" width="100" height="100" rx="12" fill="none" stroke="#e8c76a" stroke-width="2"/>
+  <path d="M28 30h72v8H28zm0 26h72v8H28z" fill="#57c4c0"/>
+  <path d="M96 38L48 56h48z" fill="#57c4c0"/>
+  <circle cx="64" cy="74" r="6" fill="#f3f6fb"/>
+  <rect x="62" y="80" width="4" height="18" rx="2" fill="#f3f6fb"/>
+  <rect x="50" y="92" width="28" height="4" rx="2" fill="#f3f6fb"/>
+  <path d="M70 80l18-18" stroke="#e8c76a" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="30" cy="92" r="6" fill="#f6b73c"/>
+  <circle cx="98" cy="92" r="6" fill="#a8d4ff"/>
 </svg>
 EOF
 
