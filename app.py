@@ -1042,6 +1042,9 @@ class BaseExecutor:
     def set_dataset_properties(self, dataset: str, properties: Dict[str, str]) -> str:
         raise NotImplementedError
 
+    def inherit_dataset_properties(self, dataset: str, properties: List[str]) -> str:
+        raise NotImplementedError
+
     def rename_dataset(self, dataset: str, new_name: str) -> str:
         raise NotImplementedError
 
@@ -1272,6 +1275,16 @@ class LocalExecutor(BaseExecutor):
             assignment = f"{prop}={value}"
             self._zfs_cmd(f"set {shlex.quote(assignment)} {shlex.quote(dataset)}")
             logs.append(assignment)
+        return "\n".join(logs)
+
+    def inherit_dataset_properties(self, dataset: str, properties: List[str]) -> str:
+        logs: List[str] = []
+        for prop in properties:
+            p = (prop or "").strip()
+            if not p:
+                continue
+            self._zfs_cmd(f"inherit {shlex.quote(p)} {shlex.quote(dataset)}")
+            logs.append(f"inherit {p}")
         return "\n".join(logs)
 
     def rename_dataset(self, dataset: str, new_name: str) -> str:
@@ -1612,6 +1625,16 @@ class SSHExecutor(BaseExecutor):
             logs.append(assignment)
         return "\n".join(logs)
 
+    def inherit_dataset_properties(self, dataset: str, properties: List[str]) -> str:
+        logs: List[str] = []
+        for prop in properties:
+            p = (prop or "").strip()
+            if not p:
+                continue
+            self._run(self._zfs_cmd(f"inherit {shlex.quote(p)} {shlex.quote(dataset)}"), sudo=True)
+            logs.append(f"inherit {p}")
+        return "\n".join(logs)
+
     def rename_dataset(self, dataset: str, new_name: str) -> str:
         return self._run(self._zfs_cmd(f"rename {shlex.quote(dataset)} {shlex.quote(new_name)}"), sudo=True)
 
@@ -1911,6 +1934,19 @@ class PSRPExecutor(BaseExecutor):
             assignment = f"{prop}={value}"
             self._run_ps(f"zfs set {_ps_quote(assignment)} {_ps_quote(dataset)}")
             logs.append(assignment)
+        return "\n".join(logs)
+
+    def inherit_dataset_properties(self, dataset: str, properties: List[str]) -> str:
+        def _ps_quote(s: str) -> str:
+            return "'" + s.replace("'", "''") + "'"
+
+        logs: List[str] = []
+        for prop in properties:
+            p = (prop or "").strip()
+            if not p:
+                continue
+            self._run_ps(f"zfs inherit {_ps_quote(p)} {_ps_quote(dataset)}")
+            logs.append(f"inherit {p}")
         return "\n".join(logs)
 
     def rename_dataset(self, dataset: str, new_name: str) -> str:
@@ -3351,6 +3387,7 @@ class App(tk.Tk):
         self._last_dataset_props_sig: str = ""
         self._dataset_props_ctx: Optional[Tuple[str, str, str, str]] = None  # (side, conn_id, pool, dataset)
         self._dataset_props_edit_vars: Dict[str, tk.StringVar] = {}
+        self._dataset_props_inherit_vars: Dict[str, tk.BooleanVar] = {}
         self._dataset_props_original_values: Dict[str, str] = {}
         self._dataset_props_load_token: int = 0
 
@@ -8074,6 +8111,7 @@ class App(tk.Tk):
             self._dataset_props_ctx = None
             self._dataset_props_load_token += 1
             self._dataset_props_edit_vars = {}
+            self._dataset_props_inherit_vars = {}
             self._dataset_props_original_values = {}
             self._clear_plain_table(rows_frame)
             self.dataset_props_selected_var.set(trf("datasets_selected_target", dataset=tr("label_none")))
@@ -8101,6 +8139,7 @@ class App(tk.Tk):
         ctx = (side, conn_id, pool, dataset_name)
         self._dataset_props_ctx = ctx
         self._dataset_props_edit_vars = {}
+        self._dataset_props_inherit_vars = {}
         self._dataset_props_original_values = {}
         try:
             self.dataset_props_apply_btn.configure(state="disabled")
@@ -8158,14 +8197,25 @@ class App(tk.Tk):
                     tk.Label(line, text=name, bg=bg, fg=UI_TEXT, anchor="w", padx=6, pady=3).grid(row=0, column=0, sticky="nsew")
                     var = tk.StringVar(value=value)
                     self._dataset_props_edit_vars[name] = var
+                    inherit_var = tk.BooleanVar(value=False)
+                    self._dataset_props_inherit_vars[name] = inherit_var
                     self._dataset_props_original_values[name] = value
                     var.trace_add("write", lambda *_a: self._update_dataset_props_apply_btn_state())
-                    ent = ttk.Entry(line, textvariable=var)
-                    ent.grid(row=0, column=1, sticky="nsew", padx=(2, 2), pady=2)
+                    inherit_var.trace_add("write", lambda *_a: self._update_dataset_props_apply_btn_state())
+                    value_wrap = tk.Frame(line, bg=bg, highlightthickness=0)
+                    value_wrap.grid(row=0, column=1, sticky="nsew", padx=(2, 2), pady=2)
+                    value_wrap.grid_columnconfigure(0, weight=1)
+                    ent = ttk.Entry(value_wrap, textvariable=var)
+                    ent.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
+                    chk = ttk.Checkbutton(value_wrap, text="inherit", variable=inherit_var)
+                    chk.grid(row=0, column=1, sticky="e")
                     if isinstance(scroll_canvas, tk.Canvas):
                         ent.bind("<MouseWheel>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
                         ent.bind("<Button-4>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
                         ent.bind("<Button-5>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                        chk.bind("<MouseWheel>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                        chk.bind("<Button-4>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                        chk.bind("<Button-5>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
                     line.grid_columnconfigure(0, minsize=columns[0][1], weight=0)
                     line.grid_columnconfigure(1, minsize=columns[1][1], weight=0)
                     sep = tk.Frame(rows_frame, bg=UI_BORDER, height=1)
@@ -8193,6 +8243,9 @@ class App(tk.Tk):
 
     def _dataset_props_has_changes(self) -> bool:
         for prop, var in self._dataset_props_edit_vars.items():
+            inh = self._dataset_props_inherit_vars.get(prop)
+            if inh is not None and bool(inh.get()):
+                return True
             old = self._dataset_props_original_values.get(prop, "")
             if var.get() != old:
                 return True
@@ -8216,12 +8269,17 @@ class App(tk.Tk):
         if not profile:
             return
         changes: Dict[str, str] = {}
+        inherit_props: List[str] = []
         for prop, var in self._dataset_props_edit_vars.items():
+            inh = self._dataset_props_inherit_vars.get(prop)
+            if inh is not None and bool(inh.get()):
+                inherit_props.append(prop)
+                continue
             old = self._dataset_props_original_values.get(prop, "")
             new = var.get()
             if new != old:
                 changes[prop] = new
-        if not changes:
+        if not changes and not inherit_props:
             self._app_log("info", tr("log_modify_dataset_no_changes"))
             self._update_dataset_props_apply_btn_state()
             return
@@ -8233,9 +8291,18 @@ class App(tk.Tk):
         def worker() -> None:
             try:
                 execu = make_executor(profile)
-                out = execu.set_dataset_properties(dataset_name, changes)
+                out_parts: List[str] = []
+                if changes:
+                    out_set = execu.set_dataset_properties(dataset_name, changes)
+                    if (out_set or "").strip():
+                        out_parts.append(out_set.strip())
+                if inherit_props:
+                    out_inherit = execu.inherit_dataset_properties(dataset_name, inherit_props)
+                    if (out_inherit or "").strip():
+                        out_parts.append(out_inherit.strip())
                 self._app_log("info", trf("log_modify_dataset_apply_done", name=profile.name, dataset=dataset_name))
-                if (out or "").strip():
+                out = "\n".join(out_parts)
+                if out.strip():
                     self._app_log("debug", out.strip())
             except Exception as exc:
                 self._app_log(
