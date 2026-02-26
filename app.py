@@ -5885,12 +5885,12 @@ class App(tk.Tk):
 
         dataset_q = shlex.quote(dataset_name)
         mount_q = shlex.quote(mountpoint)
-        selected_dirs_array = " ".join(shlex.quote(x) for x in selected_dirs)
+        selected_dirs_blob = shlex.quote("\n".join(selected_dirs))
         breakdown_cmd = (
             "set -e; "
             f"DATASET={dataset_q}; MP_HINT={mount_q}; "
-            f"SELECTED_DIRS=({selected_dirs_array}); "
-            "is_selected_dir() { local s; for s in \"${SELECTED_DIRS[@]}\"; do [ \"$s\" = \"$1\" ] && return 0; done; return 1; }; "
+            f"SELECTED_DIRS_NL={selected_dirs_blob}; "
+            "is_selected_dir() { printf '%s\\n' \"$SELECTED_DIRS_NL\" | grep -F -x -q -- \"$1\"; }; "
             "TMP_SUFFIX=\"$(printf '%s' \"$DATASET\" | tr '/' '_')\"; "
             "TMP_ROOT=\"/tmp/zfsmgr-breakdown-$TMP_SUFFIX\"; "
             "ORIG_MP=\"$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true)\"; "
@@ -6140,7 +6140,7 @@ class App(tk.Tk):
 
         dataset_q = shlex.quote(dataset_name)
         mount_q = shlex.quote(mountpoint)
-        selected_children_array = " ".join(shlex.quote(x) for x in selected_children)
+        selected_children_blob = shlex.quote("\n".join(selected_children))
         if profile.conn_type == "PSRP":
             ps_cmd = _build_psrp_assemble_script(dataset_name, mountpoint, selected_children)
             self._app_log(
@@ -6155,8 +6155,8 @@ class App(tk.Tk):
         assemble_cmd = (
             "set -e; "
             f"DATASET={dataset_q}; MP_HINT={mount_q}; "
-            f"SELECTED_CHILDREN=({selected_children_array}); "
-            "is_selected_child() { local s; for s in \"${SELECTED_CHILDREN[@]}\"; do [ \"$s\" = \"$1\" ] && return 0; done; return 1; }; "
+            f"SELECTED_CHILDREN_NL={selected_children_blob}; "
+            "is_selected_child() { printf '%s\\n' \"$SELECTED_CHILDREN_NL\" | grep -F -x -q -- \"$1\"; }; "
             "TMP_SUFFIX=\"$(printf '%s' \"$DATASET\" | tr '/' '_')\"; "
             "TMP_ROOT=\"/tmp/zfsmgr-assemble-$TMP_SUFFIX\"; "
             "ORIG_MP=\"$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true)\"; "
