@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ZFSMgr (Elixir/Tauri)</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>ZFSMgr</h1>
+      <div class="api-box">
+        <label for="apiUrl">API</label>
+        <input id="apiUrl" type="text" value="http://127.0.0.1:4001/api" />
+        <button id="saveApiBtn">Use</button>
+      </div>
+      <button id="reloadBtn">Reload</button>
+    </header>
+
+    <main class="layout">
+      <section class="panel">
+        <h2>Connections</h2>
+        <div id="connectionsMeta" class="meta"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Type</th>
+              <th>Host</th>
+              <th>Port</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="connectionsBody"></tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <h2>Logs</h2>
+        <div class="controls">
+          <label for="logLimit">Limit</label>
+          <select id="logLimit">
+            <option value="100">100</option>
+            <option value="200">200</option>
+            <option value="500" selected>500</option>
+            <option value="1000">1000</option>
+          </select>
+          <button id="reloadLogsBtn">Reload logs</button>
+        </div>
+        <div id="logsBox" class="logs-box"></div>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

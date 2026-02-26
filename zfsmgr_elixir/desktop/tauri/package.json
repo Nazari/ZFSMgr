@@ -3,10 +3,11 @@
   "private": true,
   "version": "0.1.0",
   "description": "Tauri shell for ZFSMgr Elixir",
+  "type": "module",
   "scripts": {
-    "tauri": "tauri",
-    "dev": "echo \"Frontend placeholder. Integrate with Vite/React/Svelte in next phase.\"",
-    "build": "echo \"Build placeholder\""
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "tauri": "tauri"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"

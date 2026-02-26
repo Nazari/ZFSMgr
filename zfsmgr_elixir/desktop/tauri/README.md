@@ -1,21 +1,40 @@
-# ZFSMgr Tauri Shell (Placeholder)
+# ZFSMgr Tauri Shell
 
-Este directorio queda reservado para el shell nativo con Tauri.
-
-Objetivo de la siguiente fase:
-
-1. Frontend (UI) con llamadas HTTP/WebSocket al backend Elixir.
-2. Empaquetado nativo Windows/macOS/Linux con Tauri.
+Shell nativo (Tauri) para el backend Elixir de ZFSMgr.
 
 ## Requisitos
 
+- Rust (`rustup`, `cargo`, `rustc`)
 - Node.js 20+
-- Rust toolchain (`rustup`, `rustc`, `cargo`)
-- Dependencias del sistema de Tauri (segun SO)
+- Backend Elixir funcionando en `http://127.0.0.1:4001`
 
-## Comandos previstos
+## Arranque backend
+
+Desde `zfsmgr_elixir/`:
+
+```bash
+export ZFSMGR_MASTER_PASSWORD='tu_password_maestra'
+mix deps.get
+mix ecto.create
+mix ecto.migrate
+iex -S mix
+```
+
+## Arranque Tauri (desarrollo)
+
+Desde `zfsmgr_elixir/desktop/tauri/`:
 
 ```bash
 npm install
-npm run tauri dev
+npm run dev
 ```
+
+La UI permite cambiar la URL base de API arriba a la derecha.
+
+## Build nativo
+
+```bash
+npm run build
+```
+
+Generará los instaladores/binarios nativos por sistema operativo con Tauri.
