@@ -1188,7 +1188,7 @@ class LocalExecutor(BaseExecutor):
                 "zfs list -H -o name -t filesystem,volume -r \"$DATASET\" "
                 "| awk 'NF{d=gsub(/\\//,\"/\",$1); printf \"%08d\\t%s\\n\", d, $1}' "
                 "| sort -r | cut -f2- "
-                "| while IFS= read -r ds; do [ -n \"$ds\" ] && zfs unmount -f \"$ds\" >/dev/null 2>&1 || true; done; "
+                "| while IFS= read -r ds; do [ -n \"$ds\" ] && (zfs umount -f \"$ds\" >/dev/null 2>&1 || zfs unmount -f \"$ds\" >/dev/null 2>&1) || true; done; "
                 "LEFT=\"$(zfs mount 2>/dev/null | awk -v ds=\"$DATASET\" '$1==ds || index($1, ds\"/\")==1 {print $1}' | head -n1)\"; "
                 "[ -z \"$LEFT\" ] || { echo \"cannot unmount dataset tree: $DATASET ($LEFT)\" >&2; exit 1; }"
             )
@@ -1197,12 +1197,18 @@ class LocalExecutor(BaseExecutor):
                 raise ExecutorError(proc.stderr.strip() or proc.stdout.strip() or "recursive unmount failed")
             return proc.stdout or "recursive unmount OK"
         try:
-            return self._zfs_cmd(f"unmount {quoted}")
+            return self._zfs_cmd(f"umount {quoted}")
         except Exception:
             try:
-                return self._zfs_cmd(f"unmount -f {quoted}")
+                return self._zfs_cmd(f"unmount {quoted}")
             except Exception as exc2:
-                raise ExecutorError(str(exc2))
+                try:
+                    return self._zfs_cmd(f"umount -f {quoted}")
+                except Exception:
+                    try:
+                        return self._zfs_cmd(f"unmount -f {quoted}")
+                    except Exception as exc4:
+                        raise ExecutorError(str(exc4))
 
     def list_pool_properties(self, pool: str) -> List[Dict[str, str]]:
         output = self._zpool_cmd(f"get -H all {shlex.quote(pool)}")
@@ -1519,18 +1525,24 @@ class SSHExecutor(BaseExecutor):
                 "zfs list -H -o name -t filesystem,volume -r \"$DATASET\" "
                 "| awk 'NF{d=gsub(/\\//,\"/\",$1); printf \"%08d\\t%s\\n\", d, $1}' "
                 "| sort -r | cut -f2- "
-                "| while IFS= read -r ds; do [ -n \"$ds\" ] && zfs unmount -f \"$ds\" >/dev/null 2>&1 || true; done; "
+                "| while IFS= read -r ds; do [ -n \"$ds\" ] && (zfs umount -f \"$ds\" >/dev/null 2>&1 || zfs unmount -f \"$ds\" >/dev/null 2>&1) || true; done; "
                 "LEFT=\"$(zfs mount 2>/dev/null | awk -v ds=\"$DATASET\" '$1==ds || index($1, ds\"/\")==1 {print $1}' | head -n1)\"; "
                 "[ -z \"$LEFT\" ] || { echo \"cannot unmount dataset tree: $DATASET ($LEFT)\" >&2; exit 1; }"
             )
             return self._run(cmd, sudo=True)
         try:
-            return self._run(self._zfs_cmd(f"unmount {quoted}"), sudo=True)
+            return self._run(self._zfs_cmd(f"umount {quoted}"), sudo=True)
         except Exception:
             try:
-                return self._run(self._zfs_cmd(f"unmount -f {quoted}"), sudo=True)
+                return self._run(self._zfs_cmd(f"unmount {quoted}"), sudo=True)
             except Exception as exc2:
-                raise ExecutorError(str(exc2))
+                try:
+                    return self._run(self._zfs_cmd(f"umount -f {quoted}"), sudo=True)
+                except Exception:
+                    try:
+                        return self._run(self._zfs_cmd(f"unmount -f {quoted}"), sudo=True)
+                    except Exception as exc4:
+                        raise ExecutorError(str(exc4))
 
     def list_pool_properties(self, pool: str) -> List[Dict[str, str]]:
         output = self._run(self._zpool_cmd(f"get -H all {shlex.quote(pool)}"), sudo=True)
@@ -1813,13 +1825,16 @@ class PSRPExecutor(BaseExecutor):
                 "$items = @(zfs list -H -o name -t filesystem,volume -r $ds | "
                 "ForEach-Object { [PSCustomObject]@{ name=$_; depth=(($_ -split '/').Count) } } | "
                 "Sort-Object depth -Descending); "
-                "foreach ($i in $items) { try { zfs unmount -f $i.name | Out-Null } catch {} }; "
+                "foreach ($i in $items) { try { zfs umount -f $i.name | Out-Null } catch { try { zfs unmount -f $i.name | Out-Null } catch {} } }; "
                 "$left = @(zfs mount | ForEach-Object { ($_ -split '\\s+')[0] } | "
                 "Where-Object { $_ -eq $ds -or $_.StartsWith($ds + '/') }); "
                 "if ($left.Count -gt 0) { throw ('cannot unmount dataset tree: ' + $ds + ' (' + $left[0] + ')') }"
             )
             return self._run_ps(script)
-        return self._run_ps(f"zfs unmount {dataset}")
+        try:
+            return self._run_ps(f"zfs umount {dataset}")
+        except Exception:
+            return self._run_ps(f"zfs unmount {dataset}")
 
     def list_pool_properties(self, pool: str) -> List[Dict[str, str]]:
         output = self._run_ps(f"zpool get -H all {pool}")
