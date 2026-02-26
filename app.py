@@ -8265,6 +8265,10 @@ class App(tk.Tk):
         if not ctx:
             return
         side, conn_id, _pool, dataset_name = ctx
+        origin_pool_sel = self.origin_pool_var.get().strip()
+        origin_ds_sel = self.origin_dataset_var.get().strip()
+        dest_pool_sel = self.dest_pool_var.get().strip()
+        dest_ds_sel = self.dest_dataset_var.get().strip()
         profile = self.store.get(conn_id)
         if not profile:
             return
@@ -8311,9 +8315,30 @@ class App(tk.Tk):
                 )
                 self.after(0, lambda e=exc: messagebox.showerror(tr("modify_dataset_title"), str(e)))
             finally:
-                self.datasets_cache = {k: v for k, v in self.datasets_cache.items() if not k.startswith(f"{conn_id}:")}
-                self.after(0, lambda: self._refresh_connection_by_id(conn_id))
-                self.after(0, lambda: self._load_side_datasets(side))
+                def _post_apply_refresh() -> None:
+                    # Preserva seleccion actual en ambos lados y refresca solo datasets/propiedades.
+                    if origin_pool_sel:
+                        self.origin_pool_var.set(origin_pool_sel)
+                    if origin_ds_sel:
+                        self.origin_dataset_var.set(origin_ds_sel)
+                    if dest_pool_sel:
+                        self.dest_pool_var.set(dest_pool_sel)
+                    if dest_ds_sel:
+                        self.dest_dataset_var.set(dest_ds_sel)
+
+                    # Invalida cache solo de los pools de este conn que esten visibles en origen/destino.
+                    for sel in (origin_pool_sel, dest_pool_sel):
+                        if sel and sel in self.dataset_pool_options:
+                            cid, pool_name = self.dataset_pool_options[sel]
+                            if cid == conn_id:
+                                self.datasets_cache.pop(f"{cid}:{pool_name}", None)
+
+                    self._load_side_datasets("origin")
+                    self._load_side_datasets("dest")
+                    # Fuerza recarga de propiedades del dataset aplicado sin perder seleccion.
+                    self._render_dataset_properties(side, {"name": dataset_name})
+
+                self.after(0, _post_apply_refresh)
 
         threading.Thread(target=worker, daemon=True).start()
 
