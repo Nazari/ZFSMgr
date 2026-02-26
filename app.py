@@ -5766,9 +5766,6 @@ class App(tk.Tk):
             return
         row = self._find_selected_dataset_row(side, dataset_name)
         mountpoint = ((row or {}).get("mountpoint", "") or "").strip()
-        if not mountpoint or mountpoint.lower() == "none":
-            self._app_log("normal", trf("log_breakdown_invalid_mountpoint", dataset=dataset_name, name=profile.name))
-            return
         if profile.conn_type not in {"LOCAL", "SSH", "PSRP"}:
             self._app_log("normal", trf("log_breakdown_transport_unsupported", ctype=profile.conn_type))
             return
@@ -5898,8 +5895,6 @@ class App(tk.Tk):
             "TMP_ROOT=\"/tmp/zfsmgr-breakdown-$TMP_SUFFIX\"; "
             "ORIG_MP=\"$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true)\"; "
             "[ -n \"$ORIG_MP\" ] && [ \"$ORIG_MP\" != \"none\" ] || ORIG_MP=\"$MP_HINT\"; "
-            "[ -n \"$ORIG_MP\" ] && [ \"$ORIG_MP\" != \"none\" ] || { echo \"[BREAKDOWN][ERROR] mountpoint invalid for $DATASET\"; exit 21; }; "
-            "case \"$ORIG_MP\" in /*) ;; *) echo \"[BREAKDOWN][ERROR] mountpoint is not a path: $ORIG_MP\"; exit 22 ;; esac; "
             "mkdir -p \"$TMP_ROOT\"; "
             "MOUNTED=\"$(zfs get -H -o value mounted \"$DATASET\" 2>/dev/null || true)\"; "
             "ACTIVE_MP=\"$(zfs mount 2>/dev/null | awk -v ds=\"$DATASET\" '$1==ds {print $2; exit}')\"; "
