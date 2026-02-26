@@ -13,6 +13,36 @@ defmodule ZfsmgrElixirWeb.RouterHelpers do
     %{logs: Core.list_logs(limit)}
   end
 
+  def list_pools(id) do
+    case get_connection(id) do
+      %Connection{} = conn ->
+        case Zfs.list_pools(conn) do
+          {:ok, pools} -> {:ok, %{connection: serialize_connection(conn), pools: pools}}
+          {:error, reason} -> {:error, %{error: normalize_error(reason)}}
+        end
+
+      nil ->
+        {:error, %{error: "connection_not_found"}}
+    end
+  end
+
+  def list_datasets(id, pool_name) do
+    case get_connection(id) do
+      %Connection{} = conn ->
+        case Zfs.list_datasets(conn, to_string(pool_name || "")) do
+          {:ok, datasets} -> {:ok, %{connection: serialize_connection(conn), datasets: datasets}}
+          {:error, reason} -> {:error, %{error: normalize_error(reason)}}
+        end
+
+      nil ->
+        {:error, %{error: "connection_not_found"}}
+    end
+  end
+
+  def list_editable_properties do
+    %{properties: Zfs.editable_properties()}
+  end
+
   def create_connection(attrs) do
     with {:ok, attrs2} <- normalize_connection_attrs(attrs),
          {:ok, conn} <- Core.create_connection(attrs2) do

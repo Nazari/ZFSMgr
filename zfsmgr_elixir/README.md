@@ -30,6 +30,9 @@ Esta fase implementa:
   - `POST /api/connections/:id/actions/rename_dataset`
   - `POST /api/connections/:id/actions/set_property`
   - `POST /api/connections/:id/actions/inherit_property`
+  - `GET /api/connections/:id/pools`
+  - `GET /api/connections/:id/datasets?pool=<pool>`
+  - `GET /api/dataset_properties/editable`
   - `GET /api/logs?limit=500`
 - Worker por conexion (`ConnectionSession`) con `refresh` real.
 - Servicio reusable `ZfsmgrElixir.Zfs` para acciones ZFS (usable desde otras apps Elixir).

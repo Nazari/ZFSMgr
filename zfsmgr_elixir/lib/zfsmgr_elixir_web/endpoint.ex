@@ -64,6 +64,20 @@ defmodule ZfsmgrElixirWeb.Endpoint do
     end
   end
 
+  get "/api/connections/:id/pools" do
+    case RH.list_pools(id) do
+      {:ok, payload} -> Json.send_json(conn, 200, payload)
+      {:error, payload} -> Json.send_json(conn, 422, payload)
+    end
+  end
+
+  get "/api/connections/:id/datasets" do
+    case RH.list_datasets(id, conn.params["pool"]) do
+      {:ok, payload} -> Json.send_json(conn, 200, payload)
+      {:error, payload} -> Json.send_json(conn, 422, payload)
+    end
+  end
+
   post "/api/connections/:id/actions/import_pool" do
     case RH.import_pool(id, conn.body_params) do
       {:ok, payload} -> Json.send_json(conn, 200, payload)
@@ -117,6 +131,10 @@ defmodule ZfsmgrElixirWeb.Endpoint do
     limit = parse_limit(conn.params["limit"])
 
     Json.send_json(conn, 200, RH.list_logs_payload(limit))
+  end
+
+  get "/api/dataset_properties/editable" do
+    Json.send_json(conn, 200, RH.list_editable_properties())
   end
 
   match _ do

@@ -2,7 +2,10 @@ const API_KEY = "zfsmgr.api.base";
 
 const state = {
   connections: [],
-  selectedConnectionId: null
+  selectedConnectionId: null,
+  pools: [],
+  datasets: [],
+  properties: []
 };
 
 const ui = {
@@ -12,6 +15,9 @@ const ui = {
   connectionsMeta: document.getElementById("connectionsMeta"),
   connectionsBody: document.getElementById("connectionsBody"),
   selectedConn: document.getElementById("selectedConn"),
+  poolList: document.getElementById("poolList"),
+  datasetList: document.getElementById("datasetList"),
+  propertyList: document.getElementById("propertyList"),
 
   poolName: document.getElementById("poolName"),
   importPoolBtn: document.getElementById("importPoolBtn"),
@@ -55,6 +61,12 @@ function setApiBase(url) {
 
 function selectedConnection() {
   return state.connections.find((c) => Number(c.id) === Number(state.selectedConnectionId)) || null;
+}
+
+function setDatalistOptions(el, values) {
+  el.innerHTML = (values || [])
+    .map((v) => `<option value="${String(v).replace(/"/g, "&quot;")}"></option>`)
+    .join("");
 }
 
 function requireSelectedConnection() {
@@ -123,6 +135,7 @@ async function loadConnections() {
     ui.connectionsBody.innerHTML = rows.map(rowHtml).join("");
     ui.connectionsMeta.textContent = `${rows.length} connection(s)`;
     updateSelectedConnLabel();
+    await loadAutocompleteData();
   } catch (err) {
     ui.connectionsBody.innerHTML = "";
     ui.connectionsMeta.textContent = `Error: ${err.message}`;
@@ -146,6 +159,56 @@ async function loadLogs() {
     ui.logsBox.scrollTop = ui.logsBox.scrollHeight;
   } catch (err) {
     ui.logsBox.textContent = `Error loading logs: ${err.message}`;
+  }
+}
+
+async function loadAutocompleteData() {
+  const conn = selectedConnection();
+  if (!conn) {
+    state.pools = [];
+    state.datasets = [];
+    setDatalistOptions(ui.poolList, []);
+    setDatalistOptions(ui.datasetList, []);
+    return;
+  }
+
+  try {
+    const poolsPayload = await fetchJson(`/connections/${conn.id}/pools`);
+    state.pools = poolsPayload.pools || [];
+    setDatalistOptions(ui.poolList, state.pools);
+
+    const selectedPool = ui.poolName.value.trim() || state.pools[0] || "";
+    if (selectedPool && !ui.poolName.value.trim()) {
+      ui.poolName.value = selectedPool;
+    }
+
+    if (!selectedPool) {
+      state.datasets = [];
+      setDatalistOptions(ui.datasetList, []);
+      return;
+    }
+
+    const datasetsPayload = await fetchJson(
+      `/connections/${conn.id}/datasets?pool=${encodeURIComponent(selectedPool)}`
+    );
+    state.datasets = datasetsPayload.datasets || [];
+    setDatalistOptions(ui.datasetList, state.datasets);
+  } catch (_err) {
+    state.pools = [];
+    state.datasets = [];
+    setDatalistOptions(ui.poolList, []);
+    setDatalistOptions(ui.datasetList, []);
+  }
+}
+
+async function loadEditableProperties() {
+  try {
+    const payload = await fetchJson("/dataset_properties/editable");
+    state.properties = payload.properties || [];
+    setDatalistOptions(ui.propertyList, state.properties);
+  } catch (_err) {
+    state.properties = [];
+    setDatalistOptions(ui.propertyList, []);
   }
 }
 
@@ -246,6 +309,7 @@ function bindEvents() {
       state.selectedConnectionId = Number(selectBtn.dataset.select);
       ui.connectionsBody.innerHTML = state.connections.map(rowHtml).join("");
       updateSelectedConnLabel();
+      loadAutocompleteData();
       return;
     }
 
@@ -256,6 +320,10 @@ function bindEvents() {
         await Promise.all([loadConnections(), loadLogs()]);
       });
     }
+  });
+
+  ui.poolName.addEventListener("change", () => {
+    loadAutocompleteData();
   });
 
   ui.importPoolBtn.addEventListener("click", () => guardAction(doImportPool));
@@ -279,7 +347,7 @@ async function boot() {
     ui.connectionsMeta.textContent = `Health check failed: ${err.message}`;
   }
 
-  await Promise.all([loadConnections(), loadLogs()]);
+  await Promise.all([loadConnections(), loadLogs(), loadEditableProperties()]);
 }
 
 boot();

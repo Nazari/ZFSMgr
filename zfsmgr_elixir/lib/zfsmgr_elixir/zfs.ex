@@ -84,6 +84,46 @@ defmodule ZfsmgrElixir.Zfs do
     run(conn, cmd, sudo: conn.use_sudo)
   end
 
+  def list_pools(%Connection{} = conn) do
+    with {:ok, result} <- run(conn, zpool_cmd("zpool list -H -o name"), sudo: conn.use_sudo) do
+      {:ok, parse_lines(result.stdout)}
+    end
+  end
+
+  def list_datasets(%Connection{} = conn, pool_name) when is_binary(pool_name) do
+    with {:ok, result} <-
+           run(
+             conn,
+             zfs_cmd(
+               "zfs list -H -o name -t filesystem,volume,snapshot -r #{shell_quote(pool_name)}"
+             ),
+             sudo: conn.use_sudo
+           ) do
+      {:ok, parse_lines(result.stdout)}
+    end
+  end
+
+  def editable_properties do
+    [
+      "mountpoint",
+      "canmount",
+      "compression",
+      "atime",
+      "readonly",
+      "recordsize",
+      "quota",
+      "reservation",
+      "refquota",
+      "refreservation",
+      "snapdir",
+      "sync",
+      "primarycache",
+      "secondarycache",
+      "logbias",
+      "relatime"
+    ]
+  end
+
   def run(%Connection{} = conn, command, opts \\ []) when is_binary(command) do
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     sudo? = Keyword.get(opts, :sudo, false)

@@ -43,7 +43,7 @@
             <div class="action-card">
               <h4>Pool</h4>
               <label>Pool name</label>
-              <input id="poolName" type="text" placeholder="games" />
+              <input id="poolName" type="text" placeholder="games" list="poolList" />
               <div class="row-btns">
                 <button id="importPoolBtn">Import</button>
                 <button id="exportPoolBtn">Export</button>
@@ -53,7 +53,7 @@
             <div class="action-card">
               <h4>Create dataset</h4>
               <label>Dataset</label>
-              <input id="createDataset" type="text" placeholder="pool/path" />
+              <input id="createDataset" type="text" placeholder="pool/path" list="datasetList" />
               <label>Kind</label>
               <select id="createKind">
                 <option value="filesystem">filesystem</option>
@@ -73,7 +73,7 @@
             <div class="action-card">
               <h4>Delete/Rename</h4>
               <label>Dataset target</label>
-              <input id="deleteDataset" type="text" placeholder="pool/path" />
+              <input id="deleteDataset" type="text" placeholder="pool/path" list="datasetList" />
               <label>Recursive delete</label>
               <select id="deleteRecursive">
                 <option value="false" selected>false</option>
@@ -81,18 +81,18 @@
               </select>
               <button id="deleteDatasetBtn">Delete</button>
               <label>Rename source</label>
-              <input id="renameSource" type="text" placeholder="pool/source" />
+              <input id="renameSource" type="text" placeholder="pool/source" list="datasetList" />
               <label>Rename target</label>
-              <input id="renameTarget" type="text" placeholder="pool/target" />
+              <input id="renameTarget" type="text" placeholder="pool/target" list="datasetList" />
               <button id="renameDatasetBtn">Rename</button>
             </div>
 
             <div class="action-card">
               <h4>Properties</h4>
               <label>Dataset</label>
-              <input id="propDataset" type="text" placeholder="pool/path" />
+              <input id="propDataset" type="text" placeholder="pool/path" list="datasetList" />
               <label>Property</label>
-              <input id="propName" type="text" placeholder="mountpoint" />
+              <input id="propName" type="text" placeholder="mountpoint" list="propertyList" />
               <label>Value</label>
               <input id="propValue" type="text" placeholder="/mnt/data" />
               <div class="row-btns">
@@ -119,6 +119,10 @@
         <div id="logsBox" class="logs-box"></div>
       </section>
     </main>
+
+    <datalist id="poolList"></datalist>
+    <datalist id="datasetList"></datalist>
+    <datalist id="propertyList"></datalist>
 
     <script type="module" src="./app.js"></script>
   </body>
