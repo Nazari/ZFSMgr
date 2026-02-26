@@ -17,137 +17,203 @@
       <button id="reloadBtn">Refrescar</button>
     </header>
 
-    <main class="app-shell">
-      <section class="upper-pane">
-        <aside class="left-pane panel">
+    <main class="main-layout">
+      <section class="top-layout">
+        <aside class="left-col">
           <div class="left-tabs">
-            <button id="leftTabConnections" class="tab-btn active" data-tab="connections">Conexiones</button>
-            <button id="leftTabDatasets" class="tab-btn" data-tab="datasets">Datasets</button>
+            <button id="leftTabConnections" class="tab-btn active">Conexiones</button>
+            <button id="leftTabDatasets" class="tab-btn">Datasets</button>
           </div>
 
-          <div id="leftPanelConnections" class="tab-panel active">
+          <section id="leftConnectionsTab" class="tab-pane active panel">
+            <h3>Conexiones</h3>
             <div id="connectionsMeta" class="meta"></div>
-            <div id="actionStatus" class="action-status">Listo</div>
-
-            <table>
+            <table class="table compact">
               <thead>
                 <tr>
                   <th>Nombre</th>
                   <th>Tipo</th>
                   <th>Host</th>
                   <th>Puerto</th>
-                  <th>Acciones</th>
+                  <th>Accion</th>
                 </tr>
               </thead>
               <tbody id="connectionsBody"></tbody>
             </table>
-          </div>
-
-          <div id="leftPanelDatasets" class="tab-panel">
-            <div class="actions-wrap">
-              <h3>Conexion seleccionada</h3>
-              <div id="selectedConn" class="meta">(ninguna)</div>
-
-              <div class="action-grid">
-                <div class="action-card">
-                  <h4>Pools</h4>
-                  <label>Pool</label>
-                  <input id="poolName" type="text" placeholder="games" list="poolList" />
-                  <div class="row-btns">
-                    <button id="importPoolBtn">Importar</button>
-                    <button id="exportPoolBtn">Exportar</button>
-                  </div>
-                </div>
-
-                <div class="action-card">
-                  <h4>Crear dataset</h4>
-                  <label>Dataset</label>
-                  <input id="createDataset" type="text" placeholder="pool/path" list="datasetList" />
-                  <label>Tipo</label>
-                  <select id="createKind">
-                    <option value="filesystem">filesystem</option>
-                    <option value="volume">volume</option>
-                    <option value="snapshot">snapshot</option>
-                  </select>
-                  <label>Volsize (volume)</label>
-                  <input id="createVolsize" type="text" placeholder="10G" />
-                  <label>Recursivo (snapshot)</label>
-                  <select id="createRecursive">
-                    <option value="false" selected>false</option>
-                    <option value="true">true</option>
-                  </select>
-                  <button id="createDatasetBtn">Crear</button>
-                </div>
-
-                <div class="action-card">
-                  <h4>Borrar / Renombrar</h4>
-                  <label>Dataset objetivo</label>
-                  <input id="deleteDataset" type="text" placeholder="pool/path" list="datasetList" />
-                  <label>Borrado recursivo</label>
-                  <select id="deleteRecursive">
-                    <option value="false" selected>false</option>
-                    <option value="true">true</option>
-                  </select>
-                  <button id="deleteDatasetBtn">Borrar</button>
-                  <label>Origen rename</label>
-                  <input id="renameSource" type="text" placeholder="pool/source" list="datasetList" />
-                  <label>Destino rename</label>
-                  <input id="renameTarget" type="text" placeholder="pool/target" list="datasetList" />
-                  <button id="renameDatasetBtn">Renombrar</button>
-                </div>
-
-                <div class="action-card">
-                  <h4>Propiedades</h4>
-                  <label>Dataset</label>
-                  <input id="propDataset" type="text" placeholder="pool/path" list="datasetList" />
-                  <label>Propiedad</label>
-                  <input id="propName" type="text" placeholder="mountpoint" list="propertyList" />
-                  <label>Valor</label>
-                  <input id="propValue" type="text" placeholder="/mnt/data" />
-                  <div class="row-btns">
-                    <button id="setPropBtn">Aplicar</button>
-                    <button id="inheritPropBtn">Inherit</button>
-                  </div>
-                </div>
-              </div>
+            <div class="stack-buttons">
+              <button id="newConnBtn" disabled>Nueva</button>
+              <button id="refreshAllBtn">Refrescar todo</button>
             </div>
-          </div>
+          </section>
+
+          <section id="leftDatasetsTab" class="tab-pane panel">
+            <div class="group-box">
+              <h4>Origen-->Destino</h4>
+              <button id="copyBtn" disabled>Copiar</button>
+              <button id="levelBtn" disabled>Nivelar</button>
+              <button id="syncBtn" disabled>Sincronizar</button>
+              <div id="originSelectedLabel" class="selected-line">Origen: (ninguno)</div>
+              <div id="destSelectedLabel" class="selected-line">Destino: (ninguno)</div>
+            </div>
+            <div class="group-box">
+              <h4>Avanzado</h4>
+              <button id="breakdownBtn" disabled>Desglosar</button>
+              <button id="assembleBtn" disabled>Ensamblar</button>
+              <div id="actionSelectedLabel" class="selected-line">Seleccionado: (ninguno)</div>
+            </div>
+          </section>
         </aside>
 
-        <section class="right-pane panel">
-          <h2>Detalle</h2>
-          <div class="detail-grid">
-            <div class="detail-card">
-              <h3>Pools importados</h3>
-              <ul id="detailPools" class="detail-list"></ul>
+        <section class="right-col panel">
+          <section id="rightConnectionsDetail" class="right-pane active">
+            <div class="inner-tabs">
+              <button id="poolTabImported" class="tab-btn active">Pools importados</button>
+              <button id="poolTabImportable" class="tab-btn">Pools importables</button>
             </div>
-            <div class="detail-card">
-              <h3>Datasets (pool seleccionado)</h3>
-              <ul id="detailDatasets" class="detail-list"></ul>
+
+            <div id="importedPoolsPane" class="tab-pane active inner-pane">
+              <table class="table compact">
+                <thead>
+                  <tr>
+                    <th>Conexion</th>
+                    <th>Pool</th>
+                    <th>Accion</th>
+                  </tr>
+                </thead>
+                <tbody id="importedPoolsBody"></tbody>
+              </table>
+
+              <div class="inner-tabs nested">
+                <button id="poolDetailPropsTab" class="tab-btn active">Propiedades del pool</button>
+                <button id="poolDetailStatusTab" class="tab-btn">Estado</button>
+              </div>
+
+              <div id="poolPropsPane" class="tab-pane active inner-pane nested">
+                <table class="table compact">
+                  <thead>
+                    <tr>
+                      <th>Propiedad</th>
+                      <th>Valor</th>
+                      <th>Source</th>
+                    </tr>
+                  </thead>
+                  <tbody id="poolPropsBody"></tbody>
+                </table>
+              </div>
+
+              <div id="poolStatusPane" class="tab-pane inner-pane nested">
+                <pre id="poolStatusBox" class="mono-box"></pre>
+              </div>
             </div>
-          </div>
+
+            <div id="importablePoolsPane" class="tab-pane inner-pane">
+              <table class="table compact">
+                <thead>
+                  <tr>
+                    <th>Conexion</th>
+                    <th>Pool</th>
+                    <th>Accion</th>
+                  </tr>
+                </thead>
+                <tbody id="importablePoolsBody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section id="rightDatasetsDetail" class="right-pane">
+            <div class="datasets-grid">
+              <div class="datasets-main">
+                <section class="group-box tree-box">
+                  <div class="tree-head">
+                    <h4>Origen</h4>
+                    <select id="originPoolSelect"></select>
+                    <span id="originTargetText" class="selected-line inline">Origen: (ninguno)</span>
+                  </div>
+                  <table class="table compact tree-table">
+                    <thead>
+                      <tr>
+                        <th>Dataset</th>
+                        <th>Snapshot</th>
+                      </tr>
+                    </thead>
+                    <tbody id="originDatasetsBody"></tbody>
+                  </table>
+                </section>
+
+                <section class="group-box tree-box">
+                  <div class="tree-head">
+                    <h4>Destino</h4>
+                    <select id="destPoolSelect"></select>
+                    <span id="destTargetText" class="selected-line inline">Destino: (ninguno)</span>
+                  </div>
+                  <table class="table compact tree-table">
+                    <thead>
+                      <tr>
+                        <th>Dataset</th>
+                        <th>Snapshot</th>
+                      </tr>
+                    </thead>
+                    <tbody id="destDatasetsBody"></tbody>
+                  </table>
+                </section>
+              </div>
+
+              <section class="group-box props-box">
+                <h4>Propiedades del dataset</h4>
+                <div id="datasetPropsSelected" class="selected-line">Seleccionado: (ninguno)</div>
+                <table class="table compact">
+                  <thead>
+                    <tr>
+                      <th>Propiedad</th>
+                      <th>Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody id="datasetPropsBody"></tbody>
+                </table>
+                <div class="actions-right">
+                  <button id="datasetPropsApplyBtn" disabled>Aplicar cambios</button>
+                </div>
+              </section>
+            </div>
+          </section>
         </section>
       </section>
 
-      <section class="log-pane panel">
-        <h2>Log combinado</h2>
-        <div class="controls">
-          <label for="logLimit">Nivel</label>
-          <select id="logLimit">
-            <option value="100">100</option>
-            <option value="200">200</option>
-            <option value="500" selected>500</option>
-            <option value="1000">1000</option>
-          </select>
-          <button id="reloadLogsBtn">Refrescar log</button>
+      <section class="bottom-log panel">
+        <div class="log-left">
+          <section class="group-box">
+            <h4>Estado</h4>
+            <div id="statusText" class="status-block">Listo</div>
+          </section>
+          <section class="group-box grow">
+            <h4>Detalle</h4>
+            <div id="lastSshLine" class="mono-box small"></div>
+          </section>
         </div>
-        <div id="logsBox" class="logs-box"></div>
+
+        <div class="log-right">
+          <h3>Log combinado</h3>
+          <div class="controls-row">
+            <label for="logLevelSelect">Nivel</label>
+            <select id="logLevelSelect">
+              <option value="normal">normal</option>
+              <option value="info">info</option>
+              <option value="debug">debug</option>
+            </select>
+            <select id="logLimit">
+              <option value="100">100</option>
+              <option value="200">200</option>
+              <option value="500" selected>500</option>
+              <option value="1000">1000</option>
+            </select>
+            <button id="reloadLogsBtn">Refrescar</button>
+            <button id="clearLogsBtn">Limpiar</button>
+            <button id="copyLogsBtn">Copiar</button>
+          </div>
+          <div id="logsBox" class="logs-box"></div>
+        </div>
       </section>
     </main>
-
-    <datalist id="poolList"></datalist>
-    <datalist id="datasetList"></datalist>
-    <datalist id="propertyList"></datalist>
 
     <script type="module" src="./app.js"></script>
   </body>
