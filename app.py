@@ -1276,21 +1276,22 @@ class LocalExecutor(BaseExecutor):
         return parse_zfs_get_properties(out)
 
     def list_all_dataset_properties(self, pools: List[str]) -> Dict[str, List[Dict[str, str]]]:
-        grouped: Dict[str, List[Dict[str, str]]] = {}
+        uniq: List[str] = []
         seen: set[str] = set()
         for pool in pools:
             p = (pool or "").strip()
             if not p or p in seen:
                 continue
             seen.add(p)
-            quoted = shlex.quote(p)
-            try:
-                out = self._zfs_cmd(f"get -H -o name,property,value,source,readonly all -r {quoted}")
-            except Exception:
-                out = self._zfs_cmd(f"get -H -o name,property,value,source all -r {quoted}")
-            for ds, props in parse_zfs_get_properties_grouped(out).items():
-                grouped.setdefault(ds, []).extend(props)
-        return grouped
+            uniq.append(p)
+        if not uniq:
+            return {}
+        datasets_arg = " ".join(shlex.quote(p) for p in uniq)
+        try:
+            out = self._zfs_cmd(f"get -H -o name,property,value,source,readonly all -r {datasets_arg}")
+        except Exception:
+            out = self._zfs_cmd(f"get -H -o name,property,value,source all -r {datasets_arg}")
+        return parse_zfs_get_properties_grouped(out)
 
     def set_dataset_properties(self, dataset: str, properties: Dict[str, str]) -> str:
         logs: List[str] = []
@@ -1641,27 +1642,28 @@ class SSHExecutor(BaseExecutor):
         return parse_zfs_get_properties(out)
 
     def list_all_dataset_properties(self, pools: List[str]) -> Dict[str, List[Dict[str, str]]]:
-        grouped: Dict[str, List[Dict[str, str]]] = {}
+        uniq: List[str] = []
         seen: set[str] = set()
         for pool in pools:
             p = (pool or "").strip()
             if not p or p in seen:
                 continue
             seen.add(p)
-            quoted = shlex.quote(p)
-            try:
-                out = self._run(
-                    self._zfs_cmd(f"get -H -o name,property,value,source,readonly all -r {quoted}"),
-                    sudo=True,
-                )
-            except Exception:
-                out = self._run(
-                    self._zfs_cmd(f"get -H -o name,property,value,source all -r {quoted}"),
-                    sudo=True,
-                )
-            for ds, props in parse_zfs_get_properties_grouped(out).items():
-                grouped.setdefault(ds, []).extend(props)
-        return grouped
+            uniq.append(p)
+        if not uniq:
+            return {}
+        datasets_arg = " ".join(shlex.quote(p) for p in uniq)
+        try:
+            out = self._run(
+                self._zfs_cmd(f"get -H -o name,property,value,source,readonly all -r {datasets_arg}"),
+                sudo=True,
+            )
+        except Exception:
+            out = self._run(
+                self._zfs_cmd(f"get -H -o name,property,value,source all -r {datasets_arg}"),
+                sudo=True,
+            )
+        return parse_zfs_get_properties_grouped(out)
 
     def set_dataset_properties(self, dataset: str, properties: Dict[str, str]) -> str:
         logs: List[str] = []
@@ -1975,21 +1977,22 @@ class PSRPExecutor(BaseExecutor):
         def _ps_quote(s: str) -> str:
             return "'" + s.replace("'", "''") + "'"
 
-        grouped: Dict[str, List[Dict[str, str]]] = {}
+        uniq: List[str] = []
         seen: set[str] = set()
         for pool in pools:
             p = (pool or "").strip()
             if not p or p in seen:
                 continue
             seen.add(p)
-            p_q = _ps_quote(p)
-            try:
-                out = self._run_ps(f"zfs get -H -o name,property,value,source,readonly all -r {p_q}")
-            except Exception:
-                out = self._run_ps(f"zfs get -H -o name,property,value,source all -r {p_q}")
-            for ds, props in parse_zfs_get_properties_grouped(out).items():
-                grouped.setdefault(ds, []).extend(props)
-        return grouped
+            uniq.append(p)
+        if not uniq:
+            return {}
+        datasets_arg = " ".join(_ps_quote(p) for p in uniq)
+        try:
+            out = self._run_ps(f"zfs get -H -o name,property,value,source,readonly all -r {datasets_arg}")
+        except Exception:
+            out = self._run_ps(f"zfs get -H -o name,property,value,source all -r {datasets_arg}")
+        return parse_zfs_get_properties_grouped(out)
 
     def set_dataset_properties(self, dataset: str, properties: Dict[str, str]) -> str:
         def _ps_quote(s: str) -> str:
