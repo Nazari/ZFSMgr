@@ -40,6 +40,7 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QMetaObject>
+#include <QRegularExpression>
 
 #include <QtConcurrent/QtConcurrent>
 
@@ -2371,12 +2372,26 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
 
     auto parseImportableStructured = [&](const QString& text) -> QVector<PoolImportable> {
         QVector<PoolImportable> rows;
+        const QRegularExpression poolNameRx(QStringLiteral("^[A-Za-z0-9_.:-]+$"));
         QString currentPool;
         QString currentState;
         QString currentReason;
         bool collectingStatus = false;
         auto flushCurrent = [&]() {
             if (currentPool.isEmpty()) {
+                return;
+            }
+            if (!poolNameRx.match(currentPool).hasMatch()) {
+                currentPool.clear();
+                currentState.clear();
+                currentReason.clear();
+                collectingStatus = false;
+                return;
+            }
+            // Evita falsos positivos: un bloque válido debe tener al menos state o status.
+            if (currentState.isEmpty() && currentReason.isEmpty()) {
+                currentPool.clear();
+                collectingStatus = false;
                 return;
             }
             rows.push_back(PoolImportable{
@@ -2448,10 +2463,11 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         const QString merged = out + QStringLiteral("\n") + err;
         QVector<PoolImportable> parsed;
         if (probe.endsWith(QStringLiteral("-H -o name"))) {
-            const QStringList names = merged.split('\n', Qt::SkipEmptyParts);
+            const QRegularExpression poolNameRx(QStringLiteral("^[A-Za-z0-9_.:-]+$"));
+            const QStringList names = out.split('\n', Qt::SkipEmptyParts);
             for (QString name : names) {
                 name = name.trimmed();
-                if (name.isEmpty() || name.startsWith(QStringLiteral("cannot"))) {
+                if (name.isEmpty() || !poolNameRx.match(name).hasMatch()) {
                     continue;
                 }
                 parsed.push_back(PoolImportable{p.name, name, QStringLiteral("UNKNOWN"), QString(), QStringLiteral("Importar")});
