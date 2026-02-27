@@ -8523,6 +8523,28 @@ class App(tk.Tk):
             try:
                 execu = make_executor(profile)
                 if do_mount:
+                    # Requisito de seguridad operativa:
+                    # no montar un dataset si su padre no esta montado.
+                    if "/" in dataset and "@" not in dataset:
+                        parent_ds = dataset.rsplit("/", 1)[0].strip()
+                        if parent_ds:
+                            parent_row = next(
+                                (
+                                    r
+                                    for r in self.datasets_cache.get(f"{conn_id}:{pool}", [])
+                                    if (r.get("name", "").strip() == parent_ds)
+                                ),
+                                None,
+                            )
+                            parent_mounted = (
+                                (parent_row.get("mounted", "") if parent_row else "").strip().lower()
+                                in {"yes", "on", "true"}
+                            )
+                            if not parent_mounted:
+                                msg = f"El dataset padre {parent_ds} no está montado, móntelo antes por favor"
+                                self._app_log("warning", msg)
+                                self.after(0, lambda m=msg: messagebox.showwarning(tr("action_mount"), m))
+                                return
                     mounted_rows = execu.list_mounted_datasets()
                     target_mp = (row.get("mountpoint", "") or "").strip()
                     conflicts = sorted(
