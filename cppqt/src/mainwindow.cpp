@@ -2352,7 +2352,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     state.detail = oneLine(out);
 
     QString zpoolListCmd = withSudo(p, QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio"));
-    QString zpoolImportCmd = withSudo(p, QStringLiteral("zpool import"));
 
     out.clear();
     err.clear();
@@ -2370,19 +2369,17 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         appLog(QStringLiteral("INFO"), QStringLiteral("%1: zpool list -> %2").arg(p.name, oneLine(err)));
     }
 
-    out.clear();
-    err.clear();
-    rc = -1;
-    if (runSsh(p, zpoolImportCmd, 18000, out, err, rc) && rc == 0) {
+    auto parseImportableStructured = [&](const QString& text) -> QVector<PoolImportable> {
+        QVector<PoolImportable> rows;
         QString currentPool;
         QString currentState;
         QString currentReason;
-        const QStringList lines = out.split('\n');
+        bool collectingStatus = false;
         auto flushCurrent = [&]() {
             if (currentPool.isEmpty()) {
                 return;
             }
-            state.importablePools.push_back(PoolImportable{
+            rows.push_back(PoolImportable{
                 p.name,
                 currentPool,
                 currentState.isEmpty() ? QStringLiteral("UNKNOWN") : currentState,
@@ -2392,8 +2389,9 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             currentPool.clear();
             currentState.clear();
             currentReason.clear();
+            collectingStatus = false;
         };
-
+        const QStringList lines = text.split('\n');
         for (QString line : lines) {
             line = line.trimmed();
             if (line.startsWith(QStringLiteral("pool: "))) {
@@ -2401,13 +2399,26 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 currentPool = line.mid(QStringLiteral("pool: ").size()).trimmed();
                 continue;
             }
+            if (currentPool.isEmpty()) {
+                continue;
+            }
             if (line.startsWith(QStringLiteral("state: "))) {
                 currentState = line.mid(QStringLiteral("state: ").size()).trimmed();
+                collectingStatus = false;
                 continue;
             }
             if (line.startsWith(QStringLiteral("status: "))) {
                 currentReason = line.mid(QStringLiteral("status: ").size()).trimmed();
+                collectingStatus = true;
                 continue;
+            }
+            if (collectingStatus) {
+                if (line.startsWith(QStringLiteral("action:")) || line.startsWith(QStringLiteral("see:")) || line.startsWith(QStringLiteral("config:"))) {
+                    collectingStatus = false;
+                } else if (!line.isEmpty()) {
+                    currentReason = (currentReason + QStringLiteral(" ") + line).trimmed();
+                    continue;
+                }
             }
             if (line.startsWith(QStringLiteral("cannot import"))) {
                 if (!currentReason.isEmpty()) {
@@ -2417,10 +2428,46 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             }
         }
         flushCurrent();
-    } else if (!err.isEmpty()) {
-        appLog(QStringLiteral("INFO"), QStringLiteral("%1: zpool import -> %2").arg(p.name, oneLine(err)));
-    }
+        return rows;
+    };
 
+    const QStringList importProbeArgs = {
+        QStringLiteral("zpool import"),
+        QStringLiteral("zpool import -s"),
+        QStringLiteral("zpool import -H -o name"),
+    };
+    bool importablesFound = false;
+    for (const QString& probe : importProbeArgs) {
+        out.clear();
+        err.clear();
+        rc = -1;
+        const QString cmd = withSudo(p, probe);
+        if (!runSsh(p, cmd, 18000, out, err, rc)) {
+            continue;
+        }
+        const QString merged = out + QStringLiteral("\n") + err;
+        QVector<PoolImportable> parsed;
+        if (probe.endsWith(QStringLiteral("-H -o name"))) {
+            const QStringList names = merged.split('\n', Qt::SkipEmptyParts);
+            for (QString name : names) {
+                name = name.trimmed();
+                if (name.isEmpty() || name.startsWith(QStringLiteral("cannot"))) {
+                    continue;
+                }
+                parsed.push_back(PoolImportable{p.name, name, QStringLiteral("UNKNOWN"), QString(), QStringLiteral("Importar")});
+            }
+        } else {
+            parsed = parseImportableStructured(merged);
+        }
+        if (!parsed.isEmpty()) {
+            state.importablePools = parsed;
+            importablesFound = true;
+            break;
+        }
+        if (!err.isEmpty()) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("%1: %2 -> %3").arg(p.name, probe, oneLine(err)));
+        }
+    }
     if (state.importedPools.isEmpty()) {
         state.importedPools.push_back(PoolImported{p.name, QStringLiteral("Sin pools"), QStringLiteral("-")});
     }
