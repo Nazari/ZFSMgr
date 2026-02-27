@@ -96,18 +96,20 @@ void MainWindow::buildUi() {
     root->setContentsMargins(8, 8, 8, 8);
     root->setSpacing(6);
 
-    auto* topSplitter = new QSplitter(Qt::Horizontal, central);
-    topSplitter->setChildrenCollapsible(false);
-    topSplitter->setHandleWidth(1);
+    auto* topArea = new QWidget(central);
+    auto* topLayout = new QHBoxLayout(topArea);
+    topLayout->setContentsMargins(0, 0, 0, 0);
+    topLayout->setSpacing(6);
 
-    auto* leftPane = new QWidget(topSplitter);
+    auto* leftPane = new QWidget(topArea);
     auto* leftLayout = new QVBoxLayout(leftPane);
     leftLayout->setContentsMargins(0, 0, 0, 0);
     leftLayout->setSpacing(4);
     m_leftTabs = new QTabWidget(leftPane);
     m_leftTabs->setDocumentMode(true);
     m_leftTabs->setTabPosition(QTabWidget::North);
-    leftPane->setMinimumWidth(520);
+    leftPane->setMinimumWidth(286);
+    leftPane->setMaximumWidth(286);
 
     auto* connectionsTab = new QWidget(m_leftTabs);
     auto* connLayout = new QVBoxLayout(connectionsTab);
@@ -120,15 +122,12 @@ void MainWindow::buildUi() {
     m_connectionsList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     connLayout->addWidget(m_connectionsList, 1);
 
-    auto* connButtons = new QHBoxLayout();
+    auto* connButtons = new QVBoxLayout();
     m_btnNew = new QPushButton(QStringLiteral("Nueva"), connectionsTab);
     m_btnRefreshAll = new QPushButton(QStringLiteral("Refrescar todo"), connectionsTab);
-    m_btnRefreshSelected = new QPushButton(QStringLiteral("Refrescar"), connectionsTab);
     m_btnNew->setMinimumWidth(110);
-    m_btnRefreshSelected->setMinimumWidth(110);
     m_btnRefreshAll->setMinimumWidth(140);
     connButtons->addWidget(m_btnNew);
-    connButtons->addWidget(m_btnRefreshSelected);
     connButtons->addWidget(m_btnRefreshAll);
     connButtons->addStretch(1);
     connLayout->addLayout(connButtons);
@@ -177,7 +176,7 @@ void MainWindow::buildUi() {
     m_leftTabs->addTab(advancedTab, QStringLiteral("Avanzado"));
     leftLayout->addWidget(m_leftTabs, 1);
 
-    auto* rightPane = new QWidget(topSplitter);
+    auto* rightPane = new QWidget(topArea);
     auto* rightLayout = new QVBoxLayout(rightPane);
     rightLayout->setContentsMargins(0, 0, 0, 0);
     rightLayout->setSpacing(4);
@@ -366,12 +365,9 @@ void MainWindow::buildUi() {
     m_rightStack->addWidget(rightAdvancedPage);
     rightLayout->addWidget(m_rightStack, 1);
 
-    topSplitter->addWidget(leftPane);
-    topSplitter->addWidget(rightPane);
-    topSplitter->setStretchFactor(0, 42);
-    topSplitter->setStretchFactor(1, 58);
-    topSplitter->setSizes({620, 860});
-    root->addWidget(topSplitter, 4);
+    topLayout->addWidget(leftPane, 0);
+    topLayout->addWidget(rightPane, 1);
+    root->addWidget(topArea, 4);
 
     auto* logBox = new QGroupBox(QStringLiteral("Log combinado"), central);
     auto* logLayout = new QVBoxLayout(logBox);
@@ -445,7 +441,6 @@ void MainWindow::buildUi() {
     setCentralWidget(central);
 
     connect(m_btnRefreshAll, &QPushButton::clicked, this, [this]() { refreshAllConnections(); });
-    connect(m_btnRefreshSelected, &QPushButton::clicked, this, [this]() { refreshSelectedConnection(); });
     connect(m_btnNew, &QPushButton::clicked, this, [this]() { createConnection(); });
     connect(m_connectionsList, &QListWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
     m_connectionsList->setContextMenuPolicy(Qt::CustomContextMenu);
