@@ -139,7 +139,10 @@ void MainWindow::buildUi() {
     m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_datasetPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
+    m_btnApplyDatasetProps = new QPushButton(QStringLiteral("Aplicar cambios"), propsBox);
+    m_btnApplyDatasetProps->setEnabled(false);
     propsLayout->addWidget(m_datasetPropsTable, 1);
+    propsLayout->addWidget(m_btnApplyDatasetProps, 0, Qt::AlignRight);
 
     dsSplitter->addWidget(dsLeft);
     dsSplitter->addWidget(propsBox);
@@ -227,6 +230,12 @@ void MainWindow::buildUi() {
     });
     connect(m_destTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         onDestTreeContextMenuRequested(pos);
+    });
+    connect(m_datasetPropsTable, &QTableWidget::cellChanged, this, [this](int row, int col) {
+        onDatasetPropsCellChanged(row, col);
+    });
+    connect(m_btnApplyDatasetProps, &QPushButton::clicked, this, [this]() {
+        applyDatasetPropertyChanges();
     });
 }
 
@@ -568,6 +577,11 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     const QString dataset = (side == QStringLiteral("origin")) ? m_originSelectedDataset : m_destSelectedDataset;
     if (dataset.isEmpty()) {
         m_datasetPropsTable->setRowCount(0);
+        m_propsDataset.clear();
+        m_propsSide = side;
+        m_propsOriginalValues.clear();
+        m_propsDirty = false;
+        updateApplyPropsButtonState();
         return;
     }
 
@@ -607,7 +621,11 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         {QStringLiteral("canmount"), rec.canmount},
     };
 
+    m_loadingPropsTable = true;
     m_datasetPropsTable->setRowCount(0);
+    m_propsOriginalValues.clear();
+    m_propsSide = side;
+    m_propsDataset = rec.name;
     for (const Row& row : rows) {
         const int r = m_datasetPropsTable->rowCount();
         m_datasetPropsTable->insertRow(r);
@@ -617,7 +635,11 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
             v->setFlags(v->flags() & ~Qt::ItemIsEditable);
         }
         m_datasetPropsTable->setItem(r, 1, v);
+        m_propsOriginalValues[row.k] = row.v;
     }
+    m_propsDirty = false;
+    m_loadingPropsTable = false;
+    updateApplyPropsButtonState();
 }
 
 void MainWindow::setSelectedDataset(const QString& side, const QString& datasetName, const QString& snapshotName) {
@@ -644,6 +666,90 @@ void MainWindow::setSelectedDataset(const QString& side, const QString& datasetN
         m_destSelectionLabel->setText(QStringLiteral("Snapshot: %1@%2").arg(datasetName, snapshotName));
     }
     refreshDatasetProperties(QStringLiteral("dest"));
+}
+
+void MainWindow::onDatasetPropsCellChanged(int row, int col) {
+    if (m_loadingPropsTable || col != 1) {
+        return;
+    }
+    QTableWidgetItem* pk = m_datasetPropsTable->item(row, 0);
+    QTableWidgetItem* pv = m_datasetPropsTable->item(row, 1);
+    if (!pk || !pv) {
+        return;
+    }
+    const QString key = pk->text().trimmed();
+    const QString value = pv->text();
+    const QString orig = m_propsOriginalValues.value(key);
+    if (value != orig) {
+        m_propsDirty = true;
+    } else {
+        m_propsDirty = false;
+        for (int r = 0; r < m_datasetPropsTable->rowCount(); ++r) {
+            QTableWidgetItem* rk = m_datasetPropsTable->item(r, 0);
+            QTableWidgetItem* rv = m_datasetPropsTable->item(r, 1);
+            if (!rk || !rv) {
+                continue;
+            }
+            if (rv->text() != m_propsOriginalValues.value(rk->text().trimmed())) {
+                m_propsDirty = true;
+                break;
+            }
+        }
+    }
+    updateApplyPropsButtonState();
+}
+
+void MainWindow::applyDatasetPropertyChanges() {
+    if (!m_propsDirty || m_propsDataset.isEmpty() || m_propsSide.isEmpty()) {
+        return;
+    }
+    DatasetSelectionContext ctx = currentDatasetSelection(m_propsSide);
+    if (!ctx.valid || ctx.datasetName != m_propsDataset || !ctx.snapshotName.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), QStringLiteral("Seleccione un dataset activo para aplicar cambios."));
+        return;
+    }
+
+    QStringList subcmds;
+    for (int r = 0; r < m_datasetPropsTable->rowCount(); ++r) {
+        QTableWidgetItem* pk = m_datasetPropsTable->item(r, 0);
+        QTableWidgetItem* pv = m_datasetPropsTable->item(r, 1);
+        if (!pk || !pv) {
+            continue;
+        }
+        const QString prop = pk->text().trimmed();
+        if (prop.isEmpty() || prop == QStringLiteral("dataset")) {
+            continue;
+        }
+        const QString now = pv->text().trimmed();
+        const QString old = m_propsOriginalValues.value(prop).trimmed();
+        if (now == old) {
+            continue;
+        }
+        if (now.compare(QStringLiteral("inherit"), Qt::CaseInsensitive) == 0
+            || now.compare(QStringLiteral("(inherit)"), Qt::CaseInsensitive) == 0) {
+            subcmds << QStringLiteral("zfs inherit %1 %2").arg(shSingleQuote(prop), shSingleQuote(ctx.datasetName));
+        } else {
+            const QString assign = prop + QStringLiteral("=") + now;
+            subcmds << QStringLiteral("zfs set %1 %2").arg(shSingleQuote(assign), shSingleQuote(ctx.datasetName));
+        }
+    }
+    if (subcmds.isEmpty()) {
+        m_propsDirty = false;
+        updateApplyPropsButtonState();
+        return;
+    }
+
+    const QString cmd = QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
+    if (executeDatasetAction(m_propsSide, QStringLiteral("Aplicar propiedades"), ctx, cmd, 60000)) {
+        m_propsDirty = false;
+        updateApplyPropsButtonState();
+    }
+}
+
+void MainWindow::updateApplyPropsButtonState() {
+    const DatasetSelectionContext ctx = currentDatasetSelection(m_propsSide);
+    const bool eligible = ctx.valid && ctx.snapshotName.isEmpty() && (ctx.datasetName == m_propsDataset);
+    m_btnApplyDatasetProps->setEnabled(m_propsDirty && eligible);
 }
 
 MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QString& side) const {

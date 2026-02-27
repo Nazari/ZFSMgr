@@ -102,6 +102,9 @@ private:
     void actionUmountDataset(const QString& side);
     void actionCreateChildDataset(const QString& side);
     void actionDeleteDatasetOrSnapshot(const QString& side);
+    void onDatasetPropsCellChanged(int row, int col);
+    void applyDatasetPropertyChanges();
+    void updateApplyPropsButtonState();
     void updateStatus(const QString& text);
     void appLog(const QString& level, const QString& msg);
     void populatePoolsForConnection(int idx);
@@ -125,6 +128,7 @@ private:
     QTreeWidget* m_originTree{nullptr};
     QTreeWidget* m_destTree{nullptr};
     QTableWidget* m_datasetPropsTable{nullptr};
+    QPushButton* m_btnApplyDatasetProps{nullptr};
     QLabel* m_originSelectionLabel{nullptr};
     QLabel* m_destSelectionLabel{nullptr};
 
@@ -135,4 +139,9 @@ private:
     QString m_originSelectedSnapshot;
     QString m_destSelectedDataset;
     QString m_destSelectedSnapshot;
+    QString m_propsSide;
+    QString m_propsDataset;
+    QMap<QString, QString> m_propsOriginalValues;
+    bool m_propsDirty{false};
+    bool m_loadingPropsTable{false};
 };
