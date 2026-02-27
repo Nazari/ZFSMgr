@@ -31,6 +31,8 @@
 #include <QWidget>
 #include <QComboBox>
 #include <QTextStream>
+#include <QApplication>
+#include <QClipboard>
 
 namespace {
 
@@ -115,8 +117,6 @@ void MainWindow::buildUi() {
     m_btnCopy->setEnabled(false);
     m_btnLevel->setEnabled(false);
     m_btnSync->setEnabled(false);
-    transferLayout->addWidget(m_transferOriginLabel);
-    transferLayout->addWidget(m_transferDestLabel);
     transferLayout->addWidget(m_btnCopy);
     transferLayout->addWidget(m_btnLevel);
     transferLayout->addWidget(m_btnSync);
@@ -127,11 +127,8 @@ void MainWindow::buildUi() {
 
     auto* advancedTab = new QWidget(m_leftTabs);
     auto* advLeftTabLayout = new QVBoxLayout(advancedTab);
-    m_advSelectionLabel = new QLabel(QStringLiteral("Dataset: (seleccione)"), advancedTab);
-    m_advSelectionLabel->setWordWrap(true);
     m_btnAdvancedBreakdown = new QPushButton(QStringLiteral("Desglosar"), advancedTab);
     m_btnAdvancedAssemble = new QPushButton(QStringLiteral("Ensamblar"), advancedTab);
-    advLeftTabLayout->addWidget(m_advSelectionLabel);
     advLeftTabLayout->addWidget(m_btnAdvancedBreakdown);
     advLeftTabLayout->addWidget(m_btnAdvancedAssemble);
     advLeftTabLayout->addWidget(new QLabel(QStringLiteral("Detalle en panel derecho"), advancedTab));
@@ -197,7 +194,7 @@ void MainWindow::buildUi() {
     m_originTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
     m_originTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_originTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    m_originSelectionLabel = new QLabel(QStringLiteral("Dataset: (seleccione)"), originBox);
+    m_originSelectionLabel = new QLabel(QStringLiteral("Origen: Dataset (seleccione)"), originBox);
     originLayout->addWidget(m_originPoolCombo);
     originLayout->addWidget(m_originTree, 1);
     originLayout->addWidget(m_originSelectionLabel);
@@ -212,7 +209,7 @@ void MainWindow::buildUi() {
     m_destTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
     m_destTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_destTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    m_destSelectionLabel = new QLabel(QStringLiteral("Dataset: (seleccione)"), destBox);
+    m_destSelectionLabel = new QLabel(QStringLiteral("Destino: Dataset (seleccione)"), destBox);
     destLayout->addWidget(m_destPoolCombo);
     destLayout->addWidget(m_destTree, 1);
     destLayout->addWidget(m_destSelectionLabel);
@@ -249,7 +246,10 @@ void MainWindow::buildUi() {
     m_advTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
     m_advTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_advTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_advSelectionLabel = new QLabel(QStringLiteral("Dataset: (seleccione)"), rightAdvancedPage);
+    m_advSelectionLabel->setWordWrap(true);
     rightAdvancedLayout->addWidget(m_advPoolCombo);
+    rightAdvancedLayout->addWidget(m_advSelectionLabel);
     rightAdvancedLayout->addWidget(m_advTree, 1);
 
     m_rightStack->addWidget(rightConnectionsPage);
@@ -265,7 +265,21 @@ void MainWindow::buildUi() {
 
     auto* logBox = new QGroupBox(QStringLiteral("Log combinado"), central);
     auto* logLayout = new QVBoxLayout(logBox);
+    auto* logControls = new QHBoxLayout();
+    logControls->addWidget(new QLabel(QStringLiteral("Nivel"), logBox));
+    m_logLevelCombo = new QComboBox(logBox);
+    m_logLevelCombo->addItems({QStringLiteral("normal"), QStringLiteral("info"), QStringLiteral("debug")});
+    m_logLevelCombo->setCurrentText(QStringLiteral("normal"));
+    m_logClearBtn = new QPushButton(QStringLiteral("Limpiar"), logBox);
+    m_logCopyBtn = new QPushButton(QStringLiteral("Copiar"), logBox);
+    logControls->addWidget(m_logLevelCombo);
+    logControls->addWidget(m_logClearBtn);
+    logControls->addWidget(m_logCopyBtn);
+    logControls->addStretch(1);
+    logLayout->addLayout(logControls);
     m_statusLabel = new QLabel(QStringLiteral("Estado: Listo"), logBox);
+    m_lastSshLineLabel = new QLabel(QStringLiteral("Detalle: "), logBox);
+    m_lastSshLineLabel->setWordWrap(true);
     m_logView = new QPlainTextEdit(logBox);
     m_logView->setReadOnly(true);
     QFont mono = m_logView->font();
@@ -273,6 +287,7 @@ void MainWindow::buildUi() {
     mono.setPointSize(9);
     m_logView->setFont(mono);
     logLayout->addWidget(m_statusLabel);
+    logLayout->addWidget(m_lastSshLineLabel);
     logLayout->addWidget(m_logView, 1);
     root->addWidget(logBox, 2);
 
@@ -281,6 +296,10 @@ void MainWindow::buildUi() {
     connect(m_btnRefreshAll, &QPushButton::clicked, this, [this]() { refreshAllConnections(); });
     connect(m_btnRefreshSelected, &QPushButton::clicked, this, [this]() { refreshSelectedConnection(); });
     connect(m_connectionsList, &QListWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
+    m_connectionsList->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_connectionsList, &QListWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        onConnectionListContextMenuRequested(pos);
+    });
     connect(m_leftTabs, &QTabWidget::currentChanged, this, [this](int idx) {
         if (idx >= 0 && idx < m_rightStack->count()) {
             m_rightStack->setCurrentIndex(idx);
@@ -331,6 +350,8 @@ void MainWindow::buildUi() {
     connect(m_btnCopy, &QPushButton::clicked, this, [this]() { actionCopySnapshot(); });
     connect(m_btnLevel, &QPushButton::clicked, this, [this]() { actionLevelSnapshot(); });
     connect(m_btnSync, &QPushButton::clicked, this, [this]() { actionSyncDatasets(); });
+    connect(m_logClearBtn, &QPushButton::clicked, this, [this]() { clearAppLog(); });
+    connect(m_logCopyBtn, &QPushButton::clicked, this, [this]() { copyAppLogToClipboard(); });
     connect(m_advTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
         const auto selected = m_advTree->selectedItems();
         if (selected.isEmpty()) {
@@ -519,13 +540,41 @@ void MainWindow::onConnectionSelectionChanged() {
     }
 }
 
+void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
+    QListWidgetItem* item = m_connectionsList->itemAt(pos);
+    if (item) {
+        m_connectionsList->setCurrentItem(item);
+    }
+    const bool hasSel = (m_connectionsList->currentItem() != nullptr);
+
+    QMenu menu(this);
+    QAction* refreshAct = menu.addAction(QStringLiteral("Refrescar"));
+    QAction* refreshAllAct = menu.addAction(QStringLiteral("Refrescar todo"));
+    menu.addSeparator();
+    QAction* editAct = menu.addAction(QStringLiteral("Editar"));
+    QAction* deleteAct = menu.addAction(QStringLiteral("Borrar"));
+    refreshAct->setEnabled(hasSel);
+    editAct->setEnabled(false);
+    deleteAct->setEnabled(false);
+
+    QAction* picked = menu.exec(m_connectionsList->viewport()->mapToGlobal(pos));
+    if (!picked) {
+        return;
+    }
+    if (picked == refreshAct) {
+        refreshSelectedConnection();
+    } else if (picked == refreshAllAct) {
+        refreshAllConnections();
+    }
+}
+
 void MainWindow::onOriginPoolChanged() {
     m_originSelectedDataset.clear();
     m_originSelectedSnapshot.clear();
     const QString token = m_originPoolCombo->currentData().toString();
     if (token.isEmpty()) {
         m_originTree->clear();
-        m_originSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+        m_originSelectionLabel->setText(QStringLiteral("Origen: Dataset (seleccione)"));
         return;
     }
     const int sep = token.indexOf(QStringLiteral("::"));
@@ -546,7 +595,7 @@ void MainWindow::onDestPoolChanged() {
     const QString token = m_destPoolCombo->currentData().toString();
     if (token.isEmpty()) {
         m_destTree->clear();
-        m_destSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+        m_destSelectionLabel->setText(QStringLiteral("Destino: Dataset (seleccione)"));
         return;
     }
     const int sep = token.indexOf(QStringLiteral("::"));
@@ -851,9 +900,9 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
     tree->expandToDepth(1);
 
     if (side == QStringLiteral("origin")) {
-        m_originSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+        m_originSelectionLabel->setText(QStringLiteral("Origen: Dataset (seleccione)"));
     } else {
-        m_destSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+        m_destSelectionLabel->setText(QStringLiteral("Destino: Dataset (seleccione)"));
     }
 }
 
@@ -931,11 +980,11 @@ void MainWindow::setSelectedDataset(const QString& side, const QString& datasetN
         m_originSelectedDataset = datasetName;
         m_originSelectedSnapshot = snapshotName;
         if (datasetName.isEmpty()) {
-            m_originSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+            m_originSelectionLabel->setText(QStringLiteral("Origen: Dataset (seleccione)"));
         } else if (snapshotName.isEmpty()) {
-            m_originSelectionLabel->setText(QStringLiteral("Dataset: %1").arg(datasetName));
+            m_originSelectionLabel->setText(QStringLiteral("Origen: Dataset %1").arg(datasetName));
         } else {
-            m_originSelectionLabel->setText(QStringLiteral("Snapshot: %1@%2").arg(datasetName, snapshotName));
+            m_originSelectionLabel->setText(QStringLiteral("Origen: Snapshot %1@%2").arg(datasetName, snapshotName));
         }
         refreshDatasetProperties(QStringLiteral("origin"));
         refreshTransferSelectionLabels();
@@ -945,11 +994,11 @@ void MainWindow::setSelectedDataset(const QString& side, const QString& datasetN
     m_destSelectedDataset = datasetName;
     m_destSelectedSnapshot = snapshotName;
     if (datasetName.isEmpty()) {
-        m_destSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+        m_destSelectionLabel->setText(QStringLiteral("Destino: Dataset (seleccione)"));
     } else if (snapshotName.isEmpty()) {
-        m_destSelectionLabel->setText(QStringLiteral("Dataset: %1").arg(datasetName));
+        m_destSelectionLabel->setText(QStringLiteral("Destino: Dataset %1").arg(datasetName));
     } else {
-        m_destSelectionLabel->setText(QStringLiteral("Snapshot: %1@%2").arg(datasetName, snapshotName));
+        m_destSelectionLabel->setText(QStringLiteral("Destino: Snapshot %1@%2").arg(datasetName, snapshotName));
     }
     refreshDatasetProperties(QStringLiteral("dest"));
     refreshTransferSelectionLabels();
@@ -957,24 +1006,38 @@ void MainWindow::setSelectedDataset(const QString& side, const QString& datasetN
 }
 
 void MainWindow::refreshTransferSelectionLabels() {
+    QString originText;
     if (!m_originSelectedDataset.isEmpty()) {
         if (!m_originSelectedSnapshot.isEmpty()) {
-            m_transferOriginLabel->setText(QStringLiteral("Origen: Snapshot %1@%2").arg(m_originSelectedDataset, m_originSelectedSnapshot));
+            originText = QStringLiteral("Origen: Snapshot %1@%2").arg(m_originSelectedDataset, m_originSelectedSnapshot);
         } else {
-            m_transferOriginLabel->setText(QStringLiteral("Origen: Dataset %1").arg(m_originSelectedDataset));
+            originText = QStringLiteral("Origen: Dataset %1").arg(m_originSelectedDataset);
         }
     } else {
-        m_transferOriginLabel->setText(QStringLiteral("Origen: Dataset (seleccione)"));
+        originText = QStringLiteral("Origen: Dataset (seleccione)");
+    }
+    if (m_transferOriginLabel) {
+        m_transferOriginLabel->setText(originText);
+    }
+    if (m_originSelectionLabel) {
+        m_originSelectionLabel->setText(originText);
     }
 
+    QString destText;
     if (!m_destSelectedDataset.isEmpty()) {
         if (!m_destSelectedSnapshot.isEmpty()) {
-            m_transferDestLabel->setText(QStringLiteral("Destino: Snapshot %1@%2").arg(m_destSelectedDataset, m_destSelectedSnapshot));
+            destText = QStringLiteral("Destino: Snapshot %1@%2").arg(m_destSelectedDataset, m_destSelectedSnapshot);
         } else {
-            m_transferDestLabel->setText(QStringLiteral("Destino: Dataset %1").arg(m_destSelectedDataset));
+            destText = QStringLiteral("Destino: Dataset %1").arg(m_destSelectedDataset);
         }
     } else {
-        m_transferDestLabel->setText(QStringLiteral("Destino: Dataset (seleccione)"));
+        destText = QStringLiteral("Destino: Dataset (seleccione)");
+    }
+    if (m_transferDestLabel) {
+        m_transferDestLabel->setText(destText);
+    }
+    if (m_destSelectionLabel) {
+        m_destSelectionLabel->setText(destText);
     }
 }
 
@@ -1372,6 +1435,27 @@ void MainWindow::appendLogToFile(const QString& line) {
     ts.flush();
 }
 
+void MainWindow::clearAppLog() {
+    m_logView->clear();
+    if (m_lastSshLineLabel) {
+        m_lastSshLineLabel->setText(QStringLiteral("Detalle: "));
+    }
+    if (!m_appLogPath.isEmpty()) {
+        QFile f(m_appLogPath);
+        if (f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+            f.close();
+        }
+    }
+}
+
+void MainWindow::copyAppLogToClipboard() {
+    QClipboard* cb = QApplication::clipboard();
+    if (!cb) {
+        return;
+    }
+    cb->setText(m_logView->toPlainText());
+}
+
 MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QString& side) const {
     DatasetSelectionContext ctx;
     const QString token = (side == QStringLiteral("origin")) ? m_originPoolCombo->currentData().toString()
@@ -1733,6 +1817,28 @@ void MainWindow::updateStatus(const QString& text) {
 
 void MainWindow::appLog(const QString& level, const QString& msg) {
     const QString line = QStringLiteral("[%1] [%2] %3").arg(tsNow(), level, msg);
-    m_logView->appendPlainText(line);
+    const QString current = m_logLevelCombo ? m_logLevelCombo->currentText().toLower() : QStringLiteral("normal");
+    auto rank = [](const QString& l) -> int {
+        const QString x = l.toLower();
+        if (x == QStringLiteral("debug")) {
+            return 2;
+        }
+        if (x == QStringLiteral("info")) {
+            return 1;
+        }
+        return 0;
+    };
+    const QString lvl = level.toLower();
+    const bool always = (lvl == QStringLiteral("warn") || lvl == QStringLiteral("error"));
+    if (always || rank(lvl) <= rank(current)) {
+        m_logView->appendPlainText(line);
+    }
+    if (m_lastSshLineLabel) {
+        QString last = oneLine(line);
+        if (last.size() > 180) {
+            last = last.left(177) + QStringLiteral("...");
+        }
+        m_lastSshLineLabel->setText(QStringLiteral("Detalle: %1").arg(last));
+    }
     appendLogToFile(line);
 }

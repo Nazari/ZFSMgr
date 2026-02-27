@@ -88,6 +88,7 @@ private:
     void onDestTreeItemDoubleClicked(QTreeWidgetItem* item, int col);
     void onOriginTreeContextMenuRequested(const QPoint& pos);
     void onDestTreeContextMenuRequested(const QPoint& pos);
+    void onConnectionListContextMenuRequested(const QPoint& pos);
 
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
     bool runSsh(const ConnectionProfile& p, const QString& remoteCmd, int timeoutMs, QString& out, QString& err, int& rc);
@@ -121,6 +122,8 @@ private:
     void initLogPersistence();
     void rotateLogIfNeeded();
     void appendLogToFile(const QString& line);
+    void clearAppLog();
+    void copyAppLogToClipboard();
     void updateStatus(const QString& text);
     void appLog(const QString& level, const QString& msg);
     void populateAllPoolsTables();
@@ -160,6 +163,10 @@ private:
     QLabel* m_destSelectionLabel{nullptr};
 
     QLabel* m_statusLabel{nullptr};
+    QLabel* m_lastSshLineLabel{nullptr};
+    QComboBox* m_logLevelCombo{nullptr};
+    QPushButton* m_logClearBtn{nullptr};
+    QPushButton* m_logCopyBtn{nullptr};
     QPlainTextEdit* m_logView{nullptr};
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
     QString m_originSelectedDataset;
