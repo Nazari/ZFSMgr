@@ -87,9 +87,17 @@ void MainWindow::buildUi() {
     resize(1500, 920);
     setMinimumSize(1400, 920);
     setStyleSheet(QStringLiteral(
+        "QWidget { color: #14212b; }"
         "QTabBar::tab { padding: 2px 8px; min-height: 18px; }"
-        "QGroupBox { margin-top: 8px; }"
-        "QGroupBox::title { left: 8px; padding: 0 2px 0 2px; }"));
+        "QTabBar::tab:selected { font-weight: 600; }"
+        "QGroupBox { margin-top: 8px; border: 1px solid #b8c7d6; border-radius: 4px; }"
+        "QGroupBox::title { left: 8px; padding: 0 2px 0 2px; }"
+        "QPushButton { background: #e8eff5; border: 1px solid #9db0c4; border-radius: 4px; padding: 3px 8px; }"
+        "QPushButton:hover { background: #d6e6f2; }"
+        "QPushButton:pressed { background: #c4d8e8; }"
+        "QTreeWidget::item:selected, QTableWidget::item:selected, QListWidget::item:selected {"
+        "  background: #dcecff; color: #0d2438; font-weight: 600; }"
+        "QHeaderView::section { background: #eaf1f7; border: 1px solid #c5d3e0; padding: 2px 4px; }"));
 
     auto* central = new QWidget(this);
     auto* root = new QVBoxLayout(central);
@@ -377,25 +385,29 @@ void MainWindow::buildUi() {
 
     auto* leftInfo = new QWidget(logBox);
     auto* leftInfoLayout = new QVBoxLayout(leftInfo);
-    auto* statusGroup = new QGroupBox(QStringLiteral("Estado"), leftInfo);
-    auto* statusLayout = new QVBoxLayout(statusGroup);
-    m_statusText = new QTextEdit(statusGroup);
+    auto* statusTitle = new QLabel(QStringLiteral("Estado"), leftInfo);
+    QFont smallTitle = statusTitle->font();
+    smallTitle.setBold(true);
+    statusTitle->setFont(smallTitle);
+    m_statusText = new QTextEdit(leftInfo);
     m_statusText->setReadOnly(true);
     m_statusText->setAcceptRichText(false);
     m_statusText->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_statusText->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_statusText->setMinimumHeight(72);
     m_statusText->setMaximumHeight(72);
-    statusLayout->addWidget(m_statusText);
-    auto* detailGroup = new QGroupBox(QStringLiteral("Detalle"), leftInfo);
-    auto* detailLayout = new QVBoxLayout(detailGroup);
-    m_lastDetailText = new QTextEdit(detailGroup);
+    m_statusText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
+    auto* detailTitle = new QLabel(QStringLiteral("Detalle"), leftInfo);
+    detailTitle->setFont(smallTitle);
+    m_lastDetailText = new QTextEdit(leftInfo);
     m_lastDetailText->setReadOnly(true);
     m_lastDetailText->setAcceptRichText(false);
     m_lastDetailText->setLineWrapMode(QTextEdit::WidgetWidth);
-    detailLayout->addWidget(m_lastDetailText, 1);
-    leftInfoLayout->addWidget(statusGroup, 0);
-    leftInfoLayout->addWidget(detailGroup, 1);
+    m_lastDetailText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
+    leftInfoLayout->addWidget(statusTitle, 0);
+    leftInfoLayout->addWidget(m_statusText, 0);
+    leftInfoLayout->addWidget(detailTitle, 0);
+    leftInfoLayout->addWidget(m_lastDetailText, 1);
 
     auto* rightLogs = new QWidget(logBox);
     auto* rightLogsLayout = new QVBoxLayout(rightLogs);
