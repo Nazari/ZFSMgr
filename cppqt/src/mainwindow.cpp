@@ -16,8 +16,11 @@
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTabWidget>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <QComboBox>
 
 namespace {
 
@@ -28,6 +31,14 @@ QString tsNow() {
 QString oneLine(const QString& v) {
     QString x = v.simplified();
     return x.left(220);
+}
+
+QString parentDatasetName(const QString& dataset) {
+    const int slash = dataset.lastIndexOf('/');
+    if (slash <= 0) {
+        return QString();
+    }
+    return dataset.left(slash);
 }
 
 } // namespace
@@ -72,8 +83,59 @@ void MainWindow::buildUi() {
 
     auto* datasetsTab = new QWidget(m_leftTabs);
     auto* dsLayout = new QVBoxLayout(datasetsTab);
-    dsLayout->addWidget(new QLabel(QStringLiteral("Datasets (WIP migración C++/Qt)"), datasetsTab));
-    dsLayout->addStretch(1);
+    auto* dsSplitter = new QSplitter(Qt::Horizontal, datasetsTab);
+
+    auto* dsLeft = new QWidget(dsSplitter);
+    auto* dsLeftLayout = new QVBoxLayout(dsLeft);
+
+    auto* originBox = new QGroupBox(QStringLiteral("Origen"), dsLeft);
+    auto* originLayout = new QVBoxLayout(originBox);
+    m_originPoolCombo = new QComboBox(originBox);
+    m_originPoolCombo->setMinimumContentsLength(24);
+    m_originPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_originTree = new QTreeWidget(originBox);
+    m_originTree->setColumnCount(2);
+    m_originTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
+    m_originTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    m_originTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_originSelectionLabel = new QLabel(QStringLiteral("Dataset: (seleccione)"), originBox);
+    originLayout->addWidget(m_originPoolCombo);
+    originLayout->addWidget(m_originTree, 1);
+    originLayout->addWidget(m_originSelectionLabel);
+
+    auto* destBox = new QGroupBox(QStringLiteral("Destino"), dsLeft);
+    auto* destLayout = new QVBoxLayout(destBox);
+    m_destPoolCombo = new QComboBox(destBox);
+    m_destPoolCombo->setMinimumContentsLength(24);
+    m_destPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_destTree = new QTreeWidget(destBox);
+    m_destTree->setColumnCount(2);
+    m_destTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
+    m_destTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    m_destTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_destSelectionLabel = new QLabel(QStringLiteral("Dataset: (seleccione)"), destBox);
+    destLayout->addWidget(m_destPoolCombo);
+    destLayout->addWidget(m_destTree, 1);
+    destLayout->addWidget(m_destSelectionLabel);
+
+    dsLeftLayout->addWidget(originBox, 1);
+    dsLeftLayout->addWidget(destBox, 1);
+
+    auto* propsBox = new QGroupBox(QStringLiteral("Propiedades del dataset"), dsSplitter);
+    auto* propsLayout = new QVBoxLayout(propsBox);
+    m_datasetPropsTable = new QTableWidget(propsBox);
+    m_datasetPropsTable->setColumnCount(2);
+    m_datasetPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor")});
+    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_datasetPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
+    propsLayout->addWidget(m_datasetPropsTable, 1);
+
+    dsSplitter->addWidget(dsLeft);
+    dsSplitter->addWidget(propsBox);
+    dsSplitter->setStretchFactor(0, 62);
+    dsSplitter->setStretchFactor(1, 38);
+    dsLayout->addWidget(dsSplitter, 1);
     datasetsTab->setLayout(dsLayout);
 
     auto* advancedTab = new QWidget(m_leftTabs);
@@ -144,6 +206,10 @@ void MainWindow::buildUi() {
     connect(m_btnRefreshAll, &QPushButton::clicked, this, [this]() { refreshAllConnections(); });
     connect(m_btnRefreshSelected, &QPushButton::clicked, this, [this]() { refreshSelectedConnection(); });
     connect(m_connectionsList, &QListWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
+    connect(m_originPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onOriginPoolChanged(); });
+    connect(m_destPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onDestPoolChanged(); });
+    connect(m_originTree, &QTreeWidget::itemSelectionChanged, this, [this]() { onOriginTreeSelectionChanged(); });
+    connect(m_destTree, &QTreeWidget::itemSelectionChanged, this, [this]() { onDestTreeSelectionChanged(); });
 }
 
 void MainWindow::loadConnections() {
@@ -160,6 +226,7 @@ void MainWindow::loadConnections() {
     for (const QString& warning : loaded.warnings) {
         appLog(QStringLiteral("WARN"), warning);
     }
+    rebuildDatasetPoolSelectors();
 }
 
 void MainWindow::rebuildConnectionList() {
@@ -184,12 +251,55 @@ void MainWindow::rebuildConnectionList() {
     }
 }
 
+void MainWindow::rebuildDatasetPoolSelectors() {
+    m_originPoolCombo->blockSignals(true);
+    m_destPoolCombo->blockSignals(true);
+
+    const QString originPrev = m_originPoolCombo->currentData().toString();
+    const QString destPrev = m_destPoolCombo->currentData().toString();
+
+    m_originPoolCombo->clear();
+    m_destPoolCombo->clear();
+
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        const auto& st = m_states[i];
+        for (const PoolImported& p : st.importedPools) {
+            if (p.pool.isEmpty() || p.pool == QStringLiteral("Sin pools")) {
+                continue;
+            }
+            const QString token = QStringLiteral("%1::%2").arg(i).arg(p.pool);
+            const QString label = QStringLiteral("%1::%2").arg(m_profiles[i].name, p.pool);
+            m_originPoolCombo->addItem(label, token);
+            m_destPoolCombo->addItem(label, token);
+        }
+    }
+
+    auto restoreCurrent = [](QComboBox* combo, const QString& token) {
+        if (combo->count() <= 0) {
+            return;
+        }
+        int idx = combo->findData(token);
+        if (idx < 0) {
+            idx = 0;
+        }
+        combo->setCurrentIndex(idx);
+    };
+    restoreCurrent(m_originPoolCombo, originPrev);
+    restoreCurrent(m_destPoolCombo, destPrev);
+
+    m_originPoolCombo->blockSignals(false);
+    m_destPoolCombo->blockSignals(false);
+    onOriginPoolChanged();
+    onDestPoolChanged();
+}
+
 void MainWindow::refreshAllConnections() {
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Refrescar todas las conexiones"));
     for (int i = 0; i < m_profiles.size(); ++i) {
         m_states[i] = refreshConnection(m_profiles[i]);
     }
     rebuildConnectionList();
+    rebuildDatasetPoolSelectors();
     onConnectionSelectionChanged();
     updateStatus(QStringLiteral("Estado: refresco finalizado"));
 }
@@ -205,6 +315,7 @@ void MainWindow::refreshSelectedConnection() {
     }
     m_states[idx] = refreshConnection(m_profiles[idx]);
     rebuildConnectionList();
+    rebuildDatasetPoolSelectors();
     if (idx < m_connectionsList->count()) {
         m_connectionsList->setCurrentRow(idx);
     }
@@ -223,6 +334,64 @@ void MainWindow::onConnectionSelectionChanged() {
         return;
     }
     populatePoolsForConnection(idx);
+}
+
+void MainWindow::onOriginPoolChanged() {
+    m_originSelectedDataset.clear();
+    m_originSelectedSnapshot.clear();
+    const QString token = m_originPoolCombo->currentData().toString();
+    if (token.isEmpty()) {
+        m_originTree->clear();
+        m_originSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+        return;
+    }
+    const int sep = token.indexOf(QStringLiteral("::"));
+    if (sep <= 0) {
+        return;
+    }
+    const int connIdx = token.left(sep).toInt();
+    const QString poolName = token.mid(sep + 2);
+    populateDatasetTree(m_originTree, connIdx, poolName, QStringLiteral("origin"));
+    refreshDatasetProperties(QStringLiteral("origin"));
+}
+
+void MainWindow::onDestPoolChanged() {
+    m_destSelectedDataset.clear();
+    m_destSelectedSnapshot.clear();
+    const QString token = m_destPoolCombo->currentData().toString();
+    if (token.isEmpty()) {
+        m_destTree->clear();
+        m_destSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+        return;
+    }
+    const int sep = token.indexOf(QStringLiteral("::"));
+    if (sep <= 0) {
+        return;
+    }
+    const int connIdx = token.left(sep).toInt();
+    const QString poolName = token.mid(sep + 2);
+    populateDatasetTree(m_destTree, connIdx, poolName, QStringLiteral("dest"));
+    refreshDatasetProperties(QStringLiteral("dest"));
+}
+
+void MainWindow::onOriginTreeSelectionChanged() {
+    const auto selected = m_originTree->selectedItems();
+    if (selected.isEmpty()) {
+        setSelectedDataset(QStringLiteral("origin"), QString(), QString());
+        return;
+    }
+    auto* it = selected.first();
+    setSelectedDataset(QStringLiteral("origin"), it->data(0, Qt::UserRole).toString(), it->data(1, Qt::UserRole).toString());
+}
+
+void MainWindow::onDestTreeSelectionChanged() {
+    const auto selected = m_destTree->selectedItems();
+    if (selected.isEmpty()) {
+        setSelectedDataset(QStringLiteral("dest"), QString(), QString());
+        return;
+    }
+    auto* it = selected.first();
+    setSelectedDataset(QStringLiteral("dest"), it->data(0, Qt::UserRole).toString(), it->data(1, Qt::UserRole).toString());
 }
 
 bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, int timeoutMs, QString& out, QString& err, int& rc) {
@@ -261,6 +430,194 @@ bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, in
     out = QString::fromUtf8(proc.readAllStandardOutput());
     err = QString::fromUtf8(proc.readAllStandardError());
     return true;
+}
+
+QString MainWindow::datasetCacheKey(int connIdx, const QString& poolName) const {
+    return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+}
+
+bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName) {
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return false;
+    }
+    const QString key = datasetCacheKey(connIdx, poolName);
+    PoolDatasetCache& cache = m_poolDatasetCache[key];
+    if (cache.loaded) {
+        return true;
+    }
+
+    const ConnectionProfile& p = m_profiles[connIdx];
+    QString cmd = QStringLiteral(
+        "zfs list -H -p -t filesystem,volume,snapshot "
+        "-o name,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount -r %1")
+                      .arg(poolName);
+    if (p.useSudo) {
+        cmd = QStringLiteral("sudo -n ") + cmd;
+    }
+
+    QString out;
+    QString err;
+    int rc = -1;
+    appLog(QStringLiteral("INFO"), QStringLiteral("Loading datasets %1::%2").arg(p.name, poolName));
+    if (!runSsh(p, cmd, 35000, out, err, rc) || rc != 0) {
+        appLog(QStringLiteral("WARN"), QStringLiteral("Failed datasets %1::%2 -> %3")
+                                        .arg(p.name, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+        return false;
+    }
+
+    const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+    for (const QString& line : lines) {
+        const QStringList f = line.split('\t');
+        if (f.size() < 9) {
+            continue;
+        }
+        const QString name = f[0].trimmed();
+        if (name.isEmpty()) {
+            continue;
+        }
+        DatasetRecord rec{name, f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8]};
+        if (name.contains('@')) {
+            const QString ds = name.section('@', 0, 0);
+            cache.snapshotsByDataset[ds].push_back(name.section('@', 1));
+        } else {
+            cache.datasets.push_back(rec);
+            cache.recordByName[name] = rec;
+        }
+    }
+    cache.loaded = true;
+    appLog(QStringLiteral("DEBUG"), QStringLiteral("Datasets loaded %1::%2 (%3)")
+                                     .arg(p.name)
+                                     .arg(poolName)
+                                     .arg(cache.datasets.size()));
+    return true;
+}
+
+void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side) {
+    tree->clear();
+    if (!ensureDatasetsLoaded(connIdx, poolName)) {
+        return;
+    }
+    const QString key = datasetCacheKey(connIdx, poolName);
+    const PoolDatasetCache& cache = m_poolDatasetCache[key];
+
+    QMap<QString, QTreeWidgetItem*> byName;
+    for (const DatasetRecord& rec : cache.datasets) {
+        auto* item = new QTreeWidgetItem();
+        item->setText(0, rec.name);
+        const QStringList snaps = cache.snapshotsByDataset.value(rec.name);
+        if (!snaps.isEmpty()) {
+            item->setText(1, snaps.first());
+            item->setData(1, Qt::UserRole, snaps.first());
+        } else {
+            item->setText(1, QStringLiteral("(seleccione)"));
+            item->setData(1, Qt::UserRole, QString());
+        }
+        item->setData(0, Qt::UserRole, rec.name);
+        byName.insert(rec.name, item);
+    }
+
+    for (const DatasetRecord& rec : cache.datasets) {
+        QTreeWidgetItem* item = byName.value(rec.name, nullptr);
+        if (!item) {
+            continue;
+        }
+        const QString parent = parentDatasetName(rec.name);
+        QTreeWidgetItem* parentItem = byName.value(parent, nullptr);
+        if (parentItem) {
+            parentItem->addChild(item);
+        } else {
+            tree->addTopLevelItem(item);
+        }
+    }
+    tree->expandToDepth(1);
+
+    if (side == QStringLiteral("origin")) {
+        m_originSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+    } else {
+        m_destSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+    }
+}
+
+void MainWindow::refreshDatasetProperties(const QString& side) {
+    const QString dataset = (side == QStringLiteral("origin")) ? m_originSelectedDataset : m_destSelectedDataset;
+    if (dataset.isEmpty()) {
+        m_datasetPropsTable->setRowCount(0);
+        return;
+    }
+
+    const QString token = (side == QStringLiteral("origin")) ? m_originPoolCombo->currentData().toString()
+                                                              : m_destPoolCombo->currentData().toString();
+    const int sep = token.indexOf(QStringLiteral("::"));
+    if (sep <= 0) {
+        return;
+    }
+    const int connIdx = token.left(sep).toInt();
+    const QString poolName = token.mid(sep + 2);
+    const QString key = datasetCacheKey(connIdx, poolName);
+    const auto it = m_poolDatasetCache.constFind(key);
+    if (it == m_poolDatasetCache.constEnd()) {
+        return;
+    }
+    const PoolDatasetCache& cache = it.value();
+    const auto recIt = cache.recordByName.constFind(dataset);
+    if (recIt == cache.recordByName.constEnd()) {
+        return;
+    }
+    const DatasetRecord& rec = recIt.value();
+
+    struct Row {
+        QString k;
+        QString v;
+    };
+    const QVector<Row> rows = {
+        {QStringLiteral("dataset"), rec.name},
+        {QStringLiteral("mounted"), rec.mounted},
+        {QStringLiteral("mountpoint"), rec.mountpoint},
+        {QStringLiteral("used"), rec.used},
+        {QStringLiteral("compressratio"), rec.compressRatio},
+        {QStringLiteral("encryption"), rec.encryption},
+        {QStringLiteral("creation"), rec.creation},
+        {QStringLiteral("referenced"), rec.referenced},
+        {QStringLiteral("canmount"), rec.canmount},
+    };
+
+    m_datasetPropsTable->setRowCount(0);
+    for (const Row& row : rows) {
+        const int r = m_datasetPropsTable->rowCount();
+        m_datasetPropsTable->insertRow(r);
+        m_datasetPropsTable->setItem(r, 0, new QTableWidgetItem(row.k));
+        auto* v = new QTableWidgetItem(row.v);
+        if (row.k == QStringLiteral("dataset")) {
+            v->setFlags(v->flags() & ~Qt::ItemIsEditable);
+        }
+        m_datasetPropsTable->setItem(r, 1, v);
+    }
+}
+
+void MainWindow::setSelectedDataset(const QString& side, const QString& datasetName, const QString& snapshotName) {
+    if (side == QStringLiteral("origin")) {
+        m_originSelectedDataset = datasetName;
+        m_originSelectedSnapshot = snapshotName;
+        if (datasetName.isEmpty()) {
+            m_originSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+        } else if (snapshotName.isEmpty()) {
+            m_originSelectionLabel->setText(QStringLiteral("Dataset: %1").arg(datasetName));
+        } else {
+            m_originSelectionLabel->setText(QStringLiteral("Snapshot: %1@%2").arg(datasetName, snapshotName));
+        }
+        refreshDatasetProperties(QStringLiteral("origin"));
+        return;
+    }
+    m_destSelectedDataset = datasetName;
+    m_destSelectedSnapshot = snapshotName;
+    if (datasetName.isEmpty()) {
+        m_destSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+    } else if (snapshotName.isEmpty()) {
+        m_destSelectionLabel->setText(QStringLiteral("Dataset: %1").arg(datasetName));
+    } else {
+        m_destSelectionLabel->setText(QStringLiteral("Snapshot: %1@%2").arg(datasetName, snapshotName));
+    }
+    refreshDatasetProperties(QStringLiteral("dest"));
 }
 
 MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p) {
