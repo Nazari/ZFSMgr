@@ -2040,12 +2040,19 @@ void MainWindow::exportPoolFromRow(int row) {
 void MainWindow::importPoolFromRow(int row) {
     QTableWidgetItem* connItem = m_importablePoolsTable->item(row, 0);
     QTableWidgetItem* poolItem = m_importablePoolsTable->item(row, 1);
+    QTableWidgetItem* stateItem = m_importablePoolsTable->item(row, 2);
     if (!connItem || !poolItem) {
         return;
     }
     const QString connName = connItem->text().trimmed();
     const QString poolName = poolItem->text().trimmed();
+    const QString poolState = stateItem ? stateItem->text().trimmed().toUpper() : QString();
     if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
+        return;
+    }
+    if (poolState != QStringLiteral("ONLINE")) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("Importar omitido %1::%2 (state=%3)")
+                                      .arg(connName, poolName, poolState.isEmpty() ? QStringLiteral("UNKNOWN") : poolState));
         return;
     }
     const int idx = findConnectionIndexByName(connName);
@@ -2517,8 +2524,11 @@ void MainWindow::populateAllPoolsTables() {
             state->setForeground(QBrush((up == QStringLiteral("ONLINE")) ? QColor("#1f7a1f") : QColor("#a12a2a")));
             m_importablePoolsTable->setItem(row, 2, state);
             m_importablePoolsTable->setItem(row, 3, new QTableWidgetItem(pool.reason));
-            auto* act = new QTableWidgetItem(pool.action);
-            act->setForeground(QBrush(QColor("#1f5f8b")));
+            const QString action = (up == QStringLiteral("ONLINE")) ? pool.action : QString();
+            auto* act = new QTableWidgetItem(action);
+            if (!action.isEmpty()) {
+                act->setForeground(QBrush(QColor("#1f5f8b")));
+            }
             m_importablePoolsTable->setItem(row, 4, act);
         }
     }
