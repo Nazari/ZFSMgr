@@ -5375,9 +5375,11 @@ class App(tk.Tk):
         if not src_dataset or not dst_dataset:
             self._app_log("normal", tr("log_level_missing_selection"))
             return
-        if "@" in src_dataset or "@" in dst_dataset:
+        if "@" in dst_dataset:
             self._app_log("normal", tr("log_level_snapshot_selected"))
             return
+        src_dataset_base = src_dataset.split("@", 1)[0] if "@" in src_dataset else src_dataset
+        src_selected_snapshot = src_dataset.split("@", 1)[1].strip() if "@" in src_dataset else ""
         if src_selection not in self.dataset_pool_options or dst_selection not in self.dataset_pool_options:
             self._app_log("normal", tr("log_level_invalid_pool"))
             return
@@ -5506,26 +5508,33 @@ class App(tk.Tk):
                     snaps.append(name.split("@", 1)[1])
             return snaps
 
-        src_snaps = snapshot_suffixes(src_rows, src_dataset)
+        src_snaps = snapshot_suffixes(src_rows, src_dataset_base)
         dst_snaps = set(snapshot_suffixes(dst_rows, dst_dataset))
         if not src_snaps:
-            self._app_log("normal", trf("log_level_no_source_snapshots", dataset=src_dataset))
+            self._app_log("normal", trf("log_level_no_source_snapshots", dataset=src_dataset_base))
             return
 
-        missing = [snap for snap in src_snaps if snap not in dst_snaps]
+        src_scope = list(src_snaps)
+        if src_selected_snapshot:
+            if src_selected_snapshot not in src_snaps:
+                self._app_log("normal", trf("log_level_no_source_snapshots", dataset=src_dataset_base))
+                return
+            src_scope = src_snaps[: src_snaps.index(src_selected_snapshot) + 1]
+
+        missing = [snap for snap in src_scope if snap not in dst_snaps]
         if not missing:
-            self._app_log("info", trf("log_level_already_aligned", src=src_dataset, dst=dst_dataset))
+            self._app_log("info", trf("log_level_already_aligned", src=src_dataset_base, dst=dst_dataset))
             return
 
-        common = [snap for snap in src_snaps if snap in dst_snaps]
-        target_snap = missing[-1]
-        target_full = f"{src_dataset}@{target_snap}"
+        common = [snap for snap in src_scope if snap in dst_snaps]
+        target_snap = src_selected_snapshot or missing[-1]
+        target_full = f"{src_dataset_base}@{target_snap}"
         if common:
             base_snap = common[-1]
-            base_full = f"{src_dataset}@{base_snap}"
+            base_full = f"{src_dataset_base}@{base_snap}"
             send_candidates = self._build_send_cmd_candidates(
                 src_conn_id=src_conn_id,
-                src_dataset=src_dataset,
+                src_dataset=src_dataset_base,
                 target_snapshot=target_full,
                 recursive=True,
                 incremental_base=base_full,
@@ -5536,12 +5545,12 @@ class App(tk.Tk):
             recv_cmd = sudo_wrap(dst_profile, recv_raw, preserve_stdin_stream=True)
             self._app_log(
                 "normal",
-                trf("log_level_incremental_plan", src=src_dataset, dst=dst_dataset, base=base_snap, target=target_snap),
+                trf("log_level_incremental_plan", src=src_dataset_base, dst=dst_dataset, base=base_snap, target=target_snap),
             )
         else:
             send_candidates = self._build_send_cmd_candidates(
                 src_conn_id=src_conn_id,
-                src_dataset=src_dataset,
+                src_dataset=src_dataset_base,
                 target_snapshot=target_full,
                 recursive=True,
                 incremental_base=None,
@@ -5550,7 +5559,7 @@ class App(tk.Tk):
             recv_raw = f"zfs recv -F {shlex.quote(dst_dataset)}"
             send_cmd = sudo_wrap(src_profile, send_raw, preserve_stdin_stream=False)
             recv_cmd = sudo_wrap(dst_profile, recv_raw, preserve_stdin_stream=True)
-            self._app_log("normal", trf("log_level_no_common_base", src=src_dataset, dst=dst_dataset, target=target_snap))
+            self._app_log("normal", trf("log_level_no_common_base", src=src_dataset_base, dst=dst_dataset, target=target_snap))
 
         if src_profile.conn_type == "PSRP" or dst_profile.conn_type == "PSRP":
             if not (src_profile.conn_type == "PSRP" and dst_profile.conn_type == "PSRP" and src_conn_id == dst_conn_id):
@@ -9083,7 +9092,8 @@ class App(tk.Tk):
                 or ((not dest_sel) and dst == dest_pool_name)
             )
         )
-        enabled = bool((not self.level_running) and (self.ssh_busy_count == 0) and origin_selected_ok and dest_selected_ok)
+        origin_level_ok = bool(origin_selected_ok or origin_snapshot_ok)
+        enabled = bool((not self.level_running) and (self.ssh_busy_count == 0) and origin_level_ok and dest_selected_ok)
         origin_snapshot_ok = bool(
             "@" in src
             and (
@@ -9105,7 +9115,7 @@ class App(tk.Tk):
                 "log_level_button_state",
                 src=src or "-",
                 dst=dst or "-",
-                src_ok=origin_selected_ok,
+                src_ok=origin_level_ok,
                 dst_ok=dest_selected_ok,
                 enabled=enabled,
             ),
