@@ -50,7 +50,7 @@ Aun no implementa:
 ## Comandos
 
 ```bash
-cd zfsmgr_elixir
+cd elitau
 mix deps.get
 mix ecto.create
 mix ecto.migrate
@@ -65,7 +65,7 @@ La estructura de integracion Tauri queda preparada en `desktop/tauri/`.
 Para compilar Tauri necesitas Rust instalado (`rustc`, `cargo`) y luego:
 
 ```bash
-cd zfsmgr_elixir/desktop/tauri
+cd elitau/desktop/tauri
 npm install
 npm run tauri dev
 ```

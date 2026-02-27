@@ -10,7 +10,7 @@ Shell nativo (Tauri) para el backend Elixir de ZFSMgr.
 
 ## Arranque backend
 
-Desde `zfsmgr_elixir/`:
+Desde `elitau/`:
 
 ```bash
 export ZFSMGR_MASTER_PASSWORD='tu_password_maestra'
@@ -22,7 +22,7 @@ iex -S mix
 
 ## Arranque Tauri (desarrollo)
 
-Desde `zfsmgr_elixir/desktop/tauri/`:
+Desde `elitau/desktop/tauri/`:
 
 ```bash
 npm install
