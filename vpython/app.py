@@ -225,6 +225,7 @@ _SSH_SESSION_LOCK = threading.Lock()
 _SSH_SESSION_CACHE: Dict[str, Any] = {}
 _PSRP_SESSION_LOCK = threading.Lock()
 _PSRP_SESSION_CACHE: Dict[str, Any] = {}
+DATASET_ACTION_TIMEOUT_SECONDS = 600
 
 UI_BG = "#f3f6f8"
 UI_PANEL_BG = "#ffffff"
@@ -353,7 +354,7 @@ def _ssh_outer_exec_command(
             "} >\"$ask\"; "
             "chmod 700 \"$ask\"; "
             "DISPLAY=:0 SSH_ASKPASS=\"$ask\" SSH_ASKPASS_REQUIRE=force "
-            + (f"setsid -w {ssh_cmd}" if keep_stdin_stream else f"setsid -w {ssh_cmd} </dev/null")
+            + (f"{ssh_cmd}" if keep_stdin_stream else f"{ssh_cmd} </dev/null")
         )
     ssh_parts = _ssh_common_parts(profile, include_key=include_key, use_mux=use_mux)
     ssh_parts.append(shlex.quote(target))
@@ -7450,12 +7451,18 @@ class App(tk.Tk):
             cancelled = False
             try:
                 for idx, current_cmd in enumerate(commands):
+                    run_cmd = current_cmd
+                    if shutil.which("timeout"):
+                        run_cmd = (
+                            f"timeout --signal=TERM --kill-after=5 {DATASET_ACTION_TIMEOUT_SECONDS} "
+                            f"bash -lc {shlex.quote(current_cmd)}"
+                        )
                     if idx > 0:
                         self._app_log("info", f"Retry send flags fallback {idx}/{len(commands) - 1}")
                         self._log_action_subcommands("Nivelar", current_cmd)
                         self._ssh_log(f"$ {current_cmd}")
                     proc = subprocess.Popen(
-                        current_cmd,
+                        run_cmd,
                         shell=True,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
@@ -7491,6 +7498,8 @@ class App(tk.Tk):
                     self._app_log("normal", tr("log_dataset_cancel_done"))
                 elif last_rc == 0:
                     self._app_log("normal", tr("log_level_exec_ok"))
+                elif last_rc == 124:
+                    self._app_log("normal", f"Nivelar timeout ({DATASET_ACTION_TIMEOUT_SECONDS}s)")
                 else:
                     self._app_log("normal", trf("log_level_exec_fail_code", code=last_rc))
             except Exception as exc:
@@ -7531,12 +7540,18 @@ class App(tk.Tk):
             cancelled = False
             try:
                 for idx, current_cmd in enumerate(commands):
+                    run_cmd = current_cmd
+                    if shutil.which("timeout"):
+                        run_cmd = (
+                            f"timeout --signal=TERM --kill-after=5 {DATASET_ACTION_TIMEOUT_SECONDS} "
+                            f"bash -lc {shlex.quote(current_cmd)}"
+                        )
                     if idx > 0:
                         self._app_log("info", f"Retry send flags fallback {idx}/{len(commands) - 1}")
                         self._log_action_subcommands("Copiar", current_cmd)
                         self._ssh_log(f"$ {current_cmd}")
                     proc = subprocess.Popen(
-                        current_cmd,
+                        run_cmd,
                         shell=True,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
@@ -7572,6 +7587,8 @@ class App(tk.Tk):
                     self._app_log("normal", tr("log_dataset_cancel_done"))
                 elif last_rc == 0:
                     self._app_log("normal", tr("log_copy_exec_ok"))
+                elif last_rc == 124:
+                    self._app_log("normal", f"Copiar timeout ({DATASET_ACTION_TIMEOUT_SECONDS}s)")
                 else:
                     self._app_log("normal", trf("log_copy_exec_fail_code", code=last_rc))
             except Exception as exc:
