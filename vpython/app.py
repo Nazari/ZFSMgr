@@ -3779,8 +3779,12 @@ class App(tk.Tk):
         self.sync_btn.configure(state="disabled")
         ToolTip(self.sync_btn, tr("datasets_sync_tooltip"))
 
-        breakdown_box = ttk.LabelFrame(self.tab_datasets, text="Avanzado", padding=(8, 6))
-        breakdown_box.grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        self.tab_advanced = ttk.Frame(self.left_tabs, padding=8)
+        self.tab_advanced.columnconfigure(0, weight=1)
+        self.left_tabs.add(self.tab_advanced, text="Avanzado")
+
+        breakdown_box = ttk.LabelFrame(self.tab_advanced, text="Avanzado", padding=(8, 6))
+        breakdown_box.grid(row=0, column=0, sticky="ew", pady=(0, 0))
         breakdown_box.columnconfigure(0, weight=1)
         self.breakdown_selected_label = ttk.Label(
             breakdown_box,
@@ -4101,6 +4105,20 @@ class App(tk.Tk):
             state="disabled",
         )
         self.dataset_props_apply_btn.grid(row=0, column=0, sticky="e")
+
+        self.right_advanced_detail = ttk.LabelFrame(right, text="Avanzado")
+        self.right_advanced_detail.grid(row=0, column=0, sticky="nsew")
+        self.right_advanced_detail.columnconfigure(0, weight=1)
+        self.right_advanced_detail.rowconfigure(0, weight=1)
+        self.advanced_tree = ttk.Treeview(self.right_advanced_detail, columns=(), show="tree")
+        self.advanced_tree.heading("#0", text=tr("datasets_dataset"))
+        self.advanced_tree.column("#0", width=460, minwidth=220, anchor="w", stretch=True)
+        self.advanced_tree.grid(row=0, column=0, sticky="nsew")
+        adv_y = ttk.Scrollbar(self.right_advanced_detail, orient="vertical", command=self.advanced_tree.yview)
+        adv_y.grid(row=0, column=1, sticky="ns")
+        adv_x = ttk.Scrollbar(self.right_advanced_detail, orient="horizontal", command=self.advanced_tree.xview)
+        adv_x.grid(row=1, column=0, sticky="ew")
+        self.advanced_tree.configure(yscrollcommand=adv_y.set, xscrollcommand=adv_x.set)
 
         log_container = ttk.Frame(main_layout)
         log_container.grid(row=1, column=0, sticky="nsew")
@@ -5239,9 +5257,16 @@ class App(tk.Tk):
         self._app_log("debug", trf("log_tab_changed", tab=tab_id))
         if tab_id == str(self.tab_datasets):
             self.right_conn_detail.grid_remove()
+            self.right_advanced_detail.grid_remove()
             self.right_datasets_detail.grid()
             self._load_datasets_for_active_connection()
+        elif tab_id == str(self.tab_advanced):
+            self.right_conn_detail.grid_remove()
+            self.right_datasets_detail.grid_remove()
+            self.right_advanced_detail.grid()
+            self._refresh_advanced_tree()
         else:
+            self.right_advanced_detail.grid_remove()
             self.right_datasets_detail.grid_remove()
             self.right_conn_detail.grid()
 
@@ -7975,6 +8000,7 @@ class App(tk.Tk):
         row = self._find_selected_dataset_row(side, selected_name) if selected_name else None
         self._render_dataset_properties(side, row)
         self._update_level_button_state()
+        self._refresh_advanced_tree()
 
     def _update_snapshot_highlight(self, side: str) -> None:
         # Resaltado especial de snapshots deshabilitado por preferencia de UI.
@@ -8133,6 +8159,49 @@ class App(tk.Tk):
         self._app_log("info", tr("log_loading_datasets_both"))
         self._load_side_datasets("origin")
         self._load_side_datasets("dest")
+
+    def _refresh_advanced_tree(self) -> None:
+        tree = getattr(self, "advanced_tree", None)
+        if tree is None:
+            return
+        try:
+            for iid in tree.get_children():
+                tree.delete(iid)
+        except Exception:
+            return
+        target = self._get_dataset_for_create()
+        if not target:
+            tree.insert("", "end", iid="none", text=tr("label_none"))
+            return
+        side, _selection_label, dataset_name, conn_id = target
+        profile = self.store.get(conn_id)
+        header = f"{profile.name if profile else conn_id}::{dataset_name}"
+        root_iid = "target"
+        tree.insert("", "end", iid=root_iid, text=header, open=True)
+        selection = self.origin_pool_var.get().strip() if side == "origin" else self.dest_pool_var.get().strip()
+        if selection not in self.dataset_pool_options:
+            return
+        cid, pool = self.dataset_pool_options[selection]
+        rows = self.datasets_cache.get(f"{cid}:{pool}", [])
+        pref = dataset_name.rstrip("/") + "/"
+        for row in rows:
+            name = (row.get("name", "") or "").strip()
+            if not name.startswith(pref):
+                continue
+            rel = name[len(pref) :]
+            if not rel:
+                continue
+            parts = rel.split("/")
+            parent = root_iid
+            current = dataset_name
+            for part in parts:
+                current = f"{current}/{part}"
+                node_id = f"adv::{current}"
+                if tree.exists(node_id):
+                    parent = node_id
+                    continue
+                tree.insert(parent, "end", iid=node_id, text=part, open=False)
+                parent = node_id
 
     def _refresh_dataset_pool_options_global(self) -> None:
         options: Dict[str, Tuple[str, str]] = {}
