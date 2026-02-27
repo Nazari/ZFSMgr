@@ -8,8 +8,13 @@ struct ConnectionProfile {
     QString name;
     QString connType;
     QString osType;
+    QString transport;
     QString host;
     int port{0};
+    QString username;
+    QString password;
+    QString keyPath;
+    bool useSudo{false};
 };
 
 class ConnectionStore {

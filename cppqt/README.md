@@ -1,19 +1,25 @@
 # ZFSMgr C++/Qt (cppqt)
 
-Port inicial de la app Python a **C++ + Qt6** con objetivo **multiplataforma** (Windows, Linux, macOS).
+Port de la app Python a **C++ + Qt6** con objetivo **multiplataforma** (Windows, Linux, macOS).
 
-## Estado
+## Estado actual
 
-Esta versión es una base funcional de migración:
+Fase 1 + Fase 2 base implementadas:
 
 - Estructura Qt6/CMake lista para Windows/Linux/macOS.
-- UI principal equivalente en layout general:
+- UI principal con layout equivalente de alto nivel:
   - Panel izquierdo con tabs (`Conexiones`, `Datasets`, `Avanzado`).
-  - Panel derecho de detalle con tabs.
+  - Panel derecho con tabs de detalle (`Pools importados`, `Pools importables`).
   - Sección inferior de `Log combinado`.
-- Carga de conexiones desde `connections.ini`.
+- Carga de perfiles desde `connections.ini`.
+- Refresco de conexiones SSH (comando de prueba `uname -a`) con timeout y log.
+- Lista de conexiones en dos líneas con estado por conexión.
 
-Pendiente: migrar toda la lógica de acciones ZFS/SSH/PSRP, i18n completa y comportamiento fino.
+## Limitaciones actuales (WIP)
+
+- No implementa todavía desencriptado de campos `encv1$` (usuario/password) de la versión Python.
+- No implementa aún acciones ZFS completas (import/export/copy/level/sync, etc.).
+- Tab `Datasets` y `Avanzado` todavía en migración.
 
 ## Build
 
@@ -41,7 +47,7 @@ cmake --build build -j
 .\build\zfsmgr_qt.exe
 ```
 
-## Notas de compatibilidad
+## Compatibilidad
 
-- Usa `QStandardPaths::AppConfigLocation` para ubicación de configuración en cada OS.
-- Si no existe `connections.ini` en la ruta de config de usuario, intenta fallback a `../vpython/connections.ini`.
+- Usa `QStandardPaths::AppConfigLocation` para ubicación de configuración por sistema.
+- Si no existe `connections.ini` en la ruta de config del usuario, intenta fallback a `../vpython/connections.ini`.

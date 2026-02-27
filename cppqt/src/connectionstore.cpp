@@ -27,7 +27,6 @@ QString ConnectionStore::iniPath() const {
         return primary;
     }
 
-    // Fallback para transición desde la versión Python del mismo repo.
     const QString fallback = QCoreApplication::applicationDirPath() + "/../vpython/connections.ini";
     if (QFileInfo::exists(fallback)) {
         return QFileInfo(fallback).absoluteFilePath();
@@ -51,8 +50,13 @@ QVector<ConnectionProfile> ConnectionStore::loadConnections() const {
         p.name = ini.value("name").toString();
         p.connType = ini.value("conn_type").toString();
         p.osType = ini.value("os_type").toString();
+        p.transport = ini.value("transport").toString();
         p.host = ini.value("host").toString();
-        p.port = ini.value("port", 0).toInt();
+        p.port = ini.value("port", 22).toInt();
+        p.username = ini.value("username").toString();
+        p.password = ini.value("password").toString();
+        p.keyPath = ini.value("key_path").toString();
+        p.useSudo = ini.value("use_sudo", false).toBool();
         ini.endGroup();
 
         if (!p.name.isEmpty()) {
