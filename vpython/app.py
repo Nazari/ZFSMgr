@@ -309,6 +309,7 @@ def _ssh_outer_exec_command(
     *,
     include_key: bool = True,
     allow_password_auth: bool = False,
+    keep_stdin_stream: bool = False,
 ) -> Optional[str]:
     if profile.conn_type == "LOCAL":
         return remote_command
@@ -340,7 +341,7 @@ def _ssh_outer_exec_command(
             "} >\"$ask\"; "
             "chmod 700 \"$ask\"; "
             "DISPLAY=:0 SSH_ASKPASS=\"$ask\" SSH_ASKPASS_REQUIRE=force "
-            f"setsid -w {ssh_cmd} </dev/null"
+            + (f"setsid -w {ssh_cmd}" if keep_stdin_stream else f"setsid -w {ssh_cmd} </dev/null")
         )
     ssh_parts = _ssh_common_parts(profile, include_key=include_key)
     ssh_parts.append(shlex.quote(target))
@@ -5398,12 +5399,18 @@ class App(tk.Tk):
             self._app_log("normal", tr("log_level_missing_cache"))
             return
 
-        def wrap_outer_exec(profile: ConnectionProfile, command: str) -> Optional[str]:
+        def wrap_outer_exec(
+            profile: ConnectionProfile,
+            command: str,
+            *,
+            keep_stdin_stream: bool = False,
+        ) -> Optional[str]:
             return _ssh_outer_exec_command(
                 profile,
                 command,
                 include_key=True,
                 allow_password_auth=True,
+                keep_stdin_stream=keep_stdin_stream,
             )
 
         def wrap_inner_dest_exec(profile: ConnectionProfile, command: str, include_key: bool = True) -> Optional[str]:
@@ -5593,7 +5600,7 @@ class App(tk.Tk):
 
         self._app_log("info", tr("log_level_forced_local_execution"))
         send_side = wrap_outer_exec(src_profile, send_cmd)
-        recv_side = wrap_outer_exec(dst_profile, recv_cmd)
+        recv_side = wrap_outer_exec(dst_profile, recv_cmd, keep_stdin_stream=True)
         if not send_side or not recv_side:
             self._app_log("normal", trf("log_level_transport_unsupported", src=src_profile.conn_type, dst=dst_profile.conn_type))
             return
@@ -5666,12 +5673,18 @@ class App(tk.Tk):
             self._app_log("normal", trf("log_copy_dest_not_found", dataset=dst_dataset))
             return
 
-        def wrap_outer_exec(profile: ConnectionProfile, command: str) -> Optional[str]:
+        def wrap_outer_exec(
+            profile: ConnectionProfile,
+            command: str,
+            *,
+            keep_stdin_stream: bool = False,
+        ) -> Optional[str]:
             return _ssh_outer_exec_command(
                 profile,
                 command,
                 include_key=True,
                 allow_password_auth=True,
+                keep_stdin_stream=keep_stdin_stream,
             )
 
         def sudo_wrap(profile: ConnectionProfile, base_cmd: str, preserve_stdin_stream: bool = False) -> str:
@@ -5763,7 +5776,7 @@ class App(tk.Tk):
         recv_cmd = sudo_wrap(dst_profile, recv_raw, preserve_stdin_stream=True)
         self._app_log("info", tr("log_copy_forced_local_execution"))
         send_side = wrap_outer_exec(src_profile, send_cmd)
-        recv_side = wrap_outer_exec(dst_profile, recv_cmd)
+        recv_side = wrap_outer_exec(dst_profile, recv_cmd, keep_stdin_stream=True)
         if not send_side or not recv_side:
             self._app_log("normal", trf("log_copy_transport_unsupported", src=src_profile.conn_type, dst=dst_profile.conn_type))
             return
@@ -5799,7 +5812,7 @@ class App(tk.Tk):
         if len(recv_candidates) > 1:
             for alt_recv_raw in recv_candidates[1:]:
                 alt_recv_cmd = sudo_wrap(dst_profile, alt_recv_raw, preserve_stdin_stream=True)
-                alt_recv_side = wrap_outer_exec(dst_profile, alt_recv_cmd)
+                alt_recv_side = wrap_outer_exec(dst_profile, alt_recv_cmd, keep_stdin_stream=True)
                 if not alt_recv_side:
                     continue
                 for alt_send_raw in send_candidates:
