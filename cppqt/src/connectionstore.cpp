@@ -1,11 +1,8 @@
 #include "connectionstore.h"
 #include "secretcipher.h"
 
-#include <QCoreApplication>
 #include <QDir>
-#include <QFileInfo>
 #include <QSettings>
-#include <QStandardPaths>
 
 ConnectionStore::ConnectionStore(const QString& appName)
     : m_appName(appName) {}
@@ -15,10 +12,7 @@ void ConnectionStore::setMasterPassword(const QString& password) {
 }
 
 QString ConnectionStore::configDir() const {
-    QString base = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
-    if (base.isEmpty()) {
-        base = QDir::homePath() + "/.config/" + m_appName;
-    }
+    QString base = QDir::homePath() + "/.config/" + m_appName;
     QDir dir(base);
     if (!dir.exists()) {
         dir.mkpath(".");
@@ -27,17 +21,7 @@ QString ConnectionStore::configDir() const {
 }
 
 QString ConnectionStore::iniPath() const {
-    const QString primary = configDir() + "/connections.ini";
-    if (QFileInfo::exists(primary)) {
-        return primary;
-    }
-
-    const QString fallback = QCoreApplication::applicationDirPath() + "/../vpython/connections.ini";
-    if (QFileInfo::exists(fallback)) {
-        return QFileInfo(fallback).absoluteFilePath();
-    }
-
-    return primary;
+    return configDir() + "/connections.ini";
 }
 
 LoadResult ConnectionStore::loadConnections() const {

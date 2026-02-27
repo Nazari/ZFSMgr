@@ -17,6 +17,7 @@ class QTableWidget;
 class QTabWidget;
 class QTreeWidget;
 class QTreeWidgetItem;
+class QStackedWidget;
 
 class MainWindow final : public QMainWindow {
     Q_OBJECT
@@ -118,7 +119,7 @@ private:
     void updateApplyPropsButtonState();
     void updateStatus(const QString& text);
     void appLog(const QString& level, const QString& msg);
-    void populatePoolsForConnection(int idx);
+    void populateAllPoolsTables();
 
     ConnectionStore m_store;
     QVector<ConnectionProfile> m_profiles;
@@ -134,6 +135,7 @@ private:
 
     QTableWidget* m_importedPoolsTable{nullptr};
     QTableWidget* m_importablePoolsTable{nullptr};
+    QStackedWidget* m_rightStack{nullptr};
     QComboBox* m_originPoolCombo{nullptr};
     QComboBox* m_destPoolCombo{nullptr};
     QTreeWidget* m_originTree{nullptr};

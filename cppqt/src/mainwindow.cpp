@@ -22,6 +22,7 @@
 #include <QTabWidget>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
+#include <QStackedWidget>
 #include <QVBoxLayout>
 #include <QWidget>
 #include <QComboBox>
@@ -198,7 +199,11 @@ void MainWindow::buildUi() {
 
     auto* rightPane = new QWidget(topSplitter);
     auto* rightLayout = new QVBoxLayout(rightPane);
-    m_rightTabs = new QTabWidget(rightPane);
+    m_rightStack = new QStackedWidget(rightPane);
+
+    auto* rightConnectionsPage = new QWidget(m_rightStack);
+    auto* rightConnectionsLayout = new QVBoxLayout(rightConnectionsPage);
+    m_rightTabs = new QTabWidget(rightConnectionsPage);
 
     auto* importedTab = new QWidget(m_rightTabs);
     auto* importedLayout = new QVBoxLayout(importedTab);
@@ -227,7 +232,15 @@ void MainWindow::buildUi() {
 
     m_rightTabs->addTab(importedTab, QStringLiteral("Pools importados"));
     m_rightTabs->addTab(importableTab, QStringLiteral("Pools importables"));
-    rightLayout->addWidget(m_rightTabs, 1);
+    rightConnectionsLayout->addWidget(m_rightTabs, 1);
+
+    auto* rightBlankPage = new QWidget(m_rightStack);
+    auto* rightBlankLayout = new QVBoxLayout(rightBlankPage);
+    rightBlankLayout->addStretch(1);
+
+    m_rightStack->addWidget(rightConnectionsPage);
+    m_rightStack->addWidget(rightBlankPage);
+    rightLayout->addWidget(m_rightStack, 1);
 
     topSplitter->addWidget(leftPane);
     topSplitter->addWidget(rightPane);
@@ -253,6 +266,14 @@ void MainWindow::buildUi() {
     connect(m_btnRefreshAll, &QPushButton::clicked, this, [this]() { refreshAllConnections(); });
     connect(m_btnRefreshSelected, &QPushButton::clicked, this, [this]() { refreshSelectedConnection(); });
     connect(m_connectionsList, &QListWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
+    connect(m_leftTabs, &QTabWidget::currentChanged, this, [this](int idx) {
+        if (idx == 0) {
+            m_rightStack->setCurrentIndex(0);
+            populateAllPoolsTables();
+        } else {
+            m_rightStack->setCurrentIndex(1);
+        }
+    });
     connect(m_originPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onOriginPoolChanged(); });
     connect(m_destPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onDestPoolChanged(); });
     connect(m_advPoolCombo, &QComboBox::currentIndexChanged, this, [this]() {
@@ -455,7 +476,7 @@ void MainWindow::refreshAllConnections() {
     }
     rebuildConnectionList();
     rebuildDatasetPoolSelectors();
-    onConnectionSelectionChanged();
+    populateAllPoolsTables();
     updateStatus(QStringLiteral("Estado: refresco finalizado"));
 }
 
@@ -474,21 +495,13 @@ void MainWindow::refreshSelectedConnection() {
     if (idx < m_connectionsList->count()) {
         m_connectionsList->setCurrentRow(idx);
     }
-    onConnectionSelectionChanged();
+    populateAllPoolsTables();
 }
 
 void MainWindow::onConnectionSelectionChanged() {
-    const auto selected = m_connectionsList->selectedItems();
-    if (selected.isEmpty()) {
-        m_importedPoolsTable->setRowCount(0);
-        m_importablePoolsTable->setRowCount(0);
-        return;
+    if (m_leftTabs->currentIndex() == 0) {
+        populateAllPoolsTables();
     }
-    const int idx = selected.first()->data(Qt::UserRole).toInt();
-    if (idx < 0 || idx >= m_profiles.size()) {
-        return;
-    }
-    populatePoolsForConnection(idx);
 }
 
 void MainWindow::onOriginPoolChanged() {
@@ -1642,28 +1655,27 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     return state;
 }
 
-void MainWindow::populatePoolsForConnection(int idx) {
+void MainWindow::populateAllPoolsTables() {
     m_importedPoolsTable->setRowCount(0);
     m_importablePoolsTable->setRowCount(0);
-    if (idx < 0 || idx >= m_states.size()) {
-        return;
-    }
-    const auto& st = m_states[idx];
-    for (const PoolImported& pool : st.importedPools) {
-        const int row = m_importedPoolsTable->rowCount();
-        m_importedPoolsTable->insertRow(row);
-        m_importedPoolsTable->setItem(row, 0, new QTableWidgetItem(pool.connection));
-        m_importedPoolsTable->setItem(row, 1, new QTableWidgetItem(pool.pool));
-        m_importedPoolsTable->setItem(row, 2, new QTableWidgetItem(pool.action));
-    }
-    for (const PoolImportable& pool : st.importablePools) {
-        const int row = m_importablePoolsTable->rowCount();
-        m_importablePoolsTable->insertRow(row);
-        m_importablePoolsTable->setItem(row, 0, new QTableWidgetItem(pool.connection));
-        m_importablePoolsTable->setItem(row, 1, new QTableWidgetItem(pool.pool));
-        m_importablePoolsTable->setItem(row, 2, new QTableWidgetItem(pool.state));
-        m_importablePoolsTable->setItem(row, 3, new QTableWidgetItem(pool.reason));
-        m_importablePoolsTable->setItem(row, 4, new QTableWidgetItem(pool.action));
+    for (int i = 0; i < m_states.size(); ++i) {
+        const auto& st = m_states[i];
+        for (const PoolImported& pool : st.importedPools) {
+            const int row = m_importedPoolsTable->rowCount();
+            m_importedPoolsTable->insertRow(row);
+            m_importedPoolsTable->setItem(row, 0, new QTableWidgetItem(pool.connection));
+            m_importedPoolsTable->setItem(row, 1, new QTableWidgetItem(pool.pool));
+            m_importedPoolsTable->setItem(row, 2, new QTableWidgetItem(pool.action));
+        }
+        for (const PoolImportable& pool : st.importablePools) {
+            const int row = m_importablePoolsTable->rowCount();
+            m_importablePoolsTable->insertRow(row);
+            m_importablePoolsTable->setItem(row, 0, new QTableWidgetItem(pool.connection));
+            m_importablePoolsTable->setItem(row, 1, new QTableWidgetItem(pool.pool));
+            m_importablePoolsTable->setItem(row, 2, new QTableWidgetItem(pool.state));
+            m_importablePoolsTable->setItem(row, 3, new QTableWidgetItem(pool.reason));
+            m_importablePoolsTable->setItem(row, 4, new QTableWidgetItem(pool.action));
+        }
     }
 }
 
