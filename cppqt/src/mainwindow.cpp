@@ -24,6 +24,9 @@
 #include <QTableWidgetItem>
 #include <QTabWidget>
 #include <QTimer>
+#include <QTextEdit>
+#include <QTextCursor>
+#include <QTextDocument>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QStackedWidget>
@@ -121,7 +124,6 @@ void MainWindow::buildUi() {
     transferLayout->addWidget(m_btnLevel);
     transferLayout->addWidget(m_btnSync);
     dsLeftTabLayout->addWidget(transferBox);
-    dsLeftTabLayout->addWidget(new QLabel(QStringLiteral("Detalle en panel derecho"), datasetsTab));
     dsLeftTabLayout->addStretch(1);
     datasetsTab->setLayout(dsLeftTabLayout);
 
@@ -131,7 +133,6 @@ void MainWindow::buildUi() {
     m_btnAdvancedAssemble = new QPushButton(QStringLiteral("Ensamblar"), advancedTab);
     advLeftTabLayout->addWidget(m_btnAdvancedBreakdown);
     advLeftTabLayout->addWidget(m_btnAdvancedAssemble);
-    advLeftTabLayout->addWidget(new QLabel(QStringLiteral("Detalle en panel derecho"), advancedTab));
     advLeftTabLayout->addStretch(1);
     advancedTab->setLayout(advLeftTabLayout);
 
@@ -267,30 +268,68 @@ void MainWindow::buildUi() {
 
     auto* logBox = new QGroupBox(QStringLiteral("Log combinado"), central);
     auto* logLayout = new QVBoxLayout(logBox);
-    auto* logControls = new QHBoxLayout();
-    logControls->addWidget(new QLabel(QStringLiteral("Nivel"), logBox));
-    m_logLevelCombo = new QComboBox(logBox);
-    m_logLevelCombo->addItems({QStringLiteral("normal"), QStringLiteral("info"), QStringLiteral("debug")});
-    m_logLevelCombo->setCurrentText(QStringLiteral("normal"));
-    m_logClearBtn = new QPushButton(QStringLiteral("Limpiar"), logBox);
-    m_logCopyBtn = new QPushButton(QStringLiteral("Copiar"), logBox);
-    logControls->addWidget(m_logLevelCombo);
-    logControls->addWidget(m_logClearBtn);
-    logControls->addWidget(m_logCopyBtn);
-    logControls->addStretch(1);
-    logLayout->addLayout(logControls);
-    m_statusLabel = new QLabel(QStringLiteral("Estado: Listo"), logBox);
-    m_lastSshLineLabel = new QLabel(QStringLiteral("Detalle: "), logBox);
-    m_lastSshLineLabel->setWordWrap(true);
-    m_logView = new QPlainTextEdit(logBox);
+    auto* logBody = new QHBoxLayout();
+
+    auto* leftInfo = new QWidget(logBox);
+    auto* leftInfoLayout = new QVBoxLayout(leftInfo);
+    auto* statusGroup = new QGroupBox(QStringLiteral("Estado"), leftInfo);
+    auto* statusLayout = new QVBoxLayout(statusGroup);
+    m_statusText = new QTextEdit(statusGroup);
+    m_statusText->setReadOnly(true);
+    m_statusText->setAcceptRichText(false);
+    m_statusText->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_statusText->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_statusText->setMinimumHeight(72);
+    m_statusText->setMaximumHeight(72);
+    statusLayout->addWidget(m_statusText);
+    auto* detailGroup = new QGroupBox(QStringLiteral("Detalle"), leftInfo);
+    auto* detailLayout = new QVBoxLayout(detailGroup);
+    m_lastDetailText = new QTextEdit(detailGroup);
+    m_lastDetailText->setReadOnly(true);
+    m_lastDetailText->setAcceptRichText(false);
+    m_lastDetailText->setLineWrapMode(QTextEdit::WidgetWidth);
+    detailLayout->addWidget(m_lastDetailText, 1);
+    leftInfoLayout->addWidget(statusGroup, 0);
+    leftInfoLayout->addWidget(detailGroup, 1);
+
+    auto* rightLogs = new QWidget(logBox);
+    auto* rightLogsLayout = new QVBoxLayout(rightLogs);
+    m_logsTabs = new QTabWidget(rightLogs);
+    auto* appTab = new QWidget(m_logsTabs);
+    auto* appTabLayout = new QVBoxLayout(appTab);
+    m_logView = new QPlainTextEdit(appTab);
     m_logView->setReadOnly(true);
     QFont mono = m_logView->font();
     mono.setFamily(QStringLiteral("Monospace"));
     mono.setPointSize(9);
     m_logView->setFont(mono);
-    logLayout->addWidget(m_statusLabel);
-    logLayout->addWidget(m_lastSshLineLabel);
-    logLayout->addWidget(m_logView, 1);
+    appTabLayout->addWidget(m_logView, 1);
+    m_logsTabs->addTab(appTab, QStringLiteral("Aplicación"));
+    rightLogsLayout->addWidget(m_logsTabs, 1);
+
+    auto* logControls = new QHBoxLayout();
+    logControls->addWidget(new QLabel(QStringLiteral("Nivel"), rightLogs));
+    m_logLevelCombo = new QComboBox(rightLogs);
+    m_logLevelCombo->addItems({QStringLiteral("normal"), QStringLiteral("info"), QStringLiteral("debug")});
+    m_logLevelCombo->setCurrentText(QStringLiteral("normal"));
+    m_logMaxLinesCombo = new QComboBox(rightLogs);
+    m_logMaxLinesCombo->addItems({QStringLiteral("100"), QStringLiteral("200"), QStringLiteral("500"), QStringLiteral("1000")});
+    m_logMaxLinesCombo->setCurrentText(QStringLiteral("500"));
+    m_logClearBtn = new QPushButton(QStringLiteral("Limpiar"), rightLogs);
+    m_logCopyBtn = new QPushButton(QStringLiteral("Copiar"), rightLogs);
+    m_logCancelBtn = new QPushButton(QStringLiteral("Cancelar"), rightLogs);
+    m_logCancelBtn->setVisible(false);
+    logControls->addWidget(m_logLevelCombo);
+    logControls->addWidget(m_logMaxLinesCombo);
+    logControls->addWidget(m_logClearBtn);
+    logControls->addWidget(m_logCopyBtn);
+    logControls->addWidget(m_logCancelBtn);
+    logControls->addStretch(1);
+    rightLogsLayout->addLayout(logControls);
+
+    logBody->addWidget(leftInfo, 1);
+    logBody->addWidget(rightLogs, 2);
+    logLayout->addLayout(logBody, 1);
     root->addWidget(logBox, 2);
 
     setCentralWidget(central);
@@ -361,6 +400,9 @@ void MainWindow::buildUi() {
     connect(m_btnSync, &QPushButton::clicked, this, [this]() { actionSyncDatasets(); });
     connect(m_logClearBtn, &QPushButton::clicked, this, [this]() { clearAppLog(); });
     connect(m_logCopyBtn, &QPushButton::clicked, this, [this]() { copyAppLogToClipboard(); });
+    connect(m_logMaxLinesCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
+        trimLogWidget(m_logView);
+    });
     connect(m_advTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
         const auto selected = m_advTree->selectedItems();
         if (selected.isEmpty()) {
@@ -1560,8 +1602,8 @@ void MainWindow::appendLogToFile(const QString& line) {
 
 void MainWindow::clearAppLog() {
     m_logView->clear();
-    if (m_lastSshLineLabel) {
-        m_lastSshLineLabel->setText(QStringLiteral("Detalle: "));
+    if (m_lastDetailText) {
+        m_lastDetailText->clear();
     }
     if (!m_appLogPath.isEmpty()) {
         QFile f(m_appLogPath);
@@ -2035,7 +2077,9 @@ void MainWindow::populateAllPoolsTables() {
 }
 
 void MainWindow::updateStatus(const QString& text) {
-    m_statusLabel->setText(text);
+    if (m_statusText) {
+        m_statusText->setPlainText(text);
+    }
 }
 
 void MainWindow::appLog(const QString& level, const QString& msg) {
@@ -2055,13 +2099,37 @@ void MainWindow::appLog(const QString& level, const QString& msg) {
     const bool always = (lvl == QStringLiteral("warn") || lvl == QStringLiteral("error"));
     if (always || rank(lvl) <= rank(current)) {
         m_logView->appendPlainText(line);
+        trimLogWidget(m_logView);
     }
-    if (m_lastSshLineLabel) {
-        QString last = oneLine(line);
-        if (last.size() > 180) {
-            last = last.left(177) + QStringLiteral("...");
-        }
-        m_lastSshLineLabel->setText(QStringLiteral("Detalle: %1").arg(last));
+    if (m_lastDetailText) {
+        m_lastDetailText->setPlainText(line);
     }
     appendLogToFile(line);
+}
+
+int MainWindow::maxLogLines() const {
+    bool ok = false;
+    const int v = m_logMaxLinesCombo ? m_logMaxLinesCombo->currentText().toInt(&ok) : 500;
+    if (!ok || v <= 0) {
+        return 500;
+    }
+    return v;
+}
+
+void MainWindow::trimLogWidget(QPlainTextEdit* widget) {
+    if (!widget) {
+        return;
+    }
+    QTextDocument* doc = widget->document();
+    if (!doc) {
+        return;
+    }
+    const int limit = maxLogLines();
+    while (doc->blockCount() > limit) {
+        QTextCursor c(doc);
+        c.movePosition(QTextCursor::Start);
+        c.select(QTextCursor::LineUnderCursor);
+        c.removeSelectedText();
+        c.deleteChar();
+    }
 }

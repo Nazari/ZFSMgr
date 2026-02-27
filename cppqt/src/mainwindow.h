@@ -19,6 +19,7 @@ class QTabWidget;
 class QTreeWidget;
 class QTreeWidgetItem;
 class QStackedWidget;
+class QTextEdit;
 
 class MainWindow final : public QMainWindow {
     Q_OBJECT
@@ -130,6 +131,8 @@ private:
     void appendLogToFile(const QString& line);
     void clearAppLog();
     void copyAppLogToClipboard();
+    int maxLogLines() const;
+    void trimLogWidget(QPlainTextEdit* widget);
     int findConnectionIndexByName(const QString& name) const;
     void refreshConnectionByIndex(int idx);
     void exportPoolFromRow(int row);
@@ -172,11 +175,14 @@ private:
     QLabel* m_originSelectionLabel{nullptr};
     QLabel* m_destSelectionLabel{nullptr};
 
-    QLabel* m_statusLabel{nullptr};
-    QLabel* m_lastSshLineLabel{nullptr};
+    QTextEdit* m_statusText{nullptr};
+    QTextEdit* m_lastDetailText{nullptr};
+    QTabWidget* m_logsTabs{nullptr};
     QComboBox* m_logLevelCombo{nullptr};
+    QComboBox* m_logMaxLinesCombo{nullptr};
     QPushButton* m_logClearBtn{nullptr};
     QPushButton* m_logCopyBtn{nullptr};
+    QPushButton* m_logCancelBtn{nullptr};
     QPlainTextEdit* m_logView{nullptr};
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
     QString m_originSelectedDataset;
