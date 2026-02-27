@@ -8630,6 +8630,8 @@ class App(tk.Tk):
             finally:
                 cache_key = f"{conn_id}:{pool}"
                 self.datasets_cache.pop(cache_key, None)
+                # Evita estado "mounted" obsoleto en panel de propiedades tras mount/umount.
+                self.dataset_properties_cache.pop(conn_id, None)
                 self.after(0, lambda: self._load_side_datasets(side))
 
         threading.Thread(target=worker, daemon=True).start()
