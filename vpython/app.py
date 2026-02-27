@@ -3899,6 +3899,8 @@ class App(tk.Tk):
         self.importable_table_columns: List[Tuple[str, int, str]] = [
             (tr("col_connection"), 180, "w"),
             (tr("col_pool"), 260, "w"),
+            ("Estado", 130, "w"),
+            ("Motivo", 420, "w"),
             ("Accion", 120, "w"),
         ]
         self.importable_table_rows = self._build_plain_table(avail_frame, self.importable_table_columns, enable_xscroll=True)
@@ -8912,6 +8914,7 @@ class App(tk.Tk):
                 for pool in state.importable:
                     pool_name = pool.get("pool", "")
                     pool_state = (pool.get("state", "") or "").strip()
+                    pool_reason = (pool.get("status", "") or "").strip()
                     is_online = pool_state.upper() == "ONLINE"
                     action_text = tr("import_btn") if is_online else ""
                     self._add_plain_row(
@@ -8921,9 +8924,11 @@ class App(tk.Tk):
                         [
                             conn.name,
                             pool_name,
+                            pool_state or "-",
+                            pool_reason or "-",
                             action_text,
                         ],
-                        action_col=2,
+                        action_col=4,
                         action_callback=((lambda p=pool_name, cid=conn.id: self.import_pool_by_name(p, conn_id=cid)) if is_online else None),
                     )
                     row_idx += 1
@@ -8933,7 +8938,7 @@ class App(tk.Tk):
                     self.importable_table_rows,
                     0,
                     self.importable_table_columns,
-                    [tr("label_no_importable_pools"), "", ""],
+                    [tr("label_no_importable_pools"), "", "", "", ""],
                 )
         except Exception as exc:
             self._app_log("normal", f"Error renderizando pools importables: {exc}")
