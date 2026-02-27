@@ -14,6 +14,7 @@
 #include <QPushButton>
 #include <QSplitter>
 #include <QTableWidget>
+#include <QTableWidgetItem>
 #include <QTabWidget>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -24,15 +25,17 @@ QString tsNow() {
     return QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
 }
 
-bool looksEncrypted(const QString& v) {
-    return v.startsWith("encv1$");
+QString oneLine(const QString& v) {
+    QString x = v.simplified();
+    return x.left(220);
 }
 
 } // namespace
 
-MainWindow::MainWindow(QWidget* parent)
+MainWindow::MainWindow(const QString& masterPassword, QWidget* parent)
     : QMainWindow(parent)
     , m_store(QStringLiteral("ZFSMgr")) {
+    m_store.setMasterPassword(masterPassword);
     buildUi();
     loadConnections();
 }
@@ -65,7 +68,6 @@ void MainWindow::buildUi() {
     connButtons->addWidget(m_btnRefreshAll);
     connButtons->addStretch(1);
     connLayout->addLayout(connButtons);
-
     connectionsTab->setLayout(connLayout);
 
     auto* datasetsTab = new QWidget(m_leftTabs);
@@ -87,7 +89,6 @@ void MainWindow::buildUi() {
 
     auto* rightPane = new QWidget(topSplitter);
     auto* rightLayout = new QVBoxLayout(rightPane);
-
     m_rightTabs = new QTabWidget(rightPane);
 
     auto* importedTab = new QWidget(m_rightTabs);
@@ -104,13 +105,14 @@ void MainWindow::buildUi() {
     auto* importableTab = new QWidget(m_rightTabs);
     auto* importableLayout = new QVBoxLayout(importableTab);
     m_importablePoolsTable = new QTableWidget(importableTab);
-    m_importablePoolsTable->setColumnCount(4);
+    m_importablePoolsTable->setColumnCount(5);
     m_importablePoolsTable->setHorizontalHeaderLabels(
-        {QStringLiteral("Conexión"), QStringLiteral("Pool"), QStringLiteral("Estado"), QStringLiteral("Acción")});
+        {QStringLiteral("Conexión"), QStringLiteral("Pool"), QStringLiteral("Estado"), QStringLiteral("Motivo"), QStringLiteral("Acción")});
     m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
+    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
     m_importablePoolsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     importableLayout->addWidget(m_importablePoolsTable, 1);
 
@@ -126,14 +128,13 @@ void MainWindow::buildUi() {
 
     auto* logBox = new QGroupBox(QStringLiteral("Log combinado"), central);
     auto* logLayout = new QVBoxLayout(logBox);
-
     m_statusLabel = new QLabel(QStringLiteral("Estado: Listo"), logBox);
     m_logView = new QPlainTextEdit(logBox);
     m_logView->setReadOnly(true);
     QFont mono = m_logView->font();
     mono.setFamily(QStringLiteral("Monospace"));
+    mono.setPointSize(9);
     m_logView->setFont(mono);
-
     logLayout->addWidget(m_statusLabel);
     logLayout->addWidget(m_logView, 1);
     root->addWidget(logBox, 2);
@@ -146,7 +147,8 @@ void MainWindow::buildUi() {
 }
 
 void MainWindow::loadConnections() {
-    m_profiles = m_store.loadConnections();
+    const LoadResult loaded = m_store.loadConnections();
+    m_profiles = loaded.profiles;
     m_states.clear();
     m_states.resize(m_profiles.size());
 
@@ -155,6 +157,9 @@ void MainWindow::loadConnections() {
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Loaded %1 connections from %2")
                                    .arg(m_profiles.size())
                                    .arg(m_store.iniPath()));
+    for (const QString& warning : loaded.warnings) {
+        appLog(QStringLiteral("WARN"), warning);
+    }
 }
 
 void MainWindow::rebuildConnectionList() {
@@ -166,7 +171,7 @@ void MainWindow::rebuildConnectionList() {
         const QString line1 = QStringLiteral("%1/%2").arg(p.name, p.connType);
         QString line2 = QStringLiteral("%1").arg(p.osType);
         if (!s.status.isEmpty()) {
-            line2 += QStringLiteral("  [%1]").arg(s.status);
+            line2 += QStringLiteral("  [") + s.status + QStringLiteral("]");
         }
 
         auto* item = new QListWidgetItem(line1 + "\n" + line2, m_connectionsList);
@@ -185,6 +190,7 @@ void MainWindow::refreshAllConnections() {
         m_states[i] = refreshConnection(m_profiles[i]);
     }
     rebuildConnectionList();
+    onConnectionSelectionChanged();
     updateStatus(QStringLiteral("Estado: refresco finalizado"));
 }
 
@@ -197,12 +203,12 @@ void MainWindow::refreshSelectedConnection() {
     if (idx < 0 || idx >= m_profiles.size()) {
         return;
     }
-
     m_states[idx] = refreshConnection(m_profiles[idx]);
     rebuildConnectionList();
     if (idx < m_connectionsList->count()) {
         m_connectionsList->setCurrentRow(idx);
     }
+    onConnectionSelectionChanged();
 }
 
 void MainWindow::onConnectionSelectionChanged() {
@@ -212,44 +218,21 @@ void MainWindow::onConnectionSelectionChanged() {
         m_importablePoolsTable->setRowCount(0);
         return;
     }
-
     const int idx = selected.first()->data(Qt::UserRole).toInt();
     if (idx < 0 || idx >= m_profiles.size()) {
         return;
     }
-    populatePoolsForConnection(m_profiles[idx]);
+    populatePoolsForConnection(idx);
 }
 
-MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p) {
-    ConnectionRuntimeState state;
-
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio refresh: %1 [%2]").arg(p.name, p.connType));
-
-    if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
-        state.status = QStringLiteral("ERROR");
-        state.detail = QStringLiteral("Tipo de conexión no soportado aún en cppqt");
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin refresh: %1 -> ERROR (%2)").arg(p.name, state.detail));
-        return state;
-    }
-
-    if (looksEncrypted(p.username)) {
-        state.status = QStringLiteral("WIP");
-        state.detail = QStringLiteral("Usuario encriptado: pendiente diálogo de password maestro");
-        appLog(QStringLiteral("INFO"), QStringLiteral("%1: %2").arg(p.name, state.detail));
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin refresh: %1 -> WIP").arg(p.name));
-        return state;
-    }
-
-    if (p.host.isEmpty() || p.username.isEmpty()) {
-        state.status = QStringLiteral("ERROR");
-        state.detail = QStringLiteral("Host/usuario no definido");
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin refresh: %1 -> ERROR (%2)").arg(p.name, state.detail));
-        return state;
-    }
+bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, int timeoutMs, QString& out, QString& err, int& rc) {
+    out.clear();
+    err.clear();
+    rc = -1;
 
     QStringList args;
     args << "-o" << "BatchMode=yes";
-    args << "-o" << "ConnectTimeout=8";
+    args << "-o" << "ConnectTimeout=10";
     args << "-o" << "StrictHostKeyChecking=no";
     args << "-o" << "UserKnownHostsFile=/dev/null";
     if (p.port > 0) {
@@ -259,71 +242,163 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         args << "-i" << p.keyPath;
     }
     args << QStringLiteral("%1@%2").arg(p.username, p.host);
-    args << "uname -a";
+    args << remoteCmd;
 
     QProcess proc;
     proc.start(QStringLiteral("ssh"), args);
     if (!proc.waitForStarted(4000)) {
-        state.status = QStringLiteral("ERROR");
-        state.detail = QStringLiteral("No se pudo iniciar ssh");
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin refresh: %1 -> ERROR (%2)").arg(p.name, state.detail));
-        return state;
+        err = QStringLiteral("No se pudo iniciar ssh");
+        return false;
     }
-
-    if (!proc.waitForFinished(12000)) {
+    if (!proc.waitForFinished(timeoutMs)) {
         proc.kill();
         proc.waitForFinished(1000);
+        err = QStringLiteral("Timeout");
+        return false;
+    }
+
+    rc = proc.exitCode();
+    out = QString::fromUtf8(proc.readAllStandardOutput());
+    err = QString::fromUtf8(proc.readAllStandardError());
+    return true;
+}
+
+MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p) {
+    ConnectionRuntimeState state;
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio refresh: %1 [%2]").arg(p.name, p.connType));
+
+    if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
         state.status = QStringLiteral("ERROR");
-        state.detail = QStringLiteral("Timeout en ssh uname -a");
+        state.detail = QStringLiteral("Tipo de conexión no soportado aún en cppqt");
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin refresh: %1 -> ERROR (%2)").arg(p.name, state.detail));
+        return state;
+    }
+    if (p.host.isEmpty() || p.username.isEmpty()) {
+        state.status = QStringLiteral("ERROR");
+        state.detail = QStringLiteral("Host/usuario no definido");
         appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin refresh: %1 -> ERROR (%2)").arg(p.name, state.detail));
         return state;
     }
 
-    const int rc = proc.exitCode();
-    const QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
-    const QString err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
-
-    if (rc == 0) {
-        state.status = QStringLiteral("OK");
-        state.detail = out.left(140);
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin refresh: %1 -> OK (%2)").arg(p.name, state.detail));
-    } else {
+    QString out;
+    QString err;
+    int rc = -1;
+    if (!runSsh(p, QStringLiteral("uname -a"), 12000, out, err, rc) || rc != 0) {
         state.status = QStringLiteral("ERROR");
-        state.detail = err.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : err.left(140);
+        state.detail = oneLine(err.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : err);
         appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin refresh: %1 -> ERROR (%2)").arg(p.name, state.detail));
+        return state;
+    }
+    state.status = QStringLiteral("OK");
+    state.detail = oneLine(out);
+
+    QString zpoolListCmd = QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio");
+    QString zpoolImportCmd = QStringLiteral("zpool import");
+    if (p.useSudo) {
+        zpoolListCmd = QStringLiteral("sudo -n ") + zpoolListCmd;
+        zpoolImportCmd = QStringLiteral("sudo -n ") + zpoolImportCmd;
     }
 
+    out.clear();
+    err.clear();
+    rc = -1;
+    if (runSsh(p, zpoolListCmd, 18000, out, err, rc) && rc == 0) {
+        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+        for (const QString& line : lines) {
+            const QString poolName = line.section('\t', 0, 0).trimmed();
+            if (poolName.isEmpty()) {
+                continue;
+            }
+            state.importedPools.push_back(PoolImported{p.name, poolName, QStringLiteral("Exportar")});
+        }
+    } else if (!err.isEmpty()) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("%1: zpool list -> %2").arg(p.name, oneLine(err)));
+    }
+
+    out.clear();
+    err.clear();
+    rc = -1;
+    if (runSsh(p, zpoolImportCmd, 18000, out, err, rc) && rc == 0) {
+        QString currentPool;
+        QString currentState;
+        QString currentReason;
+        const QStringList lines = out.split('\n');
+        auto flushCurrent = [&]() {
+            if (currentPool.isEmpty()) {
+                return;
+            }
+            state.importablePools.push_back(PoolImportable{
+                p.name,
+                currentPool,
+                currentState.isEmpty() ? QStringLiteral("UNKNOWN") : currentState,
+                currentReason,
+                QStringLiteral("Importar"),
+            });
+            currentPool.clear();
+            currentState.clear();
+            currentReason.clear();
+        };
+
+        for (QString line : lines) {
+            line = line.trimmed();
+            if (line.startsWith(QStringLiteral("pool: "))) {
+                flushCurrent();
+                currentPool = line.mid(QStringLiteral("pool: ").size()).trimmed();
+                continue;
+            }
+            if (line.startsWith(QStringLiteral("state: "))) {
+                currentState = line.mid(QStringLiteral("state: ").size()).trimmed();
+                continue;
+            }
+            if (line.startsWith(QStringLiteral("status: "))) {
+                currentReason = line.mid(QStringLiteral("status: ").size()).trimmed();
+                continue;
+            }
+            if (line.startsWith(QStringLiteral("cannot import"))) {
+                if (!currentReason.isEmpty()) {
+                    currentReason += QStringLiteral(" ");
+                }
+                currentReason += line;
+            }
+        }
+        flushCurrent();
+    } else if (!err.isEmpty()) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("%1: zpool import -> %2").arg(p.name, oneLine(err)));
+    }
+
+    if (state.importedPools.isEmpty()) {
+        state.importedPools.push_back(PoolImported{p.name, QStringLiteral("Sin pools"), QStringLiteral("-")});
+    }
+    if (state.importablePools.isEmpty()) {
+        state.importablePools.push_back(PoolImportable{p.name, QStringLiteral("Sin pools"), QStringLiteral("-"), QStringLiteral("-"), QStringLiteral("-")});
+    }
+
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin refresh: %1 -> OK (%2)").arg(p.name, state.detail));
     return state;
 }
 
-void MainWindow::populatePoolsForConnection(const ConnectionProfile& p) {
+void MainWindow::populatePoolsForConnection(int idx) {
     m_importedPoolsTable->setRowCount(0);
     m_importablePoolsTable->setRowCount(0);
-
-    const auto addImported = [&](const QString& conn, const QString& pool, const QString& action) {
+    if (idx < 0 || idx >= m_states.size()) {
+        return;
+    }
+    const auto& st = m_states[idx];
+    for (const PoolImported& pool : st.importedPools) {
         const int row = m_importedPoolsTable->rowCount();
         m_importedPoolsTable->insertRow(row);
-        m_importedPoolsTable->setItem(row, 0, new QTableWidgetItem(conn));
-        m_importedPoolsTable->setItem(row, 1, new QTableWidgetItem(pool));
-        m_importedPoolsTable->setItem(row, 2, new QTableWidgetItem(action));
-    };
-
-    const auto addImportable = [&](const QString& conn, const QString& pool, const QString& state, const QString& action) {
+        m_importedPoolsTable->setItem(row, 0, new QTableWidgetItem(pool.connection));
+        m_importedPoolsTable->setItem(row, 1, new QTableWidgetItem(pool.pool));
+        m_importedPoolsTable->setItem(row, 2, new QTableWidgetItem(pool.action));
+    }
+    for (const PoolImportable& pool : st.importablePools) {
         const int row = m_importablePoolsTable->rowCount();
         m_importablePoolsTable->insertRow(row);
-        m_importablePoolsTable->setItem(row, 0, new QTableWidgetItem(conn));
-        m_importablePoolsTable->setItem(row, 1, new QTableWidgetItem(pool));
-        m_importablePoolsTable->setItem(row, 2, new QTableWidgetItem(state));
-        m_importablePoolsTable->setItem(row, 3, new QTableWidgetItem(action));
-    };
-
-    // Placeholder de transición hasta migrar el parser zpool/zfs real.
-    if (p.osType.compare(QStringLiteral("Linux"), Qt::CaseInsensitive) == 0) {
-        addImported(p.name, QStringLiteral("(sin datos aún)"), QStringLiteral("Exportar"));
-        addImportable(p.name, QStringLiteral("(sin datos aún)"), QStringLiteral("ONLINE"), QStringLiteral("Importar"));
-    } else {
-        addImported(p.name, QStringLiteral("Sin pools"), QStringLiteral("-"));
-        addImportable(p.name, QStringLiteral("Sin pools"), QStringLiteral("-"), QStringLiteral("-"));
+        m_importablePoolsTable->setItem(row, 0, new QTableWidgetItem(pool.connection));
+        m_importablePoolsTable->setItem(row, 1, new QTableWidgetItem(pool.pool));
+        m_importablePoolsTable->setItem(row, 2, new QTableWidgetItem(pool.state));
+        m_importablePoolsTable->setItem(row, 3, new QTableWidgetItem(pool.reason));
+        m_importablePoolsTable->setItem(row, 4, new QTableWidgetItem(pool.action));
     }
 }
 

@@ -16,12 +16,28 @@ class QTabWidget;
 class MainWindow final : public QMainWindow {
     Q_OBJECT
 public:
-    explicit MainWindow(QWidget* parent = nullptr);
+    explicit MainWindow(const QString& masterPassword, QWidget* parent = nullptr);
 
 private:
+    struct PoolImported {
+        QString connection;
+        QString pool;
+        QString action;
+    };
+
+    struct PoolImportable {
+        QString connection;
+        QString pool;
+        QString state;
+        QString reason;
+        QString action;
+    };
+
     struct ConnectionRuntimeState {
         QString status;
         QString detail;
+        QVector<PoolImported> importedPools;
+        QVector<PoolImportable> importablePools;
     };
 
     void buildUi();
@@ -32,9 +48,10 @@ private:
     void onConnectionSelectionChanged();
 
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
+    bool runSsh(const ConnectionProfile& p, const QString& remoteCmd, int timeoutMs, QString& out, QString& err, int& rc);
     void updateStatus(const QString& text);
     void appLog(const QString& level, const QString& msg);
-    void populatePoolsForConnection(const ConnectionProfile& p);
+    void populatePoolsForConnection(int idx);
 
     ConnectionStore m_store;
     QVector<ConnectionProfile> m_profiles;

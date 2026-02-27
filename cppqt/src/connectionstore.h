@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 struct ConnectionProfile {
@@ -17,14 +18,21 @@ struct ConnectionProfile {
     bool useSudo{false};
 };
 
+struct LoadResult {
+    QVector<ConnectionProfile> profiles;
+    QStringList warnings;
+};
+
 class ConnectionStore {
 public:
     explicit ConnectionStore(const QString& appName);
 
+    void setMasterPassword(const QString& password);
     QString configDir() const;
     QString iniPath() const;
-    QVector<ConnectionProfile> loadConnections() const;
+    LoadResult loadConnections() const;
 
 private:
     QString m_appName;
+    QString m_masterPassword;
 };
