@@ -131,6 +131,25 @@ void MainWindow::buildUi() {
     dsLeftLayout->addWidget(originBox, 1);
     dsLeftLayout->addWidget(destBox, 1);
 
+    auto* transferBox = new QGroupBox(QStringLiteral("Origen-->Destino"), dsLeft);
+    auto* transferLayout = new QVBoxLayout(transferBox);
+    m_transferOriginLabel = new QLabel(QStringLiteral("Origen: Dataset (seleccione)"), transferBox);
+    m_transferDestLabel = new QLabel(QStringLiteral("Destino: Dataset (seleccione)"), transferBox);
+    m_transferOriginLabel->setWordWrap(true);
+    m_transferDestLabel->setWordWrap(true);
+    m_btnCopy = new QPushButton(QStringLiteral("Copiar"), transferBox);
+    m_btnLevel = new QPushButton(QStringLiteral("Nivelar"), transferBox);
+    m_btnSync = new QPushButton(QStringLiteral("Sincronizar"), transferBox);
+    m_btnCopy->setEnabled(false);
+    m_btnLevel->setEnabled(false);
+    m_btnSync->setEnabled(false);
+    transferLayout->addWidget(m_transferOriginLabel);
+    transferLayout->addWidget(m_transferDestLabel);
+    transferLayout->addWidget(m_btnCopy);
+    transferLayout->addWidget(m_btnLevel);
+    transferLayout->addWidget(m_btnSync);
+    dsLeftLayout->addWidget(transferBox, 0);
+
     auto* propsBox = new QGroupBox(QStringLiteral("Propiedades del dataset"), dsSplitter);
     auto* propsLayout = new QVBoxLayout(propsBox);
     m_datasetPropsTable = new QTableWidget(propsBox);
@@ -223,6 +242,12 @@ void MainWindow::buildUi() {
     connect(m_destPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onDestPoolChanged(); });
     connect(m_originTree, &QTreeWidget::itemSelectionChanged, this, [this]() { onOriginTreeSelectionChanged(); });
     connect(m_destTree, &QTreeWidget::itemSelectionChanged, this, [this]() { onDestTreeSelectionChanged(); });
+    connect(m_originTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int col) {
+        onOriginTreeItemDoubleClicked(item, col);
+    });
+    connect(m_destTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int col) {
+        onDestTreeItemDoubleClicked(item, col);
+    });
     m_originTree->setContextMenuPolicy(Qt::CustomContextMenu);
     m_destTree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_originTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
@@ -237,6 +262,9 @@ void MainWindow::buildUi() {
     connect(m_btnApplyDatasetProps, &QPushButton::clicked, this, [this]() {
         applyDatasetPropertyChanges();
     });
+    connect(m_btnCopy, &QPushButton::clicked, this, [this]() { actionCopySnapshot(); });
+    connect(m_btnLevel, &QPushButton::clicked, this, [this]() { actionLevelSnapshot(); });
+    connect(m_btnSync, &QPushButton::clicked, this, [this]() { actionSyncDatasets(); });
 }
 
 void MainWindow::loadConnections() {
@@ -380,6 +408,8 @@ void MainWindow::onOriginPoolChanged() {
     const QString poolName = token.mid(sep + 2);
     populateDatasetTree(m_originTree, connIdx, poolName, QStringLiteral("origin"));
     refreshDatasetProperties(QStringLiteral("origin"));
+    refreshTransferSelectionLabels();
+    updateTransferButtonsState();
 }
 
 void MainWindow::onDestPoolChanged() {
@@ -399,6 +429,8 @@ void MainWindow::onDestPoolChanged() {
     const QString poolName = token.mid(sep + 2);
     populateDatasetTree(m_destTree, connIdx, poolName, QStringLiteral("dest"));
     refreshDatasetProperties(QStringLiteral("dest"));
+    refreshTransferSelectionLabels();
+    updateTransferButtonsState();
 }
 
 void MainWindow::onOriginTreeSelectionChanged() {
@@ -419,6 +451,102 @@ void MainWindow::onDestTreeSelectionChanged() {
     }
     auto* it = selected.first();
     setSelectedDataset(QStringLiteral("dest"), it->data(0, Qt::UserRole).toString(), it->data(1, Qt::UserRole).toString());
+}
+
+void MainWindow::onOriginTreeItemDoubleClicked(QTreeWidgetItem* item, int col) {
+    if (!item || col != 1) {
+        return;
+    }
+    const QString ds = item->data(0, Qt::UserRole).toString();
+    if (ds.isEmpty()) {
+        return;
+    }
+    const QString token = m_originPoolCombo->currentData().toString();
+    const int sep = token.indexOf(QStringLiteral("::"));
+    if (sep <= 0) {
+        return;
+    }
+    const int connIdx = token.left(sep).toInt();
+    const QString poolName = token.mid(sep + 2);
+    const QString key = datasetCacheKey(connIdx, poolName);
+    const auto it = m_poolDatasetCache.constFind(key);
+    if (it == m_poolDatasetCache.constEnd()) {
+        return;
+    }
+    QStringList options;
+    options << QStringLiteral("(seleccione)");
+    options += it.value().snapshotsByDataset.value(ds);
+    if (options.size() <= 1) {
+        return;
+    }
+    bool ok = false;
+    const QString chosen = QInputDialog::getItem(this,
+                                                 QStringLiteral("Snapshot origen"),
+                                                 QStringLiteral("Seleccione snapshot"),
+                                                 options,
+                                                 0,
+                                                 false,
+                                                 &ok);
+    if (!ok) {
+        return;
+    }
+    if (chosen == QStringLiteral("(seleccione)")) {
+        item->setText(1, QStringLiteral("(seleccione)"));
+        item->setData(1, Qt::UserRole, QString());
+        setSelectedDataset(QStringLiteral("origin"), ds, QString());
+    } else {
+        item->setText(1, chosen);
+        item->setData(1, Qt::UserRole, chosen);
+        setSelectedDataset(QStringLiteral("origin"), ds, chosen);
+    }
+}
+
+void MainWindow::onDestTreeItemDoubleClicked(QTreeWidgetItem* item, int col) {
+    if (!item || col != 1) {
+        return;
+    }
+    const QString ds = item->data(0, Qt::UserRole).toString();
+    if (ds.isEmpty()) {
+        return;
+    }
+    const QString token = m_destPoolCombo->currentData().toString();
+    const int sep = token.indexOf(QStringLiteral("::"));
+    if (sep <= 0) {
+        return;
+    }
+    const int connIdx = token.left(sep).toInt();
+    const QString poolName = token.mid(sep + 2);
+    const QString key = datasetCacheKey(connIdx, poolName);
+    const auto it = m_poolDatasetCache.constFind(key);
+    if (it == m_poolDatasetCache.constEnd()) {
+        return;
+    }
+    QStringList options;
+    options << QStringLiteral("(seleccione)");
+    options += it.value().snapshotsByDataset.value(ds);
+    if (options.size() <= 1) {
+        return;
+    }
+    bool ok = false;
+    const QString chosen = QInputDialog::getItem(this,
+                                                 QStringLiteral("Snapshot destino"),
+                                                 QStringLiteral("Seleccione snapshot"),
+                                                 options,
+                                                 0,
+                                                 false,
+                                                 &ok);
+    if (!ok) {
+        return;
+    }
+    if (chosen == QStringLiteral("(seleccione)")) {
+        item->setText(1, QStringLiteral("(seleccione)"));
+        item->setData(1, Qt::UserRole, QString());
+        setSelectedDataset(QStringLiteral("dest"), ds, QString());
+    } else {
+        item->setText(1, chosen);
+        item->setData(1, Qt::UserRole, chosen);
+        setSelectedDataset(QStringLiteral("dest"), ds, chosen);
+    }
 }
 
 void MainWindow::onOriginTreeContextMenuRequested(const QPoint& pos) {
@@ -654,6 +782,8 @@ void MainWindow::setSelectedDataset(const QString& side, const QString& datasetN
             m_originSelectionLabel->setText(QStringLiteral("Snapshot: %1@%2").arg(datasetName, snapshotName));
         }
         refreshDatasetProperties(QStringLiteral("origin"));
+        refreshTransferSelectionLabels();
+        updateTransferButtonsState();
         return;
     }
     m_destSelectedDataset = datasetName;
@@ -666,6 +796,184 @@ void MainWindow::setSelectedDataset(const QString& side, const QString& datasetN
         m_destSelectionLabel->setText(QStringLiteral("Snapshot: %1@%2").arg(datasetName, snapshotName));
     }
     refreshDatasetProperties(QStringLiteral("dest"));
+    refreshTransferSelectionLabels();
+    updateTransferButtonsState();
+}
+
+void MainWindow::refreshTransferSelectionLabels() {
+    if (!m_originSelectedDataset.isEmpty()) {
+        if (!m_originSelectedSnapshot.isEmpty()) {
+            m_transferOriginLabel->setText(QStringLiteral("Origen: Snapshot %1@%2").arg(m_originSelectedDataset, m_originSelectedSnapshot));
+        } else {
+            m_transferOriginLabel->setText(QStringLiteral("Origen: Dataset %1").arg(m_originSelectedDataset));
+        }
+    } else {
+        m_transferOriginLabel->setText(QStringLiteral("Origen: Dataset (seleccione)"));
+    }
+
+    if (!m_destSelectedDataset.isEmpty()) {
+        if (!m_destSelectedSnapshot.isEmpty()) {
+            m_transferDestLabel->setText(QStringLiteral("Destino: Snapshot %1@%2").arg(m_destSelectedDataset, m_destSelectedSnapshot));
+        } else {
+            m_transferDestLabel->setText(QStringLiteral("Destino: Dataset %1").arg(m_destSelectedDataset));
+        }
+    } else {
+        m_transferDestLabel->setText(QStringLiteral("Destino: Dataset (seleccione)"));
+    }
+}
+
+void MainWindow::updateTransferButtonsState() {
+    const bool srcDs = !m_originSelectedDataset.isEmpty();
+    const bool srcSnap = !m_originSelectedSnapshot.isEmpty();
+    const bool dstDs = !m_destSelectedDataset.isEmpty();
+    const bool dstSnap = !m_destSelectedSnapshot.isEmpty();
+    m_btnCopy->setEnabled(srcDs && srcSnap && dstDs && !dstSnap);
+    m_btnLevel->setEnabled(srcDs && srcSnap && dstDs && !dstSnap);
+    m_btnSync->setEnabled(srcDs && !srcSnap && dstDs && !dstSnap);
+}
+
+bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs) {
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("%1").arg(displayLabel));
+    appLog(QStringLiteral("INFO"), QStringLiteral("$ %1").arg(command));
+    QProcess proc;
+    proc.start(QStringLiteral("sh"), QStringList{QStringLiteral("-lc"), command});
+    if (!proc.waitForStarted(4000)) {
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("No se pudo iniciar comando local"));
+        return false;
+    }
+    if (timeoutMs > 0) {
+        if (!proc.waitForFinished(timeoutMs)) {
+            proc.kill();
+            proc.waitForFinished(1000);
+            appLog(QStringLiteral("NORMAL"), QStringLiteral("Timeout en comando local"));
+            return false;
+        }
+    } else {
+        proc.waitForFinished(-1);
+    }
+    const int rc = proc.exitCode();
+    const QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+    const QString err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
+    if (!out.isEmpty()) {
+        appLog(QStringLiteral("INFO"), oneLine(out));
+    }
+    if (!err.isEmpty()) {
+        appLog(QStringLiteral("INFO"), oneLine(err));
+    }
+    if (rc != 0) {
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("Comando finalizó con error %1").arg(rc));
+        return false;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Comando finalizado correctamente"));
+    return true;
+}
+
+void MainWindow::actionCopySnapshot() {
+    const DatasetSelectionContext src = currentDatasetSelection(QStringLiteral("origin"));
+    const DatasetSelectionContext dst = currentDatasetSelection(QStringLiteral("dest"));
+    if (!src.valid || !dst.valid || src.snapshotName.isEmpty() || dst.datasetName.isEmpty()) {
+        return;
+    }
+    const ConnectionProfile& sp = m_profiles[src.connIdx];
+    const ConnectionProfile& dp = m_profiles[dst.connIdx];
+    const QString srcSnap = src.datasetName + QStringLiteral("@") + src.snapshotName;
+    const QString recvTarget = dst.datasetName + QStringLiteral("/") + src.datasetName.section('/', -1);
+
+    QString srcSsh = QStringLiteral("ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
+    if (sp.port > 0) {
+        srcSsh += QStringLiteral(" -p ") + QString::number(sp.port);
+    }
+    if (!sp.keyPath.isEmpty()) {
+        srcSsh += QStringLiteral(" -i ") + shSingleQuote(sp.keyPath);
+    }
+    srcSsh += QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
+    QString dstSsh = QStringLiteral("ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
+    if (dp.port > 0) {
+        dstSsh += QStringLiteral(" -p ") + QString::number(dp.port);
+    }
+    if (!dp.keyPath.isEmpty()) {
+        dstSsh += QStringLiteral(" -i ") + shSingleQuote(dp.keyPath);
+    }
+    dstSsh += QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
+
+    QString sendCmd = QStringLiteral("zfs send -wLec %1").arg(shSingleQuote(srcSnap));
+    if (sp.useSudo) {
+        sendCmd = QStringLiteral("sudo -n ") + sendCmd;
+    }
+    QString recvCmd = QStringLiteral("zfs recv -F %1").arg(shSingleQuote(recvTarget));
+    if (dp.useSudo) {
+        recvCmd = QStringLiteral("sudo -n ") + recvCmd;
+    }
+
+    const QString pipeline =
+        srcSsh + QStringLiteral(" ") + shSingleQuote(sendCmd)
+        + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab) || cat) | ")
+        + dstSsh + QStringLiteral(" ") + shSingleQuote(recvCmd);
+
+    if (runLocalCommand(QStringLiteral("Copiar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0)) {
+        invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
+        reloadDatasetSide(QStringLiteral("dest"));
+    }
+}
+
+void MainWindow::actionLevelSnapshot() {
+    const DatasetSelectionContext src = currentDatasetSelection(QStringLiteral("origin"));
+    const DatasetSelectionContext dst = currentDatasetSelection(QStringLiteral("dest"));
+    if (!src.valid || !dst.valid || src.snapshotName.isEmpty() || dst.datasetName.isEmpty()) {
+        return;
+    }
+    const ConnectionProfile& sp = m_profiles[src.connIdx];
+    const ConnectionProfile& dp = m_profiles[dst.connIdx];
+    const QString srcSnap = src.datasetName + QStringLiteral("@") + src.snapshotName;
+    const QString recvTarget = dst.datasetName;
+
+    QString srcSsh = QStringLiteral("ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
+    if (sp.port > 0) {
+        srcSsh += QStringLiteral(" -p ") + QString::number(sp.port);
+    }
+    if (!sp.keyPath.isEmpty()) {
+        srcSsh += QStringLiteral(" -i ") + shSingleQuote(sp.keyPath);
+    }
+    srcSsh += QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
+    QString dstSsh = QStringLiteral("ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
+    if (dp.port > 0) {
+        dstSsh += QStringLiteral(" -p ") + QString::number(dp.port);
+    }
+    if (!dp.keyPath.isEmpty()) {
+        dstSsh += QStringLiteral(" -i ") + shSingleQuote(dp.keyPath);
+    }
+    dstSsh += QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
+
+    QString sendCmd = QStringLiteral("zfs send -wLecR %1").arg(shSingleQuote(srcSnap));
+    if (sp.useSudo) {
+        sendCmd = QStringLiteral("sudo -n ") + sendCmd;
+    }
+    QString recvCmd = QStringLiteral("zfs recv -F %1").arg(shSingleQuote(recvTarget));
+    if (dp.useSudo) {
+        recvCmd = QStringLiteral("sudo -n ") + recvCmd;
+    }
+
+    const QString pipeline =
+        srcSsh + QStringLiteral(" ") + shSingleQuote(sendCmd)
+        + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab) || cat) | ")
+        + dstSsh + QStringLiteral(" ") + shSingleQuote(recvCmd);
+
+    if (runLocalCommand(QStringLiteral("Nivelar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0)) {
+        invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
+        reloadDatasetSide(QStringLiteral("dest"));
+    }
+}
+
+void MainWindow::actionSyncDatasets() {
+    const DatasetSelectionContext src = currentDatasetSelection(QStringLiteral("origin"));
+    const DatasetSelectionContext dst = currentDatasetSelection(QStringLiteral("dest"));
+    if (!src.valid || !dst.valid || src.datasetName.isEmpty() || dst.datasetName.isEmpty()) {
+        return;
+    }
+    const QString cmd = QStringLiteral("rsync -aHAWXS <mountpoint_origen>/ <mountpoint_destino>/");
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Sincronizar (propuesto, no ejecutado) %1 -> %2")
+                                   .arg(src.datasetName, dst.datasetName));
+    appLog(QStringLiteral("INFO"), QStringLiteral("$ %1").arg(cmd));
 }
 
 void MainWindow::onDatasetPropsCellChanged(int row, int col) {

@@ -83,6 +83,8 @@ private:
     void onDestPoolChanged();
     void onOriginTreeSelectionChanged();
     void onDestTreeSelectionChanged();
+    void onOriginTreeItemDoubleClicked(QTreeWidgetItem* item, int col);
+    void onDestTreeItemDoubleClicked(QTreeWidgetItem* item, int col);
     void onOriginTreeContextMenuRequested(const QPoint& pos);
     void onDestTreeContextMenuRequested(const QPoint& pos);
 
@@ -98,6 +100,12 @@ private:
     bool executeDatasetAction(const QString& side, const QString& actionName, const DatasetSelectionContext& ctx, const QString& cmd, int timeoutMs = 45000);
     void invalidateDatasetCacheForPool(int connIdx, const QString& poolName);
     void reloadDatasetSide(const QString& side);
+    void updateTransferButtonsState();
+    void refreshTransferSelectionLabels();
+    bool runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs = 0);
+    void actionCopySnapshot();
+    void actionLevelSnapshot();
+    void actionSyncDatasets();
     void actionMountDataset(const QString& side);
     void actionUmountDataset(const QString& side);
     void actionCreateChildDataset(const QString& side);
@@ -129,6 +137,11 @@ private:
     QTreeWidget* m_destTree{nullptr};
     QTableWidget* m_datasetPropsTable{nullptr};
     QPushButton* m_btnApplyDatasetProps{nullptr};
+    QLabel* m_transferOriginLabel{nullptr};
+    QLabel* m_transferDestLabel{nullptr};
+    QPushButton* m_btnCopy{nullptr};
+    QPushButton* m_btnLevel{nullptr};
+    QPushButton* m_btnSync{nullptr};
     QLabel* m_originSelectionLabel{nullptr};
     QLabel* m_destSelectionLabel{nullptr};
 
