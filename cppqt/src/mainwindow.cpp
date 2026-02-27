@@ -94,6 +94,24 @@ void MainWindow::buildUi() {
 
     auto* datasetsTab = new QWidget(m_leftTabs);
     auto* dsLeftTabLayout = new QVBoxLayout(datasetsTab);
+    auto* transferBox = new QGroupBox(QStringLiteral("Origen-->Destino"), datasetsTab);
+    auto* transferLayout = new QVBoxLayout(transferBox);
+    m_transferOriginLabel = new QLabel(QStringLiteral("Origen: Dataset (seleccione)"), transferBox);
+    m_transferDestLabel = new QLabel(QStringLiteral("Destino: Dataset (seleccione)"), transferBox);
+    m_transferOriginLabel->setWordWrap(true);
+    m_transferDestLabel->setWordWrap(true);
+    m_btnCopy = new QPushButton(QStringLiteral("Copiar"), transferBox);
+    m_btnLevel = new QPushButton(QStringLiteral("Nivelar"), transferBox);
+    m_btnSync = new QPushButton(QStringLiteral("Sincronizar"), transferBox);
+    m_btnCopy->setEnabled(false);
+    m_btnLevel->setEnabled(false);
+    m_btnSync->setEnabled(false);
+    transferLayout->addWidget(m_transferOriginLabel);
+    transferLayout->addWidget(m_transferDestLabel);
+    transferLayout->addWidget(m_btnCopy);
+    transferLayout->addWidget(m_btnLevel);
+    transferLayout->addWidget(m_btnSync);
+    dsLeftTabLayout->addWidget(transferBox);
     dsLeftTabLayout->addWidget(new QLabel(QStringLiteral("Detalle en panel derecho"), datasetsTab));
     dsLeftTabLayout->addStretch(1);
     datasetsTab->setLayout(dsLeftTabLayout);
@@ -185,25 +203,6 @@ void MainWindow::buildUi() {
 
     dsLeftLayout->addWidget(originBox, 1);
     dsLeftLayout->addWidget(destBox, 1);
-
-    auto* transferBox = new QGroupBox(QStringLiteral("Origen-->Destino"), dsLeft);
-    auto* transferLayout = new QVBoxLayout(transferBox);
-    m_transferOriginLabel = new QLabel(QStringLiteral("Origen: Dataset (seleccione)"), transferBox);
-    m_transferDestLabel = new QLabel(QStringLiteral("Destino: Dataset (seleccione)"), transferBox);
-    m_transferOriginLabel->setWordWrap(true);
-    m_transferDestLabel->setWordWrap(true);
-    m_btnCopy = new QPushButton(QStringLiteral("Copiar"), transferBox);
-    m_btnLevel = new QPushButton(QStringLiteral("Nivelar"), transferBox);
-    m_btnSync = new QPushButton(QStringLiteral("Sincronizar"), transferBox);
-    m_btnCopy->setEnabled(false);
-    m_btnLevel->setEnabled(false);
-    m_btnSync->setEnabled(false);
-    transferLayout->addWidget(m_transferOriginLabel);
-    transferLayout->addWidget(m_transferDestLabel);
-    transferLayout->addWidget(m_btnCopy);
-    transferLayout->addWidget(m_btnLevel);
-    transferLayout->addWidget(m_btnSync);
-    dsLeftLayout->addWidget(transferBox, 0);
 
     auto* propsBox = new QGroupBox(QStringLiteral("Propiedades del dataset"), dsSplitter);
     auto* propsLayout = new QVBoxLayout(propsBox);
