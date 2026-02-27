@@ -125,6 +125,8 @@ private:
     void actionDeleteDatasetOrSnapshot(const QString& side);
     void onDatasetPropsCellChanged(int row, int col);
     void applyDatasetPropertyChanges();
+    void onAdvancedPropsCellChanged(int row, int col);
+    void applyAdvancedDatasetPropertyChanges();
     void updateApplyPropsButtonState();
     void initLogPersistence();
     void rotateLogIfNeeded();
@@ -164,6 +166,8 @@ private:
     QTreeWidget* m_destTree{nullptr};
     QTableWidget* m_datasetPropsTable{nullptr};
     QPushButton* m_btnApplyDatasetProps{nullptr};
+    QTableWidget* m_advPropsTable{nullptr};
+    QPushButton* m_btnApplyAdvancedProps{nullptr};
     QLabel* m_transferOriginLabel{nullptr};
     QLabel* m_transferDestLabel{nullptr};
     QPushButton* m_btnCopy{nullptr};
@@ -196,6 +200,9 @@ private:
     QString m_propsDataset;
     QMap<QString, QString> m_propsOriginalValues;
     bool m_propsDirty{false};
+    QString m_advPropsDataset;
+    QMap<QString, QString> m_advPropsOriginalValues;
+    bool m_advPropsDirty{false};
     bool m_loadingPropsTable{false};
     QString m_appLogPath;
 };

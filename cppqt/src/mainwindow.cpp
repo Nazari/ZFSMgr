@@ -242,6 +242,9 @@ void MainWindow::buildUi() {
 
     auto* rightAdvancedPage = new QWidget(m_rightStack);
     auto* rightAdvancedLayout = new QVBoxLayout(rightAdvancedPage);
+    auto* advSplitter = new QSplitter(Qt::Horizontal, rightAdvancedPage);
+    auto* advLeft = new QWidget(advSplitter);
+    auto* advLeftLayout = new QVBoxLayout(advLeft);
     m_advPoolCombo = new QComboBox(rightAdvancedPage);
     m_advPoolCombo->setMinimumContentsLength(24);
     m_advPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
@@ -252,9 +255,28 @@ void MainWindow::buildUi() {
     m_advTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     m_advSelectionLabel = new QLabel(QStringLiteral("Dataset: (seleccione)"), rightAdvancedPage);
     m_advSelectionLabel->setWordWrap(true);
-    rightAdvancedLayout->addWidget(m_advPoolCombo);
-    rightAdvancedLayout->addWidget(m_advSelectionLabel);
-    rightAdvancedLayout->addWidget(m_advTree, 1);
+    advLeftLayout->addWidget(m_advPoolCombo);
+    advLeftLayout->addWidget(m_advSelectionLabel);
+    advLeftLayout->addWidget(m_advTree, 1);
+
+    auto* advPropsBox = new QGroupBox(QStringLiteral("Propiedades del dataset"), advSplitter);
+    auto* advPropsLayout = new QVBoxLayout(advPropsBox);
+    m_advPropsTable = new QTableWidget(advPropsBox);
+    m_advPropsTable->setColumnCount(2);
+    m_advPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor")});
+    m_advPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_advPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_advPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
+    m_btnApplyAdvancedProps = new QPushButton(QStringLiteral("Aplicar cambios"), advPropsBox);
+    m_btnApplyAdvancedProps->setEnabled(false);
+    advPropsLayout->addWidget(m_advPropsTable, 1);
+    advPropsLayout->addWidget(m_btnApplyAdvancedProps, 0, Qt::AlignRight);
+
+    advSplitter->addWidget(advLeft);
+    advSplitter->addWidget(advPropsBox);
+    advSplitter->setStretchFactor(0, 62);
+    advSplitter->setStretchFactor(1, 38);
+    rightAdvancedLayout->addWidget(advSplitter, 1);
 
     m_rightStack->addWidget(rightConnectionsPage);
     m_rightStack->addWidget(rightDatasetsPage);
@@ -360,19 +382,19 @@ void MainWindow::buildUi() {
     connect(m_originPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onOriginPoolChanged(); });
     connect(m_destPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onDestPoolChanged(); });
     connect(m_advPoolCombo, &QComboBox::currentIndexChanged, this, [this]() {
-        m_originSelectedDataset.clear();
-        m_originSelectedSnapshot.clear();
         const QString token = m_advPoolCombo->currentData().toString();
         const int sep = token.indexOf(QStringLiteral("::"));
         if (sep <= 0) {
             m_advTree->clear();
             m_advSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+            refreshDatasetProperties(QStringLiteral("advanced"));
             return;
         }
         const int connIdx = token.left(sep).toInt();
         const QString poolName = token.mid(sep + 2);
         populateDatasetTree(m_advTree, connIdx, poolName, QStringLiteral("origin"));
         m_advSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+        refreshDatasetProperties(QStringLiteral("advanced"));
     });
     connect(m_originTree, &QTreeWidget::itemSelectionChanged, this, [this]() { onOriginTreeSelectionChanged(); });
     connect(m_destTree, &QTreeWidget::itemSelectionChanged, this, [this]() { onDestTreeSelectionChanged(); });
@@ -396,6 +418,12 @@ void MainWindow::buildUi() {
     connect(m_btnApplyDatasetProps, &QPushButton::clicked, this, [this]() {
         applyDatasetPropertyChanges();
     });
+    connect(m_advPropsTable, &QTableWidget::cellChanged, this, [this](int row, int col) {
+        onAdvancedPropsCellChanged(row, col);
+    });
+    connect(m_btnApplyAdvancedProps, &QPushButton::clicked, this, [this]() {
+        applyAdvancedDatasetPropertyChanges();
+    });
     connect(m_btnCopy, &QPushButton::clicked, this, [this]() { actionCopySnapshot(); });
     connect(m_btnLevel, &QPushButton::clicked, this, [this]() { actionLevelSnapshot(); });
     connect(m_btnSync, &QPushButton::clicked, this, [this]() { actionSyncDatasets(); });
@@ -408,6 +436,7 @@ void MainWindow::buildUi() {
         const auto selected = m_advTree->selectedItems();
         if (selected.isEmpty()) {
             m_advSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+            refreshDatasetProperties(QStringLiteral("advanced"));
             return;
         }
         auto* it = selected.first();
@@ -420,6 +449,7 @@ void MainWindow::buildUi() {
         } else {
             m_advSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
         }
+        refreshDatasetProperties(QStringLiteral("advanced"));
     });
     connect(m_advTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int col) {
         if (!item || col != 1) {
@@ -1089,19 +1119,45 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
 }
 
 void MainWindow::refreshDatasetProperties(const QString& side) {
-    const QString dataset = (side == QStringLiteral("origin")) ? m_originSelectedDataset : m_destSelectedDataset;
+    QString dataset;
+    if (side == QStringLiteral("origin")) {
+        dataset = m_originSelectedDataset;
+    } else if (side == QStringLiteral("dest")) {
+        dataset = m_destSelectedDataset;
+    } else {
+        const auto selected = m_advTree ? m_advTree->selectedItems() : QList<QTreeWidgetItem*>{};
+        if (!selected.isEmpty()) {
+            dataset = selected.first()->data(0, Qt::UserRole).toString();
+        }
+    }
+    QTableWidget* table = (side == QStringLiteral("advanced")) ? m_advPropsTable : m_datasetPropsTable;
+    if (!table) {
+        return;
+    }
     if (dataset.isEmpty()) {
-        m_datasetPropsTable->setRowCount(0);
-        m_propsDataset.clear();
-        m_propsSide = side;
-        m_propsOriginalValues.clear();
-        m_propsDirty = false;
+        table->setRowCount(0);
+        if (side == QStringLiteral("advanced")) {
+            m_advPropsDataset.clear();
+            m_advPropsOriginalValues.clear();
+            m_advPropsDirty = false;
+        } else {
+            m_propsDataset.clear();
+            m_propsSide = side;
+            m_propsOriginalValues.clear();
+            m_propsDirty = false;
+        }
         updateApplyPropsButtonState();
         return;
     }
 
-    const QString token = (side == QStringLiteral("origin")) ? m_originPoolCombo->currentData().toString()
-                                                              : m_destPoolCombo->currentData().toString();
+    QString token;
+    if (side == QStringLiteral("origin")) {
+        token = m_originPoolCombo->currentData().toString();
+    } else if (side == QStringLiteral("dest")) {
+        token = m_destPoolCombo->currentData().toString();
+    } else {
+        token = m_advPoolCombo->currentData().toString();
+    }
     const int sep = token.indexOf(QStringLiteral("::"));
     if (sep <= 0) {
         return;
@@ -1137,22 +1193,35 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     };
 
     m_loadingPropsTable = true;
-    m_datasetPropsTable->setRowCount(0);
-    m_propsOriginalValues.clear();
-    m_propsSide = side;
-    m_propsDataset = rec.name;
+    table->setRowCount(0);
+    if (side == QStringLiteral("advanced")) {
+        m_advPropsOriginalValues.clear();
+        m_advPropsDataset = rec.name;
+    } else {
+        m_propsOriginalValues.clear();
+        m_propsSide = side;
+        m_propsDataset = rec.name;
+    }
     for (const Row& row : rows) {
-        const int r = m_datasetPropsTable->rowCount();
-        m_datasetPropsTable->insertRow(r);
-        m_datasetPropsTable->setItem(r, 0, new QTableWidgetItem(row.k));
+        const int r = table->rowCount();
+        table->insertRow(r);
+        table->setItem(r, 0, new QTableWidgetItem(row.k));
         auto* v = new QTableWidgetItem(row.v);
         if (row.k == QStringLiteral("dataset")) {
             v->setFlags(v->flags() & ~Qt::ItemIsEditable);
         }
-        m_datasetPropsTable->setItem(r, 1, v);
-        m_propsOriginalValues[row.k] = row.v;
+        table->setItem(r, 1, v);
+        if (side == QStringLiteral("advanced")) {
+            m_advPropsOriginalValues[row.k] = row.v;
+        } else {
+            m_propsOriginalValues[row.k] = row.v;
+        }
     }
-    m_propsDirty = false;
+    if (side == QStringLiteral("advanced")) {
+        m_advPropsDirty = false;
+    } else {
+        m_propsDirty = false;
+    }
     m_loadingPropsTable = false;
     updateApplyPropsButtonState();
 }
@@ -1517,6 +1586,37 @@ void MainWindow::onDatasetPropsCellChanged(int row, int col) {
     updateApplyPropsButtonState();
 }
 
+void MainWindow::onAdvancedPropsCellChanged(int row, int col) {
+    if (m_loadingPropsTable || col != 1 || !m_advPropsTable) {
+        return;
+    }
+    QTableWidgetItem* pk = m_advPropsTable->item(row, 0);
+    QTableWidgetItem* pv = m_advPropsTable->item(row, 1);
+    if (!pk || !pv) {
+        return;
+    }
+    const QString key = pk->text().trimmed();
+    const QString value = pv->text();
+    const QString orig = m_advPropsOriginalValues.value(key);
+    if (value != orig) {
+        m_advPropsDirty = true;
+    } else {
+        m_advPropsDirty = false;
+        for (int r = 0; r < m_advPropsTable->rowCount(); ++r) {
+            QTableWidgetItem* rk = m_advPropsTable->item(r, 0);
+            QTableWidgetItem* rv = m_advPropsTable->item(r, 1);
+            if (!rk || !rv) {
+                continue;
+            }
+            if (rv->text() != m_advPropsOriginalValues.value(rk->text().trimmed())) {
+                m_advPropsDirty = true;
+                break;
+            }
+        }
+    }
+    updateApplyPropsButtonState();
+}
+
 void MainWindow::applyDatasetPropertyChanges() {
     if (!m_propsDirty || m_propsDataset.isEmpty() || m_propsSide.isEmpty()) {
         return;
@@ -1564,10 +1664,62 @@ void MainWindow::applyDatasetPropertyChanges() {
     }
 }
 
+void MainWindow::applyAdvancedDatasetPropertyChanges() {
+    if (!m_advPropsDirty || m_advPropsDataset.isEmpty() || !m_advPropsTable) {
+        return;
+    }
+    DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("advanced"));
+    if (!ctx.valid || ctx.datasetName != m_advPropsDataset || !ctx.snapshotName.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), QStringLiteral("Seleccione un dataset activo para aplicar cambios."));
+        return;
+    }
+
+    QStringList subcmds;
+    for (int r = 0; r < m_advPropsTable->rowCount(); ++r) {
+        QTableWidgetItem* pk = m_advPropsTable->item(r, 0);
+        QTableWidgetItem* pv = m_advPropsTable->item(r, 1);
+        if (!pk || !pv) {
+            continue;
+        }
+        const QString prop = pk->text().trimmed();
+        if (prop.isEmpty() || prop == QStringLiteral("dataset")) {
+            continue;
+        }
+        const QString now = pv->text().trimmed();
+        const QString old = m_advPropsOriginalValues.value(prop).trimmed();
+        if (now == old) {
+            continue;
+        }
+        if (now.compare(QStringLiteral("inherit"), Qt::CaseInsensitive) == 0
+            || now.compare(QStringLiteral("(inherit)"), Qt::CaseInsensitive) == 0) {
+            subcmds << QStringLiteral("zfs inherit %1 %2").arg(shSingleQuote(prop), shSingleQuote(ctx.datasetName));
+        } else {
+            const QString assign = prop + QStringLiteral("=") + now;
+            subcmds << QStringLiteral("zfs set %1 %2").arg(shSingleQuote(assign), shSingleQuote(ctx.datasetName));
+        }
+    }
+    if (subcmds.isEmpty()) {
+        m_advPropsDirty = false;
+        updateApplyPropsButtonState();
+        return;
+    }
+
+    const QString cmd = QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
+    if (executeDatasetAction(QStringLiteral("advanced"), QStringLiteral("Aplicar propiedades"), ctx, cmd, 60000)) {
+        m_advPropsDirty = false;
+        updateApplyPropsButtonState();
+    }
+}
+
 void MainWindow::updateApplyPropsButtonState() {
     const DatasetSelectionContext ctx = currentDatasetSelection(m_propsSide);
     const bool eligible = ctx.valid && ctx.snapshotName.isEmpty() && (ctx.datasetName == m_propsDataset);
     m_btnApplyDatasetProps->setEnabled(m_propsDirty && eligible);
+    const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("advanced"));
+    const bool aok = actx.valid && actx.snapshotName.isEmpty() && (actx.datasetName == m_advPropsDataset);
+    if (m_btnApplyAdvancedProps) {
+        m_btnApplyAdvancedProps->setEnabled(m_advPropsDirty && aok);
+    }
 }
 
 void MainWindow::initLogPersistence() {
@@ -1758,8 +1910,27 @@ void MainWindow::importPoolFromRow(int row) {
 
 MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QString& side) const {
     DatasetSelectionContext ctx;
-    const QString token = (side == QStringLiteral("origin")) ? m_originPoolCombo->currentData().toString()
-                                                              : m_destPoolCombo->currentData().toString();
+    QString token;
+    QString ds;
+    QString snap;
+    if (side == QStringLiteral("origin")) {
+        token = m_originPoolCombo->currentData().toString();
+        ds = m_originSelectedDataset;
+        snap = m_originSelectedSnapshot;
+    } else if (side == QStringLiteral("dest")) {
+        token = m_destPoolCombo->currentData().toString();
+        ds = m_destSelectedDataset;
+        snap = m_destSelectedSnapshot;
+    } else {
+        token = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
+        if (m_advTree) {
+            const auto selected = m_advTree->selectedItems();
+            if (!selected.isEmpty()) {
+                ds = selected.first()->data(0, Qt::UserRole).toString();
+                snap = selected.first()->data(1, Qt::UserRole).toString();
+            }
+        }
+    }
     const int sep = token.indexOf(QStringLiteral("::"));
     if (sep <= 0) {
         return ctx;
@@ -1769,8 +1940,6 @@ MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QS
         return ctx;
     }
     const QString pool = token.mid(sep + 2);
-    const QString ds = (side == QStringLiteral("origin")) ? m_originSelectedDataset : m_destSelectedDataset;
-    const QString snap = (side == QStringLiteral("origin")) ? m_originSelectedSnapshot : m_destSelectedSnapshot;
     if (ds.isEmpty()) {
         return ctx;
     }
@@ -1859,8 +2028,17 @@ void MainWindow::invalidateDatasetCacheForPool(int connIdx, const QString& poolN
 void MainWindow::reloadDatasetSide(const QString& side) {
     if (side == QStringLiteral("origin")) {
         onOriginPoolChanged();
-    } else {
+    } else if (side == QStringLiteral("dest")) {
         onDestPoolChanged();
+    } else {
+        const QString token = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
+        const int sep = token.indexOf(QStringLiteral("::"));
+        if (sep > 0) {
+            const int connIdx = token.left(sep).toInt();
+            const QString poolName = token.mid(sep + 2);
+            populateDatasetTree(m_advTree, connIdx, poolName, QStringLiteral("origin"));
+            refreshDatasetProperties(QStringLiteral("advanced"));
+        }
     }
 }
 
