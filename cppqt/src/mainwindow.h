@@ -10,6 +10,7 @@ class QComboBox;
 class QLabel;
 class QListWidget;
 class QListWidgetItem;
+class QPoint;
 class QPlainTextEdit;
 class QPushButton;
 class QTableWidget;
@@ -63,6 +64,14 @@ private:
         QMap<QString, DatasetRecord> recordByName;
     };
 
+    struct DatasetSelectionContext {
+        bool valid{false};
+        int connIdx{-1};
+        QString poolName;
+        QString datasetName;
+        QString snapshotName;
+    };
+
     void buildUi();
     void loadConnections();
     void rebuildConnectionList();
@@ -74,6 +83,8 @@ private:
     void onDestPoolChanged();
     void onOriginTreeSelectionChanged();
     void onDestTreeSelectionChanged();
+    void onOriginTreeContextMenuRequested(const QPoint& pos);
+    void onDestTreeContextMenuRequested(const QPoint& pos);
 
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
     bool runSsh(const ConnectionProfile& p, const QString& remoteCmd, int timeoutMs, QString& out, QString& err, int& rc);
@@ -82,6 +93,15 @@ private:
     void populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side);
     void refreshDatasetProperties(const QString& side);
     void setSelectedDataset(const QString& side, const QString& datasetName, const QString& snapshotName);
+    DatasetSelectionContext currentDatasetSelection(const QString& side) const;
+    void showDatasetContextMenu(const QString& side, QTreeWidget* tree, const QPoint& pos);
+    bool executeDatasetAction(const QString& side, const QString& actionName, const DatasetSelectionContext& ctx, const QString& cmd, int timeoutMs = 45000);
+    void invalidateDatasetCacheForPool(int connIdx, const QString& poolName);
+    void reloadDatasetSide(const QString& side);
+    void actionMountDataset(const QString& side);
+    void actionUmountDataset(const QString& side);
+    void actionCreateChildDataset(const QString& side);
+    void actionDeleteDatasetOrSnapshot(const QString& side);
     void updateStatus(const QString& text);
     void appLog(const QString& level, const QString& msg);
     void populatePoolsForConnection(int idx);

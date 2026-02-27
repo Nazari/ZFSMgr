@@ -7,8 +7,12 @@
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QListWidgetItem>
+#include <QInputDialog>
+#include <QMenu>
+#include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QProcess>
 #include <QPushButton>
@@ -39,6 +43,12 @@ QString parentDatasetName(const QString& dataset) {
         return QString();
     }
     return dataset.left(slash);
+}
+
+QString shSingleQuote(const QString& s) {
+    QString out = s;
+    out.replace('\'', "'\"'\"'");
+    return QStringLiteral("'") + out + QStringLiteral("'");
 }
 
 } // namespace
@@ -210,6 +220,14 @@ void MainWindow::buildUi() {
     connect(m_destPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onDestPoolChanged(); });
     connect(m_originTree, &QTreeWidget::itemSelectionChanged, this, [this]() { onOriginTreeSelectionChanged(); });
     connect(m_destTree, &QTreeWidget::itemSelectionChanged, this, [this]() { onDestTreeSelectionChanged(); });
+    m_originTree->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_destTree->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_originTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        onOriginTreeContextMenuRequested(pos);
+    });
+    connect(m_destTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        onDestTreeContextMenuRequested(pos);
+    });
 }
 
 void MainWindow::loadConnections() {
@@ -392,6 +410,14 @@ void MainWindow::onDestTreeSelectionChanged() {
     }
     auto* it = selected.first();
     setSelectedDataset(QStringLiteral("dest"), it->data(0, Qt::UserRole).toString(), it->data(1, Qt::UserRole).toString());
+}
+
+void MainWindow::onOriginTreeContextMenuRequested(const QPoint& pos) {
+    showDatasetContextMenu(QStringLiteral("origin"), m_originTree, pos);
+}
+
+void MainWindow::onDestTreeContextMenuRequested(const QPoint& pos) {
+    showDatasetContextMenu(QStringLiteral("dest"), m_destTree, pos);
 }
 
 bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, int timeoutMs, QString& out, QString& err, int& rc) {
@@ -618,6 +644,230 @@ void MainWindow::setSelectedDataset(const QString& side, const QString& datasetN
         m_destSelectionLabel->setText(QStringLiteral("Snapshot: %1@%2").arg(datasetName, snapshotName));
     }
     refreshDatasetProperties(QStringLiteral("dest"));
+}
+
+MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QString& side) const {
+    DatasetSelectionContext ctx;
+    const QString token = (side == QStringLiteral("origin")) ? m_originPoolCombo->currentData().toString()
+                                                              : m_destPoolCombo->currentData().toString();
+    const int sep = token.indexOf(QStringLiteral("::"));
+    if (sep <= 0) {
+        return ctx;
+    }
+    const int connIdx = token.left(sep).toInt();
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return ctx;
+    }
+    const QString pool = token.mid(sep + 2);
+    const QString ds = (side == QStringLiteral("origin")) ? m_originSelectedDataset : m_destSelectedDataset;
+    const QString snap = (side == QStringLiteral("origin")) ? m_originSelectedSnapshot : m_destSelectedSnapshot;
+    if (ds.isEmpty()) {
+        return ctx;
+    }
+    ctx.valid = true;
+    ctx.connIdx = connIdx;
+    ctx.poolName = pool;
+    ctx.datasetName = ds;
+    ctx.snapshotName = snap;
+    return ctx;
+}
+
+void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, const QPoint& pos) {
+    QTreeWidgetItem* item = tree->itemAt(pos);
+    if (!item) {
+        return;
+    }
+    tree->setCurrentItem(item);
+    if (side == QStringLiteral("origin")) {
+        onOriginTreeSelectionChanged();
+    } else {
+        onDestTreeSelectionChanged();
+    }
+    const DatasetSelectionContext ctx = currentDatasetSelection(side);
+    if (!ctx.valid) {
+        return;
+    }
+
+    QMenu menu(this);
+    QAction* mountAct = menu.addAction(QStringLiteral("Montar"));
+    QAction* umountAct = menu.addAction(QStringLiteral("Desmontar"));
+    menu.addSeparator();
+    QAction* createAct = menu.addAction(QStringLiteral("Crear hijo"));
+    QAction* deleteAct = menu.addAction(QStringLiteral("Borrar"));
+
+    if (!ctx.snapshotName.isEmpty()) {
+        mountAct->setEnabled(false);
+        umountAct->setEnabled(false);
+        createAct->setEnabled(false);
+    }
+
+    QAction* picked = menu.exec(tree->viewport()->mapToGlobal(pos));
+    if (!picked) {
+        return;
+    }
+    if (picked == mountAct) {
+        actionMountDataset(side);
+    } else if (picked == umountAct) {
+        actionUmountDataset(side);
+    } else if (picked == createAct) {
+        actionCreateChildDataset(side);
+    } else if (picked == deleteAct) {
+        actionDeleteDatasetOrSnapshot(side);
+    }
+}
+
+bool MainWindow::executeDatasetAction(const QString& side, const QString& actionName, const DatasetSelectionContext& ctx, const QString& cmd, int timeoutMs) {
+    if (!ctx.valid) {
+        return false;
+    }
+    const ConnectionProfile& p = m_profiles[ctx.connIdx];
+    QString remoteCmd = cmd;
+    if (p.useSudo) {
+        remoteCmd = QStringLiteral("sudo -n ") + remoteCmd;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("%1 %2::%3").arg(actionName, p.name, ctx.datasetName));
+    QString out;
+    QString err;
+    int rc = -1;
+    if (!runSsh(p, remoteCmd, timeoutMs, out, err, rc) || rc != 0) {
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Error en %1: %2")
+                   .arg(actionName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"), QStringLiteral("%1 falló:\n%2").arg(actionName, err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
+        return false;
+    }
+    if (!out.trimmed().isEmpty()) {
+        appLog(QStringLiteral("INFO"), oneLine(out));
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("%1 finalizado").arg(actionName));
+    invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
+    reloadDatasetSide(side);
+    return true;
+}
+
+void MainWindow::invalidateDatasetCacheForPool(int connIdx, const QString& poolName) {
+    m_poolDatasetCache.remove(datasetCacheKey(connIdx, poolName));
+}
+
+void MainWindow::reloadDatasetSide(const QString& side) {
+    if (side == QStringLiteral("origin")) {
+        onOriginPoolChanged();
+    } else {
+        onDestPoolChanged();
+    }
+}
+
+void MainWindow::actionMountDataset(const QString& side) {
+    const DatasetSelectionContext ctx = currentDatasetSelection(side);
+    if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
+        return;
+    }
+    const QString dsQ = shSingleQuote(ctx.datasetName);
+    const QString cmd = QStringLiteral("zfs mount %1").arg(dsQ);
+    executeDatasetAction(side, QStringLiteral("Montar"), ctx, cmd);
+}
+
+void MainWindow::actionUmountDataset(const QString& side) {
+    const DatasetSelectionContext ctx = currentDatasetSelection(side);
+    if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
+        return;
+    }
+    const QString dsQ = shSingleQuote(ctx.datasetName);
+    const QString hasChildrenCmd = QStringLiteral("zfs mount | awk '{print $1}' | grep -E '^%1/' -q").arg(ctx.datasetName);
+
+    QString out;
+    QString err;
+    int rc = -1;
+    const ConnectionProfile& p = m_profiles[ctx.connIdx];
+    QString checkCmd = p.useSudo ? (QStringLiteral("sudo -n ") + hasChildrenCmd) : hasChildrenCmd;
+    const bool ran = runSsh(p, checkCmd, 12000, out, err, rc);
+    bool hasChildrenMounted = ran && rc == 0;
+    QString cmd;
+    if (hasChildrenMounted) {
+        const auto answer = QMessageBox::question(
+            this,
+            QStringLiteral("ZFSMgr"),
+            QStringLiteral("Hay hijos montados bajo %1.\n¿Desmontar recursivamente?").arg(ctx.datasetName),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        if (answer != QMessageBox::Yes) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Desmontar abortado por usuario"));
+            return;
+        }
+        cmd = QStringLiteral(
+            "zfs mount | awk '{print $1}' | grep -E '^%1(/|$)' | awk '{print length, $0}' | sort -rn | cut -d' ' -f2- | "
+            "while IFS= read -r ds; do [ -n \"$ds\" ] && zfs umount \"$ds\"; done")
+                  .arg(ctx.datasetName);
+    } else {
+        cmd = QStringLiteral("zfs umount %1").arg(dsQ);
+    }
+    executeDatasetAction(side, QStringLiteral("Desmontar"), ctx, cmd);
+}
+
+void MainWindow::actionCreateChildDataset(const QString& side) {
+    const DatasetSelectionContext ctx = currentDatasetSelection(side);
+    if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
+        return;
+    }
+    bool ok = false;
+    const QString leaf = QInputDialog::getText(
+        this,
+        QStringLiteral("Crear dataset"),
+        QStringLiteral("Nombre hijo debajo de %1").arg(ctx.datasetName),
+        QLineEdit::Normal,
+        QString(),
+        &ok);
+    if (!ok || leaf.trimmed().isEmpty()) {
+        return;
+    }
+    const QString child = ctx.datasetName + QStringLiteral("/") + leaf.trimmed();
+    const QString cmd = QStringLiteral("zfs create %1").arg(shSingleQuote(child));
+    executeDatasetAction(side, QStringLiteral("Crear dataset"), ctx, cmd);
+}
+
+void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side) {
+    const DatasetSelectionContext ctx = currentDatasetSelection(side);
+    if (!ctx.valid) {
+        return;
+    }
+    const QString target = ctx.snapshotName.isEmpty() ? ctx.datasetName : (ctx.datasetName + QStringLiteral("@") + ctx.snapshotName);
+    const auto confirm1 = QMessageBox::question(
+        this,
+        QStringLiteral("Confirmar borrado"),
+        QStringLiteral("Se va a borrar:\n%1\n¿Continuar?").arg(target),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm1 != QMessageBox::Yes) {
+        return;
+    }
+    const auto confirm2 = QMessageBox::question(
+        this,
+        QStringLiteral("Confirmar borrado (2/2)"),
+        QStringLiteral("Confirmación final de borrado:\n%1").arg(target),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm2 != QMessageBox::Yes) {
+        return;
+    }
+
+    bool recursive = false;
+    if (ctx.snapshotName.isEmpty()) {
+        const auto askRec = QMessageBox::question(
+            this,
+            QStringLiteral("Borrado recursivo"),
+            QStringLiteral("¿Borrar recursivamente datasets/snapshots hijos?"),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        recursive = (askRec == QMessageBox::Yes);
+    }
+    QString cmd;
+    if (ctx.snapshotName.isEmpty()) {
+        cmd = recursive ? QStringLiteral("zfs destroy -r %1").arg(shSingleQuote(target))
+                        : QStringLiteral("zfs destroy %1").arg(shSingleQuote(target));
+    } else {
+        cmd = QStringLiteral("zfs destroy %1").arg(shSingleQuote(target));
+    }
+    executeDatasetAction(side, QStringLiteral("Borrar"), ctx, cmd, 90000);
 }
 
 MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p) {
