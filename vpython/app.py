@@ -3492,6 +3492,12 @@ class App(tk.Tk):
         self._dataset_props_inherit_vars: Dict[str, tk.BooleanVar] = {}
         self._dataset_props_original_values: Dict[str, str] = {}
         self._dataset_props_load_token: int = 0
+        self._advanced_last_props_sig: str = ""
+        self._advanced_props_ctx: Optional[Tuple[str, str, str]] = None  # (conn_id, pool, dataset)
+        self._advanced_props_edit_vars: Dict[str, tk.StringVar] = {}
+        self._advanced_props_inherit_vars: Dict[str, tk.BooleanVar] = {}
+        self._advanced_props_original_values: Dict[str, str] = {}
+        self._advanced_props_load_token: int = 0
 
         self._apply_theme()
         self._build_ui()
@@ -4164,6 +4170,15 @@ class App(tk.Tk):
             self.advanced_props_columns,
             enable_xscroll=True,
         )
+        adv_props_actions = ttk.Frame(adv_props)
+        adv_props_actions.grid(row=1, column=0, sticky="e", padx=(6, 6), pady=(4, 6))
+        self.advanced_props_apply_btn = ttk.Button(
+            adv_props_actions,
+            text=tr("modify_dataset_apply"),
+            command=self._apply_advanced_dataset_properties,
+            state="disabled",
+        )
+        self.advanced_props_apply_btn.grid(row=0, column=0, sticky="e")
 
         log_container = ttk.Frame(main_layout)
         log_container.grid(row=1, column=0, sticky="nsew")
@@ -8256,24 +8271,150 @@ class App(tk.Tk):
         return None
 
     def _render_advanced_dataset_properties(self, row: Optional[Dict[str, str]]) -> None:
-        self._clear_plain_table(self.advanced_props_rows)
-        cols = self.advanced_props_columns
+        rows_frame = self.advanced_props_rows
+        columns = self.advanced_props_columns
         if not row:
-            self._add_plain_row(self.advanced_props_rows, 0, cols, [tr("datasets_dataset"), tr("label_none")])
+            self._advanced_last_props_sig = ""
+            self._advanced_props_ctx = None
+            self._advanced_props_load_token += 1
+            self._advanced_props_edit_vars = {}
+            self._advanced_props_inherit_vars = {}
+            self._advanced_props_original_values = {}
+            self._clear_plain_table(rows_frame)
+            self._add_plain_row(rows_frame, 0, columns, [tr("datasets_dataset"), tr("label_none")])
+            try:
+                self.advanced_props_apply_btn.configure(state="disabled")
+            except Exception:
+                pass
             return
-        pairs = [
-            (tr("datasets_dataset"), row.get("name", "") or ""),
-            ("mounted", row.get("mounted", "") or "-"),
-            ("mountpoint", row.get("mountpoint", "") or "-"),
-            ("used", row.get("used", "") or "-"),
-            ("compressratio", row.get("compressratio", "") or "-"),
-            ("encryption", row.get("encryption", "") or "-"),
-            ("creation", row.get("creation", "") or "-"),
-            ("referenced", row.get("referenced", "") or "-"),
-            ("canmount", row.get("canmount", "") or "-"),
-        ]
-        for idx, (k, v) in enumerate(pairs):
-            self._add_plain_row(self.advanced_props_rows, idx, cols, [str(k), str(v)])
+        sig = json.dumps(row, sort_keys=True, ensure_ascii=False)
+        if sig == self._advanced_last_props_sig:
+            return
+        self._advanced_last_props_sig = sig
+        dataset_name = str(row.get("name", "") or "").strip()
+        selection = self.advanced_pool_var.get().strip()
+        if not dataset_name or selection not in self.dataset_pool_options:
+            self._clear_plain_table(rows_frame)
+            self._add_plain_row(rows_frame, 0, columns, [tr("datasets_dataset"), dataset_name or tr("label_none")])
+            try:
+                self.advanced_props_apply_btn.configure(state="disabled")
+            except Exception:
+                pass
+            return
+        conn_id, pool = self.dataset_pool_options[selection]
+        ctx = (conn_id, pool, dataset_name)
+        self._advanced_props_ctx = ctx
+        self._advanced_props_edit_vars = {}
+        self._advanced_props_inherit_vars = {}
+        self._advanced_props_original_values = {}
+        try:
+            self.advanced_props_apply_btn.configure(state="disabled")
+        except Exception:
+            pass
+
+        self._clear_plain_table(rows_frame)
+        self._add_plain_row(rows_frame, 0, columns, [tr("datasets_dataset"), dataset_name])
+        self._add_plain_row(rows_frame, 1, columns, [tr("status"), "..."])
+        token = self._advanced_props_load_token = self._advanced_props_load_token + 1
+        profile = self.store.get(conn_id)
+        if not profile:
+            return
+
+        def _render_loaded(props: List[Dict[str, str]]) -> None:
+            if token != self._advanced_props_load_token or self._advanced_props_ctx != ctx:
+                return
+            self._clear_plain_table(rows_frame)
+            ordered_props: List[Dict[str, str]] = []
+            by_name = {str((p.get("property") or "")).strip(): p for p in props}
+            first_keys = ["mountpoint", "mounted", "used", "compressratio", "encryption"]
+            for fk in first_keys:
+                if fk in by_name:
+                    ordered_props.append(by_name[fk])
+            consumed = set(first_keys)
+            rest = [p for p in props if str((p.get("property") or "")).strip() not in consumed]
+            rest.sort(key=lambda p: str((p.get("property") or "")).strip().lower())
+            ordered_props.extend(rest)
+
+            dataset_type = ""
+            for prop in props:
+                if (prop.get("property", "") or "").strip().lower() == "type":
+                    dataset_type = (prop.get("value", "") or "").strip().lower()
+                    break
+
+            row_idx = 0
+            self._add_plain_row(rows_frame, row_idx, columns, [tr("datasets_dataset"), dataset_name])
+            row_idx += 1
+            editable_count = 0
+            for prop in ordered_props:
+                name = str((prop.get("property") or "")).strip()
+                value = str((prop.get("value") or ""))
+                source = str((prop.get("source") or ""))
+                readonly = str((prop.get("readonly") or ""))
+                editable = is_dataset_property_editable(name, dataset_type, source, readonly)
+                if not editable:
+                    continue
+                editable_count += 1
+                bg = UI_PANEL_BG if row_idx % 2 == 0 else "#f8fbfd"
+                line = tk.Frame(rows_frame, bg=bg, highlightthickness=0)
+                grid_row = row_idx * 2
+                line.grid(row=grid_row, column=0, sticky="ew")
+                scroll_canvas = getattr(rows_frame, "_scroll_canvas", None)
+                if isinstance(scroll_canvas, tk.Canvas):
+                    line.bind("<MouseWheel>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                    line.bind("<Button-4>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                    line.bind("<Button-5>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                tk.Label(line, text=name, bg=bg, fg=UI_TEXT, anchor="w", padx=6, pady=3).grid(row=0, column=0, sticky="nsew")
+                var = tk.StringVar(value=value)
+                self._advanced_props_edit_vars[name] = var
+                inherit_var = tk.BooleanVar(value=False)
+                self._advanced_props_inherit_vars[name] = inherit_var
+                self._advanced_props_original_values[name] = value
+                var.trace_add("write", lambda *_a: self._update_advanced_props_apply_btn_state())
+                inherit_var.trace_add("write", lambda *_a: self._update_advanced_props_apply_btn_state())
+                value_wrap = tk.Frame(line, bg=bg, highlightthickness=0)
+                value_wrap.grid(row=0, column=1, sticky="nsew", padx=(2, 2), pady=2)
+                value_wrap.grid_columnconfigure(0, weight=1)
+                ent = ttk.Entry(value_wrap, textvariable=var)
+                ent.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
+                chk = ttk.Checkbutton(value_wrap, text="inherit", variable=inherit_var)
+                chk.grid(row=0, column=1, sticky="e")
+                if isinstance(scroll_canvas, tk.Canvas):
+                    ent.bind("<MouseWheel>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                    ent.bind("<Button-4>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                    ent.bind("<Button-5>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                    chk.bind("<MouseWheel>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                    chk.bind("<Button-4>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                    chk.bind("<Button-5>", lambda e, c=scroll_canvas: self._on_table_mousewheel(e, c))
+                line.grid_columnconfigure(0, minsize=columns[0][1], weight=0)
+                line.grid_columnconfigure(1, minsize=columns[1][1], weight=0)
+                sep = tk.Frame(rows_frame, bg=UI_BORDER, height=1)
+                sep.grid(row=grid_row + 1, column=0, sticky="ew")
+                row_idx += 1
+            if editable_count == 0:
+                self._add_plain_row(rows_frame, row_idx, columns, [tr("status"), "Sin propiedades editables"])
+            try:
+                self._update_advanced_props_apply_btn_state()
+            except Exception:
+                pass
+
+        def worker() -> None:
+            try:
+                execu = make_executor(profile)
+                props = execu.list_dataset_properties(dataset_name)
+                conn_cache = self.dataset_properties_cache.setdefault(conn_id, {})
+                conn_cache[dataset_name] = props
+                self.after(0, lambda p=props: _render_loaded(p))
+            except Exception as exc:
+                self._app_log("normal", trf("log_modify_dataset_load_error", name=profile.name, dataset=dataset_name, error=exc))
+                self.after(0, lambda: self._clear_plain_table(rows_frame))
+                self.after(0, lambda: self._add_plain_row(rows_frame, 0, columns, [tr("datasets_dataset"), dataset_name]))
+                self.after(0, lambda e=exc: self._add_plain_row(rows_frame, 1, columns, [tr("label_error"), str(e)]))
+
+        preloaded = self.dataset_properties_cache.get(conn_id, {}).get(dataset_name)
+        if preloaded:
+            _render_loaded(preloaded)
+        else:
+            threading.Thread(target=worker, daemon=True).start()
 
     def _refresh_advanced_tree(self) -> None:
         tree = getattr(self, "advanced_tree", None)
@@ -8325,6 +8466,10 @@ class App(tk.Tk):
             if tree.exists(sel_id):
                 tree.selection_set(sel_id)
                 tree.focus(sel_id)
+                row = self._find_advanced_dataset_row(selected_ds)
+                self._render_advanced_dataset_properties(row)
+                return
+        self._render_advanced_dataset_properties(None)
 
     def _refresh_dataset_pool_options_global(self) -> None:
         options: Dict[str, Tuple[str, str]] = {}
@@ -8717,6 +8862,91 @@ class App(tk.Tk):
                     self._load_side_datasets("dest")
                     # Fuerza recarga de propiedades del dataset aplicado sin perder seleccion.
                     self._render_dataset_properties(side, {"name": dataset_name})
+
+                self.after(0, _post_apply_refresh)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _advanced_props_has_changes(self) -> bool:
+        for prop, var in self._advanced_props_edit_vars.items():
+            inh = self._advanced_props_inherit_vars.get(prop)
+            if inh is not None and bool(inh.get()):
+                return True
+            old = self._advanced_props_original_values.get(prop, "")
+            if var.get() != old:
+                return True
+        return False
+
+    def _update_advanced_props_apply_btn_state(self) -> None:
+        try:
+            enabled = bool(self._advanced_props_ctx and self._advanced_props_edit_vars and self._advanced_props_has_changes())
+            self.advanced_props_apply_btn.configure(state=("normal" if enabled else "disabled"))
+        except Exception:
+            pass
+
+    def _apply_advanced_dataset_properties(self) -> None:
+        if self._reject_if_ssh_busy():
+            return
+        ctx = self._advanced_props_ctx
+        if not ctx:
+            return
+        conn_id, pool_name, dataset_name = ctx
+        profile = self.store.get(conn_id)
+        if not profile:
+            return
+        changes: Dict[str, str] = {}
+        inherit_props: List[str] = []
+        for prop, var in self._advanced_props_edit_vars.items():
+            inh = self._advanced_props_inherit_vars.get(prop)
+            if inh is not None and bool(inh.get()):
+                inherit_props.append(prop)
+                continue
+            old = self._advanced_props_original_values.get(prop, "")
+            new = var.get()
+            if new != old:
+                changes[prop] = new
+        if not changes and not inherit_props:
+            self._app_log("info", tr("log_modify_dataset_no_changes"))
+            self._update_advanced_props_apply_btn_state()
+            return
+        self._app_log(
+            "normal",
+            trf("log_modify_dataset_apply_start", name=profile.name, dataset=dataset_name, count=len(changes)),
+        )
+
+        def worker() -> None:
+            try:
+                execu = make_executor(profile)
+                out_parts: List[str] = []
+                if changes:
+                    out_set = execu.set_dataset_properties(dataset_name, changes)
+                    if (out_set or "").strip():
+                        out_parts.append(out_set.strip())
+                if inherit_props:
+                    out_inherit = execu.inherit_dataset_properties(dataset_name, inherit_props)
+                    if (out_inherit or "").strip():
+                        out_parts.append(out_inherit.strip())
+                self._app_log("info", trf("log_modify_dataset_apply_done", name=profile.name, dataset=dataset_name))
+                out = "\n".join(out_parts)
+                if out.strip():
+                    self._app_log("debug", out.strip())
+            except Exception as exc:
+                self._app_log(
+                    "normal",
+                    trf("log_modify_dataset_apply_error", name=profile.name, dataset=dataset_name, error=exc),
+                )
+                self.after(0, lambda e=exc: messagebox.showerror(tr("modify_dataset_title"), str(e)))
+            finally:
+                def _post_apply_refresh() -> None:
+                    self.datasets_cache.pop(f"{conn_id}:{pool_name}", None)
+                    self.dataset_properties_cache.pop(conn_id, None)
+                    sel = self.advanced_pool_var.get().strip()
+                    if sel and sel in self.dataset_pool_options:
+                        self.origin_pool_var.set(sel)
+                    self._load_side_datasets("origin")
+                    self._refresh_advanced_tree()
+                    row = self._find_advanced_dataset_row(dataset_name)
+                    self._render_advanced_dataset_properties(row)
 
                 self.after(0, _post_apply_refresh)
 
