@@ -84,8 +84,8 @@ MainWindow::MainWindow(const QString& masterPassword, QWidget* parent)
 
 void MainWindow::buildUi() {
     setWindowTitle(QStringLiteral("ZFSMgr (C++/Qt)"));
-    resize(1500, 920);
-    setMinimumSize(1400, 920);
+    resize(1200, 736);
+    setMinimumSize(1120, 736);
     setStyleSheet(QStringLiteral(
         "QWidget { color: #14212b; }"
         "QTabBar::tab { padding: 2px 8px; min-height: 18px; }"
@@ -116,8 +116,8 @@ void MainWindow::buildUi() {
     m_leftTabs = new QTabWidget(leftPane);
     m_leftTabs->setDocumentMode(true);
     m_leftTabs->setTabPosition(QTabWidget::North);
-    leftPane->setMinimumWidth(286);
-    leftPane->setMaximumWidth(286);
+    leftPane->setMinimumWidth(243);
+    leftPane->setMaximumWidth(243);
 
     auto* connectionsTab = new QWidget(m_leftTabs);
     auto* connLayout = new QVBoxLayout(connectionsTab);
@@ -379,7 +379,7 @@ void MainWindow::buildUi() {
 
     topLayout->addWidget(leftPane, 0);
     topLayout->addWidget(rightPane, 1);
-    root->addWidget(topArea, 4);
+    root->addWidget(topArea, 74);
 
     auto* logBox = new QGroupBox(QStringLiteral("Log combinado"), central);
     auto* logLayout = new QVBoxLayout(logBox);
@@ -452,7 +452,7 @@ void MainWindow::buildUi() {
     logBody->addWidget(leftInfo, 1);
     logBody->addWidget(rightLogs, 2);
     logLayout->addLayout(logBody, 1);
-    root->addWidget(logBox, 2);
+    root->addWidget(logBox, 26);
 
     setCentralWidget(central);
 
