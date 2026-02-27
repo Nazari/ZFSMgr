@@ -4075,16 +4075,9 @@ class App(tk.Tk):
         dataset_props = ttk.LabelFrame(props_row, text=tr("dataset_properties"))
         dataset_props.grid(row=0, column=0, sticky="nsew")
         dataset_props.columnconfigure(0, weight=1)
-        dataset_props.rowconfigure(1, weight=1)
-        self.dataset_props_selected_var = tk.StringVar(value=trf("datasets_selected_target", dataset=tr("label_none")))
-        ttk.Label(
-            dataset_props,
-            textvariable=self.dataset_props_selected_var,
-            anchor="w",
-            justify="left",
-        ).grid(row=0, column=0, sticky="ew", padx=(6, 6), pady=(4, 4))
+        dataset_props.rowconfigure(0, weight=1)
         dataset_props_table_wrap = ttk.Frame(dataset_props)
-        dataset_props_table_wrap.grid(row=1, column=0, sticky="nsew")
+        dataset_props_table_wrap.grid(row=0, column=0, sticky="nsew")
         dataset_props_table_wrap.columnconfigure(0, weight=1)
         dataset_props_table_wrap.rowconfigure(0, weight=1)
         dataset_props_table_wrap.grid_propagate(False)
@@ -4098,7 +4091,7 @@ class App(tk.Tk):
             enable_xscroll=True,
         )
         dataset_props_actions = ttk.Frame(dataset_props)
-        dataset_props_actions.grid(row=2, column=0, sticky="e", padx=(6, 6), pady=(4, 6))
+        dataset_props_actions.grid(row=1, column=0, sticky="e", padx=(6, 6), pady=(4, 6))
         self.dataset_props_apply_btn = ttk.Button(
             dataset_props_actions,
             text=tr("modify_dataset_apply"),
@@ -8264,6 +8257,14 @@ class App(tk.Tk):
     def _render_dataset_properties(self, side: str, row: Optional[Dict[str, str]]) -> None:
         rows_frame = self.dataset_props_rows
         columns = self.dataset_props_columns
+        def _mounted_text(raw: str) -> str:
+            value = (raw or "").strip().lower()
+            if value in {"yes", "on", "true", "1"}:
+                return "Montado"
+            if value in {"no", "off", "false", "0"}:
+                return "Desmontado"
+            return value or "-"
+
         if not row:
             self._last_dataset_props_sig = ""
             self._dataset_props_ctx = None
@@ -8272,7 +8273,6 @@ class App(tk.Tk):
             self._dataset_props_inherit_vars = {}
             self._dataset_props_original_values = {}
             self._clear_plain_table(rows_frame)
-            self.dataset_props_selected_var.set(trf("datasets_selected_target", dataset=tr("label_none")))
             try:
                 self.dataset_props_apply_btn.configure(state="disabled")
             except Exception:
@@ -8283,11 +8283,12 @@ class App(tk.Tk):
             return
         self._last_dataset_props_sig = sig
         dataset_name = str(row.get("name", "") or "").strip()
-        self.dataset_props_selected_var.set(trf("datasets_selected_target", dataset=dataset_name or tr("label_none")))
+        mounted_text = _mounted_text(str(row.get("mounted", "") or ""))
         selection = self.origin_pool_var.get().strip() if side == "origin" else self.dest_pool_var.get().strip()
         if not dataset_name or selection not in self.dataset_pool_options:
             self._clear_plain_table(rows_frame)
             self._add_plain_row(rows_frame, 0, columns, [tr("datasets_dataset"), dataset_name or tr("label_none")])
+            self._add_plain_row(rows_frame, 1, columns, ["Estado montaje", mounted_text])
             try:
                 self.dataset_props_apply_btn.configure(state="disabled")
             except Exception:
@@ -8306,7 +8307,8 @@ class App(tk.Tk):
 
         self._clear_plain_table(rows_frame)
         self._add_plain_row(rows_frame, 0, columns, [tr("datasets_dataset"), dataset_name])
-        self._add_plain_row(rows_frame, 1, columns, [tr("status"), "..."])
+        self._add_plain_row(rows_frame, 1, columns, ["Estado montaje", mounted_text])
+        self._add_plain_row(rows_frame, 2, columns, [tr("status"), "..."])
         token = self._dataset_props_load_token = self._dataset_props_load_token + 1
         profile = self.store.get(conn_id)
         if not profile:
@@ -8335,6 +8337,10 @@ class App(tk.Tk):
 
             row_idx = 0
             self._add_plain_row(rows_frame, row_idx, columns, [tr("datasets_dataset"), dataset_name])
+            row_idx += 1
+            mounted_prop = by_name.get("mounted", {})
+            mounted_value = str((mounted_prop.get("value") or mounted_text))
+            self._add_plain_row(rows_frame, row_idx, columns, ["Estado montaje", _mounted_text(mounted_value)])
             row_idx += 1
             editable_count = 0
             for prop in ordered_props:
