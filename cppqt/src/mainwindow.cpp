@@ -723,6 +723,17 @@ bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, in
     return true;
 }
 
+QString MainWindow::withSudo(const ConnectionProfile& p, const QString& cmd) const {
+    if (!p.useSudo) {
+        return cmd;
+    }
+    if (!p.password.isEmpty()) {
+        return QStringLiteral("printf '%s\\n' %1 | sudo -S -p '' sh -lc %2")
+            .arg(shSingleQuote(p.password), shSingleQuote(cmd));
+    }
+    return QStringLiteral("sudo -n ") + cmd;
+}
+
 bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const QString& prop, QString& valueOut) {
     valueOut.clear();
     if (connIdx < 0 || connIdx >= m_profiles.size() || dataset.isEmpty() || prop.isEmpty()) {
@@ -731,9 +742,7 @@ bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const Q
     const ConnectionProfile& p = m_profiles[connIdx];
     QString cmd =
         QStringLiteral("zfs get -H -o value %1 %2").arg(shSingleQuote(prop), shSingleQuote(dataset));
-    if (p.useSudo) {
-        cmd = QStringLiteral("sudo -n ") + cmd;
-    }
+    cmd = withSudo(p, cmd);
     QString out;
     QString err;
     int rc = -1;
@@ -763,9 +772,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName) {
         "zfs list -H -p -t filesystem,volume,snapshot "
         "-o name,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount -r %1")
                       .arg(poolName);
-    if (p.useSudo) {
-        cmd = QStringLiteral("sudo -n ") + cmd;
-    }
+    cmd = withSudo(p, cmd);
 
     QString out;
     QString err;
@@ -1045,14 +1052,8 @@ void MainWindow::actionCopySnapshot() {
     }
     dstSsh += QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
 
-    QString sendCmd = QStringLiteral("zfs send -wLec %1").arg(shSingleQuote(srcSnap));
-    if (sp.useSudo) {
-        sendCmd = QStringLiteral("sudo -n ") + sendCmd;
-    }
-    QString recvCmd = QStringLiteral("zfs recv -F %1").arg(shSingleQuote(recvTarget));
-    if (dp.useSudo) {
-        recvCmd = QStringLiteral("sudo -n ") + recvCmd;
-    }
+    QString sendCmd = withSudo(sp, QStringLiteral("zfs send -wLec %1").arg(shSingleQuote(srcSnap)));
+    QString recvCmd = withSudo(dp, QStringLiteral("zfs recv -F %1").arg(shSingleQuote(recvTarget)));
 
     const QString pipeline =
         srcSsh + QStringLiteral(" ") + shSingleQuote(sendCmd)
@@ -1093,14 +1094,8 @@ void MainWindow::actionLevelSnapshot() {
     }
     dstSsh += QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
 
-    QString sendCmd = QStringLiteral("zfs send -wLecR %1").arg(shSingleQuote(srcSnap));
-    if (sp.useSudo) {
-        sendCmd = QStringLiteral("sudo -n ") + sendCmd;
-    }
-    QString recvCmd = QStringLiteral("zfs recv -F %1").arg(shSingleQuote(recvTarget));
-    if (dp.useSudo) {
-        recvCmd = QStringLiteral("sudo -n ") + recvCmd;
-    }
+    QString sendCmd = withSudo(sp, QStringLiteral("zfs send -wLecR %1").arg(shSingleQuote(srcSnap)));
+    QString recvCmd = withSudo(dp, QStringLiteral("zfs recv -F %1").arg(shSingleQuote(recvTarget)));
 
     const QString pipeline =
         srcSsh + QStringLiteral(" ") + shSingleQuote(sendCmd)
@@ -1166,9 +1161,7 @@ void MainWindow::actionSyncDatasets() {
               .arg(shSingleQuote(srcMp),
                    shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
                    shSingleQuote(dstMp));
-    if (sp.useSudo) {
-        remoteRsync = QStringLiteral("sudo -n ") + remoteRsync;
-    }
+    remoteRsync = withSudo(sp, remoteRsync);
     const QString command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
     if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0)) {
         invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
@@ -1454,10 +1447,7 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
         return false;
     }
     const ConnectionProfile& p = m_profiles[ctx.connIdx];
-    QString remoteCmd = cmd;
-    if (p.useSudo) {
-        remoteCmd = QStringLiteral("sudo -n ") + remoteCmd;
-    }
+    QString remoteCmd = withSudo(p, cmd);
     appLog(QStringLiteral("NORMAL"), QStringLiteral("%1 %2::%3").arg(actionName, p.name, ctx.datasetName));
     QString out;
     QString err;
@@ -1512,7 +1502,7 @@ void MainWindow::actionUmountDataset(const QString& side) {
     QString err;
     int rc = -1;
     const ConnectionProfile& p = m_profiles[ctx.connIdx];
-    QString checkCmd = p.useSudo ? (QStringLiteral("sudo -n ") + hasChildrenCmd) : hasChildrenCmd;
+    QString checkCmd = withSudo(p, hasChildrenCmd);
     const bool ran = runSsh(p, checkCmd, 12000, out, err, rc);
     bool hasChildrenMounted = ran && rc == 0;
     QString cmd;
@@ -1632,12 +1622,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     state.status = QStringLiteral("OK");
     state.detail = oneLine(out);
 
-    QString zpoolListCmd = QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio");
-    QString zpoolImportCmd = QStringLiteral("zpool import");
-    if (p.useSudo) {
-        zpoolListCmd = QStringLiteral("sudo -n ") + zpoolListCmd;
-        zpoolImportCmd = QStringLiteral("sudo -n ") + zpoolImportCmd;
-    }
+    QString zpoolListCmd = withSudo(p, QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio"));
+    QString zpoolImportCmd = withSudo(p, QStringLiteral("zpool import"));
 
     out.clear();
     err.clear();

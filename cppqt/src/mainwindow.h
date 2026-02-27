@@ -91,6 +91,7 @@ private:
 
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
     bool runSsh(const ConnectionProfile& p, const QString& remoteCmd, int timeoutMs, QString& out, QString& err, int& rc);
+    QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
     bool getDatasetProperty(int connIdx, const QString& dataset, const QString& prop, QString& valueOut);
     QString datasetCacheKey(int connIdx, const QString& poolName) const;
     bool ensureDatasetsLoaded(int connIdx, const QString& poolName);
