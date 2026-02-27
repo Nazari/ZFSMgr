@@ -89,8 +89,9 @@ void MainWindow::buildUi() {
     setMinimumSize(1120, 736);
     setStyleSheet(QStringLiteral(
         "QWidget { color: #14212b; }"
-        "QTabBar::tab { padding: 2px 8px; min-height: 18px; }"
-        "QTabBar::tab:selected { font-weight: 600; }"
+        "QTabBar::tab { padding: 3px 10px; min-height: 18px; background: #e6edf4; border: 1px solid #b8c7d6; border-bottom: none; }"
+        "QTabBar::tab:selected { font-weight: 700; min-height: 24px; background: #cfe5ff; color: #0b2f4f; border: 1px solid #6ea6dd; }"
+        "QTabBar::tab:!selected { margin-top: 4px; }"
         "QGroupBox { margin-top: 12px; border: 1px solid #b8c7d6; border-radius: 4px; }"
         "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 8px; padding: 0 4px 0 4px; }"
         "QPushButton { background: #e8eff5; border: 1px solid #9db0c4; border-radius: 4px; padding: 3px 8px; }"
