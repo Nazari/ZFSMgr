@@ -3816,7 +3816,7 @@ class App(tk.Tk):
             base_width = max(top_container.winfo_width(), self.winfo_width(), 1200)
             current_height = max(self.winfo_height(), top_container.winfo_height(), 700)
             target_min_height = int(current_height * 1.15)
-            width = max(120, int(base_width * 0.216384))
+            width = max(120, int(base_width * 0.2272032))
             top_container.grid_columnconfigure(0, minsize=width)
             # Mantener visible el detalle derecho (Origen/Destino/Propiedades).
             top_container.grid_columnconfigure(1, minsize=520)
@@ -8212,6 +8212,11 @@ class App(tk.Tk):
     def _on_advanced_pool_selected(self, _event: Any = None) -> None:
         if self._reject_if_ssh_busy():
             return
+        selection = self.advanced_pool_var.get().strip()
+        if selection and selection in self.dataset_pool_options:
+            # Reutiliza el flujo de carga/cache existente de datasets por pool.
+            self.origin_pool_var.set(selection)
+            self._load_side_datasets("origin")
         self.advanced_dataset_var.set("")
         self.advanced_target_var.set(f"{tr('datasets_dataset')}: {tr('label_none')}")
         self._render_advanced_dataset_properties(None)
