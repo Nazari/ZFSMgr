@@ -5426,15 +5426,12 @@ class App(tk.Tk):
                 return base_cmd
             if profile.password:
                 if preserve_stdin_stream:
-                    askpass_line = "printf '%s\\n' " + shlex.quote(profile.password)
                     return (
-                        "ask=$(mktemp); "
-                        "trap 'rm -f \"$ask\"' EXIT; "
-                        "{ printf '%s\\n' '#!/bin/sh'; "
-                        f"printf '%s\\n' {shlex.quote(askpass_line)}; "
-                        "} >\"$ask\"; "
-                        "chmod 700 \"$ask\"; "
-                        "SUDO_ASKPASS=\"$ask\" sudo -A -p '' sh -lc "
+                        "{ "
+                        f"printf '%s\\n' {shlex.quote(profile.password)}; "
+                        "cat; "
+                        "} | "
+                        "sudo -S -p '' sh -lc "
                         f"{shlex.quote(base_cmd)}"
                     )
                 return (
@@ -5692,15 +5689,12 @@ class App(tk.Tk):
                 return base_cmd
             if profile.password:
                 if preserve_stdin_stream:
-                    askpass_line = "printf '%s\\n' " + shlex.quote(profile.password)
                     return (
-                        "ask=$(mktemp); "
-                        "trap 'rm -f \"$ask\"' EXIT; "
-                        "{ printf '%s\\n' '#!/bin/sh'; "
-                        f"printf '%s\\n' {shlex.quote(askpass_line)}; "
-                        "} >\"$ask\"; "
-                        "chmod 700 \"$ask\"; "
-                        "SUDO_ASKPASS=\"$ask\" sudo -A -p '' sh -lc "
+                        "{ "
+                        f"printf '%s\\n' {shlex.quote(profile.password)}; "
+                        "cat; "
+                        "} | "
+                        "sudo -S -p '' sh -lc "
                         f"{shlex.quote(base_cmd)}"
                     )
                 return (
