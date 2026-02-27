@@ -5422,7 +5422,9 @@ class App(tk.Tk):
                 profile,
                 command,
                 include_key=True,
-                allow_password_auth=True,
+                # En pipelines de transferencia no permitimos prompt SSH interactivo:
+                # cualquier intento de password rompe/consume el stream send|recv.
+                allow_password_auth=False,
                 keep_stdin_stream=keep_stdin_stream,
                 use_mux=False,
             )
@@ -5432,7 +5434,7 @@ class App(tk.Tk):
                 profile,
                 command,
                 include_key=include_key,
-                allow_password_auth=True,
+                allow_password_auth=False,
                 use_mux=False,
             )
 
@@ -5695,7 +5697,9 @@ class App(tk.Tk):
                 profile,
                 command,
                 include_key=True,
-                allow_password_auth=True,
+                # En pipelines de transferencia no permitimos prompt SSH interactivo:
+                # cualquier intento de password rompe/consume el stream send|recv.
+                allow_password_auth=False,
                 keep_stdin_stream=keep_stdin_stream,
                 use_mux=False,
             )
