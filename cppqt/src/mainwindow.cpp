@@ -41,6 +41,7 @@
 #include <QClipboard>
 #include <QMetaObject>
 #include <QRegularExpression>
+#include <QFontMetrics>
 
 #include <QtConcurrent/QtConcurrent>
 
@@ -88,7 +89,8 @@ void MainWindow::buildUi() {
     resize(1200, 736);
     setMinimumSize(1120, 736);
     setStyleSheet(QStringLiteral(
-        "QWidget { color: #14212b; }"
+        "QMainWindow, QWidget { background: #f3f7fb; color: #14212b; }"
+        "QTabWidget::pane { border: 1px solid #b8c7d6; background: #f8fbff; }"
         "QTabBar::tab { padding: 3px 10px; min-height: 18px; background: #e6edf4; border: 1px solid #b8c7d6; border-bottom: none; }"
         "QTabBar::tab:selected { font-weight: 700; min-height: 24px; background: #cfe5ff; color: #0b2f4f; border: 1px solid #6ea6dd; }"
         "QTabBar::tab:!selected { margin-top: 4px; }"
@@ -97,6 +99,8 @@ void MainWindow::buildUi() {
         "QPushButton { background: #e8eff5; border: 1px solid #9db0c4; border-radius: 4px; padding: 3px 8px; }"
         "QPushButton:hover { background: #d6e6f2; }"
         "QPushButton:pressed { background: #c4d8e8; }"
+        "QListWidget, QTreeWidget, QTableWidget, QPlainTextEdit, QTextEdit, QComboBox { background: #ffffff; color: #102233; }"
+        "QComboBox QAbstractItemView { background: #ffffff; color: #102233; }"
         "QTreeWidget::item:selected, QTableWidget::item:selected, QListWidget::item:selected {"
         "  background: #dcecff; color: #0d2438; font-weight: 600; }"
         "QHeaderView::section { background: #eaf1f7; border: 1px solid #c5d3e0; padding: 2px 4px; }"));
@@ -118,8 +122,11 @@ void MainWindow::buildUi() {
     m_leftTabs = new QTabWidget(leftPane);
     m_leftTabs->setDocumentMode(true);
     m_leftTabs->setTabPosition(QTabWidget::North);
-    leftPane->setMinimumWidth(243);
-    leftPane->setMaximumWidth(243);
+    // Anchura fija basada en el texto real de botones para evitar solapes en macOS.
+    const QFontMetrics fm(font());
+    const int leftFixedWidth = qMax(243, fm.horizontalAdvance(QStringLiteral("Refrescar todo")) + 120);
+    leftPane->setMinimumWidth(leftFixedWidth);
+    leftPane->setMaximumWidth(leftFixedWidth);
 
     auto* connectionsTab = new QWidget(m_leftTabs);
     auto* connLayout = new QVBoxLayout(connectionsTab);
@@ -135,8 +142,10 @@ void MainWindow::buildUi() {
     auto* connButtons = new QVBoxLayout();
     m_btnNew = new QPushButton(QStringLiteral("Nueva"), connectionsTab);
     m_btnRefreshAll = new QPushButton(QStringLiteral("Refrescar todo"), connectionsTab);
-    m_btnNew->setMinimumWidth(110);
-    m_btnRefreshAll->setMinimumWidth(140);
+    m_btnNew->setMinimumHeight(30);
+    m_btnRefreshAll->setMinimumHeight(30);
+    m_btnNew->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnRefreshAll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     connButtons->addWidget(m_btnNew);
     connButtons->addWidget(m_btnRefreshAll);
     connButtons->addStretch(1);
@@ -176,6 +185,11 @@ void MainWindow::buildUi() {
     advLeftTabLayout->setSpacing(4);
     m_btnAdvancedBreakdown = new QPushButton(QStringLiteral("Desglosar"), advancedTab);
     m_btnAdvancedAssemble = new QPushButton(QStringLiteral("Ensamblar"), advancedTab);
+    m_btnAdvancedBreakdown->setMinimumHeight(30);
+    m_btnAdvancedAssemble->setMinimumHeight(30);
+    m_btnAdvancedBreakdown->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnAdvancedAssemble->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    advLeftTabLayout->setSpacing(8);
     advLeftTabLayout->addWidget(m_btnAdvancedBreakdown);
     advLeftTabLayout->addWidget(m_btnAdvancedAssemble);
     advLeftTabLayout->addStretch(1);
