@@ -3622,6 +3622,9 @@ class App(tk.Tk):
         self.dataset_action_target_var = tk.StringVar(value=trf("datasets_selected_target", dataset=tr("label_none")))
         self.transfer_origin_target_var = tk.StringVar(value=f"{tr('datasets_origin')}: {tr('label_none')}")
         self.transfer_dest_target_var = tk.StringVar(value=f"{tr('datasets_dest')}: {tr('label_none')}")
+        self.advanced_target_var = tk.StringVar(value=f"{tr('datasets_dataset')}: {tr('label_none')}")
+        self.advanced_pool_var = tk.StringVar()
+        self.advanced_dataset_var = tk.StringVar()
 
         self.priv_var = tk.StringVar(value=tr("priv_unknown"))
 
@@ -3813,7 +3816,7 @@ class App(tk.Tk):
             base_width = max(top_container.winfo_width(), self.winfo_width(), 1200)
             current_height = max(self.winfo_height(), top_container.winfo_height(), 700)
             target_min_height = int(current_height * 1.15)
-            width = max(120, int(base_width * 0.20608))
+            width = max(120, int(base_width * 0.216384))
             top_container.grid_columnconfigure(0, minsize=width)
             # Mantener visible el detalle derecho (Origen/Destino/Propiedades).
             top_container.grid_columnconfigure(1, minsize=520)
@@ -4109,16 +4112,58 @@ class App(tk.Tk):
         self.right_advanced_detail = ttk.LabelFrame(right, text="Avanzado")
         self.right_advanced_detail.grid(row=0, column=0, sticky="nsew")
         self.right_advanced_detail.columnconfigure(0, weight=1)
+        self.right_advanced_detail.columnconfigure(1, weight=0, minsize=360)
         self.right_advanced_detail.rowconfigure(0, weight=1)
-        self.advanced_tree = ttk.Treeview(self.right_advanced_detail, columns=(), show="tree")
+
+        adv_left = ttk.Frame(self.right_advanced_detail)
+        adv_left.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        adv_left.columnconfigure(0, weight=1)
+        adv_left.rowconfigure(1, weight=1)
+
+        adv_top = ttk.Frame(adv_left)
+        adv_top.grid(row=0, column=0, sticky="ew", padx=(6, 6), pady=(4, 4))
+        adv_top.columnconfigure(1, weight=1)
+        self.advanced_pool_combo = ttk.Combobox(adv_top, textvariable=self.advanced_pool_var, state="readonly", width=21)
+        self.advanced_pool_combo.grid(row=0, column=0, sticky="w", padx=(0, 2))
+        self.advanced_pool_combo.bind("<<ComboboxSelected>>", self._on_advanced_pool_selected)
+        self.advanced_target_label = ttk.Label(
+            adv_top,
+            textvariable=self.advanced_target_var,
+            foreground=UI_ACCENT,
+            justify="left",
+            wraplength=420,
+            font=("TkDefaultFont", 9, "bold"),
+        )
+        self.advanced_target_label.grid(row=0, column=1, sticky="w")
+
+        self.advanced_tree = ttk.Treeview(adv_left, columns=(), show="tree")
         self.advanced_tree.heading("#0", text=tr("datasets_dataset"))
         self.advanced_tree.column("#0", width=460, minwidth=220, anchor="w", stretch=True)
-        self.advanced_tree.grid(row=0, column=0, sticky="nsew")
-        adv_y = ttk.Scrollbar(self.right_advanced_detail, orient="vertical", command=self.advanced_tree.yview)
-        adv_y.grid(row=0, column=1, sticky="ns")
-        adv_x = ttk.Scrollbar(self.right_advanced_detail, orient="horizontal", command=self.advanced_tree.xview)
-        adv_x.grid(row=1, column=0, sticky="ew")
+        self.advanced_tree.grid(row=1, column=0, sticky="nsew")
+        adv_y = ttk.Scrollbar(adv_left, orient="vertical", command=self.advanced_tree.yview)
+        adv_y.grid(row=1, column=1, sticky="ns")
+        adv_x = ttk.Scrollbar(adv_left, orient="horizontal", command=self.advanced_tree.xview)
+        adv_x.grid(row=2, column=0, sticky="ew")
         self.advanced_tree.configure(yscrollcommand=adv_y.set, xscrollcommand=adv_x.set)
+        self.advanced_tree.bind("<<TreeviewSelect>>", self._on_advanced_tree_selected)
+
+        adv_props = ttk.LabelFrame(self.right_advanced_detail, text=tr("dataset_properties"))
+        adv_props.grid(row=0, column=1, sticky="nsew")
+        adv_props.columnconfigure(0, weight=1)
+        adv_props.rowconfigure(0, weight=1)
+        adv_props_wrap = ttk.Frame(adv_props)
+        adv_props_wrap.grid(row=0, column=0, sticky="nsew")
+        adv_props_wrap.columnconfigure(0, weight=1)
+        adv_props_wrap.rowconfigure(0, weight=1)
+        self.advanced_props_columns: List[Tuple[str, int, str]] = [
+            (tr("col_property"), 120, "w"),
+            (tr("col_value"), 220, "w"),
+        ]
+        self.advanced_props_rows = self._build_plain_table(
+            adv_props_wrap,
+            self.advanced_props_columns,
+            enable_xscroll=True,
+        )
 
         log_container = ttk.Frame(main_layout)
         log_container.grid(row=1, column=0, sticky="nsew")
@@ -5264,6 +5309,10 @@ class App(tk.Tk):
             self.right_conn_detail.grid_remove()
             self.right_datasets_detail.grid_remove()
             self.right_advanced_detail.grid()
+            self._refresh_dataset_pool_options_global()
+            if self.advanced_pool_var.get().strip():
+                self.origin_pool_var.set(self.advanced_pool_var.get().strip())
+                self._load_side_datasets("origin")
             self._refresh_advanced_tree()
         else:
             self.right_advanced_detail.grid_remove()
@@ -8160,6 +8209,67 @@ class App(tk.Tk):
         self._load_side_datasets("origin")
         self._load_side_datasets("dest")
 
+    def _on_advanced_pool_selected(self, _event: Any = None) -> None:
+        if self._reject_if_ssh_busy():
+            return
+        self.advanced_dataset_var.set("")
+        self.advanced_target_var.set(f"{tr('datasets_dataset')}: {tr('label_none')}")
+        self._render_advanced_dataset_properties(None)
+        self._refresh_advanced_tree()
+
+    def _on_advanced_tree_selected(self, _event: Any = None) -> None:
+        if self._reject_if_ssh_busy():
+            return
+        selected = self.advanced_tree.selection()
+        if not selected:
+            self.advanced_dataset_var.set("")
+            self.advanced_target_var.set(f"{tr('datasets_dataset')}: {tr('label_none')}")
+            self._render_advanced_dataset_properties(None)
+            return
+        iid = str(selected[0]).strip()
+        if not iid.startswith("adv::"):
+            return
+        dataset = iid[5:]
+        self.advanced_dataset_var.set(dataset)
+        self.advanced_target_var.set(f"{tr('datasets_dataset')}: {dataset}")
+        # Sincroniza target de acciones avanzadas con seleccion activa.
+        self.origin_dataset_var.set(dataset)
+        self.last_selected_dataset_side = "origin"
+        row = self._find_advanced_dataset_row(dataset)
+        self._render_advanced_dataset_properties(row)
+        self._update_level_button_state()
+
+    def _find_advanced_dataset_row(self, dataset_name: str) -> Optional[Dict[str, str]]:
+        selection = self.advanced_pool_var.get().strip()
+        if selection not in self.dataset_pool_options:
+            return None
+        conn_id, pool = self.dataset_pool_options[selection]
+        rows = self.datasets_cache.get(f"{conn_id}:{pool}", [])
+        for row in rows:
+            if row.get("name", "").strip() == dataset_name:
+                return row
+        return None
+
+    def _render_advanced_dataset_properties(self, row: Optional[Dict[str, str]]) -> None:
+        self._clear_plain_table(self.advanced_props_rows)
+        cols = self.advanced_props_columns
+        if not row:
+            self._add_plain_row(self.advanced_props_rows, 0, cols, [tr("datasets_dataset"), tr("label_none")])
+            return
+        pairs = [
+            (tr("datasets_dataset"), row.get("name", "") or ""),
+            ("mounted", row.get("mounted", "") or "-"),
+            ("mountpoint", row.get("mountpoint", "") or "-"),
+            ("used", row.get("used", "") or "-"),
+            ("compressratio", row.get("compressratio", "") or "-"),
+            ("encryption", row.get("encryption", "") or "-"),
+            ("creation", row.get("creation", "") or "-"),
+            ("referenced", row.get("referenced", "") or "-"),
+            ("canmount", row.get("canmount", "") or "-"),
+        ]
+        for idx, (k, v) in enumerate(pairs):
+            self._add_plain_row(self.advanced_props_rows, idx, cols, [str(k), str(v)])
+
     def _refresh_advanced_tree(self) -> None:
         tree = getattr(self, "advanced_tree", None)
         if tree is None:
@@ -8169,31 +8279,32 @@ class App(tk.Tk):
                 tree.delete(iid)
         except Exception:
             return
-        target = self._get_dataset_for_create()
-        if not target:
+        selection = self.advanced_pool_var.get().strip()
+        if not selection:
             tree.insert("", "end", iid="none", text=tr("label_none"))
             return
-        side, _selection_label, dataset_name, conn_id = target
-        profile = self.store.get(conn_id)
-        header = f"{profile.name if profile else conn_id}::{dataset_name}"
-        root_iid = "target"
-        tree.insert("", "end", iid=root_iid, text=header, open=True)
-        selection = self.origin_pool_var.get().strip() if side == "origin" else self.dest_pool_var.get().strip()
         if selection not in self.dataset_pool_options:
             return
         cid, pool = self.dataset_pool_options[selection]
+        profile = self.store.get(cid)
+        root_label = f"{profile.name if profile else cid}::{pool}"
+        root_iid = f"adv::{pool}"
+        tree.insert("", "end", iid=root_iid, text=root_label, open=True)
         rows = self.datasets_cache.get(f"{cid}:{pool}", [])
-        pref = dataset_name.rstrip("/") + "/"
-        for row in rows:
+        inserted: set[str] = {pool}
+        for row in sorted(rows, key=lambda r: (r.get("name", "") or "")):
             name = (row.get("name", "") or "").strip()
-            if not name.startswith(pref):
+            if not name or "@" in name:
                 continue
-            rel = name[len(pref) :]
-            if not rel:
+            if name == pool:
                 continue
-            parts = rel.split("/")
+            if name.startswith(f"{pool}/"):
+                rel = name[len(pool) + 1 :]
+            else:
+                rel = name
+            parts = [p for p in rel.split("/") if p]
             parent = root_iid
-            current = dataset_name
+            current = pool
             for part in parts:
                 current = f"{current}/{part}"
                 node_id = f"adv::{current}"
@@ -8202,6 +8313,13 @@ class App(tk.Tk):
                     continue
                 tree.insert(parent, "end", iid=node_id, text=part, open=False)
                 parent = node_id
+                inserted.add(current)
+        selected_ds = self.advanced_dataset_var.get().strip()
+        if selected_ds:
+            sel_id = f"adv::{selected_ds}"
+            if tree.exists(sel_id):
+                tree.selection_set(sel_id)
+                tree.focus(sel_id)
 
     def _refresh_dataset_pool_options_global(self) -> None:
         options: Dict[str, Tuple[str, str]] = {}
@@ -8221,17 +8339,24 @@ class App(tk.Tk):
         self.dataset_pool_options = options
         self.origin_pool_combo["values"] = labels
         self.dest_pool_combo["values"] = labels
+        self.advanced_pool_combo["values"] = labels
         if not labels:
             self.origin_pool_var.set("")
             self.dest_pool_var.set("")
+            self.advanced_pool_var.set("")
             self.origin_dataset_var.set("")
             self.dest_dataset_var.set("")
+            self.advanced_dataset_var.set("")
+            self.advanced_target_var.set(f"{tr('datasets_dataset')}: {tr('label_none')}")
+            self._render_advanced_dataset_properties(None)
             self._update_level_button_state()
             return
         if self.origin_pool_var.get() not in options:
             self.origin_pool_var.set(labels[0])
         if self.dest_pool_var.get() not in options:
             self.dest_pool_var.set(labels[0])
+        if self.advanced_pool_var.get() not in options:
+            self.advanced_pool_var.set(labels[0])
 
     def _load_side_datasets(self, side: str) -> None:
         selection = self.origin_pool_var.get().strip() if side == "origin" else self.dest_pool_var.get().strip()
@@ -8253,6 +8378,8 @@ class App(tk.Tk):
             else:
                 self._render_datasets_tree("dest", self.datasets_tree_dest, datasets, pool)
                 self._normalize_selected_dataset_var("dest", datasets)
+            if self.advanced_pool_var.get().strip() == selection:
+                self._refresh_advanced_tree()
             return
         self.status_var.set(trf("status_loading_datasets", pool=pool, name=profile.name))
         self._app_log("info", trf("log_loading_datasets_side", side=side, name=profile.name, pool=pool))
@@ -8273,6 +8400,8 @@ class App(tk.Tk):
                 else:
                     self.after(0, lambda p=pool: self._render_datasets_tree("dest", self.datasets_tree_dest, datasets, p))
                     self.after(0, lambda: self._normalize_selected_dataset_var("dest", datasets))
+                if self.advanced_pool_var.get().strip() == selection:
+                    self.after(0, self._refresh_advanced_tree)
                 self.after(0, lambda: self.status_var.set(trf("status_datasets_loaded", name=profile.name, pool=pool)))
             except Exception as exc:
                 self._app_log("normal", trf("log_datasets_load_error", side=side, error=exc))
