@@ -143,6 +143,7 @@ private:
     void refreshConnectionByIndex(int idx);
     void exportPoolFromRow(int row);
     void importPoolFromRow(int row);
+    void refreshSelectedPoolDetails();
     void updateStatus(const QString& text);
     void appLog(const QString& level, const QString& msg);
     void populateAllPoolsTables();
@@ -161,6 +162,9 @@ private:
 
     QTableWidget* m_importedPoolsTable{nullptr};
     QTableWidget* m_importablePoolsTable{nullptr};
+    QTabWidget* m_poolDetailTabs{nullptr};
+    QTableWidget* m_poolPropsTable{nullptr};
+    QPlainTextEdit* m_poolStatusText{nullptr};
     QStackedWidget* m_rightStack{nullptr};
     QComboBox* m_originPoolCombo{nullptr};
     QComboBox* m_destPoolCombo{nullptr};

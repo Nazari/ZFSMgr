@@ -144,12 +144,16 @@ void MainWindow::buildUi() {
     m_transferDestLabel = new QLabel(QStringLiteral("Destino: Dataset (seleccione)"), transferBox);
     m_transferOriginLabel->setWordWrap(true);
     m_transferDestLabel->setWordWrap(true);
+    m_transferOriginLabel->setMinimumHeight(34);
+    m_transferDestLabel->setMinimumHeight(34);
     m_btnCopy = new QPushButton(QStringLiteral("Copiar"), transferBox);
     m_btnLevel = new QPushButton(QStringLiteral("Nivelar"), transferBox);
     m_btnSync = new QPushButton(QStringLiteral("Sincronizar"), transferBox);
     m_btnCopy->setEnabled(false);
     m_btnLevel->setEnabled(false);
     m_btnSync->setEnabled(false);
+    transferLayout->addWidget(m_transferOriginLabel);
+    transferLayout->addWidget(m_transferDestLabel);
     transferLayout->addWidget(m_btnCopy);
     transferLayout->addWidget(m_btnLevel);
     transferLayout->addWidget(m_btnSync);
@@ -219,7 +223,31 @@ void MainWindow::buildUi() {
 
     m_rightTabs->addTab(importedTab, QStringLiteral("Pools importados"));
     m_rightTabs->addTab(importableTab, QStringLiteral("Pools importables"));
-    rightConnectionsLayout->addWidget(m_rightTabs, 1);
+    rightConnectionsLayout->addWidget(m_rightTabs, 3);
+
+    m_poolDetailTabs = new QTabWidget(rightConnectionsPage);
+    m_poolDetailTabs->setDocumentMode(true);
+    auto* propsPoolTab = new QWidget(m_poolDetailTabs);
+    auto* propsPoolLayout = new QVBoxLayout(propsPoolTab);
+    m_poolPropsTable = new QTableWidget(propsPoolTab);
+    m_poolPropsTable->setColumnCount(3);
+    m_poolPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor"), QStringLiteral("Origen")});
+    m_poolPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_poolPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_poolPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    m_poolPropsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_poolPropsTable->setSelectionMode(QAbstractItemView::NoSelection);
+    propsPoolLayout->addWidget(m_poolPropsTable, 1);
+
+    auto* statusPoolTab = new QWidget(m_poolDetailTabs);
+    auto* statusPoolLayout = new QVBoxLayout(statusPoolTab);
+    m_poolStatusText = new QPlainTextEdit(statusPoolTab);
+    m_poolStatusText->setReadOnly(true);
+    statusPoolLayout->addWidget(m_poolStatusText, 1);
+
+    m_poolDetailTabs->addTab(propsPoolTab, QStringLiteral("Propiedades del pool"));
+    m_poolDetailTabs->addTab(statusPoolTab, QStringLiteral("Estado"));
+    rightConnectionsLayout->addWidget(m_poolDetailTabs, 2);
 
     auto* rightDatasetsPage = new QWidget(m_rightStack);
     auto* rightDatasetsLayout = new QVBoxLayout(rightDatasetsPage);
@@ -245,6 +273,8 @@ void MainWindow::buildUi() {
     m_originTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_originTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     m_originSelectionLabel = new QLabel(QStringLiteral("Origen: Dataset (seleccione)"), originBox);
+    m_originSelectionLabel->setWordWrap(true);
+    m_originSelectionLabel->setMinimumHeight(36);
     originLayout->addWidget(m_originPoolCombo);
     originLayout->addWidget(m_originTree, 1);
     originLayout->addWidget(m_originSelectionLabel);
@@ -260,6 +290,8 @@ void MainWindow::buildUi() {
     m_destTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_destTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     m_destSelectionLabel = new QLabel(QStringLiteral("Destino: Dataset (seleccione)"), destBox);
+    m_destSelectionLabel->setWordWrap(true);
+    m_destSelectionLabel->setMinimumHeight(36);
     destLayout->addWidget(m_destPoolCombo);
     destLayout->addWidget(m_destTree, 1);
     destLayout->addWidget(m_destSelectionLabel);
@@ -305,6 +337,7 @@ void MainWindow::buildUi() {
     m_advTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     m_advSelectionLabel = new QLabel(QStringLiteral("Dataset: (seleccione)"), rightAdvancedPage);
     m_advSelectionLabel->setWordWrap(true);
+    m_advSelectionLabel->setMinimumHeight(36);
     advLeftLayout->addWidget(m_advPoolCombo);
     advLeftLayout->addWidget(m_advSelectionLabel);
     advLeftLayout->addWidget(m_advTree, 1);
@@ -431,6 +464,10 @@ void MainWindow::buildUi() {
         if (col == 2) {
             exportPoolFromRow(row);
         }
+        refreshSelectedPoolDetails();
+    });
+    connect(m_importedPoolsTable, &QTableWidget::itemSelectionChanged, this, [this]() {
+        refreshSelectedPoolDetails();
     });
     connect(m_importablePoolsTable, &QTableWidget::cellClicked, this, [this](int row, int col) {
         if (col == 4) {
@@ -2406,6 +2443,67 @@ void MainWindow::populateAllPoolsTables() {
             act->setForeground(QBrush(QColor("#1f5f8b")));
             m_importablePoolsTable->setItem(row, 4, act);
         }
+    }
+    refreshSelectedPoolDetails();
+}
+
+void MainWindow::refreshSelectedPoolDetails() {
+    if (!m_poolPropsTable || !m_poolStatusText || !m_importedPoolsTable) {
+        return;
+    }
+    m_poolPropsTable->setRowCount(0);
+    m_poolStatusText->clear();
+
+    const auto sel = m_importedPoolsTable->selectedItems();
+    if (sel.isEmpty()) {
+        return;
+    }
+    const int row = sel.first()->row();
+    QTableWidgetItem* connItem = m_importedPoolsTable->item(row, 0);
+    QTableWidgetItem* poolItem = m_importedPoolsTable->item(row, 1);
+    if (!connItem || !poolItem) {
+        return;
+    }
+    const QString connName = connItem->text().trimmed();
+    const QString poolName = poolItem->text().trimmed();
+    if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
+        return;
+    }
+    const int idx = findConnectionIndexByName(connName);
+    if (idx < 0 || idx >= m_profiles.size()) {
+        return;
+    }
+    const ConnectionProfile& p = m_profiles[idx];
+
+    QString out;
+    QString err;
+    int rc = -1;
+    const QString propsCmd = withSudo(
+        p, QStringLiteral("zpool get -H -o property,value,source all %1").arg(shSingleQuote(poolName)));
+    if (runSsh(p, propsCmd, 20000, out, err, rc) && rc == 0) {
+        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+        for (const QString& line : lines) {
+            const QStringList parts = line.split('\t');
+            if (parts.size() < 3) {
+                continue;
+            }
+            const int r = m_poolPropsTable->rowCount();
+            m_poolPropsTable->insertRow(r);
+            m_poolPropsTable->setItem(r, 0, new QTableWidgetItem(parts[0].trimmed()));
+            m_poolPropsTable->setItem(r, 1, new QTableWidgetItem(parts[1].trimmed()));
+            m_poolPropsTable->setItem(r, 2, new QTableWidgetItem(parts[2].trimmed()));
+        }
+    }
+
+    out.clear();
+    err.clear();
+    rc = -1;
+    const QString stCmd = withSudo(
+        p, QStringLiteral("zpool status -v %1").arg(shSingleQuote(poolName)));
+    if (runSsh(p, stCmd, 20000, out, err, rc) && rc == 0) {
+        m_poolStatusText->setPlainText(out.trimmed());
+    } else {
+        m_poolStatusText->setPlainText(err.trimmed());
     }
 }
 
