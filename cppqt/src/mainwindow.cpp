@@ -272,9 +272,11 @@ void MainWindow::buildUi() {
     auto* originBox = new QGroupBox(QStringLiteral("Origen"), dsLeft);
     auto* originLayout = new QVBoxLayout(originBox);
     originLayout->setContentsMargins(8, 20, 8, 8);
+    auto* originTop = new QHBoxLayout();
     m_originPoolCombo = new QComboBox(originBox);
-    m_originPoolCombo->setMinimumContentsLength(24);
-    m_originPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_originPoolCombo->setMinimumContentsLength(8);
+    m_originPoolCombo->setMaximumWidth(140);
+    m_originPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
     m_originTree = new QTreeWidget(originBox);
     m_originTree->setColumnCount(2);
     m_originTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
@@ -283,16 +285,19 @@ void MainWindow::buildUi() {
     m_originSelectionLabel = new QLabel(QStringLiteral("Origen: Dataset (seleccione)"), originBox);
     m_originSelectionLabel->setWordWrap(true);
     m_originSelectionLabel->setMinimumHeight(36);
-    originLayout->addWidget(m_originPoolCombo);
+    originTop->addWidget(m_originPoolCombo, 0);
+    originTop->addWidget(m_originSelectionLabel, 1);
+    originLayout->addLayout(originTop);
     originLayout->addWidget(m_originTree, 1);
-    originLayout->addWidget(m_originSelectionLabel);
 
     auto* destBox = new QGroupBox(QStringLiteral("Destino"), dsLeft);
     auto* destLayout = new QVBoxLayout(destBox);
     destLayout->setContentsMargins(8, 20, 8, 8);
+    auto* destTop = new QHBoxLayout();
     m_destPoolCombo = new QComboBox(destBox);
-    m_destPoolCombo->setMinimumContentsLength(24);
-    m_destPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_destPoolCombo->setMinimumContentsLength(8);
+    m_destPoolCombo->setMaximumWidth(140);
+    m_destPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
     m_destTree = new QTreeWidget(destBox);
     m_destTree->setColumnCount(2);
     m_destTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
@@ -301,9 +306,10 @@ void MainWindow::buildUi() {
     m_destSelectionLabel = new QLabel(QStringLiteral("Destino: Dataset (seleccione)"), destBox);
     m_destSelectionLabel->setWordWrap(true);
     m_destSelectionLabel->setMinimumHeight(36);
-    destLayout->addWidget(m_destPoolCombo);
+    destTop->addWidget(m_destPoolCombo, 0);
+    destTop->addWidget(m_destSelectionLabel, 1);
+    destLayout->addLayout(destTop);
     destLayout->addWidget(m_destTree, 1);
-    destLayout->addWidget(m_destSelectionLabel);
 
     dsLeftLayout->addWidget(originBox, 1);
     dsLeftLayout->addWidget(destBox, 1);
@@ -1270,7 +1276,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
             tree->addTopLevelItem(item);
         }
     }
-    tree->expandToDepth(1);
+    tree->expandToDepth(0);
 
     if (side == QStringLiteral("origin")) {
         m_originSelectionLabel->setText(QStringLiteral("Origen: Dataset (seleccione)"));
