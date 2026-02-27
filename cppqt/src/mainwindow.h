@@ -133,6 +133,8 @@ private:
     void copyAppLogToClipboard();
     int maxLogLines() const;
     void trimLogWidget(QPlainTextEdit* widget);
+    void syncConnectionLogTabs();
+    void appendConnectionLog(const QString& connId, const QString& line);
     int findConnectionIndexByName(const QString& name) const;
     void refreshConnectionByIndex(int idx);
     void exportPoolFromRow(int row);
@@ -184,6 +186,7 @@ private:
     QPushButton* m_logCopyBtn{nullptr};
     QPushButton* m_logCancelBtn{nullptr};
     QPlainTextEdit* m_logView{nullptr};
+    QMap<QString, QPlainTextEdit*> m_connectionLogViews;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
     QString m_originSelectedDataset;
     QString m_originSelectedSnapshot;

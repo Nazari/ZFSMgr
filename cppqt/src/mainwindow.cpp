@@ -30,6 +30,7 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QStackedWidget>
+#include <QSet>
 #include <QVBoxLayout>
 #include <QWidget>
 #include <QComboBox>
@@ -484,6 +485,7 @@ void MainWindow::loadConnections() {
         appLog(QStringLiteral("WARN"), warning);
     }
     rebuildDatasetPoolSelectors();
+    syncConnectionLogTabs();
 }
 
 void MainWindow::rebuildConnectionList() {
@@ -918,22 +920,37 @@ bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, in
     args << QStringLiteral("%1@%2").arg(p.username, p.host);
     args << remoteCmd;
 
+    const QString cmdLine = QStringLiteral("%1@%2:%3 $ %4")
+                                .arg(p.username, p.host)
+                                .arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22"))
+                                .arg(remoteCmd);
+    appLog(QStringLiteral("INFO"), cmdLine);
+    appendConnectionLog(p.id, cmdLine);
+
     QProcess proc;
     proc.start(QStringLiteral("ssh"), args);
     if (!proc.waitForStarted(4000)) {
         err = QStringLiteral("No se pudo iniciar ssh");
+        appendConnectionLog(p.id, err);
         return false;
     }
     if (!proc.waitForFinished(timeoutMs)) {
         proc.kill();
         proc.waitForFinished(1000);
         err = QStringLiteral("Timeout");
+        appendConnectionLog(p.id, err);
         return false;
     }
 
     rc = proc.exitCode();
     out = QString::fromUtf8(proc.readAllStandardOutput());
     err = QString::fromUtf8(proc.readAllStandardError());
+    if (!out.trimmed().isEmpty()) {
+        appendConnectionLog(p.id, oneLine(out));
+    }
+    if (!err.trimmed().isEmpty()) {
+        appendConnectionLog(p.id, oneLine(err));
+    }
     return true;
 }
 
@@ -1602,6 +1619,11 @@ void MainWindow::appendLogToFile(const QString& line) {
 
 void MainWindow::clearAppLog() {
     m_logView->clear();
+    for (auto it = m_connectionLogViews.begin(); it != m_connectionLogViews.end(); ++it) {
+        if (it.value()) {
+            it.value()->clear();
+        }
+    }
     if (m_lastDetailText) {
         m_lastDetailText->clear();
     }
@@ -1618,7 +1640,20 @@ void MainWindow::copyAppLogToClipboard() {
     if (!cb) {
         return;
     }
-    cb->setText(m_logView->toPlainText());
+    QString text = QStringLiteral("[Aplicación]\n") + m_logView->toPlainText();
+    for (auto it = m_connectionLogViews.constBegin(); it != m_connectionLogViews.constEnd(); ++it) {
+        const QString connId = it.key();
+        const QPlainTextEdit* view = it.value();
+        QString connName = connId;
+        for (const auto& p : m_profiles) {
+            if (p.id == connId) {
+                connName = p.name;
+                break;
+            }
+        }
+        text += QStringLiteral("\n\n[%1]\n%2").arg(connName, view ? view->toPlainText() : QString());
+    }
+    cb->setText(text);
 }
 
 int MainWindow::findConnectionIndexByName(const QString& name) const {
@@ -2132,4 +2167,63 @@ void MainWindow::trimLogWidget(QPlainTextEdit* widget) {
         c.removeSelectedText();
         c.deleteChar();
     }
+}
+
+void MainWindow::syncConnectionLogTabs() {
+    if (!m_logsTabs) {
+        return;
+    }
+    QSet<QString> wanted;
+    for (const auto& p : m_profiles) {
+        wanted.insert(p.id);
+        if (m_connectionLogViews.contains(p.id)) {
+            continue;
+        }
+        auto* tab = new QWidget(m_logsTabs);
+        auto* lay = new QVBoxLayout(tab);
+        auto* view = new QPlainTextEdit(tab);
+        view->setReadOnly(true);
+        QFont mono = view->font();
+        mono.setFamily(QStringLiteral("Monospace"));
+        mono.setPointSize(9);
+        view->setFont(mono);
+        lay->addWidget(view, 1);
+        m_logsTabs->addTab(tab, p.name);
+        m_connectionLogViews.insert(p.id, view);
+    }
+
+    for (auto it = m_connectionLogViews.begin(); it != m_connectionLogViews.end();) {
+        if (wanted.contains(it.key())) {
+            ++it;
+            continue;
+        }
+        QWidget* tab = it.value() ? it.value()->parentWidget() : nullptr;
+        const int idx = tab ? m_logsTabs->indexOf(tab) : -1;
+        if (idx >= 0) {
+            m_logsTabs->removeTab(idx);
+        }
+        if (tab) {
+            tab->deleteLater();
+        }
+        it = m_connectionLogViews.erase(it);
+    }
+
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        QWidget* tab = m_connectionLogViews.value(m_profiles[i].id)
+                           ? m_connectionLogViews.value(m_profiles[i].id)->parentWidget()
+                           : nullptr;
+        const int idx = tab ? m_logsTabs->indexOf(tab) : -1;
+        if (idx >= 0) {
+            m_logsTabs->setTabText(idx, m_profiles[i].name);
+        }
+    }
+}
+
+void MainWindow::appendConnectionLog(const QString& connId, const QString& line) {
+    QPlainTextEdit* view = m_connectionLogViews.value(connId, nullptr);
+    if (!view) {
+        return;
+    }
+    view->appendPlainText(QStringLiteral("[%1] %2").arg(tsNow(), line));
+    trimLogWidget(view);
 }
