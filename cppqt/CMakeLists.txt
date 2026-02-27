@@ -9,7 +9,7 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Core Gui)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Core Gui Concurrent)
 find_package(OpenSSL REQUIRED)
 
 qt_add_executable(zfsmgr_qt
@@ -26,7 +26,7 @@ qt_add_executable(zfsmgr_qt
     src/secretcipher.h
 )
 
-target_link_libraries(zfsmgr_qt PRIVATE Qt6::Widgets Qt6::Core Qt6::Gui OpenSSL::Crypto)
+target_link_libraries(zfsmgr_qt PRIVATE Qt6::Widgets Qt6::Core Qt6::Gui Qt6::Concurrent OpenSSL::Crypto)
 
 target_compile_definitions(zfsmgr_qt PRIVATE QT_NO_KEYWORDS)
 

@@ -137,6 +137,8 @@ private:
     void trimLogWidget(QPlainTextEdit* widget);
     void syncConnectionLogTabs();
     void appendConnectionLog(const QString& connId, const QString& line);
+    void onAsyncRefreshResult(int generation, int idx, const ConnectionRuntimeState& state);
+    void onAsyncRefreshDone(int generation);
     int findConnectionIndexByName(const QString& name) const;
     void refreshConnectionByIndex(int idx);
     void exportPoolFromRow(int row);
@@ -205,4 +207,7 @@ private:
     bool m_advPropsDirty{false};
     bool m_loadingPropsTable{false};
     QString m_appLogPath;
+    int m_refreshGeneration{0};
+    int m_refreshPending{0};
+    int m_refreshTotal{0};
 };

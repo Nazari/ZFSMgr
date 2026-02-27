@@ -27,6 +27,7 @@
 #include <QTextEdit>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QThread>
 #include <QTabBar>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -38,6 +39,9 @@
 #include <QTextStream>
 #include <QApplication>
 #include <QClipboard>
+#include <QMetaObject>
+
+#include <QtConcurrent/QtConcurrent>
 
 namespace {
 
@@ -644,13 +648,27 @@ void MainWindow::rebuildDatasetPoolSelectors() {
 
 void MainWindow::refreshAllConnections() {
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Refrescar todas las conexiones"));
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        m_states[i] = refreshConnection(m_profiles[i]);
+    if (m_profiles.isEmpty()) {
+        rebuildConnectionList();
+        rebuildDatasetPoolSelectors();
+        populateAllPoolsTables();
+        updateStatus(QStringLiteral("Estado: refresco finalizado"));
+        return;
     }
-    rebuildConnectionList();
-    rebuildDatasetPoolSelectors();
-    populateAllPoolsTables();
-    updateStatus(QStringLiteral("Estado: refresco finalizado"));
+    const int generation = ++m_refreshGeneration;
+    m_refreshPending = m_profiles.size();
+    m_refreshTotal = m_profiles.size();
+    updateStatus(QStringLiteral("Estado: refrescando 0/%1").arg(m_refreshTotal));
+
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        const ConnectionProfile profile = m_profiles[i];
+        (void)QtConcurrent::run([this, generation, i, profile]() {
+            const ConnectionRuntimeState state = refreshConnection(profile);
+            QMetaObject::invokeMethod(this, [this, generation, i, state]() {
+                onAsyncRefreshResult(generation, i, state);
+            }, Qt::QueuedConnection);
+        });
+    }
 }
 
 void MainWindow::refreshSelectedConnection() {
@@ -662,13 +680,54 @@ void MainWindow::refreshSelectedConnection() {
     if (idx < 0 || idx >= m_profiles.size()) {
         return;
     }
-    m_states[idx] = refreshConnection(m_profiles[idx]);
-    rebuildConnectionList();
-    rebuildDatasetPoolSelectors();
-    if (idx < m_connectionsList->count()) {
-        m_connectionsList->setCurrentRow(idx);
+    const int generation = ++m_refreshGeneration;
+    m_refreshPending = 1;
+    m_refreshTotal = 1;
+    updateStatus(QStringLiteral("Estado: refrescando 0/1"));
+    const ConnectionProfile profile = m_profiles[idx];
+    (void)QtConcurrent::run([this, generation, idx, profile]() {
+        const ConnectionRuntimeState state = refreshConnection(profile);
+        QMetaObject::invokeMethod(this, [this, generation, idx, state]() {
+            onAsyncRefreshResult(generation, idx, state);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void MainWindow::onAsyncRefreshResult(int generation, int idx, const ConnectionRuntimeState& state) {
+    if (generation != m_refreshGeneration) {
+        return;
     }
+    if (idx < 0 || idx >= m_states.size()) {
+        return;
+    }
+    int selectedIdx = -1;
+    const auto selected = m_connectionsList ? m_connectionsList->selectedItems() : QList<QListWidgetItem*>{};
+    if (!selected.isEmpty()) {
+        selectedIdx = selected.first()->data(Qt::UserRole).toInt();
+    }
+    m_states[idx] = state;
+    rebuildConnectionList();
+    if (selectedIdx >= 0 && selectedIdx < m_connectionsList->count()) {
+        m_connectionsList->setCurrentRow(selectedIdx);
+    }
+    rebuildDatasetPoolSelectors();
     populateAllPoolsTables();
+    if (m_refreshPending > 0) {
+        --m_refreshPending;
+    }
+    const int done = qMax(0, m_refreshTotal - m_refreshPending);
+    updateStatus(QStringLiteral("Estado: refrescando %1/%2").arg(done).arg(qMax(1, m_refreshTotal)));
+    if (m_refreshPending == 0) {
+        onAsyncRefreshDone(generation);
+    }
+}
+
+void MainWindow::onAsyncRefreshDone(int generation) {
+    if (generation != m_refreshGeneration) {
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Refresco paralelo finalizado"));
+    updateStatus(QStringLiteral("Estado: refresco finalizado"));
 }
 
 void MainWindow::createConnection() {
@@ -2351,12 +2410,24 @@ void MainWindow::populateAllPoolsTables() {
 }
 
 void MainWindow::updateStatus(const QString& text) {
+    if (QThread::currentThread() != thread()) {
+        QMetaObject::invokeMethod(this, [this, text]() {
+            updateStatus(text);
+        }, Qt::QueuedConnection);
+        return;
+    }
     if (m_statusText) {
         m_statusText->setPlainText(text);
     }
 }
 
 void MainWindow::appLog(const QString& level, const QString& msg) {
+    if (QThread::currentThread() != thread()) {
+        QMetaObject::invokeMethod(this, [this, level, msg]() {
+            appLog(level, msg);
+        }, Qt::QueuedConnection);
+        return;
+    }
     const QString line = QStringLiteral("[%1] [%2] %3").arg(tsNow(), level, msg);
     const QString current = m_logLevelCombo ? m_logLevelCombo->currentText().toLower() : QStringLiteral("normal");
     auto rank = [](const QString& l) -> int {
@@ -2459,6 +2530,12 @@ void MainWindow::syncConnectionLogTabs() {
 }
 
 void MainWindow::appendConnectionLog(const QString& connId, const QString& line) {
+    if (QThread::currentThread() != thread()) {
+        QMetaObject::invokeMethod(this, [this, connId, line]() {
+            appendConnectionLog(connId, line);
+        }, Qt::QueuedConnection);
+        return;
+    }
     QPlainTextEdit* view = m_connectionLogViews.value(connId, nullptr);
     if (!view) {
         return;
