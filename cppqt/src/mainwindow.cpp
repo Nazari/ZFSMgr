@@ -27,6 +27,7 @@
 #include <QTextEdit>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QTabBar>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QStackedWidget>
@@ -80,18 +81,31 @@ MainWindow::MainWindow(const QString& masterPassword, QWidget* parent)
 void MainWindow::buildUi() {
     setWindowTitle(QStringLiteral("ZFSMgr (C++/Qt)"));
     resize(1500, 920);
+    setStyleSheet(QStringLiteral(
+        "QTabBar::tab { padding: 2px 8px; min-height: 18px; }"
+        "QGroupBox { margin-top: 8px; }"
+        "QGroupBox::title { left: 8px; padding: 0 2px 0 2px; }"));
 
     auto* central = new QWidget(this);
     auto* root = new QVBoxLayout(central);
+    root->setContentsMargins(8, 8, 8, 8);
+    root->setSpacing(6);
 
     auto* topSplitter = new QSplitter(Qt::Horizontal, central);
 
     auto* leftPane = new QWidget(topSplitter);
     auto* leftLayout = new QVBoxLayout(leftPane);
+    leftLayout->setContentsMargins(0, 0, 0, 0);
+    leftLayout->setSpacing(4);
     m_leftTabs = new QTabWidget(leftPane);
+    m_leftTabs->setDocumentMode(true);
+    m_leftTabs->setTabPosition(QTabWidget::North);
+    leftPane->setMinimumWidth(520);
 
     auto* connectionsTab = new QWidget(m_leftTabs);
     auto* connLayout = new QVBoxLayout(connectionsTab);
+    connLayout->setContentsMargins(4, 4, 4, 4);
+    connLayout->setSpacing(4);
     m_connectionsList = new QListWidget(connectionsTab);
     m_connectionsList->setAlternatingRowColors(true);
     connLayout->addWidget(m_connectionsList, 1);
@@ -109,6 +123,8 @@ void MainWindow::buildUi() {
 
     auto* datasetsTab = new QWidget(m_leftTabs);
     auto* dsLeftTabLayout = new QVBoxLayout(datasetsTab);
+    dsLeftTabLayout->setContentsMargins(4, 4, 4, 4);
+    dsLeftTabLayout->setSpacing(4);
     auto* transferBox = new QGroupBox(QStringLiteral("Origen-->Destino"), datasetsTab);
     auto* transferLayout = new QVBoxLayout(transferBox);
     m_transferOriginLabel = new QLabel(QStringLiteral("Origen: Dataset (seleccione)"), transferBox);
@@ -130,6 +146,8 @@ void MainWindow::buildUi() {
 
     auto* advancedTab = new QWidget(m_leftTabs);
     auto* advLeftTabLayout = new QVBoxLayout(advancedTab);
+    advLeftTabLayout->setContentsMargins(4, 4, 4, 4);
+    advLeftTabLayout->setSpacing(4);
     m_btnAdvancedBreakdown = new QPushButton(QStringLiteral("Desglosar"), advancedTab);
     m_btnAdvancedAssemble = new QPushButton(QStringLiteral("Ensamblar"), advancedTab);
     advLeftTabLayout->addWidget(m_btnAdvancedBreakdown);
@@ -144,11 +162,16 @@ void MainWindow::buildUi() {
 
     auto* rightPane = new QWidget(topSplitter);
     auto* rightLayout = new QVBoxLayout(rightPane);
+    rightLayout->setContentsMargins(0, 0, 0, 0);
+    rightLayout->setSpacing(4);
     m_rightStack = new QStackedWidget(rightPane);
 
     auto* rightConnectionsPage = new QWidget(m_rightStack);
     auto* rightConnectionsLayout = new QVBoxLayout(rightConnectionsPage);
+    rightConnectionsLayout->setContentsMargins(0, 0, 0, 0);
+    rightConnectionsLayout->setSpacing(4);
     m_rightTabs = new QTabWidget(rightConnectionsPage);
+    m_rightTabs->setDocumentMode(true);
 
     auto* importedTab = new QWidget(m_rightTabs);
     auto* importedLayout = new QVBoxLayout(importedTab);
@@ -159,7 +182,7 @@ void MainWindow::buildUi() {
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_importedPoolsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_importedPoolsTable->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_importedPoolsTable->setContextMenuPolicy(Qt::NoContextMenu);
     importedLayout->addWidget(m_importedPoolsTable, 1);
 
     auto* importableTab = new QWidget(m_rightTabs);
@@ -174,7 +197,7 @@ void MainWindow::buildUi() {
     m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
     m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
     m_importablePoolsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_importablePoolsTable->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_importablePoolsTable->setContextMenuPolicy(Qt::NoContextMenu);
     importableLayout->addWidget(m_importablePoolsTable, 1);
 
     m_rightTabs->addTab(importedTab, QStringLiteral("Pools importados"));
@@ -183,10 +206,14 @@ void MainWindow::buildUi() {
 
     auto* rightDatasetsPage = new QWidget(m_rightStack);
     auto* rightDatasetsLayout = new QVBoxLayout(rightDatasetsPage);
+    rightDatasetsLayout->setContentsMargins(0, 0, 0, 0);
+    rightDatasetsLayout->setSpacing(4);
     auto* dsSplitter = new QSplitter(Qt::Horizontal, rightDatasetsPage);
 
     auto* dsLeft = new QWidget(dsSplitter);
     auto* dsLeftLayout = new QVBoxLayout(dsLeft);
+    dsLeftLayout->setContentsMargins(0, 0, 0, 0);
+    dsLeftLayout->setSpacing(4);
 
     auto* originBox = new QGroupBox(QStringLiteral("Origen"), dsLeft);
     auto* originLayout = new QVBoxLayout(originBox);
@@ -242,6 +269,8 @@ void MainWindow::buildUi() {
 
     auto* rightAdvancedPage = new QWidget(m_rightStack);
     auto* rightAdvancedLayout = new QVBoxLayout(rightAdvancedPage);
+    rightAdvancedLayout->setContentsMargins(0, 0, 0, 0);
+    rightAdvancedLayout->setSpacing(4);
     auto* advSplitter = new QSplitter(Qt::Horizontal, rightAdvancedPage);
     auto* advLeft = new QWidget(advSplitter);
     auto* advLeftLayout = new QVBoxLayout(advLeft);
@@ -285,12 +314,14 @@ void MainWindow::buildUi() {
 
     topSplitter->addWidget(leftPane);
     topSplitter->addWidget(rightPane);
-    topSplitter->setStretchFactor(0, 35);
-    topSplitter->setStretchFactor(1, 65);
+    topSplitter->setStretchFactor(0, 42);
+    topSplitter->setStretchFactor(1, 58);
     root->addWidget(topSplitter, 4);
 
     auto* logBox = new QGroupBox(QStringLiteral("Log combinado"), central);
     auto* logLayout = new QVBoxLayout(logBox);
+    logLayout->setContentsMargins(6, 6, 6, 6);
+    logLayout->setSpacing(4);
     auto* logBody = new QHBoxLayout();
 
     auto* leftInfo = new QWidget(logBox);
@@ -318,6 +349,7 @@ void MainWindow::buildUi() {
     auto* rightLogs = new QWidget(logBox);
     auto* rightLogsLayout = new QVBoxLayout(rightLogs);
     m_logsTabs = new QTabWidget(rightLogs);
+    m_logsTabs->setDocumentMode(true);
     auto* appTab = new QWidget(m_logsTabs);
     auto* appTabLayout = new QVBoxLayout(appTab);
     m_logView = new QPlainTextEdit(appTab);
@@ -373,11 +405,15 @@ void MainWindow::buildUi() {
             populateAllPoolsTables();
         }
     });
-    connect(m_importedPoolsTable, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
-        onImportedPoolsContextMenuRequested(pos);
+    connect(m_importedPoolsTable, &QTableWidget::cellClicked, this, [this](int row, int col) {
+        if (col == 2) {
+            exportPoolFromRow(row);
+        }
     });
-    connect(m_importablePoolsTable, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
-        onImportablePoolsContextMenuRequested(pos);
+    connect(m_importablePoolsTable, &QTableWidget::cellClicked, this, [this](int row, int col) {
+        if (col == 4) {
+            importPoolFromRow(row);
+        }
     });
     connect(m_originPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onOriginPoolChanged(); });
     connect(m_destPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onDestPoolChanged(); });
@@ -2275,16 +2311,23 @@ void MainWindow::populateAllPoolsTables() {
             m_importedPoolsTable->insertRow(row);
             m_importedPoolsTable->setItem(row, 0, new QTableWidgetItem(pool.connection));
             m_importedPoolsTable->setItem(row, 1, new QTableWidgetItem(pool.pool));
-            m_importedPoolsTable->setItem(row, 2, new QTableWidgetItem(pool.action));
+            auto* act = new QTableWidgetItem(pool.action);
+            act->setForeground(QBrush(QColor("#1f5f8b")));
+            m_importedPoolsTable->setItem(row, 2, act);
         }
         for (const PoolImportable& pool : st.importablePools) {
             const int row = m_importablePoolsTable->rowCount();
             m_importablePoolsTable->insertRow(row);
             m_importablePoolsTable->setItem(row, 0, new QTableWidgetItem(pool.connection));
             m_importablePoolsTable->setItem(row, 1, new QTableWidgetItem(pool.pool));
-            m_importablePoolsTable->setItem(row, 2, new QTableWidgetItem(pool.state));
+            auto* state = new QTableWidgetItem(pool.state);
+            const QString up = pool.state.trimmed().toUpper();
+            state->setForeground(QBrush((up == QStringLiteral("ONLINE")) ? QColor("#1f7a1f") : QColor("#a12a2a")));
+            m_importablePoolsTable->setItem(row, 2, state);
             m_importablePoolsTable->setItem(row, 3, new QTableWidgetItem(pool.reason));
-            m_importablePoolsTable->setItem(row, 4, new QTableWidgetItem(pool.action));
+            auto* act = new QTableWidgetItem(pool.action);
+            act->setForeground(QBrush(QColor("#1f5f8b")));
+            m_importablePoolsTable->setItem(row, 4, act);
         }
     }
 }
