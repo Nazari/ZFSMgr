@@ -170,8 +170,6 @@ void MainWindow::buildUi() {
     m_btnCopy->setEnabled(false);
     m_btnLevel->setEnabled(false);
     m_btnSync->setEnabled(false);
-    transferLayout->addWidget(m_transferOriginLabel);
-    transferLayout->addWidget(m_transferDestLabel);
     transferLayout->addWidget(m_btnCopy);
     transferLayout->addWidget(m_btnLevel);
     transferLayout->addWidget(m_btnSync);
@@ -183,15 +181,19 @@ void MainWindow::buildUi() {
     auto* advLeftTabLayout = new QVBoxLayout(advancedTab);
     advLeftTabLayout->setContentsMargins(4, 4, 4, 4);
     advLeftTabLayout->setSpacing(4);
-    m_btnAdvancedBreakdown = new QPushButton(QStringLiteral("Desglosar"), advancedTab);
-    m_btnAdvancedAssemble = new QPushButton(QStringLiteral("Ensamblar"), advancedTab);
+    auto* commandsBox = new QGroupBox(QStringLiteral("Comandos"), advancedTab);
+    auto* commandsLayout = new QVBoxLayout(commandsBox);
+    m_btnAdvancedBreakdown = new QPushButton(QStringLiteral("Desglosar"), commandsBox);
+    m_btnAdvancedAssemble = new QPushButton(QStringLiteral("Ensamblar"), commandsBox);
     m_btnAdvancedBreakdown->setMinimumHeight(30);
     m_btnAdvancedAssemble->setMinimumHeight(30);
     m_btnAdvancedBreakdown->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnAdvancedAssemble->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    commandsLayout->addWidget(m_btnAdvancedBreakdown);
+    commandsLayout->addWidget(m_btnAdvancedAssemble);
+    commandsLayout->addStretch(1);
     advLeftTabLayout->setSpacing(8);
-    advLeftTabLayout->addWidget(m_btnAdvancedBreakdown);
-    advLeftTabLayout->addWidget(m_btnAdvancedAssemble);
+    advLeftTabLayout->addWidget(commandsBox);
     advLeftTabLayout->addStretch(1);
     advancedTab->setLayout(advLeftTabLayout);
 
