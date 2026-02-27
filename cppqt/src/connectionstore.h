@@ -28,6 +28,7 @@ public:
     explicit ConnectionStore(const QString& appName);
 
     void setMasterPassword(const QString& password);
+    bool validateMasterPassword(QString& error) const;
     QString configDir() const;
     QString iniPath() const;
     LoadResult loadConnections() const;

@@ -11,6 +11,50 @@ void ConnectionStore::setMasterPassword(const QString& password) {
     m_masterPassword = password;
 }
 
+bool ConnectionStore::validateMasterPassword(QString& error) const {
+    error.clear();
+    QSettings ini(iniPath(), QSettings::IniFormat);
+    const QStringList groups = ini.childGroups();
+    bool hasEncrypted = false;
+    for (const QString& group : groups) {
+        if (!group.startsWith("connection:")) {
+            continue;
+        }
+        ini.beginGroup(group);
+        const QString connName = ini.value("name", group).toString();
+        const QString username = ini.value("username").toString();
+        const QString password = ini.value("password").toString();
+        ini.endGroup();
+
+        auto checkOne = [&](const QString& value, const QString& fieldName) -> bool {
+            if (!SecretCipher::isEncrypted(value)) {
+                return true;
+            }
+            hasEncrypted = true;
+            QString dec;
+            QString err;
+            if (m_masterPassword.isEmpty() || !SecretCipher::decryptEncv1(value, m_masterPassword, dec, err)) {
+                error = QStringLiteral("%1: %2 incorrecto").arg(connName.isEmpty() ? group : connName, fieldName);
+                return false;
+            }
+            return true;
+        };
+
+        if (!checkOne(username, QStringLiteral("usuario"))) {
+            return false;
+        }
+        if (!checkOne(password, QStringLiteral("password"))) {
+            return false;
+        }
+    }
+
+    if (hasEncrypted && m_masterPassword.isEmpty()) {
+        error = QStringLiteral("Password maestro requerido");
+        return false;
+    }
+    return true;
+}
+
 QString ConnectionStore::configDir() const {
     QString base = QDir::homePath() + "/.config/" + m_appName;
     QDir dir(base);

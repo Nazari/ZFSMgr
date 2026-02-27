@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QTimer>
 #include <QVBoxLayout>
 
 MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
@@ -39,9 +40,12 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(m_passwordEdit, &QLineEdit::returnPressed, this, &QDialog::accept);
+    QTimer::singleShot(0, this, [this]() {
+        m_passwordEdit->setFocus(Qt::OtherFocusReason);
+        m_passwordEdit->selectAll();
+    });
 }
 
 QString MasterPasswordDialog::password() const {
     return m_passwordEdit->text();
 }
-
