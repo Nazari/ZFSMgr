@@ -117,6 +117,9 @@ private:
     void onDatasetPropsCellChanged(int row, int col);
     void applyDatasetPropertyChanges();
     void updateApplyPropsButtonState();
+    void initLogPersistence();
+    void rotateLogIfNeeded();
+    void appendLogToFile(const QString& line);
     void updateStatus(const QString& text);
     void appLog(const QString& level, const QString& msg);
     void populateAllPoolsTables();
@@ -167,4 +170,5 @@ private:
     QMap<QString, QString> m_propsOriginalValues;
     bool m_propsDirty{false};
     bool m_loadingPropsTable{false};
+    QString m_appLogPath;
 };

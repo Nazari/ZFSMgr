@@ -2,6 +2,9 @@
 
 #include <QAbstractItemView>
 #include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QFont>
 #include <QGroupBox>
 #include <QHeaderView>
@@ -26,6 +29,7 @@
 #include <QVBoxLayout>
 #include <QWidget>
 #include <QComboBox>
+#include <QTextStream>
 
 namespace {
 
@@ -58,6 +62,7 @@ MainWindow::MainWindow(const QString& masterPassword, QWidget* parent)
     : QMainWindow(parent)
     , m_store(QStringLiteral("ZFSMgr")) {
     m_store.setMasterPassword(masterPassword);
+    initLogPersistence();
     buildUi();
     loadConnections();
 }
@@ -1323,6 +1328,53 @@ void MainWindow::updateApplyPropsButtonState() {
     m_btnApplyDatasetProps->setEnabled(m_propsDirty && eligible);
 }
 
+void MainWindow::initLogPersistence() {
+    const QString dir = m_store.configDir();
+    if (dir.isEmpty()) {
+        return;
+    }
+    m_appLogPath = dir + "/application.log";
+    rotateLogIfNeeded();
+}
+
+void MainWindow::rotateLogIfNeeded() {
+    if (m_appLogPath.isEmpty()) {
+        return;
+    }
+    constexpr qint64 maxBytes = 2 * 1024 * 1024;
+    constexpr int backups = 5;
+
+    QFileInfo fi(m_appLogPath);
+    if (!fi.exists() || fi.size() < maxBytes) {
+        return;
+    }
+
+    for (int i = backups; i >= 1; --i) {
+        const QString src = (i == 1) ? m_appLogPath : (m_appLogPath + "." + QString::number(i - 1));
+        const QString dst = m_appLogPath + "." + QString::number(i);
+        if (QFile::exists(dst)) {
+            QFile::remove(dst);
+        }
+        if (QFile::exists(src)) {
+            QFile::rename(src, dst);
+        }
+    }
+}
+
+void MainWindow::appendLogToFile(const QString& line) {
+    if (m_appLogPath.isEmpty()) {
+        return;
+    }
+    rotateLogIfNeeded();
+    QFile f(m_appLogPath);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        return;
+    }
+    QTextStream ts(&f);
+    ts << line << '\n';
+    ts.flush();
+}
+
 MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QString& side) const {
     DatasetSelectionContext ctx;
     const QString token = (side == QStringLiteral("origin")) ? m_originPoolCombo->currentData().toString()
@@ -1692,4 +1744,5 @@ void MainWindow::updateStatus(const QString& text) {
 void MainWindow::appLog(const QString& level, const QString& msg) {
     const QString line = QStringLiteral("[%1] [%2] %3").arg(tsNow(), level, msg);
     m_logView->appendPlainText(line);
+    appendLogToFile(line);
 }
