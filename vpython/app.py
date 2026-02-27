@@ -4118,7 +4118,7 @@ class App(tk.Tk):
         self.right_advanced_detail = ttk.LabelFrame(right, text="Avanzado")
         self.right_advanced_detail.grid(row=0, column=0, sticky="nsew")
         self.right_advanced_detail.columnconfigure(0, weight=1)
-        self.right_advanced_detail.columnconfigure(1, weight=0, minsize=360)
+        self.right_advanced_detail.columnconfigure(1, weight=0, minsize=430)
         self.right_advanced_detail.rowconfigure(0, weight=1)
 
         adv_left = ttk.Frame(self.right_advanced_detail)
@@ -4162,8 +4162,8 @@ class App(tk.Tk):
         adv_props_wrap.columnconfigure(0, weight=1)
         adv_props_wrap.rowconfigure(0, weight=1)
         self.advanced_props_columns: List[Tuple[str, int, str]] = [
-            (tr("col_property"), 120, "w"),
-            (tr("col_value"), 220, "w"),
+            (tr("col_property"), 108, "w"),
+            (tr("col_value"), 300, "w"),
         ]
         self.advanced_props_rows = self._build_plain_table(
             adv_props_wrap,
