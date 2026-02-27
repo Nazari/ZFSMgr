@@ -5540,7 +5540,8 @@ class App(tk.Tk):
                 incremental_base=base_full,
             )
             send_raw = send_candidates[0]
-            recv_raw = f"zfs recv -F {shlex.quote(dst_dataset)}"
+            dst_root_pool = dst_dataset.split("/", 1)[0]
+            recv_raw = f"zfs recv -F -e {shlex.quote(dst_root_pool)}"
             send_cmd = sudo_wrap(src_profile, send_raw, preserve_stdin_stream=False)
             recv_cmd = sudo_wrap(dst_profile, recv_raw, preserve_stdin_stream=True)
             self._app_log(
@@ -5556,7 +5557,8 @@ class App(tk.Tk):
                 incremental_base=None,
             )
             send_raw = send_candidates[0]
-            recv_raw = f"zfs recv -F {shlex.quote(dst_dataset)}"
+            dst_root_pool = dst_dataset.split("/", 1)[0]
+            recv_raw = f"zfs recv -F -e {shlex.quote(dst_root_pool)}"
             send_cmd = sudo_wrap(src_profile, send_raw, preserve_stdin_stream=False)
             recv_cmd = sudo_wrap(dst_profile, recv_raw, preserve_stdin_stream=True)
             self._app_log("normal", trf("log_level_no_common_base", src=src_dataset_base, dst=dst_dataset, target=target_snap))
@@ -9092,8 +9094,6 @@ class App(tk.Tk):
                 or ((not dest_sel) and dst == dest_pool_name)
             )
         )
-        origin_level_ok = bool(origin_selected_ok or origin_snapshot_ok)
-        enabled = bool((not self.level_running) and (self.ssh_busy_count == 0) and origin_level_ok and dest_selected_ok)
         origin_snapshot_ok = bool(
             "@" in src
             and (
@@ -9101,6 +9101,8 @@ class App(tk.Tk):
                 or ((not origin_sel) and src_dataset_only == origin_pool_name)
             )
         )
+        origin_level_ok = bool(origin_selected_ok or origin_snapshot_ok)
+        enabled = bool((not self.level_running) and (self.ssh_busy_count == 0) and origin_level_ok and dest_selected_ok)
         copy_enabled = bool((not self.level_running) and (self.ssh_busy_count == 0) and origin_snapshot_ok and dest_selected_ok)
         has_dataset_target = self._get_dataset_for_create() is not None
         has_delete_target = self._get_target_for_delete() is not None
