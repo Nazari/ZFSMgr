@@ -172,8 +172,23 @@ void MainWindow::buildUi() {
 
     auto* advancedTab = new QWidget(m_leftTabs);
     auto* advLayout = new QVBoxLayout(advancedTab);
-    advLayout->addWidget(new QLabel(QStringLiteral("Avanzado (WIP migración C++/Qt)"), advancedTab));
-    advLayout->addStretch(1);
+    m_advPoolCombo = new QComboBox(advancedTab);
+    m_advPoolCombo->setMinimumContentsLength(24);
+    m_advPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_advTree = new QTreeWidget(advancedTab);
+    m_advTree->setColumnCount(2);
+    m_advTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
+    m_advTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    m_advTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_advSelectionLabel = new QLabel(QStringLiteral("Dataset: (seleccione)"), advancedTab);
+    m_advSelectionLabel->setWordWrap(true);
+    m_btnAdvancedBreakdown = new QPushButton(QStringLiteral("Desglosar"), advancedTab);
+    m_btnAdvancedAssemble = new QPushButton(QStringLiteral("Ensamblar"), advancedTab);
+    advLayout->addWidget(m_advPoolCombo);
+    advLayout->addWidget(m_advTree, 1);
+    advLayout->addWidget(m_advSelectionLabel);
+    advLayout->addWidget(m_btnAdvancedBreakdown);
+    advLayout->addWidget(m_btnAdvancedAssemble);
     advancedTab->setLayout(advLayout);
 
     m_leftTabs->addTab(connectionsTab, QStringLiteral("Conexiones"));
@@ -240,6 +255,21 @@ void MainWindow::buildUi() {
     connect(m_connectionsList, &QListWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
     connect(m_originPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onOriginPoolChanged(); });
     connect(m_destPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onDestPoolChanged(); });
+    connect(m_advPoolCombo, &QComboBox::currentIndexChanged, this, [this]() {
+        m_originSelectedDataset.clear();
+        m_originSelectedSnapshot.clear();
+        const QString token = m_advPoolCombo->currentData().toString();
+        const int sep = token.indexOf(QStringLiteral("::"));
+        if (sep <= 0) {
+            m_advTree->clear();
+            m_advSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+            return;
+        }
+        const int connIdx = token.left(sep).toInt();
+        const QString poolName = token.mid(sep + 2);
+        populateDatasetTree(m_advTree, connIdx, poolName, QStringLiteral("origin"));
+        m_advSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+    });
     connect(m_originTree, &QTreeWidget::itemSelectionChanged, this, [this]() { onOriginTreeSelectionChanged(); });
     connect(m_destTree, &QTreeWidget::itemSelectionChanged, this, [this]() { onDestTreeSelectionChanged(); });
     connect(m_originTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int col) {
@@ -265,6 +295,70 @@ void MainWindow::buildUi() {
     connect(m_btnCopy, &QPushButton::clicked, this, [this]() { actionCopySnapshot(); });
     connect(m_btnLevel, &QPushButton::clicked, this, [this]() { actionLevelSnapshot(); });
     connect(m_btnSync, &QPushButton::clicked, this, [this]() { actionSyncDatasets(); });
+    connect(m_advTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
+        const auto selected = m_advTree->selectedItems();
+        if (selected.isEmpty()) {
+            m_advSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+            return;
+        }
+        auto* it = selected.first();
+        const QString ds = it->data(0, Qt::UserRole).toString();
+        const QString snap = it->data(1, Qt::UserRole).toString();
+        if (!ds.isEmpty() && !snap.isEmpty()) {
+            m_advSelectionLabel->setText(QStringLiteral("Snapshot: %1@%2").arg(ds, snap));
+        } else if (!ds.isEmpty()) {
+            m_advSelectionLabel->setText(QStringLiteral("Dataset: %1").arg(ds));
+        } else {
+            m_advSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+        }
+    });
+    connect(m_advTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int col) {
+        if (!item || col != 1) {
+            return;
+        }
+        const QString ds = item->data(0, Qt::UserRole).toString();
+        if (ds.isEmpty()) {
+            return;
+        }
+        const QString token = m_advPoolCombo->currentData().toString();
+        const int sep = token.indexOf(QStringLiteral("::"));
+        if (sep <= 0) {
+            return;
+        }
+        const int connIdx = token.left(sep).toInt();
+        const QString poolName = token.mid(sep + 2);
+        const QString key = datasetCacheKey(connIdx, poolName);
+        const auto it = m_poolDatasetCache.constFind(key);
+        if (it == m_poolDatasetCache.constEnd()) {
+            return;
+        }
+        QStringList options;
+        options << QStringLiteral("(seleccione)");
+        options += it.value().snapshotsByDataset.value(ds);
+        if (options.size() <= 1) {
+            return;
+        }
+        bool ok = false;
+        const QString chosen = QInputDialog::getItem(this,
+                                                     QStringLiteral("Snapshot avanzado"),
+                                                     QStringLiteral("Seleccione snapshot"),
+                                                     options,
+                                                     0,
+                                                     false,
+                                                     &ok);
+        if (!ok) {
+            return;
+        }
+        if (chosen == QStringLiteral("(seleccione)")) {
+            item->setText(1, QStringLiteral("(seleccione)"));
+            item->setData(1, Qt::UserRole, QString());
+        } else {
+            item->setText(1, chosen);
+            item->setData(1, Qt::UserRole, chosen);
+        }
+    });
+    connect(m_btnAdvancedBreakdown, &QPushButton::clicked, this, [this]() { actionAdvancedBreakdown(); });
+    connect(m_btnAdvancedAssemble, &QPushButton::clicked, this, [this]() { actionAdvancedAssemble(); });
 }
 
 void MainWindow::loadConnections() {
@@ -309,12 +403,15 @@ void MainWindow::rebuildConnectionList() {
 void MainWindow::rebuildDatasetPoolSelectors() {
     m_originPoolCombo->blockSignals(true);
     m_destPoolCombo->blockSignals(true);
+    m_advPoolCombo->blockSignals(true);
 
     const QString originPrev = m_originPoolCombo->currentData().toString();
     const QString destPrev = m_destPoolCombo->currentData().toString();
+    const QString advPrev = m_advPoolCombo->currentData().toString();
 
     m_originPoolCombo->clear();
     m_destPoolCombo->clear();
+    m_advPoolCombo->clear();
 
     for (int i = 0; i < m_profiles.size(); ++i) {
         const auto& st = m_states[i];
@@ -326,6 +423,7 @@ void MainWindow::rebuildDatasetPoolSelectors() {
             const QString label = QStringLiteral("%1::%2").arg(m_profiles[i].name, p.pool);
             m_originPoolCombo->addItem(label, token);
             m_destPoolCombo->addItem(label, token);
+            m_advPoolCombo->addItem(label, token);
         }
     }
 
@@ -341,9 +439,11 @@ void MainWindow::rebuildDatasetPoolSelectors() {
     };
     restoreCurrent(m_originPoolCombo, originPrev);
     restoreCurrent(m_destPoolCombo, destPrev);
+    restoreCurrent(m_advPoolCombo, advPrev);
 
     m_originPoolCombo->blockSignals(false);
     m_destPoolCombo->blockSignals(false);
+    m_advPoolCombo->blockSignals(false);
     onOriginPoolChanged();
     onDestPoolChanged();
 }
@@ -592,6 +692,27 @@ bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, in
     rc = proc.exitCode();
     out = QString::fromUtf8(proc.readAllStandardOutput());
     err = QString::fromUtf8(proc.readAllStandardError());
+    return true;
+}
+
+bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const QString& prop, QString& valueOut) {
+    valueOut.clear();
+    if (connIdx < 0 || connIdx >= m_profiles.size() || dataset.isEmpty() || prop.isEmpty()) {
+        return false;
+    }
+    const ConnectionProfile& p = m_profiles[connIdx];
+    QString cmd =
+        QStringLiteral("zfs get -H -o value %1 %2").arg(shSingleQuote(prop), shSingleQuote(dataset));
+    if (p.useSudo) {
+        cmd = QStringLiteral("sudo -n ") + cmd;
+    }
+    QString out;
+    QString err;
+    int rc = -1;
+    if (!runSsh(p, cmd, 15000, out, err, rc) || rc != 0) {
+        return false;
+    }
+    valueOut = out.trimmed();
     return true;
 }
 
@@ -970,10 +1091,133 @@ void MainWindow::actionSyncDatasets() {
     if (!src.valid || !dst.valid || src.datasetName.isEmpty() || dst.datasetName.isEmpty()) {
         return;
     }
-    const QString cmd = QStringLiteral("rsync -aHAWXS <mountpoint_origen>/ <mountpoint_destino>/");
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Sincronizar (propuesto, no ejecutado) %1 -> %2")
-                                   .arg(src.datasetName, dst.datasetName));
-    appLog(QStringLiteral("INFO"), QStringLiteral("$ %1").arg(cmd));
+    const ConnectionProfile& sp = m_profiles[src.connIdx];
+    const ConnectionProfile& dp = m_profiles[dst.connIdx];
+
+    QString srcMp;
+    QString dstMp;
+    QString srcMounted;
+    QString dstMounted;
+    if (!getDatasetProperty(src.connIdx, src.datasetName, QStringLiteral("mountpoint"), srcMp)
+        || !getDatasetProperty(src.connIdx, src.datasetName, QStringLiteral("mounted"), srcMounted)
+        || !getDatasetProperty(dst.connIdx, dst.datasetName, QStringLiteral("mountpoint"), dstMp)
+        || !getDatasetProperty(dst.connIdx, dst.datasetName, QStringLiteral("mounted"), dstMounted)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), QStringLiteral("No se pudieron leer mountpoints para sincronizar."));
+        return;
+    }
+    if (srcMounted != QStringLiteral("yes") || dstMounted != QStringLiteral("yes")) {
+        QMessageBox::warning(this,
+                             QStringLiteral("ZFSMgr"),
+                             QStringLiteral("Origen y destino deben estar montados para sincronizar.\nOrigen=%1 Destino=%2").arg(srcMounted, dstMounted));
+        return;
+    }
+
+    QString srcSsh = QStringLiteral("ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
+    if (sp.port > 0) {
+        srcSsh += QStringLiteral(" -p ") + QString::number(sp.port);
+    }
+    if (!sp.keyPath.isEmpty()) {
+        srcSsh += QStringLiteral(" -i ") + shSingleQuote(sp.keyPath);
+    }
+    srcSsh += QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
+    QString dstSsh = QStringLiteral("ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
+    if (dp.port > 0) {
+        dstSsh += QStringLiteral(" -p ") + QString::number(dp.port);
+    }
+    if (!dp.keyPath.isEmpty()) {
+        dstSsh += QStringLiteral(" -i ") + shSingleQuote(dp.keyPath);
+    }
+    dstSsh += QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
+
+    QString remoteRsync =
+        QStringLiteral("rsync -aHAWXS --delete --info=progress2 -e ")
+        + shSingleQuote(QStringLiteral("ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null")
+                        + (dp.port > 0 ? QStringLiteral(" -p ") + QString::number(dp.port) : QString())
+                        + (!dp.keyPath.isEmpty() ? QStringLiteral(" -i ") + dp.keyPath : QString()))
+        + QStringLiteral(" %1/ %2:%3/")
+              .arg(shSingleQuote(srcMp),
+                   shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
+                   shSingleQuote(dstMp));
+    if (sp.useSudo) {
+        remoteRsync = QStringLiteral("sudo -n ") + remoteRsync;
+    }
+    const QString command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
+    if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0)) {
+        invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
+        reloadDatasetSide(QStringLiteral("dest"));
+    }
+}
+
+void MainWindow::actionAdvancedBreakdown() {
+    const auto selected = m_advTree->selectedItems();
+    if (selected.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("ZFSMgr"), QStringLiteral("Seleccione un dataset en Avanzado."));
+        return;
+    }
+    const QString ds = selected.first()->data(0, Qt::UserRole).toString();
+    if (ds.isEmpty()) {
+        return;
+    }
+    const QString token = m_advPoolCombo->currentData().toString();
+    const int sep = token.indexOf(QStringLiteral("::"));
+    if (sep <= 0) {
+        return;
+    }
+    const int connIdx = token.left(sep).toInt();
+    const QString poolName = token.mid(sep + 2);
+    DatasetSelectionContext ctx;
+    ctx.valid = true;
+    ctx.connIdx = connIdx;
+    ctx.poolName = poolName;
+    ctx.datasetName = ds;
+    ctx.snapshotName.clear();
+
+    const QString cmd =
+        QStringLiteral("set -e; DATASET=%1; MP=$(zfs get -H -o value mountpoint \"$DATASET\"); "
+                       "[ \"$MP\" = \"none\" ] && { echo \"mountpoint=none\"; exit 2; }; "
+                       "for d in \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); "
+                       "zfs list -H -o name \"$DATASET/$bn\" >/dev/null 2>&1 || "
+                       "{ zfs create \"$DATASET/$bn\"; rsync -aHAWXS --remove-source-files \"$d\"/ \"$MP/$bn\"/; }; done")
+            .arg(shSingleQuote(ds));
+    if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Desglosar"), ctx, cmd, 0)) {
+        m_advSelectionLabel->setText(QStringLiteral("Dataset: %1").arg(ds));
+    }
+}
+
+void MainWindow::actionAdvancedAssemble() {
+    const auto selected = m_advTree->selectedItems();
+    if (selected.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("ZFSMgr"), QStringLiteral("Seleccione un dataset en Avanzado."));
+        return;
+    }
+    const QString ds = selected.first()->data(0, Qt::UserRole).toString();
+    if (ds.isEmpty()) {
+        return;
+    }
+    const QString token = m_advPoolCombo->currentData().toString();
+    const int sep = token.indexOf(QStringLiteral("::"));
+    if (sep <= 0) {
+        return;
+    }
+    const int connIdx = token.left(sep).toInt();
+    const QString poolName = token.mid(sep + 2);
+    DatasetSelectionContext ctx;
+    ctx.valid = true;
+    ctx.connIdx = connIdx;
+    ctx.poolName = poolName;
+    ctx.datasetName = ds;
+    ctx.snapshotName.clear();
+
+    const QString cmd =
+        QStringLiteral("set -e; DATASET=%1; MP=$(zfs get -H -o value mountpoint \"$DATASET\"); "
+                       "[ \"$MP\" = \"none\" ] && { echo \"mountpoint=none\"; exit 2; }; "
+                       "for child in $(zfs list -H -o name -r \"$DATASET\" | tail -n +2); do bn=${child##*/}; "
+                       "CMP=$(zfs get -H -o value mountpoint \"$child\"); [ \"$CMP\" = \"none\" ] && continue; "
+                       "mkdir -p \"$MP/$bn\"; rsync -aHAWXS \"$CMP\"/ \"$MP/$bn\"/; zfs destroy -r \"$child\"; done")
+            .arg(shSingleQuote(ds));
+    if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Ensamblar"), ctx, cmd, 0)) {
+        m_advSelectionLabel->setText(QStringLiteral("Dataset: %1").arg(ds));
+    }
 }
 
 void MainWindow::onDatasetPropsCellChanged(int row, int col) {

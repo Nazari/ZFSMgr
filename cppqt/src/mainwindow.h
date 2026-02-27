@@ -90,6 +90,7 @@ private:
 
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
     bool runSsh(const ConnectionProfile& p, const QString& remoteCmd, int timeoutMs, QString& out, QString& err, int& rc);
+    bool getDatasetProperty(int connIdx, const QString& dataset, const QString& prop, QString& valueOut);
     QString datasetCacheKey(int connIdx, const QString& poolName) const;
     bool ensureDatasetsLoaded(int connIdx, const QString& poolName);
     void populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side);
@@ -106,6 +107,8 @@ private:
     void actionCopySnapshot();
     void actionLevelSnapshot();
     void actionSyncDatasets();
+    void actionAdvancedBreakdown();
+    void actionAdvancedAssemble();
     void actionMountDataset(const QString& side);
     void actionUmountDataset(const QString& side);
     void actionCreateChildDataset(const QString& side);
@@ -142,6 +145,11 @@ private:
     QPushButton* m_btnCopy{nullptr};
     QPushButton* m_btnLevel{nullptr};
     QPushButton* m_btnSync{nullptr};
+    QComboBox* m_advPoolCombo{nullptr};
+    QTreeWidget* m_advTree{nullptr};
+    QLabel* m_advSelectionLabel{nullptr};
+    QPushButton* m_btnAdvancedBreakdown{nullptr};
+    QPushButton* m_btnAdvancedAssemble{nullptr};
     QLabel* m_originSelectionLabel{nullptr};
     QLabel* m_destSelectionLabel{nullptr};
 
