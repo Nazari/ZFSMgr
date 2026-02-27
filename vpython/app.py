@@ -6063,6 +6063,13 @@ class App(tk.Tk):
         # como candidatos de desglosar.
         existing_children = set(self._list_breakdown_existing_child_dataset_names(profile, dataset_name))
         if existing_children:
+            excluded = sorted([d for d in dir_candidates if d in existing_children])
+            if excluded:
+                self._app_log(
+                    "info",
+                    f"Desglosar: excluidos por ser datasets hijos existentes en {profile.name}::{dataset_name}: "
+                    + ", ".join(excluded),
+                )
             dir_candidates = [d for d in dir_candidates if d not in existing_children]
         if not dir_candidates:
             msg = f"No hay directorios para desglosar en {profile.name}::{dataset_name}"
