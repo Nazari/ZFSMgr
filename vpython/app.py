@@ -277,7 +277,11 @@ def _resolve_ssh_private_key_path(key_path: str) -> str:
     return expanded
 
 
-def _ssh_common_parts(profile: "ConnectionProfile", include_key: bool = True) -> List[str]:
+def _ssh_common_parts(
+    profile: "ConnectionProfile",
+    include_key: bool = True,
+    use_mux: bool = True,
+) -> List[str]:
     parts: List[str] = [
         "ssh",
         "-o",
@@ -288,13 +292,20 @@ def _ssh_common_parts(profile: "ConnectionProfile", include_key: bool = True) ->
         "BatchMode=yes",
         "-o",
         "ConnectTimeout=12",
-        "-o",
-        "ControlMaster=auto",
-        "-o",
-        "ControlPersist=300",
-        "-o",
-        f"ControlPath={_ssh_mux_path(profile)}",
     ]
+    if use_mux:
+        parts.extend(
+            [
+                "-o",
+                "ControlMaster=auto",
+                "-o",
+                "ControlPersist=300",
+                "-o",
+                f"ControlPath={_ssh_mux_path(profile)}",
+            ]
+        )
+    else:
+        parts.extend(["-o", "ControlMaster=no", "-S", "none"])
     if profile.port and profile.port != 22:
         parts.extend(["-p", str(profile.port)])
     resolved_key = _resolve_ssh_private_key_path(profile.key_path)
@@ -310,6 +321,7 @@ def _ssh_outer_exec_command(
     include_key: bool = True,
     allow_password_auth: bool = False,
     keep_stdin_stream: bool = False,
+    use_mux: bool = True,
 ) -> Optional[str]:
     if profile.conn_type == "LOCAL":
         return remote_command
@@ -317,7 +329,7 @@ def _ssh_outer_exec_command(
         return None
     target = f"{profile.username}@{profile.host}" if profile.username else profile.host
     if allow_password_auth and profile.password:
-        ssh_parts: List[str] = _ssh_common_parts(profile, include_key=include_key)
+        ssh_parts: List[str] = _ssh_common_parts(profile, include_key=include_key, use_mux=use_mux)
         # Permitir password sin prompt interactivo, manteniendo pubkey si existe.
         ssh_parts.extend(
             [
@@ -343,7 +355,7 @@ def _ssh_outer_exec_command(
             "DISPLAY=:0 SSH_ASKPASS=\"$ask\" SSH_ASKPASS_REQUIRE=force "
             + (f"setsid -w {ssh_cmd}" if keep_stdin_stream else f"setsid -w {ssh_cmd} </dev/null")
         )
-    ssh_parts = _ssh_common_parts(profile, include_key=include_key)
+    ssh_parts = _ssh_common_parts(profile, include_key=include_key, use_mux=use_mux)
     ssh_parts.append(shlex.quote(target))
     ssh_parts.append(shlex.quote(remote_command))
     return " ".join(ssh_parts)
@@ -5411,6 +5423,7 @@ class App(tk.Tk):
                 include_key=True,
                 allow_password_auth=True,
                 keep_stdin_stream=keep_stdin_stream,
+                use_mux=False,
             )
 
         def wrap_inner_dest_exec(profile: ConnectionProfile, command: str, include_key: bool = True) -> Optional[str]:
@@ -5419,6 +5432,7 @@ class App(tk.Tk):
                 command,
                 include_key=include_key,
                 allow_password_auth=True,
+                use_mux=False,
             )
 
         def sudo_wrap(profile: ConnectionProfile, base_cmd: str, preserve_stdin_stream: bool = False) -> str:
@@ -5682,6 +5696,7 @@ class App(tk.Tk):
                 include_key=True,
                 allow_password_auth=True,
                 keep_stdin_stream=keep_stdin_stream,
+                use_mux=False,
             )
 
         def sudo_wrap(profile: ConnectionProfile, base_cmd: str, preserve_stdin_stream: bool = False) -> str:
