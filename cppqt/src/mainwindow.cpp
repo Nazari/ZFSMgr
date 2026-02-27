@@ -90,8 +90,8 @@ void MainWindow::buildUi() {
         "QWidget { color: #14212b; }"
         "QTabBar::tab { padding: 2px 8px; min-height: 18px; }"
         "QTabBar::tab:selected { font-weight: 600; }"
-        "QGroupBox { margin-top: 8px; border: 1px solid #b8c7d6; border-radius: 4px; }"
-        "QGroupBox::title { left: 8px; padding: 0 2px 0 2px; }"
+        "QGroupBox { margin-top: 12px; border: 1px solid #b8c7d6; border-radius: 4px; }"
+        "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 8px; padding: 0 4px 0 4px; }"
         "QPushButton { background: #e8eff5; border: 1px solid #9db0c4; border-radius: 4px; padding: 3px 8px; }"
         "QPushButton:hover { background: #d6e6f2; }"
         "QPushButton:pressed { background: #c4d8e8; }"
@@ -271,6 +271,7 @@ void MainWindow::buildUi() {
 
     auto* originBox = new QGroupBox(QStringLiteral("Origen"), dsLeft);
     auto* originLayout = new QVBoxLayout(originBox);
+    originLayout->setContentsMargins(8, 20, 8, 8);
     m_originPoolCombo = new QComboBox(originBox);
     m_originPoolCombo->setMinimumContentsLength(24);
     m_originPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
@@ -288,6 +289,7 @@ void MainWindow::buildUi() {
 
     auto* destBox = new QGroupBox(QStringLiteral("Destino"), dsLeft);
     auto* destLayout = new QVBoxLayout(destBox);
+    destLayout->setContentsMargins(8, 20, 8, 8);
     m_destPoolCombo = new QComboBox(destBox);
     m_destPoolCombo->setMinimumContentsLength(24);
     m_destPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
@@ -308,6 +310,7 @@ void MainWindow::buildUi() {
 
     auto* propsBox = new QGroupBox(QStringLiteral("Propiedades del dataset"), dsSplitter);
     auto* propsLayout = new QVBoxLayout(propsBox);
+    propsLayout->setContentsMargins(8, 20, 8, 8);
     m_datasetPropsTable = new QTableWidget(propsBox);
     m_datasetPropsTable->setColumnCount(2);
     m_datasetPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor")});
@@ -351,6 +354,7 @@ void MainWindow::buildUi() {
 
     auto* advPropsBox = new QGroupBox(QStringLiteral("Propiedades del dataset"), advSplitter);
     auto* advPropsLayout = new QVBoxLayout(advPropsBox);
+    advPropsLayout->setContentsMargins(8, 20, 8, 8);
     m_advPropsTable = new QTableWidget(advPropsBox);
     m_advPropsTable->setColumnCount(2);
     m_advPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor")});
