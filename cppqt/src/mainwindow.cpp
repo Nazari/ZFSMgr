@@ -23,6 +23,7 @@
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTabWidget>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QStackedWidget>
@@ -65,6 +66,9 @@ MainWindow::MainWindow(const QString& masterPassword, QWidget* parent)
     initLogPersistence();
     buildUi();
     loadConnections();
+    QTimer::singleShot(0, this, [this]() {
+        refreshAllConnections();
+    });
 }
 
 void MainWindow::buildUi() {
