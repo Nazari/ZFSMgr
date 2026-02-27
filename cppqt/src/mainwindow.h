@@ -1,6 +1,7 @@
 #pragma once
 
 #include "connectionstore.h"
+#include "connectiondialog.h"
 
 #include <QMainWindow>
 #include <QMap>
@@ -79,6 +80,9 @@ private:
     void rebuildDatasetPoolSelectors();
     void refreshAllConnections();
     void refreshSelectedConnection();
+    void createConnection();
+    void editConnection();
+    void deleteConnection();
     void onConnectionSelectionChanged();
     void onOriginPoolChanged();
     void onDestPoolChanged();

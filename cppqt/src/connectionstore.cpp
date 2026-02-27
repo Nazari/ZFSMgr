@@ -121,3 +121,69 @@ LoadResult ConnectionStore::loadConnections() const {
 
     return result;
 }
+
+bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString& error) {
+    error.clear();
+    if (profile.name.trimmed().isEmpty()) {
+        error = QStringLiteral("Nombre requerido");
+        return false;
+    }
+    if (profile.host.trimmed().isEmpty()) {
+        error = QStringLiteral("Host requerido");
+        return false;
+    }
+    if (profile.username.trimmed().isEmpty()) {
+        error = QStringLiteral("Usuario requerido");
+        return false;
+    }
+
+    QString id = profile.id.trimmed();
+    if (id.isEmpty()) {
+        id = profile.name.trimmed().toLower();
+        id.replace(' ', '_');
+        id.replace(':', '_');
+        id.replace('/', '_');
+    }
+
+    QSettings ini(iniPath(), QSettings::IniFormat);
+    const QString group = QStringLiteral("connection:%1").arg(id);
+    ini.beginGroup(group);
+    ini.setValue("id", id);
+    ini.setValue("name", profile.name.trimmed());
+    ini.setValue("conn_type", profile.connType.trimmed().isEmpty() ? QStringLiteral("SSH") : profile.connType.trimmed());
+    ini.setValue("os_type", profile.osType.trimmed().isEmpty() ? QStringLiteral("Linux") : profile.osType.trimmed());
+    ini.setValue("transport", profile.transport.trimmed().isEmpty() ? QStringLiteral("SSH") : profile.transport.trimmed());
+    ini.setValue("host", profile.host.trimmed());
+    ini.setValue("port", profile.port > 0 ? profile.port : 22);
+    ini.setValue("username", profile.username);
+    ini.setValue("password", profile.password);
+    ini.setValue("key_path", profile.keyPath.trimmed());
+    ini.setValue("use_sudo", profile.useSudo);
+    ini.endGroup();
+    ini.sync();
+    if (ini.status() != QSettings::NoError) {
+        error = QStringLiteral("Error guardando INI");
+        return false;
+    }
+    return true;
+}
+
+bool ConnectionStore::deleteConnectionById(const QString& id, QString& error) {
+    error.clear();
+    const QString clean = id.trimmed();
+    if (clean.isEmpty()) {
+        error = QStringLiteral("ID vacío");
+        return false;
+    }
+    QSettings ini(iniPath(), QSettings::IniFormat);
+    const QString group = QStringLiteral("connection:%1").arg(clean);
+    ini.beginGroup(group);
+    ini.remove("");
+    ini.endGroup();
+    ini.sync();
+    if (ini.status() != QSettings::NoError) {
+        error = QStringLiteral("Error borrando en INI");
+        return false;
+    }
+    return true;
+}

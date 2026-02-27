@@ -18,6 +18,8 @@ qt_add_executable(zfsmgr_qt
     src/mainwindow.h
     src/connectionstore.cpp
     src/connectionstore.h
+    src/connectiondialog.cpp
+    src/connectiondialog.h
     src/masterpassworddialog.cpp
     src/masterpassworddialog.h
     src/secretcipher.cpp

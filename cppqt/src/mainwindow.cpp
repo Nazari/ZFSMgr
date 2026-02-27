@@ -295,6 +295,7 @@ void MainWindow::buildUi() {
 
     connect(m_btnRefreshAll, &QPushButton::clicked, this, [this]() { refreshAllConnections(); });
     connect(m_btnRefreshSelected, &QPushButton::clicked, this, [this]() { refreshSelectedConnection(); });
+    connect(m_btnNew, &QPushButton::clicked, this, [this]() { createConnection(); });
     connect(m_connectionsList, &QListWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
     m_connectionsList->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_connectionsList, &QListWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
@@ -534,6 +535,78 @@ void MainWindow::refreshSelectedConnection() {
     populateAllPoolsTables();
 }
 
+void MainWindow::createConnection() {
+    ConnectionDialog dlg(this);
+    ConnectionProfile p;
+    p.connType = QStringLiteral("SSH");
+    p.transport = QStringLiteral("SSH");
+    p.osType = QStringLiteral("Linux");
+    p.port = 22;
+    dlg.setProfile(p);
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+    QString err;
+    if (!m_store.upsertConnection(dlg.profile(), err)) {
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"), QStringLiteral("No se pudo crear conexión:\n%1").arg(err));
+        return;
+    }
+    loadConnections();
+    refreshAllConnections();
+}
+
+void MainWindow::editConnection() {
+    const auto selected = m_connectionsList->selectedItems();
+    if (selected.isEmpty()) {
+        return;
+    }
+    const int idx = selected.first()->data(Qt::UserRole).toInt();
+    if (idx < 0 || idx >= m_profiles.size()) {
+        return;
+    }
+    ConnectionDialog dlg(this);
+    dlg.setProfile(m_profiles[idx]);
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+    ConnectionProfile edited = dlg.profile();
+    edited.id = m_profiles[idx].id;
+    QString err;
+    if (!m_store.upsertConnection(edited, err)) {
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"), QStringLiteral("No se pudo actualizar conexión:\n%1").arg(err));
+        return;
+    }
+    loadConnections();
+    refreshAllConnections();
+}
+
+void MainWindow::deleteConnection() {
+    const auto selected = m_connectionsList->selectedItems();
+    if (selected.isEmpty()) {
+        return;
+    }
+    const int idx = selected.first()->data(Qt::UserRole).toInt();
+    if (idx < 0 || idx >= m_profiles.size()) {
+        return;
+    }
+    const auto confirm = QMessageBox::question(
+        this,
+        QStringLiteral("Borrar conexión"),
+        QStringLiteral("¿Borrar conexión \"%1\"?").arg(m_profiles[idx].name),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return;
+    }
+    QString err;
+    if (!m_store.deleteConnectionById(m_profiles[idx].id, err)) {
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"), QStringLiteral("No se pudo borrar conexión:\n%1").arg(err));
+        return;
+    }
+    loadConnections();
+    refreshAllConnections();
+}
+
 void MainWindow::onConnectionSelectionChanged() {
     if (m_leftTabs->currentIndex() == 0) {
         populateAllPoolsTables();
@@ -554,8 +627,8 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
     QAction* editAct = menu.addAction(QStringLiteral("Editar"));
     QAction* deleteAct = menu.addAction(QStringLiteral("Borrar"));
     refreshAct->setEnabled(hasSel);
-    editAct->setEnabled(false);
-    deleteAct->setEnabled(false);
+    editAct->setEnabled(hasSel);
+    deleteAct->setEnabled(hasSel);
 
     QAction* picked = menu.exec(m_connectionsList->viewport()->mapToGlobal(pos));
     if (!picked) {
@@ -565,6 +638,10 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
         refreshSelectedConnection();
     } else if (picked == refreshAllAct) {
         refreshAllConnections();
+    } else if (picked == editAct) {
+        editConnection();
+    } else if (picked == deleteAct) {
+        deleteConnection();
     }
 }
 

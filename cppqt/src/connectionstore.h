@@ -32,6 +32,8 @@ public:
     QString configDir() const;
     QString iniPath() const;
     LoadResult loadConnections() const;
+    bool upsertConnection(const ConnectionProfile& profile, QString& error);
+    bool deleteConnectionById(const QString& id, QString& error);
 
 private:
     QString m_appName;
