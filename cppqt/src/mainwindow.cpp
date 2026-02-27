@@ -81,6 +81,7 @@ MainWindow::MainWindow(const QString& masterPassword, QWidget* parent)
 void MainWindow::buildUi() {
     setWindowTitle(QStringLiteral("ZFSMgr (C++/Qt)"));
     resize(1500, 920);
+    setMinimumSize(1400, 920);
     setStyleSheet(QStringLiteral(
         "QTabBar::tab { padding: 2px 8px; min-height: 18px; }"
         "QGroupBox { margin-top: 8px; }"
@@ -92,6 +93,8 @@ void MainWindow::buildUi() {
     root->setSpacing(6);
 
     auto* topSplitter = new QSplitter(Qt::Horizontal, central);
+    topSplitter->setChildrenCollapsible(false);
+    topSplitter->setHandleWidth(1);
 
     auto* leftPane = new QWidget(topSplitter);
     auto* leftLayout = new QVBoxLayout(leftPane);
@@ -108,12 +111,18 @@ void MainWindow::buildUi() {
     connLayout->setSpacing(4);
     m_connectionsList = new QListWidget(connectionsTab);
     m_connectionsList->setAlternatingRowColors(true);
+    m_connectionsList->setUniformItemSizes(true);
+    m_connectionsList->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_connectionsList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     connLayout->addWidget(m_connectionsList, 1);
 
     auto* connButtons = new QHBoxLayout();
     m_btnNew = new QPushButton(QStringLiteral("Nueva"), connectionsTab);
     m_btnRefreshAll = new QPushButton(QStringLiteral("Refrescar todo"), connectionsTab);
     m_btnRefreshSelected = new QPushButton(QStringLiteral("Refrescar"), connectionsTab);
+    m_btnNew->setMinimumWidth(110);
+    m_btnRefreshSelected->setMinimumWidth(110);
+    m_btnRefreshAll->setMinimumWidth(140);
     connButtons->addWidget(m_btnNew);
     connButtons->addWidget(m_btnRefreshSelected);
     connButtons->addWidget(m_btnRefreshAll);
@@ -183,6 +192,8 @@ void MainWindow::buildUi() {
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_importedPoolsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_importedPoolsTable->setContextMenuPolicy(Qt::NoContextMenu);
+    m_importedPoolsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_importedPoolsTable->setSelectionMode(QAbstractItemView::SingleSelection);
     importedLayout->addWidget(m_importedPoolsTable, 1);
 
     auto* importableTab = new QWidget(m_rightTabs);
@@ -198,6 +209,8 @@ void MainWindow::buildUi() {
     m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
     m_importablePoolsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_importablePoolsTable->setContextMenuPolicy(Qt::NoContextMenu);
+    m_importablePoolsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_importablePoolsTable->setSelectionMode(QAbstractItemView::SingleSelection);
     importableLayout->addWidget(m_importablePoolsTable, 1);
 
     m_rightTabs->addTab(importedTab, QStringLiteral("Pools importados"));
@@ -209,6 +222,8 @@ void MainWindow::buildUi() {
     rightDatasetsLayout->setContentsMargins(0, 0, 0, 0);
     rightDatasetsLayout->setSpacing(4);
     auto* dsSplitter = new QSplitter(Qt::Horizontal, rightDatasetsPage);
+    dsSplitter->setChildrenCollapsible(false);
+    dsSplitter->setHandleWidth(1);
 
     auto* dsLeft = new QWidget(dsSplitter);
     auto* dsLeftLayout = new QVBoxLayout(dsLeft);
@@ -272,6 +287,8 @@ void MainWindow::buildUi() {
     rightAdvancedLayout->setContentsMargins(0, 0, 0, 0);
     rightAdvancedLayout->setSpacing(4);
     auto* advSplitter = new QSplitter(Qt::Horizontal, rightAdvancedPage);
+    advSplitter->setChildrenCollapsible(false);
+    advSplitter->setHandleWidth(1);
     auto* advLeft = new QWidget(advSplitter);
     auto* advLeftLayout = new QVBoxLayout(advLeft);
     m_advPoolCombo = new QComboBox(rightAdvancedPage);
@@ -316,6 +333,7 @@ void MainWindow::buildUi() {
     topSplitter->addWidget(rightPane);
     topSplitter->setStretchFactor(0, 42);
     topSplitter->setStretchFactor(1, 58);
+    topSplitter->setSizes({620, 860});
     root->addWidget(topSplitter, 4);
 
     auto* logBox = new QGroupBox(QStringLiteral("Log combinado"), central);
