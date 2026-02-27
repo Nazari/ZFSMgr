@@ -124,7 +124,7 @@ void MainWindow::buildUi() {
     m_leftTabs->setTabPosition(QTabWidget::North);
     // Anchura fija basada en el texto real de botones para evitar solapes en macOS.
     const QFontMetrics fm(font());
-    const int leftFixedWidth = qMax(243, fm.horizontalAdvance(QStringLiteral("Refrescar todo")) + 120);
+    const int leftFixedWidth = qMax(300, fm.horizontalAdvance(QStringLiteral("Refrescar todo")) + 170);
     leftPane->setMinimumWidth(leftFixedWidth);
     leftPane->setMaximumWidth(leftFixedWidth);
 
@@ -140,10 +140,11 @@ void MainWindow::buildUi() {
     connLayout->addWidget(m_connectionsList, 1);
 
     auto* connButtons = new QVBoxLayout();
+    connButtons->setSpacing(10);
     m_btnNew = new QPushButton(QStringLiteral("Nueva"), connectionsTab);
     m_btnRefreshAll = new QPushButton(QStringLiteral("Refrescar todo"), connectionsTab);
-    m_btnNew->setMinimumHeight(30);
-    m_btnRefreshAll->setMinimumHeight(30);
+    m_btnNew->setMinimumHeight(34);
+    m_btnRefreshAll->setMinimumHeight(34);
     m_btnNew->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnRefreshAll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     connButtons->addWidget(m_btnNew);
@@ -183,10 +184,11 @@ void MainWindow::buildUi() {
     advLeftTabLayout->setSpacing(4);
     auto* commandsBox = new QGroupBox(QStringLiteral("Comandos"), advancedTab);
     auto* commandsLayout = new QVBoxLayout(commandsBox);
+    commandsLayout->setSpacing(10);
     m_btnAdvancedBreakdown = new QPushButton(QStringLiteral("Desglosar"), commandsBox);
     m_btnAdvancedAssemble = new QPushButton(QStringLiteral("Ensamblar"), commandsBox);
-    m_btnAdvancedBreakdown->setMinimumHeight(30);
-    m_btnAdvancedAssemble->setMinimumHeight(30);
+    m_btnAdvancedBreakdown->setMinimumHeight(34);
+    m_btnAdvancedAssemble->setMinimumHeight(34);
     m_btnAdvancedBreakdown->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnAdvancedAssemble->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     commandsLayout->addWidget(m_btnAdvancedBreakdown);
@@ -655,7 +657,11 @@ void MainWindow::rebuildConnectionList() {
         const auto& s = m_states[i];
 
         const QString line1 = QStringLiteral("%1/%2").arg(p.name, p.connType);
-        QString line2 = QStringLiteral("%1").arg(p.osType);
+        QString zfsTxt = s.zfsVersion.trimmed();
+        if (zfsTxt.isEmpty()) {
+            zfsTxt = QStringLiteral("?");
+        }
+        QString line2 = QStringLiteral("%1 | ZFS v%2").arg(p.osType, zfsTxt);
         if (!s.status.isEmpty()) {
             line2 += QStringLiteral("  [") + s.status + QStringLiteral("]");
         }
@@ -2375,6 +2381,27 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     }
     state.status = QStringLiteral("OK");
     state.detail = oneLine(out);
+    state.zfsVersion.clear();
+
+    out.clear();
+    err.clear();
+    rc = -1;
+    const QString zfsVersionCmd = withSudo(
+        p,
+        QStringLiteral("(command -v zfs >/dev/null 2>&1 && zfs version) || "
+                       "([ -x /usr/local/zfs/bin/zfs ] && /usr/local/zfs/bin/zfs version) || "
+                       "([ -x /sbin/zfs ] && /sbin/zfs version)"));
+    if (runSsh(p, zfsVersionCmd, 12000, out, err, rc) && rc == 0) {
+        const QString merged = out + QStringLiteral("\n") + err;
+        const QRegularExpression rx(QStringLiteral("(\\d+\\.\\d+(?:\\.\\d+)?)"));
+        QRegularExpressionMatchIterator it = rx.globalMatch(merged);
+        QString lastMatch;
+        while (it.hasNext()) {
+            const QRegularExpressionMatch m = it.next();
+            lastMatch = m.captured(1);
+        }
+        state.zfsVersion = lastMatch;
+    }
 
     QString zpoolListCmd = withSudo(p, QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio"));
 

@@ -44,6 +44,7 @@ private:
     struct ConnectionRuntimeState {
         QString status;
         QString detail;
+        QString zfsVersion;
         QVector<PoolImported> importedPools;
         QVector<PoolImportable> importablePools;
     };
