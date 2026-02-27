@@ -2487,9 +2487,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     if (state.importedPools.isEmpty()) {
         state.importedPools.push_back(PoolImported{p.name, QStringLiteral("Sin pools"), QStringLiteral("-")});
     }
-    if (state.importablePools.isEmpty()) {
-        state.importablePools.push_back(PoolImportable{p.name, QStringLiteral("Sin pools"), QStringLiteral("-"), QStringLiteral("-"), QStringLiteral("-")});
-    }
 
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin refresh: %1 -> OK (%2)").arg(p.name, state.detail));
     return state;
