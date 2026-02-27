@@ -93,8 +93,62 @@ void MainWindow::buildUi() {
     connectionsTab->setLayout(connLayout);
 
     auto* datasetsTab = new QWidget(m_leftTabs);
-    auto* dsLayout = new QVBoxLayout(datasetsTab);
-    auto* dsSplitter = new QSplitter(Qt::Horizontal, datasetsTab);
+    auto* dsLeftTabLayout = new QVBoxLayout(datasetsTab);
+    dsLeftTabLayout->addWidget(new QLabel(QStringLiteral("Detalle en panel derecho"), datasetsTab));
+    dsLeftTabLayout->addStretch(1);
+    datasetsTab->setLayout(dsLeftTabLayout);
+
+    auto* advancedTab = new QWidget(m_leftTabs);
+    auto* advLeftTabLayout = new QVBoxLayout(advancedTab);
+    advLeftTabLayout->addWidget(new QLabel(QStringLiteral("Detalle en panel derecho"), advancedTab));
+    advLeftTabLayout->addStretch(1);
+    advancedTab->setLayout(advLeftTabLayout);
+
+    m_leftTabs->addTab(connectionsTab, QStringLiteral("Conexiones"));
+    m_leftTabs->addTab(datasetsTab, QStringLiteral("Datasets"));
+    m_leftTabs->addTab(advancedTab, QStringLiteral("Avanzado"));
+    leftLayout->addWidget(m_leftTabs, 1);
+
+    auto* rightPane = new QWidget(topSplitter);
+    auto* rightLayout = new QVBoxLayout(rightPane);
+    m_rightStack = new QStackedWidget(rightPane);
+
+    auto* rightConnectionsPage = new QWidget(m_rightStack);
+    auto* rightConnectionsLayout = new QVBoxLayout(rightConnectionsPage);
+    m_rightTabs = new QTabWidget(rightConnectionsPage);
+
+    auto* importedTab = new QWidget(m_rightTabs);
+    auto* importedLayout = new QVBoxLayout(importedTab);
+    m_importedPoolsTable = new QTableWidget(importedTab);
+    m_importedPoolsTable->setColumnCount(3);
+    m_importedPoolsTable->setHorizontalHeaderLabels({QStringLiteral("Conexión"), QStringLiteral("Pool"), QStringLiteral("Acción")});
+    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    m_importedPoolsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    importedLayout->addWidget(m_importedPoolsTable, 1);
+
+    auto* importableTab = new QWidget(m_rightTabs);
+    auto* importableLayout = new QVBoxLayout(importableTab);
+    m_importablePoolsTable = new QTableWidget(importableTab);
+    m_importablePoolsTable->setColumnCount(5);
+    m_importablePoolsTable->setHorizontalHeaderLabels(
+        {QStringLiteral("Conexión"), QStringLiteral("Pool"), QStringLiteral("Estado"), QStringLiteral("Motivo"), QStringLiteral("Acción")});
+    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
+    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+    m_importablePoolsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    importableLayout->addWidget(m_importablePoolsTable, 1);
+
+    m_rightTabs->addTab(importedTab, QStringLiteral("Pools importados"));
+    m_rightTabs->addTab(importableTab, QStringLiteral("Pools importables"));
+    rightConnectionsLayout->addWidget(m_rightTabs, 1);
+
+    auto* rightDatasetsPage = new QWidget(m_rightStack);
+    auto* rightDatasetsLayout = new QVBoxLayout(rightDatasetsPage);
+    auto* dsSplitter = new QSplitter(Qt::Horizontal, rightDatasetsPage);
 
     auto* dsLeft = new QWidget(dsSplitter);
     auto* dsLeftLayout = new QVBoxLayout(dsLeft);
@@ -168,78 +222,31 @@ void MainWindow::buildUi() {
     dsSplitter->addWidget(propsBox);
     dsSplitter->setStretchFactor(0, 62);
     dsSplitter->setStretchFactor(1, 38);
-    dsLayout->addWidget(dsSplitter, 1);
-    datasetsTab->setLayout(dsLayout);
+    rightDatasetsLayout->addWidget(dsSplitter, 1);
 
-    auto* advancedTab = new QWidget(m_leftTabs);
-    auto* advLayout = new QVBoxLayout(advancedTab);
-    m_advPoolCombo = new QComboBox(advancedTab);
+    auto* rightAdvancedPage = new QWidget(m_rightStack);
+    auto* rightAdvancedLayout = new QVBoxLayout(rightAdvancedPage);
+    m_advPoolCombo = new QComboBox(rightAdvancedPage);
     m_advPoolCombo->setMinimumContentsLength(24);
     m_advPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    m_advTree = new QTreeWidget(advancedTab);
+    m_advTree = new QTreeWidget(rightAdvancedPage);
     m_advTree->setColumnCount(2);
     m_advTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
     m_advTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_advTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    m_advSelectionLabel = new QLabel(QStringLiteral("Dataset: (seleccione)"), advancedTab);
+    m_advSelectionLabel = new QLabel(QStringLiteral("Dataset: (seleccione)"), rightAdvancedPage);
     m_advSelectionLabel->setWordWrap(true);
-    m_btnAdvancedBreakdown = new QPushButton(QStringLiteral("Desglosar"), advancedTab);
-    m_btnAdvancedAssemble = new QPushButton(QStringLiteral("Ensamblar"), advancedTab);
-    advLayout->addWidget(m_advPoolCombo);
-    advLayout->addWidget(m_advTree, 1);
-    advLayout->addWidget(m_advSelectionLabel);
-    advLayout->addWidget(m_btnAdvancedBreakdown);
-    advLayout->addWidget(m_btnAdvancedAssemble);
-    advancedTab->setLayout(advLayout);
-
-    m_leftTabs->addTab(connectionsTab, QStringLiteral("Conexiones"));
-    m_leftTabs->addTab(datasetsTab, QStringLiteral("Datasets"));
-    m_leftTabs->addTab(advancedTab, QStringLiteral("Avanzado"));
-    leftLayout->addWidget(m_leftTabs, 1);
-
-    auto* rightPane = new QWidget(topSplitter);
-    auto* rightLayout = new QVBoxLayout(rightPane);
-    m_rightStack = new QStackedWidget(rightPane);
-
-    auto* rightConnectionsPage = new QWidget(m_rightStack);
-    auto* rightConnectionsLayout = new QVBoxLayout(rightConnectionsPage);
-    m_rightTabs = new QTabWidget(rightConnectionsPage);
-
-    auto* importedTab = new QWidget(m_rightTabs);
-    auto* importedLayout = new QVBoxLayout(importedTab);
-    m_importedPoolsTable = new QTableWidget(importedTab);
-    m_importedPoolsTable->setColumnCount(3);
-    m_importedPoolsTable->setHorizontalHeaderLabels({QStringLiteral("Conexión"), QStringLiteral("Pool"), QStringLiteral("Acción")});
-    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    m_importedPoolsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    importedLayout->addWidget(m_importedPoolsTable, 1);
-
-    auto* importableTab = new QWidget(m_rightTabs);
-    auto* importableLayout = new QVBoxLayout(importableTab);
-    m_importablePoolsTable = new QTableWidget(importableTab);
-    m_importablePoolsTable->setColumnCount(5);
-    m_importablePoolsTable->setHorizontalHeaderLabels(
-        {QStringLiteral("Conexión"), QStringLiteral("Pool"), QStringLiteral("Estado"), QStringLiteral("Motivo"), QStringLiteral("Acción")});
-    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
-    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
-    m_importablePoolsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    importableLayout->addWidget(m_importablePoolsTable, 1);
-
-    m_rightTabs->addTab(importedTab, QStringLiteral("Pools importados"));
-    m_rightTabs->addTab(importableTab, QStringLiteral("Pools importables"));
-    rightConnectionsLayout->addWidget(m_rightTabs, 1);
-
-    auto* rightBlankPage = new QWidget(m_rightStack);
-    auto* rightBlankLayout = new QVBoxLayout(rightBlankPage);
-    rightBlankLayout->addStretch(1);
+    m_btnAdvancedBreakdown = new QPushButton(QStringLiteral("Desglosar"), rightAdvancedPage);
+    m_btnAdvancedAssemble = new QPushButton(QStringLiteral("Ensamblar"), rightAdvancedPage);
+    rightAdvancedLayout->addWidget(m_advPoolCombo);
+    rightAdvancedLayout->addWidget(m_advTree, 1);
+    rightAdvancedLayout->addWidget(m_advSelectionLabel);
+    rightAdvancedLayout->addWidget(m_btnAdvancedBreakdown);
+    rightAdvancedLayout->addWidget(m_btnAdvancedAssemble);
 
     m_rightStack->addWidget(rightConnectionsPage);
-    m_rightStack->addWidget(rightBlankPage);
+    m_rightStack->addWidget(rightDatasetsPage);
+    m_rightStack->addWidget(rightAdvancedPage);
     rightLayout->addWidget(m_rightStack, 1);
 
     topSplitter->addWidget(leftPane);
@@ -267,11 +274,11 @@ void MainWindow::buildUi() {
     connect(m_btnRefreshSelected, &QPushButton::clicked, this, [this]() { refreshSelectedConnection(); });
     connect(m_connectionsList, &QListWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
     connect(m_leftTabs, &QTabWidget::currentChanged, this, [this](int idx) {
+        if (idx >= 0 && idx < m_rightStack->count()) {
+            m_rightStack->setCurrentIndex(idx);
+        }
         if (idx == 0) {
-            m_rightStack->setCurrentIndex(0);
             populateAllPoolsTables();
-        } else {
-            m_rightStack->setCurrentIndex(1);
         }
     });
     connect(m_originPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onOriginPoolChanged(); });
