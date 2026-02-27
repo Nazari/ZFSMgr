@@ -6010,6 +6010,29 @@ class App(tk.Tk):
         children.sort()
         return children
 
+    def _list_breakdown_existing_child_dataset_names(self, profile: ConnectionProfile, dataset_name: str) -> List[str]:
+        pool_name = dataset_name.split("/", 1)[0].strip()
+        if not pool_name:
+            return []
+        try:
+            execu = make_executor(profile)
+            rows = execu.list_datasets(pool_name)
+        except Exception:
+            return []
+        pref = dataset_name + "/"
+        base_depth = dataset_name.count("/")
+        children: List[str] = []
+        for row in rows:
+            name = (row.get("name", "") or "").strip()
+            if not name or "@" in name:
+                continue
+            if not name.startswith(pref):
+                continue
+            if name.count("/") != base_depth + 1:
+                continue
+            children.append(name.rsplit("/", 1)[1])
+        return list(dict.fromkeys(children))
+
     def _breakdown_dataset_plan(self) -> None:
         if self._reject_if_ssh_busy():
             return
@@ -6036,6 +6059,11 @@ class App(tk.Tk):
             self._app_log("normal", trf("log_breakdown_exec_runtime_error", error=exc))
             self.after(0, lambda e=exc: messagebox.showerror(tr("datasets_breakdown_btn"), str(e)))
             return
+        # Excluir directorios que ya son datasets hijos directos; no deben mostrarse
+        # como candidatos de desglosar.
+        existing_children = set(self._list_breakdown_existing_child_dataset_names(profile, dataset_name))
+        if existing_children:
+            dir_candidates = [d for d in dir_candidates if d not in existing_children]
         if not dir_candidates:
             msg = f"No hay directorios para desglosar en {profile.name}::{dataset_name}"
             self._app_log("normal", msg)
