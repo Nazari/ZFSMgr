@@ -118,6 +118,9 @@ void MainWindow::buildUi() {
 
     auto* advancedTab = new QWidget(m_leftTabs);
     auto* advLeftTabLayout = new QVBoxLayout(advancedTab);
+    m_advSelectionLabel = new QLabel(QStringLiteral("Dataset: (seleccione)"), advancedTab);
+    m_advSelectionLabel->setWordWrap(true);
+    advLeftTabLayout->addWidget(m_advSelectionLabel);
     advLeftTabLayout->addWidget(new QLabel(QStringLiteral("Detalle en panel derecho"), advancedTab));
     advLeftTabLayout->addStretch(1);
     advancedTab->setLayout(advLeftTabLayout);
@@ -233,13 +236,10 @@ void MainWindow::buildUi() {
     m_advTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
     m_advTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     m_advTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    m_advSelectionLabel = new QLabel(QStringLiteral("Dataset: (seleccione)"), rightAdvancedPage);
-    m_advSelectionLabel->setWordWrap(true);
     m_btnAdvancedBreakdown = new QPushButton(QStringLiteral("Desglosar"), rightAdvancedPage);
     m_btnAdvancedAssemble = new QPushButton(QStringLiteral("Ensamblar"), rightAdvancedPage);
     rightAdvancedLayout->addWidget(m_advPoolCombo);
     rightAdvancedLayout->addWidget(m_advTree, 1);
-    rightAdvancedLayout->addWidget(m_advSelectionLabel);
     rightAdvancedLayout->addWidget(m_btnAdvancedBreakdown);
     rightAdvancedLayout->addWidget(m_btnAdvancedAssemble);
 
