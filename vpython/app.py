@@ -8540,7 +8540,10 @@ class App(tk.Tk):
                                 (parent_row.get("mounted", "") if parent_row else "").strip().lower()
                                 in {"yes", "on", "true"}
                             )
-                            if not parent_mounted:
+                            parent_mountpoint = (parent_row.get("mountpoint", "") if parent_row else "").strip().lower()
+                            # Excepcion: si el padre tiene mountpoint=none, se permite montar
+                            # el hijo siempre que no haya conflicto de mountpoint (validado despues).
+                            if not parent_mounted and parent_mountpoint != "none":
                                 msg = f"El dataset padre {parent_ds} no está montado, móntelo antes por favor"
                                 self._app_log("warning", msg)
                                 self.after(0, lambda m=msg: messagebox.showwarning(tr("action_mount"), m))
