@@ -157,6 +157,7 @@ void MainWindow::buildUi() {
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_importedPoolsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_importedPoolsTable->setContextMenuPolicy(Qt::CustomContextMenu);
     importedLayout->addWidget(m_importedPoolsTable, 1);
 
     auto* importableTab = new QWidget(m_rightTabs);
@@ -171,6 +172,7 @@ void MainWindow::buildUi() {
     m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
     m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
     m_importablePoolsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_importablePoolsTable->setContextMenuPolicy(Qt::CustomContextMenu);
     importableLayout->addWidget(m_importablePoolsTable, 1);
 
     m_rightTabs->addTab(importedTab, QStringLiteral("Pools importados"));
@@ -308,6 +310,12 @@ void MainWindow::buildUi() {
         if (idx == 0) {
             populateAllPoolsTables();
         }
+    });
+    connect(m_importedPoolsTable, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        onImportedPoolsContextMenuRequested(pos);
+    });
+    connect(m_importablePoolsTable, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        onImportablePoolsContextMenuRequested(pos);
     });
     connect(m_originPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onOriginPoolChanged(); });
     connect(m_destPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onDestPoolChanged(); });
@@ -642,6 +650,44 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
         editConnection();
     } else if (picked == deleteAct) {
         deleteConnection();
+    }
+}
+
+void MainWindow::onImportedPoolsContextMenuRequested(const QPoint& pos) {
+    const QModelIndex idx = m_importedPoolsTable->indexAt(pos);
+    if (!idx.isValid()) {
+        return;
+    }
+    const int row = idx.row();
+    m_importedPoolsTable->selectRow(row);
+    QMenu menu(this);
+    QAction* exportAct = menu.addAction(QStringLiteral("Exportar"));
+    QAction* picked = menu.exec(m_importedPoolsTable->viewport()->mapToGlobal(pos));
+    if (!picked) {
+        return;
+    }
+    if (picked == exportAct) {
+        exportPoolFromRow(row);
+    }
+}
+
+void MainWindow::onImportablePoolsContextMenuRequested(const QPoint& pos) {
+    const QModelIndex idx = m_importablePoolsTable->indexAt(pos);
+    if (!idx.isValid()) {
+        return;
+    }
+    const int row = idx.row();
+    m_importablePoolsTable->selectRow(row);
+    QMenu menu(this);
+    QAction* importAct = menu.addAction(QStringLiteral("Importar"));
+    const QString state = m_importablePoolsTable->item(row, 2) ? m_importablePoolsTable->item(row, 2)->text().trimmed().toUpper() : QString();
+    importAct->setEnabled(state == QStringLiteral("ONLINE") || state == QStringLiteral("ACTIVE"));
+    QAction* picked = menu.exec(m_importablePoolsTable->viewport()->mapToGlobal(pos));
+    if (!picked) {
+        return;
+    }
+    if (picked == importAct) {
+        importPoolFromRow(row);
     }
 }
 
@@ -1531,6 +1577,106 @@ void MainWindow::copyAppLogToClipboard() {
         return;
     }
     cb->setText(m_logView->toPlainText());
+}
+
+int MainWindow::findConnectionIndexByName(const QString& name) const {
+    const QString key = name.trimmed();
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        if (m_profiles[i].name.compare(key, Qt::CaseInsensitive) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void MainWindow::refreshConnectionByIndex(int idx) {
+    if (idx < 0 || idx >= m_profiles.size()) {
+        return;
+    }
+    m_states[idx] = refreshConnection(m_profiles[idx]);
+    rebuildConnectionList();
+    rebuildDatasetPoolSelectors();
+    populateAllPoolsTables();
+}
+
+void MainWindow::exportPoolFromRow(int row) {
+    QTableWidgetItem* connItem = m_importedPoolsTable->item(row, 0);
+    QTableWidgetItem* poolItem = m_importedPoolsTable->item(row, 1);
+    if (!connItem || !poolItem) {
+        return;
+    }
+    const QString connName = connItem->text().trimmed();
+    const QString poolName = poolItem->text().trimmed();
+    if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
+        return;
+    }
+    const int idx = findConnectionIndexByName(connName);
+    if (idx < 0) {
+        return;
+    }
+    const auto confirm = QMessageBox::question(
+        this,
+        QStringLiteral("Exportar pool"),
+        QStringLiteral("¿Exportar pool %1 en %2?").arg(poolName, connName),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return;
+    }
+    const ConnectionProfile& p = m_profiles[idx];
+    const QString cmd = withSudo(p, QStringLiteral("zpool export %1").arg(shSingleQuote(poolName)));
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio exportar %1::%2").arg(connName, poolName));
+    QString out;
+    QString err;
+    int rc = -1;
+    if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("Error exportando %1::%2 -> %3")
+                                       .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"), QStringLiteral("Exportar falló:\n%1").arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin exportar %1::%2").arg(connName, poolName));
+    refreshConnectionByIndex(idx);
+}
+
+void MainWindow::importPoolFromRow(int row) {
+    QTableWidgetItem* connItem = m_importablePoolsTable->item(row, 0);
+    QTableWidgetItem* poolItem = m_importablePoolsTable->item(row, 1);
+    if (!connItem || !poolItem) {
+        return;
+    }
+    const QString connName = connItem->text().trimmed();
+    const QString poolName = poolItem->text().trimmed();
+    if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
+        return;
+    }
+    const int idx = findConnectionIndexByName(connName);
+    if (idx < 0) {
+        return;
+    }
+    const auto confirm = QMessageBox::question(
+        this,
+        QStringLiteral("Importar pool"),
+        QStringLiteral("¿Importar pool %1 en %2?").arg(poolName, connName),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return;
+    }
+    const ConnectionProfile& p = m_profiles[idx];
+    const QString cmd = withSudo(p, QStringLiteral("zpool import %1").arg(shSingleQuote(poolName)));
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio importar %1::%2").arg(connName, poolName));
+    QString out;
+    QString err;
+    int rc = -1;
+    if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("Error importando %1::%2 -> %3")
+                                       .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"), QStringLiteral("Importar falló:\n%1").arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin importar %1::%2").arg(connName, poolName));
+    refreshConnectionByIndex(idx);
 }
 
 MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QString& side) const {

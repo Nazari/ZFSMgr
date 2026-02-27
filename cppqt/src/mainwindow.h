@@ -93,6 +93,8 @@ private:
     void onOriginTreeContextMenuRequested(const QPoint& pos);
     void onDestTreeContextMenuRequested(const QPoint& pos);
     void onConnectionListContextMenuRequested(const QPoint& pos);
+    void onImportedPoolsContextMenuRequested(const QPoint& pos);
+    void onImportablePoolsContextMenuRequested(const QPoint& pos);
 
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
     bool runSsh(const ConnectionProfile& p, const QString& remoteCmd, int timeoutMs, QString& out, QString& err, int& rc);
@@ -128,6 +130,10 @@ private:
     void appendLogToFile(const QString& line);
     void clearAppLog();
     void copyAppLogToClipboard();
+    int findConnectionIndexByName(const QString& name) const;
+    void refreshConnectionByIndex(int idx);
+    void exportPoolFromRow(int row);
+    void importPoolFromRow(int row);
     void updateStatus(const QString& text);
     void appLog(const QString& level, const QString& msg);
     void populateAllPoolsTables();
