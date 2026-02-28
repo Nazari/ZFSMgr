@@ -868,6 +868,7 @@ void MainWindow::buildUi() {
     auto* statusTitle = new QLabel(tr3(QStringLiteral("Estado"), QStringLiteral("Status"), QStringLiteral("状态")), leftInfo);
     QFont smallTitle = statusTitle->font();
     smallTitle.setBold(true);
+    smallTitle.setPointSize(qMax(6, smallTitle.pointSize() - 1));
     statusTitle->setFont(smallTitle);
     m_statusText = new QTextEdit(leftInfo);
     m_statusText->setReadOnly(true);
@@ -875,6 +876,11 @@ void MainWindow::buildUi() {
     m_statusText->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_statusText->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_statusText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
+    {
+        QFont f = m_statusText->font();
+        f.setPointSize(qMax(6, f.pointSize() - 1));
+        m_statusText->setFont(f);
+    }
     auto* detailTitle = new QLabel(tr3(QStringLiteral("Detalle"), QStringLiteral("Detail"), QStringLiteral("详情")), leftInfo);
     detailTitle->setFont(smallTitle);
     m_lastDetailText = new QTextEdit(leftInfo);
@@ -882,6 +888,11 @@ void MainWindow::buildUi() {
     m_lastDetailText->setAcceptRichText(false);
     m_lastDetailText->setLineWrapMode(QTextEdit::WidgetWidth);
     m_lastDetailText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
+    {
+        QFont f = m_lastDetailText->font();
+        f.setPointSize(qMax(6, f.pointSize() - 1));
+        m_lastDetailText->setFont(f);
+    }
     leftInfoLayout->addWidget(statusTitle, 0);
     leftInfoLayout->addWidget(m_statusText, 1);
     leftInfoLayout->addWidget(detailTitle, 0);
