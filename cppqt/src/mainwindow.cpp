@@ -486,14 +486,9 @@ void MainWindow::buildUi() {
     mountedLeftLayout->addWidget(m_mountedDatasetsTableLeft, 1);
     auto* propsLeftTab = new QWidget(datasetsInfoTabs);
     auto* propsLeftLayout = new QVBoxLayout(propsLeftTab);
-    auto* propsLeftBox = new QGroupBox(
-        tr3(QStringLiteral("Propiedades del dataset"),
-            QStringLiteral("Dataset properties"),
-            QStringLiteral("数据集属性")),
-        propsLeftTab);
-    auto* propsLeftBoxLayout = new QVBoxLayout(propsLeftBox);
-    propsLeftBoxLayout->setContentsMargins(8, 20, 8, 8);
-    m_datasetPropsTable = new QTableWidget(propsLeftBox);
+    propsLeftLayout->setContentsMargins(0, 0, 0, 0);
+    propsLeftLayout->setSpacing(4);
+    m_datasetPropsTable = new QTableWidget(propsLeftTab);
     m_datasetPropsTable->setColumnCount(3);
     m_datasetPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor"), QStringLiteral("Inherit")});
     m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
@@ -510,11 +505,10 @@ void MainWindow::buildUi() {
     }
     m_btnApplyDatasetProps = new QPushButton(
         tr3(QStringLiteral("Aplicar cambios"), QStringLiteral("Apply changes"), QStringLiteral("应用更改")),
-        propsLeftBox);
+        propsLeftTab);
     m_btnApplyDatasetProps->setEnabled(false);
-    propsLeftBoxLayout->addWidget(m_datasetPropsTable, 1);
-    propsLeftBoxLayout->addWidget(m_btnApplyDatasetProps, 0, Qt::AlignRight);
-    propsLeftLayout->addWidget(propsLeftBox, 1);
+    propsLeftLayout->addWidget(m_datasetPropsTable, 1);
+    propsLeftLayout->addWidget(m_btnApplyDatasetProps, 0, Qt::AlignRight);
     datasetsInfoTabs->addTab(
         propsLeftTab,
         tr3(QStringLiteral("Propiedades"), QStringLiteral("Properties"), QStringLiteral("属性")));
@@ -607,14 +601,9 @@ void MainWindow::buildUi() {
     mountedAdvLayout->addWidget(m_mountedDatasetsTableAdv, 1);
     auto* propsAdvTab = new QWidget(advancedInfoTabs);
     auto* propsAdvLayout = new QVBoxLayout(propsAdvTab);
-    auto* propsAdvBox = new QGroupBox(
-        tr3(QStringLiteral("Propiedades del dataset"),
-            QStringLiteral("Dataset properties"),
-            QStringLiteral("数据集属性")),
-        propsAdvTab);
-    auto* propsAdvBoxLayout = new QVBoxLayout(propsAdvBox);
-    propsAdvBoxLayout->setContentsMargins(8, 20, 8, 8);
-    m_advPropsTable = new QTableWidget(propsAdvBox);
+    propsAdvLayout->setContentsMargins(0, 0, 0, 0);
+    propsAdvLayout->setSpacing(4);
+    m_advPropsTable = new QTableWidget(propsAdvTab);
     m_advPropsTable->setColumnCount(3);
     m_advPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor"), QStringLiteral("Inherit")});
     m_advPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
@@ -631,11 +620,10 @@ void MainWindow::buildUi() {
     }
     m_btnApplyAdvancedProps = new QPushButton(
         tr3(QStringLiteral("Aplicar cambios"), QStringLiteral("Apply changes"), QStringLiteral("应用更改")),
-        propsAdvBox);
+        propsAdvTab);
     m_btnApplyAdvancedProps->setEnabled(false);
-    propsAdvBoxLayout->addWidget(m_advPropsTable, 1);
-    propsAdvBoxLayout->addWidget(m_btnApplyAdvancedProps, 0, Qt::AlignRight);
-    propsAdvLayout->addWidget(propsAdvBox, 1);
+    propsAdvLayout->addWidget(m_advPropsTable, 1);
+    propsAdvLayout->addWidget(m_btnApplyAdvancedProps, 0, Qt::AlignRight);
     advancedInfoTabs->addTab(
         propsAdvTab,
         tr3(QStringLiteral("Propiedades"), QStringLiteral("Properties"), QStringLiteral("属性")));
