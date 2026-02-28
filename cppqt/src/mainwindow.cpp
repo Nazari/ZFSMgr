@@ -355,7 +355,7 @@ void MainWindow::buildUi() {
         fm.horizontalAdvance(tr3(QStringLiteral("Refrescar todo"), QStringLiteral("Refresh all"), QStringLiteral("全部刷新"))),
         fm.horizontalAdvance(tr3(QStringLiteral("Configuración"), QStringLiteral("Configuration"), QStringLiteral("配置"))));
     const int leftBaseWidth = qMax(340, btnTextWidth + 190);
-    const int leftFixedWidth = qMax(220, static_cast<int>(leftBaseWidth * 0.85));
+    const int leftFixedWidth = qMax(220, static_cast<int>(leftBaseWidth * 0.85 * 1.15));
     leftPane->setMinimumWidth(leftFixedWidth);
     leftPane->setMaximumWidth(leftFixedWidth);
 
@@ -434,6 +434,14 @@ void MainWindow::buildUi() {
     m_mountedDatasetsTableLeft->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_mountedDatasetsTableLeft->setSelectionMode(QAbstractItemView::SingleSelection);
     m_mountedDatasetsTableLeft->verticalHeader()->setVisible(false);
+    m_mountedDatasetsTableLeft->setWordWrap(false);
+    m_mountedDatasetsTableLeft->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_mountedDatasetsTableLeft->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    {
+        QFont f = m_mountedDatasetsTableLeft->font();
+        f.setPointSize(qMax(7, f.pointSize() - 1));
+        m_mountedDatasetsTableLeft->setFont(f);
+    }
     mountedLeftLayout->addWidget(m_mountedDatasetsTableLeft, 1);
     dsLeftTabLayout->addWidget(mountedBoxLeft, 1);
     dsLeftTabLayout->addStretch(1);
@@ -492,6 +500,14 @@ void MainWindow::buildUi() {
     m_mountedDatasetsTableAdv->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_mountedDatasetsTableAdv->setSelectionMode(QAbstractItemView::SingleSelection);
     m_mountedDatasetsTableAdv->verticalHeader()->setVisible(false);
+    m_mountedDatasetsTableAdv->setWordWrap(false);
+    m_mountedDatasetsTableAdv->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_mountedDatasetsTableAdv->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    {
+        QFont f = m_mountedDatasetsTableAdv->font();
+        f.setPointSize(qMax(7, f.pointSize() - 1));
+        m_mountedDatasetsTableAdv->setFont(f);
+    }
     mountedAdvLayout->addWidget(m_mountedDatasetsTableAdv, 1);
     advLeftTabLayout->setSpacing(8);
     advLeftTabLayout->addWidget(commandsBox);
