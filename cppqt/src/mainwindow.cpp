@@ -352,6 +352,11 @@ void MainWindow::buildUi() {
     auto* statusPoolLayout = new QVBoxLayout(statusPoolTab);
     m_poolStatusText = new QPlainTextEdit(statusPoolTab);
     m_poolStatusText->setReadOnly(true);
+    auto* statusActions = new QHBoxLayout();
+    m_poolStatusRefreshBtn = new QPushButton(QStringLiteral("Actualizar"), statusPoolTab);
+    statusActions->addWidget(m_poolStatusRefreshBtn);
+    statusActions->addStretch(1);
+    statusPoolLayout->addLayout(statusActions);
     statusPoolLayout->addWidget(m_poolStatusText, 1);
 
     m_poolDetailTabs->addTab(propsPoolTab, QStringLiteral("Propiedades del pool"));
@@ -589,6 +594,11 @@ void MainWindow::buildUi() {
     });
     connect(m_importedPoolsTable, &QTableWidget::itemSelectionChanged, this, [this]() {
         refreshSelectedPoolDetails();
+    });
+    connect(m_poolStatusRefreshBtn, &QPushButton::clicked, this, [this]() {
+        if (m_importedPoolsTable && !m_importedPoolsTable->selectedItems().isEmpty()) {
+            refreshSelectedPoolDetails();
+        }
     });
     connect(m_importablePoolsTable, &QTableWidget::cellClicked, this, [this](int row, int col) {
         if (col == 4) {
@@ -2750,10 +2760,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             appLog(QStringLiteral("INFO"), QStringLiteral("%1: %2 -> %3").arg(p.name, probe, oneLine(err)));
         }
     }
-    if (state.importedPools.isEmpty()) {
-        state.importedPools.push_back(PoolImported{p.name, QStringLiteral("Sin pools"), QStringLiteral("-")});
-    }
-
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin refresh: %1 -> OK (%2)").arg(p.name, state.detail));
     return state;
 }

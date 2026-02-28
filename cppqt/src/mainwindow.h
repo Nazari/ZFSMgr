@@ -168,6 +168,7 @@ private:
     QTabWidget* m_poolDetailTabs{nullptr};
     QTableWidget* m_poolPropsTable{nullptr};
     QPlainTextEdit* m_poolStatusText{nullptr};
+    QPushButton* m_poolStatusRefreshBtn{nullptr};
     QStackedWidget* m_rightStack{nullptr};
     QComboBox* m_originPoolCombo{nullptr};
     QComboBox* m_destPoolCombo{nullptr};
