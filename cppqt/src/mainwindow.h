@@ -151,6 +151,9 @@ private:
     void updateStatus(const QString& text);
     void setActionsLocked(bool locked);
     bool actionsLocked() const;
+    void openConfigurationDialog();
+    void loadUiSettings();
+    void saveUiSettings() const;
     bool confirmActionExecution(const QString& actionName, const QStringList& commands);
     QString buildSshPreviewCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
     QString tr3(const QString& es, const QString& en, const QString& zh) const;
@@ -170,6 +173,7 @@ private:
     QPushButton* m_btnNew{nullptr};
     QPushButton* m_btnRefreshAll{nullptr};
     QPushButton* m_btnRefreshSelected{nullptr};
+    QPushButton* m_btnConfig{nullptr};
 
     QTableWidget* m_importedPoolsTable{nullptr};
     QTableWidget* m_importablePoolsTable{nullptr};
@@ -225,6 +229,7 @@ private:
     bool m_advPropsDirty{false};
     bool m_loadingPropsTable{false};
     QString m_language{QStringLiteral("es")};
+    bool m_actionConfirmEnabled{true};
     QString m_appLogPath;
     int m_refreshGeneration{0};
     int m_refreshPending{0};

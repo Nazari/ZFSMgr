@@ -49,6 +49,7 @@
 #include <QFontMetrics>
 #include <QSignalBlocker>
 #include <QScrollArea>
+#include <QSettings>
 #include <functional>
 
 #include <QtConcurrent/QtConcurrent>
@@ -232,6 +233,11 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
     if (m_language.isEmpty()) {
         m_language = QStringLiteral("es");
     }
+    loadUiSettings();
+    if (!language.trimmed().isEmpty()) {
+        m_language = language.trimmed().toLower();
+        saveUiSettings();
+    }
     m_store.setMasterPassword(masterPassword);
     initLogPersistence();
     buildUi();
@@ -245,6 +251,26 @@ QString MainWindow::tr3(const QString& es, const QString& en, const QString& zh)
     if (m_language == QStringLiteral("en")) return en;
     if (m_language == QStringLiteral("zh")) return zh;
     return es;
+}
+
+void MainWindow::loadUiSettings() {
+    QSettings ini(m_store.iniPath(), QSettings::IniFormat);
+    ini.beginGroup(QStringLiteral("app"));
+    const QString lang = ini.value(QStringLiteral("language"), m_language).toString().trimmed().toLower();
+    if (!lang.isEmpty()) {
+        m_language = lang;
+    }
+    m_actionConfirmEnabled = ini.value(QStringLiteral("confirm_actions"), true).toBool();
+    ini.endGroup();
+}
+
+void MainWindow::saveUiSettings() const {
+    QSettings ini(m_store.iniPath(), QSettings::IniFormat);
+    ini.beginGroup(QStringLiteral("app"));
+    ini.setValue(QStringLiteral("language"), m_language);
+    ini.setValue(QStringLiteral("confirm_actions"), m_actionConfirmEnabled);
+    ini.endGroup();
+    ini.sync();
 }
 
 void MainWindow::buildUi() {
@@ -309,12 +335,16 @@ void MainWindow::buildUi() {
     connButtons->setSpacing(10);
     m_btnNew = new QPushButton(tr3(QStringLiteral("Nueva"), QStringLiteral("New"), QStringLiteral("新建")), connectionsTab);
     m_btnRefreshAll = new QPushButton(tr3(QStringLiteral("Refrescar todo"), QStringLiteral("Refresh all"), QStringLiteral("全部刷新")), connectionsTab);
+    m_btnConfig = new QPushButton(tr3(QStringLiteral("Configuración"), QStringLiteral("Configuration"), QStringLiteral("配置")), connectionsTab);
     m_btnNew->setMinimumHeight(34);
     m_btnRefreshAll->setMinimumHeight(34);
+    m_btnConfig->setMinimumHeight(34);
     m_btnNew->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnRefreshAll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnConfig->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     connButtons->addWidget(m_btnNew);
     connButtons->addWidget(m_btnRefreshAll);
+    connButtons->addWidget(m_btnConfig);
     connButtons->addStretch(1);
     connLayout->addLayout(connButtons);
     connectionsTab->setLayout(connLayout);
@@ -676,6 +706,10 @@ void MainWindow::buildUi() {
     connect(m_btnNew, &QPushButton::clicked, this, [this]() {
         logUiAction(QStringLiteral("Nueva conexión (botón)"));
         createConnection();
+    });
+    connect(m_btnConfig, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Configuración (botón)"));
+        openConfigurationDialog();
     });
     connect(m_connectionsList, &QListWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
     m_connectionsList->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -3439,6 +3473,9 @@ QString MainWindow::buildSshPreviewCommand(const ConnectionProfile& p, const QSt
 }
 
 bool MainWindow::confirmActionExecution(const QString& actionName, const QStringList& commands) {
+    if (!m_actionConfirmEnabled) {
+        return true;
+    }
     if (commands.isEmpty()) {
         return true;
     }
@@ -3480,10 +3517,69 @@ bool MainWindow::confirmActionExecution(const QString& actionName, const QString
     return accepted;
 }
 
+void MainWindow::openConfigurationDialog() {
+    QDialog dlg(this);
+    dlg.setModal(true);
+    dlg.setWindowTitle(tr3(QStringLiteral("Configuración"), QStringLiteral("Configuration"), QStringLiteral("配置")));
+    dlg.resize(460, 190);
+
+    QVBoxLayout* root = new QVBoxLayout(&dlg);
+    QFormLayout* form = new QFormLayout();
+
+    QComboBox* langCombo = new QComboBox(&dlg);
+    langCombo->addItem(QStringLiteral("Español"), QStringLiteral("es"));
+    langCombo->addItem(QStringLiteral("English"), QStringLiteral("en"));
+    langCombo->addItem(QStringLiteral("中文"), QStringLiteral("zh"));
+    int idx = langCombo->findData(m_language);
+    langCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+    form->addRow(tr3(QStringLiteral("Idioma"), QStringLiteral("Language"), QStringLiteral("语言")), langCombo);
+
+    QCheckBox* confirmChk = new QCheckBox(
+        tr3(QStringLiteral("Mostrar confirmación antes de ejecutar acciones"),
+            QStringLiteral("Show confirmation before executing actions"),
+            QStringLiteral("执行操作前显示确认")),
+        &dlg);
+    confirmChk->setChecked(m_actionConfirmEnabled);
+    form->addRow(QString(), confirmChk);
+
+    root->addLayout(form);
+    root->addStretch(1);
+
+    QDialogButtonBox* buttons = new QDialogButtonBox(&dlg);
+    QPushButton* cancelBtn = buttons->addButton(tr3(QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), QDialogButtonBox::RejectRole);
+    QPushButton* okBtn = buttons->addButton(tr3(QStringLiteral("Aceptar"), QStringLiteral("Accept"), QStringLiteral("确认")), QDialogButtonBox::AcceptRole);
+    root->addWidget(buttons);
+    QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
+    QObject::connect(okBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const QString newLang = langCombo->currentData().toString().trimmed().toLower();
+    const bool newConfirm = confirmChk->isChecked();
+    const bool langChanged = (newLang != m_language);
+    m_language = newLang.isEmpty() ? QStringLiteral("es") : newLang;
+    m_actionConfirmEnabled = newConfirm;
+    saveUiSettings();
+    appLog(QStringLiteral("INFO"),
+           QStringLiteral("Configuración actualizada: idioma=%1, confirmación=%2")
+               .arg(m_language, m_actionConfirmEnabled ? QStringLiteral("on") : QStringLiteral("off")));
+    if (langChanged) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            tr3(QStringLiteral("Idioma guardado. Se aplicará completamente al reiniciar la aplicación."),
+                QStringLiteral("Language saved. It will be fully applied after restarting the application."),
+                QStringLiteral("语言已保存。重启应用后将完全生效。")));
+    }
+}
+
 void MainWindow::setActionsLocked(bool locked) {
     m_actionsLocked = locked;
     if (m_btnNew) m_btnNew->setEnabled(!locked);
     if (m_btnRefreshAll) m_btnRefreshAll->setEnabled(!locked);
+    if (m_btnConfig) m_btnConfig->setEnabled(!locked);
     if (m_poolStatusRefreshBtn) m_poolStatusRefreshBtn->setEnabled(!locked);
     if (m_btnAdvancedBreakdown) m_btnAdvancedBreakdown->setEnabled(!locked);
     if (m_btnAdvancedAssemble) m_btnAdvancedAssemble->setEnabled(!locked);
