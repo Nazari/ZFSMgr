@@ -871,6 +871,8 @@ void MainWindow::buildUi() {
 
     auto* leftInfo = new QWidget(logBox);
     auto* leftInfoLayout = new QVBoxLayout(leftInfo);
+    leftInfoLayout->setContentsMargins(0, 0, 0, 0);
+    leftInfoLayout->setSpacing(4);
     auto* statusTitle = new QLabel(tr3(QStringLiteral("Estado"), QStringLiteral("Status"), QStringLiteral("状态")), leftInfo);
     QFont smallTitle = statusTitle->font();
     smallTitle.setBold(true);
@@ -899,10 +901,24 @@ void MainWindow::buildUi() {
         f.setPointSize(qMax(6, f.pointSize() - 1));
         m_lastDetailText->setFont(f);
     }
-    leftInfoLayout->addWidget(statusTitle, 0);
-    leftInfoLayout->addWidget(m_statusText, 1);
-    leftInfoLayout->addWidget(detailTitle, 0);
-    leftInfoLayout->addWidget(m_lastDetailText, 1);
+    statusTitle->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    detailTitle->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    statusTitle->setMinimumWidth(48);
+    detailTitle->setMinimumWidth(48);
+    statusTitle->setMaximumWidth(64);
+    detailTitle->setMaximumWidth(64);
+    auto* statusRow = new QHBoxLayout();
+    statusRow->setContentsMargins(0, 0, 0, 0);
+    statusRow->setSpacing(6);
+    statusRow->addWidget(statusTitle, 0);
+    statusRow->addWidget(m_statusText, 1);
+    auto* detailRow = new QHBoxLayout();
+    detailRow->setContentsMargins(0, 0, 0, 0);
+    detailRow->setSpacing(6);
+    detailRow->addWidget(detailTitle, 0);
+    detailRow->addWidget(m_lastDetailText, 1);
+    leftInfoLayout->addLayout(statusRow, 1);
+    leftInfoLayout->addLayout(detailRow, 1);
 
     auto* rightLogs = new QWidget(logBox);
     auto* rightLogsLayout = new QVBoxLayout(rightLogs);
