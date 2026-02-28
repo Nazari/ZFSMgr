@@ -3368,9 +3368,12 @@ void MainWindow::actionMountDatasetWithChildren(const QString& side) {
     const QString dsQ = shSingleQuote(ctx.datasetName);
     const QString cmd = QStringLiteral(
                             "set -e; DATASET=%1; "
-                            "zfs mount \"$DATASET\"; "
-                            "zfs list -H -o name -r \"$DATASET\" | tail -n +2 | "
-                            "while IFS= read -r child; do [ -n \"$child\" ] || continue; zfs mount \"$child\"; done")
+                            "zfs list -H -o name -r \"$DATASET\" | "
+                            "while IFS= read -r child; do "
+                            "  [ -n \"$child\" ] || continue; "
+                            "  mounted=$(zfs get -H -o value mounted \"$child\" 2>/dev/null || true); "
+                            "  case \"$mounted\" in yes|on|true|1) : ;; *) zfs mount \"$child\" ;; esac; "
+                            "done")
                             .arg(dsQ);
     executeDatasetAction(side, QStringLiteral("Montar con todos los hijos"), ctx, cmd);
 }
