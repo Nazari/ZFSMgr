@@ -34,6 +34,8 @@ public:
     LoadResult loadConnections() const;
     bool upsertConnection(const ConnectionProfile& profile, QString& error);
     bool deleteConnectionById(const QString& id, QString& error);
+    bool encryptStoredPasswords(QString& error);
+    bool rotateMasterPassword(const QString& oldMasterPassword, const QString& newMasterPassword, QString& error);
 
 private:
     QString m_appName;

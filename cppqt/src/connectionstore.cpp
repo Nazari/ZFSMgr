@@ -147,6 +147,20 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
 
     QSettings ini(iniPath(), QSettings::IniFormat);
     const QString group = QStringLiteral("connection:%1").arg(id);
+    QString storedPassword = profile.password;
+    if (!storedPassword.isEmpty() && !SecretCipher::isEncrypted(storedPassword)) {
+        if (m_masterPassword.isEmpty()) {
+            error = QStringLiteral("Password maestro requerido para cifrar password");
+            return false;
+        }
+        QString encErr;
+        QString encrypted;
+        if (!SecretCipher::encryptEncv1(storedPassword, m_masterPassword, encrypted, encErr)) {
+            error = QStringLiteral("No se pudo cifrar password: %1").arg(encErr);
+            return false;
+        }
+        storedPassword = encrypted;
+    }
     ini.beginGroup(group);
     ini.setValue("id", id);
     ini.setValue("name", profile.name.trimmed());
@@ -156,7 +170,7 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
     ini.setValue("host", profile.host.trimmed());
     ini.setValue("port", profile.port > 0 ? profile.port : 22);
     ini.setValue("username", profile.username);
-    ini.setValue("password", profile.password);
+    ini.setValue("password", storedPassword);
     ini.setValue("key_path", profile.keyPath.trimmed());
     ini.setValue("use_sudo", profile.useSudo);
     ini.endGroup();
@@ -185,5 +199,84 @@ bool ConnectionStore::deleteConnectionById(const QString& id, QString& error) {
         error = QStringLiteral("Error borrando en INI");
         return false;
     }
+    return true;
+}
+
+bool ConnectionStore::encryptStoredPasswords(QString& error) {
+    error.clear();
+    if (m_masterPassword.isEmpty()) {
+        error = QStringLiteral("Password maestro requerido");
+        return false;
+    }
+
+    QSettings ini(iniPath(), QSettings::IniFormat);
+    const QStringList groups = ini.childGroups();
+    for (const QString& group : groups) {
+        if (!group.startsWith(QStringLiteral("connection:"))) {
+            continue;
+        }
+        ini.beginGroup(group);
+        const QString current = ini.value(QStringLiteral("password")).toString();
+        if (!current.isEmpty() && !SecretCipher::isEncrypted(current)) {
+            QString encErr;
+            QString encrypted;
+            if (!SecretCipher::encryptEncv1(current, m_masterPassword, encrypted, encErr)) {
+                ini.endGroup();
+                error = QStringLiteral("%1: %2").arg(group, encErr);
+                return false;
+            }
+            ini.setValue(QStringLiteral("password"), encrypted);
+        }
+        ini.endGroup();
+    }
+    ini.sync();
+    if (ini.status() != QSettings::NoError) {
+        error = QStringLiteral("Error guardando INI");
+        return false;
+    }
+    return true;
+}
+
+bool ConnectionStore::rotateMasterPassword(const QString& oldMasterPassword, const QString& newMasterPassword, QString& error) {
+    error.clear();
+    if (newMasterPassword.isEmpty()) {
+        error = QStringLiteral("Nuevo password maestro vacío");
+        return false;
+    }
+    QSettings ini(iniPath(), QSettings::IniFormat);
+    const QStringList groups = ini.childGroups();
+    for (const QString& group : groups) {
+        if (!group.startsWith(QStringLiteral("connection:"))) {
+            continue;
+        }
+        ini.beginGroup(group);
+        const QString current = ini.value(QStringLiteral("password")).toString();
+        QString plain = current;
+        if (!current.isEmpty() && SecretCipher::isEncrypted(current)) {
+            QString decErr;
+            if (!SecretCipher::decryptEncv1(current, oldMasterPassword, plain, decErr)) {
+                ini.endGroup();
+                error = QStringLiteral("%1: %2").arg(group, decErr);
+                return false;
+            }
+        }
+        if (!plain.isEmpty()) {
+            QString encErr;
+            QString encrypted;
+            if (!SecretCipher::encryptEncv1(plain, newMasterPassword, encrypted, encErr)) {
+                ini.endGroup();
+                error = QStringLiteral("%1: %2").arg(group, encErr);
+                return false;
+            }
+            ini.setValue(QStringLiteral("password"), encrypted);
+        }
+        ini.endGroup();
+    }
+    ini.sync();
+    if (ini.status() != QSettings::NoError) {
+        error = QStringLiteral("Error guardando INI");
+        return false;
+    }
+    m_masterPassword = newMasterPassword;
     return true;
 }
