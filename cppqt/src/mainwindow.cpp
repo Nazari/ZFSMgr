@@ -464,6 +464,7 @@ void MainWindow::buildUi() {
     m_mountedDatasetsTableLeft->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_mountedDatasetsTableLeft->setSelectionMode(QAbstractItemView::SingleSelection);
     m_mountedDatasetsTableLeft->verticalHeader()->setVisible(false);
+    m_mountedDatasetsTableLeft->verticalHeader()->setDefaultSectionSize(22);
     m_mountedDatasetsTableLeft->setWordWrap(false);
     m_mountedDatasetsTableLeft->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
     m_mountedDatasetsTableLeft->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -539,6 +540,7 @@ void MainWindow::buildUi() {
     m_mountedDatasetsTableAdv->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_mountedDatasetsTableAdv->setSelectionMode(QAbstractItemView::SingleSelection);
     m_mountedDatasetsTableAdv->verticalHeader()->setVisible(false);
+    m_mountedDatasetsTableAdv->verticalHeader()->setDefaultSectionSize(22);
     m_mountedDatasetsTableAdv->setWordWrap(false);
     m_mountedDatasetsTableAdv->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
     m_mountedDatasetsTableAdv->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -598,7 +600,7 @@ void MainWindow::buildUi() {
         f.setPointSize(qMax(6, f.pointSize() - 1));
         m_importedPoolsTable->setFont(f);
     }
-    m_importedPoolsTable->verticalHeader()->setDefaultSectionSize(18);
+    m_importedPoolsTable->verticalHeader()->setDefaultSectionSize(22);
     m_importedPoolsTable->setStyleSheet(QStringLiteral("QTableWidget::item{padding:1px 3px;}"));
     importedLayout->addWidget(m_importedPoolsTable, 1);
 
@@ -623,7 +625,7 @@ void MainWindow::buildUi() {
         f.setPointSize(qMax(6, f.pointSize() - 1));
         m_importablePoolsTable->setFont(f);
     }
-    m_importablePoolsTable->verticalHeader()->setDefaultSectionSize(18);
+    m_importablePoolsTable->verticalHeader()->setDefaultSectionSize(22);
     m_importablePoolsTable->setStyleSheet(QStringLiteral("QTableWidget::item{padding:1px 3px;}"));
     importableLayout->addWidget(m_importablePoolsTable, 1);
 
@@ -642,6 +644,7 @@ void MainWindow::buildUi() {
     m_poolPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_poolPropsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_poolPropsTable->setSelectionMode(QAbstractItemView::NoSelection);
+    m_poolPropsTable->verticalHeader()->setDefaultSectionSize(22);
     propsPoolLayout->addWidget(m_poolPropsTable, 1);
 
     auto* statusPoolTab = new QWidget(m_poolDetailTabs);
@@ -703,7 +706,7 @@ void MainWindow::buildUi() {
         f.setPointSize(qMax(6, f.pointSize() - 1));
         m_originTree->setFont(f);
     }
-    m_originTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 20px; padding: 0px; margin: 0px; }"));
+    m_originTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"));
     m_originSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), originBox);
     m_originSelectionLabel->setWordWrap(true);
     m_originSelectionLabel->setMinimumHeight(36);
@@ -734,7 +737,7 @@ void MainWindow::buildUi() {
         f.setPointSize(qMax(6, f.pointSize() - 1));
         m_destTree->setFont(f);
     }
-    m_destTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 20px; padding: 0px; margin: 0px; }"));
+    m_destTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"));
     m_destSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), destBox);
     m_destSelectionLabel->setWordWrap(true);
     m_destSelectionLabel->setMinimumHeight(36);
@@ -757,6 +760,7 @@ void MainWindow::buildUi() {
     m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_datasetPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
     m_datasetPropsTable->verticalHeader()->setVisible(false);
+    m_datasetPropsTable->verticalHeader()->setDefaultSectionSize(22);
     if (m_mountedDatasetsTableLeft) {
         m_datasetPropsTable->setFont(m_mountedDatasetsTableLeft->font());
     }
@@ -803,7 +807,7 @@ void MainWindow::buildUi() {
         f.setPointSize(qMax(6, f.pointSize() - 1));
         m_advTree->setFont(f);
     }
-    m_advTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 20px; padding: 0px; margin: 0px; }"));
+    m_advTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"));
     m_advSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), rightAdvancedPage);
     m_advSelectionLabel->setWordWrap(true);
     m_advSelectionLabel->setMinimumHeight(36);
@@ -824,6 +828,7 @@ void MainWindow::buildUi() {
     m_advPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_advPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
     m_advPropsTable->verticalHeader()->setVisible(false);
+    m_advPropsTable->verticalHeader()->setDefaultSectionSize(22);
     if (m_mountedDatasetsTableAdv) {
         m_advPropsTable->setFont(m_mountedDatasetsTableAdv->font());
     }
@@ -869,8 +874,6 @@ void MainWindow::buildUi() {
     m_statusText->setAcceptRichText(false);
     m_statusText->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_statusText->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_statusText->setMinimumHeight(72);
-    m_statusText->setMaximumHeight(72);
     m_statusText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
     auto* detailTitle = new QLabel(tr3(QStringLiteral("Detalle"), QStringLiteral("Detail"), QStringLiteral("详情")), leftInfo);
     detailTitle->setFont(smallTitle);
@@ -880,7 +883,7 @@ void MainWindow::buildUi() {
     m_lastDetailText->setLineWrapMode(QTextEdit::WidgetWidth);
     m_lastDetailText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
     leftInfoLayout->addWidget(statusTitle, 0);
-    leftInfoLayout->addWidget(m_statusText, 0);
+    leftInfoLayout->addWidget(m_statusText, 1);
     leftInfoLayout->addWidget(detailTitle, 0);
     leftInfoLayout->addWidget(m_lastDetailText, 1);
 
