@@ -832,7 +832,7 @@ void MainWindow::buildUi() {
 
     topLayout->addWidget(leftPane, 0);
     topLayout->addWidget(rightPane, 1);
-    root->addWidget(topArea, 79);
+    root->addWidget(topArea, 81);
 
     auto* logBox = new QGroupBox(tr3(QStringLiteral("Log combinado"), QStringLiteral("Combined log"), QStringLiteral("组合日志")), central);
     auto* logLayout = new QVBoxLayout(logBox);
@@ -905,7 +905,7 @@ void MainWindow::buildUi() {
     logBody->addWidget(leftInfo, 1);
     logBody->addWidget(rightLogs, 2);
     logLayout->addLayout(logBody, 1);
-    root->addWidget(logBox, 21);
+    root->addWidget(logBox, 19);
 
     setCentralWidget(central);
 
