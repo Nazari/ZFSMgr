@@ -559,8 +559,9 @@ void MainWindow::buildUi() {
                            "要求数据集及其后代已挂载。"
                            "可选择要组装的子数据集。"
                            "仅当 rsync 成功时才执行 zfs destroy。")));
-    m_btnAdvancedBreakdown->setMinimumHeight(34);
-    m_btnAdvancedAssemble->setMinimumHeight(34);
+    const int transferBtnH = m_btnCopy ? m_btnCopy->sizeHint().height() : m_btnAdvancedBreakdown->sizeHint().height();
+    m_btnAdvancedBreakdown->setFixedHeight(transferBtnH);
+    m_btnAdvancedAssemble->setFixedHeight(transferBtnH);
     m_btnAdvancedBreakdown->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnAdvancedAssemble->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnAdvancedBreakdown->setEnabled(false);
