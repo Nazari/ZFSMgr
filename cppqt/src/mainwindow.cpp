@@ -766,12 +766,12 @@ void MainWindow::buildUi() {
     m_originPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
     m_originTree = new QTreeWidget(originBox);
     m_originTree->setColumnCount(2);
-    m_originTree->setHeaderLabels({QStringLiteral("Snapshot"), QStringLiteral("Dataset")});
+    m_originTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
     m_originTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_originTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     m_originTree->header()->setStretchLastSection(false);
-    m_originTree->setColumnWidth(0, 140);
-    m_originTree->setColumnWidth(1, 280);
+    m_originTree->setColumnWidth(0, 280);
+    m_originTree->setColumnWidth(1, 98);
     m_originTree->setUniformRowHeights(true);
     {
         QFont f = m_originTree->font();
@@ -797,12 +797,12 @@ void MainWindow::buildUi() {
     m_destPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
     m_destTree = new QTreeWidget(destBox);
     m_destTree->setColumnCount(2);
-    m_destTree->setHeaderLabels({QStringLiteral("Snapshot"), QStringLiteral("Dataset")});
+    m_destTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
     m_destTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_destTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     m_destTree->header()->setStretchLastSection(false);
-    m_destTree->setColumnWidth(0, 140);
-    m_destTree->setColumnWidth(1, 280);
+    m_destTree->setColumnWidth(0, 280);
+    m_destTree->setColumnWidth(1, 98);
     m_destTree->setUniformRowHeights(true);
     {
         QFont f = m_destTree->font();
@@ -834,12 +834,12 @@ void MainWindow::buildUi() {
     m_advPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
     m_advTree = new QTreeWidget(rightAdvancedPage);
     m_advTree->setColumnCount(2);
-    m_advTree->setHeaderLabels({QStringLiteral("Snapshot"), QStringLiteral("Dataset")});
+    m_advTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
     m_advTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_advTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     m_advTree->header()->setStretchLastSection(false);
-    m_advTree->setColumnWidth(0, 140);
-    m_advTree->setColumnWidth(1, 280);
+    m_advTree->setColumnWidth(0, 280);
+    m_advTree->setColumnWidth(1, 98);
     m_advTree->setUniformRowHeights(true);
     {
         QFont f = m_advTree->font();
@@ -1808,9 +1808,9 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         const QString displayName = rec.name.contains('/')
                                         ? rec.name.section('/', -1, -1)
                                         : rec.name;
-        item->setText(1, displayName);
+        item->setText(0, displayName);
         const QStringList snaps = cache.snapshotsByDataset.value(rec.name);
-        item->setText(0, snaps.isEmpty() ? QString() : QStringLiteral("(ninguno)"));
+        item->setText(1, snaps.isEmpty() ? QString() : QStringLiteral("(ninguno)"));
         item->setData(1, Qt::UserRole, QString());
         item->setData(0, Qt::UserRole, rec.name);
         item->setData(2, Qt::UserRole, snaps);
@@ -1850,13 +1850,13 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
             combo->setMaximumHeight(22);
             combo->setFont(tree->font());
             combo->setStyleSheet(QStringLiteral("QComboBox{padding:0 2px; margin:0px;}"));
-            tree->setItemWidget(n, 0, combo);
+            tree->setItemWidget(n, 1, combo);
             QObject::connect(combo, &QComboBox::currentTextChanged, tree, [this, tree, n, side](const QString& txt) {
                 onSnapshotComboChanged(tree, n, side, txt);
             });
         } else {
-            tree->setItemWidget(n, 0, nullptr);
-            n->setText(0, QString());
+            tree->setItemWidget(n, 1, nullptr);
+            n->setText(1, QString());
             n->setData(1, Qt::UserRole, QString());
         }
         for (int i = 0; i < n->childCount(); ++i) {
@@ -1879,7 +1879,7 @@ void MainWindow::clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem
         if (!n || n == keepItem) {
             return;
         }
-        if (QComboBox* cb = qobject_cast<QComboBox*>(tree->itemWidget(n, 0))) {
+        if (QComboBox* cb = qobject_cast<QComboBox*>(tree->itemWidget(n, 1))) {
             QSignalBlocker b(cb);
             cb->setCurrentIndex(0);
         }
