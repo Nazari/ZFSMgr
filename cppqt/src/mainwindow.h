@@ -154,6 +154,7 @@ private:
     void openConfigurationDialog();
     void loadUiSettings();
     void saveUiSettings() const;
+    bool selectItemsDialog(const QString& title, const QString& intro, const QStringList& items, QStringList& selected);
     bool confirmActionExecution(const QString& actionName, const QStringList& commands);
     QString buildSshPreviewCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
     QString tr3(const QString& es, const QString& en, const QString& zh) const;

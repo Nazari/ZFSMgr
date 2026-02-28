@@ -2136,13 +2136,65 @@ void MainWindow::actionAdvancedBreakdown() {
     ctx.datasetName = ds;
     ctx.snapshotName.clear();
 
+    const ConnectionProfile& p = m_profiles[connIdx];
+    QString listOut;
+    QString listErr;
+    int listRc = -1;
+    const QString listCmd = withSudo(
+        p,
+        QStringLiteral("set -e; DATASET=%1; MP=$(zfs get -H -o value mountpoint \"$DATASET\"); "
+                       "[ \"$MP\" = \"none\" ] && exit 2; "
+                       "[ -d \"$MP\" ] || exit 0; "
+                       "find \"$MP\" -mindepth 1 -maxdepth 1 -type d -printf '%%f\\n' | sort -u")
+            .arg(shSingleQuote(ds)));
+    if (!runSsh(p, listCmd, 25000, listOut, listErr, listRc) || listRc != 0) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             tr3(QStringLiteral("No se pudieron listar directorios para desglosar."),
+                                 QStringLiteral("Could not list directories for breakdown."),
+                                 QStringLiteral("无法列出可拆分目录。")));
+        return;
+    }
+    QStringList dirs = listOut.split('\n', Qt::SkipEmptyParts);
+    for (QString& d : dirs) {
+        d = d.trimmed();
+    }
+    dirs.removeAll(QString());
+    if (dirs.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("ZFSMgr"),
+                                 tr3(QStringLiteral("No hay directorios para desglosar en el dataset seleccionado."),
+                                     QStringLiteral("No directories available to break down in selected dataset."),
+                                     QStringLiteral("所选数据集中没有可拆分目录。")));
+        return;
+    }
+    QStringList selectedDirs;
+    if (!selectItemsDialog(
+            tr3(QStringLiteral("Desglosar: seleccionar directorios"),
+                QStringLiteral("Break down: select directories"),
+                QStringLiteral("拆分：选择目录")),
+            tr3(QStringLiteral("Seleccione los directorios que desea desglosar en subdatasets."),
+                QStringLiteral("Select directories to split into subdatasets."),
+                QStringLiteral("请选择要拆分为子数据集的目录。")),
+            dirs,
+            selectedDirs)) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("Desglosar cancelado o sin selección."));
+        return;
+    }
+
+    QStringList selectedQuoted;
+    selectedQuoted.reserve(selectedDirs.size());
+    for (const QString& d : selectedDirs) {
+        selectedQuoted << shSingleQuote(d);
+    }
+    const QString selectedList = selectedQuoted.join(' ');
+
     const QString cmd =
         QStringLiteral("set -e; DATASET=%1; MP=$(zfs get -H -o value mountpoint \"$DATASET\"); "
                        "[ \"$MP\" = \"none\" ] && { echo \"mountpoint=none\"; exit 2; }; "
-                       "for d in \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); "
+                       "SELECTED_DIRS=(%2); is_selected_dir(){ for s in \"${SELECTED_DIRS[@]}\"; do [ \"$s\" = \"$1\" ] && return 0; done; return 1; }; "
+                       "for d in \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); is_selected_dir \"$bn\" || continue; "
                        "zfs list -H -o name \"$DATASET/$bn\" >/dev/null 2>&1 || "
                        "{ zfs create \"$DATASET/$bn\"; rsync -aHAWXS --remove-source-files \"$d\"/ \"$MP/$bn\"/; }; done")
-            .arg(shSingleQuote(ds));
+            .arg(shSingleQuote(ds), selectedList);
     if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Desglosar"), ctx, cmd, 0)) {
         m_advSelectionLabel->setText(ds);
     }
@@ -2172,13 +2224,61 @@ void MainWindow::actionAdvancedAssemble() {
     ctx.datasetName = ds;
     ctx.snapshotName.clear();
 
+    const ConnectionProfile& p = m_profiles[connIdx];
+    QString listOut;
+    QString listErr;
+    int listRc = -1;
+    const QString listCmd = withSudo(
+        p,
+        QStringLiteral("zfs list -H -o name -r %1 | tail -n +2")
+            .arg(shSingleQuote(ds)));
+    if (!runSsh(p, listCmd, 25000, listOut, listErr, listRc) || listRc != 0) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             tr3(QStringLiteral("No se pudieron listar subdatasets para ensamblar."),
+                                 QStringLiteral("Could not list child datasets for assemble."),
+                                 QStringLiteral("无法列出可组装子数据集。")));
+        return;
+    }
+    QStringList children = listOut.split('\n', Qt::SkipEmptyParts);
+    for (QString& c : children) {
+        c = c.trimmed();
+    }
+    children.removeAll(QString());
+    if (children.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("ZFSMgr"),
+                                 tr3(QStringLiteral("No hay subdatasets para ensamblar."),
+                                     QStringLiteral("No child datasets available to assemble."),
+                                     QStringLiteral("没有可组装的子数据集。")));
+        return;
+    }
+    QStringList selectedChildren;
+    if (!selectItemsDialog(
+            tr3(QStringLiteral("Ensamblar: seleccionar subdatasets"),
+                QStringLiteral("Assemble: select child datasets"),
+                QStringLiteral("组装：选择子数据集")),
+            tr3(QStringLiteral("Seleccione los subdatasets que desea ensamblar en el dataset padre."),
+                QStringLiteral("Select child datasets to assemble into parent dataset."),
+                QStringLiteral("请选择要组装回父数据集的子数据集。")),
+            children,
+            selectedChildren)) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("Ensamblar cancelado o sin selección."));
+        return;
+    }
+    QStringList selectedQuoted;
+    selectedQuoted.reserve(selectedChildren.size());
+    for (const QString& c : selectedChildren) {
+        selectedQuoted << shSingleQuote(c);
+    }
+    const QString selectedList = selectedQuoted.join(' ');
+
     const QString cmd =
         QStringLiteral("set -e; DATASET=%1; MP=$(zfs get -H -o value mountpoint \"$DATASET\"); "
                        "[ \"$MP\" = \"none\" ] && { echo \"mountpoint=none\"; exit 2; }; "
-                       "for child in $(zfs list -H -o name -r \"$DATASET\" | tail -n +2); do bn=${child##*/}; "
+                       "SELECTED_CHILDREN=(%2); "
+                       "for child in \"${SELECTED_CHILDREN[@]}\"; do bn=${child##*/}; "
                        "CMP=$(zfs get -H -o value mountpoint \"$child\"); [ \"$CMP\" = \"none\" ] && continue; "
                        "mkdir -p \"$MP/$bn\"; rsync -aHAWXS \"$CMP\"/ \"$MP/$bn\"/ && zfs destroy -r \"$child\"; done")
-            .arg(shSingleQuote(ds));
+            .arg(shSingleQuote(ds), selectedList);
     if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Ensamblar"), ctx, cmd, 0)) {
         m_advSelectionLabel->setText(ds);
     }
@@ -3570,6 +3670,69 @@ bool MainWindow::confirmActionExecution(const QString& actionName, const QString
                                            QStringLiteral("用户已取消操作：%1").arg(actionName)));
     }
     return accepted;
+}
+
+bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, const QStringList& items, QStringList& selected) {
+    selected.clear();
+    if (items.isEmpty()) {
+        return false;
+    }
+
+    QDialog dlg(this);
+    dlg.setModal(true);
+    dlg.resize(640, 520);
+    dlg.setWindowTitle(title);
+    QVBoxLayout* root = new QVBoxLayout(&dlg);
+
+    QLabel* introLbl = new QLabel(intro, &dlg);
+    introLbl->setWordWrap(true);
+    root->addWidget(introLbl);
+
+    QListWidget* list = new QListWidget(&dlg);
+    list->setSelectionMode(QAbstractItemView::NoSelection);
+    for (const QString& item : items) {
+        auto* lw = new QListWidgetItem(item, list);
+        lw->setFlags(lw->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
+        lw->setCheckState(Qt::Checked);
+    }
+    root->addWidget(list, 1);
+
+    QHBoxLayout* tools = new QHBoxLayout();
+    QPushButton* allBtn = new QPushButton(tr3(QStringLiteral("Seleccionar todo"), QStringLiteral("Select all"), QStringLiteral("全选")), &dlg);
+    QPushButton* noneBtn = new QPushButton(tr3(QStringLiteral("Deseleccionar todo"), QStringLiteral("Clear all"), QStringLiteral("全不选")), &dlg);
+    tools->addWidget(allBtn);
+    tools->addWidget(noneBtn);
+    tools->addStretch(1);
+    root->addLayout(tools);
+
+    QObject::connect(allBtn, &QPushButton::clicked, &dlg, [list]() {
+        for (int i = 0; i < list->count(); ++i) {
+            list->item(i)->setCheckState(Qt::Checked);
+        }
+    });
+    QObject::connect(noneBtn, &QPushButton::clicked, &dlg, [list]() {
+        for (int i = 0; i < list->count(); ++i) {
+            list->item(i)->setCheckState(Qt::Unchecked);
+        }
+    });
+
+    QDialogButtonBox* box = new QDialogButtonBox(&dlg);
+    QPushButton* cancelBtn = box->addButton(tr3(QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), QDialogButtonBox::RejectRole);
+    QPushButton* okBtn = box->addButton(tr3(QStringLiteral("Aceptar"), QStringLiteral("Accept"), QStringLiteral("确认")), QDialogButtonBox::AcceptRole);
+    root->addWidget(box);
+    QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
+    QObject::connect(okBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+
+    if (dlg.exec() != QDialog::Accepted) {
+        return false;
+    }
+    for (int i = 0; i < list->count(); ++i) {
+        QListWidgetItem* it = list->item(i);
+        if (it && it->checkState() == Qt::Checked) {
+            selected.push_back(it->text());
+        }
+    }
+    return !selected.isEmpty();
 }
 
 void MainWindow::openConfigurationDialog() {
