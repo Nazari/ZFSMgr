@@ -129,6 +129,7 @@ private:
     void actionCreateChildDataset(const QString& side);
     void actionDeleteDatasetOrSnapshot(const QString& side);
     bool ensureParentMountedBeforeMount(const DatasetSelectionContext& ctx, const QString& side);
+    bool ensureNoMountpointConflictsBeforeMount(const DatasetSelectionContext& ctx, bool includeDescendants);
     void onDatasetPropsCellChanged(int row, int col);
     void applyDatasetPropertyChanges();
     void onAdvancedPropsCellChanged(int row, int col);

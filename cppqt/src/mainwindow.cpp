@@ -3063,6 +3063,9 @@ void MainWindow::actionMountDataset(const QString& side) {
     if (!ensureParentMountedBeforeMount(ctx, side)) {
         return;
     }
+    if (!ensureNoMountpointConflictsBeforeMount(ctx, false)) {
+        return;
+    }
     const QString dsQ = shSingleQuote(ctx.datasetName);
     const QString cmd = QStringLiteral("zfs mount %1").arg(dsQ);
     executeDatasetAction(side, QStringLiteral("Montar"), ctx, cmd);
@@ -3077,6 +3080,9 @@ void MainWindow::actionMountDatasetWithChildren(const QString& side) {
         return;
     }
     if (!ensureParentMountedBeforeMount(ctx, side)) {
+        return;
+    }
+    if (!ensureNoMountpointConflictsBeforeMount(ctx, true)) {
         return;
     }
     const QString dsQ = shSingleQuote(ctx.datasetName);
@@ -3126,6 +3132,113 @@ bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& c
                                  QStringLiteral("Parent dataset %1 is not mounted, mount it first").arg(parent),
                                  QStringLiteral("父数据集 %1 未挂载，请先挂载").arg(parent)));
         return false;
+    }
+    return true;
+}
+
+bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionContext& ctx, bool includeDescendants) {
+    if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size() || ctx.datasetName.isEmpty()) {
+        return false;
+    }
+    const ConnectionProfile& p = m_profiles[ctx.connIdx];
+
+    QString targetsOut;
+    QString targetsErr;
+    int targetsRc = -1;
+    const QString targetsCmd = includeDescendants
+                                   ? withSudo(p, QStringLiteral("zfs get -H -o name,value mountpoint -r %1")
+                                                     .arg(shSingleQuote(ctx.datasetName)))
+                                   : withSudo(p, QStringLiteral("zfs get -H -o name,value mountpoint %1")
+                                                     .arg(shSingleQuote(ctx.datasetName)));
+    if (!runSsh(p, targetsCmd, 20000, targetsOut, targetsErr, targetsRc) || targetsRc != 0) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             tr3(QStringLiteral("No se pudo comprobar conflictos de mountpoint."),
+                                 QStringLiteral("Could not validate mountpoint conflicts."),
+                                 QStringLiteral("无法检查挂载点冲突。")));
+        return false;
+    }
+
+    QMap<QString, QString> targetMpByDs;
+    QMap<QString, QStringList> targetDsByMp;
+    for (const QString& ln : targetsOut.split('\n', Qt::SkipEmptyParts)) {
+        const QStringList parts = ln.split('\t');
+        if (parts.size() < 2) {
+            continue;
+        }
+        const QString ds = parts[0].trimmed();
+        const QString mp = parts[1].trimmed();
+        const QString mpl = mp.toLower();
+        if (ds.isEmpty() || mp.isEmpty() || mpl == QStringLiteral("none") || mpl == QStringLiteral("-")) {
+            continue;
+        }
+        targetMpByDs[ds] = mp;
+        targetDsByMp[mp].push_back(ds);
+    }
+
+    for (auto it = targetDsByMp.constBegin(); it != targetDsByMp.constEnd(); ++it) {
+        const QStringList dsList = it.value();
+        if (dsList.size() > 1) {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("ZFSMgr"),
+                tr3(QStringLiteral("Conflicto de mountpoint dentro de la selección.\nMountpoint: %1\nDatasets:\n%2")
+                        .arg(it.key(), dsList.join('\n')),
+                    QStringLiteral("Mountpoint conflict inside selection.\nMountpoint: %1\nDatasets:\n%2")
+                        .arg(it.key(), dsList.join('\n')),
+                    QStringLiteral("所选项内部存在挂载点冲突。\n挂载点：%1\n数据集：\n%2")
+                        .arg(it.key(), dsList.join('\n'))));
+            return false;
+        }
+    }
+
+    QString mountedOut;
+    QString mountedErr;
+    int mountedRc = -1;
+    const QString mountedCmd = withSudo(p, QStringLiteral("zfs mount"));
+    if (!runSsh(p, mountedCmd, 20000, mountedOut, mountedErr, mountedRc) || mountedRc != 0) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             tr3(QStringLiteral("No se pudo leer datasets montados."),
+                                 QStringLiteral("Could not read mounted datasets."),
+                                 QStringLiteral("无法读取已挂载数据集。")));
+        return false;
+    }
+
+    QMap<QString, QStringList> mountedByMp;
+    for (const QString& ln : mountedOut.split('\n', Qt::SkipEmptyParts)) {
+        const QString trimmed = ln.trimmed();
+        if (trimmed.isEmpty()) {
+            continue;
+        }
+        const int sp = trimmed.indexOf(' ');
+        if (sp <= 0) {
+            continue;
+        }
+        const QString ds = trimmed.left(sp).trimmed();
+        const QString mp = trimmed.mid(sp + 1).trimmed();
+        if (ds.isEmpty() || mp.isEmpty()) {
+            continue;
+        }
+        mountedByMp[mp].push_back(ds);
+    }
+
+    for (auto it = targetMpByDs.constBegin(); it != targetMpByDs.constEnd(); ++it) {
+        const QString targetDs = it.key();
+        const QString mp = it.value();
+        const QStringList mountedDs = mountedByMp.value(mp);
+        for (const QString& dsMounted : mountedDs) {
+            if (dsMounted != targetDs) {
+                QMessageBox::warning(
+                    this,
+                    QStringLiteral("ZFSMgr"),
+                    tr3(QStringLiteral("No se permite montar más de un dataset en el mismo directorio.\nMountpoint: %1\nMontado: %2\nSolicitado: %3")
+                            .arg(mp, dsMounted, targetDs),
+                        QStringLiteral("Only one mounted dataset per directory is allowed.\nMountpoint: %1\nMounted: %2\nRequested: %3")
+                            .arg(mp, dsMounted, targetDs),
+                        QStringLiteral("同一目录不允许挂载多个数据集。\n挂载点：%1\n已挂载：%2\n请求：%3")
+                            .arg(mp, dsMounted, targetDs)));
+                return false;
+            }
+        }
     }
     return true;
 }
