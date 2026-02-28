@@ -444,7 +444,6 @@ void MainWindow::buildUi() {
     }
     mountedLeftLayout->addWidget(m_mountedDatasetsTableLeft, 1);
     dsLeftTabLayout->addWidget(mountedBoxLeft, 1);
-    dsLeftTabLayout->addStretch(1);
     datasetsTab->setLayout(dsLeftTabLayout);
 
     auto* advancedTab = new QWidget(m_leftTabs);
@@ -512,7 +511,6 @@ void MainWindow::buildUi() {
     advLeftTabLayout->setSpacing(8);
     advLeftTabLayout->addWidget(commandsBox);
     advLeftTabLayout->addWidget(mountedBoxAdv, 1);
-    advLeftTabLayout->addStretch(1);
     advancedTab->setLayout(advLeftTabLayout);
 
     m_leftTabs->addTab(connectionsTab, tr3(QStringLiteral("Conexiones"), QStringLiteral("Connections"), QStringLiteral("连接")));
