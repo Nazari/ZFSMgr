@@ -583,8 +583,14 @@ void MainWindow::buildUi() {
 
     setCentralWidget(central);
 
-    connect(m_btnRefreshAll, &QPushButton::clicked, this, [this]() { refreshAllConnections(); });
-    connect(m_btnNew, &QPushButton::clicked, this, [this]() { createConnection(); });
+    connect(m_btnRefreshAll, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Refrescar todo (botón)"));
+        refreshAllConnections();
+    });
+    connect(m_btnNew, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Nueva conexión (botón)"));
+        createConnection();
+    });
     connect(m_connectionsList, &QListWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
     m_connectionsList->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_connectionsList, &QListWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
@@ -602,6 +608,7 @@ void MainWindow::buildUi() {
     });
     connect(m_importedPoolsTable, &QTableWidget::cellClicked, this, [this](int row, int col) {
         if (col == 2) {
+            logUiAction(QStringLiteral("Exportar pool (tabla)"));
             exportPoolFromRow(row);
         }
         refreshSelectedPoolDetails();
@@ -610,12 +617,14 @@ void MainWindow::buildUi() {
         refreshSelectedPoolDetails();
     });
     connect(m_poolStatusRefreshBtn, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Actualizar estado de pool (botón)"));
         if (m_importedPoolsTable && !m_importedPoolsTable->selectedItems().isEmpty()) {
             refreshSelectedPoolDetails();
         }
     });
     connect(m_importablePoolsTable, &QTableWidget::cellClicked, this, [this](int row, int col) {
         if (col == 0) {
+            logUiAction(QStringLiteral("Importar pool (tabla)"));
             importPoolFromRow(row);
         }
     });
@@ -642,19 +651,36 @@ void MainWindow::buildUi() {
         onDatasetPropsCellChanged(row, col);
     });
     connect(m_btnApplyDatasetProps, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Aplicar propiedades dataset (botón)"));
         applyDatasetPropertyChanges();
     });
     connect(m_advPropsTable, &QTableWidget::cellChanged, this, [this](int row, int col) {
         onAdvancedPropsCellChanged(row, col);
     });
     connect(m_btnApplyAdvancedProps, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Aplicar propiedades avanzadas (botón)"));
         applyAdvancedDatasetPropertyChanges();
     });
-    connect(m_btnCopy, &QPushButton::clicked, this, [this]() { actionCopySnapshot(); });
-    connect(m_btnLevel, &QPushButton::clicked, this, [this]() { actionLevelSnapshot(); });
-    connect(m_btnSync, &QPushButton::clicked, this, [this]() { actionSyncDatasets(); });
-    connect(m_logClearBtn, &QPushButton::clicked, this, [this]() { clearAppLog(); });
-    connect(m_logCopyBtn, &QPushButton::clicked, this, [this]() { copyAppLogToClipboard(); });
+    connect(m_btnCopy, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Copiar snapshot (botón)"));
+        actionCopySnapshot();
+    });
+    connect(m_btnLevel, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Nivelar snapshot (botón)"));
+        actionLevelSnapshot();
+    });
+    connect(m_btnSync, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Sincronizar datasets (botón)"));
+        actionSyncDatasets();
+    });
+    connect(m_logClearBtn, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Limpiar log (botón)"));
+        clearAppLog();
+    });
+    connect(m_logCopyBtn, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Copiar log (botón)"));
+        copyAppLogToClipboard();
+    });
     connect(m_logMaxLinesCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
         trimLogWidget(m_logView);
     });
@@ -722,8 +748,14 @@ void MainWindow::buildUi() {
             item->setData(1, Qt::UserRole, chosen);
         }
     });
-    connect(m_btnAdvancedBreakdown, &QPushButton::clicked, this, [this]() { actionAdvancedBreakdown(); });
-    connect(m_btnAdvancedAssemble, &QPushButton::clicked, this, [this]() { actionAdvancedAssemble(); });
+    connect(m_btnAdvancedBreakdown, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Desglosar (botón)"));
+        actionAdvancedBreakdown();
+    });
+    connect(m_btnAdvancedAssemble, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Ensamblar (botón)"));
+        actionAdvancedAssemble();
+    });
 }
 
 void MainWindow::loadConnections() {
@@ -1003,12 +1035,16 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
         return;
     }
     if (picked == refreshAct) {
+        logUiAction(QStringLiteral("Refrescar conexión (menú)"));
         refreshSelectedConnection();
     } else if (picked == refreshAllAct) {
+        logUiAction(QStringLiteral("Refrescar todo (menú)"));
         refreshAllConnections();
     } else if (picked == editAct) {
+        logUiAction(QStringLiteral("Editar conexión (menú)"));
         editConnection();
     } else if (picked == deleteAct) {
+        logUiAction(QStringLiteral("Borrar conexión (menú)"));
         deleteConnection();
     }
 }
@@ -1027,6 +1063,7 @@ void MainWindow::onImportedPoolsContextMenuRequested(const QPoint& pos) {
         return;
     }
     if (picked == exportAct) {
+        logUiAction(QStringLiteral("Exportar pool (menú)"));
         exportPoolFromRow(row);
     }
 }
@@ -1047,6 +1084,7 @@ void MainWindow::onImportablePoolsContextMenuRequested(const QPoint& pos) {
         return;
     }
     if (picked == importAct) {
+        logUiAction(QStringLiteral("Importar pool (menú)"));
         importPoolFromRow(row);
     }
 }
@@ -2117,7 +2155,7 @@ void MainWindow::appendLogToFile(const QString& line) {
         return;
     }
     QTextStream ts(&f);
-    ts << line << '\n';
+    ts << maskSecrets(line) << '\n';
     ts.flush();
 }
 
@@ -2448,12 +2486,16 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
         return;
     }
     if (picked == mountAct) {
+        logUiAction(QStringLiteral("Montar dataset (menú)"));
         actionMountDataset(side);
     } else if (picked == umountAct) {
+        logUiAction(QStringLiteral("Desmontar dataset (menú)"));
         actionUmountDataset(side);
     } else if (picked == createAct) {
+        logUiAction(QStringLiteral("Crear hijo dataset (menú)"));
         actionCreateChildDataset(side);
     } else if (picked == deleteAct) {
+        logUiAction(QStringLiteral("Borrar dataset/snapshot (menú)"));
         actionDeleteDatasetOrSnapshot(side);
     }
 }
@@ -2899,8 +2941,31 @@ void MainWindow::updateStatus(const QString& text) {
         return;
     }
     if (m_statusText) {
-        m_statusText->setPlainText(text);
+        m_statusText->setPlainText(maskSecrets(text));
     }
+}
+
+QString MainWindow::maskSecrets(const QString& text) const {
+    if (text.isEmpty()) {
+        return text;
+    }
+    QString out = text;
+    out.replace(
+        QRegularExpression(QStringLiteral("printf\\s+'%s\\\\n'\\s+.+?\\s+\\|\\s+sudo\\s+-S\\s+-p\\s+''")),
+        QStringLiteral("printf '%s\\n' [secret] | sudo -S -p ''"));
+    out.replace(
+        QRegularExpression(QStringLiteral("(?i)(password\\s*[:=]\\s*)\\S+")),
+        QStringLiteral("\\1[secret]"));
+    for (const ConnectionProfile& p : m_profiles) {
+        if (!p.password.isEmpty()) {
+            out.replace(p.password, QStringLiteral("[secret]"));
+        }
+    }
+    return out;
+}
+
+void MainWindow::logUiAction(const QString& action) {
+    appLog(QStringLiteral("INFO"), QStringLiteral("UI action: %1").arg(action));
 }
 
 void MainWindow::appLog(const QString& level, const QString& msg) {
@@ -2910,7 +2975,7 @@ void MainWindow::appLog(const QString& level, const QString& msg) {
         }, Qt::QueuedConnection);
         return;
     }
-    const QString line = QStringLiteral("[%1] [%2] %3").arg(tsNow(), level, msg);
+    const QString line = QStringLiteral("[%1] [%2] %3").arg(tsNow(), level, maskSecrets(msg));
     const QString current = m_logLevelCombo ? m_logLevelCombo->currentText().toLower() : QStringLiteral("normal");
     auto rank = [](const QString& l) -> int {
         const QString x = l.toLower();
@@ -3022,6 +3087,6 @@ void MainWindow::appendConnectionLog(const QString& connId, const QString& line)
     if (!view) {
         return;
     }
-    view->appendPlainText(QStringLiteral("[%1] %2").arg(tsNow(), line));
+    view->appendPlainText(QStringLiteral("[%1] %2").arg(tsNow(), maskSecrets(line)));
     trimLogWidget(view);
 }

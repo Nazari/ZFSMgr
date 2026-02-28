@@ -149,6 +149,8 @@ private:
     void importPoolFromRow(int row);
     void refreshSelectedPoolDetails();
     void updateStatus(const QString& text);
+    QString maskSecrets(const QString& text) const;
+    void logUiAction(const QString& action);
     void appLog(const QString& level, const QString& msg);
     void populateAllPoolsTables();
 
