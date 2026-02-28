@@ -114,15 +114,23 @@ bool isDatasetPropertyEditable(const QString& propName, const QString& datasetTy
         QStringLiteral("aclinherit"), QStringLiteral("xattr"), QStringLiteral("normalization"),
         QStringLiteral("casesensitivity"), QStringLiteral("utf8only"), QStringLiteral("keylocation"), QStringLiteral("comment")
     };
-    static const QSet<QString> fs = common | QSet<QString>{
-        QStringLiteral("mountpoint"), QStringLiteral("canmount"), QStringLiteral("recordsize"), QStringLiteral("quota"),
-        QStringLiteral("reservation"), QStringLiteral("refquota"), QStringLiteral("refreservation"),
-        QStringLiteral("snapdir"), QStringLiteral("exec"), QStringLiteral("setuid"), QStringLiteral("devices")
-    };
-    static const QSet<QString> vol = common | QSet<QString>{
-        QStringLiteral("volsize"), QStringLiteral("volblocksize"), QStringLiteral("reservation"),
-        QStringLiteral("refreservation"), QStringLiteral("snapdev"), QStringLiteral("volmode")
-    };
+    static const QSet<QString> fs = []() {
+        QSet<QString> s = common;
+        s.unite(QSet<QString>{
+            QStringLiteral("mountpoint"), QStringLiteral("canmount"), QStringLiteral("recordsize"), QStringLiteral("quota"),
+            QStringLiteral("reservation"), QStringLiteral("refquota"), QStringLiteral("refreservation"),
+            QStringLiteral("snapdir"), QStringLiteral("exec"), QStringLiteral("setuid"), QStringLiteral("devices")
+        });
+        return s;
+    }();
+    static const QSet<QString> vol = []() {
+        QSet<QString> s = common;
+        s.unite(QSet<QString>{
+            QStringLiteral("volsize"), QStringLiteral("volblocksize"), QStringLiteral("reservation"),
+            QStringLiteral("refreservation"), QStringLiteral("snapdev"), QStringLiteral("volmode")
+        });
+        return s;
+    }();
 
     if (dsType == QStringLiteral("filesystem")) {
         return fs.contains(prop);
