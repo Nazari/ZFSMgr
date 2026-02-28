@@ -727,6 +727,7 @@ void MainWindow::buildUi() {
     m_poolPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_poolPropsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_poolPropsTable->setSelectionMode(QAbstractItemView::NoSelection);
+    m_poolPropsTable->verticalHeader()->setVisible(false);
     m_poolPropsTable->verticalHeader()->setDefaultSectionSize(22);
     propsPoolLayout->addWidget(m_poolPropsTable, 1);
 
