@@ -47,6 +47,7 @@ private:
         QString zfsVersion;
         QVector<PoolImported> importedPools;
         QVector<PoolImportable> importablePools;
+        QVector<QPair<QString, QString>> mountedDatasets; // dataset, mountpoint
     };
 
     struct DatasetRecord {
@@ -165,6 +166,7 @@ private:
     void logUiAction(const QString& action);
     void appLog(const QString& level, const QString& msg);
     void populateAllPoolsTables();
+    void populateMountedDatasetsTables();
 
     ConnectionStore m_store;
     QVector<ConnectionProfile> m_profiles;
@@ -206,6 +208,8 @@ private:
     QPushButton* m_btnAdvancedAssemble{nullptr};
     QLabel* m_originSelectionLabel{nullptr};
     QLabel* m_destSelectionLabel{nullptr};
+    QTableWidget* m_mountedDatasetsTableLeft{nullptr};
+    QTableWidget* m_mountedDatasetsTableAdv{nullptr};
 
     QTextEdit* m_statusText{nullptr};
     QTextEdit* m_lastDetailText{nullptr};

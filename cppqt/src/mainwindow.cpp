@@ -416,6 +416,25 @@ void MainWindow::buildUi() {
     transferLayout->addWidget(m_btnLevel);
     transferLayout->addWidget(m_btnSync);
     dsLeftTabLayout->addWidget(transferBox);
+    auto* mountedBoxLeft = new QGroupBox(tr3(QStringLiteral("Datasets Montados"),
+                                             QStringLiteral("Mounted Datasets"),
+                                             QStringLiteral("已挂载数据集")),
+                                         datasetsTab);
+    auto* mountedLeftLayout = new QVBoxLayout(mountedBoxLeft);
+    m_mountedDatasetsTableLeft = new QTableWidget(mountedBoxLeft);
+    m_mountedDatasetsTableLeft->setColumnCount(3);
+    m_mountedDatasetsTableLeft->setHorizontalHeaderLabels(
+        {tr3(QStringLiteral("Conexión"), QStringLiteral("Connection"), QStringLiteral("连接")),
+         tr3(QStringLiteral("Dataset"), QStringLiteral("Dataset"), QStringLiteral("数据集")),
+         QStringLiteral("mountpoint")});
+    m_mountedDatasetsTableLeft->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_mountedDatasetsTableLeft->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_mountedDatasetsTableLeft->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    m_mountedDatasetsTableLeft->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_mountedDatasetsTableLeft->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_mountedDatasetsTableLeft->setSelectionMode(QAbstractItemView::SingleSelection);
+    mountedLeftLayout->addWidget(m_mountedDatasetsTableLeft, 1);
+    dsLeftTabLayout->addWidget(mountedBoxLeft, 1);
     dsLeftTabLayout->addStretch(1);
     datasetsTab->setLayout(dsLeftTabLayout);
 
@@ -454,9 +473,27 @@ void MainWindow::buildUi() {
     m_btnAdvancedAssemble->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     commandsLayout->addWidget(m_btnAdvancedBreakdown);
     commandsLayout->addWidget(m_btnAdvancedAssemble);
-    commandsLayout->addStretch(1);
+    auto* mountedBoxAdv = new QGroupBox(tr3(QStringLiteral("Datasets Montados"),
+                                            QStringLiteral("Mounted Datasets"),
+                                            QStringLiteral("已挂载数据集")),
+                                        advancedTab);
+    auto* mountedAdvLayout = new QVBoxLayout(mountedBoxAdv);
+    m_mountedDatasetsTableAdv = new QTableWidget(mountedBoxAdv);
+    m_mountedDatasetsTableAdv->setColumnCount(3);
+    m_mountedDatasetsTableAdv->setHorizontalHeaderLabels(
+        {tr3(QStringLiteral("Conexión"), QStringLiteral("Connection"), QStringLiteral("连接")),
+         tr3(QStringLiteral("Dataset"), QStringLiteral("Dataset"), QStringLiteral("数据集")),
+         QStringLiteral("mountpoint")});
+    m_mountedDatasetsTableAdv->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_mountedDatasetsTableAdv->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_mountedDatasetsTableAdv->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    m_mountedDatasetsTableAdv->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_mountedDatasetsTableAdv->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_mountedDatasetsTableAdv->setSelectionMode(QAbstractItemView::SingleSelection);
+    mountedAdvLayout->addWidget(m_mountedDatasetsTableAdv, 1);
     advLeftTabLayout->setSpacing(8);
     advLeftTabLayout->addWidget(commandsBox);
+    advLeftTabLayout->addWidget(mountedBoxAdv, 1);
     advLeftTabLayout->addStretch(1);
     advancedTab->setLayout(advLeftTabLayout);
 
@@ -3791,6 +3828,32 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             appLog(QStringLiteral("INFO"), QStringLiteral("%1: %2 -> %3").arg(p.name, probe, oneLine(err)));
         }
     }
+
+    out.clear();
+    err.clear();
+    rc = -1;
+    const QString mountedCmd = withSudo(p, QStringLiteral("zfs mount"));
+    if (runSsh(p, mountedCmd, 18000, out, err, rc) && rc == 0) {
+        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+        for (const QString& raw : lines) {
+            const QString ln = raw.trimmed();
+            if (ln.isEmpty()) {
+                continue;
+            }
+            const int sp = ln.indexOf(' ');
+            if (sp <= 0) {
+                continue;
+            }
+            const QString ds = ln.left(sp).trimmed();
+            const QString mp = ln.mid(sp + 1).trimmed();
+            if (!ds.isEmpty() && !mp.isEmpty()) {
+                state.mountedDatasets.push_back(qMakePair(ds, mp));
+            }
+        }
+    } else if (!err.isEmpty()) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("%1: zfs mount -> %2").arg(p.name, oneLine(err)));
+    }
+
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin refresh: %1 -> OK (%2)").arg(p.name, state.detail));
     return state;
 }
@@ -3828,6 +3891,29 @@ void MainWindow::populateAllPoolsTables() {
         }
     }
     refreshSelectedPoolDetails();
+    populateMountedDatasetsTables();
+}
+
+void MainWindow::populateMountedDatasetsTables() {
+    auto fill = [this](QTableWidget* table) {
+        if (!table) {
+            return;
+        }
+        table->setRowCount(0);
+        for (int i = 0; i < m_states.size() && i < m_profiles.size(); ++i) {
+            const QString connName = m_profiles[i].name;
+            const auto& rows = m_states[i].mountedDatasets;
+            for (const auto& pair : rows) {
+                const int r = table->rowCount();
+                table->insertRow(r);
+                table->setItem(r, 0, new QTableWidgetItem(connName));
+                table->setItem(r, 1, new QTableWidgetItem(pair.first));
+                table->setItem(r, 2, new QTableWidgetItem(pair.second));
+            }
+        }
+    };
+    fill(m_mountedDatasetsTableLeft);
+    fill(m_mountedDatasetsTableAdv);
 }
 
 void MainWindow::refreshSelectedPoolDetails() {
