@@ -1,4 +1,4 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -100,7 +100,7 @@ if (-not $qtFromEnvValid) {
   if (-not $picked) {
     $qtRoots = @("C:\Qt", "C:\QT") | Where-Object { Test-Path $_ }
     foreach ($qtRoot in $qtRoots) {
-      # Búsqueda rápida por layout típico: <root>\<version>\<kit>\lib\cmake\Qt6
+      # BÃºsqueda rÃ¡pida por layout tÃ­pico: <root>\<version>\<kit>\lib\cmake\Qt6
       $qt6Candidates = Get-ChildItem -Path $qtRoot -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending
       $orderedKitPatterns = @("mingw", "msvc", "clang")
       foreach ($kitPattern in $orderedKitPatterns) {
@@ -139,10 +139,10 @@ if (-not $qtFromEnvValid) {
       $env:Qt6_DIR = $picked
       Write-Host "Qt6 autodetectado en: $($env:Qt6_DIR)"
     } else {
-      Write-Host "Aviso: ruta Qt6 detectada inválida."
+      Write-Host "Aviso: ruta Qt6 detectada invÃ¡lida."
     }
   } else {
-    Write-Host "Aviso: no se encontró Qt6Config.cmake en rutas conocidas."
+    Write-Host "Aviso: no se encontrÃ³ Qt6Config.cmake en rutas conocidas."
     Write-Host "Define Qt6_DIR manualmente, ejemplo:"
     Write-Host '$env:Qt6_DIR = "C:\Qt\6.10.2\mingw_64\lib\cmake\Qt6"'
   }
@@ -163,7 +163,7 @@ if ($env:Qt6_DIR) {
   }
 }
 
-# Si el usuario ya pasó -G/--generator, no forzamos uno.
+# Si el usuario ya pasÃ³ -G/--generator, no forzamos uno.
 $hasGenerator = $false
 for ($i = 0; $i -lt $NativeArgs.Count; $i++) {
   if ($NativeArgs[$i] -eq "-G" -or $NativeArgs[$i] -eq "--generator") {
@@ -212,7 +212,7 @@ if ($hasGenerator) {
         $NativeArgs += @("-DCMAKE_C_COMPILER=$gcc", "-DCMAKE_CXX_COMPILER=$gxx")
       }
     } else {
-      Write-Host "Aviso: Qt MinGW detectado pero no se encontró Tools\\mingw*\\bin."
+      Write-Host "Aviso: Qt MinGW detectado pero no se encontrÃ³ Tools\\mingw*\\bin."
     }
 
     $opensslRoot = Find-OpenSslRoot
@@ -223,7 +223,7 @@ if ($hasGenerator) {
       $NativeArgs += @("-DOPENSSL_ROOT_DIR=$opensslRoot")
       Write-Host "OpenSSL detectado en: $opensslRoot"
     } else {
-      throw "No se encontró OpenSSL para MinGW. Instala MSYS2 OpenSSL (p.ej. C:\msys64\mingw64) o define OPENSSL_ROOT_DIR."
+      throw "No se encontrÃ³ OpenSSL para MinGW. Instala MSYS2 OpenSSL (p.ej. C:\msys64\mingw64) o define OPENSSL_ROOT_DIR."
     }
   }
 
@@ -292,10 +292,44 @@ if ($LASTEXITCODE -ne 0) {
 
 $exeRelease = Join-Path $BuildDir "Release\zfsmgr_qt.exe"
 $exeSingle = Join-Path $BuildDir "zfsmgr_qt.exe"
+$exePath = $null
 if (Test-Path $exeRelease) {
-  Write-Host "Build completado: $exeRelease"
+  $exePath = $exeRelease
 } elseif (Test-Path $exeSingle) {
-  Write-Host "Build completado: $exeSingle"
+  $exePath = $exeSingle
 } else {
   throw "Compilación finalizada, pero no se encontró zfsmgr_qt.exe en $BuildDir."
 }
+
+# Despliegue de runtime Qt junto al ejecutable para evitar errores por DLLs faltantes.
+$qtBinFromDir = $null
+if ($env:Qt6_DIR) {
+  try {
+    $qtBinFromDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $env:Qt6_DIR))) "bin"
+  } catch {}
+}
+
+$windeployCandidates = @()
+if ($qtBinFromDir) {
+  $windeployCandidates += (Join-Path $qtBinFromDir "windeployqt.exe")
+}
+$windeployCandidates += @(
+  "C:\Qt\6.10.2\mingw_64\bin\windeployqt.exe",
+  "C:\Qt\6.10.2\msvc2022_64\bin\windeployqt.exe",
+  "C:\QT\6.10.2\mingw_64\bin\windeployqt.exe",
+  "C:\QT\6.10.2\msvc2022_64\bin\windeployqt.exe"
+)
+
+$windeployExe = $windeployCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($windeployExe) {
+  Write-Host "Ejecutando windeployqt: $windeployExe"
+  & $windeployExe --release --compiler-runtime $exePath
+  if ($LASTEXITCODE -ne 0) {
+    throw "windeployqt falló (exit $LASTEXITCODE)"
+  }
+  Write-Host "Runtime Qt desplegado en: $(Split-Path -Parent $exePath)"
+} else {
+  Write-Host "Aviso: no se encontró windeployqt.exe; el ejecutable podría fallar por DLLs Qt faltantes."
+}
+
+Write-Host "Build completado: $exePath"
