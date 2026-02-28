@@ -146,6 +146,11 @@ bool isDatasetPropertyEditable(const QString& propName, const QString& datasetTy
     return fs.contains(prop) || vol.contains(prop);
 }
 
+bool isMountedValueTrue(const QString& value) {
+    const QString v = value.trimmed().toLower();
+    return v == QStringLiteral("yes") || v == QStringLiteral("on") || v == QStringLiteral("true") || v == QStringLiteral("1");
+}
+
 QString parentDatasetName(const QString& dataset) {
     const int slash = dataset.lastIndexOf('/');
     if (slash <= 0) {
@@ -2142,6 +2147,44 @@ void MainWindow::actionAdvancedBreakdown() {
     ctx.snapshotName.clear();
 
     const ConnectionProfile& p = m_profiles[connIdx];
+    QString mountOut;
+    QString mountErr;
+    int mountRc = -1;
+    const QString mountCheckCmd = withSudo(
+        p,
+        QStringLiteral("zfs get -H -o name,value mounted -r %1").arg(shSingleQuote(ds)));
+    if (!runSsh(p, mountCheckCmd, 25000, mountOut, mountErr, mountRc) || mountRc != 0) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             tr3(QStringLiteral("No se pudo comprobar el estado de montaje del dataset."),
+                                 QStringLiteral("Could not verify dataset mount state."),
+                                 QStringLiteral("无法检查数据集挂载状态。")));
+        return;
+    }
+    QStringList unmounted;
+    for (const QString& ln : mountOut.split('\n', Qt::SkipEmptyParts)) {
+        const QStringList parts = ln.split('\t');
+        if (parts.size() < 2) {
+            continue;
+        }
+        const QString name = parts[0].trimmed();
+        const QString mountedVal = parts[1].trimmed();
+        if (!name.isEmpty() && !isMountedValueTrue(mountedVal)) {
+            unmounted << name;
+        }
+    }
+    if (!unmounted.isEmpty()) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            tr3(QStringLiteral("Desglosar requiere dataset y descendientes montados.\nNo montados:\n%1")
+                    .arg(unmounted.join('\n')),
+                QStringLiteral("Break down requires dataset and descendants mounted.\nNot mounted:\n%1")
+                    .arg(unmounted.join('\n')),
+                QStringLiteral("拆分要求数据集及其所有后代已挂载。\n未挂载：\n%1")
+                    .arg(unmounted.join('\n'))));
+        return;
+    }
+
     QString listOut;
     QString listErr;
     int listRc = -1;
@@ -2230,6 +2273,44 @@ void MainWindow::actionAdvancedAssemble() {
     ctx.snapshotName.clear();
 
     const ConnectionProfile& p = m_profiles[connIdx];
+    QString mountOut;
+    QString mountErr;
+    int mountRc = -1;
+    const QString mountCheckCmd = withSudo(
+        p,
+        QStringLiteral("zfs get -H -o name,value mounted -r %1").arg(shSingleQuote(ds)));
+    if (!runSsh(p, mountCheckCmd, 25000, mountOut, mountErr, mountRc) || mountRc != 0) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             tr3(QStringLiteral("No se pudo comprobar el estado de montaje del dataset."),
+                                 QStringLiteral("Could not verify dataset mount state."),
+                                 QStringLiteral("无法检查数据集挂载状态。")));
+        return;
+    }
+    QStringList unmounted;
+    for (const QString& ln : mountOut.split('\n', Qt::SkipEmptyParts)) {
+        const QStringList parts = ln.split('\t');
+        if (parts.size() < 2) {
+            continue;
+        }
+        const QString name = parts[0].trimmed();
+        const QString mountedVal = parts[1].trimmed();
+        if (!name.isEmpty() && !isMountedValueTrue(mountedVal)) {
+            unmounted << name;
+        }
+    }
+    if (!unmounted.isEmpty()) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            tr3(QStringLiteral("Ensamblar requiere dataset y descendientes montados.\nNo montados:\n%1")
+                    .arg(unmounted.join('\n')),
+                QStringLiteral("Assemble requires dataset and descendants mounted.\nNot mounted:\n%1")
+                    .arg(unmounted.join('\n')),
+                QStringLiteral("组装要求数据集及其所有后代已挂载。\n未挂载：\n%1")
+                    .arg(unmounted.join('\n'))));
+        return;
+    }
+
     QString listOut;
     QString listErr;
     int listRc = -1;
