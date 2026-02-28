@@ -947,8 +947,8 @@ void MainWindow::buildUi() {
 
     auto* controlsPane = new QWidget(rightLogs);
     controlsPane->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
-    controlsPane->setMinimumWidth(65);
-    controlsPane->setMaximumWidth(65);
+    controlsPane->setMinimumWidth(72);
+    controlsPane->setMaximumWidth(72);
     auto* logControls = new QVBoxLayout(controlsPane);
     logControls->setContentsMargins(0, 0, 0, 0);
     logControls->setSpacing(4);
@@ -976,11 +976,11 @@ void MainWindow::buildUi() {
         m_logCopyBtn->setFont(cf);
         m_logCancelBtn->setFont(cf);
     }
-    m_logLevelCombo->setFixedWidth(60);
-    m_logMaxLinesCombo->setFixedWidth(60);
-    m_logClearBtn->setFixedWidth(60);
-    m_logCopyBtn->setFixedWidth(60);
-    m_logCancelBtn->setFixedWidth(60);
+    m_logLevelCombo->setFixedWidth(66);
+    m_logMaxLinesCombo->setFixedWidth(66);
+    m_logClearBtn->setFixedWidth(66);
+    m_logCopyBtn->setFixedWidth(66);
+    m_logCancelBtn->setFixedWidth(66);
     logControls->addWidget(m_logLevelCombo, 0);
     logControls->addWidget(m_logMaxLinesCombo, 0);
     logControls->addWidget(m_logClearBtn, 0);
