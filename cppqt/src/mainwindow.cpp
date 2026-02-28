@@ -1773,6 +1773,15 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
             auto* combo = new QComboBox(tree);
             combo->addItems(options);
             combo->setCurrentIndex(0);
+            combo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
+            combo->setMinimumHeight(16);
+            combo->setMaximumHeight(16);
+            {
+                QFont cf = tree->font();
+                cf.setPointSize(qMax(6, cf.pointSize() - 1));
+                combo->setFont(cf);
+            }
+            combo->setStyleSheet(QStringLiteral("QComboBox{padding:0 2px; margin:0px;}"));
             tree->setItemWidget(n, 1, combo);
             QObject::connect(combo, &QComboBox::currentTextChanged, tree, [this, tree, n, side](const QString& txt) {
                 onSnapshotComboChanged(tree, n, side, txt);
