@@ -1284,7 +1284,10 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
     QMap<QString, QTreeWidgetItem*> byName;
     for (const DatasetRecord& rec : cache.datasets) {
         auto* item = new QTreeWidgetItem();
-        item->setText(0, rec.name);
+        const QString displayName = rec.name.contains('/')
+                                        ? rec.name.section('/', -1, -1)
+                                        : rec.name;
+        item->setText(0, displayName);
         const QStringList snaps = cache.snapshotsByDataset.value(rec.name);
         item->setText(1, snaps.isEmpty() ? QString() : QStringLiteral("(ninguno)"));
         item->setData(1, Qt::UserRole, QString());
