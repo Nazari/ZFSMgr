@@ -458,8 +458,9 @@ void MainWindow::buildUi() {
     auto* advLeft = new QWidget(advSplitter);
     auto* advLeftLayout = new QVBoxLayout(advLeft);
     m_advPoolCombo = new QComboBox(rightAdvancedPage);
-    m_advPoolCombo->setMinimumContentsLength(24);
-    m_advPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_advPoolCombo->setMinimumContentsLength(6);
+    m_advPoolCombo->setMaximumWidth(110);
+    m_advPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
     m_advTree = new QTreeWidget(rightAdvancedPage);
     m_advTree->setColumnCount(2);
     m_advTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
@@ -471,8 +472,10 @@ void MainWindow::buildUi() {
     m_advSelectionLabel = new QLabel(QStringLiteral("Dataset: (seleccione)"), rightAdvancedPage);
     m_advSelectionLabel->setWordWrap(true);
     m_advSelectionLabel->setMinimumHeight(36);
-    advLeftLayout->addWidget(m_advPoolCombo);
-    advLeftLayout->addWidget(m_advSelectionLabel);
+    auto* advTop = new QHBoxLayout();
+    advTop->addWidget(m_advPoolCombo, 0);
+    advTop->addWidget(m_advSelectionLabel, 1);
+    advLeftLayout->addLayout(advTop);
     advLeftLayout->addWidget(m_advTree, 1);
 
     auto* advPropsBox = new QGroupBox(QStringLiteral("Propiedades del dataset"), advSplitter);
@@ -593,6 +596,8 @@ void MainWindow::buildUi() {
         }
         if (idx == 0) {
             populateAllPoolsTables();
+        } else if (idx == 2) {
+            onAdvancedPoolChanged();
         }
     });
     connect(m_importedPoolsTable, &QTableWidget::cellClicked, this, [this](int row, int col) {
@@ -616,21 +621,7 @@ void MainWindow::buildUi() {
     });
     connect(m_originPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onOriginPoolChanged(); });
     connect(m_destPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onDestPoolChanged(); });
-    connect(m_advPoolCombo, &QComboBox::currentIndexChanged, this, [this]() {
-        const QString token = m_advPoolCombo->currentData().toString();
-        const int sep = token.indexOf(QStringLiteral("::"));
-        if (sep <= 0) {
-            m_advTree->clear();
-            m_advSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
-            refreshDatasetProperties(QStringLiteral("advanced"));
-            return;
-        }
-        const int connIdx = token.left(sep).toInt();
-        const QString poolName = token.mid(sep + 2);
-        populateDatasetTree(m_advTree, connIdx, poolName, QStringLiteral("origin"));
-        m_advSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
-        refreshDatasetProperties(QStringLiteral("advanced"));
-    });
+    connect(m_advPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onAdvancedPoolChanged(); });
     connect(m_originTree, &QTreeWidget::itemSelectionChanged, this, [this]() { onOriginTreeSelectionChanged(); });
     connect(m_destTree, &QTreeWidget::itemSelectionChanged, this, [this]() { onDestTreeSelectionChanged(); });
     connect(m_originTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int col) {
@@ -825,6 +816,7 @@ void MainWindow::rebuildDatasetPoolSelectors() {
     m_advPoolCombo->blockSignals(false);
     onOriginPoolChanged();
     onDestPoolChanged();
+    onAdvancedPoolChanged();
 }
 
 void MainWindow::refreshAllConnections() {
@@ -1099,6 +1091,28 @@ void MainWindow::onDestPoolChanged() {
     refreshDatasetProperties(QStringLiteral("dest"));
     refreshTransferSelectionLabels();
     updateTransferButtonsState();
+}
+
+void MainWindow::onAdvancedPoolChanged() {
+    const QString token = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
+    const int sep = token.indexOf(QStringLiteral("::"));
+    if (sep <= 0) {
+        if (m_advTree) {
+            m_advTree->clear();
+        }
+        if (m_advSelectionLabel) {
+            m_advSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+        }
+        refreshDatasetProperties(QStringLiteral("advanced"));
+        return;
+    }
+    const int connIdx = token.left(sep).toInt();
+    const QString poolName = token.mid(sep + 2);
+    populateDatasetTree(m_advTree, connIdx, poolName, QStringLiteral("origin"));
+    if (m_advSelectionLabel) {
+        m_advSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+    }
+    refreshDatasetProperties(QStringLiteral("advanced"));
 }
 
 void MainWindow::onOriginTreeSelectionChanged() {

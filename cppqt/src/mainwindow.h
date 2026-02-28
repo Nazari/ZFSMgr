@@ -88,6 +88,7 @@ private:
     void onConnectionSelectionChanged();
     void onOriginPoolChanged();
     void onDestPoolChanged();
+    void onAdvancedPoolChanged();
     void onOriginTreeSelectionChanged();
     void onDestTreeSelectionChanged();
     void onOriginTreeItemDoubleClicked(QTreeWidgetItem* item, int col);
