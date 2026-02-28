@@ -1561,6 +1561,12 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     };
     QVector<PropRow> rows;
     rows.push_back({QStringLiteral("dataset"), rec.name, QString(), QStringLiteral("true")});
+    const QString mountedRaw = rec.mounted.trimmed().toLower();
+    const bool mountedYes = (mountedRaw == QStringLiteral("yes")
+                             || mountedRaw == QStringLiteral("on")
+                             || mountedRaw == QStringLiteral("true")
+                             || mountedRaw == QStringLiteral("1"));
+    rows.push_back({QStringLiteral("estado"), mountedYes ? QStringLiteral("Montado") : QStringLiteral("Desmontado"), QString(), QStringLiteral("true")});
 
     QString out;
     QString err;
@@ -1627,7 +1633,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         table->insertRow(r);
         table->setItem(r, 0, new QTableWidgetItem(row.prop));
         auto* v = new QTableWidgetItem(row.value);
-        if (row.prop == QStringLiteral("dataset")) {
+        if (row.prop == QStringLiteral("dataset") || row.prop == QStringLiteral("estado")) {
             v->setFlags(v->flags() & ~Qt::ItemIsEditable);
         }
         table->setItem(r, 1, v);
@@ -2075,7 +2081,7 @@ void MainWindow::applyDatasetPropertyChanges() {
             continue;
         }
         const QString prop = pk->text().trimmed();
-        if (prop.isEmpty() || prop == QStringLiteral("dataset")) {
+        if (prop.isEmpty() || prop == QStringLiteral("dataset") || prop == QStringLiteral("estado")) {
             continue;
         }
         const bool inheritChecked = (pi->flags() & Qt::ItemIsUserCheckable) && (pi->checkState() == Qt::Checked);
@@ -2126,7 +2132,7 @@ void MainWindow::applyAdvancedDatasetPropertyChanges() {
             continue;
         }
         const QString prop = pk->text().trimmed();
-        if (prop.isEmpty() || prop == QStringLiteral("dataset")) {
+        if (prop.isEmpty() || prop == QStringLiteral("dataset") || prop == QStringLiteral("estado")) {
             continue;
         }
         const bool inheritChecked = (pi->flags() & Qt::ItemIsUserCheckable) && (pi->checkState() == Qt::Checked);
@@ -2548,6 +2554,28 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
         mountAct->setEnabled(false);
         umountAct->setEnabled(false);
         createAct->setEnabled(false);
+    } else {
+        bool knownMounted = false;
+        bool isMounted = false;
+        const QString key = datasetCacheKey(ctx.connIdx, ctx.poolName);
+        const auto cacheIt = m_poolDatasetCache.constFind(key);
+        if (cacheIt != m_poolDatasetCache.constEnd()) {
+            const auto recIt = cacheIt->recordByName.constFind(ctx.datasetName);
+            if (recIt != cacheIt->recordByName.constEnd()) {
+                const QString m = recIt->mounted.trimmed().toLower();
+                if (m == QStringLiteral("yes") || m == QStringLiteral("on") || m == QStringLiteral("true") || m == QStringLiteral("1")) {
+                    knownMounted = true;
+                    isMounted = true;
+                } else if (m == QStringLiteral("no") || m == QStringLiteral("off") || m == QStringLiteral("false") || m == QStringLiteral("0")) {
+                    knownMounted = true;
+                    isMounted = false;
+                }
+            }
+        }
+        if (knownMounted) {
+            mountAct->setEnabled(!isMounted);
+            umountAct->setEnabled(isMounted);
+        }
     }
 
     QAction* picked = menu.exec(tree->viewport()->mapToGlobal(pos));
