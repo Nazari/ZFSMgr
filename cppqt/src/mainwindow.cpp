@@ -451,7 +451,6 @@ void MainWindow::buildUi() {
 
     m_rightTabs->addTab(importedTab, tr3(QStringLiteral("Pools importados"), QStringLiteral("Imported pools"), QStringLiteral("已导入池")));
     m_rightTabs->addTab(importableTab, tr3(QStringLiteral("Pools importables"), QStringLiteral("Importable pools"), QStringLiteral("可导入池")));
-    rightConnectionsLayout->addWidget(m_rightTabs, 3);
 
     m_poolDetailTabs = new QTabWidget(rightConnectionsPage);
     m_poolDetailTabs->setDocumentMode(true);
@@ -480,7 +479,16 @@ void MainWindow::buildUi() {
 
     m_poolDetailTabs->addTab(propsPoolTab, tr3(QStringLiteral("Propiedades del pool"), QStringLiteral("Pool properties"), QStringLiteral("存储池属性")));
     m_poolDetailTabs->addTab(statusPoolTab, tr3(QStringLiteral("Estado"), QStringLiteral("Status"), QStringLiteral("状态")));
-    rightConnectionsLayout->addWidget(m_poolDetailTabs, 2);
+
+    auto* connDetailSplit = new QSplitter(Qt::Vertical, rightConnectionsPage);
+    connDetailSplit->setChildrenCollapsible(false);
+    connDetailSplit->setHandleWidth(1);
+    connDetailSplit->addWidget(m_rightTabs);
+    connDetailSplit->addWidget(m_poolDetailTabs);
+    connDetailSplit->setStretchFactor(0, 55);
+    connDetailSplit->setStretchFactor(1, 45);
+    rightConnectionsLayout->setSpacing(0);
+    rightConnectionsLayout->addWidget(connDetailSplit, 1);
 
     auto* rightDatasetsPage = new QWidget(m_rightStack);
     auto* rightDatasetsLayout = new QVBoxLayout(rightDatasetsPage);
