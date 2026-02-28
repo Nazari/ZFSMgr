@@ -516,11 +516,11 @@ void MainWindow::buildUi() {
     propsLeftBoxLayout->addWidget(m_btnApplyDatasetProps, 0, Qt::AlignRight);
     propsLeftLayout->addWidget(propsLeftBox, 1);
     datasetsInfoTabs->addTab(
-        mountedLeftTab,
-        tr3(QStringLiteral("Montados"), QStringLiteral("Mounted"), QStringLiteral("已挂载")));
-    datasetsInfoTabs->addTab(
         propsLeftTab,
         tr3(QStringLiteral("Propiedades"), QStringLiteral("Properties"), QStringLiteral("属性")));
+    datasetsInfoTabs->addTab(
+        mountedLeftTab,
+        tr3(QStringLiteral("Montados"), QStringLiteral("Mounted"), QStringLiteral("已挂载")));
     dsLeftTabLayout->addWidget(datasetsInfoTabs, 1);
     datasetsTab->setLayout(dsLeftTabLayout);
 
@@ -636,11 +636,11 @@ void MainWindow::buildUi() {
     propsAdvBoxLayout->addWidget(m_btnApplyAdvancedProps, 0, Qt::AlignRight);
     propsAdvLayout->addWidget(propsAdvBox, 1);
     advancedInfoTabs->addTab(
-        mountedAdvTab,
-        tr3(QStringLiteral("Montados"), QStringLiteral("Mounted"), QStringLiteral("已挂载")));
-    advancedInfoTabs->addTab(
         propsAdvTab,
         tr3(QStringLiteral("Propiedades"), QStringLiteral("Properties"), QStringLiteral("属性")));
+    advancedInfoTabs->addTab(
+        mountedAdvTab,
+        tr3(QStringLiteral("Montados"), QStringLiteral("Mounted"), QStringLiteral("已挂载")));
     advLeftTabLayout->setSpacing(8);
     advLeftTabLayout->addWidget(commandsBox);
     advLeftTabLayout->addWidget(advancedInfoTabs, 1);
@@ -3335,6 +3335,11 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     appLog(QStringLiteral("NORMAL"), QStringLiteral("%1 finalizado").arg(actionName));
     invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
     reloadDatasetSide(side);
+    if (actionName == QStringLiteral("Montar")
+        || actionName == QStringLiteral("Montar con todos los hijos")
+        || actionName == QStringLiteral("Desmontar")) {
+        refreshConnectionByIndex(ctx.connIdx);
+    }
     setActionsLocked(false);
     return true;
 }
