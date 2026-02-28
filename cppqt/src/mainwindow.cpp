@@ -358,7 +358,7 @@ void MainWindow::buildUi() {
         fm.horizontalAdvance(tr3(QStringLiteral("Refrescar todo"), QStringLiteral("Refresh all"), QStringLiteral("全部刷新"))),
         fm.horizontalAdvance(tr3(QStringLiteral("Configuración"), QStringLiteral("Configuration"), QStringLiteral("配置"))));
     const int leftBaseWidth = qMax(340, btnTextWidth + 190);
-    const int leftFixedWidth = qMax(220, static_cast<int>(leftBaseWidth * 0.85 * 1.15 * 1.10));
+    const int leftFixedWidth = qMax(220, static_cast<int>(leftBaseWidth * 0.85 * 1.15 * 1.10 * 1.25));
     leftPane->setMinimumWidth(leftFixedWidth);
     leftPane->setMaximumWidth(leftFixedWidth);
 
