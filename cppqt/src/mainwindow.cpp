@@ -860,6 +860,10 @@ void MainWindow::rebuildDatasetPoolSelectors() {
 }
 
 void MainWindow::refreshAllConnections() {
+    if (actionsLocked()) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: refresh bloqueado"));
+        return;
+    }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Refrescar todas las conexiones"));
     if (m_profiles.isEmpty()) {
         rebuildConnectionList();
@@ -885,6 +889,10 @@ void MainWindow::refreshAllConnections() {
 }
 
 void MainWindow::refreshSelectedConnection() {
+    if (actionsLocked()) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: refresh bloqueado"));
+        return;
+    }
     const auto selected = m_connectionsList->selectedItems();
     if (selected.isEmpty()) {
         return;
@@ -944,6 +952,10 @@ void MainWindow::onAsyncRefreshDone(int generation) {
 }
 
 void MainWindow::createConnection() {
+    if (actionsLocked()) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: nueva conexión bloqueada"));
+        return;
+    }
     ConnectionDialog dlg(this);
     ConnectionProfile p;
     p.connType = QStringLiteral("SSH");
@@ -964,6 +976,10 @@ void MainWindow::createConnection() {
 }
 
 void MainWindow::editConnection() {
+    if (actionsLocked()) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: edición bloqueada"));
+        return;
+    }
     const auto selected = m_connectionsList->selectedItems();
     if (selected.isEmpty()) {
         return;
@@ -989,6 +1005,10 @@ void MainWindow::editConnection() {
 }
 
 void MainWindow::deleteConnection() {
+    if (actionsLocked()) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: borrado bloqueado"));
+        return;
+    }
     const auto selected = m_connectionsList->selectedItems();
     if (selected.isEmpty()) {
         return;
@@ -1022,6 +1042,9 @@ void MainWindow::onConnectionSelectionChanged() {
 }
 
 void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
+    if (actionsLocked()) {
+        return;
+    }
     QListWidgetItem* item = m_connectionsList->itemAt(pos);
     if (item) {
         m_connectionsList->setCurrentItem(item);
@@ -1058,6 +1081,9 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
 }
 
 void MainWindow::onImportedPoolsContextMenuRequested(const QPoint& pos) {
+    if (actionsLocked()) {
+        return;
+    }
     const QModelIndex idx = m_importedPoolsTable->indexAt(pos);
     if (!idx.isValid()) {
         return;
@@ -1077,6 +1103,9 @@ void MainWindow::onImportedPoolsContextMenuRequested(const QPoint& pos) {
 }
 
 void MainWindow::onImportablePoolsContextMenuRequested(const QPoint& pos) {
+    if (actionsLocked()) {
+        return;
+    }
     const QModelIndex idx = m_importablePoolsTable->indexAt(pos);
     if (!idx.isValid()) {
         return;
@@ -1695,6 +1724,12 @@ void MainWindow::refreshTransferSelectionLabels() {
 }
 
 void MainWindow::updateTransferButtonsState() {
+    if (actionsLocked()) {
+        if (m_btnCopy) m_btnCopy->setEnabled(false);
+        if (m_btnLevel) m_btnLevel->setEnabled(false);
+        if (m_btnSync) m_btnSync->setEnabled(false);
+        return;
+    }
     const bool srcDs = !m_originSelectedDataset.isEmpty();
     const bool srcSnap = !m_originSelectedSnapshot.isEmpty();
     const bool dstDs = !m_destSelectedDataset.isEmpty();
@@ -1705,12 +1740,14 @@ void MainWindow::updateTransferButtonsState() {
 }
 
 bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs) {
+    setActionsLocked(true);
     appLog(QStringLiteral("NORMAL"), QStringLiteral("%1").arg(displayLabel));
     appLog(QStringLiteral("INFO"), QStringLiteral("$ %1").arg(command));
     QProcess proc;
     proc.start(QStringLiteral("sh"), QStringList{QStringLiteral("-lc"), command});
     if (!proc.waitForStarted(4000)) {
         appLog(QStringLiteral("NORMAL"), QStringLiteral("No se pudo iniciar comando local"));
+        setActionsLocked(false);
         return false;
     }
     if (timeoutMs > 0) {
@@ -1718,6 +1755,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
             proc.kill();
             proc.waitForFinished(1000);
             appLog(QStringLiteral("NORMAL"), QStringLiteral("Timeout en comando local"));
+            setActionsLocked(false);
             return false;
         }
     } else {
@@ -1734,9 +1772,11 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     }
     if (rc != 0) {
         appLog(QStringLiteral("NORMAL"), QStringLiteral("Comando finalizó con error %1").arg(rc));
+        setActionsLocked(false);
         return false;
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Comando finalizado correctamente"));
+    setActionsLocked(false);
     return true;
 }
 
@@ -2014,6 +2054,9 @@ void MainWindow::onAdvancedPropsCellChanged(int row, int col) {
 }
 
 void MainWindow::applyDatasetPropertyChanges() {
+    if (actionsLocked()) {
+        return;
+    }
     if (!m_propsDirty || m_propsDataset.isEmpty() || m_propsSide.isEmpty()) {
         return;
     }
@@ -2062,6 +2105,9 @@ void MainWindow::applyDatasetPropertyChanges() {
 }
 
 void MainWindow::applyAdvancedDatasetPropertyChanges() {
+    if (actionsLocked()) {
+        return;
+    }
     if (!m_advPropsDirty || m_advPropsDataset.isEmpty() || !m_advPropsTable) {
         return;
     }
@@ -2227,6 +2273,9 @@ void MainWindow::refreshConnectionByIndex(int idx) {
 }
 
 void MainWindow::exportPoolFromRow(int row) {
+    if (actionsLocked()) {
+        return;
+    }
     QTableWidgetItem* connItem = m_importedPoolsTable->item(row, 0);
     QTableWidgetItem* poolItem = m_importedPoolsTable->item(row, 1);
     if (!connItem || !poolItem) {
@@ -2253,6 +2302,7 @@ void MainWindow::exportPoolFromRow(int row) {
     const ConnectionProfile& p = m_profiles[idx];
     const QString cmd = withSudo(p, QStringLiteral("zpool export %1").arg(shSingleQuote(poolName)));
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio exportar %1::%2").arg(connName, poolName));
+    setActionsLocked(true);
     QString out;
     QString err;
     int rc = -1;
@@ -2260,13 +2310,18 @@ void MainWindow::exportPoolFromRow(int row) {
         appLog(QStringLiteral("NORMAL"), QStringLiteral("Error exportando %1::%2 -> %3")
                                        .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"), QStringLiteral("Exportar falló:\n%1").arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
+        setActionsLocked(false);
         return;
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin exportar %1::%2").arg(connName, poolName));
+    setActionsLocked(false);
     refreshConnectionByIndex(idx);
 }
 
 void MainWindow::importPoolFromRow(int row) {
+    if (actionsLocked()) {
+        return;
+    }
     QTableWidgetItem* connItem = m_importablePoolsTable->item(row, 1);
     QTableWidgetItem* poolItem = m_importablePoolsTable->item(row, 2);
     QTableWidgetItem* stateItem = m_importablePoolsTable->item(row, 3);
@@ -2404,6 +2459,7 @@ void MainWindow::importPoolFromRow(int row) {
     const ConnectionProfile& p = m_profiles[idx];
     const QString cmd = withSudo(p, parts.join(' '));
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio importar %1::%2").arg(connName, poolName));
+    setActionsLocked(true);
     QString out;
     QString err;
     int rc = -1;
@@ -2411,9 +2467,11 @@ void MainWindow::importPoolFromRow(int row) {
         appLog(QStringLiteral("NORMAL"), QStringLiteral("Error importando %1::%2 -> %3")
                                        .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"), QStringLiteral("Importar falló:\n%1").arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
+        setActionsLocked(false);
         return;
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin importar %1::%2").arg(connName, poolName));
+    setActionsLocked(false);
     refreshConnectionByIndex(idx);
 }
 
@@ -2461,6 +2519,9 @@ MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QS
 }
 
 void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, const QPoint& pos) {
+    if (actionsLocked()) {
+        return;
+    }
     QTreeWidgetItem* item = tree->itemAt(pos);
     if (!item) {
         return;
@@ -2512,6 +2573,7 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     if (!ctx.valid) {
         return false;
     }
+    setActionsLocked(true);
     const ConnectionProfile& p = m_profiles[ctx.connIdx];
     QString remoteCmd = withSudo(p, cmd);
     appLog(QStringLiteral("NORMAL"), QStringLiteral("%1 %2::%3").arg(actionName, p.name, ctx.datasetName));
@@ -2523,6 +2585,7 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
                QStringLiteral("Error en %1: %2")
                    .arg(actionName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"), QStringLiteral("%1 falló:\n%2").arg(actionName, err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
+        setActionsLocked(false);
         return false;
     }
     if (!out.trimmed().isEmpty()) {
@@ -2531,6 +2594,7 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     appLog(QStringLiteral("NORMAL"), QStringLiteral("%1 finalizado").arg(actionName));
     invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
     reloadDatasetSide(side);
+    setActionsLocked(false);
     return true;
 }
 
@@ -2556,6 +2620,9 @@ void MainWindow::reloadDatasetSide(const QString& side) {
 }
 
 void MainWindow::actionMountDataset(const QString& side) {
+    if (actionsLocked()) {
+        return;
+    }
     const DatasetSelectionContext ctx = currentDatasetSelection(side);
     if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
         return;
@@ -2566,6 +2633,9 @@ void MainWindow::actionMountDataset(const QString& side) {
 }
 
 void MainWindow::actionUmountDataset(const QString& side) {
+    if (actionsLocked()) {
+        return;
+    }
     const DatasetSelectionContext ctx = currentDatasetSelection(side);
     if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
         return;
@@ -2603,6 +2673,9 @@ void MainWindow::actionUmountDataset(const QString& side) {
 }
 
 void MainWindow::actionCreateChildDataset(const QString& side) {
+    if (actionsLocked()) {
+        return;
+    }
     const DatasetSelectionContext ctx = currentDatasetSelection(side);
     if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
         return;
@@ -2624,6 +2697,9 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
 }
 
 void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side) {
+    if (actionsLocked()) {
+        return;
+    }
     const DatasetSelectionContext ctx = currentDatasetSelection(side);
     if (!ctx.valid) {
         return;
@@ -2950,6 +3026,29 @@ void MainWindow::updateStatus(const QString& text) {
     }
     if (m_statusText) {
         m_statusText->setPlainText(maskSecrets(text));
+    }
+}
+
+bool MainWindow::actionsLocked() const {
+    return m_actionsLocked;
+}
+
+void MainWindow::setActionsLocked(bool locked) {
+    m_actionsLocked = locked;
+    if (m_btnNew) m_btnNew->setEnabled(!locked);
+    if (m_btnRefreshAll) m_btnRefreshAll->setEnabled(!locked);
+    if (m_poolStatusRefreshBtn) m_poolStatusRefreshBtn->setEnabled(!locked);
+    if (m_btnAdvancedBreakdown) m_btnAdvancedBreakdown->setEnabled(!locked);
+    if (m_btnAdvancedAssemble) m_btnAdvancedAssemble->setEnabled(!locked);
+    if (m_btnApplyDatasetProps) m_btnApplyDatasetProps->setEnabled(!locked && m_btnApplyDatasetProps->isEnabled());
+    if (m_btnApplyAdvancedProps) m_btnApplyAdvancedProps->setEnabled(!locked && m_btnApplyAdvancedProps->isEnabled());
+    if (locked) {
+        if (m_btnCopy) m_btnCopy->setEnabled(false);
+        if (m_btnLevel) m_btnLevel->setEnabled(false);
+        if (m_btnSync) m_btnSync->setEnabled(false);
+    } else {
+        updateTransferButtonsState();
+        updateApplyPropsButtonState();
     }
 }
 

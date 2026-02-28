@@ -149,6 +149,8 @@ private:
     void importPoolFromRow(int row);
     void refreshSelectedPoolDetails();
     void updateStatus(const QString& text);
+    void setActionsLocked(bool locked);
+    bool actionsLocked() const;
     QString maskSecrets(const QString& text) const;
     void logUiAction(const QString& action);
     void appLog(const QString& level, const QString& msg);
@@ -223,4 +225,5 @@ private:
     int m_refreshGeneration{0};
     int m_refreshPending{0};
     int m_refreshTotal{0};
+    bool m_actionsLocked{false};
 };
