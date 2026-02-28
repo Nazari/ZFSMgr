@@ -92,8 +92,18 @@ if (-not $qtFromEnvValid) {
   }
 
   if ($picked) {
-    $env:Qt6_DIR = $picked
-    Write-Host "Qt6 autodetectado en: $($env:Qt6_DIR)"
+    # Normalizar y validar ruta final.
+    try {
+      $picked = (Resolve-Path -LiteralPath $picked).Path
+    } catch {
+      $picked = $null
+    }
+    if ($picked -and (Test-Path (Join-Path $picked "Qt6Config.cmake"))) {
+      $env:Qt6_DIR = $picked
+      Write-Host "Qt6 autodetectado en: $($env:Qt6_DIR)"
+    } else {
+      Write-Host "Aviso: ruta Qt6 detectada inválida."
+    }
   } else {
     Write-Host "Aviso: no se encontró Qt6Config.cmake en rutas conocidas."
     Write-Host "Define Qt6_DIR manualmente, ejemplo:"
@@ -102,6 +112,14 @@ if (-not $qtFromEnvValid) {
 }
 
 if ($env:Qt6_DIR) {
+  try { $env:Qt6_DIR = (Resolve-Path -LiteralPath $env:Qt6_DIR).Path } catch {}
+  if (-not (Test-Path (Join-Path $env:Qt6_DIR "Qt6Config.cmake"))) {
+    $fallbackQt = "C:\Qt\6.10.2\mingw_64\lib\cmake\Qt6"
+    if (Test-Path (Join-Path $fallbackQt "Qt6Config.cmake")) {
+      $env:Qt6_DIR = $fallbackQt
+      Write-Host "Usando fallback Qt6_DIR: $($env:Qt6_DIR)"
+    }
+  }
   $qtKit = $env:Qt6_DIR.ToLower()
   if (-not (($NativeArgs | Where-Object { $_ -like "-DQt6_DIR=*" }).Count -gt 0)) {
     $NativeArgs += @("-DQt6_DIR=$($env:Qt6_DIR)")
