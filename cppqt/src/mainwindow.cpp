@@ -889,8 +889,17 @@ void MainWindow::buildUi() {
 
     auto* rightLogs = new QWidget(logBox);
     auto* rightLogsLayout = new QVBoxLayout(rightLogs);
+    rightLogsLayout->setContentsMargins(0, 0, 0, 0);
+    rightLogsLayout->setSpacing(4);
+    auto* rightLogsBody = new QHBoxLayout();
+    rightLogsBody->setContentsMargins(0, 0, 0, 0);
+    rightLogsBody->setSpacing(6);
     m_logsTabs = new QTabWidget(rightLogs);
     m_logsTabs->setDocumentMode(false);
+    m_logsTabs->setStyleSheet(
+        QStringLiteral("QTabBar::tab { padding: 1px 8px; min-height: 10px; }"
+                       "QTabBar::tab:selected { min-height: 12px; }"
+                       "QTabBar::tab:!selected { margin-top: 2px; }"));
     auto* appTab = new QWidget(m_logsTabs);
     auto* appTabLayout = new QVBoxLayout(appTab);
     m_logView = new QPlainTextEdit(appTab);
@@ -901,10 +910,14 @@ void MainWindow::buildUi() {
     m_logView->setFont(mono);
     appTabLayout->addWidget(m_logView, 1);
     m_logsTabs->addTab(appTab, tr3(QStringLiteral("Aplicación"), QStringLiteral("Application"), QStringLiteral("应用")));
-    rightLogsLayout->addWidget(m_logsTabs, 1);
+    rightLogsBody->addWidget(m_logsTabs, 1);
 
-    auto* logControls = new QHBoxLayout();
-    logControls->addWidget(new QLabel(tr3(QStringLiteral("Nivel"), QStringLiteral("Level"), QStringLiteral("级别")), rightLogs));
+    auto* controlsPane = new QWidget(rightLogs);
+    controlsPane->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    controlsPane->setMinimumWidth(130);
+    auto* logControls = new QVBoxLayout(controlsPane);
+    logControls->setContentsMargins(0, 0, 0, 0);
+    logControls->setSpacing(4);
     m_logLevelCombo = new QComboBox(rightLogs);
     m_logLevelCombo->addItems({QStringLiteral("normal"), QStringLiteral("info"), QStringLiteral("debug")});
     m_logLevelCombo->setCurrentText(QStringLiteral("normal"));
@@ -915,13 +928,19 @@ void MainWindow::buildUi() {
     m_logCopyBtn = new QPushButton(tr3(QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")), rightLogs);
     m_logCancelBtn = new QPushButton(tr3(QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), rightLogs);
     m_logCancelBtn->setVisible(false);
-    logControls->addWidget(m_logLevelCombo);
-    logControls->addWidget(m_logMaxLinesCombo);
-    logControls->addWidget(m_logClearBtn);
-    logControls->addWidget(m_logCopyBtn);
-    logControls->addWidget(m_logCancelBtn);
+    m_logLevelCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_logMaxLinesCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_logClearBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_logCopyBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_logCancelBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    logControls->addWidget(m_logLevelCombo, 0);
+    logControls->addWidget(m_logMaxLinesCombo, 0);
+    logControls->addWidget(m_logClearBtn, 0);
+    logControls->addWidget(m_logCopyBtn, 0);
+    logControls->addWidget(m_logCancelBtn, 0);
     logControls->addStretch(1);
-    rightLogsLayout->addLayout(logControls);
+    rightLogsBody->addWidget(controlsPane, 0);
+    rightLogsLayout->addLayout(rightLogsBody, 1);
 
     logBody->addWidget(leftInfo, 1);
     logBody->addWidget(rightLogs, 2);
