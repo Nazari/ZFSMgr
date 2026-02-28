@@ -42,34 +42,53 @@ for ($i = 0; $i -lt $NativeArgs.Count; $i++) {
   }
 }
 
-if (-not $hasGenerator) {
+if ($hasGenerator) {
+  cmake -S $ScriptDir -B $BuildDir @NativeArgs
+  if ($LASTEXITCODE -ne 0) {
+    throw "Fallo en configuracion CMake (exit $LASTEXITCODE)"
+  }
+} else {
+  $candidates = @()
   $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
   if (Test-Path $vswhere) {
     $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
     if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($vsPath)) {
-      $NativeArgs += @("-G", "Visual Studio 17 2022", "-A", "x64")
-      Write-Host "Generador seleccionado: Visual Studio 17 2022 (x64)"
+      $candidates += @{ Name = "Visual Studio 17 2022"; Extra = @("-A", "x64") }
     }
   }
-
-  if (-not $hasGenerator -and -not ($NativeArgs -contains "-G") -and (Get-Command ninja -ErrorAction SilentlyContinue)) {
-    $NativeArgs += @("-G", "Ninja")
-    Write-Host "Generador seleccionado: Ninja"
+  if (Get-Command ninja -ErrorAction SilentlyContinue) {
+    $candidates += @{ Name = "Ninja"; Extra = @() }
+  }
+  if (Get-Command nmake -ErrorAction SilentlyContinue) {
+    $candidates += @{ Name = "NMake Makefiles"; Extra = @() }
+  }
+  if (Get-Command mingw32-make -ErrorAction SilentlyContinue) {
+    $candidates += @{ Name = "MinGW Makefiles"; Extra = @() }
   }
 
-  if (-not $hasGenerator -and -not ($NativeArgs -contains "-G") -and (Get-Command nmake -ErrorAction SilentlyContinue)) {
-    $NativeArgs += @("-G", "NMake Makefiles")
-    Write-Host "Generador seleccionado: NMake Makefiles"
+  if ($candidates.Count -eq 0) {
+    throw "No se encontro generador valido. Instala Visual Studio Build Tools (C++), Ninja o MinGW."
   }
-}
 
-if (-not ($NativeArgs -contains "-G")) {
-  throw "No se encontró generador válido. Instala Visual Studio Build Tools (C++) o Ninja, o ejecuta desde 'x64 Native Tools Command Prompt'."
-}
+  $configured = $false
+  foreach ($cand in $candidates) {
+    Write-Host "Intentando generador: $($cand.Name)"
+    if (Test-Path $BuildDir) {
+      Remove-Item -Recurse -Force $BuildDir
+    }
+    New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
+    $tryArgs = @($NativeArgs) + @("-G", $cand.Name) + $cand.Extra
+    cmake -S $ScriptDir -B $BuildDir @tryArgs
+    if ($LASTEXITCODE -eq 0) {
+      $configured = $true
+      break
+    }
+    Write-Host "Fallo con generador $($cand.Name), probando siguiente..."
+  }
 
-cmake -S $ScriptDir -B $BuildDir @NativeArgs
-if ($LASTEXITCODE -ne 0) {
-  throw "Fallo en configuración CMake (exit $LASTEXITCODE)"
+  if (-not $configured) {
+    throw "No se pudo configurar CMake con ningun generador disponible."
+  }
 }
 
 cmake --build $BuildDir --config Release
