@@ -480,7 +480,7 @@ void MainWindow::buildUi() {
     m_mountedDatasetsTableLeft->setStyleSheet(
         QStringLiteral("QScrollBar:vertical{width:8px;} "
                        "QScrollBar:horizontal{height:8px;}"));
-    m_mountedDatasetsTableLeft->setColumnWidth(0, 300);
+    m_mountedDatasetsTableLeft->setColumnWidth(0, 180);
     m_mountedDatasetsTableLeft->setColumnWidth(1, 220);
     mountedLeftLayout->addWidget(m_mountedDatasetsTableLeft, 1);
     auto* propsLeftTab = new QWidget(datasetsInfoTabs);
@@ -592,7 +592,7 @@ void MainWindow::buildUi() {
     m_mountedDatasetsTableAdv->setStyleSheet(
         QStringLiteral("QScrollBar:vertical{width:8px;} "
                        "QScrollBar:horizontal{height:8px;}"));
-    m_mountedDatasetsTableAdv->setColumnWidth(0, 300);
+    m_mountedDatasetsTableAdv->setColumnWidth(0, 180);
     m_mountedDatasetsTableAdv->setColumnWidth(1, 220);
     mountedAdvLayout->addWidget(m_mountedDatasetsTableAdv, 1);
     auto* propsAdvTab = new QWidget(advancedInfoTabs);
