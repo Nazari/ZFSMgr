@@ -1927,14 +1927,18 @@ void MainWindow::onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item
 
 void MainWindow::refreshDatasetProperties(const QString& side) {
     QString dataset;
+    QString snapshot;
     if (side == QStringLiteral("origin")) {
         dataset = m_originSelectedDataset;
+        snapshot = m_originSelectedSnapshot;
     } else if (side == QStringLiteral("dest")) {
         dataset = m_destSelectedDataset;
+        snapshot = m_destSelectedSnapshot;
     } else {
         const auto selected = m_advTree ? m_advTree->selectedItems() : QList<QTreeWidgetItem*>{};
         if (!selected.isEmpty()) {
             dataset = selected.first()->data(0, Qt::UserRole).toString();
+            snapshot = selected.first()->data(1, Qt::UserRole).toString();
         }
     }
     QTableWidget* table = (side == QStringLiteral("advanced")) ? m_advPropsTable : m_datasetPropsTable;
@@ -1984,15 +1988,16 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         return;
     }
     const DatasetRecord& rec = recIt.value();
+    const QString objectName = snapshot.isEmpty() ? dataset : QStringLiteral("%1@%2").arg(dataset, snapshot);
     const ConnectionProfile& p = m_profiles[connIdx];
 
-    QString datasetType = dataset.contains('@') ? QStringLiteral("snapshot") : QStringLiteral("filesystem");
+    QString datasetType = objectName.contains('@') ? QStringLiteral("snapshot") : QStringLiteral("filesystem");
     {
         QString tOut, tErr;
         int tRc = -1;
         const QString typeCmd = withSudo(
             p,
-            QStringLiteral("zfs get -H -o value type %1").arg(shSingleQuote(dataset)));
+            QStringLiteral("zfs get -H -o value type %1").arg(shSingleQuote(objectName)));
         if (runSsh(p, typeCmd, 12000, tOut, tErr, tRc) && tRc == 0) {
             const QString t = tOut.trimmed().toLower();
             if (!t.isEmpty()) {
@@ -2008,24 +2013,28 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         QString readonly;
     };
     QVector<PropRow> rows;
-    rows.push_back({QStringLiteral("dataset"), rec.name, QString(), QStringLiteral("true")});
-    const QString mountedRaw = rec.mounted.trimmed().toLower();
-    const bool mountedYes = (mountedRaw == QStringLiteral("yes")
-                             || mountedRaw == QStringLiteral("on")
-                             || mountedRaw == QStringLiteral("true")
-                             || mountedRaw == QStringLiteral("1"));
-    rows.push_back({QStringLiteral("estado"), mountedYes ? QStringLiteral("Montado") : QStringLiteral("Desmontado"), QString(), QStringLiteral("true")});
+    rows.push_back({QStringLiteral("dataset"), objectName, QString(), QStringLiteral("true")});
+    if (snapshot.isEmpty()) {
+        const QString mountedRaw = rec.mounted.trimmed().toLower();
+        const bool mountedYes = (mountedRaw == QStringLiteral("yes")
+                                 || mountedRaw == QStringLiteral("on")
+                                 || mountedRaw == QStringLiteral("true")
+                                 || mountedRaw == QStringLiteral("1"));
+        rows.push_back({QStringLiteral("estado"), mountedYes ? QStringLiteral("Montado") : QStringLiteral("Desmontado"), QString(), QStringLiteral("true")});
+    } else {
+        rows.push_back({QStringLiteral("estado"), QStringLiteral("Snapshot"), QString(), QStringLiteral("true")});
+    }
 
     QString out;
     QString err;
     int rc = -1;
     QString propsCmd = withSudo(
         p,
-        QStringLiteral("zfs get -H -o property,value,source,readonly all %1").arg(shSingleQuote(dataset)));
+        QStringLiteral("zfs get -H -o property,value,source,readonly all %1").arg(shSingleQuote(objectName)));
     if (!runSsh(p, propsCmd, 20000, out, err, rc) || rc != 0) {
         propsCmd = withSudo(
             p,
-            QStringLiteral("zfs get -H -o property,value,source all %1").arg(shSingleQuote(dataset)));
+            QStringLiteral("zfs get -H -o property,value,source all %1").arg(shSingleQuote(objectName)));
         out.clear();
         err.clear();
         rc = -1;
@@ -2068,12 +2077,12 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     if (side == QStringLiteral("advanced")) {
         m_advPropsOriginalValues.clear();
         m_advPropsOriginalInherit.clear();
-        m_advPropsDataset = rec.name;
+        m_advPropsDataset = objectName;
     } else {
         m_propsOriginalValues.clear();
         m_propsOriginalInherit.clear();
         m_propsSide = side;
-        m_propsDataset = rec.name;
+        m_propsDataset = objectName;
     }
     const QSet<QString> inheritableProps = {QStringLiteral("mountpoint"), QStringLiteral("canmount")};
     for (const PropRow& row : rows) {
