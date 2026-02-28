@@ -4,6 +4,22 @@
 #include <QDir>
 #include <QSettings>
 
+namespace {
+bool isConnectionGroupName(const QString& group) {
+    return group.startsWith(QStringLiteral("connection:")) || group.startsWith(QStringLiteral("connection%3A"));
+}
+
+QString defaultIdFromGroup(const QString& group) {
+    if (group.startsWith(QStringLiteral("connection:"))) {
+        return group.mid(QStringLiteral("connection:").size());
+    }
+    if (group.startsWith(QStringLiteral("connection%3A"))) {
+        return group.mid(QStringLiteral("connection%3A").size());
+    }
+    return group;
+}
+} // namespace
+
 ConnectionStore::ConnectionStore(const QString& appName)
     : m_appName(appName) {}
 
@@ -17,7 +33,7 @@ bool ConnectionStore::validateMasterPassword(QString& error) const {
     const QStringList groups = ini.childGroups();
     bool hasEncrypted = false;
     for (const QString& group : groups) {
-        if (!group.startsWith("connection:")) {
+        if (!isConnectionGroupName(group)) {
             continue;
         }
         ini.beginGroup(group);
@@ -74,12 +90,12 @@ LoadResult ConnectionStore::loadConnections() const {
     QSettings ini(iniPath(), QSettings::IniFormat);
     const QStringList groups = ini.childGroups();
     for (const QString& group : groups) {
-        if (!group.startsWith("connection:")) {
+        if (!isConnectionGroupName(group)) {
             continue;
         }
         ini.beginGroup(group);
         ConnectionProfile p;
-        p.id = ini.value("id", group.mid(QString("connection:").size())).toString();
+        p.id = ini.value("id", defaultIdFromGroup(group)).toString();
         p.name = ini.value("name").toString();
         p.connType = ini.value("conn_type").toString();
         p.osType = ini.value("os_type").toString();
@@ -212,7 +228,7 @@ bool ConnectionStore::encryptStoredPasswords(QString& error) {
     QSettings ini(iniPath(), QSettings::IniFormat);
     const QStringList groups = ini.childGroups();
     for (const QString& group : groups) {
-        if (!group.startsWith(QStringLiteral("connection:"))) {
+        if (!isConnectionGroupName(group)) {
             continue;
         }
         ini.beginGroup(group);
@@ -246,7 +262,7 @@ bool ConnectionStore::rotateMasterPassword(const QString& oldMasterPassword, con
     QSettings ini(iniPath(), QSettings::IniFormat);
     const QStringList groups = ini.childGroups();
     for (const QString& group : groups) {
-        if (!group.startsWith(QStringLiteral("connection:"))) {
+        if (!isConnectionGroupName(group)) {
             continue;
         }
         ini.beginGroup(group);
