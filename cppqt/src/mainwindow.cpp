@@ -925,12 +925,12 @@ void MainWindow::rebuildConnectionList() {
         if (zfsTxt.isEmpty()) {
             zfsTxt = QStringLiteral("?");
         }
-        QString line2 = QStringLiteral("%1 | ZFS v%2").arg(p.osType, zfsTxt);
+        QString line = QStringLiteral("%1 | %2 | ZFS v%3").arg(line1, p.osType, zfsTxt);
         if (!s.status.isEmpty()) {
-            line2 += QStringLiteral("  [") + s.status + QStringLiteral("]");
+            line += QStringLiteral(" [") + s.status + QStringLiteral("]");
         }
 
-        auto* item = new QListWidgetItem(line1 + "\n" + line2, m_connectionsList);
+        auto* item = new QListWidgetItem(line, m_connectionsList);
         item->setData(Qt::UserRole, i);
         item->setToolTip(QStringLiteral("Host: %1\nPort: %2\nEstado: %3\nDetalle: %4")
                              .arg(p.host)
