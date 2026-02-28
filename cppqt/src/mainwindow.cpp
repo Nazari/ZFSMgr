@@ -316,7 +316,10 @@ void MainWindow::buildUi() {
     m_leftTabs->setTabPosition(QTabWidget::North);
     // Anchura fija basada en el texto real de botones para evitar solapes en macOS.
     const QFontMetrics fm(font());
-    const int leftFixedWidth = qMax(300, fm.horizontalAdvance(QStringLiteral("Refrescar todo")) + 170);
+    const int btnTextWidth = qMax(
+        fm.horizontalAdvance(tr3(QStringLiteral("Refrescar todo"), QStringLiteral("Refresh all"), QStringLiteral("全部刷新"))),
+        fm.horizontalAdvance(tr3(QStringLiteral("Configuración"), QStringLiteral("Configuration"), QStringLiteral("配置"))));
+    const int leftFixedWidth = qMax(340, btnTextWidth + 190);
     leftPane->setMinimumWidth(leftFixedWidth);
     leftPane->setMaximumWidth(leftFixedWidth);
 
@@ -342,6 +345,7 @@ void MainWindow::buildUi() {
     m_btnNew->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnRefreshAll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConfig->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnConfig->setVisible(true);
     connButtons->addWidget(m_btnNew);
     connButtons->addWidget(m_btnRefreshAll);
     connButtons->addWidget(m_btnConfig);
