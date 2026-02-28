@@ -703,7 +703,7 @@ void MainWindow::buildUi() {
         f.setPointSize(qMax(6, f.pointSize() - 1));
         m_originTree->setFont(f);
     }
-    m_originTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 18px; padding: 0px; margin: 0px; }"));
+    m_originTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 20px; padding: 0px; margin: 0px; }"));
     m_originSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), originBox);
     m_originSelectionLabel->setWordWrap(true);
     m_originSelectionLabel->setMinimumHeight(36);
@@ -734,7 +734,7 @@ void MainWindow::buildUi() {
         f.setPointSize(qMax(6, f.pointSize() - 1));
         m_destTree->setFont(f);
     }
-    m_destTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 18px; padding: 0px; margin: 0px; }"));
+    m_destTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 20px; padding: 0px; margin: 0px; }"));
     m_destSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), destBox);
     m_destSelectionLabel->setWordWrap(true);
     m_destSelectionLabel->setMinimumHeight(36);
@@ -759,6 +759,11 @@ void MainWindow::buildUi() {
     m_datasetPropsTable->verticalHeader()->setVisible(false);
     if (m_mountedDatasetsTableLeft) {
         m_datasetPropsTable->setFont(m_mountedDatasetsTableLeft->font());
+    }
+    {
+        QFont hf = m_datasetPropsTable->font();
+        hf.setBold(false);
+        m_datasetPropsTable->horizontalHeader()->setFont(hf);
     }
     m_btnApplyDatasetProps = new QPushButton(tr3(QStringLiteral("Aplicar cambios"), QStringLiteral("Apply changes"), QStringLiteral("应用更改")), propsBox);
     m_btnApplyDatasetProps->setEnabled(false);
@@ -798,7 +803,7 @@ void MainWindow::buildUi() {
         f.setPointSize(qMax(6, f.pointSize() - 1));
         m_advTree->setFont(f);
     }
-    m_advTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 18px; padding: 0px; margin: 0px; }"));
+    m_advTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 20px; padding: 0px; margin: 0px; }"));
     m_advSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), rightAdvancedPage);
     m_advSelectionLabel->setWordWrap(true);
     m_advSelectionLabel->setMinimumHeight(36);
@@ -821,6 +826,11 @@ void MainWindow::buildUi() {
     m_advPropsTable->verticalHeader()->setVisible(false);
     if (m_mountedDatasetsTableAdv) {
         m_advPropsTable->setFont(m_mountedDatasetsTableAdv->font());
+    }
+    {
+        QFont hf = m_advPropsTable->font();
+        hf.setBold(false);
+        m_advPropsTable->horizontalHeader()->setFont(hf);
     }
     m_btnApplyAdvancedProps = new QPushButton(tr3(QStringLiteral("Aplicar cambios"), QStringLiteral("Apply changes"), QStringLiteral("应用更改")), advPropsBox);
     m_btnApplyAdvancedProps->setEnabled(false);
@@ -2703,11 +2713,39 @@ void MainWindow::applyAdvancedDatasetPropertyChanges() {
 void MainWindow::updateApplyPropsButtonState() {
     const DatasetSelectionContext ctx = currentDatasetSelection(m_propsSide);
     const bool eligible = ctx.valid && ctx.snapshotName.isEmpty() && (ctx.datasetName == m_propsDataset);
-    m_btnApplyDatasetProps->setEnabled(m_propsDirty && eligible);
+    auto hasEffectiveChanges = [](QTableWidget* table,
+                                  const QMap<QString, QString>& originals,
+                                  const QMap<QString, bool>& originalInherit) -> bool {
+        if (!table) {
+            return false;
+        }
+        for (int r = 0; r < table->rowCount(); ++r) {
+            QTableWidgetItem* pk = table->item(r, 0);
+            QTableWidgetItem* pv = table->item(r, 1);
+            QTableWidgetItem* pi = table->item(r, 2);
+            if (!pk || !pv || !pi) {
+                continue;
+            }
+            const QString prop = pk->text().trimmed();
+            if (prop.isEmpty() || prop == QStringLiteral("dataset") || prop == QStringLiteral("estado")) {
+                continue;
+            }
+            const bool inh = (pi->flags() & Qt::ItemIsUserCheckable) && (pi->checkState() == Qt::Checked);
+            const QString now = pv->text();
+            if (inh != originalInherit.value(prop, false) || now != originals.value(prop)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    const bool hasChanges = hasEffectiveChanges(m_datasetPropsTable, m_propsOriginalValues, m_propsOriginalInherit);
+    m_btnApplyDatasetProps->setEnabled(m_propsDirty && eligible && hasChanges);
     const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("advanced"));
     const bool aok = actx.valid && actx.snapshotName.isEmpty() && (actx.datasetName == m_advPropsDataset);
     if (m_btnApplyAdvancedProps) {
-        m_btnApplyAdvancedProps->setEnabled(m_advPropsDirty && aok);
+        const bool advHasChanges =
+            hasEffectiveChanges(m_advPropsTable, m_advPropsOriginalValues, m_advPropsOriginalInherit);
+        m_btnApplyAdvancedProps->setEnabled(m_advPropsDirty && aok && advHasChanges);
     }
 }
 
