@@ -4,6 +4,7 @@
 
 #include <QApplication>
 #include <QMessageBox>
+#include <QSettings>
 
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
@@ -13,6 +14,15 @@ int main(int argc, char* argv[]) {
     QString masterPassword;
     QString language = QStringLiteral("es");
     ConnectionStore store(QStringLiteral("ZFSMgr"));
+    {
+        QSettings ini(store.iniPath(), QSettings::IniFormat);
+        ini.beginGroup(QStringLiteral("ui"));
+        const QString persistedLang = ini.value(QStringLiteral("language"), QStringLiteral("es")).toString().trimmed().toLower();
+        ini.endGroup();
+        if (persistedLang == QStringLiteral("es") || persistedLang == QStringLiteral("en") || persistedLang == QStringLiteral("zh")) {
+            language = persistedLang;
+        }
+    }
     while (true) {
         MasterPasswordDialog dlg;
         dlg.setSelectedLanguage(language);
@@ -21,6 +31,13 @@ int main(int argc, char* argv[]) {
         }
         masterPassword = dlg.password();
         language = dlg.selectedLanguage();
+        {
+            QSettings ini(store.iniPath(), QSettings::IniFormat);
+            ini.beginGroup(QStringLiteral("ui"));
+            ini.setValue(QStringLiteral("language"), language);
+            ini.endGroup();
+            ini.sync();
+        }
         store.setMasterPassword(masterPassword);
         QString err;
         if (store.validateMasterPassword(err)) {

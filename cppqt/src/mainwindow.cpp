@@ -410,7 +410,7 @@ void MainWindow::buildUi() {
     m_originTree->header()->setStretchLastSection(false);
     m_originTree->setColumnWidth(0, 280);
     m_originTree->setColumnWidth(1, 140);
-    m_originSelectionLabel = new QLabel(tr3(QStringLiteral("Origen: Dataset (seleccione)"), QStringLiteral("Source: Dataset (select)"), QStringLiteral("源：数据集（请选择）")), originBox);
+    m_originSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), originBox);
     m_originSelectionLabel->setWordWrap(true);
     m_originSelectionLabel->setMinimumHeight(36);
     originTop->addWidget(m_originPoolCombo, 0);
@@ -434,7 +434,7 @@ void MainWindow::buildUi() {
     m_destTree->header()->setStretchLastSection(false);
     m_destTree->setColumnWidth(0, 280);
     m_destTree->setColumnWidth(1, 140);
-    m_destSelectionLabel = new QLabel(tr3(QStringLiteral("Destino: Dataset (seleccione)"), QStringLiteral("Target: Dataset (select)"), QStringLiteral("目标：数据集（请选择）")), destBox);
+    m_destSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), destBox);
     m_destSelectionLabel->setWordWrap(true);
     m_destSelectionLabel->setMinimumHeight(36);
     destTop->addWidget(m_destPoolCombo, 0);
@@ -487,7 +487,7 @@ void MainWindow::buildUi() {
     m_advTree->header()->setStretchLastSection(false);
     m_advTree->setColumnWidth(0, 280);
     m_advTree->setColumnWidth(1, 140);
-    m_advSelectionLabel = new QLabel(QStringLiteral("Dataset: (seleccione)"), rightAdvancedPage);
+    m_advSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), rightAdvancedPage);
     m_advSelectionLabel->setWordWrap(true);
     m_advSelectionLabel->setMinimumHeight(36);
     auto* advTop = new QHBoxLayout();
@@ -705,7 +705,7 @@ void MainWindow::buildUi() {
     connect(m_advTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
         const auto selected = m_advTree->selectedItems();
         if (selected.isEmpty()) {
-            m_advSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+            m_advSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
             refreshDatasetProperties(QStringLiteral("advanced"));
             return;
         }
@@ -713,11 +713,11 @@ void MainWindow::buildUi() {
         const QString ds = it->data(0, Qt::UserRole).toString();
         const QString snap = it->data(1, Qt::UserRole).toString();
         if (!ds.isEmpty() && !snap.isEmpty()) {
-            m_advSelectionLabel->setText(QStringLiteral("Snapshot: %1@%2").arg(ds, snap));
+            m_advSelectionLabel->setText(QStringLiteral("%1@%2").arg(ds, snap));
         } else if (!ds.isEmpty()) {
-            m_advSelectionLabel->setText(QStringLiteral("Dataset: %1").arg(ds));
+            m_advSelectionLabel->setText(ds);
         } else {
-            m_advSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+            m_advSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
         }
         refreshDatasetProperties(QStringLiteral("advanced"));
     });
@@ -1142,7 +1142,7 @@ void MainWindow::onOriginPoolChanged() {
     const QString token = m_originPoolCombo->currentData().toString();
     if (token.isEmpty()) {
         m_originTree->clear();
-        m_originSelectionLabel->setText(QStringLiteral("Origen: Dataset (seleccione)"));
+        m_originSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
         return;
     }
     const int sep = token.indexOf(QStringLiteral("::"));
@@ -1163,7 +1163,7 @@ void MainWindow::onDestPoolChanged() {
     const QString token = m_destPoolCombo->currentData().toString();
     if (token.isEmpty()) {
         m_destTree->clear();
-        m_destSelectionLabel->setText(QStringLiteral("Destino: Dataset (seleccione)"));
+        m_destSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
         return;
     }
     const int sep = token.indexOf(QStringLiteral("::"));
@@ -1186,7 +1186,7 @@ void MainWindow::onAdvancedPoolChanged() {
             m_advTree->clear();
         }
         if (m_advSelectionLabel) {
-            m_advSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+            m_advSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
         }
         refreshDatasetProperties(QStringLiteral("advanced"));
         return;
@@ -1195,7 +1195,7 @@ void MainWindow::onAdvancedPoolChanged() {
     const QString poolName = token.mid(sep + 2);
     populateDatasetTree(m_advTree, connIdx, poolName, QStringLiteral("origin"));
     if (m_advSelectionLabel) {
-        m_advSelectionLabel->setText(QStringLiteral("Dataset: (seleccione)"));
+        m_advSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
     }
     refreshDatasetProperties(QStringLiteral("advanced"));
 }
@@ -1449,9 +1449,9 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
     }
 
     if (side == QStringLiteral("origin")) {
-        m_originSelectionLabel->setText(QStringLiteral("Origen: Dataset (seleccione)"));
+        m_originSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
     } else {
-        m_destSelectionLabel->setText(QStringLiteral("Destino: Dataset (seleccione)"));
+        m_destSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
     }
 }
 
@@ -1679,11 +1679,11 @@ void MainWindow::setSelectedDataset(const QString& side, const QString& datasetN
         m_originSelectedDataset = datasetName;
         m_originSelectedSnapshot = snapshotName;
         if (datasetName.isEmpty()) {
-            m_originSelectionLabel->setText(QStringLiteral("Origen: Dataset (seleccione)"));
+            m_originSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
         } else if (snapshotName.isEmpty()) {
-            m_originSelectionLabel->setText(QStringLiteral("Origen: Dataset %1").arg(datasetName));
+            m_originSelectionLabel->setText(datasetName);
         } else {
-            m_originSelectionLabel->setText(QStringLiteral("Origen: Snapshot %1@%2").arg(datasetName, snapshotName));
+            m_originSelectionLabel->setText(QStringLiteral("%1@%2").arg(datasetName, snapshotName));
         }
         refreshDatasetProperties(QStringLiteral("origin"));
         refreshTransferSelectionLabels();
@@ -1693,11 +1693,11 @@ void MainWindow::setSelectedDataset(const QString& side, const QString& datasetN
     m_destSelectedDataset = datasetName;
     m_destSelectedSnapshot = snapshotName;
     if (datasetName.isEmpty()) {
-        m_destSelectionLabel->setText(QStringLiteral("Destino: Dataset (seleccione)"));
+        m_destSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
     } else if (snapshotName.isEmpty()) {
-        m_destSelectionLabel->setText(QStringLiteral("Destino: Dataset %1").arg(datasetName));
+        m_destSelectionLabel->setText(datasetName);
     } else {
-        m_destSelectionLabel->setText(QStringLiteral("Destino: Snapshot %1@%2").arg(datasetName, snapshotName));
+        m_destSelectionLabel->setText(QStringLiteral("%1@%2").arg(datasetName, snapshotName));
     }
     refreshDatasetProperties(QStringLiteral("dest"));
     refreshTransferSelectionLabels();
@@ -1708,12 +1708,12 @@ void MainWindow::refreshTransferSelectionLabels() {
     QString originText;
     if (!m_originSelectedDataset.isEmpty()) {
         if (!m_originSelectedSnapshot.isEmpty()) {
-            originText = QStringLiteral("Origen: Snapshot %1@%2").arg(m_originSelectedDataset, m_originSelectedSnapshot);
+            originText = QStringLiteral("%1@%2").arg(m_originSelectedDataset, m_originSelectedSnapshot);
         } else {
-            originText = QStringLiteral("Origen: Dataset %1").arg(m_originSelectedDataset);
+            originText = m_originSelectedDataset;
         }
     } else {
-        originText = QStringLiteral("Origen: Dataset (seleccione)");
+        originText = tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）"));
     }
     if (m_transferOriginLabel) {
         m_transferOriginLabel->setText(originText);
@@ -1725,12 +1725,12 @@ void MainWindow::refreshTransferSelectionLabels() {
     QString destText;
     if (!m_destSelectedDataset.isEmpty()) {
         if (!m_destSelectedSnapshot.isEmpty()) {
-            destText = QStringLiteral("Destino: Snapshot %1@%2").arg(m_destSelectedDataset, m_destSelectedSnapshot);
+            destText = QStringLiteral("%1@%2").arg(m_destSelectedDataset, m_destSelectedSnapshot);
         } else {
-            destText = QStringLiteral("Destino: Dataset %1").arg(m_destSelectedDataset);
+            destText = m_destSelectedDataset;
         }
     } else {
-        destText = QStringLiteral("Destino: Dataset (seleccione)");
+        destText = tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）"));
     }
     if (m_transferDestLabel) {
         m_transferDestLabel->setText(destText);
@@ -1974,7 +1974,7 @@ void MainWindow::actionAdvancedBreakdown() {
                        "{ zfs create \"$DATASET/$bn\"; rsync -aHAWXS --remove-source-files \"$d\"/ \"$MP/$bn\"/; }; done")
             .arg(shSingleQuote(ds));
     if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Desglosar"), ctx, cmd, 0)) {
-        m_advSelectionLabel->setText(QStringLiteral("Dataset: %1").arg(ds));
+        m_advSelectionLabel->setText(ds);
     }
 }
 
@@ -2010,7 +2010,7 @@ void MainWindow::actionAdvancedAssemble() {
                        "mkdir -p \"$MP/$bn\"; rsync -aHAWXS \"$CMP\"/ \"$MP/$bn\"/; zfs destroy -r \"$child\"; done")
             .arg(shSingleQuote(ds));
     if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Ensamblar"), ctx, cmd, 0)) {
-        m_advSelectionLabel->setText(QStringLiteral("Dataset: %1").arg(ds));
+        m_advSelectionLabel->setText(ds);
     }
 }
 
