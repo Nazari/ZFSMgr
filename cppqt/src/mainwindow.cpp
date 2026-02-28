@@ -807,11 +807,15 @@ void MainWindow::buildUi() {
     });
     m_originTree->setContextMenuPolicy(Qt::CustomContextMenu);
     m_destTree->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_advTree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_originTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         onOriginTreeContextMenuRequested(pos);
     });
     connect(m_destTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         onDestTreeContextMenuRequested(pos);
+    });
+    connect(m_advTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        showDatasetContextMenu(QStringLiteral("advanced"), m_advTree, pos);
     });
     connect(m_datasetPropsTable, &QTableWidget::cellChanged, this, [this](int row, int col) {
         onDatasetPropsCellChanged(row, col);
@@ -2829,8 +2833,23 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
     tree->setCurrentItem(item);
     if (side == QStringLiteral("origin")) {
         onOriginTreeSelectionChanged();
-    } else {
+    } else if (side == QStringLiteral("dest")) {
         onDestTreeSelectionChanged();
+    } else {
+        refreshDatasetProperties(QStringLiteral("advanced"));
+        if (m_advSelectionLabel) {
+            const QString ds = item->data(0, Qt::UserRole).toString();
+            const QString snap = item->data(1, Qt::UserRole).toString();
+            if (ds.isEmpty()) {
+                m_advSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"),
+                                                 QStringLiteral("(no selection)"),
+                                                 QStringLiteral("（未选择）")));
+            } else if (snap.isEmpty()) {
+                m_advSelectionLabel->setText(ds);
+            } else {
+                m_advSelectionLabel->setText(QStringLiteral("%1@%2").arg(ds, snap));
+            }
+        }
     }
     const DatasetSelectionContext ctx = currentDatasetSelection(side);
     if (!ctx.valid) {
