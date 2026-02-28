@@ -160,9 +160,13 @@ QString shSingleQuote(const QString& s) {
 
 } // namespace
 
-MainWindow::MainWindow(const QString& masterPassword, QWidget* parent)
+MainWindow::MainWindow(const QString& masterPassword, const QString& language, QWidget* parent)
     : QMainWindow(parent)
     , m_store(QStringLiteral("ZFSMgr")) {
+    m_language = language.trimmed().toLower();
+    if (m_language.isEmpty()) {
+        m_language = QStringLiteral("es");
+    }
     m_store.setMasterPassword(masterPassword);
     initLogPersistence();
     buildUi();
@@ -170,6 +174,12 @@ MainWindow::MainWindow(const QString& masterPassword, QWidget* parent)
     QTimer::singleShot(0, this, [this]() {
         refreshAllConnections();
     });
+}
+
+QString MainWindow::tr3(const QString& es, const QString& en, const QString& zh) const {
+    if (m_language == QStringLiteral("en")) return en;
+    if (m_language == QStringLiteral("zh")) return zh;
+    return es;
 }
 
 void MainWindow::buildUi() {
@@ -229,8 +239,8 @@ void MainWindow::buildUi() {
 
     auto* connButtons = new QVBoxLayout();
     connButtons->setSpacing(10);
-    m_btnNew = new QPushButton(QStringLiteral("Nueva"), connectionsTab);
-    m_btnRefreshAll = new QPushButton(QStringLiteral("Refrescar todo"), connectionsTab);
+    m_btnNew = new QPushButton(tr3(QStringLiteral("Nueva"), QStringLiteral("New"), QStringLiteral("新建")), connectionsTab);
+    m_btnRefreshAll = new QPushButton(tr3(QStringLiteral("Refrescar todo"), QStringLiteral("Refresh all"), QStringLiteral("全部刷新")), connectionsTab);
     m_btnNew->setMinimumHeight(34);
     m_btnRefreshAll->setMinimumHeight(34);
     m_btnNew->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -245,7 +255,7 @@ void MainWindow::buildUi() {
     auto* dsLeftTabLayout = new QVBoxLayout(datasetsTab);
     dsLeftTabLayout->setContentsMargins(4, 4, 4, 4);
     dsLeftTabLayout->setSpacing(4);
-    auto* transferBox = new QGroupBox(QStringLiteral("Origen-->Destino"), datasetsTab);
+    auto* transferBox = new QGroupBox(tr3(QStringLiteral("Origen-->Destino"), QStringLiteral("Source-->Target"), QStringLiteral("源-->目标")), datasetsTab);
     auto* transferLayout = new QVBoxLayout(transferBox);
     m_transferOriginLabel = new QLabel(QStringLiteral("Origen: Dataset (seleccione)"), transferBox);
     m_transferDestLabel = new QLabel(QStringLiteral("Destino: Dataset (seleccione)"), transferBox);
@@ -255,9 +265,9 @@ void MainWindow::buildUi() {
     m_transferDestLabel->setMinimumHeight(34);
     m_transferOriginLabel->hide();
     m_transferDestLabel->hide();
-    m_btnCopy = new QPushButton(QStringLiteral("Copiar"), transferBox);
-    m_btnLevel = new QPushButton(QStringLiteral("Nivelar"), transferBox);
-    m_btnSync = new QPushButton(QStringLiteral("Sincronizar"), transferBox);
+    m_btnCopy = new QPushButton(tr3(QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")), transferBox);
+    m_btnLevel = new QPushButton(tr3(QStringLiteral("Nivelar"), QStringLiteral("Level"), QStringLiteral("同步快照")), transferBox);
+    m_btnSync = new QPushButton(tr3(QStringLiteral("Sincronizar"), QStringLiteral("Sync"), QStringLiteral("同步文件")), transferBox);
     m_btnCopy->setEnabled(false);
     m_btnLevel->setEnabled(false);
     m_btnSync->setEnabled(false);
@@ -272,11 +282,11 @@ void MainWindow::buildUi() {
     auto* advLeftTabLayout = new QVBoxLayout(advancedTab);
     advLeftTabLayout->setContentsMargins(4, 4, 4, 4);
     advLeftTabLayout->setSpacing(4);
-    auto* commandsBox = new QGroupBox(QStringLiteral("Comandos"), advancedTab);
+    auto* commandsBox = new QGroupBox(tr3(QStringLiteral("Comandos"), QStringLiteral("Commands"), QStringLiteral("命令")), advancedTab);
     auto* commandsLayout = new QVBoxLayout(commandsBox);
     commandsLayout->setSpacing(10);
-    m_btnAdvancedBreakdown = new QPushButton(QStringLiteral("Desglosar"), commandsBox);
-    m_btnAdvancedAssemble = new QPushButton(QStringLiteral("Ensamblar"), commandsBox);
+    m_btnAdvancedBreakdown = new QPushButton(tr3(QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")), commandsBox);
+    m_btnAdvancedAssemble = new QPushButton(tr3(QStringLiteral("Ensamblar"), QStringLiteral("Assemble"), QStringLiteral("组装")), commandsBox);
     m_btnAdvancedBreakdown->setMinimumHeight(34);
     m_btnAdvancedAssemble->setMinimumHeight(34);
     m_btnAdvancedBreakdown->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -289,9 +299,9 @@ void MainWindow::buildUi() {
     advLeftTabLayout->addStretch(1);
     advancedTab->setLayout(advLeftTabLayout);
 
-    m_leftTabs->addTab(connectionsTab, QStringLiteral("Conexiones"));
-    m_leftTabs->addTab(datasetsTab, QStringLiteral("Datasets"));
-    m_leftTabs->addTab(advancedTab, QStringLiteral("Avanzado"));
+    m_leftTabs->addTab(connectionsTab, tr3(QStringLiteral("Conexiones"), QStringLiteral("Connections"), QStringLiteral("连接")));
+    m_leftTabs->addTab(datasetsTab, tr3(QStringLiteral("Datasets"), QStringLiteral("Datasets"), QStringLiteral("数据集")));
+    m_leftTabs->addTab(advancedTab, tr3(QStringLiteral("Avanzado"), QStringLiteral("Advanced"), QStringLiteral("高级")));
     leftLayout->addWidget(m_leftTabs, 1);
 
     auto* rightPane = new QWidget(topArea);
@@ -338,8 +348,8 @@ void MainWindow::buildUi() {
     m_importablePoolsTable->setSelectionMode(QAbstractItemView::SingleSelection);
     importableLayout->addWidget(m_importablePoolsTable, 1);
 
-    m_rightTabs->addTab(importedTab, QStringLiteral("Pools importados"));
-    m_rightTabs->addTab(importableTab, QStringLiteral("Pools importables"));
+    m_rightTabs->addTab(importedTab, tr3(QStringLiteral("Pools importados"), QStringLiteral("Imported pools"), QStringLiteral("已导入池")));
+    m_rightTabs->addTab(importableTab, tr3(QStringLiteral("Pools importables"), QStringLiteral("Importable pools"), QStringLiteral("可导入池")));
     rightConnectionsLayout->addWidget(m_rightTabs, 3);
 
     m_poolDetailTabs = new QTabWidget(rightConnectionsPage);
@@ -367,8 +377,8 @@ void MainWindow::buildUi() {
     statusPoolLayout->addLayout(statusActions);
     statusPoolLayout->addWidget(m_poolStatusText, 1);
 
-    m_poolDetailTabs->addTab(propsPoolTab, QStringLiteral("Propiedades del pool"));
-    m_poolDetailTabs->addTab(statusPoolTab, QStringLiteral("Estado"));
+    m_poolDetailTabs->addTab(propsPoolTab, tr3(QStringLiteral("Propiedades del pool"), QStringLiteral("Pool properties"), QStringLiteral("存储池属性")));
+    m_poolDetailTabs->addTab(statusPoolTab, tr3(QStringLiteral("Estado"), QStringLiteral("Status"), QStringLiteral("状态")));
     rightConnectionsLayout->addWidget(m_poolDetailTabs, 2);
 
     auto* rightDatasetsPage = new QWidget(m_rightStack);
@@ -384,7 +394,7 @@ void MainWindow::buildUi() {
     dsLeftLayout->setContentsMargins(0, 0, 0, 0);
     dsLeftLayout->setSpacing(4);
 
-    auto* originBox = new QGroupBox(QStringLiteral("Origen"), dsLeft);
+    auto* originBox = new QGroupBox(tr3(QStringLiteral("Origen"), QStringLiteral("Source"), QStringLiteral("源")), dsLeft);
     auto* originLayout = new QVBoxLayout(originBox);
     originLayout->setContentsMargins(8, 20, 8, 8);
     auto* originTop = new QHBoxLayout();
@@ -400,7 +410,7 @@ void MainWindow::buildUi() {
     m_originTree->header()->setStretchLastSection(false);
     m_originTree->setColumnWidth(0, 280);
     m_originTree->setColumnWidth(1, 140);
-    m_originSelectionLabel = new QLabel(QStringLiteral("Origen: Dataset (seleccione)"), originBox);
+    m_originSelectionLabel = new QLabel(tr3(QStringLiteral("Origen: Dataset (seleccione)"), QStringLiteral("Source: Dataset (select)"), QStringLiteral("源：数据集（请选择）")), originBox);
     m_originSelectionLabel->setWordWrap(true);
     m_originSelectionLabel->setMinimumHeight(36);
     originTop->addWidget(m_originPoolCombo, 0);
@@ -408,7 +418,7 @@ void MainWindow::buildUi() {
     originLayout->addLayout(originTop);
     originLayout->addWidget(m_originTree, 1);
 
-    auto* destBox = new QGroupBox(QStringLiteral("Destino"), dsLeft);
+    auto* destBox = new QGroupBox(tr3(QStringLiteral("Destino"), QStringLiteral("Target"), QStringLiteral("目标")), dsLeft);
     auto* destLayout = new QVBoxLayout(destBox);
     destLayout->setContentsMargins(8, 20, 8, 8);
     auto* destTop = new QHBoxLayout();
@@ -424,7 +434,7 @@ void MainWindow::buildUi() {
     m_destTree->header()->setStretchLastSection(false);
     m_destTree->setColumnWidth(0, 280);
     m_destTree->setColumnWidth(1, 140);
-    m_destSelectionLabel = new QLabel(QStringLiteral("Destino: Dataset (seleccione)"), destBox);
+    m_destSelectionLabel = new QLabel(tr3(QStringLiteral("Destino: Dataset (seleccione)"), QStringLiteral("Target: Dataset (select)"), QStringLiteral("目标：数据集（请选择）")), destBox);
     m_destSelectionLabel->setWordWrap(true);
     m_destSelectionLabel->setMinimumHeight(36);
     destTop->addWidget(m_destPoolCombo, 0);
@@ -435,7 +445,7 @@ void MainWindow::buildUi() {
     dsLeftLayout->addWidget(originBox, 1);
     dsLeftLayout->addWidget(destBox, 1);
 
-    auto* propsBox = new QGroupBox(QStringLiteral("Propiedades del dataset"), dsSplitter);
+    auto* propsBox = new QGroupBox(tr3(QStringLiteral("Propiedades del dataset"), QStringLiteral("Dataset properties"), QStringLiteral("数据集属性")), dsSplitter);
     auto* propsLayout = new QVBoxLayout(propsBox);
     propsLayout->setContentsMargins(8, 20, 8, 8);
     m_datasetPropsTable = new QTableWidget(propsBox);
@@ -445,7 +455,7 @@ void MainWindow::buildUi() {
     m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_datasetPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
-    m_btnApplyDatasetProps = new QPushButton(QStringLiteral("Aplicar cambios"), propsBox);
+    m_btnApplyDatasetProps = new QPushButton(tr3(QStringLiteral("Aplicar cambios"), QStringLiteral("Apply changes"), QStringLiteral("应用更改")), propsBox);
     m_btnApplyDatasetProps->setEnabled(false);
     propsLayout->addWidget(m_datasetPropsTable, 1);
     propsLayout->addWidget(m_btnApplyDatasetProps, 0, Qt::AlignRight);
@@ -486,7 +496,7 @@ void MainWindow::buildUi() {
     advLeftLayout->addLayout(advTop);
     advLeftLayout->addWidget(m_advTree, 1);
 
-    auto* advPropsBox = new QGroupBox(QStringLiteral("Propiedades del dataset"), advSplitter);
+    auto* advPropsBox = new QGroupBox(tr3(QStringLiteral("Propiedades del dataset"), QStringLiteral("Dataset properties"), QStringLiteral("数据集属性")), advSplitter);
     auto* advPropsLayout = new QVBoxLayout(advPropsBox);
     advPropsLayout->setContentsMargins(8, 20, 8, 8);
     m_advPropsTable = new QTableWidget(advPropsBox);
@@ -496,7 +506,7 @@ void MainWindow::buildUi() {
     m_advPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_advPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_advPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
-    m_btnApplyAdvancedProps = new QPushButton(QStringLiteral("Aplicar cambios"), advPropsBox);
+    m_btnApplyAdvancedProps = new QPushButton(tr3(QStringLiteral("Aplicar cambios"), QStringLiteral("Apply changes"), QStringLiteral("应用更改")), advPropsBox);
     m_btnApplyAdvancedProps->setEnabled(false);
     advPropsLayout->addWidget(m_advPropsTable, 1);
     advPropsLayout->addWidget(m_btnApplyAdvancedProps, 0, Qt::AlignRight);
@@ -516,7 +526,7 @@ void MainWindow::buildUi() {
     topLayout->addWidget(rightPane, 1);
     root->addWidget(topArea, 74);
 
-    auto* logBox = new QGroupBox(QStringLiteral("Log combinado"), central);
+    auto* logBox = new QGroupBox(tr3(QStringLiteral("Log combinado"), QStringLiteral("Combined log"), QStringLiteral("组合日志")), central);
     auto* logLayout = new QVBoxLayout(logBox);
     logLayout->setContentsMargins(6, 6, 6, 6);
     logLayout->setSpacing(4);
@@ -524,7 +534,7 @@ void MainWindow::buildUi() {
 
     auto* leftInfo = new QWidget(logBox);
     auto* leftInfoLayout = new QVBoxLayout(leftInfo);
-    auto* statusTitle = new QLabel(QStringLiteral("Estado"), leftInfo);
+    auto* statusTitle = new QLabel(tr3(QStringLiteral("Estado"), QStringLiteral("Status"), QStringLiteral("状态")), leftInfo);
     QFont smallTitle = statusTitle->font();
     smallTitle.setBold(true);
     statusTitle->setFont(smallTitle);
@@ -536,7 +546,7 @@ void MainWindow::buildUi() {
     m_statusText->setMinimumHeight(72);
     m_statusText->setMaximumHeight(72);
     m_statusText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
-    auto* detailTitle = new QLabel(QStringLiteral("Detalle"), leftInfo);
+    auto* detailTitle = new QLabel(tr3(QStringLiteral("Detalle"), QStringLiteral("Detail"), QStringLiteral("详情")), leftInfo);
     detailTitle->setFont(smallTitle);
     m_lastDetailText = new QTextEdit(leftInfo);
     m_lastDetailText->setReadOnly(true);
@@ -561,20 +571,20 @@ void MainWindow::buildUi() {
     mono.setPointSize(9);
     m_logView->setFont(mono);
     appTabLayout->addWidget(m_logView, 1);
-    m_logsTabs->addTab(appTab, QStringLiteral("Aplicación"));
+    m_logsTabs->addTab(appTab, tr3(QStringLiteral("Aplicación"), QStringLiteral("Application"), QStringLiteral("应用")));
     rightLogsLayout->addWidget(m_logsTabs, 1);
 
     auto* logControls = new QHBoxLayout();
-    logControls->addWidget(new QLabel(QStringLiteral("Nivel"), rightLogs));
+    logControls->addWidget(new QLabel(tr3(QStringLiteral("Nivel"), QStringLiteral("Level"), QStringLiteral("级别")), rightLogs));
     m_logLevelCombo = new QComboBox(rightLogs);
     m_logLevelCombo->addItems({QStringLiteral("normal"), QStringLiteral("info"), QStringLiteral("debug")});
     m_logLevelCombo->setCurrentText(QStringLiteral("normal"));
     m_logMaxLinesCombo = new QComboBox(rightLogs);
     m_logMaxLinesCombo->addItems({QStringLiteral("100"), QStringLiteral("200"), QStringLiteral("500"), QStringLiteral("1000")});
     m_logMaxLinesCombo->setCurrentText(QStringLiteral("500"));
-    m_logClearBtn = new QPushButton(QStringLiteral("Limpiar"), rightLogs);
-    m_logCopyBtn = new QPushButton(QStringLiteral("Copiar"), rightLogs);
-    m_logCancelBtn = new QPushButton(QStringLiteral("Cancelar"), rightLogs);
+    m_logClearBtn = new QPushButton(tr3(QStringLiteral("Limpiar"), QStringLiteral("Clear"), QStringLiteral("清空")), rightLogs);
+    m_logCopyBtn = new QPushButton(tr3(QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")), rightLogs);
+    m_logCancelBtn = new QPushButton(tr3(QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), rightLogs);
     m_logCancelBtn->setVisible(false);
     logControls->addWidget(m_logLevelCombo);
     logControls->addWidget(m_logMaxLinesCombo);

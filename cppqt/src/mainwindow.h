@@ -24,7 +24,7 @@ class QTextEdit;
 class MainWindow final : public QMainWindow {
     Q_OBJECT
 public:
-    explicit MainWindow(const QString& masterPassword, QWidget* parent = nullptr);
+    explicit MainWindow(const QString& masterPassword, const QString& language, QWidget* parent = nullptr);
 
 private:
     struct PoolImported {
@@ -151,6 +151,7 @@ private:
     void updateStatus(const QString& text);
     void setActionsLocked(bool locked);
     bool actionsLocked() const;
+    QString tr3(const QString& es, const QString& en, const QString& zh) const;
     QString maskSecrets(const QString& text) const;
     void logUiAction(const QString& action);
     void appLog(const QString& level, const QString& msg);
@@ -221,6 +222,7 @@ private:
     QMap<QString, bool> m_advPropsOriginalInherit;
     bool m_advPropsDirty{false};
     bool m_loadingPropsTable{false};
+    QString m_language{QStringLiteral("es")};
     QString m_appLogPath;
     int m_refreshGeneration{0};
     int m_refreshPending{0};
