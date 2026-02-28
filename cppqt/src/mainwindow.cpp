@@ -2459,7 +2459,10 @@ void MainWindow::actionAdvancedBreakdown() {
         }
         const QString name = parts[0].trimmed();
         const QString mountedVal = parts[1].trimmed();
-        if (!name.isEmpty() && !isMountedValueTrue(mountedVal)) {
+        if (name.isEmpty() || name.contains('@')) {
+            continue; // ignorar snapshots
+        }
+        if (!isMountedValueTrue(mountedVal)) {
             unmounted << name;
         }
     }
@@ -2585,7 +2588,10 @@ void MainWindow::actionAdvancedAssemble() {
         }
         const QString name = parts[0].trimmed();
         const QString mountedVal = parts[1].trimmed();
-        if (!name.isEmpty() && !isMountedValueTrue(mountedVal)) {
+        if (name.isEmpty() || name.contains('@')) {
+            continue; // ignorar snapshots
+        }
+        if (!isMountedValueTrue(mountedVal)) {
             unmounted << name;
         }
     }
