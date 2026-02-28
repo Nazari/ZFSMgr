@@ -94,6 +94,8 @@ private:
     void onDestTreeItemDoubleClicked(QTreeWidgetItem* item, int col);
     void onOriginTreeContextMenuRequested(const QPoint& pos);
     void onDestTreeContextMenuRequested(const QPoint& pos);
+    void onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item, const QString& side, const QString& chosen);
+    void clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem* keepItem);
     void onConnectionListContextMenuRequested(const QPoint& pos);
     void onImportedPoolsContextMenuRequested(const QPoint& pos);
     void onImportablePoolsContextMenuRequested(const QPoint& pos);

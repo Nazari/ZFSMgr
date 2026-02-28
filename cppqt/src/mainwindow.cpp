@@ -47,6 +47,8 @@
 #include <QMetaObject>
 #include <QRegularExpression>
 #include <QFontMetrics>
+#include <QSignalBlocker>
+#include <functional>
 
 #include <QtConcurrent/QtConcurrent>
 
@@ -1101,99 +1103,13 @@ void MainWindow::onDestTreeSelectionChanged() {
 }
 
 void MainWindow::onOriginTreeItemDoubleClicked(QTreeWidgetItem* item, int col) {
-    if (!item || col != 1) {
-        return;
-    }
-    const QString ds = item->data(0, Qt::UserRole).toString();
-    if (ds.isEmpty()) {
-        return;
-    }
-    const QString token = m_originPoolCombo->currentData().toString();
-    const int sep = token.indexOf(QStringLiteral("::"));
-    if (sep <= 0) {
-        return;
-    }
-    const int connIdx = token.left(sep).toInt();
-    const QString poolName = token.mid(sep + 2);
-    const QString key = datasetCacheKey(connIdx, poolName);
-    const auto it = m_poolDatasetCache.constFind(key);
-    if (it == m_poolDatasetCache.constEnd()) {
-        return;
-    }
-    QStringList options;
-    options << QStringLiteral("(seleccione)");
-    options += it.value().snapshotsByDataset.value(ds);
-    if (options.size() <= 1) {
-        return;
-    }
-    bool ok = false;
-    const QString chosen = QInputDialog::getItem(this,
-                                                 QStringLiteral("Snapshot origen"),
-                                                 QStringLiteral("Seleccione snapshot"),
-                                                 options,
-                                                 0,
-                                                 false,
-                                                 &ok);
-    if (!ok) {
-        return;
-    }
-    if (chosen == QStringLiteral("(seleccione)")) {
-        item->setText(1, QStringLiteral("(seleccione)"));
-        item->setData(1, Qt::UserRole, QString());
-        setSelectedDataset(QStringLiteral("origin"), ds, QString());
-    } else {
-        item->setText(1, chosen);
-        item->setData(1, Qt::UserRole, chosen);
-        setSelectedDataset(QStringLiteral("origin"), ds, chosen);
-    }
+    Q_UNUSED(item);
+    Q_UNUSED(col);
 }
 
 void MainWindow::onDestTreeItemDoubleClicked(QTreeWidgetItem* item, int col) {
-    if (!item || col != 1) {
-        return;
-    }
-    const QString ds = item->data(0, Qt::UserRole).toString();
-    if (ds.isEmpty()) {
-        return;
-    }
-    const QString token = m_destPoolCombo->currentData().toString();
-    const int sep = token.indexOf(QStringLiteral("::"));
-    if (sep <= 0) {
-        return;
-    }
-    const int connIdx = token.left(sep).toInt();
-    const QString poolName = token.mid(sep + 2);
-    const QString key = datasetCacheKey(connIdx, poolName);
-    const auto it = m_poolDatasetCache.constFind(key);
-    if (it == m_poolDatasetCache.constEnd()) {
-        return;
-    }
-    QStringList options;
-    options << QStringLiteral("(seleccione)");
-    options += it.value().snapshotsByDataset.value(ds);
-    if (options.size() <= 1) {
-        return;
-    }
-    bool ok = false;
-    const QString chosen = QInputDialog::getItem(this,
-                                                 QStringLiteral("Snapshot destino"),
-                                                 QStringLiteral("Seleccione snapshot"),
-                                                 options,
-                                                 0,
-                                                 false,
-                                                 &ok);
-    if (!ok) {
-        return;
-    }
-    if (chosen == QStringLiteral("(seleccione)")) {
-        item->setText(1, QStringLiteral("(seleccione)"));
-        item->setData(1, Qt::UserRole, QString());
-        setSelectedDataset(QStringLiteral("dest"), ds, QString());
-    } else {
-        item->setText(1, chosen);
-        item->setData(1, Qt::UserRole, chosen);
-        setSelectedDataset(QStringLiteral("dest"), ds, chosen);
-    }
+    Q_UNUSED(item);
+    Q_UNUSED(col);
 }
 
 void MainWindow::onOriginTreeContextMenuRequested(const QPoint& pos) {
@@ -1358,14 +1274,10 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         auto* item = new QTreeWidgetItem();
         item->setText(0, rec.name);
         const QStringList snaps = cache.snapshotsByDataset.value(rec.name);
-        if (!snaps.isEmpty()) {
-            item->setText(1, snaps.first());
-            item->setData(1, Qt::UserRole, snaps.first());
-        } else {
-            item->setText(1, QStringLiteral("(seleccione)"));
-            item->setData(1, Qt::UserRole, QString());
-        }
+        item->setText(1, QStringLiteral("(seleccione)"));
+        item->setData(1, Qt::UserRole, QString());
         item->setData(0, Qt::UserRole, rec.name);
+        item->setData(2, Qt::UserRole, snaps);
         byName.insert(rec.name, item);
     }
 
@@ -1384,11 +1296,68 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
     }
     tree->expandToDepth(0);
 
+    // Dropdown embebido en celda Snapshot, sin seleccionar ninguno al inicio.
+    std::function<void(QTreeWidgetItem*)> attachCombos = [&](QTreeWidgetItem* n) {
+        if (!n) {
+            return;
+        }
+        QStringList options;
+        options << QStringLiteral("(seleccione)");
+        options += n->data(2, Qt::UserRole).toStringList();
+        auto* combo = new QComboBox(tree);
+        combo->addItems(options);
+        combo->setCurrentIndex(0);
+        combo->setEnabled(options.size() > 1);
+        tree->setItemWidget(n, 1, combo);
+        QObject::connect(combo, &QComboBox::currentTextChanged, tree, [this, tree, n, side](const QString& txt) {
+            onSnapshotComboChanged(tree, n, side, txt);
+        });
+        for (int i = 0; i < n->childCount(); ++i) {
+            attachCombos(n->child(i));
+        }
+    };
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        attachCombos(tree->topLevelItem(i));
+    }
+
     if (side == QStringLiteral("origin")) {
         m_originSelectionLabel->setText(QStringLiteral("Origen: Dataset (seleccione)"));
     } else {
         m_destSelectionLabel->setText(QStringLiteral("Destino: Dataset (seleccione)"));
     }
+}
+
+void MainWindow::clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem* keepItem) {
+    std::function<void(QTreeWidgetItem*)> clearRec = [&](QTreeWidgetItem* n) {
+        if (!n || n == keepItem) {
+            return;
+        }
+        if (QComboBox* cb = qobject_cast<QComboBox*>(tree->itemWidget(n, 1))) {
+            QSignalBlocker b(cb);
+            cb->setCurrentIndex(0);
+        }
+        n->setData(1, Qt::UserRole, QString());
+        for (int i = 0; i < n->childCount(); ++i) {
+            clearRec(n->child(i));
+        }
+    };
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        clearRec(tree->topLevelItem(i));
+    }
+}
+
+void MainWindow::onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item, const QString& side, const QString& chosen) {
+    if (!tree || !item) {
+        return;
+    }
+    const QString ds = item->data(0, Qt::UserRole).toString();
+    const QString snap = (chosen == QStringLiteral("(seleccione)")) ? QString() : chosen.trimmed();
+    if (!snap.isEmpty()) {
+        clearOtherSnapshotSelections(tree, item);
+    }
+    item->setData(1, Qt::UserRole, snap);
+    tree->setCurrentItem(item);
+    setSelectedDataset(side, ds, snap);
 }
 
 void MainWindow::refreshDatasetProperties(const QString& side) {
