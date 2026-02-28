@@ -322,6 +322,7 @@ void MainWindow::buildUi() {
         "QPushButton { background: #e8eff5; border: 1px solid #9db0c4; border-radius: 4px; padding: 3px 8px; }"
         "QPushButton:hover { background: #d6e6f2; }"
         "QPushButton:pressed { background: #c4d8e8; }"
+        "QPushButton:disabled { background: #edf1f5; color: #8c99a6; border: 1px solid #c8d2dc; }"
         "QMenu { background: #ffffff; border: 1px solid #9db0c4; padding: 3px; }"
         "QMenu::item { padding: 4px 14px; color: #102233; }"
         "QMenu::item:selected { background: #cfe5ff; color: #0b2f4f; }"
