@@ -584,6 +584,14 @@ void MainWindow::buildUi() {
     m_importedPoolsTable->setContextMenuPolicy(Qt::NoContextMenu);
     m_importedPoolsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_importedPoolsTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_importedPoolsTable->verticalHeader()->setVisible(false);
+    {
+        QFont f = m_importedPoolsTable->font();
+        f.setPointSize(qMax(6, f.pointSize() - 1));
+        m_importedPoolsTable->setFont(f);
+    }
+    m_importedPoolsTable->verticalHeader()->setDefaultSectionSize(18);
+    m_importedPoolsTable->setStyleSheet(QStringLiteral("QTableWidget::item{padding:1px 3px;}"));
     importedLayout->addWidget(m_importedPoolsTable, 1);
 
     auto* importableTab = new QWidget(m_rightTabs);
@@ -601,6 +609,14 @@ void MainWindow::buildUi() {
     m_importablePoolsTable->setContextMenuPolicy(Qt::NoContextMenu);
     m_importablePoolsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_importablePoolsTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_importablePoolsTable->verticalHeader()->setVisible(false);
+    {
+        QFont f = m_importablePoolsTable->font();
+        f.setPointSize(qMax(6, f.pointSize() - 1));
+        m_importablePoolsTable->setFont(f);
+    }
+    m_importablePoolsTable->verticalHeader()->setDefaultSectionSize(18);
+    m_importablePoolsTable->setStyleSheet(QStringLiteral("QTableWidget::item{padding:1px 3px;}"));
     importableLayout->addWidget(m_importablePoolsTable, 1);
 
     m_rightTabs->addTab(importedTab, tr3(QStringLiteral("Pools importados"), QStringLiteral("Imported pools"), QStringLiteral("已导入池")));
@@ -732,6 +748,7 @@ void MainWindow::buildUi() {
     m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_datasetPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
+    m_datasetPropsTable->verticalHeader()->setVisible(false);
     if (m_mountedDatasetsTableLeft) {
         m_datasetPropsTable->setFont(m_mountedDatasetsTableLeft->font());
     }
@@ -793,6 +810,7 @@ void MainWindow::buildUi() {
     m_advPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_advPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_advPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
+    m_advPropsTable->verticalHeader()->setVisible(false);
     if (m_mountedDatasetsTableAdv) {
         m_advPropsTable->setFont(m_mountedDatasetsTableAdv->font());
     }
@@ -814,7 +832,7 @@ void MainWindow::buildUi() {
 
     topLayout->addWidget(leftPane, 0);
     topLayout->addWidget(rightPane, 1);
-    root->addWidget(topArea, 74);
+    root->addWidget(topArea, 79);
 
     auto* logBox = new QGroupBox(tr3(QStringLiteral("Log combinado"), QStringLiteral("Combined log"), QStringLiteral("组合日志")), central);
     auto* logLayout = new QVBoxLayout(logBox);
@@ -858,7 +876,7 @@ void MainWindow::buildUi() {
     m_logView->setReadOnly(true);
     QFont mono = m_logView->font();
     mono.setFamily(QStringLiteral("Monospace"));
-    mono.setPointSize(9);
+    mono.setPointSize(8);
     m_logView->setFont(mono);
     appTabLayout->addWidget(m_logView, 1);
     m_logsTabs->addTab(appTab, tr3(QStringLiteral("Aplicación"), QStringLiteral("Application"), QStringLiteral("应用")));
@@ -887,7 +905,7 @@ void MainWindow::buildUi() {
     logBody->addWidget(leftInfo, 1);
     logBody->addWidget(rightLogs, 2);
     logLayout->addLayout(logBody, 1);
-    root->addWidget(logBox, 26);
+    root->addWidget(logBox, 21);
 
     setCentralWidget(central);
 
@@ -4402,7 +4420,7 @@ void MainWindow::syncConnectionLogTabs() {
         view->setReadOnly(true);
         QFont mono = view->font();
         mono.setFamily(QStringLiteral("Monospace"));
-        mono.setPointSize(9);
+        mono.setPointSize(8);
         view->setFont(mono);
         lay->addWidget(view, 1);
         m_logsTabs->addTab(tab, p.name);
