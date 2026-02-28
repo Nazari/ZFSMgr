@@ -1236,6 +1236,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, in
     QStringList args;
     args << "-o" << "BatchMode=yes";
     args << "-o" << "ConnectTimeout=10";
+    args << "-o" << "LogLevel=ERROR";
     args << "-o" << "StrictHostKeyChecking=no";
     args << "-o" << "UserKnownHostsFile=/dev/null";
     if (p.port > 0) {
@@ -1797,7 +1798,7 @@ void MainWindow::actionCopySnapshot() {
     const QString srcSnap = src.datasetName + QStringLiteral("@") + src.snapshotName;
     const QString recvTarget = dst.datasetName + QStringLiteral("/") + src.datasetName.section('/', -1);
 
-    QString srcSsh = QStringLiteral("ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
+    QString srcSsh = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
     if (sp.port > 0) {
         srcSsh += QStringLiteral(" -p ") + QString::number(sp.port);
     }
@@ -1805,7 +1806,7 @@ void MainWindow::actionCopySnapshot() {
         srcSsh += QStringLiteral(" -i ") + shSingleQuote(sp.keyPath);
     }
     srcSsh += QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
-    QString dstSsh = QStringLiteral("ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
+    QString dstSsh = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
     if (dp.port > 0) {
         dstSsh += QStringLiteral(" -p ") + QString::number(dp.port);
     }
@@ -1839,7 +1840,7 @@ void MainWindow::actionLevelSnapshot() {
     const QString srcSnap = src.datasetName + QStringLiteral("@") + src.snapshotName;
     const QString recvTarget = dst.datasetName;
 
-    QString srcSsh = QStringLiteral("ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
+    QString srcSsh = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
     if (sp.port > 0) {
         srcSsh += QStringLiteral(" -p ") + QString::number(sp.port);
     }
@@ -1847,7 +1848,7 @@ void MainWindow::actionLevelSnapshot() {
         srcSsh += QStringLiteral(" -i ") + shSingleQuote(sp.keyPath);
     }
     srcSsh += QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
-    QString dstSsh = QStringLiteral("ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
+    QString dstSsh = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
     if (dp.port > 0) {
         dstSsh += QStringLiteral(" -p ") + QString::number(dp.port);
     }
@@ -1897,7 +1898,7 @@ void MainWindow::actionSyncDatasets() {
         return;
     }
 
-    QString srcSsh = QStringLiteral("ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
+    QString srcSsh = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
     if (sp.port > 0) {
         srcSsh += QStringLiteral(" -p ") + QString::number(sp.port);
     }
@@ -1905,7 +1906,7 @@ void MainWindow::actionSyncDatasets() {
         srcSsh += QStringLiteral(" -i ") + shSingleQuote(sp.keyPath);
     }
     srcSsh += QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
-    QString dstSsh = QStringLiteral("ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
+    QString dstSsh = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
     if (dp.port > 0) {
         dstSsh += QStringLiteral(" -p ") + QString::number(dp.port);
     }
@@ -1916,7 +1917,7 @@ void MainWindow::actionSyncDatasets() {
 
     QString remoteRsync =
         QStringLiteral("rsync -aHAWXS --delete --info=progress2 -e ")
-        + shSingleQuote(QStringLiteral("ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null")
+        + shSingleQuote(QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null")
                         + (dp.port > 0 ? QStringLiteral(" -p ") + QString::number(dp.port) : QString())
                         + (!dp.keyPath.isEmpty() ? QStringLiteral(" -i ") + dp.keyPath : QString()))
         + QStringLiteral(" %1/ %2:%3/")
@@ -2911,7 +2912,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     const QStringList importProbeArgs = {
         QStringLiteral("zpool import"),
         QStringLiteral("zpool import -s"),
-        QStringLiteral("zpool import -H -o name"),
     };
     bool importablesFound = false;
     for (const QString& probe : importProbeArgs) {
@@ -2923,20 +2923,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             continue;
         }
         const QString merged = out + QStringLiteral("\n") + err;
-        QVector<PoolImportable> parsed;
-        if (probe.endsWith(QStringLiteral("-H -o name"))) {
-            const QRegularExpression poolNameRx(QStringLiteral("^[A-Za-z0-9_.:-]+$"));
-            const QStringList names = out.split('\n', Qt::SkipEmptyParts);
-            for (QString name : names) {
-                name = name.trimmed();
-                if (name.isEmpty() || !poolNameRx.match(name).hasMatch()) {
-                    continue;
-                }
-                parsed.push_back(PoolImportable{p.name, name, QStringLiteral("UNKNOWN"), QString(), QStringLiteral("Importar")});
-            }
-        } else {
-            parsed = parseImportableStructured(merged);
-        }
+        QVector<PoolImportable> parsed = parseImportableStructured(merged);
         if (!parsed.isEmpty()) {
             state.importablePools = parsed;
             importablesFound = true;
