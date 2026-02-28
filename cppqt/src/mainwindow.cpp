@@ -926,7 +926,8 @@ void MainWindow::buildUi() {
 
     auto* controlsPane = new QWidget(rightLogs);
     controlsPane->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
-    controlsPane->setMinimumWidth(130);
+    controlsPane->setMinimumWidth(65);
+    controlsPane->setMaximumWidth(65);
     auto* logControls = new QVBoxLayout(controlsPane);
     logControls->setContentsMargins(0, 0, 0, 0);
     logControls->setSpacing(4);
@@ -940,11 +941,16 @@ void MainWindow::buildUi() {
     m_logCopyBtn = new QPushButton(tr3(QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")), rightLogs);
     m_logCancelBtn = new QPushButton(tr3(QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), rightLogs);
     m_logCancelBtn->setVisible(false);
-    m_logLevelCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_logMaxLinesCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_logClearBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_logCopyBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_logCancelBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_logLevelCombo->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_logMaxLinesCombo->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_logClearBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_logCopyBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_logCancelBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_logLevelCombo->setFixedWidth(60);
+    m_logMaxLinesCombo->setFixedWidth(60);
+    m_logClearBtn->setFixedWidth(60);
+    m_logCopyBtn->setFixedWidth(60);
+    m_logCancelBtn->setFixedWidth(60);
     logControls->addWidget(m_logLevelCombo, 0);
     logControls->addWidget(m_logMaxLinesCombo, 0);
     logControls->addWidget(m_logClearBtn, 0);
