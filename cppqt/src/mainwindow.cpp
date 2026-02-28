@@ -763,15 +763,19 @@ void MainWindow::buildUi() {
     dsLeftLayout->setContentsMargins(0, 0, 0, 0);
     dsLeftLayout->setSpacing(4);
 
-    auto* originBox = new QGroupBox(tr3(QStringLiteral("Origen"), QStringLiteral("Source"), QStringLiteral("源")), dsLeft);
-    auto* originLayout = new QVBoxLayout(originBox);
-    originLayout->setContentsMargins(8, 20, 8, 8);
+    auto* originPane = new QWidget(dsLeft);
+    auto* originLayout = new QVBoxLayout(originPane);
+    originLayout->setContentsMargins(0, 0, 0, 0);
+    originLayout->setSpacing(4);
     auto* originTop = new QHBoxLayout();
-    m_originPoolCombo = new QComboBox(originBox);
+    originTop->setContentsMargins(0, 0, 0, 0);
+    originTop->setSpacing(6);
+    auto* originLabel = new QLabel(tr3(QStringLiteral("Origen"), QStringLiteral("Source"), QStringLiteral("源")), originPane);
+    m_originPoolCombo = new QComboBox(originPane);
     m_originPoolCombo->setMinimumContentsLength(8);
     m_originPoolCombo->setMaximumWidth(140);
     m_originPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
-    m_originTree = new QTreeWidget(originBox);
+    m_originTree = new QTreeWidget(originPane);
     m_originTree->setColumnCount(2);
     m_originTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
     m_originTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
@@ -786,23 +790,28 @@ void MainWindow::buildUi() {
         m_originTree->setFont(f);
     }
     m_originTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"));
-    m_originSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), originBox);
+    m_originSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), originPane);
     m_originSelectionLabel->setWordWrap(true);
     m_originSelectionLabel->setMinimumHeight(36);
+    originTop->addWidget(originLabel, 0);
     originTop->addWidget(m_originPoolCombo, 0);
     originTop->addWidget(m_originSelectionLabel, 1);
     originLayout->addLayout(originTop);
     originLayout->addWidget(m_originTree, 1);
 
-    auto* destBox = new QGroupBox(tr3(QStringLiteral("Destino"), QStringLiteral("Target"), QStringLiteral("目标")), dsLeft);
-    auto* destLayout = new QVBoxLayout(destBox);
-    destLayout->setContentsMargins(8, 20, 8, 8);
+    auto* destPane = new QWidget(dsLeft);
+    auto* destLayout = new QVBoxLayout(destPane);
+    destLayout->setContentsMargins(0, 0, 0, 0);
+    destLayout->setSpacing(4);
     auto* destTop = new QHBoxLayout();
-    m_destPoolCombo = new QComboBox(destBox);
+    destTop->setContentsMargins(0, 0, 0, 0);
+    destTop->setSpacing(6);
+    auto* destLabel = new QLabel(tr3(QStringLiteral("Destino"), QStringLiteral("Target"), QStringLiteral("目标")), destPane);
+    m_destPoolCombo = new QComboBox(destPane);
     m_destPoolCombo->setMinimumContentsLength(8);
     m_destPoolCombo->setMaximumWidth(140);
     m_destPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
-    m_destTree = new QTreeWidget(destBox);
+    m_destTree = new QTreeWidget(destPane);
     m_destTree->setColumnCount(2);
     m_destTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
     m_destTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
@@ -817,16 +826,17 @@ void MainWindow::buildUi() {
         m_destTree->setFont(f);
     }
     m_destTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"));
-    m_destSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), destBox);
+    m_destSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), destPane);
     m_destSelectionLabel->setWordWrap(true);
     m_destSelectionLabel->setMinimumHeight(36);
+    destTop->addWidget(destLabel, 0);
     destTop->addWidget(m_destPoolCombo, 0);
     destTop->addWidget(m_destSelectionLabel, 1);
     destLayout->addLayout(destTop);
     destLayout->addWidget(m_destTree, 1);
 
-    dsLeftLayout->addWidget(originBox, 1);
-    dsLeftLayout->addWidget(destBox, 1);
+    dsLeftLayout->addWidget(originPane, 1);
+    dsLeftLayout->addWidget(destPane, 1);
     rightDatasetsLayout->addWidget(dsLeft, 1);
 
     auto* rightAdvancedPage = new QWidget(m_rightStack);
