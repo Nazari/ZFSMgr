@@ -946,6 +946,15 @@ void MainWindow::buildUi() {
     m_logClearBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_logCopyBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_logCancelBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    {
+        QFont cf = m_logLevelCombo->font();
+        cf.setPointSize(qMax(6, cf.pointSize() - 1));
+        m_logLevelCombo->setFont(cf);
+        m_logMaxLinesCombo->setFont(cf);
+        m_logClearBtn->setFont(cf);
+        m_logCopyBtn->setFont(cf);
+        m_logCancelBtn->setFont(cf);
+    }
     m_logLevelCombo->setFixedWidth(60);
     m_logMaxLinesCombo->setFixedWidth(60);
     m_logClearBtn->setFixedWidth(60);
