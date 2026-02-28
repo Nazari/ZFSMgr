@@ -34,6 +34,33 @@ function Import-VsDevEnv {
   return $true
 }
 
+function Find-OpenSslRoot {
+  if ($env:OPENSSL_ROOT_DIR -and (Test-Path $env:OPENSSL_ROOT_DIR)) {
+    return $env:OPENSSL_ROOT_DIR
+  }
+  $candidates = @(
+    "C:\msys64\mingw64",
+    "C:\msys64\ucrt64",
+    "C:\Qt\Tools\OpenSSLv3\Win_x64",
+    "C:\QT\Tools\OpenSSLv3\Win_x64",
+    "C:\Program Files\OpenSSL-Win64",
+    "C:\OpenSSL-Win64"
+  )
+  foreach ($root in $candidates) {
+    if (-not (Test-Path $root)) {
+      continue
+    }
+    $inc = Join-Path $root "include\openssl\ssl.h"
+    $libA = Join-Path $root "lib\libcrypto.a"
+    $libDllA = Join-Path $root "lib\libcrypto.dll.a"
+    $libVc = Join-Path $root "lib\VC\libcrypto.lib"
+    if ((Test-Path $inc) -and ((Test-Path $libA) -or (Test-Path $libDllA) -or (Test-Path $libVc))) {
+      return $root
+    }
+  }
+  return $null
+}
+
 # Resolver Qt6_DIR de forma robusta (aunque existan vars de entorno previas).
 $qtFromEnvValid = $false
 if ($env:Qt6_DIR) {
@@ -176,6 +203,14 @@ if ($hasGenerator) {
       }
     } else {
       Write-Host "Aviso: Qt MinGW detectado pero no se encontró Tools\\mingw*\\bin."
+    }
+
+    $opensslRoot = Find-OpenSslRoot
+    if ($opensslRoot) {
+      $NativeArgs += @("-DOPENSSL_ROOT_DIR=$opensslRoot")
+      Write-Host "OpenSSL detectado en: $opensslRoot"
+    } else {
+      throw "No se encontró OpenSSL para MinGW. Instala MSYS2 OpenSSL (p.ej. C:\msys64\mingw64) o define OPENSSL_ROOT_DIR."
     }
   }
 
