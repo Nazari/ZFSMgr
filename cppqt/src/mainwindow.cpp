@@ -327,13 +327,6 @@ void MainWindow::buildUi() {
     auto* connLayout = new QVBoxLayout(connectionsTab);
     connLayout->setContentsMargins(4, 4, 4, 4);
     connLayout->setSpacing(4);
-    m_connectionsList = new QListWidget(connectionsTab);
-    m_connectionsList->setAlternatingRowColors(true);
-    m_connectionsList->setUniformItemSizes(true);
-    m_connectionsList->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_connectionsList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-    connLayout->addWidget(m_connectionsList, 1);
-
     auto* connButtons = new QVBoxLayout();
     connButtons->setSpacing(10);
     m_btnNew = new QPushButton(tr3(QStringLiteral("Nueva"), QStringLiteral("New"), QStringLiteral("新建")), connectionsTab);
@@ -349,8 +342,14 @@ void MainWindow::buildUi() {
     connButtons->addWidget(m_btnNew);
     connButtons->addWidget(m_btnRefreshAll);
     connButtons->addWidget(m_btnConfig);
-    connButtons->addStretch(1);
     connLayout->addLayout(connButtons);
+
+    m_connectionsList = new QListWidget(connectionsTab);
+    m_connectionsList->setAlternatingRowColors(true);
+    m_connectionsList->setUniformItemSizes(true);
+    m_connectionsList->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_connectionsList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    connLayout->addWidget(m_connectionsList, 1);
     connectionsTab->setLayout(connLayout);
 
     auto* datasetsTab = new QWidget(m_leftTabs);
