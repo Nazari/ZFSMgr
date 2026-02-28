@@ -428,6 +428,26 @@ void MainWindow::buildUi() {
     commandsLayout->setSpacing(10);
     m_btnAdvancedBreakdown = new QPushButton(tr3(QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")), commandsBox);
     m_btnAdvancedAssemble = new QPushButton(tr3(QStringLiteral("Ensamblar"), QStringLiteral("Assemble"), QStringLiteral("组装")), commandsBox);
+    m_btnAdvancedBreakdown->setToolTip(
+        tr3(QStringLiteral("Requiere dataset y descendientes montados. "
+                           "Permite seleccionar directorios a desglosar. "
+                           "No se ejecuta si hay conflictos de mountpoint."),
+            QStringLiteral("Requires dataset and descendants mounted. "
+                           "Lets you select directories to split. "
+                           "Will not run if mountpoint conflicts exist."),
+            QStringLiteral("要求数据集及其后代已挂载。"
+                           "可选择要拆分的目录。"
+                           "若存在挂载点冲突则不会执行。")));
+    m_btnAdvancedAssemble->setToolTip(
+        tr3(QStringLiteral("Requiere dataset y descendientes montados. "
+                           "Permite seleccionar subdatasets a ensamblar. "
+                           "zfs destroy solo se ejecuta si rsync finaliza OK."),
+            QStringLiteral("Requires dataset and descendants mounted. "
+                           "Lets you select child datasets to assemble. "
+                           "zfs destroy runs only if rsync succeeds."),
+            QStringLiteral("要求数据集及其后代已挂载。"
+                           "可选择要组装的子数据集。"
+                           "仅当 rsync 成功时才执行 zfs destroy。")));
     m_btnAdvancedBreakdown->setMinimumHeight(34);
     m_btnAdvancedAssemble->setMinimumHeight(34);
     m_btnAdvancedBreakdown->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
