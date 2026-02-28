@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BuildDir = Join-Path $ScriptDir "build-windows"
-$NativeArgs = @args
+$NativeArgs = @($args)
 
 # Opcional: permitir usar Qt6_DIR/CMAKE_PREFIX_PATH predefinidos.
 if (-not $env:Qt6_DIR -and -not $env:CMAKE_PREFIX_PATH) {
