@@ -35,32 +35,43 @@ function Import-VsDevEnv {
 
 # Opcional: permitir usar Qt6_DIR/CMAKE_PREFIX_PATH predefinidos.
 if (-not $env:Qt6_DIR -and -not $env:CMAKE_PREFIX_PATH) {
-  $qtRoot = "C:\QT"
-  if (Test-Path $qtRoot) {
+  $qtRoots = @("C:\Qt", "C:\QT") | Where-Object { Test-Path $_ }
+  $picked = $null
+  foreach ($qtRoot in $qtRoots) {
+    # 1) Búsqueda rápida por layout típico: <root>\<version>\<kit>\lib\cmake\Qt6
     $qt6Candidates = Get-ChildItem -Path $qtRoot -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending
     $orderedKitPatterns = @("msvc", "clang", "mingw")
-    $picked = $null
     foreach ($kitPattern in $orderedKitPatterns) {
       if ($picked) { break }
       foreach ($verDir in $qt6Candidates) {
         $cmakeCandidates = Get-ChildItem -Path $verDir.FullName -Directory -ErrorAction SilentlyContinue |
           Where-Object { $_.Name -match $kitPattern } |
           ForEach-Object { Join-Path $_.FullName "lib\cmake\Qt6" } |
-          Where-Object { Test-Path $_ }
+          Where-Object { Test-Path (Join-Path $_ "Qt6Config.cmake") }
         if ($cmakeCandidates.Count -gt 0) {
           $picked = $cmakeCandidates[0]
           break
         }
       }
     }
-    if ($picked) {
-      $env:Qt6_DIR = $picked
-      Write-Host "Qt6 autodetectado en: $($env:Qt6_DIR)"
-    } else {
-      Write-Host "Aviso: no se encontró Qt6 en C:\QT (ruta esperada: <version>\\<kit>\\lib\\cmake\\Qt6)."
+    if ($picked) { break }
+
+    # 2) Fallback recursivo: localizar Qt6Config.cmake y tomar su carpeta padre.
+    $found = Get-ChildItem -Path $qtRoot -Filter "Qt6Config.cmake" -File -Recurse -ErrorAction SilentlyContinue |
+      Select-Object -First 1
+    if ($found) {
+      $picked = Split-Path -Parent $found.FullName
+      break
     }
+  }
+
+  if ($picked) {
+    $env:Qt6_DIR = $picked
+    Write-Host "Qt6 autodetectado en: $($env:Qt6_DIR)"
   } else {
-    Write-Host "Aviso: define Qt6_DIR o CMAKE_PREFIX_PATH si CMake no encuentra Qt6."
+    Write-Host "Aviso: no se encontró Qt6Config.cmake en C:\Qt ni C:\QT."
+    Write-Host "Define Qt6_DIR manualmente, ejemplo:"
+    Write-Host '$env:Qt6_DIR = "C:\Qt\6.9.0\msvc2022_64\lib\cmake\Qt6"'
   }
 }
 
