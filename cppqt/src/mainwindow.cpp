@@ -1234,7 +1234,6 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
 
     QMenu menu(this);
     QAction* refreshAct = menu.addAction(QStringLiteral("Refrescar"));
-    QAction* refreshAllAct = menu.addAction(QStringLiteral("Refrescar todo"));
     menu.addSeparator();
     QAction* editAct = menu.addAction(QStringLiteral("Editar"));
     QAction* deleteAct = menu.addAction(QStringLiteral("Borrar"));
@@ -1249,9 +1248,6 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
     if (picked == refreshAct) {
         logUiAction(QStringLiteral("Refrescar conexión (menú)"));
         refreshSelectedConnection();
-    } else if (picked == refreshAllAct) {
-        logUiAction(QStringLiteral("Refrescar todo (menú)"));
-        refreshAllConnections();
     } else if (picked == editAct) {
         logUiAction(QStringLiteral("Editar conexión (menú)"));
         editConnection();
