@@ -1835,8 +1835,8 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
             combo->addItems(options);
             combo->setCurrentIndex(0);
             combo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
-            combo->setMinimumHeight(18);
-            combo->setMaximumHeight(18);
+            combo->setMinimumHeight(20);
+            combo->setMaximumHeight(20);
             combo->setFont(tree->font());
             combo->setStyleSheet(QStringLiteral("QComboBox{padding:0 2px; margin:0px;}"));
             tree->setItemWidget(n, 1, combo);
