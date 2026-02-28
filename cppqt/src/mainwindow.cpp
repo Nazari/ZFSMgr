@@ -83,6 +83,57 @@ QString parseOpenZfsVersionText(const QString& text) {
     return QString();
 }
 
+bool isUserProperty(const QString& prop) {
+    return prop.contains(':');
+}
+
+bool isDatasetPropertyEditable(const QString& propName, const QString& datasetType, const QString& source, const QString& readonly) {
+    const QString prop = propName.trimmed().toLower();
+    const QString dsType = datasetType.trimmed().toLower();
+    const QString src = source.trimmed();
+    const QString ro = readonly.trimmed().toLower();
+    if (prop.isEmpty()) {
+        return false;
+    }
+    if (ro == QStringLiteral("true") || ro == QStringLiteral("on") || ro == QStringLiteral("yes") || ro == QStringLiteral("1")) {
+        return false;
+    }
+    if (src == QStringLiteral("-")) {
+        return false;
+    }
+    if (isUserProperty(prop)) {
+        return true;
+    }
+
+    static const QSet<QString> common = {
+        QStringLiteral("atime"), QStringLiteral("relatime"), QStringLiteral("readonly"), QStringLiteral("compression"),
+        QStringLiteral("checksum"), QStringLiteral("sync"), QStringLiteral("logbias"), QStringLiteral("primarycache"),
+        QStringLiteral("secondarycache"), QStringLiteral("dedup"), QStringLiteral("copies"), QStringLiteral("acltype"),
+        QStringLiteral("aclinherit"), QStringLiteral("xattr"), QStringLiteral("normalization"),
+        QStringLiteral("casesensitivity"), QStringLiteral("utf8only"), QStringLiteral("keylocation"), QStringLiteral("comment")
+    };
+    static const QSet<QString> fs = common | QSet<QString>{
+        QStringLiteral("mountpoint"), QStringLiteral("canmount"), QStringLiteral("recordsize"), QStringLiteral("quota"),
+        QStringLiteral("reservation"), QStringLiteral("refquota"), QStringLiteral("refreservation"),
+        QStringLiteral("snapdir"), QStringLiteral("exec"), QStringLiteral("setuid"), QStringLiteral("devices")
+    };
+    static const QSet<QString> vol = common | QSet<QString>{
+        QStringLiteral("volsize"), QStringLiteral("volblocksize"), QStringLiteral("reservation"),
+        QStringLiteral("refreservation"), QStringLiteral("snapdev"), QStringLiteral("volmode")
+    };
+
+    if (dsType == QStringLiteral("filesystem")) {
+        return fs.contains(prop);
+    }
+    if (dsType == QStringLiteral("volume")) {
+        return vol.contains(prop);
+    }
+    if (dsType == QStringLiteral("snapshot")) {
+        return false;
+    }
+    return fs.contains(prop) || vol.contains(prop);
+}
+
 QString parentDatasetName(const QString& dataset) {
     const int slash = dataset.lastIndexOf('/');
     if (slash <= 0) {
@@ -192,6 +243,8 @@ void MainWindow::buildUi() {
     m_transferDestLabel->setWordWrap(true);
     m_transferOriginLabel->setMinimumHeight(34);
     m_transferDestLabel->setMinimumHeight(34);
+    m_transferOriginLabel->hide();
+    m_transferDestLabel->hide();
     m_btnCopy = new QPushButton(QStringLiteral("Copiar"), transferBox);
     m_btnLevel = new QPushButton(QStringLiteral("Nivelar"), transferBox);
     m_btnSync = new QPushButton(QStringLiteral("Sincronizar"), transferBox);
@@ -1397,22 +1450,78 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         return;
     }
     const DatasetRecord& rec = recIt.value();
+    const ConnectionProfile& p = m_profiles[connIdx];
 
-    struct Row {
-        QString k;
-        QString v;
+    QString datasetType = dataset.contains('@') ? QStringLiteral("snapshot") : QStringLiteral("filesystem");
+    {
+        QString tOut, tErr;
+        int tRc = -1;
+        const QString typeCmd = withSudo(
+            p,
+            QStringLiteral("zfs get -H -o value type %1").arg(shSingleQuote(dataset)));
+        if (runSsh(p, typeCmd, 12000, tOut, tErr, tRc) && tRc == 0) {
+            const QString t = tOut.trimmed().toLower();
+            if (!t.isEmpty()) {
+                datasetType = t;
+            }
+        }
+    }
+
+    struct PropRow {
+        QString prop;
+        QString value;
+        QString source;
+        QString readonly;
     };
-    const QVector<Row> rows = {
-        {QStringLiteral("dataset"), rec.name},
-        {QStringLiteral("mounted"), rec.mounted},
-        {QStringLiteral("mountpoint"), rec.mountpoint},
-        {QStringLiteral("used"), rec.used},
-        {QStringLiteral("compressratio"), rec.compressRatio},
-        {QStringLiteral("encryption"), rec.encryption},
-        {QStringLiteral("creation"), rec.creation},
-        {QStringLiteral("referenced"), rec.referenced},
-        {QStringLiteral("canmount"), rec.canmount},
-    };
+    QVector<PropRow> rows;
+    rows.push_back({QStringLiteral("dataset"), rec.name, QString(), QStringLiteral("true")});
+
+    QString out;
+    QString err;
+    int rc = -1;
+    QString propsCmd = withSudo(
+        p,
+        QStringLiteral("zfs get -H -o property,value,source,readonly all %1").arg(shSingleQuote(dataset)));
+    if (!runSsh(p, propsCmd, 20000, out, err, rc) || rc != 0) {
+        propsCmd = withSudo(
+            p,
+            QStringLiteral("zfs get -H -o property,value,source all %1").arg(shSingleQuote(dataset)));
+        out.clear();
+        err.clear();
+        rc = -1;
+        runSsh(p, propsCmd, 20000, out, err, rc);
+    }
+    if (rc == 0) {
+        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+        for (const QString& raw : lines) {
+            QString prop, val, source, ro;
+            const QStringList parts = raw.split('\t');
+            if (parts.size() >= 4) {
+                prop = parts[0].trimmed();
+                val = parts[1].trimmed();
+                source = parts[2].trimmed();
+                ro = parts[3].trimmed().toLower();
+            } else if (parts.size() >= 3) {
+                prop = parts[0].trimmed();
+                val = parts[1].trimmed();
+                source = parts[2].trimmed();
+                ro.clear();
+            } else {
+                const QStringList sp = raw.simplified().split(' ');
+                if (sp.size() < 3) {
+                    continue;
+                }
+                prop = sp[0].trimmed();
+                val = sp[1].trimmed();
+                source = sp[2].trimmed();
+                ro = (sp.size() > 3) ? sp[3].trimmed().toLower() : QString();
+            }
+            if (!isDatasetPropertyEditable(prop, datasetType, source, ro)) {
+                continue;
+            }
+            rows.push_back({prop, val, source, ro});
+        }
+    }
 
     m_loadingPropsTable = true;
     table->setRowCount(0);
@@ -1426,21 +1535,18 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         m_propsSide = side;
         m_propsDataset = rec.name;
     }
-    const QSet<QString> inheritableProps = {
-        QStringLiteral("mountpoint"),
-        QStringLiteral("canmount"),
-    };
-    for (const Row& row : rows) {
+    const QSet<QString> inheritableProps = {QStringLiteral("mountpoint"), QStringLiteral("canmount")};
+    for (const PropRow& row : rows) {
         const int r = table->rowCount();
         table->insertRow(r);
-        table->setItem(r, 0, new QTableWidgetItem(row.k));
-        auto* v = new QTableWidgetItem(row.v);
-        if (row.k == QStringLiteral("dataset")) {
+        table->setItem(r, 0, new QTableWidgetItem(row.prop));
+        auto* v = new QTableWidgetItem(row.value);
+        if (row.prop == QStringLiteral("dataset")) {
             v->setFlags(v->flags() & ~Qt::ItemIsEditable);
         }
         table->setItem(r, 1, v);
         auto* inh = new QTableWidgetItem();
-        if (inheritableProps.contains(row.k)) {
+        if (inheritableProps.contains(row.prop)) {
             inh->setFlags((inh->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled) & ~Qt::ItemIsEditable);
             inh->setCheckState(Qt::Unchecked);
         } else {
@@ -1449,11 +1555,11 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         }
         table->setItem(r, 2, inh);
         if (side == QStringLiteral("advanced")) {
-            m_advPropsOriginalValues[row.k] = row.v;
-            m_advPropsOriginalInherit[row.k] = false;
+            m_advPropsOriginalValues[row.prop] = row.value;
+            m_advPropsOriginalInherit[row.prop] = false;
         } else {
-            m_propsOriginalValues[row.k] = row.v;
-            m_propsOriginalInherit[row.k] = false;
+            m_propsOriginalValues[row.prop] = row.value;
+            m_propsOriginalInherit[row.prop] = false;
         }
     }
     if (side == QStringLiteral("advanced")) {
