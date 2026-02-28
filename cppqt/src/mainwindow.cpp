@@ -363,6 +363,10 @@ void MainWindow::buildUi() {
     auto* connLayout = new QVBoxLayout(connectionsTab);
     connLayout->setContentsMargins(4, 4, 4, 4);
     connLayout->setSpacing(4);
+    auto* connButtonsBox = new QGroupBox(
+        tr3(QStringLiteral("Conexiones"), QStringLiteral("Connections"), QStringLiteral("连接")), connectionsTab);
+    auto* connButtonsBoxLayout = new QVBoxLayout(connButtonsBox);
+    connButtonsBoxLayout->setContentsMargins(8, 20, 8, 8);
     auto* connButtons = new QHBoxLayout();
     connButtons->setSpacing(8);
     m_btnNew = new QPushButton(tr3(QStringLiteral("Nueva"), QStringLiteral("New"), QStringLiteral("新建")), connectionsTab);
@@ -378,9 +382,11 @@ void MainWindow::buildUi() {
     connButtons->addWidget(m_btnNew);
     connButtons->addWidget(m_btnRefreshAll);
     connButtons->addWidget(m_btnConfig);
-    connLayout->addLayout(connButtons);
+    connButtonsBoxLayout->addLayout(connButtons);
+    connLayout->addWidget(connButtonsBox, 0);
 
-    auto* connListBox = new QGroupBox(tr3(QStringLiteral("Conexiones"), QStringLiteral("Connections"), QStringLiteral("连接")), connectionsTab);
+    auto* connListBox = new QGroupBox(
+        tr3(QStringLiteral("Listado"), QStringLiteral("List"), QStringLiteral("列表")), connectionsTab);
     auto* connListBoxLayout = new QVBoxLayout(connListBox);
     connListBoxLayout->setContentsMargins(8, 20, 8, 8);
     m_connectionsList = new QListWidget(connListBox);
