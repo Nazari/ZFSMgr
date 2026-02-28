@@ -124,9 +124,11 @@ private:
     void actionAdvancedBreakdown();
     void actionAdvancedAssemble();
     void actionMountDataset(const QString& side);
+    void actionMountDatasetWithChildren(const QString& side);
     void actionUmountDataset(const QString& side);
     void actionCreateChildDataset(const QString& side);
     void actionDeleteDatasetOrSnapshot(const QString& side);
+    bool ensureParentMountedBeforeMount(const DatasetSelectionContext& ctx, const QString& side);
     void onDatasetPropsCellChanged(int row, int col);
     void applyDatasetPropertyChanges();
     void onAdvancedPropsCellChanged(int row, int col);

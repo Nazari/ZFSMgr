@@ -2939,6 +2939,7 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
 
     QMenu menu(this);
     QAction* mountAct = menu.addAction(QStringLiteral("Montar"));
+    QAction* mountWithChildrenAct = menu.addAction(QStringLiteral("Montar con todos los hijos"));
     QAction* umountAct = menu.addAction(QStringLiteral("Desmontar"));
     menu.addSeparator();
     QAction* createAct = menu.addAction(QStringLiteral("Crear hijo"));
@@ -2946,6 +2947,7 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
 
     if (!ctx.snapshotName.isEmpty()) {
         mountAct->setEnabled(false);
+        mountWithChildrenAct->setEnabled(false);
         umountAct->setEnabled(false);
         createAct->setEnabled(false);
     } else {
@@ -2979,6 +2981,9 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
     if (picked == mountAct) {
         logUiAction(QStringLiteral("Montar dataset (menú)"));
         actionMountDataset(side);
+    } else if (picked == mountWithChildrenAct) {
+        logUiAction(QStringLiteral("Montar dataset con hijos (menú)"));
+        actionMountDatasetWithChildren(side);
     } else if (picked == umountAct) {
         logUiAction(QStringLiteral("Desmontar dataset (menú)"));
         actionUmountDataset(side);
@@ -3055,9 +3060,74 @@ void MainWindow::actionMountDataset(const QString& side) {
     if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
         return;
     }
+    if (!ensureParentMountedBeforeMount(ctx, side)) {
+        return;
+    }
     const QString dsQ = shSingleQuote(ctx.datasetName);
     const QString cmd = QStringLiteral("zfs mount %1").arg(dsQ);
     executeDatasetAction(side, QStringLiteral("Montar"), ctx, cmd);
+}
+
+void MainWindow::actionMountDatasetWithChildren(const QString& side) {
+    if (actionsLocked()) {
+        return;
+    }
+    const DatasetSelectionContext ctx = currentDatasetSelection(side);
+    if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
+        return;
+    }
+    if (!ensureParentMountedBeforeMount(ctx, side)) {
+        return;
+    }
+    const QString dsQ = shSingleQuote(ctx.datasetName);
+    const QString cmd = QStringLiteral(
+                            "set -e; DATASET=%1; "
+                            "zfs mount \"$DATASET\"; "
+                            "zfs list -H -o name -r \"$DATASET\" | tail -n +2 | "
+                            "while IFS= read -r child; do [ -n \"$child\" ] || continue; zfs mount \"$child\"; done")
+                            .arg(dsQ);
+    executeDatasetAction(side, QStringLiteral("Montar con todos los hijos"), ctx, cmd);
+}
+
+bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& ctx, const QString& side) {
+    Q_UNUSED(side);
+    if (!ctx.valid || ctx.datasetName.isEmpty()) {
+        return false;
+    }
+    const QString parent = parentDatasetName(ctx.datasetName);
+    if (parent.isEmpty()) {
+        return true;
+    }
+
+    QString parentMountpoint;
+    if (!getDatasetProperty(ctx.connIdx, parent, QStringLiteral("mountpoint"), parentMountpoint)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             tr3(QStringLiteral("No se pudo comprobar mountpoint del padre %1").arg(parent),
+                                 QStringLiteral("Could not verify parent mountpoint %1").arg(parent),
+                                 QStringLiteral("无法检查父数据集 mountpoint：%1").arg(parent)));
+        return false;
+    }
+    const QString mp = parentMountpoint.trimmed().toLower();
+    if (mp.isEmpty() || mp == QStringLiteral("none")) {
+        return true;
+    }
+
+    QString parentMounted;
+    if (!getDatasetProperty(ctx.connIdx, parent, QStringLiteral("mounted"), parentMounted)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             tr3(QStringLiteral("No se pudo comprobar estado mounted del padre %1").arg(parent),
+                                 QStringLiteral("Could not verify parent mounted state %1").arg(parent),
+                                 QStringLiteral("无法检查父数据集挂载状态：%1").arg(parent)));
+        return false;
+    }
+    if (!isMountedValueTrue(parentMounted)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             tr3(QStringLiteral("El dataset padre %1 no está montado, móntelo antes por favor").arg(parent),
+                                 QStringLiteral("Parent dataset %1 is not mounted, mount it first").arg(parent),
+                                 QStringLiteral("父数据集 %1 未挂载，请先挂载").arg(parent)));
+        return false;
+    }
+    return true;
 }
 
 void MainWindow::actionUmountDataset(const QString& side) {
