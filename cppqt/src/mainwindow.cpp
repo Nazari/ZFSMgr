@@ -388,7 +388,8 @@ void MainWindow::buildUi() {
     m_originTree->setColumnCount(2);
     m_originTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
     m_originTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    m_originTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_originTree->header()->setSectionResizeMode(1, QHeaderView::Fixed);
+    m_originTree->setColumnWidth(1, 90);
     m_originSelectionLabel = new QLabel(QStringLiteral("Origen: Dataset (seleccione)"), originBox);
     m_originSelectionLabel->setWordWrap(true);
     m_originSelectionLabel->setMinimumHeight(36);
@@ -409,7 +410,8 @@ void MainWindow::buildUi() {
     m_destTree->setColumnCount(2);
     m_destTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
     m_destTree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    m_destTree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_destTree->header()->setSectionResizeMode(1, QHeaderView::Fixed);
+    m_destTree->setColumnWidth(1, 90);
     m_destSelectionLabel = new QLabel(QStringLiteral("Destino: Dataset (seleccione)"), destBox);
     m_destSelectionLabel->setWordWrap(true);
     m_destSelectionLabel->setMinimumHeight(36);
@@ -1284,7 +1286,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         auto* item = new QTreeWidgetItem();
         item->setText(0, rec.name);
         const QStringList snaps = cache.snapshotsByDataset.value(rec.name);
-        item->setText(1, QStringLiteral("(seleccione)"));
+        item->setText(1, snaps.isEmpty() ? QString() : QStringLiteral("(ninguno)"));
         item->setData(1, Qt::UserRole, QString());
         item->setData(0, Qt::UserRole, rec.name);
         item->setData(2, Qt::UserRole, snaps);
@@ -1311,17 +1313,23 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         if (!n) {
             return;
         }
-        QStringList options;
-        options << QStringLiteral("(seleccione)");
-        options += n->data(2, Qt::UserRole).toStringList();
-        auto* combo = new QComboBox(tree);
-        combo->addItems(options);
-        combo->setCurrentIndex(0);
-        combo->setEnabled(options.size() > 1);
-        tree->setItemWidget(n, 1, combo);
-        QObject::connect(combo, &QComboBox::currentTextChanged, tree, [this, tree, n, side](const QString& txt) {
-            onSnapshotComboChanged(tree, n, side, txt);
-        });
+        const QStringList snaps = n->data(2, Qt::UserRole).toStringList();
+        if (!snaps.isEmpty()) {
+            QStringList options;
+            options << QStringLiteral("(ninguno)");
+            options += snaps;
+            auto* combo = new QComboBox(tree);
+            combo->addItems(options);
+            combo->setCurrentIndex(0);
+            tree->setItemWidget(n, 1, combo);
+            QObject::connect(combo, &QComboBox::currentTextChanged, tree, [this, tree, n, side](const QString& txt) {
+                onSnapshotComboChanged(tree, n, side, txt);
+            });
+        } else {
+            tree->setItemWidget(n, 1, nullptr);
+            n->setText(1, QString());
+            n->setData(1, Qt::UserRole, QString());
+        }
         for (int i = 0; i < n->childCount(); ++i) {
             attachCombos(n->child(i));
         }
@@ -1361,7 +1369,7 @@ void MainWindow::onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item
         return;
     }
     const QString ds = item->data(0, Qt::UserRole).toString();
-    const QString snap = (chosen == QStringLiteral("(seleccione)")) ? QString() : chosen.trimmed();
+    const QString snap = (chosen == QStringLiteral("(ninguno)")) ? QString() : chosen.trimmed();
     if (!snap.isEmpty()) {
         clearOtherSnapshotSelections(tree, item);
     }
