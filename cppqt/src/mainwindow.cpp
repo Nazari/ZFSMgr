@@ -224,6 +224,32 @@ QString buildZfsCreateCmd(const CreateDatasetOptions& opt) {
     return parts.join(' ');
 }
 
+QString formatCommandPreview(const QString& input) {
+    QString header;
+    QString body = input;
+    const int nl = input.indexOf('\n');
+    if (nl >= 0) {
+        header = input.left(nl).trimmed();
+        body = input.mid(nl + 1).trimmed();
+    } else {
+        body = input.trimmed();
+    }
+    if (body.isEmpty()) {
+        return input;
+    }
+
+    QString pretty = body;
+    pretty.replace(QStringLiteral(" && "), QStringLiteral(" &&\n  "));
+    pretty.replace(QStringLiteral(" || "), QStringLiteral(" ||\n  "));
+    pretty.replace(QStringLiteral(" | "), QStringLiteral(" |\n  "));
+    pretty.replace(QStringLiteral("; "), QStringLiteral(";\n"));
+
+    if (!header.isEmpty()) {
+        return header + QStringLiteral("\n  ") + pretty;
+    }
+    return pretty;
+}
+
 } // namespace
 
 MainWindow::MainWindow(const QString& masterPassword, const QString& language, QWidget* parent)
@@ -3519,9 +3545,15 @@ bool MainWindow::confirmActionExecution(const QString& actionName, const QString
     intro->setWordWrap(true);
     root->addWidget(intro);
 
+    QStringList rendered;
+    rendered.reserve(commands.size());
+    for (const QString& cmd : commands) {
+        rendered.push_back(formatCommandPreview(cmd));
+    }
+
     QPlainTextEdit* txt = new QPlainTextEdit(&dlg);
     txt->setReadOnly(true);
-    txt->setPlainText(commands.join(QStringLiteral("\n\n")));
+    txt->setPlainText(rendered.join(QStringLiteral("\n\n")));
     root->addWidget(txt, 1);
 
     QDialogButtonBox* box = new QDialogButtonBox(&dlg);
