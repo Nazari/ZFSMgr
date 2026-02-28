@@ -2177,7 +2177,7 @@ void MainWindow::actionAdvancedAssemble() {
                        "[ \"$MP\" = \"none\" ] && { echo \"mountpoint=none\"; exit 2; }; "
                        "for child in $(zfs list -H -o name -r \"$DATASET\" | tail -n +2); do bn=${child##*/}; "
                        "CMP=$(zfs get -H -o value mountpoint \"$child\"); [ \"$CMP\" = \"none\" ] && continue; "
-                       "mkdir -p \"$MP/$bn\"; rsync -aHAWXS \"$CMP\"/ \"$MP/$bn\"/; zfs destroy -r \"$child\"; done")
+                       "mkdir -p \"$MP/$bn\"; rsync -aHAWXS \"$CMP\"/ \"$MP/$bn\"/ && zfs destroy -r \"$child\"; done")
             .arg(shSingleQuote(ds));
     if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Ensamblar"), ctx, cmd, 0)) {
         m_advSelectionLabel->setText(ds);
