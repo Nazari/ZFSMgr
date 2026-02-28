@@ -444,8 +444,14 @@ void MainWindow::buildUi() {
         QFont f = m_mountedDatasetsTableLeft->font();
         f.setPointSize(qMax(6, f.pointSize() - 2));
         m_mountedDatasetsTableLeft->setFont(f);
-        m_mountedDatasetsTableLeft->horizontalHeader()->setFont(f);
+        QFont hf = f;
+        hf.setPointSize(qMax(6, hf.pointSize() - 2));
+        hf.setBold(false);
+        m_mountedDatasetsTableLeft->horizontalHeader()->setFont(hf);
     }
+    m_mountedDatasetsTableLeft->setStyleSheet(
+        QStringLiteral("QScrollBar:vertical{width:8px;} "
+                       "QScrollBar:horizontal{height:8px;}"));
     m_mountedDatasetsTableLeft->setColumnWidth(0, 110);
     m_mountedDatasetsTableLeft->setColumnWidth(1, 220);
     m_mountedDatasetsTableLeft->setColumnWidth(2, 220);
@@ -516,8 +522,14 @@ void MainWindow::buildUi() {
         QFont f = m_mountedDatasetsTableAdv->font();
         f.setPointSize(qMax(6, f.pointSize() - 2));
         m_mountedDatasetsTableAdv->setFont(f);
-        m_mountedDatasetsTableAdv->horizontalHeader()->setFont(f);
+        QFont hf = f;
+        hf.setPointSize(qMax(6, hf.pointSize() - 2));
+        hf.setBold(false);
+        m_mountedDatasetsTableAdv->horizontalHeader()->setFont(hf);
     }
+    m_mountedDatasetsTableAdv->setStyleSheet(
+        QStringLiteral("QScrollBar:vertical{width:8px;} "
+                       "QScrollBar:horizontal{height:8px;}"));
     m_mountedDatasetsTableAdv->setColumnWidth(0, 110);
     m_mountedDatasetsTableAdv->setColumnWidth(1, 220);
     m_mountedDatasetsTableAdv->setColumnWidth(2, 220);
