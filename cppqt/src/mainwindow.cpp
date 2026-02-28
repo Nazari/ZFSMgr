@@ -363,8 +363,8 @@ void MainWindow::buildUi() {
     auto* connLayout = new QVBoxLayout(connectionsTab);
     connLayout->setContentsMargins(4, 4, 4, 4);
     connLayout->setSpacing(4);
-    auto* connButtons = new QVBoxLayout();
-    connButtons->setSpacing(10);
+    auto* connButtons = new QHBoxLayout();
+    connButtons->setSpacing(8);
     m_btnNew = new QPushButton(tr3(QStringLiteral("Nueva"), QStringLiteral("New"), QStringLiteral("新建")), connectionsTab);
     m_btnRefreshAll = new QPushButton(tr3(QStringLiteral("Refrescar todo"), QStringLiteral("Refresh all"), QStringLiteral("全部刷新")), connectionsTab);
     m_btnConfig = new QPushButton(tr3(QStringLiteral("Configuración"), QStringLiteral("Configuration"), QStringLiteral("配置")), connectionsTab);
@@ -430,9 +430,9 @@ void MainWindow::buildUi() {
         {tr3(QStringLiteral("Conexión"), QStringLiteral("Connection"), QStringLiteral("连接")),
          tr3(QStringLiteral("Dataset"), QStringLiteral("Dataset"), QStringLiteral("数据集")),
          QStringLiteral("mountpoint")});
-    m_mountedDatasetsTableLeft->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_mountedDatasetsTableLeft->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    m_mountedDatasetsTableLeft->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    m_mountedDatasetsTableLeft->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
+    m_mountedDatasetsTableLeft->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
+    m_mountedDatasetsTableLeft->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
     m_mountedDatasetsTableLeft->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_mountedDatasetsTableLeft->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_mountedDatasetsTableLeft->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -444,7 +444,11 @@ void MainWindow::buildUi() {
         QFont f = m_mountedDatasetsTableLeft->font();
         f.setPointSize(qMax(6, f.pointSize() - 2));
         m_mountedDatasetsTableLeft->setFont(f);
+        m_mountedDatasetsTableLeft->horizontalHeader()->setFont(f);
     }
+    m_mountedDatasetsTableLeft->setColumnWidth(0, 110);
+    m_mountedDatasetsTableLeft->setColumnWidth(1, 220);
+    m_mountedDatasetsTableLeft->setColumnWidth(2, 220);
     mountedLeftLayout->addWidget(m_mountedDatasetsTableLeft, 1);
     dsLeftTabLayout->addWidget(mountedBoxLeft, 1);
     datasetsTab->setLayout(dsLeftTabLayout);
@@ -498,9 +502,9 @@ void MainWindow::buildUi() {
         {tr3(QStringLiteral("Conexión"), QStringLiteral("Connection"), QStringLiteral("连接")),
          tr3(QStringLiteral("Dataset"), QStringLiteral("Dataset"), QStringLiteral("数据集")),
          QStringLiteral("mountpoint")});
-    m_mountedDatasetsTableAdv->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_mountedDatasetsTableAdv->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    m_mountedDatasetsTableAdv->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    m_mountedDatasetsTableAdv->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
+    m_mountedDatasetsTableAdv->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
+    m_mountedDatasetsTableAdv->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
     m_mountedDatasetsTableAdv->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_mountedDatasetsTableAdv->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_mountedDatasetsTableAdv->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -512,7 +516,11 @@ void MainWindow::buildUi() {
         QFont f = m_mountedDatasetsTableAdv->font();
         f.setPointSize(qMax(6, f.pointSize() - 2));
         m_mountedDatasetsTableAdv->setFont(f);
+        m_mountedDatasetsTableAdv->horizontalHeader()->setFont(f);
     }
+    m_mountedDatasetsTableAdv->setColumnWidth(0, 110);
+    m_mountedDatasetsTableAdv->setColumnWidth(1, 220);
+    m_mountedDatasetsTableAdv->setColumnWidth(2, 220);
     mountedAdvLayout->addWidget(m_mountedDatasetsTableAdv, 1);
     advLeftTabLayout->setSpacing(8);
     advLeftTabLayout->addWidget(commandsBox);
