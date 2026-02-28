@@ -3794,6 +3794,37 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
     root->addWidget(buttons);
     QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
 
+    auto setSuggestedPath = [&]() {
+        const QString t = typeCombo->currentData().toString();
+        const bool isSnapshot = t == QStringLiteral("snapshot");
+        QString suggested = QStringLiteral("new_dataset");
+        if (t == QStringLiteral("volume")) {
+            suggested = QStringLiteral("new_volume");
+        } else if (isSnapshot) {
+            suggested = QStringLiteral("new_snapshot");
+        }
+
+        QString current = pathEdit->text().trimmed();
+        QString noSnap = current;
+        const int atPos = noSnap.indexOf('@');
+        if (atPos >= 0) {
+            noSnap = noSnap.left(atPos);
+        }
+        QString prefix;
+        const int slash = noSnap.lastIndexOf('/');
+        if (slash >= 0) {
+            prefix = noSnap.left(slash + 1);
+        } else if (!ctx.datasetName.isEmpty()) {
+            prefix = ctx.datasetName + QStringLiteral("/");
+        }
+
+        const QString newPath = isSnapshot ? (prefix + suggested + QStringLiteral("@snap"))
+                                           : (prefix + suggested);
+        pathEdit->setText(newPath);
+        pathEdit->setFocus();
+        pathEdit->setSelection(prefix.size(), suggested.size());
+    };
+
     auto applyTypeUi = [&]() {
         const QString t = typeCombo->currentData().toString();
         const bool isVolume = t == QStringLiteral("volume");
@@ -3821,21 +3852,7 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
         if (!isSnapshot) {
             snapRecursiveChk->setChecked(false);
         }
-
-        QString curPath = pathEdit->text().trimmed();
-        if (isSnapshot) {
-            if (!curPath.contains('@')) {
-                QString base = ctx.datasetName;
-                if (base.isEmpty()) {
-                    base = curPath.section('@', 0, 0);
-                }
-                if (!base.isEmpty()) {
-                    pathEdit->setText(base + QStringLiteral("@snap"));
-                }
-            }
-        } else if (curPath.contains('@')) {
-            pathEdit->setText(curPath.section('@', 0, 0));
-        }
+        setSuggestedPath();
     };
     QObject::connect(typeCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dlg, [&]() { applyTypeUi(); });
     applyTypeUi();
