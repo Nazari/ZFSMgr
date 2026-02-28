@@ -7,7 +7,30 @@ $NativeArgs = @($args)
 
 # Opcional: permitir usar Qt6_DIR/CMAKE_PREFIX_PATH predefinidos.
 if (-not $env:Qt6_DIR -and -not $env:CMAKE_PREFIX_PATH) {
-  Write-Host "Aviso: define Qt6_DIR o CMAKE_PREFIX_PATH si CMake no encuentra Qt6."
+  $qtRoot = "C:\QT"
+  if (Test-Path $qtRoot) {
+    $qt6Candidates = Get-ChildItem -Path $qtRoot -Directory -ErrorAction SilentlyContinue |
+      Sort-Object Name -Descending
+    $picked = $null
+    foreach ($verDir in $qt6Candidates) {
+      $cmakeCandidates = Get-ChildItem -Path $verDir.FullName -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match "msvc|mingw|clang" } |
+        ForEach-Object { Join-Path $_.FullName "lib\cmake\Qt6" } |
+        Where-Object { Test-Path $_ }
+      if ($cmakeCandidates.Count -gt 0) {
+        $picked = $cmakeCandidates[0]
+        break
+      }
+    }
+    if ($picked) {
+      $env:Qt6_DIR = $picked
+      Write-Host "Qt6 autodetectado en: $($env:Qt6_DIR)"
+    } else {
+      Write-Host "Aviso: no se encontró Qt6 en C:\QT (ruta esperada: <version>\\<kit>\\lib\\cmake\\Qt6)."
+    }
+  } else {
+    Write-Host "Aviso: define Qt6_DIR o CMAKE_PREFIX_PATH si CMake no encuentra Qt6."
+  }
 }
 
 # Si el usuario ya pasó -G/--generator, no forzamos uno.
