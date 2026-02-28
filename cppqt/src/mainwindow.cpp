@@ -338,7 +338,7 @@ void MainWindow::buildUi() {
     leftLayout->setContentsMargins(0, 0, 0, 0);
     leftLayout->setSpacing(4);
     m_leftTabs = new QTabWidget(leftPane);
-    m_leftTabs->setDocumentMode(true);
+    m_leftTabs->setDocumentMode(false);
     m_leftTabs->setTabPosition(QTabWidget::North);
     // Anchura fija basada en el texto real de botones para evitar solapes en macOS.
     const QFontMetrics fm(font());
@@ -446,7 +446,7 @@ void MainWindow::buildUi() {
     rightConnectionsLayout->setContentsMargins(0, 0, 0, 0);
     rightConnectionsLayout->setSpacing(4);
     m_rightTabs = new QTabWidget(rightConnectionsPage);
-    m_rightTabs->setDocumentMode(true);
+    m_rightTabs->setDocumentMode(false);
 
     auto* importedTab = new QWidget(m_rightTabs);
     auto* importedLayout = new QVBoxLayout(importedTab);
@@ -483,7 +483,7 @@ void MainWindow::buildUi() {
     m_rightTabs->addTab(importableTab, tr3(QStringLiteral("Pools importables"), QStringLiteral("Importable pools"), QStringLiteral("可导入池")));
 
     m_poolDetailTabs = new QTabWidget(rightConnectionsPage);
-    m_poolDetailTabs->setDocumentMode(true);
+    m_poolDetailTabs->setDocumentMode(false);
     auto* propsPoolTab = new QWidget(m_poolDetailTabs);
     auto* propsPoolLayout = new QVBoxLayout(propsPoolTab);
     m_poolPropsTable = new QTableWidget(propsPoolTab);
@@ -700,7 +700,7 @@ void MainWindow::buildUi() {
     auto* rightLogs = new QWidget(logBox);
     auto* rightLogsLayout = new QVBoxLayout(rightLogs);
     m_logsTabs = new QTabWidget(rightLogs);
-    m_logsTabs->setDocumentMode(true);
+    m_logsTabs->setDocumentMode(false);
     auto* appTab = new QWidget(m_logsTabs);
     auto* appTabLayout = new QVBoxLayout(appTab);
     m_logView = new QPlainTextEdit(appTab);
