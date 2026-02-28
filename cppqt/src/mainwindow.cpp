@@ -673,6 +673,13 @@ void MainWindow::buildUi() {
     m_originTree->header()->setStretchLastSection(false);
     m_originTree->setColumnWidth(0, 280);
     m_originTree->setColumnWidth(1, 140);
+    m_originTree->setUniformRowHeights(true);
+    {
+        QFont f = m_originTree->font();
+        f.setPointSize(qMax(6, f.pointSize() - 1));
+        m_originTree->setFont(f);
+    }
+    m_originTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 16px; padding: 0px; margin: 0px; }"));
     m_originSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), originBox);
     m_originSelectionLabel->setWordWrap(true);
     m_originSelectionLabel->setMinimumHeight(36);
@@ -697,6 +704,13 @@ void MainWindow::buildUi() {
     m_destTree->header()->setStretchLastSection(false);
     m_destTree->setColumnWidth(0, 280);
     m_destTree->setColumnWidth(1, 140);
+    m_destTree->setUniformRowHeights(true);
+    {
+        QFont f = m_destTree->font();
+        f.setPointSize(qMax(6, f.pointSize() - 1));
+        m_destTree->setFont(f);
+    }
+    m_destTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 16px; padding: 0px; margin: 0px; }"));
     m_destSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), destBox);
     m_destSelectionLabel->setWordWrap(true);
     m_destSelectionLabel->setMinimumHeight(36);
@@ -718,6 +732,9 @@ void MainWindow::buildUi() {
     m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_datasetPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
+    if (m_mountedDatasetsTableLeft) {
+        m_datasetPropsTable->setFont(m_mountedDatasetsTableLeft->font());
+    }
     m_btnApplyDatasetProps = new QPushButton(tr3(QStringLiteral("Aplicar cambios"), QStringLiteral("Apply changes"), QStringLiteral("应用更改")), propsBox);
     m_btnApplyDatasetProps->setEnabled(false);
     propsLayout->addWidget(m_datasetPropsTable, 1);
@@ -750,6 +767,13 @@ void MainWindow::buildUi() {
     m_advTree->header()->setStretchLastSection(false);
     m_advTree->setColumnWidth(0, 280);
     m_advTree->setColumnWidth(1, 140);
+    m_advTree->setUniformRowHeights(true);
+    {
+        QFont f = m_advTree->font();
+        f.setPointSize(qMax(6, f.pointSize() - 1));
+        m_advTree->setFont(f);
+    }
+    m_advTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 16px; padding: 0px; margin: 0px; }"));
     m_advSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), rightAdvancedPage);
     m_advSelectionLabel->setWordWrap(true);
     m_advSelectionLabel->setMinimumHeight(36);
@@ -769,6 +793,9 @@ void MainWindow::buildUi() {
     m_advPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_advPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_advPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
+    if (m_mountedDatasetsTableAdv) {
+        m_advPropsTable->setFont(m_mountedDatasetsTableAdv->font());
+    }
     m_btnApplyAdvancedProps = new QPushButton(tr3(QStringLiteral("Aplicar cambios"), QStringLiteral("Apply changes"), QStringLiteral("应用更改")), advPropsBox);
     m_btnApplyAdvancedProps->setEnabled(false);
     advPropsLayout->addWidget(m_advPropsTable, 1);
@@ -3957,15 +3984,34 @@ void MainWindow::populateMountedDatasetsTables() {
             return;
         }
         table->setRowCount(0);
+        QMap<QString, int> mountpointCountByConn;
+        struct RowData {
+            QString conn;
+            QString dataset;
+            QString mountpoint;
+        };
+        QVector<RowData> allRows;
         for (int i = 0; i < m_states.size() && i < m_profiles.size(); ++i) {
             const QString connName = m_profiles[i].name;
             const auto& rows = m_states[i].mountedDatasets;
             for (const auto& pair : rows) {
-                const int r = table->rowCount();
-                table->insertRow(r);
-                table->setItem(r, 0, new QTableWidgetItem(QStringLiteral("%1::%2").arg(connName, pair.first)));
-                table->setItem(r, 1, new QTableWidgetItem(pair.second));
+                allRows.push_back({connName, pair.first, pair.second});
+                mountpointCountByConn[connName + QStringLiteral("::") + pair.second] += 1;
             }
+        }
+        for (const RowData& row : allRows) {
+            const int r = table->rowCount();
+            table->insertRow(r);
+            auto* dsItem = new QTableWidgetItem(QStringLiteral("%1::%2").arg(row.conn, row.dataset));
+            auto* mpItem = new QTableWidgetItem(row.mountpoint);
+            const bool duplicated = mountpointCountByConn.value(row.conn + QStringLiteral("::") + row.mountpoint, 0) > 1;
+            if (duplicated) {
+                const QColor redWarn(QStringLiteral("#b22a2a"));
+                dsItem->setForeground(QBrush(redWarn));
+                mpItem->setForeground(QBrush(redWarn));
+            }
+            table->setItem(r, 0, dsItem);
+            table->setItem(r, 1, mpItem);
         }
     };
     fill(m_mountedDatasetsTableLeft);
