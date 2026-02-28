@@ -409,6 +409,27 @@ void MainWindow::buildUi() {
     m_btnCopy = new QPushButton(tr3(QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")), transferBox);
     m_btnLevel = new QPushButton(tr3(QStringLiteral("Nivelar"), QStringLiteral("Level"), QStringLiteral("同步快照")), transferBox);
     m_btnSync = new QPushButton(tr3(QStringLiteral("Sincronizar"), QStringLiteral("Sync"), QStringLiteral("同步文件")), transferBox);
+    m_btnCopy->setToolTip(
+        tr3(QStringLiteral("Envía un snapshot desde Origen a Destino mediante send/recv.\n"
+                           "Requiere: snapshot seleccionado en Origen y dataset seleccionado en Destino."),
+            QStringLiteral("Send one snapshot from Source to Target using send/recv.\n"
+                           "Requires: snapshot selected in Source and dataset selected in Target."),
+            QStringLiteral("通过 send/recv 将源端快照发送到目标端。\n"
+                           "条件：源端选择快照，目标端选择数据集。")));
+    m_btnLevel->setToolTip(
+        tr3(QStringLiteral("Genera/aplica envío diferencial para igualar Origen->Destino.\n"
+                           "Requiere: dataset o snapshot seleccionado en Origen y dataset en Destino."),
+            QStringLiteral("Build/apply differential transfer to level Source->Target.\n"
+                           "Requires: dataset or snapshot selected in Source and dataset in Target."),
+            QStringLiteral("生成/应用差异传输以对齐源端到目标端。\n"
+                           "条件：源端选择数据集或快照，目标端选择数据集。")));
+    m_btnSync->setToolTip(
+        tr3(QStringLiteral("Sincroniza contenido de dataset Origen a Destino con rsync.\n"
+                           "Requiere: dataset seleccionado (no snapshot) en Origen y Destino."),
+            QStringLiteral("Sync dataset contents from Source to Target with rsync.\n"
+                           "Requires: dataset selected (not snapshot) in Source and Target."),
+            QStringLiteral("使用 rsync 同步源端到目标端的数据集内容。\n"
+                           "条件：源端和目标端都选择数据集（非快照）。")));
     m_btnCopy->setEnabled(false);
     m_btnLevel->setEnabled(false);
     m_btnSync->setEnabled(false);
@@ -2022,7 +2043,7 @@ void MainWindow::updateTransferButtonsState() {
     const bool dstDs = !m_destSelectedDataset.isEmpty();
     const bool dstSnap = !m_destSelectedSnapshot.isEmpty();
     m_btnCopy->setEnabled(srcDs && srcSnap && dstDs && !dstSnap);
-    m_btnLevel->setEnabled(srcDs && srcSnap && dstDs && !dstSnap);
+    m_btnLevel->setEnabled(srcDs && dstDs && !dstSnap);
     m_btnSync->setEnabled(srcDs && !srcSnap && dstDs && !dstSnap);
 }
 
