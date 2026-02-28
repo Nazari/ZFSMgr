@@ -936,9 +936,6 @@ void MainWindow::rebuildConnectionList() {
             rowColor = QColor("#a12a2a");
         }
         QString line = QStringLiteral("%1%2 | %3 | ZFS v%4").arg(statusTag, line1, p.osType, zfsTxt);
-        if (!st.isEmpty()) {
-            line += QStringLiteral(" [") + st + QStringLiteral("]");
-        }
 
         auto* item = new QListWidgetItem(line, m_connectionsList);
         item->setData(Qt::UserRole, i);
