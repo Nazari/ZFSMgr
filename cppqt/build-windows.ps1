@@ -171,7 +171,7 @@ if ($hasGenerator) {
       Write-Host "Entorno MinGW detectado: $mingwBin"
       $gxx = Join-Path $mingwBin "g++.exe"
       $gcc = Join-Path $mingwBin "gcc.exe"
-      if (Test-Path $gcc -and Test-Path $gxx) {
+      if ((Test-Path $gcc) -and (Test-Path $gxx)) {
         $NativeArgs += @("-DCMAKE_C_COMPILER=$gcc", "-DCMAKE_CXX_COMPILER=$gxx")
       }
     } else {
