@@ -344,12 +344,16 @@ void MainWindow::buildUi() {
     connButtons->addWidget(m_btnConfig);
     connLayout->addLayout(connButtons);
 
-    m_connectionsList = new QListWidget(connectionsTab);
+    auto* connListBox = new QGroupBox(tr3(QStringLiteral("Conexiones"), QStringLiteral("Connections"), QStringLiteral("连接")), connectionsTab);
+    auto* connListBoxLayout = new QVBoxLayout(connListBox);
+    connListBoxLayout->setContentsMargins(8, 20, 8, 8);
+    m_connectionsList = new QListWidget(connListBox);
     m_connectionsList->setAlternatingRowColors(true);
     m_connectionsList->setUniformItemSizes(true);
     m_connectionsList->setSelectionMode(QAbstractItemView::SingleSelection);
     m_connectionsList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-    connLayout->addWidget(m_connectionsList, 1);
+    connListBoxLayout->addWidget(m_connectionsList, 1);
+    connLayout->addWidget(connListBox, 1);
     connectionsTab->setLayout(connLayout);
 
     auto* datasetsTab = new QWidget(m_leftTabs);
