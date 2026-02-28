@@ -151,6 +151,8 @@ private:
     void updateStatus(const QString& text);
     void setActionsLocked(bool locked);
     bool actionsLocked() const;
+    bool confirmActionExecution(const QString& actionName, const QStringList& commands);
+    QString buildSshPreviewCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
     QString tr3(const QString& es, const QString& en, const QString& zh) const;
     QString maskSecrets(const QString& text) const;
     void logUiAction(const QString& action);

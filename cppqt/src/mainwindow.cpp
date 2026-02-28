@@ -1841,6 +1841,9 @@ void MainWindow::updateTransferButtonsState() {
 }
 
 bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs) {
+    if (!confirmActionExecution(displayLabel, {QStringLiteral("[local]\n%1").arg(command)})) {
+        return false;
+    }
     setActionsLocked(true);
     appLog(QStringLiteral("NORMAL"), QStringLiteral("%1").arg(displayLabel));
     appLog(QStringLiteral("INFO"), QStringLiteral("$ %1").arg(command));
@@ -2402,6 +2405,12 @@ void MainWindow::exportPoolFromRow(int row) {
     }
     const ConnectionProfile& p = m_profiles[idx];
     const QString cmd = withSudo(p, QStringLiteral("zpool export %1").arg(shSingleQuote(poolName)));
+    const QString preview = QStringLiteral("[%1]\n%2")
+                                .arg(QStringLiteral("%1@%2:%3").arg(p.username, p.host).arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
+                                .arg(buildSshPreviewCommand(p, cmd));
+    if (!confirmActionExecution(QStringLiteral("Exportar"), {preview})) {
+        return;
+    }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio exportar %1::%2").arg(connName, poolName));
     setActionsLocked(true);
     QString out;
@@ -2559,6 +2568,12 @@ void MainWindow::importPoolFromRow(int row) {
 
     const ConnectionProfile& p = m_profiles[idx];
     const QString cmd = withSudo(p, parts.join(' '));
+    const QString preview = QStringLiteral("[%1]\n%2")
+                                .arg(QStringLiteral("%1@%2:%3").arg(p.username, p.host).arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
+                                .arg(buildSshPreviewCommand(p, cmd));
+    if (!confirmActionExecution(QStringLiteral("Importar"), {preview})) {
+        return;
+    }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio importar %1::%2").arg(connName, poolName));
     setActionsLocked(true);
     QString out;
@@ -2696,9 +2711,15 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     if (!ctx.valid) {
         return false;
     }
-    setActionsLocked(true);
     const ConnectionProfile& p = m_profiles[ctx.connIdx];
     QString remoteCmd = withSudo(p, cmd);
+    const QString preview = QStringLiteral("[%1]\n%2")
+                                .arg(QStringLiteral("%1@%2:%3").arg(p.username, p.host).arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
+                                .arg(buildSshPreviewCommand(p, remoteCmd));
+    if (!confirmActionExecution(actionName, {preview})) {
+        return false;
+    }
+    setActionsLocked(true);
     appLog(QStringLiteral("NORMAL"), QStringLiteral("%1 %2::%3").arg(actionName, p.name, ctx.datasetName));
     QString out;
     QString err;
@@ -3396,6 +3417,67 @@ void MainWindow::updateStatus(const QString& text) {
 
 bool MainWindow::actionsLocked() const {
     return m_actionsLocked;
+}
+
+QString MainWindow::buildSshPreviewCommand(const ConnectionProfile& p, const QString& remoteCmd) const {
+    QStringList parts;
+    parts << QStringLiteral("ssh");
+    parts << QStringLiteral("-o BatchMode=yes");
+    parts << QStringLiteral("-o ConnectTimeout=10");
+    parts << QStringLiteral("-o LogLevel=ERROR");
+    parts << QStringLiteral("-o StrictHostKeyChecking=no");
+    parts << QStringLiteral("-o UserKnownHostsFile=/dev/null");
+    if (p.port > 0) {
+        parts << QStringLiteral("-p %1").arg(p.port);
+    }
+    if (!p.keyPath.isEmpty()) {
+        parts << QStringLiteral("-i %1").arg(shSingleQuote(p.keyPath));
+    }
+    parts << QStringLiteral("%1@%2").arg(p.username, p.host);
+    parts << shSingleQuote(remoteCmd);
+    return parts.join(' ');
+}
+
+bool MainWindow::confirmActionExecution(const QString& actionName, const QStringList& commands) {
+    if (commands.isEmpty()) {
+        return true;
+    }
+    QDialog dlg(this);
+    dlg.setModal(true);
+    dlg.resize(980, 520);
+    dlg.setWindowTitle(tr3(QStringLiteral("Confirmar ejecución"), QStringLiteral("Confirm execution"), QStringLiteral("确认执行")));
+
+    QVBoxLayout* root = new QVBoxLayout(&dlg);
+    QLabel* intro = new QLabel(
+        tr3(QStringLiteral("Se van a ejecutar estos comandos para la acción: %1")
+                .arg(actionName),
+            QStringLiteral("These commands will be executed for action: %1")
+                .arg(actionName),
+            QStringLiteral("将为该操作执行以下命令：%1")
+                .arg(actionName)),
+        &dlg);
+    intro->setWordWrap(true);
+    root->addWidget(intro);
+
+    QPlainTextEdit* txt = new QPlainTextEdit(&dlg);
+    txt->setReadOnly(true);
+    txt->setPlainText(commands.join(QStringLiteral("\n\n")));
+    root->addWidget(txt, 1);
+
+    QDialogButtonBox* box = new QDialogButtonBox(&dlg);
+    QPushButton* cancelBtn = box->addButton(tr3(QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), QDialogButtonBox::RejectRole);
+    QPushButton* okBtn = box->addButton(tr3(QStringLiteral("Aceptar"), QStringLiteral("Accept"), QStringLiteral("确认")), QDialogButtonBox::AcceptRole);
+    root->addWidget(box);
+    QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
+    QObject::connect(okBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+
+    const bool accepted = (dlg.exec() == QDialog::Accepted);
+    if (!accepted) {
+        appLog(QStringLiteral("INFO"), tr3(QStringLiteral("Acción cancelada por el usuario: %1").arg(actionName),
+                                           QStringLiteral("Action canceled by user: %1").arg(actionName),
+                                           QStringLiteral("用户已取消操作：%1").arg(actionName)));
+    }
+    return accepted;
 }
 
 void MainWindow::setActionsLocked(bool locked) {
