@@ -34,46 +34,77 @@ function Import-VsDevEnv {
   return $true
 }
 
-# Opcional: permitir usar Qt6_DIR/CMAKE_PREFIX_PATH predefinidos.
-if (-not $env:Qt6_DIR -and -not $env:CMAKE_PREFIX_PATH) {
-  $qtRoots = @("C:\Qt", "C:\QT") | Where-Object { Test-Path $_ }
+# Resolver Qt6_DIR de forma robusta (aunque existan vars de entorno previas).
+$qtFromEnvValid = $false
+if ($env:Qt6_DIR) {
+  $qtFromEnvValid = Test-Path (Join-Path $env:Qt6_DIR "Qt6Config.cmake")
+}
+if (-not $qtFromEnvValid) {
   $picked = $null
-  foreach ($qtRoot in $qtRoots) {
-    # 1) Búsqueda rápida por layout típico: <root>\<version>\<kit>\lib\cmake\Qt6
-    $qt6Candidates = Get-ChildItem -Path $qtRoot -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending
-    $orderedKitPatterns = @("msvc", "clang", "mingw")
-    foreach ($kitPattern in $orderedKitPatterns) {
-      if ($picked) { break }
-      foreach ($verDir in $qt6Candidates) {
-        $cmakeCandidates = Get-ChildItem -Path $verDir.FullName -Directory -ErrorAction SilentlyContinue |
-          Where-Object { $_.Name -match $kitPattern } |
-          ForEach-Object { Join-Path $_.FullName "lib\cmake\Qt6" } |
-          Where-Object { Test-Path (Join-Path $_ "Qt6Config.cmake") }
-        if ($cmakeCandidates.Count -gt 0) {
-          $picked = $cmakeCandidates[0]
-          break
-        }
+
+  # 1) Intentar desde entradas de CMAKE_PREFIX_PATH
+  if ($env:CMAKE_PREFIX_PATH) {
+    $prefixes = $env:CMAKE_PREFIX_PATH -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    foreach ($p in $prefixes) {
+      $pp = $p.Trim()
+      if (Test-Path (Join-Path $pp "Qt6Config.cmake")) {
+        $picked = $pp
+        break
+      }
+      $cand = Join-Path $pp "lib\cmake\Qt6"
+      if (Test-Path (Join-Path $cand "Qt6Config.cmake")) {
+        $picked = $cand
+        break
       }
     }
-    if ($picked) { break }
+  }
 
-    # 2) Fallback recursivo: localizar Qt6Config.cmake y tomar su carpeta padre.
-    $found = Get-ChildItem -Path $qtRoot -Filter "Qt6Config.cmake" -File -Recurse -ErrorAction SilentlyContinue |
-      Select-Object -First 1
-    if ($found) {
-      $picked = Split-Path -Parent $found.FullName
-      break
+  # 2) Buscar en C:\Qt y C:\QT
+  if (-not $picked) {
+    $qtRoots = @("C:\Qt", "C:\QT") | Where-Object { Test-Path $_ }
+    foreach ($qtRoot in $qtRoots) {
+      # Búsqueda rápida por layout típico: <root>\<version>\<kit>\lib\cmake\Qt6
+      $qt6Candidates = Get-ChildItem -Path $qtRoot -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending
+      $orderedKitPatterns = @("mingw", "msvc", "clang")
+      foreach ($kitPattern in $orderedKitPatterns) {
+        if ($picked) { break }
+        foreach ($verDir in $qt6Candidates) {
+          $cmakeCandidates = Get-ChildItem -Path $verDir.FullName -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match $kitPattern } |
+            ForEach-Object { Join-Path $_.FullName "lib\cmake\Qt6" } |
+            Where-Object { Test-Path (Join-Path $_ "Qt6Config.cmake") }
+          if ($cmakeCandidates.Count -gt 0) {
+            $picked = $cmakeCandidates[0]
+            break
+          }
+        }
+      }
+      if ($picked) { break }
+
+      # Fallback recursivo: localizar Qt6Config.cmake y tomar su carpeta padre.
+      $found = Get-ChildItem -Path $qtRoot -Filter "Qt6Config.cmake" -File -Recurse -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+      if ($found) {
+        $picked = Split-Path -Parent $found.FullName
+        break
+      }
     }
   }
 
   if ($picked) {
     $env:Qt6_DIR = $picked
-    $qtKit = $env:Qt6_DIR.ToLower()
     Write-Host "Qt6 autodetectado en: $($env:Qt6_DIR)"
   } else {
-    Write-Host "Aviso: no se encontró Qt6Config.cmake en C:\Qt ni C:\QT."
+    Write-Host "Aviso: no se encontró Qt6Config.cmake en rutas conocidas."
     Write-Host "Define Qt6_DIR manualmente, ejemplo:"
-    Write-Host '$env:Qt6_DIR = "C:\Qt\6.9.0\msvc2022_64\lib\cmake\Qt6"'
+    Write-Host '$env:Qt6_DIR = "C:\Qt\6.10.2\mingw_64\lib\cmake\Qt6"'
+  }
+}
+
+if ($env:Qt6_DIR) {
+  $qtKit = $env:Qt6_DIR.ToLower()
+  if (-not (($NativeArgs | Where-Object { $_ -like "-DQt6_DIR=*" }).Count -gt 0)) {
+    $NativeArgs += @("-DQt6_DIR=$($env:Qt6_DIR)")
   }
 }
 
