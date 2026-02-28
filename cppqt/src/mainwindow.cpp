@@ -320,6 +320,7 @@ void MainWindow::buildUi() {
         "QMenu { background: #ffffff; border: 1px solid #9db0c4; padding: 3px; }"
         "QMenu::item { padding: 4px 14px; color: #102233; }"
         "QMenu::item:selected { background: #cfe5ff; color: #0b2f4f; }"
+        "QMenu::item:disabled { color: #8f9aa5; background: #f4f6f8; }"
         "QListWidget, QTreeWidget, QTableWidget, QPlainTextEdit, QTextEdit, QComboBox { background: #ffffff; color: #102233; }"
         "QComboBox QAbstractItemView { background: #ffffff; color: #102233; }"
         "QTreeWidget::item:selected, QTableWidget::item:selected, QListWidget::item:selected {"
