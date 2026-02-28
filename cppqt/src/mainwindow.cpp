@@ -425,14 +425,12 @@ void MainWindow::buildUi() {
                                          datasetsTab);
     auto* mountedLeftLayout = new QVBoxLayout(mountedBoxLeft);
     m_mountedDatasetsTableLeft = new QTableWidget(mountedBoxLeft);
-    m_mountedDatasetsTableLeft->setColumnCount(3);
+    m_mountedDatasetsTableLeft->setColumnCount(2);
     m_mountedDatasetsTableLeft->setHorizontalHeaderLabels(
-        {tr3(QStringLiteral("Conexión"), QStringLiteral("Connection"), QStringLiteral("连接")),
-         tr3(QStringLiteral("Dataset"), QStringLiteral("Dataset"), QStringLiteral("数据集")),
+        {tr3(QStringLiteral("Dataset"), QStringLiteral("Dataset"), QStringLiteral("数据集")),
          QStringLiteral("mountpoint")});
     m_mountedDatasetsTableLeft->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_mountedDatasetsTableLeft->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
-    m_mountedDatasetsTableLeft->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
     m_mountedDatasetsTableLeft->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_mountedDatasetsTableLeft->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_mountedDatasetsTableLeft->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -445,16 +443,15 @@ void MainWindow::buildUi() {
         f.setPointSize(qMax(6, f.pointSize() - 2));
         m_mountedDatasetsTableLeft->setFont(f);
         QFont hf = f;
-        hf.setPointSize(qMax(6, hf.pointSize() - 2));
+        hf.setPointSize(f.pointSize());
         hf.setBold(false);
         m_mountedDatasetsTableLeft->horizontalHeader()->setFont(hf);
     }
     m_mountedDatasetsTableLeft->setStyleSheet(
         QStringLiteral("QScrollBar:vertical{width:8px;} "
                        "QScrollBar:horizontal{height:8px;}"));
-    m_mountedDatasetsTableLeft->setColumnWidth(0, 110);
+    m_mountedDatasetsTableLeft->setColumnWidth(0, 300);
     m_mountedDatasetsTableLeft->setColumnWidth(1, 220);
-    m_mountedDatasetsTableLeft->setColumnWidth(2, 220);
     mountedLeftLayout->addWidget(m_mountedDatasetsTableLeft, 1);
     dsLeftTabLayout->addWidget(mountedBoxLeft, 1);
     datasetsTab->setLayout(dsLeftTabLayout);
@@ -503,14 +500,12 @@ void MainWindow::buildUi() {
                                         advancedTab);
     auto* mountedAdvLayout = new QVBoxLayout(mountedBoxAdv);
     m_mountedDatasetsTableAdv = new QTableWidget(mountedBoxAdv);
-    m_mountedDatasetsTableAdv->setColumnCount(3);
+    m_mountedDatasetsTableAdv->setColumnCount(2);
     m_mountedDatasetsTableAdv->setHorizontalHeaderLabels(
-        {tr3(QStringLiteral("Conexión"), QStringLiteral("Connection"), QStringLiteral("连接")),
-         tr3(QStringLiteral("Dataset"), QStringLiteral("Dataset"), QStringLiteral("数据集")),
+        {tr3(QStringLiteral("Dataset"), QStringLiteral("Dataset"), QStringLiteral("数据集")),
          QStringLiteral("mountpoint")});
     m_mountedDatasetsTableAdv->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_mountedDatasetsTableAdv->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
-    m_mountedDatasetsTableAdv->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
     m_mountedDatasetsTableAdv->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_mountedDatasetsTableAdv->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_mountedDatasetsTableAdv->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -523,16 +518,15 @@ void MainWindow::buildUi() {
         f.setPointSize(qMax(6, f.pointSize() - 2));
         m_mountedDatasetsTableAdv->setFont(f);
         QFont hf = f;
-        hf.setPointSize(qMax(6, hf.pointSize() - 2));
+        hf.setPointSize(f.pointSize());
         hf.setBold(false);
         m_mountedDatasetsTableAdv->horizontalHeader()->setFont(hf);
     }
     m_mountedDatasetsTableAdv->setStyleSheet(
         QStringLiteral("QScrollBar:vertical{width:8px;} "
                        "QScrollBar:horizontal{height:8px;}"));
-    m_mountedDatasetsTableAdv->setColumnWidth(0, 110);
+    m_mountedDatasetsTableAdv->setColumnWidth(0, 300);
     m_mountedDatasetsTableAdv->setColumnWidth(1, 220);
-    m_mountedDatasetsTableAdv->setColumnWidth(2, 220);
     mountedAdvLayout->addWidget(m_mountedDatasetsTableAdv, 1);
     advLeftTabLayout->setSpacing(8);
     advLeftTabLayout->addWidget(commandsBox);
@@ -3948,9 +3942,8 @@ void MainWindow::populateMountedDatasetsTables() {
             for (const auto& pair : rows) {
                 const int r = table->rowCount();
                 table->insertRow(r);
-                table->setItem(r, 0, new QTableWidgetItem(connName));
-                table->setItem(r, 1, new QTableWidgetItem(pair.first));
-                table->setItem(r, 2, new QTableWidgetItem(pair.second));
+                table->setItem(r, 0, new QTableWidgetItem(QStringLiteral("%1::%2").arg(connName, pair.first)));
+                table->setItem(r, 1, new QTableWidgetItem(pair.second));
             }
         }
     };
