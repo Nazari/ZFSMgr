@@ -732,14 +732,26 @@ void MainWindow::buildUi() {
 
     auto* statusPoolTab = new QWidget(m_poolDetailTabs);
     auto* statusPoolLayout = new QVBoxLayout(statusPoolTab);
+    auto* statusBody = new QHBoxLayout();
+    statusBody->setContentsMargins(0, 0, 0, 0);
+    statusBody->setSpacing(6);
+    auto* statusActions = new QVBoxLayout();
+    statusActions->setContentsMargins(0, 0, 0, 0);
+    statusActions->setSpacing(4);
+    m_poolStatusRefreshBtn = new QPushButton(QStringLiteral("Actualizar"), statusPoolTab);
+    statusActions->addWidget(m_poolStatusRefreshBtn, 0, Qt::AlignTop);
+    statusActions->addStretch(1);
     m_poolStatusText = new QPlainTextEdit(statusPoolTab);
     m_poolStatusText->setReadOnly(true);
-    auto* statusActions = new QHBoxLayout();
-    m_poolStatusRefreshBtn = new QPushButton(QStringLiteral("Actualizar"), statusPoolTab);
-    statusActions->addWidget(m_poolStatusRefreshBtn);
-    statusActions->addStretch(1);
-    statusPoolLayout->addLayout(statusActions);
-    statusPoolLayout->addWidget(m_poolStatusText, 1);
+    {
+        QFont mono = m_poolStatusText->font();
+        mono.setFamily(QStringLiteral("Monospace"));
+        mono.setPointSize(8);
+        m_poolStatusText->setFont(mono);
+    }
+    statusBody->addLayout(statusActions, 0);
+    statusBody->addWidget(m_poolStatusText, 1);
+    statusPoolLayout->addLayout(statusBody, 1);
 
     m_poolDetailTabs->addTab(propsPoolTab, tr3(QStringLiteral("Propiedades del pool"), QStringLiteral("Pool properties"), QStringLiteral("存储池属性")));
     m_poolDetailTabs->addTab(statusPoolTab, tr3(QStringLiteral("Estado"), QStringLiteral("Status"), QStringLiteral("状态")));
