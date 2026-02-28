@@ -328,6 +328,8 @@ void MainWindow::buildUi() {
         "QMenu::item:disabled { color: #8f9aa5; background: #f4f6f8; }"
         "QListWidget, QTreeWidget, QTableWidget, QPlainTextEdit, QTextEdit, QComboBox { background: #ffffff; color: #102233; }"
         "QComboBox QAbstractItemView { background: #ffffff; color: #102233; }"
+        "QScrollBar:vertical { width: 8px; }"
+        "QScrollBar:horizontal { height: 8px; }"
         "QTreeWidget::item:selected, QTableWidget::item:selected, QListWidget::item:selected {"
         "  background: #dcecff; color: #0d2438; font-weight: 600; }"
         "QHeaderView::section { background: #eaf1f7; border: 1px solid #c5d3e0; padding: 2px 4px; }"));
@@ -701,7 +703,7 @@ void MainWindow::buildUi() {
         f.setPointSize(qMax(6, f.pointSize() - 1));
         m_originTree->setFont(f);
     }
-    m_originTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 16px; padding: 0px; margin: 0px; }"));
+    m_originTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 18px; padding: 0px; margin: 0px; }"));
     m_originSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), originBox);
     m_originSelectionLabel->setWordWrap(true);
     m_originSelectionLabel->setMinimumHeight(36);
@@ -732,7 +734,7 @@ void MainWindow::buildUi() {
         f.setPointSize(qMax(6, f.pointSize() - 1));
         m_destTree->setFont(f);
     }
-    m_destTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 16px; padding: 0px; margin: 0px; }"));
+    m_destTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 18px; padding: 0px; margin: 0px; }"));
     m_destSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), destBox);
     m_destSelectionLabel->setWordWrap(true);
     m_destSelectionLabel->setMinimumHeight(36);
@@ -796,7 +798,7 @@ void MainWindow::buildUi() {
         f.setPointSize(qMax(6, f.pointSize() - 1));
         m_advTree->setFont(f);
     }
-    m_advTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 16px; padding: 0px; margin: 0px; }"));
+    m_advTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 18px; padding: 0px; margin: 0px; }"));
     m_advSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), rightAdvancedPage);
     m_advSelectionLabel->setWordWrap(true);
     m_advSelectionLabel->setMinimumHeight(36);
@@ -1774,13 +1776,9 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
             combo->addItems(options);
             combo->setCurrentIndex(0);
             combo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
-            combo->setMinimumHeight(16);
-            combo->setMaximumHeight(16);
-            {
-                QFont cf = tree->font();
-                cf.setPointSize(qMax(6, cf.pointSize() - 1));
-                combo->setFont(cf);
-            }
+            combo->setMinimumHeight(18);
+            combo->setMaximumHeight(18);
+            combo->setFont(tree->font());
             combo->setStyleSheet(QStringLiteral("QComboBox{padding:0 2px; margin:0px;}"));
             tree->setItemWidget(n, 1, combo);
             QObject::connect(combo, &QComboBox::currentTextChanged, tree, [this, tree, n, side](const QString& txt) {
