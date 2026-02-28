@@ -4,6 +4,7 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BuildDir = Join-Path $ScriptDir "build-windows"
 $NativeArgs = @($args)
+$qtKit = ""
 
 function Import-VsDevEnv {
   $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
@@ -67,6 +68,7 @@ if (-not $env:Qt6_DIR -and -not $env:CMAKE_PREFIX_PATH) {
 
   if ($picked) {
     $env:Qt6_DIR = $picked
+    $qtKit = $env:Qt6_DIR.ToLower()
     Write-Host "Qt6 autodetectado en: $($env:Qt6_DIR)"
   } else {
     Write-Host "Aviso: no se encontró Qt6Config.cmake en C:\Qt ni C:\QT."
@@ -90,27 +92,75 @@ if ($hasGenerator) {
     throw "Fallo en configuracion CMake (exit $LASTEXITCODE)"
   }
 } else {
-  $devEnvLoaded = Import-VsDevEnv
-  if ($devEnvLoaded) {
-    Write-Host "Entorno MSVC cargado desde VsDevCmd.bat"
+  if ([string]::IsNullOrWhiteSpace($qtKit) -and $env:Qt6_DIR) {
+    $qtKit = $env:Qt6_DIR.ToLower()
   }
-  $candidates = @()
-  $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
-  if (Test-Path $vswhere) {
-    $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($vsPath)) {
-      $candidates += @{ Name = "Visual Studio 18 2026"; Extra = @("-A", "x64") }
-      $candidates += @{ Name = "Visual Studio 17 2022"; Extra = @("-A", "x64") }
+
+  $isMingwQt = ($qtKit -like "*mingw*")
+  $isMsvcQt = ($qtKit -like "*msvc*")
+
+  if ($isMingwQt) {
+    $qtKitDir = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $env:Qt6_DIR))
+    $qtVersionDir = Split-Path -Parent $qtKitDir
+    $qtBaseDir = Split-Path -Parent $qtVersionDir
+    $toolsRoot = Join-Path $qtBaseDir "Tools"
+    $mingwBin = $null
+    if (Test-Path $toolsRoot) {
+      $cand = Get-ChildItem -Path $toolsRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match "^mingw" } |
+        Sort-Object Name -Descending |
+        Select-Object -First 1
+      if ($cand) {
+        $binPath = Join-Path $cand.FullName "bin"
+        if (Test-Path $binPath) {
+          $mingwBin = $binPath
+        }
+      }
+    }
+    if ($mingwBin) {
+      $env:Path = "$mingwBin;$env:Path"
+      Write-Host "Entorno MinGW detectado: $mingwBin"
+      $gxx = Join-Path $mingwBin "g++.exe"
+      $gcc = Join-Path $mingwBin "gcc.exe"
+      if (Test-Path $gcc -and Test-Path $gxx) {
+        $NativeArgs += @("-DCMAKE_C_COMPILER=$gcc", "-DCMAKE_CXX_COMPILER=$gxx")
+      }
+    } else {
+      Write-Host "Aviso: Qt MinGW detectado pero no se encontró Tools\\mingw*\\bin."
     }
   }
-  if (Get-Command ninja -ErrorAction SilentlyContinue) {
-    $candidates += @{ Name = "Ninja"; Extra = @() }
+
+  $devEnvLoaded = $false
+  if (-not $isMingwQt) {
+    $devEnvLoaded = Import-VsDevEnv
+    if ($devEnvLoaded) {
+      Write-Host "Entorno MSVC cargado desde VsDevCmd.bat"
+    }
   }
-  if (Get-Command nmake -ErrorAction SilentlyContinue) {
-    $candidates += @{ Name = "NMake Makefiles"; Extra = @() }
-  }
-  if (Get-Command mingw32-make -ErrorAction SilentlyContinue) {
+  $candidates = @()
+  if ($isMingwQt) {
     $candidates += @{ Name = "MinGW Makefiles"; Extra = @() }
+    if (Get-Command ninja -ErrorAction SilentlyContinue) {
+      $candidates += @{ Name = "Ninja"; Extra = @() }
+    }
+  } else {
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vswhere) {
+      $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+      if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($vsPath)) {
+        $candidates += @{ Name = "Visual Studio 18 2026"; Extra = @("-A", "x64") }
+        $candidates += @{ Name = "Visual Studio 17 2022"; Extra = @("-A", "x64") }
+      }
+    }
+    if (Get-Command ninja -ErrorAction SilentlyContinue) {
+      $candidates += @{ Name = "Ninja"; Extra = @() }
+    }
+    if (Get-Command nmake -ErrorAction SilentlyContinue) {
+      $candidates += @{ Name = "NMake Makefiles"; Extra = @() }
+    }
+    if (Get-Command mingw32-make -ErrorAction SilentlyContinue) {
+      $candidates += @{ Name = "MinGW Makefiles"; Extra = @() }
+    }
   }
 
   if ($candidates.Count -eq 0) {
