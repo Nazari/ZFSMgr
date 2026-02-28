@@ -433,6 +433,7 @@ void MainWindow::buildUi() {
     m_mountedDatasetsTableLeft->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_mountedDatasetsTableLeft->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_mountedDatasetsTableLeft->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_mountedDatasetsTableLeft->verticalHeader()->setVisible(false);
     mountedLeftLayout->addWidget(m_mountedDatasetsTableLeft, 1);
     dsLeftTabLayout->addWidget(mountedBoxLeft, 1);
     dsLeftTabLayout->addStretch(1);
@@ -490,6 +491,7 @@ void MainWindow::buildUi() {
     m_mountedDatasetsTableAdv->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_mountedDatasetsTableAdv->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_mountedDatasetsTableAdv->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_mountedDatasetsTableAdv->verticalHeader()->setVisible(false);
     mountedAdvLayout->addWidget(m_mountedDatasetsTableAdv, 1);
     advLeftTabLayout->setSpacing(8);
     advLeftTabLayout->addWidget(commandsBox);
