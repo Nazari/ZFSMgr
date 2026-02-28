@@ -53,12 +53,22 @@ function Find-OpenSslRoot {
     $inc = Join-Path $root "include\openssl\ssl.h"
     $libA = Join-Path $root "lib\libcrypto.a"
     $libDllA = Join-Path $root "lib\libcrypto.dll.a"
-    $libVc = Join-Path $root "lib\VC\libcrypto.lib"
-    if ((Test-Path $inc) -and ((Test-Path $libA) -or (Test-Path $libDllA) -or (Test-Path $libVc))) {
+    $libVc = Join-Path $root "lib\libcrypto.lib"
+    $libVcDeep = Get-ChildItem -Path $root -Filter "libcrypto.lib" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ((Test-Path $inc) -and ((Test-Path $libA) -or (Test-Path $libDllA) -or (Test-Path $libVc) -or $libVcDeep)) {
       return $root
     }
   }
   return $null
+}
+
+function Test-OpenSslMingwCompatible([string]$root) {
+  if ([string]::IsNullOrWhiteSpace($root)) {
+    return $false
+  }
+  $a = Join-Path $root "lib\libcrypto.a"
+  $dlla = Join-Path $root "lib\libcrypto.dll.a"
+  return (Test-Path $a) -or (Test-Path $dlla)
 }
 
 # Resolver Qt6_DIR de forma robusta (aunque existan vars de entorno previas).
@@ -207,6 +217,9 @@ if ($hasGenerator) {
 
     $opensslRoot = Find-OpenSslRoot
     if ($opensslRoot) {
+      if (-not (Test-OpenSslMingwCompatible $opensslRoot)) {
+        throw "OpenSSL detectado en '$opensslRoot' pero parece ser MSVC/no-MinGW. Para Qt mingw instala OpenSSL de MSYS2 (p.ej. C:\msys64\mingw64) y/o define OPENSSL_ROOT_DIR."
+      }
       $NativeArgs += @("-DOPENSSL_ROOT_DIR=$opensslRoot")
       Write-Host "OpenSSL detectado en: $opensslRoot"
     } else {
