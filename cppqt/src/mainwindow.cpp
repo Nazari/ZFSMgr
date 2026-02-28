@@ -6,7 +6,9 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFont>
+#include <QFormLayout>
 #include <QGroupBox>
+#include <QGridLayout>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -14,6 +16,9 @@
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QInputDialog>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QCheckBox>
 #include <QMenu>
 #include <QMessageBox>
 #include <QPlainTextEdit>
@@ -54,6 +59,28 @@ QString tsNow() {
 QString oneLine(const QString& v) {
     QString x = v.simplified();
     return x.left(220);
+}
+
+QString parseOpenZfsVersionText(const QString& text) {
+    if (text.trimmed().isEmpty()) {
+        return QString();
+    }
+    const QString lower = text.toLower();
+    const QList<QRegularExpression> patterns = {
+        QRegularExpression(QStringLiteral("\\bzfs(?:-kmod)?[-\\s]+(\\d+\\.\\d+(?:\\.\\d+)?)\\b")),
+        QRegularExpression(QStringLiteral("\\bopenzfs(?:[-\\s]+version)?[:\\s]+(\\d+\\.\\d+(?:\\.\\d+)?)\\b")),
+    };
+    for (const QRegularExpression& rx : patterns) {
+        const QRegularExpressionMatch m = rx.match(lower);
+        if (m.hasMatch()) {
+            const QString ver = m.captured(1);
+            const int major = ver.section('.', 0, 0).toInt();
+            if (major <= 10) {
+                return ver;
+            }
+        }
+    }
+    return QString();
 }
 
 QString parentDatasetName(const QString& dataset) {
@@ -338,10 +365,11 @@ void MainWindow::buildUi() {
     auto* propsLayout = new QVBoxLayout(propsBox);
     propsLayout->setContentsMargins(8, 20, 8, 8);
     m_datasetPropsTable = new QTableWidget(propsBox);
-    m_datasetPropsTable->setColumnCount(2);
-    m_datasetPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor")});
+    m_datasetPropsTable->setColumnCount(3);
+    m_datasetPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor"), QStringLiteral("Inherit")});
     m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_datasetPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
     m_btnApplyDatasetProps = new QPushButton(QStringLiteral("Aplicar cambios"), propsBox);
     m_btnApplyDatasetProps->setEnabled(false);
@@ -382,10 +410,11 @@ void MainWindow::buildUi() {
     auto* advPropsLayout = new QVBoxLayout(advPropsBox);
     advPropsLayout->setContentsMargins(8, 20, 8, 8);
     m_advPropsTable = new QTableWidget(advPropsBox);
-    m_advPropsTable->setColumnCount(2);
-    m_advPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor")});
+    m_advPropsTable->setColumnCount(3);
+    m_advPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor"), QStringLiteral("Inherit")});
     m_advPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_advPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_advPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_advPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
     m_btnApplyAdvancedProps = new QPushButton(QStringLiteral("Aplicar cambios"), advPropsBox);
     m_btnApplyAdvancedProps->setEnabled(false);
@@ -1330,11 +1359,13 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         if (side == QStringLiteral("advanced")) {
             m_advPropsDataset.clear();
             m_advPropsOriginalValues.clear();
+            m_advPropsOriginalInherit.clear();
             m_advPropsDirty = false;
         } else {
             m_propsDataset.clear();
             m_propsSide = side;
             m_propsOriginalValues.clear();
+            m_propsOriginalInherit.clear();
             m_propsDirty = false;
         }
         updateApplyPropsButtonState();
@@ -1387,12 +1418,18 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     table->setRowCount(0);
     if (side == QStringLiteral("advanced")) {
         m_advPropsOriginalValues.clear();
+        m_advPropsOriginalInherit.clear();
         m_advPropsDataset = rec.name;
     } else {
         m_propsOriginalValues.clear();
+        m_propsOriginalInherit.clear();
         m_propsSide = side;
         m_propsDataset = rec.name;
     }
+    const QSet<QString> inheritableProps = {
+        QStringLiteral("mountpoint"),
+        QStringLiteral("canmount"),
+    };
     for (const Row& row : rows) {
         const int r = table->rowCount();
         table->insertRow(r);
@@ -1402,10 +1439,21 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
             v->setFlags(v->flags() & ~Qt::ItemIsEditable);
         }
         table->setItem(r, 1, v);
+        auto* inh = new QTableWidgetItem();
+        if (inheritableProps.contains(row.k)) {
+            inh->setFlags((inh->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled) & ~Qt::ItemIsEditable);
+            inh->setCheckState(Qt::Unchecked);
+        } else {
+            inh->setFlags(Qt::ItemIsEnabled);
+            inh->setText(QStringLiteral("-"));
+        }
+        table->setItem(r, 2, inh);
         if (side == QStringLiteral("advanced")) {
             m_advPropsOriginalValues[row.k] = row.v;
+            m_advPropsOriginalInherit[row.k] = false;
         } else {
             m_propsOriginalValues[row.k] = row.v;
+            m_propsOriginalInherit[row.k] = false;
         }
     }
     if (side == QStringLiteral("advanced")) {
@@ -1747,62 +1795,56 @@ void MainWindow::actionAdvancedAssemble() {
 }
 
 void MainWindow::onDatasetPropsCellChanged(int row, int col) {
-    if (m_loadingPropsTable || col != 1) {
+    if (m_loadingPropsTable || (col != 1 && col != 2)) {
         return;
     }
     QTableWidgetItem* pk = m_datasetPropsTable->item(row, 0);
     QTableWidgetItem* pv = m_datasetPropsTable->item(row, 1);
-    if (!pk || !pv) {
+    QTableWidgetItem* pi = m_datasetPropsTable->item(row, 2);
+    if (!pk || !pv || !pi) {
         return;
     }
-    const QString key = pk->text().trimmed();
-    const QString value = pv->text();
-    const QString orig = m_propsOriginalValues.value(key);
-    if (value != orig) {
-        m_propsDirty = true;
-    } else {
-        m_propsDirty = false;
-        for (int r = 0; r < m_datasetPropsTable->rowCount(); ++r) {
-            QTableWidgetItem* rk = m_datasetPropsTable->item(r, 0);
-            QTableWidgetItem* rv = m_datasetPropsTable->item(r, 1);
-            if (!rk || !rv) {
-                continue;
-            }
-            if (rv->text() != m_propsOriginalValues.value(rk->text().trimmed())) {
-                m_propsDirty = true;
-                break;
-            }
+    Q_UNUSED(pk);
+    Q_UNUSED(pv);
+    Q_UNUSED(pi);
+    m_propsDirty = false;
+    for (int r = 0; r < m_datasetPropsTable->rowCount(); ++r) {
+        QTableWidgetItem* rk = m_datasetPropsTable->item(r, 0);
+        QTableWidgetItem* rv = m_datasetPropsTable->item(r, 1);
+        QTableWidgetItem* ri = m_datasetPropsTable->item(r, 2);
+        if (!rk || !rv || !ri) {
+            continue;
+        }
+        const QString key = rk->text().trimmed();
+        const bool inh = (ri->flags() & Qt::ItemIsUserCheckable) && ri->checkState() == Qt::Checked;
+        if (inh != m_propsOriginalInherit.value(key, false)
+            || rv->text() != m_propsOriginalValues.value(key)) {
+            m_propsDirty = true;
+            break;
         }
     }
     updateApplyPropsButtonState();
 }
 
 void MainWindow::onAdvancedPropsCellChanged(int row, int col) {
-    if (m_loadingPropsTable || col != 1 || !m_advPropsTable) {
+    if (m_loadingPropsTable || (col != 1 && col != 2) || !m_advPropsTable) {
         return;
     }
-    QTableWidgetItem* pk = m_advPropsTable->item(row, 0);
-    QTableWidgetItem* pv = m_advPropsTable->item(row, 1);
-    if (!pk || !pv) {
-        return;
-    }
-    const QString key = pk->text().trimmed();
-    const QString value = pv->text();
-    const QString orig = m_advPropsOriginalValues.value(key);
-    if (value != orig) {
-        m_advPropsDirty = true;
-    } else {
-        m_advPropsDirty = false;
-        for (int r = 0; r < m_advPropsTable->rowCount(); ++r) {
-            QTableWidgetItem* rk = m_advPropsTable->item(r, 0);
-            QTableWidgetItem* rv = m_advPropsTable->item(r, 1);
-            if (!rk || !rv) {
-                continue;
-            }
-            if (rv->text() != m_advPropsOriginalValues.value(rk->text().trimmed())) {
-                m_advPropsDirty = true;
-                break;
-            }
+    Q_UNUSED(row);
+    m_advPropsDirty = false;
+    for (int r = 0; r < m_advPropsTable->rowCount(); ++r) {
+        QTableWidgetItem* rk = m_advPropsTable->item(r, 0);
+        QTableWidgetItem* rv = m_advPropsTable->item(r, 1);
+        QTableWidgetItem* ri = m_advPropsTable->item(r, 2);
+        if (!rk || !rv || !ri) {
+            continue;
+        }
+        const QString key = rk->text().trimmed();
+        const bool inh = (ri->flags() & Qt::ItemIsUserCheckable) && ri->checkState() == Qt::Checked;
+        if (inh != m_advPropsOriginalInherit.value(key, false)
+            || rv->text() != m_advPropsOriginalValues.value(key)) {
+            m_advPropsDirty = true;
+            break;
         }
     }
     updateApplyPropsButtonState();
@@ -1822,11 +1864,17 @@ void MainWindow::applyDatasetPropertyChanges() {
     for (int r = 0; r < m_datasetPropsTable->rowCount(); ++r) {
         QTableWidgetItem* pk = m_datasetPropsTable->item(r, 0);
         QTableWidgetItem* pv = m_datasetPropsTable->item(r, 1);
-        if (!pk || !pv) {
+        QTableWidgetItem* pi = m_datasetPropsTable->item(r, 2);
+        if (!pk || !pv || !pi) {
             continue;
         }
         const QString prop = pk->text().trimmed();
         if (prop.isEmpty() || prop == QStringLiteral("dataset")) {
+            continue;
+        }
+        const bool inheritChecked = (pi->flags() & Qt::ItemIsUserCheckable) && (pi->checkState() == Qt::Checked);
+        if (inheritChecked) {
+            subcmds << QStringLiteral("zfs inherit %1 %2").arg(shSingleQuote(prop), shSingleQuote(ctx.datasetName));
             continue;
         }
         const QString now = pv->text().trimmed();
@@ -1834,13 +1882,8 @@ void MainWindow::applyDatasetPropertyChanges() {
         if (now == old) {
             continue;
         }
-        if (now.compare(QStringLiteral("inherit"), Qt::CaseInsensitive) == 0
-            || now.compare(QStringLiteral("(inherit)"), Qt::CaseInsensitive) == 0) {
-            subcmds << QStringLiteral("zfs inherit %1 %2").arg(shSingleQuote(prop), shSingleQuote(ctx.datasetName));
-        } else {
-            const QString assign = prop + QStringLiteral("=") + now;
-            subcmds << QStringLiteral("zfs set %1 %2").arg(shSingleQuote(assign), shSingleQuote(ctx.datasetName));
-        }
+        const QString assign = prop + QStringLiteral("=") + now;
+        subcmds << QStringLiteral("zfs set %1 %2").arg(shSingleQuote(assign), shSingleQuote(ctx.datasetName));
     }
     if (subcmds.isEmpty()) {
         m_propsDirty = false;
@@ -1869,11 +1912,17 @@ void MainWindow::applyAdvancedDatasetPropertyChanges() {
     for (int r = 0; r < m_advPropsTable->rowCount(); ++r) {
         QTableWidgetItem* pk = m_advPropsTable->item(r, 0);
         QTableWidgetItem* pv = m_advPropsTable->item(r, 1);
-        if (!pk || !pv) {
+        QTableWidgetItem* pi = m_advPropsTable->item(r, 2);
+        if (!pk || !pv || !pi) {
             continue;
         }
         const QString prop = pk->text().trimmed();
         if (prop.isEmpty() || prop == QStringLiteral("dataset")) {
+            continue;
+        }
+        const bool inheritChecked = (pi->flags() & Qt::ItemIsUserCheckable) && (pi->checkState() == Qt::Checked);
+        if (inheritChecked) {
+            subcmds << QStringLiteral("zfs inherit %1 %2").arg(shSingleQuote(prop), shSingleQuote(ctx.datasetName));
             continue;
         }
         const QString now = pv->text().trimmed();
@@ -1881,13 +1930,8 @@ void MainWindow::applyAdvancedDatasetPropertyChanges() {
         if (now == old) {
             continue;
         }
-        if (now.compare(QStringLiteral("inherit"), Qt::CaseInsensitive) == 0
-            || now.compare(QStringLiteral("(inherit)"), Qt::CaseInsensitive) == 0) {
-            subcmds << QStringLiteral("zfs inherit %1 %2").arg(shSingleQuote(prop), shSingleQuote(ctx.datasetName));
-        } else {
-            const QString assign = prop + QStringLiteral("=") + now;
-            subcmds << QStringLiteral("zfs set %1 %2").arg(shSingleQuote(assign), shSingleQuote(ctx.datasetName));
-        }
+        const QString assign = prop + QStringLiteral("=") + now;
+        subcmds << QStringLiteral("zfs set %1 %2").arg(shSingleQuote(assign), shSingleQuote(ctx.datasetName));
     }
     if (subcmds.isEmpty()) {
         m_advPropsDirty = false;
@@ -2081,17 +2125,121 @@ void MainWindow::importPoolFromRow(int row) {
     if (idx < 0) {
         return;
     }
-    const auto confirm = QMessageBox::question(
-        this,
-        QStringLiteral("Importar pool"),
-        QStringLiteral("¿Importar pool %1 en %2?").arg(poolName, connName),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm != QMessageBox::Yes) {
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(QStringLiteral("Importar pool: %1").arg(poolName));
+    dlg.setModal(true);
+    auto* lay = new QVBoxLayout(&dlg);
+
+    auto* flagsBox = new QGroupBox(QStringLiteral("Flags"), &dlg);
+    auto* flagsLay = new QGridLayout(flagsBox);
+    QCheckBox* forceCb = new QCheckBox(QStringLiteral("-f force"), flagsBox);
+    QCheckBox* missingLogCb = new QCheckBox(QStringLiteral("-m missing log"), flagsBox);
+    QCheckBox* noMountCb = new QCheckBox(QStringLiteral("-N do not mount"), flagsBox);
+    QCheckBox* rewindCb = new QCheckBox(QStringLiteral("-F rewind"), flagsBox);
+    QCheckBox* dryRunCb = new QCheckBox(QStringLiteral("-n dry run"), flagsBox);
+    QCheckBox* destroyedCb = new QCheckBox(QStringLiteral("-D destroyed"), flagsBox);
+    QCheckBox* extremeCb = new QCheckBox(QStringLiteral("-X extreme rewind"), flagsBox);
+    QCheckBox* loadKeysCb = new QCheckBox(QStringLiteral("-l load keys"), flagsBox);
+    flagsLay->addWidget(forceCb, 0, 0);
+    flagsLay->addWidget(missingLogCb, 0, 1);
+    flagsLay->addWidget(noMountCb, 1, 0);
+    flagsLay->addWidget(rewindCb, 1, 1);
+    flagsLay->addWidget(dryRunCb, 2, 0);
+    flagsLay->addWidget(destroyedCb, 2, 1);
+    flagsLay->addWidget(extremeCb, 3, 0);
+    flagsLay->addWidget(loadKeysCb, 3, 1);
+    lay->addWidget(flagsBox);
+
+    auto* fieldsBox = new QGroupBox(QStringLiteral("Valores"), &dlg);
+    auto* form = new QFormLayout(fieldsBox);
+    QLineEdit* cachefileEd = new QLineEdit(fieldsBox);
+    QLineEdit* altrootEd = new QLineEdit(fieldsBox);
+    QLineEdit* dirsEd = new QLineEdit(fieldsBox);
+    QLineEdit* mntoptsEd = new QLineEdit(fieldsBox);
+    QLineEdit* propsEd = new QLineEdit(fieldsBox);
+    QLineEdit* txgEd = new QLineEdit(fieldsBox);
+    QLineEdit* newNameEd = new QLineEdit(fieldsBox);
+    QLineEdit* extraEd = new QLineEdit(fieldsBox);
+    form->addRow(QStringLiteral("cachefile"), cachefileEd);
+    form->addRow(QStringLiteral("altroot"), altrootEd);
+    form->addRow(QStringLiteral("directories (, )"), dirsEd);
+    form->addRow(QStringLiteral("mntopts"), mntoptsEd);
+    form->addRow(QStringLiteral("properties (, )"), propsEd);
+    form->addRow(QStringLiteral("txg"), txgEd);
+    form->addRow(QStringLiteral("new name"), newNameEd);
+    form->addRow(QStringLiteral("extra args"), extraEd);
+    lay->addWidget(fieldsBox);
+
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(bb);
+
+    if (dlg.exec() != QDialog::Accepted) {
         return;
     }
+
+    QStringList parts;
+    parts << QStringLiteral("zpool import");
+    if (forceCb->isChecked()) {
+        parts << QStringLiteral("-f");
+    }
+    if (missingLogCb->isChecked()) {
+        parts << QStringLiteral("-m");
+    }
+    if (noMountCb->isChecked()) {
+        parts << QStringLiteral("-N");
+    }
+    if (rewindCb->isChecked()) {
+        parts << QStringLiteral("-F");
+    }
+    if (dryRunCb->isChecked()) {
+        parts << QStringLiteral("-n");
+    }
+    if (destroyedCb->isChecked()) {
+        parts << QStringLiteral("-D");
+    }
+    if (extremeCb->isChecked()) {
+        parts << QStringLiteral("-X");
+    }
+    if (loadKeysCb->isChecked()) {
+        parts << QStringLiteral("-l");
+    }
+    if (!cachefileEd->text().trimmed().isEmpty()) {
+        parts << QStringLiteral("-c") << shSingleQuote(cachefileEd->text().trimmed());
+    }
+    if (!altrootEd->text().trimmed().isEmpty()) {
+        parts << QStringLiteral("-R") << shSingleQuote(altrootEd->text().trimmed());
+    }
+    for (const QString& d : dirsEd->text().split(',', Qt::SkipEmptyParts)) {
+        const QString dd = d.trimmed();
+        if (!dd.isEmpty()) {
+            parts << QStringLiteral("-d") << shSingleQuote(dd);
+        }
+    }
+    if (!mntoptsEd->text().trimmed().isEmpty()) {
+        parts << QStringLiteral("-o") << shSingleQuote(mntoptsEd->text().trimmed());
+    }
+    for (const QString& pval : propsEd->text().split(',', Qt::SkipEmptyParts)) {
+        const QString pp = pval.trimmed();
+        if (!pp.isEmpty()) {
+            parts << QStringLiteral("-o") << shSingleQuote(pp);
+        }
+    }
+    if (!txgEd->text().trimmed().isEmpty()) {
+        parts << QStringLiteral("-T") << shSingleQuote(txgEd->text().trimmed());
+    }
+    parts << shSingleQuote(poolName);
+    if (!newNameEd->text().trimmed().isEmpty()) {
+        parts << shSingleQuote(newNameEd->text().trimmed());
+    }
+    if (!extraEd->text().trimmed().isEmpty()) {
+        parts << extraEd->text().trimmed();
+    }
+
     const ConnectionProfile& p = m_profiles[idx];
-    const QString cmd = withSudo(p, QStringLiteral("zpool import %1").arg(shSingleQuote(poolName)));
+    const QString cmd = withSudo(p, parts.join(' '));
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio importar %1::%2").arg(connName, poolName));
     QString out;
     QString err;
@@ -2392,15 +2540,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                        "([ -x /usr/local/zfs/bin/zfs ] && /usr/local/zfs/bin/zfs version) || "
                        "([ -x /sbin/zfs ] && /sbin/zfs version)"));
     if (runSsh(p, zfsVersionCmd, 12000, out, err, rc) && rc == 0) {
-        const QString merged = out + QStringLiteral("\n") + err;
-        const QRegularExpression rx(QStringLiteral("(\\d+\\.\\d+(?:\\.\\d+)?)"));
-        QRegularExpressionMatchIterator it = rx.globalMatch(merged);
-        QString lastMatch;
-        while (it.hasNext()) {
-            const QRegularExpressionMatch m = it.next();
-            lastMatch = m.captured(1);
-        }
-        state.zfsVersion = lastMatch;
+        state.zfsVersion = parseOpenZfsVersionText(out + QStringLiteral("\n") + err);
     }
 
     QString zpoolListCmd = withSudo(p, QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio"));

@@ -206,9 +206,11 @@ private:
     QString m_propsSide;
     QString m_propsDataset;
     QMap<QString, QString> m_propsOriginalValues;
+    QMap<QString, bool> m_propsOriginalInherit;
     bool m_propsDirty{false};
     QString m_advPropsDataset;
     QMap<QString, QString> m_advPropsOriginalValues;
+    QMap<QString, bool> m_advPropsOriginalInherit;
     bool m_advPropsDirty{false};
     bool m_loadingPropsTable{false};
     QString m_appLogPath;
