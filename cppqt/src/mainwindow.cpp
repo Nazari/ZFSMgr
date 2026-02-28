@@ -925,13 +925,24 @@ void MainWindow::rebuildConnectionList() {
         if (zfsTxt.isEmpty()) {
             zfsTxt = QStringLiteral("?");
         }
-        QString line = QStringLiteral("%1 | %2 | ZFS v%3").arg(line1, p.osType, zfsTxt);
-        if (!s.status.isEmpty()) {
-            line += QStringLiteral(" [") + s.status + QStringLiteral("]");
+        QString statusTag;
+        QColor rowColor("#14212b");
+        const QString st = s.status.trimmed().toUpper();
+        if (st == QStringLiteral("OK")) {
+            statusTag = QStringLiteral("[OK] ");
+            rowColor = QColor("#1f7a1f");
+        } else if (!st.isEmpty()) {
+            statusTag = QStringLiteral("[Error] ");
+            rowColor = QColor("#a12a2a");
+        }
+        QString line = QStringLiteral("%1%2 | %3 | ZFS v%4").arg(statusTag, line1, p.osType, zfsTxt);
+        if (!st.isEmpty()) {
+            line += QStringLiteral(" [") + st + QStringLiteral("]");
         }
 
         auto* item = new QListWidgetItem(line, m_connectionsList);
         item->setData(Qt::UserRole, i);
+        item->setForeground(QBrush(rowColor));
         item->setToolTip(QStringLiteral("Host: %1\nPort: %2\nEstado: %3\nDetalle: %4")
                              .arg(p.host)
                              .arg(p.port)
