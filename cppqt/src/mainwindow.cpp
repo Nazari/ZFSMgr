@@ -38,6 +38,7 @@
 #include <QTreeWidgetItem>
 #include <QStackedWidget>
 #include <QSet>
+#include <algorithm>
 #include <QVBoxLayout>
 #include <QWidget>
 #include <QComboBox>
@@ -556,6 +557,8 @@ void MainWindow::buildUi() {
     m_btnAdvancedAssemble->setMinimumHeight(34);
     m_btnAdvancedBreakdown->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnAdvancedAssemble->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnAdvancedBreakdown->setEnabled(false);
+    m_btnAdvancedAssemble->setEnabled(false);
     auto* commandsButtonsRow = new QHBoxLayout();
     commandsButtonsRow->setSpacing(8);
     commandsButtonsRow->addWidget(m_btnAdvancedBreakdown);
@@ -763,12 +766,12 @@ void MainWindow::buildUi() {
     m_originPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
     m_originTree = new QTreeWidget(originBox);
     m_originTree->setColumnCount(2);
-    m_originTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
+    m_originTree->setHeaderLabels({QStringLiteral("Snapshot"), QStringLiteral("Dataset")});
     m_originTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_originTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     m_originTree->header()->setStretchLastSection(false);
-    m_originTree->setColumnWidth(0, 280);
-    m_originTree->setColumnWidth(1, 140);
+    m_originTree->setColumnWidth(0, 140);
+    m_originTree->setColumnWidth(1, 280);
     m_originTree->setUniformRowHeights(true);
     {
         QFont f = m_originTree->font();
@@ -794,12 +797,12 @@ void MainWindow::buildUi() {
     m_destPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
     m_destTree = new QTreeWidget(destBox);
     m_destTree->setColumnCount(2);
-    m_destTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
+    m_destTree->setHeaderLabels({QStringLiteral("Snapshot"), QStringLiteral("Dataset")});
     m_destTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_destTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     m_destTree->header()->setStretchLastSection(false);
-    m_destTree->setColumnWidth(0, 280);
-    m_destTree->setColumnWidth(1, 140);
+    m_destTree->setColumnWidth(0, 140);
+    m_destTree->setColumnWidth(1, 280);
     m_destTree->setUniformRowHeights(true);
     {
         QFont f = m_destTree->font();
@@ -831,12 +834,12 @@ void MainWindow::buildUi() {
     m_advPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
     m_advTree = new QTreeWidget(rightAdvancedPage);
     m_advTree->setColumnCount(2);
-    m_advTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
+    m_advTree->setHeaderLabels({QStringLiteral("Snapshot"), QStringLiteral("Dataset")});
     m_advTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_advTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     m_advTree->header()->setStretchLastSection(false);
-    m_advTree->setColumnWidth(0, 280);
-    m_advTree->setColumnWidth(1, 140);
+    m_advTree->setColumnWidth(0, 140);
+    m_advTree->setColumnWidth(1, 280);
     m_advTree->setUniformRowHeights(true);
     {
         QFont f = m_advTree->font();
@@ -1111,6 +1114,7 @@ void MainWindow::buildUi() {
         if (selected.isEmpty()) {
             m_advSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
             refreshDatasetProperties(QStringLiteral("advanced"));
+            updateTransferButtonsState();
             return;
         }
         auto* it = selected.first();
@@ -1124,51 +1128,11 @@ void MainWindow::buildUi() {
             m_advSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
         }
         refreshDatasetProperties(QStringLiteral("advanced"));
+        updateTransferButtonsState();
     });
     connect(m_advTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int col) {
-        if (!item || col != 1) {
-            return;
-        }
-        const QString ds = item->data(0, Qt::UserRole).toString();
-        if (ds.isEmpty()) {
-            return;
-        }
-        const QString token = m_advPoolCombo->currentData().toString();
-        const int sep = token.indexOf(QStringLiteral("::"));
-        if (sep <= 0) {
-            return;
-        }
-        const int connIdx = token.left(sep).toInt();
-        const QString poolName = token.mid(sep + 2);
-        const QString key = datasetCacheKey(connIdx, poolName);
-        const auto it = m_poolDatasetCache.constFind(key);
-        if (it == m_poolDatasetCache.constEnd()) {
-            return;
-        }
-        QStringList options;
-        options << QStringLiteral("(seleccione)");
-        options += it.value().snapshotsByDataset.value(ds);
-        if (options.size() <= 1) {
-            return;
-        }
-        bool ok = false;
-        const QString chosen = QInputDialog::getItem(this,
-                                                     QStringLiteral("Snapshot avanzado"),
-                                                     QStringLiteral("Seleccione snapshot"),
-                                                     options,
-                                                     0,
-                                                     false,
-                                                     &ok);
-        if (!ok) {
-            return;
-        }
-        if (chosen == QStringLiteral("(seleccione)")) {
-            item->setText(1, QStringLiteral("(seleccione)"));
-            item->setData(1, Qt::UserRole, QString());
-        } else {
-            item->setText(1, chosen);
-            item->setData(1, Qt::UserRole, chosen);
-        }
+        Q_UNUSED(item);
+        Q_UNUSED(col);
     });
     connect(m_btnAdvancedBreakdown, &QPushButton::clicked, this, [this]() {
         logUiAction(QStringLiteral("Desglosar (botón)"));
@@ -1613,6 +1577,7 @@ void MainWindow::onAdvancedPoolChanged() {
             m_advSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
         }
         refreshDatasetProperties(QStringLiteral("advanced"));
+        updateTransferButtonsState();
         return;
     }
     const int connIdx = token.left(sep).toInt();
@@ -1622,6 +1587,7 @@ void MainWindow::onAdvancedPoolChanged() {
         m_advSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
     }
     refreshDatasetProperties(QStringLiteral("advanced"));
+    updateTransferButtonsState();
 }
 
 void MainWindow::onOriginTreeSelectionChanged() {
@@ -1777,6 +1743,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName) {
         return false;
     }
 
+    QMap<QString, QVector<QPair<QString, QString>>> snapshotMetaByDataset;
     const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
     for (const QString& line : lines) {
         const QStringList f = line.split('\t');
@@ -1790,11 +1757,34 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName) {
         DatasetRecord rec{name, f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8]};
         if (name.contains('@')) {
             const QString ds = name.section('@', 0, 0);
-            cache.snapshotsByDataset[ds].push_back(name.section('@', 1));
+            const QString snap = name.section('@', 1);
+            snapshotMetaByDataset[ds].push_back(qMakePair(rec.creation, snap));
         } else {
             cache.datasets.push_back(rec);
             cache.recordByName[name] = rec;
         }
+    }
+    for (auto it = snapshotMetaByDataset.begin(); it != snapshotMetaByDataset.end(); ++it) {
+        auto rows = it.value();
+        std::sort(rows.begin(), rows.end(), [](const QPair<QString, QString>& a, const QPair<QString, QString>& b) {
+            bool aOk = false;
+            bool bOk = false;
+            const qlonglong av = a.first.toLongLong(&aOk);
+            const qlonglong bv = b.first.toLongLong(&bOk);
+            if (aOk && bOk && av != bv) {
+                return av > bv; // más nuevo primero
+            }
+            if (a.first != b.first) {
+                return a.first > b.first; // fallback textual desc
+            }
+            return a.second > b.second; // fallback por nombre desc
+        });
+        QStringList sortedSnaps;
+        sortedSnaps.reserve(rows.size());
+        for (const auto& row : rows) {
+            sortedSnaps.push_back(row.second);
+        }
+        cache.snapshotsByDataset.insert(it.key(), sortedSnaps);
     }
     cache.loaded = true;
     appLog(QStringLiteral("DEBUG"), QStringLiteral("Datasets loaded %1::%2 (%3)")
@@ -1818,9 +1808,9 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         const QString displayName = rec.name.contains('/')
                                         ? rec.name.section('/', -1, -1)
                                         : rec.name;
-        item->setText(0, displayName);
+        item->setText(1, displayName);
         const QStringList snaps = cache.snapshotsByDataset.value(rec.name);
-        item->setText(1, snaps.isEmpty() ? QString() : QStringLiteral("(ninguno)"));
+        item->setText(0, snaps.isEmpty() ? QString() : QStringLiteral("(ninguno)"));
         item->setData(1, Qt::UserRole, QString());
         item->setData(0, Qt::UserRole, rec.name);
         item->setData(2, Qt::UserRole, snaps);
@@ -1860,13 +1850,13 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
             combo->setMaximumHeight(22);
             combo->setFont(tree->font());
             combo->setStyleSheet(QStringLiteral("QComboBox{padding:0 2px; margin:0px;}"));
-            tree->setItemWidget(n, 1, combo);
+            tree->setItemWidget(n, 0, combo);
             QObject::connect(combo, &QComboBox::currentTextChanged, tree, [this, tree, n, side](const QString& txt) {
                 onSnapshotComboChanged(tree, n, side, txt);
             });
         } else {
-            tree->setItemWidget(n, 1, nullptr);
-            n->setText(1, QString());
+            tree->setItemWidget(n, 0, nullptr);
+            n->setText(0, QString());
             n->setData(1, Qt::UserRole, QString());
         }
         for (int i = 0; i < n->childCount(); ++i) {
@@ -1889,7 +1879,7 @@ void MainWindow::clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem
         if (!n || n == keepItem) {
             return;
         }
-        if (QComboBox* cb = qobject_cast<QComboBox*>(tree->itemWidget(n, 1))) {
+        if (QComboBox* cb = qobject_cast<QComboBox*>(tree->itemWidget(n, 0))) {
             QSignalBlocker b(cb);
             cb->setCurrentIndex(0);
         }
@@ -2174,6 +2164,8 @@ void MainWindow::updateTransferButtonsState() {
         if (m_btnCopy) m_btnCopy->setEnabled(false);
         if (m_btnLevel) m_btnLevel->setEnabled(false);
         if (m_btnSync) m_btnSync->setEnabled(false);
+        if (m_btnAdvancedBreakdown) m_btnAdvancedBreakdown->setEnabled(false);
+        if (m_btnAdvancedAssemble) m_btnAdvancedAssemble->setEnabled(false);
         return;
     }
     const bool srcDs = !m_originSelectedDataset.isEmpty();
@@ -2183,6 +2175,14 @@ void MainWindow::updateTransferButtonsState() {
     m_btnCopy->setEnabled(srcDs && srcSnap && dstDs && !dstSnap);
     m_btnLevel->setEnabled(srcDs && dstDs && !dstSnap);
     m_btnSync->setEnabled(srcDs && !srcSnap && dstDs && !dstSnap);
+    const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("advanced"));
+    const bool advDatasetOnly = actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty();
+    if (m_btnAdvancedBreakdown) {
+        m_btnAdvancedBreakdown->setEnabled(advDatasetOnly);
+    }
+    if (m_btnAdvancedAssemble) {
+        m_btnAdvancedAssemble->setEnabled(advDatasetOnly);
+    }
 }
 
 bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs) {
@@ -4430,8 +4430,6 @@ void MainWindow::setActionsLocked(bool locked) {
     if (m_btnRefreshAll) m_btnRefreshAll->setEnabled(!locked);
     if (m_btnConfig) m_btnConfig->setEnabled(!locked);
     if (m_poolStatusRefreshBtn) m_poolStatusRefreshBtn->setEnabled(!locked);
-    if (m_btnAdvancedBreakdown) m_btnAdvancedBreakdown->setEnabled(!locked);
-    if (m_btnAdvancedAssemble) m_btnAdvancedAssemble->setEnabled(!locked);
     if (m_btnApplyDatasetProps) m_btnApplyDatasetProps->setEnabled(!locked && m_btnApplyDatasetProps->isEnabled());
     if (m_btnApplyAdvancedProps) m_btnApplyAdvancedProps->setEnabled(!locked && m_btnApplyAdvancedProps->isEnabled());
     if (locked) {
