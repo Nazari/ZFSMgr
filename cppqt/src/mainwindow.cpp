@@ -2182,7 +2182,29 @@ void MainWindow::updateTransferButtonsState() {
     m_btnLevel->setEnabled(srcDs && dstDs && !dstSnap);
     m_btnSync->setEnabled(srcDs && !srcSnap && dstDs && !dstSnap);
     const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("advanced"));
-    const bool advDatasetOnly = actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty();
+    bool advDatasetOnly = actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty();
+    if (advDatasetOnly) {
+        const QString key = datasetCacheKey(actx.connIdx, actx.poolName);
+        const auto cacheIt = m_poolDatasetCache.constFind(key);
+        if (cacheIt == m_poolDatasetCache.constEnd() || !cacheIt->loaded) {
+            advDatasetOnly = false;
+        } else {
+            bool allMounted = true;
+            const QString base = actx.datasetName;
+            const QString pref = base + QStringLiteral("/");
+            for (auto it = cacheIt->recordByName.constBegin(); it != cacheIt->recordByName.constEnd(); ++it) {
+                const QString& ds = it.key();
+                if (ds != base && !ds.startsWith(pref)) {
+                    continue;
+                }
+                if (!isMountedValueTrue(it.value().mounted)) {
+                    allMounted = false;
+                    break;
+                }
+            }
+            advDatasetOnly = allMounted;
+        }
+    }
     if (m_btnAdvancedBreakdown) {
         m_btnAdvancedBreakdown->setEnabled(advDatasetOnly);
     }
