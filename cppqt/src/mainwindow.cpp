@@ -449,12 +449,11 @@ void MainWindow::buildUi() {
     transferButtonsRow->addWidget(m_btnSync);
     transferLayout->addLayout(transferButtonsRow);
     dsLeftTabLayout->addWidget(transferBox);
-    auto* mountedBoxLeft = new QGroupBox(tr3(QStringLiteral("Datasets Montados"),
-                                             QStringLiteral("Mounted Datasets"),
-                                             QStringLiteral("已挂载数据集")),
-                                         datasetsTab);
-    auto* mountedLeftLayout = new QVBoxLayout(mountedBoxLeft);
-    m_mountedDatasetsTableLeft = new QTableWidget(mountedBoxLeft);
+    auto* datasetsInfoTabs = new QTabWidget(datasetsTab);
+    datasetsInfoTabs->setDocumentMode(false);
+    auto* mountedLeftTab = new QWidget(datasetsInfoTabs);
+    auto* mountedLeftLayout = new QVBoxLayout(mountedLeftTab);
+    m_mountedDatasetsTableLeft = new QTableWidget(mountedLeftTab);
     m_mountedDatasetsTableLeft->setColumnCount(2);
     m_mountedDatasetsTableLeft->setHorizontalHeaderLabels(
         {tr3(QStringLiteral("Dataset"), QStringLiteral("Dataset"), QStringLiteral("数据集")),
@@ -484,7 +483,44 @@ void MainWindow::buildUi() {
     m_mountedDatasetsTableLeft->setColumnWidth(0, 300);
     m_mountedDatasetsTableLeft->setColumnWidth(1, 220);
     mountedLeftLayout->addWidget(m_mountedDatasetsTableLeft, 1);
-    dsLeftTabLayout->addWidget(mountedBoxLeft, 1);
+    auto* propsLeftTab = new QWidget(datasetsInfoTabs);
+    auto* propsLeftLayout = new QVBoxLayout(propsLeftTab);
+    auto* propsLeftBox = new QGroupBox(
+        tr3(QStringLiteral("Propiedades del dataset"),
+            QStringLiteral("Dataset properties"),
+            QStringLiteral("数据集属性")),
+        propsLeftTab);
+    auto* propsLeftBoxLayout = new QVBoxLayout(propsLeftBox);
+    propsLeftBoxLayout->setContentsMargins(8, 20, 8, 8);
+    m_datasetPropsTable = new QTableWidget(propsLeftBox);
+    m_datasetPropsTable->setColumnCount(3);
+    m_datasetPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor"), QStringLiteral("Inherit")});
+    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    m_datasetPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
+    m_datasetPropsTable->verticalHeader()->setVisible(false);
+    m_datasetPropsTable->verticalHeader()->setDefaultSectionSize(22);
+    m_datasetPropsTable->setFont(m_mountedDatasetsTableLeft->font());
+    {
+        QFont hf = m_datasetPropsTable->font();
+        hf.setBold(false);
+        m_datasetPropsTable->horizontalHeader()->setFont(hf);
+    }
+    m_btnApplyDatasetProps = new QPushButton(
+        tr3(QStringLiteral("Aplicar cambios"), QStringLiteral("Apply changes"), QStringLiteral("应用更改")),
+        propsLeftBox);
+    m_btnApplyDatasetProps->setEnabled(false);
+    propsLeftBoxLayout->addWidget(m_datasetPropsTable, 1);
+    propsLeftBoxLayout->addWidget(m_btnApplyDatasetProps, 0, Qt::AlignRight);
+    propsLeftLayout->addWidget(propsLeftBox, 1);
+    datasetsInfoTabs->addTab(
+        mountedLeftTab,
+        tr3(QStringLiteral("Montados"), QStringLiteral("Mounted"), QStringLiteral("已挂载")));
+    datasetsInfoTabs->addTab(
+        propsLeftTab,
+        tr3(QStringLiteral("Propiedades"), QStringLiteral("Properties"), QStringLiteral("属性")));
+    dsLeftTabLayout->addWidget(datasetsInfoTabs, 1);
     datasetsTab->setLayout(dsLeftTabLayout);
 
     auto* advancedTab = new QWidget(m_leftTabs);
@@ -525,12 +561,11 @@ void MainWindow::buildUi() {
     commandsButtonsRow->addWidget(m_btnAdvancedBreakdown);
     commandsButtonsRow->addWidget(m_btnAdvancedAssemble);
     commandsLayout->addLayout(commandsButtonsRow);
-    auto* mountedBoxAdv = new QGroupBox(tr3(QStringLiteral("Datasets Montados"),
-                                            QStringLiteral("Mounted Datasets"),
-                                            QStringLiteral("已挂载数据集")),
-                                        advancedTab);
-    auto* mountedAdvLayout = new QVBoxLayout(mountedBoxAdv);
-    m_mountedDatasetsTableAdv = new QTableWidget(mountedBoxAdv);
+    auto* advancedInfoTabs = new QTabWidget(advancedTab);
+    advancedInfoTabs->setDocumentMode(false);
+    auto* mountedAdvTab = new QWidget(advancedInfoTabs);
+    auto* mountedAdvLayout = new QVBoxLayout(mountedAdvTab);
+    m_mountedDatasetsTableAdv = new QTableWidget(mountedAdvTab);
     m_mountedDatasetsTableAdv->setColumnCount(2);
     m_mountedDatasetsTableAdv->setHorizontalHeaderLabels(
         {tr3(QStringLiteral("Dataset"), QStringLiteral("Dataset"), QStringLiteral("数据集")),
@@ -560,9 +595,46 @@ void MainWindow::buildUi() {
     m_mountedDatasetsTableAdv->setColumnWidth(0, 300);
     m_mountedDatasetsTableAdv->setColumnWidth(1, 220);
     mountedAdvLayout->addWidget(m_mountedDatasetsTableAdv, 1);
+    auto* propsAdvTab = new QWidget(advancedInfoTabs);
+    auto* propsAdvLayout = new QVBoxLayout(propsAdvTab);
+    auto* propsAdvBox = new QGroupBox(
+        tr3(QStringLiteral("Propiedades del dataset"),
+            QStringLiteral("Dataset properties"),
+            QStringLiteral("数据集属性")),
+        propsAdvTab);
+    auto* propsAdvBoxLayout = new QVBoxLayout(propsAdvBox);
+    propsAdvBoxLayout->setContentsMargins(8, 20, 8, 8);
+    m_advPropsTable = new QTableWidget(propsAdvBox);
+    m_advPropsTable->setColumnCount(3);
+    m_advPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor"), QStringLiteral("Inherit")});
+    m_advPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_advPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_advPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    m_advPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
+    m_advPropsTable->verticalHeader()->setVisible(false);
+    m_advPropsTable->verticalHeader()->setDefaultSectionSize(22);
+    m_advPropsTable->setFont(m_mountedDatasetsTableAdv->font());
+    {
+        QFont hf = m_advPropsTable->font();
+        hf.setBold(false);
+        m_advPropsTable->horizontalHeader()->setFont(hf);
+    }
+    m_btnApplyAdvancedProps = new QPushButton(
+        tr3(QStringLiteral("Aplicar cambios"), QStringLiteral("Apply changes"), QStringLiteral("应用更改")),
+        propsAdvBox);
+    m_btnApplyAdvancedProps->setEnabled(false);
+    propsAdvBoxLayout->addWidget(m_advPropsTable, 1);
+    propsAdvBoxLayout->addWidget(m_btnApplyAdvancedProps, 0, Qt::AlignRight);
+    propsAdvLayout->addWidget(propsAdvBox, 1);
+    advancedInfoTabs->addTab(
+        mountedAdvTab,
+        tr3(QStringLiteral("Montados"), QStringLiteral("Mounted"), QStringLiteral("已挂载")));
+    advancedInfoTabs->addTab(
+        propsAdvTab,
+        tr3(QStringLiteral("Propiedades"), QStringLiteral("Properties"), QStringLiteral("属性")));
     advLeftTabLayout->setSpacing(8);
     advLeftTabLayout->addWidget(commandsBox);
-    advLeftTabLayout->addWidget(mountedBoxAdv, 1);
+    advLeftTabLayout->addWidget(advancedInfoTabs, 1);
     advancedTab->setLayout(advLeftTabLayout);
 
     m_leftTabs->addTab(connectionsTab, tr3(QStringLiteral("Conexiones"), QStringLiteral("Connections"), QStringLiteral("连接")));
@@ -676,11 +748,7 @@ void MainWindow::buildUi() {
     auto* rightDatasetsLayout = new QVBoxLayout(rightDatasetsPage);
     rightDatasetsLayout->setContentsMargins(0, 0, 0, 0);
     rightDatasetsLayout->setSpacing(4);
-    auto* dsSplitter = new QSplitter(Qt::Horizontal, rightDatasetsPage);
-    dsSplitter->setChildrenCollapsible(false);
-    dsSplitter->setHandleWidth(1);
-
-    auto* dsLeft = new QWidget(dsSplitter);
+    auto* dsLeft = new QWidget(rightDatasetsPage);
     auto* dsLeftLayout = new QVBoxLayout(dsLeft);
     dsLeftLayout->setContentsMargins(0, 0, 0, 0);
     dsLeftLayout->setSpacing(4);
@@ -749,46 +817,13 @@ void MainWindow::buildUi() {
 
     dsLeftLayout->addWidget(originBox, 1);
     dsLeftLayout->addWidget(destBox, 1);
-
-    auto* propsBox = new QGroupBox(tr3(QStringLiteral("Propiedades del dataset"), QStringLiteral("Dataset properties"), QStringLiteral("数据集属性")), dsSplitter);
-    auto* propsLayout = new QVBoxLayout(propsBox);
-    propsLayout->setContentsMargins(8, 20, 8, 8);
-    m_datasetPropsTable = new QTableWidget(propsBox);
-    m_datasetPropsTable->setColumnCount(3);
-    m_datasetPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor"), QStringLiteral("Inherit")});
-    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    m_datasetPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
-    m_datasetPropsTable->verticalHeader()->setVisible(false);
-    m_datasetPropsTable->verticalHeader()->setDefaultSectionSize(22);
-    if (m_mountedDatasetsTableLeft) {
-        m_datasetPropsTable->setFont(m_mountedDatasetsTableLeft->font());
-    }
-    {
-        QFont hf = m_datasetPropsTable->font();
-        hf.setBold(false);
-        m_datasetPropsTable->horizontalHeader()->setFont(hf);
-    }
-    m_btnApplyDatasetProps = new QPushButton(tr3(QStringLiteral("Aplicar cambios"), QStringLiteral("Apply changes"), QStringLiteral("应用更改")), propsBox);
-    m_btnApplyDatasetProps->setEnabled(false);
-    propsLayout->addWidget(m_datasetPropsTable, 1);
-    propsLayout->addWidget(m_btnApplyDatasetProps, 0, Qt::AlignRight);
-
-    dsSplitter->addWidget(dsLeft);
-    dsSplitter->addWidget(propsBox);
-    dsSplitter->setStretchFactor(0, 62);
-    dsSplitter->setStretchFactor(1, 38);
-    rightDatasetsLayout->addWidget(dsSplitter, 1);
+    rightDatasetsLayout->addWidget(dsLeft, 1);
 
     auto* rightAdvancedPage = new QWidget(m_rightStack);
     auto* rightAdvancedLayout = new QVBoxLayout(rightAdvancedPage);
     rightAdvancedLayout->setContentsMargins(0, 0, 0, 0);
     rightAdvancedLayout->setSpacing(4);
-    auto* advSplitter = new QSplitter(Qt::Horizontal, rightAdvancedPage);
-    advSplitter->setChildrenCollapsible(false);
-    advSplitter->setHandleWidth(1);
-    auto* advLeft = new QWidget(advSplitter);
+    auto* advLeft = new QWidget(rightAdvancedPage);
     auto* advLeftLayout = new QVBoxLayout(advLeft);
     m_advPoolCombo = new QComboBox(rightAdvancedPage);
     m_advPoolCombo->setMinimumContentsLength(6);
@@ -817,37 +852,7 @@ void MainWindow::buildUi() {
     advTop->addWidget(m_advSelectionLabel, 1);
     advLeftLayout->addLayout(advTop);
     advLeftLayout->addWidget(m_advTree, 1);
-
-    auto* advPropsBox = new QGroupBox(tr3(QStringLiteral("Propiedades del dataset"), QStringLiteral("Dataset properties"), QStringLiteral("数据集属性")), advSplitter);
-    auto* advPropsLayout = new QVBoxLayout(advPropsBox);
-    advPropsLayout->setContentsMargins(8, 20, 8, 8);
-    m_advPropsTable = new QTableWidget(advPropsBox);
-    m_advPropsTable->setColumnCount(3);
-    m_advPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor"), QStringLiteral("Inherit")});
-    m_advPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_advPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    m_advPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    m_advPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
-    m_advPropsTable->verticalHeader()->setVisible(false);
-    m_advPropsTable->verticalHeader()->setDefaultSectionSize(22);
-    if (m_mountedDatasetsTableAdv) {
-        m_advPropsTable->setFont(m_mountedDatasetsTableAdv->font());
-    }
-    {
-        QFont hf = m_advPropsTable->font();
-        hf.setBold(false);
-        m_advPropsTable->horizontalHeader()->setFont(hf);
-    }
-    m_btnApplyAdvancedProps = new QPushButton(tr3(QStringLiteral("Aplicar cambios"), QStringLiteral("Apply changes"), QStringLiteral("应用更改")), advPropsBox);
-    m_btnApplyAdvancedProps->setEnabled(false);
-    advPropsLayout->addWidget(m_advPropsTable, 1);
-    advPropsLayout->addWidget(m_btnApplyAdvancedProps, 0, Qt::AlignRight);
-
-    advSplitter->addWidget(advLeft);
-    advSplitter->addWidget(advPropsBox);
-    advSplitter->setStretchFactor(0, 62);
-    advSplitter->setStretchFactor(1, 38);
-    rightAdvancedLayout->addWidget(advSplitter, 1);
+    rightAdvancedLayout->addWidget(advLeft, 1);
 
     m_rightStack->addWidget(rightConnectionsPage);
     m_rightStack->addWidget(rightDatasetsPage);
