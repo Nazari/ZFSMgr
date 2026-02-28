@@ -783,7 +783,10 @@ void MainWindow::loadConnections() {
     m_states.resize(m_profiles.size());
 
     rebuildConnectionList();
-    updateStatus(QStringLiteral("Estado: %1 conexiones cargadas").arg(m_profiles.size()));
+    updateStatus(tr3(QStringLiteral("Estado: %1 conexiones cargadas"),
+                     QStringLiteral("Status: %1 connections loaded"),
+                     QStringLiteral("状态：已加载 %1 个连接"))
+                     .arg(m_profiles.size()));
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Loaded %1 connections from %2")
                                    .arg(m_profiles.size())
                                    .arg(m_store.iniPath()));
@@ -879,13 +882,18 @@ void MainWindow::refreshAllConnections() {
         rebuildConnectionList();
         rebuildDatasetPoolSelectors();
         populateAllPoolsTables();
-        updateStatus(QStringLiteral("Estado: refresco finalizado"));
+        updateStatus(tr3(QStringLiteral("Estado: refresco finalizado"),
+                         QStringLiteral("Status: refresh finished"),
+                         QStringLiteral("状态：刷新完成")));
         return;
     }
     const int generation = ++m_refreshGeneration;
     m_refreshPending = m_profiles.size();
     m_refreshTotal = m_profiles.size();
-    updateStatus(QStringLiteral("Estado: refrescando 0/%1").arg(m_refreshTotal));
+    updateStatus(tr3(QStringLiteral("Estado: refrescando 0/%1"),
+                     QStringLiteral("Status: refreshing 0/%1"),
+                     QStringLiteral("状态：刷新中 0/%1"))
+                     .arg(m_refreshTotal));
 
     for (int i = 0; i < m_profiles.size(); ++i) {
         const ConnectionProfile profile = m_profiles[i];
@@ -914,7 +922,9 @@ void MainWindow::refreshSelectedConnection() {
     const int generation = ++m_refreshGeneration;
     m_refreshPending = 1;
     m_refreshTotal = 1;
-    updateStatus(QStringLiteral("Estado: refrescando 0/1"));
+    updateStatus(tr3(QStringLiteral("Estado: refrescando 0/1"),
+                     QStringLiteral("Status: refreshing 0/1"),
+                     QStringLiteral("状态：刷新中 0/1")));
     const ConnectionProfile profile = m_profiles[idx];
     (void)QtConcurrent::run([this, generation, idx, profile]() {
         const ConnectionRuntimeState state = refreshConnection(profile);
@@ -947,7 +957,11 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const ConnectionR
         --m_refreshPending;
     }
     const int done = qMax(0, m_refreshTotal - m_refreshPending);
-    updateStatus(QStringLiteral("Estado: refrescando %1/%2").arg(done).arg(qMax(1, m_refreshTotal)));
+    updateStatus(tr3(QStringLiteral("Estado: refrescando %1/%2"),
+                     QStringLiteral("Status: refreshing %1/%2"),
+                     QStringLiteral("状态：刷新中 %1/%2"))
+                     .arg(done)
+                     .arg(qMax(1, m_refreshTotal)));
     if (m_refreshPending == 0) {
         onAsyncRefreshDone(generation);
     }
@@ -958,7 +972,9 @@ void MainWindow::onAsyncRefreshDone(int generation) {
         return;
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Refresco paralelo finalizado"));
-    updateStatus(QStringLiteral("Estado: refresco finalizado"));
+    updateStatus(tr3(QStringLiteral("Estado: refresco finalizado"),
+                     QStringLiteral("Status: refresh finished"),
+                     QStringLiteral("状态：刷新完成")));
 }
 
 void MainWindow::createConnection() {
