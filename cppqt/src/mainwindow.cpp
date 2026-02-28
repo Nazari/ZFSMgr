@@ -355,7 +355,7 @@ void MainWindow::buildUi() {
         fm.horizontalAdvance(tr3(QStringLiteral("Refrescar todo"), QStringLiteral("Refresh all"), QStringLiteral("全部刷新"))),
         fm.horizontalAdvance(tr3(QStringLiteral("Configuración"), QStringLiteral("Configuration"), QStringLiteral("配置"))));
     const int leftBaseWidth = qMax(340, btnTextWidth + 190);
-    const int leftFixedWidth = qMax(220, static_cast<int>(leftBaseWidth * 0.85 * 1.15));
+    const int leftFixedWidth = qMax(220, static_cast<int>(leftBaseWidth * 0.85 * 1.15 * 1.10));
     leftPane->setMinimumWidth(leftFixedWidth);
     leftPane->setMaximumWidth(leftFixedWidth);
 
@@ -412,9 +412,12 @@ void MainWindow::buildUi() {
     m_btnCopy->setEnabled(false);
     m_btnLevel->setEnabled(false);
     m_btnSync->setEnabled(false);
-    transferLayout->addWidget(m_btnCopy);
-    transferLayout->addWidget(m_btnLevel);
-    transferLayout->addWidget(m_btnSync);
+    auto* transferButtonsRow = new QHBoxLayout();
+    transferButtonsRow->setSpacing(8);
+    transferButtonsRow->addWidget(m_btnCopy);
+    transferButtonsRow->addWidget(m_btnLevel);
+    transferButtonsRow->addWidget(m_btnSync);
+    transferLayout->addLayout(transferButtonsRow);
     dsLeftTabLayout->addWidget(transferBox);
     auto* mountedBoxLeft = new QGroupBox(tr3(QStringLiteral("Datasets Montados"),
                                              QStringLiteral("Mounted Datasets"),
@@ -439,7 +442,7 @@ void MainWindow::buildUi() {
     m_mountedDatasetsTableLeft->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     {
         QFont f = m_mountedDatasetsTableLeft->font();
-        f.setPointSize(qMax(7, f.pointSize() - 1));
+        f.setPointSize(qMax(6, f.pointSize() - 2));
         m_mountedDatasetsTableLeft->setFont(f);
     }
     mountedLeftLayout->addWidget(m_mountedDatasetsTableLeft, 1);
@@ -479,8 +482,11 @@ void MainWindow::buildUi() {
     m_btnAdvancedAssemble->setMinimumHeight(34);
     m_btnAdvancedBreakdown->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnAdvancedAssemble->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    commandsLayout->addWidget(m_btnAdvancedBreakdown);
-    commandsLayout->addWidget(m_btnAdvancedAssemble);
+    auto* commandsButtonsRow = new QHBoxLayout();
+    commandsButtonsRow->setSpacing(8);
+    commandsButtonsRow->addWidget(m_btnAdvancedBreakdown);
+    commandsButtonsRow->addWidget(m_btnAdvancedAssemble);
+    commandsLayout->addLayout(commandsButtonsRow);
     auto* mountedBoxAdv = new QGroupBox(tr3(QStringLiteral("Datasets Montados"),
                                             QStringLiteral("Mounted Datasets"),
                                             QStringLiteral("已挂载数据集")),
@@ -504,7 +510,7 @@ void MainWindow::buildUi() {
     m_mountedDatasetsTableAdv->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     {
         QFont f = m_mountedDatasetsTableAdv->font();
-        f.setPointSize(qMax(7, f.pointSize() - 1));
+        f.setPointSize(qMax(6, f.pointSize() - 2));
         m_mountedDatasetsTableAdv->setFont(f);
     }
     mountedAdvLayout->addWidget(m_mountedDatasetsTableAdv, 1);
