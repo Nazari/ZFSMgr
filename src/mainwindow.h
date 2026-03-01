@@ -111,6 +111,7 @@ private:
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
     bool runSsh(const ConnectionProfile& p, const QString& remoteCmd, int timeoutMs, QString& out, QString& err, int& rc);
     QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
+    QString withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const;
     bool isWindowsConnection(const ConnectionProfile& p) const;
     bool isWindowsConnection(int connIdx) const;
     QString wrapRemoteCommand(const ConnectionProfile& p, const QString& remoteCmd) const;

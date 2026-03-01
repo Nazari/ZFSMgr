@@ -2176,6 +2176,20 @@ QString MainWindow::withSudo(const ConnectionProfile& p, const QString& cmd) con
     return QStringLiteral("sudo -n ") + cmd;
 }
 
+QString MainWindow::withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const {
+    if (isWindowsConnection(p)) {
+        return cmd;
+    }
+    if (!p.useSudo) {
+        return cmd;
+    }
+    if (!p.password.isEmpty()) {
+        return QStringLiteral("{ printf '%s\\n' %1; cat; } | sudo -S -p '' sh -lc %2")
+            .arg(shSingleQuote(p.password), shSingleQuote(cmd));
+    }
+    return QStringLiteral("sudo -n sh -lc %1").arg(shSingleQuote(cmd));
+}
+
 bool MainWindow::isWindowsConnection(const ConnectionProfile& p) const {
     return p.osType.trimmed().toLower().contains(QStringLiteral("windows"));
 }
@@ -3126,7 +3140,7 @@ void MainWindow::actionCopySnapshot() {
     const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
 
     QString sendCmd = withSudo(sp, QStringLiteral("zfs send -wLecR %1").arg(shSingleQuote(srcSnap)));
-    QString recvCmd = withSudo(dp, QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget)));
+    QString recvCmd = withSudoStreamInput(dp, QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget)));
 
     const QString pipeline =
         srcSsh + QStringLiteral(" ") + shSingleQuote(sendCmd)
@@ -3242,7 +3256,7 @@ void MainWindow::actionLevelSnapshot() {
     const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
     const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
 
-    QString recvCmd = withSudo(dp, QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget)));
+    QString recvCmd = withSudoStreamInput(dp, QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget)));
 
     const QString pipeline =
         srcSsh + QStringLiteral(" ") + shSingleQuote(sendCmd)
