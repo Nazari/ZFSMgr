@@ -2154,18 +2154,8 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         QString source;
         QString readonly;
     };
-    QVector<PropRow> rows;
-    rows.push_back({QStringLiteral("dataset"), objectName, QString(), QStringLiteral("true")});
-    if (snapshot.isEmpty()) {
-        const QString mountedRaw = rec.mounted.trimmed().toLower();
-        const bool mountedYes = (mountedRaw == QStringLiteral("yes")
-                                 || mountedRaw == QStringLiteral("on")
-                                 || mountedRaw == QStringLiteral("true")
-                                 || mountedRaw == QStringLiteral("1"));
-        rows.push_back({QStringLiteral("estado"), mountedYes ? QStringLiteral("Montado") : QStringLiteral("Desmontado"), QString(), QStringLiteral("true")});
-    } else {
-        rows.push_back({QStringLiteral("estado"), QStringLiteral("Snapshot"), QString(), QStringLiteral("true")});
-    }
+    QVector<PropRow> rawRows;
+    rawRows.push_back({QStringLiteral("dataset"), objectName, QString(), QStringLiteral("true")});
 
     QString out;
     QString err;
@@ -2210,8 +2200,44 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
             if (!isDatasetPropertyEditable(prop, datasetType, source, ro)) {
                 continue;
             }
-            rows.push_back({prop, val, source, ro});
+            rawRows.push_back({prop, val, source, ro});
         }
+    }
+
+    QMap<QString, PropRow> byProp;
+    for (const PropRow& row : rawRows) {
+        byProp[row.prop] = row;
+    }
+    // Orden solicitado: dataset, mountpoint, canmount, estado, Tamaño y luego resto.
+    QVector<PropRow> rows;
+    rows.reserve(byProp.size() + 2);
+    if (byProp.contains(QStringLiteral("dataset"))) {
+        rows.push_back(byProp.take(QStringLiteral("dataset")));
+    }
+    if (snapshot.isEmpty()) {
+        if (byProp.contains(QStringLiteral("mountpoint"))) {
+            rows.push_back(byProp.take(QStringLiteral("mountpoint")));
+        } else {
+            rows.push_back({QStringLiteral("mountpoint"), rec.mountpoint.trimmed(), QString(), QStringLiteral("true")});
+        }
+        if (byProp.contains(QStringLiteral("canmount"))) {
+            rows.push_back(byProp.take(QStringLiteral("canmount")));
+        } else {
+            rows.push_back({QStringLiteral("canmount"), rec.canmount.trimmed(), QString(), QStringLiteral("true")});
+        }
+        const QString mountedRaw = rec.mounted.trimmed().toLower();
+        const bool mountedYes = (mountedRaw == QStringLiteral("yes")
+                                 || mountedRaw == QStringLiteral("on")
+                                 || mountedRaw == QStringLiteral("true")
+                                 || mountedRaw == QStringLiteral("1"));
+        rows.push_back({QStringLiteral("estado"), mountedYes ? QStringLiteral("Montado") : QStringLiteral("Desmontado"), QString(), QStringLiteral("true")});
+        rows.push_back({QStringLiteral("Tamaño"), rec.used.trimmed(), QString(), QStringLiteral("true")});
+    } else {
+        rows.push_back({QStringLiteral("estado"), QStringLiteral("Snapshot"), QString(), QStringLiteral("true")});
+    }
+    const QStringList remainingProps = byProp.keys();
+    for (const QString& prop : remainingProps) {
+        rows.push_back(byProp.value(prop));
     }
 
     m_loadingPropsTable = true;
@@ -2228,15 +2254,73 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         m_propsDataset = objectName;
     }
     const QSet<QString> inheritableProps = {QStringLiteral("mountpoint"), QStringLiteral("canmount")};
+    const QMap<QString, QStringList> enumValues = {
+        {QStringLiteral("atime"), {QStringLiteral("on"), QStringLiteral("off")}},
+        {QStringLiteral("relatime"), {QStringLiteral("on"), QStringLiteral("off")}},
+        {QStringLiteral("readonly"), {QStringLiteral("on"), QStringLiteral("off")}},
+        {QStringLiteral("compression"), {QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("lz4"), QStringLiteral("zstd"), QStringLiteral("gzip"), QStringLiteral("zle"), QStringLiteral("lzjb")}},
+        {QStringLiteral("checksum"), {QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("fletcher2"), QStringLiteral("fletcher4"), QStringLiteral("sha256"), QStringLiteral("sha512"), QStringLiteral("skein"), QStringLiteral("edonr"), QStringLiteral("blake3")}},
+        {QStringLiteral("sync"), {QStringLiteral("standard"), QStringLiteral("always"), QStringLiteral("disabled")}},
+        {QStringLiteral("logbias"), {QStringLiteral("latency"), QStringLiteral("throughput")}},
+        {QStringLiteral("primarycache"), {QStringLiteral("all"), QStringLiteral("none"), QStringLiteral("metadata")}},
+        {QStringLiteral("secondarycache"), {QStringLiteral("all"), QStringLiteral("none"), QStringLiteral("metadata")}},
+        {QStringLiteral("dedup"), {QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("verify"), QStringLiteral("sha256"), QStringLiteral("sha512"), QStringLiteral("skein"), QStringLiteral("edonr"), QStringLiteral("blake3")}},
+        {QStringLiteral("copies"), {QStringLiteral("1"), QStringLiteral("2"), QStringLiteral("3")}},
+        {QStringLiteral("acltype"), {QStringLiteral("off"), QStringLiteral("posix"), QStringLiteral("nfsv4")}},
+        {QStringLiteral("aclinherit"), {QStringLiteral("discard"), QStringLiteral("noallow"), QStringLiteral("restricted"), QStringLiteral("passthrough"), QStringLiteral("passthrough-x")}},
+        {QStringLiteral("xattr"), {QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("sa"), QStringLiteral("dir")}},
+        {QStringLiteral("normalization"), {QStringLiteral("none"), QStringLiteral("formC"), QStringLiteral("formD"), QStringLiteral("formKC"), QStringLiteral("formKD")}},
+        {QStringLiteral("casesensitivity"), {QStringLiteral("sensitive"), QStringLiteral("insensitive"), QStringLiteral("mixed")}},
+        {QStringLiteral("utf8only"), {QStringLiteral("on"), QStringLiteral("off")}},
+        {QStringLiteral("canmount"), {QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("noauto")}},
+        {QStringLiteral("snapdir"), {QStringLiteral("hidden"), QStringLiteral("visible")}},
+        {QStringLiteral("exec"), {QStringLiteral("on"), QStringLiteral("off")}},
+        {QStringLiteral("setuid"), {QStringLiteral("on"), QStringLiteral("off")}},
+        {QStringLiteral("devices"), {QStringLiteral("on"), QStringLiteral("off")}},
+        {QStringLiteral("snapdev"), {QStringLiteral("hidden"), QStringLiteral("visible")}},
+        {QStringLiteral("volmode"), {QStringLiteral("default"), QStringLiteral("full"), QStringLiteral("dev"), QStringLiteral("none"), QStringLiteral("geom")}},
+    };
     for (const PropRow& row : rows) {
         const int r = table->rowCount();
         table->insertRow(r);
         table->setItem(r, 0, new QTableWidgetItem(row.prop));
         auto* v = new QTableWidgetItem(row.value);
-        if (row.prop == QStringLiteral("dataset") || row.prop == QStringLiteral("estado")) {
+        if (row.prop == QStringLiteral("dataset") || row.prop == QStringLiteral("estado") || row.prop == QStringLiteral("Tamaño")) {
             v->setFlags(v->flags() & ~Qt::ItemIsEditable);
         }
         table->setItem(r, 1, v);
+        const QString propLower = row.prop.trimmed().toLower();
+        const auto enumIt = enumValues.constFind(propLower);
+        if ((v->flags() & Qt::ItemIsEditable) && enumIt != enumValues.constEnd()) {
+            auto* combo = new QComboBox(table);
+            combo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
+            QStringList options = enumIt.value();
+            const QString current = row.value.trimmed();
+            if (!current.isEmpty() && !options.contains(current)) {
+                options.prepend(current);
+            }
+            combo->addItems(options);
+            if (!current.isEmpty()) {
+                combo->setCurrentText(current);
+            }
+            table->setCellWidget(r, 1, combo);
+            QObject::connect(combo, &QComboBox::currentTextChanged, table, [this, table, combo](const QString& txt) {
+                for (int rr = 0; rr < table->rowCount(); ++rr) {
+                    if (table->cellWidget(rr, 1) != combo) {
+                        continue;
+                    }
+                    if (QTableWidgetItem* item = table->item(rr, 1)) {
+                        item->setText(txt);
+                    }
+                    if (table == m_advPropsTable) {
+                        onAdvancedPropsCellChanged(rr, 1);
+                    } else {
+                        onDatasetPropsCellChanged(rr, 1);
+                    }
+                    break;
+                }
+            });
+        }
         auto* inh = new QTableWidgetItem();
         if (inheritableProps.contains(row.prop)) {
             inh->setFlags((inh->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled) & ~Qt::ItemIsEditable);
@@ -3221,7 +3305,7 @@ void MainWindow::applyDatasetPropertyChanges() {
             continue;
         }
         const QString prop = pk->text().trimmed();
-        if (prop.isEmpty() || prop == QStringLiteral("dataset") || prop == QStringLiteral("estado")) {
+        if (prop.isEmpty() || prop == QStringLiteral("dataset") || prop == QStringLiteral("estado") || prop == QStringLiteral("Tamaño")) {
             continue;
         }
         const bool inheritChecked = (pi->flags() & Qt::ItemIsUserCheckable) && (pi->checkState() == Qt::Checked);
@@ -3272,7 +3356,7 @@ void MainWindow::applyAdvancedDatasetPropertyChanges() {
             continue;
         }
         const QString prop = pk->text().trimmed();
-        if (prop.isEmpty() || prop == QStringLiteral("dataset") || prop == QStringLiteral("estado")) {
+        if (prop.isEmpty() || prop == QStringLiteral("dataset") || prop == QStringLiteral("estado") || prop == QStringLiteral("Tamaño")) {
             continue;
         }
         const bool inheritChecked = (pi->flags() & Qt::ItemIsUserCheckable) && (pi->checkState() == Qt::Checked);
