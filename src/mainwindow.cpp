@@ -256,6 +256,77 @@ QString buildZfsCreateCmd(const CreateDatasetOptions& opt) {
     return parts.join(' ');
 }
 
+QString prettifyCommandText(const QString& cmd) {
+    QString pretty = cmd.trimmed();
+    pretty.replace(QStringLiteral(" && "), QStringLiteral(" &&\n  "));
+    pretty.replace(QStringLiteral(" || "), QStringLiteral(" ||\n  "));
+    pretty.replace(QStringLiteral(" | "), QStringLiteral(" |\n  "));
+    pretty.replace(QStringLiteral("; "), QStringLiteral(";\n"));
+    return pretty;
+}
+
+QString decodePowerShellEncodedCommand(const QString& encoded) {
+    const QByteArray decoded = QByteArray::fromBase64(encoded.toLatin1());
+    if (decoded.isEmpty()) {
+        return QString();
+    }
+    QByteArray utf16 = decoded;
+    if ((utf16.size() % 2) != 0) {
+        utf16.chop(1);
+    }
+    if (utf16.isEmpty()) {
+        return QString();
+    }
+    const QString script = QString::fromUtf16(reinterpret_cast<const char16_t*>(utf16.constData()),
+                                              utf16.size() / 2);
+    return script.trimmed();
+}
+
+QString pseudoStepForSegment(const QString& segmentRaw) {
+    const QString segment = segmentRaw.trimmed();
+    const QString s = segment.toLower();
+    if (s.contains(QStringLiteral("ssh "))) {
+        if (s.contains(QStringLiteral("zfs send"))) {
+            return QStringLiteral("Conectar por SSH al origen y enviar stream ZFS (`zfs send`).");
+        }
+        if (s.contains(QStringLiteral("zfs recv"))) {
+            return QStringLiteral("Conectar por SSH al destino y recibir stream ZFS (`zfs recv`).");
+        }
+        if (s.contains(QStringLiteral("zpool export"))) {
+            return QStringLiteral("Conectar por SSH y exportar pool (`zpool export`).");
+        }
+        if (s.contains(QStringLiteral("zpool import"))) {
+            return QStringLiteral("Conectar por SSH e importar pool (`zpool import`).");
+        }
+        return QStringLiteral("Conectar por SSH y ejecutar comando remoto.");
+    }
+    if (s.contains(QStringLiteral("pv -trab"))) {
+        return QStringLiteral("Mostrar progreso de transferencia con `pv`.");
+    }
+    if (s.contains(QStringLiteral("zfs send"))) {
+        return QStringLiteral("Generar stream ZFS desde snapshot/dataset (`zfs send`).");
+    }
+    if (s.contains(QStringLiteral("zfs recv"))) {
+        return QStringLiteral("Aplicar stream ZFS en destino (`zfs recv`).");
+    }
+    if (s.contains(QStringLiteral("zfs rollback"))) {
+        return QStringLiteral("Revertir dataset al snapshot seleccionado (`zfs rollback`).");
+    }
+    if (s.contains(QStringLiteral("zfs mount")) || s.contains(QStringLiteral("zfs unmount"))) {
+        return QStringLiteral("Montar/desmontar dataset ZFS.");
+    }
+    if (s.contains(QStringLiteral("zfs set ")) || s.contains(QStringLiteral("zfs get "))) {
+        return QStringLiteral("Modificar/consultar propiedades ZFS.");
+    }
+    if (s.contains(QStringLiteral("powershell "))) {
+        return QStringLiteral("Ejecutar script PowerShell.");
+    }
+    if (s.contains(QStringLiteral("sudo "))) {
+        return QStringLiteral("Elevar permisos con sudo y ejecutar comando.");
+    }
+    return QStringLiteral("Ejecutar subcomando: %1").arg(segment.left(120));
+}
+
 QString formatCommandPreview(const QString& input) {
     QString header;
     QString body = input;
@@ -270,16 +341,58 @@ QString formatCommandPreview(const QString& input) {
         return input;
     }
 
-    QString pretty = body;
-    pretty.replace(QStringLiteral(" && "), QStringLiteral(" &&\n  "));
-    pretty.replace(QStringLiteral(" || "), QStringLiteral(" ||\n  "));
-    pretty.replace(QStringLiteral(" | "), QStringLiteral(" |\n  "));
-    pretty.replace(QStringLiteral("; "), QStringLiteral(";\n"));
+    const QString pretty = prettifyCommandText(body);
 
-    if (!header.isEmpty()) {
-        return header + QStringLiteral("\n  ") + pretty;
+    QStringList pseudo;
+    const QStringList segments = body.split('|', Qt::SkipEmptyParts);
+    pseudo.reserve(segments.size());
+    for (const QString& seg : segments) {
+        pseudo.push_back(pseudoStepForSegment(seg));
     }
-    return pretty;
+
+    QStringList decodedBlocks;
+    const QRegularExpression psRx(
+        QStringLiteral("powershell\\s+[^\\n\\r]*?-EncodedCommand\\s+(['\\\"]?)([A-Za-z0-9+/=]+)\\1"),
+        QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatchIterator it = psRx.globalMatch(body);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch m = it.next();
+        const QString enc = m.captured(2).trimmed();
+        if (enc.isEmpty()) {
+            continue;
+        }
+        const QString dec = decodePowerShellEncodedCommand(enc);
+        if (!dec.isEmpty()) {
+            decodedBlocks.push_back(prettifyCommandText(dec));
+        }
+    }
+
+    QStringList out;
+    if (!header.isEmpty()) {
+        out.push_back(header);
+    }
+    out.push_back(QStringLiteral("Resumen legible:"));
+    if (pseudo.isEmpty()) {
+        out.push_back(QStringLiteral("  1. Ejecutar comando."));
+    } else {
+        for (int i = 0; i < pseudo.size(); ++i) {
+            out.push_back(QStringLiteral("  %1. %2").arg(i + 1).arg(pseudo[i]));
+        }
+    }
+
+    if (!decodedBlocks.isEmpty()) {
+        out.push_back(QStringLiteral(""));
+        out.push_back(QStringLiteral("PowerShell decodificado:"));
+        for (int i = 0; i < decodedBlocks.size(); ++i) {
+            out.push_back(QStringLiteral("  [script %1]").arg(i + 1));
+            out.push_back(QStringLiteral("  ") + decodedBlocks[i]);
+        }
+    }
+
+    out.push_back(QStringLiteral(""));
+    out.push_back(QStringLiteral("Comando real (formateado):"));
+    out.push_back(QStringLiteral("  ") + pretty);
+    return out.join(QStringLiteral("\n"));
 }
 
 bool parseSizeToBytes(const QString& input, double& bytesOut) {
