@@ -374,7 +374,7 @@ void MainWindow::buildUi() {
         "QMenu::item { padding: 4px 14px; color: #102233; }"
         "QMenu::item:selected { background: #cfe5ff; color: #0b2f4f; }"
         "QMenu::item:disabled { color: #8f9aa5; background: #f4f6f8; }"
-        "QListWidget, QTableWidget, QTreeWidget { background: #fff4e8; color: #102233; }"
+        "QListWidget, QTableWidget, QTreeWidget { background: #ffffff; color: #102233; }"
         "QPlainTextEdit, QTextEdit, QComboBox { background: #ffffff; color: #102233; }"
         "QComboBox QAbstractItemView { background: #ffffff; color: #102233; }"
         "QScrollBar:vertical { width: 8px; }"
@@ -526,8 +526,7 @@ void MainWindow::buildUi() {
         m_mountedDatasetsTableLeft->horizontalHeader()->setFont(hf);
     }
     m_mountedDatasetsTableLeft->setStyleSheet(
-        QStringLiteral("QTableWidget{background:#fff4e8; color:#102233;} "
-                       "QScrollBar:vertical{width:8px;} "
+        QStringLiteral("QScrollBar:vertical{width:8px;} "
                        "QScrollBar:horizontal{height:8px;}"));
     m_mountedDatasetsTableLeft->setColumnWidth(0, 180);
     m_mountedDatasetsTableLeft->setColumnWidth(1, 220);
@@ -552,7 +551,6 @@ void MainWindow::buildUi() {
         hf.setBold(false);
         m_datasetPropsTable->horizontalHeader()->setFont(hf);
     }
-    m_datasetPropsTable->setStyleSheet(QStringLiteral("QTableWidget{background:#fff4e8; color:#102233;}"));
     m_btnApplyDatasetProps = new QPushButton(
         tr3(QStringLiteral("Aplicar cambios"), QStringLiteral("Apply changes"), QStringLiteral("应用更改")),
         propsLeftTab);
@@ -645,8 +643,7 @@ void MainWindow::buildUi() {
         m_mountedDatasetsTableAdv->horizontalHeader()->setFont(hf);
     }
     m_mountedDatasetsTableAdv->setStyleSheet(
-        QStringLiteral("QTableWidget{background:#fff4e8; color:#102233;} "
-                       "QScrollBar:vertical{width:8px;} "
+        QStringLiteral("QScrollBar:vertical{width:8px;} "
                        "QScrollBar:horizontal{height:8px;}"));
     m_mountedDatasetsTableAdv->setColumnWidth(0, 180);
     m_mountedDatasetsTableAdv->setColumnWidth(1, 220);
@@ -671,7 +668,6 @@ void MainWindow::buildUi() {
         hf.setBold(false);
         m_advPropsTable->horizontalHeader()->setFont(hf);
     }
-    m_advPropsTable->setStyleSheet(QStringLiteral("QTableWidget{background:#fff4e8; color:#102233;}"));
     m_btnApplyAdvancedProps = new QPushButton(
         tr3(QStringLiteral("Aplicar cambios"), QStringLiteral("Apply changes"), QStringLiteral("应用更改")),
         propsAdvTab);
@@ -748,7 +744,6 @@ void MainWindow::buildUi() {
     m_poolPropsTable->setSelectionMode(QAbstractItemView::NoSelection);
     m_poolPropsTable->verticalHeader()->setVisible(false);
     m_poolPropsTable->verticalHeader()->setDefaultSectionSize(22);
-    m_poolPropsTable->setStyleSheet(QStringLiteral("QTableWidget{background:#fff4e8; color:#102233;}"));
     enableSortableHeader(m_poolPropsTable);
     propsPoolLayout->addWidget(m_poolPropsTable, 1);
 
