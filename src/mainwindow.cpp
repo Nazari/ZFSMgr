@@ -130,7 +130,8 @@ bool isDatasetPropertyEditable(const QString& propName, const QString& datasetTy
         s.unite(QSet<QString>{
             QStringLiteral("mountpoint"), QStringLiteral("canmount"), QStringLiteral("recordsize"), QStringLiteral("quota"),
             QStringLiteral("reservation"), QStringLiteral("refquota"), QStringLiteral("refreservation"),
-            QStringLiteral("snapdir"), QStringLiteral("exec"), QStringLiteral("setuid"), QStringLiteral("devices")
+            QStringLiteral("snapdir"), QStringLiteral("exec"), QStringLiteral("setuid"), QStringLiteral("devices"),
+            QStringLiteral("driveletter")
         });
         return s;
     }();
@@ -2431,6 +2432,14 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
             rows.push_back(byProp.take(QStringLiteral("mountpoint")));
         } else {
             rows.push_back({QStringLiteral("mountpoint"), rec.mountpoint.trimmed(), QString(), QStringLiteral("true")});
+        }
+        const bool advWindows = (side == QStringLiteral("advanced")) && isWindowsConnection(connIdx);
+        if (advWindows) {
+            if (byProp.contains(QStringLiteral("driveletter"))) {
+                rows.push_back(byProp.take(QStringLiteral("driveletter")));
+            } else {
+                rows.push_back({QStringLiteral("driveletter"), QString(), QString(), QStringLiteral("true")});
+            }
         }
         if (byProp.contains(QStringLiteral("canmount"))) {
             rows.push_back(byProp.take(QStringLiteral("canmount")));
