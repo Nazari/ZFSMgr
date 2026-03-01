@@ -2351,7 +2351,7 @@ void MainWindow::updateTransferButtonsState() {
                                  : QString();
     const bool sameSelection = !srcSel.isEmpty() && (srcSel == dstSel);
     m_btnCopy->setEnabled(srcDs && srcSnap && dstDs && !dstSnap);
-    m_btnLevel->setEnabled(srcDs && dstDs && !dstSnap && !sameSelection);
+    m_btnLevel->setEnabled(srcDs && srcSnap && dstDs && !dstSnap && !sameSelection);
     m_btnSync->setEnabled(srcDs && !srcSnap && dstDs && !dstSnap && !sameSelection);
     const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("advanced"));
     bool advDatasetOnly = actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty();
@@ -2475,6 +2475,23 @@ void MainWindow::actionLevelSnapshot() {
     const DatasetSelectionContext src = currentDatasetSelection(QStringLiteral("origin"));
     const DatasetSelectionContext dst = currentDatasetSelection(QStringLiteral("dest"));
     if (!src.valid || !dst.valid || src.snapshotName.isEmpty() || dst.datasetName.isEmpty()) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("Nivelar omitido: selección incompleta (src.valid=%1 dst.valid=%2 src.snap=%3 dst.dataset=%4)")
+                                      .arg(src.valid ? QStringLiteral("1") : QStringLiteral("0"))
+                                      .arg(dst.valid ? QStringLiteral("1") : QStringLiteral("0"))
+                                      .arg(src.snapshotName.isEmpty() ? QStringLiteral("0") : QStringLiteral("1"))
+                                      .arg(dst.datasetName.isEmpty() ? QStringLiteral("0") : QStringLiteral("1")));
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            tr3(QStringLiteral("Para Nivelar debe seleccionar:\n"
+                               "- En Origen: un dataset con snapshot\n"
+                               "- En Destino: un dataset (sin snapshot)"),
+                QStringLiteral("To Level you must select:\n"
+                               "- Source: a dataset with snapshot\n"
+                               "- Target: a dataset (without snapshot)"),
+                QStringLiteral("执行“同步快照”前请先选择：\n"
+                               "- 源：带快照的数据集\n"
+                               "- 目标：数据集（不带快照）")));
         return;
     }
     const ConnectionProfile& sp = m_profiles[src.connIdx];
