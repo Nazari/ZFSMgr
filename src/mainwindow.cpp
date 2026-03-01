@@ -2858,6 +2858,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     QString errRemainder;
     QElapsedTimer progressTimer;
     progressTimer.start();
+    int lastProgressPercent = -1;
     auto flushLines = [&](QString& remainder, const QString& chunk, const QString& level, bool progressAware) {
         if (chunk.isEmpty()) {
             return;
@@ -2884,6 +2885,23 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                     || low.contains(QStringLiteral("to-chk"))
                     || low.contains(QStringLiteral("xfr#"));
                 if (looksLikeProgress) {
+                    const QRegularExpression pctRx(QStringLiteral("(\\d{1,3})%"));
+                    const QRegularExpressionMatch pctM = pctRx.match(ln);
+                    if (pctM.hasMatch()) {
+                        bool okPct = false;
+                        const int pct = pctM.captured(1).toInt(&okPct);
+                        if (okPct && pct >= 0 && pct <= 100) {
+                            if (lastProgressPercent >= 0 && pct <= lastProgressPercent) {
+                                continue;
+                            }
+                            if (lastProgressPercent >= 0 && (pct - lastProgressPercent) < 1) {
+                                continue;
+                            }
+                            lastProgressPercent = pct;
+                            appLog(QStringLiteral("INFO"), QStringLiteral("[progress] %1").arg(ln));
+                            continue;
+                        }
+                    }
                     if (progressTimer.elapsed() < 700) {
                         continue;
                     }
