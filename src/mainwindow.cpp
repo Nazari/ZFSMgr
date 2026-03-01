@@ -81,6 +81,7 @@ QString parseOpenZfsVersionText(const QString& text) {
     const QList<QRegularExpression> patterns = {
         QRegularExpression(QStringLiteral("\\bzfs(?:-kmod)?[-\\s]+(\\d+\\.\\d+(?:\\.\\d+)?)\\b")),
         QRegularExpression(QStringLiteral("\\bopenzfs(?:[-\\s]+version)?[:\\s]+(\\d+\\.\\d+(?:\\.\\d+)?)\\b")),
+        QRegularExpression(QStringLiteral("\\b(?:zfs|zpool)[^\\r\\n]*?\\b(\\d+\\.\\d+(?:\\.\\d+)?)\\b")),
     };
     for (const QRegularExpression& rx : patterns) {
         const QRegularExpressionMatch m = rx.match(lower);
@@ -5679,6 +5680,23 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             state.zfsVersion = parsed;
             break;
         }
+        if (rc == 0) {
+            // Algunos builds de OpenZFS en Windows imprimen solo el número de versión.
+            const QString merged = out + QStringLiteral("\n") + err;
+            const QRegularExpression simpleVerRx(QStringLiteral("\\b(\\d+\\.\\d+(?:\\.\\d+)?)\\b"));
+            const QRegularExpressionMatch m = simpleVerRx.match(merged);
+            if (m.hasMatch()) {
+                const QString ver = m.captured(1);
+                const int major = ver.section('.', 0, 0).toInt();
+                if (major <= 10) {
+                    state.zfsVersion = ver;
+                    break;
+                }
+            }
+        }
+    }
+    if (state.zfsVersion.isEmpty()) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("%1: ZFS version not detected").arg(p.name));
     }
 
     QString zpoolListCmd = withSudo(p, QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio"));
