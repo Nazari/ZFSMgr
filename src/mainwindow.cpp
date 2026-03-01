@@ -2614,19 +2614,21 @@ void MainWindow::actionSyncDatasets() {
     QString dstMp;
     QString srcMounted;
     QString dstMounted;
+    QString srcCanmount;
+    QString dstCanmount;
     if (!getDatasetProperty(src.connIdx, src.datasetName, QStringLiteral("mountpoint"), srcMp)
         || !getDatasetProperty(src.connIdx, src.datasetName, QStringLiteral("mounted"), srcMounted)
+        || !getDatasetProperty(src.connIdx, src.datasetName, QStringLiteral("canmount"), srcCanmount)
         || !getDatasetProperty(dst.connIdx, dst.datasetName, QStringLiteral("mountpoint"), dstMp)
-        || !getDatasetProperty(dst.connIdx, dst.datasetName, QStringLiteral("mounted"), dstMounted)) {
+        || !getDatasetProperty(dst.connIdx, dst.datasetName, QStringLiteral("mounted"), dstMounted)
+        || !getDatasetProperty(dst.connIdx, dst.datasetName, QStringLiteral("canmount"), dstCanmount)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"), QStringLiteral("No se pudieron leer mountpoints para sincronizar."));
         return;
     }
-    if (srcMounted != QStringLiteral("yes") || dstMounted != QStringLiteral("yes")) {
-        QMessageBox::warning(this,
-                             QStringLiteral("ZFSMgr"),
-                             QStringLiteral("Origen y destino deben estar montados para sincronizar.\nOrigen=%1 Destino=%2").arg(srcMounted, dstMounted));
-        return;
-    }
+    const bool srcRootMounted = isMountedValueTrue(srcMounted);
+    const bool dstRootMounted = isMountedValueTrue(dstMounted);
+    const bool srcCanmountOff = (srcCanmount.trimmed().toLower() == QStringLiteral("off"));
+    const bool dstCanmountOff = (dstCanmount.trimmed().toLower() == QStringLiteral("off"));
 
     QString srcSsh = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
     if (sp.port > 0) {
@@ -2645,18 +2647,128 @@ void MainWindow::actionSyncDatasets() {
     }
     dstSsh += QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
 
-    QString remoteRsync =
-        QStringLiteral("rsync -aHAWXS --delete --info=progress2 -e ")
-        + shSingleQuote(QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null")
-                        + (dp.port > 0 ? QStringLiteral(" -p ") + QString::number(dp.port) : QString())
-                        + (!dp.keyPath.isEmpty() ? QStringLiteral(" -i ") + dp.keyPath : QString()))
-        + QStringLiteral(" %1/ %2:%3/")
-              .arg(shSingleQuote(srcMp),
-                   shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
-                   shSingleQuote(dstMp));
+    if (srcRootMounted && dstRootMounted) {
+        QString remoteRsync =
+            QStringLiteral("rsync -aHAWXS --delete --info=progress2 -e ")
+            + shSingleQuote(QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null")
+                            + (dp.port > 0 ? QStringLiteral(" -p ") + QString::number(dp.port) : QString())
+                            + (!dp.keyPath.isEmpty() ? QStringLiteral(" -i ") + dp.keyPath : QString()))
+            + QStringLiteral(" %1/ %2:%3/")
+                  .arg(shSingleQuote(srcMp),
+                       shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
+                       shSingleQuote(dstMp));
+        remoteRsync = withSudo(sp, remoteRsync);
+        const QString command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
+        if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0)) {
+            invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
+            reloadDatasetSide(QStringLiteral("dest"));
+        }
+        return;
+    }
+
+    // Modo datasets raíz no montables: solo permitido cuando no están montados por canmount=off
+    // y existen subdatasets montados equivalentes en origen y destino.
+    if ((!srcRootMounted && !srcCanmountOff) || (!dstRootMounted && !dstCanmountOff)) {
+        QMessageBox::warning(this,
+                             QStringLiteral("ZFSMgr"),
+                             QStringLiteral("Origen y destino deben estar montados para sincronizar,\n"
+                                            "o bien tener canmount=off con subdatasets montados.\n"
+                                            "Origen mounted=%1 canmount=%2\nDestino mounted=%3 canmount=%4")
+                                 .arg(srcMounted, srcCanmount, dstMounted, dstCanmount));
+        return;
+    }
+
+    if (!ensureDatasetsLoaded(src.connIdx, src.poolName) || !ensureDatasetsLoaded(dst.connIdx, dst.poolName)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             QStringLiteral("No se pudieron cargar datasets para sincronización por subdatasets."));
+        return;
+    }
+    const QString srcKey = datasetCacheKey(src.connIdx, src.poolName);
+    const QString dstKey = datasetCacheKey(dst.connIdx, dst.poolName);
+    const auto srcCacheIt = m_poolDatasetCache.constFind(srcKey);
+    const auto dstCacheIt = m_poolDatasetCache.constFind(dstKey);
+    if (srcCacheIt == m_poolDatasetCache.constEnd() || dstCacheIt == m_poolDatasetCache.constEnd()) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             QStringLiteral("No hay caché de datasets para sincronización por subdatasets."));
+        return;
+    }
+
+    const QString srcPrefix = src.datasetName + QStringLiteral("/");
+    QStringList missingInDest;
+    QStringList notMountedPairs;
+    QVector<QPair<QString, QString>> syncPairs; // srcMp, dstMp
+
+    for (auto it = srcCacheIt->recordByName.constBegin(); it != srcCacheIt->recordByName.constEnd(); ++it) {
+        const QString& srcDsName = it.key();
+        if (!srcDsName.startsWith(srcPrefix)) {
+            continue;
+        }
+        const DatasetRecord& srcRec = it.value();
+        if (!isMountedValueTrue(srcRec.mounted)) {
+            continue;
+        }
+        const QString srcRecMp = srcRec.mountpoint.trimmed();
+        if (srcRecMp.isEmpty() || srcRecMp == QStringLiteral("none") || !srcRecMp.startsWith('/')) {
+            continue;
+        }
+        const QString rel = srcDsName.mid(srcPrefix.size());
+        if (rel.isEmpty()) {
+            continue;
+        }
+        const QString dstDsName = dst.datasetName + QStringLiteral("/") + rel;
+        const auto dstRecIt = dstCacheIt->recordByName.constFind(dstDsName);
+        if (dstRecIt == dstCacheIt->recordByName.constEnd()) {
+            missingInDest << dstDsName;
+            continue;
+        }
+        const DatasetRecord& dstRec = dstRecIt.value();
+        const QString dstRecMp = dstRec.mountpoint.trimmed();
+        if (!isMountedValueTrue(dstRec.mounted) || dstRecMp.isEmpty() || dstRecMp == QStringLiteral("none") || !dstRecMp.startsWith('/')) {
+            notMountedPairs << QStringLiteral("%1 -> %2").arg(srcDsName, dstDsName);
+            continue;
+        }
+        syncPairs.push_back(qMakePair(srcRecMp, dstRecMp));
+    }
+
+    if (!missingInDest.isEmpty() || !notMountedPairs.isEmpty()) {
+        QString details;
+        if (!missingInDest.isEmpty()) {
+            details += QStringLiteral("Faltan en destino:\n") + missingInDest.join('\n') + QStringLiteral("\n\n");
+        }
+        if (!notMountedPairs.isEmpty()) {
+            details += QStringLiteral("No montados en ambos extremos:\n") + notMountedPairs.join('\n');
+        }
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             QStringLiteral("No se puede sincronizar por subdatasets.\n%1").arg(details.trimmed()));
+        return;
+    }
+    if (syncPairs.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("ZFSMgr"),
+                                 QStringLiteral("No hay subdatasets montados equivalentes para sincronizar."));
+        return;
+    }
+
+    const QString sshTransport =
+        QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null")
+        + (dp.port > 0 ? QStringLiteral(" -p ") + QString::number(dp.port) : QString())
+        + (!dp.keyPath.isEmpty() ? QStringLiteral(" -i ") + dp.keyPath : QString());
+    QStringList rsyncCommands;
+    rsyncCommands.reserve(syncPairs.size());
+    for (const auto& pair : syncPairs) {
+        rsyncCommands << QStringLiteral("rsync -aHAWXS --delete --info=progress2 -e %1 %2/ %3:%4/")
+                             .arg(shSingleQuote(sshTransport),
+                                  shSingleQuote(pair.first),
+                                  shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
+                                  shSingleQuote(pair.second));
+    }
+    QString remoteRsync = QStringLiteral("set -e; %1").arg(rsyncCommands.join(QStringLiteral(" && ")));
     remoteRsync = withSudo(sp, remoteRsync);
     const QString command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
-    if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0)) {
+    if (runLocalCommand(QStringLiteral("Sincronizar subdatasets %1 -> %2 (%3)")
+                            .arg(src.datasetName, dst.datasetName)
+                            .arg(syncPairs.size()),
+                        command,
+                        0)) {
         invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
         reloadDatasetSide(QStringLiteral("dest"));
     }
