@@ -20,6 +20,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QCheckBox>
+#include <QIcon>
 #include <QMenu>
 #include <QMessageBox>
 #include <QPlainTextEdit>
@@ -308,6 +309,7 @@ void MainWindow::saveUiSettings() const {
 
 void MainWindow::buildUi() {
     setWindowTitle(QStringLiteral("ZFSMgr (C++/Qt)"));
+    setWindowIcon(QIcon(QStringLiteral(":/icons/ZFSMgr-512.png")));
     resize(1200, 736);
     setMinimumSize(1120, 736);
     setStyleSheet(QStringLiteral(
