@@ -3486,7 +3486,6 @@ void MainWindow::actionAdvancedCreateFromDir() {
     propsGrid->setVerticalSpacing(4);
 
     const QList<PropSpec> propSpecs = {
-        {QStringLiteral("canmount"), QStringLiteral("combo"), {QString(), QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("noauto")}},
         {QStringLiteral("compression"), QStringLiteral("combo"), {QString(), QStringLiteral("off"), QStringLiteral("on"), QStringLiteral("lz4"), QStringLiteral("gzip"), QStringLiteral("zstd"), QStringLiteral("zle")}},
         {QStringLiteral("atime"), QStringLiteral("combo"), {QString(), QStringLiteral("on"), QStringLiteral("off")}},
         {QStringLiteral("relatime"), QStringLiteral("combo"), {QString(), QStringLiteral("on"), QStringLiteral("off")}},
@@ -3572,7 +3571,6 @@ void MainWindow::actionAdvancedCreateFromDir() {
         }
 
         QStringList properties;
-        properties << QStringLiteral("mountpoint=") + mountDir;
         for (const PropEditor& pe : propEditors) {
             QString v;
             if (pe.combo) {
@@ -3605,10 +3603,56 @@ void MainWindow::actionAdvancedCreateFromDir() {
     }
 
     const QString createCmd = buildZfsCreateCmd(opt);
-    const QString cmd = QStringLiteral("mkdir -p %1 && %2 && zfs mount %3")
-                            .arg(shSingleQuote(selectedMountDir),
-                                 createCmd,
-                                 shSingleQuote(opt.datasetPath));
+    const QString cmd = QStringLiteral(
+                            "set -e; "
+                            "DATASET=%1; "
+                            "SRC_DIR=%2; "
+                            "TMP_MP=$(mktemp -d /tmp/zfsmgr-fromdir-mp-XXXXXX); "
+                            "BACKUP_DIR=''; "
+                            "cleanup(){ "
+                            "  rc=$?; "
+                            "  if [ $rc -ne 0 ]; then "
+                            "    if [ -n \"$BACKUP_DIR\" ] && [ ! -e \"$SRC_DIR\" ] && [ -d \"$BACKUP_DIR\" ]; then mv \"$BACKUP_DIR\" \"$SRC_DIR\" || true; fi; "
+                            "  fi; "
+                            "  rmdir \"$TMP_MP\" >/dev/null 2>&1 || true; "
+                            "  exit $rc; "
+                            "}; "
+                            "trap cleanup EXIT INT TERM; "
+                            "[ -d \"$SRC_DIR\" ] || { echo 'source directory does not exist'; exit 2; }; "
+                            "if zfs mount 2>/dev/null | awk '{print $2}' | grep -Fx \"$SRC_DIR\" >/dev/null 2>&1; then "
+                            "  echo 'mountpoint already in use'; exit 3; "
+                            "fi; "
+                            "%3; "
+                            "zfs set canmount=on \"$DATASET\" >/dev/null 2>&1 || true; "
+                            "zfs set mountpoint=\"$TMP_MP\" \"$DATASET\"; "
+                            "zfs mount \"$DATASET\" >/dev/null 2>&1 || true; "
+                            "ACTIVE_MP=$(zfs mount 2>/dev/null | awk -v d=\"$DATASET\" '$1==d{print $2;exit}'); "
+                            "[ \"$ACTIVE_MP\" = \"$TMP_MP\" ] || { echo 'could not mount dataset on temporary mountpoint'; exit 4; }; "
+                            "rsync -aHAWXS \"$SRC_DIR\"/ \"$TMP_MP\"/; "
+                            "BACKUP_DIR=\"$SRC_DIR.zfsmgr-bak-$$\"; "
+                            "i=0; "
+                            "while [ -e \"$BACKUP_DIR\" ]; do i=$((i+1)); BACKUP_DIR=\"$SRC_DIR.zfsmgr-bak-$$-$i\"; done; "
+                            "mv \"$SRC_DIR\" \"$BACKUP_DIR\"; "
+                            "mkdir -p \"$SRC_DIR\"; "
+                            "zfs umount \"$DATASET\" >/dev/null 2>&1 || true; "
+                            "zfs set mountpoint=\"$SRC_DIR\" \"$DATASET\"; "
+                            "zfs mount \"$DATASET\" >/dev/null 2>&1 || true; "
+                            "FINAL_MP=$(zfs mount 2>/dev/null | awk -v d=\"$DATASET\" '$1==d{print $2;exit}'); "
+                            "if [ \"$FINAL_MP\" != \"$SRC_DIR\" ]; then "
+                            "  zfs set mountpoint=\"$TMP_MP\" \"$DATASET\" >/dev/null 2>&1 || true; "
+                            "  zfs mount \"$DATASET\" >/dev/null 2>&1 || true; "
+                            "  rm -rf \"$SRC_DIR\"; "
+                            "  mv \"$BACKUP_DIR\" \"$SRC_DIR\"; "
+                            "  echo 'failed to switch mountpoint to destination directory'; "
+                            "  exit 5; "
+                            "fi; "
+                            "rm -rf \"$BACKUP_DIR\"; "
+                            "BACKUP_DIR=''; "
+                            "trap - EXIT INT TERM; "
+                            "rmdir \"$TMP_MP\" >/dev/null 2>&1 || true")
+                            .arg(shSingleQuote(opt.datasetPath),
+                                 shSingleQuote(selectedMountDir),
+                                 createCmd);
     executeDatasetAction(QStringLiteral("advanced"),
                          tr3(QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")),
                          ctx,
