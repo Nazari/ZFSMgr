@@ -50,11 +50,13 @@
 #include <QMetaObject>
 #include <QStyleFactory>
 #include <QRegularExpression>
+#include <QLocale>
 #include <QFontMetrics>
 #include <QSignalBlocker>
 #include <QScrollArea>
 #include <QSettings>
 #include <functional>
+#include <cmath>
 
 #include <QtConcurrent/QtConcurrent>
 
@@ -257,6 +259,94 @@ QString formatCommandPreview(const QString& input) {
         return header + QStringLiteral("\n  ") + pretty;
     }
     return pretty;
+}
+
+bool parseSizeToBytes(const QString& input, double& bytesOut) {
+    const QString s = input.trimmed();
+    if (s.isEmpty()) {
+        return false;
+    }
+    bool ok = false;
+    const qint64 rawBytes = s.toLongLong(&ok);
+    if (ok) {
+        bytesOut = static_cast<double>(rawBytes);
+        return true;
+    }
+
+    const QRegularExpression rx(QStringLiteral("^\\s*([0-9]+(?:\\.[0-9]+)?)\\s*([KMGTPE]?)(?:i?B)?\\s*$"),
+                                QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch m = rx.match(s);
+    if (!m.hasMatch()) {
+        return false;
+    }
+    const double value = m.captured(1).toDouble(&ok);
+    if (!ok) {
+        return false;
+    }
+    const QString unit = m.captured(2).toUpper();
+    int power = 0;
+    if (unit == QStringLiteral("K")) {
+        power = 1;
+    } else if (unit == QStringLiteral("M")) {
+        power = 2;
+    } else if (unit == QStringLiteral("G")) {
+        power = 3;
+    } else if (unit == QStringLiteral("T")) {
+        power = 4;
+    } else if (unit == QStringLiteral("P")) {
+        power = 5;
+    } else if (unit == QStringLiteral("E")) {
+        power = 6;
+    }
+    bytesOut = value * std::pow(1024.0, power);
+    return std::isfinite(bytesOut);
+}
+
+QString formatDatasetSize(const QString& rawUsed) {
+    double bytes = 0.0;
+    if (!parseSizeToBytes(rawUsed, bytes)) {
+        return rawUsed.trimmed();
+    }
+    if (bytes < 0.0) {
+        bytes = 0.0;
+    }
+
+    static const QStringList units = {
+        QStringLiteral("B"),
+        QStringLiteral("KB"),
+        QStringLiteral("MB"),
+        QStringLiteral("GB"),
+        QStringLiteral("TB"),
+    };
+    int unitIndex = 0;
+    double value = bytes;
+    while (value >= 1024.0 && unitIndex < units.size() - 1) {
+        value /= 1024.0;
+        ++unitIndex;
+    }
+
+    int integerDigits = 1;
+    if (value >= 1.0) {
+        integerDigits = static_cast<int>(std::floor(std::log10(value))) + 1;
+    }
+    int decimals = qMax(0, 4 - integerDigits);
+    decimals = qMin(decimals, 3);
+    if (unitIndex == 0) {
+        decimals = 0;
+    }
+
+    const QLocale locale = QLocale::system();
+    QString number = locale.toString(value, 'f', decimals);
+    if (decimals > 0) {
+        const QString decimalPoint = locale.decimalPoint();
+        while (number.endsWith(QLatin1Char('0'))) {
+            number.chop(1);
+        }
+        if (number.endsWith(decimalPoint)) {
+            number.chop(decimalPoint.size());
+        }
+    }
+    return QStringLiteral("%1 %2").arg(number, units[unitIndex]);
 }
 
 } // namespace
@@ -2231,7 +2321,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
                                  || mountedRaw == QStringLiteral("true")
                                  || mountedRaw == QStringLiteral("1"));
         rows.push_back({QStringLiteral("estado"), mountedYes ? QStringLiteral("Montado") : QStringLiteral("Desmontado"), QString(), QStringLiteral("true")});
-        rows.push_back({QStringLiteral("Tamaño"), rec.used.trimmed(), QString(), QStringLiteral("true")});
+        rows.push_back({QStringLiteral("Tamaño"), formatDatasetSize(rec.used.trimmed()), QString(), QStringLiteral("true")});
     } else {
         rows.push_back({QStringLiteral("estado"), QStringLiteral("Snapshot"), QString(), QStringLiteral("true")});
     }
