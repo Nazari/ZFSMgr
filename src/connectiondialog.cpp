@@ -8,6 +8,7 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QComboBox>
+#include <QSignalBlocker>
 
 ConnectionDialog::ConnectionDialog(QWidget* parent)
     : QDialog(parent) {
@@ -53,6 +54,16 @@ ConnectionDialog::ConnectionDialog(QWidget* parent)
     m_sudoCheck = new QCheckBox(QStringLiteral("Usar sudo"), this);
     form->addRow(QStringLiteral("Privilegios"), m_sudoCheck);
 
+    connect(m_osTypeCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
+        updateConnectionModeUi();
+    });
+    connect(m_connTypeCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
+        updateConnectionModeUi();
+    });
+    connect(m_transportCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
+        updateConnectionModeUi();
+    });
+
     root->addLayout(form);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
@@ -61,6 +72,8 @@ ConnectionDialog::ConnectionDialog(QWidget* parent)
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     root->addWidget(buttons);
+
+    updateConnectionModeUi();
 }
 
 void ConnectionDialog::setProfile(const ConnectionProfile& profile) {
@@ -75,6 +88,7 @@ void ConnectionDialog::setProfile(const ConnectionProfile& profile) {
     m_passwordEdit->setText(profile.password);
     m_keyEdit->setText(profile.keyPath);
     m_sudoCheck->setChecked(profile.useSudo);
+    updateConnectionModeUi();
 }
 
 ConnectionProfile ConnectionDialog::profile() const {
@@ -96,3 +110,56 @@ ConnectionProfile ConnectionDialog::profile() const {
     return p;
 }
 
+void ConnectionDialog::ensureDefaultPortForMode() {
+    const QString connType = m_connTypeCombo->currentText().trimmed();
+    const QString transport = m_transportCombo->currentText().trimmed();
+    const bool isPsrp = (connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0
+                         || transport.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
+    const QString wantedPort = isPsrp ? QStringLiteral("5985") : QStringLiteral("22");
+    const QString current = m_portEdit->text().trimmed();
+    if (current.isEmpty() || current == m_lastAutoPort || current == QStringLiteral("22") || current == QStringLiteral("5985")) {
+        m_portEdit->setText(wantedPort);
+    }
+    m_lastAutoPort = wantedPort;
+}
+
+void ConnectionDialog::updateConnectionModeUi() {
+    const QString osType = m_osTypeCombo->currentText().trimmed();
+    const QString connType = m_connTypeCombo->currentText().trimmed();
+    const QString transport = m_transportCombo->currentText().trimmed();
+    const bool isWindows = (osType.compare(QStringLiteral("Windows"), Qt::CaseInsensitive) == 0);
+    const bool isPsrp = (connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0
+                         || transport.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
+
+    if (isWindows && isPsrp) {
+        QSignalBlocker b1(m_connTypeCombo);
+        QSignalBlocker b2(m_transportCombo);
+        m_connTypeCombo->setCurrentText(QStringLiteral("PSRP"));
+        m_transportCombo->setCurrentText(QStringLiteral("PSRP"));
+    } else if (!isPsrp) {
+        QSignalBlocker b2(m_transportCombo);
+        m_transportCombo->setCurrentText(QStringLiteral("SSH"));
+    }
+
+    const bool psrpMode = (m_connTypeCombo->currentText().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0
+                           || m_transportCombo->currentText().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
+
+    m_keyEdit->setEnabled(!psrpMode);
+    if (psrpMode) {
+        m_keyEdit->clear();
+    }
+    m_sudoCheck->setEnabled(!psrpMode);
+    if (psrpMode) {
+        m_sudoCheck->setChecked(false);
+    }
+
+    if (psrpMode) {
+        m_passwordEdit->setPlaceholderText(QStringLiteral("Credencial de Windows/PSRP"));
+        m_portEdit->setPlaceholderText(QStringLiteral("5985"));
+    } else {
+        m_passwordEdit->setPlaceholderText(QStringLiteral("Password SSH"));
+        m_portEdit->setPlaceholderText(QStringLiteral("22"));
+    }
+
+    ensureDefaultPortForMode();
+}

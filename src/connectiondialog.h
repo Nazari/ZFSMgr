@@ -17,6 +17,9 @@ public:
     ConnectionProfile profile() const;
 
 private:
+    void updateConnectionModeUi();
+    void ensureDefaultPortForMode();
+
     QLineEdit* m_nameEdit{nullptr};
     QComboBox* m_connTypeCombo{nullptr};
     QComboBox* m_osTypeCombo{nullptr};
@@ -29,5 +32,5 @@ private:
     QCheckBox* m_sudoCheck{nullptr};
 
     QString m_id;
+    QString m_lastAutoPort;
 };
-
