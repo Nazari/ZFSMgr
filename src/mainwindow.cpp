@@ -929,8 +929,8 @@ void MainWindow::buildUi() {
     statusBody->addWidget(m_poolStatusText, 1);
     statusPoolLayout->addLayout(statusBody, 1);
 
-    m_poolDetailTabs->addTab(propsPoolTab, tr3(QStringLiteral("Propiedades del pool"), QStringLiteral("Pool properties"), QStringLiteral("存储池属性")));
     m_poolDetailTabs->addTab(statusPoolTab, tr3(QStringLiteral("Estado"), QStringLiteral("Status"), QStringLiteral("状态")));
+    m_poolDetailTabs->addTab(propsPoolTab, tr3(QStringLiteral("Propiedades del pool"), QStringLiteral("Pool properties"), QStringLiteral("存储池属性")));
 
     auto* connDetailSplit = new QSplitter(Qt::Vertical, rightConnectionsPage);
     connDetailSplit->setChildrenCollapsible(false);
