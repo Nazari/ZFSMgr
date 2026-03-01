@@ -2651,7 +2651,6 @@ void MainWindow::updateTransferButtonsState() {
     m_btnSync->setEnabled(srcDs && !srcSnap && dstDs && !dstSnap && !sameSelection);
     const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("advanced"));
     bool advDatasetOnly = actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty();
-    const bool advOnWindows = actx.valid && isWindowsConnection(actx.connIdx);
     if (advDatasetOnly) {
         const QString key = datasetCacheKey(actx.connIdx, actx.poolName);
         const auto cacheIt = m_poolDatasetCache.constFind(key);
@@ -2681,10 +2680,10 @@ void MainWindow::updateTransferButtonsState() {
         m_btnAdvancedAssemble->setEnabled(advDatasetOnly);
     }
     if (m_btnAdvancedFromDir) {
-        m_btnAdvancedFromDir->setEnabled(actx.valid && !advOnWindows && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty());
+        m_btnAdvancedFromDir->setEnabled(actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty());
     }
     if (m_btnAdvancedToDir) {
-        m_btnAdvancedToDir->setEnabled(actx.valid && !advOnWindows && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty());
+        m_btnAdvancedToDir->setEnabled(actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty());
     }
 }
 
@@ -3804,62 +3803,138 @@ void MainWindow::actionAdvancedCreateFromDir() {
         return;
     }
 
+    const bool isWin = isWindowsConnection(ctx.connIdx);
     const QString createCmd = buildZfsCreateCmd(opt);
-    const QString cmd = QStringLiteral(
-                            "set -e; "
-                            "DATASET=%1; "
-                            "SRC_DIR=%2; "
-                            "TMP_MP=$(mktemp -d /tmp/zfsmgr-fromdir-mp-XXXXXX); "
-                            "BACKUP_DIR=''; "
-                            "cleanup(){ "
-                            "  rc=$?; "
-                            "  if [ $rc -ne 0 ]; then "
-                            "    if [ -n \"$BACKUP_DIR\" ] && [ ! -e \"$SRC_DIR\" ] && [ -d \"$BACKUP_DIR\" ]; then mv \"$BACKUP_DIR\" \"$SRC_DIR\" || true; fi; "
-                            "  fi; "
-                            "  rmdir \"$TMP_MP\" >/dev/null 2>&1 || true; "
-                            "  exit $rc; "
-                            "}; "
-                            "trap cleanup EXIT INT TERM; "
-                            "[ -d \"$SRC_DIR\" ] || { echo 'source directory does not exist'; exit 2; }; "
-                            "if zfs mount 2>/dev/null | awk '{print $2}' | grep -Fx \"$SRC_DIR\" >/dev/null 2>&1; then "
-                            "  echo 'mountpoint already in use'; exit 3; "
-                            "fi; "
-                            "%3; "
-                            "zfs set canmount=on \"$DATASET\" >/dev/null 2>&1 || true; "
-                            "zfs set mountpoint=\"$TMP_MP\" \"$DATASET\"; "
-                            "zfs mount \"$DATASET\" >/dev/null 2>&1 || true; "
-                            "ACTIVE_MP=$(zfs mount 2>/dev/null | awk -v d=\"$DATASET\" '$1==d{print $2;exit}'); "
-                            "[ \"$ACTIVE_MP\" = \"$TMP_MP\" ] || { echo 'could not mount dataset on temporary mountpoint'; exit 4; }; "
-                            "rsync -aHAWXS \"$SRC_DIR\"/ \"$TMP_MP\"/; "
-                            "BACKUP_DIR=\"$SRC_DIR.zfsmgr-bak-$$\"; "
-                            "i=0; "
-                            "while [ -e \"$BACKUP_DIR\" ]; do i=$((i+1)); BACKUP_DIR=\"$SRC_DIR.zfsmgr-bak-$$-$i\"; done; "
-                            "mv \"$SRC_DIR\" \"$BACKUP_DIR\"; "
-                            "mkdir -p \"$SRC_DIR\"; "
-                            "zfs umount \"$DATASET\" >/dev/null 2>&1 || true; "
-                            "zfs set mountpoint=\"$SRC_DIR\" \"$DATASET\"; "
-                            "zfs mount \"$DATASET\" >/dev/null 2>&1 || true; "
-                            "FINAL_MP=$(zfs mount 2>/dev/null | awk -v d=\"$DATASET\" '$1==d{print $2;exit}'); "
-                            "if [ \"$FINAL_MP\" != \"$SRC_DIR\" ]; then "
-                            "  zfs set mountpoint=\"$TMP_MP\" \"$DATASET\" >/dev/null 2>&1 || true; "
-                            "  zfs mount \"$DATASET\" >/dev/null 2>&1 || true; "
-                            "  rm -rf \"$SRC_DIR\"; "
-                            "  mv \"$BACKUP_DIR\" \"$SRC_DIR\"; "
-                            "  echo 'failed to switch mountpoint to destination directory'; "
-                            "  exit 5; "
-                            "fi; "
-                            "rm -rf \"$BACKUP_DIR\"; "
-                            "BACKUP_DIR=''; "
-                            "trap - EXIT INT TERM; "
-                            "rmdir \"$TMP_MP\" >/dev/null 2>&1 || true")
-                            .arg(shSingleQuote(opt.datasetPath),
-                                 shSingleQuote(selectedMountDir),
-                                 createCmd);
+    QString cmd;
+    bool allowWindowsScript = false;
+    if (!isWin) {
+        cmd = QStringLiteral(
+                  "set -e; "
+                  "DATASET=%1; "
+                  "SRC_DIR=%2; "
+                  "TMP_MP=$(mktemp -d /tmp/zfsmgr-fromdir-mp-XXXXXX); "
+                  "BACKUP_DIR=''; "
+                  "cleanup(){ "
+                  "  rc=$?; "
+                  "  if [ $rc -ne 0 ]; then "
+                  "    if [ -n \"$BACKUP_DIR\" ] && [ ! -e \"$SRC_DIR\" ] && [ -d \"$BACKUP_DIR\" ]; then mv \"$BACKUP_DIR\" \"$SRC_DIR\" || true; fi; "
+                  "  fi; "
+                  "  rmdir \"$TMP_MP\" >/dev/null 2>&1 || true; "
+                  "  exit $rc; "
+                  "}; "
+                  "trap cleanup EXIT INT TERM; "
+                  "[ -d \"$SRC_DIR\" ] || { echo 'source directory does not exist'; exit 2; }; "
+                  "if zfs mount 2>/dev/null | awk '{print $2}' | grep -Fx \"$SRC_DIR\" >/dev/null 2>&1; then "
+                  "  echo 'mountpoint already in use'; exit 3; "
+                  "fi; "
+                  "%3; "
+                  "zfs set canmount=on \"$DATASET\" >/dev/null 2>&1 || true; "
+                  "zfs set mountpoint=\"$TMP_MP\" \"$DATASET\"; "
+                  "zfs mount \"$DATASET\" >/dev/null 2>&1 || true; "
+                  "ACTIVE_MP=$(zfs mount 2>/dev/null | awk -v d=\"$DATASET\" '$1==d{print $2;exit}'); "
+                  "[ \"$ACTIVE_MP\" = \"$TMP_MP\" ] || { echo 'could not mount dataset on temporary mountpoint'; exit 4; }; "
+                  "rsync -aHAWXS \"$SRC_DIR\"/ \"$TMP_MP\"/; "
+                  "BACKUP_DIR=\"$SRC_DIR.zfsmgr-bak-$$\"; "
+                  "i=0; "
+                  "while [ -e \"$BACKUP_DIR\" ]; do i=$((i+1)); BACKUP_DIR=\"$SRC_DIR.zfsmgr-bak-$$-$i\"; done; "
+                  "mv \"$SRC_DIR\" \"$BACKUP_DIR\"; "
+                  "mkdir -p \"$SRC_DIR\"; "
+                  "zfs umount \"$DATASET\" >/dev/null 2>&1 || true; "
+                  "zfs set mountpoint=\"$SRC_DIR\" \"$DATASET\"; "
+                  "zfs mount \"$DATASET\" >/dev/null 2>&1 || true; "
+                  "FINAL_MP=$(zfs mount 2>/dev/null | awk -v d=\"$DATASET\" '$1==d{print $2;exit}'); "
+                  "if [ \"$FINAL_MP\" != \"$SRC_DIR\" ]; then "
+                  "  zfs set mountpoint=\"$TMP_MP\" \"$DATASET\" >/dev/null 2>&1 || true; "
+                  "  zfs mount \"$DATASET\" >/dev/null 2>&1 || true; "
+                  "  rm -rf \"$SRC_DIR\"; "
+                  "  mv \"$BACKUP_DIR\" \"$SRC_DIR\"; "
+                  "  echo 'failed to switch mountpoint to destination directory'; "
+                  "  exit 5; "
+                  "fi; "
+                  "rm -rf \"$BACKUP_DIR\"; "
+                  "BACKUP_DIR=''; "
+                  "trap - EXIT INT TERM; "
+                  "rmdir \"$TMP_MP\" >/dev/null 2>&1 || true")
+                  .arg(shSingleQuote(opt.datasetPath),
+                       shSingleQuote(selectedMountDir),
+                       createCmd);
+    } else {
+        allowWindowsScript = true;
+        auto psSingle = [](const QString& v) {
+            QString out = v;
+            out.replace(QStringLiteral("'"), QStringLiteral("''"));
+            return QStringLiteral("'") + out + QStringLiteral("'");
+        };
+        cmd = QStringLiteral(
+                  "$ErrorActionPreference = 'Stop'; "
+                  "$dataset = %1; "
+                  "$srcDir = %2; "
+                  "if (-not (Test-Path -LiteralPath $srcDir -PathType Container)) { throw 'source directory does not exist'; } "
+                  "$srcDir = (Resolve-Path -LiteralPath $srcDir).Path; "
+                  "$mountRows = @(zfs mount 2>$null); "
+                  "$used = $false; "
+                  "foreach ($line in $mountRows) { "
+                  "  if ($line -match '^\\s*(\\S+)\\s+(.+)$') { "
+                  "    $mp = $Matches[2].Trim(); "
+                  "    if ([string]::Equals($mp, $srcDir, [System.StringComparison]::OrdinalIgnoreCase)) { $used = $true; break; } "
+                  "  } "
+                  "} "
+                  "if ($used) { throw 'mountpoint already in use'; } "
+                  "%3; "
+                  "zfs set canmount=on $dataset 2>$null | Out-Null; "
+                  "$tmpMp = Join-Path $env:TEMP ('zfsmgr-fromdir-mp-' + [Guid]::NewGuid().ToString('N')); "
+                  "New-Item -ItemType Directory -Force -Path $tmpMp | Out-Null; "
+                  "$backupDir = ''; "
+                  "try { "
+                  "  zfs set mountpoint=$tmpMp $dataset | Out-Null; "
+                  "  zfs mount $dataset 2>$null | Out-Null; "
+                  "  $activeMp = ''; "
+                  "  foreach ($line in @(zfs mount 2>$null)) { "
+                  "    if ($line -match '^\\s*(\\S+)\\s+(.+)$') { "
+                  "      if ($Matches[1] -eq $dataset) { $activeMp = $Matches[2].Trim(); break; } "
+                  "    } "
+                  "  } "
+                  "  if (-not [string]::Equals($activeMp, $tmpMp, [System.StringComparison]::OrdinalIgnoreCase)) { throw 'could not mount dataset on temporary mountpoint'; } "
+                  "  $rc = (robocopy $srcDir $tmpMp /E /COPYALL /R:1 /W:1 /NFL /NDL /NP); "
+                  "  if ($LASTEXITCODE -ge 8) { throw ('robocopy failed with code ' + $LASTEXITCODE); } "
+                  "  $backupDir = $srcDir + '.zfsmgr-bak-' + [Guid]::NewGuid().ToString('N'); "
+                  "  Move-Item -LiteralPath $srcDir -Destination $backupDir; "
+                  "  New-Item -ItemType Directory -Force -Path $srcDir | Out-Null; "
+                  "  zfs unmount $dataset 2>$null | Out-Null; "
+                  "  zfs set mountpoint=$srcDir $dataset | Out-Null; "
+                  "  zfs mount $dataset 2>$null | Out-Null; "
+                  "  $finalMp = ''; "
+                  "  foreach ($line in @(zfs mount 2>$null)) { "
+                  "    if ($line -match '^\\s*(\\S+)\\s+(.+)$') { "
+                  "      if ($Matches[1] -eq $dataset) { $finalMp = $Matches[2].Trim(); break; } "
+                  "    } "
+                  "  } "
+                  "  if (-not [string]::Equals($finalMp, $srcDir, [System.StringComparison]::OrdinalIgnoreCase)) { "
+                  "    zfs set mountpoint=$tmpMp $dataset 2>$null | Out-Null; "
+                  "    zfs mount $dataset 2>$null | Out-Null; "
+                  "    if (Test-Path -LiteralPath $srcDir) { Remove-Item -LiteralPath $srcDir -Recurse -Force; } "
+                  "    if (Test-Path -LiteralPath $backupDir) { Move-Item -LiteralPath $backupDir -Destination $srcDir; } "
+                  "    throw 'failed to switch mountpoint to destination directory'; "
+                  "  } "
+                  "  if ($backupDir -and (Test-Path -LiteralPath $backupDir)) { Remove-Item -LiteralPath $backupDir -Recurse -Force; } "
+                  "} catch { "
+                  "  if ($backupDir -and -not (Test-Path -LiteralPath $srcDir) -and (Test-Path -LiteralPath $backupDir)) { "
+                  "    Move-Item -LiteralPath $backupDir -Destination $srcDir; "
+                  "  } "
+                  "  throw; "
+                  "} finally { "
+                  "  if (Test-Path -LiteralPath $tmpMp) { Remove-Item -LiteralPath $tmpMp -Force -ErrorAction SilentlyContinue; } "
+                  "}")
+                  .arg(psSingle(opt.datasetPath),
+                       psSingle(selectedMountDir),
+                       createCmd);
+    }
     executeDatasetAction(QStringLiteral("advanced"),
                          tr3(QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")),
                          ctx,
                          cmd,
-                         90000);
+                         90000,
+                         allowWindowsScript);
 }
 
 void MainWindow::actionAdvancedToDir() {
@@ -3965,64 +4040,140 @@ void MainWindow::actionAdvancedToDir() {
     }
     const QString localDir = dirEdit->text().trimmed();
 
-    const QString cmd = QStringLiteral(
-                            "set -e; "
-                            "DATASET=%1; "
-                            "DST_DIR=%2; "
-                            "TMP_MP=$(mktemp -d /tmp/zfsmgr-todir-mp-XXXXXX); "
-                            "TMP_OUT=$(mktemp -d /tmp/zfsmgr-todir-out-XXXXXX); "
-                            "BACKUP_DIR=''; RESTORE_NEEDED=0; "
-                            "OLD_MP=$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true); "
-                            "OLD_MOUNTED=$(zfs get -H -o value mounted \"$DATASET\" 2>/dev/null || true); "
-                            "cleanup(){ "
-                            "  rc=$?; "
-                            "  if [ $rc -ne 0 ]; then "
-                            "    if [ \"$RESTORE_NEEDED\" = \"1\" ] && [ -n \"$BACKUP_DIR\" ] && [ -d \"$BACKUP_DIR\" ]; then "
-                            "      rm -rf \"$DST_DIR\" >/dev/null 2>&1 || true; "
-                            "      mv \"$BACKUP_DIR\" \"$DST_DIR\" >/dev/null 2>&1 || true; "
-                            "    fi; "
-                            "    if zfs list -H -o name \"$DATASET\" >/dev/null 2>&1; then "
-                            "      zfs set mountpoint=\"$OLD_MP\" \"$DATASET\" >/dev/null 2>&1 || true; "
-                            "      if [ \"$OLD_MOUNTED\" = \"yes\" ] || [ \"$OLD_MOUNTED\" = \"on\" ]; then zfs mount \"$DATASET\" >/dev/null 2>&1 || true; fi; "
-                            "    fi; "
-                            "  fi; "
-                            "  rm -rf \"$TMP_MP\" >/dev/null 2>&1 || true; "
-                            "  rm -rf \"$TMP_OUT\" >/dev/null 2>&1 || true; "
-                            "  exit $rc; "
-                            "}; "
-                            "trap cleanup EXIT INT TERM; "
-                            "if zfs mount 2>/dev/null | awk '{print $2}' | grep -Fx \"$DST_DIR\" >/dev/null 2>&1; then "
-                            "  echo 'destination directory is already a zfs mountpoint'; exit 2; "
-                            "fi; "
-                            "zfs set canmount=on \"$DATASET\" >/dev/null 2>&1 || true; "
-                            "zfs set mountpoint=\"$TMP_MP\" \"$DATASET\"; "
-                            "zfs mount \"$DATASET\" >/dev/null 2>&1 || true; "
-                            "ACTIVE_MP=$(zfs mount 2>/dev/null | awk -v d=\"$DATASET\" '$1==d{print $2;exit}'); "
-                            "[ \"$ACTIVE_MP\" = \"$TMP_MP\" ] || { echo 'could not mount dataset on temporary mountpoint'; exit 3; }; "
-                            "rsync -aHAWXS \"$TMP_MP\"/ \"$TMP_OUT\"/; "
-                            "if [ -e \"$DST_DIR\" ]; then "
-                            "  BACKUP_DIR=\"$DST_DIR.zfsmgr-bak-$$\"; "
-                            "  i=0; while [ -e \"$BACKUP_DIR\" ]; do i=$((i+1)); BACKUP_DIR=\"$DST_DIR.zfsmgr-bak-$$-$i\"; done; "
-                            "  mv \"$DST_DIR\" \"$BACKUP_DIR\"; "
-                            "  RESTORE_NEEDED=1; "
-                            "else "
-                            "  mkdir -p \"$(dirname \"$DST_DIR\")\"; "
-                            "fi; "
-                            "mv \"$TMP_OUT\" \"$DST_DIR\"; "
-                            "zfs umount \"$DATASET\" >/dev/null 2>&1 || true; "
-                            "zfs destroy -r \"$DATASET\"; "
-                            "if [ -n \"$BACKUP_DIR\" ]; then rm -rf \"$BACKUP_DIR\"; fi; "
-                            "RESTORE_NEEDED=0; "
-                            "trap - EXIT INT TERM; "
-                            "rm -rf \"$TMP_MP\" >/dev/null 2>&1 || true")
-                            .arg(shSingleQuote(ds),
-                                 shSingleQuote(localDir));
+    const bool isWin = isWindowsConnection(ctx.connIdx);
+    QString cmd;
+    bool allowWindowsScript = false;
+    if (!isWin) {
+        cmd = QStringLiteral(
+                  "set -e; "
+                  "DATASET=%1; "
+                  "DST_DIR=%2; "
+                  "TMP_MP=$(mktemp -d /tmp/zfsmgr-todir-mp-XXXXXX); "
+                  "TMP_OUT=$(mktemp -d /tmp/zfsmgr-todir-out-XXXXXX); "
+                  "BACKUP_DIR=''; RESTORE_NEEDED=0; "
+                  "OLD_MP=$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true); "
+                  "OLD_MOUNTED=$(zfs get -H -o value mounted \"$DATASET\" 2>/dev/null || true); "
+                  "cleanup(){ "
+                  "  rc=$?; "
+                  "  if [ $rc -ne 0 ]; then "
+                  "    if [ \"$RESTORE_NEEDED\" = \"1\" ] && [ -n \"$BACKUP_DIR\" ] && [ -d \"$BACKUP_DIR\" ]; then "
+                  "      rm -rf \"$DST_DIR\" >/dev/null 2>&1 || true; "
+                  "      mv \"$BACKUP_DIR\" \"$DST_DIR\" >/dev/null 2>&1 || true; "
+                  "    fi; "
+                  "    if zfs list -H -o name \"$DATASET\" >/dev/null 2>&1; then "
+                  "      zfs set mountpoint=\"$OLD_MP\" \"$DATASET\" >/dev/null 2>&1 || true; "
+                  "      if [ \"$OLD_MOUNTED\" = \"yes\" ] || [ \"$OLD_MOUNTED\" = \"on\" ]; then zfs mount \"$DATASET\" >/dev/null 2>&1 || true; fi; "
+                  "    fi; "
+                  "  fi; "
+                  "  rm -rf \"$TMP_MP\" >/dev/null 2>&1 || true; "
+                  "  rm -rf \"$TMP_OUT\" >/dev/null 2>&1 || true; "
+                  "  exit $rc; "
+                  "}; "
+                  "trap cleanup EXIT INT TERM; "
+                  "if zfs mount 2>/dev/null | awk '{print $2}' | grep -Fx \"$DST_DIR\" >/dev/null 2>&1; then "
+                  "  echo 'destination directory is already a zfs mountpoint'; exit 2; "
+                  "fi; "
+                  "zfs set canmount=on \"$DATASET\" >/dev/null 2>&1 || true; "
+                  "zfs set mountpoint=\"$TMP_MP\" \"$DATASET\"; "
+                  "zfs mount \"$DATASET\" >/dev/null 2>&1 || true; "
+                  "ACTIVE_MP=$(zfs mount 2>/dev/null | awk -v d=\"$DATASET\" '$1==d{print $2;exit}'); "
+                  "[ \"$ACTIVE_MP\" = \"$TMP_MP\" ] || { echo 'could not mount dataset on temporary mountpoint'; exit 3; }; "
+                  "rsync -aHAWXS \"$TMP_MP\"/ \"$TMP_OUT\"/; "
+                  "if [ -e \"$DST_DIR\" ]; then "
+                  "  BACKUP_DIR=\"$DST_DIR.zfsmgr-bak-$$\"; "
+                  "  i=0; while [ -e \"$BACKUP_DIR\" ]; do i=$((i+1)); BACKUP_DIR=\"$DST_DIR.zfsmgr-bak-$$-$i\"; done; "
+                  "  mv \"$DST_DIR\" \"$BACKUP_DIR\"; "
+                  "  RESTORE_NEEDED=1; "
+                  "else "
+                  "  mkdir -p \"$(dirname \"$DST_DIR\")\"; "
+                  "fi; "
+                  "mv \"$TMP_OUT\" \"$DST_DIR\"; "
+                  "zfs umount \"$DATASET\" >/dev/null 2>&1 || true; "
+                  "zfs destroy -r \"$DATASET\"; "
+                  "if [ -n \"$BACKUP_DIR\" ]; then rm -rf \"$BACKUP_DIR\"; fi; "
+                  "RESTORE_NEEDED=0; "
+                  "trap - EXIT INT TERM; "
+                  "rm -rf \"$TMP_MP\" >/dev/null 2>&1 || true")
+                  .arg(shSingleQuote(ds),
+                       shSingleQuote(localDir));
+    } else {
+        allowWindowsScript = true;
+        auto psSingle = [](const QString& v) {
+            QString out = v;
+            out.replace(QStringLiteral("'"), QStringLiteral("''"));
+            return QStringLiteral("'") + out + QStringLiteral("'");
+        };
+        cmd = QStringLiteral(
+                  "$ErrorActionPreference = 'Stop'; "
+                  "$dataset = %1; "
+                  "$dstDir = %2; "
+                  "$dstParent = Split-Path -Parent $dstDir; "
+                  "if ([string]::IsNullOrWhiteSpace($dstParent)) { throw 'invalid destination directory'; } "
+                  "if (-not (Test-Path -LiteralPath $dstParent)) { New-Item -ItemType Directory -Force -Path $dstParent | Out-Null; } "
+                  "$mountRows = @(zfs mount 2>$null); "
+                  "$used = $false; "
+                  "foreach ($line in $mountRows) { "
+                  "  if ($line -match '^\\s*(\\S+)\\s+(.+)$') { "
+                  "    $mp = $Matches[2].Trim(); "
+                  "    if ([string]::Equals($mp, $dstDir, [System.StringComparison]::OrdinalIgnoreCase)) { $used = $true; break; } "
+                  "  } "
+                  "} "
+                  "if ($used) { throw 'destination directory is already a zfs mountpoint'; } "
+                  "$oldMp = (zfs get -H -o value mountpoint $dataset 2>$null | Select-Object -First 1); "
+                  "$oldMounted = (zfs get -H -o value mounted $dataset 2>$null | Select-Object -First 1); "
+                  "$tmpMp = Join-Path $env:TEMP ('zfsmgr-todir-mp-' + [Guid]::NewGuid().ToString('N')); "
+                  "$tmpOut = Join-Path $env:TEMP ('zfsmgr-todir-out-' + [Guid]::NewGuid().ToString('N')); "
+                  "New-Item -ItemType Directory -Force -Path $tmpMp | Out-Null; "
+                  "New-Item -ItemType Directory -Force -Path $tmpOut | Out-Null; "
+                  "$backupDir = ''; "
+                  "$restoreNeeded = $false; "
+                  "try { "
+                  "  zfs set canmount=on $dataset 2>$null | Out-Null; "
+                  "  zfs set mountpoint=$tmpMp $dataset | Out-Null; "
+                  "  zfs mount $dataset 2>$null | Out-Null; "
+                  "  $activeMp = ''; "
+                  "  foreach ($line in @(zfs mount 2>$null)) { "
+                  "    if ($line -match '^\\s*(\\S+)\\s+(.+)$') { "
+                  "      if ($Matches[1] -eq $dataset) { $activeMp = $Matches[2].Trim(); break; } "
+                  "    } "
+                  "  } "
+                  "  if (-not [string]::Equals($activeMp, $tmpMp, [System.StringComparison]::OrdinalIgnoreCase)) { throw 'could not mount dataset on temporary mountpoint'; } "
+                  "  $rc = (robocopy $tmpMp $tmpOut /E /COPYALL /R:1 /W:1 /NFL /NDL /NP); "
+                  "  if ($LASTEXITCODE -ge 8) { throw ('robocopy failed with code ' + $LASTEXITCODE); } "
+                  "  if (Test-Path -LiteralPath $dstDir) { "
+                  "    $backupDir = $dstDir + '.zfsmgr-bak-' + [Guid]::NewGuid().ToString('N'); "
+                  "    Move-Item -LiteralPath $dstDir -Destination $backupDir; "
+                  "    $restoreNeeded = $true; "
+                  "  } "
+                  "  Move-Item -LiteralPath $tmpOut -Destination $dstDir; "
+                  "  zfs unmount $dataset 2>$null | Out-Null; "
+                  "  zfs destroy -r $dataset | Out-Null; "
+                  "  if ($backupDir -and (Test-Path -LiteralPath $backupDir)) { Remove-Item -LiteralPath $backupDir -Recurse -Force; } "
+                  "  $restoreNeeded = $false; "
+                  "} catch { "
+                  "  if ($restoreNeeded -and $backupDir -and (Test-Path -LiteralPath $backupDir)) { "
+                  "    if (Test-Path -LiteralPath $dstDir) { Remove-Item -LiteralPath $dstDir -Recurse -Force -ErrorAction SilentlyContinue; } "
+                  "    Move-Item -LiteralPath $backupDir -Destination $dstDir -ErrorAction SilentlyContinue; "
+                  "  } "
+                  "  if (zfs list -H -o name $dataset 2>$null) { "
+                  "    if ($oldMp) { zfs set mountpoint=$oldMp $dataset 2>$null | Out-Null; } "
+                  "    if ($oldMounted -match '^(yes|on)$') { zfs mount $dataset 2>$null | Out-Null; } "
+                  "  } "
+                  "  throw; "
+                  "} finally { "
+                  "  if (Test-Path -LiteralPath $tmpMp) { Remove-Item -LiteralPath $tmpMp -Recurse -Force -ErrorAction SilentlyContinue; } "
+                  "  if (Test-Path -LiteralPath $tmpOut) { Remove-Item -LiteralPath $tmpOut -Recurse -Force -ErrorAction SilentlyContinue; } "
+                  "}")
+                  .arg(psSingle(ds),
+                       psSingle(localDir));
+    }
 
     executeDatasetAction(QStringLiteral("advanced"),
                          tr3(QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")),
                          ctx,
                          cmd,
-                         0);
+                         0,
+                         allowWindowsScript);
 }
 
 void MainWindow::onDatasetPropsCellChanged(int row, int col) {
