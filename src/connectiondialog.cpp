@@ -101,7 +101,9 @@ ConnectionProfile ConnectionDialog::profile() const {
     p.host = m_hostEdit->text().trimmed();
     p.port = m_portEdit->text().toInt();
     if (p.port <= 0) {
-        p.port = 22;
+        const bool psrpMode = (p.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0
+                               || p.transport.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
+        p.port = psrpMode ? 5985 : 22;
     }
     p.username = m_userEdit->text().trimmed();
     p.password = m_passwordEdit->text();
@@ -131,7 +133,7 @@ void ConnectionDialog::updateConnectionModeUi() {
     const bool isPsrp = (connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0
                          || transport.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
 
-    if (isWindows && isPsrp) {
+    if (isWindows) {
         QSignalBlocker b1(m_connTypeCombo);
         QSignalBlocker b2(m_transportCombo);
         m_connTypeCombo->setCurrentText(QStringLiteral("PSRP"));
@@ -140,6 +142,9 @@ void ConnectionDialog::updateConnectionModeUi() {
         QSignalBlocker b2(m_transportCombo);
         m_transportCombo->setCurrentText(QStringLiteral("SSH"));
     }
+
+    m_connTypeCombo->setEnabled(!isWindows);
+    m_transportCombo->setEnabled(!isWindows);
 
     const bool psrpMode = (m_connTypeCombo->currentText().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0
                            || m_transportCombo->currentText().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
