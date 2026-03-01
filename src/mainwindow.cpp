@@ -20,6 +20,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QCheckBox>
+#include <QCloseEvent>
 #include <QIcon>
 #include <QMenu>
 #include <QMessageBox>
@@ -1497,6 +1498,10 @@ void MainWindow::buildUi() {
         logUiAction(QStringLiteral("Copiar log (botón)"));
         copyAppLogToClipboard();
     });
+    connect(m_logCancelBtn, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Cancelar acción (botón)"));
+        requestCancelRunningAction();
+    });
     connect(m_logMaxLinesCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
         trimLogWidget(m_logView);
     });
@@ -2956,12 +2961,17 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     appLog(QStringLiteral("NORMAL"), QStringLiteral("%1").arg(displayLabel));
     appLog(QStringLiteral("INFO"), QStringLiteral("$ %1").arg(command));
     QProcess proc;
+    m_cancelActionRequested = false;
+    m_activeLocalProcess = &proc;
     proc.start(QStringLiteral("sh"), QStringList{QStringLiteral("-lc"), command});
     if (!proc.waitForStarted(4000)) {
         appLog(QStringLiteral("NORMAL"), QStringLiteral("No se pudo iniciar comando local"));
+        m_activeLocalProcess = nullptr;
+        m_activeLocalPid = -1;
         setActionsLocked(false);
         return false;
     }
+    m_activeLocalPid = static_cast<qint64>(proc.processId());
     QString outBuf;
     QString errBuf;
     QString outRemainder;
@@ -3026,10 +3036,33 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
 
     const qint64 startMs = QDateTime::currentMSecsSinceEpoch();
     while (proc.state() != QProcess::NotRunning) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        if (m_cancelActionRequested) {
+            appLog(QStringLiteral("NORMAL"), tr3(QStringLiteral("Cancelando acción en curso..."),
+                                                 QStringLiteral("Canceling running action..."),
+                                                 QStringLiteral("正在取消执行中的操作...")));
+            terminateProcessTree(m_activeLocalPid);
+            proc.terminate();
+            if (!proc.waitForFinished(800)) {
+                proc.kill();
+                proc.waitForFinished(800);
+            }
+            appLog(QStringLiteral("NORMAL"), tr3(QStringLiteral("Acción cancelada por el usuario."),
+                                                 QStringLiteral("Action canceled by user."),
+                                                 QStringLiteral("操作已被用户取消。")));
+            m_activeLocalProcess = nullptr;
+            m_activeLocalPid = -1;
+            m_cancelActionRequested = false;
+            setActionsLocked(false);
+            return false;
+        }
         if (timeoutMs > 0 && (QDateTime::currentMSecsSinceEpoch() - startMs) > timeoutMs) {
+            terminateProcessTree(m_activeLocalPid);
             proc.kill();
             proc.waitForFinished(1000);
             appLog(QStringLiteral("NORMAL"), QStringLiteral("Timeout en comando local"));
+            m_activeLocalProcess = nullptr;
+            m_activeLocalPid = -1;
             setActionsLocked(false);
             return false;
         }
@@ -3059,10 +3092,14 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     }
     if (rc != 0) {
         appLog(QStringLiteral("NORMAL"), QStringLiteral("Comando finalizó con error %1").arg(rc));
+        m_activeLocalProcess = nullptr;
+        m_activeLocalPid = -1;
         setActionsLocked(false);
         return false;
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Comando finalizado correctamente"));
+    m_activeLocalProcess = nullptr;
+    m_activeLocalPid = -1;
     setActionsLocked(false);
     return true;
 }
@@ -6459,6 +6496,38 @@ bool MainWindow::actionsLocked() const {
     return m_actionsLocked;
 }
 
+void MainWindow::requestCancelRunningAction() {
+    if (!m_actionsLocked || !m_activeLocalProcess) {
+        return;
+    }
+    m_cancelActionRequested = true;
+}
+
+void MainWindow::terminateProcessTree(qint64 rootPid) {
+    if (rootPid <= 0) {
+        return;
+    }
+    QProcess::execute(QStringLiteral("sh"), QStringList{
+        QStringLiteral("-lc"),
+        QStringLiteral("pkill -TERM -P %1 >/dev/null 2>&1 || true; sleep 0.2; pkill -KILL -P %1 >/dev/null 2>&1 || true")
+            .arg(rootPid)
+    });
+}
+
+void MainWindow::closeEvent(QCloseEvent* event) {
+    if (m_actionsLocked) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            tr3(QStringLiteral("Hay una acción en ejecución. Cancele la acción antes de cerrar la aplicación."),
+                QStringLiteral("An action is running. Cancel it before closing the application."),
+                QStringLiteral("当前有操作正在执行。请先取消操作再关闭应用。")));
+        event->ignore();
+        return;
+    }
+    QMainWindow::closeEvent(event);
+}
+
 QString MainWindow::buildSshPreviewCommand(const ConnectionProfile& p, const QString& remoteCmd) const {
     QStringList parts;
     parts << QStringLiteral("ssh");
@@ -6655,6 +6724,10 @@ void MainWindow::openConfigurationDialog() {
 
 void MainWindow::setActionsLocked(bool locked) {
     m_actionsLocked = locked;
+    if (m_logCancelBtn) {
+        m_logCancelBtn->setVisible(locked);
+        m_logCancelBtn->setEnabled(locked);
+    }
     if (m_btnNew) m_btnNew->setEnabled(!locked);
     if (m_btnRefreshAll) m_btnRefreshAll->setEnabled(!locked);
     if (m_btnConfig) m_btnConfig->setEnabled(!locked);

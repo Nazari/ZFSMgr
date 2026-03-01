@@ -13,7 +13,9 @@ class QListWidget;
 class QListWidgetItem;
 class QPoint;
 class QPlainTextEdit;
+class QProcess;
 class QPushButton;
+class QCloseEvent;
 class QTableWidget;
 class QTabWidget;
 class QTreeWidget;
@@ -25,6 +27,9 @@ class MainWindow final : public QMainWindow {
     Q_OBJECT
 public:
     explicit MainWindow(const QString& masterPassword, const QString& language, QWidget* parent = nullptr);
+
+protected:
+    void closeEvent(QCloseEvent* event) override;
 
 private:
     struct PoolImported {
@@ -164,6 +169,8 @@ private:
     void updateStatus(const QString& text);
     void setActionsLocked(bool locked);
     bool actionsLocked() const;
+    void requestCancelRunningAction();
+    void terminateProcessTree(qint64 rootPid);
     void openConfigurationDialog();
     void loadUiSettings();
     void saveUiSettings() const;
@@ -259,4 +266,7 @@ private:
     int m_refreshPending{0};
     int m_refreshTotal{0};
     bool m_actionsLocked{false};
+    bool m_cancelActionRequested{false};
+    QProcess* m_activeLocalProcess{nullptr};
+    qint64 m_activeLocalPid{-1};
 };
