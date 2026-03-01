@@ -2236,32 +2236,27 @@ QString MainWindow::effectiveMountPath(int connIdx,
         return mountpointHint.trimmed();
     }
 
-    if (!ensureDatasetsLoaded(connIdx, poolName)) {
-        return mountpointHint.trimmed();
-    }
-    const QString key = datasetCacheKey(connIdx, poolName);
-    const auto cacheIt = m_poolDatasetCache.constFind(key);
-    if (cacheIt == m_poolDatasetCache.constEnd()) {
-        return mountpointHint.trimmed();
-    }
-    const PoolDatasetCache& cache = cacheIt.value();
-
     QString anchor = datasetName;
     QString drive;
     while (!anchor.isEmpty()) {
-        drive = normalizeDriveLetterValue(cache.driveletterByDataset.value(anchor));
+        QString rawDrive;
+        if (getDatasetProperty(connIdx, anchor, QStringLiteral("driveletter"), rawDrive)) {
+            drive = normalizeDriveLetterValue(rawDrive);
+        } else {
+            drive.clear();
+        }
         if (!drive.isEmpty()) {
             break;
         }
         if (anchor == poolName) {
             break;
         }
-        const int slash = anchor.lastIndexOf('/');
-        if (slash <= 0) {
+        const QString parent = parentDatasetName(anchor);
+        if (parent.isEmpty()) {
             anchor.clear();
             break;
         }
-        anchor = anchor.left(slash);
+        anchor = parent;
     }
     if (drive.isEmpty()) {
         return QString();
