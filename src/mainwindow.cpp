@@ -688,6 +688,7 @@ void MainWindow::buildUi() {
     m_btnAdvancedBreakdown = new QPushButton(tr3(QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")), commandsBox);
     m_btnAdvancedAssemble = new QPushButton(tr3(QStringLiteral("Ensamblar"), QStringLiteral("Assemble"), QStringLiteral("组装")), commandsBox);
     m_btnAdvancedFromDir = new QPushButton(tr3(QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")), commandsBox);
+    m_btnAdvancedToDir = new QPushButton(tr3(QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")), commandsBox);
     m_btnAdvancedBreakdown->setToolTip(
         tr3(QStringLiteral("Construye datasets a partir de directorios. "
                            "Requiere dataset y descendientes montados. "
@@ -721,21 +722,32 @@ void MainWindow::buildUi() {
                            "Requires a dataset selected in Advanced."),
             QStringLiteral("使用本地目录作为挂载点创建子数据集。\n"
                            "需要在高级页选择一个数据集。")));
+    m_btnAdvancedToDir->setToolTip(
+        tr3(QStringLiteral("Hace lo contrario de Desde Dir: copia el contenido del dataset a un directorio local\n"
+                           "y elimina el dataset al finalizar correctamente."),
+            QStringLiteral("Inverse of From Dir: copy dataset content to a local directory\n"
+                           "and remove dataset when finished successfully."),
+            QStringLiteral("与“来自目录”相反：将数据集内容复制到本地目录，\n"
+                           "成功后删除该数据集。")));
     const int transferBtnH = m_btnCopy ? m_btnCopy->sizeHint().height() : m_btnAdvancedBreakdown->sizeHint().height();
     m_btnAdvancedBreakdown->setFixedHeight(transferBtnH);
     m_btnAdvancedAssemble->setFixedHeight(transferBtnH);
     m_btnAdvancedFromDir->setFixedHeight(transferBtnH);
+    m_btnAdvancedToDir->setFixedHeight(transferBtnH);
     m_btnAdvancedBreakdown->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnAdvancedAssemble->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnAdvancedFromDir->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnAdvancedToDir->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnAdvancedBreakdown->setEnabled(false);
     m_btnAdvancedAssemble->setEnabled(false);
     m_btnAdvancedFromDir->setEnabled(false);
+    m_btnAdvancedToDir->setEnabled(false);
     auto* commandsButtonsRow = new QHBoxLayout();
     commandsButtonsRow->setSpacing(8);
     commandsButtonsRow->addWidget(m_btnAdvancedBreakdown);
     commandsButtonsRow->addWidget(m_btnAdvancedAssemble);
     commandsButtonsRow->addWidget(m_btnAdvancedFromDir);
+    commandsButtonsRow->addWidget(m_btnAdvancedToDir);
     commandsLayout->addLayout(commandsButtonsRow);
     auto* advancedInfoTabs = new QTabWidget(advancedTab);
     advancedInfoTabs->setDocumentMode(false);
@@ -1387,6 +1399,10 @@ void MainWindow::buildUi() {
     connect(m_btnAdvancedFromDir, &QPushButton::clicked, this, [this]() {
         logUiAction(QStringLiteral("Desde Dir (botón)"));
         actionAdvancedCreateFromDir();
+    });
+    connect(m_btnAdvancedToDir, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Hacia Dir (botón)"));
+        actionAdvancedToDir();
     });
 }
 
@@ -2584,6 +2600,7 @@ void MainWindow::updateTransferButtonsState() {
         if (m_btnAdvancedBreakdown) m_btnAdvancedBreakdown->setEnabled(false);
         if (m_btnAdvancedAssemble) m_btnAdvancedAssemble->setEnabled(false);
         if (m_btnAdvancedFromDir) m_btnAdvancedFromDir->setEnabled(false);
+        if (m_btnAdvancedToDir) m_btnAdvancedToDir->setEnabled(false);
         return;
     }
     const bool srcDs = !m_originSelectedDataset.isEmpty();
@@ -2632,6 +2649,9 @@ void MainWindow::updateTransferButtonsState() {
     }
     if (m_btnAdvancedFromDir) {
         m_btnAdvancedFromDir->setEnabled(actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty());
+    }
+    if (m_btnAdvancedToDir) {
+        m_btnAdvancedToDir->setEnabled(actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty());
     }
 }
 
@@ -3658,6 +3678,169 @@ void MainWindow::actionAdvancedCreateFromDir() {
                          ctx,
                          cmd,
                          90000);
+}
+
+void MainWindow::actionAdvancedToDir() {
+    if (actionsLocked()) {
+        return;
+    }
+    const auto selected = m_advTree ? m_advTree->selectedItems() : QList<QTreeWidgetItem*>{};
+    if (selected.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("ZFSMgr"),
+                                 tr3(QStringLiteral("Seleccione un dataset en Avanzado."),
+                                     QStringLiteral("Select a dataset in Advanced."),
+                                     QStringLiteral("请在高级页选择一个数据集。")));
+        return;
+    }
+    const QString ds = selected.first()->data(0, Qt::UserRole).toString().trimmed();
+    const QString snap = selected.first()->data(1, Qt::UserRole).toString().trimmed();
+    if (ds.isEmpty() || !snap.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("ZFSMgr"),
+                                 tr3(QStringLiteral("Debe seleccionar un dataset (no snapshot)."),
+                                     QStringLiteral("You must select a dataset (not a snapshot)."),
+                                     QStringLiteral("必须选择数据集（不能是快照）。")));
+        return;
+    }
+
+    const QString token = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
+    const int sep = token.indexOf(QStringLiteral("::"));
+    if (sep <= 0) {
+        return;
+    }
+    DatasetSelectionContext ctx;
+    ctx.valid = true;
+    ctx.connIdx = token.left(sep).toInt();
+    ctx.poolName = token.mid(sep + 2);
+    ctx.datasetName = ds;
+    ctx.snapshotName.clear();
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr3(QStringLiteral("Exportar dataset a directorio"),
+                           QStringLiteral("Export dataset to directory"),
+                           QStringLiteral("导出数据集到目录")));
+    dlg.setModal(true);
+    dlg.resize(720, 180);
+
+    QVBoxLayout* root = new QVBoxLayout(&dlg);
+    root->setContentsMargins(10, 10, 10, 10);
+    root->setSpacing(8);
+
+    QLabel* intro = new QLabel(
+        tr3(QStringLiteral("Se copiará el contenido de %1 a un directorio local y luego se destruirá el dataset.")
+                .arg(ds),
+            QStringLiteral("Contents of %1 will be copied to a local directory and dataset will then be destroyed.")
+                .arg(ds),
+            QStringLiteral("将把 %1 的内容复制到本地目录，随后销毁该数据集。")
+                .arg(ds)),
+        &dlg);
+    intro->setWordWrap(true);
+    root->addWidget(intro);
+
+    QHBoxLayout* dirRow = new QHBoxLayout();
+    QLabel* dirLabel = new QLabel(tr3(QStringLiteral("Directorio local"),
+                                      QStringLiteral("Local directory"),
+                                      QStringLiteral("本地目录")),
+                                  &dlg);
+    QLineEdit* dirEdit = new QLineEdit(&dlg);
+    QPushButton* browseBtn = new QPushButton(
+        tr3(QStringLiteral("Seleccionar..."), QStringLiteral("Select..."), QStringLiteral("选择...")),
+        &dlg);
+    dirRow->addWidget(dirLabel, 0);
+    dirRow->addWidget(dirEdit, 1);
+    dirRow->addWidget(browseBtn, 0);
+    root->addLayout(dirRow);
+
+    QObject::connect(browseBtn, &QPushButton::clicked, &dlg, [&]() {
+        const QString picked = QFileDialog::getExistingDirectory(
+            &dlg,
+            tr3(QStringLiteral("Seleccionar directorio local"),
+                QStringLiteral("Select local directory"),
+                QStringLiteral("选择本地目录")),
+            dirEdit->text().trimmed());
+        if (!picked.trimmed().isEmpty()) {
+            dirEdit->setText(picked);
+        }
+    });
+
+    QDialogButtonBox* buttons = new QDialogButtonBox(&dlg);
+    QPushButton* cancelBtn = buttons->addButton(tr3(QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), QDialogButtonBox::RejectRole);
+    QPushButton* acceptBtn = buttons->addButton(tr3(QStringLiteral("Aceptar"), QStringLiteral("Accept"), QStringLiteral("确认")), QDialogButtonBox::AcceptRole);
+    root->addWidget(buttons);
+    QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
+    QObject::connect(acceptBtn, &QPushButton::clicked, &dlg, [&]() {
+        if (dirEdit->text().trimmed().isEmpty()) {
+            QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
+                                 tr3(QStringLiteral("Debe seleccionar un directorio local."),
+                                     QStringLiteral("You must select a local directory."),
+                                     QStringLiteral("必须选择本地目录。")));
+            return;
+        }
+        dlg.accept();
+    });
+
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+    const QString localDir = dirEdit->text().trimmed();
+
+    const QString cmd = QStringLiteral(
+                            "set -e; "
+                            "DATASET=%1; "
+                            "DST_DIR=%2; "
+                            "TMP_MP=$(mktemp -d /tmp/zfsmgr-todir-mp-XXXXXX); "
+                            "TMP_OUT=$(mktemp -d /tmp/zfsmgr-todir-out-XXXXXX); "
+                            "BACKUP_DIR=''; RESTORE_NEEDED=0; "
+                            "OLD_MP=$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true); "
+                            "OLD_MOUNTED=$(zfs get -H -o value mounted \"$DATASET\" 2>/dev/null || true); "
+                            "cleanup(){ "
+                            "  rc=$?; "
+                            "  if [ $rc -ne 0 ]; then "
+                            "    if [ \"$RESTORE_NEEDED\" = \"1\" ] && [ -n \"$BACKUP_DIR\" ] && [ -d \"$BACKUP_DIR\" ]; then "
+                            "      rm -rf \"$DST_DIR\" >/dev/null 2>&1 || true; "
+                            "      mv \"$BACKUP_DIR\" \"$DST_DIR\" >/dev/null 2>&1 || true; "
+                            "    fi; "
+                            "    if zfs list -H -o name \"$DATASET\" >/dev/null 2>&1; then "
+                            "      zfs set mountpoint=\"$OLD_MP\" \"$DATASET\" >/dev/null 2>&1 || true; "
+                            "      if [ \"$OLD_MOUNTED\" = \"yes\" ] || [ \"$OLD_MOUNTED\" = \"on\" ]; then zfs mount \"$DATASET\" >/dev/null 2>&1 || true; fi; "
+                            "    fi; "
+                            "  fi; "
+                            "  rm -rf \"$TMP_MP\" >/dev/null 2>&1 || true; "
+                            "  rm -rf \"$TMP_OUT\" >/dev/null 2>&1 || true; "
+                            "  exit $rc; "
+                            "}; "
+                            "trap cleanup EXIT INT TERM; "
+                            "if zfs mount 2>/dev/null | awk '{print $2}' | grep -Fx \"$DST_DIR\" >/dev/null 2>&1; then "
+                            "  echo 'destination directory is already a zfs mountpoint'; exit 2; "
+                            "fi; "
+                            "zfs set canmount=on \"$DATASET\" >/dev/null 2>&1 || true; "
+                            "zfs set mountpoint=\"$TMP_MP\" \"$DATASET\"; "
+                            "zfs mount \"$DATASET\" >/dev/null 2>&1 || true; "
+                            "ACTIVE_MP=$(zfs mount 2>/dev/null | awk -v d=\"$DATASET\" '$1==d{print $2;exit}'); "
+                            "[ \"$ACTIVE_MP\" = \"$TMP_MP\" ] || { echo 'could not mount dataset on temporary mountpoint'; exit 3; }; "
+                            "rsync -aHAWXS \"$TMP_MP\"/ \"$TMP_OUT\"/; "
+                            "if [ -e \"$DST_DIR\" ]; then "
+                            "  BACKUP_DIR=\"$DST_DIR.zfsmgr-bak-$$\"; "
+                            "  i=0; while [ -e \"$BACKUP_DIR\" ]; do i=$((i+1)); BACKUP_DIR=\"$DST_DIR.zfsmgr-bak-$$-$i\"; done; "
+                            "  mv \"$DST_DIR\" \"$BACKUP_DIR\"; "
+                            "  RESTORE_NEEDED=1; "
+                            "else "
+                            "  mkdir -p \"$(dirname \"$DST_DIR\")\"; "
+                            "fi; "
+                            "mv \"$TMP_OUT\" \"$DST_DIR\"; "
+                            "zfs umount \"$DATASET\" >/dev/null 2>&1 || true; "
+                            "zfs destroy -r \"$DATASET\"; "
+                            "if [ -n \"$BACKUP_DIR\" ]; then rm -rf \"$BACKUP_DIR\"; fi; "
+                            "RESTORE_NEEDED=0; "
+                            "trap - EXIT INT TERM; "
+                            "rm -rf \"$TMP_MP\" >/dev/null 2>&1 || true")
+                            .arg(shSingleQuote(ds),
+                                 shSingleQuote(localDir));
+
+    executeDatasetAction(QStringLiteral("advanced"),
+                         tr3(QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")),
+                         ctx,
+                         cmd,
+                         0);
 }
 
 void MainWindow::onDatasetPropsCellChanged(int row, int col) {
@@ -5622,6 +5805,7 @@ void MainWindow::setActionsLocked(bool locked) {
         if (m_btnAdvancedBreakdown) m_btnAdvancedBreakdown->setEnabled(false);
         if (m_btnAdvancedAssemble) m_btnAdvancedAssemble->setEnabled(false);
         if (m_btnAdvancedFromDir) m_btnAdvancedFromDir->setEnabled(false);
+        if (m_btnAdvancedToDir) m_btnAdvancedToDir->setEnabled(false);
     } else {
         updateTransferButtonsState();
         updateApplyPropsButtonState();

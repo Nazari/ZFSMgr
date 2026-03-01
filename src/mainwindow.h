@@ -125,6 +125,7 @@ private:
     void actionAdvancedBreakdown();
     void actionAdvancedAssemble();
     void actionAdvancedCreateFromDir();
+    void actionAdvancedToDir();
     void actionMountDataset(const QString& side);
     void actionMountDatasetWithChildren(const QString& side);
     void actionUmountDataset(const QString& side);
@@ -214,6 +215,7 @@ private:
     QPushButton* m_btnAdvancedBreakdown{nullptr};
     QPushButton* m_btnAdvancedAssemble{nullptr};
     QPushButton* m_btnAdvancedFromDir{nullptr};
+    QPushButton* m_btnAdvancedToDir{nullptr};
     QLabel* m_originSelectionLabel{nullptr};
     QLabel* m_destSelectionLabel{nullptr};
     QTableWidget* m_mountedDatasetsTableLeft{nullptr};
