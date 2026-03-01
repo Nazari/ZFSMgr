@@ -97,6 +97,26 @@ QString parseOpenZfsVersionText(const QString& text) {
     return QString();
 }
 
+QString normalizeDriveLetterValue(const QString& raw) {
+    QString s = raw.trimmed();
+    if (s.isEmpty() || s == QStringLiteral("-") || s.compare(QStringLiteral("none"), Qt::CaseInsensitive) == 0) {
+        return QString();
+    }
+    s.replace(QStringLiteral(":\\"), QString());
+    s.replace(':', QString());
+    s.replace('\\', QString());
+    s.replace('/', QString());
+    s = s.trimmed().toUpper();
+    if (s.isEmpty()) {
+        return QString();
+    }
+    const QChar d = s[0];
+    if (!d.isLetter()) {
+        return QString();
+    }
+    return QString(d);
+}
+
 bool isUserProperty(const QString& prop) {
     return prop.contains(':');
 }
@@ -2216,37 +2236,46 @@ QString MainWindow::effectiveMountPath(int connIdx,
         return mountpointHint.trimmed();
     }
 
-    QString drive;
-    if (!getDatasetProperty(connIdx, poolName, QStringLiteral("driveletter"), drive)) {
+    if (!ensureDatasetsLoaded(connIdx, poolName)) {
         return mountpointHint.trimmed();
     }
-    drive = drive.trimmed();
-    if (drive.isEmpty() || drive == QStringLiteral("-") || drive == QStringLiteral("none")) {
+    const QString key = datasetCacheKey(connIdx, poolName);
+    const auto cacheIt = m_poolDatasetCache.constFind(key);
+    if (cacheIt == m_poolDatasetCache.constEnd()) {
         return mountpointHint.trimmed();
     }
-    drive.replace(QStringLiteral(":\\"), QString());
-    drive.replace(':', QString());
-    drive.replace('\\', QString());
-    drive.replace('/', QString());
-    drive = drive.trimmed().toUpper();
-    if (drive.isEmpty()) {
-        return mountpointHint.trimmed();
-    }
-    const QChar d = drive[0];
-    if (!d.isLetter()) {
-        return mountpointHint.trimmed();
-    }
+    const PoolDatasetCache& cache = cacheIt.value();
 
-    QString base = QStringLiteral("%1:\\").arg(QString(d));
-    if (datasetName == poolName) {
+    QString anchor = datasetName;
+    QString drive;
+    while (!anchor.isEmpty()) {
+        drive = normalizeDriveLetterValue(cache.driveletterByDataset.value(anchor));
+        if (!drive.isEmpty()) {
+            break;
+        }
+        if (anchor == poolName) {
+            break;
+        }
+        const int slash = anchor.lastIndexOf('/');
+        if (slash <= 0) {
+            anchor.clear();
+            break;
+        }
+        anchor = anchor.left(slash);
+    }
+    if (drive.isEmpty()) {
+        return QString();
+    }
+    QString base = QStringLiteral("%1:\\").arg(drive);
+    if (datasetName == anchor) {
         return base;
     }
-    QString rel = datasetName.mid(poolName.size() + 1).trimmed();
-    if (rel.isEmpty()) {
-        return base;
+    QString rel = datasetName.mid(anchor.size());
+    if (rel.startsWith('/')) {
+        rel.remove(0, 1);
     }
     rel.replace('/', '\\');
-    return base + rel;
+    return rel.isEmpty() ? base : (base + rel);
 }
 
 QString MainWindow::datasetCacheKey(int connIdx, const QString& poolName) const {
@@ -2322,6 +2351,41 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName) {
             sortedSnaps.push_back(row.second);
         }
         cache.snapshotsByDataset.insert(it.key(), sortedSnaps);
+    }
+    cache.driveletterByDataset.clear();
+    if (isWindowsConnection(connIdx)) {
+        QString dOut;
+        QString dErr;
+        int dRc = -1;
+        const QString dCmd = withSudo(
+            p,
+            QStringLiteral("zfs get -H -o name,value driveletter -r %1").arg(shSingleQuote(poolName)));
+        if (runSsh(p, dCmd, 20000, dOut, dErr, dRc) && dRc == 0) {
+            QMap<QString, QStringList> byDrive;
+            const QStringList dLines = dOut.split('\n', Qt::SkipEmptyParts);
+            for (const QString& ln : dLines) {
+                const QStringList f = ln.split('\t');
+                if (f.size() < 2) {
+                    continue;
+                }
+                const QString ds = f[0].trimmed();
+                const QString drive = normalizeDriveLetterValue(f[1]);
+                cache.driveletterByDataset[ds] = drive;
+                if (!drive.isEmpty()) {
+                    byDrive[drive].push_back(ds);
+                }
+            }
+            for (auto it = byDrive.constBegin(); it != byDrive.constEnd(); ++it) {
+                if (it.value().size() > 1) {
+                    appLog(QStringLiteral("WARN"),
+                           QStringLiteral("%1::%2 driveletter duplicado %3 en datasets: %4")
+                               .arg(p.name, poolName, it.key(), it.value().join(QStringLiteral(", "))));
+                }
+            }
+        } else if (!dErr.trimmed().isEmpty()) {
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("%1: no se pudieron cargar driveletters -> %2").arg(p.name, oneLine(dErr)));
+        }
     }
     cache.loaded = true;
     appLog(QStringLiteral("DEBUG"), QStringLiteral("Datasets loaded %1::%2 (%3)")

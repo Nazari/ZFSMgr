@@ -67,6 +67,7 @@ private:
         QVector<DatasetRecord> datasets;
         QMap<QString, QStringList> snapshotsByDataset;
         QMap<QString, DatasetRecord> recordByName;
+        QMap<QString, QString> driveletterByDataset;
     };
 
     struct DatasetSelectionContext {
