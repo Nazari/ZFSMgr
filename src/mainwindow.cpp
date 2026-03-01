@@ -3124,8 +3124,8 @@ void MainWindow::actionCopySnapshot() {
     const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
     const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
 
-    QString sendCmd = withSudo(sp, QStringLiteral("zfs send -wLec %1").arg(shSingleQuote(srcSnap)));
-    QString recvCmd = withSudo(dp, QStringLiteral("zfs recv -F %1").arg(shSingleQuote(recvTarget)));
+    QString sendCmd = withSudo(sp, QStringLiteral("zfs send -wLecR %1").arg(shSingleQuote(srcSnap)));
+    QString recvCmd = withSudo(dp, QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget)));
 
     const QString pipeline =
         srcSsh + QStringLiteral(" ") + shSingleQuote(sendCmd)
