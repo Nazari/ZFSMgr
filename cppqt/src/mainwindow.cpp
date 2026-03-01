@@ -54,6 +54,8 @@
 #include <QSignalBlocker>
 #include <QScrollArea>
 #include <QSettings>
+#include <QPainter>
+#include <QPolygon>
 #include <functional>
 
 #include <QtConcurrent/QtConcurrent>
@@ -257,6 +259,24 @@ QString formatCommandPreview(const QString& input) {
         return header + QStringLiteral("\n  ") + pretty;
     }
     return pretty;
+}
+
+QIcon branchArrowIcon(bool expanded) {
+    QPixmap pm(10, 10);
+    pm.fill(Qt::transparent);
+    QPainter painter(&pm);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(QStringLiteral("#0b2f4f")));
+    QPolygon poly;
+    if (expanded) {
+        poly << QPoint(2, 3) << QPoint(8, 3) << QPoint(5, 7);
+    } else {
+        poly << QPoint(3, 2) << QPoint(3, 8) << QPoint(7, 5);
+    }
+    painter.drawPolygon(poly);
+    painter.end();
+    return QIcon(pm);
 }
 
 } // namespace
@@ -1140,12 +1160,12 @@ void MainWindow::buildUi() {
     });
     connect(m_originTree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
         if (item && item->childCount() > 0) {
-            item->setIcon(0, style()->standardIcon(QStyle::SP_ArrowDown));
+            item->setIcon(0, branchArrowIcon(true));
         }
     });
     connect(m_originTree, &QTreeWidget::itemCollapsed, this, [this](QTreeWidgetItem* item) {
         if (item && item->childCount() > 0) {
-            item->setIcon(0, style()->standardIcon(QStyle::SP_ArrowRight));
+            item->setIcon(0, branchArrowIcon(false));
         }
     });
     connect(m_destTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
@@ -1153,12 +1173,12 @@ void MainWindow::buildUi() {
     });
     connect(m_destTree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
         if (item && item->childCount() > 0) {
-            item->setIcon(0, style()->standardIcon(QStyle::SP_ArrowDown));
+            item->setIcon(0, branchArrowIcon(true));
         }
     });
     connect(m_destTree, &QTreeWidget::itemCollapsed, this, [this](QTreeWidgetItem* item) {
         if (item && item->childCount() > 0) {
-            item->setIcon(0, style()->standardIcon(QStyle::SP_ArrowRight));
+            item->setIcon(0, branchArrowIcon(false));
         }
     });
     connect(m_advTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
@@ -1166,12 +1186,12 @@ void MainWindow::buildUi() {
     });
     connect(m_advTree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
         if (item && item->childCount() > 0) {
-            item->setIcon(0, style()->standardIcon(QStyle::SP_ArrowDown));
+            item->setIcon(0, branchArrowIcon(true));
         }
     });
     connect(m_advTree, &QTreeWidget::itemCollapsed, this, [this](QTreeWidgetItem* item) {
         if (item && item->childCount() > 0) {
-            item->setIcon(0, style()->standardIcon(QStyle::SP_ArrowRight));
+            item->setIcon(0, branchArrowIcon(false));
         }
     });
     connect(m_datasetPropsTable, &QTableWidget::cellChanged, this, [this](int row, int col) {
@@ -1938,7 +1958,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
             return;
         }
         if (n->childCount() > 0) {
-            n->setIcon(0, style()->standardIcon(n->isExpanded() ? QStyle::SP_ArrowDown : QStyle::SP_ArrowRight));
+            n->setIcon(0, branchArrowIcon(n->isExpanded()));
         } else {
             n->setIcon(0, QIcon());
         }
