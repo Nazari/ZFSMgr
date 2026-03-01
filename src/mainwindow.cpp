@@ -2142,7 +2142,8 @@ bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, in
         appendConnectionLog(p.id, err);
         return false;
     }
-    if (!proc.waitForFinished(timeoutMs)) {
+    const bool finished = (timeoutMs <= 0) ? proc.waitForFinished(-1) : proc.waitForFinished(timeoutMs);
+    if (!finished) {
         proc.kill();
         proc.waitForFinished(1000);
         err = QStringLiteral("Timeout");
