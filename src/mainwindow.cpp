@@ -2674,9 +2674,6 @@ void MainWindow::updateTransferButtonsState() {
             advDatasetOnly = allMounted;
         }
     }
-    if (advOnWindows) {
-        advDatasetOnly = false;
-    }
     if (m_btnAdvancedBreakdown) {
         m_btnAdvancedBreakdown->setEnabled(advDatasetOnly);
     }
@@ -3142,44 +3139,78 @@ void MainWindow::actionAdvancedBreakdown() {
         return;
     }
 
+    QStringList dirs;
+    QString resolvedMp;
     QString listOut;
     QString listErr;
     int listRc = -1;
-    const QString listCmd = withSudo(
-        p,
-        QStringLiteral("set -e; DATASET=%1; "
-                       "resolve_mp(){ ds=\"$1\"; mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
-                       "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$ds\" '$1==d{print $2; exit}');; esac; "
-                       "printf '%s' \"$mp\"; }; "
-                       "MP=$(resolve_mp \"$DATASET\"); "
-                       "[ -n \"$MP\" ] || exit 0; "
-                       "[ -d \"$MP\" ] || exit 0; "
-                       "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); [ -n \"$bn\" ] && printf '%s\\n' \"$bn\"; done | sort -u")
-            .arg(shSingleQuote(ds)));
-    if (!runSsh(p, listCmd, 25000, listOut, listErr, listRc) || listRc != 0) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             tr3(QStringLiteral("No se pudieron listar directorios para desglosar."),
-                                 QStringLiteral("Could not list directories for breakdown."),
-                                 QStringLiteral("无法列出可拆分目录。")));
-        return;
+    if (isWindowsConnection(p)) {
+        QString dsPs = ds;
+        dsPs.replace('\'', QStringLiteral("''"));
+        const QString listCmd = QStringLiteral(
+                                    "$ds='%1'; "
+                                    "$mp=(zfs get -H -o value mountpoint $ds 2>$null | Out-String).Trim(); "
+                                    "if ([string]::IsNullOrWhiteSpace($mp) -or $mp -eq 'none' -or $mp -eq 'legacy' -or $mp -eq '-') { "
+                                    "  $lines=@(zfs mount 2>$null); "
+                                    "  foreach ($ln in $lines) { $parts=$ln -split '\\\\s+',2; if ($parts.Count -ge 2 -and $parts[0] -eq $ds) { $mp=$parts[1]; break } } "
+                                    "}; "
+                                    "if (-not [string]::IsNullOrWhiteSpace($mp)) { Write-Output ('__MP__=' + $mp) }; "
+                                    "if ([string]::IsNullOrWhiteSpace($mp) -or -not (Test-Path -LiteralPath $mp)) { exit 0 }; "
+                                    "Get-ChildItem -LiteralPath $mp -Directory -Force | Select-Object -ExpandProperty Name | Sort-Object -Unique")
+                                    .arg(dsPs);
+        if (!runSsh(p, withSudo(p, listCmd), 25000, listOut, listErr, listRc) || listRc != 0) {
+            QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                                 tr3(QStringLiteral("No se pudieron listar directorios para desglosar."),
+                                     QStringLiteral("Could not list directories for breakdown."),
+                                     QStringLiteral("无法列出可拆分目录。")));
+            return;
+        }
+        const QStringList lines = listOut.split('\n', Qt::SkipEmptyParts);
+        for (const QString& raw : lines) {
+            const QString ln = raw.trimmed();
+            if (ln.startsWith(QStringLiteral("__MP__="))) {
+                resolvedMp = ln.mid(QStringLiteral("__MP__=").size()).trimmed();
+            } else if (!ln.isEmpty()) {
+                dirs << ln;
+            }
+        }
+    } else {
+        const QString listCmd = withSudo(
+            p,
+            QStringLiteral("set -e; DATASET=%1; "
+                           "resolve_mp(){ ds=\"$1\"; mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
+                           "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$ds\" '$1==d{print $2; exit}');; esac; "
+                           "printf '%s' \"$mp\"; }; "
+                           "MP=$(resolve_mp \"$DATASET\"); "
+                           "[ -n \"$MP\" ] || exit 0; "
+                           "[ -d \"$MP\" ] || exit 0; "
+                           "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); [ -n \"$bn\" ] && printf '%s\\n' \"$bn\"; done | sort -u")
+                .arg(shSingleQuote(ds)));
+        if (!runSsh(p, listCmd, 25000, listOut, listErr, listRc) || listRc != 0) {
+            QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                                 tr3(QStringLiteral("No se pudieron listar directorios para desglosar."),
+                                     QStringLiteral("Could not list directories for breakdown."),
+                                     QStringLiteral("无法列出可拆分目录。")));
+            return;
+        }
+        dirs = listOut.split('\n', Qt::SkipEmptyParts);
+        for (QString& d : dirs) {
+            d = d.trimmed();
+        }
+        dirs.removeAll(QString());
+        QString mpOut;
+        QString mpErr;
+        int mpRc = -1;
+        const QString mpCmd = withSudo(
+            p,
+            QStringLiteral("DATASET=%1; "
+                           "mp=$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true); "
+                           "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$DATASET\" '$1==d{print $2; exit}');; esac; "
+                           "printf '%s' \"$mp\"")
+                .arg(shSingleQuote(ds)));
+        runSsh(p, mpCmd, 20000, mpOut, mpErr, mpRc);
+        resolvedMp = mpOut.trimmed();
     }
-    QStringList dirs = listOut.split('\n', Qt::SkipEmptyParts);
-    for (QString& d : dirs) {
-        d = d.trimmed();
-    }
-    dirs.removeAll(QString());
-    QString mpOut;
-    QString mpErr;
-    int mpRc = -1;
-    const QString mpCmd = withSudo(
-        p,
-        QStringLiteral("DATASET=%1; "
-                       "mp=$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true); "
-                       "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$DATASET\" '$1==d{print $2; exit}');; esac; "
-                       "printf '%s' \"$mp\"")
-            .arg(shSingleQuote(ds)));
-    runSsh(p, mpCmd, 20000, mpOut, mpErr, mpRc);
-    const QString resolvedMp = mpOut.trimmed();
 
     QString dsListOut;
     QString dsListErr;
@@ -3213,20 +3244,22 @@ void MainWindow::actionAdvancedBreakdown() {
                                   [&](const QString& d) { return childDatasetNames.contains(d); }),
                    dirs.end());
     }
-    QString mountedDescOut;
-    QString mountedDescErr;
-    int mountedDescRc = -1;
     QStringList mountedDescMountpoints;
-    const QString mountedDescCmd = withSudo(
-        p,
-        QStringLiteral("DATASET=%1; zfs mount | awk -v pfx=\"$DATASET/\" 'index($1,pfx)==1 {print $2}'")
-            .arg(shSingleQuote(ds)));
-    if (runSsh(p, mountedDescCmd, 25000, mountedDescOut, mountedDescErr, mountedDescRc) && mountedDescRc == 0) {
-        mountedDescMountpoints = mountedDescOut.split('\n', Qt::SkipEmptyParts);
-        for (QString& mp : mountedDescMountpoints) {
-            mp = mp.trimmed();
+    if (!isWindowsConnection(p)) {
+        QString mountedDescOut;
+        QString mountedDescErr;
+        int mountedDescRc = -1;
+        const QString mountedDescCmd = withSudo(
+            p,
+            QStringLiteral("DATASET=%1; zfs mount | awk -v pfx=\"$DATASET/\" 'index($1,pfx)==1 {print $2}'")
+                .arg(shSingleQuote(ds)));
+        if (runSsh(p, mountedDescCmd, 25000, mountedDescOut, mountedDescErr, mountedDescRc) && mountedDescRc == 0) {
+            mountedDescMountpoints = mountedDescOut.split('\n', Qt::SkipEmptyParts);
+            for (QString& mp : mountedDescMountpoints) {
+                mp = mp.trimmed();
+            }
+            mountedDescMountpoints.removeAll(QString());
         }
-        mountedDescMountpoints.removeAll(QString());
     }
     if (!resolvedMp.isEmpty() && !mountedDescMountpoints.isEmpty()) {
         QString baseMp = resolvedMp;
@@ -3292,26 +3325,62 @@ void MainWindow::actionAdvancedBreakdown() {
         return;
     }
 
-    QStringList selectedQuoted;
-    selectedQuoted.reserve(selectedDirs.size());
-    for (const QString& d : selectedDirs) {
-        selectedQuoted << shSingleQuote(d);
+    QString cmd;
+    bool allowWindowsScript = false;
+    if (isWindowsConnection(p)) {
+        QStringList selectedPs;
+        selectedPs.reserve(selectedDirs.size());
+        for (QString d : selectedDirs) {
+            d.replace('\'', QStringLiteral("''"));
+            selectedPs << QStringLiteral("'%1'").arg(d);
+        }
+        QString dsPs = ds;
+        dsPs.replace('\'', QStringLiteral("''"));
+        cmd = QStringLiteral(
+                  "$ds='%1'; "
+                  "$selected=@(%2); "
+                  "function Resolve-Mp([string]$name){ "
+                  "  $m=(zfs get -H -o value mountpoint $name 2>$null | Out-String).Trim(); "
+                  "  if ([string]::IsNullOrWhiteSpace($m) -or $m -eq 'none' -or $m -eq 'legacy' -or $m -eq '-') { "
+                  "    $lines=@(zfs mount 2>$null); foreach($ln in $lines){ $parts=$ln -split '\\\\s+',2; if($parts.Count -ge 2 -and $parts[0] -eq $name){ $m=$parts[1]; break } } "
+                  "  }; return $m "
+                  "}; "
+                  "$mp=Resolve-Mp $ds; "
+                  "if ([string]::IsNullOrWhiteSpace($mp) -or -not (Test-Path -LiteralPath $mp)) { throw 'mountpoint=none' }; "
+                  "foreach($bn in $selected){ "
+                  "  $src=Join-Path $mp $bn; if (-not (Test-Path -LiteralPath $src -PathType Container)) { continue }; "
+                  "  $child=\"$ds/$bn\"; "
+                  "  zfs list -H -o name $child 2>$null | Out-Null; if ($LASTEXITCODE -ne 0) { zfs create $child | Out-Null; if($LASTEXITCODE -ne 0){ throw \"zfs create failed for $child\" } }; "
+                  "  zfs mount $child 2>$null | Out-Null; "
+                  "  $cmp=Resolve-Mp $child; if ([string]::IsNullOrWhiteSpace($cmp)) { throw \"cannot resolve mountpoint for $child\" }; "
+                  "  if (-not (Test-Path -LiteralPath $cmp)) { New-Item -ItemType Directory -Force -Path $cmp | Out-Null }; "
+                  "  robocopy $src $cmp /E /MOVE /COPYALL /R:1 /W:1 /NFL /NDL /NP | Out-Null; "
+                  "  $r=$LASTEXITCODE; if ($r -ge 8) { throw \"robocopy failed ($r) for $bn\" }; "
+                  "  Remove-Item -LiteralPath $src -Recurse -Force -ErrorAction SilentlyContinue; "
+                  "}")
+                  .arg(dsPs, selectedPs.join(QStringLiteral(",")));
+        allowWindowsScript = true;
+    } else {
+        QStringList selectedQuoted;
+        selectedQuoted.reserve(selectedDirs.size());
+        for (const QString& d : selectedDirs) {
+            selectedQuoted << shSingleQuote(d);
+        }
+        const QString selectedList = selectedQuoted.join(' ');
+        cmd =
+            QStringLiteral("set -e; DATASET=%1; "
+                           "resolve_mp(){ ds=\"$1\"; mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
+                           "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$ds\" '$1==d{print $2; exit}');; esac; "
+                           "printf '%s' \"$mp\"; }; "
+                           "MP=$(resolve_mp \"$DATASET\"); "
+                           "[ -n \"$MP\" ] || { echo \"mountpoint=none\"; exit 2; }; "
+                           "SELECTED_DIRS=(%2); is_selected_dir(){ for s in \"${SELECTED_DIRS[@]}\"; do [ \"$s\" = \"$1\" ] && return 0; done; return 1; }; "
+                           "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); is_selected_dir \"$bn\" || continue; "
+                           "zfs list -H -o name \"$DATASET/$bn\" >/dev/null 2>&1 || "
+                           "{ zfs create \"$DATASET/$bn\"; rsync -aHAWXS --remove-source-files \"$d\"/ \"$MP/$bn\"/; }; done")
+                .arg(shSingleQuote(ds), selectedList);
     }
-    const QString selectedList = selectedQuoted.join(' ');
-
-    const QString cmd =
-        QStringLiteral("set -e; DATASET=%1; "
-                       "resolve_mp(){ ds=\"$1\"; mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
-                       "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$ds\" '$1==d{print $2; exit}');; esac; "
-                       "printf '%s' \"$mp\"; }; "
-                       "MP=$(resolve_mp \"$DATASET\"); "
-                       "[ -n \"$MP\" ] || { echo \"mountpoint=none\"; exit 2; }; "
-                       "SELECTED_DIRS=(%2); is_selected_dir(){ for s in \"${SELECTED_DIRS[@]}\"; do [ \"$s\" = \"$1\" ] && return 0; done; return 1; }; "
-                       "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); is_selected_dir \"$bn\" || continue; "
-                       "zfs list -H -o name \"$DATASET/$bn\" >/dev/null 2>&1 || "
-                       "{ zfs create \"$DATASET/$bn\"; rsync -aHAWXS --remove-source-files \"$d\"/ \"$MP/$bn\"/; }; done")
-            .arg(shSingleQuote(ds), selectedList);
-    if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Desglosar"), ctx, cmd, 0)) {
+    if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Desglosar"), ctx, cmd, 0, allowWindowsScript)) {
         m_advSelectionLabel->setText(ds);
     }
 }
@@ -3387,7 +3456,7 @@ void MainWindow::actionAdvancedAssemble() {
     int listRc = -1;
     const QString listCmd = withSudo(
         p,
-        QStringLiteral("zfs list -H -o name -r %1 | tail -n +2")
+        QStringLiteral("zfs list -H -o name -r %1")
             .arg(shSingleQuote(ds)));
     if (!runSsh(p, listCmd, 25000, listOut, listErr, listRc) || listRc != 0) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
@@ -3401,6 +3470,7 @@ void MainWindow::actionAdvancedAssemble() {
         c = c.trimmed();
     }
     children.removeAll(QString());
+    children.erase(std::remove(children.begin(), children.end(), ds), children.end());
     if (children.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  tr3(QStringLiteral("No hay subdatasets para ensamblar."),
@@ -3421,26 +3491,59 @@ void MainWindow::actionAdvancedAssemble() {
         appLog(QStringLiteral("INFO"), QStringLiteral("Ensamblar cancelado o sin selección."));
         return;
     }
-    QStringList selectedQuoted;
-    selectedQuoted.reserve(selectedChildren.size());
-    for (const QString& c : selectedChildren) {
-        selectedQuoted << shSingleQuote(c);
+    QString cmd;
+    bool allowWindowsScript = false;
+    if (isWindowsConnection(p)) {
+        QStringList selectedPs;
+        selectedPs.reserve(selectedChildren.size());
+        for (QString c : selectedChildren) {
+            c.replace('\'', QStringLiteral("''"));
+            selectedPs << QStringLiteral("'%1'").arg(c);
+        }
+        QString dsPs = ds;
+        dsPs.replace('\'', QStringLiteral("''"));
+        cmd = QStringLiteral(
+                  "$parent='%1'; "
+                  "$selected=@(%2); "
+                  "function Resolve-Mp([string]$name){ "
+                  "  $m=(zfs get -H -o value mountpoint $name 2>$null | Out-String).Trim(); "
+                  "  if ([string]::IsNullOrWhiteSpace($m) -or $m -eq 'none' -or $m -eq 'legacy' -or $m -eq '-') { "
+                  "    $lines=@(zfs mount 2>$null); foreach($ln in $lines){ $parts=$ln -split '\\\\s+',2; if($parts.Count -ge 2 -and $parts[0] -eq $name){ $m=$parts[1]; break } } "
+                  "  }; return $m "
+                  "}; "
+                  "$pmp=Resolve-Mp $parent; "
+                  "if ([string]::IsNullOrWhiteSpace($pmp) -or -not (Test-Path -LiteralPath $pmp)) { throw 'mountpoint=none' }; "
+                  "foreach($child in $selected){ "
+                  "  $bn=($child -split '/')[($child -split '/').Count-1]; "
+                  "  $cmp=Resolve-Mp $child; if ([string]::IsNullOrWhiteSpace($cmp) -or -not (Test-Path -LiteralPath $cmp)) { continue }; "
+                  "  $dst=Join-Path $pmp $bn; if (-not (Test-Path -LiteralPath $dst)) { New-Item -ItemType Directory -Force -Path $dst | Out-Null }; "
+                  "  robocopy $cmp $dst /E /COPYALL /R:1 /W:1 /NFL /NDL /NP | Out-Null; "
+                  "  $r=$LASTEXITCODE; if ($r -ge 8) { throw \"robocopy failed ($r) for $child\" }; "
+                  "  zfs destroy -r $child | Out-Null; if ($LASTEXITCODE -ne 0) { throw \"zfs destroy failed for $child\" }; "
+                  "}")
+                  .arg(dsPs, selectedPs.join(QStringLiteral(",")));
+        allowWindowsScript = true;
+    } else {
+        QStringList selectedQuoted;
+        selectedQuoted.reserve(selectedChildren.size());
+        for (const QString& c : selectedChildren) {
+            selectedQuoted << shSingleQuote(c);
+        }
+        const QString selectedList = selectedQuoted.join(' ');
+        cmd =
+            QStringLiteral("set -e; DATASET=%1; "
+                           "resolve_mp(){ ds=\"$1\"; mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
+                           "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$ds\" '$1==d{print $2; exit}');; esac; "
+                           "printf '%s' \"$mp\"; }; "
+                           "MP=$(resolve_mp \"$DATASET\"); "
+                           "[ -n \"$MP\" ] || { echo \"mountpoint=none\"; exit 2; }; "
+                           "SELECTED_CHILDREN=(%2); "
+                           "for child in \"${SELECTED_CHILDREN[@]}\"; do bn=${child##*/}; "
+                           "CMP=$(resolve_mp \"$child\"); [ -n \"$CMP\" ] || continue; "
+                           "mkdir -p \"$MP/$bn\"; rsync -aHAWXS \"$CMP\"/ \"$MP/$bn\"/ && zfs destroy -r \"$child\"; done")
+                .arg(shSingleQuote(ds), selectedList);
     }
-    const QString selectedList = selectedQuoted.join(' ');
-
-    const QString cmd =
-        QStringLiteral("set -e; DATASET=%1; "
-                       "resolve_mp(){ ds=\"$1\"; mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
-                       "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$ds\" '$1==d{print $2; exit}');; esac; "
-                       "printf '%s' \"$mp\"; }; "
-                       "MP=$(resolve_mp \"$DATASET\"); "
-                       "[ -n \"$MP\" ] || { echo \"mountpoint=none\"; exit 2; }; "
-                       "SELECTED_CHILDREN=(%2); "
-                       "for child in \"${SELECTED_CHILDREN[@]}\"; do bn=${child##*/}; "
-                       "CMP=$(resolve_mp \"$child\"); [ -n \"$CMP\" ] || continue; "
-                       "mkdir -p \"$MP/$bn\"; rsync -aHAWXS \"$CMP\"/ \"$MP/$bn\"/ && zfs destroy -r \"$child\"; done")
-            .arg(shSingleQuote(ds), selectedList);
-    if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Ensamblar"), ctx, cmd, 0)) {
+    if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Ensamblar"), ctx, cmd, 0, allowWindowsScript)) {
         m_advSelectionLabel->setText(ds);
     }
 }
