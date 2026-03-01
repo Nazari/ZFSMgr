@@ -843,13 +843,14 @@ void MainWindow::buildUi() {
     auto* importedTab = new QWidget(m_rightTabs);
     auto* importedLayout = new QVBoxLayout(importedTab);
     m_importedPoolsTable = new QTableWidget(importedTab);
-    m_importedPoolsTable->setColumnCount(4);
+    m_importedPoolsTable->setColumnCount(5);
     m_importedPoolsTable->setHorizontalHeaderLabels(
-        {QStringLiteral("Conexión"), QStringLiteral("Pool"), QStringLiteral("Estado"), QStringLiteral("Motivo")});
+        {QStringLiteral("Conexión"), QStringLiteral("Pool"), QStringLiteral("Estado"), QStringLiteral("Importado"), QStringLiteral("Motivo")});
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
+    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
     m_importedPoolsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_importedPoolsTable->setContextMenuPolicy(Qt::NoContextMenu);
     m_importedPoolsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -5865,7 +5866,8 @@ void MainWindow::populateAllPoolsTables() {
             state->setForeground(QBrush(QColor("#1f7a1f")));
             state->setData(Qt::UserRole + 1, QStringLiteral("Exportar"));
             m_importedPoolsTable->setItem(row, 2, state);
-            m_importedPoolsTable->setItem(row, 3, new QTableWidgetItem(QString()));
+            m_importedPoolsTable->setItem(row, 3, new QTableWidgetItem(QStringLiteral("Sí")));
+            m_importedPoolsTable->setItem(row, 4, new QTableWidgetItem(QString()));
         }
         for (const PoolImportable& pool : st.importablePools) {
             const int row = m_importedPoolsTable->rowCount();
@@ -5878,7 +5880,8 @@ void MainWindow::populateAllPoolsTables() {
             const QString action = (up == QStringLiteral("ONLINE")) ? pool.action : QString();
             state->setData(Qt::UserRole + 1, action);
             m_importedPoolsTable->setItem(row, 2, state);
-            m_importedPoolsTable->setItem(row, 3, new QTableWidgetItem(pool.reason));
+            m_importedPoolsTable->setItem(row, 3, new QTableWidgetItem(QStringLiteral("No")));
+            m_importedPoolsTable->setItem(row, 4, new QTableWidgetItem(pool.reason));
         }
     }
     setTablePopulationMode(m_importedPoolsTable, false);
