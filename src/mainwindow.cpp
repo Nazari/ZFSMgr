@@ -1980,12 +1980,13 @@ bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, in
         args << "-i" << p.keyPath;
     }
     args << QStringLiteral("%1@%2").arg(p.username, p.host);
-    args << remoteCmd;
+    const QString wrappedCmd = wrapRemoteCommand(p, remoteCmd);
+    args << wrappedCmd;
 
     const QString cmdLine = QStringLiteral("%1@%2:%3 $ %4")
                                 .arg(p.username, p.host)
                                 .arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22"))
-                                .arg(remoteCmd);
+                                .arg(wrappedCmd);
     appLog(QStringLiteral("INFO"), cmdLine);
     appendConnectionLog(p.id, cmdLine);
     if (hasPassword && !usingSshpass) {
@@ -2020,6 +2021,9 @@ bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, in
 }
 
 QString MainWindow::withSudo(const ConnectionProfile& p, const QString& cmd) const {
+    if (isWindowsConnection(p)) {
+        return cmd;
+    }
     if (!p.useSudo) {
         return cmd;
     }
@@ -2028,6 +2032,27 @@ QString MainWindow::withSudo(const ConnectionProfile& p, const QString& cmd) con
             .arg(shSingleQuote(p.password), shSingleQuote(cmd));
     }
     return QStringLiteral("sudo -n ") + cmd;
+}
+
+bool MainWindow::isWindowsConnection(const ConnectionProfile& p) const {
+    return p.osType.trimmed().toLower().contains(QStringLiteral("windows"));
+}
+
+bool MainWindow::isWindowsConnection(int connIdx) const {
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return false;
+    }
+    return isWindowsConnection(m_profiles[connIdx]);
+}
+
+QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p, const QString& remoteCmd) const {
+    if (!isWindowsConnection(p)) {
+        return remoteCmd;
+    }
+    const QString script = remoteCmd.trimmed();
+    const QByteArray utf16(reinterpret_cast<const char*>(script.utf16()), script.size() * 2);
+    const QString b64 = QString::fromLatin1(utf16.toBase64());
+    return QStringLiteral("powershell -NoProfile -NonInteractive -EncodedCommand %1").arg(b64);
 }
 
 bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const QString& prop, QString& valueOut) {
@@ -2619,6 +2644,7 @@ void MainWindow::updateTransferButtonsState() {
     m_btnSync->setEnabled(srcDs && !srcSnap && dstDs && !dstSnap && !sameSelection);
     const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("advanced"));
     bool advDatasetOnly = actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty();
+    const bool advOnWindows = actx.valid && isWindowsConnection(actx.connIdx);
     if (advDatasetOnly) {
         const QString key = datasetCacheKey(actx.connIdx, actx.poolName);
         const auto cacheIt = m_poolDatasetCache.constFind(key);
@@ -2641,6 +2667,9 @@ void MainWindow::updateTransferButtonsState() {
             advDatasetOnly = allMounted;
         }
     }
+    if (advOnWindows) {
+        advDatasetOnly = false;
+    }
     if (m_btnAdvancedBreakdown) {
         m_btnAdvancedBreakdown->setEnabled(advDatasetOnly);
     }
@@ -2648,10 +2677,10 @@ void MainWindow::updateTransferButtonsState() {
         m_btnAdvancedAssemble->setEnabled(advDatasetOnly);
     }
     if (m_btnAdvancedFromDir) {
-        m_btnAdvancedFromDir->setEnabled(actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty());
+        m_btnAdvancedFromDir->setEnabled(actx.valid && !advOnWindows && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty());
     }
     if (m_btnAdvancedToDir) {
-        m_btnAdvancedToDir->setEnabled(actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty());
+        m_btnAdvancedToDir->setEnabled(actx.valid && !advOnWindows && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty());
     }
 }
 
@@ -4517,6 +4546,7 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
     menu.addSeparator();
     QAction* createAct = menu.addAction(QStringLiteral("Crear hijo"));
     QAction* deleteAct = menu.addAction(QStringLiteral("Borrar"));
+    const bool isWinConn = isWindowsConnection(ctx.connIdx);
 
     if (!ctx.snapshotName.isEmpty()) {
         mountAct->setEnabled(false);
@@ -4546,6 +4576,10 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
             umountAct->setEnabled(isMounted);
         }
     }
+    if (isWinConn) {
+        mountWithChildrenAct->setEnabled(false);
+        umountAct->setEnabled(false);
+    }
 
     QAction* picked = menu.exec(tree->viewport()->mapToGlobal(pos));
     if (!picked) {
@@ -4574,6 +4608,34 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
         return false;
     }
     const ConnectionProfile& p = m_profiles[ctx.connIdx];
+    if (isWindowsConnection(p)) {
+        const QString c = cmd.toLower();
+        const bool unixScriptLike = c.contains(QStringLiteral("&&"))
+            || c.contains('|')
+            || c.contains(QStringLiteral(" set -e"))
+            || c.contains(QStringLiteral("trap "))
+            || c.contains(QStringLiteral("while "))
+            || c.contains(QStringLiteral("for "))
+            || c.contains(QStringLiteral("awk "))
+            || c.contains(QStringLiteral("grep "))
+            || c.contains(QStringLiteral("mktemp "))
+            || c.contains(QStringLiteral("rsync "))
+            || c.contains(QStringLiteral("tail "));
+        if (unixScriptLike) {
+            QMessageBox::information(
+                this,
+                QStringLiteral("ZFSMgr"),
+                tr3(QStringLiteral("La acción \"%1\" usa shell Unix y no está disponible en conexiones Windows por ahora.")
+                        .arg(actionName),
+                    QStringLiteral("Action \"%1\" uses Unix shell and is not available on Windows connections yet.")
+                        .arg(actionName),
+                    QStringLiteral("操作“%1”依赖 Unix shell，当前在 Windows 连接中不可用。")
+                        .arg(actionName)));
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Acción no soportada en Windows: %1 (%2)").arg(actionName, p.name));
+            return false;
+        }
+    }
     QString remoteCmd = withSudo(p, cmd);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(QStringLiteral("%1@%2:%3").arg(p.username, p.host).arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
@@ -5235,7 +5297,10 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     QString out;
     QString err;
     int rc = -1;
-    if (!runSsh(p, QStringLiteral("uname -a"), 12000, out, err, rc) || rc != 0) {
+    const QString osProbeCmd = isWindowsConnection(p)
+                                   ? QStringLiteral("[System.Environment]::OSVersion.VersionString")
+                                   : QStringLiteral("uname -a");
+    if (!runSsh(p, osProbeCmd, 12000, out, err, rc) || rc != 0) {
         state.status = QStringLiteral("ERROR");
         state.detail = oneLine(err.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : err);
         appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin refresh: %1 -> ERROR (%2)").arg(p.name, state.detail));
@@ -5248,11 +5313,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     out.clear();
     err.clear();
     rc = -1;
-    const QString zfsVersionCmd = withSudo(
-        p,
-        QStringLiteral("(command -v zfs >/dev/null 2>&1 && zfs version) || "
-                       "([ -x /usr/local/zfs/bin/zfs ] && /usr/local/zfs/bin/zfs version) || "
-                       "([ -x /sbin/zfs ] && /sbin/zfs version)"));
+    const QString zfsVersionCmd = withSudo(p, QStringLiteral("zfs version"));
     if (runSsh(p, zfsVersionCmd, 12000, out, err, rc) && rc == 0) {
         state.zfsVersion = parseOpenZfsVersionText(out + QStringLiteral("\n") + err);
     }
