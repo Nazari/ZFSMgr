@@ -2657,9 +2657,35 @@ void MainWindow::updateTransferButtonsState() {
                                             : m_destSelectedDataset)
                                  : QString();
     const bool sameSelection = !srcSel.isEmpty() && (srcSel == dstSel);
+    const DatasetSelectionContext srcCtx = currentDatasetSelection(QStringLiteral("origin"));
+    const DatasetSelectionContext dstCtx = currentDatasetSelection(QStringLiteral("dest"));
+    const bool srcSelectionConsistent = srcCtx.valid
+        && srcCtx.datasetName == m_originSelectedDataset
+        && srcCtx.snapshotName == m_originSelectedSnapshot;
+    const bool dstSelectionConsistent = dstCtx.valid
+        && dstCtx.datasetName == m_destSelectedDataset
+        && dstCtx.snapshotName == m_destSelectedSnapshot;
+    auto datasetMountedInCache = [this](const DatasetSelectionContext& c) -> bool {
+        if (!c.valid || c.datasetName.isEmpty()) {
+            return false;
+        }
+        const QString key = datasetCacheKey(c.connIdx, c.poolName);
+        const auto it = m_poolDatasetCache.constFind(key);
+        if (it == m_poolDatasetCache.constEnd() || !it->loaded) {
+            return false;
+        }
+        const auto recIt = it->recordByName.constFind(c.datasetName);
+        if (recIt == it->recordByName.constEnd()) {
+            return false;
+        }
+        return isMountedValueTrue(recIt->mounted);
+    };
+    const bool syncReady = srcDs && !srcSnap && dstDs && !dstSnap && !sameSelection
+        && srcSelectionConsistent && dstSelectionConsistent
+        && datasetMountedInCache(srcCtx) && datasetMountedInCache(dstCtx);
     m_btnCopy->setEnabled(srcDs && srcSnap && dstDs && !dstSnap);
     m_btnLevel->setEnabled(srcDs && dstDs && !dstSnap && !sameSelection);
-    m_btnSync->setEnabled(srcDs && !srcSnap && dstDs && !dstSnap && !sameSelection);
+    m_btnSync->setEnabled(syncReady);
     const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("advanced"));
     bool advDatasetOnly = actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty();
     if (advDatasetOnly) {
