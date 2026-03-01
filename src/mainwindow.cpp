@@ -5661,9 +5661,24 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     out.clear();
     err.clear();
     rc = -1;
-    const QString zfsVersionCmd = withSudo(p, QStringLiteral("zfs version"));
-    if (runSsh(p, zfsVersionCmd, 12000, out, err, rc) && rc == 0) {
-        state.zfsVersion = parseOpenZfsVersionText(out + QStringLiteral("\n") + err);
+    const QStringList zfsVersionCandidates = {
+        QStringLiteral("zfs version"),
+        QStringLiteral("zfs --version"),
+        QStringLiteral("zpool --version"),
+    };
+    for (const QString& cand : zfsVersionCandidates) {
+        out.clear();
+        err.clear();
+        rc = -1;
+        const QString zfsVersionCmd = withSudo(p, cand);
+        if (!runSsh(p, zfsVersionCmd, 12000, out, err, rc)) {
+            continue;
+        }
+        const QString parsed = parseOpenZfsVersionText(out + QStringLiteral("\n") + err);
+        if (!parsed.isEmpty()) {
+            state.zfsVersion = parsed;
+            break;
+        }
     }
 
     QString zpoolListCmd = withSudo(p, QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio"));
