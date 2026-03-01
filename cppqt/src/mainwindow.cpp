@@ -736,7 +736,7 @@ void MainWindow::buildUi() {
     m_poolStatusText->setReadOnly(true);
     {
         QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-        mono.setPointSize(8);
+        mono.setPointSize(9);
         m_poolStatusText->setFont(mono);
     }
     statusBody->addLayout(statusActions, 0);
@@ -961,7 +961,7 @@ void MainWindow::buildUi() {
     m_logView = new QPlainTextEdit(appTab);
     m_logView->setReadOnly(true);
     QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-    mono.setPointSize(8);
+    mono.setPointSize(9);
     m_logView->setFont(mono);
     appTabLayout->addWidget(m_logView, 1);
     m_logsTabs->addTab(appTab, tr3(QStringLiteral("Aplicación"), QStringLiteral("Application"), QStringLiteral("应用")));
@@ -969,8 +969,8 @@ void MainWindow::buildUi() {
 
     auto* controlsPane = new QWidget(rightLogs);
     controlsPane->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
-    controlsPane->setMinimumWidth(72);
-    controlsPane->setMaximumWidth(72);
+    controlsPane->setMinimumWidth(90);
+    controlsPane->setMaximumWidth(90);
     auto* logControls = new QVBoxLayout(controlsPane);
     logControls->setContentsMargins(0, 0, 0, 0);
     logControls->setSpacing(4);
@@ -998,11 +998,16 @@ void MainWindow::buildUi() {
         m_logCopyBtn->setFont(cf);
         m_logCancelBtn->setFont(cf);
     }
-    m_logLevelCombo->setFixedWidth(66);
-    m_logMaxLinesCombo->setFixedWidth(66);
-    m_logClearBtn->setFixedWidth(66);
-    m_logCopyBtn->setFixedWidth(66);
-    m_logCancelBtn->setFixedWidth(66);
+    m_logLevelCombo->setFixedWidth(84);
+    m_logMaxLinesCombo->setFixedWidth(84);
+    m_logClearBtn->setFixedWidth(84);
+    m_logCopyBtn->setFixedWidth(84);
+    m_logCancelBtn->setFixedWidth(84);
+    m_logLevelCombo->setMinimumHeight(24);
+    m_logMaxLinesCombo->setMinimumHeight(24);
+    m_logClearBtn->setMinimumHeight(24);
+    m_logCopyBtn->setMinimumHeight(24);
+    m_logCancelBtn->setMinimumHeight(24);
     logControls->addWidget(m_logLevelCombo, 0);
     logControls->addWidget(m_logMaxLinesCombo, 0);
     logControls->addWidget(m_logClearBtn, 0);
