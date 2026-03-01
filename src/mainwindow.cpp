@@ -2351,7 +2351,7 @@ void MainWindow::updateTransferButtonsState() {
                                  : QString();
     const bool sameSelection = !srcSel.isEmpty() && (srcSel == dstSel);
     m_btnCopy->setEnabled(srcDs && srcSnap && dstDs && !dstSnap);
-    m_btnLevel->setEnabled(srcDs && srcSnap && dstDs && !dstSnap && !sameSelection);
+    m_btnLevel->setEnabled(srcDs && dstDs && !dstSnap && !sameSelection);
     m_btnSync->setEnabled(srcDs && !srcSnap && dstDs && !dstSnap && !sameSelection);
     const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("advanced"));
     bool advDatasetOnly = actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty();
@@ -2474,29 +2474,86 @@ void MainWindow::actionCopySnapshot() {
 void MainWindow::actionLevelSnapshot() {
     const DatasetSelectionContext src = currentDatasetSelection(QStringLiteral("origin"));
     const DatasetSelectionContext dst = currentDatasetSelection(QStringLiteral("dest"));
-    if (!src.valid || !dst.valid || src.snapshotName.isEmpty() || dst.datasetName.isEmpty()) {
-        appLog(QStringLiteral("INFO"), QStringLiteral("Nivelar omitido: selección incompleta (src.valid=%1 dst.valid=%2 src.snap=%3 dst.dataset=%4)")
+    if (!src.valid || !dst.valid || src.datasetName.isEmpty() || dst.datasetName.isEmpty() || !dst.snapshotName.isEmpty()) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("Nivelar omitido: selección incompleta (src.valid=%1 dst.valid=%2 src.dataset=%3 dst.dataset=%4 dst.snap=%5)")
                                       .arg(src.valid ? QStringLiteral("1") : QStringLiteral("0"))
                                       .arg(dst.valid ? QStringLiteral("1") : QStringLiteral("0"))
-                                      .arg(src.snapshotName.isEmpty() ? QStringLiteral("0") : QStringLiteral("1"))
-                                      .arg(dst.datasetName.isEmpty() ? QStringLiteral("0") : QStringLiteral("1")));
+                                      .arg(src.datasetName.isEmpty() ? QStringLiteral("0") : QStringLiteral("1"))
+                                      .arg(dst.datasetName.isEmpty() ? QStringLiteral("0") : QStringLiteral("1"))
+                                      .arg(dst.snapshotName.isEmpty() ? QStringLiteral("0") : QStringLiteral("1")));
         QMessageBox::information(
             this,
             QStringLiteral("ZFSMgr"),
             tr3(QStringLiteral("Para Nivelar debe seleccionar:\n"
-                               "- En Origen: un dataset con snapshot\n"
+                               "- En Origen: un dataset o snapshot\n"
                                "- En Destino: un dataset (sin snapshot)"),
                 QStringLiteral("To Level you must select:\n"
-                               "- Source: a dataset with snapshot\n"
+                               "- Source: a dataset or snapshot\n"
                                "- Target: a dataset (without snapshot)"),
                 QStringLiteral("执行“同步快照”前请先选择：\n"
-                               "- 源：带快照的数据集\n"
+                               "- 源：数据集或快照\n"
                                "- 目标：数据集（不带快照）")));
         return;
     }
     const ConnectionProfile& sp = m_profiles[src.connIdx];
     const ConnectionProfile& dp = m_profiles[dst.connIdx];
-    const QString srcSnap = src.datasetName + QStringLiteral("@") + src.snapshotName;
+    QString srcSnap;
+    QString sendCmd;
+    if (!src.snapshotName.isEmpty()) {
+        srcSnap = src.datasetName + QStringLiteral("@") + src.snapshotName;
+        sendCmd = withSudo(sp, QStringLiteral("zfs send -wLecR %1").arg(shSingleQuote(srcSnap)));
+    } else {
+        if (!ensureDatasetsLoaded(src.connIdx, src.poolName) || !ensureDatasetsLoaded(dst.connIdx, dst.poolName)) {
+            QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                                 tr3(QStringLiteral("No se pudieron cargar snapshots para Nivelar."),
+                                     QStringLiteral("Could not load snapshots for Level."),
+                                     QStringLiteral("无法加载用于同步快照的快照列表。")));
+            return;
+        }
+        const QString srcKey = datasetCacheKey(src.connIdx, src.poolName);
+        const QString dstKey = datasetCacheKey(dst.connIdx, dst.poolName);
+        const QStringList srcSnaps = m_poolDatasetCache.value(srcKey).snapshotsByDataset.value(src.datasetName);
+        const QStringList dstSnaps = m_poolDatasetCache.value(dstKey).snapshotsByDataset.value(dst.datasetName);
+        if (srcSnaps.isEmpty()) {
+            QMessageBox::information(this, QStringLiteral("ZFSMgr"),
+                                     tr3(QStringLiteral("Origen no tiene snapshots para Nivelar."),
+                                         QStringLiteral("Source has no snapshots to Level."),
+                                         QStringLiteral("源数据集没有可用于同步的快照。")));
+            return;
+        }
+        if (dstSnaps.isEmpty()) {
+            QMessageBox::information(this, QStringLiteral("ZFSMgr"),
+                                     tr3(QStringLiteral("Destino no tiene snapshots. No se puede calcular diferencial para Nivelar."),
+                                         QStringLiteral("Target has no snapshots. Cannot compute differential Level transfer."),
+                                         QStringLiteral("目标数据集没有快照，无法计算增量同步。")));
+            return;
+        }
+        const QString dstLatestSnap = dstSnaps.first();
+        if (!srcSnaps.contains(dstLatestSnap)) {
+            QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                                 tr3(QStringLiteral("El snapshot más reciente de destino (%1) no existe en origen.\nNo se puede hacer Nivelar diferencial.")
+                                         .arg(dstLatestSnap),
+                                     QStringLiteral("Target latest snapshot (%1) does not exist in source.\nCannot run differential Level.")
+                                         .arg(dstLatestSnap),
+                                     QStringLiteral("目标最新快照（%1）在源端不存在，无法执行增量同步。")
+                                         .arg(dstLatestSnap)));
+            return;
+        }
+        const QString srcLatestSnap = srcSnaps.first();
+        if (srcLatestSnap == dstLatestSnap) {
+            QMessageBox::information(this, QStringLiteral("ZFSMgr"),
+                                     tr3(QStringLiteral("Origen y destino ya están nivelados en el snapshot más reciente (%1).")
+                                             .arg(srcLatestSnap),
+                                         QStringLiteral("Source and target are already leveled at latest snapshot (%1).")
+                                             .arg(srcLatestSnap),
+                                         QStringLiteral("源与目标已在最新快照（%1）保持一致。")
+                                             .arg(srcLatestSnap)));
+            return;
+        }
+        const QString fromSnap = src.datasetName + QStringLiteral("@") + dstLatestSnap;
+        srcSnap = src.datasetName + QStringLiteral("@") + srcLatestSnap;
+        sendCmd = withSudo(sp, QStringLiteral("zfs send -wLec -I %1 %2").arg(shSingleQuote(fromSnap), shSingleQuote(srcSnap)));
+    }
     const QString recvTarget = dst.datasetName;
 
     QString srcSsh = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
@@ -2516,7 +2573,6 @@ void MainWindow::actionLevelSnapshot() {
     }
     dstSsh += QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
 
-    QString sendCmd = withSudo(sp, QStringLiteral("zfs send -wLecR %1").arg(shSingleQuote(srcSnap)));
     QString recvCmd = withSudo(dp, QStringLiteral("zfs recv -F %1").arg(shSingleQuote(recvTarget)));
 
     const QString pipeline =
