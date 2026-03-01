@@ -3306,10 +3306,12 @@ void MainWindow::actionSyncDatasets() {
                                           ? QStringLiteral("$p=%1; tar -cf - -C $p .").arg(shSingleQuote(srcEffectiveMp))
                                           : QStringLiteral("tar --acls --xattrs -cpf - -C %1 .").arg(shSingleQuote(srcEffectiveMp));
             const QString dstTarCmd = isWindowsConnection(dp)
-                                          ? QStringLiteral("$p=%1; if (!(Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }; tar -xpf - -C $p")
+                                          ? QStringLiteral("$ProgressPreference='SilentlyContinue'; $p=%1; if (!(Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }; tar -xpf - -C $p")
                                                 .arg(shSingleQuote(dstEffectiveMp))
                                           : QStringLiteral("mkdir -p %1 && tar --acls --xattrs -xpf - -C %1").arg(shSingleQuote(dstEffectiveMp));
-            const QString command = sshExecFromLocal(sp, srcTarCmd) + QStringLiteral(" | ") + sshExecFromLocal(dp, dstTarCmd);
+            const QString command = sshExecFromLocal(sp, srcTarCmd)
+                + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab) || cat) | ")
+                + sshExecFromLocal(dp, dstTarCmd);
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("Sincronizar en Windows usa fallback tar/ssh (sin --delete)."));
             if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0, false, true)) {
@@ -3426,10 +3428,12 @@ void MainWindow::actionSyncDatasets() {
                                           ? QStringLiteral("$p=%1; tar -cf - -C $p .").arg(shSingleQuote(pair.first))
                                           : QStringLiteral("tar --acls --xattrs -cpf - -C %1 .").arg(shSingleQuote(pair.first));
             const QString dstTarCmd = isWindowsConnection(dp)
-                                          ? QStringLiteral("$p=%1; if (!(Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }; tar -xpf - -C $p")
+                                          ? QStringLiteral("$ProgressPreference='SilentlyContinue'; $p=%1; if (!(Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }; tar -xpf - -C $p")
                                                 .arg(shSingleQuote(pair.second))
                                           : QStringLiteral("mkdir -p %1 && tar --acls --xattrs -xpf - -C %1").arg(shSingleQuote(pair.second));
-            tarPipelines << (sshExecFromLocal(sp, srcTarCmd) + QStringLiteral(" | ") + sshExecFromLocal(dp, dstTarCmd));
+            tarPipelines << (sshExecFromLocal(sp, srcTarCmd)
+                + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab) || cat) | ")
+                + sshExecFromLocal(dp, dstTarCmd));
         }
         const QString command = tarPipelines.join(QStringLiteral(" && "));
         appLog(QStringLiteral("WARN"),
