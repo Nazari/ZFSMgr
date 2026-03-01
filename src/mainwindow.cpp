@@ -1586,7 +1586,6 @@ void MainWindow::createConnection() {
         return;
     }
     loadConnections();
-    refreshAllConnections();
 }
 
 void MainWindow::editConnection() {

@@ -19,6 +19,8 @@ public:
 private:
     void updateConnectionModeUi();
     void ensureDefaultPortForMode();
+    void testConnection();
+    bool testSshConnection(const ConnectionProfile& p, QString& detail) const;
 
     QLineEdit* m_nameEdit{nullptr};
     QComboBox* m_connTypeCombo{nullptr};
