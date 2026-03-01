@@ -4242,7 +4242,7 @@ void MainWindow::actionAdvancedCreateFromDir() {
                                 "BASE=%1; "
                                 "if [ -d \"$BASE\" ]; then cd \"$BASE\" 2>/dev/null || cd /; else cd /; fi; "
                                 "pwd; "
-                                "ls -1A 2>/dev/null | while IFS= read -r e; do [ -d \"$e\" ] && printf '%%s\\n' \"$e\"; done | sort")
+                                "ls -1A 2>/dev/null | while IFS= read -r e; do [ -d \"$e\" ] && echo \"$e\"; done | sort")
                                 .arg(shSingleQuote(requested));
             }
             QString out;
