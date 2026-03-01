@@ -767,12 +767,18 @@ void MainWindow::buildUi() {
     m_poolStatusExportBtn->setEnabled(false);
     m_poolStatusExportBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     statusActions->addWidget(m_poolStatusExportBtn);
+    m_poolStatusScrubBtn = new QPushButton(QStringLiteral("Scrub"), statusPoolTab);
+    m_poolStatusScrubBtn->setEnabled(false);
+    m_poolStatusScrubBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    statusActions->addWidget(m_poolStatusScrubBtn);
     const int statusButtonsWidth = qMax(m_poolStatusRefreshBtn->sizeHint().width(),
                                         qMax(m_poolStatusImportBtn->sizeHint().width(),
-                                             m_poolStatusExportBtn->sizeHint().width()));
+                                             qMax(m_poolStatusExportBtn->sizeHint().width(),
+                                                  m_poolStatusScrubBtn->sizeHint().width())));
     m_poolStatusRefreshBtn->setMinimumWidth(statusButtonsWidth);
     m_poolStatusImportBtn->setMinimumWidth(statusButtonsWidth);
     m_poolStatusExportBtn->setMinimumWidth(statusButtonsWidth);
+    m_poolStatusScrubBtn->setMinimumWidth(statusButtonsWidth);
     statusActions->addStretch(1);
     m_poolStatusText = new QPlainTextEdit(statusPoolTab);
     m_poolStatusText->setReadOnly(true);
@@ -1150,6 +1156,17 @@ void MainWindow::buildUi() {
         }
         logUiAction(QStringLiteral("Exportar pool (botón Estado)"));
         exportPoolFromRow(sel.first()->row());
+    });
+    connect(m_poolStatusScrubBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_importedPoolsTable) {
+            return;
+        }
+        const auto sel = m_importedPoolsTable->selectedItems();
+        if (sel.isEmpty()) {
+            return;
+        }
+        logUiAction(QStringLiteral("Scrub pool (botón Estado)"));
+        scrubPoolFromRow(sel.first()->row());
     });
     connect(m_originPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onOriginPoolChanged(); });
     connect(m_destPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onDestPoolChanged(); });
@@ -3453,6 +3470,69 @@ void MainWindow::importPoolFromRow(int row) {
     refreshConnectionByIndex(idx);
 }
 
+void MainWindow::scrubPoolFromRow(int row) {
+    if (actionsLocked()) {
+        return;
+    }
+    QTableWidgetItem* connItem = m_importedPoolsTable->item(row, 0);
+    QTableWidgetItem* poolItem = m_importedPoolsTable->item(row, 1);
+    QTableWidgetItem* stateItem = m_importedPoolsTable->item(row, 2);
+    if (!connItem || !poolItem || !stateItem) {
+        return;
+    }
+    const QString connName = connItem->text().trimmed();
+    const QString poolName = poolItem->text().trimmed();
+    const QString poolState = stateItem->text().trimmed().toUpper();
+    const QString action = stateItem->data(Qt::UserRole + 1).toString().trimmed();
+    if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
+        return;
+    }
+    if (poolState != QStringLiteral("ONLINE")) {
+        return;
+    }
+    if (action.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) != 0) {
+        return;
+    }
+    const int idx = findConnectionIndexByName(connName);
+    if (idx < 0) {
+        return;
+    }
+    const auto confirm = QMessageBox::question(
+        this,
+        QStringLiteral("Scrub pool"),
+        QStringLiteral("¿Iniciar scrub en pool %1 de %2?").arg(poolName, connName),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return;
+    }
+
+    const ConnectionProfile& p = m_profiles[idx];
+    const QString cmd = withSudo(p, QStringLiteral("zpool scrub %1").arg(shSingleQuote(poolName)));
+    const QString preview = QStringLiteral("[%1]\n%2")
+                                .arg(QStringLiteral("%1@%2:%3").arg(p.username, p.host).arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
+                                .arg(buildSshPreviewCommand(p, cmd));
+    if (!confirmActionExecution(QStringLiteral("Scrub"), {preview})) {
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio scrub %1::%2").arg(connName, poolName));
+    setActionsLocked(true);
+    QString out;
+    QString err;
+    int rc = -1;
+    if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("Error scrub %1::%2 -> %3")
+                                       .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
+                              QStringLiteral("Scrub falló:\n%1").arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
+        setActionsLocked(false);
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin scrub %1::%2").arg(connName, poolName));
+    setActionsLocked(false);
+    refreshConnectionByIndex(idx);
+}
+
 MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QString& side) const {
     DatasetSelectionContext ctx;
     QString token;
@@ -4509,6 +4589,9 @@ void MainWindow::refreshSelectedPoolDetails() {
     if (m_poolStatusExportBtn) {
         m_poolStatusExportBtn->setEnabled(false);
     }
+    if (m_poolStatusScrubBtn) {
+        m_poolStatusScrubBtn->setEnabled(false);
+    }
 
     const auto sel = m_importedPoolsTable->selectedItems();
     if (sel.isEmpty()) {
@@ -4530,11 +4613,15 @@ void MainWindow::refreshSelectedPoolDetails() {
     const bool canExport = (action.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) == 0);
     const bool canImport = (action.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) == 0
                             && poolState == QStringLiteral("ONLINE"));
+    const bool canScrub = canExport && poolState == QStringLiteral("ONLINE");
     if (m_poolStatusExportBtn) {
         m_poolStatusExportBtn->setEnabled(!actionsLocked() && canExport);
     }
     if (m_poolStatusImportBtn) {
         m_poolStatusImportBtn->setEnabled(!actionsLocked() && canImport);
+    }
+    if (m_poolStatusScrubBtn) {
+        m_poolStatusScrubBtn->setEnabled(!actionsLocked() && canScrub);
     }
     if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
         setTablePopulationMode(m_poolPropsTable, false);
@@ -4799,6 +4886,7 @@ void MainWindow::setActionsLocked(bool locked) {
     if (m_poolStatusRefreshBtn) m_poolStatusRefreshBtn->setEnabled(!locked);
     if (m_poolStatusImportBtn) m_poolStatusImportBtn->setEnabled(!locked && m_poolStatusImportBtn->isEnabled());
     if (m_poolStatusExportBtn) m_poolStatusExportBtn->setEnabled(!locked && m_poolStatusExportBtn->isEnabled());
+    if (m_poolStatusScrubBtn) m_poolStatusScrubBtn->setEnabled(!locked && m_poolStatusScrubBtn->isEnabled());
     if (m_btnApplyDatasetProps) m_btnApplyDatasetProps->setEnabled(!locked && m_btnApplyDatasetProps->isEnabled());
     if (m_btnApplyAdvancedProps) m_btnApplyAdvancedProps->setEnabled(!locked && m_btnApplyAdvancedProps->isEnabled());
     if (locked) {

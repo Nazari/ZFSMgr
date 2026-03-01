@@ -151,6 +151,7 @@ private:
     void refreshConnectionByIndex(int idx);
     void exportPoolFromRow(int row);
     void importPoolFromRow(int row);
+    void scrubPoolFromRow(int row);
     void refreshSelectedPoolDetails();
     void updateStatus(const QString& text);
     void setActionsLocked(bool locked);
@@ -191,6 +192,7 @@ private:
     QPushButton* m_poolStatusRefreshBtn{nullptr};
     QPushButton* m_poolStatusImportBtn{nullptr};
     QPushButton* m_poolStatusExportBtn{nullptr};
+    QPushButton* m_poolStatusScrubBtn{nullptr};
     QStackedWidget* m_rightStack{nullptr};
     QComboBox* m_originPoolCombo{nullptr};
     QComboBox* m_destPoolCombo{nullptr};
