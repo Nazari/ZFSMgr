@@ -1,7 +1,7 @@
 <RCC>
   <qresource prefix="/">
-    <file alias="icons/ZFSMgr-512.png">../icons/ZFSMgr-512.png</file>
-    <file alias="icons/ZFSMgr.ico">../icons/ZFSMgr.ico</file>
-    <file alias="icons/ZFSMgr.icns">../icons/ZFSMgr.icns</file>
+    <file alias="icons/ZFSMgr-512.png">icons/ZFSMgr-512.png</file>
+    <file alias="icons/ZFSMgr.ico">icons/ZFSMgr.ico</file>
+    <file alias="icons/ZFSMgr.icns">icons/ZFSMgr.icns</file>
   </qresource>
 </RCC>
