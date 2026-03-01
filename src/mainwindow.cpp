@@ -2198,6 +2198,57 @@ bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const Q
     return true;
 }
 
+QString MainWindow::effectiveMountPath(int connIdx,
+                                       const QString& poolName,
+                                       const QString& datasetName,
+                                       const QString& mountpointHint,
+                                       const QString& mountedValue) {
+    if (!isWindowsConnection(connIdx)) {
+        return mountpointHint.trimmed();
+    }
+    if (!isMountedValueTrue(mountedValue)) {
+        return mountpointHint.trimmed();
+    }
+    if (poolName.isEmpty() || datasetName.isEmpty()) {
+        return mountpointHint.trimmed();
+    }
+    if (!(datasetName == poolName || datasetName.startsWith(poolName + QStringLiteral("/")))) {
+        return mountpointHint.trimmed();
+    }
+
+    QString drive;
+    if (!getDatasetProperty(connIdx, poolName, QStringLiteral("driveletter"), drive)) {
+        return mountpointHint.trimmed();
+    }
+    drive = drive.trimmed();
+    if (drive.isEmpty() || drive == QStringLiteral("-") || drive == QStringLiteral("none")) {
+        return mountpointHint.trimmed();
+    }
+    drive.replace(QStringLiteral(":\\"), QString());
+    drive.replace(':', QString());
+    drive.replace('\\', QString());
+    drive.replace('/', QString());
+    drive = drive.trimmed().toUpper();
+    if (drive.isEmpty()) {
+        return mountpointHint.trimmed();
+    }
+    const QChar d = drive[0];
+    if (!d.isLetter()) {
+        return mountpointHint.trimmed();
+    }
+
+    QString base = QStringLiteral("%1:\\").arg(QString(d));
+    if (datasetName == poolName) {
+        return base;
+    }
+    QString rel = datasetName.mid(poolName.size() + 1).trimmed();
+    if (rel.isEmpty()) {
+        return base;
+    }
+    rel.replace('/', '\\');
+    return base + rel;
+}
+
 QString MainWindow::datasetCacheKey(int connIdx, const QString& poolName) const {
     return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
 }
@@ -3132,16 +3183,36 @@ void MainWindow::actionSyncDatasets() {
 
     const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
     const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
+    const QString srcEffectiveMp = effectiveMountPath(src.connIdx, src.poolName, src.datasetName, srcMp, srcMounted);
+    const QString dstEffectiveMp = effectiveMountPath(dst.connIdx, dst.poolName, dst.datasetName, dstMp, dstMounted);
+    auto isUsableMountPath = [&](int cidx, const QString& path) -> bool {
+        const QString pth = path.trimmed();
+        if (pth.isEmpty() || pth == QStringLiteral("none")) {
+            return false;
+        }
+        if (isWindowsConnection(cidx)) {
+            return pth.contains(':');
+        }
+        return pth.startsWith('/');
+    };
 
     if (srcRootMounted && dstRootMounted) {
+        if (!isUsableMountPath(src.connIdx, srcEffectiveMp) || !isUsableMountPath(dst.connIdx, dstEffectiveMp)) {
+            QMessageBox::warning(this,
+                                 QStringLiteral("ZFSMgr"),
+                                 QStringLiteral("No se pudo resolver el punto de montaje efectivo para sincronizar.\n"
+                                                "Origen: %1\nDestino: %2")
+                                     .arg(srcEffectiveMp, dstEffectiveMp));
+            return;
+        }
         if (isWindowsConnection(sp) || isWindowsConnection(dp)) {
             const QString srcTarCmd = isWindowsConnection(sp)
-                                          ? QStringLiteral("$p=%1; tar -cf - -C $p .").arg(shSingleQuote(srcMp))
-                                          : QStringLiteral("tar --acls --xattrs -cpf - -C %1 .").arg(shSingleQuote(srcMp));
+                                          ? QStringLiteral("$p=%1; tar -cf - -C $p .").arg(shSingleQuote(srcEffectiveMp))
+                                          : QStringLiteral("tar --acls --xattrs -cpf - -C %1 .").arg(shSingleQuote(srcEffectiveMp));
             const QString dstTarCmd = isWindowsConnection(dp)
                                           ? QStringLiteral("$p=%1; if (!(Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }; tar -xpf - -C $p")
-                                                .arg(shSingleQuote(dstMp))
-                                          : QStringLiteral("mkdir -p %1 && tar --acls --xattrs -xpf - -C %1").arg(shSingleQuote(dstMp));
+                                                .arg(shSingleQuote(dstEffectiveMp))
+                                          : QStringLiteral("mkdir -p %1 && tar --acls --xattrs -xpf - -C %1").arg(shSingleQuote(dstEffectiveMp));
             const QString command = sshExecFromLocal(sp, srcTarCmd) + QStringLiteral(" | ") + sshExecFromLocal(dp, dstTarCmd);
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("Sincronizar en Windows usa fallback tar/ssh (sin --delete)."));
@@ -3155,9 +3226,9 @@ void MainWindow::actionSyncDatasets() {
             QStringLiteral("rsync -aHAWXS --delete --info=progress2 -e ")
             + shSingleQuote(sshBaseCommand(dp))
             + QStringLiteral(" %1/ %2:%3/")
-                  .arg(shSingleQuote(srcMp),
+                  .arg(shSingleQuote(srcEffectiveMp),
                        shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
-                       shSingleQuote(dstMp));
+                       shSingleQuote(dstEffectiveMp));
         remoteRsync = withSudo(sp, remoteRsync);
         const QString command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
         if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0, false, true)) {
@@ -3208,8 +3279,8 @@ void MainWindow::actionSyncDatasets() {
         if (!isMountedValueTrue(srcRec.mounted)) {
             continue;
         }
-        const QString srcRecMp = srcRec.mountpoint.trimmed();
-        if (srcRecMp.isEmpty() || srcRecMp == QStringLiteral("none") || !srcRecMp.startsWith('/')) {
+        const QString srcRecMp = effectiveMountPath(src.connIdx, src.poolName, srcDsName, srcRec.mountpoint, srcRec.mounted);
+        if (!isUsableMountPath(src.connIdx, srcRecMp)) {
             continue;
         }
         const QString rel = srcDsName.mid(srcPrefix.size());
@@ -3223,8 +3294,8 @@ void MainWindow::actionSyncDatasets() {
             continue;
         }
         const DatasetRecord& dstRec = dstRecIt.value();
-        const QString dstRecMp = dstRec.mountpoint.trimmed();
-        if (!isMountedValueTrue(dstRec.mounted) || dstRecMp.isEmpty() || dstRecMp == QStringLiteral("none") || !dstRecMp.startsWith('/')) {
+        const QString dstRecMp = effectiveMountPath(dst.connIdx, dst.poolName, dstDsName, dstRec.mountpoint, dstRec.mounted);
+        if (!isMountedValueTrue(dstRec.mounted) || !isUsableMountPath(dst.connIdx, dstRecMp)) {
             notMountedPairs << QStringLiteral("%1 -> %2").arg(srcDsName, dstDsName);
             continue;
         }

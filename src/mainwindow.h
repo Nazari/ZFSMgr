@@ -110,6 +110,7 @@ private:
     QString wrapRemoteCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
     QString sshExecFromLocal(const ConnectionProfile& p, const QString& remoteCmd) const;
     bool getDatasetProperty(int connIdx, const QString& dataset, const QString& prop, QString& valueOut);
+    QString effectiveMountPath(int connIdx, const QString& poolName, const QString& datasetName, const QString& mountpointHint, const QString& mountedValue);
     QString datasetCacheKey(int connIdx, const QString& poolName) const;
     bool ensureDatasetsLoaded(int connIdx, const QString& poolName);
     void populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side);
