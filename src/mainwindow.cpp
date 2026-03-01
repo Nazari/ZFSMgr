@@ -2373,7 +2373,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName) {
         int dRc = -1;
         const QString dCmd = withSudo(
             p,
-            QStringLiteral("zfs get -H -o name,value driveletter -r %1").arg(shSingleQuote(poolName)));
+            QStringLiteral("zfs get -H -o name,value -r driveletter %1").arg(shSingleQuote(poolName)));
         if (runSsh(p, dCmd, 20000, dOut, dErr, dRc) && dRc == 0) {
             QMap<QString, QStringList> byDrive;
             const QStringList dLines = dOut.split('\n', Qt::SkipEmptyParts);
@@ -3590,7 +3590,7 @@ void MainWindow::actionAdvancedBreakdown() {
     int mountRc = -1;
     const QString mountCheckCmd = withSudo(
         p,
-        QStringLiteral("zfs get -H -o name,value mounted -r %1").arg(shSingleQuote(ds)));
+        QStringLiteral("zfs get -H -o name,value -r mounted %1").arg(shSingleQuote(ds)));
     if (!runSsh(p, mountCheckCmd, 25000, mountOut, mountErr, mountRc) || mountRc != 0) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              tr3(QStringLiteral("No se pudo comprobar el estado de montaje del dataset."),
@@ -3927,7 +3927,7 @@ void MainWindow::actionAdvancedAssemble() {
     int mountRc = -1;
     const QString mountCheckCmd = withSudo(
         p,
-        QStringLiteral("zfs get -H -o name,value mounted -r %1").arg(shSingleQuote(ds)));
+        QStringLiteral("zfs get -H -o name,value -r mounted %1").arg(shSingleQuote(ds)));
     if (!runSsh(p, mountCheckCmd, 25000, mountOut, mountErr, mountRc) || mountRc != 0) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              tr3(QStringLiteral("No se pudo comprobar el estado de montaje del dataset."),
