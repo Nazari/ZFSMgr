@@ -292,26 +292,16 @@ void MainWindow::enableSortableHeader(QTableWidget* table) {
     if (!table || !table->horizontalHeader()) {
         return;
     }
-    table->setSortingEnabled(false);
+    table->setSortingEnabled(true);
     table->setProperty("sort_col", -1);
     table->setProperty("sort_order", static_cast<int>(Qt::AscendingOrder));
     auto* header = table->horizontalHeader();
     header->setSectionsClickable(true);
     header->setSortIndicatorShown(true);
     header->setSortIndicator(-1, Qt::AscendingOrder);
-    connect(header, &QHeaderView::sectionClicked, this, [table](int col) {
-        const int currentCol = table->property("sort_col").toInt();
-        const auto currentOrder = static_cast<Qt::SortOrder>(table->property("sort_order").toInt());
-        Qt::SortOrder nextOrder = Qt::AscendingOrder;
-        if (currentCol == col) {
-            nextOrder = (currentOrder == Qt::AscendingOrder) ? Qt::DescendingOrder : Qt::AscendingOrder;
-        }
-        table->sortItems(col, nextOrder);
-        table->setProperty("sort_col", col);
-        table->setProperty("sort_order", static_cast<int>(nextOrder));
-        if (table->horizontalHeader()) {
-            table->horizontalHeader()->setSortIndicator(col, nextOrder);
-        }
+    connect(header, &QHeaderView::sortIndicatorChanged, this, [table](int section, Qt::SortOrder order) {
+        table->setProperty("sort_col", section);
+        table->setProperty("sort_order", static_cast<int>(order));
     });
 }
 
@@ -320,9 +310,15 @@ void MainWindow::setTablePopulationMode(QTableWidget* table, bool populating) {
         return;
     }
     if (populating) {
+        const int colNow = table->horizontalHeader()->sortIndicatorSection();
+        if (colNow >= 0) {
+            table->setProperty("sort_col", colNow);
+            table->setProperty("sort_order", static_cast<int>(table->horizontalHeader()->sortIndicatorOrder()));
+        }
         table->setSortingEnabled(false);
         return;
     }
+    table->setSortingEnabled(true);
     const int col = table->property("sort_col").toInt();
     const auto order = static_cast<Qt::SortOrder>(table->property("sort_order").toInt());
     if (col >= 0 && col < table->columnCount()) {
@@ -816,6 +812,8 @@ void MainWindow::buildUi() {
     m_originTree->setColumnWidth(0, 280);
     m_originTree->setColumnWidth(1, 98);
     m_originTree->setUniformRowHeights(true);
+    m_originTree->setRootIsDecorated(true);
+    m_originTree->setItemsExpandable(true);
     {
         QFont f = m_originTree->font();
         f.setPointSize(qMax(6, f.pointSize() - 1));
@@ -857,6 +855,8 @@ void MainWindow::buildUi() {
     m_destTree->setColumnWidth(0, 280);
     m_destTree->setColumnWidth(1, 98);
     m_destTree->setUniformRowHeights(true);
+    m_destTree->setRootIsDecorated(true);
+    m_destTree->setItemsExpandable(true);
     {
         QFont f = m_destTree->font();
         f.setPointSize(qMax(6, f.pointSize() - 1));
@@ -900,6 +900,8 @@ void MainWindow::buildUi() {
     m_advTree->setColumnWidth(0, 280);
     m_advTree->setColumnWidth(1, 98);
     m_advTree->setUniformRowHeights(true);
+    m_advTree->setRootIsDecorated(true);
+    m_advTree->setItemsExpandable(true);
     {
         QFont f = m_advTree->font();
         f.setPointSize(qMax(6, f.pointSize() - 1));
@@ -1136,11 +1138,41 @@ void MainWindow::buildUi() {
     connect(m_originTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         onOriginTreeContextMenuRequested(pos);
     });
+    connect(m_originTree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
+        if (item && item->childCount() > 0) {
+            item->setIcon(0, style()->standardIcon(QStyle::SP_ArrowDown));
+        }
+    });
+    connect(m_originTree, &QTreeWidget::itemCollapsed, this, [this](QTreeWidgetItem* item) {
+        if (item && item->childCount() > 0) {
+            item->setIcon(0, style()->standardIcon(QStyle::SP_ArrowRight));
+        }
+    });
     connect(m_destTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         onDestTreeContextMenuRequested(pos);
     });
+    connect(m_destTree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
+        if (item && item->childCount() > 0) {
+            item->setIcon(0, style()->standardIcon(QStyle::SP_ArrowDown));
+        }
+    });
+    connect(m_destTree, &QTreeWidget::itemCollapsed, this, [this](QTreeWidgetItem* item) {
+        if (item && item->childCount() > 0) {
+            item->setIcon(0, style()->standardIcon(QStyle::SP_ArrowRight));
+        }
+    });
     connect(m_advTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         showDatasetContextMenu(QStringLiteral("advanced"), m_advTree, pos);
+    });
+    connect(m_advTree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
+        if (item && item->childCount() > 0) {
+            item->setIcon(0, style()->standardIcon(QStyle::SP_ArrowDown));
+        }
+    });
+    connect(m_advTree, &QTreeWidget::itemCollapsed, this, [this](QTreeWidgetItem* item) {
+        if (item && item->childCount() > 0) {
+            item->setIcon(0, style()->standardIcon(QStyle::SP_ArrowRight));
+        }
     });
     connect(m_datasetPropsTable, &QTableWidget::cellChanged, this, [this](int row, int col) {
         onDatasetPropsCellChanged(row, col);
@@ -1901,6 +1933,22 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         }
     }
     tree->expandToDepth(0);
+    std::function<void(QTreeWidgetItem*)> refreshBranchIcon = [&](QTreeWidgetItem* n) {
+        if (!n) {
+            return;
+        }
+        if (n->childCount() > 0) {
+            n->setIcon(0, style()->standardIcon(n->isExpanded() ? QStyle::SP_ArrowDown : QStyle::SP_ArrowRight));
+        } else {
+            n->setIcon(0, QIcon());
+        }
+        for (int i = 0; i < n->childCount(); ++i) {
+            refreshBranchIcon(n->child(i));
+        }
+    };
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        refreshBranchIcon(tree->topLevelItem(i));
+    }
 
     // Dropdown embebido en celda Snapshot, sin seleccionar ninguno al inicio.
     std::function<void(QTreeWidgetItem*)> attachCombos = [&](QTreeWidgetItem* n) {
