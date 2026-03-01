@@ -3,11 +3,13 @@
 #include "mainwindow.h"
 
 #include <QApplication>
+#include <QIcon>
 #include <QMessageBox>
 #include <QSettings>
 
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
+    app.setWindowIcon(QIcon(QStringLiteral(":/icons/ZFSMgr-512.png")));
     QApplication::setOrganizationName(QStringLiteral("ZFSMgr"));
     QApplication::setApplicationName(QStringLiteral("ZFSMgr"));
 

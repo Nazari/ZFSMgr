@@ -24,6 +24,7 @@ private:
     void retranslateUi();
     QLineEdit* m_passwordEdit{nullptr};
     QComboBox* m_languageCombo{nullptr};
+    QLabel* m_iconLabel{nullptr};
     QPushButton* m_okButton{nullptr};
     QPushButton* m_cancelButton{nullptr};
     QPushButton* m_changePwdButton{nullptr};

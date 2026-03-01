@@ -24,6 +24,7 @@ qt_add_executable(zfsmgr_qt
     src/masterpassworddialog.h
     src/secretcipher.cpp
     src/secretcipher.h
+    resources.qrc
 )
 
 target_link_libraries(zfsmgr_qt PRIVATE Qt6::Widgets Qt6::Core Qt6::Gui Qt6::Concurrent OpenSSL::Crypto)

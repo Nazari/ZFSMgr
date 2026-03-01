@@ -6,9 +6,11 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QPixmap>
 #include <QPushButton>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QIcon>
 
 namespace {
 QString tr3(const QString& lang, const QString& es, const QString& en, const QString& zh) {
@@ -22,8 +24,13 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     : QDialog(parent) {
     setModal(true);
     resize(520, 220);
+    setWindowIcon(QIcon(QStringLiteral(":/icons/ZFSMgr-512.png")));
 
     auto* root = new QVBoxLayout(this);
+    m_iconLabel = new QLabel(this);
+    m_iconLabel->setAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
+    m_iconLabel->setPixmap(QPixmap(QStringLiteral(":/icons/ZFSMgr-512.png")).scaled(72, 72, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    root->addWidget(m_iconLabel);
     auto* form = new QFormLayout();
 
     m_languageCombo = new QComboBox(this);
