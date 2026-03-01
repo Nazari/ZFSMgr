@@ -3147,7 +3147,7 @@ void MainWindow::actionCopySnapshot() {
         + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
         + dstSsh + QStringLiteral(" ") + shSingleQuote(recvCmd);
 
-    if (runLocalCommand(QStringLiteral("Copiar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0)) {
+    if (runLocalCommand(QStringLiteral("Copiar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0, false, true)) {
         invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
         reloadDatasetSide(QStringLiteral("dest"));
     }
@@ -3263,7 +3263,7 @@ void MainWindow::actionLevelSnapshot() {
         + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
         + dstSsh + QStringLiteral(" ") + shSingleQuote(recvCmd);
 
-    if (runLocalCommand(QStringLiteral("Nivelar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0, true)) {
+    if (runLocalCommand(QStringLiteral("Nivelar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0, false, true)) {
         invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
         reloadDatasetSide(QStringLiteral("dest"));
     }
