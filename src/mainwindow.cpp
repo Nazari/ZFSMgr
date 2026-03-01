@@ -6156,23 +6156,18 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side) {
         return;
     }
 
-    bool recursive = false;
-    if (ctx.snapshotName.isEmpty()) {
-        const auto askRec = QMessageBox::question(
-            this,
-            QStringLiteral("Borrado recursivo"),
-            QStringLiteral("¿Borrar recursivamente datasets/snapshots hijos?"),
-            QMessageBox::Yes | QMessageBox::No,
-            QMessageBox::No);
-        recursive = (askRec == QMessageBox::Yes);
-    }
+    const auto askRec = QMessageBox::question(
+        this,
+        QStringLiteral("Borrado recursivo"),
+        ctx.snapshotName.isEmpty()
+            ? QStringLiteral("¿Borrar recursivamente datasets/snapshots hijos?")
+            : QStringLiteral("¿Borrar recursivamente este snapshot en hijos descendientes?"),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    const bool recursive = (askRec == QMessageBox::Yes);
     QString cmd;
-    if (ctx.snapshotName.isEmpty()) {
-        cmd = recursive ? QStringLiteral("zfs destroy -r %1").arg(shSingleQuote(target))
-                        : QStringLiteral("zfs destroy %1").arg(shSingleQuote(target));
-    } else {
-        cmd = QStringLiteral("zfs destroy %1").arg(shSingleQuote(target));
-    }
+    cmd = recursive ? QStringLiteral("zfs destroy -r %1").arg(shSingleQuote(target))
+                    : QStringLiteral("zfs destroy %1").arg(shSingleQuote(target));
     executeDatasetAction(side, QStringLiteral("Borrar"), ctx, cmd, 90000);
 }
 
