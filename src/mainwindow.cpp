@@ -4864,7 +4864,7 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
     QAction* umountAct = menu.addAction(QStringLiteral("Desmontar"));
     QAction* rollbackAct = nullptr;
     if (!ctx.snapshotName.isEmpty()) {
-        rollbackAct = menu.addAction(QStringLiteral("Bollback"));
+        rollbackAct = menu.addAction(QStringLiteral("Rollback"));
     }
     menu.addSeparator();
     QAction* createAct = menu.addAction(QStringLiteral("Crear hijo"));
@@ -4921,16 +4921,16 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
         const QString snapObj = QStringLiteral("%1@%2").arg(ctx.datasetName, ctx.snapshotName);
         const auto confirm = QMessageBox::question(
             this,
-            QStringLiteral("Bollback"),
+            QStringLiteral("Rollback"),
             QStringLiteral("¿Confirmar rollback de snapshot?\n%1").arg(snapObj),
             QMessageBox::Yes | QMessageBox::No,
             QMessageBox::No);
         if (confirm != QMessageBox::Yes) {
             return;
         }
-        logUiAction(QStringLiteral("Bollback snapshot (menú)"));
+        logUiAction(QStringLiteral("Rollback snapshot (menú)"));
         const QString cmd = QStringLiteral("zfs rollback %1").arg(shSingleQuote(snapObj));
-        executeDatasetAction(side, QStringLiteral("Bollback"), ctx, cmd, 90000);
+        executeDatasetAction(side, QStringLiteral("Rollback"), ctx, cmd, 90000);
     } else if (picked == deleteAct) {
         logUiAction(QStringLiteral("Borrar dataset/snapshot (menú)"));
         actionDeleteDatasetOrSnapshot(side);
