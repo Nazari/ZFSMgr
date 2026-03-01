@@ -3297,6 +3297,72 @@ void MainWindow::actionSyncDatasets() {
         }
         return pth.startsWith('/');
     };
+    auto remoteHasTool = [&](int connIdx, const QString& tool) -> bool {
+        if (connIdx < 0 || connIdx >= m_profiles.size() || tool.trimmed().isEmpty()) {
+            return false;
+        }
+        const ConnectionProfile& p = m_profiles[connIdx];
+        QString out;
+        QString err;
+        int rc = -1;
+        const QString probeCmd = isWindowsConnection(connIdx)
+                                     ? QStringLiteral("if (Get-Command %1 -ErrorAction SilentlyContinue) { Write-Output 1 } else { Write-Output 0 }")
+                                           .arg(tool)
+                                     : QStringLiteral("command -v %1 >/dev/null 2>&1 && echo 1 || echo 0").arg(tool);
+        if (!runSsh(p, probeCmd, 15000, out, err, rc) || rc != 0) {
+            return false;
+        }
+        return out.contains(QStringLiteral("1"));
+    };
+    enum class StreamCodec { Zstd, Gzip, None };
+    auto codecName = [](StreamCodec c) -> QString {
+        switch (c) {
+            case StreamCodec::Zstd: return QStringLiteral("zstd-fast");
+            case StreamCodec::Gzip: return QStringLiteral("gzip-fast");
+            case StreamCodec::None:
+            default: return QStringLiteral("none");
+        }
+    };
+    auto chooseCodec = [&]() -> StreamCodec {
+        const bool zstdBoth = remoteHasTool(src.connIdx, QStringLiteral("zstd")) && remoteHasTool(dst.connIdx, QStringLiteral("zstd"));
+        if (zstdBoth) {
+            return StreamCodec::Zstd;
+        }
+        const bool gzipBoth = remoteHasTool(src.connIdx, QStringLiteral("gzip")) && remoteHasTool(dst.connIdx, QStringLiteral("gzip"));
+        if (gzipBoth) {
+            return StreamCodec::Gzip;
+        }
+        return StreamCodec::None;
+    };
+    auto buildSrcTarCmd = [&](bool isWin, const QString& mountPath, StreamCodec codec) -> QString {
+        switch (codec) {
+            case StreamCodec::Zstd:
+                return isWin
+                           ? QStringLiteral("$p=%1; tar -cf - -C $p . | zstd -1 -T0 -q -c").arg(shSingleQuote(mountPath))
+                           : QStringLiteral("tar --acls --xattrs -cpf - -C %1 . | zstd -1 -T0 -q -c").arg(shSingleQuote(mountPath));
+            case StreamCodec::Gzip:
+                return isWin
+                           ? QStringLiteral("$p=%1; tar -cf - -C $p . | gzip -1 -c").arg(shSingleQuote(mountPath))
+                           : QStringLiteral("tar --acls --xattrs -cpf - -C %1 . | gzip -1 -c").arg(shSingleQuote(mountPath));
+            case StreamCodec::None:
+            default:
+                return isWin
+                           ? QStringLiteral("$p=%1; tar -cf - -C $p .").arg(shSingleQuote(mountPath))
+                           : QStringLiteral("tar --acls --xattrs -cpf - -C %1 .").arg(shSingleQuote(mountPath));
+        }
+    };
+    auto buildDstTarCmd = [&](bool isWin, const QString& mountPath, StreamCodec codec) -> QString {
+        const QString decodePipe =
+            (codec == StreamCodec::Zstd) ? QStringLiteral("zstd -d -q -c - | ")
+            : (codec == StreamCodec::Gzip) ? QStringLiteral("gzip -d -c - | ")
+            : QString();
+        if (isWin) {
+            return QStringLiteral("$ProgressPreference='SilentlyContinue'; $p=%1; if (!(Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }; %2tar -xpf - -C $p")
+                .arg(shSingleQuote(mountPath), decodePipe);
+        }
+        return QStringLiteral("mkdir -p %1 && %2tar --acls --xattrs -xpf - -C %1")
+            .arg(shSingleQuote(mountPath), decodePipe);
+    };
 
     if (srcRootMounted && dstRootMounted) {
         if (!isUsableMountPath(src.connIdx, srcEffectiveMp) || !isUsableMountPath(dst.connIdx, dstEffectiveMp)) {
@@ -3308,21 +3374,14 @@ void MainWindow::actionSyncDatasets() {
             return;
         }
         if (isWindowsConnection(sp) || isWindowsConnection(dp)) {
-            const QString srcTarCmd = isWindowsConnection(sp)
-                                          ? QStringLiteral("$p=%1; if (!(Get-Command zstd -ErrorAction SilentlyContinue)) { throw 'zstd not found on source'; }; tar -cf - -C $p . | zstd -1 -T0 -q -c")
-                                                .arg(shSingleQuote(srcEffectiveMp))
-                                          : QStringLiteral("command -v zstd >/dev/null 2>&1 || { echo 'zstd not found on source' >&2; exit 127; }; tar --acls --xattrs -cpf - -C %1 . | zstd -1 -T0 -q -c")
-                                                .arg(shSingleQuote(srcEffectiveMp));
-            const QString dstTarCmd = isWindowsConnection(dp)
-                                          ? QStringLiteral("$ProgressPreference='SilentlyContinue'; if (!(Get-Command zstd -ErrorAction SilentlyContinue)) { throw 'zstd not found on destination'; }; $p=%1; if (!(Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }; zstd -d -q -c - | tar -xpf - -C $p")
-                                                .arg(shSingleQuote(dstEffectiveMp))
-                                          : QStringLiteral("command -v zstd >/dev/null 2>&1 || { echo 'zstd not found on destination' >&2; exit 127; }; mkdir -p %1 && zstd -d -q -c - | tar --acls --xattrs -xpf - -C %1")
-                                                .arg(shSingleQuote(dstEffectiveMp));
+            const StreamCodec codec = chooseCodec();
+            const QString srcTarCmd = buildSrcTarCmd(isWindowsConnection(sp), srcEffectiveMp, codec);
+            const QString dstTarCmd = buildDstTarCmd(isWindowsConnection(dp), dstEffectiveMp, codec);
             const QString command = sshExecFromLocal(sp, srcTarCmd)
                 + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
                 + sshExecFromLocal(dp, dstTarCmd);
             appLog(QStringLiteral("WARN"),
-                   QStringLiteral("Sincronizar en Windows usa fallback tar+zstd/ssh (sin --delete)."));
+                   QStringLiteral("Sincronizar en Windows usa fallback tar/ssh (codec=%1, sin --delete).").arg(codecName(codec)));
             if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0, false, true)) {
                 invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
                 reloadDatasetSide(QStringLiteral("dest"));
@@ -3430,26 +3489,19 @@ void MainWindow::actionSyncDatasets() {
     const QString sshTransport = sshBaseCommand(dp);
     QStringList rsyncCommands;
     if (isWindowsConnection(sp) || isWindowsConnection(dp)) {
+        const StreamCodec codec = chooseCodec();
         QStringList tarPipelines;
         tarPipelines.reserve(syncPairs.size());
         for (const auto& pair : syncPairs) {
-            const QString srcTarCmd = isWindowsConnection(sp)
-                                          ? QStringLiteral("$p=%1; if (!(Get-Command zstd -ErrorAction SilentlyContinue)) { throw 'zstd not found on source'; }; tar -cf - -C $p . | zstd -1 -T0 -q -c")
-                                                .arg(shSingleQuote(pair.first))
-                                          : QStringLiteral("command -v zstd >/dev/null 2>&1 || { echo 'zstd not found on source' >&2; exit 127; }; tar --acls --xattrs -cpf - -C %1 . | zstd -1 -T0 -q -c")
-                                                .arg(shSingleQuote(pair.first));
-            const QString dstTarCmd = isWindowsConnection(dp)
-                                          ? QStringLiteral("$ProgressPreference='SilentlyContinue'; if (!(Get-Command zstd -ErrorAction SilentlyContinue)) { throw 'zstd not found on destination'; }; $p=%1; if (!(Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }; zstd -d -q -c - | tar -xpf - -C $p")
-                                                .arg(shSingleQuote(pair.second))
-                                          : QStringLiteral("command -v zstd >/dev/null 2>&1 || { echo 'zstd not found on destination' >&2; exit 127; }; mkdir -p %1 && zstd -d -q -c - | tar --acls --xattrs -xpf - -C %1")
-                                                .arg(shSingleQuote(pair.second));
+            const QString srcTarCmd = buildSrcTarCmd(isWindowsConnection(sp), pair.first, codec);
+            const QString dstTarCmd = buildDstTarCmd(isWindowsConnection(dp), pair.second, codec);
             tarPipelines << (sshExecFromLocal(sp, srcTarCmd)
                 + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
                 + sshExecFromLocal(dp, dstTarCmd));
         }
         const QString command = tarPipelines.join(QStringLiteral(" && "));
         appLog(QStringLiteral("WARN"),
-               QStringLiteral("Sincronizar subdatasets en Windows usa fallback tar+zstd/ssh (sin --delete)."));
+               QStringLiteral("Sincronizar subdatasets en Windows usa fallback tar/ssh (codec=%1, sin --delete).").arg(codecName(codec)));
         if (runLocalCommand(QStringLiteral("Sincronizar subdatasets %1 -> %2 (%3)")
                                 .arg(src.datasetName, dst.datasetName)
                                 .arg(syncPairs.size()),
