@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFont>
+#include <QFontDatabase>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QGridLayout>
@@ -312,6 +313,7 @@ void MainWindow::buildUi() {
     setStyleSheet(QStringLiteral(
         "QMainWindow, QWidget { background: #f3f7fb; color: #14212b; }"
         "QTabWidget::pane { border: 1px solid #b8c7d6; background: #f8fbff; }"
+        "QTabWidget::tab-bar { alignment: left; }"
         "QTabBar { background: #f3f7fb; }"
         "QTabBar::scroller { background: #f3f7fb; }"
         "QTabBar QToolButton { background: #f3f7fb; border: 1px solid #b8c7d6; color: #14212b; }"
@@ -733,8 +735,7 @@ void MainWindow::buildUi() {
     m_poolStatusText = new QPlainTextEdit(statusPoolTab);
     m_poolStatusText->setReadOnly(true);
     {
-        QFont mono = m_poolStatusText->font();
-        mono.setFamily(QStringLiteral("Monospace"));
+        QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
         mono.setPointSize(8);
         m_poolStatusText->setFont(mono);
     }
@@ -951,15 +952,15 @@ void MainWindow::buildUi() {
     m_logsTabs = new QTabWidget(rightLogs);
     m_logsTabs->setDocumentMode(false);
     m_logsTabs->setStyleSheet(
-        QStringLiteral("QTabBar::tab { padding: 1px 8px; min-height: 10px; }"
+        QStringLiteral("QTabWidget::tab-bar { alignment: left; }"
+                       "QTabBar::tab { padding: 1px 8px; min-height: 10px; }"
                        "QTabBar::tab:selected { min-height: 12px; }"
                        "QTabBar::tab:!selected { margin-top: 2px; }"));
     auto* appTab = new QWidget(m_logsTabs);
     auto* appTabLayout = new QVBoxLayout(appTab);
     m_logView = new QPlainTextEdit(appTab);
     m_logView->setReadOnly(true);
-    QFont mono = m_logView->font();
-    mono.setFamily(QStringLiteral("Monospace"));
+    QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     mono.setPointSize(8);
     m_logView->setFont(mono);
     appTabLayout->addWidget(m_logView, 1);
@@ -4617,8 +4618,7 @@ void MainWindow::syncConnectionLogTabs() {
         auto* lay = new QVBoxLayout(tab);
         auto* view = new QPlainTextEdit(tab);
         view->setReadOnly(true);
-        QFont mono = view->font();
-        mono.setFamily(QStringLiteral("Monospace"));
+        QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
         mono.setPointSize(8);
         view->setFont(mono);
         lay->addWidget(view, 1);
