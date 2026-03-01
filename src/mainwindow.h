@@ -118,7 +118,7 @@ private:
     void reloadDatasetSide(const QString& side);
     void updateTransferButtonsState();
     void refreshTransferSelectionLabels();
-    bool runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs = 0);
+    bool runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs = 0, bool forceConfirmDialog = false);
     void actionCopySnapshot();
     void actionLevelSnapshot();
     void actionSyncDatasets();
@@ -160,7 +160,7 @@ private:
     void loadUiSettings();
     void saveUiSettings() const;
     bool selectItemsDialog(const QString& title, const QString& intro, const QStringList& items, QStringList& selected);
-    bool confirmActionExecution(const QString& actionName, const QStringList& commands);
+    bool confirmActionExecution(const QString& actionName, const QStringList& commands, bool forceDialog = false);
     QString buildSshPreviewCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
     QString tr3(const QString& es, const QString& en, const QString& zh) const;
     QString maskSecrets(const QString& text) const;

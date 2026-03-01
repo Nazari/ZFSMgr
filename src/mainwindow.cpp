@@ -2385,8 +2385,8 @@ void MainWindow::updateTransferButtonsState() {
     }
 }
 
-bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs) {
-    if (!confirmActionExecution(displayLabel, {QStringLiteral("[local]\n%1").arg(command)})) {
+bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs, bool forceConfirmDialog) {
+    if (!confirmActionExecution(displayLabel, {QStringLiteral("[local]\n%1").arg(command)}, forceConfirmDialog)) {
         return false;
     }
     setActionsLocked(true);
@@ -2507,7 +2507,7 @@ void MainWindow::actionLevelSnapshot() {
         + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab) || cat) | ")
         + dstSsh + QStringLiteral(" ") + shSingleQuote(recvCmd);
 
-    if (runLocalCommand(QStringLiteral("Nivelar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0)) {
+    if (runLocalCommand(QStringLiteral("Nivelar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0, true)) {
         invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
         reloadDatasetSide(QStringLiteral("dest"));
     }
@@ -4706,8 +4706,8 @@ QString MainWindow::buildSshPreviewCommand(const ConnectionProfile& p, const QSt
     return parts.join(' ');
 }
 
-bool MainWindow::confirmActionExecution(const QString& actionName, const QStringList& commands) {
-    if (!m_actionConfirmEnabled) {
+bool MainWindow::confirmActionExecution(const QString& actionName, const QStringList& commands, bool forceDialog) {
+    if (!forceDialog && !m_actionConfirmEnabled) {
         return true;
     }
     if (commands.isEmpty()) {
