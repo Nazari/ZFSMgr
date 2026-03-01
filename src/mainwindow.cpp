@@ -3309,17 +3309,20 @@ void MainWindow::actionSyncDatasets() {
         }
         if (isWindowsConnection(sp) || isWindowsConnection(dp)) {
             const QString srcTarCmd = isWindowsConnection(sp)
-                                          ? QStringLiteral("$p=%1; tar -cf - -C $p .").arg(shSingleQuote(srcEffectiveMp))
-                                          : QStringLiteral("tar --acls --xattrs -cpf - -C %1 .").arg(shSingleQuote(srcEffectiveMp));
+                                          ? QStringLiteral("$p=%1; if (!(Get-Command zstd -ErrorAction SilentlyContinue)) { throw 'zstd not found on source'; }; tar -cf - -C $p . | zstd -1 -T0 -q -c")
+                                                .arg(shSingleQuote(srcEffectiveMp))
+                                          : QStringLiteral("command -v zstd >/dev/null 2>&1 || { echo 'zstd not found on source' >&2; exit 127; }; tar --acls --xattrs -cpf - -C %1 . | zstd -1 -T0 -q -c")
+                                                .arg(shSingleQuote(srcEffectiveMp));
             const QString dstTarCmd = isWindowsConnection(dp)
-                                          ? QStringLiteral("$ProgressPreference='SilentlyContinue'; $p=%1; if (!(Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }; tar -xpf - -C $p")
+                                          ? QStringLiteral("$ProgressPreference='SilentlyContinue'; if (!(Get-Command zstd -ErrorAction SilentlyContinue)) { throw 'zstd not found on destination'; }; $p=%1; if (!(Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }; zstd -d -q -c - | tar -xpf - -C $p")
                                                 .arg(shSingleQuote(dstEffectiveMp))
-                                          : QStringLiteral("mkdir -p %1 && tar --acls --xattrs -xpf - -C %1").arg(shSingleQuote(dstEffectiveMp));
+                                          : QStringLiteral("command -v zstd >/dev/null 2>&1 || { echo 'zstd not found on destination' >&2; exit 127; }; mkdir -p %1 && zstd -d -q -c - | tar --acls --xattrs -xpf - -C %1")
+                                                .arg(shSingleQuote(dstEffectiveMp));
             const QString command = sshExecFromLocal(sp, srcTarCmd)
                 + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
                 + sshExecFromLocal(dp, dstTarCmd);
             appLog(QStringLiteral("WARN"),
-                   QStringLiteral("Sincronizar en Windows usa fallback tar/ssh (sin --delete)."));
+                   QStringLiteral("Sincronizar en Windows usa fallback tar+zstd/ssh (sin --delete)."));
             if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0, false, true)) {
                 invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
                 reloadDatasetSide(QStringLiteral("dest"));
@@ -3431,19 +3434,22 @@ void MainWindow::actionSyncDatasets() {
         tarPipelines.reserve(syncPairs.size());
         for (const auto& pair : syncPairs) {
             const QString srcTarCmd = isWindowsConnection(sp)
-                                          ? QStringLiteral("$p=%1; tar -cf - -C $p .").arg(shSingleQuote(pair.first))
-                                          : QStringLiteral("tar --acls --xattrs -cpf - -C %1 .").arg(shSingleQuote(pair.first));
+                                          ? QStringLiteral("$p=%1; if (!(Get-Command zstd -ErrorAction SilentlyContinue)) { throw 'zstd not found on source'; }; tar -cf - -C $p . | zstd -1 -T0 -q -c")
+                                                .arg(shSingleQuote(pair.first))
+                                          : QStringLiteral("command -v zstd >/dev/null 2>&1 || { echo 'zstd not found on source' >&2; exit 127; }; tar --acls --xattrs -cpf - -C %1 . | zstd -1 -T0 -q -c")
+                                                .arg(shSingleQuote(pair.first));
             const QString dstTarCmd = isWindowsConnection(dp)
-                                          ? QStringLiteral("$ProgressPreference='SilentlyContinue'; $p=%1; if (!(Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }; tar -xpf - -C $p")
+                                          ? QStringLiteral("$ProgressPreference='SilentlyContinue'; if (!(Get-Command zstd -ErrorAction SilentlyContinue)) { throw 'zstd not found on destination'; }; $p=%1; if (!(Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }; zstd -d -q -c - | tar -xpf - -C $p")
                                                 .arg(shSingleQuote(pair.second))
-                                          : QStringLiteral("mkdir -p %1 && tar --acls --xattrs -xpf - -C %1").arg(shSingleQuote(pair.second));
+                                          : QStringLiteral("command -v zstd >/dev/null 2>&1 || { echo 'zstd not found on destination' >&2; exit 127; }; mkdir -p %1 && zstd -d -q -c - | tar --acls --xattrs -xpf - -C %1")
+                                                .arg(shSingleQuote(pair.second));
             tarPipelines << (sshExecFromLocal(sp, srcTarCmd)
                 + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
                 + sshExecFromLocal(dp, dstTarCmd));
         }
         const QString command = tarPipelines.join(QStringLiteral(" && "));
         appLog(QStringLiteral("WARN"),
-               QStringLiteral("Sincronizar subdatasets en Windows usa fallback tar/ssh (sin --delete)."));
+               QStringLiteral("Sincronizar subdatasets en Windows usa fallback tar+zstd/ssh (sin --delete)."));
         if (runLocalCommand(QStringLiteral("Sincronizar subdatasets %1 -> %2 (%3)")
                                 .arg(src.datasetName, dst.datasetName)
                                 .arg(syncPairs.size()),
