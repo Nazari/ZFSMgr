@@ -4576,10 +4576,7 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
             umountAct->setEnabled(isMounted);
         }
     }
-    if (isWinConn) {
-        mountWithChildrenAct->setEnabled(false);
-        umountAct->setEnabled(false);
-    }
+    Q_UNUSED(isWinConn);
 
     QAction* picked = menu.exec(tree->viewport()->mapToGlobal(pos));
     if (!picked) {
@@ -4603,19 +4600,16 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
     }
 }
 
-bool MainWindow::executeDatasetAction(const QString& side, const QString& actionName, const DatasetSelectionContext& ctx, const QString& cmd, int timeoutMs) {
+bool MainWindow::executeDatasetAction(const QString& side, const QString& actionName, const DatasetSelectionContext& ctx, const QString& cmd, int timeoutMs, bool allowWindowsScript) {
     if (!ctx.valid) {
         return false;
     }
     const ConnectionProfile& p = m_profiles[ctx.connIdx];
-    if (isWindowsConnection(p)) {
+    if (isWindowsConnection(p) && !allowWindowsScript) {
         const QString c = cmd.toLower();
         const bool unixScriptLike = c.contains(QStringLiteral("&&"))
-            || c.contains('|')
             || c.contains(QStringLiteral(" set -e"))
             || c.contains(QStringLiteral("trap "))
-            || c.contains(QStringLiteral("while "))
-            || c.contains(QStringLiteral("for "))
             || c.contains(QStringLiteral("awk "))
             || c.contains(QStringLiteral("grep "))
             || c.contains(QStringLiteral("mktemp "))
@@ -4724,6 +4718,24 @@ void MainWindow::actionMountDatasetWithChildren(const QString& side) {
         return;
     }
     if (!ensureNoMountpointConflictsBeforeMount(ctx, true)) {
+        return;
+    }
+    if (isWindowsConnection(ctx.connIdx)) {
+        QString dsPs = ctx.datasetName;
+        dsPs.replace('\'', QStringLiteral("''"));
+        const QString cmd = QStringLiteral(
+                                "$ds='%1'; "
+                                "$items = @(zfs list -H -o name -r $ds 2>$null); "
+                                "if ($LASTEXITCODE -ne 0) { throw 'zfs list failed' }; "
+                                "foreach ($child in $items) { "
+                                "  if ([string]::IsNullOrWhiteSpace($child)) { continue }; "
+                                "  $m = (zfs get -H -o value mounted $child 2>$null | Out-String).Trim().ToLower(); "
+                                "  if ($m -ne 'yes' -and $m -ne 'on' -and $m -ne 'true' -and $m -ne '1') { "
+                                "    zfs mount $child 2>$null | Out-Null "
+                                "  } "
+                                "}")
+                                .arg(dsPs);
+        executeDatasetAction(side, QStringLiteral("Montar con todos los hijos"), ctx, cmd, 90000, true);
         return;
     }
     const QString dsQ = shSingleQuote(ctx.datasetName);
@@ -4896,7 +4908,26 @@ void MainWindow::actionUmountDataset(const QString& side) {
         return;
     }
     const QString dsQ = shSingleQuote(ctx.datasetName);
-    const QString hasChildrenCmd = QStringLiteral("zfs mount | awk '{print $1}' | grep -E '^%1/' -q").arg(ctx.datasetName);
+    QString hasChildrenCmd;
+    const bool isWin = isWindowsConnection(ctx.connIdx);
+    if (isWin) {
+        QString dsPs = ctx.datasetName;
+        dsPs.replace('\'', QStringLiteral("''"));
+        hasChildrenCmd = QStringLiteral(
+                             "$ds='%1'; "
+                             "$has=$false; "
+                             "$children=@(zfs list -H -o name -r $ds 2>$null); "
+                             "if ($LASTEXITCODE -ne 0) { exit 2 }; "
+                             "foreach ($c in $children) { "
+                             "  if ([string]::IsNullOrWhiteSpace($c) -or $c -eq $ds) { continue }; "
+                             "  $m=(zfs get -H -o value mounted $c 2>$null | Out-String).Trim().ToLower(); "
+                             "  if ($m -eq 'yes' -or $m -eq 'on' -or $m -eq 'true' -or $m -eq '1') { $has=$true; break } "
+                             "}; "
+                             "if ($has) { exit 0 } else { exit 1 }")
+                             .arg(dsPs);
+    } else {
+        hasChildrenCmd = QStringLiteral("zfs mount | awk '{print $1}' | grep -E '^%1/' -q").arg(ctx.datasetName);
+    }
 
     QString out;
     QString err;
@@ -4917,14 +4948,27 @@ void MainWindow::actionUmountDataset(const QString& side) {
             appLog(QStringLiteral("INFO"), QStringLiteral("Desmontar abortado por usuario"));
             return;
         }
-        cmd = QStringLiteral(
-            "zfs mount | awk '{print $1}' | grep -E '^%1(/|$)' | awk '{print length, $0}' | sort -rn | cut -d' ' -f2- | "
-            "while IFS= read -r ds; do [ -n \"$ds\" ] && zfs umount \"$ds\"; done")
-                  .arg(ctx.datasetName);
+        if (isWin) {
+            QString dsPs = ctx.datasetName;
+            dsPs.replace('\'', QStringLiteral("''"));
+            cmd = QStringLiteral(
+                      "$ds='%1'; "
+                      "$list=@(zfs list -H -o name -r $ds 2>$null); "
+                      "if ($LASTEXITCODE -ne 0) { throw 'zfs list failed' }; "
+                      "$sorted = $list | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object { $_.Length } -Descending; "
+                      "foreach ($d in $sorted) { zfs unmount $d 2>$null | Out-Null }")
+                      .arg(dsPs);
+        } else {
+            cmd = QStringLiteral(
+                "zfs mount | awk '{print $1}' | grep -E '^%1(/|$)' | awk '{print length, $0}' | sort -rn | cut -d' ' -f2- | "
+                "while IFS= read -r ds; do [ -n \"$ds\" ] && zfs umount \"$ds\"; done")
+                      .arg(ctx.datasetName);
+        }
     } else {
-        cmd = QStringLiteral("zfs umount %1").arg(dsQ);
+        cmd = isWin ? QStringLiteral("zfs unmount %1").arg(dsQ)
+                    : QStringLiteral("zfs umount %1").arg(dsQ);
     }
-    executeDatasetAction(side, QStringLiteral("Desmontar"), ctx, cmd);
+    executeDatasetAction(side, QStringLiteral("Desmontar"), ctx, cmd, 90000, isWin);
 }
 
 void MainWindow::actionCreateChildDataset(const QString& side) {
