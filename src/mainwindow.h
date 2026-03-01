@@ -108,6 +108,7 @@ private:
     bool isWindowsConnection(const ConnectionProfile& p) const;
     bool isWindowsConnection(int connIdx) const;
     QString wrapRemoteCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
+    QString sshExecFromLocal(const ConnectionProfile& p, const QString& remoteCmd) const;
     bool getDatasetProperty(int connIdx, const QString& dataset, const QString& prop, QString& valueOut);
     QString datasetCacheKey(int connIdx, const QString& poolName) const;
     bool ensureDatasetsLoaded(int connIdx, const QString& poolName);

@@ -2055,6 +2055,13 @@ QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p, const QString&
     return QStringLiteral("powershell -NoProfile -NonInteractive -EncodedCommand %1").arg(b64);
 }
 
+QString MainWindow::sshExecFromLocal(const ConnectionProfile& p, const QString& remoteCmd) const {
+    const QString sshBase = sshBaseCommand(p);
+    const QString target = shSingleQuote(p.username + QStringLiteral("@") + p.host);
+    const QString wrapped = wrapRemoteCommand(p, remoteCmd);
+    return sshBase + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrapped);
+}
+
 bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const QString& prop, QString& valueOut) {
     valueOut.clear();
     if (connIdx < 0 || connIdx >= m_profiles.size() || dataset.isEmpty() || prop.isEmpty()) {
@@ -2905,6 +2912,23 @@ void MainWindow::actionSyncDatasets() {
     const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
 
     if (srcRootMounted && dstRootMounted) {
+        if (isWindowsConnection(sp) || isWindowsConnection(dp)) {
+            const QString srcTarCmd = isWindowsConnection(sp)
+                                          ? QStringLiteral("$p=%1; tar -cf - -C $p .").arg(shSingleQuote(srcMp))
+                                          : QStringLiteral("tar --acls --xattrs -cpf - -C %1 .").arg(shSingleQuote(srcMp));
+            const QString dstTarCmd = isWindowsConnection(dp)
+                                          ? QStringLiteral("$p=%1; if (!(Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }; tar -xpf - -C $p")
+                                                .arg(shSingleQuote(dstMp))
+                                          : QStringLiteral("mkdir -p %1 && tar --acls --xattrs -xpf - -C %1").arg(shSingleQuote(dstMp));
+            const QString command = sshExecFromLocal(sp, srcTarCmd) + QStringLiteral(" | ") + sshExecFromLocal(dp, dstTarCmd);
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Sincronizar en Windows usa fallback tar/ssh (sin --delete)."));
+            if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0)) {
+                invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
+                reloadDatasetSide(QStringLiteral("dest"));
+            }
+            return;
+        }
         QString remoteRsync =
             QStringLiteral("rsync -aHAWXS --delete --info=progress2 -e ")
             + shSingleQuote(sshBaseCommand(dp))
@@ -3005,24 +3029,50 @@ void MainWindow::actionSyncDatasets() {
 
     const QString sshTransport = sshBaseCommand(dp);
     QStringList rsyncCommands;
-    rsyncCommands.reserve(syncPairs.size());
-    for (const auto& pair : syncPairs) {
-        rsyncCommands << QStringLiteral("rsync -aHAWXS --delete --info=progress2 -e %1 %2/ %3:%4/")
-                             .arg(shSingleQuote(sshTransport),
-                                  shSingleQuote(pair.first),
-                                  shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
-                                  shSingleQuote(pair.second));
-    }
-    QString remoteRsync = QStringLiteral("set -e; %1").arg(rsyncCommands.join(QStringLiteral(" && ")));
-    remoteRsync = withSudo(sp, remoteRsync);
-    const QString command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
-    if (runLocalCommand(QStringLiteral("Sincronizar subdatasets %1 -> %2 (%3)")
-                            .arg(src.datasetName, dst.datasetName)
-                            .arg(syncPairs.size()),
-                        command,
-                        0)) {
-        invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
-        reloadDatasetSide(QStringLiteral("dest"));
+    if (isWindowsConnection(sp) || isWindowsConnection(dp)) {
+        QStringList tarPipelines;
+        tarPipelines.reserve(syncPairs.size());
+        for (const auto& pair : syncPairs) {
+            const QString srcTarCmd = isWindowsConnection(sp)
+                                          ? QStringLiteral("$p=%1; tar -cf - -C $p .").arg(shSingleQuote(pair.first))
+                                          : QStringLiteral("tar --acls --xattrs -cpf - -C %1 .").arg(shSingleQuote(pair.first));
+            const QString dstTarCmd = isWindowsConnection(dp)
+                                          ? QStringLiteral("$p=%1; if (!(Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }; tar -xpf - -C $p")
+                                                .arg(shSingleQuote(pair.second))
+                                          : QStringLiteral("mkdir -p %1 && tar --acls --xattrs -xpf - -C %1").arg(shSingleQuote(pair.second));
+            tarPipelines << (sshExecFromLocal(sp, srcTarCmd) + QStringLiteral(" | ") + sshExecFromLocal(dp, dstTarCmd));
+        }
+        const QString command = tarPipelines.join(QStringLiteral(" && "));
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("Sincronizar subdatasets en Windows usa fallback tar/ssh (sin --delete)."));
+        if (runLocalCommand(QStringLiteral("Sincronizar subdatasets %1 -> %2 (%3)")
+                                .arg(src.datasetName, dst.datasetName)
+                                .arg(syncPairs.size()),
+                            command,
+                            0)) {
+            invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
+            reloadDatasetSide(QStringLiteral("dest"));
+        }
+    } else {
+        rsyncCommands.reserve(syncPairs.size());
+        for (const auto& pair : syncPairs) {
+            rsyncCommands << QStringLiteral("rsync -aHAWXS --delete --info=progress2 -e %1 %2/ %3:%4/")
+                                 .arg(shSingleQuote(sshTransport),
+                                      shSingleQuote(pair.first),
+                                      shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
+                                      shSingleQuote(pair.second));
+        }
+        QString remoteRsync = QStringLiteral("set -e; %1").arg(rsyncCommands.join(QStringLiteral(" && ")));
+        remoteRsync = withSudo(sp, remoteRsync);
+        const QString command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
+        if (runLocalCommand(QStringLiteral("Sincronizar subdatasets %1 -> %2 (%3)")
+                                .arg(src.datasetName, dst.datasetName)
+                                .arg(syncPairs.size()),
+                            command,
+                            0)) {
+            invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
+            reloadDatasetSide(QStringLiteral("dest"));
+        }
     }
 }
 
