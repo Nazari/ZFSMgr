@@ -5,4 +5,7 @@ connections.ini
 .DS_Store
 dist/
 build/
+build-macos/
+build-linux/
+build-windows/
 *.spec
