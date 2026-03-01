@@ -658,11 +658,14 @@ void MainWindow::buildUi() {
     auto* importedTab = new QWidget(m_rightTabs);
     auto* importedLayout = new QVBoxLayout(importedTab);
     m_importedPoolsTable = new QTableWidget(importedTab);
-    m_importedPoolsTable->setColumnCount(3);
-    m_importedPoolsTable->setHorizontalHeaderLabels({QStringLiteral("Conexión"), QStringLiteral("Pool"), QStringLiteral("Acción")});
+    m_importedPoolsTable->setColumnCount(5);
+    m_importedPoolsTable->setHorizontalHeaderLabels(
+        {QStringLiteral("Conexión"), QStringLiteral("Pool"), QStringLiteral("Estado"), QStringLiteral("Acción"), QStringLiteral("Motivo")});
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
     m_importedPoolsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_importedPoolsTable->setContextMenuPolicy(Qt::NoContextMenu);
     m_importedPoolsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -676,34 +679,7 @@ void MainWindow::buildUi() {
     m_importedPoolsTable->verticalHeader()->setDefaultSectionSize(22);
     m_importedPoolsTable->setStyleSheet(QStringLiteral("QTableWidget::item{padding:1px 3px;}"));
     importedLayout->addWidget(m_importedPoolsTable, 1);
-
-    auto* importableTab = new QWidget(m_rightTabs);
-    auto* importableLayout = new QVBoxLayout(importableTab);
-    m_importablePoolsTable = new QTableWidget(importableTab);
-    m_importablePoolsTable->setColumnCount(5);
-    m_importablePoolsTable->setHorizontalHeaderLabels(
-        {QStringLiteral("Acción"), QStringLiteral("Conexión"), QStringLiteral("Pool"), QStringLiteral("Estado"), QStringLiteral("Motivo")});
-    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
-    m_importablePoolsTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
-    m_importablePoolsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_importablePoolsTable->setContextMenuPolicy(Qt::NoContextMenu);
-    m_importablePoolsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_importablePoolsTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_importablePoolsTable->verticalHeader()->setVisible(false);
-    {
-        QFont f = m_importablePoolsTable->font();
-        f.setPointSize(qMax(6, f.pointSize() - 1));
-        m_importablePoolsTable->setFont(f);
-    }
-    m_importablePoolsTable->verticalHeader()->setDefaultSectionSize(22);
-    m_importablePoolsTable->setStyleSheet(QStringLiteral("QTableWidget::item{padding:1px 3px;}"));
-    importableLayout->addWidget(m_importablePoolsTable, 1);
-
-    m_rightTabs->addTab(importedTab, tr3(QStringLiteral("Pools importados"), QStringLiteral("Imported pools"), QStringLiteral("已导入池")));
-    m_rightTabs->addTab(importableTab, tr3(QStringLiteral("Pools importables"), QStringLiteral("Importable pools"), QStringLiteral("可导入池")));
+    m_rightTabs->addTab(importedTab, tr3(QStringLiteral("Pools"), QStringLiteral("Pools"), QStringLiteral("存储池")));
 
     m_poolDetailTabs = new QTabWidget(rightConnectionsPage);
     m_poolDetailTabs->setDocumentMode(false);
@@ -1053,9 +1029,15 @@ void MainWindow::buildUi() {
         }
     });
     connect(m_importedPoolsTable, &QTableWidget::cellClicked, this, [this](int row, int col) {
-        if (col == 2) {
-            logUiAction(QStringLiteral("Exportar pool (tabla)"));
-            exportPoolFromRow(row);
+        if (col == 3) {
+            const QString action = m_importedPoolsTable->item(row, 3) ? m_importedPoolsTable->item(row, 3)->text().trimmed() : QString();
+            if (action.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) == 0) {
+                logUiAction(QStringLiteral("Exportar pool (tabla)"));
+                exportPoolFromRow(row);
+            } else if (action.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) == 0) {
+                logUiAction(QStringLiteral("Importar pool (tabla)"));
+                importPoolFromRow(row);
+            }
         }
         refreshSelectedPoolDetails();
     });
@@ -1066,12 +1048,6 @@ void MainWindow::buildUi() {
         logUiAction(QStringLiteral("Actualizar estado de pool (botón)"));
         if (m_importedPoolsTable && !m_importedPoolsTable->selectedItems().isEmpty()) {
             refreshSelectedPoolDetails();
-        }
-    });
-    connect(m_importablePoolsTable, &QTableWidget::cellClicked, this, [this](int row, int col) {
-        if (col == 0) {
-            logUiAction(QStringLiteral("Importar pool (tabla)"));
-            importPoolFromRow(row);
         }
     });
     connect(m_originPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onOriginPoolChanged(); });
@@ -2998,7 +2974,11 @@ void MainWindow::exportPoolFromRow(int row) {
     }
     const QString connName = connItem->text().trimmed();
     const QString poolName = poolItem->text().trimmed();
+    const QString action = m_importedPoolsTable->item(row, 3) ? m_importedPoolsTable->item(row, 3)->text().trimmed() : QString();
     if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
+        return;
+    }
+    if (action.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) != 0) {
         return;
     }
     const int idx = findConnectionIndexByName(connName);
@@ -3043,16 +3023,20 @@ void MainWindow::importPoolFromRow(int row) {
     if (actionsLocked()) {
         return;
     }
-    QTableWidgetItem* connItem = m_importablePoolsTable->item(row, 1);
-    QTableWidgetItem* poolItem = m_importablePoolsTable->item(row, 2);
-    QTableWidgetItem* stateItem = m_importablePoolsTable->item(row, 3);
+    QTableWidgetItem* connItem = m_importedPoolsTable->item(row, 0);
+    QTableWidgetItem* poolItem = m_importedPoolsTable->item(row, 1);
+    QTableWidgetItem* stateItem = m_importedPoolsTable->item(row, 2);
     if (!connItem || !poolItem) {
         return;
     }
     const QString connName = connItem->text().trimmed();
     const QString poolName = poolItem->text().trimmed();
     const QString poolState = stateItem ? stateItem->text().trimmed().toUpper() : QString();
+    const QString action = m_importedPoolsTable->item(row, 3) ? m_importedPoolsTable->item(row, 3)->text().trimmed() : QString();
     if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
+        return;
+    }
+    if (action.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) != 0) {
         return;
     }
     if (poolState != QStringLiteral("ONLINE")) {
@@ -4170,7 +4154,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
 
 void MainWindow::populateAllPoolsTables() {
     m_importedPoolsTable->setRowCount(0);
-    m_importablePoolsTable->setRowCount(0);
     for (int i = 0; i < m_states.size(); ++i) {
         const auto& st = m_states[i];
         for (const PoolImported& pool : st.importedPools) {
@@ -4178,26 +4161,30 @@ void MainWindow::populateAllPoolsTables() {
             m_importedPoolsTable->insertRow(row);
             m_importedPoolsTable->setItem(row, 0, new QTableWidgetItem(pool.connection));
             m_importedPoolsTable->setItem(row, 1, new QTableWidgetItem(pool.pool));
-            auto* act = new QTableWidgetItem(pool.action);
+            auto* state = new QTableWidgetItem(QStringLiteral("ONLINE"));
+            state->setForeground(QBrush(QColor("#1f7a1f")));
+            m_importedPoolsTable->setItem(row, 2, state);
+            auto* act = new QTableWidgetItem(QStringLiteral("Exportar"));
             act->setForeground(QBrush(QColor("#1f5f8b")));
-            m_importedPoolsTable->setItem(row, 2, act);
+            m_importedPoolsTable->setItem(row, 3, act);
+            m_importedPoolsTable->setItem(row, 4, new QTableWidgetItem(QString()));
         }
         for (const PoolImportable& pool : st.importablePools) {
-            const int row = m_importablePoolsTable->rowCount();
-            m_importablePoolsTable->insertRow(row);
-            m_importablePoolsTable->setItem(row, 1, new QTableWidgetItem(pool.connection));
-            m_importablePoolsTable->setItem(row, 2, new QTableWidgetItem(pool.pool));
+            const int row = m_importedPoolsTable->rowCount();
+            m_importedPoolsTable->insertRow(row);
+            m_importedPoolsTable->setItem(row, 0, new QTableWidgetItem(pool.connection));
+            m_importedPoolsTable->setItem(row, 1, new QTableWidgetItem(pool.pool));
             auto* state = new QTableWidgetItem(pool.state);
             const QString up = pool.state.trimmed().toUpper();
             state->setForeground(QBrush((up == QStringLiteral("ONLINE")) ? QColor("#1f7a1f") : QColor("#a12a2a")));
-            m_importablePoolsTable->setItem(row, 3, state);
-            m_importablePoolsTable->setItem(row, 4, new QTableWidgetItem(pool.reason));
+            m_importedPoolsTable->setItem(row, 2, state);
+            m_importedPoolsTable->setItem(row, 4, new QTableWidgetItem(pool.reason));
             const QString action = (up == QStringLiteral("ONLINE")) ? pool.action : QString();
             auto* act = new QTableWidgetItem(action);
             if (!action.isEmpty()) {
                 act->setForeground(QBrush(QColor("#1f5f8b")));
             }
-            m_importablePoolsTable->setItem(row, 0, act);
+            m_importedPoolsTable->setItem(row, 3, act);
         }
     }
     refreshSelectedPoolDetails();
@@ -4264,6 +4251,10 @@ void MainWindow::refreshSelectedPoolDetails() {
     const QString connName = connItem->text().trimmed();
     const QString poolName = poolItem->text().trimmed();
     if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
+        return;
+    }
+    const QString action = m_importedPoolsTable->item(row, 3) ? m_importedPoolsTable->item(row, 3)->text().trimmed() : QString();
+    if (action.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) != 0) {
         return;
     }
     const int idx = findConnectionIndexByName(connName);
