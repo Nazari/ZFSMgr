@@ -3523,6 +3523,11 @@ void MainWindow::actionAdvancedCreateFromDir() {
         if (spec.kind == QStringLiteral("combo")) {
             QComboBox* cb = new QComboBox(propsContainer);
             cb->addItems(spec.values);
+            if (spec.name == QStringLiteral("compression")) {
+                // Permite niveles, por ejemplo: zstd-19, gzip-9.
+                cb->setEditable(true);
+                cb->setInsertPolicy(QComboBox::NoInsert);
+            }
             editor.combo = cb;
             propsGrid->addWidget(cb, r, cBase + 1);
         } else {
@@ -4779,6 +4784,11 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
         if (spec.kind == QStringLiteral("combo")) {
             QComboBox* cb = new QComboBox(propsContainer);
             cb->addItems(spec.values);
+            if (spec.name == QStringLiteral("compression")) {
+                // Permite niveles, por ejemplo: zstd-19, gzip-9.
+                cb->setEditable(true);
+                cb->setInsertPolicy(QComboBox::NoInsert);
+            }
             editor.combo = cb;
             propsGrid->addWidget(cb, r, cBase + 1);
         } else {
