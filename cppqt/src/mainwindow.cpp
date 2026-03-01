@@ -2255,9 +2255,16 @@ void MainWindow::updateTransferButtonsState() {
     const bool srcSnap = !m_originSelectedSnapshot.isEmpty();
     const bool dstDs = !m_destSelectedDataset.isEmpty();
     const bool dstSnap = !m_destSelectedSnapshot.isEmpty();
+    const QString srcSel = srcDs ? (srcSnap ? QStringLiteral("%1@%2").arg(m_originSelectedDataset, m_originSelectedSnapshot)
+                                            : m_originSelectedDataset)
+                                 : QString();
+    const QString dstSel = dstDs ? (dstSnap ? QStringLiteral("%1@%2").arg(m_destSelectedDataset, m_destSelectedSnapshot)
+                                            : m_destSelectedDataset)
+                                 : QString();
+    const bool sameSelection = !srcSel.isEmpty() && (srcSel == dstSel);
     m_btnCopy->setEnabled(srcDs && srcSnap && dstDs && !dstSnap);
-    m_btnLevel->setEnabled(srcDs && dstDs && !dstSnap);
-    m_btnSync->setEnabled(srcDs && !srcSnap && dstDs && !dstSnap);
+    m_btnLevel->setEnabled(srcDs && dstDs && !dstSnap && !sameSelection);
+    m_btnSync->setEnabled(srcDs && !srcSnap && dstDs && !dstSnap && !sameSelection);
     const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("advanced"));
     bool advDatasetOnly = actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty();
     if (advDatasetOnly) {
