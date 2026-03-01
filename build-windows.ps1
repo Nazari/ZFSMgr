@@ -106,12 +106,14 @@ if (-not $qtFromEnvValid) {
       foreach ($kitPattern in $orderedKitPatterns) {
         if ($picked) { break }
         foreach ($verDir in $qt6Candidates) {
-          $cmakeCandidates = Get-ChildItem -Path $verDir.FullName -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match $kitPattern } |
-            ForEach-Object { Join-Path $_.FullName "lib\cmake\Qt6" } |
-            Where-Object { Test-Path (Join-Path $_ "Qt6Config.cmake") }
+          $cmakeCandidates = @(
+            Get-ChildItem -Path $verDir.FullName -Directory -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -match $kitPattern } |
+              ForEach-Object { Join-Path $_.FullName "lib\cmake\Qt6" } |
+              Where-Object { Test-Path (Join-Path $_ "Qt6Config.cmake") }
+          )
           if ($cmakeCandidates.Count -gt 0) {
-            $picked = $cmakeCandidates[0]
+            $picked = $cmakeCandidates | Select-Object -First 1
             break
           }
         }
