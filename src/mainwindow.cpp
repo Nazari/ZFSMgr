@@ -3129,7 +3129,7 @@ void MainWindow::actionCopySnapshot() {
 
     const QString pipeline =
         srcSsh + QStringLiteral(" ") + shSingleQuote(sendCmd)
-        + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f 2>&1) || cat) | ")
+        + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
         + dstSsh + QStringLiteral(" ") + shSingleQuote(recvCmd);
 
     if (runLocalCommand(QStringLiteral("Copiar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0)) {
@@ -3245,7 +3245,7 @@ void MainWindow::actionLevelSnapshot() {
 
     const QString pipeline =
         srcSsh + QStringLiteral(" ") + shSingleQuote(sendCmd)
-        + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f 2>&1) || cat) | ")
+        + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
         + dstSsh + QStringLiteral(" ") + shSingleQuote(recvCmd);
 
     if (runLocalCommand(QStringLiteral("Nivelar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0, true)) {
@@ -3316,7 +3316,7 @@ void MainWindow::actionSyncDatasets() {
                                                 .arg(shSingleQuote(dstEffectiveMp))
                                           : QStringLiteral("mkdir -p %1 && tar --acls --xattrs -xpf - -C %1").arg(shSingleQuote(dstEffectiveMp));
             const QString command = sshExecFromLocal(sp, srcTarCmd)
-                + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f 2>&1) || cat) | ")
+                + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
                 + sshExecFromLocal(dp, dstTarCmd);
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("Sincronizar en Windows usa fallback tar/ssh (sin --delete)."));
@@ -3438,7 +3438,7 @@ void MainWindow::actionSyncDatasets() {
                                                 .arg(shSingleQuote(pair.second))
                                           : QStringLiteral("mkdir -p %1 && tar --acls --xattrs -xpf - -C %1").arg(shSingleQuote(pair.second));
             tarPipelines << (sshExecFromLocal(sp, srcTarCmd)
-                + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f 2>&1) || cat) | ")
+                + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
                 + sshExecFromLocal(dp, dstTarCmd));
         }
         const QString command = tarPipelines.join(QStringLiteral(" && "));
