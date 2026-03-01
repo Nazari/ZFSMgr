@@ -3119,7 +3119,8 @@ void MainWindow::actionCopySnapshot() {
     const ConnectionProfile& sp = m_profiles[src.connIdx];
     const ConnectionProfile& dp = m_profiles[dst.connIdx];
     const QString srcSnap = src.datasetName + QStringLiteral("@") + src.snapshotName;
-    const QString recvTarget = dst.datasetName + QStringLiteral("/") + src.datasetName.section('/', -1);
+    // Con send -R el stream ya contiene la jerarquía; el destino debe ser el dataset base seleccionado.
+    const QString recvTarget = dst.datasetName;
 
     const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
     const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
