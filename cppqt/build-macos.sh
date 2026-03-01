@@ -27,4 +27,21 @@ fi
 cmake -S "${SCRIPT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "$@"
 cmake --build "${BUILD_DIR}" -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
+APP_BUNDLE="${BUILD_DIR}/zfsmgr_qt.app"
+if [[ ! -d "${APP_BUNDLE}" ]]; then
+  echo "Error: no se ha generado ${APP_BUNDLE}" >&2
+  exit 1
+fi
+
+# Empaqueta frameworks/plugins de Qt dentro del .app (sin firma).
+if command -v macdeployqt >/dev/null 2>&1; then
+  macdeployqt "${APP_BUNDLE}" -always-overwrite
+else
+  echo "Aviso: macdeployqt no encontrado; el .app puede no ser portable fuera de este equipo."
+fi
+
+# Garantiza que la app quede sin firma.
+/usr/bin/codesign --remove-signature "${APP_BUNDLE}" >/dev/null 2>&1 || true
+
 echo "Build completado: ${BUILD_DIR}/zfsmgr_qt"
+echo "App macOS creada (sin firmar): ${APP_BUNDLE}"
