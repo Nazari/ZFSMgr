@@ -3133,8 +3133,16 @@ void MainWindow::actionCopySnapshot() {
     const ConnectionProfile& sp = m_profiles[src.connIdx];
     const ConnectionProfile& dp = m_profiles[dst.connIdx];
     const QString srcSnap = src.datasetName + QStringLiteral("@") + src.snapshotName;
-    // Con send -R el stream ya contiene la jerarquía; el destino debe ser el dataset base seleccionado.
-    const QString recvTarget = dst.datasetName;
+    // Con send -R, el usuario espera que el dataset origen cuelgue del dataset destino
+    // seleccionado (como padre), salvo cuando ya seleccionó explícitamente ese mismo dataset.
+    const QString srcLeaf = src.datasetName.section('/', -1);
+    QString recvTarget = dst.datasetName;
+    if (!srcLeaf.isEmpty()) {
+        const QString dstLeaf = dst.datasetName.section('/', -1);
+        if (!dst.datasetName.endsWith(QStringLiteral("/") + srcLeaf) && dstLeaf != srcLeaf) {
+            recvTarget = dst.datasetName + QStringLiteral("/") + srcLeaf;
+        }
+    }
 
     const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
     const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
