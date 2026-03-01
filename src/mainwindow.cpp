@@ -3513,11 +3513,25 @@ void MainWindow::actionAdvancedBreakdown() {
         dsPs.replace('\'', QStringLiteral("''"));
         const QString listCmd = QStringLiteral(
                                     "$ds='%1'; "
-                                    "$mp=(zfs get -H -o value mountpoint $ds 2>$null | Out-String).Trim(); "
-                                    "if ([string]::IsNullOrWhiteSpace($mp) -or $mp -eq 'none' -or $mp -eq 'legacy' -or $mp -eq '-') { "
-                                    "  $lines=@(zfs mount 2>$null); "
-                                    "  foreach ($ln in $lines) { $parts=$ln -split '\\\\s+',2; if ($parts.Count -ge 2 -and $parts[0] -eq $ds) { $mp=$parts[1]; break } } "
+                                    "function Resolve-Mp([string]$name){ "
+                                    "  $cur=$name; $anchor=$null; $drive=''; "
+                                    "  while($true){ "
+                                    "    $dl=(zfs get -H -o value driveletter $cur 2>$null | Out-String).Trim(); "
+                                    "    if(-not [string]::IsNullOrWhiteSpace($dl) -and $dl -ne '-' -and $dl.ToLower() -ne 'none'){ $drive=$dl; $anchor=$cur; break }; "
+                                    "    if($cur -notmatch '/'){ break }; "
+                                    "    $cur=$cur.Substring(0,$cur.LastIndexOf('/')); "
+                                    "  }; "
+                                    "  if([string]::IsNullOrWhiteSpace($drive)){ return '' }; "
+                                    "  $drive=$drive.Trim(); "
+                                    "  if($drive.Length -gt 0 -and $drive[$drive.Length-1] -eq ':'){ $drive=$drive.Substring(0,$drive.Length-1) }; "
+                                    "  $drive=$drive.Substring(0,1).ToUpper(); "
+                                    "  $base=$drive + ':\\\\'; "
+                                    "  if($name -eq $anchor){ return $base }; "
+                                    "  $suffix=$name.Substring($anchor.Length).TrimStart('/'); "
+                                    "  if([string]::IsNullOrWhiteSpace($suffix)){ return $base }; "
+                                    "  return ($base + ($suffix -replace '/','\\\\')) "
                                     "}; "
+                                    "$mp=Resolve-Mp $ds; "
                                     "if (-not [string]::IsNullOrWhiteSpace($mp)) { Write-Output ('__MP__=' + $mp) }; "
                                     "if ([string]::IsNullOrWhiteSpace($mp) -or -not (Test-Path -LiteralPath $mp)) { exit 0 }; "
                                     "Get-ChildItem -LiteralPath $mp -Directory -Force | Select-Object -ExpandProperty Name | Sort-Object -Unique")
@@ -3704,10 +3718,21 @@ void MainWindow::actionAdvancedBreakdown() {
                   "$ds='%1'; "
                   "$selected=@(%2); "
                   "function Resolve-Mp([string]$name){ "
-                  "  $m=(zfs get -H -o value mountpoint $name 2>$null | Out-String).Trim(); "
-                  "  if ([string]::IsNullOrWhiteSpace($m) -or $m -eq 'none' -or $m -eq 'legacy' -or $m -eq '-') { "
-                  "    $lines=@(zfs mount 2>$null); foreach($ln in $lines){ $parts=$ln -split '\\\\s+',2; if($parts.Count -ge 2 -and $parts[0] -eq $name){ $m=$parts[1]; break } } "
-                  "  }; return $m "
+                  "  $cur=$name; $anchor=$null; $drive=''; "
+                  "  while($true){ "
+                  "    $dl=(zfs get -H -o value driveletter $cur 2>$null | Out-String).Trim(); "
+                  "    if(-not [string]::IsNullOrWhiteSpace($dl) -and $dl -ne '-' -and $dl.ToLower() -ne 'none'){ $drive=$dl; $anchor=$cur; break }; "
+                  "    if($cur -notmatch '/'){ break }; "
+                  "    $cur=$cur.Substring(0,$cur.LastIndexOf('/')); "
+                  "  }; "
+                  "  if([string]::IsNullOrWhiteSpace($drive)){ return '' }; "
+                  "  $drive=$drive.Trim(); if($drive.Length -gt 0 -and $drive[$drive.Length-1] -eq ':'){ $drive=$drive.Substring(0,$drive.Length-1) }; "
+                  "  $drive=$drive.Substring(0,1).ToUpper(); "
+                  "  $base=$drive + ':\\\\'; "
+                  "  if($name -eq $anchor){ return $base }; "
+                  "  $suffix=$name.Substring($anchor.Length).TrimStart('/'); "
+                  "  if([string]::IsNullOrWhiteSpace($suffix)){ return $base }; "
+                  "  return ($base + ($suffix -replace '/','\\\\')) "
                   "}; "
                   "$mp=Resolve-Mp $ds; "
                   "if ([string]::IsNullOrWhiteSpace($mp) -or -not (Test-Path -LiteralPath $mp)) { throw 'mountpoint=none' }; "
@@ -3870,10 +3895,21 @@ void MainWindow::actionAdvancedAssemble() {
                   "$parent='%1'; "
                   "$selected=@(%2); "
                   "function Resolve-Mp([string]$name){ "
-                  "  $m=(zfs get -H -o value mountpoint $name 2>$null | Out-String).Trim(); "
-                  "  if ([string]::IsNullOrWhiteSpace($m) -or $m -eq 'none' -or $m -eq 'legacy' -or $m -eq '-') { "
-                  "    $lines=@(zfs mount 2>$null); foreach($ln in $lines){ $parts=$ln -split '\\\\s+',2; if($parts.Count -ge 2 -and $parts[0] -eq $name){ $m=$parts[1]; break } } "
-                  "  }; return $m "
+                  "  $cur=$name; $anchor=$null; $drive=''; "
+                  "  while($true){ "
+                  "    $dl=(zfs get -H -o value driveletter $cur 2>$null | Out-String).Trim(); "
+                  "    if(-not [string]::IsNullOrWhiteSpace($dl) -and $dl -ne '-' -and $dl.ToLower() -ne 'none'){ $drive=$dl; $anchor=$cur; break }; "
+                  "    if($cur -notmatch '/'){ break }; "
+                  "    $cur=$cur.Substring(0,$cur.LastIndexOf('/')); "
+                  "  }; "
+                  "  if([string]::IsNullOrWhiteSpace($drive)){ return '' }; "
+                  "  $drive=$drive.Trim(); if($drive.Length -gt 0 -and $drive[$drive.Length-1] -eq ':'){ $drive=$drive.Substring(0,$drive.Length-1) }; "
+                  "  $drive=$drive.Substring(0,1).ToUpper(); "
+                  "  $base=$drive + ':\\\\'; "
+                  "  if($name -eq $anchor){ return $base }; "
+                  "  $suffix=$name.Substring($anchor.Length).TrimStart('/'); "
+                  "  if([string]::IsNullOrWhiteSpace($suffix)){ return $base }; "
+                  "  return ($base + ($suffix -replace '/','\\\\')) "
                   "}; "
                   "$pmp=Resolve-Mp $parent; "
                   "if ([string]::IsNullOrWhiteSpace($pmp) -or -not (Test-Path -LiteralPath $pmp)) { throw 'mountpoint=none' }; "
@@ -5489,32 +5525,37 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
     }
     const ConnectionProfile& p = m_profiles[ctx.connIdx];
 
-    QString targetsOut;
-    QString targetsErr;
-    int targetsRc = -1;
-    const QString targetsCmd = includeDescendants
-                                   ? withSudo(p, QStringLiteral("zfs get -H -o name,value mountpoint -r %1")
-                                                     .arg(shSingleQuote(ctx.datasetName)))
-                                   : withSudo(p, QStringLiteral("zfs get -H -o name,value mountpoint %1")
-                                                     .arg(shSingleQuote(ctx.datasetName)));
-    if (!runSsh(p, targetsCmd, 20000, targetsOut, targetsErr, targetsRc) || targetsRc != 0) {
+    if (!ensureDatasetsLoaded(ctx.connIdx, ctx.poolName)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              tr3(QStringLiteral("No se pudo comprobar conflictos de mountpoint."),
                                  QStringLiteral("Could not validate mountpoint conflicts."),
                                  QStringLiteral("无法检查挂载点冲突。")));
         return false;
     }
+    const QString key = datasetCacheKey(ctx.connIdx, ctx.poolName);
+    const auto cacheIt = m_poolDatasetCache.constFind(key);
+    if (cacheIt == m_poolDatasetCache.constEnd() || !cacheIt->loaded) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             tr3(QStringLiteral("No se pudo comprobar conflictos de mountpoint."),
+                                 QStringLiteral("Could not validate mountpoint conflicts."),
+                                 QStringLiteral("无法检查挂载点冲突。")));
+        return false;
+    }
+    const PoolDatasetCache& cache = cacheIt.value();
 
     QMap<QString, QString> targetMpByDs;
     QMap<QString, QStringList> targetDsByMp;
-    for (const QString& ln : targetsOut.split('\n', Qt::SkipEmptyParts)) {
-        const QStringList parts = ln.split('\t');
-        if (parts.size() < 2) {
-            continue;
+    const QString prefix = ctx.datasetName + QStringLiteral("/");
+    for (auto it = cache.recordByName.constBegin(); it != cache.recordByName.constEnd(); ++it) {
+        const QString ds = it.key();
+        if (ds != ctx.datasetName) {
+            if (!includeDescendants || !ds.startsWith(prefix)) {
+                continue;
+            }
         }
-        const QString ds = parts[0].trimmed();
-        const QString mp = parts[1].trimmed();
-        const QString mpl = mp.toLower();
+        const DatasetRecord& rec = it.value();
+        const QString mp = effectiveMountPath(ctx.connIdx, ctx.poolName, ds, rec.mountpoint, rec.mounted);
+        const QString mpl = mp.trimmed().toLower();
         if (ds.isEmpty() || mp.isEmpty() || mpl == QStringLiteral("none") || mpl == QStringLiteral("-")) {
             continue;
         }
