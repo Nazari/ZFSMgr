@@ -26,6 +26,7 @@
 #include <QPlainTextEdit>
 #include <QProcess>
 #include <QPushButton>
+#include <QFileDialog>
 #include <QSplitter>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -686,6 +687,7 @@ void MainWindow::buildUi() {
     commandsLayout->setSpacing(10);
     m_btnAdvancedBreakdown = new QPushButton(tr3(QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")), commandsBox);
     m_btnAdvancedAssemble = new QPushButton(tr3(QStringLiteral("Ensamblar"), QStringLiteral("Assemble"), QStringLiteral("组装")), commandsBox);
+    m_btnAdvancedFromDir = new QPushButton(tr3(QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")), commandsBox);
     m_btnAdvancedBreakdown->setToolTip(
         tr3(QStringLiteral("Construye datasets a partir de directorios. "
                            "Requiere dataset y descendientes montados. "
@@ -712,17 +714,28 @@ void MainWindow::buildUi() {
                            "要求数据集及其后代已挂载。"
                            "可选择要组装的子数据集。"
                            "仅当 rsync 成功时才执行 zfs destroy。")));
+    m_btnAdvancedFromDir->setToolTip(
+        tr3(QStringLiteral("Crea un dataset hijo usando un directorio local como mountpoint.\n"
+                           "Requiere dataset seleccionado en Avanzado."),
+            QStringLiteral("Create a child dataset using a local directory as mountpoint.\n"
+                           "Requires a dataset selected in Advanced."),
+            QStringLiteral("使用本地目录作为挂载点创建子数据集。\n"
+                           "需要在高级页选择一个数据集。")));
     const int transferBtnH = m_btnCopy ? m_btnCopy->sizeHint().height() : m_btnAdvancedBreakdown->sizeHint().height();
     m_btnAdvancedBreakdown->setFixedHeight(transferBtnH);
     m_btnAdvancedAssemble->setFixedHeight(transferBtnH);
+    m_btnAdvancedFromDir->setFixedHeight(transferBtnH);
     m_btnAdvancedBreakdown->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnAdvancedAssemble->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnAdvancedFromDir->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnAdvancedBreakdown->setEnabled(false);
     m_btnAdvancedAssemble->setEnabled(false);
+    m_btnAdvancedFromDir->setEnabled(false);
     auto* commandsButtonsRow = new QHBoxLayout();
     commandsButtonsRow->setSpacing(8);
     commandsButtonsRow->addWidget(m_btnAdvancedBreakdown);
     commandsButtonsRow->addWidget(m_btnAdvancedAssemble);
+    commandsButtonsRow->addWidget(m_btnAdvancedFromDir);
     commandsLayout->addLayout(commandsButtonsRow);
     auto* advancedInfoTabs = new QTabWidget(advancedTab);
     advancedInfoTabs->setDocumentMode(false);
@@ -1370,6 +1383,10 @@ void MainWindow::buildUi() {
     connect(m_btnAdvancedAssemble, &QPushButton::clicked, this, [this]() {
         logUiAction(QStringLiteral("Ensamblar (botón)"));
         actionAdvancedAssemble();
+    });
+    connect(m_btnAdvancedFromDir, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Desde Dir (botón)"));
+        actionAdvancedCreateFromDir();
     });
 }
 
@@ -2566,6 +2583,7 @@ void MainWindow::updateTransferButtonsState() {
         if (m_btnSync) m_btnSync->setEnabled(false);
         if (m_btnAdvancedBreakdown) m_btnAdvancedBreakdown->setEnabled(false);
         if (m_btnAdvancedAssemble) m_btnAdvancedAssemble->setEnabled(false);
+        if (m_btnAdvancedFromDir) m_btnAdvancedFromDir->setEnabled(false);
         return;
     }
     const bool srcDs = !m_originSelectedDataset.isEmpty();
@@ -2611,6 +2629,9 @@ void MainWindow::updateTransferButtonsState() {
     }
     if (m_btnAdvancedAssemble) {
         m_btnAdvancedAssemble->setEnabled(advDatasetOnly);
+    }
+    if (m_btnAdvancedFromDir) {
+        m_btnAdvancedFromDir->setEnabled(actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty());
     }
 }
 
@@ -3323,6 +3344,271 @@ void MainWindow::actionAdvancedAssemble() {
     if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Ensamblar"), ctx, cmd, 0)) {
         m_advSelectionLabel->setText(ds);
     }
+}
+
+void MainWindow::actionAdvancedCreateFromDir() {
+    if (actionsLocked()) {
+        return;
+    }
+    const auto selected = m_advTree ? m_advTree->selectedItems() : QList<QTreeWidgetItem*>{};
+    if (selected.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("ZFSMgr"),
+                                 tr3(QStringLiteral("Seleccione un dataset en Avanzado."),
+                                     QStringLiteral("Select a dataset in Advanced."),
+                                     QStringLiteral("请在高级页选择一个数据集。")));
+        return;
+    }
+    const QString ds = selected.first()->data(0, Qt::UserRole).toString().trimmed();
+    const QString snap = selected.first()->data(1, Qt::UserRole).toString().trimmed();
+    if (ds.isEmpty() || !snap.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("ZFSMgr"),
+                                 tr3(QStringLiteral("Debe seleccionar un dataset (no snapshot)."),
+                                     QStringLiteral("You must select a dataset (not a snapshot)."),
+                                     QStringLiteral("必须选择数据集（不能是快照）。")));
+        return;
+    }
+
+    const QString token = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
+    const int sep = token.indexOf(QStringLiteral("::"));
+    if (sep <= 0) {
+        return;
+    }
+    DatasetSelectionContext ctx;
+    ctx.valid = true;
+    ctx.connIdx = token.left(sep).toInt();
+    ctx.poolName = token.mid(sep + 2);
+    ctx.datasetName = ds;
+    ctx.snapshotName.clear();
+
+    struct PropSpec {
+        QString name;
+        QString kind;
+        QStringList values;
+    };
+    struct PropEditor {
+        QString name;
+        QLineEdit* edit{nullptr};
+        QComboBox* combo{nullptr};
+    };
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr3(QStringLiteral("Crear dataset desde directorio"),
+                           QStringLiteral("Create dataset from directory"),
+                           QStringLiteral("从目录创建数据集")));
+    dlg.setModal(true);
+    dlg.resize(900, 760);
+
+    QVBoxLayout* root = new QVBoxLayout(&dlg);
+    root->setContentsMargins(10, 10, 10, 10);
+    root->setSpacing(8);
+
+    QWidget* formWidget = new QWidget(&dlg);
+    QGridLayout* form = new QGridLayout(formWidget);
+    form->setHorizontalSpacing(10);
+    form->setVerticalSpacing(6);
+    int row = 0;
+
+    QLabel* pathLabel = new QLabel(tr3(QStringLiteral("Path"), QStringLiteral("Path"), QStringLiteral("路径")), formWidget);
+    QLineEdit* pathEdit = new QLineEdit(formWidget);
+    pathEdit->setText(ds + QStringLiteral("/new_dataset"));
+    form->addWidget(pathLabel, row, 0);
+    form->addWidget(pathEdit, row, 1, 1, 3);
+    row++;
+
+    QLabel* typeLabel = new QLabel(tr3(QStringLiteral("Tipo"), QStringLiteral("Type"), QStringLiteral("类型")), formWidget);
+    QComboBox* typeCombo = new QComboBox(formWidget);
+    typeCombo->addItem(QStringLiteral("filesystem"), QStringLiteral("filesystem"));
+    typeCombo->setCurrentIndex(0);
+    typeCombo->setEnabled(false);
+    form->addWidget(typeLabel, row, 0);
+    form->addWidget(typeCombo, row, 1);
+    row++;
+
+    QLabel* mountDirLabel = new QLabel(tr3(QStringLiteral("Directorio local"),
+                                           QStringLiteral("Local directory"),
+                                           QStringLiteral("本地目录")),
+                                       formWidget);
+    QLineEdit* mountDirEdit = new QLineEdit(formWidget);
+    QPushButton* browseDirBtn = new QPushButton(
+        tr3(QStringLiteral("Seleccionar..."), QStringLiteral("Select..."), QStringLiteral("选择...")),
+        formWidget);
+    form->addWidget(mountDirLabel, row, 0);
+    form->addWidget(mountDirEdit, row, 1, 1, 2);
+    form->addWidget(browseDirBtn, row, 3);
+    row++;
+    QObject::connect(browseDirBtn, &QPushButton::clicked, &dlg, [&]() {
+        const QString picked = QFileDialog::getExistingDirectory(
+            &dlg,
+            tr3(QStringLiteral("Seleccionar directorio local"),
+                QStringLiteral("Select local directory"),
+                QStringLiteral("选择本地目录")),
+            mountDirEdit->text().trimmed());
+        if (!picked.trimmed().isEmpty()) {
+            mountDirEdit->setText(picked);
+        }
+    });
+
+    QLabel* blocksizeLabel = new QLabel(tr3(QStringLiteral("Blocksize"), QStringLiteral("Blocksize"), QStringLiteral("块大小")), formWidget);
+    QLineEdit* blocksizeEdit = new QLineEdit(formWidget);
+    form->addWidget(blocksizeLabel, row, 0);
+    form->addWidget(blocksizeEdit, row, 1);
+    row++;
+
+    QWidget* optsWidget = new QWidget(formWidget);
+    QHBoxLayout* optsLay = new QHBoxLayout(optsWidget);
+    optsLay->setContentsMargins(0, 0, 0, 0);
+    optsLay->setSpacing(12);
+    QCheckBox* parentsChk = new QCheckBox(tr3(QStringLiteral("Crear padres (-p)"), QStringLiteral("Create parents (-p)"), QStringLiteral("创建父级(-p)")), optsWidget);
+    parentsChk->setChecked(true);
+    optsLay->addWidget(parentsChk);
+    optsLay->addStretch(1);
+    form->addWidget(optsWidget, row, 0, 1, 4);
+    row++;
+
+    QLabel* extraLabel = new QLabel(tr3(QStringLiteral("Argumentos extra"), QStringLiteral("Extra args"), QStringLiteral("额外参数")), formWidget);
+    QLineEdit* extraEdit = new QLineEdit(formWidget);
+    form->addWidget(extraLabel, row, 0);
+    form->addWidget(extraEdit, row, 1, 1, 3);
+    row++;
+
+    root->addWidget(formWidget);
+
+    QGroupBox* propsGroup = new QGroupBox(tr3(QStringLiteral("Propiedades"), QStringLiteral("Properties"), QStringLiteral("属性")), &dlg);
+    QVBoxLayout* propsGroupLay = new QVBoxLayout(propsGroup);
+    propsGroupLay->setContentsMargins(6, 6, 6, 6);
+    propsGroupLay->setSpacing(4);
+
+    QScrollArea* propsScroll = new QScrollArea(propsGroup);
+    propsScroll->setWidgetResizable(true);
+    QWidget* propsContainer = new QWidget(propsScroll);
+    QGridLayout* propsGrid = new QGridLayout(propsContainer);
+    propsGrid->setHorizontalSpacing(8);
+    propsGrid->setVerticalSpacing(4);
+
+    const QList<PropSpec> propSpecs = {
+        {QStringLiteral("canmount"), QStringLiteral("combo"), {QString(), QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("noauto")}},
+        {QStringLiteral("compression"), QStringLiteral("combo"), {QString(), QStringLiteral("off"), QStringLiteral("on"), QStringLiteral("lz4"), QStringLiteral("gzip"), QStringLiteral("zstd"), QStringLiteral("zle")}},
+        {QStringLiteral("atime"), QStringLiteral("combo"), {QString(), QStringLiteral("on"), QStringLiteral("off")}},
+        {QStringLiteral("relatime"), QStringLiteral("combo"), {QString(), QStringLiteral("on"), QStringLiteral("off")}},
+        {QStringLiteral("xattr"), QStringLiteral("combo"), {QString(), QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("sa")}},
+        {QStringLiteral("acltype"), QStringLiteral("combo"), {QString(), QStringLiteral("off"), QStringLiteral("posix"), QStringLiteral("nfsv4")}},
+        {QStringLiteral("aclinherit"), QStringLiteral("combo"), {QString(), QStringLiteral("discard"), QStringLiteral("noallow"), QStringLiteral("restricted"), QStringLiteral("passthrough"), QStringLiteral("passthrough-x")}},
+        {QStringLiteral("recordsize"), QStringLiteral("entry"), {}},
+        {QStringLiteral("quota"), QStringLiteral("entry"), {}},
+        {QStringLiteral("reservation"), QStringLiteral("entry"), {}},
+        {QStringLiteral("refquota"), QStringLiteral("entry"), {}},
+        {QStringLiteral("refreservation"), QStringLiteral("entry"), {}},
+        {QStringLiteral("copies"), QStringLiteral("combo"), {QString(), QStringLiteral("1"), QStringLiteral("2"), QStringLiteral("3")}},
+        {QStringLiteral("checksum"), QStringLiteral("combo"), {QString(), QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("fletcher2"), QStringLiteral("fletcher4"), QStringLiteral("sha256"), QStringLiteral("sha512"), QStringLiteral("skein"), QStringLiteral("edonr")}},
+        {QStringLiteral("sync"), QStringLiteral("combo"), {QString(), QStringLiteral("standard"), QStringLiteral("always"), QStringLiteral("disabled")}},
+        {QStringLiteral("logbias"), QStringLiteral("combo"), {QString(), QStringLiteral("latency"), QStringLiteral("throughput")}},
+        {QStringLiteral("primarycache"), QStringLiteral("combo"), {QString(), QStringLiteral("all"), QStringLiteral("none"), QStringLiteral("metadata")}},
+        {QStringLiteral("secondarycache"), QStringLiteral("combo"), {QString(), QStringLiteral("all"), QStringLiteral("none"), QStringLiteral("metadata")}},
+        {QStringLiteral("dedup"), QStringLiteral("combo"), {QString(), QStringLiteral("off"), QStringLiteral("on"), QStringLiteral("verify"), QStringLiteral("sha256"), QStringLiteral("sha512"), QStringLiteral("skein")}},
+        {QStringLiteral("normalization"), QStringLiteral("combo"), {QString(), QStringLiteral("none"), QStringLiteral("formC"), QStringLiteral("formD"), QStringLiteral("formKC"), QStringLiteral("formKD")}},
+        {QStringLiteral("casesensitivity"), QStringLiteral("combo"), {QString(), QStringLiteral("sensitive"), QStringLiteral("insensitive"), QStringLiteral("mixed")}},
+        {QStringLiteral("utf8only"), QStringLiteral("combo"), {QString(), QStringLiteral("on"), QStringLiteral("off")}},
+    };
+
+    QList<PropEditor> propEditors;
+    propEditors.reserve(propSpecs.size());
+    for (int i = 0; i < propSpecs.size(); ++i) {
+        const PropSpec& spec = propSpecs[i];
+        const int r = i / 2;
+        const int cBase = (i % 2) * 2;
+        QLabel* lbl = new QLabel(spec.name, propsContainer);
+        propsGrid->addWidget(lbl, r, cBase);
+        PropEditor editor;
+        editor.name = spec.name;
+        if (spec.kind == QStringLiteral("combo")) {
+            QComboBox* cb = new QComboBox(propsContainer);
+            cb->addItems(spec.values);
+            editor.combo = cb;
+            propsGrid->addWidget(cb, r, cBase + 1);
+        } else {
+            QLineEdit* le = new QLineEdit(propsContainer);
+            editor.edit = le;
+            propsGrid->addWidget(le, r, cBase + 1);
+        }
+        propEditors.push_back(editor);
+    }
+    propsContainer->setLayout(propsGrid);
+    propsScroll->setWidget(propsContainer);
+    propsGroupLay->addWidget(propsScroll);
+    root->addWidget(propsGroup, 1);
+
+    QDialogButtonBox* buttons = new QDialogButtonBox(&dlg);
+    QPushButton* cancelBtn = buttons->addButton(tr3(QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), QDialogButtonBox::RejectRole);
+    QPushButton* createBtn = buttons->addButton(
+        tr3(QStringLiteral("Crear"), QStringLiteral("Create"), QStringLiteral("创建")),
+        QDialogButtonBox::AcceptRole);
+    root->addWidget(buttons);
+    QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
+
+    bool accepted = false;
+    CreateDatasetOptions opt;
+    QString selectedMountDir;
+    QObject::connect(createBtn, &QPushButton::clicked, &dlg, [&]() {
+        const QString path = pathEdit->text().trimmed();
+        const QString mountDir = mountDirEdit->text().trimmed();
+        if (path.isEmpty()) {
+            QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
+                                 tr3(QStringLiteral("Debe indicar el path del dataset."),
+                                     QStringLiteral("Dataset path is required."),
+                                     QStringLiteral("必须指定数据集路径。")));
+            return;
+        }
+        if (mountDir.isEmpty()) {
+            QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
+                                 tr3(QStringLiteral("Debe seleccionar un directorio local."),
+                                     QStringLiteral("You must select a local directory."),
+                                     QStringLiteral("必须选择本地目录。")));
+            return;
+        }
+
+        QStringList properties;
+        properties << QStringLiteral("mountpoint=") + mountDir;
+        for (const PropEditor& pe : propEditors) {
+            QString v;
+            if (pe.combo) {
+                v = pe.combo->currentText().trimmed();
+            } else if (pe.edit) {
+                v = pe.edit->text().trimmed();
+            }
+            if (!v.isEmpty()) {
+                properties.push_back(pe.name + QStringLiteral("=") + v);
+            }
+        }
+
+        opt.datasetPath = path;
+        opt.dsType = QStringLiteral("filesystem");
+        opt.volsize.clear();
+        opt.blocksize = blocksizeEdit->text().trimmed();
+        opt.parents = parentsChk->isChecked();
+        opt.sparse = false;
+        opt.nomount = false;
+        opt.snapshotRecursive = false;
+        opt.properties = properties;
+        opt.extraArgs = extraEdit->text().trimmed();
+        selectedMountDir = mountDir;
+        accepted = true;
+        dlg.accept();
+    });
+
+    if (dlg.exec() != QDialog::Accepted || !accepted) {
+        return;
+    }
+
+    const QString createCmd = buildZfsCreateCmd(opt);
+    const QString cmd = QStringLiteral("mkdir -p %1 && %2 && zfs mount %3")
+                            .arg(shSingleQuote(selectedMountDir),
+                                 createCmd,
+                                 shSingleQuote(opt.datasetPath));
+    executeDatasetAction(QStringLiteral("advanced"),
+                         tr3(QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")),
+                         ctx,
+                         cmd,
+                         90000);
 }
 
 void MainWindow::onDatasetPropsCellChanged(int row, int col) {
@@ -4084,7 +4370,8 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     reloadDatasetSide(side);
     if (actionName == QStringLiteral("Montar")
         || actionName == QStringLiteral("Montar con todos los hijos")
-        || actionName == QStringLiteral("Desmontar")) {
+        || actionName == QStringLiteral("Desmontar")
+        || actionName == QStringLiteral("Desde Dir")) {
         refreshConnectionByIndex(ctx.connIdx);
     }
     setActionsLocked(false);
@@ -5278,6 +5565,9 @@ void MainWindow::setActionsLocked(bool locked) {
         if (m_btnCopy) m_btnCopy->setEnabled(false);
         if (m_btnLevel) m_btnLevel->setEnabled(false);
         if (m_btnSync) m_btnSync->setEnabled(false);
+        if (m_btnAdvancedBreakdown) m_btnAdvancedBreakdown->setEnabled(false);
+        if (m_btnAdvancedAssemble) m_btnAdvancedAssemble->setEnabled(false);
+        if (m_btnAdvancedFromDir) m_btnAdvancedFromDir->setEnabled(false);
     } else {
         updateTransferButtonsState();
         updateApplyPropsButtonState();
