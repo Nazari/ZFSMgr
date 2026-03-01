@@ -2552,7 +2552,7 @@ void MainWindow::actionLevelSnapshot() {
         }
         const QString fromSnap = src.datasetName + QStringLiteral("@") + dstLatestSnap;
         srcSnap = src.datasetName + QStringLiteral("@") + srcLatestSnap;
-        sendCmd = withSudo(sp, QStringLiteral("zfs send -wLec -I %1 %2").arg(shSingleQuote(fromSnap), shSingleQuote(srcSnap)));
+        sendCmd = withSudo(sp, QStringLiteral("zfs send -wLecR -I %1 %2").arg(shSingleQuote(fromSnap), shSingleQuote(srcSnap)));
     }
     const QString recvTarget = dst.datasetName;
 
@@ -2573,7 +2573,7 @@ void MainWindow::actionLevelSnapshot() {
     }
     dstSsh += QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
 
-    QString recvCmd = withSudo(dp, QStringLiteral("zfs recv -F %1").arg(shSingleQuote(recvTarget)));
+    QString recvCmd = withSudo(dp, QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget)));
 
     const QString pipeline =
         srcSsh + QStringLiteral(" ") + shSingleQuote(sendCmd)
