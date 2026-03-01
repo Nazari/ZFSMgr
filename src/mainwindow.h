@@ -122,7 +122,7 @@ private:
     void reloadDatasetSide(const QString& side);
     void updateTransferButtonsState();
     void refreshTransferSelectionLabels();
-    bool runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs = 0, bool forceConfirmDialog = false);
+    bool runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs = 0, bool forceConfirmDialog = false, bool streamProgress = false);
     void actionCopySnapshot();
     void actionLevelSnapshot();
     void actionSyncDatasets();

@@ -57,6 +57,7 @@
 #include <QSignalBlocker>
 #include <QScrollArea>
 #include <QSettings>
+#include <QElapsedTimer>
 #include <functional>
 #include <cmath>
 
@@ -2837,7 +2838,7 @@ void MainWindow::updateTransferButtonsState() {
     }
 }
 
-bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs, bool forceConfirmDialog) {
+bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs, bool forceConfirmDialog, bool streamProgress) {
     if (!confirmActionExecution(displayLabel, {QStringLiteral("[local]\n%1").arg(command)}, forceConfirmDialog)) {
         return false;
     }
@@ -2851,24 +2852,81 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
         setActionsLocked(false);
         return false;
     }
-    if (timeoutMs > 0) {
-        if (!proc.waitForFinished(timeoutMs)) {
+    QString outBuf;
+    QString errBuf;
+    QString outRemainder;
+    QString errRemainder;
+    QElapsedTimer progressTimer;
+    progressTimer.start();
+    auto flushLines = [&](QString& remainder, const QString& chunk, const QString& level, bool progressAware) {
+        if (chunk.isEmpty()) {
+            return;
+        }
+        QString data = remainder + chunk;
+        data.replace('\r', '\n');
+        const QStringList parts = data.split('\n');
+        if (!data.endsWith('\n')) {
+            remainder = parts.isEmpty() ? data : parts.last();
+        } else {
+            remainder.clear();
+        }
+        const int limit = data.endsWith('\n') ? parts.size() : qMax(0, parts.size() - 1);
+        for (int i = 0; i < limit; ++i) {
+            const QString ln = parts[i].trimmed();
+            if (ln.isEmpty()) {
+                continue;
+            }
+            if (progressAware) {
+                const QString low = ln.toLower();
+                const bool looksLikeProgress = ln.contains('%')
+                    || low.contains(QStringLiteral("ib/s"))
+                    || low.contains(QStringLiteral("b/s"))
+                    || low.contains(QStringLiteral("to-chk"))
+                    || low.contains(QStringLiteral("xfr#"));
+                if (looksLikeProgress) {
+                    if (progressTimer.elapsed() < 700) {
+                        continue;
+                    }
+                    progressTimer.restart();
+                    appLog(QStringLiteral("INFO"), QStringLiteral("[progress] %1").arg(ln));
+                    continue;
+                }
+            }
+            appLog(level, oneLine(ln));
+        }
+    };
+
+    const qint64 startMs = QDateTime::currentMSecsSinceEpoch();
+    while (proc.state() != QProcess::NotRunning) {
+        if (timeoutMs > 0 && (QDateTime::currentMSecsSinceEpoch() - startMs) > timeoutMs) {
             proc.kill();
             proc.waitForFinished(1000);
             appLog(QStringLiteral("NORMAL"), QStringLiteral("Timeout en comando local"));
             setActionsLocked(false);
             return false;
         }
-    } else {
-        proc.waitForFinished(-1);
+        proc.waitForFinished(200);
+        const QString outChunk = QString::fromUtf8(proc.readAllStandardOutput());
+        const QString errChunk = QString::fromUtf8(proc.readAllStandardError());
+        outBuf += outChunk;
+        errBuf += errChunk;
+        if (streamProgress) {
+            flushLines(outRemainder, outChunk, QStringLiteral("INFO"), true);
+            flushLines(errRemainder, errChunk, QStringLiteral("INFO"), true);
+        }
     }
+    if (streamProgress) {
+        flushLines(outRemainder, QStringLiteral("\n"), QStringLiteral("INFO"), true);
+        flushLines(errRemainder, QStringLiteral("\n"), QStringLiteral("INFO"), true);
+    }
+
     const int rc = proc.exitCode();
-    const QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
-    const QString err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
-    if (!out.isEmpty()) {
+    const QString out = outBuf.trimmed();
+    const QString err = errBuf.trimmed();
+    if (!out.isEmpty() && !streamProgress) {
         appLog(QStringLiteral("INFO"), oneLine(out));
     }
-    if (!err.isEmpty()) {
+    if (!err.isEmpty() && !streamProgress) {
         appLog(QStringLiteral("INFO"), oneLine(err));
     }
     if (rc != 0) {
@@ -3069,7 +3127,7 @@ void MainWindow::actionSyncDatasets() {
             const QString command = sshExecFromLocal(sp, srcTarCmd) + QStringLiteral(" | ") + sshExecFromLocal(dp, dstTarCmd);
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("Sincronizar en Windows usa fallback tar/ssh (sin --delete)."));
-            if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0)) {
+            if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0, false, true)) {
                 invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
                 reloadDatasetSide(QStringLiteral("dest"));
             }
@@ -3084,7 +3142,7 @@ void MainWindow::actionSyncDatasets() {
                        shSingleQuote(dstMp));
         remoteRsync = withSudo(sp, remoteRsync);
         const QString command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
-        if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0)) {
+        if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0, false, true)) {
             invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
             reloadDatasetSide(QStringLiteral("dest"));
         }
@@ -3195,7 +3253,9 @@ void MainWindow::actionSyncDatasets() {
                                 .arg(src.datasetName, dst.datasetName)
                                 .arg(syncPairs.size()),
                             command,
-                            0)) {
+                            0,
+                            false,
+                            true)) {
             invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
             reloadDatasetSide(QStringLiteral("dest"));
         }
@@ -3215,7 +3275,9 @@ void MainWindow::actionSyncDatasets() {
                                 .arg(src.datasetName, dst.datasetName)
                                 .arg(syncPairs.size()),
                             command,
-                            0)) {
+                            0,
+                            false,
+                            true)) {
             invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
             reloadDatasetSide(QStringLiteral("dest"));
         }
