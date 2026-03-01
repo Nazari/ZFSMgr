@@ -188,12 +188,13 @@ bool ConnectionDialog::testSshConnection(const ConnectionProfile& p, QString& de
         }
     }
 
-    args << "-o" << (hasPassword ? "BatchMode=no" : "BatchMode=yes");
+    args << "-o" << "BatchMode=yes";
     args << "-o" << "ConnectTimeout=8";
     args << "-o" << "LogLevel=ERROR";
     args << "-o" << "StrictHostKeyChecking=no";
     args << "-o" << "UserKnownHostsFile=/dev/null";
-    if (hasPassword) {
+    if (hasPassword && usingSshpass) {
+        args << "-o" << "BatchMode=no";
         args << "-o" << "PreferredAuthentications=password,keyboard-interactive,publickey";
         args << "-o" << "NumberOfPasswordPrompts=1";
     }
@@ -211,10 +212,6 @@ bool ConnectionDialog::testSshConnection(const ConnectionProfile& p, QString& de
     if (!proc.waitForStarted(3000)) {
         detail = QStringLiteral("No se pudo iniciar %1").arg(program);
         return false;
-    }
-    if (hasPassword && !usingSshpass) {
-        proc.write((p.password + QLatin1Char('\n')).toUtf8());
-        proc.closeWriteChannel();
     }
     if (!proc.waitForFinished(12000)) {
         proc.kill();
@@ -265,6 +262,9 @@ void ConnectionDialog::testConnection() {
                                      .arg(p.username, p.host)
                                      .arg(p.port));
         return;
+    }
+    if (!p.password.trimmed().isEmpty() && QStandardPaths::findExecutable(QStringLiteral("sshpass")).isEmpty()) {
+        detail += QStringLiteral("\n\nNota: para autenticación por password sin prompt interactivo, instale sshpass.");
     }
     QMessageBox::critical(this,
                           QStringLiteral("ZFSMgr"),

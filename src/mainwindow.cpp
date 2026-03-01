@@ -1580,12 +1580,27 @@ void MainWindow::createConnection() {
     if (dlg.exec() != QDialog::Accepted) {
         return;
     }
+    ConnectionProfile created = dlg.profile();
+    QString createdId = created.id.trimmed();
+    if (createdId.isEmpty()) {
+        createdId = created.name.trimmed().toLower();
+        createdId.replace(' ', '_');
+        createdId.replace(':', '_');
+        createdId.replace('/', '_');
+    }
     QString err;
-    if (!m_store.upsertConnection(dlg.profile(), err)) {
+    if (!m_store.upsertConnection(created, err)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"), QStringLiteral("No se pudo crear conexión:\n%1").arg(err));
         return;
     }
     loadConnections();
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        if (m_profiles[i].id == createdId) {
+            m_connectionsList->setCurrentRow(i);
+            refreshSelectedConnection();
+            break;
+        }
+    }
 }
 
 void MainWindow::editConnection() {
@@ -1614,7 +1629,6 @@ void MainWindow::editConnection() {
         return;
     }
     loadConnections();
-    refreshAllConnections();
 }
 
 void MainWindow::deleteConnection() {
@@ -1645,7 +1659,6 @@ void MainWindow::deleteConnection() {
         return;
     }
     loadConnections();
-    refreshAllConnections();
 }
 
 void MainWindow::onConnectionSelectionChanged() {
@@ -1897,12 +1910,13 @@ bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, in
         }
     }
 
-    args << "-o" << (hasPassword ? "BatchMode=no" : "BatchMode=yes");
+    args << "-o" << "BatchMode=yes";
     args << "-o" << "ConnectTimeout=10";
     args << "-o" << "LogLevel=ERROR";
     args << "-o" << "StrictHostKeyChecking=no";
     args << "-o" << "UserKnownHostsFile=/dev/null";
-    if (hasPassword) {
+    if (hasPassword && usingSshpass) {
+        args << "-o" << "BatchMode=no";
         args << "-o" << "PreferredAuthentications=password,keyboard-interactive,publickey";
         args << "-o" << "NumberOfPasswordPrompts=1";
     }
@@ -1921,6 +1935,9 @@ bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, in
                                 .arg(remoteCmd);
     appLog(QStringLiteral("INFO"), cmdLine);
     appendConnectionLog(p.id, cmdLine);
+    if (hasPassword && !usingSshpass) {
+        appendConnectionLog(p.id, QStringLiteral("Password guardado, pero sshpass no está disponible; se usará SSH no interactivo."));
+    }
 
     QProcess proc;
     proc.start(program, args);
@@ -1928,10 +1945,6 @@ bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, in
         err = QStringLiteral("No se pudo iniciar %1").arg(program);
         appendConnectionLog(p.id, err);
         return false;
-    }
-    if (hasPassword && !usingSshpass) {
-        proc.write((p.password + QLatin1Char('\n')).toUtf8());
-        proc.closeWriteChannel();
     }
     if (!proc.waitForFinished(timeoutMs)) {
         proc.kill();
