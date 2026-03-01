@@ -4162,15 +4162,205 @@ void MainWindow::actionAdvancedCreateFromDir() {
     form->addWidget(browseDirBtn, row, 3);
     row++;
     QObject::connect(browseDirBtn, &QPushButton::clicked, &dlg, [&]() {
-        const QString picked = QFileDialog::getExistingDirectory(
-            &dlg,
-            tr3(QStringLiteral("Seleccionar directorio local"),
-                QStringLiteral("Select local directory"),
-                QStringLiteral("选择本地目录")),
-            mountDirEdit->text().trimmed());
-        if (!picked.trimmed().isEmpty()) {
-            mountDirEdit->setText(picked);
+        if (ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
+            QMessageBox::warning(
+                &dlg,
+                QStringLiteral("ZFSMgr"),
+                tr3(QStringLiteral("Conexión inválida para explorar directorios remotos."),
+                    QStringLiteral("Invalid connection for remote directory browsing."),
+                    QStringLiteral("用于远程目录浏览的连接无效。")));
+            return;
         }
+        const ConnectionProfile& prof = m_profiles[ctx.connIdx];
+        const bool isWinRemote = isWindowsConnection(ctx.connIdx);
+
+        auto parentPath = [&](const QString& current) -> QString {
+            if (isWinRemote) {
+                QString p = current.trimmed();
+                if (p.isEmpty()) {
+                    return QStringLiteral("C:\\");
+                }
+                p.replace('/', '\\');
+                const QRegularExpression rootRx(QStringLiteral("^[A-Za-z]:\\\\?$"));
+                if (rootRx.match(p).hasMatch()) {
+                    return p.endsWith('\\') ? p : (p + QStringLiteral("\\"));
+                }
+                const int pos = p.lastIndexOf('\\');
+                if (pos <= 2) {
+                    return (p.size() >= 2) ? (p.left(2) + QStringLiteral("\\")) : QStringLiteral("C:\\");
+                }
+                return p.left(pos);
+            }
+            const QString p = current.trimmed();
+            if (p.isEmpty() || p == QStringLiteral("/")) {
+                return QStringLiteral("/");
+            }
+            const int pos = p.lastIndexOf('/');
+            if (pos <= 0) {
+                return QStringLiteral("/");
+            }
+            return p.left(pos);
+        };
+
+        auto joinPath = [&](const QString& base, const QString& name) -> QString {
+            if (isWinRemote) {
+                QString b = base.trimmed();
+                if (b.isEmpty()) {
+                    b = QStringLiteral("C:\\");
+                }
+                b.replace('/', '\\');
+                return b.endsWith('\\') ? (b + name) : (b + QStringLiteral("\\") + name);
+            }
+            QString b = base.trimmed();
+            if (b.isEmpty()) {
+                b = QStringLiteral("/");
+            }
+            if (b == QStringLiteral("/")) {
+                return b + name;
+            }
+            return b.endsWith('/') ? (b + name) : (b + QStringLiteral("/") + name);
+        };
+
+        auto listRemoteDirs = [&](const QString& basePath, QString& resolvedPath, QStringList& children, QString& errorMsg) -> bool {
+            const QString fallbackRoot = isWinRemote ? QStringLiteral("C:\\") : QStringLiteral("/");
+            const QString requested = basePath.trimmed().isEmpty() ? fallbackRoot : basePath.trimmed();
+            QString remoteCmd;
+            if (isWinRemote) {
+                auto psSingle = [](const QString& v) {
+                    QString out = v;
+                    out.replace(QStringLiteral("'"), QStringLiteral("''"));
+                    return QStringLiteral("'") + out + QStringLiteral("'");
+                };
+                remoteCmd = QStringLiteral(
+                                "$base=%1; "
+                                "if (Test-Path -LiteralPath $base -PathType Container) { $p=(Resolve-Path -LiteralPath $base).Path } else { $p='C:\\' }; "
+                                "Write-Output $p; "
+                                "Get-ChildItem -LiteralPath $p -Directory -Name -ErrorAction SilentlyContinue | Sort-Object")
+                                .arg(psSingle(requested));
+            } else {
+                remoteCmd = QStringLiteral(
+                                "BASE=%1; "
+                                "if [ -d \"$BASE\" ]; then cd \"$BASE\" 2>/dev/null || cd /; else cd /; fi; "
+                                "pwd; find . -mindepth 1 -maxdepth 1 -type d -printf '%%f\\n' | sort")
+                                .arg(shSingleQuote(requested));
+            }
+            QString out;
+            QString err;
+            int rc = -1;
+            if (!runSsh(prof, remoteCmd, 20000, out, err, rc) || rc != 0) {
+                errorMsg = oneLine(err.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : err);
+                return false;
+            }
+            QStringList lines = out.split('\n', Qt::KeepEmptyParts);
+            while (!lines.isEmpty() && lines.last().trimmed().isEmpty()) {
+                lines.removeLast();
+            }
+            if (lines.isEmpty()) {
+                errorMsg = QStringLiteral("empty remote response");
+                return false;
+            }
+            resolvedPath = lines.takeFirst().trimmed();
+            children.clear();
+            for (const QString& ln : lines) {
+                const QString v = ln.trimmed();
+                if (!v.isEmpty()) {
+                    children << v;
+                }
+            }
+            return true;
+        };
+
+        QDialog picker(&dlg);
+        picker.setModal(true);
+        picker.resize(640, 460);
+        picker.setWindowTitle(
+            tr3(QStringLiteral("Seleccionar directorio remoto"),
+                QStringLiteral("Select remote directory"),
+                QStringLiteral("选择远程目录")));
+        QVBoxLayout* pv = new QVBoxLayout(&picker);
+        pv->setContentsMargins(10, 10, 10, 10);
+        pv->setSpacing(8);
+        QLabel* connInfo = new QLabel(
+            tr3(QStringLiteral("Conexión: %1").arg(prof.name),
+                QStringLiteral("Connection: %1").arg(prof.name),
+                QStringLiteral("连接：%1").arg(prof.name)),
+            &picker);
+        pv->addWidget(connInfo);
+        QLineEdit* currentPathEdit = new QLineEdit(&picker);
+        currentPathEdit->setReadOnly(true);
+        pv->addWidget(currentPathEdit);
+        QListWidget* dirList = new QListWidget(&picker);
+        dirList->setSelectionMode(QAbstractItemView::SingleSelection);
+        pv->addWidget(dirList, 1);
+        QHBoxLayout* navRow = new QHBoxLayout();
+        QPushButton* upBtn = new QPushButton(tr3(QStringLiteral("Subir"), QStringLiteral("Up"), QStringLiteral("上级")), &picker);
+        QPushButton* refreshBtn = new QPushButton(tr3(QStringLiteral("Actualizar"), QStringLiteral("Refresh"), QStringLiteral("刷新")), &picker);
+        navRow->addWidget(upBtn);
+        navRow->addWidget(refreshBtn);
+        navRow->addStretch(1);
+        pv->addLayout(navRow);
+        QDialogButtonBox* pb = new QDialogButtonBox(&picker);
+        QPushButton* cancelBtn = pb->addButton(tr3(QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), QDialogButtonBox::RejectRole);
+        QPushButton* selectBtn = pb->addButton(tr3(QStringLiteral("Seleccionar"), QStringLiteral("Select"), QStringLiteral("选择")), QDialogButtonBox::AcceptRole);
+        pv->addWidget(pb);
+        QObject::connect(cancelBtn, &QPushButton::clicked, &picker, &QDialog::reject);
+
+        QString current = mountDirEdit->text().trimmed();
+        if (current.isEmpty()) {
+            current = isWinRemote ? QStringLiteral("C:\\") : QStringLiteral("/");
+        }
+        std::function<void()> reloadDir;
+        reloadDir = [&]() {
+            QString resolved;
+            QStringList children;
+            QString errMsg;
+            dirList->clear();
+            if (!listRemoteDirs(current, resolved, children, errMsg)) {
+                QMessageBox::warning(
+                    &picker,
+                    QStringLiteral("ZFSMgr"),
+                    tr3(QStringLiteral("No se pudo listar directorios remotos:\n%1").arg(errMsg),
+                        QStringLiteral("Could not list remote directories:\n%1").arg(errMsg),
+                        QStringLiteral("无法列出远程目录：\n%1").arg(errMsg)));
+                return;
+            }
+            current = resolved;
+            currentPathEdit->setText(current);
+            const QString par = parentPath(current);
+            if (par != current) {
+                QListWidgetItem* upItem = new QListWidgetItem(QStringLiteral(".."), dirList);
+                upItem->setData(Qt::UserRole, par);
+            }
+            for (const QString& ch : children) {
+                QListWidgetItem* it = new QListWidgetItem(ch, dirList);
+                it->setData(Qt::UserRole, joinPath(current, ch));
+            }
+            if (dirList->count() > 0) {
+                dirList->setCurrentRow(0);
+            }
+        };
+        QObject::connect(refreshBtn, &QPushButton::clicked, &picker, [&]() { reloadDir(); });
+        QObject::connect(upBtn, &QPushButton::clicked, &picker, [&]() {
+            current = parentPath(current);
+            reloadDir();
+        });
+        QObject::connect(dirList, &QListWidget::itemDoubleClicked, &picker, [&](QListWidgetItem* item) {
+            if (!item) {
+                return;
+            }
+            const QString next = item->data(Qt::UserRole).toString().trimmed();
+            if (next.isEmpty()) {
+                return;
+            }
+            current = next;
+            reloadDir();
+        });
+        QObject::connect(selectBtn, &QPushButton::clicked, &picker, [&]() {
+            mountDirEdit->setText(currentPathEdit->text().trimmed());
+            picker.accept();
+        });
+        reloadDir();
+        picker.exec();
     });
 
     QLabel* blocksizeLabel = new QLabel(tr3(QStringLiteral("Blocksize"), QStringLiteral("Blocksize"), QStringLiteral("块大小")), formWidget);
