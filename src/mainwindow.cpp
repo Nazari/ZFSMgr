@@ -54,8 +54,6 @@
 #include <QSignalBlocker>
 #include <QScrollArea>
 #include <QSettings>
-#include <QPainter>
-#include <QPolygon>
 #include <functional>
 
 #include <QtConcurrent/QtConcurrent>
@@ -259,24 +257,6 @@ QString formatCommandPreview(const QString& input) {
         return header + QStringLiteral("\n  ") + pretty;
     }
     return pretty;
-}
-
-QIcon branchArrowIcon(bool expanded) {
-    QPixmap pm(10, 10);
-    pm.fill(Qt::transparent);
-    QPainter painter(&pm);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor(QStringLiteral("#0b2f4f")));
-    QPolygon poly;
-    if (expanded) {
-        poly << QPoint(2, 3) << QPoint(8, 3) << QPoint(5, 7);
-    } else {
-        poly << QPoint(3, 2) << QPoint(3, 8) << QPoint(7, 5);
-    }
-    painter.drawPolygon(poly);
-    painter.end();
-    return QIcon(pm);
 }
 
 } // namespace
@@ -546,7 +526,8 @@ void MainWindow::buildUi() {
         m_mountedDatasetsTableLeft->horizontalHeader()->setFont(hf);
     }
     m_mountedDatasetsTableLeft->setStyleSheet(
-        QStringLiteral("QScrollBar:vertical{width:8px;} "
+        QStringLiteral("QTableWidget{background:#fff4e8; color:#102233;} "
+                       "QScrollBar:vertical{width:8px;} "
                        "QScrollBar:horizontal{height:8px;}"));
     m_mountedDatasetsTableLeft->setColumnWidth(0, 180);
     m_mountedDatasetsTableLeft->setColumnWidth(1, 220);
@@ -571,6 +552,7 @@ void MainWindow::buildUi() {
         hf.setBold(false);
         m_datasetPropsTable->horizontalHeader()->setFont(hf);
     }
+    m_datasetPropsTable->setStyleSheet(QStringLiteral("QTableWidget{background:#fff4e8; color:#102233;}"));
     m_btnApplyDatasetProps = new QPushButton(
         tr3(QStringLiteral("Aplicar cambios"), QStringLiteral("Apply changes"), QStringLiteral("应用更改")),
         propsLeftTab);
@@ -663,7 +645,8 @@ void MainWindow::buildUi() {
         m_mountedDatasetsTableAdv->horizontalHeader()->setFont(hf);
     }
     m_mountedDatasetsTableAdv->setStyleSheet(
-        QStringLiteral("QScrollBar:vertical{width:8px;} "
+        QStringLiteral("QTableWidget{background:#fff4e8; color:#102233;} "
+                       "QScrollBar:vertical{width:8px;} "
                        "QScrollBar:horizontal{height:8px;}"));
     m_mountedDatasetsTableAdv->setColumnWidth(0, 180);
     m_mountedDatasetsTableAdv->setColumnWidth(1, 220);
@@ -688,6 +671,7 @@ void MainWindow::buildUi() {
         hf.setBold(false);
         m_advPropsTable->horizontalHeader()->setFont(hf);
     }
+    m_advPropsTable->setStyleSheet(QStringLiteral("QTableWidget{background:#fff4e8; color:#102233;}"));
     m_btnApplyAdvancedProps = new QPushButton(
         tr3(QStringLiteral("Aplicar cambios"), QStringLiteral("Apply changes"), QStringLiteral("应用更改")),
         propsAdvTab);
@@ -727,14 +711,13 @@ void MainWindow::buildUi() {
     auto* importedTab = new QWidget(m_rightTabs);
     auto* importedLayout = new QVBoxLayout(importedTab);
     m_importedPoolsTable = new QTableWidget(importedTab);
-    m_importedPoolsTable->setColumnCount(5);
+    m_importedPoolsTable->setColumnCount(4);
     m_importedPoolsTable->setHorizontalHeaderLabels(
-        {QStringLiteral("Conexión"), QStringLiteral("Pool"), QStringLiteral("Estado"), QStringLiteral("Acción"), QStringLiteral("Motivo")});
+        {QStringLiteral("Conexión"), QStringLiteral("Pool"), QStringLiteral("Estado"), QStringLiteral("Motivo")});
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
-    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
+    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
     m_importedPoolsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_importedPoolsTable->setContextMenuPolicy(Qt::NoContextMenu);
     m_importedPoolsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -765,6 +748,7 @@ void MainWindow::buildUi() {
     m_poolPropsTable->setSelectionMode(QAbstractItemView::NoSelection);
     m_poolPropsTable->verticalHeader()->setVisible(false);
     m_poolPropsTable->verticalHeader()->setDefaultSectionSize(22);
+    m_poolPropsTable->setStyleSheet(QStringLiteral("QTableWidget{background:#fff4e8; color:#102233;}"));
     enableSortableHeader(m_poolPropsTable);
     propsPoolLayout->addWidget(m_poolPropsTable, 1);
 
@@ -773,11 +757,27 @@ void MainWindow::buildUi() {
     auto* statusBody = new QHBoxLayout();
     statusBody->setContentsMargins(0, 0, 0, 0);
     statusBody->setSpacing(6);
-    auto* statusActions = new QVBoxLayout();
+    auto* statusActionsWrap = new QWidget(statusPoolTab);
+    auto* statusActions = new QVBoxLayout(statusActionsWrap);
     statusActions->setContentsMargins(0, 0, 0, 0);
-    statusActions->setSpacing(4);
+    statusActions->setSpacing(6);
     m_poolStatusRefreshBtn = new QPushButton(QStringLiteral("Actualizar"), statusPoolTab);
-    statusActions->addWidget(m_poolStatusRefreshBtn, 0, Qt::AlignTop);
+    m_poolStatusRefreshBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    statusActions->addWidget(m_poolStatusRefreshBtn);
+    m_poolStatusImportBtn = new QPushButton(QStringLiteral("Importar"), statusPoolTab);
+    m_poolStatusImportBtn->setEnabled(false);
+    m_poolStatusImportBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    statusActions->addWidget(m_poolStatusImportBtn);
+    m_poolStatusExportBtn = new QPushButton(QStringLiteral("Exportar"), statusPoolTab);
+    m_poolStatusExportBtn->setEnabled(false);
+    m_poolStatusExportBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    statusActions->addWidget(m_poolStatusExportBtn);
+    const int statusButtonsWidth = qMax(m_poolStatusRefreshBtn->sizeHint().width(),
+                                        qMax(m_poolStatusImportBtn->sizeHint().width(),
+                                             m_poolStatusExportBtn->sizeHint().width()));
+    m_poolStatusRefreshBtn->setMinimumWidth(statusButtonsWidth);
+    m_poolStatusImportBtn->setMinimumWidth(statusButtonsWidth);
+    m_poolStatusExportBtn->setMinimumWidth(statusButtonsWidth);
     statusActions->addStretch(1);
     m_poolStatusText = new QPlainTextEdit(statusPoolTab);
     m_poolStatusText->setReadOnly(true);
@@ -786,7 +786,7 @@ void MainWindow::buildUi() {
         mono.setPointSize(9);
         m_poolStatusText->setFont(mono);
     }
-    statusBody->addLayout(statusActions, 0);
+    statusBody->addWidget(statusActionsWrap, 0, Qt::AlignTop);
     statusBody->addWidget(m_poolStatusText, 1);
     statusPoolLayout->addLayout(statusBody, 1);
 
@@ -1121,16 +1121,8 @@ void MainWindow::buildUi() {
         }
     });
     connect(m_importedPoolsTable, &QTableWidget::cellClicked, this, [this](int row, int col) {
-        if (col == 3) {
-            const QString action = m_importedPoolsTable->item(row, 3) ? m_importedPoolsTable->item(row, 3)->text().trimmed() : QString();
-            if (action.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) == 0) {
-                logUiAction(QStringLiteral("Exportar pool (tabla)"));
-                exportPoolFromRow(row);
-            } else if (action.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) == 0) {
-                logUiAction(QStringLiteral("Importar pool (tabla)"));
-                importPoolFromRow(row);
-            }
-        }
+        Q_UNUSED(row);
+        Q_UNUSED(col);
         refreshSelectedPoolDetails();
     });
     connect(m_importedPoolsTable, &QTableWidget::itemSelectionChanged, this, [this]() {
@@ -1141,6 +1133,28 @@ void MainWindow::buildUi() {
         if (m_importedPoolsTable && !m_importedPoolsTable->selectedItems().isEmpty()) {
             refreshSelectedPoolDetails();
         }
+    });
+    connect(m_poolStatusImportBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_importedPoolsTable) {
+            return;
+        }
+        const auto sel = m_importedPoolsTable->selectedItems();
+        if (sel.isEmpty()) {
+            return;
+        }
+        logUiAction(QStringLiteral("Importar pool (botón Estado)"));
+        importPoolFromRow(sel.first()->row());
+    });
+    connect(m_poolStatusExportBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_importedPoolsTable) {
+            return;
+        }
+        const auto sel = m_importedPoolsTable->selectedItems();
+        if (sel.isEmpty()) {
+            return;
+        }
+        logUiAction(QStringLiteral("Exportar pool (botón Estado)"));
+        exportPoolFromRow(sel.first()->row());
     });
     connect(m_originPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onOriginPoolChanged(); });
     connect(m_destPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onDestPoolChanged(); });
@@ -1159,41 +1173,11 @@ void MainWindow::buildUi() {
     connect(m_originTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         onOriginTreeContextMenuRequested(pos);
     });
-    connect(m_originTree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
-        if (item && item->childCount() > 0) {
-            item->setIcon(0, branchArrowIcon(true));
-        }
-    });
-    connect(m_originTree, &QTreeWidget::itemCollapsed, this, [this](QTreeWidgetItem* item) {
-        if (item && item->childCount() > 0) {
-            item->setIcon(0, branchArrowIcon(false));
-        }
-    });
     connect(m_destTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         onDestTreeContextMenuRequested(pos);
     });
-    connect(m_destTree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
-        if (item && item->childCount() > 0) {
-            item->setIcon(0, branchArrowIcon(true));
-        }
-    });
-    connect(m_destTree, &QTreeWidget::itemCollapsed, this, [this](QTreeWidgetItem* item) {
-        if (item && item->childCount() > 0) {
-            item->setIcon(0, branchArrowIcon(false));
-        }
-    });
     connect(m_advTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         showDatasetContextMenu(QStringLiteral("advanced"), m_advTree, pos);
-    });
-    connect(m_advTree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
-        if (item && item->childCount() > 0) {
-            item->setIcon(0, branchArrowIcon(true));
-        }
-    });
-    connect(m_advTree, &QTreeWidget::itemCollapsed, this, [this](QTreeWidgetItem* item) {
-        if (item && item->childCount() > 0) {
-            item->setIcon(0, branchArrowIcon(false));
-        }
     });
     connect(m_datasetPropsTable, &QTableWidget::cellChanged, this, [this](int row, int col) {
         onDatasetPropsCellChanged(row, col);
@@ -1690,6 +1674,16 @@ void MainWindow::onDestPoolChanged() {
 }
 
 void MainWindow::onAdvancedPoolChanged() {
+    QString prevDataset;
+    QString prevSnapshot;
+    if (m_advTree) {
+        const auto selected = m_advTree->selectedItems();
+        if (!selected.isEmpty()) {
+            prevDataset = selected.first()->data(0, Qt::UserRole).toString();
+            prevSnapshot = selected.first()->data(1, Qt::UserRole).toString();
+        }
+    }
+
     const QString token = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
     const int sep = token.indexOf(QStringLiteral("::"));
     if (sep <= 0) {
@@ -1706,7 +1700,37 @@ void MainWindow::onAdvancedPoolChanged() {
     const int connIdx = token.left(sep).toInt();
     const QString poolName = token.mid(sep + 2);
     populateDatasetTree(m_advTree, connIdx, poolName, QStringLiteral("origin"));
-    if (m_advSelectionLabel) {
+
+    QTreeWidgetItem* restored = nullptr;
+    if (m_advTree && !prevDataset.isEmpty()) {
+        std::function<QTreeWidgetItem*(QTreeWidgetItem*)> findMatch = [&](QTreeWidgetItem* node) -> QTreeWidgetItem* {
+            if (!node) {
+                return nullptr;
+            }
+            const QString ds = node->data(0, Qt::UserRole).toString();
+            const QString snap = node->data(1, Qt::UserRole).toString();
+            if (ds == prevDataset && (prevSnapshot.isEmpty() || snap == prevSnapshot)) {
+                return node;
+            }
+            for (int i = 0; i < node->childCount(); ++i) {
+                if (auto* found = findMatch(node->child(i))) {
+                    return found;
+                }
+            }
+            return nullptr;
+        };
+        for (int i = 0; i < m_advTree->topLevelItemCount() && !restored; ++i) {
+            restored = findMatch(m_advTree->topLevelItem(i));
+        }
+    }
+
+    if (m_advTree && restored) {
+        for (QTreeWidgetItem* p = restored->parent(); p; p = p->parent()) {
+            m_advTree->expandItem(p);
+        }
+        m_advTree->setCurrentItem(restored);
+        m_advTree->scrollToItem(restored, QAbstractItemView::PositionAtCenter);
+    } else if (m_advSelectionLabel) {
         m_advSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
     }
     refreshDatasetProperties(QStringLiteral("advanced"));
@@ -1954,23 +1978,6 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         }
     }
     tree->expandToDepth(0);
-    std::function<void(QTreeWidgetItem*)> refreshBranchIcon = [&](QTreeWidgetItem* n) {
-        if (!n) {
-            return;
-        }
-        if (n->childCount() > 0) {
-            n->setIcon(0, branchArrowIcon(n->isExpanded()));
-        } else {
-            n->setIcon(0, QIcon());
-        }
-        for (int i = 0; i < n->childCount(); ++i) {
-            refreshBranchIcon(n->child(i));
-        }
-    };
-    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-        refreshBranchIcon(tree->topLevelItem(i));
-    }
-
     // Dropdown embebido en celda Snapshot, sin seleccionar ninguno al inicio.
     std::function<void(QTreeWidgetItem*)> attachCombos = [&](QTreeWidgetItem* n) {
         if (!n) {
@@ -2626,10 +2633,14 @@ void MainWindow::actionAdvancedBreakdown() {
     int listRc = -1;
     const QString listCmd = withSudo(
         p,
-        QStringLiteral("set -e; DATASET=%1; MP=$(zfs get -H -o value mountpoint \"$DATASET\"); "
-                       "[ \"$MP\" = \"none\" ] && exit 2; "
+        QStringLiteral("set -e; DATASET=%1; "
+                       "resolve_mp(){ ds=\"$1\"; mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
+                       "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$ds\" '$1==d{print $2; exit}');; esac; "
+                       "printf '%s' \"$mp\"; }; "
+                       "MP=$(resolve_mp \"$DATASET\"); "
+                       "[ -n \"$MP\" ] || exit 0; "
                        "[ -d \"$MP\" ] || exit 0; "
-                       "find \"$MP\" -mindepth 1 -maxdepth 1 -type d -printf '%%f\\n' | sort -u")
+                       "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); [ -n \"$bn\" ] && printf '%s\\n' \"$bn\"; done | sort -u")
             .arg(shSingleQuote(ds)));
     if (!runSsh(p, listCmd, 25000, listOut, listErr, listRc) || listRc != 0) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
@@ -2643,11 +2654,114 @@ void MainWindow::actionAdvancedBreakdown() {
         d = d.trimmed();
     }
     dirs.removeAll(QString());
+    QString mpOut;
+    QString mpErr;
+    int mpRc = -1;
+    const QString mpCmd = withSudo(
+        p,
+        QStringLiteral("DATASET=%1; "
+                       "mp=$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true); "
+                       "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$DATASET\" '$1==d{print $2; exit}');; esac; "
+                       "printf '%s' \"$mp\"")
+            .arg(shSingleQuote(ds)));
+    runSsh(p, mpCmd, 20000, mpOut, mpErr, mpRc);
+    const QString resolvedMp = mpOut.trimmed();
+
+    QString dsListOut;
+    QString dsListErr;
+    int dsListRc = -1;
+    QStringList datasetsDetected;
+    QSet<QString> childDatasetNames;
+    const QString dsListCmd = withSudo(
+        p,
+        QStringLiteral("zfs list -H -o name -r %1")
+            .arg(shSingleQuote(ds)));
+    if (runSsh(p, dsListCmd, 25000, dsListOut, dsListErr, dsListRc) && dsListRc == 0) {
+        datasetsDetected = dsListOut.split('\n', Qt::SkipEmptyParts);
+        for (QString& n : datasetsDetected) {
+            n = n.trimmed();
+        }
+        datasetsDetected.removeAll(QString());
+        const QString prefix = ds + QStringLiteral("/");
+        for (const QString& datasetName : datasetsDetected) {
+            if (!datasetName.startsWith(prefix)) {
+                continue;
+            }
+            const QString childPath = datasetName.mid(prefix.size());
+            const QString childName = childPath.section('/', 0, 0).trimmed();
+            if (!childName.isEmpty()) {
+                childDatasetNames.insert(childName);
+            }
+        }
+    }
+    if (!childDatasetNames.isEmpty()) {
+        dirs.erase(std::remove_if(dirs.begin(), dirs.end(),
+                                  [&](const QString& d) { return childDatasetNames.contains(d); }),
+                   dirs.end());
+    }
+    QString mountedDescOut;
+    QString mountedDescErr;
+    int mountedDescRc = -1;
+    QStringList mountedDescMountpoints;
+    const QString mountedDescCmd = withSudo(
+        p,
+        QStringLiteral("DATASET=%1; zfs mount | awk -v pfx=\"$DATASET/\" 'index($1,pfx)==1 {print $2}'")
+            .arg(shSingleQuote(ds)));
+    if (runSsh(p, mountedDescCmd, 25000, mountedDescOut, mountedDescErr, mountedDescRc) && mountedDescRc == 0) {
+        mountedDescMountpoints = mountedDescOut.split('\n', Qt::SkipEmptyParts);
+        for (QString& mp : mountedDescMountpoints) {
+            mp = mp.trimmed();
+        }
+        mountedDescMountpoints.removeAll(QString());
+    }
+    if (!resolvedMp.isEmpty() && !mountedDescMountpoints.isEmpty()) {
+        QString baseMp = resolvedMp;
+        while (baseMp.endsWith('/')) {
+            baseMp.chop(1);
+        }
+        dirs.erase(std::remove_if(dirs.begin(), dirs.end(),
+                                  [&](const QString& d) {
+                                      const QString dirPath = baseMp + QStringLiteral("/") + d;
+                                      const QString dirPathWithSlash = dirPath + QStringLiteral("/");
+                                      for (const QString& childMp : mountedDescMountpoints) {
+                                          if (childMp == dirPath || childMp.startsWith(dirPathWithSlash)) {
+                                              return true;
+                                          }
+                                      }
+                                      return false;
+                                  }),
+                   dirs.end());
+    }
     if (dirs.isEmpty()) {
+        const QString dirsText = dirs.isEmpty()
+                                     ? tr3(QStringLiteral("(ninguno)"), QStringLiteral("(none)"), QStringLiteral("（无）"))
+                                     : dirs.join('\n');
+        const QString datasetsText = datasetsDetected.isEmpty()
+                                         ? tr3(QStringLiteral("(ninguno)"), QStringLiteral("(none)"), QStringLiteral("（无）"))
+                                         : datasetsDetected.join('\n');
+        const QString mpText = resolvedMp.isEmpty()
+                                   ? tr3(QStringLiteral("(sin resolver)"), QStringLiteral("(unresolved)"), QStringLiteral("（未解析）"))
+                                   : resolvedMp;
+
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("No hay directorios para desglosar en el dataset seleccionado."),
-                                     QStringLiteral("No directories available to break down in selected dataset."),
-                                     QStringLiteral("所选数据集中没有可拆分目录。")));
+                                 tr3(QStringLiteral("No hay directorios para desglosar en el dataset seleccionado.\n\n"
+                                                    "Dataset: %1\n"
+                                                    "Mountpoint resuelto: %2\n\n"
+                                                    "Directorios detectados:\n%3\n\n"
+                                                    "Datasets detectados:\n%4")
+                                         .arg(ds, mpText, dirsText, datasetsText),
+                                     QStringLiteral("No directories available to break down in selected dataset.\n\n"
+                                                    "Dataset: %1\n"
+                                                    "Resolved mountpoint: %2\n\n"
+                                                    "Detected directories:\n%3\n\n"
+                                                    "Detected datasets:\n%4")
+                                         .arg(ds, mpText, dirsText, datasetsText),
+                                     QStringLiteral("所选数据集中没有可拆分目录。\n\n"
+                                                    "数据集：%1\n"
+                                                    "解析后的挂载点：%2\n\n"
+                                                    "检测到的目录：\n%3\n\n"
+                                                    "检测到的数据集：\n%4")
+                                         .arg(ds, mpText, dirsText, datasetsText)));
         return;
     }
     QStringList selectedDirs;
@@ -2672,10 +2786,14 @@ void MainWindow::actionAdvancedBreakdown() {
     const QString selectedList = selectedQuoted.join(' ');
 
     const QString cmd =
-        QStringLiteral("set -e; DATASET=%1; MP=$(zfs get -H -o value mountpoint \"$DATASET\"); "
-                       "[ \"$MP\" = \"none\" ] && { echo \"mountpoint=none\"; exit 2; }; "
+        QStringLiteral("set -e; DATASET=%1; "
+                       "resolve_mp(){ ds=\"$1\"; mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
+                       "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$ds\" '$1==d{print $2; exit}');; esac; "
+                       "printf '%s' \"$mp\"; }; "
+                       "MP=$(resolve_mp \"$DATASET\"); "
+                       "[ -n \"$MP\" ] || { echo \"mountpoint=none\"; exit 2; }; "
                        "SELECTED_DIRS=(%2); is_selected_dir(){ for s in \"${SELECTED_DIRS[@]}\"; do [ \"$s\" = \"$1\" ] && return 0; done; return 1; }; "
-                       "for d in \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); is_selected_dir \"$bn\" || continue; "
+                       "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); is_selected_dir \"$bn\" || continue; "
                        "zfs list -H -o name \"$DATASET/$bn\" >/dev/null 2>&1 || "
                        "{ zfs create \"$DATASET/$bn\"; rsync -aHAWXS --remove-source-files \"$d\"/ \"$MP/$bn\"/; }; done")
             .arg(shSingleQuote(ds), selectedList);
@@ -2797,11 +2915,15 @@ void MainWindow::actionAdvancedAssemble() {
     const QString selectedList = selectedQuoted.join(' ');
 
     const QString cmd =
-        QStringLiteral("set -e; DATASET=%1; MP=$(zfs get -H -o value mountpoint \"$DATASET\"); "
-                       "[ \"$MP\" = \"none\" ] && { echo \"mountpoint=none\"; exit 2; }; "
+        QStringLiteral("set -e; DATASET=%1; "
+                       "resolve_mp(){ ds=\"$1\"; mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
+                       "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$ds\" '$1==d{print $2; exit}');; esac; "
+                       "printf '%s' \"$mp\"; }; "
+                       "MP=$(resolve_mp \"$DATASET\"); "
+                       "[ -n \"$MP\" ] || { echo \"mountpoint=none\"; exit 2; }; "
                        "SELECTED_CHILDREN=(%2); "
                        "for child in \"${SELECTED_CHILDREN[@]}\"; do bn=${child##*/}; "
-                       "CMP=$(zfs get -H -o value mountpoint \"$child\"); [ \"$CMP\" = \"none\" ] && continue; "
+                       "CMP=$(resolve_mp \"$child\"); [ -n \"$CMP\" ] || continue; "
                        "mkdir -p \"$MP/$bn\"; rsync -aHAWXS \"$CMP\"/ \"$MP/$bn\"/ && zfs destroy -r \"$child\"; done")
             .arg(shSingleQuote(ds), selectedList);
     if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Ensamblar"), ctx, cmd, 0)) {
@@ -3123,7 +3245,8 @@ void MainWindow::exportPoolFromRow(int row) {
     }
     const QString connName = connItem->text().trimmed();
     const QString poolName = poolItem->text().trimmed();
-    const QString action = m_importedPoolsTable->item(row, 3) ? m_importedPoolsTable->item(row, 3)->text().trimmed() : QString();
+    QTableWidgetItem* stateItem = m_importedPoolsTable->item(row, 2);
+    const QString action = stateItem ? stateItem->data(Qt::UserRole + 1).toString().trimmed() : QString();
     if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
         return;
     }
@@ -3181,7 +3304,7 @@ void MainWindow::importPoolFromRow(int row) {
     const QString connName = connItem->text().trimmed();
     const QString poolName = poolItem->text().trimmed();
     const QString poolState = stateItem ? stateItem->text().trimmed().toUpper() : QString();
-    const QString action = m_importedPoolsTable->item(row, 3) ? m_importedPoolsTable->item(row, 3)->text().trimmed() : QString();
+    const QString action = stateItem ? stateItem->data(Qt::UserRole + 1).toString().trimmed() : QString();
     if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
         return;
     }
@@ -4313,11 +4436,9 @@ void MainWindow::populateAllPoolsTables() {
             m_importedPoolsTable->setItem(row, 1, new QTableWidgetItem(pool.pool));
             auto* state = new QTableWidgetItem(QStringLiteral("ONLINE"));
             state->setForeground(QBrush(QColor("#1f7a1f")));
+            state->setData(Qt::UserRole + 1, QStringLiteral("Exportar"));
             m_importedPoolsTable->setItem(row, 2, state);
-            auto* act = new QTableWidgetItem(QStringLiteral("Exportar"));
-            act->setForeground(QBrush(QColor("#1f5f8b")));
-            m_importedPoolsTable->setItem(row, 3, act);
-            m_importedPoolsTable->setItem(row, 4, new QTableWidgetItem(QString()));
+            m_importedPoolsTable->setItem(row, 3, new QTableWidgetItem(QString()));
         }
         for (const PoolImportable& pool : st.importablePools) {
             const int row = m_importedPoolsTable->rowCount();
@@ -4327,14 +4448,10 @@ void MainWindow::populateAllPoolsTables() {
             auto* state = new QTableWidgetItem(pool.state);
             const QString up = pool.state.trimmed().toUpper();
             state->setForeground(QBrush((up == QStringLiteral("ONLINE")) ? QColor("#1f7a1f") : QColor("#a12a2a")));
-            m_importedPoolsTable->setItem(row, 2, state);
-            m_importedPoolsTable->setItem(row, 4, new QTableWidgetItem(pool.reason));
             const QString action = (up == QStringLiteral("ONLINE")) ? pool.action : QString();
-            auto* act = new QTableWidgetItem(action);
-            if (!action.isEmpty()) {
-                act->setForeground(QBrush(QColor("#1f5f8b")));
-            }
-            m_importedPoolsTable->setItem(row, 3, act);
+            state->setData(Qt::UserRole + 1, action);
+            m_importedPoolsTable->setItem(row, 2, state);
+            m_importedPoolsTable->setItem(row, 3, new QTableWidgetItem(pool.reason));
         }
     }
     setTablePopulationMode(m_importedPoolsTable, false);
@@ -4391,6 +4508,12 @@ void MainWindow::refreshSelectedPoolDetails() {
     setTablePopulationMode(m_poolPropsTable, true);
     m_poolPropsTable->setRowCount(0);
     m_poolStatusText->clear();
+    if (m_poolStatusImportBtn) {
+        m_poolStatusImportBtn->setEnabled(false);
+    }
+    if (m_poolStatusExportBtn) {
+        m_poolStatusExportBtn->setEnabled(false);
+    }
 
     const auto sel = m_importedPoolsTable->selectedItems();
     if (sel.isEmpty()) {
@@ -4406,12 +4529,23 @@ void MainWindow::refreshSelectedPoolDetails() {
     }
     const QString connName = connItem->text().trimmed();
     const QString poolName = poolItem->text().trimmed();
+    QTableWidgetItem* stateItem = m_importedPoolsTable->item(row, 2);
+    const QString poolState = stateItem ? stateItem->text().trimmed().toUpper() : QString();
+    const QString action = stateItem ? stateItem->data(Qt::UserRole + 1).toString().trimmed() : QString();
+    const bool canExport = (action.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) == 0);
+    const bool canImport = (action.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) == 0
+                            && poolState == QStringLiteral("ONLINE"));
+    if (m_poolStatusExportBtn) {
+        m_poolStatusExportBtn->setEnabled(!actionsLocked() && canExport);
+    }
+    if (m_poolStatusImportBtn) {
+        m_poolStatusImportBtn->setEnabled(!actionsLocked() && canImport);
+    }
     if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
         setTablePopulationMode(m_poolPropsTable, false);
         return;
     }
-    const QString action = m_importedPoolsTable->item(row, 3) ? m_importedPoolsTable->item(row, 3)->text().trimmed() : QString();
-    if (action.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) != 0) {
+    if (!canExport) {
         setTablePopulationMode(m_poolPropsTable, false);
         return;
     }
@@ -4668,6 +4802,8 @@ void MainWindow::setActionsLocked(bool locked) {
     if (m_btnRefreshAll) m_btnRefreshAll->setEnabled(!locked);
     if (m_btnConfig) m_btnConfig->setEnabled(!locked);
     if (m_poolStatusRefreshBtn) m_poolStatusRefreshBtn->setEnabled(!locked);
+    if (m_poolStatusImportBtn) m_poolStatusImportBtn->setEnabled(!locked && m_poolStatusImportBtn->isEnabled());
+    if (m_poolStatusExportBtn) m_poolStatusExportBtn->setEnabled(!locked && m_poolStatusExportBtn->isEnabled());
     if (m_btnApplyDatasetProps) m_btnApplyDatasetProps->setEnabled(!locked && m_btnApplyDatasetProps->isEnabled());
     if (m_btnApplyAdvancedProps) m_btnApplyAdvancedProps->setEnabled(!locked && m_btnApplyAdvancedProps->isEnabled());
     if (locked) {
@@ -4677,6 +4813,7 @@ void MainWindow::setActionsLocked(bool locked) {
     } else {
         updateTransferButtonsState();
         updateApplyPropsButtonState();
+        refreshSelectedPoolDetails();
     }
 }
 

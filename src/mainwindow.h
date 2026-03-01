@@ -189,6 +189,8 @@ private:
     QTableWidget* m_poolPropsTable{nullptr};
     QPlainTextEdit* m_poolStatusText{nullptr};
     QPushButton* m_poolStatusRefreshBtn{nullptr};
+    QPushButton* m_poolStatusImportBtn{nullptr};
+    QPushButton* m_poolStatusExportBtn{nullptr};
     QStackedWidget* m_rightStack{nullptr};
     QComboBox* m_originPoolCombo{nullptr};
     QComboBox* m_destPoolCombo{nullptr};

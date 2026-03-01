@@ -34,7 +34,11 @@ elif [[ -d "/usr/local/opt/openssl@3" ]]; then
   export CMAKE_PREFIX_PATH="/usr/local/opt/openssl@3:${CMAKE_PREFIX_PATH:-}"
 fi
 
-cmake -S "${SCRIPT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_CMAKE_ARGS[@]}"
+cmake_cmd=(cmake -S "${SCRIPT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release)
+if [[ ${#EXTRA_CMAKE_ARGS[@]} -gt 0 ]]; then
+  cmake_cmd+=("${EXTRA_CMAKE_ARGS[@]}")
+fi
+"${cmake_cmd[@]}"
 cmake --build "${BUILD_DIR}" -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
 echo "Build completado: ${BUILD_DIR}/zfsmgr_qt"

@@ -37,7 +37,7 @@ if(WIN32)
 endif()
 
 if(APPLE)
-    set(app_icns "${CMAKE_CURRENT_SOURCE_DIR}/../icons/ZFSMgr.icns")
+    set(app_icns "${CMAKE_CURRENT_SOURCE_DIR}/icons/ZFSMgr.icns")
     set_source_files_properties(${app_icns} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
     target_sources(zfsmgr_qt PRIVATE ${app_icns})
     set_target_properties(zfsmgr_qt PROPERTIES
