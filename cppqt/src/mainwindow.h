@@ -167,6 +167,8 @@ private:
     void appLog(const QString& level, const QString& msg);
     void populateAllPoolsTables();
     void populateMountedDatasetsTables();
+    void enableSortableHeader(QTableWidget* table);
+    void setTablePopulationMode(QTableWidget* table, bool populating);
 
     ConnectionStore m_store;
     QVector<ConnectionProfile> m_profiles;

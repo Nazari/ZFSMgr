@@ -48,6 +48,7 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QMetaObject>
+#include <QStyleFactory>
 #include <QRegularExpression>
 #include <QFontMetrics>
 #include <QSignalBlocker>
@@ -287,6 +288,51 @@ QString MainWindow::tr3(const QString& es, const QString& en, const QString& zh)
     return es;
 }
 
+void MainWindow::enableSortableHeader(QTableWidget* table) {
+    if (!table || !table->horizontalHeader()) {
+        return;
+    }
+    table->setSortingEnabled(false);
+    table->setProperty("sort_col", -1);
+    table->setProperty("sort_order", static_cast<int>(Qt::AscendingOrder));
+    auto* header = table->horizontalHeader();
+    header->setSectionsClickable(true);
+    header->setSortIndicatorShown(true);
+    header->setSortIndicator(-1, Qt::AscendingOrder);
+    connect(header, &QHeaderView::sectionClicked, this, [table](int col) {
+        const int currentCol = table->property("sort_col").toInt();
+        const auto currentOrder = static_cast<Qt::SortOrder>(table->property("sort_order").toInt());
+        Qt::SortOrder nextOrder = Qt::AscendingOrder;
+        if (currentCol == col) {
+            nextOrder = (currentOrder == Qt::AscendingOrder) ? Qt::DescendingOrder : Qt::AscendingOrder;
+        }
+        table->sortItems(col, nextOrder);
+        table->setProperty("sort_col", col);
+        table->setProperty("sort_order", static_cast<int>(nextOrder));
+        if (table->horizontalHeader()) {
+            table->horizontalHeader()->setSortIndicator(col, nextOrder);
+        }
+    });
+}
+
+void MainWindow::setTablePopulationMode(QTableWidget* table, bool populating) {
+    if (!table || !table->horizontalHeader()) {
+        return;
+    }
+    if (populating) {
+        table->setSortingEnabled(false);
+        return;
+    }
+    const int col = table->property("sort_col").toInt();
+    const auto order = static_cast<Qt::SortOrder>(table->property("sort_order").toInt());
+    if (col >= 0 && col < table->columnCount()) {
+        table->sortItems(col, order);
+        table->horizontalHeader()->setSortIndicator(col, order);
+    } else {
+        table->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
+    }
+}
+
 void MainWindow::loadUiSettings() {
     QSettings ini(m_store.iniPath(), QSettings::IniFormat);
     ini.beginGroup(QStringLiteral("app"));
@@ -487,6 +533,7 @@ void MainWindow::buildUi() {
                        "QScrollBar:horizontal{height:8px;}"));
     m_mountedDatasetsTableLeft->setColumnWidth(0, 180);
     m_mountedDatasetsTableLeft->setColumnWidth(1, 220);
+    enableSortableHeader(m_mountedDatasetsTableLeft);
     mountedLeftLayout->addWidget(m_mountedDatasetsTableLeft, 1);
     auto* propsLeftTab = new QWidget(datasetsInfoTabs);
     auto* propsLeftLayout = new QVBoxLayout(propsLeftTab);
@@ -511,6 +558,7 @@ void MainWindow::buildUi() {
         tr3(QStringLiteral("Aplicar cambios"), QStringLiteral("Apply changes"), QStringLiteral("应用更改")),
         propsLeftTab);
     m_btnApplyDatasetProps->setEnabled(false);
+    enableSortableHeader(m_datasetPropsTable);
     propsLeftLayout->addWidget(m_datasetPropsTable, 1);
     propsLeftLayout->addWidget(m_btnApplyDatasetProps, 0, Qt::AlignRight);
     datasetsInfoTabs->addTab(
@@ -602,6 +650,7 @@ void MainWindow::buildUi() {
                        "QScrollBar:horizontal{height:8px;}"));
     m_mountedDatasetsTableAdv->setColumnWidth(0, 180);
     m_mountedDatasetsTableAdv->setColumnWidth(1, 220);
+    enableSortableHeader(m_mountedDatasetsTableAdv);
     mountedAdvLayout->addWidget(m_mountedDatasetsTableAdv, 1);
     auto* propsAdvTab = new QWidget(advancedInfoTabs);
     auto* propsAdvLayout = new QVBoxLayout(propsAdvTab);
@@ -626,6 +675,7 @@ void MainWindow::buildUi() {
         tr3(QStringLiteral("Aplicar cambios"), QStringLiteral("Apply changes"), QStringLiteral("应用更改")),
         propsAdvTab);
     m_btnApplyAdvancedProps->setEnabled(false);
+    enableSortableHeader(m_advPropsTable);
     propsAdvLayout->addWidget(m_advPropsTable, 1);
     propsAdvLayout->addWidget(m_btnApplyAdvancedProps, 0, Qt::AlignRight);
     advancedInfoTabs->addTab(
@@ -680,6 +730,7 @@ void MainWindow::buildUi() {
     }
     m_importedPoolsTable->verticalHeader()->setDefaultSectionSize(22);
     m_importedPoolsTable->setStyleSheet(QStringLiteral("QTableWidget::item{padding:1px 3px;}"));
+    enableSortableHeader(m_importedPoolsTable);
     importedLayout->addWidget(m_importedPoolsTable, 1);
     m_rightTabs->addTab(importedTab, tr3(QStringLiteral("Pools"), QStringLiteral("Pools"), QStringLiteral("存储池")));
 
@@ -697,6 +748,7 @@ void MainWindow::buildUi() {
     m_poolPropsTable->setSelectionMode(QAbstractItemView::NoSelection);
     m_poolPropsTable->verticalHeader()->setVisible(false);
     m_poolPropsTable->verticalHeader()->setDefaultSectionSize(22);
+    enableSortableHeader(m_poolPropsTable);
     propsPoolLayout->addWidget(m_poolPropsTable, 1);
 
     auto* statusPoolTab = new QWidget(m_poolDetailTabs);
@@ -770,6 +822,11 @@ void MainWindow::buildUi() {
         m_originTree->setFont(f);
     }
     m_originTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"));
+#ifdef Q_OS_MAC
+    if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
+        m_originTree->setStyle(fusion);
+    }
+#endif
     m_originSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), originPane);
     m_originSelectionLabel->setWordWrap(true);
     m_originSelectionLabel->setMinimumHeight(36);
@@ -806,6 +863,11 @@ void MainWindow::buildUi() {
         m_destTree->setFont(f);
     }
     m_destTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"));
+#ifdef Q_OS_MAC
+    if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
+        m_destTree->setStyle(fusion);
+    }
+#endif
     m_destSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), destPane);
     m_destSelectionLabel->setWordWrap(true);
     m_destSelectionLabel->setMinimumHeight(36);
@@ -844,6 +906,11 @@ void MainWindow::buildUi() {
         m_advTree->setFont(f);
     }
     m_advTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"));
+#ifdef Q_OS_MAC
+    if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
+        m_advTree->setStyle(fusion);
+    }
+#endif
     m_advSelectionLabel = new QLabel(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")), rightAdvancedPage);
     m_advSelectionLabel->setWordWrap(true);
     m_advSelectionLabel->setMinimumHeight(36);
@@ -1931,7 +1998,9 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         return;
     }
     if (dataset.isEmpty()) {
+        setTablePopulationMode(table, true);
         table->setRowCount(0);
+        setTablePopulationMode(table, false);
         if (side == QStringLiteral("advanced")) {
             m_advPropsDataset.clear();
             m_advPropsOriginalValues.clear();
@@ -2058,6 +2127,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     }
 
     m_loadingPropsTable = true;
+    setTablePopulationMode(table, true);
     table->setRowCount(0);
     if (side == QStringLiteral("advanced")) {
         m_advPropsOriginalValues.clear();
@@ -2101,6 +2171,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     } else {
         m_propsDirty = false;
     }
+    setTablePopulationMode(table, false);
     m_loadingPropsTable = false;
     updateApplyPropsButtonState();
 }
@@ -4155,6 +4226,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
 }
 
 void MainWindow::populateAllPoolsTables() {
+    setTablePopulationMode(m_importedPoolsTable, true);
     m_importedPoolsTable->setRowCount(0);
     for (int i = 0; i < m_states.size(); ++i) {
         const auto& st = m_states[i];
@@ -4189,6 +4261,7 @@ void MainWindow::populateAllPoolsTables() {
             m_importedPoolsTable->setItem(row, 3, act);
         }
     }
+    setTablePopulationMode(m_importedPoolsTable, false);
     refreshSelectedPoolDetails();
     populateMountedDatasetsTables();
 }
@@ -4198,6 +4271,7 @@ void MainWindow::populateMountedDatasetsTables() {
         if (!table) {
             return;
         }
+        setTablePopulationMode(table, true);
         table->setRowCount(0);
         QMap<QString, int> mountpointCountByConn;
         struct RowData {
@@ -4228,6 +4302,7 @@ void MainWindow::populateMountedDatasetsTables() {
             table->setItem(r, 0, dsItem);
             table->setItem(r, 1, mpItem);
         }
+        setTablePopulationMode(table, false);
     };
     fill(m_mountedDatasetsTableLeft);
     fill(m_mountedDatasetsTableAdv);
@@ -4237,30 +4312,36 @@ void MainWindow::refreshSelectedPoolDetails() {
     if (!m_poolPropsTable || !m_poolStatusText || !m_importedPoolsTable) {
         return;
     }
+    setTablePopulationMode(m_poolPropsTable, true);
     m_poolPropsTable->setRowCount(0);
     m_poolStatusText->clear();
 
     const auto sel = m_importedPoolsTable->selectedItems();
     if (sel.isEmpty()) {
+        setTablePopulationMode(m_poolPropsTable, false);
         return;
     }
     const int row = sel.first()->row();
     QTableWidgetItem* connItem = m_importedPoolsTable->item(row, 0);
     QTableWidgetItem* poolItem = m_importedPoolsTable->item(row, 1);
     if (!connItem || !poolItem) {
+        setTablePopulationMode(m_poolPropsTable, false);
         return;
     }
     const QString connName = connItem->text().trimmed();
     const QString poolName = poolItem->text().trimmed();
     if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
+        setTablePopulationMode(m_poolPropsTable, false);
         return;
     }
     const QString action = m_importedPoolsTable->item(row, 3) ? m_importedPoolsTable->item(row, 3)->text().trimmed() : QString();
     if (action.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) != 0) {
+        setTablePopulationMode(m_poolPropsTable, false);
         return;
     }
     const int idx = findConnectionIndexByName(connName);
     if (idx < 0 || idx >= m_profiles.size()) {
+        setTablePopulationMode(m_poolPropsTable, false);
         return;
     }
     const ConnectionProfile& p = m_profiles[idx];
@@ -4295,6 +4376,7 @@ void MainWindow::refreshSelectedPoolDetails() {
     } else {
         m_poolStatusText->setPlainText(err.trimmed());
     }
+    setTablePopulationMode(m_poolPropsTable, false);
 }
 
 void MainWindow::updateStatus(const QString& text) {
