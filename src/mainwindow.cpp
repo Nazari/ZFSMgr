@@ -48,6 +48,7 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QMetaObject>
+#include <QStandardPaths>
 #include <QStyleFactory>
 #include <QRegularExpression>
 #include <QLocale>
@@ -1884,12 +1885,28 @@ bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, in
     err.clear();
     rc = -1;
 
+    const bool hasPassword = !p.password.trimmed().isEmpty();
+    QString program = QStringLiteral("ssh");
     QStringList args;
-    args << "-o" << "BatchMode=yes";
+    bool usingSshpass = false;
+    if (hasPassword) {
+        const QString sshpassExe = QStandardPaths::findExecutable(QStringLiteral("sshpass"));
+        if (!sshpassExe.isEmpty()) {
+            program = sshpassExe;
+            args << "-p" << p.password << "ssh";
+            usingSshpass = true;
+        }
+    }
+
+    args << "-o" << (hasPassword ? "BatchMode=no" : "BatchMode=yes");
     args << "-o" << "ConnectTimeout=10";
     args << "-o" << "LogLevel=ERROR";
     args << "-o" << "StrictHostKeyChecking=no";
     args << "-o" << "UserKnownHostsFile=/dev/null";
+    if (hasPassword) {
+        args << "-o" << "PreferredAuthentications=password,keyboard-interactive,publickey";
+        args << "-o" << "NumberOfPasswordPrompts=1";
+    }
     if (p.port > 0) {
         args << "-p" << QString::number(p.port);
     }
@@ -1907,11 +1924,15 @@ bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, in
     appendConnectionLog(p.id, cmdLine);
 
     QProcess proc;
-    proc.start(QStringLiteral("ssh"), args);
+    proc.start(program, args);
     if (!proc.waitForStarted(4000)) {
-        err = QStringLiteral("No se pudo iniciar ssh");
+        err = QStringLiteral("No se pudo iniciar %1").arg(program);
         appendConnectionLog(p.id, err);
         return false;
+    }
+    if (hasPassword && !usingSshpass) {
+        proc.write((p.password + QLatin1Char('\n')).toUtf8());
+        proc.closeWriteChannel();
     }
     if (!proc.waitForFinished(timeoutMs)) {
         proc.kill();
