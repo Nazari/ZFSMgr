@@ -2978,6 +2978,8 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     QString errRemainder;
     QElapsedTimer progressTimer;
     progressTimer.start();
+    QElapsedTimer heartbeatTimer;
+    heartbeatTimer.start();
     int lastProgressPercent = -1;
     auto flushLines = [&](QString& remainder, const QString& chunk, const QString& level, bool progressAware) {
         if (chunk.isEmpty()) {
@@ -3066,7 +3068,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
             setActionsLocked(false);
             return false;
         }
-        proc.waitForFinished(200);
+        proc.waitForReadyRead(200);
         const QString outChunk = QString::fromUtf8(proc.readAllStandardOutput());
         const QString errChunk = QString::fromUtf8(proc.readAllStandardError());
         outBuf += outChunk;
@@ -3074,6 +3076,10 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
         if (streamProgress) {
             flushLines(outRemainder, outChunk, QStringLiteral("INFO"), true);
             flushLines(errRemainder, errChunk, QStringLiteral("INFO"), true);
+            if (heartbeatTimer.elapsed() >= 2000) {
+                heartbeatTimer.restart();
+                appLog(QStringLiteral("INFO"), QStringLiteral("[progress] running..."));
+            }
         }
     }
     if (streamProgress) {
@@ -3123,7 +3129,7 @@ void MainWindow::actionCopySnapshot() {
 
     const QString pipeline =
         srcSsh + QStringLiteral(" ") + shSingleQuote(sendCmd)
-        + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab) || cat) | ")
+        + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f 2>&1) || cat) | ")
         + dstSsh + QStringLiteral(" ") + shSingleQuote(recvCmd);
 
     if (runLocalCommand(QStringLiteral("Copiar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0)) {
@@ -3239,7 +3245,7 @@ void MainWindow::actionLevelSnapshot() {
 
     const QString pipeline =
         srcSsh + QStringLiteral(" ") + shSingleQuote(sendCmd)
-        + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab) || cat) | ")
+        + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f 2>&1) || cat) | ")
         + dstSsh + QStringLiteral(" ") + shSingleQuote(recvCmd);
 
     if (runLocalCommand(QStringLiteral("Nivelar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0, true)) {
@@ -3310,7 +3316,7 @@ void MainWindow::actionSyncDatasets() {
                                                 .arg(shSingleQuote(dstEffectiveMp))
                                           : QStringLiteral("mkdir -p %1 && tar --acls --xattrs -xpf - -C %1").arg(shSingleQuote(dstEffectiveMp));
             const QString command = sshExecFromLocal(sp, srcTarCmd)
-                + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab) || cat) | ")
+                + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f 2>&1) || cat) | ")
                 + sshExecFromLocal(dp, dstTarCmd);
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("Sincronizar en Windows usa fallback tar/ssh (sin --delete)."));
@@ -3432,7 +3438,7 @@ void MainWindow::actionSyncDatasets() {
                                                 .arg(shSingleQuote(pair.second))
                                           : QStringLiteral("mkdir -p %1 && tar --acls --xattrs -xpf - -C %1").arg(shSingleQuote(pair.second));
             tarPipelines << (sshExecFromLocal(sp, srcTarCmd)
-                + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab) || cat) | ")
+                + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f 2>&1) || cat) | ")
                 + sshExecFromLocal(dp, dstTarCmd));
         }
         const QString command = tarPipelines.join(QStringLiteral(" && "));
