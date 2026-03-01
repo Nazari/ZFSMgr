@@ -172,6 +172,23 @@ QString shSingleQuote(const QString& s) {
     return QStringLiteral("'") + out + QStringLiteral("'");
 }
 
+QString sshControlPath() {
+    return QDir::tempPath() + QStringLiteral("/zfsmgr-ssh-%C");
+}
+
+QString sshBaseCommand(const ConnectionProfile& p) {
+    QString cmd = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+                                 " -o ControlMaster=auto -o ControlPersist=300 -o ControlPath=%1")
+                      .arg(shSingleQuote(sshControlPath()));
+    if (p.port > 0) {
+        cmd += QStringLiteral(" -p ") + QString::number(p.port);
+    }
+    if (!p.keyPath.isEmpty()) {
+        cmd += QStringLiteral(" -i ") + shSingleQuote(p.keyPath);
+    }
+    return cmd;
+}
+
 struct CreateDatasetOptions {
     QString datasetPath;
     QString dsType;
@@ -1915,6 +1932,9 @@ bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, in
     args << "-o" << "LogLevel=ERROR";
     args << "-o" << "StrictHostKeyChecking=no";
     args << "-o" << "UserKnownHostsFile=/dev/null";
+    args << "-o" << "ControlMaster=auto";
+    args << "-o" << "ControlPersist=300";
+    args << "-o" << QStringLiteral("ControlPath=%1").arg(sshControlPath());
     if (hasPassword && usingSshpass) {
         args << "-o" << "BatchMode=no";
         args << "-o" << "PreferredAuthentications=password,keyboard-interactive,publickey";
@@ -2649,22 +2669,8 @@ void MainWindow::actionCopySnapshot() {
     const QString srcSnap = src.datasetName + QStringLiteral("@") + src.snapshotName;
     const QString recvTarget = dst.datasetName + QStringLiteral("/") + src.datasetName.section('/', -1);
 
-    QString srcSsh = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
-    if (sp.port > 0) {
-        srcSsh += QStringLiteral(" -p ") + QString::number(sp.port);
-    }
-    if (!sp.keyPath.isEmpty()) {
-        srcSsh += QStringLiteral(" -i ") + shSingleQuote(sp.keyPath);
-    }
-    srcSsh += QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
-    QString dstSsh = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
-    if (dp.port > 0) {
-        dstSsh += QStringLiteral(" -p ") + QString::number(dp.port);
-    }
-    if (!dp.keyPath.isEmpty()) {
-        dstSsh += QStringLiteral(" -i ") + shSingleQuote(dp.keyPath);
-    }
-    dstSsh += QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
+    const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
+    const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
 
     QString sendCmd = withSudo(sp, QStringLiteral("zfs send -wLec %1").arg(shSingleQuote(srcSnap)));
     QString recvCmd = withSudo(dp, QStringLiteral("zfs recv -F %1").arg(shSingleQuote(recvTarget)));
@@ -2780,22 +2786,8 @@ void MainWindow::actionLevelSnapshot() {
     QString sendCmd = withSudo(sp, QStringLiteral("zfs send -wLecR -I %1 %2").arg(shSingleQuote(fromSnap), shSingleQuote(srcSnap)));
     const QString recvTarget = dst.datasetName;
 
-    QString srcSsh = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
-    if (sp.port > 0) {
-        srcSsh += QStringLiteral(" -p ") + QString::number(sp.port);
-    }
-    if (!sp.keyPath.isEmpty()) {
-        srcSsh += QStringLiteral(" -i ") + shSingleQuote(sp.keyPath);
-    }
-    srcSsh += QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
-    QString dstSsh = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
-    if (dp.port > 0) {
-        dstSsh += QStringLiteral(" -p ") + QString::number(dp.port);
-    }
-    if (!dp.keyPath.isEmpty()) {
-        dstSsh += QStringLiteral(" -i ") + shSingleQuote(dp.keyPath);
-    }
-    dstSsh += QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
+    const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
+    const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
 
     QString recvCmd = withSudo(dp, QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget)));
 
@@ -2839,29 +2831,13 @@ void MainWindow::actionSyncDatasets() {
     const bool srcCanmountOff = (srcCanmount.trimmed().toLower() == QStringLiteral("off"));
     const bool dstCanmountOff = (dstCanmount.trimmed().toLower() == QStringLiteral("off"));
 
-    QString srcSsh = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
-    if (sp.port > 0) {
-        srcSsh += QStringLiteral(" -p ") + QString::number(sp.port);
-    }
-    if (!sp.keyPath.isEmpty()) {
-        srcSsh += QStringLiteral(" -i ") + shSingleQuote(sp.keyPath);
-    }
-    srcSsh += QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
-    QString dstSsh = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
-    if (dp.port > 0) {
-        dstSsh += QStringLiteral(" -p ") + QString::number(dp.port);
-    }
-    if (!dp.keyPath.isEmpty()) {
-        dstSsh += QStringLiteral(" -i ") + shSingleQuote(dp.keyPath);
-    }
-    dstSsh += QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
+    const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
+    const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
 
     if (srcRootMounted && dstRootMounted) {
         QString remoteRsync =
             QStringLiteral("rsync -aHAWXS --delete --info=progress2 -e ")
-            + shSingleQuote(QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null")
-                            + (dp.port > 0 ? QStringLiteral(" -p ") + QString::number(dp.port) : QString())
-                            + (!dp.keyPath.isEmpty() ? QStringLiteral(" -i ") + dp.keyPath : QString()))
+            + shSingleQuote(sshBaseCommand(dp))
             + QStringLiteral(" %1/ %2:%3/")
                   .arg(shSingleQuote(srcMp),
                        shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
@@ -2957,10 +2933,7 @@ void MainWindow::actionSyncDatasets() {
         return;
     }
 
-    const QString sshTransport =
-        QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null")
-        + (dp.port > 0 ? QStringLiteral(" -p ") + QString::number(dp.port) : QString())
-        + (!dp.keyPath.isEmpty() ? QStringLiteral(" -i ") + dp.keyPath : QString());
+    const QString sshTransport = sshBaseCommand(dp);
     QStringList rsyncCommands;
     rsyncCommands.reserve(syncPairs.size());
     for (const auto& pair : syncPairs) {
@@ -5104,6 +5077,9 @@ QString MainWindow::buildSshPreviewCommand(const ConnectionProfile& p, const QSt
     parts << QStringLiteral("-o LogLevel=ERROR");
     parts << QStringLiteral("-o StrictHostKeyChecking=no");
     parts << QStringLiteral("-o UserKnownHostsFile=/dev/null");
+    parts << QStringLiteral("-o ControlMaster=auto");
+    parts << QStringLiteral("-o ControlPersist=300");
+    parts << QStringLiteral("-o ControlPath=%1").arg(shSingleQuote(sshControlPath()));
     if (p.port > 0) {
         parts << QStringLiteral("-p %1").arg(p.port);
     }
