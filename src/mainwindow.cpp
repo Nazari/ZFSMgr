@@ -4534,7 +4534,11 @@ void MainWindow::exportPoolFromRow(int row) {
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin exportar %1::%2").arg(connName, poolName));
     setActionsLocked(false);
+    appLog(QStringLiteral("INFO"), QStringLiteral("Refrescando conexión y listado de pools tras exportar: %1").arg(connName));
     refreshConnectionByIndex(idx);
+    // Refuerzo explícito del refresco visual global de pools tras mutación.
+    populateAllPoolsTables();
+    refreshSelectedPoolDetails();
 }
 
 void MainWindow::importPoolFromRow(int row) {
