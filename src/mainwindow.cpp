@@ -5429,8 +5429,10 @@ void MainWindow::applyDatasetPropertyChanges() {
         return;
     }
 
-    const QString cmd = QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
-    if (executeDatasetAction(m_propsSide, QStringLiteral("Aplicar propiedades"), ctx, cmd, 60000)) {
+    const bool isWin = isWindowsConnection(ctx.connIdx);
+    const QString cmd = isWin ? subcmds.join(QStringLiteral("; "))
+                              : QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
+    if (executeDatasetAction(m_propsSide, QStringLiteral("Aplicar propiedades"), ctx, cmd, 60000, isWin)) {
         m_propsDirty = false;
         updateApplyPropsButtonState();
     }
@@ -5480,8 +5482,10 @@ void MainWindow::applyAdvancedDatasetPropertyChanges() {
         return;
     }
 
-    const QString cmd = QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
-    if (executeDatasetAction(QStringLiteral("advanced"), QStringLiteral("Aplicar propiedades"), ctx, cmd, 60000)) {
+    const bool isWin = isWindowsConnection(ctx.connIdx);
+    const QString cmd = isWin ? subcmds.join(QStringLiteral("; "))
+                              : QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
+    if (executeDatasetAction(QStringLiteral("advanced"), QStringLiteral("Aplicar propiedades"), ctx, cmd, 60000, isWin)) {
         m_advPropsDirty = false;
         updateApplyPropsButtonState();
     }
