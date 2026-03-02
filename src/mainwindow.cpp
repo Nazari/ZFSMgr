@@ -2910,15 +2910,37 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
     }
 
     bool ok = false;
+    m_loadingDatasetTrees = true;
     if (desired == Qt::Checked) {
         ok = mountDataset(side, ctx);
     } else {
         ok = umountDataset(side, ctx);
     }
+    m_loadingDatasetTrees = false;
     if (!ok) {
-        m_loadingDatasetTrees = true;
-        item->setCheckState(2, desired == Qt::Checked ? Qt::Unchecked : Qt::Checked);
-        m_loadingDatasetTrees = false;
+        auto findByDataset = [&](auto&& self, QTreeWidgetItem* n, const QString& name) -> QTreeWidgetItem* {
+            if (!n) {
+                return nullptr;
+            }
+            if (n->data(0, Qt::UserRole).toString() == name) {
+                return n;
+            }
+            for (int i = 0; i < n->childCount(); ++i) {
+                if (QTreeWidgetItem* f = self(self, n->child(i), name)) {
+                    return f;
+                }
+            }
+            return nullptr;
+        };
+        QTreeWidgetItem* safeItem = nullptr;
+        for (int i = 0; i < tree->topLevelItemCount() && !safeItem; ++i) {
+            safeItem = findByDataset(findByDataset, tree->topLevelItem(i), ds);
+        }
+        if (safeItem) {
+            m_loadingDatasetTrees = true;
+            safeItem->setCheckState(2, desired == Qt::Checked ? Qt::Unchecked : Qt::Checked);
+            m_loadingDatasetTrees = false;
+        }
     }
 }
 
