@@ -73,15 +73,22 @@ public:
         constexpr int kPinRole = Qt::UserRole + 501;
         const int a = data(kPinRole).toInt();
         const int b = other.data(kPinRole).toInt();
+        Qt::SortOrder order = Qt::AscendingOrder;
+        if (const QTableWidget* t = tableWidget()) {
+            order = static_cast<Qt::SortOrder>(t->property("sort_order").toInt());
+        }
         const bool aPinned = (a >= 0);
         const bool bPinned = (b >= 0);
         if (aPinned || bPinned) {
             if (aPinned && bPinned) {
                 if (a != b) {
-                    return a < b;
+                    // Keep pinned rows in fixed top order even when descending is selected.
+                    return (order == Qt::DescendingOrder) ? (a > b) : (a < b);
                 }
             } else {
-                return aPinned; // pinned rows always first
+                // QTableWidget reverses comparison for descending sort.
+                // Invert mismatch rule in descending so pinned rows still end up on top.
+                return (order == Qt::DescendingOrder) ? (!aPinned) : aPinned;
             }
         }
         return QTableWidgetItem::operator<(other);
