@@ -147,6 +147,23 @@ QString normalizeDriveLetterValue(const QString& raw) {
     return QString(d);
 }
 
+bool looksLikePowerShellScript(const QString& cmd) {
+    const QString c = cmd.toLower();
+    return c.contains(QStringLiteral("out-null"))
+        || c.contains(QStringLiteral("test-path"))
+        || c.contains(QStringLiteral("resolve-path"))
+        || c.contains(QStringLiteral("join-path"))
+        || c.contains(QStringLiteral("new-item"))
+        || c.contains(QStringLiteral("remove-item"))
+        || c.contains(QStringLiteral("sort-object"))
+        || c.contains(QStringLiteral("select-object"))
+        || c.contains(QStringLiteral("foreach("))
+        || c.contains(QStringLiteral("$lastexitcode"))
+        || c.contains(QStringLiteral("[string]::"))
+        || c.contains(QStringLiteral("$env:path"))
+        || c.contains(QStringLiteral("powershell "));
+}
+
 QStringList zfsmgrUnixCommandSet() {
     return {
         QStringLiteral("uname"),
@@ -2420,7 +2437,10 @@ QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p, const QString&
     if (!isWindowsConnection(p)) {
         return remoteCmd;
     }
-    const QString script = QStringLiteral(
+    const QString trimmed = remoteCmd.trimmed();
+    const bool psLike = looksLikePowerShellScript(trimmed);
+    const QString psEscaped = QString(trimmed).replace('\'', QStringLiteral("''"));
+    QString script = QStringLiteral(
         "$zfsPaths=@("
         "'C:\\\\Program Files\\\\OpenZFS On Windows\\\\bin',"
         "'C:\\\\Program Files\\\\OpenZFS On Windows',"
@@ -2434,8 +2454,24 @@ QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p, const QString&
         "  if(Test-Path -LiteralPath $p){ "
         "    if(-not (($env:Path -split ';') -contains $p)){ $env:Path = $p + ';' + $env:Path } "
         "  } "
-        "}; "
-    ) + remoteCmd.trimmed();
+        "}; ");
+    if (psLike) {
+        script += trimmed;
+    } else {
+        script += QStringLiteral(
+            "$cmd='%1'; "
+            "$unixShells=@("
+            "'C:\\\\msys64\\\\usr\\\\bin\\\\bash.exe',"
+            "'C:\\\\msys64\\\\usr\\\\bin\\\\sh.exe',"
+            "'C:\\\\msys64\\\\mingw64\\\\bin\\\\bash.exe',"
+            "'C:\\\\msys64\\\\mingw32\\\\bin\\\\bash.exe',"
+            "'C:\\\\MinGW\\\\msys\\\\1.0\\\\bin\\\\sh.exe'"
+            "); "
+            "$shell=$null; foreach($s in $unixShells){ if(Test-Path -LiteralPath $s){ $shell=$s; break } }; "
+            "if($shell){ & $shell -lc $cmd; exit $LASTEXITCODE } "
+            "Invoke-Expression $cmd; exit $LASTEXITCODE;")
+                      .arg(psEscaped);
+    }
     const QByteArray utf16(reinterpret_cast<const char*>(script.utf16()), script.size() * 2);
     const QString b64 = QString::fromLatin1(utf16.toBase64());
     return QStringLiteral("powershell -NoProfile -NonInteractive -EncodedCommand %1").arg(b64);
