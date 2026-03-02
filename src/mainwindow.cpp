@@ -109,14 +109,12 @@ QString sanitizeWindowsCliXml(const QString& raw) {
     if (s.isEmpty()) {
         return s;
     }
-    s.replace(QStringLiteral("#< CLIXML"), QString());
+    s.replace(QStringLiteral("#< CLIXML"), QStringLiteral(""));
     const int xmlPos = s.indexOf(QStringLiteral("<Objs Version="), 0, Qt::CaseInsensitive);
     if (xmlPos >= 0) {
         s = s.left(xmlPos);
     }
-    s.replace(QRegularExpression(QStringLiteral("<[^>]+>")), QStringLiteral(" "));
-    s = s.simplified();
-    return s;
+    return s.trimmed();
 }
 
 QString parseOpenZfsVersionText(const QString& text) {
