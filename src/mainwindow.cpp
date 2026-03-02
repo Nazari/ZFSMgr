@@ -2953,9 +2953,12 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     for (const PropRow& row : rawRows) {
         byProp[row.prop] = row;
     }
-    // Orden solicitado: dataset, mountpoint, canmount, estado, Tamaño y luego resto.
+    // Orden solicitado:
+    // Unix/macOS: dataset, mountpoint, canmount, estado, Tamaño y luego resto.
+    // Windows: dataset, mountpoint, canmount, estado, Tamaño, driveletter y luego resto.
     QVector<PropRow> rows;
     rows.reserve(byProp.size() + 2);
+    const bool windowsConn = isWindowsConnection(connIdx);
     if (byProp.contains(QStringLiteral("dataset"))) {
         rows.push_back(byProp.take(QStringLiteral("dataset")));
     }
@@ -2964,14 +2967,6 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
             rows.push_back(byProp.take(QStringLiteral("mountpoint")));
         } else {
             rows.push_back({QStringLiteral("mountpoint"), rec.mountpoint.trimmed(), QString(), QStringLiteral("true")});
-        }
-        const bool advWindows = (side == QStringLiteral("advanced")) && isWindowsConnection(connIdx);
-        if (advWindows) {
-            if (byProp.contains(QStringLiteral("driveletter"))) {
-                rows.push_back(byProp.take(QStringLiteral("driveletter")));
-            } else {
-                rows.push_back({QStringLiteral("driveletter"), QString(), QString(), QStringLiteral("true")});
-            }
         }
         if (byProp.contains(QStringLiteral("canmount"))) {
             rows.push_back(byProp.take(QStringLiteral("canmount")));
@@ -2985,6 +2980,13 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
                                  || mountedRaw == QStringLiteral("1"));
         rows.push_back({QStringLiteral("estado"), mountedYes ? QStringLiteral("Montado") : QStringLiteral("Desmontado"), QString(), QStringLiteral("true")});
         rows.push_back({QStringLiteral("Tamaño"), formatDatasetSize(rec.used.trimmed()), QString(), QStringLiteral("true")});
+        if (windowsConn) {
+            if (byProp.contains(QStringLiteral("driveletter"))) {
+                rows.push_back(byProp.take(QStringLiteral("driveletter")));
+            } else {
+                rows.push_back({QStringLiteral("driveletter"), QString(), QString(), QStringLiteral("true")});
+            }
+        }
     } else {
         rows.push_back({QStringLiteral("estado"), QStringLiteral("Snapshot"), QString(), QStringLiteral("true")});
     }
@@ -3033,14 +3035,16 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         {QStringLiteral("snapdev"), {QStringLiteral("hidden"), QStringLiteral("visible")}},
         {QStringLiteral("volmode"), {QStringLiteral("default"), QStringLiteral("full"), QStringLiteral("dev"), QStringLiteral("none"), QStringLiteral("geom")}},
     };
+    const int pinnedCount = (!snapshot.isEmpty() ? 2 : (windowsConn ? 6 : 5));
+    table->setProperty("pinned_rows", pinnedCount);
     for (const PropRow& row : rows) {
         const int r = table->rowCount();
         table->insertRow(r);
         auto* k = new PinnedSortItem(row.prop);
-        k->setData(Qt::UserRole + 501, (r < 5) ? r : -1);
+        k->setData(Qt::UserRole + 501, (r < pinnedCount) ? r : -1);
         table->setItem(r, 0, k);
         auto* v = new PinnedSortItem(row.value);
-        v->setData(Qt::UserRole + 501, (r < 5) ? r : -1);
+        v->setData(Qt::UserRole + 501, (r < pinnedCount) ? r : -1);
         if (row.prop == QStringLiteral("dataset") || row.prop == QStringLiteral("estado") || row.prop == QStringLiteral("Tamaño")) {
             v->setFlags(v->flags() & ~Qt::ItemIsEditable);
         }
@@ -3078,7 +3082,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
             });
         }
         auto* inh = new PinnedSortItem();
-        inh->setData(Qt::UserRole + 501, (r < 5) ? r : -1);
+        inh->setData(Qt::UserRole + 501, (r < pinnedCount) ? r : -1);
         if (inheritableProps.contains(row.prop)) {
             inh->setFlags((inh->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled) & ~Qt::ItemIsEditable);
             inh->setCheckState(Qt::Unchecked);
@@ -3087,7 +3091,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
             inh->setText(QStringLiteral("-"));
         }
         table->setItem(r, 2, inh);
-        if (r < 5) {
+        if (r < pinnedCount) {
             QFont f0 = k->font();
             f0.setBold(true);
             k->setFont(f0);
