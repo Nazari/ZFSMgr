@@ -7006,6 +7006,15 @@ void MainWindow::openConfigurationDialog() {
 
 void MainWindow::setActionsLocked(bool locked) {
     m_actionsLocked = locked;
+    if (locked) {
+        if (!m_waitCursorActive) {
+            QApplication::setOverrideCursor(Qt::BusyCursor);
+            m_waitCursorActive = true;
+        }
+    } else if (m_waitCursorActive) {
+        QApplication::restoreOverrideCursor();
+        m_waitCursorActive = false;
+    }
     if (m_logCancelBtn) {
         m_logCancelBtn->setVisible(locked);
         m_logCancelBtn->setEnabled(locked);

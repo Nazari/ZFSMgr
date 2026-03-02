@@ -267,6 +267,7 @@ private:
     int m_refreshPending{0};
     int m_refreshTotal{0};
     bool m_actionsLocked{false};
+    bool m_waitCursorActive{false};
     bool m_cancelActionRequested{false};
     QProcess* m_activeLocalProcess{nullptr};
     qint64 m_activeLocalPid{-1};
