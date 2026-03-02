@@ -1589,10 +1589,35 @@ void MainWindow::buildUi() {
 }
 
 void MainWindow::loadConnections() {
+    QMap<QString, ConnectionRuntimeState> prevById;
+    QMap<QString, ConnectionRuntimeState> prevByName;
+    const int oldCount = qMin(m_profiles.size(), m_states.size());
+    for (int i = 0; i < oldCount; ++i) {
+        const QString idKey = m_profiles[i].id.trimmed().toLower();
+        const QString nameKey = m_profiles[i].name.trimmed().toLower();
+        if (!idKey.isEmpty()) {
+            prevById[idKey] = m_states[i];
+        }
+        if (!nameKey.isEmpty()) {
+            prevByName[nameKey] = m_states[i];
+        }
+    }
+
     const LoadResult loaded = m_store.loadConnections();
     m_profiles = loaded.profiles;
     m_states.clear();
     m_states.resize(m_profiles.size());
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        const QString idKey = m_profiles[i].id.trimmed().toLower();
+        const QString nameKey = m_profiles[i].name.trimmed().toLower();
+        if (!idKey.isEmpty() && prevById.contains(idKey)) {
+            m_states[i] = prevById.value(idKey);
+            continue;
+        }
+        if (!nameKey.isEmpty() && prevByName.contains(nameKey)) {
+            m_states[i] = prevByName.value(nameKey);
+        }
+    }
 
     rebuildConnectionList();
     updateStatus(tr3(QStringLiteral("Estado: %1 conexiones cargadas"),
