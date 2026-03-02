@@ -6736,7 +6736,17 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             QString dout, derr;
             int drc = -1;
             const QString checkCmd = QStringLiteral(
-                "for c in %1; do if command -v \"$c\" >/dev/null 2>&1; then echo \"OK:$c\"; else echo \"KO:$c\"; fi; done")
+                "PATH=\"$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/sbin\"; "
+                "for c in %1; do "
+                "  found=0; "
+                "  command -v \"$c\" >/dev/null 2>&1 && found=1; "
+                "  if [ \"$found\" -eq 0 ]; then "
+                "    for d in /opt/homebrew/bin /opt/homebrew/sbin /usr/local/bin /usr/local/sbin /usr/sbin /sbin /usr/bin /bin; do "
+                "      [ -x \"$d/$c\" ] && found=1 && break; "
+                "    done; "
+                "  fi; "
+                "  if [ \"$found\" -eq 1 ]; then echo \"OK:$c\"; else echo \"KO:$c\"; fi; "
+                "done")
                     .arg(wanted.join(' '));
             if (runSsh(p, checkCmd, 12000, dout, derr, drc) && drc == 0) {
                 const QStringList lines = dout.split('\n', Qt::SkipEmptyParts);
