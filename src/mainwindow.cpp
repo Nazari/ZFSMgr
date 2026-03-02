@@ -2526,6 +2526,14 @@ QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p, const QString&
     }
     const QByteArray utf16(reinterpret_cast<const char*>(script.utf16()), script.size() * 2);
     const QString b64 = QString::fromLatin1(utf16.toBase64());
+    // Windows command-line length can be hit with very large EncodedCommand payloads.
+    // For long PowerShell-native scripts, fallback to -Command to avoid UTF-16+Base64 expansion.
+    if (psLike && b64.size() > 7000) {
+        QString inlineScript = script;
+        inlineScript.replace(QStringLiteral("\""), QStringLiteral("`\""));
+        return QStringLiteral("powershell -NoProfile -NonInteractive -Command \"& { %1 }\"")
+            .arg(inlineScript);
+    }
     return QStringLiteral("powershell -NoProfile -NonInteractive -EncodedCommand %1").arg(b64);
 }
 
