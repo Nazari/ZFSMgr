@@ -66,6 +66,28 @@
 
 namespace {
 
+class PinnedSortItem final : public QTableWidgetItem {
+public:
+    explicit PinnedSortItem(const QString& text = QString()) : QTableWidgetItem(text) {}
+    bool operator<(const QTableWidgetItem& other) const override {
+        constexpr int kPinRole = Qt::UserRole + 501;
+        const int a = data(kPinRole).toInt();
+        const int b = other.data(kPinRole).toInt();
+        const bool aPinned = (a >= 0);
+        const bool bPinned = (b >= 0);
+        if (aPinned || bPinned) {
+            if (aPinned && bPinned) {
+                if (a != b) {
+                    return a < b;
+                }
+            } else {
+                return aPinned; // pinned rows always first
+            }
+        }
+        return QTableWidgetItem::operator<(other);
+    }
+};
+
 QString tsNow() {
     return QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
 }
@@ -538,133 +560,43 @@ void MainWindow::enableSortableHeader(QTableWidget* table) {
     if (!table || !table->horizontalHeader()) {
         return;
     }
-    const int pinnedRows = table->property("pinned_rows").toInt();
-    table->setSortingEnabled(pinnedRows <= 0);
+    table->setSortingEnabled(true);
     table->setProperty("sort_col", -1);
     table->setProperty("sort_order", static_cast<int>(Qt::AscendingOrder));
     auto* header = table->horizontalHeader();
     header->setSectionsClickable(true);
     header->setSortIndicatorShown(true);
     header->setSortIndicator(-1, Qt::AscendingOrder);
-    if (pinnedRows > 0) {
-        connect(header, &QHeaderView::sectionClicked, this, [this, table, header, pinnedRows](int section) {
-            int currentCol = table->property("sort_col").toInt();
-            Qt::SortOrder order = Qt::AscendingOrder;
-            if (currentCol == section) {
-                order = (static_cast<Qt::SortOrder>(table->property("sort_order").toInt()) == Qt::AscendingOrder)
-                            ? Qt::DescendingOrder
-                            : Qt::AscendingOrder;
-            }
-            table->setProperty("sort_col", section);
-            table->setProperty("sort_order", static_cast<int>(order));
-            header->setSortIndicator(section, order);
-            sortTableKeepingPinnedRows(table, section, order, pinnedRows);
-        });
-    } else {
-        connect(header, &QHeaderView::sortIndicatorChanged, this, [table](int section, Qt::SortOrder order) {
-            table->setProperty("sort_col", section);
-            table->setProperty("sort_order", static_cast<int>(order));
-        });
-    }
+    connect(header, &QHeaderView::sortIndicatorChanged, this, [table](int section, Qt::SortOrder order) {
+        table->setProperty("sort_col", section);
+        table->setProperty("sort_order", static_cast<int>(order));
+    });
 }
 
 void MainWindow::setTablePopulationMode(QTableWidget* table, bool populating) {
     if (!table || !table->horizontalHeader()) {
         return;
     }
-    const int pinnedRows = table->property("pinned_rows").toInt();
     if (populating) {
         beginUiBusy();
-        if (pinnedRows <= 0) {
-            const int colNow = table->horizontalHeader()->sortIndicatorSection();
-            if (colNow >= 0) {
-                table->setProperty("sort_col", colNow);
-                table->setProperty("sort_order", static_cast<int>(table->horizontalHeader()->sortIndicatorOrder()));
-            }
-            table->setSortingEnabled(false);
+        const int colNow = table->horizontalHeader()->sortIndicatorSection();
+        if (colNow >= 0) {
+            table->setProperty("sort_col", colNow);
+            table->setProperty("sort_order", static_cast<int>(table->horizontalHeader()->sortIndicatorOrder()));
         }
+        table->setSortingEnabled(false);
         return;
     }
     const int col = table->property("sort_col").toInt();
     const auto order = static_cast<Qt::SortOrder>(table->property("sort_order").toInt());
-    if (pinnedRows > 0) {
-        table->setSortingEnabled(false);
-        if (col >= 0 && col < table->columnCount()) {
-            table->horizontalHeader()->setSortIndicator(col, order);
-            sortTableKeepingPinnedRows(table, col, order, pinnedRows);
-        } else {
-            table->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
-        }
+    table->setSortingEnabled(true);
+    if (col >= 0 && col < table->columnCount()) {
+        table->sortItems(col, order);
+        table->horizontalHeader()->setSortIndicator(col, order);
     } else {
-        table->setSortingEnabled(true);
-        if (col >= 0 && col < table->columnCount()) {
-            table->sortItems(col, order);
-            table->horizontalHeader()->setSortIndicator(col, order);
-        } else {
-            table->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
-        }
+        table->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
     }
     endUiBusy();
-}
-
-void MainWindow::sortTableKeepingPinnedRows(QTableWidget* table, int section, Qt::SortOrder order, int pinnedRows) {
-    if (!table || section < 0 || section >= table->columnCount()) {
-        return;
-    }
-    const int first = qBound(0, pinnedRows, table->rowCount());
-    const int sortableCount = table->rowCount() - first;
-    if (sortableCount <= 1) {
-        return;
-    }
-
-    struct CellBundle {
-        QTableWidgetItem* item{nullptr};
-        QWidget* widget{nullptr};
-    };
-    struct RowBundle {
-        QString key;
-        QVector<CellBundle> cells;
-    };
-    QVector<RowBundle> rows;
-    rows.reserve(sortableCount);
-
-    for (int r = first; r < table->rowCount(); ++r) {
-        RowBundle rb;
-        rb.cells.resize(table->columnCount());
-        for (int c = 0; c < table->columnCount(); ++c) {
-            rb.cells[c].item = table->takeItem(r, c);
-            if (QWidget* w = table->cellWidget(r, c)) {
-                table->removeCellWidget(r, c);
-                rb.cells[c].widget = w;
-            }
-        }
-        if (rb.cells[section].item) {
-            rb.key = rb.cells[section].item->text();
-        } else if (QComboBox* cb = qobject_cast<QComboBox*>(rb.cells[section].widget)) {
-            rb.key = cb->currentText();
-        } else {
-            rb.key.clear();
-        }
-        rows.push_back(std::move(rb));
-    }
-
-    std::sort(rows.begin(), rows.end(), [order](const RowBundle& a, const RowBundle& b) {
-        const int cmp = QString::localeAwareCompare(a.key, b.key);
-        return (order == Qt::AscendingOrder) ? (cmp < 0) : (cmp > 0);
-    });
-
-    QSignalBlocker blocker(table);
-    for (int i = 0; i < rows.size(); ++i) {
-        const int r = first + i;
-        for (int c = 0; c < table->columnCount(); ++c) {
-            if (rows[i].cells[c].item) {
-                table->setItem(r, c, rows[i].cells[c].item);
-            }
-            if (rows[i].cells[c].widget) {
-                table->setCellWidget(r, c, rows[i].cells[c].widget);
-            }
-        }
-    }
 }
 
 void MainWindow::loadUiSettings() {
@@ -2853,9 +2785,11 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     for (const PropRow& row : rows) {
         const int r = table->rowCount();
         table->insertRow(r);
-        auto* k = new QTableWidgetItem(row.prop);
+        auto* k = new PinnedSortItem(row.prop);
+        k->setData(Qt::UserRole + 501, (r < 5) ? r : -1);
         table->setItem(r, 0, k);
-        auto* v = new QTableWidgetItem(row.value);
+        auto* v = new PinnedSortItem(row.value);
+        v->setData(Qt::UserRole + 501, (r < 5) ? r : -1);
         if (row.prop == QStringLiteral("dataset") || row.prop == QStringLiteral("estado") || row.prop == QStringLiteral("Tamaño")) {
             v->setFlags(v->flags() & ~Qt::ItemIsEditable);
         }
@@ -2892,7 +2826,8 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
                 }
             });
         }
-        auto* inh = new QTableWidgetItem();
+        auto* inh = new PinnedSortItem();
+        inh->setData(Qt::UserRole + 501, (r < 5) ? r : -1);
         if (inheritableProps.contains(row.prop)) {
             inh->setFlags((inh->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled) & ~Qt::ItemIsEditable);
             inh->setCheckState(Qt::Unchecked);
