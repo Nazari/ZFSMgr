@@ -918,6 +918,13 @@ void MainWindow::buildUi() {
     commandsButtonsRow->addWidget(m_btnAdvancedFromDir);
     commandsButtonsRow->addWidget(m_btnAdvancedToDir);
     commandsLayout->addLayout(commandsButtonsRow);
+    // Igualar altura de las cajas de acciones de panel izquierdo:
+    // Conexiones, Datasets (Origen-->Destino) y Avanzado (Comandos).
+    const int actionsBoxHeight = qMax(72, connButtonsBox->sizeHint().height());
+    connButtonsBox->setFixedHeight(actionsBoxHeight);
+    transferBox->setFixedHeight(actionsBoxHeight);
+    commandsBox->setFixedHeight(actionsBoxHeight);
+
     auto* advancedInfoTabs = new QTabWidget(advancedTab);
     advancedInfoTabs->setDocumentMode(false);
     auto* mountedAdvTab = new QWidget(advancedInfoTabs);
