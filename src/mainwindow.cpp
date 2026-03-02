@@ -147,6 +147,46 @@ QString normalizeDriveLetterValue(const QString& raw) {
     return QString(d);
 }
 
+QStringList zfsmgrUnixCommandSet() {
+    return {
+        QStringLiteral("uname"),
+        QStringLiteral("sh"),
+        QStringLiteral("sudo"),
+        QStringLiteral("awk"),
+        QStringLiteral("grep"),
+        QStringLiteral("sort"),
+        QStringLiteral("find"),
+        QStringLiteral("mktemp"),
+        QStringLiteral("printf"),
+        QStringLiteral("cat"),
+        QStringLiteral("tar"),
+        QStringLiteral("gzip"),
+        QStringLiteral("zstd"),
+        QStringLiteral("pv"),
+        QStringLiteral("rsync"),
+        QStringLiteral("ssh"),
+        QStringLiteral("zfs"),
+        QStringLiteral("zpool"),
+    };
+}
+
+QStringList zfsmgrPowershellCommandSet() {
+    return {
+        QStringLiteral("zfs"),
+        QStringLiteral("zpool"),
+        QStringLiteral("tar"),
+        QStringLiteral("robocopy"),
+        QStringLiteral("Get-ChildItem"),
+        QStringLiteral("Test-Path"),
+        QStringLiteral("Resolve-Path"),
+        QStringLiteral("New-Item"),
+        QStringLiteral("Remove-Item"),
+        QStringLiteral("Sort-Object"),
+        QStringLiteral("Select-Object"),
+        QStringLiteral("Out-String"),
+    };
+}
+
 bool isUserProperty(const QString& prop) {
     return prop.contains(':');
 }
@@ -719,9 +759,13 @@ void MainWindow::buildUi() {
         tr3(QStringLiteral("Listado"), QStringLiteral("List"), QStringLiteral("列表")), connectionsTab);
     auto* connListBoxLayout = new QVBoxLayout(connListBox);
     connListBoxLayout->setContentsMargins(8, 20, 8, 8);
-    m_connectionsList = new QListWidget(connListBox);
+    m_connectionsList = new QTreeWidget(connListBox);
+    m_connectionsList->setHeaderHidden(true);
+    m_connectionsList->setColumnCount(1);
+    m_connectionsList->setRootIsDecorated(true);
+    m_connectionsList->setItemsExpandable(true);
+    m_connectionsList->setExpandsOnDoubleClick(true);
     m_connectionsList->setAlternatingRowColors(true);
-    m_connectionsList->setUniformItemSizes(true);
     m_connectionsList->setSelectionMode(QAbstractItemView::SingleSelection);
     m_connectionsList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     connListBoxLayout->addWidget(m_connectionsList, 1);
@@ -1419,9 +1463,9 @@ void MainWindow::buildUi() {
         logUiAction(QStringLiteral("Configuración (botón)"));
         openConfigurationDialog();
     });
-    connect(m_connectionsList, &QListWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
+    connect(m_connectionsList, &QTreeWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
     m_connectionsList->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_connectionsList, &QListWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+    connect(m_connectionsList, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         onConnectionListContextMenuRequested(pos);
     });
     connect(m_leftTabs, &QTabWidget::currentChanged, this, [this](int idx) {
@@ -1641,7 +1685,7 @@ void MainWindow::rebuildConnectionList() {
         const auto& p = m_profiles[i];
         const auto& s = m_states[i];
 
-        const QString line1 = QStringLiteral("%1/%2").arg(p.name, p.connType);
+        const QString line1 = QStringLiteral("%1").arg(p.name);
         QString zfsTxt = s.zfsVersion.trimmed();
         if (zfsTxt.isEmpty()) {
             zfsTxt = QStringLiteral("?");
@@ -1653,20 +1697,82 @@ void MainWindow::rebuildConnectionList() {
             statusTag = QStringLiteral("[OK] ");
             rowColor = QColor("#1f7a1f");
         } else if (!st.isEmpty()) {
-            statusTag = QStringLiteral("[Error] ");
+            statusTag = QStringLiteral("[KO] ");
             rowColor = QColor("#a12a2a");
         }
-        QString line = QStringLiteral("%1%2 | %3 | ZFS v%4").arg(statusTag, line1, p.osType, zfsTxt);
+        QString line = QStringLiteral("%1%2").arg(statusTag, line1);
 
-        auto* item = new QListWidgetItem(line, m_connectionsList);
-        item->setData(Qt::UserRole, i);
-        item->setForeground(QBrush(rowColor));
-        item->setToolTip(QStringLiteral("Host: %1\nPort: %2\nEstado: %3\nDetalle: %4")
-                             .arg(p.host)
-                             .arg(p.port)
-                             .arg(s.status)
-                             .arg(s.detail));
+        auto* item = new QTreeWidgetItem(m_connectionsList);
+        item->setText(0, line);
+        item->setData(0, Qt::UserRole, i);
+        item->setForeground(0, QBrush(rowColor));
+        item->setToolTip(0, QStringLiteral("Host: %1\nPort: %2\nEstado: %3\nDetalle: %4")
+                                .arg(p.host)
+                                .arg(p.port)
+                                .arg(s.status)
+                                .arg(s.detail));
+        item->setExpanded(false);
+
+        const QString osLine = !s.osLine.trimmed().isEmpty()
+                                   ? s.osLine.trimmed()
+                                   : QStringLiteral("%1").arg(p.osType);
+        auto* osChild = new QTreeWidgetItem(item);
+        osChild->setText(0, tr3(QStringLiteral("Sistema operativo: %1"),
+                                QStringLiteral("Operating system: %1"),
+                                QStringLiteral("操作系统：%1")).arg(osLine));
+        osChild->setData(0, Qt::UserRole, i);
+
+        const QString method = !s.connectionMethod.trimmed().isEmpty() ? s.connectionMethod.trimmed() : p.connType;
+        auto* methodChild = new QTreeWidgetItem(item);
+        methodChild->setText(0, tr3(QStringLiteral("Método de conexión: %1"),
+                                    QStringLiteral("Connection method: %1"),
+                                    QStringLiteral("连接方式：%1")).arg(method));
+        methodChild->setData(0, Qt::UserRole, i);
+
+        const QString zfsFull = !s.zfsVersionFull.trimmed().isEmpty() ? s.zfsVersionFull.trimmed()
+                                                                       : (zfsTxt == QStringLiteral("?") ? QStringLiteral("-")
+                                                                                                        : QStringLiteral("OpenZFS %1").arg(zfsTxt));
+        auto* zfsChild = new QTreeWidgetItem(item);
+        zfsChild->setText(0, tr3(QStringLiteral("OpenZFS: %1"),
+                                 QStringLiteral("OpenZFS: %1"),
+                                 QStringLiteral("OpenZFS：%1")).arg(zfsFull));
+        zfsChild->setData(0, Qt::UserRole, i);
+
+        auto* commandsNode = new QTreeWidgetItem(item);
+        commandsNode->setText(0, tr3(QStringLiteral("Comandos detectados"),
+                                     QStringLiteral("Detected commands"),
+                                     QStringLiteral("检测到的命令")));
+        commandsNode->setData(0, Qt::UserRole, i);
+
+        if (!s.detectedUnixCommands.isEmpty() || !s.missingUnixCommands.isEmpty()) {
+            for (const QString& c : s.detectedUnixCommands) {
+                auto* cc = new QTreeWidgetItem(commandsNode);
+                cc->setText(0, c);
+                cc->setForeground(0, QBrush(QColor("#1f7a1f")));
+            }
+            for (const QString& c : s.missingUnixCommands) {
+                auto* cc = new QTreeWidgetItem(commandsNode);
+                cc->setText(0, c);
+                cc->setForeground(0, QBrush(QColor("#a12a2a")));
+            }
+        } else if (!s.powershellFallbackCommands.isEmpty()) {
+            auto* psHeader = new QTreeWidgetItem(commandsNode);
+            psHeader->setText(0, tr3(QStringLiteral("PowerShell (fallback):"),
+                                     QStringLiteral("PowerShell (fallback):"),
+                                     QStringLiteral("PowerShell（回退）：")));
+            for (const QString& c : s.powershellFallbackCommands) {
+                auto* cc = new QTreeWidgetItem(commandsNode);
+                cc->setText(0, c);
+                cc->setForeground(0, QBrush(QColor("#5a4a00")));
+            }
+        } else {
+            auto* none = new QTreeWidgetItem(commandsNode);
+            none->setText(0, tr3(QStringLiteral("(sin datos)"),
+                                 QStringLiteral("(no data)"),
+                                 QStringLiteral("（无数据）")));
+        }
     }
+    m_connectionsList->collapseAll();
     endUiBusy();
 }
 
@@ -1766,7 +1872,11 @@ void MainWindow::refreshSelectedConnection() {
     if (selected.isEmpty()) {
         return;
     }
-    const int idx = selected.first()->data(Qt::UserRole).toInt();
+    QTreeWidgetItem* selItem = selected.first();
+    while (selItem && selItem->parent()) {
+        selItem = selItem->parent();
+    }
+    const int idx = selItem ? selItem->data(0, Qt::UserRole).toInt() : -1;
     if (idx < 0 || idx >= m_profiles.size()) {
         return;
     }
@@ -1795,14 +1905,20 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const ConnectionR
         return;
     }
     int selectedIdx = -1;
-    const auto selected = m_connectionsList ? m_connectionsList->selectedItems() : QList<QListWidgetItem*>{};
+    const auto selected = m_connectionsList ? m_connectionsList->selectedItems() : QList<QTreeWidgetItem*>{};
     if (!selected.isEmpty()) {
-        selectedIdx = selected.first()->data(Qt::UserRole).toInt();
+        QTreeWidgetItem* selItem = selected.first();
+        while (selItem && selItem->parent()) {
+            selItem = selItem->parent();
+        }
+        selectedIdx = selItem ? selItem->data(0, Qt::UserRole).toInt() : -1;
     }
     m_states[idx] = state;
     rebuildConnectionList();
-    if (selectedIdx >= 0 && selectedIdx < m_connectionsList->count()) {
-        m_connectionsList->setCurrentRow(selectedIdx);
+    if (selectedIdx >= 0 && selectedIdx < m_connectionsList->topLevelItemCount()) {
+        if (QTreeWidgetItem* top = m_connectionsList->topLevelItem(selectedIdx)) {
+            m_connectionsList->setCurrentItem(top);
+        }
     }
     rebuildDatasetPoolSelectors();
     populateAllPoolsTables();
@@ -1863,7 +1979,9 @@ void MainWindow::createConnection() {
     loadConnections();
     for (int i = 0; i < m_profiles.size(); ++i) {
         if (m_profiles[i].id == createdId) {
-            m_connectionsList->setCurrentRow(i);
+            if (QTreeWidgetItem* top = m_connectionsList->topLevelItem(i)) {
+                m_connectionsList->setCurrentItem(top);
+            }
             refreshSelectedConnection();
             break;
         }
@@ -1879,7 +1997,11 @@ void MainWindow::editConnection() {
     if (selected.isEmpty()) {
         return;
     }
-    const int idx = selected.first()->data(Qt::UserRole).toInt();
+    QTreeWidgetItem* selItem = selected.first();
+    while (selItem && selItem->parent()) {
+        selItem = selItem->parent();
+    }
+    const int idx = selItem ? selItem->data(0, Qt::UserRole).toInt() : -1;
     if (idx < 0 || idx >= m_profiles.size()) {
         return;
     }
@@ -1907,7 +2029,11 @@ void MainWindow::deleteConnection() {
     if (selected.isEmpty()) {
         return;
     }
-    const int idx = selected.first()->data(Qt::UserRole).toInt();
+    QTreeWidgetItem* selItem = selected.first();
+    while (selItem && selItem->parent()) {
+        selItem = selItem->parent();
+    }
+    const int idx = selItem ? selItem->data(0, Qt::UserRole).toInt() : -1;
     if (idx < 0 || idx >= m_profiles.size()) {
         return;
     }
@@ -1929,6 +2055,16 @@ void MainWindow::deleteConnection() {
 }
 
 void MainWindow::onConnectionSelectionChanged() {
+    const auto selected = m_connectionsList->selectedItems();
+    if (!selected.isEmpty()) {
+        QTreeWidgetItem* selItem = selected.first();
+        while (selItem && selItem->parent()) {
+            selItem = selItem->parent();
+        }
+        if (selItem && m_connectionsList->currentItem() != selItem) {
+            m_connectionsList->setCurrentItem(selItem);
+        }
+    }
     if (m_leftTabs->currentIndex() == 0) {
         populateAllPoolsTables();
     }
@@ -1938,8 +2074,11 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
     if (actionsLocked()) {
         return;
     }
-    QListWidgetItem* item = m_connectionsList->itemAt(pos);
+    QTreeWidgetItem* item = m_connectionsList->itemAt(pos);
     if (item) {
+        while (item->parent()) {
+            item = item->parent();
+        }
         m_connectionsList->setCurrentItem(item);
     }
     const bool hasSel = (m_connectionsList->currentItem() != nullptr);
@@ -6474,6 +6613,8 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side) {
 
 MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p) {
     ConnectionRuntimeState state;
+    state.connectionMethod = p.connType;
+    state.powershellFallbackCommands = zfsmgrPowershellCommandSet();
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio refresh: %1 [%2]").arg(p.name, p.connType));
 
     if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
@@ -6503,6 +6644,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     }
     state.status = QStringLiteral("OK");
     state.detail = oneLine(out);
+    state.osLine = oneLine(out);
     state.zfsVersion.clear();
 
     out.clear();
@@ -6524,6 +6666,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         const QString parsed = parseOpenZfsVersionText(out + QStringLiteral("\n") + err);
         if (!parsed.isEmpty()) {
             state.zfsVersion = parsed;
+            state.zfsVersionFull = oneLine((out + QStringLiteral(" ") + err).simplified());
             break;
         }
         if (rc == 0) {
@@ -6536,6 +6679,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 const int major = ver.section('.', 0, 0).toInt();
                 if (major <= 10) {
                     state.zfsVersion = ver;
+                    state.zfsVersionFull = oneLine(merged);
                     break;
                 }
             }
@@ -6543,6 +6687,74 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     }
     if (state.zfsVersion.isEmpty()) {
         appLog(QStringLiteral("INFO"), QStringLiteral("%1: ZFS version not detected").arg(p.name));
+    } else if (state.zfsVersionFull.trimmed().isEmpty()) {
+        state.zfsVersionFull = QStringLiteral("OpenZFS %1").arg(state.zfsVersion);
+    }
+
+    // Detección de comandos disponibles para mostrar en detalle de conexión.
+    {
+        const QStringList wanted = zfsmgrUnixCommandSet();
+        QStringList detected;
+        QStringList missing;
+        if (isWindowsConnection(p)) {
+            QString dout, derr;
+            int drc = -1;
+            const QString roots = QStringLiteral(
+                "$roots=@('C:\\\\msys64\\\\usr\\\\bin','C:\\\\msys64\\\\mingw64\\\\bin','C:\\\\msys64\\\\mingw32\\\\bin','C:\\\\MinGW\\\\bin','C:\\\\mingw64\\\\bin'); "
+                "$present=@(); foreach($r in $roots){ if(Test-Path -LiteralPath $r){ $present += $r } }; "
+                "if($present.Count -eq 0){ Write-Output '__NO_UNIX_LAYER__'; exit 0 }; "
+                "$cmds='%1'.Split(' '); "
+                "foreach($c in $cmds){ $ok=$false; foreach($r in $present){ if(Test-Path -LiteralPath (Join-Path $r ($c + '.exe'))){ $ok=$true; break } }; "
+                "if($ok){ Write-Output ('OK:' + $c) } else { Write-Output ('KO:' + $c) } }")
+                    .arg(wanted.join(' '));
+            if (runSsh(p, roots, 15000, dout, derr, drc) && drc == 0) {
+                const QStringList lines = dout.split('\n', Qt::SkipEmptyParts);
+                bool noLayer = false;
+                for (const QString& raw : lines) {
+                    const QString line = raw.trimmed();
+                    if (line == QStringLiteral("__NO_UNIX_LAYER__")) {
+                        noLayer = true;
+                        break;
+                    }
+                    if (line.startsWith(QStringLiteral("OK:"))) {
+                        detected << line.mid(3).trimmed();
+                    } else if (line.startsWith(QStringLiteral("KO:"))) {
+                        missing << line.mid(3).trimmed();
+                    }
+                }
+                if (!noLayer && (!detected.isEmpty() || !missing.isEmpty())) {
+                    state.unixFromMsysOrMingw = true;
+                    state.detectedUnixCommands = detected;
+                    state.missingUnixCommands = missing;
+                } else {
+                    state.unixFromMsysOrMingw = false;
+                    state.detectedUnixCommands.clear();
+                    state.missingUnixCommands.clear();
+                }
+            }
+        } else {
+            QString dout, derr;
+            int drc = -1;
+            const QString checkCmd = QStringLiteral(
+                "for c in %1; do if command -v \"$c\" >/dev/null 2>&1; then echo \"OK:$c\"; else echo \"KO:$c\"; fi; done")
+                    .arg(wanted.join(' '));
+            if (runSsh(p, checkCmd, 12000, dout, derr, drc) && drc == 0) {
+                const QStringList lines = dout.split('\n', Qt::SkipEmptyParts);
+                for (const QString& raw : lines) {
+                    const QString line = raw.trimmed();
+                    if (line.startsWith(QStringLiteral("OK:"))) {
+                        detected << line.mid(3).trimmed();
+                    } else if (line.startsWith(QStringLiteral("KO:"))) {
+                        missing << line.mid(3).trimmed();
+                    }
+                }
+            } else {
+                missing = wanted;
+            }
+            state.detectedUnixCommands = detected;
+            state.missingUnixCommands = missing;
+            state.unixFromMsysOrMingw = false;
+        }
     }
 
     QString zpoolListCmd = withSudo(p, QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio"));

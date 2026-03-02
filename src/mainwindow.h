@@ -50,6 +50,13 @@ private:
         QString status;
         QString detail;
         QString zfsVersion;
+        QString osLine;
+        QString connectionMethod;
+        QString zfsVersionFull;
+        QStringList detectedUnixCommands;
+        QStringList missingUnixCommands;
+        bool unixFromMsysOrMingw{false};
+        QStringList powershellFallbackCommands;
         QVector<PoolImported> importedPools;
         QVector<PoolImportable> importablePools;
         QVector<QPair<QString, QString>> mountedDatasets; // dataset, mountpoint
@@ -194,7 +201,7 @@ private:
     QVector<ConnectionProfile> m_profiles;
     QVector<ConnectionRuntimeState> m_states;
 
-    QListWidget* m_connectionsList{nullptr};
+    QTreeWidget* m_connectionsList{nullptr};
     QTabWidget* m_leftTabs{nullptr};
     QTabWidget* m_rightTabs{nullptr};
 
