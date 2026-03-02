@@ -189,6 +189,7 @@ private:
     void populateMountedDatasetsTables();
     void enableSortableHeader(QTableWidget* table);
     void setTablePopulationMode(QTableWidget* table, bool populating);
+    void sortTableKeepingPinnedRows(QTableWidget* table, int section, Qt::SortOrder order, int pinnedRows);
 
     ConnectionStore m_store;
     QVector<ConnectionProfile> m_profiles;
