@@ -6736,7 +6736,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             QString dout, derr;
             int drc = -1;
             const QString checkCmd = QStringLiteral(
-                "PATH=\"$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/sbin\"; "
+                "PATH=\"$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin\"; "
                 "for c in %1; do "
                 "  found=0; "
                 "  command -v \"$c\" >/dev/null 2>&1 && found=1; "
@@ -6744,7 +6744,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 "    which \"$c\" >/dev/null 2>&1 && found=1; "
                 "  fi; "
                 "  if [ \"$found\" -eq 0 ]; then "
-                "    for d in /opt/homebrew/bin /opt/homebrew/sbin /usr/local/bin /usr/local/sbin /usr/sbin /sbin /usr/bin /bin; do "
+                "    for d in /opt/homebrew/bin /opt/homebrew/sbin /usr/local/bin /usr/local/sbin /usr/local/zfs/bin /usr/sbin /sbin /usr/bin /bin; do "
                 "      [ -x \"$d/$c\" ] && found=1 && break; "
                 "    done; "
                 "  fi; "
