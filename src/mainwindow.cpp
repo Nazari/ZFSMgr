@@ -153,6 +153,13 @@ bool looksLikePowerShellScript(const QString& cmd) {
     if (t.startsWith('[') || t.startsWith('$') || c.contains(QStringLiteral("::"))) {
         return true;
     }
+    if (t.startsWith(QStringLiteral("zfs "))
+        || t == QStringLiteral("zfs")
+        || t.startsWith(QStringLiteral("zpool "))
+        || t == QStringLiteral("zpool")
+        || t.startsWith(QStringLiteral("where.exe "))) {
+        return true;
+    }
     return c.contains(QStringLiteral("out-null"))
         || c.contains(QStringLiteral("test-path"))
         || c.contains(QStringLiteral("resolve-path"))
