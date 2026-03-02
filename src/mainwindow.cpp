@@ -6662,6 +6662,26 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     state.osLine = oneLine(out);
     state.zfsVersion.clear();
 
+    if (isWindowsConnection(p)) {
+        auto logWhere = [&](const QString& exeName) {
+            QString wOut, wErr;
+            int wRc = -1;
+            const QString whereCmd = QStringLiteral("where.exe %1").arg(exeName);
+            if (runSsh(p, whereCmd, 12000, wOut, wErr, wRc) && wRc == 0) {
+                const QStringList lines = wOut.split('\n', Qt::SkipEmptyParts);
+                const QString firstPath = lines.isEmpty() ? QStringLiteral("(sin salida)") : lines.first().trimmed();
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("%1: where %2 -> %3").arg(p.name, exeName, oneLine(firstPath)));
+            } else {
+                const QString reason = oneLine(wErr.isEmpty() ? QStringLiteral("not found (rc=%1)").arg(wRc) : wErr);
+                appLog(QStringLiteral("WARN"),
+                       QStringLiteral("%1: where %2 -> %3").arg(p.name, exeName, reason));
+            }
+        };
+        logWhere(QStringLiteral("zfs"));
+        logWhere(QStringLiteral("zpool"));
+    }
+
     out.clear();
     err.clear();
     rc = -1;
