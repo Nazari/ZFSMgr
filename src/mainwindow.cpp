@@ -1214,13 +1214,17 @@ void MainWindow::buildUi() {
     m_originPoolCombo->setMaximumWidth(140);
     m_originPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
     m_originTree = new QTreeWidget(originPane);
-    m_originTree->setColumnCount(2);
-    m_originTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
+    m_originTree->setColumnCount(4);
+    m_originTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot"), QStringLiteral("Montado"), QStringLiteral("Mountpoint")});
     m_originTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_originTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
+    m_originTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
+    m_originTree->header()->setSectionResizeMode(3, QHeaderView::Interactive);
     m_originTree->header()->setStretchLastSection(false);
-    m_originTree->setColumnWidth(0, 280);
-    m_originTree->setColumnWidth(1, 98);
+    m_originTree->setColumnWidth(0, 250);
+    m_originTree->setColumnWidth(1, 90);
+    m_originTree->setColumnWidth(2, 72);
+    m_originTree->setColumnWidth(3, 180);
     m_originTree->setUniformRowHeights(true);
     m_originTree->setRootIsDecorated(true);
     m_originTree->setItemsExpandable(true);
@@ -1257,13 +1261,17 @@ void MainWindow::buildUi() {
     m_destPoolCombo->setMaximumWidth(140);
     m_destPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
     m_destTree = new QTreeWidget(destPane);
-    m_destTree->setColumnCount(2);
-    m_destTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
+    m_destTree->setColumnCount(4);
+    m_destTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot"), QStringLiteral("Montado"), QStringLiteral("Mountpoint")});
     m_destTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_destTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
+    m_destTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
+    m_destTree->header()->setSectionResizeMode(3, QHeaderView::Interactive);
     m_destTree->header()->setStretchLastSection(false);
-    m_destTree->setColumnWidth(0, 280);
-    m_destTree->setColumnWidth(1, 98);
+    m_destTree->setColumnWidth(0, 250);
+    m_destTree->setColumnWidth(1, 90);
+    m_destTree->setColumnWidth(2, 72);
+    m_destTree->setColumnWidth(3, 180);
     m_destTree->setUniformRowHeights(true);
     m_destTree->setRootIsDecorated(true);
     m_destTree->setItemsExpandable(true);
@@ -1302,13 +1310,17 @@ void MainWindow::buildUi() {
     m_advPoolCombo->setMaximumWidth(110);
     m_advPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
     m_advTree = new QTreeWidget(rightAdvancedPage);
-    m_advTree->setColumnCount(2);
-    m_advTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot")});
+    m_advTree->setColumnCount(4);
+    m_advTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot"), QStringLiteral("Montado"), QStringLiteral("Mountpoint")});
     m_advTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_advTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
+    m_advTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
+    m_advTree->header()->setSectionResizeMode(3, QHeaderView::Interactive);
     m_advTree->header()->setStretchLastSection(false);
-    m_advTree->setColumnWidth(0, 280);
-    m_advTree->setColumnWidth(1, 98);
+    m_advTree->setColumnWidth(0, 250);
+    m_advTree->setColumnWidth(1, 90);
+    m_advTree->setColumnWidth(2, 72);
+    m_advTree->setColumnWidth(3, 180);
     m_advTree->setUniformRowHeights(true);
     m_advTree->setRootIsDecorated(true);
     m_advTree->setItemsExpandable(true);
@@ -1561,6 +1573,15 @@ void MainWindow::buildUi() {
     connect(m_advPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onAdvancedPoolChanged(); });
     connect(m_originTree, &QTreeWidget::itemSelectionChanged, this, [this]() { onOriginTreeSelectionChanged(); });
     connect(m_destTree, &QTreeWidget::itemSelectionChanged, this, [this]() { onDestTreeSelectionChanged(); });
+    connect(m_originTree, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int col) {
+        onDatasetTreeItemChanged(m_originTree, item, col, QStringLiteral("origin"));
+    });
+    connect(m_destTree, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int col) {
+        onDatasetTreeItemChanged(m_destTree, item, col, QStringLiteral("dest"));
+    });
+    connect(m_advTree, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int col) {
+        onDatasetTreeItemChanged(m_advTree, item, col, QStringLiteral("advanced"));
+    });
     connect(m_originTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int col) {
         onOriginTreeItemDoubleClicked(item, col);
     });
@@ -2253,7 +2274,7 @@ void MainWindow::onAdvancedPoolChanged() {
     }
     const int connIdx = token.left(sep).toInt();
     const QString poolName = token.mid(sep + 2);
-    populateDatasetTree(m_advTree, connIdx, poolName, QStringLiteral("origin"));
+    populateDatasetTree(m_advTree, connIdx, poolName, QStringLiteral("advanced"));
 
     QTreeWidgetItem* restored = nullptr;
     if (m_advTree && !prevDataset.isEmpty()) {
@@ -2691,13 +2712,16 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName) {
 
 void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side) {
     beginUiBusy();
+    m_loadingDatasetTrees = true;
     tree->clear();
     if (!ensureDatasetsLoaded(connIdx, poolName)) {
+        m_loadingDatasetTrees = false;
         endUiBusy();
         return;
     }
     const QString key = datasetCacheKey(connIdx, poolName);
     const PoolDatasetCache& cache = m_poolDatasetCache[key];
+    constexpr int snapshotListRole = Qt::UserRole + 1;
 
     QMap<QString, QTreeWidgetItem*> byName;
     for (const DatasetRecord& rec : cache.datasets) {
@@ -2710,7 +2734,16 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         item->setText(1, snaps.isEmpty() ? QString() : QStringLiteral("(ninguno)"));
         item->setData(1, Qt::UserRole, QString());
         item->setData(0, Qt::UserRole, rec.name);
-        item->setData(2, Qt::UserRole, snaps);
+        item->setData(1, snapshotListRole, snaps);
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+        const QString mounted = rec.mounted.trimmed().toLower();
+        const bool isMounted = (mounted == QStringLiteral("yes")
+                                || mounted == QStringLiteral("on")
+                                || mounted == QStringLiteral("true")
+                                || mounted == QStringLiteral("1"));
+        item->setCheckState(2, isMounted ? Qt::Checked : Qt::Unchecked);
+        const QString effectiveMp = effectiveMountPath(connIdx, poolName, rec.name, rec.mountpoint, rec.mounted);
+        item->setText(3, effectiveMp.isEmpty() ? rec.mountpoint.trimmed() : effectiveMp);
         byName.insert(rec.name, item);
     }
 
@@ -2733,7 +2766,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         if (!n) {
             return;
         }
-        const QStringList snaps = n->data(2, Qt::UserRole).toStringList();
+        const QStringList snaps = n->data(1, snapshotListRole).toStringList();
         if (!snaps.isEmpty()) {
             QStringList options;
             options << QStringLiteral("(ninguno)");
@@ -2765,9 +2798,10 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
 
     if (side == QStringLiteral("origin")) {
         m_originSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
-    } else {
+    } else if (side == QStringLiteral("dest")) {
         m_destSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
     }
+    m_loadingDatasetTrees = false;
     endUiBusy();
 }
 
@@ -2801,7 +2835,74 @@ void MainWindow::onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item
     }
     item->setData(1, Qt::UserRole, snap);
     tree->setCurrentItem(item);
+    if (side == QStringLiteral("advanced")) {
+        if (m_advSelectionLabel) {
+            if (ds.isEmpty()) {
+                m_advSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
+            } else if (snap.isEmpty()) {
+                m_advSelectionLabel->setText(ds);
+            } else {
+                m_advSelectionLabel->setText(QStringLiteral("%1@%2").arg(ds, snap));
+            }
+        }
+        refreshDatasetProperties(QStringLiteral("advanced"));
+        updateTransferButtonsState();
+        return;
+    }
     setSelectedDataset(side, ds, snap);
+}
+
+void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* item, int col, const QString& side) {
+    if (!tree || !item || m_loadingDatasetTrees || actionsLocked()) {
+        return;
+    }
+    if (col != 2) {
+        return;
+    }
+    const QString ds = item->data(0, Qt::UserRole).toString();
+    if (ds.isEmpty()) {
+        return;
+    }
+    const Qt::CheckState desired = item->checkState(2);
+    QString token;
+    if (side == QStringLiteral("origin")) {
+        token = m_originPoolCombo ? m_originPoolCombo->currentData().toString() : QString();
+    } else if (side == QStringLiteral("dest")) {
+        token = m_destPoolCombo ? m_destPoolCombo->currentData().toString() : QString();
+    } else {
+        token = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
+    }
+    const int sep = token.indexOf(QStringLiteral("::"));
+    if (sep <= 0) {
+        m_loadingDatasetTrees = true;
+        item->setCheckState(2, desired == Qt::Checked ? Qt::Unchecked : Qt::Checked);
+        m_loadingDatasetTrees = false;
+        return;
+    }
+    DatasetSelectionContext ctx;
+    ctx.valid = true;
+    ctx.connIdx = token.left(sep).toInt();
+    ctx.poolName = token.mid(sep + 2);
+    ctx.datasetName = ds;
+    ctx.snapshotName = item->data(1, Qt::UserRole).toString();
+    if (!ctx.snapshotName.isEmpty()) {
+        m_loadingDatasetTrees = true;
+        item->setCheckState(2, desired == Qt::Checked ? Qt::Unchecked : Qt::Checked);
+        m_loadingDatasetTrees = false;
+        return;
+    }
+
+    bool ok = false;
+    if (desired == Qt::Checked) {
+        ok = mountDataset(side, ctx);
+    } else {
+        ok = umountDataset(side, ctx);
+    }
+    if (!ok) {
+        m_loadingDatasetTrees = true;
+        item->setCheckState(2, desired == Qt::Checked ? Qt::Unchecked : Qt::Checked);
+        m_loadingDatasetTrees = false;
+    }
 }
 
 void MainWindow::refreshDatasetProperties(const QString& side) {
@@ -6040,7 +6141,7 @@ void MainWindow::reloadDatasetSide(const QString& side) {
         if (sep > 0) {
             const int connIdx = token.left(sep).toInt();
             const QString poolName = token.mid(sep + 2);
-            populateDatasetTree(m_advTree, connIdx, poolName, QStringLiteral("origin"));
+            populateDatasetTree(m_advTree, connIdx, poolName, QStringLiteral("advanced"));
             refreshDatasetProperties(QStringLiteral("advanced"));
         }
     }
@@ -6054,15 +6155,22 @@ void MainWindow::actionMountDataset(const QString& side) {
     if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
         return;
     }
+    mountDataset(side, ctx);
+}
+
+bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext& ctx) {
+    if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
+        return false;
+    }
     if (!ensureParentMountedBeforeMount(ctx, side)) {
-        return;
+        return false;
     }
     if (!ensureNoMountpointConflictsBeforeMount(ctx, false)) {
-        return;
+        return false;
     }
     const QString dsQ = shSingleQuote(ctx.datasetName);
     const QString cmd = QStringLiteral("zfs mount %1").arg(dsQ);
-    executeDatasetAction(side, QStringLiteral("Montar"), ctx, cmd);
+    return executeDatasetAction(side, QStringLiteral("Montar"), ctx, cmd);
 }
 
 void MainWindow::actionMountDatasetWithChildren(const QString& side) {
@@ -6271,6 +6379,13 @@ void MainWindow::actionUmountDataset(const QString& side) {
     if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
         return;
     }
+    umountDataset(side, ctx);
+}
+
+bool MainWindow::umountDataset(const QString& side, const DatasetSelectionContext& ctx) {
+    if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
+        return false;
+    }
     const QString dsQ = shSingleQuote(ctx.datasetName);
     QString hasChildrenCmd;
     const bool isWin = isWindowsConnection(ctx.connIdx);
@@ -6310,7 +6425,7 @@ void MainWindow::actionUmountDataset(const QString& side) {
             QMessageBox::No);
         if (answer != QMessageBox::Yes) {
             appLog(QStringLiteral("INFO"), QStringLiteral("Desmontar abortado por usuario"));
-            return;
+            return false;
         }
         if (isWin) {
             QString dsPs = ctx.datasetName;
@@ -6332,7 +6447,7 @@ void MainWindow::actionUmountDataset(const QString& side) {
         cmd = isWin ? QStringLiteral("zfs unmount %1").arg(dsQ)
                     : QStringLiteral("zfs umount %1").arg(dsQ);
     }
-    executeDatasetAction(side, QStringLiteral("Desmontar"), ctx, cmd, 90000, isWin);
+    return executeDatasetAction(side, QStringLiteral("Desmontar"), ctx, cmd, 90000, isWin);
 }
 
 void MainWindow::actionCreateChildDataset(const QString& side) {

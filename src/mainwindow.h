@@ -110,6 +110,7 @@ private:
     void onOriginTreeContextMenuRequested(const QPoint& pos);
     void onDestTreeContextMenuRequested(const QPoint& pos);
     void onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item, const QString& side, const QString& chosen);
+    void onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* item, int col, const QString& side);
     void clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem* keepItem);
     void onConnectionListContextMenuRequested(const QPoint& pos);
     void onImportedPoolsContextMenuRequested(const QPoint& pos);
@@ -148,6 +149,8 @@ private:
     void actionMountDataset(const QString& side);
     void actionMountDatasetWithChildren(const QString& side);
     void actionUmountDataset(const QString& side);
+    bool mountDataset(const QString& side, const DatasetSelectionContext& ctx);
+    bool umountDataset(const QString& side, const DatasetSelectionContext& ctx);
     void actionCreateChildDataset(const QString& side);
     void actionDeleteDatasetOrSnapshot(const QString& side);
     bool ensureParentMountedBeforeMount(const DatasetSelectionContext& ctx, const QString& side);
@@ -270,6 +273,7 @@ private:
     QMap<QString, bool> m_advPropsOriginalInherit;
     bool m_advPropsDirty{false};
     bool m_loadingPropsTable{false};
+    bool m_loadingDatasetTrees{false};
     QString m_language{QStringLiteral("es")};
     bool m_actionConfirmEnabled{true};
     QString m_appLogPath;
