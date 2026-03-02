@@ -104,6 +104,21 @@ QString oneLine(const QString& v) {
     return x.left(220);
 }
 
+QString sanitizeWindowsCliXml(const QString& raw) {
+    QString s = raw;
+    if (s.isEmpty()) {
+        return s;
+    }
+    s.replace(QStringLiteral("#< CLIXML"), QString());
+    const int xmlPos = s.indexOf(QStringLiteral("<Objs Version="), 0, Qt::CaseInsensitive);
+    if (xmlPos >= 0) {
+        s = s.left(xmlPos);
+    }
+    s.replace(QRegularExpression(QStringLiteral("<[^>]+>")), QStringLiteral(" "));
+    s = s.simplified();
+    return s;
+}
+
 QString parseOpenZfsVersionText(const QString& text) {
     if (text.trimmed().isEmpty()) {
         return QString();
@@ -2420,6 +2435,10 @@ bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, in
     rc = proc.exitCode();
     out = QString::fromUtf8(proc.readAllStandardOutput());
     err = QString::fromUtf8(proc.readAllStandardError());
+    if (isWindowsConnection(p)) {
+        out = sanitizeWindowsCliXml(out);
+        err = sanitizeWindowsCliXml(err);
+    }
     if (!out.trimmed().isEmpty()) {
         appendConnectionLog(p.id, oneLine(out));
     }
@@ -6167,6 +6186,62 @@ bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext
     }
     if (!ensureNoMountpointConflictsBeforeMount(ctx, false)) {
         return false;
+    }
+    if (isWindowsConnection(ctx.connIdx)) {
+        const ConnectionProfile& p = m_profiles[ctx.connIdx];
+        QString effectiveMp = effectiveMountPath(ctx.connIdx,
+                                                 ctx.poolName,
+                                                 ctx.datasetName,
+                                                 QString(),
+                                                 QStringLiteral("yes"));
+        if (effectiveMp.trimmed().isEmpty()) {
+            QString mpRaw;
+            if (getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("mountpoint"), mpRaw)) {
+                effectiveMp = mpRaw.trimmed();
+            }
+        }
+        QString dsPs = ctx.datasetName;
+        dsPs.replace('\'', QStringLiteral("''"));
+        QString mpPs = effectiveMp.trimmed();
+        mpPs.replace('\'', QStringLiteral("''"));
+        const QString precheckCmd = QStringLiteral(
+            "$ds='%1'; "
+            "$mp='%2'; "
+            "if ([string]::IsNullOrWhiteSpace($mp) -or $mp -eq '-' -or $mp -eq 'none') { "
+            "  throw ('mountpoint efectivo no resuelto para ' + $ds) "
+            "}; "
+            "$exists = Test-Path -LiteralPath $mp; "
+            "$mapped = $false; "
+            "foreach ($line in @(zfs mount 2>$null)) { "
+            "  if ($line -match '^\\s*(\\S+)\\s+(.+)$') { "
+            "    $d = $Matches[1].Trim(); "
+            "    $m = $Matches[2].Trim(); "
+            "    if ([string]::Equals($m, $mp, [System.StringComparison]::OrdinalIgnoreCase)) { "
+            "      if ($d -eq $ds) { $mapped = $true }; "
+            "      break; "
+            "    } "
+            "  } "
+            "}; "
+            "if ($exists -and -not $mapped) { "
+            "  throw ('mountpoint ocupado por ruta existente no-ZFS: ' + $mp) "
+            "}")
+                                       .arg(dsPs, mpPs);
+        QString preOut;
+        QString preErr;
+        int preRc = -1;
+        if (!runSsh(p, withSudo(p, precheckCmd), 15000, preOut, preErr, preRc) || preRc != 0) {
+            const QString reason = oneLine((preErr.isEmpty() ? preOut : preErr));
+            QMessageBox::warning(
+                this,
+                QStringLiteral("ZFSMgr"),
+                tr3(QStringLiteral("No se puede montar %1.\n%2").arg(ctx.datasetName, reason),
+                    QStringLiteral("Cannot mount %1.\n%2").arg(ctx.datasetName, reason),
+                    QStringLiteral("无法挂载 %1。\n%2").arg(ctx.datasetName, reason)));
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Precheck montar falló %1::%2 -> %3")
+                       .arg(p.name, ctx.datasetName, reason));
+            return false;
+        }
     }
     const QString dsQ = shSingleQuote(ctx.datasetName);
     const QString cmd = QStringLiteral("zfs mount %1").arg(dsQ);
