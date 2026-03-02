@@ -1701,6 +1701,8 @@ void MainWindow::refreshAllConnections() {
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Refrescar todas las conexiones"));
     if (m_profiles.isEmpty()) {
+        m_refreshInProgress = false;
+        updateBusyCursor();
         rebuildConnectionList();
         rebuildDatasetPoolSelectors();
         populateAllPoolsTables();
@@ -1712,6 +1714,8 @@ void MainWindow::refreshAllConnections() {
     const int generation = ++m_refreshGeneration;
     m_refreshPending = m_profiles.size();
     m_refreshTotal = m_profiles.size();
+    m_refreshInProgress = (m_refreshPending > 0);
+    updateBusyCursor();
     updateStatus(tr3(QStringLiteral("Estado: refrescando 0/%1"),
                      QStringLiteral("Status: refreshing 0/%1"),
                      QStringLiteral("状态：刷新中 0/%1"))
@@ -1744,6 +1748,8 @@ void MainWindow::refreshSelectedConnection() {
     const int generation = ++m_refreshGeneration;
     m_refreshPending = 1;
     m_refreshTotal = 1;
+    m_refreshInProgress = true;
+    updateBusyCursor();
     updateStatus(tr3(QStringLiteral("Estado: refrescando 0/1"),
                      QStringLiteral("Status: refreshing 0/1"),
                      QStringLiteral("状态：刷新中 0/1")));
@@ -1794,6 +1800,8 @@ void MainWindow::onAsyncRefreshDone(int generation) {
         return;
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Refresco paralelo finalizado"));
+    m_refreshInProgress = false;
+    updateBusyCursor();
     updateStatus(tr3(QStringLiteral("Estado: refresco finalizado"),
                      QStringLiteral("Status: refresh finished"),
                      QStringLiteral("状态：刷新完成")));
@@ -7089,7 +7097,7 @@ void MainWindow::endUiBusy() {
 }
 
 void MainWindow::updateBusyCursor() {
-    const bool shouldShow = m_actionsLocked || (m_uiBusyDepth > 0);
+    const bool shouldShow = m_actionsLocked || m_refreshInProgress || (m_uiBusyDepth > 0);
     if (shouldShow) {
         if (!m_waitCursorActive) {
             QApplication::setOverrideCursor(Qt::BusyCursor);

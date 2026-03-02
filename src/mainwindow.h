@@ -269,6 +269,7 @@ private:
     int m_refreshGeneration{0};
     int m_refreshPending{0};
     int m_refreshTotal{0};
+    bool m_refreshInProgress{false};
     bool m_actionsLocked{false};
     bool m_waitCursorActive{false};
     int m_uiBusyDepth{0};
