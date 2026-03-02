@@ -2420,7 +2420,22 @@ QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p, const QString&
     if (!isWindowsConnection(p)) {
         return remoteCmd;
     }
-    const QString script = remoteCmd.trimmed();
+    const QString script = QStringLiteral(
+        "$zfsPaths=@("
+        "'C:\\\\Program Files\\\\OpenZFS On Windows\\\\bin',"
+        "'C:\\\\Program Files\\\\OpenZFS On Windows',"
+        "'C:\\\\msys64\\\\usr\\\\bin',"
+        "'C:\\\\msys64\\\\mingw64\\\\bin',"
+        "'C:\\\\msys64\\\\mingw32\\\\bin',"
+        "'C:\\\\MinGW\\\\bin',"
+        "'C:\\\\mingw64\\\\bin'"
+        "); "
+        "foreach($p in $zfsPaths){ "
+        "  if(Test-Path -LiteralPath $p){ "
+        "    if(-not (($env:Path -split ';') -contains $p)){ $env:Path = $p + ';' + $env:Path } "
+        "  } "
+        "}; "
+    ) + remoteCmd.trimmed();
     const QByteArray utf16(reinterpret_cast<const char*>(script.utf16()), script.size() * 2);
     const QString b64 = QString::fromLatin1(utf16.toBase64());
     return QStringLiteral("powershell -NoProfile -NonInteractive -EncodedCommand %1").arg(b64);
@@ -6700,7 +6715,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             QString dout, derr;
             int drc = -1;
             const QString roots = QStringLiteral(
-                "$roots=@('C:\\\\msys64\\\\usr\\\\bin','C:\\\\msys64\\\\mingw64\\\\bin','C:\\\\msys64\\\\mingw32\\\\bin','C:\\\\MinGW\\\\bin','C:\\\\mingw64\\\\bin'); "
+                "$roots=@('C:\\\\Program Files\\\\OpenZFS On Windows\\\\bin','C:\\\\Program Files\\\\OpenZFS On Windows','C:\\\\msys64\\\\usr\\\\bin','C:\\\\msys64\\\\mingw64\\\\bin','C:\\\\msys64\\\\mingw32\\\\bin','C:\\\\MinGW\\\\bin','C:\\\\mingw64\\\\bin'); "
                 "$present=@(); foreach($r in $roots){ if(Test-Path -LiteralPath $r){ $present += $r } }; "
                 "if($present.Count -eq 0){ Write-Output '__NO_UNIX_LAYER__'; exit 0 }; "
                 "$cmds='%1'.Split(' '); "
