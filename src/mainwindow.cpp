@@ -556,6 +556,7 @@ void MainWindow::setTablePopulationMode(QTableWidget* table, bool populating) {
         return;
     }
     if (populating) {
+        beginUiBusy();
         const int colNow = table->horizontalHeader()->sortIndicatorSection();
         if (colNow >= 0) {
             table->setProperty("sort_col", colNow);
@@ -573,6 +574,7 @@ void MainWindow::setTablePopulationMode(QTableWidget* table, bool populating) {
     } else {
         table->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
     }
+    endUiBusy();
 }
 
 void MainWindow::loadUiSettings() {
@@ -1570,6 +1572,7 @@ void MainWindow::loadConnections() {
 }
 
 void MainWindow::rebuildConnectionList() {
+    beginUiBusy();
     m_connectionsList->clear();
     for (int i = 0; i < m_profiles.size(); ++i) {
         const auto& p = m_profiles[i];
@@ -1601,6 +1604,7 @@ void MainWindow::rebuildConnectionList() {
                              .arg(s.status)
                              .arg(s.detail));
     }
+    endUiBusy();
 }
 
 void MainWindow::rebuildDatasetPoolSelectors() {
@@ -2411,8 +2415,10 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName) {
 }
 
 void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side) {
+    beginUiBusy();
     tree->clear();
     if (!ensureDatasetsLoaded(connIdx, poolName)) {
+        endUiBusy();
         return;
     }
     const QString key = datasetCacheKey(connIdx, poolName);
@@ -2487,6 +2493,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
     } else {
         m_destSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
     }
+    endUiBusy();
 }
 
 void MainWindow::clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem* keepItem) {
@@ -2523,6 +2530,7 @@ void MainWindow::onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item
 }
 
 void MainWindow::refreshDatasetProperties(const QString& side) {
+    beginUiBusy();
     QString dataset;
     QString snapshot;
     if (side == QStringLiteral("origin")) {
@@ -2540,6 +2548,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     }
     QTableWidget* table = (side == QStringLiteral("advanced")) ? m_advPropsTable : m_datasetPropsTable;
     if (!table) {
+        endUiBusy();
         return;
     }
     if (dataset.isEmpty()) {
@@ -2559,6 +2568,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
             m_propsDirty = false;
         }
         updateApplyPropsButtonState();
+        endUiBusy();
         return;
     }
 
@@ -2572,6 +2582,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     }
     const int sep = token.indexOf(QStringLiteral("::"));
     if (sep <= 0) {
+        endUiBusy();
         return;
     }
     const int connIdx = token.left(sep).toInt();
@@ -2579,11 +2590,13 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     const QString key = datasetCacheKey(connIdx, poolName);
     const auto it = m_poolDatasetCache.constFind(key);
     if (it == m_poolDatasetCache.constEnd()) {
+        endUiBusy();
         return;
     }
     const PoolDatasetCache& cache = it.value();
     const auto recIt = cache.recordByName.constFind(dataset);
     if (recIt == cache.recordByName.constEnd()) {
+        endUiBusy();
         return;
     }
     const DatasetRecord& rec = recIt.value();
@@ -2811,6 +2824,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     setTablePopulationMode(table, false);
     m_loadingPropsTable = false;
     updateApplyPropsButtonState();
+    endUiBusy();
 }
 
 void MainWindow::setSelectedDataset(const QString& side, const QString& datasetName, const QString& snapshotName) {
@@ -7004,9 +7018,21 @@ void MainWindow::openConfigurationDialog() {
     }
 }
 
-void MainWindow::setActionsLocked(bool locked) {
-    m_actionsLocked = locked;
-    if (locked) {
+void MainWindow::beginUiBusy() {
+    ++m_uiBusyDepth;
+    updateBusyCursor();
+}
+
+void MainWindow::endUiBusy() {
+    if (m_uiBusyDepth > 0) {
+        --m_uiBusyDepth;
+    }
+    updateBusyCursor();
+}
+
+void MainWindow::updateBusyCursor() {
+    const bool shouldShow = m_actionsLocked || (m_uiBusyDepth > 0);
+    if (shouldShow) {
         if (!m_waitCursorActive) {
             QApplication::setOverrideCursor(Qt::BusyCursor);
             m_waitCursorActive = true;
@@ -7015,6 +7041,11 @@ void MainWindow::setActionsLocked(bool locked) {
         QApplication::restoreOverrideCursor();
         m_waitCursorActive = false;
     }
+}
+
+void MainWindow::setActionsLocked(bool locked) {
+    m_actionsLocked = locked;
+    updateBusyCursor();
     if (m_logCancelBtn) {
         m_logCancelBtn->setVisible(locked);
         m_logCancelBtn->setEnabled(locked);

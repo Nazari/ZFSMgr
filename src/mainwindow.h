@@ -168,6 +168,9 @@ private:
     void scrubPoolFromRow(int row);
     void refreshSelectedPoolDetails();
     void updateStatus(const QString& text);
+    void beginUiBusy();
+    void endUiBusy();
+    void updateBusyCursor();
     void setActionsLocked(bool locked);
     bool actionsLocked() const;
     void requestCancelRunningAction();
@@ -268,6 +271,7 @@ private:
     int m_refreshTotal{0};
     bool m_actionsLocked{false};
     bool m_waitCursorActive{false};
+    int m_uiBusyDepth{0};
     bool m_cancelActionRequested{false};
     QProcess* m_activeLocalProcess{nullptr};
     qint64 m_activeLocalPid{-1};
