@@ -3799,7 +3799,9 @@ void MainWindow::actionSyncDatasets() {
 
     // Build rsync options adaptively: macOS/BSD rsync may not support -A/-X short flags.
     const QString rsyncOptsProbe = QStringLiteral(
-        "RSYNC_OPTS='-aHWS --delete --info=progress2'; "
+        "RSYNC_PROGRESS='--info=progress2'; "
+        "rsync --help 2>/dev/null | grep -q -- '--info' || RSYNC_PROGRESS='--progress'; "
+        "RSYNC_OPTS='-aHWS --delete'; "
         "rsync -A --version >/dev/null 2>&1 && RSYNC_OPTS=\"$RSYNC_OPTS -A\"; "
         "if rsync -X --version >/dev/null 2>&1; then "
         "  RSYNC_OPTS=\"$RSYNC_OPTS -X\"; "
@@ -3923,7 +3925,7 @@ void MainWindow::actionSyncDatasets() {
         if (sameConnection) {
             appLog(QStringLiteral("INFO"), QStringLiteral("Sincronizar: modo local remoto (rsync, misma conexión)"));
             QString remoteRsync =
-                QStringLiteral("%1; rsync $RSYNC_OPTS %2/ %3/")
+                QStringLiteral("%1; rsync $RSYNC_OPTS $RSYNC_PROGRESS %2/ %3/")
                     .arg(rsyncOptsProbe,
                          shSingleQuote(srcEffectiveMp),
                          shSingleQuote(dstEffectiveMp));
@@ -3931,7 +3933,7 @@ void MainWindow::actionSyncDatasets() {
             command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
         } else {
             QString remoteRsync =
-                QStringLiteral("%1; rsync $RSYNC_OPTS -e %2 %3/ %4:%5/")
+                QStringLiteral("%1; rsync $RSYNC_OPTS $RSYNC_PROGRESS -e %2 %3/ %4:%5/")
                     .arg(rsyncOptsProbe,
                          shSingleQuote(sshBaseCommand(dp)),
                          shSingleQuote(srcEffectiveMp),
@@ -4067,10 +4069,10 @@ void MainWindow::actionSyncDatasets() {
         rsyncCommands.reserve(syncPairs.size());
         for (const auto& pair : syncPairs) {
             if (sameConnection) {
-                rsyncCommands << QStringLiteral("rsync $RSYNC_OPTS %1/ %2/")
+                rsyncCommands << QStringLiteral("rsync $RSYNC_OPTS $RSYNC_PROGRESS %1/ %2/")
                                      .arg(shSingleQuote(pair.first), shSingleQuote(pair.second));
             } else {
-                rsyncCommands << QStringLiteral("rsync $RSYNC_OPTS -e %1 %2/ %3:%4/")
+                rsyncCommands << QStringLiteral("rsync $RSYNC_OPTS $RSYNC_PROGRESS -e %1 %2/ %3:%4/")
                                      .arg(shSingleQuote(sshTransport),
                                           shSingleQuote(pair.first),
                                           shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
