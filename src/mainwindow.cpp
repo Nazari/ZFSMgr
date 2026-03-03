@@ -6304,7 +6304,16 @@ bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& c
         return false;
     }
     const QString mp = parentMountpoint.trimmed().toLower();
-    if (mp.isEmpty() || mp == QStringLiteral("none")) {
+    QString parentCanmount;
+    if (!getDatasetProperty(ctx.connIdx, parent, QStringLiteral("canmount"), parentCanmount)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             tr3(QStringLiteral("No se pudo comprobar canmount del padre %1").arg(parent),
+                                 QStringLiteral("Could not verify parent canmount %1").arg(parent),
+                                 QStringLiteral("无法检查父数据集 canmount：%1").arg(parent)));
+        return false;
+    }
+    const QString canmount = parentCanmount.trimmed().toLower();
+    if (mp.isEmpty() || mp == QStringLiteral("none") || canmount == QStringLiteral("off")) {
         return true;
     }
 
