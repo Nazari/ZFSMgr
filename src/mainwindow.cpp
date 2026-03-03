@@ -3610,15 +3610,18 @@ void MainWindow::actionCopySnapshot() {
     const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
     const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
 
-    QString sendCmd = withSudo(sp, QStringLiteral("zfs send -wLecR %1").arg(shSingleQuote(srcSnap)));
-    QString recvCmd = withSudoStreamInput(dp, QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget)));
+    const QString sendRawCmd = QStringLiteral("zfs send -wLecR %1").arg(shSingleQuote(srcSnap));
+    const QString recvRawCmd = QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget));
+    QString sendCmd = withSudo(sp, sendRawCmd);
+    QString recvCmd = withSudoStreamInput(dp, recvRawCmd);
 
     QString pipeline;
     if (sameConnection) {
         appLog(QStringLiteral("INFO"), QStringLiteral("Copiar: modo local remoto (origen y destino en la misma conexión)"));
-        const QString remotePipe = sendCmd
+        // Important: run full pipeline under one sudo context so password never contaminates ZFS stream.
+        const QString remotePipe = withSudo(sp, sendRawCmd
             + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
-            + recvCmd;
+            + recvRawCmd);
         pipeline = sshExecFromLocal(sp, remotePipe);
     } else {
         pipeline =
@@ -3731,20 +3734,23 @@ void MainWindow::actionLevelSnapshot() {
     const bool sameConnection = (src.connIdx == dst.connIdx);
     const QString fromSnap = src.datasetName + QStringLiteral("@") + dstLatestSnap;
     const QString srcSnap = src.datasetName + QStringLiteral("@") + targetSnapName;
-    QString sendCmd = withSudo(sp, QStringLiteral("zfs send -wLecR -I %1 %2").arg(shSingleQuote(fromSnap), shSingleQuote(srcSnap)));
+    const QString sendRawCmd = QStringLiteral("zfs send -wLecR -I %1 %2").arg(shSingleQuote(fromSnap), shSingleQuote(srcSnap));
+    QString sendCmd = withSudo(sp, sendRawCmd);
     const QString recvTarget = dst.datasetName;
 
     const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
     const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
 
-    QString recvCmd = withSudoStreamInput(dp, QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget)));
+    const QString recvRawCmd = QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget));
+    QString recvCmd = withSudoStreamInput(dp, recvRawCmd);
 
     QString pipeline;
     if (sameConnection) {
         appLog(QStringLiteral("INFO"), QStringLiteral("Nivelar: modo local remoto (origen y destino en la misma conexión)"));
-        const QString remotePipe = sendCmd
+        // Important: run full pipeline under one sudo context so password never contaminates ZFS stream.
+        const QString remotePipe = withSudo(sp, sendRawCmd
             + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
-            + recvCmd;
+            + recvRawCmd);
         pipeline = sshExecFromLocal(sp, remotePipe);
     } else {
         pipeline =
