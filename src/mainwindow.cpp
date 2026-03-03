@@ -3594,6 +3594,7 @@ void MainWindow::actionCopySnapshot() {
     }
     const ConnectionProfile& sp = m_profiles[src.connIdx];
     const ConnectionProfile& dp = m_profiles[dst.connIdx];
+    const bool sameConnection = (src.connIdx == dst.connIdx);
     const QString srcSnap = src.datasetName + QStringLiteral("@") + src.snapshotName;
     // Con send -R, el usuario espera que el dataset origen cuelgue del dataset destino
     // seleccionado (como padre), salvo cuando ya seleccionó explícitamente ese mismo dataset.
@@ -3612,10 +3613,19 @@ void MainWindow::actionCopySnapshot() {
     QString sendCmd = withSudo(sp, QStringLiteral("zfs send -wLecR %1").arg(shSingleQuote(srcSnap)));
     QString recvCmd = withSudoStreamInput(dp, QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget)));
 
-    const QString pipeline =
-        srcSsh + QStringLiteral(" ") + shSingleQuote(sendCmd)
-        + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
-        + dstSsh + QStringLiteral(" ") + shSingleQuote(recvCmd);
+    QString pipeline;
+    if (sameConnection) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("Copiar: modo local remoto (origen y destino en la misma conexión)"));
+        const QString remotePipe = sendCmd
+            + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
+            + recvCmd;
+        pipeline = sshExecFromLocal(sp, remotePipe);
+    } else {
+        pipeline =
+            srcSsh + QStringLiteral(" ") + shSingleQuote(sendCmd)
+            + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
+            + dstSsh + QStringLiteral(" ") + shSingleQuote(recvCmd);
+    }
 
     if (runLocalCommand(QStringLiteral("Copiar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0, false, true)) {
         invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
@@ -3718,6 +3728,7 @@ void MainWindow::actionLevelSnapshot() {
 
     const ConnectionProfile& sp = m_profiles[src.connIdx];
     const ConnectionProfile& dp = m_profiles[dst.connIdx];
+    const bool sameConnection = (src.connIdx == dst.connIdx);
     const QString fromSnap = src.datasetName + QStringLiteral("@") + dstLatestSnap;
     const QString srcSnap = src.datasetName + QStringLiteral("@") + targetSnapName;
     QString sendCmd = withSudo(sp, QStringLiteral("zfs send -wLecR -I %1 %2").arg(shSingleQuote(fromSnap), shSingleQuote(srcSnap)));
@@ -3728,10 +3739,19 @@ void MainWindow::actionLevelSnapshot() {
 
     QString recvCmd = withSudoStreamInput(dp, QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget)));
 
-    const QString pipeline =
-        srcSsh + QStringLiteral(" ") + shSingleQuote(sendCmd)
-        + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
-        + dstSsh + QStringLiteral(" ") + shSingleQuote(recvCmd);
+    QString pipeline;
+    if (sameConnection) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("Nivelar: modo local remoto (origen y destino en la misma conexión)"));
+        const QString remotePipe = sendCmd
+            + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
+            + recvCmd;
+        pipeline = sshExecFromLocal(sp, remotePipe);
+    } else {
+        pipeline =
+            srcSsh + QStringLiteral(" ") + shSingleQuote(sendCmd)
+            + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
+            + dstSsh + QStringLiteral(" ") + shSingleQuote(recvCmd);
+    }
 
     if (runLocalCommand(QStringLiteral("Nivelar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0, false, true)) {
         invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
@@ -3747,6 +3767,7 @@ void MainWindow::actionSyncDatasets() {
     }
     const ConnectionProfile& sp = m_profiles[src.connIdx];
     const ConnectionProfile& dp = m_profiles[dst.connIdx];
+    const bool sameConnection = (src.connIdx == dst.connIdx);
 
     QString srcMp;
     QString dstMp;
@@ -3862,9 +3883,18 @@ void MainWindow::actionSyncDatasets() {
             const StreamCodec codec = chooseCodec();
             const QString srcTarCmd = buildSrcTarCmd(isWindowsConnection(sp), srcEffectiveMp, codec);
             const QString dstTarCmd = buildDstTarCmd(isWindowsConnection(dp), dstEffectiveMp, codec);
-            const QString command = sshExecFromLocal(sp, srcTarCmd)
-                + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
-                + sshExecFromLocal(dp, dstTarCmd);
+            QString command;
+            if (sameConnection) {
+                appLog(QStringLiteral("INFO"), QStringLiteral("Sincronizar: modo local remoto (tar, misma conexión)"));
+                const QString remotePipe = srcTarCmd
+                    + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
+                    + dstTarCmd;
+                command = sshExecFromLocal(sp, remotePipe);
+            } else {
+                command = sshExecFromLocal(sp, srcTarCmd)
+                    + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
+                    + sshExecFromLocal(dp, dstTarCmd);
+            }
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("Sincronizar en Windows usa fallback tar/ssh (codec=%1, sin --delete).").arg(codecName(codec)));
             if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0, false, true)) {
@@ -3873,15 +3903,25 @@ void MainWindow::actionSyncDatasets() {
             }
             return;
         }
-        QString remoteRsync =
-            QStringLiteral("rsync -aHAWXS --delete --info=progress2 -e ")
-            + shSingleQuote(sshBaseCommand(dp))
-            + QStringLiteral(" %1/ %2:%3/")
-                  .arg(shSingleQuote(srcEffectiveMp),
-                       shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
-                       shSingleQuote(dstEffectiveMp));
-        remoteRsync = withSudo(sp, remoteRsync);
-        const QString command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
+        QString command;
+        if (sameConnection) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Sincronizar: modo local remoto (rsync, misma conexión)"));
+            QString remoteRsync =
+                QStringLiteral("rsync -aHAWXS --delete --info=progress2 %1/ %2/")
+                    .arg(shSingleQuote(srcEffectiveMp), shSingleQuote(dstEffectiveMp));
+            remoteRsync = withSudo(sp, remoteRsync);
+            command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
+        } else {
+            QString remoteRsync =
+                QStringLiteral("rsync -aHAWXS --delete --info=progress2 -e ")
+                + shSingleQuote(sshBaseCommand(dp))
+                + QStringLiteral(" %1/ %2:%3/")
+                      .arg(shSingleQuote(srcEffectiveMp),
+                           shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
+                           shSingleQuote(dstEffectiveMp));
+            remoteRsync = withSudo(sp, remoteRsync);
+            command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
+        }
         if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0, false, true)) {
             invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
             reloadDatasetSide(QStringLiteral("dest"));
@@ -3980,9 +4020,17 @@ void MainWindow::actionSyncDatasets() {
         for (const auto& pair : syncPairs) {
             const QString srcTarCmd = buildSrcTarCmd(isWindowsConnection(sp), pair.first, codec);
             const QString dstTarCmd = buildDstTarCmd(isWindowsConnection(dp), pair.second, codec);
-            tarPipelines << (sshExecFromLocal(sp, srcTarCmd)
-                + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
-                + sshExecFromLocal(dp, dstTarCmd));
+            if (sameConnection) {
+                tarPipelines << sshExecFromLocal(
+                    sp,
+                    srcTarCmd
+                        + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
+                        + dstTarCmd);
+            } else {
+                tarPipelines << (sshExecFromLocal(sp, srcTarCmd)
+                    + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
+                    + sshExecFromLocal(dp, dstTarCmd));
+            }
         }
         const QString command = tarPipelines.join(QStringLiteral(" && "));
         appLog(QStringLiteral("WARN"),
@@ -4000,11 +4048,16 @@ void MainWindow::actionSyncDatasets() {
     } else {
         rsyncCommands.reserve(syncPairs.size());
         for (const auto& pair : syncPairs) {
-            rsyncCommands << QStringLiteral("rsync -aHAWXS --delete --info=progress2 -e %1 %2/ %3:%4/")
-                                 .arg(shSingleQuote(sshTransport),
-                                      shSingleQuote(pair.first),
-                                      shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
-                                      shSingleQuote(pair.second));
+            if (sameConnection) {
+                rsyncCommands << QStringLiteral("rsync -aHAWXS --delete --info=progress2 %1/ %2/")
+                                     .arg(shSingleQuote(pair.first), shSingleQuote(pair.second));
+            } else {
+                rsyncCommands << QStringLiteral("rsync -aHAWXS --delete --info=progress2 -e %1 %2/ %3:%4/")
+                                     .arg(shSingleQuote(sshTransport),
+                                          shSingleQuote(pair.first),
+                                          shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
+                                          shSingleQuote(pair.second));
+            }
         }
         QString remoteRsync = QStringLiteral("set -e; %1").arg(rsyncCommands.join(QStringLiteral(" && ")));
         remoteRsync = withSudo(sp, remoteRsync);
