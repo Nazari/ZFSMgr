@@ -3796,6 +3796,16 @@ void MainWindow::actionSyncDatasets() {
     const bool dstCanmountOff = (dstCanmount.trimmed().toLower() == QStringLiteral("off"));
 
     const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
+
+    // Build rsync options adaptively: macOS/BSD rsync may not support -A/-X short flags.
+    const QString rsyncOptsProbe = QStringLiteral(
+        "RSYNC_OPTS='-aHWS --delete --info=progress2'; "
+        "rsync -A --version >/dev/null 2>&1 && RSYNC_OPTS=\"$RSYNC_OPTS -A\"; "
+        "if rsync -X --version >/dev/null 2>&1; then "
+        "  RSYNC_OPTS=\"$RSYNC_OPTS -X\"; "
+        "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then "
+        "  RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; "
+        "fi");
     const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
     const QString srcEffectiveMp = effectiveMountPath(src.connIdx, src.poolName, src.datasetName, srcMp, srcMounted);
     const QString dstEffectiveMp = effectiveMountPath(dst.connIdx, dst.poolName, dst.datasetName, dstMp, dstMounted);
@@ -3913,18 +3923,20 @@ void MainWindow::actionSyncDatasets() {
         if (sameConnection) {
             appLog(QStringLiteral("INFO"), QStringLiteral("Sincronizar: modo local remoto (rsync, misma conexión)"));
             QString remoteRsync =
-                QStringLiteral("rsync -aHAWXS --delete --info=progress2 %1/ %2/")
-                    .arg(shSingleQuote(srcEffectiveMp), shSingleQuote(dstEffectiveMp));
+                QStringLiteral("%1; rsync $RSYNC_OPTS %2/ %3/")
+                    .arg(rsyncOptsProbe,
+                         shSingleQuote(srcEffectiveMp),
+                         shSingleQuote(dstEffectiveMp));
             remoteRsync = withSudo(sp, remoteRsync);
             command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
         } else {
             QString remoteRsync =
-                QStringLiteral("rsync -aHAWXS --delete --info=progress2 -e ")
-                + shSingleQuote(sshBaseCommand(dp))
-                + QStringLiteral(" %1/ %2:%3/")
-                      .arg(shSingleQuote(srcEffectiveMp),
-                           shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
-                           shSingleQuote(dstEffectiveMp));
+                QStringLiteral("%1; rsync $RSYNC_OPTS -e %2 %3/ %4:%5/")
+                    .arg(rsyncOptsProbe,
+                         shSingleQuote(sshBaseCommand(dp)),
+                         shSingleQuote(srcEffectiveMp),
+                         shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
+                         shSingleQuote(dstEffectiveMp));
             remoteRsync = withSudo(sp, remoteRsync);
             command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
         }
@@ -4055,17 +4067,18 @@ void MainWindow::actionSyncDatasets() {
         rsyncCommands.reserve(syncPairs.size());
         for (const auto& pair : syncPairs) {
             if (sameConnection) {
-                rsyncCommands << QStringLiteral("rsync -aHAWXS --delete --info=progress2 %1/ %2/")
+                rsyncCommands << QStringLiteral("rsync $RSYNC_OPTS %1/ %2/")
                                      .arg(shSingleQuote(pair.first), shSingleQuote(pair.second));
             } else {
-                rsyncCommands << QStringLiteral("rsync -aHAWXS --delete --info=progress2 -e %1 %2/ %3:%4/")
+                rsyncCommands << QStringLiteral("rsync $RSYNC_OPTS -e %1 %2/ %3:%4/")
                                      .arg(shSingleQuote(sshTransport),
                                           shSingleQuote(pair.first),
                                           shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
                                           shSingleQuote(pair.second));
             }
         }
-        QString remoteRsync = QStringLiteral("set -e; %1").arg(rsyncCommands.join(QStringLiteral(" && ")));
+        QString remoteRsync = QStringLiteral("set -e; %1; %2")
+                                  .arg(rsyncOptsProbe, rsyncCommands.join(QStringLiteral(" && ")));
         remoteRsync = withSudo(sp, remoteRsync);
         const QString command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
         if (runLocalCommand(QStringLiteral("Sincronizar subdatasets %1 -> %2 (%3)")
