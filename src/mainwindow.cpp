@@ -6126,13 +6126,20 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("%1 finalizado").arg(actionName));
     invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
-    reloadDatasetSide(side);
-    if (actionName == QStringLiteral("Montar")
-        || actionName == QStringLiteral("Montar con todos los hijos")
-        || actionName == QStringLiteral("Desmontar")
-        || actionName == QStringLiteral("Desde Dir")) {
-        refreshConnectionByIndex(ctx.connIdx);
+    const bool needsDeferredRefresh =
+        (actionName == QStringLiteral("Montar")
+         || actionName == QStringLiteral("Montar con todos los hijos")
+         || actionName == QStringLiteral("Desmontar")
+         || actionName == QStringLiteral("Desde Dir"));
+    if (needsDeferredRefresh) {
+        const int refreshIdx = ctx.connIdx;
+        QTimer::singleShot(0, this, [this, refreshIdx]() {
+            refreshConnectionByIndex(refreshIdx);
+            setActionsLocked(false);
+        });
+        return true;
     }
+    reloadDatasetSide(side);
     setActionsLocked(false);
     return true;
 }
