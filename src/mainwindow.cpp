@@ -4710,6 +4710,7 @@ void MainWindow::actionAdvancedAssemble() {
     }
     if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Ensamblar"), ctx, cmd, 0, allowWindowsScript)) {
         m_advSelectionLabel->setText(ds);
+        refreshConnectionByIndex(ctx.connIdx);
     }
 }
 
