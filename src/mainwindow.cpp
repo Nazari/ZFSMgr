@@ -4677,10 +4677,15 @@ void MainWindow::actionAdvancedAssemble() {
                   "foreach($child in $selected){ "
                   "  $bn=($child -split '/')[($child -split '/').Count-1]; "
                   "  $cmp=Resolve-Mp $child; if ([string]::IsNullOrWhiteSpace($cmp) -or -not (Test-Path -LiteralPath $cmp)) { continue }; "
-                  "  $dst=Join-Path $pmp $bn; if (-not (Test-Path -LiteralPath $dst)) { New-Item -ItemType Directory -Force -Path $dst | Out-Null }; "
-                  "  robocopy $cmp $dst /E /COPYALL /R:1 /W:1 /NFL /NDL /NP | Out-Null; "
-                  "  $r=$LASTEXITCODE; if ($r -ge 8) { throw \"robocopy failed ($r) for $child\" }; "
+                  "  $tmp=Join-Path $env:TEMP ('zfsmgr-assemble-' + [guid]::NewGuid().ToString('N')); "
+                  "  New-Item -ItemType Directory -Force -Path $tmp | Out-Null; "
+                  "  robocopy $cmp $tmp /E /COPYALL /R:1 /W:1 /NFL /NDL /NP | Out-Null; "
+                  "  $r=$LASTEXITCODE; if ($r -ge 8) { throw \"robocopy (to tmp) failed ($r) for $child\" }; "
                   "  zfs destroy -r $child | Out-Null; if ($LASTEXITCODE -ne 0) { throw \"zfs destroy failed for $child\" }; "
+                  "  $dst=Join-Path $pmp $bn; if (-not (Test-Path -LiteralPath $dst)) { New-Item -ItemType Directory -Force -Path $dst | Out-Null }; "
+                  "  robocopy $tmp $dst /E /COPYALL /R:1 /W:1 /NFL /NDL /NP | Out-Null; "
+                  "  $r=$LASTEXITCODE; if ($r -ge 8) { throw \"robocopy (tmp->dst) failed ($r) for $child\" }; "
+                  "  Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue; "
                   "}")
                   .arg(dsPs, selectedPs.join(QStringLiteral(",")));
         allowWindowsScript = true;
@@ -4705,7 +4710,13 @@ void MainWindow::actionAdvancedAssemble() {
                            "SELECTED_CHILDREN=(%2); "
                            "for child in \"${SELECTED_CHILDREN[@]}\"; do bn=${child##*/}; "
                            "CMP=$(resolve_mp \"$child\"); [ -n \"$CMP\" ] || continue; "
-                           "mkdir -p \"$MP/$bn\"; rsync $RSYNC_OPTS \"$CMP\"/ \"$MP/$bn\"/ && zfs destroy -r \"$child\"; done")
+                           "TMP=$(mktemp -d /tmp/zfsmgr-assemble-XXXXXX); "
+                           "rsync $RSYNC_OPTS \"$CMP\"/ \"$TMP\"/; "
+                           "zfs destroy -r \"$child\"; "
+                           "mkdir -p \"$MP/$bn\"; "
+                           "rsync $RSYNC_OPTS \"$TMP\"/ \"$MP/$bn\"/; "
+                           "rm -rf \"$TMP\"; "
+                           "done")
                 .arg(shSingleQuote(ds), selectedList);
     }
     if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Ensamblar"), ctx, cmd, 0, allowWindowsScript)) {
