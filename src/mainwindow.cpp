@@ -898,10 +898,15 @@ void MainWindow::setTablePopulationMode(QTableWidget* table, bool populating) {
 
 void MainWindow::loadUiSettings() {
     QSettings ini(m_store.iniPath(), QSettings::IniFormat);
+    ini.beginGroup(QStringLiteral("ui"));
+    const QString langUi = ini.value(QStringLiteral("language"), QString()).toString().trimmed().toLower();
+    ini.endGroup();
     ini.beginGroup(QStringLiteral("app"));
     const QString lang = ini.value(QStringLiteral("language"), m_language).toString().trimmed().toLower();
     if (!lang.isEmpty()) {
         m_language = lang;
+    } else if (!langUi.isEmpty()) {
+        m_language = langUi;
     }
     m_actionConfirmEnabled = ini.value(QStringLiteral("confirm_actions"), true).toBool();
     m_logMaxSizeMb = ini.value(QStringLiteral("log_max_mb"), 10).toInt();
@@ -919,6 +924,9 @@ void MainWindow::saveUiSettings() const {
     ini.setValue(QStringLiteral("language"), m_language);
     ini.setValue(QStringLiteral("confirm_actions"), m_actionConfirmEnabled);
     ini.setValue(QStringLiteral("log_max_mb"), m_logMaxSizeMb);
+    ini.endGroup();
+    ini.beginGroup(QStringLiteral("ui"));
+    ini.setValue(QStringLiteral("language"), m_language);
     ini.endGroup();
     ini.sync();
 }

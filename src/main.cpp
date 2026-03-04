@@ -25,11 +25,19 @@ int main(int argc, char* argv[]) {
     ConnectionStore store(QStringLiteral("ZFSMgr"));
     {
         QSettings ini(store.iniPath(), QSettings::IniFormat);
-        ini.beginGroup(QStringLiteral("ui"));
-        const QString persistedLang = ini.value(QStringLiteral("language"), QStringLiteral("es")).toString().trimmed().toLower();
+        auto validLang = [](const QString& v) -> bool {
+            return v == QStringLiteral("es") || v == QStringLiteral("en") || v == QStringLiteral("zh");
+        };
+        ini.beginGroup(QStringLiteral("app"));
+        const QString appLang = ini.value(QStringLiteral("language"), QString()).toString().trimmed().toLower();
         ini.endGroup();
-        if (persistedLang == QStringLiteral("es") || persistedLang == QStringLiteral("en") || persistedLang == QStringLiteral("zh")) {
-            language = persistedLang;
+        ini.beginGroup(QStringLiteral("ui"));
+        const QString uiLang = ini.value(QStringLiteral("language"), QString()).toString().trimmed().toLower();
+        ini.endGroup();
+        if (validLang(appLang)) {
+            language = appLang;
+        } else if (validLang(uiLang)) {
+            language = uiLang;
         }
     }
     store.setLanguage(language);
@@ -43,6 +51,9 @@ int main(int argc, char* argv[]) {
         store.setLanguage(language);
         {
             QSettings ini(store.iniPath(), QSettings::IniFormat);
+            ini.beginGroup(QStringLiteral("app"));
+            ini.setValue(QStringLiteral("language"), language);
+            ini.endGroup();
             ini.beginGroup(QStringLiteral("ui"));
             ini.setValue(QStringLiteral("language"), language);
             ini.endGroup();
