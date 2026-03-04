@@ -946,6 +946,7 @@ void MainWindow::buildUi() {
     m_btnConfig->setMinimumHeight(34);
     const int connBtnMinW = qMax(m_btnNew->sizeHint().width(),
                                  qMax(m_btnRefreshAll->sizeHint().width(), m_btnConfig->sizeHint().width()));
+    const int stdLeftBtnH = m_btnNew->minimumHeight();
     m_btnNew->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnRefreshAll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConfig->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -967,7 +968,7 @@ void MainWindow::buildUi() {
     poolMgmtButtons->setSpacing(8);
     m_btnPoolNew =
         new QPushButton(tr3(QStringLiteral("Nuevo"), QStringLiteral("New"), QStringLiteral("新建")), m_poolMgmtBox);
-    m_btnPoolNew->setMinimumHeight(34);
+    m_btnPoolNew->setMinimumHeight(stdLeftBtnH);
     m_btnPoolNew->setMinimumWidth(connBtnMinW);
     m_btnPoolNew->setMaximumWidth(connBtnMinW);
     m_btnPoolNew->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
@@ -1011,6 +1012,15 @@ void MainWindow::buildUi() {
     m_btnCopy = new QPushButton(tr3(QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")), m_transferBox);
     m_btnLevel = new QPushButton(tr3(QStringLiteral("Nivelar"), QStringLiteral("Level"), QStringLiteral("同步快照")), m_transferBox);
     m_btnSync = new QPushButton(tr3(QStringLiteral("Sincronizar"), QStringLiteral("Sync"), QStringLiteral("同步文件")), m_transferBox);
+    m_btnCopy->setMinimumHeight(stdLeftBtnH);
+    m_btnLevel->setMinimumHeight(stdLeftBtnH);
+    m_btnSync->setMinimumHeight(stdLeftBtnH);
+    m_btnCopy->setMinimumWidth(connBtnMinW);
+    m_btnLevel->setMinimumWidth(connBtnMinW);
+    m_btnSync->setMinimumWidth(connBtnMinW);
+    m_btnCopy->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnLevel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnSync->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnCopy->setToolTip(
         tr3(QStringLiteral("Envía un snapshot desde Origen a Destino mediante send/recv.\n"
                            "Requiere: snapshot seleccionado en Origen y dataset seleccionado en Destino."),
@@ -1035,12 +1045,13 @@ void MainWindow::buildUi() {
     m_btnCopy->setEnabled(false);
     m_btnLevel->setEnabled(false);
     m_btnSync->setEnabled(false);
-    auto* transferButtonsRow = new QHBoxLayout();
-    transferButtonsRow->setSpacing(8);
-    transferButtonsRow->addWidget(m_btnCopy);
-    transferButtonsRow->addWidget(m_btnLevel);
-    transferButtonsRow->addWidget(m_btnSync);
-    transferLayout->addLayout(transferButtonsRow);
+    auto* transferButtonsGrid = new QGridLayout();
+    transferButtonsGrid->setHorizontalSpacing(8);
+    transferButtonsGrid->setVerticalSpacing(8);
+    transferButtonsGrid->addWidget(m_btnCopy, 0, 0);
+    transferButtonsGrid->addWidget(m_btnLevel, 0, 1);
+    transferButtonsGrid->addWidget(m_btnSync, 1, 0, 1, 2);
+    transferLayout->addLayout(transferButtonsGrid);
     dsLeftTabLayout->addWidget(m_transferBox);
     auto* datasetsInfoTabs = new QTabWidget(datasetsTab);
     datasetsInfoTabs->setDocumentMode(false);
@@ -1164,11 +1175,14 @@ void MainWindow::buildUi() {
                            "and remove dataset when finished successfully."),
             QStringLiteral("与“来自目录”相反：将数据集内容复制到本地目录，\n"
                            "成功后删除该数据集。")));
-    const int transferBtnH = m_btnCopy ? m_btnCopy->sizeHint().height() : m_btnAdvancedBreakdown->sizeHint().height();
-    m_btnAdvancedBreakdown->setFixedHeight(transferBtnH);
-    m_btnAdvancedAssemble->setFixedHeight(transferBtnH);
-    m_btnAdvancedFromDir->setFixedHeight(transferBtnH);
-    m_btnAdvancedToDir->setFixedHeight(transferBtnH);
+    m_btnAdvancedBreakdown->setMinimumHeight(stdLeftBtnH);
+    m_btnAdvancedAssemble->setMinimumHeight(stdLeftBtnH);
+    m_btnAdvancedFromDir->setMinimumHeight(stdLeftBtnH);
+    m_btnAdvancedToDir->setMinimumHeight(stdLeftBtnH);
+    m_btnAdvancedBreakdown->setMinimumWidth(connBtnMinW);
+    m_btnAdvancedAssemble->setMinimumWidth(connBtnMinW);
+    m_btnAdvancedFromDir->setMinimumWidth(connBtnMinW);
+    m_btnAdvancedToDir->setMinimumWidth(connBtnMinW);
     m_btnAdvancedBreakdown->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnAdvancedAssemble->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnAdvancedFromDir->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -1177,13 +1191,14 @@ void MainWindow::buildUi() {
     m_btnAdvancedAssemble->setEnabled(false);
     m_btnAdvancedFromDir->setEnabled(false);
     m_btnAdvancedToDir->setEnabled(false);
-    auto* commandsButtonsRow = new QHBoxLayout();
-    commandsButtonsRow->setSpacing(8);
-    commandsButtonsRow->addWidget(m_btnAdvancedBreakdown);
-    commandsButtonsRow->addWidget(m_btnAdvancedAssemble);
-    commandsButtonsRow->addWidget(m_btnAdvancedFromDir);
-    commandsButtonsRow->addWidget(m_btnAdvancedToDir);
-    commandsLayout->addLayout(commandsButtonsRow);
+    auto* commandsButtonsGrid = new QGridLayout();
+    commandsButtonsGrid->setHorizontalSpacing(8);
+    commandsButtonsGrid->setVerticalSpacing(8);
+    commandsButtonsGrid->addWidget(m_btnAdvancedBreakdown, 0, 0);
+    commandsButtonsGrid->addWidget(m_btnAdvancedAssemble, 0, 1);
+    commandsButtonsGrid->addWidget(m_btnAdvancedFromDir, 1, 0);
+    commandsButtonsGrid->addWidget(m_btnAdvancedToDir, 1, 1);
+    commandsLayout->addLayout(commandsButtonsGrid);
     // Igualar altura de las cajas de acciones de panel izquierdo:
     // Conexiones, Datasets (Origen-->Destino) y Avanzado (Comandos).
     const int actionsBoxHeight = qMax(72, connButtonsBox->sizeHint().height());
