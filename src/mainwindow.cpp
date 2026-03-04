@@ -6418,20 +6418,23 @@ void MainWindow::createPoolForSelectedConnection() {
         tr3(QStringLiteral("Crear pool en %1"), QStringLiteral("Create pool on %1"), QStringLiteral("在 %1 创建池"))
             .arg(p.name));
     dlg.setModal(true);
-    dlg.resize(980, 760);
+    dlg.resize(1180, 760);
     auto* lay = new QVBoxLayout(&dlg);
 
+    auto* body = new QHBoxLayout();
+    body->setSpacing(8);
+    auto* leftPane = new QWidget(&dlg);
+    auto* leftLay = new QVBoxLayout(leftPane);
+    leftLay->setContentsMargins(0, 0, 0, 0);
+    leftLay->setSpacing(8);
+
     auto* baseBox = new QGroupBox(
-        tr3(QStringLiteral("Parámetros del pool"), QStringLiteral("Pool parameters"), QStringLiteral("池参数")),
-        &dlg);
+        tr3(QStringLiteral("Parámetros del pool"), QStringLiteral("Pool parameters"), QStringLiteral("池参数")), leftPane);
     auto* form = new QFormLayout(baseBox);
     QLineEdit* poolNameEd = new QLineEdit(baseBox);
-    QComboBox* layoutCb = new QComboBox(baseBox);
-    layoutCb->addItem(QStringLiteral("stripe"));
-    layoutCb->addItem(QStringLiteral("mirror"));
-    layoutCb->addItem(QStringLiteral("raidz"));
-    layoutCb->addItem(QStringLiteral("raidz2"));
-    layoutCb->addItem(QStringLiteral("raidz3"));
+    QComboBox* quickLayoutCb = new QComboBox(baseBox);
+    quickLayoutCb->addItems({QStringLiteral("stripe"), QStringLiteral("mirror"), QStringLiteral("raidz"),
+                             QStringLiteral("raidz2"), QStringLiteral("raidz3")});
     QCheckBox* forceCb = new QCheckBox(QStringLiteral("-f"), baseBox);
     QCheckBox* dryRunCb = new QCheckBox(QStringLiteral("-n"), baseBox);
     QLineEdit* mountpointEd = new QLineEdit(baseBox);
@@ -6443,14 +6446,12 @@ void MainWindow::createPoolForSelectedConnection() {
     QLineEdit* bootfsEd = new QLineEdit(baseBox);
     QLineEdit* poolOptsEd = new QLineEdit(baseBox);
     QLineEdit* fsPropsEd = new QLineEdit(baseBox);
-    QLineEdit* sparesEd = new QLineEdit(baseBox);
-    QLineEdit* logEd = new QLineEdit(baseBox);
-    QLineEdit* cacheEd = new QLineEdit(baseBox);
-    QLineEdit* specialEd = new QLineEdit(baseBox);
-    QLineEdit* dedupEd = new QLineEdit(baseBox);
     QLineEdit* extraEd = new QLineEdit(baseBox);
     form->addRow(tr3(QStringLiteral("Nombre"), QStringLiteral("Name"), QStringLiteral("名称")), poolNameEd);
-    form->addRow(tr3(QStringLiteral("Tipo vdev"), QStringLiteral("Vdev type"), QStringLiteral("vdev 类型")), layoutCb);
+    form->addRow(tr3(QStringLiteral("Tipo rápido (si no hay spec vdev)"),
+                     QStringLiteral("Quick type (if no vdev spec)"),
+                     QStringLiteral("快速类型（若无 vdev 规格）")),
+                 quickLayoutCb);
     auto* flagsRow = new QHBoxLayout();
     flagsRow->addWidget(forceCb);
     flagsRow->addWidget(dryRunCb);
@@ -6465,19 +6466,68 @@ void MainWindow::createPoolForSelectedConnection() {
     form->addRow(QStringLiteral("bootfs (-o bootfs=)"), bootfsEd);
     form->addRow(QStringLiteral("-o (coma: k=v,k=v)"), poolOptsEd);
     form->addRow(QStringLiteral("-O (coma: k=v,k=v)"), fsPropsEd);
-    form->addRow(QStringLiteral("spares (espacios)"), sparesEd);
-    form->addRow(QStringLiteral("log (espacios)"), logEd);
-    form->addRow(QStringLiteral("cache (espacios)"), cacheEd);
-    form->addRow(QStringLiteral("special (espacios)"), specialEd);
-    form->addRow(QStringLiteral("dedup (espacios)"), dedupEd);
     form->addRow(QStringLiteral("extra args"), extraEd);
-    lay->addWidget(baseBox, 0);
+    leftLay->addWidget(baseBox, 0);
+
+    auto* vdevBox =
+        new QGroupBox(tr3(QStringLiteral("Constructor de VDEV"),
+                          QStringLiteral("VDEV builder"),
+                          QStringLiteral("VDEV 构建器")),
+                      leftPane);
+    auto* vdevLay = new QVBoxLayout(vdevBox);
+    auto* row1 = new QHBoxLayout();
+    QComboBox* vdevClassCb = new QComboBox(vdevBox);
+    vdevClassCb->addItem(QStringLiteral("data"));
+    vdevClassCb->addItem(QStringLiteral("special"));
+    vdevClassCb->addItem(QStringLiteral("log"));
+    vdevClassCb->addItem(QStringLiteral("cache"));
+    vdevClassCb->addItem(QStringLiteral("dedup"));
+    vdevClassCb->addItem(QStringLiteral("spare"));
+    QComboBox* vdevTypeCb = new QComboBox(vdevBox);
+    vdevTypeCb->addItems({QStringLiteral("stripe"), QStringLiteral("mirror"), QStringLiteral("raidz"),
+                          QStringLiteral("raidz2"), QStringLiteral("raidz3")});
+    auto* addVdevBtn =
+        new QPushButton(tr3(QStringLiteral("Añadir con seleccionados"),
+                            QStringLiteral("Add from selected"),
+                            QStringLiteral("从已选添加")),
+                        vdevBox);
+    row1->addWidget(new QLabel(tr3(QStringLiteral("Clase"), QStringLiteral("Class"), QStringLiteral("类别")), vdevBox));
+    row1->addWidget(vdevClassCb);
+    row1->addWidget(new QLabel(tr3(QStringLiteral("Tipo"), QStringLiteral("Type"), QStringLiteral("类型")), vdevBox));
+    row1->addWidget(vdevTypeCb);
+    row1->addWidget(addVdevBtn, 1);
+    vdevLay->addLayout(row1);
+    auto* row2 = new QHBoxLayout();
+    auto* clearSelBtn = new QPushButton(tr3(QStringLiteral("Limpiar selección dispositivos"),
+                                            QStringLiteral("Clear device selection"),
+                                            QStringLiteral("清除设备选择")),
+                                        vdevBox);
+    auto* clearSpecBtn =
+        new QPushButton(tr3(QStringLiteral("Limpiar spec"), QStringLiteral("Clear spec"), QStringLiteral("清除规格")), vdevBox);
+    row2->addWidget(clearSelBtn);
+    row2->addWidget(clearSpecBtn);
+    row2->addStretch(1);
+    vdevLay->addLayout(row2);
+    auto* vdevHelp =
+        new QLabel(tr3(QStringLiteral("Puede construir algo como: raidz2 d1 d2 d3 d4 d5 d6 | raidz2 d7 d8 d9 d10 d11 d12 | special mirror nvme0 nvme1 | log mirror nvme2 nvme3 | cache nvme4 | dedup mirror nvme5 nvme6 | spare d13"),
+                       QStringLiteral("Build specs like: raidz2 d1 d2 d3 d4 d5 d6 | raidz2 d7 d8 d9 d10 d11 d12 | special mirror nvme0 nvme1 | log mirror nvme2 nvme3 | cache nvme4 | dedup mirror nvme5 nvme6 | spare d13"),
+                       QStringLiteral("可构建如下规格：raidz2 d1 d2 d3 d4 d5 d6 | raidz2 d7 d8 d9 d10 d11 d12 | special mirror nvme0 nvme1 | log mirror nvme2 nvme3 | cache nvme4 | dedup mirror nvme5 nvme6 | spare d13")),
+                   vdevBox);
+    vdevHelp->setWordWrap(true);
+    vdevLay->addWidget(vdevHelp, 0);
+    QPlainTextEdit* vdevSpecEdit = new QPlainTextEdit(vdevBox);
+    vdevSpecEdit->setPlaceholderText(
+        tr3(QStringLiteral("Una línea por grupo o use '|' en una línea.\nEjemplo:\nraidz2 /dev/sda /dev/sdb /dev/sdc /dev/sdd /dev/sde /dev/sdf\nraidz2 /dev/sdg /dev/sdh /dev/sdi /dev/sdj /dev/sdk /dev/sdl\nspecial mirror /dev/nvme0n1 /dev/nvme1n1\nlog mirror /dev/nvme2n1 /dev/nvme3n1\ncache /dev/nvme4n1\ndedup mirror /dev/nvme5n1 /dev/nvme6n1\nspare /dev/sdm"),
+            QStringLiteral("One line per group or use '|' in one line.\nExample:\nraidz2 /dev/sda /dev/sdb /dev/sdc /dev/sdd /dev/sde /dev/sdf\nraidz2 /dev/sdg /dev/sdh /dev/sdi /dev/sdj /dev/sdk /dev/sdl\nspecial mirror /dev/nvme0n1 /dev/nvme1n1\nlog mirror /dev/nvme2n1 /dev/nvme3n1\ncache /dev/nvme4n1\ndedup mirror /dev/nvme5n1 /dev/nvme6n1\nspare /dev/sdm"),
+            QStringLiteral("每行一个组，或在一行里用“|”。\n示例：\nraidz2 /dev/sda /dev/sdb /dev/sdc /dev/sdd /dev/sde /dev/sdf\nraidz2 /dev/sdg /dev/sdh /dev/sdi /dev/sdj /dev/sdk /dev/sdl\nspecial mirror /dev/nvme0n1 /dev/nvme1n1\nlog mirror /dev/nvme2n1 /dev/nvme3n1\ncache /dev/nvme4n1\ndedup mirror /dev/nvme5n1 /dev/nvme6n1\nspare /dev/sdm")));
+    vdevLay->addWidget(vdevSpecEdit, 1);
+    leftLay->addWidget(vdevBox, 1);
 
     auto* devicesBox = new QGroupBox(
         tr3(QStringLiteral("Block devices disponibles"),
             QStringLiteral("Available block devices"),
             QStringLiteral("可用块设备")),
-        &dlg);
+        leftPane);
     auto* devicesLayout = new QVBoxLayout(devicesBox);
     QTableWidget* devicesTable = new QTableWidget(devicesBox);
     devicesTable->setColumnCount(6);
@@ -6551,7 +6601,74 @@ void MainWindow::createPoolForSelectedConnection() {
         }
     }
     devicesLayout->addWidget(devicesTable, 1);
-    lay->addWidget(devicesBox, 1);
+    body->addWidget(leftPane, 3);
+    body->addWidget(devicesBox, 2);
+    lay->addLayout(body, 1);
+
+    auto checkedDevices = [devicesTable]() -> QStringList {
+        QStringList selected;
+        for (int r = 0; r < devicesTable->rowCount(); ++r) {
+            QTableWidgetItem* use = devicesTable->item(r, 0);
+            QTableWidgetItem* dev = devicesTable->item(r, 1);
+            if (!use || !dev) {
+                continue;
+            }
+            if (use->checkState() == Qt::Checked) {
+                const QString d = dev->text().trimmed();
+                if (!d.isEmpty()) {
+                    selected << d;
+                }
+            }
+        }
+        return selected;
+    };
+    connect(clearSelBtn, &QPushButton::clicked, &dlg, [devicesTable]() {
+        for (int r = 0; r < devicesTable->rowCount(); ++r) {
+            if (QTableWidgetItem* use = devicesTable->item(r, 0)) {
+                use->setCheckState(Qt::Unchecked);
+            }
+        }
+    });
+    connect(clearSpecBtn, &QPushButton::clicked, &dlg, [vdevSpecEdit]() {
+        vdevSpecEdit->clear();
+    });
+    connect(addVdevBtn, &QPushButton::clicked, &dlg, [&]() {
+        QStringList selected = checkedDevices();
+        if (selected.isEmpty()) {
+            QMessageBox::information(
+                &dlg, QStringLiteral("ZFSMgr"),
+                tr3(QStringLiteral("Seleccione dispositivos en la tabla de la derecha."),
+                    QStringLiteral("Select devices in the table on the right."),
+                    QStringLiteral("请在右侧表格中选择设备。")));
+            return;
+        }
+        QStringList line;
+        const QString klass = vdevClassCb->currentText().trimmed().toLower();
+        const QString vtype = vdevTypeCb->currentText().trimmed().toLower();
+        if (klass != QStringLiteral("data")) {
+            line << klass;
+        }
+        const bool noRedundancyClass = (klass == QStringLiteral("cache") || klass == QStringLiteral("spare"));
+        if (!noRedundancyClass && vtype != QStringLiteral("stripe")) {
+            line << vtype;
+        }
+        for (const QString& d : selected) {
+            line << d;
+        }
+        const QString textLine = line.join(' ');
+        QString cur = vdevSpecEdit->toPlainText().trimmed();
+        if (!cur.isEmpty()) {
+            cur += QLatin1Char('\n');
+        }
+        cur += textLine;
+        vdevSpecEdit->setPlainText(cur);
+        for (int r = 0; r < devicesTable->rowCount(); ++r) {
+            QTableWidgetItem* use = devicesTable->item(r, 0);
+            if (use) {
+                use->setCheckState(Qt::Unchecked);
+            }
+        }
+    });
 
     auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
@@ -6567,32 +6684,7 @@ void MainWindow::createPoolForSelectedConnection() {
         return;
     }
 
-    QStringList selectedDevices;
-    for (int r = 0; r < devicesTable->rowCount(); ++r) {
-        QTableWidgetItem* use = devicesTable->item(r, 0);
-        QTableWidgetItem* dev = devicesTable->item(r, 1);
-        if (!use || !dev) {
-            continue;
-        }
-        if (use->checkState() == Qt::Checked) {
-            selectedDevices << dev->text().trimmed();
-        }
-    }
-    if (selectedDevices.isEmpty()) {
-        QMessageBox::warning(
-            this, QStringLiteral("ZFSMgr"),
-            tr3(QStringLiteral("Seleccione al menos un block device."),
-                QStringLiteral("Select at least one block device."),
-                QStringLiteral("请至少选择一个块设备。")));
-        return;
-    }
-
-    auto appendSplitWords = [](QStringList& outParts, const QString& value) {
-        const QStringList tokens = value.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
-        for (const QString& t : tokens) {
-            outParts << shSingleQuote(t.trimmed());
-        }
-    };
+    QStringList selectedDevices = checkedDevices();
 
     QStringList parts;
     parts << QStringLiteral("zpool create");
@@ -6632,33 +6724,55 @@ void MainWindow::createPoolForSelectedConnection() {
     }
 
     parts << shSingleQuote(poolName);
-    const QString layout = layoutCb->currentText().trimmed().toLower();
-    if (!layout.isEmpty() && layout != QStringLiteral("stripe")) {
-        parts << layout;
+    QString vdevSpec = vdevSpecEdit->toPlainText();
+    QStringList specLines;
+    for (QString ln : vdevSpec.split('\n')) {
+        ln = ln.trimmed();
+        if (ln.isEmpty()) {
+            continue;
+        }
+        const int hash = ln.indexOf('#');
+        if (hash >= 0) {
+            ln = ln.left(hash).trimmed();
+        }
+        if (ln.isEmpty()) {
+            continue;
+        }
+        ln.replace('|', '\n');
+        const QStringList splitByPipe = ln.split('\n', Qt::SkipEmptyParts);
+        for (QString seg : splitByPipe) {
+            seg = seg.trimmed();
+            if (!seg.isEmpty()) {
+                specLines << seg;
+            }
+        }
     }
-    for (const QString& d : selectedDevices) {
-        parts << shSingleQuote(d);
-    }
-    const auto appendGroup = [&parts, &appendSplitWords](const QString& groupName, const QString& value) {
-        const QStringList tokens = value.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
-        if (tokens.isEmpty()) {
+    if (specLines.isEmpty()) {
+        if (selectedDevices.isEmpty()) {
+            QMessageBox::warning(
+                this, QStringLiteral("ZFSMgr"),
+                tr3(QStringLiteral("Defina una especificación VDEV o seleccione dispositivos para modo rápido."),
+                    QStringLiteral("Provide a VDEV spec or select devices for quick mode."),
+                    QStringLiteral("请提供 VDEV 规格，或在快速模式中选择设备。")));
             return;
         }
-        parts << groupName;
-        for (const QString& t : tokens) {
-            parts << shSingleQuote(t.trimmed());
+        QStringList quick;
+        const QString quickType = quickLayoutCb->currentText().trimmed().toLower();
+        if (!quickType.isEmpty() && quickType != QStringLiteral("stripe")) {
+            quick << quickType;
         }
-    };
-    appendGroup(QStringLiteral("spare"), sparesEd->text());
-    appendGroup(QStringLiteral("log"), logEd->text());
-    appendGroup(QStringLiteral("cache"), cacheEd->text());
-    appendGroup(QStringLiteral("special"), specialEd->text());
-    appendGroup(QStringLiteral("dedup"), dedupEd->text());
+        quick.append(selectedDevices);
+        specLines << quick.join(' ');
+    }
+    for (const QString& line : specLines) {
+        const QStringList toks = line.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        for (const QString& tok : toks) {
+            parts << shSingleQuote(tok.trimmed());
+        }
+    }
     if (!extraEd->text().trimmed().isEmpty()) {
         parts << extraEd->text().trimmed();
     }
-
-    Q_UNUSED(appendSplitWords);
     const QString cmd = withSudo(p, parts.join(' '));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(QStringLiteral("%1@%2:%3")
