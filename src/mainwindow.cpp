@@ -6845,7 +6845,9 @@ void MainWindow::createPoolForSelectedConnection() {
             e.mountpoint = mp.isEmpty() ? QStringLiteral("-") : mp;
             e.fsType = fsType.isEmpty() ? QStringLiteral("-") : fsType;
             e.devType = type.isEmpty() ? QStringLiteral("part") : type;
-            const QString fsLower = e.fsType.trimmed().toLower();
+            QString fsLower = e.fsType.trimmed().toLower();
+            fsLower.remove('{');
+            fsLower.remove('}');
             if (e.fsType.compare(QStringLiteral("zfs_member"), Qt::CaseInsensitive) == 0
                 || fsLower.contains(QStringLiteral("zfs"))
                 || fsLower == QStringLiteral("6a945a3b-1dd2-11b2-99a6-080020736631")) {
@@ -6904,7 +6906,24 @@ void MainWindow::createPoolForSelectedConnection() {
         }
         return usedTokens;
     };
-    auto markDevicesInPoolByTokens = [&devicesByPath](const QSet<QString>& usedTokens) {
+    auto normalizeWinPhysPart = [](const QString& raw) -> QString {
+        const QString s = raw.trimmed();
+        if (s.isEmpty()) {
+            return QString();
+        }
+        static const QRegularExpression rx(
+            QStringLiteral("physicaldrive\\s*(\\d+)(?:\\D+partition\\s*(\\d+))?"),
+            QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch m = rx.match(s);
+        if (!m.hasMatch()) {
+            return QString();
+        }
+        const QString d = m.captured(1);
+        const QString p = m.captured(2);
+        return p.isEmpty() ? QStringLiteral("physicaldrive%1").arg(d)
+                           : QStringLiteral("physicaldrive%1/partition%2").arg(d, p);
+    };
+    auto markDevicesInPoolByTokens = [&devicesByPath, &normalizeWinPhysPart](const QSet<QString>& usedTokens) {
         if (usedTokens.isEmpty()) {
             return;
         }
@@ -6916,15 +6935,19 @@ void MainWindow::createPoolForSelectedConnection() {
             const QString realBase = QFileInfo(real).fileName();
             const QString pthLower = pth.toLower();
             const QString realLower = real.toLower();
+            const QString pthNorm = normalizeWinPhysPart(pthLower);
+            const QString realNorm = normalizeWinPhysPart(realLower);
             for (const QString& tkRaw : usedTokens) {
                 const QString tk = tkRaw.trimmed();
                 if (tk.isEmpty()) {
                     continue;
                 }
                 const QString tkLower = tk.toLower();
+                const QString tkNorm = normalizeWinPhysPart(tkLower);
                 if (tk == pth || tk == real || tk == alias
                     || tk == pthBase || tk == realBase
-                    || pthLower.contains(tkLower) || realLower.contains(tkLower)) {
+                    || pthLower.contains(tkLower) || realLower.contains(tkLower)
+                    || (!tkNorm.isEmpty() && (tkNorm == pthNorm || tkNorm == realNorm))) {
                     it.value().inPool = true;
                     break;
                 }
@@ -6936,6 +6959,27 @@ void MainWindow::createPoolForSelectedConnection() {
     const QString inPoolCmd = withSudo(p, QStringLiteral("zpool status -P 2>/dev/null"));
     if (runRemote(inPoolCmd, 20000, out)) {
         markDevicesInPoolByTokens(collectPoolTokens(out));
+    }
+    // Windows: explicit ZFS GPT signature scan (covers imported pools when names do not map cleanly).
+    if (isWindowsConnection(p)) {
+        QString zfsPartOut;
+        const QString zfsPartCmd = QStringLiteral(
+            "$ErrorActionPreference='SilentlyContinue'; "
+            "Get-Partition | "
+            "Where-Object { $_.GptType -and ($_.GptType.ToString().Trim('{}').ToLower() -eq '6a945a3b-1dd2-11b2-99a6-080020736631') } | "
+            "ForEach-Object { Write-Output ('\\\\.\\PhysicalDrive' + $_.DiskNumber + '\\\\Partition' + $_.PartitionNumber) }");
+        if (runRemote(zfsPartCmd, 20000, zfsPartOut)) {
+            QSet<QString> zfsTokens;
+            const QStringList lines = zfsPartOut.split('\n', Qt::SkipEmptyParts);
+            for (const QString& raw : lines) {
+                const QString token = raw.trimmed();
+                if (!token.isEmpty()) {
+                    zfsTokens.insert(token);
+                    zfsTokens.insert(token.toLower());
+                }
+            }
+            markDevicesInPoolByTokens(zfsTokens);
+        }
     }
     // Also probe importable (not imported) pools and mark their devices as in-pool.
     out.clear();
