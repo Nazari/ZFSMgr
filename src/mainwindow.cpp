@@ -4533,7 +4533,7 @@ void MainWindow::actionAdvancedBreakdown() {
                            "zfs create -o mountpoint=\"$TMP_CHILD_MP\" \"$child\"; "
                            "zfs mount \"$child\" >/dev/null 2>&1 || true; "
                            "rsync $RSYNC_OPTS \"$d\"/ \"$TMP_CHILD_MP\"/; "
-                           "PENDING=$(rsync -ani \"$d\"/ \"$TMP_CHILD_MP\"/ | wc -l | tr -d ' '); "
+                           "PENDING=$(rsync -rni --size-only \"$d\"/ \"$TMP_CHILD_MP\"/ | sed '/^$/d' | wc -l | tr -d ' '); "
                            "[ \"$PENDING\" = \"0\" ] || { echo \"verify_failed=$child pending=$PENDING\"; exit 42; }; "
                            "rm -rf \"$d\"; "
                            "zfs set mountpoint=\"$FINAL_MP\" \"$child\"; "
@@ -6323,6 +6323,9 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     int rc = -1;
     if (!runSsh(p, remoteCmd, timeoutMs, out, err, rc) || rc != 0) {
         QString failureDetail = err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err;
+        if (!out.trimmed().isEmpty()) {
+            failureDetail += QStringLiteral("\n\nstdout:\n%1").arg(out.trimmed());
+        }
         if (actionName == QStringLiteral("Desmontar")) {
             const QString diag = diagnoseUmountFailure(ctx).trimmed();
             if (!diag.isEmpty()) {
