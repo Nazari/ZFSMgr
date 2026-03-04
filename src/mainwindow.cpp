@@ -2457,16 +2457,16 @@ void MainWindow::onConnectionSelectionChanged() {
             m_connectionsList->setCurrentItem(selItem);
         }
     }
-    if (m_leftTabs->currentIndex() == 0) {
+    if (m_leftTabs->currentIndex() == 0 && !m_syncingConnectionFromPoolSelection) {
         populateAllPoolsTables();
     }
     updatePoolManagementBoxTitle();
 }
 
 void MainWindow::onPoolsSelectionChanged() {
-    refreshSelectedPoolDetails();
     const int idx = selectedConnectionIndexForPoolManagement();
     if (idx >= 0 && idx < m_profiles.size() && m_connectionsList) {
+        m_syncingConnectionFromPoolSelection = true;
         for (int i = 0; i < m_connectionsList->topLevelItemCount(); ++i) {
             QTreeWidgetItem* top = m_connectionsList->topLevelItem(i);
             if (!top) {
@@ -2477,7 +2477,9 @@ void MainWindow::onPoolsSelectionChanged() {
                 break;
             }
         }
+        m_syncingConnectionFromPoolSelection = false;
     }
+    refreshSelectedPoolDetails();
     updatePoolManagementBoxTitle();
 }
 
