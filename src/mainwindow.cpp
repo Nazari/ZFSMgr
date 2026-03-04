@@ -1001,8 +1001,12 @@ void MainWindow::buildUi() {
     dsLeftTabLayout->setSpacing(4);
     m_transferBox = new QGroupBox(tr3(QStringLiteral("Origen-->Destino"), QStringLiteral("Source-->Target"), QStringLiteral("源-->目标")), datasetsTab);
     auto* transferLayout = new QVBoxLayout(m_transferBox);
-    m_transferOriginLabel = new QLabel(QStringLiteral("Origen: Dataset (seleccione)"), m_transferBox);
-    m_transferDestLabel = new QLabel(QStringLiteral("Destino: Dataset (seleccione)"), m_transferBox);
+    m_transferOriginLabel = new QLabel(tr3(QStringLiteral("Origen: Dataset (seleccione)"),
+                                           QStringLiteral("Source: Dataset (select)"),
+                                           QStringLiteral("源：数据集（请选择）")), m_transferBox);
+    m_transferDestLabel = new QLabel(tr3(QStringLiteral("Destino: Dataset (seleccione)"),
+                                         QStringLiteral("Target: Dataset (select)"),
+                                         QStringLiteral("目标：数据集（请选择）")), m_transferBox);
     m_transferOriginLabel->setWordWrap(true);
     m_transferDestLabel->setWordWrap(true);
     m_transferOriginLabel->setMinimumHeight(34);
@@ -1309,7 +1313,11 @@ void MainWindow::buildUi() {
     m_importedPoolsTable = new QTableWidget(importedTab);
     m_importedPoolsTable->setColumnCount(5);
     m_importedPoolsTable->setHorizontalHeaderLabels(
-        {QStringLiteral("Conexión"), QStringLiteral("Pool"), QStringLiteral("Estado"), QStringLiteral("Importado"), QStringLiteral("Motivo")});
+        {tr3(QStringLiteral("Conexión"), QStringLiteral("Connection"), QStringLiteral("连接")),
+         tr3(QStringLiteral("Pool"), QStringLiteral("Pool"), QStringLiteral("池")),
+         tr3(QStringLiteral("Estado"), QStringLiteral("Status"), QStringLiteral("状态")),
+         tr3(QStringLiteral("Importado"), QStringLiteral("Imported"), QStringLiteral("已导入")),
+         tr3(QStringLiteral("Motivo"), QStringLiteral("Reason"), QStringLiteral("原因"))});
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
@@ -1337,7 +1345,9 @@ void MainWindow::buildUi() {
     auto* propsPoolLayout = new QVBoxLayout(propsPoolTab);
     m_poolPropsTable = new QTableWidget(propsPoolTab);
     m_poolPropsTable->setColumnCount(3);
-    m_poolPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor"), QStringLiteral("Origen")});
+    m_poolPropsTable->setHorizontalHeaderLabels({tr3(QStringLiteral("Propiedad"), QStringLiteral("Property"), QStringLiteral("属性")),
+                                                 tr3(QStringLiteral("Valor"), QStringLiteral("Value"), QStringLiteral("值")),
+                                                 tr3(QStringLiteral("Origen"), QStringLiteral("Source"), QStringLiteral("来源"))});
     m_poolPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_poolPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     m_poolPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
@@ -1357,14 +1367,14 @@ void MainWindow::buildUi() {
     auto* statusActions = new QVBoxLayout(statusActionsWrap);
     statusActions->setContentsMargins(0, 0, 0, 0);
     statusActions->setSpacing(6);
-    m_poolStatusRefreshBtn = new QPushButton(QStringLiteral("Actualizar"), statusPoolTab);
+    m_poolStatusRefreshBtn = new QPushButton(tr3(QStringLiteral("Actualizar"), QStringLiteral("Refresh"), QStringLiteral("刷新")), statusPoolTab);
     m_poolStatusRefreshBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     statusActions->addWidget(m_poolStatusRefreshBtn);
-    m_poolStatusImportBtn = new QPushButton(QStringLiteral("Importar"), statusPoolTab);
+    m_poolStatusImportBtn = new QPushButton(tr3(QStringLiteral("Importar"), QStringLiteral("Import"), QStringLiteral("导入")), statusPoolTab);
     m_poolStatusImportBtn->setEnabled(false);
     m_poolStatusImportBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     statusActions->addWidget(m_poolStatusImportBtn);
-    m_poolStatusExportBtn = new QPushButton(QStringLiteral("Exportar"), statusPoolTab);
+    m_poolStatusExportBtn = new QPushButton(tr3(QStringLiteral("Exportar"), QStringLiteral("Export"), QStringLiteral("导出")), statusPoolTab);
     m_poolStatusExportBtn->setEnabled(false);
     m_poolStatusExportBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     statusActions->addWidget(m_poolStatusExportBtn);
@@ -1439,7 +1449,10 @@ void MainWindow::buildUi() {
     m_originPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
     m_originTree = new QTreeWidget(originPane);
     m_originTree->setColumnCount(4);
-    m_originTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot"), QStringLiteral("Montado"), QStringLiteral("Mountpoint")});
+    m_originTree->setHeaderLabels({tr3(QStringLiteral("Dataset"), QStringLiteral("Dataset"), QStringLiteral("数据集")),
+                                   tr3(QStringLiteral("Snapshot"), QStringLiteral("Snapshot"), QStringLiteral("快照")),
+                                   tr3(QStringLiteral("Montado"), QStringLiteral("Mounted"), QStringLiteral("已挂载")),
+                                   tr3(QStringLiteral("Mountpoint"), QStringLiteral("Mountpoint"), QStringLiteral("挂载点"))});
     m_originTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_originTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     m_originTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
@@ -1486,7 +1499,10 @@ void MainWindow::buildUi() {
     m_destPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
     m_destTree = new QTreeWidget(destPane);
     m_destTree->setColumnCount(4);
-    m_destTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot"), QStringLiteral("Montado"), QStringLiteral("Mountpoint")});
+    m_destTree->setHeaderLabels({tr3(QStringLiteral("Dataset"), QStringLiteral("Dataset"), QStringLiteral("数据集")),
+                                 tr3(QStringLiteral("Snapshot"), QStringLiteral("Snapshot"), QStringLiteral("快照")),
+                                 tr3(QStringLiteral("Montado"), QStringLiteral("Mounted"), QStringLiteral("已挂载")),
+                                 tr3(QStringLiteral("Mountpoint"), QStringLiteral("Mountpoint"), QStringLiteral("挂载点"))});
     m_destTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_destTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     m_destTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
@@ -1535,7 +1551,10 @@ void MainWindow::buildUi() {
     m_advPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
     m_advTree = new QTreeWidget(rightAdvancedPage);
     m_advTree->setColumnCount(4);
-    m_advTree->setHeaderLabels({QStringLiteral("Dataset"), QStringLiteral("Snapshot"), QStringLiteral("Montado"), QStringLiteral("Mountpoint")});
+    m_advTree->setHeaderLabels({tr3(QStringLiteral("Dataset"), QStringLiteral("Dataset"), QStringLiteral("数据集")),
+                                tr3(QStringLiteral("Snapshot"), QStringLiteral("Snapshot"), QStringLiteral("快照")),
+                                tr3(QStringLiteral("Montado"), QStringLiteral("Mounted"), QStringLiteral("已挂载")),
+                                tr3(QStringLiteral("Mountpoint"), QStringLiteral("Mountpoint"), QStringLiteral("挂载点"))});
     m_advTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_advTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     m_advTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
@@ -2260,7 +2279,10 @@ void MainWindow::createConnection() {
     }
     QString err;
     if (!m_store.upsertConnection(created, err)) {
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"), QStringLiteral("No se pudo crear conexión:\n%1").arg(err));
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
+                              tr3(QStringLiteral("No se pudo crear conexión:\n%1"),
+                                  QStringLiteral("Could not create connection:\n%1"),
+                                  QStringLiteral("无法创建连接：\n%1")).arg(err));
         return;
     }
     loadConnections();
@@ -2301,7 +2323,10 @@ void MainWindow::editConnection() {
     edited.id = m_profiles[idx].id;
     QString err;
     if (!m_store.upsertConnection(edited, err)) {
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"), QStringLiteral("No se pudo actualizar conexión:\n%1").arg(err));
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
+                              tr3(QStringLiteral("No se pudo actualizar conexión:\n%1"),
+                                  QStringLiteral("Could not update connection:\n%1"),
+                                  QStringLiteral("无法更新连接：\n%1")).arg(err));
         return;
     }
     loadConnections();
@@ -2326,8 +2351,10 @@ void MainWindow::deleteConnection() {
     }
     const auto confirm = QMessageBox::question(
         this,
-        QStringLiteral("Borrar conexión"),
-        QStringLiteral("¿Borrar conexión \"%1\"?").arg(m_profiles[idx].name),
+        tr3(QStringLiteral("Borrar conexión"), QStringLiteral("Delete connection"), QStringLiteral("删除连接")),
+        tr3(QStringLiteral("¿Borrar conexión \"%1\"?"),
+            QStringLiteral("Delete connection \"%1\"?"),
+            QStringLiteral("删除连接“%1”？")).arg(m_profiles[idx].name),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No);
     if (confirm != QMessageBox::Yes) {
@@ -2335,7 +2362,10 @@ void MainWindow::deleteConnection() {
     }
     QString err;
     if (!m_store.deleteConnectionById(m_profiles[idx].id, err)) {
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"), QStringLiteral("No se pudo borrar conexión:\n%1").arg(err));
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
+                              tr3(QStringLiteral("No se pudo borrar conexión:\n%1"),
+                                  QStringLiteral("Could not delete connection:\n%1"),
+                                  QStringLiteral("无法删除连接：\n%1")).arg(err));
         return;
     }
     loadConnections();
@@ -2390,10 +2420,10 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
     const bool hasSel = (m_connectionsList->currentItem() != nullptr);
 
     QMenu menu(this);
-    QAction* refreshAct = menu.addAction(QStringLiteral("Refrescar"));
+    QAction* refreshAct = menu.addAction(tr3(QStringLiteral("Refrescar"), QStringLiteral("Refresh"), QStringLiteral("刷新")));
     menu.addSeparator();
-    QAction* editAct = menu.addAction(QStringLiteral("Editar"));
-    QAction* deleteAct = menu.addAction(QStringLiteral("Borrar"));
+    QAction* editAct = menu.addAction(tr3(QStringLiteral("Editar"), QStringLiteral("Edit"), QStringLiteral("编辑")));
+    QAction* deleteAct = menu.addAction(tr3(QStringLiteral("Borrar"), QStringLiteral("Delete"), QStringLiteral("删除")));
     refreshAct->setEnabled(hasSel);
     editAct->setEnabled(hasSel);
     deleteAct->setEnabled(hasSel);
@@ -2425,7 +2455,7 @@ void MainWindow::onImportedPoolsContextMenuRequested(const QPoint& pos) {
     const int row = idx.row();
     m_importedPoolsTable->selectRow(row);
     QMenu menu(this);
-    QAction* exportAct = menu.addAction(QStringLiteral("Exportar"));
+    QAction* exportAct = menu.addAction(tr3(QStringLiteral("Exportar"), QStringLiteral("Export"), QStringLiteral("导出")));
     QAction* picked = menu.exec(m_importedPoolsTable->viewport()->mapToGlobal(pos));
     if (!picked) {
         return;
@@ -2447,7 +2477,7 @@ void MainWindow::onImportablePoolsContextMenuRequested(const QPoint& pos) {
     const int row = idx.row();
     m_importablePoolsTable->selectRow(row);
     QMenu menu(this);
-    QAction* importAct = menu.addAction(QStringLiteral("Importar"));
+    QAction* importAct = menu.addAction(tr3(QStringLiteral("Importar"), QStringLiteral("Import"), QStringLiteral("导入")));
     const QString state = m_importablePoolsTable->item(row, 3) ? m_importablePoolsTable->item(row, 3)->text().trimmed().toUpper() : QString();
     importAct->setEnabled(state == QStringLiteral("ONLINE") || state == QStringLiteral("ACTIVE"));
     QAction* picked = menu.exec(m_importablePoolsTable->viewport()->mapToGlobal(pos));
@@ -6094,8 +6124,10 @@ void MainWindow::exportPoolFromRow(int row) {
     }
     const auto confirm = QMessageBox::question(
         this,
-        QStringLiteral("Exportar pool"),
-        QStringLiteral("¿Exportar pool %1 en %2?").arg(poolName, connName),
+        tr3(QStringLiteral("Exportar pool"), QStringLiteral("Export pool"), QStringLiteral("导出池")),
+        tr3(QStringLiteral("¿Exportar pool %1 en %2?"),
+            QStringLiteral("Export pool %1 on %2?"),
+            QStringLiteral("在 %2 上导出池 %1？")).arg(poolName, connName),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No);
     if (confirm != QMessageBox::Yes) {
@@ -6117,7 +6149,11 @@ void MainWindow::exportPoolFromRow(int row) {
     if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
         appLog(QStringLiteral("NORMAL"), QStringLiteral("Error exportando %1::%2 -> %3")
                                        .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"), QStringLiteral("Exportar falló:\n%1").arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
+                              tr3(QStringLiteral("Exportar falló:\n%1"),
+                                  QStringLiteral("Export failed:\n%1"),
+                                  QStringLiteral("导出失败：\n%1"))
+                                  .arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
         setActionsLocked(false);
         return;
     }
@@ -6161,11 +6197,13 @@ void MainWindow::importPoolFromRow(int row) {
     }
 
     QDialog dlg(this);
-    dlg.setWindowTitle(QStringLiteral("Importar pool: %1").arg(poolName));
+    dlg.setWindowTitle(tr3(QStringLiteral("Importar pool: %1"),
+                           QStringLiteral("Import pool: %1"),
+                           QStringLiteral("导入池：%1")).arg(poolName));
     dlg.setModal(true);
     auto* lay = new QVBoxLayout(&dlg);
 
-    auto* flagsBox = new QGroupBox(QStringLiteral("Flags"), &dlg);
+    auto* flagsBox = new QGroupBox(tr3(QStringLiteral("Flags"), QStringLiteral("Flags"), QStringLiteral("标志")), &dlg);
     auto* flagsLay = new QGridLayout(flagsBox);
     QCheckBox* forceCb = new QCheckBox(QStringLiteral("-f force"), flagsBox);
     QCheckBox* missingLogCb = new QCheckBox(QStringLiteral("-m missing log"), flagsBox);
@@ -6185,7 +6223,7 @@ void MainWindow::importPoolFromRow(int row) {
     flagsLay->addWidget(loadKeysCb, 3, 1);
     lay->addWidget(flagsBox);
 
-    auto* fieldsBox = new QGroupBox(QStringLiteral("Valores"), &dlg);
+    auto* fieldsBox = new QGroupBox(tr3(QStringLiteral("Valores"), QStringLiteral("Values"), QStringLiteral("参数值")), &dlg);
     auto* form = new QFormLayout(fieldsBox);
     QLineEdit* cachefileEd = new QLineEdit(fieldsBox);
     QLineEdit* altrootEd = new QLineEdit(fieldsBox);
@@ -6288,7 +6326,11 @@ void MainWindow::importPoolFromRow(int row) {
     if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
         appLog(QStringLiteral("NORMAL"), QStringLiteral("Error importando %1::%2 -> %3")
                                        .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"), QStringLiteral("Importar falló:\n%1").arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
+                              tr3(QStringLiteral("Importar falló:\n%1"),
+                                  QStringLiteral("Import failed:\n%1"),
+                                  QStringLiteral("导入失败：\n%1"))
+                                  .arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
         setActionsLocked(false);
         return;
     }
@@ -7163,7 +7205,10 @@ void MainWindow::createPoolForSelectedConnection() {
     }
     const QString poolName = poolNameEd->text().trimmed();
     if (poolName.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), QStringLiteral("Nombre de pool vacío."));
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             tr3(QStringLiteral("Nombre de pool vacío."),
+                                 QStringLiteral("Pool name is empty."),
+                                 QStringLiteral("池名称为空。")));
         return;
     }
 
@@ -7293,7 +7338,9 @@ void MainWindow::createPoolForSelectedConnection() {
                    .arg(p.name, poolName, oneLine(cmdErr.isEmpty() ? QStringLiteral("exit %1").arg(rc) : cmdErr)));
         QMessageBox::critical(
             this, QStringLiteral("ZFSMgr"),
-            QStringLiteral("Crear pool falló:\n%1").arg(cmdErr.isEmpty() ? QStringLiteral("exit %1").arg(rc) : cmdErr));
+            tr3(QStringLiteral("Crear pool falló:\n%1"),
+                QStringLiteral("Pool creation failed:\n%1"),
+                QStringLiteral("创建池失败：\n%1")).arg(cmdErr.isEmpty() ? QStringLiteral("exit %1").arg(rc) : cmdErr));
         setActionsLocked(false);
         return;
     }
@@ -7372,16 +7419,18 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
     }
 
     QMenu menu(this);
-    QAction* mountAct = menu.addAction(QStringLiteral("Montar"));
-    QAction* mountWithChildrenAct = menu.addAction(QStringLiteral("Montar con todos los hijos"));
-    QAction* umountAct = menu.addAction(QStringLiteral("Desmontar"));
+    QAction* mountAct = menu.addAction(tr3(QStringLiteral("Montar"), QStringLiteral("Mount"), QStringLiteral("挂载")));
+    QAction* mountWithChildrenAct = menu.addAction(tr3(QStringLiteral("Montar con todos los hijos"),
+                                                       QStringLiteral("Mount with all children"),
+                                                       QStringLiteral("挂载并包含所有子项")));
+    QAction* umountAct = menu.addAction(tr3(QStringLiteral("Desmontar"), QStringLiteral("Unmount"), QStringLiteral("卸载")));
     QAction* rollbackAct = nullptr;
     if (!ctx.snapshotName.isEmpty()) {
         rollbackAct = menu.addAction(QStringLiteral("Rollback"));
     }
     menu.addSeparator();
-    QAction* createAct = menu.addAction(QStringLiteral("Crear hijo"));
-    QAction* deleteAct = menu.addAction(QStringLiteral("Borrar"));
+    QAction* createAct = menu.addAction(tr3(QStringLiteral("Crear hijo"), QStringLiteral("Create child"), QStringLiteral("创建子项")));
+    QAction* deleteAct = menu.addAction(tr3(QStringLiteral("Borrar"), QStringLiteral("Delete"), QStringLiteral("删除")));
     const bool isWinConn = isWindowsConnection(ctx.connIdx);
 
     if (!ctx.snapshotName.isEmpty()) {
@@ -8308,8 +8357,10 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side) {
     const QString target = ctx.snapshotName.isEmpty() ? ctx.datasetName : (ctx.datasetName + QStringLiteral("@") + ctx.snapshotName);
     const auto confirm1 = QMessageBox::question(
         this,
-        QStringLiteral("Confirmar borrado"),
-        QStringLiteral("Se va a borrar:\n%1\n¿Continuar?").arg(target),
+        tr3(QStringLiteral("Confirmar borrado"), QStringLiteral("Confirm deletion"), QStringLiteral("确认删除")),
+        tr3(QStringLiteral("Se va a borrar:\n%1\n¿Continuar?"),
+            QStringLiteral("This will be deleted:\n%1\nContinue?"),
+            QStringLiteral("将要删除：\n%1\n是否继续？")).arg(target),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No);
     if (confirm1 != QMessageBox::Yes) {
@@ -8317,8 +8368,10 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side) {
     }
     const auto confirm2 = QMessageBox::question(
         this,
-        QStringLiteral("Confirmar borrado (2/2)"),
-        QStringLiteral("Confirmación final de borrado:\n%1").arg(target),
+        tr3(QStringLiteral("Confirmar borrado (2/2)"), QStringLiteral("Confirm deletion (2/2)"), QStringLiteral("确认删除（2/2）")),
+        tr3(QStringLiteral("Confirmación final de borrado:\n%1"),
+            QStringLiteral("Final deletion confirmation:\n%1"),
+            QStringLiteral("最终删除确认：\n%1")).arg(target),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No);
     if (confirm2 != QMessageBox::Yes) {
@@ -8327,10 +8380,14 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side) {
 
     const auto askRec = QMessageBox::question(
         this,
-        QStringLiteral("Borrado recursivo"),
+        tr3(QStringLiteral("Borrado recursivo"), QStringLiteral("Recursive deletion"), QStringLiteral("递归删除")),
         ctx.snapshotName.isEmpty()
-            ? QStringLiteral("¿Borrar recursivamente datasets/snapshots hijos?")
-            : QStringLiteral("¿Borrar recursivamente este snapshot en hijos descendientes?"),
+            ? tr3(QStringLiteral("¿Borrar recursivamente datasets/snapshots hijos?"),
+                  QStringLiteral("Delete child datasets/snapshots recursively?"),
+                  QStringLiteral("是否递归删除子数据集/快照？"))
+            : tr3(QStringLiteral("¿Borrar recursivamente este snapshot en hijos descendientes?"),
+                  QStringLiteral("Delete this snapshot recursively on descendant children?"),
+                  QStringLiteral("是否在后代子项上递归删除此快照？")),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No);
     const bool recursive = (askRec == QMessageBox::Yes);
