@@ -1355,7 +1355,9 @@ void MainWindow::buildUi() {
     statusActions->addWidget(m_poolStatusScrubBtn);
     m_poolStatusDestroyBtn = new QPushButton(QStringLiteral("Destroy"), statusPoolTab);
     m_poolStatusDestroyBtn->setEnabled(false);
-    m_poolStatusDestroyBtn->setStyleSheet(QStringLiteral("QPushButton { color: #b00020; font-weight: 700; }"));
+    m_poolStatusDestroyBtn->setStyleSheet(
+        QStringLiteral("QPushButton:enabled { color: #b00020; font-weight: 700; }"
+                       "QPushButton:disabled { color: palette(buttonText); font-weight: 400; }"));
     m_poolStatusDestroyBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     statusActions->addWidget(m_poolStatusDestroyBtn);
     const int statusButtonsWidth = qMax(m_poolStatusRefreshBtn->sizeHint().width(),
