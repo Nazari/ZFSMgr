@@ -237,6 +237,30 @@ QString normalizeDriveLetterValue(const QString& raw) {
     return QString(d);
 }
 
+QString parentDiskDevicePath(const QString& rawPath) {
+    const QString path = rawPath.trimmed();
+    if (path.isEmpty()) {
+        return QString();
+    }
+    const QList<QRegularExpression> rules = {
+        // Linux NVMe: /dev/nvme0n1p1 -> /dev/nvme0n1
+        QRegularExpression(QStringLiteral(R"(^(.*\/nvme\d+n\d+)p\d+$)")),
+        // Linux mmcblk: /dev/mmcblk0p1 -> /dev/mmcblk0
+        QRegularExpression(QStringLiteral(R"(^(.*\/mmcblk\d+)p\d+$)")),
+        // macOS disk slices: /dev/disk0s1 -> /dev/disk0
+        QRegularExpression(QStringLiteral(R"(^(.*\/disk\d+)s\d+$)")),
+        // SATA/virtio/xvd: /dev/sda1 -> /dev/sda, /dev/vda2 -> /dev/vda, /dev/xvda3 -> /dev/xvda
+        QRegularExpression(QStringLiteral(R"(^(.*\/(?:sd[a-z]+|vd[a-z]+|xvd[a-z]+))\d+$)")),
+    };
+    for (const auto& rx : rules) {
+        const QRegularExpressionMatch m = rx.match(path);
+        if (m.hasMatch()) {
+            return m.captured(1);
+        }
+    }
+    return QString();
+}
+
 bool looksLikePowerShellScript(const QString& cmd) {
     const QString c = cmd.toLower();
     const QString t = c.trimmed();
@@ -6267,6 +6291,7 @@ void MainWindow::createPoolForSelectedConnection() {
         QString mountpoint;
         bool inPool{false};
         bool mounted{false};
+        bool childBusy{false};
     };
 
     auto runRemote = [this, &p](const QString& cmd, int timeoutMs, QString& outText) -> bool {
@@ -6371,6 +6396,21 @@ void MainWindow::createPoolForSelectedConnection() {
                 }
             }
         }
+    }
+
+    // Propagate partition usage to parent disk:
+    // if /dev/disk0s1 or /dev/sda1 is mounted/in-pool, /dev/disk0 or /dev/sda must not appear free.
+    const QStringList allPaths = devicesByPath.keys();
+    for (const QString& path : allPaths) {
+        const DeviceEntry child = devicesByPath.value(path);
+        if (!child.mounted && !child.inPool) {
+            continue;
+        }
+        const QString parent = parentDiskDevicePath(path);
+        if (parent.isEmpty() || !devicesByPath.contains(parent)) {
+            continue;
+        }
+        devicesByPath[parent].childBusy = true;
     }
 
     QDialog dlg(this);
@@ -6481,11 +6521,15 @@ void MainWindow::createPoolForSelectedConnection() {
         QString stateTxt;
         QString detailTxt;
         QColor bg = stGreen;
-        if (e.inPool) {
+        if (e.inPool || e.childBusy) {
             stateTxt = tr3(QStringLiteral("EN_POOL"), QStringLiteral("IN_POOL"), QStringLiteral("在池中"));
-            detailTxt = tr3(QStringLiteral("Ya pertenece a un pool"),
-                            QStringLiteral("Already part of a pool"),
-                            QStringLiteral("已属于某个池"));
+            detailTxt = e.childBusy
+                            ? tr3(QStringLiteral("Alguna partición está montada o pertenece a un pool"),
+                                  QStringLiteral("A child partition is mounted or belongs to a pool"),
+                                  QStringLiteral("某个子分区已挂载或属于池"))
+                            : tr3(QStringLiteral("Ya pertenece a un pool"),
+                                  QStringLiteral("Already part of a pool"),
+                                  QStringLiteral("已属于某个池"));
             bg = stRed;
         } else if (e.mounted || (!e.mountpoint.isEmpty() && e.mountpoint != QStringLiteral("-"))) {
             stateTxt = tr3(QStringLiteral("MONTADO"), QStringLiteral("MOUNTED"), QStringLiteral("已挂载"));
