@@ -284,6 +284,30 @@ QString wrapDeviceDisplayText(const QString& raw, int softWidth = 42) {
     return out;
 }
 
+bool isRootDevicePath(const QString& rawPath) {
+    const QString p = rawPath.trimmed();
+    if (p.isEmpty()) {
+        return true;
+    }
+    static const QList<QRegularExpression> rootPatterns = {
+        // Linux whole disks
+        QRegularExpression(QStringLiteral(R"(^/dev/(sd[a-z]+|vd[a-z]+|xvd[a-z]+)$)")),
+        QRegularExpression(QStringLiteral(R"(^/dev/nvme\d+n\d+$)")),
+        QRegularExpression(QStringLiteral(R"(^/dev/mmcblk\d+$)")),
+        // macOS whole disks
+        QRegularExpression(QStringLiteral(R"(^/dev/disk\d+$)")),
+        // Windows physical root disks
+        QRegularExpression(QStringLiteral(R"(^(\\\\\.\\PHYSICALDRIVE\d+|\\\\\?\\PhysicalDrive\d+)$)"),
+                           QRegularExpression::CaseInsensitiveOption),
+    };
+    for (const auto& rx : rootPatterns) {
+        if (rx.match(p).hasMatch()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool looksLikePowerShellScript(const QString& cmd) {
     const QString c = cmd.toLower();
     const QString t = c.trimmed();
@@ -6399,6 +6423,7 @@ void MainWindow::createPoolForSelectedConnection() {
         QString size;
         QString mountpoint;
         QString fsType;
+        QString devType;
         bool inPool{false};
         bool mounted{false};
         bool childBusy{false};
@@ -6420,20 +6445,22 @@ void MainWindow::createPoolForSelectedConnection() {
     if (isWindowsConnection(p)) {
         devCmd = QStringLiteral(
             "$ErrorActionPreference='SilentlyContinue'; "
-            "Get-CimInstance Win32_DiskDrive | "
+            "Get-Partition | "
             "ForEach-Object { "
-            "  $path = $_.DeviceID; "
+            "  $path = ('\\\\.\\PhysicalDrive' + $_.DiskNumber + '\\\\Partition' + $_.PartitionNumber); "
             "  $size = if($_.Size){ [string]([math]::Round($_.Size/1GB,2)) + 'G' } else { '-' }; "
-            "  Write-Output ($path + \"`t\" + $size + \"`t-`t\" + $path + \"`t-\") "
+            "  $mp = '-'; "
+            "  if ($_.DriveLetter) { $mp = ($_.DriveLetter + ':\\') } "
+            "  Write-Output ($path + \"`t\" + $size + \"`t\" + $mp + \"`t\" + $path + \"`t-`tpart\") "
             "}");
     } else {
         devCmd = QStringLiteral(
             "if command -v lsblk >/dev/null 2>&1; then "
             "  lsblk -fpPno NAME,SIZE,FSTYPE,MOUNTPOINTS,TYPE; "
             "elif command -v diskutil >/dev/null 2>&1; then "
-            "  diskutil list | awk '/^\\/dev\\/disk[0-9]+([[:space:]]|$)/ { print $1\"\\t-\\t-\\t\"$1\"\\t-\" }'; "
+            "  diskutil list | awk '{id=$NF; if(id ~ /^disk[0-9]+s[0-9]+$/){ print \"/dev/\"id\"\\t-\\t-\\t/dev/\"id\"\\t-\\tpart\" }}'; "
             "else "
-            "  for d in /dev/sd? /dev/vd? /dev/xvd? /dev/nvme*n1 /dev/disk?; do [ -e \"$d\" ] && printf \"%s\\t-\\t-\\t%s\\t-\\n\" \"$d\" \"$d\"; done; "
+            "  for d in /dev/sd?* /dev/vd?* /dev/xvd?* /dev/nvme*n* /dev/disk?s*; do [ -e \"$d\" ] && printf \"%s\\t-\\t-\\t%s\\t-\\tpart\\n\" \"$d\" \"$d\"; done; "
             "fi");
     }
     if (runRemote(devCmd, 25000, out)) {
@@ -6470,6 +6497,10 @@ void MainWindow::createPoolForSelectedConnection() {
                 mp = cols.value(2).trimmed();
                 resolved = cols.value(3).trimmed();
                 fsType = cols.value(4).trimmed();
+                type = cols.value(5).trimmed().toLower();
+                if (type.isEmpty()) {
+                    type = QStringLiteral("part");
+                }
             }
             if (path.isEmpty()) {
                 continue;
@@ -6480,6 +6511,7 @@ void MainWindow::createPoolForSelectedConnection() {
             e.size = size.isEmpty() ? QStringLiteral("-") : size;
             e.mountpoint = mp.isEmpty() ? QStringLiteral("-") : mp;
             e.fsType = fsType.isEmpty() ? QStringLiteral("-") : fsType;
+            e.devType = type.isEmpty() ? QStringLiteral("part") : type;
             if (e.fsType.compare(QStringLiteral("zfs_member"), Qt::CaseInsensitive) == 0) {
                 e.inPool = true;
             }
@@ -6503,6 +6535,7 @@ void MainWindow::createPoolForSelectedConnection() {
                 e.size = QStringLiteral("-");
                 e.mountpoint = QStringLiteral("-");
                 e.fsType = QStringLiteral("-");
+                e.devType = QStringLiteral("part");
                 devicesByPath.insert(path, e);
             }
             for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
@@ -6744,6 +6777,10 @@ void MainWindow::createPoolForSelectedConnection() {
     };
     for (const QString& path : paths) {
         const DeviceEntry e = devicesByPath.value(path);
+        const QString realPath = e.resolvedPath.isEmpty() ? e.path : e.resolvedPath;
+        if (e.devType == QStringLiteral("disk") || isRootDevicePath(e.path) || isRootDevicePath(realPath)) {
+            continue;
+        }
         DeviceRenderRow rr;
         rr.entry = e;
         const bool protectedMount = hasProtectedSystemMount(e);
