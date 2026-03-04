@@ -6744,9 +6744,14 @@ void MainWindow::createPoolForSelectedConnection() {
     QCheckBox* dryRunCb = new QCheckBox(QStringLiteral("-n"), baseBox);
     QLineEdit* mountpointEd = new QLineEdit(baseBox);
     QLineEdit* altrootEd = new QLineEdit(baseBox);
-    QLineEdit* ashiftEd = new QLineEdit(baseBox);
-    QLineEdit* autotrimEd = new QLineEdit(baseBox);
-    QLineEdit* autoexpandEd = new QLineEdit(baseBox);
+    QComboBox* ashiftCb = new QComboBox(baseBox);
+    ashiftCb->addItems({QString(), QStringLiteral("9"), QStringLiteral("10"), QStringLiteral("11"),
+                        QStringLiteral("12"), QStringLiteral("13"), QStringLiteral("14"),
+                        QStringLiteral("15"), QStringLiteral("16")});
+    QComboBox* autotrimCb = new QComboBox(baseBox);
+    autotrimCb->addItems({QString(), QStringLiteral("off"), QStringLiteral("on")});
+    QComboBox* autoexpandCb = new QComboBox(baseBox);
+    autoexpandCb->addItems({QString(), QStringLiteral("off"), QStringLiteral("on")});
     QLineEdit* compatibilityEd = new QLineEdit(baseBox);
     QLineEdit* bootfsEd = new QLineEdit(baseBox);
     QLineEdit* poolOptsEd = new QLineEdit(baseBox);
@@ -6764,9 +6769,9 @@ void MainWindow::createPoolForSelectedConnection() {
     form->addRow(tr3(QStringLiteral("Flags"), QStringLiteral("Flags"), QStringLiteral("标志")), flagsRow);
     form->addRow(QStringLiteral("mountpoint (-m)"), mountpointEd);
     form->addRow(QStringLiteral("altroot (-R)"), altrootEd);
-    form->addRow(QStringLiteral("ashift (-o ashift=)"), ashiftEd);
-    form->addRow(QStringLiteral("autotrim (-o autotrim=)"), autotrimEd);
-    form->addRow(QStringLiteral("autoexpand (-o autoexpand=)"), autoexpandEd);
+    form->addRow(QStringLiteral("ashift (-o ashift=)"), ashiftCb);
+    form->addRow(QStringLiteral("autotrim (-o autotrim=)"), autotrimCb);
+    form->addRow(QStringLiteral("autoexpand (-o autoexpand=)"), autoexpandCb);
     form->addRow(QStringLiteral("compatibility (-o compatibility=)"), compatibilityEd);
     form->addRow(QStringLiteral("bootfs (-o bootfs=)"), bootfsEd);
     form->addRow(QStringLiteral("-o (coma: k=v,k=v)"), poolOptsEd);
@@ -7108,9 +7113,9 @@ void MainWindow::createPoolForSelectedConnection() {
             parts << QStringLiteral("-o") << shSingleQuote(key + QStringLiteral("=") + value.trimmed());
         }
     };
-    addOpt(QStringLiteral("ashift"), ashiftEd->text());
-    addOpt(QStringLiteral("autotrim"), autotrimEd->text());
-    addOpt(QStringLiteral("autoexpand"), autoexpandEd->text());
+    addOpt(QStringLiteral("ashift"), ashiftCb->currentText());
+    addOpt(QStringLiteral("autotrim"), autotrimCb->currentText());
+    addOpt(QStringLiteral("autoexpand"), autoexpandCb->currentText());
     addOpt(QStringLiteral("compatibility"), compatibilityEd->text());
     addOpt(QStringLiteral("bootfs"), bootfsEd->text());
     for (const QString& item : poolOptsEd->text().split(',', Qt::SkipEmptyParts)) {
