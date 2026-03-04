@@ -6537,8 +6537,12 @@ void MainWindow::createPoolForSelectedConnection() {
                 continue;
             }
             DeviceEntry e;
-            e.path = path;
             e.resolvedPath = resolved.isEmpty() ? path : resolved;
+            e.path = path;
+            if (e.path.startsWith(QStringLiteral("/private/var/run/disk/by-id/"))
+                && !e.resolvedPath.isEmpty()) {
+                e.path = e.resolvedPath;
+            }
             e.size = size.isEmpty() ? QStringLiteral("-") : size;
             e.mountpoint = mp.isEmpty() ? QStringLiteral("-") : mp;
             e.fsType = fsType.isEmpty() ? QStringLiteral("-") : fsType;
