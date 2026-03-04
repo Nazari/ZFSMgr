@@ -6955,10 +6955,56 @@ void MainWindow::createPoolForSelectedConnection() {
         }
     };
 
+    auto countInPool = [&devicesByPath]() -> int {
+        int n = 0;
+        for (auto it = devicesByPath.cbegin(); it != devicesByPath.cend(); ++it) {
+            if (it.value().inPool) {
+                ++n;
+            }
+        }
+        return n;
+    };
+    auto markPhysicalDriveWholeDisk = [&devicesByPath](const QString& text) {
+        static const QRegularExpression pdRx(QStringLiteral("physicaldrive\\s*(\\d+)"),
+                                             QRegularExpression::CaseInsensitiveOption);
+        QSet<QString> disks;
+        auto it = pdRx.globalMatch(text);
+        while (it.hasNext()) {
+            const QRegularExpressionMatch m = it.next();
+            if (m.hasMatch()) {
+                disks.insert(m.captured(1));
+            }
+        }
+        if (disks.isEmpty()) {
+            return;
+        }
+        for (auto itDev = devicesByPath.begin(); itDev != devicesByPath.end(); ++itDev) {
+            const QString blob = (itDev.value().path + QStringLiteral(" ") + itDev.value().resolvedPath).toLower();
+            for (const QString& d : disks) {
+                if (blob.contains(QStringLiteral("physicaldrive%1").arg(d))) {
+                    itDev.value().inPool = true;
+                    break;
+                }
+            }
+        }
+    };
+
     out.clear();
-    const QString inPoolCmd = withSudo(p, QStringLiteral("zpool status -P 2>/dev/null"));
-    if (runRemote(inPoolCmd, 20000, out)) {
+    const QString inPoolCmd = withSudo(p, QStringLiteral(
+        "(zpool status -LP 2>/dev/null || zpool status -P 2>/dev/null || zpool status -L 2>/dev/null || zpool status 2>/dev/null)"));
+    if (runRemote(inPoolCmd, 25000, out)) {
         markDevicesInPoolByTokens(collectPoolTokens(out));
+        if (isWindowsConnection(p)) {
+            markPhysicalDriveWholeDisk(out);
+        }
+    }
+    QString outListV;
+    const QString listVCmd = withSudo(p, QStringLiteral("(zpool list -v -P 2>/dev/null || zpool list -v 2>/dev/null)"));
+    if (runRemote(listVCmd, 25000, outListV)) {
+        markDevicesInPoolByTokens(collectPoolTokens(outListV));
+        if (isWindowsConnection(p)) {
+            markPhysicalDriveWholeDisk(outListV);
+        }
     }
     // Windows: explicit ZFS GPT signature scan (covers imported pools when names do not map cleanly).
     if (isWindowsConnection(p)) {
@@ -6987,6 +7033,18 @@ void MainWindow::createPoolForSelectedConnection() {
     const QString importProbeCmd = withSudo(p, QStringLiteral("(zpool import 2>/dev/null; zpool import -s 2>/dev/null)"));
     if (runRemote(importProbeCmd, 25000, outImp)) {
         markDevicesInPoolByTokens(collectPoolTokens(outImp));
+        if (isWindowsConnection(p)) {
+            markPhysicalDriveWholeDisk(outImp);
+        }
+    }
+
+    if (isWindowsConnection(p)) {
+        const int marked = countInPool();
+        if (marked == 0) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("%1: no device marked IN_POOL while probing zpool output in pool-create dialog")
+                       .arg(p.name));
+        }
     }
 
     out.clear();
