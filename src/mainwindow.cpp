@@ -1015,13 +1015,13 @@ void MainWindow::buildUi() {
     auto* advLeftTabLayout = new QVBoxLayout(advancedTab);
     advLeftTabLayout->setContentsMargins(4, 4, 4, 4);
     advLeftTabLayout->setSpacing(4);
-    auto* commandsBox = new QGroupBox(tr3(QStringLiteral("Comandos"), QStringLiteral("Commands"), QStringLiteral("命令")), advancedTab);
-    auto* commandsLayout = new QVBoxLayout(commandsBox);
+    m_advCommandsBox = new QGroupBox(tr3(QStringLiteral("[vacío]"), QStringLiteral("[empty]"), QStringLiteral("[空]")), advancedTab);
+    auto* commandsLayout = new QVBoxLayout(m_advCommandsBox);
     commandsLayout->setSpacing(10);
-    m_btnAdvancedBreakdown = new QPushButton(tr3(QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")), commandsBox);
-    m_btnAdvancedAssemble = new QPushButton(tr3(QStringLiteral("Ensamblar"), QStringLiteral("Assemble"), QStringLiteral("组装")), commandsBox);
-    m_btnAdvancedFromDir = new QPushButton(tr3(QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")), commandsBox);
-    m_btnAdvancedToDir = new QPushButton(tr3(QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")), commandsBox);
+    m_btnAdvancedBreakdown = new QPushButton(tr3(QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")), m_advCommandsBox);
+    m_btnAdvancedAssemble = new QPushButton(tr3(QStringLiteral("Ensamblar"), QStringLiteral("Assemble"), QStringLiteral("组装")), m_advCommandsBox);
+    m_btnAdvancedFromDir = new QPushButton(tr3(QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")), m_advCommandsBox);
+    m_btnAdvancedToDir = new QPushButton(tr3(QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")), m_advCommandsBox);
     m_btnAdvancedBreakdown->setToolTip(
         tr3(QStringLiteral("Construye datasets a partir de directorios. "
                            "Requiere dataset y descendientes montados. "
@@ -1087,7 +1087,7 @@ void MainWindow::buildUi() {
     const int actionsBoxHeight = qMax(72, connButtonsBox->sizeHint().height());
     connButtonsBox->setFixedHeight(actionsBoxHeight);
     m_transferBox->setFixedHeight(actionsBoxHeight);
-    commandsBox->setFixedHeight(actionsBoxHeight);
+    m_advCommandsBox->setFixedHeight(actionsBoxHeight);
 
     auto* advancedInfoTabs = new QTabWidget(advancedTab);
     advancedInfoTabs->setDocumentMode(false);
@@ -1158,7 +1158,7 @@ void MainWindow::buildUi() {
         mountedAdvTab,
         tr3(QStringLiteral("Montados"), QStringLiteral("Mounted"), QStringLiteral("已挂载")));
     advLeftTabLayout->setSpacing(8);
-    advLeftTabLayout->addWidget(commandsBox);
+    advLeftTabLayout->addWidget(m_advCommandsBox);
     advLeftTabLayout->addWidget(advancedInfoTabs, 1);
     advancedTab->setLayout(advLeftTabLayout);
 
@@ -1733,7 +1733,7 @@ void MainWindow::buildUi() {
     connect(m_advTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
         const auto selected = m_advTree->selectedItems();
         if (selected.isEmpty()) {
-            m_advSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
+            updateAdvancedSelectionUi(QString(), QString());
             refreshDatasetProperties(QStringLiteral("advanced"));
             updateTransferButtonsState();
             return;
@@ -1741,13 +1741,7 @@ void MainWindow::buildUi() {
         auto* it = selected.first();
         const QString ds = it->data(0, Qt::UserRole).toString();
         const QString snap = it->data(1, Qt::UserRole).toString();
-        if (!ds.isEmpty() && !snap.isEmpty()) {
-            m_advSelectionLabel->setText(QStringLiteral("%1@%2").arg(ds, snap));
-        } else if (!ds.isEmpty()) {
-            m_advSelectionLabel->setText(ds);
-        } else {
-            m_advSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
-        }
+        updateAdvancedSelectionUi(ds, snap);
         refreshDatasetProperties(QStringLiteral("advanced"));
         updateTransferButtonsState();
     });
@@ -2354,9 +2348,7 @@ void MainWindow::onAdvancedPoolChanged() {
         if (m_advTree) {
             m_advTree->clear();
         }
-        if (m_advSelectionLabel) {
-            m_advSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
-        }
+        updateAdvancedSelectionUi(QString(), QString());
         refreshDatasetProperties(QStringLiteral("advanced"));
         updateTransferButtonsState();
         return;
@@ -2394,8 +2386,8 @@ void MainWindow::onAdvancedPoolChanged() {
         }
         m_advTree->setCurrentItem(restored);
         m_advTree->scrollToItem(restored, QAbstractItemView::PositionAtCenter);
-    } else if (m_advSelectionLabel) {
-        m_advSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
+    } else {
+        updateAdvancedSelectionUi(QString(), QString());
     }
     refreshDatasetProperties(QStringLiteral("advanced"));
     updateTransferButtonsState();
@@ -2937,15 +2929,7 @@ void MainWindow::onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item
     item->setData(1, Qt::UserRole, snap);
     tree->setCurrentItem(item);
     if (side == QStringLiteral("advanced")) {
-        if (m_advSelectionLabel) {
-            if (ds.isEmpty()) {
-                m_advSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
-            } else if (snap.isEmpty()) {
-                m_advSelectionLabel->setText(ds);
-            } else {
-                m_advSelectionLabel->setText(QStringLiteral("%1@%2").arg(ds, snap));
-            }
-        }
+        updateAdvancedSelectionUi(ds, snap);
         refreshDatasetProperties(QStringLiteral("advanced"));
         updateTransferButtonsState();
         return;
@@ -3422,6 +3406,24 @@ void MainWindow::refreshTransferSelectionLabels() {
         const QString originTitle = m_originSelectedDataset.isEmpty() ? emptyToken : originText;
         const QString destTitle = m_destSelectedDataset.isEmpty() ? emptyToken : destText;
         m_transferBox->setTitle(QStringLiteral("%1-->%2").arg(originTitle, destTitle));
+    }
+}
+
+void MainWindow::updateAdvancedSelectionUi(const QString& datasetName, const QString& snapshotName) {
+    QString text;
+    if (datasetName.isEmpty()) {
+        text = tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）"));
+    } else if (snapshotName.isEmpty()) {
+        text = datasetName;
+    } else {
+        text = QStringLiteral("%1@%2").arg(datasetName, snapshotName);
+    }
+    if (m_advSelectionLabel) {
+        m_advSelectionLabel->setText(text);
+    }
+    if (m_advCommandsBox) {
+        const QString emptyTitle = tr3(QStringLiteral("[vacío]"), QStringLiteral("[empty]"), QStringLiteral("[空]"));
+        m_advCommandsBox->setTitle(datasetName.isEmpty() ? emptyTitle : text);
     }
 }
 
@@ -4558,7 +4560,7 @@ void MainWindow::actionAdvancedBreakdown() {
                 .arg(shSingleQuote(ds), selectedList);
     }
     if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Desglosar"), ctx, cmd, 0, allowWindowsScript)) {
-        m_advSelectionLabel->setText(ds);
+        updateAdvancedSelectionUi(ds, QString());
     }
 }
 
@@ -4747,7 +4749,7 @@ void MainWindow::actionAdvancedAssemble() {
                 .arg(shSingleQuote(ds), selectedList);
     }
     if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Ensamblar"), ctx, cmd, 0, allowWindowsScript)) {
-        m_advSelectionLabel->setText(ds);
+        updateAdvancedSelectionUi(ds, QString());
         refreshConnectionByIndex(ctx.connIdx);
     }
 }
@@ -6196,19 +6198,9 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
         onDestTreeSelectionChanged();
     } else {
         refreshDatasetProperties(QStringLiteral("advanced"));
-        if (m_advSelectionLabel) {
-            const QString ds = item->data(0, Qt::UserRole).toString();
-            const QString snap = item->data(1, Qt::UserRole).toString();
-            if (ds.isEmpty()) {
-                m_advSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"),
-                                                 QStringLiteral("(no selection)"),
-                                                 QStringLiteral("（未选择）")));
-            } else if (snap.isEmpty()) {
-                m_advSelectionLabel->setText(ds);
-            } else {
-                m_advSelectionLabel->setText(QStringLiteral("%1@%2").arg(ds, snap));
-            }
-        }
+        const QString ds = item->data(0, Qt::UserRole).toString();
+        const QString snap = item->data(1, Qt::UserRole).toString();
+        updateAdvancedSelectionUi(ds, snap);
     }
     const DatasetSelectionContext ctx = currentDatasetSelection(side);
     if (!ctx.valid) {

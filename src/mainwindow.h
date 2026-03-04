@@ -140,6 +140,7 @@ private:
     void reloadDatasetSide(const QString& side);
     void updateTransferButtonsState();
     void refreshTransferSelectionLabels();
+    void updateAdvancedSelectionUi(const QString& datasetName, const QString& snapshotName);
     bool runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs = 0, bool forceConfirmDialog = false, bool streamProgress = false);
     void actionCopySnapshot();
     void actionLevelSnapshot();
@@ -241,6 +242,7 @@ private:
     QPushButton* m_btnSync{nullptr};
     QComboBox* m_advPoolCombo{nullptr};
     QTreeWidget* m_advTree{nullptr};
+    QGroupBox* m_advCommandsBox{nullptr};
     QLabel* m_advSelectionLabel{nullptr};
     QPushButton* m_btnAdvancedBreakdown{nullptr};
     QPushButton* m_btnAdvancedAssemble{nullptr};
