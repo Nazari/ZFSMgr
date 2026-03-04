@@ -6310,6 +6310,7 @@ void MainWindow::createPoolForSelectedConnection() {
 
     struct DeviceEntry {
         QString path;
+        QString resolvedPath;
         QString size;
         QString mountpoint;
         bool inPool{false};
@@ -6337,17 +6338,31 @@ void MainWindow::createPoolForSelectedConnection() {
             "ForEach-Object { "
             "  $path = $_.DeviceID; "
             "  $size = if($_.Size){ [string]([math]::Round($_.Size/1GB,2)) + 'G' } else { '-' }; "
-            "  Write-Output ($path + \"`t\" + $size + \"`t-\") "
+            "  Write-Output ($path + \"`t\" + $size + \"`t-`t\" + $path) "
             "}");
     } else {
         devCmd = QStringLiteral(
-            "if command -v lsblk >/dev/null 2>&1; then "
+            "if [ -d /dev/disk/by-id ] && command -v readlink >/dev/null 2>&1; then "
+            "  for id in /dev/disk/by-id/*; do "
+            "    [ -e \"$id\" ] || continue; "
+            "    real=\"$(readlink -f \"$id\" 2>/dev/null || true)\"; "
+            "    [ -n \"$real\" ] || continue; "
+            "    if command -v lsblk >/dev/null 2>&1; then "
+            "      size=\"$(lsblk -dn -o SIZE \"$real\" 2>/dev/null | head -n1)\"; "
+            "      mp=\"$(lsblk -dn -o MOUNTPOINT \"$real\" 2>/dev/null | head -n1)\"; "
+            "    else "
+            "      size='-'; mp='-'; "
+            "    fi; "
+            "    [ -n \"$size\" ] || size='-'; [ -n \"$mp\" ] || mp='-'; "
+            "    printf '%s\\t%s\\t%s\\t%s\\n' \"$id\" \"$size\" \"$mp\" \"$real\"; "
+            "  done | sort -u; "
+            "elif command -v lsblk >/dev/null 2>&1; then "
             "  lsblk -dn -o PATH,SIZE,MOUNTPOINT,TYPE | awk '$4==\"disk\" || $4==\"part\" { "
-            "    mp=$3; if(mp==\"\") mp=\"-\"; print $1\"\\t\"$2\"\\t\"mp }'; "
+            "    mp=$3; if(mp==\"\") mp=\"-\"; print $1\"\\t\"$2\"\\t\"mp\"\\t\"$1 }'; "
             "elif command -v diskutil >/dev/null 2>&1; then "
-            "  diskutil list | awk '/^\\/dev\\/disk[0-9]+([[:space:]]|$)/ { print $1\"\\t-\\t-\" }'; "
+            "  diskutil list | awk '/^\\/dev\\/disk[0-9]+([[:space:]]|$)/ { print $1\"\\t-\\t-\\t\"$1 }'; "
             "else "
-            "  for d in /dev/sd? /dev/vd? /dev/xvd? /dev/nvme*n1 /dev/disk?; do [ -e \"$d\" ] && printf \"%s\\t-\\t-\\n\" \"$d\"; done; "
+            "  for d in /dev/sd? /dev/vd? /dev/xvd? /dev/nvme*n1 /dev/disk?; do [ -e \"$d\" ] && printf \"%s\\t-\\t-\\t%s\\n\" \"$d\" \"$d\"; done; "
             "fi");
     }
     if (runRemote(devCmd, 25000, out)) {
@@ -6363,6 +6378,7 @@ void MainWindow::createPoolForSelectedConnection() {
             }
             DeviceEntry e;
             e.path = path;
+            e.resolvedPath = cols.value(3).trimmed().isEmpty() ? path : cols.value(3).trimmed();
             e.size = cols.value(1).trimmed().isEmpty() ? QStringLiteral("-") : cols.value(1).trimmed();
             e.mountpoint = cols.value(2).trimmed().isEmpty() ? QStringLiteral("-") : cols.value(2).trimmed();
             devicesByPath[path] = e;
@@ -6381,11 +6397,17 @@ void MainWindow::createPoolForSelectedConnection() {
             if (!devicesByPath.contains(path)) {
                 DeviceEntry e;
                 e.path = path;
+                e.resolvedPath = path;
                 e.size = QStringLiteral("-");
                 e.mountpoint = QStringLiteral("-");
                 devicesByPath.insert(path, e);
             }
-            devicesByPath[path].inPool = true;
+            for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
+                const QString real = it.value().resolvedPath.isEmpty() ? it.value().path : it.value().resolvedPath;
+                if (it.value().path == path || real == path) {
+                    it.value().inPool = true;
+                }
+            }
         }
     }
 
@@ -6412,10 +6434,13 @@ void MainWindow::createPoolForSelectedConnection() {
             if (dev.isEmpty()) {
                 continue;
             }
-            if (devicesByPath.contains(dev)) {
-                devicesByPath[dev].mounted = true;
-                if (!mp.isEmpty()) {
-                    devicesByPath[dev].mountpoint = mp;
+            for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
+                const QString real = it.value().resolvedPath.isEmpty() ? it.value().path : it.value().resolvedPath;
+                if (it.value().path == dev || real == dev) {
+                    it.value().mounted = true;
+                    if (!mp.isEmpty()) {
+                        it.value().mountpoint = mp;
+                    }
                 }
             }
         }
@@ -6429,11 +6454,17 @@ void MainWindow::createPoolForSelectedConnection() {
         if (!child.mounted && !child.inPool) {
             continue;
         }
-        const QString parent = parentDiskDevicePath(path);
-        if (parent.isEmpty() || !devicesByPath.contains(parent)) {
+        const QString childReal = child.resolvedPath.isEmpty() ? child.path : child.resolvedPath;
+        const QString parent = parentDiskDevicePath(childReal);
+        if (parent.isEmpty()) {
             continue;
         }
-        devicesByPath[parent].childBusy = true;
+        for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
+            const QString real = it.value().resolvedPath.isEmpty() ? it.value().path : it.value().resolvedPath;
+            if (it.value().path == parent || real == parent) {
+                it.value().childBusy = true;
+            }
+        }
     }
 
     QDialog dlg(this);
@@ -6619,6 +6650,9 @@ void MainWindow::createPoolForSelectedConnection() {
             bg = stGreen;
         }
         auto* stateItem = new QTableWidgetItem(stateTxt);
+        if (!e.resolvedPath.isEmpty() && e.resolvedPath != e.path) {
+            detailTxt = detailTxt + QStringLiteral(" | ") + e.resolvedPath;
+        }
         auto* detailItem = new QTableWidgetItem(detailTxt);
         devicesTable->setItem(row, 4, stateItem);
         devicesTable->setItem(row, 5, detailItem);
