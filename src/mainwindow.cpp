@@ -1658,7 +1658,6 @@ void MainWindow::buildUi() {
     m_logView->setFont(mono);
     appTabLayout->addWidget(m_logView, 1);
     m_logsTabs->addTab(appTab, tr3(QStringLiteral("Aplicación"), QStringLiteral("Application"), QStringLiteral("应用")));
-    rightLogsBody->addWidget(m_logsTabs, 1);
 
     auto* controlsPane = new QWidget(rightLogs);
     controlsPane->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
@@ -1709,6 +1708,7 @@ void MainWindow::buildUi() {
     logControls->addWidget(m_logCancelBtn, 0);
     logControls->addStretch(1);
     rightLogsBody->addWidget(controlsPane, 0);
+    rightLogsBody->addWidget(m_logsTabs, 1);
     rightLogsLayout->addLayout(rightLogsBody, 1);
 
     logBody->addWidget(leftInfo, 1);
