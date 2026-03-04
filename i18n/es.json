@@ -42,6 +42,12 @@
     "Seleccione un dataset activo para aplicar cambios.": "Seleccione un dataset activo para aplicar cambios.",
     "%1 falló:\n%2": "%1 falló:\n%2",
     "Montado": "Montado",
-    "Desmontado": "Desmontado"
+    "Desmontado": "Desmontado",
+    "No se pudo iniciar comando local": "No se pudo iniciar comando local",
+    "Inicio refresh: %1 [%2]": "Inicio refresh: %1 [%2]",
+    "Fin refresh: %1 -> ERROR (%2)": "Fin refresh: %1 -> ERROR (%2)",
+    "Fin refresh: %1 -> OK (%2)": "Fin refresh: %1 -> OK (%2)",
+    "Tipo de conexión no soportado aún en cppqt": "Tipo de conexión no soportado aún en cppqt",
+    "Host/usuario no definido": "Host/usuario no definido"
   }
 }

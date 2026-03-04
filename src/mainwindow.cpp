@@ -3733,7 +3733,10 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     m_activeLocalProcess = &proc;
     proc.start(QStringLiteral("sh"), QStringList{QStringLiteral("-lc"), command});
     if (!proc.waitForStarted(4000)) {
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("No se pudo iniciar comando local"));
+        appLog(QStringLiteral("NORMAL"),
+               tr3(QStringLiteral("No se pudo iniciar comando local"),
+                   QStringLiteral("Could not start local command"),
+                   QStringLiteral("无法启动本地命令")));
         m_activeLocalProcess = nullptr;
         m_activeLocalPid = -1;
         setActionsLocked(false);
@@ -8424,18 +8427,31 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     ConnectionRuntimeState state;
     state.connectionMethod = p.connType;
     state.powershellFallbackCommands = zfsmgrPowershellCommandSet();
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio refresh: %1 [%2]").arg(p.name, p.connType));
+    appLog(QStringLiteral("NORMAL"),
+           tr3(QStringLiteral("Inicio refresh: %1 [%2]"),
+               QStringLiteral("Refresh start: %1 [%2]"),
+               QStringLiteral("开始刷新：%1 [%2]")).arg(p.name, p.connType));
 
     if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
         state.status = QStringLiteral("ERROR");
-        state.detail = QStringLiteral("Tipo de conexión no soportado aún en cppqt");
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin refresh: %1 -> ERROR (%2)").arg(p.name, state.detail));
+        state.detail = tr3(QStringLiteral("Tipo de conexión no soportado aún en cppqt"),
+                           QStringLiteral("Connection type not supported yet in cppqt"),
+                           QStringLiteral("cppqt 尚不支持该连接类型"));
+        appLog(QStringLiteral("NORMAL"),
+               tr3(QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
+                   QStringLiteral("Refresh end: %1 -> ERROR (%2)"),
+                   QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(p.name, state.detail));
         return state;
     }
     if (p.host.isEmpty() || p.username.isEmpty()) {
         state.status = QStringLiteral("ERROR");
-        state.detail = QStringLiteral("Host/usuario no definido");
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin refresh: %1 -> ERROR (%2)").arg(p.name, state.detail));
+        state.detail = tr3(QStringLiteral("Host/usuario no definido"),
+                           QStringLiteral("Host/user not defined"),
+                           QStringLiteral("主机/用户未定义"));
+        appLog(QStringLiteral("NORMAL"),
+               tr3(QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
+                   QStringLiteral("Refresh end: %1 -> ERROR (%2)"),
+                   QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(p.name, state.detail));
         return state;
     }
 
@@ -8448,7 +8464,10 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     if (!runSsh(p, osProbeCmd, 12000, out, err, rc) || rc != 0) {
         state.status = QStringLiteral("ERROR");
         state.detail = oneLine(err.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : err);
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin refresh: %1 -> ERROR (%2)").arg(p.name, state.detail));
+        appLog(QStringLiteral("NORMAL"),
+               tr3(QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
+                   QStringLiteral("Refresh end: %1 -> ERROR (%2)"),
+                   QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(p.name, state.detail));
         return state;
     }
     state.status = QStringLiteral("OK");
@@ -8743,7 +8762,10 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         appLog(QStringLiteral("INFO"), QStringLiteral("%1: zfs mount -> %2").arg(p.name, oneLine(err)));
     }
 
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin refresh: %1 -> OK (%2)").arg(p.name, state.detail));
+    appLog(QStringLiteral("NORMAL"),
+           tr3(QStringLiteral("Fin refresh: %1 -> OK (%2)"),
+               QStringLiteral("Refresh end: %1 -> OK (%2)"),
+               QStringLiteral("刷新结束：%1 -> OK (%2)")).arg(p.name, state.detail));
     return state;
 }
 
