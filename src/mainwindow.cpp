@@ -6366,7 +6366,8 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
         (actionName == QStringLiteral("Montar")
          || actionName == QStringLiteral("Montar con todos los hijos")
          || actionName == QStringLiteral("Desmontar")
-         || actionName == QStringLiteral("Desde Dir"));
+         || actionName == QStringLiteral("Desde Dir")
+         || actionName == QStringLiteral("Desglosar"));
     if (needsDeferredRefresh) {
         const int refreshIdx = ctx.connIdx;
         QTimer::singleShot(0, this, [this, refreshIdx]() {
