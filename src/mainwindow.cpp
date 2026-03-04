@@ -6372,6 +6372,25 @@ void MainWindow::destroyPoolFromRow(int row) {
     if (confirm != QMessageBox::Yes) {
         return;
     }
+    const QString expectedPhrase = QStringLiteral("Quiero destruir el pool %1").arg(poolName);
+    bool okText = false;
+    const QString typed = QInputDialog::getText(
+        this,
+        QStringLiteral("Confirmación obligatoria"),
+        QStringLiteral("Para confirmar, escriba exactamente:\n%1").arg(expectedPhrase),
+        QLineEdit::Normal,
+        QString(),
+        &okText);
+    if (!okText) {
+        return;
+    }
+    if (typed.trimmed() != expectedPhrase) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("Destroy pool"),
+            QStringLiteral("Texto de confirmación incorrecto.\nOperación cancelada."));
+        return;
+    }
 
     const ConnectionProfile& p = m_profiles[idx];
     const QString cmd = withSudo(p, QStringLiteral("zpool destroy %1").arg(shSingleQuote(poolName)));
