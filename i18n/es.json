@@ -19,7 +19,22 @@
     "Clave SSH": "Clave SSH",
     "Usar sudo": "Usar sudo",
     "Privilegios": "Privilegios",
-    "Probar conexión": "Probar conexión"
+    "Probar conexión": "Probar conexión",
+    "%1: %2 incorrecto": "%1: %2 incorrecto",
+    "Password maestro requerido": "Password maestro requerido",
+    "no se pudo descifrar": "no se pudo descifrar",
+    "Nombre requerido": "Nombre requerido",
+    "Host requerido": "Host requerido",
+    "Usuario requerido": "Usuario requerido",
+    "Password maestro requerido para cifrar password": "Password maestro requerido para cifrar password",
+    "No se pudo cifrar password: %1": "No se pudo cifrar password: %1",
+    "Error guardando INI": "Error guardando INI",
+    "ID vacío": "ID vacío",
+    "Error borrando en INI": "Error borrando en INI",
+    "Nuevo password maestro vacío": "Nuevo password maestro vacío",
+    "Password maestro actual incorrecto.\n%1": "Password maestro actual incorrecto.\n%1",
+    "No se pudo cambiar el password maestro.\n%1": "No se pudo cambiar el password maestro.\n%1",
+    "No se pudieron migrar passwords guardados.\n%1": "No se pudieron migrar passwords guardados.\n%1",
+    "Password maestro incorrecto.\n%1": "Password maestro incorrecto.\n%1"
   }
 }
-

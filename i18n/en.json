@@ -20,6 +20,22 @@
     "Usar sudo": "Use sudo",
     "Privilegios": "Privileges",
     "Probar conexión": "Test connection",
+    "%1: %2 incorrecto": "%1: invalid %2",
+    "Password maestro requerido": "Master password required",
+    "no se pudo descifrar": "could not decrypt",
+    "Nombre requerido": "Name required",
+    "Host requerido": "Host required",
+    "Usuario requerido": "User required",
+    "Password maestro requerido para cifrar password": "Master password required to encrypt password",
+    "No se pudo cifrar password: %1": "Could not encrypt password: %1",
+    "Error guardando INI": "Error saving INI",
+    "ID vacío": "Empty ID",
+    "Error borrando en INI": "Error deleting from INI",
+    "Nuevo password maestro vacío": "New master password is empty",
+    "Password maestro actual incorrecto.\n%1": "Current master password is invalid.\n%1",
+    "No se pudo cambiar el password maestro.\n%1": "Could not change master password.\n%1",
+    "No se pudieron migrar passwords guardados.\n%1": "Could not migrate stored passwords.\n%1",
+    "Password maestro incorrecto.\n%1": "Invalid master password.\n%1",
     "Complete al menos Host y Usuario para probar la conexión.": "Fill at least Host and User to test the connection.",
     "Puerto inválido.": "Invalid port.",
     "La prueba PSRP aún no valida autenticación en esta versión.\nUse SSH para prueba completa.": "PSRP test does not validate authentication yet in this version.\nUse SSH for full test.",
@@ -35,4 +51,3 @@
     "Invalid master password.\n%1": "Invalid master password.\n%1"
   }
 }
-

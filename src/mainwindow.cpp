@@ -781,6 +781,7 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
         m_language = language.trimmed().toLower();
         saveUiSettings();
     }
+    m_store.setLanguage(m_language);
     m_store.setMasterPassword(masterPassword);
     initLogPersistence();
     buildUi();
@@ -9085,6 +9086,7 @@ void MainWindow::openConfigurationDialog() {
     const int newLogMaxMb = qMax(1, logSizeSpin->value());
     const bool langChanged = (newLang != m_language);
     m_language = newLang.isEmpty() ? QStringLiteral("es") : newLang;
+    m_store.setLanguage(m_language);
     m_actionConfirmEnabled = newConfirm;
     m_logMaxSizeMb = newLogMaxMb;
     saveUiSettings();

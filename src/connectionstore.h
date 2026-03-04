@@ -28,6 +28,7 @@ public:
     explicit ConnectionStore(const QString& appName);
 
     void setMasterPassword(const QString& password);
+    void setLanguage(const QString& language);
     bool validateMasterPassword(QString& error) const;
     QString configDir() const;
     QString iniPath() const;
@@ -38,6 +39,8 @@ public:
     bool rotateMasterPassword(const QString& oldMasterPassword, const QString& newMasterPassword, QString& error);
 
 private:
+    QString tr3(const QString& es, const QString& en, const QString& zh) const;
     QString m_appName;
     QString m_masterPassword;
+    QString m_language{QStringLiteral("es")};
 };

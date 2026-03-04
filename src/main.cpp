@@ -32,6 +32,7 @@ int main(int argc, char* argv[]) {
             language = persistedLang;
         }
     }
+    store.setLanguage(language);
     while (true) {
         MasterPasswordDialog dlg;
         dlg.setSelectedLanguage(language);
@@ -39,6 +40,7 @@ int main(int argc, char* argv[]) {
             return 0;
         }
         language = dlg.selectedLanguage();
+        store.setLanguage(language);
         {
             QSettings ini(store.iniPath(), QSettings::IniFormat);
             ini.beginGroup(QStringLiteral("ui"));

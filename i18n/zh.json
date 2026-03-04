@@ -20,6 +20,22 @@
     "Usar sudo": "使用 sudo",
     "Privilegios": "权限",
     "Probar conexión": "测试连接",
+    "%1: %2 incorrecto": "%1：%2 无效",
+    "Password maestro requerido": "需要主密码",
+    "no se pudo descifrar": "无法解密",
+    "Nombre requerido": "名称必填",
+    "Host requerido": "主机必填",
+    "Usuario requerido": "用户必填",
+    "Password maestro requerido para cifrar password": "加密密码需要主密码",
+    "No se pudo cifrar password: %1": "无法加密密码：%1",
+    "Error guardando INI": "保存 INI 出错",
+    "ID vacío": "ID 为空",
+    "Error borrando en INI": "删除 INI 项时出错",
+    "Nuevo password maestro vacío": "新主密码为空",
+    "Password maestro actual incorrecto.\n%1": "当前主密码错误。\n%1",
+    "No se pudo cambiar el password maestro.\n%1": "无法修改主密码。\n%1",
+    "No se pudieron migrar passwords guardados.\n%1": "无法迁移已保存密码。\n%1",
+    "Password maestro incorrecto.\n%1": "主密码错误。\n%1",
     "Complete al menos Host y Usuario para probar la conexión.": "至少填写主机和用户后再测试连接。",
     "Puerto inválido.": "端口无效。",
     "La prueba PSRP aún no valida autenticación en esta versión.\nUse SSH para prueba completa.": "此版本中 PSRP 测试尚不验证认证。\n请使用 SSH 进行完整测试。",
@@ -35,4 +51,3 @@
     "Invalid master password.\n%1": "主密码错误。\n%1"
   }
 }
-
