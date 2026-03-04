@@ -261,6 +261,29 @@ QString parentDiskDevicePath(const QString& rawPath) {
     return QString();
 }
 
+QString wrapDeviceDisplayText(const QString& raw, int softWidth = 42) {
+    const QString s = raw;
+    if (s.size() <= softWidth) {
+        return s;
+    }
+    QString out;
+    out.reserve(s.size() + (s.size() / softWidth) + 4);
+    int col = 0;
+    for (int i = 0; i < s.size(); ++i) {
+        const QChar ch = s[i];
+        out += ch;
+        ++col;
+        const bool breakChar = (ch == QChar('/') || ch == QChar('\\') || ch == QChar(' '));
+        if ((breakChar && col >= (softWidth / 2)) || col >= softWidth) {
+            if (i + 1 < s.size()) {
+                out += QChar('\n');
+            }
+            col = 0;
+        }
+    }
+    return out;
+}
+
 bool looksLikePowerShellScript(const QString& cmd) {
     const QString c = cmd.toLower();
     const QString t = c.trimmed();
@@ -6548,6 +6571,8 @@ void MainWindow::createPoolForSelectedConnection() {
     devicesTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     devicesTable->setSelectionMode(QAbstractItemView::SingleSelection);
     devicesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    devicesTable->setWordWrap(true);
+    devicesTable->setTextElideMode(Qt::ElideNone);
     devicesTable->verticalHeader()->setVisible(false);
     devicesTable->verticalHeader()->setDefaultSectionSize(22);
     const QColor stRed("#ffcccc");
@@ -6565,7 +6590,10 @@ void MainWindow::createPoolForSelectedConnection() {
         useItem->setFlags((useItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
         useItem->setCheckState(Qt::Unchecked);
         devicesTable->setItem(row, 0, useItem);
-        devicesTable->setItem(row, 1, new QTableWidgetItem(path));
+        auto* devItem = new QTableWidgetItem(wrapDeviceDisplayText(path));
+        devItem->setData(Qt::UserRole, path);
+        devItem->setToolTip(path);
+        devicesTable->setItem(row, 1, devItem);
         devicesTable->setItem(row, 2, new QTableWidgetItem(e.size));
         devicesTable->setItem(row, 3, new QTableWidgetItem(e.mountpoint));
         QString stateTxt;
@@ -6600,6 +6628,7 @@ void MainWindow::createPoolForSelectedConnection() {
             }
         }
     }
+    devicesTable->resizeRowsToContents();
     devicesLayout->addWidget(devicesTable, 1);
     body->addWidget(leftPane, 3);
     body->addWidget(devicesBox, 2);
@@ -6614,7 +6643,12 @@ void MainWindow::createPoolForSelectedConnection() {
                 continue;
             }
             if (use->checkState() == Qt::Checked) {
-                const QString d = dev->text().trimmed();
+                QString d = dev->data(Qt::UserRole).toString().trimmed();
+                if (d.isEmpty()) {
+                    d = dev->text();
+                    d.replace('\n', QString());
+                    d = d.trimmed();
+                }
                 if (!d.isEmpty()) {
                     selected << d;
                 }
