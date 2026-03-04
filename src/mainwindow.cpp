@@ -3489,6 +3489,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     QElapsedTimer heartbeatTimer;
     heartbeatTimer.start();
     int lastProgressPercent = -1;
+    QString lastProgressSnippet;
     auto flushLines = [&](QString& remainder, const QString& chunk, const QString& level, bool progressAware) {
         if (chunk.isEmpty()) {
             return;
@@ -3536,11 +3537,28 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                         continue;
                     }
                     progressTimer.restart();
+                    lastProgressSnippet = ln;
                     appLog(QStringLiteral("INFO"), QStringLiteral("[progress] %1").arg(ln));
                     continue;
                 }
             }
             appLog(level, oneLine(ln));
+        }
+        if (progressAware) {
+            const QString partial = remainder.trimmed();
+            if (!partial.isEmpty()) {
+                const QString low = partial.toLower();
+                const bool looksLikeProgress = partial.contains('%')
+                    || low.contains(QStringLiteral("ib/s"))
+                    || low.contains(QStringLiteral("b/s"))
+                    || low.contains(QStringLiteral("to-chk"))
+                    || low.contains(QStringLiteral("xfr#"));
+                if (looksLikeProgress && progressTimer.elapsed() >= 900 && partial != lastProgressSnippet) {
+                    progressTimer.restart();
+                    lastProgressSnippet = partial;
+                    appLog(QStringLiteral("INFO"), QStringLiteral("[progress] %1").arg(partial));
+                }
+            }
         }
     };
 
