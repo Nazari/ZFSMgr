@@ -920,6 +920,8 @@ void MainWindow::buildUi() {
     m_btnNew->setMinimumHeight(34);
     m_btnRefreshAll->setMinimumHeight(34);
     m_btnConfig->setMinimumHeight(34);
+    const int connBtnMinW = qMax(m_btnNew->sizeHint().width(),
+                                 qMax(m_btnRefreshAll->sizeHint().width(), m_btnConfig->sizeHint().width()));
     m_btnNew->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnRefreshAll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConfig->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -942,9 +944,12 @@ void MainWindow::buildUi() {
     m_btnPoolNew =
         new QPushButton(tr3(QStringLiteral("Nuevo"), QStringLiteral("New"), QStringLiteral("新建")), m_poolMgmtBox);
     m_btnPoolNew->setMinimumHeight(34);
-    m_btnPoolNew->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnPoolNew->setMinimumWidth(connBtnMinW);
+    m_btnPoolNew->setMaximumWidth(connBtnMinW);
+    m_btnPoolNew->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_btnPoolNew->setEnabled(false);
     poolMgmtButtons->addWidget(m_btnPoolNew);
+    poolMgmtButtons->addStretch(1);
     poolMgmtLayout->addLayout(poolMgmtButtons);
     connLayout->addWidget(m_poolMgmtBox, 0);
 
@@ -1324,14 +1329,21 @@ void MainWindow::buildUi() {
     m_poolStatusScrubBtn->setEnabled(false);
     m_poolStatusScrubBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     statusActions->addWidget(m_poolStatusScrubBtn);
+    m_poolStatusDestroyBtn = new QPushButton(QStringLiteral("Destroy"), statusPoolTab);
+    m_poolStatusDestroyBtn->setEnabled(false);
+    m_poolStatusDestroyBtn->setStyleSheet(QStringLiteral("QPushButton { color: #b00020; font-weight: 700; }"));
+    m_poolStatusDestroyBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    statusActions->addWidget(m_poolStatusDestroyBtn);
     const int statusButtonsWidth = qMax(m_poolStatusRefreshBtn->sizeHint().width(),
                                         qMax(m_poolStatusImportBtn->sizeHint().width(),
                                              qMax(m_poolStatusExportBtn->sizeHint().width(),
-                                                  m_poolStatusScrubBtn->sizeHint().width())));
+                                                  qMax(m_poolStatusScrubBtn->sizeHint().width(),
+                                                       m_poolStatusDestroyBtn->sizeHint().width()))));
     m_poolStatusRefreshBtn->setMinimumWidth(statusButtonsWidth);
     m_poolStatusImportBtn->setMinimumWidth(statusButtonsWidth);
     m_poolStatusExportBtn->setMinimumWidth(statusButtonsWidth);
     m_poolStatusScrubBtn->setMinimumWidth(statusButtonsWidth);
+    m_poolStatusDestroyBtn->setMinimumWidth(statusButtonsWidth);
     statusActions->addStretch(1);
     m_poolStatusText = new QPlainTextEdit(statusPoolTab);
     m_poolStatusText->setReadOnly(true);
@@ -1738,6 +1750,17 @@ void MainWindow::buildUi() {
         }
         logUiAction(QStringLiteral("Scrub pool (botón Estado)"));
         scrubPoolFromRow(sel.first()->row());
+    });
+    connect(m_poolStatusDestroyBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_importedPoolsTable) {
+            return;
+        }
+        const auto sel = m_importedPoolsTable->selectedItems();
+        if (sel.isEmpty()) {
+            return;
+        }
+        logUiAction(QStringLiteral("Destroy pool (botón Estado)"));
+        destroyPoolFromRow(sel.first()->row());
     });
     connect(m_originPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onOriginPoolChanged(); });
     connect(m_destPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onDestPoolChanged(); });
@@ -6292,6 +6315,68 @@ void MainWindow::scrubPoolFromRow(int row) {
     refreshConnectionByIndex(idx);
 }
 
+void MainWindow::destroyPoolFromRow(int row) {
+    if (actionsLocked()) {
+        return;
+    }
+    QTableWidgetItem* connItem = m_importedPoolsTable->item(row, 0);
+    QTableWidgetItem* poolItem = m_importedPoolsTable->item(row, 1);
+    QTableWidgetItem* stateItem = m_importedPoolsTable->item(row, 2);
+    if (!connItem || !poolItem || !stateItem) {
+        return;
+    }
+    const QString connName = connItem->text().trimmed();
+    const QString poolName = poolItem->text().trimmed();
+    const QString action = stateItem->data(Qt::UserRole + 1).toString().trimmed();
+    if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
+        return;
+    }
+    if (action.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) != 0) {
+        return;
+    }
+    const int idx = findConnectionIndexByName(connName);
+    if (idx < 0) {
+        return;
+    }
+    const auto confirm = QMessageBox::warning(
+        this,
+        QStringLiteral("Destroy pool"),
+        QStringLiteral("ATENCIÓN: se va a destruir el pool %1 en %2.\n¿Desea continuar?")
+            .arg(poolName, connName),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return;
+    }
+
+    const ConnectionProfile& p = m_profiles[idx];
+    const QString cmd = withSudo(p, QStringLiteral("zpool destroy %1").arg(shSingleQuote(poolName)));
+    const QString preview = QStringLiteral("[%1]\n%2")
+                                .arg(QStringLiteral("%1@%2:%3").arg(p.username, p.host).arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
+                                .arg(buildSshPreviewCommand(p, cmd));
+    if (!confirmActionExecution(QStringLiteral("Destroy"), {preview})) {
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio destroy %1::%2").arg(connName, poolName));
+    setActionsLocked(true);
+    QString out;
+    QString err;
+    int rc = -1;
+    if (!runSsh(p, cmd, 60000, out, err, rc) || rc != 0) {
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("Error destroy %1::%2 -> %3")
+                                       .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
+                              QStringLiteral("Destroy falló:\n%1").arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
+        setActionsLocked(false);
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin destroy %1::%2").arg(connName, poolName));
+    setActionsLocked(false);
+    refreshConnectionByIndex(idx);
+    populateAllPoolsTables();
+    refreshSelectedPoolDetails();
+}
+
 void MainWindow::createPoolForSelectedConnection() {
     if (actionsLocked()) {
         return;
@@ -8331,6 +8416,9 @@ void MainWindow::refreshSelectedPoolDetails() {
     if (m_poolStatusScrubBtn) {
         m_poolStatusScrubBtn->setEnabled(false);
     }
+    if (m_poolStatusDestroyBtn) {
+        m_poolStatusDestroyBtn->setEnabled(false);
+    }
 
     const auto sel = m_importedPoolsTable->selectedItems();
     if (sel.isEmpty()) {
@@ -8353,6 +8441,7 @@ void MainWindow::refreshSelectedPoolDetails() {
     const bool canImport = (action.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) == 0
                             && poolState == QStringLiteral("ONLINE"));
     const bool canScrub = canExport && poolState == QStringLiteral("ONLINE");
+    const bool canDestroy = canExport;
     if (m_poolStatusExportBtn) {
         m_poolStatusExportBtn->setEnabled(!actionsLocked() && canExport);
     }
@@ -8361,6 +8450,9 @@ void MainWindow::refreshSelectedPoolDetails() {
     }
     if (m_poolStatusScrubBtn) {
         m_poolStatusScrubBtn->setEnabled(!actionsLocked() && canScrub);
+    }
+    if (m_poolStatusDestroyBtn) {
+        m_poolStatusDestroyBtn->setEnabled(!actionsLocked() && canDestroy);
     }
     if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
         setTablePopulationMode(m_poolPropsTable, false);
@@ -8705,6 +8797,7 @@ void MainWindow::setActionsLocked(bool locked) {
     if (m_poolStatusImportBtn) m_poolStatusImportBtn->setEnabled(!locked && m_poolStatusImportBtn->isEnabled());
     if (m_poolStatusExportBtn) m_poolStatusExportBtn->setEnabled(!locked && m_poolStatusExportBtn->isEnabled());
     if (m_poolStatusScrubBtn) m_poolStatusScrubBtn->setEnabled(!locked && m_poolStatusScrubBtn->isEnabled());
+    if (m_poolStatusDestroyBtn) m_poolStatusDestroyBtn->setEnabled(!locked && m_poolStatusDestroyBtn->isEnabled());
     if (m_btnApplyDatasetProps) m_btnApplyDatasetProps->setEnabled(!locked && m_btnApplyDatasetProps->isEnabled());
     if (m_btnApplyAdvancedProps) m_btnApplyAdvancedProps->setEnabled(!locked && m_btnApplyAdvancedProps->isEnabled());
     if (locked) {

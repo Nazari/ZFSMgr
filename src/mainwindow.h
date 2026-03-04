@@ -180,6 +180,7 @@ private:
     void exportPoolFromRow(int row);
     void importPoolFromRow(int row);
     void scrubPoolFromRow(int row);
+    void destroyPoolFromRow(int row);
     void createPoolForSelectedConnection();
     void refreshSelectedPoolDetails();
     int selectedConnectionIndexForPoolManagement() const;
@@ -231,6 +232,7 @@ private:
     QPushButton* m_poolStatusImportBtn{nullptr};
     QPushButton* m_poolStatusExportBtn{nullptr};
     QPushButton* m_poolStatusScrubBtn{nullptr};
+    QPushButton* m_poolStatusDestroyBtn{nullptr};
     QStackedWidget* m_rightStack{nullptr};
     QComboBox* m_originPoolCombo{nullptr};
     QComboBox* m_destPoolCombo{nullptr};
