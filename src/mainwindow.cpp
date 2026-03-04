@@ -6322,10 +6322,20 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     QString err;
     int rc = -1;
     if (!runSsh(p, remoteCmd, timeoutMs, out, err, rc) || rc != 0) {
+        QString failureDetail = err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err;
+        if (actionName == QStringLiteral("Desmontar")) {
+            const QString diag = diagnoseUmountFailure(ctx).trimmed();
+            if (!diag.isEmpty()) {
+                appLog(QStringLiteral("WARN"),
+                       QStringLiteral("Diagnóstico de desmontaje %1::%2 -> %3")
+                           .arg(p.name, ctx.datasetName, oneLine(diag)));
+                failureDetail += QStringLiteral("\n\nProcesos/diagnóstico sobre el mountpoint:\n%1").arg(diag);
+            }
+        }
         appLog(QStringLiteral("NORMAL"),
                QStringLiteral("Error en %1: %2")
-                   .arg(actionName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"), QStringLiteral("%1 falló:\n%2").arg(actionName, err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
+                   .arg(actionName, oneLine(failureDetail)));
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"), QStringLiteral("%1 falló:\n%2").arg(actionName, failureDetail));
         setActionsLocked(false);
         return false;
     }
@@ -6350,6 +6360,75 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     reloadDatasetSide(side);
     setActionsLocked(false);
     return true;
+}
+
+QString MainWindow::diagnoseUmountFailure(const DatasetSelectionContext& ctx) {
+    if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
+        return QString();
+    }
+    const ConnectionProfile& p = m_profiles[ctx.connIdx];
+    QString mp;
+    QString mpHint;
+    QString mountedValue;
+    getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("mountpoint"), mpHint);
+    getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("mounted"), mountedValue);
+    mp = effectiveMountPath(ctx.connIdx, ctx.poolName, ctx.datasetName, mpHint, mountedValue).trimmed();
+    if (mp.isEmpty()) {
+        mp = mpHint.trimmed();
+    }
+    if (mp.isEmpty()) {
+        return tr3(QStringLiteral("No se pudo resolver el mountpoint para diagnóstico."),
+                   QStringLiteral("Could not resolve mountpoint for diagnostics."),
+                   QStringLiteral("无法解析用于诊断的挂载点。"));
+    }
+
+    QString out;
+    QString err;
+    int rc = -1;
+    QString diagCmd;
+    if (isWindowsConnection(p)) {
+        QString dsPs = ctx.datasetName;
+        dsPs.replace('\'', QStringLiteral("''"));
+        QString mpPs = mp;
+        mpPs.replace('\'', QStringLiteral("''"));
+        diagCmd = QStringLiteral(
+                      "$ds='%1'; $mp='%2'; "
+                      "Write-Output ('dataset=' + $ds); "
+                      "Write-Output ('mountpoint=' + $mp); "
+                      "Write-Output 'No hay lsof/fuser por defecto en Windows para identificar el proceso bloqueante.'")
+                      .arg(dsPs, mpPs);
+    } else {
+        const QString mpQ = shSingleQuote(mp);
+        diagCmd = QStringLiteral(
+                      "MP=%1; "
+                      "echo \"mountpoint=$MP\"; "
+                      "if command -v lsof >/dev/null 2>&1; then "
+                      "  echo \"--- lsof ---\"; "
+                      "  lsof +f -- \"$MP\" 2>/dev/null | head -n 80; "
+                      "else "
+                      "  echo \"lsof no disponible\"; "
+                      "fi; "
+                      "if command -v fuser >/dev/null 2>&1; then "
+                      "  echo \"--- fuser ---\"; "
+                      "  fuser -vm \"$MP\" 2>/dev/null | head -n 80; "
+                      "else "
+                      "  echo \"fuser no disponible\"; "
+                      "fi")
+                      .arg(mpQ);
+    }
+
+    if (!runSsh(p, withSudo(p, diagCmd), 15000, out, err, rc)) {
+        return tr3(QStringLiteral("No se pudo ejecutar el diagnóstico remoto."),
+                   QStringLiteral("Could not execute remote diagnostics."),
+                   QStringLiteral("无法执行远程诊断。"));
+    }
+    if (rc != 0 && out.trimmed().isEmpty()) {
+        return err.trimmed().isEmpty() ? QStringLiteral("diagnostic exit %1").arg(rc) : err.trimmed();
+    }
+    if (!out.trimmed().isEmpty()) {
+        return out.trimmed();
+    }
+    return err.trimmed();
 }
 
 void MainWindow::invalidateDatasetCacheForPool(int connIdx, const QString& poolName) {

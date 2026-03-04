@@ -134,6 +134,7 @@ private:
     DatasetSelectionContext currentDatasetSelection(const QString& side) const;
     void showDatasetContextMenu(const QString& side, QTreeWidget* tree, const QPoint& pos);
     bool executeDatasetAction(const QString& side, const QString& actionName, const DatasetSelectionContext& ctx, const QString& cmd, int timeoutMs = 45000, bool allowWindowsScript = false);
+    QString diagnoseUmountFailure(const DatasetSelectionContext& ctx);
     void invalidateDatasetCacheForPool(int connIdx, const QString& poolName);
     void reloadDatasetSide(const QString& side);
     void updateTransferButtonsState();
