@@ -6843,7 +6843,7 @@ void MainWindow::createPoolForSelectedConnection() {
         for (const QString& tRaw : toks) {
             const QString t = tRaw.trimmed();
             if (t == QStringLiteral("/") || t == QStringLiteral("/boot") || t == QStringLiteral("/boot/efi")
-                || t == QStringLiteral("[SWAP]")) {
+                || t == QStringLiteral("[SWAP]") || t.startsWith(QStringLiteral("/System"))) {
                 return true;
             }
         }
