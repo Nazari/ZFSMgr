@@ -48,6 +48,23 @@
     "Fin refresh: %1 -> ERROR (%2)": "Fin refresh: %1 -> ERROR (%2)",
     "Fin refresh: %1 -> OK (%2)": "Fin refresh: %1 -> OK (%2)",
     "Tipo de conexión no soportado aún en cppqt": "Tipo de conexión no soportado aún en cppqt",
-    "Host/usuario no definido": "Host/usuario no definido"
+    "Host/usuario no definido": "Host/usuario no definido",
+    "Acción en curso: refresh bloqueado": "Acción en curso: refresh bloqueado",
+    "Refrescar todas las conexiones": "Refrescar todas las conexiones",
+    "Desglosar cancelado o sin selección.": "Desglosar cancelado o sin selección.",
+    "Ensamblar cancelado o sin selección.": "Ensamblar cancelado o sin selección.",
+    "No se pudo resolver el punto de montaje efectivo para sincronizar.\nOrigen: %1\nDestino: %2": "No se pudo resolver el punto de montaje efectivo para sincronizar.\nOrigen: %1\nDestino: %2",
+    "Origen y destino deben estar montados para sincronizar,\no bien tener canmount=off con subdatasets montados.\nOrigen mounted=%1 canmount=%2\nDestino mounted=%3 canmount=%4": "Origen y destino deben estar montados para sincronizar,\no bien tener canmount=off con subdatasets montados.\nOrigen mounted=%1 canmount=%2\nDestino mounted=%3 canmount=%4",
+    "No se pudieron cargar datasets para sincronización por subdatasets.": "No se pudieron cargar datasets para sincronización por subdatasets.",
+    "No hay caché de datasets para sincronización por subdatasets.": "No hay caché de datasets para sincronización por subdatasets.",
+    "No se puede sincronizar por subdatasets.\n%1": "No se puede sincronizar por subdatasets.\n%1",
+    "No hay subdatasets montados equivalentes para sincronizar.": "No hay subdatasets montados equivalentes para sincronizar.",
+    "Sincronizar en Windows usa fallback tar/ssh (codec=%1, sin --delete).": "Sincronizar en Windows usa fallback tar/ssh (codec=%1, sin --delete).",
+    "Sincronizar subdatasets en Windows usa fallback tar/ssh (codec=%1, sin --delete).": "Sincronizar subdatasets en Windows usa fallback tar/ssh (codec=%1, sin --delete).",
+    "Sincronizar: modo local remoto (tar, misma conexión)": "Sincronizar: modo local remoto (tar, misma conexión)",
+    "Sincronizar: modo local remoto (rsync, misma conexión)": "Sincronizar: modo local remoto (rsync, misma conexión)",
+    "Copiar: modo local remoto (origen y destino en la misma conexión)": "Copiar: modo local remoto (origen y destino en la misma conexión)",
+    "Nivelar omitido: selección incompleta (src.valid=%1 dst.valid=%2 src.dataset=%3 dst.dataset=%4 dst.snap=%5)": "Nivelar omitido: selección incompleta (src.valid=%1 dst.valid=%2 src.dataset=%3 dst.dataset=%4 dst.snap=%5)",
+    "Nivelar: modo local remoto (origen y destino en la misma conexión)": "Nivelar: modo local remoto (origen y destino en la misma conexión)"
   }
 }

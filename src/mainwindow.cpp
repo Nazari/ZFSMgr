@@ -139,6 +139,10 @@ QString oneLine(const QString& v) {
     return x.left(220);
 }
 
+QString tr3l(const QString& lang, const QString& es, const QString& en, const QString& zh) {
+    return I18nManager::instance().translate(lang, es, en, zh);
+}
+
 QString normalizeHostToken(QString host) {
     host = host.trimmed().toLower();
     if (host.startsWith('[') && host.endsWith(']') && host.size() > 2) {
@@ -566,52 +570,94 @@ QString decodePowerShellEncodedCommand(const QString& encoded) {
     return script.trimmed();
 }
 
-QString pseudoStepForSegment(const QString& segmentRaw) {
+QString pseudoStepForSegment(const QString& segmentRaw, const QString& lang) {
     const QString segment = segmentRaw.trimmed();
     const QString s = segment.toLower();
     if (s.contains(QStringLiteral("ssh "))) {
         if (s.contains(QStringLiteral("zfs send"))) {
-            return QStringLiteral("Conectar por SSH al origen y enviar stream ZFS (`zfs send`).");
+            return tr3l(lang,
+                        QStringLiteral("Conectar por SSH al origen y enviar stream ZFS (`zfs send`)."),
+                        QStringLiteral("Connect over SSH to source and send ZFS stream (`zfs send`)."),
+                        QStringLiteral("通过 SSH 连接源端并发送 ZFS 数据流（`zfs send`）。"));
         }
         if (s.contains(QStringLiteral("zfs recv"))) {
-            return QStringLiteral("Conectar por SSH al destino y recibir stream ZFS (`zfs recv`).");
+            return tr3l(lang,
+                        QStringLiteral("Conectar por SSH al destino y recibir stream ZFS (`zfs recv`)."),
+                        QStringLiteral("Connect over SSH to target and receive ZFS stream (`zfs recv`)."),
+                        QStringLiteral("通过 SSH 连接目标端并接收 ZFS 数据流（`zfs recv`）。"));
         }
         if (s.contains(QStringLiteral("zpool export"))) {
-            return QStringLiteral("Conectar por SSH y exportar pool (`zpool export`).");
+            return tr3l(lang,
+                        QStringLiteral("Conectar por SSH y exportar pool (`zpool export`)."),
+                        QStringLiteral("Connect over SSH and export pool (`zpool export`)."),
+                        QStringLiteral("通过 SSH 连接并导出池（`zpool export`）。"));
         }
         if (s.contains(QStringLiteral("zpool import"))) {
-            return QStringLiteral("Conectar por SSH e importar pool (`zpool import`).");
+            return tr3l(lang,
+                        QStringLiteral("Conectar por SSH e importar pool (`zpool import`)."),
+                        QStringLiteral("Connect over SSH and import pool (`zpool import`)."),
+                        QStringLiteral("通过 SSH 连接并导入池（`zpool import`）。"));
         }
-        return QStringLiteral("Conectar por SSH y ejecutar comando remoto.");
+        return tr3l(lang,
+                    QStringLiteral("Conectar por SSH y ejecutar comando remoto."),
+                    QStringLiteral("Connect over SSH and execute remote command."),
+                    QStringLiteral("通过 SSH 连接并执行远程命令。"));
     }
     if (s.contains(QStringLiteral("pv -trab"))) {
-        return QStringLiteral("Mostrar progreso de transferencia con `pv`.");
+        return tr3l(lang,
+                    QStringLiteral("Mostrar progreso de transferencia con `pv`."),
+                    QStringLiteral("Show transfer progress with `pv`."),
+                    QStringLiteral("用 `pv` 显示传输进度。"));
     }
     if (s.contains(QStringLiteral("zfs send"))) {
-        return QStringLiteral("Generar stream ZFS desde snapshot/dataset (`zfs send`).");
+        return tr3l(lang,
+                    QStringLiteral("Generar stream ZFS desde snapshot/dataset (`zfs send`)."),
+                    QStringLiteral("Generate ZFS stream from snapshot/dataset (`zfs send`)."),
+                    QStringLiteral("从快照/数据集生成 ZFS 数据流（`zfs send`）。"));
     }
     if (s.contains(QStringLiteral("zfs recv"))) {
-        return QStringLiteral("Aplicar stream ZFS en destino (`zfs recv`).");
+        return tr3l(lang,
+                    QStringLiteral("Aplicar stream ZFS en destino (`zfs recv`)."),
+                    QStringLiteral("Apply ZFS stream on target (`zfs recv`)."),
+                    QStringLiteral("在目标端应用 ZFS 数据流（`zfs recv`）。"));
     }
     if (s.contains(QStringLiteral("zfs rollback"))) {
-        return QStringLiteral("Revertir dataset al snapshot seleccionado (`zfs rollback`).");
+        return tr3l(lang,
+                    QStringLiteral("Revertir dataset al snapshot seleccionado (`zfs rollback`)."),
+                    QStringLiteral("Rollback dataset to selected snapshot (`zfs rollback`)."),
+                    QStringLiteral("将数据集回滚到选定快照（`zfs rollback`）。"));
     }
     if (s.contains(QStringLiteral("zfs mount")) || s.contains(QStringLiteral("zfs unmount"))) {
-        return QStringLiteral("Montar/desmontar dataset ZFS.");
+        return tr3l(lang,
+                    QStringLiteral("Montar/desmontar dataset ZFS."),
+                    QStringLiteral("Mount/unmount ZFS dataset."),
+                    QStringLiteral("挂载/卸载 ZFS 数据集。"));
     }
     if (s.contains(QStringLiteral("zfs set ")) || s.contains(QStringLiteral("zfs get "))) {
-        return QStringLiteral("Modificar/consultar propiedades ZFS.");
+        return tr3l(lang,
+                    QStringLiteral("Modificar/consultar propiedades ZFS."),
+                    QStringLiteral("Modify/query ZFS properties."),
+                    QStringLiteral("修改/查询 ZFS 属性。"));
     }
     if (s.contains(QStringLiteral("powershell "))) {
-        return QStringLiteral("Ejecutar script PowerShell.");
+        return tr3l(lang,
+                    QStringLiteral("Ejecutar script PowerShell."),
+                    QStringLiteral("Execute PowerShell script."),
+                    QStringLiteral("执行 PowerShell 脚本。"));
     }
     if (s.contains(QStringLiteral("sudo "))) {
-        return QStringLiteral("Elevar permisos con sudo y ejecutar comando.");
+        return tr3l(lang,
+                    QStringLiteral("Elevar permisos con sudo y ejecutar comando."),
+                    QStringLiteral("Elevate with sudo and execute command."),
+                    QStringLiteral("通过 sudo 提权并执行命令。"));
     }
-    return QStringLiteral("Ejecutar subcomando: %1").arg(segment.left(120));
+    return tr3l(lang,
+                QStringLiteral("Ejecutar subcomando: %1"),
+                QStringLiteral("Execute subcommand: %1"),
+                QStringLiteral("执行子命令：%1")).arg(segment.left(120));
 }
 
-QString formatCommandPreview(const QString& input) {
+QString formatCommandPreview(const QString& input, const QString& lang) {
     QString header;
     QString body = input;
     const int nl = input.indexOf('\n');
@@ -631,7 +677,7 @@ QString formatCommandPreview(const QString& input) {
     const QStringList segments = body.split('|', Qt::SkipEmptyParts);
     pseudo.reserve(segments.size());
     for (const QString& seg : segments) {
-        pseudo.push_back(pseudoStepForSegment(seg));
+        pseudo.push_back(pseudoStepForSegment(seg, lang));
     }
 
     QStringList decodedBlocks;
@@ -655,9 +701,15 @@ QString formatCommandPreview(const QString& input) {
     if (!header.isEmpty()) {
         out.push_back(header);
     }
-    out.push_back(QStringLiteral("Resumen legible:"));
+    out.push_back(tr3l(lang,
+                       QStringLiteral("Resumen legible:"),
+                       QStringLiteral("Readable summary:"),
+                       QStringLiteral("可读摘要：")));
     if (pseudo.isEmpty()) {
-        out.push_back(QStringLiteral("  1. Ejecutar comando."));
+        out.push_back(tr3l(lang,
+                           QStringLiteral("  1. Ejecutar comando."),
+                           QStringLiteral("  1. Execute command."),
+                           QStringLiteral("  1. 执行命令。")));
     } else {
         for (int i = 0; i < pseudo.size(); ++i) {
             out.push_back(QStringLiteral("  %1. %2").arg(i + 1).arg(pseudo[i]));
@@ -666,7 +718,10 @@ QString formatCommandPreview(const QString& input) {
 
     if (!decodedBlocks.isEmpty()) {
         out.push_back(QStringLiteral(""));
-        out.push_back(QStringLiteral("PowerShell decodificado:"));
+        out.push_back(tr3l(lang,
+                           QStringLiteral("PowerShell decodificado:"),
+                           QStringLiteral("Decoded PowerShell:"),
+                           QStringLiteral("解码后的 PowerShell：")));
         for (int i = 0; i < decodedBlocks.size(); ++i) {
             out.push_back(QStringLiteral("  [script %1]").arg(i + 1));
             out.push_back(QStringLiteral("  ") + decodedBlocks[i]);
@@ -674,7 +729,10 @@ QString formatCommandPreview(const QString& input) {
     }
 
     out.push_back(QStringLiteral(""));
-    out.push_back(QStringLiteral("Comando real (formateado):"));
+    out.push_back(tr3l(lang,
+                       QStringLiteral("Comando real (formateado):"),
+                       QStringLiteral("Actual command (formatted):"),
+                       QStringLiteral("实际命令（已格式化）：")));
     out.push_back(QStringLiteral("  ") + pretty);
     return out.join(QStringLiteral("\n"));
 }
@@ -2133,10 +2191,16 @@ void MainWindow::rebuildDatasetPoolSelectors() {
 
 void MainWindow::refreshAllConnections() {
     if (actionsLocked()) {
-        appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: refresh bloqueado"));
+        appLog(QStringLiteral("INFO"),
+               tr3(QStringLiteral("Acción en curso: refresh bloqueado"),
+                   QStringLiteral("Action in progress: refresh blocked"),
+                   QStringLiteral("操作进行中：刷新被阻止")));
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Refrescar todas las conexiones"));
+    appLog(QStringLiteral("NORMAL"),
+           tr3(QStringLiteral("Refrescar todas las conexiones"),
+               QStringLiteral("Refresh all connections"),
+               QStringLiteral("刷新所有连接")));
     if (m_profiles.isEmpty()) {
         m_refreshInProgress = false;
         updateBusyCursor();
@@ -2171,7 +2235,10 @@ void MainWindow::refreshAllConnections() {
 
 void MainWindow::refreshSelectedConnection() {
     if (actionsLocked()) {
-        appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: refresh bloqueado"));
+        appLog(QStringLiteral("INFO"),
+               tr3(QStringLiteral("Acción en curso: refresh bloqueado"),
+                   QStringLiteral("Action in progress: refresh blocked"),
+                   QStringLiteral("操作进行中：刷新被阻止")));
         return;
     }
     const auto selected = m_connectionsList->selectedItems();
@@ -3930,7 +3997,10 @@ void MainWindow::actionCopySnapshot() {
 
     QString pipeline;
     if (sameConnection) {
-        appLog(QStringLiteral("INFO"), QStringLiteral("Copiar: modo local remoto (origen y destino en la misma conexión)"));
+        appLog(QStringLiteral("INFO"),
+               tr3(QStringLiteral("Copiar: modo local remoto (origen y destino en la misma conexión)"),
+                   QStringLiteral("Copy: remote-local mode (source and target on same connection)"),
+                   QStringLiteral("复制：远端本地模式（源和目标在同一连接）")));
         // Important: run full pipeline under one sudo context so password never contaminates ZFS stream.
         const QString remotePipe = withSudo(sp, sendRawCmd
             + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
@@ -3953,7 +4023,9 @@ void MainWindow::actionLevelSnapshot() {
     const DatasetSelectionContext src = currentDatasetSelection(QStringLiteral("origin"));
     const DatasetSelectionContext dst = currentDatasetSelection(QStringLiteral("dest"));
     if (!src.valid || !dst.valid || src.datasetName.isEmpty() || dst.datasetName.isEmpty() || !dst.snapshotName.isEmpty()) {
-        appLog(QStringLiteral("INFO"), QStringLiteral("Nivelar omitido: selección incompleta (src.valid=%1 dst.valid=%2 src.dataset=%3 dst.dataset=%4 dst.snap=%5)")
+        appLog(QStringLiteral("INFO"), tr3(QStringLiteral("Nivelar omitido: selección incompleta (src.valid=%1 dst.valid=%2 src.dataset=%3 dst.dataset=%4 dst.snap=%5)"),
+                                           QStringLiteral("Level skipped: incomplete selection (src.valid=%1 dst.valid=%2 src.dataset=%3 dst.dataset=%4 dst.snap=%5)"),
+                                           QStringLiteral("同步快照已跳过：选择不完整（src.valid=%1 dst.valid=%2 src.dataset=%3 dst.dataset=%4 dst.snap=%5）"))
                                       .arg(src.valid ? QStringLiteral("1") : QStringLiteral("0"))
                                       .arg(dst.valid ? QStringLiteral("1") : QStringLiteral("0"))
                                       .arg(src.datasetName.isEmpty() ? QStringLiteral("0") : QStringLiteral("1"))
@@ -4059,7 +4131,10 @@ void MainWindow::actionLevelSnapshot() {
 
     QString pipeline;
     if (sameConnection) {
-        appLog(QStringLiteral("INFO"), QStringLiteral("Nivelar: modo local remoto (origen y destino en la misma conexión)"));
+        appLog(QStringLiteral("INFO"),
+               tr3(QStringLiteral("Nivelar: modo local remoto (origen y destino en la misma conexión)"),
+                   QStringLiteral("Level: remote-local mode (source and target on same connection)"),
+                   QStringLiteral("同步快照：远端本地模式（源和目标在同一连接）")));
         // Important: run full pipeline under one sudo context so password never contaminates ZFS stream.
         const QString remotePipe = withSudo(sp, sendRawCmd
             + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
@@ -4208,8 +4283,12 @@ void MainWindow::actionSyncDatasets() {
         if (!isUsableMountPath(src.connIdx, srcEffectiveMp) || !isUsableMountPath(dst.connIdx, dstEffectiveMp)) {
             QMessageBox::warning(this,
                                  QStringLiteral("ZFSMgr"),
-                                 QStringLiteral("No se pudo resolver el punto de montaje efectivo para sincronizar.\n"
-                                                "Origen: %1\nDestino: %2")
+                                 tr3(QStringLiteral("No se pudo resolver el punto de montaje efectivo para sincronizar.\n"
+                                                    "Origen: %1\nDestino: %2"),
+                                     QStringLiteral("Could not resolve effective mountpoint for synchronization.\n"
+                                                    "Source: %1\nTarget: %2"),
+                                     QStringLiteral("无法解析用于同步的有效挂载点。\n"
+                                                    "源：%1\n目标：%2"))
                                      .arg(srcEffectiveMp, dstEffectiveMp));
             return;
         }
@@ -4219,7 +4298,10 @@ void MainWindow::actionSyncDatasets() {
             const QString dstTarCmd = buildDstTarCmd(isWindowsConnection(dp), dstEffectiveMp, codec);
             QString command;
             if (sameConnection) {
-                appLog(QStringLiteral("INFO"), QStringLiteral("Sincronizar: modo local remoto (tar, misma conexión)"));
+                appLog(QStringLiteral("INFO"),
+                       tr3(QStringLiteral("Sincronizar: modo local remoto (tar, misma conexión)"),
+                           QStringLiteral("Sync: remote-local mode (tar, same connection)"),
+                           QStringLiteral("同步：远端本地模式（tar，同一连接）")));
                 const QString remotePipe = srcTarCmd
                     + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
                     + dstTarCmd;
@@ -4230,7 +4312,9 @@ void MainWindow::actionSyncDatasets() {
                     + sshExecFromLocal(dp, dstTarCmd);
             }
             appLog(QStringLiteral("WARN"),
-                   QStringLiteral("Sincronizar en Windows usa fallback tar/ssh (codec=%1, sin --delete).").arg(codecName(codec)));
+                   tr3(QStringLiteral("Sincronizar en Windows usa fallback tar/ssh (codec=%1, sin --delete)."),
+                       QStringLiteral("Sync on Windows uses tar/ssh fallback (codec=%1, no --delete)."),
+                       QStringLiteral("Windows 上同步使用 tar/ssh 回退（编码=%1，无 --delete）。")).arg(codecName(codec)));
             if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0, false, true)) {
                 invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
                 reloadDatasetSide(QStringLiteral("dest"));
@@ -4239,7 +4323,10 @@ void MainWindow::actionSyncDatasets() {
         }
         QString command;
         if (sameConnection) {
-            appLog(QStringLiteral("INFO"), QStringLiteral("Sincronizar: modo local remoto (rsync, misma conexión)"));
+            appLog(QStringLiteral("INFO"),
+                   tr3(QStringLiteral("Sincronizar: modo local remoto (rsync, misma conexión)"),
+                       QStringLiteral("Sync: remote-local mode (rsync, same connection)"),
+                       QStringLiteral("同步：远端本地模式（rsync，同一连接）")));
             QString remoteRsync =
                 QStringLiteral("%1; rsync $RSYNC_OPTS $RSYNC_PROGRESS %2/ %3/")
                     .arg(rsyncOptsProbe,
@@ -4270,16 +4357,24 @@ void MainWindow::actionSyncDatasets() {
     if ((!srcRootMounted && !srcCanmountOff) || (!dstRootMounted && !dstCanmountOff)) {
         QMessageBox::warning(this,
                              QStringLiteral("ZFSMgr"),
-                             QStringLiteral("Origen y destino deben estar montados para sincronizar,\n"
-                                            "o bien tener canmount=off con subdatasets montados.\n"
-                                            "Origen mounted=%1 canmount=%2\nDestino mounted=%3 canmount=%4")
+                             tr3(QStringLiteral("Origen y destino deben estar montados para sincronizar,\n"
+                                                "o bien tener canmount=off con subdatasets montados.\n"
+                                                "Origen mounted=%1 canmount=%2\nDestino mounted=%3 canmount=%4"),
+                                 QStringLiteral("Source and target must be mounted to synchronize,\n"
+                                                "or canmount=off with mounted subdatasets.\n"
+                                                "Source mounted=%1 canmount=%2\nTarget mounted=%3 canmount=%4"),
+                                 QStringLiteral("源和目标必须已挂载才能同步，\n"
+                                                "或设置 canmount=off 且子数据集已挂载。\n"
+                                                "源 mounted=%1 canmount=%2\n目标 mounted=%3 canmount=%4"))
                                  .arg(srcMounted, srcCanmount, dstMounted, dstCanmount));
         return;
     }
 
     if (!ensureDatasetsLoaded(src.connIdx, src.poolName) || !ensureDatasetsLoaded(dst.connIdx, dst.poolName)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             QStringLiteral("No se pudieron cargar datasets para sincronización por subdatasets."));
+                             tr3(QStringLiteral("No se pudieron cargar datasets para sincronización por subdatasets."),
+                                 QStringLiteral("Could not load datasets for subdataset synchronization."),
+                                 QStringLiteral("无法加载用于子数据集同步的数据集。")));
         return;
     }
     const QString srcKey = datasetCacheKey(src.connIdx, src.poolName);
@@ -4288,7 +4383,9 @@ void MainWindow::actionSyncDatasets() {
     const auto dstCacheIt = m_poolDatasetCache.constFind(dstKey);
     if (srcCacheIt == m_poolDatasetCache.constEnd() || dstCacheIt == m_poolDatasetCache.constEnd()) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             QStringLiteral("No hay caché de datasets para sincronización por subdatasets."));
+                             tr3(QStringLiteral("No hay caché de datasets para sincronización por subdatasets."),
+                                 QStringLiteral("No dataset cache for subdataset synchronization."),
+                                 QStringLiteral("没有用于子数据集同步的数据集缓存。")));
         return;
     }
 
@@ -4338,12 +4435,16 @@ void MainWindow::actionSyncDatasets() {
             details += QStringLiteral("No montados en ambos extremos:\n") + notMountedPairs.join('\n');
         }
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             QStringLiteral("No se puede sincronizar por subdatasets.\n%1").arg(details.trimmed()));
+                             tr3(QStringLiteral("No se puede sincronizar por subdatasets.\n%1"),
+                                 QStringLiteral("Cannot synchronize by subdatasets.\n%1"),
+                                 QStringLiteral("无法按子数据集同步。\n%1")).arg(details.trimmed()));
         return;
     }
     if (syncPairs.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
-                                 QStringLiteral("No hay subdatasets montados equivalentes para sincronizar."));
+                                 tr3(QStringLiteral("No hay subdatasets montados equivalentes para sincronizar."),
+                                     QStringLiteral("No equivalent mounted subdatasets to synchronize."),
+                                     QStringLiteral("没有可同步的等效已挂载子数据集。")));
         return;
     }
 
@@ -4370,7 +4471,9 @@ void MainWindow::actionSyncDatasets() {
         }
         const QString command = tarPipelines.join(QStringLiteral(" && "));
         appLog(QStringLiteral("WARN"),
-               QStringLiteral("Sincronizar subdatasets en Windows usa fallback tar/ssh (codec=%1, sin --delete).").arg(codecName(codec)));
+               tr3(QStringLiteral("Sincronizar subdatasets en Windows usa fallback tar/ssh (codec=%1, sin --delete)."),
+                   QStringLiteral("Subdataset sync on Windows uses tar/ssh fallback (codec=%1, no --delete)."),
+                   QStringLiteral("Windows 上子数据集同步使用 tar/ssh 回退（编码=%1，无 --delete）。")).arg(codecName(codec)));
         if (runLocalCommand(QStringLiteral("Sincronizar subdatasets %1 -> %2 (%3)")
                                 .arg(src.datasetName, dst.datasetName)
                                 .arg(syncPairs.size()),
@@ -4677,7 +4780,10 @@ void MainWindow::actionAdvancedBreakdown() {
                 QStringLiteral("请选择要拆分为子数据集的目录。")),
             dirs,
             selectedDirs)) {
-        appLog(QStringLiteral("INFO"), QStringLiteral("Desglosar cancelado o sin selección."));
+        appLog(QStringLiteral("INFO"),
+               tr3(QStringLiteral("Desglosar cancelado o sin selección."),
+                   QStringLiteral("Break down canceled or no selection."),
+                   QStringLiteral("拆分已取消或无选择。")));
         return;
     }
 
@@ -4884,7 +4990,10 @@ void MainWindow::actionAdvancedAssemble() {
                 QStringLiteral("请选择要组装回父数据集的子数据集。")),
             children,
             selectedChildren)) {
-        appLog(QStringLiteral("INFO"), QStringLiteral("Ensamblar cancelado o sin selección."));
+        appLog(QStringLiteral("INFO"),
+               tr3(QStringLiteral("Ensamblar cancelado o sin selección."),
+                   QStringLiteral("Assemble canceled or no selection."),
+                   QStringLiteral("组装已取消或无选择。")));
         return;
     }
     QString cmd;
@@ -9048,7 +9157,7 @@ bool MainWindow::confirmActionExecution(const QString& actionName, const QString
     QStringList rendered;
     rendered.reserve(commands.size());
     for (const QString& cmd : commands) {
-        rendered.push_back(formatCommandPreview(cmd));
+        rendered.push_back(formatCommandPreview(cmd, m_language));
     }
 
     QPlainTextEdit* txt = new QPlainTextEdit(&dlg);
