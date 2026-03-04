@@ -6722,7 +6722,11 @@ void MainWindow::createPoolForSelectedConnection() {
             "  $size = if($_.Size){ [string]([math]::Round($_.Size/1GB,2)) + 'G' } else { '-' }; "
             "  $mp = '-'; "
             "  if ($_.DriveLetter) { $mp = ($_.DriveLetter + ':\\') } "
-            "  Write-Output ($path + \"`t\" + $size + \"`t\" + $mp + \"`t\" + $path + \"`t-`tpart\") "
+            "  $vol = Get-Volume -Partition $_ -ErrorAction SilentlyContinue; "
+            "  $fs = '-'; if($vol -and $vol.FileSystem){ $fs = [string]$vol.FileSystem }; "
+            "  $gpt = '-'; if($_.GptType){ $gpt = [string]$_.GptType }; "
+            "  $ptype = if($fs -and $fs -ne '-') { $fs } elseif($gpt -and $gpt -ne '-') { $gpt } else { '-' }; "
+            "  Write-Output ($path + \"`t\" + $size + \"`t\" + $mp + \"`t\" + $path + \"`t\" + $ptype + \"`tpart\") "
             "}");
     } else {
         devCmd = QStringLiteral(
@@ -6841,7 +6845,10 @@ void MainWindow::createPoolForSelectedConnection() {
             e.mountpoint = mp.isEmpty() ? QStringLiteral("-") : mp;
             e.fsType = fsType.isEmpty() ? QStringLiteral("-") : fsType;
             e.devType = type.isEmpty() ? QStringLiteral("part") : type;
-            if (e.fsType.compare(QStringLiteral("zfs_member"), Qt::CaseInsensitive) == 0) {
+            const QString fsLower = e.fsType.trimmed().toLower();
+            if (e.fsType.compare(QStringLiteral("zfs_member"), Qt::CaseInsensitive) == 0
+                || fsLower.contains(QStringLiteral("zfs"))
+                || fsLower == QStringLiteral("6a945a3b-1dd2-11b2-99a6-080020736631")) {
                 e.inPool = true;
             }
             const QString dedupeKey = (e.resolvedPath.isEmpty() ? e.path : e.resolvedPath).trimmed();
