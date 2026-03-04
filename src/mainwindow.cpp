@@ -7160,6 +7160,13 @@ void MainWindow::createPoolForSelectedConnection() {
         const QStringList toks = mp.split(QRegularExpression(QStringLiteral("[\\s,;]+")), Qt::SkipEmptyParts);
         for (const QString& tRaw : toks) {
             const QString t = tRaw.trimmed();
+            const QString tw = t.toUpper();
+            // Windows: anything mounted on C: is system/protected and must stay red.
+            if (tw == QStringLiteral("C:")
+                || tw == QStringLiteral("C:\\")
+                || tw.startsWith(QStringLiteral("C:\\"))) {
+                return true;
+            }
             if (t == QStringLiteral("/") || t == QStringLiteral("/boot") || t == QStringLiteral("/boot/efi")
                 || t == QStringLiteral("[SWAP]") || t.startsWith(QStringLiteral("/System"))) {
                 return true;
