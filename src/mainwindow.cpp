@@ -4533,7 +4533,7 @@ void MainWindow::actionAdvancedBreakdown() {
                            "zfs create -o mountpoint=\"$TMP_CHILD_MP\" \"$child\"; "
                            "zfs mount \"$child\" >/dev/null 2>&1 || true; "
                            "rsync $RSYNC_OPTS \"$d\"/ \"$TMP_CHILD_MP\"/; "
-                           "PENDING=$(rsync -rni --size-only \"$d\"/ \"$TMP_CHILD_MP\"/ | sed '/^$/d' | wc -l | tr -d ' '); "
+                           "PENDING=$(rsync -rcni \"$d\"/ \"$TMP_CHILD_MP\"/ | awk 'length($0)>11{c=substr($0,1,11); if(substr(c,1,1)==\">\" && substr(c,2,1)==\"f\") n++} END{print n+0}'); "
                            "[ \"$PENDING\" = \"0\" ] || { echo \"verify_failed=$child pending=$PENDING\"; exit 42; }; "
                            "rm -rf \"$d\"; "
                            "zfs set mountpoint=\"$FINAL_MP\" \"$child\"; "
