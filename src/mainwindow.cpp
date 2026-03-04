@@ -57,8 +57,10 @@
 #include <QFontMetrics>
 #include <QSignalBlocker>
 #include <QScrollArea>
+#include <QAbstractScrollArea>
 #include <QSettings>
 #include <QElapsedTimer>
+#include <QWheelEvent>
 #include <functional>
 #include <cmath>
 
@@ -92,6 +94,36 @@ public:
             }
         }
         return QTableWidgetItem::operator<(other);
+    }
+};
+
+class NoWheelComboBox final : public QComboBox {
+public:
+    using QComboBox::QComboBox;
+
+protected:
+    void wheelEvent(QWheelEvent* event) override {
+        // Prevent accidental value changes via mouse wheel; keep wheel for table scrolling.
+        QWidget* p = parentWidget();
+        while (p) {
+            if (auto* area = qobject_cast<QAbstractScrollArea*>(p)) {
+                QWheelEvent forwarded(
+                    event->position(),
+                    event->globalPosition(),
+                    event->pixelDelta(),
+                    event->angleDelta(),
+                    event->buttons(),
+                    event->modifiers(),
+                    event->phase(),
+                    event->inverted(),
+                    event->source());
+                QApplication::sendEvent(area->viewport(), &forwarded);
+                event->accept();
+                return;
+            }
+            p = p->parentWidget();
+        }
+        event->ignore();
     }
 };
 
@@ -3200,7 +3232,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         const QString propLower = row.prop.trimmed().toLower();
         const auto enumIt = enumValues.constFind(propLower);
         if ((v->flags() & Qt::ItemIsEditable) && enumIt != enumValues.constEnd()) {
-            auto* combo = new QComboBox(table);
+            auto* combo = new NoWheelComboBox(table);
             combo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
             QStringList options = enumIt.value();
             const QString current = row.value.trimmed();
