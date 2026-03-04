@@ -6725,7 +6725,9 @@ void MainWindow::createPoolForSelectedConnection() {
             "  $vol = Get-Volume -Partition $_ -ErrorAction SilentlyContinue; "
             "  $fs = '-'; if($vol -and $vol.FileSystem){ $fs = [string]$vol.FileSystem }; "
             "  $gpt = '-'; if($_.GptType){ $gpt = [string]$_.GptType }; "
-            "  $ptype = if($fs -and $fs -ne '-') { $fs } elseif($gpt -and $gpt -ne '-') { $gpt } else { '-' }; "
+            "  $ptypeRaw = '-'; if($_.Type){ $ptypeRaw = [string]$_.Type }; "
+            "  $mbr = '-'; if($_.MbrType){ $mbr = [string]$_.MbrType }; "
+            "  $ptype = ($fs + '|gpt=' + $gpt + '|type=' + $ptypeRaw + '|mbr=' + $mbr); "
             "  Write-Output ($path + \"`t\" + $size + \"`t\" + $mp + \"`t\" + $path + \"`t\" + $ptype + \"`tpart\") "
             "}");
     } else {
