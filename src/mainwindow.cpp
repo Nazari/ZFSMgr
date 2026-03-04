@@ -3387,7 +3387,11 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
                                  || mountedRaw == QStringLiteral("on")
                                  || mountedRaw == QStringLiteral("true")
                                  || mountedRaw == QStringLiteral("1"));
-        rows.push_back({QStringLiteral("estado"), mountedYes ? QStringLiteral("Montado") : QStringLiteral("Desmontado"), QString(), QStringLiteral("true")});
+        rows.push_back({QStringLiteral("estado"),
+                        mountedYes ? tr3(QStringLiteral("Montado"), QStringLiteral("Mounted"), QStringLiteral("已挂载"))
+                                   : tr3(QStringLiteral("Desmontado"), QStringLiteral("Unmounted"), QStringLiteral("未挂载")),
+                        QString(),
+                        QStringLiteral("true")});
         rows.push_back({QStringLiteral("Tamaño"), formatDatasetSize(rec.used.trimmed()), QString(), QStringLiteral("true")});
         if (windowsConn) {
             if (byProp.contains(QStringLiteral("driveletter"))) {
@@ -4093,7 +4097,10 @@ void MainWindow::actionSyncDatasets() {
         || !getDatasetProperty(dst.connIdx, dst.datasetName, QStringLiteral("mountpoint"), dstMp)
         || !getDatasetProperty(dst.connIdx, dst.datasetName, QStringLiteral("mounted"), dstMounted)
         || !getDatasetProperty(dst.connIdx, dst.datasetName, QStringLiteral("canmount"), dstCanmount)) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), QStringLiteral("No se pudieron leer mountpoints para sincronizar."));
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             tr3(QStringLiteral("No se pudieron leer mountpoints para sincronizar."),
+                                 QStringLiteral("Could not read mountpoints for synchronization."),
+                                 QStringLiteral("无法读取用于同步的挂载点。")));
         return;
     }
     const bool srcRootMounted = isMountedValueTrue(srcMounted);
@@ -4405,7 +4412,10 @@ void MainWindow::actionSyncDatasets() {
 void MainWindow::actionAdvancedBreakdown() {
     const auto selected = m_advTree->selectedItems();
     if (selected.isEmpty()) {
-        QMessageBox::information(this, QStringLiteral("ZFSMgr"), QStringLiteral("Seleccione un dataset en Avanzado."));
+        QMessageBox::information(this, QStringLiteral("ZFSMgr"),
+                                 tr3(QStringLiteral("Seleccione un dataset en Avanzado."),
+                                     QStringLiteral("Select a dataset in Advanced."),
+                                     QStringLiteral("请在高级页选择一个数据集。")));
         return;
     }
     const QString ds = selected.first()->data(0, Qt::UserRole).toString();
@@ -4768,7 +4778,10 @@ void MainWindow::actionAdvancedBreakdown() {
 void MainWindow::actionAdvancedAssemble() {
     const auto selected = m_advTree->selectedItems();
     if (selected.isEmpty()) {
-        QMessageBox::information(this, QStringLiteral("ZFSMgr"), QStringLiteral("Seleccione un dataset en Avanzado."));
+        QMessageBox::information(this, QStringLiteral("ZFSMgr"),
+                                 tr3(QStringLiteral("Seleccione un dataset en Avanzado."),
+                                     QStringLiteral("Select a dataset in Advanced."),
+                                     QStringLiteral("请在高级页选择一个数据集。")));
         return;
     }
     const QString ds = selected.first()->data(0, Qt::UserRole).toString();
@@ -5808,7 +5821,10 @@ void MainWindow::applyDatasetPropertyChanges() {
     }
     DatasetSelectionContext ctx = currentDatasetSelection(m_propsSide);
     if (!ctx.valid || ctx.datasetName != m_propsDataset || !ctx.snapshotName.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), QStringLiteral("Seleccione un dataset activo para aplicar cambios."));
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             tr3(QStringLiteral("Seleccione un dataset activo para aplicar cambios."),
+                                 QStringLiteral("Select an active dataset to apply changes."),
+                                 QStringLiteral("请选择一个活动数据集以应用更改。")));
         return;
     }
 
@@ -5861,7 +5877,10 @@ void MainWindow::applyAdvancedDatasetPropertyChanges() {
     }
     DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("advanced"));
     if (!ctx.valid || ctx.datasetName != m_advPropsDataset || !ctx.snapshotName.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), QStringLiteral("Seleccione un dataset activo para aplicar cambios."));
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             tr3(QStringLiteral("Seleccione un dataset activo para aplicar cambios."),
+                                 QStringLiteral("Select an active dataset to apply changes."),
+                                 QStringLiteral("请选择一个活动数据集以应用更改。")));
         return;
     }
 
@@ -7558,7 +7577,11 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
         appLog(QStringLiteral("NORMAL"),
                QStringLiteral("Error en %1: %2")
                    .arg(actionName, oneLine(failureDetail)));
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"), QStringLiteral("%1 falló:\n%2").arg(actionName, failureDetail));
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
+                              tr3(QStringLiteral("%1 falló:\n%2"),
+                                  QStringLiteral("%1 failed:\n%2"),
+                                  QStringLiteral("%1 失败：\n%2"))
+                                  .arg(actionName, failureDetail));
         setActionsLocked(false);
         return false;
     }

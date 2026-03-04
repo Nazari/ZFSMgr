@@ -36,5 +36,12 @@
     "No se pudo cambiar el password maestro.\n%1": "No se pudo cambiar el password maestro.\n%1",
     "No se pudieron migrar passwords guardados.\n%1": "No se pudieron migrar passwords guardados.\n%1",
     "Password maestro incorrecto.\n%1": "Password maestro incorrecto.\n%1"
+    ,
+    "No se pudieron leer mountpoints para sincronizar.": "No se pudieron leer mountpoints para sincronizar.",
+    "Seleccione un dataset en Avanzado.": "Seleccione un dataset en Avanzado.",
+    "Seleccione un dataset activo para aplicar cambios.": "Seleccione un dataset activo para aplicar cambios.",
+    "%1 falló:\n%2": "%1 falló:\n%2",
+    "Montado": "Montado",
+    "Desmontado": "Desmontado"
   }
 }
