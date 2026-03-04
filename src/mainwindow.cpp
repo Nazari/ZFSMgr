@@ -6441,6 +6441,7 @@ void MainWindow::createPoolForSelectedConnection() {
     struct DeviceEntry {
         QString path;
         QString resolvedPath;
+        QString byIdAlias;
         QString size;
         QString mountpoint;
         QString fsType;
@@ -6560,6 +6561,9 @@ void MainWindow::createPoolForSelectedConnection() {
             DeviceEntry e;
             e.resolvedPath = resolved.isEmpty() ? path : resolved;
             e.path = path;
+            if (path.startsWith(QStringLiteral("/private/var/run/disk/by-id/"))) {
+                e.byIdAlias = QFileInfo(path).fileName();
+            }
             if (e.path.startsWith(QStringLiteral("/private/var/run/disk/by-id/"))
                 && !e.resolvedPath.isEmpty()) {
                 e.path = e.resolvedPath;
@@ -6583,28 +6587,54 @@ void MainWindow::createPoolForSelectedConnection() {
     }
 
     out.clear();
-    const QString inPoolCmd = withSudo(p, QStringLiteral("zpool status -P 2>/dev/null | awk '($1 ~ /^\\//){print $1}' | sort -u"));
+    const QString inPoolCmd = withSudo(p, QStringLiteral("zpool status -P 2>/dev/null"));
     if (runRemote(inPoolCmd, 20000, out)) {
+        QSet<QString> usedTokens;
         const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
         for (const QString& line : lines) {
-            const QString path = line.trimmed();
-            if (path.isEmpty()) {
+            const QString trimmed = line.trimmed();
+            if (trimmed.isEmpty()) {
                 continue;
             }
-            if (!devicesByPath.contains(path)) {
-                DeviceEntry e;
-                e.path = path;
-                e.resolvedPath = path;
-                e.size = QStringLiteral("-");
-                e.mountpoint = QStringLiteral("-");
-                e.fsType = QStringLiteral("-");
-                e.devType = QStringLiteral("part");
-                devicesByPath.insert(path, e);
+            if (trimmed.startsWith(QStringLiteral("pool:")) || trimmed.startsWith(QStringLiteral("state:"))
+                || trimmed.startsWith(QStringLiteral("scan:")) || trimmed.startsWith(QStringLiteral("config:"))
+                || trimmed.startsWith(QStringLiteral("errors:")) || trimmed == QStringLiteral("NAME")) {
+                continue;
             }
-            for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
-                const QString real = it.value().resolvedPath.isEmpty() ? it.value().path : it.value().resolvedPath;
-                if (it.value().path == path || real == path) {
+            const QString token = trimmed.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts).value(0).trimmed();
+            if (token.isEmpty()) {
+                continue;
+            }
+            static const QSet<QString> skip = {
+                QStringLiteral("NAME"), QStringLiteral("MIRROR"), QStringLiteral("RAIDZ"), QStringLiteral("RAIDZ1"),
+                QStringLiteral("RAIDZ2"), QStringLiteral("RAIDZ3"), QStringLiteral("SPARE"),
+                QStringLiteral("LOGS"), QStringLiteral("CACHE"), QStringLiteral("SPECIAL"), QStringLiteral("DEDUP"),
+                QStringLiteral("ONLINE"), QStringLiteral("OFFLINE"), QStringLiteral("UNAVAIL"),
+                QStringLiteral("UNAVAILABLE"), QStringLiteral("DEGRADED"), QStringLiteral("FAULTED"),
+                QStringLiteral("REMOVED")
+            };
+            if (skip.contains(token.toUpper()) || token.endsWith(':') || token.endsWith('-')) {
+                continue;
+            }
+            usedTokens.insert(token);
+            if (token.startsWith('/')) {
+                usedTokens.insert(QFileInfo(token).fileName());
+            }
+        }
+        for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
+            const QString pth = it.value().path.trimmed();
+            const QString real = it.value().resolvedPath.trimmed();
+            const QString alias = it.value().byIdAlias.trimmed();
+            const QString pthBase = QFileInfo(pth).fileName();
+            const QString realBase = QFileInfo(real).fileName();
+            for (const QString& tk : usedTokens) {
+                if (tk.isEmpty()) {
+                    continue;
+                }
+                if (tk == pth || tk == real || tk == alias
+                    || tk == pthBase || tk == realBase) {
                     it.value().inPool = true;
+                    break;
                 }
             }
         }
