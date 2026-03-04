@@ -4526,8 +4526,26 @@ void MainWindow::actionAdvancedBreakdown() {
                            "[ -n \"$MP\" ] || { echo \"mountpoint=none\"; exit 2; }; "
                            "SELECTED_DIRS=(%2); is_selected_dir(){ for s in \"${SELECTED_DIRS[@]}\"; do [ \"$s\" = \"$1\" ] && return 0; done; return 1; }; "
                            "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); is_selected_dir \"$bn\" || continue; "
-                           "zfs list -H -o name \"$DATASET/$bn\" >/dev/null 2>&1 || "
-                           "{ zfs create \"$DATASET/$bn\"; rsync $RSYNC_OPTS --remove-source-files \"$d\"/ \"$MP/$bn\"/; }; done")
+                           "child=\"$DATASET/$bn\"; "
+                           "zfs list -H -o name \"$child\" >/dev/null 2>&1 && { echo \"child_exists=$child\"; continue; }; "
+                           "TMP_SRC=$(mktemp -d /tmp/zfsmgr-breakdown-src-XXXXXX); "
+                           "TMP_DST=$(mktemp -d /tmp/zfsmgr-breakdown-dst-XXXXXX); "
+                           "rsync $RSYNC_OPTS \"$d\"/ \"$TMP_SRC\"/; "
+                           "zfs create -u \"$child\"; "
+                           "if mount -t zfs \"$child\" \"$TMP_DST\" >/dev/null 2>&1 || mount -t zfs -o zfsutil \"$child\" \"$TMP_DST\" >/dev/null 2>&1; then "
+                           "  rsync $RSYNC_OPTS \"$TMP_SRC\"/ \"$TMP_DST\"/; "
+                           "  umount \"$TMP_DST\" >/dev/null 2>&1 || true; "
+                           "else "
+                           "  rmdir \"$TMP_DST\" >/dev/null 2>&1 || true; "
+                           "  rm -rf \"$TMP_SRC\"; "
+                           "  zfs destroy -r \"$child\" >/dev/null 2>&1 || true; "
+                           "  echo \"cannot mount child $child in temporary mountpoint\"; exit 41; "
+                           "fi; "
+                           "rmdir \"$TMP_DST\" >/dev/null 2>&1 || true; "
+                           "rm -rf \"$d\"; "
+                           "zfs mount \"$child\" >/dev/null 2>&1 || true; "
+                           "rm -rf \"$TMP_SRC\"; "
+                           "done")
                 .arg(shSingleQuote(ds), selectedList);
     }
     if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Desglosar"), ctx, cmd, 0, allowWindowsScript)) {
