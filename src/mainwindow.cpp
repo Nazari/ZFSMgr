@@ -6713,58 +6713,91 @@ void MainWindow::createPoolForSelectedConnection() {
     const QColor stYellow("#fff5bf");
     const QColor stGreen("#d7f7d7");
 
+    struct DeviceRenderRow {
+        DeviceEntry entry;
+        QString stateText;
+        QString detailText;
+        QColor bgColor;
+        int colorRank{2}; // 0=green, 1=yellow, 2=red
+        bool selectable{true};
+    };
+    QVector<DeviceRenderRow> renderRows;
+    renderRows.reserve(devicesByPath.size());
     QStringList paths = devicesByPath.keys();
-    std::sort(paths.begin(), paths.end(), [](const QString& a, const QString& b) { return a < b; });
     for (const QString& path : paths) {
         const DeviceEntry e = devicesByPath.value(path);
-        const int row = devicesTable->rowCount();
-        devicesTable->insertRow(row);
-
-        auto* useItem = new QTableWidgetItem();
-        useItem->setFlags((useItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
-        useItem->setCheckState(Qt::Unchecked);
-        devicesTable->setItem(row, 0, useItem);
-        auto* devItem = new QTableWidgetItem(wrapDeviceDisplayText(path));
-        devItem->setData(Qt::UserRole, path);
-        devItem->setToolTip(path);
-        devicesTable->setItem(row, 1, devItem);
-        devicesTable->setItem(row, 2, new QTableWidgetItem(e.size));
-        devicesTable->setItem(row, 3, new QTableWidgetItem(e.mountpoint));
-        QString stateTxt;
-        QString detailTxt;
-        QColor bg = stGreen;
+        DeviceRenderRow rr;
+        rr.entry = e;
         if (e.inPool || e.childBusy) {
-            stateTxt = tr3(QStringLiteral("EN_POOL"), QStringLiteral("IN_POOL"), QStringLiteral("在池中"));
-            detailTxt = e.childBusy
+            rr.stateText = tr3(QStringLiteral("EN_POOL"), QStringLiteral("IN_POOL"), QStringLiteral("在池中"));
+            rr.detailText = e.childBusy
                             ? tr3(QStringLiteral("Alguna partición está montada o pertenece a un pool"),
                                   QStringLiteral("A child partition is mounted or belongs to a pool"),
                                   QStringLiteral("某个子分区已挂载或属于池"))
                             : tr3(QStringLiteral("Ya pertenece a un pool"),
                                   QStringLiteral("Already part of a pool"),
                                   QStringLiteral("已属于某个池"));
-            bg = stRed;
+            rr.bgColor = stRed;
+            rr.colorRank = 2;
+            rr.selectable = false;
         } else if (e.mounted || (!e.mountpoint.isEmpty() && e.mountpoint != QStringLiteral("-"))) {
-            stateTxt = tr3(QStringLiteral("MONTADO"), QStringLiteral("MOUNTED"), QStringLiteral("已挂载"));
-            detailTxt = e.mountpoint;
-            bg = stYellow;
+            rr.stateText = tr3(QStringLiteral("MONTADO"), QStringLiteral("MOUNTED"), QStringLiteral("已挂载"));
+            rr.detailText = e.mountpoint;
+            rr.bgColor = stYellow;
+            rr.colorRank = 1;
         } else {
-            stateTxt = tr3(QStringLiteral("LIBRE"), QStringLiteral("FREE"), QStringLiteral("空闲"));
-            detailTxt = tr3(QStringLiteral("Disponible"), QStringLiteral("Available"), QStringLiteral("可用"));
-            bg = stGreen;
+            rr.stateText = tr3(QStringLiteral("LIBRE"), QStringLiteral("FREE"), QStringLiteral("空闲"));
+            rr.detailText = tr3(QStringLiteral("Disponible"), QStringLiteral("Available"), QStringLiteral("可用"));
+            rr.bgColor = stGreen;
+            rr.colorRank = 0;
         }
-        auto* stateItem = new QTableWidgetItem(stateTxt);
         if (!e.fsType.isEmpty() && e.fsType != QStringLiteral("-")) {
-            detailTxt = detailTxt + QStringLiteral(" | fstype=") + e.fsType;
+            rr.detailText = rr.detailText + QStringLiteral(" | fstype=") + e.fsType;
         }
         if (!e.resolvedPath.isEmpty() && e.resolvedPath != e.path) {
-            detailTxt = detailTxt + QStringLiteral(" | ") + e.resolvedPath;
+            rr.detailText = rr.detailText + QStringLiteral(" | ") + e.resolvedPath;
         }
-        auto* detailItem = new QTableWidgetItem(detailTxt);
+        renderRows.push_back(rr);
+    }
+    std::sort(renderRows.begin(), renderRows.end(), [](const DeviceRenderRow& a, const DeviceRenderRow& b) {
+        if (a.colorRank != b.colorRank) {
+            return a.colorRank < b.colorRank; // green, yellow, red
+        }
+        return a.entry.path < b.entry.path;
+    });
+    for (const DeviceRenderRow& rr : renderRows) {
+        const DeviceEntry& e = rr.entry;
+        const int row = devicesTable->rowCount();
+        devicesTable->insertRow(row);
+
+        auto* useItem = new QTableWidgetItem();
+        Qt::ItemFlags uf = (useItem->flags() & ~Qt::ItemIsEditable);
+        if (rr.selectable) {
+            uf |= Qt::ItemIsUserCheckable;
+            useItem->setCheckState(Qt::Unchecked);
+        } else {
+            uf &= ~Qt::ItemIsUserCheckable;
+            useItem->setText(QStringLiteral("—"));
+        }
+        useItem->setFlags(uf);
+        devicesTable->setItem(row, 0, useItem);
+
+        auto* devItem = new QTableWidgetItem(wrapDeviceDisplayText(e.path));
+        devItem->setData(Qt::UserRole, e.path);
+        devItem->setToolTip(e.path);
+        devicesTable->setItem(row, 1, devItem);
+        devicesTable->setItem(row, 2, new QTableWidgetItem(e.size));
+        devicesTable->setItem(row, 3, new QTableWidgetItem(e.mountpoint));
+        auto* stateItem = new QTableWidgetItem(rr.stateText);
+        if (!e.fsType.isEmpty() && e.fsType != QStringLiteral("-")) {
+            stateItem->setToolTip(QStringLiteral("fstype=%1").arg(e.fsType));
+        }
+        auto* detailItem = new QTableWidgetItem(rr.detailText);
         devicesTable->setItem(row, 4, stateItem);
         devicesTable->setItem(row, 5, detailItem);
         for (int c = 0; c < devicesTable->columnCount(); ++c) {
             if (QTableWidgetItem* cell = devicesTable->item(row, c)) {
-                cell->setBackground(bg);
+                cell->setBackground(rr.bgColor);
             }
         }
     }
