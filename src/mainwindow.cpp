@@ -6455,7 +6455,22 @@ void MainWindow::createPoolForSelectedConnection() {
             "}");
     } else {
         devCmd = QStringLiteral(
-            "if command -v lsblk >/dev/null 2>&1; then "
+            "if [ \"$(uname -s 2>/dev/null)\" = \"Darwin\" ] && [ -d /private/var/run/disk/by-id ]; then "
+            "  for id in /private/var/run/disk/by-id/*; do "
+            "    [ -e \"$id\" ] || continue; "
+            "    real=\"$(perl -MCwd=realpath -e 'print realpath($ARGV[0])' \"$id\" 2>/dev/null)\"; "
+            "    [ -n \"$real\" ] || continue; "
+            "    info=\"$(diskutil info \"$real\" 2>/dev/null || true)\"; "
+            "    ptype=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Partition Type:/ {print $2; exit}')\"; "
+            "    [ -n \"$ptype\" ] || ptype=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Type \\(Bundle\\):/ {print $2; exit}')\"; "
+            "    [ -n \"$ptype\" ] || ptype='-'; "
+            "    mnt=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Mount Point:/ {print $2; exit}')\"; "
+            "    [ -n \"$mnt\" ] || mnt='-'; "
+            "    size=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Disk Size:/ {print $2; exit}')\"; "
+            "    [ -n \"$size\" ] || size='-'; "
+            "    printf '%s\\t%s\\t%s\\t%s\\t%s\\tpart\\n' \"$id\" \"$size\" \"$mnt\" \"$real\" \"$ptype\"; "
+            "  done | awk -F '\\t' '!seen[$4]++'; "
+            "elif command -v lsblk >/dev/null 2>&1; then "
             "  lsblk -fpPno NAME,SIZE,FSTYPE,MOUNTPOINTS,TYPE; "
             "elif command -v diskutil >/dev/null 2>&1; then "
             "  diskutil list | awk '"
@@ -6480,6 +6495,7 @@ void MainWindow::createPoolForSelectedConnection() {
     }
     if (runRemote(devCmd, 25000, out)) {
         const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+        QSet<QString> dedupeKeys;
         auto parseKv = [](const QString& line, const QString& key) -> QString {
             const QRegularExpression rx(QStringLiteral("\\b%1=\"([^\"]*)\"").arg(QRegularExpression::escape(key)));
             const QRegularExpressionMatch m = rx.match(line);
@@ -6529,6 +6545,13 @@ void MainWindow::createPoolForSelectedConnection() {
             e.devType = type.isEmpty() ? QStringLiteral("part") : type;
             if (e.fsType.compare(QStringLiteral("zfs_member"), Qt::CaseInsensitive) == 0) {
                 e.inPool = true;
+            }
+            const QString dedupeKey = (e.resolvedPath.isEmpty() ? e.path : e.resolvedPath).trimmed();
+            if (!dedupeKey.isEmpty()) {
+                if (dedupeKeys.contains(dedupeKey)) {
+                    continue;
+                }
+                dedupeKeys.insert(dedupeKey);
             }
             devicesByPath[path] = e;
         }
