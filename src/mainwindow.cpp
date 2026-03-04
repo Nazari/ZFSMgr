@@ -6398,6 +6398,7 @@ void MainWindow::createPoolForSelectedConnection() {
         QString resolvedPath;
         QString size;
         QString mountpoint;
+        QString fsType;
         bool inPool{false};
         bool mounted{false};
         bool childBusy{false};
@@ -6423,31 +6424,19 @@ void MainWindow::createPoolForSelectedConnection() {
             "ForEach-Object { "
             "  $path = $_.DeviceID; "
             "  $size = if($_.Size){ [string]([math]::Round($_.Size/1GB,2)) + 'G' } else { '-' }; "
-            "  Write-Output ($path + \"`t\" + $size + \"`t-`t\" + $path) "
+            "  Write-Output ($path + \"`t\" + $size + \"`t-`t\" + $path + \"`t-\") "
             "}");
     } else {
         devCmd = QStringLiteral(
-            "if [ -d /dev/disk/by-id ] && command -v readlink >/dev/null 2>&1; then "
-            "  for id in /dev/disk/by-id/*; do "
-            "    [ -e \"$id\" ] || continue; "
-            "    real=\"$(readlink -f \"$id\" 2>/dev/null || true)\"; "
-            "    [ -n \"$real\" ] || continue; "
-            "    if command -v lsblk >/dev/null 2>&1; then "
-            "      size=\"$(lsblk -dn -o SIZE \"$real\" 2>/dev/null | head -n1)\"; "
-            "      mp=\"$(lsblk -dn -o MOUNTPOINT \"$real\" 2>/dev/null | head -n1)\"; "
-            "    else "
-            "      size='-'; mp='-'; "
-            "    fi; "
-            "    [ -n \"$size\" ] || size='-'; [ -n \"$mp\" ] || mp='-'; "
-            "    printf '%s\\t%s\\t%s\\t%s\\n' \"$real\" \"$size\" \"$mp\" \"$real\"; "
-            "  done | awk -F '\\t' '!seen[$1]++' | sort -u; "
-            "elif command -v lsblk >/dev/null 2>&1; then "
-            "  lsblk -dn -o PATH,SIZE,MOUNTPOINT,TYPE | awk '$4==\"disk\" || $4==\"part\" { "
-            "    mp=$3; if(mp==\"\") mp=\"-\"; print $1\"\\t\"$2\"\\t\"mp\"\\t\"$1 }'; "
+            "if command -v lsblk >/dev/null 2>&1; then "
+            "  lsblk -fpno NAME,SIZE,FSTYPE,MOUNTPOINTS,TYPE | "
+            "  awk '$5==\"disk\" || $5==\"part\" { "
+            "    mp=$4; if(mp==\"\") mp=\"-\"; fs=$3; if(fs==\"\") fs=\"-\"; "
+            "    print $1\"\\t\"$2\"\\t\"mp\"\\t\"$1\"\\t\"fs }' | sort -u; "
             "elif command -v diskutil >/dev/null 2>&1; then "
-            "  diskutil list | awk '/^\\/dev\\/disk[0-9]+([[:space:]]|$)/ { print $1\"\\t-\\t-\\t\"$1 }'; "
+            "  diskutil list | awk '/^\\/dev\\/disk[0-9]+([[:space:]]|$)/ { print $1\"\\t-\\t-\\t\"$1\"\\t-\" }'; "
             "else "
-            "  for d in /dev/sd? /dev/vd? /dev/xvd? /dev/nvme*n1 /dev/disk?; do [ -e \"$d\" ] && printf \"%s\\t-\\t-\\t%s\\n\" \"$d\" \"$d\"; done; "
+            "  for d in /dev/sd? /dev/vd? /dev/xvd? /dev/nvme*n1 /dev/disk?; do [ -e \"$d\" ] && printf \"%s\\t-\\t-\\t%s\\t-\\n\" \"$d\" \"$d\"; done; "
             "fi");
     }
     if (runRemote(devCmd, 25000, out)) {
@@ -6466,6 +6455,10 @@ void MainWindow::createPoolForSelectedConnection() {
             e.resolvedPath = cols.value(3).trimmed().isEmpty() ? path : cols.value(3).trimmed();
             e.size = cols.value(1).trimmed().isEmpty() ? QStringLiteral("-") : cols.value(1).trimmed();
             e.mountpoint = cols.value(2).trimmed().isEmpty() ? QStringLiteral("-") : cols.value(2).trimmed();
+            e.fsType = cols.value(4).trimmed().isEmpty() ? QStringLiteral("-") : cols.value(4).trimmed();
+            if (e.fsType.compare(QStringLiteral("zfs_member"), Qt::CaseInsensitive) == 0) {
+                e.inPool = true;
+            }
             devicesByPath[path] = e;
         }
     }
@@ -6485,6 +6478,7 @@ void MainWindow::createPoolForSelectedConnection() {
                 e.resolvedPath = path;
                 e.size = QStringLiteral("-");
                 e.mountpoint = QStringLiteral("-");
+                e.fsType = QStringLiteral("-");
                 devicesByPath.insert(path, e);
             }
             for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
@@ -6735,6 +6729,9 @@ void MainWindow::createPoolForSelectedConnection() {
             bg = stGreen;
         }
         auto* stateItem = new QTableWidgetItem(stateTxt);
+        if (!e.fsType.isEmpty() && e.fsType != QStringLiteral("-")) {
+            detailTxt = detailTxt + QStringLiteral(" | fstype=") + e.fsType;
+        }
         if (!e.resolvedPath.isEmpty() && e.resolvedPath != e.path) {
             detailTxt = detailTxt + QStringLiteral(" | ") + e.resolvedPath;
         }
