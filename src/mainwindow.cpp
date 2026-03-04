@@ -6429,23 +6429,7 @@ void MainWindow::createPoolForSelectedConnection() {
     } else {
         devCmd = QStringLiteral(
             "if command -v lsblk >/dev/null 2>&1; then "
-            "  lsblk -fpPno NAME,SIZE,FSTYPE,MOUNTPOINTS,TYPE | "
-            "  awk '"
-            "    { "
-            "      name=\"\"; size=\"\"; fs=\"\"; mp=\"\"; typ=\"\"; "
-            "      if (match($0,/NAME=\"[^\"]*\"/)) { v=substr($0,RSTART+6,RLENGTH-7); name=v; } "
-            "      if (match($0,/SIZE=\"[^\"]*\"/)) { v=substr($0,RSTART+6,RLENGTH-7); size=v; } "
-            "      if (match($0,/FSTYPE=\"[^\"]*\"/)) { v=substr($0,RSTART+8,RLENGTH-9); fs=v; } "
-            "      if (match($0,/MOUNTPOINTS=\"[^\"]*\"/)) { v=substr($0,RSTART+13,RLENGTH-14); mp=v; } "
-            "      if (match($0,/TYPE=\"[^\"]*\"/)) { v=substr($0,RSTART+6,RLENGTH-7); typ=v; } "
-            "      if (typ==\"disk\" || typ==\"part\") { "
-            "        if (name==\"\") next; "
-            "        if (size==\"\") size=\"-\"; "
-            "        if (fs==\"\") fs=\"-\"; "
-            "        if (mp==\"\") mp=\"-\"; "
-            "        print name\"\\t\"size\"\\t\"mp\"\\t\"name\"\\t\"fs; "
-            "      } "
-            "    }' | sort -u; "
+            "  lsblk -fpPno NAME,SIZE,FSTYPE,MOUNTPOINTS,TYPE; "
             "elif command -v diskutil >/dev/null 2>&1; then "
             "  diskutil list | awk '/^\\/dev\\/disk[0-9]+([[:space:]]|$)/ { print $1\"\\t-\\t-\\t\"$1\"\\t-\" }'; "
             "else "
@@ -6454,21 +6438,48 @@ void MainWindow::createPoolForSelectedConnection() {
     }
     if (runRemote(devCmd, 25000, out)) {
         const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+        auto parseKv = [](const QString& line, const QString& key) -> QString {
+            const QRegularExpression rx(QStringLiteral("\\b%1=\"([^\"]*)\"").arg(QRegularExpression::escape(key)));
+            const QRegularExpressionMatch m = rx.match(line);
+            return m.hasMatch() ? m.captured(1) : QString();
+        };
         for (const QString& line : lines) {
-            const QStringList cols = line.split('\t');
-            if (cols.isEmpty()) {
-                continue;
+            QString path;
+            QString size;
+            QString mp;
+            QString resolved;
+            QString fsType;
+            QString type;
+            if (line.contains(QStringLiteral("NAME=\"")) && line.contains(QStringLiteral("TYPE=\""))) {
+                path = parseKv(line, QStringLiteral("NAME")).trimmed();
+                size = parseKv(line, QStringLiteral("SIZE")).trimmed();
+                fsType = parseKv(line, QStringLiteral("FSTYPE")).trimmed();
+                mp = parseKv(line, QStringLiteral("MOUNTPOINTS")).trimmed();
+                type = parseKv(line, QStringLiteral("TYPE")).trimmed().toLower();
+                resolved = path;
+                if (type != QStringLiteral("disk") && type != QStringLiteral("part")) {
+                    continue;
+                }
+            } else {
+                const QStringList cols = line.split('\t');
+                if (cols.isEmpty()) {
+                    continue;
+                }
+                path = cols.value(0).trimmed();
+                size = cols.value(1).trimmed();
+                mp = cols.value(2).trimmed();
+                resolved = cols.value(3).trimmed();
+                fsType = cols.value(4).trimmed();
             }
-            const QString path = cols.value(0).trimmed();
             if (path.isEmpty()) {
                 continue;
             }
             DeviceEntry e;
             e.path = path;
-            e.resolvedPath = cols.value(3).trimmed().isEmpty() ? path : cols.value(3).trimmed();
-            e.size = cols.value(1).trimmed().isEmpty() ? QStringLiteral("-") : cols.value(1).trimmed();
-            e.mountpoint = cols.value(2).trimmed().isEmpty() ? QStringLiteral("-") : cols.value(2).trimmed();
-            e.fsType = cols.value(4).trimmed().isEmpty() ? QStringLiteral("-") : cols.value(4).trimmed();
+            e.resolvedPath = resolved.isEmpty() ? path : resolved;
+            e.size = size.isEmpty() ? QStringLiteral("-") : size;
+            e.mountpoint = mp.isEmpty() ? QStringLiteral("-") : mp;
+            e.fsType = fsType.isEmpty() ? QStringLiteral("-") : fsType;
             if (e.fsType.compare(QStringLiteral("zfs_member"), Qt::CaseInsensitive) == 0) {
                 e.inPool = true;
             }
