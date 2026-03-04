@@ -6852,7 +6852,8 @@ void MainWindow::createPoolForSelectedConnection() {
             fsLower.remove('}');
             if (e.fsType.compare(QStringLiteral("zfs_member"), Qt::CaseInsensitive) == 0
                 || fsLower.contains(QStringLiteral("zfs"))
-                || fsLower == QStringLiteral("6a945a3b-1dd2-11b2-99a6-080020736631")) {
+                || fsLower.contains(QStringLiteral("6a945a3b-1dd2-11b2-99a6-080020736631"))
+                || fsLower.contains(QStringLiteral("6a898cc3-1dd2-11b2-99a6-080020736631"))) {
                 e.inPool = true;
             }
             const QString dedupeKey = (e.resolvedPath.isEmpty() ? e.path : e.resolvedPath).trimmed();
@@ -7014,7 +7015,7 @@ void MainWindow::createPoolForSelectedConnection() {
         const QString zfsPartCmd = QStringLiteral(
             "$ErrorActionPreference='SilentlyContinue'; "
             "Get-Partition | "
-            "Where-Object { $_.GptType -and ($_.GptType.ToString().Trim('{}').ToLower() -eq '6a945a3b-1dd2-11b2-99a6-080020736631') } | "
+            "Where-Object { $_.GptType -and @('6a945a3b-1dd2-11b2-99a6-080020736631','6a898cc3-1dd2-11b2-99a6-080020736631') -contains $_.GptType.ToString().Trim('{}').ToLower() } | "
             "ForEach-Object { Write-Output ('\\\\.\\PhysicalDrive' + $_.DiskNumber + '\\\\Partition' + $_.PartitionNumber) }");
         if (runRemote(zfsPartCmd, 20000, zfsPartOut)) {
             QSet<QString> zfsTokens;
