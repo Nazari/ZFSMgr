@@ -6866,6 +6866,10 @@ void MainWindow::createPoolForSelectedConnection() {
         if (macSystemTypes.contains(fs)) {
             return true;
         }
+        // macOS: classify any APFS* partition as SYSTEM (container volumes, snapshots, recovery, etc.).
+        if (fs.contains(QStringLiteral("apfs"))) {
+            return true;
+        }
         QString mp = e.mountpoint;
         mp.replace(QStringLiteral("\\n"), QStringLiteral(" "));
         mp.replace(QLatin1Char('\n'), QLatin1Char(' '));
