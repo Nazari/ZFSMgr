@@ -281,6 +281,7 @@ private:
     bool m_loadingDatasetTrees{false};
     QString m_language{QStringLiteral("es")};
     bool m_actionConfirmEnabled{true};
+    int m_logMaxSizeMb{10};
     QString m_appLogPath;
     int m_refreshGeneration{0};
     int m_refreshPending{0};

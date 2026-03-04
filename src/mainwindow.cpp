@@ -42,6 +42,7 @@
 #include <QTreeWidgetItem>
 #include <QStackedWidget>
 #include <QSet>
+#include <QSpinBox>
 #include <algorithm>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -774,6 +775,12 @@ void MainWindow::loadUiSettings() {
         m_language = lang;
     }
     m_actionConfirmEnabled = ini.value(QStringLiteral("confirm_actions"), true).toBool();
+    m_logMaxSizeMb = ini.value(QStringLiteral("log_max_mb"), 10).toInt();
+    if (m_logMaxSizeMb < 1) {
+        m_logMaxSizeMb = 1;
+    } else if (m_logMaxSizeMb > 1024) {
+        m_logMaxSizeMb = 1024;
+    }
     ini.endGroup();
 }
 
@@ -782,6 +789,7 @@ void MainWindow::saveUiSettings() const {
     ini.beginGroup(QStringLiteral("app"));
     ini.setValue(QStringLiteral("language"), m_language);
     ini.setValue(QStringLiteral("confirm_actions"), m_actionConfirmEnabled);
+    ini.setValue(QStringLiteral("log_max_mb"), m_logMaxSizeMb);
     ini.endGroup();
     ini.sync();
 }
@@ -1259,6 +1267,8 @@ void MainWindow::buildUi() {
     statusActions->addStretch(1);
     m_poolStatusText = new QPlainTextEdit(statusPoolTab);
     m_poolStatusText->setReadOnly(true);
+    m_poolStatusText->setLineWrapMode(QPlainTextEdit::NoWrap);
+    m_poolStatusText->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     {
         QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
         mono.setPointSize(9);
@@ -5756,7 +5766,7 @@ void MainWindow::rotateLogIfNeeded() {
     if (m_appLogPath.isEmpty()) {
         return;
     }
-    constexpr qint64 maxBytes = 2 * 1024 * 1024;
+    const qint64 maxBytes = qint64(qMax(1, m_logMaxSizeMb)) * 1024LL * 1024LL;
     constexpr int backups = 5;
 
     QFileInfo fi(m_appLogPath);
@@ -7865,7 +7875,7 @@ void MainWindow::openConfigurationDialog() {
     QDialog dlg(this);
     dlg.setModal(true);
     dlg.setWindowTitle(tr3(QStringLiteral("Configuración"), QStringLiteral("Configuration"), QStringLiteral("配置")));
-    dlg.resize(460, 190);
+    dlg.resize(500, 240);
 
     QVBoxLayout* root = new QVBoxLayout(&dlg);
     QFormLayout* form = new QFormLayout();
@@ -7886,6 +7896,15 @@ void MainWindow::openConfigurationDialog() {
     confirmChk->setChecked(m_actionConfirmEnabled);
     form->addRow(QString(), confirmChk);
 
+    QSpinBox* logSizeSpin = new QSpinBox(&dlg);
+    logSizeSpin->setRange(1, 1024);
+    logSizeSpin->setSuffix(QStringLiteral(" MB"));
+    logSizeSpin->setValue(qMax(1, m_logMaxSizeMb));
+    form->addRow(tr3(QStringLiteral("Tamaño máximo log rotativo"),
+                     QStringLiteral("Max rotating log size"),
+                     QStringLiteral("滚动日志最大大小")),
+                 logSizeSpin);
+
     root->addLayout(form);
     root->addStretch(1);
 
@@ -7902,13 +7921,17 @@ void MainWindow::openConfigurationDialog() {
 
     const QString newLang = langCombo->currentData().toString().trimmed().toLower();
     const bool newConfirm = confirmChk->isChecked();
+    const int newLogMaxMb = qMax(1, logSizeSpin->value());
     const bool langChanged = (newLang != m_language);
     m_language = newLang.isEmpty() ? QStringLiteral("es") : newLang;
     m_actionConfirmEnabled = newConfirm;
+    m_logMaxSizeMb = newLogMaxMb;
     saveUiSettings();
     appLog(QStringLiteral("INFO"),
-           QStringLiteral("Configuración actualizada: idioma=%1, confirmación=%2")
-               .arg(m_language, m_actionConfirmEnabled ? QStringLiteral("on") : QStringLiteral("off")));
+           QStringLiteral("Configuración actualizada: idioma=%1, confirmación=%2, log_max_mb=%3")
+               .arg(m_language,
+                    m_actionConfirmEnabled ? QStringLiteral("on") : QStringLiteral("off"),
+                    QString::number(m_logMaxSizeMb)));
     if (langChanged) {
         QMessageBox::information(
             this,
