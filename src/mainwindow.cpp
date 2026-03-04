@@ -6437,6 +6437,7 @@ void MainWindow::createPoolForSelectedConnection() {
         return;
     }
     const ConnectionProfile& p = m_profiles[idx];
+    const bool isMacConn = p.osType.trimmed().toLower().contains(QStringLiteral("mac"));
     beginUiBusy();
     struct UiBusyGuard {
         MainWindow* w{nullptr};
@@ -6591,6 +6592,20 @@ void MainWindow::createPoolForSelectedConnection() {
                 e.path = e.resolvedPath;
             }
             e.size = size.isEmpty() ? QStringLiteral("-") : size;
+            if (isMacConn && e.size != QStringLiteral("-")) {
+                const QRegularExpression gbRx(QStringLiteral("(\\d+[\\.,]?\\d*)\\s*GB"),
+                                              QRegularExpression::CaseInsensitiveOption);
+                const QRegularExpressionMatch mm = gbRx.match(e.size);
+                if (mm.hasMatch()) {
+                    e.size = mm.captured(1) + QStringLiteral(" GB");
+                } else {
+                    const QRegularExpression numRx(QStringLiteral("(\\d+[\\.,]?\\d*)"));
+                    const QRegularExpressionMatch m2 = numRx.match(e.size);
+                    if (m2.hasMatch()) {
+                        e.size = m2.captured(1) + QStringLiteral(" GB");
+                    }
+                }
+            }
             e.mountpoint = mp.isEmpty() ? QStringLiteral("-") : mp;
             e.fsType = fsType.isEmpty() ? QStringLiteral("-") : fsType;
             e.devType = type.isEmpty() ? QStringLiteral("part") : type;
@@ -7004,7 +7019,7 @@ void MainWindow::createPoolForSelectedConnection() {
     devicesTable->resizeRowsToContents();
     devicesLayout->addWidget(devicesTable, 1);
     body->addWidget(leftPane, 1);
-    body->addWidget(devicesBox, 2);
+    body->addWidget(devicesBox, 1);
     lay->addLayout(body, 1);
 
     auto checkedDevices = [devicesTable]() -> QStringList {
@@ -7183,7 +7198,6 @@ void MainWindow::createPoolForSelectedConnection() {
     }
     const QString createCmd = parts.join(' ');
     QString cmd = createCmd;
-    const bool isMacConn = p.osType.trimmed().toLower().contains(QStringLiteral("mac"));
     if (isMacConn) {
         QStringList selectedYellow;
         for (const QString& d : selectedDevices) {
