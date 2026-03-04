@@ -896,19 +896,19 @@ void MainWindow::buildUi() {
     auto* dsLeftTabLayout = new QVBoxLayout(datasetsTab);
     dsLeftTabLayout->setContentsMargins(4, 4, 4, 4);
     dsLeftTabLayout->setSpacing(4);
-    auto* transferBox = new QGroupBox(tr3(QStringLiteral("Origen-->Destino"), QStringLiteral("Source-->Target"), QStringLiteral("源-->目标")), datasetsTab);
-    auto* transferLayout = new QVBoxLayout(transferBox);
-    m_transferOriginLabel = new QLabel(QStringLiteral("Origen: Dataset (seleccione)"), transferBox);
-    m_transferDestLabel = new QLabel(QStringLiteral("Destino: Dataset (seleccione)"), transferBox);
+    m_transferBox = new QGroupBox(tr3(QStringLiteral("Origen-->Destino"), QStringLiteral("Source-->Target"), QStringLiteral("源-->目标")), datasetsTab);
+    auto* transferLayout = new QVBoxLayout(m_transferBox);
+    m_transferOriginLabel = new QLabel(QStringLiteral("Origen: Dataset (seleccione)"), m_transferBox);
+    m_transferDestLabel = new QLabel(QStringLiteral("Destino: Dataset (seleccione)"), m_transferBox);
     m_transferOriginLabel->setWordWrap(true);
     m_transferDestLabel->setWordWrap(true);
     m_transferOriginLabel->setMinimumHeight(34);
     m_transferDestLabel->setMinimumHeight(34);
     m_transferOriginLabel->hide();
     m_transferDestLabel->hide();
-    m_btnCopy = new QPushButton(tr3(QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")), transferBox);
-    m_btnLevel = new QPushButton(tr3(QStringLiteral("Nivelar"), QStringLiteral("Level"), QStringLiteral("同步快照")), transferBox);
-    m_btnSync = new QPushButton(tr3(QStringLiteral("Sincronizar"), QStringLiteral("Sync"), QStringLiteral("同步文件")), transferBox);
+    m_btnCopy = new QPushButton(tr3(QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")), m_transferBox);
+    m_btnLevel = new QPushButton(tr3(QStringLiteral("Nivelar"), QStringLiteral("Level"), QStringLiteral("同步快照")), m_transferBox);
+    m_btnSync = new QPushButton(tr3(QStringLiteral("Sincronizar"), QStringLiteral("Sync"), QStringLiteral("同步文件")), m_transferBox);
     m_btnCopy->setToolTip(
         tr3(QStringLiteral("Envía un snapshot desde Origen a Destino mediante send/recv.\n"
                            "Requiere: snapshot seleccionado en Origen y dataset seleccionado en Destino."),
@@ -939,7 +939,7 @@ void MainWindow::buildUi() {
     transferButtonsRow->addWidget(m_btnLevel);
     transferButtonsRow->addWidget(m_btnSync);
     transferLayout->addLayout(transferButtonsRow);
-    dsLeftTabLayout->addWidget(transferBox);
+    dsLeftTabLayout->addWidget(m_transferBox);
     auto* datasetsInfoTabs = new QTabWidget(datasetsTab);
     datasetsInfoTabs->setDocumentMode(false);
     auto* mountedLeftTab = new QWidget(datasetsInfoTabs);
@@ -1086,7 +1086,7 @@ void MainWindow::buildUi() {
     // Conexiones, Datasets (Origen-->Destino) y Avanzado (Comandos).
     const int actionsBoxHeight = qMax(72, connButtonsBox->sizeHint().height());
     connButtonsBox->setFixedHeight(actionsBoxHeight);
-    transferBox->setFixedHeight(actionsBoxHeight);
+    m_transferBox->setFixedHeight(actionsBoxHeight);
     commandsBox->setFixedHeight(actionsBoxHeight);
 
     auto* advancedInfoTabs = new QTabWidget(advancedTab);
@@ -3413,6 +3413,15 @@ void MainWindow::refreshTransferSelectionLabels() {
     }
     if (m_destSelectionLabel) {
         m_destSelectionLabel->setText(destText);
+    }
+
+    if (m_transferBox) {
+        const QString emptyToken = tr3(QStringLiteral("[vacío]"),
+                                       QStringLiteral("[empty]"),
+                                       QStringLiteral("[空]"));
+        const QString originTitle = m_originSelectedDataset.isEmpty() ? emptyToken : originText;
+        const QString destTitle = m_destSelectedDataset.isEmpty() ? emptyToken : destText;
+        m_transferBox->setTitle(QStringLiteral("%1-->%2").arg(originTitle, destTitle));
     }
 }
 

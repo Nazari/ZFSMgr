@@ -8,6 +8,7 @@
 #include <QVector>
 
 class QComboBox;
+class QGroupBox;
 class QLabel;
 class QListWidget;
 class QListWidgetItem;
@@ -226,6 +227,7 @@ private:
     QStackedWidget* m_rightStack{nullptr};
     QComboBox* m_originPoolCombo{nullptr};
     QComboBox* m_destPoolCombo{nullptr};
+    QGroupBox* m_transferBox{nullptr};
     QTreeWidget* m_originTree{nullptr};
     QTreeWidget* m_destTree{nullptr};
     QTableWidget* m_datasetPropsTable{nullptr};
