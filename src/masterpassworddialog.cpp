@@ -1,4 +1,5 @@
 #include "masterpassworddialog.h"
+#include "i18nmanager.h"
 
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -14,9 +15,7 @@
 
 namespace {
 QString tr3(const QString& lang, const QString& es, const QString& en, const QString& zh) {
-    if (lang == QStringLiteral("en")) return en;
-    if (lang == QStringLiteral("zh")) return zh;
-    return es;
+    return I18nManager::instance().translate(lang, es, en, zh);
 }
 }
 
@@ -35,11 +34,11 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
 
     m_languageCombo = new QComboBox(this);
     m_languageCombo->addItems({QStringLiteral("es"), QStringLiteral("en"), QStringLiteral("zh")});
-    form->addRow(QStringLiteral("Idioma"), m_languageCombo);
+    form->addRow(tr3(m_lang, QStringLiteral("Idioma"), QStringLiteral("Language"), QStringLiteral("语言")), m_languageCombo);
 
     m_passwordEdit = new QLineEdit(this);
     m_passwordEdit->setEchoMode(QLineEdit::Password);
-    form->addRow(QStringLiteral("Password"), m_passwordEdit);
+    form->addRow(tr3(m_lang, QStringLiteral("Password"), QStringLiteral("Password"), QStringLiteral("密码")), m_passwordEdit);
     root->addLayout(form);
 
     m_authorLabel = new QLabel(this);

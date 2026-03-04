@@ -1,0 +1,25 @@
+{
+  "language": "es",
+  "translations": {
+    "Idioma": "Idioma",
+    "Password": "Password",
+    "Password maestro": "Password maestro",
+    "Aceptar": "Aceptar",
+    "Cancelar": "Cancelar",
+    "Cambiar password maestro...": "Cambiar password maestro...",
+    "Autor: Eladio Linares  |  Licencia: GNU": "Autor: Eladio Linares  |  Licencia: GNU",
+    "Conexión": "Conexión",
+    "Nombre": "Nombre",
+    "Tipo": "Tipo",
+    "SO": "SO",
+    "Transporte": "Transporte",
+    "Host": "Host",
+    "Puerto": "Puerto",
+    "Usuario": "Usuario",
+    "Clave SSH": "Clave SSH",
+    "Usar sudo": "Usar sudo",
+    "Privilegios": "Privilegios",
+    "Probar conexión": "Probar conexión"
+  }
+}
+

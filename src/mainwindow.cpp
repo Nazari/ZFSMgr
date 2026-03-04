@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "i18nmanager.h"
 
 #include <QAbstractItemView>
 #include <QDateTime>
@@ -790,9 +791,7 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
 }
 
 QString MainWindow::tr3(const QString& es, const QString& en, const QString& zh) const {
-    if (m_language == QStringLiteral("en")) return en;
-    if (m_language == QStringLiteral("zh")) return zh;
-    return es;
+    return I18nManager::instance().translate(m_language, es, en, zh);
 }
 
 void MainWindow::enableSortableHeader(QTableWidget* table) {
@@ -2240,7 +2239,7 @@ void MainWindow::createConnection() {
         appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: nueva conexión bloqueada"));
         return;
     }
-    ConnectionDialog dlg(this);
+    ConnectionDialog dlg(m_language, this);
     ConnectionProfile p;
     p.connType = QStringLiteral("SSH");
     p.transport = QStringLiteral("SSH");
@@ -2292,7 +2291,7 @@ void MainWindow::editConnection() {
     if (idx < 0 || idx >= m_profiles.size()) {
         return;
     }
-    ConnectionDialog dlg(this);
+    ConnectionDialog dlg(m_language, this);
     dlg.setProfile(m_profiles[idx]);
     if (dlg.exec() != QDialog::Accepted) {
         return;

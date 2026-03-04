@@ -1,4 +1,5 @@
 #include "connectiondialog.h"
+#include "i18nmanager.h"
 
 #include <QCheckBox>
 #include <QDialogButtonBox>
@@ -13,49 +14,53 @@
 #include <QProcess>
 #include <QStandardPaths>
 
-ConnectionDialog::ConnectionDialog(QWidget* parent)
+ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     : QDialog(parent) {
-    setWindowTitle(QStringLiteral("Conexión"));
+    m_language = language.trimmed().toLower();
+    if (m_language.isEmpty()) {
+        m_language = QStringLiteral("es");
+    }
+    setWindowTitle(tr3(QStringLiteral("Conexión"), QStringLiteral("Connection"), QStringLiteral("连接")));
     resize(560, 380);
 
     auto* root = new QVBoxLayout(this);
     auto* form = new QFormLayout();
 
     m_nameEdit = new QLineEdit(this);
-    form->addRow(QStringLiteral("Nombre"), m_nameEdit);
+    form->addRow(tr3(QStringLiteral("Nombre"), QStringLiteral("Name"), QStringLiteral("名称")), m_nameEdit);
 
     m_connTypeCombo = new QComboBox(this);
     m_connTypeCombo->addItems({QStringLiteral("SSH"), QStringLiteral("PSRP")});
-    form->addRow(QStringLiteral("Tipo"), m_connTypeCombo);
+    form->addRow(tr3(QStringLiteral("Tipo"), QStringLiteral("Type"), QStringLiteral("类型")), m_connTypeCombo);
 
     m_osTypeCombo = new QComboBox(this);
     m_osTypeCombo->addItems({QStringLiteral("Linux"), QStringLiteral("macOS"), QStringLiteral("Windows")});
-    form->addRow(QStringLiteral("SO"), m_osTypeCombo);
+    form->addRow(tr3(QStringLiteral("SO"), QStringLiteral("OS"), QStringLiteral("系统")), m_osTypeCombo);
 
     m_transportCombo = new QComboBox(this);
     m_transportCombo->addItems({QStringLiteral("SSH"), QStringLiteral("PSRP")});
-    form->addRow(QStringLiteral("Transporte"), m_transportCombo);
+    form->addRow(tr3(QStringLiteral("Transporte"), QStringLiteral("Transport"), QStringLiteral("传输")), m_transportCombo);
 
     m_hostEdit = new QLineEdit(this);
-    form->addRow(QStringLiteral("Host"), m_hostEdit);
+    form->addRow(tr3(QStringLiteral("Host"), QStringLiteral("Host"), QStringLiteral("主机")), m_hostEdit);
 
     m_portEdit = new QLineEdit(this);
     m_portEdit->setValidator(new QIntValidator(1, 65535, m_portEdit));
     m_portEdit->setText(QStringLiteral("22"));
-    form->addRow(QStringLiteral("Puerto"), m_portEdit);
+    form->addRow(tr3(QStringLiteral("Puerto"), QStringLiteral("Port"), QStringLiteral("端口")), m_portEdit);
 
     m_userEdit = new QLineEdit(this);
-    form->addRow(QStringLiteral("Usuario"), m_userEdit);
+    form->addRow(tr3(QStringLiteral("Usuario"), QStringLiteral("User"), QStringLiteral("用户")), m_userEdit);
 
     m_passwordEdit = new QLineEdit(this);
     m_passwordEdit->setEchoMode(QLineEdit::Password);
-    form->addRow(QStringLiteral("Password"), m_passwordEdit);
+    form->addRow(tr3(QStringLiteral("Password"), QStringLiteral("Password"), QStringLiteral("密码")), m_passwordEdit);
 
     m_keyEdit = new QLineEdit(this);
-    form->addRow(QStringLiteral("Clave SSH"), m_keyEdit);
+    form->addRow(tr3(QStringLiteral("Clave SSH"), QStringLiteral("SSH key"), QStringLiteral("SSH 密钥")), m_keyEdit);
 
-    m_sudoCheck = new QCheckBox(QStringLiteral("Usar sudo"), this);
-    form->addRow(QStringLiteral("Privilegios"), m_sudoCheck);
+    m_sudoCheck = new QCheckBox(tr3(QStringLiteral("Usar sudo"), QStringLiteral("Use sudo"), QStringLiteral("使用 sudo")), this);
+    form->addRow(tr3(QStringLiteral("Privilegios"), QStringLiteral("Privileges"), QStringLiteral("权限")), m_sudoCheck);
 
     connect(m_osTypeCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
         updateConnectionModeUi();
@@ -70,9 +75,9 @@ ConnectionDialog::ConnectionDialog(QWidget* parent)
     root->addLayout(form);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Aceptar"));
-    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("Cancelar"));
-    QPushButton* testBtn = buttons->addButton(QStringLiteral("Probar conexión"), QDialogButtonBox::ActionRole);
+    buttons->button(QDialogButtonBox::Ok)->setText(tr3(QStringLiteral("Aceptar"), QStringLiteral("Accept"), QStringLiteral("确认")));
+    buttons->button(QDialogButtonBox::Cancel)->setText(tr3(QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")));
+    QPushButton* testBtn = buttons->addButton(tr3(QStringLiteral("Probar conexión"), QStringLiteral("Test connection"), QStringLiteral("测试连接")), QDialogButtonBox::ActionRole);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(testBtn, &QPushButton::clicked, this, [this]() {
@@ -163,10 +168,12 @@ void ConnectionDialog::updateConnectionModeUi() {
     }
 
     if (psrpMode) {
-        m_passwordEdit->setPlaceholderText(QStringLiteral("Credencial de Windows/PSRP"));
+        m_passwordEdit->setPlaceholderText(tr3(QStringLiteral("Credencial de Windows/PSRP"),
+                                               QStringLiteral("Windows/PSRP credential"),
+                                               QStringLiteral("Windows/PSRP 凭据")));
         m_portEdit->setPlaceholderText(QStringLiteral("5985"));
     } else {
-        m_passwordEdit->setPlaceholderText(QStringLiteral("Password SSH"));
+        m_passwordEdit->setPlaceholderText(tr3(QStringLiteral("Password SSH"), QStringLiteral("SSH password"), QStringLiteral("SSH 密码")));
         m_portEdit->setPlaceholderText(QStringLiteral("22"));
     }
 
@@ -210,23 +217,25 @@ bool ConnectionDialog::testSshConnection(const ConnectionProfile& p, QString& de
     QProcess proc;
     proc.start(program, args);
     if (!proc.waitForStarted(3000)) {
-        detail = QStringLiteral("No se pudo iniciar %1").arg(program);
+        detail = tr3(QStringLiteral("No se pudo iniciar %1"), QStringLiteral("Could not start %1"), QStringLiteral("无法启动 %1")).arg(program);
         return false;
     }
     if (!proc.waitForFinished(12000)) {
         proc.kill();
         proc.waitForFinished(1000);
-        detail = QStringLiteral("Timeout de conexión SSH");
+        detail = tr3(QStringLiteral("Timeout de conexión SSH"), QStringLiteral("SSH connection timeout"), QStringLiteral("SSH 连接超时"));
         return false;
     }
     const int rc = proc.exitCode();
     const QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
     const QString err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
     if (rc == 0 && out.contains(QStringLiteral("ZFSMGR_CONN_OK"))) {
-        detail = QStringLiteral("SSH OK");
+        detail = tr3(QStringLiteral("SSH OK"), QStringLiteral("SSH OK"), QStringLiteral("SSH 正常"));
         return true;
     }
-    detail = err.isEmpty() ? QStringLiteral("Error SSH (exit %1)").arg(rc) : err;
+    detail = err.isEmpty()
+                 ? tr3(QStringLiteral("Error SSH (exit %1)"), QStringLiteral("SSH error (exit %1)"), QStringLiteral("SSH 错误（退出码 %1）")).arg(rc)
+                 : err;
     return false;
 }
 
@@ -235,13 +244,17 @@ void ConnectionDialog::testConnection() {
     if (p.host.isEmpty() || p.username.isEmpty()) {
         QMessageBox::warning(this,
                              QStringLiteral("ZFSMgr"),
-                             QStringLiteral("Complete al menos Host y Usuario para probar la conexión."));
+                             tr3(QStringLiteral("Complete al menos Host y Usuario para probar la conexión."),
+                                 QStringLiteral("Fill at least Host and User to test the connection."),
+                                 QStringLiteral("至少填写主机和用户后再测试连接。")));
         return;
     }
     if (p.port <= 0) {
         QMessageBox::warning(this,
                              QStringLiteral("ZFSMgr"),
-                             QStringLiteral("Puerto inválido."));
+                             tr3(QStringLiteral("Puerto inválido."),
+                                 QStringLiteral("Invalid port."),
+                                 QStringLiteral("端口无效。")));
         return;
     }
 
@@ -250,7 +263,9 @@ void ConnectionDialog::testConnection() {
     if (psrpMode) {
         QMessageBox::information(this,
                                  QStringLiteral("ZFSMgr"),
-                                 QStringLiteral("La prueba PSRP aún no valida autenticación en esta versión.\nUse SSH para prueba completa."));
+                                 tr3(QStringLiteral("La prueba PSRP aún no valida autenticación en esta versión.\nUse SSH para prueba completa."),
+                                     QStringLiteral("PSRP test does not validate authentication yet in this version.\nUse SSH for full test."),
+                                     QStringLiteral("此版本中 PSRP 测试尚不验证认证。\n请使用 SSH 进行完整测试。")));
         return;
     }
 
@@ -258,7 +273,9 @@ void ConnectionDialog::testConnection() {
     if (testSshConnection(p, detail)) {
         QMessageBox::information(this,
                                  QStringLiteral("ZFSMgr"),
-                                 QStringLiteral("Conexión SSH correcta a %1@%2:%3")
+                                 tr3(QStringLiteral("Conexión SSH correcta a %1@%2:%3"),
+                                     QStringLiteral("SSH connection successful to %1@%2:%3"),
+                                     QStringLiteral("SSH 连接成功：%1@%2:%3"))
                                      .arg(p.username, p.host)
                                      .arg(p.port));
         return;
@@ -268,5 +285,11 @@ void ConnectionDialog::testConnection() {
     }
     QMessageBox::critical(this,
                           QStringLiteral("ZFSMgr"),
-                          QStringLiteral("Fallo en prueba SSH:\n%1").arg(detail));
+                          tr3(QStringLiteral("Fallo en prueba SSH:\n%1"),
+                              QStringLiteral("SSH test failed:\n%1"),
+                              QStringLiteral("SSH 测试失败：\n%1")).arg(detail));
+}
+
+QString ConnectionDialog::tr3(const QString& es, const QString& en, const QString& zh) const {
+    return I18nManager::instance().translate(m_language, es, en, zh);
 }

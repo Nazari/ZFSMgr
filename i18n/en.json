@@ -1,0 +1,38 @@
+{
+  "language": "en",
+  "translations": {
+    "Idioma": "Language",
+    "Password": "Password",
+    "Password maestro": "Master password",
+    "Aceptar": "Accept",
+    "Cancelar": "Cancel",
+    "Cambiar password maestro...": "Change master password...",
+    "Autor: Eladio Linares  |  Licencia: GNU": "Author: Eladio Linares  |  License: GNU",
+    "Conexión": "Connection",
+    "Nombre": "Name",
+    "Tipo": "Type",
+    "SO": "OS",
+    "Transporte": "Transport",
+    "Host": "Host",
+    "Puerto": "Port",
+    "Usuario": "User",
+    "Clave SSH": "SSH key",
+    "Usar sudo": "Use sudo",
+    "Privilegios": "Privileges",
+    "Probar conexión": "Test connection",
+    "Complete al menos Host y Usuario para probar la conexión.": "Fill at least Host and User to test the connection.",
+    "Puerto inválido.": "Invalid port.",
+    "La prueba PSRP aún no valida autenticación en esta versión.\nUse SSH para prueba completa.": "PSRP test does not validate authentication yet in this version.\nUse SSH for full test.",
+    "Conexión SSH correcta a %1@%2:%3": "SSH connection successful to %1@%2:%3",
+    "Fallo en prueba SSH:\n%1": "SSH test failed:\n%1",
+    "No se pudo iniciar %1": "Could not start %1",
+    "Timeout de conexión SSH": "SSH connection timeout",
+    "Error SSH (exit %1)": "SSH error (exit %1)",
+    "SSH OK": "SSH OK",
+    "Current master password is invalid.\n%1": "Current master password is invalid.\n%1",
+    "Could not change master password.\n%1": "Could not change master password.\n%1",
+    "Could not migrate stored passwords.\n%1": "Could not migrate stored passwords.\n%1",
+    "Invalid master password.\n%1": "Invalid master password.\n%1"
+  }
+}
+

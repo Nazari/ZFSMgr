@@ -22,6 +22,8 @@ qt_add_executable(zfsmgr_qt
     src/connectiondialog.h
     src/masterpassworddialog.cpp
     src/masterpassworddialog.h
+    src/i18nmanager.cpp
+    src/i18nmanager.h
     src/secretcipher.cpp
     src/secretcipher.h
     resources.qrc
