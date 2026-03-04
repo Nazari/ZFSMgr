@@ -56,6 +56,7 @@
 #include <QLocale>
 #include <QFontMetrics>
 #include <QSignalBlocker>
+#include <QSysInfo>
 #include <QScrollArea>
 #include <QAbstractScrollArea>
 #include <QSettings>
@@ -134,6 +135,49 @@ QString tsNow() {
 QString oneLine(const QString& v) {
     QString x = v.simplified();
     return x.left(220);
+}
+
+QString normalizeHostToken(QString host) {
+    host = host.trimmed().toLower();
+    if (host.startsWith('[') && host.endsWith(']') && host.size() > 2) {
+        host = host.mid(1, host.size() - 2);
+    }
+    while (host.endsWith('.')) {
+        host.chop(1);
+    }
+    return host;
+}
+
+bool isLocalHostForUi(const QString& host) {
+    const QString h = normalizeHostToken(host);
+    if (h.isEmpty()) {
+        return false;
+    }
+    if (h == QStringLiteral("localhost")
+        || h == QStringLiteral("127.0.0.1")
+        || h == QStringLiteral("::1")) {
+        return true;
+    }
+
+    static const QSet<QString> aliases = []() {
+        QSet<QString> s;
+        s.insert(QStringLiteral("localhost"));
+        s.insert(QStringLiteral("127.0.0.1"));
+        s.insert(QStringLiteral("::1"));
+        const QString local = normalizeHostToken(QSysInfo::machineHostName());
+        if (!local.isEmpty()) {
+            s.insert(local);
+            s.insert(local + QStringLiteral(".local"));
+            const int dot = local.indexOf('.');
+            if (dot > 0) {
+                const QString shortName = local.left(dot);
+                s.insert(shortName);
+                s.insert(shortName + QStringLiteral(".local"));
+            }
+        }
+        return s;
+    }();
+    return aliases.contains(h);
 }
 
 QString sanitizeWindowsCliXml(const QString& raw) {
@@ -1791,7 +1835,7 @@ void MainWindow::rebuildConnectionList() {
         QColor rowColor("#14212b");
         const QString st = s.status.trimmed().toUpper();
         if (st == QStringLiteral("OK")) {
-            statusTag = QStringLiteral("[OK] ");
+            statusTag = isLocalHostForUi(p.host) ? QStringLiteral("[OK/Local] ") : QStringLiteral("[OK] ");
             rowColor = QColor("#1f7a1f");
         } else if (!st.isEmpty()) {
             statusTag = QStringLiteral("[KO] ");
