@@ -6724,19 +6724,45 @@ void MainWindow::createPoolForSelectedConnection() {
     QVector<DeviceRenderRow> renderRows;
     renderRows.reserve(devicesByPath.size());
     QStringList paths = devicesByPath.keys();
+    auto hasProtectedSystemMount = [](const DeviceEntry& e) -> bool {
+        const QString fs = e.fsType.trimmed().toLower();
+        if (fs == QStringLiteral("swap")) {
+            return true;
+        }
+        QString mp = e.mountpoint;
+        mp.replace(QStringLiteral("\\n"), QStringLiteral(" "));
+        mp.replace(QLatin1Char('\n'), QLatin1Char(' '));
+        const QStringList toks = mp.split(QRegularExpression(QStringLiteral("[\\s,;]+")), Qt::SkipEmptyParts);
+        for (const QString& tRaw : toks) {
+            const QString t = tRaw.trimmed();
+            if (t == QStringLiteral("/") || t == QStringLiteral("/boot") || t == QStringLiteral("/boot/efi")
+                || t == QStringLiteral("[SWAP]")) {
+                return true;
+            }
+        }
+        return false;
+    };
     for (const QString& path : paths) {
         const DeviceEntry e = devicesByPath.value(path);
         DeviceRenderRow rr;
         rr.entry = e;
-        if (e.inPool || e.childBusy) {
+        const bool protectedMount = hasProtectedSystemMount(e);
+        if (protectedMount || e.inPool || e.childBusy) {
             rr.stateText = tr3(QStringLiteral("EN_POOL"), QStringLiteral("IN_POOL"), QStringLiteral("在池中"));
-            rr.detailText = e.childBusy
-                            ? tr3(QStringLiteral("Alguna partición está montada o pertenece a un pool"),
-                                  QStringLiteral("A child partition is mounted or belongs to a pool"),
-                                  QStringLiteral("某个子分区已挂载或属于池"))
-                            : tr3(QStringLiteral("Ya pertenece a un pool"),
-                                  QStringLiteral("Already part of a pool"),
-                                  QStringLiteral("已属于某个池"));
+            if (protectedMount) {
+                rr.stateText = tr3(QStringLiteral("SISTEMA"), QStringLiteral("SYSTEM"), QStringLiteral("系统"));
+                rr.detailText = tr3(QStringLiteral("Dispositivo de sistema (/ /boot /boot/efi o SWAP)"),
+                                    QStringLiteral("System device (/ /boot /boot/efi or SWAP)"),
+                                    QStringLiteral("系统设备（/ /boot /boot/efi 或 SWAP）"));
+            } else if (e.childBusy) {
+                rr.detailText = tr3(QStringLiteral("Alguna partición está montada o pertenece a un pool"),
+                                    QStringLiteral("A child partition is mounted or belongs to a pool"),
+                                    QStringLiteral("某个子分区已挂载或属于池"));
+            } else {
+                rr.detailText = tr3(QStringLiteral("Ya pertenece a un pool"),
+                                    QStringLiteral("Already part of a pool"),
+                                    QStringLiteral("已属于某个池"));
+            }
             rr.bgColor = stRed;
             rr.colorRank = 2;
             rr.selectable = false;
