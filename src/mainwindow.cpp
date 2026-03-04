@@ -6855,11 +6855,17 @@ void MainWindow::createPoolForSelectedConnection() {
         }
     }
 
-    out.clear();
-    const QString inPoolCmd = withSudo(p, QStringLiteral("zpool status -P 2>/dev/null"));
-    if (runRemote(inPoolCmd, 20000, out)) {
+    auto collectPoolTokens = [](const QString& text) -> QSet<QString> {
         QSet<QString> usedTokens;
-        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+        static const QSet<QString> skip = {
+            QStringLiteral("NAME"), QStringLiteral("MIRROR"), QStringLiteral("RAIDZ"), QStringLiteral("RAIDZ1"),
+            QStringLiteral("RAIDZ2"), QStringLiteral("RAIDZ3"), QStringLiteral("SPARE"),
+            QStringLiteral("LOGS"), QStringLiteral("CACHE"), QStringLiteral("SPECIAL"), QStringLiteral("DEDUP"),
+            QStringLiteral("ONLINE"), QStringLiteral("OFFLINE"), QStringLiteral("UNAVAIL"),
+            QStringLiteral("UNAVAILABLE"), QStringLiteral("DEGRADED"), QStringLiteral("FAULTED"),
+            QStringLiteral("REMOVED"), QStringLiteral("AVAIL")
+        };
+        const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
         for (const QString& line : lines) {
             const QString trimmed = line.trimmed();
             if (trimmed.isEmpty()) {
@@ -6867,21 +6873,15 @@ void MainWindow::createPoolForSelectedConnection() {
             }
             if (trimmed.startsWith(QStringLiteral("pool:")) || trimmed.startsWith(QStringLiteral("state:"))
                 || trimmed.startsWith(QStringLiteral("scan:")) || trimmed.startsWith(QStringLiteral("config:"))
-                || trimmed.startsWith(QStringLiteral("errors:")) || trimmed == QStringLiteral("NAME")) {
+                || trimmed.startsWith(QStringLiteral("errors:")) || trimmed.startsWith(QStringLiteral("status:"))
+                || trimmed.startsWith(QStringLiteral("action:")) || trimmed.startsWith(QStringLiteral("see:"))
+                || trimmed == QStringLiteral("NAME")) {
                 continue;
             }
             const QString token = trimmed.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts).value(0).trimmed();
             if (token.isEmpty()) {
                 continue;
             }
-            static const QSet<QString> skip = {
-                QStringLiteral("NAME"), QStringLiteral("MIRROR"), QStringLiteral("RAIDZ"), QStringLiteral("RAIDZ1"),
-                QStringLiteral("RAIDZ2"), QStringLiteral("RAIDZ3"), QStringLiteral("SPARE"),
-                QStringLiteral("LOGS"), QStringLiteral("CACHE"), QStringLiteral("SPECIAL"), QStringLiteral("DEDUP"),
-                QStringLiteral("ONLINE"), QStringLiteral("OFFLINE"), QStringLiteral("UNAVAIL"),
-                QStringLiteral("UNAVAILABLE"), QStringLiteral("DEGRADED"), QStringLiteral("FAULTED"),
-                QStringLiteral("REMOVED")
-            };
             if (skip.contains(token.toUpper()) || token.endsWith(':') || token.endsWith('-')) {
                 continue;
             }
@@ -6889,6 +6889,17 @@ void MainWindow::createPoolForSelectedConnection() {
             if (token.startsWith('/')) {
                 usedTokens.insert(QFileInfo(token).fileName());
             }
+            const QRegularExpression pdRx(QStringLiteral("PhysicalDrive\\d+"), QRegularExpression::CaseInsensitiveOption);
+            const QRegularExpressionMatch m = pdRx.match(token);
+            if (m.hasMatch()) {
+                usedTokens.insert(m.captured(0));
+            }
+        }
+        return usedTokens;
+    };
+    auto markDevicesInPoolByTokens = [&devicesByPath](const QSet<QString>& usedTokens) {
+        if (usedTokens.isEmpty()) {
+            return;
         }
         for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
             const QString pth = it.value().path.trimmed();
@@ -6896,17 +6907,35 @@ void MainWindow::createPoolForSelectedConnection() {
             const QString alias = it.value().byIdAlias.trimmed();
             const QString pthBase = QFileInfo(pth).fileName();
             const QString realBase = QFileInfo(real).fileName();
-            for (const QString& tk : usedTokens) {
+            const QString pthLower = pth.toLower();
+            const QString realLower = real.toLower();
+            for (const QString& tkRaw : usedTokens) {
+                const QString tk = tkRaw.trimmed();
                 if (tk.isEmpty()) {
                     continue;
                 }
+                const QString tkLower = tk.toLower();
                 if (tk == pth || tk == real || tk == alias
-                    || tk == pthBase || tk == realBase) {
+                    || tk == pthBase || tk == realBase
+                    || pthLower.contains(tkLower) || realLower.contains(tkLower)) {
                     it.value().inPool = true;
                     break;
                 }
             }
         }
+    };
+
+    out.clear();
+    const QString inPoolCmd = withSudo(p, QStringLiteral("zpool status -P 2>/dev/null"));
+    if (runRemote(inPoolCmd, 20000, out)) {
+        markDevicesInPoolByTokens(collectPoolTokens(out));
+    }
+    // Also probe importable (not imported) pools and mark their devices as in-pool.
+    out.clear();
+    QString outImp;
+    const QString importProbeCmd = withSudo(p, QStringLiteral("(zpool import 2>/dev/null; zpool import -s 2>/dev/null)"));
+    if (runRemote(importProbeCmd, 25000, outImp)) {
+        markDevicesInPoolByTokens(collectPoolTokens(outImp));
     }
 
     out.clear();
