@@ -6437,6 +6437,22 @@ void MainWindow::createPoolForSelectedConnection() {
         return;
     }
     const ConnectionProfile& p = m_profiles[idx];
+    beginUiBusy();
+    struct UiBusyGuard {
+        MainWindow* w{nullptr};
+        bool active{false};
+        ~UiBusyGuard() {
+            if (active && w) {
+                w->endUiBusy();
+            }
+        }
+        void release() {
+            if (active && w) {
+                w->endUiBusy();
+                active = false;
+            }
+        }
+    } busyGuard{this, true};
 
     struct DeviceEntry {
         QString path;
@@ -6855,6 +6871,7 @@ void MainWindow::createPoolForSelectedConnection() {
     };
     QVector<DeviceRenderRow> renderRows;
     renderRows.reserve(devicesByPath.size());
+    QSet<QString> yellowDevicePaths;
     QStringList paths = devicesByPath.keys();
     auto hasProtectedSystemMount = [](const DeviceEntry& e) -> bool {
         const QString fs = e.fsType.trimmed().toLower();
@@ -6922,6 +6939,7 @@ void MainWindow::createPoolForSelectedConnection() {
             rr.detailText = e.mountpoint;
             rr.bgColor = stYellow;
             rr.colorRank = 1;
+            yellowDevicePaths.insert(e.path);
         } else {
             rr.stateText = tr3(QStringLiteral("LIBRE"), QStringLiteral("FREE"), QStringLiteral("空闲"));
             rr.detailText = tr3(QStringLiteral("Disponible"), QStringLiteral("Available"), QStringLiteral("可用"));
@@ -6980,7 +6998,7 @@ void MainWindow::createPoolForSelectedConnection() {
     }
     devicesTable->resizeRowsToContents();
     devicesLayout->addWidget(devicesTable, 1);
-    body->addWidget(leftPane, 3);
+    body->addWidget(leftPane, 1);
     body->addWidget(devicesBox, 2);
     lay->addLayout(body, 1);
 
@@ -7059,6 +7077,7 @@ void MainWindow::createPoolForSelectedConnection() {
     connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     lay->addWidget(bb);
 
+    busyGuard.release();
     if (dlg.exec() != QDialog::Accepted) {
         return;
     }
@@ -7157,7 +7176,25 @@ void MainWindow::createPoolForSelectedConnection() {
     if (!extraEd->text().trimmed().isEmpty()) {
         parts << extraEd->text().trimmed();
     }
-    const QString cmd = withSudo(p, parts.join(' '));
+    const QString createCmd = parts.join(' ');
+    QString cmd = createCmd;
+    const bool isMacConn = p.osType.trimmed().toLower().contains(QStringLiteral("mac"));
+    if (isMacConn) {
+        QStringList selectedYellow;
+        for (const QString& d : selectedDevices) {
+            if (yellowDevicePaths.contains(d)) {
+                selectedYellow << d;
+            }
+        }
+        if (!selectedYellow.isEmpty()) {
+            QStringList pre;
+            for (const QString& d : selectedYellow) {
+                pre << QStringLiteral("diskutil unmount %1").arg(shSingleQuote(d));
+            }
+            cmd = QStringLiteral("set -e; %1; %2").arg(pre.join(QStringLiteral("; ")), createCmd);
+        }
+    }
+    cmd = withSudo(p, cmd);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(QStringLiteral("%1@%2:%3")
                                          .arg(p.username, p.host)
