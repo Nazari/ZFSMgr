@@ -6458,7 +6458,14 @@ void MainWindow::createPoolForSelectedConnection() {
             "if command -v lsblk >/dev/null 2>&1; then "
             "  lsblk -fpPno NAME,SIZE,FSTYPE,MOUNTPOINTS,TYPE; "
             "elif command -v diskutil >/dev/null 2>&1; then "
-            "  diskutil list | awk '{id=$NF; if(id ~ /^disk[0-9]+s[0-9]+$/){ print \"/dev/\"id\"\\t-\\t-\\t/dev/\"id\"\\t-\\tpart\" }}'; "
+            "  diskutil list | awk '{"
+            "    id=$NF; "
+            "    if(id ~ /^disk[0-9]+s[0-9]+$/){ "
+            "      t=$1; "
+            "      if($1==\"APFS\" && ($2==\"Volume\" || $2==\"Snapshot\")){ t=$1\" \"$2 } "
+            "      print \"/dev/\"id\"\\t-\\t-\\t/dev/\"id\"\\t\"t\"\\tpart\" "
+            "    }"
+            "  }'; "
             "else "
             "  for d in /dev/sd?* /dev/vd?* /dev/xvd?* /dev/nvme*n* /dev/disk?s*; do [ -e \"$d\" ] && printf \"%s\\t-\\t-\\t%s\\t-\\tpart\\n\" \"$d\" \"$d\"; done; "
             "fi");
@@ -6760,6 +6767,17 @@ void MainWindow::createPoolForSelectedConnection() {
     auto hasProtectedSystemMount = [](const DeviceEntry& e) -> bool {
         const QString fs = e.fsType.trimmed().toLower();
         if (fs == QStringLiteral("swap")) {
+            return true;
+        }
+        static const QSet<QString> macSystemTypes = {
+            QStringLiteral("apple_apfs_isc"),
+            QStringLiteral("apple_apfs"),
+            QStringLiteral("efi"),
+            QStringLiteral("apfs volume"),
+            QStringLiteral("apfs snapshot"),
+            QStringLiteral("apple_apfs_recovery"),
+        };
+        if (macSystemTypes.contains(fs)) {
             return true;
         }
         QString mp = e.mountpoint;
