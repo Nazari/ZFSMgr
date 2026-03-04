@@ -4515,6 +4515,10 @@ void MainWindow::actionAdvancedBreakdown() {
         const QString selectedList = selectedQuoted.join(' ');
         cmd =
             QStringLiteral("set -e; DATASET=%1; "
+                           "RSYNC_OPTS='-aHWS'; "
+                           "rsync -A --version >/dev/null 2>&1 && RSYNC_OPTS=\"$RSYNC_OPTS -A\"; "
+                           "if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS=\"$RSYNC_OPTS -X\"; "
+                           "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; fi; "
                            "resolve_mp(){ ds=\"$1\"; mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
                            "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$ds\" '$1==d{print $2; exit}');; esac; "
                            "printf '%s' \"$mp\"; }; "
@@ -4523,7 +4527,7 @@ void MainWindow::actionAdvancedBreakdown() {
                            "SELECTED_DIRS=(%2); is_selected_dir(){ for s in \"${SELECTED_DIRS[@]}\"; do [ \"$s\" = \"$1\" ] && return 0; done; return 1; }; "
                            "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); is_selected_dir \"$bn\" || continue; "
                            "zfs list -H -o name \"$DATASET/$bn\" >/dev/null 2>&1 || "
-                           "{ zfs create \"$DATASET/$bn\"; rsync -aHAWXS --remove-source-files \"$d\"/ \"$MP/$bn\"/; }; done")
+                           "{ zfs create \"$DATASET/$bn\"; rsync $RSYNC_OPTS --remove-source-files \"$d\"/ \"$MP/$bn\"/; }; done")
                 .arg(shSingleQuote(ds), selectedList);
     }
     if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Desglosar"), ctx, cmd, 0, allowWindowsScript)) {
@@ -4689,6 +4693,10 @@ void MainWindow::actionAdvancedAssemble() {
         const QString selectedList = selectedQuoted.join(' ');
         cmd =
             QStringLiteral("set -e; DATASET=%1; "
+                           "RSYNC_OPTS='-aHWS'; "
+                           "rsync -A --version >/dev/null 2>&1 && RSYNC_OPTS=\"$RSYNC_OPTS -A\"; "
+                           "if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS=\"$RSYNC_OPTS -X\"; "
+                           "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; fi; "
                            "resolve_mp(){ ds=\"$1\"; mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
                            "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$ds\" '$1==d{print $2; exit}');; esac; "
                            "printf '%s' \"$mp\"; }; "
@@ -4697,7 +4705,7 @@ void MainWindow::actionAdvancedAssemble() {
                            "SELECTED_CHILDREN=(%2); "
                            "for child in \"${SELECTED_CHILDREN[@]}\"; do bn=${child##*/}; "
                            "CMP=$(resolve_mp \"$child\"); [ -n \"$CMP\" ] || continue; "
-                           "mkdir -p \"$MP/$bn\"; rsync -aHAWXS \"$CMP\"/ \"$MP/$bn\"/ && zfs destroy -r \"$child\"; done")
+                           "mkdir -p \"$MP/$bn\"; rsync $RSYNC_OPTS \"$CMP\"/ \"$MP/$bn\"/ && zfs destroy -r \"$child\"; done")
                 .arg(shSingleQuote(ds), selectedList);
     }
     if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Ensamblar"), ctx, cmd, 0, allowWindowsScript)) {
@@ -5161,6 +5169,10 @@ void MainWindow::actionAdvancedCreateFromDir() {
                   "set -e; "
                   "DATASET=%1; "
                   "SRC_DIR=%2; "
+                  "RSYNC_OPTS='-aHWS'; "
+                  "rsync -A --version >/dev/null 2>&1 && RSYNC_OPTS=\"$RSYNC_OPTS -A\"; "
+                  "if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS=\"$RSYNC_OPTS -X\"; "
+                  "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; fi; "
                   "TMP_MP=$(mktemp -d /tmp/zfsmgr-fromdir-mp-XXXXXX); "
                   "BACKUP_DIR=''; "
                   "cleanup(){ "
@@ -5182,7 +5194,7 @@ void MainWindow::actionAdvancedCreateFromDir() {
                   "zfs mount \"$DATASET\" >/dev/null 2>&1 || true; "
                   "ACTIVE_MP=$(zfs mount 2>/dev/null | awk -v d=\"$DATASET\" '$1==d{print $2;exit}'); "
                   "[ \"$ACTIVE_MP\" = \"$TMP_MP\" ] || { echo 'could not mount dataset on temporary mountpoint'; exit 4; }; "
-                  "rsync -aHAWXS \"$SRC_DIR\"/ \"$TMP_MP\"/; "
+                  "rsync $RSYNC_OPTS \"$SRC_DIR\"/ \"$TMP_MP\"/; "
                   "BACKUP_DIR=\"$SRC_DIR.zfsmgr-bak-$$\"; "
                   "i=0; "
                   "while [ -e \"$BACKUP_DIR\" ]; do i=$((i+1)); BACKUP_DIR=\"$SRC_DIR.zfsmgr-bak-$$-$i\"; done; "
@@ -5357,6 +5369,10 @@ void MainWindow::actionAdvancedToDir() {
                   "set -e; "
                   "DATASET=%1; "
                   "DST_DIR=%2; "
+                  "RSYNC_OPTS='-aHWS'; "
+                  "rsync -A --version >/dev/null 2>&1 && RSYNC_OPTS=\"$RSYNC_OPTS -A\"; "
+                  "if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS=\"$RSYNC_OPTS -X\"; "
+                  "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; fi; "
                   "TMP_MP=$(mktemp -d /tmp/zfsmgr-todir-mp-XXXXXX); "
                   "TMP_OUT=$(mktemp -d /tmp/zfsmgr-todir-out-XXXXXX); "
                   "BACKUP_DIR=''; RESTORE_NEEDED=0; "
@@ -5387,7 +5403,7 @@ void MainWindow::actionAdvancedToDir() {
                   "zfs mount \"$DATASET\" >/dev/null 2>&1 || true; "
                   "ACTIVE_MP=$(zfs mount 2>/dev/null | awk -v d=\"$DATASET\" '$1==d{print $2;exit}'); "
                   "[ \"$ACTIVE_MP\" = \"$TMP_MP\" ] || { echo 'could not mount dataset on temporary mountpoint'; exit 3; }; "
-                  "rsync -aHAWXS \"$TMP_MP\"/ \"$TMP_OUT\"/; "
+                  "rsync $RSYNC_OPTS \"$TMP_MP\"/ \"$TMP_OUT\"/; "
                   "if [ -e \"$DST_DIR\" ]; then "
                   "  BACKUP_DIR=\"$DST_DIR.zfsmgr-bak-$$\"; "
                   "  i=0; while [ -e \"$BACKUP_DIR\" ]; do i=$((i+1)); BACKUP_DIR=\"$DST_DIR.zfsmgr-bak-$$-$i\"; done; "
