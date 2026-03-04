@@ -1201,7 +1201,11 @@ void MainWindow::buildUi() {
     commandsLayout->addLayout(commandsButtonsGrid);
     // Igualar altura de las cajas de acciones de panel izquierdo:
     // Conexiones, Datasets (Origen-->Destino) y Avanzado (Comandos).
-    const int actionsBoxHeight = qMax(72, connButtonsBox->sizeHint().height());
+    const int actionsBoxHeight = qMax(
+        96,
+        qMax(connButtonsBox->sizeHint().height(),
+             qMax(m_transferBox ? m_transferBox->sizeHint().height() : 0,
+                  m_advCommandsBox ? m_advCommandsBox->sizeHint().height() : 0)));
     connButtonsBox->setFixedHeight(actionsBoxHeight);
     if (m_poolMgmtBox) {
         m_poolMgmtBox->setFixedHeight(actionsBoxHeight);
