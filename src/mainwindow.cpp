@@ -883,6 +883,24 @@ void MainWindow::buildUi() {
     connButtonsBoxLayout->addLayout(connButtons);
     connLayout->addWidget(connButtonsBox, 0);
 
+    m_poolMgmtBox = new QGroupBox(
+        tr3(QStringLiteral("Gestión de Pools de [vacío]"),
+            QStringLiteral("Pool Management of [empty]"),
+            QStringLiteral("[空] 的池管理")),
+        connectionsTab);
+    auto* poolMgmtLayout = new QVBoxLayout(m_poolMgmtBox);
+    poolMgmtLayout->setContentsMargins(8, 20, 8, 8);
+    auto* poolMgmtButtons = new QHBoxLayout();
+    poolMgmtButtons->setSpacing(8);
+    m_btnPoolNew =
+        new QPushButton(tr3(QStringLiteral("Nuevo"), QStringLiteral("New"), QStringLiteral("新建")), m_poolMgmtBox);
+    m_btnPoolNew->setMinimumHeight(34);
+    m_btnPoolNew->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnPoolNew->setEnabled(false);
+    poolMgmtButtons->addWidget(m_btnPoolNew);
+    poolMgmtLayout->addLayout(poolMgmtButtons);
+    connLayout->addWidget(m_poolMgmtBox, 0);
+
     auto* connListBox = new QGroupBox(
         tr3(QStringLiteral("Listado"), QStringLiteral("List"), QStringLiteral("列表")), connectionsTab);
     auto* connListBoxLayout = new QVBoxLayout(connListBox);
@@ -1094,6 +1112,9 @@ void MainWindow::buildUi() {
     // Conexiones, Datasets (Origen-->Destino) y Avanzado (Comandos).
     const int actionsBoxHeight = qMax(72, connButtonsBox->sizeHint().height());
     connButtonsBox->setFixedHeight(actionsBoxHeight);
+    if (m_poolMgmtBox) {
+        m_poolMgmtBox->setFixedHeight(actionsBoxHeight);
+    }
     m_transferBox->setFixedHeight(actionsBoxHeight);
     m_advCommandsBox->setFixedHeight(actionsBoxHeight);
 
@@ -1605,6 +1626,10 @@ void MainWindow::buildUi() {
         logUiAction(QStringLiteral("Configuración (botón)"));
         openConfigurationDialog();
     });
+    connect(m_btnPoolNew, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Nuevo pool (botón)"));
+        createPoolForSelectedConnection();
+    });
     connect(m_connectionsList, &QTreeWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
     m_connectionsList->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_connectionsList, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
@@ -1623,10 +1648,10 @@ void MainWindow::buildUi() {
     connect(m_importedPoolsTable, &QTableWidget::cellClicked, this, [this](int row, int col) {
         Q_UNUSED(row);
         Q_UNUSED(col);
-        refreshSelectedPoolDetails();
+        onPoolsSelectionChanged();
     });
     connect(m_importedPoolsTable, &QTableWidget::itemSelectionChanged, this, [this]() {
-        refreshSelectedPoolDetails();
+        onPoolsSelectionChanged();
     });
     connect(m_poolStatusRefreshBtn, &QPushButton::clicked, this, [this]() {
         logUiAction(QStringLiteral("Actualizar estado de pool (botón)"));
@@ -1821,6 +1846,7 @@ void MainWindow::loadConnections() {
     }
     rebuildDatasetPoolSelectors();
     syncConnectionLogTabs();
+    updatePoolManagementBoxTitle();
 }
 
 void MainWindow::rebuildConnectionList() {
@@ -1919,6 +1945,7 @@ void MainWindow::rebuildConnectionList() {
     }
     m_connectionsList->collapseAll();
     endUiBusy();
+    updatePoolManagementBoxTitle();
 }
 
 void MainWindow::rebuildDatasetPoolSelectors() {
@@ -2213,6 +2240,25 @@ void MainWindow::onConnectionSelectionChanged() {
     if (m_leftTabs->currentIndex() == 0) {
         populateAllPoolsTables();
     }
+    updatePoolManagementBoxTitle();
+}
+
+void MainWindow::onPoolsSelectionChanged() {
+    refreshSelectedPoolDetails();
+    const int idx = selectedConnectionIndexForPoolManagement();
+    if (idx >= 0 && idx < m_profiles.size() && m_connectionsList) {
+        for (int i = 0; i < m_connectionsList->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* top = m_connectionsList->topLevelItem(i);
+            if (!top) {
+                continue;
+            }
+            if (top->data(0, Qt::UserRole).toInt() == idx) {
+                m_connectionsList->setCurrentItem(top);
+                break;
+            }
+        }
+    }
+    updatePoolManagementBoxTitle();
 }
 
 void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
@@ -5849,6 +5895,55 @@ int MainWindow::findConnectionIndexByName(const QString& name) const {
     return -1;
 }
 
+int MainWindow::selectedConnectionIndexForPoolManagement() const {
+    if (m_importedPoolsTable) {
+        const auto sel = m_importedPoolsTable->selectedItems();
+        if (!sel.isEmpty()) {
+            const int row = sel.first()->row();
+            if (QTableWidgetItem* connItem = m_importedPoolsTable->item(row, 0)) {
+                const int idx = findConnectionIndexByName(connItem->text().trimmed());
+                if (idx >= 0 && idx < m_profiles.size()) {
+                    return idx;
+                }
+            }
+        }
+    }
+    if (m_connectionsList) {
+        const auto selected = m_connectionsList->selectedItems();
+        if (!selected.isEmpty()) {
+            QTreeWidgetItem* item = selected.first();
+            while (item && item->parent()) {
+                item = item->parent();
+            }
+            if (item) {
+                const int idx = item->data(0, Qt::UserRole).toInt();
+                if (idx >= 0 && idx < m_profiles.size()) {
+                    return idx;
+                }
+            }
+        }
+    }
+    return -1;
+}
+
+void MainWindow::updatePoolManagementBoxTitle() {
+    if (!m_poolMgmtBox) {
+        return;
+    }
+    const int idx = selectedConnectionIndexForPoolManagement();
+    const QString connText = (idx >= 0 && idx < m_profiles.size())
+                                 ? m_profiles[idx].name
+                                 : tr3(QStringLiteral("[vacío]"), QStringLiteral("[empty]"), QStringLiteral("[空]"));
+    m_poolMgmtBox->setTitle(
+        tr3(QStringLiteral("Gestión de Pools de %1"),
+            QStringLiteral("Pool Management of %1"),
+            QStringLiteral("%1 的池管理"))
+            .arg(connText));
+    if (m_btnPoolNew) {
+        m_btnPoolNew->setEnabled(!actionsLocked() && idx >= 0 && idx < m_profiles.size());
+    }
+}
+
 void MainWindow::refreshConnectionByIndex(int idx) {
     if (idx < 0 || idx >= m_profiles.size()) {
         return;
@@ -6148,6 +6243,407 @@ void MainWindow::scrubPoolFromRow(int row) {
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin scrub %1::%2").arg(connName, poolName));
     setActionsLocked(false);
     refreshConnectionByIndex(idx);
+}
+
+void MainWindow::createPoolForSelectedConnection() {
+    if (actionsLocked()) {
+        return;
+    }
+    const int idx = selectedConnectionIndexForPoolManagement();
+    if (idx < 0 || idx >= m_profiles.size()) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            tr3(QStringLiteral("Seleccione una conexión para gestionar pools."),
+                QStringLiteral("Select a connection to manage pools."),
+                QStringLiteral("请选择一个连接来管理池。")));
+        return;
+    }
+    const ConnectionProfile& p = m_profiles[idx];
+
+    struct DeviceEntry {
+        QString path;
+        QString size;
+        QString mountpoint;
+        bool inPool{false};
+        bool mounted{false};
+    };
+
+    auto runRemote = [this, &p](const QString& cmd, int timeoutMs, QString& outText) -> bool {
+        QString err;
+        int rc = -1;
+        outText.clear();
+        if (!runSsh(p, cmd, timeoutMs, outText, err, rc) || rc != 0) {
+            return false;
+        }
+        return true;
+    };
+
+    QMap<QString, DeviceEntry> devicesByPath;
+    QString out;
+    QString devCmd;
+    if (isWindowsConnection(p)) {
+        devCmd = QStringLiteral(
+            "$ErrorActionPreference='SilentlyContinue'; "
+            "Get-CimInstance Win32_DiskDrive | "
+            "ForEach-Object { "
+            "  $path = $_.DeviceID; "
+            "  $size = if($_.Size){ [string]([math]::Round($_.Size/1GB,2)) + 'G' } else { '-' }; "
+            "  Write-Output ($path + \"`t\" + $size + \"`t-\") "
+            "}");
+    } else {
+        devCmd = QStringLiteral(
+            "if command -v lsblk >/dev/null 2>&1; then "
+            "  lsblk -dn -o PATH,SIZE,MOUNTPOINT,TYPE | awk '$4==\"disk\" || $4==\"part\" { "
+            "    mp=$3; if(mp==\"\") mp=\"-\"; print $1\"\\t\"$2\"\\t\"mp }'; "
+            "elif command -v diskutil >/dev/null 2>&1; then "
+            "  diskutil list | awk '/^\\/dev\\/disk[0-9]+([[:space:]]|$)/ { print $1\"\\t-\\t-\" }'; "
+            "else "
+            "  for d in /dev/sd? /dev/vd? /dev/xvd? /dev/nvme*n1 /dev/disk?; do [ -e \"$d\" ] && printf \"%s\\t-\\t-\\n\" \"$d\"; done; "
+            "fi");
+    }
+    if (runRemote(devCmd, 25000, out)) {
+        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+        for (const QString& line : lines) {
+            const QStringList cols = line.split('\t');
+            if (cols.isEmpty()) {
+                continue;
+            }
+            const QString path = cols.value(0).trimmed();
+            if (path.isEmpty()) {
+                continue;
+            }
+            DeviceEntry e;
+            e.path = path;
+            e.size = cols.value(1).trimmed().isEmpty() ? QStringLiteral("-") : cols.value(1).trimmed();
+            e.mountpoint = cols.value(2).trimmed().isEmpty() ? QStringLiteral("-") : cols.value(2).trimmed();
+            devicesByPath[path] = e;
+        }
+    }
+
+    out.clear();
+    const QString inPoolCmd = withSudo(p, QStringLiteral("zpool status -P 2>/dev/null | awk '($1 ~ /^\\//){print $1}' | sort -u"));
+    if (runRemote(inPoolCmd, 20000, out)) {
+        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+        for (const QString& line : lines) {
+            const QString path = line.trimmed();
+            if (path.isEmpty()) {
+                continue;
+            }
+            if (!devicesByPath.contains(path)) {
+                DeviceEntry e;
+                e.path = path;
+                e.size = QStringLiteral("-");
+                e.mountpoint = QStringLiteral("-");
+                devicesByPath.insert(path, e);
+            }
+            devicesByPath[path].inPool = true;
+        }
+    }
+
+    out.clear();
+    QString mountedCmd;
+    if (isWindowsConnection(p)) {
+        mountedCmd = QStringLiteral(
+            "$ErrorActionPreference='SilentlyContinue'; "
+            "Get-CimInstance Win32_LogicalDisk | "
+            "Where-Object { $_.DriveType -eq 3 } | "
+            "ForEach-Object { Write-Output ($_.DeviceID + \"`t\" + $_.DeviceID + \"\\\\\") }");
+    } else {
+        mountedCmd = QStringLiteral("mount | awk '{print $1\"\\t\"$3}'");
+    }
+    if (runRemote(mountedCmd, 20000, out)) {
+        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+        for (const QString& line : lines) {
+            const QStringList cols = line.split('\t');
+            if (cols.isEmpty()) {
+                continue;
+            }
+            const QString dev = cols.value(0).trimmed();
+            const QString mp = cols.value(1).trimmed();
+            if (dev.isEmpty()) {
+                continue;
+            }
+            if (devicesByPath.contains(dev)) {
+                devicesByPath[dev].mounted = true;
+                if (!mp.isEmpty()) {
+                    devicesByPath[dev].mountpoint = mp;
+                }
+            }
+        }
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(
+        tr3(QStringLiteral("Crear pool en %1"), QStringLiteral("Create pool on %1"), QStringLiteral("在 %1 创建池"))
+            .arg(p.name));
+    dlg.setModal(true);
+    dlg.resize(980, 760);
+    auto* lay = new QVBoxLayout(&dlg);
+
+    auto* baseBox = new QGroupBox(
+        tr3(QStringLiteral("Parámetros del pool"), QStringLiteral("Pool parameters"), QStringLiteral("池参数")),
+        &dlg);
+    auto* form = new QFormLayout(baseBox);
+    QLineEdit* poolNameEd = new QLineEdit(baseBox);
+    QComboBox* layoutCb = new QComboBox(baseBox);
+    layoutCb->addItem(QStringLiteral("stripe"));
+    layoutCb->addItem(QStringLiteral("mirror"));
+    layoutCb->addItem(QStringLiteral("raidz"));
+    layoutCb->addItem(QStringLiteral("raidz2"));
+    layoutCb->addItem(QStringLiteral("raidz3"));
+    QCheckBox* forceCb = new QCheckBox(QStringLiteral("-f"), baseBox);
+    QCheckBox* dryRunCb = new QCheckBox(QStringLiteral("-n"), baseBox);
+    QLineEdit* mountpointEd = new QLineEdit(baseBox);
+    QLineEdit* altrootEd = new QLineEdit(baseBox);
+    QLineEdit* ashiftEd = new QLineEdit(baseBox);
+    QLineEdit* autotrimEd = new QLineEdit(baseBox);
+    QLineEdit* autoexpandEd = new QLineEdit(baseBox);
+    QLineEdit* compatibilityEd = new QLineEdit(baseBox);
+    QLineEdit* bootfsEd = new QLineEdit(baseBox);
+    QLineEdit* poolOptsEd = new QLineEdit(baseBox);
+    QLineEdit* fsPropsEd = new QLineEdit(baseBox);
+    QLineEdit* sparesEd = new QLineEdit(baseBox);
+    QLineEdit* logEd = new QLineEdit(baseBox);
+    QLineEdit* cacheEd = new QLineEdit(baseBox);
+    QLineEdit* specialEd = new QLineEdit(baseBox);
+    QLineEdit* dedupEd = new QLineEdit(baseBox);
+    QLineEdit* extraEd = new QLineEdit(baseBox);
+    form->addRow(tr3(QStringLiteral("Nombre"), QStringLiteral("Name"), QStringLiteral("名称")), poolNameEd);
+    form->addRow(tr3(QStringLiteral("Tipo vdev"), QStringLiteral("Vdev type"), QStringLiteral("vdev 类型")), layoutCb);
+    auto* flagsRow = new QHBoxLayout();
+    flagsRow->addWidget(forceCb);
+    flagsRow->addWidget(dryRunCb);
+    flagsRow->addStretch(1);
+    form->addRow(tr3(QStringLiteral("Flags"), QStringLiteral("Flags"), QStringLiteral("标志")), flagsRow);
+    form->addRow(QStringLiteral("mountpoint (-m)"), mountpointEd);
+    form->addRow(QStringLiteral("altroot (-R)"), altrootEd);
+    form->addRow(QStringLiteral("ashift (-o ashift=)"), ashiftEd);
+    form->addRow(QStringLiteral("autotrim (-o autotrim=)"), autotrimEd);
+    form->addRow(QStringLiteral("autoexpand (-o autoexpand=)"), autoexpandEd);
+    form->addRow(QStringLiteral("compatibility (-o compatibility=)"), compatibilityEd);
+    form->addRow(QStringLiteral("bootfs (-o bootfs=)"), bootfsEd);
+    form->addRow(QStringLiteral("-o (coma: k=v,k=v)"), poolOptsEd);
+    form->addRow(QStringLiteral("-O (coma: k=v,k=v)"), fsPropsEd);
+    form->addRow(QStringLiteral("spares (espacios)"), sparesEd);
+    form->addRow(QStringLiteral("log (espacios)"), logEd);
+    form->addRow(QStringLiteral("cache (espacios)"), cacheEd);
+    form->addRow(QStringLiteral("special (espacios)"), specialEd);
+    form->addRow(QStringLiteral("dedup (espacios)"), dedupEd);
+    form->addRow(QStringLiteral("extra args"), extraEd);
+    lay->addWidget(baseBox, 0);
+
+    auto* devicesBox = new QGroupBox(
+        tr3(QStringLiteral("Block devices disponibles"),
+            QStringLiteral("Available block devices"),
+            QStringLiteral("可用块设备")),
+        &dlg);
+    auto* devicesLayout = new QVBoxLayout(devicesBox);
+    QTableWidget* devicesTable = new QTableWidget(devicesBox);
+    devicesTable->setColumnCount(6);
+    devicesTable->setHorizontalHeaderLabels({
+        tr3(QStringLiteral("Usar"), QStringLiteral("Use"), QStringLiteral("使用")),
+        tr3(QStringLiteral("Device"), QStringLiteral("Device"), QStringLiteral("设备")),
+        tr3(QStringLiteral("Tamaño"), QStringLiteral("Size"), QStringLiteral("大小")),
+        tr3(QStringLiteral("Mount"), QStringLiteral("Mount"), QStringLiteral("挂载")),
+        tr3(QStringLiteral("Estado"), QStringLiteral("State"), QStringLiteral("状态")),
+        tr3(QStringLiteral("Detalle"), QStringLiteral("Detail"), QStringLiteral("详情")),
+    });
+    devicesTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    devicesTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    devicesTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    devicesTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    devicesTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+    devicesTable->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Stretch);
+    devicesTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    devicesTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    devicesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    devicesTable->verticalHeader()->setVisible(false);
+    devicesTable->verticalHeader()->setDefaultSectionSize(22);
+    const QColor stRed("#ffcccc");
+    const QColor stYellow("#fff5bf");
+    const QColor stGreen("#d7f7d7");
+
+    QStringList paths = devicesByPath.keys();
+    std::sort(paths.begin(), paths.end(), [](const QString& a, const QString& b) { return a < b; });
+    for (const QString& path : paths) {
+        const DeviceEntry e = devicesByPath.value(path);
+        const int row = devicesTable->rowCount();
+        devicesTable->insertRow(row);
+
+        auto* useItem = new QTableWidgetItem();
+        useItem->setFlags((useItem->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable);
+        useItem->setCheckState(Qt::Unchecked);
+        devicesTable->setItem(row, 0, useItem);
+        devicesTable->setItem(row, 1, new QTableWidgetItem(path));
+        devicesTable->setItem(row, 2, new QTableWidgetItem(e.size));
+        devicesTable->setItem(row, 3, new QTableWidgetItem(e.mountpoint));
+        QString stateTxt;
+        QString detailTxt;
+        QColor bg = stGreen;
+        if (e.inPool) {
+            stateTxt = tr3(QStringLiteral("EN_POOL"), QStringLiteral("IN_POOL"), QStringLiteral("在池中"));
+            detailTxt = tr3(QStringLiteral("Ya pertenece a un pool"),
+                            QStringLiteral("Already part of a pool"),
+                            QStringLiteral("已属于某个池"));
+            bg = stRed;
+        } else if (e.mounted || (!e.mountpoint.isEmpty() && e.mountpoint != QStringLiteral("-"))) {
+            stateTxt = tr3(QStringLiteral("MONTADO"), QStringLiteral("MOUNTED"), QStringLiteral("已挂载"));
+            detailTxt = e.mountpoint;
+            bg = stYellow;
+        } else {
+            stateTxt = tr3(QStringLiteral("LIBRE"), QStringLiteral("FREE"), QStringLiteral("空闲"));
+            detailTxt = tr3(QStringLiteral("Disponible"), QStringLiteral("Available"), QStringLiteral("可用"));
+            bg = stGreen;
+        }
+        auto* stateItem = new QTableWidgetItem(stateTxt);
+        auto* detailItem = new QTableWidgetItem(detailTxt);
+        devicesTable->setItem(row, 4, stateItem);
+        devicesTable->setItem(row, 5, detailItem);
+        for (int c = 0; c < devicesTable->columnCount(); ++c) {
+            if (QTableWidgetItem* cell = devicesTable->item(row, c)) {
+                cell->setBackground(bg);
+            }
+        }
+    }
+    devicesLayout->addWidget(devicesTable, 1);
+    lay->addWidget(devicesBox, 1);
+
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(bb);
+
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+    const QString poolName = poolNameEd->text().trimmed();
+    if (poolName.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), QStringLiteral("Nombre de pool vacío."));
+        return;
+    }
+
+    QStringList selectedDevices;
+    for (int r = 0; r < devicesTable->rowCount(); ++r) {
+        QTableWidgetItem* use = devicesTable->item(r, 0);
+        QTableWidgetItem* dev = devicesTable->item(r, 1);
+        if (!use || !dev) {
+            continue;
+        }
+        if (use->checkState() == Qt::Checked) {
+            selectedDevices << dev->text().trimmed();
+        }
+    }
+    if (selectedDevices.isEmpty()) {
+        QMessageBox::warning(
+            this, QStringLiteral("ZFSMgr"),
+            tr3(QStringLiteral("Seleccione al menos un block device."),
+                QStringLiteral("Select at least one block device."),
+                QStringLiteral("请至少选择一个块设备。")));
+        return;
+    }
+
+    auto appendSplitWords = [](QStringList& outParts, const QString& value) {
+        const QStringList tokens = value.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        for (const QString& t : tokens) {
+            outParts << shSingleQuote(t.trimmed());
+        }
+    };
+
+    QStringList parts;
+    parts << QStringLiteral("zpool create");
+    if (forceCb->isChecked()) {
+        parts << QStringLiteral("-f");
+    }
+    if (dryRunCb->isChecked()) {
+        parts << QStringLiteral("-n");
+    }
+    if (!mountpointEd->text().trimmed().isEmpty()) {
+        parts << QStringLiteral("-m") << shSingleQuote(mountpointEd->text().trimmed());
+    }
+    if (!altrootEd->text().trimmed().isEmpty()) {
+        parts << QStringLiteral("-R") << shSingleQuote(altrootEd->text().trimmed());
+    }
+    auto addOpt = [&parts](const QString& key, const QString& value) {
+        if (!value.trimmed().isEmpty()) {
+            parts << QStringLiteral("-o") << shSingleQuote(key + QStringLiteral("=") + value.trimmed());
+        }
+    };
+    addOpt(QStringLiteral("ashift"), ashiftEd->text());
+    addOpt(QStringLiteral("autotrim"), autotrimEd->text());
+    addOpt(QStringLiteral("autoexpand"), autoexpandEd->text());
+    addOpt(QStringLiteral("compatibility"), compatibilityEd->text());
+    addOpt(QStringLiteral("bootfs"), bootfsEd->text());
+    for (const QString& item : poolOptsEd->text().split(',', Qt::SkipEmptyParts)) {
+        const QString t = item.trimmed();
+        if (!t.isEmpty()) {
+            parts << QStringLiteral("-o") << shSingleQuote(t);
+        }
+    }
+    for (const QString& item : fsPropsEd->text().split(',', Qt::SkipEmptyParts)) {
+        const QString t = item.trimmed();
+        if (!t.isEmpty()) {
+            parts << QStringLiteral("-O") << shSingleQuote(t);
+        }
+    }
+
+    parts << shSingleQuote(poolName);
+    const QString layout = layoutCb->currentText().trimmed().toLower();
+    if (!layout.isEmpty() && layout != QStringLiteral("stripe")) {
+        parts << layout;
+    }
+    for (const QString& d : selectedDevices) {
+        parts << shSingleQuote(d);
+    }
+    const auto appendGroup = [&parts, &appendSplitWords](const QString& groupName, const QString& value) {
+        const QStringList tokens = value.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        if (tokens.isEmpty()) {
+            return;
+        }
+        parts << groupName;
+        for (const QString& t : tokens) {
+            parts << shSingleQuote(t.trimmed());
+        }
+    };
+    appendGroup(QStringLiteral("spare"), sparesEd->text());
+    appendGroup(QStringLiteral("log"), logEd->text());
+    appendGroup(QStringLiteral("cache"), cacheEd->text());
+    appendGroup(QStringLiteral("special"), specialEd->text());
+    appendGroup(QStringLiteral("dedup"), dedupEd->text());
+    if (!extraEd->text().trimmed().isEmpty()) {
+        parts << extraEd->text().trimmed();
+    }
+
+    Q_UNUSED(appendSplitWords);
+    const QString cmd = withSudo(p, parts.join(' '));
+    const QString preview = QStringLiteral("[%1]\n%2")
+                                .arg(QStringLiteral("%1@%2:%3")
+                                         .arg(p.username, p.host)
+                                         .arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
+                                .arg(buildSshPreviewCommand(p, cmd));
+    if (!confirmActionExecution(QStringLiteral("Crear pool"), {preview})) {
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio crear pool en %1: %2").arg(p.name, poolName));
+    setActionsLocked(true);
+    QString cmdOut;
+    QString cmdErr;
+    int rc = -1;
+    if (!runSsh(p, cmd, 120000, cmdOut, cmdErr, rc) || rc != 0) {
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Error creando pool en %1::%2 -> %3")
+                   .arg(p.name, poolName, oneLine(cmdErr.isEmpty() ? QStringLiteral("exit %1").arg(rc) : cmdErr)));
+        QMessageBox::critical(
+            this, QStringLiteral("ZFSMgr"),
+            QStringLiteral("Crear pool falló:\n%1").arg(cmdErr.isEmpty() ? QStringLiteral("exit %1").arg(rc) : cmdErr));
+        setActionsLocked(false);
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin crear pool en %1: %2").arg(p.name, poolName));
+    setActionsLocked(false);
+    refreshConnectionByIndex(idx);
+    populateAllPoolsTables();
+    refreshSelectedPoolDetails();
 }
 
 MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QString& side) const {
@@ -7548,6 +8044,7 @@ void MainWindow::populateAllPoolsTables() {
     setTablePopulationMode(m_importedPoolsTable, false);
     refreshSelectedPoolDetails();
     populateMountedDatasetsTables();
+    updatePoolManagementBoxTitle();
 }
 
 void MainWindow::populateMountedDatasetsTables() {
@@ -7977,6 +8474,7 @@ void MainWindow::setActionsLocked(bool locked) {
     if (m_btnNew) m_btnNew->setEnabled(!locked);
     if (m_btnRefreshAll) m_btnRefreshAll->setEnabled(!locked);
     if (m_btnConfig) m_btnConfig->setEnabled(!locked);
+    if (m_btnPoolNew) m_btnPoolNew->setEnabled(!locked && selectedConnectionIndexForPoolManagement() >= 0);
     if (m_poolStatusRefreshBtn) m_poolStatusRefreshBtn->setEnabled(!locked);
     if (m_poolStatusImportBtn) m_poolStatusImportBtn->setEnabled(!locked && m_poolStatusImportBtn->isEnabled());
     if (m_poolStatusExportBtn) m_poolStatusExportBtn->setEnabled(!locked && m_poolStatusExportBtn->isEnabled());
@@ -7995,6 +8493,7 @@ void MainWindow::setActionsLocked(bool locked) {
         updateTransferButtonsState();
         updateApplyPropsButtonState();
         refreshSelectedPoolDetails();
+        updatePoolManagementBoxTitle();
     }
 }
 

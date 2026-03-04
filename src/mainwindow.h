@@ -101,6 +101,7 @@ private:
     void editConnection();
     void deleteConnection();
     void onConnectionSelectionChanged();
+    void onPoolsSelectionChanged();
     void onOriginPoolChanged();
     void onDestPoolChanged();
     void onAdvancedPoolChanged();
@@ -179,7 +180,10 @@ private:
     void exportPoolFromRow(int row);
     void importPoolFromRow(int row);
     void scrubPoolFromRow(int row);
+    void createPoolForSelectedConnection();
     void refreshSelectedPoolDetails();
+    int selectedConnectionIndexForPoolManagement() const;
+    void updatePoolManagementBoxTitle();
     void updateStatus(const QString& text);
     void beginUiBusy();
     void endUiBusy();
@@ -215,6 +219,8 @@ private:
     QPushButton* m_btnRefreshAll{nullptr};
     QPushButton* m_btnRefreshSelected{nullptr};
     QPushButton* m_btnConfig{nullptr};
+    QGroupBox* m_poolMgmtBox{nullptr};
+    QPushButton* m_btnPoolNew{nullptr};
 
     QTableWidget* m_importedPoolsTable{nullptr};
     QTableWidget* m_importablePoolsTable{nullptr};
