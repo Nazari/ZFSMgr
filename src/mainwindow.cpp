@@ -6477,6 +6477,38 @@ void MainWindow::createPoolForSelectedConnection() {
         }
         return true;
     };
+    QStringList compatibilityNames;
+    {
+        QString compOut;
+        QString compCmd;
+        if (isWindowsConnection(p)) {
+            compCmd = QStringLiteral(
+                "$ErrorActionPreference='SilentlyContinue'; "
+                "$dirs=@("
+                "'C:\\\\Program Files\\\\OpenZFS On Windows\\\\share\\\\zfs\\\\compatibility.d',"
+                "'C:\\\\Program Files\\\\OpenZFS On Windows\\\\compatibility.d',"
+                "'C:\\\\msys64\\\\usr\\\\share\\\\zfs\\\\compatibility.d'"
+                "); "
+                "foreach($d in $dirs){ if(Test-Path -LiteralPath $d){ Get-ChildItem -LiteralPath $d -File | ForEach-Object { $_.Name } } }");
+        } else {
+            compCmd = QStringLiteral(
+                "for d in /etc/zfs/compatibility.d /usr/share/zfs/compatibility.d /usr/local/zfs/share/zfs/compatibility.d; do "
+                "  [ -d \"$d\" ] || continue; "
+                "  for f in \"$d\"/*; do [ -f \"$f\" ] || continue; basename \"$f\"; done; "
+                "done | sort -u");
+        }
+        if (runRemote(compCmd, 15000, compOut)) {
+            const QStringList lines = compOut.split('\n', Qt::SkipEmptyParts);
+            for (QString n : lines) {
+                n = n.trimmed();
+                if (!n.isEmpty()) {
+                    compatibilityNames << n;
+                }
+            }
+            compatibilityNames.removeDuplicates();
+            std::sort(compatibilityNames.begin(), compatibilityNames.end());
+        }
+    }
 
     QMap<QString, DeviceEntry> devicesByPath;
     QString out;
@@ -6767,7 +6799,16 @@ void MainWindow::createPoolForSelectedConnection() {
     autotrimCb->addItems({QString(), QStringLiteral("off"), QStringLiteral("on")});
     QComboBox* autoexpandCb = new QComboBox(baseBox);
     autoexpandCb->addItems({QString(), QStringLiteral("off"), QStringLiteral("on")});
-    QLineEdit* compatibilityEd = new QLineEdit(baseBox);
+    QComboBox* compatibilityCb = new QComboBox(baseBox);
+    compatibilityCb->setEditable(false);
+    compatibilityCb->addItem(QString());
+    compatibilityCb->addItem(QStringLiteral("off"));
+    compatibilityCb->addItem(QStringLiteral("legacy"));
+    for (const QString& c : compatibilityNames) {
+        if (compatibilityCb->findText(c) < 0) {
+            compatibilityCb->addItem(c);
+        }
+    }
     QLineEdit* bootfsEd = new QLineEdit(baseBox);
     QLineEdit* poolOptsEd = new QLineEdit(baseBox);
     QLineEdit* fsPropsEd = new QLineEdit(baseBox);
@@ -6787,7 +6828,7 @@ void MainWindow::createPoolForSelectedConnection() {
     form->addRow(QStringLiteral("ashift (-o ashift=)"), ashiftCb);
     form->addRow(QStringLiteral("autotrim (-o autotrim=)"), autotrimCb);
     form->addRow(QStringLiteral("autoexpand (-o autoexpand=)"), autoexpandCb);
-    form->addRow(QStringLiteral("compatibility (-o compatibility=)"), compatibilityEd);
+    form->addRow(QStringLiteral("compatibility (-o compatibility=)"), compatibilityCb);
     form->addRow(QStringLiteral("bootfs (-o bootfs=)"), bootfsEd);
     form->addRow(QStringLiteral("-o (coma: k=v,k=v)"), poolOptsEd);
     form->addRow(QStringLiteral("-O (coma: k=v,k=v)"), fsPropsEd);
@@ -7131,7 +7172,7 @@ void MainWindow::createPoolForSelectedConnection() {
     addOpt(QStringLiteral("ashift"), ashiftCb->currentText());
     addOpt(QStringLiteral("autotrim"), autotrimCb->currentText());
     addOpt(QStringLiteral("autoexpand"), autoexpandCb->currentText());
-    addOpt(QStringLiteral("compatibility"), compatibilityEd->text());
+    addOpt(QStringLiteral("compatibility"), compatibilityCb->currentText());
     addOpt(QStringLiteral("bootfs"), bootfsEd->text());
     for (const QString& item : poolOptsEd->text().split(',', Qt::SkipEmptyParts)) {
         const QString t = item.trimmed();
