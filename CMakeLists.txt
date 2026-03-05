@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(ZFSMgrQt VERSION 0.1.0 LANGUAGES CXX)
+include(CTest)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -73,3 +74,14 @@ install(TARGETS zfsmgr_qt
     BUNDLE DESTINATION .
     RUNTIME DESTINATION bin
 )
+
+if(BUILD_TESTING)
+    add_executable(zfsmgr_helpers_test
+        tests/helpers_test.cpp
+        src/mainwindow_helpers.cpp
+    )
+    target_include_directories(zfsmgr_helpers_test PRIVATE src)
+    target_link_libraries(zfsmgr_helpers_test PRIVATE Qt6::Core Qt6::Widgets)
+    target_compile_definitions(zfsmgr_helpers_test PRIVATE QT_NO_KEYWORDS)
+    add_test(NAME zfsmgr_helpers_test COMMAND zfsmgr_helpers_test)
+endif()
