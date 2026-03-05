@@ -2,6 +2,10 @@
 
 Cross-platform OpenZFS GUI manager built with **C++17 + Qt6** for **Linux, macOS, and Windows**.
 
+## Screenshot
+
+![ZFSMgr UI](docs/images/zfsmgr-ui.png)
+
 ## Main capabilities
 
 - Remote connection management (SSH and Windows through SSH/PowerShell).
