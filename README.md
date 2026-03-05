@@ -4,7 +4,7 @@ Cross-platform OpenZFS GUI manager built with **C++17 + Qt6** for **Linux, macOS
 
 ## Screenshot
 
-![ZFSMgr UI](docs/images/zfsmgr-ui.png)
+![ZFSMgr UI](docs/images/zfsmgr-ui.gif)
 
 ## Main capabilities
 
