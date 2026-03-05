@@ -163,12 +163,15 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     QString out;
     QString err;
     int rc = -1;
+    const bool isBreakdownAction = (actionName == QStringLiteral("Desglosar"));
+    const bool isAssembleAction = (actionName == QStringLiteral("Ensamblar"));
     if (!runSsh(p, remoteCmd, timeoutMs, out, err, rc) || rc != 0) {
-        if (actionName == QStringLiteral("Desglosar")) {
+        if (isBreakdownAction || isAssembleAction) {
             const QStringList progressLines = out.split('\n', Qt::SkipEmptyParts);
             for (const QString& lnRaw : progressLines) {
                 const QString ln = lnRaw.trimmed();
-                if (ln.contains(QStringLiteral("[BREAKDOWN]"), Qt::CaseInsensitive)) {
+                if (ln.contains(QStringLiteral("[BREAKDOWN]"), Qt::CaseInsensitive)
+                    || ln.contains(QStringLiteral("[ASSEMBLE]"), Qt::CaseInsensitive)) {
                     appLog(QStringLiteral("NORMAL"), ln);
                 }
             }
@@ -198,12 +201,13 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
         return false;
     }
     if (!out.trimmed().isEmpty()) {
-        if (actionName == QStringLiteral("Desglosar")) {
+        if (isBreakdownAction || isAssembleAction) {
             const QStringList progressLines = out.split('\n', Qt::SkipEmptyParts);
             bool loggedProgress = false;
             for (const QString& lnRaw : progressLines) {
                 const QString ln = lnRaw.trimmed();
-                if (ln.contains(QStringLiteral("[BREAKDOWN]"), Qt::CaseInsensitive)) {
+                if (ln.contains(QStringLiteral("[BREAKDOWN]"), Qt::CaseInsensitive)
+                    || ln.contains(QStringLiteral("[ASSEMBLE]"), Qt::CaseInsensitive)) {
                     appLog(QStringLiteral("NORMAL"), ln);
                     loggedProgress = true;
                 }

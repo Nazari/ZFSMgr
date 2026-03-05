@@ -492,6 +492,14 @@ void MainWindow::actionAdvancedAssemble() {
     ctx.poolName = poolName;
     ctx.datasetName = ds;
     ctx.snapshotName.clear();
+    beginUiBusy();
+    bool busyActive = true;
+    auto stopBusy = [&]() {
+        if (busyActive) {
+            endUiBusy();
+            busyActive = false;
+        }
+    };
 
     const ConnectionProfile& p = m_profiles[connIdx];
     QString mountOut;
@@ -501,6 +509,7 @@ void MainWindow::actionAdvancedAssemble() {
         p,
         QStringLiteral("zfs get -H -o name,value -r mounted %1").arg(shSingleQuote(ds)));
     if (!runSsh(p, mountCheckCmd, 25000, mountOut, mountErr, mountRc) || mountRc != 0) {
+        stopBusy();
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_adv_chk_mnt_01"), QStringLiteral("No se pudo comprobar el estado de montaje del dataset."),
                                  QStringLiteral("Could not verify dataset mount state."),
@@ -523,6 +532,7 @@ void MainWindow::actionAdvancedAssemble() {
         }
     }
     if (!unmounted.isEmpty()) {
+        stopBusy();
         QMessageBox::warning(
             this,
             QStringLiteral("ZFSMgr"),
@@ -543,6 +553,7 @@ void MainWindow::actionAdvancedAssemble() {
         QStringLiteral("zfs list -H -o name -r %1")
             .arg(shSingleQuote(ds)));
     if (!runSsh(p, listCmd, 25000, listOut, listErr, listRc) || listRc != 0) {
+        stopBusy();
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_adv_ass_list01"), QStringLiteral("No se pudieron listar subdatasets para ensamblar."),
                                  QStringLiteral("Could not list child datasets for assemble."),
@@ -556,12 +567,14 @@ void MainWindow::actionAdvancedAssemble() {
     children.removeAll(QString());
     children.erase(std::remove(children.begin(), children.end(), ds), children.end());
     if (children.isEmpty()) {
+        stopBusy();
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_adv_ass_none01"), QStringLiteral("No hay subdatasets para ensamblar."),
                                      QStringLiteral("No child datasets available to assemble."),
                                      QStringLiteral("没有可组装的子数据集。")));
         return;
     }
+    stopBusy();
     QStringList selectedChildren;
     if (!selectItemsDialog(
             trk(QStringLiteral("t_adv_ass_tit001"), QStringLiteral("Ensamblar: seleccionar subdatasets"),
@@ -577,6 +590,9 @@ void MainWindow::actionAdvancedAssemble() {
                    QStringLiteral("Assemble canceled or no selection."),
                    QStringLiteral("组装已取消或无选择。")));
         return;
+    }
+    for (const QString& child : selectedChildren) {
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("[ASSEMBLE] pendiente: %1").arg(child));
     }
     QString cmd;
     bool allowWindowsScript = false;
@@ -612,6 +628,7 @@ void MainWindow::actionAdvancedAssemble() {
                   "$pmp=Resolve-Mp $parent; "
                   "if ([string]::IsNullOrWhiteSpace($pmp) -or -not (Test-Path -LiteralPath $pmp)) { throw 'mountpoint=none' }; "
                   "foreach($child in $selected){ "
+                  "  Write-Output ('[ASSEMBLE] start ' + $child); "
                   "  $bn=($child -split '/')[($child -split '/').Count-1]; "
                   "  $cmp=Resolve-Mp $child; if ([string]::IsNullOrWhiteSpace($cmp) -or -not (Test-Path -LiteralPath $cmp)) { continue }; "
                   "  $tmp=Join-Path $env:TEMP ('zfsmgr-assemble-' + [guid]::NewGuid().ToString('N')); "
@@ -623,6 +640,7 @@ void MainWindow::actionAdvancedAssemble() {
                   "  robocopy $tmp $dst /E /COPYALL /R:1 /W:1 /NFL /NDL /NP | Out-Null; "
                   "  $r=$LASTEXITCODE; if ($r -ge 8) { throw \"robocopy (tmp->dst) failed ($r) for $child\" }; "
                   "  Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue; "
+                  "  Write-Output ('[ASSEMBLE] ok ' + $child + ' -> ' + $dst); "
                   "}")
                   .arg(dsPs, selectedPs.join(QStringLiteral(",")));
         allowWindowsScript = true;
@@ -646,6 +664,7 @@ void MainWindow::actionAdvancedAssemble() {
                            "[ -n \"$MP\" ] || { echo \"mountpoint=none\"; exit 2; }; "
                            "SELECTED_CHILDREN=(%2); "
                            "for child in \"${SELECTED_CHILDREN[@]}\"; do bn=${child##*/}; "
+                           "echo \"[ASSEMBLE] start $child\"; "
                            "CMP=$(resolve_mp \"$child\"); [ -n \"$CMP\" ] || continue; "
                            "TMP=$(mktemp -d /tmp/zfsmgr-assemble-XXXXXX); "
                            "rsync $RSYNC_OPTS \"$CMP\"/ \"$TMP\"/; "
@@ -653,6 +672,7 @@ void MainWindow::actionAdvancedAssemble() {
                            "mkdir -p \"$MP/$bn\"; "
                            "rsync $RSYNC_OPTS \"$TMP\"/ \"$MP/$bn\"/; "
                            "rm -rf \"$TMP\"; "
+                           "echo \"[ASSEMBLE] ok $child -> $MP/$bn\"; "
                            "done")
                 .arg(shSingleQuote(ds), selectedList);
     }
