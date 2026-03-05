@@ -1,6 +1,8 @@
 #include "mainwindow.h"
 
+#include <algorithm>
 #include <QAbstractItemView>
+#include <QActionGroup>
 #include <QApplication>
 #include <QComboBox>
 #include <QFont>
@@ -70,11 +72,103 @@ void MainWindow::buildUi() {
             QStringLiteral("Menú"),
             QStringLiteral("Menu"),
             QStringLiteral("菜单")));
-    m_menuConfigAction = appMenu->addAction(
-        trk(QStringLiteral("t_config_001"),
-            QStringLiteral("Configuración"),
-            QStringLiteral("Configuration"),
-            QStringLiteral("配置")));
+    QMenu* languageMenu = appMenu->addMenu(
+        trk(QStringLiteral("t_lang_menu_001"),
+            QStringLiteral("Idioma"),
+            QStringLiteral("Language"),
+            QStringLiteral("语言")));
+    auto* langGroup = new QActionGroup(this);
+    langGroup->setExclusive(true);
+    QAction* langEs = languageMenu->addAction(QStringLiteral("Español"));
+    QAction* langEn = languageMenu->addAction(QStringLiteral("English"));
+    QAction* langZh = languageMenu->addAction(QStringLiteral("中文"));
+    langEs->setCheckable(true);
+    langEn->setCheckable(true);
+    langZh->setCheckable(true);
+    langEs->setData(QStringLiteral("es"));
+    langEn->setData(QStringLiteral("en"));
+    langZh->setData(QStringLiteral("zh"));
+    langGroup->addAction(langEs);
+    langGroup->addAction(langEn);
+    langGroup->addAction(langZh);
+    const QString langNorm = m_language.trimmed().toLower();
+    if (langNorm == QStringLiteral("en")) {
+        langEn->setChecked(true);
+    } else if (langNorm == QStringLiteral("zh")) {
+        langZh->setChecked(true);
+    } else {
+        langEs->setChecked(true);
+    }
+    connect(langGroup, &QActionGroup::triggered, this, [this](QAction* act) {
+        if (!act) {
+            return;
+        }
+        const QString newLang = act->data().toString().trimmed().toLower();
+        if (newLang.isEmpty() || newLang == m_language) {
+            return;
+        }
+        m_language = newLang;
+        m_store.setLanguage(m_language);
+        saveUiSettings();
+        appLog(QStringLiteral("INFO"), QStringLiteral("Idioma cambiado a %1").arg(m_language));
+        applyLanguageLive();
+    });
+
+    QAction* confirmAct = appMenu->addAction(
+        trk(QStringLiteral("t_show_confirm_001"),
+            QStringLiteral("Mostrar confirmación antes de ejecutar acciones"),
+            QStringLiteral("Show confirmation before executing actions"),
+            QStringLiteral("执行操作前显示确认")));
+    confirmAct->setCheckable(true);
+    confirmAct->setChecked(m_actionConfirmEnabled);
+    connect(confirmAct, &QAction::toggled, this, [this](bool checked) {
+        m_actionConfirmEnabled = checked;
+        saveUiSettings();
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("Confirmación de acciones: %1").arg(checked ? QStringLiteral("on")
+                                                                          : QStringLiteral("off")));
+    });
+
+    QMenu* logSizeMenu = appMenu->addMenu(
+        trk(QStringLiteral("t_log_max_rot_001"),
+            QStringLiteral("Tamaño máximo log rotativo"),
+            QStringLiteral("Max rotating log size"),
+            QStringLiteral("滚动日志最大大小")));
+    auto* logSizeGroup = new QActionGroup(this);
+    logSizeGroup->setExclusive(true);
+    QList<int> sizesMb = {5, 10, 20, 50, 100, 200, 500, 1024};
+    if (!sizesMb.contains(m_logMaxSizeMb)) {
+        sizesMb.push_back(qBound(1, m_logMaxSizeMb, 1024));
+        std::sort(sizesMb.begin(), sizesMb.end());
+        sizesMb.erase(std::unique(sizesMb.begin(), sizesMb.end()), sizesMb.end());
+    }
+    for (int mb : sizesMb) {
+        QAction* act = logSizeMenu->addAction(QStringLiteral("%1 MB").arg(mb));
+        act->setCheckable(true);
+        act->setData(mb);
+        if (mb == m_logMaxSizeMb) {
+            act->setChecked(true);
+        }
+        logSizeGroup->addAction(act);
+    }
+    connect(logSizeGroup, &QActionGroup::triggered, this, [this](QAction* act) {
+        if (!act) {
+            return;
+        }
+        bool ok = false;
+        const int mb = act->data().toInt(&ok);
+        if (!ok) {
+            return;
+        }
+        const int bounded = qBound(1, mb, 1024);
+        if (bounded == m_logMaxSizeMb) {
+            return;
+        }
+        m_logMaxSizeMb = bounded;
+        saveUiSettings();
+        rotateLogIfNeeded();
+        appLog(QStringLiteral("INFO"), QStringLiteral("Tamaño máximo de log rotativo: %1 MB").arg(m_logMaxSizeMb));
+    });
 
     auto* central = new QWidget(this);
     auto* root = new QVBoxLayout(central);
@@ -1144,10 +1238,6 @@ void MainWindow::buildUi() {
     connect(m_btnNew, &QPushButton::clicked, this, [this]() {
         logUiAction(QStringLiteral("Nueva conexión (botón)"));
         createConnection();
-    });
-    connect(m_menuConfigAction, &QAction::triggered, this, [this]() {
-        logUiAction(QStringLiteral("Configuración (menú)"));
-        openConfigurationDialog();
     });
     connect(m_btnPoolNew, &QPushButton::clicked, this, [this]() {
         logUiAction(QStringLiteral("Nuevo pool (botón)"));
