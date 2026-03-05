@@ -80,7 +80,7 @@ void MainWindow::actionAdvancedBreakdown() {
     const auto selected = m_advTree->selectedItems();
     if (selected.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("Seleccione un dataset en Avanzado."),
+                                 trk(QStringLiteral("t_adv_sel_ds_001"), QStringLiteral("Seleccione un dataset en Avanzado."),
                                      QStringLiteral("Select a dataset in Advanced."),
                                      QStringLiteral("请在高级页选择一个数据集。")));
         return;
@@ -112,7 +112,7 @@ void MainWindow::actionAdvancedBreakdown() {
         QStringLiteral("zfs get -H -o name,value -r mounted %1").arg(shSingleQuote(ds)));
     if (!runSsh(p, mountCheckCmd, 25000, mountOut, mountErr, mountRc) || mountRc != 0) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             tr3(QStringLiteral("No se pudo comprobar el estado de montaje del dataset."),
+                             trk(QStringLiteral("t_adv_chk_mnt_01"), QStringLiteral("No se pudo comprobar el estado de montaje del dataset."),
                                  QStringLiteral("Could not verify dataset mount state."),
                                  QStringLiteral("无法检查数据集挂载状态。")));
         return;
@@ -136,7 +136,7 @@ void MainWindow::actionAdvancedBreakdown() {
         QMessageBox::warning(
             this,
             QStringLiteral("ZFSMgr"),
-            tr3(QStringLiteral("Desglosar requiere dataset y descendientes montados.\nNo montados:\n%1")
+            trk(QStringLiteral("t_adv_break_mnt1"), QStringLiteral("Desglosar requiere dataset y descendientes montados.\nNo montados:\n%1")
                     .arg(unmounted.join('\n')),
                 QStringLiteral("Break down requires dataset and descendants mounted.\nNot mounted:\n%1")
                     .arg(unmounted.join('\n')),
@@ -179,8 +179,8 @@ void MainWindow::actionAdvancedBreakdown() {
                                     "Get-ChildItem -LiteralPath $mp -Directory -Force | Select-Object -ExpandProperty Name | Sort-Object -Unique")
                                     .arg(dsPs);
         if (!runSsh(p, withSudo(p, listCmd), 25000, listOut, listErr, listRc) || listRc != 0) {
-            QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("No se pudieron listar directorios para desglosar."),
+                QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                                 trk(QStringLiteral("t_adv_break_ls01"), QStringLiteral("No se pudieron listar directorios para desglosar."),
                                      QStringLiteral("Could not list directories for breakdown."),
                                      QStringLiteral("无法列出可拆分目录。")));
             return;
@@ -208,7 +208,7 @@ void MainWindow::actionAdvancedBreakdown() {
                 .arg(shSingleQuote(ds)));
         if (!runSsh(p, listCmd, 25000, listOut, listErr, listRc) || listRc != 0) {
             QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("No se pudieron listar directorios para desglosar."),
+                                 trk(QStringLiteral("t_adv_break_ls01"), QStringLiteral("No se pudieron listar directorios para desglosar."),
                                      QStringLiteral("Could not list directories for breakdown."),
                                      QStringLiteral("无法列出可拆分目录。")));
             return;
@@ -301,17 +301,17 @@ void MainWindow::actionAdvancedBreakdown() {
     }
     if (dirs.isEmpty()) {
         const QString dirsText = dirs.isEmpty()
-                                     ? tr3(QStringLiteral("(ninguno)"), QStringLiteral("(none)"), QStringLiteral("（无）"))
+                                     ? trk(QStringLiteral("t_none_txt_0001"), QStringLiteral("(ninguno)"), QStringLiteral("(none)"), QStringLiteral("（无）"))
                                      : dirs.join('\n');
         const QString datasetsText = datasetsDetected.isEmpty()
-                                         ? tr3(QStringLiteral("(ninguno)"), QStringLiteral("(none)"), QStringLiteral("（无）"))
+                                         ? trk(QStringLiteral("t_none_txt_0001"), QStringLiteral("(ninguno)"), QStringLiteral("(none)"), QStringLiteral("（无）"))
                                          : datasetsDetected.join('\n');
         const QString mpText = resolvedMp.isEmpty()
-                                   ? tr3(QStringLiteral("(sin resolver)"), QStringLiteral("(unresolved)"), QStringLiteral("（未解析）"))
+                                   ? trk(QStringLiteral("t_unresolved001"), QStringLiteral("(sin resolver)"), QStringLiteral("(unresolved)"), QStringLiteral("（未解析）"))
                                    : resolvedMp;
 
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("No hay directorios para desglosar en el dataset seleccionado.\n\n"
+                                 trk(QStringLiteral("t_adv_break_nod1"), QStringLiteral("No hay directorios para desglosar en el dataset seleccionado.\n\n"
                                                     "Dataset: %1\n"
                                                     "Mountpoint resuelto: %2\n\n"
                                                     "Directorios detectados:\n%3\n\n"
@@ -333,16 +333,16 @@ void MainWindow::actionAdvancedBreakdown() {
     }
     QStringList selectedDirs;
     if (!selectItemsDialog(
-            tr3(QStringLiteral("Desglosar: seleccionar directorios"),
+            trk(QStringLiteral("t_adv_break_tit1"), QStringLiteral("Desglosar: seleccionar directorios"),
                 QStringLiteral("Break down: select directories"),
                 QStringLiteral("拆分：选择目录")),
-            tr3(QStringLiteral("Seleccione los directorios que desea desglosar en subdatasets."),
+            trk(QStringLiteral("t_adv_break_msg1"), QStringLiteral("Seleccione los directorios que desea desglosar en subdatasets."),
                 QStringLiteral("Select directories to split into subdatasets."),
                 QStringLiteral("请选择要拆分为子数据集的目录。")),
             dirs,
             selectedDirs)) {
         appLog(QStringLiteral("INFO"),
-               tr3(QStringLiteral("Desglosar cancelado o sin selección."),
+               trk(QStringLiteral("t_adv_break_can1"), QStringLiteral("Desglosar cancelado o sin selección."),
                    QStringLiteral("Break down canceled or no selection."),
                    QStringLiteral("拆分已取消或无选择。")));
         return;
@@ -449,7 +449,7 @@ void MainWindow::actionAdvancedAssemble() {
     const auto selected = m_advTree->selectedItems();
     if (selected.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("Seleccione un dataset en Avanzado."),
+                                 trk(QStringLiteral("t_adv_sel_ds_001"), QStringLiteral("Seleccione un dataset en Avanzado."),
                                      QStringLiteral("Select a dataset in Advanced."),
                                      QStringLiteral("请在高级页选择一个数据集。")));
         return;
@@ -481,7 +481,7 @@ void MainWindow::actionAdvancedAssemble() {
         QStringLiteral("zfs get -H -o name,value -r mounted %1").arg(shSingleQuote(ds)));
     if (!runSsh(p, mountCheckCmd, 25000, mountOut, mountErr, mountRc) || mountRc != 0) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             tr3(QStringLiteral("No se pudo comprobar el estado de montaje del dataset."),
+                             trk(QStringLiteral("t_adv_chk_mnt_01"), QStringLiteral("No se pudo comprobar el estado de montaje del dataset."),
                                  QStringLiteral("Could not verify dataset mount state."),
                                  QStringLiteral("无法检查数据集挂载状态。")));
         return;
@@ -505,7 +505,7 @@ void MainWindow::actionAdvancedAssemble() {
         QMessageBox::warning(
             this,
             QStringLiteral("ZFSMgr"),
-            tr3(QStringLiteral("Ensamblar requiere dataset y descendientes montados.\nNo montados:\n%1")
+            trk(QStringLiteral("t_adv_ass_mnt01"), QStringLiteral("Ensamblar requiere dataset y descendientes montados.\nNo montados:\n%1")
                     .arg(unmounted.join('\n')),
                 QStringLiteral("Assemble requires dataset and descendants mounted.\nNot mounted:\n%1")
                     .arg(unmounted.join('\n')),
@@ -523,7 +523,7 @@ void MainWindow::actionAdvancedAssemble() {
             .arg(shSingleQuote(ds)));
     if (!runSsh(p, listCmd, 25000, listOut, listErr, listRc) || listRc != 0) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             tr3(QStringLiteral("No se pudieron listar subdatasets para ensamblar."),
+                             trk(QStringLiteral("t_adv_ass_list01"), QStringLiteral("No se pudieron listar subdatasets para ensamblar."),
                                  QStringLiteral("Could not list child datasets for assemble."),
                                  QStringLiteral("无法列出可组装子数据集。")));
         return;
@@ -536,23 +536,23 @@ void MainWindow::actionAdvancedAssemble() {
     children.erase(std::remove(children.begin(), children.end(), ds), children.end());
     if (children.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("No hay subdatasets para ensamblar."),
+                                 trk(QStringLiteral("t_adv_ass_none01"), QStringLiteral("No hay subdatasets para ensamblar."),
                                      QStringLiteral("No child datasets available to assemble."),
                                      QStringLiteral("没有可组装的子数据集。")));
         return;
     }
     QStringList selectedChildren;
     if (!selectItemsDialog(
-            tr3(QStringLiteral("Ensamblar: seleccionar subdatasets"),
+            trk(QStringLiteral("t_adv_ass_tit001"), QStringLiteral("Ensamblar: seleccionar subdatasets"),
                 QStringLiteral("Assemble: select child datasets"),
                 QStringLiteral("组装：选择子数据集")),
-            tr3(QStringLiteral("Seleccione los subdatasets que desea ensamblar en el dataset padre."),
+            trk(QStringLiteral("t_adv_ass_msg001"), QStringLiteral("Seleccione los subdatasets que desea ensamblar en el dataset padre."),
                 QStringLiteral("Select child datasets to assemble into parent dataset."),
                 QStringLiteral("请选择要组装回父数据集的子数据集。")),
             children,
             selectedChildren)) {
         appLog(QStringLiteral("INFO"),
-               tr3(QStringLiteral("Ensamblar cancelado o sin selección."),
+               trk(QStringLiteral("t_adv_ass_can001"), QStringLiteral("Ensamblar cancelado o sin selección."),
                    QStringLiteral("Assemble canceled or no selection."),
                    QStringLiteral("组装已取消或无选择。")));
         return;
