@@ -2,6 +2,19 @@
 
 Cross-platform OpenZFS GUI manager built with **C++17 + Qt6** for **Linux, macOS, and Windows**.
 
+## Beta notice and legal disclaimer
+
+This software is currently a **BETA** release and is provided **"AS IS"**.
+
+- It may contain defects, regressions, data-loss scenarios, or incomplete behaviors.
+- Use it at your own risk, especially on production systems or critical data.
+- The author (Eladio Linares) provides **no warranty** and assumes **no liability** for direct or indirect damage, data loss, service interruption, or any other consequence derived from use.
+
+Legal references:
+
+- **GNU GPL v3**, Section 15: **Disclaimer of Warranty**.
+- **GNU GPL v3**, Section 16: **Limitation of Liability**.
+
 ## Screenshot
 
 ![ZFSMgr UI](docs/images/zfsmgr-ui.gif)
