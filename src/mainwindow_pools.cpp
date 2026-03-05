@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "mainwindow_helpers.h"
 
 #include <QBrush>
 #include <QCheckBox>
@@ -18,16 +19,8 @@
 #include <QVBoxLayout>
 
 namespace {
-QString oneLine(const QString& v) {
-    QString x = v.simplified();
-    return x.left(220);
-}
-
-QString shSingleQuote(const QString& s) {
-    QString out = s;
-    out.replace('\'', "'\"'\"'");
-    return QStringLiteral("'") + out + QStringLiteral("'");
-}
+using mwhelpers::oneLine;
+using mwhelpers::shSingleQuote;
 } // namespace
 
 void MainWindow::exportPoolFromRow(int row) {

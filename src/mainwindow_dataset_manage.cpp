@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "mainwindow_helpers.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -16,11 +17,7 @@
 #include <QWidget>
 
 namespace {
-QString shSingleQuote(const QString& s) {
-    QString out = s;
-    out.replace('\'', "'\"'\"'");
-    return QStringLiteral("'") + out + QStringLiteral("'");
-}
+using mwhelpers::shSingleQuote;
 
 struct CreateDatasetOptions {
     QString datasetPath;

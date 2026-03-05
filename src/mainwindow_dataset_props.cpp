@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "mainwindow_helpers.h"
 
 #include <QApplication>
 #include <QAbstractScrollArea>
@@ -135,11 +136,7 @@ bool isDatasetPropertyEditable(const QString& propName, const QString& datasetTy
     return fs.contains(prop) || vol.contains(prop);
 }
 
-QString shSingleQuote(const QString& s) {
-    QString out = s;
-    out.replace('\'', "'\"'\"'");
-    return QStringLiteral("'") + out + QStringLiteral("'");
-}
+using mwhelpers::shSingleQuote;
 
 bool parseSizeToBytes(const QString& input, double& bytesOut) {
     const QString s = input.trimmed();

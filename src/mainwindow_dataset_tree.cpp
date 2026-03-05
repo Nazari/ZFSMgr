@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "mainwindow_helpers.h"
 
 #include <QAbstractItemView>
 #include <QComboBox>
@@ -11,13 +12,7 @@
 #include <functional>
 
 namespace {
-QString parentDatasetName(const QString& dataset) {
-    const int slash = dataset.lastIndexOf('/');
-    if (slash <= 0) {
-        return QString();
-    }
-    return dataset.left(slash);
-}
+using mwhelpers::parentDatasetName;
 } // namespace
 
 void MainWindow::onOriginPoolChanged() {

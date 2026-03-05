@@ -1,41 +1,13 @@
 #include "mainwindow.h"
+#include "mainwindow_helpers.h"
 
-#include <QDir>
 #include <QMessageBox>
 #include <QRegularExpression>
 
 namespace {
-QString shSingleQuote(const QString& s) {
-    QString out = s;
-    out.replace('\'', "'\"'\"'");
-    return QStringLiteral("'") + out + QStringLiteral("'");
-}
-
-bool isMountedValueTrue(const QString& value) {
-    const QString v = value.trimmed().toLower();
-    return v == QStringLiteral("yes") || v == QStringLiteral("on") || v == QStringLiteral("true") || v == QStringLiteral("1");
-}
-
-QString sshControlPath() {
-#ifdef Q_OS_MAC
-    return QStringLiteral("/tmp/zfsmgr-%C");
-#else
-    return QDir::tempPath() + QStringLiteral("/zfsmgr-ssh-%C");
-#endif
-}
-
-QString sshBaseCommand(const ConnectionProfile& p) {
-    QString cmd = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-                                 " -o ControlMaster=auto -o ControlPersist=300 -o ControlPath=%1")
-                      .arg(shSingleQuote(sshControlPath()));
-    if (p.port > 0) {
-        cmd += QStringLiteral(" -p ") + QString::number(p.port);
-    }
-    if (!p.keyPath.isEmpty()) {
-        cmd += QStringLiteral(" -i ") + shSingleQuote(p.keyPath);
-    }
-    return cmd;
-}
+using mwhelpers::isMountedValueTrue;
+using mwhelpers::shSingleQuote;
+using mwhelpers::sshBaseCommand;
 } // namespace
 
 void MainWindow::actionCopySnapshot() {

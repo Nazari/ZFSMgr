@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "mainwindow_helpers.h"
 
 #include <QtWidgets>
 #include <QRegularExpression>
@@ -6,24 +7,9 @@
 #include <functional>
 
 namespace {
-QString shSingleQuote(const QString& s) {
-    QString out = s;
-    out.replace('\'', "'\"'\"'");
-    return QStringLiteral("'") + out + QStringLiteral("'");
-}
-
-bool isMountedValueTrue(const QString& value) {
-    const QString v = value.trimmed().toLower();
-    return v == QStringLiteral("yes")
-        || v == QStringLiteral("on")
-        || v == QStringLiteral("true")
-        || v == QStringLiteral("1");
-}
-
-QString oneLine(const QString& v) {
-    QString x = v.simplified();
-    return x.left(220);
-}
+using mwhelpers::isMountedValueTrue;
+using mwhelpers::oneLine;
+using mwhelpers::shSingleQuote;
 
 struct CreateDatasetOptions {
     QString datasetPath;
@@ -654,4 +640,3 @@ void MainWindow::actionAdvancedAssemble() {
         refreshConnectionByIndex(ctx.connIdx);
     }
 }
-

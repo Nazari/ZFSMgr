@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "mainwindow_helpers.h"
 
 #include <QBrush>
 #include <QColor>
@@ -7,13 +8,7 @@
 #include <QTableWidgetItem>
 
 namespace {
-bool isMountedValueTrue(const QString& value) {
-    const QString v = value.trimmed().toLower();
-    return v == QStringLiteral("yes")
-        || v == QStringLiteral("on")
-        || v == QStringLiteral("true")
-        || v == QStringLiteral("1");
-}
+using mwhelpers::isMountedValueTrue;
 } // namespace
 
 void MainWindow::updateTransferButtonsState() {

@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "mainwindow_helpers.h"
 
 #include <QAction>
 #include <QComboBox>
@@ -9,29 +10,10 @@
 #include <QTreeWidgetItem>
 
 namespace {
-QString shSingleQuote(const QString& s) {
-    QString out = s;
-    out.replace('\'', "'\"'\"'");
-    return QStringLiteral("'") + out + QStringLiteral("'");
-}
-
-bool isMountedValueTrue(const QString& value) {
-    const QString v = value.trimmed().toLower();
-    return v == QStringLiteral("yes") || v == QStringLiteral("on") || v == QStringLiteral("true") || v == QStringLiteral("1");
-}
-
-QString parentDatasetName(const QString& dataset) {
-    const int slash = dataset.lastIndexOf('/');
-    if (slash <= 0) {
-        return QString();
-    }
-    return dataset.left(slash);
-}
-
-QString oneLine(const QString& v) {
-    QString x = v.simplified();
-    return x.left(220);
-}
+using mwhelpers::isMountedValueTrue;
+using mwhelpers::oneLine;
+using mwhelpers::parentDatasetName;
+using mwhelpers::shSingleQuote;
 } // namespace
 
 void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, const QPoint& pos) {

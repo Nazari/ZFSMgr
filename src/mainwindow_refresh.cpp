@@ -1,12 +1,10 @@
 #include "mainwindow.h"
+#include "mainwindow_helpers.h"
 
 #include <QRegularExpression>
 
 namespace {
-QString oneLine(const QString& v) {
-    QString x = v.simplified();
-    return x.left(220);
-}
+using mwhelpers::oneLine;
 
 QString parseOpenZfsVersionText(const QString& text) {
     if (text.trimmed().isEmpty()) {
