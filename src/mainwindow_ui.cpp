@@ -839,7 +839,10 @@ void MainWindow::buildUi() {
     mono.setPointSize(9);
     m_logView->setFont(mono);
     appTabLayout->addWidget(m_logView, 1);
-    m_logsTabs->addTab(appTab, tr3(QStringLiteral("Aplicación"), QStringLiteral("Application"), QStringLiteral("应用")));
+    m_logsTabs->addTab(appTab, trk(QStringLiteral("t_app_tab_001"),
+                                   QStringLiteral("Aplicación"),
+                                   QStringLiteral("Application"),
+                                   QStringLiteral("应用")));
 
     auto* controlsPane = new QWidget(rightLogs);
     controlsPane->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
@@ -852,9 +855,21 @@ void MainWindow::buildUi() {
     m_logMaxLinesCombo = new QComboBox(rightLogs);
     m_logMaxLinesCombo->addItems({QStringLiteral("100"), QStringLiteral("200"), QStringLiteral("500"), QStringLiteral("1000")});
     m_logMaxLinesCombo->setCurrentText(QStringLiteral("500"));
-    m_logClearBtn = new QPushButton(tr3(QStringLiteral("Limpiar"), QStringLiteral("Clear"), QStringLiteral("清空")), rightLogs);
-    m_logCopyBtn = new QPushButton(tr3(QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")), rightLogs);
-    m_logCancelBtn = new QPushButton(tr3(QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), rightLogs);
+    m_logClearBtn = new QPushButton(trk(QStringLiteral("t_clear_001"),
+                                        QStringLiteral("Limpiar"),
+                                        QStringLiteral("Clear"),
+                                        QStringLiteral("清空")),
+                                    rightLogs);
+    m_logCopyBtn = new QPushButton(trk(QStringLiteral("t_copy_001"),
+                                       QStringLiteral("Copiar"),
+                                       QStringLiteral("Copy"),
+                                       QStringLiteral("复制")),
+                                   rightLogs);
+    m_logCancelBtn = new QPushButton(trk(QStringLiteral("t_cancelar_c111e0"),
+                                         QStringLiteral("Cancelar"),
+                                         QStringLiteral("Cancel"),
+                                         QStringLiteral("取消")),
+                                     rightLogs);
     m_logCancelBtn->setVisible(false);
     m_logLevelCombo->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     m_logMaxLinesCombo->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);

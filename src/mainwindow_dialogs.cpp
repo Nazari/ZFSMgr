@@ -228,16 +228,17 @@ bool MainWindow::confirmActionExecution(const QString& actionName, const QString
     QDialog dlg(this);
     dlg.setModal(true);
     dlg.resize(980, 520);
-    dlg.setWindowTitle(tr3(QStringLiteral("Confirmar ejecución"), QStringLiteral("Confirm execution"), QStringLiteral("确认执行")));
+    dlg.setWindowTitle(trk(QStringLiteral("t_confirm_ej_001"),
+                           QStringLiteral("Confirmar ejecución"),
+                           QStringLiteral("Confirm execution"),
+                           QStringLiteral("确认执行")));
 
     QVBoxLayout* root = new QVBoxLayout(&dlg);
     QLabel* intro = new QLabel(
-        tr3(QStringLiteral("Se van a ejecutar estos comandos para la acción: %1")
-                .arg(actionName),
-            QStringLiteral("These commands will be executed for action: %1")
-                .arg(actionName),
-            QStringLiteral("将为该操作执行以下命令：%1")
-                .arg(actionName)),
+        trk(QStringLiteral("t_confirm_cmds_001"),
+            QStringLiteral("Se van a ejecutar estos comandos para la acción: %1").arg(actionName),
+            QStringLiteral("These commands will be executed for action: %1").arg(actionName),
+            QStringLiteral("将为该操作执行以下命令：%1").arg(actionName)),
         &dlg);
     intro->setWordWrap(true);
     root->addWidget(intro);
@@ -254,15 +255,24 @@ bool MainWindow::confirmActionExecution(const QString& actionName, const QString
     root->addWidget(txt, 1);
 
     QDialogButtonBox* box = new QDialogButtonBox(&dlg);
-    QPushButton* cancelBtn = box->addButton(tr3(QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), QDialogButtonBox::RejectRole);
-    QPushButton* okBtn = box->addButton(tr3(QStringLiteral("Aceptar"), QStringLiteral("Accept"), QStringLiteral("确认")), QDialogButtonBox::AcceptRole);
+    QPushButton* cancelBtn = box->addButton(trk(QStringLiteral("t_cancelar_c111e0"),
+                                                QStringLiteral("Cancelar"),
+                                                QStringLiteral("Cancel"),
+                                                QStringLiteral("取消")),
+                                            QDialogButtonBox::RejectRole);
+    QPushButton* okBtn = box->addButton(trk(QStringLiteral("t_aceptar_8f9f73"),
+                                            QStringLiteral("Aceptar"),
+                                            QStringLiteral("Accept"),
+                                            QStringLiteral("确认")),
+                                        QDialogButtonBox::AcceptRole);
     root->addWidget(box);
     QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
     QObject::connect(okBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
 
     const bool accepted = (dlg.exec() == QDialog::Accepted);
     if (!accepted) {
-        appLog(QStringLiteral("INFO"), tr3(QStringLiteral("Acción cancelada por el usuario: %1").arg(actionName),
+        appLog(QStringLiteral("INFO"), trk(QStringLiteral("t_acc_cancel_usr1"),
+                                           QStringLiteral("Acción cancelada por el usuario: %1").arg(actionName),
                                            QStringLiteral("Action canceled by user: %1").arg(actionName),
                                            QStringLiteral("用户已取消操作：%1").arg(actionName)));
     }
@@ -295,8 +305,16 @@ bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, c
     root->addWidget(list, 1);
 
     QHBoxLayout* tools = new QHBoxLayout();
-    QPushButton* allBtn = new QPushButton(tr3(QStringLiteral("Seleccionar todo"), QStringLiteral("Select all"), QStringLiteral("全选")), &dlg);
-    QPushButton* noneBtn = new QPushButton(tr3(QStringLiteral("Deseleccionar todo"), QStringLiteral("Clear all"), QStringLiteral("全不选")), &dlg);
+    QPushButton* allBtn = new QPushButton(trk(QStringLiteral("t_sel_all_001"),
+                                              QStringLiteral("Seleccionar todo"),
+                                              QStringLiteral("Select all"),
+                                              QStringLiteral("全选")),
+                                          &dlg);
+    QPushButton* noneBtn = new QPushButton(trk(QStringLiteral("t_sel_none_001"),
+                                               QStringLiteral("Deseleccionar todo"),
+                                               QStringLiteral("Clear all"),
+                                               QStringLiteral("全不选")),
+                                           &dlg);
     tools->addWidget(allBtn);
     tools->addWidget(noneBtn);
     tools->addStretch(1);
@@ -314,8 +332,16 @@ bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, c
     });
 
     QDialogButtonBox* box = new QDialogButtonBox(&dlg);
-    QPushButton* cancelBtn = box->addButton(tr3(QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), QDialogButtonBox::RejectRole);
-    QPushButton* okBtn = box->addButton(tr3(QStringLiteral("Aceptar"), QStringLiteral("Accept"), QStringLiteral("确认")), QDialogButtonBox::AcceptRole);
+    QPushButton* cancelBtn = box->addButton(trk(QStringLiteral("t_cancelar_c111e0"),
+                                                QStringLiteral("Cancelar"),
+                                                QStringLiteral("Cancel"),
+                                                QStringLiteral("取消")),
+                                            QDialogButtonBox::RejectRole);
+    QPushButton* okBtn = box->addButton(trk(QStringLiteral("t_aceptar_8f9f73"),
+                                            QStringLiteral("Aceptar"),
+                                            QStringLiteral("Accept"),
+                                            QStringLiteral("确认")),
+                                        QDialogButtonBox::AcceptRole);
     root->addWidget(box);
     QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
     QObject::connect(okBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
@@ -335,7 +361,10 @@ bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, c
 void MainWindow::openConfigurationDialog() {
     QDialog dlg(this);
     dlg.setModal(true);
-    dlg.setWindowTitle(tr3(QStringLiteral("Configuración"), QStringLiteral("Configuration"), QStringLiteral("配置")));
+    dlg.setWindowTitle(trk(QStringLiteral("t_config_001"),
+                           QStringLiteral("Configuración"),
+                           QStringLiteral("Configuration"),
+                           QStringLiteral("配置")));
     dlg.resize(500, 240);
 
     QVBoxLayout* root = new QVBoxLayout(&dlg);
@@ -347,10 +376,15 @@ void MainWindow::openConfigurationDialog() {
     langCombo->addItem(QStringLiteral("中文"), QStringLiteral("zh"));
     int idx = langCombo->findData(m_language);
     langCombo->setCurrentIndex(idx >= 0 ? idx : 0);
-    form->addRow(tr3(QStringLiteral("Idioma"), QStringLiteral("Language"), QStringLiteral("语言")), langCombo);
+    form->addRow(trk(QStringLiteral("t_idioma_009433"),
+                     QStringLiteral("Idioma"),
+                     QStringLiteral("Language"),
+                     QStringLiteral("语言")),
+                 langCombo);
 
     QCheckBox* confirmChk = new QCheckBox(
-        tr3(QStringLiteral("Mostrar confirmación antes de ejecutar acciones"),
+        trk(QStringLiteral("t_show_confirm_001"),
+            QStringLiteral("Mostrar confirmación antes de ejecutar acciones"),
             QStringLiteral("Show confirmation before executing actions"),
             QStringLiteral("执行操作前显示确认")),
         &dlg);
@@ -361,7 +395,8 @@ void MainWindow::openConfigurationDialog() {
     logSizeSpin->setRange(1, 1024);
     logSizeSpin->setSuffix(QStringLiteral(" MB"));
     logSizeSpin->setValue(qMax(1, m_logMaxSizeMb));
-    form->addRow(tr3(QStringLiteral("Tamaño máximo log rotativo"),
+    form->addRow(trk(QStringLiteral("t_log_max_rot_001"),
+                     QStringLiteral("Tamaño máximo log rotativo"),
                      QStringLiteral("Max rotating log size"),
                      QStringLiteral("滚动日志最大大小")),
                  logSizeSpin);
@@ -370,8 +405,16 @@ void MainWindow::openConfigurationDialog() {
     root->addStretch(1);
 
     QDialogButtonBox* buttons = new QDialogButtonBox(&dlg);
-    QPushButton* cancelBtn = buttons->addButton(tr3(QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), QDialogButtonBox::RejectRole);
-    QPushButton* okBtn = buttons->addButton(tr3(QStringLiteral("Aceptar"), QStringLiteral("Accept"), QStringLiteral("确认")), QDialogButtonBox::AcceptRole);
+    QPushButton* cancelBtn = buttons->addButton(trk(QStringLiteral("t_cancelar_c111e0"),
+                                                    QStringLiteral("Cancelar"),
+                                                    QStringLiteral("Cancel"),
+                                                    QStringLiteral("取消")),
+                                                QDialogButtonBox::RejectRole);
+    QPushButton* okBtn = buttons->addButton(trk(QStringLiteral("t_aceptar_8f9f73"),
+                                                QStringLiteral("Aceptar"),
+                                                QStringLiteral("Accept"),
+                                                QStringLiteral("确认")),
+                                            QDialogButtonBox::AcceptRole);
     root->addWidget(buttons);
     QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
     QObject::connect(okBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
@@ -398,7 +441,8 @@ void MainWindow::openConfigurationDialog() {
         QMessageBox::information(
             this,
             QStringLiteral("ZFSMgr"),
-            tr3(QStringLiteral("Idioma guardado. Se aplicará completamente al reiniciar la aplicación."),
+            trk(QStringLiteral("t_lang_saved_001"),
+                QStringLiteral("Idioma guardado. Se aplicará completamente al reiniciar la aplicación."),
                 QStringLiteral("Language saved. It will be fully applied after restarting the application."),
                 QStringLiteral("语言已保存。重启应用后将完全生效。")));
     }
