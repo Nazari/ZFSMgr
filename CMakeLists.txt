@@ -37,6 +37,7 @@ qt_add_executable(zfsmgr_qt
     src/mainwindow_table_utils.cpp
     src/mainwindow_settings.cpp
     src/mainwindow_logging.cpp
+    src/mainwindow_help.cpp
     src/mainwindow.h
     src/connectionstore.cpp
     src/connectionstore.h

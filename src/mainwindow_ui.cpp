@@ -170,6 +170,78 @@ void MainWindow::buildUi() {
         appLog(QStringLiteral("INFO"), QStringLiteral("Tamaño máximo de log rotativo: %1 MB").arg(m_logMaxSizeMb));
     });
 
+    QMenu* helpMenu = menuBar()->addMenu(
+        trk(QStringLiteral("t_help_menu_001"),
+            QStringLiteral("Ayuda"),
+            QStringLiteral("Help"),
+            QStringLiteral("帮助")));
+    QAction* quickManualAct = helpMenu->addAction(
+        trk(QStringLiteral("t_help_quick_001"),
+            QStringLiteral("Manual rápido"),
+            QStringLiteral("Quick manual"),
+            QStringLiteral("快速手册")));
+    connect(quickManualAct, &QAction::triggered, this, [this]() {
+        openHelpTopic(QStringLiteral("manual_rapido"),
+                      trk(QStringLiteral("t_help_quick_001"),
+                          QStringLiteral("Manual rápido"),
+                          QStringLiteral("Quick manual"),
+                          QStringLiteral("快速手册")));
+    });
+
+    QMenu* actionsHelpMenu = helpMenu->addMenu(
+        trk(QStringLiteral("t_help_actions_001"),
+            QStringLiteral("Acciones"),
+            QStringLiteral("Actions"),
+            QStringLiteral("操作")));
+    struct HelpTopicItem {
+        QString id;
+        QString key;
+        QString es;
+        QString en;
+        QString zh;
+    };
+    const QVector<HelpTopicItem> helpActions = {
+        {QStringLiteral("accion_copiar"), QStringLiteral("t_copy_001"), QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")},
+        {QStringLiteral("accion_sincronizar"), QStringLiteral("t_sync_btn_001"), QStringLiteral("Sincronizar"), QStringLiteral("Sync"), QStringLiteral("同步")},
+        {QStringLiteral("accion_nivelar"), QStringLiteral("t_level_btn_001"), QStringLiteral("Nivelar"), QStringLiteral("Level"), QStringLiteral("对齐")},
+        {QStringLiteral("accion_desglosar"), QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Breakdown"), QStringLiteral("拆分")},
+        {QStringLiteral("accion_ensamblar"), QStringLiteral("t_assemble_btn1"), QStringLiteral("Ensamblar"), QStringLiteral("Assemble"), QStringLiteral("合并")}
+    };
+    for (const HelpTopicItem& item : helpActions) {
+        QAction* act = actionsHelpMenu->addAction(trk(item.key, item.es, item.en, item.zh));
+        connect(act, &QAction::triggered, this, [this, item]() {
+            openHelpTopic(item.id, trk(item.key, item.es, item.en, item.zh));
+        });
+    }
+
+    QAction* shortcutsAct = helpMenu->addAction(
+        trk(QStringLiteral("t_help_short_001"),
+            QStringLiteral("Atajos y estados"),
+            QStringLiteral("Shortcuts and states"),
+            QStringLiteral("快捷键与状态")));
+    connect(shortcutsAct, &QAction::triggered, this, [this]() {
+        openHelpTopic(QStringLiteral("atajos_estados"),
+                      trk(QStringLiteral("t_help_short_001"),
+                          QStringLiteral("Atajos y estados"),
+                          QStringLiteral("Shortcuts and states"),
+                          QStringLiteral("快捷键与状态")));
+    });
+
+    QAction* aboutAct = helpMenu->addAction(
+        trk(QStringLiteral("t_about_001"),
+            QStringLiteral("Acerca de"),
+            QStringLiteral("About"),
+            QStringLiteral("关于")));
+    connect(aboutAct, &QAction::triggered, this, [this]() {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_about_msg_001"),
+                QStringLiteral("ZFSMgr\nGestor ZFS multiplataforma.\nAutor: Eladio Linares\nLicencia: GNU"),
+                QStringLiteral("ZFSMgr\nCross-platform ZFS manager.\nAuthor: Eladio Linares\nLicense: GNU"),
+                QStringLiteral("ZFSMgr\n跨平台 ZFS 管理器。\n作者：Eladio Linares\n许可：GNU")));
+    });
+
     auto* central = new QWidget(this);
     auto* root = new QVBoxLayout(central);
     root->setContentsMargins(8, 8, 8, 8);
