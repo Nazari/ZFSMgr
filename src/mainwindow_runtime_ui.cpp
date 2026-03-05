@@ -91,7 +91,6 @@ void MainWindow::setActionsLocked(bool locked) {
     }
     if (m_btnNew) m_btnNew->setEnabled(!locked);
     if (m_btnRefreshAll) m_btnRefreshAll->setEnabled(!locked);
-    if (m_btnConfig) m_btnConfig->setEnabled(!locked);
     if (m_menuConfigAction) m_menuConfigAction->setEnabled(!locked);
     if (m_btnPoolNew) m_btnPoolNew->setEnabled(!locked && selectedConnectionIndexForPoolManagement() >= 0);
     if (m_poolStatusRefreshBtn) {

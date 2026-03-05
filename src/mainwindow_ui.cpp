@@ -100,10 +100,10 @@ void MainWindow::buildUi() {
                                  QStringLiteral("Refrescar todo"),
                                  QStringLiteral("Refresh all"),
                                  QStringLiteral("全部刷新"))),
-        fm.horizontalAdvance(trk(QStringLiteral("t_config_001"),
-                                 QStringLiteral("Configuración"),
-                                 QStringLiteral("Configuration"),
-                                 QStringLiteral("配置"))));
+        fm.horizontalAdvance(trk(QStringLiteral("t_new_btn_001"),
+                                 QStringLiteral("Nueva"),
+                                 QStringLiteral("New"),
+                                 QStringLiteral("新建"))));
     const int leftBaseWidth = qMax(340, btnTextWidth + 190);
     const int leftFixedWidth = qMax(220, static_cast<int>(leftBaseWidth * 0.85 * 1.15 * 1.10 * 1.25));
     leftPane->setMinimumWidth(leftFixedWidth);
@@ -133,24 +133,14 @@ void MainWindow::buildUi() {
                                           QStringLiteral("Refresh all"),
                                           QStringLiteral("全部刷新")),
                                       connectionsTab);
-    m_btnConfig = new QPushButton(trk(QStringLiteral("t_config_001"),
-                                      QStringLiteral("Configuración"),
-                                      QStringLiteral("Configuration"),
-                                      QStringLiteral("配置")),
-                                  connectionsTab);
     m_btnNew->setMinimumHeight(34);
     m_btnRefreshAll->setMinimumHeight(34);
-    m_btnConfig->setMinimumHeight(34);
-    const int connBtnMinW = qMax(m_btnNew->sizeHint().width(),
-                                 qMax(m_btnRefreshAll->sizeHint().width(), m_btnConfig->sizeHint().width()));
+    const int connBtnMinW = qMax(m_btnNew->sizeHint().width(), m_btnRefreshAll->sizeHint().width());
     const int stdLeftBtnH = m_btnNew->minimumHeight();
     m_btnNew->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnRefreshAll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnConfig->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnConfig->setVisible(true);
     connButtons->addWidget(m_btnNew);
     connButtons->addWidget(m_btnRefreshAll);
-    connButtons->addWidget(m_btnConfig);
     connButtonsBoxLayout->addLayout(connButtons);
     connLayout->addWidget(connButtonsBox, 0);
 
@@ -1154,10 +1144,6 @@ void MainWindow::buildUi() {
     connect(m_btnNew, &QPushButton::clicked, this, [this]() {
         logUiAction(QStringLiteral("Nueva conexión (botón)"));
         createConnection();
-    });
-    connect(m_btnConfig, &QPushButton::clicked, this, [this]() {
-        logUiAction(QStringLiteral("Configuración (botón)"));
-        openConfigurationDialog();
     });
     connect(m_menuConfigAction, &QAction::triggered, this, [this]() {
         logUiAction(QStringLiteral("Configuración (menú)"));

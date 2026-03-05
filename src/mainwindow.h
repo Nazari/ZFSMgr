@@ -221,7 +221,6 @@ private:
 
     QPushButton* m_btnNew{nullptr};
     QPushButton* m_btnRefreshAll{nullptr};
-    QPushButton* m_btnConfig{nullptr};
     QAction* m_menuConfigAction{nullptr};
     QGroupBox* m_poolMgmtBox{nullptr};
     QPushButton* m_btnPoolNew{nullptr};
