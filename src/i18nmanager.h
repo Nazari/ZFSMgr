@@ -11,6 +11,11 @@ public:
                       const QString& sourceEs,
                       const QString& fallbackEn = QString(),
                       const QString& fallbackZh = QString());
+    QString translateKey(const QString& language,
+                         const QString& key,
+                         const QString& fallbackEs = QString(),
+                         const QString& fallbackEn = QString(),
+                         const QString& fallbackZh = QString());
 
 private:
     I18nManager() = default;

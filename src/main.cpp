@@ -9,8 +9,12 @@
 #include <QSettings>
 
 namespace {
-QString tr3(const QString& lang, const QString& es, const QString& en, const QString& zh) {
-    return I18nManager::instance().translate(lang, es, en, zh);
+QString trk(const QString& lang,
+            const QString& key,
+            const QString& es = QString(),
+            const QString& en = QString(),
+            const QString& zh = QString()) {
+    return I18nManager::instance().translateKey(lang, key, es, en, zh);
 }
 }
 
@@ -63,28 +67,28 @@ int main(int argc, char* argv[]) {
             QString err;
             store.setMasterPassword(dlg.changeOldPassword());
             if (!store.validateMasterPassword(err)) {
-                const QString msg = tr3(language,
-                                        QStringLiteral("Password maestro actual incorrecto.\n%1").arg(err),
-                                        QStringLiteral("Current master password is invalid.\n%1").arg(err),
-                                        QStringLiteral("当前主密码错误。\n%1").arg(err));
+                const QString msg = trk(language, QStringLiteral("t_password_m_397f2a"),
+                                        QStringLiteral("Password maestro actual incorrecto.\n%1"),
+                                        QStringLiteral("Current master password is invalid.\n%1"),
+                                        QStringLiteral("当前主密码错误。\n%1")).arg(err);
                 QMessageBox::warning(nullptr, QStringLiteral("ZFSMgr"), msg);
                 continue;
             }
             if (!store.rotateMasterPassword(dlg.changeOldPassword(), dlg.changeNewPassword(), err)) {
-                const QString msg = tr3(language,
-                                        QStringLiteral("No se pudo cambiar el password maestro.\n%1").arg(err),
-                                        QStringLiteral("Could not change master password.\n%1").arg(err),
-                                        QStringLiteral("无法修改主密码。\n%1").arg(err));
+                const QString msg = trk(language, QStringLiteral("t_no_se_pudo_204a1d"),
+                                        QStringLiteral("No se pudo cambiar el password maestro.\n%1"),
+                                        QStringLiteral("Could not change master password.\n%1"),
+                                        QStringLiteral("无法修改主密码。\n%1")).arg(err);
                 QMessageBox::warning(nullptr, QStringLiteral("ZFSMgr"), msg);
                 continue;
             }
             masterPassword = dlg.changeNewPassword();
             store.setMasterPassword(masterPassword);
             if (!store.encryptStoredPasswords(err)) {
-                const QString msg = tr3(language,
-                                        QStringLiteral("No se pudieron migrar passwords guardados.\n%1").arg(err),
-                                        QStringLiteral("Could not migrate stored passwords.\n%1").arg(err),
-                                        QStringLiteral("无法迁移已存储密码。\n%1").arg(err));
+                const QString msg = trk(language, QStringLiteral("t_no_se_pudi_17885e"),
+                                        QStringLiteral("No se pudieron migrar passwords guardados.\n%1"),
+                                        QStringLiteral("Could not migrate stored passwords.\n%1"),
+                                        QStringLiteral("无法迁移已存储密码。\n%1")).arg(err);
                 QMessageBox::warning(nullptr, QStringLiteral("ZFSMgr"), msg);
                 continue;
             }
@@ -95,19 +99,19 @@ int main(int argc, char* argv[]) {
             QString err;
             if (store.validateMasterPassword(err)) {
                 if (!store.encryptStoredPasswords(err)) {
-                    const QString msg = tr3(language,
-                                            QStringLiteral("No se pudieron migrar passwords guardados.\n%1").arg(err),
-                                            QStringLiteral("Could not migrate stored passwords.\n%1").arg(err),
-                                            QStringLiteral("无法迁移已存储密码。\n%1").arg(err));
+                    const QString msg = trk(language, QStringLiteral("t_no_se_pudi_17885e"),
+                                            QStringLiteral("No se pudieron migrar passwords guardados.\n%1"),
+                                            QStringLiteral("Could not migrate stored passwords.\n%1"),
+                                            QStringLiteral("无法迁移已存储密码。\n%1")).arg(err);
                     QMessageBox::warning(nullptr, QStringLiteral("ZFSMgr"), msg);
                     continue;
                 }
                 break;
             }
-            const QString msg = tr3(language,
-                                    QStringLiteral("Password maestro incorrecto.\n%1").arg(err),
-                                    QStringLiteral("Invalid master password.\n%1").arg(err),
-                                    QStringLiteral("主密码错误。\n%1").arg(err));
+            const QString msg = trk(language, QStringLiteral("t_password_m_07a72a"),
+                                    QStringLiteral("Password maestro incorrecto.\n%1"),
+                                    QStringLiteral("Invalid master password.\n%1"),
+                                    QStringLiteral("主密码错误。\n%1")).arg(err);
             QMessageBox::warning(
                 nullptr,
                 QStringLiteral("ZFSMgr"),

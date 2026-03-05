@@ -17,6 +17,13 @@ namespace {
 QString tr3(const QString& lang, const QString& es, const QString& en, const QString& zh) {
     return I18nManager::instance().translate(lang, es, en, zh);
 }
+QString trk(const QString& lang,
+            const QString& key,
+            const QString& es = QString(),
+            const QString& en = QString(),
+            const QString& zh = QString()) {
+    return I18nManager::instance().translateKey(lang, key, es, en, zh);
+}
 }
 
 MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
@@ -34,11 +41,19 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
 
     m_languageCombo = new QComboBox(this);
     m_languageCombo->addItems({QStringLiteral("es"), QStringLiteral("en"), QStringLiteral("zh")});
-    form->addRow(tr3(m_lang, QStringLiteral("Idioma"), QStringLiteral("Language"), QStringLiteral("语言")), m_languageCombo);
+    form->addRow(trk(m_lang, QStringLiteral("t_idioma_009433"),
+                     QStringLiteral("Idioma"),
+                     QStringLiteral("Language"),
+                     QStringLiteral("语言")),
+                 m_languageCombo);
 
     m_passwordEdit = new QLineEdit(this);
     m_passwordEdit->setEchoMode(QLineEdit::Password);
-    form->addRow(tr3(m_lang, QStringLiteral("Password"), QStringLiteral("Password"), QStringLiteral("密码")), m_passwordEdit);
+    form->addRow(trk(m_lang, QStringLiteral("t_password_8be3c9"),
+                     QStringLiteral("Password"),
+                     QStringLiteral("Password"),
+                     QStringLiteral("密码")),
+                 m_passwordEdit);
     root->addLayout(form);
 
     m_authorLabel = new QLabel(this);
@@ -155,19 +170,30 @@ void MasterPasswordDialog::openChangePasswordDialog() {
 void MasterPasswordDialog::retranslateUi() {
     const QString lang = selectedLanguage();
     setWindowTitle(QStringLiteral("ZFSMgr"));
-    m_passwordEdit->setPlaceholderText(tr3(lang, QStringLiteral("Password maestro"), QStringLiteral("Master password"), QStringLiteral("主密码")));
-    m_okButton->setText(tr3(lang, QStringLiteral("Aceptar"), QStringLiteral("Accept"), QStringLiteral("确定")));
+    m_passwordEdit->setPlaceholderText(trk(lang, QStringLiteral("t_password_m_07c917"),
+                                           QStringLiteral("Password maestro"),
+                                           QStringLiteral("Master password"),
+                                           QStringLiteral("主密码")));
+    m_okButton->setText(trk(lang, QStringLiteral("t_aceptar_8f9f73"),
+                            QStringLiteral("Aceptar"),
+                            QStringLiteral("Accept"),
+                            QStringLiteral("确定")));
     if (m_cancelButton) {
-        m_cancelButton->setText(tr3(lang, QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")));
+        m_cancelButton->setText(trk(lang, QStringLiteral("t_cancelar_c111e0"),
+                                    QStringLiteral("Cancelar"),
+                                    QStringLiteral("Cancel"),
+                                    QStringLiteral("取消")));
     }
     if (m_changePwdButton) {
-        m_changePwdButton->setText(tr3(lang,
+        m_changePwdButton->setText(trk(lang,
+                                       QStringLiteral("t_cambiar_pa_52b0b6"),
                                        QStringLiteral("Cambiar password maestro..."),
                                        QStringLiteral("Change master password..."),
                                        QStringLiteral("修改主密码...")));
     }
     if (m_authorLabel) {
-        m_authorLabel->setText(tr3(lang,
+        m_authorLabel->setText(trk(lang,
+                                   QStringLiteral("t_autor_elad_c26aa2"),
                                    QStringLiteral("Autor: Eladio Linares  |  Licencia: GNU"),
                                    QStringLiteral("Author: Eladio Linares  |  License: GNU"),
                                    QStringLiteral("作者：Eladio Linares  |  许可证：GNU")));

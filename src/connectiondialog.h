@@ -21,6 +21,10 @@ private:
     void ensureDefaultPortForMode();
     void testConnection();
     bool testSshConnection(const ConnectionProfile& p, QString& detail) const;
+    QString trk(const QString& key,
+                const QString& es = QString(),
+                const QString& en = QString(),
+                const QString& zh = QString()) const;
     QString tr3(const QString& es, const QString& en, const QString& zh) const;
 
     QLineEdit* m_nameEdit{nullptr};

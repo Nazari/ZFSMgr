@@ -140,3 +140,44 @@ QString I18nManager::translate(const QString& language,
     }
     return sourceEs;
 }
+
+QString I18nManager::translateKey(const QString& language,
+                                  const QString& key,
+                                  const QString& fallbackEs,
+                                  const QString& fallbackEn,
+                                  const QString& fallbackZh) {
+    const QString lang = normalizeLanguage(language);
+    if (!m_catalogs.contains(lang)) {
+        m_catalogs.insert(lang, loadCatalog(lang));
+    }
+    const auto tryFromLang = [&](const QString& l, const QString& k) -> QString {
+        if (!m_catalogs.contains(l)) {
+            m_catalogs.insert(l, loadCatalog(l));
+        }
+        const auto& cat = m_catalogs[l];
+        const auto it = cat.constFind(k);
+        if (it != cat.cend() && !it.value().isEmpty()) {
+            return it.value();
+        }
+        return QString();
+    };
+
+    QString out = tryFromLang(lang, key);
+    if (!out.isEmpty()) {
+        return out;
+    }
+    out = tryFromLang(QStringLiteral("es"), key);
+    if (!out.isEmpty()) {
+        return out;
+    }
+    if (lang == QStringLiteral("en") && !fallbackEn.isEmpty()) {
+        return fallbackEn;
+    }
+    if (lang == QStringLiteral("zh") && !fallbackZh.isEmpty()) {
+        return fallbackZh;
+    }
+    if (!fallbackEs.isEmpty()) {
+        return fallbackEs;
+    }
+    return key;
+}
