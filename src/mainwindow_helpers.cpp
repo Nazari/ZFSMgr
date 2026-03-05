@@ -202,6 +202,65 @@ TransferButtonState computeTransferButtonState(const TransferButtonInputs& in) {
     return out;
 }
 
+bool parentMountCheckRequired(const QString& parentMountpoint, const QString& parentCanmount) {
+    const QString mp = parentMountpoint.trimmed().toLower();
+    const QString canmount = parentCanmount.trimmed().toLower();
+    if (mp.isEmpty() || mp == QStringLiteral("none")) {
+        return false;
+    }
+    if (canmount == QStringLiteral("off")) {
+        return false;
+    }
+    return true;
+}
+
+bool parentAllowsChildMount(const QString& parentMountpoint, const QString& parentCanmount, const QString& parentMounted) {
+    if (!parentMountCheckRequired(parentMountpoint, parentCanmount)) {
+        return true;
+    }
+    return isMountedValueTrue(parentMounted);
+}
+
+QMap<QString, QStringList> duplicateMountpoints(const QMap<QString, QString>& datasetMountpoints) {
+    QMap<QString, QStringList> grouped;
+    for (auto it = datasetMountpoints.constBegin(); it != datasetMountpoints.constEnd(); ++it) {
+        const QString dataset = it.key();
+        const QString mp = it.value().trimmed();
+        const QString mpl = mp.toLower();
+        if (dataset.isEmpty() || mp.isEmpty() || mpl == QStringLiteral("none") || mpl == QStringLiteral("-")) {
+            continue;
+        }
+        grouped[mp].push_back(dataset);
+    }
+    QMap<QString, QStringList> out;
+    for (auto it = grouped.constBegin(); it != grouped.constEnd(); ++it) {
+        if (it.value().size() > 1) {
+            out.insert(it.key(), it.value());
+        }
+    }
+    return out;
+}
+
+QVector<MountpointConflict> externalMountpointConflicts(const QMap<QString, QString>& targetDatasetMountpoints,
+                                                        const QMap<QString, QStringList>& mountedByMountpoint) {
+    QVector<MountpointConflict> out;
+    for (auto it = targetDatasetMountpoints.constBegin(); it != targetDatasetMountpoints.constEnd(); ++it) {
+        const QString requestedDataset = it.key();
+        const QString mountpoint = it.value().trimmed();
+        if (requestedDataset.isEmpty() || mountpoint.isEmpty()) {
+            continue;
+        }
+        const QStringList mountedDatasets = mountedByMountpoint.value(mountpoint);
+        for (const QString& mountedDs : mountedDatasets) {
+            if (mountedDs.isEmpty() || mountedDs == requestedDataset) {
+                continue;
+            }
+            out.push_back(MountpointConflict{mountpoint, mountedDs, requestedDataset});
+        }
+    }
+    return out;
+}
+
 QString sshControlPath() {
 #ifdef Q_OS_MAC
     return QStringLiteral("/tmp/zfsmgr-%C");

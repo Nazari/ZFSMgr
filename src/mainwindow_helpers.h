@@ -2,7 +2,9 @@
 
 #include "connectiondialog.h"
 
+#include <QMap>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 namespace mwhelpers {
@@ -32,6 +34,12 @@ struct TransferButtonState {
     bool syncEnabled{false};
 };
 
+struct MountpointConflict {
+    QString mountpoint;
+    QString mountedDataset;
+    QString requestedDataset;
+};
+
 QString oneLine(const QString& v, int maxLen = 220);
 QString shSingleQuote(const QString& s);
 bool isMountedValueTrue(const QString& value);
@@ -42,6 +50,11 @@ bool isWindowsOsType(const QString& osType);
 QString parseOpenZfsVersionText(const QString& text);
 QVector<ImportablePoolInfo> parseZpoolImportOutput(const QString& text);
 TransferButtonState computeTransferButtonState(const TransferButtonInputs& in);
+bool parentMountCheckRequired(const QString& parentMountpoint, const QString& parentCanmount);
+bool parentAllowsChildMount(const QString& parentMountpoint, const QString& parentCanmount, const QString& parentMounted);
+QMap<QString, QStringList> duplicateMountpoints(const QMap<QString, QString>& datasetMountpoints);
+QVector<MountpointConflict> externalMountpointConflicts(const QMap<QString, QString>& targetDatasetMountpoints,
+                                                        const QMap<QString, QStringList>& mountedByMountpoint);
 QString sshControlPath();
 QString sshBaseCommand(const ConnectionProfile& p);
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd);

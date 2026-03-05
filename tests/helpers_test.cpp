@@ -44,6 +44,56 @@ int main() {
         return fail("normalizeDriveLetterValue none should be empty");
     }
 
+    if (!parentMountCheckRequired("/mnt/a", "on")) {
+        return fail("parentMountCheckRequired should require mounted parent");
+    }
+    if (parentMountCheckRequired("none", "on")) {
+        return fail("parentMountCheckRequired should skip when mountpoint=none");
+    }
+    if (parentMountCheckRequired("/mnt/a", "off")) {
+        return fail("parentMountCheckRequired should skip when canmount=off");
+    }
+    if (!parentAllowsChildMount("/mnt/a", "on", "yes")) {
+        return fail("parentAllowsChildMount mounted parent should pass");
+    }
+    if (parentAllowsChildMount("/mnt/a", "on", "no")) {
+        return fail("parentAllowsChildMount unmounted parent should fail");
+    }
+    if (!parentAllowsChildMount("none", "on", "no")) {
+        return fail("parentAllowsChildMount should bypass none mountpoint");
+    }
+
+    {
+        QMap<QString, QString> mps;
+        mps.insert("pool/a", "/mnt/x");
+        mps.insert("pool/b", "/mnt/x");
+        mps.insert("pool/c", "/mnt/y");
+        const QMap<QString, QStringList> dup = duplicateMountpoints(mps);
+        if (!dup.contains("/mnt/x") || dup.value("/mnt/x").size() != 2) {
+            return fail("duplicateMountpoints should report duplicated mountpoint");
+        }
+        if (dup.contains("/mnt/y")) {
+            return fail("duplicateMountpoints should not include unique mountpoint");
+        }
+    }
+
+    {
+        QMap<QString, QString> targetMps;
+        targetMps.insert("pool/a", "/mnt/x");
+        targetMps.insert("pool/b", "/mnt/y");
+        QMap<QString, QStringList> mountedByMp;
+        mountedByMp.insert("/mnt/x", QStringList{"pool/a"});
+        mountedByMp.insert("/mnt/y", QStringList{"pool/other"});
+        const QVector<MountpointConflict> conflicts = externalMountpointConflicts(targetMps, mountedByMp);
+        if (conflicts.size() != 1) {
+            return fail("externalMountpointConflicts should detect one conflict");
+        }
+        if (conflicts[0].mountpoint != "/mnt/y" || conflicts[0].mountedDataset != "pool/other"
+            || conflicts[0].requestedDataset != "pool/b") {
+            return fail("externalMountpointConflicts conflict payload mismatch");
+        }
+    }
+
     if (!looksLikePowerShellScript("Get-ChildItem -Path C:\\")) {
         return fail("looksLikePowerShellScript should detect powershell verbs");
     }

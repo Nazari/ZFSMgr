@@ -447,7 +447,6 @@ bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& c
                                  QStringLiteral("无法检查父数据集 mountpoint：%1").arg(parent)));
         return false;
     }
-    const QString mp = parentMountpoint.trimmed().toLower();
     QString parentCanmount;
     if (!getDatasetProperty(ctx.connIdx, parent, QStringLiteral("canmount"), parentCanmount)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
@@ -456,11 +455,6 @@ bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& c
                                  QStringLiteral("无法检查父数据集 canmount：%1").arg(parent)));
         return false;
     }
-    const QString canmount = parentCanmount.trimmed().toLower();
-    if (mp.isEmpty() || mp == QStringLiteral("none") || canmount == QStringLiteral("off")) {
-        return true;
-    }
-
     QString parentMounted;
     if (!getDatasetProperty(ctx.connIdx, parent, QStringLiteral("mounted"), parentMounted)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
@@ -469,7 +463,7 @@ bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& c
                                  QStringLiteral("无法检查父数据集挂载状态：%1").arg(parent)));
         return false;
     }
-    if (!isMountedValueTrue(parentMounted)) {
+    if (!mwhelpers::parentAllowsChildMount(parentMountpoint, parentCanmount, parentMounted)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              tr3(QStringLiteral("El dataset padre %1 no está montado, móntelo antes por favor").arg(parent),
                                  QStringLiteral("Parent dataset %1 is not mounted, mount it first").arg(parent),
@@ -504,7 +498,6 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
     const PoolDatasetCache& cache = cacheIt.value();
 
     QMap<QString, QString> targetMpByDs;
-    QMap<QString, QStringList> targetDsByMp;
     const QString prefix = ctx.datasetName + QStringLiteral("/");
     for (auto it = cache.recordByName.constBegin(); it != cache.recordByName.constEnd(); ++it) {
         const QString ds = it.key();
@@ -520,12 +513,12 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
             continue;
         }
         targetMpByDs[ds] = mp;
-        targetDsByMp[mp].push_back(ds);
     }
 
-    for (auto it = targetDsByMp.constBegin(); it != targetDsByMp.constEnd(); ++it) {
+    const QMap<QString, QStringList> duplicateMps = mwhelpers::duplicateMountpoints(targetMpByDs);
+    for (auto it = duplicateMps.constBegin(); it != duplicateMps.constEnd(); ++it) {
         const QStringList dsList = it.value();
-        if (dsList.size() > 1) {
+        if (!dsList.isEmpty()) {
             QMessageBox::warning(
                 this,
                 QStringLiteral("ZFSMgr"),
@@ -569,24 +562,20 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
         mountedByMp[mp].push_back(ds);
     }
 
-    for (auto it = targetMpByDs.constBegin(); it != targetMpByDs.constEnd(); ++it) {
-        const QString targetDs = it.key();
-        const QString mp = it.value();
-        const QStringList mountedDs = mountedByMp.value(mp);
-        for (const QString& dsMounted : mountedDs) {
-            if (dsMounted != targetDs) {
-                QMessageBox::warning(
-                    this,
-                    QStringLiteral("ZFSMgr"),
-                    tr3(QStringLiteral("No se permite montar más de un dataset en el mismo directorio.\nMountpoint: %1\nMontado: %2\nSolicitado: %3")
-                            .arg(mp, dsMounted, targetDs),
-                        QStringLiteral("Only one mounted dataset per directory is allowed.\nMountpoint: %1\nMounted: %2\nRequested: %3")
-                            .arg(mp, dsMounted, targetDs),
-                        QStringLiteral("同一目录不允许挂载多个数据集。\n挂载点：%1\n已挂载：%2\n请求：%3")
-                            .arg(mp, dsMounted, targetDs)));
-                return false;
-            }
-        }
+    const QVector<mwhelpers::MountpointConflict> conflicts =
+        mwhelpers::externalMountpointConflicts(targetMpByDs, mountedByMp);
+    if (!conflicts.isEmpty()) {
+        const mwhelpers::MountpointConflict& c = conflicts.front();
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            tr3(QStringLiteral("No se permite montar más de un dataset en el mismo directorio.\nMountpoint: %1\nMontado: %2\nSolicitado: %3")
+                    .arg(c.mountpoint, c.mountedDataset, c.requestedDataset),
+                QStringLiteral("Only one mounted dataset per directory is allowed.\nMountpoint: %1\nMounted: %2\nRequested: %3")
+                    .arg(c.mountpoint, c.mountedDataset, c.requestedDataset),
+                QStringLiteral("同一目录不允许挂载多个数据集。\n挂载点：%1\n已挂载：%2\n请求：%3")
+                    .arg(c.mountpoint, c.mountedDataset, c.requestedDataset)));
+        return false;
     }
     return true;
 }
