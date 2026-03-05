@@ -124,6 +124,78 @@ int main() {
         return fail("parseZpoolImportOutput should keep detailed reason");
     }
 
+    {
+        TransferButtonInputs in;
+        in.srcDatasetSelected = true;
+        in.srcSnapshotSelected = true;
+        in.dstDatasetSelected = true;
+        in.dstSnapshotSelected = false;
+        in.srcSelectionKey = "pool/a@s1";
+        in.dstSelectionKey = "pool/b";
+        in.srcSelectionConsistent = true;
+        in.dstSelectionConsistent = true;
+        in.srcDatasetMounted = true;
+        in.dstDatasetMounted = true;
+        const TransferButtonState st = computeTransferButtonState(in);
+        if (!st.copyEnabled || !st.levelEnabled || st.syncEnabled) {
+            return fail("computeTransferButtonState snapshot copy/level mismatch");
+        }
+    }
+
+    {
+        TransferButtonInputs in;
+        in.srcDatasetSelected = true;
+        in.srcSnapshotSelected = false;
+        in.dstDatasetSelected = true;
+        in.dstSnapshotSelected = false;
+        in.srcSelectionKey = "pool/a";
+        in.dstSelectionKey = "pool/b";
+        in.srcSelectionConsistent = true;
+        in.dstSelectionConsistent = true;
+        in.srcDatasetMounted = true;
+        in.dstDatasetMounted = true;
+        const TransferButtonState st = computeTransferButtonState(in);
+        if (st.copyEnabled || !st.levelEnabled || !st.syncEnabled) {
+            return fail("computeTransferButtonState dataset sync mismatch");
+        }
+    }
+
+    {
+        TransferButtonInputs in;
+        in.srcDatasetSelected = true;
+        in.srcSnapshotSelected = false;
+        in.dstDatasetSelected = true;
+        in.dstSnapshotSelected = false;
+        in.srcSelectionKey = "pool/a";
+        in.dstSelectionKey = "pool/a"; // same selection disables level/sync
+        in.srcSelectionConsistent = true;
+        in.dstSelectionConsistent = true;
+        in.srcDatasetMounted = true;
+        in.dstDatasetMounted = true;
+        const TransferButtonState st = computeTransferButtonState(in);
+        if (st.levelEnabled || st.syncEnabled) {
+            return fail("computeTransferButtonState same-selection gate mismatch");
+        }
+    }
+
+    {
+        TransferButtonInputs in;
+        in.srcDatasetSelected = true;
+        in.srcSnapshotSelected = false;
+        in.dstDatasetSelected = true;
+        in.dstSnapshotSelected = false;
+        in.srcSelectionKey = "pool/a";
+        in.dstSelectionKey = "pool/b";
+        in.srcSelectionConsistent = true;
+        in.dstSelectionConsistent = true;
+        in.srcDatasetMounted = false; // mount required for sync
+        in.dstDatasetMounted = true;
+        const TransferButtonState st = computeTransferButtonState(in);
+        if (st.syncEnabled) {
+            return fail("computeTransferButtonState sync mount gate mismatch");
+        }
+    }
+
     std::cout << "[OK] helpers tests passed\n";
     return 0;
 }

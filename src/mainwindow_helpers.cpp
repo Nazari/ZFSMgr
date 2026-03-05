@@ -185,6 +185,23 @@ QVector<ImportablePoolInfo> parseZpoolImportOutput(const QString& text) {
     return rows;
 }
 
+TransferButtonState computeTransferButtonState(const TransferButtonInputs& in) {
+    TransferButtonState out;
+    const bool sameSelection = !in.srcSelectionKey.isEmpty() && (in.srcSelectionKey == in.dstSelectionKey);
+    out.copyEnabled = in.srcDatasetSelected && in.srcSnapshotSelected && in.dstDatasetSelected && !in.dstSnapshotSelected;
+    out.levelEnabled = in.srcDatasetSelected && in.dstDatasetSelected && !in.dstSnapshotSelected && !sameSelection;
+    out.syncEnabled = in.srcDatasetSelected
+        && !in.srcSnapshotSelected
+        && in.dstDatasetSelected
+        && !in.dstSnapshotSelected
+        && !sameSelection
+        && in.srcSelectionConsistent
+        && in.dstSelectionConsistent
+        && in.srcDatasetMounted
+        && in.dstDatasetMounted;
+    return out;
+}
+
 QString sshControlPath() {
 #ifdef Q_OS_MAC
     return QStringLiteral("/tmp/zfsmgr-%C");

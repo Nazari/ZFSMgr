@@ -32,7 +32,6 @@ void MainWindow::updateTransferButtonsState() {
     const QString dstSel = dstDs ? (dstSnap ? QStringLiteral("%1@%2").arg(m_destSelectedDataset, m_destSelectedSnapshot)
                                             : m_destSelectedDataset)
                                  : QString();
-    const bool sameSelection = !srcSel.isEmpty() && (srcSel == dstSel);
     const DatasetSelectionContext srcCtx = currentDatasetSelection(QStringLiteral("origin"));
     const DatasetSelectionContext dstCtx = currentDatasetSelection(QStringLiteral("dest"));
     const bool srcSelectionConsistent = srcCtx.valid
@@ -56,12 +55,22 @@ void MainWindow::updateTransferButtonsState() {
         }
         return isMountedValueTrue(recIt->mounted);
     };
-    const bool syncReady = srcDs && !srcSnap && dstDs && !dstSnap && !sameSelection
-        && srcSelectionConsistent && dstSelectionConsistent
-        && datasetMountedInCache(srcCtx) && datasetMountedInCache(dstCtx);
-    m_btnCopy->setEnabled(srcDs && srcSnap && dstDs && !dstSnap);
-    m_btnLevel->setEnabled(srcDs && dstDs && !dstSnap && !sameSelection);
-    m_btnSync->setEnabled(syncReady);
+    const mwhelpers::TransferButtonInputs transferIn{
+        srcDs,
+        srcSnap,
+        dstDs,
+        dstSnap,
+        srcSel,
+        dstSel,
+        srcSelectionConsistent,
+        dstSelectionConsistent,
+        datasetMountedInCache(srcCtx),
+        datasetMountedInCache(dstCtx),
+    };
+    const mwhelpers::TransferButtonState transferState = mwhelpers::computeTransferButtonState(transferIn);
+    m_btnCopy->setEnabled(transferState.copyEnabled);
+    m_btnLevel->setEnabled(transferState.levelEnabled);
+    m_btnSync->setEnabled(transferState.syncEnabled);
     const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("advanced"));
     bool advDatasetOnly = actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty();
     if (advDatasetOnly) {
