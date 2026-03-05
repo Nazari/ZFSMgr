@@ -14,9 +14,6 @@
 #include <QIcon>
 
 namespace {
-QString tr3(const QString& lang, const QString& es, const QString& en, const QString& zh) {
-    return I18nManager::instance().translate(lang, es, en, zh);
-}
 QString trk(const QString& lang,
             const QString& key,
             const QString& es = QString(),
@@ -121,7 +118,8 @@ void MasterPasswordDialog::openChangePasswordDialog() {
     QDialog dlg(this);
     dlg.setModal(true);
     dlg.resize(460, 220);
-    dlg.setWindowTitle(tr3(m_lang,
+    dlg.setWindowTitle(trk(m_lang,
+                           QStringLiteral("t_chg_master_001"),
                            QStringLiteral("Cambiar password maestro"),
                            QStringLiteral("Change master password"),
                            QStringLiteral("修改主密码")));
@@ -133,9 +131,9 @@ void MasterPasswordDialog::openChangePasswordDialog() {
     oldPwd->setEchoMode(QLineEdit::Password);
     newPwd->setEchoMode(QLineEdit::Password);
     newPwd2->setEchoMode(QLineEdit::Password);
-    form->addRow(tr3(m_lang, QStringLiteral("Password actual"), QStringLiteral("Current password"), QStringLiteral("当前密码")), oldPwd);
-    form->addRow(tr3(m_lang, QStringLiteral("Password nuevo"), QStringLiteral("New password"), QStringLiteral("新密码")), newPwd);
-    form->addRow(tr3(m_lang, QStringLiteral("Repetir password"), QStringLiteral("Repeat password"), QStringLiteral("重复密码")), newPwd2);
+    form->addRow(trk(m_lang, QStringLiteral("t_cur_pwd_lbl001"), QStringLiteral("Password actual"), QStringLiteral("Current password"), QStringLiteral("当前密码")), oldPwd);
+    form->addRow(trk(m_lang, QStringLiteral("t_new_pwd_lbl001"), QStringLiteral("Password nuevo"), QStringLiteral("New password"), QStringLiteral("新密码")), newPwd);
+    form->addRow(trk(m_lang, QStringLiteral("t_rep_pwd_lbl001"), QStringLiteral("Repetir password"), QStringLiteral("Repeat password"), QStringLiteral("重复密码")), newPwd2);
     root->addLayout(form);
     auto* box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     root->addWidget(box);
@@ -149,14 +147,14 @@ void MasterPasswordDialog::openChangePasswordDialog() {
     const QString newv2 = newPwd2->text();
     if (newv.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             tr3(m_lang, QStringLiteral("El nuevo password no puede estar vacío."),
+                             trk(m_lang, QStringLiteral("t_new_pwd_empty1"), QStringLiteral("El nuevo password no puede estar vacío."),
                                  QStringLiteral("New password cannot be empty."),
                                  QStringLiteral("新密码不能为空。")));
         return;
     }
     if (newv != newv2) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             tr3(m_lang, QStringLiteral("La confirmación no coincide."),
+                             trk(m_lang, QStringLiteral("t_pwd_confirm01"), QStringLiteral("La confirmación no coincide."),
                                  QStringLiteral("Confirmation does not match."),
                                  QStringLiteral("两次输入不一致。")));
         return;

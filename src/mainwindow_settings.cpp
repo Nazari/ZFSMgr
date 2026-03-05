@@ -3,10 +3,6 @@
 
 #include <QSettings>
 
-QString MainWindow::tr3(const QString& es, const QString& en, const QString& zh) const {
-    return I18nManager::instance().translate(m_language, es, en, zh);
-}
-
 QString MainWindow::trk(const QString& key, const QString& es, const QString& en, const QString& zh) const {
     return I18nManager::instance().translateKey(m_language, key, es, en, zh);
 }

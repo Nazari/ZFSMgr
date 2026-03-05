@@ -201,7 +201,6 @@ private:
                 const QString& es = QString(),
                 const QString& en = QString(),
                 const QString& zh = QString()) const;
-    QString tr3(const QString& es, const QString& en, const QString& zh) const;
     QString maskSecrets(const QString& text) const;
     void logUiAction(const QString& action);
     void appLog(const QString& level, const QString& msg);
