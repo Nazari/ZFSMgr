@@ -1,54 +1,75 @@
 # ZFSMgr (C++/Qt)
 
-Gestor gráfico de OpenZFS multiplataforma en **C++17 + Qt6** para **Linux, macOS y Windows**.
+Cross-platform OpenZFS GUI manager built with **C++17 + Qt6** for **Linux, macOS, and Windows**.
 
-## Funcionalidades principales
+## Main capabilities
 
-- Gestión de conexiones remotas (SSH y Windows por SSH/PowerShell).
-- Refresco completo/parcial de conexiones y detección de versión de OpenZFS.
-- Gestión de pools:
-  - listado unificado de pools (importados/importables),
-  - importar/exportar,
-  - crear pool con selección de dispositivos y opciones,
-  - destruir pool con confirmación reforzada.
-- Gestión de datasets y snapshots:
-  - crear, modificar, renombrar (`zfs rename`), borrar,
-  - montar/desmontar (incluyendo opciones recursivas),
-  - rollback de snapshot,
-  - borrado masivo de snapshots.
-- Transferencias entre origen/destino:
-  - copiar snapshot (`zfs send`/`zfs recv`),
-  - nivelar y sincronizar,
-  - desglosar/ensamblar.
-- Operaciones avanzadas:
-  - `Desde Dir` y `Hacia Dir` con opciones de conservación/borrado de origen.
-- Logs:
-  - log combinado en UI y logs persistentes con rotación,
-  - control de nivel y número de líneas visibles,
-  - vista de comandos y detalle de ejecución.
-- UI multiidioma (español, inglés y chino) con cambio dinámico desde menú.
-- Enmascarado de secretos en logs (`[secret]`).
+- Remote connection management (SSH and Windows through SSH/PowerShell).
+- Full/partial refresh and remote OpenZFS version detection.
+- Pool management:
+  - unified imported/importable pool list,
+  - import/export,
+  - pool creation with device selection and options,
+  - pool destroy with strong confirmation.
+- Dataset and snapshot management:
+  - create, modify, rename (`zfs rename`), delete,
+  - mount/unmount (including recursive flows),
+  - snapshot rollback,
+  - bulk snapshot deletion.
+- Source/destination transfers:
+  - snapshot copy (`zfs send`/`zfs recv`),
+  - level and sync operations,
+  - breakdown/assemble operations.
+- Advanced operations:
+  - `From Dir` and `To Dir` with optional source deletion.
+- Logging:
+  - combined UI log plus persistent rotating logs,
+  - selectable log level and visible line limits,
+  - command and execution detail views.
+- Multi-language UI (Spanish, English, Chinese) with runtime switching.
+- Secret masking in logs (`[secret]`).
 
-## Estructura de interfaz
+## Remote source/destination support
 
-- Panel izquierdo: `Conexiones`, `Datasets`, `Avanzado`.
-- Panel derecho: detalle contextual (pools, propiedades/estado, árbol y propiedades de dataset).
-- Panel inferior: log combinado.
+ZFSMgr can operate with **remote source and/or destination** on:
 
-## Configuración y datos
+- Linux
+- macOS/Unix
+- Windows
 
-- Configuración de usuario: `~/.config/ZFSMgr/` (Linux; equivalente en macOS/Windows según Qt).
-- Fichero de conexiones: `connections.ini`.
-- Password maestro para proteger credenciales en configuración.
+The app adapts command strategies by remote OS and available tooling.
 
-## Requisitos de compilación
+## Windows compatibility checks
+
+For Windows targets, ZFSMgr validates runtime prerequisites so operations can run safely:
+
+- OpenZFS tools availability (`zfs`, `zpool`), including common install paths.
+- Shell/runtime availability and compatibility (PowerShell and optional MSYS64/MINGW tooling when needed).
+- Command path resolution and fallback behavior for mixed Unix/Windows command flows.
+- Mount semantics handling (including `driveletter`-based effective mount resolution).
+
+If required components are missing, connection status and command availability are reported in the UI/logs.
+
+## UI layout
+
+- Left panel tabs: `Connections`, `Datasets`, `Advanced`.
+- Right panel: context detail (pools, pool state/properties, dataset trees/properties).
+- Bottom panel: combined log.
+
+## Configuration and data
+
+- User config location: `~/.config/ZFSMgr/` on Linux (Qt-equivalent path on macOS/Windows).
+- Connections file: `connections.ini`.
+- Master password used to protect credentials in configuration.
+
+## Build requirements
 
 - CMake >= 3.21
-- Compilador con soporte C++17
+- C++17-capable compiler
 - Qt6 (`Core`, `Gui`, `Widgets`)
-- OpenSSL (especialmente en Windows para algunos entornos Qt)
+- OpenSSL (especially relevant on Windows/Qt environments)
 
-## Compilación rápida
+## Quick build
 
 ### Linux
 
@@ -56,7 +77,7 @@ Gestor gráfico de OpenZFS multiplataforma en **C++17 + Qt6** para **Linux, macO
 ./build-linux.sh
 ```
 
-Binario esperado: `build-linux/zfsmgr_qt`
+Expected binary: `build-linux/zfsmgr_qt`
 
 ### macOS
 
@@ -64,7 +85,7 @@ Binario esperado: `build-linux/zfsmgr_qt`
 ./build-macos.sh
 ```
 
-El script genera binario y, si se configura así, bundle `.app` sin firmar.
+The script builds the binary and can also generate an unsigned `.app` bundle.
 
 ### Windows (PowerShell)
 
@@ -72,8 +93,8 @@ El script genera binario y, si se configura así, bundle `.app` sin firmar.
 .\build-windows.ps1
 ```
 
-El script detecta toolchain/Qt y compila en `build-windows`.
+The script auto-detects toolchain/Qt and builds under `build-windows`.
 
-## Ejecución
+## Run
 
-Tras compilar, ejecuta el binario generado para tu plataforma y abre sesión con el password maestro.
+After building, run the generated binary for your platform and unlock with the master password.
