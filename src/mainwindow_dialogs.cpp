@@ -460,12 +460,6 @@ void MainWindow::openConfigurationDialog() {
                     m_actionConfirmEnabled ? QStringLiteral("on") : QStringLiteral("off"),
                     QString::number(m_logMaxSizeMb)));
     if (langChanged) {
-        QMessageBox::information(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_lang_saved_001"),
-                QStringLiteral("Idioma guardado. Se aplicará completamente al reiniciar la aplicación."),
-                QStringLiteral("Language saved. It will be fully applied after restarting the application."),
-                QStringLiteral("语言已保存。重启应用后将完全生效。")));
+        applyLanguageLive();
     }
 }

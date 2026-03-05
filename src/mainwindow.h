@@ -196,6 +196,7 @@ private:
     void openConfigurationDialog();
     void loadUiSettings();
     void saveUiSettings() const;
+    void applyLanguageLive();
     bool selectItemsDialog(const QString& title, const QString& intro, const QStringList& items, QStringList& selected);
     bool confirmActionExecution(const QString& actionName, const QStringList& commands, bool forceDialog = false);
     QString buildSshPreviewCommand(const ConnectionProfile& p, const QString& remoteCmd) const;

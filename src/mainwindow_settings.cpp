@@ -1,7 +1,13 @@
 #include "mainwindow.h"
 #include "i18nmanager.h"
 
+#include <QComboBox>
+#include <QMenuBar>
+#include <QPlainTextEdit>
 #include <QSettings>
+#include <QTableWidgetItem>
+#include <QTextEdit>
+#include <QTreeWidgetItem>
 
 QString MainWindow::trk(const QString& key, const QString& es, const QString& en, const QString& zh) const {
     return I18nManager::instance().translateKey(m_language, key, es, en, zh);
@@ -40,4 +46,102 @@ void MainWindow::saveUiSettings() const {
     ini.setValue(QStringLiteral("language"), m_language);
     ini.endGroup();
     ini.sync();
+}
+
+void MainWindow::applyLanguageLive() {
+    const int leftTabIndex = m_leftTabs ? m_leftTabs->currentIndex() : 0;
+    const QString originPool = m_originPoolCombo ? m_originPoolCombo->currentData().toString() : QString();
+    const QString destPool = m_destPoolCombo ? m_destPoolCombo->currentData().toString() : QString();
+    const QString advPool = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
+
+    QString selectedConnId;
+    if (m_connectionsList) {
+        const auto selected = m_connectionsList->selectedItems();
+        if (!selected.isEmpty()) {
+            QTreeWidgetItem* item = selected.first();
+            while (item && item->parent()) {
+                item = item->parent();
+            }
+            const int idx = item ? item->data(0, Qt::UserRole).toInt() : -1;
+            if (idx >= 0 && idx < m_profiles.size()) {
+                selectedConnId = m_profiles[idx].id;
+            }
+        }
+    }
+
+    const QString appLogText = m_logView ? m_logView->toPlainText() : QString();
+    QMap<QString, QString> connectionLogs;
+    for (auto it = m_connectionLogViews.constBegin(); it != m_connectionLogViews.constEnd(); ++it) {
+        if (it.value()) {
+            connectionLogs.insert(it.key(), it.value()->toPlainText());
+        }
+    }
+    const QString statusText = m_statusText ? m_statusText->toPlainText() : QString();
+    const QString detailText = m_lastDetailText ? m_lastDetailText->toPlainText() : QString();
+
+    m_connectionLogViews.clear();
+    if (QWidget* old = takeCentralWidget()) {
+        old->deleteLater();
+    }
+    if (menuBar()) {
+        menuBar()->clear();
+    }
+
+    buildUi();
+    loadConnections();
+
+    if (m_logView) {
+        m_logView->setPlainText(appLogText);
+        trimLogWidget(m_logView);
+    }
+    for (auto it = connectionLogs.constBegin(); it != connectionLogs.constEnd(); ++it) {
+        QPlainTextEdit* view = m_connectionLogViews.value(it.key(), nullptr);
+        if (!view) {
+            continue;
+        }
+        view->setPlainText(it.value());
+        trimLogWidget(view);
+    }
+    if (m_statusText) {
+        m_statusText->setPlainText(statusText);
+    }
+    if (m_lastDetailText) {
+        m_lastDetailText->setPlainText(detailText);
+    }
+
+    auto restoreCombo = [](QComboBox* combo, const QString& token) {
+        if (!combo || token.isEmpty()) {
+            return;
+        }
+        const int idx = combo->findData(token);
+        if (idx >= 0) {
+            combo->setCurrentIndex(idx);
+        }
+    };
+    restoreCombo(m_originPoolCombo, originPool);
+    restoreCombo(m_destPoolCombo, destPool);
+    restoreCombo(m_advPoolCombo, advPool);
+
+    if (!selectedConnId.isEmpty() && m_connectionsList) {
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            if (m_profiles[i].id != selectedConnId) {
+                continue;
+            }
+            if (QTreeWidgetItem* top = m_connectionsList->topLevelItem(i)) {
+                m_connectionsList->setCurrentItem(top);
+            }
+            break;
+        }
+    }
+    if (m_leftTabs) {
+        const int idx = qBound(0, leftTabIndex, m_leftTabs->count() - 1);
+        m_leftTabs->setCurrentIndex(idx);
+    }
+
+    refreshTransferSelectionLabels();
+    updateAdvancedSelectionUi(m_advPropsDataset, QString());
+    updateStatus(trk(QStringLiteral("t_lang_applied_001"),
+                     QStringLiteral("Estado: idioma aplicado"),
+                     QStringLiteral("Status: language applied"),
+                     QStringLiteral("状态：语言已应用")));
 }
