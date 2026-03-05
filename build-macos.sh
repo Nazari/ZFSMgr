@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build-macos"
 BUNDLE_APP=0
+SELF_SIGN_CERT_NAME="${SELF_SIGN_CERT_NAME:-ZFSMgr Local Self-Signed}"
 EXTRA_CMAKE_ARGS=()
 
 for arg in "$@"; do
@@ -13,6 +14,25 @@ for arg in "$@"; do
     EXTRA_CMAKE_ARGS+=("${arg}")
   fi
 done
+
+ensure_codesign_identity() {
+  local cert_name="$1"
+  if security find-identity -v -p codesigning | grep -F "\"${cert_name}\"" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  cat >&2 <<EOF
+Error: no se encontró la identidad de firma '${cert_name}'.
+Crea primero un certificado de firma de código autofirmado en "Keychain Access":
+1) Keychain Access > Certificate Assistant > Create a Certificate...
+2) Name: ${cert_name}
+3) Identity Type: Self Signed Root
+4) Certificate Type: Code Signing
+5) Guardarlo en tu llavero de login
+Luego vuelve a ejecutar: ./build-macos.sh --bundle
+EOF
+  exit 1
+}
 
 # Soporte Homebrew Apple Silicon e Intel.
 if [[ -d "/opt/homebrew/opt/qt@6" ]]; then
@@ -56,9 +76,10 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
     echo "Aviso: macdeployqt no encontrado; el .app puede no ser portable fuera de este equipo."
   fi
 
-  # Garantiza que la app quede sin firma.
-  /usr/bin/codesign --remove-signature "${APP_BUNDLE}" >/dev/null 2>&1 || true
-  echo "App macOS creada (sin firmar): ${APP_BUNDLE}"
+  ensure_codesign_identity "${SELF_SIGN_CERT_NAME}"
+  /usr/bin/codesign --force --deep --sign "${SELF_SIGN_CERT_NAME}" --timestamp=none "${APP_BUNDLE}"
+  /usr/bin/codesign --verify --deep --strict "${APP_BUNDLE}"
+  echo "App macOS creada y firmada con certificado autofirmado: ${APP_BUNDLE}"
 else
   echo "Empaquetado .app omitido (usa --bundle para generarlo)."
 fi
