@@ -462,6 +462,10 @@ void MainWindow::refreshSelectedPoolDetails() {
     if (m_poolStatusImportBtn) {
         m_poolStatusImportBtn->setEnabled(false);
     }
+    if (m_poolStatusRefreshBtn) {
+        m_poolStatusRefreshBtn->setProperty("zfsmgr_can_refresh", false);
+        m_poolStatusRefreshBtn->setEnabled(false);
+    }
     if (m_poolStatusExportBtn) {
         m_poolStatusExportBtn->setEnabled(false);
     }
@@ -494,6 +498,10 @@ void MainWindow::refreshSelectedPoolDetails() {
                             && poolState == QStringLiteral("ONLINE"));
     const bool canScrub = canExport && poolState == QStringLiteral("ONLINE");
     const bool canDestroy = canExport;
+    if (m_poolStatusRefreshBtn) {
+        m_poolStatusRefreshBtn->setProperty("zfsmgr_can_refresh", canExport);
+        m_poolStatusRefreshBtn->setEnabled(!actionsLocked() && canExport);
+    }
     if (m_poolStatusExportBtn) {
         m_poolStatusExportBtn->setEnabled(!actionsLocked() && canExport);
     }

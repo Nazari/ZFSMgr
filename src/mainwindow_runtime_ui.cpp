@@ -93,7 +93,10 @@ void MainWindow::setActionsLocked(bool locked) {
     if (m_btnRefreshAll) m_btnRefreshAll->setEnabled(!locked);
     if (m_btnConfig) m_btnConfig->setEnabled(!locked);
     if (m_btnPoolNew) m_btnPoolNew->setEnabled(!locked && selectedConnectionIndexForPoolManagement() >= 0);
-    if (m_poolStatusRefreshBtn) m_poolStatusRefreshBtn->setEnabled(!locked);
+    if (m_poolStatusRefreshBtn) {
+        const bool canRefresh = m_poolStatusRefreshBtn->property("zfsmgr_can_refresh").toBool();
+        m_poolStatusRefreshBtn->setEnabled(!locked && canRefresh);
+    }
     if (m_poolStatusImportBtn) m_poolStatusImportBtn->setEnabled(!locked && m_poolStatusImportBtn->isEnabled());
     if (m_poolStatusExportBtn) m_poolStatusExportBtn->setEnabled(!locked && m_poolStatusExportBtn->isEnabled());
     if (m_poolStatusScrubBtn) m_poolStatusScrubBtn->setEnabled(!locked && m_poolStatusScrubBtn->isEnabled());
