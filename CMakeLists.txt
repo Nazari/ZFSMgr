@@ -22,6 +22,7 @@ qt_add_executable(zfsmgr_qt
     src/mainwindow_pool_create.cpp
     src/mainwindow_selection.cpp
     src/mainwindow_dataset_tree.cpp
+    src/mainwindow_dataset_props.cpp
     src/mainwindow_settings.cpp
     src/mainwindow_logging.cpp
     src/mainwindow.h
