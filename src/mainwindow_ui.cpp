@@ -67,9 +67,9 @@ void MainWindow::buildUi() {
 
     QMenu* appMenu = menuBar()->addMenu(
         trk(QStringLiteral("t_menu_main_001"),
-            QStringLiteral("Configuración"),
-            QStringLiteral("Configuration"),
-            QStringLiteral("配置")));
+            QStringLiteral("Menú"),
+            QStringLiteral("Menu"),
+            QStringLiteral("菜单")));
     m_menuConfigAction = appMenu->addAction(
         trk(QStringLiteral("t_config_001"),
             QStringLiteral("Configuración"),
