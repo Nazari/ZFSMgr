@@ -6,29 +6,6 @@
 namespace {
 using mwhelpers::oneLine;
 
-QString parseOpenZfsVersionText(const QString& text) {
-    if (text.trimmed().isEmpty()) {
-        return QString();
-    }
-    const QString lower = text.toLower();
-    const QList<QRegularExpression> patterns = {
-        QRegularExpression(QStringLiteral("\\bzfs(?:-kmod)?[-\\s]+(\\d+\\.\\d+(?:\\.\\d+)?)\\b")),
-        QRegularExpression(QStringLiteral("\\bopenzfs(?:[-\\s]+version)?[:\\s]+(\\d+\\.\\d+(?:\\.\\d+)?)\\b")),
-        QRegularExpression(QStringLiteral("\\b(?:zfs|zpool)[^\\r\\n]*?\\b(\\d+\\.\\d+(?:\\.\\d+)?)\\b")),
-    };
-    for (const QRegularExpression& rx : patterns) {
-        const QRegularExpressionMatch m = rx.match(lower);
-        if (m.hasMatch()) {
-            const QString ver = m.captured(1);
-            const int major = ver.section('.', 0, 0).toInt();
-            if (major <= 10) {
-                return ver;
-            }
-        }
-    }
-    return QString();
-}
-
 QStringList zfsmgrUnixCommandSet() {
     return {
         QStringLiteral("uname"),
@@ -169,7 +146,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         if (!runSsh(p, zfsVersionCmd, 12000, out, err, rc)) {
             continue;
         }
-        const QString parsed = parseOpenZfsVersionText(out + QStringLiteral("\n") + err);
+        const QString parsed = mwhelpers::parseOpenZfsVersionText(out + QStringLiteral("\n") + err);
         if (!parsed.isEmpty()) {
             state.zfsVersion = parsed;
             state.zfsVersionFull = oneLine((out + QStringLiteral(" ") + err).simplified());
@@ -294,82 +271,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         appLog(QStringLiteral("INFO"), QStringLiteral("%1: zpool list -> %2").arg(p.name, oneLine(err)));
     }
 
-    auto parseImportableStructured = [&](const QString& text) -> QVector<PoolImportable> {
-        QVector<PoolImportable> rows;
-        const QRegularExpression poolNameRx(QStringLiteral("^[A-Za-z0-9_.:-]+$"));
-        QString currentPool;
-        QString currentState;
-        QString currentReason;
-        bool collectingStatus = false;
-        auto flushCurrent = [&]() {
-            if (currentPool.isEmpty()) {
-                return;
-            }
-            if (!poolNameRx.match(currentPool).hasMatch()) {
-                currentPool.clear();
-                currentState.clear();
-                currentReason.clear();
-                collectingStatus = false;
-                return;
-            }
-            // Evita falsos positivos: un bloque válido debe tener al menos state o status.
-            if (currentState.isEmpty() && currentReason.isEmpty()) {
-                currentPool.clear();
-                collectingStatus = false;
-                return;
-            }
-            rows.push_back(PoolImportable{
-                p.name,
-                currentPool,
-                currentState.isEmpty() ? QStringLiteral("UNKNOWN") : currentState,
-                currentReason,
-                QStringLiteral("Importar"),
-            });
-            currentPool.clear();
-            currentState.clear();
-            currentReason.clear();
-            collectingStatus = false;
-        };
-        const QStringList lines = text.split('\n');
-        for (QString line : lines) {
-            line = line.trimmed();
-            if (line.startsWith(QStringLiteral("pool: "))) {
-                flushCurrent();
-                currentPool = line.mid(QStringLiteral("pool: ").size()).trimmed();
-                continue;
-            }
-            if (currentPool.isEmpty()) {
-                continue;
-            }
-            if (line.startsWith(QStringLiteral("state: "))) {
-                currentState = line.mid(QStringLiteral("state: ").size()).trimmed();
-                collectingStatus = false;
-                continue;
-            }
-            if (line.startsWith(QStringLiteral("status: "))) {
-                currentReason = line.mid(QStringLiteral("status: ").size()).trimmed();
-                collectingStatus = true;
-                continue;
-            }
-            if (collectingStatus) {
-                if (line.startsWith(QStringLiteral("action:")) || line.startsWith(QStringLiteral("see:")) || line.startsWith(QStringLiteral("config:"))) {
-                    collectingStatus = false;
-                } else if (!line.isEmpty()) {
-                    currentReason = (currentReason + QStringLiteral(" ") + line).trimmed();
-                    continue;
-                }
-            }
-            if (line.startsWith(QStringLiteral("cannot import"))) {
-                if (!currentReason.isEmpty()) {
-                    currentReason += QStringLiteral(" ");
-                }
-                currentReason += line;
-            }
-        }
-        flushCurrent();
-        return rows;
-    };
-
     const QStringList importProbeArgs = {
         QStringLiteral("zpool import"),
         QStringLiteral("zpool import -s"),
@@ -384,9 +285,18 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             continue;
         }
         const QString merged = out + QStringLiteral("\n") + err;
-        QVector<PoolImportable> parsed = parseImportableStructured(merged);
+        const QVector<mwhelpers::ImportablePoolInfo> parsed = mwhelpers::parseZpoolImportOutput(merged);
         if (!parsed.isEmpty()) {
-            state.importablePools = parsed;
+            state.importablePools.clear();
+            for (const auto& row : parsed) {
+                state.importablePools.push_back(PoolImportable{
+                    p.name,
+                    row.pool,
+                    row.state,
+                    row.reason,
+                    QStringLiteral("Importar"),
+                });
+            }
             importablesFound = true;
             break;
         }
