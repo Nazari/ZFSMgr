@@ -336,32 +336,7 @@ bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext
                 effectiveMp = mpRaw.trimmed();
             }
         }
-        QString dsPs = ctx.datasetName;
-        dsPs.replace('\'', QStringLiteral("''"));
-        QString mpPs = effectiveMp.trimmed();
-        mpPs.replace('\'', QStringLiteral("''"));
-        const QString precheckCmd = QStringLiteral(
-            "$ds='%1'; "
-            "$mp='%2'; "
-            "if ([string]::IsNullOrWhiteSpace($mp) -or $mp -eq '-' -or $mp -eq 'none') { "
-            "  throw ('mountpoint efectivo no resuelto para ' + $ds) "
-            "}; "
-            "$exists = Test-Path -LiteralPath $mp; "
-            "$mapped = $false; "
-            "foreach ($line in @(zfs mount 2>$null)) { "
-            "  if ($line -match '^\\s*(\\S+)\\s+(.+)$') { "
-            "    $d = $Matches[1].Trim(); "
-            "    $m = $Matches[2].Trim(); "
-            "    if ([string]::Equals($m, $mp, [System.StringComparison]::OrdinalIgnoreCase)) { "
-            "      if ($d -eq $ds) { $mapped = $true }; "
-            "      break; "
-            "    } "
-            "  } "
-            "}; "
-            "if ($exists -and -not $mapped) { "
-            "  throw ('mountpoint ocupado por ruta existente no-ZFS: ' + $mp) "
-            "}")
-                                       .arg(dsPs, mpPs);
+        const QString precheckCmd = mwhelpers::buildWindowsMountPrecheckCommand(ctx.datasetName, effectiveMp);
         QString preOut;
         QString preErr;
         int preRc = -1;
@@ -379,8 +354,7 @@ bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext
             return false;
         }
     }
-    const QString dsQ = shSingleQuote(ctx.datasetName);
-    const QString cmd = QStringLiteral("zfs mount %1").arg(dsQ);
+    const QString cmd = mwhelpers::buildSingleMountCommand(ctx.datasetName);
     return executeDatasetAction(side, QStringLiteral("Montar"), ctx, cmd);
 }
 
@@ -399,33 +373,11 @@ void MainWindow::actionMountDatasetWithChildren(const QString& side) {
         return;
     }
     if (isWindowsConnection(ctx.connIdx)) {
-        QString dsPs = ctx.datasetName;
-        dsPs.replace('\'', QStringLiteral("''"));
-        const QString cmd = QStringLiteral(
-                                "$ds='%1'; "
-                                "$items = @(zfs list -H -o name -r $ds 2>$null); "
-                                "if ($LASTEXITCODE -ne 0) { throw 'zfs list failed' }; "
-                                "foreach ($child in $items) { "
-                                "  if ([string]::IsNullOrWhiteSpace($child)) { continue }; "
-                                "  $m = (zfs get -H -o value mounted $child 2>$null | Out-String).Trim().ToLower(); "
-                                "  if ($m -ne 'yes' -and $m -ne 'on' -and $m -ne 'true' -and $m -ne '1') { "
-                                "    zfs mount $child 2>$null | Out-Null "
-                                "  } "
-                                "}")
-                                .arg(dsPs);
+        const QString cmd = mwhelpers::buildMountChildrenCommand(true, ctx.datasetName);
         executeDatasetAction(side, QStringLiteral("Montar con todos los hijos"), ctx, cmd, 90000, true);
         return;
     }
-    const QString dsQ = shSingleQuote(ctx.datasetName);
-    const QString cmd = QStringLiteral(
-                            "set -e; DATASET=%1; "
-                            "zfs list -H -o name -r \"$DATASET\" | "
-                            "while IFS= read -r child; do "
-                            "  [ -n \"$child\" ] || continue; "
-                            "  mounted=$(zfs get -H -o value mounted \"$child\" 2>/dev/null || true); "
-                            "  case \"$mounted\" in yes|on|true|1) : ;; *) zfs mount \"$child\" ;; esac; "
-                            "done")
-                            .arg(dsQ);
+    const QString cmd = mwhelpers::buildMountChildrenCommand(false, ctx.datasetName);
     executeDatasetAction(side, QStringLiteral("Montar con todos los hijos"), ctx, cmd);
 }
 

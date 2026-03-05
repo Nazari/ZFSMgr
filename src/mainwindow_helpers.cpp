@@ -310,6 +310,67 @@ QString buildSingleUmountCommand(bool isWindows, const QString& datasetName) {
                      : QStringLiteral("zfs umount %1").arg(dsQ);
 }
 
+QString buildSingleMountCommand(const QString& datasetName) {
+    return QStringLiteral("zfs mount %1").arg(shSingleQuote(datasetName));
+}
+
+QString buildMountChildrenCommand(bool isWindows, const QString& datasetName) {
+    if (isWindows) {
+        QString dsPs = datasetName;
+        dsPs.replace('\'', QStringLiteral("''"));
+        return QStringLiteral(
+                   "$ds='%1'; "
+                   "$items = @(zfs list -H -o name -r $ds 2>$null); "
+                   "if ($LASTEXITCODE -ne 0) { throw 'zfs list failed' }; "
+                   "foreach ($child in $items) { "
+                   "  if ([string]::IsNullOrWhiteSpace($child)) { continue }; "
+                   "  $m = (zfs get -H -o value mounted $child 2>$null | Out-String).Trim().ToLower(); "
+                   "  if ($m -ne 'yes' -and $m -ne 'on' -and $m -ne 'true' -and $m -ne '1') { "
+                   "    zfs mount $child 2>$null | Out-Null "
+                   "  } "
+                   "}")
+            .arg(dsPs);
+    }
+    return QStringLiteral(
+               "set -e; DATASET=%1; "
+               "zfs list -H -o name -r \"$DATASET\" | "
+               "while IFS= read -r child; do "
+               "  [ -n \"$child\" ] || continue; "
+               "  mounted=$(zfs get -H -o value mounted \"$child\" 2>/dev/null || true); "
+               "  case \"$mounted\" in yes|on|true|1) : ;; *) zfs mount \"$child\" ;; esac; "
+               "done")
+        .arg(shSingleQuote(datasetName));
+}
+
+QString buildWindowsMountPrecheckCommand(const QString& datasetName, const QString& effectiveMountpoint) {
+    QString dsPs = datasetName;
+    dsPs.replace('\'', QStringLiteral("''"));
+    QString mpPs = effectiveMountpoint.trimmed();
+    mpPs.replace('\'', QStringLiteral("''"));
+    return QStringLiteral(
+               "$ds='%1'; "
+               "$mp='%2'; "
+               "if ([string]::IsNullOrWhiteSpace($mp) -or $mp -eq '-' -or $mp -eq 'none') { "
+               "  throw ('mountpoint efectivo no resuelto para ' + $ds) "
+               "}; "
+               "$exists = Test-Path -LiteralPath $mp; "
+               "$mapped = $false; "
+               "foreach ($line in @(zfs mount 2>$null)) { "
+               "  if ($line -match '^\\s*(\\S+)\\s+(.+)$') { "
+               "    $d = $Matches[1].Trim(); "
+               "    $m = $Matches[2].Trim(); "
+               "    if ([string]::Equals($m, $mp, [System.StringComparison]::OrdinalIgnoreCase)) { "
+               "      if ($d -eq $ds) { $mapped = $true }; "
+               "      break; "
+               "    } "
+               "  } "
+               "}; "
+               "if ($exists -and -not $mapped) { "
+               "  throw ('mountpoint ocupado por ruta existente no-ZFS: ' + $mp) "
+               "}")
+        .arg(dsPs, mpPs);
+}
+
 QString sshControlPath() {
 #ifdef Q_OS_MAC
     return QStringLiteral("/tmp/zfsmgr-%C");

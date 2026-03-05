@@ -125,6 +125,25 @@ int main() {
         }
     }
 
+    {
+        if (buildSingleMountCommand("pool/a") != "zfs mount 'pool/a'") {
+            return fail("buildSingleMountCommand mismatch");
+        }
+        const QString cmdUnix = buildMountChildrenCommand(false, "pool/a");
+        if (!cmdUnix.contains("DATASET='pool/a'") || !cmdUnix.contains("zfs list -H -o name -r")) {
+            return fail("buildMountChildrenCommand unix mismatch");
+        }
+        const QString cmdWin = buildMountChildrenCommand(true, "pool/a");
+        if (!cmdWin.contains("$items = @(zfs list -H -o name -r $ds") || !cmdWin.contains("zfs mount $child")) {
+            return fail("buildMountChildrenCommand windows mismatch");
+        }
+        const QString precheck = buildWindowsMountPrecheckCommand("pool/a", "Z:\\Data");
+        if (!precheck.contains("$ds='pool/a'") || !precheck.contains("$mp='Z:\\Data'")
+            || !precheck.contains("mountpoint ocupado por ruta existente no-ZFS")) {
+            return fail("buildWindowsMountPrecheckCommand mismatch");
+        }
+    }
+
     if (!looksLikePowerShellScript("Get-ChildItem -Path C:\\")) {
         return fail("looksLikePowerShellScript should detect powershell verbs");
     }

@@ -58,6 +58,9 @@ QVector<MountpointConflict> externalMountpointConflicts(const QMap<QString, QStr
 QString buildHasMountedChildrenCommand(bool isWindows, const QString& datasetName);
 QString buildRecursiveUmountCommand(bool isWindows, const QString& datasetName);
 QString buildSingleUmountCommand(bool isWindows, const QString& datasetName);
+QString buildSingleMountCommand(const QString& datasetName);
+QString buildMountChildrenCommand(bool isWindows, const QString& datasetName);
+QString buildWindowsMountPrecheckCommand(const QString& datasetName, const QString& effectiveMountpoint);
 QString sshControlPath();
 QString sshBaseCommand(const ConnectionProfile& p);
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd);
