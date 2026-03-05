@@ -20,8 +20,12 @@
 #include <QVBoxLayout>
 
 namespace {
-QString tr3l(const QString& lang, const QString& es, const QString& en, const QString& zh) {
-    return I18nManager::instance().translate(lang, es, en, zh);
+QString trkl(const QString& lang,
+             const QString& key,
+             const QString& es = QString(),
+             const QString& en = QString(),
+             const QString& zh = QString()) {
+    return I18nManager::instance().translateKey(lang, key, es, en, zh);
 }
 
 QString prettifyCommandText(const QString& cmd) {
@@ -55,83 +59,97 @@ QString pseudoStepForSegment(const QString& segmentRaw, const QString& lang) {
     const QString s = segment.toLower();
     if (s.contains(QStringLiteral("ssh "))) {
         if (s.contains(QStringLiteral("zfs send"))) {
-            return tr3l(lang,
+            return trkl(lang,
+                        QStringLiteral("t_psd_ssh_send01"),
                         QStringLiteral("Conectar por SSH al origen y enviar stream ZFS (`zfs send`)."),
                         QStringLiteral("Connect over SSH to source and send ZFS stream (`zfs send`)."),
                         QStringLiteral("通过 SSH 连接源端并发送 ZFS 数据流（`zfs send`）。"));
         }
         if (s.contains(QStringLiteral("zfs recv"))) {
-            return tr3l(lang,
+            return trkl(lang,
+                        QStringLiteral("t_psd_ssh_recv01"),
                         QStringLiteral("Conectar por SSH al destino y recibir stream ZFS (`zfs recv`)."),
                         QStringLiteral("Connect over SSH to target and receive ZFS stream (`zfs recv`)."),
                         QStringLiteral("通过 SSH 连接目标端并接收 ZFS 数据流（`zfs recv`）。"));
         }
         if (s.contains(QStringLiteral("zpool export"))) {
-            return tr3l(lang,
+            return trkl(lang,
+                        QStringLiteral("t_psd_ssh_exp01"),
                         QStringLiteral("Conectar por SSH y exportar pool (`zpool export`)."),
                         QStringLiteral("Connect over SSH and export pool (`zpool export`)."),
                         QStringLiteral("通过 SSH 连接并导出池（`zpool export`）。"));
         }
         if (s.contains(QStringLiteral("zpool import"))) {
-            return tr3l(lang,
+            return trkl(lang,
+                        QStringLiteral("t_psd_ssh_imp01"),
                         QStringLiteral("Conectar por SSH e importar pool (`zpool import`)."),
                         QStringLiteral("Connect over SSH and import pool (`zpool import`)."),
                         QStringLiteral("通过 SSH 连接并导入池（`zpool import`）。"));
         }
-        return tr3l(lang,
+        return trkl(lang,
+                    QStringLiteral("t_psd_ssh_exec01"),
                     QStringLiteral("Conectar por SSH y ejecutar comando remoto."),
                     QStringLiteral("Connect over SSH and execute remote command."),
                     QStringLiteral("通过 SSH 连接并执行远程命令。"));
     }
     if (s.contains(QStringLiteral("pv -trab"))) {
-        return tr3l(lang,
+        return trkl(lang,
+                    QStringLiteral("t_psd_pv_prog01"),
                     QStringLiteral("Mostrar progreso de transferencia con `pv`."),
                     QStringLiteral("Show transfer progress with `pv`."),
                     QStringLiteral("用 `pv` 显示传输进度。"));
     }
     if (s.contains(QStringLiteral("zfs send"))) {
-        return tr3l(lang,
+        return trkl(lang,
+                    QStringLiteral("t_psd_send_gen01"),
                     QStringLiteral("Generar stream ZFS desde snapshot/dataset (`zfs send`)."),
                     QStringLiteral("Generate ZFS stream from snapshot/dataset (`zfs send`)."),
                     QStringLiteral("从快照/数据集生成 ZFS 数据流（`zfs send`）。"));
     }
     if (s.contains(QStringLiteral("zfs recv"))) {
-        return tr3l(lang,
+        return trkl(lang,
+                    QStringLiteral("t_psd_recv_app01"),
                     QStringLiteral("Aplicar stream ZFS en destino (`zfs recv`)."),
                     QStringLiteral("Apply ZFS stream on target (`zfs recv`)."),
                     QStringLiteral("在目标端应用 ZFS 数据流（`zfs recv`）。"));
     }
     if (s.contains(QStringLiteral("zfs rollback"))) {
-        return tr3l(lang,
+        return trkl(lang,
+                    QStringLiteral("t_psd_rollbck01"),
                     QStringLiteral("Revertir dataset al snapshot seleccionado (`zfs rollback`)."),
                     QStringLiteral("Rollback dataset to selected snapshot (`zfs rollback`)."),
                     QStringLiteral("将数据集回滚到选定快照（`zfs rollback`）。"));
     }
     if (s.contains(QStringLiteral("zfs mount")) || s.contains(QStringLiteral("zfs unmount"))) {
-        return tr3l(lang,
+        return trkl(lang,
+                    QStringLiteral("t_psd_mountop01"),
                     QStringLiteral("Montar/desmontar dataset ZFS."),
                     QStringLiteral("Mount/unmount ZFS dataset."),
                     QStringLiteral("挂载/卸载 ZFS 数据集。"));
     }
     if (s.contains(QStringLiteral("zfs set ")) || s.contains(QStringLiteral("zfs get "))) {
-        return tr3l(lang,
+        return trkl(lang,
+                    QStringLiteral("t_psd_zfsprop01"),
                     QStringLiteral("Modificar/consultar propiedades ZFS."),
                     QStringLiteral("Modify/query ZFS properties."),
                     QStringLiteral("修改/查询 ZFS 属性。"));
     }
     if (s.contains(QStringLiteral("powershell "))) {
-        return tr3l(lang,
+        return trkl(lang,
+                    QStringLiteral("t_psd_ps_exec01"),
                     QStringLiteral("Ejecutar script PowerShell."),
                     QStringLiteral("Execute PowerShell script."),
                     QStringLiteral("执行 PowerShell 脚本。"));
     }
     if (s.contains(QStringLiteral("sudo "))) {
-        return tr3l(lang,
+        return trkl(lang,
+                    QStringLiteral("t_psd_sudo_exec1"),
                     QStringLiteral("Elevar permisos con sudo y ejecutar comando."),
                     QStringLiteral("Elevate with sudo and execute command."),
                     QStringLiteral("通过 sudo 提权并执行命令。"));
     }
-    return tr3l(lang,
+    return trkl(lang,
+                QStringLiteral("t_psd_subcmd_001"),
                 QStringLiteral("Ejecutar subcomando: %1"),
                 QStringLiteral("Execute subcommand: %1"),
                 QStringLiteral("执行子命令：%1")).arg(segment.left(120));
@@ -181,12 +199,14 @@ QString formatCommandPreview(const QString& input, const QString& lang) {
     if (!header.isEmpty()) {
         out.push_back(header);
     }
-    out.push_back(tr3l(lang,
+    out.push_back(trkl(lang,
+                       QStringLiteral("t_psd_read_sum01"),
                        QStringLiteral("Resumen legible:"),
                        QStringLiteral("Readable summary:"),
                        QStringLiteral("可读摘要：")));
     if (pseudo.isEmpty()) {
-        out.push_back(tr3l(lang,
+        out.push_back(trkl(lang,
+                           QStringLiteral("t_psd_exec_cmd01"),
                            QStringLiteral("  1. Ejecutar comando."),
                            QStringLiteral("  1. Execute command."),
                            QStringLiteral("  1. 执行命令。")));
@@ -198,7 +218,8 @@ QString formatCommandPreview(const QString& input, const QString& lang) {
 
     if (!decodedBlocks.isEmpty()) {
         out.push_back(QStringLiteral(""));
-        out.push_back(tr3l(lang,
+        out.push_back(trkl(lang,
+                           QStringLiteral("t_psd_ps_dec001"),
                            QStringLiteral("PowerShell decodificado:"),
                            QStringLiteral("Decoded PowerShell:"),
                            QStringLiteral("解码后的 PowerShell：")));
@@ -209,7 +230,8 @@ QString formatCommandPreview(const QString& input, const QString& lang) {
     }
 
     out.push_back(QStringLiteral(""));
-    out.push_back(tr3l(lang,
+    out.push_back(trkl(lang,
+                       QStringLiteral("t_psd_cmd_real01"),
                        QStringLiteral("Comando real (formateado):"),
                        QStringLiteral("Actual command (formatted):"),
                        QStringLiteral("实际命令（已格式化）：")));
