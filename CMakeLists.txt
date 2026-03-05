@@ -16,6 +16,7 @@ qt_add_executable(zfsmgr_qt
     src/main.cpp
     src/mainwindow.cpp
     src/mainwindow_ui.cpp
+    src/mainwindow_dialogs.cpp
     src/mainwindow_settings.cpp
     src/mainwindow_logging.cpp
     src/mainwindow.h
