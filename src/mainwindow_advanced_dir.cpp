@@ -382,6 +382,14 @@ void MainWindow::actionAdvancedCreateFromDir() {
     QCheckBox* parentsChk = new QCheckBox(trk(QStringLiteral("t_advdir_auto017"), QStringLiteral("Crear padres (-p)"), QStringLiteral("Create parents (-p)"), QStringLiteral("创建父级(-p)")), optsWidget);
     parentsChk->setChecked(true);
     optsLay->addWidget(parentsChk);
+    QCheckBox* deleteSourceDirChk = new QCheckBox(
+        trk(QStringLiteral("t_advdir_del_src01"),
+            QStringLiteral("Borrar directorio fuente tras copiar"),
+            QStringLiteral("Delete source directory after copy"),
+            QStringLiteral("复制后删除源目录")),
+        optsWidget);
+    deleteSourceDirChk->setChecked(false);
+    optsLay->addWidget(deleteSourceDirChk);
     optsLay->addStretch(1);
     form->addWidget(optsWidget, row, 0, 1, 4);
     row++;
@@ -524,6 +532,7 @@ void MainWindow::actionAdvancedCreateFromDir() {
     }
 
     const bool isWin = isWindowsConnection(ctx.connIdx);
+    const bool deleteSourceDir = deleteSourceDirChk->isChecked();
     const QString createCmd = buildZfsCreateCmd(opt);
     QString cmd;
     bool allowWindowsScript = false;
@@ -575,13 +584,19 @@ void MainWindow::actionAdvancedCreateFromDir() {
                   "  echo 'failed to switch mountpoint to destination directory'; "
                   "  exit 5; "
                   "fi; "
-                  "rm -rf \"$BACKUP_DIR\"; "
+                  "if [ %4 -eq 1 ]; then "
+                  "  rm -rf \"$BACKUP_DIR\"; "
+                  "  BACKUP_DIR=''; "
+                  "else "
+                  "  echo \"[FROMDIR] source preserved at $BACKUP_DIR\"; "
+                  "fi; "
                   "BACKUP_DIR=''; "
                   "trap - EXIT INT TERM; "
                   "rmdir \"$TMP_MP\" >/dev/null 2>&1 || true")
                   .arg(shSingleQuote(opt.datasetPath),
                        shSingleQuote(selectedMountDir),
-                       createCmd);
+                       createCmd,
+                       deleteSourceDir ? QStringLiteral("1") : QStringLiteral("0"));
     } else {
         allowWindowsScript = true;
         auto psSingle = [](const QString& v) {
@@ -593,6 +608,7 @@ void MainWindow::actionAdvancedCreateFromDir() {
                   "$ErrorActionPreference = 'Stop'; "
                   "$dataset = %1; "
                   "$srcDir = %2; "
+                  "$deleteSrc = %4; "
                   "if (-not (Test-Path -LiteralPath $srcDir -PathType Container)) { throw 'source directory does not exist'; } "
                   "$srcDir = (Resolve-Path -LiteralPath $srcDir).Path; "
                   "%3; "
@@ -608,10 +624,16 @@ void MainWindow::actionAdvancedCreateFromDir() {
                   "if ([string]::Equals($activeMp, $srcDir, [System.StringComparison]::OrdinalIgnoreCase)) { throw 'mountpoint already in use'; } "
                   "$null = robocopy $srcDir $activeMp /E /COPYALL /R:1 /W:1 /NFL /NDL /NP; "
                   "if ($LASTEXITCODE -ge 8) { throw ('robocopy failed with code ' + $LASTEXITCODE); } "
+                  "if ($deleteSrc -eq 1) { "
+                  "  Get-ChildItem -LiteralPath $srcDir -Force -ErrorAction SilentlyContinue | ForEach-Object { "
+                  "    Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue "
+                  "  } "
+                  "} "
                   "Write-Output ('[FROMDIR] copied to effective mountpoint: ' + $activeMp)")
                   .arg(psSingle(opt.datasetPath),
                        psSingle(selectedMountDir),
-                       createCmd);
+                       createCmd,
+                       deleteSourceDir ? QStringLiteral("1") : QStringLiteral("0"));
     }
     executeDatasetAction(QStringLiteral("advanced"),
                          trk(QStringLiteral("t_advdir_auto024"), QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")),
@@ -667,11 +689,11 @@ void MainWindow::actionAdvancedToDir() {
     root->setSpacing(8);
 
     QLabel* intro = new QLabel(
-        trk(QStringLiteral("t_advdir_auto028"), QStringLiteral("Se copiará el contenido de %1 a un directorio local y luego se destruirá el dataset.")
+        trk(QStringLiteral("t_advdir_auto028"), QStringLiteral("Se copiará el contenido de %1 a un directorio local. Puede elegir si destruir el dataset fuente.")
                 .arg(ds),
-            QStringLiteral("Contents of %1 will be copied to a local directory and dataset will then be destroyed.")
+            QStringLiteral("Contents of %1 will be copied to a local directory. You can choose whether to destroy the source dataset.")
                 .arg(ds),
-            QStringLiteral("将把 %1 的内容复制到本地目录，随后销毁该数据集。")
+            QStringLiteral("将把 %1 的内容复制到本地目录。您可以选择是否销毁源数据集。")
                 .arg(ds)),
         &dlg);
     intro->setWordWrap(true);
@@ -690,6 +712,15 @@ void MainWindow::actionAdvancedToDir() {
     dirRow->addWidget(dirEdit, 1);
     dirRow->addWidget(browseBtn, 0);
     root->addLayout(dirRow);
+
+    QCheckBox* deleteSourceDatasetChk = new QCheckBox(
+        trk(QStringLiteral("t_advdir_del_ds001"),
+            QStringLiteral("Borrar dataset fuente tras copiar"),
+            QStringLiteral("Delete source dataset after copy"),
+            QStringLiteral("复制后删除源数据集")),
+        &dlg);
+    deleteSourceDatasetChk->setChecked(false);
+    root->addWidget(deleteSourceDatasetChk);
 
     QObject::connect(browseBtn, &QPushButton::clicked, &dlg, [&]() {
         const QString picked = QFileDialog::getExistingDirectory(
@@ -723,6 +754,7 @@ void MainWindow::actionAdvancedToDir() {
         return;
     }
     const QString localDir = dirEdit->text().trimmed();
+    const bool deleteSourceDataset = deleteSourceDatasetChk->isChecked();
 
     const bool isWin = isWindowsConnection(ctx.connIdx);
     QString cmd;
@@ -777,13 +809,19 @@ void MainWindow::actionAdvancedToDir() {
                   "fi; "
                   "mv \"$TMP_OUT\" \"$DST_DIR\"; "
                   "zfs umount \"$DATASET\" >/dev/null 2>&1 || true; "
-                  "zfs destroy -r \"$DATASET\"; "
+                  "if [ %3 -eq 1 ]; then "
+                  "  zfs destroy -r \"$DATASET\"; "
+                  "else "
+                  "  zfs set mountpoint=\"$OLD_MP\" \"$DATASET\" >/dev/null 2>&1 || true; "
+                  "  if [ \"$OLD_MOUNTED\" = \"yes\" ] || [ \"$OLD_MOUNTED\" = \"on\" ]; then zfs mount \"$DATASET\" >/dev/null 2>&1 || true; fi; "
+                  "fi; "
                   "if [ -n \"$BACKUP_DIR\" ]; then rm -rf \"$BACKUP_DIR\"; fi; "
                   "RESTORE_NEEDED=0; "
                   "trap - EXIT INT TERM; "
                   "rm -rf \"$TMP_MP\" >/dev/null 2>&1 || true")
                   .arg(shSingleQuote(ds),
-                       shSingleQuote(localDir));
+                       shSingleQuote(localDir),
+                       deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0"));
     } else {
         allowWindowsScript = true;
         auto psSingle = [](const QString& v) {
@@ -795,6 +833,7 @@ void MainWindow::actionAdvancedToDir() {
                   "$ErrorActionPreference = 'Stop'; "
                   "$dataset = %1; "
                   "$dstDir = %2; "
+                  "$deleteSrc = %3; "
                   "$dstParent = Split-Path -Parent $dstDir; "
                   "if ([string]::IsNullOrWhiteSpace($dstParent)) { throw 'invalid destination directory'; } "
                   "if (-not (Test-Path -LiteralPath $dstParent)) { New-Item -ItemType Directory -Force -Path $dstParent | Out-Null; } "
@@ -835,7 +874,12 @@ void MainWindow::actionAdvancedToDir() {
                   "  } "
                   "  Move-Item -LiteralPath $tmpOut -Destination $dstDir; "
                   "  zfs unmount $dataset 2>$null | Out-Null; "
-                  "  zfs destroy -r $dataset | Out-Null; "
+                  "  if ($deleteSrc -eq 1) { "
+                  "    zfs destroy -r $dataset | Out-Null; "
+                  "  } else { "
+                  "    if ($oldMp) { zfs set mountpoint=$oldMp $dataset 2>$null | Out-Null; } "
+                  "    if ($oldMounted -match '^(yes|on)$') { zfs mount $dataset 2>$null | Out-Null; } "
+                  "  } "
                   "  if ($backupDir -and (Test-Path -LiteralPath $backupDir)) { Remove-Item -LiteralPath $backupDir -Recurse -Force; } "
                   "  $restoreNeeded = $false; "
                   "} catch { "
@@ -853,7 +897,8 @@ void MainWindow::actionAdvancedToDir() {
                   "  if (Test-Path -LiteralPath $tmpOut) { Remove-Item -LiteralPath $tmpOut -Recurse -Force -ErrorAction SilentlyContinue; } "
                   "}")
                   .arg(psSingle(ds),
-                       psSingle(localDir));
+                       psSingle(localDir),
+                       deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0"));
     }
 
     executeDatasetAction(QStringLiteral("advanced"),
