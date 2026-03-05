@@ -45,7 +45,8 @@ void MainWindow::actionCopySnapshot() {
     QString pipeline;
     if (sameConnection) {
         appLog(QStringLiteral("INFO"),
-               tr3(QStringLiteral("Copiar: modo local remoto (origen y destino en la misma conexión)"),
+               trk(QStringLiteral("t_copiar_mod_b1d73e"),
+                   QStringLiteral("Copiar: modo local remoto (origen y destino en la misma conexión)"),
                    QStringLiteral("Copy: remote-local mode (source and target on same connection)"),
                    QStringLiteral("复制：远端本地模式（源和目标在同一连接）")));
         const QString remotePipe = withSudo(sp, buildPipedTransferCommand(sendRawCmd, recvRawCmd));
@@ -65,7 +66,8 @@ void MainWindow::actionLevelSnapshot() {
     const DatasetSelectionContext src = currentDatasetSelection(QStringLiteral("origin"));
     const DatasetSelectionContext dst = currentDatasetSelection(QStringLiteral("dest"));
     if (!src.valid || !dst.valid || src.datasetName.isEmpty() || dst.datasetName.isEmpty() || !dst.snapshotName.isEmpty()) {
-        appLog(QStringLiteral("INFO"), tr3(QStringLiteral("Nivelar omitido: selección incompleta (src.valid=%1 dst.valid=%2 src.dataset=%3 dst.dataset=%4 dst.snap=%5)"),
+        appLog(QStringLiteral("INFO"), trk(QStringLiteral("t_nivelar_om_fd38a5"),
+                                           QStringLiteral("Nivelar omitido: selección incompleta (src.valid=%1 dst.valid=%2 src.dataset=%3 dst.dataset=%4 dst.snap=%5)"),
                                            QStringLiteral("Level skipped: incomplete selection (src.valid=%1 dst.valid=%2 src.dataset=%3 dst.dataset=%4 dst.snap=%5)"),
                                            QStringLiteral("同步快照已跳过：选择不完整（src.valid=%1 dst.valid=%2 src.dataset=%3 dst.dataset=%4 dst.snap=%5）"))
                                       .arg(src.valid ? QStringLiteral("1") : QStringLiteral("0"))
@@ -171,7 +173,8 @@ void MainWindow::actionLevelSnapshot() {
     QString pipeline;
     if (sameConnection) {
         appLog(QStringLiteral("INFO"),
-               tr3(QStringLiteral("Nivelar: modo local remoto (origen y destino en la misma conexión)"),
+               trk(QStringLiteral("t_nivelar_mo_2edd21"),
+                   QStringLiteral("Nivelar: modo local remoto (origen y destino en la misma conexión)"),
                    QStringLiteral("Level: remote-local mode (source and target on same connection)"),
                    QStringLiteral("同步快照：远端本地模式（源和目标在同一连接）")));
         const QString remotePipe = withSudo(sp, buildPipedTransferCommand(sendRawCmd, recvRawCmd));
@@ -210,7 +213,8 @@ void MainWindow::actionSyncDatasets() {
         || !getDatasetProperty(dst.connIdx, dst.datasetName, QStringLiteral("mounted"), dstMounted)
         || !getDatasetProperty(dst.connIdx, dst.datasetName, QStringLiteral("canmount"), dstCanmount)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             tr3(QStringLiteral("No se pudieron leer mountpoints para sincronizar."),
+                             trk(QStringLiteral("t_no_se_pudi_4f5238"),
+                                 QStringLiteral("No se pudieron leer mountpoints para sincronizar."),
                                  QStringLiteral("Could not read mountpoints for synchronization."),
                                  QStringLiteral("无法读取用于同步的挂载点。")));
         return;
@@ -272,12 +276,10 @@ void MainWindow::actionSyncDatasets() {
         if (!isUsableMountPath(src.connIdx, srcEffectiveMp) || !isUsableMountPath(dst.connIdx, dstEffectiveMp)) {
             QMessageBox::warning(this,
                                  QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("No se pudo resolver el punto de montaje efectivo para sincronizar.\n"
-                                                    "Origen: %1\nDestino: %2"),
-                                     QStringLiteral("Could not resolve effective mountpoint for synchronization.\n"
-                                                    "Source: %1\nTarget: %2"),
-                                     QStringLiteral("无法解析用于同步的有效挂载点。\n"
-                                                    "源：%1\n目标：%2"))
+                                 trk(QStringLiteral("t_no_se_pudo_07b2ca"),
+                                     QStringLiteral("No se pudo resolver el punto de montaje efectivo para sincronizar.\nOrigen: %1\nDestino: %2"),
+                                     QStringLiteral("Could not resolve effective mountpoint for synchronization.\nSource: %1\nTarget: %2"),
+                                     QStringLiteral("无法解析用于同步的有效挂载点。\n源：%1\n目标：%2"))
                                      .arg(srcEffectiveMp, dstEffectiveMp));
             return;
         }
@@ -288,7 +290,8 @@ void MainWindow::actionSyncDatasets() {
             QString command;
             if (sameConnection) {
                 appLog(QStringLiteral("INFO"),
-                       tr3(QStringLiteral("Sincronizar: modo local remoto (tar, misma conexión)"),
+                       trk(QStringLiteral("t_sincroniza_aed9fc"),
+                           QStringLiteral("Sincronizar: modo local remoto (tar, misma conexión)"),
                            QStringLiteral("Sync: remote-local mode (tar, same connection)"),
                            QStringLiteral("同步：远端本地模式（tar，同一连接）")));
                 const QString remotePipe = buildPipedTransferCommand(srcTarCmd, dstTarCmd);
@@ -298,7 +301,8 @@ void MainWindow::actionSyncDatasets() {
                                                     sshExecFromLocal(dp, dstTarCmd));
             }
             appLog(QStringLiteral("WARN"),
-                   tr3(QStringLiteral("Sincronizar en Windows usa fallback tar/ssh (codec=%1, sin --delete)."),
+                   trk(QStringLiteral("t_sincroniza_6ccd2e"),
+                       QStringLiteral("Sincronizar en Windows usa fallback tar/ssh (codec=%1, sin --delete)."),
                        QStringLiteral("Sync on Windows uses tar/ssh fallback (codec=%1, no --delete)."),
                        QStringLiteral("Windows 上同步使用 tar/ssh 回退（编码=%1，无 --delete）。")).arg(streamCodecName(codec)));
             if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0, false, true)) {
@@ -310,7 +314,8 @@ void MainWindow::actionSyncDatasets() {
         QString command;
         if (sameConnection) {
             appLog(QStringLiteral("INFO"),
-                   tr3(QStringLiteral("Sincronizar: modo local remoto (rsync, misma conexión)"),
+                   trk(QStringLiteral("t_sincroniza_d0a688"),
+                       QStringLiteral("Sincronizar: modo local remoto (rsync, misma conexión)"),
                        QStringLiteral("Sync: remote-local mode (rsync, same connection)"),
                        QStringLiteral("同步：远端本地模式（rsync，同一连接）")));
             QString remoteRsync =
@@ -341,22 +346,18 @@ void MainWindow::actionSyncDatasets() {
     if ((!srcRootMounted && !srcCanmountOff) || (!dstRootMounted && !dstCanmountOff)) {
         QMessageBox::warning(this,
                              QStringLiteral("ZFSMgr"),
-                             tr3(QStringLiteral("Origen y destino deben estar montados para sincronizar,\n"
-                                                "o bien tener canmount=off con subdatasets montados.\n"
-                                                "Origen mounted=%1 canmount=%2\nDestino mounted=%3 canmount=%4"),
-                                 QStringLiteral("Source and target must be mounted to synchronize,\n"
-                                                "or canmount=off with mounted subdatasets.\n"
-                                                "Source mounted=%1 canmount=%2\nTarget mounted=%3 canmount=%4"),
-                                 QStringLiteral("源和目标必须已挂载才能同步，\n"
-                                                "或设置 canmount=off 且子数据集已挂载。\n"
-                                                "源 mounted=%1 canmount=%2\n目标 mounted=%3 canmount=%4"))
+                             trk(QStringLiteral("t_origen_y_d_79e6b3"),
+                                 QStringLiteral("Origen y destino deben estar montados para sincronizar,\no bien tener canmount=off con subdatasets montados.\nOrigen mounted=%1 canmount=%2\nDestino mounted=%3 canmount=%4"),
+                                 QStringLiteral("Source and target must be mounted to synchronize,\nor canmount=off with mounted subdatasets.\nSource mounted=%1 canmount=%2\nTarget mounted=%3 canmount=%4"),
+                                 QStringLiteral("源和目标必须已挂载才能同步，\n或设置 canmount=off 且子数据集已挂载。\n源 mounted=%1 canmount=%2\n目标 mounted=%3 canmount=%4"))
                                  .arg(srcMounted, srcCanmount, dstMounted, dstCanmount));
         return;
     }
 
     if (!ensureDatasetsLoaded(src.connIdx, src.poolName) || !ensureDatasetsLoaded(dst.connIdx, dst.poolName)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             tr3(QStringLiteral("No se pudieron cargar datasets para sincronización por subdatasets."),
+                             trk(QStringLiteral("t_no_se_pudi_e1c0c7"),
+                                 QStringLiteral("No se pudieron cargar datasets para sincronización por subdatasets."),
                                  QStringLiteral("Could not load datasets for subdataset synchronization."),
                                  QStringLiteral("无法加载用于子数据集同步的数据集。")));
         return;
@@ -367,7 +368,8 @@ void MainWindow::actionSyncDatasets() {
     const auto dstCacheIt = m_poolDatasetCache.constFind(dstKey);
     if (srcCacheIt == m_poolDatasetCache.constEnd() || dstCacheIt == m_poolDatasetCache.constEnd()) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             tr3(QStringLiteral("No hay caché de datasets para sincronización por subdatasets."),
+                             trk(QStringLiteral("t_no_hay_cac_c8370a"),
+                                 QStringLiteral("No hay caché de datasets para sincronización por subdatasets."),
                                  QStringLiteral("No dataset cache for subdataset synchronization."),
                                  QStringLiteral("没有用于子数据集同步的数据集缓存。")));
         return;
@@ -419,14 +421,16 @@ void MainWindow::actionSyncDatasets() {
             details += QStringLiteral("No montados en ambos extremos:\n") + notMountedPairs.join('\n');
         }
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             tr3(QStringLiteral("No se puede sincronizar por subdatasets.\n%1"),
+                             trk(QStringLiteral("t_no_se_pued_8dace0"),
+                                 QStringLiteral("No se puede sincronizar por subdatasets.\n%1"),
                                  QStringLiteral("Cannot synchronize by subdatasets.\n%1"),
                                  QStringLiteral("无法按子数据集同步。\n%1")).arg(details.trimmed()));
         return;
     }
     if (syncPairs.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("No hay subdatasets montados equivalentes para sincronizar."),
+                                 trk(QStringLiteral("t_no_hay_sub_86be11"),
+                                     QStringLiteral("No hay subdatasets montados equivalentes para sincronizar."),
                                      QStringLiteral("No equivalent mounted subdatasets to synchronize."),
                                      QStringLiteral("没有可同步的等效已挂载子数据集。")));
         return;
@@ -450,7 +454,8 @@ void MainWindow::actionSyncDatasets() {
         }
         const QString command = tarPipelines.join(QStringLiteral(" && "));
         appLog(QStringLiteral("WARN"),
-               tr3(QStringLiteral("Sincronizar subdatasets en Windows usa fallback tar/ssh (codec=%1, sin --delete)."),
+               trk(QStringLiteral("t_sincroniza_86c64e"),
+                   QStringLiteral("Sincronizar subdatasets en Windows usa fallback tar/ssh (codec=%1, sin --delete)."),
                    QStringLiteral("Subdataset sync on Windows uses tar/ssh fallback (codec=%1, no --delete)."),
                    QStringLiteral("Windows 上子数据集同步使用 tar/ssh 回退（编码=%1，无 --delete）。")).arg(streamCodecName(codec)));
         if (runLocalCommand(QStringLiteral("Sincronizar subdatasets %1 -> %2 (%3)")

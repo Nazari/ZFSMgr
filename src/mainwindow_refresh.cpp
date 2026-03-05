@@ -63,28 +63,33 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     state.connectionMethod = p.connType;
     state.powershellFallbackCommands = zfsmgrPowershellCommandSet();
     appLog(QStringLiteral("NORMAL"),
-           tr3(QStringLiteral("Inicio refresh: %1 [%2]"),
+           trk(QStringLiteral("t_inicio_ref_521ce1"),
+               QStringLiteral("Inicio refresh: %1 [%2]"),
                QStringLiteral("Refresh start: %1 [%2]"),
                QStringLiteral("开始刷新：%1 [%2]")).arg(p.name, p.connType));
 
     if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
         state.status = QStringLiteral("ERROR");
-        state.detail = tr3(QStringLiteral("Tipo de conexión no soportado aún en cppqt"),
+        state.detail = trk(QStringLiteral("t_tipo_de_co_e73161"),
+                           QStringLiteral("Tipo de conexión no soportado aún en cppqt"),
                            QStringLiteral("Connection type not supported yet in cppqt"),
                            QStringLiteral("cppqt 尚不支持该连接类型"));
         appLog(QStringLiteral("NORMAL"),
-               tr3(QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
+               trk(QStringLiteral("t_fin_refres_5a87d4"),
+                   QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
                    QStringLiteral("Refresh end: %1 -> ERROR (%2)"),
                    QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(p.name, state.detail));
         return state;
     }
     if (p.host.isEmpty() || p.username.isEmpty()) {
         state.status = QStringLiteral("ERROR");
-        state.detail = tr3(QStringLiteral("Host/usuario no definido"),
+        state.detail = trk(QStringLiteral("t_host_usuar_97cc58"),
+                           QStringLiteral("Host/usuario no definido"),
                            QStringLiteral("Host/user not defined"),
                            QStringLiteral("主机/用户未定义"));
         appLog(QStringLiteral("NORMAL"),
-               tr3(QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
+               trk(QStringLiteral("t_fin_refres_5a87d4"),
+                   QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
                    QStringLiteral("Refresh end: %1 -> ERROR (%2)"),
                    QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(p.name, state.detail));
         return state;
@@ -100,7 +105,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         state.status = QStringLiteral("ERROR");
         state.detail = oneLine(err.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : err);
         appLog(QStringLiteral("NORMAL"),
-               tr3(QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
+               trk(QStringLiteral("t_fin_refres_5a87d4"),
+                   QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
                    QStringLiteral("Refresh end: %1 -> ERROR (%2)"),
                    QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(p.name, state.detail));
         return state;
@@ -323,7 +329,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     }
 
     appLog(QStringLiteral("NORMAL"),
-           tr3(QStringLiteral("Fin refresh: %1 -> OK (%2)"),
+           trk(QStringLiteral("t_fin_refres_6eead9"),
+               QStringLiteral("Fin refresh: %1 -> OK (%2)"),
                QStringLiteral("Refresh end: %1 -> OK (%2)"),
                QStringLiteral("刷新结束：%1 -> OK (%2)")).arg(p.name, state.detail));
     return state;

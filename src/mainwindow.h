@@ -197,6 +197,10 @@ private:
     bool selectItemsDialog(const QString& title, const QString& intro, const QStringList& items, QStringList& selected);
     bool confirmActionExecution(const QString& actionName, const QStringList& commands, bool forceDialog = false);
     QString buildSshPreviewCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
+    QString trk(const QString& key,
+                const QString& es = QString(),
+                const QString& en = QString(),
+                const QString& zh = QString()) const;
     QString tr3(const QString& es, const QString& en, const QString& zh) const;
     QString maskSecrets(const QString& text) const;
     void logUiAction(const QString& action);
