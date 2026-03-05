@@ -20,6 +20,7 @@
 #include <cmath>
 
 namespace {
+constexpr int kPropKeyRole = Qt::UserRole + 777;
 
 class PinnedSortItem final : public QTableWidgetItem {
 public:
@@ -224,6 +225,17 @@ QString formatDatasetSize(const QString& rawUsed) {
         }
     }
     return QStringLiteral("%1 %2").arg(number, units[unitIndex]);
+}
+
+QString propKeyFromItem(const QTableWidgetItem* item) {
+    if (!item) {
+        return QString();
+    }
+    const QString fromRole = item->data(kPropKeyRole).toString().trimmed();
+    if (!fromRole.isEmpty()) {
+        return fromRole;
+    }
+    return item->text().trimmed();
 }
 
 } // namespace
@@ -473,10 +485,17 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         table->insertRow(r);
         auto* k = new PinnedSortItem(row.prop);
         k->setData(Qt::UserRole + 501, (r < pinnedCount) ? r : -1);
+        k->setData(kPropKeyRole, row.prop);
+        if (row.prop == QStringLiteral("dataset")) {
+            k->setText(trk(QStringLiteral("t_prop_name_001"),
+                           QStringLiteral("Nombre"),
+                           QStringLiteral("Name"),
+                           QStringLiteral("名称")));
+        }
         table->setItem(r, 0, k);
         auto* v = new PinnedSortItem(row.value);
         v->setData(Qt::UserRole + 501, (r < pinnedCount) ? r : -1);
-        if (row.prop == QStringLiteral("dataset") || row.prop == QStringLiteral("estado") || row.prop == QStringLiteral("Tamaño")) {
+        if (row.prop == QStringLiteral("estado") || row.prop == QStringLiteral("Tamaño")) {
             v->setFlags(v->flags() & ~Qt::ItemIsEditable);
         }
         table->setItem(r, 1, v);
@@ -514,6 +533,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         }
         auto* inh = new PinnedSortItem();
         inh->setData(Qt::UserRole + 501, (r < pinnedCount) ? r : -1);
+        inh->setData(kPropKeyRole, row.prop);
         if (inheritableProps.contains(row.prop)) {
             inh->setFlags((inh->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled) & ~Qt::ItemIsEditable);
             inh->setCheckState(Qt::Unchecked);
@@ -578,7 +598,7 @@ void MainWindow::onDatasetPropsCellChanged(int row, int col) {
         if (!rk || !rv || !ri) {
             continue;
         }
-        const QString key = rk->text().trimmed();
+        const QString key = propKeyFromItem(rk);
         const bool inh = (ri->flags() & Qt::ItemIsUserCheckable) && ri->checkState() == Qt::Checked;
         if (inh != m_propsOriginalInherit.value(key, false)
             || rv->text() != m_propsOriginalValues.value(key)) {
@@ -602,7 +622,7 @@ void MainWindow::onAdvancedPropsCellChanged(int row, int col) {
         if (!rk || !rv || !ri) {
             continue;
         }
-        const QString key = rk->text().trimmed();
+        const QString key = propKeyFromItem(rk);
         const bool inh = (ri->flags() & Qt::ItemIsUserCheckable) && ri->checkState() == Qt::Checked;
         if (inh != m_advPropsOriginalInherit.value(key, false)
             || rv->text() != m_advPropsOriginalValues.value(key)) {
@@ -631,6 +651,25 @@ void MainWindow::applyDatasetPropertyChanges() {
     }
 
     QStringList subcmds;
+    QString targetDataset = ctx.datasetName;
+    for (int r = 0; r < m_datasetPropsTable->rowCount(); ++r) {
+        QTableWidgetItem* pk = m_datasetPropsTable->item(r, 0);
+        QTableWidgetItem* pv = m_datasetPropsTable->item(r, 1);
+        if (!pk || !pv) {
+            continue;
+        }
+        const QString prop = propKeyFromItem(pk);
+        if (prop != QStringLiteral("dataset")) {
+            continue;
+        }
+        const QString now = pv->text().trimmed();
+        const QString old = m_propsOriginalValues.value(prop).trimmed();
+        if (!now.isEmpty() && now != old) {
+            subcmds << QStringLiteral("zfs rename %1 %2").arg(shSingleQuote(ctx.datasetName), shSingleQuote(now));
+            targetDataset = now;
+        }
+        break;
+    }
     for (int r = 0; r < m_datasetPropsTable->rowCount(); ++r) {
         QTableWidgetItem* pk = m_datasetPropsTable->item(r, 0);
         QTableWidgetItem* pv = m_datasetPropsTable->item(r, 1);
@@ -638,13 +677,13 @@ void MainWindow::applyDatasetPropertyChanges() {
         if (!pk || !pv || !pi) {
             continue;
         }
-        const QString prop = pk->text().trimmed();
+        const QString prop = propKeyFromItem(pk);
         if (prop.isEmpty() || prop == QStringLiteral("dataset") || prop == QStringLiteral("estado") || prop == QStringLiteral("Tamaño")) {
             continue;
         }
         const bool inheritChecked = (pi->flags() & Qt::ItemIsUserCheckable) && (pi->checkState() == Qt::Checked);
         if (inheritChecked) {
-            subcmds << QStringLiteral("zfs inherit %1 %2").arg(shSingleQuote(prop), shSingleQuote(ctx.datasetName));
+            subcmds << QStringLiteral("zfs inherit %1 %2").arg(shSingleQuote(prop), shSingleQuote(targetDataset));
             continue;
         }
         const QString now = pv->text().trimmed();
@@ -653,7 +692,7 @@ void MainWindow::applyDatasetPropertyChanges() {
             continue;
         }
         const QString assign = prop + QStringLiteral("=") + now;
-        subcmds << QStringLiteral("zfs set %1 %2").arg(shSingleQuote(assign), shSingleQuote(ctx.datasetName));
+        subcmds << QStringLiteral("zfs set %1 %2").arg(shSingleQuote(assign), shSingleQuote(targetDataset));
     }
     if (subcmds.isEmpty()) {
         m_propsDirty = false;
@@ -665,6 +704,9 @@ void MainWindow::applyDatasetPropertyChanges() {
     const QString cmd = isWin ? subcmds.join(QStringLiteral("; "))
                               : QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
     if (executeDatasetAction(m_propsSide, QStringLiteral("Aplicar propiedades"), ctx, cmd, 60000, isWin)) {
+        if (targetDataset != ctx.datasetName) {
+            setSelectedDataset(m_propsSide, targetDataset, QString());
+        }
         m_propsDirty = false;
         updateApplyPropsButtonState();
     }
@@ -688,6 +730,25 @@ void MainWindow::applyAdvancedDatasetPropertyChanges() {
     }
 
     QStringList subcmds;
+    QString targetDataset = ctx.datasetName;
+    for (int r = 0; r < m_advPropsTable->rowCount(); ++r) {
+        QTableWidgetItem* pk = m_advPropsTable->item(r, 0);
+        QTableWidgetItem* pv = m_advPropsTable->item(r, 1);
+        if (!pk || !pv) {
+            continue;
+        }
+        const QString prop = propKeyFromItem(pk);
+        if (prop != QStringLiteral("dataset")) {
+            continue;
+        }
+        const QString now = pv->text().trimmed();
+        const QString old = m_advPropsOriginalValues.value(prop).trimmed();
+        if (!now.isEmpty() && now != old) {
+            subcmds << QStringLiteral("zfs rename %1 %2").arg(shSingleQuote(ctx.datasetName), shSingleQuote(now));
+            targetDataset = now;
+        }
+        break;
+    }
     for (int r = 0; r < m_advPropsTable->rowCount(); ++r) {
         QTableWidgetItem* pk = m_advPropsTable->item(r, 0);
         QTableWidgetItem* pv = m_advPropsTable->item(r, 1);
@@ -695,13 +756,13 @@ void MainWindow::applyAdvancedDatasetPropertyChanges() {
         if (!pk || !pv || !pi) {
             continue;
         }
-        const QString prop = pk->text().trimmed();
+        const QString prop = propKeyFromItem(pk);
         if (prop.isEmpty() || prop == QStringLiteral("dataset") || prop == QStringLiteral("estado") || prop == QStringLiteral("Tamaño")) {
             continue;
         }
         const bool inheritChecked = (pi->flags() & Qt::ItemIsUserCheckable) && (pi->checkState() == Qt::Checked);
         if (inheritChecked) {
-            subcmds << QStringLiteral("zfs inherit %1 %2").arg(shSingleQuote(prop), shSingleQuote(ctx.datasetName));
+            subcmds << QStringLiteral("zfs inherit %1 %2").arg(shSingleQuote(prop), shSingleQuote(targetDataset));
             continue;
         }
         const QString now = pv->text().trimmed();
@@ -710,7 +771,7 @@ void MainWindow::applyAdvancedDatasetPropertyChanges() {
             continue;
         }
         const QString assign = prop + QStringLiteral("=") + now;
-        subcmds << QStringLiteral("zfs set %1 %2").arg(shSingleQuote(assign), shSingleQuote(ctx.datasetName));
+        subcmds << QStringLiteral("zfs set %1 %2").arg(shSingleQuote(assign), shSingleQuote(targetDataset));
     }
     if (subcmds.isEmpty()) {
         m_advPropsDirty = false;
@@ -722,6 +783,9 @@ void MainWindow::applyAdvancedDatasetPropertyChanges() {
     const QString cmd = isWin ? subcmds.join(QStringLiteral("; "))
                               : QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
     if (executeDatasetAction(QStringLiteral("advanced"), QStringLiteral("Aplicar propiedades"), ctx, cmd, 60000, isWin)) {
+        if (targetDataset != ctx.datasetName) {
+            updateAdvancedSelectionUi(targetDataset, QString());
+        }
         m_advPropsDirty = false;
         updateApplyPropsButtonState();
     }
@@ -743,8 +807,8 @@ void MainWindow::updateApplyPropsButtonState() {
             if (!pk || !pv || !pi) {
                 continue;
             }
-            const QString prop = pk->text().trimmed();
-            if (prop.isEmpty() || prop == QStringLiteral("dataset") || prop == QStringLiteral("estado")) {
+            const QString prop = propKeyFromItem(pk);
+            if (prop.isEmpty() || prop == QStringLiteral("estado")) {
                 continue;
             }
             const bool inh = (pi->flags() & Qt::ItemIsUserCheckable) && (pi->checkState() == Qt::Checked);
