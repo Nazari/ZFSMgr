@@ -53,9 +53,18 @@ int main() {
     if (!fsDetail.contains("gpt=Mac OS X/ZFS / Solaris/usr")) {
         return fail("formatWindowsFsTypeDetail should include mapped GPT name");
     }
+    if (fsDetail.contains("{6A898CC3-1DD2-11B2-99A6-080020736631}")) {
+        return fail("formatWindowsFsTypeDetail should hide GUID when mapping exists");
+    }
     if (!formatWindowsFsTypeDetail("NTFS|gpt={AAAAAAAA-0000-0000-0000-000000000000}|type=Unknown|mbr=-")
              .contains("gpt={AAAAAAAA-0000-0000-0000-000000000000}")) {
         return fail("formatWindowsFsTypeDetail should keep unknown GPT unchanged");
+    }
+    if (!windowsPartitionTypeIsProtected("NTFS|gpt=-|type=System|mbr=-")
+        || !windowsPartitionTypeIsProtected("NTFS|gpt=-|type=Recovery|mbr=-")
+        || !windowsPartitionTypeIsProtected("NTFS|gpt=-|type=Reserved|mbr=-")
+        || windowsPartitionTypeIsProtected("NTFS|gpt=-|type=Basic|mbr=-")) {
+        return fail("windowsPartitionTypeIsProtected mismatch");
     }
 
     if (!parentMountCheckRequired("/mnt/a", "on")) {

@@ -165,10 +165,28 @@ QString formatWindowsFsTypeDetail(const QString& rawFsType) {
         if (name.isEmpty()) {
             continue;
         }
-        part = QStringLiteral("gpt=%1 (%2)").arg(name, guidRaw);
+        part = QStringLiteral("gpt=%1").arg(name);
         changed = true;
     }
     return changed ? parts.join('|') : rawFsType;
+}
+
+bool windowsPartitionTypeIsProtected(const QString& rawFsType) {
+    if (rawFsType.trimmed().isEmpty()) {
+        return false;
+    }
+    const QStringList parts = rawFsType.split('|');
+    for (const QString& partRaw : parts) {
+        const QString part = partRaw.trimmed();
+        if (!part.startsWith(QStringLiteral("type="), Qt::CaseInsensitive)) {
+            continue;
+        }
+        const QString v = part.mid(5).trimmed().toLower();
+        if (v == QStringLiteral("system") || v == QStringLiteral("recovery") || v == QStringLiteral("reserved")) {
+            return true;
+        }
+    }
+    return false;
 }
 
 QString parseOpenZfsVersionText(const QString& text) {

@@ -36,6 +36,7 @@ using mwhelpers::oneLine;
 using mwhelpers::shSingleQuote;
 using mwhelpers::sshUserHostPort;
 using mwhelpers::formatWindowsFsTypeDetail;
+using mwhelpers::windowsPartitionTypeIsProtected;
 
 QString parentDiskDevicePath(const QString& rawPath) {
     const QString path = rawPath.trimmed();
@@ -760,6 +761,9 @@ void MainWindow::createPoolForSelectedConnection() {
     QStringList paths = devicesByPath.keys();
     auto hasProtectedSystemMount = [](const DeviceEntry& e) -> bool {
         const QString fs = e.fsType.trimmed().toLower();
+        if (windowsPartitionTypeIsProtected(e.fsType)) {
+            return true;
+        }
         if (fs == QStringLiteral("swap")) {
             return true;
         }
