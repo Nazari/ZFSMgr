@@ -50,13 +50,44 @@ int main() {
     if (looksLikePowerShellScript("echo hello")) {
         return fail("looksLikePowerShellScript false positive");
     }
+    if (!isWindowsOsType("Windows 11")) {
+        return fail("isWindowsOsType should detect windows");
+    }
+    if (isWindowsOsType("Linux")) {
+        return fail("isWindowsOsType false positive");
+    }
 
     ConnectionProfile p;
+    p.username = "u";
+    p.host = "h";
     p.port = 22;
     p.keyPath = "/tmp/id_rsa";
     const QString sshCmd = sshBaseCommand(p);
     if (!sshCmd.contains("ControlPath=") || !sshCmd.contains("-i '/tmp/id_rsa'")) {
         return fail("sshBaseCommand missing expected options");
+    }
+    const QString sshPreview = buildSshPreviewCommandText(p, "zpool list");
+    if (!sshPreview.contains("ssh") || !sshPreview.contains("u@h") || !sshPreview.contains("'zpool list'")) {
+        return fail("buildSshPreviewCommandText mismatch");
+    }
+
+    ConnectionProfile sudoLinux;
+    sudoLinux.osType = "Linux";
+    sudoLinux.useSudo = true;
+    sudoLinux.password = "pw";
+    const QString sudoCmd = withSudoCommand(sudoLinux, "zpool list");
+    if (!sudoCmd.contains("sudo -S") || !sudoCmd.contains("zpool list")) {
+        return fail("withSudoCommand linux/password mismatch");
+    }
+    const QString sudoStream = withSudoStreamInputCommand(sudoLinux, "zfs recv pool");
+    if (!sudoStream.contains("cat;") || !sudoStream.contains("sudo -S")) {
+        return fail("withSudoStreamInputCommand linux/password mismatch");
+    }
+    ConnectionProfile win;
+    win.osType = "Windows";
+    win.useSudo = true;
+    if (withSudoCommand(win, "cmd") != "cmd" || withSudoStreamInputCommand(win, "cmd2") != "cmd2") {
+        return fail("withSudo* should no-op for windows");
     }
 
     if (parseOpenZfsVersionText("zfs-2.3.4-1") != "2.3.4") {

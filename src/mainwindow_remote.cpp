@@ -120,35 +120,15 @@ bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, in
 }
 
 QString MainWindow::withSudo(const ConnectionProfile& p, const QString& cmd) const {
-    if (isWindowsConnection(p)) {
-        return cmd;
-    }
-    if (!p.useSudo) {
-        return cmd;
-    }
-    if (!p.password.isEmpty()) {
-        return QStringLiteral("printf '%s\\n' %1 | sudo -S -p '' sh -lc %2")
-            .arg(shSingleQuote(p.password), shSingleQuote(cmd));
-    }
-    return QStringLiteral("sudo -n ") + cmd;
+    return mwhelpers::withSudoCommand(p, cmd);
 }
 
 QString MainWindow::withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const {
-    if (isWindowsConnection(p)) {
-        return cmd;
-    }
-    if (!p.useSudo) {
-        return cmd;
-    }
-    if (!p.password.isEmpty()) {
-        return QStringLiteral("{ printf '%s\\n' %1; cat; } | sudo -S -p '' sh -lc %2")
-            .arg(shSingleQuote(p.password), shSingleQuote(cmd));
-    }
-    return QStringLiteral("sudo -n sh -lc %1").arg(shSingleQuote(cmd));
+    return mwhelpers::withSudoStreamInputCommand(p, cmd);
 }
 
 bool MainWindow::isWindowsConnection(const ConnectionProfile& p) const {
-    return p.osType.trimmed().toLower().contains(QStringLiteral("windows"));
+    return mwhelpers::isWindowsOsType(p.osType);
 }
 
 bool MainWindow::isWindowsConnection(int connIdx) const {
@@ -587,23 +567,5 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
 }
 
 QString MainWindow::buildSshPreviewCommand(const ConnectionProfile& p, const QString& remoteCmd) const {
-    QStringList parts;
-    parts << QStringLiteral("ssh");
-    parts << QStringLiteral("-o BatchMode=yes");
-    parts << QStringLiteral("-o ConnectTimeout=10");
-    parts << QStringLiteral("-o LogLevel=ERROR");
-    parts << QStringLiteral("-o StrictHostKeyChecking=no");
-    parts << QStringLiteral("-o UserKnownHostsFile=/dev/null");
-    parts << QStringLiteral("-o ControlMaster=auto");
-    parts << QStringLiteral("-o ControlPersist=300");
-    parts << QStringLiteral("-o ControlPath=%1").arg(shSingleQuote(sshControlPath()));
-    if (p.port > 0) {
-        parts << QStringLiteral("-p %1").arg(p.port);
-    }
-    if (!p.keyPath.isEmpty()) {
-        parts << QStringLiteral("-i %1").arg(shSingleQuote(p.keyPath));
-    }
-    parts << QStringLiteral("%1@%2").arg(p.username, p.host);
-    parts << shSingleQuote(remoteCmd);
-    return parts.join(' ');
+    return mwhelpers::buildSshPreviewCommandText(p, remoteCmd);
 }
