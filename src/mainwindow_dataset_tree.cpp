@@ -21,7 +21,10 @@ void MainWindow::onOriginPoolChanged() {
     const QString token = m_originPoolCombo->currentData().toString();
     if (token.isEmpty()) {
         m_originTree->clear();
-        m_originSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
+        m_originSelectionLabel->setText(trk(QStringLiteral("t_no_sel_001"),
+                                            QStringLiteral("(sin selección)"),
+                                            QStringLiteral("(no selection)"),
+                                            QStringLiteral("（未选择）")));
         return;
     }
     const int sep = token.indexOf(QStringLiteral("::"));
@@ -42,7 +45,10 @@ void MainWindow::onDestPoolChanged() {
     const QString token = m_destPoolCombo->currentData().toString();
     if (token.isEmpty()) {
         m_destTree->clear();
-        m_destSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
+        m_destSelectionLabel->setText(trk(QStringLiteral("t_no_sel_001"),
+                                          QStringLiteral("(sin selección)"),
+                                          QStringLiteral("(no selection)"),
+                                          QStringLiteral("（未选择）")));
         return;
     }
     const int sep = token.indexOf(QStringLiteral("::"));
@@ -244,9 +250,15 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
     }
 
     if (side == QStringLiteral("origin")) {
-        m_originSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
+        m_originSelectionLabel->setText(trk(QStringLiteral("t_no_sel_001"),
+                                            QStringLiteral("(sin selección)"),
+                                            QStringLiteral("(no selection)"),
+                                            QStringLiteral("（未选择）")));
     } else if (side == QStringLiteral("dest")) {
-        m_destSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
+        m_destSelectionLabel->setText(trk(QStringLiteral("t_no_sel_001"),
+                                          QStringLiteral("(sin selección)"),
+                                          QStringLiteral("(no selection)"),
+                                          QStringLiteral("（未选择）")));
     }
     m_loadingDatasetTrees = false;
     endUiBusy();
@@ -371,7 +383,10 @@ void MainWindow::setSelectedDataset(const QString& side, const QString& datasetN
         m_originSelectedDataset = datasetName;
         m_originSelectedSnapshot = snapshotName;
         if (datasetName.isEmpty()) {
-            m_originSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
+            m_originSelectionLabel->setText(trk(QStringLiteral("t_no_sel_001"),
+                                                QStringLiteral("(sin selección)"),
+                                                QStringLiteral("(no selection)"),
+                                                QStringLiteral("（未选择）")));
         } else if (snapshotName.isEmpty()) {
             m_originSelectionLabel->setText(datasetName);
         } else {
@@ -385,7 +400,10 @@ void MainWindow::setSelectedDataset(const QString& side, const QString& datasetN
     m_destSelectedDataset = datasetName;
     m_destSelectedSnapshot = snapshotName;
     if (datasetName.isEmpty()) {
-        m_destSelectionLabel->setText(tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）")));
+        m_destSelectionLabel->setText(trk(QStringLiteral("t_no_sel_001"),
+                                          QStringLiteral("(sin selección)"),
+                                          QStringLiteral("(no selection)"),
+                                          QStringLiteral("（未选择）")));
     } else if (snapshotName.isEmpty()) {
         m_destSelectionLabel->setText(datasetName);
     } else {
@@ -405,7 +423,10 @@ void MainWindow::refreshTransferSelectionLabels() {
             originText = m_originSelectedDataset;
         }
     } else {
-        originText = tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）"));
+        originText = trk(QStringLiteral("t_no_sel_001"),
+                         QStringLiteral("(sin selección)"),
+                         QStringLiteral("(no selection)"),
+                         QStringLiteral("（未选择）"));
     }
     if (m_transferOriginLabel) {
         m_transferOriginLabel->setText(originText);
@@ -422,7 +443,10 @@ void MainWindow::refreshTransferSelectionLabels() {
             destText = m_destSelectedDataset;
         }
     } else {
-        destText = tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）"));
+        destText = trk(QStringLiteral("t_no_sel_001"),
+                       QStringLiteral("(sin selección)"),
+                       QStringLiteral("(no selection)"),
+                       QStringLiteral("（未选择）"));
     }
     if (m_transferDestLabel) {
         m_transferDestLabel->setText(destText);
@@ -432,7 +456,8 @@ void MainWindow::refreshTransferSelectionLabels() {
     }
 
     if (m_transferBox) {
-        const QString emptyToken = tr3(QStringLiteral("[vacío]"),
+        const QString emptyToken = trk(QStringLiteral("t_empty_tag_001"),
+                                       QStringLiteral("[vacío]"),
                                        QStringLiteral("[empty]"),
                                        QStringLiteral("[空]"));
         const QString originTitle = m_originSelectedDataset.isEmpty() ? emptyToken : originText;
@@ -444,7 +469,10 @@ void MainWindow::refreshTransferSelectionLabels() {
 void MainWindow::updateAdvancedSelectionUi(const QString& datasetName, const QString& snapshotName) {
     QString text;
     if (datasetName.isEmpty()) {
-        text = tr3(QStringLiteral("(sin selección)"), QStringLiteral("(no selection)"), QStringLiteral("（未选择）"));
+        text = trk(QStringLiteral("t_no_sel_001"),
+                   QStringLiteral("(sin selección)"),
+                   QStringLiteral("(no selection)"),
+                   QStringLiteral("（未选择）"));
     } else if (snapshotName.isEmpty()) {
         text = datasetName;
     } else {
@@ -454,7 +482,10 @@ void MainWindow::updateAdvancedSelectionUi(const QString& datasetName, const QSt
         m_advSelectionLabel->setText(text);
     }
     if (m_advCommandsBox) {
-        const QString emptyTitle = tr3(QStringLiteral("[vacío]"), QStringLiteral("[empty]"), QStringLiteral("[空]"));
+        const QString emptyTitle = trk(QStringLiteral("t_empty_tag_001"),
+                                       QStringLiteral("[vacío]"),
+                                       QStringLiteral("[empty]"),
+                                       QStringLiteral("[空]"));
         m_advCommandsBox->setTitle(datasetName.isEmpty() ? emptyTitle : text);
     }
 }

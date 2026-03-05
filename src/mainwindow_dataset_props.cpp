@@ -400,8 +400,14 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
                                  || mountedRaw == QStringLiteral("true")
                                  || mountedRaw == QStringLiteral("1"));
         rows.push_back({QStringLiteral("estado"),
-                        mountedYes ? tr3(QStringLiteral("Montado"), QStringLiteral("Mounted"), QStringLiteral("已挂载"))
-                                   : tr3(QStringLiteral("Desmontado"), QStringLiteral("Unmounted"), QStringLiteral("未挂载")),
+                        mountedYes ? trk(QStringLiteral("t_montado_a97484"),
+                                         QStringLiteral("Montado"),
+                                         QStringLiteral("Mounted"),
+                                         QStringLiteral("已挂载"))
+                                   : trk(QStringLiteral("t_desmontado_bbceae"),
+                                         QStringLiteral("Desmontado"),
+                                         QStringLiteral("Unmounted"),
+                                         QStringLiteral("未挂载")),
                         QString(),
                         QStringLiteral("true")});
         rows.push_back({QStringLiteral("Tamaño"), formatDatasetSize(rec.used.trimmed()), QString(), QStringLiteral("true")});
@@ -617,7 +623,8 @@ void MainWindow::applyDatasetPropertyChanges() {
     DatasetSelectionContext ctx = currentDatasetSelection(m_propsSide);
     if (!ctx.valid || ctx.datasetName != m_propsDataset || !ctx.snapshotName.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             tr3(QStringLiteral("Seleccione un dataset activo para aplicar cambios."),
+                             trk(QStringLiteral("t_seleccione_615ce3"),
+                                 QStringLiteral("Seleccione un dataset activo para aplicar cambios."),
                                  QStringLiteral("Select an active dataset to apply changes."),
                                  QStringLiteral("请选择一个活动数据集以应用更改。")));
         return;
@@ -673,7 +680,8 @@ void MainWindow::applyAdvancedDatasetPropertyChanges() {
     DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("advanced"));
     if (!ctx.valid || ctx.datasetName != m_advPropsDataset || !ctx.snapshotName.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             tr3(QStringLiteral("Seleccione un dataset activo para aplicar cambios."),
+                             trk(QStringLiteral("t_seleccione_615ce3"),
+                                 QStringLiteral("Seleccione un dataset activo para aplicar cambios."),
                                  QStringLiteral("Select an active dataset to apply changes."),
                                  QStringLiteral("请选择一个活动数据集以应用更改。")));
         return;

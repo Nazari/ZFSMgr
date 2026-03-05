@@ -104,7 +104,10 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
     };
 
     QDialog dlg(this);
-    dlg.setWindowTitle(tr3(QStringLiteral("Crear dataset"), QStringLiteral("Create dataset"), QStringLiteral("创建数据集")));
+    dlg.setWindowTitle(trk(QStringLiteral("t_create_ds_001"),
+                           QStringLiteral("Crear dataset"),
+                           QStringLiteral("Create dataset"),
+                           QStringLiteral("创建数据集")));
     dlg.setModal(true);
     dlg.resize(900, 760);
 
@@ -118,14 +121,22 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
     form->setVerticalSpacing(6);
     int row = 0;
 
-    QLabel* pathLabel = new QLabel(tr3(QStringLiteral("Path"), QStringLiteral("Path"), QStringLiteral("路径")), formWidget);
+    QLabel* pathLabel = new QLabel(trk(QStringLiteral("t_path_lbl_001"),
+                                       QStringLiteral("Path"),
+                                       QStringLiteral("Path"),
+                                       QStringLiteral("路径")),
+                                   formWidget);
     QLineEdit* pathEdit = new QLineEdit(formWidget);
     pathEdit->setText(ctx.datasetName + QStringLiteral("/new_dataset"));
     form->addWidget(pathLabel, row, 0);
     form->addWidget(pathEdit, row, 1, 1, 3);
     row++;
 
-    QLabel* typeLabel = new QLabel(tr3(QStringLiteral("Tipo"), QStringLiteral("Type"), QStringLiteral("类型")), formWidget);
+    QLabel* typeLabel = new QLabel(trk(QStringLiteral("t_tipo_6cc619"),
+                                       QStringLiteral("Tipo"),
+                                       QStringLiteral("Type"),
+                                       QStringLiteral("类型")),
+                                   formWidget);
     QComboBox* typeCombo = new QComboBox(formWidget);
     typeCombo->addItem(QStringLiteral("filesystem"), QStringLiteral("filesystem"));
     typeCombo->addItem(QStringLiteral("volume"), QStringLiteral("volume"));
@@ -134,13 +145,21 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
     form->addWidget(typeCombo, row, 1);
     row++;
 
-    QLabel* volsizeLabel = new QLabel(tr3(QStringLiteral("Volsize"), QStringLiteral("Volsize"), QStringLiteral("卷大小")), formWidget);
+    QLabel* volsizeLabel = new QLabel(trk(QStringLiteral("t_volsize_lbl001"),
+                                          QStringLiteral("Volsize"),
+                                          QStringLiteral("Volsize"),
+                                          QStringLiteral("卷大小")),
+                                      formWidget);
     QLineEdit* volsizeEdit = new QLineEdit(formWidget);
     form->addWidget(volsizeLabel, row, 0);
     form->addWidget(volsizeEdit, row, 1);
     row++;
 
-    QLabel* blocksizeLabel = new QLabel(tr3(QStringLiteral("Blocksize"), QStringLiteral("Blocksize"), QStringLiteral("块大小")), formWidget);
+    QLabel* blocksizeLabel = new QLabel(trk(QStringLiteral("t_blocksize001"),
+                                            QStringLiteral("Blocksize"),
+                                            QStringLiteral("Blocksize"),
+                                            QStringLiteral("块大小")),
+                                        formWidget);
     QLineEdit* blocksizeEdit = new QLineEdit(formWidget);
     form->addWidget(blocksizeLabel, row, 0);
     form->addWidget(blocksizeEdit, row, 1);
@@ -150,9 +169,21 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
     QHBoxLayout* optsLay = new QHBoxLayout(optsWidget);
     optsLay->setContentsMargins(0, 0, 0, 0);
     optsLay->setSpacing(12);
-    QCheckBox* parentsChk = new QCheckBox(tr3(QStringLiteral("Crear padres (-p)"), QStringLiteral("Create parents (-p)"), QStringLiteral("创建父级(-p)")), optsWidget);
-    QCheckBox* sparseChk = new QCheckBox(tr3(QStringLiteral("Sparse (-s)"), QStringLiteral("Sparse (-s)"), QStringLiteral("稀疏(-s)")), optsWidget);
-    QCheckBox* nomountChk = new QCheckBox(tr3(QStringLiteral("No montar (-u)"), QStringLiteral("Do not mount (-u)"), QStringLiteral("不挂载(-u)")), optsWidget);
+    QCheckBox* parentsChk = new QCheckBox(trk(QStringLiteral("t_create_parents01"),
+                                              QStringLiteral("Crear padres (-p)"),
+                                              QStringLiteral("Create parents (-p)"),
+                                              QStringLiteral("创建父级(-p)")),
+                                          optsWidget);
+    QCheckBox* sparseChk = new QCheckBox(trk(QStringLiteral("t_sparse_opt_001"),
+                                             QStringLiteral("Sparse (-s)"),
+                                             QStringLiteral("Sparse (-s)"),
+                                             QStringLiteral("稀疏(-s)")),
+                                         optsWidget);
+    QCheckBox* nomountChk = new QCheckBox(trk(QStringLiteral("t_nomount_opt001"),
+                                              QStringLiteral("No montar (-u)"),
+                                              QStringLiteral("Do not mount (-u)"),
+                                              QStringLiteral("不挂载(-u)")),
+                                          optsWidget);
     parentsChk->setChecked(true);
     optsLay->addWidget(parentsChk);
     optsLay->addWidget(sparseChk);
@@ -162,12 +193,19 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
     row++;
 
     QCheckBox* snapRecursiveChk = new QCheckBox(
-        tr3(QStringLiteral("Snapshot recursivo (-r)"), QStringLiteral("Recursive snapshot (-r)"), QStringLiteral("递归快照(-r)")),
+        trk(QStringLiteral("t_snap_rec_opt01"),
+            QStringLiteral("Snapshot recursivo (-r)"),
+            QStringLiteral("Recursive snapshot (-r)"),
+            QStringLiteral("递归快照(-r)")),
         formWidget);
     form->addWidget(snapRecursiveChk, row, 0, 1, 4);
     row++;
 
-    QLabel* extraLabel = new QLabel(tr3(QStringLiteral("Argumentos extra"), QStringLiteral("Extra args"), QStringLiteral("额外参数")), formWidget);
+    QLabel* extraLabel = new QLabel(trk(QStringLiteral("t_extra_args_001"),
+                                        QStringLiteral("Argumentos extra"),
+                                        QStringLiteral("Extra args"),
+                                        QStringLiteral("额外参数")),
+                                    formWidget);
     QLineEdit* extraEdit = new QLineEdit(formWidget);
     form->addWidget(extraLabel, row, 0);
     form->addWidget(extraEdit, row, 1, 1, 3);
@@ -175,7 +213,11 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
 
     root->addWidget(formWidget);
 
-    QGroupBox* propsGroup = new QGroupBox(tr3(QStringLiteral("Propiedades"), QStringLiteral("Properties"), QStringLiteral("属性")), &dlg);
+    QGroupBox* propsGroup = new QGroupBox(trk(QStringLiteral("t_props_tab_001"),
+                                              QStringLiteral("Propiedades"),
+                                              QStringLiteral("Properties"),
+                                              QStringLiteral("属性")),
+                                          &dlg);
     QVBoxLayout* propsGroupLay = new QVBoxLayout(propsGroup);
     propsGroupLay->setContentsMargins(6, 6, 6, 6);
     propsGroupLay->setSpacing(4);
@@ -249,9 +291,16 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
     root->addWidget(propsGroup, 1);
 
     QDialogButtonBox* buttons = new QDialogButtonBox(&dlg);
-    QPushButton* cancelBtn = buttons->addButton(tr3(QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), QDialogButtonBox::RejectRole);
+    QPushButton* cancelBtn = buttons->addButton(trk(QStringLiteral("t_cancelar_c111e0"),
+                                                    QStringLiteral("Cancelar"),
+                                                    QStringLiteral("Cancel"),
+                                                    QStringLiteral("取消")),
+                                                QDialogButtonBox::RejectRole);
     QPushButton* createBtn = buttons->addButton(
-        tr3(QStringLiteral("Crear"), QStringLiteral("Create"), QStringLiteral("创建")),
+        trk(QStringLiteral("t_create_btn_001"),
+            QStringLiteral("Crear"),
+            QStringLiteral("Create"),
+            QStringLiteral("创建")),
         QDialogButtonBox::AcceptRole);
     root->addWidget(buttons);
     QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
@@ -327,21 +376,24 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
         const QString volsize = volsizeEdit->text().trimmed();
         if (path.isEmpty()) {
             QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("Debe indicar el path del dataset."),
+                                 trk(QStringLiteral("t_need_ds_path001"),
+                                     QStringLiteral("Debe indicar el path del dataset."),
                                      QStringLiteral("Dataset path is required."),
                                      QStringLiteral("必须指定数据集路径。")));
             return;
         }
         if (dsType == QStringLiteral("snapshot") && !path.contains('@')) {
             QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("Para snapshot, el path debe incluir '@'."),
+                                 trk(QStringLiteral("t_snap_need_at01"),
+                                     QStringLiteral("Para snapshot, el path debe incluir '@'."),
                                      QStringLiteral("For snapshot, path must include '@'."),
                                      QStringLiteral("快照路径必须包含'@'。")));
             return;
         }
         if (dsType == QStringLiteral("volume") && volsize.isEmpty()) {
             QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("Para volume, Volsize es obligatorio."),
+                                 trk(QStringLiteral("t_vol_need_size01"),
+                                     QStringLiteral("Para volume, Volsize es obligatorio."),
                                      QStringLiteral("For volume, Volsize is required."),
                                      QStringLiteral("卷类型必须填写 Volsize。")));
             return;
@@ -379,8 +431,14 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
     }
 
     const QString actionLabel = (opt.dsType == QStringLiteral("snapshot"))
-                                    ? tr3(QStringLiteral("Crear snapshot"), QStringLiteral("Create snapshot"), QStringLiteral("创建快照"))
-                                    : tr3(QStringLiteral("Crear dataset"), QStringLiteral("Create dataset"), QStringLiteral("创建数据集"));
+                                    ? trk(QStringLiteral("t_create_snap001"),
+                                          QStringLiteral("Crear snapshot"),
+                                          QStringLiteral("Create snapshot"),
+                                          QStringLiteral("创建快照"))
+                                    : trk(QStringLiteral("t_create_ds_001"),
+                                          QStringLiteral("Crear dataset"),
+                                          QStringLiteral("Create dataset"),
+                                          QStringLiteral("创建数据集"));
     const QString cmd = buildZfsCreateCmd(opt);
     executeDatasetAction(side, actionLabel, ctx, cmd);
 }
@@ -396,8 +454,12 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side) {
     const QString target = ctx.snapshotName.isEmpty() ? ctx.datasetName : (ctx.datasetName + QStringLiteral("@") + ctx.snapshotName);
     const auto confirm1 = QMessageBox::question(
         this,
-        tr3(QStringLiteral("Confirmar borrado"), QStringLiteral("Confirm deletion"), QStringLiteral("确认删除")),
-        tr3(QStringLiteral("Se va a borrar:\n%1\n¿Continuar?"),
+        trk(QStringLiteral("t_confirm_del_001"),
+            QStringLiteral("Confirmar borrado"),
+            QStringLiteral("Confirm deletion"),
+            QStringLiteral("确认删除")),
+        trk(QStringLiteral("t_confirm_del_msg1"),
+            QStringLiteral("Se va a borrar:\n%1\n¿Continuar?"),
             QStringLiteral("This will be deleted:\n%1\nContinue?"),
             QStringLiteral("将要删除：\n%1\n是否继续？")).arg(target),
         QMessageBox::Yes | QMessageBox::No,
@@ -407,8 +469,12 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side) {
     }
     const auto confirm2 = QMessageBox::question(
         this,
-        tr3(QStringLiteral("Confirmar borrado (2/2)"), QStringLiteral("Confirm deletion (2/2)"), QStringLiteral("确认删除（2/2）")),
-        tr3(QStringLiteral("Confirmación final de borrado:\n%1"),
+        trk(QStringLiteral("t_confirm_del_002"),
+            QStringLiteral("Confirmar borrado (2/2)"),
+            QStringLiteral("Confirm deletion (2/2)"),
+            QStringLiteral("确认删除（2/2）")),
+        trk(QStringLiteral("t_confirm_del_msg2"),
+            QStringLiteral("Confirmación final de borrado:\n%1"),
             QStringLiteral("Final deletion confirmation:\n%1"),
             QStringLiteral("最终删除确认：\n%1")).arg(target),
         QMessageBox::Yes | QMessageBox::No,
@@ -419,12 +485,17 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side) {
 
     const auto askRec = QMessageBox::question(
         this,
-        tr3(QStringLiteral("Borrado recursivo"), QStringLiteral("Recursive deletion"), QStringLiteral("递归删除")),
+        trk(QStringLiteral("t_recursive_del01"),
+            QStringLiteral("Borrado recursivo"),
+            QStringLiteral("Recursive deletion"),
+            QStringLiteral("递归删除")),
         ctx.snapshotName.isEmpty()
-            ? tr3(QStringLiteral("¿Borrar recursivamente datasets/snapshots hijos?"),
+            ? trk(QStringLiteral("t_recursive_q_ds1"),
+                  QStringLiteral("¿Borrar recursivamente datasets/snapshots hijos?"),
                   QStringLiteral("Delete child datasets/snapshots recursively?"),
                   QStringLiteral("是否递归删除子数据集/快照？"))
-            : tr3(QStringLiteral("¿Borrar recursivamente este snapshot en hijos descendientes?"),
+            : trk(QStringLiteral("t_recursive_q_sn1"),
+                  QStringLiteral("¿Borrar recursivamente este snapshot en hijos descendientes?"),
                   QStringLiteral("Delete this snapshot recursively on descendant children?"),
                   QStringLiteral("是否在后代子项上递归删除此快照？")),
         QMessageBox::Yes | QMessageBox::No,
