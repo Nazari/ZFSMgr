@@ -506,3 +506,77 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side) {
                     : QStringLiteral("zfs destroy %1").arg(shSingleQuote(target));
     executeDatasetAction(side, QStringLiteral("Borrar"), ctx, cmd, 90000);
 }
+
+void MainWindow::actionDeleteAllSnapshots(const QString& side) {
+    if (actionsLocked()) {
+        return;
+    }
+    const DatasetSelectionContext ctx = currentDatasetSelection(side);
+    if (!ctx.valid || ctx.datasetName.isEmpty() || !ctx.snapshotName.isEmpty()) {
+        return;
+    }
+
+    const QString targetDataset = ctx.datasetName;
+    const auto confirm1 = QMessageBox::question(
+        this,
+        trk(QStringLiteral("t_confirm_del_001"),
+            QStringLiteral("Confirmar borrado"),
+            QStringLiteral("Confirm deletion"),
+            QStringLiteral("确认删除")),
+        trk(QStringLiteral("t_del_all_snaps_q1"),
+            QStringLiteral("Se van a borrar TODOS los snapshots del dataset:\n%1\n¿Continuar?"),
+            QStringLiteral("ALL snapshots from dataset will be deleted:\n%1\nContinue?"),
+            QStringLiteral("将删除此数据集的所有快照：\n%1\n是否继续？")).arg(targetDataset),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm1 != QMessageBox::Yes) {
+        return;
+    }
+    const auto confirm2 = QMessageBox::question(
+        this,
+        trk(QStringLiteral("t_confirm_del_002"),
+            QStringLiteral("Confirmar borrado (2/2)"),
+            QStringLiteral("Confirm deletion (2/2)"),
+            QStringLiteral("确认删除（2/2）")),
+        trk(QStringLiteral("t_del_all_snaps_q2"),
+            QStringLiteral("Confirmación final:\nBorrar todos los snapshots de\n%1"),
+            QStringLiteral("Final confirmation:\nDelete all snapshots from\n%1"),
+            QStringLiteral("最终确认：\n删除此数据集的所有快照\n%1")).arg(targetDataset),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm2 != QMessageBox::Yes) {
+        return;
+    }
+
+    const ConnectionProfile& p = m_profiles[ctx.connIdx];
+    QString cmd;
+    bool allowWindowsScript = false;
+    if (isWindowsConnection(p)) {
+        QString dsPs = targetDataset;
+        dsPs.replace('\'', QStringLiteral("''"));
+        cmd = QStringLiteral(
+                  "$ds='%1'; "
+                  "$snaps=@(zfs list -H -t snapshot -o name -d 1 $ds 2>$null); "
+                  "if($snaps.Count -eq 0){ Write-Output '[DELALLSNAP] none'; exit 0 }; "
+                  "foreach($s in $snaps){ "
+                  "  if([string]::IsNullOrWhiteSpace($s)){ continue }; "
+                  "  Write-Output ('[DELALLSNAP] deleting ' + $s); "
+                  "  zfs destroy $s; "
+                  "  if($LASTEXITCODE -ne 0){ throw ('zfs destroy failed for ' + $s) } "
+                  "}")
+                  .arg(dsPs);
+        allowWindowsScript = true;
+    } else {
+        cmd = QStringLiteral(
+                  "set -e; DATASET=%1; "
+                  "SNAPS=$(zfs list -H -t snapshot -o name -d 1 \"$DATASET\" 2>/dev/null || true); "
+                  "[ -n \"$SNAPS\" ] || { echo '[DELALLSNAP] none'; exit 0; }; "
+                  "printf '%s\\n' \"$SNAPS\" | while IFS= read -r s; do "
+                  "  [ -n \"$s\" ] || continue; "
+                  "  echo \"[DELALLSNAP] deleting $s\"; "
+                  "  zfs destroy \"$s\"; "
+                  "done")
+                  .arg(shSingleQuote(targetDataset));
+    }
+    executeDatasetAction(side, QStringLiteral("Borrar todos los snapshots"), ctx, cmd, 120000, allowWindowsScript);
+}

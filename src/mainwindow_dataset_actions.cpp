@@ -52,6 +52,11 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
     }
     menu.addSeparator();
     QAction* createAct = menu.addAction(trk(QStringLiteral("t_create_ch_001"), QStringLiteral("Crear hijo"), QStringLiteral("Create child"), QStringLiteral("创建子项")));
+    QAction* deleteAllSnapsAct = menu.addAction(
+        trk(QStringLiteral("t_del_all_snaps1"),
+            QStringLiteral("Borrar todos los snapshots"),
+            QStringLiteral("Delete all snapshots"),
+            QStringLiteral("删除所有快照")));
     QAction* deleteAct = menu.addAction(trk(QStringLiteral("t_delete_menu002"), QStringLiteral("Borrar"), QStringLiteral("Delete"), QStringLiteral("删除")));
     const bool isWinConn = isWindowsConnection(ctx.connIdx);
 
@@ -60,6 +65,7 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
         mountWithChildrenAct->setEnabled(false);
         umountAct->setEnabled(false);
         createAct->setEnabled(false);
+        deleteAllSnapsAct->setEnabled(false);
     } else {
         bool knownMounted = false;
         bool isMounted = false;
@@ -101,6 +107,9 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
     } else if (picked == createAct) {
         logUiAction(QStringLiteral("Crear hijo dataset (menú)"));
         actionCreateChildDataset(side);
+    } else if (picked == deleteAllSnapsAct) {
+        logUiAction(QStringLiteral("Borrar todos los snapshots (menú)"));
+        actionDeleteAllSnapshots(side);
     } else if (rollbackAct && picked == rollbackAct) {
         const QString snapObj = QStringLiteral("%1@%2").arg(ctx.datasetName, ctx.snapshotName);
         const auto confirm = QMessageBox::question(
@@ -165,13 +174,15 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     int rc = -1;
     const bool isBreakdownAction = (actionName == QStringLiteral("Desglosar"));
     const bool isAssembleAction = (actionName == QStringLiteral("Ensamblar"));
+    const bool isDeleteAllSnapsAction = (actionName == QStringLiteral("Borrar todos los snapshots"));
     if (!runSsh(p, remoteCmd, timeoutMs, out, err, rc) || rc != 0) {
-        if (isBreakdownAction || isAssembleAction) {
+        if (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction) {
             const QStringList progressLines = out.split('\n', Qt::SkipEmptyParts);
             for (const QString& lnRaw : progressLines) {
                 const QString ln = lnRaw.trimmed();
                 if (ln.contains(QStringLiteral("[BREAKDOWN]"), Qt::CaseInsensitive)
-                    || ln.contains(QStringLiteral("[ASSEMBLE]"), Qt::CaseInsensitive)) {
+                    || ln.contains(QStringLiteral("[ASSEMBLE]"), Qt::CaseInsensitive)
+                    || ln.contains(QStringLiteral("[DELALLSNAP]"), Qt::CaseInsensitive)) {
                     appLog(QStringLiteral("NORMAL"), ln);
                 }
             }
@@ -201,13 +212,14 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
         return false;
     }
     if (!out.trimmed().isEmpty()) {
-        if (isBreakdownAction || isAssembleAction) {
+        if (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction) {
             const QStringList progressLines = out.split('\n', Qt::SkipEmptyParts);
             bool loggedProgress = false;
             for (const QString& lnRaw : progressLines) {
                 const QString ln = lnRaw.trimmed();
                 if (ln.contains(QStringLiteral("[BREAKDOWN]"), Qt::CaseInsensitive)
-                    || ln.contains(QStringLiteral("[ASSEMBLE]"), Qt::CaseInsensitive)) {
+                    || ln.contains(QStringLiteral("[ASSEMBLE]"), Qt::CaseInsensitive)
+                    || ln.contains(QStringLiteral("[DELALLSNAP]"), Qt::CaseInsensitive)) {
                     appLog(QStringLiteral("NORMAL"), ln);
                     loggedProgress = true;
                 }
