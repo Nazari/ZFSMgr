@@ -82,7 +82,8 @@ void MainWindow::refreshAllConnections() {
         rebuildConnectionList();
         rebuildDatasetPoolSelectors();
         populateAllPoolsTables();
-        updateStatus(tr3(QStringLiteral("Estado: refresco finalizado"),
+        updateStatus(trk(QStringLiteral("t_status_refresh_end"),
+                         QStringLiteral("Estado: refresco finalizado"),
                          QStringLiteral("Status: refresh finished"),
                          QStringLiteral("状态：刷新完成")));
         return;
@@ -92,7 +93,8 @@ void MainWindow::refreshAllConnections() {
     m_refreshTotal = m_profiles.size();
     m_refreshInProgress = (m_refreshPending > 0);
     updateBusyCursor();
-    updateStatus(tr3(QStringLiteral("Estado: refrescando 0/%1"),
+    updateStatus(trk(QStringLiteral("t_status_refresh_001"),
+                     QStringLiteral("Estado: refrescando 0/%1"),
                      QStringLiteral("Status: refreshing 0/%1"),
                      QStringLiteral("状态：刷新中 0/%1"))
                      .arg(m_refreshTotal));
@@ -134,7 +136,8 @@ void MainWindow::refreshSelectedConnection() {
     m_refreshTotal = 1;
     m_refreshInProgress = true;
     updateBusyCursor();
-    updateStatus(tr3(QStringLiteral("Estado: refrescando 0/1"),
+    updateStatus(trk(QStringLiteral("t_status_refresh_002"),
+                     QStringLiteral("Estado: refrescando 0/1"),
                      QStringLiteral("Status: refreshing 0/1"),
                      QStringLiteral("状态：刷新中 0/1")));
     const ConnectionProfile profile = m_profiles[idx];
@@ -175,7 +178,8 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const ConnectionR
         --m_refreshPending;
     }
     const int done = qMax(0, m_refreshTotal - m_refreshPending);
-    updateStatus(tr3(QStringLiteral("Estado: refrescando %1/%2"),
+    updateStatus(trk(QStringLiteral("t_status_refresh_003"),
+                     QStringLiteral("Estado: refrescando %1/%2"),
                      QStringLiteral("Status: refreshing %1/%2"),
                      QStringLiteral("状态：刷新中 %1/%2"))
                      .arg(done)
@@ -192,7 +196,8 @@ void MainWindow::onAsyncRefreshDone(int generation) {
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Refresco paralelo finalizado"));
     m_refreshInProgress = false;
     updateBusyCursor();
-    updateStatus(tr3(QStringLiteral("Estado: refresco finalizado"),
+    updateStatus(trk(QStringLiteral("t_status_refresh_end"),
+                     QStringLiteral("Estado: refresco finalizado"),
                      QStringLiteral("Status: refresh finished"),
                      QStringLiteral("状态：刷新完成")));
 }
@@ -248,10 +253,13 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
     const bool hasSel = (m_connectionsList->currentItem() != nullptr);
 
     QMenu menu(this);
-    QAction* refreshAct = menu.addAction(tr3(QStringLiteral("Refrescar"), QStringLiteral("Refresh"), QStringLiteral("刷新")));
+    QAction* refreshAct = menu.addAction(
+        trk(QStringLiteral("t_refresh_menu_01"), QStringLiteral("Refrescar"), QStringLiteral("Refresh"), QStringLiteral("刷新")));
     menu.addSeparator();
-    QAction* editAct = menu.addAction(tr3(QStringLiteral("Editar"), QStringLiteral("Edit"), QStringLiteral("编辑")));
-    QAction* deleteAct = menu.addAction(tr3(QStringLiteral("Borrar"), QStringLiteral("Delete"), QStringLiteral("删除")));
+    QAction* editAct = menu.addAction(
+        trk(QStringLiteral("t_edit_menu_001"), QStringLiteral("Editar"), QStringLiteral("Edit"), QStringLiteral("编辑")));
+    QAction* deleteAct = menu.addAction(
+        trk(QStringLiteral("t_delete_menu01"), QStringLiteral("Borrar"), QStringLiteral("Delete"), QStringLiteral("删除")));
     refreshAct->setEnabled(hasSel);
     editAct->setEnabled(hasSel);
     deleteAct->setEnabled(hasSel);
@@ -310,9 +318,10 @@ void MainWindow::updatePoolManagementBoxTitle() {
     const int idx = selectedConnectionIndexForPoolManagement();
     const QString connText = (idx >= 0 && idx < m_profiles.size())
                                  ? m_profiles[idx].name
-                                 : tr3(QStringLiteral("[vacío]"), QStringLiteral("[empty]"), QStringLiteral("[空]"));
+                                 : trk(QStringLiteral("t_empty_brkt_01"), QStringLiteral("[vacío]"), QStringLiteral("[empty]"), QStringLiteral("[空]"));
     m_poolMgmtBox->setTitle(
-        tr3(QStringLiteral("Gestión de Pools de %1"),
+        trk(QStringLiteral("t_pool_mgmt_of01"),
+            QStringLiteral("Gestión de Pools de %1"),
             QStringLiteral("Pool Management of %1"),
             QStringLiteral("%1 的池管理"))
             .arg(connText));
@@ -362,7 +371,8 @@ void MainWindow::loadConnections() {
     }
 
     rebuildConnectionList();
-    updateStatus(tr3(QStringLiteral("Estado: %1 conexiones cargadas"),
+    updateStatus(trk(QStringLiteral("t_status_conn_ld1"),
+                     QStringLiteral("Estado: %1 conexiones cargadas"),
                      QStringLiteral("Status: %1 connections loaded"),
                      QStringLiteral("状态：已加载 %1 个连接"))
                      .arg(m_profiles.size()));
@@ -416,14 +426,16 @@ void MainWindow::rebuildConnectionList() {
                                    ? s.osLine.trimmed()
                                    : QStringLiteral("%1").arg(p.osType);
         auto* osChild = new QTreeWidgetItem(item);
-        osChild->setText(0, tr3(QStringLiteral("Sistema operativo: %1"),
+        osChild->setText(0, trk(QStringLiteral("t_os_line_conn01"),
+                                QStringLiteral("Sistema operativo: %1"),
                                 QStringLiteral("Operating system: %1"),
                                 QStringLiteral("操作系统：%1")).arg(osLine));
         osChild->setData(0, Qt::UserRole, i);
 
         const QString method = !s.connectionMethod.trimmed().isEmpty() ? s.connectionMethod.trimmed() : p.connType;
         auto* methodChild = new QTreeWidgetItem(item);
-        methodChild->setText(0, tr3(QStringLiteral("Método de conexión: %1"),
+        methodChild->setText(0, trk(QStringLiteral("t_conn_method01"),
+                                    QStringLiteral("Método de conexión: %1"),
                                     QStringLiteral("Connection method: %1"),
                                     QStringLiteral("连接方式：%1")).arg(method));
         methodChild->setData(0, Qt::UserRole, i);
@@ -432,13 +444,15 @@ void MainWindow::rebuildConnectionList() {
                                                                        : (zfsTxt == QStringLiteral("?") ? QStringLiteral("-")
                                                                                                         : QStringLiteral("OpenZFS %1").arg(zfsTxt));
         auto* zfsChild = new QTreeWidgetItem(item);
-        zfsChild->setText(0, tr3(QStringLiteral("OpenZFS: %1"),
+        zfsChild->setText(0, trk(QStringLiteral("t_openzfs_line01"),
+                                 QStringLiteral("OpenZFS: %1"),
                                  QStringLiteral("OpenZFS: %1"),
                                  QStringLiteral("OpenZFS：%1")).arg(zfsFull));
         zfsChild->setData(0, Qt::UserRole, i);
 
         auto* commandsNode = new QTreeWidgetItem(item);
-        commandsNode->setText(0, tr3(QStringLiteral("Comandos detectados"),
+        commandsNode->setText(0, trk(QStringLiteral("t_cmds_detect01"),
+                                     QStringLiteral("Comandos detectados"),
                                      QStringLiteral("Detected commands"),
                                      QStringLiteral("检测到的命令")));
         commandsNode->setData(0, Qt::UserRole, i);
@@ -456,7 +470,8 @@ void MainWindow::rebuildConnectionList() {
             }
         } else if (!s.powershellFallbackCommands.isEmpty()) {
             auto* psHeader = new QTreeWidgetItem(commandsNode);
-            psHeader->setText(0, tr3(QStringLiteral("PowerShell (fallback):"),
+            psHeader->setText(0, trk(QStringLiteral("t_ps_fallback01"),
+                                     QStringLiteral("PowerShell (fallback):"),
                                      QStringLiteral("PowerShell (fallback):"),
                                      QStringLiteral("PowerShell（回退）：")));
             for (const QString& c : s.powershellFallbackCommands) {
@@ -466,7 +481,8 @@ void MainWindow::rebuildConnectionList() {
             }
         } else {
             auto* none = new QTreeWidgetItem(commandsNode);
-            none->setText(0, tr3(QStringLiteral("(sin datos)"),
+            none->setText(0, trk(QStringLiteral("t_no_data_0001"),
+                                 QStringLiteral("(sin datos)"),
                                  QStringLiteral("(no data)"),
                                  QStringLiteral("（无数据）")));
         }
@@ -551,7 +567,8 @@ void MainWindow::createConnection() {
     QString err;
     if (!m_store.upsertConnection(created, err)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              tr3(QStringLiteral("No se pudo crear conexión:\n%1"),
+                              trk(QStringLiteral("t_conn_create_er1"),
+                                  QStringLiteral("No se pudo crear conexión:\n%1"),
                                   QStringLiteral("Could not create connection:\n%1"),
                                   QStringLiteral("无法创建连接：\n%1")).arg(err));
         return;
@@ -595,7 +612,8 @@ void MainWindow::editConnection() {
     QString err;
     if (!m_store.upsertConnection(edited, err)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              tr3(QStringLiteral("No se pudo actualizar conexión:\n%1"),
+                              trk(QStringLiteral("t_conn_update_er"),
+                                  QStringLiteral("No se pudo actualizar conexión:\n%1"),
                                   QStringLiteral("Could not update connection:\n%1"),
                                   QStringLiteral("无法更新连接：\n%1")).arg(err));
         return;
@@ -622,8 +640,8 @@ void MainWindow::deleteConnection() {
     }
     const auto confirm = QMessageBox::question(
         this,
-        tr3(QStringLiteral("Borrar conexión"), QStringLiteral("Delete connection"), QStringLiteral("删除连接")),
-        tr3(QStringLiteral("¿Borrar conexión \"%1\"?"),
+        trk(QStringLiteral("t_del_conn_tit1"), QStringLiteral("Borrar conexión"), QStringLiteral("Delete connection"), QStringLiteral("删除连接")),
+        trk(QStringLiteral("t_del_conn_q001"), QStringLiteral("¿Borrar conexión \"%1\"?"),
             QStringLiteral("Delete connection \"%1\"?"),
             QStringLiteral("删除连接“%1”？")).arg(m_profiles[idx].name),
         QMessageBox::Yes | QMessageBox::No,
@@ -634,7 +652,8 @@ void MainWindow::deleteConnection() {
     QString err;
     if (!m_store.deleteConnectionById(m_profiles[idx].id, err)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              tr3(QStringLiteral("No se pudo borrar conexión:\n%1"),
+                              trk(QStringLiteral("t_del_conn_err1"),
+                                  QStringLiteral("No se pudo borrar conexión:\n%1"),
                                   QStringLiteral("Could not delete connection:\n%1"),
                                   QStringLiteral("无法删除连接：\n%1")).arg(err));
         return;

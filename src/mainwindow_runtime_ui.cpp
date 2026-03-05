@@ -47,7 +47,8 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         QMessageBox::warning(
             this,
             QStringLiteral("ZFSMgr"),
-            tr3(QStringLiteral("Hay una acción en ejecución. Cancele la acción antes de cerrar la aplicación."),
+            trk(QStringLiteral("t_close_block_001"),
+                QStringLiteral("Hay una acción en ejecución. Cancele la acción antes de cerrar la aplicación."),
                 QStringLiteral("An action is running. Cancel it before closing the application."),
                 QStringLiteral("当前有操作正在执行。请先取消操作再关闭应用。")));
         event->ignore();

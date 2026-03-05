@@ -401,7 +401,8 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     proc.start(QStringLiteral("sh"), QStringList{QStringLiteral("-lc"), command});
     if (!proc.waitForStarted(4000)) {
         appLog(QStringLiteral("NORMAL"),
-               tr3(QStringLiteral("No se pudo iniciar comando local"),
+               trk(QStringLiteral("t_no_se_pudo_874fae"),
+                   QStringLiteral("No se pudo iniciar comando local"),
                    QStringLiteral("Could not start local command"),
                    QStringLiteral("无法启动本地命令")));
         m_activeLocalProcess = nullptr;
@@ -496,7 +497,8 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     while (proc.state() != QProcess::NotRunning) {
         QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
         if (m_cancelActionRequested) {
-            appLog(QStringLiteral("NORMAL"), tr3(QStringLiteral("Cancelando acción en curso..."),
+            appLog(QStringLiteral("NORMAL"), trk(QStringLiteral("t_canceling_act001"),
+                                                 QStringLiteral("Cancelando acción en curso..."),
                                                  QStringLiteral("Canceling running action..."),
                                                  QStringLiteral("正在取消执行中的操作...")));
             terminateProcessTree(m_activeLocalPid);
@@ -505,7 +507,8 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                 proc.kill();
                 proc.waitForFinished(800);
             }
-            appLog(QStringLiteral("NORMAL"), tr3(QStringLiteral("Acción cancelada por el usuario."),
+            appLog(QStringLiteral("NORMAL"), trk(QStringLiteral("t_acc_cancel_usr2"),
+                                                 QStringLiteral("Acción cancelada por el usuario."),
                                                  QStringLiteral("Action canceled by user."),
                                                  QStringLiteral("操作已被用户取消。")));
             m_activeLocalProcess = nullptr;
