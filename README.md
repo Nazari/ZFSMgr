@@ -1,53 +1,79 @@
-# ZFSMgr C++/Qt (cppqt)
+# ZFSMgr (C++/Qt)
 
-Port de la app Python a **C++ + Qt6** con objetivo **multiplataforma** (Windows, Linux, macOS).
+Gestor gráfico de OpenZFS multiplataforma en **C++17 + Qt6** para **Linux, macOS y Windows**.
 
-## Estado actual
+## Funcionalidades principales
 
-Fase 1 + Fase 2 base implementadas:
+- Gestión de conexiones remotas (SSH y Windows por SSH/PowerShell).
+- Refresco completo/parcial de conexiones y detección de versión de OpenZFS.
+- Gestión de pools:
+  - listado unificado de pools (importados/importables),
+  - importar/exportar,
+  - crear pool con selección de dispositivos y opciones,
+  - destruir pool con confirmación reforzada.
+- Gestión de datasets y snapshots:
+  - crear, modificar, renombrar (`zfs rename`), borrar,
+  - montar/desmontar (incluyendo opciones recursivas),
+  - rollback de snapshot,
+  - borrado masivo de snapshots.
+- Transferencias entre origen/destino:
+  - copiar snapshot (`zfs send`/`zfs recv`),
+  - nivelar y sincronizar,
+  - desglosar/ensamblar.
+- Operaciones avanzadas:
+  - `Desde Dir` y `Hacia Dir` con opciones de conservación/borrado de origen.
+- Logs:
+  - log combinado en UI y logs persistentes con rotación,
+  - control de nivel y número de líneas visibles,
+  - vista de comandos y detalle de ejecución.
+- UI multiidioma (español, inglés y chino) con cambio dinámico desde menú.
+- Enmascarado de secretos en logs (`[secret]`).
 
-- Estructura Qt6/CMake lista para Windows/Linux/macOS.
-- UI principal con layout equivalente de alto nivel:
-  - Panel izquierdo con tabs (`Conexiones`, `Datasets`, `Avanzado`).
-  - Panel derecho con tabs de detalle (`Pools importados`, `Pools importables`).
-  - Sección inferior de `Log combinado`.
-- Carga de perfiles desde `connections.ini`.
-- Refresco de conexiones SSH (comando de prueba `uname -a`) con timeout y log.
-- Lista de conexiones en dos líneas con estado por conexión.
+## Estructura de interfaz
 
-## Limitaciones actuales (WIP)
+- Panel izquierdo: `Conexiones`, `Datasets`, `Avanzado`.
+- Panel derecho: detalle contextual (pools, propiedades/estado, árbol y propiedades de dataset).
+- Panel inferior: log combinado.
 
-- No implementa todavía desencriptado de campos `encv1$` (usuario/password) de la versión Python.
-- No implementa aún acciones ZFS completas (import/export/copy/level/sync, etc.).
-- Tab `Datasets` y `Avanzado` todavía en migración.
+## Configuración y datos
 
-## Build
+- Configuración de usuario: `~/.config/ZFSMgr/` (Linux; equivalente en macOS/Windows según Qt).
+- Fichero de conexiones: `connections.ini`.
+- Password maestro para proteger credenciales en configuración.
 
-Requisitos:
+## Requisitos de compilación
 
 - CMake >= 3.21
-- Compilador C++17
-- Qt6 (Widgets/Core/Gui)
+- Compilador con soporte C++17
+- Qt6 (`Core`, `Gui`, `Widgets`)
+- OpenSSL (especialmente en Windows para algunos entornos Qt)
 
-### Linux / macOS
+## Compilación rápida
+
+### Linux
 
 ```bash
-cd cppqt
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-./build/zfsmgr_qt
+./build-linux.sh
 ```
 
-### Windows (Developer PowerShell + Qt6)
+Binario esperado: `build-linux/zfsmgr_qt`
+
+### macOS
+
+```bash
+./build-macos.sh
+```
+
+El script genera binario y, si se configura así, bundle `.app` sin firmar.
+
+### Windows (PowerShell)
 
 ```powershell
-cd cppqt
-cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-.\build\zfsmgr_qt.exe
+.\build-windows.ps1
 ```
 
-## Compatibilidad
+El script detecta toolchain/Qt y compila en `build-windows`.
 
-- Usa `QStandardPaths::AppConfigLocation` para ubicación de configuración por sistema.
-- Si no existe `connections.ini` en la ruta de config del usuario, intenta fallback a `../vpython/connections.ini`.
+## Ejecución
+
+Tras compilar, ejecuta el binario generado para tu plataforma y abre sesión con el password maestro.
