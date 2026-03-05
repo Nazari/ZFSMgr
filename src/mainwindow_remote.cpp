@@ -9,6 +9,7 @@
 #include <QProcess>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <QThread>
 
 #include <algorithm>
 
@@ -143,8 +144,10 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             proc.waitForFinished(1000);
             break;
         }
-        // Keep UI responsive while long SSH commands are running.
-        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+        // Keep UI responsive only when called from GUI thread.
+        if (QThread::currentThread() == thread()) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+        }
     }
 
     const QString outTail = QString::fromUtf8(proc.readAllStandardOutput());
