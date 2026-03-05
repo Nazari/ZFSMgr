@@ -65,13 +65,15 @@ bool isLocalHostForUi(const QString& host) {
 void MainWindow::refreshAllConnections() {
     if (actionsLocked()) {
         appLog(QStringLiteral("INFO"),
-               tr3(QStringLiteral("Acción en curso: refresh bloqueado"),
+               trk(QStringLiteral("t_acci_n_en__6facd2"),
+                   QStringLiteral("Acción en curso: refresh bloqueado"),
                    QStringLiteral("Action in progress: refresh blocked"),
                    QStringLiteral("操作进行中：刷新被阻止")));
         return;
     }
     appLog(QStringLiteral("NORMAL"),
-           tr3(QStringLiteral("Refrescar todas las conexiones"),
+           trk(QStringLiteral("t_refrescar__7f8af2"),
+               QStringLiteral("Refrescar todas las conexiones"),
                QStringLiteral("Refresh all connections"),
                QStringLiteral("刷新所有连接")));
     if (m_profiles.isEmpty()) {
@@ -109,7 +111,8 @@ void MainWindow::refreshAllConnections() {
 void MainWindow::refreshSelectedConnection() {
     if (actionsLocked()) {
         appLog(QStringLiteral("INFO"),
-               tr3(QStringLiteral("Acción en curso: refresh bloqueado"),
+               trk(QStringLiteral("t_acci_n_en__6facd2"),
+                   QStringLiteral("Acción en curso: refresh bloqueado"),
                    QStringLiteral("Action in progress: refresh blocked"),
                    QStringLiteral("操作进行中：刷新被阻止")));
         return;
