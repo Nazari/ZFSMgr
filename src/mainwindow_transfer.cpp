@@ -78,7 +78,8 @@ void MainWindow::actionLevelSnapshot() {
         QMessageBox::information(
             this,
             QStringLiteral("ZFSMgr"),
-            tr3(QStringLiteral("Para Nivelar debe seleccionar:\n"
+            trk(QStringLiteral("t_level_need_sel1"),
+                QStringLiteral("Para Nivelar debe seleccionar:\n"
                                "- En Origen: un dataset o snapshot\n"
                                "- En Destino: un dataset (sin snapshot)"),
                 QStringLiteral("To Level you must select:\n"
@@ -91,7 +92,8 @@ void MainWindow::actionLevelSnapshot() {
     }
     if (!ensureDatasetsLoaded(src.connIdx, src.poolName) || !ensureDatasetsLoaded(dst.connIdx, dst.poolName)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             tr3(QStringLiteral("No se pudieron cargar snapshots para Nivelar."),
+                             trk(QStringLiteral("t_level_load_sn01"),
+                                 QStringLiteral("No se pudieron cargar snapshots para Nivelar."),
                                  QStringLiteral("Could not load snapshots for Level."),
                                  QStringLiteral("无法加载用于同步快照的快照列表。")));
         return;
@@ -102,14 +104,16 @@ void MainWindow::actionLevelSnapshot() {
     const QStringList dstSnaps = m_poolDatasetCache.value(dstKey).snapshotsByDataset.value(dst.datasetName);
     if (srcSnaps.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("Origen no tiene snapshots para Nivelar."),
+                                 trk(QStringLiteral("t_level_no_src01"),
+                                     QStringLiteral("Origen no tiene snapshots para Nivelar."),
                                      QStringLiteral("Source has no snapshots to Level."),
                                      QStringLiteral("源数据集没有可用于同步的快照。")));
         return;
     }
     if (dstSnaps.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             tr3(QStringLiteral("Destino no tiene snapshots. Nivelar siempre se hace con diferencial desde el snapshot más reciente de destino."),
+                             trk(QStringLiteral("t_level_no_dst01"),
+                                 QStringLiteral("Destino no tiene snapshots. Nivelar siempre se hace con diferencial desde el snapshot más reciente de destino."),
                                  QStringLiteral("Target has no snapshots. Level always uses a differential send from target latest snapshot."),
                                  QStringLiteral("目标数据集没有快照。“同步快照”始终要求从目标最新快照开始做增量发送。")));
         return;
@@ -119,7 +123,8 @@ void MainWindow::actionLevelSnapshot() {
     const int targetIdxInSrc = srcSnaps.indexOf(targetSnapName);
     if (targetIdxInSrc < 0) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             tr3(QStringLiteral("El snapshot objetivo (%1) no existe en origen.").arg(targetSnapName),
+                             trk(QStringLiteral("t_level_tgt_abs01"),
+                                 QStringLiteral("El snapshot objetivo (%1) no existe en origen.").arg(targetSnapName),
                                  QStringLiteral("Target snapshot (%1) does not exist in source.").arg(targetSnapName),
                                  QStringLiteral("目标快照（%1）在源端不存在。").arg(targetSnapName)));
         return;
@@ -129,7 +134,8 @@ void MainWindow::actionLevelSnapshot() {
     const int baseIdxInSrc = srcSnaps.indexOf(dstLatestSnap);
     if (baseIdxInSrc < 0) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             tr3(QStringLiteral("El snapshot más reciente de destino (%1) no existe en origen.\nNo se puede nivelar con diferencial.")
+                             trk(QStringLiteral("t_level_dst_abs01"),
+                                 QStringLiteral("El snapshot más reciente de destino (%1) no existe en origen.\nNo se puede nivelar con diferencial.")
                                      .arg(dstLatestSnap),
                                  QStringLiteral("Target latest snapshot (%1) does not exist in source.\nCannot level with differential send.")
                                      .arg(dstLatestSnap),
@@ -139,7 +145,8 @@ void MainWindow::actionLevelSnapshot() {
     }
     if (baseIdxInSrc < targetIdxInSrc) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             tr3(QStringLiteral("Destino tiene un snapshot más moderno (%1) que el snapshot objetivo (%2).\nNivelar cancelado.")
+                             trk(QStringLiteral("t_level_dst_new01"),
+                                 QStringLiteral("Destino tiene un snapshot más moderno (%1) que el snapshot objetivo (%2).\nNivelar cancelado.")
                                      .arg(dstLatestSnap, targetSnapName),
                                  QStringLiteral("Target has a newer snapshot (%1) than target snapshot to send (%2).\nLevel canceled.")
                                      .arg(dstLatestSnap, targetSnapName),
@@ -149,7 +156,8 @@ void MainWindow::actionLevelSnapshot() {
     }
     if (baseIdxInSrc == targetIdxInSrc) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("Destino ya está nivelado en el snapshot objetivo (%1).")
+                                 trk(QStringLiteral("t_level_already01"),
+                                     QStringLiteral("Destino ya está nivelado en el snapshot objetivo (%1).")
                                          .arg(targetSnapName),
                                      QStringLiteral("Target is already leveled at target snapshot (%1).")
                                          .arg(targetSnapName),

@@ -49,8 +49,8 @@ void MainWindow::exportPoolFromRow(int row) {
     }
     const auto confirm = QMessageBox::question(
         this,
-        tr3(QStringLiteral("Exportar pool"), QStringLiteral("Export pool"), QStringLiteral("导出池")),
-        tr3(QStringLiteral("¿Exportar pool %1 en %2?"),
+        trk(QStringLiteral("t_export_pool_t1"), QStringLiteral("Exportar pool"), QStringLiteral("Export pool"), QStringLiteral("导出池")),
+        trk(QStringLiteral("t_export_pool_q1"), QStringLiteral("¿Exportar pool %1 en %2?"),
             QStringLiteral("Export pool %1 on %2?"),
             QStringLiteral("在 %2 上导出池 %1？")).arg(poolName, connName),
         QMessageBox::Yes | QMessageBox::No,
@@ -75,7 +75,8 @@ void MainWindow::exportPoolFromRow(int row) {
         appLog(QStringLiteral("NORMAL"), QStringLiteral("Error exportando %1::%2 -> %3")
                                        .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              tr3(QStringLiteral("Exportar falló:\n%1"),
+                              trk(QStringLiteral("t_export_pool_e1"),
+                                  QStringLiteral("Exportar falló:\n%1"),
                                   QStringLiteral("Export failed:\n%1"),
                                   QStringLiteral("导出失败：\n%1"))
                                   .arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
@@ -122,13 +123,15 @@ void MainWindow::importPoolFromRow(int row) {
     }
 
     QDialog dlg(this);
-    dlg.setWindowTitle(tr3(QStringLiteral("Importar pool: %1"),
+    dlg.setWindowTitle(trk(QStringLiteral("t_import_pool_w1"),
+                           QStringLiteral("Importar pool: %1"),
                            QStringLiteral("Import pool: %1"),
                            QStringLiteral("导入池：%1")).arg(poolName));
     dlg.setModal(true);
     auto* lay = new QVBoxLayout(&dlg);
 
-    auto* flagsBox = new QGroupBox(tr3(QStringLiteral("Flags"), QStringLiteral("Flags"), QStringLiteral("标志")), &dlg);
+    auto* flagsBox = new QGroupBox(
+        trk(QStringLiteral("t_flags_label001"), QStringLiteral("Flags"), QStringLiteral("Flags"), QStringLiteral("标志")), &dlg);
     auto* flagsLay = new QGridLayout(flagsBox);
     QCheckBox* forceCb = new QCheckBox(QStringLiteral("-f force"), flagsBox);
     QCheckBox* missingLogCb = new QCheckBox(QStringLiteral("-m missing log"), flagsBox);
@@ -148,7 +151,8 @@ void MainWindow::importPoolFromRow(int row) {
     flagsLay->addWidget(loadKeysCb, 3, 1);
     lay->addWidget(flagsBox);
 
-    auto* fieldsBox = new QGroupBox(tr3(QStringLiteral("Valores"), QStringLiteral("Values"), QStringLiteral("参数值")), &dlg);
+    auto* fieldsBox = new QGroupBox(
+        trk(QStringLiteral("t_values_label01"), QStringLiteral("Valores"), QStringLiteral("Values"), QStringLiteral("参数值")), &dlg);
     auto* form = new QFormLayout(fieldsBox);
     QLineEdit* cachefileEd = new QLineEdit(fieldsBox);
     QLineEdit* altrootEd = new QLineEdit(fieldsBox);
@@ -252,7 +256,8 @@ void MainWindow::importPoolFromRow(int row) {
         appLog(QStringLiteral("NORMAL"), QStringLiteral("Error importando %1::%2 -> %3")
                                        .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              tr3(QStringLiteral("Importar falló:\n%1"),
+                              trk(QStringLiteral("t_import_pool_e1"),
+                                  QStringLiteral("Importar falló:\n%1"),
                                   QStringLiteral("Import failed:\n%1"),
                                   QStringLiteral("导入失败：\n%1"))
                                   .arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
