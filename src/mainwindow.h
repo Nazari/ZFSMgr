@@ -115,8 +115,6 @@ private:
     void onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* item, int col, const QString& side);
     void clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem* keepItem);
     void onConnectionListContextMenuRequested(const QPoint& pos);
-    void onImportedPoolsContextMenuRequested(const QPoint& pos);
-    void onImportablePoolsContextMenuRequested(const QPoint& pos);
 
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
     bool runSsh(const ConnectionProfile& p, const QString& remoteCmd, int timeoutMs, QString& out, QString& err, int& rc);
@@ -218,7 +216,6 @@ private:
 
     QPushButton* m_btnNew{nullptr};
     QPushButton* m_btnRefreshAll{nullptr};
-    QPushButton* m_btnRefreshSelected{nullptr};
     QPushButton* m_btnConfig{nullptr};
     QGroupBox* m_poolMgmtBox{nullptr};
     QPushButton* m_btnPoolNew{nullptr};

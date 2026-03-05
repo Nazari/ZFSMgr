@@ -2526,52 +2526,6 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
     }
 }
 
-void MainWindow::onImportedPoolsContextMenuRequested(const QPoint& pos) {
-    if (actionsLocked()) {
-        return;
-    }
-    const QModelIndex idx = m_importedPoolsTable->indexAt(pos);
-    if (!idx.isValid()) {
-        return;
-    }
-    const int row = idx.row();
-    m_importedPoolsTable->selectRow(row);
-    QMenu menu(this);
-    QAction* exportAct = menu.addAction(tr3(QStringLiteral("Exportar"), QStringLiteral("Export"), QStringLiteral("导出")));
-    QAction* picked = menu.exec(m_importedPoolsTable->viewport()->mapToGlobal(pos));
-    if (!picked) {
-        return;
-    }
-    if (picked == exportAct) {
-        logUiAction(QStringLiteral("Exportar pool (menú)"));
-        exportPoolFromRow(row);
-    }
-}
-
-void MainWindow::onImportablePoolsContextMenuRequested(const QPoint& pos) {
-    if (actionsLocked()) {
-        return;
-    }
-    const QModelIndex idx = m_importablePoolsTable->indexAt(pos);
-    if (!idx.isValid()) {
-        return;
-    }
-    const int row = idx.row();
-    m_importablePoolsTable->selectRow(row);
-    QMenu menu(this);
-    QAction* importAct = menu.addAction(tr3(QStringLiteral("Importar"), QStringLiteral("Import"), QStringLiteral("导入")));
-    const QString state = m_importablePoolsTable->item(row, 3) ? m_importablePoolsTable->item(row, 3)->text().trimmed().toUpper() : QString();
-    importAct->setEnabled(state == QStringLiteral("ONLINE") || state == QStringLiteral("ACTIVE"));
-    QAction* picked = menu.exec(m_importablePoolsTable->viewport()->mapToGlobal(pos));
-    if (!picked) {
-        return;
-    }
-    if (picked == importAct) {
-        logUiAction(QStringLiteral("Importar pool (menú)"));
-        importPoolFromRow(row);
-    }
-}
-
 void MainWindow::onOriginPoolChanged() {
     m_originSelectedDataset.clear();
     m_originSelectedSnapshot.clear();
