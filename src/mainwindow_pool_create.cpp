@@ -112,7 +112,7 @@ void MainWindow::createPoolForSelectedConnection() {
         QMessageBox::information(
             this,
             QStringLiteral("ZFSMgr"),
-            tr3(QStringLiteral("Seleccione una conexión para gestionar pools."),
+            trk(QStringLiteral("t_poolcrt_auto001"), QStringLiteral("Seleccione una conexión para gestionar pools."),
                 QStringLiteral("Select a connection to manage pools."),
                 QStringLiteral("请选择一个连接来管理池。")));
         return;
@@ -592,7 +592,7 @@ void MainWindow::createPoolForSelectedConnection() {
 
     QDialog dlg(this);
     dlg.setWindowTitle(
-        tr3(QStringLiteral("Crear pool en %1"), QStringLiteral("Create pool on %1"), QStringLiteral("在 %1 创建池"))
+        trk(QStringLiteral("t_poolcrt_auto002"), QStringLiteral("Crear pool en %1"), QStringLiteral("Create pool on %1"), QStringLiteral("在 %1 创建池"))
             .arg(p.name));
     dlg.setModal(true);
     dlg.resize(1180, 760);
@@ -606,7 +606,7 @@ void MainWindow::createPoolForSelectedConnection() {
     leftLay->setSpacing(8);
 
     auto* baseBox = new QGroupBox(
-        tr3(QStringLiteral("Parámetros del pool"), QStringLiteral("Pool parameters"), QStringLiteral("池参数")), leftPane);
+        trk(QStringLiteral("t_poolcrt_auto003"), QStringLiteral("Parámetros del pool"), QStringLiteral("Pool parameters"), QStringLiteral("池参数")), leftPane);
     auto* form = new QFormLayout(baseBox);
     QLineEdit* poolNameEd = new QLineEdit(baseBox);
     QComboBox* quickLayoutCb = new QComboBox(baseBox);
@@ -638,8 +638,8 @@ void MainWindow::createPoolForSelectedConnection() {
     QLineEdit* poolOptsEd = new QLineEdit(baseBox);
     QLineEdit* fsPropsEd = new QLineEdit(baseBox);
     QLineEdit* extraEd = new QLineEdit(baseBox);
-    form->addRow(tr3(QStringLiteral("Nombre"), QStringLiteral("Name"), QStringLiteral("名称")), poolNameEd);
-    form->addRow(tr3(QStringLiteral("Tipo rápido (si no hay spec vdev)"),
+    form->addRow(trk(QStringLiteral("t_poolcrt_auto004"), QStringLiteral("Nombre"), QStringLiteral("Name"), QStringLiteral("名称")), poolNameEd);
+    form->addRow(trk(QStringLiteral("t_poolcrt_auto005"), QStringLiteral("Tipo rápido (si no hay spec vdev)"),
                      QStringLiteral("Quick type (if no vdev spec)"),
                      QStringLiteral("快速类型（若无 vdev 规格）")),
                  quickLayoutCb);
@@ -647,7 +647,7 @@ void MainWindow::createPoolForSelectedConnection() {
     flagsRow->addWidget(forceCb);
     flagsRow->addWidget(dryRunCb);
     flagsRow->addStretch(1);
-    form->addRow(tr3(QStringLiteral("Flags"), QStringLiteral("Flags"), QStringLiteral("标志")), flagsRow);
+    form->addRow(trk(QStringLiteral("t_poolcrt_auto006"), QStringLiteral("Flags"), QStringLiteral("Flags"), QStringLiteral("标志")), flagsRow);
     form->addRow(QStringLiteral("mountpoint (-m)"), mountpointEd);
     form->addRow(QStringLiteral("altroot (-R)"), altrootEd);
     form->addRow(QStringLiteral("ashift (-o ashift=)"), ashiftCb);
@@ -661,7 +661,7 @@ void MainWindow::createPoolForSelectedConnection() {
     leftLay->addWidget(baseBox, 0);
 
     auto* vdevBox =
-        new QGroupBox(tr3(QStringLiteral("Constructor de VDEV"),
+        new QGroupBox(trk(QStringLiteral("t_poolcrt_auto007"), QStringLiteral("Constructor de VDEV"),
                           QStringLiteral("VDEV builder"),
                           QStringLiteral("VDEV 构建器")),
                       leftPane);
@@ -678,29 +678,29 @@ void MainWindow::createPoolForSelectedConnection() {
     vdevTypeCb->addItems({QStringLiteral("stripe"), QStringLiteral("mirror"), QStringLiteral("raidz"),
                           QStringLiteral("raidz2"), QStringLiteral("raidz3")});
     auto* addVdevBtn =
-        new QPushButton(tr3(QStringLiteral("Añadir con seleccionados"),
+        new QPushButton(trk(QStringLiteral("t_poolcrt_auto008"), QStringLiteral("Añadir con seleccionados"),
                             QStringLiteral("Add from selected"),
                             QStringLiteral("从已选添加")),
                         vdevBox);
-    row1->addWidget(new QLabel(tr3(QStringLiteral("Clase"), QStringLiteral("Class"), QStringLiteral("类别")), vdevBox));
+    row1->addWidget(new QLabel(trk(QStringLiteral("t_poolcrt_auto009"), QStringLiteral("Clase"), QStringLiteral("Class"), QStringLiteral("类别")), vdevBox));
     row1->addWidget(vdevClassCb);
-    row1->addWidget(new QLabel(tr3(QStringLiteral("Tipo"), QStringLiteral("Type"), QStringLiteral("类型")), vdevBox));
+    row1->addWidget(new QLabel(trk(QStringLiteral("t_poolcrt_auto010"), QStringLiteral("Tipo"), QStringLiteral("Type"), QStringLiteral("类型")), vdevBox));
     row1->addWidget(vdevTypeCb);
     row1->addWidget(addVdevBtn, 1);
     vdevLay->addLayout(row1);
     auto* row2 = new QHBoxLayout();
-    auto* clearSelBtn = new QPushButton(tr3(QStringLiteral("Limpiar selección dispositivos"),
+    auto* clearSelBtn = new QPushButton(trk(QStringLiteral("t_poolcrt_auto011"), QStringLiteral("Limpiar selección dispositivos"),
                                             QStringLiteral("Clear device selection"),
                                             QStringLiteral("清除设备选择")),
                                         vdevBox);
     auto* clearSpecBtn =
-        new QPushButton(tr3(QStringLiteral("Limpiar spec"), QStringLiteral("Clear spec"), QStringLiteral("清除规格")), vdevBox);
+        new QPushButton(trk(QStringLiteral("t_poolcrt_auto012"), QStringLiteral("Limpiar spec"), QStringLiteral("Clear spec"), QStringLiteral("清除规格")), vdevBox);
     row2->addWidget(clearSelBtn);
     row2->addWidget(clearSpecBtn);
     row2->addStretch(1);
     vdevLay->addLayout(row2);
     auto* vdevHelp =
-        new QLabel(tr3(QStringLiteral("Puede construir algo como: raidz2 d1 d2 d3 d4 d5 d6 | raidz2 d7 d8 d9 d10 d11 d12 | special mirror nvme0 nvme1 | log mirror nvme2 nvme3 | cache nvme4 | dedup mirror nvme5 nvme6 | spare d13"),
+        new QLabel(trk(QStringLiteral("t_poolcrt_auto013"), QStringLiteral("Puede construir algo como: raidz2 d1 d2 d3 d4 d5 d6 | raidz2 d7 d8 d9 d10 d11 d12 | special mirror nvme0 nvme1 | log mirror nvme2 nvme3 | cache nvme4 | dedup mirror nvme5 nvme6 | spare d13"),
                        QStringLiteral("Build specs like: raidz2 d1 d2 d3 d4 d5 d6 | raidz2 d7 d8 d9 d10 d11 d12 | special mirror nvme0 nvme1 | log mirror nvme2 nvme3 | cache nvme4 | dedup mirror nvme5 nvme6 | spare d13"),
                        QStringLiteral("可构建如下规格：raidz2 d1 d2 d3 d4 d5 d6 | raidz2 d7 d8 d9 d10 d11 d12 | special mirror nvme0 nvme1 | log mirror nvme2 nvme3 | cache nvme4 | dedup mirror nvme5 nvme6 | spare d13")),
                    vdevBox);
@@ -708,14 +708,14 @@ void MainWindow::createPoolForSelectedConnection() {
     vdevLay->addWidget(vdevHelp, 0);
     QPlainTextEdit* vdevSpecEdit = new QPlainTextEdit(vdevBox);
     vdevSpecEdit->setPlaceholderText(
-        tr3(QStringLiteral("Una línea por grupo o use '|' en una línea.\nEjemplo:\nraidz2 /dev/sda /dev/sdb /dev/sdc /dev/sdd /dev/sde /dev/sdf\nraidz2 /dev/sdg /dev/sdh /dev/sdi /dev/sdj /dev/sdk /dev/sdl\nspecial mirror /dev/nvme0n1 /dev/nvme1n1\nlog mirror /dev/nvme2n1 /dev/nvme3n1\ncache /dev/nvme4n1\ndedup mirror /dev/nvme5n1 /dev/nvme6n1\nspare /dev/sdm"),
+        trk(QStringLiteral("t_poolcrt_auto014"), QStringLiteral("Una línea por grupo o use '|' en una línea.\nEjemplo:\nraidz2 /dev/sda /dev/sdb /dev/sdc /dev/sdd /dev/sde /dev/sdf\nraidz2 /dev/sdg /dev/sdh /dev/sdi /dev/sdj /dev/sdk /dev/sdl\nspecial mirror /dev/nvme0n1 /dev/nvme1n1\nlog mirror /dev/nvme2n1 /dev/nvme3n1\ncache /dev/nvme4n1\ndedup mirror /dev/nvme5n1 /dev/nvme6n1\nspare /dev/sdm"),
             QStringLiteral("One line per group or use '|' in one line.\nExample:\nraidz2 /dev/sda /dev/sdb /dev/sdc /dev/sdd /dev/sde /dev/sdf\nraidz2 /dev/sdg /dev/sdh /dev/sdi /dev/sdj /dev/sdk /dev/sdl\nspecial mirror /dev/nvme0n1 /dev/nvme1n1\nlog mirror /dev/nvme2n1 /dev/nvme3n1\ncache /dev/nvme4n1\ndedup mirror /dev/nvme5n1 /dev/nvme6n1\nspare /dev/sdm"),
             QStringLiteral("每行一个组，或在一行里用“|”。\n示例：\nraidz2 /dev/sda /dev/sdb /dev/sdc /dev/sdd /dev/sde /dev/sdf\nraidz2 /dev/sdg /dev/sdh /dev/sdi /dev/sdj /dev/sdk /dev/sdl\nspecial mirror /dev/nvme0n1 /dev/nvme1n1\nlog mirror /dev/nvme2n1 /dev/nvme3n1\ncache /dev/nvme4n1\ndedup mirror /dev/nvme5n1 /dev/nvme6n1\nspare /dev/sdm")));
     vdevLay->addWidget(vdevSpecEdit, 1);
     leftLay->addWidget(vdevBox, 1);
 
     auto* devicesBox = new QGroupBox(
-        tr3(QStringLiteral("Block devices disponibles"),
+        trk(QStringLiteral("t_poolcrt_auto015"), QStringLiteral("Block devices disponibles"),
             QStringLiteral("Available block devices"),
             QStringLiteral("可用块设备")),
         leftPane);
@@ -723,12 +723,12 @@ void MainWindow::createPoolForSelectedConnection() {
     QTableWidget* devicesTable = new QTableWidget(devicesBox);
     devicesTable->setColumnCount(6);
     devicesTable->setHorizontalHeaderLabels({
-        tr3(QStringLiteral("Usar"), QStringLiteral("Use"), QStringLiteral("使用")),
-        tr3(QStringLiteral("Device"), QStringLiteral("Device"), QStringLiteral("设备")),
-        tr3(QStringLiteral("Tamaño"), QStringLiteral("Size"), QStringLiteral("大小")),
-        tr3(QStringLiteral("Mount"), QStringLiteral("Mount"), QStringLiteral("挂载")),
-        tr3(QStringLiteral("Estado"), QStringLiteral("State"), QStringLiteral("状态")),
-        tr3(QStringLiteral("Detalle"), QStringLiteral("Detail"), QStringLiteral("详情")),
+        trk(QStringLiteral("t_poolcrt_auto016"), QStringLiteral("Usar"), QStringLiteral("Use"), QStringLiteral("使用")),
+        trk(QStringLiteral("t_poolcrt_auto017"), QStringLiteral("Device"), QStringLiteral("Device"), QStringLiteral("设备")),
+        trk(QStringLiteral("t_poolcrt_auto018"), QStringLiteral("Tamaño"), QStringLiteral("Size"), QStringLiteral("大小")),
+        trk(QStringLiteral("t_poolcrt_auto019"), QStringLiteral("Mount"), QStringLiteral("Mount"), QStringLiteral("挂载")),
+        trk(QStringLiteral("t_poolcrt_auto020"), QStringLiteral("Estado"), QStringLiteral("State"), QStringLiteral("状态")),
+        trk(QStringLiteral("t_poolcrt_auto021"), QStringLiteral("Detalle"), QStringLiteral("Detail"), QStringLiteral("详情")),
     });
     devicesTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     devicesTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
@@ -812,18 +812,18 @@ void MainWindow::createPoolForSelectedConnection() {
         rr.entry = e;
         const bool protectedMount = hasProtectedSystemMount(e);
         if (protectedMount || e.inPool || e.childBusy) {
-            rr.stateText = tr3(QStringLiteral("EN_POOL"), QStringLiteral("IN_POOL"), QStringLiteral("在池中"));
+            rr.stateText = trk(QStringLiteral("t_poolcrt_auto022"), QStringLiteral("EN_POOL"), QStringLiteral("IN_POOL"), QStringLiteral("在池中"));
             if (protectedMount) {
-                rr.stateText = tr3(QStringLiteral("SISTEMA"), QStringLiteral("SYSTEM"), QStringLiteral("系统"));
-                rr.detailText = tr3(QStringLiteral("Dispositivo de sistema (/ /boot /boot/efi o SWAP)"),
+                rr.stateText = trk(QStringLiteral("t_poolcrt_auto023"), QStringLiteral("SISTEMA"), QStringLiteral("SYSTEM"), QStringLiteral("系统"));
+                rr.detailText = trk(QStringLiteral("t_poolcrt_auto024"), QStringLiteral("Dispositivo de sistema (/ /boot /boot/efi o SWAP)"),
                                     QStringLiteral("System device (/ /boot /boot/efi or SWAP)"),
                                     QStringLiteral("系统设备（/ /boot /boot/efi 或 SWAP）"));
             } else if (e.childBusy) {
-                rr.detailText = tr3(QStringLiteral("Alguna partición está montada o pertenece a un pool"),
+                rr.detailText = trk(QStringLiteral("t_poolcrt_auto025"), QStringLiteral("Alguna partición está montada o pertenece a un pool"),
                                     QStringLiteral("A child partition is mounted or belongs to a pool"),
                                     QStringLiteral("某个子分区已挂载或属于池"));
             } else {
-                rr.detailText = tr3(QStringLiteral("Ya pertenece a un pool"),
+                rr.detailText = trk(QStringLiteral("t_poolcrt_auto026"), QStringLiteral("Ya pertenece a un pool"),
                                     QStringLiteral("Already part of a pool"),
                                     QStringLiteral("已属于某个池"));
             }
@@ -831,14 +831,14 @@ void MainWindow::createPoolForSelectedConnection() {
             rr.colorRank = 2;
             rr.selectable = false;
         } else if (e.mounted || (!e.mountpoint.isEmpty() && e.mountpoint != QStringLiteral("-"))) {
-            rr.stateText = tr3(QStringLiteral("MONTADO"), QStringLiteral("MOUNTED"), QStringLiteral("已挂载"));
+            rr.stateText = trk(QStringLiteral("t_poolcrt_auto027"), QStringLiteral("MONTADO"), QStringLiteral("MOUNTED"), QStringLiteral("已挂载"));
             rr.detailText = e.mountpoint;
             rr.bgColor = stYellow;
             rr.colorRank = 1;
             yellowDevicePaths.insert(e.path);
         } else {
-            rr.stateText = tr3(QStringLiteral("LIBRE"), QStringLiteral("FREE"), QStringLiteral("空闲"));
-            rr.detailText = tr3(QStringLiteral("Disponible"), QStringLiteral("Available"), QStringLiteral("可用"));
+            rr.stateText = trk(QStringLiteral("t_poolcrt_auto028"), QStringLiteral("LIBRE"), QStringLiteral("FREE"), QStringLiteral("空闲"));
+            rr.detailText = trk(QStringLiteral("t_poolcrt_auto029"), QStringLiteral("Disponible"), QStringLiteral("Available"), QStringLiteral("可用"));
             rr.bgColor = stGreen;
             rr.colorRank = 0;
         }
@@ -935,7 +935,7 @@ void MainWindow::createPoolForSelectedConnection() {
         if (selected.isEmpty()) {
             QMessageBox::information(
                 &dlg, QStringLiteral("ZFSMgr"),
-                tr3(QStringLiteral("Seleccione dispositivos en la tabla de la derecha."),
+                trk(QStringLiteral("t_poolcrt_auto030"), QStringLiteral("Seleccione dispositivos en la tabla de la derecha."),
                     QStringLiteral("Select devices in the table on the right."),
                     QStringLiteral("请在右侧表格中选择设备。")));
             return;
@@ -980,7 +980,7 @@ void MainWindow::createPoolForSelectedConnection() {
     const QString poolName = poolNameEd->text().trimmed();
     if (poolName.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             tr3(QStringLiteral("Nombre de pool vacío."),
+                             trk(QStringLiteral("t_poolcrt_auto031"), QStringLiteral("Nombre de pool vacío."),
                                  QStringLiteral("Pool name is empty."),
                                  QStringLiteral("池名称为空。")));
         return;
@@ -1053,7 +1053,7 @@ void MainWindow::createPoolForSelectedConnection() {
         if (selectedDevices.isEmpty()) {
             QMessageBox::warning(
                 this, QStringLiteral("ZFSMgr"),
-                tr3(QStringLiteral("Defina una especificación VDEV o seleccione dispositivos para modo rápido."),
+                trk(QStringLiteral("t_poolcrt_auto032"), QStringLiteral("Defina una especificación VDEV o seleccione dispositivos para modo rápido."),
                     QStringLiteral("Provide a VDEV spec or select devices for quick mode."),
                     QStringLiteral("请提供 VDEV 规格，或在快速模式中选择设备。")));
             return;
@@ -1110,7 +1110,7 @@ void MainWindow::createPoolForSelectedConnection() {
                    .arg(p.name, poolName, oneLine(cmdErr.isEmpty() ? QStringLiteral("exit %1").arg(rc) : cmdErr)));
         QMessageBox::critical(
             this, QStringLiteral("ZFSMgr"),
-            tr3(QStringLiteral("Crear pool falló:\n%1"),
+            trk(QStringLiteral("t_poolcrt_auto033"), QStringLiteral("Crear pool falló:\n%1"),
                 QStringLiteral("Pool creation failed:\n%1"),
                 QStringLiteral("创建池失败：\n%1")).arg(cmdErr.isEmpty() ? QStringLiteral("exit %1").arg(rc) : cmdErr));
         setActionsLocked(false);
