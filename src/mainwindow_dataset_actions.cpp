@@ -317,7 +317,7 @@ bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext
     if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
         return false;
     }
-    if (!ensureParentMountedBeforeMount(ctx, side)) {
+    if (!ensureParentMountedBeforeMount(ctx)) {
         return false;
     }
     if (!ensureNoMountpointConflictsBeforeMount(ctx, false)) {
@@ -392,7 +392,7 @@ void MainWindow::actionMountDatasetWithChildren(const QString& side) {
     if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
         return;
     }
-    if (!ensureParentMountedBeforeMount(ctx, side)) {
+    if (!ensureParentMountedBeforeMount(ctx)) {
         return;
     }
     if (!ensureNoMountpointConflictsBeforeMount(ctx, true)) {
@@ -429,8 +429,7 @@ void MainWindow::actionMountDatasetWithChildren(const QString& side) {
     executeDatasetAction(side, QStringLiteral("Montar con todos los hijos"), ctx, cmd);
 }
 
-bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& ctx, const QString& side) {
-    Q_UNUSED(side);
+bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& ctx) {
     if (!ctx.valid || ctx.datasetName.isEmpty()) {
         return false;
     }

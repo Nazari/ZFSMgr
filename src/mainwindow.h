@@ -155,7 +155,7 @@ private:
     bool umountDataset(const QString& side, const DatasetSelectionContext& ctx);
     void actionCreateChildDataset(const QString& side);
     void actionDeleteDatasetOrSnapshot(const QString& side);
-    bool ensureParentMountedBeforeMount(const DatasetSelectionContext& ctx, const QString& side);
+    bool ensureParentMountedBeforeMount(const DatasetSelectionContext& ctx);
     bool ensureNoMountpointConflictsBeforeMount(const DatasetSelectionContext& ctx, bool includeDescendants);
     void onDatasetPropsCellChanged(int row, int col);
     void applyDatasetPropertyChanges();
