@@ -28,6 +28,7 @@ qt_add_executable(zfsmgr_qt
     src/mainwindow_transfer.cpp
     src/mainwindow_state_ui.cpp
     src/mainwindow_advanced.cpp
+    src/mainwindow_advanced_dir.cpp
     src/mainwindow_refresh.cpp
     src/mainwindow_runtime_ui.cpp
     src/mainwindow_remote.cpp
