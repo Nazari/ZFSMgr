@@ -402,6 +402,15 @@ QString sshControlPath() {
 #endif
 }
 
+QString sshUserHost(const ConnectionProfile& p) {
+    return QStringLiteral("%1@%2").arg(p.username, p.host);
+}
+
+QString sshUserHostPort(const ConnectionProfile& p) {
+    const QString port = (p.port > 0) ? QString::number(p.port) : QStringLiteral("22");
+    return QStringLiteral("%1:%2").arg(sshUserHost(p), port);
+}
+
 QString sshBaseCommand(const ConnectionProfile& p) {
     QString cmd = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
                                  " -o ControlMaster=auto -o ControlPersist=300 -o ControlPath=%1")
@@ -460,7 +469,7 @@ QString buildSshPreviewCommandText(const ConnectionProfile& p, const QString& re
     if (!p.keyPath.isEmpty()) {
         parts << QStringLiteral("-i %1").arg(shSingleQuote(p.keyPath));
     }
-    parts << QStringLiteral("%1@%2").arg(p.username, p.host);
+    parts << sshUserHost(p);
     parts << shSingleQuote(remoteCmd);
     return parts.join(' ');
 }

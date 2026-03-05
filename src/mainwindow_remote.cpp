@@ -34,6 +34,8 @@ using mwhelpers::parentDatasetName;
 using mwhelpers::shSingleQuote;
 using mwhelpers::sshBaseCommand;
 using mwhelpers::sshControlPath;
+using mwhelpers::sshUserHost;
+using mwhelpers::sshUserHostPort;
 } // namespace
 
 bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, int timeoutMs, QString& out, QString& err, int& rc) {
@@ -73,14 +75,12 @@ bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, in
     if (!p.keyPath.isEmpty()) {
         args << "-i" << p.keyPath;
     }
-    args << QStringLiteral("%1@%2").arg(p.username, p.host);
+    args << sshUserHost(p);
     const QString wrappedCmd = wrapRemoteCommand(p, remoteCmd);
     args << wrappedCmd;
 
-    const QString cmdLine = QStringLiteral("%1@%2:%3 $ %4")
-                                .arg(p.username, p.host)
-                                .arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22"))
-                                .arg(wrappedCmd);
+    const QString cmdLine = QStringLiteral("%1 $ %2")
+                                .arg(sshUserHostPort(p), wrappedCmd);
     appLog(QStringLiteral("INFO"), cmdLine);
     appendConnectionLog(p.id, cmdLine);
     if (hasPassword && !usingSshpass) {
@@ -192,7 +192,7 @@ QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p, const QString&
 
 QString MainWindow::sshExecFromLocal(const ConnectionProfile& p, const QString& remoteCmd) const {
     const QString sshBase = sshBaseCommand(p);
-    const QString target = shSingleQuote(p.username + QStringLiteral("@") + p.host);
+    const QString target = shSingleQuote(sshUserHost(p));
     const QString wrapped = wrapRemoteCommand(p, remoteCmd);
     return sshBase + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrapped);
 }

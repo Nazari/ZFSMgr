@@ -21,6 +21,7 @@
 namespace {
 using mwhelpers::oneLine;
 using mwhelpers::shSingleQuote;
+using mwhelpers::sshUserHostPort;
 } // namespace
 
 void MainWindow::exportPoolFromRow(int row) {
@@ -60,7 +61,7 @@ void MainWindow::exportPoolFromRow(int row) {
     const ConnectionProfile& p = m_profiles[idx];
     const QString cmd = withSudo(p, QStringLiteral("zpool export %1").arg(shSingleQuote(poolName)));
     const QString preview = QStringLiteral("[%1]\n%2")
-                                .arg(QStringLiteral("%1@%2:%3").arg(p.username, p.host).arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
+                                .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
     if (!confirmActionExecution(QStringLiteral("Exportar"), {preview})) {
         return;
@@ -237,7 +238,7 @@ void MainWindow::importPoolFromRow(int row) {
     const ConnectionProfile& p = m_profiles[idx];
     const QString cmd = withSudo(p, parts.join(' '));
     const QString preview = QStringLiteral("[%1]\n%2")
-                                .arg(QStringLiteral("%1@%2:%3").arg(p.username, p.host).arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
+                                .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
     if (!confirmActionExecution(QStringLiteral("Importar"), {preview})) {
         return;
@@ -303,7 +304,7 @@ void MainWindow::scrubPoolFromRow(int row) {
     const ConnectionProfile& p = m_profiles[idx];
     const QString cmd = withSudo(p, QStringLiteral("zpool scrub %1").arg(shSingleQuote(poolName)));
     const QString preview = QStringLiteral("[%1]\n%2")
-                                .arg(QStringLiteral("%1@%2:%3").arg(p.username, p.host).arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
+                                .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
     if (!confirmActionExecution(QStringLiteral("Scrub"), {preview})) {
         return;
@@ -382,7 +383,7 @@ void MainWindow::destroyPoolFromRow(int row) {
     const ConnectionProfile& p = m_profiles[idx];
     const QString cmd = withSudo(p, QStringLiteral("zpool destroy %1").arg(shSingleQuote(poolName)));
     const QString preview = QStringLiteral("[%1]\n%2")
-                                .arg(QStringLiteral("%1@%2:%3").arg(p.username, p.host).arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
+                                .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
     if (!confirmActionExecution(QStringLiteral("Destroy"), {preview})) {
         return;

@@ -8,6 +8,7 @@ namespace {
 using mwhelpers::isMountedValueTrue;
 using mwhelpers::shSingleQuote;
 using mwhelpers::sshBaseCommand;
+using mwhelpers::sshUserHost;
 } // namespace
 
 void MainWindow::actionCopySnapshot() {
@@ -29,8 +30,8 @@ void MainWindow::actionCopySnapshot() {
         }
     }
 
-    const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
-    const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
+    const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sshUserHost(sp));
+    const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(sshUserHost(dp));
 
     const QString sendRawCmd = QStringLiteral("zfs send -wLecR %1").arg(shSingleQuote(srcSnap));
     const QString recvRawCmd = QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget));
@@ -164,8 +165,8 @@ void MainWindow::actionLevelSnapshot() {
     QString sendCmd = withSudo(sp, sendRawCmd);
     const QString recvTarget = dst.datasetName;
 
-    const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
-    const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
+    const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sshUserHost(sp));
+    const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(sshUserHost(dp));
 
     const QString recvRawCmd = QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget));
     QString recvCmd = withSudoStreamInput(dp, recvRawCmd);
@@ -226,7 +227,7 @@ void MainWindow::actionSyncDatasets() {
     const bool srcCanmountOff = (srcCanmount.trimmed().toLower() == QStringLiteral("off"));
     const bool dstCanmountOff = (dstCanmount.trimmed().toLower() == QStringLiteral("off"));
 
-    const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sp.username + QStringLiteral("@") + sp.host);
+    const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sshUserHost(sp));
 
     const QString rsyncOptsProbe = QStringLiteral(
         "RSYNC_PROGRESS='--info=progress2'; "
@@ -238,7 +239,7 @@ void MainWindow::actionSyncDatasets() {
         "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then "
         "  RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; "
         "fi");
-    const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(dp.username + QStringLiteral("@") + dp.host);
+    const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(sshUserHost(dp));
     const QString srcEffectiveMp = effectiveMountPath(src.connIdx, src.poolName, src.datasetName, srcMp, srcMounted);
     const QString dstEffectiveMp = effectiveMountPath(dst.connIdx, dst.poolName, dst.datasetName, dstMp, dstMounted);
     auto isUsableMountPath = [&](int cidx, const QString& path) -> bool {
@@ -379,7 +380,7 @@ void MainWindow::actionSyncDatasets() {
                     .arg(rsyncOptsProbe,
                          shSingleQuote(sshBaseCommand(dp)),
                          shSingleQuote(srcEffectiveMp),
-                         shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
+                         shSingleQuote(sshUserHost(dp)),
                          shSingleQuote(dstEffectiveMp));
             remoteRsync = withSudo(sp, remoteRsync);
             command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
@@ -531,7 +532,7 @@ void MainWindow::actionSyncDatasets() {
                 rsyncCommands << QStringLiteral("rsync $RSYNC_OPTS $RSYNC_PROGRESS -e %1 %2/ %3:%4/")
                                      .arg(shSingleQuote(sshTransport),
                                           shSingleQuote(pair.first),
-                                          shSingleQuote(dp.username + QStringLiteral("@") + dp.host),
+                                          shSingleQuote(sshUserHost(dp)),
                                           shSingleQuote(pair.second));
             }
         }

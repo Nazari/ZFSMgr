@@ -34,6 +34,7 @@
 namespace {
 using mwhelpers::oneLine;
 using mwhelpers::shSingleQuote;
+using mwhelpers::sshUserHostPort;
 
 QString parentDiskDevicePath(const QString& rawPath) {
     const QString path = rawPath.trimmed();
@@ -1085,9 +1086,7 @@ void MainWindow::createPoolForSelectedConnection() {
     }
     cmd = withSudo(p, cmd);
     const QString preview = QStringLiteral("[%1]\n%2")
-                                .arg(QStringLiteral("%1@%2:%3")
-                                         .arg(p.username, p.host)
-                                         .arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
+                                .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
     if (!confirmActionExecution(QStringLiteral("Crear pool"), {preview})) {
         return;

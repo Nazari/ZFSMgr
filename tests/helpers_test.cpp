@@ -183,6 +183,17 @@ int main() {
     p.host = "h";
     p.port = 22;
     p.keyPath = "/tmp/id_rsa";
+    if (sshUserHost(p) != "u@h") {
+        return fail("sshUserHost mismatch");
+    }
+    if (sshUserHostPort(p) != "u@h:22") {
+        return fail("sshUserHostPort explicit port mismatch");
+    }
+    ConnectionProfile pDefPort = p;
+    pDefPort.port = 0;
+    if (sshUserHostPort(pDefPort) != "u@h:22") {
+        return fail("sshUserHostPort default port mismatch");
+    }
     const QString sshCmd = sshBaseCommand(p);
     if (!sshCmd.contains("ControlPath=") || !sshCmd.contains("-i '/tmp/id_rsa'")) {
         return fail("sshBaseCommand missing expected options");
