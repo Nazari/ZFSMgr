@@ -261,6 +261,55 @@ QVector<MountpointConflict> externalMountpointConflicts(const QMap<QString, QStr
     return out;
 }
 
+QString buildHasMountedChildrenCommand(bool isWindows, const QString& datasetName) {
+    if (isWindows) {
+        QString dsPs = datasetName;
+        dsPs.replace('\'', QStringLiteral("''"));
+        return QStringLiteral(
+                   "$ds='%1'; "
+                   "$has=$false; "
+                   "$children=@(zfs list -H -o name -r $ds 2>$null); "
+                   "if ($LASTEXITCODE -ne 0) { exit 2 }; "
+                   "foreach ($c in $children) { "
+                   "  if ([string]::IsNullOrWhiteSpace($c) -or $c -eq $ds) { continue }; "
+                   "  $m=(zfs get -H -o value mounted $c 2>$null | Out-String).Trim().ToLower(); "
+                   "  if ($m -eq 'yes' -or $m -eq 'on' -or $m -eq 'true' -or $m -eq '1') { $has=$true; break } "
+                   "}; "
+                   "if ($has) { exit 0 } else { exit 1 }")
+            .arg(dsPs);
+    }
+    return QStringLiteral(
+               "DATASET=%1; zfs mount | "
+               "awk -v ds=\"$DATASET\" '$1!=ds && index($1, ds \"/\")==1 { found=1; exit } END { exit found ? 0 : 1 }'")
+        .arg(shSingleQuote(datasetName));
+}
+
+QString buildRecursiveUmountCommand(bool isWindows, const QString& datasetName) {
+    if (isWindows) {
+        QString dsPs = datasetName;
+        dsPs.replace('\'', QStringLiteral("''"));
+        return QStringLiteral(
+                   "$ds='%1'; "
+                   "$list=@(zfs list -H -o name -r $ds 2>$null); "
+                   "if ($LASTEXITCODE -ne 0) { throw 'zfs list failed' }; "
+                   "$sorted = $list | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object { $_.Length } -Descending; "
+                   "foreach ($d in $sorted) { zfs unmount $d 2>$null | Out-Null }")
+            .arg(dsPs);
+    }
+    return QStringLiteral(
+               "set -e; DATASET=%1; zfs mount | "
+               "awk -v ds=\"$DATASET\" '$1==ds || index($1, ds \"/\")==1 { print $1 }' | "
+               "awk '{print length, $0}' | sort -rn | cut -d' ' -f2- | "
+               "while IFS= read -r ds; do [ -n \"$ds\" ] && zfs umount \"$ds\"; done")
+        .arg(shSingleQuote(datasetName));
+}
+
+QString buildSingleUmountCommand(bool isWindows, const QString& datasetName) {
+    const QString dsQ = shSingleQuote(datasetName);
+    return isWindows ? QStringLiteral("zfs unmount %1").arg(dsQ)
+                     : QStringLiteral("zfs umount %1").arg(dsQ);
+}
+
 QString sshControlPath() {
 #ifdef Q_OS_MAC
     return QStringLiteral("/tmp/zfsmgr-%C");

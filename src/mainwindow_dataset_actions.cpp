@@ -595,27 +595,8 @@ bool MainWindow::umountDataset(const QString& side, const DatasetSelectionContex
     if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
         return false;
     }
-    const QString dsQ = shSingleQuote(ctx.datasetName);
-    QString hasChildrenCmd;
     const bool isWin = isWindowsConnection(ctx.connIdx);
-    if (isWin) {
-        QString dsPs = ctx.datasetName;
-        dsPs.replace('\'', QStringLiteral("''"));
-        hasChildrenCmd = QStringLiteral(
-                             "$ds='%1'; "
-                             "$has=$false; "
-                             "$children=@(zfs list -H -o name -r $ds 2>$null); "
-                             "if ($LASTEXITCODE -ne 0) { exit 2 }; "
-                             "foreach ($c in $children) { "
-                             "  if ([string]::IsNullOrWhiteSpace($c) -or $c -eq $ds) { continue }; "
-                             "  $m=(zfs get -H -o value mounted $c 2>$null | Out-String).Trim().ToLower(); "
-                             "  if ($m -eq 'yes' -or $m -eq 'on' -or $m -eq 'true' -or $m -eq '1') { $has=$true; break } "
-                             "}; "
-                             "if ($has) { exit 0 } else { exit 1 }")
-                             .arg(dsPs);
-    } else {
-        hasChildrenCmd = QStringLiteral("zfs mount | awk '{print $1}' | grep -E '^%1/' -q").arg(ctx.datasetName);
-    }
+    const QString hasChildrenCmd = mwhelpers::buildHasMountedChildrenCommand(isWin, ctx.datasetName);
 
     QString out;
     QString err;
@@ -636,25 +617,9 @@ bool MainWindow::umountDataset(const QString& side, const DatasetSelectionContex
             appLog(QStringLiteral("INFO"), QStringLiteral("Desmontar abortado por usuario"));
             return false;
         }
-        if (isWin) {
-            QString dsPs = ctx.datasetName;
-            dsPs.replace('\'', QStringLiteral("''"));
-            cmd = QStringLiteral(
-                      "$ds='%1'; "
-                      "$list=@(zfs list -H -o name -r $ds 2>$null); "
-                      "if ($LASTEXITCODE -ne 0) { throw 'zfs list failed' }; "
-                      "$sorted = $list | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object { $_.Length } -Descending; "
-                      "foreach ($d in $sorted) { zfs unmount $d 2>$null | Out-Null }")
-                      .arg(dsPs);
-        } else {
-            cmd = QStringLiteral(
-                "zfs mount | awk '{print $1}' | grep -E '^%1(/|$)' | awk '{print length, $0}' | sort -rn | cut -d' ' -f2- | "
-                "while IFS= read -r ds; do [ -n \"$ds\" ] && zfs umount \"$ds\"; done")
-                      .arg(ctx.datasetName);
-        }
+        cmd = mwhelpers::buildRecursiveUmountCommand(isWin, ctx.datasetName);
     } else {
-        cmd = isWin ? QStringLiteral("zfs unmount %1").arg(dsQ)
-                    : QStringLiteral("zfs umount %1").arg(dsQ);
+        cmd = mwhelpers::buildSingleUmountCommand(isWin, ctx.datasetName);
     }
     return executeDatasetAction(side, QStringLiteral("Desmontar"), ctx, cmd, 90000, isWin);
 }

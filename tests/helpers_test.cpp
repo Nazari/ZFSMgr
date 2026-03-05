@@ -94,6 +94,37 @@ int main() {
         }
     }
 
+    {
+        const QString cmdUnix = buildHasMountedChildrenCommand(false, "pool/a");
+        if (!cmdUnix.contains("DATASET='pool/a'") || !cmdUnix.contains("index($1, ds \"/\")==1")) {
+            return fail("buildHasMountedChildrenCommand unix mismatch");
+        }
+        const QString cmdWin = buildHasMountedChildrenCommand(true, "pool/a");
+        if (!cmdWin.contains("$children=@(zfs list -H -o name -r $ds")) {
+            return fail("buildHasMountedChildrenCommand windows mismatch");
+        }
+    }
+
+    {
+        const QString cmdUnix = buildRecursiveUmountCommand(false, "pool/alpha");
+        if (!cmdUnix.contains("DATASET='pool/alpha'") || !cmdUnix.contains("zfs umount")) {
+            return fail("buildRecursiveUmountCommand unix mismatch");
+        }
+        const QString cmdWin = buildRecursiveUmountCommand(true, "pool/alpha");
+        if (!cmdWin.contains("Sort-Object") || !cmdWin.contains("zfs unmount")) {
+            return fail("buildRecursiveUmountCommand windows mismatch");
+        }
+    }
+
+    {
+        if (buildSingleUmountCommand(false, "pool/a") != "zfs umount 'pool/a'") {
+            return fail("buildSingleUmountCommand unix mismatch");
+        }
+        if (buildSingleUmountCommand(true, "pool/a") != "zfs unmount 'pool/a'") {
+            return fail("buildSingleUmountCommand windows mismatch");
+        }
+    }
+
     if (!looksLikePowerShellScript("Get-ChildItem -Path C:\\")) {
         return fail("looksLikePowerShellScript should detect powershell verbs");
     }

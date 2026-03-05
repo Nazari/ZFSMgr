@@ -55,6 +55,9 @@ bool parentAllowsChildMount(const QString& parentMountpoint, const QString& pare
 QMap<QString, QStringList> duplicateMountpoints(const QMap<QString, QString>& datasetMountpoints);
 QVector<MountpointConflict> externalMountpointConflicts(const QMap<QString, QString>& targetDatasetMountpoints,
                                                         const QMap<QString, QStringList>& mountedByMountpoint);
+QString buildHasMountedChildrenCommand(bool isWindows, const QString& datasetName);
+QString buildRecursiveUmountCommand(bool isWindows, const QString& datasetName);
+QString buildSingleUmountCommand(bool isWindows, const QString& datasetName);
 QString sshControlPath();
 QString sshBaseCommand(const ConnectionProfile& p);
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd);
