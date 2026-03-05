@@ -212,6 +212,32 @@ int main() {
     if (!piped.contains("A | ") || !piped.contains(" | B") || !piped.contains("pv -trab -f")) {
         return fail("buildPipedTransferCommand mismatch");
     }
+    if (streamCodecName(StreamCodec::Zstd) != "zstd-fast"
+        || streamCodecName(StreamCodec::Gzip) != "gzip-fast"
+        || streamCodecName(StreamCodec::None) != "none") {
+        return fail("streamCodecName mismatch");
+    }
+    if (chooseStreamCodec(true, true) != StreamCodec::Zstd
+        || chooseStreamCodec(false, true) != StreamCodec::Gzip
+        || chooseStreamCodec(false, false) != StreamCodec::None) {
+        return fail("chooseStreamCodec mismatch");
+    }
+    const QString tarSrcUnix = buildTarSourceCommand(false, "/mnt/data", StreamCodec::Zstd);
+    if (!tarSrcUnix.contains("tar --acls --xattrs -cpf - -C '/mnt/data' . | zstd -1 -T0 -q -c")) {
+        return fail("buildTarSourceCommand unix zstd mismatch");
+    }
+    const QString tarSrcWin = buildTarSourceCommand(true, "Z:\\Data", StreamCodec::Gzip);
+    if (!tarSrcWin.contains("$p='Z:\\Data'; tar -cf - -C $p . | gzip -1 -c")) {
+        return fail("buildTarSourceCommand windows gzip mismatch");
+    }
+    const QString tarDstUnix = buildTarDestinationCommand(false, "/mnt/dst", StreamCodec::None);
+    if (!tarDstUnix.contains("mkdir -p '/mnt/dst' && tar --acls --xattrs -xpf - -C '/mnt/dst'")) {
+        return fail("buildTarDestinationCommand unix none mismatch");
+    }
+    const QString tarDstWin = buildTarDestinationCommand(true, "Z:\\Dst", StreamCodec::Zstd);
+    if (!tarDstWin.contains("$p='Z:\\Dst'") || !tarDstWin.contains("zstd -d -q -c - | tar -xpf - -C $p")) {
+        return fail("buildTarDestinationCommand windows zstd mismatch");
+    }
     const QString sshPreview = buildSshPreviewCommandText(p, "zpool list");
     if (!sshPreview.contains("ssh") || !sshPreview.contains("u@h") || !sshPreview.contains("'zpool list'")) {
         return fail("buildSshPreviewCommandText mismatch");

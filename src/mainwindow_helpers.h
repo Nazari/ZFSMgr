@@ -40,6 +40,12 @@ struct MountpointConflict {
     QString requestedDataset;
 };
 
+enum class StreamCodec {
+    Zstd,
+    Gzip,
+    None,
+};
+
 QString oneLine(const QString& v, int maxLen = 220);
 QString shSingleQuote(const QString& s);
 bool isMountedValueTrue(const QString& value);
@@ -70,6 +76,10 @@ QString buildSshTargetPrefix(const ConnectionProfile& p);
 QString buildSimpleSshInvocation(const ConnectionProfile& p, const QString& remoteCmd);
 QString streamProgressPipeFilter();
 QString buildPipedTransferCommand(const QString& sendSegment, const QString& recvSegment);
+QString streamCodecName(StreamCodec codec);
+StreamCodec chooseStreamCodec(bool hasZstdBoth, bool hasGzipBoth);
+QString buildTarSourceCommand(bool isWindows, const QString& mountPath, StreamCodec codec);
+QString buildTarDestinationCommand(bool isWindows, const QString& mountPath, StreamCodec codec);
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd);
 QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cmd);
 QString buildSshPreviewCommandText(const ConnectionProfile& p, const QString& remoteCmd);

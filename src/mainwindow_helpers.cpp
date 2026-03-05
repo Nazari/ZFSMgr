@@ -448,6 +448,59 @@ QString buildPipedTransferCommand(const QString& sendSegment, const QString& rec
         + recvSegment;
 }
 
+QString streamCodecName(StreamCodec codec) {
+    switch (codec) {
+        case StreamCodec::Zstd:
+            return QStringLiteral("zstd-fast");
+        case StreamCodec::Gzip:
+            return QStringLiteral("gzip-fast");
+        case StreamCodec::None:
+        default:
+            return QStringLiteral("none");
+    }
+}
+
+StreamCodec chooseStreamCodec(bool hasZstdBoth, bool hasGzipBoth) {
+    if (hasZstdBoth) {
+        return StreamCodec::Zstd;
+    }
+    if (hasGzipBoth) {
+        return StreamCodec::Gzip;
+    }
+    return StreamCodec::None;
+}
+
+QString buildTarSourceCommand(bool isWindows, const QString& mountPath, StreamCodec codec) {
+    switch (codec) {
+        case StreamCodec::Zstd:
+            return isWindows
+                       ? QStringLiteral("$p=%1; tar -cf - -C $p . | zstd -1 -T0 -q -c").arg(shSingleQuote(mountPath))
+                       : QStringLiteral("tar --acls --xattrs -cpf - -C %1 . | zstd -1 -T0 -q -c").arg(shSingleQuote(mountPath));
+        case StreamCodec::Gzip:
+            return isWindows
+                       ? QStringLiteral("$p=%1; tar -cf - -C $p . | gzip -1 -c").arg(shSingleQuote(mountPath))
+                       : QStringLiteral("tar --acls --xattrs -cpf - -C %1 . | gzip -1 -c").arg(shSingleQuote(mountPath));
+        case StreamCodec::None:
+        default:
+            return isWindows
+                       ? QStringLiteral("$p=%1; tar -cf - -C $p .").arg(shSingleQuote(mountPath))
+                       : QStringLiteral("tar --acls --xattrs -cpf - -C %1 .").arg(shSingleQuote(mountPath));
+    }
+}
+
+QString buildTarDestinationCommand(bool isWindows, const QString& mountPath, StreamCodec codec) {
+    const QString decodePipe =
+        (codec == StreamCodec::Zstd) ? QStringLiteral("zstd -d -q -c - | ")
+        : (codec == StreamCodec::Gzip) ? QStringLiteral("gzip -d -c - | ")
+        : QString();
+    if (isWindows) {
+        return QStringLiteral("$ProgressPreference='SilentlyContinue'; $p=%1; if (!(Test-Path $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }; %2tar -xpf - -C $p")
+            .arg(shSingleQuote(mountPath), decodePipe);
+    }
+    return QStringLiteral("mkdir -p %1 && %2tar --acls --xattrs -xpf - -C %1")
+        .arg(shSingleQuote(mountPath), decodePipe);
+}
+
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {
     if (isWindowsOsType(p.osType)) {
         return cmd;
