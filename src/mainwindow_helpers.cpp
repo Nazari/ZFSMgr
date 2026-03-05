@@ -261,6 +261,29 @@ QVector<MountpointConflict> externalMountpointConflicts(const QMap<QString, QStr
     return out;
 }
 
+QVector<QPair<QString, QString>> parseZfsMountOutput(const QString& text) {
+    QVector<QPair<QString, QString>> out;
+    const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
+    static const QRegularExpression rowRx(QStringLiteral("^\\s*(\\S+)\\s+(.+?)\\s*$"));
+    for (const QString& raw : lines) {
+        const QString ln = raw.trimmed();
+        if (ln.isEmpty()) {
+            continue;
+        }
+        const QRegularExpressionMatch m = rowRx.match(ln);
+        if (!m.hasMatch()) {
+            continue;
+        }
+        const QString ds = m.captured(1).trimmed();
+        const QString mp = m.captured(2).trimmed();
+        if (ds.isEmpty() || mp.isEmpty()) {
+            continue;
+        }
+        out.push_back(qMakePair(ds, mp));
+    }
+    return out;
+}
+
 QString buildHasMountedChildrenCommand(bool isWindows, const QString& datasetName) {
     if (isWindows) {
         QString dsPs = datasetName;

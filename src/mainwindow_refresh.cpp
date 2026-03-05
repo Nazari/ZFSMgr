@@ -310,18 +310,10 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     rc = -1;
     const QString mountedCmd = withSudo(p, QStringLiteral("zfs mount"));
     if (runSsh(p, mountedCmd, 18000, out, err, rc) && rc == 0) {
-        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-        for (const QString& raw : lines) {
-            const QString ln = raw.trimmed();
-            if (ln.isEmpty()) {
-                continue;
-            }
-            const int sp = ln.indexOf(' ');
-            if (sp <= 0) {
-                continue;
-            }
-            const QString ds = ln.left(sp).trimmed();
-            const QString mp = ln.mid(sp + 1).trimmed();
+        const QVector<QPair<QString, QString>> mountedRows = mwhelpers::parseZfsMountOutput(out);
+        for (const auto& row : mountedRows) {
+            const QString ds = row.first;
+            const QString mp = row.second;
             if (!ds.isEmpty() && !mp.isEmpty()) {
                 state.mountedDatasets.push_back(qMakePair(ds, mp));
             }

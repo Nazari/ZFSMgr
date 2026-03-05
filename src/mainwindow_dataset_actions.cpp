@@ -496,17 +496,10 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
     }
 
     QMap<QString, QStringList> mountedByMp;
-    for (const QString& ln : mountedOut.split('\n', Qt::SkipEmptyParts)) {
-        const QString trimmed = ln.trimmed();
-        if (trimmed.isEmpty()) {
-            continue;
-        }
-        const int sp = trimmed.indexOf(' ');
-        if (sp <= 0) {
-            continue;
-        }
-        const QString ds = trimmed.left(sp).trimmed();
-        const QString mp = trimmed.mid(sp + 1).trimmed();
+    const QVector<QPair<QString, QString>> mountedRows = mwhelpers::parseZfsMountOutput(mountedOut);
+    for (const auto& row : mountedRows) {
+        const QString ds = row.first;
+        const QString mp = row.second;
         if (ds.isEmpty() || mp.isEmpty()) {
             continue;
         }

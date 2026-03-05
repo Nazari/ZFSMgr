@@ -95,6 +95,27 @@ int main() {
     }
 
     {
+        const QString mountOut =
+            "pool/a /mnt/a\n"
+            "pool/b /mnt/with spaces/path\n"
+            "   pool/c    /mnt/c   \n"
+            "invalid_line_without_mp\n";
+        const QVector<QPair<QString, QString>> rows = parseZfsMountOutput(mountOut);
+        if (rows.size() != 3) {
+            return fail("parseZfsMountOutput should parse valid rows only");
+        }
+        if (rows[0].first != "pool/a" || rows[0].second != "/mnt/a") {
+            return fail("parseZfsMountOutput first row mismatch");
+        }
+        if (rows[1].first != "pool/b" || rows[1].second != "/mnt/with spaces/path") {
+            return fail("parseZfsMountOutput should preserve mountpoint spaces");
+        }
+        if (rows[2].first != "pool/c" || rows[2].second != "/mnt/c") {
+            return fail("parseZfsMountOutput should trim spacing");
+        }
+    }
+
+    {
         const QString cmdUnix = buildHasMountedChildrenCommand(false, "pool/a");
         if (!cmdUnix.contains("DATASET='pool/a'") || !cmdUnix.contains("index($1, ds \"/\")==1")) {
             return fail("buildHasMountedChildrenCommand unix mismatch");
