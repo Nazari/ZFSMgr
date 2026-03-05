@@ -13,6 +13,7 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QMenu>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
@@ -63,6 +64,17 @@ void MainWindow::buildUi() {
         "QTreeWidget::item:selected, QTableWidget::item:selected, QListWidget::item:selected {"
         "  background: #dcecff; color: #0d2438; font-weight: 600; }"
         "QHeaderView::section { background: #eaf1f7; border: 1px solid #c5d3e0; padding: 2px 4px; }"));
+
+    QMenu* appMenu = menuBar()->addMenu(
+        trk(QStringLiteral("t_menu_main_001"),
+            QStringLiteral("Menú"),
+            QStringLiteral("Menu"),
+            QStringLiteral("菜单")));
+    m_menuConfigAction = appMenu->addAction(
+        trk(QStringLiteral("t_config_001"),
+            QStringLiteral("Configuración"),
+            QStringLiteral("Configuration"),
+            QStringLiteral("配置")));
 
     auto* central = new QWidget(this);
     auto* root = new QVBoxLayout(central);
@@ -1145,6 +1157,10 @@ void MainWindow::buildUi() {
     });
     connect(m_btnConfig, &QPushButton::clicked, this, [this]() {
         logUiAction(QStringLiteral("Configuración (botón)"));
+        openConfigurationDialog();
+    });
+    connect(m_menuConfigAction, &QAction::triggered, this, [this]() {
+        logUiAction(QStringLiteral("Configuración (menú)"));
         openConfigurationDialog();
     });
     connect(m_btnPoolNew, &QPushButton::clicked, this, [this]() {
