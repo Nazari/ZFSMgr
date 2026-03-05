@@ -13,6 +13,10 @@
 #include <QVBoxLayout>
 #include <QIcon>
 
+#ifndef ZFSMGR_APP_VERSION
+#define ZFSMGR_APP_VERSION "0.1.0"
+#endif
+
 namespace {
 QString trk(const QString& lang,
             const QString& key,
@@ -167,7 +171,8 @@ void MasterPasswordDialog::openChangePasswordDialog() {
 
 void MasterPasswordDialog::retranslateUi() {
     const QString lang = selectedLanguage();
-    setWindowTitle(QStringLiteral("ZFSMgr"));
+    const QString appVersion = QStringLiteral(ZFSMGR_APP_VERSION);
+    setWindowTitle(QStringLiteral("ZFSMgr [%1]").arg(appVersion));
     m_passwordEdit->setPlaceholderText(trk(lang, QStringLiteral("t_password_m_07c917"),
                                            QStringLiteral("Password maestro"),
                                            QStringLiteral("Master password"),
@@ -190,10 +195,18 @@ void MasterPasswordDialog::retranslateUi() {
                                        QStringLiteral("修改主密码...")));
     }
     if (m_authorLabel) {
-        m_authorLabel->setText(trk(lang,
+        const QString footer = trk(lang,
                                    QStringLiteral("t_autor_elad_c26aa2"),
                                    QStringLiteral("Autor: Eladio Linares  |  Licencia: GNU"),
                                    QStringLiteral("Author: Eladio Linares  |  License: GNU"),
-                                   QStringLiteral("作者：Eladio Linares  |  许可证：GNU")));
+                                   QStringLiteral("作者：Eladio Linares  |  许可证：GNU"));
+        m_authorLabel->setText(QStringLiteral("%1  |  %2")
+                                   .arg(footer,
+                                        trk(lang,
+                                            QStringLiteral("t_version_lbl001"),
+                                            QStringLiteral("Versión: %1"),
+                                            QStringLiteral("Version: %1"),
+                                            QStringLiteral("版本：%1"))
+                                            .arg(appVersion)));
     }
 }

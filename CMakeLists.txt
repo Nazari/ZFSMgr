@@ -54,7 +54,10 @@ qt_add_executable(zfsmgr_qt
 
 target_link_libraries(zfsmgr_qt PRIVATE Qt6::Widgets Qt6::Core Qt6::Gui Qt6::Concurrent OpenSSL::Crypto)
 
-target_compile_definitions(zfsmgr_qt PRIVATE QT_NO_KEYWORDS)
+target_compile_definitions(zfsmgr_qt PRIVATE
+    QT_NO_KEYWORDS
+    ZFSMGR_APP_VERSION="${PROJECT_VERSION}"
+)
 
 if(WIN32)
     target_sources(zfsmgr_qt PRIVATE appicon.rc)
@@ -83,6 +86,9 @@ if(BUILD_TESTING)
     )
     target_include_directories(zfsmgr_helpers_test PRIVATE src)
     target_link_libraries(zfsmgr_helpers_test PRIVATE Qt6::Core Qt6::Widgets)
-    target_compile_definitions(zfsmgr_helpers_test PRIVATE QT_NO_KEYWORDS)
+    target_compile_definitions(zfsmgr_helpers_test PRIVATE
+        QT_NO_KEYWORDS
+        ZFSMGR_APP_VERSION="${PROJECT_VERSION}"
+    )
     add_test(NAME zfsmgr_helpers_test COMMAND zfsmgr_helpers_test)
 endif()

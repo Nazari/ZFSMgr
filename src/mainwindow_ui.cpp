@@ -31,8 +31,12 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#ifndef ZFSMGR_APP_VERSION
+#define ZFSMGR_APP_VERSION "0.1.0"
+#endif
+
 void MainWindow::buildUi() {
-    setWindowTitle(QStringLiteral("ZFSMgr (C++/Qt)"));
+    setWindowTitle(QStringLiteral("ZFSMgr [%1]").arg(QStringLiteral(ZFSMGR_APP_VERSION)));
     setWindowIcon(QIcon(QStringLiteral(":/icons/ZFSMgr-512.png")));
     resize(1200, 736);
     setMinimumSize(1120, 736);
