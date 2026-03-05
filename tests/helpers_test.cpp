@@ -177,6 +177,12 @@ int main() {
     if (parseOpenZfsVersionText("OpenZFS version: 2.4.0") != "2.4.0") {
         return fail("parseOpenZfsVersionText should parse OpenZFS text");
     }
+    if (!parseOpenZfsVersionText("Darwin Kernel Version 25.3.0").isEmpty()) {
+        return fail("parseOpenZfsVersionText should ignore OS/kernel versions");
+    }
+    if (parseOpenZfsVersionText("zpool version: 2.3.1\nzfs version: 2.3.1") != "2.3.1") {
+        return fail("parseOpenZfsVersionText should parse zpool/zfs version output");
+    }
     if (!parseOpenZfsVersionText("no version here").isEmpty()) {
         return fail("parseOpenZfsVersionText should return empty when no version");
     }
@@ -203,6 +209,24 @@ int main() {
     }
     if (!pools[1].reason.contains("cannot import")) {
         return fail("parseZpoolImportOutput should keep detailed reason");
+    }
+
+    const QString importTextNoisy =
+        "pool: good_pool\n"
+        "state: ONLINE\n"
+        "status: First line.\n"
+        " second status line.\n"
+        "action: do stuff\n"
+        "\n"
+        "pool: bad pool name\n"
+        "state: ONLINE\n"
+        "status: Should be ignored because pool name is invalid.\n";
+    const QVector<ImportablePoolInfo> noisyPools = parseZpoolImportOutput(importTextNoisy);
+    if (noisyPools.size() != 1 || noisyPools[0].pool != "good_pool") {
+        return fail("parseZpoolImportOutput should ignore invalid pool names");
+    }
+    if (!noisyPools[0].reason.contains("First line") || !noisyPools[0].reason.contains("second status line")) {
+        return fail("parseZpoolImportOutput should preserve multiline status reason");
     }
 
     {
