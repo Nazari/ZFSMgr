@@ -214,6 +214,19 @@ void MainWindow::buildUi() {
         });
     }
 
+    QAction* ctxMenusAct = helpMenu->addAction(
+        trk(QStringLiteral("t_help_ctx_001"),
+            QStringLiteral("Menús contextuales"),
+            QStringLiteral("Context menus"),
+            QStringLiteral("上下文菜单")));
+    connect(ctxMenusAct, &QAction::triggered, this, [this]() {
+        openHelpTopic(QStringLiteral("menus_contextuales"),
+                      trk(QStringLiteral("t_help_ctx_001"),
+                          QStringLiteral("Menús contextuales"),
+                          QStringLiteral("Context menus"),
+                          QStringLiteral("上下文菜单")));
+    });
+
     QAction* shortcutsAct = helpMenu->addAction(
         trk(QStringLiteral("t_help_short_001"),
             QStringLiteral("Atajos y estados"),

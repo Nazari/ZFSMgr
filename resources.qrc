@@ -14,6 +14,7 @@
     <file alias="help/es/accion_nivelar.md">help/es/accion_nivelar.md</file>
     <file alias="help/es/accion_desglosar.md">help/es/accion_desglosar.md</file>
     <file alias="help/es/accion_ensamblar.md">help/es/accion_ensamblar.md</file>
+    <file alias="help/es/menus_contextuales.md">help/es/menus_contextuales.md</file>
     <file alias="help/en/manual_rapido.md">help/en/manual_rapido.md</file>
     <file alias="help/en/atajos_estados.md">help/en/atajos_estados.md</file>
     <file alias="help/en/accion_copiar.md">help/en/accion_copiar.md</file>
@@ -21,6 +22,7 @@
     <file alias="help/en/accion_nivelar.md">help/en/accion_nivelar.md</file>
     <file alias="help/en/accion_desglosar.md">help/en/accion_desglosar.md</file>
     <file alias="help/en/accion_ensamblar.md">help/en/accion_ensamblar.md</file>
+    <file alias="help/en/menus_contextuales.md">help/en/menus_contextuales.md</file>
     <file alias="help/zh/manual_rapido.md">help/zh/manual_rapido.md</file>
     <file alias="help/zh/atajos_estados.md">help/zh/atajos_estados.md</file>
     <file alias="help/zh/accion_copiar.md">help/zh/accion_copiar.md</file>
@@ -28,5 +30,6 @@
     <file alias="help/zh/accion_nivelar.md">help/zh/accion_nivelar.md</file>
     <file alias="help/zh/accion_desglosar.md">help/zh/accion_desglosar.md</file>
     <file alias="help/zh/accion_ensamblar.md">help/zh/accion_ensamblar.md</file>
+    <file alias="help/zh/menus_contextuales.md">help/zh/menus_contextuales.md</file>
   </qresource>
 </RCC>
