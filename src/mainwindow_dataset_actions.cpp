@@ -175,15 +175,31 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     const bool isBreakdownAction = (actionName == QStringLiteral("Desglosar"));
     const bool isAssembleAction = (actionName == QStringLiteral("Ensamblar"));
     const bool isDeleteAllSnapsAction = (actionName == QStringLiteral("Borrar todos los snapshots"));
-    if (!runSsh(p, remoteCmd, timeoutMs, out, err, rc) || rc != 0) {
+    bool loggedProgressRealtime = false;
+    auto progressLogger = [this, &loggedProgressRealtime](const QString& rawLine) {
+        const QString ln = rawLine.trimmed();
+        if (ln.contains(QStringLiteral("[BREAKDOWN]"), Qt::CaseInsensitive)
+            || ln.contains(QStringLiteral("[ASSEMBLE]"), Qt::CaseInsensitive)
+            || ln.contains(QStringLiteral("[DELALLSNAP]"), Qt::CaseInsensitive)) {
+            loggedProgressRealtime = true;
+            appLog(QStringLiteral("NORMAL"), ln);
+        }
+    };
+    const bool withRealtimeProgress = (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction);
+    const bool ok = withRealtimeProgress
+                        ? runSsh(p, remoteCmd, timeoutMs, out, err, rc, progressLogger, progressLogger)
+                        : runSsh(p, remoteCmd, timeoutMs, out, err, rc);
+    if (!ok || rc != 0) {
         if (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction) {
-            const QStringList progressLines = out.split('\n', Qt::SkipEmptyParts);
-            for (const QString& lnRaw : progressLines) {
-                const QString ln = lnRaw.trimmed();
-                if (ln.contains(QStringLiteral("[BREAKDOWN]"), Qt::CaseInsensitive)
-                    || ln.contains(QStringLiteral("[ASSEMBLE]"), Qt::CaseInsensitive)
-                    || ln.contains(QStringLiteral("[DELALLSNAP]"), Qt::CaseInsensitive)) {
-                    appLog(QStringLiteral("NORMAL"), ln);
+            if (!loggedProgressRealtime) {
+                const QStringList progressLines = out.split('\n', Qt::SkipEmptyParts);
+                for (const QString& lnRaw : progressLines) {
+                    const QString ln = lnRaw.trimmed();
+                    if (ln.contains(QStringLiteral("[BREAKDOWN]"), Qt::CaseInsensitive)
+                        || ln.contains(QStringLiteral("[ASSEMBLE]"), Qt::CaseInsensitive)
+                        || ln.contains(QStringLiteral("[DELALLSNAP]"), Qt::CaseInsensitive)) {
+                        appLog(QStringLiteral("NORMAL"), ln);
+                    }
                 }
             }
         }
@@ -213,15 +229,17 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     }
     if (!out.trimmed().isEmpty()) {
         if (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction) {
-            const QStringList progressLines = out.split('\n', Qt::SkipEmptyParts);
-            bool loggedProgress = false;
-            for (const QString& lnRaw : progressLines) {
-                const QString ln = lnRaw.trimmed();
-                if (ln.contains(QStringLiteral("[BREAKDOWN]"), Qt::CaseInsensitive)
-                    || ln.contains(QStringLiteral("[ASSEMBLE]"), Qt::CaseInsensitive)
-                    || ln.contains(QStringLiteral("[DELALLSNAP]"), Qt::CaseInsensitive)) {
-                    appLog(QStringLiteral("NORMAL"), ln);
-                    loggedProgress = true;
+            bool loggedProgress = loggedProgressRealtime;
+            if (!loggedProgressRealtime) {
+                const QStringList progressLines = out.split('\n', Qt::SkipEmptyParts);
+                for (const QString& lnRaw : progressLines) {
+                    const QString ln = lnRaw.trimmed();
+                    if (ln.contains(QStringLiteral("[BREAKDOWN]"), Qt::CaseInsensitive)
+                        || ln.contains(QStringLiteral("[ASSEMBLE]"), Qt::CaseInsensitive)
+                        || ln.contains(QStringLiteral("[DELALLSNAP]"), Qt::CaseInsensitive)) {
+                        appLog(QStringLiteral("NORMAL"), ln);
+                        loggedProgress = true;
+                    }
                 }
             }
             if (!loggedProgress) {

@@ -38,7 +38,14 @@ using mwhelpers::sshUserHost;
 using mwhelpers::sshUserHostPort;
 } // namespace
 
-bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, int timeoutMs, QString& out, QString& err, int& rc) {
+bool MainWindow::runSsh(const ConnectionProfile& p,
+                        const QString& remoteCmd,
+                        int timeoutMs,
+                        QString& out,
+                        QString& err,
+                        int& rc,
+                        const std::function<void(const QString&)>& onStdoutLine,
+                        const std::function<void(const QString&)>& onStderrLine) {
     out.clear();
     err.clear();
     rc = -1;
@@ -88,24 +95,93 @@ bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, in
     }
 
     QProcess proc;
+    QElapsedTimer timer;
+    timer.start();
     proc.start(program, args);
     if (!proc.waitForStarted(4000)) {
         err = QStringLiteral("No se pudo iniciar %1").arg(program);
         appendConnectionLog(p.id, err);
         return false;
     }
-    const bool finished = (timeoutMs <= 0) ? proc.waitForFinished(-1) : proc.waitForFinished(timeoutMs);
-    if (!finished) {
-        proc.kill();
-        proc.waitForFinished(1000);
+    QString outLineBuf;
+    QString errLineBuf;
+    auto flushLines = [&](QString& buf, const QString& chunk, const std::function<void(const QString&)>& cb) {
+        if (!chunk.isEmpty()) {
+            buf += chunk;
+        }
+        int nl = -1;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+            QString line = buf.left(nl);
+            buf.remove(0, nl + 1);
+            line = line.trimmed();
+            if (line.isEmpty()) {
+                continue;
+            }
+            if (cb) {
+                cb(line);
+            }
+            appendConnectionLog(p.id, line);
+        }
+    };
+
+    bool timedOut = false;
+    while (proc.state() != QProcess::NotRunning) {
+        proc.waitForReadyRead(120);
+        const QString outChunk = QString::fromUtf8(proc.readAllStandardOutput());
+        const QString errChunk = QString::fromUtf8(proc.readAllStandardError());
+        if (!outChunk.isEmpty()) {
+            out += outChunk;
+            flushLines(outLineBuf, outChunk, onStdoutLine);
+        }
+        if (!errChunk.isEmpty()) {
+            err += errChunk;
+            flushLines(errLineBuf, errChunk, onStderrLine);
+        }
+        if (timeoutMs > 0 && timer.elapsed() > timeoutMs) {
+            timedOut = true;
+            proc.kill();
+            proc.waitForFinished(1000);
+            break;
+        }
+        // Keep UI responsive while long SSH commands are running.
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+    }
+
+    const QString outTail = QString::fromUtf8(proc.readAllStandardOutput());
+    const QString errTail = QString::fromUtf8(proc.readAllStandardError());
+    if (!outTail.isEmpty()) {
+        out += outTail;
+        flushLines(outLineBuf, outTail, onStdoutLine);
+    }
+    if (!errTail.isEmpty()) {
+        err += errTail;
+        flushLines(errLineBuf, errTail, onStderrLine);
+    }
+    if (!outLineBuf.trimmed().isEmpty()) {
+        const QString line = outLineBuf.trimmed();
+        if (onStdoutLine) {
+            onStdoutLine(line);
+        }
+        appendConnectionLog(p.id, line);
+        outLineBuf.clear();
+    }
+    if (!errLineBuf.trimmed().isEmpty()) {
+        const QString line = errLineBuf.trimmed();
+        if (onStderrLine) {
+            onStderrLine(line);
+        }
+        appendConnectionLog(p.id, line);
+        errLineBuf.clear();
+    }
+
+    if (timedOut) {
+        rc = -1;
         err = QStringLiteral("Timeout");
         appendConnectionLog(p.id, err);
         return false;
     }
 
     rc = proc.exitCode();
-    out = QString::fromUtf8(proc.readAllStandardOutput());
-    err = QString::fromUtf8(proc.readAllStandardError());
     if (isWindowsConnection(p)) {
         out = sanitizeWindowsCliXml(out);
         err = sanitizeWindowsCliXml(err);

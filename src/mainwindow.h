@@ -6,6 +6,7 @@
 #include <QMainWindow>
 #include <QMap>
 #include <QVector>
+#include <functional>
 
 class QComboBox;
 class QGroupBox;
@@ -118,7 +119,14 @@ private:
     void onConnectionListContextMenuRequested(const QPoint& pos);
 
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
-    bool runSsh(const ConnectionProfile& p, const QString& remoteCmd, int timeoutMs, QString& out, QString& err, int& rc);
+    bool runSsh(const ConnectionProfile& p,
+                const QString& remoteCmd,
+                int timeoutMs,
+                QString& out,
+                QString& err,
+                int& rc,
+                const std::function<void(const QString&)>& onStdoutLine = {},
+                const std::function<void(const QString&)>& onStderrLine = {});
     QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
     QString withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const;
     bool isWindowsConnection(const ConnectionProfile& p) const;
