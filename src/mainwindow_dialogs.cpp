@@ -3,11 +3,8 @@
 
 #include <QAbstractItemView>
 #include <QByteArray>
-#include <QCheckBox>
-#include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
-#include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
@@ -16,7 +13,6 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
-#include <QSpinBox>
 #include <QVBoxLayout>
 
 namespace {
@@ -378,88 +374,4 @@ bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, c
         }
     }
     return !selected.isEmpty();
-}
-
-void MainWindow::openConfigurationDialog() {
-    QDialog dlg(this);
-    dlg.setModal(true);
-    dlg.setWindowTitle(trk(QStringLiteral("t_config_001"),
-                           QStringLiteral("Configuración"),
-                           QStringLiteral("Configuration"),
-                           QStringLiteral("配置")));
-    dlg.resize(500, 240);
-
-    QVBoxLayout* root = new QVBoxLayout(&dlg);
-    QFormLayout* form = new QFormLayout();
-
-    QComboBox* langCombo = new QComboBox(&dlg);
-    langCombo->addItem(QStringLiteral("Español"), QStringLiteral("es"));
-    langCombo->addItem(QStringLiteral("English"), QStringLiteral("en"));
-    langCombo->addItem(QStringLiteral("中文"), QStringLiteral("zh"));
-    int idx = langCombo->findData(m_language);
-    langCombo->setCurrentIndex(idx >= 0 ? idx : 0);
-    form->addRow(trk(QStringLiteral("t_idioma_009433"),
-                     QStringLiteral("Idioma"),
-                     QStringLiteral("Language"),
-                     QStringLiteral("语言")),
-                 langCombo);
-
-    QCheckBox* confirmChk = new QCheckBox(
-        trk(QStringLiteral("t_show_confirm_001"),
-            QStringLiteral("Mostrar confirmación antes de ejecutar acciones"),
-            QStringLiteral("Show confirmation before executing actions"),
-            QStringLiteral("执行操作前显示确认")),
-        &dlg);
-    confirmChk->setChecked(m_actionConfirmEnabled);
-    form->addRow(QString(), confirmChk);
-
-    QSpinBox* logSizeSpin = new QSpinBox(&dlg);
-    logSizeSpin->setRange(1, 1024);
-    logSizeSpin->setSuffix(QStringLiteral(" MB"));
-    logSizeSpin->setValue(qMax(1, m_logMaxSizeMb));
-    form->addRow(trk(QStringLiteral("t_log_max_rot_001"),
-                     QStringLiteral("Tamaño máximo log rotativo"),
-                     QStringLiteral("Max rotating log size"),
-                     QStringLiteral("滚动日志最大大小")),
-                 logSizeSpin);
-
-    root->addLayout(form);
-    root->addStretch(1);
-
-    QDialogButtonBox* buttons = new QDialogButtonBox(&dlg);
-    QPushButton* cancelBtn = buttons->addButton(trk(QStringLiteral("t_cancelar_c111e0"),
-                                                    QStringLiteral("Cancelar"),
-                                                    QStringLiteral("Cancel"),
-                                                    QStringLiteral("取消")),
-                                                QDialogButtonBox::RejectRole);
-    QPushButton* okBtn = buttons->addButton(trk(QStringLiteral("t_aceptar_8f9f73"),
-                                                QStringLiteral("Aceptar"),
-                                                QStringLiteral("Accept"),
-                                                QStringLiteral("确认")),
-                                            QDialogButtonBox::AcceptRole);
-    root->addWidget(buttons);
-    QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
-    QObject::connect(okBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
-
-    if (dlg.exec() != QDialog::Accepted) {
-        return;
-    }
-
-    const QString newLang = langCombo->currentData().toString().trimmed().toLower();
-    const bool newConfirm = confirmChk->isChecked();
-    const int newLogMaxMb = qMax(1, logSizeSpin->value());
-    const bool langChanged = (newLang != m_language);
-    m_language = newLang.isEmpty() ? QStringLiteral("es") : newLang;
-    m_store.setLanguage(m_language);
-    m_actionConfirmEnabled = newConfirm;
-    m_logMaxSizeMb = newLogMaxMb;
-    saveUiSettings();
-    appLog(QStringLiteral("INFO"),
-           QStringLiteral("Configuración actualizada: idioma=%1, confirmación=%2, log_max_mb=%3")
-               .arg(m_language,
-                    m_actionConfirmEnabled ? QStringLiteral("on") : QStringLiteral("off"),
-                    QString::number(m_logMaxSizeMb)));
-    if (langChanged) {
-        applyLanguageLive();
-    }
 }

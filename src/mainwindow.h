@@ -193,7 +193,6 @@ private:
     bool actionsLocked() const;
     void requestCancelRunningAction();
     void terminateProcessTree(qint64 rootPid);
-    void openConfigurationDialog();
     void loadUiSettings();
     void saveUiSettings() const;
     void applyLanguageLive();
