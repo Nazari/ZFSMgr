@@ -15,6 +15,8 @@ find_package(OpenSSL REQUIRED)
 qt_add_executable(zfsmgr_qt
     src/main.cpp
     src/mainwindow.cpp
+    src/mainwindow_settings.cpp
+    src/mainwindow_logging.cpp
     src/mainwindow.h
     src/connectionstore.cpp
     src/connectionstore.h
