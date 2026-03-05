@@ -19,6 +19,8 @@ qt_add_executable(zfsmgr_qt
     src/mainwindow_dialogs.cpp
     src/mainwindow_connections.cpp
     src/mainwindow_pools.cpp
+    src/mainwindow_pool_create.cpp
+    src/mainwindow_selection.cpp
     src/mainwindow_settings.cpp
     src/mainwindow_logging.cpp
     src/mainwindow.h
