@@ -194,9 +194,23 @@ int main() {
     if (sshUserHostPort(pDefPort) != "u@h:22") {
         return fail("sshUserHostPort default port mismatch");
     }
+    if (!buildSshTargetPrefix(p).contains("u@h")) {
+        return fail("buildSshTargetPrefix mismatch");
+    }
     const QString sshCmd = sshBaseCommand(p);
     if (!sshCmd.contains("ControlPath=") || !sshCmd.contains("-i '/tmp/id_rsa'")) {
         return fail("sshBaseCommand missing expected options");
+    }
+    const QString simpleSsh = buildSimpleSshInvocation(p, "zpool list");
+    if (!simpleSsh.contains("'u@h'") || !simpleSsh.contains("'zpool list'")) {
+        return fail("buildSimpleSshInvocation mismatch");
+    }
+    if (!streamProgressPipeFilter().contains("pv -trab -f")) {
+        return fail("streamProgressPipeFilter mismatch");
+    }
+    const QString piped = buildPipedTransferCommand("A", "B");
+    if (!piped.contains("A | ") || !piped.contains(" | B") || !piped.contains("pv -trab -f")) {
+        return fail("buildPipedTransferCommand mismatch");
     }
     const QString sshPreview = buildSshPreviewCommandText(p, "zpool list");
     if (!sshPreview.contains("ssh") || !sshPreview.contains("u@h") || !sshPreview.contains("'zpool list'")) {

@@ -424,6 +424,30 @@ QString sshBaseCommand(const ConnectionProfile& p) {
     return cmd;
 }
 
+QString buildSshTargetPrefix(const ConnectionProfile& p) {
+    return sshBaseCommand(p)
+        + QStringLiteral(" ")
+        + shSingleQuote(sshUserHost(p));
+}
+
+QString buildSimpleSshInvocation(const ConnectionProfile& p, const QString& remoteCmd) {
+    return buildSshTargetPrefix(p)
+        + QStringLiteral(" ")
+        + shSingleQuote(remoteCmd);
+}
+
+QString streamProgressPipeFilter() {
+    return QStringLiteral("((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat)");
+}
+
+QString buildPipedTransferCommand(const QString& sendSegment, const QString& recvSegment) {
+    return sendSegment
+        + QStringLiteral(" | ")
+        + streamProgressPipeFilter()
+        + QStringLiteral(" | ")
+        + recvSegment;
+}
+
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {
     if (isWindowsOsType(p.osType)) {
         return cmd;

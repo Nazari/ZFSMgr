@@ -7,6 +7,9 @@
 namespace {
 using mwhelpers::isMountedValueTrue;
 using mwhelpers::shSingleQuote;
+using mwhelpers::buildSshTargetPrefix;
+using mwhelpers::buildPipedTransferCommand;
+using mwhelpers::buildSimpleSshInvocation;
 using mwhelpers::sshBaseCommand;
 using mwhelpers::sshUserHost;
 } // namespace
@@ -30,9 +33,6 @@ void MainWindow::actionCopySnapshot() {
         }
     }
 
-    const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sshUserHost(sp));
-    const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(sshUserHost(dp));
-
     const QString sendRawCmd = QStringLiteral("zfs send -wLecR %1").arg(shSingleQuote(srcSnap));
     const QString recvRawCmd = QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget));
     QString sendCmd = withSudo(sp, sendRawCmd);
@@ -44,15 +44,11 @@ void MainWindow::actionCopySnapshot() {
                tr3(QStringLiteral("Copiar: modo local remoto (origen y destino en la misma conexión)"),
                    QStringLiteral("Copy: remote-local mode (source and target on same connection)"),
                    QStringLiteral("复制：远端本地模式（源和目标在同一连接）")));
-        const QString remotePipe = withSudo(sp, sendRawCmd
-            + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
-            + recvRawCmd);
+        const QString remotePipe = withSudo(sp, buildPipedTransferCommand(sendRawCmd, recvRawCmd));
         pipeline = sshExecFromLocal(sp, remotePipe);
     } else {
-        pipeline =
-            srcSsh + QStringLiteral(" ") + shSingleQuote(sendCmd)
-            + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
-            + dstSsh + QStringLiteral(" ") + shSingleQuote(recvCmd);
+        pipeline = buildPipedTransferCommand(buildSimpleSshInvocation(sp, sendCmd),
+                                             buildSimpleSshInvocation(dp, recvCmd));
     }
 
     if (runLocalCommand(QStringLiteral("Copiar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0, false, true)) {
@@ -165,9 +161,6 @@ void MainWindow::actionLevelSnapshot() {
     QString sendCmd = withSudo(sp, sendRawCmd);
     const QString recvTarget = dst.datasetName;
 
-    const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sshUserHost(sp));
-    const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(sshUserHost(dp));
-
     const QString recvRawCmd = QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget));
     QString recvCmd = withSudoStreamInput(dp, recvRawCmd);
 
@@ -177,15 +170,11 @@ void MainWindow::actionLevelSnapshot() {
                tr3(QStringLiteral("Nivelar: modo local remoto (origen y destino en la misma conexión)"),
                    QStringLiteral("Level: remote-local mode (source and target on same connection)"),
                    QStringLiteral("同步快照：远端本地模式（源和目标在同一连接）")));
-        const QString remotePipe = withSudo(sp, sendRawCmd
-            + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
-            + recvRawCmd);
+        const QString remotePipe = withSudo(sp, buildPipedTransferCommand(sendRawCmd, recvRawCmd));
         pipeline = sshExecFromLocal(sp, remotePipe);
     } else {
-        pipeline =
-            srcSsh + QStringLiteral(" ") + shSingleQuote(sendCmd)
-            + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
-            + dstSsh + QStringLiteral(" ") + shSingleQuote(recvCmd);
+        pipeline = buildPipedTransferCommand(buildSimpleSshInvocation(sp, sendCmd),
+                                             buildSimpleSshInvocation(dp, recvCmd));
     }
 
     if (runLocalCommand(QStringLiteral("Nivelar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0, false, true)) {
@@ -227,7 +216,7 @@ void MainWindow::actionSyncDatasets() {
     const bool srcCanmountOff = (srcCanmount.trimmed().toLower() == QStringLiteral("off"));
     const bool dstCanmountOff = (dstCanmount.trimmed().toLower() == QStringLiteral("off"));
 
-    const QString srcSsh = sshBaseCommand(sp) + QStringLiteral(" ") + shSingleQuote(sshUserHost(sp));
+    const QString srcSsh = buildSshTargetPrefix(sp);
 
     const QString rsyncOptsProbe = QStringLiteral(
         "RSYNC_PROGRESS='--info=progress2'; "
@@ -239,7 +228,7 @@ void MainWindow::actionSyncDatasets() {
         "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then "
         "  RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; "
         "fi");
-    const QString dstSsh = sshBaseCommand(dp) + QStringLiteral(" ") + shSingleQuote(sshUserHost(dp));
+    const QString dstSsh = buildSshTargetPrefix(dp);
     const QString srcEffectiveMp = effectiveMountPath(src.connIdx, src.poolName, src.datasetName, srcMp, srcMounted);
     const QString dstEffectiveMp = effectiveMountPath(dst.connIdx, dst.poolName, dst.datasetName, dstMp, dstMounted);
     auto isUsableMountPath = [&](int cidx, const QString& path) -> bool {
@@ -342,14 +331,11 @@ void MainWindow::actionSyncDatasets() {
                        tr3(QStringLiteral("Sincronizar: modo local remoto (tar, misma conexión)"),
                            QStringLiteral("Sync: remote-local mode (tar, same connection)"),
                            QStringLiteral("同步：远端本地模式（tar，同一连接）")));
-                const QString remotePipe = srcTarCmd
-                    + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
-                    + dstTarCmd;
+                const QString remotePipe = buildPipedTransferCommand(srcTarCmd, dstTarCmd);
                 command = sshExecFromLocal(sp, remotePipe);
             } else {
-                command = sshExecFromLocal(sp, srcTarCmd)
-                    + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
-                    + sshExecFromLocal(dp, dstTarCmd);
+                command = buildPipedTransferCommand(sshExecFromLocal(sp, srcTarCmd),
+                                                    sshExecFromLocal(dp, dstTarCmd));
             }
             appLog(QStringLiteral("WARN"),
                    tr3(QStringLiteral("Sincronizar en Windows usa fallback tar/ssh (codec=%1, sin --delete)."),
@@ -496,15 +482,10 @@ void MainWindow::actionSyncDatasets() {
             const QString srcTarCmd = buildSrcTarCmd(isWindowsConnection(sp), pair.first, codec);
             const QString dstTarCmd = buildDstTarCmd(isWindowsConnection(dp), pair.second, codec);
             if (sameConnection) {
-                tarPipelines << sshExecFromLocal(
-                    sp,
-                    srcTarCmd
-                        + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
-                        + dstTarCmd);
+                tarPipelines << sshExecFromLocal(sp, buildPipedTransferCommand(srcTarCmd, dstTarCmd));
             } else {
-                tarPipelines << (sshExecFromLocal(sp, srcTarCmd)
-                    + QStringLiteral(" | ((command -v pv >/dev/null 2>&1 && pv -trab -f) || cat) | ")
-                    + sshExecFromLocal(dp, dstTarCmd));
+                tarPipelines << buildPipedTransferCommand(sshExecFromLocal(sp, srcTarCmd),
+                                                          sshExecFromLocal(dp, dstTarCmd));
             }
         }
         const QString command = tarPipelines.join(QStringLiteral(" && "));
