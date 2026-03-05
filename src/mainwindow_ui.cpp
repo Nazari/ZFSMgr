@@ -193,10 +193,10 @@ void MainWindow::buildUi() {
     auto* dsLeftTabLayout = new QVBoxLayout(datasetsTab);
     dsLeftTabLayout->setContentsMargins(4, 4, 4, 4);
     dsLeftTabLayout->setSpacing(4);
-    m_transferBox = new QGroupBox(trk(QStringLiteral("t_origen_dst_001"),
-                                      QStringLiteral("Origen-->Destino"),
-                                      QStringLiteral("Source-->Target"),
-                                      QStringLiteral("源-->目标")),
+    m_transferBox = new QGroupBox(trk(QStringLiteral("t_action_from_to1"),
+                                      QStringLiteral("Acción desde [vacío] hacia [vacío]"),
+                                      QStringLiteral("Action from [empty] to [empty]"),
+                                      QStringLiteral("从 [空] 到 [空] 的操作")),
                                   datasetsTab);
     auto* transferLayout = new QVBoxLayout(m_transferBox);
     m_transferOriginLabel = new QLabel(trk(QStringLiteral("t_origin_sel_001"),
@@ -361,10 +361,10 @@ void MainWindow::buildUi() {
     auto* advLeftTabLayout = new QVBoxLayout(advancedTab);
     advLeftTabLayout->setContentsMargins(4, 4, 4, 4);
     advLeftTabLayout->setSpacing(4);
-    m_advCommandsBox = new QGroupBox(trk(QStringLiteral("t_empty_tag_001"),
-                                         QStringLiteral("[vacío]"),
-                                         QStringLiteral("[empty]"),
-                                         QStringLiteral("[空]")),
+    m_advCommandsBox = new QGroupBox(trk(QStringLiteral("t_action_on_sel01"),
+                                         QStringLiteral("Acción sobre [vacío]"),
+                                         QStringLiteral("Action on [empty]"),
+                                         QStringLiteral("对 [空] 的操作")),
                                      advancedTab);
     auto* commandsLayout = new QVBoxLayout(m_advCommandsBox);
     commandsLayout->setSpacing(10);

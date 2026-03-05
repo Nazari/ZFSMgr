@@ -462,7 +462,12 @@ void MainWindow::refreshTransferSelectionLabels() {
                                        QStringLiteral("[空]"));
         const QString originTitle = m_originSelectedDataset.isEmpty() ? emptyToken : originText;
         const QString destTitle = m_destSelectedDataset.isEmpty() ? emptyToken : destText;
-        m_transferBox->setTitle(QStringLiteral("%1-->%2").arg(originTitle, destTitle));
+        m_transferBox->setTitle(
+            trk(QStringLiteral("t_action_from_to1"),
+                QStringLiteral("Acción desde %1 hacia %2"),
+                QStringLiteral("Action from %1 to %2"),
+                QStringLiteral("从 %1 到 %2 的操作"))
+                .arg(originTitle, destTitle));
     }
 }
 
@@ -486,6 +491,12 @@ void MainWindow::updateAdvancedSelectionUi(const QString& datasetName, const QSt
                                        QStringLiteral("[vacío]"),
                                        QStringLiteral("[empty]"),
                                        QStringLiteral("[空]"));
-        m_advCommandsBox->setTitle(datasetName.isEmpty() ? emptyTitle : text);
+        const QString selectedTitle = datasetName.isEmpty() ? emptyTitle : text;
+        m_advCommandsBox->setTitle(
+            trk(QStringLiteral("t_action_on_sel01"),
+                QStringLiteral("Acción sobre %1"),
+                QStringLiteral("Action on %1"),
+                QStringLiteral("对 %1 的操作"))
+                .arg(selectedTitle));
     }
 }
