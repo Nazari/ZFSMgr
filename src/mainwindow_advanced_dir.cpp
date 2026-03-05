@@ -83,7 +83,7 @@ void MainWindow::actionAdvancedCreateFromDir() {
     const auto selected = m_advTree ? m_advTree->selectedItems() : QList<QTreeWidgetItem*>{};
     if (selected.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("Seleccione un dataset en Avanzado."),
+                                 trk(QStringLiteral("t_advdir_auto001"), QStringLiteral("Seleccione un dataset en Avanzado."),
                                      QStringLiteral("Select a dataset in Advanced."),
                                      QStringLiteral("请在高级页选择一个数据集。")));
         return;
@@ -92,7 +92,7 @@ void MainWindow::actionAdvancedCreateFromDir() {
     const QString snap = selected.first()->data(1, Qt::UserRole).toString().trimmed();
     if (ds.isEmpty() || !snap.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("Debe seleccionar un dataset (no snapshot)."),
+                                 trk(QStringLiteral("t_advdir_auto002"), QStringLiteral("Debe seleccionar un dataset (no snapshot)."),
                                      QStringLiteral("You must select a dataset (not a snapshot)."),
                                      QStringLiteral("必须选择数据集（不能是快照）。")));
         return;
@@ -122,7 +122,7 @@ void MainWindow::actionAdvancedCreateFromDir() {
     };
 
     QDialog dlg(this);
-    dlg.setWindowTitle(tr3(QStringLiteral("Crear dataset desde directorio"),
+    dlg.setWindowTitle(trk(QStringLiteral("t_advdir_auto003"), QStringLiteral("Crear dataset desde directorio"),
                            QStringLiteral("Create dataset from directory"),
                            QStringLiteral("从目录创建数据集")));
     dlg.setModal(true);
@@ -138,14 +138,14 @@ void MainWindow::actionAdvancedCreateFromDir() {
     form->setVerticalSpacing(6);
     int row = 0;
 
-    QLabel* pathLabel = new QLabel(tr3(QStringLiteral("Path"), QStringLiteral("Path"), QStringLiteral("路径")), formWidget);
+    QLabel* pathLabel = new QLabel(trk(QStringLiteral("t_advdir_auto004"), QStringLiteral("Path"), QStringLiteral("Path"), QStringLiteral("路径")), formWidget);
     QLineEdit* pathEdit = new QLineEdit(formWidget);
     pathEdit->setText(ds + QStringLiteral("/new_dataset"));
     form->addWidget(pathLabel, row, 0);
     form->addWidget(pathEdit, row, 1, 1, 3);
     row++;
 
-    QLabel* typeLabel = new QLabel(tr3(QStringLiteral("Tipo"), QStringLiteral("Type"), QStringLiteral("类型")), formWidget);
+    QLabel* typeLabel = new QLabel(trk(QStringLiteral("t_advdir_auto005"), QStringLiteral("Tipo"), QStringLiteral("Type"), QStringLiteral("类型")), formWidget);
     QComboBox* typeCombo = new QComboBox(formWidget);
     typeCombo->addItem(QStringLiteral("filesystem"), QStringLiteral("filesystem"));
     typeCombo->setCurrentIndex(0);
@@ -154,13 +154,13 @@ void MainWindow::actionAdvancedCreateFromDir() {
     form->addWidget(typeCombo, row, 1);
     row++;
 
-    QLabel* mountDirLabel = new QLabel(tr3(QStringLiteral("Directorio local"),
+    QLabel* mountDirLabel = new QLabel(trk(QStringLiteral("t_advdir_auto006"), QStringLiteral("Directorio local"),
                                            QStringLiteral("Local directory"),
                                            QStringLiteral("本地目录")),
                                        formWidget);
     QLineEdit* mountDirEdit = new QLineEdit(formWidget);
     QPushButton* browseDirBtn = new QPushButton(
-        tr3(QStringLiteral("Seleccionar..."), QStringLiteral("Select..."), QStringLiteral("选择...")),
+        trk(QStringLiteral("t_advdir_auto007"), QStringLiteral("Seleccionar..."), QStringLiteral("Select..."), QStringLiteral("选择...")),
         formWidget);
     form->addWidget(mountDirLabel, row, 0);
     form->addWidget(mountDirEdit, row, 1, 1, 2);
@@ -171,7 +171,7 @@ void MainWindow::actionAdvancedCreateFromDir() {
             QMessageBox::warning(
                 &dlg,
                 QStringLiteral("ZFSMgr"),
-                tr3(QStringLiteral("Conexión inválida para explorar directorios remotos."),
+                trk(QStringLiteral("t_advdir_auto008"), QStringLiteral("Conexión inválida para explorar directorios remotos."),
                     QStringLiteral("Invalid connection for remote directory browsing."),
                     QStringLiteral("用于远程目录浏览的连接无效。")));
             return;
@@ -280,14 +280,14 @@ void MainWindow::actionAdvancedCreateFromDir() {
         picker.setModal(true);
         picker.resize(640, 460);
         picker.setWindowTitle(
-            tr3(QStringLiteral("Seleccionar directorio remoto"),
+            trk(QStringLiteral("t_advdir_auto009"), QStringLiteral("Seleccionar directorio remoto"),
                 QStringLiteral("Select remote directory"),
                 QStringLiteral("选择远程目录")));
         QVBoxLayout* pv = new QVBoxLayout(&picker);
         pv->setContentsMargins(10, 10, 10, 10);
         pv->setSpacing(8);
         QLabel* connInfo = new QLabel(
-            tr3(QStringLiteral("Conexión: %1").arg(prof.name),
+            trk(QStringLiteral("t_advdir_auto010"), QStringLiteral("Conexión: %1").arg(prof.name),
                 QStringLiteral("Connection: %1").arg(prof.name),
                 QStringLiteral("连接：%1").arg(prof.name)),
             &picker);
@@ -299,15 +299,15 @@ void MainWindow::actionAdvancedCreateFromDir() {
         dirList->setSelectionMode(QAbstractItemView::SingleSelection);
         pv->addWidget(dirList, 1);
         QHBoxLayout* navRow = new QHBoxLayout();
-        QPushButton* upBtn = new QPushButton(tr3(QStringLiteral("Subir"), QStringLiteral("Up"), QStringLiteral("上级")), &picker);
-        QPushButton* refreshBtn = new QPushButton(tr3(QStringLiteral("Actualizar"), QStringLiteral("Refresh"), QStringLiteral("刷新")), &picker);
+        QPushButton* upBtn = new QPushButton(trk(QStringLiteral("t_advdir_auto011"), QStringLiteral("Subir"), QStringLiteral("Up"), QStringLiteral("上级")), &picker);
+        QPushButton* refreshBtn = new QPushButton(trk(QStringLiteral("t_advdir_auto012"), QStringLiteral("Actualizar"), QStringLiteral("Refresh"), QStringLiteral("刷新")), &picker);
         navRow->addWidget(upBtn);
         navRow->addWidget(refreshBtn);
         navRow->addStretch(1);
         pv->addLayout(navRow);
         QDialogButtonBox* pb = new QDialogButtonBox(&picker);
-        QPushButton* cancelBtn = pb->addButton(tr3(QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), QDialogButtonBox::RejectRole);
-        QPushButton* selectBtn = pb->addButton(tr3(QStringLiteral("Seleccionar"), QStringLiteral("Select"), QStringLiteral("选择")), QDialogButtonBox::AcceptRole);
+        QPushButton* cancelBtn = pb->addButton(trk(QStringLiteral("t_advdir_auto013"), QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), QDialogButtonBox::RejectRole);
+        QPushButton* selectBtn = pb->addButton(trk(QStringLiteral("t_advdir_auto014"), QStringLiteral("Seleccionar"), QStringLiteral("Select"), QStringLiteral("选择")), QDialogButtonBox::AcceptRole);
         pv->addWidget(pb);
         QObject::connect(cancelBtn, &QPushButton::clicked, &picker, &QDialog::reject);
 
@@ -325,7 +325,7 @@ void MainWindow::actionAdvancedCreateFromDir() {
                 QMessageBox::warning(
                     &picker,
                     QStringLiteral("ZFSMgr"),
-                    tr3(QStringLiteral("No se pudo listar directorios remotos:\n%1").arg(errMsg),
+                    trk(QStringLiteral("t_advdir_auto015"), QStringLiteral("No se pudo listar directorios remotos:\n%1").arg(errMsg),
                         QStringLiteral("Could not list remote directories:\n%1").arg(errMsg),
                         QStringLiteral("无法列出远程目录：\n%1").arg(errMsg)));
                 return;
@@ -369,7 +369,7 @@ void MainWindow::actionAdvancedCreateFromDir() {
         picker.exec();
     });
 
-    QLabel* blocksizeLabel = new QLabel(tr3(QStringLiteral("Blocksize"), QStringLiteral("Blocksize"), QStringLiteral("块大小")), formWidget);
+    QLabel* blocksizeLabel = new QLabel(trk(QStringLiteral("t_advdir_auto016"), QStringLiteral("Blocksize"), QStringLiteral("Blocksize"), QStringLiteral("块大小")), formWidget);
     QLineEdit* blocksizeEdit = new QLineEdit(formWidget);
     form->addWidget(blocksizeLabel, row, 0);
     form->addWidget(blocksizeEdit, row, 1);
@@ -379,14 +379,14 @@ void MainWindow::actionAdvancedCreateFromDir() {
     QHBoxLayout* optsLay = new QHBoxLayout(optsWidget);
     optsLay->setContentsMargins(0, 0, 0, 0);
     optsLay->setSpacing(12);
-    QCheckBox* parentsChk = new QCheckBox(tr3(QStringLiteral("Crear padres (-p)"), QStringLiteral("Create parents (-p)"), QStringLiteral("创建父级(-p)")), optsWidget);
+    QCheckBox* parentsChk = new QCheckBox(trk(QStringLiteral("t_advdir_auto017"), QStringLiteral("Crear padres (-p)"), QStringLiteral("Create parents (-p)"), QStringLiteral("创建父级(-p)")), optsWidget);
     parentsChk->setChecked(true);
     optsLay->addWidget(parentsChk);
     optsLay->addStretch(1);
     form->addWidget(optsWidget, row, 0, 1, 4);
     row++;
 
-    QLabel* extraLabel = new QLabel(tr3(QStringLiteral("Argumentos extra"), QStringLiteral("Extra args"), QStringLiteral("额外参数")), formWidget);
+    QLabel* extraLabel = new QLabel(trk(QStringLiteral("t_advdir_auto018"), QStringLiteral("Argumentos extra"), QStringLiteral("Extra args"), QStringLiteral("额外参数")), formWidget);
     QLineEdit* extraEdit = new QLineEdit(formWidget);
     form->addWidget(extraLabel, row, 0);
     form->addWidget(extraEdit, row, 1, 1, 3);
@@ -394,7 +394,7 @@ void MainWindow::actionAdvancedCreateFromDir() {
 
     root->addWidget(formWidget);
 
-    QGroupBox* propsGroup = new QGroupBox(tr3(QStringLiteral("Propiedades"), QStringLiteral("Properties"), QStringLiteral("属性")), &dlg);
+    QGroupBox* propsGroup = new QGroupBox(trk(QStringLiteral("t_advdir_auto019"), QStringLiteral("Propiedades"), QStringLiteral("Properties"), QStringLiteral("属性")), &dlg);
     QVBoxLayout* propsGroupLay = new QVBoxLayout(propsGroup);
     propsGroupLay->setContentsMargins(6, 6, 6, 6);
     propsGroupLay->setSpacing(4);
@@ -463,9 +463,9 @@ void MainWindow::actionAdvancedCreateFromDir() {
     root->addWidget(propsGroup, 1);
 
     QDialogButtonBox* buttons = new QDialogButtonBox(&dlg);
-    QPushButton* cancelBtn = buttons->addButton(tr3(QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), QDialogButtonBox::RejectRole);
+    QPushButton* cancelBtn = buttons->addButton(trk(QStringLiteral("t_advdir_auto020"), QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), QDialogButtonBox::RejectRole);
     QPushButton* createBtn = buttons->addButton(
-        tr3(QStringLiteral("Crear"), QStringLiteral("Create"), QStringLiteral("创建")),
+        trk(QStringLiteral("t_advdir_auto021"), QStringLiteral("Crear"), QStringLiteral("Create"), QStringLiteral("创建")),
         QDialogButtonBox::AcceptRole);
     root->addWidget(buttons);
     QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
@@ -478,14 +478,14 @@ void MainWindow::actionAdvancedCreateFromDir() {
         const QString mountDir = mountDirEdit->text().trimmed();
         if (path.isEmpty()) {
             QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("Debe indicar el path del dataset."),
+                                 trk(QStringLiteral("t_advdir_auto022"), QStringLiteral("Debe indicar el path del dataset."),
                                      QStringLiteral("Dataset path is required."),
                                      QStringLiteral("必须指定数据集路径。")));
             return;
         }
         if (mountDir.isEmpty()) {
             QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("Debe seleccionar un directorio local."),
+                                 trk(QStringLiteral("t_advdir_auto023"), QStringLiteral("Debe seleccionar un directorio local."),
                                      QStringLiteral("You must select a local directory."),
                                      QStringLiteral("必须选择本地目录。")));
             return;
@@ -614,7 +614,7 @@ void MainWindow::actionAdvancedCreateFromDir() {
                        createCmd);
     }
     executeDatasetAction(QStringLiteral("advanced"),
-                         tr3(QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")),
+                         trk(QStringLiteral("t_advdir_auto024"), QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")),
                          ctx,
                          cmd,
                          90000,
@@ -628,7 +628,7 @@ void MainWindow::actionAdvancedToDir() {
     const auto selected = m_advTree ? m_advTree->selectedItems() : QList<QTreeWidgetItem*>{};
     if (selected.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("Seleccione un dataset en Avanzado."),
+                                 trk(QStringLiteral("t_advdir_auto025"), QStringLiteral("Seleccione un dataset en Avanzado."),
                                      QStringLiteral("Select a dataset in Advanced."),
                                      QStringLiteral("请在高级页选择一个数据集。")));
         return;
@@ -637,7 +637,7 @@ void MainWindow::actionAdvancedToDir() {
     const QString snap = selected.first()->data(1, Qt::UserRole).toString().trimmed();
     if (ds.isEmpty() || !snap.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("Debe seleccionar un dataset (no snapshot)."),
+                                 trk(QStringLiteral("t_advdir_auto026"), QStringLiteral("Debe seleccionar un dataset (no snapshot)."),
                                      QStringLiteral("You must select a dataset (not a snapshot)."),
                                      QStringLiteral("必须选择数据集（不能是快照）。")));
         return;
@@ -656,7 +656,7 @@ void MainWindow::actionAdvancedToDir() {
     ctx.snapshotName.clear();
 
     QDialog dlg(this);
-    dlg.setWindowTitle(tr3(QStringLiteral("Exportar dataset a directorio"),
+    dlg.setWindowTitle(trk(QStringLiteral("t_advdir_auto027"), QStringLiteral("Exportar dataset a directorio"),
                            QStringLiteral("Export dataset to directory"),
                            QStringLiteral("导出数据集到目录")));
     dlg.setModal(true);
@@ -667,7 +667,7 @@ void MainWindow::actionAdvancedToDir() {
     root->setSpacing(8);
 
     QLabel* intro = new QLabel(
-        tr3(QStringLiteral("Se copiará el contenido de %1 a un directorio local y luego se destruirá el dataset.")
+        trk(QStringLiteral("t_advdir_auto028"), QStringLiteral("Se copiará el contenido de %1 a un directorio local y luego se destruirá el dataset.")
                 .arg(ds),
             QStringLiteral("Contents of %1 will be copied to a local directory and dataset will then be destroyed.")
                 .arg(ds),
@@ -678,13 +678,13 @@ void MainWindow::actionAdvancedToDir() {
     root->addWidget(intro);
 
     QHBoxLayout* dirRow = new QHBoxLayout();
-    QLabel* dirLabel = new QLabel(tr3(QStringLiteral("Directorio local"),
+    QLabel* dirLabel = new QLabel(trk(QStringLiteral("t_advdir_auto029"), QStringLiteral("Directorio local"),
                                       QStringLiteral("Local directory"),
                                       QStringLiteral("本地目录")),
                                   &dlg);
     QLineEdit* dirEdit = new QLineEdit(&dlg);
     QPushButton* browseBtn = new QPushButton(
-        tr3(QStringLiteral("Seleccionar..."), QStringLiteral("Select..."), QStringLiteral("选择...")),
+        trk(QStringLiteral("t_advdir_auto030"), QStringLiteral("Seleccionar..."), QStringLiteral("Select..."), QStringLiteral("选择...")),
         &dlg);
     dirRow->addWidget(dirLabel, 0);
     dirRow->addWidget(dirEdit, 1);
@@ -694,7 +694,7 @@ void MainWindow::actionAdvancedToDir() {
     QObject::connect(browseBtn, &QPushButton::clicked, &dlg, [&]() {
         const QString picked = QFileDialog::getExistingDirectory(
             &dlg,
-            tr3(QStringLiteral("Seleccionar directorio local"),
+            trk(QStringLiteral("t_advdir_auto031"), QStringLiteral("Seleccionar directorio local"),
                 QStringLiteral("Select local directory"),
                 QStringLiteral("选择本地目录")),
             dirEdit->text().trimmed());
@@ -704,14 +704,14 @@ void MainWindow::actionAdvancedToDir() {
     });
 
     QDialogButtonBox* buttons = new QDialogButtonBox(&dlg);
-    QPushButton* cancelBtn = buttons->addButton(tr3(QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), QDialogButtonBox::RejectRole);
-    QPushButton* acceptBtn = buttons->addButton(tr3(QStringLiteral("Aceptar"), QStringLiteral("Accept"), QStringLiteral("确认")), QDialogButtonBox::AcceptRole);
+    QPushButton* cancelBtn = buttons->addButton(trk(QStringLiteral("t_advdir_auto032"), QStringLiteral("Cancelar"), QStringLiteral("Cancel"), QStringLiteral("取消")), QDialogButtonBox::RejectRole);
+    QPushButton* acceptBtn = buttons->addButton(trk(QStringLiteral("t_advdir_auto033"), QStringLiteral("Aceptar"), QStringLiteral("Accept"), QStringLiteral("确认")), QDialogButtonBox::AcceptRole);
     root->addWidget(buttons);
     QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
     QObject::connect(acceptBtn, &QPushButton::clicked, &dlg, [&]() {
         if (dirEdit->text().trimmed().isEmpty()) {
             QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
-                                 tr3(QStringLiteral("Debe seleccionar un directorio local."),
+                                 trk(QStringLiteral("t_advdir_auto034"), QStringLiteral("Debe seleccionar un directorio local."),
                                      QStringLiteral("You must select a local directory."),
                                      QStringLiteral("必须选择本地目录。")));
             return;
@@ -857,7 +857,7 @@ void MainWindow::actionAdvancedToDir() {
     }
 
     executeDatasetAction(QStringLiteral("advanced"),
-                         tr3(QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")),
+                         trk(QStringLiteral("t_advdir_auto035"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")),
                          ctx,
                          cmd,
                          0,
