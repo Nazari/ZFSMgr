@@ -37,8 +37,11 @@ void ConnectionStore::setLanguage(const QString& language) {
     }
 }
 
-QString ConnectionStore::tr3(const QString& es, const QString& en, const QString& zh) const {
-    return I18nManager::instance().translate(m_language, es, en, zh);
+QString ConnectionStore::trk(const QString& key,
+                             const QString& es,
+                             const QString& en,
+                             const QString& zh) const {
+    return I18nManager::instance().translateKey(m_language, key, es, en, zh);
 }
 
 bool ConnectionStore::validateMasterPassword(QString& error) const {
@@ -64,7 +67,7 @@ bool ConnectionStore::validateMasterPassword(QString& error) const {
             QString dec;
             QString err;
             if (m_masterPassword.isEmpty() || !SecretCipher::decryptEncv1(value, m_masterPassword, dec, err)) {
-                const QString msg = tr3(QStringLiteral("%1: %2 incorrecto"),
+                const QString msg = trk(QStringLiteral("t_cstore_auto002"), QStringLiteral("%1: %2 incorrecto"),
                                         QStringLiteral("%1: invalid %2"),
                                         QStringLiteral("%1：%2 无效"));
                 error = msg.arg(connName.isEmpty() ? group : connName, fieldName);
@@ -82,7 +85,7 @@ bool ConnectionStore::validateMasterPassword(QString& error) const {
     }
 
     if (hasEncrypted && m_masterPassword.isEmpty()) {
-        error = tr3(QStringLiteral("Password maestro requerido"),
+        error = trk(QStringLiteral("t_cstore_auto003"), QStringLiteral("Password maestro requerido"),
                     QStringLiteral("Master password required"),
                     QStringLiteral("需要主密码"));
         return false;
@@ -135,7 +138,7 @@ LoadResult ConnectionStore::loadConnections() const {
             } else {
                 result.warnings.push_back(
                     QStringLiteral("%1.username: %2").arg(p.name.isEmpty() ? p.id : p.name,
-                                                          err.isEmpty() ? tr3(QStringLiteral("no se pudo descifrar"),
+                                                          err.isEmpty() ? trk(QStringLiteral("t_cstore_auto004"), QStringLiteral("no se pudo descifrar"),
                                                                                QStringLiteral("could not decrypt"),
                                                                                QStringLiteral("无法解密"))
                                                                         : err));
@@ -150,7 +153,7 @@ LoadResult ConnectionStore::loadConnections() const {
             } else {
                 result.warnings.push_back(
                     QStringLiteral("%1.password: %2").arg(p.name.isEmpty() ? p.id : p.name,
-                                                          err.isEmpty() ? tr3(QStringLiteral("no se pudo descifrar"),
+                                                          err.isEmpty() ? trk(QStringLiteral("t_cstore_auto005"), QStringLiteral("no se pudo descifrar"),
                                                                                QStringLiteral("could not decrypt"),
                                                                                QStringLiteral("无法解密"))
                                                                         : err));
@@ -168,19 +171,19 @@ LoadResult ConnectionStore::loadConnections() const {
 bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString& error) {
     error.clear();
     if (profile.name.trimmed().isEmpty()) {
-        error = tr3(QStringLiteral("Nombre requerido"),
+        error = trk(QStringLiteral("t_cstore_auto006"), QStringLiteral("Nombre requerido"),
                     QStringLiteral("Name required"),
                     QStringLiteral("名称必填"));
         return false;
     }
     if (profile.host.trimmed().isEmpty()) {
-        error = tr3(QStringLiteral("Host requerido"),
+        error = trk(QStringLiteral("t_cstore_auto007"), QStringLiteral("Host requerido"),
                     QStringLiteral("Host required"),
                     QStringLiteral("主机必填"));
         return false;
     }
     if (profile.username.trimmed().isEmpty()) {
-        error = tr3(QStringLiteral("Usuario requerido"),
+        error = trk(QStringLiteral("t_cstore_auto008"), QStringLiteral("Usuario requerido"),
                     QStringLiteral("User required"),
                     QStringLiteral("用户必填"));
         return false;
@@ -199,7 +202,7 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
     QString storedPassword = profile.password;
     if (!storedPassword.isEmpty() && !SecretCipher::isEncrypted(storedPassword)) {
         if (m_masterPassword.isEmpty()) {
-            error = tr3(QStringLiteral("Password maestro requerido para cifrar password"),
+            error = trk(QStringLiteral("t_cstore_auto009"), QStringLiteral("Password maestro requerido para cifrar password"),
                         QStringLiteral("Master password required to encrypt password"),
                         QStringLiteral("加密密码需要主密码"));
             return false;
@@ -207,7 +210,7 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
         QString encErr;
         QString encrypted;
         if (!SecretCipher::encryptEncv1(storedPassword, m_masterPassword, encrypted, encErr)) {
-            error = tr3(QStringLiteral("No se pudo cifrar password: %1"),
+            error = trk(QStringLiteral("t_cstore_auto010"), QStringLiteral("No se pudo cifrar password: %1"),
                         QStringLiteral("Could not encrypt password: %1"),
                         QStringLiteral("无法加密密码：%1")).arg(encErr);
             return false;
@@ -229,7 +232,7 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
     ini.endGroup();
     ini.sync();
     if (ini.status() != QSettings::NoError) {
-        error = tr3(QStringLiteral("Error guardando INI"),
+        error = trk(QStringLiteral("t_cstore_auto011"), QStringLiteral("Error guardando INI"),
                     QStringLiteral("Error saving INI"),
                     QStringLiteral("保存 INI 出错"));
         return false;
@@ -241,7 +244,7 @@ bool ConnectionStore::deleteConnectionById(const QString& id, QString& error) {
     error.clear();
     const QString clean = id.trimmed();
     if (clean.isEmpty()) {
-        error = tr3(QStringLiteral("ID vacío"),
+        error = trk(QStringLiteral("t_cstore_auto012"), QStringLiteral("ID vacío"),
                     QStringLiteral("Empty ID"),
                     QStringLiteral("ID 为空"));
         return false;
@@ -253,7 +256,7 @@ bool ConnectionStore::deleteConnectionById(const QString& id, QString& error) {
     ini.endGroup();
     ini.sync();
     if (ini.status() != QSettings::NoError) {
-        error = tr3(QStringLiteral("Error borrando en INI"),
+        error = trk(QStringLiteral("t_cstore_auto013"), QStringLiteral("Error borrando en INI"),
                     QStringLiteral("Error deleting from INI"),
                     QStringLiteral("删除 INI 项时出错"));
         return false;
@@ -264,7 +267,7 @@ bool ConnectionStore::deleteConnectionById(const QString& id, QString& error) {
 bool ConnectionStore::encryptStoredPasswords(QString& error) {
     error.clear();
     if (m_masterPassword.isEmpty()) {
-        error = tr3(QStringLiteral("Password maestro requerido"),
+        error = trk(QStringLiteral("t_cstore_auto014"), QStringLiteral("Password maestro requerido"),
                     QStringLiteral("Master password required"),
                     QStringLiteral("需要主密码"));
         return false;
@@ -292,7 +295,7 @@ bool ConnectionStore::encryptStoredPasswords(QString& error) {
     }
     ini.sync();
     if (ini.status() != QSettings::NoError) {
-        error = tr3(QStringLiteral("Error guardando INI"),
+        error = trk(QStringLiteral("t_cstore_auto015"), QStringLiteral("Error guardando INI"),
                     QStringLiteral("Error saving INI"),
                     QStringLiteral("保存 INI 出错"));
         return false;
@@ -303,7 +306,7 @@ bool ConnectionStore::encryptStoredPasswords(QString& error) {
 bool ConnectionStore::rotateMasterPassword(const QString& oldMasterPassword, const QString& newMasterPassword, QString& error) {
     error.clear();
     if (newMasterPassword.isEmpty()) {
-        error = tr3(QStringLiteral("Nuevo password maestro vacío"),
+        error = trk(QStringLiteral("t_cstore_auto016"), QStringLiteral("Nuevo password maestro vacío"),
                     QStringLiteral("New master password is empty"),
                     QStringLiteral("新主密码为空"));
         return false;
@@ -339,7 +342,7 @@ bool ConnectionStore::rotateMasterPassword(const QString& oldMasterPassword, con
     }
     ini.sync();
     if (ini.status() != QSettings::NoError) {
-        error = tr3(QStringLiteral("Error guardando INI"),
+        error = trk(QStringLiteral("t_cstore_auto017"), QStringLiteral("Error guardando INI"),
                     QStringLiteral("Error saving INI"),
                     QStringLiteral("保存 INI 出错"));
         return false;

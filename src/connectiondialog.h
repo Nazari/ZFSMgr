@@ -25,7 +25,6 @@ private:
                 const QString& es = QString(),
                 const QString& en = QString(),
                 const QString& zh = QString()) const;
-    QString tr3(const QString& es, const QString& en, const QString& zh) const;
 
     QLineEdit* m_nameEdit{nullptr};
     QComboBox* m_connTypeCombo{nullptr};

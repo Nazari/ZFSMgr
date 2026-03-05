@@ -39,7 +39,10 @@ public:
     bool rotateMasterPassword(const QString& oldMasterPassword, const QString& newMasterPassword, QString& error);
 
 private:
-    QString tr3(const QString& es, const QString& en, const QString& zh) const;
+    QString trk(const QString& key,
+                const QString& es = QString(),
+                const QString& en = QString(),
+                const QString& zh = QString()) const;
     QString m_appName;
     QString m_masterPassword;
     QString m_language{QStringLiteral("es")};

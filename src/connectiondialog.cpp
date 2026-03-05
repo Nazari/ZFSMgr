@@ -225,12 +225,12 @@ void ConnectionDialog::updateConnectionModeUi() {
     }
 
     if (psrpMode) {
-        m_passwordEdit->setPlaceholderText(tr3(QStringLiteral("Credencial de Windows/PSRP"),
+        m_passwordEdit->setPlaceholderText(trk(QStringLiteral("t_psrp_cred_ph01"), QStringLiteral("Credencial de Windows/PSRP"),
                                                QStringLiteral("Windows/PSRP credential"),
                                                QStringLiteral("Windows/PSRP 凭据")));
         m_portEdit->setPlaceholderText(QStringLiteral("5985"));
     } else {
-        m_passwordEdit->setPlaceholderText(tr3(QStringLiteral("Password SSH"), QStringLiteral("SSH password"), QStringLiteral("SSH 密码")));
+        m_passwordEdit->setPlaceholderText(trk(QStringLiteral("t_ssh_pwd_ph001"), QStringLiteral("Password SSH"), QStringLiteral("SSH password"), QStringLiteral("SSH 密码")));
         m_portEdit->setPlaceholderText(QStringLiteral("22"));
     }
 
@@ -369,8 +369,4 @@ QString ConnectionDialog::trk(const QString& key,
                               const QString& en,
                               const QString& zh) const {
     return I18nManager::instance().translateKey(m_language, key, es, en, zh);
-}
-
-QString ConnectionDialog::tr3(const QString& es, const QString& en, const QString& zh) const {
-    return I18nManager::instance().translate(m_language, es, en, zh);
 }
