@@ -102,6 +102,14 @@ void MainWindow::actionAdvancedBreakdown() {
     ctx.poolName = poolName;
     ctx.datasetName = ds;
     ctx.snapshotName.clear();
+    beginUiBusy();
+    bool busyActive = true;
+    auto stopBusy = [&]() {
+        if (busyActive) {
+            endUiBusy();
+            busyActive = false;
+        }
+    };
 
     const ConnectionProfile& p = m_profiles[connIdx];
     QString mountOut;
@@ -111,6 +119,7 @@ void MainWindow::actionAdvancedBreakdown() {
         p,
         QStringLiteral("zfs get -H -o name,value -r mounted %1").arg(shSingleQuote(ds)));
     if (!runSsh(p, mountCheckCmd, 25000, mountOut, mountErr, mountRc) || mountRc != 0) {
+        stopBusy();
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_adv_chk_mnt_01"), QStringLiteral("No se pudo comprobar el estado de montaje del dataset."),
                                  QStringLiteral("Could not verify dataset mount state."),
@@ -133,6 +142,7 @@ void MainWindow::actionAdvancedBreakdown() {
         }
     }
     if (!unmounted.isEmpty()) {
+        stopBusy();
         QMessageBox::warning(
             this,
             QStringLiteral("ZFSMgr"),
@@ -179,6 +189,7 @@ void MainWindow::actionAdvancedBreakdown() {
                                     "Get-ChildItem -LiteralPath $mp -Directory -Force | Select-Object -ExpandProperty Name | Sort-Object -Unique")
                                     .arg(dsPs);
         if (!runSsh(p, withSudo(p, listCmd), 25000, listOut, listErr, listRc) || listRc != 0) {
+            stopBusy();
                 QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_adv_break_ls01"), QStringLiteral("No se pudieron listar directorios para desglosar."),
                                      QStringLiteral("Could not list directories for breakdown."),
@@ -207,6 +218,7 @@ void MainWindow::actionAdvancedBreakdown() {
                            "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); [ -n \"$bn\" ] && printf '%s\\n' \"$bn\"; done | sort -u")
                 .arg(shSingleQuote(ds)));
         if (!runSsh(p, listCmd, 25000, listOut, listErr, listRc) || listRc != 0) {
+            stopBusy();
             QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_adv_break_ls01"), QStringLiteral("No se pudieron listar directorios para desglosar."),
                                      QStringLiteral("Could not list directories for breakdown."),
@@ -310,6 +322,7 @@ void MainWindow::actionAdvancedBreakdown() {
                                    ? trk(QStringLiteral("t_unresolved001"), QStringLiteral("(sin resolver)"), QStringLiteral("(unresolved)"), QStringLiteral("（未解析）"))
                                    : resolvedMp;
 
+        stopBusy();
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_adv_break_nod1"), QStringLiteral("No hay directorios para desglosar en el dataset seleccionado.\n\n"
                                                     "Dataset: %1\n"
@@ -331,6 +344,7 @@ void MainWindow::actionAdvancedBreakdown() {
                                          .arg(ds, mpText, dirsText, datasetsText)));
         return;
     }
+    stopBusy();
     QStringList selectedDirs;
     if (!selectItemsDialog(
             trk(QStringLiteral("t_adv_break_tit1"), QStringLiteral("Desglosar: seleccionar directorios"),
@@ -346,6 +360,9 @@ void MainWindow::actionAdvancedBreakdown() {
                    QStringLiteral("Break down canceled or no selection."),
                    QStringLiteral("拆分已取消或无选择。")));
         return;
+    }
+    for (const QString& d : selectedDirs) {
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("[BREAKDOWN] pendiente: %1").arg(d));
     }
 
     QString cmd;
@@ -383,6 +400,7 @@ void MainWindow::actionAdvancedBreakdown() {
                   "if ([string]::IsNullOrWhiteSpace($mp) -or -not (Test-Path -LiteralPath $mp)) { throw 'mountpoint=none' }; "
                   "foreach($bn in $selected){ "
                   "  $src=Join-Path $mp $bn; if (-not (Test-Path -LiteralPath $src -PathType Container)) { continue }; "
+                  "  Write-Output ('[BREAKDOWN] start ' + $bn); "
                   "  $child=\"$ds/$bn\"; "
                   "  zfs list -H -o name $child 2>$null | Out-Null; if ($LASTEXITCODE -ne 0) { zfs create $child | Out-Null; if($LASTEXITCODE -ne 0){ throw \"zfs create failed for $child\" } }; "
                   "  zfs mount $child 2>$null | Out-Null; "
@@ -395,6 +413,7 @@ void MainWindow::actionAdvancedBreakdown() {
                   "  if ($srcNorm.StartsWith($cmpNorm + '\\\\',[System.StringComparison]::OrdinalIgnoreCase)) { throw \"unsafe breakdown paths (src under dst): $srcNorm -> $cmpNorm\" }; "
                   "  robocopy $src $cmp /E /MOVE /COPYALL /R:1 /W:1 /NFL /NDL /NP | Out-Null; "
                   "  $r=$LASTEXITCODE; if ($r -ge 8) { throw \"robocopy failed ($r) for $bn\" }; "
+                  "  Write-Output ('[BREAKDOWN] ok ' + $bn + ' -> ' + $child); "
                   "}")
                   .arg(dsPs, selectedPs.join(QStringLiteral(",")));
         allowWindowsScript = true;
@@ -418,6 +437,7 @@ void MainWindow::actionAdvancedBreakdown() {
                            "[ -n \"$MP\" ] || { echo \"mountpoint=none\"; exit 2; }; "
                            "SELECTED_DIRS=(%2); is_selected_dir(){ for s in \"${SELECTED_DIRS[@]}\"; do [ \"$s\" = \"$1\" ] && return 0; done; return 1; }; "
                            "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); is_selected_dir \"$bn\" || continue; "
+                           "echo \"[BREAKDOWN] start $bn\"; "
                            "child=\"$DATASET/$bn\"; "
                            "zfs list -H -o name \"$child\" >/dev/null 2>&1 && { echo \"child_exists=$child\"; continue; }; "
                            "FINAL_MP=\"$MP/$bn\"; "
@@ -437,6 +457,7 @@ void MainWindow::actionAdvancedBreakdown() {
                            "zfs set mountpoint=\"$FINAL_MP\" \"$child\"; "
                            "zfs mount \"$child\" >/dev/null 2>&1 || true; "
                            "rmdir \"$TMP_CHILD_MP\" >/dev/null 2>&1 || true; "
+                           "echo \"[BREAKDOWN] ok $bn -> $child\"; "
                            "done")
                 .arg(shSingleQuote(ds), selectedList);
     }

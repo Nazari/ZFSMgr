@@ -164,6 +164,15 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     QString err;
     int rc = -1;
     if (!runSsh(p, remoteCmd, timeoutMs, out, err, rc) || rc != 0) {
+        if (actionName == QStringLiteral("Desglosar")) {
+            const QStringList progressLines = out.split('\n', Qt::SkipEmptyParts);
+            for (const QString& lnRaw : progressLines) {
+                const QString ln = lnRaw.trimmed();
+                if (ln.contains(QStringLiteral("[BREAKDOWN]"), Qt::CaseInsensitive)) {
+                    appLog(QStringLiteral("NORMAL"), ln);
+                }
+            }
+        }
         QString failureDetail = err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err;
         if (!out.trimmed().isEmpty()) {
             failureDetail += QStringLiteral("\n\nstdout:\n%1").arg(out.trimmed());
@@ -189,7 +198,22 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
         return false;
     }
     if (!out.trimmed().isEmpty()) {
-        appLog(QStringLiteral("INFO"), oneLine(out));
+        if (actionName == QStringLiteral("Desglosar")) {
+            const QStringList progressLines = out.split('\n', Qt::SkipEmptyParts);
+            bool loggedProgress = false;
+            for (const QString& lnRaw : progressLines) {
+                const QString ln = lnRaw.trimmed();
+                if (ln.contains(QStringLiteral("[BREAKDOWN]"), Qt::CaseInsensitive)) {
+                    appLog(QStringLiteral("NORMAL"), ln);
+                    loggedProgress = true;
+                }
+            }
+            if (!loggedProgress) {
+                appLog(QStringLiteral("INFO"), oneLine(out));
+            }
+        } else {
+            appLog(QStringLiteral("INFO"), oneLine(out));
+        }
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("%1 finalizado").arg(actionName));
     invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
