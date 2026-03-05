@@ -464,7 +464,12 @@ QString shSingleQuote(const QString& s) {
 }
 
 QString sshControlPath() {
+#ifdef Q_OS_MAC
+    // macOS impone un límite corto para sockets Unix; usar /tmp evita rutas largas en /var/folders/...
+    return QStringLiteral("/tmp/zfsmgr-%C");
+#else
     return QDir::tempPath() + QStringLiteral("/zfsmgr-ssh-%C");
+#endif
 }
 
 QString sshBaseCommand(const ConnectionProfile& p) {

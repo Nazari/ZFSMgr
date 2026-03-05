@@ -77,8 +77,12 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   fi
 
   ensure_codesign_identity "${SELF_SIGN_CERT_NAME}"
+  MAIN_BIN="${APP_BUNDLE}/Contents/MacOS/zfsmgr_qt"
+  /usr/bin/codesign --remove-signature "${MAIN_BIN}" >/dev/null 2>&1 || true
+  /usr/bin/codesign --force --sign "${SELF_SIGN_CERT_NAME}" --timestamp=none "${MAIN_BIN}"
   /usr/bin/codesign --force --deep --sign "${SELF_SIGN_CERT_NAME}" --timestamp=none "${APP_BUNDLE}"
-  /usr/bin/codesign --verify --deep --strict "${APP_BUNDLE}"
+  /usr/bin/codesign --verify --strict --verbose=4 "${MAIN_BIN}"
+  /usr/bin/codesign --verify --deep --strict --verbose=4 "${APP_BUNDLE}"
   echo "App macOS creada y firmada con certificado autofirmado: ${APP_BUNDLE}"
 else
   echo "Empaquetado .app omitido (usa --bundle para generarlo)."
