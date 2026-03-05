@@ -43,6 +43,20 @@ int main() {
     if (!normalizeDriveLetterValue("none").isEmpty()) {
         return fail("normalizeDriveLetterValue none should be empty");
     }
+    if (windowsGptTypeName("6A898CC3-1DD2-11B2-99A6-080020736631").isEmpty()) {
+        return fail("windowsGptTypeName known guid should resolve");
+    }
+    if (!windowsGptTypeName("{516E7CBA-6ECF-11D6-8FF8-00022D09712B}").contains("FreeBSD/ZFS")) {
+        return fail("windowsGptTypeName should accept braces");
+    }
+    const QString fsDetail = formatWindowsFsTypeDetail("NTFS|gpt={6A898CC3-1DD2-11B2-99A6-080020736631}|type=Unknown|mbr=-");
+    if (!fsDetail.contains("gpt=Mac OS X/ZFS / Solaris/usr")) {
+        return fail("formatWindowsFsTypeDetail should include mapped GPT name");
+    }
+    if (!formatWindowsFsTypeDetail("NTFS|gpt={AAAAAAAA-0000-0000-0000-000000000000}|type=Unknown|mbr=-")
+             .contains("gpt={AAAAAAAA-0000-0000-0000-000000000000}")) {
+        return fail("formatWindowsFsTypeDetail should keep unknown GPT unchanged");
+    }
 
     if (!parentMountCheckRequired("/mnt/a", "on")) {
         return fail("parentMountCheckRequired should require mounted parent");

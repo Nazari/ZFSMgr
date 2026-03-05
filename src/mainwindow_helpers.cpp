@@ -87,6 +87,90 @@ bool isWindowsOsType(const QString& osType) {
     return osType.trimmed().toLower().contains(QStringLiteral("windows"));
 }
 
+QString windowsGptTypeName(const QString& guid) {
+    QString g = guid.trimmed();
+    if (g.startsWith('{') && g.endsWith('}') && g.size() > 2) {
+        g = g.mid(1, g.size() - 2);
+    }
+    g = g.toLower();
+    static const QMap<QString, QString> kMap = {
+        {QStringLiteral("00000000-0000-0000-0000-000000000000"), QStringLiteral("Unused entry")},
+        {QStringLiteral("024dee41-33e7-11d3-9d69-0008c781f39f"), QStringLiteral("MBR partition scheme")},
+        {QStringLiteral("c12a7328-f81f-11d2-ba4b-00a0c93ec93b"), QStringLiteral("EFI System Partition")},
+        {QStringLiteral("21686148-6449-6e6f-744e-656564454649"), QStringLiteral("BIOS Boot Partition")},
+        {QStringLiteral("b334117e-118d-11de-9b0f-001cc0952d53"), QStringLiteral("gdisk unknown")},
+        {QStringLiteral("e3c9e316-0b5c-4db8-817d-f92df00215ae"), QStringLiteral("Windows/Reserved")},
+        {QStringLiteral("ebd0a0a2-b9e5-4433-87c0-68b6b72699c7"), QStringLiteral("Windows/Basic Data / Linux/Data")},
+        {QStringLiteral("5808c8aa-7e8f-42e0-85d2-e1e90434cfb3"), QStringLiteral("Windows/LDM metadata")},
+        {QStringLiteral("af9b60a0-1431-4f62-bc68-3311714a69ad"), QStringLiteral("Windows/LDM data")},
+        {QStringLiteral("75894c1e-3aeb-11d3-b7c1-7b03a0000000"), QStringLiteral("HP-UX/Data")},
+        {QStringLiteral("e2a1e728-32e3-11d6-a682-7b03a0000000"), QStringLiteral("HP-UX/Service")},
+        {QStringLiteral("a19d880f-05fc-4d3b-a006-743f0f84911e"), QStringLiteral("Linux/RAID")},
+        {QStringLiteral("0657fd6d-a4ab-43c4-84e5-0933c84b4f4f"), QStringLiteral("Linux/Swap")},
+        {QStringLiteral("e6d6d379-f507-44c2-a23c-238f2a3df928"), QStringLiteral("Linux/LVM")},
+        {QStringLiteral("8da63339-0007-60c0-c436-083ac8230908"), QStringLiteral("Linux/Reserved")},
+        {QStringLiteral("83bd6b9d-7f41-11dc-be0b-001560b84f0f"), QStringLiteral("FreeBSD/Boot")},
+        {QStringLiteral("516e7cb4-6ecf-11d6-8ff8-00022d09712b"), QStringLiteral("FreeBSD/Data")},
+        {QStringLiteral("516e7cb5-6ecf-11d6-8ff8-00022d09712b"), QStringLiteral("FreeBSD/Swap")},
+        {QStringLiteral("516e7cb6-6ecf-11d6-8ff8-00022d09712b"), QStringLiteral("FreeBSD/UFS")},
+        {QStringLiteral("516e7cb8-6ecf-11d6-8ff8-00022d09712b"), QStringLiteral("FreeBSD/Vinum")},
+        {QStringLiteral("516e7cba-6ecf-11d6-8ff8-00022d09712b"), QStringLiteral("FreeBSD/ZFS")},
+        {QStringLiteral("48465300-0000-11aa-aa11-00306543ecac"), QStringLiteral("Mac OS X/HFS+")},
+        {QStringLiteral("55465300-0000-11aa-aa11-00306543ecac"), QStringLiteral("Mac OS X/Apple UFS")},
+        {QStringLiteral("6a898cc3-1dd2-11b2-99a6-080020736631"), QStringLiteral("Mac OS X/ZFS / Solaris/usr")},
+        {QStringLiteral("52414944-0000-11aa-aa11-00306543ecac"), QStringLiteral("Mac OS X/RAID")},
+        {QStringLiteral("52414944-5f4f-11aa-aa11-00306543ecac"), QStringLiteral("Mac OS X/Offline RAID")},
+        {QStringLiteral("426f6f74-0000-11aa-aa11-00306543ecac"), QStringLiteral("Mac OS X/Boot")},
+        {QStringLiteral("4c616265-6c00-11aa-aa11-00306543ecac"), QStringLiteral("Mac OS X/Label")},
+        {QStringLiteral("5265636f-7665-11aa-aa11-00306543ecac"), QStringLiteral("Mac OS X/Apple TV Recovery")},
+        {QStringLiteral("6a82cb45-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/Boot")},
+        {QStringLiteral("6a85cf4d-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/Root")},
+        {QStringLiteral("6a87c46f-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/Swap")},
+        {QStringLiteral("6a8b642b-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/Backup")},
+        {QStringLiteral("6a8ef2e9-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/var")},
+        {QStringLiteral("6a90ba39-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/home")},
+        {QStringLiteral("6a9283a5-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/EFI_ALTSCTR")},
+        {QStringLiteral("6a945a3b-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/Reserved")},
+        {QStringLiteral("6a9630d1-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/Reserved")},
+        {QStringLiteral("6a980767-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/Reserved")},
+        {QStringLiteral("6a96237f-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/Reserved")},
+        {QStringLiteral("6a8d2ac7-1dd2-11b2-99a6-080020736631"), QStringLiteral("Solaris/Reserved")},
+        {QStringLiteral("49f48d32-b10e-11dc-b99b-0019d1879648"), QStringLiteral("NetBSD/Swap")},
+        {QStringLiteral("49f48d5a-b10e-11dc-b99b-0019d1879648"), QStringLiteral("NetBSD/FFS")},
+        {QStringLiteral("49f48d82-b10e-11dc-b99b-0019d1879648"), QStringLiteral("NetBSD/LFS")},
+        {QStringLiteral("49f48daa-b10e-11dc-b99b-0019d1879648"), QStringLiteral("NetBSD/RAID")},
+        {QStringLiteral("2db519c4-b10f-11dc-b99b-0019d1879648"), QStringLiteral("NetBSD/concatenated")},
+        {QStringLiteral("2db519ec-b10f-11dc-b99b-0019d1879648"), QStringLiteral("NetBSD/encrypted")},
+    };
+    return kMap.value(g);
+}
+
+QString formatWindowsFsTypeDetail(const QString& rawFsType) {
+    const QString raw = rawFsType.trimmed();
+    if (raw.isEmpty() || raw == QStringLiteral("-")) {
+        return rawFsType;
+    }
+    QStringList parts = raw.split('|');
+    bool changed = false;
+    for (QString& part : parts) {
+        const QString p = part.trimmed();
+        if (!p.startsWith(QStringLiteral("gpt="), Qt::CaseInsensitive)) {
+            continue;
+        }
+        const QString guidRaw = p.mid(4).trimmed();
+        if (guidRaw.isEmpty() || guidRaw == QStringLiteral("-")) {
+            continue;
+        }
+        const QString name = windowsGptTypeName(guidRaw);
+        if (name.isEmpty()) {
+            continue;
+        }
+        part = QStringLiteral("gpt=%1 (%2)").arg(name, guidRaw);
+        changed = true;
+    }
+    return changed ? parts.join('|') : rawFsType;
+}
+
 QString parseOpenZfsVersionText(const QString& text) {
     if (text.trimmed().isEmpty()) {
         return QString();

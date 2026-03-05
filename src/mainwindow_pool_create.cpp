@@ -35,6 +35,7 @@ namespace {
 using mwhelpers::oneLine;
 using mwhelpers::shSingleQuote;
 using mwhelpers::sshUserHostPort;
+using mwhelpers::formatWindowsFsTypeDetail;
 
 QString parentDiskDevicePath(const QString& rawPath) {
     const QString path = rawPath.trimmed();
@@ -325,6 +326,9 @@ void MainWindow::createPoolForSelectedConnection() {
             }
             e.mountpoint = mp.isEmpty() ? QStringLiteral("-") : mp;
             e.fsType = fsType.isEmpty() ? QStringLiteral("-") : fsType;
+            if (isWindowsConnection(p)) {
+                e.fsType = formatWindowsFsTypeDetail(e.fsType);
+            }
             e.devType = type.isEmpty() ? QStringLiteral("part") : type;
             QString fsLower = e.fsType.trimmed().toLower();
             fsLower.remove('{');
