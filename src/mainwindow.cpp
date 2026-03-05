@@ -900,25 +900,3 @@ void MainWindow::setTablePopulationMode(QTableWidget* table, bool populating) {
 
 
 
-QString MainWindow::buildSshPreviewCommand(const ConnectionProfile& p, const QString& remoteCmd) const {
-    QStringList parts;
-    parts << QStringLiteral("ssh");
-    parts << QStringLiteral("-o BatchMode=yes");
-    parts << QStringLiteral("-o ConnectTimeout=10");
-    parts << QStringLiteral("-o LogLevel=ERROR");
-    parts << QStringLiteral("-o StrictHostKeyChecking=no");
-    parts << QStringLiteral("-o UserKnownHostsFile=/dev/null");
-    parts << QStringLiteral("-o ControlMaster=auto");
-    parts << QStringLiteral("-o ControlPersist=300");
-    parts << QStringLiteral("-o ControlPath=%1").arg(shSingleQuote(sshControlPath()));
-    if (p.port > 0) {
-        parts << QStringLiteral("-p %1").arg(p.port);
-    }
-    if (!p.keyPath.isEmpty()) {
-        parts << QStringLiteral("-i %1").arg(shSingleQuote(p.keyPath));
-    }
-    parts << QStringLiteral("%1@%2").arg(p.username, p.host);
-    parts << shSingleQuote(remoteCmd);
-    return parts.join(' ');
-}
-
