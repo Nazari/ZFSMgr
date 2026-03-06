@@ -389,6 +389,97 @@ bool MainWindow::detectLocalLibzfs(QString* detail) const {
 #endif
 }
 
+bool MainWindow::listLocalImportedPoolsLibzfs(QStringList& poolsOut, QString* detail) const {
+    poolsOut.clear();
+#if defined(Q_OS_WIN)
+    if (detail) {
+        *detail = QStringLiteral("libzfs runtime pool listing not available on Windows build");
+    }
+    return false;
+#else
+    QStringList candidates;
+#if defined(Q_OS_MACOS)
+    candidates << QStringLiteral("/usr/local/zfs/lib/libzfs.dylib")
+               << QStringLiteral("libzfs.dylib");
+#else
+    candidates << QStringLiteral("libzfs.so.6")
+               << QStringLiteral("libzfs.so.5")
+               << QStringLiteral("libzfs.so");
+#endif
+
+    QString localDetail = QStringLiteral("no loadable libzfs library found");
+    for (const QString& cand : candidates) {
+        QLibrary lib(cand);
+        if (!lib.load()) {
+            continue;
+        }
+        using InitFn = void* (*)();
+        using FiniFn = void (*)(void*);
+        using IterCb = int (*)(void*, void*);
+        using ZpoolIterFn = int (*)(void*, IterCb, void*);
+        using ZpoolGetNameFn = const char* (*)(void*);
+        using ZpoolCloseFn = void (*)(void*);
+
+        const InitFn initFn = reinterpret_cast<InitFn>(lib.resolve("libzfs_init"));
+        const FiniFn finiFn = reinterpret_cast<FiniFn>(lib.resolve("libzfs_fini"));
+        const ZpoolIterFn zpoolIterFn = reinterpret_cast<ZpoolIterFn>(lib.resolve("zpool_iter"));
+        const ZpoolGetNameFn zpoolGetNameFn =
+            reinterpret_cast<ZpoolGetNameFn>(lib.resolve("zpool_get_name"));
+        const ZpoolCloseFn zpoolCloseFn = reinterpret_cast<ZpoolCloseFn>(lib.resolve("zpool_close"));
+        if (!initFn || !finiFn || !zpoolIterFn || !zpoolGetNameFn || !zpoolCloseFn) {
+            localDetail = QStringLiteral("%1 loaded but required symbols are missing").arg(cand);
+            lib.unload();
+            continue;
+        }
+
+        void* h = initFn();
+        if (!h) {
+            localDetail = QStringLiteral("%1 loaded but libzfs_init returned null").arg(cand);
+            lib.unload();
+            continue;
+        }
+
+        struct Ctx {
+            QStringList* pools;
+            ZpoolGetNameFn getName;
+            ZpoolCloseFn closePool;
+        } ctx{&poolsOut, zpoolGetNameFn, zpoolCloseFn};
+
+        auto cb = [](void* poolHandle, void* opaque) -> int {
+            Ctx* c = static_cast<Ctx*>(opaque);
+            if (!c || !poolHandle || !c->getName || !c->closePool) {
+                return 0;
+            }
+            const char* n = c->getName(poolHandle);
+            if (n && *n) {
+                c->pools->push_back(QString::fromUtf8(n));
+            }
+            c->closePool(poolHandle);
+            return 0;
+        };
+
+        (void)zpoolIterFn(h, cb, &ctx);
+        finiFn(h);
+        lib.unload();
+        poolsOut.removeAll(QString());
+        poolsOut.removeDuplicates();
+        std::sort(poolsOut.begin(), poolsOut.end(), [](const QString& a, const QString& b) {
+            return a.compare(b, Qt::CaseInsensitive) < 0;
+        });
+        localDetail = QStringLiteral("%1 loaded and zpool_iter succeeded").arg(cand);
+        if (detail) {
+            *detail = localDetail;
+        }
+        return true;
+    }
+
+    if (detail) {
+        *detail = localDetail;
+    }
+    return false;
+#endif
+}
+
 bool MainWindow::isWindowsConnection(const ConnectionProfile& p) const {
     return mwhelpers::isWindowsOsType(p.osType);
 }

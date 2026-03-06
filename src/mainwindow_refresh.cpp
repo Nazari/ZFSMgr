@@ -269,11 +269,29 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     }
 
     QString zpoolListCmd = withSudo(p, QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio"));
+    bool loadedPoolsFromLibzfs = false;
+    if (localMode) {
+        QStringList localPools;
+        QString poolLibDetail;
+        if (detectLocalLibzfs() && listLocalImportedPoolsLibzfs(localPools, &poolLibDetail)) {
+            for (const QString& poolName : localPools) {
+                if (poolName.trimmed().isEmpty()) {
+                    continue;
+                }
+                state.importedPools.push_back(PoolImported{p.name, poolName.trimmed(), QStringLiteral("Exportar")});
+            }
+            loadedPoolsFromLibzfs = true;
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("%1: imported pools via libzfs (%2)")
+                       .arg(p.name)
+                       .arg(poolLibDetail));
+        }
+    }
 
     out.clear();
     err.clear();
     rc = -1;
-    if (runSsh(p, zpoolListCmd, 18000, out, err, rc) && rc == 0) {
+    if (!loadedPoolsFromLibzfs && runSsh(p, zpoolListCmd, 18000, out, err, rc) && rc == 0) {
         const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
         for (const QString& line : lines) {
             const QString poolName = line.section('\t', 0, 0).trimmed();
