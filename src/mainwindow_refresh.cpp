@@ -69,6 +69,14 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                QStringLiteral("开始刷新：%1 [%2]")).arg(p.name, p.connType));
 
     const bool localMode = isLocalConnection(p);
+    if (localMode) {
+        QString libzfsDetail;
+        const bool hasLibzfs = detectLocalLibzfs(&libzfsDetail);
+        state.connectionMethod = hasLibzfs ? QStringLiteral("LOCAL/libzfs") : QStringLiteral("LOCAL/CLI");
+        appLog(hasLibzfs ? QStringLiteral("INFO") : QStringLiteral("WARN"),
+               QStringLiteral("%1: %2 (%3)")
+                   .arg(p.name, state.connectionMethod, libzfsDetail));
+    }
     if (!localMode && p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
         state.status = QStringLiteral("ERROR");
         state.detail = trk(QStringLiteral("t_tipo_de_co_e73161"),

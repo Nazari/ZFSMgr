@@ -131,6 +131,7 @@ private:
     QString withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const;
     bool isLocalConnection(const ConnectionProfile& p) const;
     bool isLocalConnection(int connIdx) const;
+    bool detectLocalLibzfs(QString* detail = nullptr) const;
     bool isWindowsConnection(const ConnectionProfile& p) const;
     bool isWindowsConnection(int connIdx) const;
     QString wrapRemoteCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
@@ -308,6 +309,9 @@ private:
     int m_refreshPending{0};
     int m_refreshTotal{0};
     bool m_refreshInProgress{false};
+    mutable bool m_localLibzfsChecked{false};
+    mutable bool m_localLibzfsAvailable{false};
+    mutable QString m_localLibzfsDetail;
     bool m_syncingConnectionFromPoolSelection{false};
     bool m_actionsLocked{false};
     bool m_waitCursorActive{false};

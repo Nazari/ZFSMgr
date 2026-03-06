@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QLibrary>
 #include <QProcess>
 #include <QRegularExpression>
 #include <QStandardPaths>
@@ -324,6 +325,68 @@ bool MainWindow::isLocalConnection(int connIdx) const {
         return false;
     }
     return isLocalConnection(m_profiles[connIdx]);
+}
+
+bool MainWindow::detectLocalLibzfs(QString* detail) const {
+    if (m_localLibzfsChecked) {
+        if (detail) {
+            *detail = m_localLibzfsDetail;
+        }
+        return m_localLibzfsAvailable;
+    }
+    m_localLibzfsChecked = true;
+    m_localLibzfsAvailable = false;
+    m_localLibzfsDetail = QStringLiteral("not checked");
+
+#if defined(Q_OS_WIN)
+    m_localLibzfsDetail = QStringLiteral("libzfs runtime check not available on Windows build");
+    if (detail) {
+        *detail = m_localLibzfsDetail;
+    }
+    return false;
+#else
+    QStringList candidates;
+#if defined(Q_OS_MACOS)
+    candidates << QStringLiteral("/usr/local/zfs/lib/libzfs.dylib")
+               << QStringLiteral("libzfs.dylib");
+#else
+    candidates << QStringLiteral("libzfs.so.6")
+               << QStringLiteral("libzfs.so.5")
+               << QStringLiteral("libzfs.so");
+#endif
+    for (const QString& cand : candidates) {
+        QLibrary lib(cand);
+        if (!lib.load()) {
+            continue;
+        }
+        using InitFn = void* (*)();
+        using FiniFn = void (*)(void*);
+        const InitFn initFn = reinterpret_cast<InitFn>(lib.resolve("libzfs_init"));
+        const FiniFn finiFn = reinterpret_cast<FiniFn>(lib.resolve("libzfs_fini"));
+        if (!initFn || !finiFn) {
+            lib.unload();
+            continue;
+        }
+        void* h = initFn();
+        if (!h) {
+            m_localLibzfsDetail = QStringLiteral("%1 loaded but libzfs_init returned null").arg(cand);
+            lib.unload();
+            continue;
+        }
+        finiFn(h);
+        m_localLibzfsAvailable = true;
+        m_localLibzfsDetail = QStringLiteral("%1 loaded and initialized").arg(cand);
+        lib.unload();
+        break;
+    }
+    if (!m_localLibzfsAvailable && m_localLibzfsDetail == QStringLiteral("not checked")) {
+        m_localLibzfsDetail = QStringLiteral("no loadable libzfs library found");
+    }
+    if (detail) {
+        *detail = m_localLibzfsDetail;
+    }
+    return m_localLibzfsAvailable;
+#endif
 }
 
 bool MainWindow::isWindowsConnection(const ConnectionProfile& p) const {
