@@ -76,7 +76,9 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     m_okButton = buttons->button(QDialogButtonBox::Ok);
     m_cancelButton = buttons->button(QDialogButtonBox::Cancel);
     m_changePwdButton = new QPushButton(this);
+    m_resetIniButton = new QPushButton(this);
     buttons->addButton(m_changePwdButton, QDialogButtonBox::ActionRole);
+    buttons->addButton(m_resetIniButton, QDialogButtonBox::ActionRole);
     root->addWidget(buttons);
 
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
@@ -85,6 +87,23 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     connect(m_passwordConfirmEdit, &QLineEdit::returnPressed, this, &QDialog::accept);
     connect(m_changePwdButton, &QPushButton::clicked, this, [this]() {
         openChangePasswordDialog();
+    });
+    connect(m_resetIniButton, &QPushButton::clicked, this, [this]() {
+        const auto ans = QMessageBox::question(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(m_lang,
+                QStringLiteral("t_reset_ini_q_001"),
+                QStringLiteral("Esto borrará connections.ini y todas las conexiones guardadas.\n¿Desea continuar?"),
+                QStringLiteral("This will delete connections.ini and all saved connections.\nDo you want to continue?"),
+                QStringLiteral("这将删除 connections.ini 及所有已保存连接。\n是否继续？")),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        if (ans != QMessageBox::Yes) {
+            return;
+        }
+        m_resetIniRequested = true;
+        accept();
     });
     connect(m_languageCombo, &QComboBox::currentTextChanged, this, [this](const QString& lang) {
         m_lang = lang.trimmed().toLower();
@@ -108,6 +127,10 @@ QString MasterPasswordDialog::confirmPassword() const {
 
 QString MasterPasswordDialog::selectedLanguage() const {
     return m_languageCombo ? m_languageCombo->currentText().trimmed().toLower() : QStringLiteral("es");
+}
+
+bool MasterPasswordDialog::resetIniRequested() const {
+    return m_resetIniRequested;
 }
 
 bool MasterPasswordDialog::changePasswordRequested() const {
@@ -234,6 +257,15 @@ void MasterPasswordDialog::retranslateUi() {
                                        QStringLiteral("修改主密码...")));
         m_changePwdButton->setVisible(!m_firstRunCreationMode);
         m_changePwdButton->setEnabled(!m_firstRunCreationMode);
+    }
+    if (m_resetIniButton) {
+        m_resetIniButton->setText(trk(lang,
+                                      QStringLiteral("t_reset_ini_btn001"),
+                                      QStringLiteral("Borrar connections.ini y empezar"),
+                                      QStringLiteral("Delete connections.ini and restart"),
+                                      QStringLiteral("删除 connections.ini 并重建")));
+        m_resetIniButton->setVisible(!m_firstRunCreationMode);
+        m_resetIniButton->setEnabled(!m_firstRunCreationMode);
     }
     if (m_creationInfoLabel) {
         if (m_firstRunCreationMode) {

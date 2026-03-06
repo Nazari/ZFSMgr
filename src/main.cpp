@@ -5,6 +5,7 @@
 
 #include <QApplication>
 #include <QFileInfo>
+#include <QFile>
 #include <QIcon>
 #include <QMessageBox>
 #include <QSettings>
@@ -46,7 +47,7 @@ int main(int argc, char* argv[]) {
         }
     }
     store.setLanguage(language);
-    const bool firstRunCreateIni = !QFileInfo::exists(store.iniPath());
+    bool firstRunCreateIni = !QFileInfo::exists(store.iniPath());
     while (true) {
         MasterPasswordDialog dlg;
         dlg.setSelectedLanguage(language);
@@ -56,6 +57,25 @@ int main(int argc, char* argv[]) {
         }
         language = dlg.selectedLanguage();
         store.setLanguage(language);
+
+        if (dlg.resetIniRequested()) {
+            QString removeErr;
+            if (QFileInfo::exists(store.iniPath()) && !QFile::remove(store.iniPath())) {
+                removeErr = trk(language,
+                                QStringLiteral("t_reset_ini_err001"),
+                                QStringLiteral("No se pudo borrar connections.ini."),
+                                QStringLiteral("Could not delete connections.ini."),
+                                QStringLiteral("无法删除 connections.ini。"));
+            }
+            if (!removeErr.isEmpty()) {
+                QMessageBox::warning(nullptr, QStringLiteral("ZFSMgr"), removeErr);
+                continue;
+            }
+            firstRunCreateIni = true;
+            masterPassword.clear();
+            continue;
+        }
+
         {
             QSettings ini(store.iniPath(), QSettings::IniFormat);
             ini.beginGroup(QStringLiteral("app"));
@@ -95,6 +115,7 @@ int main(int argc, char* argv[]) {
                 QMessageBox::warning(nullptr, QStringLiteral("ZFSMgr"), msg);
                 continue;
             }
+            firstRunCreateIni = false;
             break;
         } else {
             masterPassword = dlg.password();
@@ -134,6 +155,7 @@ int main(int argc, char* argv[]) {
                     QMessageBox::warning(nullptr, QStringLiteral("ZFSMgr"), msg);
                     continue;
                 }
+                firstRunCreateIni = false;
                 break;
             }
             const QString msg = trk(language, QStringLiteral("t_password_m_07a72a"),

@@ -17,6 +17,7 @@ public:
     QString selectedLanguage() const;
     void setSelectedLanguage(const QString& langCode);
     void setFirstRunCreationMode(bool enabled);
+    bool resetIniRequested() const;
     bool changePasswordRequested() const;
     QString changeOldPassword() const;
     QString changeNewPassword() const;
@@ -32,9 +33,11 @@ private:
     QPushButton* m_okButton{nullptr};
     QPushButton* m_cancelButton{nullptr};
     QPushButton* m_changePwdButton{nullptr};
+    QPushButton* m_resetIniButton{nullptr};
     QLabel* m_authorLabel{nullptr};
     QString m_lang{QStringLiteral("es")};
     bool m_firstRunCreationMode{false};
+    bool m_resetIniRequested{false};
     bool m_changePwdRequested{false};
     QString m_changeOldPwd;
     QString m_changeNewPwd;
