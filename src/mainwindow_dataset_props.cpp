@@ -742,49 +742,59 @@ void MainWindow::applyDatasetPropertyChanges() {
     }
     const bool localRenameEligible =
         renameRequested && isLocalConnection(ctx.connIdx) && !isWindowsConnection(ctx.connIdx) && detectLocalLibzfs();
+    bool localRenameDone = false;
+    if (localRenameEligible) {
+        const QString preview =
+            QStringLiteral("[local/libzfs]\nzfs rename %1 %2")
+                .arg(shSingleQuote(renameOld), shSingleQuote(renameNew));
+        if (!confirmActionExecution(QStringLiteral("Aplicar propiedades"), {preview})) {
+            return;
+        }
+        setActionsLocked(true);
+        const ConnectionProfile& p = m_profiles[ctx.connIdx];
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Aplicar propiedades %1::%2 (rename backend=LOCAL/libzfs)")
+                   .arg(p.name, renameOld));
+        QString detail;
+        const bool ok = localLibzfsRenameDataset(renameOld, renameNew, &detail);
+        if (!ok) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Rename LOCAL/libzfs falló: %1; fallback CLI")
+                       .arg(mwhelpers::oneLine(detail)));
+            setActionsLocked(false);
+            QStringList fallbackSubcmds = subcmds;
+            fallbackSubcmds.prepend(QStringLiteral("zfs rename %1 %2")
+                                        .arg(shSingleQuote(renameOld), shSingleQuote(renameNew)));
+            const bool isWinFallback = isWindowsConnection(ctx.connIdx);
+            const QString fallbackCmd = isWinFallback ? fallbackSubcmds.join(QStringLiteral("; "))
+                                                      : QStringLiteral("set -e; %1").arg(fallbackSubcmds.join(QStringLiteral("; ")));
+            if (executeDatasetAction(m_propsSide, QStringLiteral("Aplicar propiedades"), ctx, fallbackCmd, 60000, isWinFallback)) {
+                setSelectedDataset(m_propsSide, renameNew, QString());
+                m_propsDirty = false;
+                updateApplyPropsButtonState();
+            }
+            return;
+        }
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Aplicar propiedades rename finalizado (%1)").arg(mwhelpers::oneLine(detail)));
+        invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
+        setSelectedDataset(m_propsSide, renameNew, QString());
+        ctx.datasetName = renameNew;
+        localRenameDone = true;
+        setActionsLocked(false);
+    }
+
     if (subcmds.isEmpty()) {
-        if (localRenameEligible) {
-            const QString preview =
-                QStringLiteral("[local/libzfs]\nzfs rename %1 %2")
-                    .arg(shSingleQuote(renameOld), shSingleQuote(renameNew));
-            if (!confirmActionExecution(QStringLiteral("Aplicar propiedades"), {preview})) {
-                return;
-            }
-            setActionsLocked(true);
-            const ConnectionProfile& p = m_profiles[ctx.connIdx];
-            appLog(QStringLiteral("NORMAL"),
-                   QStringLiteral("Aplicar propiedades %1::%2 (rename backend=LOCAL/libzfs)")
-                       .arg(p.name, renameOld));
-            QString detail;
-            const bool ok = localLibzfsRenameDataset(renameOld, renameNew, &detail);
-            if (!ok) {
-                appLog(QStringLiteral("WARN"),
-                       QStringLiteral("Rename LOCAL/libzfs falló: %1; fallback CLI")
-                           .arg(mwhelpers::oneLine(detail)));
-                setActionsLocked(false);
-                const QString fallbackCmd = QStringLiteral("zfs rename %1 %2")
-                                                .arg(shSingleQuote(renameOld), shSingleQuote(renameNew));
-                if (executeDatasetAction(m_propsSide, QStringLiteral("Aplicar propiedades"), ctx, fallbackCmd, 60000, false)) {
-                    setSelectedDataset(m_propsSide, renameNew, QString());
-                    m_propsDirty = false;
-                    updateApplyPropsButtonState();
-                }
-                return;
-            }
-            appLog(QStringLiteral("NORMAL"),
-                   QStringLiteral("Aplicar propiedades finalizado (%1)").arg(mwhelpers::oneLine(detail)));
-            invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
-            setSelectedDataset(m_propsSide, renameNew, QString());
+        if (localRenameDone) {
             m_propsDirty = false;
             updateApplyPropsButtonState();
             reloadDatasetSide(m_propsSide);
-            setActionsLocked(false);
             return;
         }
         if (renameRequested) {
             subcmds << QStringLiteral("zfs rename %1 %2").arg(shSingleQuote(renameOld), shSingleQuote(renameNew));
         }
-    } else if (renameRequested) {
+    } else if (renameRequested && !localRenameDone) {
         subcmds.prepend(QStringLiteral("zfs rename %1 %2").arg(shSingleQuote(renameOld), shSingleQuote(renameNew)));
     }
     if (subcmds.isEmpty()) {
@@ -872,49 +882,59 @@ void MainWindow::applyAdvancedDatasetPropertyChanges() {
     }
     const bool localRenameEligible =
         renameRequested && isLocalConnection(ctx.connIdx) && !isWindowsConnection(ctx.connIdx) && detectLocalLibzfs();
+    bool localRenameDone = false;
+    if (localRenameEligible) {
+        const QString preview =
+            QStringLiteral("[local/libzfs]\nzfs rename %1 %2")
+                .arg(shSingleQuote(renameOld), shSingleQuote(renameNew));
+        if (!confirmActionExecution(QStringLiteral("Aplicar propiedades"), {preview})) {
+            return;
+        }
+        setActionsLocked(true);
+        const ConnectionProfile& p = m_profiles[ctx.connIdx];
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Aplicar propiedades %1::%2 (rename backend=LOCAL/libzfs)")
+                   .arg(p.name, renameOld));
+        QString detail;
+        const bool ok = localLibzfsRenameDataset(renameOld, renameNew, &detail);
+        if (!ok) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Rename LOCAL/libzfs falló: %1; fallback CLI")
+                       .arg(mwhelpers::oneLine(detail)));
+            setActionsLocked(false);
+            QStringList fallbackSubcmds = subcmds;
+            fallbackSubcmds.prepend(QStringLiteral("zfs rename %1 %2")
+                                        .arg(shSingleQuote(renameOld), shSingleQuote(renameNew)));
+            const bool isWinFallback = isWindowsConnection(ctx.connIdx);
+            const QString fallbackCmd = isWinFallback ? fallbackSubcmds.join(QStringLiteral("; "))
+                                                      : QStringLiteral("set -e; %1").arg(fallbackSubcmds.join(QStringLiteral("; ")));
+            if (executeDatasetAction(QStringLiteral("advanced"), QStringLiteral("Aplicar propiedades"), ctx, fallbackCmd, 60000, isWinFallback)) {
+                updateAdvancedSelectionUi(renameNew, QString());
+                m_advPropsDirty = false;
+                updateApplyPropsButtonState();
+            }
+            return;
+        }
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Aplicar propiedades rename finalizado (%1)").arg(mwhelpers::oneLine(detail)));
+        invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
+        updateAdvancedSelectionUi(renameNew, QString());
+        ctx.datasetName = renameNew;
+        localRenameDone = true;
+        setActionsLocked(false);
+    }
+
     if (subcmds.isEmpty()) {
-        if (localRenameEligible) {
-            const QString preview =
-                QStringLiteral("[local/libzfs]\nzfs rename %1 %2")
-                    .arg(shSingleQuote(renameOld), shSingleQuote(renameNew));
-            if (!confirmActionExecution(QStringLiteral("Aplicar propiedades"), {preview})) {
-                return;
-            }
-            setActionsLocked(true);
-            const ConnectionProfile& p = m_profiles[ctx.connIdx];
-            appLog(QStringLiteral("NORMAL"),
-                   QStringLiteral("Aplicar propiedades %1::%2 (rename backend=LOCAL/libzfs)")
-                       .arg(p.name, renameOld));
-            QString detail;
-            const bool ok = localLibzfsRenameDataset(renameOld, renameNew, &detail);
-            if (!ok) {
-                appLog(QStringLiteral("WARN"),
-                       QStringLiteral("Rename LOCAL/libzfs falló: %1; fallback CLI")
-                           .arg(mwhelpers::oneLine(detail)));
-                setActionsLocked(false);
-                const QString fallbackCmd = QStringLiteral("zfs rename %1 %2")
-                                                .arg(shSingleQuote(renameOld), shSingleQuote(renameNew));
-                if (executeDatasetAction(QStringLiteral("advanced"), QStringLiteral("Aplicar propiedades"), ctx, fallbackCmd, 60000, false)) {
-                    updateAdvancedSelectionUi(renameNew, QString());
-                    m_advPropsDirty = false;
-                    updateApplyPropsButtonState();
-                }
-                return;
-            }
-            appLog(QStringLiteral("NORMAL"),
-                   QStringLiteral("Aplicar propiedades finalizado (%1)").arg(mwhelpers::oneLine(detail)));
-            invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
-            updateAdvancedSelectionUi(renameNew, QString());
+        if (localRenameDone) {
             m_advPropsDirty = false;
             updateApplyPropsButtonState();
             reloadDatasetSide(QStringLiteral("advanced"));
-            setActionsLocked(false);
             return;
         }
         if (renameRequested) {
             subcmds << QStringLiteral("zfs rename %1 %2").arg(shSingleQuote(renameOld), shSingleQuote(renameNew));
         }
-    } else if (renameRequested) {
+    } else if (renameRequested && !localRenameDone) {
         subcmds.prepend(QStringLiteral("zfs rename %1 %2").arg(shSingleQuote(renameOld), shSingleQuote(renameNew)));
     }
     if (subcmds.isEmpty()) {
