@@ -30,7 +30,7 @@ QString trk(const QString& lang,
 MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     : QDialog(parent) {
     setModal(true);
-    resize(520, 220);
+    resize(560, 280);
     setWindowIcon(QIcon(QStringLiteral(":/icons/ZFSMgr-512.png")));
 
     auto* root = new QVBoxLayout(this);
@@ -55,7 +55,19 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
                      QStringLiteral("Password"),
                      QStringLiteral("密码")),
                  m_passwordEdit);
+    m_passwordConfirmEdit = new QLineEdit(this);
+    m_passwordConfirmEdit->setEchoMode(QLineEdit::Password);
+    form->addRow(trk(m_lang, QStringLiteral("t_repeat_pwd_001"),
+                     QStringLiteral("Repetir password"),
+                     QStringLiteral("Repeat password"),
+                     QStringLiteral("重复密码")),
+                 m_passwordConfirmEdit);
     root->addLayout(form);
+
+    m_creationInfoLabel = new QLabel(this);
+    m_creationInfoLabel->setWordWrap(true);
+    m_creationInfoLabel->setStyleSheet(QStringLiteral("QLabel { color: #0b3f6f; font-weight: 600; }"));
+    root->addWidget(m_creationInfoLabel);
 
     m_authorLabel = new QLabel(this);
     root->addWidget(m_authorLabel);
@@ -70,6 +82,7 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(m_passwordEdit, &QLineEdit::returnPressed, this, &QDialog::accept);
+    connect(m_passwordConfirmEdit, &QLineEdit::returnPressed, this, &QDialog::accept);
     connect(m_changePwdButton, &QPushButton::clicked, this, [this]() {
         openChangePasswordDialog();
     });
@@ -87,6 +100,10 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
 
 QString MasterPasswordDialog::password() const {
     return m_passwordEdit->text();
+}
+
+QString MasterPasswordDialog::confirmPassword() const {
+    return m_passwordConfirmEdit ? m_passwordConfirmEdit->text() : QString();
 }
 
 QString MasterPasswordDialog::selectedLanguage() const {
@@ -116,6 +133,17 @@ void MasterPasswordDialog::setSelectedLanguage(const QString& langCode) {
     }
     m_lang = selectedLanguage();
     retranslateUi();
+}
+
+void MasterPasswordDialog::setFirstRunCreationMode(bool enabled) {
+    m_firstRunCreationMode = enabled;
+    retranslateUi();
+    QTimer::singleShot(0, this, [this]() {
+        if (m_passwordEdit) {
+            m_passwordEdit->setFocus(Qt::OtherFocusReason);
+            m_passwordEdit->selectAll();
+        }
+    });
 }
 
 void MasterPasswordDialog::openChangePasswordDialog() {
@@ -177,6 +205,17 @@ void MasterPasswordDialog::retranslateUi() {
                                            QStringLiteral("Password maestro"),
                                            QStringLiteral("Master password"),
                                            QStringLiteral("主密码")));
+    if (m_passwordConfirmEdit) {
+        m_passwordConfirmEdit->setPlaceholderText(trk(lang, QStringLiteral("t_repeat_pwd_001"),
+                                                      QStringLiteral("Repetir password"),
+                                                      QStringLiteral("Repeat password"),
+                                                      QStringLiteral("重复密码")));
+        m_passwordConfirmEdit->setVisible(m_firstRunCreationMode);
+        m_passwordConfirmEdit->setEnabled(m_firstRunCreationMode);
+        if (!m_firstRunCreationMode) {
+            m_passwordConfirmEdit->clear();
+        }
+    }
     m_okButton->setText(trk(lang, QStringLiteral("t_aceptar_8f9f73"),
                             QStringLiteral("Aceptar"),
                             QStringLiteral("Accept"),
@@ -193,6 +232,20 @@ void MasterPasswordDialog::retranslateUi() {
                                        QStringLiteral("Cambiar password maestro..."),
                                        QStringLiteral("Change master password..."),
                                        QStringLiteral("修改主密码...")));
+        m_changePwdButton->setVisible(!m_firstRunCreationMode);
+        m_changePwdButton->setEnabled(!m_firstRunCreationMode);
+    }
+    if (m_creationInfoLabel) {
+        if (m_firstRunCreationMode) {
+            m_creationInfoLabel->setText(trk(lang,
+                                             QStringLiteral("t_create_ini_001"),
+                                             QStringLiteral("No existe connections.ini. Se va a crear ahora.\nIntroduzca y confirme el password maestro."),
+                                             QStringLiteral("connections.ini does not exist. It will be created now.\nEnter and confirm the master password."),
+                                             QStringLiteral("connections.ini 不存在，将立即创建。\n请输入并确认主密码。")));
+            m_creationInfoLabel->show();
+        } else {
+            m_creationInfoLabel->hide();
+        }
     }
     if (m_authorLabel) {
         const QString footer = trk(lang,

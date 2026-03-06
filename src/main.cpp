@@ -4,6 +4,7 @@
 #include "mainwindow.h"
 
 #include <QApplication>
+#include <QFileInfo>
 #include <QIcon>
 #include <QMessageBox>
 #include <QSettings>
@@ -45,9 +46,11 @@ int main(int argc, char* argv[]) {
         }
     }
     store.setLanguage(language);
+    const bool firstRunCreateIni = !QFileInfo::exists(store.iniPath());
     while (true) {
         MasterPasswordDialog dlg;
         dlg.setSelectedLanguage(language);
+        dlg.setFirstRunCreationMode(firstRunCreateIni);
         if (dlg.exec() != QDialog::Accepted) {
             return 0;
         }
@@ -95,6 +98,31 @@ int main(int argc, char* argv[]) {
             break;
         } else {
             masterPassword = dlg.password();
+            if (firstRunCreateIni) {
+                const QString confirm = dlg.confirmPassword();
+                if (masterPassword.isEmpty()) {
+                    QMessageBox::warning(
+                        nullptr,
+                        QStringLiteral("ZFSMgr"),
+                        trk(language,
+                            QStringLiteral("t_new_pwd_empty1"),
+                            QStringLiteral("El nuevo password no puede estar vacío."),
+                            QStringLiteral("New password cannot be empty."),
+                            QStringLiteral("新密码不能为空。")));
+                    continue;
+                }
+                if (masterPassword != confirm) {
+                    QMessageBox::warning(
+                        nullptr,
+                        QStringLiteral("ZFSMgr"),
+                        trk(language,
+                            QStringLiteral("t_pwd_confirm01"),
+                            QStringLiteral("La confirmación no coincide."),
+                            QStringLiteral("Confirmation does not match."),
+                            QStringLiteral("两次输入不一致。")));
+                    continue;
+                }
+            }
             store.setMasterPassword(masterPassword);
             QString err;
             if (store.validateMasterPassword(err)) {
