@@ -19,6 +19,10 @@ Legal references:
 
 ![ZFSMgr UI](docs/images/zfsmgr-ui.gif)
 
+## Releases
+
+- **Beta 0.1.0**: https://github.com/Nazari/ZFSMgr/releases
+
 ## Main capabilities
 
 - Remote connection management (SSH and Windows through SSH/PowerShell).
