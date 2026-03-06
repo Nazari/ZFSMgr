@@ -135,6 +135,8 @@ private:
     bool localLibzfsMountDataset(const QString& dataset, QString* detail = nullptr) const;
     bool localLibzfsUnmountDataset(const QString& dataset, QString* detail = nullptr) const;
     bool localLibzfsRenameDataset(const QString& oldName, const QString& newName, QString* detail = nullptr) const;
+    bool localLibzfsSetProperty(const QString& dataset, const QString& prop, const QString& value, QString* detail = nullptr) const;
+    bool localLibzfsInheritProperty(const QString& dataset, const QString& prop, QString* detail = nullptr) const;
     bool listLocalImportedPoolsLibzfs(QStringList& poolsOut, QString* detail = nullptr) const;
     bool listLocalDatasetsLibzfs(const QString& poolName, PoolDatasetCache& cacheOut, QString* detail = nullptr) const;
     bool getLocalDatasetPropsLibzfs(const QString& objectName,

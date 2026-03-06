@@ -51,6 +51,8 @@ struct LocalLibzfsOps {
     using ZfsMountFn = int (*)(void*, const char*, int);
     using ZfsUnmountFn = int (*)(void*, const char*, int);
     using ZfsRenameFn = int (*)(void*, const char*, bool, bool, bool);
+    using ZfsPropSetFn = int (*)(void*, const char*, const char*);
+    using ZfsPropInheritFn = int (*)(void*, const char*, bool);
     using ErrDescFn = const char* (*)(void*);
 
     QLibrary lib;
@@ -62,6 +64,8 @@ struct LocalLibzfsOps {
     ZfsMountFn zfsMountFn{nullptr};
     ZfsUnmountFn zfsUnmountFn{nullptr};
     ZfsRenameFn zfsRenameFn{nullptr};
+    ZfsPropSetFn zfsPropSetFn{nullptr};
+    ZfsPropInheritFn zfsPropInheritFn{nullptr};
     ErrDescFn errDescFn{nullptr};
 };
 
@@ -96,6 +100,8 @@ bool loadLocalLibzfsOps(LocalLibzfsOps& ops, QString* detail) {
         ops.zfsMountFn = reinterpret_cast<LocalLibzfsOps::ZfsMountFn>(ops.lib.resolve("zfs_mount"));
         ops.zfsUnmountFn = reinterpret_cast<LocalLibzfsOps::ZfsUnmountFn>(ops.lib.resolve("zfs_unmount"));
         ops.zfsRenameFn = reinterpret_cast<LocalLibzfsOps::ZfsRenameFn>(ops.lib.resolve("zfs_rename"));
+        ops.zfsPropSetFn = reinterpret_cast<LocalLibzfsOps::ZfsPropSetFn>(ops.lib.resolve("zfs_prop_set"));
+        ops.zfsPropInheritFn = reinterpret_cast<LocalLibzfsOps::ZfsPropInheritFn>(ops.lib.resolve("zfs_prop_inherit"));
         ops.errDescFn = reinterpret_cast<LocalLibzfsOps::ErrDescFn>(ops.lib.resolve("libzfs_error_description"));
         if (!ops.initFn || !ops.finiFn || !ops.zfsOpenFn || !ops.zfsCloseFn) {
             localDetail = QStringLiteral("%1 loaded but required symbols are missing").arg(cand);
@@ -643,6 +649,126 @@ bool MainWindow::localLibzfsRenameDataset(const QString& oldName, const QString&
                       : (err.isEmpty()
                              ? QStringLiteral("zfs_rename(%1 -> %2) failed (rc=%3)").arg(oldName, newName).arg(rc)
                              : QStringLiteral("zfs_rename(%1 -> %2) failed: %3").arg(oldName, newName, err));
+    }
+    return rc == 0;
+#endif
+}
+
+bool MainWindow::localLibzfsSetProperty(const QString& dataset, const QString& prop, const QString& value, QString* detail) const {
+#if defined(Q_OS_WIN)
+    if (detail) {
+        *detail = QStringLiteral("libzfs runtime set property not available on Windows build");
+    }
+    Q_UNUSED(dataset);
+    Q_UNUSED(prop);
+    Q_UNUSED(value);
+    return false;
+#else
+    LocalLibzfsOps ops;
+    if (!loadLocalLibzfsOps(ops, detail)) {
+        return false;
+    }
+    if (!ops.zfsPropSetFn) {
+        if (detail) {
+            *detail = QStringLiteral("%1 loaded but zfs_prop_set symbol is missing").arg(ops.candidate);
+        }
+        ops.lib.unload();
+        return false;
+    }
+    void* h = ops.initFn();
+    if (!h) {
+        if (detail) {
+            *detail = QStringLiteral("%1 loaded but libzfs_init returned null").arg(ops.candidate);
+        }
+        ops.lib.unload();
+        return false;
+    }
+    const QByteArray ds = dataset.toUtf8();
+    const QByteArray propBa = prop.toUtf8();
+    const QByteArray valueBa = value.toUtf8();
+    constexpr int kZfsTypeAny = -1;
+    void* zhp = ops.zfsOpenFn(h, ds.constData(), kZfsTypeAny);
+    if (!zhp) {
+        const QString err = localLibzfsError(ops, h);
+        if (detail) {
+            *detail = err.isEmpty()
+                          ? QStringLiteral("zfs_open(%1) failed").arg(dataset)
+                          : QStringLiteral("zfs_open(%1) failed: %2").arg(dataset, err);
+        }
+        ops.finiFn(h);
+        ops.lib.unload();
+        return false;
+    }
+    const int rc = ops.zfsPropSetFn(zhp, propBa.constData(), valueBa.constData());
+    const QString err = (rc == 0) ? QString() : localLibzfsError(ops, h);
+    ops.zfsCloseFn(zhp);
+    ops.finiFn(h);
+    ops.lib.unload();
+    if (detail) {
+        *detail = (rc == 0)
+                      ? QStringLiteral("zfs_prop_set(%1=%2 on %3) ok").arg(prop, value, dataset)
+                      : (err.isEmpty()
+                             ? QStringLiteral("zfs_prop_set(%1=%2 on %3) failed (rc=%4)").arg(prop, value, dataset).arg(rc)
+                             : QStringLiteral("zfs_prop_set(%1=%2 on %3) failed: %4").arg(prop, value, dataset, err));
+    }
+    return rc == 0;
+#endif
+}
+
+bool MainWindow::localLibzfsInheritProperty(const QString& dataset, const QString& prop, QString* detail) const {
+#if defined(Q_OS_WIN)
+    if (detail) {
+        *detail = QStringLiteral("libzfs runtime inherit property not available on Windows build");
+    }
+    Q_UNUSED(dataset);
+    Q_UNUSED(prop);
+    return false;
+#else
+    LocalLibzfsOps ops;
+    if (!loadLocalLibzfsOps(ops, detail)) {
+        return false;
+    }
+    if (!ops.zfsPropInheritFn) {
+        if (detail) {
+            *detail = QStringLiteral("%1 loaded but zfs_prop_inherit symbol is missing").arg(ops.candidate);
+        }
+        ops.lib.unload();
+        return false;
+    }
+    void* h = ops.initFn();
+    if (!h) {
+        if (detail) {
+            *detail = QStringLiteral("%1 loaded but libzfs_init returned null").arg(ops.candidate);
+        }
+        ops.lib.unload();
+        return false;
+    }
+    const QByteArray ds = dataset.toUtf8();
+    const QByteArray propBa = prop.toUtf8();
+    constexpr int kZfsTypeAny = -1;
+    void* zhp = ops.zfsOpenFn(h, ds.constData(), kZfsTypeAny);
+    if (!zhp) {
+        const QString err = localLibzfsError(ops, h);
+        if (detail) {
+            *detail = err.isEmpty()
+                          ? QStringLiteral("zfs_open(%1) failed").arg(dataset)
+                          : QStringLiteral("zfs_open(%1) failed: %2").arg(dataset, err);
+        }
+        ops.finiFn(h);
+        ops.lib.unload();
+        return false;
+    }
+    const int rc = ops.zfsPropInheritFn(zhp, propBa.constData(), false);
+    const QString err = (rc == 0) ? QString() : localLibzfsError(ops, h);
+    ops.zfsCloseFn(zhp);
+    ops.finiFn(h);
+    ops.lib.unload();
+    if (detail) {
+        *detail = (rc == 0)
+                      ? QStringLiteral("zfs_prop_inherit(%1 on %2) ok").arg(prop, dataset)
+                      : (err.isEmpty()
+                             ? QStringLiteral("zfs_prop_inherit(%1 on %2) failed (rc=%3)").arg(prop, dataset).arg(rc)
+                             : QStringLiteral("zfs_prop_inherit(%1 on %2) failed: %3").arg(prop, dataset, err));
     }
     return rc == 0;
 #endif
