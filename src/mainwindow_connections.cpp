@@ -60,6 +60,7 @@ bool isLocalHostForUi(const QString& host) {
     }();
     return aliases.contains(h);
 }
+
 } // namespace
 
 void MainWindow::refreshAllConnections() {
@@ -402,19 +403,37 @@ void MainWindow::rebuildConnectionList() {
         QString statusTag;
         QColor rowColor("#14212b");
         const QString st = s.status.trimmed().toUpper();
+        const bool localConn = isLocalConnection(p);
+        const bool redirectedLocal = (!localConn && st == QStringLiteral("OK") && isLocalHostForUi(p.host));
         if (st == QStringLiteral("OK")) {
-            statusTag = isLocalHostForUi(p.host) ? QStringLiteral("[OK/Local] ") : QStringLiteral("[OK] ");
+            statusTag = QStringLiteral("[OK] ");
             rowColor = QColor("#1f7a1f");
         } else if (!st.isEmpty()) {
             statusTag = QStringLiteral("[KO] ");
             rowColor = QColor("#a12a2a");
         }
-        QString line = QStringLiteral("%1%2").arg(statusTag, line1);
+        QString line;
+        if (localConn) {
+            line = QStringLiteral("%1Local").arg(statusTag);
+        } else if (redirectedLocal) {
+            line = QStringLiteral("%1%2 %3")
+                       .arg(statusTag,
+                            line1,
+                            trk(QStringLiteral("t_conn_redirect_l1"),
+                                QStringLiteral("[Redirección a 'Local']"),
+                                QStringLiteral("[Redirected to 'Local']"),
+                                QStringLiteral("[重定向到“本地”]")));
+        } else {
+            line = QStringLiteral("%1%2").arg(statusTag, line1);
+        }
 
         auto* item = new QTreeWidgetItem(m_connectionsList);
         item->setText(0, line);
         item->setData(0, Qt::UserRole, i);
         item->setForeground(0, QBrush(rowColor));
+        if (redirectedLocal) {
+            item->setDisabled(true);
+        }
         item->setToolTip(0, QStringLiteral("Host: %1\nPort: %2\nEstado: %3\nDetalle: %4")
                                 .arg(p.host)
                                 .arg(p.port)
@@ -485,6 +504,12 @@ void MainWindow::rebuildConnectionList() {
                                  QStringLiteral("(sin datos)"),
                                  QStringLiteral("(no data)"),
                                  QStringLiteral("（无数据）")));
+        }
+        if (redirectedLocal) {
+            osChild->setDisabled(true);
+            methodChild->setDisabled(true);
+            zfsChild->setDisabled(true);
+            commandsNode->setDisabled(true);
         }
     }
     m_connectionsList->collapseAll();
@@ -612,6 +637,19 @@ void MainWindow::editConnection() {
                 QStringLiteral("内置本地连接不可编辑。")));
         return;
     }
+    const bool redirectedLocal = (!isLocalConnection(idx)
+                                  && m_states[idx].status.trimmed().toUpper() == QStringLiteral("OK")
+                                  && isLocalHostForUi(m_profiles[idx].host));
+    if (redirectedLocal) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_conn_redirect_l2"),
+                QStringLiteral("La conexión está redirigida a 'Local' y no se puede editar."),
+                QStringLiteral("This connection is redirected to 'Local' and cannot be edited."),
+                QStringLiteral("该连接已重定向到“本地”，不可编辑。")));
+        return;
+    }
     ConnectionDialog dlg(m_language, this);
     dlg.setProfile(m_profiles[idx]);
     if (dlg.exec() != QDialog::Accepted) {
@@ -656,6 +694,19 @@ void MainWindow::deleteConnection() {
                 QStringLiteral("La conexión local integrada no se puede borrar."),
                 QStringLiteral("Built-in local connection cannot be deleted."),
                 QStringLiteral("内置本地连接不可删除。")));
+        return;
+    }
+    const bool redirectedLocal = (!isLocalConnection(idx)
+                                  && m_states[idx].status.trimmed().toUpper() == QStringLiteral("OK")
+                                  && isLocalHostForUi(m_profiles[idx].host));
+    if (redirectedLocal) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_conn_redirect_l3"),
+                QStringLiteral("La conexión está redirigida a 'Local' y no se puede borrar."),
+                QStringLiteral("This connection is redirected to 'Local' and cannot be deleted."),
+                QStringLiteral("该连接已重定向到“本地”，不可删除。")));
         return;
     }
     const auto confirm = QMessageBox::question(
