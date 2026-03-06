@@ -3,8 +3,17 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BuildDir = Join-Path $ScriptDir "build-windows"
-$NativeArgs = @($args)
 $qtKit = ""
+$BuildInstaller = $false
+$NativeArgs = @()
+
+foreach ($arg in $args) {
+  if ($arg -eq "-Installer" -or $arg -eq "--installer") {
+    $BuildInstaller = $true
+    continue
+  }
+  $NativeArgs += $arg
+}
 
 function Import-VsDevEnv {
   $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
@@ -69,6 +78,33 @@ function Test-OpenSslMingwCompatible([string]$root) {
   $a = Join-Path $root "lib\libcrypto.a"
   $dlla = Join-Path $root "lib\libcrypto.dll.a"
   return (Test-Path $a) -or (Test-Path $dlla)
+}
+
+function Get-AppVersion {
+  $cmakeFile = Join-Path $ScriptDir "CMakeLists.txt"
+  if (Test-Path $cmakeFile) {
+    $match = Select-String -Path $cmakeFile -Pattern 'project\([^\)]*VERSION\s+([0-9]+(?:\.[0-9]+){1,3})' | Select-Object -First 1
+    if ($match -and $match.Matches.Count -gt 0) {
+      return $match.Matches[0].Groups[1].Value
+    }
+  }
+  return "0.0.0"
+}
+
+function Find-IsccExe {
+  if ($env:ISCC_EXE -and (Test-Path $env:ISCC_EXE)) {
+    return $env:ISCC_EXE
+  }
+  $candidates = @(
+    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+    "C:\Program Files\Inno Setup 6\ISCC.exe"
+  )
+  foreach ($path in $candidates) {
+    if (Test-Path $path) {
+      return $path
+    }
+  }
+  return $null
 }
 
 # Resolver Qt6_DIR de forma robusta (aunque existan vars de entorno previas).
@@ -335,3 +371,111 @@ if ($windeployExe) {
 }
 
 Write-Host "Build completado: $exePath"
+
+if ($BuildInstaller) {
+  $isccExe = Find-IsccExe
+  if (-not $isccExe) {
+    throw "No se encontró ISCC.exe (Inno Setup). Instala Inno Setup 6 o define ISCC_EXE con la ruta completa."
+  }
+
+  $appVersion = Get-AppVersion
+  $stageDir = Join-Path $BuildDir "installer-stage"
+  $installerOutDir = Join-Path $BuildDir "installer"
+  $stageExe = Join-Path $stageDir "zfsmgr_qt.exe"
+
+  if (Test-Path $stageDir) {
+    Remove-Item -Recurse -Force $stageDir
+  }
+  New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
+  New-Item -ItemType Directory -Force -Path $installerOutDir | Out-Null
+
+  Copy-Item -Path $exePath -Destination $stageExe -Force
+
+  if ($windeployExe) {
+    Write-Host "Ejecutando windeployqt para staging: $windeployExe"
+    & $windeployExe --release --compiler-runtime $stageExe
+    if ($LASTEXITCODE -ne 0) {
+      throw "windeployqt para installer-stage falló (exit $LASTEXITCODE)"
+    }
+  } else {
+    Write-Host "Aviso: no se encontró windeployqt.exe para staging; el instalador podría quedar incompleto."
+  }
+
+  $setupIcon = Join-Path $ScriptDir "icons\ZFSMgr.ico"
+  $setupIconLine = ""
+  if (Test-Path $setupIcon) {
+    $setupIconEscaped = $setupIcon -replace '\\', '\\'
+    $setupIconLine = "SetupIconFile=$setupIconEscaped"
+  }
+
+  $issPath = Join-Path $BuildDir "zfsmgr-installer.iss"
+  $issContent = @"
+#define MyAppName "ZFSMgr"
+#ifndef MyAppVersion
+#define MyAppVersion "0.0.0"
+#endif
+#ifndef MySourceDir
+#error "Define MySourceDir con /DMySourceDir=..."
+#endif
+#ifndef MyOutputDir
+#error "Define MyOutputDir con /DMyOutputDir=..."
+#endif
+
+[Setup]
+AppId={{3A63C3F7-2D40-41A8-90F3-F4A7DFD8A51A}
+AppName={#MyAppName}
+AppVersion={#MyAppVersion}
+AppPublisher={#MyAppName}
+DefaultDirName={autopf}\{#MyAppName}
+DefaultGroupName={#MyAppName}
+UninstallDisplayIcon={app}\zfsmgr_qt.exe
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+PrivilegesRequired=admin
+OutputDir={#MyOutputDir}
+OutputBaseFilename=ZFSMgr-Setup-{#MyAppVersion}
+WizardStyle=modern
+Compression=lzma
+SolidCompression=yes
+$setupIconLine
+
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+
+[Files]
+Source: "{#MySourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Icons]
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\zfsmgr_qt.exe"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\zfsmgr_qt.exe"; Tasks: desktopicon
+
+[Run]
+Filename: "{app}\zfsmgr_qt.exe"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+"@
+
+  Set-Content -Path $issPath -Value $issContent -Encoding ASCII
+
+  $isccArgs = @(
+    "/DMyAppVersion=$appVersion",
+    "/DMySourceDir=$stageDir",
+    "/DMyOutputDir=$installerOutDir",
+    $issPath
+  )
+
+  Write-Host "Compilando instalador con Inno Setup: $isccExe"
+  & $isccExe @isccArgs
+  if ($LASTEXITCODE -ne 0) {
+    throw "ISCC falló (exit $LASTEXITCODE)"
+  }
+
+  $installerExe = Join-Path $installerOutDir "ZFSMgr-Setup-$appVersion.exe"
+  if (Test-Path $installerExe) {
+    Write-Host "Instalador generado: $installerExe"
+  } else {
+    Write-Host "Instalador generado en: $installerOutDir"
+  }
+}
