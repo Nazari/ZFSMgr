@@ -133,6 +133,7 @@ private:
     bool isLocalConnection(int connIdx) const;
     bool detectLocalLibzfs(QString* detail = nullptr) const;
     bool listLocalImportedPoolsLibzfs(QStringList& poolsOut, QString* detail = nullptr) const;
+    bool listLocalDatasetsLibzfs(const QString& poolName, PoolDatasetCache& cacheOut, QString* detail = nullptr) const;
     bool isWindowsConnection(const ConnectionProfile& p) const;
     bool isWindowsConnection(int connIdx) const;
     QString wrapRemoteCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
