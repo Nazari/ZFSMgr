@@ -558,6 +558,15 @@ void MainWindow::rebuildDatasetPoolSelectors() {
     m_advPoolCombo->clear();
 
     for (int i = 0; i < m_profiles.size(); ++i) {
+        const bool localConn = isLocalConnection(i);
+        const bool redirectedLocal =
+            (!localConn
+             && i < m_states.size()
+             && m_states[i].status.trimmed().toUpper() == QStringLiteral("OK")
+             && isLocalHostForUi(m_profiles[i].host));
+        if (redirectedLocal) {
+            continue;
+        }
         const auto& st = m_states[i];
         for (const PoolImported& p : st.importedPools) {
             if (p.pool.isEmpty() || p.pool == QStringLiteral("Sin pools")) {
