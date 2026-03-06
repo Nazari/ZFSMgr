@@ -3,7 +3,43 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BuildDir = Join-Path $ScriptDir "build-windows"
-$NativeArgs = @($args)
+$NativeArgs = @()
+$GenerateInnoInstaller = $false
+$InnoScriptPath = $null
+$InnoOutputDir = Join-Path $BuildDir "installer"
+
+for ($i = 0; $i -lt $args.Count; $i++) {
+  $arg = $args[$i]
+  switch -Regex ($arg) {
+    '^(--inno-setup|-inno-setup|--installer|-installer)$' {
+      $GenerateInnoInstaller = $true
+      continue
+    }
+    '^(--inno-script|-inno-script)$' {
+      if ($i + 1 -ge $args.Count) {
+        throw "Falta valor para $arg."
+      }
+      $GenerateInnoInstaller = $true
+      $InnoScriptPath = $args[$i + 1]
+      $i++
+      continue
+    }
+    '^(--inno-output|-inno-output)$' {
+      if ($i + 1 -ge $args.Count) {
+        throw "Falta valor para $arg."
+      }
+      $GenerateInnoInstaller = $true
+      $InnoOutputDir = $args[$i + 1]
+      $i++
+      continue
+    }
+    default {
+      $NativeArgs += $arg
+      continue
+    }
+  }
+}
+
 $qtKit = ""
 
 function Import-VsDevEnv {
@@ -69,6 +105,151 @@ function Test-OpenSslMingwCompatible([string]$root) {
   $a = Join-Path $root "lib\libcrypto.a"
   $dlla = Join-Path $root "lib\libcrypto.dll.a"
   return (Test-Path $a) -or (Test-Path $dlla)
+}
+
+function Get-ProjectVersion {
+  $cmakeFile = Join-Path $ScriptDir "CMakeLists.txt"
+  if (-not (Test-Path $cmakeFile)) {
+    return "0.0.0"
+  }
+  $content = Get-Content -Raw $cmakeFile
+  $m = [regex]::Match($content, 'project\s*\(\s*[^)]*VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)')
+  if ($m.Success) {
+    return $m.Groups[1].Value
+  }
+  return "0.0.0"
+}
+
+function Find-InnoSetupCompiler {
+  if ($env:INNO_SETUP_COMPILER -and (Test-Path $env:INNO_SETUP_COMPILER)) {
+    return $env:INNO_SETUP_COMPILER
+  }
+
+  $onPath = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
+  if ($onPath) {
+    return $onPath.Source
+  }
+
+  $candidates = @(
+    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+    "C:\Program Files\Inno Setup 6\ISCC.exe"
+  )
+  foreach ($candidate in $candidates) {
+    if (Test-Path $candidate) {
+      return $candidate
+    }
+  }
+  return $null
+}
+
+function New-DefaultInnoScript([string]$path, [string]$version, [string]$sourceDir, [string]$outputDir) {
+  $iss = @"
+[Setup]
+AppId={{9A34D91D-B01A-4D0B-9CD9-3DF295C8DDB8}
+AppName=ZFSMgr
+AppVersion=$version
+DefaultDirName={autopf}\ZFSMgr
+DefaultGroupName=ZFSMgr
+OutputDir=$outputDir
+OutputBaseFilename=ZFSMgr-Setup-$version
+Compression=lzma
+SolidCompression=yes
+WizardStyle=modern
+ArchitecturesAllowed=x64
+ArchitecturesInstallIn64BitMode=x64
+DisableProgramGroupPage=yes
+UninstallDisplayIcon={app}\zfsmgr_qt.exe
+
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Additional icons:"
+
+[Files]
+Source: "$sourceDir\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "connections.ini,*.pdb,*.obj,*.o,*.a,*.lib,*.exp,*.ilk,*.idb,*.tmp,*.log,*.tlog,CMakeFiles\*,.qt\*,Testing\*,zfsmgr_*_test.exe,*_autogen\*,*.cpp,*.c,*.h,*.hpp,*.md,*.txt"
+
+[Icons]
+Name: "{autoprograms}\ZFSMgr"; Filename: "{app}\zfsmgr_qt.exe"
+Name: "{autodesktop}\ZFSMgr"; Filename: "{app}\zfsmgr_qt.exe"; Tasks: desktopicon
+
+[Run]
+Filename: "{app}\zfsmgr_qt.exe"; Description: "Launch ZFSMgr"; Flags: nowait postinstall skipifsilent
+"@
+  Set-Content -Path $path -Value $iss -Encoding ascii
+}
+
+function New-InstallerPayload([string]$sourceDir, [string]$payloadDir) {
+  if (-not (Test-Path $sourceDir)) {
+    throw "No se encontro el directorio de runtime para empaquetar: $sourceDir"
+  }
+
+  if (Test-Path $payloadDir) {
+    Remove-Item -Recurse -Force $payloadDir
+  }
+  New-Item -ItemType Directory -Force -Path $payloadDir | Out-Null
+
+  $mainExe = Join-Path $sourceDir "zfsmgr_qt.exe"
+  if (-not (Test-Path $mainExe)) {
+    throw "No se encontro zfsmgr_qt.exe en: $sourceDir"
+  }
+  Copy-Item -LiteralPath $mainExe -Destination (Join-Path $payloadDir "zfsmgr_qt.exe") -Force
+
+  $qtConf = Join-Path $sourceDir "qt.conf"
+  if (Test-Path $qtConf) {
+    Copy-Item -LiteralPath $qtConf -Destination (Join-Path $payloadDir "qt.conf") -Force
+  }
+
+  Get-ChildItem -Path $sourceDir -File -Filter "*.dll" -ErrorAction SilentlyContinue |
+    ForEach-Object {
+      Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $payloadDir $_.Name) -Force
+    }
+
+  $runtimeDirs = @(
+    "platforms",
+    "styles",
+    "imageformats",
+    "iconengines",
+    "generic",
+    "networkinformation",
+    "tls",
+    "translations",
+    "sqldrivers",
+    "bearer",
+    "i18n",
+    "help"
+  )
+  foreach ($dirName in $runtimeDirs) {
+    $srcDir = Join-Path $sourceDir $dirName
+    if (Test-Path $srcDir) {
+      Copy-Item -Path $srcDir -Destination (Join-Path $payloadDir $dirName) -Recurse -Force
+    }
+  }
+
+  $forbiddenPatterns = @(
+    "connections.ini",
+    "*.pdb",
+    "*.obj",
+    "*.o",
+    "*.a",
+    "*.lib",
+    "*.exp",
+    "*.ilk",
+    "*.idb",
+    "*.tmp",
+    "*.log",
+    "*.tlog",
+    "*.cpp",
+    "*.c",
+    "*.h",
+    "*.hpp",
+    "*.md",
+    "*.txt"
+  )
+  foreach ($pattern in $forbiddenPatterns) {
+    Get-ChildItem -Path $payloadDir -Recurse -File -Filter $pattern -ErrorAction SilentlyContinue |
+      Remove-Item -Force
+  }
 }
 
 # Resolver Qt6_DIR de forma robusta (aunque existan vars de entorno previas).
@@ -345,6 +526,33 @@ foreach ($ini in $candidateIni) {
     Remove-Item -Force $ini
     Write-Host "Excluido del artefacto: $ini"
   }
+}
+
+if ($GenerateInnoInstaller) {
+  $isccExe = Find-InnoSetupCompiler
+  if (-not $isccExe) {
+    throw "No se encontro ISCC.exe. Instala Inno Setup 6 o define INNO_SETUP_COMPILER."
+  }
+
+  $appVersion = Get-ProjectVersion
+  New-Item -ItemType Directory -Force -Path $InnoOutputDir | Out-Null
+  $installerPayloadDir = Join-Path $BuildDir "package-runtime"
+  New-InstallerPayload -sourceDir $exeDir -payloadDir $installerPayloadDir
+
+  $issPath = $InnoScriptPath
+  if ([string]::IsNullOrWhiteSpace($issPath)) {
+    $issPath = Join-Path $BuildDir "zfsmgr-installer.iss"
+    New-DefaultInnoScript -path $issPath -version $appVersion -sourceDir $installerPayloadDir -outputDir $InnoOutputDir
+  } elseif (-not (Test-Path $issPath)) {
+    throw "No se encontro el script de Inno Setup: $issPath"
+  }
+
+  Write-Host "Generando instalador con Inno Setup: $issPath"
+  & $isccExe "/O$InnoOutputDir" $issPath
+  if ($LASTEXITCODE -ne 0) {
+    throw "ISCC falló (exit $LASTEXITCODE)"
+  }
+  Write-Host "Instalador generado en: $InnoOutputDir"
 }
 
 Write-Host "Build completado: $exePath"
