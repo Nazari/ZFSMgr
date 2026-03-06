@@ -65,11 +65,14 @@ if(WIN32)
 endif()
 
 if(APPLE)
+    set(ZFSMGR_BUNDLE_NAME "ZFSMgr-${PROJECT_VERSION}")
     set(app_icns "${CMAKE_CURRENT_SOURCE_DIR}/icons/ZFSMgr.icns")
     set_source_files_properties(${app_icns} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
     target_sources(zfsmgr_qt PRIVATE ${app_icns})
     set_target_properties(zfsmgr_qt PROPERTIES
         MACOSX_BUNDLE TRUE
+        OUTPUT_NAME "${ZFSMGR_BUNDLE_NAME}"
+        MACOSX_BUNDLE_BUNDLE_NAME "${ZFSMGR_BUNDLE_NAME}"
         MACOSX_BUNDLE_ICON_FILE "ZFSMgr.icns"
     )
 endif()

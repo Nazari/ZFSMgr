@@ -3,6 +3,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build-macos"
+APP_VERSION="$(sed -n 's/^project(ZFSMgrQt VERSION \\([0-9.]*\\).*/\\1/p' "${SCRIPT_DIR}/CMakeLists.txt" | head -n1)"
+if [[ -z "${APP_VERSION}" ]]; then
+  APP_VERSION="0.1.0"
+fi
+BUNDLE_NAME="ZFSMgr-${APP_VERSION}"
 BUNDLE_APP=0
 SELF_SIGN_CERT_NAME="${SELF_SIGN_CERT_NAME:-ZFSMgr Local Self-Signed}"
 EXTRA_CMAKE_ARGS=()
@@ -61,9 +66,9 @@ fi
 "${cmake_cmd[@]}"
 cmake --build "${BUILD_DIR}" -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
-echo "Build completado: ${BUILD_DIR}/zfsmgr_qt"
+echo "Build completado: ${BUILD_DIR}/${BUNDLE_NAME}.app"
 if [[ "${BUNDLE_APP}" -eq 1 ]]; then
-  APP_BUNDLE="${BUILD_DIR}/zfsmgr_qt.app"
+  APP_BUNDLE="${BUILD_DIR}/${BUNDLE_NAME}.app"
   if [[ ! -d "${APP_BUNDLE}" ]]; then
     echo "Error: no se ha generado ${APP_BUNDLE}" >&2
     exit 1
@@ -77,7 +82,7 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   fi
 
   ensure_codesign_identity "${SELF_SIGN_CERT_NAME}"
-  MAIN_BIN="${APP_BUNDLE}/Contents/MacOS/zfsmgr_qt"
+  MAIN_BIN="${APP_BUNDLE}/Contents/MacOS/${BUNDLE_NAME}"
   /usr/bin/codesign --remove-signature "${MAIN_BIN}" >/dev/null 2>&1 || true
   /usr/bin/codesign --force --sign "${SELF_SIGN_CERT_NAME}" --timestamp=none "${MAIN_BIN}"
   /usr/bin/codesign --force --deep --sign "${SELF_SIGN_CERT_NAME}" --timestamp=none "${APP_BUNDLE}"
