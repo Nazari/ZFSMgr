@@ -370,6 +370,11 @@ void MainWindow::buildUi() {
     m_connectionsList->setAlternatingRowColors(true);
     m_connectionsList->setSelectionMode(QAbstractItemView::SingleSelection);
     m_connectionsList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+#ifdef Q_OS_MAC
+    if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
+        m_connectionsList->setStyle(fusion);
+    }
+#endif
     connListBoxLayout->addWidget(m_connectionsList, 1);
     connLayout->addWidget(connListBox, 1);
     connectionsTab->setLayout(connLayout);
