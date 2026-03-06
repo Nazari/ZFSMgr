@@ -433,6 +433,9 @@ void MainWindow::rebuildConnectionList() {
         item->setForeground(0, QBrush(rowColor));
         if (redirectedLocal) {
             item->setDisabled(true);
+            QFont f = item->font(0);
+            f.setItalic(true);
+            item->setFont(0, f);
         }
         item->setToolTip(0, QStringLiteral("Host: %1\nPort: %2\nEstado: %3\nDetalle: %4")
                                 .arg(p.host)
@@ -522,6 +525,18 @@ void MainWindow::rebuildConnectionList() {
             methodChild->setDisabled(true);
             zfsChild->setDisabled(true);
             commandsNode->setDisabled(true);
+            QFont f1 = osChild->font(0);
+            f1.setItalic(true);
+            osChild->setFont(0, f1);
+            QFont f2 = methodChild->font(0);
+            f2.setItalic(true);
+            methodChild->setFont(0, f2);
+            QFont f3 = zfsChild->font(0);
+            f3.setItalic(true);
+            zfsChild->setFont(0, f3);
+            QFont f4 = commandsNode->font(0);
+            f4.setItalic(true);
+            commandsNode->setFont(0, f4);
         }
     }
     m_connectionsList->collapseAll();
