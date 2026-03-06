@@ -14,6 +14,7 @@
 #include <QThread>
 
 #include <algorithm>
+#include <cstring>
 
 namespace {
 QString sanitizeWindowsCliXml(const QString& raw) {
@@ -645,6 +646,107 @@ bool MainWindow::listLocalDatasetsLibzfs(const QString& poolName, PoolDatasetCac
         return !cacheOut.datasets.isEmpty();
     }
 
+    if (detail) {
+        *detail = localDetail;
+    }
+    return false;
+#endif
+}
+
+bool MainWindow::getLocalDatasetPropsLibzfs(const QString& objectName,
+                                            const QStringList& propNames,
+                                            QMap<QString, QString>& valuesOut,
+                                            QString* detail) const {
+    valuesOut.clear();
+#if defined(Q_OS_WIN)
+    if (detail) {
+        *detail = QStringLiteral("libzfs runtime property listing not available on Windows build");
+    }
+    return false;
+#else
+    if (objectName.trimmed().isEmpty() || propNames.isEmpty()) {
+        if (detail) {
+            *detail = QStringLiteral("empty object or property list");
+        }
+        return false;
+    }
+    QStringList candidates;
+#if defined(Q_OS_MACOS)
+    candidates << QStringLiteral("/usr/local/zfs/lib/libzfs.dylib")
+               << QStringLiteral("libzfs.dylib");
+#else
+    candidates << QStringLiteral("libzfs.so.6")
+               << QStringLiteral("libzfs.so.5")
+               << QStringLiteral("libzfs.so");
+#endif
+    QString localDetail = QStringLiteral("no loadable libzfs library found");
+    for (const QString& cand : candidates) {
+        QLibrary lib(cand);
+        if (!lib.load()) {
+            continue;
+        }
+        using InitFn = void* (*)();
+        using FiniFn = void (*)(void*);
+        using ZfsOpenFn = void* (*)(void*, const char*, int);
+        using ZfsCloseFn = void (*)(void*);
+        using ZfsNameToPropFn = int (*)(const char*);
+        using ZfsPropGetFn = int (*)(void*, int, char*, size_t, int*, char*, size_t, int);
+
+        const InitFn initFn = reinterpret_cast<InitFn>(lib.resolve("libzfs_init"));
+        const FiniFn finiFn = reinterpret_cast<FiniFn>(lib.resolve("libzfs_fini"));
+        const ZfsOpenFn openFn = reinterpret_cast<ZfsOpenFn>(lib.resolve("zfs_open"));
+        const ZfsCloseFn closeFn = reinterpret_cast<ZfsCloseFn>(lib.resolve("zfs_close"));
+        const ZfsNameToPropFn nameToPropFn =
+            reinterpret_cast<ZfsNameToPropFn>(lib.resolve("zfs_name_to_prop"));
+        const ZfsPropGetFn propGetFn = reinterpret_cast<ZfsPropGetFn>(lib.resolve("zfs_prop_get"));
+        if (!initFn || !finiFn || !openFn || !closeFn || !nameToPropFn || !propGetFn) {
+            localDetail = QStringLiteral("%1 loaded but required prop symbols are missing").arg(cand);
+            lib.unload();
+            continue;
+        }
+        void* h = initFn();
+        if (!h) {
+            localDetail = QStringLiteral("%1 loaded but libzfs_init returned null").arg(cand);
+            lib.unload();
+            continue;
+        }
+        void* zh = openFn(h, objectName.toUtf8().constData(), 0xFFFF);
+        if (!zh) {
+            finiFn(h);
+            lib.unload();
+            localDetail = QStringLiteral("%1 loaded but zfs_open failed for %2").arg(cand, objectName);
+            continue;
+        }
+        int found = 0;
+        for (const QString& pNameRaw : propNames) {
+            const QString pName = pNameRaw.trimmed();
+            if (pName.isEmpty()) {
+                continue;
+            }
+            const int pId = nameToPropFn(pName.toUtf8().constData());
+            if (pId < 0) {
+                continue;
+            }
+            char buf[4096];
+            char statbuf[4096];
+            std::memset(buf, 0, sizeof(buf));
+            std::memset(statbuf, 0, sizeof(statbuf));
+            int src = 0;
+            const int rc = propGetFn(zh, pId, buf, sizeof(buf), &src, statbuf, sizeof(statbuf), 1);
+            if (rc == 0) {
+                valuesOut[pName] = QString::fromUtf8(buf).trimmed();
+                ++found;
+            }
+        }
+        closeFn(zh);
+        finiFn(h);
+        lib.unload();
+        localDetail = QStringLiteral("%1 loaded and zfs_prop_get succeeded (%2 props)").arg(cand).arg(found);
+        if (detail) {
+            *detail = localDetail;
+        }
+        return found > 0;
+    }
     if (detail) {
         *detail = localDetail;
     }
