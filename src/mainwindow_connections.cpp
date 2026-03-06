@@ -60,6 +60,7 @@ bool isLocalHostForUi(const QString& host) {
     }();
     return aliases.contains(h);
 }
+
 } // namespace
 
 void MainWindow::refreshAllConnections() {
@@ -402,19 +403,40 @@ void MainWindow::rebuildConnectionList() {
         QString statusTag;
         QColor rowColor("#14212b");
         const QString st = s.status.trimmed().toUpper();
+        const bool localConn = isLocalConnection(p);
+        const bool redirectedLocal = (!localConn && st == QStringLiteral("OK") && isLocalHostForUi(p.host));
         if (st == QStringLiteral("OK")) {
-            statusTag = isLocalHostForUi(p.host) ? QStringLiteral("[OK/Local] ") : QStringLiteral("[OK] ");
+            statusTag = QStringLiteral("[OK] ");
             rowColor = QColor("#1f7a1f");
         } else if (!st.isEmpty()) {
             statusTag = QStringLiteral("[KO] ");
             rowColor = QColor("#a12a2a");
         }
-        QString line = QStringLiteral("%1%2").arg(statusTag, line1);
+        QString line;
+        if (localConn) {
+            line = QStringLiteral("%1Local").arg(statusTag);
+        } else if (redirectedLocal) {
+            line = QStringLiteral("%1%2 %3")
+                       .arg(statusTag,
+                            line1,
+                            trk(QStringLiteral("t_conn_redirect_l1"),
+                                QStringLiteral("[Redirección a 'Local']"),
+                                QStringLiteral("[Redirected to 'Local']"),
+                                QStringLiteral("[重定向到“本地”]")));
+        } else {
+            line = QStringLiteral("%1%2").arg(statusTag, line1);
+        }
 
         auto* item = new QTreeWidgetItem(m_connectionsList);
         item->setText(0, line);
         item->setData(0, Qt::UserRole, i);
         item->setForeground(0, QBrush(rowColor));
+        if (redirectedLocal) {
+            item->setDisabled(true);
+            QFont f = item->font(0);
+            f.setItalic(true);
+            item->setFont(0, f);
+        }
         item->setToolTip(0, QStringLiteral("Host: %1\nPort: %2\nEstado: %3\nDetalle: %4")
                                 .arg(p.host)
                                 .arg(p.port)
@@ -451,40 +473,70 @@ void MainWindow::rebuildConnectionList() {
         zfsChild->setData(0, Qt::UserRole, i);
 
         auto* commandsNode = new QTreeWidgetItem(item);
-        commandsNode->setText(0, trk(QStringLiteral("t_cmds_detect01"),
-                                     QStringLiteral("Comandos detectados"),
-                                     QStringLiteral("Detected commands"),
-                                     QStringLiteral("检测到的命令")));
+        QString commandsTitle = trk(QStringLiteral("t_cmds_detect01"),
+                                    QStringLiteral("Comandos detectados"),
+                                    QStringLiteral("Detected commands"),
+                                    QStringLiteral("检测到的命令"));
+        if (isWindowsConnection(p)) {
+            QString layer = s.commandsLayer.trimmed();
+            if (layer.isEmpty()) {
+                layer = QStringLiteral("Powershell");
+            }
+            commandsTitle += QStringLiteral(" [%1]").arg(layer);
+        }
+        commandsNode->setText(0, commandsTitle);
         commandsNode->setData(0, Qt::UserRole, i);
+        QStringList detected = s.detectedUnixCommands;
+        QStringList missing = s.missingUnixCommands;
+        if (detected.isEmpty() && missing.isEmpty() && !s.powershellFallbackCommands.isEmpty()) {
+            detected = s.powershellFallbackCommands;
+        }
+        if (detected.isEmpty()) {
+            detected << trk(QStringLiteral("t_none_000001"),
+                            QStringLiteral("(ninguno)"),
+                            QStringLiteral("(none)"),
+                            QStringLiteral("（无）"));
+        }
+        if (missing.isEmpty()) {
+            missing << trk(QStringLiteral("t_none_000001"),
+                           QStringLiteral("(ninguno)"),
+                           QStringLiteral("(none)"),
+                           QStringLiteral("（无）"));
+        }
+        auto* detectedNode = new QTreeWidgetItem(commandsNode);
+        const QString detectedText = trk(QStringLiteral("t_detected_l001"),
+                                         QStringLiteral("Detectados: %1"),
+                                         QStringLiteral("Detected: %1"),
+                                         QStringLiteral("已检测：%1")).arg(detected.join(QStringLiteral(", ")));
+        detectedNode->setText(0, detectedText);
+        detectedNode->setForeground(0, QBrush(QColor("#1f7a1f")));
+        detectedNode->setToolTip(0, detectedText);
 
-        if (!s.detectedUnixCommands.isEmpty() || !s.missingUnixCommands.isEmpty()) {
-            for (const QString& c : s.detectedUnixCommands) {
-                auto* cc = new QTreeWidgetItem(commandsNode);
-                cc->setText(0, c);
-                cc->setForeground(0, QBrush(QColor("#1f7a1f")));
-            }
-            for (const QString& c : s.missingUnixCommands) {
-                auto* cc = new QTreeWidgetItem(commandsNode);
-                cc->setText(0, c);
-                cc->setForeground(0, QBrush(QColor("#a12a2a")));
-            }
-        } else if (!s.powershellFallbackCommands.isEmpty()) {
-            auto* psHeader = new QTreeWidgetItem(commandsNode);
-            psHeader->setText(0, trk(QStringLiteral("t_ps_fallback01"),
-                                     QStringLiteral("PowerShell (fallback):"),
-                                     QStringLiteral("PowerShell (fallback):"),
-                                     QStringLiteral("PowerShell（回退）：")));
-            for (const QString& c : s.powershellFallbackCommands) {
-                auto* cc = new QTreeWidgetItem(commandsNode);
-                cc->setText(0, c);
-                cc->setForeground(0, QBrush(QColor("#5a4a00")));
-            }
-        } else {
-            auto* none = new QTreeWidgetItem(commandsNode);
-            none->setText(0, trk(QStringLiteral("t_no_data_0001"),
-                                 QStringLiteral("(sin datos)"),
-                                 QStringLiteral("(no data)"),
-                                 QStringLiteral("（无数据）")));
+        auto* missingNode = new QTreeWidgetItem(commandsNode);
+        const QString missingText = trk(QStringLiteral("t_missing_l001"),
+                                        QStringLiteral("No detectados: %1"),
+                                        QStringLiteral("Missing: %1"),
+                                        QStringLiteral("未检测：%1")).arg(missing.join(QStringLiteral(", ")));
+        missingNode->setText(0, missingText);
+        missingNode->setForeground(0, QBrush(QColor("#a12a2a")));
+        missingNode->setToolTip(0, missingText);
+        if (redirectedLocal) {
+            osChild->setDisabled(true);
+            methodChild->setDisabled(true);
+            zfsChild->setDisabled(true);
+            commandsNode->setDisabled(true);
+            QFont f1 = osChild->font(0);
+            f1.setItalic(true);
+            osChild->setFont(0, f1);
+            QFont f2 = methodChild->font(0);
+            f2.setItalic(true);
+            methodChild->setFont(0, f2);
+            QFont f3 = zfsChild->font(0);
+            f3.setItalic(true);
+            zfsChild->setFont(0, f3);
+            QFont f4 = commandsNode->font(0);
+            f4.setItalic(true);
+            commandsNode->setFont(0, f4);
         }
     }
     m_connectionsList->collapseAll();
@@ -506,6 +558,15 @@ void MainWindow::rebuildDatasetPoolSelectors() {
     m_advPoolCombo->clear();
 
     for (int i = 0; i < m_profiles.size(); ++i) {
+        const bool localConn = isLocalConnection(i);
+        const bool redirectedLocal =
+            (!localConn
+             && i < m_states.size()
+             && m_states[i].status.trimmed().toUpper() == QStringLiteral("OK")
+             && isLocalHostForUi(m_profiles[i].host));
+        if (redirectedLocal) {
+            continue;
+        }
         const auto& st = m_states[i];
         for (const PoolImported& p : st.importedPools) {
             if (p.pool.isEmpty() || p.pool == QStringLiteral("Sin pools")) {
@@ -602,6 +663,29 @@ void MainWindow::editConnection() {
     if (idx < 0 || idx >= m_profiles.size()) {
         return;
     }
+    if (isLocalConnection(idx)) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_conn_local_builtin_01"),
+                QStringLiteral("La conexión local integrada no se puede editar."),
+                QStringLiteral("Built-in local connection cannot be edited."),
+                QStringLiteral("内置本地连接不可编辑。")));
+        return;
+    }
+    const bool redirectedLocal = (!isLocalConnection(idx)
+                                  && m_states[idx].status.trimmed().toUpper() == QStringLiteral("OK")
+                                  && isLocalHostForUi(m_profiles[idx].host));
+    if (redirectedLocal) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_conn_redirect_l2"),
+                QStringLiteral("La conexión está redirigida a 'Local' y no se puede editar."),
+                QStringLiteral("This connection is redirected to 'Local' and cannot be edited."),
+                QStringLiteral("该连接已重定向到“本地”，不可编辑。")));
+        return;
+    }
     ConnectionDialog dlg(m_language, this);
     dlg.setProfile(m_profiles[idx]);
     if (dlg.exec() != QDialog::Accepted) {
@@ -636,6 +720,29 @@ void MainWindow::deleteConnection() {
     }
     const int idx = selItem ? selItem->data(0, Qt::UserRole).toInt() : -1;
     if (idx < 0 || idx >= m_profiles.size()) {
+        return;
+    }
+    if (isLocalConnection(idx)) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_conn_local_builtin_02"),
+                QStringLiteral("La conexión local integrada no se puede borrar."),
+                QStringLiteral("Built-in local connection cannot be deleted."),
+                QStringLiteral("内置本地连接不可删除。")));
+        return;
+    }
+    const bool redirectedLocal = (!isLocalConnection(idx)
+                                  && m_states[idx].status.trimmed().toUpper() == QStringLiteral("OK")
+                                  && isLocalHostForUi(m_profiles[idx].host));
+    if (redirectedLocal) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_conn_redirect_l3"),
+                QStringLiteral("La conexión está redirigida a 'Local' y no se puede borrar."),
+                QStringLiteral("This connection is redirected to 'Local' and cannot be deleted."),
+                QStringLiteral("该连接已重定向到“本地”，不可删除。")));
         return;
     }
     const auto confirm = QMessageBox::question(

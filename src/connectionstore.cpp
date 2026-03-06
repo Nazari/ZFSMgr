@@ -3,7 +3,9 @@
 #include "secretcipher.h"
 
 #include <QDir>
+#include <QProcessEnvironment>
 #include <QSettings>
+#include <QSysInfo>
 
 namespace {
 bool isConnectionGroupName(const QString& group) {
@@ -163,6 +165,39 @@ LoadResult ConnectionStore::loadConnections() const {
         if (!p.name.isEmpty()) {
             result.profiles.push_back(p);
         }
+    }
+
+    bool hasLocal = false;
+    for (const ConnectionProfile& p : result.profiles) {
+        if (p.id.compare(QStringLiteral("local"), Qt::CaseInsensitive) == 0
+            || p.connType.compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0
+            || p.transport.compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0) {
+            hasLocal = true;
+            break;
+        }
+    }
+    if (!hasLocal) {
+        ConnectionProfile local;
+        local.id = QStringLiteral("local");
+        local.name = QStringLiteral("Local");
+        local.connType = QStringLiteral("LOCAL");
+        local.transport = QStringLiteral("LOCAL");
+        local.port = 0;
+        local.host = QStringLiteral("localhost");
+        const QString userEnv = QProcessEnvironment::systemEnvironment().value(QStringLiteral("USER"));
+        const QString userEnvWin = QProcessEnvironment::systemEnvironment().value(QStringLiteral("USERNAME"));
+        local.username = !userEnv.trimmed().isEmpty() ? userEnv.trimmed() : userEnvWin.trimmed();
+#ifdef Q_OS_WIN
+        local.osType = QStringLiteral("Windows");
+#elif defined(Q_OS_MACOS)
+        local.osType = QStringLiteral("macOS");
+#else
+        local.osType = QStringLiteral("Linux");
+#endif
+        if (local.username.isEmpty()) {
+            local.username = QStringLiteral("local");
+        }
+        result.profiles.push_front(local);
     }
 
     return result;

@@ -62,13 +62,23 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     ConnectionRuntimeState state;
     state.connectionMethod = p.connType;
     state.powershellFallbackCommands = zfsmgrPowershellCommandSet();
+    state.commandsLayer = isWindowsConnection(p) ? QStringLiteral("Powershell") : QString();
     appLog(QStringLiteral("NORMAL"),
            trk(QStringLiteral("t_inicio_ref_521ce1"),
                QStringLiteral("Inicio refresh: %1 [%2]"),
                QStringLiteral("Refresh start: %1 [%2]"),
                QStringLiteral("开始刷新：%1 [%2]")).arg(p.name, p.connType));
 
-    if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
+    const bool localMode = isLocalConnection(p);
+    if (localMode) {
+        QString libzfsDetail;
+        const bool hasLibzfs = detectLocalLibzfs(&libzfsDetail);
+        state.connectionMethod = hasLibzfs ? QStringLiteral("LOCAL/libzfs") : QStringLiteral("LOCAL/CLI");
+        appLog(hasLibzfs ? QStringLiteral("INFO") : QStringLiteral("WARN"),
+               QStringLiteral("%1: %2 (%3)")
+                   .arg(p.name, state.connectionMethod, libzfsDetail));
+    }
+    if (!localMode && p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
         state.status = QStringLiteral("ERROR");
         state.detail = trk(QStringLiteral("t_tipo_de_co_e73161"),
                            QStringLiteral("Tipo de conexión no soportado aún en cppqt"),
@@ -81,7 +91,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                    QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(p.name, state.detail));
         return state;
     }
-    if (p.host.isEmpty() || p.username.isEmpty()) {
+    if (!localMode && (p.host.isEmpty() || p.username.isEmpty())) {
         state.status = QStringLiteral("ERROR");
         state.detail = trk(QStringLiteral("t_host_usuar_97cc58"),
                            QStringLiteral("Host/usuario no definido"),
@@ -191,6 +201,9 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             const QString roots = QStringLiteral(
                 "$roots=@('C:\\\\Program Files\\\\OpenZFS On Windows\\\\bin','C:\\\\Program Files\\\\OpenZFS On Windows','C:\\\\msys64\\\\usr\\\\bin','C:\\\\msys64\\\\mingw64\\\\bin','C:\\\\msys64\\\\mingw32\\\\bin','C:\\\\MinGW\\\\bin','C:\\\\mingw64\\\\bin'); "
                 "$present=@(); foreach($r in $roots){ if(Test-Path -LiteralPath $r){ $present += $r } }; "
+                "$hasMsys = $present | Where-Object { $_ -like 'C:\\\\msys64*' }; "
+                "$hasMingw = $present | Where-Object { $_ -like 'C:\\\\MinGW*' -or $_ -like 'C:\\\\mingw64*' }; "
+                "if($hasMsys){ Write-Output '__LAYER__:MSYS64' } elseif($hasMingw){ Write-Output '__LAYER__:MingGW' } else { Write-Output '__LAYER__:Powershell' }; "
                 "if($present.Count -eq 0){ Write-Output '__NO_UNIX_LAYER__'; exit 0 }; "
                 "$cmds='%1'.Split(' '); "
                 "foreach($c in $cmds){ $ok=$false; foreach($r in $present){ if(Test-Path -LiteralPath (Join-Path $r ($c + '.exe'))){ $ok=$true; break } }; "
@@ -201,8 +214,13 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 bool noLayer = false;
                 for (const QString& raw : lines) {
                     const QString line = raw.trimmed();
+                    if (line.startsWith(QStringLiteral("__LAYER__:"))) {
+                        state.commandsLayer = line.mid(QStringLiteral("__LAYER__:").size()).trimmed();
+                        continue;
+                    }
                     if (line == QStringLiteral("__NO_UNIX_LAYER__")) {
                         noLayer = true;
+                        state.commandsLayer = QStringLiteral("Powershell");
                         break;
                     }
                     if (line.startsWith(QStringLiteral("OK:"))) {
@@ -215,10 +233,14 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     state.unixFromMsysOrMingw = true;
                     state.detectedUnixCommands = detected;
                     state.missingUnixCommands = missing;
+                    if (state.commandsLayer.trimmed().isEmpty()) {
+                        state.commandsLayer = QStringLiteral("MSYS64");
+                    }
                 } else {
                     state.unixFromMsysOrMingw = false;
                     state.detectedUnixCommands.clear();
                     state.missingUnixCommands.clear();
+                    state.commandsLayer = QStringLiteral("Powershell");
                 }
             }
         } else {
@@ -256,15 +278,34 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             state.detectedUnixCommands = detected;
             state.missingUnixCommands = missing;
             state.unixFromMsysOrMingw = false;
+            state.commandsLayer.clear();
         }
     }
 
     QString zpoolListCmd = withSudo(p, QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio"));
+    bool loadedPoolsFromLibzfs = false;
+    if (localMode) {
+        QStringList localPools;
+        QString poolLibDetail;
+        if (detectLocalLibzfs() && listLocalImportedPoolsLibzfs(localPools, &poolLibDetail)) {
+            for (const QString& poolName : localPools) {
+                if (poolName.trimmed().isEmpty()) {
+                    continue;
+                }
+                state.importedPools.push_back(PoolImported{p.name, poolName.trimmed(), QStringLiteral("Exportar")});
+            }
+            loadedPoolsFromLibzfs = true;
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("%1: imported pools via libzfs (%2)")
+                       .arg(p.name)
+                       .arg(poolLibDetail));
+        }
+    }
 
     out.clear();
     err.clear();
     rc = -1;
-    if (runSsh(p, zpoolListCmd, 18000, out, err, rc) && rc == 0) {
+    if (!loadedPoolsFromLibzfs && runSsh(p, zpoolListCmd, 18000, out, err, rc) && rc == 0) {
         const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
         for (const QString& line : lines) {
             const QString poolName = line.section('\t', 0, 0).trimmed();

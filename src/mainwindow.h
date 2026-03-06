@@ -59,6 +59,7 @@ private:
         QStringList detectedUnixCommands;
         QStringList missingUnixCommands;
         bool unixFromMsysOrMingw{false};
+        QString commandsLayer;
         QStringList powershellFallbackCommands;
         QVector<PoolImported> importedPools;
         QVector<PoolImportable> importablePools;
@@ -129,6 +130,20 @@ private:
                 const std::function<void(const QString&)>& onStderrLine = {});
     QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
     QString withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const;
+    bool isLocalConnection(const ConnectionProfile& p) const;
+    bool isLocalConnection(int connIdx) const;
+    bool detectLocalLibzfs(QString* detail = nullptr) const;
+    bool localLibzfsMountDataset(const QString& dataset, QString* detail = nullptr) const;
+    bool localLibzfsUnmountDataset(const QString& dataset, QString* detail = nullptr) const;
+    bool localLibzfsRenameDataset(const QString& oldName, const QString& newName, QString* detail = nullptr) const;
+    bool localLibzfsSetProperty(const QString& dataset, const QString& prop, const QString& value, QString* detail = nullptr) const;
+    bool localLibzfsInheritProperty(const QString& dataset, const QString& prop, QString* detail = nullptr) const;
+    bool listLocalImportedPoolsLibzfs(QStringList& poolsOut, QString* detail = nullptr) const;
+    bool listLocalDatasetsLibzfs(const QString& poolName, PoolDatasetCache& cacheOut, QString* detail = nullptr) const;
+    bool getLocalDatasetPropsLibzfs(const QString& objectName,
+                                    const QStringList& propNames,
+                                    QMap<QString, QString>& valuesOut,
+                                    QString* detail = nullptr) const;
     bool isWindowsConnection(const ConnectionProfile& p) const;
     bool isWindowsConnection(int connIdx) const;
     QString wrapRemoteCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
@@ -306,6 +321,9 @@ private:
     int m_refreshPending{0};
     int m_refreshTotal{0};
     bool m_refreshInProgress{false};
+    mutable bool m_localLibzfsChecked{false};
+    mutable bool m_localLibzfsAvailable{false};
+    mutable QString m_localLibzfsDetail;
     bool m_syncingConnectionFromPoolSelection{false};
     bool m_actionsLocked{false};
     bool m_waitCursorActive{false};
