@@ -129,6 +129,8 @@ private:
                 const std::function<void(const QString&)>& onStderrLine = {});
     QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
     QString withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const;
+    bool isLocalConnection(const ConnectionProfile& p) const;
+    bool isLocalConnection(int connIdx) const;
     bool isWindowsConnection(const ConnectionProfile& p) const;
     bool isWindowsConnection(int connIdx) const;
     QString wrapRemoteCommand(const ConnectionProfile& p, const QString& remoteCmd) const;

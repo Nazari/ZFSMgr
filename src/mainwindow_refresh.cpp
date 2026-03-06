@@ -68,7 +68,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                QStringLiteral("Refresh start: %1 [%2]"),
                QStringLiteral("开始刷新：%1 [%2]")).arg(p.name, p.connType));
 
-    if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
+    const bool localMode = isLocalConnection(p);
+    if (!localMode && p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
         state.status = QStringLiteral("ERROR");
         state.detail = trk(QStringLiteral("t_tipo_de_co_e73161"),
                            QStringLiteral("Tipo de conexión no soportado aún en cppqt"),
@@ -81,7 +82,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                    QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(p.name, state.detail));
         return state;
     }
-    if (p.host.isEmpty() || p.username.isEmpty()) {
+    if (!localMode && (p.host.isEmpty() || p.username.isEmpty())) {
         state.status = QStringLiteral("ERROR");
         state.detail = trk(QStringLiteral("t_host_usuar_97cc58"),
                            QStringLiteral("Host/usuario no definido"),

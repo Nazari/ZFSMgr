@@ -602,6 +602,16 @@ void MainWindow::editConnection() {
     if (idx < 0 || idx >= m_profiles.size()) {
         return;
     }
+    if (isLocalConnection(idx)) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_conn_local_builtin_01"),
+                QStringLiteral("La conexión local integrada no se puede editar."),
+                QStringLiteral("Built-in local connection cannot be edited."),
+                QStringLiteral("内置本地连接不可编辑。")));
+        return;
+    }
     ConnectionDialog dlg(m_language, this);
     dlg.setProfile(m_profiles[idx]);
     if (dlg.exec() != QDialog::Accepted) {
@@ -636,6 +646,16 @@ void MainWindow::deleteConnection() {
     }
     const int idx = selItem ? selItem->data(0, Qt::UserRole).toInt() : -1;
     if (idx < 0 || idx >= m_profiles.size()) {
+        return;
+    }
+    if (isLocalConnection(idx)) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_conn_local_builtin_02"),
+                QStringLiteral("La conexión local integrada no se puede borrar."),
+                QStringLiteral("Built-in local connection cannot be deleted."),
+                QStringLiteral("内置本地连接不可删除。")));
         return;
     }
     const auto confirm = QMessageBox::question(

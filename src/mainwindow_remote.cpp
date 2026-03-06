@@ -51,6 +51,114 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
     err.clear();
     rc = -1;
 
+    if (isLocalConnection(p)) {
+        const QString localCmd = remoteCmd.trimmed();
+        const QString cmdLine = QStringLiteral("[local] $ %1").arg(localCmd);
+        appLog(QStringLiteral("INFO"), cmdLine);
+        appendConnectionLog(p.id, cmdLine);
+
+        QProcess proc;
+        QString program;
+        QStringList args;
+#ifdef Q_OS_WIN
+        program = QStringLiteral("cmd.exe");
+        args << "/C" << wrapRemoteCommand(p, localCmd);
+#else
+        program = QStringLiteral("sh");
+        args << "-lc" << localCmd;
+#endif
+        QElapsedTimer timer;
+        timer.start();
+        proc.start(program, args);
+        if (!proc.waitForStarted(4000)) {
+            err = QStringLiteral("No se pudo iniciar %1").arg(program);
+            appendConnectionLog(p.id, err);
+            return false;
+        }
+        QString outLineBuf;
+        QString errLineBuf;
+        auto flushLines = [&](QString& buf, const QString& chunk, const std::function<void(const QString&)>& cb) {
+            if (!chunk.isEmpty()) {
+                buf += chunk;
+            }
+            int nl = -1;
+            while ((nl = buf.indexOf('\n')) >= 0) {
+                QString line = buf.left(nl);
+                buf.remove(0, nl + 1);
+                line = line.trimmed();
+                if (line.isEmpty()) {
+                    continue;
+                }
+                if (cb) {
+                    cb(line);
+                }
+                appendConnectionLog(p.id, line);
+            }
+        };
+
+        bool timedOut = false;
+        while (proc.state() != QProcess::NotRunning) {
+            proc.waitForReadyRead(120);
+            const QString outChunk = QString::fromUtf8(proc.readAllStandardOutput());
+            const QString errChunk = QString::fromUtf8(proc.readAllStandardError());
+            if (!outChunk.isEmpty()) {
+                out += outChunk;
+                flushLines(outLineBuf, outChunk, onStdoutLine);
+            }
+            if (!errChunk.isEmpty()) {
+                err += errChunk;
+                flushLines(errLineBuf, errChunk, onStderrLine);
+            }
+            if (timeoutMs > 0 && timer.elapsed() > timeoutMs) {
+                timedOut = true;
+                proc.kill();
+                proc.waitForFinished(1000);
+                break;
+            }
+            if (QThread::currentThread() == thread()) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            }
+        }
+        const QString outTail = QString::fromUtf8(proc.readAllStandardOutput());
+        const QString errTail = QString::fromUtf8(proc.readAllStandardError());
+        if (!outTail.isEmpty()) {
+            out += outTail;
+            flushLines(outLineBuf, outTail, onStdoutLine);
+        }
+        if (!errTail.isEmpty()) {
+            err += errTail;
+            flushLines(errLineBuf, errTail, onStderrLine);
+        }
+        if (!outLineBuf.trimmed().isEmpty()) {
+            const QString line = outLineBuf.trimmed();
+            if (onStdoutLine) {
+                onStdoutLine(line);
+            }
+            appendConnectionLog(p.id, line);
+        }
+        if (!errLineBuf.trimmed().isEmpty()) {
+            const QString line = errLineBuf.trimmed();
+            if (onStderrLine) {
+                onStderrLine(line);
+            }
+            appendConnectionLog(p.id, line);
+        }
+        if (timedOut) {
+            rc = -1;
+            err = QStringLiteral("Timeout");
+            appendConnectionLog(p.id, err);
+            return false;
+        }
+        rc = proc.exitCode();
+        if (!out.trimmed().isEmpty()) {
+            appendConnectionLog(p.id, oneLine(out));
+        }
+        if (!err.trimmed().isEmpty()) {
+            appendConnectionLog(p.id, oneLine(err));
+        }
+        return true;
+    }
+
     const bool hasPassword = !p.password.trimmed().isEmpty();
     QString program = QStringLiteral("ssh");
     QStringList args;
@@ -206,6 +314,18 @@ QString MainWindow::withSudoStreamInput(const ConnectionProfile& p, const QStrin
     return mwhelpers::withSudoStreamInputCommand(p, cmd);
 }
 
+bool MainWindow::isLocalConnection(const ConnectionProfile& p) const {
+    return p.connType.compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0
+        || p.transport.compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0;
+}
+
+bool MainWindow::isLocalConnection(int connIdx) const {
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return false;
+    }
+    return isLocalConnection(m_profiles[connIdx]);
+}
+
 bool MainWindow::isWindowsConnection(const ConnectionProfile& p) const {
     return mwhelpers::isWindowsOsType(p.osType);
 }
@@ -270,6 +390,9 @@ QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p, const QString&
 }
 
 QString MainWindow::sshExecFromLocal(const ConnectionProfile& p, const QString& remoteCmd) const {
+    if (isLocalConnection(p)) {
+        return remoteCmd;
+    }
     const QString sshBase = sshBaseCommand(p);
     const QString target = shSingleQuote(sshUserHost(p));
     const QString wrapped = wrapRemoteCommand(p, remoteCmd);
@@ -649,5 +772,8 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
 }
 
 QString MainWindow::buildSshPreviewCommand(const ConnectionProfile& p, const QString& remoteCmd) const {
+    if (isLocalConnection(p)) {
+        return QStringLiteral("[local] %1").arg(remoteCmd);
+    }
     return mwhelpers::buildSshPreviewCommandText(p, remoteCmd);
 }
