@@ -42,6 +42,90 @@ using mwhelpers::sshUserHost;
 using mwhelpers::sshUserHostPort;
 } // namespace
 
+namespace {
+struct LocalLibzfsOps {
+    using InitFn = void* (*)();
+    using FiniFn = void (*)(void*);
+    using ZfsOpenFn = void* (*)(void*, const char*, int);
+    using ZfsCloseFn = void (*)(void*);
+    using ZfsMountFn = int (*)(void*, const char*, int);
+    using ZfsUnmountFn = int (*)(void*, const char*, int);
+    using ZfsRenameFn = int (*)(void*, const char*, bool, bool, bool);
+    using ErrDescFn = const char* (*)(void*);
+
+    QLibrary lib;
+    QString candidate;
+    InitFn initFn{nullptr};
+    FiniFn finiFn{nullptr};
+    ZfsOpenFn zfsOpenFn{nullptr};
+    ZfsCloseFn zfsCloseFn{nullptr};
+    ZfsMountFn zfsMountFn{nullptr};
+    ZfsUnmountFn zfsUnmountFn{nullptr};
+    ZfsRenameFn zfsRenameFn{nullptr};
+    ErrDescFn errDescFn{nullptr};
+};
+
+bool loadLocalLibzfsOps(LocalLibzfsOps& ops, QString* detail) {
+#if defined(Q_OS_WIN)
+    Q_UNUSED(ops);
+    if (detail) {
+        *detail = QStringLiteral("libzfs runtime operations not available on Windows build");
+    }
+    return false;
+#else
+    QStringList candidates;
+#if defined(Q_OS_MACOS)
+    candidates << QStringLiteral("/usr/local/zfs/lib/libzfs.dylib")
+               << QStringLiteral("libzfs.dylib");
+#else
+    candidates << QStringLiteral("libzfs.so.6")
+               << QStringLiteral("libzfs.so.5")
+               << QStringLiteral("libzfs.so");
+#endif
+    QString localDetail = QStringLiteral("no loadable libzfs library found");
+    for (const QString& cand : candidates) {
+        ops.lib.setFileName(cand);
+        if (!ops.lib.load()) {
+            continue;
+        }
+        ops.candidate = cand;
+        ops.initFn = reinterpret_cast<LocalLibzfsOps::InitFn>(ops.lib.resolve("libzfs_init"));
+        ops.finiFn = reinterpret_cast<LocalLibzfsOps::FiniFn>(ops.lib.resolve("libzfs_fini"));
+        ops.zfsOpenFn = reinterpret_cast<LocalLibzfsOps::ZfsOpenFn>(ops.lib.resolve("zfs_open"));
+        ops.zfsCloseFn = reinterpret_cast<LocalLibzfsOps::ZfsCloseFn>(ops.lib.resolve("zfs_close"));
+        ops.zfsMountFn = reinterpret_cast<LocalLibzfsOps::ZfsMountFn>(ops.lib.resolve("zfs_mount"));
+        ops.zfsUnmountFn = reinterpret_cast<LocalLibzfsOps::ZfsUnmountFn>(ops.lib.resolve("zfs_unmount"));
+        ops.zfsRenameFn = reinterpret_cast<LocalLibzfsOps::ZfsRenameFn>(ops.lib.resolve("zfs_rename"));
+        ops.errDescFn = reinterpret_cast<LocalLibzfsOps::ErrDescFn>(ops.lib.resolve("libzfs_error_description"));
+        if (!ops.initFn || !ops.finiFn || !ops.zfsOpenFn || !ops.zfsCloseFn) {
+            localDetail = QStringLiteral("%1 loaded but required symbols are missing").arg(cand);
+            ops.lib.unload();
+            continue;
+        }
+        if (detail) {
+            *detail = QStringLiteral("%1 loaded").arg(cand);
+        }
+        return true;
+    }
+    if (detail) {
+        *detail = localDetail;
+    }
+    return false;
+#endif
+}
+
+QString localLibzfsError(LocalLibzfsOps& ops, void* handle) {
+    if (!ops.errDescFn || !handle) {
+        return QString();
+    }
+    const char* msg = ops.errDescFn(handle);
+    if (!msg || !*msg) {
+        return QString();
+    }
+    return QString::fromUtf8(msg);
+}
+} // namespace
+
 bool MainWindow::runSsh(const ConnectionProfile& p,
                         const QString& remoteCmd,
                         int timeoutMs,
@@ -388,6 +472,179 @@ bool MainWindow::detectLocalLibzfs(QString* detail) const {
         *detail = m_localLibzfsDetail;
     }
     return m_localLibzfsAvailable;
+#endif
+}
+
+bool MainWindow::localLibzfsMountDataset(const QString& dataset, QString* detail) const {
+#if defined(Q_OS_WIN)
+    if (detail) {
+        *detail = QStringLiteral("libzfs runtime mount not available on Windows build");
+    }
+    Q_UNUSED(dataset);
+    return false;
+#else
+    LocalLibzfsOps ops;
+    if (!loadLocalLibzfsOps(ops, detail)) {
+        return false;
+    }
+    if (!ops.zfsMountFn) {
+        if (detail) {
+            *detail = QStringLiteral("%1 loaded but zfs_mount symbol is missing").arg(ops.candidate);
+        }
+        ops.lib.unload();
+        return false;
+    }
+    void* h = ops.initFn();
+    if (!h) {
+        if (detail) {
+            *detail = QStringLiteral("%1 loaded but libzfs_init returned null").arg(ops.candidate);
+        }
+        ops.lib.unload();
+        return false;
+    }
+    const QByteArray ds = dataset.toUtf8();
+    constexpr int kZfsTypeAny = -1;
+    void* zhp = ops.zfsOpenFn(h, ds.constData(), kZfsTypeAny);
+    if (!zhp) {
+        const QString err = localLibzfsError(ops, h);
+        if (detail) {
+            *detail = err.isEmpty()
+                          ? QStringLiteral("zfs_open(%1) failed").arg(dataset)
+                          : QStringLiteral("zfs_open(%1) failed: %2").arg(dataset, err);
+        }
+        ops.finiFn(h);
+        ops.lib.unload();
+        return false;
+    }
+    const int rc = ops.zfsMountFn(zhp, nullptr, 0);
+    const QString err = (rc == 0) ? QString() : localLibzfsError(ops, h);
+    ops.zfsCloseFn(zhp);
+    ops.finiFn(h);
+    ops.lib.unload();
+    if (detail) {
+        *detail = (rc == 0)
+                      ? QStringLiteral("zfs_mount(%1) ok").arg(dataset)
+                      : (err.isEmpty()
+                             ? QStringLiteral("zfs_mount(%1) failed (rc=%2)").arg(dataset).arg(rc)
+                             : QStringLiteral("zfs_mount(%1) failed: %2").arg(dataset, err));
+    }
+    return rc == 0;
+#endif
+}
+
+bool MainWindow::localLibzfsUnmountDataset(const QString& dataset, QString* detail) const {
+#if defined(Q_OS_WIN)
+    if (detail) {
+        *detail = QStringLiteral("libzfs runtime unmount not available on Windows build");
+    }
+    Q_UNUSED(dataset);
+    return false;
+#else
+    LocalLibzfsOps ops;
+    if (!loadLocalLibzfsOps(ops, detail)) {
+        return false;
+    }
+    if (!ops.zfsUnmountFn) {
+        if (detail) {
+            *detail = QStringLiteral("%1 loaded but zfs_unmount symbol is missing").arg(ops.candidate);
+        }
+        ops.lib.unload();
+        return false;
+    }
+    void* h = ops.initFn();
+    if (!h) {
+        if (detail) {
+            *detail = QStringLiteral("%1 loaded but libzfs_init returned null").arg(ops.candidate);
+        }
+        ops.lib.unload();
+        return false;
+    }
+    const QByteArray ds = dataset.toUtf8();
+    constexpr int kZfsTypeAny = -1;
+    void* zhp = ops.zfsOpenFn(h, ds.constData(), kZfsTypeAny);
+    if (!zhp) {
+        const QString err = localLibzfsError(ops, h);
+        if (detail) {
+            *detail = err.isEmpty()
+                          ? QStringLiteral("zfs_open(%1) failed").arg(dataset)
+                          : QStringLiteral("zfs_open(%1) failed: %2").arg(dataset, err);
+        }
+        ops.finiFn(h);
+        ops.lib.unload();
+        return false;
+    }
+    const int rc = ops.zfsUnmountFn(zhp, nullptr, 0);
+    const QString err = (rc == 0) ? QString() : localLibzfsError(ops, h);
+    ops.zfsCloseFn(zhp);
+    ops.finiFn(h);
+    ops.lib.unload();
+    if (detail) {
+        *detail = (rc == 0)
+                      ? QStringLiteral("zfs_unmount(%1) ok").arg(dataset)
+                      : (err.isEmpty()
+                             ? QStringLiteral("zfs_unmount(%1) failed (rc=%2)").arg(dataset).arg(rc)
+                             : QStringLiteral("zfs_unmount(%1) failed: %2").arg(dataset, err));
+    }
+    return rc == 0;
+#endif
+}
+
+bool MainWindow::localLibzfsRenameDataset(const QString& oldName, const QString& newName, QString* detail) const {
+#if defined(Q_OS_WIN)
+    if (detail) {
+        *detail = QStringLiteral("libzfs runtime rename not available on Windows build");
+    }
+    Q_UNUSED(oldName);
+    Q_UNUSED(newName);
+    return false;
+#else
+    LocalLibzfsOps ops;
+    if (!loadLocalLibzfsOps(ops, detail)) {
+        return false;
+    }
+    if (!ops.zfsRenameFn) {
+        if (detail) {
+            *detail = QStringLiteral("%1 loaded but zfs_rename symbol is missing").arg(ops.candidate);
+        }
+        ops.lib.unload();
+        return false;
+    }
+    void* h = ops.initFn();
+    if (!h) {
+        if (detail) {
+            *detail = QStringLiteral("%1 loaded but libzfs_init returned null").arg(ops.candidate);
+        }
+        ops.lib.unload();
+        return false;
+    }
+    const QByteArray oldDs = oldName.toUtf8();
+    const QByteArray newDs = newName.toUtf8();
+    constexpr int kZfsTypeAny = -1;
+    void* zhp = ops.zfsOpenFn(h, oldDs.constData(), kZfsTypeAny);
+    if (!zhp) {
+        const QString err = localLibzfsError(ops, h);
+        if (detail) {
+            *detail = err.isEmpty()
+                          ? QStringLiteral("zfs_open(%1) failed").arg(oldName)
+                          : QStringLiteral("zfs_open(%1) failed: %2").arg(oldName, err);
+        }
+        ops.finiFn(h);
+        ops.lib.unload();
+        return false;
+    }
+    const int rc = ops.zfsRenameFn(zhp, newDs.constData(), false, false, false);
+    const QString err = (rc == 0) ? QString() : localLibzfsError(ops, h);
+    ops.zfsCloseFn(zhp);
+    ops.finiFn(h);
+    ops.lib.unload();
+    if (detail) {
+        *detail = (rc == 0)
+                      ? QStringLiteral("zfs_rename(%1 -> %2) ok").arg(oldName, newName)
+                      : (err.isEmpty()
+                             ? QStringLiteral("zfs_rename(%1 -> %2) failed (rc=%3)").arg(oldName, newName).arg(rc)
+                             : QStringLiteral("zfs_rename(%1 -> %2) failed: %3").arg(oldName, newName, err));
+    }
+    return rc == 0;
 #endif
 }
 

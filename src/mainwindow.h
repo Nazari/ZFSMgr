@@ -132,6 +132,9 @@ private:
     bool isLocalConnection(const ConnectionProfile& p) const;
     bool isLocalConnection(int connIdx) const;
     bool detectLocalLibzfs(QString* detail = nullptr) const;
+    bool localLibzfsMountDataset(const QString& dataset, QString* detail = nullptr) const;
+    bool localLibzfsUnmountDataset(const QString& dataset, QString* detail = nullptr) const;
+    bool localLibzfsRenameDataset(const QString& oldName, const QString& newName, QString* detail = nullptr) const;
     bool listLocalImportedPoolsLibzfs(QStringList& poolsOut, QString* detail = nullptr) const;
     bool listLocalDatasetsLibzfs(const QString& poolName, PoolDatasetCache& cacheOut, QString* detail = nullptr) const;
     bool getLocalDatasetPropsLibzfs(const QString& objectName,
