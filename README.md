@@ -96,6 +96,25 @@ If required components are missing, connection status and command availability a
 
 Expected binary: `build-linux/zfsmgr_qt`
 
+### Linux AppImage (portable)
+
+```bash
+./build-appimage.sh
+```
+
+What it does:
+
+- builds a Release binary,
+- creates an AppDir,
+- bundles Qt dependencies with `linuxdeploy` + `linuxdeploy-plugin-qt`,
+- generates `ZFSMgr-0.1.0-x86_64.AppImage`.
+
+Notes:
+
+- Current script target: `x86_64`.
+- Requires `curl` and a working Qt toolchain in PATH (`qmake6`/`qmake`).
+- The script auto-downloads `linuxdeploy` tools into `.tools/appimage/`.
+
 ### macOS
 
 ```bash
