@@ -334,4 +334,17 @@ if ($windeployExe) {
   Write-Host "Aviso: no se encontró windeployqt.exe; el ejecutable podría fallar por DLLs Qt faltantes."
 }
 
+# Safety: never ship local connection secrets in Windows build artifacts.
+$exeDir = Split-Path -Parent $exePath
+$candidateIni = @(
+  (Join-Path $BuildDir "connections.ini"),
+  (Join-Path $exeDir "connections.ini")
+)
+foreach ($ini in $candidateIni) {
+  if (Test-Path $ini) {
+    Remove-Item -Force $ini
+    Write-Host "Excluido del artefacto: $ini"
+  }
+}
+
 Write-Host "Build completado: $exePath"

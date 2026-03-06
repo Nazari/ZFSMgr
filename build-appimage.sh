@@ -42,6 +42,8 @@ cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
 echo "Preparing AppDir..."
 rm -rf "${APPDIR}"
 cmake --install "${BUILD_DIR}" --prefix "${APPDIR}/usr"
+# Safety: never ship local connection secrets inside AppImage.
+find "${APPDIR}" -type f -name "connections.ini" -delete || true
 
 mkdir -p "${APPDIR}/usr/share/applications" "${APPDIR}/usr/share/icons/hicolor/512x512/apps"
 

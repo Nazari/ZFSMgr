@@ -81,6 +81,9 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
     echo "Aviso: macdeployqt no encontrado; el .app puede no ser portable fuera de este equipo."
   fi
 
+  # Safety: never ship local connection secrets inside the macOS app bundle.
+  find "${APP_BUNDLE}" -type f -name "connections.ini" -delete || true
+
   ensure_codesign_identity "${SELF_SIGN_CERT_NAME}"
   MAIN_BIN="${APP_BUNDLE}/Contents/MacOS/${BUNDLE_NAME}"
   /usr/bin/codesign --remove-signature "${MAIN_BIN}" >/dev/null 2>&1 || true
