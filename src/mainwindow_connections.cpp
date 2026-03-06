@@ -475,36 +475,40 @@ void MainWindow::rebuildConnectionList() {
                                      QStringLiteral("Detected commands"),
                                      QStringLiteral("检测到的命令")));
         commandsNode->setData(0, Qt::UserRole, i);
-
-        if (!s.detectedUnixCommands.isEmpty() || !s.missingUnixCommands.isEmpty()) {
-            for (const QString& c : s.detectedUnixCommands) {
-                auto* cc = new QTreeWidgetItem(commandsNode);
-                cc->setText(0, c);
-                cc->setForeground(0, QBrush(QColor("#1f7a1f")));
-            }
-            for (const QString& c : s.missingUnixCommands) {
-                auto* cc = new QTreeWidgetItem(commandsNode);
-                cc->setText(0, c);
-                cc->setForeground(0, QBrush(QColor("#a12a2a")));
-            }
-        } else if (!s.powershellFallbackCommands.isEmpty()) {
-            auto* psHeader = new QTreeWidgetItem(commandsNode);
-            psHeader->setText(0, trk(QStringLiteral("t_ps_fallback01"),
-                                     QStringLiteral("PowerShell (fallback):"),
-                                     QStringLiteral("PowerShell (fallback):"),
-                                     QStringLiteral("PowerShell（回退）：")));
-            for (const QString& c : s.powershellFallbackCommands) {
-                auto* cc = new QTreeWidgetItem(commandsNode);
-                cc->setText(0, c);
-                cc->setForeground(0, QBrush(QColor("#5a4a00")));
-            }
-        } else {
-            auto* none = new QTreeWidgetItem(commandsNode);
-            none->setText(0, trk(QStringLiteral("t_no_data_0001"),
-                                 QStringLiteral("(sin datos)"),
-                                 QStringLiteral("(no data)"),
-                                 QStringLiteral("（无数据）")));
+        QStringList detected = s.detectedUnixCommands;
+        QStringList missing = s.missingUnixCommands;
+        if (detected.isEmpty() && missing.isEmpty() && !s.powershellFallbackCommands.isEmpty()) {
+            detected = s.powershellFallbackCommands;
         }
+        if (detected.isEmpty()) {
+            detected << trk(QStringLiteral("t_none_000001"),
+                            QStringLiteral("(ninguno)"),
+                            QStringLiteral("(none)"),
+                            QStringLiteral("（无）"));
+        }
+        if (missing.isEmpty()) {
+            missing << trk(QStringLiteral("t_none_000001"),
+                           QStringLiteral("(ninguno)"),
+                           QStringLiteral("(none)"),
+                           QStringLiteral("（无）"));
+        }
+        auto* detectedNode = new QTreeWidgetItem(commandsNode);
+        detectedNode->setText(
+            0,
+            trk(QStringLiteral("t_detected_l001"),
+                QStringLiteral("Detectados: %1"),
+                QStringLiteral("Detected: %1"),
+                QStringLiteral("已检测：%1")).arg(detected.join(QStringLiteral(", "))));
+        detectedNode->setForeground(0, QBrush(QColor("#1f7a1f")));
+
+        auto* missingNode = new QTreeWidgetItem(commandsNode);
+        missingNode->setText(
+            0,
+            trk(QStringLiteral("t_missing_l001"),
+                QStringLiteral("No detectados: %1"),
+                QStringLiteral("Missing: %1"),
+                QStringLiteral("未检测：%1")).arg(missing.join(QStringLiteral(", "))));
+        missingNode->setForeground(0, QBrush(QColor("#a12a2a")));
         if (redirectedLocal) {
             osChild->setDisabled(true);
             methodChild->setDisabled(true);
