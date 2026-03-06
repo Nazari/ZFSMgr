@@ -59,6 +59,7 @@ private:
         QStringList detectedUnixCommands;
         QStringList missingUnixCommands;
         bool unixFromMsysOrMingw{false};
+        QString commandsLayer;
         QStringList powershellFallbackCommands;
         QVector<PoolImported> importedPools;
         QVector<PoolImportable> importablePools;

@@ -470,10 +470,18 @@ void MainWindow::rebuildConnectionList() {
         zfsChild->setData(0, Qt::UserRole, i);
 
         auto* commandsNode = new QTreeWidgetItem(item);
-        commandsNode->setText(0, trk(QStringLiteral("t_cmds_detect01"),
-                                     QStringLiteral("Comandos detectados"),
-                                     QStringLiteral("Detected commands"),
-                                     QStringLiteral("检测到的命令")));
+        QString commandsTitle = trk(QStringLiteral("t_cmds_detect01"),
+                                    QStringLiteral("Comandos detectados"),
+                                    QStringLiteral("Detected commands"),
+                                    QStringLiteral("检测到的命令"));
+        if (isWindowsConnection(p)) {
+            QString layer = s.commandsLayer.trimmed();
+            if (layer.isEmpty()) {
+                layer = QStringLiteral("Powershell");
+            }
+            commandsTitle += QStringLiteral(" [%1]").arg(layer);
+        }
+        commandsNode->setText(0, commandsTitle);
         commandsNode->setData(0, Qt::UserRole, i);
         QStringList detected = s.detectedUnixCommands;
         QStringList missing = s.missingUnixCommands;
@@ -493,22 +501,22 @@ void MainWindow::rebuildConnectionList() {
                            QStringLiteral("（无）"));
         }
         auto* detectedNode = new QTreeWidgetItem(commandsNode);
-        detectedNode->setText(
-            0,
-            trk(QStringLiteral("t_detected_l001"),
-                QStringLiteral("Detectados: %1"),
-                QStringLiteral("Detected: %1"),
-                QStringLiteral("已检测：%1")).arg(detected.join(QStringLiteral(", "))));
+        const QString detectedText = trk(QStringLiteral("t_detected_l001"),
+                                         QStringLiteral("Detectados: %1"),
+                                         QStringLiteral("Detected: %1"),
+                                         QStringLiteral("已检测：%1")).arg(detected.join(QStringLiteral(", ")));
+        detectedNode->setText(0, detectedText);
         detectedNode->setForeground(0, QBrush(QColor("#1f7a1f")));
+        detectedNode->setToolTip(0, detectedText);
 
         auto* missingNode = new QTreeWidgetItem(commandsNode);
-        missingNode->setText(
-            0,
-            trk(QStringLiteral("t_missing_l001"),
-                QStringLiteral("No detectados: %1"),
-                QStringLiteral("Missing: %1"),
-                QStringLiteral("未检测：%1")).arg(missing.join(QStringLiteral(", "))));
+        const QString missingText = trk(QStringLiteral("t_missing_l001"),
+                                        QStringLiteral("No detectados: %1"),
+                                        QStringLiteral("Missing: %1"),
+                                        QStringLiteral("未检测：%1")).arg(missing.join(QStringLiteral(", ")));
+        missingNode->setText(0, missingText);
         missingNode->setForeground(0, QBrush(QColor("#a12a2a")));
+        missingNode->setToolTip(0, missingText);
         if (redirectedLocal) {
             osChild->setDisabled(true);
             methodChild->setDisabled(true);
