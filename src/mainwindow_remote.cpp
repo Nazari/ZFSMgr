@@ -82,8 +82,10 @@ bool loadLocalLibzfsOps(LocalLibzfsOps& ops, QString* detail) {
     candidates << QStringLiteral("/usr/local/zfs/lib/libzfs.dylib")
                << QStringLiteral("libzfs.dylib");
 #else
-    candidates << QStringLiteral("libzfs.so.6")
+    candidates << QStringLiteral("libzfs.so.7")
+               << QStringLiteral("libzfs.so.6")
                << QStringLiteral("libzfs.so.5")
+               << QStringLiteral("libzfs.so.4")
                << QStringLiteral("libzfs.so");
 #endif
     QString localDetail = QStringLiteral("no loadable libzfs library found");
@@ -442,8 +444,10 @@ bool MainWindow::detectLocalLibzfs(QString* detail) const {
     candidates << QStringLiteral("/usr/local/zfs/lib/libzfs.dylib")
                << QStringLiteral("libzfs.dylib");
 #else
-    candidates << QStringLiteral("libzfs.so.6")
+    candidates << QStringLiteral("libzfs.so.7")
+               << QStringLiteral("libzfs.so.6")
                << QStringLiteral("libzfs.so.5")
+               << QStringLiteral("libzfs.so.4")
                << QStringLiteral("libzfs.so");
 #endif
     for (const QString& cand : candidates) {
@@ -787,8 +791,10 @@ bool MainWindow::listLocalImportedPoolsLibzfs(QStringList& poolsOut, QString* de
     candidates << QStringLiteral("/usr/local/zfs/lib/libzfs.dylib")
                << QStringLiteral("libzfs.dylib");
 #else
-    candidates << QStringLiteral("libzfs.so.6")
+    candidates << QStringLiteral("libzfs.so.7")
+               << QStringLiteral("libzfs.so.6")
                << QStringLiteral("libzfs.so.5")
+               << QStringLiteral("libzfs.so.4")
                << QStringLiteral("libzfs.so");
 #endif
 
@@ -881,8 +887,10 @@ bool MainWindow::listLocalDatasetsLibzfs(const QString& poolName, PoolDatasetCac
     candidates << QStringLiteral("/usr/local/zfs/lib/libzfs.dylib")
                << QStringLiteral("libzfs.dylib");
 #else
-    candidates << QStringLiteral("libzfs.so.6")
+    candidates << QStringLiteral("libzfs.so.7")
+               << QStringLiteral("libzfs.so.6")
                << QStringLiteral("libzfs.so.5")
+               << QStringLiteral("libzfs.so.4")
                << QStringLiteral("libzfs.so");
 #endif
 
@@ -1058,8 +1066,10 @@ bool MainWindow::getLocalDatasetPropsLibzfs(const QString& objectName,
     candidates << QStringLiteral("/usr/local/zfs/lib/libzfs.dylib")
                << QStringLiteral("libzfs.dylib");
 #else
-    candidates << QStringLiteral("libzfs.so.6")
+    candidates << QStringLiteral("libzfs.so.7")
+               << QStringLiteral("libzfs.so.6")
                << QStringLiteral("libzfs.so.5")
+               << QStringLiteral("libzfs.so.4")
                << QStringLiteral("libzfs.so");
 #endif
     QString localDetail = QStringLiteral("no loadable libzfs library found");
