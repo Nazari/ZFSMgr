@@ -4,6 +4,7 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -72,17 +73,26 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     m_authorLabel = new QLabel(this);
     root->addWidget(m_authorLabel);
 
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-    m_okButton = buttons->button(QDialogButtonBox::Ok);
-    m_cancelButton = buttons->button(QDialogButtonBox::Cancel);
+    m_okButton = new QPushButton(this);
+    m_cancelButton = new QPushButton(this);
     m_changePwdButton = new QPushButton(this);
     m_resetIniButton = new QPushButton(this);
-    buttons->addButton(m_changePwdButton, QDialogButtonBox::ActionRole);
-    buttons->addButton(m_resetIniButton, QDialogButtonBox::ActionRole);
-    root->addWidget(buttons);
 
-    connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    auto* actionsCol = new QVBoxLayout();
+    actionsCol->setSpacing(6);
+    actionsCol->addWidget(m_changePwdButton);
+    actionsCol->addWidget(m_resetIniButton);
+    root->addLayout(actionsCol);
+
+    auto* decisionRow = new QHBoxLayout();
+    decisionRow->setSpacing(8);
+    decisionRow->addStretch(1);
+    decisionRow->addWidget(m_cancelButton);
+    decisionRow->addWidget(m_okButton);
+    root->addLayout(decisionRow);
+
+    connect(m_okButton, &QPushButton::clicked, this, &QDialog::accept);
+    connect(m_cancelButton, &QPushButton::clicked, this, &QDialog::reject);
     connect(m_passwordEdit, &QLineEdit::returnPressed, this, &QDialog::accept);
     connect(m_passwordConfirmEdit, &QLineEdit::returnPressed, this, &QDialog::accept);
     connect(m_changePwdButton, &QPushButton::clicked, this, [this]() {
