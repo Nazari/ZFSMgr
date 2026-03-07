@@ -92,6 +92,10 @@ void MainWindow::setActionsLocked(bool locked) {
         m_logCancelBtn->setVisible(locked);
         m_logCancelBtn->setEnabled(locked);
     }
+    if (m_logControlsPane) {
+        const int paneW = (locked && m_logCancelBtn) ? qMax(56, m_logCancelBtn->sizeHint().width()) + 8 : 0;
+        m_logControlsPane->setFixedWidth(paneW);
+    }
     if (m_btnNew) m_btnNew->setEnabled(!locked);
     if (m_btnRefreshAll) m_btnRefreshAll->setEnabled(!locked);
     if (m_btnPoolNew) m_btnPoolNew->setEnabled(!locked && selectedConnectionIndexForPoolManagement() >= 0);

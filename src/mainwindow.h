@@ -25,6 +25,7 @@ class QTreeWidget;
 class QTreeWidgetItem;
 class QStackedWidget;
 class QTextEdit;
+class QWidget;
 
 class MainWindow final : public QMainWindow {
     Q_OBJECT
@@ -330,6 +331,7 @@ private:
     QPushButton* m_logClearBtn{nullptr};
     QPushButton* m_logCopyBtn{nullptr};
     QPushButton* m_logCancelBtn{nullptr};
+    QWidget* m_logControlsPane{nullptr};
     QPlainTextEdit* m_logView{nullptr};
     QMap<QString, QPlainTextEdit*> m_connectionLogViews;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
