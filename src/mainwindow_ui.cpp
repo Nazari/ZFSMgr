@@ -574,6 +574,12 @@ void MainWindow::buildUi() {
     m_connOriginSelectionLabel->setWordWrap(true);
     m_connOriginSelectionLabel->setMinimumHeight(34);
     connActionRightLayout->addWidget(m_connOriginSelectionLabel);
+    m_btnConnReset = new QPushButton(
+        trk(QStringLiteral("t_reset_btn_001"),
+            QStringLiteral("Reset"),
+            QStringLiteral("Reset"),
+            QStringLiteral("重置")),
+        connActionRightBox);
     m_btnConnCopy = new QPushButton(
         trk(QStringLiteral("t_copy_001"),
             QStringLiteral("Copiar"),
@@ -616,21 +622,26 @@ void MainWindow::buildUi() {
                            "Requires: dataset selected (not snapshot) in Source and Target."),
             QStringLiteral("使用 rsync 同步源端到目标端的数据集内容。\n"
                            "条件：源端和目标端都选择数据集（非快照）。")));
+    m_btnConnReset->setToolTip(
+        trk(QStringLiteral("t_tt_reset_001"),
+            QStringLiteral("Limpia la selección de Origen."),
+            QStringLiteral("Clear the Source selection."),
+            QStringLiteral("清空源端选择。")));
+    m_btnConnReset->setMinimumHeight(stdLeftBtnH);
     m_btnConnCopy->setMinimumHeight(stdLeftBtnH);
     m_btnConnLevel->setMinimumHeight(stdLeftBtnH);
     m_btnConnSync->setMinimumHeight(stdLeftBtnH);
+    m_btnConnReset->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnCopy->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnLevel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnSync->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    auto* connRightBtns = new QGridLayout();
+    auto* connRightBtns = new QVBoxLayout();
     connRightBtns->setContentsMargins(0, 0, 0, 0);
-    connRightBtns->setHorizontalSpacing(6);
-    connRightBtns->setVerticalSpacing(6);
-    connRightBtns->setColumnStretch(0, 1);
-    connRightBtns->setColumnStretch(1, 1);
-    connRightBtns->addWidget(m_btnConnCopy, 0, 0);
-    connRightBtns->addWidget(m_btnConnLevel, 0, 1);
-    connRightBtns->addWidget(m_btnConnSync, 1, 0, 1, 2);
+    connRightBtns->setSpacing(6);
+    connRightBtns->addWidget(m_btnConnReset);
+    connRightBtns->addWidget(m_btnConnSync);
+    connRightBtns->addWidget(m_btnConnCopy);
+    connRightBtns->addWidget(m_btnConnLevel);
     connActionRightLayout->addLayout(connRightBtns);
     connActionsLayout->addWidget(connActionRightBox, 1);
     connActionsLayout->addWidget(connActionLeftBox, 1);
@@ -1932,6 +1943,15 @@ void MainWindow::buildUi() {
             m_activeConnActionName.clear();
             updateConnectionActionsState();
         }
+    });
+    connect(m_btnConnReset, &QPushButton::clicked, this, [this]() {
+        if (actionsLocked()) {
+            return;
+        }
+        logUiAction(QStringLiteral("Reset origen (botón Conexiones)"));
+        setConnectionOriginSelection(DatasetSelectionContext{});
+        refreshTransferSelectionLabels();
+        updateConnectionActionsState();
     });
     connect(m_btnConnCopy, &QPushButton::clicked, this, [this]() {
         if (actionsLocked()) {

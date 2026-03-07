@@ -29,6 +29,7 @@ void MainWindow::updateTransferButtonsState() {
         if (m_btnConnAssemble) m_btnConnAssemble->setEnabled(false);
         if (m_btnConnFromDir) m_btnConnFromDir->setEnabled(false);
         if (m_btnConnToDir) m_btnConnToDir->setEnabled(false);
+        if (m_btnConnReset) m_btnConnReset->setEnabled(false);
         if (m_btnConnCopy) m_btnConnCopy->setEnabled(false);
         if (m_btnConnLevel) m_btnConnLevel->setEnabled(false);
         if (m_btnConnSync) m_btnConnSync->setEnabled(false);
@@ -160,6 +161,8 @@ void MainWindow::updateConnectionActionsState() {
         trk(QStringLiteral("t_level_btn_001"), QStringLiteral("Nivelar"), QStringLiteral("Level"), QStringLiteral("同步快照")));
     if (m_btnConnSync) m_btnConnSync->setText(
         trk(QStringLiteral("t_sync_btn_001"), QStringLiteral("Sincronizar"), QStringLiteral("Sync"), QStringLiteral("同步文件")));
+    if (m_btnConnReset) m_btnConnReset->setText(
+        trk(QStringLiteral("t_reset_btn_001"), QStringLiteral("Reset"), QStringLiteral("Reset"), QStringLiteral("重置")));
 
     const DatasetSelectionContext dctx = currentDatasetSelection(QStringLiteral("conncontent"));
     auto fmtSel = [this](const DatasetSelectionContext& c) -> QString {
@@ -192,6 +195,7 @@ void MainWindow::updateConnectionActionsState() {
         if (m_btnConnAssemble) m_btnConnAssemble->setEnabled(false);
         if (m_btnConnFromDir) m_btnConnFromDir->setEnabled(false);
         if (m_btnConnToDir) m_btnConnToDir->setEnabled(false);
+        if (m_btnConnReset) m_btnConnReset->setEnabled(false);
         if (m_btnConnCopy) m_btnConnCopy->setEnabled(false);
         if (m_btnConnLevel) m_btnConnLevel->setEnabled(false);
         if (m_btnConnSync) m_btnConnSync->setEnabled(false);
@@ -234,6 +238,7 @@ void MainWindow::updateConnectionActionsState() {
     if (m_btnConnAssemble) m_btnConnAssemble->setEnabled(!actionsLocked() && connAdvDatasetOnly);
     if (m_btnConnFromDir) m_btnConnFromDir->setEnabled(!actionsLocked() && dctx.valid && !dctx.datasetName.isEmpty() && dctx.snapshotName.isEmpty());
     if (m_btnConnToDir) m_btnConnToDir->setEnabled(!actionsLocked() && dctx.valid && !dctx.datasetName.isEmpty() && dctx.snapshotName.isEmpty());
+    if (m_btnConnReset) m_btnConnReset->setEnabled(!actionsLocked() && m_connActionOrigin.valid && !m_connActionOrigin.datasetName.isEmpty());
 
     const bool srcDs = m_connActionOrigin.valid && !m_connActionOrigin.datasetName.isEmpty();
     const bool srcSnap = srcDs && !m_connActionOrigin.snapshotName.isEmpty();

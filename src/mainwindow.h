@@ -267,6 +267,7 @@ private:
     QPushButton* m_btnConnFromDir{nullptr};
     QPushButton* m_btnConnToDir{nullptr};
     QLabel* m_connOriginSelectionLabel{nullptr};
+    QPushButton* m_btnConnReset{nullptr};
     QPushButton* m_btnConnCopy{nullptr};
     QPushButton* m_btnConnLevel{nullptr};
     QPushButton* m_btnConnSync{nullptr};
