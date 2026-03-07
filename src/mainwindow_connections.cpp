@@ -481,25 +481,27 @@ void MainWindow::rebuildConnectionList() {
         const bool localConn = isLocalConnection(p);
         const bool redirectedLocal = (!localConn && st == QStringLiteral("OK") && isLocalHostForUi(p.host));
         if (st == QStringLiteral("OK")) {
-            statusTag = QStringLiteral("[OK] ");
+            statusTag = QStringLiteral("[OK]");
             rowColor = QColor("#1f7a1f");
         } else if (!st.isEmpty()) {
-            statusTag = QStringLiteral("[KO] ");
+            statusTag = QStringLiteral("[KO]");
             rowColor = QColor("#a12a2a");
         }
         QString line;
         if (localConn) {
-            line = QStringLiteral("%1Local").arg(statusTag);
+            line = QStringLiteral("Local");
         } else if (redirectedLocal) {
-            line = QStringLiteral("%1%2 %3")
-                       .arg(statusTag,
-                            line1,
+            line = QStringLiteral("%1 %2")
+                       .arg(line1,
                             trk(QStringLiteral("t_conn_redirect_l1"),
                                 QStringLiteral("[Redirección a 'Local']"),
                                 QStringLiteral("[Redirected to 'Local']"),
                                 QStringLiteral("[重定向到“本地”]")));
         } else {
-            line = QStringLiteral("%1%2").arg(statusTag, line1);
+            line = line1;
+        }
+        if (!statusTag.isEmpty()) {
+            line += QStringLiteral(" %1").arg(statusTag);
         }
 
         auto* item = new QTreeWidgetItem(m_connectionsList);
