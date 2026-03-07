@@ -598,6 +598,18 @@ void MainWindow::loadConnections() {
 void MainWindow::rebuildConnectionList() {
     beginUiBusy();
     m_connectionsList->clear();
+    QStringList redirectedToLocalNames;
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        if (i >= m_states.size()) {
+            continue;
+        }
+        if (isLocalConnection(i)) {
+            continue;
+        }
+        if (isConnectionRedirectedToLocal(i)) {
+            redirectedToLocalNames << m_profiles[i].name;
+        }
+    }
     for (int i = 0; i < m_profiles.size(); ++i) {
         const auto& p = m_profiles[i];
         const auto& s = m_states[i];
@@ -625,10 +637,14 @@ void MainWindow::rebuildConnectionList() {
             statusTag = QStringLiteral("[Ko]");
             rowColor = QColor("#a12a2a");
         }
-        const QString connLabel = localConn ? QStringLiteral("Local") : line1;
+        QString connLabel = line1;
+        if (localConn) {
+            connLabel = redirectedToLocalNames.isEmpty() ? QStringLiteral("Local")
+                                                         : redirectedToLocalNames.first();
+        }
         QString line = QStringLiteral("%1 %2").arg(statusTag, connLabel);
         if (localConn) {
-            line += QStringLiteral(" |Local");
+            line += QStringLiteral(" [Local]");
         }
 
         auto* item = new QTreeWidgetItem(m_connectionsList);
