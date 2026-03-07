@@ -159,6 +159,7 @@ private:
     DatasetSelectionContext currentDatasetSelection(const QString& side) const;
     void showDatasetContextMenu(const QString& side, QTreeWidget* tree, const QPoint& pos);
     bool executeDatasetAction(const QString& side, const QString& actionName, const DatasetSelectionContext& ctx, const QString& cmd, int timeoutMs = 45000, bool allowWindowsScript = false);
+    bool ensureLocalSudoCredentials(ConnectionProfile& profile);
     QString diagnoseUmountFailure(const DatasetSelectionContext& ctx);
     void invalidateDatasetCacheForPool(int connIdx, const QString& poolName);
     void reloadDatasetSide(const QString& side);
@@ -325,6 +326,8 @@ private:
     mutable bool m_localLibzfsChecked{false};
     mutable bool m_localLibzfsAvailable{false};
     mutable QString m_localLibzfsDetail;
+    QString m_localSudoUsername;
+    QString m_localSudoPassword;
     bool m_syncingConnectionFromPoolSelection{false};
     bool m_actionsLocked{false};
     bool m_waitCursorActive{false};

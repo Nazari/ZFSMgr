@@ -3,8 +3,14 @@
 
 #include <QAction>
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
+#include <QSet>
+#include <QSysInfo>
 #include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -15,6 +21,127 @@ using mwhelpers::oneLine;
 using mwhelpers::parentDatasetName;
 using mwhelpers::shSingleQuote;
 } // namespace
+
+bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
+    if (!isLocalConnection(profile) || isWindowsConnection(profile) || !profile.useSudo) {
+        return true;
+    }
+    auto normalizeHost = [](QString host) {
+        host = host.trimmed().toLower();
+        if (host.startsWith('[') && host.endsWith(']') && host.size() > 2) {
+            host = host.mid(1, host.size() - 2);
+        }
+        while (host.endsWith('.')) {
+            host.chop(1);
+        }
+        return host;
+    };
+    auto isLocalHost = [&](const QString& host) {
+        const QString h = normalizeHost(host);
+        if (h.isEmpty()) {
+            return false;
+        }
+        if (h == QStringLiteral("localhost") || h == QStringLiteral("127.0.0.1") || h == QStringLiteral("::1")) {
+            return true;
+        }
+        static const QSet<QString> aliases = [&]() {
+            QSet<QString> s;
+            s.insert(QStringLiteral("localhost"));
+            s.insert(QStringLiteral("127.0.0.1"));
+            s.insert(QStringLiteral("::1"));
+            const QString local = normalizeHost(QSysInfo::machineHostName());
+            if (!local.isEmpty()) {
+                s.insert(local);
+                s.insert(local + QStringLiteral(".local"));
+                const int dot = local.indexOf('.');
+                if (dot > 0) {
+                    const QString shortName = local.left(dot);
+                    s.insert(shortName);
+                    s.insert(shortName + QStringLiteral(".local"));
+                }
+            }
+            return s;
+        }();
+        return aliases.contains(h);
+    };
+
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        if (isLocalConnection(i) || i >= m_states.size()) {
+            continue;
+        }
+        const ConnectionProfile& candidate = m_profiles[i];
+        const ConnectionRuntimeState& st = m_states[i];
+        if (st.status.trimmed().toUpper() != QStringLiteral("OK")) {
+            continue;
+        }
+        if (!isLocalHost(candidate.host)) {
+            continue;
+        }
+        if (candidate.username.trimmed().isEmpty() || candidate.password.isEmpty()) {
+            continue;
+        }
+        profile.username = candidate.username;
+        profile.password = candidate.password;
+        m_localSudoUsername = candidate.username;
+        m_localSudoPassword = candidate.password;
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("Credenciales sudo locales tomadas de conexión redirigida: %1").arg(candidate.name));
+        return true;
+    }
+
+    if (!m_localSudoUsername.trimmed().isEmpty() && !m_localSudoPassword.isEmpty()) {
+        profile.username = m_localSudoUsername;
+        profile.password = m_localSudoPassword;
+        return true;
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(trk(QStringLiteral("t_local_sudo_dlg1"),
+                           QStringLiteral("Credenciales sudo locales"),
+                           QStringLiteral("Local sudo credentials"),
+                           QStringLiteral("本地 sudo 凭据")));
+    dlg.setModal(true);
+    auto* form = new QFormLayout(&dlg);
+    auto* userEdit = new QLineEdit(&dlg);
+    auto* passEdit = new QLineEdit(&dlg);
+    passEdit->setEchoMode(QLineEdit::Password);
+    const QString envUser = qEnvironmentVariable("USER").trimmed();
+    const QString envUserWin = qEnvironmentVariable("USERNAME").trimmed();
+    userEdit->setText(!envUser.isEmpty() ? envUser : envUserWin);
+    form->addRow(trk(QStringLiteral("t_usuario_d31f58"),
+                     QStringLiteral("Usuario"),
+                     QStringLiteral("User"),
+                     QStringLiteral("用户")),
+                 userEdit);
+    form->addRow(trk(QStringLiteral("t_password_8be3c9"),
+                     QStringLiteral("Password"),
+                     QStringLiteral("Password"),
+                     QStringLiteral("密码")),
+                 passEdit);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    form->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+    if (dlg.exec() != QDialog::Accepted) {
+        return false;
+    }
+    if (userEdit->text().trimmed().isEmpty() || passEdit->text().isEmpty()) {
+        QMessageBox::warning(this,
+                             QStringLiteral("ZFSMgr"),
+                             trk(QStringLiteral("t_local_sudo_req1"),
+                                 QStringLiteral("Usuario y password sudo son obligatorios."),
+                                 QStringLiteral("Sudo user and password are required."),
+                                 QStringLiteral("必须提供 sudo 用户和密码。")));
+        return false;
+    }
+    m_localSudoUsername = userEdit->text().trimmed();
+    m_localSudoPassword = passEdit->text();
+    profile.username = m_localSudoUsername;
+    profile.password = m_localSudoPassword;
+    appLog(QStringLiteral("INFO"), QStringLiteral("Credenciales sudo locales guardadas en memoria"));
+    return true;
+}
 
 void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, const QPoint& pos) {
     if (actionsLocked()) {
@@ -160,7 +287,12 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
             return false;
         }
     }
-    QString remoteCmd = withSudo(p, cmd);
+    ConnectionProfile sudoProfile = p;
+    if (!ensureLocalSudoCredentials(sudoProfile)) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("%1 cancelada: faltan credenciales sudo locales").arg(actionName));
+        return false;
+    }
+    QString remoteCmd = withSudo(sudoProfile, cmd);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(QStringLiteral("%1@%2:%3").arg(p.username, p.host).arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
                                 .arg(buildSshPreviewCommand(p, remoteCmd));
