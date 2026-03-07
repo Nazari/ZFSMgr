@@ -266,8 +266,6 @@ void MainWindow::importPoolFromRow(int row) {
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin importar %1::%2").arg(connName, poolName));
     setActionsLocked(false);
-    m_busyOnImportRefresh = true;
-    beginUiBusy();
     refreshConnectionByIndex(idx);
 }
 
