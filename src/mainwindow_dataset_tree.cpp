@@ -300,6 +300,10 @@ void MainWindow::onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item
         updateTransferButtonsState();
         return;
     }
+    if (side == QStringLiteral("conncontent")) {
+        refreshDatasetProperties(QStringLiteral("conncontent"));
+        return;
+    }
     setSelectedDataset(side, ds, snap);
 }
 

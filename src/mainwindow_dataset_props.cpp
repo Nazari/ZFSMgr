@@ -250,14 +250,25 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     } else if (side == QStringLiteral("dest")) {
         dataset = m_destSelectedDataset;
         snapshot = m_destSelectedSnapshot;
-    } else {
+    } else if (side == QStringLiteral("advanced")) {
         const auto selected = m_advTree ? m_advTree->selectedItems() : QList<QTreeWidgetItem*>{};
         if (!selected.isEmpty()) {
             dataset = selected.first()->data(0, Qt::UserRole).toString();
             snapshot = selected.first()->data(1, Qt::UserRole).toString();
         }
+    } else if (side == QStringLiteral("conncontent")) {
+        const auto selected = m_connContentTree ? m_connContentTree->selectedItems() : QList<QTreeWidgetItem*>{};
+        if (!selected.isEmpty()) {
+            dataset = selected.first()->data(0, Qt::UserRole).toString();
+            snapshot = selected.first()->data(1, Qt::UserRole).toString();
+        }
     }
-    QTableWidget* table = (side == QStringLiteral("advanced")) ? m_advPropsTable : m_datasetPropsTable;
+    QTableWidget* table = m_datasetPropsTable;
+    if (side == QStringLiteral("advanced")) {
+        table = m_advPropsTable;
+    } else if (side == QStringLiteral("conncontent")) {
+        table = m_connContentPropsTable;
+    }
     if (!table) {
         endUiBusy();
         return;
@@ -288,8 +299,10 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         token = m_originPoolCombo->currentData().toString();
     } else if (side == QStringLiteral("dest")) {
         token = m_destPoolCombo->currentData().toString();
-    } else {
+    } else if (side == QStringLiteral("advanced")) {
         token = m_advPoolCombo->currentData().toString();
+    } else if (side == QStringLiteral("conncontent")) {
+        token = m_connContentToken;
     }
     const int sep = token.indexOf(QStringLiteral("::"));
     if (sep <= 0) {

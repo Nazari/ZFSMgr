@@ -12,6 +12,7 @@
 #include <QSysInfo>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QStackedWidget>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 
@@ -28,6 +29,7 @@ constexpr int RolePoolImported = Qt::UserRole + 6;
 constexpr int NodeConnection = 1;
 constexpr int NodeInfo = 2;
 constexpr int NodePool = 3;
+constexpr int NodePoolContent = 4;
 
 QString normalizeHostToken(QString host) {
     host = host.trimmed().toLower();
@@ -247,38 +249,83 @@ void MainWindow::onAsyncRefreshDone(int generation) {
 }
 
 void MainWindow::onConnectionSelectionChanged() {
-    const auto selected = m_connectionsList->selectedItems();
     if (m_leftTabs->currentIndex() == 0 && !m_syncingConnectionFromPoolSelection) {
         populateAllPoolsTables();
     }
-    if (!selected.isEmpty() && m_importedPoolsTable) {
-        QTreeWidgetItem* item = selected.first();
-        if (item && item->data(0, RoleNodeType).toInt() == NodePool) {
-            const QString connName = item->data(0, RoleConnName).toString().trimmed();
-            const QString poolName = item->data(0, RolePoolName).toString().trimmed();
-            if (!connName.isEmpty() && !poolName.isEmpty()) {
-                for (int row = 0; row < m_importedPoolsTable->rowCount(); ++row) {
-                    const QTableWidgetItem* c = m_importedPoolsTable->item(row, 0);
-                    const QTableWidgetItem* p = m_importedPoolsTable->item(row, 1);
-                    if (!c || !p) {
-                        continue;
-                    }
-                    if (c->text().trimmed().compare(connName, Qt::CaseInsensitive) == 0
-                        && p->text().trimmed().compare(poolName, Qt::CaseInsensitive) == 0) {
-                        m_syncingConnectionFromPoolSelection = true;
-                        m_importedPoolsTable->setCurrentCell(row, 0);
-                        m_syncingConnectionFromPoolSelection = false;
-                        refreshSelectedPoolDetails();
-                        break;
-                    }
-                }
-            }
-        }
-    }
+    refreshConnectionNodeDetails();
     updatePoolManagementBoxTitle();
 }
 
+void MainWindow::refreshConnectionNodeDetails() {
+    const auto selected = m_connectionsList ? m_connectionsList->selectedItems() : QList<QTreeWidgetItem*>{};
+    if (selected.isEmpty()) {
+        if (m_connPropsStack && m_connPoolPropsPage) {
+            m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
+        }
+        if (m_connContentTree) {
+            m_connContentTree->clear();
+        }
+        if (m_connContentPropsTable) {
+            setTablePopulationMode(m_connContentPropsTable, true);
+            m_connContentPropsTable->setRowCount(0);
+            setTablePopulationMode(m_connContentPropsTable, false);
+        }
+        return;
+    }
+
+    auto* item = selected.first();
+    const int nodeType = item->data(0, RoleNodeType).toInt();
+    if (nodeType != NodePool && nodeType != NodePoolContent) {
+        if (m_connPropsStack && m_connPoolPropsPage) {
+            m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
+        }
+        return;
+    }
+
+    const QString connName = item->data(0, RoleConnName).toString().trimmed();
+    const QString poolName = item->data(0, RolePoolName).toString().trimmed();
+    if (!connName.isEmpty() && !poolName.isEmpty() && m_importedPoolsTable) {
+        for (int row = 0; row < m_importedPoolsTable->rowCount(); ++row) {
+            const QTableWidgetItem* c = m_importedPoolsTable->item(row, 0);
+            const QTableWidgetItem* p = m_importedPoolsTable->item(row, 1);
+            if (!c || !p) {
+                continue;
+            }
+            if (c->text().trimmed().compare(connName, Qt::CaseInsensitive) == 0
+                && p->text().trimmed().compare(poolName, Qt::CaseInsensitive) == 0) {
+                m_syncingConnectionFromPoolSelection = true;
+                m_importedPoolsTable->setCurrentCell(row, 0);
+                m_syncingConnectionFromPoolSelection = false;
+                break;
+            }
+        }
+    }
+
+    if (nodeType == NodePoolContent) {
+        if (m_connPropsStack && m_connContentPage) {
+            m_connPropsStack->setCurrentWidget(m_connContentPage);
+        }
+        int connIdx = findConnectionIndexByName(connName);
+        if (connIdx >= 0 && connIdx < m_profiles.size() && m_connContentTree) {
+            m_connContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+            populateDatasetTree(m_connContentTree, connIdx, poolName, QStringLiteral("conncontent"));
+            refreshDatasetProperties(QStringLiteral("conncontent"));
+        }
+        return;
+    }
+
+    if (m_connPropsStack && m_connPoolPropsPage) {
+        m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
+    }
+    refreshSelectedPoolDetails();
+}
+
 void MainWindow::onPoolsSelectionChanged() {
+    if (m_syncingConnectionFromPoolSelection) {
+        refreshSelectedPoolDetails();
+        updatePoolManagementBoxTitle();
+        return;
+    }
     const int idx = selectedConnectionIndexForPoolManagement();
     if (idx >= 0 && idx < m_profiles.size() && m_connectionsList) {
         m_syncingConnectionFromPoolSelection = true;
@@ -744,7 +791,7 @@ void MainWindow::rebuildConnectionList() {
                                const QString& stateTxt,
                                const QString& importedTxt,
                                const QString& actionTxt,
-                               const QString& reasonTxt) {
+                               const QString& reasonTxt) -> QTreeWidgetItem* {
             const QString importedUp = importedTxt.trimmed().toUpper();
             const QString emptyTxt = trk(QStringLiteral("t_none_000001"),
                                          QStringLiteral("(ninguno)"),
@@ -785,10 +832,23 @@ void MainWindow::rebuildConnectionList() {
                                              actionTxt.isEmpty() ? emptyTxt : actionTxt,
                                              reasonTxt.isEmpty() ? emptyTxt : reasonTxt));
             poolNode->setForeground(0, QBrush(poolColor));
+            return poolNode;
         };
 
         for (const PoolImported& pool : s.importedPools) {
-            addPoolNode(pool.pool, QStringLiteral("ONLINE"), QStringLiteral("Sí"), QStringLiteral("Exportar"), QString());
+            QTreeWidgetItem* poolNode = addPoolNode(pool.pool, QStringLiteral("ONLINE"), QStringLiteral("Sí"), QStringLiteral("Exportar"), QString());
+            if (poolNode) {
+                auto* contentNode = new QTreeWidgetItem(poolNode);
+                contentNode->setText(0, trk(QStringLiteral("t_content_node_001"),
+                                            QStringLiteral("Contenido"),
+                                            QStringLiteral("Content"),
+                                            QStringLiteral("内容")));
+                contentNode->setData(0, Qt::UserRole, i);
+                contentNode->setData(0, RoleNodeType, NodePoolContent);
+                contentNode->setData(0, RoleConnName, p.name);
+                contentNode->setData(0, RolePoolName, pool.pool);
+                poolNode->setExpanded(false);
+            }
         }
         for (const PoolImportable& pool : s.importablePools) {
             const QString stateUp = pool.state.trimmed().toUpper();
@@ -801,6 +861,7 @@ void MainWindow::rebuildConnectionList() {
     m_connectionsList->collapseAll();
     syncConnectionLogTabs();
     endUiBusy();
+    refreshConnectionNodeDetails();
     updatePoolManagementBoxTitle();
 }
 

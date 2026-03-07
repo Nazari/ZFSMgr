@@ -120,6 +120,7 @@ private:
     void onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* item, int col, const QString& side);
     void clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem* keepItem);
     void onConnectionListContextMenuRequested(const QPoint& pos);
+    void refreshConnectionNodeDetails();
 
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
     bool runSsh(const ConnectionProfile& p,
@@ -258,6 +259,12 @@ private:
     QTableWidget* m_importablePoolsTable{nullptr};
     QTabWidget* m_poolDetailTabs{nullptr};
     QTableWidget* m_poolPropsTable{nullptr};
+    QStackedWidget* m_connPropsStack{nullptr};
+    QWidget* m_connPoolPropsPage{nullptr};
+    QWidget* m_connContentPage{nullptr};
+    QTreeWidget* m_connContentTree{nullptr};
+    QTableWidget* m_connContentPropsTable{nullptr};
+    QString m_connContentToken;
     QPlainTextEdit* m_poolStatusText{nullptr};
     QPushButton* m_poolStatusRefreshBtn{nullptr};
     QPushButton* m_poolStatusImportBtn{nullptr};

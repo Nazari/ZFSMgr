@@ -805,9 +805,8 @@ void MainWindow::buildUi() {
     m_rightTabs = new QTabWidget(rightConnectionsPage);
     m_rightTabs->setDocumentMode(false);
 
-    auto* importedTab = new QWidget(m_rightTabs);
-    auto* importedLayout = new QVBoxLayout(importedTab);
-    m_importedPoolsTable = new QTableWidget(importedTab);
+    // Backend-only pool table (hidden). Data/actions are driven from connection tree nodes.
+    m_importedPoolsTable = new QTableWidget(rightConnectionsPage);
     m_importedPoolsTable->setColumnCount(5);
     m_importedPoolsTable->setHorizontalHeaderLabels(
         {trk(QStringLiteral("t_conexi_n_d70cf0"),
@@ -848,17 +847,17 @@ void MainWindow::buildUi() {
     m_importedPoolsTable->verticalHeader()->setDefaultSectionSize(22);
     m_importedPoolsTable->setStyleSheet(QStringLiteral("QTableWidget::item{padding:1px 3px;}"));
     enableSortableHeader(m_importedPoolsTable);
-    importedLayout->addWidget(m_importedPoolsTable, 1);
-    m_rightTabs->addTab(importedTab, trk(QStringLiteral("t_pools_tab_001"),
-                                         QStringLiteral("Pools"),
-                                         QStringLiteral("Pools"),
-                                         QStringLiteral("存储池")));
+    m_importedPoolsTable->setVisible(false);
 
     m_poolDetailTabs = new QTabWidget(rightConnectionsPage);
     m_poolDetailTabs->setDocumentMode(false);
     auto* propsPoolTab = new QWidget(m_poolDetailTabs);
     auto* propsPoolLayout = new QVBoxLayout(propsPoolTab);
-    m_poolPropsTable = new QTableWidget(propsPoolTab);
+    m_connPropsStack = new QStackedWidget(propsPoolTab);
+    m_connPoolPropsPage = new QWidget(m_connPropsStack);
+    auto* poolPropsPageLayout = new QVBoxLayout(m_connPoolPropsPage);
+    poolPropsPageLayout->setContentsMargins(0, 0, 0, 0);
+    m_poolPropsTable = new QTableWidget(m_connPoolPropsPage);
     m_poolPropsTable->setColumnCount(3);
     m_poolPropsTable->setHorizontalHeaderLabels({trk(QStringLiteral("t_prop_col_001"),
                                                      QStringLiteral("Propiedad"),
@@ -880,7 +879,92 @@ void MainWindow::buildUi() {
     m_poolPropsTable->verticalHeader()->setVisible(false);
     m_poolPropsTable->verticalHeader()->setDefaultSectionSize(22);
     enableSortableHeader(m_poolPropsTable);
-    propsPoolLayout->addWidget(m_poolPropsTable, 1);
+    poolPropsPageLayout->addWidget(m_poolPropsTable, 1);
+    m_connPropsStack->addWidget(m_connPoolPropsPage);
+
+    m_connContentPage = new QWidget(m_connPropsStack);
+    auto* connContentLayout = new QVBoxLayout(m_connContentPage);
+    connContentLayout->setContentsMargins(0, 0, 0, 0);
+    connContentLayout->setSpacing(4);
+    auto* connContentSplit = new QSplitter(Qt::Vertical, m_connContentPage);
+    connContentSplit->setChildrenCollapsible(false);
+    connContentSplit->setHandleWidth(1);
+    m_connContentTree = new QTreeWidget(m_connContentPage);
+    m_connContentTree->setColumnCount(4);
+    m_connContentTree->setHeaderLabels({trk(QStringLiteral("t_dataset_001"),
+                                            QStringLiteral("Dataset"),
+                                            QStringLiteral("Dataset"),
+                                            QStringLiteral("数据集")),
+                                        trk(QStringLiteral("t_snapshot_col01"),
+                                            QStringLiteral("Snapshot"),
+                                            QStringLiteral("Snapshot"),
+                                            QStringLiteral("快照")),
+                                        trk(QStringLiteral("t_montado_a97484"),
+                                            QStringLiteral("Montado"),
+                                            QStringLiteral("Mounted"),
+                                            QStringLiteral("已挂载")),
+                                        trk(QStringLiteral("t_mountpoint_001"),
+                                            QStringLiteral("Mountpoint"),
+                                            QStringLiteral("Mountpoint"),
+                                            QStringLiteral("挂载点"))});
+    m_connContentTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
+    m_connContentTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
+    m_connContentTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
+    m_connContentTree->header()->setSectionResizeMode(3, QHeaderView::Interactive);
+    m_connContentTree->header()->setStretchLastSection(false);
+    m_connContentTree->setColumnWidth(0, 250);
+    m_connContentTree->setColumnWidth(1, 90);
+    m_connContentTree->setColumnWidth(2, 72);
+    m_connContentTree->setColumnWidth(3, 180);
+    m_connContentTree->setUniformRowHeights(true);
+    m_connContentTree->setRootIsDecorated(true);
+    m_connContentTree->setItemsExpandable(true);
+    {
+        QFont f = m_connContentTree->font();
+        f.setPointSize(qMax(6, f.pointSize() - 1));
+        m_connContentTree->setFont(f);
+    }
+    m_connContentTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"));
+#ifdef Q_OS_MAC
+    if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
+        m_connContentTree->setStyle(fusion);
+    }
+#endif
+    m_connContentPropsTable = new QTableWidget(m_connContentPage);
+    m_connContentPropsTable->setColumnCount(3);
+    m_connContentPropsTable->setHorizontalHeaderLabels({trk(QStringLiteral("t_prop_col_001"),
+                                                             QStringLiteral("Propiedad"),
+                                                             QStringLiteral("Property"),
+                                                             QStringLiteral("属性")),
+                                                        trk(QStringLiteral("t_value_col_001"),
+                                                            QStringLiteral("Valor"),
+                                                            QStringLiteral("Value"),
+                                                            QStringLiteral("值")),
+                                                        trk(QStringLiteral("t_inherit_col001"),
+                                                            QStringLiteral("Inherit"),
+                                                            QStringLiteral("Inherit"),
+                                                            QStringLiteral("继承"))});
+    m_connContentPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
+    m_connContentPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
+    m_connContentPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
+    m_connContentPropsTable->horizontalHeader()->setStretchLastSection(false);
+    m_connContentPropsTable->setColumnWidth(0, 200);
+    m_connContentPropsTable->setColumnWidth(1, 210);
+    const int connInheritColWidth = qMax(36, static_cast<int>((m_connContentPropsTable->fontMetrics().horizontalAdvance(QStringLiteral("Inherit")) / 2 + 12) * 1.10));
+    m_connContentPropsTable->setColumnWidth(2, connInheritColWidth);
+    m_connContentPropsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_connContentPropsTable->setSelectionMode(QAbstractItemView::NoSelection);
+    m_connContentPropsTable->verticalHeader()->setVisible(false);
+    m_connContentPropsTable->verticalHeader()->setDefaultSectionSize(22);
+    enableSortableHeader(m_connContentPropsTable);
+    connContentSplit->addWidget(m_connContentTree);
+    connContentSplit->addWidget(m_connContentPropsTable);
+    connContentSplit->setStretchFactor(0, 55);
+    connContentSplit->setStretchFactor(1, 45);
+    connContentLayout->addWidget(connContentSplit, 1);
+    m_connPropsStack->addWidget(m_connContentPage);
+    m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
+    propsPoolLayout->addWidget(m_connPropsStack, 1);
 
     auto* statusPoolTab = new QWidget(m_poolDetailTabs);
     auto* statusPoolLayout = new QVBoxLayout(statusPoolTab);
@@ -955,17 +1039,15 @@ void MainWindow::buildUi() {
                                                 QStringLiteral("Status"),
                                                 QStringLiteral("状态")));
     m_poolDetailTabs->addTab(propsPoolTab, trk(QStringLiteral("t_pool_props001"),
-                                               QStringLiteral("Propiedades del pool"),
-                                               QStringLiteral("Pool properties"),
-                                               QStringLiteral("存储池属性")));
+                                               QStringLiteral("Propiedades"),
+                                               QStringLiteral("Properties"),
+                                               QStringLiteral("属性")));
 
     auto* connDetailSplit = new QSplitter(Qt::Vertical, rightConnectionsPage);
     connDetailSplit->setChildrenCollapsible(false);
     connDetailSplit->setHandleWidth(1);
-    connDetailSplit->addWidget(m_rightTabs);
     connDetailSplit->addWidget(m_poolDetailTabs);
-    connDetailSplit->setStretchFactor(0, 55);
-    connDetailSplit->setStretchFactor(1, 45);
+    connDetailSplit->setStretchFactor(0, 100);
     rightConnectionsLayout->setSpacing(0);
     rightConnectionsLayout->addWidget(connDetailSplit, 1);
 
@@ -1380,6 +1462,15 @@ void MainWindow::buildUi() {
     connect(m_connectionsList, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         onConnectionListContextMenuRequested(pos);
     });
+    if (m_connContentTree) {
+        connect(m_connContentTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
+            refreshDatasetProperties(QStringLiteral("conncontent"));
+        });
+        connect(m_connContentTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int col) {
+            Q_UNUSED(item);
+            Q_UNUSED(col);
+        });
+    }
     connect(m_leftTabs, &QTabWidget::currentChanged, this, [this](int idx) {
         if (idx >= 0 && idx < m_rightStack->count()) {
             m_rightStack->setCurrentIndex(idx);
