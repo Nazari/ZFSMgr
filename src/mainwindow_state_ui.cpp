@@ -177,7 +177,13 @@ void MainWindow::updateConnectionActionsState() {
                                  : QStringLiteral("%1@%2").arg(c.datasetName, c.snapshotName);
         return QStringLiteral("%1::%2").arg(m_profiles[c.connIdx].name, base);
     };
-    const QString dstText = fmtSel(dctx);
+    QString dstText = fmtSel(dctx);
+    if (m_connActionOrigin.valid && !m_connActionOrigin.datasetName.isEmpty()) {
+        dstText = trk(QStringLiteral("t_conn_dest_sel01"),
+                      QStringLiteral("Destino:%1"),
+                      QStringLiteral("Target:%1"),
+                      QStringLiteral("目标：%1")).arg(dstText);
+    }
     if (m_connLeftSelectionLabel) {
         m_connLeftSelectionLabel->setText(dstText);
     }
