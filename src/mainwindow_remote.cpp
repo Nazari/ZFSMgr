@@ -267,7 +267,8 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
 
         const QString hostEsc = QString(p.host).replace('\'', QStringLiteral("''"));
         const QString userEsc = QString(p.username).replace('\'', QStringLiteral("''"));
-        const QString remoteB64 = QString::fromLatin1(remoteCmd.toUtf8().toBase64());
+        const QString wrappedRemoteCmd = wrapRemoteCommand(p, remoteCmd);
+        const QString remoteB64 = QString::fromLatin1(wrappedRemoteCmd.toUtf8().toBase64());
         const QString passB64 = QString::fromLatin1(p.password.toUtf8().toBase64());
         const int port = (p.port > 0) ? p.port : 5986;
         const int opTimeoutMs = (timeoutMs > 0) ? std::max(timeoutMs, 8000) : 60000;
