@@ -598,16 +598,6 @@ void MainWindow::loadConnections() {
 void MainWindow::rebuildConnectionList() {
     beginUiBusy();
     m_connectionsList->clear();
-    QStringList redirectedToLocalNames;
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        const auto& p = m_profiles[i];
-        if (isLocalConnection(p)) {
-            continue;
-        }
-        if (isConnectionRedirectedToLocal(i)) {
-            redirectedToLocalNames << p.name;
-        }
-    }
     for (int i = 0; i < m_profiles.size(); ++i) {
         const auto& p = m_profiles[i];
         const auto& s = m_states[i];
@@ -617,7 +607,7 @@ void MainWindow::rebuildConnectionList() {
         if (zfsTxt.isEmpty()) {
             zfsTxt = QStringLiteral("?");
         }
-        QString statusTag;
+        QString statusTag = QStringLiteral("[Ko]");
         QColor rowColor("#14212b");
         const QString st = s.status.trimmed().toUpper();
         const bool localConn = isLocalConnection(p);
@@ -629,29 +619,16 @@ void MainWindow::rebuildConnectionList() {
             m_localMachineUuid = s.machineUuid.trimmed();
         }
         if (st == QStringLiteral("OK")) {
-            statusTag = QStringLiteral("[OK]");
+            statusTag = QStringLiteral("[Ok]");
             rowColor = s.missingUnixCommands.isEmpty() ? QColor("#1f7a1f") : QColor("#c77900");
         } else if (!st.isEmpty()) {
-            statusTag = QStringLiteral("[KO]");
+            statusTag = QStringLiteral("[Ko]");
             rowColor = QColor("#a12a2a");
         }
-        QString line;
+        const QString connLabel = localConn ? QStringLiteral("Local") : line1;
+        QString line = QStringLiteral("%1 %2").arg(statusTag, connLabel);
         if (localConn) {
-            if (!redirectedToLocalNames.isEmpty()) {
-                line = trk(QStringLiteral("t_local_redirect_01"),
-                           QStringLiteral("Local [OK (%1)]"),
-                           QStringLiteral("Local [OK (%1)]"),
-                           QStringLiteral("本地 [OK（%1）]"))
-                           .arg(redirectedToLocalNames.join(QStringLiteral(", ")));
-                statusTag.clear();
-            } else {
-                line = QStringLiteral("Local");
-            }
-        } else {
-            line = line1;
-        }
-        if (!statusTag.isEmpty()) {
-            line += QStringLiteral(" %1").arg(statusTag);
+            line += QStringLiteral(" |Local");
         }
 
         auto* item = new QTreeWidgetItem(m_connectionsList);
