@@ -63,6 +63,38 @@ bool isLocalHostForUi(const QString& host) {
 
 } // namespace
 
+bool MainWindow::isConnectionRedirectedToLocal(int idx) const {
+    if (idx < 0 || idx >= m_profiles.size() || idx >= m_states.size()) {
+        return false;
+    }
+    if (isLocalConnection(idx)) {
+        return false;
+    }
+    const ConnectionRuntimeState& st = m_states[idx];
+    if (st.status.trimmed().toUpper() != QStringLiteral("OK")) {
+        return false;
+    }
+
+    QString localUuid = m_localMachineUuid.trimmed().toLower();
+    if (localUuid.isEmpty()) {
+        for (int i = 0; i < m_profiles.size() && i < m_states.size(); ++i) {
+            if (!isLocalConnection(i)) {
+                continue;
+            }
+            const QString cand = m_states[i].machineUuid.trimmed().toLower();
+            if (!cand.isEmpty()) {
+                localUuid = cand;
+                break;
+            }
+        }
+    }
+    const QString remoteUuid = st.machineUuid.trimmed().toLower();
+    if (!localUuid.isEmpty() && !remoteUuid.isEmpty()) {
+        return localUuid == remoteUuid;
+    }
+    return isLocalHostForUi(m_profiles[idx].host);
+}
+
 void MainWindow::refreshAllConnections() {
     if (actionsLocked()) {
         appLog(QStringLiteral("INFO"),
@@ -478,7 +510,10 @@ void MainWindow::rebuildConnectionList() {
         QColor rowColor("#14212b");
         const QString st = s.status.trimmed().toUpper();
         const bool localConn = isLocalConnection(p);
-        const bool redirectedLocal = (!localConn && st == QStringLiteral("OK") && isLocalHostForUi(p.host));
+        const bool redirectedLocal = isConnectionRedirectedToLocal(i);
+        if (localConn && !s.machineUuid.trimmed().isEmpty()) {
+            m_localMachineUuid = s.machineUuid.trimmed();
+        }
         if (st == QStringLiteral("OK")) {
             statusTag = QStringLiteral("[OK]");
             rowColor = s.missingUnixCommands.isEmpty() ? QColor("#1f7a1f") : QColor("#c77900");
@@ -616,12 +651,7 @@ void MainWindow::rebuildDatasetPoolSelectors() {
     m_advPoolCombo->clear();
 
     for (int i = 0; i < m_profiles.size(); ++i) {
-        const bool localConn = isLocalConnection(i);
-        const bool redirectedLocal =
-            (!localConn
-             && i < m_states.size()
-             && m_states[i].status.trimmed().toUpper() == QStringLiteral("OK")
-             && isLocalHostForUi(m_profiles[i].host));
+        const bool redirectedLocal = isConnectionRedirectedToLocal(i);
         if (redirectedLocal) {
             continue;
         }
@@ -731,9 +761,7 @@ void MainWindow::editConnection() {
                 QStringLiteral("内置本地连接不可编辑。")));
         return;
     }
-    const bool redirectedLocal = (!isLocalConnection(idx)
-                                  && m_states[idx].status.trimmed().toUpper() == QStringLiteral("OK")
-                                  && isLocalHostForUi(m_profiles[idx].host));
+    const bool redirectedLocal = isConnectionRedirectedToLocal(idx);
     if (redirectedLocal) {
         QMessageBox::information(
             this,
@@ -790,9 +818,7 @@ void MainWindow::deleteConnection() {
                 QStringLiteral("内置本地连接不可删除。")));
         return;
     }
-    const bool redirectedLocal = (!isLocalConnection(idx)
-                                  && m_states[idx].status.trimmed().toUpper() == QStringLiteral("OK")
-                                  && isLocalHostForUi(m_profiles[idx].host));
+    const bool redirectedLocal = isConnectionRedirectedToLocal(idx);
     if (redirectedLocal) {
         QMessageBox::information(
             this,

@@ -9,8 +9,6 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
-#include <QSet>
-#include <QSysInfo>
 #include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -26,55 +24,13 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
     if (!isLocalConnection(profile) || isWindowsConnection(profile) || !profile.useSudo) {
         return true;
     }
-    auto normalizeHost = [](QString host) {
-        host = host.trimmed().toLower();
-        if (host.startsWith('[') && host.endsWith(']') && host.size() > 2) {
-            host = host.mid(1, host.size() - 2);
-        }
-        while (host.endsWith('.')) {
-            host.chop(1);
-        }
-        return host;
-    };
-    auto isLocalHost = [&](const QString& host) {
-        const QString h = normalizeHost(host);
-        if (h.isEmpty()) {
-            return false;
-        }
-        if (h == QStringLiteral("localhost") || h == QStringLiteral("127.0.0.1") || h == QStringLiteral("::1")) {
-            return true;
-        }
-        static const QSet<QString> aliases = [&]() {
-            QSet<QString> s;
-            s.insert(QStringLiteral("localhost"));
-            s.insert(QStringLiteral("127.0.0.1"));
-            s.insert(QStringLiteral("::1"));
-            const QString local = normalizeHost(QSysInfo::machineHostName());
-            if (!local.isEmpty()) {
-                s.insert(local);
-                s.insert(local + QStringLiteral(".local"));
-                const int dot = local.indexOf('.');
-                if (dot > 0) {
-                    const QString shortName = local.left(dot);
-                    s.insert(shortName);
-                    s.insert(shortName + QStringLiteral(".local"));
-                }
-            }
-            return s;
-        }();
-        return aliases.contains(h);
-    };
 
     for (int i = 0; i < m_profiles.size(); ++i) {
         if (isLocalConnection(i) || i >= m_states.size()) {
             continue;
         }
         const ConnectionProfile& candidate = m_profiles[i];
-        const ConnectionRuntimeState& st = m_states[i];
-        if (st.status.trimmed().toUpper() != QStringLiteral("OK")) {
-            continue;
-        }
-        if (!isLocalHost(candidate.host)) {
+        if (!isConnectionRedirectedToLocal(i)) {
             continue;
         }
         if (candidate.username.trimmed().isEmpty() || candidate.password.isEmpty()) {

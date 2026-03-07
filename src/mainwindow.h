@@ -53,6 +53,7 @@ private:
         QString status;
         QString detail;
         QString zfsVersion;
+        QString machineUuid;
         QString osLine;
         QString connectionMethod;
         QString zfsVersionFull;
@@ -201,6 +202,7 @@ private:
     void onAsyncRefreshResult(int generation, int idx, const ConnectionRuntimeState& state);
     void onAsyncRefreshDone(int generation);
     int findConnectionIndexByName(const QString& name) const;
+    bool isConnectionRedirectedToLocal(int idx) const;
     void refreshConnectionByIndex(int idx);
     void exportPoolFromRow(int row);
     void importPoolFromRow(int row);
@@ -329,6 +331,7 @@ private:
     mutable QString m_localLibzfsDetail;
     QString m_localSudoUsername;
     QString m_localSudoPassword;
+    QString m_localMachineUuid;
     bool m_syncingConnectionFromPoolSelection{false};
     bool m_actionsLocked{false};
     bool m_waitCursorActive{false};

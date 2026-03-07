@@ -46,6 +46,33 @@ QStringList zfsmgrPowershellCommandSet() {
     };
 }
 
+QString normalizeMachineUuid(QString s) {
+    s = s.trimmed().toLower();
+    if (s.startsWith('{') && s.endsWith('}') && s.size() > 2) {
+        s = s.mid(1, s.size() - 2);
+    }
+    return s;
+}
+
+QString extractMachineUuid(const QString& text) {
+    const QString t = text.trimmed();
+    if (t.isEmpty()) {
+        return QString();
+    }
+    const QRegularExpression rxDashed(
+        QStringLiteral("([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"));
+    const auto m = rxDashed.match(t);
+    if (m.hasMatch()) {
+        return normalizeMachineUuid(m.captured(1));
+    }
+    const QRegularExpression rxCompact(QStringLiteral("([0-9a-fA-F]{32})"));
+    const auto m2 = rxCompact.match(t);
+    if (m2.hasMatch()) {
+        return normalizeMachineUuid(m2.captured(1));
+    }
+    return normalizeMachineUuid(t.section('\n', 0, 0).trimmed());
+}
+
 } // namespace
 
 int MainWindow::findConnectionIndexByName(const QString& name) const {
@@ -125,6 +152,34 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     state.detail = oneLine(out);
     state.osLine = oneLine(out);
     state.zfsVersion.clear();
+    state.machineUuid.clear();
+
+    {
+        QString uOut;
+        QString uErr;
+        int uRc = -1;
+        QStringList uuidCmds;
+        if (isWindowsConnection(p)) {
+            uuidCmds << QStringLiteral("(Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Cryptography' -Name MachineGuid).MachineGuid");
+        } else {
+            uuidCmds << QStringLiteral("cat /etc/machine-id 2>/dev/null")
+                     << QStringLiteral("cat /var/lib/dbus/machine-id 2>/dev/null")
+                     << QStringLiteral("ioreg -rd1 -c IOPlatformExpertDevice 2>/dev/null | awk -F\\\" '/IOPlatformUUID/{print $(NF-1); exit}'");
+        }
+        for (const QString& cmd : uuidCmds) {
+            uOut.clear();
+            uErr.clear();
+            uRc = -1;
+            if (!runSsh(p, cmd, 8000, uOut, uErr, uRc) || uRc != 0) {
+                continue;
+            }
+            const QString uuid = extractMachineUuid(uOut + QStringLiteral("\n") + uErr);
+            if (!uuid.isEmpty()) {
+                state.machineUuid = uuid;
+                break;
+            }
+        }
+    }
 
     if (isWindowsConnection(p)) {
         auto logWhere = [&](const QString& exeName) {

@@ -14,8 +14,6 @@
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
-#include <QSet>
-#include <QSysInfo>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QVBoxLayout>
@@ -24,48 +22,6 @@ namespace {
 using mwhelpers::oneLine;
 using mwhelpers::shSingleQuote;
 using mwhelpers::sshUserHostPort;
-
-QString normalizeHostTokenPools(QString host) {
-    host = host.trimmed().toLower();
-    if (host.startsWith('[') && host.endsWith(']') && host.size() > 2) {
-        host = host.mid(1, host.size() - 2);
-    }
-    while (host.endsWith('.')) {
-        host.chop(1);
-    }
-    return host;
-}
-
-bool isLocalHostForPools(const QString& host) {
-    const QString h = normalizeHostTokenPools(host);
-    if (h.isEmpty()) {
-        return false;
-    }
-    if (h == QStringLiteral("localhost")
-        || h == QStringLiteral("127.0.0.1")
-        || h == QStringLiteral("::1")) {
-        return true;
-    }
-    static const QSet<QString> aliases = []() {
-        QSet<QString> s;
-        s.insert(QStringLiteral("localhost"));
-        s.insert(QStringLiteral("127.0.0.1"));
-        s.insert(QStringLiteral("::1"));
-        const QString local = normalizeHostTokenPools(QSysInfo::machineHostName());
-        if (!local.isEmpty()) {
-            s.insert(local);
-            s.insert(local + QStringLiteral(".local"));
-            const int dot = local.indexOf('.');
-            if (dot > 0) {
-                const QString shortName = local.left(dot);
-                s.insert(shortName);
-                s.insert(shortName + QStringLiteral(".local"));
-            }
-        }
-        return s;
-    }();
-    return aliases.contains(h);
-}
 } // namespace
 
 void MainWindow::exportPoolFromRow(int row) {
@@ -462,10 +418,7 @@ void MainWindow::populateAllPoolsTables() {
     m_importedPoolsTable->setRowCount(0);
     for (int i = 0; i < m_states.size(); ++i) {
         if (i < m_profiles.size()) {
-            const bool redirectedLocal =
-                (!isLocalConnection(i)
-                 && m_states[i].status.trimmed().toUpper() == QStringLiteral("OK")
-                 && isLocalHostForPools(m_profiles[i].host));
+            const bool redirectedLocal = isConnectionRedirectedToLocal(i);
             if (redirectedLocal) {
                 continue;
             }
