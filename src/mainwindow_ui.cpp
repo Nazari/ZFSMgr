@@ -140,7 +140,79 @@ void MainWindow::buildUi() {
                                                                           : QStringLiteral("off")));
     });
 
-    QMenu* logSizeMenu = appMenu->addMenu(
+    QMenu* logsMenu = appMenu->addMenu(
+        trk(QStringLiteral("t_logs_menu_001"),
+            QStringLiteral("Logs"),
+            QStringLiteral("Logs"),
+            QStringLiteral("日志")));
+    QMenu* logLevelMenu = logsMenu->addMenu(
+        trk(QStringLiteral("t_log_level_001"),
+            QStringLiteral("Nivel de log"),
+            QStringLiteral("Log level"),
+            QStringLiteral("日志级别")));
+    auto* logLevelGroup = new QActionGroup(this);
+    logLevelGroup->setExclusive(true);
+    for (const QString& lv : {QStringLiteral("normal"), QStringLiteral("info"), QStringLiteral("debug")}) {
+        QAction* act = logLevelMenu->addAction(lv);
+        act->setCheckable(true);
+        act->setData(lv);
+        if (lv == QStringLiteral("normal")) {
+            act->setChecked(true);
+        }
+        logLevelGroup->addAction(act);
+    }
+    connect(logLevelGroup, &QActionGroup::triggered, this, [this](QAction* act) {
+        if (!act || !m_logLevelCombo) {
+            return;
+        }
+        m_logLevelCombo->setCurrentText(act->data().toString());
+    });
+
+    QMenu* logLinesMenu = logsMenu->addMenu(
+        trk(QStringLiteral("t_log_lines_001"),
+            QStringLiteral("Número de líneas"),
+            QStringLiteral("Number of lines"),
+            QStringLiteral("行数")));
+    auto* logLinesGroup = new QActionGroup(this);
+    logLinesGroup->setExclusive(true);
+    for (int lines : {100, 200, 500, 1000}) {
+        QAction* act = logLinesMenu->addAction(QString::number(lines));
+        act->setCheckable(true);
+        act->setData(lines);
+        if (lines == 500) {
+            act->setChecked(true);
+        }
+        logLinesGroup->addAction(act);
+    }
+    connect(logLinesGroup, &QActionGroup::triggered, this, [this](QAction* act) {
+        if (!act || !m_logMaxLinesCombo) {
+            return;
+        }
+        m_logMaxLinesCombo->setCurrentText(QString::number(act->data().toInt()));
+        trimLogWidget(m_logView);
+    });
+
+    QAction* clearLogsAct = logsMenu->addAction(
+        trk(QStringLiteral("t_clear_001"),
+            QStringLiteral("Limpiar"),
+            QStringLiteral("Clear"),
+            QStringLiteral("清空")));
+    connect(clearLogsAct, &QAction::triggered, this, [this]() {
+        logUiAction(QStringLiteral("Limpiar log (menú)"));
+        clearAppLog();
+    });
+    QAction* copyLogsAct = logsMenu->addAction(
+        trk(QStringLiteral("t_copy_001"),
+            QStringLiteral("Copiar"),
+            QStringLiteral("Copy"),
+            QStringLiteral("复制")));
+    connect(copyLogsAct, &QAction::triggered, this, [this]() {
+        logUiAction(QStringLiteral("Copiar log (menú)"));
+        copyAppLogToClipboard();
+    });
+    logsMenu->addSeparator();
+
+    QMenu* logSizeMenu = logsMenu->addMenu(
         trk(QStringLiteral("t_log_max_rot_001"),
             QStringLiteral("Tamaño máximo log rotativo"),
             QStringLiteral("Max rotating log size"),
@@ -316,7 +388,7 @@ void MainWindow::buildUi() {
     auto* connectionsTab = new QWidget(leftPane);
     auto* connLayout = new QVBoxLayout(connectionsTab);
     connLayout->setContentsMargins(4, 4, 4, 4);
-    connLayout->setSpacing(4);
+    connLayout->setSpacing(2);
     const int stdLeftBtnH = 34;
     const int connBtnMinW = qMax(
         fm.horizontalAdvance(trk(QStringLiteral("t_refrescar__7f8af2"),
@@ -357,9 +429,9 @@ void MainWindow::buildUi() {
 
     auto* connListBox = new QGroupBox(
         trk(QStringLiteral("t_list_001"),
-            QStringLiteral("Listado"),
-            QStringLiteral("List"),
-            QStringLiteral("列表")),
+            QStringLiteral("Conexiones"),
+            QStringLiteral("Connections"),
+            QStringLiteral("连接")),
         connectionsTab);
     auto* connListBoxLayout = new QVBoxLayout(connListBox);
     connListBoxLayout->setContentsMargins(8, 20, 8, 8);
@@ -392,8 +464,8 @@ void MainWindow::buildUi() {
 
     auto* connActionLeftBox = new QGroupBox(QString(), m_connActionsBox);
     auto* connActionLeftLayout = new QVBoxLayout(connActionLeftBox);
-    connActionLeftLayout->setContentsMargins(6, 6, 6, 6);
-    connActionLeftLayout->setSpacing(6);
+    connActionLeftLayout->setContentsMargins(6, 2, 6, 4);
+    connActionLeftLayout->setSpacing(4);
     m_connLeftSelectionLabel = new QLabel(
         trk(QStringLiteral("t_empty_sel_001"),
             QStringLiteral("(vacío)"),
@@ -490,8 +562,8 @@ void MainWindow::buildUi() {
 
     auto* connActionRightBox = new QGroupBox(QString(), m_connActionsBox);
     auto* connActionRightLayout = new QVBoxLayout(connActionRightBox);
-    connActionRightLayout->setContentsMargins(6, 6, 6, 6);
-    connActionRightLayout->setSpacing(6);
+    connActionRightLayout->setContentsMargins(6, 2, 6, 4);
+    connActionRightLayout->setSpacing(4);
     m_connOriginSelectionLabel = new QLabel(
         trk(QStringLiteral("t_conn_origin_sel1"),
             QStringLiteral("Origen:(vacío)"),
@@ -849,12 +921,7 @@ void MainWindow::buildUi() {
     commandsLayout->addLayout(commandsButtonsGrid);
     // Igualar altura de las cajas de acciones de panel izquierdo:
     // Conexiones, Datasets (Origen-->Destino) y Avanzado (Comandos).
-    const int actionsBoxHeight = qMax(
-        96,
-        qMax(qMax(m_poolMgmtBox ? m_poolMgmtBox->sizeHint().height() : 0,
-                  m_connActionsBox ? m_connActionsBox->sizeHint().height() : 0),
-             qMax(m_transferBox ? m_transferBox->sizeHint().height() : 0,
-                  m_advCommandsBox ? m_advCommandsBox->sizeHint().height() : 0)));
+    const int actionsBoxHeight = qMax(118, m_connActionsBox ? m_connActionsBox->sizeHint().height() - 12 : 118);
     if (m_poolMgmtBox) {
         m_poolMgmtBox->setFixedHeight(actionsBoxHeight);
     }
@@ -1627,10 +1694,10 @@ void MainWindow::buildUi() {
     m_logCopyBtn->setFixedWidth(ctrlW);
     m_logCancelBtn->setFixedWidth(ctrlW);
     controlsPane->setFixedWidth(ctrlW + 8);
-    logControls->addWidget(m_logLevelCombo, 0);
-    logControls->addWidget(m_logMaxLinesCombo, 0);
-    logControls->addWidget(m_logClearBtn, 0);
-    logControls->addWidget(m_logCopyBtn, 0);
+    m_logLevelCombo->hide();
+    m_logMaxLinesCombo->hide();
+    m_logClearBtn->hide();
+    m_logCopyBtn->hide();
     logControls->addWidget(m_logCancelBtn, 0);
     logControls->addStretch(1);
     rightLogsBody->addWidget(controlsPane, 0);
