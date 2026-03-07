@@ -250,6 +250,7 @@ private:
     QPushButton* m_btnRefreshAll{nullptr};
     QGroupBox* m_poolMgmtBox{nullptr};
     QPushButton* m_btnPoolNew{nullptr};
+    QAction* m_menuExitAction{nullptr};
 
     QTableWidget* m_importedPoolsTable{nullptr};
     QTableWidget* m_importablePoolsTable{nullptr};

@@ -181,6 +181,20 @@ void MainWindow::buildUi() {
         appLog(QStringLiteral("INFO"), QStringLiteral("Tamaño máximo de log rotativo: %1 MB").arg(m_logMaxSizeMb));
     });
 
+    appMenu->addSeparator();
+    m_menuExitAction = appMenu->addAction(
+        trk(QStringLiteral("t_menu_exit_001"),
+            QStringLiteral("Salir"),
+            QStringLiteral("Exit"),
+            QStringLiteral("退出")));
+    m_menuExitAction->setEnabled(!actionsLocked());
+    connect(m_menuExitAction, &QAction::triggered, this, [this]() {
+        if (actionsLocked()) {
+            return;
+        }
+        close();
+    });
+
     QMenu* helpMenu = menuBar()->addMenu(
         trk(QStringLiteral("t_help_menu_001"),
             QStringLiteral("Ayuda"),

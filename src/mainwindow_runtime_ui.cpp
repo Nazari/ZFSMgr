@@ -85,6 +85,9 @@ void MainWindow::updateBusyCursor() {
 void MainWindow::setActionsLocked(bool locked) {
     m_actionsLocked = locked;
     updateBusyCursor();
+    if (m_menuExitAction) {
+        m_menuExitAction->setEnabled(!locked);
+    }
     if (m_logCancelBtn) {
         m_logCancelBtn->setVisible(locked);
         m_logCancelBtn->setEnabled(locked);
