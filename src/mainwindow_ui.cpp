@@ -389,7 +389,7 @@ void MainWindow::buildUi() {
 
     auto* connectionsTab = new QWidget(leftPane);
     auto* connLayout = new QVBoxLayout(connectionsTab);
-    connLayout->setContentsMargins(4, 4, 4, 4);
+    connLayout->setContentsMargins(2, 2, 2, 2);
     connLayout->setSpacing(2);
     const int stdLeftBtnH = 34;
     const int connBtnMinW = qMax(
@@ -436,7 +436,7 @@ void MainWindow::buildUi() {
             QStringLiteral("连接")),
         connectionsTab);
     auto* connListBoxLayout = new QVBoxLayout(connListBox);
-    connListBoxLayout->setContentsMargins(8, 20, 8, 8);
+    connListBoxLayout->setContentsMargins(6, 8, 6, 6);
     m_connectionsList = new QTreeWidget(connListBox);
     m_connectionsList->setHeaderHidden(true);
     m_connectionsList->setColumnCount(1);
@@ -461,10 +461,10 @@ void MainWindow::buildUi() {
             QStringLiteral("操作")),
         connectionsTab);
     auto* connActionsLayout = new QHBoxLayout(m_connActionsBox);
-    connActionsLayout->setContentsMargins(8, 20, 8, 8);
+    connActionsLayout->setContentsMargins(6, 8, 6, 6);
     connActionsLayout->setSpacing(8);
 
-    auto* connActionLeftBox = new QGroupBox(QString(), m_connActionsBox);
+    auto* connActionLeftBox = new QWidget(m_connActionsBox);
     auto* connActionLeftLayout = new QVBoxLayout(connActionLeftBox);
     connActionLeftLayout->setContentsMargins(6, 2, 6, 4);
     connActionLeftLayout->setSpacing(4);
@@ -562,7 +562,7 @@ void MainWindow::buildUi() {
     connActionLeftLayout->addLayout(connLeftBtns);
     connActionsLayout->addWidget(connActionLeftBox, 1);
 
-    auto* connActionRightBox = new QGroupBox(QString(), m_connActionsBox);
+    auto* connActionRightBox = new QWidget(m_connActionsBox);
     auto* connActionRightLayout = new QVBoxLayout(connActionRightBox);
     connActionRightLayout->setContentsMargins(6, 2, 6, 4);
     connActionRightLayout->setSpacing(4);
@@ -923,12 +923,12 @@ void MainWindow::buildUi() {
     commandsLayout->addLayout(commandsButtonsGrid);
     // Igualar altura de las cajas de acciones de panel izquierdo:
     // Conexiones, Datasets (Origen-->Destino) y Avanzado (Comandos).
-    const int actionsBoxHeight = qMax(118, m_connActionsBox ? m_connActionsBox->sizeHint().height() - 12 : 118);
+    const int actionsBoxHeight = qMax(130, m_connActionsBox ? m_connActionsBox->sizeHint().height() : 130);
     if (m_poolMgmtBox) {
         m_poolMgmtBox->setFixedHeight(actionsBoxHeight);
     }
     if (m_connActionsBox) {
-        m_connActionsBox->setFixedHeight(actionsBoxHeight);
+        m_connActionsBox->setMinimumHeight(actionsBoxHeight);
     }
     m_transferBox->setFixedHeight(actionsBoxHeight);
     m_advCommandsBox->setFixedHeight(actionsBoxHeight);

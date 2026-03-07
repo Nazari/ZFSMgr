@@ -489,21 +489,6 @@ void MainWindow::onPoolsSelectionChanged() {
         updatePoolManagementBoxTitle();
         return;
     }
-    const int idx = selectedConnectionIndexForPoolManagement();
-    if (idx >= 0 && idx < m_profiles.size() && m_connectionsList) {
-        m_syncingConnectionFromPoolSelection = true;
-        for (int i = 0; i < m_connectionsList->topLevelItemCount(); ++i) {
-            QTreeWidgetItem* top = m_connectionsList->topLevelItem(i);
-            if (!top) {
-                continue;
-            }
-            if (top->data(0, Qt::UserRole).toInt() == idx) {
-                m_connectionsList->setCurrentItem(top);
-                break;
-            }
-        }
-        m_syncingConnectionFromPoolSelection = false;
-    }
     refreshSelectedPoolDetails();
     updatePoolManagementBoxTitle();
 }
