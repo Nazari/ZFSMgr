@@ -31,7 +31,7 @@ QString trk(const QString& lang,
 MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     : QDialog(parent) {
     setModal(true);
-    resize(280, 280);
+    resize(420, 340);
     setWindowIcon(QIcon(QStringLiteral(":/icons/ZFSMgr-512.png")));
 
     auto* root = new QVBoxLayout(this);
@@ -121,6 +121,11 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     });
 
     retranslateUi();
+    if (layout()) {
+        layout()->activate();
+    }
+    const QSize lockedSize = sizeHint().expandedTo(QSize(420, 340));
+    setFixedSize(lockedSize);
     QTimer::singleShot(0, this, [this]() {
         m_passwordEdit->setFocus(Qt::OtherFocusReason);
         m_passwordEdit->selectAll();
@@ -262,18 +267,18 @@ void MasterPasswordDialog::retranslateUi() {
     if (m_changePwdButton) {
         m_changePwdButton->setText(trk(lang,
                                        QStringLiteral("t_cambiar_pa_52b0b6"),
-                                       QStringLiteral("Cambiar password maestro..."),
-                                       QStringLiteral("Change master password..."),
-                                       QStringLiteral("修改主密码...")));
+                                       QStringLiteral("Cambiar Password"),
+                                       QStringLiteral("Change Password"),
+                                       QStringLiteral("修改密码")));
         m_changePwdButton->setVisible(!m_firstRunCreationMode);
         m_changePwdButton->setEnabled(!m_firstRunCreationMode);
     }
     if (m_resetIniButton) {
         m_resetIniButton->setText(trk(lang,
                                       QStringLiteral("t_reset_ini_btn001"),
-                                      QStringLiteral("Borrar config.ini y empezar"),
-                                      QStringLiteral("Delete config.ini and restart"),
-                                      QStringLiteral("删除 config.ini 并重建")));
+                                      QStringLiteral("Borrar Config"),
+                                      QStringLiteral("Delete Config"),
+                                      QStringLiteral("删除配置")));
         m_resetIniButton->setVisible(!m_firstRunCreationMode);
         m_resetIniButton->setEnabled(!m_firstRunCreationMode);
     }
@@ -304,4 +309,9 @@ void MasterPasswordDialog::retranslateUi() {
                                             QStringLiteral("版本：%1"))
                                             .arg(appVersion)));
     }
+    if (layout()) {
+        layout()->activate();
+    }
+    const QSize lockedSize = sizeHint().expandedTo(QSize(420, 340));
+    setFixedSize(lockedSize);
 }
