@@ -30,6 +30,24 @@ QString sanitizeWindowsCliXml(const QString& raw) {
     return s.trimmed();
 }
 
+QString sanitizePsrpText(const QString& raw) {
+    QString s = raw;
+    if (s.isEmpty()) {
+        return s;
+    }
+    s.replace(QStringLiteral("#< CLIXML"), QStringLiteral(""));
+    // PowerShell remoting escaping: _x000A_, _x001B_, ...
+    s.replace(QRegularExpression(QStringLiteral("_x[0-9A-Fa-f]{4}_")), QStringLiteral(""));
+    // Keep payload text, drop XML tags if present.
+    s.replace(QRegularExpression(QStringLiteral("<[^>]+>")), QStringLiteral(""));
+    s.replace(QStringLiteral("&lt;"), QStringLiteral("<"));
+    s.replace(QStringLiteral("&gt;"), QStringLiteral(">"));
+    s.replace(QStringLiteral("&amp;"), QStringLiteral("&"));
+    s.replace(QStringLiteral("&quot;"), QStringLiteral("\""));
+    s.replace(QStringLiteral("&#39;"), QStringLiteral("'"));
+    return s.trimmed();
+}
+
 using mwhelpers::isMountedValueTrue;
 using mwhelpers::looksLikePowerShellScript;
 using mwhelpers::normalizeDriveLetterValue;
@@ -395,8 +413,8 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         }
 
         rc = proc.exitCode();
-        out = sanitizeWindowsCliXml(out);
-        err = sanitizeWindowsCliXml(err);
+        out = sanitizePsrpText(out);
+        err = sanitizePsrpText(err);
         if (!out.trimmed().isEmpty()) {
             appendConnectionLog(p.id, oneLine(out));
         }
