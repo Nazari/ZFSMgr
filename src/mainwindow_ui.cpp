@@ -1638,11 +1638,7 @@ void MainWindow::buildUi() {
                                    QStringLiteral("应用")));
 
     auto* controlsPane = new QWidget(rightLogs);
-    m_logControlsPane = controlsPane;
-    controlsPane->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
-    auto* logControls = new QVBoxLayout(controlsPane);
-    logControls->setContentsMargins(0, 0, 0, 0);
-    logControls->setSpacing(4);
+    controlsPane->setVisible(false);
     m_logLevelCombo = new QComboBox(rightLogs);
     m_logLevelCombo->addItems({QStringLiteral("normal"), QStringLiteral("info"), QStringLiteral("debug")});
     m_logLevelCombo->setCurrentText(m_logLevelSetting);
@@ -1659,17 +1655,10 @@ void MainWindow::buildUi() {
                                        QStringLiteral("Copy"),
                                        QStringLiteral("复制")),
                                    rightLogs);
-    m_logCancelBtn = new QPushButton(trk(QStringLiteral("t_cancelar_c111e0"),
-                                         QStringLiteral("Cancelar"),
-                                         QStringLiteral("Cancel"),
-                                         QStringLiteral("取消")),
-                                     rightLogs);
-    m_logCancelBtn->setVisible(false);
     m_logLevelCombo->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     m_logMaxLinesCombo->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     m_logClearBtn->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     m_logCopyBtn->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    m_logCancelBtn->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     {
         QFont cf = m_logLevelCombo->font();
         cf.setPointSize(qMax(6, cf.pointSize() - 1));
@@ -1677,23 +1666,16 @@ void MainWindow::buildUi() {
         m_logMaxLinesCombo->setFont(cf);
         m_logClearBtn->setFont(cf);
         m_logCopyBtn->setFont(cf);
-        m_logCancelBtn->setFont(cf);
     }
-    int ctrlW = 0;
-    ctrlW = qMax(ctrlW, m_logCancelBtn->sizeHint().width());
-    ctrlW = qMax(ctrlW, 56);
+    int ctrlW = 56;
     m_logLevelCombo->setFixedWidth(ctrlW);
     m_logMaxLinesCombo->setFixedWidth(ctrlW);
     m_logClearBtn->setFixedWidth(ctrlW);
     m_logCopyBtn->setFixedWidth(ctrlW);
-    m_logCancelBtn->setFixedWidth(ctrlW);
-    controlsPane->setFixedWidth(0);
     m_logLevelCombo->hide();
     m_logMaxLinesCombo->hide();
     m_logClearBtn->hide();
     m_logCopyBtn->hide();
-    logControls->addWidget(m_logCancelBtn, 0);
-    logControls->addStretch(1);
     rightLogsBody->addWidget(controlsPane, 0);
     rightLogsBody->addWidget(m_logsTabs, 1);
     rightLogsLayout->addLayout(rightLogsBody, 1);
@@ -1873,32 +1855,137 @@ void MainWindow::buildUi() {
         actionSyncDatasets();
     });
     connect(m_btnConnBreakdown, &QPushButton::clicked, this, [this]() {
+        if (actionsLocked()) {
+            if (m_activeConnActionBtn == m_btnConnBreakdown) {
+                logUiAction(QStringLiteral("Cancelar Desglosar (botón Conexiones)"));
+                requestCancelRunningAction();
+            }
+            return;
+        }
+        m_activeConnActionBtn = m_btnConnBreakdown;
+        m_activeConnActionName = trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"),
+                                     QStringLiteral("Break down"), QStringLiteral("拆分"));
         logUiAction(QStringLiteral("Desglosar (botón Conexiones)"));
         executeConnectionAdvancedAction(QStringLiteral("breakdown"));
+        if (!actionsLocked()) {
+            m_activeConnActionBtn = nullptr;
+            m_activeConnActionName.clear();
+            updateConnectionActionsState();
+        }
     });
     connect(m_btnConnAssemble, &QPushButton::clicked, this, [this]() {
+        if (actionsLocked()) {
+            if (m_activeConnActionBtn == m_btnConnAssemble) {
+                logUiAction(QStringLiteral("Cancelar Ensamblar (botón Conexiones)"));
+                requestCancelRunningAction();
+            }
+            return;
+        }
+        m_activeConnActionBtn = m_btnConnAssemble;
+        m_activeConnActionName = trk(QStringLiteral("t_assemble_btn1"), QStringLiteral("Ensamblar"),
+                                     QStringLiteral("Assemble"), QStringLiteral("组装"));
         logUiAction(QStringLiteral("Ensamblar (botón Conexiones)"));
         executeConnectionAdvancedAction(QStringLiteral("assemble"));
+        if (!actionsLocked()) {
+            m_activeConnActionBtn = nullptr;
+            m_activeConnActionName.clear();
+            updateConnectionActionsState();
+        }
     });
     connect(m_btnConnFromDir, &QPushButton::clicked, this, [this]() {
+        if (actionsLocked()) {
+            if (m_activeConnActionBtn == m_btnConnFromDir) {
+                logUiAction(QStringLiteral("Cancelar Desde Dir (botón Conexiones)"));
+                requestCancelRunningAction();
+            }
+            return;
+        }
+        m_activeConnActionBtn = m_btnConnFromDir;
+        m_activeConnActionName = trk(QStringLiteral("t_from_dir_btn1"), QStringLiteral("Desde Dir"),
+                                     QStringLiteral("From Dir"), QStringLiteral("来自目录"));
         logUiAction(QStringLiteral("Desde Dir (botón Conexiones)"));
         executeConnectionAdvancedAction(QStringLiteral("fromdir"));
+        if (!actionsLocked()) {
+            m_activeConnActionBtn = nullptr;
+            m_activeConnActionName.clear();
+            updateConnectionActionsState();
+        }
     });
     connect(m_btnConnToDir, &QPushButton::clicked, this, [this]() {
+        if (actionsLocked()) {
+            if (m_activeConnActionBtn == m_btnConnToDir) {
+                logUiAction(QStringLiteral("Cancelar Hacia Dir (botón Conexiones)"));
+                requestCancelRunningAction();
+            }
+            return;
+        }
+        m_activeConnActionBtn = m_btnConnToDir;
+        m_activeConnActionName = trk(QStringLiteral("t_to_dir_btn_001"), QStringLiteral("Hacia Dir"),
+                                     QStringLiteral("To Dir"), QStringLiteral("到目录"));
         logUiAction(QStringLiteral("Hacia Dir (botón Conexiones)"));
         executeConnectionAdvancedAction(QStringLiteral("todir"));
+        if (!actionsLocked()) {
+            m_activeConnActionBtn = nullptr;
+            m_activeConnActionName.clear();
+            updateConnectionActionsState();
+        }
     });
     connect(m_btnConnCopy, &QPushButton::clicked, this, [this]() {
+        if (actionsLocked()) {
+            if (m_activeConnActionBtn == m_btnConnCopy) {
+                logUiAction(QStringLiteral("Cancelar Copiar (botón Conexiones)"));
+                requestCancelRunningAction();
+            }
+            return;
+        }
+        m_activeConnActionBtn = m_btnConnCopy;
+        m_activeConnActionName = trk(QStringLiteral("t_copy_001"), QStringLiteral("Copiar"),
+                                     QStringLiteral("Copy"), QStringLiteral("复制"));
         logUiAction(QStringLiteral("Copiar snapshot (botón Conexiones)"));
         executeConnectionTransferAction(QStringLiteral("copy"));
+        if (!actionsLocked()) {
+            m_activeConnActionBtn = nullptr;
+            m_activeConnActionName.clear();
+            updateConnectionActionsState();
+        }
     });
     connect(m_btnConnLevel, &QPushButton::clicked, this, [this]() {
+        if (actionsLocked()) {
+            if (m_activeConnActionBtn == m_btnConnLevel) {
+                logUiAction(QStringLiteral("Cancelar Nivelar (botón Conexiones)"));
+                requestCancelRunningAction();
+            }
+            return;
+        }
+        m_activeConnActionBtn = m_btnConnLevel;
+        m_activeConnActionName = trk(QStringLiteral("t_level_btn_001"), QStringLiteral("Nivelar"),
+                                     QStringLiteral("Level"), QStringLiteral("同步快照"));
         logUiAction(QStringLiteral("Nivelar snapshot (botón Conexiones)"));
         executeConnectionTransferAction(QStringLiteral("level"));
+        if (!actionsLocked()) {
+            m_activeConnActionBtn = nullptr;
+            m_activeConnActionName.clear();
+            updateConnectionActionsState();
+        }
     });
     connect(m_btnConnSync, &QPushButton::clicked, this, [this]() {
+        if (actionsLocked()) {
+            if (m_activeConnActionBtn == m_btnConnSync) {
+                logUiAction(QStringLiteral("Cancelar Sincronizar (botón Conexiones)"));
+                requestCancelRunningAction();
+            }
+            return;
+        }
+        m_activeConnActionBtn = m_btnConnSync;
+        m_activeConnActionName = trk(QStringLiteral("t_sync_btn_001"), QStringLiteral("Sincronizar"),
+                                     QStringLiteral("Sync"), QStringLiteral("同步文件"));
         logUiAction(QStringLiteral("Sincronizar datasets (botón Conexiones)"));
         executeConnectionTransferAction(QStringLiteral("sync"));
+        if (!actionsLocked()) {
+            m_activeConnActionBtn = nullptr;
+            m_activeConnActionName.clear();
+            updateConnectionActionsState();
+        }
     });
     connect(m_logClearBtn, &QPushButton::clicked, this, [this]() {
         logUiAction(QStringLiteral("Limpiar log (botón)"));
@@ -1907,10 +1994,6 @@ void MainWindow::buildUi() {
     connect(m_logCopyBtn, &QPushButton::clicked, this, [this]() {
         logUiAction(QStringLiteral("Copiar log (botón)"));
         copyAppLogToClipboard();
-    });
-    connect(m_logCancelBtn, &QPushButton::clicked, this, [this]() {
-        logUiAction(QStringLiteral("Cancelar acción (botón)"));
-        requestCancelRunningAction();
     });
     connect(m_logMaxLinesCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
         trimLogWidget(m_logView);

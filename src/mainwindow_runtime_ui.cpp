@@ -88,14 +88,6 @@ void MainWindow::setActionsLocked(bool locked) {
     if (m_menuExitAction) {
         m_menuExitAction->setEnabled(!locked);
     }
-    if (m_logCancelBtn) {
-        m_logCancelBtn->setVisible(locked);
-        m_logCancelBtn->setEnabled(locked);
-    }
-    if (m_logControlsPane) {
-        const int paneW = (locked && m_logCancelBtn) ? qMax(56, m_logCancelBtn->sizeHint().width()) + 8 : 0;
-        m_logControlsPane->setFixedWidth(paneW);
-    }
     if (m_btnNew) m_btnNew->setEnabled(!locked);
     if (m_btnRefreshAll) m_btnRefreshAll->setEnabled(!locked);
     if (m_btnPoolNew) m_btnPoolNew->setEnabled(!locked && selectedConnectionIndexForPoolManagement() >= 0);
@@ -117,17 +109,15 @@ void MainWindow::setActionsLocked(bool locked) {
         if (m_btnAdvancedAssemble) m_btnAdvancedAssemble->setEnabled(false);
         if (m_btnAdvancedFromDir) m_btnAdvancedFromDir->setEnabled(false);
         if (m_btnAdvancedToDir) m_btnAdvancedToDir->setEnabled(false);
-        if (m_btnConnBreakdown) m_btnConnBreakdown->setEnabled(false);
-        if (m_btnConnAssemble) m_btnConnAssemble->setEnabled(false);
-        if (m_btnConnFromDir) m_btnConnFromDir->setEnabled(false);
-        if (m_btnConnToDir) m_btnConnToDir->setEnabled(false);
-        if (m_btnConnCopy) m_btnConnCopy->setEnabled(false);
-        if (m_btnConnLevel) m_btnConnLevel->setEnabled(false);
-        if (m_btnConnSync) m_btnConnSync->setEnabled(false);
+        // Connection action buttons are managed by updateConnectionActionsState()
+        // to keep the active one as "Cancelar <acción>".
     } else {
+        m_activeConnActionBtn = nullptr;
+        m_activeConnActionName.clear();
         updateTransferButtonsState();
         updateApplyPropsButtonState();
         refreshSelectedPoolDetails();
         updatePoolManagementBoxTitle();
     }
+    updateConnectionActionsState();
 }

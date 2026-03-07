@@ -146,6 +146,21 @@ void MainWindow::setConnectionOriginSelection(const DatasetSelectionContext& ctx
 }
 
 void MainWindow::updateConnectionActionsState() {
+    if (m_btnConnBreakdown) m_btnConnBreakdown->setText(
+        trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")));
+    if (m_btnConnAssemble) m_btnConnAssemble->setText(
+        trk(QStringLiteral("t_assemble_btn1"), QStringLiteral("Ensamblar"), QStringLiteral("Assemble"), QStringLiteral("组装")));
+    if (m_btnConnFromDir) m_btnConnFromDir->setText(
+        trk(QStringLiteral("t_from_dir_btn1"), QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")));
+    if (m_btnConnToDir) m_btnConnToDir->setText(
+        trk(QStringLiteral("t_to_dir_btn_001"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")));
+    if (m_btnConnCopy) m_btnConnCopy->setText(
+        trk(QStringLiteral("t_copy_001"), QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")));
+    if (m_btnConnLevel) m_btnConnLevel->setText(
+        trk(QStringLiteral("t_level_btn_001"), QStringLiteral("Nivelar"), QStringLiteral("Level"), QStringLiteral("同步快照")));
+    if (m_btnConnSync) m_btnConnSync->setText(
+        trk(QStringLiteral("t_sync_btn_001"), QStringLiteral("Sincronizar"), QStringLiteral("Sync"), QStringLiteral("同步文件")));
+
     const DatasetSelectionContext dctx = currentDatasetSelection(QStringLiteral("conncontent"));
     auto fmtSel = [this](const DatasetSelectionContext& c) -> QString {
         if (!c.valid || c.datasetName.isEmpty() || c.connIdx < 0 || c.connIdx >= m_profiles.size()) {
@@ -170,6 +185,28 @@ void MainWindow::updateConnectionActionsState() {
                 QStringLiteral("Source:%1"),
                 QStringLiteral("源：%1"))
                 .arg(fmtSel(m_connActionOrigin)));
+    }
+
+    if (actionsLocked()) {
+        if (m_btnConnBreakdown) m_btnConnBreakdown->setEnabled(false);
+        if (m_btnConnAssemble) m_btnConnAssemble->setEnabled(false);
+        if (m_btnConnFromDir) m_btnConnFromDir->setEnabled(false);
+        if (m_btnConnToDir) m_btnConnToDir->setEnabled(false);
+        if (m_btnConnCopy) m_btnConnCopy->setEnabled(false);
+        if (m_btnConnLevel) m_btnConnLevel->setEnabled(false);
+        if (m_btnConnSync) m_btnConnSync->setEnabled(false);
+        if (m_activeConnActionBtn) {
+            const QString actionName = m_activeConnActionName.isEmpty()
+                                           ? m_activeConnActionBtn->text()
+                                           : m_activeConnActionName;
+            m_activeConnActionBtn->setText(
+                trk(QStringLiteral("t_cancel_action1"),
+                    QStringLiteral("Cancelar %1"),
+                    QStringLiteral("Cancel %1"),
+                    QStringLiteral("取消 %1")).arg(actionName));
+            m_activeConnActionBtn->setEnabled(true);
+        }
+        return;
     }
 
     bool connAdvDatasetOnly = dctx.valid && !dctx.datasetName.isEmpty() && dctx.snapshotName.isEmpty();
