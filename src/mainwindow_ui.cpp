@@ -1581,9 +1581,9 @@ void MainWindow::buildUi() {
         m_statusText->setFont(f);
     }
     auto* detailTitle = new QLabel(trk(QStringLiteral("t_detail_lbl001"),
-                                       QStringLiteral("Detalle"),
-                                       QStringLiteral("Detail"),
-                                       QStringLiteral("详情")),
+                                       QStringLiteral("Progreso"),
+                                       QStringLiteral("Progress"),
+                                       QStringLiteral("进度")),
                                    leftInfo);
     detailTitle->setFont(smallTitle);
     m_lastDetailText = new QTextEdit(leftInfo);
@@ -1684,12 +1684,8 @@ void MainWindow::buildUi() {
         m_logCancelBtn->setFont(cf);
     }
     int ctrlW = 0;
-    ctrlW = qMax(ctrlW, m_logLevelCombo->sizeHint().width());
-    ctrlW = qMax(ctrlW, m_logMaxLinesCombo->sizeHint().width());
-    ctrlW = qMax(ctrlW, m_logClearBtn->sizeHint().width());
-    ctrlW = qMax(ctrlW, m_logCopyBtn->sizeHint().width());
     ctrlW = qMax(ctrlW, m_logCancelBtn->sizeHint().width());
-    ctrlW = qMax(ctrlW, 84);
+    ctrlW = qMax(ctrlW, 56);
     m_logLevelCombo->setFixedWidth(ctrlW);
     m_logMaxLinesCombo->setFixedWidth(ctrlW);
     m_logClearBtn->setFixedWidth(ctrlW);
@@ -1707,7 +1703,7 @@ void MainWindow::buildUi() {
     rightLogsLayout->addLayout(rightLogsBody, 1);
 
     logBody->addWidget(leftInfo, 1);
-    logBody->addWidget(rightLogs, 2);
+    logBody->addWidget(rightLogs, 3);
     logLayout->addLayout(logBody, 1);
 
     auto* verticalMainSplit = new QSplitter(Qt::Vertical, central);
