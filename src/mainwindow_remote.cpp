@@ -289,19 +289,24 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         const QString remoteB64 = QString::fromLatin1(wrappedRemoteCmd.toUtf8().toBase64());
         const QString passB64 = QString::fromLatin1(p.password.toUtf8().toBase64());
         const int port = (p.port > 0) ? p.port : 5986;
-        const int opTimeoutMs = (timeoutMs > 0) ? std::max(timeoutMs, 8000) : 60000;
-
         const QString script = QStringLiteral(
             "$remote=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%1')); "
             "$pwd=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%2')); "
             "$sec=ConvertTo-SecureString $pwd -AsPlainText -Force; "
             "$cred=New-Object System.Management.Automation.PSCredential('%3',$sec); "
             "$so=$null; "
-            "try { $so=New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck -OperationTimeout %4 } "
-            "catch { $so=New-PSSessionOption -SkipCACheck -SkipCNCheck -OperationTimeout %4 }; "
-            "$res=Invoke-Command -ComputerName '%5' -Port %6 -UseSSL -Authentication Negotiate -Credential $cred -SessionOption $so "
-            "-ScriptBlock { param($cmd) & ([ScriptBlock]::Create($cmd)); if($LASTEXITCODE -ne $null){ exit $LASTEXITCODE } } "
-            "-ArgumentList $remote 2>&1; "
+            "try { $so=New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck } "
+            "catch { $so=New-PSSessionOption -SkipCACheck -SkipCNCheck }; "
+            "$res=$null; "
+            "try { "
+            "  $res=Invoke-Command -ComputerName '%4' -Port %5 -UseSSL -Authentication Negotiate -Credential $cred -SessionOption $so "
+            "    -ScriptBlock { param($cmd) & ([ScriptBlock]::Create($cmd)); if($LASTEXITCODE -ne $null){ exit $LASTEXITCODE } } "
+            "    -ArgumentList $remote 2>&1 "
+            "} catch { "
+            "  $res=Invoke-Command -ComputerName '%4' -Port %5 -UseSSL -Authentication Basic -Credential $cred -SessionOption $so "
+            "    -ScriptBlock { param($cmd) & ([ScriptBlock]::Create($cmd)); if($LASTEXITCODE -ne $null){ exit $LASTEXITCODE } } "
+            "    -ArgumentList $remote 2>&1 "
+            "}; "
             "$rc=$LASTEXITCODE; "
             "$res | ForEach-Object { $_.ToString() }; "
             "if($rc -eq $null){ $rc=0 }; "
@@ -309,7 +314,6 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                                    .arg(remoteB64,
                                         passB64,
                                         userEsc,
-                                        QString::number(opTimeoutMs),
                                         hostEsc,
                                         QString::number(port));
 
