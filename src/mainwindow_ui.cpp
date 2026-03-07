@@ -42,16 +42,16 @@ void MainWindow::buildUi() {
     setMinimumSize(1120, 736);
     setStyleSheet(QStringLiteral(
         "QMainWindow, QWidget { background: #f3f7fb; color: #14212b; }"
-        "QTabWidget::pane { border: 1px solid #b8c7d6; border-radius: 8px; background: #f8fbff; }"
+        "QTabWidget::pane { border: 1px solid #b8c7d6; border-radius: 6px; background: #f8fbff; margin-top: -1px; }"
         "QTabWidget::tab-bar { alignment: left; }"
         "QTabBar { background: #f3f7fb; }"
         "QTabBar::scroller { background: #f3f7fb; }"
         "QTabBar QToolButton { background: #f3f7fb; border: 1px solid #b8c7d6; color: #14212b; }"
-        "QTabBar::tab { padding: 4px 12px; min-height: 18px; background: #e6edf4; border: 1px solid #b8c7d6; border-bottom: none; border-top-left-radius: 8px; border-top-right-radius: 8px; }"
-        "QTabBar::tab:selected { font-weight: 700; min-height: 24px; background: #cfe5ff; color: #0b2f4f; border: 1px solid #6ea6dd; border-bottom: none; }"
-        "QTabBar::tab:!selected { margin-top: 4px; background: #e6edf4; border-top-left-radius: 7px; border-top-right-radius: 7px; }"
+        "QTabBar::tab { padding: 4px 12px; min-height: 20px; background: #e6edf4; border: 1px solid #b8c7d6; border-bottom: 1px solid #b8c7d6; border-top-left-radius: 6px; border-top-right-radius: 6px; }"
+        "QTabBar::tab:selected { font-weight: 700; background: #f8fbff; color: #0b2f4f; border: 1px solid #6ea6dd; border-bottom: 1px solid #f8fbff; }"
+        "QTabBar::tab:!selected { margin-top: 2px; background: #e6edf4; }"
         "QGroupBox { margin-top: 12px; border: 1px solid #b8c7d6; border-radius: 4px; }"
-        "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 8px; padding: 0 4px 0 4px; }"
+        "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 8px; padding: 0 4px 0 4px; background: #f3f7fb; }"
         "QPushButton { background: #e8eff5; border: 1px solid #9db0c4; border-radius: 4px; padding: 3px 8px; }"
         "QPushButton:hover { background: #d6e6f2; }"
         "QPushButton:pressed { background: #c4d8e8; }"
@@ -1261,9 +1261,9 @@ void MainWindow::buildUi() {
     m_logsTabs->setDocumentMode(false);
     m_logsTabs->setStyleSheet(
         QStringLiteral("QTabWidget::tab-bar { alignment: left; }"
-                       "QTabBar::tab { padding: 1px 8px; min-height: 10px; }"
-                       "QTabBar::tab:selected { min-height: 12px; }"
-                       "QTabBar::tab:!selected { margin-top: 2px; }"));
+                       "QTabWidget::pane { margin-top: -1px; }"
+                       "QTabBar::tab { padding: 2px 8px; min-height: 16px; }"
+                       "QTabBar::tab:!selected { margin-top: 1px; }"));
     auto* appTab = new QWidget(m_logsTabs);
     auto* appTabLayout = new QVBoxLayout(appTab);
     m_logView = new QPlainTextEdit(appTab);
