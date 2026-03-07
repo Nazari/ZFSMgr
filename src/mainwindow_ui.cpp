@@ -313,7 +313,7 @@ void MainWindow::buildUi() {
     leftPane->setMinimumWidth(leftFixedWidth);
     leftPane->setMaximumWidth(leftFixedWidth);
 
-    auto* connectionsTab = new QWidget(m_leftTabs);
+    auto* connectionsTab = new QWidget(leftPane);
     auto* connLayout = new QVBoxLayout(connectionsTab);
     connLayout->setContentsMargins(4, 4, 4, 4);
     connLayout->setSpacing(4);
@@ -964,10 +964,6 @@ void MainWindow::buildUi() {
     advLeftTabLayout->addWidget(advancedInfoTabs, 1);
     advancedTab->setLayout(advLeftTabLayout);
 
-    m_leftTabs->addTab(connectionsTab, trk(QStringLiteral("t_conexi_n_d70cf0"),
-                                           QStringLiteral("Conexiones"),
-                                           QStringLiteral("Connections"),
-                                           QStringLiteral("连接")));
     m_leftTabs->addTab(datasetsTab, trk(QStringLiteral("t_datasets_tab_001"),
                                         QStringLiteral("Datasets"),
                                         QStringLiteral("Datasets"),
@@ -976,7 +972,8 @@ void MainWindow::buildUi() {
                                         QStringLiteral("Avanzado"),
                                         QStringLiteral("Advanced"),
                                         QStringLiteral("高级")));
-    leftLayout->addWidget(m_leftTabs, 1);
+    m_leftTabs->hide();
+    leftLayout->addWidget(connectionsTab, 1);
 
     auto* rightPane = new QWidget(topArea);
     auto* rightLayout = new QVBoxLayout(rightPane);
@@ -1694,16 +1691,7 @@ void MainWindow::buildUi() {
             applyDatasetPropertyChanges();
         });
     }
-    connect(m_leftTabs, &QTabWidget::currentChanged, this, [this](int idx) {
-        if (idx >= 0 && idx < m_rightStack->count()) {
-            m_rightStack->setCurrentIndex(idx);
-        }
-        if (idx == 0) {
-            populateAllPoolsTables();
-        } else if (idx == 2) {
-            onAdvancedPoolChanged();
-        }
-    });
+    m_rightStack->setCurrentIndex(0);
     connect(m_importedPoolsTable, &QTableWidget::cellClicked, this, [this](int row, int col) {
         Q_UNUSED(row);
         Q_UNUSED(col);

@@ -369,4 +369,5 @@ private:
     bool m_cancelActionRequested{false};
     QProcess* m_activeLocalProcess{nullptr};
     qint64 m_activeLocalPid{-1};
+    bool m_busyOnImportRefresh{false};
 };

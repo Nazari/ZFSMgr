@@ -243,6 +243,10 @@ void MainWindow::onAsyncRefreshDone(int generation) {
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Refresco paralelo finalizado"));
     m_refreshInProgress = false;
     updateBusyCursor();
+    if (m_busyOnImportRefresh) {
+        m_busyOnImportRefresh = false;
+        endUiBusy();
+    }
     updateStatus(trk(QStringLiteral("t_status_refresh_end"),
                      QStringLiteral("Estado: refresco finalizado"),
                      QStringLiteral("Status: refresh finished"),
@@ -250,7 +254,7 @@ void MainWindow::onAsyncRefreshDone(int generation) {
 }
 
 void MainWindow::onConnectionSelectionChanged() {
-    if (m_leftTabs->currentIndex() == 0 && !m_syncingConnectionFromPoolSelection) {
+    if (!m_syncingConnectionFromPoolSelection) {
         populateAllPoolsTables();
     }
     refreshConnectionNodeDetails();

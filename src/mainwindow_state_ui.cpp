@@ -147,14 +147,19 @@ void MainWindow::setConnectionOriginSelection(const DatasetSelectionContext& ctx
 
 void MainWindow::updateConnectionActionsState() {
     const DatasetSelectionContext dctx = currentDatasetSelection(QStringLiteral("conncontent"));
-    const QString dstText = (!dctx.valid || dctx.datasetName.isEmpty())
-                                ? trk(QStringLiteral("t_empty_sel_001"),
-                                      QStringLiteral("(vacío)"),
-                                      QStringLiteral("(empty)"),
-                                      QStringLiteral("（空）"))
-                                : (dctx.snapshotName.isEmpty()
-                                       ? dctx.datasetName
-                                       : QStringLiteral("%1@%2").arg(dctx.datasetName, dctx.snapshotName));
+    auto fmtSel = [this](const DatasetSelectionContext& c) -> QString {
+        if (!c.valid || c.datasetName.isEmpty() || c.connIdx < 0 || c.connIdx >= m_profiles.size()) {
+            return trk(QStringLiteral("t_empty_sel_001"),
+                       QStringLiteral("(vacío)"),
+                       QStringLiteral("(empty)"),
+                       QStringLiteral("（空）"));
+        }
+        const QString base = c.snapshotName.isEmpty()
+                                 ? c.datasetName
+                                 : QStringLiteral("%1@%2").arg(c.datasetName, c.snapshotName);
+        return QStringLiteral("%1::%2").arg(m_profiles[c.connIdx].name, base);
+    };
+    const QString dstText = fmtSel(dctx);
     if (m_connLeftSelectionLabel) {
         m_connLeftSelectionLabel->setText(dstText);
     }
@@ -164,7 +169,7 @@ void MainWindow::updateConnectionActionsState() {
                 QStringLiteral("Origen:%1"),
                 QStringLiteral("Source:%1"),
                 QStringLiteral("源：%1"))
-                .arg(connectionOriginSelectionText()));
+                .arg(fmtSel(m_connActionOrigin)));
     }
 
     bool connAdvDatasetOnly = dctx.valid && !dctx.datasetName.isEmpty() && dctx.snapshotName.isEmpty();
