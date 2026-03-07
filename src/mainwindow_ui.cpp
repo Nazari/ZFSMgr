@@ -849,11 +849,17 @@ void MainWindow::buildUi() {
     enableSortableHeader(m_importedPoolsTable);
     m_importedPoolsTable->setVisible(false);
 
-    m_poolDetailTabs = new QTabWidget(rightConnectionsPage);
-    m_poolDetailTabs->setDocumentMode(false);
-    auto* propsPoolTab = new QWidget(m_poolDetailTabs);
-    auto* propsPoolLayout = new QVBoxLayout(propsPoolTab);
-    m_connPropsStack = new QStackedWidget(propsPoolTab);
+    m_poolDetailTabs = new QWidget(rightConnectionsPage);
+    auto* poolDetailLayout = new QVBoxLayout(m_poolDetailTabs);
+    poolDetailLayout->setContentsMargins(0, 0, 0, 0);
+    poolDetailLayout->setSpacing(4);
+    auto* propsPoolBox = new QGroupBox(trk(QStringLiteral("t_pool_props001"),
+                                           QStringLiteral("Propiedades"),
+                                           QStringLiteral("Properties"),
+                                           QStringLiteral("属性")),
+                                       m_poolDetailTabs);
+    auto* propsPoolLayout = new QVBoxLayout(propsPoolBox);
+    m_connPropsStack = new QStackedWidget(propsPoolBox);
     m_connPoolPropsPage = new QWidget(m_connPropsStack);
     auto* poolPropsPageLayout = new QVBoxLayout(m_connPoolPropsPage);
     poolPropsPageLayout->setContentsMargins(0, 0, 0, 0);
@@ -966,12 +972,16 @@ void MainWindow::buildUi() {
     m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
     propsPoolLayout->addWidget(m_connPropsStack, 1);
 
-    auto* statusPoolTab = new QWidget(m_poolDetailTabs);
-    auto* statusPoolLayout = new QVBoxLayout(statusPoolTab);
+    auto* statusPoolBox = new QGroupBox(trk(QStringLiteral("t_status_col_001"),
+                                            QStringLiteral("Estado"),
+                                            QStringLiteral("Status"),
+                                            QStringLiteral("状态")),
+                                        m_poolDetailTabs);
+    auto* statusPoolLayout = new QVBoxLayout(statusPoolBox);
     auto* statusBody = new QHBoxLayout();
     statusBody->setContentsMargins(0, 0, 0, 0);
     statusBody->setSpacing(6);
-    auto* statusActionsWrap = new QWidget(statusPoolTab);
+    auto* statusActionsWrap = new QWidget(statusPoolBox);
     auto* statusActions = new QVBoxLayout(statusActionsWrap);
     statusActions->setContentsMargins(0, 0, 0, 0);
     statusActions->setSpacing(6);
@@ -979,14 +989,14 @@ void MainWindow::buildUi() {
                                                  QStringLiteral("Actualizar"),
                                                  QStringLiteral("Refresh"),
                                                  QStringLiteral("刷新")),
-                                             statusPoolTab);
+                                             statusPoolBox);
     m_poolStatusRefreshBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     statusActions->addWidget(m_poolStatusRefreshBtn);
     m_poolStatusImportBtn = new QPushButton(trk(QStringLiteral("t_import_btn001"),
                                                 QStringLiteral("Importar"),
                                                 QStringLiteral("Import"),
                                                 QStringLiteral("导入")),
-                                            statusPoolTab);
+                                            statusPoolBox);
     m_poolStatusImportBtn->setEnabled(false);
     m_poolStatusImportBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     statusActions->addWidget(m_poolStatusImportBtn);
@@ -994,15 +1004,15 @@ void MainWindow::buildUi() {
                                                 QStringLiteral("Exportar"),
                                                 QStringLiteral("Export"),
                                                 QStringLiteral("导出")),
-                                            statusPoolTab);
+                                            statusPoolBox);
     m_poolStatusExportBtn->setEnabled(false);
     m_poolStatusExportBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     statusActions->addWidget(m_poolStatusExportBtn);
-    m_poolStatusScrubBtn = new QPushButton(QStringLiteral("Scrub"), statusPoolTab);
+    m_poolStatusScrubBtn = new QPushButton(QStringLiteral("Scrub"), statusPoolBox);
     m_poolStatusScrubBtn->setEnabled(false);
     m_poolStatusScrubBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     statusActions->addWidget(m_poolStatusScrubBtn);
-    m_poolStatusDestroyBtn = new QPushButton(QStringLiteral("Destroy"), statusPoolTab);
+    m_poolStatusDestroyBtn = new QPushButton(QStringLiteral("Destroy"), statusPoolBox);
     m_poolStatusDestroyBtn->setEnabled(false);
     m_poolStatusDestroyBtn->setStyleSheet(
         QStringLiteral("QPushButton:enabled { color: #b00020; font-weight: 700; }"
@@ -1021,7 +1031,7 @@ void MainWindow::buildUi() {
     m_poolStatusDestroyBtn->setMinimumWidth(statusButtonsWidth);
     statusActions->addStretch(1);
     statusActionsWrap->setVisible(false);
-    m_poolStatusText = new QPlainTextEdit(statusPoolTab);
+    m_poolStatusText = new QPlainTextEdit(statusPoolBox);
     m_poolStatusText->setReadOnly(true);
     m_poolStatusText->setLineWrapMode(QPlainTextEdit::NoWrap);
     m_poolStatusText->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -1033,23 +1043,16 @@ void MainWindow::buildUi() {
     statusBody->addWidget(statusActionsWrap, 0, Qt::AlignTop);
     statusBody->addWidget(m_poolStatusText, 1);
     statusPoolLayout->addLayout(statusBody, 1);
-
-    m_poolDetailTabs->addTab(statusPoolTab, trk(QStringLiteral("t_status_col_001"),
-                                                QStringLiteral("Estado"),
-                                                QStringLiteral("Status"),
-                                                QStringLiteral("状态")));
-    m_poolDetailTabs->addTab(propsPoolTab, trk(QStringLiteral("t_pool_props001"),
-                                               QStringLiteral("Propiedades"),
-                                               QStringLiteral("Properties"),
-                                               QStringLiteral("属性")));
-
     auto* connDetailSplit = new QSplitter(Qt::Vertical, rightConnectionsPage);
     connDetailSplit->setChildrenCollapsible(false);
     connDetailSplit->setHandleWidth(1);
-    connDetailSplit->addWidget(m_poolDetailTabs);
-    connDetailSplit->setStretchFactor(0, 100);
+    connDetailSplit->addWidget(propsPoolBox);
+    connDetailSplit->addWidget(statusPoolBox);
+    connDetailSplit->setStretchFactor(0, 55);
+    connDetailSplit->setStretchFactor(1, 45);
+    poolDetailLayout->addWidget(connDetailSplit, 1);
     rightConnectionsLayout->setSpacing(0);
-    rightConnectionsLayout->addWidget(connDetailSplit, 1);
+    rightConnectionsLayout->addWidget(m_poolDetailTabs, 1);
 
     auto* rightDatasetsPage = new QWidget(m_rightStack);
     auto* rightDatasetsLayout = new QVBoxLayout(rightDatasetsPage);

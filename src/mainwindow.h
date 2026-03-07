@@ -257,7 +257,7 @@ private:
 
     QTableWidget* m_importedPoolsTable{nullptr};
     QTableWidget* m_importablePoolsTable{nullptr};
-    QTabWidget* m_poolDetailTabs{nullptr};
+    QWidget* m_poolDetailTabs{nullptr};
     QTableWidget* m_poolPropsTable{nullptr};
     QStackedWidget* m_connPropsStack{nullptr};
     QWidget* m_connPoolPropsPage{nullptr};
