@@ -69,7 +69,7 @@ void MainWindow::buildUi() {
         "QScrollBar:horizontal { height: 8px; }"
         "QTreeWidget::item:selected, QTableWidget::item:selected, QListWidget::item:selected {"
         "  background: #dcecff; color: #0d2438; font-weight: 600; }"
-        "QHeaderView::section { background: #eaf1f7; border: 1px solid #c5d3e0; padding: 2px 4px; }"));
+        "QHeaderView::section { background: #eaf1f7; border: 1px solid #c5d3e0; padding: 1px 3px; font-size: 85%; }"));
 #ifdef Q_OS_MAC
     setStyleSheet(styleSheet() + QStringLiteral(
         "QTreeView::indicator:unchecked, QTableView::indicator:unchecked, QCheckBox::indicator:unchecked {"
