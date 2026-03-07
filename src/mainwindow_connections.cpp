@@ -518,6 +518,9 @@ void MainWindow::rebuildConnectionList() {
                                 .arg(s.status)
                                 .arg(s.detail));
         item->setExpanded(false);
+        if (redirectedLocal) {
+            continue;
+        }
 
         const QString osLine = !s.osLine.trimmed().isEmpty()
                                    ? s.osLine.trimmed()
@@ -590,24 +593,6 @@ void MainWindow::rebuildConnectionList() {
             missingNode->setText(0, missingText);
             missingNode->setForeground(0, QBrush(QColor("#a12a2a")));
             missingNode->setToolTip(0, missingText);
-        }
-        if (redirectedLocal) {
-            osChild->setDisabled(true);
-            methodChild->setDisabled(true);
-            zfsChild->setDisabled(true);
-            commandsNode->setDisabled(true);
-            QFont f1 = osChild->font(0);
-            f1.setItalic(true);
-            osChild->setFont(0, f1);
-            QFont f2 = methodChild->font(0);
-            f2.setItalic(true);
-            methodChild->setFont(0, f2);
-            QFont f3 = zfsChild->font(0);
-            f3.setItalic(true);
-            zfsChild->setFont(0, f3);
-            QFont f4 = commandsNode->font(0);
-            f4.setItalic(true);
-            commandsNode->setFont(0, f4);
         }
     }
     m_connectionsList->collapseAll();
