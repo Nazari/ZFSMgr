@@ -16,6 +16,24 @@
 #include <QStandardPaths>
 #include <QHBoxLayout>
 #include <QFileDialog>
+#include <QRegularExpression>
+
+namespace {
+QString sanitizePsrpDetail(QString raw) {
+    if (raw.isEmpty()) {
+        return raw;
+    }
+    raw.replace(QStringLiteral("#< CLIXML"), QStringLiteral(""));
+    raw.replace(QRegularExpression(QStringLiteral("_x[0-9A-Fa-f]{4}_")), QStringLiteral(""));
+    raw.replace(QRegularExpression(QStringLiteral("<[^>]+>")), QStringLiteral(""));
+    raw.replace(QStringLiteral("&lt;"), QStringLiteral("<"));
+    raw.replace(QStringLiteral("&gt;"), QStringLiteral(">"));
+    raw.replace(QStringLiteral("&amp;"), QStringLiteral("&"));
+    raw.replace(QStringLiteral("&quot;"), QStringLiteral("\""));
+    raw.replace(QStringLiteral("&#39;"), QStringLiteral("'"));
+    return raw.simplified();
+}
+} // namespace
 
 ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     : QDialog(parent) {
@@ -407,7 +425,9 @@ bool ConnectionDialog::testPsrpConnection(const ConnectionProfile& p, QString& d
         "$pwd=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%1')); "
         "$sec=ConvertTo-SecureString $pwd -AsPlainText -Force; "
         "$cred=New-Object System.Management.Automation.PSCredential('%2',$sec); "
-        "$so=New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck -OperationTimeout 12000; "
+        "$so=$null; "
+        "try { $so=New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck -OperationTimeout 12000 } "
+        "catch { $so=New-PSSessionOption -SkipCACheck -SkipCNCheck -OperationTimeout 12000 }; "
         "$r=Invoke-Command -ComputerName '%3' -Port %4 -UseSSL -Authentication Negotiate -Credential $cred -SessionOption $so "
         "-ScriptBlock { [System.Environment]::OSVersion.VersionString } 2>&1; "
         "$rc=$LASTEXITCODE; "
@@ -441,11 +461,19 @@ bool ConnectionDialog::testPsrpConnection(const ConnectionProfile& p, QString& d
     }
 
     const int rc = proc.exitCode();
-    const QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
-    const QString err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
+    const QString out = sanitizePsrpDetail(QString::fromUtf8(proc.readAllStandardOutput()).trimmed());
+    const QString err = sanitizePsrpDetail(QString::fromUtf8(proc.readAllStandardError()).trimmed());
+    const QString merged = (out + QStringLiteral("\n") + err).trimmed();
     if (rc == 0 && !out.isEmpty()) {
         detail = out.section('\n', 0, 0).trimmed();
         return true;
+    }
+    if (merged.contains(QStringLiteral("no supported wsman client library"), Qt::CaseInsensitive)) {
+        detail = trk(QStringLiteral("t_psrp_wsman_miss"),
+                     QStringLiteral("PSRP no disponible: falta cliente WSMan en este sistema.\nInstale PSWSMan para PowerShell (ejemplo: Install-Module PSWSMan; Install-WSMan)."),
+                     QStringLiteral("PSRP unavailable: WSMan client library is missing on this system.\nInstall PSWSMan for PowerShell (e.g. Install-Module PSWSMan; Install-WSMan)."),
+                     QStringLiteral("PSRP 不可用：此系统缺少 WSMan 客户端库。\n请安装 PowerShell 的 PSWSMan（例如：Install-Module PSWSMan; Install-WSMan）。"));
+        return false;
     }
     detail = err.isEmpty()
                  ? trk(QStringLiteral("t_error_psrp_001"),

@@ -277,7 +277,9 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             "$pwd=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%2')); "
             "$sec=ConvertTo-SecureString $pwd -AsPlainText -Force; "
             "$cred=New-Object System.Management.Automation.PSCredential('%3',$sec); "
-            "$so=New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck -OperationTimeout %4; "
+            "$so=$null; "
+            "try { $so=New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck -OperationTimeout %4 } "
+            "catch { $so=New-PSSessionOption -SkipCACheck -SkipCNCheck -OperationTimeout %4 }; "
             "$res=Invoke-Command -ComputerName '%5' -Port %6 -UseSSL -Authentication Negotiate -Credential $cred -SessionOption $so "
             "-ScriptBlock { param($cmd) & ([ScriptBlock]::Create($cmd)); if($LASTEXITCODE -ne $null){ exit $LASTEXITCODE } } "
             "-ArgumentList $remote 2>&1; "
@@ -398,6 +400,9 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             appendConnectionLog(p.id, oneLine(out));
         }
         if (!err.trimmed().isEmpty()) {
+            if (err.contains(QStringLiteral("no supported WSMan client library"), Qt::CaseInsensitive)) {
+                err = QStringLiteral("PSRP no disponible en este host: falta WSMan client library (instale PSWSMan/Install-WSMan en PowerShell local).");
+            }
             appendConnectionLog(p.id, oneLine(err));
         }
         return true;
