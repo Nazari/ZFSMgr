@@ -384,6 +384,78 @@ bool ConnectionDialog::testSshConnection(const ConnectionProfile& p, QString& de
     return false;
 }
 
+bool ConnectionDialog::testPsrpConnection(const ConnectionProfile& p, QString& detail) const {
+    detail.clear();
+    QString program = QStandardPaths::findExecutable(QStringLiteral("pwsh"));
+    if (program.isEmpty()) {
+        program = QStandardPaths::findExecutable(QStringLiteral("powershell"));
+    }
+    if (program.isEmpty()) {
+        detail = trk(QStringLiteral("t_psrp_bin_nf001"),
+                     QStringLiteral("No se encontró pwsh/powershell para validar PSRP."),
+                     QStringLiteral("pwsh/powershell not found to validate PSRP."),
+                     QStringLiteral("未找到 pwsh/powershell，无法验证 PSRP。"));
+        return false;
+    }
+
+    const QString hostEsc = QString(p.host).replace('\'', QStringLiteral("''"));
+    const QString userEsc = QString(p.username).replace('\'', QStringLiteral("''"));
+    const QString passB64 = QString::fromLatin1(p.password.toUtf8().toBase64());
+    const int port = (p.port > 0) ? p.port : 5986;
+
+    const QString script = QStringLiteral(
+        "$pwd=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%1')); "
+        "$sec=ConvertTo-SecureString $pwd -AsPlainText -Force; "
+        "$cred=New-Object System.Management.Automation.PSCredential('%2',$sec); "
+        "$so=New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck -OperationTimeout 12000; "
+        "$r=Invoke-Command -ComputerName '%3' -Port %4 -UseSSL -Authentication Negotiate -Credential $cred -SessionOption $so "
+        "-ScriptBlock { [System.Environment]::OSVersion.VersionString } 2>&1; "
+        "$rc=$LASTEXITCODE; "
+        "$r | ForEach-Object { $_.ToString() }; "
+        "if($rc -eq $null){ $rc=0 }; "
+        "exit [int]$rc;")
+                               .arg(passB64, userEsc, hostEsc, QString::number(port));
+
+    const QByteArray utf16(reinterpret_cast<const char*>(script.utf16()), script.size() * 2);
+    const QString encoded = QString::fromLatin1(utf16.toBase64());
+    QStringList args;
+    args << "-NoProfile" << "-NonInteractive" << "-EncodedCommand" << encoded;
+
+    QProcess proc;
+    proc.start(program, args);
+    if (!proc.waitForStarted(3000)) {
+        detail = trk(QStringLiteral("t_no_se_pudo_99f7f4"),
+                     QStringLiteral("No se pudo iniciar %1"),
+                     QStringLiteral("Could not start %1"),
+                     QStringLiteral("无法启动 %1")).arg(program);
+        return false;
+    }
+    if (!proc.waitForFinished(15000)) {
+        proc.kill();
+        proc.waitForFinished(1000);
+        detail = trk(QStringLiteral("t_timeout_psrp001"),
+                     QStringLiteral("Timeout de conexión PSRP"),
+                     QStringLiteral("PSRP connection timeout"),
+                     QStringLiteral("PSRP 连接超时"));
+        return false;
+    }
+
+    const int rc = proc.exitCode();
+    const QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+    const QString err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
+    if (rc == 0 && !out.isEmpty()) {
+        detail = out.section('\n', 0, 0).trimmed();
+        return true;
+    }
+    detail = err.isEmpty()
+                 ? trk(QStringLiteral("t_error_psrp_001"),
+                       QStringLiteral("Error PSRP (exit %1)"),
+                       QStringLiteral("PSRP error (exit %1)"),
+                       QStringLiteral("PSRP 错误（退出码 %1）")).arg(rc)
+                 : err;
+    return false;
+}
+
 void ConnectionDialog::testConnection() {
     const ConnectionProfile p = profile();
     if (p.host.isEmpty() || p.username.isEmpty()) {
@@ -407,12 +479,34 @@ void ConnectionDialog::testConnection() {
 
     const bool psrpMode = (p.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
     if (psrpMode) {
-        QMessageBox::information(this,
+        if (p.password.trimmed().isEmpty()) {
+            QMessageBox::warning(this,
                                  QStringLiteral("ZFSMgr"),
-                                 trk(QStringLiteral("t_la_prueba__40007d"),
-                                     QStringLiteral("La prueba PSRP aún no valida autenticación en esta versión.\nUse SSH para prueba completa."),
-                                     QStringLiteral("PSRP test does not validate authentication yet in this version.\nUse SSH for full test."),
-                                     QStringLiteral("此版本中 PSRP 测试尚不验证认证。\n请使用 SSH 进行完整测试。")));
+                                 trk(QStringLiteral("t_psrp_pwd_req001"),
+                                     QStringLiteral("Para validar una conexión PSRP debe indicar password."),
+                                     QStringLiteral("A password is required to validate a PSRP connection."),
+                                     QStringLiteral("验证 PSRP 连接需要密码。")));
+            return;
+        }
+        QString psrpDetail;
+        if (testPsrpConnection(p, psrpDetail)) {
+            QMessageBox::information(this,
+                                     QStringLiteral("ZFSMgr"),
+                                     trk(QStringLiteral("t_psrp_ok_msg001"),
+                                         QStringLiteral("Conexión PSRP correcta a %1@%2:%3\n%4"),
+                                         QStringLiteral("PSRP connection successful to %1@%2:%3\n%4"),
+                                         QStringLiteral("PSRP 连接成功：%1@%2:%3\n%4"))
+                                         .arg(p.username, p.host)
+                                         .arg(p.port)
+                                         .arg(psrpDetail));
+            return;
+        }
+        QMessageBox::critical(this,
+                              QStringLiteral("ZFSMgr"),
+                              trk(QStringLiteral("t_psrp_failmsg001"),
+                                  QStringLiteral("Fallo en prueba PSRP:\n%1"),
+                                  QStringLiteral("PSRP test failed:\n%1"),
+                                  QStringLiteral("PSRP 测试失败：\n%1")).arg(psrpDetail));
         return;
     }
 

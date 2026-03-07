@@ -23,6 +23,7 @@ private:
     void ensureDefaultPortForMode();
     void testConnection();
     bool testSshConnection(const ConnectionProfile& p, QString& detail) const;
+    bool testPsrpConnection(const ConnectionProfile& p, QString& detail) const;
     void browsePrivateKey();
     QString trk(const QString& key,
                 const QString& es = QString(),

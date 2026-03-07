@@ -254,6 +254,155 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         return true;
     }
 
+    if (p.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
+        QString program = QStandardPaths::findExecutable(QStringLiteral("pwsh"));
+        if (program.isEmpty()) {
+            program = QStandardPaths::findExecutable(QStringLiteral("powershell"));
+        }
+        if (program.isEmpty()) {
+            err = QStringLiteral("No se encontró pwsh/powershell para PSRP");
+            appendConnectionLog(p.id, err);
+            return false;
+        }
+
+        const QString hostEsc = QString(p.host).replace('\'', QStringLiteral("''"));
+        const QString userEsc = QString(p.username).replace('\'', QStringLiteral("''"));
+        const QString remoteB64 = QString::fromLatin1(remoteCmd.toUtf8().toBase64());
+        const QString passB64 = QString::fromLatin1(p.password.toUtf8().toBase64());
+        const int port = (p.port > 0) ? p.port : 5986;
+        const int opTimeoutMs = (timeoutMs > 0) ? std::max(timeoutMs, 8000) : 60000;
+
+        const QString script = QStringLiteral(
+            "$remote=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%1')); "
+            "$pwd=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('%2')); "
+            "$sec=ConvertTo-SecureString $pwd -AsPlainText -Force; "
+            "$cred=New-Object System.Management.Automation.PSCredential('%3',$sec); "
+            "$so=New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck -OperationTimeout %4; "
+            "$res=Invoke-Command -ComputerName '%5' -Port %6 -UseSSL -Authentication Negotiate -Credential $cred -SessionOption $so "
+            "-ScriptBlock { param($cmd) & ([ScriptBlock]::Create($cmd)); if($LASTEXITCODE -ne $null){ exit $LASTEXITCODE } } "
+            "-ArgumentList $remote 2>&1; "
+            "$rc=$LASTEXITCODE; "
+            "$res | ForEach-Object { $_.ToString() }; "
+            "if($rc -eq $null){ $rc=0 }; "
+            "exit [int]$rc;")
+                                   .arg(remoteB64,
+                                        passB64,
+                                        userEsc,
+                                        QString::number(opTimeoutMs),
+                                        hostEsc,
+                                        QString::number(port));
+
+        const QByteArray utf16(reinterpret_cast<const char*>(script.utf16()), script.size() * 2);
+        const QString encoded = QString::fromLatin1(utf16.toBase64());
+        QStringList args;
+        args << "-NoProfile" << "-NonInteractive" << "-EncodedCommand" << encoded;
+
+        const QString cmdLine = QStringLiteral("%1@%2:%3 [PSRP] $ %4")
+                                    .arg(p.username, p.host)
+                                    .arg(port)
+                                    .arg(remoteCmd);
+        appLog(QStringLiteral("INFO"), cmdLine);
+        appendConnectionLog(p.id, cmdLine);
+
+        QProcess proc;
+        QElapsedTimer timer;
+        timer.start();
+        proc.start(program, args);
+        if (!proc.waitForStarted(4000)) {
+            err = QStringLiteral("No se pudo iniciar %1").arg(program);
+            appendConnectionLog(p.id, err);
+            return false;
+        }
+
+        QString outLineBuf;
+        QString errLineBuf;
+        auto flushLines = [&](QString& buf, const QString& chunk, const std::function<void(const QString&)>& cb) {
+            if (!chunk.isEmpty()) {
+                buf += chunk;
+            }
+            int nl = -1;
+            while ((nl = buf.indexOf('\n')) >= 0) {
+                QString line = buf.left(nl);
+                buf.remove(0, nl + 1);
+                line = line.trimmed();
+                if (line.isEmpty()) {
+                    continue;
+                }
+                if (cb) {
+                    cb(line);
+                }
+                appendConnectionLog(p.id, line);
+            }
+        };
+
+        bool timedOut = false;
+        while (proc.state() != QProcess::NotRunning) {
+            proc.waitForReadyRead(120);
+            const QString outChunk = QString::fromUtf8(proc.readAllStandardOutput());
+            const QString errChunk = QString::fromUtf8(proc.readAllStandardError());
+            if (!outChunk.isEmpty()) {
+                out += outChunk;
+                flushLines(outLineBuf, outChunk, onStdoutLine);
+            }
+            if (!errChunk.isEmpty()) {
+                err += errChunk;
+                flushLines(errLineBuf, errChunk, onStderrLine);
+            }
+            if (timeoutMs > 0 && timer.elapsed() > timeoutMs) {
+                timedOut = true;
+                proc.kill();
+                proc.waitForFinished(1000);
+                break;
+            }
+            if (QThread::currentThread() == thread()) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            }
+        }
+
+        const QString outTail = QString::fromUtf8(proc.readAllStandardOutput());
+        const QString errTail = QString::fromUtf8(proc.readAllStandardError());
+        if (!outTail.isEmpty()) {
+            out += outTail;
+            flushLines(outLineBuf, outTail, onStdoutLine);
+        }
+        if (!errTail.isEmpty()) {
+            err += errTail;
+            flushLines(errLineBuf, errTail, onStderrLine);
+        }
+        if (!outLineBuf.trimmed().isEmpty()) {
+            const QString line = outLineBuf.trimmed();
+            if (onStdoutLine) {
+                onStdoutLine(line);
+            }
+            appendConnectionLog(p.id, line);
+        }
+        if (!errLineBuf.trimmed().isEmpty()) {
+            const QString line = errLineBuf.trimmed();
+            if (onStderrLine) {
+                onStderrLine(line);
+            }
+            appendConnectionLog(p.id, line);
+        }
+
+        if (timedOut) {
+            rc = -1;
+            err = QStringLiteral("Timeout");
+            appendConnectionLog(p.id, err);
+            return false;
+        }
+
+        rc = proc.exitCode();
+        out = sanitizeWindowsCliXml(out);
+        err = sanitizeWindowsCliXml(err);
+        if (!out.trimmed().isEmpty()) {
+            appendConnectionLog(p.id, oneLine(out));
+        }
+        if (!err.trimmed().isEmpty()) {
+            appendConnectionLog(p.id, oneLine(err));
+        }
+        return true;
+    }
+
     const bool hasPassword = !p.password.trimmed().isEmpty();
     QString program = QStringLiteral("ssh");
     QStringList args;
