@@ -1013,6 +1013,19 @@ void MainWindow::createConnection() {
         return;
     }
     ConnectionProfile created = dlg.profile();
+    {
+        const QString newName = created.name.trimmed();
+        for (const ConnectionProfile& cp : m_profiles) {
+            if (cp.name.trimmed().compare(newName, Qt::CaseInsensitive) == 0) {
+                QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                                     trk(QStringLiteral("t_conn_name_unique_01"),
+                                         QStringLiteral("El nombre de conexión ya existe. Debe ser único."),
+                                         QStringLiteral("Connection name already exists. It must be unique."),
+                                         QStringLiteral("连接名称已存在，必须唯一。")));
+                return;
+            }
+        }
+    }
     QString createdId = created.id.trimmed();
     if (createdId.isEmpty()) {
         createdId = created.name.trimmed().toLower();
@@ -1086,6 +1099,22 @@ void MainWindow::editConnection() {
     }
     ConnectionProfile edited = dlg.profile();
     edited.id = m_profiles[idx].id;
+    {
+        const QString editedName = edited.name.trimmed();
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            if (i == idx) {
+                continue;
+            }
+            if (m_profiles[i].name.trimmed().compare(editedName, Qt::CaseInsensitive) == 0) {
+                QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                                     trk(QStringLiteral("t_conn_name_unique_01"),
+                                         QStringLiteral("El nombre de conexión ya existe. Debe ser único."),
+                                         QStringLiteral("Connection name already exists. It must be unique."),
+                                         QStringLiteral("连接名称已存在，必须唯一。")));
+                return;
+            }
+        }
+    }
     QString err;
     if (!m_store.upsertConnection(edited, err)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),

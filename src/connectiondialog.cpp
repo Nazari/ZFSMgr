@@ -5,6 +5,7 @@
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QIntValidator>
+#include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QVBoxLayout>
@@ -13,6 +14,8 @@
 #include <QMessageBox>
 #include <QProcess>
 #include <QStandardPaths>
+#include <QHBoxLayout>
+#include <QFileDialog>
 
 ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     : QDialog(parent) {
@@ -24,7 +27,7 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
                        QStringLiteral("Conexión"),
                        QStringLiteral("Connection"),
                        QStringLiteral("连接")));
-    resize(560, 380);
+    resize(640, 320);
 
     auto* root = new QVBoxLayout(this);
     auto* form = new QFormLayout();
@@ -36,67 +39,94 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
                      QStringLiteral("名称")),
                  m_nameEdit);
 
-    m_connTypeCombo = new QComboBox(this);
-    m_connTypeCombo->addItems({QStringLiteral("SSH"), QStringLiteral("PSRP")});
-    form->addRow(trk(QStringLiteral("t_tipo_6cc619"),
-                     QStringLiteral("Tipo"),
-                     QStringLiteral("Type"),
-                     QStringLiteral("类型")),
-                 m_connTypeCombo);
-
     m_osTypeCombo = new QComboBox(this);
     m_osTypeCombo->addItems({QStringLiteral("Linux"), QStringLiteral("macOS"), QStringLiteral("Windows")});
-    form->addRow(trk(QStringLiteral("t_so_2290cf"),
-                     QStringLiteral("SO"),
-                     QStringLiteral("OS"),
-                     QStringLiteral("系统")),
-                 m_osTypeCombo);
-
-    m_transportCombo = new QComboBox(this);
-    m_transportCombo->addItems({QStringLiteral("SSH"), QStringLiteral("PSRP")});
-    form->addRow(trk(QStringLiteral("t_transporte_62220c"),
-                     QStringLiteral("Transporte"),
-                     QStringLiteral("Transport"),
-                     QStringLiteral("传输")),
-                 m_transportCombo);
+    m_connTypeCombo = new QComboBox(this);
+    m_connTypeCombo->addItems({QStringLiteral("SSH")});
+    auto* osTypeRow = new QWidget(this);
+    auto* osTypeLayout = new QHBoxLayout(osTypeRow);
+    osTypeLayout->setContentsMargins(0, 0, 0, 0);
+    osTypeLayout->setSpacing(8);
+    auto* osLbl = new QLabel(trk(QStringLiteral("t_so_2290cf"),
+                                 QStringLiteral("S.O."),
+                                 QStringLiteral("OS"),
+                                 QStringLiteral("系统")), osTypeRow);
+    auto* typeLbl = new QLabel(trk(QStringLiteral("t_tipo_6cc619"),
+                                   QStringLiteral("Tipo"),
+                                   QStringLiteral("Type"),
+                                   QStringLiteral("类型")), osTypeRow);
+    osTypeLayout->addWidget(osLbl, 0);
+    osTypeLayout->addWidget(m_osTypeCombo, 1);
+    osTypeLayout->addSpacing(12);
+    osTypeLayout->addWidget(typeLbl, 0);
+    osTypeLayout->addWidget(m_connTypeCombo, 1);
+    form->addRow(QString(), osTypeRow);
 
     m_hostEdit = new QLineEdit(this);
-    form->addRow(trk(QStringLiteral("t_host_3960ec"),
-                     QStringLiteral("Host"),
-                     QStringLiteral("Host"),
-                     QStringLiteral("主机")),
-                 m_hostEdit);
-
     m_portEdit = new QLineEdit(this);
     m_portEdit->setValidator(new QIntValidator(1, 65535, m_portEdit));
     m_portEdit->setText(QStringLiteral("22"));
-    form->addRow(trk(QStringLiteral("t_puerto_095508"),
-                     QStringLiteral("Puerto"),
-                     QStringLiteral("Port"),
-                     QStringLiteral("端口")),
-                 m_portEdit);
+    auto* hostPortRow = new QWidget(this);
+    auto* hostPortLayout = new QHBoxLayout(hostPortRow);
+    hostPortLayout->setContentsMargins(0, 0, 0, 0);
+    hostPortLayout->setSpacing(8);
+    auto* hostLbl = new QLabel(trk(QStringLiteral("t_host_3960ec"),
+                                   QStringLiteral("Host"),
+                                   QStringLiteral("Host"),
+                                   QStringLiteral("主机")), hostPortRow);
+    auto* portLbl = new QLabel(trk(QStringLiteral("t_puerto_095508"),
+                                   QStringLiteral("Port"),
+                                   QStringLiteral("Port"),
+                                   QStringLiteral("端口")), hostPortRow);
+    m_portEdit->setMaximumWidth(110);
+    hostPortLayout->addWidget(hostLbl, 0);
+    hostPortLayout->addWidget(m_hostEdit, 1);
+    hostPortLayout->addSpacing(12);
+    hostPortLayout->addWidget(portLbl, 0);
+    hostPortLayout->addWidget(m_portEdit, 0);
+    form->addRow(QString(), hostPortRow);
 
     m_userEdit = new QLineEdit(this);
-    form->addRow(trk(QStringLiteral("t_usuario_3f2ecd"),
-                     QStringLiteral("Usuario"),
-                     QStringLiteral("User"),
-                     QStringLiteral("用户")),
-                 m_userEdit);
-
     m_passwordEdit = new QLineEdit(this);
     m_passwordEdit->setEchoMode(QLineEdit::Password);
-    form->addRow(trk(QStringLiteral("t_password_8be3c9"),
-                     QStringLiteral("Password"),
-                     QStringLiteral("Password"),
-                     QStringLiteral("密码")),
-                 m_passwordEdit);
+    auto* userPassRow = new QWidget(this);
+    auto* userPassLayout = new QHBoxLayout(userPassRow);
+    userPassLayout->setContentsMargins(0, 0, 0, 0);
+    userPassLayout->setSpacing(8);
+    auto* userLbl = new QLabel(trk(QStringLiteral("t_usuario_3f2ecd"),
+                                   QStringLiteral("Usuario"),
+                                   QStringLiteral("User"),
+                                   QStringLiteral("用户")), userPassRow);
+    auto* passLbl = new QLabel(trk(QStringLiteral("t_password_8be3c9"),
+                                   QStringLiteral("Password"),
+                                   QStringLiteral("Password"),
+                                   QStringLiteral("密码")), userPassRow);
+    userPassLayout->addWidget(userLbl, 0);
+    userPassLayout->addWidget(m_userEdit, 1);
+    userPassLayout->addSpacing(12);
+    userPassLayout->addWidget(passLbl, 0);
+    userPassLayout->addWidget(m_passwordEdit, 1);
+    form->addRow(QString(), userPassRow);
 
     m_keyEdit = new QLineEdit(this);
-    form->addRow(trk(QStringLiteral("t_clave_ssh_37a1aa"),
-                     QStringLiteral("Clave SSH"),
-                     QStringLiteral("SSH key"),
-                     QStringLiteral("SSH 密钥")),
-                 m_keyEdit);
+    m_keyBrowseBtn = new QPushButton(
+        trk(QStringLiteral("t_browse_btn001"),
+            QStringLiteral("Examinar..."),
+            QStringLiteral("Browse..."),
+            QStringLiteral("浏览...")),
+        this);
+    auto* keyRow = new QWidget(this);
+    auto* keyLayout = new QHBoxLayout(keyRow);
+    keyLayout->setContentsMargins(0, 0, 0, 0);
+    keyLayout->setSpacing(8);
+    auto* keyLbl = new QLabel(trk(QStringLiteral("t_clave_ssh_37a1aa"),
+                                  QStringLiteral("Clave privada SSH"),
+                                  QStringLiteral("SSH private key"),
+                                  QStringLiteral("SSH 私钥")), keyRow);
+    keyLayout->addWidget(keyLbl, 0);
+    keyLayout->addWidget(m_keyEdit, 1);
+    keyLayout->addWidget(m_keyBrowseBtn, 0);
+    form->addRow(QString(), keyRow);
 
     m_sudoCheck = new QCheckBox(trk(QStringLiteral("t_usar_sudo_e14aff"),
                                     QStringLiteral("Usar sudo"),
@@ -115,32 +145,35 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     connect(m_connTypeCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
         updateConnectionModeUi();
     });
-    connect(m_transportCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
-        updateConnectionModeUi();
-    });
+    connect(m_keyBrowseBtn, &QPushButton::clicked, this, [this]() { browsePrivateKey(); });
 
     root->addLayout(form);
 
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-    buttons->button(QDialogButtonBox::Ok)->setText(trk(QStringLiteral("t_aceptar_8f9f73"),
-                                                       QStringLiteral("Aceptar"),
-                                                       QStringLiteral("Accept"),
-                                                       QStringLiteral("确认")));
-    buttons->button(QDialogButtonBox::Cancel)->setText(trk(QStringLiteral("t_cancelar_c111e0"),
-                                                           QStringLiteral("Cancelar"),
-                                                           QStringLiteral("Cancel"),
-                                                           QStringLiteral("取消")));
-    QPushButton* testBtn = buttons->addButton(trk(QStringLiteral("t_probar_con_956752"),
-                                                  QStringLiteral("Probar conexión"),
-                                                  QStringLiteral("Test connection"),
-                                                  QStringLiteral("测试连接")),
-                                              QDialogButtonBox::ActionRole);
-    connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    auto* btnRow = new QHBoxLayout();
+    btnRow->setContentsMargins(0, 6, 0, 0);
+    btnRow->setSpacing(8);
+    auto* testBtn = new QPushButton(trk(QStringLiteral("t_probar_con_956752"),
+                                        QStringLiteral("Probar conexión"),
+                                        QStringLiteral("Test connection"),
+                                        QStringLiteral("测试连接")), this);
+    auto* okBtn = new QPushButton(trk(QStringLiteral("t_aceptar_8f9f73"),
+                                      QStringLiteral("Aceptar"),
+                                      QStringLiteral("Accept"),
+                                      QStringLiteral("确认")), this);
+    auto* cancelBtn = new QPushButton(trk(QStringLiteral("t_cancelar_c111e0"),
+                                          QStringLiteral("Cancelar"),
+                                          QStringLiteral("Cancel"),
+                                          QStringLiteral("取消")), this);
+    connect(okBtn, &QPushButton::clicked, this, &QDialog::accept);
+    connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
     connect(testBtn, &QPushButton::clicked, this, [this]() {
         testConnection();
     });
-    root->addWidget(buttons);
+    btnRow->addWidget(testBtn, 0);
+    btnRow->addStretch(1);
+    btnRow->addWidget(okBtn, 0);
+    btnRow->addWidget(cancelBtn, 0);
+    root->addLayout(btnRow);
 
     updateConnectionModeUi();
 }
@@ -148,9 +181,9 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
 void ConnectionDialog::setProfile(const ConnectionProfile& profile) {
     m_id = profile.id;
     m_nameEdit->setText(profile.name);
-    m_connTypeCombo->setCurrentText(profile.connType.isEmpty() ? QStringLiteral("SSH") : profile.connType);
     m_osTypeCombo->setCurrentText(profile.osType.isEmpty() ? QStringLiteral("Linux") : profile.osType);
-    m_transportCombo->setCurrentText(profile.transport.isEmpty() ? QStringLiteral("SSH") : profile.transport);
+    updateConnectionModeUi();
+    m_connTypeCombo->setCurrentText(profile.connType.isEmpty() ? QStringLiteral("SSH") : profile.connType);
     m_hostEdit->setText(profile.host);
     m_portEdit->setText(QString::number(profile.port > 0 ? profile.port : 22));
     m_userEdit->setText(profile.username);
@@ -166,13 +199,12 @@ ConnectionProfile ConnectionDialog::profile() const {
     p.name = m_nameEdit->text().trimmed();
     p.connType = m_connTypeCombo->currentText().trimmed();
     p.osType = m_osTypeCombo->currentText().trimmed();
-    p.transport = m_transportCombo->currentText().trimmed();
+    p.transport = p.connType;
     p.host = m_hostEdit->text().trimmed();
     p.port = m_portEdit->text().toInt();
     if (p.port <= 0) {
-        const bool psrpMode = (p.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0
-                               || p.transport.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
-        p.port = psrpMode ? 5985 : 22;
+        const bool psrpMode = (p.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
+        p.port = psrpMode ? 5986 : 22;
     }
     p.username = m_userEdit->text().trimmed();
     p.password = m_passwordEdit->text();
@@ -183,12 +215,10 @@ ConnectionProfile ConnectionDialog::profile() const {
 
 void ConnectionDialog::ensureDefaultPortForMode() {
     const QString connType = m_connTypeCombo->currentText().trimmed();
-    const QString transport = m_transportCombo->currentText().trimmed();
-    const bool isPsrp = (connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0
-                         || transport.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
-    const QString wantedPort = isPsrp ? QStringLiteral("5985") : QStringLiteral("22");
+    const bool isPsrp = (connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
+    const QString wantedPort = isPsrp ? QStringLiteral("5986") : QStringLiteral("22");
     const QString current = m_portEdit->text().trimmed();
-    if (current.isEmpty() || current == m_lastAutoPort || current == QStringLiteral("22") || current == QStringLiteral("5985")) {
+    if (current.isEmpty() || current == m_lastAutoPort || current == QStringLiteral("22") || current == QStringLiteral("5985") || current == QStringLiteral("5986")) {
         m_portEdit->setText(wantedPort);
     }
     m_lastAutoPort = wantedPort;
@@ -196,26 +226,25 @@ void ConnectionDialog::ensureDefaultPortForMode() {
 
 void ConnectionDialog::updateConnectionModeUi() {
     const QString osType = m_osTypeCombo->currentText().trimmed();
-    const QString connType = m_connTypeCombo->currentText().trimmed();
-    const QString transport = m_transportCombo->currentText().trimmed();
     const bool isWindows = (osType.compare(QStringLiteral("Windows"), Qt::CaseInsensitive) == 0);
-    const bool isPsrp = (connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0
-                         || transport.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
-
-    if (isWindows && isPsrp) {
-        QSignalBlocker b1(m_connTypeCombo);
-        QSignalBlocker b2(m_transportCombo);
-        m_connTypeCombo->setCurrentText(QStringLiteral("PSRP"));
-        m_transportCombo->setCurrentText(QStringLiteral("PSRP"));
-    } else if (!isPsrp) {
-        QSignalBlocker b2(m_transportCombo);
-        m_transportCombo->setCurrentText(QStringLiteral("SSH"));
+    {
+        QSignalBlocker b(m_connTypeCombo);
+        const QString prev = m_connTypeCombo->currentText().trimmed().toUpper();
+        m_connTypeCombo->clear();
+        if (isWindows) {
+            m_connTypeCombo->addItems({QStringLiteral("SSH"), QStringLiteral("PSRP")});
+            m_connTypeCombo->setCurrentText(prev == QStringLiteral("PSRP") ? QStringLiteral("PSRP") : QStringLiteral("SSH"));
+        } else {
+            m_connTypeCombo->addItem(QStringLiteral("SSH"));
+            m_connTypeCombo->setCurrentText(QStringLiteral("SSH"));
+        }
     }
-
-    const bool psrpMode = (m_connTypeCombo->currentText().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0
-                           || m_transportCombo->currentText().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
+    const bool psrpMode = (m_connTypeCombo->currentText().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
 
     m_keyEdit->setEnabled(!psrpMode);
+    if (m_keyBrowseBtn) {
+        m_keyBrowseBtn->setEnabled(!psrpMode);
+    }
     if (psrpMode) {
         m_keyEdit->clear();
     }
@@ -228,13 +257,30 @@ void ConnectionDialog::updateConnectionModeUi() {
         m_passwordEdit->setPlaceholderText(trk(QStringLiteral("t_psrp_cred_ph01"), QStringLiteral("Credencial de Windows/PSRP"),
                                                QStringLiteral("Windows/PSRP credential"),
                                                QStringLiteral("Windows/PSRP 凭据")));
-        m_portEdit->setPlaceholderText(QStringLiteral("5985"));
+        m_portEdit->setPlaceholderText(QStringLiteral("5986"));
     } else {
         m_passwordEdit->setPlaceholderText(trk(QStringLiteral("t_ssh_pwd_ph001"), QStringLiteral("Password SSH"), QStringLiteral("SSH password"), QStringLiteral("SSH 密码")));
         m_portEdit->setPlaceholderText(QStringLiteral("22"));
     }
 
     ensureDefaultPortForMode();
+}
+
+void ConnectionDialog::browsePrivateKey() {
+    const QString selected = QFileDialog::getOpenFileName(
+        this,
+        trk(QStringLiteral("t_pick_ssh_key001"),
+            QStringLiteral("Seleccionar clave privada SSH"),
+            QStringLiteral("Select SSH private key"),
+            QStringLiteral("选择 SSH 私钥")),
+        m_keyEdit ? m_keyEdit->text().trimmed() : QString(),
+        trk(QStringLiteral("t_all_files_001"),
+            QStringLiteral("Todos los archivos (*)"),
+            QStringLiteral("All files (*)"),
+            QStringLiteral("所有文件 (*)")));
+    if (!selected.isEmpty() && m_keyEdit) {
+        m_keyEdit->setText(selected);
+    }
 }
 
 bool ConnectionDialog::testSshConnection(const ConnectionProfile& p, QString& detail) const {
@@ -329,8 +375,7 @@ void ConnectionDialog::testConnection() {
         return;
     }
 
-    const bool psrpMode = (p.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0
-                           || p.transport.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
+    const bool psrpMode = (p.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
     if (psrpMode) {
         QMessageBox::information(this,
                                  QStringLiteral("ZFSMgr"),

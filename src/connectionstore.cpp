@@ -241,6 +241,29 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
         id.replace('/', '_');
     }
 
+    QSettings iniRead(iniPath(), QSettings::IniFormat);
+    const QStringList groups = iniRead.childGroups();
+    const QString targetName = profile.name.trimmed();
+    for (const QString& groupName : groups) {
+        if (!isConnectionGroupName(groupName)) {
+            continue;
+        }
+        iniRead.beginGroup(groupName);
+        const QString existingId = iniRead.value("id", defaultIdFromGroup(groupName)).toString().trimmed();
+        const QString existingName = iniRead.value("name").toString().trimmed();
+        iniRead.endGroup();
+        if (existingId.compare(id, Qt::CaseInsensitive) == 0) {
+            continue;
+        }
+        if (!existingName.isEmpty() && existingName.compare(targetName, Qt::CaseInsensitive) == 0) {
+            error = trk(QStringLiteral("t_conn_name_unique_01"),
+                        QStringLiteral("El nombre de conexión ya existe. Debe ser único."),
+                        QStringLiteral("Connection name already exists. It must be unique."),
+                        QStringLiteral("连接名称已存在，必须唯一。"));
+            return false;
+        }
+    }
+
     QSettings ini(iniPath(), QSettings::IniFormat);
     const QString group = QStringLiteral("connection:%1").arg(id);
     QString storedPassword = profile.password;

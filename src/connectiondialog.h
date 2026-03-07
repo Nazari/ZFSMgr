@@ -7,6 +7,7 @@
 class QCheckBox;
 class QComboBox;
 class QLineEdit;
+class QPushButton;
 
 class ConnectionDialog final : public QDialog {
     Q_OBJECT
@@ -21,6 +22,7 @@ private:
     void ensureDefaultPortForMode();
     void testConnection();
     bool testSshConnection(const ConnectionProfile& p, QString& detail) const;
+    void browsePrivateKey();
     QString trk(const QString& key,
                 const QString& es = QString(),
                 const QString& en = QString(),
@@ -29,12 +31,12 @@ private:
     QLineEdit* m_nameEdit{nullptr};
     QComboBox* m_connTypeCombo{nullptr};
     QComboBox* m_osTypeCombo{nullptr};
-    QComboBox* m_transportCombo{nullptr};
     QLineEdit* m_hostEdit{nullptr};
     QLineEdit* m_portEdit{nullptr};
     QLineEdit* m_userEdit{nullptr};
     QLineEdit* m_passwordEdit{nullptr};
     QLineEdit* m_keyEdit{nullptr};
+    QPushButton* m_keyBrowseBtn{nullptr};
     QCheckBox* m_sudoCheck{nullptr};
 
     QString m_id;
