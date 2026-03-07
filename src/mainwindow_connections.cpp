@@ -482,7 +482,7 @@ void MainWindow::rebuildConnectionList() {
         const bool redirectedLocal = (!localConn && st == QStringLiteral("OK") && isLocalHostForUi(p.host));
         if (st == QStringLiteral("OK")) {
             statusTag = QStringLiteral("[OK]");
-            rowColor = QColor("#1f7a1f");
+            rowColor = s.missingUnixCommands.isEmpty() ? QColor("#1f7a1f") : QColor("#c77900");
         } else if (!st.isEmpty()) {
             statusTag = QStringLiteral("[KO]");
             rowColor = QColor("#a12a2a");
