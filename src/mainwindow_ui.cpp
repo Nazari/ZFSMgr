@@ -514,7 +514,7 @@ void MainWindow::buildUi() {
     m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
 #ifdef Q_OS_MAC
     m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
-    const int inheritColWidth = qMax(36, m_datasetPropsTable->fontMetrics().horizontalAdvance(QStringLiteral("Inherit")) / 2 + 12);
+    const int inheritColWidth = qMax(36, static_cast<int>((m_datasetPropsTable->fontMetrics().horizontalAdvance(QStringLiteral("Inherit")) / 2 + 12) * 1.10));
     m_datasetPropsTable->setColumnWidth(2, inheritColWidth);
 #endif
     m_datasetPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
@@ -711,7 +711,7 @@ void MainWindow::buildUi() {
     m_advPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
 #ifdef Q_OS_MAC
     m_advPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
-    const int advInheritColWidth = qMax(36, m_advPropsTable->fontMetrics().horizontalAdvance(QStringLiteral("Inherit")) / 2 + 12);
+    const int advInheritColWidth = qMax(36, static_cast<int>((m_advPropsTable->fontMetrics().horizontalAdvance(QStringLiteral("Inherit")) / 2 + 12) * 1.10));
     m_advPropsTable->setColumnWidth(2, advInheritColWidth);
 #endif
     m_advPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
