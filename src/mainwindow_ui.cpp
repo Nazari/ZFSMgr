@@ -303,36 +303,16 @@ void MainWindow::buildUi() {
     auto* connLayout = new QVBoxLayout(connectionsTab);
     connLayout->setContentsMargins(4, 4, 4, 4);
     connLayout->setSpacing(4);
-    auto* connButtonsBox = new QGroupBox(
-        trk(QStringLiteral("t_conexi_n_d70cf0"),
-            QStringLiteral("Conexiones"),
-            QStringLiteral("Connections"),
-            QStringLiteral("连接")),
-        connectionsTab);
-    auto* connButtonsBoxLayout = new QVBoxLayout(connButtonsBox);
-    connButtonsBoxLayout->setContentsMargins(8, 20, 8, 8);
-    auto* connButtons = new QHBoxLayout();
-    connButtons->setSpacing(8);
-    m_btnNew = new QPushButton(trk(QStringLiteral("t_new_btn_001"),
-                                   QStringLiteral("Nueva"),
-                                   QStringLiteral("New"),
-                                   QStringLiteral("新建")),
-                               connectionsTab);
-    m_btnRefreshAll = new QPushButton(trk(QStringLiteral("t_refrescar__7f8af2"),
-                                          QStringLiteral("Refrescar todo"),
-                                          QStringLiteral("Refresh all"),
-                                          QStringLiteral("全部刷新")),
-                                      connectionsTab);
-    m_btnNew->setMinimumHeight(34);
-    m_btnRefreshAll->setMinimumHeight(34);
-    const int connBtnMinW = qMax(m_btnNew->sizeHint().width(), m_btnRefreshAll->sizeHint().width());
-    const int stdLeftBtnH = m_btnNew->minimumHeight();
-    m_btnNew->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnRefreshAll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    connButtons->addWidget(m_btnNew);
-    connButtons->addWidget(m_btnRefreshAll);
-    connButtonsBoxLayout->addLayout(connButtons);
-    connLayout->addWidget(connButtonsBox, 0);
+    const int stdLeftBtnH = 34;
+    const int connBtnMinW = qMax(
+        fm.horizontalAdvance(trk(QStringLiteral("t_refrescar__7f8af2"),
+                                 QStringLiteral("Refrescar todo"),
+                                 QStringLiteral("Refresh all"),
+                                 QStringLiteral("全部刷新"))) + 28,
+        fm.horizontalAdvance(trk(QStringLiteral("t_new_btn_001"),
+                                 QStringLiteral("Nueva"),
+                                 QStringLiteral("New"),
+                                 QStringLiteral("新建"))) + 28);
 
     m_poolMgmtBox = new QGroupBox(
         trk(QStringLiteral("t_pool_mgmt_empty1"),
@@ -664,10 +644,9 @@ void MainWindow::buildUi() {
     // Conexiones, Datasets (Origen-->Destino) y Avanzado (Comandos).
     const int actionsBoxHeight = qMax(
         96,
-        qMax(connButtonsBox->sizeHint().height(),
+        qMax(m_poolMgmtBox ? m_poolMgmtBox->sizeHint().height() : 0,
              qMax(m_transferBox ? m_transferBox->sizeHint().height() : 0,
                   m_advCommandsBox ? m_advCommandsBox->sizeHint().height() : 0)));
-    connButtonsBox->setFixedHeight(actionsBoxHeight);
     if (m_poolMgmtBox) {
         m_poolMgmtBox->setFixedHeight(actionsBoxHeight);
     }
@@ -1354,14 +1333,6 @@ void MainWindow::buildUi() {
 
     setCentralWidget(central);
 
-    connect(m_btnRefreshAll, &QPushButton::clicked, this, [this]() {
-        logUiAction(QStringLiteral("Refrescar todo (botón)"));
-        refreshAllConnections();
-    });
-    connect(m_btnNew, &QPushButton::clicked, this, [this]() {
-        logUiAction(QStringLiteral("Nueva conexión (botón)"));
-        createConnection();
-    });
     connect(m_btnPoolNew, &QPushButton::clicked, this, [this]() {
         logUiAction(QStringLiteral("Nuevo pool (botón)"));
         createPoolForSelectedConnection();

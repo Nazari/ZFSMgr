@@ -254,6 +254,11 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
     const bool hasSel = (m_connectionsList->currentItem() != nullptr);
 
     QMenu menu(this);
+    QAction* newAct = menu.addAction(
+        trk(QStringLiteral("t_new_btn_001"), QStringLiteral("Nueva"), QStringLiteral("New"), QStringLiteral("新建")));
+    QAction* refreshAllAct = menu.addAction(
+        trk(QStringLiteral("t_refrescar__7f8af2"), QStringLiteral("Refrescar todo"), QStringLiteral("Refresh all"), QStringLiteral("全部刷新")));
+    menu.addSeparator();
     QAction* refreshAct = menu.addAction(
         trk(QStringLiteral("t_refresh_menu_01"), QStringLiteral("Refrescar"), QStringLiteral("Refresh"), QStringLiteral("刷新")));
     menu.addSeparator();
@@ -269,7 +274,13 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
     if (!picked) {
         return;
     }
-    if (picked == refreshAct) {
+    if (picked == newAct) {
+        logUiAction(QStringLiteral("Nueva conexión (menú)"));
+        createConnection();
+    } else if (picked == refreshAllAct) {
+        logUiAction(QStringLiteral("Refrescar todo (menú)"));
+        refreshAllConnections();
+    } else if (picked == refreshAct) {
         logUiAction(QStringLiteral("Refrescar conexión (menú)"));
         refreshSelectedConnection();
     } else if (picked == editAct) {
