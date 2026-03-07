@@ -74,14 +74,37 @@ function Find-OpenSslRoot {
   if ($env:OPENSSL_ROOT_DIR -and (Test-Path $env:OPENSSL_ROOT_DIR)) {
     return $env:OPENSSL_ROOT_DIR
   }
-  $candidates = @(
+
+  $candidates = @()
+  if ($env:MSYS2_ROOT -and (Test-Path $env:MSYS2_ROOT)) {
+    $candidates += @(
+      (Join-Path $env:MSYS2_ROOT "mingw64"),
+      (Join-Path $env:MSYS2_ROOT "ucrt64"),
+      (Join-Path $env:MSYS2_ROOT "clang64"),
+      (Join-Path $env:MSYS2_ROOT "clangarm64"),
+      (Join-Path $env:MSYS2_ROOT "clang32")
+    )
+  }
+  $candidates += @(
     "C:\msys64\mingw64",
     "C:\msys64\ucrt64",
+    "C:\msys64\clang64",
+    "C:\msys64\clangarm64",
+    "C:\msys64\clang32",
     "C:\Qt\Tools\OpenSSLv3\Win_x64",
     "C:\QT\Tools\OpenSSLv3\Win_x64",
     "C:\Program Files\OpenSSL-Win64",
     "C:\OpenSSL-Win64"
   )
+
+  $msysRoot = "C:\msys64"
+  if (Test-Path $msysRoot) {
+    $msysCandidates = Get-ChildItem -Path $msysRoot -Directory -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -match '^(mingw|ucrt|clang)' } |
+      ForEach-Object { $_.FullName }
+    $candidates += $msysCandidates
+  }
+
   foreach ($root in $candidates) {
     if (-not (Test-Path $root)) {
       continue
@@ -105,6 +128,14 @@ function Test-OpenSslMingwCompatible([string]$root) {
   $a = Join-Path $root "lib\libcrypto.a"
   $dlla = Join-Path $root "lib\libcrypto.dll.a"
   return (Test-Path $a) -or (Test-Path $dlla)
+}
+
+function Test-OpenSslHeaderPresent([string]$root) {
+  if ([string]::IsNullOrWhiteSpace($root)) {
+    return $false
+  }
+  $inc = Join-Path $root "include\openssl\ssl.h"
+  return (Test-Path $inc)
 }
 
 function Get-ProjectVersion {
@@ -400,13 +431,15 @@ if ($hasGenerator) {
 
     $opensslRoot = Find-OpenSslRoot
     if ($opensslRoot) {
-      if (-not (Test-OpenSslMingwCompatible $opensslRoot)) {
-        throw "OpenSSL detectado en '$opensslRoot' pero parece ser MSVC/no-MinGW. Para Qt mingw instala OpenSSL de MSYS2 (p.ej. C:\msys64\mingw64) y/o define OPENSSL_ROOT_DIR."
+      $hasHeader = Test-OpenSslHeaderPresent $opensslRoot
+      $isMingwOpenSsl = Test-OpenSslMingwCompatible $opensslRoot
+      if (-not $hasHeader -or -not $isMingwOpenSsl) {
+        throw "OpenSSL detectado en '$opensslRoot' pero no parece un prefijo MinGW valido (esperado: include\openssl\ssl.h y lib\libcrypto.a o lib\libcrypto.dll.a). En MSYS2 instala mingw-w64-x86_64-openssl (o equivalente ucrt/clang), no el paquete base 'openssl'. Tambien puedes fijar OPENSSL_ROOT_DIR al prefijo correcto."
       }
       $NativeArgs += @("-DOPENSSL_ROOT_DIR=$opensslRoot")
       Write-Host "OpenSSL detectado en: $opensslRoot"
     } else {
-      throw "No se encontrÃ³ OpenSSL para MinGW. Instala MSYS2 OpenSSL (p.ej. C:\msys64\mingw64) o define OPENSSL_ROOT_DIR."
+      throw "No se encontrÃ³ OpenSSL para MinGW. Instala el paquete de toolchain correcto en MSYS2 (por ejemplo mingw-w64-x86_64-openssl en C:\msys64\mingw64) o define OPENSSL_ROOT_DIR al prefijo que contiene include\openssl\ssl.h y lib\libcrypto*.a."
     }
   }
 
