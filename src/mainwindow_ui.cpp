@@ -72,9 +72,10 @@ void MainWindow::buildUi() {
         "QHeaderView::section { background: #eaf1f7; border: 1px solid #c5d3e0; padding: 2px 4px; }"));
 #ifdef Q_OS_MAC
     setStyleSheet(styleSheet() + QStringLiteral(
-        "QTreeView::indicator, QTableView::indicator, QCheckBox::indicator { width: 18px; height: 18px; }"
-        "QTreeView::indicator { margin-left: 2px; margin-right: 2px; }"
-        "QTableView::indicator { margin-left: 3px; margin-right: 3px; }"));
+        "QTreeView::indicator:unchecked, QTableView::indicator:unchecked, QCheckBox::indicator:unchecked {"
+        " border: 2px solid #5b7289; background: #ffffff; }"
+        "QTreeView::indicator:checked, QTableView::indicator:checked, QCheckBox::indicator:checked {"
+        " border: 2px solid #2f5f8c; background: #e7f1fb; }"));
 #endif
 
     QMenu* appMenu = menuBar()->addMenu(
