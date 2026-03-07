@@ -325,7 +325,6 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
     menu.addSeparator();
     QAction* refreshAct = menu.addAction(
         trk(QStringLiteral("t_refresh_menu_01"), QStringLiteral("Refrescar"), QStringLiteral("Refresh"), QStringLiteral("刷新")));
-    menu.addSeparator();
     QAction* editAct = menu.addAction(
         trk(QStringLiteral("t_edit_menu_001"), QStringLiteral("Editar"), QStringLiteral("Edit"), QStringLiteral("编辑")));
     QAction* deleteAct = menu.addAction(
