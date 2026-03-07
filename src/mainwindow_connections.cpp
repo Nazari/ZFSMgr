@@ -745,20 +745,25 @@ void MainWindow::rebuildConnectionList() {
                                const QString& importedTxt,
                                const QString& actionTxt,
                                const QString& reasonTxt) {
-            const QString stateUpper = stateTxt.trimmed().toUpper();
+            const QString importedUp = importedTxt.trimmed().toUpper();
             const QString emptyTxt = trk(QStringLiteral("t_none_000001"),
                                          QStringLiteral("(ninguno)"),
                                          QStringLiteral("(none)"),
                                          QStringLiteral("（无）"));
-            const QString text = trk(QStringLiteral("t_conn_pool_line1"),
-                                     QStringLiteral("%1 | Estado: %2 | Importado: %3 | Acción: %4 | Motivo: %5"),
-                                     QStringLiteral("%1 | State: %2 | Imported: %3 | Action: %4 | Reason: %5"),
-                                     QStringLiteral("%1 | 状态：%2 | 已导入：%3 | 操作：%4 | 原因：%5"))
-                                     .arg(poolName,
-                                          stateTxt,
-                                          importedTxt,
-                                          actionTxt.isEmpty() ? emptyTxt : actionTxt,
-                                          reasonTxt.isEmpty() ? emptyTxt : reasonTxt);
+            const QString reasonShown = reasonTxt.trimmed().isEmpty() ? emptyTxt : reasonTxt.trimmed();
+            QString text;
+            QColor poolColor("#a12a2a");
+            if (importedUp == QStringLiteral("SÍ") || importedUp == QStringLiteral("SI")
+                || importedUp == QStringLiteral("YES")) {
+                text = QStringLiteral("%1 [Importado]").arg(poolName);
+                poolColor = QColor("#1f7a1f");
+            } else if (!actionTxt.trimmed().isEmpty()) {
+                text = QStringLiteral("%1 [No Importado]").arg(poolName);
+                poolColor = QColor("#c77900");
+            } else {
+                text = QStringLiteral("%1 [No Importable - %2]").arg(poolName, reasonShown);
+                poolColor = QColor("#a12a2a");
+            }
 
             auto* poolNode = new QTreeWidgetItem(item);
             poolNode->setText(0, text);
@@ -779,8 +784,7 @@ void MainWindow::rebuildConnectionList() {
                                              importedTxt,
                                              actionTxt.isEmpty() ? emptyTxt : actionTxt,
                                              reasonTxt.isEmpty() ? emptyTxt : reasonTxt));
-            poolNode->setForeground(0, QBrush((stateUpper == QStringLiteral("ONLINE")) ? QColor("#1f7a1f")
-                                                                                        : QColor("#a12a2a")));
+            poolNode->setForeground(0, QBrush(poolColor));
         };
 
         for (const PoolImported& pool : s.importedPools) {
