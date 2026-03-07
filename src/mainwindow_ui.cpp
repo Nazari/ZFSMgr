@@ -497,9 +497,12 @@ void MainWindow::buildUi() {
     m_datasetPropsTable = new QTableWidget(propsLeftTab);
     m_datasetPropsTable->setColumnCount(3);
     m_datasetPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor"), QStringLiteral("Inherit")});
-    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
+    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
+    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
+    m_datasetPropsTable->horizontalHeader()->setStretchLastSection(false);
+    m_datasetPropsTable->setColumnWidth(0, 200);
+    m_datasetPropsTable->setColumnWidth(1, 210);
 #ifdef Q_OS_MAC
     if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
         m_datasetPropsTable->setStyle(fusion);
@@ -507,9 +510,10 @@ void MainWindow::buildUi() {
     m_datasetPropsTable->setStyleSheet(QStringLiteral(
         "QTableWidget::indicator:unchecked { border: 2px solid #1f4f76; background: #ffffff; border-radius: 3px; }"
         "QTableWidget::indicator:checked { border: 2px solid #1f4f76; background: #d9ecff; border-radius: 3px; }"));
-    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
     const int inheritColWidth = qMax(36, static_cast<int>((m_datasetPropsTable->fontMetrics().horizontalAdvance(QStringLiteral("Inherit")) / 2 + 12) * 1.10));
     m_datasetPropsTable->setColumnWidth(2, inheritColWidth);
+#else
+    m_datasetPropsTable->setColumnWidth(2, 90);
 #endif
     m_datasetPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
     m_datasetPropsTable->verticalHeader()->setVisible(false);
@@ -699,9 +703,12 @@ void MainWindow::buildUi() {
     m_advPropsTable = new QTableWidget(propsAdvTab);
     m_advPropsTable->setColumnCount(3);
     m_advPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor"), QStringLiteral("Inherit")});
-    m_advPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_advPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    m_advPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    m_advPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
+    m_advPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
+    m_advPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
+    m_advPropsTable->horizontalHeader()->setStretchLastSection(false);
+    m_advPropsTable->setColumnWidth(0, 200);
+    m_advPropsTable->setColumnWidth(1, 210);
 #ifdef Q_OS_MAC
     if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
         m_advPropsTable->setStyle(fusion);
@@ -709,9 +716,10 @@ void MainWindow::buildUi() {
     m_advPropsTable->setStyleSheet(QStringLiteral(
         "QTableWidget::indicator:unchecked { border: 2px solid #1f4f76; background: #ffffff; border-radius: 3px; }"
         "QTableWidget::indicator:checked { border: 2px solid #1f4f76; background: #d9ecff; border-radius: 3px; }"));
-    m_advPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
     const int advInheritColWidth = qMax(36, static_cast<int>((m_advPropsTable->fontMetrics().horizontalAdvance(QStringLiteral("Inherit")) / 2 + 12) * 1.10));
     m_advPropsTable->setColumnWidth(2, advInheritColWidth);
+#else
+    m_advPropsTable->setColumnWidth(2, 90);
 #endif
     m_advPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
     m_advPropsTable->verticalHeader()->setVisible(false);
