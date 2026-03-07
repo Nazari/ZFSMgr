@@ -31,7 +31,7 @@ QString trk(const QString& lang,
 MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     : QDialog(parent) {
     setModal(true);
-    resize(560, 280);
+    resize(280, 280);
     setWindowIcon(QIcon(QStringLiteral(":/icons/ZFSMgr-512.png")));
 
     auto* root = new QVBoxLayout(this);
