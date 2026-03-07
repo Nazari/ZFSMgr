@@ -42,14 +42,14 @@ void MainWindow::buildUi() {
     setMinimumSize(1120, 736);
     setStyleSheet(QStringLiteral(
         "QMainWindow, QWidget { background: #f3f7fb; color: #14212b; }"
-        "QTabWidget::pane { border: 1px solid #b8c7d6; background: #f8fbff; }"
+        "QTabWidget::pane { border: 1px solid #b8c7d6; border-radius: 8px; background: #f8fbff; }"
         "QTabWidget::tab-bar { alignment: left; }"
         "QTabBar { background: #f3f7fb; }"
         "QTabBar::scroller { background: #f3f7fb; }"
         "QTabBar QToolButton { background: #f3f7fb; border: 1px solid #b8c7d6; color: #14212b; }"
-        "QTabBar::tab { padding: 3px 10px; min-height: 18px; background: #e6edf4; border: 1px solid #b8c7d6; border-bottom: none; }"
-        "QTabBar::tab:selected { font-weight: 700; min-height: 24px; background: #cfe5ff; color: #0b2f4f; border: 1px solid #6ea6dd; }"
-        "QTabBar::tab:!selected { margin-top: 4px; background: #e6edf4; }"
+        "QTabBar::tab { padding: 4px 12px; min-height: 18px; background: #e6edf4; border: 1px solid #b8c7d6; border-bottom: none; border-top-left-radius: 8px; border-top-right-radius: 8px; }"
+        "QTabBar::tab:selected { font-weight: 700; min-height: 24px; background: #cfe5ff; color: #0b2f4f; border: 1px solid #6ea6dd; border-bottom: none; }"
+        "QTabBar::tab:!selected { margin-top: 4px; background: #e6edf4; border-top-left-radius: 7px; border-top-right-radius: 7px; }"
         "QGroupBox { margin-top: 12px; border: 1px solid #b8c7d6; border-radius: 4px; }"
         "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 8px; padding: 0 4px 0 4px; }"
         "QPushButton { background: #e8eff5; border: 1px solid #9db0c4; border-radius: 4px; padding: 3px 8px; }"
