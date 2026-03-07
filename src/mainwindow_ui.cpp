@@ -1580,6 +1580,12 @@ void MainWindow::buildUi() {
         f.setPointSize(qMax(6, f.pointSize() - 1));
         m_statusText->setFont(f);
     }
+    {
+        const QFontMetrics fm(m_statusText->font());
+        const int h = fm.lineSpacing() * 2 + 10;
+        m_statusText->setFixedHeight(h);
+        m_statusText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    }
     auto* detailTitle = new QLabel(trk(QStringLiteral("t_detail_lbl001"),
                                        QStringLiteral("Progreso"),
                                        QStringLiteral("Progress"),
@@ -1596,24 +1602,13 @@ void MainWindow::buildUi() {
         f.setPointSize(qMax(6, f.pointSize() - 1));
         m_lastDetailText->setFont(f);
     }
-    statusTitle->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    detailTitle->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    statusTitle->setMinimumWidth(48);
-    detailTitle->setMinimumWidth(48);
-    statusTitle->setMaximumWidth(64);
-    detailTitle->setMaximumWidth(64);
-    auto* statusRow = new QHBoxLayout();
-    statusRow->setContentsMargins(0, 0, 0, 0);
-    statusRow->setSpacing(6);
-    statusRow->addWidget(statusTitle, 0);
-    statusRow->addWidget(m_statusText, 1);
-    auto* detailRow = new QHBoxLayout();
-    detailRow->setContentsMargins(0, 0, 0, 0);
-    detailRow->setSpacing(6);
-    detailRow->addWidget(detailTitle, 0);
-    detailRow->addWidget(m_lastDetailText, 1);
-    leftInfoLayout->addLayout(statusRow, 1);
-    leftInfoLayout->addLayout(detailRow, 1);
+    statusTitle->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    detailTitle->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    leftInfoLayout->addWidget(statusTitle, 0);
+    leftInfoLayout->addWidget(m_statusText, 0);
+    leftInfoLayout->addWidget(detailTitle, 0);
+    m_lastDetailText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    leftInfoLayout->addWidget(m_lastDetailText, 1);
 
     auto* rightLogs = new QWidget(logBox);
     auto* rightLogsLayout = new QVBoxLayout(rightLogs);
