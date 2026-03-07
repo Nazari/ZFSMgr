@@ -560,7 +560,6 @@ void MainWindow::buildUi() {
     connLeftBtns->addWidget(m_btnConnFromDir, 1, 0);
     connLeftBtns->addWidget(m_btnConnToDir, 1, 1);
     connActionLeftLayout->addLayout(connLeftBtns);
-    connActionsLayout->addWidget(connActionLeftBox, 1);
 
     auto* connActionRightBox = new QWidget(m_connActionsBox);
     auto* connActionRightLayout = new QVBoxLayout(connActionRightBox);
@@ -634,6 +633,7 @@ void MainWindow::buildUi() {
     connRightBtns->addWidget(m_btnConnSync, 1, 0, 1, 2);
     connActionRightLayout->addLayout(connRightBtns);
     connActionsLayout->addWidget(connActionRightBox, 1);
+    connActionsLayout->addWidget(connActionLeftBox, 1);
     connLayout->addWidget(m_connActionsBox, 0);
     connectionsTab->setLayout(connLayout);
 
@@ -1628,6 +1628,9 @@ void MainWindow::buildUi() {
     auto* appTabLayout = new QVBoxLayout(appTab);
     m_logView = new QPlainTextEdit(appTab);
     m_logView->setReadOnly(true);
+    m_logView->setLineWrapMode(QPlainTextEdit::NoWrap);
+    m_logView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_logView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     mono.setPointSize(9);
     m_logView->setFont(mono);
