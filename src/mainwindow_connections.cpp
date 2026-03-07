@@ -262,6 +262,18 @@ void MainWindow::onConnectionSelectionChanged() {
 }
 
 void MainWindow::refreshConnectionNodeDetails() {
+    auto setConnectionActionButtonsVisible = [this](bool visible) {
+        if (m_connPropsRefreshBtn) {
+            m_connPropsRefreshBtn->setVisible(visible);
+        }
+        if (m_connPropsEditBtn) {
+            m_connPropsEditBtn->setVisible(visible);
+        }
+        if (m_connPropsDeleteBtn) {
+            m_connPropsDeleteBtn->setVisible(visible);
+        }
+    };
+
     auto resetPoolActionButtons = [this]() {
         if (m_poolStatusImportBtn) {
             m_poolStatusImportBtn->setEnabled(false);
@@ -295,6 +307,7 @@ void MainWindow::refreshConnectionNodeDetails() {
 
     const auto selected = m_connectionsList ? m_connectionsList->selectedItems() : QList<QTreeWidgetItem*>{};
     if (selected.isEmpty()) {
+        setConnectionActionButtonsVisible(false);
         if (m_connPropsStack && m_connPoolPropsPage) {
             m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
         }
@@ -325,6 +338,7 @@ void MainWindow::refreshConnectionNodeDetails() {
 
     auto* item = selected.first();
     const int nodeType = item->data(0, RoleNodeType).toInt();
+    setConnectionActionButtonsVisible(nodeType == NodeConnection);
     if (nodeType != NodePool && nodeType != NodePoolContent) {
         if (m_connPropsStack && m_connPoolPropsPage) {
             m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
