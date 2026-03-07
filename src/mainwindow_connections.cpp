@@ -401,13 +401,13 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
 
         QMenu poolMenu(this);
         QAction* refreshAct = poolMenu.addAction(
-            trk(QStringLiteral("t_refresh_btn001"), QStringLiteral("Actualizar"), QStringLiteral("Refresh"), QStringLiteral("刷新")));
+            trk(QStringLiteral("t_refresh_pool_ctx001"), QStringLiteral("Actualizar Pool"), QStringLiteral("Refresh Pool"), QStringLiteral("刷新池")));
         QAction* importAct = poolMenu.addAction(
-            trk(QStringLiteral("t_import_btn001"), QStringLiteral("Importar"), QStringLiteral("Import"), QStringLiteral("导入")));
+            trk(QStringLiteral("t_import_pool_ctx001"), QStringLiteral("Importar Pool"), QStringLiteral("Import Pool"), QStringLiteral("导入池")));
         QAction* exportAct = poolMenu.addAction(
-            trk(QStringLiteral("t_export_btn001"), QStringLiteral("Exportar"), QStringLiteral("Export"), QStringLiteral("导出")));
-        QAction* scrubAct = poolMenu.addAction(QStringLiteral("Scrub"));
-        QAction* destroyAct = poolMenu.addAction(QStringLiteral("Destroy"));
+            trk(QStringLiteral("t_export_pool_ctx001"), QStringLiteral("Exportar Pool"), QStringLiteral("Export Pool"), QStringLiteral("导出池")));
+        QAction* scrubAct = poolMenu.addAction(QStringLiteral("Scrub Pool"));
+        QAction* destroyAct = poolMenu.addAction(QStringLiteral("Destroy Pool"));
 
         const bool canExport = hasRow && action.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) == 0;
         const bool canImport = hasRow && action.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) == 0
@@ -452,16 +452,16 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
 
     QMenu menu(this);
     QAction* newAct = menu.addAction(
-        trk(QStringLiteral("t_new_btn_001"), QStringLiteral("Nueva"), QStringLiteral("New"), QStringLiteral("新建")));
+        trk(QStringLiteral("t_new_conn_ctx001"), QStringLiteral("Nueva Conexión"), QStringLiteral("New Connection"), QStringLiteral("新建连接")));
     QAction* refreshAllAct = menu.addAction(
         trk(QStringLiteral("t_refrescar__7f8af2"), QStringLiteral("Refrescar todo"), QStringLiteral("Refresh all"), QStringLiteral("全部刷新")));
     menu.addSeparator();
     QAction* refreshAct = menu.addAction(
-        trk(QStringLiteral("t_refresh_menu_01"), QStringLiteral("Refrescar"), QStringLiteral("Refresh"), QStringLiteral("刷新")));
+        trk(QStringLiteral("t_refresh_conn_ctx001"), QStringLiteral("Refrescar Conexión"), QStringLiteral("Refresh Connection"), QStringLiteral("刷新连接")));
     QAction* editAct = menu.addAction(
-        trk(QStringLiteral("t_edit_menu_001"), QStringLiteral("Editar"), QStringLiteral("Edit"), QStringLiteral("编辑")));
+        trk(QStringLiteral("t_edit_conn_ctx001"), QStringLiteral("Editar Conexión"), QStringLiteral("Edit Connection"), QStringLiteral("编辑连接")));
     QAction* deleteAct = menu.addAction(
-        trk(QStringLiteral("t_delete_menu01"), QStringLiteral("Borrar"), QStringLiteral("Delete"), QStringLiteral("删除")));
+        trk(QStringLiteral("t_del_conn_ctx001"), QStringLiteral("Borrar Conexión"), QStringLiteral("Delete Connection"), QStringLiteral("删除连接")));
     refreshAct->setEnabled(hasSel);
     editAct->setEnabled(hasSel);
     deleteAct->setEnabled(hasSel);
