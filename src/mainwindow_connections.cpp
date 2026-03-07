@@ -28,9 +28,8 @@ constexpr int RolePoolState = Qt::UserRole + 5;
 constexpr int RolePoolImported = Qt::UserRole + 6;
 
 constexpr int NodeConnection = 1;
-constexpr int NodeInfo = 2;
-constexpr int NodePool = 3;
-constexpr int NodePoolContent = 4;
+constexpr int NodePool = 2;
+constexpr int NodePoolContent = 3;
 
 QString normalizeHostToken(QString host) {
     host = host.trimmed().toLower();
@@ -792,18 +791,10 @@ void MainWindow::rebuildConnectionList() {
                                 .arg(s.detail));
         item->setExpanded(false);
 
-        auto* infoNode = new QTreeWidgetItem(item);
-        infoNode->setText(0, trk(QStringLiteral("t_info_node_001"),
-                                 QStringLiteral("Información"),
-                                 QStringLiteral("Information"),
-                                 QStringLiteral("信息")));
-        infoNode->setData(0, Qt::UserRole, i);
-        infoNode->setData(0, RoleNodeType, NodeInfo);
-
         const QString osLine = !s.osLine.trimmed().isEmpty()
                                    ? s.osLine.trimmed()
                                    : QStringLiteral("%1").arg(p.osType);
-        auto* osChild = new QTreeWidgetItem(infoNode);
+        auto* osChild = new QTreeWidgetItem(item);
         osChild->setText(0, trk(QStringLiteral("t_os_line_conn01"),
                                 QStringLiteral("Sistema operativo: %1"),
                                 QStringLiteral("Operating system: %1"),
@@ -811,7 +802,7 @@ void MainWindow::rebuildConnectionList() {
         osChild->setData(0, Qt::UserRole, i);
 
         const QString method = !s.connectionMethod.trimmed().isEmpty() ? s.connectionMethod.trimmed() : p.connType;
-        auto* methodChild = new QTreeWidgetItem(infoNode);
+        auto* methodChild = new QTreeWidgetItem(item);
         methodChild->setText(0, trk(QStringLiteral("t_conn_method01"),
                                     QStringLiteral("Método de conexión: %1"),
                                     QStringLiteral("Connection method: %1"),
@@ -821,14 +812,14 @@ void MainWindow::rebuildConnectionList() {
         const QString zfsFull = !s.zfsVersionFull.trimmed().isEmpty() ? s.zfsVersionFull.trimmed()
                                                                        : (zfsTxt == QStringLiteral("?") ? QStringLiteral("-")
                                                                                                         : QStringLiteral("OpenZFS %1").arg(zfsTxt));
-        auto* zfsChild = new QTreeWidgetItem(infoNode);
+        auto* zfsChild = new QTreeWidgetItem(item);
         zfsChild->setText(0, trk(QStringLiteral("t_openzfs_line01"),
                                  QStringLiteral("OpenZFS: %1"),
                                  QStringLiteral("OpenZFS: %1"),
                                  QStringLiteral("OpenZFS：%1")).arg(zfsFull));
         zfsChild->setData(0, Qt::UserRole, i);
 
-        auto* commandsNode = new QTreeWidgetItem(infoNode);
+        auto* commandsNode = new QTreeWidgetItem(item);
         QString commandsTitle = trk(QStringLiteral("t_cmds_detect01"),
                                     QStringLiteral("Comandos detectados"),
                                     QStringLiteral("Detected commands"),
@@ -942,7 +933,6 @@ void MainWindow::rebuildConnectionList() {
             addPoolNode(pool.pool, pool.state, QStringLiteral("No"), action, pool.reason);
         }
 
-        infoNode->setExpanded(true);
     }
     m_connectionsList->collapseAll();
     syncConnectionLogTabs();
