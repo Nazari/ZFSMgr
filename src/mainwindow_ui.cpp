@@ -402,32 +402,7 @@ void MainWindow::buildUi() {
                                  QStringLiteral("New"),
                                  QStringLiteral("新建"))) + 28);
 
-    m_poolMgmtBox = new QGroupBox(
-        trk(QStringLiteral("t_pool_mgmt_empty1"),
-            QStringLiteral("Gestión de Pools de [vacío]"),
-            QStringLiteral("Pool Management of [empty]"),
-            QStringLiteral("[空] 的池管理")),
-        connectionsTab);
-    auto* poolMgmtLayout = new QVBoxLayout(m_poolMgmtBox);
-    poolMgmtLayout->setContentsMargins(8, 20, 8, 8);
-    auto* poolMgmtButtons = new QHBoxLayout();
-    poolMgmtButtons->setSpacing(8);
-    m_btnPoolNew =
-        new QPushButton(trk(QStringLiteral("t_new_btn_002"),
-                            QStringLiteral("Nuevo"),
-                            QStringLiteral("New"),
-                            QStringLiteral("新建")),
-                        m_poolMgmtBox);
-    m_btnPoolNew->setMinimumHeight(stdLeftBtnH);
-    m_btnPoolNew->setMinimumWidth(connBtnMinW);
-    m_btnPoolNew->setMaximumWidth(connBtnMinW);
-    m_btnPoolNew->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    m_btnPoolNew->setEnabled(false);
-    poolMgmtButtons->addWidget(m_btnPoolNew);
-    poolMgmtButtons->addStretch(1);
-    poolMgmtLayout->addLayout(poolMgmtButtons);
-    connLayout->addWidget(m_poolMgmtBox, 0);
-    m_poolMgmtBox->setVisible(false);
+    m_poolMgmtBox = nullptr;
 
     auto* connListBox = new QGroupBox(
         trk(QStringLiteral("t_list_001"),
@@ -452,6 +427,38 @@ void MainWindow::buildUi() {
     }
 #endif
     connListBoxLayout->addWidget(m_connectionsList, 1);
+    auto* connListButtons = new QHBoxLayout();
+    connListButtons->setContentsMargins(0, 2, 0, 0);
+    connListButtons->setSpacing(6);
+    m_btnNew = new QPushButton(
+        trk(QStringLiteral("t_new_conn_ctx001"),
+            QStringLiteral("Nueva Conexión"),
+            QStringLiteral("New Connection"),
+            QStringLiteral("新建连接")),
+        connListBox);
+    m_btnRefreshAll = new QPushButton(
+        trk(QStringLiteral("t_refrescar__7f8af2"),
+            QStringLiteral("Refrescar todo"),
+            QStringLiteral("Refresh all"),
+            QStringLiteral("全部刷新")),
+        connListBox);
+    m_btnPoolNew = new QPushButton(
+        trk(QStringLiteral("t_new_pool_ctx001"),
+            QStringLiteral("Nuevo pool"),
+            QStringLiteral("New pool"),
+            QStringLiteral("新建池")),
+        connListBox);
+    m_btnNew->setMinimumHeight(stdLeftBtnH);
+    m_btnRefreshAll->setMinimumHeight(stdLeftBtnH);
+    m_btnPoolNew->setMinimumHeight(stdLeftBtnH);
+    m_btnNew->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnRefreshAll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnPoolNew->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnPoolNew->setEnabled(false);
+    connListButtons->addWidget(m_btnNew, 1);
+    connListButtons->addWidget(m_btnRefreshAll, 1);
+    connListButtons->addWidget(m_btnPoolNew, 1);
+    connListBoxLayout->addLayout(connListButtons, 0);
     connLayout->addWidget(connListBox, 1);
 
     m_connActionsBox = new QGroupBox(
@@ -1727,6 +1734,18 @@ void MainWindow::buildUi() {
         logUiAction(QStringLiteral("Nuevo pool (botón)"));
         createPoolForSelectedConnection();
     });
+    if (m_btnNew) {
+        connect(m_btnNew, &QPushButton::clicked, this, [this]() {
+            logUiAction(QStringLiteral("Nueva conexión (botón)"));
+            createConnection();
+        });
+    }
+    if (m_btnRefreshAll) {
+        connect(m_btnRefreshAll, &QPushButton::clicked, this, [this]() {
+            logUiAction(QStringLiteral("Refrescar todo (botón)"));
+            refreshAllConnections();
+        });
+    }
     if (m_connPropsRefreshBtn) {
         connect(m_connPropsRefreshBtn, &QPushButton::clicked, this, [this]() {
             logUiAction(QStringLiteral("Refrescar conexión (botón propiedades)"));
@@ -1746,10 +1765,7 @@ void MainWindow::buildUi() {
         });
     }
     connect(m_connectionsList, &QTreeWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
-    m_connectionsList->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_connectionsList, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
-        onConnectionListContextMenuRequested(pos);
-    });
+    m_connectionsList->setContextMenuPolicy(Qt::NoContextMenu);
     if (m_connContentTree) {
         connect(m_connContentTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
             refreshDatasetProperties(QStringLiteral("conncontent"));
