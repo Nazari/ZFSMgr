@@ -497,6 +497,16 @@ void MainWindow::loadConnections() {
 void MainWindow::rebuildConnectionList() {
     beginUiBusy();
     m_connectionsList->clear();
+    QStringList redirectedToLocalNames;
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        const auto& p = m_profiles[i];
+        if (isLocalConnection(p)) {
+            continue;
+        }
+        if (isConnectionRedirectedToLocal(i)) {
+            redirectedToLocalNames << p.name;
+        }
+    }
     for (int i = 0; i < m_profiles.size(); ++i) {
         const auto& p = m_profiles[i];
         const auto& s = m_states[i];
@@ -511,6 +521,9 @@ void MainWindow::rebuildConnectionList() {
         const QString st = s.status.trimmed().toUpper();
         const bool localConn = isLocalConnection(p);
         const bool redirectedLocal = isConnectionRedirectedToLocal(i);
+        if (redirectedLocal) {
+            continue;
+        }
         if (localConn && !s.machineUuid.trimmed().isEmpty()) {
             m_localMachineUuid = s.machineUuid.trimmed();
         }
@@ -523,14 +536,16 @@ void MainWindow::rebuildConnectionList() {
         }
         QString line;
         if (localConn) {
-            line = QStringLiteral("Local");
-        } else if (redirectedLocal) {
-            line = QStringLiteral("%1 %2")
-                       .arg(line1,
-                            trk(QStringLiteral("t_conn_redirect_l1"),
-                                QStringLiteral("[Redirección a 'Local']"),
-                                QStringLiteral("[Redirected to 'Local']"),
-                                QStringLiteral("[重定向到“本地”]")));
+            if (!redirectedToLocalNames.isEmpty()) {
+                line = trk(QStringLiteral("t_local_redirect_01"),
+                           QStringLiteral("Local [OK (%1)]"),
+                           QStringLiteral("Local [OK (%1)]"),
+                           QStringLiteral("本地 [OK（%1）]"))
+                           .arg(redirectedToLocalNames.join(QStringLiteral(", ")));
+                statusTag.clear();
+            } else {
+                line = QStringLiteral("Local");
+            }
         } else {
             line = line1;
         }
@@ -542,21 +557,12 @@ void MainWindow::rebuildConnectionList() {
         item->setText(0, line);
         item->setData(0, Qt::UserRole, i);
         item->setForeground(0, QBrush(rowColor));
-        if (redirectedLocal) {
-            item->setDisabled(true);
-            QFont f = item->font(0);
-            f.setItalic(true);
-            item->setFont(0, f);
-        }
         item->setToolTip(0, QStringLiteral("Host: %1\nPort: %2\nEstado: %3\nDetalle: %4")
                                 .arg(p.host)
                                 .arg(p.port)
                                 .arg(s.status)
                                 .arg(s.detail));
         item->setExpanded(false);
-        if (redirectedLocal) {
-            continue;
-        }
 
         const QString osLine = !s.osLine.trimmed().isEmpty()
                                    ? s.osLine.trimmed()
