@@ -1180,7 +1180,6 @@ void MainWindow::buildUi() {
 
     topLayout->addWidget(leftPane, 0);
     topLayout->addWidget(rightPane, 1);
-    root->addWidget(topArea, 81);
 
     auto* logBox = new QGroupBox(trk(QStringLiteral("t_combined_log001"),
                                      QStringLiteral("Log combinado"),
@@ -1345,7 +1344,16 @@ void MainWindow::buildUi() {
     logBody->addWidget(leftInfo, 1);
     logBody->addWidget(rightLogs, 2);
     logLayout->addLayout(logBody, 1);
-    root->addWidget(logBox, 19);
+
+    auto* verticalMainSplit = new QSplitter(Qt::Vertical, central);
+    verticalMainSplit->setChildrenCollapsible(true);
+    verticalMainSplit->setHandleWidth(4);
+    verticalMainSplit->addWidget(topArea);
+    verticalMainSplit->addWidget(logBox);
+    verticalMainSplit->setStretchFactor(0, 81);
+    verticalMainSplit->setStretchFactor(1, 19);
+    verticalMainSplit->setSizes({810, 190});
+    root->addWidget(verticalMainSplit, 1);
 
     setCentralWidget(central);
 
