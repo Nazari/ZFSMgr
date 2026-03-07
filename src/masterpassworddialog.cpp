@@ -104,9 +104,9 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
             QStringLiteral("ZFSMgr"),
             trk(m_lang,
                 QStringLiteral("t_reset_ini_q_001"),
-                QStringLiteral("Esto borrará connections.ini y todas las conexiones guardadas.\n¿Desea continuar?"),
-                QStringLiteral("This will delete connections.ini and all saved connections.\nDo you want to continue?"),
-                QStringLiteral("这将删除 connections.ini 及所有已保存连接。\n是否继续？")),
+                QStringLiteral("Esto borrará config.ini y todas las conexiones guardadas.\n¿Desea continuar?"),
+                QStringLiteral("This will delete config.ini and all saved connections.\nDo you want to continue?"),
+                QStringLiteral("这将删除 config.ini 及所有已保存连接。\n是否继续？")),
             QMessageBox::Yes | QMessageBox::No,
             QMessageBox::No);
         if (ans != QMessageBox::Yes) {
@@ -271,9 +271,9 @@ void MasterPasswordDialog::retranslateUi() {
     if (m_resetIniButton) {
         m_resetIniButton->setText(trk(lang,
                                       QStringLiteral("t_reset_ini_btn001"),
-                                      QStringLiteral("Borrar connections.ini y empezar"),
-                                      QStringLiteral("Delete connections.ini and restart"),
-                                      QStringLiteral("删除 connections.ini 并重建")));
+                                      QStringLiteral("Borrar config.ini y empezar"),
+                                      QStringLiteral("Delete config.ini and restart"),
+                                      QStringLiteral("删除 config.ini 并重建")));
         m_resetIniButton->setVisible(!m_firstRunCreationMode);
         m_resetIniButton->setEnabled(!m_firstRunCreationMode);
     }
@@ -281,9 +281,9 @@ void MasterPasswordDialog::retranslateUi() {
         if (m_firstRunCreationMode) {
             m_creationInfoLabel->setText(trk(lang,
                                              QStringLiteral("t_create_ini_001"),
-                                             QStringLiteral("No existe connections.ini. Se va a crear ahora.\nIntroduzca y confirme el password maestro."),
-                                             QStringLiteral("connections.ini does not exist. It will be created now.\nEnter and confirm the master password."),
-                                             QStringLiteral("connections.ini 不存在，将立即创建。\n请输入并确认主密码。")));
+                                             QStringLiteral("No existe config.ini. Se va a crear ahora.\nIntroduzca y confirme el password maestro."),
+                                             QStringLiteral("config.ini does not exist. It will be created now.\nEnter and confirm the master password."),
+                                             QStringLiteral("config.ini 不存在，将立即创建。\n请输入并确认主密码。")));
             m_creationInfoLabel->show();
         } else {
             m_creationInfoLabel->hide();

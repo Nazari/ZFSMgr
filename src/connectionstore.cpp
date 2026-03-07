@@ -3,6 +3,7 @@
 #include "secretcipher.h"
 
 #include <QDir>
+#include <QFile>
 #include <QProcessEnvironment>
 #include <QSettings>
 #include <QSysInfo>
@@ -105,7 +106,15 @@ QString ConnectionStore::configDir() const {
 }
 
 QString ConnectionStore::iniPath() const {
-    return configDir() + "/connections.ini";
+    const QString dir = configDir();
+    const QString newPath = dir + "/config.ini";
+    const QString oldPath = dir + "/connections.ini";
+    if (!QFile::exists(newPath) && QFile::exists(oldPath)) {
+        if (!QFile::rename(oldPath, newPath)) {
+            QFile::copy(oldPath, newPath);
+        }
+    }
+    return newPath;
 }
 
 LoadResult ConnectionStore::loadConnections() const {

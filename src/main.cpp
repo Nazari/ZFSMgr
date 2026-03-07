@@ -63,9 +63,9 @@ int main(int argc, char* argv[]) {
             if (QFileInfo::exists(store.iniPath()) && !QFile::remove(store.iniPath())) {
                 removeErr = trk(language,
                                 QStringLiteral("t_reset_ini_err001"),
-                                QStringLiteral("No se pudo borrar connections.ini."),
-                                QStringLiteral("Could not delete connections.ini."),
-                                QStringLiteral("无法删除 connections.ini。"));
+                                QStringLiteral("No se pudo borrar config.ini."),
+                                QStringLiteral("Could not delete config.ini."),
+                                QStringLiteral("无法删除 config.ini。"));
             }
             if (!removeErr.isEmpty()) {
                 QMessageBox::warning(nullptr, QStringLiteral("ZFSMgr"), removeErr);

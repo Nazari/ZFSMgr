@@ -156,7 +156,7 @@ void MainWindow::buildUi() {
         QAction* act = logLevelMenu->addAction(lv);
         act->setCheckable(true);
         act->setData(lv);
-        if (lv == QStringLiteral("normal")) {
+        if (lv == m_logLevelSetting) {
             act->setChecked(true);
         }
         logLevelGroup->addAction(act);
@@ -166,6 +166,7 @@ void MainWindow::buildUi() {
             return;
         }
         m_logLevelCombo->setCurrentText(act->data().toString());
+        saveUiSettings();
     });
 
     QMenu* logLinesMenu = logsMenu->addMenu(
@@ -179,7 +180,7 @@ void MainWindow::buildUi() {
         QAction* act = logLinesMenu->addAction(QString::number(lines));
         act->setCheckable(true);
         act->setData(lines);
-        if (lines == 500) {
+        if (lines == m_logMaxLinesSetting) {
             act->setChecked(true);
         }
         logLinesGroup->addAction(act);
@@ -190,6 +191,7 @@ void MainWindow::buildUi() {
         }
         m_logMaxLinesCombo->setCurrentText(QString::number(act->data().toInt()));
         trimLogWidget(m_logView);
+        saveUiSettings();
     });
 
     QAction* clearLogsAct = logsMenu->addAction(
@@ -1647,10 +1649,10 @@ void MainWindow::buildUi() {
     logControls->setSpacing(4);
     m_logLevelCombo = new QComboBox(rightLogs);
     m_logLevelCombo->addItems({QStringLiteral("normal"), QStringLiteral("info"), QStringLiteral("debug")});
-    m_logLevelCombo->setCurrentText(QStringLiteral("normal"));
+    m_logLevelCombo->setCurrentText(m_logLevelSetting);
     m_logMaxLinesCombo = new QComboBox(rightLogs);
     m_logMaxLinesCombo->addItems({QStringLiteral("100"), QStringLiteral("200"), QStringLiteral("500"), QStringLiteral("1000")});
-    m_logMaxLinesCombo->setCurrentText(QStringLiteral("500"));
+    m_logMaxLinesCombo->setCurrentText(QString::number(m_logMaxLinesSetting));
     m_logClearBtn = new QPushButton(trk(QStringLiteral("t_clear_001"),
                                         QStringLiteral("Limpiar"),
                                         QStringLiteral("Clear"),
@@ -1920,6 +1922,10 @@ void MainWindow::buildUi() {
     });
     connect(m_logMaxLinesCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
         trimLogWidget(m_logView);
+        saveUiSettings();
+    });
+    connect(m_logLevelCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
+        saveUiSettings();
     });
     connect(m_advTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
         const auto selected = m_advTree->selectedItems();

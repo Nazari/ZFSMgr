@@ -27,6 +27,17 @@ void MainWindow::loadUiSettings() {
     }
     m_actionConfirmEnabled = ini.value(QStringLiteral("confirm_actions"), true).toBool();
     m_logMaxSizeMb = ini.value(QStringLiteral("log_max_mb"), 10).toInt();
+    m_logLevelSetting = ini.value(QStringLiteral("log_level"), QStringLiteral("normal")).toString().trimmed().toLower();
+    if (m_logLevelSetting != QStringLiteral("normal")
+        && m_logLevelSetting != QStringLiteral("info")
+        && m_logLevelSetting != QStringLiteral("debug")) {
+        m_logLevelSetting = QStringLiteral("normal");
+    }
+    m_logMaxLinesSetting = ini.value(QStringLiteral("log_max_lines"), 500).toInt();
+    if (m_logMaxLinesSetting != 100 && m_logMaxLinesSetting != 200
+        && m_logMaxLinesSetting != 500 && m_logMaxLinesSetting != 1000) {
+        m_logMaxLinesSetting = 500;
+    }
     if (m_logMaxSizeMb < 1) {
         m_logMaxSizeMb = 1;
     } else if (m_logMaxSizeMb > 1024) {
@@ -41,6 +52,14 @@ void MainWindow::saveUiSettings() const {
     ini.setValue(QStringLiteral("language"), m_language);
     ini.setValue(QStringLiteral("confirm_actions"), m_actionConfirmEnabled);
     ini.setValue(QStringLiteral("log_max_mb"), m_logMaxSizeMb);
+    const QString level = m_logLevelCombo ? m_logLevelCombo->currentText().trimmed().toLower() : m_logLevelSetting;
+    ini.setValue(QStringLiteral("log_level"), level.isEmpty() ? QStringLiteral("normal") : level);
+    bool ok = false;
+    int lines = m_logMaxLinesCombo ? m_logMaxLinesCombo->currentText().toInt(&ok) : m_logMaxLinesSetting;
+    if (!ok || (lines != 100 && lines != 200 && lines != 500 && lines != 1000)) {
+        lines = 500;
+    }
+    ini.setValue(QStringLiteral("log_max_lines"), lines);
     ini.endGroup();
     ini.beginGroup(QStringLiteral("ui"));
     ini.setValue(QStringLiteral("language"), m_language);

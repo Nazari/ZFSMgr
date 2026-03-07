@@ -339,7 +339,7 @@ void MainWindow::refreshConnectionNodeDetails() {
                     m_poolPropsTable->setItem(r, 1, new QTableWidgetItem(v));
                     m_poolPropsTable->setItem(r, 2, new QTableWidgetItem(src));
                 };
-                const QString srcIni = QStringLiteral("connections.ini");
+                const QString srcIni = QStringLiteral("config.ini");
                 addProp(QStringLiteral("id"), p.id, srcIni);
                 addProp(QStringLiteral("name"), p.name, srcIni);
                 addProp(QStringLiteral("host"), p.host, srcIni);
