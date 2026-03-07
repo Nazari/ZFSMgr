@@ -18,6 +18,17 @@
 #include <QtConcurrent/QtConcurrent>
 
 namespace {
+constexpr int RoleNodeType = Qt::UserRole + 1;
+constexpr int RoleConnName = Qt::UserRole + 2;
+constexpr int RolePoolName = Qt::UserRole + 3;
+constexpr int RolePoolAction = Qt::UserRole + 4;
+constexpr int RolePoolState = Qt::UserRole + 5;
+constexpr int RolePoolImported = Qt::UserRole + 6;
+
+constexpr int NodeConnection = 1;
+constexpr int NodeInfo = 2;
+constexpr int NodePool = 3;
+
 QString normalizeHostToken(QString host) {
     host = host.trimmed().toLower();
     if (host.startsWith('[') && host.endsWith(']') && host.size() > 2) {
@@ -237,17 +248,32 @@ void MainWindow::onAsyncRefreshDone(int generation) {
 
 void MainWindow::onConnectionSelectionChanged() {
     const auto selected = m_connectionsList->selectedItems();
-    if (!selected.isEmpty()) {
-        QTreeWidgetItem* selItem = selected.first();
-        while (selItem && selItem->parent()) {
-            selItem = selItem->parent();
-        }
-        if (selItem && m_connectionsList->currentItem() != selItem) {
-            m_connectionsList->setCurrentItem(selItem);
-        }
-    }
     if (m_leftTabs->currentIndex() == 0 && !m_syncingConnectionFromPoolSelection) {
         populateAllPoolsTables();
+    }
+    if (!selected.isEmpty() && m_importedPoolsTable) {
+        QTreeWidgetItem* item = selected.first();
+        if (item && item->data(0, RoleNodeType).toInt() == NodePool) {
+            const QString connName = item->data(0, RoleConnName).toString().trimmed();
+            const QString poolName = item->data(0, RolePoolName).toString().trimmed();
+            if (!connName.isEmpty() && !poolName.isEmpty()) {
+                for (int row = 0; row < m_importedPoolsTable->rowCount(); ++row) {
+                    const QTableWidgetItem* c = m_importedPoolsTable->item(row, 0);
+                    const QTableWidgetItem* p = m_importedPoolsTable->item(row, 1);
+                    if (!c || !p) {
+                        continue;
+                    }
+                    if (c->text().trimmed().compare(connName, Qt::CaseInsensitive) == 0
+                        && p->text().trimmed().compare(poolName, Qt::CaseInsensitive) == 0) {
+                        m_syncingConnectionFromPoolSelection = true;
+                        m_importedPoolsTable->setCurrentCell(row, 0);
+                        m_syncingConnectionFromPoolSelection = false;
+                        refreshSelectedPoolDetails();
+                        break;
+                    }
+                }
+            }
+        }
     }
     updatePoolManagementBoxTitle();
 }
@@ -342,10 +368,85 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
     }
     QTreeWidgetItem* item = m_connectionsList->itemAt(pos);
     if (item) {
-        while (item->parent()) {
-            item = item->parent();
-        }
         m_connectionsList->setCurrentItem(item);
+    }
+
+    auto selectPoolRow = [this](const QString& connName, const QString& poolName) -> int {
+        if (!m_importedPoolsTable) {
+            return -1;
+        }
+        for (int row = 0; row < m_importedPoolsTable->rowCount(); ++row) {
+            const QTableWidgetItem* c = m_importedPoolsTable->item(row, 0);
+            const QTableWidgetItem* p = m_importedPoolsTable->item(row, 1);
+            if (!c || !p) {
+                continue;
+            }
+            if (c->text().trimmed().compare(connName, Qt::CaseInsensitive) == 0
+                && p->text().trimmed().compare(poolName, Qt::CaseInsensitive) == 0) {
+                m_importedPoolsTable->setCurrentCell(row, 0);
+                refreshSelectedPoolDetails();
+                return row;
+            }
+        }
+        return -1;
+    };
+
+    if (item && item->data(0, RoleNodeType).toInt() == NodePool) {
+        const QString connName = item->data(0, RoleConnName).toString().trimmed();
+        const QString poolName = item->data(0, RolePoolName).toString().trimmed();
+        const int row = selectPoolRow(connName, poolName);
+        const bool hasRow = row >= 0;
+        const QString stateUp = item->data(0, RolePoolState).toString().trimmed().toUpper();
+        const QString action = item->data(0, RolePoolAction).toString().trimmed();
+
+        QMenu poolMenu(this);
+        QAction* refreshAct = poolMenu.addAction(
+            trk(QStringLiteral("t_refresh_btn001"), QStringLiteral("Actualizar"), QStringLiteral("Refresh"), QStringLiteral("刷新")));
+        QAction* importAct = poolMenu.addAction(
+            trk(QStringLiteral("t_import_btn001"), QStringLiteral("Importar"), QStringLiteral("Import"), QStringLiteral("导入")));
+        QAction* exportAct = poolMenu.addAction(
+            trk(QStringLiteral("t_export_btn001"), QStringLiteral("Exportar"), QStringLiteral("Export"), QStringLiteral("导出")));
+        QAction* scrubAct = poolMenu.addAction(QStringLiteral("Scrub"));
+        QAction* destroyAct = poolMenu.addAction(QStringLiteral("Destroy"));
+
+        const bool canExport = hasRow && action.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) == 0;
+        const bool canImport = hasRow && action.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) == 0
+                               && stateUp == QStringLiteral("ONLINE");
+        refreshAct->setEnabled(hasRow && canExport);
+        importAct->setEnabled(canImport);
+        exportAct->setEnabled(canExport);
+        scrubAct->setEnabled(canExport && stateUp == QStringLiteral("ONLINE"));
+        destroyAct->setEnabled(canExport);
+
+        QAction* picked = poolMenu.exec(m_connectionsList->viewport()->mapToGlobal(pos));
+        if (!picked || !hasRow) {
+            return;
+        }
+        if (picked == refreshAct) {
+            logUiAction(QStringLiteral("Actualizar estado de pool (menú conexión/pool)"));
+            refreshSelectedPoolDetails();
+        } else if (picked == importAct) {
+            logUiAction(QStringLiteral("Importar pool (menú conexión/pool)"));
+            importPoolFromRow(row);
+        } else if (picked == exportAct) {
+            logUiAction(QStringLiteral("Exportar pool (menú conexión/pool)"));
+            exportPoolFromRow(row);
+        } else if (picked == scrubAct) {
+            logUiAction(QStringLiteral("Scrub pool (menú conexión/pool)"));
+            scrubPoolFromRow(row);
+        } else if (picked == destroyAct) {
+            logUiAction(QStringLiteral("Destroy pool (menú conexión/pool)"));
+            destroyPoolFromRow(row);
+        }
+        return;
+    }
+
+    QTreeWidgetItem* top = item;
+    while (top && top->parent()) {
+        top = top->parent();
+    }
+    if (top) {
+        m_connectionsList->setCurrentItem(top);
     }
     const bool hasSel = (m_connectionsList->currentItem() != nullptr);
 
@@ -556,6 +657,7 @@ void MainWindow::rebuildConnectionList() {
         auto* item = new QTreeWidgetItem(m_connectionsList);
         item->setText(0, line);
         item->setData(0, Qt::UserRole, i);
+        item->setData(0, RoleNodeType, NodeConnection);
         item->setForeground(0, QBrush(rowColor));
         item->setToolTip(0, QStringLiteral("Host: %1\nPort: %2\nEstado: %3\nDetalle: %4")
                                 .arg(p.host)
@@ -564,10 +666,18 @@ void MainWindow::rebuildConnectionList() {
                                 .arg(s.detail));
         item->setExpanded(false);
 
+        auto* infoNode = new QTreeWidgetItem(item);
+        infoNode->setText(0, trk(QStringLiteral("t_info_node_001"),
+                                 QStringLiteral("Información"),
+                                 QStringLiteral("Information"),
+                                 QStringLiteral("信息")));
+        infoNode->setData(0, Qt::UserRole, i);
+        infoNode->setData(0, RoleNodeType, NodeInfo);
+
         const QString osLine = !s.osLine.trimmed().isEmpty()
                                    ? s.osLine.trimmed()
                                    : QStringLiteral("%1").arg(p.osType);
-        auto* osChild = new QTreeWidgetItem(item);
+        auto* osChild = new QTreeWidgetItem(infoNode);
         osChild->setText(0, trk(QStringLiteral("t_os_line_conn01"),
                                 QStringLiteral("Sistema operativo: %1"),
                                 QStringLiteral("Operating system: %1"),
@@ -575,7 +685,7 @@ void MainWindow::rebuildConnectionList() {
         osChild->setData(0, Qt::UserRole, i);
 
         const QString method = !s.connectionMethod.trimmed().isEmpty() ? s.connectionMethod.trimmed() : p.connType;
-        auto* methodChild = new QTreeWidgetItem(item);
+        auto* methodChild = new QTreeWidgetItem(infoNode);
         methodChild->setText(0, trk(QStringLiteral("t_conn_method01"),
                                     QStringLiteral("Método de conexión: %1"),
                                     QStringLiteral("Connection method: %1"),
@@ -585,14 +695,14 @@ void MainWindow::rebuildConnectionList() {
         const QString zfsFull = !s.zfsVersionFull.trimmed().isEmpty() ? s.zfsVersionFull.trimmed()
                                                                        : (zfsTxt == QStringLiteral("?") ? QStringLiteral("-")
                                                                                                         : QStringLiteral("OpenZFS %1").arg(zfsTxt));
-        auto* zfsChild = new QTreeWidgetItem(item);
+        auto* zfsChild = new QTreeWidgetItem(infoNode);
         zfsChild->setText(0, trk(QStringLiteral("t_openzfs_line01"),
                                  QStringLiteral("OpenZFS: %1"),
                                  QStringLiteral("OpenZFS: %1"),
                                  QStringLiteral("OpenZFS：%1")).arg(zfsFull));
         zfsChild->setData(0, Qt::UserRole, i);
 
-        auto* commandsNode = new QTreeWidgetItem(item);
+        auto* commandsNode = new QTreeWidgetItem(infoNode);
         QString commandsTitle = trk(QStringLiteral("t_cmds_detect01"),
                                     QStringLiteral("Comandos detectados"),
                                     QStringLiteral("Detected commands"),
@@ -636,6 +746,60 @@ void MainWindow::rebuildConnectionList() {
             missingNode->setForeground(0, QBrush(QColor("#a12a2a")));
             missingNode->setToolTip(0, missingText);
         }
+
+        auto addPoolNode = [&](const QString& poolName,
+                               const QString& stateTxt,
+                               const QString& importedTxt,
+                               const QString& actionTxt,
+                               const QString& reasonTxt) {
+            const QString stateUpper = stateTxt.trimmed().toUpper();
+            const QString emptyTxt = trk(QStringLiteral("t_none_000001"),
+                                         QStringLiteral("(ninguno)"),
+                                         QStringLiteral("(none)"),
+                                         QStringLiteral("（无）"));
+            const QString text = trk(QStringLiteral("t_conn_pool_line1"),
+                                     QStringLiteral("%1 | Estado: %2 | Importado: %3 | Acción: %4 | Motivo: %5"),
+                                     QStringLiteral("%1 | State: %2 | Imported: %3 | Action: %4 | Reason: %5"),
+                                     QStringLiteral("%1 | 状态：%2 | 已导入：%3 | 操作：%4 | 原因：%5"))
+                                     .arg(poolName,
+                                          stateTxt,
+                                          importedTxt,
+                                          actionTxt.isEmpty() ? emptyTxt : actionTxt,
+                                          reasonTxt.isEmpty() ? emptyTxt : reasonTxt);
+
+            auto* poolNode = new QTreeWidgetItem(item);
+            poolNode->setText(0, text);
+            poolNode->setData(0, Qt::UserRole, i);
+            poolNode->setData(0, RoleNodeType, NodePool);
+            poolNode->setData(0, RoleConnName, p.name);
+            poolNode->setData(0, RolePoolName, poolName);
+            poolNode->setData(0, RolePoolAction, actionTxt);
+            poolNode->setData(0, RolePoolState, stateTxt);
+            poolNode->setData(0, RolePoolImported, importedTxt);
+            poolNode->setToolTip(0, trk(QStringLiteral("t_conn_pool_tip1"),
+                                        QStringLiteral("Conexión: %1\nPool: %2\nEstado: %3\nImportado: %4\nAcción: %5\nMotivo: %6"),
+                                        QStringLiteral("Connection: %1\nPool: %2\nState: %3\nImported: %4\nAction: %5\nReason: %6"),
+                                        QStringLiteral("连接：%1\n池：%2\n状态：%3\n已导入：%4\n操作：%5\n原因：%6"))
+                                        .arg(p.name,
+                                             poolName,
+                                             stateTxt,
+                                             importedTxt,
+                                             actionTxt.isEmpty() ? emptyTxt : actionTxt,
+                                             reasonTxt.isEmpty() ? emptyTxt : reasonTxt));
+            poolNode->setForeground(0, QBrush((stateUpper == QStringLiteral("ONLINE")) ? QColor("#1f7a1f")
+                                                                                        : QColor("#a12a2a")));
+        };
+
+        for (const PoolImported& pool : s.importedPools) {
+            addPoolNode(pool.pool, QStringLiteral("ONLINE"), QStringLiteral("Sí"), QStringLiteral("Exportar"), QString());
+        }
+        for (const PoolImportable& pool : s.importablePools) {
+            const QString stateUp = pool.state.trimmed().toUpper();
+            const QString action = (stateUp == QStringLiteral("ONLINE")) ? pool.action : QString();
+            addPoolNode(pool.pool, pool.state, QStringLiteral("No"), action, pool.reason);
+        }
+
+        infoNode->setExpanded(true);
     }
     m_connectionsList->collapseAll();
     syncConnectionLogTabs();
