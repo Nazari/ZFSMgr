@@ -256,7 +256,7 @@ void MainWindow::onPoolsListContextMenuRequested(const QPoint& pos) {
 
     QMenu menu(this);
     QAction* newAct = menu.addAction(
-        trk(QStringLiteral("t_new_btn_002"), QStringLiteral("Nuevo"), QStringLiteral("New"), QStringLiteral("新建")));
+        trk(QStringLiteral("t_new_pool_lbl001"), QStringLiteral("Nuevo pool"), QStringLiteral("New pool"), QStringLiteral("新建池")));
     menu.addSeparator();
     QAction* refreshAct = menu.addAction(
         trk(QStringLiteral("t_refresh_btn001"), QStringLiteral("Actualizar"), QStringLiteral("Refresh"), QStringLiteral("刷新")));
