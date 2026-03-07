@@ -648,6 +648,8 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
     QMenu menu(this);
     QAction* newAct = menu.addAction(
         trk(QStringLiteral("t_new_conn_ctx001"), QStringLiteral("Nueva Conexión"), QStringLiteral("New Connection"), QStringLiteral("新建连接")));
+    QAction* newPoolAct = menu.addAction(
+        trk(QStringLiteral("t_new_pool_ctx001"), QStringLiteral("Nuevo pool"), QStringLiteral("New pool"), QStringLiteral("新建池")));
     QAction* refreshAllAct = menu.addAction(
         trk(QStringLiteral("t_refrescar__7f8af2"), QStringLiteral("Refrescar todo"), QStringLiteral("Refresh all"), QStringLiteral("全部刷新")));
     menu.addSeparator();
@@ -660,6 +662,7 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
     refreshAct->setEnabled(hasSel);
     editAct->setEnabled(hasSel);
     deleteAct->setEnabled(hasSel);
+    newPoolAct->setEnabled(hasSel && selectedConnectionIndexForPoolManagement() >= 0);
 
     QAction* picked = menu.exec(m_connectionsList->viewport()->mapToGlobal(pos));
     if (!picked) {
@@ -668,6 +671,9 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
     if (picked == newAct) {
         logUiAction(QStringLiteral("Nueva conexión (menú)"));
         createConnection();
+    } else if (picked == newPoolAct) {
+        logUiAction(QStringLiteral("Nuevo pool (menú conexión)"));
+        createPoolForSelectedConnection();
     } else if (picked == refreshAllAct) {
         logUiAction(QStringLiteral("Refrescar todo (menú)"));
         refreshAllConnections();

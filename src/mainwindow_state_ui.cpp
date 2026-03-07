@@ -146,6 +146,15 @@ void MainWindow::setConnectionOriginSelection(const DatasetSelectionContext& ctx
     updateConnectionActionsState();
 }
 
+void MainWindow::setConnectionDestinationSelection(const DatasetSelectionContext& ctx) {
+    if (!ctx.valid || ctx.datasetName.isEmpty()) {
+        m_connActionDest = DatasetSelectionContext{};
+    } else {
+        m_connActionDest = ctx;
+    }
+    updateConnectionActionsState();
+}
+
 void MainWindow::updateConnectionActionsState() {
     if (m_btnConnBreakdown) m_btnConnBreakdown->setText(
         trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")));
@@ -177,7 +186,7 @@ void MainWindow::updateConnectionActionsState() {
                                  : QStringLiteral("%1@%2").arg(c.datasetName, c.snapshotName);
         return QStringLiteral("%1::%2").arg(m_profiles[c.connIdx].name, base);
     };
-    QString dstText = fmtSel(dctx);
+    QString dstText = fmtSel(m_connActionDest);
     if (m_connActionOrigin.valid && !m_connActionOrigin.datasetName.isEmpty()) {
         dstText = trk(QStringLiteral("t_conn_dest_sel01"),
                       QStringLiteral("Destino:%1"),
@@ -244,17 +253,19 @@ void MainWindow::updateConnectionActionsState() {
     if (m_btnConnAssemble) m_btnConnAssemble->setEnabled(!actionsLocked() && connAdvDatasetOnly);
     if (m_btnConnFromDir) m_btnConnFromDir->setEnabled(!actionsLocked() && dctx.valid && !dctx.datasetName.isEmpty() && dctx.snapshotName.isEmpty());
     if (m_btnConnToDir) m_btnConnToDir->setEnabled(!actionsLocked() && dctx.valid && !dctx.datasetName.isEmpty() && dctx.snapshotName.isEmpty());
-    if (m_btnConnReset) m_btnConnReset->setEnabled(!actionsLocked() && m_connActionOrigin.valid && !m_connActionOrigin.datasetName.isEmpty());
+    const bool hasConnOrigin = m_connActionOrigin.valid && !m_connActionOrigin.datasetName.isEmpty();
+    const bool hasConnDest = m_connActionDest.valid && !m_connActionDest.datasetName.isEmpty();
+    if (m_btnConnReset) m_btnConnReset->setEnabled(!actionsLocked() && (hasConnOrigin || hasConnDest));
 
     const bool srcDs = m_connActionOrigin.valid && !m_connActionOrigin.datasetName.isEmpty();
     const bool srcSnap = srcDs && !m_connActionOrigin.snapshotName.isEmpty();
-    const bool dstDs = dctx.valid && !dctx.datasetName.isEmpty();
-    const bool dstSnap = dstDs && !dctx.snapshotName.isEmpty();
+    const bool dstDs = m_connActionDest.valid && !m_connActionDest.datasetName.isEmpty();
+    const bool dstSnap = dstDs && !m_connActionDest.snapshotName.isEmpty();
     const QString srcSel = srcDs ? (srcSnap ? QStringLiteral("%1@%2").arg(m_connActionOrigin.datasetName, m_connActionOrigin.snapshotName)
                                             : m_connActionOrigin.datasetName)
                                  : QString();
-    const QString dstSel = dstDs ? (dstSnap ? QStringLiteral("%1@%2").arg(dctx.datasetName, dctx.snapshotName)
-                                            : dctx.datasetName)
+    const QString dstSel = dstDs ? (dstSnap ? QStringLiteral("%1@%2").arg(m_connActionDest.datasetName, m_connActionDest.snapshotName)
+                                            : m_connActionDest.datasetName)
                                  : QString();
     auto datasetMountedInCache = [this](const DatasetSelectionContext& c) -> bool {
         if (!c.valid || c.datasetName.isEmpty()) {
@@ -281,7 +292,7 @@ void MainWindow::updateConnectionActionsState() {
         srcDs,
         dstDs,
         datasetMountedInCache(m_connActionOrigin),
-        datasetMountedInCache(dctx),
+        datasetMountedInCache(m_connActionDest),
     };
     const mwhelpers::TransferButtonState st = mwhelpers::computeTransferButtonState(transferIn);
     if (m_btnConnCopy) m_btnConnCopy->setEnabled(!actionsLocked() && st.copyEnabled);
@@ -367,7 +378,7 @@ void MainWindow::executeConnectionAdvancedAction(const QString& action) {
 
 void MainWindow::executeConnectionTransferAction(const QString& action) {
     const DatasetSelectionContext src = m_connActionOrigin;
-    const DatasetSelectionContext dst = currentDatasetSelection(QStringLiteral("conncontent"));
+    const DatasetSelectionContext dst = m_connActionDest;
     if (!src.valid || src.datasetName.isEmpty() || !dst.valid || dst.datasetName.isEmpty()) {
         return;
     }

@@ -1953,6 +1953,7 @@ void MainWindow::buildUi() {
         }
         logUiAction(QStringLiteral("Reset origen (botón Conexiones)"));
         setConnectionOriginSelection(DatasetSelectionContext{});
+        setConnectionDestinationSelection(DatasetSelectionContext{});
         refreshTransferSelectionLabels();
         updateConnectionActionsState();
     });

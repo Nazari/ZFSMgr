@@ -171,6 +171,7 @@ private:
     void executeConnectionTransferAction(const QString& action);
     void executeConnectionAdvancedAction(const QString& action);
     void setConnectionOriginSelection(const DatasetSelectionContext& ctx);
+    void setConnectionDestinationSelection(const DatasetSelectionContext& ctx);
     QString connectionOriginSelectionText() const;
     void refreshTransferSelectionLabels();
     void updateAdvancedSelectionUi(const QString& datasetName, const QString& snapshotName);
@@ -272,6 +273,7 @@ private:
     QPushButton* m_btnConnLevel{nullptr};
     QPushButton* m_btnConnSync{nullptr};
     DatasetSelectionContext m_connActionOrigin;
+    DatasetSelectionContext m_connActionDest;
 
     QTableWidget* m_importedPoolsTable{nullptr};
     QTableWidget* m_importablePoolsTable{nullptr};
