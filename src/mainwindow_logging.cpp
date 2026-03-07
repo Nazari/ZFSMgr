@@ -16,11 +16,55 @@
 #include <QTextDocument>
 #include <QTextStream>
 #include <QThread>
+#include <QSet>
+#include <QSysInfo>
 #include <QVBoxLayout>
 
 namespace {
 QString tsNowForLog() {
     return QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
+}
+
+QString normalizeHostTokenForLogs(QString host) {
+    host = host.trimmed().toLower();
+    if (host.startsWith('[') && host.endsWith(']') && host.size() > 2) {
+        host = host.mid(1, host.size() - 2);
+    }
+    while (host.endsWith('.')) {
+        host.chop(1);
+    }
+    return host;
+}
+
+bool isLocalHostForLogs(const QString& host) {
+    const QString h = normalizeHostTokenForLogs(host);
+    if (h.isEmpty()) {
+        return false;
+    }
+    if (h == QStringLiteral("localhost")
+        || h == QStringLiteral("127.0.0.1")
+        || h == QStringLiteral("::1")) {
+        return true;
+    }
+    static const QSet<QString> aliases = []() {
+        QSet<QString> s;
+        s.insert(QStringLiteral("localhost"));
+        s.insert(QStringLiteral("127.0.0.1"));
+        s.insert(QStringLiteral("::1"));
+        const QString local = normalizeHostTokenForLogs(QSysInfo::machineHostName());
+        if (!local.isEmpty()) {
+            s.insert(local);
+            s.insert(local + QStringLiteral(".local"));
+            const int dot = local.indexOf('.');
+            if (dot > 0) {
+                const QString shortName = local.left(dot);
+                s.insert(shortName);
+                s.insert(shortName + QStringLiteral(".local"));
+            }
+        }
+        return s;
+    }();
+    return aliases.contains(h);
 }
 } // namespace
 
@@ -196,7 +240,14 @@ void MainWindow::syncConnectionLogTabs() {
         return;
     }
     QSet<QString> wanted;
-    for (const auto& p : m_profiles) {
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        const auto& p = m_profiles[i];
+        const bool localConn = isLocalConnection(p);
+        const QString st = (i < m_states.size()) ? m_states[i].status.trimmed().toUpper() : QString();
+        const bool redirectedLocal = (!localConn && st == QStringLiteral("OK") && isLocalHostForLogs(p.host));
+        if (redirectedLocal) {
+            continue;
+        }
         wanted.insert(p.id);
         if (m_connectionLogViews.contains(p.id)) {
             continue;
@@ -230,8 +281,12 @@ void MainWindow::syncConnectionLogTabs() {
     }
 
     for (int i = 0; i < m_profiles.size(); ++i) {
-        QWidget* tab = m_connectionLogViews.value(m_profiles[i].id)
-                           ? m_connectionLogViews.value(m_profiles[i].id)->parentWidget()
+        const QString id = m_profiles[i].id;
+        if (!wanted.contains(id)) {
+            continue;
+        }
+        QWidget* tab = m_connectionLogViews.value(id)
+                           ? m_connectionLogViews.value(id)->parentWidget()
                            : nullptr;
         const int idx = tab ? m_logsTabs->indexOf(tab) : -1;
         if (idx >= 0) {
