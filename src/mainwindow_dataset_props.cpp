@@ -1139,7 +1139,13 @@ void MainWindow::updateApplyPropsButtonState() {
         return false;
     };
     const bool hasChanges = hasEffectiveChanges(m_datasetPropsTable, m_propsOriginalValues, m_propsOriginalInherit);
-    m_btnApplyDatasetProps->setEnabled(m_propsDirty && eligible && hasChanges);
+    const bool baseEnable = m_propsDirty && eligible && hasChanges;
+    if (m_btnApplyDatasetProps) {
+        m_btnApplyDatasetProps->setEnabled(baseEnable && m_propsSide != QStringLiteral("conncontent"));
+    }
+    if (m_btnApplyConnContentProps) {
+        m_btnApplyConnContentProps->setEnabled(baseEnable && m_propsSide == QStringLiteral("conncontent"));
+    }
     const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("advanced"));
     const bool aok = actx.valid && actx.snapshotName.isEmpty() && (actx.datasetName == m_advPropsDataset);
     if (m_btnApplyAdvancedProps) {

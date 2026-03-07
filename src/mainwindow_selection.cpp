@@ -17,6 +17,15 @@ MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QS
         token = m_destPoolCombo->currentData().toString();
         ds = m_destSelectedDataset;
         snap = m_destSelectedSnapshot;
+    } else if (side == QStringLiteral("conncontent")) {
+        token = m_connContentToken;
+        if (m_connContentTree) {
+            const auto selected = m_connContentTree->selectedItems();
+            if (!selected.isEmpty()) {
+                ds = selected.first()->data(0, Qt::UserRole).toString();
+                snap = selected.first()->data(1, Qt::UserRole).toString();
+            }
+        }
     } else {
         token = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
         if (m_advTree) {

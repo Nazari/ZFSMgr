@@ -958,13 +958,25 @@ void MainWindow::buildUi() {
     m_connContentPropsTable->setColumnWidth(1, 210);
     const int connInheritColWidth = qMax(36, static_cast<int>((m_connContentPropsTable->fontMetrics().horizontalAdvance(QStringLiteral("Inherit")) / 2 + 12) * 1.10));
     m_connContentPropsTable->setColumnWidth(2, connInheritColWidth);
-    m_connContentPropsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_connContentPropsTable->setSelectionMode(QAbstractItemView::NoSelection);
+    m_connContentPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
     m_connContentPropsTable->verticalHeader()->setVisible(false);
     m_connContentPropsTable->verticalHeader()->setDefaultSectionSize(22);
     enableSortableHeader(m_connContentPropsTable);
+    auto* connPropsWrap = new QWidget(m_connContentPage);
+    auto* connPropsWrapLayout = new QVBoxLayout(connPropsWrap);
+    connPropsWrapLayout->setContentsMargins(0, 0, 0, 0);
+    connPropsWrapLayout->setSpacing(4);
+    connPropsWrapLayout->addWidget(m_connContentPropsTable, 1);
+    m_btnApplyConnContentProps = new QPushButton(
+        trk(QStringLiteral("t_apply_changes_001"),
+            QStringLiteral("Aplicar cambios"),
+            QStringLiteral("Apply changes"),
+            QStringLiteral("应用更改")),
+        connPropsWrap);
+    m_btnApplyConnContentProps->setEnabled(false);
+    connPropsWrapLayout->addWidget(m_btnApplyConnContentProps, 0, Qt::AlignRight);
     connContentSplit->addWidget(m_connContentTree);
-    connContentSplit->addWidget(m_connContentPropsTable);
+    connContentSplit->addWidget(connPropsWrap);
     connContentSplit->setStretchFactor(0, 55);
     connContentSplit->setStretchFactor(1, 45);
     connContentLayout->addWidget(connContentSplit, 1);
@@ -1472,6 +1484,23 @@ void MainWindow::buildUi() {
         connect(m_connContentTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int col) {
             Q_UNUSED(item);
             Q_UNUSED(col);
+        });
+        m_connContentTree->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(m_connContentTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+            showDatasetContextMenu(QStringLiteral("conncontent"), m_connContentTree, pos);
+        });
+        connect(m_connContentTree, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int col) {
+            onDatasetTreeItemChanged(m_connContentTree, item, col, QStringLiteral("conncontent"));
+        });
+    }
+    if (m_connContentPropsTable) {
+        connect(m_connContentPropsTable, &QTableWidget::cellChanged, this, [this](int row, int col) {
+            onDatasetPropsCellChanged(row, col);
+        });
+    }
+    if (m_btnApplyConnContentProps) {
+        connect(m_btnApplyConnContentProps, &QPushButton::clicked, this, [this]() {
+            applyDatasetPropertyChanges();
         });
     }
     connect(m_leftTabs, &QTabWidget::currentChanged, this, [this](int idx) {

@@ -112,11 +112,13 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
         onOriginTreeSelectionChanged();
     } else if (side == QStringLiteral("dest")) {
         onDestTreeSelectionChanged();
-    } else {
+    } else if (side == QStringLiteral("advanced")) {
         refreshDatasetProperties(QStringLiteral("advanced"));
         const QString ds = item->data(0, Qt::UserRole).toString();
         const QString snap = item->data(1, Qt::UserRole).toString();
         updateAdvancedSelectionUi(ds, snap);
+    } else if (side == QStringLiteral("conncontent")) {
+        refreshDatasetProperties(QStringLiteral("conncontent"));
     }
     const DatasetSelectionContext ctx = currentDatasetSelection(side);
     if (!ctx.valid) {
@@ -436,6 +438,15 @@ void MainWindow::reloadDatasetSide(const QString& side) {
         onOriginPoolChanged();
     } else if (side == QStringLiteral("dest")) {
         onDestPoolChanged();
+    } else if (side == QStringLiteral("conncontent")) {
+        const QString token = m_connContentToken;
+        const int sep = token.indexOf(QStringLiteral("::"));
+        if (sep > 0) {
+            const int connIdx = token.left(sep).toInt();
+            const QString poolName = token.mid(sep + 2);
+            populateDatasetTree(m_connContentTree, connIdx, poolName, QStringLiteral("conncontent"));
+            refreshDatasetProperties(QStringLiteral("conncontent"));
+        }
     } else {
         const QString token = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
         const int sep = token.indexOf(QStringLiteral("::"));

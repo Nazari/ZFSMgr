@@ -281,6 +281,7 @@ private:
     QPushButton* m_btnApplyDatasetProps{nullptr};
     QTableWidget* m_advPropsTable{nullptr};
     QPushButton* m_btnApplyAdvancedProps{nullptr};
+    QPushButton* m_btnApplyConnContentProps{nullptr};
     QLabel* m_transferOriginLabel{nullptr};
     QLabel* m_transferDestLabel{nullptr};
     QPushButton* m_btnCopy{nullptr};
