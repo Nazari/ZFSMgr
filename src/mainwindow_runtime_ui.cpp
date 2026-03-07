@@ -101,6 +101,18 @@ void MainWindow::setActionsLocked(bool locked) {
     if (m_poolStatusDestroyBtn) m_poolStatusDestroyBtn->setEnabled(!locked && m_poolStatusDestroyBtn->isEnabled());
     if (m_btnApplyDatasetProps) m_btnApplyDatasetProps->setEnabled(!locked && m_btnApplyDatasetProps->isEnabled());
     if (m_btnApplyAdvancedProps) m_btnApplyAdvancedProps->setEnabled(!locked && m_btnApplyAdvancedProps->isEnabled());
+    if (m_connPropsRefreshBtn) {
+        const bool can = m_connPropsRefreshBtn->property("zfsmgr_can_conn_action").toBool();
+        m_connPropsRefreshBtn->setEnabled(!locked && can);
+    }
+    if (m_connPropsEditBtn) {
+        const bool can = m_connPropsEditBtn->property("zfsmgr_can_conn_action").toBool();
+        m_connPropsEditBtn->setEnabled(!locked && can);
+    }
+    if (m_connPropsDeleteBtn) {
+        const bool can = m_connPropsDeleteBtn->property("zfsmgr_can_conn_action").toBool();
+        m_connPropsDeleteBtn->setEnabled(!locked && can);
+    }
     if (locked) {
         if (m_btnCopy) m_btnCopy->setEnabled(false);
         if (m_btnLevel) m_btnLevel->setEnabled(false);

@@ -279,6 +279,18 @@ void MainWindow::refreshConnectionNodeDetails() {
         if (m_poolStatusDestroyBtn) {
             m_poolStatusDestroyBtn->setEnabled(false);
         }
+        if (m_connPropsRefreshBtn) {
+            m_connPropsRefreshBtn->setProperty("zfsmgr_can_conn_action", false);
+            m_connPropsRefreshBtn->setEnabled(false);
+        }
+        if (m_connPropsEditBtn) {
+            m_connPropsEditBtn->setProperty("zfsmgr_can_conn_action", false);
+            m_connPropsEditBtn->setEnabled(false);
+        }
+        if (m_connPropsDeleteBtn) {
+            m_connPropsDeleteBtn->setProperty("zfsmgr_can_conn_action", false);
+            m_connPropsDeleteBtn->setEnabled(false);
+        }
     };
 
     const auto selected = m_connectionsList ? m_connectionsList->selectedItems() : QList<QTreeWidgetItem*>{};
@@ -376,6 +388,18 @@ void MainWindow::refreshConnectionNodeDetails() {
                 m_poolStatusText->setPlainText(lines.join(QStringLiteral("\n")));
             }
             resetPoolActionButtons();
+            if (m_connPropsRefreshBtn) {
+                m_connPropsRefreshBtn->setProperty("zfsmgr_can_conn_action", true);
+                m_connPropsRefreshBtn->setEnabled(!actionsLocked());
+            }
+            if (m_connPropsEditBtn) {
+                m_connPropsEditBtn->setProperty("zfsmgr_can_conn_action", true);
+                m_connPropsEditBtn->setEnabled(!actionsLocked());
+            }
+            if (m_connPropsDeleteBtn) {
+                m_connPropsDeleteBtn->setProperty("zfsmgr_can_conn_action", true);
+                m_connPropsDeleteBtn->setEnabled(!actionsLocked());
+            }
         }
         updateConnectionActionsState();
         updateConnectionDetailTitlesForCurrentSelection();
@@ -402,6 +426,7 @@ void MainWindow::refreshConnectionNodeDetails() {
     }
 
     if (nodeType == NodePoolContent) {
+        resetPoolActionButtons();
         if (m_connPropsStack && m_connContentPage) {
             m_connPropsStack->setCurrentWidget(m_connContentPage);
         }
@@ -425,6 +450,7 @@ void MainWindow::refreshConnectionNodeDetails() {
     if (m_connBottomStack && m_connStatusPage) {
         m_connBottomStack->setCurrentWidget(m_connStatusPage);
     }
+    resetPoolActionButtons();
     refreshSelectedPoolDetails();
     updateConnectionActionsState();
     updateConnectionDetailTitlesForCurrentSelection();
@@ -652,16 +678,6 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
         trk(QStringLiteral("t_new_pool_ctx001"), QStringLiteral("Nuevo pool"), QStringLiteral("New pool"), QStringLiteral("新建池")));
     QAction* refreshAllAct = menu.addAction(
         trk(QStringLiteral("t_refrescar__7f8af2"), QStringLiteral("Refrescar todo"), QStringLiteral("Refresh all"), QStringLiteral("全部刷新")));
-    menu.addSeparator();
-    QAction* refreshAct = menu.addAction(
-        trk(QStringLiteral("t_refresh_conn_ctx001"), QStringLiteral("Refrescar Conexión"), QStringLiteral("Refresh Connection"), QStringLiteral("刷新连接")));
-    QAction* editAct = menu.addAction(
-        trk(QStringLiteral("t_edit_conn_ctx001"), QStringLiteral("Editar Conexión"), QStringLiteral("Edit Connection"), QStringLiteral("编辑连接")));
-    QAction* deleteAct = menu.addAction(
-        trk(QStringLiteral("t_del_conn_ctx001"), QStringLiteral("Borrar Conexión"), QStringLiteral("Delete Connection"), QStringLiteral("删除连接")));
-    refreshAct->setEnabled(hasSel);
-    editAct->setEnabled(hasSel);
-    deleteAct->setEnabled(hasSel);
     newPoolAct->setEnabled(hasSel && selectedConnectionIndexForPoolManagement() >= 0);
 
     QAction* picked = menu.exec(m_connectionsList->viewport()->mapToGlobal(pos));
@@ -677,15 +693,6 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
     } else if (picked == refreshAllAct) {
         logUiAction(QStringLiteral("Refrescar todo (menú)"));
         refreshAllConnections();
-    } else if (picked == refreshAct) {
-        logUiAction(QStringLiteral("Refrescar conexión (menú)"));
-        refreshSelectedConnection();
-    } else if (picked == editAct) {
-        logUiAction(QStringLiteral("Editar conexión (menú)"));
-        editConnection();
-    } else if (picked == deleteAct) {
-        logUiAction(QStringLiteral("Borrar conexión (menú)"));
-        deleteConnection();
     }
 }
 

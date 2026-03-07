@@ -281,6 +281,9 @@ private:
     QGroupBox* m_connPropsGroup{nullptr};
     QGroupBox* m_connBottomGroup{nullptr};
     QTableWidget* m_poolPropsTable{nullptr};
+    QPushButton* m_connPropsRefreshBtn{nullptr};
+    QPushButton* m_connPropsEditBtn{nullptr};
+    QPushButton* m_connPropsDeleteBtn{nullptr};
     QStackedWidget* m_connPropsStack{nullptr};
     QWidget* m_connPoolPropsPage{nullptr};
     QWidget* m_connContentPage{nullptr};

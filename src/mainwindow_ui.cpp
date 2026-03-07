@@ -1152,6 +1152,35 @@ void MainWindow::buildUi() {
     m_poolPropsTable->verticalHeader()->setDefaultSectionSize(22);
     enableSortableHeader(m_poolPropsTable);
     poolPropsPageLayout->addWidget(m_poolPropsTable, 1);
+    auto* connPropBtns = new QHBoxLayout();
+    connPropBtns->setContentsMargins(0, 0, 0, 0);
+    connPropBtns->setSpacing(6);
+    m_connPropsRefreshBtn = new QPushButton(
+        trk(QStringLiteral("t_refresh_conn_ctx001"),
+            QStringLiteral("Refrescar"),
+            QStringLiteral("Refresh"),
+            QStringLiteral("刷新")),
+        m_connPoolPropsPage);
+    m_connPropsEditBtn = new QPushButton(
+        trk(QStringLiteral("t_edit_conn_ctx001"),
+            QStringLiteral("Editar"),
+            QStringLiteral("Edit"),
+            QStringLiteral("编辑")),
+        m_connPoolPropsPage);
+    m_connPropsDeleteBtn = new QPushButton(
+        trk(QStringLiteral("t_del_conn_ctx001"),
+            QStringLiteral("Borrar"),
+            QStringLiteral("Delete"),
+            QStringLiteral("删除")),
+        m_connPoolPropsPage);
+    m_connPropsRefreshBtn->setEnabled(false);
+    m_connPropsEditBtn->setEnabled(false);
+    m_connPropsDeleteBtn->setEnabled(false);
+    connPropBtns->addWidget(m_connPropsRefreshBtn, 0);
+    connPropBtns->addWidget(m_connPropsEditBtn, 0);
+    connPropBtns->addWidget(m_connPropsDeleteBtn, 0);
+    connPropBtns->addStretch(1);
+    poolPropsPageLayout->addLayout(connPropBtns);
     m_connPropsStack->addWidget(m_connPoolPropsPage);
 
     m_connContentPage = new QWidget(m_connPropsStack);
@@ -1717,6 +1746,24 @@ void MainWindow::buildUi() {
         logUiAction(QStringLiteral("Nuevo pool (botón)"));
         createPoolForSelectedConnection();
     });
+    if (m_connPropsRefreshBtn) {
+        connect(m_connPropsRefreshBtn, &QPushButton::clicked, this, [this]() {
+            logUiAction(QStringLiteral("Refrescar conexión (botón propiedades)"));
+            refreshSelectedConnection();
+        });
+    }
+    if (m_connPropsEditBtn) {
+        connect(m_connPropsEditBtn, &QPushButton::clicked, this, [this]() {
+            logUiAction(QStringLiteral("Editar conexión (botón propiedades)"));
+            editConnection();
+        });
+    }
+    if (m_connPropsDeleteBtn) {
+        connect(m_connPropsDeleteBtn, &QPushButton::clicked, this, [this]() {
+            logUiAction(QStringLiteral("Borrar conexión (botón propiedades)"));
+            deleteConnection();
+        });
+    }
     connect(m_connectionsList, &QTreeWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
     m_connectionsList->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_connectionsList, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
