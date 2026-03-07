@@ -356,7 +356,7 @@ void MainWindow::buildUi() {
 
     auto* central = new QWidget(this);
     auto* root = new QVBoxLayout(central);
-    root->setContentsMargins(8, 8, 8, 8);
+    root->setContentsMargins(8, 2, 8, 8);
     root->setSpacing(6);
 
     auto* topArea = new QWidget(central);
@@ -1646,7 +1646,7 @@ void MainWindow::buildUi() {
     m_logView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_logView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-    mono.setPointSize(9);
+    mono.setPointSize(8);
     m_logView->setFont(mono);
     appTabLayout->addWidget(m_logView, 1);
     m_logsTabs->addTab(appTab, trk(QStringLiteral("t_app_tab_001"),
