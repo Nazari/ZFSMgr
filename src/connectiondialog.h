@@ -8,6 +8,7 @@ class QCheckBox;
 class QComboBox;
 class QLineEdit;
 class QPushButton;
+class QWidget;
 
 class ConnectionDialog final : public QDialog {
     Q_OBJECT
@@ -37,6 +38,7 @@ private:
     QLineEdit* m_passwordEdit{nullptr};
     QLineEdit* m_keyEdit{nullptr};
     QPushButton* m_keyBrowseBtn{nullptr};
+    QWidget* m_privilegesRow{nullptr};
     QCheckBox* m_sudoCheck{nullptr};
 
     QString m_id;

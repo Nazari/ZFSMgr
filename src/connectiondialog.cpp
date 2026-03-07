@@ -55,6 +55,10 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
                                    QStringLiteral("Tipo"),
                                    QStringLiteral("Type"),
                                    QStringLiteral("类型")), osTypeRow);
+    osLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    typeLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    osLbl->setMinimumWidth(76);
+    typeLbl->setMinimumWidth(76);
     osTypeLayout->addWidget(osLbl, 0);
     osTypeLayout->addWidget(m_osTypeCombo, 1);
     osTypeLayout->addSpacing(12);
@@ -78,6 +82,10 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
                                    QStringLiteral("Port"),
                                    QStringLiteral("Port"),
                                    QStringLiteral("端口")), hostPortRow);
+    hostLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    portLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    hostLbl->setMinimumWidth(76);
+    portLbl->setMinimumWidth(76);
     m_portEdit->setMaximumWidth(110);
     hostPortLayout->addWidget(hostLbl, 0);
     hostPortLayout->addWidget(m_hostEdit, 1);
@@ -101,6 +109,10 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
                                    QStringLiteral("Password"),
                                    QStringLiteral("Password"),
                                    QStringLiteral("密码")), userPassRow);
+    userLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    passLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    userLbl->setMinimumWidth(76);
+    passLbl->setMinimumWidth(76);
     userPassLayout->addWidget(userLbl, 0);
     userPassLayout->addWidget(m_userEdit, 1);
     userPassLayout->addSpacing(12);
@@ -123,6 +135,8 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
                                   QStringLiteral("Clave privada SSH"),
                                   QStringLiteral("SSH private key"),
                                   QStringLiteral("SSH 私钥")), keyRow);
+    keyLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    keyLbl->setMinimumWidth(76);
     keyLayout->addWidget(keyLbl, 0);
     keyLayout->addWidget(m_keyEdit, 1);
     keyLayout->addWidget(m_keyBrowseBtn, 0);
@@ -133,11 +147,20 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
                                     QStringLiteral("Use sudo"),
                                     QStringLiteral("使用 sudo")),
                                 this);
-    form->addRow(trk(QStringLiteral("t_privilegio_1cb58a"),
-                     QStringLiteral("Privilegios"),
-                     QStringLiteral("Privileges"),
-                     QStringLiteral("权限")),
-                 m_sudoCheck);
+    m_privilegesRow = new QWidget(this);
+    auto* privLayout = new QHBoxLayout(m_privilegesRow);
+    privLayout->setContentsMargins(0, 0, 0, 0);
+    privLayout->setSpacing(8);
+    auto* privLbl = new QLabel(trk(QStringLiteral("t_privilegio_1cb58a"),
+                                   QStringLiteral("Privilegios"),
+                                   QStringLiteral("Privileges"),
+                                   QStringLiteral("权限")), m_privilegesRow);
+    privLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    privLbl->setMinimumWidth(76);
+    privLayout->addWidget(privLbl, 0);
+    privLayout->addWidget(m_sudoCheck, 0, Qt::AlignLeft);
+    privLayout->addStretch(1);
+    form->addRow(QString(), m_privilegesRow);
 
     connect(m_osTypeCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
         updateConnectionModeUi();
@@ -176,6 +199,10 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     root->addLayout(btnRow);
 
     updateConnectionModeUi();
+    if (layout()) {
+        layout()->activate();
+    }
+    setFixedSize(sizeHint());
 }
 
 void ConnectionDialog::setProfile(const ConnectionProfile& profile) {
@@ -251,6 +278,9 @@ void ConnectionDialog::updateConnectionModeUi() {
     m_sudoCheck->setEnabled(!psrpMode);
     if (psrpMode) {
         m_sudoCheck->setChecked(false);
+    }
+    if (m_privilegesRow) {
+        m_privilegesRow->setVisible(!psrpMode);
     }
 
     if (psrpMode) {
