@@ -273,6 +273,23 @@ void MainWindow::refreshConnectionNodeDetails() {
             m_connPropsDeleteBtn->setVisible(visible);
         }
     };
+    auto setPoolActionButtonsVisible = [this](bool visible) {
+        if (m_poolStatusRefreshBtn) {
+            m_poolStatusRefreshBtn->setVisible(visible);
+        }
+        if (m_poolStatusImportBtn) {
+            m_poolStatusImportBtn->setVisible(visible);
+        }
+        if (m_poolStatusExportBtn) {
+            m_poolStatusExportBtn->setVisible(visible);
+        }
+        if (m_poolStatusScrubBtn) {
+            m_poolStatusScrubBtn->setVisible(visible);
+        }
+        if (m_poolStatusDestroyBtn) {
+            m_poolStatusDestroyBtn->setVisible(visible);
+        }
+    };
 
     auto resetPoolActionButtons = [this]() {
         if (m_poolStatusImportBtn) {
@@ -308,6 +325,7 @@ void MainWindow::refreshConnectionNodeDetails() {
     const auto selected = m_connectionsList ? m_connectionsList->selectedItems() : QList<QTreeWidgetItem*>{};
     if (selected.isEmpty()) {
         setConnectionActionButtonsVisible(false);
+        setPoolActionButtonsVisible(false);
         if (m_connPropsStack && m_connPoolPropsPage) {
             m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
         }
@@ -339,6 +357,7 @@ void MainWindow::refreshConnectionNodeDetails() {
     auto* item = selected.first();
     const int nodeType = item->data(0, RoleNodeType).toInt();
     setConnectionActionButtonsVisible(nodeType == NodeConnection);
+    setPoolActionButtonsVisible(nodeType == NodePool);
     if (nodeType != NodePool && nodeType != NodePoolContent) {
         if (m_connPropsStack && m_connPoolPropsPage) {
             m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
@@ -629,50 +648,8 @@ void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
     if (item && item->data(0, RoleNodeType).toInt() == NodePool) {
         const QString connName = item->data(0, RoleConnName).toString().trimmed();
         const QString poolName = item->data(0, RolePoolName).toString().trimmed();
-        const int row = selectPoolRow(connName, poolName);
-        const bool hasRow = row >= 0;
-        const QString stateUp = item->data(0, RolePoolState).toString().trimmed().toUpper();
-        const QString action = item->data(0, RolePoolAction).toString().trimmed();
-
-        QMenu poolMenu(this);
-        QAction* refreshAct = poolMenu.addAction(
-            trk(QStringLiteral("t_refresh_pool_ctx001"), QStringLiteral("Actualizar Pool"), QStringLiteral("Refresh Pool"), QStringLiteral("刷新池")));
-        QAction* importAct = poolMenu.addAction(
-            trk(QStringLiteral("t_import_pool_ctx001"), QStringLiteral("Importar Pool"), QStringLiteral("Import Pool"), QStringLiteral("导入池")));
-        QAction* exportAct = poolMenu.addAction(
-            trk(QStringLiteral("t_export_pool_ctx001"), QStringLiteral("Exportar Pool"), QStringLiteral("Export Pool"), QStringLiteral("导出池")));
-        QAction* scrubAct = poolMenu.addAction(QStringLiteral("Scrub Pool"));
-        QAction* destroyAct = poolMenu.addAction(QStringLiteral("Destroy Pool"));
-
-        const bool canExport = hasRow && action.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) == 0;
-        const bool canImport = hasRow && action.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) == 0
-                               && stateUp == QStringLiteral("ONLINE");
-        refreshAct->setEnabled(hasRow && canExport);
-        importAct->setEnabled(canImport);
-        exportAct->setEnabled(canExport);
-        scrubAct->setEnabled(canExport && stateUp == QStringLiteral("ONLINE"));
-        destroyAct->setEnabled(canExport);
-
-        QAction* picked = poolMenu.exec(m_connectionsList->viewport()->mapToGlobal(pos));
-        if (!picked || !hasRow) {
-            return;
-        }
-        if (picked == refreshAct) {
-            logUiAction(QStringLiteral("Actualizar estado de pool (menú conexión/pool)"));
-            refreshSelectedPoolDetails();
-        } else if (picked == importAct) {
-            logUiAction(QStringLiteral("Importar pool (menú conexión/pool)"));
-            importPoolFromRow(row);
-        } else if (picked == exportAct) {
-            logUiAction(QStringLiteral("Exportar pool (menú conexión/pool)"));
-            exportPoolFromRow(row);
-        } else if (picked == scrubAct) {
-            logUiAction(QStringLiteral("Scrub pool (menú conexión/pool)"));
-            scrubPoolFromRow(row);
-        } else if (picked == destroyAct) {
-            logUiAction(QStringLiteral("Destroy pool (menú conexión/pool)"));
-            destroyPoolFromRow(row);
-        }
+        (void)selectPoolRow(connName, poolName);
+        refreshConnectionNodeDetails();
         return;
     }
 
