@@ -598,6 +598,7 @@ void MainWindow::rebuildConnectionList() {
         }
     }
     m_connectionsList->collapseAll();
+    syncConnectionLogTabs();
     endUiBusy();
     updatePoolManagementBoxTitle();
 }
