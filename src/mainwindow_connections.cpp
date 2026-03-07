@@ -7,6 +7,7 @@
 #include <QMetaObject>
 #include <QMessageBox>
 #include <QPoint>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSet>
 #include <QSysInfo>
@@ -257,11 +258,39 @@ void MainWindow::onConnectionSelectionChanged() {
 }
 
 void MainWindow::refreshConnectionNodeDetails() {
+    auto resetPoolActionButtons = [this]() {
+        if (m_poolStatusImportBtn) {
+            m_poolStatusImportBtn->setEnabled(false);
+        }
+        if (m_poolStatusRefreshBtn) {
+            m_poolStatusRefreshBtn->setProperty("zfsmgr_can_refresh", false);
+            m_poolStatusRefreshBtn->setEnabled(false);
+        }
+        if (m_poolStatusExportBtn) {
+            m_poolStatusExportBtn->setEnabled(false);
+        }
+        if (m_poolStatusScrubBtn) {
+            m_poolStatusScrubBtn->setEnabled(false);
+        }
+        if (m_poolStatusDestroyBtn) {
+            m_poolStatusDestroyBtn->setEnabled(false);
+        }
+    };
+
     const auto selected = m_connectionsList ? m_connectionsList->selectedItems() : QList<QTreeWidgetItem*>{};
     if (selected.isEmpty()) {
         if (m_connPropsStack && m_connPoolPropsPage) {
             m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
         }
+        if (m_poolPropsTable) {
+            setTablePopulationMode(m_poolPropsTable, true);
+            m_poolPropsTable->setRowCount(0);
+            setTablePopulationMode(m_poolPropsTable, false);
+        }
+        if (m_poolStatusText) {
+            m_poolStatusText->clear();
+        }
+        resetPoolActionButtons();
         if (m_connContentTree) {
             m_connContentTree->clear();
         }
@@ -278,6 +307,63 @@ void MainWindow::refreshConnectionNodeDetails() {
     if (nodeType != NodePool && nodeType != NodePoolContent) {
         if (m_connPropsStack && m_connPoolPropsPage) {
             m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
+        }
+        QTreeWidgetItem* top = item;
+        while (top && top->parent()) {
+            top = top->parent();
+        }
+        const int connIdx = top ? top->data(0, Qt::UserRole).toInt() : -1;
+        if (connIdx >= 0 && connIdx < m_profiles.size() && connIdx < m_states.size()) {
+            const ConnectionProfile& p = m_profiles[connIdx];
+            const ConnectionRuntimeState& st = m_states[connIdx];
+
+            if (m_poolPropsTable) {
+                setTablePopulationMode(m_poolPropsTable, true);
+                m_poolPropsTable->setRowCount(0);
+                auto addProp = [this](const QString& k, const QString& v, const QString& src) {
+                    const int r = m_poolPropsTable->rowCount();
+                    m_poolPropsTable->insertRow(r);
+                    m_poolPropsTable->setItem(r, 0, new QTableWidgetItem(k));
+                    m_poolPropsTable->setItem(r, 1, new QTableWidgetItem(v));
+                    m_poolPropsTable->setItem(r, 2, new QTableWidgetItem(src));
+                };
+                const QString srcIni = QStringLiteral("connections.ini");
+                addProp(QStringLiteral("id"), p.id, srcIni);
+                addProp(QStringLiteral("name"), p.name, srcIni);
+                addProp(QStringLiteral("host"), p.host, srcIni);
+                addProp(QStringLiteral("port"), QString::number(p.port), srcIni);
+                addProp(QStringLiteral("username"), p.username, srcIni);
+                addProp(QStringLiteral("password"), p.password.isEmpty() ? QString() : QStringLiteral("[secret]"), srcIni);
+                addProp(QStringLiteral("keyPath"), p.keyPath, srcIni);
+                addProp(QStringLiteral("connType"), p.connType, srcIni);
+                addProp(QStringLiteral("transport"), p.transport, srcIni);
+                addProp(QStringLiteral("osType"), p.osType, srcIni);
+                addProp(QStringLiteral("useSudo"), p.useSudo ? QStringLiteral("true") : QStringLiteral("false"), srcIni);
+                setTablePopulationMode(m_poolPropsTable, false);
+            }
+
+            if (m_poolStatusText) {
+                QStringList lines;
+                lines << QStringLiteral("Estado: %1").arg(st.status.trimmed().isEmpty() ? QStringLiteral("-") : st.status.trimmed());
+                lines << QStringLiteral("Detalle: %1").arg(st.detail.trimmed().isEmpty() ? QStringLiteral("-") : st.detail.trimmed());
+                lines << QStringLiteral("Sistema operativo: %1").arg(st.osLine.trimmed().isEmpty() ? QStringLiteral("-") : st.osLine.trimmed());
+                lines << QStringLiteral("Método de conexión: %1").arg(st.connectionMethod.trimmed().isEmpty() ? p.connType : st.connectionMethod.trimmed());
+                lines << QStringLiteral("OpenZFS: %1").arg(st.zfsVersionFull.trimmed().isEmpty()
+                                                               ? (st.zfsVersion.trimmed().isEmpty() ? QStringLiteral("-")
+                                                                                                    : QStringLiteral("OpenZFS %1").arg(st.zfsVersion.trimmed()))
+                                                               : st.zfsVersionFull.trimmed());
+                QStringList detected = st.detectedUnixCommands;
+                QStringList missing = st.missingUnixCommands;
+                if (detected.isEmpty() && missing.isEmpty() && !st.powershellFallbackCommands.isEmpty()) {
+                    detected = st.powershellFallbackCommands;
+                }
+                lines << QStringLiteral("Comandos detectados: %1")
+                             .arg(detected.isEmpty() ? QStringLiteral("(ninguno)") : detected.join(QStringLiteral(", ")));
+                lines << QStringLiteral("Comandos no detectados: %1")
+                             .arg(missing.isEmpty() ? QStringLiteral("(ninguno)") : missing.join(QStringLiteral(", ")));
+                m_poolStatusText->setPlainText(lines.join(QStringLiteral("\n")));
+            }
+            resetPoolActionButtons();
         }
         return;
     }
