@@ -240,6 +240,70 @@ void MainWindow::onPoolsSelectionChanged() {
     updatePoolManagementBoxTitle();
 }
 
+void MainWindow::onPoolsListContextMenuRequested(const QPoint& pos) {
+    if (actionsLocked() || !m_importedPoolsTable) {
+        return;
+    }
+
+    QModelIndex idx = m_importedPoolsTable->indexAt(pos);
+    if (idx.isValid()) {
+        m_importedPoolsTable->setCurrentCell(idx.row(), idx.column());
+        onPoolsSelectionChanged();
+    }
+    const auto sel = m_importedPoolsTable->selectedItems();
+    const bool hasSel = !sel.isEmpty();
+    const int selRow = hasSel ? sel.first()->row() : -1;
+
+    QMenu menu(this);
+    QAction* newAct = menu.addAction(
+        trk(QStringLiteral("t_new_btn_002"), QStringLiteral("Nuevo"), QStringLiteral("New"), QStringLiteral("新建")));
+    menu.addSeparator();
+    QAction* refreshAct = menu.addAction(
+        trk(QStringLiteral("t_refresh_btn001"), QStringLiteral("Actualizar"), QStringLiteral("Refresh"), QStringLiteral("刷新")));
+    QAction* importAct = menu.addAction(
+        trk(QStringLiteral("t_import_btn001"), QStringLiteral("Importar"), QStringLiteral("Import"), QStringLiteral("导入")));
+    QAction* exportAct = menu.addAction(
+        trk(QStringLiteral("t_export_btn001"), QStringLiteral("Exportar"), QStringLiteral("Export"), QStringLiteral("导出")));
+    QAction* scrubAct = menu.addAction(QStringLiteral("Scrub"));
+    QAction* destroyAct = menu.addAction(QStringLiteral("Destroy"));
+
+    newAct->setEnabled(!actionsLocked() && selectedConnectionIndexForPoolManagement() >= 0);
+    refreshAct->setEnabled(hasSel && m_poolStatusRefreshBtn && m_poolStatusRefreshBtn->isEnabled());
+    importAct->setEnabled(hasSel && m_poolStatusImportBtn && m_poolStatusImportBtn->isEnabled());
+    exportAct->setEnabled(hasSel && m_poolStatusExportBtn && m_poolStatusExportBtn->isEnabled());
+    scrubAct->setEnabled(hasSel && m_poolStatusScrubBtn && m_poolStatusScrubBtn->isEnabled());
+    destroyAct->setEnabled(hasSel && m_poolStatusDestroyBtn && m_poolStatusDestroyBtn->isEnabled());
+
+    QAction* picked = menu.exec(m_importedPoolsTable->viewport()->mapToGlobal(pos));
+    if (!picked) {
+        return;
+    }
+    if (picked == newAct) {
+        logUiAction(QStringLiteral("Nuevo pool (menú pools)"));
+        createPoolForSelectedConnection();
+        return;
+    }
+    if (!hasSel || selRow < 0) {
+        return;
+    }
+    if (picked == refreshAct) {
+        logUiAction(QStringLiteral("Actualizar estado de pool (menú pools)"));
+        refreshSelectedPoolDetails();
+    } else if (picked == importAct) {
+        logUiAction(QStringLiteral("Importar pool (menú pools)"));
+        importPoolFromRow(selRow);
+    } else if (picked == exportAct) {
+        logUiAction(QStringLiteral("Exportar pool (menú pools)"));
+        exportPoolFromRow(selRow);
+    } else if (picked == scrubAct) {
+        logUiAction(QStringLiteral("Scrub pool (menú pools)"));
+        scrubPoolFromRow(selRow);
+    } else if (picked == destroyAct) {
+        logUiAction(QStringLiteral("Destroy pool (menú pools)"));
+        destroyPoolFromRow(selRow);
+    }
+}
+
 void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
     if (actionsLocked()) {
         return;

@@ -339,6 +339,7 @@ void MainWindow::buildUi() {
     poolMgmtButtons->addStretch(1);
     poolMgmtLayout->addLayout(poolMgmtButtons);
     connLayout->addWidget(m_poolMgmtBox, 0);
+    m_poolMgmtBox->setVisible(false);
 
     auto* connListBox = new QGroupBox(
         trk(QStringLiteral("t_list_001"),
@@ -807,7 +808,7 @@ void MainWindow::buildUi() {
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
     m_importedPoolsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_importedPoolsTable->setContextMenuPolicy(Qt::NoContextMenu);
+    m_importedPoolsTable->setContextMenuPolicy(Qt::CustomContextMenu);
     m_importedPoolsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_importedPoolsTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_importedPoolsTable->verticalHeader()->setVisible(false);
@@ -907,6 +908,7 @@ void MainWindow::buildUi() {
     m_poolStatusScrubBtn->setMinimumWidth(statusButtonsWidth);
     m_poolStatusDestroyBtn->setMinimumWidth(statusButtonsWidth);
     statusActions->addStretch(1);
+    statusActionsWrap->setVisible(false);
     m_poolStatusText = new QPlainTextEdit(statusPoolTab);
     m_poolStatusText->setReadOnly(true);
     m_poolStatusText->setLineWrapMode(QPlainTextEdit::NoWrap);
@@ -1359,6 +1361,9 @@ void MainWindow::buildUi() {
     });
     connect(m_importedPoolsTable, &QTableWidget::itemSelectionChanged, this, [this]() {
         onPoolsSelectionChanged();
+    });
+    connect(m_importedPoolsTable, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        onPoolsListContextMenuRequested(pos);
     });
     connect(m_poolStatusRefreshBtn, &QPushButton::clicked, this, [this]() {
         logUiAction(QStringLiteral("Actualizar estado de pool (botón)"));

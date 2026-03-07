@@ -105,6 +105,7 @@ private:
     void deleteConnection();
     void onConnectionSelectionChanged();
     void onPoolsSelectionChanged();
+    void onPoolsListContextMenuRequested(const QPoint& pos);
     void onOriginPoolChanged();
     void onDestPoolChanged();
     void onAdvancedPoolChanged();
