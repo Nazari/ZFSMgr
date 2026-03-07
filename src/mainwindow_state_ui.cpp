@@ -33,6 +33,15 @@ void MainWindow::updateTransferButtonsState() {
         if (m_btnConnCopy) m_btnConnCopy->setEnabled(false);
         if (m_btnConnLevel) m_btnConnLevel->setEnabled(false);
         if (m_btnConnSync) m_btnConnSync->setEnabled(false);
+        if (m_connContentMountBtn) m_connContentMountBtn->setEnabled(false);
+        if (m_connContentMountChildrenBtn) m_connContentMountChildrenBtn->setEnabled(false);
+        if (m_connContentUmountBtn) m_connContentUmountBtn->setEnabled(false);
+        if (m_connContentSelectOriginBtn) m_connContentSelectOriginBtn->setEnabled(false);
+        if (m_connContentSelectDestBtn) m_connContentSelectDestBtn->setEnabled(false);
+        if (m_connContentRollbackBtn) m_connContentRollbackBtn->setEnabled(false);
+        if (m_connContentCreateBtn) m_connContentCreateBtn->setEnabled(false);
+        if (m_connContentDeleteAllSnapsBtn) m_connContentDeleteAllSnapsBtn->setEnabled(false);
+        if (m_connContentDeleteBtn) m_connContentDeleteBtn->setEnabled(false);
         updateConnectionActionsState();
         return;
     }
@@ -295,6 +304,46 @@ void MainWindow::updateConnectionActionsState() {
     if (m_btnConnCopy) m_btnConnCopy->setEnabled(!actionsLocked() && st.copyEnabled);
     if (m_btnConnLevel) m_btnConnLevel->setEnabled(!actionsLocked() && st.levelEnabled);
     if (m_btnConnSync) m_btnConnSync->setEnabled(!actionsLocked() && st.syncEnabled);
+
+    const bool hasConnSel = dctx.valid && !dctx.datasetName.isEmpty();
+    const bool hasConnSnap = hasConnSel && !dctx.snapshotName.isEmpty();
+    bool connKnownMounted = false;
+    bool connIsMounted = false;
+    if (hasConnSel) {
+        const QString key = datasetCacheKey(dctx.connIdx, dctx.poolName);
+        const auto cacheIt = m_poolDatasetCache.constFind(key);
+        if (cacheIt != m_poolDatasetCache.constEnd()) {
+            const auto recIt = cacheIt->recordByName.constFind(dctx.datasetName);
+            if (recIt != cacheIt->recordByName.constEnd()) {
+                const QString mv = recIt->mounted.trimmed().toLower();
+                if (mv == QStringLiteral("yes") || mv == QStringLiteral("on") || mv == QStringLiteral("true") || mv == QStringLiteral("1")) {
+                    connKnownMounted = true;
+                    connIsMounted = true;
+                } else if (mv == QStringLiteral("no") || mv == QStringLiteral("off") || mv == QStringLiteral("false") || mv == QStringLiteral("0")) {
+                    connKnownMounted = true;
+                    connIsMounted = false;
+                }
+            }
+        }
+    }
+    bool mountEnable = hasConnSel && !hasConnSnap;
+    bool umountEnable = hasConnSel && !hasConnSnap;
+    if (hasConnSnap) {
+        mountEnable = false;
+        umountEnable = false;
+    } else if (connKnownMounted) {
+        mountEnable = !connIsMounted;
+        umountEnable = connIsMounted;
+    }
+    if (m_connContentMountBtn) m_connContentMountBtn->setEnabled(!actionsLocked() && mountEnable);
+    if (m_connContentMountChildrenBtn) m_connContentMountChildrenBtn->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
+    if (m_connContentUmountBtn) m_connContentUmountBtn->setEnabled(!actionsLocked() && umountEnable);
+    if (m_connContentSelectOriginBtn) m_connContentSelectOriginBtn->setEnabled(!actionsLocked() && hasConnSel);
+    if (m_connContentSelectDestBtn) m_connContentSelectDestBtn->setEnabled(!actionsLocked() && hasConnSel);
+    if (m_connContentRollbackBtn) m_connContentRollbackBtn->setEnabled(!actionsLocked() && hasConnSnap);
+    if (m_connContentCreateBtn) m_connContentCreateBtn->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
+    if (m_connContentDeleteAllSnapsBtn) m_connContentDeleteAllSnapsBtn->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
+    if (m_connContentDeleteBtn) m_connContentDeleteBtn->setEnabled(!actionsLocked() && hasConnSel);
 }
 
 void MainWindow::executeConnectionAdvancedAction(const QString& action) {

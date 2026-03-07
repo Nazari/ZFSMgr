@@ -1272,6 +1272,64 @@ void MainWindow::buildUi() {
     }
 #endif
     connContentLayout->addWidget(m_connContentTree, 1);
+    auto* connContentActions = new QGridLayout();
+    connContentActions->setContentsMargins(0, 0, 0, 0);
+    connContentActions->setHorizontalSpacing(6);
+    connContentActions->setVerticalSpacing(6);
+    connContentActions->setColumnStretch(0, 1);
+    connContentActions->setColumnStretch(1, 1);
+    connContentActions->setColumnStretch(2, 1);
+    m_connContentMountBtn = new QPushButton(
+        trk(QStringLiteral("t_mount_menu_001"), QStringLiteral("Montar"), QStringLiteral("Mount"), QStringLiteral("挂载")),
+        m_connContentPage);
+    m_connContentMountChildrenBtn = new QPushButton(
+        trk(QStringLiteral("t_mount_child001"), QStringLiteral("Montar con todos los hijos"),
+            QStringLiteral("Mount with all children"), QStringLiteral("挂载并包含所有子项")),
+        m_connContentPage);
+    m_connContentUmountBtn = new QPushButton(
+        trk(QStringLiteral("t_umount_menu001"), QStringLiteral("Desmontar"), QStringLiteral("Unmount"), QStringLiteral("卸载")),
+        m_connContentPage);
+    m_connContentSelectOriginBtn = new QPushButton(
+        trk(QStringLiteral("t_select_origin1"), QStringLiteral("Seleccionar como origen"),
+            QStringLiteral("Select as source"), QStringLiteral("设为源")),
+        m_connContentPage);
+    m_connContentSelectDestBtn = new QPushButton(
+        trk(QStringLiteral("t_select_dest_001"), QStringLiteral("Seleccionar como destino"),
+            QStringLiteral("Select as target"), QStringLiteral("设为目标")),
+        m_connContentPage);
+    m_connContentRollbackBtn = new QPushButton(QStringLiteral("Rollback"), m_connContentPage);
+    m_connContentCreateBtn = new QPushButton(
+        trk(QStringLiteral("t_create_ch_001"), QStringLiteral("Crear hijo"), QStringLiteral("Create child"), QStringLiteral("创建子项")),
+        m_connContentPage);
+    m_connContentDeleteAllSnapsBtn = new QPushButton(
+        trk(QStringLiteral("t_del_all_snaps1"), QStringLiteral("Borrar todos los snapshots"),
+            QStringLiteral("Delete all snapshots"), QStringLiteral("删除所有快照")),
+        m_connContentPage);
+    m_connContentDeleteBtn = new QPushButton(
+        trk(QStringLiteral("t_delete_menu002"), QStringLiteral("Borrar"), QStringLiteral("Delete"), QStringLiteral("删除")),
+        m_connContentPage);
+    const QList<QPushButton*> connContentButtons = {
+        m_connContentMountBtn,         m_connContentMountChildrenBtn, m_connContentUmountBtn,
+        m_connContentSelectOriginBtn,  m_connContentSelectDestBtn,    m_connContentRollbackBtn,
+        m_connContentCreateBtn,        m_connContentDeleteAllSnapsBtn, m_connContentDeleteBtn};
+    for (QPushButton* btn : connContentButtons) {
+        if (!btn) {
+            continue;
+        }
+        btn->setMinimumHeight(30);
+        btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        btn->setEnabled(false);
+    }
+    connContentActions->addWidget(m_connContentMountBtn, 0, 0);
+    connContentActions->addWidget(m_connContentMountChildrenBtn, 0, 1, 1, 2);
+    connContentActions->addWidget(m_connContentUmountBtn, 1, 0);
+    connContentActions->addWidget(m_connContentRollbackBtn, 1, 1);
+    connContentActions->addWidget(m_connContentCreateBtn, 1, 2);
+    connContentActions->addWidget(m_connContentSelectOriginBtn, 2, 0);
+    connContentActions->addWidget(m_connContentSelectDestBtn, 2, 1);
+    connContentActions->addWidget(m_connContentDeleteAllSnapsBtn, 3, 0, 1, 2);
+    connContentActions->addWidget(m_connContentDeleteBtn, 3, 2);
+    connContentLayout->addLayout(connContentActions);
     m_connPropsStack->addWidget(m_connContentPage);
     m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
     propsPoolLayout->addWidget(m_connPropsStack, 1);
@@ -1776,13 +1834,89 @@ void MainWindow::buildUi() {
             Q_UNUSED(item);
             Q_UNUSED(col);
         });
-        m_connContentTree->setContextMenuPolicy(Qt::CustomContextMenu);
-        connect(m_connContentTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
-            showDatasetContextMenu(QStringLiteral("conncontent"), m_connContentTree, pos);
-        });
+        m_connContentTree->setContextMenuPolicy(Qt::NoContextMenu);
         connect(m_connContentTree, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int col) {
             onDatasetTreeItemChanged(m_connContentTree, item, col, QStringLiteral("conncontent"));
             updateConnectionActionsState();
+        });
+    }
+    if (m_connContentMountBtn) {
+        connect(m_connContentMountBtn, &QPushButton::clicked, this, [this]() {
+            logUiAction(QStringLiteral("Montar dataset (botón Contenido)"));
+            actionMountDataset(QStringLiteral("conncontent"));
+        });
+    }
+    if (m_connContentMountChildrenBtn) {
+        connect(m_connContentMountChildrenBtn, &QPushButton::clicked, this, [this]() {
+            logUiAction(QStringLiteral("Montar dataset con hijos (botón Contenido)"));
+            actionMountDatasetWithChildren(QStringLiteral("conncontent"));
+        });
+    }
+    if (m_connContentUmountBtn) {
+        connect(m_connContentUmountBtn, &QPushButton::clicked, this, [this]() {
+            logUiAction(QStringLiteral("Desmontar dataset (botón Contenido)"));
+            actionUmountDataset(QStringLiteral("conncontent"));
+        });
+    }
+    if (m_connContentSelectOriginBtn) {
+        connect(m_connContentSelectOriginBtn, &QPushButton::clicked, this, [this]() {
+            const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
+            if (!ctx.valid) {
+                return;
+            }
+            logUiAction(QStringLiteral("Seleccionar como origen (botón Contenido)"));
+            setConnectionOriginSelection(ctx);
+        });
+    }
+    if (m_connContentSelectDestBtn) {
+        connect(m_connContentSelectDestBtn, &QPushButton::clicked, this, [this]() {
+            const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
+            if (!ctx.valid) {
+                return;
+            }
+            logUiAction(QStringLiteral("Seleccionar como destino (botón Contenido)"));
+            setConnectionDestinationSelection(ctx);
+        });
+    }
+    if (m_connContentRollbackBtn) {
+        connect(m_connContentRollbackBtn, &QPushButton::clicked, this, [this]() {
+            const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
+            if (!ctx.valid || ctx.snapshotName.isEmpty()) {
+                return;
+            }
+            const QString snapObj = QStringLiteral("%1@%2").arg(ctx.datasetName, ctx.snapshotName);
+            const auto confirm = QMessageBox::question(
+                this,
+                QStringLiteral("Rollback"),
+                QStringLiteral("¿Confirmar rollback de snapshot?\n%1").arg(snapObj),
+                QMessageBox::Yes | QMessageBox::No,
+                QMessageBox::No);
+            if (confirm != QMessageBox::Yes) {
+                return;
+            }
+            logUiAction(QStringLiteral("Rollback snapshot (botón Contenido)"));
+            QString q = snapObj;
+            q.replace('\'', "'\"'\"'");
+            const QString cmd = QStringLiteral("zfs rollback '%1'").arg(q);
+            executeDatasetAction(QStringLiteral("conncontent"), QStringLiteral("Rollback"), ctx, cmd, 90000);
+        });
+    }
+    if (m_connContentCreateBtn) {
+        connect(m_connContentCreateBtn, &QPushButton::clicked, this, [this]() {
+            logUiAction(QStringLiteral("Crear hijo dataset (botón Contenido)"));
+            actionCreateChildDataset(QStringLiteral("conncontent"));
+        });
+    }
+    if (m_connContentDeleteAllSnapsBtn) {
+        connect(m_connContentDeleteAllSnapsBtn, &QPushButton::clicked, this, [this]() {
+            logUiAction(QStringLiteral("Borrar todos los snapshots (botón Contenido)"));
+            actionDeleteAllSnapshots(QStringLiteral("conncontent"));
+        });
+    }
+    if (m_connContentDeleteBtn) {
+        connect(m_connContentDeleteBtn, &QPushButton::clicked, this, [this]() {
+            logUiAction(QStringLiteral("Borrar dataset/snapshot (botón Contenido)"));
+            actionDeleteDatasetOrSnapshot(QStringLiteral("conncontent"));
         });
     }
     if (m_connContentPropsTable) {

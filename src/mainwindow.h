@@ -288,6 +288,15 @@ private:
     QWidget* m_connPoolPropsPage{nullptr};
     QWidget* m_connContentPage{nullptr};
     QTreeWidget* m_connContentTree{nullptr};
+    QPushButton* m_connContentMountBtn{nullptr};
+    QPushButton* m_connContentMountChildrenBtn{nullptr};
+    QPushButton* m_connContentUmountBtn{nullptr};
+    QPushButton* m_connContentSelectOriginBtn{nullptr};
+    QPushButton* m_connContentSelectDestBtn{nullptr};
+    QPushButton* m_connContentRollbackBtn{nullptr};
+    QPushButton* m_connContentCreateBtn{nullptr};
+    QPushButton* m_connContentDeleteAllSnapsBtn{nullptr};
+    QPushButton* m_connContentDeleteBtn{nullptr};
     QTableWidget* m_connContentPropsTable{nullptr};
     QStackedWidget* m_connBottomStack{nullptr};
     QWidget* m_connStatusPage{nullptr};
