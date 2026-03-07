@@ -1307,10 +1307,65 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName) {
     if (cache.loaded) {
         return true;
     }
+    auto loadSnapshotsFromCli = [&](const ConnectionProfile& p, PoolDatasetCache& targetCache) {
+        QString snapCmd = QStringLiteral("zfs list -H -p -t snapshot -o name,creation -r %1")
+                              .arg(shSingleQuote(poolName));
+        snapCmd = withSudo(p, snapCmd);
+        QString snapOut;
+        QString snapErr;
+        int snapRc = -1;
+        if (!runSsh(p, snapCmd, 25000, snapOut, snapErr, snapRc) || snapRc != 0) {
+            return;
+        }
+        QMap<QString, QVector<QPair<QString, QString>>> snapshotMetaByDataset;
+        const QStringList snapLines = snapOut.split('\n', Qt::SkipEmptyParts);
+        for (const QString& line : snapLines) {
+            const QStringList f = line.split('\t');
+            if (f.size() < 2) {
+                continue;
+            }
+            const QString name = f[0].trimmed();
+            const QString creation = f[1].trimmed();
+            if (!name.contains('@')) {
+                continue;
+            }
+            const QString ds = name.section('@', 0, 0);
+            const QString snap = name.section('@', 1);
+            if (ds.isEmpty() || snap.isEmpty()) {
+                continue;
+            }
+            snapshotMetaByDataset[ds].push_back(qMakePair(creation, snap));
+        }
+        for (auto it = snapshotMetaByDataset.begin(); it != snapshotMetaByDataset.end(); ++it) {
+            auto rows = it.value();
+            std::sort(rows.begin(), rows.end(), [](const QPair<QString, QString>& a, const QPair<QString, QString>& b) {
+                bool aOk = false;
+                bool bOk = false;
+                const qlonglong av = a.first.toLongLong(&aOk);
+                const qlonglong bv = b.first.toLongLong(&bOk);
+                if (aOk && bOk && av != bv) {
+                    return av > bv;
+                }
+                if (a.first != b.first) {
+                    return a.first > b.first;
+                }
+                return a.second > b.second;
+            });
+            QStringList sortedSnaps;
+            sortedSnaps.reserve(rows.size());
+            for (const auto& row : rows) {
+                sortedSnaps.push_back(row.second);
+            }
+            targetCache.snapshotsByDataset.insert(it.key(), sortedSnaps);
+        }
+    };
 
     if (isLocalConnection(connIdx) && detectLocalLibzfs()) {
         QString detail;
         if (listLocalDatasetsLibzfs(poolName, cache, &detail)) {
+            if (cache.snapshotsByDataset.isEmpty()) {
+                loadSnapshotsFromCli(m_profiles[connIdx], cache);
+            }
             cache.loaded = true;
             appLog(QStringLiteral("INFO"),
                    QStringLiteral("Datasets loaded via libzfs %1::%2 (%3)")
