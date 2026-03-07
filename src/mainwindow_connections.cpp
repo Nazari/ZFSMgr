@@ -497,12 +497,6 @@ void MainWindow::rebuildConnectionList() {
                             QStringLiteral("(none)"),
                             QStringLiteral("（无）"));
         }
-        if (missing.isEmpty()) {
-            missing << trk(QStringLiteral("t_none_000001"),
-                           QStringLiteral("(ninguno)"),
-                           QStringLiteral("(none)"),
-                           QStringLiteral("（无）"));
-        }
         auto* detectedNode = new QTreeWidgetItem(commandsNode);
         const QString detectedText = trk(QStringLiteral("t_detected_l001"),
                                          QStringLiteral("Detectados: %1"),
@@ -512,14 +506,16 @@ void MainWindow::rebuildConnectionList() {
         detectedNode->setForeground(0, QBrush(QColor("#1f7a1f")));
         detectedNode->setToolTip(0, detectedText);
 
-        auto* missingNode = new QTreeWidgetItem(commandsNode);
-        const QString missingText = trk(QStringLiteral("t_missing_l001"),
-                                        QStringLiteral("No detectados: %1"),
-                                        QStringLiteral("Missing: %1"),
-                                        QStringLiteral("未检测：%1")).arg(missing.join(QStringLiteral(", ")));
-        missingNode->setText(0, missingText);
-        missingNode->setForeground(0, QBrush(QColor("#a12a2a")));
-        missingNode->setToolTip(0, missingText);
+        if (!missing.isEmpty()) {
+            auto* missingNode = new QTreeWidgetItem(commandsNode);
+            const QString missingText = trk(QStringLiteral("t_missing_l001"),
+                                            QStringLiteral("No detectados: %1"),
+                                            QStringLiteral("Missing: %1"),
+                                            QStringLiteral("未检测：%1")).arg(missing.join(QStringLiteral(", ")));
+            missingNode->setText(0, missingText);
+            missingNode->setForeground(0, QBrush(QColor("#a12a2a")));
+            missingNode->setToolTip(0, missingText);
+        }
         if (redirectedLocal) {
             osChild->setDisabled(true);
             methodChild->setDisabled(true);
