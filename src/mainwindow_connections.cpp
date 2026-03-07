@@ -8,6 +8,7 @@
 #include <QMessageBox>
 #include <QPoint>
 #include <QPlainTextEdit>
+#include <QGroupBox>
 #include <QPushButton>
 #include <QSet>
 #include <QSysInfo>
@@ -281,6 +282,9 @@ void MainWindow::refreshConnectionNodeDetails() {
         if (m_connPropsStack && m_connPoolPropsPage) {
             m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
         }
+        if (m_connBottomStack && m_connStatusPage) {
+            m_connBottomStack->setCurrentWidget(m_connStatusPage);
+        }
         if (m_poolPropsTable) {
             setTablePopulationMode(m_poolPropsTable, true);
             m_poolPropsTable->setRowCount(0);
@@ -298,6 +302,7 @@ void MainWindow::refreshConnectionNodeDetails() {
             m_connContentPropsTable->setRowCount(0);
             setTablePopulationMode(m_connContentPropsTable, false);
         }
+        updateConnectionDetailTitlesForCurrentSelection();
         return;
     }
 
@@ -306,6 +311,9 @@ void MainWindow::refreshConnectionNodeDetails() {
     if (nodeType != NodePool && nodeType != NodePoolContent) {
         if (m_connPropsStack && m_connPoolPropsPage) {
             m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
+        }
+        if (m_connBottomStack && m_connStatusPage) {
+            m_connBottomStack->setCurrentWidget(m_connStatusPage);
         }
         QTreeWidgetItem* top = item;
         while (top && top->parent()) {
@@ -364,6 +372,7 @@ void MainWindow::refreshConnectionNodeDetails() {
             }
             resetPoolActionButtons();
         }
+        updateConnectionDetailTitlesForCurrentSelection();
         return;
     }
 
@@ -390,19 +399,80 @@ void MainWindow::refreshConnectionNodeDetails() {
         if (m_connPropsStack && m_connContentPage) {
             m_connPropsStack->setCurrentWidget(m_connContentPage);
         }
+        if (m_connBottomStack && m_connDatasetPropsPage) {
+            m_connBottomStack->setCurrentWidget(m_connDatasetPropsPage);
+        }
         int connIdx = findConnectionIndexByName(connName);
         if (connIdx >= 0 && connIdx < m_profiles.size() && m_connContentTree) {
             m_connContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
             populateDatasetTree(m_connContentTree, connIdx, poolName, QStringLiteral("conncontent"));
             refreshDatasetProperties(QStringLiteral("conncontent"));
         }
+        updateConnectionDetailTitlesForCurrentSelection();
         return;
     }
 
     if (m_connPropsStack && m_connPoolPropsPage) {
         m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
     }
+    if (m_connBottomStack && m_connStatusPage) {
+        m_connBottomStack->setCurrentWidget(m_connStatusPage);
+    }
     refreshSelectedPoolDetails();
+    updateConnectionDetailTitlesForCurrentSelection();
+}
+
+void MainWindow::updateConnectionDetailTitlesForCurrentSelection() {
+    QString propsTitle = trk(QStringLiteral("t_pool_props001"),
+                             QStringLiteral("Propiedades"),
+                             QStringLiteral("Properties"),
+                             QStringLiteral("属性"));
+    QString bottomTitle = trk(QStringLiteral("t_status_col_001"),
+                              QStringLiteral("Estado"),
+                              QStringLiteral("Status"),
+                              QStringLiteral("状态"));
+
+    const auto selected = m_connectionsList ? m_connectionsList->selectedItems() : QList<QTreeWidgetItem*>{};
+    if (!selected.isEmpty()) {
+        QTreeWidgetItem* item = selected.first();
+        const int nodeType = item->data(0, RoleNodeType).toInt();
+        if (nodeType == NodeConnection) {
+            QTreeWidgetItem* top = item;
+            while (top && top->parent()) {
+                top = top->parent();
+            }
+            const QString connName = top ? m_profiles.value(top->data(0, Qt::UserRole).toInt()).name : QString();
+            propsTitle = QStringLiteral("Propiedades de la conexión %1").arg(connName.isEmpty() ? QStringLiteral("-") : connName);
+            bottomTitle = QStringLiteral("Estado de la conexión %1").arg(connName.isEmpty() ? QStringLiteral("-") : connName);
+        } else if (nodeType == NodePool) {
+            const QString poolName = item->data(0, RolePoolName).toString().trimmed();
+            propsTitle = QStringLiteral("Propiedades del Pool %1").arg(poolName.isEmpty() ? QStringLiteral("-") : poolName);
+            bottomTitle = QStringLiteral("Estado del Pool %1").arg(poolName.isEmpty() ? QStringLiteral("-") : poolName);
+        } else if (nodeType == NodePoolContent) {
+            QString datasetName;
+            if (m_connContentTree) {
+                const auto dsSel = m_connContentTree->selectedItems();
+                if (!dsSel.isEmpty()) {
+                    datasetName = dsSel.first()->data(0, Qt::UserRole).toString().trimmed();
+                }
+            }
+            if (datasetName.isEmpty()) {
+                datasetName = trk(QStringLiteral("t_no_sel_001"),
+                                  QStringLiteral("(sin selección)"),
+                                  QStringLiteral("(no selection)"),
+                                  QStringLiteral("（未选择）"));
+            }
+            propsTitle = QStringLiteral("Contenido del Dataset %1").arg(datasetName);
+            bottomTitle = QStringLiteral("Propiedades del dataset %1").arg(datasetName);
+        }
+    }
+
+    if (m_connPropsGroup) {
+        m_connPropsGroup->setTitle(propsTitle);
+    }
+    if (m_connBottomGroup) {
+        m_connBottomGroup->setTitle(bottomTitle);
+    }
 }
 
 void MainWindow::onPoolsSelectionChanged() {
