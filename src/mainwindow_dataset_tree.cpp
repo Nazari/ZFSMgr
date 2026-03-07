@@ -302,6 +302,7 @@ void MainWindow::onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item
     }
     if (side == QStringLiteral("conncontent")) {
         refreshDatasetProperties(QStringLiteral("conncontent"));
+        updateConnectionActionsState();
         return;
     }
     setSelectedDataset(side, ds, snap);

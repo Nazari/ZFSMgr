@@ -131,6 +131,11 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
                                                        QStringLiteral("Mount with all children"),
                                                        QStringLiteral("挂载并包含所有子项")));
     QAction* umountAct = menu.addAction(trk(QStringLiteral("t_umount_menu001"), QStringLiteral("Desmontar"), QStringLiteral("Unmount"), QStringLiteral("卸载")));
+    QAction* selectOriginAct = menu.addAction(
+        trk(QStringLiteral("t_select_origin1"),
+            QStringLiteral("Seleccionar como origen"),
+            QStringLiteral("Select as source"),
+            QStringLiteral("设为源")));
     QAction* rollbackAct = nullptr;
     if (!ctx.snapshotName.isEmpty()) {
         rollbackAct = menu.addAction(QStringLiteral("Rollback"));
@@ -180,7 +185,10 @@ void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, 
     if (!picked) {
         return;
     }
-    if (picked == mountAct) {
+    if (picked == selectOriginAct) {
+        setConnectionOriginSelection(ctx);
+        logUiAction(QStringLiteral("Seleccionar como origen (menú)"));
+    } else if (picked == mountAct) {
         logUiAction(QStringLiteral("Montar dataset (menú)"));
         actionMountDataset(side);
     } else if (picked == mountWithChildrenAct) {

@@ -113,6 +113,13 @@ void MainWindow::setActionsLocked(bool locked) {
         if (m_btnAdvancedAssemble) m_btnAdvancedAssemble->setEnabled(false);
         if (m_btnAdvancedFromDir) m_btnAdvancedFromDir->setEnabled(false);
         if (m_btnAdvancedToDir) m_btnAdvancedToDir->setEnabled(false);
+        if (m_btnConnBreakdown) m_btnConnBreakdown->setEnabled(false);
+        if (m_btnConnAssemble) m_btnConnAssemble->setEnabled(false);
+        if (m_btnConnFromDir) m_btnConnFromDir->setEnabled(false);
+        if (m_btnConnToDir) m_btnConnToDir->setEnabled(false);
+        if (m_btnConnCopy) m_btnConnCopy->setEnabled(false);
+        if (m_btnConnLevel) m_btnConnLevel->setEnabled(false);
+        if (m_btnConnSync) m_btnConnSync->setEnabled(false);
     } else {
         updateTransferButtonsState();
         updateApplyPropsButtonState();

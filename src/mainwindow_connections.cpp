@@ -302,6 +302,7 @@ void MainWindow::refreshConnectionNodeDetails() {
             m_connContentPropsTable->setRowCount(0);
             setTablePopulationMode(m_connContentPropsTable, false);
         }
+        updateConnectionActionsState();
         updateConnectionDetailTitlesForCurrentSelection();
         return;
     }
@@ -372,6 +373,7 @@ void MainWindow::refreshConnectionNodeDetails() {
             }
             resetPoolActionButtons();
         }
+        updateConnectionActionsState();
         updateConnectionDetailTitlesForCurrentSelection();
         return;
     }
@@ -407,6 +409,7 @@ void MainWindow::refreshConnectionNodeDetails() {
             m_connContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
             populateDatasetTree(m_connContentTree, connIdx, poolName, QStringLiteral("conncontent"));
             refreshDatasetProperties(QStringLiteral("conncontent"));
+            updateConnectionActionsState();
         }
         updateConnectionDetailTitlesForCurrentSelection();
         return;
@@ -419,6 +422,7 @@ void MainWindow::refreshConnectionNodeDetails() {
         m_connBottomStack->setCurrentWidget(m_connStatusPage);
     }
     refreshSelectedPoolDetails();
+    updateConnectionActionsState();
     updateConnectionDetailTitlesForCurrentSelection();
 }
 

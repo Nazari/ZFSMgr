@@ -379,6 +379,188 @@ void MainWindow::buildUi() {
 #endif
     connListBoxLayout->addWidget(m_connectionsList, 1);
     connLayout->addWidget(connListBox, 1);
+
+    m_connActionsBox = new QGroupBox(
+        trk(QStringLiteral("t_actions_box_001"),
+            QStringLiteral("Acciones"),
+            QStringLiteral("Actions"),
+            QStringLiteral("操作")),
+        connectionsTab);
+    auto* connActionsLayout = new QHBoxLayout(m_connActionsBox);
+    connActionsLayout->setContentsMargins(8, 20, 8, 8);
+    connActionsLayout->setSpacing(8);
+
+    auto* connActionLeftBox = new QGroupBox(QString(), m_connActionsBox);
+    auto* connActionLeftLayout = new QVBoxLayout(connActionLeftBox);
+    connActionLeftLayout->setContentsMargins(6, 6, 6, 6);
+    connActionLeftLayout->setSpacing(6);
+    m_connLeftSelectionLabel = new QLabel(
+        trk(QStringLiteral("t_empty_sel_001"),
+            QStringLiteral("(vacío)"),
+            QStringLiteral("(empty)"),
+            QStringLiteral("（空）")),
+        connActionLeftBox);
+    m_connLeftSelectionLabel->setWordWrap(true);
+    m_connLeftSelectionLabel->setMinimumHeight(34);
+    connActionLeftLayout->addWidget(m_connLeftSelectionLabel);
+    m_btnConnBreakdown = new QPushButton(
+        trk(QStringLiteral("t_breakdown_btn1"),
+            QStringLiteral("Desglosar"),
+            QStringLiteral("Break down"),
+            QStringLiteral("拆分")),
+        connActionLeftBox);
+    m_btnConnAssemble = new QPushButton(
+        trk(QStringLiteral("t_assemble_btn1"),
+            QStringLiteral("Ensamblar"),
+            QStringLiteral("Assemble"),
+            QStringLiteral("组装")),
+        connActionLeftBox);
+    m_btnConnFromDir = new QPushButton(
+        trk(QStringLiteral("t_from_dir_btn1"),
+            QStringLiteral("Desde Dir"),
+            QStringLiteral("From Dir"),
+            QStringLiteral("来自目录")),
+        connActionLeftBox);
+    m_btnConnToDir = new QPushButton(
+        trk(QStringLiteral("t_to_dir_btn_001"),
+            QStringLiteral("Hacia Dir"),
+            QStringLiteral("To Dir"),
+            QStringLiteral("到目录")),
+        connActionLeftBox);
+    m_btnConnBreakdown->setToolTip(
+        trk(QStringLiteral("t_tt_breakdown001"), QStringLiteral("Construye datasets a partir de directorios. "
+                           "Requiere dataset y descendientes montados. "
+                           "Permite seleccionar directorios a desglosar. "
+                           "No se ejecuta si hay conflictos de mountpoint."),
+            QStringLiteral("Builds datasets from directories. "
+                           "Requires dataset and descendants mounted. "
+                           "Lets you select directories to split. "
+                           "Will not run if mountpoint conflicts exist."),
+            QStringLiteral("从目录构建数据集。"
+                           "要求数据集及其后代已挂载。"
+                           "可选择要拆分的目录。"
+                           "若存在挂载点冲突则不会执行。")));
+    m_btnConnAssemble->setToolTip(
+        trk(QStringLiteral("t_tt_assemble001"), QStringLiteral("Convierte datasets en directorios. "
+                           "Requiere dataset y descendientes montados. "
+                           "Permite seleccionar subdatasets a ensamblar. "
+                           "zfs destroy solo se ejecuta si rsync finaliza OK."),
+            QStringLiteral("Converts datasets into directories. "
+                           "Requires dataset and descendants mounted. "
+                           "Lets you select child datasets to assemble. "
+                           "zfs destroy runs only if rsync succeeds."),
+            QStringLiteral("将数据集转换为目录。"
+                           "要求数据集及其后代已挂载。"
+                           "可选择要组装的子数据集。"
+                           "仅当 rsync 成功时才执行 zfs destroy。")));
+    m_btnConnFromDir->setToolTip(
+        trk(QStringLiteral("t_tt_fromdir001"), QStringLiteral("Crea un dataset hijo usando un directorio local como mountpoint.\n"
+                           "Requiere dataset seleccionado en Avanzado."),
+            QStringLiteral("Create a child dataset using a local directory as mountpoint.\n"
+                           "Requires a dataset selected in Advanced."),
+            QStringLiteral("使用本地目录作为挂载点创建子数据集。\n"
+                           "需要在高级页选择一个数据集。")));
+    m_btnConnToDir->setToolTip(
+        trk(QStringLiteral("t_tt_todir_001"), QStringLiteral("Hace lo contrario de Desde Dir: copia el contenido del dataset a un directorio local\n"
+                           "y elimina el dataset al finalizar correctamente."),
+            QStringLiteral("Inverse of From Dir: copy dataset content to a local directory\n"
+                           "and remove dataset when finished successfully."),
+            QStringLiteral("与“来自目录”相反：将数据集内容复制到本地目录，\n"
+                           "成功后删除该数据集。")));
+    m_btnConnBreakdown->setMinimumHeight(stdLeftBtnH);
+    m_btnConnAssemble->setMinimumHeight(stdLeftBtnH);
+    m_btnConnFromDir->setMinimumHeight(stdLeftBtnH);
+    m_btnConnToDir->setMinimumHeight(stdLeftBtnH);
+    m_btnConnBreakdown->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnConnAssemble->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnConnFromDir->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnConnToDir->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    auto* connLeftBtns = new QGridLayout();
+    connLeftBtns->setContentsMargins(0, 0, 0, 0);
+    connLeftBtns->setHorizontalSpacing(6);
+    connLeftBtns->setVerticalSpacing(6);
+    connLeftBtns->setColumnStretch(0, 1);
+    connLeftBtns->setColumnStretch(1, 1);
+    connLeftBtns->addWidget(m_btnConnBreakdown, 0, 0);
+    connLeftBtns->addWidget(m_btnConnAssemble, 0, 1);
+    connLeftBtns->addWidget(m_btnConnFromDir, 1, 0);
+    connLeftBtns->addWidget(m_btnConnToDir, 1, 1);
+    connActionLeftLayout->addLayout(connLeftBtns);
+    connActionsLayout->addWidget(connActionLeftBox, 1);
+
+    auto* connActionRightBox = new QGroupBox(QString(), m_connActionsBox);
+    auto* connActionRightLayout = new QVBoxLayout(connActionRightBox);
+    connActionRightLayout->setContentsMargins(6, 6, 6, 6);
+    connActionRightLayout->setSpacing(6);
+    m_connOriginSelectionLabel = new QLabel(
+        trk(QStringLiteral("t_conn_origin_sel1"),
+            QStringLiteral("Origen:(vacío)"),
+            QStringLiteral("Source:(empty)"),
+            QStringLiteral("源：（空）")),
+        connActionRightBox);
+    m_connOriginSelectionLabel->setWordWrap(true);
+    m_connOriginSelectionLabel->setMinimumHeight(34);
+    connActionRightLayout->addWidget(m_connOriginSelectionLabel);
+    m_btnConnCopy = new QPushButton(
+        trk(QStringLiteral("t_copy_001"),
+            QStringLiteral("Copiar"),
+            QStringLiteral("Copy"),
+            QStringLiteral("复制")),
+        connActionRightBox);
+    m_btnConnLevel = new QPushButton(
+        trk(QStringLiteral("t_level_btn_001"),
+            QStringLiteral("Nivelar"),
+            QStringLiteral("Level"),
+            QStringLiteral("同步快照")),
+        connActionRightBox);
+    m_btnConnSync = new QPushButton(
+        trk(QStringLiteral("t_sync_btn_001"),
+            QStringLiteral("Sincronizar"),
+            QStringLiteral("Sync"),
+            QStringLiteral("同步文件")),
+        connActionRightBox);
+    m_btnConnCopy->setToolTip(
+        trk(QStringLiteral("t_tt_copy_001"),
+            QStringLiteral("Envía un snapshot desde Origen a Destino mediante send/recv.\n"
+                           "Requiere: snapshot seleccionado en Origen y dataset seleccionado en Destino."),
+            QStringLiteral("Send one snapshot from Source to Target using send/recv.\n"
+                           "Requires: snapshot selected in Source and dataset selected in Target."),
+            QStringLiteral("通过 send/recv 将源端快照发送到目标端。\n"
+                           "条件：源端选择快照，目标端选择数据集。")));
+    m_btnConnLevel->setToolTip(
+        trk(QStringLiteral("t_tt_level_001"),
+            QStringLiteral("Genera/aplica envío diferencial para igualar Origen->Destino.\n"
+                           "Requiere: dataset o snapshot seleccionado en Origen y dataset en Destino."),
+            QStringLiteral("Build/apply differential transfer to level Source->Target.\n"
+                           "Requires: dataset or snapshot selected in Source and dataset in Target."),
+            QStringLiteral("生成/应用差异传输以对齐源端到目标端。\n"
+                           "条件：源端选择数据集或快照，目标端选择数据集。")));
+    m_btnConnSync->setToolTip(
+        trk(QStringLiteral("t_tt_sync_001"),
+            QStringLiteral("Sincroniza contenido de dataset Origen a Destino con rsync.\n"
+                           "Requiere: dataset seleccionado (no snapshot) en Origen y Destino."),
+            QStringLiteral("Sync dataset contents from Source to Target with rsync.\n"
+                           "Requires: dataset selected (not snapshot) in Source and Target."),
+            QStringLiteral("使用 rsync 同步源端到目标端的数据集内容。\n"
+                           "条件：源端和目标端都选择数据集（非快照）。")));
+    m_btnConnCopy->setMinimumHeight(stdLeftBtnH);
+    m_btnConnLevel->setMinimumHeight(stdLeftBtnH);
+    m_btnConnSync->setMinimumHeight(stdLeftBtnH);
+    m_btnConnCopy->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnConnLevel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnConnSync->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    auto* connRightBtns = new QGridLayout();
+    connRightBtns->setContentsMargins(0, 0, 0, 0);
+    connRightBtns->setHorizontalSpacing(6);
+    connRightBtns->setVerticalSpacing(6);
+    connRightBtns->setColumnStretch(0, 1);
+    connRightBtns->setColumnStretch(1, 1);
+    connRightBtns->addWidget(m_btnConnCopy, 0, 0);
+    connRightBtns->addWidget(m_btnConnLevel, 0, 1);
+    connRightBtns->addWidget(m_btnConnSync, 1, 0, 1, 2);
+    connActionRightLayout->addLayout(connRightBtns);
+    connActionsLayout->addWidget(connActionRightBox, 1);
+    connLayout->addWidget(m_connActionsBox, 0);
     connectionsTab->setLayout(connLayout);
 
     auto* datasetsTab = new QWidget(m_leftTabs);
@@ -669,11 +851,15 @@ void MainWindow::buildUi() {
     // Conexiones, Datasets (Origen-->Destino) y Avanzado (Comandos).
     const int actionsBoxHeight = qMax(
         96,
-        qMax(m_poolMgmtBox ? m_poolMgmtBox->sizeHint().height() : 0,
+        qMax(qMax(m_poolMgmtBox ? m_poolMgmtBox->sizeHint().height() : 0,
+                  m_connActionsBox ? m_connActionsBox->sizeHint().height() : 0),
              qMax(m_transferBox ? m_transferBox->sizeHint().height() : 0,
                   m_advCommandsBox ? m_advCommandsBox->sizeHint().height() : 0)));
     if (m_poolMgmtBox) {
         m_poolMgmtBox->setFixedHeight(actionsBoxHeight);
+    }
+    if (m_connActionsBox) {
+        m_connActionsBox->setFixedHeight(actionsBoxHeight);
     }
     m_transferBox->setFixedHeight(actionsBoxHeight);
     m_advCommandsBox->setFixedHeight(actionsBoxHeight);
@@ -1483,6 +1669,7 @@ void MainWindow::buildUi() {
         connect(m_connContentTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
             refreshDatasetProperties(QStringLiteral("conncontent"));
             updateConnectionDetailTitlesForCurrentSelection();
+            updateConnectionActionsState();
         });
         connect(m_connContentTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int col) {
             Q_UNUSED(item);
@@ -1494,6 +1681,7 @@ void MainWindow::buildUi() {
         });
         connect(m_connContentTree, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int col) {
             onDatasetTreeItemChanged(m_connContentTree, item, col, QStringLiteral("conncontent"));
+            updateConnectionActionsState();
         });
     }
     if (m_connContentPropsTable) {
@@ -1635,6 +1823,34 @@ void MainWindow::buildUi() {
         logUiAction(QStringLiteral("Sincronizar datasets (botón)"));
         actionSyncDatasets();
     });
+    connect(m_btnConnBreakdown, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Desglosar (botón Conexiones)"));
+        executeConnectionAdvancedAction(QStringLiteral("breakdown"));
+    });
+    connect(m_btnConnAssemble, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Ensamblar (botón Conexiones)"));
+        executeConnectionAdvancedAction(QStringLiteral("assemble"));
+    });
+    connect(m_btnConnFromDir, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Desde Dir (botón Conexiones)"));
+        executeConnectionAdvancedAction(QStringLiteral("fromdir"));
+    });
+    connect(m_btnConnToDir, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Hacia Dir (botón Conexiones)"));
+        executeConnectionAdvancedAction(QStringLiteral("todir"));
+    });
+    connect(m_btnConnCopy, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Copiar snapshot (botón Conexiones)"));
+        executeConnectionTransferAction(QStringLiteral("copy"));
+    });
+    connect(m_btnConnLevel, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Nivelar snapshot (botón Conexiones)"));
+        executeConnectionTransferAction(QStringLiteral("level"));
+    });
+    connect(m_btnConnSync, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Sincronizar datasets (botón Conexiones)"));
+        executeConnectionTransferAction(QStringLiteral("sync"));
+    });
     connect(m_logClearBtn, &QPushButton::clicked, this, [this]() {
         logUiAction(QStringLiteral("Limpiar log (botón)"));
         clearAppLog();
@@ -1685,4 +1901,5 @@ void MainWindow::buildUi() {
         logUiAction(QStringLiteral("Hacia Dir (botón)"));
         actionAdvancedToDir();
     });
+    updateConnectionActionsState();
 }

@@ -167,6 +167,11 @@ private:
     void invalidateDatasetCacheForPool(int connIdx, const QString& poolName);
     void reloadDatasetSide(const QString& side);
     void updateTransferButtonsState();
+    void updateConnectionActionsState();
+    void executeConnectionTransferAction(const QString& action);
+    void executeConnectionAdvancedAction(const QString& action);
+    void setConnectionOriginSelection(const DatasetSelectionContext& ctx);
+    QString connectionOriginSelectionText() const;
     void refreshTransferSelectionLabels();
     void updateAdvancedSelectionUi(const QString& datasetName, const QString& snapshotName);
     bool runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs = 0, bool forceConfirmDialog = false, bool streamProgress = false);
@@ -255,6 +260,17 @@ private:
     QGroupBox* m_poolMgmtBox{nullptr};
     QPushButton* m_btnPoolNew{nullptr};
     QAction* m_menuExitAction{nullptr};
+    QGroupBox* m_connActionsBox{nullptr};
+    QLabel* m_connLeftSelectionLabel{nullptr};
+    QPushButton* m_btnConnBreakdown{nullptr};
+    QPushButton* m_btnConnAssemble{nullptr};
+    QPushButton* m_btnConnFromDir{nullptr};
+    QPushButton* m_btnConnToDir{nullptr};
+    QLabel* m_connOriginSelectionLabel{nullptr};
+    QPushButton* m_btnConnCopy{nullptr};
+    QPushButton* m_btnConnLevel{nullptr};
+    QPushButton* m_btnConnSync{nullptr};
+    DatasetSelectionContext m_connActionOrigin;
 
     QTableWidget* m_importedPoolsTable{nullptr};
     QTableWidget* m_importablePoolsTable{nullptr};
