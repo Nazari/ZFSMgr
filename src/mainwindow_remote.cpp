@@ -415,13 +415,18 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         rc = proc.exitCode();
         out = sanitizePsrpText(out);
         err = sanitizePsrpText(err);
+        const QString mergedPsrp = (out + QStringLiteral("\n") + err);
+        if (mergedPsrp.contains(QStringLiteral("no supported wsman client library"), Qt::CaseInsensitive)
+            || mergedPsrp.contains(QStringLiteral("requires WSMan"), Qt::CaseInsensitive)) {
+            rc = -1;
+            err = QStringLiteral("PSRP no disponible en este host: falta WSMan client library (instale PSWSMan/Install-WSMan en PowerShell local).");
+            appendConnectionLog(p.id, oneLine(err));
+            return false;
+        }
         if (!out.trimmed().isEmpty()) {
             appendConnectionLog(p.id, oneLine(out));
         }
         if (!err.trimmed().isEmpty()) {
-            if (err.contains(QStringLiteral("no supported WSMan client library"), Qt::CaseInsensitive)) {
-                err = QStringLiteral("PSRP no disponible en este host: falta WSMan client library (instale PSWSMan/Install-WSMan en PowerShell local).");
-            }
             appendConnectionLog(p.id, oneLine(err));
         }
         return true;
