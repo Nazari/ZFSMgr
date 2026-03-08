@@ -436,21 +436,22 @@ void MainWindow::buildUi() {
         connectionsTab);
     auto* connListBoxLayout = new QVBoxLayout(connListBox);
     connListBoxLayout->setContentsMargins(6, 8, 6, 6);
-    m_connectionsList = new QTreeWidget(connListBox);
-    m_connectionsList->setHeaderHidden(true);
-    m_connectionsList->setColumnCount(1);
-    m_connectionsList->setRootIsDecorated(true);
-    m_connectionsList->setItemsExpandable(true);
-    m_connectionsList->setExpandsOnDoubleClick(true);
-    m_connectionsList->setAlternatingRowColors(true);
-    m_connectionsList->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_connectionsList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_connectionsTable = new QTableWidget(connListBox);
+    m_connectionsTable->setColumnCount(1);
+    m_connectionsTable->horizontalHeader()->setVisible(false);
+    m_connectionsTable->verticalHeader()->setVisible(false);
+    m_connectionsTable->setAlternatingRowColors(true);
+    m_connectionsTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_connectionsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_connectionsTable->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_connectionsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_connectionsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
 #ifdef Q_OS_MAC
     if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
-        m_connectionsList->setStyle(fusion);
+        m_connectionsTable->setStyle(fusion);
     }
 #endif
-    connListBoxLayout->addWidget(m_connectionsList, 1);
+    connListBoxLayout->addWidget(m_connectionsTable, 1);
     m_btnNew = new QPushButton(
         trk(QStringLiteral("t_conn_btn_001"),
             QStringLiteral("Conexión"),
@@ -1095,6 +1096,11 @@ void MainWindow::buildUi() {
     auto* poolDetailLayout = new QVBoxLayout(m_poolDetailTabs);
     poolDetailLayout->setContentsMargins(0, 0, 0, 0);
     poolDetailLayout->setSpacing(4);
+    m_connectionEntityTabs = new QTabBar(m_poolDetailTabs);
+    m_connectionEntityTabs->setExpanding(false);
+    m_connectionEntityTabs->setDrawBase(true);
+    m_connectionEntityTabs->setUsesScrollButtons(true);
+    poolDetailLayout->addWidget(m_connectionEntityTabs, 0);
     m_poolViewTabBar = new QTabBar(m_poolDetailTabs);
     m_poolViewTabBar->addTab(trk(QStringLiteral("t_pool_props001"),
                                  QStringLiteral("Propiedades"),
@@ -1749,14 +1755,21 @@ void MainWindow::buildUi() {
             deleteConnection();
         });
     }
-    connect(m_connectionsList, &QTreeWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
-    connect(m_connectionsList, &QTreeWidget::currentItemChanged, this,
-            [this](QTreeWidgetItem* current, QTreeWidgetItem* previous) {
-                Q_UNUSED(current);
-                Q_UNUSED(previous);
+    connect(m_connectionsTable, &QTableWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
+    connect(m_connectionsTable, &QTableWidget::currentCellChanged, this,
+            [this](int currentRow, int currentColumn, int previousRow, int previousColumn) {
+                Q_UNUSED(currentRow);
+                Q_UNUSED(currentColumn);
+                Q_UNUSED(previousRow);
+                Q_UNUSED(previousColumn);
                 onConnectionSelectionChanged();
             });
-    m_connectionsList->setContextMenuPolicy(Qt::NoContextMenu);
+    if (m_connectionEntityTabs) {
+        connect(m_connectionEntityTabs, &QTabBar::currentChanged, this, [this](int idx) {
+            onConnectionEntityTabChanged(idx);
+        });
+    }
+    m_connectionsTable->setContextMenuPolicy(Qt::NoContextMenu);
     if (m_poolViewTabBar) {
         m_connSplitSizesProps = m_connDetailSplit ? m_connDetailSplit->sizes() : QList<int>{};
         m_connSplitSizesContent = m_connSplitSizesProps;
@@ -1873,30 +1886,30 @@ void MainWindow::buildUi() {
     m_rightStack->setCurrentIndex(0);
     connect(m_poolStatusRefreshBtn, &QPushButton::clicked, this, [this]() {
         logUiAction(QStringLiteral("Actualizar estado de pool (botón)"));
-        if (selectedPoolRowFromTree() >= 0) {
+        if (selectedPoolRowFromTabs() >= 0) {
             refreshSelectedPoolDetails();
         }
     });
     connect(m_poolStatusImportBtn, &QPushButton::clicked, this, [this]() {
-        const int row = selectedPoolRowFromTree();
+        const int row = selectedPoolRowFromTabs();
         if (row < 0) return;
         logUiAction(QStringLiteral("Importar pool (botón Estado)"));
         importPoolFromRow(row);
     });
     connect(m_poolStatusExportBtn, &QPushButton::clicked, this, [this]() {
-        const int row = selectedPoolRowFromTree();
+        const int row = selectedPoolRowFromTabs();
         if (row < 0) return;
         logUiAction(QStringLiteral("Exportar pool (botón Estado)"));
         exportPoolFromRow(row);
     });
     connect(m_poolStatusScrubBtn, &QPushButton::clicked, this, [this]() {
-        const int row = selectedPoolRowFromTree();
+        const int row = selectedPoolRowFromTabs();
         if (row < 0) return;
         logUiAction(QStringLiteral("Scrub pool (botón Estado)"));
         scrubPoolFromRow(row);
     });
     connect(m_poolStatusDestroyBtn, &QPushButton::clicked, this, [this]() {
-        const int row = selectedPoolRowFromTree();
+        const int row = selectedPoolRowFromTabs();
         if (row < 0) return;
         logUiAction(QStringLiteral("Destroy pool (botón Estado)"));
         destroyPoolFromRow(row);

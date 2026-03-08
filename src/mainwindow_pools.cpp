@@ -14,6 +14,7 @@
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QTabBar>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTreeWidget>
@@ -24,6 +25,23 @@ namespace {
 using mwhelpers::oneLine;
 using mwhelpers::shSingleQuote;
 using mwhelpers::sshUserHostPort;
+
+int selectedConnectionIndexFromTable(const QTableWidget* table) {
+    if (!table) {
+        return -1;
+    }
+    const int row = table->currentRow();
+    if (row < 0 || row >= table->rowCount()) {
+        return -1;
+    }
+    const QTableWidgetItem* it = table->item(row, 0);
+    if (!it) {
+        return -1;
+    }
+    bool ok = false;
+    const int idx = it->data(Qt::UserRole).toInt(&ok);
+    return ok ? idx : -1;
+}
 } // namespace
 
 int MainWindow::findPoolRow(const QString& connection, const QString& pool) const {
@@ -39,21 +57,33 @@ int MainWindow::findPoolRow(const QString& connection, const QString& pool) cons
     return -1;
 }
 
-int MainWindow::selectedPoolRowFromTree() const {
-    if (!m_connectionsList) {
+int MainWindow::selectedPoolRowFromTabs() const {
+    if (!m_connectionsTable || !m_connectionEntityTabs) {
         return -1;
     }
-    const auto selected = m_connectionsList->selectedItems();
-    if (selected.isEmpty()) {
+    const int selectedConnIdx = selectedConnectionIndexFromTable(m_connectionsTable);
+    if (selectedConnIdx < 0 || selectedConnIdx >= m_profiles.size()) {
         return -1;
     }
-    QTreeWidgetItem* item = selected.first();
-    const int nodeType = item->data(0, Qt::UserRole + 1).toInt();
-    if (nodeType != 2) {
+    const int tabIdx = m_connectionEntityTabs->currentIndex();
+    if (tabIdx < 0 || tabIdx >= m_connectionEntityTabs->count()) {
         return -1;
     }
-    const QString connName = item->data(0, Qt::UserRole + 2).toString().trimmed();
-    const QString poolName = item->data(0, Qt::UserRole + 3).toString().trimmed();
+    const QString key = m_connectionEntityTabs->tabData(tabIdx).toString();
+    const QStringList parts = key.split(':');
+    if (parts.size() < 3 || parts.first() != QStringLiteral("pool")) {
+        return -1;
+    }
+    bool ok = false;
+    const int connIdx = parts.value(1).toInt(&ok);
+    if (!ok || connIdx < 0 || connIdx >= m_profiles.size()) {
+        return -1;
+    }
+    if (connIdx != selectedConnIdx) {
+        return -1;
+    }
+    const QString connName = m_profiles[connIdx].name.trimmed();
+    const QString poolName = parts.value(2).trimmed();
     if (connName.isEmpty() || poolName.isEmpty()) {
         return -1;
     }
@@ -503,7 +533,7 @@ void MainWindow::refreshSelectedPoolDetails() {
         m_poolStatusDestroyBtn->setEnabled(false);
     }
 
-    const int row = selectedPoolRowFromTree();
+    const int row = selectedPoolRowFromTabs();
     if (row < 0 || row >= m_poolListEntries.size()) {
         setTablePopulationMode(m_poolPropsTable, false);
         return;

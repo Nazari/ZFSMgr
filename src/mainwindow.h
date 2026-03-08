@@ -97,9 +97,16 @@ private:
         QString snapshotName;
     };
 
+    struct ConnContentTreeState {
+        QStringList expandedDatasets;
+        QString selectedDataset;
+        QString selectedSnapshot;
+        QMap<QString, QString> snapshotByDataset;
+    };
+
     void buildUi();
     void loadConnections();
-    void rebuildConnectionList();
+    void rebuildConnectionsTable();
     void rebuildDatasetPoolSelectors();
     void refreshAllConnections();
     void refreshSelectedConnection();
@@ -107,6 +114,8 @@ private:
     void editConnection();
     void deleteConnection();
     void onConnectionSelectionChanged();
+    void rebuildConnectionEntityTabs();
+    void onConnectionEntityTabChanged(int idx);
     void onOriginPoolChanged();
     void onDestPoolChanged();
     void onAdvancedPoolChanged();
@@ -119,6 +128,8 @@ private:
     void clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem* keepItem);
     void refreshConnectionNodeDetails();
     void updateConnectionDetailTitlesForCurrentSelection();
+    void saveConnContentTreeState(const QString& token);
+    void restoreConnContentTreeState(const QString& token);
 
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
     bool runSsh(const ConnectionProfile& p,
@@ -218,7 +229,7 @@ private:
     void createPoolForSelectedConnection();
     void refreshSelectedPoolDetails();
     int findPoolRow(const QString& connection, const QString& pool) const;
-    int selectedPoolRowFromTree() const;
+    int selectedPoolRowFromTabs() const;
     int selectedConnectionIndexForPoolManagement() const;
     void updatePoolManagementBoxTitle();
     void updateStatus(const QString& text);
@@ -255,7 +266,7 @@ private:
     QVector<ConnectionProfile> m_profiles;
     QVector<ConnectionRuntimeState> m_states;
 
-    QTreeWidget* m_connectionsList{nullptr};
+    QTableWidget* m_connectionsTable{nullptr};
     QTabWidget* m_leftTabs{nullptr};
     QTabWidget* m_rightTabs{nullptr};
 
@@ -280,6 +291,9 @@ private:
 
     QVector<PoolListEntry> m_poolListEntries;
     QWidget* m_poolDetailTabs{nullptr};
+    QTabBar* m_connectionEntityTabs{nullptr};
+    bool m_updatingConnectionEntityTabs{false};
+    QString m_lastConnectionSelectionKey;
     QTabBar* m_poolViewTabBar{nullptr};
     QWidget* m_connPropsGroup{nullptr};
     QWidget* m_connBottomGroup{nullptr};
@@ -305,6 +319,7 @@ private:
     QWidget* m_connStatusPage{nullptr};
     QWidget* m_connDatasetPropsPage{nullptr};
     QString m_connContentToken;
+    QMap<QString, ConnContentTreeState> m_connContentTreeStateByToken;
     QPlainTextEdit* m_poolStatusText{nullptr};
     QPushButton* m_poolStatusRefreshBtn{nullptr};
     QPushButton* m_poolStatusImportBtn{nullptr};
@@ -376,6 +391,7 @@ private:
     int m_refreshPending{0};
     int m_refreshTotal{0};
     bool m_refreshInProgress{false};
+    bool m_initialRefreshCompleted{false};
     mutable bool m_localLibzfsChecked{false};
     mutable bool m_localLibzfsAvailable{false};
     mutable QString m_localLibzfsDetail;

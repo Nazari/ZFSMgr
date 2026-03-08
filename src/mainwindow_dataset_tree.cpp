@@ -6,6 +6,7 @@
 #include <QGroupBox>
 #include <QLabel>
 #include <QSignalBlocker>
+#include <QSet>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 
@@ -13,7 +14,131 @@
 
 namespace {
 using mwhelpers::parentDatasetName;
+
+QTreeWidgetItem* findDatasetItem(QTreeWidget* tree, const QString& datasetName) {
+    if (!tree || datasetName.isEmpty()) {
+        return nullptr;
+    }
+    std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* n) -> QTreeWidgetItem* {
+        if (!n) {
+            return nullptr;
+        }
+        if (n->data(0, Qt::UserRole).toString() == datasetName) {
+            return n;
+        }
+        for (int i = 0; i < n->childCount(); ++i) {
+            if (QTreeWidgetItem* f = rec(n->child(i))) {
+                return f;
+            }
+        }
+        return nullptr;
+    };
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        if (QTreeWidgetItem* f = rec(tree->topLevelItem(i))) {
+            return f;
+        }
+    }
+    return nullptr;
+}
 } // namespace
+
+void MainWindow::saveConnContentTreeState(const QString& token) {
+    if (token.isEmpty() || !m_connContentTree) {
+        return;
+    }
+    ConnContentTreeState st;
+    std::function<void(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* n) {
+        if (!n) {
+            return;
+        }
+        const QString ds = n->data(0, Qt::UserRole).toString();
+        if (!ds.isEmpty()) {
+            if (n->isExpanded()) {
+                st.expandedDatasets.push_back(ds);
+            }
+            const QString snap = n->data(1, Qt::UserRole).toString();
+            if (!snap.isEmpty()) {
+                st.snapshotByDataset.insert(ds, snap);
+            }
+        }
+        for (int i = 0; i < n->childCount(); ++i) {
+            rec(n->child(i));
+        }
+    };
+    for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
+        rec(m_connContentTree->topLevelItem(i));
+    }
+    const auto selected = m_connContentTree->selectedItems();
+    if (!selected.isEmpty()) {
+        st.selectedDataset = selected.first()->data(0, Qt::UserRole).toString();
+        st.selectedSnapshot = selected.first()->data(1, Qt::UserRole).toString();
+    }
+    m_connContentTreeStateByToken[token] = st;
+}
+
+void MainWindow::restoreConnContentTreeState(const QString& token) {
+    if (token.isEmpty() || !m_connContentTree) {
+        return;
+    }
+    const auto it = m_connContentTreeStateByToken.constFind(token);
+    if (it == m_connContentTreeStateByToken.cend()) {
+        return;
+    }
+    const ConnContentTreeState& st = it.value();
+    const QSet<QString> expandedSet(st.expandedDatasets.cbegin(), st.expandedDatasets.cend());
+
+    std::function<void(QTreeWidgetItem*)> applyExpand = [&](QTreeWidgetItem* n) {
+        if (!n) {
+            return;
+        }
+        const QString ds = n->data(0, Qt::UserRole).toString();
+        if (!ds.isEmpty()) {
+            n->setExpanded(expandedSet.contains(ds));
+        }
+        for (int i = 0; i < n->childCount(); ++i) {
+            applyExpand(n->child(i));
+        }
+    };
+    for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
+        applyExpand(m_connContentTree->topLevelItem(i));
+    }
+
+    for (auto sit = st.snapshotByDataset.cbegin(); sit != st.snapshotByDataset.cend(); ++sit) {
+        QTreeWidgetItem* item = findDatasetItem(m_connContentTree, sit.key());
+        if (!item) {
+            continue;
+        }
+        if (QComboBox* cb = qobject_cast<QComboBox*>(m_connContentTree->itemWidget(item, 1))) {
+            const int idx = cb->findText(sit.value());
+            if (idx > 0) {
+                const QSignalBlocker blocker(cb);
+                cb->setCurrentIndex(idx);
+                item->setData(1, Qt::UserRole, sit.value());
+            }
+        }
+    }
+
+    if (!st.selectedDataset.isEmpty()) {
+        QTreeWidgetItem* sel = findDatasetItem(m_connContentTree, st.selectedDataset);
+        if (sel) {
+            if (!st.selectedSnapshot.isEmpty()) {
+                if (QComboBox* cb = qobject_cast<QComboBox*>(m_connContentTree->itemWidget(sel, 1))) {
+                    const int idx = cb->findText(st.selectedSnapshot);
+                    if (idx > 0) {
+                        const QSignalBlocker blocker(cb);
+                        cb->setCurrentIndex(idx);
+                        sel->setData(1, Qt::UserRole, st.selectedSnapshot);
+                    }
+                }
+            }
+            for (QTreeWidgetItem* p = sel->parent(); p; p = p->parent()) {
+                p->setExpanded(true);
+            }
+            m_connContentTree->setCurrentItem(sel);
+            m_connContentTree->scrollToItem(sel, QAbstractItemView::PositionAtCenter);
+        }
+    }
+}
 
 void MainWindow::onOriginPoolChanged() {
     m_originSelectedDataset.clear();
@@ -244,6 +369,10 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         attachCombos(tree->topLevelItem(i));
     }
 
+    if (side == QStringLiteral("conncontent")) {
+        restoreConnContentTreeState(m_connContentToken);
+    }
+
     if (side == QStringLiteral("origin")) {
         m_originSelectionLabel->setText(trk(QStringLiteral("t_no_sel_001"),
                                             QStringLiteral("(sin selección)"),
@@ -279,7 +408,7 @@ void MainWindow::clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem
 }
 
 void MainWindow::onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item, const QString& side, const QString& chosen) {
-    if (!tree || !item) {
+    if (!tree || !item || m_loadingDatasetTrees) {
         return;
     }
     const QString ds = item->data(0, Qt::UserRole).toString();

@@ -7,7 +7,46 @@
 #include <QSettings>
 #include <QTableWidgetItem>
 #include <QTextEdit>
-#include <QTreeWidgetItem>
+
+namespace {
+int connectionIndexFromTable(const QTableWidget* table) {
+    if (!table) {
+        return -1;
+    }
+    const int row = table->currentRow();
+    if (row < 0 || row >= table->rowCount()) {
+        return -1;
+    }
+    const QTableWidgetItem* it = table->item(row, 0);
+    if (!it) {
+        return -1;
+    }
+    bool ok = false;
+    const int idx = it->data(Qt::UserRole).toInt(&ok);
+    return ok ? idx : -1;
+}
+
+int rowForConnectionId(const QTableWidget* table, const QVector<ConnectionProfile>& profiles, const QString& id) {
+    if (!table || id.isEmpty()) {
+        return -1;
+    }
+    for (int row = 0; row < table->rowCount(); ++row) {
+        const QTableWidgetItem* it = table->item(row, 0);
+        if (!it) {
+            continue;
+        }
+        bool ok = false;
+        const int connIdx = it->data(Qt::UserRole).toInt(&ok);
+        if (!ok || connIdx < 0 || connIdx >= profiles.size()) {
+            continue;
+        }
+        if (profiles[connIdx].id == id) {
+            return row;
+        }
+    }
+    return -1;
+}
+}
 
 QString MainWindow::trk(const QString& key, const QString& es, const QString& en, const QString& zh) const {
     return I18nManager::instance().translateKey(m_language, key, es, en, zh);
@@ -78,17 +117,10 @@ void MainWindow::applyLanguageLive() {
     const QString advPool = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
 
     QString selectedConnId;
-    if (m_connectionsList) {
-        const auto selected = m_connectionsList->selectedItems();
-        if (!selected.isEmpty()) {
-            QTreeWidgetItem* item = selected.first();
-            while (item && item->parent()) {
-                item = item->parent();
-            }
-            const int idx = item ? item->data(0, Qt::UserRole).toInt() : -1;
-            if (idx >= 0 && idx < m_profiles.size()) {
-                selectedConnId = m_profiles[idx].id;
-            }
+    if (m_connectionsTable) {
+        const int idx = connectionIndexFromTable(m_connectionsTable);
+        if (idx >= 0 && idx < m_profiles.size()) {
+            selectedConnId = m_profiles[idx].id;
         }
     }
 
@@ -145,15 +177,10 @@ void MainWindow::applyLanguageLive() {
     restoreCombo(m_destPoolCombo, destPool);
     restoreCombo(m_advPoolCombo, advPool);
 
-    if (!selectedConnId.isEmpty() && m_connectionsList) {
-        for (int i = 0; i < m_profiles.size(); ++i) {
-            if (m_profiles[i].id != selectedConnId) {
-                continue;
-            }
-            if (QTreeWidgetItem* top = m_connectionsList->topLevelItem(i)) {
-                m_connectionsList->setCurrentItem(top);
-            }
-            break;
+    if (!selectedConnId.isEmpty() && m_connectionsTable) {
+        const int row = rowForConnectionId(m_connectionsTable, m_profiles, selectedConnId);
+        if (row >= 0) {
+            m_connectionsTable->setCurrentCell(row, 0);
         }
     }
     if (m_leftTabs) {

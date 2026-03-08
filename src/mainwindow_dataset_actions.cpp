@@ -480,6 +480,7 @@ void MainWindow::reloadDatasetSide(const QString& side) {
         onDestPoolChanged();
     } else if (side == QStringLiteral("conncontent")) {
         const QString token = m_connContentToken;
+        saveConnContentTreeState(token);
         const int sep = token.indexOf(QStringLiteral("::"));
         if (sep > 0) {
             const int connIdx = token.left(sep).toInt();
