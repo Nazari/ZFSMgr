@@ -64,14 +64,14 @@ function Resolve-SftpTarget([string]$target) {
       $path = "/" + $body.Substring($slash + 1)
     }
     $user = $null
-    $host = $null
+    $remoteHost = $null
     if ($authority.Contains("@")) {
       $parts = $authority.Split("@", 2)
       $user = $parts[0]
       $hostPart = $parts[1]
       if ($hostPart.Contains(":")) {
         $hp = $hostPart.Split(":", 2)
-        $host = $hp[0]
+        $remoteHost = $hp[0]
         if (-not [string]::IsNullOrWhiteSpace($hp[1])) {
           if ([string]::IsNullOrWhiteSpace($path)) {
             $path = $hp[1]
@@ -81,13 +81,13 @@ function Resolve-SftpTarget([string]$target) {
           }
         }
       } else {
-        $host = $hostPart
+        $remoteHost = $hostPart
       }
     } else {
       $user = $env:USERNAME
       if ($authority.Contains(":")) {
         $hp = $authority.Split(":", 2)
-        $host = $hp[0]
+        $remoteHost = $hp[0]
         if (-not [string]::IsNullOrWhiteSpace($hp[1])) {
           if ([string]::IsNullOrWhiteSpace($path)) {
             $path = $hp[1]
@@ -97,14 +97,14 @@ function Resolve-SftpTarget([string]$target) {
           }
         }
       } else {
-        $host = $authority
+        $remoteHost = $authority
       }
     }
     if ([string]::IsNullOrWhiteSpace($path)) {
       throw "Destino SFTP inválido: $target"
     }
     return [PSCustomObject]@{
-      Remote = "$user@$host"
+      Remote = "$user@$remoteHost"
       Path   = $path
       HomeRelative = (-not $path.StartsWith("/"))
     }
