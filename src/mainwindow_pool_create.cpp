@@ -647,7 +647,7 @@ void MainWindow::createPoolForSelectedConnection() {
         trk(QStringLiteral("t_poolcrt_auto002"), QStringLiteral("Crear pool en %1"), QStringLiteral("Create pool on %1"), QStringLiteral("在 %1 创建池"))
             .arg(p.name));
     dlg.setModal(true);
-    dlg.resize(1180, 760);
+    dlg.resize(1180, 912);
     auto* lay = new QVBoxLayout(&dlg);
 
     auto* body = new QHBoxLayout();
@@ -656,10 +656,19 @@ void MainWindow::createPoolForSelectedConnection() {
     auto* leftLay = new QVBoxLayout(leftPane);
     leftLay->setContentsMargins(0, 0, 0, 0);
     leftLay->setSpacing(8);
+    auto* rightPane = new QWidget(&dlg);
+    auto* rightLay = new QVBoxLayout(rightPane);
+    rightLay->setContentsMargins(0, 0, 0, 0);
+    rightLay->setSpacing(0);
 
     auto* baseBox = new QGroupBox(
         trk(QStringLiteral("t_poolcrt_auto003"), QStringLiteral("Parámetros del pool"), QStringLiteral("Pool parameters"), QStringLiteral("池参数")), leftPane);
     auto* form = new QFormLayout(baseBox);
+    form->setContentsMargins(6, 6, 6, 6);
+    form->setVerticalSpacing(3);
+    form->setHorizontalSpacing(8);
+    baseBox->setStyleSheet(QStringLiteral(
+        "QGroupBox QLineEdit, QGroupBox QComboBox { min-height: 18px; max-height: 18px; }"));
     QLineEdit* poolNameEd = new QLineEdit(baseBox);
     QComboBox* quickLayoutCb = new QComboBox(baseBox);
     quickLayoutCb->addItems({QStringLiteral("stripe"), QStringLiteral("mirror"), QStringLiteral("raidz"),
@@ -690,6 +699,30 @@ void MainWindow::createPoolForSelectedConnection() {
     QLineEdit* poolOptsEd = new QLineEdit(baseBox);
     QLineEdit* fsPropsEd = new QLineEdit(baseBox);
     QLineEdit* extraEd = new QLineEdit(baseBox);
+    QComboBox* canmountCb = new QComboBox(baseBox);
+    canmountCb->addItems({QString(), QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("noauto")});
+    QLineEdit* dsMountpointEd = new QLineEdit(baseBox);
+    QComboBox* relatimeCb = new QComboBox(baseBox);
+    relatimeCb->addItems({QString(), QStringLiteral("on"), QStringLiteral("off")});
+    QComboBox* compressionCb = new QComboBox(baseBox);
+    compressionCb->setEditable(true);
+    compressionCb->addItems({QString(), QStringLiteral("off"), QStringLiteral("on"), QStringLiteral("lz4"),
+                             QStringLiteral("zstd"), QStringLiteral("gzip"),
+                             QStringLiteral("zstd-1"), QStringLiteral("zstd-3"), QStringLiteral("zstd-5"),
+                             QStringLiteral("zstd-9"), QStringLiteral("zstd-19"),
+                             QStringLiteral("gzip-1"), QStringLiteral("gzip-6"), QStringLiteral("gzip-9")});
+    QComboBox* normalizationCb = new QComboBox(baseBox);
+    normalizationCb->addItems({QString(), QStringLiteral("none"), QStringLiteral("formC"),
+                               QStringLiteral("formD"), QStringLiteral("formKC"), QStringLiteral("formKD")});
+    QComboBox* acltypeCb = new QComboBox(baseBox);
+    acltypeCb->addItems({QString(), QStringLiteral("off"), QStringLiteral("posix"), QStringLiteral("nfsv4"), QStringLiteral("posixacl")});
+    QComboBox* xattrCb = new QComboBox(baseBox);
+    xattrCb->addItems({QString(), QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("sa"), QStringLiteral("dir")});
+    QComboBox* dnodesizeCb = new QComboBox(baseBox);
+    dnodesizeCb->setEditable(true);
+    dnodesizeCb->addItems({QString(), QStringLiteral("legacy"), QStringLiteral("auto"),
+                           QStringLiteral("1k"), QStringLiteral("2k"), QStringLiteral("4k"),
+                           QStringLiteral("8k"), QStringLiteral("16k")});
     const ZPoolCreationDefaults zdefs = loadZPoolCreationDefaults(m_store.iniPath());
     forceCb->setChecked(zdefs.force);
     altrootEd->setText(zdefs.altroot);
@@ -699,9 +732,73 @@ void MainWindow::createPoolForSelectedConnection() {
         compatibilityCb->addItem(zdefs.compatibility);
     }
     compatibilityCb->setCurrentText(zdefs.compatibility);
-    fsPropsEd->setText(zdefs.fsProps);
+
+    QMap<QString, QString> fsDefaults;
+    for (const QString& item : zdefs.fsProps.split(',', Qt::SkipEmptyParts)) {
+        const QString t = item.trimmed();
+        if (t.isEmpty()) {
+            continue;
+        }
+        const int eq = t.indexOf('=');
+        if (eq <= 0) {
+            continue;
+        }
+        fsDefaults.insert(t.left(eq).trimmed().toLower(), t.mid(eq + 1).trimmed());
+    }
+    auto applyFsDefaultCombo = [&fsDefaults](QComboBox* cb, const QString& key) {
+        const QString val = fsDefaults.value(key.toLower()).trimmed();
+        if (val.isEmpty()) {
+            return;
+        }
+        if (cb->findText(val) < 0) {
+            cb->addItem(val);
+        }
+        cb->setCurrentText(val);
+    };
+    auto applyFsDefaultEdit = [&fsDefaults](QLineEdit* ed, const QString& key) {
+        const QString val = fsDefaults.value(key.toLower()).trimmed();
+        if (!val.isEmpty()) {
+            ed->setText(val);
+        }
+    };
+    applyFsDefaultCombo(canmountCb, QStringLiteral("canmount"));
+    applyFsDefaultEdit(dsMountpointEd, QStringLiteral("mountpoint"));
+    applyFsDefaultCombo(relatimeCb, QStringLiteral("relatime"));
+    applyFsDefaultCombo(compressionCb, QStringLiteral("compression"));
+    applyFsDefaultCombo(normalizationCb, QStringLiteral("normalization"));
+    applyFsDefaultCombo(acltypeCb, QStringLiteral("acltype"));
+    applyFsDefaultCombo(xattrCb, QStringLiteral("xattr"));
+    applyFsDefaultCombo(dnodesizeCb, QStringLiteral("dnodesize"));
+    {
+        QStringList others;
+        for (const QString& item : zdefs.fsProps.split(',', Qt::SkipEmptyParts)) {
+            const QString t = item.trimmed();
+            if (t.isEmpty()) {
+                continue;
+            }
+            const int eq = t.indexOf('=');
+            if (eq <= 0) {
+                others << t;
+                continue;
+            }
+            const QString key = t.left(eq).trimmed().toLower();
+            if (key == QStringLiteral("canmount")
+                || key == QStringLiteral("mountpoint")
+                || key == QStringLiteral("relatime")
+                || key == QStringLiteral("compression")
+                || key == QStringLiteral("normalization")
+                || key == QStringLiteral("acltype")
+                || key == QStringLiteral("xattr")
+                || key == QStringLiteral("dnodesize")) {
+                continue;
+            }
+            others << t;
+        }
+        fsPropsEd->setText(others.join(QStringLiteral(",")));
+    }
+
     form->addRow(trk(QStringLiteral("t_poolcrt_auto004"), QStringLiteral("Nombre"), QStringLiteral("Name"), QStringLiteral("名称")), poolNameEd);
-    form->addRow(trk(QStringLiteral("t_poolcrt_auto005"), QStringLiteral("Tipo rápido (si no hay spec vdev)"),
+    form->addRow(trk(QStringLiteral("t_poolcrt_auto005"), QStringLiteral("Tipo rápido"),
                      QStringLiteral("Quick type (if no vdev spec)"),
                      QStringLiteral("快速类型（若无 vdev 规格）")),
                  quickLayoutCb);
@@ -710,16 +807,59 @@ void MainWindow::createPoolForSelectedConnection() {
     flagsRow->addWidget(dryRunCb);
     flagsRow->addStretch(1);
     form->addRow(trk(QStringLiteral("t_poolcrt_auto006"), QStringLiteral("Flags"), QStringLiteral("Flags"), QStringLiteral("标志")), flagsRow);
-    form->addRow(QStringLiteral("mountpoint (-m)"), mountpointEd);
-    form->addRow(QStringLiteral("altroot (-R)"), altrootEd);
-    form->addRow(QStringLiteral("ashift (-o ashift=)"), ashiftCb);
-    form->addRow(QStringLiteral("autotrim (-o autotrim=)"), autotrimCb);
-    form->addRow(QStringLiteral("autoexpand (-o autoexpand=)"), autoexpandCb);
-    form->addRow(QStringLiteral("compatibility (-o compatibility=)"), compatibilityCb);
-    form->addRow(QStringLiteral("bootfs (-o bootfs=)"), bootfsEd);
-    form->addRow(QStringLiteral("-o (coma: k=v,k=v)"), poolOptsEd);
-    form->addRow(QStringLiteral("-O (coma: k=v,k=v)"), fsPropsEd);
+    auto* poolCoreGrid = new QGridLayout();
+    poolCoreGrid->setContentsMargins(0, 0, 0, 0);
+    poolCoreGrid->setHorizontalSpacing(6);
+    poolCoreGrid->setVerticalSpacing(3);
+    poolCoreGrid->addWidget(new QLabel(QStringLiteral("mountpoint"), baseBox), 0, 0);
+    poolCoreGrid->addWidget(mountpointEd, 0, 1);
+    poolCoreGrid->addWidget(new QLabel(QStringLiteral("altroot"), baseBox), 0, 2);
+    poolCoreGrid->addWidget(altrootEd, 0, 3);
+    poolCoreGrid->addWidget(new QLabel(QStringLiteral("ashift"), baseBox), 1, 0);
+    poolCoreGrid->addWidget(ashiftCb, 1, 1);
+    poolCoreGrid->addWidget(new QLabel(QStringLiteral("autotrim"), baseBox), 1, 2);
+    poolCoreGrid->addWidget(autotrimCb, 1, 3);
+    poolCoreGrid->addWidget(new QLabel(QStringLiteral("autoexpand"), baseBox), 2, 0);
+    poolCoreGrid->addWidget(autoexpandCb, 2, 1);
+    poolCoreGrid->addWidget(new QLabel(QStringLiteral("compatibility"), baseBox), 2, 2);
+    poolCoreGrid->addWidget(compatibilityCb, 2, 3);
+    poolCoreGrid->addWidget(new QLabel(QStringLiteral("bootfs"), baseBox), 3, 0);
+    poolCoreGrid->addWidget(bootfsEd, 3, 1, 1, 3);
+    form->addRow(QStringLiteral("-o"), poolCoreGrid);
+    form->addRow(QStringLiteral("otros -o"), poolOptsEd);
+
+    auto* fsGrid = new QGridLayout();
+    fsGrid->setContentsMargins(0, 0, 0, 0);
+    fsGrid->setHorizontalSpacing(6);
+    fsGrid->setVerticalSpacing(3);
+    fsGrid->addWidget(new QLabel(QStringLiteral("canmount"), baseBox), 0, 0);
+    fsGrid->addWidget(canmountCb, 0, 1);
+    fsGrid->addWidget(new QLabel(QStringLiteral("mountpoint"), baseBox), 0, 2);
+    fsGrid->addWidget(dsMountpointEd, 0, 3);
+    fsGrid->addWidget(new QLabel(QStringLiteral("relatime"), baseBox), 1, 0);
+    fsGrid->addWidget(relatimeCb, 1, 1);
+    fsGrid->addWidget(new QLabel(QStringLiteral("compression"), baseBox), 1, 2);
+    fsGrid->addWidget(compressionCb, 1, 3);
+    fsGrid->addWidget(new QLabel(QStringLiteral("normalization"), baseBox), 2, 0);
+    fsGrid->addWidget(normalizationCb, 2, 1);
+    fsGrid->addWidget(new QLabel(QStringLiteral("acltype"), baseBox), 2, 2);
+    fsGrid->addWidget(acltypeCb, 2, 3);
+    fsGrid->addWidget(new QLabel(QStringLiteral("xattr"), baseBox), 3, 0);
+    fsGrid->addWidget(xattrCb, 3, 1);
+    fsGrid->addWidget(new QLabel(QStringLiteral("dnodesize"), baseBox), 3, 2);
+    fsGrid->addWidget(dnodesizeCb, 3, 3);
+    form->addRow(QStringLiteral("-O"), fsGrid);
+    fsPropsEd->setPlaceholderText(QStringLiteral("otros -O: k=v,k=v"));
+    form->addRow(QStringLiteral("otros -O"), fsPropsEd);
     form->addRow(QStringLiteral("extra args"), extraEd);
+    if (baseBox->layout()) {
+        baseBox->layout()->activate();
+    }
+    const QSize fixedBaseSize = baseBox->sizeHint();
+    baseBox->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    baseBox->setFixedSize(fixedBaseSize);
+    leftPane->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    leftPane->setFixedWidth(fixedBaseSize.width());
     leftLay->addWidget(baseBox, 0);
 
     auto* vdevBox =
@@ -774,13 +914,15 @@ void MainWindow::createPoolForSelectedConnection() {
             QStringLiteral("One line per group or use '|' in one line.\nExample:\nraidz2 /dev/sda /dev/sdb /dev/sdc /dev/sdd /dev/sde /dev/sdf\nraidz2 /dev/sdg /dev/sdh /dev/sdi /dev/sdj /dev/sdk /dev/sdl\nspecial mirror /dev/nvme0n1 /dev/nvme1n1\nlog mirror /dev/nvme2n1 /dev/nvme3n1\ncache /dev/nvme4n1\ndedup mirror /dev/nvme5n1 /dev/nvme6n1\nspare /dev/sdm"),
             QStringLiteral("每行一个组，或在一行里用“|”。\n示例：\nraidz2 /dev/sda /dev/sdb /dev/sdc /dev/sdd /dev/sde /dev/sdf\nraidz2 /dev/sdg /dev/sdh /dev/sdi /dev/sdj /dev/sdk /dev/sdl\nspecial mirror /dev/nvme0n1 /dev/nvme1n1\nlog mirror /dev/nvme2n1 /dev/nvme3n1\ncache /dev/nvme4n1\ndedup mirror /dev/nvme5n1 /dev/nvme6n1\nspare /dev/sdm")));
     vdevLay->addWidget(vdevSpecEdit, 1);
+    vdevBox->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    vdevBox->setFixedWidth(fixedBaseSize.width());
     leftLay->addWidget(vdevBox, 1);
 
     auto* devicesBox = new QGroupBox(
         trk(QStringLiteral("t_poolcrt_auto015"), QStringLiteral("Block devices disponibles"),
             QStringLiteral("Available block devices"),
             QStringLiteral("可用块设备")),
-        leftPane);
+        rightPane);
     auto* devicesLayout = new QVBoxLayout(devicesBox);
     QTableWidget* devicesTable = new QTableWidget(devicesBox);
     devicesTable->setColumnCount(6);
@@ -956,8 +1098,9 @@ void MainWindow::createPoolForSelectedConnection() {
     }
     devicesTable->resizeRowsToContents();
     devicesLayout->addWidget(devicesTable, 1);
-    body->addWidget(leftPane, 1);
-    body->addWidget(devicesBox, 1);
+    rightLay->addWidget(devicesBox, 1);
+    body->addWidget(leftPane, 0);
+    body->addWidget(rightPane, 1);
     lay->addLayout(body, 1);
 
     auto checkedDevices = [devicesTable]() -> QStringList {
@@ -1034,6 +1177,10 @@ void MainWindow::createPoolForSelectedConnection() {
     connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
     connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     lay->addWidget(bb);
+    if (dlg.layout()) {
+        dlg.layout()->activate();
+    }
+    dlg.setMinimumHeight(dlg.sizeHint().height());
 
     busyGuard.release();
     if (dlg.exec() != QDialog::Accepted) {
@@ -1080,9 +1227,35 @@ void MainWindow::createPoolForSelectedConnection() {
             parts << QStringLiteral("-o") << shSingleQuote(t);
         }
     }
+    auto addFsProp = [&parts](const QString& key, const QString& value) {
+        if (!value.trimmed().isEmpty()) {
+            parts << QStringLiteral("-O") << shSingleQuote(key + QStringLiteral("=") + value.trimmed());
+        }
+    };
+    addFsProp(QStringLiteral("canmount"), canmountCb->currentText());
+    addFsProp(QStringLiteral("mountpoint"), dsMountpointEd->text());
+    addFsProp(QStringLiteral("relatime"), relatimeCb->currentText());
+    addFsProp(QStringLiteral("compression"), compressionCb->currentText());
+    addFsProp(QStringLiteral("normalization"), normalizationCb->currentText());
+    addFsProp(QStringLiteral("acltype"), acltypeCb->currentText());
+    addFsProp(QStringLiteral("xattr"), xattrCb->currentText());
+    addFsProp(QStringLiteral("dnodesize"), dnodesizeCb->currentText());
+
+    const QSet<QString> explicitFsKeys = {
+        QStringLiteral("canmount"), QStringLiteral("mountpoint"), QStringLiteral("relatime"),
+        QStringLiteral("compression"), QStringLiteral("normalization"), QStringLiteral("acltype"),
+        QStringLiteral("xattr"), QStringLiteral("dnodesize")
+    };
     for (const QString& item : fsPropsEd->text().split(',', Qt::SkipEmptyParts)) {
         const QString t = item.trimmed();
         if (!t.isEmpty()) {
+            const int eq = t.indexOf('=');
+            if (eq > 0) {
+                const QString k = t.left(eq).trimmed().toLower();
+                if (explicitFsKeys.contains(k)) {
+                    continue;
+                }
+            }
             parts << QStringLiteral("-O") << shSingleQuote(t);
         }
     }

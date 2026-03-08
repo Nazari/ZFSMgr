@@ -498,12 +498,8 @@ void MainWindow::updateConnectionDetailTitlesForCurrentSelection() {
         }
     }
 
-    if (m_connPropsGroup) {
-        m_connPropsGroup->setTitle(propsTitle);
-    }
-    if (m_connBottomGroup) {
-        m_connBottomGroup->setTitle(bottomTitle);
-    }
+    Q_UNUSED(propsTitle);
+    Q_UNUSED(bottomTitle);
     if (m_poolViewTabBar) {
         QString tab0 = trk(QStringLiteral("t_pool_props001"),
                            QStringLiteral("Propiedades"),

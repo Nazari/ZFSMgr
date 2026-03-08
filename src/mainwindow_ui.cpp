@@ -360,6 +360,19 @@ void MainWindow::buildUi() {
                           QStringLiteral("应用日志")));
     });
 
+    QAction* cfgFilesHelpAct = helpMenu->addAction(
+        trk(QStringLiteral("t_help_cfg_001"),
+            QStringLiteral("Configuración y archivos INI"),
+            QStringLiteral("Configuration and INI files"),
+            QStringLiteral("配置与 INI 文件")));
+    connect(cfgFilesHelpAct, &QAction::triggered, this, [this]() {
+        openHelpTopic(QStringLiteral("configuracion_archivos"),
+                      trk(QStringLiteral("t_help_cfg_001"),
+                          QStringLiteral("Configuración y archivos INI"),
+                          QStringLiteral("Configuration and INI files"),
+                          QStringLiteral("配置与 INI 文件")));
+    });
+
     QAction* aboutAct = helpMenu->addAction(
         trk(QStringLiteral("t_about_001"),
             QStringLiteral("Acerca de"),
@@ -1096,12 +1109,10 @@ void MainWindow::buildUi() {
     m_poolViewTabBar->setCurrentIndex(0);
     m_poolViewTabBar->setVisible(false);
     poolDetailLayout->addWidget(m_poolViewTabBar, 0);
-    m_connPropsGroup = new QGroupBox(trk(QStringLiteral("t_pool_props001"),
-                                         QStringLiteral("Propiedades"),
-                                         QStringLiteral("Properties"),
-                                         QStringLiteral("属性")),
-                                     m_poolDetailTabs);
+    m_connPropsGroup = new QWidget(m_poolDetailTabs);
     auto* propsPoolLayout = new QVBoxLayout(m_connPropsGroup);
+    propsPoolLayout->setContentsMargins(0, 0, 0, 0);
+    propsPoolLayout->setSpacing(4);
     m_connPropsStack = new QStackedWidget(m_connPropsGroup);
     m_connPoolPropsPage = new QWidget(m_connPropsStack);
     auto* poolPropsPageLayout = new QVBoxLayout(m_connPoolPropsPage);
@@ -1128,7 +1139,6 @@ void MainWindow::buildUi() {
     m_poolPropsTable->verticalHeader()->setVisible(false);
     m_poolPropsTable->verticalHeader()->setDefaultSectionSize(22);
     enableSortableHeader(m_poolPropsTable);
-    poolPropsPageLayout->addWidget(m_poolPropsTable, 1);
     auto* connPropBtns = new QHBoxLayout();
     connPropBtns->setContentsMargins(0, 0, 0, 0);
     connPropBtns->setSpacing(6);
@@ -1157,8 +1167,6 @@ void MainWindow::buildUi() {
     connPropBtns->addWidget(m_connPropsEditBtn, 0);
     connPropBtns->addWidget(m_connPropsDeleteBtn, 0);
     connPropBtns->addStretch(1);
-    poolPropsPageLayout->addLayout(connPropBtns);
-
     auto* poolPropBtns = new QHBoxLayout();
     poolPropBtns->setContentsMargins(0, 0, 0, 0);
     poolPropBtns->setSpacing(6);
@@ -1194,6 +1202,8 @@ void MainWindow::buildUi() {
     poolPropBtns->addWidget(m_poolStatusDestroyBtn, 0);
     poolPropBtns->addStretch(1);
     poolPropsPageLayout->addLayout(poolPropBtns);
+    poolPropsPageLayout->addLayout(connPropBtns);
+    poolPropsPageLayout->addWidget(m_poolPropsTable, 1);
     m_connPropsStack->addWidget(m_connPoolPropsPage);
 
     m_connContentPage = new QWidget(m_connPropsStack);
@@ -1241,7 +1251,6 @@ void MainWindow::buildUi() {
         m_connContentTree->setStyle(fusion);
     }
 #endif
-    connContentLayout->addWidget(m_connContentTree, 1);
     auto* connContentActions = new QGridLayout();
     connContentActions->setContentsMargins(0, 0, 0, 0);
     connContentActions->setHorizontalSpacing(6);
@@ -1291,16 +1300,15 @@ void MainWindow::buildUi() {
     connContentActions->addWidget(m_btnConnFromDir, 0, 7);
     connContentActions->addWidget(m_btnConnToDir, 0, 8);
     connContentLayout->addLayout(connContentActions);
+    connContentLayout->addWidget(m_connContentTree, 1);
     m_connPropsStack->addWidget(m_connContentPage);
     m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
     propsPoolLayout->addWidget(m_connPropsStack, 1);
 
-    m_connBottomGroup = new QGroupBox(trk(QStringLiteral("t_status_col_001"),
-                                          QStringLiteral("Estado"),
-                                          QStringLiteral("Status"),
-                                          QStringLiteral("状态")),
-                                      m_poolDetailTabs);
+    m_connBottomGroup = new QWidget(m_poolDetailTabs);
     auto* statusPoolLayout = new QVBoxLayout(m_connBottomGroup);
+    statusPoolLayout->setContentsMargins(0, 0, 0, 0);
+    statusPoolLayout->setSpacing(4);
     m_connBottomStack = new QStackedWidget(m_connBottomGroup);
     m_connStatusPage = new QWidget(m_connBottomStack);
     auto* statusPageLayout = new QVBoxLayout(m_connStatusPage);
@@ -1348,7 +1356,6 @@ void MainWindow::buildUi() {
     m_connContentPropsTable->verticalHeader()->setVisible(false);
     m_connContentPropsTable->verticalHeader()->setDefaultSectionSize(22);
     enableSortableHeader(m_connContentPropsTable);
-    connDsPropsLayout->addWidget(m_connContentPropsTable, 1);
     m_btnApplyConnContentProps = new QPushButton(
         trk(QStringLiteral("t_apply_changes_001"),
             QStringLiteral("Aplicar cambios"),
@@ -1357,17 +1364,18 @@ void MainWindow::buildUi() {
         m_connDatasetPropsPage);
     m_btnApplyConnContentProps->setEnabled(false);
     connDsPropsLayout->addWidget(m_btnApplyConnContentProps, 0, Qt::AlignLeft);
+    connDsPropsLayout->addWidget(m_connContentPropsTable, 1);
     m_connBottomStack->addWidget(m_connDatasetPropsPage);
     m_connBottomStack->setCurrentWidget(m_connStatusPage);
     statusPoolLayout->addWidget(m_connBottomStack, 1);
-    auto* connDetailSplit = new QSplitter(Qt::Vertical, rightConnectionsPage);
-    connDetailSplit->setChildrenCollapsible(false);
-    connDetailSplit->setHandleWidth(1);
-    connDetailSplit->addWidget(m_connPropsGroup);
-    connDetailSplit->addWidget(m_connBottomGroup);
-    connDetailSplit->setStretchFactor(0, 55);
-    connDetailSplit->setStretchFactor(1, 45);
-    poolDetailLayout->addWidget(connDetailSplit, 1);
+    m_connDetailSplit = new QSplitter(Qt::Vertical, rightConnectionsPage);
+    m_connDetailSplit->setChildrenCollapsible(false);
+    m_connDetailSplit->setHandleWidth(1);
+    m_connDetailSplit->addWidget(m_connPropsGroup);
+    m_connDetailSplit->addWidget(m_connBottomGroup);
+    m_connDetailSplit->setStretchFactor(0, 55);
+    m_connDetailSplit->setStretchFactor(1, 45);
+    poolDetailLayout->addWidget(m_connDetailSplit, 1);
     rightConnectionsLayout->setSpacing(0);
     rightConnectionsLayout->addWidget(m_poolDetailTabs, 1);
 
@@ -1750,9 +1758,20 @@ void MainWindow::buildUi() {
             });
     m_connectionsList->setContextMenuPolicy(Qt::NoContextMenu);
     if (m_poolViewTabBar) {
+        m_connSplitSizesProps = m_connDetailSplit ? m_connDetailSplit->sizes() : QList<int>{};
+        m_connSplitSizesContent = m_connSplitSizesProps;
+        m_connSplitActiveTab = m_poolViewTabBar->currentIndex();
         connect(m_poolViewTabBar, &QTabBar::currentChanged, this, [this](int idx) {
             if (!m_connPropsStack || !m_connBottomStack) {
                 return;
+            }
+            if (m_connDetailSplit) {
+                const QList<int> cur = m_connDetailSplit->sizes();
+                if (m_connSplitActiveTab == 0) {
+                    m_connSplitSizesProps = cur;
+                } else {
+                    m_connSplitSizesContent = cur;
+                }
             }
             if (idx == 1) {
                 if (m_connContentPage) m_connPropsStack->setCurrentWidget(m_connContentPage);
@@ -1761,6 +1780,13 @@ void MainWindow::buildUi() {
                 if (m_connPoolPropsPage) m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
                 if (m_connStatusPage) m_connBottomStack->setCurrentWidget(m_connStatusPage);
             }
+            if (m_connDetailSplit) {
+                const QList<int> next = (idx == 1) ? m_connSplitSizesContent : m_connSplitSizesProps;
+                if (!next.isEmpty()) {
+                    m_connDetailSplit->setSizes(next);
+                }
+            }
+            m_connSplitActiveTab = idx;
         });
     }
     if (m_connContentTree) {

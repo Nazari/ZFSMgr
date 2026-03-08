@@ -9,6 +9,7 @@
 #include <QIcon>
 #include <QMessageBox>
 #include <QSettings>
+#include <QDir>
 
 namespace {
 QString trk(const QString& lang,
@@ -47,7 +48,14 @@ int main(int argc, char* argv[]) {
         }
     }
     store.setLanguage(language);
-    bool firstRunCreateIni = !QFileInfo::exists(store.iniPath());
+    store.ensureAppDefaults();
+    bool firstRunCreateIni = false;
+    {
+        const bool hasConfig = QFileInfo::exists(store.iniPath());
+        const QDir cfgDir(store.configDir());
+        const bool hasConn = !cfgDir.entryList({QStringLiteral("conn*.ini")}, QDir::Files).isEmpty();
+        firstRunCreateIni = !hasConfig && !hasConn;
+    }
     while (true) {
         MasterPasswordDialog dlg;
         dlg.setSelectedLanguage(language);
@@ -66,6 +74,18 @@ int main(int argc, char* argv[]) {
                                 QStringLiteral("No se pudo borrar config.ini."),
                                 QStringLiteral("Could not delete config.ini."),
                                 QStringLiteral("无法删除 config.ini。"));
+            }
+            const QDir cfgDir(store.configDir());
+            const QStringList connFiles = cfgDir.entryList({QStringLiteral("conn*.ini")}, QDir::Files);
+            for (const QString& f : connFiles) {
+                const QString p = cfgDir.filePath(f);
+                if (!QFile::remove(p) && removeErr.isEmpty()) {
+                    removeErr = trk(language,
+                                    QStringLiteral("t_reset_ini_err_conn"),
+                                    QStringLiteral("No se pudo borrar %1.").arg(f),
+                                    QStringLiteral("Could not delete %1.").arg(f),
+                                    QStringLiteral("无法删除 %1。").arg(f));
+                }
             }
             if (!removeErr.isEmpty()) {
                 QMessageBox::warning(nullptr, QStringLiteral("ZFSMgr"), removeErr);
@@ -86,6 +106,7 @@ int main(int argc, char* argv[]) {
             ini.endGroup();
             ini.sync();
         }
+        store.ensureAppDefaults();
         if (dlg.changePasswordRequested()) {
             QString err;
             store.setMasterPassword(dlg.changeOldPassword());

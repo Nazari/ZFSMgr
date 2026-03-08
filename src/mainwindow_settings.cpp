@@ -15,15 +15,19 @@ QString MainWindow::trk(const QString& key, const QString& es, const QString& en
 
 void MainWindow::loadUiSettings() {
     QSettings ini(m_store.iniPath(), QSettings::IniFormat);
+    // Legacy support: [ui]language (migrated to [app]language)
     ini.beginGroup(QStringLiteral("ui"));
     const QString langUi = ini.value(QStringLiteral("language"), QString()).toString().trimmed().toLower();
     ini.endGroup();
     ini.beginGroup(QStringLiteral("app"));
-    const QString lang = ini.value(QStringLiteral("language"), m_language).toString().trimmed().toLower();
+    QString lang = ini.value(QStringLiteral("language"), QString()).toString().trimmed().toLower();
+    if (lang.isEmpty() && !langUi.isEmpty()) {
+        // One-time migration path from legacy key.
+        lang = langUi;
+        ini.setValue(QStringLiteral("language"), lang);
+    }
     if (!lang.isEmpty()) {
         m_language = lang;
-    } else if (!langUi.isEmpty()) {
-        m_language = langUi;
     }
     m_actionConfirmEnabled = ini.value(QStringLiteral("confirm_actions"), true).toBool();
     m_logMaxSizeMb = ini.value(QStringLiteral("log_max_mb"), 10).toInt();
@@ -60,8 +64,9 @@ void MainWindow::saveUiSettings() const {
     }
     ini.setValue(QStringLiteral("log_max_lines"), lines);
     ini.endGroup();
+    // Remove legacy duplicated key.
     ini.beginGroup(QStringLiteral("ui"));
-    ini.setValue(QStringLiteral("language"), m_language);
+    ini.remove(QStringLiteral("language"));
     ini.endGroup();
     ini.sync();
 }
