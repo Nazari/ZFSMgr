@@ -24,8 +24,22 @@ void MainWindow::actionCopySnapshot() {
     if (!src.valid || !dst.valid || src.snapshotName.isEmpty() || dst.datasetName.isEmpty()) {
         return;
     }
-    const ConnectionProfile& sp = m_profiles[src.connIdx];
-    const ConnectionProfile& dp = m_profiles[dst.connIdx];
+    ConnectionProfile sp = m_profiles[src.connIdx];
+    ConnectionProfile dp = m_profiles[dst.connIdx];
+    if (isLocalConnection(sp) && !isWindowsConnection(sp)) {
+        sp.useSudo = true;
+        if (!ensureLocalSudoCredentials(sp)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Copiar cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
+    if (isLocalConnection(dp) && !isWindowsConnection(dp)) {
+        dp.useSudo = true;
+        if (!ensureLocalSudoCredentials(dp)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Copiar cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
     const bool sameConnection = (src.connIdx == dst.connIdx);
     const QString srcSnap = src.datasetName + QStringLiteral("@") + src.snapshotName;
     const QString srcLeaf = src.datasetName.section('/', -1);
@@ -166,8 +180,22 @@ void MainWindow::actionLevelSnapshot() {
         return;
     }
 
-    const ConnectionProfile& sp = m_profiles[src.connIdx];
-    const ConnectionProfile& dp = m_profiles[dst.connIdx];
+    ConnectionProfile sp = m_profiles[src.connIdx];
+    ConnectionProfile dp = m_profiles[dst.connIdx];
+    if (isLocalConnection(sp) && !isWindowsConnection(sp)) {
+        sp.useSudo = true;
+        if (!ensureLocalSudoCredentials(sp)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Nivelar cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
+    if (isLocalConnection(dp) && !isWindowsConnection(dp)) {
+        dp.useSudo = true;
+        if (!ensureLocalSudoCredentials(dp)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Nivelar cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
     const bool sameConnection = (src.connIdx == dst.connIdx);
     const QString fromSnap = src.datasetName + QStringLiteral("@") + dstLatestSnap;
     const QString srcSnap = src.datasetName + QStringLiteral("@") + targetSnapName;

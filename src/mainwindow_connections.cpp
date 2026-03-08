@@ -1,23 +1,33 @@
 #include "mainwindow.h"
 
-#include <QAction>
 #include <QComboBox>
 #include <QGroupBox>
-#include <QMenu>
 #include <QMetaObject>
 #include <QMessageBox>
-#include <QPoint>
+#include <QPlainTextEdit>
+#include <QGroupBox>
 #include <QPushButton>
 #include <QSet>
 #include <QSysInfo>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QStackedWidget>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 
 #include <QtConcurrent/QtConcurrent>
 
 namespace {
+constexpr int RoleNodeType = Qt::UserRole + 1;
+constexpr int RoleConnName = Qt::UserRole + 2;
+constexpr int RolePoolName = Qt::UserRole + 3;
+constexpr int RolePoolAction = Qt::UserRole + 4;
+constexpr int RolePoolState = Qt::UserRole + 5;
+constexpr int RolePoolImported = Qt::UserRole + 6;
+
+constexpr int NodeConnection = 1;
+constexpr int NodePool = 2;
+
 QString normalizeHostToken(QString host) {
     host = host.trimmed().toLower();
     if (host.startsWith('[') && host.endsWith(']') && host.size() > 2) {
@@ -229,6 +239,10 @@ void MainWindow::onAsyncRefreshDone(int generation) {
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Refresco paralelo finalizado"));
     m_refreshInProgress = false;
     updateBusyCursor();
+    if (m_busyOnImportRefresh) {
+        m_busyOnImportRefresh = false;
+        endUiBusy();
+    }
     updateStatus(trk(QStringLiteral("t_status_refresh_end"),
                      QStringLiteral("Estado: refresco finalizado"),
                      QStringLiteral("Status: refresh finished"),
@@ -236,155 +250,307 @@ void MainWindow::onAsyncRefreshDone(int generation) {
 }
 
 void MainWindow::onConnectionSelectionChanged() {
-    const auto selected = m_connectionsList->selectedItems();
-    if (!selected.isEmpty()) {
-        QTreeWidgetItem* selItem = selected.first();
-        while (selItem && selItem->parent()) {
-            selItem = selItem->parent();
-        }
-        if (selItem && m_connectionsList->currentItem() != selItem) {
-            m_connectionsList->setCurrentItem(selItem);
-        }
-    }
-    if (m_leftTabs->currentIndex() == 0 && !m_syncingConnectionFromPoolSelection) {
+    if (!m_syncingConnectionFromPoolSelection) {
         populateAllPoolsTables();
     }
+    refreshConnectionNodeDetails();
     updatePoolManagementBoxTitle();
 }
 
-void MainWindow::onPoolsSelectionChanged() {
-    const int idx = selectedConnectionIndexForPoolManagement();
-    if (idx >= 0 && idx < m_profiles.size() && m_connectionsList) {
-        m_syncingConnectionFromPoolSelection = true;
-        for (int i = 0; i < m_connectionsList->topLevelItemCount(); ++i) {
-            QTreeWidgetItem* top = m_connectionsList->topLevelItem(i);
-            if (!top) {
+void MainWindow::refreshConnectionNodeDetails() {
+    auto setConnectionActionButtonsVisible = [this](bool visible) {
+        if (m_connPropsRefreshBtn) {
+            m_connPropsRefreshBtn->setVisible(visible);
+        }
+        if (m_connPropsEditBtn) {
+            m_connPropsEditBtn->setVisible(visible);
+        }
+        if (m_connPropsDeleteBtn) {
+            m_connPropsDeleteBtn->setVisible(visible);
+        }
+    };
+    auto setPoolActionButtonsVisible = [this](bool visible) {
+        if (m_poolStatusRefreshBtn) {
+            m_poolStatusRefreshBtn->setVisible(visible);
+        }
+        if (m_poolStatusImportBtn) {
+            m_poolStatusImportBtn->setVisible(visible);
+        }
+        if (m_poolStatusExportBtn) {
+            m_poolStatusExportBtn->setVisible(visible);
+        }
+        if (m_poolStatusScrubBtn) {
+            m_poolStatusScrubBtn->setVisible(visible);
+        }
+        if (m_poolStatusDestroyBtn) {
+            m_poolStatusDestroyBtn->setVisible(visible);
+        }
+    };
+
+    auto resetPoolActionButtons = [this]() {
+        if (m_poolStatusImportBtn) {
+            m_poolStatusImportBtn->setEnabled(false);
+        }
+        if (m_poolStatusRefreshBtn) {
+            m_poolStatusRefreshBtn->setProperty("zfsmgr_can_refresh", false);
+            m_poolStatusRefreshBtn->setEnabled(false);
+        }
+        if (m_poolStatusExportBtn) {
+            m_poolStatusExportBtn->setEnabled(false);
+        }
+        if (m_poolStatusScrubBtn) {
+            m_poolStatusScrubBtn->setEnabled(false);
+        }
+        if (m_poolStatusDestroyBtn) {
+            m_poolStatusDestroyBtn->setEnabled(false);
+        }
+        if (m_connPropsRefreshBtn) {
+            m_connPropsRefreshBtn->setProperty("zfsmgr_can_conn_action", false);
+            m_connPropsRefreshBtn->setEnabled(false);
+        }
+        if (m_connPropsEditBtn) {
+            m_connPropsEditBtn->setProperty("zfsmgr_can_conn_action", false);
+            m_connPropsEditBtn->setEnabled(false);
+        }
+        if (m_connPropsDeleteBtn) {
+            m_connPropsDeleteBtn->setProperty("zfsmgr_can_conn_action", false);
+            m_connPropsDeleteBtn->setEnabled(false);
+        }
+    };
+
+    const auto selected = m_connectionsList ? m_connectionsList->selectedItems() : QList<QTreeWidgetItem*>{};
+    if (selected.isEmpty()) {
+        if (m_poolViewTabBar) {
+            m_poolViewTabBar->setVisible(false);
+            m_poolViewTabBar->setCurrentIndex(0);
+        }
+        setConnectionActionButtonsVisible(false);
+        setPoolActionButtonsVisible(false);
+        if (m_connPropsStack && m_connPoolPropsPage) {
+            m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
+        }
+        if (m_connBottomStack && m_connStatusPage) {
+            m_connBottomStack->setCurrentWidget(m_connStatusPage);
+        }
+        if (m_poolPropsTable) {
+            setTablePopulationMode(m_poolPropsTable, true);
+            m_poolPropsTable->setRowCount(0);
+            setTablePopulationMode(m_poolPropsTable, false);
+        }
+        if (m_poolStatusText) {
+            m_poolStatusText->clear();
+        }
+        resetPoolActionButtons();
+        if (m_connContentTree) {
+            m_connContentTree->clear();
+        }
+        if (m_connContentPropsTable) {
+            setTablePopulationMode(m_connContentPropsTable, true);
+            m_connContentPropsTable->setRowCount(0);
+            setTablePopulationMode(m_connContentPropsTable, false);
+        }
+        updateConnectionActionsState();
+        updateConnectionDetailTitlesForCurrentSelection();
+        return;
+    }
+
+    auto* item = selected.first();
+    const int nodeType = item->data(0, RoleNodeType).toInt();
+    setConnectionActionButtonsVisible(nodeType == NodeConnection);
+    setPoolActionButtonsVisible(nodeType == NodePool);
+    if (m_poolViewTabBar) {
+        m_poolViewTabBar->setVisible(nodeType == NodePool);
+        if (nodeType != NodePool) {
+            m_poolViewTabBar->setCurrentIndex(0);
+        }
+    }
+    if (nodeType != NodePool) {
+        if (m_connPropsStack && m_connPoolPropsPage) {
+            m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
+        }
+        if (m_connBottomStack && m_connStatusPage) {
+            m_connBottomStack->setCurrentWidget(m_connStatusPage);
+        }
+        QTreeWidgetItem* top = item;
+        while (top && top->parent()) {
+            top = top->parent();
+        }
+        const int connIdx = top ? top->data(0, Qt::UserRole).toInt() : -1;
+        if (connIdx >= 0 && connIdx < m_profiles.size() && connIdx < m_states.size()) {
+            const ConnectionProfile& p = m_profiles[connIdx];
+            const ConnectionRuntimeState& st = m_states[connIdx];
+
+            if (m_poolPropsTable) {
+                setTablePopulationMode(m_poolPropsTable, true);
+                m_poolPropsTable->setRowCount(0);
+                auto addProp = [this](const QString& k, const QString& v, const QString& src) {
+                    const int r = m_poolPropsTable->rowCount();
+                    m_poolPropsTable->insertRow(r);
+                    m_poolPropsTable->setItem(r, 0, new QTableWidgetItem(k));
+                    m_poolPropsTable->setItem(r, 1, new QTableWidgetItem(v));
+                    m_poolPropsTable->setItem(r, 2, new QTableWidgetItem(src));
+                };
+                const QString srcIni = QStringLiteral("config.ini");
+                addProp(QStringLiteral("id"), p.id, srcIni);
+                addProp(QStringLiteral("name"), p.name, srcIni);
+                addProp(QStringLiteral("host"), p.host, srcIni);
+                addProp(QStringLiteral("port"), QString::number(p.port), srcIni);
+                addProp(QStringLiteral("username"), p.username, srcIni);
+                addProp(QStringLiteral("password"), p.password.isEmpty() ? QString() : QStringLiteral("[secret]"), srcIni);
+                addProp(QStringLiteral("keyPath"), p.keyPath, srcIni);
+                addProp(QStringLiteral("connType"), p.connType, srcIni);
+                addProp(QStringLiteral("osType"), p.osType, srcIni);
+                addProp(QStringLiteral("useSudo"), p.useSudo ? QStringLiteral("true") : QStringLiteral("false"), srcIni);
+                setTablePopulationMode(m_poolPropsTable, false);
+            }
+
+            if (m_poolStatusText) {
+                QStringList lines;
+                lines << QStringLiteral("Estado: %1").arg(st.status.trimmed().isEmpty() ? QStringLiteral("-") : st.status.trimmed());
+                lines << QStringLiteral("Detalle: %1").arg(st.detail.trimmed().isEmpty() ? QStringLiteral("-") : st.detail.trimmed());
+                lines << QStringLiteral("Sistema operativo: %1").arg(st.osLine.trimmed().isEmpty() ? QStringLiteral("-") : st.osLine.trimmed());
+                lines << QStringLiteral("Método de conexión: %1").arg(st.connectionMethod.trimmed().isEmpty() ? p.connType : st.connectionMethod.trimmed());
+                lines << QStringLiteral("OpenZFS: %1").arg(st.zfsVersionFull.trimmed().isEmpty()
+                                                               ? (st.zfsVersion.trimmed().isEmpty() ? QStringLiteral("-")
+                                                                                                    : QStringLiteral("OpenZFS %1").arg(st.zfsVersion.trimmed()))
+                                                               : st.zfsVersionFull.trimmed());
+                QStringList detected = st.detectedUnixCommands;
+                QStringList missing = st.missingUnixCommands;
+                if (detected.isEmpty() && missing.isEmpty() && !st.powershellFallbackCommands.isEmpty()) {
+                    detected = st.powershellFallbackCommands;
+                }
+                lines << QStringLiteral("Comandos detectados: %1")
+                             .arg(detected.isEmpty() ? QStringLiteral("(ninguno)") : detected.join(QStringLiteral(", ")));
+                lines << QStringLiteral("Comandos no detectados: %1")
+                             .arg(missing.isEmpty() ? QStringLiteral("(ninguno)") : missing.join(QStringLiteral(", ")));
+                m_poolStatusText->setPlainText(lines.join(QStringLiteral("\n")));
+            }
+            resetPoolActionButtons();
+            if (m_connPropsRefreshBtn) {
+                m_connPropsRefreshBtn->setProperty("zfsmgr_can_conn_action", true);
+                m_connPropsRefreshBtn->setEnabled(!actionsLocked());
+            }
+            if (m_connPropsEditBtn) {
+                m_connPropsEditBtn->setProperty("zfsmgr_can_conn_action", true);
+                m_connPropsEditBtn->setEnabled(!actionsLocked());
+            }
+            if (m_connPropsDeleteBtn) {
+                m_connPropsDeleteBtn->setProperty("zfsmgr_can_conn_action", true);
+                m_connPropsDeleteBtn->setEnabled(!actionsLocked());
+            }
+        }
+        updateConnectionActionsState();
+        updateConnectionDetailTitlesForCurrentSelection();
+        return;
+    }
+
+    const QString connName = item->data(0, RoleConnName).toString().trimmed();
+    const QString poolName = item->data(0, RolePoolName).toString().trimmed();
+    if (!connName.isEmpty() && !poolName.isEmpty() && m_importedPoolsTable) {
+        for (int row = 0; row < m_importedPoolsTable->rowCount(); ++row) {
+            const QTableWidgetItem* c = m_importedPoolsTable->item(row, 0);
+            const QTableWidgetItem* p = m_importedPoolsTable->item(row, 1);
+            if (!c || !p) {
                 continue;
             }
-            if (top->data(0, Qt::UserRole).toInt() == idx) {
-                m_connectionsList->setCurrentItem(top);
+            if (c->text().trimmed().compare(connName, Qt::CaseInsensitive) == 0
+                && p->text().trimmed().compare(poolName, Qt::CaseInsensitive) == 0) {
+                m_syncingConnectionFromPoolSelection = true;
+                m_importedPoolsTable->setCurrentCell(row, 0);
+                m_syncingConnectionFromPoolSelection = false;
                 break;
             }
         }
-        m_syncingConnectionFromPoolSelection = false;
+    }
+
+    if (m_connPropsStack && m_connPoolPropsPage) {
+        m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
+    }
+    if (m_connBottomStack && m_connStatusPage) {
+        m_connBottomStack->setCurrentWidget(m_connStatusPage);
+    }
+    resetPoolActionButtons();
+    refreshSelectedPoolDetails();
+    int connIdx = findConnectionIndexByName(connName);
+    if (connIdx >= 0 && connIdx < m_profiles.size() && m_connContentTree) {
+        m_connContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+        populateDatasetTree(m_connContentTree, connIdx, poolName, QStringLiteral("conncontent"));
+        refreshDatasetProperties(QStringLiteral("conncontent"));
+    }
+    if (m_poolViewTabBar) {
+        const int idx = m_poolViewTabBar->currentIndex();
+        if (idx == 1) {
+            if (m_connPropsStack && m_connContentPage) m_connPropsStack->setCurrentWidget(m_connContentPage);
+            if (m_connBottomStack && m_connDatasetPropsPage) m_connBottomStack->setCurrentWidget(m_connDatasetPropsPage);
+        }
+    }
+    updateConnectionActionsState();
+    updateConnectionDetailTitlesForCurrentSelection();
+}
+
+void MainWindow::updateConnectionDetailTitlesForCurrentSelection() {
+    QString propsTitle = trk(QStringLiteral("t_pool_props001"),
+                             QStringLiteral("Propiedades"),
+                             QStringLiteral("Properties"),
+                             QStringLiteral("属性"));
+    QString bottomTitle = trk(QStringLiteral("t_status_col_001"),
+                              QStringLiteral("Estado"),
+                              QStringLiteral("Status"),
+                              QStringLiteral("状态"));
+
+    const auto selected = m_connectionsList ? m_connectionsList->selectedItems() : QList<QTreeWidgetItem*>{};
+    if (!selected.isEmpty()) {
+        QTreeWidgetItem* item = selected.first();
+        const int nodeType = item->data(0, RoleNodeType).toInt();
+        if (nodeType == NodeConnection) {
+            QTreeWidgetItem* top = item;
+            while (top && top->parent()) {
+                top = top->parent();
+            }
+            const QString connName = top ? m_profiles.value(top->data(0, Qt::UserRole).toInt()).name : QString();
+            propsTitle = QStringLiteral("Propiedades de la conexión %1").arg(connName.isEmpty() ? QStringLiteral("-") : connName);
+            bottomTitle = QStringLiteral("Estado de la conexión %1").arg(connName.isEmpty() ? QStringLiteral("-") : connName);
+        } else if (nodeType == NodePool) {
+            const QString poolName = item->data(0, RolePoolName).toString().trimmed();
+            propsTitle = QStringLiteral("Propiedades del Pool %1").arg(poolName.isEmpty() ? QStringLiteral("-") : poolName);
+            bottomTitle = QStringLiteral("Estado del Pool %1").arg(poolName.isEmpty() ? QStringLiteral("-") : poolName);
+        }
+    }
+
+    if (m_connPropsGroup) {
+        m_connPropsGroup->setTitle(propsTitle);
+    }
+    if (m_connBottomGroup) {
+        m_connBottomGroup->setTitle(bottomTitle);
+    }
+    if (m_poolViewTabBar) {
+        QString tab0 = trk(QStringLiteral("t_pool_props001"),
+                           QStringLiteral("Propiedades"),
+                           QStringLiteral("Properties"),
+                           QStringLiteral("属性"));
+        QString tab1 = trk(QStringLiteral("t_content_node_001"),
+                           QStringLiteral("Contenido"),
+                           QStringLiteral("Content"),
+                           QStringLiteral("内容"));
+        if (!selected.isEmpty() && selected.first()->data(0, RoleNodeType).toInt() == NodePool) {
+            const QString poolName = selected.first()->data(0, RolePoolName).toString().trimmed();
+            const QString shown = poolName.isEmpty() ? QStringLiteral("-") : poolName;
+            tab0 = QStringLiteral("Propiedades %1").arg(shown);
+            tab1 = QStringLiteral("Contenido %1").arg(shown);
+        }
+        m_poolViewTabBar->setTabText(0, tab0);
+        m_poolViewTabBar->setTabText(1, tab1);
+    }
+}
+
+void MainWindow::onPoolsSelectionChanged() {
+    if (m_syncingConnectionFromPoolSelection) {
+        refreshSelectedPoolDetails();
+        updatePoolManagementBoxTitle();
+        return;
     }
     refreshSelectedPoolDetails();
     updatePoolManagementBoxTitle();
-}
-
-void MainWindow::onPoolsListContextMenuRequested(const QPoint& pos) {
-    if (actionsLocked() || !m_importedPoolsTable) {
-        return;
-    }
-
-    QModelIndex idx = m_importedPoolsTable->indexAt(pos);
-    if (idx.isValid()) {
-        m_importedPoolsTable->setCurrentCell(idx.row(), idx.column());
-        onPoolsSelectionChanged();
-    }
-    const auto sel = m_importedPoolsTable->selectedItems();
-    const bool hasSel = !sel.isEmpty();
-    const int selRow = hasSel ? sel.first()->row() : -1;
-
-    QMenu menu(this);
-    QAction* newAct = menu.addAction(
-        trk(QStringLiteral("t_new_pool_lbl001"), QStringLiteral("Nuevo pool"), QStringLiteral("New pool"), QStringLiteral("新建池")));
-    menu.addSeparator();
-    QAction* refreshAct = menu.addAction(
-        trk(QStringLiteral("t_refresh_btn001"), QStringLiteral("Actualizar"), QStringLiteral("Refresh"), QStringLiteral("刷新")));
-    QAction* importAct = menu.addAction(
-        trk(QStringLiteral("t_import_btn001"), QStringLiteral("Importar"), QStringLiteral("Import"), QStringLiteral("导入")));
-    QAction* exportAct = menu.addAction(
-        trk(QStringLiteral("t_export_btn001"), QStringLiteral("Exportar"), QStringLiteral("Export"), QStringLiteral("导出")));
-    QAction* scrubAct = menu.addAction(QStringLiteral("Scrub"));
-    QAction* destroyAct = menu.addAction(QStringLiteral("Destroy"));
-
-    newAct->setEnabled(!actionsLocked() && selectedConnectionIndexForPoolManagement() >= 0);
-    refreshAct->setEnabled(hasSel && m_poolStatusRefreshBtn && m_poolStatusRefreshBtn->isEnabled());
-    importAct->setEnabled(hasSel && m_poolStatusImportBtn && m_poolStatusImportBtn->isEnabled());
-    exportAct->setEnabled(hasSel && m_poolStatusExportBtn && m_poolStatusExportBtn->isEnabled());
-    scrubAct->setEnabled(hasSel && m_poolStatusScrubBtn && m_poolStatusScrubBtn->isEnabled());
-    destroyAct->setEnabled(hasSel && m_poolStatusDestroyBtn && m_poolStatusDestroyBtn->isEnabled());
-
-    QAction* picked = menu.exec(m_importedPoolsTable->viewport()->mapToGlobal(pos));
-    if (!picked) {
-        return;
-    }
-    if (picked == newAct) {
-        logUiAction(QStringLiteral("Nuevo pool (menú pools)"));
-        createPoolForSelectedConnection();
-        return;
-    }
-    if (!hasSel || selRow < 0) {
-        return;
-    }
-    if (picked == refreshAct) {
-        logUiAction(QStringLiteral("Actualizar estado de pool (menú pools)"));
-        refreshSelectedPoolDetails();
-    } else if (picked == importAct) {
-        logUiAction(QStringLiteral("Importar pool (menú pools)"));
-        importPoolFromRow(selRow);
-    } else if (picked == exportAct) {
-        logUiAction(QStringLiteral("Exportar pool (menú pools)"));
-        exportPoolFromRow(selRow);
-    } else if (picked == scrubAct) {
-        logUiAction(QStringLiteral("Scrub pool (menú pools)"));
-        scrubPoolFromRow(selRow);
-    } else if (picked == destroyAct) {
-        logUiAction(QStringLiteral("Destroy pool (menú pools)"));
-        destroyPoolFromRow(selRow);
-    }
-}
-
-void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
-    if (actionsLocked()) {
-        return;
-    }
-    QTreeWidgetItem* item = m_connectionsList->itemAt(pos);
-    if (item) {
-        while (item->parent()) {
-            item = item->parent();
-        }
-        m_connectionsList->setCurrentItem(item);
-    }
-    const bool hasSel = (m_connectionsList->currentItem() != nullptr);
-
-    QMenu menu(this);
-    QAction* newAct = menu.addAction(
-        trk(QStringLiteral("t_new_btn_001"), QStringLiteral("Nueva"), QStringLiteral("New"), QStringLiteral("新建")));
-    QAction* refreshAllAct = menu.addAction(
-        trk(QStringLiteral("t_refrescar__7f8af2"), QStringLiteral("Refrescar todo"), QStringLiteral("Refresh all"), QStringLiteral("全部刷新")));
-    menu.addSeparator();
-    QAction* refreshAct = menu.addAction(
-        trk(QStringLiteral("t_refresh_menu_01"), QStringLiteral("Refrescar"), QStringLiteral("Refresh"), QStringLiteral("刷新")));
-    QAction* editAct = menu.addAction(
-        trk(QStringLiteral("t_edit_menu_001"), QStringLiteral("Editar"), QStringLiteral("Edit"), QStringLiteral("编辑")));
-    QAction* deleteAct = menu.addAction(
-        trk(QStringLiteral("t_delete_menu01"), QStringLiteral("Borrar"), QStringLiteral("Delete"), QStringLiteral("删除")));
-    refreshAct->setEnabled(hasSel);
-    editAct->setEnabled(hasSel);
-    deleteAct->setEnabled(hasSel);
-
-    QAction* picked = menu.exec(m_connectionsList->viewport()->mapToGlobal(pos));
-    if (!picked) {
-        return;
-    }
-    if (picked == newAct) {
-        logUiAction(QStringLiteral("Nueva conexión (menú)"));
-        createConnection();
-    } else if (picked == refreshAllAct) {
-        logUiAction(QStringLiteral("Refrescar todo (menú)"));
-        refreshAllConnections();
-    } else if (picked == refreshAct) {
-        logUiAction(QStringLiteral("Refrescar conexión (menú)"));
-        refreshSelectedConnection();
-    } else if (picked == editAct) {
-        logUiAction(QStringLiteral("Editar conexión (menú)"));
-        editConnection();
-    } else if (picked == deleteAct) {
-        logUiAction(QStringLiteral("Borrar conexión (menú)"));
-        deleteConnection();
-    }
 }
 
 int MainWindow::selectedConnectionIndexForPoolManagement() const {
@@ -499,12 +665,14 @@ void MainWindow::rebuildConnectionList() {
     m_connectionsList->clear();
     QStringList redirectedToLocalNames;
     for (int i = 0; i < m_profiles.size(); ++i) {
-        const auto& p = m_profiles[i];
-        if (isLocalConnection(p)) {
+        if (i >= m_states.size()) {
+            continue;
+        }
+        if (isLocalConnection(i)) {
             continue;
         }
         if (isConnectionRedirectedToLocal(i)) {
-            redirectedToLocalNames << p.name;
+            redirectedToLocalNames << m_profiles[i].name;
         }
     }
     for (int i = 0; i < m_profiles.size(); ++i) {
@@ -516,7 +684,7 @@ void MainWindow::rebuildConnectionList() {
         if (zfsTxt.isEmpty()) {
             zfsTxt = QStringLiteral("?");
         }
-        QString statusTag;
+        QString statusTag = QStringLiteral("[Ko]");
         QColor rowColor("#14212b");
         const QString st = s.status.trimmed().toUpper();
         const bool localConn = isLocalConnection(p);
@@ -528,34 +696,26 @@ void MainWindow::rebuildConnectionList() {
             m_localMachineUuid = s.machineUuid.trimmed();
         }
         if (st == QStringLiteral("OK")) {
-            statusTag = QStringLiteral("[OK]");
+            statusTag = QStringLiteral("[Ok]");
             rowColor = s.missingUnixCommands.isEmpty() ? QColor("#1f7a1f") : QColor("#c77900");
         } else if (!st.isEmpty()) {
-            statusTag = QStringLiteral("[KO]");
+            statusTag = QStringLiteral("[Ko]");
             rowColor = QColor("#a12a2a");
         }
-        QString line;
+        QString connLabel = line1;
         if (localConn) {
-            if (!redirectedToLocalNames.isEmpty()) {
-                line = trk(QStringLiteral("t_local_redirect_01"),
-                           QStringLiteral("Local [OK (%1)]"),
-                           QStringLiteral("Local [OK (%1)]"),
-                           QStringLiteral("本地 [OK（%1）]"))
-                           .arg(redirectedToLocalNames.join(QStringLiteral(", ")));
-                statusTag.clear();
-            } else {
-                line = QStringLiteral("Local");
-            }
-        } else {
-            line = line1;
+            connLabel = redirectedToLocalNames.isEmpty() ? QStringLiteral("Local")
+                                                         : redirectedToLocalNames.first();
         }
-        if (!statusTag.isEmpty()) {
-            line += QStringLiteral(" %1").arg(statusTag);
+        QString line = QStringLiteral("%1 %2").arg(statusTag, connLabel);
+        if (localConn) {
+            line += QStringLiteral(" [Local]");
         }
 
         auto* item = new QTreeWidgetItem(m_connectionsList);
         item->setText(0, line);
         item->setData(0, Qt::UserRole, i);
+        item->setData(0, RoleNodeType, NodeConnection);
         item->setForeground(0, QBrush(rowColor));
         item->setToolTip(0, QStringLiteral("Host: %1\nPort: %2\nEstado: %3\nDetalle: %4")
                                 .arg(p.host)
@@ -564,82 +724,68 @@ void MainWindow::rebuildConnectionList() {
                                 .arg(s.detail));
         item->setExpanded(false);
 
-        const QString osLine = !s.osLine.trimmed().isEmpty()
-                                   ? s.osLine.trimmed()
-                                   : QStringLiteral("%1").arg(p.osType);
-        auto* osChild = new QTreeWidgetItem(item);
-        osChild->setText(0, trk(QStringLiteral("t_os_line_conn01"),
-                                QStringLiteral("Sistema operativo: %1"),
-                                QStringLiteral("Operating system: %1"),
-                                QStringLiteral("操作系统：%1")).arg(osLine));
-        osChild->setData(0, Qt::UserRole, i);
-
-        const QString method = !s.connectionMethod.trimmed().isEmpty() ? s.connectionMethod.trimmed() : p.connType;
-        auto* methodChild = new QTreeWidgetItem(item);
-        methodChild->setText(0, trk(QStringLiteral("t_conn_method01"),
-                                    QStringLiteral("Método de conexión: %1"),
-                                    QStringLiteral("Connection method: %1"),
-                                    QStringLiteral("连接方式：%1")).arg(method));
-        methodChild->setData(0, Qt::UserRole, i);
-
-        const QString zfsFull = !s.zfsVersionFull.trimmed().isEmpty() ? s.zfsVersionFull.trimmed()
-                                                                       : (zfsTxt == QStringLiteral("?") ? QStringLiteral("-")
-                                                                                                        : QStringLiteral("OpenZFS %1").arg(zfsTxt));
-        auto* zfsChild = new QTreeWidgetItem(item);
-        zfsChild->setText(0, trk(QStringLiteral("t_openzfs_line01"),
-                                 QStringLiteral("OpenZFS: %1"),
-                                 QStringLiteral("OpenZFS: %1"),
-                                 QStringLiteral("OpenZFS：%1")).arg(zfsFull));
-        zfsChild->setData(0, Qt::UserRole, i);
-
-        auto* commandsNode = new QTreeWidgetItem(item);
-        QString commandsTitle = trk(QStringLiteral("t_cmds_detect01"),
-                                    QStringLiteral("Comandos detectados"),
-                                    QStringLiteral("Detected commands"),
-                                    QStringLiteral("检测到的命令"));
-        if (isWindowsConnection(p)) {
-            QString layer = s.commandsLayer.trimmed();
-            if (layer.isEmpty()) {
-                layer = QStringLiteral("Powershell");
+        auto addPoolNode = [&](const QString& poolName,
+                               const QString& stateTxt,
+                               const QString& importedTxt,
+                               const QString& actionTxt,
+                               const QString& reasonTxt) -> QTreeWidgetItem* {
+            const QString importedUp = importedTxt.trimmed().toUpper();
+            const QString emptyTxt = trk(QStringLiteral("t_none_000001"),
+                                         QStringLiteral("(ninguno)"),
+                                         QStringLiteral("(none)"),
+                                         QStringLiteral("（无）"));
+            const QString reasonShown = reasonTxt.trimmed().isEmpty() ? emptyTxt : reasonTxt.trimmed();
+            QString text;
+            QColor poolColor("#a12a2a");
+            if (importedUp == QStringLiteral("SÍ") || importedUp == QStringLiteral("SI")
+                || importedUp == QStringLiteral("YES")) {
+                text = QStringLiteral("%1 [Importado]").arg(poolName);
+                poolColor = QColor("#1f7a1f");
+            } else if (!actionTxt.trimmed().isEmpty()) {
+                text = QStringLiteral("%1 [No Importado]").arg(poolName);
+                poolColor = QColor("#c77900");
+            } else {
+                text = QStringLiteral("%1 [No Importable - %2]").arg(poolName, reasonShown);
+                poolColor = QColor("#a12a2a");
             }
-            commandsTitle += QStringLiteral(" [%1]").arg(layer);
-        }
-        commandsNode->setText(0, commandsTitle);
-        commandsNode->setData(0, Qt::UserRole, i);
-        QStringList detected = s.detectedUnixCommands;
-        QStringList missing = s.missingUnixCommands;
-        if (detected.isEmpty() && missing.isEmpty() && !s.powershellFallbackCommands.isEmpty()) {
-            detected = s.powershellFallbackCommands;
-        }
-        if (detected.isEmpty()) {
-            detected << trk(QStringLiteral("t_none_000001"),
-                            QStringLiteral("(ninguno)"),
-                            QStringLiteral("(none)"),
-                            QStringLiteral("（无）"));
-        }
-        auto* detectedNode = new QTreeWidgetItem(commandsNode);
-        const QString detectedText = trk(QStringLiteral("t_detected_l001"),
-                                         QStringLiteral("Detectados: %1"),
-                                         QStringLiteral("Detected: %1"),
-                                         QStringLiteral("已检测：%1")).arg(detected.join(QStringLiteral(", ")));
-        detectedNode->setText(0, detectedText);
-        detectedNode->setForeground(0, QBrush(QColor("#1f7a1f")));
-        detectedNode->setToolTip(0, detectedText);
 
-        if (!missing.isEmpty()) {
-            auto* missingNode = new QTreeWidgetItem(commandsNode);
-            const QString missingText = trk(QStringLiteral("t_missing_l001"),
-                                            QStringLiteral("No detectados: %1"),
-                                            QStringLiteral("Missing: %1"),
-                                            QStringLiteral("未检测：%1")).arg(missing.join(QStringLiteral(", ")));
-            missingNode->setText(0, missingText);
-            missingNode->setForeground(0, QBrush(QColor("#a12a2a")));
-            missingNode->setToolTip(0, missingText);
+            auto* poolNode = new QTreeWidgetItem(item);
+            poolNode->setText(0, text);
+            poolNode->setData(0, Qt::UserRole, i);
+            poolNode->setData(0, RoleNodeType, NodePool);
+            poolNode->setData(0, RoleConnName, p.name);
+            poolNode->setData(0, RolePoolName, poolName);
+            poolNode->setData(0, RolePoolAction, actionTxt);
+            poolNode->setData(0, RolePoolState, stateTxt);
+            poolNode->setData(0, RolePoolImported, importedTxt);
+            poolNode->setToolTip(0, trk(QStringLiteral("t_conn_pool_tip1"),
+                                        QStringLiteral("Conexión: %1\nPool: %2\nEstado: %3\nImportado: %4\nAcción: %5\nMotivo: %6"),
+                                        QStringLiteral("Connection: %1\nPool: %2\nState: %3\nImported: %4\nAction: %5\nReason: %6"),
+                                        QStringLiteral("连接：%1\n池：%2\n状态：%3\n已导入：%4\n操作：%5\n原因：%6"))
+                                        .arg(p.name,
+                                             poolName,
+                                             stateTxt,
+                                             importedTxt,
+                                             actionTxt.isEmpty() ? emptyTxt : actionTxt,
+                                             reasonTxt.isEmpty() ? emptyTxt : reasonTxt));
+            poolNode->setForeground(0, QBrush(poolColor));
+            return poolNode;
+        };
+
+        for (const PoolImported& pool : s.importedPools) {
+            addPoolNode(pool.pool, QStringLiteral("ONLINE"), QStringLiteral("Sí"), QStringLiteral("Exportar"), QString());
         }
+        for (const PoolImportable& pool : s.importablePools) {
+            const QString stateUp = pool.state.trimmed().toUpper();
+            const QString action = (stateUp == QStringLiteral("ONLINE")) ? pool.action : QString();
+            addPoolNode(pool.pool, pool.state, QStringLiteral("No"), action, pool.reason);
+        }
+
     }
     m_connectionsList->collapseAll();
     syncConnectionLogTabs();
     endUiBusy();
+    refreshConnectionNodeDetails();
     updatePoolManagementBoxTitle();
 }
 
@@ -704,7 +850,6 @@ void MainWindow::createConnection() {
     ConnectionDialog dlg(m_language, this);
     ConnectionProfile p;
     p.connType = QStringLiteral("SSH");
-    p.transport = QStringLiteral("SSH");
     p.osType = QStringLiteral("Linux");
     p.port = 22;
     dlg.setProfile(p);
@@ -712,6 +857,19 @@ void MainWindow::createConnection() {
         return;
     }
     ConnectionProfile created = dlg.profile();
+    {
+        const QString newName = created.name.trimmed();
+        for (const ConnectionProfile& cp : m_profiles) {
+            if (cp.name.trimmed().compare(newName, Qt::CaseInsensitive) == 0) {
+                QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                                     trk(QStringLiteral("t_conn_name_unique_01"),
+                                         QStringLiteral("El nombre de conexión ya existe. Debe ser único."),
+                                         QStringLiteral("Connection name already exists. It must be unique."),
+                                         QStringLiteral("连接名称已存在，必须唯一。")));
+                return;
+            }
+        }
+    }
     QString createdId = created.id.trimmed();
     if (createdId.isEmpty()) {
         createdId = created.name.trimmed().toLower();
@@ -785,6 +943,22 @@ void MainWindow::editConnection() {
     }
     ConnectionProfile edited = dlg.profile();
     edited.id = m_profiles[idx].id;
+    {
+        const QString editedName = edited.name.trimmed();
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            if (i == idx) {
+                continue;
+            }
+            if (m_profiles[i].name.trimmed().compare(editedName, Qt::CaseInsensitive) == 0) {
+                QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                                     trk(QStringLiteral("t_conn_name_unique_01"),
+                                         QStringLiteral("El nombre de conexión ya existe. Debe ser único."),
+                                         QStringLiteral("Connection name already exists. It must be unique."),
+                                         QStringLiteral("连接名称已存在，必须唯一。")));
+                return;
+            }
+        }
+    }
     QString err;
     if (!m_store.upsertConnection(edited, err)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),

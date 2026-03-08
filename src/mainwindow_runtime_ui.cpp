@@ -88,10 +88,6 @@ void MainWindow::setActionsLocked(bool locked) {
     if (m_menuExitAction) {
         m_menuExitAction->setEnabled(!locked);
     }
-    if (m_logCancelBtn) {
-        m_logCancelBtn->setVisible(locked);
-        m_logCancelBtn->setEnabled(locked);
-    }
     if (m_btnNew) m_btnNew->setEnabled(!locked);
     if (m_btnRefreshAll) m_btnRefreshAll->setEnabled(!locked);
     if (m_btnPoolNew) m_btnPoolNew->setEnabled(!locked && selectedConnectionIndexForPoolManagement() >= 0);
@@ -105,6 +101,18 @@ void MainWindow::setActionsLocked(bool locked) {
     if (m_poolStatusDestroyBtn) m_poolStatusDestroyBtn->setEnabled(!locked && m_poolStatusDestroyBtn->isEnabled());
     if (m_btnApplyDatasetProps) m_btnApplyDatasetProps->setEnabled(!locked && m_btnApplyDatasetProps->isEnabled());
     if (m_btnApplyAdvancedProps) m_btnApplyAdvancedProps->setEnabled(!locked && m_btnApplyAdvancedProps->isEnabled());
+    if (m_connPropsRefreshBtn) {
+        const bool can = m_connPropsRefreshBtn->property("zfsmgr_can_conn_action").toBool();
+        m_connPropsRefreshBtn->setEnabled(!locked && can);
+    }
+    if (m_connPropsEditBtn) {
+        const bool can = m_connPropsEditBtn->property("zfsmgr_can_conn_action").toBool();
+        m_connPropsEditBtn->setEnabled(!locked && can);
+    }
+    if (m_connPropsDeleteBtn) {
+        const bool can = m_connPropsDeleteBtn->property("zfsmgr_can_conn_action").toBool();
+        m_connPropsDeleteBtn->setEnabled(!locked && can);
+    }
     if (locked) {
         if (m_btnCopy) m_btnCopy->setEnabled(false);
         if (m_btnLevel) m_btnLevel->setEnabled(false);
@@ -113,10 +121,15 @@ void MainWindow::setActionsLocked(bool locked) {
         if (m_btnAdvancedAssemble) m_btnAdvancedAssemble->setEnabled(false);
         if (m_btnAdvancedFromDir) m_btnAdvancedFromDir->setEnabled(false);
         if (m_btnAdvancedToDir) m_btnAdvancedToDir->setEnabled(false);
+        // Connection action buttons are managed by updateConnectionActionsState()
+        // to keep the active one as "Cancelar <acción>".
     } else {
+        m_activeConnActionBtn = nullptr;
+        m_activeConnActionName.clear();
         updateTransferButtonsState();
         updateApplyPropsButtonState();
         refreshSelectedPoolDetails();
         updatePoolManagementBoxTitle();
     }
+    updateConnectionActionsState();
 }

@@ -256,6 +256,9 @@ void MainWindow::syncConnectionLogTabs() {
         auto* lay = new QVBoxLayout(tab);
         auto* view = new QPlainTextEdit(tab);
         view->setReadOnly(true);
+        view->setLineWrapMode(QPlainTextEdit::NoWrap);
+        view->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        view->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
         mono.setPointSize(8);
         view->setFont(mono);

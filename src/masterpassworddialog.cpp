@@ -4,6 +4,7 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -14,7 +15,7 @@
 #include <QIcon>
 
 #ifndef ZFSMGR_APP_VERSION
-#define ZFSMGR_APP_VERSION "0.1.0"
+#define ZFSMGR_APP_VERSION "0.9.0"
 #endif
 
 namespace {
@@ -30,7 +31,7 @@ QString trk(const QString& lang,
 MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     : QDialog(parent) {
     setModal(true);
-    resize(560, 280);
+    resize(420, 340);
     setWindowIcon(QIcon(QStringLiteral(":/icons/ZFSMgr-512.png")));
 
     auto* root = new QVBoxLayout(this);
@@ -72,17 +73,26 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     m_authorLabel = new QLabel(this);
     root->addWidget(m_authorLabel);
 
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-    m_okButton = buttons->button(QDialogButtonBox::Ok);
-    m_cancelButton = buttons->button(QDialogButtonBox::Cancel);
+    m_okButton = new QPushButton(this);
+    m_cancelButton = new QPushButton(this);
     m_changePwdButton = new QPushButton(this);
     m_resetIniButton = new QPushButton(this);
-    buttons->addButton(m_changePwdButton, QDialogButtonBox::ActionRole);
-    buttons->addButton(m_resetIniButton, QDialogButtonBox::ActionRole);
-    root->addWidget(buttons);
 
-    connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    auto* actionsCol = new QVBoxLayout();
+    actionsCol->setSpacing(6);
+    actionsCol->addWidget(m_changePwdButton);
+    actionsCol->addWidget(m_resetIniButton);
+    root->addLayout(actionsCol);
+
+    auto* decisionRow = new QHBoxLayout();
+    decisionRow->setSpacing(8);
+    decisionRow->addStretch(1);
+    decisionRow->addWidget(m_cancelButton);
+    decisionRow->addWidget(m_okButton);
+    root->addLayout(decisionRow);
+
+    connect(m_okButton, &QPushButton::clicked, this, &QDialog::accept);
+    connect(m_cancelButton, &QPushButton::clicked, this, &QDialog::reject);
     connect(m_passwordEdit, &QLineEdit::returnPressed, this, &QDialog::accept);
     connect(m_passwordConfirmEdit, &QLineEdit::returnPressed, this, &QDialog::accept);
     connect(m_changePwdButton, &QPushButton::clicked, this, [this]() {
@@ -94,9 +104,9 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
             QStringLiteral("ZFSMgr"),
             trk(m_lang,
                 QStringLiteral("t_reset_ini_q_001"),
-                QStringLiteral("Esto borrará connections.ini y todas las conexiones guardadas.\n¿Desea continuar?"),
-                QStringLiteral("This will delete connections.ini and all saved connections.\nDo you want to continue?"),
-                QStringLiteral("这将删除 connections.ini 及所有已保存连接。\n是否继续？")),
+                QStringLiteral("Esto borrará config.ini y todas las conexiones guardadas.\n¿Desea continuar?"),
+                QStringLiteral("This will delete config.ini and all saved connections.\nDo you want to continue?"),
+                QStringLiteral("这将删除 config.ini 及所有已保存连接。\n是否继续？")),
             QMessageBox::Yes | QMessageBox::No,
             QMessageBox::No);
         if (ans != QMessageBox::Yes) {
@@ -111,6 +121,11 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     });
 
     retranslateUi();
+    if (layout()) {
+        layout()->activate();
+    }
+    const QSize lockedSize = sizeHint().expandedTo(QSize(420, 340));
+    setFixedSize(lockedSize);
     QTimer::singleShot(0, this, [this]() {
         m_passwordEdit->setFocus(Qt::OtherFocusReason);
         m_passwordEdit->selectAll();
@@ -252,18 +267,18 @@ void MasterPasswordDialog::retranslateUi() {
     if (m_changePwdButton) {
         m_changePwdButton->setText(trk(lang,
                                        QStringLiteral("t_cambiar_pa_52b0b6"),
-                                       QStringLiteral("Cambiar password maestro..."),
-                                       QStringLiteral("Change master password..."),
-                                       QStringLiteral("修改主密码...")));
+                                       QStringLiteral("Cambiar Password"),
+                                       QStringLiteral("Change Password"),
+                                       QStringLiteral("修改密码")));
         m_changePwdButton->setVisible(!m_firstRunCreationMode);
         m_changePwdButton->setEnabled(!m_firstRunCreationMode);
     }
     if (m_resetIniButton) {
         m_resetIniButton->setText(trk(lang,
                                       QStringLiteral("t_reset_ini_btn001"),
-                                      QStringLiteral("Borrar connections.ini y empezar"),
-                                      QStringLiteral("Delete connections.ini and restart"),
-                                      QStringLiteral("删除 connections.ini 并重建")));
+                                      QStringLiteral("Borrar Config"),
+                                      QStringLiteral("Delete Config"),
+                                      QStringLiteral("删除配置")));
         m_resetIniButton->setVisible(!m_firstRunCreationMode);
         m_resetIniButton->setEnabled(!m_firstRunCreationMode);
     }
@@ -271,9 +286,9 @@ void MasterPasswordDialog::retranslateUi() {
         if (m_firstRunCreationMode) {
             m_creationInfoLabel->setText(trk(lang,
                                              QStringLiteral("t_create_ini_001"),
-                                             QStringLiteral("No existe connections.ini. Se va a crear ahora.\nIntroduzca y confirme el password maestro."),
-                                             QStringLiteral("connections.ini does not exist. It will be created now.\nEnter and confirm the master password."),
-                                             QStringLiteral("connections.ini 不存在，将立即创建。\n请输入并确认主密码。")));
+                                             QStringLiteral("No existe config.ini. Se va a crear ahora.\nIntroduzca y confirme el password maestro."),
+                                             QStringLiteral("config.ini does not exist. It will be created now.\nEnter and confirm the master password."),
+                                             QStringLiteral("config.ini 不存在，将立即创建。\n请输入并确认主密码。")));
             m_creationInfoLabel->show();
         } else {
             m_creationInfoLabel->hide();
@@ -294,4 +309,9 @@ void MasterPasswordDialog::retranslateUi() {
                                             QStringLiteral("版本：%1"))
                                             .arg(appVersion)));
     }
+    if (layout()) {
+        layout()->activate();
+    }
+    const QSize lockedSize = sizeHint().expandedTo(QSize(420, 340));
+    setFixedSize(lockedSize);
 }

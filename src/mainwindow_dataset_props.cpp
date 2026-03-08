@@ -250,14 +250,25 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     } else if (side == QStringLiteral("dest")) {
         dataset = m_destSelectedDataset;
         snapshot = m_destSelectedSnapshot;
-    } else {
+    } else if (side == QStringLiteral("advanced")) {
         const auto selected = m_advTree ? m_advTree->selectedItems() : QList<QTreeWidgetItem*>{};
         if (!selected.isEmpty()) {
             dataset = selected.first()->data(0, Qt::UserRole).toString();
             snapshot = selected.first()->data(1, Qt::UserRole).toString();
         }
+    } else if (side == QStringLiteral("conncontent")) {
+        const auto selected = m_connContentTree ? m_connContentTree->selectedItems() : QList<QTreeWidgetItem*>{};
+        if (!selected.isEmpty()) {
+            dataset = selected.first()->data(0, Qt::UserRole).toString();
+            snapshot = selected.first()->data(1, Qt::UserRole).toString();
+        }
     }
-    QTableWidget* table = (side == QStringLiteral("advanced")) ? m_advPropsTable : m_datasetPropsTable;
+    QTableWidget* table = m_datasetPropsTable;
+    if (side == QStringLiteral("advanced")) {
+        table = m_advPropsTable;
+    } else if (side == QStringLiteral("conncontent")) {
+        table = m_connContentPropsTable;
+    }
     if (!table) {
         endUiBusy();
         return;
@@ -288,8 +299,10 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         token = m_originPoolCombo->currentData().toString();
     } else if (side == QStringLiteral("dest")) {
         token = m_destPoolCombo->currentData().toString();
-    } else {
+    } else if (side == QStringLiteral("advanced")) {
         token = m_advPoolCombo->currentData().toString();
+    } else if (side == QStringLiteral("conncontent")) {
+        token = m_connContentToken;
     }
     const int sep = token.indexOf(QStringLiteral("::"));
     if (sep <= 0) {
@@ -623,9 +636,16 @@ void MainWindow::onDatasetPropsCellChanged(int row, int col) {
     if (m_loadingPropsTable || (col != 1 && col != 2)) {
         return;
     }
-    QTableWidgetItem* pk = m_datasetPropsTable->item(row, 0);
-    QTableWidgetItem* pv = m_datasetPropsTable->item(row, 1);
-    QTableWidgetItem* pi = m_datasetPropsTable->item(row, 2);
+    QTableWidget* table = qobject_cast<QTableWidget*>(sender());
+    if (!table) {
+        table = (m_propsSide == QStringLiteral("conncontent")) ? m_connContentPropsTable : m_datasetPropsTable;
+    }
+    if (!table) {
+        return;
+    }
+    QTableWidgetItem* pk = table->item(row, 0);
+    QTableWidgetItem* pv = table->item(row, 1);
+    QTableWidgetItem* pi = table->item(row, 2);
     if (!pk || !pv || !pi) {
         return;
     }
@@ -633,10 +653,10 @@ void MainWindow::onDatasetPropsCellChanged(int row, int col) {
     Q_UNUSED(pv);
     Q_UNUSED(pi);
     m_propsDirty = false;
-    for (int r = 0; r < m_datasetPropsTable->rowCount(); ++r) {
-        QTableWidgetItem* rk = m_datasetPropsTable->item(r, 0);
-        QTableWidgetItem* rv = m_datasetPropsTable->item(r, 1);
-        QTableWidgetItem* ri = m_datasetPropsTable->item(r, 2);
+    for (int r = 0; r < table->rowCount(); ++r) {
+        QTableWidgetItem* rk = table->item(r, 0);
+        QTableWidgetItem* rv = table->item(r, 1);
+        QTableWidgetItem* ri = table->item(r, 2);
         if (!rk || !rv || !ri) {
             continue;
         }
@@ -692,6 +712,11 @@ void MainWindow::applyDatasetPropertyChanges() {
         return;
     }
 
+    QTableWidget* propsTable = (m_propsSide == QStringLiteral("conncontent")) ? m_connContentPropsTable : m_datasetPropsTable;
+    if (!propsTable) {
+        return;
+    }
+
     QStringList subcmds;
     struct PropChange {
         bool inherit{false};
@@ -703,9 +728,9 @@ void MainWindow::applyDatasetPropertyChanges() {
     QString renameOld = ctx.datasetName;
     QString renameNew = ctx.datasetName;
     QString targetDataset = ctx.datasetName;
-    for (int r = 0; r < m_datasetPropsTable->rowCount(); ++r) {
-        QTableWidgetItem* pk = m_datasetPropsTable->item(r, 0);
-        QTableWidgetItem* pv = m_datasetPropsTable->item(r, 1);
+    for (int r = 0; r < propsTable->rowCount(); ++r) {
+        QTableWidgetItem* pk = propsTable->item(r, 0);
+        QTableWidgetItem* pv = propsTable->item(r, 1);
         if (!pk || !pv) {
             continue;
         }
@@ -722,10 +747,10 @@ void MainWindow::applyDatasetPropertyChanges() {
         }
         break;
     }
-    for (int r = 0; r < m_datasetPropsTable->rowCount(); ++r) {
-        QTableWidgetItem* pk = m_datasetPropsTable->item(r, 0);
-        QTableWidgetItem* pv = m_datasetPropsTable->item(r, 1);
-        QTableWidgetItem* pi = m_datasetPropsTable->item(r, 2);
+    for (int r = 0; r < propsTable->rowCount(); ++r) {
+        QTableWidgetItem* pk = propsTable->item(r, 0);
+        QTableWidgetItem* pv = propsTable->item(r, 1);
+        QTableWidgetItem* pi = propsTable->item(r, 2);
         if (!pk || !pv || !pi) {
             continue;
         }
@@ -1125,8 +1150,15 @@ void MainWindow::updateApplyPropsButtonState() {
         }
         return false;
     };
-    const bool hasChanges = hasEffectiveChanges(m_datasetPropsTable, m_propsOriginalValues, m_propsOriginalInherit);
-    m_btnApplyDatasetProps->setEnabled(m_propsDirty && eligible && hasChanges);
+    QTableWidget* activePropsTable = (m_propsSide == QStringLiteral("conncontent")) ? m_connContentPropsTable : m_datasetPropsTable;
+    const bool hasChanges = hasEffectiveChanges(activePropsTable, m_propsOriginalValues, m_propsOriginalInherit);
+    const bool baseEnable = m_propsDirty && eligible && hasChanges;
+    if (m_btnApplyDatasetProps) {
+        m_btnApplyDatasetProps->setEnabled(baseEnable && m_propsSide != QStringLiteral("conncontent"));
+    }
+    if (m_btnApplyConnContentProps) {
+        m_btnApplyConnContentProps->setEnabled(baseEnable && m_propsSide == QStringLiteral("conncontent"));
+    }
     const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("advanced"));
     const bool aok = actx.valid && actx.snapshotName.isEmpty() && (actx.datasetName == m_advPropsDataset);
     if (m_btnApplyAdvancedProps) {

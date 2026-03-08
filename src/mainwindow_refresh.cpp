@@ -105,7 +105,9 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                QStringLiteral("%1: %2 (%3)")
                    .arg(p.name, state.connectionMethod, libzfsDetail));
     }
-    if (!localMode && p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
+    const bool sshMode = (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0);
+    const bool psrpMode = (p.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
+    if (!localMode && !sshMode && !psrpMode) {
         state.status = QStringLiteral("ERROR");
         state.detail = trk(QStringLiteral("t_tipo_de_co_e73161"),
                            QStringLiteral("Tipo de conexión no soportado aún en cppqt"),
@@ -203,7 +205,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
 
     out.clear();
     err.clear();
-    rc = -1;
     const QStringList zfsVersionCandidates = {
         QStringLiteral("zfs version"),
         QStringLiteral("zfs --version"),
@@ -377,7 +378,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         QStringLiteral("zpool import"),
         QStringLiteral("zpool import -s"),
     };
-    bool importablesFound = false;
     for (const QString& probe : importProbeArgs) {
         out.clear();
         err.clear();
@@ -399,7 +399,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     QStringLiteral("Importar"),
                 });
             }
-            importablesFound = true;
             break;
         }
         if (!err.isEmpty()) {

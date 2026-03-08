@@ -3,6 +3,7 @@
 #include "secretcipher.h"
 
 #include <QDir>
+#include <QFile>
 #include <QProcessEnvironment>
 #include <QSettings>
 #include <QSysInfo>
@@ -105,7 +106,15 @@ QString ConnectionStore::configDir() const {
 }
 
 QString ConnectionStore::iniPath() const {
-    return configDir() + "/connections.ini";
+    const QString dir = configDir();
+    const QString newPath = dir + "/config.ini";
+    const QString oldPath = dir + "/connections.ini";
+    if (!QFile::exists(newPath) && QFile::exists(oldPath)) {
+        if (!QFile::rename(oldPath, newPath)) {
+            QFile::copy(oldPath, newPath);
+        }
+    }
+    return newPath;
 }
 
 LoadResult ConnectionStore::loadConnections() const {
@@ -121,9 +130,9 @@ LoadResult ConnectionStore::loadConnections() const {
         ConnectionProfile p;
         p.id = ini.value("id", defaultIdFromGroup(group)).toString();
         p.name = ini.value("name").toString();
+        p.machineUid = ini.value("machine_uid").toString();
         p.connType = ini.value("conn_type").toString();
         p.osType = ini.value("os_type").toString();
-        p.transport = ini.value("transport").toString();
         p.host = ini.value("host").toString();
         p.port = ini.value("port", 22).toInt();
         p.username = ini.value("username").toString();
@@ -170,8 +179,7 @@ LoadResult ConnectionStore::loadConnections() const {
     bool hasLocal = false;
     for (const ConnectionProfile& p : result.profiles) {
         if (p.id.compare(QStringLiteral("local"), Qt::CaseInsensitive) == 0
-            || p.connType.compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0
-            || p.transport.compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0) {
+            || p.connType.compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0) {
             hasLocal = true;
             break;
         }
@@ -180,8 +188,8 @@ LoadResult ConnectionStore::loadConnections() const {
         ConnectionProfile local;
         local.id = QStringLiteral("local");
         local.name = QStringLiteral("Local");
+        local.machineUid = QString::fromLatin1(QSysInfo::machineUniqueId().toHex());
         local.connType = QStringLiteral("LOCAL");
-        local.transport = QStringLiteral("LOCAL");
         local.port = 0;
         local.host = QStringLiteral("localhost");
         const QString userEnv = QProcessEnvironment::systemEnvironment().value(QStringLiteral("USER"));
@@ -232,6 +240,29 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
         id.replace('/', '_');
     }
 
+    QSettings iniRead(iniPath(), QSettings::IniFormat);
+    const QStringList groups = iniRead.childGroups();
+    const QString targetName = profile.name.trimmed();
+    for (const QString& groupName : groups) {
+        if (!isConnectionGroupName(groupName)) {
+            continue;
+        }
+        iniRead.beginGroup(groupName);
+        const QString existingId = iniRead.value("id", defaultIdFromGroup(groupName)).toString().trimmed();
+        const QString existingName = iniRead.value("name").toString().trimmed();
+        iniRead.endGroup();
+        if (existingId.compare(id, Qt::CaseInsensitive) == 0) {
+            continue;
+        }
+        if (!existingName.isEmpty() && existingName.compare(targetName, Qt::CaseInsensitive) == 0) {
+            error = trk(QStringLiteral("t_conn_name_unique_01"),
+                        QStringLiteral("El nombre de conexión ya existe. Debe ser único."),
+                        QStringLiteral("Connection name already exists. It must be unique."),
+                        QStringLiteral("连接名称已存在，必须唯一。"));
+            return false;
+        }
+    }
+
     QSettings ini(iniPath(), QSettings::IniFormat);
     const QString group = QStringLiteral("connection:%1").arg(id);
     QString storedPassword = profile.password;
@@ -255,9 +286,9 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
     ini.beginGroup(group);
     ini.setValue("id", id);
     ini.setValue("name", profile.name.trimmed());
+    ini.setValue("machine_uid", profile.machineUid.trimmed());
     ini.setValue("conn_type", profile.connType.trimmed().isEmpty() ? QStringLiteral("SSH") : profile.connType.trimmed());
     ini.setValue("os_type", profile.osType.trimmed().isEmpty() ? QStringLiteral("Linux") : profile.osType.trimmed());
-    ini.setValue("transport", profile.transport.trimmed().isEmpty() ? QStringLiteral("SSH") : profile.transport.trimmed());
     ini.setValue("host", profile.host.trimmed());
     ini.setValue("port", profile.port > 0 ? profile.port : 22);
     ini.setValue("username", profile.username);

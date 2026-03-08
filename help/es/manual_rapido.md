@@ -2,11 +2,13 @@
 
 ZFSMgr gestiona conexiones y acciones ZFS.
 
-- Conexiones: cree/edite conexiones y refresque estado.
-- Datasets: acciones entre origen y destino (Copiar, Nivelar, Sincronizar).
-- Avanzado: acciones sobre un dataset (Desglosar, Ensamblar, Desde Dir, Hacia Dir).
-- Pools: importar/exportar, estado y propiedades.
-- Logs: detalle de ejecucion y estado de aplicacion.
+- Panel izquierdo:
+- `Conexiones`: arbol de conexiones y pools.
+- `Nuevo`: crear conexion o crear pool.
+- `Acciones`: operaciones de transferencia y avanzadas.
+- Panel derecho (al seleccionar un pool):
+- `Propiedades <pool>`: propiedades del pool (arriba) y estado del pool (abajo).
+- `Contenido <pool>`: contenido del dataset (arriba) y propiedades del dataset (abajo).
+- Logs: pestañas `Aplicacion` y `SSHs`.
 
 Revise "Atajos y estados" para criterios de habilitacion de botones.
-

@@ -1,14 +1,15 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
 
-#include <QAction>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QLineEdit>
-#include <QMenu>
 #include <QMessageBox>
+#include <QProcessEnvironment>
+#include <QSet>
+#include <QSysInfo>
 #include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -18,11 +19,56 @@ using mwhelpers::isMountedValueTrue;
 using mwhelpers::oneLine;
 using mwhelpers::parentDatasetName;
 using mwhelpers::shSingleQuote;
+
+QString normalizeHostTokenLocal(QString host) {
+    host = host.trimmed().toLower();
+    if (host.startsWith('[') && host.endsWith(']') && host.size() > 2) {
+        host = host.mid(1, host.size() - 2);
+    }
+    while (host.endsWith('.')) {
+        host.chop(1);
+    }
+    return host;
+}
+
+bool isLocalHostTokenLocal(const QString& host) {
+    const QString h = normalizeHostTokenLocal(host);
+    if (h.isEmpty()) {
+        return false;
+    }
+    if (h == QStringLiteral("localhost") || h == QStringLiteral("127.0.0.1") || h == QStringLiteral("::1")) {
+        return true;
+    }
+    static const QSet<QString> aliases = []() {
+        QSet<QString> s;
+        s.insert(QStringLiteral("localhost"));
+        s.insert(QStringLiteral("127.0.0.1"));
+        s.insert(QStringLiteral("::1"));
+        const QString local = normalizeHostTokenLocal(QSysInfo::machineHostName());
+        if (!local.isEmpty()) {
+            s.insert(local);
+            s.insert(local + QStringLiteral(".local"));
+            const int dot = local.indexOf('.');
+            if (dot > 0) {
+                const QString shortName = local.left(dot);
+                s.insert(shortName);
+                s.insert(shortName + QStringLiteral(".local"));
+            }
+        }
+        return s;
+    }();
+    return aliases.contains(h);
+}
 } // namespace
 
 bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
     if (!isLocalConnection(profile) || isWindowsConnection(profile) || !profile.useSudo) {
         return true;
+    }
+
+    QString localUid = m_localMachineUuid.trimmed();
+    if (localUid.isEmpty()) {
+        localUid = QString::fromLatin1(QSysInfo::machineUniqueId().toHex()).trimmed();
     }
 
     for (int i = 0; i < m_profiles.size(); ++i) {
@@ -43,6 +89,65 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
         appLog(QStringLiteral("INFO"),
                QStringLiteral("Credenciales sudo locales tomadas de conexión redirigida: %1").arg(candidate.name));
         return true;
+    }
+
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        const ConnectionProfile& candidate = m_profiles[i];
+        if (!isLocalConnection(candidate)) {
+            continue;
+        }
+        const QString candUid = candidate.machineUid.trimmed();
+        if (!localUid.isEmpty() && !candUid.isEmpty() && candUid.compare(localUid, Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+        if (candidate.username.trimmed().isEmpty() || candidate.password.isEmpty()) {
+            continue;
+        }
+        profile.username = candidate.username;
+        profile.password = candidate.password;
+        m_localSudoUsername = candidate.username;
+        m_localSudoPassword = candidate.password;
+        appLog(QStringLiteral("INFO"), QStringLiteral("Credenciales sudo locales tomadas de config.ini (Local)"));
+        return true;
+    }
+
+    bool hasConfiguredRedirect = false;
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        const ConnectionProfile& candidate = m_profiles[i];
+        if (isLocalConnection(candidate)) {
+            continue;
+        }
+        const bool byUid = !localUid.isEmpty() && !candidate.machineUid.trimmed().isEmpty()
+                           && candidate.machineUid.trimmed().compare(localUid, Qt::CaseInsensitive) == 0;
+        const bool byHost = isLocalHostTokenLocal(candidate.host);
+        if (!byUid && !byHost) {
+            continue;
+        }
+        hasConfiguredRedirect = true;
+        if (!candidate.username.trimmed().isEmpty() && !candidate.password.isEmpty()) {
+            profile.username = candidate.username;
+            profile.password = candidate.password;
+            m_localSudoUsername = candidate.username;
+            m_localSudoPassword = candidate.password;
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("Credenciales sudo locales tomadas de redirección configurada: %1").arg(candidate.name));
+            return true;
+        }
+    }
+
+    if (hasConfiguredRedirect) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_local_sudo_cfg1"),
+                QStringLiteral("Hay una conexión redirigida a Local en config.ini, pero no tiene usuario/password.\n"
+                               "Edite esa conexión o complete sus credenciales."),
+                QStringLiteral("There is a connection redirected to Local in config.ini, but it has no user/password.\n"
+                               "Edit that connection or complete its credentials."),
+                QStringLiteral("config.ini 中存在重定向到本机的连接，但缺少用户/密码。\n"
+                               "请编辑该连接并补全凭据。")));
+        appLog(QStringLiteral("WARN"), QStringLiteral("Credenciales sudo locales no disponibles: redirección configurada sin credenciales"));
+        return false;
     }
 
     if (!m_localSudoUsername.trimmed().isEmpty() && !m_localSudoPassword.isEmpty()) {
@@ -96,122 +201,59 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
     profile.username = m_localSudoUsername;
     profile.password = m_localSudoPassword;
     appLog(QStringLiteral("INFO"), QStringLiteral("Credenciales sudo locales guardadas en memoria"));
+
+    ConnectionProfile localCfg;
+    bool foundLocal = false;
+    for (const ConnectionProfile& p : m_profiles) {
+        if (!isLocalConnection(p)) {
+            continue;
+        }
+        localCfg = p;
+        foundLocal = true;
+        break;
+    }
+    if (!foundLocal) {
+        localCfg.id = QStringLiteral("local");
+        localCfg.name = QStringLiteral("Local");
+        localCfg.connType = QStringLiteral("LOCAL");
+        localCfg.osType = profile.osType.isEmpty() ? QStringLiteral("Linux") : profile.osType;
+        localCfg.host = QStringLiteral("localhost");
+        localCfg.port = 0;
+        localCfg.useSudo = true;
+    }
+    localCfg.machineUid = localUid;
+    localCfg.username = m_localSudoUsername;
+    localCfg.password = m_localSudoPassword;
+    if (!localCfg.useSudo) {
+        localCfg.useSudo = true;
+    }
+    QString storeErr;
+    if (!m_store.upsertConnection(localCfg, storeErr)) {
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("No se pudieron persistir credenciales sudo locales en config.ini: %1").arg(oneLine(storeErr)));
+    } else {
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("Credenciales sudo locales persistidas en config.ini para machine_uid=%1")
+                   .arg(localUid.isEmpty() ? QStringLiteral("-") : localUid));
+        bool updated = false;
+        for (ConnectionProfile& p : m_profiles) {
+            if (!isLocalConnection(p)) {
+                continue;
+            }
+            p.machineUid = localCfg.machineUid;
+            p.username = localCfg.username;
+            p.password = localCfg.password;
+            p.useSudo = localCfg.useSudo;
+            updated = true;
+            break;
+        }
+        if (!updated) {
+            m_profiles.push_front(localCfg);
+        }
+    }
     return true;
 }
 
-void MainWindow::showDatasetContextMenu(const QString& side, QTreeWidget* tree, const QPoint& pos) {
-    if (actionsLocked()) {
-        return;
-    }
-    QTreeWidgetItem* item = tree->itemAt(pos);
-    if (!item) {
-        return;
-    }
-    tree->setCurrentItem(item);
-    if (side == QStringLiteral("origin")) {
-        onOriginTreeSelectionChanged();
-    } else if (side == QStringLiteral("dest")) {
-        onDestTreeSelectionChanged();
-    } else {
-        refreshDatasetProperties(QStringLiteral("advanced"));
-        const QString ds = item->data(0, Qt::UserRole).toString();
-        const QString snap = item->data(1, Qt::UserRole).toString();
-        updateAdvancedSelectionUi(ds, snap);
-    }
-    const DatasetSelectionContext ctx = currentDatasetSelection(side);
-    if (!ctx.valid) {
-        return;
-    }
-
-    QMenu menu(this);
-    QAction* mountAct = menu.addAction(trk(QStringLiteral("t_mount_menu_001"), QStringLiteral("Montar"), QStringLiteral("Mount"), QStringLiteral("挂载")));
-    QAction* mountWithChildrenAct = menu.addAction(trk(QStringLiteral("t_mount_child001"), QStringLiteral("Montar con todos los hijos"),
-                                                       QStringLiteral("Mount with all children"),
-                                                       QStringLiteral("挂载并包含所有子项")));
-    QAction* umountAct = menu.addAction(trk(QStringLiteral("t_umount_menu001"), QStringLiteral("Desmontar"), QStringLiteral("Unmount"), QStringLiteral("卸载")));
-    QAction* rollbackAct = nullptr;
-    if (!ctx.snapshotName.isEmpty()) {
-        rollbackAct = menu.addAction(QStringLiteral("Rollback"));
-    }
-    menu.addSeparator();
-    QAction* createAct = menu.addAction(trk(QStringLiteral("t_create_ch_001"), QStringLiteral("Crear hijo"), QStringLiteral("Create child"), QStringLiteral("创建子项")));
-    QAction* deleteAllSnapsAct = menu.addAction(
-        trk(QStringLiteral("t_del_all_snaps1"),
-            QStringLiteral("Borrar todos los snapshots"),
-            QStringLiteral("Delete all snapshots"),
-            QStringLiteral("删除所有快照")));
-    QAction* deleteAct = menu.addAction(trk(QStringLiteral("t_delete_menu002"), QStringLiteral("Borrar"), QStringLiteral("Delete"), QStringLiteral("删除")));
-    const bool isWinConn = isWindowsConnection(ctx.connIdx);
-
-    if (!ctx.snapshotName.isEmpty()) {
-        mountAct->setEnabled(false);
-        mountWithChildrenAct->setEnabled(false);
-        umountAct->setEnabled(false);
-        createAct->setEnabled(false);
-        deleteAllSnapsAct->setEnabled(false);
-    } else {
-        bool knownMounted = false;
-        bool isMounted = false;
-        const QString key = datasetCacheKey(ctx.connIdx, ctx.poolName);
-        const auto cacheIt = m_poolDatasetCache.constFind(key);
-        if (cacheIt != m_poolDatasetCache.constEnd()) {
-            const auto recIt = cacheIt->recordByName.constFind(ctx.datasetName);
-            if (recIt != cacheIt->recordByName.constEnd()) {
-                const QString m = recIt->mounted.trimmed().toLower();
-                if (m == QStringLiteral("yes") || m == QStringLiteral("on") || m == QStringLiteral("true") || m == QStringLiteral("1")) {
-                    knownMounted = true;
-                    isMounted = true;
-                } else if (m == QStringLiteral("no") || m == QStringLiteral("off") || m == QStringLiteral("false") || m == QStringLiteral("0")) {
-                    knownMounted = true;
-                    isMounted = false;
-                }
-            }
-        }
-        if (knownMounted) {
-            mountAct->setEnabled(!isMounted);
-            umountAct->setEnabled(isMounted);
-        }
-    }
-    Q_UNUSED(isWinConn);
-
-    QAction* picked = menu.exec(tree->viewport()->mapToGlobal(pos));
-    if (!picked) {
-        return;
-    }
-    if (picked == mountAct) {
-        logUiAction(QStringLiteral("Montar dataset (menú)"));
-        actionMountDataset(side);
-    } else if (picked == mountWithChildrenAct) {
-        logUiAction(QStringLiteral("Montar dataset con hijos (menú)"));
-        actionMountDatasetWithChildren(side);
-    } else if (picked == umountAct) {
-        logUiAction(QStringLiteral("Desmontar dataset (menú)"));
-        actionUmountDataset(side);
-    } else if (picked == createAct) {
-        logUiAction(QStringLiteral("Crear hijo dataset (menú)"));
-        actionCreateChildDataset(side);
-    } else if (picked == deleteAllSnapsAct) {
-        logUiAction(QStringLiteral("Borrar todos los snapshots (menú)"));
-        actionDeleteAllSnapshots(side);
-    } else if (rollbackAct && picked == rollbackAct) {
-        const QString snapObj = QStringLiteral("%1@%2").arg(ctx.datasetName, ctx.snapshotName);
-        const auto confirm = QMessageBox::question(
-            this,
-            QStringLiteral("Rollback"),
-            QStringLiteral("¿Confirmar rollback de snapshot?\n%1").arg(snapObj),
-            QMessageBox::Yes | QMessageBox::No,
-            QMessageBox::No);
-        if (confirm != QMessageBox::Yes) {
-            return;
-        }
-        logUiAction(QStringLiteral("Rollback snapshot (menú)"));
-        const QString cmd = QStringLiteral("zfs rollback %1").arg(shSingleQuote(snapObj));
-        executeDatasetAction(side, QStringLiteral("Rollback"), ctx, cmd, 90000);
-    } else if (picked == deleteAct) {
-        logUiAction(QStringLiteral("Borrar dataset/snapshot (menú)"));
-        actionDeleteDatasetOrSnapshot(side);
-    }
-}
 
 bool MainWindow::executeDatasetAction(const QString& side, const QString& actionName, const DatasetSelectionContext& ctx, const QString& cmd, int timeoutMs, bool allowWindowsScript) {
     if (!ctx.valid) {
@@ -436,6 +478,15 @@ void MainWindow::reloadDatasetSide(const QString& side) {
         onOriginPoolChanged();
     } else if (side == QStringLiteral("dest")) {
         onDestPoolChanged();
+    } else if (side == QStringLiteral("conncontent")) {
+        const QString token = m_connContentToken;
+        const int sep = token.indexOf(QStringLiteral("::"));
+        if (sep > 0) {
+            const int connIdx = token.left(sep).toInt();
+            const QString poolName = token.mid(sep + 2);
+            populateDatasetTree(m_connContentTree, connIdx, poolName, QStringLiteral("conncontent"));
+            refreshDatasetProperties(QStringLiteral("conncontent"));
+        }
     } else {
         const QString token = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
         const int sep = token.indexOf(QStringLiteral("::"));
@@ -531,29 +582,6 @@ bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext
     }
     const QString cmd = mwhelpers::buildSingleMountCommand(ctx.datasetName);
     return executeDatasetAction(side, QStringLiteral("Montar"), ctx, cmd);
-}
-
-void MainWindow::actionMountDatasetWithChildren(const QString& side) {
-    if (actionsLocked()) {
-        return;
-    }
-    const DatasetSelectionContext ctx = currentDatasetSelection(side);
-    if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
-        return;
-    }
-    if (!ensureParentMountedBeforeMount(ctx)) {
-        return;
-    }
-    if (!ensureNoMountpointConflictsBeforeMount(ctx, true)) {
-        return;
-    }
-    if (isWindowsConnection(ctx.connIdx)) {
-        const QString cmd = mwhelpers::buildMountChildrenCommand(true, ctx.datasetName);
-        executeDatasetAction(side, QStringLiteral("Montar con todos los hijos"), ctx, cmd, 90000, true);
-        return;
-    }
-    const QString cmd = mwhelpers::buildMountChildrenCommand(false, ctx.datasetName);
-    executeDatasetAction(side, QStringLiteral("Montar con todos los hijos"), ctx, cmd);
 }
 
 bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& ctx) {
