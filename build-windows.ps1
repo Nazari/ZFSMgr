@@ -72,8 +72,13 @@ function Resolve-SftpTarget([string]$target) {
       if ($hostPart.Contains(":")) {
         $hp = $hostPart.Split(":", 2)
         $host = $hp[0]
-        if ([string]::IsNullOrWhiteSpace($path) -and -not [string]::IsNullOrWhiteSpace($hp[1])) {
-          $path = $hp[1]
+        if (-not [string]::IsNullOrWhiteSpace($hp[1])) {
+          if ([string]::IsNullOrWhiteSpace($path)) {
+            $path = $hp[1]
+          } else {
+            $pathPart = $path.TrimStart("/")
+            $path = "$($hp[1])/$pathPart"
+          }
         }
       } else {
         $host = $hostPart
@@ -83,8 +88,13 @@ function Resolve-SftpTarget([string]$target) {
       if ($authority.Contains(":")) {
         $hp = $authority.Split(":", 2)
         $host = $hp[0]
-        if ([string]::IsNullOrWhiteSpace($path) -and -not [string]::IsNullOrWhiteSpace($hp[1])) {
-          $path = $hp[1]
+        if (-not [string]::IsNullOrWhiteSpace($hp[1])) {
+          if ([string]::IsNullOrWhiteSpace($path)) {
+            $path = $hp[1]
+          } else {
+            $pathPart = $path.TrimStart("/")
+            $path = "$($hp[1])/$pathPart"
+          }
         }
       } else {
         $host = $authority
@@ -96,6 +106,7 @@ function Resolve-SftpTarget([string]$target) {
     return [PSCustomObject]@{
       Remote = "$user@$host"
       Path   = $path
+      HomeRelative = (-not $path.StartsWith("/"))
     }
   }
 
@@ -111,6 +122,7 @@ function Resolve-SftpTarget([string]$target) {
     return [PSCustomObject]@{
       Remote = $remote
       Path   = $path
+      HomeRelative = (-not $path.StartsWith("/"))
     }
   }
 
@@ -123,11 +135,19 @@ function Upload-ArtifactSftp([string]$artifactPath) {
   }
   $dst = Resolve-SftpTarget $SftpTarget
   Write-Host "Subiendo artefacto a $($dst.Remote):$($dst.Path)"
-  & ssh -o BatchMode=yes $dst.Remote "mkdir -p '$($dst.Path)'"
+  if ($dst.HomeRelative) {
+    & ssh -o BatchMode=yes $dst.Remote "mkdir -p `"`$HOME/$($dst.Path)`""
+  } else {
+    & ssh -o BatchMode=yes $dst.Remote "mkdir -p '$($dst.Path)'"
+  }
   if ($LASTEXITCODE -ne 0) {
     throw "No se pudo crear el directorio remoto SFTP."
   }
-  & scp $artifactPath "$($dst.Remote):$($dst.Path)/"
+  if ($dst.HomeRelative) {
+    & scp $artifactPath "$($dst.Remote):~/$($dst.Path)/"
+  } else {
+    & scp $artifactPath "$($dst.Remote):$($dst.Path)/"
+  }
   if ($LASTEXITCODE -ne 0) {
     throw "Falló la subida SFTP del artefacto."
   }

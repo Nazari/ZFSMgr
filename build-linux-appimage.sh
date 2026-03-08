@@ -14,7 +14,7 @@ fi
 
 parse_sftp_target() {
   local target="$1"
-  local authority path user host
+  local authority path user host host_and_base base_path
   if [[ "${target}" =~ ^sftp:// || "${target}" =~ ^sft:// ]]; then
     target="${target#sftp://}"
     target="${target#sft://}"
@@ -22,7 +22,24 @@ parse_sftp_target() {
     path="/${target#*/}"
     if [[ "${authority}" == *"@"* ]]; then
       user="${authority%@*}"
-      host="${authority#*@}"
+      host_and_base="${authority#*@}"
+      if [[ "${host_and_base}" == *":"* ]]; then
+        host="${host_and_base%%:*}"
+        base_path="${host_and_base#*:}"
+        if [[ -n "${base_path}" ]]; then
+          if [[ "${path}" == "/" ]]; then
+            path=""
+          fi
+          if [[ "${base_path}" == /* ]]; then
+            path="${base_path}${path}"
+          else
+            # host:path/... => path relativa al HOME remoto
+            path="${base_path}${path}"
+          fi
+        fi
+      else
+        host="${host_and_base}"
+      fi
     elif [[ "${authority}" == *":"* ]]; then
       # Formato legacy soportado: sftp://user:host/ruta
       user="${authority%%:*}"
@@ -53,8 +70,13 @@ upload_to_sftp() {
   remote="${parsed%%|*}"
   path="${parsed#*|}"
   echo "Subiendo artefacto a ${remote}:${path}"
-  ssh -o BatchMode=yes "${remote}" "mkdir -p '${path}'"
-  scp "${artifact}" "${remote}:${path}/"
+  if [[ "${path}" == /* ]]; then
+    ssh -o BatchMode=yes "${remote}" "mkdir -p '${path}'"
+    scp "${artifact}" "${remote}:${path}/"
+  else
+    ssh -o BatchMode=yes "${remote}" "mkdir -p \"\$HOME/${path}\""
+    scp "${artifact}" "${remote}:~/${path}/"
+  fi
 }
 
 if [[ "${ARCH}" != "x86_64" ]]; then
