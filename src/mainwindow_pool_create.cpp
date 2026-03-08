@@ -205,10 +205,7 @@ void MainWindow::createPoolForSelectedConnection() {
         QString err;
         int rc = -1;
         outText.clear();
-        if (!runSsh(p, cmd, timeoutMs, outText, err, rc) || rc != 0) {
-            return false;
-        }
-        return true;
+        return runSsh(p, cmd, timeoutMs, outText, err, rc) && rc == 0;
     };
     QStringList compatibilityNames;
     {

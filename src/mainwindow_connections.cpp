@@ -408,7 +408,7 @@ void MainWindow::rebuildConnectionEntityTabs() {
         const QString stateUp = pool.state.trimmed().toUpper();
         const QString actionTxt = pool.action.trimmed();
         // No crear tabs para pools no importables.
-        if (!(stateUp == QStringLiteral("ONLINE") && !actionTxt.isEmpty())) {
+        if (stateUp != QStringLiteral("ONLINE") || actionTxt.isEmpty()) {
             continue;
         }
         QString poolTabText = poolName;
@@ -765,15 +765,6 @@ void MainWindow::refreshConnectionNodeDetails() {
 }
 
 void MainWindow::updateConnectionDetailTitlesForCurrentSelection() {
-    QString propsTitle = trk(QStringLiteral("t_pool_props001"),
-                             QStringLiteral("Propiedades"),
-                             QStringLiteral("Properties"),
-                             QStringLiteral("属性"));
-    QString bottomTitle = trk(QStringLiteral("t_status_col_001"),
-                              QStringLiteral("Estado"),
-                              QStringLiteral("Status"),
-                              QStringLiteral("状态"));
-
     const int connIdx = selectedConnectionRow(m_connectionsTable);
     QString activePoolName;
     bool poolMode = false;
@@ -789,19 +780,6 @@ void MainWindow::updateConnectionDetailTitlesForCurrentSelection() {
             }
         }
     }
-    if (connIdx >= 0 && connIdx < m_profiles.size()) {
-        const QString connName = m_profiles[connIdx].name;
-        if (!poolMode) {
-            propsTitle = QStringLiteral("Propiedades de la conexión %1").arg(connName.isEmpty() ? QStringLiteral("-") : connName);
-            bottomTitle = QStringLiteral("Estado de la conexión %1").arg(connName.isEmpty() ? QStringLiteral("-") : connName);
-        } else {
-            propsTitle = QStringLiteral("Propiedades del Pool %1").arg(activePoolName.isEmpty() ? QStringLiteral("-") : activePoolName);
-            bottomTitle = QStringLiteral("Estado del Pool %1").arg(activePoolName.isEmpty() ? QStringLiteral("-") : activePoolName);
-        }
-    }
-
-    Q_UNUSED(propsTitle);
-    Q_UNUSED(bottomTitle);
     if (m_poolViewTabBar) {
         QString tab0 = trk(QStringLiteral("t_pool_props001"),
                            QStringLiteral("Propiedades"),

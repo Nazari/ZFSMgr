@@ -1780,13 +1780,7 @@ void MainWindow::buildUi() {
         });
     }
     connect(m_connectionsTable, &QTableWidget::currentCellChanged, this,
-            [this](int currentRow, int currentColumn, int previousRow, int previousColumn) {
-                Q_UNUSED(currentRow);
-                Q_UNUSED(currentColumn);
-                Q_UNUSED(previousRow);
-                Q_UNUSED(previousColumn);
-                onConnectionSelectionChanged();
-            });
+            [this](int, int, int, int) { onConnectionSelectionChanged(); });
     if (m_connectionEntityTabs) {
         connect(m_connectionEntityTabs, &QTabBar::currentChanged, this, [this](int idx) {
             onConnectionEntityTabChanged(idx);
@@ -1835,10 +1829,7 @@ void MainWindow::buildUi() {
             updateConnectionDetailTitlesForCurrentSelection();
             updateConnectionActionsState();
         });
-        connect(m_connContentTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int col) {
-            Q_UNUSED(item);
-            Q_UNUSED(col);
-        });
+        connect(m_connContentTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem*, int) {});
         m_connContentTree->setContextMenuPolicy(Qt::CustomContextMenu);
         connect(m_connContentTree, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int col) {
             onDatasetTreeItemChanged(m_connContentTree, item, col, QStringLiteral("conncontent"));

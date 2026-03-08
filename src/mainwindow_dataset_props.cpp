@@ -730,9 +730,6 @@ void MainWindow::onDatasetPropsCellChanged(int row, int col) {
     if (!pk || !pv || !pi) {
         return;
     }
-    Q_UNUSED(pk);
-    Q_UNUSED(pv);
-    Q_UNUSED(pi);
     m_propsDirty = false;
     for (int r = 0; r < table->rowCount(); ++r) {
         QTableWidgetItem* rk = table->item(r, 0);
@@ -752,11 +749,10 @@ void MainWindow::onDatasetPropsCellChanged(int row, int col) {
     updateApplyPropsButtonState();
 }
 
-void MainWindow::onAdvancedPropsCellChanged(int row, int col) {
+void MainWindow::onAdvancedPropsCellChanged(int /*row*/, int col) {
     if (m_loadingPropsTable || (col != 1 && col != 2) || !m_advPropsTable) {
         return;
     }
-    Q_UNUSED(row);
     m_advPropsDirty = false;
     for (int r = 0; r < m_advPropsTable->rowCount(); ++r) {
         QTableWidgetItem* rk = m_advPropsTable->item(r, 0);
