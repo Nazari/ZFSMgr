@@ -167,7 +167,6 @@ private:
     void executeConnectionAdvancedAction(const QString& action);
     void setConnectionOriginSelection(const DatasetSelectionContext& ctx);
     void setConnectionDestinationSelection(const DatasetSelectionContext& ctx);
-    QString connectionOriginSelectionText() const;
     void refreshTransferSelectionLabels();
     void updateAdvancedSelectionUi(const QString& datasetName, const QString& snapshotName);
     bool runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs = 0, bool forceConfirmDialog = false, bool streamProgress = false);
@@ -178,8 +177,6 @@ private:
     void actionAdvancedAssemble();
     void actionAdvancedCreateFromDir();
     void actionAdvancedToDir();
-    void actionMountDataset(const QString& side);
-    void actionUmountDataset(const QString& side);
     bool mountDataset(const QString& side, const DatasetSelectionContext& ctx);
     bool umountDataset(const QString& side, const DatasetSelectionContext& ctx);
     void actionCreateChildDataset(const QString& side);
@@ -281,7 +278,6 @@ private:
     DatasetSelectionContext m_connActionDest;
 
     QVector<PoolListEntry> m_poolListEntries;
-    QTableWidget* m_importablePoolsTable{nullptr};
     QWidget* m_poolDetailTabs{nullptr};
     QTabBar* m_poolViewTabBar{nullptr};
     QGroupBox* m_connPropsGroup{nullptr};

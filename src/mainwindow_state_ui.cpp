@@ -129,19 +129,6 @@ void MainWindow::updateTransferButtonsState() {
     updateConnectionActionsState();
 }
 
-QString MainWindow::connectionOriginSelectionText() const {
-    if (!m_connActionOrigin.valid || m_connActionOrigin.datasetName.isEmpty()) {
-        return trk(QStringLiteral("t_empty_sel_001"),
-                   QStringLiteral("(vacío)"),
-                   QStringLiteral("(empty)"),
-                   QStringLiteral("（空）"));
-    }
-    if (m_connActionOrigin.snapshotName.isEmpty()) {
-        return m_connActionOrigin.datasetName;
-    }
-    return QStringLiteral("%1@%2").arg(m_connActionOrigin.datasetName, m_connActionOrigin.snapshotName);
-}
-
 void MainWindow::setConnectionOriginSelection(const DatasetSelectionContext& ctx) {
     if (!ctx.valid || ctx.datasetName.isEmpty()) {
         m_connActionOrigin = DatasetSelectionContext{};

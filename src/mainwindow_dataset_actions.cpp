@@ -499,17 +499,6 @@ void MainWindow::reloadDatasetSide(const QString& side) {
     }
 }
 
-void MainWindow::actionMountDataset(const QString& side) {
-    if (actionsLocked()) {
-        return;
-    }
-    const DatasetSelectionContext ctx = currentDatasetSelection(side);
-    if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
-        return;
-    }
-    mountDataset(side, ctx);
-}
-
 bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext& ctx) {
     if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
         return false;
@@ -725,17 +714,6 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
         return false;
     }
     return true;
-}
-
-void MainWindow::actionUmountDataset(const QString& side) {
-    if (actionsLocked()) {
-        return;
-    }
-    const DatasetSelectionContext ctx = currentDatasetSelection(side);
-    if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
-        return;
-    }
-    umountDataset(side, ctx);
 }
 
 bool MainWindow::umountDataset(const QString& side, const DatasetSelectionContext& ctx) {
