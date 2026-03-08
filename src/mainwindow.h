@@ -106,7 +106,6 @@ private:
     void editConnection();
     void deleteConnection();
     void onConnectionSelectionChanged();
-    void onPoolsSelectionChanged();
     void onOriginPoolChanged();
     void onDestPoolChanged();
     void onAdvancedPoolChanged();
@@ -206,12 +205,22 @@ private:
     int findConnectionIndexByName(const QString& name) const;
     bool isConnectionRedirectedToLocal(int idx) const;
     void refreshConnectionByIndex(int idx);
+    struct PoolListEntry {
+        QString connection;
+        QString pool;
+        QString state;
+        QString imported;
+        QString reason;
+        QString action;
+    };
     void exportPoolFromRow(int row);
     void importPoolFromRow(int row);
     void scrubPoolFromRow(int row);
     void destroyPoolFromRow(int row);
     void createPoolForSelectedConnection();
     void refreshSelectedPoolDetails();
+    int findPoolRow(const QString& connection, const QString& pool) const;
+    int selectedPoolRowFromTree() const;
     int selectedConnectionIndexForPoolManagement() const;
     void updatePoolManagementBoxTitle();
     void updateStatus(const QString& text);
@@ -237,6 +246,8 @@ private:
     QString maskSecrets(const QString& text) const;
     void logUiAction(const QString& action);
     void appLog(const QString& level, const QString& msg);
+    void appendAppLogLineToView(const QString& fullLine);
+    void loadPersistedAppLogToView();
     void populateAllPoolsTables();
     void populateMountedDatasetsTables();
     void enableSortableHeader(QTableWidget* table);
@@ -269,7 +280,7 @@ private:
     DatasetSelectionContext m_connActionOrigin;
     DatasetSelectionContext m_connActionDest;
 
-    QTableWidget* m_importedPoolsTable{nullptr};
+    QVector<PoolListEntry> m_poolListEntries;
     QTableWidget* m_importablePoolsTable{nullptr};
     QWidget* m_poolDetailTabs{nullptr};
     QTabBar* m_poolViewTabBar{nullptr};
@@ -331,10 +342,6 @@ private:
     QTextEdit* m_statusText{nullptr};
     QTextEdit* m_lastDetailText{nullptr};
     QTabWidget* m_logsTabs{nullptr};
-    QComboBox* m_logLevelCombo{nullptr};
-    QComboBox* m_logMaxLinesCombo{nullptr};
-    QPushButton* m_logClearBtn{nullptr};
-    QPushButton* m_logCopyBtn{nullptr};
     QPlainTextEdit* m_logView{nullptr};
     QMap<QString, QPlainTextEdit*> m_connectionLogViews;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
@@ -359,6 +366,11 @@ private:
     QString m_logLevelSetting{QStringLiteral("normal")};
     int m_logMaxLinesSetting{500};
     QString m_appLogPath;
+    bool m_compactPrevValid{false};
+    QString m_compactPrevDate;
+    QString m_compactPrevTime;
+    QString m_compactPrevConn;
+    QString m_compactPrevLevel;
     int m_refreshGeneration{0};
     int m_refreshPending{0};
     int m_refreshTotal{0};
@@ -369,7 +381,6 @@ private:
     QString m_localSudoUsername;
     QString m_localSudoPassword;
     QString m_localMachineUuid;
-    bool m_syncingConnectionFromPoolSelection{false};
     bool m_actionsLocked{false};
     bool m_waitCursorActive{false};
     int m_uiBusyDepth{0};

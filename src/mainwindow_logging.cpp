@@ -4,6 +4,7 @@
 #include <QClipboard>
 #include <QComboBox>
 #include <QDateTime>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QFont>
@@ -66,6 +67,45 @@ bool isLocalHostForLogs(const QString& host) {
     }();
     return aliases.contains(h);
 }
+
+struct CompactLogParts {
+    QString date;
+    QString time;
+    QString conn;
+    QString level;
+    QString msg;
+};
+
+CompactLogParts parseCompactLogParts(const QString& fullLine) {
+    CompactLogParts out;
+    static const QRegularExpression lineRx(
+        QStringLiteral("^\\[(\\d{4}-\\d{2}-\\d{2})\\s+(\\d{2}:\\d{2}:\\d{2})\\]\\s+\\[([^\\]]+)\\]\\s*(.*)$"));
+    static const QRegularExpression sshRx(QStringLiteral("^\\[SSH\\s+([^\\]]+)\\]\\s*(.*)$"));
+
+    const QRegularExpressionMatch m = lineRx.match(fullLine.trimmed());
+    if (!m.hasMatch()) {
+        out.date = QStringLiteral("-");
+        out.time = QStringLiteral("-");
+        out.level = QStringLiteral("-");
+        out.conn = QStringLiteral("-");
+        out.msg = fullLine.trimmed();
+        return out;
+    }
+    out.date = m.captured(1).trimmed();
+    out.time = m.captured(2).trimmed();
+    out.level = m.captured(3).trimmed();
+    out.msg = m.captured(4).trimmed();
+    out.conn = QStringLiteral("-");
+    const QRegularExpressionMatch sm = sshRx.match(out.msg);
+    if (sm.hasMatch()) {
+        out.conn = sm.captured(1).trimmed();
+        out.msg = sm.captured(2).trimmed();
+    }
+    if (out.msg.isEmpty()) {
+        out.msg = QStringLiteral("-");
+    }
+    return out;
+}
 } // namespace
 
 void MainWindow::initLogPersistence() {
@@ -117,6 +157,11 @@ void MainWindow::appendLogToFile(const QString& line) {
 
 void MainWindow::clearAppLog() {
     m_logView->clear();
+    m_compactPrevValid = false;
+    m_compactPrevDate.clear();
+    m_compactPrevTime.clear();
+    m_compactPrevConn.clear();
+    m_compactPrevLevel.clear();
     for (auto it = m_connectionLogViews.begin(); it != m_connectionLogViews.end(); ++it) {
         if (it.value()) {
             it.value()->clear();
@@ -185,7 +230,8 @@ void MainWindow::appLog(const QString& level, const QString& msg) {
         return;
     }
     const QString line = QStringLiteral("[%1] [%2] %3").arg(tsNowForLog(), level, maskSecrets(msg));
-    const QString current = m_logLevelCombo ? m_logLevelCombo->currentText().toLower() : QStringLiteral("normal");
+    const QString current = m_logLevelSetting.isEmpty() ? QStringLiteral("normal")
+                                                         : m_logLevelSetting.toLower();
     auto rank = [](const QString& l) -> int {
         const QString x = l.toLower();
         if (x == QStringLiteral("debug")) {
@@ -199,8 +245,7 @@ void MainWindow::appLog(const QString& level, const QString& msg) {
     const QString lvl = level.toLower();
     const bool always = (lvl == QStringLiteral("warn") || lvl == QStringLiteral("error"));
     if (always || rank(lvl) <= rank(current)) {
-        m_logView->appendPlainText(line);
-        trimLogWidget(m_logView);
+        appendAppLogLineToView(line);
     }
     if (m_lastDetailText) {
         m_lastDetailText->setPlainText(line);
@@ -208,10 +253,88 @@ void MainWindow::appLog(const QString& level, const QString& msg) {
     appendLogToFile(line);
 }
 
+void MainWindow::appendAppLogLineToView(const QString& fullLine) {
+    if (!m_logView) {
+        return;
+    }
+    const CompactLogParts p = parseCompactLogParts(fullLine);
+    QStringList changed;
+    if (!m_compactPrevValid || p.date != m_compactPrevDate) {
+        changed << p.date;
+    }
+    if (!m_compactPrevValid || p.time != m_compactPrevTime) {
+        changed << p.time;
+    }
+    if (!m_compactPrevValid || p.conn != m_compactPrevConn) {
+        changed << QStringLiteral("ssh=%1").arg(p.conn);
+    }
+    if (!m_compactPrevValid || p.level != m_compactPrevLevel) {
+        changed << QStringLiteral("lvl=%1").arg(p.level);
+    }
+    const QString head = changed.isEmpty() ? QStringLiteral("...") : changed.join(' ');
+    m_logView->appendPlainText(QStringLiteral("%1 | %2").arg(head, p.msg));
+    trimLogWidget(m_logView);
+    m_compactPrevValid = true;
+    m_compactPrevDate = p.date;
+    m_compactPrevTime = p.time;
+    m_compactPrevConn = p.conn;
+    m_compactPrevLevel = p.level;
+}
+
+void MainWindow::loadPersistedAppLogToView() {
+    if (!m_logView || m_appLogPath.isEmpty()) {
+        return;
+    }
+    QStringList allLines;
+    const QFileInfo currentFi(m_appLogPath);
+    const QString baseName = currentFi.fileName();
+    const QString baseDir = currentFi.absolutePath();
+    // Read rotated logs from oldest to newest, then current file.
+    for (int i = 5; i >= 1; --i) {
+        const QString fp = QStringLiteral("%1/%2.%3").arg(baseDir, baseName).arg(i);
+        QFile f(fp);
+        if (!f.exists() || !f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            continue;
+        }
+        QTextStream ts(&f);
+        while (!ts.atEnd()) {
+            const QString ln = ts.readLine();
+            if (!ln.trimmed().isEmpty()) {
+                allLines.append(ln);
+            }
+        }
+    }
+    QFile current(m_appLogPath);
+    if (current.exists() && current.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream ts(&current);
+        while (!ts.atEnd()) {
+            const QString ln = ts.readLine();
+            if (!ln.trimmed().isEmpty()) {
+                allLines.append(ln);
+            }
+        }
+    }
+    if (allLines.isEmpty()) {
+        return;
+    }
+    const int limit = qMax(1, maxLogLines());
+    if (allLines.size() > limit) {
+        allLines = allLines.mid(allLines.size() - limit);
+    }
+    m_logView->clear();
+    m_compactPrevValid = false;
+    m_compactPrevDate.clear();
+    m_compactPrevTime.clear();
+    m_compactPrevConn.clear();
+    m_compactPrevLevel.clear();
+    for (const QString& ln : allLines) {
+        appendAppLogLineToView(maskSecrets(ln));
+    }
+}
+
 int MainWindow::maxLogLines() const {
-    bool ok = false;
-    const int v = m_logMaxLinesCombo ? m_logMaxLinesCombo->currentText().toInt(&ok) : 500;
-    if (!ok || v <= 0) {
+    const int v = m_logMaxLinesSetting;
+    if (v != 100 && v != 200 && v != 500 && v != 1000) {
         return 500;
     }
     return v;
@@ -305,6 +428,18 @@ void MainWindow::appendConnectionLog(const QString& connId, const QString& line)
         }, Qt::QueuedConnection);
         return;
     }
+    QString connName = connId;
+    for (const auto& p : m_profiles) {
+        if (p.id == connId) {
+            connName = p.name.trimmed().isEmpty() ? p.id : p.name;
+            break;
+        }
+    }
+    // Mirror SSH/PSRP session output into Application log so the SSH tabs can be removed
+    // without losing per-connection command/output traceability.
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("[SSH %1] %2").arg(connName, maskSecrets(line)));
+
     QPlainTextEdit* view = m_connectionLogViews.value(connId, nullptr);
     if (!view) {
         return;

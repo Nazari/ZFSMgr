@@ -16,6 +16,8 @@
 #include <QPushButton>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 #include <QVBoxLayout>
 
 namespace {
@@ -24,19 +26,51 @@ using mwhelpers::shSingleQuote;
 using mwhelpers::sshUserHostPort;
 } // namespace
 
+int MainWindow::findPoolRow(const QString& connection, const QString& pool) const {
+    const QString connKey = connection.trimmed();
+    const QString poolKey = pool.trimmed();
+    for (int i = 0; i < m_poolListEntries.size(); ++i) {
+        const auto& e = m_poolListEntries[i];
+        if (e.connection.compare(connKey, Qt::CaseInsensitive) == 0
+            && e.pool.compare(poolKey, Qt::CaseInsensitive) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int MainWindow::selectedPoolRowFromTree() const {
+    if (!m_connectionsList) {
+        return -1;
+    }
+    const auto selected = m_connectionsList->selectedItems();
+    if (selected.isEmpty()) {
+        return -1;
+    }
+    QTreeWidgetItem* item = selected.first();
+    const int nodeType = item->data(0, Qt::UserRole + 1).toInt();
+    if (nodeType != 2) {
+        return -1;
+    }
+    const QString connName = item->data(0, Qt::UserRole + 2).toString().trimmed();
+    const QString poolName = item->data(0, Qt::UserRole + 3).toString().trimmed();
+    if (connName.isEmpty() || poolName.isEmpty()) {
+        return -1;
+    }
+    return findPoolRow(connName, poolName);
+}
+
 void MainWindow::exportPoolFromRow(int row) {
     if (actionsLocked()) {
         return;
     }
-    QTableWidgetItem* connItem = m_importedPoolsTable->item(row, 0);
-    QTableWidgetItem* poolItem = m_importedPoolsTable->item(row, 1);
-    if (!connItem || !poolItem) {
+    if (row < 0 || row >= m_poolListEntries.size()) {
         return;
     }
-    const QString connName = connItem->text().trimmed();
-    const QString poolName = poolItem->text().trimmed();
-    QTableWidgetItem* stateItem = m_importedPoolsTable->item(row, 2);
-    const QString action = stateItem ? stateItem->data(Qt::UserRole + 1).toString().trimmed() : QString();
+    const auto& pe = m_poolListEntries[row];
+    const QString connName = pe.connection;
+    const QString poolName = pe.pool;
+    const QString action = pe.action;
     if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
         return;
     }
@@ -96,16 +130,14 @@ void MainWindow::importPoolFromRow(int row) {
     if (actionsLocked()) {
         return;
     }
-    QTableWidgetItem* connItem = m_importedPoolsTable->item(row, 0);
-    QTableWidgetItem* poolItem = m_importedPoolsTable->item(row, 1);
-    QTableWidgetItem* stateItem = m_importedPoolsTable->item(row, 2);
-    if (!connItem || !poolItem) {
+    if (row < 0 || row >= m_poolListEntries.size()) {
         return;
     }
-    const QString connName = connItem->text().trimmed();
-    const QString poolName = poolItem->text().trimmed();
-    const QString poolState = stateItem ? stateItem->text().trimmed().toUpper() : QString();
-    const QString action = stateItem ? stateItem->data(Qt::UserRole + 1).toString().trimmed() : QString();
+    const auto& pe = m_poolListEntries[row];
+    const QString connName = pe.connection;
+    const QString poolName = pe.pool;
+    const QString poolState = pe.state.trimmed().toUpper();
+    const QString action = pe.action;
     if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
         return;
     }
@@ -273,16 +305,14 @@ void MainWindow::scrubPoolFromRow(int row) {
     if (actionsLocked()) {
         return;
     }
-    QTableWidgetItem* connItem = m_importedPoolsTable->item(row, 0);
-    QTableWidgetItem* poolItem = m_importedPoolsTable->item(row, 1);
-    QTableWidgetItem* stateItem = m_importedPoolsTable->item(row, 2);
-    if (!connItem || !poolItem || !stateItem) {
+    if (row < 0 || row >= m_poolListEntries.size()) {
         return;
     }
-    const QString connName = connItem->text().trimmed();
-    const QString poolName = poolItem->text().trimmed();
-    const QString poolState = stateItem->text().trimmed().toUpper();
-    const QString action = stateItem->data(Qt::UserRole + 1).toString().trimmed();
+    const auto& pe = m_poolListEntries[row];
+    const QString connName = pe.connection;
+    const QString poolName = pe.pool;
+    const QString poolState = pe.state.trimmed().toUpper();
+    const QString action = pe.action;
     if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
         return;
     }
@@ -336,15 +366,13 @@ void MainWindow::destroyPoolFromRow(int row) {
     if (actionsLocked()) {
         return;
     }
-    QTableWidgetItem* connItem = m_importedPoolsTable->item(row, 0);
-    QTableWidgetItem* poolItem = m_importedPoolsTable->item(row, 1);
-    QTableWidgetItem* stateItem = m_importedPoolsTable->item(row, 2);
-    if (!connItem || !poolItem || !stateItem) {
+    if (row < 0 || row >= m_poolListEntries.size()) {
         return;
     }
-    const QString connName = connItem->text().trimmed();
-    const QString poolName = poolItem->text().trimmed();
-    const QString action = stateItem->data(Qt::UserRole + 1).toString().trimmed();
+    const auto& pe = m_poolListEntries[row];
+    const QString connName = pe.connection;
+    const QString poolName = pe.pool;
+    const QString action = pe.action;
     if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
         return;
     }
@@ -414,8 +442,7 @@ void MainWindow::destroyPoolFromRow(int row) {
 }
 
 void MainWindow::populateAllPoolsTables() {
-    setTablePopulationMode(m_importedPoolsTable, true);
-    m_importedPoolsTable->setRowCount(0);
+    m_poolListEntries.clear();
     for (int i = 0; i < m_states.size(); ++i) {
         if (i < m_profiles.size()) {
             const bool redirectedLocal = isConnectionRedirectedToLocal(i);
@@ -425,33 +452,27 @@ void MainWindow::populateAllPoolsTables() {
         }
         const auto& st = m_states[i];
         for (const PoolImported& pool : st.importedPools) {
-            const int row = m_importedPoolsTable->rowCount();
-            m_importedPoolsTable->insertRow(row);
-            m_importedPoolsTable->setItem(row, 0, new QTableWidgetItem(pool.connection));
-            m_importedPoolsTable->setItem(row, 1, new QTableWidgetItem(pool.pool));
-            auto* state = new QTableWidgetItem(QStringLiteral("ONLINE"));
-            state->setForeground(QBrush(QColor("#1f7a1f")));
-            state->setData(Qt::UserRole + 1, QStringLiteral("Exportar"));
-            m_importedPoolsTable->setItem(row, 2, state);
-            m_importedPoolsTable->setItem(row, 3, new QTableWidgetItem(QStringLiteral("Sí")));
-            m_importedPoolsTable->setItem(row, 4, new QTableWidgetItem(QString()));
+            PoolListEntry e;
+            e.connection = pool.connection;
+            e.pool = pool.pool;
+            e.state = QStringLiteral("ONLINE");
+            e.imported = QStringLiteral("Sí");
+            e.reason.clear();
+            e.action = QStringLiteral("Exportar");
+            m_poolListEntries.push_back(std::move(e));
         }
         for (const PoolImportable& pool : st.importablePools) {
-            const int row = m_importedPoolsTable->rowCount();
-            m_importedPoolsTable->insertRow(row);
-            m_importedPoolsTable->setItem(row, 0, new QTableWidgetItem(pool.connection));
-            m_importedPoolsTable->setItem(row, 1, new QTableWidgetItem(pool.pool));
-            auto* state = new QTableWidgetItem(pool.state);
             const QString up = pool.state.trimmed().toUpper();
-            state->setForeground(QBrush((up == QStringLiteral("ONLINE")) ? QColor("#1f7a1f") : QColor("#a12a2a")));
-            const QString action = (up == QStringLiteral("ONLINE")) ? pool.action : QString();
-            state->setData(Qt::UserRole + 1, action);
-            m_importedPoolsTable->setItem(row, 2, state);
-            m_importedPoolsTable->setItem(row, 3, new QTableWidgetItem(QStringLiteral("No")));
-            m_importedPoolsTable->setItem(row, 4, new QTableWidgetItem(pool.reason));
+            PoolListEntry e;
+            e.connection = pool.connection;
+            e.pool = pool.pool;
+            e.state = pool.state;
+            e.imported = QStringLiteral("No");
+            e.reason = pool.reason;
+            e.action = (up == QStringLiteral("ONLINE")) ? pool.action : QString();
+            m_poolListEntries.push_back(std::move(e));
         }
     }
-    setTablePopulationMode(m_importedPoolsTable, false);
     refreshSelectedPoolDetails();
     populateMountedDatasetsTables();
     updatePoolManagementBoxTitle();
@@ -459,7 +480,7 @@ void MainWindow::populateAllPoolsTables() {
 
 
 void MainWindow::refreshSelectedPoolDetails() {
-    if (!m_poolPropsTable || !m_poolStatusText || !m_importedPoolsTable) {
+    if (!m_poolPropsTable || !m_poolStatusText) {
         return;
     }
     setTablePopulationMode(m_poolPropsTable, true);
@@ -482,23 +503,16 @@ void MainWindow::refreshSelectedPoolDetails() {
         m_poolStatusDestroyBtn->setEnabled(false);
     }
 
-    const auto sel = m_importedPoolsTable->selectedItems();
-    if (sel.isEmpty()) {
+    const int row = selectedPoolRowFromTree();
+    if (row < 0 || row >= m_poolListEntries.size()) {
         setTablePopulationMode(m_poolPropsTable, false);
         return;
     }
-    const int row = sel.first()->row();
-    QTableWidgetItem* connItem = m_importedPoolsTable->item(row, 0);
-    QTableWidgetItem* poolItem = m_importedPoolsTable->item(row, 1);
-    if (!connItem || !poolItem) {
-        setTablePopulationMode(m_poolPropsTable, false);
-        return;
-    }
-    const QString connName = connItem->text().trimmed();
-    const QString poolName = poolItem->text().trimmed();
-    QTableWidgetItem* stateItem = m_importedPoolsTable->item(row, 2);
-    const QString poolState = stateItem ? stateItem->text().trimmed().toUpper() : QString();
-    const QString action = stateItem ? stateItem->data(Qt::UserRole + 1).toString().trimmed() : QString();
+    const auto& pe = m_poolListEntries[row];
+    const QString connName = pe.connection;
+    const QString poolName = pe.pool;
+    const QString poolState = pe.state.trimmed().toUpper();
+    const QString action = pe.action;
     const bool canExport = (action.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) == 0);
     const bool canImport = (action.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) == 0
                             && poolState == QStringLiteral("ONLINE"));

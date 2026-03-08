@@ -52,11 +52,10 @@ void MainWindow::saveUiSettings() const {
     ini.setValue(QStringLiteral("language"), m_language);
     ini.setValue(QStringLiteral("confirm_actions"), m_actionConfirmEnabled);
     ini.setValue(QStringLiteral("log_max_mb"), m_logMaxSizeMb);
-    const QString level = m_logLevelCombo ? m_logLevelCombo->currentText().trimmed().toLower() : m_logLevelSetting;
+    const QString level = m_logLevelSetting.trimmed().toLower();
     ini.setValue(QStringLiteral("log_level"), level.isEmpty() ? QStringLiteral("normal") : level);
-    bool ok = false;
-    int lines = m_logMaxLinesCombo ? m_logMaxLinesCombo->currentText().toInt(&ok) : m_logMaxLinesSetting;
-    if (!ok || (lines != 100 && lines != 200 && lines != 500 && lines != 1000)) {
+    int lines = m_logMaxLinesSetting;
+    if (lines != 100 && lines != 200 && lines != 500 && lines != 1000) {
         lines = 500;
     }
     ini.setValue(QStringLiteral("log_max_lines"), lines);

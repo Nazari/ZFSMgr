@@ -250,9 +250,7 @@ void MainWindow::onAsyncRefreshDone(int generation) {
 }
 
 void MainWindow::onConnectionSelectionChanged() {
-    if (!m_syncingConnectionFromPoolSelection) {
-        populateAllPoolsTables();
-    }
+    populateAllPoolsTables();
     refreshConnectionNodeDetails();
     updatePoolManagementBoxTitle();
 }
@@ -446,23 +444,6 @@ void MainWindow::refreshConnectionNodeDetails() {
 
     const QString connName = item->data(0, RoleConnName).toString().trimmed();
     const QString poolName = item->data(0, RolePoolName).toString().trimmed();
-    if (!connName.isEmpty() && !poolName.isEmpty() && m_importedPoolsTable) {
-        for (int row = 0; row < m_importedPoolsTable->rowCount(); ++row) {
-            const QTableWidgetItem* c = m_importedPoolsTable->item(row, 0);
-            const QTableWidgetItem* p = m_importedPoolsTable->item(row, 1);
-            if (!c || !p) {
-                continue;
-            }
-            if (c->text().trimmed().compare(connName, Qt::CaseInsensitive) == 0
-                && p->text().trimmed().compare(poolName, Qt::CaseInsensitive) == 0) {
-                m_syncingConnectionFromPoolSelection = true;
-                m_importedPoolsTable->setCurrentCell(row, 0);
-                m_syncingConnectionFromPoolSelection = false;
-                break;
-            }
-        }
-    }
-
     if (m_connPropsStack && m_connPoolPropsPage) {
         m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
     }
@@ -543,40 +524,28 @@ void MainWindow::updateConnectionDetailTitlesForCurrentSelection() {
     }
 }
 
-void MainWindow::onPoolsSelectionChanged() {
-    if (m_syncingConnectionFromPoolSelection) {
-        refreshSelectedPoolDetails();
-        updatePoolManagementBoxTitle();
-        return;
-    }
-    refreshSelectedPoolDetails();
-    updatePoolManagementBoxTitle();
-}
-
 int MainWindow::selectedConnectionIndexForPoolManagement() const {
-    if (m_importedPoolsTable) {
-        const auto sel = m_importedPoolsTable->selectedItems();
-        if (!sel.isEmpty()) {
-            const int row = sel.first()->row();
-            if (QTableWidgetItem* connItem = m_importedPoolsTable->item(row, 0)) {
-                const int idx = findConnectionIndexByName(connItem->text().trimmed());
-                if (idx >= 0 && idx < m_profiles.size()) {
-                    return idx;
-                }
+    if (m_connectionsList) {
+        QTreeWidgetItem* item = nullptr;
+        item = m_connectionsList->currentItem();
+        if (!item) {
+            const auto selected = m_connectionsList->selectedItems();
+            if (!selected.isEmpty()) {
+                item = selected.first();
             }
         }
-    }
-    if (m_connectionsList) {
-        const auto selected = m_connectionsList->selectedItems();
-        if (!selected.isEmpty()) {
-            QTreeWidgetItem* item = selected.first();
+        if (item) {
             while (item && item->parent()) {
                 item = item->parent();
             }
             if (item) {
-                const int idx = item->data(0, Qt::UserRole).toInt();
-                if (idx >= 0 && idx < m_profiles.size()) {
-                    return idx;
+                const int idxByTree = m_connectionsList->indexOfTopLevelItem(item);
+                if (idxByTree >= 0 && idxByTree < m_profiles.size()) {
+                    return idxByTree;
+                }
+                const int idxByRole = item->data(0, Qt::UserRole).toInt();
+                if (idxByRole >= 0 && idxByRole < m_profiles.size()) {
+                    return idxByRole;
                 }
             }
         }
@@ -585,19 +554,18 @@ int MainWindow::selectedConnectionIndexForPoolManagement() const {
 }
 
 void MainWindow::updatePoolManagementBoxTitle() {
-    if (!m_poolMgmtBox) {
-        return;
-    }
     const int idx = selectedConnectionIndexForPoolManagement();
     const QString connText = (idx >= 0 && idx < m_profiles.size())
                                  ? m_profiles[idx].name
                                  : trk(QStringLiteral("t_empty_brkt_01"), QStringLiteral("[vacío]"), QStringLiteral("[empty]"), QStringLiteral("[空]"));
-    m_poolMgmtBox->setTitle(
-        trk(QStringLiteral("t_pool_mgmt_of01"),
-            QStringLiteral("Gestión de Pools de %1"),
-            QStringLiteral("Pool Management of %1"),
-            QStringLiteral("%1 的池管理"))
-            .arg(connText));
+    if (m_poolMgmtBox) {
+        m_poolMgmtBox->setTitle(
+            trk(QStringLiteral("t_pool_mgmt_of01"),
+                QStringLiteral("Gestión de Pools de %1"),
+                QStringLiteral("Pool Management of %1"),
+                QStringLiteral("%1 的池管理"))
+                .arg(connText));
+    }
     if (m_btnPoolNew) {
         m_btnPoolNew->setEnabled(!actionsLocked() && idx >= 0 && idx < m_profiles.size());
     }

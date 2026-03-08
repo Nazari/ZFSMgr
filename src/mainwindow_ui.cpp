@@ -162,10 +162,15 @@ void MainWindow::buildUi() {
         logLevelGroup->addAction(act);
     }
     connect(logLevelGroup, &QActionGroup::triggered, this, [this](QAction* act) {
-        if (!act || !m_logLevelCombo) {
+        if (!act) {
             return;
         }
-        m_logLevelCombo->setCurrentText(act->data().toString());
+        m_logLevelSetting = act->data().toString().trimmed().toLower();
+        if (m_logLevelSetting != QStringLiteral("normal")
+            && m_logLevelSetting != QStringLiteral("info")
+            && m_logLevelSetting != QStringLiteral("debug")) {
+            m_logLevelSetting = QStringLiteral("normal");
+        }
         saveUiSettings();
     });
 
@@ -186,10 +191,13 @@ void MainWindow::buildUi() {
         logLinesGroup->addAction(act);
     }
     connect(logLinesGroup, &QActionGroup::triggered, this, [this](QAction* act) {
-        if (!act || !m_logMaxLinesCombo) {
+        if (!act) {
             return;
         }
-        m_logMaxLinesCombo->setCurrentText(QString::number(act->data().toInt()));
+        const int lines = act->data().toInt();
+        if (lines == 100 || lines == 200 || lines == 500 || lines == 1000) {
+            m_logMaxLinesSetting = lines;
+        }
         trimLogWidget(m_logView);
         saveUiSettings();
     });
@@ -337,6 +345,19 @@ void MainWindow::buildUi() {
                           QStringLiteral("Atajos y estados"),
                           QStringLiteral("Shortcuts and states"),
                           QStringLiteral("快捷键与状态")));
+    });
+
+    QAction* appLogHelpAct = helpMenu->addAction(
+        trk(QStringLiteral("t_help_applog_001"),
+            QStringLiteral("Logs de aplicación"),
+            QStringLiteral("Application logs"),
+            QStringLiteral("应用日志")));
+    connect(appLogHelpAct, &QAction::triggered, this, [this]() {
+        openHelpTopic(QStringLiteral("logs_aplicacion"),
+                      trk(QStringLiteral("t_help_applog_001"),
+                          QStringLiteral("Logs de aplicación"),
+                          QStringLiteral("Application logs"),
+                          QStringLiteral("应用日志")));
     });
 
     QAction* aboutAct = helpMenu->addAction(
@@ -1057,50 +1078,6 @@ void MainWindow::buildUi() {
     m_rightTabs = new QTabWidget(rightConnectionsPage);
     m_rightTabs->setDocumentMode(false);
 
-    // Backend-only pool table (hidden). Data/actions are driven from connection tree nodes.
-    m_importedPoolsTable = new QTableWidget(rightConnectionsPage);
-    m_importedPoolsTable->setColumnCount(5);
-    m_importedPoolsTable->setHorizontalHeaderLabels(
-        {trk(QStringLiteral("t_conexi_n_d70cf0"),
-             QStringLiteral("Conexión"),
-             QStringLiteral("Connection"),
-             QStringLiteral("连接")),
-         trk(QStringLiteral("t_pool_col_001"),
-             QStringLiteral("Pool"),
-             QStringLiteral("Pool"),
-             QStringLiteral("池")),
-         trk(QStringLiteral("t_status_col_001"),
-             QStringLiteral("Estado"),
-             QStringLiteral("Status"),
-             QStringLiteral("状态")),
-         trk(QStringLiteral("t_imported_col01"),
-             QStringLiteral("Importado"),
-             QStringLiteral("Imported"),
-             QStringLiteral("已导入")),
-         trk(QStringLiteral("t_reason_col_001"),
-             QStringLiteral("Motivo"),
-             QStringLiteral("Reason"),
-             QStringLiteral("原因"))});
-    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
-    m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
-    m_importedPoolsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_importedPoolsTable->setContextMenuPolicy(Qt::NoContextMenu);
-    m_importedPoolsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_importedPoolsTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_importedPoolsTable->verticalHeader()->setVisible(false);
-    {
-        QFont f = m_importedPoolsTable->font();
-        f.setPointSize(qMax(6, f.pointSize() - 1));
-        m_importedPoolsTable->setFont(f);
-    }
-    m_importedPoolsTable->verticalHeader()->setDefaultSectionSize(22);
-    m_importedPoolsTable->setStyleSheet(QStringLiteral("QTableWidget::item{padding:1px 3px;}"));
-    enableSortableHeader(m_importedPoolsTable);
-    m_importedPoolsTable->setVisible(false);
-
     m_poolDetailTabs = new QWidget(rightConnectionsPage);
     auto* poolDetailLayout = new QVBoxLayout(m_poolDetailTabs);
     poolDetailLayout->setContentsMargins(0, 0, 0, 0);
@@ -1691,16 +1668,16 @@ void MainWindow::buildUi() {
     auto* rightLogsBody = new QHBoxLayout();
     rightLogsBody->setContentsMargins(0, 0, 0, 0);
     rightLogsBody->setSpacing(6);
-    m_logsTabs = new QTabWidget(rightLogs);
-    m_logsTabs->setDocumentMode(false);
-    m_logsTabs->setStyleSheet(
-        QStringLiteral("QTabWidget::tab-bar { alignment: left; }"
-                       "QTabWidget::pane { margin-top: -1px; }"
-                       "QTabBar::tab { padding: 2px 8px; min-height: 16px; }"
-                       "QTabBar::tab:!selected { margin-top: 1px; }"));
-    auto* appTab = new QWidget(m_logsTabs);
-    auto* appTabLayout = new QVBoxLayout(appTab);
-    m_logView = new QPlainTextEdit(appTab);
+    auto* appLogBox = new QGroupBox(
+        trk(QStringLiteral("t_app_tab_001"),
+            QStringLiteral("Aplicación"),
+            QStringLiteral("Application"),
+            QStringLiteral("应用")),
+        rightLogs);
+    auto* appLogLayout = new QVBoxLayout(appLogBox);
+    appLogLayout->setContentsMargins(6, 8, 6, 6);
+    appLogLayout->setSpacing(4);
+    m_logView = new QPlainTextEdit(appLogBox);
     m_logView->setReadOnly(true);
     m_logView->setLineWrapMode(QPlainTextEdit::NoWrap);
     m_logView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -1708,53 +1685,10 @@ void MainWindow::buildUi() {
     QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     mono.setPointSize(8);
     m_logView->setFont(mono);
-    appTabLayout->addWidget(m_logView, 1);
-    m_logsTabs->addTab(appTab, trk(QStringLiteral("t_app_tab_001"),
-                                   QStringLiteral("Aplicación"),
-                                   QStringLiteral("Application"),
-                                   QStringLiteral("应用")));
+    appLogLayout->addWidget(m_logView, 1);
 
-    auto* controlsPane = new QWidget(rightLogs);
-    controlsPane->setVisible(false);
-    m_logLevelCombo = new QComboBox(rightLogs);
-    m_logLevelCombo->addItems({QStringLiteral("normal"), QStringLiteral("info"), QStringLiteral("debug")});
-    m_logLevelCombo->setCurrentText(m_logLevelSetting);
-    m_logMaxLinesCombo = new QComboBox(rightLogs);
-    m_logMaxLinesCombo->addItems({QStringLiteral("100"), QStringLiteral("200"), QStringLiteral("500"), QStringLiteral("1000")});
-    m_logMaxLinesCombo->setCurrentText(QString::number(m_logMaxLinesSetting));
-    m_logClearBtn = new QPushButton(trk(QStringLiteral("t_clear_001"),
-                                        QStringLiteral("Limpiar"),
-                                        QStringLiteral("Clear"),
-                                        QStringLiteral("清空")),
-                                    rightLogs);
-    m_logCopyBtn = new QPushButton(trk(QStringLiteral("t_copy_001"),
-                                       QStringLiteral("Copiar"),
-                                       QStringLiteral("Copy"),
-                                       QStringLiteral("复制")),
-                                   rightLogs);
-    m_logLevelCombo->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    m_logMaxLinesCombo->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    m_logClearBtn->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    m_logCopyBtn->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    {
-        QFont cf = m_logLevelCombo->font();
-        cf.setPointSize(qMax(6, cf.pointSize() - 1));
-        m_logLevelCombo->setFont(cf);
-        m_logMaxLinesCombo->setFont(cf);
-        m_logClearBtn->setFont(cf);
-        m_logCopyBtn->setFont(cf);
-    }
-    int ctrlW = 56;
-    m_logLevelCombo->setFixedWidth(ctrlW);
-    m_logMaxLinesCombo->setFixedWidth(ctrlW);
-    m_logClearBtn->setFixedWidth(ctrlW);
-    m_logCopyBtn->setFixedWidth(ctrlW);
-    m_logLevelCombo->hide();
-    m_logMaxLinesCombo->hide();
-    m_logClearBtn->hide();
-    m_logCopyBtn->hide();
-    rightLogsBody->addWidget(controlsPane, 0);
-    rightLogsBody->addWidget(m_logsTabs, 1);
+    loadPersistedAppLogToView();
+    rightLogsBody->addWidget(appLogBox, 1);
     rightLogsLayout->addLayout(rightLogsBody, 1);
 
     logBody->addWidget(leftInfo, 1);
@@ -1808,6 +1742,12 @@ void MainWindow::buildUi() {
         });
     }
     connect(m_connectionsList, &QTreeWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
+    connect(m_connectionsList, &QTreeWidget::currentItemChanged, this,
+            [this](QTreeWidgetItem* current, QTreeWidgetItem* previous) {
+                Q_UNUSED(current);
+                Q_UNUSED(previous);
+                onConnectionSelectionChanged();
+            });
     m_connectionsList->setContextMenuPolicy(Qt::NoContextMenu);
     if (m_poolViewTabBar) {
         connect(m_poolViewTabBar, &QTabBar::currentChanged, this, [this](int idx) {
@@ -1905,63 +1845,35 @@ void MainWindow::buildUi() {
         });
     }
     m_rightStack->setCurrentIndex(0);
-    connect(m_importedPoolsTable, &QTableWidget::cellClicked, this, [this](int row, int col) {
-        Q_UNUSED(row);
-        Q_UNUSED(col);
-        onPoolsSelectionChanged();
-    });
-    connect(m_importedPoolsTable, &QTableWidget::itemSelectionChanged, this, [this]() {
-        onPoolsSelectionChanged();
-    });
     connect(m_poolStatusRefreshBtn, &QPushButton::clicked, this, [this]() {
         logUiAction(QStringLiteral("Actualizar estado de pool (botón)"));
-        if (m_importedPoolsTable && !m_importedPoolsTable->selectedItems().isEmpty()) {
+        if (selectedPoolRowFromTree() >= 0) {
             refreshSelectedPoolDetails();
         }
     });
     connect(m_poolStatusImportBtn, &QPushButton::clicked, this, [this]() {
-        if (!m_importedPoolsTable) {
-            return;
-        }
-        const auto sel = m_importedPoolsTable->selectedItems();
-        if (sel.isEmpty()) {
-            return;
-        }
+        const int row = selectedPoolRowFromTree();
+        if (row < 0) return;
         logUiAction(QStringLiteral("Importar pool (botón Estado)"));
-        importPoolFromRow(sel.first()->row());
+        importPoolFromRow(row);
     });
     connect(m_poolStatusExportBtn, &QPushButton::clicked, this, [this]() {
-        if (!m_importedPoolsTable) {
-            return;
-        }
-        const auto sel = m_importedPoolsTable->selectedItems();
-        if (sel.isEmpty()) {
-            return;
-        }
+        const int row = selectedPoolRowFromTree();
+        if (row < 0) return;
         logUiAction(QStringLiteral("Exportar pool (botón Estado)"));
-        exportPoolFromRow(sel.first()->row());
+        exportPoolFromRow(row);
     });
     connect(m_poolStatusScrubBtn, &QPushButton::clicked, this, [this]() {
-        if (!m_importedPoolsTable) {
-            return;
-        }
-        const auto sel = m_importedPoolsTable->selectedItems();
-        if (sel.isEmpty()) {
-            return;
-        }
+        const int row = selectedPoolRowFromTree();
+        if (row < 0) return;
         logUiAction(QStringLiteral("Scrub pool (botón Estado)"));
-        scrubPoolFromRow(sel.first()->row());
+        scrubPoolFromRow(row);
     });
     connect(m_poolStatusDestroyBtn, &QPushButton::clicked, this, [this]() {
-        if (!m_importedPoolsTable) {
-            return;
-        }
-        const auto sel = m_importedPoolsTable->selectedItems();
-        if (sel.isEmpty()) {
-            return;
-        }
+        const int row = selectedPoolRowFromTree();
+        if (row < 0) return;
         logUiAction(QStringLiteral("Destroy pool (botón Estado)"));
-        destroyPoolFromRow(sel.first()->row());
+        destroyPoolFromRow(row);
     });
     connect(m_originPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onOriginPoolChanged(); });
     connect(m_destPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onDestPoolChanged(); });
@@ -2154,21 +2066,6 @@ void MainWindow::buildUi() {
             m_activeConnActionName.clear();
             updateConnectionActionsState();
         }
-    });
-    connect(m_logClearBtn, &QPushButton::clicked, this, [this]() {
-        logUiAction(QStringLiteral("Limpiar log (botón)"));
-        clearAppLog();
-    });
-    connect(m_logCopyBtn, &QPushButton::clicked, this, [this]() {
-        logUiAction(QStringLiteral("Copiar log (botón)"));
-        copyAppLogToClipboard();
-    });
-    connect(m_logMaxLinesCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
-        trimLogWidget(m_logView);
-        saveUiSettings();
-    });
-    connect(m_logLevelCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
-        saveUiSettings();
     });
     connect(m_advTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
         const auto selected = m_advTree->selectedItems();
