@@ -2,8 +2,9 @@
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$BuildDir = Join-Path $ScriptDir "build-windows"
-$SourceDir = Join-Path $ScriptDir "resources"
+$ProjectRoot = Split-Path -Parent $ScriptDir
+$BuildDir = Join-Path $ProjectRoot "build-windows"
+$SourceDir = Join-Path $ProjectRoot "resources"
 $NativeArgs = @()
 $GenerateInnoInstaller = $true
 $InnoScriptPath = $null

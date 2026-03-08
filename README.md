@@ -95,7 +95,7 @@ If required components are missing, connection status and command availability a
 ### Linux
 
 ```bash
-./build-linux.sh
+./scripts/build-linux.sh
 ```
 
 Expected binary: `build-linux/zfsmgr_qt`
@@ -103,7 +103,7 @@ Expected binary: `build-linux/zfsmgr_qt`
 ### Linux AppImage (portable)
 
 ```bash
-./build-linux-appimage.sh
+./scripts/build-linux.sh --appimage
 ```
 
 What it does:
@@ -122,7 +122,7 @@ Notes:
 ### macOS
 
 ```bash
-./build-macos.sh
+./scripts/build-macos.sh
 ```
 
 The script builds the binary and can also generate an unsigned `.app` bundle.
@@ -130,7 +130,7 @@ The script builds the binary and can also generate an unsigned `.app` bundle.
 ### Windows (PowerShell)
 
 ```powershell
-.\build-windows.ps1
+.\scripts\build-windows.ps1
 ```
 
 The script auto-detects toolchain/Qt and builds under `build-windows`.

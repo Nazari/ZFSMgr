@@ -2,25 +2,34 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="${SCRIPT_DIR}/build-linux"
-APPDIR="${SCRIPT_DIR}/AppDir"
-TOOLS_DIR="${SCRIPT_DIR}/.tools/appimage"
-SOURCE_DIR="${SCRIPT_DIR}/resources"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BUILD_DIR="${PROJECT_ROOT}/build-linux"
+SOURCE_DIR="${PROJECT_ROOT}/resources"
+APPDIR="${PROJECT_ROOT}/AppDir"
+TOOLS_DIR="${PROJECT_ROOT}/.tools/appimage"
 ARCH="$(uname -m)"
 SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese@fc16:Descargas/z}"
 APP_VERSION="$(sed -n 's/^project(ZFSMgrQt VERSION \([0-9.]*\).*/\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
+BUILD_APPIMAGE=0
 UPLOAD_SFTP=0
+EXTRA_ARGS=()
+
 if [[ -z "${APP_VERSION}" ]]; then
   APP_VERSION="0.9.1"
 fi
 
-EXTRA_ARGS=()
 for arg in "$@"; do
-  if [[ "${arg}" == "--sftpfc16" ]]; then
-    UPLOAD_SFTP=1
-  else
-    EXTRA_ARGS+=("${arg}")
-  fi
+  case "${arg}" in
+    --appimage)
+      BUILD_APPIMAGE=1
+      ;;
+    --sftpfc16)
+      UPLOAD_SFTP=1
+      ;;
+    *)
+      EXTRA_ARGS+=("${arg}")
+      ;;
+  esac
 done
 
 parse_sftp_target() {
@@ -44,7 +53,6 @@ parse_sftp_target() {
           if [[ "${base_path}" == /* ]]; then
             path="${base_path}${path}"
           else
-            # host:path/... => path relativa al HOME remoto
             path="${base_path}${path}"
           fi
         fi
@@ -52,7 +60,6 @@ parse_sftp_target() {
         host="${host_and_base}"
       fi
     elif [[ "${authority}" == *":"* ]]; then
-      # Formato legacy soportado: sftp://user:host/ruta
       user="${authority%%:*}"
       host="${authority#*:}"
     else
@@ -90,6 +97,17 @@ upload_to_sftp() {
   fi
 }
 
+if [[ "${BUILD_APPIMAGE}" -eq 0 ]]; then
+  if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
+    echo "Error: --sftpfc16 solo es válido junto con --appimage." >&2
+    exit 1
+  fi
+  cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
+  cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
+  echo "Build completado: ${BUILD_DIR}/zfsmgr_qt"
+  exit 0
+fi
+
 if [[ "${ARCH}" != "x86_64" ]]; then
   echo "Error: AppImage build script currently supports x86_64 only (detected: ${ARCH})." >&2
   exit 1
@@ -125,7 +143,6 @@ cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
 echo "Preparing AppDir..."
 rm -rf "${APPDIR}"
 cmake --install "${BUILD_DIR}" --prefix "${APPDIR}/usr"
-# Safety: never ship local connection secrets inside AppImage.
 find "${APPDIR}" -type f -name "connections.ini" -delete || true
 
 mkdir -p "${APPDIR}/usr/share/applications" "${APPDIR}/usr/share/icons/hicolor/512x512/apps"
@@ -141,10 +158,10 @@ Categories=System;Utility;
 Terminal=false
 EOF
 
-cp -f "${SCRIPT_DIR}/icons/ZFSMgr-512.png" "${APPDIR}/usr/share/icons/hicolor/512x512/apps/ZFSMgr.png"
+cp -f "${PROJECT_ROOT}/icons/ZFSMgr-512.png" "${APPDIR}/usr/share/icons/hicolor/512x512/apps/ZFSMgr.png"
 
 echo "Building AppImage..."
-export OUTPUT="${SCRIPT_DIR}/ZFSMgr-${APP_VERSION}-${ARCH}.AppImage"
+export OUTPUT="${PROJECT_ROOT}/ZFSMgr-${APP_VERSION}-${ARCH}.AppImage"
 export QMAKE="${QMAKE:-$(command -v qmake6 || command -v qmake || true)}"
 if [[ -z "${QMAKE}" ]]; then
   echo "Warning: qmake/qmake6 not found in PATH. linuxdeploy-plugin-qt may fail." >&2
@@ -158,7 +175,7 @@ fi
   --output appimage
 
 echo "AppImage generated:"
-ls -lh "${SCRIPT_DIR}"/*.AppImage
+ls -lh "${PROJECT_ROOT}"/*.AppImage
 if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
   upload_to_sftp "${OUTPUT}"
 fi

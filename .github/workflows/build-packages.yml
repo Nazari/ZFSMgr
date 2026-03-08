@@ -29,21 +29,21 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          chmod +x ./build-linux.sh
-          ./build-linux.sh
+          chmod +x ./scripts/build-linux.sh
+          ./scripts/build-linux.sh
 
       - name: Build (macOS)
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          chmod +x ./build-macos.sh
-          ./build-macos.sh
+          chmod +x ./scripts/build-macos.sh
+          ./scripts/build-macos.sh
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          ./build-windows.ps1
+          ./scripts/build-windows.ps1
 
       - name: Upload Linux artifacts
         if: runner.os == 'Linux'

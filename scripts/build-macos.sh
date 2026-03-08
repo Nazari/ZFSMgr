@@ -2,8 +2,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="${SCRIPT_DIR}/build-macos"
-SOURCE_DIR="${SCRIPT_DIR}/resources"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BUILD_DIR="${PROJECT_ROOT}/build-macos"
+SOURCE_DIR="${PROJECT_ROOT}/resources"
 APP_VERSION=""
 BUNDLE_NAME=""
 BUNDLE_APP=1
@@ -117,7 +118,7 @@ Crea primero un certificado de firma de código autofirmado en "Keychain Access"
 3) Identity Type: Self Signed Root
 4) Certificate Type: Code Signing
 5) Guardarlo en tu llavero de login
-Luego vuelve a ejecutar: ./build-macos.sh --bundle
+Luego vuelve a ejecutar: ./scripts/build-macos.sh --bundle
 EOF
   exit 1
 }
