@@ -5,9 +5,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build-linux"
 APPDIR="${SCRIPT_DIR}/AppDir"
 TOOLS_DIR="${SCRIPT_DIR}/.tools/appimage"
+SOURCE_DIR="${SCRIPT_DIR}/resources"
 ARCH="$(uname -m)"
 SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese@fc16:Descargas/z}"
-APP_VERSION="$(sed -n 's/^project(ZFSMgrQt VERSION \([0-9.]*\).*/\1/p' "${SCRIPT_DIR}/CMakeLists.txt" | head -n1)"
+APP_VERSION="$(sed -n 's/^project(ZFSMgrQt VERSION \([0-9.]*\).*/\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
 UPLOAD_SFTP=0
 if [[ -z "${APP_VERSION}" ]]; then
   APP_VERSION="0.9.1"
@@ -118,7 +119,7 @@ download_if_missing \
   "${LINUXDEPLOY_QT_PLUGIN}"
 
 echo "Configuring and building Release binary..."
-cmake -S "${SCRIPT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
+cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
 cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
 
 echo "Preparing AppDir..."

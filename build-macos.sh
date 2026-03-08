@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build-macos"
+SOURCE_DIR="${SCRIPT_DIR}/resources"
 APP_VERSION=""
 BUNDLE_NAME=""
 BUNDLE_APP=1
@@ -141,7 +142,7 @@ elif [[ -d "/usr/local/opt/openssl@3" ]]; then
   export CMAKE_PREFIX_PATH="/usr/local/opt/openssl@3:${CMAKE_PREFIX_PATH:-}"
 fi
 
-cmake_cmd=(cmake -S "${SCRIPT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release)
+cmake_cmd=(cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release)
 if [[ ${#EXTRA_CMAKE_ARGS[@]} -gt 0 ]]; then
   cmake_cmd+=("${EXTRA_CMAKE_ARGS[@]}")
 fi
@@ -151,8 +152,8 @@ fi
 if [[ -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
   APP_VERSION="$(sed -n 's/^CMAKE_PROJECT_VERSION:STATIC=//p' "${BUILD_DIR}/CMakeCache.txt" | head -n1)"
 fi
-if [[ -z "${APP_VERSION}" && -f "${SCRIPT_DIR}/CMakeLists.txt" ]]; then
-  APP_VERSION="$(sed -n 's/.*VERSION[[:space:]]\\([0-9][0-9.]*\\).*/\\1/p' "${SCRIPT_DIR}/CMakeLists.txt" | head -n1)"
+if [[ -z "${APP_VERSION}" && -f "${SOURCE_DIR}/CMakeLists.txt" ]]; then
+  APP_VERSION="$(sed -n 's/.*VERSION[[:space:]]\\([0-9][0-9.]*\\).*/\\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
 fi
 if [[ -z "${APP_VERSION}" ]]; then
   APP_VERSION="0.9.1"

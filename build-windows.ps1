@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BuildDir = Join-Path $ScriptDir "build-windows"
+$SourceDir = Join-Path $ScriptDir "resources"
 $NativeArgs = @()
 $GenerateInnoInstaller = $true
 $InnoScriptPath = $null
@@ -257,7 +258,7 @@ function Test-OpenSslHeaderPresent([string]$root) {
 }
 
 function Get-ProjectVersion {
-  $cmakeFile = Join-Path $ScriptDir "CMakeLists.txt"
+  $cmakeFile = Join-Path $SourceDir "CMakeLists.txt"
   if (-not (Test-Path $cmakeFile)) {
     return "0.0.0"
   }
@@ -505,7 +506,7 @@ for ($i = 0; $i -lt $NativeArgs.Count; $i++) {
 }
 
 if ($hasGenerator) {
-  cmake -S $ScriptDir -B $BuildDir @NativeArgs
+  cmake -S $SourceDir -B $BuildDir @NativeArgs
   if ($LASTEXITCODE -ne 0) {
     throw "Fallo en configuracion CMake (exit $LASTEXITCODE)"
   }
@@ -606,7 +607,7 @@ if ($hasGenerator) {
     }
     New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
     $tryArgs = @($NativeArgs) + @("-G", $cand.Name) + $cand.Extra
-    cmake -S $ScriptDir -B $BuildDir @tryArgs
+    cmake -S $SourceDir -B $BuildDir @tryArgs
     if ($LASTEXITCODE -eq 0) {
       $configured = $true
       break
