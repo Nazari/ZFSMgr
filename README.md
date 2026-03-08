@@ -20,8 +20,8 @@ Legal references:
 ![ZFSMgr UI](docs/images/scr1.png)
 
 ## Releases
-
-- **Beta 0.9.0**: https://github.com/Nazari/ZFSMgr/releases
+In a minute...
+- **Beta 0.9.1**: https://github.com/Nazari/ZFSMgr/releases
 
 ## Main capabilities
 
