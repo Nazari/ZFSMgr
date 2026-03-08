@@ -3,11 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build-macos"
-APP_VERSION="$(sed -n 's/^project(ZFSMgrQt VERSION \\([0-9.]*\\).*/\\1/p' "${SCRIPT_DIR}/CMakeLists.txt" | head -n1)"
-if [[ -z "${APP_VERSION}" ]]; then
-  APP_VERSION="0.1.0"
-fi
-BUNDLE_NAME="ZFSMgr-${APP_VERSION}"
+APP_VERSION=""
+BUNDLE_NAME=""
 BUNDLE_APP=1
 SELF_SIGN_CERT_NAME="${SELF_SIGN_CERT_NAME:-ZFSMgr Local Self-Signed}"
 SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese@fc16:Descargas/z}"
@@ -134,6 +131,19 @@ if [[ ${#EXTRA_CMAKE_ARGS[@]} -gt 0 ]]; then
   cmake_cmd+=("${EXTRA_CMAKE_ARGS[@]}")
 fi
 "${cmake_cmd[@]}"
+
+# Leer versión real de CMake ya configurada (fuente de verdad).
+if [[ -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
+  APP_VERSION="$(sed -n 's/^CMAKE_PROJECT_VERSION:STATIC=//p' "${BUILD_DIR}/CMakeCache.txt" | head -n1)"
+fi
+if [[ -z "${APP_VERSION}" && -f "${SCRIPT_DIR}/CMakeLists.txt" ]]; then
+  APP_VERSION="$(sed -n 's/.*VERSION[[:space:]]\\([0-9][0-9.]*\\).*/\\1/p' "${SCRIPT_DIR}/CMakeLists.txt" | head -n1)"
+fi
+if [[ -z "${APP_VERSION}" ]]; then
+  APP_VERSION="0.9.0"
+fi
+BUNDLE_NAME="ZFSMgr-${APP_VERSION}"
+
 cmake --build "${BUILD_DIR}" -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
 echo "Build completado: ${BUILD_DIR}/${BUNDLE_NAME}.app"
