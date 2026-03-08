@@ -35,8 +35,7 @@ Legal references:
 - Dataset and snapshot management:
   - create, modify, rename (`zfs rename`), delete,
   - mount/unmount (including recursive flows),
-  - snapshot rollback,
-  - bulk snapshot deletion.
+  - snapshot rollback.
 - Source/destination transfers:
   - snapshot copy (`zfs send`/`zfs recv`),
   - level and sync operations,
@@ -45,7 +44,7 @@ Legal references:
   - `From Dir` and `To Dir` with optional source deletion.
 - Logging:
   - combined UI log plus persistent rotating logs,
-  - selectable log level and visible line limits,
+  - selectable log level and visible line limits (from main menu),
   - command and execution detail views.
 - Multi-language UI (Spanish, English, Chinese) with runtime switching.
 - Secret masking in logs (`[secret]`).
@@ -73,14 +72,15 @@ If required components are missing, connection status and command availability a
 
 ## UI layout
 
-- Left panel tabs: `Connections`, `Datasets`, `Advanced`.
-- Right panel: context detail (pools, pool state/properties, dataset trees/properties).
+- Left panel: connections list + quick actions.
+- Right panel: dynamic tabs per selected connection and its pools (properties/content/status).
 - Bottom panel: combined log.
 
 ## Configuration and data
 
 - User config location: `~/.config/ZFSMgr/` on Linux (Qt-equivalent path on macOS/Windows).
-- Connections file: `connections.ini`.
+- Main config file: `config.ini`.
+- One file per connection: `conn_*.ini`.
 - Master password used to protect credentials in configuration.
 
 ## Build requirements
@@ -103,7 +103,7 @@ Expected binary: `build-linux/zfsmgr_qt`
 ### Linux AppImage (portable)
 
 ```bash
-./build-appimage.sh
+./build-linux-appimage.sh
 ```
 
 What it does:
