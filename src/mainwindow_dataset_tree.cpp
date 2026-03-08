@@ -155,15 +155,10 @@ void MainWindow::onDestTreeItemDoubleClicked(QTreeWidgetItem* item, int col) {
     Q_UNUSED(col);
 }
 
-void MainWindow::onOriginTreeContextMenuRequested(const QPoint& pos) {
-    showDatasetContextMenu(QStringLiteral("origin"), m_originTree, pos);
-}
-
-void MainWindow::onDestTreeContextMenuRequested(const QPoint& pos) {
-    showDatasetContextMenu(QStringLiteral("dest"), m_destTree, pos);
-}
-
 void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side) {
+    if (!tree) {
+        return;
+    }
     beginUiBusy();
     m_loadingDatasetTrees = true;
     tree->clear();

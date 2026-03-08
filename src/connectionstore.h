@@ -7,9 +7,9 @@
 struct ConnectionProfile {
     QString id;
     QString name;
+    QString machineUid;
     QString connType;
     QString osType;
-    QString transport;
     QString host;
     int port{0};
     QString username;

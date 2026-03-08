@@ -205,7 +205,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
 
     out.clear();
     err.clear();
-    rc = -1;
     const QStringList zfsVersionCandidates = {
         QStringLiteral("zfs version"),
         QStringLiteral("zfs --version"),
@@ -379,7 +378,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         QStringLiteral("zpool import"),
         QStringLiteral("zpool import -s"),
     };
-    bool importablesFound = false;
     for (const QString& probe : importProbeArgs) {
         out.clear();
         err.clear();
@@ -401,7 +399,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     QStringLiteral("Importar"),
                 });
             }
-            importablesFound = true;
             break;
         }
         if (!err.isEmpty()) {

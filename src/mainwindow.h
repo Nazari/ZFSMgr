@@ -20,6 +20,7 @@ class QPushButton;
 class QAction;
 class QCloseEvent;
 class QTableWidget;
+class QTabBar;
 class QTabWidget;
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -106,7 +107,6 @@ private:
     void deleteConnection();
     void onConnectionSelectionChanged();
     void onPoolsSelectionChanged();
-    void onPoolsListContextMenuRequested(const QPoint& pos);
     void onOriginPoolChanged();
     void onDestPoolChanged();
     void onAdvancedPoolChanged();
@@ -114,12 +114,9 @@ private:
     void onDestTreeSelectionChanged();
     void onOriginTreeItemDoubleClicked(QTreeWidgetItem* item, int col);
     void onDestTreeItemDoubleClicked(QTreeWidgetItem* item, int col);
-    void onOriginTreeContextMenuRequested(const QPoint& pos);
-    void onDestTreeContextMenuRequested(const QPoint& pos);
     void onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item, const QString& side, const QString& chosen);
     void onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* item, int col, const QString& side);
     void clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem* keepItem);
-    void onConnectionListContextMenuRequested(const QPoint& pos);
     void refreshConnectionNodeDetails();
     void updateConnectionDetailTitlesForCurrentSelection();
 
@@ -160,7 +157,6 @@ private:
     void refreshDatasetProperties(const QString& side);
     void setSelectedDataset(const QString& side, const QString& datasetName, const QString& snapshotName);
     DatasetSelectionContext currentDatasetSelection(const QString& side) const;
-    void showDatasetContextMenu(const QString& side, QTreeWidget* tree, const QPoint& pos);
     bool executeDatasetAction(const QString& side, const QString& actionName, const DatasetSelectionContext& ctx, const QString& cmd, int timeoutMs = 45000, bool allowWindowsScript = false);
     bool ensureLocalSudoCredentials(ConnectionProfile& profile);
     QString diagnoseUmountFailure(const DatasetSelectionContext& ctx);
@@ -184,13 +180,11 @@ private:
     void actionAdvancedCreateFromDir();
     void actionAdvancedToDir();
     void actionMountDataset(const QString& side);
-    void actionMountDatasetWithChildren(const QString& side);
     void actionUmountDataset(const QString& side);
     bool mountDataset(const QString& side, const DatasetSelectionContext& ctx);
     bool umountDataset(const QString& side, const DatasetSelectionContext& ctx);
     void actionCreateChildDataset(const QString& side);
     void actionDeleteDatasetOrSnapshot(const QString& side);
-    void actionDeleteAllSnapshots(const QString& side);
     bool ensureParentMountedBeforeMount(const DatasetSelectionContext& ctx);
     bool ensureNoMountpointConflictsBeforeMount(const DatasetSelectionContext& ctx, bool includeDescendants);
     void onDatasetPropsCellChanged(int row, int col);
@@ -262,12 +256,12 @@ private:
     QPushButton* m_btnPoolNew{nullptr};
     QAction* m_menuExitAction{nullptr};
     QGroupBox* m_connActionsBox{nullptr};
-    QLabel* m_connLeftSelectionLabel{nullptr};
     QPushButton* m_btnConnBreakdown{nullptr};
     QPushButton* m_btnConnAssemble{nullptr};
     QPushButton* m_btnConnFromDir{nullptr};
     QPushButton* m_btnConnToDir{nullptr};
     QLabel* m_connOriginSelectionLabel{nullptr};
+    QLabel* m_connDestSelectionLabel{nullptr};
     QPushButton* m_btnConnReset{nullptr};
     QPushButton* m_btnConnCopy{nullptr};
     QPushButton* m_btnConnLevel{nullptr};
@@ -278,6 +272,7 @@ private:
     QTableWidget* m_importedPoolsTable{nullptr};
     QTableWidget* m_importablePoolsTable{nullptr};
     QWidget* m_poolDetailTabs{nullptr};
+    QTabBar* m_poolViewTabBar{nullptr};
     QGroupBox* m_connPropsGroup{nullptr};
     QGroupBox* m_connBottomGroup{nullptr};
     QTableWidget* m_poolPropsTable{nullptr};
@@ -288,14 +283,10 @@ private:
     QWidget* m_connPoolPropsPage{nullptr};
     QWidget* m_connContentPage{nullptr};
     QTreeWidget* m_connContentTree{nullptr};
-    QPushButton* m_connContentMountBtn{nullptr};
-    QPushButton* m_connContentMountChildrenBtn{nullptr};
-    QPushButton* m_connContentUmountBtn{nullptr};
     QPushButton* m_connContentSelectOriginBtn{nullptr};
     QPushButton* m_connContentSelectDestBtn{nullptr};
     QPushButton* m_connContentRollbackBtn{nullptr};
     QPushButton* m_connContentCreateBtn{nullptr};
-    QPushButton* m_connContentDeleteAllSnapsBtn{nullptr};
     QPushButton* m_connContentDeleteBtn{nullptr};
     QTableWidget* m_connContentPropsTable{nullptr};
     QStackedWidget* m_connBottomStack{nullptr};

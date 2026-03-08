@@ -1,12 +1,9 @@
 #include "mainwindow.h"
 
-#include <QAction>
 #include <QComboBox>
 #include <QGroupBox>
-#include <QMenu>
 #include <QMetaObject>
 #include <QMessageBox>
-#include <QPoint>
 #include <QPlainTextEdit>
 #include <QGroupBox>
 #include <QPushButton>
@@ -30,7 +27,6 @@ constexpr int RolePoolImported = Qt::UserRole + 6;
 
 constexpr int NodeConnection = 1;
 constexpr int NodePool = 2;
-constexpr int NodePoolContent = 3;
 
 QString normalizeHostToken(QString host) {
     host = host.trimmed().toLower();
@@ -324,6 +320,10 @@ void MainWindow::refreshConnectionNodeDetails() {
 
     const auto selected = m_connectionsList ? m_connectionsList->selectedItems() : QList<QTreeWidgetItem*>{};
     if (selected.isEmpty()) {
+        if (m_poolViewTabBar) {
+            m_poolViewTabBar->setVisible(false);
+            m_poolViewTabBar->setCurrentIndex(0);
+        }
         setConnectionActionButtonsVisible(false);
         setPoolActionButtonsVisible(false);
         if (m_connPropsStack && m_connPoolPropsPage) {
@@ -358,7 +358,13 @@ void MainWindow::refreshConnectionNodeDetails() {
     const int nodeType = item->data(0, RoleNodeType).toInt();
     setConnectionActionButtonsVisible(nodeType == NodeConnection);
     setPoolActionButtonsVisible(nodeType == NodePool);
-    if (nodeType != NodePool && nodeType != NodePoolContent) {
+    if (m_poolViewTabBar) {
+        m_poolViewTabBar->setVisible(nodeType == NodePool);
+        if (nodeType != NodePool) {
+            m_poolViewTabBar->setCurrentIndex(0);
+        }
+    }
+    if (nodeType != NodePool) {
         if (m_connPropsStack && m_connPoolPropsPage) {
             m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
         }
@@ -393,7 +399,6 @@ void MainWindow::refreshConnectionNodeDetails() {
                 addProp(QStringLiteral("password"), p.password.isEmpty() ? QString() : QStringLiteral("[secret]"), srcIni);
                 addProp(QStringLiteral("keyPath"), p.keyPath, srcIni);
                 addProp(QStringLiteral("connType"), p.connType, srcIni);
-                addProp(QStringLiteral("transport"), p.transport, srcIni);
                 addProp(QStringLiteral("osType"), p.osType, srcIni);
                 addProp(QStringLiteral("useSudo"), p.useSudo ? QStringLiteral("true") : QStringLiteral("false"), srcIni);
                 setTablePopulationMode(m_poolPropsTable, false);
@@ -458,25 +463,6 @@ void MainWindow::refreshConnectionNodeDetails() {
         }
     }
 
-    if (nodeType == NodePoolContent) {
-        resetPoolActionButtons();
-        if (m_connPropsStack && m_connContentPage) {
-            m_connPropsStack->setCurrentWidget(m_connContentPage);
-        }
-        if (m_connBottomStack && m_connDatasetPropsPage) {
-            m_connBottomStack->setCurrentWidget(m_connDatasetPropsPage);
-        }
-        int connIdx = findConnectionIndexByName(connName);
-        if (connIdx >= 0 && connIdx < m_profiles.size() && m_connContentTree) {
-            m_connContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
-            populateDatasetTree(m_connContentTree, connIdx, poolName, QStringLiteral("conncontent"));
-            refreshDatasetProperties(QStringLiteral("conncontent"));
-            updateConnectionActionsState();
-        }
-        updateConnectionDetailTitlesForCurrentSelection();
-        return;
-    }
-
     if (m_connPropsStack && m_connPoolPropsPage) {
         m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
     }
@@ -485,6 +471,19 @@ void MainWindow::refreshConnectionNodeDetails() {
     }
     resetPoolActionButtons();
     refreshSelectedPoolDetails();
+    int connIdx = findConnectionIndexByName(connName);
+    if (connIdx >= 0 && connIdx < m_profiles.size() && m_connContentTree) {
+        m_connContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+        populateDatasetTree(m_connContentTree, connIdx, poolName, QStringLiteral("conncontent"));
+        refreshDatasetProperties(QStringLiteral("conncontent"));
+    }
+    if (m_poolViewTabBar) {
+        const int idx = m_poolViewTabBar->currentIndex();
+        if (idx == 1) {
+            if (m_connPropsStack && m_connContentPage) m_connPropsStack->setCurrentWidget(m_connContentPage);
+            if (m_connBottomStack && m_connDatasetPropsPage) m_connBottomStack->setCurrentWidget(m_connDatasetPropsPage);
+        }
+    }
     updateConnectionActionsState();
     updateConnectionDetailTitlesForCurrentSelection();
 }
@@ -515,22 +514,6 @@ void MainWindow::updateConnectionDetailTitlesForCurrentSelection() {
             const QString poolName = item->data(0, RolePoolName).toString().trimmed();
             propsTitle = QStringLiteral("Propiedades del Pool %1").arg(poolName.isEmpty() ? QStringLiteral("-") : poolName);
             bottomTitle = QStringLiteral("Estado del Pool %1").arg(poolName.isEmpty() ? QStringLiteral("-") : poolName);
-        } else if (nodeType == NodePoolContent) {
-            QString datasetName;
-            if (m_connContentTree) {
-                const auto dsSel = m_connContentTree->selectedItems();
-                if (!dsSel.isEmpty()) {
-                    datasetName = dsSel.first()->data(0, Qt::UserRole).toString().trimmed();
-                }
-            }
-            if (datasetName.isEmpty()) {
-                datasetName = trk(QStringLiteral("t_no_sel_001"),
-                                  QStringLiteral("(sin selección)"),
-                                  QStringLiteral("(no selection)"),
-                                  QStringLiteral("（未选择）"));
-            }
-            propsTitle = QStringLiteral("Contenido del Dataset %1").arg(datasetName);
-            bottomTitle = QStringLiteral("Propiedades del dataset %1").arg(datasetName);
         }
     }
 
@@ -539,6 +522,24 @@ void MainWindow::updateConnectionDetailTitlesForCurrentSelection() {
     }
     if (m_connBottomGroup) {
         m_connBottomGroup->setTitle(bottomTitle);
+    }
+    if (m_poolViewTabBar) {
+        QString tab0 = trk(QStringLiteral("t_pool_props001"),
+                           QStringLiteral("Propiedades"),
+                           QStringLiteral("Properties"),
+                           QStringLiteral("属性"));
+        QString tab1 = trk(QStringLiteral("t_content_node_001"),
+                           QStringLiteral("Contenido"),
+                           QStringLiteral("Content"),
+                           QStringLiteral("内容"));
+        if (!selected.isEmpty() && selected.first()->data(0, RoleNodeType).toInt() == NodePool) {
+            const QString poolName = selected.first()->data(0, RolePoolName).toString().trimmed();
+            const QString shown = poolName.isEmpty() ? QStringLiteral("-") : poolName;
+            tab0 = QStringLiteral("Propiedades %1").arg(shown);
+            tab1 = QStringLiteral("Contenido %1").arg(shown);
+        }
+        m_poolViewTabBar->setTabText(0, tab0);
+        m_poolViewTabBar->setTabText(1, tab1);
     }
 }
 
@@ -550,141 +551,6 @@ void MainWindow::onPoolsSelectionChanged() {
     }
     refreshSelectedPoolDetails();
     updatePoolManagementBoxTitle();
-}
-
-void MainWindow::onPoolsListContextMenuRequested(const QPoint& pos) {
-    if (actionsLocked() || !m_importedPoolsTable) {
-        return;
-    }
-
-    QModelIndex idx = m_importedPoolsTable->indexAt(pos);
-    if (idx.isValid()) {
-        m_importedPoolsTable->setCurrentCell(idx.row(), idx.column());
-        onPoolsSelectionChanged();
-    }
-    const auto sel = m_importedPoolsTable->selectedItems();
-    const bool hasSel = !sel.isEmpty();
-    const int selRow = hasSel ? sel.first()->row() : -1;
-
-    QMenu menu(this);
-    QAction* newAct = menu.addAction(
-        trk(QStringLiteral("t_new_pool_lbl001"), QStringLiteral("Nuevo pool"), QStringLiteral("New pool"), QStringLiteral("新建池")));
-    menu.addSeparator();
-    QAction* refreshAct = menu.addAction(
-        trk(QStringLiteral("t_refresh_btn001"), QStringLiteral("Actualizar"), QStringLiteral("Refresh"), QStringLiteral("刷新")));
-    QAction* importAct = menu.addAction(
-        trk(QStringLiteral("t_import_btn001"), QStringLiteral("Importar"), QStringLiteral("Import"), QStringLiteral("导入")));
-    QAction* exportAct = menu.addAction(
-        trk(QStringLiteral("t_export_btn001"), QStringLiteral("Exportar"), QStringLiteral("Export"), QStringLiteral("导出")));
-    QAction* scrubAct = menu.addAction(QStringLiteral("Scrub"));
-    QAction* destroyAct = menu.addAction(QStringLiteral("Destroy"));
-
-    newAct->setEnabled(!actionsLocked() && selectedConnectionIndexForPoolManagement() >= 0);
-    refreshAct->setEnabled(hasSel && m_poolStatusRefreshBtn && m_poolStatusRefreshBtn->isEnabled());
-    importAct->setEnabled(hasSel && m_poolStatusImportBtn && m_poolStatusImportBtn->isEnabled());
-    exportAct->setEnabled(hasSel && m_poolStatusExportBtn && m_poolStatusExportBtn->isEnabled());
-    scrubAct->setEnabled(hasSel && m_poolStatusScrubBtn && m_poolStatusScrubBtn->isEnabled());
-    destroyAct->setEnabled(hasSel && m_poolStatusDestroyBtn && m_poolStatusDestroyBtn->isEnabled());
-
-    QAction* picked = menu.exec(m_importedPoolsTable->viewport()->mapToGlobal(pos));
-    if (!picked) {
-        return;
-    }
-    if (picked == newAct) {
-        logUiAction(QStringLiteral("Nuevo pool (menú pools)"));
-        createPoolForSelectedConnection();
-        return;
-    }
-    if (!hasSel || selRow < 0) {
-        return;
-    }
-    if (picked == refreshAct) {
-        logUiAction(QStringLiteral("Actualizar estado de pool (menú pools)"));
-        refreshSelectedPoolDetails();
-    } else if (picked == importAct) {
-        logUiAction(QStringLiteral("Importar pool (menú pools)"));
-        importPoolFromRow(selRow);
-    } else if (picked == exportAct) {
-        logUiAction(QStringLiteral("Exportar pool (menú pools)"));
-        exportPoolFromRow(selRow);
-    } else if (picked == scrubAct) {
-        logUiAction(QStringLiteral("Scrub pool (menú pools)"));
-        scrubPoolFromRow(selRow);
-    } else if (picked == destroyAct) {
-        logUiAction(QStringLiteral("Destroy pool (menú pools)"));
-        destroyPoolFromRow(selRow);
-    }
-}
-
-void MainWindow::onConnectionListContextMenuRequested(const QPoint& pos) {
-    if (actionsLocked()) {
-        return;
-    }
-    QTreeWidgetItem* item = m_connectionsList->itemAt(pos);
-    if (item) {
-        m_connectionsList->setCurrentItem(item);
-    }
-
-    auto selectPoolRow = [this](const QString& connName, const QString& poolName) -> int {
-        if (!m_importedPoolsTable) {
-            return -1;
-        }
-        for (int row = 0; row < m_importedPoolsTable->rowCount(); ++row) {
-            const QTableWidgetItem* c = m_importedPoolsTable->item(row, 0);
-            const QTableWidgetItem* p = m_importedPoolsTable->item(row, 1);
-            if (!c || !p) {
-                continue;
-            }
-            if (c->text().trimmed().compare(connName, Qt::CaseInsensitive) == 0
-                && p->text().trimmed().compare(poolName, Qt::CaseInsensitive) == 0) {
-                m_importedPoolsTable->setCurrentCell(row, 0);
-                refreshSelectedPoolDetails();
-                return row;
-            }
-        }
-        return -1;
-    };
-
-    if (item && item->data(0, RoleNodeType).toInt() == NodePool) {
-        const QString connName = item->data(0, RoleConnName).toString().trimmed();
-        const QString poolName = item->data(0, RolePoolName).toString().trimmed();
-        (void)selectPoolRow(connName, poolName);
-        refreshConnectionNodeDetails();
-        return;
-    }
-
-    QTreeWidgetItem* top = item;
-    while (top && top->parent()) {
-        top = top->parent();
-    }
-    if (top) {
-        m_connectionsList->setCurrentItem(top);
-    }
-    const bool hasSel = (m_connectionsList->currentItem() != nullptr);
-
-    QMenu menu(this);
-    QAction* newAct = menu.addAction(
-        trk(QStringLiteral("t_new_conn_ctx001"), QStringLiteral("Nueva Conexión"), QStringLiteral("New Connection"), QStringLiteral("新建连接")));
-    QAction* newPoolAct = menu.addAction(
-        trk(QStringLiteral("t_new_pool_ctx001"), QStringLiteral("Nuevo pool"), QStringLiteral("New pool"), QStringLiteral("新建池")));
-    QAction* refreshAllAct = menu.addAction(
-        trk(QStringLiteral("t_refrescar__7f8af2"), QStringLiteral("Refrescar todo"), QStringLiteral("Refresh all"), QStringLiteral("全部刷新")));
-    newPoolAct->setEnabled(hasSel && selectedConnectionIndexForPoolManagement() >= 0);
-
-    QAction* picked = menu.exec(m_connectionsList->viewport()->mapToGlobal(pos));
-    if (!picked) {
-        return;
-    }
-    if (picked == newAct) {
-        logUiAction(QStringLiteral("Nueva conexión (menú)"));
-        createConnection();
-    } else if (picked == newPoolAct) {
-        logUiAction(QStringLiteral("Nuevo pool (menú conexión)"));
-        createPoolForSelectedConnection();
-    } else if (picked == refreshAllAct) {
-        logUiAction(QStringLiteral("Refrescar todo (menú)"));
-        refreshAllConnections();
-    }
 }
 
 int MainWindow::selectedConnectionIndexForPoolManagement() const {
@@ -907,19 +773,7 @@ void MainWindow::rebuildConnectionList() {
         };
 
         for (const PoolImported& pool : s.importedPools) {
-            QTreeWidgetItem* poolNode = addPoolNode(pool.pool, QStringLiteral("ONLINE"), QStringLiteral("Sí"), QStringLiteral("Exportar"), QString());
-            if (poolNode) {
-                auto* contentNode = new QTreeWidgetItem(poolNode);
-                contentNode->setText(0, trk(QStringLiteral("t_content_node_001"),
-                                            QStringLiteral("Contenido"),
-                                            QStringLiteral("Content"),
-                                            QStringLiteral("内容")));
-                contentNode->setData(0, Qt::UserRole, i);
-                contentNode->setData(0, RoleNodeType, NodePoolContent);
-                contentNode->setData(0, RoleConnName, p.name);
-                contentNode->setData(0, RolePoolName, pool.pool);
-                poolNode->setExpanded(false);
-            }
+            addPoolNode(pool.pool, QStringLiteral("ONLINE"), QStringLiteral("Sí"), QStringLiteral("Exportar"), QString());
         }
         for (const PoolImportable& pool : s.importablePools) {
             const QString stateUp = pool.state.trimmed().toUpper();
@@ -996,7 +850,6 @@ void MainWindow::createConnection() {
     ConnectionDialog dlg(m_language, this);
     ConnectionProfile p;
     p.connType = QStringLiteral("SSH");
-    p.transport = QStringLiteral("SSH");
     p.osType = QStringLiteral("Linux");
     p.port = 22;
     dlg.setProfile(p);

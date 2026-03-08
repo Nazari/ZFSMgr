@@ -51,38 +51,41 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     auto* form = new QFormLayout();
 
     m_nameEdit = new QLineEdit(this);
-    form->addRow(trk(QStringLiteral("t_nombre_e68491"),
-                     QStringLiteral("Nombre"),
-                     QStringLiteral("Name"),
-                     QStringLiteral("名称")),
-                 m_nameEdit);
-
     m_osTypeCombo = new QComboBox(this);
     m_osTypeCombo->addItems({QStringLiteral("Linux"), QStringLiteral("macOS"), QStringLiteral("Windows")});
     m_connTypeCombo = new QComboBox(this);
     m_connTypeCombo->addItems({QStringLiteral("SSH")});
-    auto* osTypeRow = new QWidget(this);
-    auto* osTypeLayout = new QHBoxLayout(osTypeRow);
-    osTypeLayout->setContentsMargins(0, 0, 0, 0);
-    osTypeLayout->setSpacing(8);
+    auto* nameOsRow = new QWidget(this);
+    auto* nameOsLayout = new QHBoxLayout(nameOsRow);
+    nameOsLayout->setContentsMargins(0, 0, 0, 0);
+    nameOsLayout->setSpacing(8);
+    auto* nameLbl = new QLabel(trk(QStringLiteral("t_nombre_e68491"),
+                                   QStringLiteral("Nombre"),
+                                   QStringLiteral("Name"),
+                                   QStringLiteral("名称")), nameOsRow);
     auto* osLbl = new QLabel(trk(QStringLiteral("t_so_2290cf"),
                                  QStringLiteral("S.O."),
                                  QStringLiteral("OS"),
-                                 QStringLiteral("系统")), osTypeRow);
+                                 QStringLiteral("系统")), nameOsRow);
     auto* typeLbl = new QLabel(trk(QStringLiteral("t_tipo_6cc619"),
                                    QStringLiteral("Tipo"),
                                    QStringLiteral("Type"),
-                                   QStringLiteral("类型")), osTypeRow);
+                                   QStringLiteral("类型")), nameOsRow);
+    nameLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     osLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     typeLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    nameLbl->setMinimumWidth(76);
     osLbl->setMinimumWidth(76);
     typeLbl->setMinimumWidth(76);
-    osTypeLayout->addWidget(osLbl, 0);
-    osTypeLayout->addWidget(m_osTypeCombo, 1);
-    osTypeLayout->addSpacing(12);
-    osTypeLayout->addWidget(typeLbl, 0);
-    osTypeLayout->addWidget(m_connTypeCombo, 1);
-    form->addRow(QString(), osTypeRow);
+    nameOsLayout->addWidget(nameLbl, 0);
+    nameOsLayout->addWidget(m_nameEdit, 2);
+    nameOsLayout->addSpacing(12);
+    nameOsLayout->addWidget(osLbl, 0);
+    nameOsLayout->addWidget(m_osTypeCombo, 1);
+    nameOsLayout->addSpacing(12);
+    nameOsLayout->addWidget(typeLbl, 0);
+    nameOsLayout->addWidget(m_connTypeCombo, 1);
+    form->addRow(QString(), nameOsRow);
 
     m_hostEdit = new QLineEdit(this);
     m_portEdit = new QLineEdit(this);
@@ -244,7 +247,6 @@ ConnectionProfile ConnectionDialog::profile() const {
     p.name = m_nameEdit->text().trimmed();
     p.connType = m_connTypeCombo->currentText().trimmed();
     p.osType = m_osTypeCombo->currentText().trimmed();
-    p.transport = p.connType;
     p.host = m_hostEdit->text().trimmed();
     p.port = m_portEdit->text().toInt();
     if (p.port <= 0) {

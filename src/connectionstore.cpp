@@ -130,9 +130,9 @@ LoadResult ConnectionStore::loadConnections() const {
         ConnectionProfile p;
         p.id = ini.value("id", defaultIdFromGroup(group)).toString();
         p.name = ini.value("name").toString();
+        p.machineUid = ini.value("machine_uid").toString();
         p.connType = ini.value("conn_type").toString();
         p.osType = ini.value("os_type").toString();
-        p.transport = ini.value("transport").toString();
         p.host = ini.value("host").toString();
         p.port = ini.value("port", 22).toInt();
         p.username = ini.value("username").toString();
@@ -179,8 +179,7 @@ LoadResult ConnectionStore::loadConnections() const {
     bool hasLocal = false;
     for (const ConnectionProfile& p : result.profiles) {
         if (p.id.compare(QStringLiteral("local"), Qt::CaseInsensitive) == 0
-            || p.connType.compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0
-            || p.transport.compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0) {
+            || p.connType.compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0) {
             hasLocal = true;
             break;
         }
@@ -189,8 +188,8 @@ LoadResult ConnectionStore::loadConnections() const {
         ConnectionProfile local;
         local.id = QStringLiteral("local");
         local.name = QStringLiteral("Local");
+        local.machineUid = QString::fromLatin1(QSysInfo::machineUniqueId().toHex());
         local.connType = QStringLiteral("LOCAL");
-        local.transport = QStringLiteral("LOCAL");
         local.port = 0;
         local.host = QStringLiteral("localhost");
         const QString userEnv = QProcessEnvironment::systemEnvironment().value(QStringLiteral("USER"));
@@ -287,9 +286,9 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
     ini.beginGroup(group);
     ini.setValue("id", id);
     ini.setValue("name", profile.name.trimmed());
+    ini.setValue("machine_uid", profile.machineUid.trimmed());
     ini.setValue("conn_type", profile.connType.trimmed().isEmpty() ? QStringLiteral("SSH") : profile.connType.trimmed());
     ini.setValue("os_type", profile.osType.trimmed().isEmpty() ? QStringLiteral("Linux") : profile.osType.trimmed());
-    ini.setValue("transport", profile.transport.trimmed().isEmpty() ? QStringLiteral("SSH") : profile.transport.trimmed());
     ini.setValue("host", profile.host.trimmed());
     ini.setValue("port", profile.port > 0 ? profile.port : 22);
     ini.setValue("username", profile.username);

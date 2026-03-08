@@ -406,9 +406,9 @@ void MainWindow::createPoolForSelectedConnection() {
             return QString();
         }
         const QString d = m.captured(1);
-        const QString p = m.captured(2);
-        return p.isEmpty() ? QStringLiteral("physicaldrive%1").arg(d)
-                           : QStringLiteral("physicaldrive%1/partition%2").arg(d, p);
+        const QString partNo = m.captured(2);
+        return partNo.isEmpty() ? QStringLiteral("physicaldrive%1").arg(d)
+                                : QStringLiteral("physicaldrive%1/partition%2").arg(d, partNo);
     };
     auto markDevicesInPoolByTokens = [&devicesByPath, &normalizeWinPhysPart](const QSet<QString>& usedTokens) {
         if (usedTokens.isEmpty()) {

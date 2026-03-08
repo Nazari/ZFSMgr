@@ -592,8 +592,7 @@ QString MainWindow::withSudoStreamInput(const ConnectionProfile& p, const QStrin
 }
 
 bool MainWindow::isLocalConnection(const ConnectionProfile& p) const {
-    return p.connType.compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0
-        || p.transport.compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0;
+    return p.connType.compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0;
 }
 
 bool MainWindow::isLocalConnection(int connIdx) const {
@@ -1699,15 +1698,15 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
         if (chunk.isEmpty()) {
             return;
         }
-        QString data = remainder + chunk;
-        data.replace('\r', '\n');
-        const QStringList parts = data.split('\n');
-        if (!data.endsWith('\n')) {
-            remainder = parts.isEmpty() ? data : parts.last();
+        QString chunkData = remainder + chunk;
+        chunkData.replace('\r', '\n');
+        const QStringList parts = chunkData.split('\n');
+        if (!chunkData.endsWith('\n')) {
+            remainder = parts.isEmpty() ? chunkData : parts.last();
         } else {
             remainder.clear();
         }
-        const int limit = data.endsWith('\n') ? parts.size() : qMax(0, parts.size() - 1);
+        const int limit = chunkData.endsWith('\n') ? parts.size() : qMax(0, parts.size() - 1);
         for (int i = 0; i < limit; ++i) {
             const QString ln = parts[i].trimmed();
             if (ln.isEmpty()) {

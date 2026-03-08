@@ -1,40 +1,20 @@
 # Context menus
 
-ZFSMgr uses right-click context menus in several views.
+The current GUI prioritizes visible action buttons.
 
-## Where they appear
+## Current workflow
 
-- Dataset trees (Source, Target, Advanced).
-- Connections list.
+- Use buttons in `Connections`, `New`, and `Actions`.
+- Use dataset action buttons under `Content <pool>`.
+- Apply dataset property changes with `Apply changes`.
 
-## Datasets (trees)
+## Context menus
 
-On a dataset/snapshot you can use:
-
-- Mount
-- Mount with all children
-- Unmount
-- Create child
-- Modify
-- Delete
-- Delete all snapshots
-- Rollback (when a snapshot is selected)
-
-Notes:
-
-- Some options are disabled depending on mounted/unmounted state.
-- If an action is running, menus may be locked.
-
-## Connections (list)
-
-On a connection you can use:
-
-- Refresh
-- Edit
-- Delete
+If any contextual menu is still shown in your build, the same rule applies:
+- unsafe options are blocked while an action is running;
+- destructive actions always require confirmation.
 
 ## Recommendations
 
-- Select target node first, then open the menu.
-- Always review the confirmation window before accepting destructive actions.
-
+- Always review the confirmation window before execution.
+- Use `Reset` in the Actions area to clear source/target selection when needed.

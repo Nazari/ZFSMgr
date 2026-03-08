@@ -32,7 +32,7 @@
 #include <QWidget>
 
 #ifndef ZFSMGR_APP_VERSION
-#define ZFSMGR_APP_VERSION "0.1.0"
+#define ZFSMGR_APP_VERSION "0.9.0"
 #endif
 
 void MainWindow::buildUi() {
@@ -383,7 +383,7 @@ void MainWindow::buildUi() {
                                  QStringLiteral("New"),
                                  QStringLiteral("新建"))));
     const int leftBaseWidth = qMax(340, btnTextWidth + 190);
-    const int leftFixedWidth = qMax(220, static_cast<int>(leftBaseWidth * 0.85 * 1.15 * 1.10 * 1.25 * 0.80 * 1.20));
+    const int leftFixedWidth = qMax(220, static_cast<int>(leftBaseWidth * 0.69));
     leftPane->setMinimumWidth(leftFixedWidth);
     leftPane->setMaximumWidth(leftFixedWidth);
 
@@ -392,16 +392,6 @@ void MainWindow::buildUi() {
     connLayout->setContentsMargins(2, 2, 2, 2);
     connLayout->setSpacing(2);
     const int stdLeftBtnH = 34;
-    const int connBtnMinW = qMax(
-        fm.horizontalAdvance(trk(QStringLiteral("t_refrescar__7f8af2"),
-                                 QStringLiteral("Refrescar todo"),
-                                 QStringLiteral("Refresh all"),
-                                 QStringLiteral("全部刷新"))) + 28,
-        fm.horizontalAdvance(trk(QStringLiteral("t_new_btn_001"),
-                                 QStringLiteral("Nueva"),
-                                 QStringLiteral("New"),
-                                 QStringLiteral("新建"))) + 28);
-
     m_poolMgmtBox = nullptr;
 
     auto* connListBox = new QGroupBox(
@@ -427,26 +417,23 @@ void MainWindow::buildUi() {
     }
 #endif
     connListBoxLayout->addWidget(m_connectionsList, 1);
-    auto* connListButtons = new QHBoxLayout();
-    connListButtons->setContentsMargins(0, 2, 0, 0);
-    connListButtons->setSpacing(6);
     m_btnNew = new QPushButton(
-        trk(QStringLiteral("t_new_conn_ctx001"),
-            QStringLiteral("Nueva Conexión"),
-            QStringLiteral("New Connection"),
-            QStringLiteral("新建连接")),
+        trk(QStringLiteral("t_conn_btn_001"),
+            QStringLiteral("Conexión"),
+            QStringLiteral("Connection"),
+            QStringLiteral("连接")),
         connListBox);
     m_btnRefreshAll = new QPushButton(
         trk(QStringLiteral("t_refrescar__7f8af2"),
-            QStringLiteral("Refrescar todo"),
-            QStringLiteral("Refresh all"),
+            QStringLiteral("Refrescar Todo"),
+            QStringLiteral("Refresh All"),
             QStringLiteral("全部刷新")),
         connListBox);
     m_btnPoolNew = new QPushButton(
-        trk(QStringLiteral("t_new_pool_ctx001"),
-            QStringLiteral("Nuevo pool"),
-            QStringLiteral("New pool"),
-            QStringLiteral("新建池")),
+        trk(QStringLiteral("t_pool_btn_001"),
+            QStringLiteral("Pool"),
+            QStringLiteral("Pool"),
+            QStringLiteral("池")),
         connListBox);
     m_btnNew->setMinimumHeight(stdLeftBtnH);
     m_btnRefreshAll->setMinimumHeight(stdLeftBtnH);
@@ -455,10 +442,19 @@ void MainWindow::buildUi() {
     m_btnRefreshAll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnPoolNew->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnPoolNew->setEnabled(false);
-    connListButtons->addWidget(m_btnNew, 1);
-    connListButtons->addWidget(m_btnRefreshAll, 1);
-    connListButtons->addWidget(m_btnPoolNew, 1);
-    connListBoxLayout->addLayout(connListButtons, 0);
+    connListBoxLayout->addWidget(m_btnRefreshAll, 0);
+    auto* newBox = new QGroupBox(
+        trk(QStringLiteral("t_new_box_001"),
+            QStringLiteral("Nuevo"),
+            QStringLiteral("New"),
+            QStringLiteral("新建")),
+        connListBox);
+    auto* newBoxLayout = new QHBoxLayout(newBox);
+    newBoxLayout->setContentsMargins(6, 8, 6, 6);
+    newBoxLayout->setSpacing(6);
+    newBoxLayout->addWidget(m_btnNew, 1);
+    newBoxLayout->addWidget(m_btnPoolNew, 1);
+    connListBoxLayout->addWidget(newBox, 0);
     connLayout->addWidget(connListBox, 1);
 
     m_connActionsBox = new QGroupBox(
@@ -471,43 +467,30 @@ void MainWindow::buildUi() {
     connActionsLayout->setContentsMargins(6, 8, 6, 6);
     connActionsLayout->setSpacing(8);
 
-    auto* connActionLeftBox = new QWidget(m_connActionsBox);
-    auto* connActionLeftLayout = new QVBoxLayout(connActionLeftBox);
-    connActionLeftLayout->setContentsMargins(6, 2, 6, 4);
-    connActionLeftLayout->setSpacing(4);
-    m_connLeftSelectionLabel = new QLabel(
-        trk(QStringLiteral("t_empty_sel_001"),
-            QStringLiteral("(vacío)"),
-            QStringLiteral("(empty)"),
-            QStringLiteral("（空）")),
-        connActionLeftBox);
-    m_connLeftSelectionLabel->setWordWrap(true);
-    m_connLeftSelectionLabel->setMinimumHeight(34);
-    connActionLeftLayout->addWidget(m_connLeftSelectionLabel);
     m_btnConnBreakdown = new QPushButton(
         trk(QStringLiteral("t_breakdown_btn1"),
             QStringLiteral("Desglosar"),
             QStringLiteral("Break down"),
             QStringLiteral("拆分")),
-        connActionLeftBox);
+        m_connActionsBox);
     m_btnConnAssemble = new QPushButton(
         trk(QStringLiteral("t_assemble_btn1"),
             QStringLiteral("Ensamblar"),
             QStringLiteral("Assemble"),
             QStringLiteral("组装")),
-        connActionLeftBox);
+        m_connActionsBox);
     m_btnConnFromDir = new QPushButton(
         trk(QStringLiteral("t_from_dir_btn1"),
             QStringLiteral("Desde Dir"),
             QStringLiteral("From Dir"),
             QStringLiteral("来自目录")),
-        connActionLeftBox);
+        m_connActionsBox);
     m_btnConnToDir = new QPushButton(
         trk(QStringLiteral("t_to_dir_btn_001"),
             QStringLiteral("Hacia Dir"),
             QStringLiteral("To Dir"),
             QStringLiteral("到目录")),
-        connActionLeftBox);
+        m_connActionsBox);
     m_btnConnBreakdown->setToolTip(
         trk(QStringLiteral("t_tt_breakdown001"), QStringLiteral("Construye datasets a partir de directorios. "
                            "Requiere dataset y descendientes montados. "
@@ -556,18 +539,6 @@ void MainWindow::buildUi() {
     m_btnConnAssemble->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnFromDir->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnToDir->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    auto* connLeftBtns = new QGridLayout();
-    connLeftBtns->setContentsMargins(0, 0, 0, 0);
-    connLeftBtns->setHorizontalSpacing(6);
-    connLeftBtns->setVerticalSpacing(6);
-    connLeftBtns->setColumnStretch(0, 1);
-    connLeftBtns->setColumnStretch(1, 1);
-    connLeftBtns->addWidget(m_btnConnBreakdown, 0, 0);
-    connLeftBtns->addWidget(m_btnConnAssemble, 0, 1);
-    connLeftBtns->addWidget(m_btnConnFromDir, 1, 0);
-    connLeftBtns->addWidget(m_btnConnToDir, 1, 1);
-    connActionLeftLayout->addLayout(connLeftBtns);
-
     auto* connActionRightBox = new QWidget(m_connActionsBox);
     auto* connActionRightLayout = new QVBoxLayout(connActionRightBox);
     connActionRightLayout->setContentsMargins(6, 2, 6, 4);
@@ -579,8 +550,17 @@ void MainWindow::buildUi() {
             QStringLiteral("源：（空）")),
         connActionRightBox);
     m_connOriginSelectionLabel->setWordWrap(true);
-    m_connOriginSelectionLabel->setMinimumHeight(34);
+    m_connOriginSelectionLabel->setMinimumHeight(20);
     connActionRightLayout->addWidget(m_connOriginSelectionLabel);
+    m_connDestSelectionLabel = new QLabel(
+        trk(QStringLiteral("t_conn_dest_sel01"),
+            QStringLiteral("Destino:(vacío)"),
+            QStringLiteral("Target:(empty)"),
+            QStringLiteral("目标：（空）")),
+        connActionRightBox);
+    m_connDestSelectionLabel->setWordWrap(true);
+    m_connDestSelectionLabel->setMinimumHeight(20);
+    connActionRightLayout->addWidget(m_connDestSelectionLabel);
     m_btnConnReset = new QPushButton(
         trk(QStringLiteral("t_reset_btn_001"),
             QStringLiteral("Reset"),
@@ -654,7 +634,6 @@ void MainWindow::buildUi() {
     connRightBtns->addWidget(m_btnConnLevel, 1, 1);
     connActionRightLayout->addLayout(connRightBtns);
     connActionsLayout->addWidget(connActionRightBox, 1);
-    connActionsLayout->addWidget(connActionLeftBox, 1);
     connLayout->addWidget(m_connActionsBox, 0);
     connectionsTab->setLayout(connLayout);
 
@@ -1108,7 +1087,7 @@ void MainWindow::buildUi() {
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     m_importedPoolsTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
     m_importedPoolsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_importedPoolsTable->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_importedPoolsTable->setContextMenuPolicy(Qt::NoContextMenu);
     m_importedPoolsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_importedPoolsTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_importedPoolsTable->verticalHeader()->setVisible(false);
@@ -1126,6 +1105,20 @@ void MainWindow::buildUi() {
     auto* poolDetailLayout = new QVBoxLayout(m_poolDetailTabs);
     poolDetailLayout->setContentsMargins(0, 0, 0, 0);
     poolDetailLayout->setSpacing(4);
+    m_poolViewTabBar = new QTabBar(m_poolDetailTabs);
+    m_poolViewTabBar->addTab(trk(QStringLiteral("t_pool_props001"),
+                                 QStringLiteral("Propiedades"),
+                                 QStringLiteral("Properties"),
+                                 QStringLiteral("属性")));
+    m_poolViewTabBar->addTab(trk(QStringLiteral("t_content_node_001"),
+                                 QStringLiteral("Contenido"),
+                                 QStringLiteral("Content"),
+                                 QStringLiteral("内容")));
+    m_poolViewTabBar->setExpanding(false);
+    m_poolViewTabBar->setDrawBase(true);
+    m_poolViewTabBar->setCurrentIndex(0);
+    m_poolViewTabBar->setVisible(false);
+    poolDetailLayout->addWidget(m_poolViewTabBar, 0);
     m_connPropsGroup = new QGroupBox(trk(QStringLiteral("t_pool_props001"),
                                          QStringLiteral("Propiedades"),
                                          QStringLiteral("Properties"),
@@ -1279,39 +1272,30 @@ void MainWindow::buildUi() {
     connContentActions->setColumnStretch(0, 1);
     connContentActions->setColumnStretch(1, 1);
     connContentActions->setColumnStretch(2, 1);
-    m_connContentMountBtn = new QPushButton(
-        trk(QStringLiteral("t_mount_menu_001"), QStringLiteral("Montar"), QStringLiteral("Mount"), QStringLiteral("挂载")),
-        m_connContentPage);
-    m_connContentMountChildrenBtn = new QPushButton(
-        trk(QStringLiteral("t_mount_child001"), QStringLiteral("Montar con todos los hijos"),
-            QStringLiteral("Mount with all children"), QStringLiteral("挂载并包含所有子项")),
-        m_connContentPage);
-    m_connContentUmountBtn = new QPushButton(
-        trk(QStringLiteral("t_umount_menu001"), QStringLiteral("Desmontar"), QStringLiteral("Unmount"), QStringLiteral("卸载")),
-        m_connContentPage);
+    connContentActions->setColumnStretch(3, 1);
+    connContentActions->setColumnStretch(4, 1);
+    connContentActions->setColumnStretch(5, 1);
+    connContentActions->setColumnStretch(6, 1);
+    connContentActions->setColumnStretch(7, 1);
+    connContentActions->setColumnStretch(8, 1);
     m_connContentSelectOriginBtn = new QPushButton(
-        trk(QStringLiteral("t_select_origin1"), QStringLiteral("Seleccionar como origen"),
-            QStringLiteral("Select as source"), QStringLiteral("设为源")),
+        trk(QStringLiteral("t_select_origin1"), QStringLiteral("Origen"),
+            QStringLiteral("Source"), QStringLiteral("源")),
         m_connContentPage);
     m_connContentSelectDestBtn = new QPushButton(
-        trk(QStringLiteral("t_select_dest_001"), QStringLiteral("Seleccionar como destino"),
-            QStringLiteral("Select as target"), QStringLiteral("设为目标")),
+        trk(QStringLiteral("t_select_dest_001"), QStringLiteral("Destino"),
+            QStringLiteral("Target"), QStringLiteral("目标")),
         m_connContentPage);
     m_connContentRollbackBtn = new QPushButton(QStringLiteral("Rollback"), m_connContentPage);
     m_connContentCreateBtn = new QPushButton(
-        trk(QStringLiteral("t_create_ch_001"), QStringLiteral("Crear hijo"), QStringLiteral("Create child"), QStringLiteral("创建子项")),
-        m_connContentPage);
-    m_connContentDeleteAllSnapsBtn = new QPushButton(
-        trk(QStringLiteral("t_del_all_snaps1"), QStringLiteral("Borrar todos los snapshots"),
-            QStringLiteral("Delete all snapshots"), QStringLiteral("删除所有快照")),
+        trk(QStringLiteral("t_create_ch_001"), QStringLiteral("Crear"), QStringLiteral("Create"), QStringLiteral("创建")),
         m_connContentPage);
     m_connContentDeleteBtn = new QPushButton(
         trk(QStringLiteral("t_delete_menu002"), QStringLiteral("Borrar"), QStringLiteral("Delete"), QStringLiteral("删除")),
         m_connContentPage);
     const QList<QPushButton*> connContentButtons = {
-        m_connContentMountBtn,         m_connContentMountChildrenBtn, m_connContentUmountBtn,
         m_connContentSelectOriginBtn,  m_connContentSelectDestBtn,    m_connContentRollbackBtn,
-        m_connContentCreateBtn,        m_connContentDeleteAllSnapsBtn, m_connContentDeleteBtn};
+        m_connContentCreateBtn,        m_connContentDeleteBtn};
     for (QPushButton* btn : connContentButtons) {
         if (!btn) {
             continue;
@@ -1320,15 +1304,15 @@ void MainWindow::buildUi() {
         btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         btn->setEnabled(false);
     }
-    connContentActions->addWidget(m_connContentMountBtn, 0, 0);
-    connContentActions->addWidget(m_connContentMountChildrenBtn, 0, 1, 1, 2);
-    connContentActions->addWidget(m_connContentUmountBtn, 1, 0);
-    connContentActions->addWidget(m_connContentRollbackBtn, 1, 1);
-    connContentActions->addWidget(m_connContentCreateBtn, 1, 2);
-    connContentActions->addWidget(m_connContentSelectOriginBtn, 2, 0);
-    connContentActions->addWidget(m_connContentSelectDestBtn, 2, 1);
-    connContentActions->addWidget(m_connContentDeleteAllSnapsBtn, 3, 0, 1, 2);
-    connContentActions->addWidget(m_connContentDeleteBtn, 3, 2);
+    connContentActions->addWidget(m_connContentRollbackBtn, 0, 0);
+    connContentActions->addWidget(m_connContentCreateBtn, 0, 1);
+    connContentActions->addWidget(m_connContentSelectOriginBtn, 0, 2);
+    connContentActions->addWidget(m_connContentSelectDestBtn, 0, 3);
+    connContentActions->addWidget(m_connContentDeleteBtn, 0, 4);
+    connContentActions->addWidget(m_btnConnBreakdown, 0, 5);
+    connContentActions->addWidget(m_btnConnAssemble, 0, 6);
+    connContentActions->addWidget(m_btnConnFromDir, 0, 7);
+    connContentActions->addWidget(m_btnConnToDir, 0, 8);
     connContentLayout->addLayout(connContentActions);
     m_connPropsStack->addWidget(m_connContentPage);
     m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
@@ -1380,7 +1364,8 @@ void MainWindow::buildUi() {
     m_connContentPropsTable->horizontalHeader()->setStretchLastSection(false);
     m_connContentPropsTable->setColumnWidth(0, 200);
     m_connContentPropsTable->setColumnWidth(1, 210);
-    const int connInheritColWidth = qMax(36, static_cast<int>((m_connContentPropsTable->fontMetrics().horizontalAdvance(QStringLiteral("Inherit")) / 2 + 12) * 1.10));
+    const int inheritTextPx = m_connContentPropsTable->fontMetrics().horizontalAdvance(QStringLiteral("Inherit"));
+    const int connInheritColWidth = qMax(36, static_cast<int>(((static_cast<double>(inheritTextPx) / 2.0) + 12.0) * 1.10));
     m_connContentPropsTable->setColumnWidth(2, connInheritColWidth);
     m_connContentPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
     m_connContentPropsTable->verticalHeader()->setVisible(false);
@@ -1670,8 +1655,8 @@ void MainWindow::buildUi() {
         m_statusText->setFont(f);
     }
     {
-        const QFontMetrics fm(m_statusText->font());
-        const int h = fm.lineSpacing() * 2 + 10;
+        const QFontMetrics statusFm(m_statusText->font());
+        const int h = statusFm.lineSpacing() * 2 + 10;
         m_statusText->setFixedHeight(h);
         m_statusText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     }
@@ -1824,6 +1809,20 @@ void MainWindow::buildUi() {
     }
     connect(m_connectionsList, &QTreeWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
     m_connectionsList->setContextMenuPolicy(Qt::NoContextMenu);
+    if (m_poolViewTabBar) {
+        connect(m_poolViewTabBar, &QTabBar::currentChanged, this, [this](int idx) {
+            if (!m_connPropsStack || !m_connBottomStack) {
+                return;
+            }
+            if (idx == 1) {
+                if (m_connContentPage) m_connPropsStack->setCurrentWidget(m_connContentPage);
+                if (m_connDatasetPropsPage) m_connBottomStack->setCurrentWidget(m_connDatasetPropsPage);
+            } else {
+                if (m_connPoolPropsPage) m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
+                if (m_connStatusPage) m_connBottomStack->setCurrentWidget(m_connStatusPage);
+            }
+        });
+    }
     if (m_connContentTree) {
         connect(m_connContentTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
             refreshDatasetProperties(QStringLiteral("conncontent"));
@@ -1838,24 +1837,6 @@ void MainWindow::buildUi() {
         connect(m_connContentTree, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int col) {
             onDatasetTreeItemChanged(m_connContentTree, item, col, QStringLiteral("conncontent"));
             updateConnectionActionsState();
-        });
-    }
-    if (m_connContentMountBtn) {
-        connect(m_connContentMountBtn, &QPushButton::clicked, this, [this]() {
-            logUiAction(QStringLiteral("Montar dataset (botón Contenido)"));
-            actionMountDataset(QStringLiteral("conncontent"));
-        });
-    }
-    if (m_connContentMountChildrenBtn) {
-        connect(m_connContentMountChildrenBtn, &QPushButton::clicked, this, [this]() {
-            logUiAction(QStringLiteral("Montar dataset con hijos (botón Contenido)"));
-            actionMountDatasetWithChildren(QStringLiteral("conncontent"));
-        });
-    }
-    if (m_connContentUmountBtn) {
-        connect(m_connContentUmountBtn, &QPushButton::clicked, this, [this]() {
-            logUiAction(QStringLiteral("Desmontar dataset (botón Contenido)"));
-            actionUmountDataset(QStringLiteral("conncontent"));
         });
     }
     if (m_connContentSelectOriginBtn) {
@@ -1907,12 +1888,6 @@ void MainWindow::buildUi() {
             actionCreateChildDataset(QStringLiteral("conncontent"));
         });
     }
-    if (m_connContentDeleteAllSnapsBtn) {
-        connect(m_connContentDeleteAllSnapsBtn, &QPushButton::clicked, this, [this]() {
-            logUiAction(QStringLiteral("Borrar todos los snapshots (botón Contenido)"));
-            actionDeleteAllSnapshots(QStringLiteral("conncontent"));
-        });
-    }
     if (m_connContentDeleteBtn) {
         connect(m_connContentDeleteBtn, &QPushButton::clicked, this, [this]() {
             logUiAction(QStringLiteral("Borrar dataset/snapshot (botón Contenido)"));
@@ -1937,9 +1912,6 @@ void MainWindow::buildUi() {
     });
     connect(m_importedPoolsTable, &QTableWidget::itemSelectionChanged, this, [this]() {
         onPoolsSelectionChanged();
-    });
-    connect(m_importedPoolsTable, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
-        onPoolsListContextMenuRequested(pos);
     });
     connect(m_poolStatusRefreshBtn, &QPushButton::clicked, this, [this]() {
         logUiAction(QStringLiteral("Actualizar estado de pool (botón)"));
@@ -2011,18 +1983,9 @@ void MainWindow::buildUi() {
     connect(m_destTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int col) {
         onDestTreeItemDoubleClicked(item, col);
     });
-    m_originTree->setContextMenuPolicy(Qt::CustomContextMenu);
-    m_destTree->setContextMenuPolicy(Qt::CustomContextMenu);
-    m_advTree->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_originTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
-        onOriginTreeContextMenuRequested(pos);
-    });
-    connect(m_destTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
-        onDestTreeContextMenuRequested(pos);
-    });
-    connect(m_advTree, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
-        showDatasetContextMenu(QStringLiteral("advanced"), m_advTree, pos);
-    });
+    m_originTree->setContextMenuPolicy(Qt::NoContextMenu);
+    m_destTree->setContextMenuPolicy(Qt::NoContextMenu);
+    m_advTree->setContextMenuPolicy(Qt::NoContextMenu);
     connect(m_datasetPropsTable, &QTableWidget::cellChanged, this, [this](int row, int col) {
         onDatasetPropsCellChanged(row, col);
     });
