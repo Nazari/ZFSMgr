@@ -7,7 +7,7 @@ $NativeArgs = @()
 $GenerateInnoInstaller = $true
 $InnoScriptPath = $null
 $InnoOutputDir = Join-Path $BuildDir "installer"
-$SftpTarget = if ($env:ZFSMGR_SFTP_TARGET) { $env:ZFSMGR_SFTP_TARGET } else { "sftp://linarese:fc16/Descargas/z" }
+$SftpTarget = if ($env:ZFSMGR_SFTP_TARGET) { $env:ZFSMGR_SFTP_TARGET } else { "sftp://linarese@fc16:Descargas/z" }
 
 for ($i = 0; $i -lt $args.Count; $i++) {
   $arg = $args[$i]
@@ -50,28 +50,48 @@ function Resolve-SftpTarget([string]$target) {
     throw "Destino SFTP vacío."
   }
   $t = $target.Trim()
-  if ($t -match '^sftp://') {
-    $body = $t.Substring(7)
-    $slash = $body.IndexOf('/')
-    if ($slash -lt 0) {
-      throw "Destino SFTP inválido: $target"
+  if ($t -match '^sftp://|^sft://') {
+    if ($t.StartsWith("sftp://")) {
+      $body = $t.Substring(7)
+    } else {
+      $body = $t.Substring(6)
     }
-    $authority = $body.Substring(0, $slash)
-    $path = "/" + $body.Substring($slash + 1)
+    $slash = $body.IndexOf('/')
+    $authority = $body
+    $path = ""
+    if ($slash -ge 0) {
+      $authority = $body.Substring(0, $slash)
+      $path = "/" + $body.Substring($slash + 1)
+    }
     $user = $null
     $host = $null
     if ($authority.Contains("@")) {
       $parts = $authority.Split("@", 2)
       $user = $parts[0]
-      $host = $parts[1]
-    } elseif ($authority.Contains(":")) {
-      # Formato legacy soportado: sftp://user:host/ruta
-      $parts = $authority.Split(":", 2)
-      $user = $parts[0]
-      $host = $parts[1]
+      $hostPart = $parts[1]
+      if ($hostPart.Contains(":")) {
+        $hp = $hostPart.Split(":", 2)
+        $host = $hp[0]
+        if ([string]::IsNullOrWhiteSpace($path) -and -not [string]::IsNullOrWhiteSpace($hp[1])) {
+          $path = $hp[1]
+        }
+      } else {
+        $host = $hostPart
+      }
     } else {
       $user = $env:USERNAME
-      $host = $authority
+      if ($authority.Contains(":")) {
+        $hp = $authority.Split(":", 2)
+        $host = $hp[0]
+        if ([string]::IsNullOrWhiteSpace($path) -and -not [string]::IsNullOrWhiteSpace($hp[1])) {
+          $path = $hp[1]
+        }
+      } else {
+        $host = $authority
+      }
+    }
+    if ([string]::IsNullOrWhiteSpace($path)) {
+      throw "Destino SFTP inválido: $target"
     }
     return [PSCustomObject]@{
       Remote = "$user@$host"

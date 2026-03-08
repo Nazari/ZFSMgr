@@ -10,7 +10,7 @@ fi
 BUNDLE_NAME="ZFSMgr-${APP_VERSION}"
 BUNDLE_APP=1
 SELF_SIGN_CERT_NAME="${SELF_SIGN_CERT_NAME:-ZFSMgr Local Self-Signed}"
-SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese:fc16/Descargas/z}"
+SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese@fc16:Descargas/z}"
 EXTRA_CMAKE_ARGS=()
 
 for arg in "$@"; do
@@ -26,8 +26,9 @@ done
 parse_sftp_target() {
   local target="$1"
   local authority path user host
-  if [[ "${target}" =~ ^sftp:// ]]; then
+  if [[ "${target}" =~ ^sftp:// || "${target}" =~ ^sft:// ]]; then
     target="${target#sftp://}"
+    target="${target#sft://}"
     authority="${target%%/*}"
     path="/${target#*/}"
     if [[ "${authority}" == *"@"* ]]; then
