@@ -614,6 +614,5 @@ void MainWindow::actionAdvancedAssemble() {
     }
     if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Ensamblar"), ctx, cmd, 0, allowWindowsScript)) {
         updateAdvancedSelectionUi(ds, QString());
-        refreshConnectionByIndex(ctx.connIdx);
     }
 }

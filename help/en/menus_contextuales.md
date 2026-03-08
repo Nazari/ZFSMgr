@@ -1,18 +1,32 @@
 # Context menus
 
-The current GUI prioritizes visible action buttons.
+The GUI now combines visible buttons and right-click context menus.
 
 ## Current workflow
 
-- Use buttons in `Connections`, `New`, and `Actions`.
-- Use dataset action buttons under `Content <pool>`.
+- Use buttons in `Connections` and `New`.
+- Use buttons in the left `Actions` area for transfer operations.
+- In `Content <pool>`, run dataset/snapshot actions using right-click on the tree.
 - Apply dataset property changes with `Apply changes`.
 
-## Context menus
+## Context menu in `Content <pool>`
 
-If any contextual menu is still shown in your build, the same rule applies:
-- unsafe options are blocked while an action is running;
-- destructive actions always require confirmation.
+For the selected dataset/snapshot, the context menu provides:
+- `Rollback`
+- `Create`
+- `Delete`
+- `Source`
+- `Target`
+- `Break down`
+- `Assemble`
+- `From Dir`
+- `To Dir`
+
+## Rules
+
+- Unsafe options are blocked while an action is running.
+- Destructive actions always require confirmation.
+- Enabled/disabled state follows the same logic used by action buttons.
 
 ## Recommendations
 

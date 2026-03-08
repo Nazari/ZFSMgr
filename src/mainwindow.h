@@ -104,6 +104,17 @@ private:
         QMap<QString, QString> snapshotByDataset;
     };
 
+    struct DatasetPropsDraft {
+        QMap<QString, QString> valuesByProp;
+        QMap<QString, bool> inheritByProp;
+        bool dirty{false};
+    };
+
+    struct ConnectionNavState {
+        QString entityTabKey; // "conn" o "pool:<poolName>"
+        QMap<QString, int> poolSubtabByPoolName; // poolName -> subtab index
+    };
+
     void buildUi();
     void loadConnections();
     void rebuildConnectionsTable();
@@ -116,6 +127,8 @@ private:
     void onConnectionSelectionChanged();
     void rebuildConnectionEntityTabs();
     void onConnectionEntityTabChanged(int idx);
+    void saveConnectionNavState(int connIdx);
+    void restoreConnectionPoolSubtabState(int connIdx, const QString& poolName);
     void onOriginPoolChanged();
     void onDestPoolChanged();
     void onAdvancedPoolChanged();
@@ -320,6 +333,7 @@ private:
     QWidget* m_connDatasetPropsPage{nullptr};
     QString m_connContentToken;
     QMap<QString, ConnContentTreeState> m_connContentTreeStateByToken;
+    QMap<QString, ConnectionNavState> m_connectionNavStateByConnId;
     QPlainTextEdit* m_poolStatusText{nullptr};
     QPushButton* m_poolStatusRefreshBtn{nullptr};
     QPushButton* m_poolStatusImportBtn{nullptr};
@@ -370,6 +384,7 @@ private:
     QMap<QString, QString> m_propsOriginalValues;
     QMap<QString, bool> m_propsOriginalInherit;
     bool m_propsDirty{false};
+    QMap<QString, DatasetPropsDraft> m_propsDraftByKey;
     QString m_advPropsDataset;
     QMap<QString, QString> m_advPropsOriginalValues;
     QMap<QString, bool> m_advPropsOriginalInherit;

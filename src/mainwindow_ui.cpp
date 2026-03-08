@@ -322,7 +322,9 @@ void MainWindow::buildUi() {
         {QStringLiteral("accion_sincronizar"), QStringLiteral("t_sync_btn_001"), QStringLiteral("Sincronizar"), QStringLiteral("Sync"), QStringLiteral("同步")},
         {QStringLiteral("accion_nivelar"), QStringLiteral("t_level_btn_001"), QStringLiteral("Nivelar"), QStringLiteral("Level"), QStringLiteral("对齐")},
         {QStringLiteral("accion_desglosar"), QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Breakdown"), QStringLiteral("拆分")},
-        {QStringLiteral("accion_ensamblar"), QStringLiteral("t_assemble_btn1"), QStringLiteral("Ensamblar"), QStringLiteral("Assemble"), QStringLiteral("合并")}
+        {QStringLiteral("accion_ensamblar"), QStringLiteral("t_assemble_btn1"), QStringLiteral("Ensamblar"), QStringLiteral("Assemble"), QStringLiteral("合并")},
+        {QStringLiteral("accion_desde_dir"), QStringLiteral("t_from_dir_btn1"), QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")},
+        {QStringLiteral("accion_hacia_dir"), QStringLiteral("t_to_dir_btn_001"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")}
     };
     for (const HelpTopicItem& item : helpActions) {
         QAction* act = actionsHelpMenu->addAction(trk(item.key, item.es, item.en, item.zh));
@@ -427,7 +429,7 @@ void MainWindow::buildUi() {
                                  QStringLiteral("New"),
                                  QStringLiteral("新建"))));
     const int leftBaseWidth = qMax(340, btnTextWidth + 190);
-    const int leftFixedWidth = qMax(220, static_cast<int>(leftBaseWidth * 0.69));
+    const int leftFixedWidth = qMax(220, static_cast<int>(leftBaseWidth * 0.69 * 1.20));
     leftPane->setMinimumWidth(leftFixedWidth);
     leftPane->setMaximumWidth(leftFixedWidth);
 
@@ -1284,19 +1286,8 @@ void MainWindow::buildUi() {
         m_connContentTree->setStyle(fusion);
     }
 #endif
-    auto* connContentActions = new QGridLayout();
-    connContentActions->setContentsMargins(0, 0, 0, 0);
-    connContentActions->setHorizontalSpacing(6);
-    connContentActions->setVerticalSpacing(6);
-    connContentActions->setColumnStretch(0, 1);
-    connContentActions->setColumnStretch(1, 1);
-    connContentActions->setColumnStretch(2, 1);
-    connContentActions->setColumnStretch(3, 1);
-    connContentActions->setColumnStretch(4, 1);
-    connContentActions->setColumnStretch(5, 1);
-    connContentActions->setColumnStretch(6, 1);
-    connContentActions->setColumnStretch(7, 1);
-    connContentActions->setColumnStretch(8, 1);
+    // Botones internos: se usan para concentrar la lógica de habilitación/ejecución,
+    // pero la UI expone estas acciones por menú contextual del árbol.
     m_connContentSelectOriginBtn = new QPushButton(
         trk(QStringLiteral("t_select_origin1"), QStringLiteral("Origen"),
             QStringLiteral("Source"), QStringLiteral("源")),
@@ -1322,17 +1313,12 @@ void MainWindow::buildUi() {
         btn->setMinimumHeight(30);
         btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         btn->setEnabled(false);
+        btn->setVisible(false);
     }
-    connContentActions->addWidget(m_connContentRollbackBtn, 0, 0);
-    connContentActions->addWidget(m_connContentCreateBtn, 0, 1);
-    connContentActions->addWidget(m_connContentSelectOriginBtn, 0, 2);
-    connContentActions->addWidget(m_connContentSelectDestBtn, 0, 3);
-    connContentActions->addWidget(m_connContentDeleteBtn, 0, 4);
-    connContentActions->addWidget(m_btnConnBreakdown, 0, 5);
-    connContentActions->addWidget(m_btnConnAssemble, 0, 6);
-    connContentActions->addWidget(m_btnConnFromDir, 0, 7);
-    connContentActions->addWidget(m_btnConnToDir, 0, 8);
-    connContentLayout->addLayout(connContentActions);
+    if (m_btnConnBreakdown) m_btnConnBreakdown->setVisible(false);
+    if (m_btnConnAssemble) m_btnConnAssemble->setVisible(false);
+    if (m_btnConnFromDir) m_btnConnFromDir->setVisible(false);
+    if (m_btnConnToDir) m_btnConnToDir->setVisible(false);
     connContentLayout->addWidget(m_connContentTree, 1);
     m_connPropsStack->addWidget(m_connContentPage);
     m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
@@ -1793,7 +1779,6 @@ void MainWindow::buildUi() {
             deleteConnection();
         });
     }
-    connect(m_connectionsTable, &QTableWidget::itemSelectionChanged, this, [this]() { onConnectionSelectionChanged(); });
     connect(m_connectionsTable, &QTableWidget::currentCellChanged, this,
             [this](int currentRow, int currentColumn, int previousRow, int previousColumn) {
                 Q_UNUSED(currentRow);
@@ -1838,6 +1823,10 @@ void MainWindow::buildUi() {
                 }
             }
             m_connSplitActiveTab = idx;
+            const int connIdx = selectedConnectionIndexForPoolManagement();
+            if (connIdx >= 0) {
+                saveConnectionNavState(connIdx);
+            }
         });
     }
     if (m_connContentTree) {
@@ -1850,10 +1839,78 @@ void MainWindow::buildUi() {
             Q_UNUSED(item);
             Q_UNUSED(col);
         });
-        m_connContentTree->setContextMenuPolicy(Qt::NoContextMenu);
+        m_connContentTree->setContextMenuPolicy(Qt::CustomContextMenu);
         connect(m_connContentTree, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int col) {
             onDatasetTreeItemChanged(m_connContentTree, item, col, QStringLiteral("conncontent"));
             updateConnectionActionsState();
+        });
+        connect(m_connContentTree, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+            if (!m_connContentTree) {
+                return;
+            }
+            QTreeWidgetItem* item = m_connContentTree->itemAt(pos);
+            if (!item) {
+                return;
+            }
+            if (m_connContentTree->currentItem() != item) {
+                m_connContentTree->setCurrentItem(item);
+            }
+            updateConnectionActionsState();
+
+            QMenu menu(this);
+            QAction* aRollback = menu.addAction(QStringLiteral("Rollback"));
+            QAction* aCreate = menu.addAction(
+                trk(QStringLiteral("t_create_ch_001"), QStringLiteral("Crear"), QStringLiteral("Create"), QStringLiteral("创建")));
+            QAction* aDelete = menu.addAction(
+                trk(QStringLiteral("t_delete_menu002"), QStringLiteral("Borrar"), QStringLiteral("Delete"), QStringLiteral("删除")));
+            menu.addSeparator();
+            QAction* aOrigin = menu.addAction(
+                trk(QStringLiteral("t_select_origin1"), QStringLiteral("Origen"), QStringLiteral("Source"), QStringLiteral("源")));
+            QAction* aDest = menu.addAction(
+                trk(QStringLiteral("t_select_dest_001"), QStringLiteral("Destino"), QStringLiteral("Target"), QStringLiteral("目标")));
+            menu.addSeparator();
+            QAction* aBreakdown = menu.addAction(
+                trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")));
+            QAction* aAssemble = menu.addAction(
+                trk(QStringLiteral("t_assemble_btn1"), QStringLiteral("Ensamblar"), QStringLiteral("Assemble"), QStringLiteral("组装")));
+            QAction* aFromDir = menu.addAction(
+                trk(QStringLiteral("t_from_dir_btn1"), QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")));
+            QAction* aToDir = menu.addAction(
+                trk(QStringLiteral("t_to_dir_btn_001"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")));
+
+            aRollback->setEnabled(m_connContentRollbackBtn && m_connContentRollbackBtn->isEnabled());
+            aCreate->setEnabled(m_connContentCreateBtn && m_connContentCreateBtn->isEnabled());
+            aDelete->setEnabled(m_connContentDeleteBtn && m_connContentDeleteBtn->isEnabled());
+            aOrigin->setEnabled(m_connContentSelectOriginBtn && m_connContentSelectOriginBtn->isEnabled());
+            aDest->setEnabled(m_connContentSelectDestBtn && m_connContentSelectDestBtn->isEnabled());
+            aBreakdown->setEnabled(m_btnConnBreakdown && m_btnConnBreakdown->isEnabled());
+            aAssemble->setEnabled(m_btnConnAssemble && m_btnConnAssemble->isEnabled());
+            aFromDir->setEnabled(m_btnConnFromDir && m_btnConnFromDir->isEnabled());
+            aToDir->setEnabled(m_btnConnToDir && m_btnConnToDir->isEnabled());
+
+            QAction* picked = menu.exec(m_connContentTree->viewport()->mapToGlobal(pos));
+            if (!picked) {
+                return;
+            }
+            if (picked == aRollback && m_connContentRollbackBtn) {
+                m_connContentRollbackBtn->click();
+            } else if (picked == aCreate && m_connContentCreateBtn) {
+                m_connContentCreateBtn->click();
+            } else if (picked == aDelete && m_connContentDeleteBtn) {
+                m_connContentDeleteBtn->click();
+            } else if (picked == aOrigin && m_connContentSelectOriginBtn) {
+                m_connContentSelectOriginBtn->click();
+            } else if (picked == aDest && m_connContentSelectDestBtn) {
+                m_connContentSelectDestBtn->click();
+            } else if (picked == aBreakdown && m_btnConnBreakdown) {
+                m_btnConnBreakdown->click();
+            } else if (picked == aAssemble && m_btnConnAssemble) {
+                m_btnConnAssemble->click();
+            } else if (picked == aFromDir && m_btnConnFromDir) {
+                m_btnConnFromDir->click();
+            } else if (picked == aToDir && m_btnConnToDir) {
+                m_btnConnToDir->click();
+            }
         });
     }
     if (m_connContentSelectOriginBtn) {

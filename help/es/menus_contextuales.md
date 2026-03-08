@@ -1,20 +1,34 @@
-# Menus contextuales
+# Menús contextuales
 
-La GUI actual prioriza botones de accion visibles en pantalla.
+La GUI combina botones visibles y menú contextual por clic derecho.
 
 ## Flujo actual
 
-- En `Conexiones`, `Nuevo` y `Acciones` se usan botones.
-- En `Contenido <pool>` se usan botones bajo el arbol de datasets.
+- En `Conexiones` y `Nuevo` se usan botones.
+- En `Acciones` (panel izquierdo) se usan botones para transferencias.
+- En `Contenido <pool>`, las acciones del dataset/snapshot se lanzan con clic derecho sobre el árbol.
 - En `Propiedades del dataset` se aplica con `Aplicar cambios`.
 
-## Menus contextuales
+## Menú contextual en `Contenido <pool>`
 
-Si aparece algun menu contextual puntual en su build, aplica la misma regla:
-- durante una accion en curso, opciones no seguras quedan bloqueadas;
-- las acciones destructivas siempre piden confirmacion.
+Sobre el dataset/snapshot seleccionado, el menú contextual ofrece:
+- `Rollback`
+- `Crear`
+- `Borrar`
+- `Origen`
+- `Destino`
+- `Desglosar`
+- `Ensamblar`
+- `Desde Dir`
+- `Hacia Dir`
+
+## Reglas
+
+- Durante una acción en curso, las opciones no seguras quedan bloqueadas.
+- Las acciones destructivas siempre piden confirmación.
+- El estado habilitado/deshabilitado de cada opción sigue la misma lógica que en botones.
 
 ## Recomendaciones
 
-- Revise siempre la ventana de comprobacion antes de ejecutar.
+- Revise siempre la ventana de comprobación antes de ejecutar.
 - Use `Reset` en acciones para limpiar origen/destino cuando sea necesario.

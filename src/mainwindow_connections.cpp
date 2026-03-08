@@ -134,6 +134,17 @@ int rowForConnectionIndex(const QTableWidget* table, int connIdx) {
     }
     return -1;
 }
+
+QString connPersistKeyFromProfiles(const QVector<ConnectionProfile>& profiles, int connIdx) {
+    if (connIdx < 0 || connIdx >= profiles.size()) {
+        return QString();
+    }
+    const QString id = profiles[connIdx].id.trimmed();
+    if (!id.isEmpty()) {
+        return id.toLower();
+    }
+    return profiles[connIdx].name.trimmed().toLower();
+}
 }
 
 void MainWindow::refreshAllConnections() {
@@ -273,6 +284,19 @@ void MainWindow::onAsyncRefreshDone(int generation) {
 }
 
 void MainWindow::onConnectionSelectionChanged() {
+    QWidget* paintRoot = m_poolDetailTabs ? m_poolDetailTabs : static_cast<QWidget*>(m_rightTabs);
+    if (paintRoot) {
+        paintRoot->setUpdatesEnabled(false);
+    }
+
+    if (!m_lastConnectionSelectionKey.isEmpty()) {
+        const QStringList oldParts = m_lastConnectionSelectionKey.split('|');
+        bool okOld = false;
+        const int oldConnIdx = oldParts.value(0).toInt(&okOld);
+        if (okOld) {
+            saveConnectionNavState(oldConnIdx);
+        }
+    }
     QString selectionKey;
     if (m_connectionsTable) {
         const int idx = selectedConnectionRow(m_connectionsTable);
@@ -288,6 +312,10 @@ void MainWindow::onConnectionSelectionChanged() {
         // los widgets del detalle pueden haberse vaciado y deben repintarse.
         refreshConnectionNodeDetails();
         updatePoolManagementBoxTitle();
+        if (paintRoot) {
+            paintRoot->setUpdatesEnabled(true);
+            paintRoot->update();
+        }
         return;
     }
     m_lastConnectionSelectionKey = selectionKey;
@@ -295,6 +323,10 @@ void MainWindow::onConnectionSelectionChanged() {
     populateAllPoolsTables();
     refreshConnectionNodeDetails();
     updatePoolManagementBoxTitle();
+    if (paintRoot) {
+        paintRoot->setUpdatesEnabled(true);
+        paintRoot->update();
+    }
 }
 
 void MainWindow::rebuildConnectionEntityTabs() {
@@ -314,6 +346,26 @@ void MainWindow::rebuildConnectionEntityTabs() {
         (m_connectionEntityTabs->currentIndex() >= 0 && m_connectionEntityTabs->currentIndex() < m_connectionEntityTabs->count())
             ? m_connectionEntityTabs->tabData(m_connectionEntityTabs->currentIndex()).toString()
             : QString();
+    const QString connPersistKey = connPersistKeyFromProfiles(m_profiles, connIdx);
+    const ConnectionNavState nav = m_connectionNavStateByConnId.value(connPersistKey);
+    QString targetEntityKey = nav.entityTabKey.trimmed();
+    if (targetEntityKey.isEmpty()) {
+        const QStringList prevParts = prevTabKey.split(':');
+        bool prevOk = false;
+        if (prevParts.size() >= 2) {
+            const int prevConnIdx = prevParts.value(1).toInt(&prevOk);
+            if (prevOk && prevConnIdx == connIdx) {
+                if (prevParts.value(0) == QStringLiteral("conn")) {
+                    targetEntityKey = QStringLiteral("conn");
+                } else if (prevParts.value(0) == QStringLiteral("pool") && prevParts.size() >= 3) {
+                    targetEntityKey = QStringLiteral("pool:%1").arg(prevParts.value(2).trimmed());
+                }
+            }
+        }
+    }
+    if (targetEntityKey.isEmpty()) {
+        targetEntityKey = QStringLiteral("conn");
+    }
 
     m_updatingConnectionEntityTabs = true;
     while (m_connectionEntityTabs->count() > 0) {
@@ -343,7 +395,7 @@ void MainWindow::rebuildConnectionEntityTabs() {
                                     QStringLiteral(" [已导入]"));
         const int t = m_connectionEntityTabs->addTab(poolTabText);
         m_connectionEntityTabs->setTabData(t, QStringLiteral("pool:%1:%2").arg(connIdx).arg(poolName));
-        if (prevTabKey.compare(QStringLiteral("pool:%1:%2").arg(connIdx).arg(poolName), Qt::CaseInsensitive) == 0) {
+        if (targetEntityKey.compare(QStringLiteral("pool:%1").arg(poolName), Qt::CaseInsensitive) == 0) {
             targetTab = tabPos;
         }
         ++tabPos;
@@ -355,21 +407,18 @@ void MainWindow::rebuildConnectionEntityTabs() {
         }
         const QString stateUp = pool.state.trimmed().toUpper();
         const QString actionTxt = pool.action.trimmed();
-        QString poolTabText = poolName;
-        if (stateUp == QStringLiteral("ONLINE") && !actionTxt.isEmpty()) {
-            poolTabText += trk(QStringLiteral("t_pool_tab_nimp001"),
-                               QStringLiteral(" [No importado]"),
-                               QStringLiteral(" [Not imported]"),
-                               QStringLiteral(" [未导入]"));
-        } else {
-            poolTabText += trk(QStringLiteral("t_pool_tab_nimpo1"),
-                               QStringLiteral(" [No importable]"),
-                               QStringLiteral(" [Not importable]"),
-                               QStringLiteral(" [不可导入]"));
+        // No crear tabs para pools no importables.
+        if (!(stateUp == QStringLiteral("ONLINE") && !actionTxt.isEmpty())) {
+            continue;
         }
+        QString poolTabText = poolName;
+        poolTabText += trk(QStringLiteral("t_pool_tab_nimp001"),
+                           QStringLiteral(" [No importado]"),
+                           QStringLiteral(" [Not imported]"),
+                           QStringLiteral(" [未导入]"));
         const int t = m_connectionEntityTabs->addTab(poolTabText);
         m_connectionEntityTabs->setTabData(t, QStringLiteral("pool:%1:%2").arg(connIdx).arg(poolName));
-        if (prevTabKey.compare(QStringLiteral("pool:%1:%2").arg(connIdx).arg(poolName), Qt::CaseInsensitive) == 0) {
+        if (targetEntityKey.compare(QStringLiteral("pool:%1").arg(poolName), Qt::CaseInsensitive) == 0) {
             targetTab = tabPos;
         }
         ++tabPos;
@@ -405,6 +454,58 @@ void MainWindow::onConnectionEntityTabChanged(int idx) {
         m_connectionsTable->setCurrentCell(row, 0);
     } else {
         refreshConnectionNodeDetails();
+        saveConnectionNavState(connIdx);
+    }
+}
+
+void MainWindow::saveConnectionNavState(int connIdx) {
+    if (!m_connectionEntityTabs || connIdx < 0 || connIdx >= m_profiles.size()) {
+        return;
+    }
+    const QString persistKey = connPersistKeyFromProfiles(m_profiles, connIdx);
+    if (persistKey.isEmpty()) {
+        return;
+    }
+    ConnectionNavState& nav = m_connectionNavStateByConnId[persistKey];
+    const int tabIdx = m_connectionEntityTabs->currentIndex();
+    if (tabIdx >= 0 && tabIdx < m_connectionEntityTabs->count()) {
+        const QString tabData = m_connectionEntityTabs->tabData(tabIdx).toString();
+        const QStringList parts = tabData.split(':');
+        if (parts.size() >= 2 && parts.value(0) == QStringLiteral("conn")) {
+            bool ok = false;
+            const int tabConnIdx = parts.value(1).toInt(&ok);
+            if (ok && tabConnIdx == connIdx) {
+                nav.entityTabKey = QStringLiteral("conn");
+            }
+        } else if (parts.size() >= 3 && parts.value(0) == QStringLiteral("pool")) {
+            bool ok = false;
+            const int tabConnIdx = parts.value(1).toInt(&ok);
+            const QString poolName = parts.value(2).trimmed();
+            if (ok && tabConnIdx == connIdx && !poolName.isEmpty()) {
+                nav.entityTabKey = QStringLiteral("pool:%1").arg(poolName);
+                if (m_poolViewTabBar) {
+                    nav.poolSubtabByPoolName[poolName] = m_poolViewTabBar->currentIndex();
+                }
+            }
+        }
+    }
+}
+
+void MainWindow::restoreConnectionPoolSubtabState(int connIdx, const QString& poolName) {
+    if (!m_poolViewTabBar || connIdx < 0 || connIdx >= m_profiles.size()) {
+        return;
+    }
+    const QString persistKey = connPersistKeyFromProfiles(m_profiles, connIdx);
+    if (persistKey.isEmpty()) {
+        return;
+    }
+    const ConnectionNavState nav = m_connectionNavStateByConnId.value(persistKey);
+    int targetSubtab = nav.poolSubtabByPoolName.value(poolName, 0);
+    if (targetSubtab < 0 || targetSubtab >= m_poolViewTabBar->count()) {
+        targetSubtab = 0;
+    }
+    if (m_poolViewTabBar->currentIndex() != targetSubtab) {
+        m_poolViewTabBar->setCurrentIndex(targetSubtab);
     }
 }
 
@@ -530,6 +631,8 @@ void MainWindow::refreshConnectionNodeDetails() {
         m_poolViewTabBar->setVisible(poolMode);
         if (!poolMode) {
             m_poolViewTabBar->setCurrentIndex(0);
+        } else {
+            restoreConnectionPoolSubtabState(connIdx, activePoolName);
         }
     }
     if (!poolMode) {
@@ -590,6 +693,26 @@ void MainWindow::refreshConnectionNodeDetails() {
                              .arg(detected.isEmpty() ? QStringLiteral("(ninguno)") : detected.join(QStringLiteral(", ")));
                 lines << QStringLiteral("Comandos no detectados: %1")
                              .arg(missing.isEmpty() ? QStringLiteral("(ninguno)") : missing.join(QStringLiteral(", ")));
+                QStringList nonImportable;
+                for (const PoolImportable& pool : st.importablePools) {
+                    const QString poolName = pool.pool.trimmed();
+                    if (poolName.isEmpty()) {
+                        continue;
+                    }
+                    const QString stateUp = pool.state.trimmed().toUpper();
+                    const QString actionTxt = pool.action.trimmed();
+                    if (stateUp == QStringLiteral("ONLINE") && !actionTxt.isEmpty()) {
+                        continue;
+                    }
+                    QString reason = pool.reason.trimmed();
+                    if (reason.isEmpty()) {
+                        reason = QStringLiteral("-");
+                    }
+                    nonImportable << QStringLiteral("%1 (%2)").arg(poolName, reason);
+                }
+                lines << QStringLiteral("Pools no importables: %1")
+                             .arg(nonImportable.isEmpty() ? QStringLiteral("(ninguno)")
+                                                          : nonImportable.join(QStringLiteral(", ")));
                 m_poolStatusText->setPlainText(lines.join(QStringLiteral("\n")));
             }
             resetPoolActionButtons();

@@ -238,10 +238,59 @@ QString propKeyFromItem(const QTableWidgetItem* item) {
     return item->text().trimmed();
 }
 
+QString propsDraftKey(const QString& side, const QString& token, const QString& objectName) {
+    return QStringLiteral("%1|%2|%3")
+        .arg(side.trimmed().toLower(),
+             token.trimmed().toLower(),
+             objectName.trimmed().toLower());
+}
+
 } // namespace
 
 void MainWindow::refreshDatasetProperties(const QString& side) {
     beginUiBusy();
+    auto saveCurrentDraft = [this]() {
+        if (!m_propsDirty || m_propsSide.isEmpty() || m_propsDataset.isEmpty()) {
+            return;
+        }
+        QString currToken;
+        if (m_propsSide == QStringLiteral("origin")) {
+            currToken = m_originPoolCombo ? m_originPoolCombo->currentData().toString() : QString();
+        } else if (m_propsSide == QStringLiteral("dest")) {
+            currToken = m_destPoolCombo ? m_destPoolCombo->currentData().toString() : QString();
+        } else if (m_propsSide == QStringLiteral("conncontent")) {
+            currToken = m_connContentToken;
+        } else {
+            return;
+        }
+        if (currToken.isEmpty()) {
+            return;
+        }
+        QTableWidget* currTable = (m_propsSide == QStringLiteral("conncontent")) ? m_connContentPropsTable : m_datasetPropsTable;
+        if (!currTable) {
+            return;
+        }
+        DatasetPropsDraft draft;
+        draft.dirty = true;
+        for (int r = 0; r < currTable->rowCount(); ++r) {
+            QTableWidgetItem* rk = currTable->item(r, 0);
+            QTableWidgetItem* rv = currTable->item(r, 1);
+            QTableWidgetItem* ri = currTable->item(r, 2);
+            if (!rk || !rv || !ri) {
+                continue;
+            }
+            const QString key = propKeyFromItem(rk);
+            if (key.isEmpty()) {
+                continue;
+            }
+            draft.valuesByProp[key] = rv->text();
+            const bool inh = (ri->flags() & Qt::ItemIsUserCheckable) && ri->checkState() == Qt::Checked;
+            draft.inheritByProp[key] = inh;
+        }
+        m_propsDraftByKey[propsDraftKey(m_propsSide, currToken, m_propsDataset)] = draft;
+    };
+    saveCurrentDraft();
+
     QString dataset;
     QString snapshot;
     if (side == QStringLiteral("origin")) {
@@ -325,6 +374,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     }
     const DatasetRecord& rec = recIt.value();
     const QString objectName = snapshot.isEmpty() ? dataset : QStringLiteral("%1@%2").arg(dataset, snapshot);
+    const QString draftKey = propsDraftKey(side, token, objectName);
     const ConnectionProfile& p = m_profiles[connIdx];
 
     QString datasetType = objectName.contains('@') ? QStringLiteral("snapshot") : QStringLiteral("filesystem");
@@ -621,10 +671,41 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
             m_propsOriginalInherit[row.prop] = false;
         }
     }
+    if (side != QStringLiteral("advanced")) {
+        const auto draftIt = m_propsDraftByKey.constFind(draftKey);
+        if (draftIt != m_propsDraftByKey.constEnd()) {
+            const DatasetPropsDraft& draft = draftIt.value();
+            for (int r = 0; r < table->rowCount(); ++r) {
+                QTableWidgetItem* rk = table->item(r, 0);
+                QTableWidgetItem* rv = table->item(r, 1);
+                QTableWidgetItem* ri = table->item(r, 2);
+                if (!rk || !rv || !ri) {
+                    continue;
+                }
+                const QString key = propKeyFromItem(rk);
+                if (key.isEmpty()) {
+                    continue;
+                }
+                const auto vIt = draft.valuesByProp.constFind(key);
+                if (vIt != draft.valuesByProp.constEnd()) {
+                    rv->setText(vIt.value());
+                    if (QComboBox* cb = qobject_cast<QComboBox*>(table->cellWidget(r, 1))) {
+                        cb->setCurrentText(vIt.value());
+                    }
+                }
+                const auto iIt = draft.inheritByProp.constFind(key);
+                if (iIt != draft.inheritByProp.constEnd()
+                    && (ri->flags() & Qt::ItemIsUserCheckable)) {
+                    ri->setCheckState(iIt.value() ? Qt::Checked : Qt::Unchecked);
+                }
+            }
+            m_propsDirty = draft.dirty;
+        } else {
+            m_propsDirty = false;
+        }
+    }
     if (side == QStringLiteral("advanced")) {
         m_advPropsDirty = false;
-    } else {
-        m_propsDirty = false;
     }
     setTablePopulationMode(table, false);
     m_loadingPropsTable = false;
@@ -716,6 +797,16 @@ void MainWindow::applyDatasetPropertyChanges() {
     if (!propsTable) {
         return;
     }
+    QString currentToken;
+    if (m_propsSide == QStringLiteral("origin")) {
+        currentToken = m_originPoolCombo ? m_originPoolCombo->currentData().toString() : QString();
+    } else if (m_propsSide == QStringLiteral("dest")) {
+        currentToken = m_destPoolCombo ? m_destPoolCombo->currentData().toString() : QString();
+    } else if (m_propsSide == QStringLiteral("conncontent")) {
+        currentToken = m_connContentToken;
+    }
+    const QString currentDraftKey = currentToken.isEmpty() ? QString()
+                                                           : propsDraftKey(m_propsSide, currentToken, m_propsDataset);
 
     QStringList subcmds;
     struct PropChange {
@@ -804,6 +895,9 @@ void MainWindow::applyDatasetPropertyChanges() {
             if (executeDatasetAction(m_propsSide, QStringLiteral("Aplicar propiedades"), ctx, fallbackCmd, 60000, isWinFallback)) {
                 setSelectedDataset(m_propsSide, renameNew, QString());
                 m_propsDirty = false;
+                if (!currentDraftKey.isEmpty()) {
+                    m_propsDraftByKey.remove(currentDraftKey);
+                }
                 updateApplyPropsButtonState();
             }
             return;
@@ -820,6 +914,9 @@ void MainWindow::applyDatasetPropertyChanges() {
     if (subcmds.isEmpty()) {
         if (localRenameDone) {
             m_propsDirty = false;
+            if (!currentDraftKey.isEmpty()) {
+                m_propsDraftByKey.remove(currentDraftKey);
+            }
             updateApplyPropsButtonState();
             reloadDatasetSide(m_propsSide);
             return;
@@ -832,6 +929,9 @@ void MainWindow::applyDatasetPropertyChanges() {
     }
     if (subcmds.isEmpty()) {
         m_propsDirty = false;
+        if (!currentDraftKey.isEmpty()) {
+            m_propsDraftByKey.remove(currentDraftKey);
+        }
         updateApplyPropsButtonState();
         return;
     }
@@ -883,6 +983,14 @@ void MainWindow::applyDatasetPropertyChanges() {
                     setSelectedDataset(m_propsSide, targetDataset, QString());
                 }
                 m_propsDirty = false;
+                if (!currentDraftKey.isEmpty()) {
+                    m_propsDraftByKey.remove(currentDraftKey);
+                }
+                const QString targetDraftKey = currentToken.isEmpty() ? QString()
+                                                                       : propsDraftKey(m_propsSide, currentToken, targetDataset);
+                if (!targetDraftKey.isEmpty() && targetDraftKey != currentDraftKey) {
+                    m_propsDraftByKey.remove(targetDraftKey);
+                }
                 updateApplyPropsButtonState();
             }
             return;
@@ -894,6 +1002,14 @@ void MainWindow::applyDatasetPropertyChanges() {
             setSelectedDataset(m_propsSide, targetDataset, QString());
         }
         m_propsDirty = false;
+        if (!currentDraftKey.isEmpty()) {
+            m_propsDraftByKey.remove(currentDraftKey);
+        }
+        const QString targetDraftKey = currentToken.isEmpty() ? QString()
+                                                               : propsDraftKey(m_propsSide, currentToken, targetDataset);
+        if (!targetDraftKey.isEmpty() && targetDraftKey != currentDraftKey) {
+            m_propsDraftByKey.remove(targetDraftKey);
+        }
         updateApplyPropsButtonState();
         setActionsLocked(false);
         return;
@@ -907,6 +1023,14 @@ void MainWindow::applyDatasetPropertyChanges() {
             setSelectedDataset(m_propsSide, targetDataset, QString());
         }
         m_propsDirty = false;
+        if (!currentDraftKey.isEmpty()) {
+            m_propsDraftByKey.remove(currentDraftKey);
+        }
+        const QString targetDraftKey = currentToken.isEmpty() ? QString()
+                                                               : propsDraftKey(m_propsSide, currentToken, targetDataset);
+        if (!targetDraftKey.isEmpty() && targetDraftKey != currentDraftKey) {
+            m_propsDraftByKey.remove(targetDraftKey);
+        }
         updateApplyPropsButtonState();
     }
 }

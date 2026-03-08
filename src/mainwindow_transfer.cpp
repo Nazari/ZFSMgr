@@ -72,6 +72,7 @@ void MainWindow::actionCopySnapshot() {
 
     if (runLocalCommand(QStringLiteral("Copiar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0, false, true)) {
         invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
+        refreshConnectionByIndex(dst.connIdx);
         reloadDatasetSide(QStringLiteral("dest"));
     }
 }
@@ -222,6 +223,7 @@ void MainWindow::actionLevelSnapshot() {
 
     if (runLocalCommand(QStringLiteral("Nivelar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0, false, true)) {
         invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
+        refreshConnectionByIndex(dst.connIdx);
         reloadDatasetSide(QStringLiteral("dest"));
     }
 }
@@ -343,6 +345,7 @@ void MainWindow::actionSyncDatasets() {
                        QStringLiteral("Windows 上同步使用 tar/ssh 回退（编码=%1，无 --delete）。")).arg(streamCodecName(codec)));
             if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0, false, true)) {
                 invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
+                refreshConnectionByIndex(dst.connIdx);
                 reloadDatasetSide(QStringLiteral("dest"));
             }
             return;
@@ -374,6 +377,7 @@ void MainWindow::actionSyncDatasets() {
         }
         if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0, false, true)) {
             invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
+            refreshConnectionByIndex(dst.connIdx);
             reloadDatasetSide(QStringLiteral("dest"));
         }
         return;
@@ -502,6 +506,7 @@ void MainWindow::actionSyncDatasets() {
                             false,
                             true)) {
             invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
+            refreshConnectionByIndex(dst.connIdx);
             reloadDatasetSide(QStringLiteral("dest"));
         }
     } else {
@@ -530,6 +535,7 @@ void MainWindow::actionSyncDatasets() {
                             false,
                             true)) {
             invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
+            refreshConnectionByIndex(dst.connIdx);
             reloadDatasetSide(QStringLiteral("dest"));
         }
     }
