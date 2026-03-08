@@ -8,6 +8,7 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QFontMetrics>
+#include <QFrame>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHeaderView>
@@ -42,16 +43,16 @@ void MainWindow::buildUi() {
     setMinimumSize(1120, 736);
     setStyleSheet(QStringLiteral(
         "QMainWindow, QWidget { background: #f3f7fb; color: #14212b; }"
-        "QTabWidget::pane { border: 1px solid #b8c7d6; border-radius: 6px; background: #f8fbff; margin-top: -1px; }"
+        "QTabWidget::pane { border: 1px solid #b8c7d6; border-radius: 0px; background: #f8fbff; top: -1px; }"
         "QTabWidget::tab-bar { alignment: left; }"
         "QTabBar { background: #f3f7fb; }"
         "QTabBar::scroller { background: #f3f7fb; }"
         "QTabBar QToolButton { background: #f3f7fb; border: 1px solid #b8c7d6; color: #14212b; }"
-        "QTabBar::tab { padding: 4px 12px; min-height: 20px; background: #e6edf4; border: 1px solid #b8c7d6; border-bottom: 1px solid #b8c7d6; border-top-left-radius: 6px; border-top-right-radius: 6px; }"
-        "QTabBar::tab:selected { font-weight: 700; background: #f8fbff; color: #0b2f4f; border: 1px solid #6ea6dd; border-bottom: 1px solid #f8fbff; }"
-        "QTabBar::tab:!selected { margin-top: 2px; background: #e6edf4; }"
-        "QGroupBox { margin-top: 12px; border: 1px solid #b8c7d6; border-radius: 4px; }"
-        "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 8px; padding: 0 4px 0 4px; background: #f3f7fb; }"
+        "QTabBar::tab { padding: 4px 12px; min-height: 20px; background: #e6edf4; border: 1px solid #b8c7d6; border-bottom: 1px solid #b8c7d6; border-top-left-radius: 0px; border-top-right-radius: 0px; margin-right: 1px; }"
+        "QTabBar::tab:selected { font-weight: 700; background: #f8fbff; color: #0b2f4f; border: 1px solid #6ea6dd; border-bottom-color: #f8fbff; margin-bottom: -1px; }"
+        "QTabBar::tab:!selected { margin-top: 1px; background: #e6edf4; }"
+        "QGroupBox { margin-top: 10px; border: 1px solid #b8c7d6; border-radius: 0px; padding-top: 6px; }"
+        "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 8px; padding: 0 3px 0 3px; background: #f3f7fb; color: #14212b; }"
         "QPushButton { background: #e8eff5; border: 1px solid #9db0c4; border-radius: 4px; padding: 3px 8px; }"
         "QPushButton:hover { background: #d6e6f2; }"
         "QPushButton:pressed { background: #c4d8e8; }"
@@ -70,6 +71,15 @@ void MainWindow::buildUi() {
         "QTreeWidget::item:selected, QTableWidget::item:selected, QListWidget::item:selected {"
         "  background: #dcecff; color: #0d2438; font-weight: 600; }"
         "QHeaderView::section { background: #eaf1f7; border: 1px solid #c5d3e0; padding: 1px 3px; font-size: 85%; }"));
+    setStyleSheet(styleSheet() + QStringLiteral(
+        "#zfsmgrEntityFrame { border: 0px; background: transparent; }"
+        "#zfsmgrEntityFrame > QWidget { border: 0px; background: transparent; }"
+        "#zfsmgrEntityTabs::tab, #zfsmgrPoolViewTabs::tab { border-bottom: 1px solid #b8c7d6; }"
+        "#zfsmgrEntityTabs::tab:selected, #zfsmgrPoolViewTabs::tab:selected { border-bottom: 0px; margin-bottom: -1px; padding-bottom: 1px; }"
+        "#zfsmgrDetailContainer { border: 1px solid #b8c7d6; background: #f8fbff; margin-top: -1px; }"
+        "#zfsmgrDetailContainer > QWidget { border: 0px; background: transparent; }"
+        "#zfsmgrDetailContainer QTabBar { background: transparent; }"
+        "#zfsmgrSubtabContentFrame { border: 1px solid #b8c7d6; background: #f8fbff; margin-top: -1px; }"));
 #ifdef Q_OS_MAC
     setStyleSheet(styleSheet() + QStringLiteral(
         "QTreeView::indicator:unchecked, QTableView::indicator:unchecked, QCheckBox::indicator:unchecked {"
@@ -1092,16 +1102,33 @@ void MainWindow::buildUi() {
     m_rightTabs = new QTabWidget(rightConnectionsPage);
     m_rightTabs->setDocumentMode(false);
 
-    m_poolDetailTabs = new QWidget(rightConnectionsPage);
+    auto* entityFrame = new QFrame(rightConnectionsPage);
+    entityFrame->setObjectName(QStringLiteral("zfsmgrEntityFrame"));
+    entityFrame->setFrameShape(QFrame::NoFrame);
+    auto* entityFrameLayout = new QVBoxLayout(entityFrame);
+    entityFrameLayout->setContentsMargins(0, 0, 0, 0);
+    entityFrameLayout->setSpacing(0);
+    m_poolDetailTabs = new QWidget(entityFrame);
+    m_poolDetailTabs->setObjectName(QStringLiteral("zfsmgrPoolDetailTabs"));
     auto* poolDetailLayout = new QVBoxLayout(m_poolDetailTabs);
-    poolDetailLayout->setContentsMargins(0, 0, 0, 0);
-    poolDetailLayout->setSpacing(4);
+    poolDetailLayout->setContentsMargins(3, 3, 3, 3);
+    poolDetailLayout->setSpacing(0);
     m_connectionEntityTabs = new QTabBar(m_poolDetailTabs);
+    m_connectionEntityTabs->setObjectName(QStringLiteral("zfsmgrEntityTabs"));
     m_connectionEntityTabs->setExpanding(false);
-    m_connectionEntityTabs->setDrawBase(true);
+    m_connectionEntityTabs->setDrawBase(false);
     m_connectionEntityTabs->setUsesScrollButtons(true);
     poolDetailLayout->addWidget(m_connectionEntityTabs, 0);
+    auto* detailContainer = new QFrame(m_poolDetailTabs);
+    detailContainer->setObjectName(QStringLiteral("zfsmgrDetailContainer"));
+    detailContainer->setFrameShape(QFrame::Box);
+    detailContainer->setFrameShadow(QFrame::Plain);
+    detailContainer->setLineWidth(1);
+    auto* detailContainerLayout = new QVBoxLayout(detailContainer);
+    detailContainerLayout->setContentsMargins(4, 4, 4, 4);
+    detailContainerLayout->setSpacing(0);
     m_poolViewTabBar = new QTabBar(m_poolDetailTabs);
+    m_poolViewTabBar->setObjectName(QStringLiteral("zfsmgrPoolViewTabs"));
     m_poolViewTabBar->addTab(trk(QStringLiteral("t_pool_props001"),
                                  QStringLiteral("Propiedades"),
                                  QStringLiteral("Properties"),
@@ -1111,10 +1138,10 @@ void MainWindow::buildUi() {
                                  QStringLiteral("Content"),
                                  QStringLiteral("内容")));
     m_poolViewTabBar->setExpanding(false);
-    m_poolViewTabBar->setDrawBase(true);
+    m_poolViewTabBar->setDrawBase(false);
     m_poolViewTabBar->setCurrentIndex(0);
     m_poolViewTabBar->setVisible(false);
-    poolDetailLayout->addWidget(m_poolViewTabBar, 0);
+    detailContainerLayout->addWidget(m_poolViewTabBar, 0);
     m_connPropsGroup = new QWidget(m_poolDetailTabs);
     auto* propsPoolLayout = new QVBoxLayout(m_connPropsGroup);
     propsPoolLayout->setContentsMargins(0, 0, 0, 0);
@@ -1374,16 +1401,27 @@ void MainWindow::buildUi() {
     m_connBottomStack->addWidget(m_connDatasetPropsPage);
     m_connBottomStack->setCurrentWidget(m_connStatusPage);
     statusPoolLayout->addWidget(m_connBottomStack, 1);
-    m_connDetailSplit = new QSplitter(Qt::Vertical, rightConnectionsPage);
+    auto* subtabContentFrame = new QFrame(detailContainer);
+    subtabContentFrame->setObjectName(QStringLiteral("zfsmgrSubtabContentFrame"));
+    subtabContentFrame->setFrameShape(QFrame::Box);
+    subtabContentFrame->setFrameShadow(QFrame::Plain);
+    subtabContentFrame->setLineWidth(1);
+    auto* subtabContentLayout = new QVBoxLayout(subtabContentFrame);
+    subtabContentLayout->setContentsMargins(3, 3, 3, 3);
+    subtabContentLayout->setSpacing(0);
+    m_connDetailSplit = new QSplitter(Qt::Vertical, subtabContentFrame);
     m_connDetailSplit->setChildrenCollapsible(false);
     m_connDetailSplit->setHandleWidth(1);
     m_connDetailSplit->addWidget(m_connPropsGroup);
     m_connDetailSplit->addWidget(m_connBottomGroup);
     m_connDetailSplit->setStretchFactor(0, 55);
     m_connDetailSplit->setStretchFactor(1, 45);
-    poolDetailLayout->addWidget(m_connDetailSplit, 1);
+    subtabContentLayout->addWidget(m_connDetailSplit, 1);
+    detailContainerLayout->addWidget(subtabContentFrame, 1);
+    poolDetailLayout->addWidget(detailContainer, 1);
+    entityFrameLayout->addWidget(m_poolDetailTabs, 1);
     rightConnectionsLayout->setSpacing(0);
-    rightConnectionsLayout->addWidget(m_poolDetailTabs, 1);
+    rightConnectionsLayout->addWidget(entityFrame, 1);
 
     auto* rightDatasetsPage = new QWidget(m_rightStack);
     auto* rightDatasetsLayout = new QVBoxLayout(rightDatasetsPage);
