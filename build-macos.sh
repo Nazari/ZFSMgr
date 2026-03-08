@@ -9,6 +9,7 @@ BUNDLE_APP=1
 SELF_SIGN_CERT_NAME="${SELF_SIGN_CERT_NAME:-ZFSMgr Local Self-Signed}"
 SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese@fc16:Descargas/z}"
 UPLOAD_SFTP=0
+SIGN_APP_MODE="auto" # auto|yes|no
 EXTRA_CMAKE_ARGS=()
 
 for arg in "$@"; do
@@ -18,6 +19,10 @@ for arg in "$@"; do
     BUNDLE_APP=0
   elif [[ "${arg}" == "--sftpfc16" ]]; then
     UPLOAD_SFTP=1
+  elif [[ "${arg}" == "--sign" ]]; then
+    SIGN_APP_MODE="yes"
+  elif [[ "${arg}" == "--no-sign" ]]; then
+    SIGN_APP_MODE="no"
   else
     EXTRA_CMAKE_ARGS+=("${arg}")
   fi
@@ -90,12 +95,19 @@ upload_to_sftp() {
   fi
 }
 
-ensure_codesign_identity() {
+has_codesign_identity() {
   local cert_name="$1"
   if security find-identity -v -p codesigning | grep -F "\"${cert_name}\"" >/dev/null 2>&1; then
     return 0
   fi
+  return 1
+}
 
+ensure_codesign_identity() {
+  local cert_name="$1"
+  if has_codesign_identity "${cert_name}"; then
+    return 0
+  fi
   cat >&2 <<EOF
 Error: no se encontró la identidad de firma '${cert_name}'.
 Crea primero un certificado de firma de código autofirmado en "Keychain Access":
@@ -167,14 +179,35 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   # Safety: never ship local connection secrets inside the macOS app bundle.
   find "${APP_BUNDLE}" -type f -name "connections.ini" -delete || true
 
-  ensure_codesign_identity "${SELF_SIGN_CERT_NAME}"
-  MAIN_BIN="${APP_BUNDLE}/Contents/MacOS/${BUNDLE_NAME}"
-  /usr/bin/codesign --remove-signature "${MAIN_BIN}" >/dev/null 2>&1 || true
-  /usr/bin/codesign --force --sign "${SELF_SIGN_CERT_NAME}" --timestamp=none "${MAIN_BIN}"
-  /usr/bin/codesign --force --deep --sign "${SELF_SIGN_CERT_NAME}" --timestamp=none "${APP_BUNDLE}"
-  /usr/bin/codesign --verify --strict --verbose=4 "${MAIN_BIN}"
-  /usr/bin/codesign --verify --deep --strict --verbose=4 "${APP_BUNDLE}"
-  echo "App macOS creada y firmada con certificado autofirmado: ${APP_BUNDLE}"
+  SHOULD_SIGN=0
+  if [[ "${SIGN_APP_MODE}" == "yes" ]]; then
+    SHOULD_SIGN=1
+  elif [[ "${SIGN_APP_MODE}" == "no" ]]; then
+    SHOULD_SIGN=0
+  else
+    # auto: en CI no firmar por defecto; en local, firmar solo si existe identidad.
+    if [[ -n "${CI:-}" ]]; then
+      SHOULD_SIGN=0
+    elif has_codesign_identity "${SELF_SIGN_CERT_NAME}"; then
+      SHOULD_SIGN=1
+    else
+      SHOULD_SIGN=0
+    fi
+  fi
+
+  if [[ "${SHOULD_SIGN}" -eq 1 ]]; then
+    ensure_codesign_identity "${SELF_SIGN_CERT_NAME}"
+    MAIN_BIN="${APP_BUNDLE}/Contents/MacOS/${BUNDLE_NAME}"
+    /usr/bin/codesign --remove-signature "${MAIN_BIN}" >/dev/null 2>&1 || true
+    /usr/bin/codesign --force --sign "${SELF_SIGN_CERT_NAME}" --timestamp=none "${MAIN_BIN}"
+    /usr/bin/codesign --force --deep --sign "${SELF_SIGN_CERT_NAME}" --timestamp=none "${APP_BUNDLE}"
+    /usr/bin/codesign --verify --strict --verbose=4 "${MAIN_BIN}"
+    /usr/bin/codesign --verify --deep --strict --verbose=4 "${APP_BUNDLE}"
+    echo "App macOS creada y firmada con certificado autofirmado: ${APP_BUNDLE}"
+  else
+    echo "App macOS creada sin firma: ${APP_BUNDLE}"
+  fi
+
   if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
     upload_to_sftp "${APP_BUNDLE}"
   fi
