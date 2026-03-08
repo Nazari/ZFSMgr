@@ -20,7 +20,7 @@ Legal references:
 ![ZFSMgr UI](docs/images/scr1.png)
 
 ## Releases
-In a minute...
+
 - **Beta 0.9.1**: https://github.com/Nazari/ZFSMgr/releases
 
 ## Main capabilities
@@ -111,7 +111,7 @@ What it does:
 - builds a Release binary,
 - creates an AppDir,
 - bundles Qt dependencies with `linuxdeploy` + `linuxdeploy-plugin-qt`,
-- generates `ZFSMgr-0.9.0-x86_64.AppImage`.
+- generates `ZFSMgr-0.9.1-x86_64.AppImage`.
 
 Notes:
 

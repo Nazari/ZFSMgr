@@ -10,7 +10,7 @@ SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese@fc16:Descargas/z}"
 APP_VERSION="$(sed -n 's/^project(ZFSMgrQt VERSION \([0-9.]*\).*/\1/p' "${SCRIPT_DIR}/CMakeLists.txt" | head -n1)"
 UPLOAD_SFTP=0
 if [[ -z "${APP_VERSION}" ]]; then
-  APP_VERSION="0.1.0"
+  APP_VERSION="0.9.1"
 fi
 
 EXTRA_ARGS=()

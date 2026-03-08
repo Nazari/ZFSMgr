@@ -33,7 +33,7 @@
 #include <QWidget>
 
 #ifndef ZFSMGR_APP_VERSION
-#define ZFSMGR_APP_VERSION "0.9.0"
+#define ZFSMGR_APP_VERSION "0.9.1"
 #endif
 
 void MainWindow::buildUi() {
