@@ -8,17 +8,64 @@ if [[ -z "${APP_VERSION}" ]]; then
   APP_VERSION="0.1.0"
 fi
 BUNDLE_NAME="ZFSMgr-${APP_VERSION}"
-BUNDLE_APP=0
+BUNDLE_APP=1
 SELF_SIGN_CERT_NAME="${SELF_SIGN_CERT_NAME:-ZFSMgr Local Self-Signed}"
+SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese:fc16/Descargas/z}"
 EXTRA_CMAKE_ARGS=()
 
 for arg in "$@"; do
   if [[ "${arg}" == "--bundle" ]]; then
     BUNDLE_APP=1
+  elif [[ "${arg}" == "--no-bundle" ]]; then
+    BUNDLE_APP=0
   else
     EXTRA_CMAKE_ARGS+=("${arg}")
   fi
 done
+
+parse_sftp_target() {
+  local target="$1"
+  local authority path user host
+  if [[ "${target}" =~ ^sftp:// ]]; then
+    target="${target#sftp://}"
+    authority="${target%%/*}"
+    path="/${target#*/}"
+    if [[ "${authority}" == *"@"* ]]; then
+      user="${authority%@*}"
+      host="${authority#*@}"
+    elif [[ "${authority}" == *":"* ]]; then
+      # Soporta formato legacy: sftp://user:host/ruta
+      user="${authority%%:*}"
+      host="${authority#*:}"
+    else
+      user="${USER:-linarese}"
+      host="${authority}"
+    fi
+  elif [[ "${target}" == *":"* ]]; then
+    user="${target%%@*}"
+    if [[ "${target}" != *"@"* ]]; then
+      user="${USER:-linarese}"
+    fi
+    host="${target#*@}"
+    host="${host%%:*}"
+    path="/${target#*:}"
+  else
+    echo "Error: destino SFTP inválido: ${target}" >&2
+    return 1
+  fi
+  echo "${user}@${host}|${path}"
+}
+
+upload_to_sftp() {
+  local artifact="$1"
+  local parsed remote path
+  parsed="$(parse_sftp_target "${SFTP_TARGET}")"
+  remote="${parsed%%|*}"
+  path="${parsed#*|}"
+  echo "Subiendo artefacto a ${remote}:${path}"
+  ssh -o BatchMode=yes "${remote}" "mkdir -p '${path}'"
+  scp -r "${artifact}" "${remote}:${path}/"
+}
 
 ensure_codesign_identity() {
   local cert_name="$1"
@@ -92,6 +139,7 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   /usr/bin/codesign --verify --strict --verbose=4 "${MAIN_BIN}"
   /usr/bin/codesign --verify --deep --strict --verbose=4 "${APP_BUNDLE}"
   echo "App macOS creada y firmada con certificado autofirmado: ${APP_BUNDLE}"
+  upload_to_sftp "${APP_BUNDLE}"
 else
   echo "Empaquetado .app omitido (usa --bundle para generarlo)."
 fi

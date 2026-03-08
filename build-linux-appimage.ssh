@@ -6,6 +6,55 @@ BUILD_DIR="${SCRIPT_DIR}/build-linux"
 APPDIR="${SCRIPT_DIR}/AppDir"
 TOOLS_DIR="${SCRIPT_DIR}/.tools/appimage"
 ARCH="$(uname -m)"
+SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese:fc16/Descargas/z}"
+APP_VERSION="$(sed -n 's/^project(ZFSMgrQt VERSION \([0-9.]*\).*/\1/p' "${SCRIPT_DIR}/CMakeLists.txt" | head -n1)"
+if [[ -z "${APP_VERSION}" ]]; then
+  APP_VERSION="0.1.0"
+fi
+
+parse_sftp_target() {
+  local target="$1"
+  local authority path user host
+  if [[ "${target}" =~ ^sftp:// ]]; then
+    target="${target#sftp://}"
+    authority="${target%%/*}"
+    path="/${target#*/}"
+    if [[ "${authority}" == *"@"* ]]; then
+      user="${authority%@*}"
+      host="${authority#*@}"
+    elif [[ "${authority}" == *":"* ]]; then
+      # Formato legacy soportado: sftp://user:host/ruta
+      user="${authority%%:*}"
+      host="${authority#*:}"
+    else
+      user="${USER:-linarese}"
+      host="${authority}"
+    fi
+  elif [[ "${target}" == *":"* ]]; then
+    user="${target%%@*}"
+    if [[ "${target}" != *"@"* ]]; then
+      user="${USER:-linarese}"
+    fi
+    host="${target#*@}"
+    host="${host%%:*}"
+    path="/${target#*:}"
+  else
+    echo "Error: destino SFTP inválido: ${target}" >&2
+    return 1
+  fi
+  echo "${user}@${host}|${path}"
+}
+
+upload_to_sftp() {
+  local artifact="$1"
+  local parsed remote path
+  parsed="$(parse_sftp_target "${SFTP_TARGET}")"
+  remote="${parsed%%|*}"
+  path="${parsed#*|}"
+  echo "Subiendo artefacto a ${remote}:${path}"
+  ssh -o BatchMode=yes "${remote}" "mkdir -p '${path}'"
+  scp "${artifact}" "${remote}:${path}/"
+}
 
 if [[ "${ARCH}" != "x86_64" ]]; then
   echo "Error: AppImage build script currently supports x86_64 only (detected: ${ARCH})." >&2
@@ -61,7 +110,7 @@ EOF
 cp -f "${SCRIPT_DIR}/icons/ZFSMgr-512.png" "${APPDIR}/usr/share/icons/hicolor/512x512/apps/ZFSMgr.png"
 
 echo "Building AppImage..."
-export OUTPUT="${SCRIPT_DIR}/ZFSMgr-0.1.0-${ARCH}.AppImage"
+export OUTPUT="${SCRIPT_DIR}/ZFSMgr-${APP_VERSION}-${ARCH}.AppImage"
 export QMAKE="${QMAKE:-$(command -v qmake6 || command -v qmake || true)}"
 if [[ -z "${QMAKE}" ]]; then
   echo "Warning: qmake/qmake6 not found in PATH. linuxdeploy-plugin-qt may fail." >&2
@@ -76,3 +125,4 @@ fi
 
 echo "AppImage generated:"
 ls -lh "${SCRIPT_DIR}"/*.AppImage
+upload_to_sftp "${OUTPUT}"

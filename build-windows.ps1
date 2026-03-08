@@ -4,15 +4,20 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BuildDir = Join-Path $ScriptDir "build-windows"
 $NativeArgs = @()
-$GenerateInnoInstaller = $false
+$GenerateInnoInstaller = $true
 $InnoScriptPath = $null
 $InnoOutputDir = Join-Path $BuildDir "installer"
+$SftpTarget = if ($env:ZFSMGR_SFTP_TARGET) { $env:ZFSMGR_SFTP_TARGET } else { "sftp://linarese:fc16/Descargas/z" }
 
 for ($i = 0; $i -lt $args.Count; $i++) {
   $arg = $args[$i]
   switch -Regex ($arg) {
     '^(--inno-setup|-inno-setup|--installer|-installer)$' {
       $GenerateInnoInstaller = $true
+      continue
+    }
+    '^(--no-inno|-no-inno|--no-installer|-no-installer)$' {
+      $GenerateInnoInstaller = $false
       continue
     }
     '^(--inno-script|-inno-script)$' {
@@ -37,6 +42,74 @@ for ($i = 0; $i -lt $args.Count; $i++) {
       $NativeArgs += $arg
       continue
     }
+  }
+}
+
+function Resolve-SftpTarget([string]$target) {
+  if ([string]::IsNullOrWhiteSpace($target)) {
+    throw "Destino SFTP vacío."
+  }
+  $t = $target.Trim()
+  if ($t -match '^sftp://') {
+    $body = $t.Substring(7)
+    $slash = $body.IndexOf('/')
+    if ($slash -lt 0) {
+      throw "Destino SFTP inválido: $target"
+    }
+    $authority = $body.Substring(0, $slash)
+    $path = "/" + $body.Substring($slash + 1)
+    $user = $null
+    $host = $null
+    if ($authority.Contains("@")) {
+      $parts = $authority.Split("@", 2)
+      $user = $parts[0]
+      $host = $parts[1]
+    } elseif ($authority.Contains(":")) {
+      # Formato legacy soportado: sftp://user:host/ruta
+      $parts = $authority.Split(":", 2)
+      $user = $parts[0]
+      $host = $parts[1]
+    } else {
+      $user = $env:USERNAME
+      $host = $authority
+    }
+    return [PSCustomObject]@{
+      Remote = "$user@$host"
+      Path   = $path
+    }
+  }
+
+  if ($t -match '^(?<remote>[^:]+):(?<path>.+)$') {
+    $remote = $Matches['remote']
+    if (-not $remote.Contains("@")) {
+      $remote = "$($env:USERNAME)@$remote"
+    }
+    $path = $Matches['path']
+    if (-not $path.StartsWith("/")) {
+      $path = "/" + $path
+    }
+    return [PSCustomObject]@{
+      Remote = $remote
+      Path   = $path
+    }
+  }
+
+  throw "Destino SFTP inválido: $target"
+}
+
+function Upload-ArtifactSftp([string]$artifactPath) {
+  if (-not (Test-Path $artifactPath)) {
+    throw "No se encontró artefacto para subir: $artifactPath"
+  }
+  $dst = Resolve-SftpTarget $SftpTarget
+  Write-Host "Subiendo artefacto a $($dst.Remote):$($dst.Path)"
+  & ssh -o BatchMode=yes $dst.Remote "mkdir -p '$($dst.Path)'"
+  if ($LASTEXITCODE -ne 0) {
+    throw "No se pudo crear el directorio remoto SFTP."
+  }
+  & scp $artifactPath "$($dst.Remote):$($dst.Path)/"
+  if ($LASTEXITCODE -ne 0) {
+    throw "Falló la subida SFTP del artefacto."
   }
 }
 
@@ -586,6 +659,15 @@ if ($GenerateInnoInstaller) {
     throw "ISCC falló (exit $LASTEXITCODE)"
   }
   Write-Host "Instalador generado en: $InnoOutputDir"
+  $installerExe = Get-ChildItem -Path $InnoOutputDir -Filter "*.exe" -File -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+  if (-not $installerExe) {
+    throw "No se encontró el instalador .exe generado por Inno Setup."
+  }
+  Upload-ArtifactSftp $installerExe.FullName
+} else {
+  Upload-ArtifactSftp $exePath
 }
 
 Write-Host "Build completado: $exePath"
