@@ -9,3 +9,5 @@ build-macos/
 build-linux/
 build-windows/
 *.spec
+.tools/
+AppDir/
