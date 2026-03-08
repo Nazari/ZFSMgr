@@ -24,6 +24,7 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QSignalBlocker>
+#include <QSettings>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTextEdit>
@@ -37,6 +38,57 @@ using mwhelpers::shSingleQuote;
 using mwhelpers::sshUserHostPort;
 using mwhelpers::formatWindowsFsTypeDetail;
 using mwhelpers::windowsPartitionTypeIsProtected;
+
+struct ZPoolCreationDefaults {
+    bool force{true};
+    QString altroot{QStringLiteral("/mnt/fc16")};
+    QString ashift{QStringLiteral("12")};
+    QString autotrim{QStringLiteral("on")};
+    QString compatibility{QStringLiteral("openzfs-2.4-linux")};
+    QString fsProps{
+        QStringLiteral("acltype=posixacl,"
+                       "xattr=sa,"
+                       "dnodesize=auto,"
+                       "compression=lz4,"
+                       "normalization=formD,"
+                       "relatime=on,"
+                       "canmount=noauto,"
+                       "mountpoint=none")};
+};
+
+ZPoolCreationDefaults loadZPoolCreationDefaults(const QString& iniPath) {
+    ZPoolCreationDefaults d;
+    if (iniPath.trimmed().isEmpty()) {
+        return d;
+    }
+    QSettings ini(iniPath, QSettings::IniFormat);
+    ini.beginGroup(QStringLiteral("ZPoolCreationDefaults"));
+    bool touched = false;
+    auto ensure = [&](const QString& key, const QVariant& value) {
+        if (!ini.contains(key)) {
+            ini.setValue(key, value);
+            touched = true;
+        }
+    };
+    ensure(QStringLiteral("force"), d.force);
+    ensure(QStringLiteral("altroot"), d.altroot);
+    ensure(QStringLiteral("ashift"), d.ashift);
+    ensure(QStringLiteral("autotrim"), d.autotrim);
+    ensure(QStringLiteral("compatibility"), d.compatibility);
+    ensure(QStringLiteral("fs_properties"), d.fsProps);
+
+    d.force = ini.value(QStringLiteral("force"), d.force).toBool();
+    d.altroot = ini.value(QStringLiteral("altroot"), d.altroot).toString().trimmed();
+    d.ashift = ini.value(QStringLiteral("ashift"), d.ashift).toString().trimmed();
+    d.autotrim = ini.value(QStringLiteral("autotrim"), d.autotrim).toString().trimmed();
+    d.compatibility = ini.value(QStringLiteral("compatibility"), d.compatibility).toString().trimmed();
+    d.fsProps = ini.value(QStringLiteral("fs_properties"), d.fsProps).toString().trimmed();
+    ini.endGroup();
+    if (touched) {
+        ini.sync();
+    }
+    return d;
+}
 
 QString parentDiskDevicePath(const QString& rawPath) {
     const QString path = rawPath.trimmed();
@@ -638,6 +690,16 @@ void MainWindow::createPoolForSelectedConnection() {
     QLineEdit* poolOptsEd = new QLineEdit(baseBox);
     QLineEdit* fsPropsEd = new QLineEdit(baseBox);
     QLineEdit* extraEd = new QLineEdit(baseBox);
+    const ZPoolCreationDefaults zdefs = loadZPoolCreationDefaults(m_store.iniPath());
+    forceCb->setChecked(zdefs.force);
+    altrootEd->setText(zdefs.altroot);
+    ashiftCb->setCurrentText(zdefs.ashift);
+    autotrimCb->setCurrentText(zdefs.autotrim);
+    if (!zdefs.compatibility.isEmpty() && compatibilityCb->findText(zdefs.compatibility) < 0) {
+        compatibilityCb->addItem(zdefs.compatibility);
+    }
+    compatibilityCb->setCurrentText(zdefs.compatibility);
+    fsPropsEd->setText(zdefs.fsProps);
     form->addRow(trk(QStringLiteral("t_poolcrt_auto004"), QStringLiteral("Nombre"), QStringLiteral("Name"), QStringLiteral("名称")), poolNameEd);
     form->addRow(trk(QStringLiteral("t_poolcrt_auto005"), QStringLiteral("Tipo rápido (si no hay spec vdev)"),
                      QStringLiteral("Quick type (if no vdev spec)"),
