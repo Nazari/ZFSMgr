@@ -1084,10 +1084,8 @@ void MainWindow::buildUi() {
                                         QStringLiteral("Datasets"),
                                         QStringLiteral("Datasets"),
                                         QStringLiteral("数据集")));
-    m_leftTabs->addTab(advancedTab, trk(QStringLiteral("t_advanced_tab_001"),
-                                        QStringLiteral("Avanzado"),
-                                        QStringLiteral("Advanced"),
-                                        QStringLiteral("高级")));
+    // "Avanzado" ya no forma parte de la navegación visible principal.
+    advancedTab->hide();
     m_leftTabs->hide();
     leftLayout->addWidget(connectionsTab, 1);
 
@@ -1781,6 +1779,24 @@ void MainWindow::buildUi() {
     }
     connect(m_connectionsTable, &QTableWidget::currentCellChanged, this,
             [this](int, int, int, int) { onConnectionSelectionChanged(); });
+    connect(m_connectionsTable, &QTableWidget::cellClicked, this, [this](int row, int) {
+        if (!m_connectionsTable || row < 0) {
+            return;
+        }
+        QTableWidgetItem* it = m_connectionsTable->item(row, 0);
+        if (!it) {
+            return;
+        }
+        bool ok = false;
+        const int connIdx = it->data(Qt::UserRole).toInt(&ok);
+        if (!ok || connIdx < 0 || connIdx >= m_profiles.size()) {
+            return;
+        }
+        m_userSelectedConnectionKey = m_profiles[connIdx].id.trimmed().toLower();
+        if (m_userSelectedConnectionKey.isEmpty()) {
+            m_userSelectedConnectionKey = m_profiles[connIdx].name.trimmed().toLower();
+        }
+    });
     if (m_connectionEntityTabs) {
         connect(m_connectionEntityTabs, &QTabBar::currentChanged, this, [this](int idx) {
             onConnectionEntityTabChanged(idx);

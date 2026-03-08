@@ -6,6 +6,8 @@
 
 MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QString& side) const {
     DatasetSelectionContext ctx;
+    constexpr int connIdxRole = Qt::UserRole + 10;
+    constexpr int poolNameRole = Qt::UserRole + 11;
     QString token;
     QString ds;
     QString snap;
@@ -18,13 +20,21 @@ MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QS
         ds = m_destSelectedDataset;
         snap = m_destSelectedSnapshot;
     } else if (side == QStringLiteral("conncontent")) {
-        token = m_connContentToken;
         if (m_connContentTree) {
             const auto selected = m_connContentTree->selectedItems();
             if (!selected.isEmpty()) {
-                ds = selected.first()->data(0, Qt::UserRole).toString();
-                snap = selected.first()->data(1, Qt::UserRole).toString();
+                auto* sel = selected.first();
+                ds = sel->data(0, Qt::UserRole).toString();
+                snap = sel->data(1, Qt::UserRole).toString();
+                const int itemConnIdx = sel->data(0, connIdxRole).toInt();
+                const QString itemPool = sel->data(0, poolNameRole).toString();
+                if (itemConnIdx >= 0 && !itemPool.isEmpty()) {
+                    token = QStringLiteral("%1::%2").arg(itemConnIdx).arg(itemPool);
+                }
             }
+        }
+        if (token.isEmpty()) {
+            token = m_connContentToken;
         }
     } else {
         token = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
