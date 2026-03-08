@@ -455,7 +455,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
     args << "-o" << "StrictHostKeyChecking=no";
     args << "-o" << "UserKnownHostsFile=/dev/null";
     args << "-o" << "ControlMaster=auto";
-    args << "-o" << "ControlPersist=300";
+    args << "-o" << "ControlPersist=yes";
     args << "-o" << QStringLiteral("ControlPath=%1").arg(sshControlPath());
     if (hasPassword && usingSshpass) {
         args << "-o" << "BatchMode=no";
@@ -581,6 +581,48 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         appendConnectionLog(p.id, oneLine(err));
     }
     return true;
+}
+
+void MainWindow::closeAllSshControlMasters() {
+    if (m_profiles.isEmpty()) {
+        return;
+    }
+    QSet<QString> seen;
+    for (const ConnectionProfile& p : m_profiles) {
+        if (isLocalConnection(p)) {
+            continue;
+        }
+        if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+        const QString fingerprint = QStringLiteral("%1|%2|%3|%4")
+                                        .arg(p.username,
+                                             p.host,
+                                             QString::number((p.port > 0) ? p.port : 22),
+                                             p.keyPath);
+        if (seen.contains(fingerprint)) {
+            continue;
+        }
+        seen.insert(fingerprint);
+
+        QStringList args;
+        args << "-o" << "BatchMode=yes";
+        args << "-o" << "LogLevel=ERROR";
+        args << "-o" << "StrictHostKeyChecking=no";
+        args << "-o" << "UserKnownHostsFile=/dev/null";
+        args << "-o" << QStringLiteral("ControlPath=%1").arg(sshControlPath());
+        if (p.port > 0) {
+            args << "-p" << QString::number(p.port);
+        }
+        if (!p.keyPath.isEmpty()) {
+            args << "-i" << p.keyPath;
+        }
+        args << "-O" << "exit";
+        args << sshUserHost(p);
+        QProcess proc;
+        proc.start(QStringLiteral("ssh"), args);
+        proc.waitForFinished(1500);
+    }
 }
 
 QString MainWindow::withSudo(const ConnectionProfile& p, const QString& cmd) const {

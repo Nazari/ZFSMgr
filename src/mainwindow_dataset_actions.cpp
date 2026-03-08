@@ -299,6 +299,7 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     }
     setActionsLocked(true);
     appLog(QStringLiteral("NORMAL"), QStringLiteral("%1 %2::%3").arg(actionName, p.name, ctx.datasetName));
+    updateStatus(QStringLiteral("%1 %2::%3").arg(actionName, p.name, ctx.datasetName));
     QString out;
     QString err;
     int rc = -1;
@@ -349,6 +350,7 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
         appLog(QStringLiteral("NORMAL"),
                QStringLiteral("Error en %1: %2")
                    .arg(actionName, oneLine(failureDetail)));
+        updateStatus(QStringLiteral("%1 (ERROR) %2::%3").arg(actionName, p.name, ctx.datasetName));
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
                               trk(QStringLiteral("t_action_fail001"), QStringLiteral("%1 falló:\n%2"),
                                   QStringLiteral("%1 failed:\n%2"),
@@ -380,6 +382,7 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
         }
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("%1 finalizado").arg(actionName));
+    updateStatus(QStringLiteral("%1 finalizado %2::%3").arg(actionName, p.name, ctx.datasetName));
     invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
     const bool needsDeferredRefresh =
         (actionName == QStringLiteral("Montar")
@@ -580,13 +583,45 @@ bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& c
     if (!ctx.valid || ctx.datasetName.isEmpty()) {
         return false;
     }
+    int resolvedConnIdx = ctx.connIdx;
+    auto datasetExistsInConn = [&](int idx) -> bool {
+        if (idx < 0 || idx >= m_profiles.size() || ctx.poolName.isEmpty()) {
+            return false;
+        }
+        if (!ensureDatasetsLoaded(idx, ctx.poolName)) {
+            return false;
+        }
+        const QString key = datasetCacheKey(idx, ctx.poolName);
+        const auto it = m_poolDatasetCache.constFind(key);
+        if (it == m_poolDatasetCache.constEnd() || !it->loaded) {
+            return false;
+        }
+        return it->recordByName.contains(ctx.datasetName);
+    };
+    if (!datasetExistsInConn(resolvedConnIdx)) {
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            if (i == resolvedConnIdx) {
+                continue;
+            }
+            if (datasetExistsInConn(i)) {
+                appLog(QStringLiteral("WARN"),
+                       QStringLiteral("Contexto de conexión ajustado para montar %1: %2 -> %3")
+                           .arg(ctx.datasetName)
+                           .arg((ctx.connIdx >= 0 && ctx.connIdx < m_profiles.size()) ? m_profiles[ctx.connIdx].name : QStringLiteral("<?>"))
+                           .arg(m_profiles[i].name));
+                resolvedConnIdx = i;
+                break;
+            }
+        }
+    }
+
     const QString parent = parentDatasetName(ctx.datasetName);
     if (parent.isEmpty()) {
         return true;
     }
 
     QString parentMountpoint;
-    if (!getDatasetProperty(ctx.connIdx, parent, QStringLiteral("mountpoint"), parentMountpoint)) {
+    if (!getDatasetProperty(resolvedConnIdx, parent, QStringLiteral("mountpoint"), parentMountpoint)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_parent_mp_fail1"), QStringLiteral("No se pudo comprobar mountpoint del padre %1").arg(parent),
                                  QStringLiteral("Could not verify parent mountpoint %1").arg(parent),
@@ -594,7 +629,7 @@ bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& c
         return false;
     }
     QString parentCanmount;
-    if (!getDatasetProperty(ctx.connIdx, parent, QStringLiteral("canmount"), parentCanmount)) {
+    if (!getDatasetProperty(resolvedConnIdx, parent, QStringLiteral("canmount"), parentCanmount)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_parent_cm_fail1"), QStringLiteral("No se pudo comprobar canmount del padre %1").arg(parent),
                                  QStringLiteral("Could not verify parent canmount %1").arg(parent),
@@ -602,7 +637,7 @@ bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& c
         return false;
     }
     QString parentMounted;
-    if (!getDatasetProperty(ctx.connIdx, parent, QStringLiteral("mounted"), parentMounted)) {
+    if (!getDatasetProperty(resolvedConnIdx, parent, QStringLiteral("mounted"), parentMounted)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_parent_mntfail1"), QStringLiteral("No se pudo comprobar estado mounted del padre %1").arg(parent),
                                  QStringLiteral("Could not verify parent mounted state %1").arg(parent),

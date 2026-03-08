@@ -153,6 +153,7 @@ private:
                 int& rc,
                 const std::function<void(const QString&)>& onStdoutLine = {},
                 const std::function<void(const QString&)>& onStderrLine = {});
+    void closeAllSshControlMasters();
     QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
     QString withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const;
     bool isLocalConnection(const ConnectionProfile& p) const;
@@ -334,6 +335,7 @@ private:
     QString m_connContentToken;
     QMap<QString, ConnContentTreeState> m_connContentTreeStateByToken;
     QMap<QString, ConnectionNavState> m_connectionNavStateByConnId;
+    QString m_userSelectedConnectionKey;
     QPlainTextEdit* m_poolStatusText{nullptr};
     QPushButton* m_poolStatusRefreshBtn{nullptr};
     QPushButton* m_poolStatusImportBtn{nullptr};

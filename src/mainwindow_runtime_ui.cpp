@@ -54,6 +54,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         event->ignore();
         return;
     }
+    closeAllSshControlMasters();
     QMainWindow::closeEvent(event);
 }
 

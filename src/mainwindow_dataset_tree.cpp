@@ -14,6 +14,9 @@
 
 namespace {
 using mwhelpers::parentDatasetName;
+constexpr int kSnapshotListRole = Qt::UserRole + 1;
+constexpr int kConnIdxRole = Qt::UserRole + 10;
+constexpr int kPoolNameRole = Qt::UserRole + 11;
 
 QTreeWidgetItem* findDatasetItem(QTreeWidget* tree, const QString& datasetName) {
     if (!tree || datasetName.isEmpty()) {
@@ -294,7 +297,6 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
     }
     const QString key = datasetCacheKey(connIdx, poolName);
     const PoolDatasetCache& cache = m_poolDatasetCache[key];
-    constexpr int snapshotListRole = Qt::UserRole + 1;
 
     QMap<QString, QTreeWidgetItem*> byName;
     for (const DatasetRecord& rec : cache.datasets) {
@@ -307,7 +309,9 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         item->setText(1, snaps.isEmpty() ? QString() : QStringLiteral("(ninguno)"));
         item->setData(1, Qt::UserRole, QString());
         item->setData(0, Qt::UserRole, rec.name);
-        item->setData(1, snapshotListRole, snaps);
+        item->setData(1, kSnapshotListRole, snaps);
+        item->setData(0, kConnIdxRole, connIdx);
+        item->setData(0, kPoolNameRole, poolName);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
         const QString mounted = rec.mounted.trimmed().toLower();
         const bool isMounted = (mounted == QStringLiteral("yes")
@@ -339,7 +343,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         if (!n) {
             return;
         }
-        const QStringList snaps = n->data(1, snapshotListRole).toStringList();
+        const QStringList snaps = n->data(1, kSnapshotListRole).toStringList();
         if (!snaps.isEmpty()) {
             QStringList options;
             options << QStringLiteral("(ninguno)");
@@ -449,6 +453,14 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
         token = m_originPoolCombo ? m_originPoolCombo->currentData().toString() : QString();
     } else if (side == QStringLiteral("dest")) {
         token = m_destPoolCombo ? m_destPoolCombo->currentData().toString() : QString();
+    } else if (side == QStringLiteral("conncontent")) {
+        const int itemConnIdx = item->data(0, kConnIdxRole).toInt();
+        const QString itemPool = item->data(0, kPoolNameRole).toString();
+        if (itemConnIdx >= 0 && !itemPool.isEmpty()) {
+            token = QStringLiteral("%1::%2").arg(itemConnIdx).arg(itemPool);
+        } else {
+            token = m_connContentToken;
+        }
     } else {
         token = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
     }

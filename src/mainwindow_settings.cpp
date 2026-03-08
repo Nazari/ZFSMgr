@@ -190,8 +190,4 @@ void MainWindow::applyLanguageLive() {
 
     refreshTransferSelectionLabels();
     updateAdvancedSelectionUi(m_advPropsDataset, QString());
-    updateStatus(trk(QStringLiteral("t_lang_applied_001"),
-                     QStringLiteral("Estado: idioma aplicado"),
-                     QStringLiteral("Status: language applied"),
-                     QStringLiteral("状态：语言已应用")));
 }

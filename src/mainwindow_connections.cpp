@@ -167,10 +167,6 @@ void MainWindow::refreshAllConnections() {
         rebuildConnectionsTable();
         rebuildDatasetPoolSelectors();
         populateAllPoolsTables();
-        updateStatus(trk(QStringLiteral("t_status_refresh_end"),
-                         QStringLiteral("Estado: refresco finalizado"),
-                         QStringLiteral("Status: refresh finished"),
-                         QStringLiteral("状态：刷新完成")));
         return;
     }
     const int generation = ++m_refreshGeneration;
@@ -178,11 +174,6 @@ void MainWindow::refreshAllConnections() {
     m_refreshTotal = m_profiles.size();
     m_refreshInProgress = (m_refreshPending > 0);
     updateBusyCursor();
-    updateStatus(trk(QStringLiteral("t_status_refresh_001"),
-                     QStringLiteral("Estado: refrescando 0/%1"),
-                     QStringLiteral("Status: refreshing 0/%1"),
-                     QStringLiteral("状态：刷新中 0/%1"))
-                     .arg(m_refreshTotal));
 
     for (int i = 0; i < m_profiles.size(); ++i) {
         const ConnectionProfile profile = m_profiles[i];
@@ -213,10 +204,6 @@ void MainWindow::refreshSelectedConnection() {
     m_refreshTotal = 1;
     m_refreshInProgress = true;
     updateBusyCursor();
-    updateStatus(trk(QStringLiteral("t_status_refresh_002"),
-                     QStringLiteral("Estado: refrescando 0/1"),
-                     QStringLiteral("Status: refreshing 0/1"),
-                     QStringLiteral("状态：刷新中 0/1")));
     const ConnectionProfile profile = m_profiles[idx];
     (void)QtConcurrent::run([this, generation, idx, profile]() {
         const ConnectionRuntimeState state = refreshConnection(profile);
@@ -247,13 +234,6 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const ConnectionR
     if (m_refreshPending > 0) {
         --m_refreshPending;
     }
-    const int done = qMax(0, m_refreshTotal - m_refreshPending);
-    updateStatus(trk(QStringLiteral("t_status_refresh_003"),
-                     QStringLiteral("Estado: refrescando %1/%2"),
-                     QStringLiteral("Status: refreshing %1/%2"),
-                     QStringLiteral("状态：刷新中 %1/%2"))
-                     .arg(done)
-                     .arg(qMax(1, m_refreshTotal)));
     if (m_refreshPending == 0) {
         onAsyncRefreshDone(generation);
     }
@@ -265,11 +245,11 @@ void MainWindow::onAsyncRefreshDone(int generation) {
     }
     if (!m_initialRefreshCompleted) {
         m_initialRefreshCompleted = true;
-        if (m_connectionsTable && m_connectionsTable->rowCount() > 0 && m_connectionsTable->currentRow() < 0) {
-            m_connectionsTable->setCurrentCell(0, 0);
-        }
-        refreshConnectionNodeDetails();
     }
+    if (m_connectionsTable && m_connectionsTable->rowCount() > 0 && m_connectionsTable->currentRow() < 0) {
+        m_connectionsTable->setCurrentCell(0, 0);
+    }
+    refreshConnectionNodeDetails();
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Refresco paralelo finalizado"));
     m_refreshInProgress = false;
     updateBusyCursor();
@@ -277,10 +257,6 @@ void MainWindow::onAsyncRefreshDone(int generation) {
         m_busyOnImportRefresh = false;
         endUiBusy();
     }
-    updateStatus(trk(QStringLiteral("t_status_refresh_end"),
-                     QStringLiteral("Estado: refresco finalizado"),
-                     QStringLiteral("Status: refresh finished"),
-                     QStringLiteral("状态：刷新完成")));
 }
 
 void MainWindow::onConnectionSelectionChanged() {
@@ -631,7 +607,11 @@ void MainWindow::refreshConnectionNodeDetails() {
         m_poolViewTabBar->setVisible(poolMode);
         if (!poolMode) {
             m_poolViewTabBar->setCurrentIndex(0);
+            m_poolViewTabBar->setTabData(0, QVariant());
+            m_poolViewTabBar->setTabData(1, QVariant());
         } else {
+            m_poolViewTabBar->setTabData(0, QStringLiteral("poolprops:%1:%2").arg(connIdx).arg(activePoolName));
+            m_poolViewTabBar->setTabData(1, QStringLiteral("poolcontent:%1:%2").arg(connIdx).arg(activePoolName));
             restoreConnectionPoolSubtabState(connIdx, activePoolName);
         }
     }
@@ -877,11 +857,6 @@ void MainWindow::loadConnections() {
     }
 
     rebuildConnectionsTable();
-    updateStatus(trk(QStringLiteral("t_status_conn_ld1"),
-                     QStringLiteral("Estado: %1 conexiones cargadas"),
-                     QStringLiteral("Status: %1 connections loaded"),
-                     QStringLiteral("状态：已加载 %1 个连接"))
-                     .arg(m_profiles.size()));
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Loaded %1 connections from %2")
                                    .arg(m_profiles.size())
                                    .arg(m_store.iniPath()));
@@ -917,6 +892,16 @@ void MainWindow::loadConnections() {
 
 void MainWindow::rebuildConnectionsTable() {
     beginUiBusy();
+    QString prevSelectedKey;
+    {
+        const int prevIdx = selectedConnectionRow(m_connectionsTable);
+        if (prevIdx >= 0 && prevIdx < m_profiles.size()) {
+            prevSelectedKey = m_profiles[prevIdx].id.trimmed().toLower();
+            if (prevSelectedKey.isEmpty()) {
+                prevSelectedKey = m_profiles[prevIdx].name.trimmed().toLower();
+            }
+        }
+    }
     m_connectionsTable->clear();
     m_connectionsTable->setRowCount(0);
     QStringList redirectedToLocalNames;
@@ -981,6 +966,38 @@ void MainWindow::rebuildConnectionsTable() {
         m_connectionsTable->setItem(row, 0, it);
 
     }
+    int targetRow = -1;
+    const QString preferredKey = !m_userSelectedConnectionKey.trimmed().isEmpty()
+                                     ? m_userSelectedConnectionKey.trimmed().toLower()
+                                     : prevSelectedKey;
+    if (!preferredKey.isEmpty()) {
+        for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
+            QTableWidgetItem* it = m_connectionsTable->item(r, 0);
+            if (!it) {
+                continue;
+            }
+            bool ok = false;
+            const int connIdx = it->data(Qt::UserRole).toInt(&ok);
+            if (!ok || connIdx < 0 || connIdx >= m_profiles.size()) {
+                continue;
+            }
+            QString key = m_profiles[connIdx].id.trimmed().toLower();
+            if (key.isEmpty()) {
+                key = m_profiles[connIdx].name.trimmed().toLower();
+            }
+            if (key == preferredKey) {
+                targetRow = r;
+                break;
+            }
+        }
+    }
+    if (targetRow < 0 && m_connectionsTable->rowCount() > 0) {
+        targetRow = 0;
+    }
+    if (targetRow >= 0) {
+        m_connectionsTable->setCurrentCell(targetRow, 0);
+    }
+
     rebuildConnectionEntityTabs();
     syncConnectionLogTabs();
     endUiBusy();
