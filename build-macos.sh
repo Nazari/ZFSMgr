@@ -8,6 +8,7 @@ BUNDLE_NAME=""
 BUNDLE_APP=1
 SELF_SIGN_CERT_NAME="${SELF_SIGN_CERT_NAME:-ZFSMgr Local Self-Signed}"
 SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese@fc16:Descargas/z}"
+UPLOAD_SFTP=0
 EXTRA_CMAKE_ARGS=()
 
 for arg in "$@"; do
@@ -15,6 +16,8 @@ for arg in "$@"; do
     BUNDLE_APP=1
   elif [[ "${arg}" == "--no-bundle" ]]; then
     BUNDLE_APP=0
+  elif [[ "${arg}" == "--sftpfc16" ]]; then
+    UPLOAD_SFTP=1
   else
     EXTRA_CMAKE_ARGS+=("${arg}")
   fi
@@ -172,7 +175,9 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   /usr/bin/codesign --verify --strict --verbose=4 "${MAIN_BIN}"
   /usr/bin/codesign --verify --deep --strict --verbose=4 "${APP_BUNDLE}"
   echo "App macOS creada y firmada con certificado autofirmado: ${APP_BUNDLE}"
-  upload_to_sftp "${APP_BUNDLE}"
+  if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
+    upload_to_sftp "${APP_BUNDLE}"
+  fi
 else
   echo "Empaquetado .app omitido (usa --bundle para generarlo)."
 fi

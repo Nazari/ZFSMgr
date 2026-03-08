@@ -8,12 +8,17 @@ $GenerateInnoInstaller = $true
 $InnoScriptPath = $null
 $InnoOutputDir = Join-Path $BuildDir "installer"
 $SftpTarget = if ($env:ZFSMGR_SFTP_TARGET) { $env:ZFSMGR_SFTP_TARGET } else { "sftp://linarese@fc16:Descargas/z" }
+$UploadSftp = $false
 
 for ($i = 0; $i -lt $args.Count; $i++) {
   $arg = $args[$i]
   switch -Regex ($arg) {
     '^(--inno-setup|-inno-setup|--installer|-installer)$' {
       $GenerateInnoInstaller = $true
+      continue
+    }
+    '^(--sftpfc16|-sftpfc16)$' {
+      $UploadSftp = $true
       continue
     }
     '^(--no-inno|-no-inno|--no-installer|-no-installer)$' {
@@ -705,8 +710,10 @@ if ($GenerateInnoInstaller) {
   if (-not $installerExe) {
     throw "No se encontró el instalador .exe generado por Inno Setup."
   }
-  Upload-ArtifactSftp $installerExe.FullName
-} else {
+  if ($UploadSftp) {
+    Upload-ArtifactSftp $installerExe.FullName
+  }
+} elseif ($UploadSftp) {
   Upload-ArtifactSftp $exePath
 }
 

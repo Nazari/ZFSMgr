@@ -8,9 +8,19 @@ TOOLS_DIR="${SCRIPT_DIR}/.tools/appimage"
 ARCH="$(uname -m)"
 SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese@fc16:Descargas/z}"
 APP_VERSION="$(sed -n 's/^project(ZFSMgrQt VERSION \([0-9.]*\).*/\1/p' "${SCRIPT_DIR}/CMakeLists.txt" | head -n1)"
+UPLOAD_SFTP=0
 if [[ -z "${APP_VERSION}" ]]; then
   APP_VERSION="0.1.0"
 fi
+
+EXTRA_ARGS=()
+for arg in "$@"; do
+  if [[ "${arg}" == "--sftpfc16" ]]; then
+    UPLOAD_SFTP=1
+  else
+    EXTRA_ARGS+=("${arg}")
+  fi
+done
 
 parse_sftp_target() {
   local target="$1"
@@ -108,7 +118,7 @@ download_if_missing \
   "${LINUXDEPLOY_QT_PLUGIN}"
 
 echo "Configuring and building Release binary..."
-cmake -S "${SCRIPT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "$@"
+cmake -S "${SCRIPT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
 cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
 
 echo "Preparing AppDir..."
@@ -148,4 +158,6 @@ fi
 
 echo "AppImage generated:"
 ls -lh "${SCRIPT_DIR}"/*.AppImage
-upload_to_sftp "${OUTPUT}"
+if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
+  upload_to_sftp "${OUTPUT}"
+fi
