@@ -17,7 +17,7 @@ Legal references:
 
 ## Screenshot
 
-![ZFSMgr UI](docs/images/zfsmgr-ui.gif)
+![ZFSMgr UI](docs/images/scr1.png)
 
 ## Releases
 
