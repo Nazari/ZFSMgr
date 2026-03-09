@@ -12,7 +12,7 @@ When ZFSMgr starts:
 
 - Persisted logs are read (`application.log` and rotated files `.1` ... `.5`).
 - Only the last `N` lines are loaded into the view.
-- `N` is the configured maximum lines limit.
+- `N` is the configured maximum lines limit (menu `Application > Logs`).
 - If logs do not exist or are empty, no error is shown.
 
 ## Compact on-screen rendering
@@ -31,13 +31,7 @@ Visual format:
 
 - `<changes> | <message>`
 
-Examples:
-
-- `2026-03-08 10:12:01 ssh=fc16 lvl=INFO | Refresh started...`
-- `... | zpool list -H ...`
-- `10:12:02 lvl=NORMAL | Refresh finished: fc16 -> OK`
-
 ## Persistence
 
 - Full-format lines are still stored on disk for traceability.
-- The compact rendering is only applied in the on-screen view.
+- Compact rendering is only applied in the on-screen view.

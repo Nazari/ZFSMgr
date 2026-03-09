@@ -12,7 +12,7 @@ Al iniciar ZFSMgr:
 
 - Se leen los logs persistidos (`application.log` y rotaciones `.1` ... `.5`).
 - Se cargan en pantalla solo las últimas `N` líneas.
-- `N` es el límite máximo de líneas configurado.
+- `N` es el límite máximo de líneas configurado (menú `Aplicación > Logs`).
 - Si no hay logs o están vacíos, no se muestra error.
 
 ## Presentación compacta en pantalla
@@ -30,12 +30,6 @@ Si no cambia ninguno de esos campos, se muestra `...` como cabecera compacta.
 Formato visual:
 
 - `<cambios> | <mensaje>`
-
-Ejemplos:
-
-- `2026-03-08 10:12:01 ssh=fc16 lvl=INFO | Inicio refresh...`
-- `... | zpool list -H ...`
-- `10:12:02 lvl=NORMAL | Fin refresh: fc16 -> OK`
 
 ## Persistencia
 

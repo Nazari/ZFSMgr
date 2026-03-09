@@ -1,17 +1,24 @@
 # Menús contextuales
 
-La GUI combina botones visibles y menú contextual por clic derecho.
+La GUI usa menús contextuales por clic derecho en dos zonas.
 
-## Flujo actual
+## Menú contextual en `Conexiones`
 
-- En `Conexiones` y `Nuevo` se usan botones.
-- En `Acciones` (panel izquierdo) se usan botones para transferencias.
-- En `Contenido <pool>`, las acciones del dataset/snapshot se lanzan con clic derecho sobre el árbol.
-- En `Propiedades del dataset` se aplica con `Aplicar cambios`.
+Sobre la conexión seleccionada:
+
+- `Refrescar`
+- `Editar`
+- `Borrar`
+
+Notas:
+
+- `Editar` y `Borrar` se deshabilitan para `Local` y conexiones redirigidas a `Local`.
+- Durante acciones en curso, `Refrescar` queda bloqueado.
 
 ## Menú contextual en `Contenido <pool>`
 
-Sobre el dataset/snapshot seleccionado, el menú contextual ofrece:
+Sobre el dataset/snapshot seleccionado:
+
 - `Rollback`
 - `Crear`
 - `Borrar`
@@ -24,11 +31,6 @@ Sobre el dataset/snapshot seleccionado, el menú contextual ofrece:
 
 ## Reglas
 
-- Durante una acción en curso, las opciones no seguras quedan bloqueadas.
-- Las acciones destructivas siempre piden confirmación.
-- El estado habilitado/deshabilitado de cada opción sigue la misma lógica que en botones.
-
-## Recomendaciones
-
-- Revise siempre la ventana de comprobación antes de ejecutar.
-- Use `Reset` en acciones para limpiar origen/destino cuando sea necesario.
+- Las acciones destructivas piden confirmación.
+- El estado habilitado/deshabilitado sigue la misma lógica de validación que el resto de acciones.
+- Durante una acción en curso se bloquean opciones no seguras.
