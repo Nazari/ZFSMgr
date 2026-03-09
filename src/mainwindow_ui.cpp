@@ -1802,7 +1802,66 @@ void MainWindow::buildUi() {
             onConnectionEntityTabChanged(idx);
         });
     }
-    m_connectionsTable->setContextMenuPolicy(Qt::NoContextMenu);
+    m_connectionsTable->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_connectionsTable, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        if (!m_connectionsTable) {
+            return;
+        }
+        const QModelIndex idxAt = m_connectionsTable->indexAt(pos);
+        if (idxAt.isValid() && idxAt.row() >= 0) {
+            m_connectionsTable->setCurrentCell(idxAt.row(), 0);
+        }
+        int connIdx = -1;
+        const int curRow = m_connectionsTable->currentRow();
+        if (curRow >= 0 && curRow < m_connectionsTable->rowCount()) {
+            QTableWidgetItem* it = m_connectionsTable->item(curRow, 0);
+            if (it) {
+                bool ok = false;
+                const int idx = it->data(Qt::UserRole).toInt(&ok);
+                if (ok) {
+                    connIdx = idx;
+                }
+            }
+        }
+        const bool hasConn = (connIdx >= 0 && connIdx < m_profiles.size());
+        const bool canRefresh = hasConn && !actionsLocked();
+        const bool canEditDelete = canRefresh && !isLocalConnection(connIdx) && !isConnectionRedirectedToLocal(connIdx);
+
+        QMenu menu(this);
+        QAction* aRefresh = menu.addAction(
+            trk(QStringLiteral("t_refresh_conn_ctx001"),
+                QStringLiteral("Refrescar"),
+                QStringLiteral("Refresh"),
+                QStringLiteral("刷新")));
+        QAction* aEdit = menu.addAction(
+            trk(QStringLiteral("t_edit_conn_ctx001"),
+                QStringLiteral("Editar"),
+                QStringLiteral("Edit"),
+                QStringLiteral("编辑")));
+        QAction* aDelete = menu.addAction(
+            trk(QStringLiteral("t_del_conn_ctx001"),
+                QStringLiteral("Borrar"),
+                QStringLiteral("Delete"),
+                QStringLiteral("删除")));
+        aRefresh->setEnabled(canRefresh);
+        aEdit->setEnabled(canEditDelete);
+        aDelete->setEnabled(canEditDelete);
+
+        QAction* chosen = menu.exec(m_connectionsTable->viewport()->mapToGlobal(pos));
+        if (!chosen) {
+            return;
+        }
+        if (chosen == aRefresh) {
+            logUiAction(QStringLiteral("Refrescar conexión (menú conexiones)"));
+            refreshSelectedConnection();
+        } else if (chosen == aEdit) {
+            logUiAction(QStringLiteral("Editar conexión (menú conexiones)"));
+            editConnection();
+        } else if (chosen == aDelete) {
+            logUiAction(QStringLiteral("Borrar conexión (menú conexiones)"));
+            deleteConnection();
+        }
+    });
     if (m_poolViewTabBar) {
         m_connSplitSizesProps = m_connDetailSplit ? m_connDetailSplit->sizes() : QList<int>{};
         m_connSplitSizesContent = m_connSplitSizesProps;

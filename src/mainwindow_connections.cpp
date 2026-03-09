@@ -488,14 +488,15 @@ void MainWindow::restoreConnectionPoolSubtabState(int connIdx, const QString& po
 
 void MainWindow::refreshConnectionNodeDetails() {
     auto setConnectionActionButtonsVisible = [this](bool visible) {
+        Q_UNUSED(visible);
         if (m_connPropsRefreshBtn) {
-            m_connPropsRefreshBtn->setVisible(visible);
+            m_connPropsRefreshBtn->setVisible(false);
         }
         if (m_connPropsEditBtn) {
-            m_connPropsEditBtn->setVisible(visible);
+            m_connPropsEditBtn->setVisible(false);
         }
         if (m_connPropsDeleteBtn) {
-            m_connPropsDeleteBtn->setVisible(visible);
+            m_connPropsDeleteBtn->setVisible(false);
         }
     };
     auto setPoolActionButtonsVisible = [this](bool visible) {
@@ -658,13 +659,13 @@ void MainWindow::refreshConnectionNodeDetails() {
             if (m_poolStatusText) {
                 QStringList lines;
                 lines << QStringLiteral("Estado: %1").arg(st.status.trimmed().isEmpty() ? QStringLiteral("-") : st.status.trimmed());
-                lines << QStringLiteral("Detalle: %1").arg(st.detail.trimmed().isEmpty() ? QStringLiteral("-") : st.detail.trimmed());
                 lines << QStringLiteral("Sistema operativo: %1").arg(st.osLine.trimmed().isEmpty() ? QStringLiteral("-") : st.osLine.trimmed());
                 lines << QStringLiteral("Método de conexión: %1").arg(st.connectionMethod.trimmed().isEmpty() ? p.connType : st.connectionMethod.trimmed());
                 lines << QStringLiteral("OpenZFS: %1").arg(st.zfsVersionFull.trimmed().isEmpty()
                                                                ? (st.zfsVersion.trimmed().isEmpty() ? QStringLiteral("-")
                                                                                                     : QStringLiteral("OpenZFS %1").arg(st.zfsVersion.trimmed()))
                                                                : st.zfsVersionFull.trimmed());
+                lines << QStringLiteral("---");
                 QStringList detected = st.detectedUnixCommands;
                 QStringList missing = st.missingUnixCommands;
                 if (detected.isEmpty() && missing.isEmpty() && !st.powershellFallbackCommands.isEmpty()) {
@@ -674,6 +675,7 @@ void MainWindow::refreshConnectionNodeDetails() {
                              .arg(detected.isEmpty() ? QStringLiteral("(ninguno)") : detected.join(QStringLiteral(", ")));
                 lines << QStringLiteral("Comandos no detectados: %1")
                              .arg(missing.isEmpty() ? QStringLiteral("(ninguno)") : missing.join(QStringLiteral(", ")));
+                lines << QStringLiteral("---");
                 QStringList nonImportable;
                 for (const PoolImportable& pool : st.importablePools) {
                     const QString poolName = pool.pool.trimmed();
@@ -689,11 +691,19 @@ void MainWindow::refreshConnectionNodeDetails() {
                     if (reason.isEmpty()) {
                         reason = QStringLiteral("-");
                     }
-                    nonImportable << QStringLiteral("%1 (%2)").arg(poolName, reason);
+                    nonImportable << QStringLiteral("%1").arg(poolName);
+                    nonImportable << QStringLiteral("  Motivo: %1").arg(reason);
+                    nonImportable << QStringLiteral("");
                 }
-                lines << QStringLiteral("Pools no importables: %1")
-                             .arg(nonImportable.isEmpty() ? QStringLiteral("(ninguno)")
-                                                          : nonImportable.join(QStringLiteral(", ")));
+                lines << QStringLiteral("Pools no importables:");
+                if (nonImportable.isEmpty()) {
+                    lines << QStringLiteral("  (ninguno)");
+                } else {
+                    while (!nonImportable.isEmpty() && nonImportable.last().trimmed().isEmpty()) {
+                        nonImportable.removeLast();
+                    }
+                    lines += nonImportable;
+                }
                 m_poolStatusText->setPlainText(lines.join(QStringLiteral("\n")));
             }
             resetPoolActionButtons();
