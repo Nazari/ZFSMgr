@@ -1521,7 +1521,7 @@ QString MainWindow::datasetCacheKey(int connIdx, const QString& poolName) const 
     return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
 }
 
-bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName) {
+bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing) {
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
         return false;
     }
@@ -1529,6 +1529,9 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName) {
     PoolDatasetCache& cache = m_poolDatasetCache[key];
     if (cache.loaded) {
         return true;
+    }
+    if (!allowRemoteLoadIfMissing) {
+        return false;
     }
     auto loadSnapshotsFromCli = [&](const ConnectionProfile& p, PoolDatasetCache& targetCache) {
         QString snapCmd = QStringLiteral("zfs list -H -p -t snapshot -o name,creation -r %1")

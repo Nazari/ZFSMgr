@@ -114,6 +114,11 @@ private:
         QString entityTabKey; // "conn" o "pool:<poolName>"
         QMap<QString, int> poolSubtabByPoolName; // poolName -> subtab index
     };
+    struct PoolDetailsCacheEntry {
+        bool loaded{false};
+        QVector<QStringList> propsRows; // property,value,source
+        QString statusText;
+    };
 
     void buildUi();
     void loadConnections();
@@ -177,8 +182,9 @@ private:
     bool getDatasetProperty(int connIdx, const QString& dataset, const QString& prop, QString& valueOut);
     QString effectiveMountPath(int connIdx, const QString& poolName, const QString& datasetName, const QString& mountpointHint, const QString& mountedValue);
     QString datasetCacheKey(int connIdx, const QString& poolName) const;
-    bool ensureDatasetsLoaded(int connIdx, const QString& poolName);
-    void populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side);
+    QString poolDetailsCacheKey(int connIdx, const QString& poolName) const;
+    bool ensureDatasetsLoaded(int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing = true);
+    void populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side, bool allowRemoteLoadIfMissing = true);
     void refreshDatasetProperties(const QString& side);
     void setSelectedDataset(const QString& side, const QString& datasetName, const QString& snapshotName);
     DatasetSelectionContext currentDatasetSelection(const QString& side) const;
@@ -186,6 +192,7 @@ private:
     bool ensureLocalSudoCredentials(ConnectionProfile& profile);
     QString diagnoseUmountFailure(const DatasetSelectionContext& ctx);
     void invalidateDatasetCacheForPool(int connIdx, const QString& poolName);
+    void invalidatePoolDetailsCacheForConnection(int connIdx);
     void reloadDatasetSide(const QString& side);
     void updateTransferButtonsState();
     void updateConnectionActionsState();
@@ -241,7 +248,7 @@ private:
     void scrubPoolFromRow(int row);
     void destroyPoolFromRow(int row);
     void createPoolForSelectedConnection();
-    void refreshSelectedPoolDetails();
+    void refreshSelectedPoolDetails(bool forceRefresh = false, bool allowRemoteLoadIfMissing = true);
     int findPoolRow(const QString& connection, const QString& pool) const;
     int selectedPoolRowFromTabs() const;
     int selectedConnectionIndexForPoolManagement() const;
@@ -377,6 +384,7 @@ private:
     QPlainTextEdit* m_logView{nullptr};
     QMap<QString, QPlainTextEdit*> m_connectionLogViews;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
+    QMap<QString, PoolDetailsCacheEntry> m_poolDetailsCache;
     QString m_originSelectedDataset;
     QString m_originSelectedSnapshot;
     QString m_destSelectedDataset;

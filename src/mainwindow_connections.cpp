@@ -222,6 +222,7 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const ConnectionR
     }
     const int selectedIdx = selectedConnectionRow(m_connectionsTable);
     m_states[idx] = state;
+    invalidatePoolDetailsCacheForConnection(idx);
     rebuildConnectionsTable();
     if (selectedIdx >= 0 && m_connectionsTable) {
         const int row = rowForConnectionIndex(m_connectionsTable, selectedIdx);
@@ -727,10 +728,10 @@ void MainWindow::refreshConnectionNodeDetails() {
         m_connBottomStack->setCurrentWidget(m_connStatusPage);
     }
     resetPoolActionButtons();
-    refreshSelectedPoolDetails();
+    refreshSelectedPoolDetails(false, true);
     if (connIdx >= 0 && connIdx < m_profiles.size() && m_connContentTree) {
         m_connContentToken = newConnContentToken;
-        populateDatasetTree(m_connContentTree, connIdx, poolName, QStringLiteral("conncontent"));
+        populateDatasetTree(m_connContentTree, connIdx, poolName, QStringLiteral("conncontent"), true);
         refreshDatasetProperties(QStringLiteral("conncontent"));
     }
     if (m_poolViewTabBar) {
@@ -813,6 +814,7 @@ void MainWindow::refreshConnectionByIndex(int idx) {
         return;
     }
     m_states[idx] = refreshConnection(m_profiles[idx]);
+    invalidatePoolDetailsCacheForConnection(idx);
     rebuildConnectionsTable();
     rebuildDatasetPoolSelectors();
     populateAllPoolsTables();

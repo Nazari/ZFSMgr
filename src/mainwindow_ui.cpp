@@ -1989,7 +1989,7 @@ void MainWindow::buildUi() {
     connect(m_poolStatusRefreshBtn, &QPushButton::clicked, this, [this]() {
         logUiAction(QStringLiteral("Actualizar estado de pool (botón)"));
         if (selectedPoolRowFromTabs() >= 0) {
-            refreshSelectedPoolDetails();
+            refreshSelectedPoolDetails(true, true);
         }
     });
     connect(m_poolStatusImportBtn, &QPushButton::clicked, this, [this]() {

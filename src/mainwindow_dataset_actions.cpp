@@ -476,6 +476,7 @@ QString MainWindow::diagnoseUmountFailure(const DatasetSelectionContext& ctx) {
 
 void MainWindow::invalidateDatasetCacheForPool(int connIdx, const QString& poolName) {
     m_poolDatasetCache.remove(datasetCacheKey(connIdx, poolName));
+    m_poolDetailsCache.remove(poolDetailsCacheKey(connIdx, poolName));
 }
 
 void MainWindow::reloadDatasetSide(const QString& side) {
@@ -490,7 +491,7 @@ void MainWindow::reloadDatasetSide(const QString& side) {
         if (sep > 0) {
             const int connIdx = token.left(sep).toInt();
             const QString poolName = token.mid(sep + 2);
-            populateDatasetTree(m_connContentTree, connIdx, poolName, QStringLiteral("conncontent"));
+            populateDatasetTree(m_connContentTree, connIdx, poolName, QStringLiteral("conncontent"), true);
             refreshDatasetProperties(QStringLiteral("conncontent"));
         }
     } else {
@@ -499,7 +500,7 @@ void MainWindow::reloadDatasetSide(const QString& side) {
         if (sep > 0) {
             const int connIdx = token.left(sep).toInt();
             const QString poolName = token.mid(sep + 2);
-            populateDatasetTree(m_advTree, connIdx, poolName, QStringLiteral("advanced"));
+            populateDatasetTree(m_advTree, connIdx, poolName, QStringLiteral("advanced"), true);
             refreshDatasetProperties(QStringLiteral("advanced"));
         }
     }

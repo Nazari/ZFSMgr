@@ -97,11 +97,31 @@ upload_to_sftp() {
   fi
 }
 
+ensure_build_dir_source_match() {
+  if [[ ! -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
+    return 0
+  fi
+  local cached_source current_source
+  cached_source="$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "${BUILD_DIR}/CMakeCache.txt" | head -n1)"
+  current_source="$(cd "${SOURCE_DIR}" && pwd -P)"
+  if [[ -z "${cached_source}" ]]; then
+    return 0
+  fi
+  if [[ "${cached_source}" != "${current_source}" ]]; then
+    echo "Detectado build cache con fuente distinta:"
+    echo "  cache:   ${cached_source}"
+    echo "  actual:  ${current_source}"
+    echo "Regenerando ${BUILD_DIR}..."
+    rm -rf "${BUILD_DIR}"
+  fi
+}
+
 if [[ "${BUILD_APPIMAGE}" -eq 0 ]]; then
   if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
     echo "Error: --sftpfc16 solo es válido junto con --appimage." >&2
     exit 1
   fi
+  ensure_build_dir_source_match
   cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
   cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
   echo "Build completado: ${BUILD_DIR}/zfsmgr_qt"
@@ -137,6 +157,7 @@ download_if_missing \
   "${LINUXDEPLOY_QT_PLUGIN}"
 
 echo "Configuring and building Release binary..."
+ensure_build_dir_source_match
 cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
 cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
 

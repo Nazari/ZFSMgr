@@ -1352,5 +1352,5 @@ void MainWindow::createPoolForSelectedConnection() {
     setActionsLocked(false);
     refreshConnectionByIndex(idx);
     populateAllPoolsTables();
-    refreshSelectedPoolDetails();
+    refreshSelectedPoolDetails(true, true);
 }

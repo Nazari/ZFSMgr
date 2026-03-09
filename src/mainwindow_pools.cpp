@@ -57,6 +57,32 @@ int MainWindow::findPoolRow(const QString& connection, const QString& pool) cons
     return -1;
 }
 
+QString MainWindow::poolDetailsCacheKey(int connIdx, const QString& poolName) const {
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return QString();
+    }
+    return QStringLiteral("%1::%2")
+        .arg(m_profiles[connIdx].name.trimmed().toLower(), poolName.trimmed().toLower());
+}
+
+void MainWindow::invalidatePoolDetailsCacheForConnection(int connIdx) {
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return;
+    }
+    const QString prefix = QStringLiteral("%1::").arg(m_profiles[connIdx].name.trimmed().toLower());
+    if (prefix.isEmpty()) {
+        return;
+    }
+    auto it = m_poolDetailsCache.begin();
+    while (it != m_poolDetailsCache.end()) {
+        if (it.key().startsWith(prefix)) {
+            it = m_poolDetailsCache.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 int MainWindow::selectedPoolRowFromTabs() const {
     if (!m_connectionsTable || !m_connectionEntityTabs) {
         return -1;
@@ -153,7 +179,7 @@ void MainWindow::exportPoolFromRow(int row) {
     refreshConnectionByIndex(idx);
     // Refuerzo explícito del refresco visual global de pools tras mutación.
     populateAllPoolsTables();
-    refreshSelectedPoolDetails();
+    refreshSelectedPoolDetails(true, true);
 }
 
 void MainWindow::importPoolFromRow(int row) {
@@ -468,7 +494,7 @@ void MainWindow::destroyPoolFromRow(int row) {
     setActionsLocked(false);
     refreshConnectionByIndex(idx);
     populateAllPoolsTables();
-    refreshSelectedPoolDetails();
+    refreshSelectedPoolDetails(true, true);
 }
 
 void MainWindow::populateAllPoolsTables() {
@@ -503,13 +529,13 @@ void MainWindow::populateAllPoolsTables() {
             m_poolListEntries.push_back(std::move(e));
         }
     }
-    refreshSelectedPoolDetails();
+    refreshSelectedPoolDetails(false, false);
     populateMountedDatasetsTables();
     updatePoolManagementBoxTitle();
 }
 
 
-void MainWindow::refreshSelectedPoolDetails() {
+void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteLoadIfMissing) {
     if (!m_poolPropsTable || !m_poolStatusText) {
         return;
     }
@@ -578,7 +604,40 @@ void MainWindow::refreshSelectedPoolDetails() {
         return;
     }
     const ConnectionProfile& p = m_profiles[idx];
+    const QString cacheKey = poolDetailsCacheKey(idx, poolName);
 
+    auto loadFromCache = [this, &cacheKey]() -> bool {
+        const auto it = m_poolDetailsCache.constFind(cacheKey);
+        if (it == m_poolDetailsCache.constEnd() || !it->loaded) {
+            return false;
+        }
+        const PoolDetailsCacheEntry& cached = it.value();
+        for (const QStringList& row : cached.propsRows) {
+            if (row.size() < 3) {
+                continue;
+            }
+            const int r = m_poolPropsTable->rowCount();
+            m_poolPropsTable->insertRow(r);
+            m_poolPropsTable->setItem(r, 0, new QTableWidgetItem(row.value(0)));
+            m_poolPropsTable->setItem(r, 1, new QTableWidgetItem(row.value(1)));
+            m_poolPropsTable->setItem(r, 2, new QTableWidgetItem(row.value(2)));
+        }
+        m_poolStatusText->setPlainText(cached.statusText);
+        return true;
+    };
+
+    const bool cacheHit = loadFromCache();
+
+    if (!forceRefresh && cacheHit) {
+        setTablePopulationMode(m_poolPropsTable, false);
+        return;
+    }
+    if (!allowRemoteLoadIfMissing) {
+        setTablePopulationMode(m_poolPropsTable, false);
+        return;
+    }
+
+    PoolDetailsCacheEntry fresh;
     QString out;
     QString err;
     int rc = -1;
@@ -591,11 +650,13 @@ void MainWindow::refreshSelectedPoolDetails() {
             if (parts.size() < 3) {
                 continue;
             }
+            const QStringList row{parts[0].trimmed(), parts[1].trimmed(), parts[2].trimmed()};
+            fresh.propsRows.push_back(row);
             const int r = m_poolPropsTable->rowCount();
             m_poolPropsTable->insertRow(r);
-            m_poolPropsTable->setItem(r, 0, new QTableWidgetItem(parts[0].trimmed()));
-            m_poolPropsTable->setItem(r, 1, new QTableWidgetItem(parts[1].trimmed()));
-            m_poolPropsTable->setItem(r, 2, new QTableWidgetItem(parts[2].trimmed()));
+            m_poolPropsTable->setItem(r, 0, new QTableWidgetItem(row.value(0)));
+            m_poolPropsTable->setItem(r, 1, new QTableWidgetItem(row.value(1)));
+            m_poolPropsTable->setItem(r, 2, new QTableWidgetItem(row.value(2)));
         }
     }
 
@@ -605,9 +666,13 @@ void MainWindow::refreshSelectedPoolDetails() {
     const QString stCmd = withSudo(
         p, QStringLiteral("zpool status -v %1").arg(shSingleQuote(poolName)));
     if (runSsh(p, stCmd, 20000, out, err, rc) && rc == 0) {
-        m_poolStatusText->setPlainText(out.trimmed());
+        fresh.statusText = out.trimmed();
+        m_poolStatusText->setPlainText(fresh.statusText);
     } else {
-        m_poolStatusText->setPlainText(err.trimmed());
+        fresh.statusText = err.trimmed();
+        m_poolStatusText->setPlainText(fresh.statusText);
     }
+    fresh.loaded = true;
+    m_poolDetailsCache.insert(cacheKey, fresh);
     setTablePopulationMode(m_poolPropsTable, false);
 }

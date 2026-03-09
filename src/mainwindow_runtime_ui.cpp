@@ -129,7 +129,7 @@ void MainWindow::setActionsLocked(bool locked) {
         m_activeConnActionName.clear();
         updateTransferButtonsState();
         updateApplyPropsButtonState();
-        refreshSelectedPoolDetails();
+        refreshSelectedPoolDetails(false, false);
         updatePoolManagementBoxTitle();
     }
     updateConnectionActionsState();

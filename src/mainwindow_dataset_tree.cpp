@@ -283,14 +283,14 @@ void MainWindow::onDestTreeItemDoubleClicked(QTreeWidgetItem* item, int col) {
     Q_UNUSED(col);
 }
 
-void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side) {
+void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side, bool allowRemoteLoadIfMissing) {
     if (!tree) {
         return;
     }
     beginUiBusy();
     m_loadingDatasetTrees = true;
     tree->clear();
-    if (!ensureDatasetsLoaded(connIdx, poolName)) {
+    if (!ensureDatasetsLoaded(connIdx, poolName, allowRemoteLoadIfMissing)) {
         m_loadingDatasetTrees = false;
         endUiBusy();
         return;
