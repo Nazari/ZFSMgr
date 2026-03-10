@@ -315,12 +315,6 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     } else if (side == QStringLiteral("dest")) {
         dataset = m_destSelectedDataset;
         snapshot = m_destSelectedSnapshot;
-    } else if (side == QStringLiteral("advanced")) {
-        const auto selected = m_advTree ? m_advTree->selectedItems() : QList<QTreeWidgetItem*>{};
-        if (!selected.isEmpty()) {
-            dataset = selected.first()->data(0, Qt::UserRole).toString();
-            snapshot = selected.first()->data(1, Qt::UserRole).toString();
-        }
     } else if (side == QStringLiteral("conncontent")) {
         const auto selected = m_connContentTree ? m_connContentTree->selectedItems() : QList<QTreeWidgetItem*>{};
         if (!selected.isEmpty()) {
@@ -329,9 +323,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         }
     }
     QTableWidget* table = m_datasetPropsTable;
-    if (side == QStringLiteral("advanced")) {
-        table = m_advPropsTable;
-    } else if (side == QStringLiteral("conncontent")) {
+    if (side == QStringLiteral("conncontent")) {
         table = m_connContentPropsTable;
     }
     if (!table) {
@@ -342,18 +334,11 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         setTablePopulationMode(table, true);
         table->setRowCount(0);
         setTablePopulationMode(table, false);
-        if (side == QStringLiteral("advanced")) {
-            m_advPropsDataset.clear();
-            m_advPropsOriginalValues.clear();
-            m_advPropsOriginalInherit.clear();
-            m_advPropsDirty = false;
-        } else {
-            m_propsDataset.clear();
-            m_propsSide = side;
-            m_propsOriginalValues.clear();
-            m_propsOriginalInherit.clear();
-            m_propsDirty = false;
-        }
+        m_propsDataset.clear();
+        m_propsSide = side;
+        m_propsOriginalValues.clear();
+        m_propsOriginalInherit.clear();
+        m_propsDirty = false;
         updateApplyPropsButtonState();
         endUiBusy();
         return;
@@ -364,8 +349,6 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         token = m_originPoolCombo->currentData().toString();
     } else if (side == QStringLiteral("dest")) {
         token = m_destPoolCombo->currentData().toString();
-    } else if (side == QStringLiteral("advanced")) {
-        token = m_advPoolCombo->currentData().toString();
     } else if (side == QStringLiteral("conncontent")) {
         token = m_connContentToken;
     }
@@ -622,16 +605,10 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     m_loadingPropsTable = true;
     setTablePopulationMode(table, true);
     table->setRowCount(0);
-    if (side == QStringLiteral("advanced")) {
-        m_advPropsOriginalValues.clear();
-        m_advPropsOriginalInherit.clear();
-        m_advPropsDataset = objectName;
-    } else {
-        m_propsOriginalValues.clear();
-        m_propsOriginalInherit.clear();
-        m_propsSide = side;
-        m_propsDataset = objectName;
-    }
+    m_propsOriginalValues.clear();
+    m_propsOriginalInherit.clear();
+    m_propsSide = side;
+    m_propsDataset = objectName;
     const QSet<QString> inheritableProps = {QStringLiteral("mountpoint"), QStringLiteral("canmount")};
     const QMap<QString, QStringList> enumValues = {
         {QStringLiteral("atime"), {QStringLiteral("on"), QStringLiteral("off")}},
@@ -703,11 +680,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
                     if (QTableWidgetItem* item = table->item(rr, 1)) {
                         item->setText(txt);
                     }
-                    if (table == m_advPropsTable) {
-                        onAdvancedPropsCellChanged(rr, 1);
-                    } else {
-                        onDatasetPropsCellChanged(rr, 1);
-                    }
+                    onDatasetPropsCellChanged(rr, 1);
                     break;
                 }
             });
@@ -739,49 +712,39 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
                 cb->setFont(cf);
             }
         }
-        if (side == QStringLiteral("advanced")) {
-            m_advPropsOriginalValues[row.prop] = row.value;
-            m_advPropsOriginalInherit[row.prop] = false;
-        } else {
-            m_propsOriginalValues[row.prop] = row.value;
-            m_propsOriginalInherit[row.prop] = false;
-        }
+        m_propsOriginalValues[row.prop] = row.value;
+        m_propsOriginalInherit[row.prop] = false;
     }
-    if (side != QStringLiteral("advanced")) {
-        const auto draftIt = m_propsDraftByKey.constFind(draftKey);
-        if (draftIt != m_propsDraftByKey.constEnd()) {
-            const DatasetPropsDraft& draft = draftIt.value();
-            for (int r = 0; r < table->rowCount(); ++r) {
-                QTableWidgetItem* rk = table->item(r, 0);
-                QTableWidgetItem* rv = table->item(r, 1);
-                QTableWidgetItem* ri = table->item(r, 2);
-                if (!rk || !rv || !ri) {
-                    continue;
-                }
-                const QString key = propKeyFromItem(rk);
-                if (key.isEmpty()) {
-                    continue;
-                }
-                const auto vIt = draft.valuesByProp.constFind(key);
-                if (vIt != draft.valuesByProp.constEnd()) {
-                    rv->setText(vIt.value());
-                    if (QComboBox* cb = qobject_cast<QComboBox*>(table->cellWidget(r, 1))) {
-                        cb->setCurrentText(vIt.value());
-                    }
-                }
-                const auto iIt = draft.inheritByProp.constFind(key);
-                if (iIt != draft.inheritByProp.constEnd()
-                    && (ri->flags() & Qt::ItemIsUserCheckable)) {
-                    ri->setCheckState(iIt.value() ? Qt::Checked : Qt::Unchecked);
+    const auto draftIt = m_propsDraftByKey.constFind(draftKey);
+    if (draftIt != m_propsDraftByKey.constEnd()) {
+        const DatasetPropsDraft& draft = draftIt.value();
+        for (int r = 0; r < table->rowCount(); ++r) {
+            QTableWidgetItem* rk = table->item(r, 0);
+            QTableWidgetItem* rv = table->item(r, 1);
+            QTableWidgetItem* ri = table->item(r, 2);
+            if (!rk || !rv || !ri) {
+                continue;
+            }
+            const QString key = propKeyFromItem(rk);
+            if (key.isEmpty()) {
+                continue;
+            }
+            const auto vIt = draft.valuesByProp.constFind(key);
+            if (vIt != draft.valuesByProp.constEnd()) {
+                rv->setText(vIt.value());
+                if (QComboBox* cb = qobject_cast<QComboBox*>(table->cellWidget(r, 1))) {
+                    cb->setCurrentText(vIt.value());
                 }
             }
-            m_propsDirty = draft.dirty;
-        } else {
-            m_propsDirty = false;
+            const auto iIt = draft.inheritByProp.constFind(key);
+            if (iIt != draft.inheritByProp.constEnd()
+                && (ri->flags() & Qt::ItemIsUserCheckable)) {
+                ri->setCheckState(iIt.value() ? Qt::Checked : Qt::Unchecked);
+            }
         }
-    }
-    if (side == QStringLiteral("advanced")) {
-        m_advPropsDirty = false;
+        m_propsDirty = draft.dirty;
+    } else {
+        m_propsDirty = false;
     }
     setTablePopulationMode(table, false);
     m_loadingPropsTable = false;
@@ -819,29 +782,6 @@ void MainWindow::onDatasetPropsCellChanged(int row, int col) {
         if (inh != m_propsOriginalInherit.value(key, false)
             || rv->text() != m_propsOriginalValues.value(key)) {
             m_propsDirty = true;
-            break;
-        }
-    }
-    updateApplyPropsButtonState();
-}
-
-void MainWindow::onAdvancedPropsCellChanged(int /*row*/, int col) {
-    if (m_loadingPropsTable || (col != 1 && col != 2) || !m_advPropsTable) {
-        return;
-    }
-    m_advPropsDirty = false;
-    for (int r = 0; r < m_advPropsTable->rowCount(); ++r) {
-        QTableWidgetItem* rk = m_advPropsTable->item(r, 0);
-        QTableWidgetItem* rv = m_advPropsTable->item(r, 1);
-        QTableWidgetItem* ri = m_advPropsTable->item(r, 2);
-        if (!rk || !rv || !ri) {
-            continue;
-        }
-        const QString key = propKeyFromItem(rk);
-        const bool inh = (ri->flags() & Qt::ItemIsUserCheckable) && ri->checkState() == Qt::Checked;
-        if (inh != m_advPropsOriginalInherit.value(key, false)
-            || rv->text() != m_advPropsOriginalValues.value(key)) {
-            m_advPropsDirty = true;
             break;
         }
     }
@@ -1107,217 +1047,6 @@ void MainWindow::applyDatasetPropertyChanges() {
     }
 }
 
-void MainWindow::applyAdvancedDatasetPropertyChanges() {
-    if (actionsLocked()) {
-        return;
-    }
-    if (!m_advPropsDirty || m_advPropsDataset.isEmpty() || !m_advPropsTable) {
-        return;
-    }
-    DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("advanced"));
-    if (!ctx.valid || ctx.datasetName != m_advPropsDataset || !ctx.snapshotName.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             trk(QStringLiteral("t_seleccione_615ce3"),
-                                 QStringLiteral("Seleccione un dataset activo para aplicar cambios."),
-                                 QStringLiteral("Select an active dataset to apply changes."),
-                                 QStringLiteral("请选择一个活动数据集以应用更改。")));
-        return;
-    }
-
-    QStringList subcmds;
-    struct PropChange {
-        bool inherit{false};
-        QString prop;
-        QString value;
-    };
-    QVector<PropChange> propChanges;
-    bool renameRequested = false;
-    QString renameOld = ctx.datasetName;
-    QString renameNew = ctx.datasetName;
-    QString targetDataset = ctx.datasetName;
-    for (int r = 0; r < m_advPropsTable->rowCount(); ++r) {
-        QTableWidgetItem* pk = m_advPropsTable->item(r, 0);
-        QTableWidgetItem* pv = m_advPropsTable->item(r, 1);
-        if (!pk || !pv) {
-            continue;
-        }
-        const QString prop = propKeyFromItem(pk);
-        if (prop != QStringLiteral("dataset")) {
-            continue;
-        }
-        const QString now = pv->text().trimmed();
-        const QString old = m_advPropsOriginalValues.value(prop).trimmed();
-        if (!now.isEmpty() && now != old) {
-            renameRequested = true;
-            renameNew = now;
-            targetDataset = now;
-        }
-        break;
-    }
-    for (int r = 0; r < m_advPropsTable->rowCount(); ++r) {
-        QTableWidgetItem* pk = m_advPropsTable->item(r, 0);
-        QTableWidgetItem* pv = m_advPropsTable->item(r, 1);
-        QTableWidgetItem* pi = m_advPropsTable->item(r, 2);
-        if (!pk || !pv || !pi) {
-            continue;
-        }
-        const QString prop = propKeyFromItem(pk);
-        if (prop.isEmpty() || prop == QStringLiteral("dataset") || prop == QStringLiteral("estado") || prop == QStringLiteral("Tamaño")) {
-            continue;
-        }
-        const bool inheritChecked = (pi->flags() & Qt::ItemIsUserCheckable) && (pi->checkState() == Qt::Checked);
-        if (inheritChecked) {
-            subcmds << QStringLiteral("zfs inherit %1 %2").arg(shSingleQuote(prop), shSingleQuote(targetDataset));
-            propChanges.push_back(PropChange{true, prop, QString()});
-            continue;
-        }
-        const QString now = pv->text().trimmed();
-        const QString old = m_advPropsOriginalValues.value(prop).trimmed();
-        if (now == old) {
-            continue;
-        }
-        const QString assign = prop + QStringLiteral("=") + now;
-        subcmds << QStringLiteral("zfs set %1 %2").arg(shSingleQuote(assign), shSingleQuote(targetDataset));
-        propChanges.push_back(PropChange{false, prop, now});
-    }
-    const bool localRenameEligible =
-        renameRequested && isLocalConnection(ctx.connIdx) && !isWindowsConnection(ctx.connIdx) && detectLocalLibzfs();
-    bool localRenameDone = false;
-    if (localRenameEligible) {
-        const QString preview =
-            QStringLiteral("[local/libzfs]\nzfs rename %1 %2")
-                .arg(shSingleQuote(renameOld), shSingleQuote(renameNew));
-        if (!confirmActionExecution(QStringLiteral("Aplicar propiedades"), {preview})) {
-            return;
-        }
-        setActionsLocked(true);
-        const ConnectionProfile& p = m_profiles[ctx.connIdx];
-        appLog(QStringLiteral("NORMAL"),
-               QStringLiteral("Aplicar propiedades %1::%2 (rename backend=LOCAL/libzfs)")
-                   .arg(p.name, renameOld));
-        QString detail;
-        const bool ok = localLibzfsRenameDataset(renameOld, renameNew, &detail);
-        if (!ok) {
-            appLog(QStringLiteral("WARN"),
-                   QStringLiteral("Rename LOCAL/libzfs falló: %1; fallback CLI")
-                       .arg(mwhelpers::oneLine(detail)));
-            setActionsLocked(false);
-            QStringList fallbackSubcmds = subcmds;
-            fallbackSubcmds.prepend(QStringLiteral("zfs rename %1 %2")
-                                        .arg(shSingleQuote(renameOld), shSingleQuote(renameNew)));
-            const bool isWinFallback = isWindowsConnection(ctx.connIdx);
-            const QString fallbackCmd = isWinFallback ? fallbackSubcmds.join(QStringLiteral("; "))
-                                                      : QStringLiteral("set -e; %1").arg(fallbackSubcmds.join(QStringLiteral("; ")));
-            if (executeDatasetAction(QStringLiteral("advanced"), QStringLiteral("Aplicar propiedades"), ctx, fallbackCmd, 60000, isWinFallback)) {
-                updateAdvancedSelectionUi(renameNew, QString());
-                m_advPropsDirty = false;
-                updateApplyPropsButtonState();
-            }
-            return;
-        }
-        appLog(QStringLiteral("NORMAL"),
-               QStringLiteral("Aplicar propiedades rename finalizado (%1)").arg(mwhelpers::oneLine(detail)));
-        invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
-        updateAdvancedSelectionUi(renameNew, QString());
-        ctx.datasetName = renameNew;
-        localRenameDone = true;
-        setActionsLocked(false);
-    }
-
-    if (subcmds.isEmpty()) {
-        if (localRenameDone) {
-            m_advPropsDirty = false;
-            updateApplyPropsButtonState();
-            reloadDatasetSide(QStringLiteral("advanced"));
-            return;
-        }
-        if (renameRequested) {
-            subcmds << QStringLiteral("zfs rename %1 %2").arg(shSingleQuote(renameOld), shSingleQuote(renameNew));
-        }
-    } else if (renameRequested && !localRenameDone) {
-        subcmds.prepend(QStringLiteral("zfs rename %1 %2").arg(shSingleQuote(renameOld), shSingleQuote(renameNew)));
-    }
-    if (subcmds.isEmpty()) {
-        m_advPropsDirty = false;
-        updateApplyPropsButtonState();
-        return;
-    }
-    const bool localPropsEligible =
-        isLocalConnection(ctx.connIdx) && !isWindowsConnection(ctx.connIdx) && detectLocalLibzfs();
-    if (localPropsEligible && !propChanges.isEmpty()) {
-        QStringList previewLines;
-        for (const PropChange& c : propChanges) {
-            if (c.inherit) {
-                previewLines << QStringLiteral("zfs inherit %1 %2").arg(shSingleQuote(c.prop), shSingleQuote(targetDataset));
-            } else {
-                previewLines << QStringLiteral("zfs set %1 %2")
-                                    .arg(shSingleQuote(c.prop + QStringLiteral("=") + c.value), shSingleQuote(targetDataset));
-            }
-        }
-        const QString preview = QStringLiteral("[local/libzfs]\n%1").arg(previewLines.join(QStringLiteral("\n")));
-        if (!confirmActionExecution(QStringLiteral("Aplicar propiedades"), {preview})) {
-            return;
-        }
-        setActionsLocked(true);
-        const ConnectionProfile& p = m_profiles[ctx.connIdx];
-        appLog(QStringLiteral("NORMAL"),
-               QStringLiteral("Aplicar propiedades %1::%2 (backend=LOCAL/libzfs)")
-                   .arg(p.name, targetDataset));
-        bool allOk = true;
-        QString failDetail;
-        for (const PropChange& c : propChanges) {
-            QString detail;
-            const bool ok = c.inherit
-                                ? localLibzfsInheritProperty(targetDataset, c.prop, &detail)
-                                : localLibzfsSetProperty(targetDataset, c.prop, c.value, &detail);
-            if (!ok) {
-                allOk = false;
-                failDetail = detail;
-                break;
-            }
-            appLog(QStringLiteral("INFO"), mwhelpers::oneLine(detail));
-        }
-        if (!allOk) {
-            appLog(QStringLiteral("WARN"),
-                   QStringLiteral("Aplicar propiedades LOCAL/libzfs falló: %1; fallback CLI")
-                       .arg(mwhelpers::oneLine(failDetail)));
-            setActionsLocked(false);
-            const bool isWinFallback = isWindowsConnection(ctx.connIdx);
-            const QString cmdFallback = isWinFallback ? subcmds.join(QStringLiteral("; "))
-                                                      : QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
-            if (executeDatasetAction(QStringLiteral("advanced"), QStringLiteral("Aplicar propiedades"), ctx, cmdFallback, 60000, isWinFallback)) {
-                if (targetDataset != ctx.datasetName) {
-                    updateAdvancedSelectionUi(targetDataset, QString());
-                }
-                m_advPropsDirty = false;
-                updateApplyPropsButtonState();
-            }
-            return;
-        }
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Aplicar propiedades finalizado"));
-        invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
-        reloadDatasetSide(QStringLiteral("advanced"));
-        if (targetDataset != ctx.datasetName) {
-            updateAdvancedSelectionUi(targetDataset, QString());
-        }
-        m_advPropsDirty = false;
-        updateApplyPropsButtonState();
-        setActionsLocked(false);
-        return;
-    }
-
-    const bool isWin = isWindowsConnection(ctx.connIdx);
-    const QString cmd = isWin ? subcmds.join(QStringLiteral("; "))
-                              : QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
-    if (executeDatasetAction(QStringLiteral("advanced"), QStringLiteral("Aplicar propiedades"), ctx, cmd, 60000, isWin)) {
-        if (targetDataset != ctx.datasetName) {
-            updateAdvancedSelectionUi(targetDataset, QString());
-        }
-        m_advPropsDirty = false;
-        updateApplyPropsButtonState();
-    }
-}
-
 void MainWindow::updateApplyPropsButtonState() {
     const DatasetSelectionContext ctx = currentDatasetSelection(m_propsSide);
     const bool eligible = ctx.valid && ctx.snapshotName.isEmpty() && (ctx.datasetName == m_propsDataset);
@@ -1354,12 +1083,5 @@ void MainWindow::updateApplyPropsButtonState() {
     }
     if (m_btnApplyConnContentProps) {
         m_btnApplyConnContentProps->setEnabled(baseEnable && m_propsSide == QStringLiteral("conncontent"));
-    }
-    const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("advanced"));
-    const bool aok = actx.valid && actx.snapshotName.isEmpty() && (actx.datasetName == m_advPropsDataset);
-    if (m_btnApplyAdvancedProps) {
-        const bool advHasChanges =
-            hasEffectiveChanges(m_advPropsTable, m_advPropsOriginalValues, m_advPropsOriginalInherit);
-        m_btnApplyAdvancedProps->setEnabled(m_advPropsDirty && aok && advHasChanges);
     }
 }

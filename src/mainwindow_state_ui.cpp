@@ -5,7 +5,6 @@
 #include <QColor>
 #include <QComboBox>
 #include <QLabel>
-#include <QSignalBlocker>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -21,10 +20,6 @@ void MainWindow::updateTransferButtonsState() {
         if (m_btnCopy) m_btnCopy->setEnabled(false);
         if (m_btnLevel) m_btnLevel->setEnabled(false);
         if (m_btnSync) m_btnSync->setEnabled(false);
-        if (m_btnAdvancedBreakdown) m_btnAdvancedBreakdown->setEnabled(false);
-        if (m_btnAdvancedAssemble) m_btnAdvancedAssemble->setEnabled(false);
-        if (m_btnAdvancedFromDir) m_btnAdvancedFromDir->setEnabled(false);
-        if (m_btnAdvancedToDir) m_btnAdvancedToDir->setEnabled(false);
         if (m_btnConnBreakdown) m_btnConnBreakdown->setEnabled(false);
         if (m_btnConnAssemble) m_btnConnAssemble->setEnabled(false);
         if (m_btnConnFromDir) m_btnConnFromDir->setEnabled(false);
@@ -33,11 +28,6 @@ void MainWindow::updateTransferButtonsState() {
         if (m_btnConnCopy) m_btnConnCopy->setEnabled(false);
         if (m_btnConnLevel) m_btnConnLevel->setEnabled(false);
         if (m_btnConnSync) m_btnConnSync->setEnabled(false);
-        if (m_connContentSelectOriginBtn) m_connContentSelectOriginBtn->setEnabled(false);
-        if (m_connContentSelectDestBtn) m_connContentSelectDestBtn->setEnabled(false);
-        if (m_connContentRollbackBtn) m_connContentRollbackBtn->setEnabled(false);
-        if (m_connContentCreateBtn) m_connContentCreateBtn->setEnabled(false);
-        if (m_connContentDeleteBtn) m_connContentDeleteBtn->setEnabled(false);
         updateConnectionActionsState();
         return;
     }
@@ -90,42 +80,6 @@ void MainWindow::updateTransferButtonsState() {
     m_btnCopy->setEnabled(transferState.copyEnabled);
     m_btnLevel->setEnabled(transferState.levelEnabled);
     m_btnSync->setEnabled(transferState.syncEnabled);
-    const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("advanced"));
-    bool advDatasetOnly = actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty();
-    if (advDatasetOnly) {
-        const QString key = datasetCacheKey(actx.connIdx, actx.poolName);
-        const auto cacheIt = m_poolDatasetCache.constFind(key);
-        if (cacheIt == m_poolDatasetCache.constEnd() || !cacheIt->loaded) {
-            advDatasetOnly = false;
-        } else {
-            bool allMounted = true;
-            const QString base = actx.datasetName;
-            const QString pref = base + QStringLiteral("/");
-            for (auto it = cacheIt->recordByName.constBegin(); it != cacheIt->recordByName.constEnd(); ++it) {
-                const QString& ds = it.key();
-                if (ds != base && !ds.startsWith(pref)) {
-                    continue;
-                }
-                if (!isMountedValueTrue(it.value().mounted)) {
-                    allMounted = false;
-                    break;
-                }
-            }
-            advDatasetOnly = allMounted;
-        }
-    }
-    if (m_btnAdvancedBreakdown) {
-        m_btnAdvancedBreakdown->setEnabled(advDatasetOnly);
-    }
-    if (m_btnAdvancedAssemble) {
-        m_btnAdvancedAssemble->setEnabled(advDatasetOnly);
-    }
-    if (m_btnAdvancedFromDir) {
-        m_btnAdvancedFromDir->setEnabled(actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty());
-    }
-    if (m_btnAdvancedToDir) {
-        m_btnAdvancedToDir->setEnabled(actx.valid && !actx.datasetName.isEmpty() && actx.snapshotName.isEmpty());
-    }
     updateConnectionActionsState();
 }
 
@@ -302,62 +256,16 @@ void MainWindow::updateConnectionActionsState() {
         && dctx.poolName == m_connActionDest.poolName
         && dctx.datasetName == m_connActionDest.datasetName
         && dctx.snapshotName == m_connActionDest.snapshotName;
-    if (m_connContentSelectOriginBtn) m_connContentSelectOriginBtn->setEnabled(!actionsLocked() && hasConnSel && !alreadyOrigin);
-    if (m_connContentSelectDestBtn) m_connContentSelectDestBtn->setEnabled(!actionsLocked() && hasConnSel && !alreadyDest);
-    if (m_connContentRollbackBtn) m_connContentRollbackBtn->setEnabled(!actionsLocked() && hasConnSnap);
-    if (m_connContentCreateBtn) m_connContentCreateBtn->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
-    if (m_connContentDeleteBtn) m_connContentDeleteBtn->setEnabled(!actionsLocked() && hasConnSel);
+    Q_UNUSED(alreadyOrigin);
+    Q_UNUSED(alreadyDest);
+    Q_UNUSED(hasConnSnap);
+    Q_UNUSED(hasConnSel);
 }
 
 void MainWindow::executeConnectionAdvancedAction(const QString& action) {
     const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
     if (!ctx.valid || ctx.datasetName.isEmpty()) {
         return;
-    }
-    const QString prevToken = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
-    const auto prevSel = m_advTree ? m_advTree->selectedItems() : QList<QTreeWidgetItem*>{};
-    const QString prevDs = prevSel.isEmpty() ? QString() : prevSel.first()->data(0, Qt::UserRole).toString();
-    const QString prevSnap = prevSel.isEmpty() ? QString() : prevSel.first()->data(1, Qt::UserRole).toString();
-
-    const QString targetToken = QStringLiteral("%1::%2").arg(ctx.connIdx).arg(ctx.poolName);
-    bool switched = false;
-    if (m_advPoolCombo) {
-        const QSignalBlocker blocker(m_advPoolCombo);
-        const int idx = m_advPoolCombo->findData(targetToken);
-        if (idx >= 0) {
-            m_advPoolCombo->setCurrentIndex(idx);
-            switched = true;
-        }
-    }
-    if (!switched) {
-        return;
-    }
-    onAdvancedPoolChanged();
-    auto findTreeItem = [](QTreeWidget* tree, const QString& ds, const QString& snap) -> QTreeWidgetItem* {
-        if (!tree) return nullptr;
-        std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* n) -> QTreeWidgetItem* {
-            if (!n) return nullptr;
-            if (n->data(0, Qt::UserRole).toString() == ds
-                && (snap.isEmpty() || n->data(1, Qt::UserRole).toString() == snap)) {
-                return n;
-            }
-            for (int i = 0; i < n->childCount(); ++i) {
-                if (QTreeWidgetItem* f = rec(n->child(i))) return f;
-            }
-            return nullptr;
-        };
-        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-            if (QTreeWidgetItem* f = rec(tree->topLevelItem(i))) return f;
-        }
-        return nullptr;
-    };
-    if (m_advTree) {
-        if (QTreeWidgetItem* target = findTreeItem(m_advTree, ctx.datasetName, ctx.snapshotName)) {
-            for (QTreeWidgetItem* p = target->parent(); p; p = p->parent()) {
-                m_advTree->expandItem(p);
-            }
-            m_advTree->setCurrentItem(target);
-        }
     }
 
     if (action == QStringLiteral("breakdown")) {
@@ -369,20 +277,6 @@ void MainWindow::executeConnectionAdvancedAction(const QString& action) {
     } else if (action == QStringLiteral("todir")) {
         actionAdvancedToDir();
     }
-
-    if (m_advPoolCombo) {
-        const QSignalBlocker blocker(m_advPoolCombo);
-        const int idx = m_advPoolCombo->findData(prevToken);
-        if (idx >= 0) {
-            m_advPoolCombo->setCurrentIndex(idx);
-        }
-    }
-    onAdvancedPoolChanged();
-    if (m_advTree && !prevDs.isEmpty()) {
-        if (QTreeWidgetItem* restored = findTreeItem(m_advTree, prevDs, prevSnap)) {
-            m_advTree->setCurrentItem(restored);
-        }
-    }
 }
 
 void MainWindow::executeConnectionTransferAction(const QString& action) {
@@ -391,46 +285,10 @@ void MainWindow::executeConnectionTransferAction(const QString& action) {
     if (!src.valid || src.datasetName.isEmpty() || !dst.valid || dst.datasetName.isEmpty()) {
         return;
     }
-    const QString oldOriginToken = m_originPoolCombo ? m_originPoolCombo->currentData().toString() : QString();
-    const QString oldDestToken = m_destPoolCombo ? m_destPoolCombo->currentData().toString() : QString();
     const QString oldOriginDs = m_originSelectedDataset;
     const QString oldOriginSnap = m_originSelectedSnapshot;
     const QString oldDestDs = m_destSelectedDataset;
     const QString oldDestSnap = m_destSelectedSnapshot;
-
-    const QString srcToken = QStringLiteral("%1::%2").arg(src.connIdx).arg(src.poolName);
-    const QString dstToken = QStringLiteral("%1::%2").arg(dst.connIdx).arg(dst.poolName);
-    bool srcOk = false;
-    bool dstOk = false;
-    if (m_originPoolCombo) {
-        const QSignalBlocker blocker(m_originPoolCombo);
-        const int idx = m_originPoolCombo->findData(srcToken);
-        if (idx >= 0) {
-            m_originPoolCombo->setCurrentIndex(idx);
-            srcOk = true;
-        }
-    }
-    if (m_destPoolCombo) {
-        const QSignalBlocker blocker(m_destPoolCombo);
-        const int idx = m_destPoolCombo->findData(dstToken);
-        if (idx >= 0) {
-            m_destPoolCombo->setCurrentIndex(idx);
-            dstOk = true;
-        }
-    }
-    if (!srcOk || !dstOk) {
-        if (m_originPoolCombo) {
-            const QSignalBlocker blocker(m_originPoolCombo);
-            const int idx = m_originPoolCombo->findData(oldOriginToken);
-            if (idx >= 0) m_originPoolCombo->setCurrentIndex(idx);
-        }
-        if (m_destPoolCombo) {
-            const QSignalBlocker blocker(m_destPoolCombo);
-            const int idx = m_destPoolCombo->findData(oldDestToken);
-            if (idx >= 0) m_destPoolCombo->setCurrentIndex(idx);
-        }
-        return;
-    }
     m_originSelectedDataset = src.datasetName;
     m_originSelectedSnapshot = src.snapshotName;
     m_destSelectedDataset = dst.datasetName;
@@ -442,17 +300,6 @@ void MainWindow::executeConnectionTransferAction(const QString& action) {
         actionLevelSnapshot();
     } else if (action == QStringLiteral("sync")) {
         actionSyncDatasets();
-    }
-
-    if (m_originPoolCombo) {
-        const QSignalBlocker blocker(m_originPoolCombo);
-        const int idx = m_originPoolCombo->findData(oldOriginToken);
-        if (idx >= 0) m_originPoolCombo->setCurrentIndex(idx);
-    }
-    if (m_destPoolCombo) {
-        const QSignalBlocker blocker(m_destPoolCombo);
-        const int idx = m_destPoolCombo->findData(oldDestToken);
-        if (idx >= 0) m_destPoolCombo->setCurrentIndex(idx);
     }
     m_originSelectedDataset = oldOriginDs;
     m_originSelectedSnapshot = oldOriginSnap;
@@ -501,5 +348,4 @@ void MainWindow::populateMountedDatasetsTables() {
         setTablePopulationMode(table, false);
     };
     fill(m_mountedDatasetsTableLeft);
-    fill(m_mountedDatasetsTableAdv);
 }

@@ -12,13 +12,19 @@ MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QS
     QString ds;
     QString snap;
     if (side == QStringLiteral("origin")) {
-        token = m_originPoolCombo->currentData().toString();
+        token = m_originPoolCombo ? m_originPoolCombo->currentData().toString() : QString();
         ds = m_originSelectedDataset;
         snap = m_originSelectedSnapshot;
+        if ((token.isEmpty() || ds.isEmpty()) && m_connActionOrigin.valid) {
+            return m_connActionOrigin;
+        }
     } else if (side == QStringLiteral("dest")) {
-        token = m_destPoolCombo->currentData().toString();
+        token = m_destPoolCombo ? m_destPoolCombo->currentData().toString() : QString();
         ds = m_destSelectedDataset;
         snap = m_destSelectedSnapshot;
+        if ((token.isEmpty() || ds.isEmpty()) && m_connActionDest.valid) {
+            return m_connActionDest;
+        }
     } else if (side == QStringLiteral("conncontent")) {
         if (m_connContentTree) {
             const auto selected = m_connContentTree->selectedItems();
@@ -40,14 +46,7 @@ MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QS
             token = m_connContentToken;
         }
     } else {
-        token = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
-        if (m_advTree) {
-            const auto selected = m_advTree->selectedItems();
-            if (!selected.isEmpty()) {
-                ds = selected.first()->data(0, Qt::UserRole).toString();
-                snap = selected.first()->data(1, Qt::UserRole).toString();
-            }
-        }
+        return ctx;
     }
     const int sep = token.indexOf(QStringLiteral("::"));
     if (sep <= 0) {

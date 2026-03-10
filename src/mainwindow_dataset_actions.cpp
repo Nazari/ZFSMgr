@@ -515,15 +515,6 @@ void MainWindow::reloadDatasetSide(const QString& side) {
             populateDatasetTree(m_connContentTree, connIdx, poolName, QStringLiteral("conncontent"), true);
             refreshDatasetProperties(QStringLiteral("conncontent"));
         }
-    } else {
-        const QString token = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
-        const int sep = token.indexOf(QStringLiteral("::"));
-        if (sep > 0) {
-            const int connIdx = token.left(sep).toInt();
-            const QString poolName = token.mid(sep + 2);
-            populateDatasetTree(m_advTree, connIdx, poolName, QStringLiteral("advanced"), true);
-            refreshDatasetProperties(QStringLiteral("advanced"));
-        }
     }
 }
 

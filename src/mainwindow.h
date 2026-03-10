@@ -148,7 +148,6 @@ private:
     void restoreConnectionPoolSubtabState(int connIdx, const QString& poolName);
     void onOriginPoolChanged();
     void onDestPoolChanged();
-    void onAdvancedPoolChanged();
     void onOriginTreeSelectionChanged();
     void onDestTreeSelectionChanged();
     void onOriginTreeItemDoubleClicked(QTreeWidgetItem* item, int col);
@@ -220,7 +219,6 @@ private:
     void setConnectionOriginSelection(const DatasetSelectionContext& ctx);
     void setConnectionDestinationSelection(const DatasetSelectionContext& ctx);
     void refreshTransferSelectionLabels();
-    void updateAdvancedSelectionUi(const QString& datasetName, const QString& snapshotName);
     bool runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs = 0, bool forceConfirmDialog = false, bool streamProgress = false);
     void actionCopySnapshot();
     void actionLevelSnapshot();
@@ -237,8 +235,6 @@ private:
     bool ensureNoMountpointConflictsBeforeMount(const DatasetSelectionContext& ctx, bool includeDescendants);
     void onDatasetPropsCellChanged(int row, int col);
     void applyDatasetPropertyChanges();
-    void onAdvancedPropsCellChanged(int row, int col);
-    void applyAdvancedDatasetPropertyChanges();
     void updateApplyPropsButtonState();
     void initLogPersistence();
     void rotateLogIfNeeded();
@@ -310,10 +306,7 @@ private:
     QTabWidget* m_leftTabs{nullptr};
     QTabWidget* m_rightTabs{nullptr};
 
-    QPushButton* m_btnNew{nullptr};
-    QPushButton* m_btnRefreshAll{nullptr};
     QGroupBox* m_poolMgmtBox{nullptr};
-    QPushButton* m_btnPoolNew{nullptr};
     QAction* m_menuExitAction{nullptr};
     QGroupBox* m_connActionsBox{nullptr};
     QPushButton* m_btnConnBreakdown{nullptr};
@@ -349,11 +342,6 @@ private:
     QWidget* m_connPoolPropsPage{nullptr};
     QWidget* m_connContentPage{nullptr};
     QTreeWidget* m_connContentTree{nullptr};
-    QPushButton* m_connContentSelectOriginBtn{nullptr};
-    QPushButton* m_connContentSelectDestBtn{nullptr};
-    QPushButton* m_connContentRollbackBtn{nullptr};
-    QPushButton* m_connContentCreateBtn{nullptr};
-    QPushButton* m_connContentDeleteBtn{nullptr};
     QTableWidget* m_connContentPropsTable{nullptr};
     QStackedWidget* m_connBottomStack{nullptr};
     QWidget* m_connStatusPage{nullptr};
@@ -377,18 +365,12 @@ private:
     QTreeWidget* m_destTree{nullptr};
     QTableWidget* m_datasetPropsTable{nullptr};
     QPushButton* m_btnApplyDatasetProps{nullptr};
-    QTableWidget* m_advPropsTable{nullptr};
-    QPushButton* m_btnApplyAdvancedProps{nullptr};
     QPushButton* m_btnApplyConnContentProps{nullptr};
     QLabel* m_transferOriginLabel{nullptr};
     QLabel* m_transferDestLabel{nullptr};
     QPushButton* m_btnCopy{nullptr};
     QPushButton* m_btnLevel{nullptr};
     QPushButton* m_btnSync{nullptr};
-    QComboBox* m_advPoolCombo{nullptr};
-    QTreeWidget* m_advTree{nullptr};
-    QGroupBox* m_advCommandsBox{nullptr};
-    QLabel* m_advSelectionLabel{nullptr};
     QPushButton* m_btnAdvancedBreakdown{nullptr};
     QPushButton* m_btnAdvancedAssemble{nullptr};
     QPushButton* m_btnAdvancedFromDir{nullptr};
@@ -416,10 +398,6 @@ private:
     QMap<QString, bool> m_propsOriginalInherit;
     bool m_propsDirty{false};
     QMap<QString, DatasetPropsDraft> m_propsDraftByKey;
-    QString m_advPropsDataset;
-    QMap<QString, QString> m_advPropsOriginalValues;
-    QMap<QString, bool> m_advPropsOriginalInherit;
-    bool m_advPropsDirty{false};
     bool m_loadingPropsTable{false};
     bool m_loadingDatasetTrees{false};
     QString m_language{QStringLiteral("es")};

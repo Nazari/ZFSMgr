@@ -673,68 +673,6 @@ void MainWindow::onDestPoolChanged() {
     updateTransferButtonsState();
 }
 
-void MainWindow::onAdvancedPoolChanged() {
-    QString prevDataset;
-    QString prevSnapshot;
-    if (m_advTree) {
-        const auto selected = m_advTree->selectedItems();
-        if (!selected.isEmpty()) {
-            prevDataset = selected.first()->data(0, Qt::UserRole).toString();
-            prevSnapshot = selected.first()->data(1, Qt::UserRole).toString();
-        }
-    }
-
-    const QString token = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
-    const int sep = token.indexOf(QStringLiteral("::"));
-    if (sep <= 0) {
-        if (m_advTree) {
-            m_advTree->clear();
-        }
-        updateAdvancedSelectionUi(QString(), QString());
-        refreshDatasetProperties(QStringLiteral("advanced"));
-        updateTransferButtonsState();
-        return;
-    }
-    const int connIdx = token.left(sep).toInt();
-    const QString poolName = token.mid(sep + 2);
-    populateDatasetTree(m_advTree, connIdx, poolName, QStringLiteral("advanced"));
-
-    QTreeWidgetItem* restored = nullptr;
-    if (m_advTree && !prevDataset.isEmpty()) {
-        std::function<QTreeWidgetItem*(QTreeWidgetItem*)> findMatch = [&](QTreeWidgetItem* node) -> QTreeWidgetItem* {
-            if (!node) {
-                return nullptr;
-            }
-            const QString ds = node->data(0, Qt::UserRole).toString();
-            const QString snap = node->data(1, Qt::UserRole).toString();
-            if (ds == prevDataset && (prevSnapshot.isEmpty() || snap == prevSnapshot)) {
-                return node;
-            }
-            for (int i = 0; i < node->childCount(); ++i) {
-                if (auto* found = findMatch(node->child(i))) {
-                    return found;
-                }
-            }
-            return nullptr;
-        };
-        for (int i = 0; i < m_advTree->topLevelItemCount() && !restored; ++i) {
-            restored = findMatch(m_advTree->topLevelItem(i));
-        }
-    }
-
-    if (m_advTree && restored) {
-        for (QTreeWidgetItem* p = restored->parent(); p; p = p->parent()) {
-            m_advTree->expandItem(p);
-        }
-        m_advTree->setCurrentItem(restored);
-        m_advTree->scrollToItem(restored, QAbstractItemView::PositionAtCenter);
-    } else {
-        updateAdvancedSelectionUi(QString(), QString());
-    }
-    refreshDatasetProperties(QStringLiteral("advanced"));
-    updateTransferButtonsState();
-}
-
 void MainWindow::onOriginTreeSelectionChanged() {
     const auto selected = m_originTree->selectedItems();
     if (selected.isEmpty()) {
@@ -932,12 +870,6 @@ void MainWindow::onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item
     }
     item->setData(1, Qt::UserRole, snap);
     tree->setCurrentItem(item);
-    if (side == QStringLiteral("advanced")) {
-        updateAdvancedSelectionUi(ds, snap);
-        refreshDatasetProperties(QStringLiteral("advanced"));
-        updateTransferButtonsState();
-        return;
-    }
     if (side == QStringLiteral("conncontent")) {
         refreshDatasetProperties(QStringLiteral("conncontent"));
         updateConnectionActionsState();
@@ -1022,7 +954,7 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
             token = m_connContentToken;
         }
     } else {
-        token = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
+        token.clear();
     }
     const int sep = token.indexOf(QStringLiteral("::"));
     if (sep <= 0) {
@@ -1169,35 +1101,5 @@ void MainWindow::refreshTransferSelectionLabels() {
                 QStringLiteral("Action from %1 to %2"),
                 QStringLiteral("从 %1 到 %2 的操作"))
                 .arg(originTitle, destTitle));
-    }
-}
-
-void MainWindow::updateAdvancedSelectionUi(const QString& datasetName, const QString& snapshotName) {
-    QString text;
-    if (datasetName.isEmpty()) {
-        text = trk(QStringLiteral("t_no_sel_001"),
-                   QStringLiteral("(sin selección)"),
-                   QStringLiteral("(no selection)"),
-                   QStringLiteral("（未选择）"));
-    } else if (snapshotName.isEmpty()) {
-        text = datasetName;
-    } else {
-        text = QStringLiteral("%1@%2").arg(datasetName, snapshotName);
-    }
-    if (m_advSelectionLabel) {
-        m_advSelectionLabel->setText(text);
-    }
-    if (m_advCommandsBox) {
-        const QString emptyTitle = trk(QStringLiteral("t_empty_tag_001"),
-                                       QStringLiteral("[vacío]"),
-                                       QStringLiteral("[empty]"),
-                                       QStringLiteral("[空]"));
-        const QString selectedTitle = datasetName.isEmpty() ? emptyTitle : text;
-        m_advCommandsBox->setTitle(
-            trk(QStringLiteral("t_action_on_sel01"),
-                QStringLiteral("Acción sobre %1"),
-                QStringLiteral("Action on %1"),
-                QStringLiteral("对 %1 的操作"))
-                .arg(selectedTitle));
     }
 }

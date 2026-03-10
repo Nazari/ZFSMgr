@@ -13,29 +13,22 @@ using mwhelpers::shSingleQuote;
 } // namespace
 
 void MainWindow::actionAdvancedBreakdown() {
-    const auto selected = m_advTree->selectedItems();
-    if (selected.isEmpty()) {
+    const DatasetSelectionContext curr = currentDatasetSelection(QStringLiteral("conncontent"));
+    if (!curr.valid || curr.datasetName.isEmpty() || !curr.snapshotName.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_adv_sel_ds_001"), QStringLiteral("Seleccione un dataset en Avanzado."),
                                      QStringLiteral("Select a dataset in Advanced."),
                                      QStringLiteral("请在高级页选择一个数据集。")));
         return;
     }
-    const QString ds = selected.first()->data(0, Qt::UserRole).toString();
+    const QString ds = curr.datasetName;
     if (ds.isEmpty()) {
         return;
     }
-    const QString token = m_advPoolCombo->currentData().toString();
-    const int sep = token.indexOf(QStringLiteral("::"));
-    if (sep <= 0) {
-        return;
-    }
-    const int connIdx = token.left(sep).toInt();
-    const QString poolName = token.mid(sep + 2);
     DatasetSelectionContext ctx;
     ctx.valid = true;
-    ctx.connIdx = connIdx;
-    ctx.poolName = poolName;
+    ctx.connIdx = curr.connIdx;
+    ctx.poolName = curr.poolName;
     ctx.datasetName = ds;
     ctx.snapshotName.clear();
     beginUiBusy();
@@ -47,7 +40,7 @@ void MainWindow::actionAdvancedBreakdown() {
         }
     };
 
-    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionProfile& p = m_profiles[ctx.connIdx];
     QString mountOut;
     QString mountErr;
     int mountRc = -1;
@@ -397,35 +390,26 @@ void MainWindow::actionAdvancedBreakdown() {
                            "done")
                 .arg(shSingleQuote(ds), selectedList);
     }
-    if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Desglosar"), ctx, cmd, 0, allowWindowsScript)) {
-        updateAdvancedSelectionUi(ds, QString());
-    }
+    executeDatasetAction(QStringLiteral("conncontent"), QStringLiteral("Desglosar"), ctx, cmd, 0, allowWindowsScript);
 }
 
 void MainWindow::actionAdvancedAssemble() {
-    const auto selected = m_advTree->selectedItems();
-    if (selected.isEmpty()) {
+    const DatasetSelectionContext curr = currentDatasetSelection(QStringLiteral("conncontent"));
+    if (!curr.valid || curr.datasetName.isEmpty() || !curr.snapshotName.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_adv_sel_ds_001"), QStringLiteral("Seleccione un dataset en Avanzado."),
                                      QStringLiteral("Select a dataset in Advanced."),
                                      QStringLiteral("请在高级页选择一个数据集。")));
         return;
     }
-    const QString ds = selected.first()->data(0, Qt::UserRole).toString();
+    const QString ds = curr.datasetName;
     if (ds.isEmpty()) {
         return;
     }
-    const QString token = m_advPoolCombo->currentData().toString();
-    const int sep = token.indexOf(QStringLiteral("::"));
-    if (sep <= 0) {
-        return;
-    }
-    const int connIdx = token.left(sep).toInt();
-    const QString poolName = token.mid(sep + 2);
     DatasetSelectionContext ctx;
     ctx.valid = true;
-    ctx.connIdx = connIdx;
-    ctx.poolName = poolName;
+    ctx.connIdx = curr.connIdx;
+    ctx.poolName = curr.poolName;
     ctx.datasetName = ds;
     ctx.snapshotName.clear();
     beginUiBusy();
@@ -437,7 +421,7 @@ void MainWindow::actionAdvancedAssemble() {
         }
     };
 
-    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionProfile& p = m_profiles[ctx.connIdx];
     QString mountOut;
     QString mountErr;
     int mountRc = -1;
@@ -612,7 +596,5 @@ void MainWindow::actionAdvancedAssemble() {
                            "done")
                 .arg(shSingleQuote(ds), selectedList);
     }
-    if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Ensamblar"), ctx, cmd, 0, allowWindowsScript)) {
-        updateAdvancedSelectionUi(ds, QString());
-    }
+    executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Ensamblar"), ctx, cmd, 0, allowWindowsScript);
 }

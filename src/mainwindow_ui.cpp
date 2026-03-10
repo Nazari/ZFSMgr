@@ -469,44 +469,6 @@ void MainWindow::buildUi() {
     }
 #endif
     connListBoxLayout->addWidget(m_connectionsTable, 1);
-    m_btnNew = new QPushButton(
-        trk(QStringLiteral("t_conn_btn_001"),
-            QStringLiteral("Conexión"),
-            QStringLiteral("Connection"),
-            QStringLiteral("连接")),
-        connListBox);
-    m_btnRefreshAll = new QPushButton(
-        trk(QStringLiteral("t_refrescar__7f8af2"),
-            QStringLiteral("Refrescar Todo"),
-            QStringLiteral("Refresh All"),
-            QStringLiteral("全部刷新")),
-        connListBox);
-    m_btnPoolNew = new QPushButton(
-        trk(QStringLiteral("t_pool_btn_001"),
-            QStringLiteral("Pool"),
-            QStringLiteral("Pool"),
-            QStringLiteral("池")),
-        connListBox);
-    m_btnNew->setMinimumHeight(stdLeftBtnH);
-    m_btnRefreshAll->setMinimumHeight(stdLeftBtnH);
-    m_btnPoolNew->setMinimumHeight(stdLeftBtnH);
-    m_btnNew->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnRefreshAll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnPoolNew->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnPoolNew->setEnabled(false);
-    connListBoxLayout->addWidget(m_btnRefreshAll, 0);
-    auto* newBox = new QGroupBox(
-        trk(QStringLiteral("t_new_box_001"),
-            QStringLiteral("Nuevo"),
-            QStringLiteral("New"),
-            QStringLiteral("新建")),
-        connListBox);
-    auto* newBoxLayout = new QHBoxLayout(newBox);
-    newBoxLayout->setContentsMargins(6, 8, 6, 6);
-    newBoxLayout->setSpacing(6);
-    newBoxLayout->addWidget(m_btnNew, 1);
-    newBoxLayout->addWidget(m_btnPoolNew, 1);
-    connListBoxLayout->addWidget(newBox, 0);
     connLayout->addWidget(connListBox, 1);
 
     m_connActionsBox = new QGroupBox(
@@ -875,106 +837,7 @@ void MainWindow::buildUi() {
     dsLeftTabLayout->addWidget(datasetsInfoTabs, 1);
     datasetsTab->setLayout(dsLeftTabLayout);
 
-    auto* advancedTab = new QWidget(m_leftTabs);
-    auto* advLeftTabLayout = new QVBoxLayout(advancedTab);
-    advLeftTabLayout->setContentsMargins(4, 4, 4, 4);
-    advLeftTabLayout->setSpacing(4);
-    m_advCommandsBox = new QGroupBox(trk(QStringLiteral("t_action_on_sel01"),
-                                         QStringLiteral("Acción sobre [vacío]"),
-                                         QStringLiteral("Action on [empty]"),
-                                         QStringLiteral("对 [空] 的操作")),
-                                     advancedTab);
-    auto* commandsLayout = new QVBoxLayout(m_advCommandsBox);
-    commandsLayout->setSpacing(10);
-    m_btnAdvancedBreakdown = new QPushButton(trk(QStringLiteral("t_breakdown_btn1"),
-                                                 QStringLiteral("Desglosar"),
-                                                 QStringLiteral("Break down"),
-                                                 QStringLiteral("拆分")),
-                                             m_advCommandsBox);
-    m_btnAdvancedAssemble = new QPushButton(trk(QStringLiteral("t_assemble_btn1"),
-                                                QStringLiteral("Ensamblar"),
-                                                QStringLiteral("Assemble"),
-                                                QStringLiteral("组装")),
-                                            m_advCommandsBox);
-    m_btnAdvancedFromDir = new QPushButton(trk(QStringLiteral("t_from_dir_btn1"),
-                                               QStringLiteral("Desde Dir"),
-                                               QStringLiteral("From Dir"),
-                                               QStringLiteral("来自目录")),
-                                           m_advCommandsBox);
-    m_btnAdvancedToDir = new QPushButton(trk(QStringLiteral("t_to_dir_btn_001"),
-                                             QStringLiteral("Hacia Dir"),
-                                             QStringLiteral("To Dir"),
-                                             QStringLiteral("到目录")),
-                                         m_advCommandsBox);
-    m_btnAdvancedBreakdown->setToolTip(
-        trk(QStringLiteral("t_tt_breakdown001"), QStringLiteral("Construye datasets a partir de directorios. "
-                           "Requiere dataset y descendientes montados. "
-                           "Permite seleccionar directorios a desglosar. "
-                           "No se ejecuta si hay conflictos de mountpoint."),
-            QStringLiteral("Builds datasets from directories. "
-                           "Requires dataset and descendants mounted. "
-                           "Lets you select directories to split. "
-                           "Will not run if mountpoint conflicts exist."),
-            QStringLiteral("从目录构建数据集。"
-                           "要求数据集及其后代已挂载。"
-                           "可选择要拆分的目录。"
-                           "若存在挂载点冲突则不会执行。")));
-    m_btnAdvancedAssemble->setToolTip(
-        trk(QStringLiteral("t_tt_assemble001"), QStringLiteral("Convierte datasets en directorios. "
-                           "Requiere dataset y descendientes montados. "
-                           "Permite seleccionar subdatasets a ensamblar. "
-                           "zfs destroy solo se ejecuta si rsync finaliza OK."),
-            QStringLiteral("Converts datasets into directories. "
-                           "Requires dataset and descendants mounted. "
-                           "Lets you select child datasets to assemble. "
-                           "zfs destroy runs only if rsync succeeds."),
-            QStringLiteral("将数据集转换为目录。"
-                           "要求数据集及其后代已挂载。"
-                           "可选择要组装的子数据集。"
-                           "仅当 rsync 成功时才执行 zfs destroy。")));
-    m_btnAdvancedFromDir->setToolTip(
-        trk(QStringLiteral("t_tt_fromdir001"), QStringLiteral("Crea un dataset hijo usando un directorio local como mountpoint.\n"
-                           "Requiere dataset seleccionado en Avanzado."),
-            QStringLiteral("Create a child dataset using a local directory as mountpoint.\n"
-                           "Requires a dataset selected in Advanced."),
-            QStringLiteral("使用本地目录作为挂载点创建子数据集。\n"
-                           "需要在高级页选择一个数据集。")));
-    m_btnAdvancedToDir->setToolTip(
-        trk(QStringLiteral("t_tt_todir_001"), QStringLiteral("Hace lo contrario de Desde Dir: copia el contenido del dataset a un directorio local\n"
-                           "y elimina el dataset al finalizar correctamente."),
-            QStringLiteral("Inverse of From Dir: copy dataset content to a local directory\n"
-                           "and remove dataset when finished successfully."),
-            QStringLiteral("与“来自目录”相反：将数据集内容复制到本地目录，\n"
-                           "成功后删除该数据集。")));
-    m_btnAdvancedBreakdown->setMinimumHeight(stdLeftBtnH);
-    m_btnAdvancedAssemble->setMinimumHeight(stdLeftBtnH);
-    m_btnAdvancedFromDir->setMinimumHeight(stdLeftBtnH);
-    m_btnAdvancedToDir->setMinimumHeight(stdLeftBtnH);
-    m_btnAdvancedBreakdown->setMinimumWidth(0);
-    m_btnAdvancedAssemble->setMinimumWidth(0);
-    m_btnAdvancedFromDir->setMinimumWidth(0);
-    m_btnAdvancedToDir->setMinimumWidth(0);
-    m_btnAdvancedBreakdown->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnAdvancedAssemble->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnAdvancedFromDir->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnAdvancedToDir->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnAdvancedBreakdown->setEnabled(false);
-    m_btnAdvancedAssemble->setEnabled(false);
-    m_btnAdvancedFromDir->setEnabled(false);
-    m_btnAdvancedToDir->setEnabled(false);
-    auto* commandsButtonsGrid = new QGridLayout();
-    commandsButtonsGrid->setContentsMargins(0, 0, 0, 0);
-    commandsButtonsGrid->setHorizontalSpacing(6);
-    commandsButtonsGrid->setVerticalSpacing(6);
-    commandsButtonsGrid->setColumnStretch(0, 1);
-    commandsButtonsGrid->setColumnStretch(1, 1);
-    commandsButtonsGrid->addWidget(m_btnAdvancedBreakdown, 0, 0);
-    commandsButtonsGrid->addWidget(m_btnAdvancedAssemble, 0, 1);
-    commandsButtonsGrid->addWidget(m_btnAdvancedFromDir, 1, 0);
-    commandsButtonsGrid->addWidget(m_btnAdvancedToDir, 1, 1);
-    commandsLayout->addLayout(commandsButtonsGrid);
-    // Igualar altura de las cajas de acciones de panel izquierdo:
-    // Conexiones, Datasets (Origen-->Destino) y Avanzado (Comandos).
+    // Legacy "advanced" layer removed from visible UI.
     const int actionsBoxHeight = qMax(130, m_connActionsBox ? m_connActionsBox->sizeHint().height() : 130);
     if (m_poolMgmtBox) {
         m_poolMgmtBox->setFixedHeight(actionsBoxHeight);
@@ -983,114 +846,17 @@ void MainWindow::buildUi() {
         m_connActionsBox->setMinimumHeight(actionsBoxHeight);
     }
     m_transferBox->setFixedHeight(actionsBoxHeight);
-    m_advCommandsBox->setFixedHeight(actionsBoxHeight);
-
-    auto* advancedInfoTabs = new QTabWidget(advancedTab);
-    advancedInfoTabs->setDocumentMode(false);
-    auto* mountedAdvTab = new QWidget(advancedInfoTabs);
-    auto* mountedAdvLayout = new QVBoxLayout(mountedAdvTab);
-    m_mountedDatasetsTableAdv = new QTableWidget(mountedAdvTab);
-    m_mountedDatasetsTableAdv->setColumnCount(2);
-    m_mountedDatasetsTableAdv->setHorizontalHeaderLabels(
-        {trk(QStringLiteral("t_dataset_001"),
-             QStringLiteral("Dataset"),
-             QStringLiteral("Dataset"),
-             QStringLiteral("数据集")),
-         QStringLiteral("mountpoint")});
-    m_mountedDatasetsTableAdv->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
-    m_mountedDatasetsTableAdv->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
-    m_mountedDatasetsTableAdv->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_mountedDatasetsTableAdv->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_mountedDatasetsTableAdv->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_mountedDatasetsTableAdv->verticalHeader()->setVisible(false);
-    m_mountedDatasetsTableAdv->verticalHeader()->setDefaultSectionSize(22);
-    m_mountedDatasetsTableAdv->setWordWrap(false);
-    m_mountedDatasetsTableAdv->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
-    m_mountedDatasetsTableAdv->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    {
-        QFont f = m_mountedDatasetsTableAdv->font();
-        f.setPointSize(qMax(6, f.pointSize() - 2));
-        m_mountedDatasetsTableAdv->setFont(f);
-        QFont hf = f;
-        hf.setPointSize(f.pointSize());
-        hf.setBold(false);
-        m_mountedDatasetsTableAdv->horizontalHeader()->setFont(hf);
-    }
-    m_mountedDatasetsTableAdv->setStyleSheet(
-        QStringLiteral("QScrollBar:vertical{width:8px;} "
-                       "QScrollBar:horizontal{height:8px;}"));
-    m_mountedDatasetsTableAdv->setColumnWidth(0, 180);
-    m_mountedDatasetsTableAdv->setColumnWidth(1, 220);
-    enableSortableHeader(m_mountedDatasetsTableAdv);
-    mountedAdvLayout->addWidget(m_mountedDatasetsTableAdv, 1);
-    auto* propsAdvTab = new QWidget(advancedInfoTabs);
-    auto* propsAdvLayout = new QVBoxLayout(propsAdvTab);
-    propsAdvLayout->setContentsMargins(0, 0, 0, 0);
-    propsAdvLayout->setSpacing(4);
-    m_advPropsTable = new QTableWidget(propsAdvTab);
-    m_advPropsTable->setColumnCount(3);
-    m_advPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor"), QStringLiteral("Inherit")});
-    m_advPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
-    m_advPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
-    m_advPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
-    m_advPropsTable->horizontalHeader()->setStretchLastSection(false);
-    m_advPropsTable->setColumnWidth(0, 200);
-    m_advPropsTable->setColumnWidth(1, 210);
-#ifdef Q_OS_MAC
-    if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
-        m_advPropsTable->setStyle(fusion);
-    }
-    m_advPropsTable->setStyleSheet(QStringLiteral(
-        "QTableWidget::indicator:unchecked { border: 2px solid #1f4f76; background: #ffffff; border-radius: 3px; }"
-        "QTableWidget::indicator:checked { border: 2px solid #1f4f76; background: #d9ecff; border-radius: 3px; }"));
-    const int advInheritColWidth = qMax(36, static_cast<int>((m_advPropsTable->fontMetrics().horizontalAdvance(QStringLiteral("Inherit")) / 2 + 12) * 1.10));
-    m_advPropsTable->setColumnWidth(2, advInheritColWidth);
-#else
-    m_advPropsTable->setColumnWidth(2, 90);
-#endif
-    m_advPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
-    m_advPropsTable->verticalHeader()->setVisible(false);
-    m_advPropsTable->verticalHeader()->setDefaultSectionSize(22);
-    m_advPropsTable->setProperty("pinned_rows", 5);
-    m_advPropsTable->setFont(m_mountedDatasetsTableAdv->font());
-    {
-        QFont hf = m_advPropsTable->font();
-        hf.setBold(false);
-        m_advPropsTable->horizontalHeader()->setFont(hf);
-    }
-    m_btnApplyAdvancedProps = new QPushButton(
-        trk(QStringLiteral("t_apply_changes_001"),
-            QStringLiteral("Aplicar cambios"),
-            QStringLiteral("Apply changes"),
-            QStringLiteral("应用更改")),
-        propsAdvTab);
-    m_btnApplyAdvancedProps->setEnabled(false);
-    enableSortableHeader(m_advPropsTable);
-    propsAdvLayout->addWidget(m_advPropsTable, 1);
-    propsAdvLayout->addWidget(m_btnApplyAdvancedProps, 0, Qt::AlignRight);
-    advancedInfoTabs->addTab(
-        propsAdvTab,
-        trk(QStringLiteral("t_props_tab_001"),
-            QStringLiteral("Propiedades"),
-            QStringLiteral("Properties"),
-            QStringLiteral("属性")));
-    advancedInfoTabs->addTab(
-        mountedAdvTab,
-        trk(QStringLiteral("t_mounted_tab_001"),
-            QStringLiteral("Montados"),
-            QStringLiteral("Mounted"),
-            QStringLiteral("已挂载")));
-    advLeftTabLayout->setSpacing(8);
-    advLeftTabLayout->addWidget(m_advCommandsBox);
-    advLeftTabLayout->addWidget(advancedInfoTabs, 1);
-    advancedTab->setLayout(advLeftTabLayout);
+    m_btnAdvancedBreakdown = nullptr;
+    m_btnAdvancedAssemble = nullptr;
+    m_btnAdvancedFromDir = nullptr;
+    m_btnAdvancedToDir = nullptr;
+    m_mountedDatasetsTableAdv = nullptr;
 
     m_leftTabs->addTab(datasetsTab, trk(QStringLiteral("t_datasets_tab_001"),
                                         QStringLiteral("Datasets"),
                                         QStringLiteral("Datasets"),
                                         QStringLiteral("数据集")));
-    // "Avanzado" ya no forma parte de la navegación visible principal.
-    advancedTab->hide();
+    // Legacy left tabs are hidden in current UX.
     m_leftTabs->hide();
     leftLayout->addWidget(connectionsTab, 1);
 
@@ -1132,21 +898,7 @@ void MainWindow::buildUi() {
     auto* detailContainerLayout = new QVBoxLayout(detailContainer);
     detailContainerLayout->setContentsMargins(4, 4, 4, 4);
     detailContainerLayout->setSpacing(0);
-    m_poolViewTabBar = new QTabBar(m_poolDetailTabs);
-    m_poolViewTabBar->setObjectName(QStringLiteral("zfsmgrPoolViewTabs"));
-    m_poolViewTabBar->addTab(trk(QStringLiteral("t_pool_props001"),
-                                 QStringLiteral("Propiedades"),
-                                 QStringLiteral("Properties"),
-                                 QStringLiteral("属性")));
-    m_poolViewTabBar->addTab(trk(QStringLiteral("t_content_node_001"),
-                                 QStringLiteral("Contenido"),
-                                 QStringLiteral("Content"),
-                                 QStringLiteral("内容")));
-    m_poolViewTabBar->setExpanding(false);
-    m_poolViewTabBar->setDrawBase(false);
-    m_poolViewTabBar->setCurrentIndex(0);
-    m_poolViewTabBar->setVisible(false);
-    detailContainerLayout->addWidget(m_poolViewTabBar, 0);
+    m_poolViewTabBar = nullptr;
     m_connPropsGroup = new QWidget(m_poolDetailTabs);
     auto* propsPoolLayout = new QVBoxLayout(m_connPropsGroup);
     propsPoolLayout->setContentsMargins(0, 0, 0, 0);
@@ -1289,35 +1041,7 @@ void MainWindow::buildUi() {
         m_connContentTree->setStyle(fusion);
     }
 #endif
-    // Botones internos: se usan para concentrar la lógica de habilitación/ejecución,
-    // pero la UI expone estas acciones por menú contextual del árbol.
-    m_connContentSelectOriginBtn = new QPushButton(
-        trk(QStringLiteral("t_select_origin1"), QStringLiteral("Origen"),
-            QStringLiteral("Source"), QStringLiteral("源")),
-        m_connContentPage);
-    m_connContentSelectDestBtn = new QPushButton(
-        trk(QStringLiteral("t_select_dest_001"), QStringLiteral("Destino"),
-            QStringLiteral("Target"), QStringLiteral("目标")),
-        m_connContentPage);
-    m_connContentRollbackBtn = new QPushButton(QStringLiteral("Rollback"), m_connContentPage);
-    m_connContentCreateBtn = new QPushButton(
-        trk(QStringLiteral("t_create_ch_001"), QStringLiteral("Crear"), QStringLiteral("Create"), QStringLiteral("创建")),
-        m_connContentPage);
-    m_connContentDeleteBtn = new QPushButton(
-        trk(QStringLiteral("t_delete_menu002"), QStringLiteral("Borrar"), QStringLiteral("Delete"), QStringLiteral("删除")),
-        m_connContentPage);
-    const QList<QPushButton*> connContentButtons = {
-        m_connContentSelectOriginBtn,  m_connContentSelectDestBtn,    m_connContentRollbackBtn,
-        m_connContentCreateBtn,        m_connContentDeleteBtn};
-    for (QPushButton* btn : connContentButtons) {
-        if (!btn) {
-            continue;
-        }
-        btn->setMinimumHeight(30);
-        btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        btn->setEnabled(false);
-        btn->setVisible(false);
-    }
+    // Las acciones se exponen por menú contextual del árbol.
     if (m_btnConnBreakdown) m_btnConnBreakdown->setVisible(false);
     if (m_btnConnAssemble) m_btnConnAssemble->setVisible(false);
     if (m_btnConnFromDir) m_btnConnFromDir->setVisible(false);
@@ -1565,74 +1289,8 @@ void MainWindow::buildUi() {
     dsLeftLayout->addWidget(destPane, 1);
     rightDatasetsLayout->addWidget(dsLeft, 1);
 
-    auto* rightAdvancedPage = new QWidget(m_rightStack);
-    auto* rightAdvancedLayout = new QVBoxLayout(rightAdvancedPage);
-    rightAdvancedLayout->setContentsMargins(0, 0, 0, 0);
-    rightAdvancedLayout->setSpacing(4);
-    auto* advLeft = new QWidget(rightAdvancedPage);
-    auto* advLeftLayout = new QVBoxLayout(advLeft);
-    m_advPoolCombo = new QComboBox(rightAdvancedPage);
-    m_advPoolCombo->setMinimumContentsLength(6);
-    m_advPoolCombo->setMaximumWidth(110);
-    m_advPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
-    m_advTree = new QTreeWidget(rightAdvancedPage);
-    m_advTree->setColumnCount(4);
-    m_advTree->setHeaderLabels({trk(QStringLiteral("t_dataset_001"),
-                                    QStringLiteral("Dataset"),
-                                    QStringLiteral("Dataset"),
-                                    QStringLiteral("数据集")),
-                                trk(QStringLiteral("t_snapshot_col01"),
-                                    QStringLiteral("Snapshot"),
-                                    QStringLiteral("Snapshot"),
-                                    QStringLiteral("快照")),
-                                trk(QStringLiteral("t_montado_a97484"),
-                                    QStringLiteral("Montado"),
-                                    QStringLiteral("Mounted"),
-                                    QStringLiteral("已挂载")),
-                                trk(QStringLiteral("t_mountpoint_001"),
-                                    QStringLiteral("Mountpoint"),
-                                    QStringLiteral("Mountpoint"),
-                                    QStringLiteral("挂载点"))});
-    m_advTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
-    m_advTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
-    m_advTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
-    m_advTree->header()->setSectionResizeMode(3, QHeaderView::Interactive);
-    m_advTree->header()->setStretchLastSection(false);
-    m_advTree->setColumnWidth(0, 250);
-    m_advTree->setColumnWidth(1, 90);
-    m_advTree->setColumnWidth(2, 72);
-    m_advTree->setColumnWidth(3, 180);
-    m_advTree->setUniformRowHeights(true);
-    m_advTree->setRootIsDecorated(true);
-    m_advTree->setItemsExpandable(true);
-    {
-        QFont f = m_advTree->font();
-        f.setPointSize(qMax(6, f.pointSize() - 1));
-        m_advTree->setFont(f);
-    }
-    m_advTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"));
-#ifdef Q_OS_MAC
-    if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
-        m_advTree->setStyle(fusion);
-    }
-#endif
-    m_advSelectionLabel = new QLabel(trk(QStringLiteral("t_no_sel_001"),
-                                         QStringLiteral("(sin selección)"),
-                                         QStringLiteral("(no selection)"),
-                                         QStringLiteral("（未选择）")),
-                                     rightAdvancedPage);
-    m_advSelectionLabel->setWordWrap(true);
-    m_advSelectionLabel->setMinimumHeight(36);
-    auto* advTop = new QHBoxLayout();
-    advTop->addWidget(m_advPoolCombo, 0);
-    advTop->addWidget(m_advSelectionLabel, 1);
-    advLeftLayout->addLayout(advTop);
-    advLeftLayout->addWidget(m_advTree, 1);
-    rightAdvancedLayout->addWidget(advLeft, 1);
-
     m_rightStack->addWidget(rightConnectionsPage);
     m_rightStack->addWidget(rightDatasetsPage);
-    m_rightStack->addWidget(rightAdvancedPage);
     rightLayout->addWidget(m_rightStack, 1);
 
     topLayout->addWidget(leftPane, 0);
@@ -1748,22 +1406,6 @@ void MainWindow::buildUi() {
 
     setCentralWidget(central);
 
-    connect(m_btnPoolNew, &QPushButton::clicked, this, [this]() {
-        logUiAction(QStringLiteral("Nuevo pool (botón)"));
-        createPoolForSelectedConnection();
-    });
-    if (m_btnNew) {
-        connect(m_btnNew, &QPushButton::clicked, this, [this]() {
-            logUiAction(QStringLiteral("Nueva conexión (botón)"));
-            createConnection();
-        });
-    }
-    if (m_btnRefreshAll) {
-        connect(m_btnRefreshAll, &QPushButton::clicked, this, [this]() {
-            logUiAction(QStringLiteral("Refrescar todo (botón)"));
-            refreshAllConnections();
-        });
-    }
     if (m_connPropsRefreshBtn) {
         connect(m_connPropsRefreshBtn, &QPushButton::clicked, this, [this]() {
             logUiAction(QStringLiteral("Refrescar conexión (botón propiedades)"));
@@ -1848,9 +1490,28 @@ void MainWindow::buildUi() {
                 QStringLiteral("Borrar"),
                 QStringLiteral("Delete"),
                 QStringLiteral("删除")));
+        menu.addSeparator();
+        QAction* aRefreshAll = menu.addAction(
+            trk(QStringLiteral("t_refresh_all_001"),
+                QStringLiteral("Refrescar todas las conexiones"),
+                QStringLiteral("Refresh all connections"),
+                QStringLiteral("刷新所有连接")));
+        QAction* aNewConn = menu.addAction(
+            trk(QStringLiteral("t_new_conn_ctx001"),
+                QStringLiteral("Nueva Conexión"),
+                QStringLiteral("New Connection"),
+                QStringLiteral("新建连接")));
+        QAction* aNewPool = menu.addAction(
+            trk(QStringLiteral("t_new_pool_ctx_001"),
+                QStringLiteral("Nuevo Pool"),
+                QStringLiteral("New Pool"),
+                QStringLiteral("新建存储池")));
         aRefresh->setEnabled(canRefresh);
         aEdit->setEnabled(canEditDelete);
         aDelete->setEnabled(canEditDelete);
+        aRefreshAll->setEnabled(!actionsLocked());
+        aNewConn->setEnabled(!actionsLocked());
+        aNewPool->setEnabled(!actionsLocked() && hasConn);
 
         QAction* chosen = menu.exec(m_connectionsTable->viewport()->mapToGlobal(pos));
         if (!chosen) {
@@ -1865,6 +1526,15 @@ void MainWindow::buildUi() {
         } else if (chosen == aDelete) {
             logUiAction(QStringLiteral("Borrar conexión (menú conexiones)"));
             deleteConnection();
+        } else if (chosen == aRefreshAll) {
+            logUiAction(QStringLiteral("Refrescar todas las conexiones (menú conexiones)"));
+            refreshAllConnections();
+        } else if (chosen == aNewConn) {
+            logUiAction(QStringLiteral("Nueva conexión (menú conexiones)"));
+            createConnection();
+        } else if (chosen == aNewPool) {
+            logUiAction(QStringLiteral("Nuevo pool (menú conexiones)"));
+            createPoolForSelectedConnection();
         }
     });
     if (m_poolViewTabBar) {
@@ -2015,11 +1685,26 @@ void MainWindow::buildUi() {
             QAction* aToDir = menu.addAction(
                 trk(QStringLiteral("t_to_dir_btn_001"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")));
 
-            aRollback->setEnabled(m_connContentRollbackBtn && m_connContentRollbackBtn->isEnabled());
-            aCreate->setEnabled(m_connContentCreateBtn && m_connContentCreateBtn->isEnabled());
-            aDelete->setEnabled(m_connContentDeleteBtn && m_connContentDeleteBtn->isEnabled());
-            aOrigin->setEnabled(m_connContentSelectOriginBtn && m_connContentSelectOriginBtn->isEnabled());
-            aDest->setEnabled(m_connContentSelectDestBtn && m_connContentSelectDestBtn->isEnabled());
+            const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
+            const bool hasConnSel = ctx.valid && !ctx.datasetName.isEmpty();
+            const bool hasConnSnap = hasConnSel && !ctx.snapshotName.isEmpty();
+            const bool alreadyOrigin = hasConnSel
+                && m_connActionOrigin.valid
+                && ctx.connIdx == m_connActionOrigin.connIdx
+                && ctx.poolName == m_connActionOrigin.poolName
+                && ctx.datasetName == m_connActionOrigin.datasetName
+                && ctx.snapshotName == m_connActionOrigin.snapshotName;
+            const bool alreadyDest = hasConnSel
+                && m_connActionDest.valid
+                && ctx.connIdx == m_connActionDest.connIdx
+                && ctx.poolName == m_connActionDest.poolName
+                && ctx.datasetName == m_connActionDest.datasetName
+                && ctx.snapshotName == m_connActionDest.snapshotName;
+            aRollback->setEnabled(!actionsLocked() && hasConnSnap);
+            aCreate->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
+            aDelete->setEnabled(!actionsLocked() && hasConnSel);
+            aOrigin->setEnabled(!actionsLocked() && hasConnSel && !alreadyOrigin);
+            aDest->setEnabled(!actionsLocked() && hasConnSel && !alreadyDest);
             aBreakdown->setEnabled(m_btnConnBreakdown && m_btnConnBreakdown->isEnabled());
             aAssemble->setEnabled(m_btnConnAssemble && m_btnConnAssemble->isEnabled());
             aFromDir->setEnabled(m_btnConnFromDir && m_btnConnFromDir->isEnabled());
@@ -2029,16 +1714,44 @@ void MainWindow::buildUi() {
             if (!picked) {
                 return;
             }
-            if (picked == aRollback && m_connContentRollbackBtn) {
-                m_connContentRollbackBtn->click();
-            } else if (picked == aCreate && m_connContentCreateBtn) {
-                m_connContentCreateBtn->click();
-            } else if (picked == aDelete && m_connContentDeleteBtn) {
-                m_connContentDeleteBtn->click();
-            } else if (picked == aOrigin && m_connContentSelectOriginBtn) {
-                m_connContentSelectOriginBtn->click();
-            } else if (picked == aDest && m_connContentSelectDestBtn) {
-                m_connContentSelectDestBtn->click();
+            if (picked == aRollback) {
+                const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("conncontent"));
+                if (!actx.valid || actx.snapshotName.isEmpty()) {
+                    return;
+                }
+                const QString snapObj = QStringLiteral("%1@%2").arg(actx.datasetName, actx.snapshotName);
+                const auto confirm = QMessageBox::question(
+                    this,
+                    QStringLiteral("Rollback"),
+                    QStringLiteral("¿Confirmar rollback de snapshot?\n%1").arg(snapObj),
+                    QMessageBox::Yes | QMessageBox::No,
+                    QMessageBox::No);
+                if (confirm != QMessageBox::Yes) {
+                    return;
+                }
+                logUiAction(QStringLiteral("Rollback snapshot (menú Contenido)"));
+                QString q = snapObj;
+                q.replace('\'', "'\"'\"'");
+                const QString cmd = QStringLiteral("zfs rollback '%1'").arg(q);
+                executeDatasetAction(QStringLiteral("conncontent"), QStringLiteral("Rollback"), actx, cmd, 90000);
+            } else if (picked == aCreate) {
+                logUiAction(QStringLiteral("Crear hijo dataset (menú Contenido)"));
+                actionCreateChildDataset(QStringLiteral("conncontent"));
+            } else if (picked == aDelete) {
+                logUiAction(QStringLiteral("Borrar dataset/snapshot (menú Contenido)"));
+                actionDeleteDatasetOrSnapshot(QStringLiteral("conncontent"));
+            } else if (picked == aOrigin) {
+                const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("conncontent"));
+                if (actx.valid) {
+                    logUiAction(QStringLiteral("Seleccionar como origen (menú Contenido)"));
+                    setConnectionOriginSelection(actx);
+                }
+            } else if (picked == aDest) {
+                const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("conncontent"));
+                if (actx.valid) {
+                    logUiAction(QStringLiteral("Seleccionar como destino (menú Contenido)"));
+                    setConnectionDestinationSelection(actx);
+                }
             } else if (picked == aBreakdown && m_btnConnBreakdown) {
                 m_btnConnBreakdown->click();
             } else if (picked == aAssemble && m_btnConnAssemble) {
@@ -2048,61 +1761,6 @@ void MainWindow::buildUi() {
             } else if (picked == aToDir && m_btnConnToDir) {
                 m_btnConnToDir->click();
             }
-        });
-    }
-    if (m_connContentSelectOriginBtn) {
-        connect(m_connContentSelectOriginBtn, &QPushButton::clicked, this, [this]() {
-            const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
-            if (!ctx.valid) {
-                return;
-            }
-            logUiAction(QStringLiteral("Seleccionar como origen (botón Contenido)"));
-            setConnectionOriginSelection(ctx);
-        });
-    }
-    if (m_connContentSelectDestBtn) {
-        connect(m_connContentSelectDestBtn, &QPushButton::clicked, this, [this]() {
-            const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
-            if (!ctx.valid) {
-                return;
-            }
-            logUiAction(QStringLiteral("Seleccionar como destino (botón Contenido)"));
-            setConnectionDestinationSelection(ctx);
-        });
-    }
-    if (m_connContentRollbackBtn) {
-        connect(m_connContentRollbackBtn, &QPushButton::clicked, this, [this]() {
-            const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
-            if (!ctx.valid || ctx.snapshotName.isEmpty()) {
-                return;
-            }
-            const QString snapObj = QStringLiteral("%1@%2").arg(ctx.datasetName, ctx.snapshotName);
-            const auto confirm = QMessageBox::question(
-                this,
-                QStringLiteral("Rollback"),
-                QStringLiteral("¿Confirmar rollback de snapshot?\n%1").arg(snapObj),
-                QMessageBox::Yes | QMessageBox::No,
-                QMessageBox::No);
-            if (confirm != QMessageBox::Yes) {
-                return;
-            }
-            logUiAction(QStringLiteral("Rollback snapshot (botón Contenido)"));
-            QString q = snapObj;
-            q.replace('\'', "'\"'\"'");
-            const QString cmd = QStringLiteral("zfs rollback '%1'").arg(q);
-            executeDatasetAction(QStringLiteral("conncontent"), QStringLiteral("Rollback"), ctx, cmd, 90000);
-        });
-    }
-    if (m_connContentCreateBtn) {
-        connect(m_connContentCreateBtn, &QPushButton::clicked, this, [this]() {
-            logUiAction(QStringLiteral("Crear hijo dataset (botón Contenido)"));
-            actionCreateChildDataset(QStringLiteral("conncontent"));
-        });
-    }
-    if (m_connContentDeleteBtn) {
-        connect(m_connContentDeleteBtn, &QPushButton::clicked, this, [this]() {
-            logUiAction(QStringLiteral("Borrar dataset/snapshot (botón Contenido)"));
-            actionDeleteDatasetOrSnapshot(QStringLiteral("conncontent"));
         });
     }
     if (m_connContentPropsTable) {
@@ -2146,55 +1804,8 @@ void MainWindow::buildUi() {
         logUiAction(QStringLiteral("Destroy pool (botón Estado)"));
         destroyPoolFromRow(row);
     });
-    connect(m_originPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onOriginPoolChanged(); });
-    connect(m_destPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onDestPoolChanged(); });
-    connect(m_advPoolCombo, &QComboBox::currentIndexChanged, this, [this]() { onAdvancedPoolChanged(); });
-    connect(m_originTree, &QTreeWidget::itemSelectionChanged, this, [this]() { onOriginTreeSelectionChanged(); });
-    connect(m_destTree, &QTreeWidget::itemSelectionChanged, this, [this]() { onDestTreeSelectionChanged(); });
-    connect(m_originTree, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int col) {
-        onDatasetTreeItemChanged(m_originTree, item, col, QStringLiteral("origin"));
-    });
-    connect(m_destTree, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int col) {
-        onDatasetTreeItemChanged(m_destTree, item, col, QStringLiteral("dest"));
-    });
-    connect(m_advTree, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int col) {
-        onDatasetTreeItemChanged(m_advTree, item, col, QStringLiteral("advanced"));
-    });
-    connect(m_originTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int col) {
-        onOriginTreeItemDoubleClicked(item, col);
-    });
-    connect(m_destTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int col) {
-        onDestTreeItemDoubleClicked(item, col);
-    });
-    m_originTree->setContextMenuPolicy(Qt::NoContextMenu);
-    m_destTree->setContextMenuPolicy(Qt::NoContextMenu);
-    m_advTree->setContextMenuPolicy(Qt::NoContextMenu);
-    connect(m_datasetPropsTable, &QTableWidget::cellChanged, this, [this](int row, int col) {
-        onDatasetPropsCellChanged(row, col);
-    });
-    connect(m_btnApplyDatasetProps, &QPushButton::clicked, this, [this]() {
-        logUiAction(QStringLiteral("Aplicar propiedades dataset (botón)"));
-        applyDatasetPropertyChanges();
-    });
-    connect(m_advPropsTable, &QTableWidget::cellChanged, this, [this](int row, int col) {
-        onAdvancedPropsCellChanged(row, col);
-    });
-    connect(m_btnApplyAdvancedProps, &QPushButton::clicked, this, [this]() {
-        logUiAction(QStringLiteral("Aplicar propiedades avanzadas (botón)"));
-        applyAdvancedDatasetPropertyChanges();
-    });
-    connect(m_btnCopy, &QPushButton::clicked, this, [this]() {
-        logUiAction(QStringLiteral("Copiar snapshot (botón)"));
-        actionCopySnapshot();
-    });
-    connect(m_btnLevel, &QPushButton::clicked, this, [this]() {
-        logUiAction(QStringLiteral("Nivelar snapshot (botón)"));
-        actionLevelSnapshot();
-    });
-    connect(m_btnSync, &QPushButton::clicked, this, [this]() {
-        logUiAction(QStringLiteral("Sincronizar datasets (botón)"));
-        actionSyncDatasets();
-    });
+    // Datasets/Avanzado legacy pages are hidden in the current UI and intentionally
+    // have no live signal wiring. Active workflow runs through "conncontent".
     connect(m_btnConnBreakdown, &QPushButton::clicked, this, [this]() {
         if (actionsLocked()) {
             if (m_activeConnActionBtn == m_btnConnBreakdown) {
@@ -2337,41 +1948,6 @@ void MainWindow::buildUi() {
             m_activeConnActionName.clear();
             updateConnectionActionsState();
         }
-    });
-    connect(m_advTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
-        const auto selected = m_advTree->selectedItems();
-        if (selected.isEmpty()) {
-            updateAdvancedSelectionUi(QString(), QString());
-            refreshDatasetProperties(QStringLiteral("advanced"));
-            updateTransferButtonsState();
-            return;
-        }
-        auto* it = selected.first();
-        const QString ds = it->data(0, Qt::UserRole).toString();
-        const QString snap = it->data(1, Qt::UserRole).toString();
-        updateAdvancedSelectionUi(ds, snap);
-        refreshDatasetProperties(QStringLiteral("advanced"));
-        updateTransferButtonsState();
-    });
-    connect(m_advTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int col) {
-        Q_UNUSED(item);
-        Q_UNUSED(col);
-    });
-    connect(m_btnAdvancedBreakdown, &QPushButton::clicked, this, [this]() {
-        logUiAction(QStringLiteral("Desglosar (botón)"));
-        actionAdvancedBreakdown();
-    });
-    connect(m_btnAdvancedAssemble, &QPushButton::clicked, this, [this]() {
-        logUiAction(QStringLiteral("Ensamblar (botón)"));
-        actionAdvancedAssemble();
-    });
-    connect(m_btnAdvancedFromDir, &QPushButton::clicked, this, [this]() {
-        logUiAction(QStringLiteral("Desde Dir (botón)"));
-        actionAdvancedCreateFromDir();
-    });
-    connect(m_btnAdvancedToDir, &QPushButton::clicked, this, [this]() {
-        logUiAction(QStringLiteral("Hacia Dir (botón)"));
-        actionAdvancedToDir();
     });
     updateConnectionActionsState();
 }

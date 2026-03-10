@@ -90,9 +90,6 @@ void MainWindow::setActionsLocked(bool locked) {
     if (m_menuExitAction) {
         m_menuExitAction->setEnabled(!locked);
     }
-    if (m_btnNew) m_btnNew->setEnabled(!locked);
-    if (m_btnRefreshAll) m_btnRefreshAll->setEnabled(!locked);
-    if (m_btnPoolNew) m_btnPoolNew->setEnabled(!locked && selectedConnectionIndexForPoolManagement() >= 0);
     if (m_poolStatusRefreshBtn) {
         const bool canRefresh = m_poolStatusRefreshBtn->property("zfsmgr_can_refresh").toBool();
         m_poolStatusRefreshBtn->setEnabled(!locked && canRefresh);
@@ -102,7 +99,6 @@ void MainWindow::setActionsLocked(bool locked) {
     if (m_poolStatusScrubBtn) m_poolStatusScrubBtn->setEnabled(!locked && m_poolStatusScrubBtn->isEnabled());
     if (m_poolStatusDestroyBtn) m_poolStatusDestroyBtn->setEnabled(!locked && m_poolStatusDestroyBtn->isEnabled());
     if (m_btnApplyDatasetProps) m_btnApplyDatasetProps->setEnabled(!locked && m_btnApplyDatasetProps->isEnabled());
-    if (m_btnApplyAdvancedProps) m_btnApplyAdvancedProps->setEnabled(!locked && m_btnApplyAdvancedProps->isEnabled());
     if (m_connPropsRefreshBtn) {
         const bool can = m_connPropsRefreshBtn->property("zfsmgr_can_conn_action").toBool();
         m_connPropsRefreshBtn->setEnabled(!locked && can);
@@ -119,10 +115,6 @@ void MainWindow::setActionsLocked(bool locked) {
         if (m_btnCopy) m_btnCopy->setEnabled(false);
         if (m_btnLevel) m_btnLevel->setEnabled(false);
         if (m_btnSync) m_btnSync->setEnabled(false);
-        if (m_btnAdvancedBreakdown) m_btnAdvancedBreakdown->setEnabled(false);
-        if (m_btnAdvancedAssemble) m_btnAdvancedAssemble->setEnabled(false);
-        if (m_btnAdvancedFromDir) m_btnAdvancedFromDir->setEnabled(false);
-        if (m_btnAdvancedToDir) m_btnAdvancedToDir->setEnabled(false);
         // Connection action buttons are managed by updateConnectionActionsState()
         // to keep the active one as "Cancelar <acción>".
     } else {

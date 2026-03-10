@@ -80,16 +80,16 @@ void MainWindow::actionAdvancedCreateFromDir() {
     if (actionsLocked()) {
         return;
     }
-    const auto selected = m_advTree ? m_advTree->selectedItems() : QList<QTreeWidgetItem*>{};
-    if (selected.isEmpty()) {
+    const DatasetSelectionContext curr = currentDatasetSelection(QStringLiteral("conncontent"));
+    if (!curr.valid || curr.datasetName.isEmpty() || !curr.snapshotName.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_advdir_auto001"), QStringLiteral("Seleccione un dataset en Avanzado."),
                                      QStringLiteral("Select a dataset in Advanced."),
                                      QStringLiteral("请在高级页选择一个数据集。")));
         return;
     }
-    const QString ds = selected.first()->data(0, Qt::UserRole).toString().trimmed();
-    const QString snap = selected.first()->data(1, Qt::UserRole).toString().trimmed();
+    const QString ds = curr.datasetName.trimmed();
+    const QString snap = curr.snapshotName.trimmed();
     if (ds.isEmpty() || !snap.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_advdir_auto002"), QStringLiteral("Debe seleccionar un dataset (no snapshot)."),
@@ -98,15 +98,10 @@ void MainWindow::actionAdvancedCreateFromDir() {
         return;
     }
 
-    const QString token = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
-    const int sep = token.indexOf(QStringLiteral("::"));
-    if (sep <= 0) {
-        return;
-    }
     DatasetSelectionContext ctx;
     ctx.valid = true;
-    ctx.connIdx = token.left(sep).toInt();
-    ctx.poolName = token.mid(sep + 2);
+    ctx.connIdx = curr.connIdx;
+    ctx.poolName = curr.poolName;
     ctx.datasetName = ds;
     ctx.snapshotName.clear();
 
@@ -645,7 +640,7 @@ void MainWindow::actionAdvancedCreateFromDir() {
                        createCmd,
                        deleteSourceDir ? QStringLiteral("1") : QStringLiteral("0"));
     }
-    executeDatasetAction(QStringLiteral("advanced"),
+    executeDatasetAction(QStringLiteral("conncontent"),
                          trk(QStringLiteral("t_advdir_auto024"), QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")),
                          ctx,
                          cmd,
@@ -657,16 +652,16 @@ void MainWindow::actionAdvancedToDir() {
     if (actionsLocked()) {
         return;
     }
-    const auto selected = m_advTree ? m_advTree->selectedItems() : QList<QTreeWidgetItem*>{};
-    if (selected.isEmpty()) {
+    const DatasetSelectionContext curr = currentDatasetSelection(QStringLiteral("conncontent"));
+    if (!curr.valid || curr.datasetName.isEmpty() || !curr.snapshotName.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_advdir_auto025"), QStringLiteral("Seleccione un dataset en Avanzado."),
                                      QStringLiteral("Select a dataset in Advanced."),
                                      QStringLiteral("请在高级页选择一个数据集。")));
         return;
     }
-    const QString ds = selected.first()->data(0, Qt::UserRole).toString().trimmed();
-    const QString snap = selected.first()->data(1, Qt::UserRole).toString().trimmed();
+    const QString ds = curr.datasetName.trimmed();
+    const QString snap = curr.snapshotName.trimmed();
     if (ds.isEmpty() || !snap.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_advdir_auto026"), QStringLiteral("Debe seleccionar un dataset (no snapshot)."),
@@ -675,15 +670,10 @@ void MainWindow::actionAdvancedToDir() {
         return;
     }
 
-    const QString token = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
-    const int sep = token.indexOf(QStringLiteral("::"));
-    if (sep <= 0) {
-        return;
-    }
     DatasetSelectionContext ctx;
     ctx.valid = true;
-    ctx.connIdx = token.left(sep).toInt();
-    ctx.poolName = token.mid(sep + 2);
+    ctx.connIdx = curr.connIdx;
+    ctx.poolName = curr.poolName;
     ctx.datasetName = ds;
     ctx.snapshotName.clear();
 
@@ -917,7 +907,7 @@ void MainWindow::actionAdvancedToDir() {
                        deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0"));
     }
 
-    executeDatasetAction(QStringLiteral("advanced"),
+    executeDatasetAction(QStringLiteral("conncontent"),
                          trk(QStringLiteral("t_advdir_auto035"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")),
                          ctx,
                          cmd,

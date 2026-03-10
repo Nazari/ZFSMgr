@@ -329,36 +329,20 @@ void MainWindow::rebuildConnectionEntityTabs() {
     if (targetEntityKey.isEmpty()) {
         const QStringList prevParts = prevTabKey.split(':');
         bool prevOk = false;
-        if (prevParts.size() >= 2) {
+        if (prevParts.size() >= 3 && prevParts.value(0) == QStringLiteral("pool")) {
             const int prevConnIdx = prevParts.value(1).toInt(&prevOk);
             if (prevOk && prevConnIdx == connIdx) {
-                if (prevParts.value(0) == QStringLiteral("conn")) {
-                    targetEntityKey = QStringLiteral("conn");
-                } else if (prevParts.value(0) == QStringLiteral("pool") && prevParts.size() >= 3) {
-                    targetEntityKey = QStringLiteral("pool:%1").arg(prevParts.value(2).trimmed());
-                }
+                targetEntityKey = QStringLiteral("pool:%1").arg(prevParts.value(2).trimmed());
             }
         }
-    }
-    if (targetEntityKey.isEmpty()) {
-        targetEntityKey = QStringLiteral("conn");
     }
 
     m_updatingConnectionEntityTabs = true;
     while (m_connectionEntityTabs->count() > 0) {
         m_connectionEntityTabs->removeTab(m_connectionEntityTabs->count() - 1);
     }
-    const QString connTabText =
-        trk(QStringLiteral("t_conn_tab_dyn001"),
-            QStringLiteral("Conexión %1"),
-            QStringLiteral("Connection %1"),
-            QStringLiteral("连接 %1"))
-            .arg(m_profiles[connIdx].name);
-    const int connTab = m_connectionEntityTabs->addTab(connTabText);
-    m_connectionEntityTabs->setTabData(connTab, QStringLiteral("conn:%1").arg(connIdx));
-
-    int targetTab = 0;
-    int tabPos = 1;
+    int targetTab = -1;
+    int tabPos = 0;
     const ConnectionRuntimeState& st = m_states[connIdx];
     for (const PoolImported& pool : st.importedPools) {
         const QString poolName = pool.pool.trimmed();
@@ -400,7 +384,12 @@ void MainWindow::rebuildConnectionEntityTabs() {
         }
         ++tabPos;
     }
-    m_connectionEntityTabs->setCurrentIndex(targetTab);
+    if (targetTab < 0 && m_connectionEntityTabs->count() > 0) {
+        targetTab = 0;
+    }
+    if (targetTab >= 0) {
+        m_connectionEntityTabs->setCurrentIndex(targetTab);
+    }
     m_updatingConnectionEntityTabs = false;
 }
 
@@ -448,13 +437,7 @@ void MainWindow::saveConnectionNavState(int connIdx) {
     if (tabIdx >= 0 && tabIdx < m_connectionEntityTabs->count()) {
         const QString tabData = m_connectionEntityTabs->tabData(tabIdx).toString();
         const QStringList parts = tabData.split(':');
-        if (parts.size() >= 2 && parts.value(0) == QStringLiteral("conn")) {
-            bool ok = false;
-            const int tabConnIdx = parts.value(1).toInt(&ok);
-            if (ok && tabConnIdx == connIdx) {
-                nav.entityTabKey = QStringLiteral("conn");
-            }
-        } else if (parts.size() >= 3 && parts.value(0) == QStringLiteral("pool")) {
+        if (parts.size() >= 3 && parts.value(0) == QStringLiteral("pool")) {
             bool ok = false;
             const int tabConnIdx = parts.value(1).toInt(&ok);
             const QString poolName = parts.value(2).trimmed();
@@ -589,7 +572,6 @@ void MainWindow::refreshConnectionNodeDetails() {
     }
 
     QString activePoolName;
-    bool poolMode = false;
     if (m_connectionEntityTabs && m_connectionEntityTabs->currentIndex() >= 0) {
         const QString key = m_connectionEntityTabs->tabData(m_connectionEntityTabs->currentIndex()).toString();
         const QStringList parts = key.split(':');
@@ -597,21 +579,21 @@ void MainWindow::refreshConnectionNodeDetails() {
             bool ok = false;
             const int tabConnIdx = parts.value(1).toInt(&ok);
             if (ok && tabConnIdx == connIdx) {
-                poolMode = true;
                 activePoolName = parts.value(2).trimmed();
             }
         }
     }
 
-    setConnectionActionButtonsVisible(!poolMode);
-    setPoolActionButtonsVisible(poolMode);
+    const bool hasPoolTabSelected = !activePoolName.isEmpty();
+    setConnectionActionButtonsVisible(false);
+    setPoolActionButtonsVisible(hasPoolTabSelected);
     if (m_poolViewTabBar) {
         m_poolViewTabBar->setVisible(false);
         m_poolViewTabBar->setCurrentIndex(0);
         m_poolViewTabBar->setTabData(0, QVariant());
         m_poolViewTabBar->setTabData(1, QVariant());
     }
-    if (!poolMode) {
+    if (!hasPoolTabSelected) {
         if (!m_connContentToken.isEmpty()) {
             saveConnContentTreeState(m_connContentToken);
             m_connContentToken.clear();
@@ -625,98 +607,23 @@ void MainWindow::refreshConnectionNodeDetails() {
         if (m_connBottomGroup) {
             m_connBottomGroup->setVisible(true);
         }
-        if (connIdx >= 0 && connIdx < m_profiles.size() && connIdx < m_states.size()) {
-            const ConnectionProfile& p = m_profiles[connIdx];
-            const ConnectionRuntimeState& st = m_states[connIdx];
-
-            if (m_poolPropsTable) {
-                setTablePopulationMode(m_poolPropsTable, true);
-                m_poolPropsTable->setRowCount(0);
-                auto addProp = [this](const QString& k, const QString& v, const QString& src) {
-                    const int r = m_poolPropsTable->rowCount();
-                    m_poolPropsTable->insertRow(r);
-                    m_poolPropsTable->setItem(r, 0, new QTableWidgetItem(k));
-                    m_poolPropsTable->setItem(r, 1, new QTableWidgetItem(v));
-                    m_poolPropsTable->setItem(r, 2, new QTableWidgetItem(src));
-                };
-                const QString srcIni = QStringLiteral("config.ini");
-                addProp(QStringLiteral("id"), p.id, srcIni);
-                addProp(QStringLiteral("name"), p.name, srcIni);
-                addProp(QStringLiteral("host"), p.host, srcIni);
-                addProp(QStringLiteral("port"), QString::number(p.port), srcIni);
-                addProp(QStringLiteral("username"), p.username, srcIni);
-                addProp(QStringLiteral("password"), p.password.isEmpty() ? QString() : QStringLiteral("[secret]"), srcIni);
-                addProp(QStringLiteral("keyPath"), p.keyPath, srcIni);
-                addProp(QStringLiteral("connType"), p.connType, srcIni);
-                addProp(QStringLiteral("osType"), p.osType, srcIni);
-                addProp(QStringLiteral("useSudo"), p.useSudo ? QStringLiteral("true") : QStringLiteral("false"), srcIni);
-                setTablePopulationMode(m_poolPropsTable, false);
-            }
-
-            if (m_poolStatusText) {
-                QStringList lines;
-                lines << QStringLiteral("Estado: %1").arg(st.status.trimmed().isEmpty() ? QStringLiteral("-") : st.status.trimmed());
-                lines << QStringLiteral("Sistema operativo: %1").arg(st.osLine.trimmed().isEmpty() ? QStringLiteral("-") : st.osLine.trimmed());
-                lines << QStringLiteral("Método de conexión: %1").arg(st.connectionMethod.trimmed().isEmpty() ? p.connType : st.connectionMethod.trimmed());
-                lines << QStringLiteral("OpenZFS: %1").arg(st.zfsVersionFull.trimmed().isEmpty()
-                                                               ? (st.zfsVersion.trimmed().isEmpty() ? QStringLiteral("-")
-                                                                                                    : QStringLiteral("OpenZFS %1").arg(st.zfsVersion.trimmed()))
-                                                               : st.zfsVersionFull.trimmed());
-                lines << QStringLiteral("---");
-                QStringList detected = st.detectedUnixCommands;
-                QStringList missing = st.missingUnixCommands;
-                if (detected.isEmpty() && missing.isEmpty() && !st.powershellFallbackCommands.isEmpty()) {
-                    detected = st.powershellFallbackCommands;
-                }
-                lines << QStringLiteral("Comandos detectados: %1")
-                             .arg(detected.isEmpty() ? QStringLiteral("(ninguno)") : detected.join(QStringLiteral(", ")));
-                lines << QStringLiteral("Comandos no detectados: %1")
-                             .arg(missing.isEmpty() ? QStringLiteral("(ninguno)") : missing.join(QStringLiteral(", ")));
-                lines << QStringLiteral("---");
-                QStringList nonImportable;
-                for (const PoolImportable& pool : st.importablePools) {
-                    const QString poolName = pool.pool.trimmed();
-                    if (poolName.isEmpty()) {
-                        continue;
-                    }
-                    const QString stateUp = pool.state.trimmed().toUpper();
-                    const QString actionTxt = pool.action.trimmed();
-                    if (stateUp == QStringLiteral("ONLINE") && !actionTxt.isEmpty()) {
-                        continue;
-                    }
-                    QString reason = pool.reason.trimmed();
-                    if (reason.isEmpty()) {
-                        reason = QStringLiteral("-");
-                    }
-                    nonImportable << QStringLiteral("%1").arg(poolName);
-                    nonImportable << QStringLiteral("  Motivo: %1").arg(reason);
-                    nonImportable << QStringLiteral("");
-                }
-                lines << QStringLiteral("Pools no importables:");
-                if (nonImportable.isEmpty()) {
-                    lines << QStringLiteral("  (ninguno)");
-                } else {
-                    while (!nonImportable.isEmpty() && nonImportable.last().trimmed().isEmpty()) {
-                        nonImportable.removeLast();
-                    }
-                    lines += nonImportable;
-                }
-                m_poolStatusText->setPlainText(lines.join(QStringLiteral("\n")));
-            }
-            resetPoolActionButtons();
-            if (m_connPropsRefreshBtn) {
-                m_connPropsRefreshBtn->setProperty("zfsmgr_can_conn_action", true);
-                m_connPropsRefreshBtn->setEnabled(!actionsLocked());
-            }
-            if (m_connPropsEditBtn) {
-                m_connPropsEditBtn->setProperty("zfsmgr_can_conn_action", true);
-                m_connPropsEditBtn->setEnabled(!actionsLocked());
-            }
-            if (m_connPropsDeleteBtn) {
-                m_connPropsDeleteBtn->setProperty("zfsmgr_can_conn_action", true);
-                m_connPropsDeleteBtn->setEnabled(!actionsLocked());
-            }
+        if (m_poolPropsTable) {
+            setTablePopulationMode(m_poolPropsTable, true);
+            m_poolPropsTable->setRowCount(0);
+            setTablePopulationMode(m_poolPropsTable, false);
         }
+        if (m_poolStatusText) {
+            m_poolStatusText->clear();
+        }
+        if (m_connContentTree) {
+            m_connContentTree->clear();
+        }
+        if (m_connContentPropsTable) {
+            setTablePopulationMode(m_connContentPropsTable, true);
+            m_connContentPropsTable->setRowCount(0);
+            setTablePopulationMode(m_connContentPropsTable, false);
+        }
+            resetPoolActionButtons();
         updateConnectionActionsState();
         updateConnectionDetailTitlesForCurrentSelection();
         return;
@@ -803,9 +710,6 @@ void MainWindow::updatePoolManagementBoxTitle() {
                 QStringLiteral("Pool Management of %1"),
                 QStringLiteral("%1 的池管理"))
                 .arg(connText));
-    }
-    if (m_btnPoolNew) {
-        m_btnPoolNew->setEnabled(!actionsLocked() && idx >= 0 && idx < m_profiles.size());
     }
 }
 
@@ -906,6 +810,56 @@ void MainWindow::rebuildConnectionsTable() {
     }
     m_connectionsTable->clear();
     m_connectionsTable->setRowCount(0);
+    auto buildConnectionStateTooltip = [this](const ConnectionProfile& p, const ConnectionRuntimeState& st) {
+        QStringList lines;
+        lines << QStringLiteral("Host: %1").arg(p.host);
+        lines << QStringLiteral("Port: %1").arg(p.port);
+        lines << QStringLiteral("Estado: %1").arg(st.status.trimmed().isEmpty() ? QStringLiteral("-") : st.status.trimmed());
+        lines << QStringLiteral("Detalle: %1").arg(st.detail.trimmed().isEmpty() ? QStringLiteral("-") : st.detail.trimmed());
+        lines << QStringLiteral("Sistema operativo: %1")
+                     .arg(st.osLine.trimmed().isEmpty() ? QStringLiteral("-") : st.osLine.trimmed());
+        lines << QStringLiteral("Método de conexión: %1")
+                     .arg(st.connectionMethod.trimmed().isEmpty() ? p.connType : st.connectionMethod.trimmed());
+        lines << QStringLiteral("OpenZFS: %1")
+                     .arg(st.zfsVersionFull.trimmed().isEmpty()
+                              ? (st.zfsVersion.trimmed().isEmpty() ? QStringLiteral("-")
+                                                                   : QStringLiteral("OpenZFS %1").arg(st.zfsVersion.trimmed()))
+                              : st.zfsVersionFull.trimmed());
+        QStringList detected = st.detectedUnixCommands;
+        QStringList missing = st.missingUnixCommands;
+        if (detected.isEmpty() && missing.isEmpty() && !st.powershellFallbackCommands.isEmpty()) {
+            detected = st.powershellFallbackCommands;
+        }
+        lines << QStringLiteral("Comandos detectados: %1")
+                     .arg(detected.isEmpty() ? QStringLiteral("(ninguno)") : detected.join(QStringLiteral(", ")));
+        lines << QStringLiteral("Comandos no detectados: %1")
+                     .arg(missing.isEmpty() ? QStringLiteral("(ninguno)") : missing.join(QStringLiteral(", ")));
+        QStringList nonImportable;
+        for (const PoolImportable& pool : st.importablePools) {
+            const QString poolName = pool.pool.trimmed();
+            if (poolName.isEmpty()) {
+                continue;
+            }
+            const QString stateUp = pool.state.trimmed().toUpper();
+            const QString actionTxt = pool.action.trimmed();
+            if (stateUp == QStringLiteral("ONLINE") && !actionTxt.isEmpty()) {
+                continue;
+            }
+            QString reason = pool.reason.trimmed();
+            if (reason.isEmpty()) {
+                reason = QStringLiteral("-");
+            }
+            nonImportable << QStringLiteral("%1").arg(poolName);
+            nonImportable << QStringLiteral("  Motivo: %1").arg(reason);
+        }
+        lines << QStringLiteral("Pools no importables:");
+        if (nonImportable.isEmpty()) {
+            lines << QStringLiteral("  (ninguno)");
+        } else {
+            lines += nonImportable;
+        }
+        return lines.join(QStringLiteral("\n"));
+    };
     QStringList redirectedToLocalNames;
     for (int i = 0; i < m_profiles.size(); ++i) {
         if (i >= m_states.size()) {
@@ -960,11 +914,7 @@ void MainWindow::rebuildConnectionsTable() {
         auto* it = new QTableWidgetItem(line);
         it->setData(Qt::UserRole, i);
         it->setForeground(QBrush(rowColor));
-        it->setToolTip(QStringLiteral("Host: %1\nPort: %2\nEstado: %3\nDetalle: %4")
-                           .arg(p.host)
-                           .arg(p.port)
-                           .arg(s.status)
-                           .arg(s.detail));
+        it->setToolTip(buildConnectionStateTooltip(p, s));
         m_connectionsTable->setItem(row, 0, it);
 
     }
@@ -1010,15 +960,12 @@ void MainWindow::rebuildConnectionsTable() {
 void MainWindow::rebuildDatasetPoolSelectors() {
     m_originPoolCombo->blockSignals(true);
     m_destPoolCombo->blockSignals(true);
-    m_advPoolCombo->blockSignals(true);
 
     const QString originPrev = m_originPoolCombo->currentData().toString();
     const QString destPrev = m_destPoolCombo->currentData().toString();
-    const QString advPrev = m_advPoolCombo->currentData().toString();
 
     m_originPoolCombo->clear();
     m_destPoolCombo->clear();
-    m_advPoolCombo->clear();
 
     for (int i = 0; i < m_profiles.size(); ++i) {
         const bool redirectedLocal = isConnectionRedirectedToLocal(i);
@@ -1034,7 +981,6 @@ void MainWindow::rebuildDatasetPoolSelectors() {
             const QString label = QStringLiteral("%1::%2").arg(m_profiles[i].name, p.pool);
             m_originPoolCombo->addItem(label, token);
             m_destPoolCombo->addItem(label, token);
-            m_advPoolCombo->addItem(label, token);
         }
     }
 
@@ -1050,14 +996,11 @@ void MainWindow::rebuildDatasetPoolSelectors() {
     };
     restoreCurrent(m_originPoolCombo, originPrev);
     restoreCurrent(m_destPoolCombo, destPrev);
-    restoreCurrent(m_advPoolCombo, advPrev);
 
     m_originPoolCombo->blockSignals(false);
     m_destPoolCombo->blockSignals(false);
-    m_advPoolCombo->blockSignals(false);
     onOriginPoolChanged();
     onDestPoolChanged();
-    onAdvancedPoolChanged();
 }
 
 void MainWindow::createConnection() {

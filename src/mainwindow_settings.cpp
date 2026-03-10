@@ -114,7 +114,6 @@ void MainWindow::applyLanguageLive() {
     const int leftTabIndex = m_leftTabs ? m_leftTabs->currentIndex() : 0;
     const QString originPool = m_originPoolCombo ? m_originPoolCombo->currentData().toString() : QString();
     const QString destPool = m_destPoolCombo ? m_destPoolCombo->currentData().toString() : QString();
-    const QString advPool = m_advPoolCombo ? m_advPoolCombo->currentData().toString() : QString();
 
     QString selectedConnId;
     if (m_connectionsTable) {
@@ -175,7 +174,6 @@ void MainWindow::applyLanguageLive() {
     };
     restoreCombo(m_originPoolCombo, originPool);
     restoreCombo(m_destPoolCombo, destPool);
-    restoreCombo(m_advPoolCombo, advPool);
 
     if (!selectedConnId.isEmpty() && m_connectionsTable) {
         const int row = rowForConnectionId(m_connectionsTable, m_profiles, selectedConnId);
@@ -189,5 +187,4 @@ void MainWindow::applyLanguageLive() {
     }
 
     refreshTransferSelectionLabels();
-    updateAdvancedSelectionUi(m_advPropsDataset, QString());
 }
