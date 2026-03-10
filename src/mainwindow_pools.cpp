@@ -81,6 +81,14 @@ void MainWindow::invalidatePoolDetailsCacheForConnection(int connIdx) {
             ++it;
         }
     }
+    auto pit = m_datasetPropsCache.begin();
+    while (pit != m_datasetPropsCache.end()) {
+        if (pit.key().startsWith(prefix)) {
+            pit = m_datasetPropsCache.erase(pit);
+        } else {
+            ++pit;
+        }
+    }
 }
 
 int MainWindow::selectedPoolRowFromTabs() const {

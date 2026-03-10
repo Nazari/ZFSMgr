@@ -119,6 +119,18 @@ private:
         QVector<QStringList> propsRows; // property,value,source
         QString statusText;
     };
+    struct DatasetPropCacheRow {
+        QString prop;
+        QString value;
+        QString source;
+        QString readonly;
+    };
+    struct DatasetPropsCacheEntry {
+        bool loaded{false};
+        QString objectName;
+        QString datasetType;
+        QVector<DatasetPropCacheRow> rows;
+    };
 
     void buildUi();
     void loadConnections();
@@ -182,6 +194,8 @@ private:
     bool getDatasetProperty(int connIdx, const QString& dataset, const QString& prop, QString& valueOut);
     QString effectiveMountPath(int connIdx, const QString& poolName, const QString& datasetName, const QString& mountpointHint, const QString& mountedValue);
     QString datasetCacheKey(int connIdx, const QString& poolName) const;
+    QString datasetPropsCachePrefix(int connIdx, const QString& poolName) const;
+    QString datasetPropsCacheKey(int connIdx, const QString& poolName, const QString& objectName) const;
     QString poolDetailsCacheKey(int connIdx, const QString& poolName) const;
     bool ensureDatasetsLoaded(int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing = true);
     void populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side, bool allowRemoteLoadIfMissing = true);
@@ -385,6 +399,7 @@ private:
     QMap<QString, QPlainTextEdit*> m_connectionLogViews;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
     QMap<QString, PoolDetailsCacheEntry> m_poolDetailsCache;
+    QMap<QString, DatasetPropsCacheEntry> m_datasetPropsCache;
     QString m_originSelectedDataset;
     QString m_originSelectedSnapshot;
     QString m_destSelectedDataset;

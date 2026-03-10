@@ -247,6 +247,22 @@ QString propsDraftKey(const QString& side, const QString& token, const QString& 
 
 } // namespace
 
+QString MainWindow::datasetPropsCachePrefix(int connIdx, const QString& poolName) const {
+    const QString poolKey = datasetCacheKey(connIdx, poolName);
+    if (poolKey.isEmpty()) {
+        return QString();
+    }
+    return poolKey + QStringLiteral("::");
+}
+
+QString MainWindow::datasetPropsCacheKey(int connIdx, const QString& poolName, const QString& objectName) const {
+    const QString prefix = datasetPropsCachePrefix(connIdx, poolName);
+    if (prefix.isEmpty()) {
+        return QString();
+    }
+    return prefix + objectName.trimmed().toLower();
+}
+
 void MainWindow::refreshDatasetProperties(const QString& side) {
     beginUiBusy();
     auto saveCurrentDraft = [this]() {
@@ -376,21 +392,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     const QString objectName = snapshot.isEmpty() ? dataset : QStringLiteral("%1@%2").arg(dataset, snapshot);
     const QString draftKey = propsDraftKey(side, token, objectName);
     const ConnectionProfile& p = m_profiles[connIdx];
-
-    QString datasetType = objectName.contains('@') ? QStringLiteral("snapshot") : QStringLiteral("filesystem");
-    {
-        QString tOut, tErr;
-        int tRc = -1;
-        const QString typeCmd = withSudo(
-            p,
-            QStringLiteral("zfs get -H -o value type %1").arg(shSingleQuote(objectName)));
-        if (runSsh(p, typeCmd, 12000, tOut, tErr, tRc) && tRc == 0) {
-            const QString t = tOut.trimmed().toLower();
-            if (!t.isEmpty()) {
-                datasetType = t;
-            }
-        }
-    }
+    const QString propsCacheKey = datasetPropsCacheKey(connIdx, poolName, objectName);
 
     struct PropRow {
         QString prop;
@@ -399,93 +401,128 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         QString readonly;
     };
     QVector<PropRow> rawRows;
-    rawRows.push_back({QStringLiteral("dataset"), objectName, QString(), QStringLiteral("true")});
-
-    QString out;
-    QString err;
-    int rc = -1;
-    bool propsLoadedFromLibzfs = false;
-    if (isLocalConnection(connIdx) && detectLocalLibzfs()) {
-        const QStringList localWantedProps = {
-            QStringLiteral("mountpoint"), QStringLiteral("canmount"), QStringLiteral("recordsize"),
-            QStringLiteral("quota"), QStringLiteral("reservation"), QStringLiteral("refquota"),
-            QStringLiteral("refreservation"), QStringLiteral("snapdir"), QStringLiteral("exec"),
-            QStringLiteral("setuid"), QStringLiteral("devices"), QStringLiteral("driveletter"),
-            QStringLiteral("volsize"), QStringLiteral("volblocksize"), QStringLiteral("volmode"),
-            QStringLiteral("snapdev"), QStringLiteral("atime"), QStringLiteral("relatime"),
-            QStringLiteral("readonly"), QStringLiteral("compression"), QStringLiteral("checksum"),
-            QStringLiteral("sync"), QStringLiteral("logbias"), QStringLiteral("primarycache"),
-            QStringLiteral("secondarycache"), QStringLiteral("dedup"), QStringLiteral("copies"),
-            QStringLiteral("acltype"), QStringLiteral("aclinherit"), QStringLiteral("xattr"),
-            QStringLiteral("normalization"), QStringLiteral("casesensitivity"), QStringLiteral("utf8only"),
-            QStringLiteral("keylocation"), QStringLiteral("comment")
-        };
-        QMap<QString, QString> propValues;
-        QString libDetail;
-        if (getLocalDatasetPropsLibzfs(objectName, localWantedProps, propValues, &libDetail)) {
-            propsLoadedFromLibzfs = true;
-            appLog(QStringLiteral("INFO"),
-                   QStringLiteral("Dataset props via libzfs %1::%2 (%3)")
-                       .arg(p.name, objectName, libDetail));
-            for (auto itp = propValues.constBegin(); itp != propValues.constEnd(); ++itp) {
-                const QString prop = itp.key().trimmed();
-                const QString val = itp.value().trimmed();
-                if (!isDatasetPropertyEditable(prop, datasetType, QStringLiteral("local"), QStringLiteral("false"))) {
-                    continue;
-                }
-                rawRows.push_back({prop, val, QStringLiteral("local"), QStringLiteral("false")});
+    QString datasetType = objectName.contains('@') ? QStringLiteral("snapshot") : QStringLiteral("filesystem");
+    bool propsFromCache = false;
+    if (!propsCacheKey.isEmpty()) {
+        const auto propsIt = m_datasetPropsCache.constFind(propsCacheKey);
+        if (propsIt != m_datasetPropsCache.constEnd() && propsIt->loaded) {
+            const DatasetPropsCacheEntry& cached = propsIt.value();
+            datasetType = cached.datasetType.trimmed().isEmpty() ? datasetType : cached.datasetType;
+            rawRows.reserve(cached.rows.size());
+            for (const DatasetPropCacheRow& row : cached.rows) {
+                rawRows.push_back({row.prop, row.value, row.source, row.readonly});
             }
-        } else {
-            appLog(QStringLiteral("WARN"),
-                   QStringLiteral("Dataset props libzfs fallback to CLI %1::%2 (%3)")
-                       .arg(p.name, objectName, libDetail));
+            propsFromCache = !rawRows.isEmpty();
+            if (propsFromCache) {
+                appLog(QStringLiteral("DEBUG"),
+                       QStringLiteral("Dataset props cache hit %1::%2")
+                           .arg(p.name, objectName));
+            }
         }
     }
 
-    if (!propsLoadedFromLibzfs) {
-        QString propsCmd = withSudo(
-            p,
-            QStringLiteral("zfs get -H -o property,value,source,readonly all %1").arg(shSingleQuote(objectName)));
-        if (!runSsh(p, propsCmd, 20000, out, err, rc) || rc != 0) {
-            propsCmd = withSudo(
+    if (!propsFromCache) {
+        rawRows.push_back({QStringLiteral("dataset"), objectName, QString(), QStringLiteral("true")});
+        {
+            QString tOut, tErr;
+            int tRc = -1;
+            const QString typeCmd = withSudo(
                 p,
-                QStringLiteral("zfs get -H -o property,value,source all %1").arg(shSingleQuote(objectName)));
-            out.clear();
-            err.clear();
-            rc = -1;
-            runSsh(p, propsCmd, 20000, out, err, rc);
+                QStringLiteral("zfs get -H -o value type %1").arg(shSingleQuote(objectName)));
+            if (runSsh(p, typeCmd, 12000, tOut, tErr, tRc) && tRc == 0) {
+                const QString t = tOut.trimmed().toLower();
+                if (!t.isEmpty()) {
+                    datasetType = t;
+                }
+            }
         }
-    }
-    if (propsLoadedFromLibzfs || rc == 0) {
-        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-        if (!propsLoadedFromLibzfs) {
-            for (const QString& raw : lines) {
-                QString prop, val, source, ro;
-                const QStringList parts = raw.split('\t');
-                if (parts.size() >= 4) {
-                    prop = parts[0].trimmed();
-                    val = parts[1].trimmed();
-                    source = parts[2].trimmed();
-                    ro = parts[3].trimmed().toLower();
-                } else if (parts.size() >= 3) {
-                    prop = parts[0].trimmed();
-                    val = parts[1].trimmed();
-                    source = parts[2].trimmed();
-                    ro.clear();
-                } else {
-                    const QStringList sp = raw.simplified().split(' ');
-                    if (sp.size() < 3) {
+
+        QString out;
+        QString err;
+        int rc = -1;
+        bool propsLoadedFromLibzfs = false;
+        if (isLocalConnection(connIdx) && detectLocalLibzfs()) {
+            const QStringList localWantedProps = {
+                QStringLiteral("mountpoint"), QStringLiteral("canmount"), QStringLiteral("recordsize"),
+                QStringLiteral("quota"), QStringLiteral("reservation"), QStringLiteral("refquota"),
+                QStringLiteral("refreservation"), QStringLiteral("snapdir"), QStringLiteral("exec"),
+                QStringLiteral("setuid"), QStringLiteral("devices"), QStringLiteral("driveletter"),
+                QStringLiteral("volsize"), QStringLiteral("volblocksize"), QStringLiteral("volmode"),
+                QStringLiteral("snapdev"), QStringLiteral("atime"), QStringLiteral("relatime"),
+                QStringLiteral("readonly"), QStringLiteral("compression"), QStringLiteral("checksum"),
+                QStringLiteral("sync"), QStringLiteral("logbias"), QStringLiteral("primarycache"),
+                QStringLiteral("secondarycache"), QStringLiteral("dedup"), QStringLiteral("copies"),
+                QStringLiteral("acltype"), QStringLiteral("aclinherit"), QStringLiteral("xattr"),
+                QStringLiteral("normalization"), QStringLiteral("casesensitivity"), QStringLiteral("utf8only"),
+                QStringLiteral("keylocation"), QStringLiteral("comment")
+            };
+            QMap<QString, QString> propValues;
+            QString libDetail;
+            if (getLocalDatasetPropsLibzfs(objectName, localWantedProps, propValues, &libDetail)) {
+                propsLoadedFromLibzfs = true;
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("Dataset props via libzfs %1::%2 (%3)")
+                           .arg(p.name, objectName, libDetail));
+                for (auto itp = propValues.constBegin(); itp != propValues.constEnd(); ++itp) {
+                    const QString prop = itp.key().trimmed();
+                    const QString val = itp.value().trimmed();
+                    if (!isDatasetPropertyEditable(prop, datasetType, QStringLiteral("local"), QStringLiteral("false"))) {
                         continue;
                     }
-                    prop = sp[0].trimmed();
-                    val = sp[1].trimmed();
-                    source = sp[2].trimmed();
-                    ro = (sp.size() > 3) ? sp[3].trimmed().toLower() : QString();
+                    rawRows.push_back({prop, val, QStringLiteral("local"), QStringLiteral("false")});
                 }
-                if (!isDatasetPropertyEditable(prop, datasetType, source, ro)) {
-                    continue;
+            } else {
+                appLog(QStringLiteral("WARN"),
+                       QStringLiteral("Dataset props libzfs fallback to CLI %1::%2 (%3)")
+                           .arg(p.name, objectName, libDetail));
+            }
+        }
+
+        if (!propsLoadedFromLibzfs) {
+            QString propsCmd = withSudo(
+                p,
+                QStringLiteral("zfs get -H -o property,value,source,readonly all %1").arg(shSingleQuote(objectName)));
+            if (!runSsh(p, propsCmd, 20000, out, err, rc) || rc != 0) {
+                propsCmd = withSudo(
+                    p,
+                    QStringLiteral("zfs get -H -o property,value,source all %1").arg(shSingleQuote(objectName)));
+                out.clear();
+                err.clear();
+                rc = -1;
+                runSsh(p, propsCmd, 20000, out, err, rc);
+            }
+        }
+        if (propsLoadedFromLibzfs || rc == 0) {
+            const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+            if (!propsLoadedFromLibzfs) {
+                for (const QString& raw : lines) {
+                    QString prop, val, source, ro;
+                    const QStringList parts = raw.split('\t');
+                    if (parts.size() >= 4) {
+                        prop = parts[0].trimmed();
+                        val = parts[1].trimmed();
+                        source = parts[2].trimmed();
+                        ro = parts[3].trimmed().toLower();
+                    } else if (parts.size() >= 3) {
+                        prop = parts[0].trimmed();
+                        val = parts[1].trimmed();
+                        source = parts[2].trimmed();
+                        ro.clear();
+                    } else {
+                        const QStringList sp = raw.simplified().split(' ');
+                        if (sp.size() < 3) {
+                            continue;
+                        }
+                        prop = sp[0].trimmed();
+                        val = sp[1].trimmed();
+                        source = sp[2].trimmed();
+                        ro = (sp.size() > 3) ? sp[3].trimmed().toLower() : QString();
+                    }
+                    if (!isDatasetPropertyEditable(prop, datasetType, source, ro)) {
+                        continue;
+                    }
+                    rawRows.push_back({prop, val, source, ro});
                 }
-                rawRows.push_back({prop, val, source, ro});
             }
         }
     }
@@ -541,6 +578,22 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     const QStringList remainingProps = byProp.keys();
     for (const QString& prop : remainingProps) {
         rows.push_back(byProp.value(prop));
+    }
+
+    if (!propsFromCache && !propsCacheKey.isEmpty()) {
+        DatasetPropsCacheEntry entry;
+        entry.loaded = true;
+        entry.objectName = objectName;
+        entry.datasetType = datasetType;
+        entry.rows.reserve(rows.size());
+        for (const PropRow& row : rows) {
+            entry.rows.push_back(DatasetPropCacheRow{row.prop, row.value, row.source, row.readonly});
+        }
+        m_datasetPropsCache.insert(propsCacheKey, entry);
+        appLog(QStringLiteral("DEBUG"),
+               QStringLiteral("Dataset props cache store %1::%2 (%3 rows)")
+                   .arg(p.name, objectName)
+                   .arg(entry.rows.size()));
     }
 
     m_loadingPropsTable = true;

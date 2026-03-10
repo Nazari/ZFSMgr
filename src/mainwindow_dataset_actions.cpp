@@ -477,6 +477,17 @@ QString MainWindow::diagnoseUmountFailure(const DatasetSelectionContext& ctx) {
 void MainWindow::invalidateDatasetCacheForPool(int connIdx, const QString& poolName) {
     m_poolDatasetCache.remove(datasetCacheKey(connIdx, poolName));
     m_poolDetailsCache.remove(poolDetailsCacheKey(connIdx, poolName));
+    const QString prefix = datasetPropsCachePrefix(connIdx, poolName);
+    if (!prefix.isEmpty()) {
+        auto it = m_datasetPropsCache.begin();
+        while (it != m_datasetPropsCache.end()) {
+            if (it.key().startsWith(prefix)) {
+                it = m_datasetPropsCache.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
 }
 
 void MainWindow::reloadDatasetSide(const QString& side) {
