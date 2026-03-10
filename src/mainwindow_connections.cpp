@@ -606,16 +606,10 @@ void MainWindow::refreshConnectionNodeDetails() {
     setConnectionActionButtonsVisible(!poolMode);
     setPoolActionButtonsVisible(poolMode);
     if (m_poolViewTabBar) {
-        m_poolViewTabBar->setVisible(poolMode);
-        if (!poolMode) {
-            m_poolViewTabBar->setCurrentIndex(0);
-            m_poolViewTabBar->setTabData(0, QVariant());
-            m_poolViewTabBar->setTabData(1, QVariant());
-        } else {
-            m_poolViewTabBar->setTabData(0, QStringLiteral("poolprops:%1:%2").arg(connIdx).arg(activePoolName));
-            m_poolViewTabBar->setTabData(1, QStringLiteral("poolcontent:%1:%2").arg(connIdx).arg(activePoolName));
-            restoreConnectionPoolSubtabState(connIdx, activePoolName);
-        }
+        m_poolViewTabBar->setVisible(false);
+        m_poolViewTabBar->setCurrentIndex(0);
+        m_poolViewTabBar->setTabData(0, QVariant());
+        m_poolViewTabBar->setTabData(1, QVariant());
     }
     if (!poolMode) {
         if (!m_connContentToken.isEmpty()) {
@@ -627,6 +621,9 @@ void MainWindow::refreshConnectionNodeDetails() {
         }
         if (m_connBottomStack && m_connStatusPage) {
             m_connBottomStack->setCurrentWidget(m_connStatusPage);
+        }
+        if (m_connBottomGroup) {
+            m_connBottomGroup->setVisible(true);
         }
         if (connIdx >= 0 && connIdx < m_profiles.size() && connIdx < m_states.size()) {
             const ConnectionProfile& p = m_profiles[connIdx];
@@ -731,11 +728,11 @@ void MainWindow::refreshConnectionNodeDetails() {
     if (!m_connContentToken.isEmpty() && m_connContentToken != newConnContentToken) {
         saveConnContentTreeState(m_connContentToken);
     }
-    if (m_connPropsStack && m_connPoolPropsPage) {
-        m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
+    if (m_connPropsStack && m_connContentPage) {
+        m_connPropsStack->setCurrentWidget(m_connContentPage);
     }
-    if (m_connBottomStack && m_connStatusPage) {
-        m_connBottomStack->setCurrentWidget(m_connStatusPage);
+    if (m_connBottomGroup) {
+        m_connBottomGroup->setVisible(false);
     }
     resetPoolActionButtons();
     refreshSelectedPoolDetails(false, true);
@@ -743,13 +740,6 @@ void MainWindow::refreshConnectionNodeDetails() {
         m_connContentToken = newConnContentToken;
         populateDatasetTree(m_connContentTree, connIdx, poolName, QStringLiteral("conncontent"), true);
         refreshDatasetProperties(QStringLiteral("conncontent"));
-    }
-    if (m_poolViewTabBar) {
-        const int idx = m_poolViewTabBar->currentIndex();
-        if (idx == 1) {
-            if (m_connPropsStack && m_connContentPage) m_connPropsStack->setCurrentWidget(m_connContentPage);
-            if (m_connBottomStack && m_connDatasetPropsPage) m_connBottomStack->setCurrentWidget(m_connDatasetPropsPage);
-        }
     }
     updateConnectionActionsState();
     updateConnectionDetailTitlesForCurrentSelection();

@@ -24,6 +24,9 @@ MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QS
             const auto selected = m_connContentTree->selectedItems();
             if (!selected.isEmpty()) {
                 auto* sel = selected.first();
+                while (sel && sel->data(0, Qt::UserRole).toString().isEmpty() && sel->parent()) {
+                    sel = sel->parent();
+                }
                 ds = sel->data(0, Qt::UserRole).toString();
                 snap = sel->data(1, Qt::UserRole).toString();
                 const int itemConnIdx = sel->data(0, connIdxRole).toInt();

@@ -160,6 +160,11 @@ private:
     void updateConnectionDetailTitlesForCurrentSelection();
     void saveConnContentTreeState(const QString& token);
     void restoreConnContentTreeState(const QString& token);
+    void syncConnContentPropertyColumns();
+    void syncConnContentPoolColumns();
+    void updateConnContentPropertyValues(const QString& token,
+                                         const QString& objectName,
+                                         const QMap<QString, QString>& valuesByProp);
 
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
     bool runSsh(const ConnectionProfile& p,
@@ -354,6 +359,7 @@ private:
     QWidget* m_connStatusPage{nullptr};
     QWidget* m_connDatasetPropsPage{nullptr};
     QString m_connContentToken;
+    QMap<QString, QMap<QString, QString>> m_connContentPropValuesByObject;
     QMap<QString, ConnContentTreeState> m_connContentTreeStateByToken;
     QMap<QString, ConnectionNavState> m_connectionNavStateByConnId;
     QString m_userSelectedConnectionKey;
@@ -447,4 +453,5 @@ private:
     bool m_busyOnImportRefresh{false};
     QPushButton* m_activeConnActionBtn{nullptr};
     QString m_activeConnActionName;
+    bool m_syncingConnContentColumns{false};
 };

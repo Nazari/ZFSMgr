@@ -36,6 +36,11 @@
 #define ZFSMGR_APP_VERSION "0.9.1"
 #endif
 
+namespace {
+constexpr int kIsPoolRootRole = Qt::UserRole + 12;
+constexpr int kConnPropRowRole = Qt::UserRole + 13;
+}
+
 void MainWindow::buildUi() {
     setWindowTitle(QStringLiteral("ZFSMgr [%1]").arg(QStringLiteral(ZFSMGR_APP_VERSION)));
     setWindowIcon(QIcon(QStringLiteral(":/icons/ZFSMgr-512.png")));
@@ -1318,6 +1323,14 @@ void MainWindow::buildUi() {
     if (m_btnConnFromDir) m_btnConnFromDir->setVisible(false);
     if (m_btnConnToDir) m_btnConnToDir->setVisible(false);
     connContentLayout->addWidget(m_connContentTree, 1);
+    m_btnApplyConnContentProps = new QPushButton(
+        trk(QStringLiteral("t_apply_changes_001"),
+            QStringLiteral("Aplicar cambios"),
+            QStringLiteral("Apply changes"),
+            QStringLiteral("应用更改")),
+        m_connContentPage);
+    m_btnApplyConnContentProps->setEnabled(false);
+    connContentLayout->addWidget(m_btnApplyConnContentProps, 0, Qt::AlignLeft);
     m_connPropsStack->addWidget(m_connContentPage);
     m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
     propsPoolLayout->addWidget(m_connPropsStack, 1);
@@ -1373,14 +1386,6 @@ void MainWindow::buildUi() {
     m_connContentPropsTable->verticalHeader()->setVisible(false);
     m_connContentPropsTable->verticalHeader()->setDefaultSectionSize(22);
     enableSortableHeader(m_connContentPropsTable);
-    m_btnApplyConnContentProps = new QPushButton(
-        trk(QStringLiteral("t_apply_changes_001"),
-            QStringLiteral("Aplicar cambios"),
-            QStringLiteral("Apply changes"),
-            QStringLiteral("应用更改")),
-        m_connDatasetPropsPage);
-    m_btnApplyConnContentProps->setEnabled(false);
-    connDsPropsLayout->addWidget(m_btnApplyConnContentProps, 0, Qt::AlignLeft);
     connDsPropsLayout->addWidget(m_connContentPropsTable, 1);
     m_connBottomStack->addWidget(m_connDatasetPropsPage);
     m_connBottomStack->setCurrentWidget(m_connStatusPage);
@@ -1900,7 +1905,27 @@ void MainWindow::buildUi() {
     }
     if (m_connContentTree) {
         connect(m_connContentTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
-            refreshDatasetProperties(QStringLiteral("conncontent"));
+            if (m_syncingConnContentColumns) {
+                return;
+            }
+            QTreeWidgetItem* sel = m_connContentTree ? m_connContentTree->currentItem() : nullptr;
+            const bool isPropRow = sel && sel->data(0, kConnPropRowRole).toBool();
+            if (isPropRow) {
+                updateConnectionDetailTitlesForCurrentSelection();
+                updateConnectionActionsState();
+                return;
+            }
+            const bool isPoolRoot = sel && sel->data(0, kIsPoolRootRole).toBool();
+            const bool isPoolPropRow =
+                sel && sel->data(0, kConnPropRowRole).toBool()
+                && sel->parent() && sel->parent()->data(0, kIsPoolRootRole).toBool();
+            if (isPoolRoot || isPoolPropRow) {
+                refreshSelectedPoolDetails(false, true);
+                syncConnContentPoolColumns();
+            } else {
+                refreshDatasetProperties(QStringLiteral("conncontent"));
+                syncConnContentPropertyColumns();
+            }
             updateConnectionDetailTitlesForCurrentSelection();
             updateConnectionActionsState();
         });
@@ -1918,12 +1943,58 @@ void MainWindow::buildUi() {
             if (!item) {
                 return;
             }
+            const bool isPropRow = item->data(0, kConnPropRowRole).toBool();
+            if (isPropRow && item->parent()) {
+                item = item->parent();
+            }
             if (m_connContentTree->currentItem() != item) {
                 m_connContentTree->setCurrentItem(item);
             }
             updateConnectionActionsState();
 
             QMenu menu(this);
+            const bool isPoolRoot = item->data(0, kIsPoolRootRole).toBool();
+            if (isPoolRoot) {
+                QAction* aUpdate = menu.addAction(
+                    trk(QStringLiteral("t_refresh_btn001"),
+                        QStringLiteral("Actualizar"),
+                        QStringLiteral("Refresh"),
+                        QStringLiteral("刷新")));
+                QAction* aImport = menu.addAction(
+                    trk(QStringLiteral("t_import_btn001"),
+                        QStringLiteral("Importar"),
+                        QStringLiteral("Import"),
+                        QStringLiteral("导入")));
+                QAction* aExport = menu.addAction(
+                    trk(QStringLiteral("t_export_btn001"),
+                        QStringLiteral("Exportar"),
+                        QStringLiteral("Export"),
+                        QStringLiteral("导出")));
+                QAction* aScrub = menu.addAction(QStringLiteral("Scrub"));
+                QAction* aDestroy = menu.addAction(QStringLiteral("Destroy"));
+                aUpdate->setEnabled(m_poolStatusRefreshBtn && m_poolStatusRefreshBtn->isEnabled());
+                aImport->setEnabled(m_poolStatusImportBtn && m_poolStatusImportBtn->isEnabled());
+                aExport->setEnabled(m_poolStatusExportBtn && m_poolStatusExportBtn->isEnabled());
+                aScrub->setEnabled(m_poolStatusScrubBtn && m_poolStatusScrubBtn->isEnabled());
+                aDestroy->setEnabled(m_poolStatusDestroyBtn && m_poolStatusDestroyBtn->isEnabled());
+                QAction* picked = menu.exec(m_connContentTree->viewport()->mapToGlobal(pos));
+                if (!picked) {
+                    return;
+                }
+                if (picked == aUpdate && m_poolStatusRefreshBtn) {
+                    m_poolStatusRefreshBtn->click();
+                } else if (picked == aImport && m_poolStatusImportBtn) {
+                    m_poolStatusImportBtn->click();
+                } else if (picked == aExport && m_poolStatusExportBtn) {
+                    m_poolStatusExportBtn->click();
+                } else if (picked == aScrub && m_poolStatusScrubBtn) {
+                    m_poolStatusScrubBtn->click();
+                } else if (picked == aDestroy && m_poolStatusDestroyBtn) {
+                    m_poolStatusDestroyBtn->click();
+                }
+                return;
+            }
+
             QAction* aRollback = menu.addAction(QStringLiteral("Rollback"));
             QAction* aCreate = menu.addAction(
                 trk(QStringLiteral("t_create_ch_001"), QStringLiteral("Crear"), QStringLiteral("Create"), QStringLiteral("创建")));

@@ -631,12 +631,36 @@ void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteL
             m_poolPropsTable->setItem(r, 2, new QTableWidgetItem(row.value(2)));
         }
         m_poolStatusText->setPlainText(cached.statusText);
+        if (m_connContentTree) {
+            for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
+                QTreeWidgetItem* root = m_connContentTree->topLevelItem(i);
+                if (!root) {
+                    continue;
+                }
+                if (root->text(0).trimmed() == QStringLiteral("Pool")
+                    && root->parent() == nullptr
+                    && root->data(0, Qt::UserRole).toString().trimmed().isEmpty()) {
+                    const QString tt = cached.statusText.toHtmlEscaped();
+                    root->setToolTip(
+                        0,
+                        QStringLiteral("<pre style=\"font-family:monospace; white-space:pre;\">%1</pre>").arg(tt));
+                    break;
+                }
+            }
+        }
         return true;
     };
 
     const bool cacheHit = loadFromCache();
 
     if (!forceRefresh && cacheHit) {
+        if (m_connContentTree) {
+            QTreeWidgetItem* sel = m_connContentTree->currentItem();
+            if (sel && sel->text(0).trimmed() == QStringLiteral("Pool")
+                && sel->data(0, Qt::UserRole).toString().trimmed().isEmpty()) {
+                syncConnContentPoolColumns();
+            }
+        }
         setTablePopulationMode(m_poolPropsTable, false);
         return;
     }
@@ -680,7 +704,31 @@ void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteL
         fresh.statusText = err.trimmed();
         m_poolStatusText->setPlainText(fresh.statusText);
     }
+    if (m_connContentTree) {
+        for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* root = m_connContentTree->topLevelItem(i);
+            if (!root) {
+                continue;
+            }
+            if (root->text(0).trimmed() == QStringLiteral("Pool")
+                && root->parent() == nullptr
+                && root->data(0, Qt::UserRole).toString().trimmed().isEmpty()) {
+                const QString tt = fresh.statusText.toHtmlEscaped();
+                root->setToolTip(
+                    0,
+                    QStringLiteral("<pre style=\"font-family:monospace; white-space:pre;\">%1</pre>").arg(tt));
+                break;
+            }
+        }
+    }
     fresh.loaded = true;
     m_poolDetailsCache.insert(cacheKey, fresh);
+    if (m_connContentTree) {
+        QTreeWidgetItem* sel = m_connContentTree->currentItem();
+        if (sel && sel->text(0).trimmed() == QStringLiteral("Pool")
+            && sel->data(0, Qt::UserRole).toString().trimmed().isEmpty()) {
+            syncConnContentPoolColumns();
+        }
+    }
     setTablePopulationMode(m_poolPropsTable, false);
 }

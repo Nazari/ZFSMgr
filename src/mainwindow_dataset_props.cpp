@@ -596,6 +596,29 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
                    .arg(entry.rows.size()));
     }
 
+    if (side == QStringLiteral("conncontent")) {
+        QMap<QString, QString> valuesByProp;
+        valuesByProp[QStringLiteral("snapshot")] =
+            snapshot.trimmed().isEmpty()
+                ? trk(QStringLiteral("t_none_paren_001"),
+                      QStringLiteral("(ninguno)"),
+                      QStringLiteral("(none)"),
+                      QStringLiteral("（无）"))
+                : snapshot.trimmed();
+        for (const PropRow& row : rows) {
+            const QString prop = row.prop.trimmed();
+            if (prop.isEmpty()) {
+                continue;
+            }
+            if (prop.compare(QStringLiteral("dataset"), Qt::CaseInsensitive) == 0) {
+                continue;
+            }
+            valuesByProp[prop] = row.value;
+        }
+        updateConnContentPropertyValues(token, objectName, valuesByProp);
+        syncConnContentPropertyColumns();
+    }
+
     m_loadingPropsTable = true;
     setTablePopulationMode(table, true);
     table->setRowCount(0);

@@ -488,6 +488,16 @@ void MainWindow::invalidateDatasetCacheForPool(int connIdx, const QString& poolN
             }
         }
     }
+    const QString uiPrefix =
+        QStringLiteral("%1::%2|").arg(QString::number(connIdx), poolName.trimmed().toLower());
+    auto vit = m_connContentPropValuesByObject.begin();
+    while (vit != m_connContentPropValuesByObject.end()) {
+        if (vit.key().startsWith(uiPrefix)) {
+            vit = m_connContentPropValuesByObject.erase(vit);
+        } else {
+            ++vit;
+        }
+    }
 }
 
 void MainWindow::reloadDatasetSide(const QString& side) {
