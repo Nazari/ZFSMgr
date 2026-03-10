@@ -12,7 +12,7 @@ Al iniciar ZFSMgr:
 
 - Se leen los logs persistidos (`application.log` y rotaciones `.1` ... `.5`).
 - Se cargan en pantalla solo las últimas `N` líneas.
-- `N` es el límite máximo de líneas configurado (menú `Aplicación > Logs`).
+- `N` es el límite máximo de líneas configurado (menú `Menú > Logs`).
 - Si no hay logs o están vacíos, no se muestra error.
 
 ## Presentación compacta en pantalla

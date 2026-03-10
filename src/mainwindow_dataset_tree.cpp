@@ -10,10 +10,12 @@
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QPointer>
 #include <QSignalBlocker>
 #include <QSet>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 
@@ -28,6 +30,7 @@ constexpr int kIsPoolRootRole = Qt::UserRole + 12;
 constexpr int kConnPropRowRole = Qt::UserRole + 13;
 constexpr int kConnPropKeyRole = Qt::UserRole + 14;
 constexpr int kConnPropEditableRole = Qt::UserRole + 15;
+constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 constexpr int kConnPropCols = 10;
 
 QMap<QString, QStringList> connContentEnumValues() {
@@ -106,11 +109,12 @@ void MainWindow::syncConnContentPropertyColumns() {
     if (!m_connContentTree) {
         return;
     }
+    QTreeWidget* const tree = m_connContentTree;
     if (m_syncingConnContentColumns) {
         return;
     }
     m_syncingConnContentColumns = true;
-    const QSignalBlocker blocker(m_connContentTree);
+    const QSignalBlocker blocker(tree);
 
     QStringList headers = {
         trk(QStringLiteral("t_dataset_001"), QStringLiteral("Dataset"), QStringLiteral("Dataset"), QStringLiteral("数据集")),
@@ -121,30 +125,30 @@ void MainWindow::syncConnContentPropertyColumns() {
     for (int i = 0; i < kConnPropCols; ++i) {
         headers << trk(QStringLiteral("t_prop_hdr_001"), QStringLiteral("Prop."), QStringLiteral("Prop."), QStringLiteral("属性"));
     }
-    m_connContentTree->setColumnCount(headers.size());
-    m_connContentTree->setHeaderLabels(headers);
-    m_connContentTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
-    m_connContentTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
-    m_connContentTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
-    m_connContentTree->header()->setSectionResizeMode(3, QHeaderView::Interactive);
-    for (int col = 4; col < m_connContentTree->columnCount(); ++col) {
-        m_connContentTree->header()->setSectionResizeMode(col, QHeaderView::Interactive);
+    tree->setColumnCount(headers.size());
+    tree->setHeaderLabels(headers);
+    tree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
+    tree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
+    tree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
+    tree->header()->setSectionResizeMode(3, QHeaderView::Interactive);
+    for (int col = 4; col < tree->columnCount(); ++col) {
+        tree->header()->setSectionResizeMode(col, QHeaderView::Interactive);
     }
     // En Contenido de Pool, Snapshot/Montado/Mountpoint se gestionan dentro de "Prop.".
-    m_connContentTree->setColumnHidden(0, false);
-    if (m_connContentTree->columnCount() > 1) m_connContentTree->setColumnHidden(1, true);
-    if (m_connContentTree->columnCount() > 2) m_connContentTree->setColumnHidden(2, true);
-    if (m_connContentTree->columnCount() > 3) m_connContentTree->setColumnHidden(3, true);
-    for (int col = 4; col < m_connContentTree->columnCount(); ++col) {
-        m_connContentTree->setColumnHidden(col, false);
+    tree->setColumnHidden(0, false);
+    if (tree->columnCount() > 1) tree->setColumnHidden(1, true);
+    if (tree->columnCount() > 2) tree->setColumnHidden(2, true);
+    if (tree->columnCount() > 3) tree->setColumnHidden(3, true);
+    for (int col = 4; col < tree->columnCount(); ++col) {
+        tree->setColumnHidden(col, false);
     }
-    if (m_connContentTree->columnWidth(4) <= 0) {
-        for (int col = 4; col < m_connContentTree->columnCount(); ++col) {
-            m_connContentTree->setColumnWidth(col, 96);
+    for (int col = 4; col < tree->columnCount(); ++col) {
+        if (tree->columnWidth(col) < 32) {
+            tree->setColumnWidth(col, 96);
         }
     }
 
-    QTreeWidgetItem* sel = m_connContentTree->currentItem();
+    QTreeWidgetItem* sel = tree->currentItem();
     if (!sel) {
         m_syncingConnContentColumns = false;
         return;
@@ -158,6 +162,7 @@ void MainWindow::syncConnContentPropertyColumns() {
     }
     const QString ds = sel->data(0, Qt::UserRole).toString();
     const QString snap = sel->data(1, Qt::UserRole).toString();
+    const bool objectIsSnapshot = !snap.trimmed().isEmpty();
     if (ds.isEmpty()) {
         m_syncingConnContentColumns = false;
         return;
@@ -175,6 +180,10 @@ void MainWindow::syncConnContentPropertyColumns() {
         if (!n) {
             return;
         }
+        const QString marker = n->data(0, kConnPropKeyRole).toString();
+        if (marker == QString::fromLatin1(kPoolBlockInfoKey)) {
+            return;
+        }
         for (int i = n->childCount() - 1; i >= 0; --i) {
             QTreeWidgetItem* c = n->child(i);
             if (!c) {
@@ -186,9 +195,9 @@ void MainWindow::syncConnContentPropertyColumns() {
             }
             self(self, c);
         }
-        for (int col = 4; col < m_connContentTree->columnCount(); ++col) {
-            if (QWidget* w = m_connContentTree->itemWidget(n, col)) {
-                m_connContentTree->removeItemWidget(n, col);
+        for (int col = 4; col < tree->columnCount(); ++col) {
+            if (QWidget* w = tree->itemWidget(n, col)) {
+                tree->removeItemWidget(n, col);
                 w->deleteLater();
             }
             n->setText(col, QString());
@@ -196,8 +205,8 @@ void MainWindow::syncConnContentPropertyColumns() {
             n->setData(col, kConnPropEditableRole, false);
         }
     };
-    for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
-        clearPropRowsRec(clearPropRowsRec, m_connContentTree->topLevelItem(i));
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        clearPropRowsRec(clearPropRowsRec, tree->topLevelItem(i));
     }
 
     QStringList props = it->keys();
@@ -294,7 +303,7 @@ void MainWindow::syncConnContentPropertyColumns() {
         rowValues->setFlags(rowValues->flags() & ~Qt::ItemIsUserCheckable);
         rowValues->setText(0, QString());
         const QColor nameRowBg(232, 240, 250);
-        for (int col = 0; col < m_connContentTree->columnCount(); ++col) {
+        for (int col = 0; col < tree->columnCount(); ++col) {
             rowNames->setBackground(col, QBrush(nameRowBg));
         }
         sel->insertChild(insertAt++, rowNames);
@@ -309,7 +318,14 @@ void MainWindow::syncConnContentPropertyColumns() {
             const int col = 4 + off;
             const QString value = it->value(prop);
             const QString propLower = prop.trimmed().toLower();
-            rowNames->setText(col, prop);
+            const QString propLabel =
+                (propLower == QStringLiteral("estado"))
+                    ? trk(QStringLiteral("t_montado_a97484"),
+                          QStringLiteral("Montado"),
+                          QStringLiteral("Mounted"),
+                          QStringLiteral("已挂载"))
+                    : prop;
+            rowNames->setText(col, propLabel);
             rowNames->setTextAlignment(col, Qt::AlignCenter);
             rowValues->setText(col, value);
             rowValues->setTextAlignment(col, Qt::AlignCenter);
@@ -325,28 +341,28 @@ void MainWindow::syncConnContentPropertyColumns() {
                                QStringLiteral("(none)"),
                                QStringLiteral("（无）"));
                 options += snaps;
-                auto* combo = new QComboBox(m_connContentTree);
+                auto* combo = new QComboBox(tree);
                 combo->setMinimumHeight(22);
                 combo->setMaximumHeight(22);
-                combo->setFont(m_connContentTree->font());
+                combo->setFont(tree->font());
                 combo->setStyleSheet(QStringLiteral("QComboBox{padding:0 2px; margin:0px;}"));
                 combo->addItems(options);
                 const QString currentSnap = sel->data(1, Qt::UserRole).toString().trimmed();
                 const QString currentLabel = currentSnap.isEmpty() ? options.first() : currentSnap;
                 combo->setCurrentText(currentLabel);
-                m_connContentTree->setItemWidget(rowValues, col, combo);
-                QObject::connect(combo, &QComboBox::currentTextChanged, m_connContentTree, [this, sel, rowValues, col](const QString& txt) {
+                tree->setItemWidget(rowValues, col, combo);
+                QObject::connect(combo, &QComboBox::currentTextChanged, tree, [this, tree, sel, rowValues, col](const QString& txt) {
                     if (!sel || !rowValues) {
                         return;
                     }
                     rowValues->setText(col, txt);
-                    onSnapshotComboChanged(m_connContentTree, sel, QStringLiteral("conncontent"), txt);
+                    onSnapshotComboChanged(tree, sel, QStringLiteral("conncontent"), txt);
                 });
                 rowValues->setData(col, kConnPropEditableRole, true);
                 continue;
             }
-            if (propLower == QStringLiteral("estado")) {
-                auto* boxHost = new QWidget(m_connContentTree);
+            if (propLower == QStringLiteral("estado") && !objectIsSnapshot) {
+                auto* boxHost = new QWidget(tree);
                 auto* lay = new QHBoxLayout(boxHost);
                 lay->setContentsMargins(0, 0, 0, 0);
                 lay->setSpacing(0);
@@ -356,16 +372,16 @@ void MainWindow::syncConnContentPropertyColumns() {
                 lay->addStretch(1);
                 lay->addWidget(chk);
                 lay->addStretch(1);
-                m_connContentTree->setItemWidget(rowValues, col, boxHost);
+                tree->setItemWidget(rowValues, col, boxHost);
                 rowValues->setData(col, kConnPropEditableRole, true);
-                QObject::connect(chk, &QCheckBox::toggled, m_connContentTree, [this, sel, rowValues, col, chk](bool on) {
+                QObject::connect(chk, &QCheckBox::toggled, tree, [this, tree, sel, rowValues, col, chk](bool on) {
                     if (!sel || !rowValues || !chk) {
                         return;
                     }
                     const Qt::CheckState desired = on ? Qt::Checked : Qt::Unchecked;
                     const QSignalBlocker blocker(chk);
                     sel->setCheckState(2, desired);
-                    onDatasetTreeItemChanged(m_connContentTree, sel, 2, QStringLiteral("conncontent"));
+                    onDatasetTreeItemChanged(tree, sel, 2, QStringLiteral("conncontent"));
                     chk->setChecked(sel->checkState(2) == Qt::Checked);
                     rowValues->setText(
                         col,
@@ -385,10 +401,10 @@ void MainWindow::syncConnContentPropertyColumns() {
                 rowValues->setFlags(rowValues->flags() | Qt::ItemIsEditable);
                 const auto eIt = enumValues.constFind(propLower);
                 if (eIt != enumValues.cend()) {
-                    auto* combo = new QComboBox(m_connContentTree);
+                    auto* combo = new QComboBox(tree);
                     combo->setMinimumHeight(22);
                     combo->setMaximumHeight(22);
-                    combo->setFont(m_connContentTree->font());
+                    combo->setFont(tree->font());
                     combo->setStyleSheet(QStringLiteral("QComboBox{padding:0 2px; margin:0px;}"));
                     QStringList opts = eIt.value();
                     if (!value.isEmpty() && !opts.contains(value)) {
@@ -396,13 +412,13 @@ void MainWindow::syncConnContentPropertyColumns() {
                     }
                     combo->addItems(opts);
                     combo->setCurrentText(value);
-                    m_connContentTree->setItemWidget(rowValues, col, combo);
-                    QObject::connect(combo, &QComboBox::currentTextChanged, m_connContentTree, [this, rowValues, col](const QString& txt) {
+                    tree->setItemWidget(rowValues, col, combo);
+                    QObject::connect(combo, &QComboBox::currentTextChanged, tree, [this, tree, rowValues, col](const QString& txt) {
                         if (!rowValues) {
                             return;
                         }
                         rowValues->setText(col, txt);
-                        onDatasetTreeItemChanged(m_connContentTree, rowValues, col, QStringLiteral("conncontent"));
+                        onDatasetTreeItemChanged(tree, rowValues, col, QStringLiteral("conncontent"));
                     });
                 }
                 if (propLower == QStringLiteral("normalization")) {
@@ -429,7 +445,10 @@ void MainWindow::syncConnContentPoolColumns() {
     m_syncingConnContentColumns = true;
     const QSignalBlocker blocker(m_connContentTree);
     QStringList headers;
-    headers << trk(QStringLiteral("t_pool_title001"), QStringLiteral("Pool"), QStringLiteral("Pool"), QStringLiteral("存储池"));
+    headers << trk(QStringLiteral("t_pool_title001"), QStringLiteral("Pool"), QStringLiteral("Pool"), QStringLiteral("存储池"))
+            << trk(QStringLiteral("t_snapshot_col01"), QStringLiteral("Snapshot"), QStringLiteral("Snapshot"), QStringLiteral("快照"))
+            << trk(QStringLiteral("t_montado_a97484"), QStringLiteral("Montado"), QStringLiteral("Mounted"), QStringLiteral("已挂载"))
+            << trk(QStringLiteral("t_mountpoint_001"), QStringLiteral("Mountpoint"), QStringLiteral("Mountpoint"), QStringLiteral("挂载点"));
     for (int i = 0; i < kConnPropCols; ++i) {
         headers << trk(QStringLiteral("t_prop_hdr_001"), QStringLiteral("Prop."), QStringLiteral("Prop."), QStringLiteral("属性"));
     }
@@ -439,8 +458,14 @@ void MainWindow::syncConnContentPoolColumns() {
     for (int col = 1; col < m_connContentTree->columnCount(); ++col) {
         m_connContentTree->header()->setSectionResizeMode(col, QHeaderView::Interactive);
     }
-    if (m_connContentTree->columnWidth(1) <= 0) {
-        for (int col = 1; col <= kConnPropCols; ++col) {
+    if (m_connContentTree->columnCount() > 1) m_connContentTree->setColumnHidden(1, true);
+    if (m_connContentTree->columnCount() > 2) m_connContentTree->setColumnHidden(2, true);
+    if (m_connContentTree->columnCount() > 3) m_connContentTree->setColumnHidden(3, true);
+    for (int col = 4; col < m_connContentTree->columnCount(); ++col) {
+        m_connContentTree->setColumnHidden(col, false);
+    }
+    for (int col = 4; col < (4 + kConnPropCols) && col < m_connContentTree->columnCount(); ++col) {
+        if (m_connContentTree->columnWidth(col) < 32) {
             m_connContentTree->setColumnWidth(col, 96);
         }
     }
@@ -461,68 +486,237 @@ void MainWindow::syncConnContentPoolColumns() {
     const int connIdx = root->data(0, kConnIdxRole).toInt();
     const QString poolName = root->data(0, kPoolNameRole).toString();
     const QString cacheKey = poolDetailsCacheKey(connIdx, poolName);
-    const auto pit = m_poolDetailsCache.constFind(cacheKey);
+    auto pit = m_poolDetailsCache.constFind(cacheKey);
     if (pit == m_poolDetailsCache.cend() || !pit->loaded) {
-        m_syncingConnContentColumns = false;
-        return;
+        // Carga ad-hoc para el panel inferior/superior sin depender de la selección
+        // del tab de propiedades del pool.
+        if (connIdx >= 0 && connIdx < m_profiles.size() && !poolName.trimmed().isEmpty()) {
+            const ConnectionProfile& p = m_profiles[connIdx];
+            PoolDetailsCacheEntry fresh;
+
+            QString out;
+            QString err;
+            int rc = -1;
+            const QString propsCmd = withSudo(
+                p, QStringLiteral("zpool get -H -o property,value,source all %1").arg(mwhelpers::shSingleQuote(poolName)));
+            if (runSsh(p, propsCmd, 20000, out, err, rc) && rc == 0) {
+                const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+                for (const QString& line : lines) {
+                    const QStringList parts = line.split('\t');
+                    if (parts.size() < 3) {
+                        continue;
+                    }
+                    fresh.propsRows.push_back(
+                        QStringList{parts[0].trimmed(), parts[1].trimmed(), parts[2].trimmed()});
+                }
+            }
+
+            out.clear();
+            err.clear();
+            rc = -1;
+            const QString stCmd = withSudo(
+                p, QStringLiteral("zpool status -v %1").arg(mwhelpers::shSingleQuote(poolName)));
+            if (runSsh(p, stCmd, 20000, out, err, rc) && rc == 0) {
+                fresh.statusText = out.trimmed();
+            } else {
+                fresh.statusText = err.trimmed();
+            }
+            fresh.loaded = true;
+            m_poolDetailsCache.insert(cacheKey, fresh);
+            pit = m_poolDetailsCache.constFind(cacheKey);
+        }
+        if (pit == m_poolDetailsCache.cend() || !pit->loaded) {
+            m_syncingConnContentColumns = false;
+            return;
+        }
     }
+    {
+        const QString tt = pit->statusText.toHtmlEscaped();
+        root->setToolTip(
+            0,
+            QStringLiteral("<pre style=\"font-family:monospace; white-space:pre;\">%1</pre>").arg(tt));
+    }
+    auto clearNodeRows = [](QTreeWidgetItem* parent) {
+        if (!parent) {
+            return;
+        }
+        for (int i = parent->childCount() - 1; i >= 0; --i) {
+            delete parent->takeChild(i);
+        }
+    };
+    auto clearDatasetNodeRec = [&](auto&& self, QTreeWidgetItem* n) -> void {
+        if (!n) {
+            return;
+        }
+        for (int i = n->childCount() - 1; i >= 0; --i) {
+            QTreeWidgetItem* c = n->child(i);
+            if (!c) {
+                continue;
+            }
+            if (c->data(0, kConnPropRowRole).toBool()) {
+                delete n->takeChild(i);
+                continue;
+            }
+            self(self, c);
+        }
+        // Limpiar solo columnas dinámicas de propiedades; no tocar estado base del dataset
+        // (snapshot/check de montado/mountpoint), que se reutiliza al volver a selección de dataset.
+        for (int col = 4; col < m_connContentTree->columnCount(); ++col) {
+            if (QWidget* w = m_connContentTree->itemWidget(n, col)) {
+                m_connContentTree->removeItemWidget(n, col);
+                w->deleteLater();
+            }
+            n->setText(col, QString());
+        }
+    };
+    auto blockForKey = [root](const QString& key) -> QTreeWidgetItem* {
+        for (int i = 0; i < root->childCount(); ++i) {
+            QTreeWidgetItem* c = root->child(i);
+            if (!c) {
+                continue;
+            }
+            if (c->data(0, kConnPropKeyRole).toString() == key) {
+                return c;
+            }
+        }
+        return nullptr;
+    };
     for (int i = root->childCount() - 1; i >= 0; --i) {
         QTreeWidgetItem* c = root->child(i);
-        if (c && c->data(0, kConnPropRowRole).toBool()) {
+        if (!c) {
+            continue;
+        }
+        const QString marker = c->data(0, kConnPropKeyRole).toString();
+        if (marker == QString::fromLatin1(kPoolBlockInfoKey)) {
+            clearNodeRows(c);
+            continue;
+        }
+        if (c->data(0, kConnPropRowRole).toBool()) {
             delete root->takeChild(i);
-        } else if (c) {
-            for (int col = 1; col < m_connContentTree->columnCount(); ++col) {
-                c->setText(col, QString());
-            }
+        } else {
+            clearDatasetNodeRec(clearDatasetNodeRec, c);
         }
     }
     QStringList props;
     QMap<QString, QString> values;
+    QStringList featureEnabled;
+    QStringList featureDisabled;
+    const QString featurePrefix = QStringLiteral("feature@");
     for (const QStringList& row : pit->propsRows) {
         if (row.size() < 2) {
             continue;
         }
         const QString prop = row[0].trimmed();
+        const QString value = row[1].trimmed();
         if (prop.isEmpty()) {
             continue;
         }
-        props.push_back(prop);
-        values[prop] = row[1].trimmed();
-    }
-    int insertAt = 0;
-    for (int base = 0; base < props.size(); base += kConnPropCols) {
-        auto* rowNames = new QTreeWidgetItem();
-        rowNames->setData(0, kConnPropRowRole, true);
-        rowNames->setFlags(rowNames->flags() & ~Qt::ItemIsUserCheckable);
-        rowNames->setText(0, (base == 0)
-                                 ? trk(QStringLiteral("t_props_lbl_001"),
-                                       QStringLiteral("Propiedades"),
-                                       QStringLiteral("Properties"),
-                                       QStringLiteral("属性"))
-                                 : QString());
-        auto* rowValues = new QTreeWidgetItem();
-        rowValues->setData(0, kConnPropRowRole, true);
-        rowValues->setFlags(rowValues->flags() & ~Qt::ItemIsUserCheckable);
-        rowValues->setText(0, QString());
-        const QColor nameRowBg(232, 240, 250);
-        for (int col = 0; col < m_connContentTree->columnCount(); ++col) {
-            rowNames->setBackground(col, QBrush(nameRowBg));
-        }
-        for (int off = 0; off < kConnPropCols; ++off) {
-            const int idx = base + off;
-            if (idx >= props.size()) {
-                break;
+        if (prop.startsWith(featurePrefix, Qt::CaseInsensitive)) {
+            const QString featureName = prop.mid(featurePrefix.size());
+            const QString v = value.toLower();
+            if (v == QStringLiteral("enabled")) {
+                featureEnabled.push_back(featureName);
+            } else if (v == QStringLiteral("disabled")) {
+                featureDisabled.push_back(featureName);
             }
-            const QString& prop = props.at(idx);
-            const int col = 1 + off;
-            rowNames->setText(col, prop);
-            rowNames->setTextAlignment(col, Qt::AlignCenter);
-            rowValues->setText(col, values.value(prop));
-            rowValues->setTextAlignment(col, Qt::AlignCenter);
+            // Todas las feature@ se excluyen del bloque "Propiedades".
+            continue;
         }
-        root->insertChild(insertAt++, rowNames);
-        root->insertChild(insertAt++, rowValues);
+        props.push_back(prop);
+        values[prop] = value;
     }
+    const QColor nameRowBg(232, 240, 250);
+    auto addSectionRows = [&](QTreeWidgetItem* parent,
+                                const QString& title,
+                                const QStringList& names,
+                                const QMap<QString, QString>* valuesByName,
+                                bool namesOnly) {
+        if (!parent) {
+            return;
+        }
+        if (names.isEmpty()) {
+            return;
+        }
+        auto* titleRow = new QTreeWidgetItem(parent);
+        titleRow->setData(0, kConnPropRowRole, true);
+        titleRow->setFlags(titleRow->flags() & ~Qt::ItemIsUserCheckable);
+        titleRow->setText(0, title);
+        for (int col = 0; col < m_connContentTree->columnCount(); ++col) {
+            titleRow->setBackground(col, QBrush(nameRowBg));
+        }
+        titleRow->setTextAlignment(0, Qt::AlignLeft | Qt::AlignVCenter);
+        for (int base = 0; base < names.size(); base += kConnPropCols) {
+            auto* rowNames = new QTreeWidgetItem(parent);
+            rowNames->setData(0, kConnPropRowRole, true);
+            rowNames->setFlags(rowNames->flags() & ~Qt::ItemIsUserCheckable);
+            for (int col = 0; col < m_connContentTree->columnCount(); ++col) {
+                rowNames->setBackground(col, QBrush(nameRowBg));
+            }
+            for (int off = 0; off < kConnPropCols; ++off) {
+                const int idx = base + off;
+                if (idx >= names.size()) {
+                    break;
+                }
+                const QString& name = names.at(idx);
+                const int col = 4 + off;
+                rowNames->setText(col, name);
+                rowNames->setTextAlignment(col, Qt::AlignCenter);
+            }
+            if (namesOnly) {
+                continue;
+            }
+            auto* rowValues = new QTreeWidgetItem(parent);
+            rowValues->setData(0, kConnPropRowRole, true);
+            rowValues->setFlags(rowValues->flags() & ~Qt::ItemIsUserCheckable);
+            for (int off = 0; off < kConnPropCols; ++off) {
+                const int idx = base + off;
+                if (idx >= names.size()) {
+                    break;
+                }
+                const QString& name = names.at(idx);
+                const int col = 4 + off;
+                rowValues->setText(col, valuesByName ? valuesByName->value(name) : QString());
+                rowValues->setTextAlignment(col, Qt::AlignCenter);
+            }
+        }
+    };
+    QTreeWidgetItem* infoNode = blockForKey(QString::fromLatin1(kPoolBlockInfoKey));
+    if (!infoNode) {
+        infoNode = new QTreeWidgetItem();
+        infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
+        infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);
+        infoNode->setExpanded(false);
+        root->insertChild(0, infoNode);
+    }
+    infoNode->setText(0, trk(QStringLiteral("t_pool_info_001"),
+                             QStringLiteral("Información"),
+                             QStringLiteral("Information"),
+                             QStringLiteral("信息")));
+
+    addSectionRows(infoNode,
+                   trk(QStringLiteral("t_props_lbl_001"),
+                       QStringLiteral("Propiedades"),
+                       QStringLiteral("Properties"),
+                       QStringLiteral("属性")),
+                   props,
+                   &values,
+                   false);
+    addSectionRows(infoNode,
+                   trk(QStringLiteral("t_pool_caps_on001"),
+                       QStringLiteral("Capacidades activas"),
+                       QStringLiteral("Enabled features"),
+                       QStringLiteral("已启用能力")),
+                   featureEnabled,
+                   nullptr,
+                   true);
+    addSectionRows(infoNode,
+                   trk(QStringLiteral("t_pool_caps_off01"),
+                       QStringLiteral("Capacidades deshabilitadas"),
+                       QStringLiteral("Disabled features"),
+                       QStringLiteral("已禁用能力")),
+                   featureDisabled,
+                   nullptr,
+                   true);
     root->setExpanded(true);
     m_syncingConnContentColumns = false;
 }
@@ -535,6 +729,12 @@ void MainWindow::saveConnContentTreeState(const QString& token) {
     std::function<void(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* n) {
         if (!n) {
             return;
+        }
+        if (n->data(0, kIsPoolRootRole).toBool()) {
+            st.poolRootExpanded = n->isExpanded();
+        }
+        if (n->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
+            st.infoExpanded = n->isExpanded();
         }
         const QString ds = n->data(0, Qt::UserRole).toString();
         if (!ds.isEmpty()) {
@@ -586,6 +786,26 @@ void MainWindow::restoreConnContentTreeState(const QString& token) {
     };
     for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
         applyExpand(m_connContentTree->topLevelItem(i));
+    }
+    for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* top = m_connContentTree->topLevelItem(i);
+        if (!top) {
+            continue;
+        }
+        if (top->data(0, kIsPoolRootRole).toBool()) {
+            top->setExpanded(st.poolRootExpanded);
+            for (int c = 0; c < top->childCount(); ++c) {
+                QTreeWidgetItem* ch = top->child(c);
+                if (!ch) {
+                    continue;
+                }
+                if (ch->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
+                    ch->setExpanded(st.infoExpanded);
+                    break;
+                }
+            }
+            break;
+        }
     }
 
     for (auto sit = st.snapshotByDataset.cbegin(); sit != st.snapshotByDataset.cend(); ++sit) {
@@ -710,7 +930,32 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
     beginUiBusy();
     m_loadingDatasetTrees = true;
     tree->clear();
+    auto addPoolRootOnlyForConnContent = [&]() {
+        if (side != QStringLiteral("conncontent")) {
+            return;
+        }
+        auto* poolRoot = new QTreeWidgetItem();
+        poolRoot->setText(0, QStringLiteral("Pool"));
+        poolRoot->setFlags(poolRoot->flags() & ~Qt::ItemIsUserCheckable);
+        poolRoot->setData(0, kIsPoolRootRole, true);
+        poolRoot->setData(0, kConnIdxRole, connIdx);
+        poolRoot->setData(0, kPoolNameRole, poolName);
+        auto* infoNode = new QTreeWidgetItem(poolRoot);
+        infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
+        infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);
+        infoNode->setText(0, trk(QStringLiteral("t_pool_info_001"),
+                                 QStringLiteral("Información"),
+                                 QStringLiteral("Information"),
+                                 QStringLiteral("信息")));
+        infoNode->setExpanded(false);
+        tree->addTopLevelItem(poolRoot);
+        poolRoot->setExpanded(true);
+    };
     if (!ensureDatasetsLoaded(connIdx, poolName, allowRemoteLoadIfMissing)) {
+        addPoolRootOnlyForConnContent();
+        if (side == QStringLiteral("conncontent")) {
+            syncConnContentPoolColumns();
+        }
         m_loadingDatasetTrees = false;
         endUiBusy();
         return;
@@ -765,6 +1010,13 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         poolRoot->setData(0, kIsPoolRootRole, true);
         poolRoot->setData(0, kConnIdxRole, connIdx);
         poolRoot->setData(0, kPoolNameRole, poolName);
+        auto* infoNode = new QTreeWidgetItem(poolRoot);
+        infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
+        infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);
+        infoNode->setText(0, trk(QStringLiteral("t_pool_info_001"),
+                                 QStringLiteral("Información"),
+                                 QStringLiteral("Information"),
+                                 QStringLiteral("信息")));
         for (QTreeWidgetItem* top : logicalTopLevelItems) {
             if (top) {
                 poolRoot->addChild(top);
@@ -869,12 +1121,33 @@ void MainWindow::onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item
         clearOtherSnapshotSelections(tree, item);
     }
     item->setData(1, Qt::UserRole, snap);
-    tree->setCurrentItem(item);
     if (side == QStringLiteral("conncontent")) {
-        refreshDatasetProperties(QStringLiteral("conncontent"));
+        const bool changedSelection = (tree->currentItem() != item);
+        if (changedSelection) {
+            tree->setCurrentItem(item);
+        } else {
+            refreshDatasetProperties(QStringLiteral("conncontent"));
+        }
+        // Garantiza que, tras recrear filas de propiedades, la selección final
+        // siga en el dataset/snapshot y no en una fila auxiliar "Prop.".
+        if (tree->currentItem() != item) {
+            QPointer<QTreeWidget> safeTree(tree);
+            const QString dsKeep = ds;
+            const QString snapKeep = snap;
+            QTimer::singleShot(0, this, [safeTree, dsKeep, snapKeep]() {
+                if (!safeTree || dsKeep.isEmpty()) {
+                    return;
+                }
+                if (QTreeWidgetItem* keep = findDatasetItem(safeTree, dsKeep)) {
+                    keep->setData(1, Qt::UserRole, snapKeep);
+                    safeTree->setCurrentItem(keep);
+                }
+            });
+        }
         updateConnectionActionsState();
         return;
     }
+    tree->setCurrentItem(item);
     setSelectedDataset(side, ds, snap);
 }
 
@@ -984,30 +1257,42 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
         ok = umountDataset(side, ctx);
     }
     m_loadingDatasetTrees = false;
-    if (!ok) {
-        auto findByDataset = [&](auto&& self, QTreeWidgetItem* n, const QString& name) -> QTreeWidgetItem* {
-            if (!n) {
-                return nullptr;
-            }
-            if (n->data(0, Qt::UserRole).toString() == name) {
-                return n;
-            }
-            for (int i = 0; i < n->childCount(); ++i) {
-                if (QTreeWidgetItem* f = self(self, n->child(i), name)) {
-                    return f;
-                }
-            }
+    auto findByDataset = [&](auto&& self, QTreeWidgetItem* n, const QString& name) -> QTreeWidgetItem* {
+        if (!n) {
             return nullptr;
-        };
-        QTreeWidgetItem* safeItem = nullptr;
-        for (int i = 0; i < tree->topLevelItemCount() && !safeItem; ++i) {
-            safeItem = findByDataset(findByDataset, tree->topLevelItem(i), ds);
         }
+        if (n->data(0, Qt::UserRole).toString() == name) {
+            return n;
+        }
+        for (int i = 0; i < n->childCount(); ++i) {
+            if (QTreeWidgetItem* f = self(self, n->child(i), name)) {
+                return f;
+            }
+        }
+        return nullptr;
+    };
+    QTreeWidgetItem* safeItem = nullptr;
+    for (int i = 0; i < tree->topLevelItemCount() && !safeItem; ++i) {
+        safeItem = findByDataset(findByDataset, tree->topLevelItem(i), ds);
+    }
+    if (!ok) {
         if (safeItem) {
             m_loadingDatasetTrees = true;
             safeItem->setCheckState(2, desired == Qt::Checked ? Qt::Unchecked : Qt::Checked);
             m_loadingDatasetTrees = false;
         }
+        return;
+    }
+
+    // Reflejar inmediatamente el estado visual tras una operación correcta.
+    if (safeItem) {
+        m_loadingDatasetTrees = true;
+        safeItem->setCheckState(2, desired);
+        m_loadingDatasetTrees = false;
+    }
+    if (side == QStringLiteral("conncontent")) {
+        refreshDatasetProperties(QStringLiteral("conncontent"));
+        syncConnContentPropertyColumns();
     }
 }
 

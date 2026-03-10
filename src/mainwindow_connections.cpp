@@ -99,13 +99,18 @@ int connectionIndexForRow(const QTableWidget* table, int row) {
     if (!table || row < 0 || row >= table->rowCount()) {
         return -1;
     }
-    const QTableWidgetItem* it = table->item(row, 0);
-    if (!it) {
-        return -1;
+    for (int col = table->columnCount() - 1; col >= 0; --col) {
+        const QTableWidgetItem* it = table->item(row, col);
+        if (!it) {
+            continue;
+        }
+        bool ok = false;
+        const int idx = it->data(Qt::UserRole).toInt(&ok);
+        if (ok) {
+            return idx;
+        }
     }
-    bool ok = false;
-    const int idx = it->data(Qt::UserRole).toInt(&ok);
-    return ok ? idx : -1;
+    return -1;
 }
 
 int selectedConnectionRow(const QTableWidget* table) {
@@ -199,6 +204,29 @@ void MainWindow::refreshSelectedConnection() {
     if (idx < 0 || idx >= m_profiles.size()) {
         return;
     }
+    if (m_connectionEntityTabs) {
+        const int t = m_connectionEntityTabs->currentIndex();
+        if (t >= 0 && t < m_connectionEntityTabs->count()) {
+            const QString key = m_connectionEntityTabs->tabData(t).toString();
+            if (key.startsWith(QStringLiteral("pool:%1:").arg(idx))) {
+                m_pendingRefreshTopTabDataByConn[idx] = key;
+            }
+        }
+    }
+    if (m_bottomConnectionEntityTabs) {
+        const int t = m_bottomConnectionEntityTabs->currentIndex();
+        if (t >= 0 && t < m_bottomConnectionEntityTabs->count()) {
+            const QString key = m_bottomConnectionEntityTabs->tabData(t).toString();
+            if (key.startsWith(QStringLiteral("pool:%1:").arg(idx))) {
+                m_pendingRefreshBottomTabDataByConn[idx] = key;
+            }
+        }
+    }
+    // Guardar navegación (pool/tab activo) justo antes de iniciar el refresh.
+    saveConnectionNavState(idx);
+    if (m_bottomDetailConnIdx == idx) {
+        saveBottomConnectionNavState(idx);
+    }
     const int generation = ++m_refreshGeneration;
     m_refreshPending = 1;
     m_refreshTotal = 1;
@@ -224,10 +252,34 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const ConnectionR
     m_states[idx] = state;
     invalidatePoolDetailsCacheForConnection(idx);
     rebuildConnectionsTable();
+    if (m_connectionEntityTabs) {
+        const QString wantedTop = m_pendingRefreshTopTabDataByConn.value(idx);
+        if (!wantedTop.isEmpty()) {
+            for (int t = 0; t < m_connectionEntityTabs->count(); ++t) {
+                if (m_connectionEntityTabs->tabData(t).toString() == wantedTop) {
+                    m_connectionEntityTabs->setCurrentIndex(t);
+                    break;
+                }
+            }
+        }
+    }
+    if (m_bottomConnectionEntityTabs) {
+        const QString wantedBottom = m_pendingRefreshBottomTabDataByConn.value(idx);
+        if (!wantedBottom.isEmpty()) {
+            for (int t = 0; t < m_bottomConnectionEntityTabs->count(); ++t) {
+                if (m_bottomConnectionEntityTabs->tabData(t).toString() == wantedBottom) {
+                    m_bottomConnectionEntityTabs->setCurrentIndex(t);
+                    break;
+                }
+            }
+        }
+    }
+    m_pendingRefreshTopTabDataByConn.remove(idx);
+    m_pendingRefreshBottomTabDataByConn.remove(idx);
     if (selectedIdx >= 0 && m_connectionsTable) {
         const int row = rowForConnectionIndex(m_connectionsTable, selectedIdx);
         if (row >= 0) {
-            m_connectionsTable->setCurrentCell(row, 0);
+            m_connectionsTable->setCurrentCell(row, 2);
         }
     }
     rebuildDatasetPoolSelectors();
@@ -248,7 +300,7 @@ void MainWindow::onAsyncRefreshDone(int generation) {
         m_initialRefreshCompleted = true;
     }
     if (m_connectionsTable && m_connectionsTable->rowCount() > 0 && m_connectionsTable->currentRow() < 0) {
-        m_connectionsTable->setCurrentCell(0, 0);
+        m_connectionsTable->setCurrentCell(0, 2);
     }
     refreshConnectionNodeDetails();
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Refresco paralelo finalizado"));
@@ -276,7 +328,10 @@ void MainWindow::onConnectionSelectionChanged() {
     }
     QString selectionKey;
     if (m_connectionsTable) {
-        const int idx = selectedConnectionRow(m_connectionsTable);
+        int idx = m_topDetailConnIdx;
+        if (idx < 0) {
+            idx = selectedConnectionRow(m_connectionsTable);
+        }
         const QString tabKey =
             (m_connectionEntityTabs && m_connectionEntityTabs->currentIndex() >= 0
              && m_connectionEntityTabs->currentIndex() < m_connectionEntityTabs->count())
@@ -300,9 +355,115 @@ void MainWindow::onConnectionSelectionChanged() {
     populateAllPoolsTables();
     refreshConnectionNodeDetails();
     updatePoolManagementBoxTitle();
+    updateSecondaryConnectionDetail();
     if (paintRoot) {
         paintRoot->setUpdatesEnabled(true);
         paintRoot->update();
+    }
+}
+
+void MainWindow::updateSecondaryConnectionDetail() {
+    if (!m_bottomConnectionEntityTabs) {
+        return;
+    }
+    const QString prevTabKey =
+        (m_bottomConnectionEntityTabs->currentIndex() >= 0
+         && m_bottomConnectionEntityTabs->currentIndex() < m_bottomConnectionEntityTabs->count())
+            ? m_bottomConnectionEntityTabs->tabData(m_bottomConnectionEntityTabs->currentIndex()).toString()
+            : QString();
+    while (m_bottomConnectionEntityTabs->count() > 0) {
+        m_bottomConnectionEntityTabs->removeTab(m_bottomConnectionEntityTabs->count() - 1);
+    }
+    if (m_bottomConnContentTree) {
+        m_bottomConnContentTree->clear();
+    }
+    if (m_bottomDetailConnIdx < 0 || m_bottomDetailConnIdx >= m_profiles.size()
+        || m_bottomDetailConnIdx >= m_states.size()) {
+        return;
+    }
+    const ConnectionRuntimeState& st = m_states[m_bottomDetailConnIdx];
+    const QString connPersistKey = connPersistKeyFromProfiles(m_profiles, m_bottomDetailConnIdx);
+    const ConnectionNavState nav = m_connectionNavStateByConnId.value(connPersistKey);
+    QString targetEntityKey = nav.bottomEntityTabKey.trimmed();
+    if (targetEntityKey.isEmpty()) {
+        const QStringList prevParts = prevTabKey.split(':');
+        bool prevOk = false;
+        if (prevParts.size() >= 3 && prevParts.value(0) == QStringLiteral("pool")) {
+            const int prevConnIdx = prevParts.value(1).toInt(&prevOk);
+            if (prevOk && prevConnIdx == m_bottomDetailConnIdx) {
+                targetEntityKey = QStringLiteral("pool:%1").arg(prevParts.value(2).trimmed());
+            }
+        }
+    }
+    int targetTab = -1;
+    int tabPos = 0;
+    for (const PoolImported& pool : st.importedPools) {
+        const QString poolName = pool.pool.trimmed();
+        if (poolName.isEmpty()) {
+            continue;
+        }
+        QString poolTabText = poolName
+                              + trk(QStringLiteral("t_pool_tab_imp_001"),
+                                    QStringLiteral(" [Importado]"),
+                                    QStringLiteral(" [Imported]"),
+                                    QStringLiteral(" [已导入]"));
+        const int t = m_bottomConnectionEntityTabs->addTab(poolTabText);
+        m_bottomConnectionEntityTabs->setTabData(t, QStringLiteral("pool:%1:%2").arg(m_bottomDetailConnIdx).arg(poolName));
+        if (targetEntityKey.compare(QStringLiteral("pool:%1").arg(poolName), Qt::CaseInsensitive) == 0) {
+            targetTab = tabPos;
+        }
+        ++tabPos;
+    }
+    for (const PoolImportable& pool : st.importablePools) {
+        const QString poolName = pool.pool.trimmed();
+        if (poolName.isEmpty()) {
+            continue;
+        }
+        const QString stateUp = pool.state.trimmed().toUpper();
+        const QString actionTxt = pool.action.trimmed();
+        if (stateUp != QStringLiteral("ONLINE") || actionTxt.isEmpty()) {
+            continue;
+        }
+        QString poolTabText = poolName
+                              + trk(QStringLiteral("t_pool_tab_nimp001"),
+                                    QStringLiteral(" [No importado]"),
+                                    QStringLiteral(" [Not imported]"),
+                                    QStringLiteral(" [未导入]"));
+        const int t = m_bottomConnectionEntityTabs->addTab(poolTabText);
+        m_bottomConnectionEntityTabs->setTabData(t, QStringLiteral("pool:%1:%2").arg(m_bottomDetailConnIdx).arg(poolName));
+        if (targetEntityKey.compare(QStringLiteral("pool:%1").arg(poolName), Qt::CaseInsensitive) == 0) {
+            targetTab = tabPos;
+        }
+        ++tabPos;
+    }
+    if (m_bottomConnectionEntityTabs->count() > 0) {
+        if (targetTab < 0) {
+            targetTab = 0;
+        }
+        m_bottomConnectionEntityTabs->setCurrentIndex(targetTab);
+        saveBottomConnectionNavState(m_bottomDetailConnIdx);
+        if (m_bottomConnContentTree) {
+            const QString key = m_bottomConnectionEntityTabs->tabData(targetTab).toString();
+            const QStringList parts = key.split(':');
+            if (parts.size() >= 3 && parts.first() == QStringLiteral("pool")) {
+                bool ok = false;
+                const int connIdx = parts.value(1).toInt(&ok);
+                const QString poolName = parts.value(2).trimmed();
+                if (ok && connIdx >= 0 && connIdx < m_profiles.size() && !poolName.isEmpty()) {
+                    const QString prevToken = m_connContentToken;
+                    QTreeWidget* prevTree = m_connContentTree;
+                    m_connContentTree = m_bottomConnContentTree;
+                    m_connContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+                    populateDatasetTree(m_bottomConnContentTree, connIdx, poolName, QStringLiteral("conncontent"), true);
+                    syncConnContentPoolColumns();
+                    if (m_bottomConnContentTree->topLevelItemCount() > 0) {
+                        m_bottomConnContentTree->setCurrentItem(m_bottomConnContentTree->topLevelItem(0));
+                    }
+                    m_connContentTree = prevTree;
+                    m_connContentToken = prevToken;
+                }
+            }
+        }
     }
 }
 
@@ -310,7 +471,10 @@ void MainWindow::rebuildConnectionEntityTabs() {
     if (!m_connectionEntityTabs || !m_connectionsTable) {
         return;
     }
-    const int connIdx = selectedConnectionRow(m_connectionsTable);
+    int connIdx = m_topDetailConnIdx;
+    if (connIdx < 0) {
+        connIdx = selectedConnectionRow(m_connectionsTable);
+    }
     if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
         m_updatingConnectionEntityTabs = true;
         while (m_connectionEntityTabs->count() > 0) {
@@ -417,7 +581,7 @@ void MainWindow::onConnectionEntityTabChanged(int idx) {
         return;
     }
     if (m_connectionsTable->currentRow() != row) {
-        m_connectionsTable->setCurrentCell(row, 0);
+        m_connectionsTable->setCurrentCell(row, 2);
     } else {
         refreshConnectionNodeDetails();
         saveConnectionNavState(connIdx);
@@ -449,6 +613,33 @@ void MainWindow::saveConnectionNavState(int connIdx) {
             }
         }
     }
+}
+
+void MainWindow::saveBottomConnectionNavState(int connIdx) {
+    if (!m_bottomConnectionEntityTabs || connIdx < 0 || connIdx >= m_profiles.size()) {
+        return;
+    }
+    const QString persistKey = connPersistKeyFromProfiles(m_profiles, connIdx);
+    if (persistKey.isEmpty()) {
+        return;
+    }
+    const int tabIdx = m_bottomConnectionEntityTabs->currentIndex();
+    if (tabIdx < 0 || tabIdx >= m_bottomConnectionEntityTabs->count()) {
+        return;
+    }
+    const QString tabData = m_bottomConnectionEntityTabs->tabData(tabIdx).toString();
+    const QStringList parts = tabData.split(':');
+    if (parts.size() < 3 || parts.value(0) != QStringLiteral("pool")) {
+        return;
+    }
+    bool ok = false;
+    const int tabConnIdx = parts.value(1).toInt(&ok);
+    const QString poolName = parts.value(2).trimmed();
+    if (!ok || tabConnIdx != connIdx || poolName.isEmpty()) {
+        return;
+    }
+    ConnectionNavState& nav = m_connectionNavStateByConnId[persistKey];
+    nav.bottomEntityTabKey = QStringLiteral("pool:%1").arg(poolName);
 }
 
 void MainWindow::restoreConnectionPoolSubtabState(int connIdx, const QString& poolName) {
@@ -531,7 +722,10 @@ void MainWindow::refreshConnectionNodeDetails() {
         }
     };
 
-    const int connIdx = selectedConnectionRow(m_connectionsTable);
+    int connIdx = m_topDetailConnIdx;
+    if (connIdx < 0) {
+        connIdx = selectedConnectionRow(m_connectionsTable);
+    }
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
         if (!m_connContentToken.isEmpty()) {
             saveConnContentTreeState(m_connContentToken);
@@ -646,6 +840,7 @@ void MainWindow::refreshConnectionNodeDetails() {
     if (connIdx >= 0 && connIdx < m_profiles.size() && m_connContentTree) {
         m_connContentToken = newConnContentToken;
         populateDatasetTree(m_connContentTree, connIdx, poolName, QStringLiteral("conncontent"), true);
+        syncConnContentPoolColumns();
         refreshDatasetProperties(QStringLiteral("conncontent"));
     }
     updateConnectionActionsState();
@@ -653,7 +848,10 @@ void MainWindow::refreshConnectionNodeDetails() {
 }
 
 void MainWindow::updateConnectionDetailTitlesForCurrentSelection() {
-    const int connIdx = selectedConnectionRow(m_connectionsTable);
+    int connIdx = m_topDetailConnIdx;
+    if (connIdx < 0) {
+        connIdx = selectedConnectionRow(m_connectionsTable);
+    }
     QString activePoolName;
     bool poolMode = false;
     if (m_connectionEntityTabs && m_connectionEntityTabs->currentIndex() >= 0) {
@@ -717,9 +915,76 @@ void MainWindow::refreshConnectionByIndex(int idx) {
     if (idx < 0 || idx >= m_profiles.size()) {
         return;
     }
+    if (m_connectionEntityTabs) {
+        const int t = m_connectionEntityTabs->currentIndex();
+        if (t >= 0 && t < m_connectionEntityTabs->count()) {
+            const QString key = m_connectionEntityTabs->tabData(t).toString();
+            if (key.startsWith(QStringLiteral("pool:%1:").arg(idx))) {
+                m_pendingRefreshTopTabDataByConn[idx] = key;
+            }
+        }
+    }
+    if (m_bottomConnectionEntityTabs) {
+        const int t = m_bottomConnectionEntityTabs->currentIndex();
+        if (t >= 0 && t < m_bottomConnectionEntityTabs->count()) {
+            const QString key = m_bottomConnectionEntityTabs->tabData(t).toString();
+            if (key.startsWith(QStringLiteral("pool:%1:").arg(idx))) {
+                m_pendingRefreshBottomTabDataByConn[idx] = key;
+            }
+        }
+    }
+    // Guardar navegación (pool/tab activo) justo antes de iniciar el refresh.
+    saveConnectionNavState(idx);
+    if (m_bottomDetailConnIdx == idx) {
+        saveBottomConnectionNavState(idx);
+    }
+    if (!m_connContentToken.isEmpty() && m_connContentTree) {
+        saveConnContentTreeState(m_connContentToken);
+    }
+    if (m_bottomConnContentTree && m_bottomConnectionEntityTabs) {
+        const int bIdx = m_bottomConnectionEntityTabs->currentIndex();
+        if (bIdx >= 0 && bIdx < m_bottomConnectionEntityTabs->count()) {
+            const QString key = m_bottomConnectionEntityTabs->tabData(bIdx).toString();
+            const QStringList parts = key.split(':');
+            if (parts.size() >= 3 && parts.first() == QStringLiteral("pool")) {
+                const QString bottomToken = QStringLiteral("%1::%2").arg(parts.value(1), parts.value(2).trimmed());
+                const QString prevToken = m_connContentToken;
+                QTreeWidget* prevTree = m_connContentTree;
+                m_connContentTree = m_bottomConnContentTree;
+                m_connContentToken = bottomToken;
+                saveConnContentTreeState(bottomToken);
+                m_connContentTree = prevTree;
+                m_connContentToken = prevToken;
+            }
+        }
+    }
     m_states[idx] = refreshConnection(m_profiles[idx]);
     invalidatePoolDetailsCacheForConnection(idx);
     rebuildConnectionsTable();
+    if (m_connectionEntityTabs) {
+        const QString wantedTop = m_pendingRefreshTopTabDataByConn.value(idx);
+        if (!wantedTop.isEmpty()) {
+            for (int t = 0; t < m_connectionEntityTabs->count(); ++t) {
+                if (m_connectionEntityTabs->tabData(t).toString() == wantedTop) {
+                    m_connectionEntityTabs->setCurrentIndex(t);
+                    break;
+                }
+            }
+        }
+    }
+    if (m_bottomConnectionEntityTabs) {
+        const QString wantedBottom = m_pendingRefreshBottomTabDataByConn.value(idx);
+        if (!wantedBottom.isEmpty()) {
+            for (int t = 0; t < m_bottomConnectionEntityTabs->count(); ++t) {
+                if (m_bottomConnectionEntityTabs->tabData(t).toString() == wantedBottom) {
+                    m_bottomConnectionEntityTabs->setCurrentIndex(t);
+                    break;
+                }
+            }
+        }
+    }
+    m_pendingRefreshTopTabDataByConn.remove(idx);
+    m_pendingRefreshBottomTabDataByConn.remove(idx);
     rebuildDatasetPoolSelectors();
     populateAllPoolsTables();
 }
@@ -787,7 +1052,7 @@ void MainWindow::loadConnections() {
             targetRow = 0;
         }
         if (targetRow >= 0) {
-            m_connectionsTable->setCurrentCell(targetRow, 0);
+            m_connectionsTable->setCurrentCell(targetRow, 2);
         }
     }
 
@@ -798,6 +1063,7 @@ void MainWindow::loadConnections() {
 
 void MainWindow::rebuildConnectionsTable() {
     beginUiBusy();
+    m_syncConnSelectorChecks = true;
     QString prevSelectedKey;
     {
         const int prevIdx = selectedConnectionRow(m_connectionsTable);
@@ -809,6 +1075,15 @@ void MainWindow::rebuildConnectionsTable() {
         }
     }
     m_connectionsTable->clear();
+    m_connectionsTable->setColumnCount(3);
+    m_connectionsTable->setHorizontalHeaderLabels({
+        QStringLiteral("Origen"),
+        QStringLiteral("Destino"),
+        trk(QStringLiteral("t_connections_001"),
+            QStringLiteral("Conexión"),
+            QStringLiteral("Connection"),
+            QStringLiteral("连接"))
+    });
     m_connectionsTable->setRowCount(0);
     auto buildConnectionStateTooltip = [this](const ConnectionProfile& p, const ConnectionRuntimeState& st) {
         QStringList lines;
@@ -858,7 +1133,8 @@ void MainWindow::rebuildConnectionsTable() {
         } else {
             lines += nonImportable;
         }
-        return lines.join(QStringLiteral("\n"));
+        const QString plain = lines.join(QStringLiteral("\n")).toHtmlEscaped();
+        return QStringLiteral("<pre style=\"font-family:monospace; white-space:pre;\">%1</pre>").arg(plain);
     };
     QStringList redirectedToLocalNames;
     for (int i = 0; i < m_profiles.size(); ++i) {
@@ -911,20 +1187,64 @@ void MainWindow::rebuildConnectionsTable() {
 
         const int row = m_connectionsTable->rowCount();
         m_connectionsTable->insertRow(row);
+        auto* itTop = new QTableWidgetItem(QString());
+        itTop->setData(Qt::UserRole, i);
+        itTop->setFlags((itTop->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled) & ~Qt::ItemIsEditable);
+        itTop->setCheckState((i == m_topDetailConnIdx) ? Qt::Checked : Qt::Unchecked);
+        itTop->setTextAlignment(Qt::AlignCenter);
+        itTop->setToolTip(buildConnectionStateTooltip(p, s));
+        m_connectionsTable->setItem(row, 0, itTop);
+
+        auto* itBottom = new QTableWidgetItem(QString());
+        itBottom->setData(Qt::UserRole, i);
+        itBottom->setFlags((itBottom->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled) & ~Qt::ItemIsEditable);
+        itBottom->setCheckState((i == m_bottomDetailConnIdx) ? Qt::Checked : Qt::Unchecked);
+        itBottom->setTextAlignment(Qt::AlignCenter);
+        itBottom->setToolTip(buildConnectionStateTooltip(p, s));
+        m_connectionsTable->setItem(row, 1, itBottom);
+
         auto* it = new QTableWidgetItem(line);
         it->setData(Qt::UserRole, i);
         it->setForeground(QBrush(rowColor));
         it->setToolTip(buildConnectionStateTooltip(p, s));
-        m_connectionsTable->setItem(row, 0, it);
+        m_connectionsTable->setItem(row, 2, it);
 
     }
-    int targetRow = -1;
+    auto ensureValidConnIdx = [this](int& idx) {
+        if (idx < 0) {
+            return false;
+        }
+        return rowForConnectionIndex(m_connectionsTable, idx) >= 0;
+    };
+    const int rowCount = m_connectionsTable->rowCount();
+    if (!ensureValidConnIdx(m_topDetailConnIdx)) {
+        m_topDetailConnIdx = (rowCount > 0) ? connectionIndexForRow(m_connectionsTable, 0) : -1;
+    }
+    if (!ensureValidConnIdx(m_bottomDetailConnIdx)) {
+        if (rowCount > 1) {
+            // Inicialmente: primera conexión como Origen y segunda como Destino.
+            m_bottomDetailConnIdx = connectionIndexForRow(m_connectionsTable, 1);
+        } else {
+            m_bottomDetailConnIdx = m_topDetailConnIdx;
+        }
+    }
+    for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
+        if (QTableWidgetItem* it = m_connectionsTable->item(r, 0)) {
+            const int idx = it->data(Qt::UserRole).toInt();
+            it->setCheckState((idx == m_topDetailConnIdx) ? Qt::Checked : Qt::Unchecked);
+        }
+        if (QTableWidgetItem* it = m_connectionsTable->item(r, 1)) {
+            const int idx = it->data(Qt::UserRole).toInt();
+            it->setCheckState((idx == m_bottomDetailConnIdx) ? Qt::Checked : Qt::Unchecked);
+        }
+    }
+    int targetRow = rowForConnectionIndex(m_connectionsTable, m_topDetailConnIdx);
     const QString preferredKey = !m_userSelectedConnectionKey.trimmed().isEmpty()
                                      ? m_userSelectedConnectionKey.trimmed().toLower()
                                      : prevSelectedKey;
     if (!preferredKey.isEmpty()) {
         for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
-            QTableWidgetItem* it = m_connectionsTable->item(r, 0);
+            QTableWidgetItem* it = m_connectionsTable->item(r, 2);
             if (!it) {
                 continue;
             }
@@ -947,13 +1267,15 @@ void MainWindow::rebuildConnectionsTable() {
         targetRow = 0;
     }
     if (targetRow >= 0) {
-        m_connectionsTable->setCurrentCell(targetRow, 0);
+        m_connectionsTable->setCurrentCell(targetRow, 2);
     }
+    m_syncConnSelectorChecks = false;
 
     rebuildConnectionEntityTabs();
     syncConnectionLogTabs();
     endUiBusy();
     refreshConnectionNodeDetails();
+    updateSecondaryConnectionDetail();
     updatePoolManagementBoxTitle();
 }
 
@@ -1053,7 +1375,7 @@ void MainWindow::createConnection() {
             if (m_connectionsTable) {
                 const int row = rowForConnectionIndex(m_connectionsTable, i);
                 if (row >= 0) {
-                    m_connectionsTable->setCurrentCell(row, 0);
+                    m_connectionsTable->setCurrentCell(row, 2);
                 }
             }
             refreshSelectedConnection();

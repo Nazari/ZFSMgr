@@ -28,6 +28,7 @@
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTextEdit>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -39,6 +40,10 @@
 namespace {
 constexpr int kIsPoolRootRole = Qt::UserRole + 12;
 constexpr int kConnPropRowRole = Qt::UserRole + 13;
+constexpr int kConnPropKeyRole = Qt::UserRole + 14;
+constexpr int kConnIdxRole = Qt::UserRole + 10;
+constexpr int kPoolNameRole = Qt::UserRole + 11;
+constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 }
 
 void MainWindow::buildUi() {
@@ -81,10 +86,10 @@ void MainWindow::buildUi() {
         "#zfsmgrEntityFrame > QWidget { border: 0px; background: transparent; }"
         "#zfsmgrEntityTabs::tab, #zfsmgrPoolViewTabs::tab { border-bottom: 1px solid #b8c7d6; }"
         "#zfsmgrEntityTabs::tab:selected, #zfsmgrPoolViewTabs::tab:selected { border-bottom: 0px; margin-bottom: -1px; padding-bottom: 1px; }"
-        "#zfsmgrDetailContainer { border: 1px solid #b8c7d6; background: #f8fbff; margin-top: -1px; }"
+        "#zfsmgrDetailContainer { border: 0px; background: transparent; margin-top: 0px; }"
         "#zfsmgrDetailContainer > QWidget { border: 0px; background: transparent; }"
         "#zfsmgrDetailContainer QTabBar { background: transparent; }"
-        "#zfsmgrSubtabContentFrame { border: 1px solid #b8c7d6; background: #f8fbff; margin-top: -1px; }"));
+        "#zfsmgrSubtabContentFrame { border: 0px; background: transparent; margin-top: 0px; }"));
 #ifdef Q_OS_MAC
     setStyleSheet(styleSheet() + QStringLiteral(
         "QTreeView::indicator:unchecked, QTableView::indicator:unchecked, QCheckBox::indicator:unchecked {"
@@ -454,15 +459,25 @@ void MainWindow::buildUi() {
     auto* connListBoxLayout = new QVBoxLayout(connListBox);
     connListBoxLayout->setContentsMargins(6, 8, 6, 6);
     m_connectionsTable = new QTableWidget(connListBox);
-    m_connectionsTable->setColumnCount(1);
-    m_connectionsTable->horizontalHeader()->setVisible(false);
+    m_connectionsTable->setColumnCount(3);
+    m_connectionsTable->setHorizontalHeaderLabels({
+        QStringLiteral("Origen"),
+        QStringLiteral("Destino"),
+        trk(QStringLiteral("t_connections_001"),
+            QStringLiteral("Conexión"),
+            QStringLiteral("Connection"),
+            QStringLiteral("连接"))
+    });
+    m_connectionsTable->horizontalHeader()->setVisible(true);
     m_connectionsTable->verticalHeader()->setVisible(false);
     m_connectionsTable->setAlternatingRowColors(true);
     m_connectionsTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_connectionsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_connectionsTable->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     m_connectionsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_connectionsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    m_connectionsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_connectionsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_connectionsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
 #ifdef Q_OS_MAC
     if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
         m_connectionsTable->setStyle(fusion);
@@ -575,11 +590,11 @@ void MainWindow::buildUi() {
     m_connDestSelectionLabel->setWordWrap(true);
     m_connDestSelectionLabel->setMinimumHeight(20);
     connActionRightLayout->addWidget(m_connDestSelectionLabel);
-    m_btnConnReset = new QPushButton(
-        trk(QStringLiteral("t_reset_btn_001"),
-            QStringLiteral("Reset"),
-            QStringLiteral("Reset"),
-            QStringLiteral("重置")),
+    m_btnApplyConnContentProps = new QPushButton(
+        trk(QStringLiteral("t_apply_changes_001"),
+            QStringLiteral("Aplicar cambios"),
+            QStringLiteral("Apply changes"),
+            QStringLiteral("应用更改")),
         connActionRightBox);
     m_btnConnCopy = new QPushButton(
         trk(QStringLiteral("t_copy_001"),
@@ -623,16 +638,11 @@ void MainWindow::buildUi() {
                            "Requires: dataset selected (not snapshot) in Source and Target."),
             QStringLiteral("使用 rsync 同步源端到目标端的数据集内容。\n"
                            "条件：源端和目标端都选择数据集（非快照）。")));
-    m_btnConnReset->setToolTip(
-        trk(QStringLiteral("t_tt_reset_001"),
-            QStringLiteral("Limpia la selección de Origen."),
-            QStringLiteral("Clear the Source selection."),
-            QStringLiteral("清空源端选择。")));
-    m_btnConnReset->setMinimumHeight(stdLeftBtnH);
+    m_btnApplyConnContentProps->setMinimumHeight(stdLeftBtnH);
     m_btnConnCopy->setMinimumHeight(stdLeftBtnH);
     m_btnConnLevel->setMinimumHeight(stdLeftBtnH);
     m_btnConnSync->setMinimumHeight(stdLeftBtnH);
-    m_btnConnReset->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnApplyConnContentProps->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnCopy->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnLevel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnSync->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -642,7 +652,7 @@ void MainWindow::buildUi() {
     connRightBtns->setVerticalSpacing(6);
     connRightBtns->setColumnStretch(0, 1);
     connRightBtns->setColumnStretch(1, 1);
-    connRightBtns->addWidget(m_btnConnReset, 0, 0);
+    connRightBtns->addWidget(m_btnApplyConnContentProps, 0, 0);
     connRightBtns->addWidget(m_btnConnSync, 0, 1);
     connRightBtns->addWidget(m_btnConnCopy, 1, 0);
     connRightBtns->addWidget(m_btnConnLevel, 1, 1);
@@ -892,11 +902,11 @@ void MainWindow::buildUi() {
     poolDetailLayout->addWidget(m_connectionEntityTabs, 0);
     auto* detailContainer = new QFrame(m_poolDetailTabs);
     detailContainer->setObjectName(QStringLiteral("zfsmgrDetailContainer"));
-    detailContainer->setFrameShape(QFrame::Box);
+    detailContainer->setFrameShape(QFrame::NoFrame);
     detailContainer->setFrameShadow(QFrame::Plain);
-    detailContainer->setLineWidth(1);
+    detailContainer->setLineWidth(0);
     auto* detailContainerLayout = new QVBoxLayout(detailContainer);
-    detailContainerLayout->setContentsMargins(4, 4, 4, 4);
+    detailContainerLayout->setContentsMargins(0, 0, 0, 0);
     detailContainerLayout->setSpacing(0);
     m_poolViewTabBar = nullptr;
     m_connPropsGroup = new QWidget(m_poolDetailTabs);
@@ -1022,7 +1032,7 @@ void MainWindow::buildUi() {
     m_connContentTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     m_connContentTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
     m_connContentTree->header()->setSectionResizeMode(3, QHeaderView::Interactive);
-    m_connContentTree->header()->setStretchLastSection(false);
+    m_connContentTree->header()->setStretchLastSection(true);
     m_connContentTree->setColumnWidth(0, 250);
     m_connContentTree->setColumnWidth(1, 90);
     m_connContentTree->setColumnWidth(2, 72);
@@ -1047,14 +1057,7 @@ void MainWindow::buildUi() {
     if (m_btnConnFromDir) m_btnConnFromDir->setVisible(false);
     if (m_btnConnToDir) m_btnConnToDir->setVisible(false);
     connContentLayout->addWidget(m_connContentTree, 1);
-    m_btnApplyConnContentProps = new QPushButton(
-        trk(QStringLiteral("t_apply_changes_001"),
-            QStringLiteral("Aplicar cambios"),
-            QStringLiteral("Apply changes"),
-            QStringLiteral("应用更改")),
-        m_connContentPage);
     m_btnApplyConnContentProps->setEnabled(false);
-    connContentLayout->addWidget(m_btnApplyConnContentProps, 0, Qt::AlignLeft);
     m_connPropsStack->addWidget(m_connContentPage);
     m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
     propsPoolLayout->addWidget(m_connPropsStack, 1);
@@ -1116,11 +1119,11 @@ void MainWindow::buildUi() {
     statusPoolLayout->addWidget(m_connBottomStack, 1);
     auto* subtabContentFrame = new QFrame(detailContainer);
     subtabContentFrame->setObjectName(QStringLiteral("zfsmgrSubtabContentFrame"));
-    subtabContentFrame->setFrameShape(QFrame::Box);
+    subtabContentFrame->setFrameShape(QFrame::NoFrame);
     subtabContentFrame->setFrameShadow(QFrame::Plain);
-    subtabContentFrame->setLineWidth(1);
+    subtabContentFrame->setLineWidth(0);
     auto* subtabContentLayout = new QVBoxLayout(subtabContentFrame);
-    subtabContentLayout->setContentsMargins(3, 3, 3, 3);
+    subtabContentLayout->setContentsMargins(0, 0, 0, 0);
     subtabContentLayout->setSpacing(0);
     m_connDetailSplit = new QSplitter(Qt::Vertical, subtabContentFrame);
     m_connDetailSplit->setChildrenCollapsible(false);
@@ -1291,7 +1294,100 @@ void MainWindow::buildUi() {
 
     m_rightStack->addWidget(rightConnectionsPage);
     m_rightStack->addWidget(rightDatasetsPage);
-    rightLayout->addWidget(m_rightStack, 1);
+    auto* rightSplit = new QSplitter(Qt::Vertical, rightPane);
+    rightSplit->setChildrenCollapsible(false);
+    rightSplit->setHandleWidth(4);
+    rightSplit->addWidget(m_rightStack);
+    auto* bottomConnBox = new QWidget(rightSplit);
+    auto* bottomConnLayout = new QVBoxLayout(bottomConnBox);
+    bottomConnLayout->setContentsMargins(6, 6, 6, 6);
+    m_bottomConnectionEntityTabs = new QTabBar(bottomConnBox);
+    m_bottomConnectionEntityTabs->setObjectName(QStringLiteral("zfsmgrEntityTabsBottom"));
+    m_bottomConnectionEntityTabs->setExpanding(false);
+    m_bottomConnectionEntityTabs->setDrawBase(false);
+    m_bottomConnectionEntityTabs->setUsesScrollButtons(true);
+    bottomConnLayout->addWidget(m_bottomConnectionEntityTabs, 0);
+    m_bottomConnContentTree = new QTreeWidget(bottomConnBox);
+    m_bottomConnContentTree->setColumnCount(4);
+    m_bottomConnContentTree->setHeaderLabels({trk(QStringLiteral("t_dataset_001"),
+                                                   QStringLiteral("Dataset"),
+                                                   QStringLiteral("Dataset"),
+                                                   QStringLiteral("数据集")),
+                                               trk(QStringLiteral("t_snapshot_col01"),
+                                                   QStringLiteral("Snapshot"),
+                                                   QStringLiteral("Snapshot"),
+                                                   QStringLiteral("快照")),
+                                               trk(QStringLiteral("t_montado_a97484"),
+                                                   QStringLiteral("Montado"),
+                                                   QStringLiteral("Mounted"),
+                                                   QStringLiteral("已挂载")),
+                                               trk(QStringLiteral("t_mountpoint_001"),
+                                                   QStringLiteral("Mountpoint"),
+                                                   QStringLiteral("Mountpoint"),
+                                                   QStringLiteral("挂载点"))});
+    m_bottomConnContentTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
+    m_bottomConnContentTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
+    m_bottomConnContentTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
+    m_bottomConnContentTree->header()->setSectionResizeMode(3, QHeaderView::Interactive);
+    m_bottomConnContentTree->header()->setStretchLastSection(true);
+    m_bottomConnContentTree->setColumnWidth(0, 230);
+    m_bottomConnContentTree->setColumnWidth(1, 90);
+    m_bottomConnContentTree->setColumnWidth(2, 72);
+    m_bottomConnContentTree->setColumnWidth(3, 170);
+    m_bottomConnContentTree->setUniformRowHeights(true);
+    m_bottomConnContentTree->setRootIsDecorated(true);
+    m_bottomConnContentTree->setItemsExpandable(true);
+    m_bottomConnContentTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"));
+    bottomConnLayout->addWidget(m_bottomConnContentTree, 1);
+    rightSplit->setStretchFactor(0, 1);
+    rightSplit->setStretchFactor(1, 1);
+    rightSplit->setSizes({500, 500});
+    auto equalizeTreeHeights = [this, rightSplit, rightConnectionsPage, bottomConnBox]() {
+        QTreeWidget* topTree = nullptr;
+        if (m_connContentPage) {
+            topTree = m_connContentPage->findChild<QTreeWidget*>();
+        }
+        if (!rightSplit || !topTree || !m_bottomConnContentTree
+            || !rightConnectionsPage || !bottomConnBox) {
+            return;
+        }
+        const int total = rightSplit->size().height() > 0
+                              ? rightSplit->size().height()
+                              : rightSplit->sizes().value(0, 0) + rightSplit->sizes().value(1, 0);
+        if (total <= 0) {
+            return;
+        }
+        const int topTreeH = topTree->viewport() ? topTree->viewport()->height() : topTree->height();
+        const int bottomTreeH = m_bottomConnContentTree->viewport() ? m_bottomConnContentTree->viewport()->height()
+                                                                     : m_bottomConnContentTree->height();
+        if (topTreeH <= 0 || bottomTreeH <= 0) {
+            int topH = total / 2;
+            topH = qBound(120, topH, total - 120);
+            rightSplit->setSizes({topH, total - topH});
+            return;
+        }
+        const int delta = topTreeH - bottomTreeH;
+        if (qAbs(delta) <= 1) {
+            return;
+        }
+        QList<int> sizes = rightSplit->sizes();
+        if (sizes.size() < 2) {
+            int topH = total / 2;
+            topH = qBound(120, topH, total - 120);
+            rightSplit->setSizes({topH, total - topH});
+            return;
+        }
+        int topH = sizes[0] - (delta / 2);
+        topH = qBound(120, topH, total - 120);
+        rightSplit->setSizes({topH, total - topH});
+    };
+    QTimer::singleShot(0, this, equalizeTreeHeights);
+    QTimer::singleShot(80, this, equalizeTreeHeights);
+    QTimer::singleShot(180, this, equalizeTreeHeights);
+    QTimer::singleShot(320, this, equalizeTreeHeights);
+    QTimer::singleShot(520, this, equalizeTreeHeights);
+    QTimer::singleShot(900, this, equalizeTreeHeights);
+    rightLayout->addWidget(rightSplit, 1);
 
     topLayout->addWidget(leftPane, 0);
     topLayout->addWidget(rightPane, 1);
@@ -1426,11 +1522,14 @@ void MainWindow::buildUi() {
     }
     connect(m_connectionsTable, &QTableWidget::currentCellChanged, this,
             [this](int, int, int, int) { onConnectionSelectionChanged(); });
-    connect(m_connectionsTable, &QTableWidget::cellClicked, this, [this](int row, int) {
+    connect(m_connectionsTable, &QTableWidget::cellClicked, this, [this](int row, int col) {
         if (!m_connectionsTable || row < 0) {
             return;
         }
-        QTableWidgetItem* it = m_connectionsTable->item(row, 0);
+        if (col == 0 || col == 1) {
+            return;
+        }
+        QTableWidgetItem* it = m_connectionsTable->item(row, 2);
         if (!it) {
             return;
         }
@@ -1444,9 +1543,382 @@ void MainWindow::buildUi() {
             m_userSelectedConnectionKey = m_profiles[connIdx].name.trimmed().toLower();
         }
     });
+    connect(m_connectionsTable, &QTableWidget::itemChanged, this, [this](QTableWidgetItem* item) {
+        if (!item || m_syncConnSelectorChecks || !m_connectionsTable) {
+            return;
+        }
+        const int col = item->column();
+        if (col != 0 && col != 1) {
+            return;
+        }
+        bool ok = false;
+        const int connIdx = item->data(Qt::UserRole).toInt(&ok);
+        if (!ok || connIdx < 0 || connIdx >= m_profiles.size()) {
+            return;
+        }
+        const bool checked = item->checkState() == Qt::Checked;
+        m_syncConnSelectorChecks = true;
+        if (col == 0) {
+            if (checked) {
+                m_topDetailConnIdx = connIdx;
+            } else if (m_topDetailConnIdx == connIdx) {
+                m_topDetailConnIdx = -1;
+            }
+            for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
+                QTableWidgetItem* it = m_connectionsTable->item(r, 0);
+                if (!it) {
+                    continue;
+                }
+                const int idx = it->data(Qt::UserRole).toInt();
+                it->setCheckState((idx == m_topDetailConnIdx) ? Qt::Checked : Qt::Unchecked);
+            }
+        } else {
+            if (checked) {
+                m_bottomDetailConnIdx = connIdx;
+            } else if (m_bottomDetailConnIdx == connIdx) {
+                m_bottomDetailConnIdx = -1;
+            }
+            for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
+                QTableWidgetItem* it = m_connectionsTable->item(r, 1);
+                if (!it) {
+                    continue;
+                }
+                const int idx = it->data(Qt::UserRole).toInt();
+                it->setCheckState((idx == m_bottomDetailConnIdx) ? Qt::Checked : Qt::Unchecked);
+            }
+        }
+        m_syncConnSelectorChecks = false;
+        if (col == 0 && checked) {
+            for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
+                QTableWidgetItem* it = m_connectionsTable->item(r, 2);
+                if (!it) {
+                    continue;
+                }
+                const int idx = it->data(Qt::UserRole).toInt();
+                if (idx == connIdx) {
+                    m_connectionsTable->setCurrentCell(r, 2);
+                    break;
+                }
+            }
+        }
+        updateSecondaryConnectionDetail();
+    });
     if (m_connectionEntityTabs) {
         connect(m_connectionEntityTabs, &QTabBar::currentChanged, this, [this](int idx) {
             onConnectionEntityTabChanged(idx);
+        });
+    }
+    if (m_bottomConnectionEntityTabs) {
+        connect(m_bottomConnectionEntityTabs, &QTabBar::currentChanged, this, [this](int idx) {
+            if (!m_bottomConnectionEntityTabs || !m_bottomConnContentTree) {
+                return;
+            }
+            if (idx < 0 || idx >= m_bottomConnectionEntityTabs->count()) {
+                m_bottomConnContentTree->clear();
+                return;
+            }
+            const QString key = m_bottomConnectionEntityTabs->tabData(idx).toString();
+            const QStringList parts = key.split(':');
+            if (parts.size() < 3 || parts.first() != QStringLiteral("pool")) {
+                m_bottomConnContentTree->clear();
+                return;
+            }
+            bool ok = false;
+            const int connIdx = parts.value(1).toInt(&ok);
+            const QString poolName = parts.value(2).trimmed();
+            if (!ok || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+                m_bottomConnContentTree->clear();
+                return;
+            }
+            saveBottomConnectionNavState(connIdx);
+            const QString prevToken = m_connContentToken;
+            QTreeWidget* prevTree = m_connContentTree;
+            m_connContentTree = m_bottomConnContentTree;
+            m_connContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+            populateDatasetTree(m_bottomConnContentTree, connIdx, poolName, QStringLiteral("conncontent"), true);
+            syncConnContentPoolColumns();
+            if (m_bottomConnContentTree->topLevelItemCount() > 0) {
+                m_bottomConnContentTree->setCurrentItem(m_bottomConnContentTree->topLevelItem(0));
+            }
+            m_connContentTree = prevTree;
+            m_connContentToken = prevToken;
+        });
+    }
+    if (m_bottomConnContentTree) {
+        connect(m_bottomConnContentTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
+            if (!m_bottomConnContentTree || m_syncingConnContentColumns) {
+                return;
+            }
+            const int tabIdx = m_bottomConnectionEntityTabs ? m_bottomConnectionEntityTabs->currentIndex() : -1;
+            if (tabIdx < 0 || !m_bottomConnectionEntityTabs) {
+                return;
+            }
+            const QString key = m_bottomConnectionEntityTabs->tabData(tabIdx).toString();
+            const QStringList parts = key.split(':');
+            if (parts.size() < 3 || parts.first() != QStringLiteral("pool")) {
+                return;
+            }
+            bool ok = false;
+            const int connIdx = parts.value(1).toInt(&ok);
+            const QString poolName = parts.value(2).trimmed();
+            if (!ok || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+                return;
+            }
+            QTreeWidgetItem* sel = m_bottomConnContentTree->currentItem();
+            auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
+                for (QTreeWidgetItem* p = n; p; p = p->parent()) {
+                    if (p->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            const bool isPropRow = sel && sel->data(0, kConnPropRowRole).toBool();
+            const bool isPoolContext =
+                sel && (sel->data(0, kIsPoolRootRole).toBool() || isInfoNodeOrInside(sel));
+            if (isPropRow && !isPoolContext) {
+                // No reconstruir propiedades al seleccionar una fila de propiedades de dataset;
+                // si no, el combo se destruye al abrirse.
+                return;
+            }
+
+            const QString prevToken = m_connContentToken;
+            QTreeWidget* prevTree = m_connContentTree;
+            m_connContentTree = m_bottomConnContentTree;
+            m_connContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+            if (isPoolContext) {
+                syncConnContentPoolColumns();
+                setConnectionDestinationSelection(DatasetSelectionContext{});
+            } else {
+                refreshDatasetProperties(QStringLiteral("conncontent"));
+                syncConnContentPropertyColumns();
+                const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("conncontent"));
+                if (actx.valid && !actx.datasetName.isEmpty()) {
+                    setConnectionDestinationSelection(actx);
+                } else {
+                    setConnectionDestinationSelection(DatasetSelectionContext{});
+                }
+            }
+            m_connContentTree = prevTree;
+            m_connContentToken = prevToken;
+        });
+        connect(m_bottomConnContentTree, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int col) {
+            if (!m_bottomConnContentTree || !item) {
+                return;
+            }
+            const int tabIdx = m_bottomConnectionEntityTabs ? m_bottomConnectionEntityTabs->currentIndex() : -1;
+            if (tabIdx < 0 || !m_bottomConnectionEntityTabs) {
+                return;
+            }
+            const QString key = m_bottomConnectionEntityTabs->tabData(tabIdx).toString();
+            const QStringList parts = key.split(':');
+            if (parts.size() < 3 || parts.first() != QStringLiteral("pool")) {
+                return;
+            }
+            bool ok = false;
+            const int connIdx = parts.value(1).toInt(&ok);
+            const QString poolName = parts.value(2).trimmed();
+            if (!ok || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+                return;
+            }
+            const QString prevToken = m_connContentToken;
+            QTreeWidget* prevTree = m_connContentTree;
+            m_connContentTree = m_bottomConnContentTree;
+            m_connContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+            onDatasetTreeItemChanged(m_bottomConnContentTree, item, col, QStringLiteral("conncontent"));
+            m_connContentTree = prevTree;
+            m_connContentToken = prevToken;
+        });
+        m_bottomConnContentTree->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(m_bottomConnContentTree, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+            if (!m_bottomConnContentTree) {
+                return;
+            }
+            QTreeWidgetItem* item = m_bottomConnContentTree->itemAt(pos);
+            if (!item) {
+                return;
+            }
+            const bool isPropRow = item->data(0, kConnPropRowRole).toBool();
+            if (isPropRow && item->parent()) {
+                item = item->parent();
+            }
+            if (m_bottomConnContentTree->currentItem() != item) {
+                m_bottomConnContentTree->setCurrentItem(item);
+            }
+
+            int connIdx = item->data(0, kConnIdxRole).toInt();
+            QString poolName = item->data(0, kPoolNameRole).toString().trimmed();
+            if ((connIdx < 0 || poolName.isEmpty()) && m_bottomConnectionEntityTabs) {
+                const int tabIdx = m_bottomConnectionEntityTabs->currentIndex();
+                if (tabIdx >= 0) {
+                    const QString key = m_bottomConnectionEntityTabs->tabData(tabIdx).toString();
+                    const QStringList parts = key.split(':');
+                    if (parts.size() >= 3 && parts.first() == QStringLiteral("pool")) {
+                        bool ok = false;
+                        const int idx = parts.value(1).toInt(&ok);
+                        if (ok) {
+                            connIdx = idx;
+                            poolName = parts.value(2).trimmed();
+                        }
+                    }
+                }
+            }
+
+            // Mantener independiente la navegación superior: no cambiar tab activo de arriba
+            // al lanzar acciones desde el árbol inferior.
+            if (connIdx >= 0 && !poolName.isEmpty() && m_connectionsTable) {
+                int row = -1;
+                for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
+                    QTableWidgetItem* it = m_connectionsTable->item(r, 2);
+                    if (!it) {
+                        continue;
+                    }
+                    bool ok = false;
+                    const int idx = it->data(Qt::UserRole).toInt(&ok);
+                    if (ok && idx == connIdx) {
+                        row = r;
+                        break;
+                    }
+                }
+                if (row >= 0) {
+                    m_connectionsTable->setCurrentCell(row, 2);
+                }
+            }
+            updateConnectionActionsState();
+
+            QMenu menu(this);
+            const bool isPoolRoot = item->data(0, kIsPoolRootRole).toBool();
+            if (isPoolRoot) {
+                int poolRow = -1;
+                if (connIdx >= 0 && connIdx < m_profiles.size() && !poolName.isEmpty()) {
+                    poolRow = findPoolRow(m_profiles[connIdx].name.trimmed(), poolName);
+                }
+                const QString poolAction =
+                    (poolRow >= 0 && poolRow < m_poolListEntries.size())
+                        ? m_poolListEntries[poolRow].action.trimmed()
+                        : QString();
+                const bool canImport = (poolAction.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) == 0);
+                const bool canExport = (poolAction.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) == 0);
+                const bool canScrub = canExport;
+                const bool canDestroy = canExport;
+                const bool canRefresh = (poolRow >= 0);
+                QAction* aUpdate = menu.addAction(
+                    trk(QStringLiteral("t_refresh_btn001"),
+                        QStringLiteral("Actualizar"),
+                        QStringLiteral("Refresh"),
+                        QStringLiteral("刷新")));
+                QAction* aImport = menu.addAction(
+                    trk(QStringLiteral("t_import_btn001"),
+                        QStringLiteral("Importar"),
+                        QStringLiteral("Import"),
+                        QStringLiteral("导入")));
+                QAction* aExport = menu.addAction(
+                    trk(QStringLiteral("t_export_btn001"),
+                        QStringLiteral("Exportar"),
+                        QStringLiteral("Export"),
+                        QStringLiteral("导出")));
+                QAction* aScrub = menu.addAction(QStringLiteral("Scrub"));
+                QAction* aDestroy = menu.addAction(QStringLiteral("Destroy"));
+                aUpdate->setEnabled(canRefresh);
+                aImport->setEnabled(canImport);
+                aExport->setEnabled(canExport);
+                aScrub->setEnabled(canScrub);
+                aDestroy->setEnabled(canDestroy);
+                QAction* picked = menu.exec(m_bottomConnContentTree->viewport()->mapToGlobal(pos));
+                if (!picked) {
+                    return;
+                }
+                if (picked == aUpdate && canRefresh) {
+                    refreshSelectedPoolDetails(true, true);
+                } else if (picked == aImport && canImport && poolRow >= 0) {
+                    importPoolFromRow(poolRow);
+                } else if (picked == aExport && canExport && poolRow >= 0) {
+                    exportPoolFromRow(poolRow);
+                } else if (picked == aScrub && canScrub && poolRow >= 0) {
+                    scrubPoolFromRow(poolRow);
+                } else if (picked == aDestroy && canDestroy && poolRow >= 0) {
+                    destroyPoolFromRow(poolRow);
+                }
+                return;
+            }
+
+            QAction* aRollback = menu.addAction(QStringLiteral("Rollback"));
+            QAction* aCreate = menu.addAction(
+                trk(QStringLiteral("t_create_ch_001"), QStringLiteral("Crear"), QStringLiteral("Create"), QStringLiteral("创建")));
+            QAction* aDelete = menu.addAction(
+                trk(QStringLiteral("t_delete_menu002"), QStringLiteral("Borrar"), QStringLiteral("Delete"), QStringLiteral("删除")));
+            menu.addSeparator();
+            QAction* aBreakdown = menu.addAction(
+                trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")));
+            QAction* aAssemble = menu.addAction(
+                trk(QStringLiteral("t_assemble_btn1"), QStringLiteral("Ensamblar"), QStringLiteral("Assemble"), QStringLiteral("组装")));
+            QAction* aFromDir = menu.addAction(
+                trk(QStringLiteral("t_from_dir_btn1"), QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")));
+            QAction* aToDir = menu.addAction(
+                trk(QStringLiteral("t_to_dir_btn_001"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")));
+
+            const QString prevToken = m_connContentToken;
+            QTreeWidget* prevTree = m_connContentTree;
+            m_connContentTree = m_bottomConnContentTree;
+            m_connContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+            const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
+            const bool hasConnSel = ctx.valid && !ctx.datasetName.isEmpty();
+            const bool hasConnSnap = hasConnSel && !ctx.snapshotName.isEmpty();
+            aRollback->setEnabled(!actionsLocked() && hasConnSnap);
+            aCreate->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
+            aDelete->setEnabled(!actionsLocked() && hasConnSel);
+            aBreakdown->setEnabled(m_btnConnBreakdown && m_btnConnBreakdown->isEnabled());
+            aAssemble->setEnabled(m_btnConnAssemble && m_btnConnAssemble->isEnabled());
+            aFromDir->setEnabled(m_btnConnFromDir && m_btnConnFromDir->isEnabled());
+            aToDir->setEnabled(m_btnConnToDir && m_btnConnToDir->isEnabled());
+
+            QAction* picked = menu.exec(m_bottomConnContentTree->viewport()->mapToGlobal(pos));
+            if (!picked) {
+                m_connContentTree = prevTree;
+                m_connContentToken = prevToken;
+                return;
+            }
+            if (picked == aRollback) {
+                const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("conncontent"));
+                if (!actx.valid || actx.snapshotName.isEmpty()) {
+                    m_connContentTree = prevTree;
+                    m_connContentToken = prevToken;
+                    return;
+                }
+                const QString snapObj = QStringLiteral("%1@%2").arg(actx.datasetName, actx.snapshotName);
+                const auto confirm = QMessageBox::question(
+                    this,
+                    QStringLiteral("Rollback"),
+                    QStringLiteral("¿Confirmar rollback de snapshot?\n%1").arg(snapObj),
+                    QMessageBox::Yes | QMessageBox::No,
+                    QMessageBox::No);
+                if (confirm != QMessageBox::Yes) {
+                    m_connContentTree = prevTree;
+                    m_connContentToken = prevToken;
+                    return;
+                }
+                logUiAction(QStringLiteral("Rollback snapshot (menú Contenido inferior)"));
+                QString q = snapObj;
+                q.replace('\'', "'\"'\"'");
+                const QString cmd = QStringLiteral("zfs rollback '%1'").arg(q);
+                executeDatasetAction(QStringLiteral("conncontent"), QStringLiteral("Rollback"), actx, cmd, 90000);
+            } else if (picked == aCreate) {
+                logUiAction(QStringLiteral("Crear hijo dataset (menú Contenido inferior)"));
+                actionCreateChildDataset(QStringLiteral("conncontent"));
+            } else if (picked == aDelete) {
+                logUiAction(QStringLiteral("Borrar dataset/snapshot (menú Contenido inferior)"));
+                actionDeleteDatasetOrSnapshot(QStringLiteral("conncontent"));
+            } else if (picked == aBreakdown && m_btnConnBreakdown) {
+                m_btnConnBreakdown->click();
+            } else if (picked == aAssemble && m_btnConnAssemble) {
+                m_btnConnAssemble->click();
+            } else if (picked == aFromDir && m_btnConnFromDir) {
+                m_btnConnFromDir->click();
+            } else if (picked == aToDir && m_btnConnToDir) {
+                m_btnConnToDir->click();
+            }
+            m_connContentTree = prevTree;
+            m_connContentToken = prevToken;
         });
     }
     m_connectionsTable->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -1456,12 +1928,12 @@ void MainWindow::buildUi() {
         }
         const QModelIndex idxAt = m_connectionsTable->indexAt(pos);
         if (idxAt.isValid() && idxAt.row() >= 0) {
-            m_connectionsTable->setCurrentCell(idxAt.row(), 0);
+            m_connectionsTable->setCurrentCell(idxAt.row(), 2);
         }
         int connIdx = -1;
         const int curRow = m_connectionsTable->currentRow();
         if (curRow >= 0 && curRow < m_connectionsTable->rowCount()) {
-            QTableWidgetItem* it = m_connectionsTable->item(curRow, 0);
+            QTableWidgetItem* it = m_connectionsTable->item(curRow, 2);
             if (it) {
                 bool ok = false;
                 const int idx = it->data(Qt::UserRole).toInt(&ok);
@@ -1579,22 +2051,35 @@ void MainWindow::buildUi() {
                 return;
             }
             QTreeWidgetItem* sel = m_connContentTree ? m_connContentTree->currentItem() : nullptr;
+            auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
+                for (QTreeWidgetItem* p = n; p; p = p->parent()) {
+                    if (p->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
+                        return true;
+                    }
+                }
+                return false;
+            };
             const bool isPropRow = sel && sel->data(0, kConnPropRowRole).toBool();
-            if (isPropRow) {
+            const bool isPoolContext =
+                sel && (sel->data(0, kIsPoolRootRole).toBool() || isInfoNodeOrInside(sel));
+            if (isPropRow && !isPoolContext) {
                 updateConnectionDetailTitlesForCurrentSelection();
                 updateConnectionActionsState();
                 return;
             }
-            const bool isPoolRoot = sel && sel->data(0, kIsPoolRootRole).toBool();
-            const bool isPoolPropRow =
-                sel && sel->data(0, kConnPropRowRole).toBool()
-                && sel->parent() && sel->parent()->data(0, kIsPoolRootRole).toBool();
-            if (isPoolRoot || isPoolPropRow) {
+            if (isPoolContext) {
                 refreshSelectedPoolDetails(false, true);
                 syncConnContentPoolColumns();
+                setConnectionOriginSelection(DatasetSelectionContext{});
             } else {
                 refreshDatasetProperties(QStringLiteral("conncontent"));
                 syncConnContentPropertyColumns();
+                const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("conncontent"));
+                if (actx.valid && !actx.datasetName.isEmpty()) {
+                    setConnectionOriginSelection(actx);
+                } else {
+                    setConnectionOriginSelection(DatasetSelectionContext{});
+                }
             }
             updateConnectionDetailTitlesForCurrentSelection();
             updateConnectionActionsState();
@@ -1625,6 +2110,22 @@ void MainWindow::buildUi() {
             QMenu menu(this);
             const bool isPoolRoot = item->data(0, kIsPoolRootRole).toBool();
             if (isPoolRoot) {
+                const int connIdx = item->data(0, kConnIdxRole).toInt();
+                const QString poolName = item->data(0, kPoolNameRole).toString().trimmed();
+                int poolRow = -1;
+                if (connIdx >= 0 && connIdx < m_profiles.size() && !poolName.isEmpty()) {
+                    poolRow = findPoolRow(m_profiles[connIdx].name.trimmed(), poolName);
+                }
+                const QString poolAction =
+                    (poolRow >= 0 && poolRow < m_poolListEntries.size())
+                        ? m_poolListEntries[poolRow].action.trimmed()
+                        : QString();
+                const bool canImport = (poolAction.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) == 0);
+                const bool canExport = (poolAction.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) == 0);
+                const bool canScrub = canExport;
+                const bool canDestroy = canExport;
+                const bool canRefresh = (poolRow >= 0);
+
                 QAction* aUpdate = menu.addAction(
                     trk(QStringLiteral("t_refresh_btn001"),
                         QStringLiteral("Actualizar"),
@@ -1642,25 +2143,25 @@ void MainWindow::buildUi() {
                         QStringLiteral("导出")));
                 QAction* aScrub = menu.addAction(QStringLiteral("Scrub"));
                 QAction* aDestroy = menu.addAction(QStringLiteral("Destroy"));
-                aUpdate->setEnabled(m_poolStatusRefreshBtn && m_poolStatusRefreshBtn->isEnabled());
-                aImport->setEnabled(m_poolStatusImportBtn && m_poolStatusImportBtn->isEnabled());
-                aExport->setEnabled(m_poolStatusExportBtn && m_poolStatusExportBtn->isEnabled());
-                aScrub->setEnabled(m_poolStatusScrubBtn && m_poolStatusScrubBtn->isEnabled());
-                aDestroy->setEnabled(m_poolStatusDestroyBtn && m_poolStatusDestroyBtn->isEnabled());
+                aUpdate->setEnabled(canRefresh);
+                aImport->setEnabled(canImport);
+                aExport->setEnabled(canExport);
+                aScrub->setEnabled(canScrub);
+                aDestroy->setEnabled(canDestroy);
                 QAction* picked = menu.exec(m_connContentTree->viewport()->mapToGlobal(pos));
                 if (!picked) {
                     return;
                 }
-                if (picked == aUpdate && m_poolStatusRefreshBtn) {
-                    m_poolStatusRefreshBtn->click();
-                } else if (picked == aImport && m_poolStatusImportBtn) {
-                    m_poolStatusImportBtn->click();
-                } else if (picked == aExport && m_poolStatusExportBtn) {
-                    m_poolStatusExportBtn->click();
-                } else if (picked == aScrub && m_poolStatusScrubBtn) {
-                    m_poolStatusScrubBtn->click();
-                } else if (picked == aDestroy && m_poolStatusDestroyBtn) {
-                    m_poolStatusDestroyBtn->click();
+                if (picked == aUpdate && canRefresh) {
+                    refreshSelectedPoolDetails(true, true);
+                } else if (picked == aImport && canImport && poolRow >= 0) {
+                    importPoolFromRow(poolRow);
+                } else if (picked == aExport && canExport && poolRow >= 0) {
+                    exportPoolFromRow(poolRow);
+                } else if (picked == aScrub && canScrub && poolRow >= 0) {
+                    scrubPoolFromRow(poolRow);
+                } else if (picked == aDestroy && canDestroy && poolRow >= 0) {
+                    destroyPoolFromRow(poolRow);
                 }
                 return;
             }
@@ -1670,11 +2171,6 @@ void MainWindow::buildUi() {
                 trk(QStringLiteral("t_create_ch_001"), QStringLiteral("Crear"), QStringLiteral("Create"), QStringLiteral("创建")));
             QAction* aDelete = menu.addAction(
                 trk(QStringLiteral("t_delete_menu002"), QStringLiteral("Borrar"), QStringLiteral("Delete"), QStringLiteral("删除")));
-            menu.addSeparator();
-            QAction* aOrigin = menu.addAction(
-                trk(QStringLiteral("t_select_origin1"), QStringLiteral("Origen"), QStringLiteral("Source"), QStringLiteral("源")));
-            QAction* aDest = menu.addAction(
-                trk(QStringLiteral("t_select_dest_001"), QStringLiteral("Destino"), QStringLiteral("Target"), QStringLiteral("目标")));
             menu.addSeparator();
             QAction* aBreakdown = menu.addAction(
                 trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")));
@@ -1688,23 +2184,9 @@ void MainWindow::buildUi() {
             const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
             const bool hasConnSel = ctx.valid && !ctx.datasetName.isEmpty();
             const bool hasConnSnap = hasConnSel && !ctx.snapshotName.isEmpty();
-            const bool alreadyOrigin = hasConnSel
-                && m_connActionOrigin.valid
-                && ctx.connIdx == m_connActionOrigin.connIdx
-                && ctx.poolName == m_connActionOrigin.poolName
-                && ctx.datasetName == m_connActionOrigin.datasetName
-                && ctx.snapshotName == m_connActionOrigin.snapshotName;
-            const bool alreadyDest = hasConnSel
-                && m_connActionDest.valid
-                && ctx.connIdx == m_connActionDest.connIdx
-                && ctx.poolName == m_connActionDest.poolName
-                && ctx.datasetName == m_connActionDest.datasetName
-                && ctx.snapshotName == m_connActionDest.snapshotName;
             aRollback->setEnabled(!actionsLocked() && hasConnSnap);
             aCreate->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
             aDelete->setEnabled(!actionsLocked() && hasConnSel);
-            aOrigin->setEnabled(!actionsLocked() && hasConnSel && !alreadyOrigin);
-            aDest->setEnabled(!actionsLocked() && hasConnSel && !alreadyDest);
             aBreakdown->setEnabled(m_btnConnBreakdown && m_btnConnBreakdown->isEnabled());
             aAssemble->setEnabled(m_btnConnAssemble && m_btnConnAssemble->isEnabled());
             aFromDir->setEnabled(m_btnConnFromDir && m_btnConnFromDir->isEnabled());
@@ -1740,18 +2222,6 @@ void MainWindow::buildUi() {
             } else if (picked == aDelete) {
                 logUiAction(QStringLiteral("Borrar dataset/snapshot (menú Contenido)"));
                 actionDeleteDatasetOrSnapshot(QStringLiteral("conncontent"));
-            } else if (picked == aOrigin) {
-                const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("conncontent"));
-                if (actx.valid) {
-                    logUiAction(QStringLiteral("Seleccionar como origen (menú Contenido)"));
-                    setConnectionOriginSelection(actx);
-                }
-            } else if (picked == aDest) {
-                const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("conncontent"));
-                if (actx.valid) {
-                    logUiAction(QStringLiteral("Seleccionar como destino (menú Contenido)"));
-                    setConnectionDestinationSelection(actx);
-                }
             } else if (picked == aBreakdown && m_btnConnBreakdown) {
                 m_btnConnBreakdown->click();
             } else if (picked == aAssemble && m_btnConnAssemble) {
@@ -1881,16 +2351,6 @@ void MainWindow::buildUi() {
             m_activeConnActionName.clear();
             updateConnectionActionsState();
         }
-    });
-    connect(m_btnConnReset, &QPushButton::clicked, this, [this]() {
-        if (actionsLocked()) {
-            return;
-        }
-        logUiAction(QStringLiteral("Reset origen (botón Conexiones)"));
-        setConnectionOriginSelection(DatasetSelectionContext{});
-        setConnectionDestinationSelection(DatasetSelectionContext{});
-        refreshTransferSelectionLabels();
-        updateConnectionActionsState();
     });
     connect(m_btnConnCopy, &QPushButton::clicked, this, [this]() {
         if (actionsLocked()) {

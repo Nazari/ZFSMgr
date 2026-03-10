@@ -24,7 +24,6 @@ void MainWindow::updateTransferButtonsState() {
         if (m_btnConnAssemble) m_btnConnAssemble->setEnabled(false);
         if (m_btnConnFromDir) m_btnConnFromDir->setEnabled(false);
         if (m_btnConnToDir) m_btnConnToDir->setEnabled(false);
-        if (m_btnConnReset) m_btnConnReset->setEnabled(false);
         if (m_btnConnCopy) m_btnConnCopy->setEnabled(false);
         if (m_btnConnLevel) m_btnConnLevel->setEnabled(false);
         if (m_btnConnSync) m_btnConnSync->setEnabled(false);
@@ -116,8 +115,6 @@ void MainWindow::updateConnectionActionsState() {
         trk(QStringLiteral("t_level_btn_001"), QStringLiteral("Nivelar"), QStringLiteral("Level"), QStringLiteral("同步快照")));
     if (m_btnConnSync) m_btnConnSync->setText(
         trk(QStringLiteral("t_sync_btn_001"), QStringLiteral("Sincronizar"), QStringLiteral("Sync"), QStringLiteral("同步文件")));
-    if (m_btnConnReset) m_btnConnReset->setText(
-        trk(QStringLiteral("t_reset_btn_001"), QStringLiteral("Reset"), QStringLiteral("Reset"), QStringLiteral("重置")));
 
     const DatasetSelectionContext dctx = currentDatasetSelection(QStringLiteral("conncontent"));
     auto fmtSel = [this](const DatasetSelectionContext& c) -> QString {
@@ -153,7 +150,6 @@ void MainWindow::updateConnectionActionsState() {
         if (m_btnConnAssemble) m_btnConnAssemble->setEnabled(false);
         if (m_btnConnFromDir) m_btnConnFromDir->setEnabled(false);
         if (m_btnConnToDir) m_btnConnToDir->setEnabled(false);
-        if (m_btnConnReset) m_btnConnReset->setEnabled(false);
         if (m_btnConnCopy) m_btnConnCopy->setEnabled(false);
         if (m_btnConnLevel) m_btnConnLevel->setEnabled(false);
         if (m_btnConnSync) m_btnConnSync->setEnabled(false);
@@ -196,10 +192,6 @@ void MainWindow::updateConnectionActionsState() {
     if (m_btnConnAssemble) m_btnConnAssemble->setEnabled(!actionsLocked() && connAdvDatasetOnly);
     if (m_btnConnFromDir) m_btnConnFromDir->setEnabled(!actionsLocked() && dctx.valid && !dctx.datasetName.isEmpty() && dctx.snapshotName.isEmpty());
     if (m_btnConnToDir) m_btnConnToDir->setEnabled(!actionsLocked() && dctx.valid && !dctx.datasetName.isEmpty() && dctx.snapshotName.isEmpty());
-    const bool hasConnOrigin = m_connActionOrigin.valid && !m_connActionOrigin.datasetName.isEmpty();
-    const bool hasConnDest = m_connActionDest.valid && !m_connActionDest.datasetName.isEmpty();
-    if (m_btnConnReset) m_btnConnReset->setEnabled(!actionsLocked() && (hasConnOrigin || hasConnDest));
-
     const bool srcDs = m_connActionOrigin.valid && !m_connActionOrigin.datasetName.isEmpty();
     const bool srcSnap = srcDs && !m_connActionOrigin.snapshotName.isEmpty();
     const bool dstDs = m_connActionDest.valid && !m_connActionDest.datasetName.isEmpty();
@@ -285,6 +277,11 @@ void MainWindow::executeConnectionTransferAction(const QString& action) {
     if (!src.valid || src.datasetName.isEmpty() || !dst.valid || dst.datasetName.isEmpty()) {
         return;
     }
+    // Fuerza el uso de la selección real Origen/Destino de Conexiones
+    // (árbol superior/inferior), evitando depender de combos legacy ocultos.
+    m_transferSelectionOverrideActive = true;
+    m_transferSelectionOverrideOrigin = src;
+    m_transferSelectionOverrideDest = dst;
     const QString oldOriginDs = m_originSelectedDataset;
     const QString oldOriginSnap = m_originSelectedSnapshot;
     const QString oldDestDs = m_destSelectedDataset;
@@ -301,6 +298,9 @@ void MainWindow::executeConnectionTransferAction(const QString& action) {
     } else if (action == QStringLiteral("sync")) {
         actionSyncDatasets();
     }
+    m_transferSelectionOverrideActive = false;
+    m_transferSelectionOverrideOrigin = DatasetSelectionContext{};
+    m_transferSelectionOverrideDest = DatasetSelectionContext{};
     m_originSelectedDataset = oldOriginDs;
     m_originSelectedSnapshot = oldOriginSnap;
     m_destSelectedDataset = oldDestDs;

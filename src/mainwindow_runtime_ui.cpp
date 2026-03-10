@@ -5,6 +5,7 @@
 #include <QMessageBox>
 #include <QProcess>
 #include <QPushButton>
+#include <QTabBar>
 #include <QTextEdit>
 #include <QThread>
 
@@ -85,6 +86,47 @@ void MainWindow::updateBusyCursor() {
 }
 
 void MainWindow::setActionsLocked(bool locked) {
+    auto captureTabSelection = [this](QTabBar* tabs, QMap<int, QString>& outMap) {
+        if (!tabs) {
+            return;
+        }
+        const int t = tabs->currentIndex();
+        if (t < 0 || t >= tabs->count()) {
+            return;
+        }
+        const QString key = tabs->tabData(t).toString();
+        const QStringList parts = key.split(':');
+        if (parts.size() < 3 || parts.value(0) != QStringLiteral("pool")) {
+            return;
+        }
+        bool ok = false;
+        const int connIdx = parts.value(1).toInt(&ok);
+        if (!ok || connIdx < 0) {
+            return;
+        }
+        outMap[connIdx] = key;
+    };
+    auto restoreTabSelection = [this](QTabBar* tabs, QMap<int, QString>& map, int connIdx) {
+        if (!tabs || connIdx < 0) {
+            return;
+        }
+        const QString wanted = map.value(connIdx).trimmed();
+        if (wanted.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < tabs->count(); ++i) {
+            if (tabs->tabData(i).toString() == wanted) {
+                tabs->setCurrentIndex(i);
+                break;
+            }
+        }
+    };
+
+    if (locked) {
+        captureTabSelection(m_connectionEntityTabs, m_pendingRefreshTopTabDataByConn);
+        captureTabSelection(m_bottomConnectionEntityTabs, m_pendingRefreshBottomTabDataByConn);
+    }
+
     m_actionsLocked = locked;
     updateBusyCursor();
     if (m_menuExitAction) {
@@ -99,6 +141,7 @@ void MainWindow::setActionsLocked(bool locked) {
     if (m_poolStatusScrubBtn) m_poolStatusScrubBtn->setEnabled(!locked && m_poolStatusScrubBtn->isEnabled());
     if (m_poolStatusDestroyBtn) m_poolStatusDestroyBtn->setEnabled(!locked && m_poolStatusDestroyBtn->isEnabled());
     if (m_btnApplyDatasetProps) m_btnApplyDatasetProps->setEnabled(!locked && m_btnApplyDatasetProps->isEnabled());
+    if (m_btnApplyConnContentProps) m_btnApplyConnContentProps->setEnabled(!locked && m_btnApplyConnContentProps->isEnabled());
     if (m_connPropsRefreshBtn) {
         const bool can = m_connPropsRefreshBtn->property("zfsmgr_can_conn_action").toBool();
         m_connPropsRefreshBtn->setEnabled(!locked && can);
@@ -118,6 +161,10 @@ void MainWindow::setActionsLocked(bool locked) {
         // Connection action buttons are managed by updateConnectionActionsState()
         // to keep the active one as "Cancelar <acción>".
     } else {
+        restoreTabSelection(m_connectionEntityTabs, m_pendingRefreshTopTabDataByConn, m_topDetailConnIdx);
+        restoreTabSelection(m_bottomConnectionEntityTabs, m_pendingRefreshBottomTabDataByConn, m_bottomDetailConnIdx);
+        m_pendingRefreshTopTabDataByConn.remove(m_topDetailConnIdx);
+        m_pendingRefreshBottomTabDataByConn.remove(m_bottomDetailConnIdx);
         m_activeConnActionBtn = nullptr;
         m_activeConnActionName.clear();
         updateTransferButtonsState();

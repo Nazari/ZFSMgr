@@ -1,29 +1,39 @@
 # Menús contextuales
 
-La GUI usa menús contextuales por clic derecho en dos zonas.
+La GUI usa menús contextuales por clic derecho en tres zonas.
 
 ## Menú contextual en `Conexiones`
 
-Sobre la conexión seleccionada:
+Sobre una fila de conexión:
 
 - `Refrescar`
 - `Editar`
 - `Borrar`
+- `Refrescar todas las conexiones`
+- `Nueva conexión`
+- `Nuevo pool`
 
 Notas:
 
 - `Editar` y `Borrar` se deshabilitan para `Local` y conexiones redirigidas a `Local`.
 - Durante acciones en curso, `Refrescar` queda bloqueado.
+- Si el clic derecho se hace en zona vacía, solo aparecen opciones globales (`Refrescar todas`, `Nueva conexión`, `Nuevo pool`).
 
 ## Menú contextual en `Contenido <pool>`
 
-Sobre el dataset/snapshot seleccionado:
+Sobre el nodo raíz `Pool`:
+
+- `Actualizar`
+- `Importar`
+- `Exportar`
+- `Scrub`
+- `Destroy`
+
+Sobre dataset/snapshot seleccionado:
 
 - `Rollback`
 - `Crear`
 - `Borrar`
-- `Origen`
-- `Destino`
 - `Desglosar`
 - `Ensamblar`
 - `Desde Dir`

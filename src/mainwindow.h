@@ -99,6 +99,8 @@ private:
 
     struct ConnContentTreeState {
         QStringList expandedDatasets;
+        bool poolRootExpanded{true};
+        bool infoExpanded{false};
         QString selectedDataset;
         QString selectedSnapshot;
         QMap<QString, QString> snapshotByDataset;
@@ -112,6 +114,7 @@ private:
 
     struct ConnectionNavState {
         QString entityTabKey; // "conn" o "pool:<poolName>"
+        QString bottomEntityTabKey; // "pool:<poolName>" para panel inferior
         QMap<QString, int> poolSubtabByPoolName; // poolName -> subtab index
     };
     struct PoolDetailsCacheEntry {
@@ -142,9 +145,11 @@ private:
     void editConnection();
     void deleteConnection();
     void onConnectionSelectionChanged();
+    void updateSecondaryConnectionDetail();
     void rebuildConnectionEntityTabs();
     void onConnectionEntityTabChanged(int idx);
     void saveConnectionNavState(int connIdx);
+    void saveBottomConnectionNavState(int connIdx);
     void restoreConnectionPoolSubtabState(int connIdx, const QString& poolName);
     void onOriginPoolChanged();
     void onDestPoolChanged();
@@ -315,12 +320,14 @@ private:
     QPushButton* m_btnConnToDir{nullptr};
     QLabel* m_connOriginSelectionLabel{nullptr};
     QLabel* m_connDestSelectionLabel{nullptr};
-    QPushButton* m_btnConnReset{nullptr};
     QPushButton* m_btnConnCopy{nullptr};
     QPushButton* m_btnConnLevel{nullptr};
     QPushButton* m_btnConnSync{nullptr};
     DatasetSelectionContext m_connActionOrigin;
     DatasetSelectionContext m_connActionDest;
+    bool m_transferSelectionOverrideActive{false};
+    DatasetSelectionContext m_transferSelectionOverrideOrigin;
+    DatasetSelectionContext m_transferSelectionOverrideDest;
 
     QVector<PoolListEntry> m_poolListEntries;
     QWidget* m_poolDetailTabs{nullptr};
@@ -350,7 +357,14 @@ private:
     QMap<QString, QMap<QString, QString>> m_connContentPropValuesByObject;
     QMap<QString, ConnContentTreeState> m_connContentTreeStateByToken;
     QMap<QString, ConnectionNavState> m_connectionNavStateByConnId;
+    QMap<int, QString> m_pendingRefreshTopTabDataByConn;
+    QMap<int, QString> m_pendingRefreshBottomTabDataByConn;
     QString m_userSelectedConnectionKey;
+    int m_topDetailConnIdx{-1};
+    int m_bottomDetailConnIdx{-1};
+    bool m_syncConnSelectorChecks{false};
+    QTabBar* m_bottomConnectionEntityTabs{nullptr};
+    QTreeWidget* m_bottomConnContentTree{nullptr};
     QPlainTextEdit* m_poolStatusText{nullptr};
     QPushButton* m_poolStatusRefreshBtn{nullptr};
     QPushButton* m_poolStatusImportBtn{nullptr};
@@ -394,6 +408,7 @@ private:
     QString m_destSelectedSnapshot;
     QString m_propsSide;
     QString m_propsDataset;
+    QString m_propsToken;
     QMap<QString, QString> m_propsOriginalValues;
     QMap<QString, bool> m_propsOriginalInherit;
     bool m_propsDirty{false};

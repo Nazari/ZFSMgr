@@ -6,6 +6,14 @@
 
 MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QString& side) const {
     DatasetSelectionContext ctx;
+    if (m_transferSelectionOverrideActive) {
+        if (side == QStringLiteral("origin") && m_transferSelectionOverrideOrigin.valid) {
+            return m_transferSelectionOverrideOrigin;
+        }
+        if (side == QStringLiteral("dest") && m_transferSelectionOverrideDest.valid) {
+            return m_transferSelectionOverrideDest;
+        }
+    }
     constexpr int connIdxRole = Qt::UserRole + 10;
     constexpr int poolNameRole = Qt::UserRole + 11;
     QString token;

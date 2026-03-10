@@ -46,6 +46,27 @@ int rowForConnectionId(const QTableWidget* table, const QVector<ConnectionProfil
     }
     return -1;
 }
+
+void removeLegacyColumnWidthPersistence(QSettings& ini) {
+    const QStringList keys = ini.allKeys();
+    for (const QString& keyRaw : keys) {
+        const QString key = keyRaw.trimmed().toLower();
+        // Purga de persistencia legacy de anchos/estado de columnas.
+        if (!key.contains(QStringLiteral("conncontent"))
+            && !key.contains(QStringLiteral("dataset_tree"))
+            && !key.contains(QStringLiteral("tree_columns"))
+            && !key.contains(QStringLiteral("table_columns"))) {
+            continue;
+        }
+        if (key.contains(QStringLiteral("column"))
+            || key.contains(QStringLiteral("colwidth"))
+            || key.contains(QStringLiteral("width"))
+            || key.contains(QStringLiteral("header_state"))
+            || key.contains(QStringLiteral("headerstate"))) {
+            ini.remove(keyRaw);
+        }
+    }
+}
 }
 
 QString MainWindow::trk(const QString& key, const QString& es, const QString& en, const QString& zh) const {
@@ -54,6 +75,7 @@ QString MainWindow::trk(const QString& key, const QString& es, const QString& en
 
 void MainWindow::loadUiSettings() {
     QSettings ini(m_store.iniPath(), QSettings::IniFormat);
+    removeLegacyColumnWidthPersistence(ini);
     // Legacy support: [ui]language (migrated to [app]language)
     ini.beginGroup(QStringLiteral("ui"));
     const QString langUi = ini.value(QStringLiteral("language"), QString()).toString().trimmed().toLower();
@@ -107,6 +129,7 @@ void MainWindow::saveUiSettings() const {
     ini.beginGroup(QStringLiteral("ui"));
     ini.remove(QStringLiteral("language"));
     ini.endGroup();
+    removeLegacyColumnWidthPersistence(ini);
     ini.sync();
 }
 

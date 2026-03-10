@@ -12,7 +12,7 @@ When ZFSMgr starts:
 
 - Persisted logs are read (`application.log` and rotated files `.1` ... `.5`).
 - Only the last `N` lines are loaded into the view.
-- `N` is the configured maximum lines limit (menu `Application > Logs`).
+- `N` is the configured maximum lines limit (menu `Menu > Logs`).
 - If logs do not exist or are empty, no error is shown.
 
 ## Compact on-screen rendering

@@ -3,22 +3,21 @@
 ZFSMgr gestiona conexiones y acciones ZFS.
 
 - Panel izquierdo:
-- `Conexiones`: listado simple (una fila por conexion).
-- `Nuevo`: botones `Conexión`, `Pool` y `Refrescar Todo`.
-- `Acciones`: operaciones de transferencia y avanzadas con origen/destino.
+- `Conexiones`: tabla simple (una fila por conexión) con checks `Origen` y `Destino`.
+- `Acciones`: operaciones de transferencia y avanzadas.
 - Panel derecho:
-- Al seleccionar una conexion: tab `Conexión <nombre>`.
-- En esa conexion: propiedades de conexión (arriba) y estado de conexión (abajo).
-- Al seleccionar una conexion con pools importados: un tab por pool importado.
-- Subtab `Propiedades <pool>`: propiedades del pool (arriba) y estado del pool (abajo).
-- Subtab `Contenido <pool>`: árbol de datasets/snapshots (arriba) y propiedades del dataset/snapshot (abajo).
-- Los pools no importables no tienen tab; aparecen en el estado de la conexión con su motivo.
+- Arriba: tabs por pool de la conexión marcada como `Origen`.
+- Abajo: tabs por pool de la conexión marcada como `Destino`.
+- Cada tab de pool muestra un único árbol `Contenido`, con nodo raíz `Pool` y datasets/snapshots.
+- El nodo `Pool` muestra información de pool; los nodos dataset/snapshot muestran propiedades editables en columnas `Prop.`.
+- Los pools no importables no tienen tab; aparecen en el tooltip/estado de la conexión con su motivo.
 - Logs: panel único `Log combinado` (incluye salida SSH/PSRP con prefijo de conexión).
 
 Comportamiento de navegación:
 
 - Cambiar de conexión/tab reutiliza caché de datos.
 - No se refresca automáticamente por solo navegar.
-- Se refresca al ejecutar acciones que modifican estado/datos o al refresco explícito.
+- Se refresca al ejecutar acciones que modifican estado/datos o con refresco explícito.
+- Antes de cada acción se guarda el tab activo de pool (arriba y abajo) y se restaura al finalizar.
 
 Revise "Atajos y estados" para criterios de habilitación de acciones.
