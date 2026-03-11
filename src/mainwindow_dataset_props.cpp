@@ -272,9 +272,17 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         }
         QString currToken;
         if (m_propsSide == QStringLiteral("origin")) {
-            currToken = m_originPoolCombo ? m_originPoolCombo->currentData().toString() : QString();
+            if (m_connActionOrigin.valid) {
+                currToken = QStringLiteral("%1::%2")
+                                .arg(m_connActionOrigin.connIdx)
+                                .arg(m_connActionOrigin.poolName);
+            }
         } else if (m_propsSide == QStringLiteral("dest")) {
-            currToken = m_destPoolCombo ? m_destPoolCombo->currentData().toString() : QString();
+            if (m_connActionDest.valid) {
+                currToken = QStringLiteral("%1::%2")
+                                .arg(m_connActionDest.connIdx)
+                                .arg(m_connActionDest.poolName);
+            }
         } else if (m_propsSide == QStringLiteral("conncontent")) {
             currToken = m_propsToken;
         } else {
@@ -283,7 +291,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         if (currToken.isEmpty()) {
             return;
         }
-        QTableWidget* currTable = (m_propsSide == QStringLiteral("conncontent")) ? m_connContentPropsTable : m_datasetPropsTable;
+        QTableWidget* currTable = m_connContentPropsTable;
         if (!currTable) {
             return;
         }
@@ -311,11 +319,11 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     QString dataset;
     QString snapshot;
     if (side == QStringLiteral("origin")) {
-        dataset = m_originSelectedDataset;
-        snapshot = m_originSelectedSnapshot;
+        dataset = m_connActionOrigin.datasetName;
+        snapshot = m_connActionOrigin.snapshotName;
     } else if (side == QStringLiteral("dest")) {
-        dataset = m_destSelectedDataset;
-        snapshot = m_destSelectedSnapshot;
+        dataset = m_connActionDest.datasetName;
+        snapshot = m_connActionDest.snapshotName;
     } else if (side == QStringLiteral("conncontent")) {
         const auto selected = m_connContentTree ? m_connContentTree->selectedItems() : QList<QTreeWidgetItem*>{};
         if (!selected.isEmpty()) {
@@ -323,10 +331,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
             snapshot = selected.first()->data(1, Qt::UserRole).toString();
         }
     }
-    QTableWidget* table = m_datasetPropsTable;
-    if (side == QStringLiteral("conncontent")) {
-        table = m_connContentPropsTable;
-    }
+    QTableWidget* table = m_connContentPropsTable;
     if (!table) {
         endUiBusy();
         return;
@@ -348,9 +353,17 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
 
     QString token;
     if (side == QStringLiteral("origin")) {
-        token = m_originPoolCombo->currentData().toString();
+        if (m_connActionOrigin.valid) {
+            token = QStringLiteral("%1::%2")
+                        .arg(m_connActionOrigin.connIdx)
+                        .arg(m_connActionOrigin.poolName);
+        }
     } else if (side == QStringLiteral("dest")) {
-        token = m_destPoolCombo->currentData().toString();
+        if (m_connActionDest.valid) {
+            token = QStringLiteral("%1::%2")
+                        .arg(m_connActionDest.connIdx)
+                        .arg(m_connActionDest.poolName);
+        }
     } else if (side == QStringLiteral("conncontent")) {
         token = m_connContentToken;
     }
@@ -599,6 +612,11 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
             if (prop.compare(QStringLiteral("dataset"), Qt::CaseInsensitive) == 0) {
                 continue;
             }
+            if (!snapshot.trimmed().isEmpty()
+                && prop.compare(QStringLiteral("estado"), Qt::CaseInsensitive) == 0) {
+                // Para snapshots no mostramos "Montado" en propiedades inline del treeview.
+                continue;
+            }
             valuesByProp[prop] = row.value;
         }
         updateConnContentPropertyValues(token, objectName, valuesByProp);
@@ -762,7 +780,7 @@ void MainWindow::onDatasetPropsCellChanged(int row, int col) {
     }
     QTableWidget* table = qobject_cast<QTableWidget*>(sender());
     if (!table) {
-        table = (m_propsSide == QStringLiteral("conncontent")) ? m_connContentPropsTable : m_datasetPropsTable;
+        table = m_connContentPropsTable;
     }
     if (!table) {
         return;
@@ -831,15 +849,23 @@ void MainWindow::applyDatasetPropertyChanges() {
         return;
     }
 
-    QTableWidget* propsTable = (m_propsSide == QStringLiteral("conncontent")) ? m_connContentPropsTable : m_datasetPropsTable;
+    QTableWidget* propsTable = m_connContentPropsTable;
     if (!propsTable) {
         return;
     }
     QString currentToken;
     if (m_propsSide == QStringLiteral("origin")) {
-        currentToken = m_originPoolCombo ? m_originPoolCombo->currentData().toString() : QString();
+        if (m_connActionOrigin.valid) {
+            currentToken = QStringLiteral("%1::%2")
+                               .arg(m_connActionOrigin.connIdx)
+                               .arg(m_connActionOrigin.poolName);
+        }
     } else if (m_propsSide == QStringLiteral("dest")) {
-        currentToken = m_destPoolCombo ? m_destPoolCombo->currentData().toString() : QString();
+        if (m_connActionDest.valid) {
+            currentToken = QStringLiteral("%1::%2")
+                               .arg(m_connActionDest.connIdx)
+                               .arg(m_connActionDest.poolName);
+        }
     } else if (m_propsSide == QStringLiteral("conncontent")) {
         currentToken = m_propsToken;
     }
@@ -1161,7 +1187,13 @@ void MainWindow::applyDatasetPropertyChanges() {
 
 void MainWindow::updateApplyPropsButtonState() {
     const DatasetSelectionContext ctx = currentDatasetSelection(m_propsSide);
-    const bool eligible = ctx.valid && ctx.snapshotName.isEmpty() && (ctx.datasetName == m_propsDataset);
+    bool eligible = ctx.valid && ctx.snapshotName.isEmpty() && (ctx.datasetName == m_propsDataset);
+    if (m_propsSide == QStringLiteral("conncontent")) {
+        // En vista de Conexiones hay dos treeviews (origen/destino) y la referencia
+        // activa puede no coincidir temporalmente con el que originó la edición.
+        // Para habilitar "Aplicar cambios" usamos el dataset actualmente cargado.
+        eligible = !m_propsDataset.trimmed().isEmpty() && !m_propsDataset.contains('@');
+    }
     auto hasEffectiveChanges = [](QTableWidget* table,
                                   const QMap<QString, QString>& originals,
                                   const QMap<QString, bool>& originalInherit) -> bool {
@@ -1187,12 +1219,9 @@ void MainWindow::updateApplyPropsButtonState() {
         }
         return false;
     };
-    QTableWidget* activePropsTable = (m_propsSide == QStringLiteral("conncontent")) ? m_connContentPropsTable : m_datasetPropsTable;
+    QTableWidget* activePropsTable = m_connContentPropsTable;
     const bool hasChanges = hasEffectiveChanges(activePropsTable, m_propsOriginalValues, m_propsOriginalInherit);
     const bool baseEnable = m_propsDirty && eligible && hasChanges;
-    if (m_btnApplyDatasetProps) {
-        m_btnApplyDatasetProps->setEnabled(baseEnable && m_propsSide != QStringLiteral("conncontent"));
-    }
     if (m_btnApplyConnContentProps) {
         m_btnApplyConnContentProps->setEnabled(baseEnable && m_propsSide == QStringLiteral("conncontent"));
     }

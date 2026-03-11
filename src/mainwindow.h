@@ -139,7 +139,6 @@ private:
     void buildUi();
     void loadConnections();
     void rebuildConnectionsTable();
-    void rebuildDatasetPoolSelectors();
     void refreshAllConnections();
     void refreshSelectedConnection();
     void createConnection();
@@ -152,12 +151,6 @@ private:
     void saveConnectionNavState(int connIdx);
     void saveBottomConnectionNavState(int connIdx);
     void restoreConnectionPoolSubtabState(int connIdx, const QString& poolName);
-    void onOriginPoolChanged();
-    void onDestPoolChanged();
-    void onOriginTreeSelectionChanged();
-    void onDestTreeSelectionChanged();
-    void onOriginTreeItemDoubleClicked(QTreeWidgetItem* item, int col);
-    void onDestTreeItemDoubleClicked(QTreeWidgetItem* item, int col);
     void onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item, const QString& side, const QString& chosen);
     void onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* item, int col, const QString& side);
     void clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem* keepItem);
@@ -218,13 +211,11 @@ private:
     void invalidateDatasetCacheForPool(int connIdx, const QString& poolName);
     void invalidatePoolDetailsCacheForConnection(int connIdx);
     void reloadDatasetSide(const QString& side);
-    void updateTransferButtonsState();
     void updateConnectionActionsState();
     void executeConnectionTransferAction(const QString& action);
     void executeConnectionAdvancedAction(const QString& action);
     void setConnectionOriginSelection(const DatasetSelectionContext& ctx);
     void setConnectionDestinationSelection(const DatasetSelectionContext& ctx);
-    void refreshTransferSelectionLabels();
     bool runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs = 0, bool forceConfirmDialog = false, bool streamProgress = false);
     void actionCopySnapshot();
     void actionLevelSnapshot();
@@ -303,7 +294,6 @@ private:
     void appendAppLogLineToView(const QString& fullLine);
     void loadPersistedAppLogToView();
     void populateAllPoolsTables();
-    void populateMountedDatasetsTables();
     void enableSortableHeader(QTableWidget* table);
     void setTablePopulationMode(QTableWidget* table, bool populating);
 
@@ -364,6 +354,8 @@ private:
     QSet<QString> m_disconnectedConnectionKeys;
     QMap<int, QString> m_pendingRefreshTopTabDataByConn;
     QMap<int, QString> m_pendingRefreshBottomTabDataByConn;
+    QMap<int, QSet<QString>> m_pendingBottomExpandedKeysByConn;
+    QMap<int, QString> m_pendingBottomSelectedKeyByConn;
     QString m_userSelectedConnectionKey;
     int m_topDetailConnIdx{-1};
     int m_bottomDetailConnIdx{-1};
@@ -377,27 +369,11 @@ private:
     QPushButton* m_poolStatusScrubBtn{nullptr};
     QPushButton* m_poolStatusDestroyBtn{nullptr};
     QStackedWidget* m_rightStack{nullptr};
-    QComboBox* m_originPoolCombo{nullptr};
-    QComboBox* m_destPoolCombo{nullptr};
-    QGroupBox* m_transferBox{nullptr};
-    QTreeWidget* m_originTree{nullptr};
-    QTreeWidget* m_destTree{nullptr};
-    QTableWidget* m_datasetPropsTable{nullptr};
-    QPushButton* m_btnApplyDatasetProps{nullptr};
     QPushButton* m_btnApplyConnContentProps{nullptr};
-    QLabel* m_transferOriginLabel{nullptr};
-    QLabel* m_transferDestLabel{nullptr};
-    QPushButton* m_btnCopy{nullptr};
-    QPushButton* m_btnLevel{nullptr};
-    QPushButton* m_btnSync{nullptr};
     QPushButton* m_btnAdvancedBreakdown{nullptr};
     QPushButton* m_btnAdvancedAssemble{nullptr};
     QPushButton* m_btnAdvancedFromDir{nullptr};
     QPushButton* m_btnAdvancedToDir{nullptr};
-    QLabel* m_originSelectionLabel{nullptr};
-    QLabel* m_destSelectionLabel{nullptr};
-    QTableWidget* m_mountedDatasetsTableLeft{nullptr};
-    QTableWidget* m_mountedDatasetsTableAdv{nullptr};
 
     QTextEdit* m_statusText{nullptr};
     QTextEdit* m_lastDetailText{nullptr};
@@ -407,10 +383,6 @@ private:
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
     QMap<QString, PoolDetailsCacheEntry> m_poolDetailsCache;
     QMap<QString, DatasetPropsCacheEntry> m_datasetPropsCache;
-    QString m_originSelectedDataset;
-    QString m_originSelectedSnapshot;
-    QString m_destSelectedDataset;
-    QString m_destSelectedSnapshot;
     QString m_propsSide;
     QString m_propsDataset;
     QString m_propsToken;
@@ -426,6 +398,7 @@ private:
     QString m_logLevelSetting{QStringLiteral("normal")};
     int m_logMaxLinesSetting{500};
     bool m_showInlineDatasetProps{true};
+    int m_connPropColumnsSetting{7};
     QString m_appLogPath;
     bool m_compactPrevValid{false};
     QString m_compactPrevDate;

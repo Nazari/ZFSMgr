@@ -501,19 +501,25 @@ void MainWindow::invalidateDatasetCacheForPool(int connIdx, const QString& poolN
 }
 
 void MainWindow::reloadDatasetSide(const QString& side) {
-    if (side == QStringLiteral("origin")) {
-        onOriginPoolChanged();
-    } else if (side == QStringLiteral("dest")) {
-        onDestPoolChanged();
+    if (side == QStringLiteral("origin") || side == QStringLiteral("dest")) {
+        const DatasetSelectionContext ctx = currentDatasetSelection(side);
+        if (ctx.valid && ctx.connIdx >= 0 && ctx.connIdx < m_profiles.size()) {
+            refreshConnectionByIndex(ctx.connIdx);
+        }
+        return;
     } else if (side == QStringLiteral("conncontent")) {
         const QString token = m_connContentToken;
         saveConnContentTreeState(token);
         const int sep = token.indexOf(QStringLiteral("::"));
         if (sep > 0) {
-            const int connIdx = token.left(sep).toInt();
-            const QString poolName = token.mid(sep + 2);
-            populateDatasetTree(m_connContentTree, connIdx, poolName, QStringLiteral("conncontent"), true);
-            refreshDatasetProperties(QStringLiteral("conncontent"));
+            bool ok = false;
+            const int connIdx = token.left(sep).toInt(&ok);
+            if (ok && connIdx >= 0 && connIdx < m_profiles.size()) {
+                // En UI multi-pool, recargar un solo pool deja el árbol incompleto.
+                // Refrescamos la conexión para reconstruir correctamente todos sus pools.
+                refreshConnectionByIndex(connIdx);
+                return;
+            }
         }
     }
 }

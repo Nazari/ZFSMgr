@@ -140,7 +140,6 @@ void MainWindow::setActionsLocked(bool locked) {
     if (m_poolStatusExportBtn) m_poolStatusExportBtn->setEnabled(!locked && m_poolStatusExportBtn->isEnabled());
     if (m_poolStatusScrubBtn) m_poolStatusScrubBtn->setEnabled(!locked && m_poolStatusScrubBtn->isEnabled());
     if (m_poolStatusDestroyBtn) m_poolStatusDestroyBtn->setEnabled(!locked && m_poolStatusDestroyBtn->isEnabled());
-    if (m_btnApplyDatasetProps) m_btnApplyDatasetProps->setEnabled(!locked && m_btnApplyDatasetProps->isEnabled());
     if (m_btnApplyConnContentProps) m_btnApplyConnContentProps->setEnabled(!locked && m_btnApplyConnContentProps->isEnabled());
     if (m_connPropsRefreshBtn) {
         const bool can = m_connPropsRefreshBtn->property("zfsmgr_can_conn_action").toBool();
@@ -154,20 +153,13 @@ void MainWindow::setActionsLocked(bool locked) {
         const bool can = m_connPropsDeleteBtn->property("zfsmgr_can_conn_action").toBool();
         m_connPropsDeleteBtn->setEnabled(!locked && can);
     }
-    if (locked) {
-        if (m_btnCopy) m_btnCopy->setEnabled(false);
-        if (m_btnLevel) m_btnLevel->setEnabled(false);
-        if (m_btnSync) m_btnSync->setEnabled(false);
-        // Connection action buttons are managed by updateConnectionActionsState()
-        // to keep the active one as "Cancelar <acción>".
-    } else {
+    if (!locked) {
         restoreTabSelection(m_connectionEntityTabs, m_pendingRefreshTopTabDataByConn, m_topDetailConnIdx);
         restoreTabSelection(m_bottomConnectionEntityTabs, m_pendingRefreshBottomTabDataByConn, m_bottomDetailConnIdx);
         m_pendingRefreshTopTabDataByConn.remove(m_topDetailConnIdx);
         m_pendingRefreshBottomTabDataByConn.remove(m_bottomDetailConnIdx);
         m_activeConnActionBtn = nullptr;
         m_activeConnActionName.clear();
-        updateTransferButtonsState();
         updateApplyPropsButtonState();
         refreshSelectedPoolDetails(false, false);
         updatePoolManagementBoxTitle();

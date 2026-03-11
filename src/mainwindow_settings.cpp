@@ -100,6 +100,7 @@ void MainWindow::loadUiSettings() {
     }
     m_logMaxLinesSetting = ini.value(QStringLiteral("log_max_lines"), 500).toInt();
     m_showInlineDatasetProps = ini.value(QStringLiteral("show_inline_dataset_props"), true).toBool();
+    m_connPropColumnsSetting = ini.value(QStringLiteral("conn_prop_columns"), 7).toInt();
     m_disconnectedConnectionKeys.clear();
     {
         const QStringList raw = ini.value(QStringLiteral("disconnected_connections")).toStringList();
@@ -119,6 +120,7 @@ void MainWindow::loadUiSettings() {
     } else if (m_logMaxSizeMb > 1024) {
         m_logMaxSizeMb = 1024;
     }
+    m_connPropColumnsSetting = qBound(5, m_connPropColumnsSetting, 10);
     ini.endGroup();
 }
 
@@ -136,6 +138,7 @@ void MainWindow::saveUiSettings() const {
     }
     ini.setValue(QStringLiteral("log_max_lines"), lines);
     ini.setValue(QStringLiteral("show_inline_dataset_props"), m_showInlineDatasetProps);
+    ini.setValue(QStringLiteral("conn_prop_columns"), qBound(5, m_connPropColumnsSetting, 10));
     QStringList disconnected = QStringList(m_disconnectedConnectionKeys.begin(), m_disconnectedConnectionKeys.end());
     disconnected.sort(Qt::CaseInsensitive);
     ini.setValue(QStringLiteral("disconnected_connections"), disconnected);
@@ -150,8 +153,6 @@ void MainWindow::saveUiSettings() const {
 
 void MainWindow::applyLanguageLive() {
     const int leftTabIndex = m_leftTabs ? m_leftTabs->currentIndex() : 0;
-    const QString originPool = m_originPoolCombo ? m_originPoolCombo->currentData().toString() : QString();
-    const QString destPool = m_destPoolCombo ? m_destPoolCombo->currentData().toString() : QString();
 
     QString selectedConnId;
     if (m_connectionsTable) {
@@ -201,18 +202,6 @@ void MainWindow::applyLanguageLive() {
         m_lastDetailText->setPlainText(detailText);
     }
 
-    auto restoreCombo = [](QComboBox* combo, const QString& token) {
-        if (!combo || token.isEmpty()) {
-            return;
-        }
-        const int idx = combo->findData(token);
-        if (idx >= 0) {
-            combo->setCurrentIndex(idx);
-        }
-    };
-    restoreCombo(m_originPoolCombo, originPool);
-    restoreCombo(m_destPoolCombo, destPool);
-
     if (!selectedConnId.isEmpty() && m_connectionsTable) {
         const int row = rowForConnectionId(m_connectionsTable, m_profiles, selectedConnId);
         if (row >= 0) {
@@ -224,5 +213,5 @@ void MainWindow::applyLanguageLive() {
         m_leftTabs->setCurrentIndex(idx);
     }
 
-    refreshTransferSelectionLabels();
+    updateConnectionActionsState();
 }

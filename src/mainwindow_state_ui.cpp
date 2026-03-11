@@ -10,77 +10,11 @@
 #include <QTableWidgetItem>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
+#include <functional>
 
 namespace {
 using mwhelpers::isMountedValueTrue;
 } // namespace
-
-void MainWindow::updateTransferButtonsState() {
-    if (actionsLocked()) {
-        if (m_btnCopy) m_btnCopy->setEnabled(false);
-        if (m_btnLevel) m_btnLevel->setEnabled(false);
-        if (m_btnSync) m_btnSync->setEnabled(false);
-        if (m_btnConnBreakdown) m_btnConnBreakdown->setEnabled(false);
-        if (m_btnConnAssemble) m_btnConnAssemble->setEnabled(false);
-        if (m_btnConnFromDir) m_btnConnFromDir->setEnabled(false);
-        if (m_btnConnToDir) m_btnConnToDir->setEnabled(false);
-        if (m_btnConnCopy) m_btnConnCopy->setEnabled(false);
-        if (m_btnConnLevel) m_btnConnLevel->setEnabled(false);
-        if (m_btnConnSync) m_btnConnSync->setEnabled(false);
-        updateConnectionActionsState();
-        return;
-    }
-    const bool srcDs = !m_originSelectedDataset.isEmpty();
-    const bool srcSnap = !m_originSelectedSnapshot.isEmpty();
-    const bool dstDs = !m_destSelectedDataset.isEmpty();
-    const bool dstSnap = !m_destSelectedSnapshot.isEmpty();
-    const QString srcSel = srcDs ? (srcSnap ? QStringLiteral("%1@%2").arg(m_originSelectedDataset, m_originSelectedSnapshot)
-                                            : m_originSelectedDataset)
-                                 : QString();
-    const QString dstSel = dstDs ? (dstSnap ? QStringLiteral("%1@%2").arg(m_destSelectedDataset, m_destSelectedSnapshot)
-                                            : m_destSelectedDataset)
-                                 : QString();
-    const DatasetSelectionContext srcCtx = currentDatasetSelection(QStringLiteral("origin"));
-    const DatasetSelectionContext dstCtx = currentDatasetSelection(QStringLiteral("dest"));
-    const bool srcSelectionConsistent = srcCtx.valid
-        && srcCtx.datasetName == m_originSelectedDataset
-        && srcCtx.snapshotName == m_originSelectedSnapshot;
-    const bool dstSelectionConsistent = dstCtx.valid
-        && dstCtx.datasetName == m_destSelectedDataset
-        && dstCtx.snapshotName == m_destSelectedSnapshot;
-    auto datasetMountedInCache = [this](const DatasetSelectionContext& c) -> bool {
-        if (!c.valid || c.datasetName.isEmpty()) {
-            return false;
-        }
-        const QString key = datasetCacheKey(c.connIdx, c.poolName);
-        const auto it = m_poolDatasetCache.constFind(key);
-        if (it == m_poolDatasetCache.constEnd() || !it->loaded) {
-            return false;
-        }
-        const auto recIt = it->recordByName.constFind(c.datasetName);
-        if (recIt == it->recordByName.constEnd()) {
-            return false;
-        }
-        return isMountedValueTrue(recIt->mounted);
-    };
-    const mwhelpers::TransferButtonInputs transferIn{
-        srcDs,
-        srcSnap,
-        dstDs,
-        dstSnap,
-        srcSel,
-        dstSel,
-        srcSelectionConsistent,
-        dstSelectionConsistent,
-        datasetMountedInCache(srcCtx),
-        datasetMountedInCache(dstCtx),
-    };
-    const mwhelpers::TransferButtonState transferState = mwhelpers::computeTransferButtonState(transferIn);
-    m_btnCopy->setEnabled(transferState.copyEnabled);
-    m_btnLevel->setEnabled(transferState.levelEnabled);
-    m_btnSync->setEnabled(transferState.syncEnabled);
-    updateConnectionActionsState();
-}
 
 void MainWindow::setConnectionOriginSelection(const DatasetSelectionContext& ctx) {
     if (!ctx.valid || ctx.datasetName.isEmpty()) {
@@ -202,20 +136,50 @@ void MainWindow::updateConnectionActionsState() {
     const QString dstSel = dstDs ? (dstSnap ? QStringLiteral("%1@%2").arg(m_connActionDest.datasetName, m_connActionDest.snapshotName)
                                             : m_connActionDest.datasetName)
                                  : QString();
-    auto datasetMountedInCache = [this](const DatasetSelectionContext& c) -> bool {
+    auto datasetMountedForCtx = [this](const DatasetSelectionContext& c, QTreeWidget* treeHint) -> bool {
         if (!c.valid || c.datasetName.isEmpty()) {
             return false;
         }
         const QString key = datasetCacheKey(c.connIdx, c.poolName);
         const auto it = m_poolDatasetCache.constFind(key);
-        if (it == m_poolDatasetCache.constEnd() || !it->loaded) {
+        if (it != m_poolDatasetCache.constEnd() && it->loaded) {
+            const auto recIt = it->recordByName.constFind(c.datasetName);
+            if (recIt != it->recordByName.constEnd()) {
+                return isMountedValueTrue(recIt->mounted);
+            }
+        }
+        if (!treeHint) {
             return false;
         }
-        const auto recIt = it->recordByName.constFind(c.datasetName);
-        if (recIt == it->recordByName.constEnd()) {
+        std::function<QTreeWidgetItem*(QTreeWidgetItem*)> recFind = [&](QTreeWidgetItem* n) -> QTreeWidgetItem* {
+            if (!n) {
+                return nullptr;
+            }
+            if (n->data(0, Qt::UserRole).toString().trimmed() == c.datasetName) {
+                return n;
+            }
+            for (int i = 0; i < n->childCount(); ++i) {
+                if (QTreeWidgetItem* f = recFind(n->child(i))) {
+                    return f;
+                }
+            }
+            return nullptr;
+        };
+        QTreeWidgetItem* dsItem = nullptr;
+        for (int i = 0; i < treeHint->topLevelItemCount() && !dsItem; ++i) {
+            dsItem = recFind(treeHint->topLevelItem(i));
+        }
+        if (!dsItem) {
             return false;
         }
-        return isMountedValueTrue(recIt->mounted);
+        const QString mountedText = dsItem->text(2).trimmed().toLower();
+        if (mountedText == QStringLiteral("montado")) {
+            return true;
+        }
+        if (mountedText == QStringLiteral("desmontado")) {
+            return false;
+        }
+        return isMountedValueTrue(mountedText);
     };
     const mwhelpers::TransferButtonInputs transferIn{
         srcDs,
@@ -226,8 +190,8 @@ void MainWindow::updateConnectionActionsState() {
         dstSel,
         srcDs,
         dstDs,
-        datasetMountedInCache(m_connActionOrigin),
-        datasetMountedInCache(m_connActionDest),
+        datasetMountedForCtx(m_connActionOrigin, m_connContentTree),
+        datasetMountedForCtx(m_connActionDest, m_bottomConnContentTree),
     };
     const mwhelpers::TransferButtonState st = mwhelpers::computeTransferButtonState(transferIn);
     if (m_btnConnCopy) m_btnConnCopy->setEnabled(!actionsLocked() && st.copyEnabled);
@@ -282,14 +246,6 @@ void MainWindow::executeConnectionTransferAction(const QString& action) {
     m_transferSelectionOverrideActive = true;
     m_transferSelectionOverrideOrigin = src;
     m_transferSelectionOverrideDest = dst;
-    const QString oldOriginDs = m_originSelectedDataset;
-    const QString oldOriginSnap = m_originSelectedSnapshot;
-    const QString oldDestDs = m_destSelectedDataset;
-    const QString oldDestSnap = m_destSelectedSnapshot;
-    m_originSelectedDataset = src.datasetName;
-    m_originSelectedSnapshot = src.snapshotName;
-    m_destSelectedDataset = dst.datasetName;
-    m_destSelectedSnapshot = dst.snapshotName;
 
     if (action == QStringLiteral("copy")) {
         actionCopySnapshot();
@@ -301,51 +257,5 @@ void MainWindow::executeConnectionTransferAction(const QString& action) {
     m_transferSelectionOverrideActive = false;
     m_transferSelectionOverrideOrigin = DatasetSelectionContext{};
     m_transferSelectionOverrideDest = DatasetSelectionContext{};
-    m_originSelectedDataset = oldOriginDs;
-    m_originSelectedSnapshot = oldOriginSnap;
-    m_destSelectedDataset = oldDestDs;
-    m_destSelectedSnapshot = oldDestSnap;
-    refreshTransferSelectionLabels();
-    updateTransferButtonsState();
-}
-
-void MainWindow::populateMountedDatasetsTables() {
-    auto fill = [this](QTableWidget* table) {
-        if (!table) {
-            return;
-        }
-        setTablePopulationMode(table, true);
-        table->setRowCount(0);
-        QMap<QString, int> mountpointCountByConn;
-        struct RowData {
-            QString conn;
-            QString dataset;
-            QString mountpoint;
-        };
-        QVector<RowData> allRows;
-        for (int i = 0; i < m_states.size() && i < m_profiles.size(); ++i) {
-            const QString connName = m_profiles[i].name;
-            const auto& rows = m_states[i].mountedDatasets;
-            for (const auto& pair : rows) {
-                allRows.push_back({connName, pair.first, pair.second});
-                mountpointCountByConn[connName + QStringLiteral("::") + pair.second] += 1;
-            }
-        }
-        for (const RowData& row : allRows) {
-            const int r = table->rowCount();
-            table->insertRow(r);
-            auto* dsItem = new QTableWidgetItem(QStringLiteral("%1::%2").arg(row.conn, row.dataset));
-            auto* mpItem = new QTableWidgetItem(row.mountpoint);
-            const bool duplicated = mountpointCountByConn.value(row.conn + QStringLiteral("::") + row.mountpoint, 0) > 1;
-            if (duplicated) {
-                const QColor redWarn(QStringLiteral("#b22a2a"));
-                dsItem->setForeground(QBrush(redWarn));
-                mpItem->setForeground(QBrush(redWarn));
-            }
-            table->setItem(r, 0, dsItem);
-            table->setItem(r, 1, mpItem);
-        }
-        setTablePopulationMode(table, false);
-    };
-    fill(m_mountedDatasetsTableLeft);
+    updateConnectionActionsState();
 }

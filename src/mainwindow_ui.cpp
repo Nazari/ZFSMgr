@@ -10,7 +10,6 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QFontMetrics>
-#include <QFormLayout>
 #include <QFrame>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -200,6 +199,64 @@ void MainWindow::buildUi() {
         appLog(QStringLiteral("INFO"),
                QStringLiteral("Confirmación de acciones: %1").arg(checked ? QStringLiteral("on")
                                                                           : QStringLiteral("off")));
+    });
+
+    QMenu* propColsMenu = appMenu->addMenu(
+        trk(QStringLiteral("t_prop_cols_menu001"),
+            QStringLiteral("Columnas de propiedades"),
+            QStringLiteral("Property columns"),
+            QStringLiteral("属性列数")));
+    auto* propColsGroup = new QActionGroup(this);
+    propColsGroup->setExclusive(true);
+    for (int cols = 5; cols <= 10; ++cols) {
+        QAction* act = propColsMenu->addAction(QString::number(cols));
+        act->setCheckable(true);
+        act->setData(cols);
+        if (cols == qBound(5, m_connPropColumnsSetting, 10)) {
+            act->setChecked(true);
+        }
+        propColsGroup->addAction(act);
+    }
+    connect(propColsGroup, &QActionGroup::triggered, this, [this](QAction* act) {
+        if (!act) {
+            return;
+        }
+        bool ok = false;
+        const int cols = act->data().toInt(&ok);
+        if (!ok) {
+            return;
+        }
+        const int bounded = qBound(5, cols, 10);
+        if (bounded == m_connPropColumnsSetting) {
+            return;
+        }
+        m_connPropColumnsSetting = bounded;
+        saveUiSettings();
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("Columnas de propiedades: %1").arg(m_connPropColumnsSetting));
+
+        auto refreshOneConnContentTree = [this](QTreeWidget* tree) {
+            if (!tree) {
+                return;
+            }
+            QTreeWidget* prevTree = m_connContentTree;
+            m_connContentTree = tree;
+            QTreeWidgetItem* cur = tree->currentItem();
+            QTreeWidgetItem* owner = cur;
+            while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
+                   && !owner->data(0, kIsPoolRootRole).toBool()) {
+                owner = owner->parent();
+            }
+            const bool poolMode = owner && owner->data(0, kIsPoolRootRole).toBool();
+            if (poolMode) {
+                syncConnContentPoolColumns();
+            } else {
+                syncConnContentPropertyColumns();
+            }
+            m_connContentTree = prevTree;
+        };
+        refreshOneConnContentTree(m_connContentTree);
+        refreshOneConnContentTree(m_bottomConnContentTree);
     });
 
     QMenu* logsMenu = appMenu->addMenu(
@@ -675,11 +732,11 @@ void MainWindow::buildUi() {
     m_btnConnSync->setToolTip(
         trk(QStringLiteral("t_tt_sync_001"),
             QStringLiteral("Sincroniza contenido de dataset Origen a Destino con rsync.\n"
-                           "Requiere: dataset seleccionado (no snapshot) en Origen y Destino."),
+                           "Requiere: dataset seleccionado (no snapshot) en Origen y Destino, y ambos datasets montados."),
             QStringLiteral("Sync dataset contents from Source to Target with rsync.\n"
-                           "Requires: dataset selected (not snapshot) in Source and Target."),
+                           "Requires: dataset selected (not snapshot) in Source and Target, and both datasets mounted."),
             QStringLiteral("使用 rsync 同步源端到目标端的数据集内容。\n"
-                           "条件：源端和目标端都选择数据集（非快照）。")));
+                           "条件：源端和目标端都选择数据集（非快照），且两端数据集均已挂载。")));
     m_btnApplyConnContentProps->setMinimumHeight(stdLeftBtnH);
     m_btnConnCopy->setMinimumHeight(stdLeftBtnH);
     m_btnConnLevel->setMinimumHeight(stdLeftBtnH);
@@ -703,192 +760,7 @@ void MainWindow::buildUi() {
     connLayout->addWidget(m_connActionsBox, 0);
     connectionsTab->setLayout(connLayout);
 
-    auto* datasetsTab = new QWidget(m_leftTabs);
-    auto* dsLeftTabLayout = new QVBoxLayout(datasetsTab);
-    dsLeftTabLayout->setContentsMargins(4, 4, 4, 4);
-    dsLeftTabLayout->setSpacing(4);
-    m_transferBox = new QGroupBox(trk(QStringLiteral("t_action_from_to1"),
-                                      QStringLiteral("Acción desde [vacío] hacia [vacío]"),
-                                      QStringLiteral("Action from [empty] to [empty]"),
-                                      QStringLiteral("从 [空] 到 [空] 的操作")),
-                                  datasetsTab);
-    auto* transferLayout = new QVBoxLayout(m_transferBox);
-    m_transferOriginLabel = new QLabel(trk(QStringLiteral("t_origin_sel_001"),
-                                           QStringLiteral("Origen: Dataset (seleccione)"),
-                                           QStringLiteral("Source: Dataset (select)"),
-                                           QStringLiteral("源：数据集（请选择）")),
-                                       m_transferBox);
-    m_transferDestLabel = new QLabel(trk(QStringLiteral("t_target_sel_001"),
-                                         QStringLiteral("Destino: Dataset (seleccione)"),
-                                         QStringLiteral("Target: Dataset (select)"),
-                                         QStringLiteral("目标：数据集（请选择）")),
-                                     m_transferBox);
-    m_transferOriginLabel->setWordWrap(true);
-    m_transferDestLabel->setWordWrap(true);
-    m_transferOriginLabel->setMinimumHeight(34);
-    m_transferDestLabel->setMinimumHeight(34);
-    m_transferOriginLabel->hide();
-    m_transferDestLabel->hide();
-    m_btnCopy = new QPushButton(trk(QStringLiteral("t_copy_001"),
-                                    QStringLiteral("Copiar"),
-                                    QStringLiteral("Copy"),
-                                    QStringLiteral("复制")),
-                                m_transferBox);
-    m_btnLevel = new QPushButton(trk(QStringLiteral("t_level_btn_001"),
-                                     QStringLiteral("Nivelar"),
-                                     QStringLiteral("Level"),
-                                     QStringLiteral("同步快照")),
-                                 m_transferBox);
-    m_btnSync = new QPushButton(trk(QStringLiteral("t_sync_btn_001"),
-                                    QStringLiteral("Sincronizar"),
-                                    QStringLiteral("Sync"),
-                                    QStringLiteral("同步文件")),
-                                m_transferBox);
-    m_btnCopy->setMinimumHeight(stdLeftBtnH);
-    m_btnLevel->setMinimumHeight(stdLeftBtnH);
-    m_btnSync->setMinimumHeight(stdLeftBtnH);
-    m_btnCopy->setMinimumWidth(0);
-    m_btnLevel->setMinimumWidth(0);
-    m_btnSync->setMinimumWidth(0);
-    m_btnCopy->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnLevel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnSync->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnCopy->setToolTip(
-        trk(QStringLiteral("t_tt_copy_001"),
-            QStringLiteral("Envía un snapshot desde Origen a Destino mediante send/recv.\n"
-                           "Requiere: snapshot seleccionado en Origen y dataset seleccionado en Destino."),
-            QStringLiteral("Send one snapshot from Source to Target using send/recv.\n"
-                           "Requires: snapshot selected in Source and dataset selected in Target."),
-            QStringLiteral("通过 send/recv 将源端快照发送到目标端。\n"
-                           "条件：源端选择快照，目标端选择数据集。")));
-    m_btnLevel->setToolTip(
-        trk(QStringLiteral("t_tt_level_001"),
-            QStringLiteral("Genera/aplica envío diferencial para igualar Origen->Destino.\n"
-                           "Requiere: dataset o snapshot seleccionado en Origen y dataset en Destino."),
-            QStringLiteral("Build/apply differential transfer to level Source->Target.\n"
-                           "Requires: dataset or snapshot selected in Source and dataset in Target."),
-            QStringLiteral("生成/应用差异传输以对齐源端到目标端。\n"
-                           "条件：源端选择数据集或快照，目标端选择数据集。")));
-    m_btnSync->setToolTip(
-        trk(QStringLiteral("t_tt_sync_001"),
-            QStringLiteral("Sincroniza contenido de dataset Origen a Destino con rsync.\n"
-                           "Requiere: dataset seleccionado (no snapshot) en Origen y Destino."),
-            QStringLiteral("Sync dataset contents from Source to Target with rsync.\n"
-                           "Requires: dataset selected (not snapshot) in Source and Target."),
-            QStringLiteral("使用 rsync 同步源端到目标端的数据集内容。\n"
-                           "条件：源端和目标端都选择数据集（非快照）。")));
-    m_btnCopy->setEnabled(false);
-    m_btnLevel->setEnabled(false);
-    m_btnSync->setEnabled(false);
-    auto* transferButtonsGrid = new QGridLayout();
-    transferButtonsGrid->setContentsMargins(0, 0, 0, 0);
-    transferButtonsGrid->setHorizontalSpacing(6);
-    transferButtonsGrid->setVerticalSpacing(6);
-    transferButtonsGrid->setColumnStretch(0, 1);
-    transferButtonsGrid->setColumnStretch(1, 1);
-    transferButtonsGrid->addWidget(m_btnCopy, 0, 0);
-    transferButtonsGrid->addWidget(m_btnLevel, 0, 1);
-    transferButtonsGrid->addWidget(m_btnSync, 1, 0, 1, 2);
-    transferLayout->addLayout(transferButtonsGrid);
-    dsLeftTabLayout->addWidget(m_transferBox);
-    auto* datasetsInfoTabs = new QTabWidget(datasetsTab);
-    datasetsInfoTabs->setDocumentMode(false);
-    auto* mountedLeftTab = new QWidget(datasetsInfoTabs);
-    auto* mountedLeftLayout = new QVBoxLayout(mountedLeftTab);
-    m_mountedDatasetsTableLeft = new QTableWidget(mountedLeftTab);
-    m_mountedDatasetsTableLeft->setColumnCount(2);
-    m_mountedDatasetsTableLeft->setHorizontalHeaderLabels(
-        {trk(QStringLiteral("t_dataset_001"),
-             QStringLiteral("Dataset"),
-             QStringLiteral("Dataset"),
-             QStringLiteral("数据集")),
-         QStringLiteral("mountpoint")});
-    m_mountedDatasetsTableLeft->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
-    m_mountedDatasetsTableLeft->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
-    m_mountedDatasetsTableLeft->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_mountedDatasetsTableLeft->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_mountedDatasetsTableLeft->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_mountedDatasetsTableLeft->verticalHeader()->setVisible(false);
-    m_mountedDatasetsTableLeft->verticalHeader()->setDefaultSectionSize(22);
-    m_mountedDatasetsTableLeft->setWordWrap(false);
-    m_mountedDatasetsTableLeft->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
-    m_mountedDatasetsTableLeft->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    {
-        QFont f = m_mountedDatasetsTableLeft->font();
-        f.setPointSize(qMax(6, f.pointSize() - 2));
-        m_mountedDatasetsTableLeft->setFont(f);
-        QFont hf = f;
-        hf.setPointSize(f.pointSize());
-        hf.setBold(false);
-        m_mountedDatasetsTableLeft->horizontalHeader()->setFont(hf);
-    }
-    m_mountedDatasetsTableLeft->setStyleSheet(
-        QStringLiteral("QScrollBar:vertical{width:8px;} "
-                       "QScrollBar:horizontal{height:8px;}"));
-    m_mountedDatasetsTableLeft->setColumnWidth(0, 180);
-    m_mountedDatasetsTableLeft->setColumnWidth(1, 220);
-    enableSortableHeader(m_mountedDatasetsTableLeft);
-    mountedLeftLayout->addWidget(m_mountedDatasetsTableLeft, 1);
-    auto* propsLeftTab = new QWidget(datasetsInfoTabs);
-    auto* propsLeftLayout = new QVBoxLayout(propsLeftTab);
-    propsLeftLayout->setContentsMargins(0, 0, 0, 0);
-    propsLeftLayout->setSpacing(4);
-    m_datasetPropsTable = new QTableWidget(propsLeftTab);
-    m_datasetPropsTable->setColumnCount(3);
-    m_datasetPropsTable->setHorizontalHeaderLabels({QStringLiteral("Propiedad"), QStringLiteral("Valor"), QStringLiteral("Inherit")});
-    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
-    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
-    m_datasetPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
-    m_datasetPropsTable->horizontalHeader()->setStretchLastSection(false);
-    m_datasetPropsTable->setColumnWidth(0, 200);
-    m_datasetPropsTable->setColumnWidth(1, 210);
-#ifdef Q_OS_MAC
-    if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
-        m_datasetPropsTable->setStyle(fusion);
-    }
-    m_datasetPropsTable->setStyleSheet(QStringLiteral(
-        "QTableWidget::indicator:unchecked { border: 2px solid #1f4f76; background: #ffffff; border-radius: 3px; }"
-        "QTableWidget::indicator:checked { border: 2px solid #1f4f76; background: #d9ecff; border-radius: 3px; }"));
-    const int inheritColWidth = qMax(36, static_cast<int>((m_datasetPropsTable->fontMetrics().horizontalAdvance(QStringLiteral("Inherit")) / 2 + 12) * 1.10));
-    m_datasetPropsTable->setColumnWidth(2, inheritColWidth);
-#else
-    m_datasetPropsTable->setColumnWidth(2, 90);
-#endif
-    m_datasetPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
-    m_datasetPropsTable->verticalHeader()->setVisible(false);
-    m_datasetPropsTable->verticalHeader()->setDefaultSectionSize(22);
-    m_datasetPropsTable->setProperty("pinned_rows", 5);
-    m_datasetPropsTable->setFont(m_mountedDatasetsTableLeft->font());
-    {
-        QFont hf = m_datasetPropsTable->font();
-        hf.setBold(false);
-        m_datasetPropsTable->horizontalHeader()->setFont(hf);
-    }
-    m_btnApplyDatasetProps = new QPushButton(
-        trk(QStringLiteral("t_apply_changes_001"),
-            QStringLiteral("Aplicar cambios"),
-            QStringLiteral("Apply changes"),
-            QStringLiteral("应用更改")),
-        propsLeftTab);
-    m_btnApplyDatasetProps->setEnabled(false);
-    enableSortableHeader(m_datasetPropsTable);
-    propsLeftLayout->addWidget(m_datasetPropsTable, 1);
-    propsLeftLayout->addWidget(m_btnApplyDatasetProps, 0, Qt::AlignRight);
-    datasetsInfoTabs->addTab(
-        propsLeftTab,
-        trk(QStringLiteral("t_props_tab_001"),
-            QStringLiteral("Propiedades"),
-            QStringLiteral("Properties"),
-            QStringLiteral("属性")));
-    datasetsInfoTabs->addTab(
-        mountedLeftTab,
-        trk(QStringLiteral("t_mounted_tab_001"),
-            QStringLiteral("Montados"),
-            QStringLiteral("Mounted"),
-            QStringLiteral("已挂载")));
-    dsLeftTabLayout->addWidget(datasetsInfoTabs, 1);
-    datasetsTab->setLayout(dsLeftTabLayout);
-
+    // Legacy left "Datasets" tab removed from UI.
     // Legacy "advanced" layer removed from visible UI.
     const int actionsBoxHeight = qMax(130, m_connActionsBox ? m_connActionsBox->sizeHint().height() : 130);
     if (m_poolMgmtBox) {
@@ -897,18 +769,11 @@ void MainWindow::buildUi() {
     if (m_connActionsBox) {
         m_connActionsBox->setMinimumHeight(actionsBoxHeight);
     }
-    m_transferBox->setFixedHeight(actionsBoxHeight);
     m_btnAdvancedBreakdown = nullptr;
     m_btnAdvancedAssemble = nullptr;
     m_btnAdvancedFromDir = nullptr;
     m_btnAdvancedToDir = nullptr;
-    m_mountedDatasetsTableAdv = nullptr;
 
-    m_leftTabs->addTab(datasetsTab, trk(QStringLiteral("t_datasets_tab_001"),
-                                        QStringLiteral("Datasets"),
-                                        QStringLiteral("Datasets"),
-                                        QStringLiteral("数据集")));
-    // Legacy left tabs are hidden in current UX.
     m_leftTabs->hide();
     leftLayout->addWidget(connectionsTab, 1);
 
@@ -1088,7 +953,9 @@ void MainWindow::buildUi() {
         f.setPointSize(qMax(6, f.pointSize() - 1));
         m_connContentTree->setFont(f);
     }
-    m_connContentTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"));
+    m_connContentTree->setStyleSheet(QStringLiteral(
+        "QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"
+        "QTreeWidget::indicator { width: 8px; height: 8px; margin: 2px; }"));
     m_connContentTree->setItemDelegate(new ConnContentPropBorderDelegate(m_connContentTree));
 #ifdef Q_OS_MAC
     if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
@@ -1183,161 +1050,7 @@ void MainWindow::buildUi() {
     rightConnectionsLayout->setSpacing(0);
     rightConnectionsLayout->addWidget(entityFrame, 1);
 
-    auto* rightDatasetsPage = new QWidget(m_rightStack);
-    auto* rightDatasetsLayout = new QVBoxLayout(rightDatasetsPage);
-    rightDatasetsLayout->setContentsMargins(0, 0, 0, 0);
-    rightDatasetsLayout->setSpacing(4);
-    auto* dsLeft = new QWidget(rightDatasetsPage);
-    auto* dsLeftLayout = new QVBoxLayout(dsLeft);
-    dsLeftLayout->setContentsMargins(0, 0, 0, 0);
-    dsLeftLayout->setSpacing(4);
-
-    auto* originPane = new QWidget(dsLeft);
-    auto* originLayout = new QVBoxLayout(originPane);
-    originLayout->setContentsMargins(0, 0, 0, 0);
-    originLayout->setSpacing(4);
-    auto* originTop = new QHBoxLayout();
-    originTop->setContentsMargins(0, 0, 0, 0);
-    originTop->setSpacing(6);
-    auto* originLabel = new QLabel(trk(QStringLiteral("t_origin_lbl_001"),
-                                       QStringLiteral("Origen"),
-                                       QStringLiteral("Source"),
-                                       QStringLiteral("源")),
-                                   originPane);
-    m_originPoolCombo = new QComboBox(originPane);
-    m_originPoolCombo->setMinimumContentsLength(8);
-    m_originPoolCombo->setMaximumWidth(140);
-    m_originPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
-    m_originTree = new QTreeWidget(originPane);
-    m_originTree->setColumnCount(4);
-    m_originTree->setHeaderLabels({trk(QStringLiteral("t_dataset_001"),
-                                       QStringLiteral("Dataset"),
-                                       QStringLiteral("Dataset"),
-                                       QStringLiteral("数据集")),
-                                   trk(QStringLiteral("t_snapshot_col01"),
-                                       QStringLiteral("Snapshot"),
-                                       QStringLiteral("Snapshot"),
-                                       QStringLiteral("快照")),
-                                   trk(QStringLiteral("t_montado_a97484"),
-                                       QStringLiteral("Montado"),
-                                       QStringLiteral("Mounted"),
-                                       QStringLiteral("已挂载")),
-                                   trk(QStringLiteral("t_mountpoint_001"),
-                                       QStringLiteral("Mountpoint"),
-                                       QStringLiteral("Mountpoint"),
-                                       QStringLiteral("挂载点"))});
-    m_originTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
-    m_originTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
-    m_originTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
-    m_originTree->header()->setSectionResizeMode(3, QHeaderView::Interactive);
-    m_originTree->header()->setStretchLastSection(false);
-    m_originTree->setColumnWidth(0, 250);
-    m_originTree->setColumnWidth(1, 90);
-    m_originTree->setColumnWidth(2, 72);
-    m_originTree->setColumnWidth(3, 180);
-    m_originTree->setUniformRowHeights(true);
-    m_originTree->setRootIsDecorated(true);
-    m_originTree->setItemsExpandable(true);
-    {
-        QFont f = m_originTree->font();
-        f.setPointSize(qMax(6, f.pointSize() - 1));
-        m_originTree->setFont(f);
-    }
-    m_originTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"));
-#ifdef Q_OS_MAC
-    if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
-        m_originTree->setStyle(fusion);
-    }
-#endif
-    m_originSelectionLabel = new QLabel(trk(QStringLiteral("t_no_sel_001"),
-                                            QStringLiteral("(sin selección)"),
-                                            QStringLiteral("(no selection)"),
-                                            QStringLiteral("（未选择）")),
-                                        originPane);
-    m_originSelectionLabel->setWordWrap(true);
-    m_originSelectionLabel->setMinimumHeight(36);
-    originTop->addWidget(originLabel, 0);
-    originTop->addWidget(m_originPoolCombo, 0);
-    originTop->addWidget(m_originSelectionLabel, 1);
-    originLayout->addLayout(originTop);
-    originLayout->addWidget(m_originTree, 1);
-
-    auto* destPane = new QWidget(dsLeft);
-    auto* destLayout = new QVBoxLayout(destPane);
-    destLayout->setContentsMargins(0, 0, 0, 0);
-    destLayout->setSpacing(4);
-    auto* destTop = new QHBoxLayout();
-    destTop->setContentsMargins(0, 0, 0, 0);
-    destTop->setSpacing(6);
-    auto* destLabel = new QLabel(trk(QStringLiteral("t_target_lbl001"),
-                                     QStringLiteral("Destino"),
-                                     QStringLiteral("Target"),
-                                     QStringLiteral("目标")),
-                                 destPane);
-    m_destPoolCombo = new QComboBox(destPane);
-    m_destPoolCombo->setMinimumContentsLength(8);
-    m_destPoolCombo->setMaximumWidth(140);
-    m_destPoolCombo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
-    m_destTree = new QTreeWidget(destPane);
-    m_destTree->setColumnCount(4);
-    m_destTree->setHeaderLabels({trk(QStringLiteral("t_dataset_001"),
-                                     QStringLiteral("Dataset"),
-                                     QStringLiteral("Dataset"),
-                                     QStringLiteral("数据集")),
-                                 trk(QStringLiteral("t_snapshot_col01"),
-                                     QStringLiteral("Snapshot"),
-                                     QStringLiteral("Snapshot"),
-                                     QStringLiteral("快照")),
-                                 trk(QStringLiteral("t_montado_a97484"),
-                                     QStringLiteral("Montado"),
-                                     QStringLiteral("Mounted"),
-                                     QStringLiteral("已挂载")),
-                                 trk(QStringLiteral("t_mountpoint_001"),
-                                     QStringLiteral("Mountpoint"),
-                                     QStringLiteral("Mountpoint"),
-                                     QStringLiteral("挂载点"))});
-    m_destTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
-    m_destTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
-    m_destTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
-    m_destTree->header()->setSectionResizeMode(3, QHeaderView::Interactive);
-    m_destTree->header()->setStretchLastSection(false);
-    m_destTree->setColumnWidth(0, 250);
-    m_destTree->setColumnWidth(1, 90);
-    m_destTree->setColumnWidth(2, 72);
-    m_destTree->setColumnWidth(3, 180);
-    m_destTree->setUniformRowHeights(true);
-    m_destTree->setRootIsDecorated(true);
-    m_destTree->setItemsExpandable(true);
-    {
-        QFont f = m_destTree->font();
-        f.setPointSize(qMax(6, f.pointSize() - 1));
-        m_destTree->setFont(f);
-    }
-    m_destTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"));
-#ifdef Q_OS_MAC
-    if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
-        m_destTree->setStyle(fusion);
-    }
-#endif
-    m_destSelectionLabel = new QLabel(trk(QStringLiteral("t_no_sel_001"),
-                                          QStringLiteral("(sin selección)"),
-                                          QStringLiteral("(no selection)"),
-                                          QStringLiteral("（未选择）")),
-                                      destPane);
-    m_destSelectionLabel->setWordWrap(true);
-    m_destSelectionLabel->setMinimumHeight(36);
-    destTop->addWidget(destLabel, 0);
-    destTop->addWidget(m_destPoolCombo, 0);
-    destTop->addWidget(m_destSelectionLabel, 1);
-    destLayout->addLayout(destTop);
-    destLayout->addWidget(m_destTree, 1);
-
-    dsLeftLayout->addWidget(originPane, 1);
-    dsLeftLayout->addWidget(destPane, 1);
-    rightDatasetsLayout->addWidget(dsLeft, 1);
-
     m_rightStack->addWidget(rightConnectionsPage);
-    m_rightStack->addWidget(rightDatasetsPage);
     auto* rightSplit = new QSplitter(Qt::Vertical, rightPane);
     rightSplit->setChildrenCollapsible(false);
     rightSplit->setHandleWidth(4);
@@ -1382,7 +1095,9 @@ void MainWindow::buildUi() {
     m_bottomConnContentTree->setUniformRowHeights(true);
     m_bottomConnContentTree->setRootIsDecorated(true);
     m_bottomConnContentTree->setItemsExpandable(true);
-    m_bottomConnContentTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"));
+    m_bottomConnContentTree->setStyleSheet(QStringLiteral(
+        "QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"
+        "QTreeWidget::indicator { width: 8px; height: 8px; margin: 2px; }"));
     m_bottomConnContentTree->setItemDelegate(new ConnContentPropBorderDelegate(m_bottomConnContentTree));
     bottomConnLayout->addWidget(m_bottomConnContentTree, 1);
     rightSplit->setStretchFactor(0, 1);
@@ -1753,17 +1468,28 @@ void MainWindow::buildUi() {
         if (!m_connContentPropsTable || m_connContentPropsTable->rowCount() <= 0) {
             return;
         }
-        struct EditField { int row{-1}; QLineEdit* line{nullptr}; QComboBox* combo{nullptr}; QCheckBox* inherit{nullptr}; };
+        struct EditField {
+            int row{-1};
+            int sourceOrder{-1};
+            QString label;
+            QString propKey;
+            QLineEdit* line{nullptr};
+            QComboBox* combo{nullptr};
+            QCheckBox* inherit{nullptr};
+            QWidget* rowWidget{nullptr};
+        };
         QVector<EditField> fields;
         QDialog dlg(this);
         dlg.setWindowTitle(
             trk(QStringLiteral("t_edit_ds_t_001"), QStringLiteral("Editar dataset"), QStringLiteral("Edit dataset"), QStringLiteral("编辑数据集"))
             + QStringLiteral(": ") + ctx.datasetName);
         dlg.setModal(true);
-        dlg.resize(760, 520);
+        dlg.resize(860, 520);
         auto* root = new QVBoxLayout(&dlg);
-        auto* form = new QFormLayout();
-        form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+        auto* grid = new QGridLayout();
+        grid->setContentsMargins(0, 0, 0, 0);
+        grid->setHorizontalSpacing(8);
+        grid->setVerticalSpacing(6);
         for (int r = 0; r < m_connContentPropsTable->rowCount(); ++r) {
             QTableWidgetItem* pk = m_connContentPropsTable->item(r, 0);
             QTableWidgetItem* pv = m_connContentPropsTable->item(r, 1);
@@ -1778,15 +1504,20 @@ void MainWindow::buildUi() {
             auto* rowW = new QWidget(&dlg);
             auto* rowL = new QHBoxLayout(rowW);
             rowL->setContentsMargins(0, 0, 0, 0);
-            rowL->setSpacing(8);
-            EditField ef; ef.row = r;
+            rowL->setSpacing(6);
+            EditField ef;
+            ef.row = r;
+            ef.sourceOrder = fields.size();
+            ef.label = pk->text();
+            ef.propKey = prop;
+            ef.rowWidget = rowW;
             if (QComboBox* srcCb = qobject_cast<QComboBox*>(m_connContentPropsTable->cellWidget(r, 1))) {
                 auto* cb = new QComboBox(rowW);
                 for (int i = 0; i < srcCb->count(); ++i) cb->addItem(srcCb->itemText(i));
                 cb->setCurrentText(srcCb->currentText());
                 cb->setEnabled(valueEditable);
                 ef.combo = cb;
-                rowL->addWidget(cb, 1);
+                rowL->addWidget(cb, 0);
             } else {
                 auto* le = new QLineEdit(rowW);
                 le->setText(pv->text());
@@ -1801,10 +1532,66 @@ void MainWindow::buildUi() {
                 ef.inherit = inh;
                 rowL->addWidget(inh, 0);
             }
+            rowL->addStretch(1);
             fields.push_back(ef);
-            form->addRow(pk->text(), rowW);
         }
-        root->addLayout(form, 1);
+        auto fieldPriority = [](const EditField& ef) -> int {
+            const QString key = ef.propKey.trimmed().toLower();
+            if (key == QStringLiteral("dataset") || key == QStringLiteral("name") || key == QStringLiteral("nombre")) {
+                return 0;
+            }
+            if (key == QStringLiteral("mountpoint")) {
+                return 1;
+            }
+            return 100 + ef.sourceOrder;
+        };
+        std::stable_sort(fields.begin(), fields.end(), [fieldPriority](const EditField& a, const EditField& b) {
+            return fieldPriority(a) < fieldPriority(b);
+        });
+
+        QFontMetrics fm(dlg.font());
+        int maxLabelWidth = 0;
+        int maxEditorText = fm.horizontalAdvance(ctx.datasetName);
+        for (const EditField& ef : fields) {
+            maxLabelWidth = qMax(maxLabelWidth, fm.horizontalAdvance(ef.label));
+            if (ef.combo) {
+                maxEditorText = qMax(maxEditorText, fm.horizontalAdvance(ef.combo->currentText()));
+                for (int i = 0; i < ef.combo->count(); ++i) {
+                    maxEditorText = qMax(maxEditorText, fm.horizontalAdvance(ef.combo->itemText(i)));
+                }
+            } else if (ef.line) {
+                maxEditorText = qMax(maxEditorText, fm.horizontalAdvance(ef.line->text()));
+            }
+        }
+        const int editorWidth = qBound(240, maxEditorText + 40, 560);
+        const int labelWidth = qBound(90, maxLabelWidth + 10, 260);
+        const int columns = 1;
+        for (int i = 0; i < fields.size(); ++i) {
+            const int r = i / columns;
+            const int block = i % columns;
+            const int labelCol = block * 2;
+            const int valueCol = labelCol + 1;
+            auto* lbl = new QLabel(fields[i].label, &dlg);
+            lbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            lbl->setMinimumWidth(labelWidth);
+            lbl->setMaximumWidth(labelWidth);
+            if (!fields[i].rowWidget) {
+                continue;
+            }
+            if (fields[i].line) {
+                fields[i].line->setMinimumWidth(editorWidth);
+                fields[i].line->setMaximumWidth(editorWidth);
+            }
+            if (fields[i].combo) {
+                fields[i].combo->setMinimumWidth(editorWidth);
+                fields[i].combo->setMaximumWidth(editorWidth);
+            }
+            grid->addWidget(lbl, r, labelCol);
+            grid->addWidget(fields[i].rowWidget, r, valueCol);
+            grid->setColumnStretch(labelCol, 0);
+            grid->setColumnStretch(valueCol, 1);
+        }
+        root->addLayout(grid, 1);
         auto* btns = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
         root->addWidget(btns);
         connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
@@ -2019,16 +1806,51 @@ void MainWindow::buildUi() {
             aShowInline->setCheckable(true);
             aShowInline->setChecked(m_showInlineDatasetProps);
             QAction* aEdit = menu.addAction(
-                trk(QStringLiteral("t_edit_528f79"),
-                    QStringLiteral("Editar"),
-                    QStringLiteral("Edit"),
-                    QStringLiteral("编辑")));
+                trk(QStringLiteral("t_ctx_edit_dataset001"),
+                    QStringLiteral("Editar dataset"),
+                    QStringLiteral("Edit dataset"),
+                    QStringLiteral("编辑数据集")));
             menu.addSeparator();
+            QMenu* mSelectSnapshot = menu.addMenu(
+                trk(QStringLiteral("t_ctx_sel_snap001"),
+                    QStringLiteral("Seleccionar snapshot"),
+                    QStringLiteral("Select snapshot"),
+                    QStringLiteral("选择快照")));
+            QMap<QAction*, QString> snapshotActions;
+            const QString itemDatasetPath = item->data(0, Qt::UserRole).toString().trimmed();
+            {
+                const QStringList snaps = item->data(1, Qt::UserRole + 1).toStringList();
+                const QString currentSnap = item->data(1, Qt::UserRole).toString().trimmed();
+                QAction* noneAct = mSelectSnapshot->addAction(QStringLiteral("(ninguno)"));
+                noneAct->setCheckable(true);
+                noneAct->setChecked(currentSnap.isEmpty());
+                snapshotActions.insert(noneAct, QString());
+                if (!snaps.isEmpty()) {
+                    mSelectSnapshot->addSeparator();
+                }
+                for (const QString& s : snaps) {
+                    const QString snapName = s.trimmed();
+                    if (snapName.isEmpty()) {
+                        continue;
+                    }
+                    QAction* sa = mSelectSnapshot->addAction(snapName);
+                    sa->setCheckable(true);
+                    sa->setChecked(snapName == currentSnap);
+                    snapshotActions.insert(sa, snapName);
+                }
+            }
+            mSelectSnapshot->setEnabled(!actionsLocked() && !snapshotActions.isEmpty());
             QAction* aRollback = menu.addAction(QStringLiteral("Rollback"));
             QAction* aCreate = menu.addAction(
-                trk(QStringLiteral("t_create_ch_001"), QStringLiteral("Crear"), QStringLiteral("Create"), QStringLiteral("创建")));
+                trk(QStringLiteral("t_ctx_create_dsv001"),
+                    QStringLiteral("Crear dataset/snapshot/vol"),
+                    QStringLiteral("Create dataset/snapshot/vol"),
+                    QStringLiteral("创建 dataset/snapshot/vol")));
             QAction* aDelete = menu.addAction(
-                trk(QStringLiteral("t_delete_menu002"), QStringLiteral("Borrar"), QStringLiteral("Delete"), QStringLiteral("删除")));
+                trk(QStringLiteral("t_ctx_delete_dataset001"),
+                    QStringLiteral("Borrar dataset"),
+                    QStringLiteral("Delete dataset"),
+                    QStringLiteral("删除数据集")));
             menu.addSeparator();
             QAction* aBreakdown = menu.addAction(
                 trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")));
@@ -2057,6 +1879,59 @@ void MainWindow::buildUi() {
 
             QAction* picked = menu.exec(m_bottomConnContentTree->viewport()->mapToGlobal(pos));
             if (!picked) {
+                m_connContentTree = prevTree;
+                m_connContentToken = prevToken;
+                return;
+            }
+            if (snapshotActions.contains(picked)) {
+                const QString snapName = snapshotActions.value(picked);
+                QTreeWidgetItem* targetItem = item;
+                if (!itemDatasetPath.isEmpty()) {
+                    auto findInTree = [](QTreeWidget* tw, const QString& ds) -> QTreeWidgetItem* {
+                        if (!tw || ds.isEmpty()) {
+                            return nullptr;
+                        }
+                        std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* n) -> QTreeWidgetItem* {
+                            if (!n) {
+                                return nullptr;
+                            }
+                            if (n->data(0, Qt::UserRole).toString().trimmed() == ds) {
+                                return n;
+                            }
+                            for (int i = 0; i < n->childCount(); ++i) {
+                                if (QTreeWidgetItem* f = rec(n->child(i))) {
+                                    return f;
+                                }
+                            }
+                            return nullptr;
+                        };
+                        for (int i = 0; i < tw->topLevelItemCount(); ++i) {
+                            if (QTreeWidgetItem* f = rec(tw->topLevelItem(i))) {
+                                return f;
+                            }
+                        }
+                        return nullptr;
+                    };
+                    if (QTreeWidgetItem* found = findInTree(m_bottomConnContentTree, itemDatasetPath)) {
+                        targetItem = found;
+                    }
+                }
+                if (!targetItem) {
+                    m_connContentTree = prevTree;
+                    m_connContentToken = prevToken;
+                    return;
+                }
+                onSnapshotComboChanged(
+                    m_bottomConnContentTree,
+                    targetItem,
+                    QStringLiteral("conncontent"),
+                    snapName.isEmpty() ? QStringLiteral("(ninguno)") : snapName);
+                const DatasetSelectionContext sctx = currentDatasetSelection(QStringLiteral("conncontent"));
+                if (sctx.valid && !sctx.datasetName.isEmpty()) {
+                    setConnectionDestinationSelection(sctx);
+                } else {
+                    setConnectionDestinationSelection(DatasetSelectionContext{});
+                }
                 m_connContentTree = prevTree;
                 m_connContentToken = prevToken;
                 return;
@@ -2146,7 +2021,8 @@ void MainWindow::buildUi() {
         const bool hasConn = (connIdx >= 0 && connIdx < m_profiles.size());
         const bool isDisconnected = hasConn && isConnectionDisconnected(connIdx);
         const bool canRefresh = hasConn && !isDisconnected && !actionsLocked();
-        const bool canEditDelete = canRefresh && !isLocalConnection(connIdx) && !isConnectionRedirectedToLocal(connIdx);
+        const bool canEditDelete = hasConn && !actionsLocked() && !isLocalConnection(connIdx)
+            && !isConnectionRedirectedToLocal(connIdx);
 
         QMenu menu(this);
         QAction* aConnect = menu.addAction(
@@ -2208,13 +2084,11 @@ void MainWindow::buildUi() {
             setConnectionDisconnected(connIdx, false);
             appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como conectada: %1").arg(m_profiles[connIdx].name));
             rebuildConnectionsTable();
-            rebuildDatasetPoolSelectors();
             populateAllPoolsTables();
         } else if (chosen == aDisconnect && hasConn) {
             setConnectionDisconnected(connIdx, true);
             appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como desconectada: %1").arg(m_profiles[connIdx].name));
             rebuildConnectionsTable();
-            rebuildDatasetPoolSelectors();
             populateAllPoolsTables();
         } else if (chosen == aRefresh) {
             logUiAction(QStringLiteral("Refrescar conexión (menú conexiones)"));
@@ -2348,9 +2222,13 @@ void MainWindow::buildUi() {
 
         struct EditField {
             int row{-1};
+            int sourceOrder{-1};
+            QString label;
+            QString propKey;
             QLineEdit* line{nullptr};
             QComboBox* combo{nullptr};
             QCheckBox* inherit{nullptr};
+            QWidget* rowWidget{nullptr};
         };
         QVector<EditField> fields;
 
@@ -2362,10 +2240,12 @@ void MainWindow::buildUi() {
                 QStringLiteral("编辑数据集"))
             + QStringLiteral(": ") + ctx.datasetName);
         dlg.setModal(true);
-        dlg.resize(760, 520);
+        dlg.resize(860, 520);
         auto* root = new QVBoxLayout(&dlg);
-        auto* form = new QFormLayout();
-        form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+        auto* grid = new QGridLayout();
+        grid->setContentsMargins(0, 0, 0, 0);
+        grid->setHorizontalSpacing(8);
+        grid->setVerticalSpacing(6);
 
         for (int r = 0; r < m_connContentPropsTable->rowCount(); ++r) {
             QTableWidgetItem* pk = m_connContentPropsTable->item(r, 0);
@@ -2386,9 +2266,13 @@ void MainWindow::buildUi() {
             auto* rowW = new QWidget(&dlg);
             auto* rowL = new QHBoxLayout(rowW);
             rowL->setContentsMargins(0, 0, 0, 0);
-            rowL->setSpacing(8);
+            rowL->setSpacing(6);
             EditField ef;
             ef.row = r;
+            ef.sourceOrder = fields.size();
+            ef.label = pk->text();
+            ef.propKey = prop;
+            ef.rowWidget = rowW;
 
             if (QComboBox* srcCb = qobject_cast<QComboBox*>(m_connContentPropsTable->cellWidget(r, 1))) {
                 auto* cb = new QComboBox(rowW);
@@ -2398,7 +2282,7 @@ void MainWindow::buildUi() {
                 cb->setCurrentText(srcCb->currentText());
                 cb->setEnabled(valueEditable);
                 ef.combo = cb;
-                rowL->addWidget(cb, 1);
+                rowL->addWidget(cb, 0);
             } else {
                 auto* le = new QLineEdit(rowW);
                 le->setText(pv->text());
@@ -2419,12 +2303,68 @@ void MainWindow::buildUi() {
                 ef.inherit = inh;
                 rowL->addWidget(inh, 0);
             }
+            rowL->addStretch(1);
 
             fields.push_back(ef);
-            form->addRow(pk->text(), rowW);
         }
 
-        root->addLayout(form, 1);
+        auto fieldPriority = [](const EditField& ef) -> int {
+            const QString key = ef.propKey.trimmed().toLower();
+            if (key == QStringLiteral("dataset") || key == QStringLiteral("name") || key == QStringLiteral("nombre")) {
+                return 0;
+            }
+            if (key == QStringLiteral("mountpoint")) {
+                return 1;
+            }
+            return 100 + ef.sourceOrder;
+        };
+        std::stable_sort(fields.begin(), fields.end(), [fieldPriority](const EditField& a, const EditField& b) {
+            return fieldPriority(a) < fieldPriority(b);
+        });
+
+        QFontMetrics fm(dlg.font());
+        int maxLabelWidth = 0;
+        int maxEditorText = fm.horizontalAdvance(ctx.datasetName);
+        for (const EditField& ef : fields) {
+            maxLabelWidth = qMax(maxLabelWidth, fm.horizontalAdvance(ef.label));
+            if (ef.combo) {
+                maxEditorText = qMax(maxEditorText, fm.horizontalAdvance(ef.combo->currentText()));
+                for (int i = 0; i < ef.combo->count(); ++i) {
+                    maxEditorText = qMax(maxEditorText, fm.horizontalAdvance(ef.combo->itemText(i)));
+                }
+            } else if (ef.line) {
+                maxEditorText = qMax(maxEditorText, fm.horizontalAdvance(ef.line->text()));
+            }
+        }
+        const int editorWidth = qBound(240, maxEditorText + 40, 560);
+        const int labelWidth = qBound(90, maxLabelWidth + 10, 260);
+        const int columns = 1;
+        for (int i = 0; i < fields.size(); ++i) {
+            const int r = i / columns;
+            const int block = i % columns;
+            const int labelCol = block * 2;
+            const int valueCol = labelCol + 1;
+            auto* lbl = new QLabel(fields[i].label, &dlg);
+            lbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            lbl->setMinimumWidth(labelWidth);
+            lbl->setMaximumWidth(labelWidth);
+            if (!fields[i].rowWidget) {
+                continue;
+            }
+            if (fields[i].line) {
+                fields[i].line->setMinimumWidth(editorWidth);
+                fields[i].line->setMaximumWidth(editorWidth);
+            }
+            if (fields[i].combo) {
+                fields[i].combo->setMinimumWidth(editorWidth);
+                fields[i].combo->setMaximumWidth(editorWidth);
+            }
+            grid->addWidget(lbl, r, labelCol);
+            grid->addWidget(fields[i].rowWidget, r, valueCol);
+            grid->setColumnStretch(labelCol, 0);
+            grid->setColumnStretch(valueCol, 1);
+        }
+        root->addLayout(grid, 1);
         auto* btns = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
         root->addWidget(btns);
         connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
@@ -2604,16 +2544,51 @@ void MainWindow::buildUi() {
             aShowInline->setCheckable(true);
             aShowInline->setChecked(m_showInlineDatasetProps);
             QAction* aEdit = menu.addAction(
-                trk(QStringLiteral("t_edit_528f79"),
-                    QStringLiteral("Editar"),
-                    QStringLiteral("Edit"),
-                    QStringLiteral("编辑")));
+                trk(QStringLiteral("t_ctx_edit_dataset001"),
+                    QStringLiteral("Editar dataset"),
+                    QStringLiteral("Edit dataset"),
+                    QStringLiteral("编辑数据集")));
             menu.addSeparator();
+            QMenu* mSelectSnapshot = menu.addMenu(
+                trk(QStringLiteral("t_ctx_sel_snap001"),
+                    QStringLiteral("Seleccionar snapshot"),
+                    QStringLiteral("Select snapshot"),
+                    QStringLiteral("选择快照")));
+            QMap<QAction*, QString> snapshotActions;
+            const QString itemDatasetPath = item->data(0, Qt::UserRole).toString().trimmed();
+            {
+                const QStringList snaps = item->data(1, Qt::UserRole + 1).toStringList();
+                const QString currentSnap = item->data(1, Qt::UserRole).toString().trimmed();
+                QAction* noneAct = mSelectSnapshot->addAction(QStringLiteral("(ninguno)"));
+                noneAct->setCheckable(true);
+                noneAct->setChecked(currentSnap.isEmpty());
+                snapshotActions.insert(noneAct, QString());
+                if (!snaps.isEmpty()) {
+                    mSelectSnapshot->addSeparator();
+                }
+                for (const QString& s : snaps) {
+                    const QString snapName = s.trimmed();
+                    if (snapName.isEmpty()) {
+                        continue;
+                    }
+                    QAction* sa = mSelectSnapshot->addAction(snapName);
+                    sa->setCheckable(true);
+                    sa->setChecked(snapName == currentSnap);
+                    snapshotActions.insert(sa, snapName);
+                }
+            }
+            mSelectSnapshot->setEnabled(!actionsLocked() && !snapshotActions.isEmpty());
             QAction* aRollback = menu.addAction(QStringLiteral("Rollback"));
             QAction* aCreate = menu.addAction(
-                trk(QStringLiteral("t_create_ch_001"), QStringLiteral("Crear"), QStringLiteral("Create"), QStringLiteral("创建")));
+                trk(QStringLiteral("t_ctx_create_dsv001"),
+                    QStringLiteral("Crear dataset/snapshot/vol"),
+                    QStringLiteral("Create dataset/snapshot/vol"),
+                    QStringLiteral("创建 dataset/snapshot/vol")));
             QAction* aDelete = menu.addAction(
-                trk(QStringLiteral("t_delete_menu002"), QStringLiteral("Borrar"), QStringLiteral("Delete"), QStringLiteral("删除")));
+                trk(QStringLiteral("t_ctx_delete_dataset001"),
+                    QStringLiteral("Borrar dataset"),
+                    QStringLiteral("Delete dataset"),
+                    QStringLiteral("删除数据集")));
             menu.addSeparator();
             QAction* aBreakdown = menu.addAction(
                 trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")));
@@ -2638,6 +2613,55 @@ void MainWindow::buildUi() {
 
             QAction* picked = menu.exec(m_connContentTree->viewport()->mapToGlobal(pos));
             if (!picked) {
+                return;
+            }
+            if (snapshotActions.contains(picked)) {
+                const QString snapName = snapshotActions.value(picked);
+                QTreeWidgetItem* targetItem = item;
+                if (!itemDatasetPath.isEmpty()) {
+                    auto findInTree = [](QTreeWidget* tw, const QString& ds) -> QTreeWidgetItem* {
+                        if (!tw || ds.isEmpty()) {
+                            return nullptr;
+                        }
+                        std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* n) -> QTreeWidgetItem* {
+                            if (!n) {
+                                return nullptr;
+                            }
+                            if (n->data(0, Qt::UserRole).toString().trimmed() == ds) {
+                                return n;
+                            }
+                            for (int i = 0; i < n->childCount(); ++i) {
+                                if (QTreeWidgetItem* f = rec(n->child(i))) {
+                                    return f;
+                                }
+                            }
+                            return nullptr;
+                        };
+                        for (int i = 0; i < tw->topLevelItemCount(); ++i) {
+                            if (QTreeWidgetItem* f = rec(tw->topLevelItem(i))) {
+                                return f;
+                            }
+                        }
+                        return nullptr;
+                    };
+                    if (QTreeWidgetItem* found = findInTree(m_connContentTree, itemDatasetPath)) {
+                        targetItem = found;
+                    }
+                }
+                if (!targetItem) {
+                    return;
+                }
+                onSnapshotComboChanged(
+                    m_connContentTree,
+                    targetItem,
+                    QStringLiteral("conncontent"),
+                    snapName.isEmpty() ? QStringLiteral("(ninguno)") : snapName);
+                const DatasetSelectionContext sctx = currentDatasetSelection(QStringLiteral("conncontent"));
+                if (sctx.valid && !sctx.datasetName.isEmpty()) {
+                    setConnectionOriginSelection(sctx);
+                } else {
+                    setConnectionOriginSelection(DatasetSelectionContext{});
+                }
                 return;
             }
             if (picked == aShowInline) {

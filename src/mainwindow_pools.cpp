@@ -208,6 +208,9 @@ void MainWindow::exportPoolFromRow(int row) {
         return;
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin exportar %1::%2").arg(connName, poolName));
+    invalidateDatasetCacheForPool(idx, poolName);
+    appLog(QStringLiteral("DEBUG"),
+           QStringLiteral("Caché invalidada tras exportar %1::%2").arg(connName, poolName));
     setActionsLocked(false);
     appLog(QStringLiteral("INFO"), QStringLiteral("Refrescando conexión y listado de pools tras exportar: %1").arg(connName));
     refreshConnectionByIndex(idx);
@@ -567,7 +570,6 @@ void MainWindow::populateAllPoolsTables() {
         }
     }
     refreshSelectedPoolDetails(false, false);
-    populateMountedDatasetsTables();
     updatePoolManagementBoxTitle();
 }
 
