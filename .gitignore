@@ -11,3 +11,4 @@ build-windows/
 *.spec
 .tools/
 AppDir/
+scripts/buildall
