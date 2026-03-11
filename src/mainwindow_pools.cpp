@@ -25,6 +25,9 @@ namespace {
 using mwhelpers::oneLine;
 using mwhelpers::shSingleQuote;
 using mwhelpers::sshUserHostPort;
+constexpr int kConnIdxRole = Qt::UserRole + 10;
+constexpr int kPoolNameRole = Qt::UserRole + 11;
+constexpr int kIsPoolRootRole = Qt::UserRole + 12;
 
 int selectedConnectionIndexFromTable(const QTableWidget* table) {
     if (!table) {
@@ -41,6 +44,29 @@ int selectedConnectionIndexFromTable(const QTableWidget* table) {
     bool ok = false;
     const int idx = it->data(Qt::UserRole).toInt(&ok);
     return ok ? idx : -1;
+}
+
+void setPoolRootTooltipFor(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& statusText) {
+    if (!tree || connIdx < 0 || poolName.trimmed().isEmpty()) {
+        return;
+    }
+    const QString poolKey = poolName.trimmed();
+    const QString tt = statusText.toHtmlEscaped();
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* root = tree->topLevelItem(i);
+        if (!root || !root->data(0, kIsPoolRootRole).toBool()) {
+            continue;
+        }
+        const int rootConnIdx = root->data(0, kConnIdxRole).toInt();
+        const QString rootPool = root->data(0, kPoolNameRole).toString().trimmed();
+        if (rootConnIdx != connIdx || rootPool.compare(poolKey, Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+        root->setToolTip(
+            0,
+            QStringLiteral("<pre style=\"font-family:monospace; white-space:pre;\">%1</pre>").arg(tt));
+        break;
+    }
 }
 } // namespace
 
@@ -614,7 +640,7 @@ void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteL
     const ConnectionProfile& p = m_profiles[idx];
     const QString cacheKey = poolDetailsCacheKey(idx, poolName);
 
-    auto loadFromCache = [this, &cacheKey]() -> bool {
+    auto loadFromCache = [this, &cacheKey, idx, poolName]() -> bool {
         const auto it = m_poolDetailsCache.constFind(cacheKey);
         if (it == m_poolDetailsCache.constEnd() || !it->loaded) {
             return false;
@@ -631,23 +657,7 @@ void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteL
             m_poolPropsTable->setItem(r, 2, new QTableWidgetItem(row.value(2)));
         }
         m_poolStatusText->setPlainText(cached.statusText);
-        if (m_connContentTree) {
-            for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
-                QTreeWidgetItem* root = m_connContentTree->topLevelItem(i);
-                if (!root) {
-                    continue;
-                }
-                if (root->text(0).trimmed() == QStringLiteral("Pool")
-                    && root->parent() == nullptr
-                    && root->data(0, Qt::UserRole).toString().trimmed().isEmpty()) {
-                    const QString tt = cached.statusText.toHtmlEscaped();
-                    root->setToolTip(
-                        0,
-                        QStringLiteral("<pre style=\"font-family:monospace; white-space:pre;\">%1</pre>").arg(tt));
-                    break;
-                }
-            }
-        }
+        setPoolRootTooltipFor(m_connContentTree, idx, poolName, cached.statusText);
         return true;
     };
 
@@ -656,8 +666,7 @@ void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteL
     if (!forceRefresh && cacheHit) {
         if (m_connContentTree) {
             QTreeWidgetItem* sel = m_connContentTree->currentItem();
-            if (sel && sel->text(0).trimmed() == QStringLiteral("Pool")
-                && sel->data(0, Qt::UserRole).toString().trimmed().isEmpty()) {
+            if (sel && sel->data(0, kIsPoolRootRole).toBool()) {
                 syncConnContentPoolColumns();
             }
         }
@@ -704,29 +713,12 @@ void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteL
         fresh.statusText = err.trimmed();
         m_poolStatusText->setPlainText(fresh.statusText);
     }
-    if (m_connContentTree) {
-        for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
-            QTreeWidgetItem* root = m_connContentTree->topLevelItem(i);
-            if (!root) {
-                continue;
-            }
-            if (root->text(0).trimmed() == QStringLiteral("Pool")
-                && root->parent() == nullptr
-                && root->data(0, Qt::UserRole).toString().trimmed().isEmpty()) {
-                const QString tt = fresh.statusText.toHtmlEscaped();
-                root->setToolTip(
-                    0,
-                    QStringLiteral("<pre style=\"font-family:monospace; white-space:pre;\">%1</pre>").arg(tt));
-                break;
-            }
-        }
-    }
+    setPoolRootTooltipFor(m_connContentTree, idx, poolName, fresh.statusText);
     fresh.loaded = true;
     m_poolDetailsCache.insert(cacheKey, fresh);
     if (m_connContentTree) {
         QTreeWidgetItem* sel = m_connContentTree->currentItem();
-        if (sel && sel->text(0).trimmed() == QStringLiteral("Pool")
-            && sel->data(0, Qt::UserRole).toString().trimmed().isEmpty()) {
+        if (sel && sel->data(0, kIsPoolRootRole).toBool()) {
             syncConnContentPoolColumns();
         }
     }

@@ -99,6 +99,7 @@ void MainWindow::loadUiSettings() {
         m_logLevelSetting = QStringLiteral("normal");
     }
     m_logMaxLinesSetting = ini.value(QStringLiteral("log_max_lines"), 500).toInt();
+    m_showInlineDatasetProps = ini.value(QStringLiteral("show_inline_dataset_props"), true).toBool();
     if (m_logMaxLinesSetting != 100 && m_logMaxLinesSetting != 200
         && m_logMaxLinesSetting != 500 && m_logMaxLinesSetting != 1000) {
         m_logMaxLinesSetting = 500;
@@ -124,6 +125,7 @@ void MainWindow::saveUiSettings() const {
         lines = 500;
     }
     ini.setValue(QStringLiteral("log_max_lines"), lines);
+    ini.setValue(QStringLiteral("show_inline_dataset_props"), m_showInlineDatasetProps);
     ini.endGroup();
     // Remove legacy duplicated key.
     ini.beginGroup(QStringLiteral("ui"));

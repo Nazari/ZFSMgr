@@ -420,6 +420,7 @@ private:
     int m_logMaxSizeMb{10};
     QString m_logLevelSetting{QStringLiteral("normal")};
     int m_logMaxLinesSetting{500};
+    bool m_showInlineDatasetProps{true};
     QString m_appLogPath;
     bool m_compactPrevValid{false};
     QString m_compactPrevDate;
