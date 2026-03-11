@@ -21,7 +21,7 @@ Legal references:
 
 ## Releases
 
-- **Beta 0.9.1**: https://github.com/Nazari/ZFSMgr/releases
+- **Beta 0.9.5**: https://github.com/Nazari/ZFSMgr/releases
 
 ## Main capabilities
 
@@ -111,7 +111,7 @@ What it does:
 - builds a Release binary,
 - creates an AppDir,
 - bundles Qt dependencies with `linuxdeploy` + `linuxdeploy-plugin-qt`,
-- generates `ZFSMgr-0.9.1-x86_64.AppImage`.
+- generates `ZFSMgr-0.9.5-x86_64.AppImage`.
 
 Notes:
 
