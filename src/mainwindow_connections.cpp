@@ -63,6 +63,35 @@ bool isLocalHostForUi(const QString& host) {
 
 } // namespace
 
+QString MainWindow::connectionPersistKey(int idx) const {
+    if (idx < 0 || idx >= m_profiles.size()) {
+        return QString();
+    }
+    const QString id = m_profiles[idx].id.trimmed();
+    if (!id.isEmpty()) {
+        return id.toLower();
+    }
+    return m_profiles[idx].name.trimmed().toLower();
+}
+
+bool MainWindow::isConnectionDisconnected(int idx) const {
+    const QString key = connectionPersistKey(idx);
+    return !key.isEmpty() && m_disconnectedConnectionKeys.contains(key);
+}
+
+void MainWindow::setConnectionDisconnected(int idx, bool disconnected) {
+    const QString key = connectionPersistKey(idx);
+    if (key.isEmpty()) {
+        return;
+    }
+    if (disconnected) {
+        m_disconnectedConnectionKeys.insert(key);
+    } else {
+        m_disconnectedConnectionKeys.remove(key);
+    }
+    saveUiSettings();
+}
+
 bool MainWindow::isConnectionRedirectedToLocal(int idx) const {
     if (idx < 0 || idx >= m_profiles.size() || idx >= m_states.size()) {
         return false;
@@ -176,12 +205,27 @@ void MainWindow::refreshAllConnections() {
         return;
     }
     const int generation = ++m_refreshGeneration;
-    m_refreshPending = m_profiles.size();
-    m_refreshTotal = m_profiles.size();
+    int refreshable = 0;
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        if (!isConnectionDisconnected(i)) {
+            ++refreshable;
+        }
+    }
+    m_refreshPending = refreshable;
+    m_refreshTotal = refreshable;
     m_refreshInProgress = (m_refreshPending > 0);
     updateBusyCursor();
+    if (refreshable <= 0) {
+        rebuildConnectionsTable();
+        rebuildDatasetPoolSelectors();
+        populateAllPoolsTables();
+        return;
+    }
 
     for (int i = 0; i < m_profiles.size(); ++i) {
+        if (isConnectionDisconnected(i)) {
+            continue;
+        }
         const ConnectionProfile profile = m_profiles[i];
         (void)QtConcurrent::run([this, generation, i, profile]() {
             const ConnectionRuntimeState state = refreshConnection(profile);
@@ -202,7 +246,7 @@ void MainWindow::refreshSelectedConnection() {
         return;
     }
     const int idx = selectedConnectionRow(m_connectionsTable);
-    if (idx < 0 || idx >= m_profiles.size()) {
+    if (idx < 0 || idx >= m_profiles.size() || isConnectionDisconnected(idx)) {
         return;
     }
     if (m_connectionEntityTabs) {
@@ -301,7 +345,13 @@ void MainWindow::onAsyncRefreshDone(int generation) {
         m_initialRefreshCompleted = true;
     }
     if (m_connectionsTable && m_connectionsTable->rowCount() > 0 && m_connectionsTable->currentRow() < 0) {
-        m_connectionsTable->setCurrentCell(0, 2);
+        for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
+            const int idx = connectionIndexForRow(m_connectionsTable, r);
+            if (idx >= 0 && idx < m_profiles.size() && !isConnectionDisconnected(idx)) {
+                m_connectionsTable->setCurrentCell(r, 2);
+                break;
+            }
+        }
     }
     refreshConnectionNodeDetails();
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Refresco paralelo finalizado"));
@@ -332,6 +382,9 @@ void MainWindow::onConnectionSelectionChanged() {
         int idx = m_topDetailConnIdx;
         if (idx < 0) {
             idx = selectedConnectionRow(m_connectionsTable);
+        }
+        if (idx >= 0 && isConnectionDisconnected(idx)) {
+            idx = -1;
         }
         const QString tabKey =
             (m_connectionEntityTabs && m_connectionEntityTabs->currentIndex() >= 0
@@ -371,7 +424,7 @@ void MainWindow::updateSecondaryConnectionDetail() {
     }
     m_bottomConnContentTree->clear();
     if (m_bottomDetailConnIdx < 0 || m_bottomDetailConnIdx >= m_profiles.size()
-        || m_bottomDetailConnIdx >= m_states.size()) {
+        || m_bottomDetailConnIdx >= m_states.size() || isConnectionDisconnected(m_bottomDetailConnIdx)) {
         return;
     }
     const ConnectionRuntimeState& st = m_states[m_bottomDetailConnIdx];
@@ -419,7 +472,8 @@ void MainWindow::rebuildConnectionEntityTabs() {
     if (connIdx < 0) {
         connIdx = selectedConnectionRow(m_connectionsTable);
     }
-    if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
+    if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()
+        || isConnectionDisconnected(connIdx)) {
         m_connContentTree->clear();
         return;
     }
@@ -473,7 +527,7 @@ void MainWindow::onConnectionEntityTabChanged(int idx) {
         return;
     }
     const int connIdx = parts.value(1).toInt();
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_profiles.size() || isConnectionDisconnected(connIdx)) {
         return;
     }
     const int row = rowForConnectionIndex(m_connectionsTable, connIdx);
@@ -808,7 +862,7 @@ void MainWindow::updateConnectionDetailTitlesForCurrentSelection() {
 int MainWindow::selectedConnectionIndexForPoolManagement() const {
     if (m_connectionsTable) {
         const int idx = selectedConnectionRow(m_connectionsTable);
-        if (idx >= 0 && idx < m_profiles.size()) {
+        if (idx >= 0 && idx < m_profiles.size() && !isConnectionDisconnected(idx)) {
             return idx;
         }
     }
@@ -831,7 +885,7 @@ void MainWindow::updatePoolManagementBoxTitle() {
 }
 
 void MainWindow::refreshConnectionByIndex(int idx) {
-    if (idx < 0 || idx >= m_profiles.size()) {
+    if (idx < 0 || idx >= m_profiles.size() || isConnectionDisconnected(idx)) {
         return;
     }
     if (m_connectionEntityTabs) {
@@ -932,6 +986,22 @@ void MainWindow::loadConnections() {
 
     const LoadResult loaded = m_store.loadConnections();
     m_profiles = loaded.profiles;
+    {
+        QSet<QString> validKeys;
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            const QString key = connectionPersistKey(i);
+            if (!key.isEmpty()) {
+                validKeys.insert(key);
+            }
+        }
+        for (auto it = m_disconnectedConnectionKeys.begin(); it != m_disconnectedConnectionKeys.end();) {
+            if (!validKeys.contains(*it)) {
+                it = m_disconnectedConnectionKeys.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
     m_states.clear();
     m_states.resize(m_profiles.size());
     for (int i = 0; i < m_profiles.size(); ++i) {
@@ -968,7 +1038,13 @@ void MainWindow::loadConnections() {
             }
         }
         if (targetRow < 0 && m_initialRefreshCompleted) {
-            targetRow = 0;
+            for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
+                const int connIdx = connectionIndexForRow(m_connectionsTable, r);
+                if (connIdx >= 0 && connIdx < m_profiles.size() && !isConnectionDisconnected(connIdx)) {
+                    targetRow = r;
+                    break;
+                }
+            }
         }
         if (targetRow >= 0) {
             m_connectionsTable->setCurrentCell(targetRow, 2);
@@ -1078,6 +1154,7 @@ void MainWindow::rebuildConnectionsTable() {
         }
         QString statusTag = QStringLiteral("[Ko]");
         QColor rowColor("#14212b");
+        const bool disconnected = isConnectionDisconnected(i);
         const QString st = s.status.trimmed().toUpper();
         const bool localConn = isLocalConnection(p);
         const bool redirectedLocal = isConnectionRedirectedToLocal(i);
@@ -1087,7 +1164,10 @@ void MainWindow::rebuildConnectionsTable() {
         if (localConn && !s.machineUuid.trimmed().isEmpty()) {
             m_localMachineUuid = s.machineUuid.trimmed();
         }
-        if (st == QStringLiteral("OK")) {
+        if (disconnected) {
+            statusTag = QStringLiteral("[Off]");
+            rowColor = QColor("#8b9299");
+        } else if (st == QStringLiteral("OK")) {
             statusTag = QStringLiteral("[Ok]");
             rowColor = s.missingUnixCommands.isEmpty() ? QColor("#1f7a1f") : QColor("#c77900");
         } else if (!st.isEmpty()) {
@@ -1108,7 +1188,13 @@ void MainWindow::rebuildConnectionsTable() {
         m_connectionsTable->insertRow(row);
         auto* itTop = new QTableWidgetItem(QString());
         itTop->setData(Qt::UserRole, i);
-        itTop->setFlags((itTop->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled) & ~Qt::ItemIsEditable);
+        Qt::ItemFlags topFlags = (itTop->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable;
+        if (disconnected) {
+            topFlags &= ~Qt::ItemIsEnabled;
+        } else {
+            topFlags |= Qt::ItemIsEnabled;
+        }
+        itTop->setFlags(topFlags);
         itTop->setCheckState((i == m_topDetailConnIdx) ? Qt::Checked : Qt::Unchecked);
         itTop->setTextAlignment(Qt::AlignCenter);
         itTop->setToolTip(buildConnectionStateTooltip(p, s));
@@ -1116,7 +1202,13 @@ void MainWindow::rebuildConnectionsTable() {
 
         auto* itBottom = new QTableWidgetItem(QString());
         itBottom->setData(Qt::UserRole, i);
-        itBottom->setFlags((itBottom->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled) & ~Qt::ItemIsEditable);
+        Qt::ItemFlags bottomFlags = (itBottom->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable;
+        if (disconnected) {
+            bottomFlags &= ~Qt::ItemIsEnabled;
+        } else {
+            bottomFlags |= Qt::ItemIsEnabled;
+        }
+        itBottom->setFlags(bottomFlags);
         itBottom->setCheckState((i == m_bottomDetailConnIdx) ? Qt::Checked : Qt::Unchecked);
         itBottom->setTextAlignment(Qt::AlignCenter);
         itBottom->setToolTip(buildConnectionStateTooltip(p, s));
@@ -1125,6 +1217,11 @@ void MainWindow::rebuildConnectionsTable() {
         auto* it = new QTableWidgetItem(line);
         it->setData(Qt::UserRole, i);
         it->setForeground(QBrush(rowColor));
+        if (disconnected) {
+            QFont f = it->font();
+            f.setItalic(true);
+            it->setFont(f);
+        }
         it->setToolTip(buildConnectionStateTooltip(p, s));
         m_connectionsTable->setItem(row, 2, it);
 
@@ -1133,16 +1230,44 @@ void MainWindow::rebuildConnectionsTable() {
         if (idx < 0) {
             return false;
         }
+        if (isConnectionDisconnected(idx)) {
+            return false;
+        }
         return rowForConnectionIndex(m_connectionsTable, idx) >= 0;
     };
     const int rowCount = m_connectionsTable->rowCount();
+    auto firstConnectedIndex = [this]() -> int {
+        for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
+            const int idx = connectionIndexForRow(m_connectionsTable, r);
+            if (idx >= 0 && idx < m_profiles.size() && !isConnectionDisconnected(idx)) {
+                return idx;
+            }
+        }
+        return -1;
+    };
+    auto secondConnectedIndex = [this](int firstIdx) -> int {
+        bool seenFirst = false;
+        for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
+            const int idx = connectionIndexForRow(m_connectionsTable, r);
+            if (idx < 0 || idx >= m_profiles.size() || isConnectionDisconnected(idx)) {
+                continue;
+            }
+            if (!seenFirst && idx == firstIdx) {
+                seenFirst = true;
+                continue;
+            }
+            return idx;
+        }
+        return -1;
+    };
     if (!ensureValidConnIdx(m_topDetailConnIdx)) {
-        m_topDetailConnIdx = (rowCount > 0) ? connectionIndexForRow(m_connectionsTable, 0) : -1;
+        m_topDetailConnIdx = (rowCount > 0) ? firstConnectedIndex() : -1;
     }
     if (!ensureValidConnIdx(m_bottomDetailConnIdx)) {
         if (rowCount > 1) {
-            // Inicialmente: primera conexión como Origen y segunda como Destino.
-            m_bottomDetailConnIdx = connectionIndexForRow(m_connectionsTable, 1);
+            // Inicialmente: primera conexión conectada como Origen y segunda conectada como Destino.
+            const int second = secondConnectedIndex(m_topDetailConnIdx);
+            m_bottomDetailConnIdx = (second >= 0) ? second : m_topDetailConnIdx;
         } else {
             m_bottomDetailConnIdx = m_topDetailConnIdx;
         }
@@ -1183,7 +1308,13 @@ void MainWindow::rebuildConnectionsTable() {
         }
     }
     if (targetRow < 0 && m_connectionsTable->rowCount() > 0) {
-        targetRow = 0;
+        for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
+            const int idx = connectionIndexForRow(m_connectionsTable, r);
+            if (idx >= 0 && idx < m_profiles.size() && !isConnectionDisconnected(idx)) {
+                targetRow = r;
+                break;
+            }
+        }
     }
     if (targetRow >= 0) {
         m_connectionsTable->setCurrentCell(targetRow, 2);
@@ -1209,6 +1340,9 @@ void MainWindow::rebuildDatasetPoolSelectors() {
     m_destPoolCombo->clear();
 
     for (int i = 0; i < m_profiles.size(); ++i) {
+        if (isConnectionDisconnected(i)) {
+            continue;
+        }
         const bool redirectedLocal = isConnectionRedirectedToLocal(i);
         if (redirectedLocal) {
             continue;

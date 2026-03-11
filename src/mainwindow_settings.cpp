@@ -100,6 +100,16 @@ void MainWindow::loadUiSettings() {
     }
     m_logMaxLinesSetting = ini.value(QStringLiteral("log_max_lines"), 500).toInt();
     m_showInlineDatasetProps = ini.value(QStringLiteral("show_inline_dataset_props"), true).toBool();
+    m_disconnectedConnectionKeys.clear();
+    {
+        const QStringList raw = ini.value(QStringLiteral("disconnected_connections")).toStringList();
+        for (const QString& k : raw) {
+            const QString norm = k.trimmed().toLower();
+            if (!norm.isEmpty()) {
+                m_disconnectedConnectionKeys.insert(norm);
+            }
+        }
+    }
     if (m_logMaxLinesSetting != 100 && m_logMaxLinesSetting != 200
         && m_logMaxLinesSetting != 500 && m_logMaxLinesSetting != 1000) {
         m_logMaxLinesSetting = 500;
@@ -126,6 +136,9 @@ void MainWindow::saveUiSettings() const {
     }
     ini.setValue(QStringLiteral("log_max_lines"), lines);
     ini.setValue(QStringLiteral("show_inline_dataset_props"), m_showInlineDatasetProps);
+    QStringList disconnected = QStringList(m_disconnectedConnectionKeys.begin(), m_disconnectedConnectionKeys.end());
+    disconnected.sort(Qt::CaseInsensitive);
+    ini.setValue(QStringLiteral("disconnected_connections"), disconnected);
     ini.endGroup();
     // Remove legacy duplicated key.
     ini.beginGroup(QStringLiteral("ui"));

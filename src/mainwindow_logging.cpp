@@ -364,6 +364,9 @@ void MainWindow::syncConnectionLogTabs() {
     }
     QSet<QString> wanted;
     for (int i = 0; i < m_profiles.size(); ++i) {
+        if (isConnectionDisconnected(i)) {
+            continue;
+        }
         const auto& p = m_profiles[i];
         const bool localConn = isLocalConnection(p);
         const QString st = (i < m_states.size()) ? m_states[i].status.trimmed().toUpper() : QString();
@@ -407,6 +410,9 @@ void MainWindow::syncConnectionLogTabs() {
     }
 
     for (int i = 0; i < m_profiles.size(); ++i) {
+        if (isConnectionDisconnected(i)) {
+            continue;
+        }
         const QString id = m_profiles[i].id;
         if (!wanted.contains(id)) {
             continue;

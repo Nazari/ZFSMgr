@@ -1602,6 +1602,12 @@ void MainWindow::buildUi() {
         if (!ok || connIdx < 0 || connIdx >= m_profiles.size()) {
             return;
         }
+        if (isConnectionDisconnected(connIdx)) {
+            m_syncConnSelectorChecks = true;
+            item->setCheckState(Qt::Unchecked);
+            m_syncConnSelectorChecks = false;
+            return;
+        }
         const bool checked = item->checkState() == Qt::Checked;
         m_syncConnSelectorChecks = true;
         if (col == 0) {
@@ -2119,13 +2125,16 @@ void MainWindow::buildUi() {
             return;
         }
         const QModelIndex idxAt = m_connectionsTable->indexAt(pos);
-        if (idxAt.isValid() && idxAt.row() >= 0) {
-            m_connectionsTable->setCurrentCell(idxAt.row(), 2);
-        }
         int connIdx = -1;
-        const int curRow = m_connectionsTable->currentRow();
-        if (curRow >= 0 && curRow < m_connectionsTable->rowCount()) {
-            QTableWidgetItem* it = m_connectionsTable->item(curRow, 2);
+        int rowForMenu = -1;
+        if (idxAt.isValid() && idxAt.row() >= 0) {
+            rowForMenu = idxAt.row();
+            m_connectionsTable->setCurrentCell(idxAt.row(), 2);
+        } else {
+            rowForMenu = m_connectionsTable->currentRow();
+        }
+        if (rowForMenu >= 0 && rowForMenu < m_connectionsTable->rowCount()) {
+            QTableWidgetItem* it = m_connectionsTable->item(rowForMenu, 2);
             if (it) {
                 bool ok = false;
                 const int idx = it->data(Qt::UserRole).toInt(&ok);
@@ -2135,10 +2144,22 @@ void MainWindow::buildUi() {
             }
         }
         const bool hasConn = (connIdx >= 0 && connIdx < m_profiles.size());
-        const bool canRefresh = hasConn && !actionsLocked();
+        const bool isDisconnected = hasConn && isConnectionDisconnected(connIdx);
+        const bool canRefresh = hasConn && !isDisconnected && !actionsLocked();
         const bool canEditDelete = canRefresh && !isLocalConnection(connIdx) && !isConnectionRedirectedToLocal(connIdx);
 
         QMenu menu(this);
+        QAction* aConnect = menu.addAction(
+            trk(QStringLiteral("t_connect_ctx_001"),
+                QStringLiteral("Conectar"),
+                QStringLiteral("Connect"),
+                QStringLiteral("连接")));
+        QAction* aDisconnect = menu.addAction(
+            trk(QStringLiteral("t_disconnect_ctx001"),
+                QStringLiteral("Desconectar"),
+                QStringLiteral("Disconnect"),
+                QStringLiteral("断开连接")));
+        menu.addSeparator();
         QAction* aRefresh = menu.addAction(
             trk(QStringLiteral("t_refresh_conn_ctx001"),
                 QStringLiteral("Refrescar"),
@@ -2170,18 +2191,32 @@ void MainWindow::buildUi() {
                 QStringLiteral("Nuevo Pool"),
                 QStringLiteral("New Pool"),
                 QStringLiteral("新建存储池")));
+        aConnect->setEnabled(!actionsLocked() && hasConn && isDisconnected);
+        aDisconnect->setEnabled(!actionsLocked() && hasConn && !isDisconnected);
         aRefresh->setEnabled(canRefresh);
         aEdit->setEnabled(canEditDelete);
         aDelete->setEnabled(canEditDelete);
         aRefreshAll->setEnabled(!actionsLocked());
         aNewConn->setEnabled(!actionsLocked());
-        aNewPool->setEnabled(!actionsLocked() && hasConn);
+        aNewPool->setEnabled(!actionsLocked() && hasConn && !isDisconnected);
 
         QAction* chosen = menu.exec(m_connectionsTable->viewport()->mapToGlobal(pos));
         if (!chosen) {
             return;
         }
-        if (chosen == aRefresh) {
+        if (chosen == aConnect && hasConn) {
+            setConnectionDisconnected(connIdx, false);
+            appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como conectada: %1").arg(m_profiles[connIdx].name));
+            rebuildConnectionsTable();
+            rebuildDatasetPoolSelectors();
+            populateAllPoolsTables();
+        } else if (chosen == aDisconnect && hasConn) {
+            setConnectionDisconnected(connIdx, true);
+            appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como desconectada: %1").arg(m_profiles[connIdx].name));
+            rebuildConnectionsTable();
+            rebuildDatasetPoolSelectors();
+            populateAllPoolsTables();
+        } else if (chosen == aRefresh) {
             logUiAction(QStringLiteral("Refrescar conexión (menú conexiones)"));
             refreshSelectedConnection();
         } else if (chosen == aEdit) {

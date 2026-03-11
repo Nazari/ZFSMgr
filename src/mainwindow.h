@@ -5,6 +5,7 @@
 
 #include <QMainWindow>
 #include <QMap>
+#include <QSet>
 #include <QVector>
 #include <functional>
 
@@ -254,6 +255,9 @@ private:
     void onAsyncRefreshDone(int generation);
     int findConnectionIndexByName(const QString& name) const;
     bool isConnectionRedirectedToLocal(int idx) const;
+    QString connectionPersistKey(int idx) const;
+    bool isConnectionDisconnected(int idx) const;
+    void setConnectionDisconnected(int idx, bool disconnected);
     void refreshConnectionByIndex(int idx);
     struct PoolListEntry {
         QString connection;
@@ -357,6 +361,7 @@ private:
     QMap<QString, QMap<QString, QString>> m_connContentPropValuesByObject;
     QMap<QString, ConnContentTreeState> m_connContentTreeStateByToken;
     QMap<QString, ConnectionNavState> m_connectionNavStateByConnId;
+    QSet<QString> m_disconnectedConnectionKeys;
     QMap<int, QString> m_pendingRefreshTopTabDataByConn;
     QMap<int, QString> m_pendingRefreshBottomTabDataByConn;
     QString m_userSelectedConnectionKey;

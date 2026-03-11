@@ -534,6 +534,9 @@ void MainWindow::destroyPoolFromRow(int row) {
 void MainWindow::populateAllPoolsTables() {
     m_poolListEntries.clear();
     for (int i = 0; i < m_states.size(); ++i) {
+        if (i < m_profiles.size() && isConnectionDisconnected(i)) {
+            continue;
+        }
         if (i < m_profiles.size()) {
             const bool redirectedLocal = isConnectionRedirectedToLocal(i);
             if (redirectedLocal) {
