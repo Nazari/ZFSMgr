@@ -5,14 +5,18 @@
 #include <QActionGroup>
 #include <QApplication>
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QFont>
 #include <QFontDatabase>
 #include <QFontMetrics>
+#include <QFormLayout>
 #include <QFrame>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QLineEdit>
 #include <QLabel>
 #include <QListWidget>
 #include <QMenu>
@@ -20,9 +24,11 @@
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QCheckBox>
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QStyleFactory>
+#include <QStyledItemDelegate>
 #include <QSplitter>
 #include <QTabBar>
 #include <QTabWidget>
@@ -32,6 +38,7 @@
 #include <QTreeWidget>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <QPainter>
 
 #ifndef ZFSMGR_APP_VERSION
 #define ZFSMGR_APP_VERSION "0.9.1"
@@ -40,10 +47,45 @@
 namespace {
 constexpr int kIsPoolRootRole = Qt::UserRole + 12;
 constexpr int kConnPropRowRole = Qt::UserRole + 13;
+constexpr int kConnPropRowKindRole = Qt::UserRole + 16; // 1=name, 2=value
 constexpr int kConnPropKeyRole = Qt::UserRole + 14;
 constexpr int kConnIdxRole = Qt::UserRole + 10;
 constexpr int kPoolNameRole = Qt::UserRole + 11;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
+
+class ConnContentPropBorderDelegate final : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        QStyledItemDelegate::paint(painter, option, index);
+        if (!painter || !index.isValid() || index.column() < 4) {
+            return;
+        }
+        if (!index.sibling(index.row(), 0).data(kConnPropRowRole).toBool()) {
+            return;
+        }
+        const int kind = index.sibling(index.row(), 0).data(kConnPropRowKindRole).toInt();
+        if (kind != 1 && kind != 2) {
+            return;
+        }
+
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, false);
+        QPen pen(option.palette.color(QPalette::Mid));
+        pen.setWidth(1);
+        painter->setPen(pen);
+        const QRect r = option.rect.adjusted(0, 0, -1, -1);
+        painter->drawLine(r.topLeft(), r.bottomLeft());
+        painter->drawLine(r.topRight(), r.bottomRight());
+        if (kind == 1) {
+            painter->drawLine(r.topLeft(), r.topRight());
+        } else {
+            painter->drawLine(r.bottomLeft(), r.bottomRight());
+        }
+        painter->restore();
+    }
+};
 }
 
 void MainWindow::buildUi() {
@@ -899,6 +941,7 @@ void MainWindow::buildUi() {
     m_connectionEntityTabs->setExpanding(false);
     m_connectionEntityTabs->setDrawBase(false);
     m_connectionEntityTabs->setUsesScrollButtons(true);
+    m_connectionEntityTabs->setVisible(false);
     poolDetailLayout->addWidget(m_connectionEntityTabs, 0);
     auto* detailContainer = new QFrame(m_poolDetailTabs);
     detailContainer->setObjectName(QStringLiteral("zfsmgrDetailContainer"));
@@ -1046,6 +1089,7 @@ void MainWindow::buildUi() {
         m_connContentTree->setFont(f);
     }
     m_connContentTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"));
+    m_connContentTree->setItemDelegate(new ConnContentPropBorderDelegate(m_connContentTree));
 #ifdef Q_OS_MAC
     if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
         m_connContentTree->setStyle(fusion);
@@ -1306,6 +1350,7 @@ void MainWindow::buildUi() {
     m_bottomConnectionEntityTabs->setExpanding(false);
     m_bottomConnectionEntityTabs->setDrawBase(false);
     m_bottomConnectionEntityTabs->setUsesScrollButtons(true);
+    m_bottomConnectionEntityTabs->setVisible(false);
     bottomConnLayout->addWidget(m_bottomConnectionEntityTabs, 0);
     m_bottomConnContentTree = new QTreeWidget(bottomConnBox);
     m_bottomConnContentTree->setColumnCount(4);
@@ -1338,6 +1383,7 @@ void MainWindow::buildUi() {
     m_bottomConnContentTree->setRootIsDecorated(true);
     m_bottomConnContentTree->setItemsExpandable(true);
     m_bottomConnContentTree->setStyleSheet(QStringLiteral("QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"));
+    m_bottomConnContentTree->setItemDelegate(new ConnContentPropBorderDelegate(m_bottomConnContentTree));
     bottomConnLayout->addWidget(m_bottomConnContentTree, 1);
     rightSplit->setStretchFactor(0, 1);
     rightSplit->setStretchFactor(1, 1);
@@ -1644,27 +1690,160 @@ void MainWindow::buildUi() {
             m_connContentToken = prevToken;
         });
     }
+    auto connTokenFromTreeSelectionBottom = [this](QTreeWidget* tree) -> QString {
+        if (!tree) {
+            return QString();
+        }
+        QTreeWidgetItem* owner = tree->currentItem();
+        while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
+               && !owner->data(0, kIsPoolRootRole).toBool()) {
+            owner = owner->parent();
+        }
+        if (!owner) {
+            return QString();
+        }
+        const int connIdx = owner->data(0, kConnIdxRole).toInt();
+        const QString poolName = owner->data(0, kPoolNameRole).toString().trimmed();
+        if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+            return QString();
+        }
+        return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+    };
+    auto refreshInlinePropsVisualBottom = [this, connTokenFromTreeSelectionBottom](QTreeWidget* tree) {
+        if (!tree) {
+            return;
+        }
+        {
+            QSignalBlocker blocker(tree);
+            QTreeWidgetItem* cur = tree->currentItem();
+            if (cur && cur->data(0, kConnPropRowRole).toBool() && cur->parent()) {
+                tree->setCurrentItem(cur->parent());
+            }
+        }
+        const QString token = connTokenFromTreeSelectionBottom(tree);
+        if (token.isEmpty()) {
+            return;
+        }
+        const QString prevToken = m_connContentToken;
+        QTreeWidget* prevTree = m_connContentTree;
+        m_connContentTree = tree;
+        m_connContentToken = token;
+        {
+            QSignalBlocker blocker(tree);
+            syncConnContentPropertyColumns();
+        }
+        m_connContentTree = prevTree;
+        m_connContentToken = prevToken;
+    };
+    auto openEditDatasetDialogBottom = [this](QTreeWidget* tree) {
+        if (!tree) {
+            return;
+        }
+        const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
+        if (!ctx.valid || ctx.datasetName.trimmed().isEmpty() || !ctx.snapshotName.trimmed().isEmpty()) {
+            return;
+        }
+        refreshDatasetProperties(QStringLiteral("conncontent"));
+        if (!m_connContentPropsTable || m_connContentPropsTable->rowCount() <= 0) {
+            return;
+        }
+        struct EditField { int row{-1}; QLineEdit* line{nullptr}; QComboBox* combo{nullptr}; QCheckBox* inherit{nullptr}; };
+        QVector<EditField> fields;
+        QDialog dlg(this);
+        dlg.setWindowTitle(
+            trk(QStringLiteral("t_edit_ds_t_001"), QStringLiteral("Editar dataset"), QStringLiteral("Edit dataset"), QStringLiteral("编辑数据集"))
+            + QStringLiteral(": ") + ctx.datasetName);
+        dlg.setModal(true);
+        dlg.resize(760, 520);
+        auto* root = new QVBoxLayout(&dlg);
+        auto* form = new QFormLayout();
+        form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+        for (int r = 0; r < m_connContentPropsTable->rowCount(); ++r) {
+            QTableWidgetItem* pk = m_connContentPropsTable->item(r, 0);
+            QTableWidgetItem* pv = m_connContentPropsTable->item(r, 1);
+            QTableWidgetItem* pi = m_connContentPropsTable->item(r, 2);
+            if (!pk || !pv || !pi) continue;
+            const QString prop = pk->data(Qt::UserRole + 777).toString().trimmed().isEmpty()
+                                     ? pk->text().trimmed()
+                                     : pk->data(Qt::UserRole + 777).toString().trimmed();
+            const bool valueEditable = (pv->flags() & Qt::ItemIsEditable) || (m_connContentPropsTable->cellWidget(r, 1) != nullptr);
+            const bool inheritEditable = (pi->flags() & Qt::ItemIsUserCheckable);
+            if (!valueEditable && !inheritEditable) continue;
+            auto* rowW = new QWidget(&dlg);
+            auto* rowL = new QHBoxLayout(rowW);
+            rowL->setContentsMargins(0, 0, 0, 0);
+            rowL->setSpacing(8);
+            EditField ef; ef.row = r;
+            if (QComboBox* srcCb = qobject_cast<QComboBox*>(m_connContentPropsTable->cellWidget(r, 1))) {
+                auto* cb = new QComboBox(rowW);
+                for (int i = 0; i < srcCb->count(); ++i) cb->addItem(srcCb->itemText(i));
+                cb->setCurrentText(srcCb->currentText());
+                cb->setEnabled(valueEditable);
+                ef.combo = cb;
+                rowL->addWidget(cb, 1);
+            } else {
+                auto* le = new QLineEdit(rowW);
+                le->setText(pv->text());
+                le->setEnabled(valueEditable);
+                le->selectAll();
+                ef.line = le;
+                rowL->addWidget(le, 1);
+            }
+            if (inheritEditable) {
+                auto* inh = new QCheckBox(trk(QStringLiteral("t_inherit_col001"), QStringLiteral("Inherit"), QStringLiteral("Inherit"), QStringLiteral("继承")), rowW);
+                inh->setChecked(pi->checkState() == Qt::Checked);
+                ef.inherit = inh;
+                rowL->addWidget(inh, 0);
+            }
+            fields.push_back(ef);
+            form->addRow(pk->text(), rowW);
+        }
+        root->addLayout(form, 1);
+        auto* btns = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+        root->addWidget(btns);
+        connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+        connect(btns, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+        if (dlg.exec() != QDialog::Accepted) return;
+        for (const EditField& ef : fields) {
+            if (ef.row < 0 || ef.row >= m_connContentPropsTable->rowCount()) continue;
+            QTableWidgetItem* pv = m_connContentPropsTable->item(ef.row, 1);
+            QTableWidgetItem* pi = m_connContentPropsTable->item(ef.row, 2);
+            if (pv) {
+                const QString v = ef.combo ? ef.combo->currentText() : (ef.line ? ef.line->text() : pv->text());
+                pv->setText(v);
+                if (QComboBox* srcCb = qobject_cast<QComboBox*>(m_connContentPropsTable->cellWidget(ef.row, 1))) srcCb->setCurrentText(v);
+                onDatasetPropsCellChanged(ef.row, 1);
+            }
+            if (pi && ef.inherit && (pi->flags() & Qt::ItemIsUserCheckable)) {
+                pi->setCheckState(ef.inherit->isChecked() ? Qt::Checked : Qt::Unchecked);
+                onDatasetPropsCellChanged(ef.row, 2);
+            }
+        }
+        if (m_btnApplyConnContentProps && m_btnApplyConnContentProps->isEnabled()) applyDatasetPropertyChanges();
+    };
+
     if (m_bottomConnContentTree) {
         connect(m_bottomConnContentTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
             if (!m_bottomConnContentTree || m_syncingConnContentColumns) {
                 return;
             }
-            const int tabIdx = m_bottomConnectionEntityTabs ? m_bottomConnectionEntityTabs->currentIndex() : -1;
-            if (tabIdx < 0 || !m_bottomConnectionEntityTabs) {
-                return;
-            }
-            const QString key = m_bottomConnectionEntityTabs->tabData(tabIdx).toString();
-            const QStringList parts = key.split(':');
-            if (parts.size() < 3 || parts.first() != QStringLiteral("pool")) {
-                return;
-            }
-            bool ok = false;
-            const int connIdx = parts.value(1).toInt(&ok);
-            const QString poolName = parts.value(2).trimmed();
-            if (!ok || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
-                return;
-            }
             QTreeWidgetItem* sel = m_bottomConnContentTree->currentItem();
+            if (!sel) {
+                return;
+            }
+            QTreeWidgetItem* owner = sel;
+            while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
+                   && !owner->data(0, kIsPoolRootRole).toBool()) {
+                owner = owner->parent();
+            }
+            if (!owner) {
+                return;
+            }
+            const int connIdx = owner->data(0, kConnIdxRole).toInt();
+            const QString poolName = owner->data(0, kPoolNameRole).toString().trimmed();
+            if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+                return;
+            }
             auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
                 for (QTreeWidgetItem* p = n; p; p = p->parent()) {
                     if (p->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
@@ -1687,6 +1866,9 @@ void MainWindow::buildUi() {
             m_connContentTree = m_bottomConnContentTree;
             m_connContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
             if (isPoolContext) {
+                if (sel && sel->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
+                    sel->setExpanded(true);
+                }
                 syncConnContentPoolColumns();
                 setConnectionDestinationSelection(DatasetSelectionContext{});
             } else {
@@ -1706,19 +1888,17 @@ void MainWindow::buildUi() {
             if (!m_bottomConnContentTree || !item) {
                 return;
             }
-            const int tabIdx = m_bottomConnectionEntityTabs ? m_bottomConnectionEntityTabs->currentIndex() : -1;
-            if (tabIdx < 0 || !m_bottomConnectionEntityTabs) {
+            QTreeWidgetItem* owner = item;
+            while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
+                   && !owner->data(0, kIsPoolRootRole).toBool()) {
+                owner = owner->parent();
+            }
+            if (!owner) {
                 return;
             }
-            const QString key = m_bottomConnectionEntityTabs->tabData(tabIdx).toString();
-            const QStringList parts = key.split(':');
-            if (parts.size() < 3 || parts.first() != QStringLiteral("pool")) {
-                return;
-            }
-            bool ok = false;
-            const int connIdx = parts.value(1).toInt(&ok);
-            const QString poolName = parts.value(2).trimmed();
-            if (!ok || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+            const int connIdx = owner->data(0, kConnIdxRole).toInt();
+            const QString poolName = owner->data(0, kPoolNameRole).toString().trimmed();
+            if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
                 return;
             }
             const QString prevToken = m_connContentToken;
@@ -1730,7 +1910,8 @@ void MainWindow::buildUi() {
             m_connContentToken = prevToken;
         });
         m_bottomConnContentTree->setContextMenuPolicy(Qt::CustomContextMenu);
-        connect(m_bottomConnContentTree, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        connect(m_bottomConnContentTree, &QWidget::customContextMenuRequested, this,
+                [this, refreshInlinePropsVisualBottom, openEditDatasetDialogBottom](const QPoint& pos) {
             if (!m_bottomConnContentTree) {
                 return;
             }
@@ -1764,26 +1945,8 @@ void MainWindow::buildUi() {
                 }
             }
 
-            // Mantener independiente la navegación superior: no cambiar tab activo de arriba
-            // al lanzar acciones desde el árbol inferior.
-            if (connIdx >= 0 && !poolName.isEmpty() && m_connectionsTable) {
-                int row = -1;
-                for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
-                    QTableWidgetItem* it = m_connectionsTable->item(r, 2);
-                    if (!it) {
-                        continue;
-                    }
-                    bool ok = false;
-                    const int idx = it->data(Qt::UserRole).toInt(&ok);
-                    if (ok && idx == connIdx) {
-                        row = r;
-                        break;
-                    }
-                }
-                if (row >= 0) {
-                    m_connectionsTable->setCurrentCell(row, 2);
-                }
-            }
+            // No tocar la selección de la tabla de conexiones desde este menú:
+            // puede reconstruir vistas mientras el menú usa punteros del árbol inferior.
             updateConnectionActionsState();
 
             QMenu menu(this);
@@ -1842,6 +2005,19 @@ void MainWindow::buildUi() {
                 return;
             }
 
+            QAction* aShowInline = menu.addAction(
+                trk(QStringLiteral("t_show_inline_001"),
+                    QStringLiteral("Mostrar propiedades en línea"),
+                    QStringLiteral("Show inline properties"),
+                    QStringLiteral("显示内联属性")));
+            aShowInline->setCheckable(true);
+            aShowInline->setChecked(m_showInlineDatasetProps);
+            QAction* aEdit = menu.addAction(
+                trk(QStringLiteral("t_edit_528f79"),
+                    QStringLiteral("Editar"),
+                    QStringLiteral("Edit"),
+                    QStringLiteral("编辑")));
+            menu.addSeparator();
             QAction* aRollback = menu.addAction(QStringLiteral("Rollback"));
             QAction* aCreate = menu.addAction(
                 trk(QStringLiteral("t_create_ch_001"), QStringLiteral("Crear"), QStringLiteral("Create"), QStringLiteral("创建")));
@@ -1864,6 +2040,7 @@ void MainWindow::buildUi() {
             const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
             const bool hasConnSel = ctx.valid && !ctx.datasetName.isEmpty();
             const bool hasConnSnap = hasConnSel && !ctx.snapshotName.isEmpty();
+            aEdit->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
             aRollback->setEnabled(!actionsLocked() && hasConnSnap);
             aCreate->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
             aDelete->setEnabled(!actionsLocked() && hasConnSel);
@@ -1874,6 +2051,21 @@ void MainWindow::buildUi() {
 
             QAction* picked = menu.exec(m_bottomConnContentTree->viewport()->mapToGlobal(pos));
             if (!picked) {
+                m_connContentTree = prevTree;
+                m_connContentToken = prevToken;
+                return;
+            }
+            if (picked == aShowInline) {
+                m_showInlineDatasetProps = aShowInline->isChecked();
+                saveUiSettings();
+                m_connContentTree = prevTree;
+                m_connContentToken = prevToken;
+                refreshInlinePropsVisualBottom(prevTree);
+                refreshInlinePropsVisualBottom(m_bottomConnContentTree);
+                return;
+            }
+            if (picked == aEdit) {
+                openEditDatasetDialogBottom(m_bottomConnContentTree);
                 m_connContentTree = prevTree;
                 m_connContentToken = prevToken;
                 return;
@@ -2045,6 +2237,193 @@ void MainWindow::buildUi() {
             }
         });
     }
+    auto connTokenFromTreeSelection = [this](QTreeWidget* tree) -> QString {
+        if (!tree) {
+            return QString();
+        }
+        QTreeWidgetItem* owner = tree->currentItem();
+        while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
+               && !owner->data(0, kIsPoolRootRole).toBool()) {
+            owner = owner->parent();
+        }
+        if (!owner) {
+            return QString();
+        }
+        const int connIdx = owner->data(0, kConnIdxRole).toInt();
+        const QString poolName = owner->data(0, kPoolNameRole).toString().trimmed();
+        if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+            return QString();
+        }
+        return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+    };
+    auto refreshInlinePropsVisual = [this, connTokenFromTreeSelection](QTreeWidget* tree) {
+        if (!tree) {
+            return;
+        }
+        const QString token = connTokenFromTreeSelection(tree);
+        if (token.isEmpty()) {
+            return;
+        }
+        const QString prevToken = m_connContentToken;
+        QTreeWidget* prevTree = m_connContentTree;
+        m_connContentTree = tree;
+        m_connContentToken = token;
+        auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
+            for (QTreeWidgetItem* p = n; p; p = p->parent()) {
+                if (p->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        QTreeWidgetItem* sel = tree->currentItem();
+        const bool isPoolContext =
+            sel && (sel->data(0, kIsPoolRootRole).toBool() || isInfoNodeOrInside(sel));
+        if (isPoolContext) {
+            syncConnContentPoolColumns();
+        } else {
+            syncConnContentPropertyColumns();
+        }
+        m_connContentTree = prevTree;
+        m_connContentToken = prevToken;
+    };
+    auto openEditDatasetDialog = [this](QTreeWidget* tree) {
+        if (!tree) {
+            return;
+        }
+        const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
+        if (!ctx.valid || ctx.datasetName.trimmed().isEmpty() || !ctx.snapshotName.trimmed().isEmpty()) {
+            QMessageBox::warning(
+                this,
+                trk(QStringLiteral("t_edit_ds_t_001"),
+                    QStringLiteral("Editar dataset"),
+                    QStringLiteral("Edit dataset"),
+                    QStringLiteral("编辑数据集")),
+                trk(QStringLiteral("t_edit_ds_m_001"),
+                    QStringLiteral("Seleccione un dataset (no snapshot) para editar."),
+                    QStringLiteral("Select a dataset (not a snapshot) to edit."),
+                    QStringLiteral("请选择一个数据集（不是快照）进行编辑。")));
+            return;
+        }
+
+        refreshDatasetProperties(QStringLiteral("conncontent"));
+        if (!m_connContentPropsTable || m_connContentPropsTable->rowCount() <= 0) {
+            return;
+        }
+
+        struct EditField {
+            int row{-1};
+            QLineEdit* line{nullptr};
+            QComboBox* combo{nullptr};
+            QCheckBox* inherit{nullptr};
+        };
+        QVector<EditField> fields;
+
+        QDialog dlg(this);
+        dlg.setWindowTitle(
+            trk(QStringLiteral("t_edit_ds_t_001"),
+                QStringLiteral("Editar dataset"),
+                QStringLiteral("Edit dataset"),
+                QStringLiteral("编辑数据集"))
+            + QStringLiteral(": ") + ctx.datasetName);
+        dlg.setModal(true);
+        dlg.resize(760, 520);
+        auto* root = new QVBoxLayout(&dlg);
+        auto* form = new QFormLayout();
+        form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+
+        for (int r = 0; r < m_connContentPropsTable->rowCount(); ++r) {
+            QTableWidgetItem* pk = m_connContentPropsTable->item(r, 0);
+            QTableWidgetItem* pv = m_connContentPropsTable->item(r, 1);
+            QTableWidgetItem* pi = m_connContentPropsTable->item(r, 2);
+            if (!pk || !pv || !pi) {
+                continue;
+            }
+            const QString prop = pk->data(Qt::UserRole + 777).toString().trimmed().isEmpty()
+                                     ? pk->text().trimmed()
+                                     : pk->data(Qt::UserRole + 777).toString().trimmed();
+            const bool valueEditable = (pv->flags() & Qt::ItemIsEditable) || (m_connContentPropsTable->cellWidget(r, 1) != nullptr);
+            const bool inheritEditable = (pi->flags() & Qt::ItemIsUserCheckable);
+            if (!valueEditable && !inheritEditable) {
+                continue;
+            }
+
+            auto* rowW = new QWidget(&dlg);
+            auto* rowL = new QHBoxLayout(rowW);
+            rowL->setContentsMargins(0, 0, 0, 0);
+            rowL->setSpacing(8);
+            EditField ef;
+            ef.row = r;
+
+            if (QComboBox* srcCb = qobject_cast<QComboBox*>(m_connContentPropsTable->cellWidget(r, 1))) {
+                auto* cb = new QComboBox(rowW);
+                for (int i = 0; i < srcCb->count(); ++i) {
+                    cb->addItem(srcCb->itemText(i));
+                }
+                cb->setCurrentText(srcCb->currentText());
+                cb->setEnabled(valueEditable);
+                ef.combo = cb;
+                rowL->addWidget(cb, 1);
+            } else {
+                auto* le = new QLineEdit(rowW);
+                le->setText(pv->text());
+                le->setEnabled(valueEditable);
+                le->selectAll();
+                ef.line = le;
+                rowL->addWidget(le, 1);
+            }
+
+            if (inheritEditable) {
+                auto* inh = new QCheckBox(
+                    trk(QStringLiteral("t_inherit_col001"),
+                        QStringLiteral("Inherit"),
+                        QStringLiteral("Inherit"),
+                        QStringLiteral("继承")),
+                    rowW);
+                inh->setChecked(pi->checkState() == Qt::Checked);
+                ef.inherit = inh;
+                rowL->addWidget(inh, 0);
+            }
+
+            fields.push_back(ef);
+            form->addRow(pk->text(), rowW);
+        }
+
+        root->addLayout(form, 1);
+        auto* btns = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+        root->addWidget(btns);
+        connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+        connect(btns, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+        if (dlg.exec() != QDialog::Accepted) {
+            return;
+        }
+
+        for (const EditField& ef : fields) {
+            if (ef.row < 0 || ef.row >= m_connContentPropsTable->rowCount()) {
+                continue;
+            }
+            QTableWidgetItem* pv = m_connContentPropsTable->item(ef.row, 1);
+            QTableWidgetItem* pi = m_connContentPropsTable->item(ef.row, 2);
+            if (pv) {
+                const QString v = ef.combo ? ef.combo->currentText() : (ef.line ? ef.line->text() : pv->text());
+                pv->setText(v);
+                if (QComboBox* srcCb = qobject_cast<QComboBox*>(m_connContentPropsTable->cellWidget(ef.row, 1))) {
+                    srcCb->setCurrentText(v);
+                }
+                onDatasetPropsCellChanged(ef.row, 1);
+            }
+            if (pi && ef.inherit && (pi->flags() & Qt::ItemIsUserCheckable)) {
+                pi->setCheckState(ef.inherit->isChecked() ? Qt::Checked : Qt::Unchecked);
+                onDatasetPropsCellChanged(ef.row, 2);
+            }
+        }
+
+        if (m_btnApplyConnContentProps && m_btnApplyConnContentProps->isEnabled()) {
+            applyDatasetPropertyChanges();
+        }
+    };
+
     if (m_connContentTree) {
         connect(m_connContentTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
             if (m_syncingConnContentColumns) {
@@ -2067,7 +2446,22 @@ void MainWindow::buildUi() {
                 updateConnectionActionsState();
                 return;
             }
+            QTreeWidgetItem* owner = sel;
+            while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
+                   && !owner->data(0, kIsPoolRootRole).toBool()) {
+                owner = owner->parent();
+            }
+            if (owner) {
+                const int connIdx = owner->data(0, kConnIdxRole).toInt();
+                const QString poolName = owner->data(0, kPoolNameRole).toString().trimmed();
+                if (connIdx >= 0 && connIdx < m_profiles.size() && !poolName.isEmpty()) {
+                    m_connContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+                }
+            }
             if (isPoolContext) {
+                if (sel && sel->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
+                    sel->setExpanded(true);
+                }
                 refreshSelectedPoolDetails(false, true);
                 syncConnContentPoolColumns();
                 setConnectionOriginSelection(DatasetSelectionContext{});
@@ -2090,7 +2484,8 @@ void MainWindow::buildUi() {
             onDatasetTreeItemChanged(m_connContentTree, item, col, QStringLiteral("conncontent"));
             updateConnectionActionsState();
         });
-        connect(m_connContentTree, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        connect(m_connContentTree, &QWidget::customContextMenuRequested, this,
+                [this, refreshInlinePropsVisual, openEditDatasetDialog](const QPoint& pos) {
             if (!m_connContentTree) {
                 return;
             }
@@ -2166,6 +2561,19 @@ void MainWindow::buildUi() {
                 return;
             }
 
+            QAction* aShowInline = menu.addAction(
+                trk(QStringLiteral("t_show_inline_001"),
+                    QStringLiteral("Mostrar propiedades en línea"),
+                    QStringLiteral("Show inline properties"),
+                    QStringLiteral("显示内联属性")));
+            aShowInline->setCheckable(true);
+            aShowInline->setChecked(m_showInlineDatasetProps);
+            QAction* aEdit = menu.addAction(
+                trk(QStringLiteral("t_edit_528f79"),
+                    QStringLiteral("Editar"),
+                    QStringLiteral("Edit"),
+                    QStringLiteral("编辑")));
+            menu.addSeparator();
             QAction* aRollback = menu.addAction(QStringLiteral("Rollback"));
             QAction* aCreate = menu.addAction(
                 trk(QStringLiteral("t_create_ch_001"), QStringLiteral("Crear"), QStringLiteral("Create"), QStringLiteral("创建")));
@@ -2184,6 +2592,7 @@ void MainWindow::buildUi() {
             const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
             const bool hasConnSel = ctx.valid && !ctx.datasetName.isEmpty();
             const bool hasConnSnap = hasConnSel && !ctx.snapshotName.isEmpty();
+            aEdit->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
             aRollback->setEnabled(!actionsLocked() && hasConnSnap);
             aCreate->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
             aDelete->setEnabled(!actionsLocked() && hasConnSel);
@@ -2194,6 +2603,17 @@ void MainWindow::buildUi() {
 
             QAction* picked = menu.exec(m_connContentTree->viewport()->mapToGlobal(pos));
             if (!picked) {
+                return;
+            }
+            if (picked == aShowInline) {
+                m_showInlineDatasetProps = aShowInline->isChecked();
+                saveUiSettings();
+                refreshInlinePropsVisual(m_connContentTree);
+                refreshInlinePropsVisual(m_bottomConnContentTree);
+                return;
+            }
+            if (picked == aEdit) {
+                openEditDatasetDialog(m_connContentTree);
                 return;
             }
             if (picked == aRollback) {
