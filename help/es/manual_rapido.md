@@ -6,18 +6,18 @@ ZFSMgr gestiona conexiones y acciones ZFS.
 - `Conexiones`: tabla simple (una fila por conexión) con checks `Origen` y `Destino`.
 - `Acciones`: operaciones de transferencia y avanzadas.
 - Panel derecho:
-- Arriba: tabs por pool de la conexión marcada como `Origen`.
-- Abajo: tabs por pool de la conexión marcada como `Destino`.
-- Cada tab de pool muestra un único árbol `Contenido`, con nodo raíz `Pool` y datasets/snapshots.
+- Arriba: árbol de contenido de la conexión marcada como `Origen`.
+- Abajo: árbol de contenido de la conexión marcada como `Destino`.
+- Cada árbol puede mostrar varios pools a la vez (un nodo raíz por pool), con datasets/snapshots debajo.
 - El nodo `Pool` muestra información de pool; los nodos dataset/snapshot muestran propiedades editables en columnas `Prop.`.
-- Los pools no importables no tienen tab; aparecen en el tooltip/estado de la conexión con su motivo.
+- Los pools no importables también aparecen como nodo raíz para permitir `Importar`.
 - Logs: panel único `Log combinado` (incluye salida SSH/PSRP con prefijo de conexión).
 
 Comportamiento de navegación:
 
-- Cambiar de conexión/tab reutiliza caché de datos.
+- Cambiar de conexión/pool reutiliza caché de datos.
 - No se refresca automáticamente por solo navegar.
 - Se refresca al ejecutar acciones que modifican estado/datos o con refresco explícito.
-- Antes de cada acción se guarda el tab activo de pool (arriba y abajo) y se restaura al finalizar.
+- Antes de cada acción se guarda/restaura el estado visual de ambos árboles (selección y expansión de nodos, cuando aplica).
 
 Revise "Atajos y estados" para criterios de habilitación de acciones.

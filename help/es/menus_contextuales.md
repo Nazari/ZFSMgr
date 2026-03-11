@@ -31,6 +31,8 @@ Sobre el nodo raíz `Pool`:
 
 Sobre dataset/snapshot seleccionado:
 
+- `Mostrar propiedades en línea` (check)
+- `Editar`
 - `Rollback`
 - `Crear`
 - `Borrar`
