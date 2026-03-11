@@ -31,6 +31,8 @@ On the `Pool` root node:
 
 On selected dataset/snapshot:
 
+- `Show inline properties` (check)
+- `Edit`
 - `Rollback`
 - `Create`
 - `Delete`
