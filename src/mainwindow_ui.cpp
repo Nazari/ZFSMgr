@@ -15,19 +15,23 @@
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLineEdit>
 #include <QLabel>
 #include <QListWidget>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QCheckBox>
+#include <QPointer>
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QStyleFactory>
 #include <QStyledItemDelegate>
+#include <QStyleOptionButton>
 #include <QSplitter>
 #include <QTabBar>
 #include <QTabWidget>
@@ -83,6 +87,101 @@ public:
             painter->drawLine(r.bottomLeft(), r.bottomRight());
         }
         painter->restore();
+    }
+};
+
+class CenteredCheckDelegate final : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        if (!painter || !index.isValid()
+            || !(index.flags() & Qt::ItemIsUserCheckable)) {
+            QStyledItemDelegate::paint(painter, option, index);
+            return;
+        }
+
+        QStyleOptionViewItem viewOpt(option);
+        initStyleOption(&viewOpt, index);
+        const QWidget* widget = viewOpt.widget;
+        QStyle* style = widget ? widget->style() : QApplication::style();
+
+        // Draw base item without text; this column is check-only.
+        const QString savedText = viewOpt.text;
+        viewOpt.text.clear();
+        style->drawPrimitive(QStyle::PE_PanelItemViewItem, &viewOpt, painter, widget);
+        viewOpt.text = savedText;
+
+        QStyleOptionButton cbOpt;
+        cbOpt.state = QStyle::State_None;
+        if (index.flags() & Qt::ItemIsEnabled) {
+            cbOpt.state |= QStyle::State_Enabled;
+        }
+        cbOpt.state |= (index.data(Qt::CheckStateRole).toInt() == Qt::Checked)
+                           ? QStyle::State_On
+                           : QStyle::State_Off;
+
+        const QRect indicator = style->subElementRect(QStyle::SE_ItemViewItemCheckIndicator, &viewOpt, widget);
+        const QPoint centeredPos(
+            viewOpt.rect.x() + (viewOpt.rect.width() - indicator.width()) / 2,
+            viewOpt.rect.y() + (viewOpt.rect.height() - indicator.height()) / 2);
+        cbOpt.rect = QRect(centeredPos, indicator.size());
+
+        style->drawPrimitive(QStyle::PE_IndicatorItemViewItemCheck, &cbOpt, painter, widget);
+
+        if (option.state & QStyle::State_HasFocus) {
+            QStyleOptionFocusRect focusOpt;
+            focusOpt.QStyleOption::operator=(option);
+            focusOpt.rect = option.rect.adjusted(1, 1, -1, -1);
+            focusOpt.state |= QStyle::State_KeyboardFocusChange;
+            focusOpt.backgroundColor = option.palette.color(QPalette::Base);
+            style->drawPrimitive(QStyle::PE_FrameFocusRect, &focusOpt, painter, widget);
+        }
+    }
+
+    bool editorEvent(QEvent* event,
+                     QAbstractItemModel* model,
+                     const QStyleOptionViewItem& option,
+                     const QModelIndex& index) override {
+        Q_UNUSED(option);
+        if (!event || !model || !index.isValid() || !(index.flags() & Qt::ItemIsUserCheckable)
+            || !(index.flags() & Qt::ItemIsEnabled)) {
+            return QStyledItemDelegate::editorEvent(event, model, option, index);
+        }
+
+        const auto toggleDeferred = [&]() {
+            const QPersistentModelIndex pidx(index);
+            QPointer<QAbstractItemModel> modelPtr(model);
+            QTimer::singleShot(0, [pidx, modelPtr]() {
+                if (!modelPtr || !pidx.isValid()) {
+                    return;
+                }
+                const Qt::CheckState cur = static_cast<Qt::CheckState>(pidx.data(Qt::CheckStateRole).toInt());
+                const Qt::CheckState next = (cur == Qt::Checked) ? Qt::Unchecked : Qt::Checked;
+                modelPtr->setData(pidx, next, Qt::CheckStateRole);
+            });
+            return true;
+        };
+
+        switch (event->type()) {
+        case QEvent::MouseButtonRelease: {
+            auto* me = static_cast<QMouseEvent*>(event);
+            if (me->button() == Qt::LeftButton && option.rect.contains(me->position().toPoint())) {
+                return toggleDeferred();
+            }
+            break;
+        }
+        case QEvent::KeyPress: {
+            auto* ke = static_cast<QKeyEvent*>(event);
+            if (ke->key() == Qt::Key_Space || ke->key() == Qt::Key_Select) {
+                return toggleDeferred();
+            }
+            break;
+        }
+        default:
+            break;
+        }
+        return QStyledItemDelegate::editorEvent(event, model, option, index);
     }
 };
 }
@@ -560,8 +659,14 @@ void MainWindow::buildUi() {
     m_connectionsTable = new QTableWidget(connListBox);
     m_connectionsTable->setColumnCount(3);
     m_connectionsTable->setHorizontalHeaderLabels({
-        QStringLiteral("Origen"),
-        QStringLiteral("Destino"),
+        trk(QStringLiteral("t_conn_col_src_01"),
+            QStringLiteral("Origen"),
+            QStringLiteral("Source"),
+            QStringLiteral("来源")),
+        trk(QStringLiteral("t_conn_col_dst_01"),
+            QStringLiteral("Destino"),
+            QStringLiteral("Target"),
+            QStringLiteral("目标")),
         trk(QStringLiteral("t_connections_001"),
             QStringLiteral("Conexión"),
             QStringLiteral("Connection"),
@@ -574,6 +679,8 @@ void MainWindow::buildUi() {
     m_connectionsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_connectionsTable->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     m_connectionsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_connectionsTable->setItemDelegateForColumn(0, new CenteredCheckDelegate(m_connectionsTable));
+    m_connectionsTable->setItemDelegateForColumn(1, new CenteredCheckDelegate(m_connectionsTable));
     m_connectionsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_connectionsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     m_connectionsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
