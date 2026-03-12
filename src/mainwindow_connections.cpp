@@ -7,7 +7,9 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QScopedValueRollback>
 #include <QSet>
+#include <QSignalBlocker>
 #include <QSysInfo>
 #include <QTabBar>
 #include <QTableWidget>
@@ -22,6 +24,11 @@ namespace {
 constexpr int kConnPropKeyRole = Qt::UserRole + 14;
 constexpr int kPoolNameRole = Qt::UserRole + 11;
 constexpr int kIsPoolRootRole = Qt::UserRole + 12;
+
+struct ConnTreeNavSnapshot {
+    QSet<QString> expandedKeys;
+    QString selectedKey;
+};
 
 QString connTreeNodeKey(QTreeWidgetItem* n) {
     if (!n) {
@@ -128,6 +135,139 @@ QTreeWidgetItem* findDatasetNode(QTreeWidget* tree, const QString& pool, const Q
         }
     }
     return found;
+}
+
+ConnTreeNavSnapshot captureConnTreeNavSnapshot(QTreeWidget* tree) {
+    ConnTreeNavSnapshot snap;
+    if (!tree) {
+        return snap;
+    }
+    std::function<void(QTreeWidgetItem*)> collect = [&](QTreeWidgetItem* n) {
+        if (!n) {
+            return;
+        }
+        const QString k = connTreeNodeKey(n);
+        if (!k.isEmpty() && n->isExpanded()) {
+            snap.expandedKeys.insert(k);
+        }
+        for (int i = 0; i < n->childCount(); ++i) {
+            collect(n->child(i));
+        }
+    };
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        collect(tree->topLevelItem(i));
+    }
+    if (QTreeWidgetItem* cur = tree->currentItem()) {
+        QTreeWidgetItem* owner = cur;
+        while (owner && connTreeNodeKey(owner).isEmpty()) {
+            owner = owner->parent();
+        }
+        if (owner) {
+            snap.selectedKey = connTreeNodeKey(owner);
+        }
+    }
+    return snap;
+}
+
+QTreeWidgetItem* findConnNodeByKey(QTreeWidget* tree, const QString& wantedKey) {
+    if (!tree || wantedKey.isEmpty()) {
+        return nullptr;
+    }
+    QTreeWidgetItem* found = nullptr;
+    std::function<void(QTreeWidgetItem*)> recFind = [&](QTreeWidgetItem* n) {
+        if (!n || found) {
+            return;
+        }
+        if (connTreeNodeKey(n) == wantedKey) {
+            found = n;
+            return;
+        }
+        for (int i = 0; i < n->childCount(); ++i) {
+            recFind(n->child(i));
+            if (found) {
+                return;
+            }
+        }
+    };
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        recFind(tree->topLevelItem(i));
+        if (found) {
+            break;
+        }
+    }
+    return found;
+}
+
+QTreeWidgetItem* findParentNodeForDeletedDataset(QTreeWidget* tree, const QString& selectedKey) {
+    if (!tree || !selectedKey.startsWith(QStringLiteral("ds:"))) {
+        return nullptr;
+    }
+    QString rest = selectedKey.mid(3);
+    QString poolPrefix;
+    const int firstColon = rest.indexOf(':');
+    if (firstColon > 0 && rest.left(firstColon).compare(QStringLiteral("pool"), Qt::CaseInsensitive) != 0) {
+        const QString maybePool = rest.left(firstColon);
+        if (!maybePool.contains('/')) {
+            poolPrefix = maybePool;
+            rest = rest.mid(firstColon + 1);
+        }
+    }
+    const int at = rest.indexOf('@');
+    QString ds = (at >= 0) ? rest.left(at) : rest;
+    while (!ds.isEmpty()) {
+        const int slash = ds.lastIndexOf('/');
+        if (slash <= 0) {
+            break;
+        }
+        ds = ds.left(slash);
+        const QString parentKey = poolPrefix.isEmpty()
+                                      ? QStringLiteral("ds:%1@").arg(ds)
+                                      : QStringLiteral("ds:%1:%2@").arg(poolPrefix, ds);
+        if (QTreeWidgetItem* sel = findConnNodeByKey(tree, parentKey)) {
+            return sel;
+        }
+        const QString parentKeyNoAt = poolPrefix.isEmpty()
+                                          ? QStringLiteral("ds:%1").arg(ds)
+                                          : QStringLiteral("ds:%1:%2").arg(poolPrefix, ds);
+        if (QTreeWidgetItem* sel = findConnNodeByKey(tree, parentKeyNoAt)) {
+            return sel;
+        }
+    }
+    return nullptr;
+}
+
+void restoreConnTreeNavSnapshot(QTreeWidget* tree, const ConnTreeNavSnapshot& snap) {
+    if (!tree) {
+        return;
+    }
+    QTreeWidgetItem* selectedItem = nullptr;
+    std::function<void(QTreeWidgetItem*)> apply = [&](QTreeWidgetItem* n) {
+        if (!n) {
+            return;
+        }
+        const QString k = connTreeNodeKey(n);
+        if (!k.isEmpty() && snap.expandedKeys.contains(k)) {
+            n->setExpanded(true);
+        }
+        if (!snap.selectedKey.isEmpty() && k == snap.selectedKey) {
+            selectedItem = n;
+        }
+        for (int i = 0; i < n->childCount(); ++i) {
+            apply(n->child(i));
+        }
+    };
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        apply(tree->topLevelItem(i));
+    }
+    if (!selectedItem) {
+        selectedItem = findParentNodeForDeletedDataset(tree, snap.selectedKey);
+    }
+    if (!selectedItem && tree->topLevelItemCount() > 0) {
+        selectedItem = tree->topLevelItem(0);
+    }
+    if (selectedItem) {
+        tree->setCurrentItem(selectedItem);
+    }
 }
 
 QString normalizeHostToken(QString host) {
@@ -377,11 +517,6 @@ void MainWindow::refreshSelectedConnection() {
             }
         }
     }
-    // Guardar navegación (pool/tab activo) justo antes de iniciar el refresh.
-    saveConnectionNavState(idx);
-    if (m_bottomDetailConnIdx == idx) {
-        saveBottomConnectionNavState(idx);
-    }
     const int generation = ++m_refreshGeneration;
     m_refreshPending = 1;
     m_refreshTotal = 1;
@@ -478,14 +613,6 @@ void MainWindow::onConnectionSelectionChanged() {
         paintRoot->setUpdatesEnabled(false);
     }
 
-    if (!m_lastConnectionSelectionKey.isEmpty()) {
-        const QStringList oldParts = m_lastConnectionSelectionKey.split('|');
-        bool okOld = false;
-        const int oldConnIdx = oldParts.value(0).toInt(&okOld);
-        if (okOld) {
-            saveConnectionNavState(oldConnIdx);
-        }
-    }
     QString selectionKey;
     if (m_connectionsTable) {
         int idx = m_topDetailConnIdx;
@@ -503,8 +630,28 @@ void MainWindow::onConnectionSelectionChanged() {
         selectionKey = QStringLiteral("%1|%2").arg(idx).arg(tabKey);
     }
     if (!selectionKey.isEmpty() && selectionKey == m_lastConnectionSelectionKey) {
-        // La tabla se recrea en cada refresh; aunque la clave lógica sea igual,
-        // los widgets del detalle pueden haberse vaciado y deben repintarse.
+        // Evita reconstrucciones redundantes (y consultas SSH) cuando el usuario
+        // vuelve a pinchar la misma conexión/tab ya cargada.
+        auto detailLoadedFor = [this](int connIdx, QTreeWidget* tree) -> bool {
+            if (connIdx < 0) {
+                return true;
+            }
+            if (!tree) {
+                return false;
+            }
+            return tree->topLevelItemCount() > 0;
+        };
+        const bool topLoaded = detailLoadedFor(m_topDetailConnIdx, m_connContentTree);
+        const bool bottomLoaded = detailLoadedFor(m_bottomDetailConnIdx, m_bottomConnContentTree);
+        if (topLoaded && bottomLoaded) {
+            updatePoolManagementBoxTitle();
+            if (paintRoot) {
+                paintRoot->setUpdatesEnabled(true);
+                paintRoot->update();
+            }
+            return;
+        }
+        // Si falta contenido (p.ej. tras refresh), repoblar una sola vez.
         rebuildConnectionEntityTabs();
         refreshConnectionNodeDetails();
         updateSecondaryConnectionDetail();
@@ -531,37 +678,23 @@ void MainWindow::updateSecondaryConnectionDetail() {
     if (!m_bottomConnContentTree) {
         return;
     }
-    QSet<QString> expandedKeys;
-    QString selectedKey;
+    QScopedValueRollback<bool> rebuildingGuard(m_rebuildingBottomConnContentTree, true);
+    const QSignalBlocker blockBottomTree(m_bottomConnContentTree);
+    ConnTreeNavSnapshot nav;
     const int pendingConnIdx = m_bottomDetailConnIdx;
     if (pendingConnIdx >= 0 && m_pendingBottomExpandedKeysByConn.contains(pendingConnIdx)) {
-        expandedKeys = m_pendingBottomExpandedKeysByConn.take(pendingConnIdx);
-        selectedKey = m_pendingBottomSelectedKeyByConn.take(pendingConnIdx);
+        nav.expandedKeys = m_pendingBottomExpandedKeysByConn.take(pendingConnIdx);
+        nav.selectedKey = m_pendingBottomSelectedKeyByConn.take(pendingConnIdx);
     } else {
-        std::function<void(QTreeWidgetItem*)> collect = [&](QTreeWidgetItem* n) {
-            if (!n) {
-                return;
-            }
-            const QString k = connTreeNodeKey(n);
-            if (!k.isEmpty() && n->isExpanded()) {
-                expandedKeys.insert(k);
-            }
-            for (int i = 0; i < n->childCount(); ++i) {
-                collect(n->child(i));
-            }
-        };
-        for (int i = 0; i < m_bottomConnContentTree->topLevelItemCount(); ++i) {
-            collect(m_bottomConnContentTree->topLevelItem(i));
-        }
-        if (QTreeWidgetItem* cur = m_bottomConnContentTree->currentItem()) {
-            QTreeWidgetItem* owner = cur;
-            while (owner && connTreeNodeKey(owner).isEmpty()) {
-                owner = owner->parent();
-            }
-            if (owner) {
-                selectedKey = connTreeNodeKey(owner);
-            }
-        }
+        nav = captureConnTreeNavSnapshot(m_bottomConnContentTree);
+    }
+    if (pendingConnIdx >= 0 && m_forceRestoreBottomStateConnIdx == pendingConnIdx) {
+        nav.expandedKeys = m_savedBottomExpandedKeysByConn.value(pendingConnIdx);
+        nav.selectedKey = m_savedBottomSelectedKeyByConn.value(pendingConnIdx);
+        m_forceRestoreBottomStateConnIdx = -1;
+    } else if (nav.expandedKeys.isEmpty() && nav.selectedKey.isEmpty() && pendingConnIdx >= 0) {
+        nav.expandedKeys = m_savedBottomExpandedKeysByConn.value(pendingConnIdx);
+        nav.selectedKey = m_savedBottomSelectedKeyByConn.value(pendingConnIdx);
     }
     m_bottomConnContentTree->clear();
     if (m_bottomDetailConnIdx < 0 || m_bottomDetailConnIdx >= m_profiles.size()
@@ -595,8 +728,20 @@ void MainWindow::updateSecondaryConnectionDetail() {
         }
         addPoolTree(m_bottomDetailConnIdx, poolName, false);
     }
+    if (m_bottomConnContentTree->topLevelItemCount() == 0) {
+        auto* noPools = new QTreeWidgetItem();
+        noPools->setText(0, trk(QStringLiteral("t_no_pools_001"),
+                                QStringLiteral("Sin Pools"),
+                                QStringLiteral("No Pools"),
+                                QStringLiteral("无存储池")));
+        QFont f = noPools->font(0);
+        f.setItalic(true);
+        noPools->setFont(0, f);
+        noPools->setFlags((noPools->flags() & ~Qt::ItemIsSelectable) & ~Qt::ItemIsEnabled);
+        m_bottomConnContentTree->addTopLevelItem(noPools);
+    }
     {
-        const SnapshotKeyParts sk = parseSnapshotKey(selectedKey);
+        const SnapshotKeyParts sk = parseSnapshotKey(nav.selectedKey);
         if (!sk.snapshot.isEmpty()) {
             if (QTreeWidgetItem* dsNode = findDatasetNode(m_bottomConnContentTree, sk.pool, sk.dataset)) {
                 if (QComboBox* cb = qobject_cast<QComboBox*>(m_bottomConnContentTree->itemWidget(dsNode, 1))) {
@@ -611,140 +756,51 @@ void MainWindow::updateSecondaryConnectionDetail() {
             }
         }
     }
-    QTreeWidgetItem* selectedItem = nullptr;
-    auto findByKey = [&](const QString& wantedKey) -> QTreeWidgetItem* {
-        if (wantedKey.isEmpty()) {
-            return nullptr;
-        }
-        QTreeWidgetItem* found = nullptr;
-        std::function<void(QTreeWidgetItem*)> recFind = [&](QTreeWidgetItem* n) {
-            if (!n || found) {
-                return;
-            }
-            if (connTreeNodeKey(n) == wantedKey) {
-                found = n;
-                return;
-            }
-            for (int i = 0; i < n->childCount(); ++i) {
-                recFind(n->child(i));
-                if (found) {
-                    return;
-                }
-            }
-        };
-        for (int i = 0; i < m_bottomConnContentTree->topLevelItemCount(); ++i) {
-            recFind(m_bottomConnContentTree->topLevelItem(i));
-            if (found) {
-                break;
-            }
-        }
-        return found;
-    };
-    std::function<void(QTreeWidgetItem*)> apply = [&](QTreeWidgetItem* n) {
-        if (!n) {
-            return;
-        }
-        const QString k = connTreeNodeKey(n);
-        if (!k.isEmpty() && expandedKeys.contains(k)) {
-            n->setExpanded(true);
-        }
-        if (!selectedKey.isEmpty() && k == selectedKey) {
-            selectedItem = n;
-        }
-        for (int i = 0; i < n->childCount(); ++i) {
-            apply(n->child(i));
-        }
-    };
-    for (int i = 0; i < m_bottomConnContentTree->topLevelItemCount(); ++i) {
-        apply(m_bottomConnContentTree->topLevelItem(i));
+    restoreConnTreeNavSnapshot(m_bottomConnContentTree, nav);
+    saveBottomTreeStateForConnection(m_bottomDetailConnIdx);
+}
+
+void MainWindow::saveTopTreeStateForConnection(int connIdx) {
+    if (connIdx < 0 || !m_connContentTree) {
+        return;
     }
-    if (!selectedItem && selectedKey.startsWith(QStringLiteral("ds:"))) {
-        // Si el dataset seleccionado fue borrado, intentar seleccionar su padre más cercano.
-        // Formatos: "ds:<pool>:<dataset>@<snap>" o "ds:<dataset>@<snap>".
-        QString rest = selectedKey.mid(3);
-        QString poolPrefix;
-        const int firstColon = rest.indexOf(':');
-        if (firstColon > 0 && rest.left(firstColon).compare(QStringLiteral("pool"), Qt::CaseInsensitive) != 0) {
-            const QString maybePool = rest.left(firstColon);
-            if (!maybePool.contains('/')) {
-                poolPrefix = maybePool;
-                rest = rest.mid(firstColon + 1);
-            }
-        }
-        const int at = rest.indexOf('@');
-        QString ds = (at >= 0) ? rest.left(at) : rest;
-        while (!ds.isEmpty() && !selectedItem) {
-            const int slash = ds.lastIndexOf('/');
-            if (slash <= 0) {
-                break;
-            }
-            ds = ds.left(slash);
-            const QString parentKey = poolPrefix.isEmpty()
-                                          ? QStringLiteral("ds:%1@").arg(ds)
-                                          : QStringLiteral("ds:%1:%2@").arg(poolPrefix, ds);
-            selectedItem = findByKey(parentKey);
-            if (!selectedItem) {
-                // fallback por si quedase formato sin '@'
-                const QString parentKeyNoAt = poolPrefix.isEmpty()
-                                                  ? QStringLiteral("ds:%1").arg(ds)
-                                                  : QStringLiteral("ds:%1:%2").arg(poolPrefix, ds);
-                selectedItem = findByKey(parentKeyNoAt);
-            }
-        }
+    const ConnTreeNavSnapshot nav = captureConnTreeNavSnapshot(m_connContentTree);
+    m_savedTopExpandedKeysByConn[connIdx] = nav.expandedKeys;
+    m_savedTopSelectedKeyByConn[connIdx] = nav.selectedKey;
+}
+
+void MainWindow::saveBottomTreeStateForConnection(int connIdx) {
+    if (connIdx < 0 || !m_bottomConnContentTree) {
+        return;
     }
-    if (!selectedItem && m_bottomConnContentTree->topLevelItemCount() > 0) {
-        selectedItem = m_bottomConnContentTree->topLevelItem(0);
-    }
-    if (selectedItem) {
-        m_bottomConnContentTree->setCurrentItem(selectedItem);
-    }
+    const ConnTreeNavSnapshot nav = captureConnTreeNavSnapshot(m_bottomConnContentTree);
+    m_savedBottomExpandedKeysByConn[connIdx] = nav.expandedKeys;
+    m_savedBottomSelectedKeyByConn[connIdx] = nav.selectedKey;
 }
 
 void MainWindow::rebuildConnectionEntityTabs() {
     if (!m_connContentTree || !m_connectionsTable) {
         return;
     }
-    QSet<QString> expandedKeys;
-    QString selectedKey;
-    {
-        std::function<void(QTreeWidgetItem*)> collect = [&](QTreeWidgetItem* n) {
-            if (!n) {
-                return;
-            }
-            const QString k = connTreeNodeKey(n);
-            if (!k.isEmpty() && n->isExpanded()) {
-                expandedKeys.insert(k);
-            }
-            for (int i = 0; i < n->childCount(); ++i) {
-                collect(n->child(i));
-            }
-        };
-        for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
-            collect(m_connContentTree->topLevelItem(i));
-        }
-        if (QTreeWidgetItem* cur = m_connContentTree->currentItem()) {
-            QTreeWidgetItem* owner = cur;
-            while (owner && connTreeNodeKey(owner).isEmpty()) {
-                owner = owner->parent();
-            }
-            if (owner) {
-                selectedKey = connTreeNodeKey(owner);
-            }
-        }
-    }
+    ConnTreeNavSnapshot nav = captureConnTreeNavSnapshot(m_connContentTree);
     if (m_connectionEntityTabs) {
         while (m_connectionEntityTabs->count() > 0) {
             m_connectionEntityTabs->removeTab(m_connectionEntityTabs->count() - 1);
         }
     }
     int connIdx = m_topDetailConnIdx;
-    if (connIdx < 0) {
-        connIdx = selectedConnectionRow(m_connectionsTable);
-    }
     if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()
         || isConnectionDisconnected(connIdx)) {
         m_connContentTree->clear();
         return;
+    }
+    if (m_forceRestoreTopStateConnIdx == connIdx) {
+        nav.expandedKeys = m_savedTopExpandedKeysByConn.value(connIdx);
+        nav.selectedKey = m_savedTopSelectedKeyByConn.value(connIdx);
+        m_forceRestoreTopStateConnIdx = -1;
+    } else if (nav.expandedKeys.isEmpty() && nav.selectedKey.isEmpty()) {
+        nav.expandedKeys = m_savedTopExpandedKeysByConn.value(connIdx);
+        nav.selectedKey = m_savedTopSelectedKeyByConn.value(connIdx);
     }
     m_connContentTree->clear();
     const ConnectionRuntimeState& st = m_states[connIdx];
@@ -775,8 +831,20 @@ void MainWindow::rebuildConnectionEntityTabs() {
         }
         addPoolTree(connIdx, poolName, false);
     }
+    if (m_connContentTree->topLevelItemCount() == 0) {
+        auto* noPools = new QTreeWidgetItem();
+        noPools->setText(0, trk(QStringLiteral("t_no_pools_001"),
+                                QStringLiteral("Sin Pools"),
+                                QStringLiteral("No Pools"),
+                                QStringLiteral("无存储池")));
+        QFont f = noPools->font(0);
+        f.setItalic(true);
+        noPools->setFont(0, f);
+        noPools->setFlags((noPools->flags() & ~Qt::ItemIsSelectable) & ~Qt::ItemIsEnabled);
+        m_connContentTree->addTopLevelItem(noPools);
+    }
     {
-        const SnapshotKeyParts sk = parseSnapshotKey(selectedKey);
+        const SnapshotKeyParts sk = parseSnapshotKey(nav.selectedKey);
         if (!sk.snapshot.isEmpty()) {
             if (QTreeWidgetItem* dsNode = findDatasetNode(m_connContentTree, sk.pool, sk.dataset)) {
                 if (QComboBox* cb = qobject_cast<QComboBox*>(m_connContentTree->itemWidget(dsNode, 1))) {
@@ -791,81 +859,8 @@ void MainWindow::rebuildConnectionEntityTabs() {
             }
         }
     }
-    QTreeWidgetItem* selectedItem = nullptr;
-    auto findByKey = [&](const QString& wantedKey) -> QTreeWidgetItem* {
-        if (wantedKey.isEmpty()) {
-            return nullptr;
-        }
-        QTreeWidgetItem* found = nullptr;
-        std::function<void(QTreeWidgetItem*)> recFind = [&](QTreeWidgetItem* n) {
-            if (!n || found) {
-                return;
-            }
-            if (connTreeNodeKey(n) == wantedKey) {
-                found = n;
-                return;
-            }
-            for (int i = 0; i < n->childCount(); ++i) {
-                recFind(n->child(i));
-                if (found) {
-                    return;
-                }
-            }
-        };
-        for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
-            recFind(m_connContentTree->topLevelItem(i));
-            if (found) {
-                break;
-            }
-        }
-        return found;
-    };
-    std::function<void(QTreeWidgetItem*)> apply = [&](QTreeWidgetItem* n) {
-        if (!n) {
-            return;
-        }
-        const QString k = connTreeNodeKey(n);
-        if (!k.isEmpty() && expandedKeys.contains(k)) {
-            n->setExpanded(true);
-        }
-        if (!selectedKey.isEmpty() && k == selectedKey) {
-            selectedItem = n;
-        }
-        for (int i = 0; i < n->childCount(); ++i) {
-            apply(n->child(i));
-        }
-    };
-    for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
-        apply(m_connContentTree->topLevelItem(i));
-    }
-    if (!selectedItem && selectedKey.startsWith(QStringLiteral("ds:"))) {
-        QString rest = selectedKey.mid(3);
-        QString poolPrefix;
-        const int firstColon = rest.indexOf(':');
-        if (firstColon > 0 && !rest.left(firstColon).contains('/')) {
-            poolPrefix = rest.left(firstColon);
-            rest = rest.mid(firstColon + 1);
-        }
-        const int at = rest.indexOf('@');
-        QString ds = (at >= 0) ? rest.left(at) : rest;
-        while (!ds.isEmpty() && !selectedItem) {
-            const int slash = ds.lastIndexOf('/');
-            if (slash <= 0) {
-                break;
-            }
-            ds = ds.left(slash);
-            const QString parentKey = poolPrefix.isEmpty()
-                                          ? QStringLiteral("ds:%1@").arg(ds)
-                                          : QStringLiteral("ds:%1:%2@").arg(poolPrefix, ds);
-            selectedItem = findByKey(parentKey);
-        }
-    }
-    if (!selectedItem && m_connContentTree->topLevelItemCount() > 0) {
-        selectedItem = m_connContentTree->topLevelItem(0);
-    }
-    if (selectedItem) {
-        m_connContentTree->setCurrentItem(selectedItem);
-    }
+    restoreConnTreeNavSnapshot(m_connContentTree, nav);
+    saveTopTreeStateForConnection(connIdx);
 }
 
 void MainWindow::onConnectionEntityTabChanged(int idx) {
@@ -895,79 +890,6 @@ void MainWindow::onConnectionEntityTabChanged(int idx) {
         m_connectionsTable->setCurrentCell(row, 2);
     } else {
         refreshConnectionNodeDetails();
-        saveConnectionNavState(connIdx);
-    }
-}
-
-void MainWindow::saveConnectionNavState(int connIdx) {
-    if (!m_connectionEntityTabs || connIdx < 0 || connIdx >= m_profiles.size()) {
-        return;
-    }
-    const QString persistKey = connPersistKeyFromProfiles(m_profiles, connIdx);
-    if (persistKey.isEmpty()) {
-        return;
-    }
-    ConnectionNavState& nav = m_connectionNavStateByConnId[persistKey];
-    const int tabIdx = m_connectionEntityTabs->currentIndex();
-    if (tabIdx >= 0 && tabIdx < m_connectionEntityTabs->count()) {
-        const QString tabData = m_connectionEntityTabs->tabData(tabIdx).toString();
-        const QStringList parts = tabData.split(':');
-        if (parts.size() >= 3 && parts.value(0) == QStringLiteral("pool")) {
-            bool ok = false;
-            const int tabConnIdx = parts.value(1).toInt(&ok);
-            const QString poolName = parts.value(2).trimmed();
-            if (ok && tabConnIdx == connIdx && !poolName.isEmpty()) {
-                nav.entityTabKey = QStringLiteral("pool:%1").arg(poolName);
-                if (m_poolViewTabBar) {
-                    nav.poolSubtabByPoolName[poolName] = m_poolViewTabBar->currentIndex();
-                }
-            }
-        }
-    }
-}
-
-void MainWindow::saveBottomConnectionNavState(int connIdx) {
-    if (!m_bottomConnectionEntityTabs || connIdx < 0 || connIdx >= m_profiles.size()) {
-        return;
-    }
-    const QString persistKey = connPersistKeyFromProfiles(m_profiles, connIdx);
-    if (persistKey.isEmpty()) {
-        return;
-    }
-    const int tabIdx = m_bottomConnectionEntityTabs->currentIndex();
-    if (tabIdx < 0 || tabIdx >= m_bottomConnectionEntityTabs->count()) {
-        return;
-    }
-    const QString tabData = m_bottomConnectionEntityTabs->tabData(tabIdx).toString();
-    const QStringList parts = tabData.split(':');
-    if (parts.size() < 3 || parts.value(0) != QStringLiteral("pool")) {
-        return;
-    }
-    bool ok = false;
-    const int tabConnIdx = parts.value(1).toInt(&ok);
-    const QString poolName = parts.value(2).trimmed();
-    if (!ok || tabConnIdx != connIdx || poolName.isEmpty()) {
-        return;
-    }
-    ConnectionNavState& nav = m_connectionNavStateByConnId[persistKey];
-    nav.bottomEntityTabKey = QStringLiteral("pool:%1").arg(poolName);
-}
-
-void MainWindow::restoreConnectionPoolSubtabState(int connIdx, const QString& poolName) {
-    if (!m_poolViewTabBar || connIdx < 0 || connIdx >= m_profiles.size()) {
-        return;
-    }
-    const QString persistKey = connPersistKeyFromProfiles(m_profiles, connIdx);
-    if (persistKey.isEmpty()) {
-        return;
-    }
-    const ConnectionNavState nav = m_connectionNavStateByConnId.value(persistKey);
-    int targetSubtab = nav.poolSubtabByPoolName.value(poolName, 0);
-    if (targetSubtab < 0 || targetSubtab >= m_poolViewTabBar->count()) {
-        targetSubtab = 0;
-    }
-    if (m_poolViewTabBar->currentIndex() != targetSubtab) {
-        m_poolViewTabBar->setCurrentIndex(targetSubtab);
     }
 }
 
@@ -1034,9 +956,6 @@ void MainWindow::refreshConnectionNodeDetails() {
     };
 
     int connIdx = m_topDetailConnIdx;
-    if (connIdx < 0) {
-        connIdx = selectedConnectionRow(m_connectionsTable);
-    }
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
         if (!m_connContentToken.isEmpty()) {
             saveConnContentTreeState(m_connContentToken);
@@ -1179,9 +1098,6 @@ void MainWindow::refreshConnectionNodeDetails() {
 
 void MainWindow::updateConnectionDetailTitlesForCurrentSelection() {
     int connIdx = m_topDetailConnIdx;
-    if (connIdx < 0) {
-        connIdx = selectedConnectionRow(m_connectionsTable);
-    }
     QString activePoolName;
     bool poolMode = false;
     if (m_connectionEntityTabs && m_connectionEntityTabs->currentIndex() >= 0) {
@@ -1293,11 +1209,6 @@ void MainWindow::refreshConnectionByIndex(int idx) {
             }
         }
     }
-    // Guardar navegación (pool/tab activo) justo antes de iniciar el refresh.
-    saveConnectionNavState(idx);
-    if (m_bottomDetailConnIdx == idx) {
-        saveBottomConnectionNavState(idx);
-    }
     if (!m_connContentToken.isEmpty() && m_connContentTree) {
         saveConnContentTreeState(m_connContentToken);
     }
@@ -1319,8 +1230,31 @@ void MainWindow::refreshConnectionByIndex(int idx) {
             }
         }
     }
+    // Al refrescar una conexión, invalidar toda la caché asociada a todos sus pools.
+    {
+        const QString connPrefix = QStringLiteral("%1::").arg(m_profiles[idx].name.trimmed().toLower());
+        auto dsIt = m_poolDatasetCache.begin();
+        while (dsIt != m_poolDatasetCache.end()) {
+            if (dsIt.key().startsWith(connPrefix)) {
+                dsIt = m_poolDatasetCache.erase(dsIt);
+            } else {
+                ++dsIt;
+            }
+        }
+        // Reutiliza la invalidación existente para detalle de pool + props de dataset.
+        invalidatePoolDetailsCacheForConnection(idx);
+        // Limpiar caché de propiedades inline del árbol de contenido para esta conexión.
+        const QString uiPrefix = QStringLiteral("%1::").arg(QString::number(idx));
+        auto valIt = m_connContentPropValuesByObject.begin();
+        while (valIt != m_connContentPropValuesByObject.end()) {
+            if (valIt.key().startsWith(uiPrefix)) {
+                valIt = m_connContentPropValuesByObject.erase(valIt);
+            } else {
+                ++valIt;
+            }
+        }
+    }
     m_states[idx] = refreshConnection(m_profiles[idx]);
-    invalidatePoolDetailsCacheForConnection(idx);
     rebuildConnectionsTable();
     if (m_connectionEntityTabs) {
         const QString wantedTop = m_pendingRefreshTopTabDataByConn.value(idx);
@@ -1663,16 +1597,26 @@ void MainWindow::rebuildConnectionsTable() {
         }
         return -1;
     };
-    if (!ensureValidConnIdx(m_topDetailConnIdx)) {
-        m_topDetailConnIdx = (rowCount > 0) ? firstConnectedIndex() : -1;
-    }
-    if (!ensureValidConnIdx(m_bottomDetailConnIdx)) {
-        if (rowCount > 1) {
-            // Inicialmente: primera conexión conectada como Origen y segunda conectada como Destino.
-            const int second = secondConnectedIndex(m_topDetailConnIdx);
-            m_bottomDetailConnIdx = (second >= 0) ? second : m_topDetailConnIdx;
-        } else {
-            m_bottomDetailConnIdx = m_topDetailConnIdx;
+    if (!m_connSelectorDefaultsInitialized) {
+        if (!ensureValidConnIdx(m_topDetailConnIdx)) {
+            m_topDetailConnIdx = (rowCount > 0) ? firstConnectedIndex() : -1;
+        }
+        if (!ensureValidConnIdx(m_bottomDetailConnIdx)) {
+            if (rowCount > 1) {
+                // Inicialmente: primera conexión conectada como Origen y segunda conectada como Destino.
+                const int second = secondConnectedIndex(m_topDetailConnIdx);
+                m_bottomDetailConnIdx = (second >= 0) ? second : m_topDetailConnIdx;
+            } else {
+                m_bottomDetailConnIdx = m_topDetailConnIdx;
+            }
+        }
+        m_connSelectorDefaultsInitialized = true;
+    } else {
+        if (!ensureValidConnIdx(m_topDetailConnIdx)) {
+            m_topDetailConnIdx = -1;
+        }
+        if (!ensureValidConnIdx(m_bottomDetailConnIdx)) {
+            m_bottomDetailConnIdx = -1;
         }
     }
     for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {

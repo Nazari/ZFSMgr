@@ -945,6 +945,9 @@ void MainWindow::buildUi() {
     m_connContentTree->setColumnWidth(1, 90);
     m_connContentTree->setColumnWidth(2, 72);
     m_connContentTree->setColumnWidth(3, 180);
+    m_connContentTree->setColumnHidden(1, true);
+    m_connContentTree->setColumnHidden(2, true);
+    m_connContentTree->setColumnHidden(3, true);
     m_connContentTree->setUniformRowHeights(true);
     m_connContentTree->setRootIsDecorated(true);
     m_connContentTree->setItemsExpandable(true);
@@ -1092,6 +1095,9 @@ void MainWindow::buildUi() {
     m_bottomConnContentTree->setColumnWidth(1, 90);
     m_bottomConnContentTree->setColumnWidth(2, 72);
     m_bottomConnContentTree->setColumnWidth(3, 170);
+    m_bottomConnContentTree->setColumnHidden(1, true);
+    m_bottomConnContentTree->setColumnHidden(2, true);
+    m_bottomConnContentTree->setColumnHidden(3, true);
     m_bottomConnContentTree->setUniformRowHeights(true);
     m_bottomConnContentTree->setRootIsDecorated(true);
     m_bottomConnContentTree->setItemsExpandable(true);
@@ -1328,8 +1334,15 @@ void MainWindow::buildUi() {
         if (col == 0) {
             if (checked) {
                 m_topDetailConnIdx = connIdx;
+                m_forceRestoreTopStateConnIdx = connIdx;
             } else if (m_topDetailConnIdx == connIdx) {
+                saveTopTreeStateForConnection(connIdx);
+                if (!m_connContentToken.isEmpty()) {
+                    saveConnContentTreeState(m_connContentToken);
+                }
                 m_topDetailConnIdx = -1;
+                m_forceRestoreTopStateConnIdx = -1;
+                setConnectionOriginSelection(DatasetSelectionContext{});
             }
             for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
                 QTableWidgetItem* it = m_connectionsTable->item(r, 0);
@@ -1342,8 +1355,11 @@ void MainWindow::buildUi() {
         } else {
             if (checked) {
                 m_bottomDetailConnIdx = connIdx;
+                m_forceRestoreBottomStateConnIdx = connIdx;
             } else if (m_bottomDetailConnIdx == connIdx) {
+                saveBottomTreeStateForConnection(connIdx);
                 m_bottomDetailConnIdx = -1;
+                m_forceRestoreBottomStateConnIdx = -1;
             }
             for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
                 QTableWidgetItem* it = m_connectionsTable->item(r, 1);
@@ -1368,7 +1384,15 @@ void MainWindow::buildUi() {
                 }
             }
         }
+        if (col == 1 && !checked && m_bottomDetailConnIdx < 0) {
+            setConnectionDestinationSelection(DatasetSelectionContext{});
+        }
+        if (col == 0) {
+            rebuildConnectionEntityTabs();
+            refreshConnectionNodeDetails();
+        }
         updateSecondaryConnectionDetail();
+        updateConnectionActionsState();
     });
     if (m_connectionEntityTabs) {
         connect(m_connectionEntityTabs, &QTabBar::currentChanged, this, [this](int idx) {
@@ -1397,7 +1421,6 @@ void MainWindow::buildUi() {
                 m_bottomConnContentTree->clear();
                 return;
             }
-            saveBottomConnectionNavState(connIdx);
             const QString prevToken = m_connContentToken;
             QTreeWidget* prevTree = m_connContentTree;
             m_connContentTree = m_bottomConnContentTree;
@@ -1565,7 +1588,7 @@ void MainWindow::buildUi() {
         }
         const int editorWidth = qBound(240, maxEditorText + 40, 560);
         const int labelWidth = qBound(90, maxLabelWidth + 10, 260);
-        const int columns = 1;
+        const int columns = 2;
         for (int i = 0; i < fields.size(); ++i) {
             const int r = i / columns;
             const int block = i % columns;
@@ -1617,7 +1640,7 @@ void MainWindow::buildUi() {
 
     if (m_bottomConnContentTree) {
         connect(m_bottomConnContentTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
-            if (!m_bottomConnContentTree || m_syncingConnContentColumns) {
+            if (!m_bottomConnContentTree || m_syncingConnContentColumns || m_rebuildingBottomConnContentTree) {
                 return;
             }
             QTreeWidgetItem* sel = m_bottomConnContentTree->currentItem();
@@ -2142,10 +2165,6 @@ void MainWindow::buildUi() {
                 }
             }
             m_connSplitActiveTab = idx;
-            const int connIdx = selectedConnectionIndexForPoolManagement();
-            if (connIdx >= 0) {
-                saveConnectionNavState(connIdx);
-            }
         });
     }
     auto connTokenFromTreeSelection = [this](QTreeWidget* tree) -> QString {
@@ -2340,7 +2359,7 @@ void MainWindow::buildUi() {
         }
         const int editorWidth = qBound(240, maxEditorText + 40, 560);
         const int labelWidth = qBound(90, maxLabelWidth + 10, 260);
-        const int columns = 1;
+        const int columns = 2;
         for (int i = 0; i < fields.size(); ++i) {
             const int r = i / columns;
             const int block = i % columns;

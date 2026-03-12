@@ -113,11 +113,6 @@ private:
         bool dirty{false};
     };
 
-    struct ConnectionNavState {
-        QString entityTabKey; // "conn" o "pool:<poolName>"
-        QString bottomEntityTabKey; // "pool:<poolName>" para panel inferior
-        QMap<QString, int> poolSubtabByPoolName; // poolName -> subtab index
-    };
     struct PoolDetailsCacheEntry {
         bool loaded{false};
         QVector<QStringList> propsRows; // property,value,source
@@ -148,14 +143,13 @@ private:
     void updateSecondaryConnectionDetail();
     void rebuildConnectionEntityTabs();
     void onConnectionEntityTabChanged(int idx);
-    void saveConnectionNavState(int connIdx);
-    void saveBottomConnectionNavState(int connIdx);
-    void restoreConnectionPoolSubtabState(int connIdx, const QString& poolName);
     void onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item, const QString& side, const QString& chosen);
     void onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* item, int col, const QString& side);
     void clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem* keepItem);
     void refreshConnectionNodeDetails();
     void updateConnectionDetailTitlesForCurrentSelection();
+    void saveTopTreeStateForConnection(int connIdx);
+    void saveBottomTreeStateForConnection(int connIdx);
     void saveConnContentTreeState(const QString& token);
     void restoreConnContentTreeState(const QString& token);
     void syncConnContentPropertyColumns();
@@ -353,16 +347,23 @@ private:
     QString m_connContentToken;
     QMap<QString, QMap<QString, QString>> m_connContentPropValuesByObject;
     QMap<QString, ConnContentTreeState> m_connContentTreeStateByToken;
-    QMap<QString, ConnectionNavState> m_connectionNavStateByConnId;
     QSet<QString> m_disconnectedConnectionKeys;
     QMap<int, QString> m_pendingRefreshTopTabDataByConn;
     QMap<int, QString> m_pendingRefreshBottomTabDataByConn;
+    QMap<int, QSet<QString>> m_savedTopExpandedKeysByConn;
+    QMap<int, QString> m_savedTopSelectedKeyByConn;
+    QMap<int, QSet<QString>> m_savedBottomExpandedKeysByConn;
+    QMap<int, QString> m_savedBottomSelectedKeyByConn;
+    int m_forceRestoreTopStateConnIdx{-1};
+    int m_forceRestoreBottomStateConnIdx{-1};
     QMap<int, QSet<QString>> m_pendingBottomExpandedKeysByConn;
     QMap<int, QString> m_pendingBottomSelectedKeyByConn;
     QString m_userSelectedConnectionKey;
     int m_topDetailConnIdx{-1};
     int m_bottomDetailConnIdx{-1};
+    bool m_connSelectorDefaultsInitialized{false};
     bool m_syncConnSelectorChecks{false};
+    bool m_rebuildingBottomConnContentTree{false};
     QTabBar* m_bottomConnectionEntityTabs{nullptr};
     QTreeWidget* m_bottomConnContentTree{nullptr};
     QPlainTextEdit* m_poolStatusText{nullptr};

@@ -37,6 +37,15 @@ void MainWindow::setConnectionDestinationSelection(const DatasetSelectionContext
 }
 
 void MainWindow::updateConnectionActionsState() {
+    if (!(m_topDetailConnIdx >= 0 && m_topDetailConnIdx < m_profiles.size()
+          && !isConnectionDisconnected(m_topDetailConnIdx))) {
+        m_connActionOrigin = DatasetSelectionContext{};
+    }
+    if (!(m_bottomDetailConnIdx >= 0 && m_bottomDetailConnIdx < m_profiles.size()
+          && !isConnectionDisconnected(m_bottomDetailConnIdx))) {
+        m_connActionDest = DatasetSelectionContext{};
+    }
+
     if (m_btnConnBreakdown) m_btnConnBreakdown->setText(
         trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")));
     if (m_btnConnAssemble) m_btnConnAssemble->setText(
@@ -65,20 +74,29 @@ void MainWindow::updateConnectionActionsState() {
                                  : QStringLiteral("%1@%2").arg(c.datasetName, c.snapshotName);
         return QStringLiteral("%1::%2").arg(m_profiles[c.connIdx].name, base);
     };
-    QString dstText = trk(QStringLiteral("t_conn_dest_sel01"),
-                          QStringLiteral("Destino:%1"),
-                          QStringLiteral("Target:%1"),
-                          QStringLiteral("目标：%1")).arg(fmtSel(m_connActionDest));
+    QString dstText;
+    if (m_bottomDetailConnIdx >= 0 && m_bottomDetailConnIdx < m_profiles.size()
+        && !isConnectionDisconnected(m_bottomDetailConnIdx)) {
+        dstText = trk(QStringLiteral("t_conn_dest_sel01"),
+                      QStringLiteral("Destino:%1"),
+                      QStringLiteral("Target:%1"),
+                      QStringLiteral("目标：%1")).arg(fmtSel(m_connActionDest));
+    }
     if (m_connDestSelectionLabel) {
         m_connDestSelectionLabel->setText(dstText);
     }
-    if (m_connOriginSelectionLabel) {
-        m_connOriginSelectionLabel->setText(
+    QString originText;
+    if (m_topDetailConnIdx >= 0 && m_topDetailConnIdx < m_profiles.size()
+        && !isConnectionDisconnected(m_topDetailConnIdx)) {
+        originText =
             trk(QStringLiteral("t_conn_origin_sel1"),
                 QStringLiteral("Origen:%1"),
                 QStringLiteral("Source:%1"),
                 QStringLiteral("源：%1"))
-                .arg(fmtSel(m_connActionOrigin)));
+                .arg(fmtSel(m_connActionOrigin));
+    }
+    if (m_connOriginSelectionLabel) {
+        m_connOriginSelectionLabel->setText(originText);
     }
     QString versionTransferReason;
     const bool transferVersionAllowed = isTransferVersionAllowed(m_connActionOrigin, m_connActionDest, &versionTransferReason);
