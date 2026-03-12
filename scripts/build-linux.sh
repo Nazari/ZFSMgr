@@ -15,7 +15,7 @@ UPLOAD_SFTP=0
 EXTRA_ARGS=()
 
 if [[ -z "${APP_VERSION}" ]]; then
-  APP_VERSION="0.9.5"
+  APP_VERSION="0.9.6"
 fi
 
 for arg in "$@"; do

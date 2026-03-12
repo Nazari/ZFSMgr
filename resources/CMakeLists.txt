@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(ZFSMgrQt VERSION 0.9.5 LANGUAGES CXX)
+project(ZFSMgrQt VERSION 0.9.6 LANGUAGES CXX)
 include(CTest)
 
 set(CMAKE_CXX_STANDARD 17)
