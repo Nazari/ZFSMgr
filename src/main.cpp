@@ -27,6 +27,16 @@ int main(int argc, char* argv[]) {
     QApplication::setOrganizationName(QStringLiteral("ZFSMgr"));
     QApplication::setApplicationName(QStringLiteral("ZFSMgr"));
 
+    QStringList missingI18n;
+    if (!I18nManager::instance().areJsonCatalogsAvailable(&missingI18n)) {
+        QMessageBox::warning(
+            nullptr,
+            QStringLiteral("ZFSMgr"),
+            QStringLiteral("No se encontraron todos los ficheros JSON de idioma (%1).\n"
+                           "Se utilizará español como fallback.")
+                .arg(missingI18n.join(QStringLiteral(", "))));
+    }
+
     QString masterPassword;
     QString language = QStringLiteral("es");
     ConnectionStore store(QStringLiteral("ZFSMgr"));
@@ -46,6 +56,9 @@ int main(int argc, char* argv[]) {
         } else if (validLang(uiLang)) {
             language = uiLang;
         }
+    }
+    if (!missingI18n.isEmpty()) {
+        language = QStringLiteral("es");
     }
     store.setLanguage(language);
     store.ensureAppDefaults();

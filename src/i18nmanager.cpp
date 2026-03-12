@@ -7,6 +7,24 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
+namespace {
+QStringList catalogCandidates(const QString& fileName) {
+    QStringList candidates;
+    const QString appDir = QCoreApplication::applicationDirPath();
+    candidates << QDir(appDir).filePath(QStringLiteral("i18n/%1").arg(fileName));
+#ifdef Q_OS_MAC
+    {
+        QDir d(appDir);
+        if (d.cdUp() && d.cdUp()) {
+            candidates << d.filePath(QStringLiteral("Resources/i18n/%1").arg(fileName));
+        }
+    }
+#endif
+    candidates << QStringLiteral(":/i18n/%1").arg(fileName);
+    return candidates;
+}
+}
+
 I18nManager& I18nManager::instance() {
     static I18nManager mgr;
     return mgr;
@@ -22,19 +40,7 @@ QString I18nManager::normalizeLanguage(const QString& language) {
 QHash<QString, QString> I18nManager::loadCatalog(const QString& language) {
     const QString lang = normalizeLanguage(language);
     const QString fileName = QStringLiteral("%1.json").arg(lang);
-    QStringList candidates;
-
-    const QString appDir = QCoreApplication::applicationDirPath();
-    candidates << QDir(appDir).filePath(QStringLiteral("i18n/%1").arg(fileName));
-#ifdef Q_OS_MAC
-    {
-        QDir d(appDir);
-        if (d.cdUp() && d.cdUp()) {
-            candidates << d.filePath(QStringLiteral("Resources/i18n/%1").arg(fileName));
-        }
-    }
-#endif
-    candidates << QStringLiteral(":/i18n/%1").arg(fileName);
+    const QStringList candidates = catalogCandidates(fileName);
 
     for (const QString& path : candidates) {
         QFile f(path);
@@ -112,6 +118,8 @@ QString I18nManager::translate(const QString& language,
                                const QString& sourceEs,
                                const QString& fallbackEn,
                                const QString& fallbackZh) {
+    Q_UNUSED(fallbackEn);
+    Q_UNUSED(fallbackZh);
     const QString lang = normalizeLanguage(language);
     if (!m_catalogs.contains(lang)) {
         m_catalogs.insert(lang, loadCatalog(lang));
@@ -132,12 +140,6 @@ QString I18nManager::translate(const QString& language,
     if (it != cat.cend() && !it.value().isEmpty()) {
         return it.value();
     }
-    if (lang == QStringLiteral("en") && !fallbackEn.isEmpty()) {
-        return fallbackEn;
-    }
-    if (lang == QStringLiteral("zh") && !fallbackZh.isEmpty()) {
-        return fallbackZh;
-    }
     return sourceEs;
 }
 
@@ -146,6 +148,8 @@ QString I18nManager::translateKey(const QString& language,
                                   const QString& fallbackEs,
                                   const QString& fallbackEn,
                                   const QString& fallbackZh) {
+    Q_UNUSED(fallbackEn);
+    Q_UNUSED(fallbackZh);
     const QString lang = normalizeLanguage(language);
     if (!m_catalogs.contains(lang)) {
         m_catalogs.insert(lang, loadCatalog(lang));
@@ -170,14 +174,30 @@ QString I18nManager::translateKey(const QString& language,
     if (!out.isEmpty()) {
         return out;
     }
-    if (lang == QStringLiteral("en") && !fallbackEn.isEmpty()) {
-        return fallbackEn;
-    }
-    if (lang == QStringLiteral("zh") && !fallbackZh.isEmpty()) {
-        return fallbackZh;
-    }
     if (!fallbackEs.isEmpty()) {
         return fallbackEs;
     }
     return key;
+}
+
+bool I18nManager::areJsonCatalogsAvailable(QStringList* missingLanguages) const {
+    QStringList missing;
+    const QStringList langs = {QStringLiteral("es"), QStringLiteral("en"), QStringLiteral("zh")};
+    for (const QString& lang : langs) {
+        const QString fileName = QStringLiteral("%1.json").arg(lang);
+        bool found = false;
+        for (const QString& path : catalogCandidates(fileName)) {
+            if (QFile::exists(path)) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            missing << lang;
+        }
+    }
+    if (missingLanguages) {
+        *missingLanguages = missing;
+    }
+    return missing.isEmpty();
 }
