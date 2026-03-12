@@ -90,26 +90,6 @@ ZPoolCreationDefaults loadZPoolCreationDefaults(const QString& iniPath) {
     return d;
 }
 
-QString parentDiskDevicePath(const QString& rawPath) {
-    const QString path = rawPath.trimmed();
-    if (path.isEmpty()) {
-        return QString();
-    }
-    static const QList<QRegularExpression> rules = {
-        QRegularExpression(QStringLiteral(R"(^(.*\/nvme\d+n\d+)p\d+$)")),
-        QRegularExpression(QStringLiteral(R"(^(.*\/mmcblk\d+)p\d+$)")),
-        QRegularExpression(QStringLiteral(R"(^(.*\/disk\d+)s\d+$)")),
-        QRegularExpression(QStringLiteral(R"(^(.*\/(?:sd[a-z]+|vd[a-z]+|xvd[a-z]+))\d+$)")),
-    };
-    for (const auto& rx : rules) {
-        const QRegularExpressionMatch m = rx.match(path);
-        if (m.hasMatch()) {
-            return m.captured(1);
-        }
-    }
-    return QString();
-}
-
 QString wrapDeviceDisplayText(const QString& raw, int softWidth = 42) {
     const QString s = raw;
     if (s.size() <= softWidth) {
@@ -198,7 +178,6 @@ void MainWindow::createPoolForSelectedConnection() {
         QString devType;
         bool inPool{false};
         bool mounted{false};
-        bool childBusy{false};
     };
 
     auto runRemote = [this, &p](const QString& cmd, int timeoutMs, QString& outText) -> bool {
@@ -259,6 +238,14 @@ void MainWindow::createPoolForSelectedConnection() {
             "  $mbr = '-'; if($_.MbrType){ $mbr = [string]$_.MbrType }; "
             "  $ptype = ($fs + '|gpt=' + $gpt + '|type=' + $ptypeRaw + '|mbr=' + $mbr); "
             "  Write-Output ($path + \"`t\" + $size + \"`t\" + $mp + \"`t\" + $path + \"`t\" + $ptype + \"`tpart\") "
+            "}; "
+            "Get-Disk | "
+            "Where-Object { -not (Get-Partition -DiskNumber $_.Number -ErrorAction SilentlyContinue | Select-Object -First 1) } | "
+            "ForEach-Object { "
+            "  $path = ('\\\\.\\PhysicalDrive' + $_.Number); "
+            "  $size = if($_.Size){ [string]([math]::Round($_.Size/1GB,2)) + 'G' } else { '-' }; "
+            "  $ptype = 'diskstyle=' + [string]$_.PartitionStyle + '|bus=' + [string]$_.BusType + '|model=' + [string]$_.FriendlyName; "
+            "  Write-Output ($path + \"`t\" + $size + \"`t-`t\" + $path + \"`t\" + $ptype + \"`tdisk\") "
             "}");
     } else {
         devCmd = QStringLiteral(
@@ -660,27 +647,6 @@ void MainWindow::createPoolForSelectedConnection() {
         }
     }
 
-    // Propagate partition usage to parent disk:
-    // if /dev/disk0s1 or /dev/sda1 is mounted/in-pool, /dev/disk0 or /dev/sda must not appear free.
-    const QStringList allPaths = devicesByPath.keys();
-    for (const QString& path : allPaths) {
-        const DeviceEntry child = devicesByPath.value(path);
-        if (!child.mounted && !child.inPool) {
-            continue;
-        }
-        const QString childReal = child.resolvedPath.isEmpty() ? child.path : child.resolvedPath;
-        const QString parent = parentDiskDevicePath(childReal);
-        if (parent.isEmpty()) {
-            continue;
-        }
-        for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
-            const QString real = it.value().resolvedPath.isEmpty() ? it.value().path : it.value().resolvedPath;
-            if (it.value().path == parent || real == parent) {
-                it.value().childBusy = true;
-            }
-        }
-    }
-
     QDialog dlg(this);
     dlg.setWindowTitle(
         trk(QStringLiteral("t_poolcrt_auto002"), QStringLiteral("Crear pool en %1"), QStringLiteral("Create pool on %1"), QStringLiteral("在 %1 创建池"))
@@ -1048,23 +1014,20 @@ void MainWindow::createPoolForSelectedConnection() {
     for (const QString& path : paths) {
         const DeviceEntry e = devicesByPath.value(path);
         const QString realPath = e.resolvedPath.isEmpty() ? e.path : e.resolvedPath;
-        if (e.devType == QStringLiteral("disk") || isRootDevicePath(e.path) || isRootDevicePath(realPath)) {
+        const bool isWinDisk = isWindowsConnection(p) && e.devType == QStringLiteral("disk");
+        if (!isWinDisk && (e.devType == QStringLiteral("disk") || isRootDevicePath(e.path) || isRootDevicePath(realPath))) {
             continue;
         }
         DeviceRenderRow rr;
         rr.entry = e;
         const bool protectedMount = hasProtectedSystemMount(e);
-        if (protectedMount || e.inPool || e.childBusy) {
+        if (protectedMount || e.inPool) {
             rr.stateText = trk(QStringLiteral("t_poolcrt_auto022"), QStringLiteral("EN_POOL"), QStringLiteral("IN_POOL"), QStringLiteral("在池中"));
             if (protectedMount) {
                 rr.stateText = trk(QStringLiteral("t_poolcrt_auto023"), QStringLiteral("SISTEMA"), QStringLiteral("SYSTEM"), QStringLiteral("系统"));
                 rr.detailText = trk(QStringLiteral("t_poolcrt_auto024"), QStringLiteral("Dispositivo de sistema (/ /boot /boot/efi o SWAP)"),
                                     QStringLiteral("System device (/ /boot /boot/efi or SWAP)"),
                                     QStringLiteral("系统设备（/ /boot /boot/efi 或 SWAP）"));
-            } else if (e.childBusy) {
-                rr.detailText = trk(QStringLiteral("t_poolcrt_auto025"), QStringLiteral("Alguna partición está montada o pertenece a un pool"),
-                                    QStringLiteral("A child partition is mounted or belongs to a pool"),
-                                    QStringLiteral("某个子分区已挂载或属于池"));
             } else {
                 rr.detailText = trk(QStringLiteral("t_poolcrt_auto026"), QStringLiteral("Ya pertenece a un pool"),
                                     QStringLiteral("Already part of a pool"),
