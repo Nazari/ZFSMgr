@@ -8,6 +8,7 @@
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QHeaderView>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLineEdit>
@@ -532,6 +533,83 @@ void MainWindow::destroyPoolFromRow(int row) {
     refreshConnectionByIndex(idx);
     populateAllPoolsTables();
     refreshSelectedPoolDetails(true, true);
+}
+
+void MainWindow::showPoolHistoryFromRow(int row) {
+    if (actionsLocked()) {
+        return;
+    }
+    if (row < 0 || row >= m_poolListEntries.size()) {
+        return;
+    }
+    const auto& pe = m_poolListEntries[row];
+    const QString connName = pe.connection.trimmed();
+    const QString poolName = pe.pool.trimmed();
+    if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
+        return;
+    }
+    const int idx = findConnectionIndexByName(connName);
+    if (idx < 0 || idx >= m_profiles.size()) {
+        return;
+    }
+
+    const ConnectionProfile& p = m_profiles[idx];
+    const QString cmd = withSudo(p, QStringLiteral("zpool history %1").arg(shSingleQuote(poolName)));
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Consulta historial %1::%2").arg(connName, poolName));
+    QString out;
+    QString err;
+    int rc = -1;
+    if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
+        const QString detail = err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err;
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("Error historial %1::%2 -> %3")
+                                       .arg(connName, poolName, oneLine(detail)));
+        QMessageBox::critical(
+            this,
+            trk(QStringLiteral("t_pool_history_t1"),
+                QStringLiteral("Historial de pool")),
+            trk(QStringLiteral("t_pool_history_e1"),
+                QStringLiteral("No se pudo obtener el historial:\n%1")).arg(detail));
+        return;
+    }
+
+    QStringList lines = out.split('\n');
+    while (!lines.isEmpty() && lines.last().trimmed().isEmpty()) {
+        lines.removeLast();
+    }
+
+    QDialog dlg(this);
+    dlg.setModal(true);
+    dlg.resize(980, 600);
+    dlg.setWindowTitle(
+        trk(QStringLiteral("t_pool_history_w1"),
+            QStringLiteral("Historial de %1::%2"))
+            .arg(connName, poolName));
+    auto* lay = new QVBoxLayout(&dlg);
+    auto* table = new QTableWidget(&dlg);
+    table->setColumnCount(1);
+    table->setHorizontalHeaderLabels(
+        {trk(QStringLiteral("t_pool_history_c1"),
+             QStringLiteral("Línea"))});
+    table->setRowCount(lines.size());
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->setWordWrap(true);
+    table->verticalHeader()->setVisible(false);
+    table->horizontalHeader()->setStretchLastSection(true);
+    table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    table->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    for (int r = 0; r < lines.size(); ++r) {
+        auto* it = new QTableWidgetItem(lines.value(r));
+        it->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        table->setItem(r, 0, it);
+    }
+    lay->addWidget(table, 1);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Close, &dlg);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    lay->addWidget(bb);
+    dlg.exec();
 }
 
 void MainWindow::populateAllPoolsTables() {

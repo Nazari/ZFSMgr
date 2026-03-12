@@ -1720,6 +1720,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     }
     setActionsLocked(true);
     appLog(QStringLiteral("NORMAL"), QStringLiteral("%1").arg(displayLabel));
+    updateStatus(QStringLiteral("%1").arg(displayLabel));
     appLog(QStringLiteral("INFO"), QStringLiteral("$ %1").arg(command));
     QProcess proc;
     m_cancelActionRequested = false;
@@ -1731,6 +1732,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                    QStringLiteral("No se pudo iniciar comando local"),
                    QStringLiteral("Could not start local command"),
                    QStringLiteral("无法启动本地命令")));
+        updateStatus(QStringLiteral("%1 (ERROR: start)").arg(displayLabel));
         m_activeLocalProcess = nullptr;
         m_activeLocalPid = -1;
         setActionsLocked(false);
@@ -1837,6 +1839,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                                                  QStringLiteral("Acción cancelada por el usuario."),
                                                  QStringLiteral("Action canceled by user."),
                                                  QStringLiteral("操作已被用户取消。")));
+            updateStatus(QStringLiteral("%1 (CANCELADO)").arg(displayLabel));
             m_activeLocalProcess = nullptr;
             m_activeLocalPid = -1;
             m_cancelActionRequested = false;
@@ -1848,6 +1851,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
             proc.kill();
             proc.waitForFinished(1000);
             appLog(QStringLiteral("NORMAL"), QStringLiteral("Timeout en comando local"));
+            updateStatus(QStringLiteral("%1 (TIMEOUT)").arg(displayLabel));
             m_activeLocalProcess = nullptr;
             m_activeLocalPid = -1;
             setActionsLocked(false);
@@ -1883,12 +1887,14 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     }
     if (rc != 0) {
         appLog(QStringLiteral("NORMAL"), QStringLiteral("Comando finalizó con error %1").arg(rc));
+        updateStatus(QStringLiteral("%1 (ERROR %2)").arg(displayLabel).arg(rc));
         m_activeLocalProcess = nullptr;
         m_activeLocalPid = -1;
         setActionsLocked(false);
         return false;
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Comando finalizado correctamente"));
+    updateStatus(QStringLiteral("%1 finalizado").arg(displayLabel));
     m_activeLocalProcess = nullptr;
     m_activeLocalPid = -1;
     setActionsLocked(false);

@@ -4,6 +4,7 @@
 - El cursor cambia a ocupado durante acciones y refrescos.
 - Algunas acciones requieren selección válida (dataset o snapshot según el caso).
 - Si origen y destino son iguales, ciertas transferencias se bloquean.
+- `Clonar` solo se habilita cuando origen es snapshot, destino es dataset, y ambos estan en la misma conexion y el mismo pool.
 - Si origen o destino usan OpenZFS `< 2.3.3`, `Copiar`, `Nivelar` y `Sincronizar` se bloquean y los labels `Origen/Destino` se muestran en rojo.
 - En `Propiedades del dataset`, si editas un valor y cambias de tab/foco, el cambio pendiente se conserva.
 - Al volver al mismo dataset, el valor editado se restaura y `Aplicar cambios` sigue activo hasta aplicar o deshacer.

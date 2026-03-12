@@ -527,6 +527,7 @@ void MainWindow::buildUi() {
     };
     const QVector<HelpTopicItem> helpActions = {
         {QStringLiteral("accion_copiar"), QStringLiteral("t_copy_001"), QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")},
+        {QStringLiteral("accion_clonar"), QStringLiteral("t_clone_btn_001"), QStringLiteral("Clonar"), QStringLiteral("Clone"), QStringLiteral("克隆")},
         {QStringLiteral("accion_sincronizar"), QStringLiteral("t_sync_btn_001"), QStringLiteral("Sincronizar"), QStringLiteral("Sync"), QStringLiteral("同步")},
         {QStringLiteral("accion_nivelar"), QStringLiteral("t_level_btn_001"), QStringLiteral("Nivelar"), QStringLiteral("Level"), QStringLiteral("对齐")},
         {QStringLiteral("accion_desglosar"), QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Breakdown"), QStringLiteral("拆分")},
@@ -808,6 +809,10 @@ void MainWindow::buildUi() {
             QStringLiteral("Copy"),
             QStringLiteral("复制")),
         connActionRightBox);
+    m_btnConnClone = new QPushButton(
+        trk(QStringLiteral("t_clone_btn_001"),
+            QStringLiteral("Clonar")),
+        connActionRightBox);
     m_btnConnLevel = new QPushButton(
         trk(QStringLiteral("t_level_btn_001"),
             QStringLiteral("Nivelar"),
@@ -828,6 +833,10 @@ void MainWindow::buildUi() {
                            "Requires: snapshot selected in Source and dataset selected in Target."),
             QStringLiteral("通过 send/recv 将源端快照发送到目标端。\n"
                            "条件：源端选择快照，目标端选择数据集。")));
+    m_btnConnClone->setToolTip(
+        trk(QStringLiteral("t_tt_clone_001"),
+            QStringLiteral("Clona un snapshot sobre un dataset destino en la misma conexión.\n"
+                           "Requiere: snapshot seleccionado en Origen y dataset seleccionado en Destino.")));
     m_btnConnLevel->setToolTip(
         trk(QStringLiteral("t_tt_level_001"),
             QStringLiteral("Genera/aplica envío diferencial para igualar Origen->Destino.\n"
@@ -846,10 +855,12 @@ void MainWindow::buildUi() {
                            "条件：源端和目标端都选择数据集（非快照），且两端数据集均已挂载。")));
     m_btnApplyConnContentProps->setMinimumHeight(stdLeftBtnH);
     m_btnConnCopy->setMinimumHeight(stdLeftBtnH);
+    m_btnConnClone->setMinimumHeight(stdLeftBtnH);
     m_btnConnLevel->setMinimumHeight(stdLeftBtnH);
     m_btnConnSync->setMinimumHeight(stdLeftBtnH);
     m_btnApplyConnContentProps->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnCopy->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnConnClone->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnLevel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnSync->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     auto* connRightBtns = new QGridLayout();
@@ -861,7 +872,8 @@ void MainWindow::buildUi() {
     connRightBtns->addWidget(m_btnApplyConnContentProps, 0, 0);
     connRightBtns->addWidget(m_btnConnSync, 0, 1);
     connRightBtns->addWidget(m_btnConnCopy, 1, 0);
-    connRightBtns->addWidget(m_btnConnLevel, 1, 1);
+    connRightBtns->addWidget(m_btnConnClone, 1, 1);
+    connRightBtns->addWidget(m_btnConnLevel, 2, 0, 1, 2);
     connActionRightLayout->addLayout(connRightBtns);
     connActionsLayout->addWidget(connActionRightBox, 1);
     connLayout->addWidget(m_connActionsBox, 0);
@@ -1903,11 +1915,15 @@ void MainWindow::buildUi() {
                         QStringLiteral("Exportar"),
                         QStringLiteral("Export"),
                         QStringLiteral("导出")));
+                QAction* aHistory = menu.addAction(
+                    trk(QStringLiteral("t_pool_history_t1"),
+                        QStringLiteral("Historial")));
                 QAction* aScrub = menu.addAction(QStringLiteral("Scrub"));
                 QAction* aDestroy = menu.addAction(QStringLiteral("Destroy"));
                 aUpdate->setEnabled(canRefresh);
                 aImport->setEnabled(canImport);
                 aExport->setEnabled(canExport);
+                aHistory->setEnabled(canRefresh);
                 aScrub->setEnabled(canScrub);
                 aDestroy->setEnabled(canDestroy);
                 QAction* picked = menu.exec(m_bottomConnContentTree->viewport()->mapToGlobal(pos));
@@ -1920,6 +1936,8 @@ void MainWindow::buildUi() {
                     importPoolFromRow(poolRow);
                 } else if (picked == aExport && canExport && poolRow >= 0) {
                     exportPoolFromRow(poolRow);
+                } else if (picked == aHistory && canRefresh && poolRow >= 0) {
+                    showPoolHistoryFromRow(poolRow);
                 } else if (picked == aScrub && canScrub && poolRow >= 0) {
                     scrubPoolFromRow(poolRow);
                 } else if (picked == aDestroy && canDestroy && poolRow >= 0) {
@@ -2639,11 +2657,15 @@ void MainWindow::buildUi() {
                         QStringLiteral("Exportar"),
                         QStringLiteral("Export"),
                         QStringLiteral("导出")));
+                QAction* aHistory = menu.addAction(
+                    trk(QStringLiteral("t_pool_history_t1"),
+                        QStringLiteral("Historial")));
                 QAction* aScrub = menu.addAction(QStringLiteral("Scrub"));
                 QAction* aDestroy = menu.addAction(QStringLiteral("Destroy"));
                 aUpdate->setEnabled(canRefresh);
                 aImport->setEnabled(canImport);
                 aExport->setEnabled(canExport);
+                aHistory->setEnabled(canRefresh);
                 aScrub->setEnabled(canScrub);
                 aDestroy->setEnabled(canDestroy);
                 QAction* picked = menu.exec(m_connContentTree->viewport()->mapToGlobal(pos));
@@ -2656,6 +2678,8 @@ void MainWindow::buildUi() {
                     importPoolFromRow(poolRow);
                 } else if (picked == aExport && canExport && poolRow >= 0) {
                     exportPoolFromRow(poolRow);
+                } else if (picked == aHistory && canRefresh && poolRow >= 0) {
+                    showPoolHistoryFromRow(poolRow);
                 } else if (picked == aScrub && canScrub && poolRow >= 0) {
                     scrubPoolFromRow(poolRow);
                 } else if (picked == aDestroy && canDestroy && poolRow >= 0) {
@@ -2972,6 +2996,24 @@ void MainWindow::buildUi() {
                                      QStringLiteral("Copy"), QStringLiteral("复制"));
         logUiAction(QStringLiteral("Copiar snapshot (botón Conexiones)"));
         executeConnectionTransferAction(QStringLiteral("copy"));
+        if (!actionsLocked()) {
+            m_activeConnActionBtn = nullptr;
+            m_activeConnActionName.clear();
+            updateConnectionActionsState();
+        }
+    });
+    connect(m_btnConnClone, &QPushButton::clicked, this, [this]() {
+        if (actionsLocked()) {
+            if (m_activeConnActionBtn == m_btnConnClone) {
+                logUiAction(QStringLiteral("Cancelar Clonar (botón Conexiones)"));
+                requestCancelRunningAction();
+            }
+            return;
+        }
+        m_activeConnActionBtn = m_btnConnClone;
+        m_activeConnActionName = trk(QStringLiteral("t_clone_btn_001"), QStringLiteral("Clonar"));
+        logUiAction(QStringLiteral("Clonar snapshot (botón Conexiones)"));
+        executeConnectionTransferAction(QStringLiteral("clone"));
         if (!actionsLocked()) {
             m_activeConnActionBtn = nullptr;
             m_activeConnActionName.clear();

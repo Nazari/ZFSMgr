@@ -26,6 +26,7 @@ On the `Pool` root node:
 - `Refresh`
 - `Import`
 - `Export`
+- `History`
 - `Scrub`
 - `Destroy`
 

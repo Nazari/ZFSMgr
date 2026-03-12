@@ -56,6 +56,8 @@ void MainWindow::updateConnectionActionsState() {
         trk(QStringLiteral("t_to_dir_btn_001"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")));
     if (m_btnConnCopy) m_btnConnCopy->setText(
         trk(QStringLiteral("t_copy_001"), QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")));
+    if (m_btnConnClone) m_btnConnClone->setText(
+        trk(QStringLiteral("t_clone_btn_001"), QStringLiteral("Clonar")));
     if (m_btnConnLevel) m_btnConnLevel->setText(
         trk(QStringLiteral("t_level_btn_001"), QStringLiteral("Nivelar"), QStringLiteral("Level"), QStringLiteral("同步快照")));
     if (m_btnConnSync) m_btnConnSync->setText(
@@ -119,6 +121,7 @@ void MainWindow::updateConnectionActionsState() {
         if (m_btnConnFromDir) m_btnConnFromDir->setEnabled(false);
         if (m_btnConnToDir) m_btnConnToDir->setEnabled(false);
         if (m_btnConnCopy) m_btnConnCopy->setEnabled(false);
+        if (m_btnConnClone) m_btnConnClone->setEnabled(false);
         if (m_btnConnLevel) m_btnConnLevel->setEnabled(false);
         if (m_btnConnSync) m_btnConnSync->setEnabled(false);
         if (m_activeConnActionBtn) {
@@ -229,6 +232,16 @@ void MainWindow::updateConnectionActionsState() {
     };
     const mwhelpers::TransferButtonState st = mwhelpers::computeTransferButtonState(transferIn);
     if (m_btnConnCopy) m_btnConnCopy->setEnabled(!actionsLocked() && st.copyEnabled && transferVersionAllowed);
+    const bool sameConnForClone = m_connActionOrigin.valid
+        && m_connActionDest.valid
+        && (m_connActionOrigin.connIdx == m_connActionDest.connIdx);
+    const bool samePoolForClone = sameConnForClone
+        && !m_connActionOrigin.poolName.trimmed().isEmpty()
+        && (m_connActionOrigin.poolName.trimmed().compare(
+                m_connActionDest.poolName.trimmed(),
+                Qt::CaseInsensitive) == 0);
+    const bool cloneEnabled = srcSnap && dstDs && !dstSnap && samePoolForClone;
+    if (m_btnConnClone) m_btnConnClone->setEnabled(!actionsLocked() && cloneEnabled && transferVersionAllowed);
     if (m_btnConnLevel) m_btnConnLevel->setEnabled(!actionsLocked() && st.levelEnabled && transferVersionAllowed);
     if (m_btnConnSync) m_btnConnSync->setEnabled(!actionsLocked() && st.syncEnabled && transferVersionAllowed);
 
@@ -348,6 +361,8 @@ void MainWindow::executeConnectionTransferAction(const QString& action) {
 
     if (action == QStringLiteral("copy")) {
         actionCopySnapshot();
+    } else if (action == QStringLiteral("clone")) {
+        actionCloneSnapshot();
     } else if (action == QStringLiteral("level")) {
         actionLevelSnapshot();
     } else if (action == QStringLiteral("sync")) {

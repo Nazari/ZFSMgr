@@ -26,6 +26,7 @@ Sobre el nodo raíz `Pool`:
 - `Actualizar`
 - `Importar`
 - `Exportar`
+- `Historial`
 - `Scrub`
 - `Destroy`
 

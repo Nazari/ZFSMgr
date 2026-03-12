@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
 
+#include <QCoreApplication>
 #include <QAbstractItemView>
 #include <QBrush>
 #include <QCheckBox>
@@ -18,6 +19,7 @@
 #include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
+#include <QWheelEvent>
 
 #include <functional>
 
@@ -32,6 +34,25 @@ constexpr int kConnPropKeyRole = Qt::UserRole + 14;
 constexpr int kConnPropEditableRole = Qt::UserRole + 15;
 constexpr int kConnPropRowKindRole = Qt::UserRole + 16; // 1=name, 2=value
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
+
+class TreeScrollComboBox final : public QComboBox {
+public:
+    explicit TreeScrollComboBox(QTreeWidget* tree, QWidget* parent = nullptr)
+        : QComboBox(parent), m_tree(tree) {}
+
+protected:
+    void wheelEvent(QWheelEvent* event) override {
+        if (view()->isVisible() || !m_tree || !m_tree->viewport()) {
+            QComboBox::wheelEvent(event);
+            return;
+        }
+        event->ignore();
+        QCoreApplication::sendEvent(m_tree->viewport(), event);
+    }
+
+private:
+    QPointer<QTreeWidget> m_tree;
+};
 
 QMap<QString, QStringList> connContentEnumValues() {
     return {
@@ -437,7 +458,7 @@ void MainWindow::syncConnContentPropertyColumns() {
                                QStringLiteral("(none)"),
                                QStringLiteral("（无）"));
                 options += snaps;
-                auto* combo = new QComboBox(tree);
+                auto* combo = new TreeScrollComboBox(tree, tree);
                 combo->setMinimumHeight(22);
                 combo->setMaximumHeight(22);
                 combo->setFont(tree->font());
@@ -458,7 +479,7 @@ void MainWindow::syncConnContentPropertyColumns() {
                 continue;
             }
             if (propLower == QStringLiteral("estado") && !objectIsSnapshot) {
-                auto* combo = new QComboBox(tree);
+                auto* combo = new TreeScrollComboBox(tree, tree);
                 combo->setMinimumHeight(22);
                 combo->setMaximumHeight(22);
                 combo->setFont(tree->font());
@@ -486,7 +507,7 @@ void MainWindow::syncConnContentPropertyColumns() {
                 rowValues->setFlags(rowValues->flags() | Qt::ItemIsEditable);
                 const auto eIt = enumValues.constFind(propLower);
                 if (eIt != enumValues.cend()) {
-                    auto* combo = new QComboBox(tree);
+                    auto* combo = new TreeScrollComboBox(tree, tree);
                     combo->setMinimumHeight(22);
                     combo->setMaximumHeight(22);
                     combo->setFont(tree->font());
@@ -1136,7 +1157,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
             QStringList options;
             options << QStringLiteral("(ninguno)");
             options += snaps;
-            auto* combo = new QComboBox(tree);
+            auto* combo = new TreeScrollComboBox(tree, tree);
             combo->addItems(options);
             combo->setCurrentIndex(0);
             combo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
@@ -1333,6 +1354,55 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
         m_loadingDatasetTrees = true;
         item->setCheckState(2, desired == Qt::Checked ? Qt::Unchecked : Qt::Checked);
         m_loadingDatasetTrees = false;
+        return;
+    }
+
+    if (side == QStringLiteral("conncontent")) {
+        const bool willBeMounted = (desired == Qt::Checked);
+        const QString mountedLabel =
+            willBeMounted
+                ? trk(QStringLiteral("t_montado_a97484"),
+                      QStringLiteral("Montado"),
+                      QStringLiteral("Mounted"),
+                      QStringLiteral("已挂载"))
+                : trk(QStringLiteral("t_desmontado001"),
+                      QStringLiteral("Desmontado"),
+                      QStringLiteral("Unmounted"),
+                      QStringLiteral("未挂载"));
+
+        // Reflejar el borrador en la tabla auxiliar de propiedades.
+        if (m_connContentPropsTable) {
+            for (int r = 0; r < m_connContentPropsTable->rowCount(); ++r) {
+                QTableWidgetItem* k = m_connContentPropsTable->item(r, 0);
+                QTableWidgetItem* v = m_connContentPropsTable->item(r, 1);
+                if (!k || !v) {
+                    continue;
+                }
+                const QString key = k->data(Qt::UserRole + 777).toString().trimmed().isEmpty()
+                                        ? k->text().trimmed()
+                                        : k->data(Qt::UserRole + 777).toString().trimmed();
+                if (key.compare(QStringLiteral("estado"), Qt::CaseInsensitive) != 0) {
+                    continue;
+                }
+                if (v->text() != mountedLabel) {
+                    v->setText(mountedLabel);
+                }
+                break;
+            }
+        }
+
+        const QString objectName = ctx.snapshotName.isEmpty()
+                                       ? ctx.datasetName
+                                       : QStringLiteral("%1@%2").arg(ctx.datasetName, ctx.snapshotName);
+        QMap<QString, QString> vals = m_connContentPropValuesByObject.value(
+            QStringLiteral("%1|%2").arg(m_connContentToken.trimmed().toLower(),
+                                        objectName.trimmed().toLower()));
+        vals[QStringLiteral("estado")] = mountedLabel;
+        updateConnContentPropertyValues(m_connContentToken, objectName, vals);
+
+        m_propsDirty = true;
+        updateApplyPropsButtonState();
+        updateConnectionActionsState();
         return;
     }
 

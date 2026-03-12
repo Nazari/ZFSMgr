@@ -357,7 +357,14 @@ void MainWindow::actionAdvancedCreateFromDir() {
             reloadDir();
         });
         QObject::connect(selectBtn, &QPushButton::clicked, &picker, [&]() {
-            mountDirEdit->setText(currentPathEdit->text().trimmed());
+            QString selectedPath = currentPathEdit->text().trimmed();
+            if (QListWidgetItem* sel = dirList->currentItem()) {
+                const QString itemPath = sel->data(Qt::UserRole).toString().trimmed();
+                if (!itemPath.isEmpty()) {
+                    selectedPath = itemPath;
+                }
+            }
+            mountDirEdit->setText(selectedPath);
             picker.accept();
         });
         reloadDir();

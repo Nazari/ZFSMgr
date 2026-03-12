@@ -5,6 +5,7 @@ ZFSMgr gestiona conexiones y acciones ZFS.
 - Panel izquierdo:
 - `Conexiones`: tabla simple (una fila por conexión) con checks `Origen` y `Destino`.
 - `Acciones`: operaciones de transferencia y avanzadas.
+  Incluye `Copiar`, `Clonar`, `Nivelar`, `Sincronizar`, `Desglosar`, `Ensamblar`, `Desde Dir` y `Hacia Dir`.
 - Panel derecho:
 - Arriba: árbol de contenido de la conexión marcada como `Origen`.
 - Abajo: árbol de contenido de la conexión marcada como `Destino`.

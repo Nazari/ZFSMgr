@@ -1392,8 +1392,14 @@ void MainWindow::rebuildConnectionsTable() {
     m_connectionsTable->clear();
     m_connectionsTable->setColumnCount(3);
     m_connectionsTable->setHorizontalHeaderLabels({
-        QStringLiteral("Origen"),
-        QStringLiteral("Destino"),
+        trk(QStringLiteral("t_conn_col_src_01"),
+            QStringLiteral("Origen"),
+            QStringLiteral("Source"),
+            QStringLiteral("来源")),
+        trk(QStringLiteral("t_conn_col_dst_01"),
+            QStringLiteral("Destino"),
+            QStringLiteral("Target"),
+            QStringLiteral("目标")),
         trk(QStringLiteral("t_connections_001"),
             QStringLiteral("Conexión"),
             QStringLiteral("Connection"),

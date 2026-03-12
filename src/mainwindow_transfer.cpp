@@ -1,7 +1,13 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
 
+#include <QCheckBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QLineEdit>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QRegularExpression>
 
 namespace {
@@ -140,6 +146,148 @@ void MainWindow::actionCopySnapshot() {
     if (runLocalCommand(QStringLiteral("Copiar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0, false, true)
         || tryTarFallbackForSnapshot()) {
         invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
+        refreshConnectionByIndex(dst.connIdx);
+        reloadDatasetSide(QStringLiteral("dest"));
+    }
+}
+
+void MainWindow::actionCloneSnapshot() {
+    const DatasetSelectionContext src = currentDatasetSelection(QStringLiteral("origin"));
+    const DatasetSelectionContext dst = currentDatasetSelection(QStringLiteral("dest"));
+    if (!src.valid || !dst.valid || src.snapshotName.isEmpty() || dst.datasetName.isEmpty() || !dst.snapshotName.isEmpty()) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_clone_need_sel001"),
+                QStringLiteral("Para Clonar debe seleccionar:\n"
+                               "- En Origen: un snapshot\n"
+                               "- En Destino: un dataset (sin snapshot)")));
+        return;
+    }
+    if (src.connIdx != dst.connIdx) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_clone_same_conn1"),
+                QStringLiteral("Clonar requiere que Origen y Destino estén en la misma conexión.")));
+        return;
+    }
+    if (src.poolName.trimmed().compare(dst.poolName.trimmed(), Qt::CaseInsensitive) != 0) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_clone_same_pool1"),
+                QStringLiteral("Clonar requiere que Origen y Destino estén en el mismo pool.")));
+        return;
+    }
+
+    const QString sourceSnapshot = QStringLiteral("%1@%2").arg(src.datasetName, src.snapshotName);
+    QString targetDataset = dst.datasetName;
+    const QString srcLeaf = src.datasetName.section('/', -1);
+    const QString dstLeaf = dst.datasetName.section('/', -1);
+    if (!srcLeaf.isEmpty() && dstLeaf != srcLeaf) {
+        targetDataset = dst.datasetName + QStringLiteral("/") + srcLeaf;
+    }
+
+    QDialog dlg(this);
+    dlg.setModal(true);
+    dlg.setWindowTitle(
+        trk(QStringLiteral("t_clone_wnd_001"),
+            QStringLiteral("Clonar snapshot")));
+    auto* form = new QFormLayout(&dlg);
+    auto* srcEd = new QLineEdit(&dlg);
+    srcEd->setReadOnly(true);
+    srcEd->setText(sourceSnapshot);
+    auto* dstEd = new QLineEdit(&dlg);
+    dstEd->setText(targetDataset);
+    auto* pChk = new QCheckBox(
+        trk(QStringLiteral("t_clone_p_001"),
+            QStringLiteral("Crear padres (-p)")),
+        &dlg);
+    auto* uChk = new QCheckBox(
+        trk(QStringLiteral("t_clone_u_001"),
+            QStringLiteral("No montar automáticamente (-u)")),
+        &dlg);
+    auto* propsEd = new QPlainTextEdit(&dlg);
+    propsEd->setPlaceholderText(
+        trk(QStringLiteral("t_clone_props_ph1"),
+            QStringLiteral("Una propiedad por línea, ejemplo:\ncompression=lz4\natime=off")));
+    propsEd->setFixedHeight(90);
+
+    form->addRow(
+        trk(QStringLiteral("t_clone_src_001"),
+            QStringLiteral("Snapshot origen")),
+        srcEd);
+    form->addRow(
+        trk(QStringLiteral("t_clone_dst_001"),
+            QStringLiteral("Dataset destino")),
+        dstEd);
+    form->addRow(QString(), pChk);
+    form->addRow(QString(), uChk);
+    form->addRow(
+        trk(QStringLiteral("t_clone_o_001"),
+            QStringLiteral("Propiedades (-o prop=valor)")),
+        propsEd);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    form->addRow(bb);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    targetDataset = dstEd->text().trimmed();
+    if (targetDataset.isEmpty()) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_clone_dst_req001"),
+                QStringLiteral("El dataset destino no puede estar vacío.")));
+        return;
+    }
+
+    QString cmd = QStringLiteral("zfs clone");
+    if (pChk->isChecked()) {
+        cmd += QStringLiteral(" -p");
+    }
+    if (uChk->isChecked()) {
+        cmd += QStringLiteral(" -u");
+    }
+    const QStringList propLines = propsEd->toPlainText().split('\n', Qt::SkipEmptyParts);
+    for (const QString& raw : propLines) {
+        const QString prop = raw.trimmed();
+        if (prop.isEmpty()) {
+            continue;
+        }
+        if (!prop.contains('=')) {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_clone_prop_inv001"),
+                    QStringLiteral("Propiedad inválida: \"%1\".\nUse formato nombre=valor.")
+                        .arg(prop)));
+            return;
+        }
+        cmd += QStringLiteral(" -o %1").arg(shSingleQuote(prop));
+    }
+    cmd += QStringLiteral(" %1 %2").arg(shSingleQuote(sourceSnapshot), shSingleQuote(targetDataset));
+
+    ConnectionProfile cp = m_profiles[src.connIdx];
+    if (isLocalConnection(cp) && !isWindowsConnection(cp)) {
+        cp.useSudo = true;
+        if (!ensureLocalSudoCredentials(cp)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Clonar cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
+    const QString fullCmd = sshExecFromLocal(cp, withSudo(cp, cmd));
+    if (runLocalCommand(QStringLiteral("Clonar snapshot %1 -> %2").arg(sourceSnapshot, targetDataset), fullCmd, 0, false, true)) {
+        const QString targetPool = targetDataset.section('/', 0, 0).trimmed();
+        if (!targetPool.isEmpty()) {
+            invalidateDatasetCacheForPool(dst.connIdx, targetPool);
+        } else {
+            invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
+        }
         refreshConnectionByIndex(dst.connIdx);
         reloadDatasetSide(QStringLiteral("dest"));
     }

@@ -954,6 +954,18 @@ void MainWindow::applyDatasetPropertyChanges() {
         QString value;
     };
     QVector<PropChange> propChanges;
+    bool mountStateChangeRequested = false;
+    bool mountStateTargetOn = false;
+    auto isMountedText = [](const QString& v) -> bool {
+        const QString s = v.trimmed().toLower();
+        return s == QStringLiteral("montado")
+               || s == QStringLiteral("mounted")
+               || s == QStringLiteral("已挂载")
+               || s == QStringLiteral("on")
+               || s == QStringLiteral("yes")
+               || s == QStringLiteral("true")
+               || s == QStringLiteral("1");
+    };
     bool renameRequested = false;
     QString renameOld = ctx.datasetName;
     QString renameNew = ctx.datasetName;
@@ -985,7 +997,18 @@ void MainWindow::applyDatasetPropertyChanges() {
             continue;
         }
         const QString prop = propKeyFromItem(pk);
-        if (prop.isEmpty() || prop == QStringLiteral("dataset") || prop == QStringLiteral("estado") || prop == QStringLiteral("Tamaño")) {
+        if (prop.isEmpty() || prop == QStringLiteral("dataset") || prop == QStringLiteral("Tamaño")) {
+            continue;
+        }
+        if (prop == QStringLiteral("estado")) {
+            const QString now = pv->text().trimmed();
+            const QString old = m_propsOriginalValues.value(prop).trimmed();
+            const bool nowMounted = isMountedText(now);
+            const bool oldMounted = isMountedText(old);
+            if (nowMounted != oldMounted) {
+                mountStateChangeRequested = true;
+                mountStateTargetOn = nowMounted;
+            }
             continue;
         }
         const bool inheritChecked = (pi->flags() & Qt::ItemIsUserCheckable) && (pi->checkState() == Qt::Checked);
@@ -1002,6 +1025,17 @@ void MainWindow::applyDatasetPropertyChanges() {
         const QString assign = prop + QStringLiteral("=") + now;
         subcmds << QStringLiteral("zfs set %1 %2").arg(shSingleQuote(assign), shSingleQuote(targetDataset));
         propChanges.push_back(PropChange{false, prop, now});
+    }
+    if (mountStateChangeRequested) {
+        subcmds << (isWindowsConnection(ctx.connIdx)
+                        ? QStringLiteral("zfs %1 %2")
+                              .arg(mountStateTargetOn ? QStringLiteral("mount")
+                                                      : QStringLiteral("unmount"),
+                                   shSingleQuote(targetDataset))
+                        : QStringLiteral("zfs %1 %2")
+                              .arg(mountStateTargetOn ? QStringLiteral("mount")
+                                                      : QStringLiteral("umount"),
+                                   shSingleQuote(targetDataset)));
     }
     const bool localRenameEligible =
         renameRequested && isLocalConnection(ctx.connIdx) && !isWindowsConnection(ctx.connIdx) && detectLocalLibzfs();
@@ -1208,7 +1242,7 @@ void MainWindow::updateApplyPropsButtonState() {
                 continue;
             }
             const QString prop = propKeyFromItem(pk);
-            if (prop.isEmpty() || prop == QStringLiteral("estado")) {
+            if (prop.isEmpty()) {
                 continue;
             }
             const bool inh = (pi->flags() & Qt::ItemIsUserCheckable) && (pi->checkState() == Qt::Checked);

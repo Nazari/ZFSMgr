@@ -215,6 +215,7 @@ private:
     void setConnectionDestinationSelection(const DatasetSelectionContext& ctx);
     bool runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs = 0, bool forceConfirmDialog = false, bool streamProgress = false);
     void actionCopySnapshot();
+    void actionCloneSnapshot();
     void actionLevelSnapshot();
     void actionSyncDatasets();
     void actionAdvancedBreakdown();
@@ -259,6 +260,7 @@ private:
     void importPoolFromRow(int row);
     void scrubPoolFromRow(int row);
     void destroyPoolFromRow(int row);
+    void showPoolHistoryFromRow(int row);
     void createPoolForSelectedConnection();
     void refreshSelectedPoolDetails(bool forceRefresh = false, bool allowRemoteLoadIfMissing = true);
     int findPoolRow(const QString& connection, const QString& pool) const;
@@ -312,6 +314,7 @@ private:
     QLabel* m_connOriginSelectionLabel{nullptr};
     QLabel* m_connDestSelectionLabel{nullptr};
     QPushButton* m_btnConnCopy{nullptr};
+    QPushButton* m_btnConnClone{nullptr};
     QPushButton* m_btnConnLevel{nullptr};
     QPushButton* m_btnConnSync{nullptr};
     DatasetSelectionContext m_connActionOrigin;

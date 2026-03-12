@@ -4,6 +4,7 @@
 - Cursor changes to busy during actions and refresh.
 - Some actions require valid selection (dataset or snapshot).
 - If source and target are equal, some transfers are blocked.
+- `Clone` is enabled only when source is a snapshot, target is a dataset, and both are in the same connection and pool.
 - If source or target uses OpenZFS `< 2.3.3`, `Copy`, `Level`, and `Sync` are blocked and `Source/Target` labels are shown in red.
 - In `Dataset properties`, if you edit a value and change tab/focus, the pending edit is preserved.
 - Returning to the same dataset restores edited values and keeps `Apply changes` enabled until apply/revert.
