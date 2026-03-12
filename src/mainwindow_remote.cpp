@@ -1386,9 +1386,17 @@ QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p, const QString&
         return remoteCmd;
     }
     const QString trimmed = remoteCmd.trimmed();
-    const bool psLike = looksLikePowerShellScript(trimmed);
+    const QString low = trimmed.toLower();
+    const bool zfsStreamCmd = low.contains(QStringLiteral("zfs send"))
+        || low.contains(QStringLiteral("zfs recv"));
+    // zfs send/recv transport binary streams; forcing PowerShell execution can break stdin/stdout.
+    // For these commands we must route through a Unix shell (MSYS/MinGW) when available.
+    const bool psLike = !zfsStreamCmd && looksLikePowerShellScript(trimmed);
     const QString psEscaped = QString(trimmed).replace('\'', QStringLiteral("''"));
     QString script = QStringLiteral(
+        "$ProgressPreference='SilentlyContinue'; "
+        "$InformationPreference='SilentlyContinue'; "
+        "$WarningPreference='Continue'; "
         "$zfsPaths=@("
         "'C:\\\\Program Files\\\\OpenZFS On Windows\\\\bin',"
         "'C:\\\\Program Files\\\\OpenZFS On Windows',"

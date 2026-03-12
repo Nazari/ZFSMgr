@@ -311,8 +311,15 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
         QString suggested = QStringLiteral("new_dataset");
         if (t == QStringLiteral("volume")) {
             suggested = QStringLiteral("new_volume");
-        } else if (isSnapshot) {
-            suggested = QStringLiteral("new_snapshot");
+        }
+
+        if (isSnapshot) {
+            const QString snapPath = ctx.datasetName + QStringLiteral("@snap");
+            pathEdit->setText(snapPath);
+            pathEdit->setFocus();
+            const int snapPos = snapPath.indexOf('@');
+            pathEdit->setSelection(snapPos >= 0 ? snapPos + 1 : snapPath.size(), QStringLiteral("snap").size());
+            return;
         }
 
         QString current = pathEdit->text().trimmed();
@@ -329,8 +336,7 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
             prefix = ctx.datasetName + QStringLiteral("/");
         }
 
-        const QString newPath = isSnapshot ? (prefix + suggested + QStringLiteral("@snap"))
-                                           : (prefix + suggested);
+        const QString newPath = prefix + suggested;
         pathEdit->setText(newPath);
         pathEdit->setFocus();
         pathEdit->setSelection(prefix.size(), suggested.size());

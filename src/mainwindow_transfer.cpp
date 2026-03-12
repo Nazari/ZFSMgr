@@ -9,19 +9,32 @@ using mwhelpers::isMountedValueTrue;
 using mwhelpers::shSingleQuote;
 using mwhelpers::buildSshTargetPrefix;
 using mwhelpers::buildPipedTransferCommand;
-using mwhelpers::buildSimpleSshInvocation;
 using mwhelpers::buildTarDestinationCommand;
 using mwhelpers::buildTarSourceCommand;
 using mwhelpers::chooseStreamCodec;
 using mwhelpers::streamCodecName;
 using mwhelpers::sshBaseCommand;
 using mwhelpers::sshUserHost;
+
+QString buildDirectWindowsBashSshInvocation(const ConnectionProfile& p, const QString& remoteCmd) {
+    const QString sshBase = sshBaseCommand(p);
+    const QString target = shSingleQuote(sshUserHost(p));
+    const QString winCmd = QStringLiteral("\"C:\\\\msys64\\\\usr\\\\bin\\\\bash.exe\" -lc %1")
+                               .arg(shSingleQuote(remoteCmd));
+    return sshBase + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(winCmd);
+}
 } // namespace
 
 void MainWindow::actionCopySnapshot() {
     const DatasetSelectionContext src = currentDatasetSelection(QStringLiteral("origin"));
     const DatasetSelectionContext dst = currentDatasetSelection(QStringLiteral("dest"));
     if (!src.valid || !dst.valid || src.snapshotName.isEmpty() || dst.datasetName.isEmpty()) {
+        return;
+    }
+    QString transferVersionReason;
+    if (!isTransferVersionAllowed(src, dst, &transferVersionReason)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), transferVersionReason);
+        appLog(QStringLiteral("WARN"), transferVersionReason);
         return;
     }
     ConnectionProfile sp = m_profiles[src.connIdx];
@@ -66,11 +79,66 @@ void MainWindow::actionCopySnapshot() {
         const QString remotePipe = withSudo(sp, buildPipedTransferCommand(sendRawCmd, recvRawCmd));
         pipeline = sshExecFromLocal(sp, remotePipe);
     } else {
-        pipeline = buildPipedTransferCommand(buildSimpleSshInvocation(sp, sendCmd),
-                                             buildSimpleSshInvocation(dp, recvCmd));
+        const QString srcSeg = isWindowsConnection(sp)
+                                   ? buildDirectWindowsBashSshInvocation(sp, sendCmd)
+                                   : sshExecFromLocal(sp, sendCmd);
+        const QString dstSeg = isWindowsConnection(dp)
+                                   ? buildDirectWindowsBashSshInvocation(dp, recvCmd)
+                                   : sshExecFromLocal(dp, recvCmd);
+        pipeline = buildPipedTransferCommand(srcSeg, dstSeg);
     }
 
-    if (runLocalCommand(QStringLiteral("Copiar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0, false, true)) {
+    const auto tryTarFallbackForSnapshot = [&]() -> bool {
+        if (!(isWindowsConnection(sp) || isWindowsConnection(dp))) {
+            return false;
+        }
+        appLog(QStringLiteral("NORMAL"),
+               trk(QStringLiteral("t_copy_fallback_tar1"),
+                   QStringLiteral("Copiar: fallback automático a TAR por incompatibilidad de stream ZFS con Windows"),
+                   QStringLiteral("Copy: automatic TAR fallback due to ZFS stream incompatibility with Windows"),
+                   QStringLiteral("复制：由于 Windows 上 ZFS 流不兼容，自动回退到 TAR")));
+
+        const QString srcScript = QStringLiteral(
+            "set -e; DATASET=%1; SNAP=%2; "
+            "WAS_MOUNTED=\"$(zfs get -H -o value mounted \"$DATASET\" 2>/dev/null)\"; "
+            "[ -n \"$WAS_MOUNTED\" ] || WAS_MOUNTED=no; "
+            "MP=\"$(zfs mount 2>/dev/null | grep -E \"^$DATASET[[:space:]]\" | head -n1 | cut -d\" \" -f2-)\"; "
+            "if [ -z \"$MP\" ]; then if ! zfs mount \"$DATASET\" >/dev/null 2>&1; then :; fi; "
+            "MP=\"$(zfs mount 2>/dev/null | grep -E \"^$DATASET[[:space:]]\" | head -n1 | cut -d\" \" -f2-)\"; fi; "
+            "[ -n \"$MP\" ] && [ -d \"$MP\" ] || { echo \"[COPY][ERROR] cannot mount source dataset: $DATASET\"; exit 41; }; "
+            "SRC=\"$MP/.zfs/snapshot/$SNAP\"; "
+            "[ -d \"$SRC\" ] || { echo \"[COPY][ERROR] snapshot path unavailable: $SRC\"; exit 42; }; "
+            "tar --acls --xattrs -cpf - -C \"$SRC\" .; RC=$?; "
+            "if [ \"$WAS_MOUNTED\" != \"yes\" ]; then if ! zfs unmount \"$DATASET\" >/dev/null 2>&1; then :; fi; fi; "
+            "exit $RC")
+                                      .arg(shSingleQuote(src.datasetName), shSingleQuote(src.snapshotName));
+
+        const QString dstScript = QStringLiteral(
+            "set -e; DATASET=%1; "
+            "if ! zfs list -H -o name \"$DATASET\" >/dev/null 2>&1; then zfs create -u \"$DATASET\"; fi; "
+            "WAS_MOUNTED=\"$(zfs get -H -o value mounted \"$DATASET\" 2>/dev/null)\"; "
+            "[ -n \"$WAS_MOUNTED\" ] || WAS_MOUNTED=no; "
+            "MP=\"$(zfs mount 2>/dev/null | grep -E \"^$DATASET[[:space:]]\" | head -n1 | cut -d\" \" -f2-)\"; "
+            "if [ -z \"$MP\" ]; then if ! zfs mount \"$DATASET\" >/dev/null 2>&1; then :; fi; "
+            "MP=\"$(zfs mount 2>/dev/null | grep -E \"^$DATASET[[:space:]]\" | head -n1 | cut -d\" \" -f2-)\"; fi; "
+            "[ -n \"$MP\" ] && [ -d \"$MP\" ] || { echo \"[COPY][ERROR] cannot mount destination dataset: $DATASET\"; exit 43; }; "
+            "mkdir -p \"$MP\"; tar --acls --xattrs -xpf - -C \"$MP\"; RC=$?; "
+            "if [ \"$WAS_MOUNTED\" != \"yes\" ]; then if ! zfs unmount \"$DATASET\" >/dev/null 2>&1; then :; fi; fi; "
+            "exit $RC")
+                                      .arg(shSingleQuote(recvTarget));
+
+        const QString srcSeg = sshExecFromLocal(sp, withSudo(sp, srcScript));
+        const QString dstSeg = sshExecFromLocal(dp, withSudoStreamInput(dp, dstScript));
+        const QString tarPipe = buildPipedTransferCommand(srcSeg, dstSeg);
+        return runLocalCommand(QStringLiteral("Copiar snapshot (fallback TAR) %1 -> %2").arg(srcSnap, recvTarget),
+                               tarPipe,
+                               0,
+                               false,
+                               true);
+    };
+
+    if (runLocalCommand(QStringLiteral("Copiar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0, false, true)
+        || tryTarFallbackForSnapshot()) {
         invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
         refreshConnectionByIndex(dst.connIdx);
         reloadDatasetSide(QStringLiteral("dest"));
@@ -103,6 +171,12 @@ void MainWindow::actionLevelSnapshot() {
                 QStringLiteral("执行“同步快照”前请先选择：\n"
                                "- 源：数据集或快照\n"
                                "- 目标：数据集（不带快照）")));
+        return;
+    }
+    QString transferVersionReason;
+    if (!isTransferVersionAllowed(src, dst, &transferVersionReason)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), transferVersionReason);
+        appLog(QStringLiteral("WARN"), transferVersionReason);
         return;
     }
     if (!ensureDatasetsLoaded(src.connIdx, src.poolName) || !ensureDatasetsLoaded(dst.connIdx, dst.poolName)) {
@@ -217,8 +291,13 @@ void MainWindow::actionLevelSnapshot() {
         const QString remotePipe = withSudo(sp, buildPipedTransferCommand(sendRawCmd, recvRawCmd));
         pipeline = sshExecFromLocal(sp, remotePipe);
     } else {
-        pipeline = buildPipedTransferCommand(buildSimpleSshInvocation(sp, sendCmd),
-                                             buildSimpleSshInvocation(dp, recvCmd));
+        const QString srcSeg = isWindowsConnection(sp)
+                                   ? buildDirectWindowsBashSshInvocation(sp, sendCmd)
+                                   : sshExecFromLocal(sp, sendCmd);
+        const QString dstSeg = isWindowsConnection(dp)
+                                   ? buildDirectWindowsBashSshInvocation(dp, recvCmd)
+                                   : sshExecFromLocal(dp, recvCmd);
+        pipeline = buildPipedTransferCommand(srcSeg, dstSeg);
     }
 
     if (runLocalCommand(QStringLiteral("Nivelar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0, false, true)) {
@@ -232,6 +311,12 @@ void MainWindow::actionSyncDatasets() {
     const DatasetSelectionContext src = currentDatasetSelection(QStringLiteral("origin"));
     const DatasetSelectionContext dst = currentDatasetSelection(QStringLiteral("dest"));
     if (!src.valid || !dst.valid || src.datasetName.isEmpty() || dst.datasetName.isEmpty()) {
+        return;
+    }
+    QString transferVersionReason;
+    if (!isTransferVersionAllowed(src, dst, &transferVersionReason)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), transferVersionReason);
+        appLog(QStringLiteral("WARN"), transferVersionReason);
         return;
     }
     const ConnectionProfile& sp = m_profiles[src.connIdx];

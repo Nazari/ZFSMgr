@@ -212,6 +212,9 @@ private:
     void invalidatePoolDetailsCacheForConnection(int connIdx);
     void reloadDatasetSide(const QString& side);
     void updateConnectionActionsState();
+    bool isTransferVersionAllowed(const DatasetSelectionContext& src,
+                                  const DatasetSelectionContext& dst,
+                                  QString* reasonOut = nullptr) const;
     void executeConnectionTransferAction(const QString& action);
     void executeConnectionAdvancedAction(const QString& action);
     void setConnectionOriginSelection(const DatasetSelectionContext& ctx);

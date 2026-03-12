@@ -2081,10 +2081,12 @@ void MainWindow::buildUi() {
             return;
         }
         if (chosen == aConnect && hasConn) {
+            logUiAction(QStringLiteral("Conectar conexión (menú conexiones)"));
             setConnectionDisconnected(connIdx, false);
             appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como conectada: %1").arg(m_profiles[connIdx].name));
             rebuildConnectionsTable();
             populateAllPoolsTables();
+            refreshConnectionByIndex(connIdx);
         } else if (chosen == aDisconnect && hasConn) {
             setConnectionDisconnected(connIdx, true);
             appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como desconectada: %1").arg(m_profiles[connIdx].name));

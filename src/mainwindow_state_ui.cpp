@@ -5,7 +5,9 @@
 #include <QColor>
 #include <QComboBox>
 #include <QLabel>
+#include <QMessageBox>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTreeWidget>
@@ -77,6 +79,20 @@ void MainWindow::updateConnectionActionsState() {
                 QStringLiteral("Source:%1"),
                 QStringLiteral("源：%1"))
                 .arg(fmtSel(m_connActionOrigin)));
+    }
+    QString versionTransferReason;
+    const bool transferVersionAllowed = isTransferVersionAllowed(m_connActionOrigin, m_connActionDest, &versionTransferReason);
+    const bool paintActionLabelsRed = (!transferVersionAllowed
+                                       && m_connActionOrigin.valid
+                                       && m_connActionDest.valid);
+    const QString actionLabelsStyle = paintActionLabelsRed
+        ? QStringLiteral("QLabel { color: #b00020; }")
+        : QStringLiteral("QLabel { color: #000000; }");
+    if (m_connOriginSelectionLabel) {
+        m_connOriginSelectionLabel->setStyleSheet(actionLabelsStyle);
+    }
+    if (m_connDestSelectionLabel) {
+        m_connDestSelectionLabel->setStyleSheet(actionLabelsStyle);
     }
 
     if (actionsLocked()) {
@@ -194,9 +210,9 @@ void MainWindow::updateConnectionActionsState() {
         datasetMountedForCtx(m_connActionDest, m_bottomConnContentTree),
     };
     const mwhelpers::TransferButtonState st = mwhelpers::computeTransferButtonState(transferIn);
-    if (m_btnConnCopy) m_btnConnCopy->setEnabled(!actionsLocked() && st.copyEnabled);
-    if (m_btnConnLevel) m_btnConnLevel->setEnabled(!actionsLocked() && st.levelEnabled);
-    if (m_btnConnSync) m_btnConnSync->setEnabled(!actionsLocked() && st.syncEnabled);
+    if (m_btnConnCopy) m_btnConnCopy->setEnabled(!actionsLocked() && st.copyEnabled && transferVersionAllowed);
+    if (m_btnConnLevel) m_btnConnLevel->setEnabled(!actionsLocked() && st.levelEnabled && transferVersionAllowed);
+    if (m_btnConnSync) m_btnConnSync->setEnabled(!actionsLocked() && st.syncEnabled && transferVersionAllowed);
 
     const bool hasConnSel = dctx.valid && !dctx.datasetName.isEmpty();
     const bool hasConnSnap = hasConnSel && !dctx.snapshotName.isEmpty();
@@ -216,6 +232,65 @@ void MainWindow::updateConnectionActionsState() {
     Q_UNUSED(alreadyDest);
     Q_UNUSED(hasConnSnap);
     Q_UNUSED(hasConnSel);
+}
+
+bool MainWindow::isTransferVersionAllowed(const DatasetSelectionContext& src,
+                                          const DatasetSelectionContext& dst,
+                                          QString* reasonOut) const {
+    auto parseVer = [](const QString& raw, int& a, int& b, int& c) -> bool {
+        const QRegularExpression rx(QStringLiteral("^(\\d+)\\.(\\d+)(?:\\.(\\d+))?"));
+        const QRegularExpressionMatch m = rx.match(raw.trimmed());
+        if (!m.hasMatch()) {
+            return false;
+        }
+        a = m.captured(1).toInt();
+        b = m.captured(2).toInt();
+        c = m.captured(3).isEmpty() ? 0 : m.captured(3).toInt();
+        return true;
+    };
+    auto isTooOld = [&](const DatasetSelectionContext& ctx, QString* connNameOut, QString* verOut) -> bool {
+        if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size() || ctx.connIdx >= m_states.size()) {
+            return false;
+        }
+        const QString ver = m_states[ctx.connIdx].zfsVersion.trimmed();
+        if (ver.isEmpty()) {
+            return false;
+        }
+        int ma = 0, mi = 0, pa = 0;
+        if (!parseVer(ver, ma, mi, pa)) {
+            return false;
+        }
+        if (connNameOut) {
+            *connNameOut = m_profiles[ctx.connIdx].name;
+        }
+        if (verOut) {
+            *verOut = ver;
+        }
+        if (ma != 2) return false;
+        if (mi < 3) return true;
+        if (mi > 3) return false;
+        return pa < 3;
+    };
+    if (!src.valid || !dst.valid) {
+        return true;
+    }
+    QString badConn;
+    QString badVer;
+    const bool srcTooOld = isTooOld(src, &badConn, &badVer);
+    const bool dstTooOld = isTooOld(dst, &badConn, &badVer);
+    if (!srcTooOld && !dstTooOld) {
+        return true;
+    }
+    if (reasonOut) {
+        *reasonOut = trk(QStringLiteral("t_zfs_ver_blk_001"),
+                         QStringLiteral("Operación no permitida: la conexión %1 usa OpenZFS %2 (< 2.3.3).")
+                             .arg(badConn, badVer),
+                         QStringLiteral("Operation not allowed: connection %1 uses OpenZFS %2 (< 2.3.3).")
+                             .arg(badConn, badVer),
+                         QStringLiteral("不允许的操作：连接 %1 使用 OpenZFS %2（低于 2.3.3）。")
+                             .arg(badConn, badVer));
+    }
+    return false;
 }
 
 void MainWindow::executeConnectionAdvancedAction(const QString& action) {
@@ -239,6 +314,12 @@ void MainWindow::executeConnectionTransferAction(const QString& action) {
     const DatasetSelectionContext src = m_connActionOrigin;
     const DatasetSelectionContext dst = m_connActionDest;
     if (!src.valid || src.datasetName.isEmpty() || !dst.valid || dst.datasetName.isEmpty()) {
+        return;
+    }
+    QString transferVersionReason;
+    if (!isTransferVersionAllowed(src, dst, &transferVersionReason)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), transferVersionReason);
+        appLog(QStringLiteral("WARN"), transferVersionReason);
         return;
     }
     // Fuerza el uso de la selección real Origen/Destino de Conexiones

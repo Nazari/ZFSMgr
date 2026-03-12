@@ -4,6 +4,7 @@
 - El cursor cambia a ocupado durante acciones y refrescos.
 - Algunas acciones requieren selección válida (dataset o snapshot según el caso).
 - Si origen y destino son iguales, ciertas transferencias se bloquean.
+- Si origen o destino usan OpenZFS `< 2.3.3`, `Copiar`, `Nivelar` y `Sincronizar` se bloquean y los labels `Origen/Destino` se muestran en rojo.
 - En `Propiedades del dataset`, si editas un valor y cambias de tab/foco, el cambio pendiente se conserva.
 - Al volver al mismo dataset, el valor editado se restaura y `Aplicar cambios` sigue activo hasta aplicar o deshacer.
 - Navegar entre conexiones/pools no fuerza refresco: se usa caché y solo se refresca en acciones o refresco explícito.
@@ -12,6 +13,7 @@ Estados comunes:
 
 - `OK` (verde): conexión operativa.
 - `KO/Error` (rojo): fallo de conexión o comando.
+- `OK` con OpenZFS `< 2.3.3` (rojo): conexión operativa, pero no apta para transferencias `send/recv` y asociadas.
 - `OK` con comandos faltantes (naranja): conexión operativa, pero faltan comandos auxiliares.
 - `Montado/Desmontado`: estado actual del dataset.
 - `Pools no importables`: se informan en `Estado de la conexión`, con un bloque por pool y su motivo.

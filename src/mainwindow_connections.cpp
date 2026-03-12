@@ -6,6 +6,7 @@
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QSet>
 #include <QSysInfo>
 #include <QTabBar>
@@ -1517,6 +1518,20 @@ void MainWindow::rebuildConnectionsTable() {
         return QStringLiteral("<pre style=\"font-family:monospace; white-space:pre;\">%1</pre>").arg(plain);
     };
     QStringList redirectedToLocalNames;
+    auto zfsVersionTooOld = [](const QString& rawVersion) -> bool {
+        const QRegularExpression rx(QStringLiteral("^(\\d+)\\.(\\d+)(?:\\.(\\d+))?"));
+        const QRegularExpressionMatch m = rx.match(rawVersion.trimmed());
+        if (!m.hasMatch()) {
+            return false;
+        }
+        const int major = m.captured(1).toInt();
+        const int minor = m.captured(2).toInt();
+        const int patch = m.captured(3).isEmpty() ? 0 : m.captured(3).toInt();
+        if (major != 2) return false;
+        if (minor < 3) return true;
+        if (minor > 3) return false;
+        return patch < 3;
+    };
     for (int i = 0; i < m_profiles.size(); ++i) {
         if (i >= m_states.size()) {
             continue;
@@ -1555,6 +1570,9 @@ void MainWindow::rebuildConnectionsTable() {
         } else if (st == QStringLiteral("OK")) {
             statusTag = QStringLiteral("[Ok]");
             rowColor = s.missingUnixCommands.isEmpty() ? QColor("#1f7a1f") : QColor("#c77900");
+            if (zfsVersionTooOld(s.zfsVersion)) {
+                rowColor = QColor("#a12a2a");
+            }
         } else if (!st.isEmpty()) {
             statusTag = QStringLiteral("[Ko]");
             rowColor = QColor("#a12a2a");
