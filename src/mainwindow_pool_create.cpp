@@ -240,11 +240,22 @@ void MainWindow::createPoolForSelectedConnection() {
             "  Write-Output ($path + \"`t\" + $size + \"`t\" + $mp + \"`t\" + $path + \"`t\" + $ptype + \"`tpart\") "
             "}; "
             "Get-Disk | "
-            "Where-Object { -not (Get-Partition -DiskNumber $_.Number -ErrorAction SilentlyContinue | Select-Object -First 1) } | "
+            "Where-Object { "
+            "  $parts = @(Get-Partition -DiskNumber $_.Number -ErrorAction SilentlyContinue); "
+            "  if ($parts.Count -eq 0) { $true } "
+            "  else { "
+            "    $nonEfi = @($parts | Where-Object { "
+            "      $g = if($_.GptType){ $_.GptType.ToString().Trim('{}').ToLower() } else { '' }; "
+            "      $t = if($_.Type){ $_.Type.ToString().Trim().ToLower() } else { '' }; "
+            "      ($g -ne 'c12a7328-f81f-11d2-ba4b-00a0c93ec93b') -and ($g -ne 'e3c9e316-0b5c-4db8-817d-f92df00215ae') -and ($t -ne 'reserved') "
+            "    }); "
+            "    $nonEfi.Count -eq 0 "
+            "  } "
+            "} | "
             "ForEach-Object { "
             "  $path = ('\\\\.\\PhysicalDrive' + $_.Number); "
             "  $size = if($_.Size){ [string]([math]::Round($_.Size/1GB,2)) + 'G' } else { '-' }; "
-            "  $ptype = 'diskstyle=' + [string]$_.PartitionStyle + '|bus=' + [string]$_.BusType + '|model=' + [string]$_.FriendlyName; "
+            "  $ptype = 'diskstyle=' + [string]$_.PartitionStyle + '|bus=' + [string]$_.BusType + '|model=' + [string]$_.FriendlyName + '|type=EFI_OR_RESERVED_ONLY_OR_EMPTY'; "
             "  Write-Output ($path + \"`t\" + $size + \"`t-`t\" + $path + \"`t\" + $ptype + \"`tdisk\") "
             "}");
     } else {
@@ -1015,13 +1026,21 @@ void MainWindow::createPoolForSelectedConnection() {
         const DeviceEntry e = devicesByPath.value(path);
         const QString realPath = e.resolvedPath.isEmpty() ? e.path : e.resolvedPath;
         const bool isWinDisk = isWindowsConnection(p) && e.devType == QStringLiteral("disk");
+        const bool isWinEfiOrReservedOnlyOrEmptyDisk =
+            isWinDisk && e.fsType.contains(QStringLiteral("type=EFI_OR_RESERVED_ONLY_OR_EMPTY"), Qt::CaseInsensitive);
         if (!isWinDisk && (e.devType == QStringLiteral("disk") || isRootDevicePath(e.path) || isRootDevicePath(realPath))) {
             continue;
         }
         DeviceRenderRow rr;
         rr.entry = e;
         const bool protectedMount = hasProtectedSystemMount(e);
-        if (protectedMount || e.inPool) {
+        if (isWinEfiOrReservedOnlyOrEmptyDisk) {
+            rr.stateText = trk(QStringLiteral("t_poolcrt_auto028"), QStringLiteral("LIBRE"), QStringLiteral("FREE"), QStringLiteral("空闲"));
+            rr.detailText = trk(QStringLiteral("t_poolcrt_auto029"), QStringLiteral("Disponible"), QStringLiteral("Available"), QStringLiteral("可用"));
+            rr.bgColor = stGreen;
+            rr.colorRank = 0;
+            rr.selectable = true;
+        } else if (protectedMount || e.inPool) {
             rr.stateText = trk(QStringLiteral("t_poolcrt_auto022"), QStringLiteral("EN_POOL"), QStringLiteral("IN_POOL"), QStringLiteral("在池中"));
             if (protectedMount) {
                 rr.stateText = trk(QStringLiteral("t_poolcrt_auto023"), QStringLiteral("SISTEMA"), QStringLiteral("SYSTEM"), QStringLiteral("系统"));
