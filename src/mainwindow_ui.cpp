@@ -1224,6 +1224,11 @@ void MainWindow::buildUi() {
         "QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"
         "QTreeWidget::indicator { width: 8px; height: 8px; margin: 2px; }"));
     m_bottomConnContentTree->setItemDelegate(new ConnContentPropBorderDelegate(m_bottomConnContentTree));
+#ifdef Q_OS_MAC
+    if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
+        m_bottomConnContentTree->setStyle(fusion);
+    }
+#endif
     bottomConnLayout->addWidget(m_bottomConnContentTree, 1);
     rightSplit->setStretchFactor(0, 1);
     rightSplit->setStretchFactor(1, 1);
