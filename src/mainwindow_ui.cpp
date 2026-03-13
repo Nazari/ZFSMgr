@@ -1902,6 +1902,7 @@ void MainWindow::buildUi() {
                         : QString();
                 const bool canImport = (poolAction.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) == 0);
                 const bool canExport = (poolAction.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) == 0);
+                const bool canHistory = canExport;
                 const bool canScrub = canExport;
                 const bool canDestroy = canExport;
                 const bool canRefresh = (poolRow >= 0);
@@ -1928,7 +1929,7 @@ void MainWindow::buildUi() {
                 aUpdate->setEnabled(canRefresh);
                 aImport->setEnabled(canImport);
                 aExport->setEnabled(canExport);
-                aHistory->setEnabled(canRefresh);
+                aHistory->setEnabled(canHistory);
                 aScrub->setEnabled(canScrub);
                 aDestroy->setEnabled(canDestroy);
                 QAction* picked = menu.exec(m_bottomConnContentTree->viewport()->mapToGlobal(pos));
@@ -1941,7 +1942,7 @@ void MainWindow::buildUi() {
                     importPoolFromRow(poolRow);
                 } else if (picked == aExport && canExport && poolRow >= 0) {
                     exportPoolFromRow(poolRow);
-                } else if (picked == aHistory && canRefresh && poolRow >= 0) {
+                } else if (picked == aHistory && canHistory && poolRow >= 0) {
                     showPoolHistoryFromRow(poolRow);
                 } else if (picked == aScrub && canScrub && poolRow >= 0) {
                     scrubPoolFromRow(poolRow);
@@ -2661,6 +2662,7 @@ void MainWindow::buildUi() {
                         : QString();
                 const bool canImport = (poolAction.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) == 0);
                 const bool canExport = (poolAction.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) == 0);
+                const bool canHistory = canExport;
                 const bool canScrub = canExport;
                 const bool canDestroy = canExport;
                 const bool canRefresh = (poolRow >= 0);
@@ -2688,7 +2690,7 @@ void MainWindow::buildUi() {
                 aUpdate->setEnabled(canRefresh);
                 aImport->setEnabled(canImport);
                 aExport->setEnabled(canExport);
-                aHistory->setEnabled(canRefresh);
+                aHistory->setEnabled(canHistory);
                 aScrub->setEnabled(canScrub);
                 aDestroy->setEnabled(canDestroy);
                 QAction* picked = menu.exec(m_connContentTree->viewport()->mapToGlobal(pos));
@@ -2701,7 +2703,7 @@ void MainWindow::buildUi() {
                     importPoolFromRow(poolRow);
                 } else if (picked == aExport && canExport && poolRow >= 0) {
                     exportPoolFromRow(poolRow);
-                } else if (picked == aHistory && canRefresh && poolRow >= 0) {
+                } else if (picked == aHistory && canHistory && poolRow >= 0) {
                     showPoolHistoryFromRow(poolRow);
                 } else if (picked == aScrub && canScrub && poolRow >= 0) {
                     scrubPoolFromRow(poolRow);
