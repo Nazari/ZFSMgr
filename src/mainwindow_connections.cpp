@@ -1806,6 +1806,214 @@ void MainWindow::editConnection() {
     loadConnections();
 }
 
+void MainWindow::installMsysForSelectedConnection() {
+    if (actionsLocked()) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("Acci\xf3n en curso: instalaci\xf3n de MSYS2 bloqueada"));
+        return;
+    }
+    const int idx = selectedConnectionRow(m_connectionsTable);
+    if (idx < 0 || idx >= m_profiles.size()) {
+        return;
+    }
+    const ConnectionProfile& p = m_profiles[idx];
+    if (!isWindowsConnection(idx)) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_msys_windows_only_01"),
+                QStringLiteral("Esta acci\xf3n solo est\xe1 disponible para conexiones Windows."),
+                QStringLiteral("This action is only available for Windows connections."),
+                QStringLiteral("此操作仅适用于 Windows 连接。")));
+        return;
+    }
+    if (isConnectionDisconnected(idx)) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_msys_conn_disc_01"),
+                QStringLiteral("La conexi\xf3n est\xe1 desconectada."),
+                QStringLiteral("The connection is disconnected."),
+                QStringLiteral("该连接已断开。")));
+        return;
+    }
+
+    const auto confirm = QMessageBox::question(
+        this,
+        trk(QStringLiteral("t_msys_install_title_01"),
+            QStringLiteral("Instalar MSYS2"),
+            QStringLiteral("Install MSYS2"),
+            QStringLiteral("安装 MSYS2")),
+        trk(QStringLiteral("t_msys_install_q_01"),
+            QStringLiteral("Se comprobar\xe1 MSYS2 en \"%1\" y, si falta, se intentar\xe1 instalar mediante winget junto con paquetes base (tar, gzip, zstd, rsync, grep, sed, gawk).\n\n\xbfContinuar?"),
+            QStringLiteral("ZFSMgr will check MSYS2 on \"%1\" and, if missing, try to install it with winget plus base packages (tar, gzip, zstd, rsync, grep, sed, gawk).\n\nContinue?"),
+            QStringLiteral("ZFSMgr 将检查 \"%1\" 上的 MSYS2，如缺失则尝试使用 winget 安装，并补齐基础包（tar、gzip、zstd、rsync、grep、sed、gawk）。\n\n是否继续？"))
+            .arg(p.name),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return;
+    }
+
+    const WindowsCommandMode psMode = WindowsCommandMode::PowerShellNative;
+    const QString detectCmd = QStringLiteral(
+        "$roots=@('C:\\\\msys64\\\\usr\\\\bin','C:\\\\msys64\\\\mingw64\\\\bin','C:\\\\msys64\\\\mingw32\\\\bin','C:\\\\MinGW\\\\bin','C:\\\\mingw64\\\\bin'); "
+        "$bashCandidates=@('C:\\\\msys64\\\\usr\\\\bin\\\\bash.exe','C:\\\\msys64\\\\usr\\\\bin\\\\sh.exe','C:\\\\msys64\\\\mingw64\\\\bin\\\\bash.exe','C:\\\\msys64\\\\mingw32\\\\bin\\\\bash.exe','C:\\\\MinGW\\\\msys\\\\1.0\\\\bin\\\\sh.exe'); "
+        "$bash=$bashCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1; "
+        "if($bash){ Write-Output ('BASH:' + $bash) } else { Write-Output 'BASH:' }; "
+        "$cmds='tar gzip zstd rsync grep sed gawk'.Split(' '); "
+        "foreach($c in $cmds){ "
+        "  $ok=$false; foreach($r in $roots){ if(Test-Path -LiteralPath (Join-Path $r ($c + '.exe'))){ $ok=$true; break } }; "
+        "  if($ok){ Write-Output ('OK:' + $c) } else { Write-Output ('KO:' + $c) } "
+        "}");
+
+    auto detectState = [&](QString& bashPath, QStringList& missing, QString* detailOut = nullptr) -> bool {
+        bashPath.clear();
+        missing.clear();
+        QString out;
+        QString err;
+        int rc = -1;
+        if (!runSsh(p, detectCmd, 30000, out, err, rc, {}, {}, psMode) || rc != 0) {
+            if (detailOut) {
+                *detailOut = (err.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : err).simplified().left(220);
+            }
+            return false;
+        }
+        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+        for (const QString& raw : lines) {
+            const QString line = raw.trimmed();
+            if (line.startsWith(QStringLiteral("BASH:"))) {
+                bashPath = line.mid(5).trimmed();
+            } else if (line.startsWith(QStringLiteral("KO:"))) {
+                missing << line.mid(3).trimmed();
+            }
+        }
+        if (detailOut) {
+            *detailOut = out;
+        }
+        return true;
+    };
+
+    QString bashPath;
+    QStringList missingPackages;
+    QString detectDetail;
+    if (!detectState(bashPath, missingPackages, &detectDetail)) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_msys_detect_fail_01"),
+                QStringLiteral("No se pudo comprobar MSYS2 en \"%1\".\n\n%2"),
+                QStringLiteral("Could not check MSYS2 on \"%1\".\n\n%2"),
+                QStringLiteral("无法检查 \"%1\" 上的 MSYS2。\n\n%2"))
+                .arg(p.name, detectDetail));
+        return;
+    }
+
+    if (!bashPath.isEmpty() && missingPackages.isEmpty()) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_msys_already_ok_01"),
+                QStringLiteral("MSYS2 ya est\xe1 disponible en \"%1\"."),
+                QStringLiteral("MSYS2 is already available on \"%1\"."),
+                QStringLiteral("\"%1\" 上已提供 MSYS2。"))
+                .arg(p.name));
+        refreshConnectionByIndex(idx);
+        return;
+    }
+
+    QString installOut;
+    QString installErr;
+    int installRc = -1;
+    QString installCmd;
+    if (bashPath.isEmpty()) {
+        installCmd = QStringLiteral(
+            "$ErrorActionPreference='Stop'; "
+            "$msysRoot='C:\\\\msys64'; "
+            "$bashCandidates=@('C:\\\\msys64\\\\usr\\\\bin\\\\bash.exe','C:\\\\msys64\\\\usr\\\\bin\\\\sh.exe'); "
+            "$bash=$bashCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1; "
+            "if(-not $bash){ "
+            "  $winget = Get-Command winget.exe -ErrorAction SilentlyContinue; "
+            "  $installed=$false; "
+            "  if($winget){ "
+            "    & $winget.Source install --exact --id MSYS2.MSYS2 --accept-package-agreements --accept-source-agreements --disable-interactivity --silent; "
+            "    if($LASTEXITCODE -eq 0){ $installed=$true } "
+            "  }; "
+            "  if(-not $installed){ "
+            "    $tmp = Join-Path $env:TEMP 'zfsmgr-msys2-base-x86_64-latest.sfx.exe'; "
+            "    $url = 'https://github.com/msys2/msys2-installer/releases/latest/download/msys2-base-x86_64-latest.sfx.exe'; "
+            "    Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $tmp; "
+            "    if(-not (Test-Path -LiteralPath $tmp)){ throw 'No se pudo descargar el instalador base de MSYS2' }; "
+            "    & $tmp '-y' '-oC:\\'; "
+            "    if($LASTEXITCODE -ne 0){ throw ('instalador base MSYS2 fall\xf3 con exit ' + $LASTEXITCODE) } "
+            "  }; "
+            "}; "
+            "$bashCandidates=@('C:\\\\msys64\\\\usr\\\\bin\\\\bash.exe','C:\\\\msys64\\\\usr\\\\bin\\\\sh.exe'); "
+            "$bash=$bashCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1; "
+            "if(-not $bash){ throw 'MSYS2 instalado pero bash.exe no encontrado en C:\\\\msys64' }; "
+            "& $bash -lc 'true'; "
+            "& $bash -lc 'pacman --noconfirm -Sy --needed tar gzip zstd rsync grep sed gawk'; "
+            "if($LASTEXITCODE -ne 0){ throw ('pacman fall\xf3 con exit ' + $LASTEXITCODE) }");
+    } else {
+        QString escapedBash = bashPath;
+        escapedBash.replace('\'', QStringLiteral("''"));
+        installCmd = QStringLiteral(
+            "$ErrorActionPreference='Stop'; "
+            "$bash='%1'; "
+            "& $bash -lc 'pacman --noconfirm -Sy --needed tar gzip zstd rsync grep sed gawk'; "
+            "if($LASTEXITCODE -ne 0){ throw ('pacman fall\xf3 con exit ' + $LASTEXITCODE) }")
+                         .arg(escapedBash);
+    }
+
+    beginUiBusy();
+    updateStatus(trk(QStringLiteral("t_msys_install_progress_01"),
+                     QStringLiteral("Instalando/verificando MSYS2 en %1..."),
+                     QStringLiteral("Installing/checking MSYS2 on %1..."),
+                     QStringLiteral("正在 %1 上安装/检查 MSYS2...")).arg(p.name));
+    const bool ok = runSsh(p, installCmd, 900000, installOut, installErr, installRc, {}, {}, psMode) && installRc == 0;
+    endUiBusy();
+
+    if (!ok) {
+        const QString detail = (installErr.isEmpty() ? QStringLiteral("ssh exit %1").arg(installRc) : installErr).simplified().left(400);
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_msys_install_fail_01"),
+                QStringLiteral("No se pudo instalar/preparar MSYS2 en \"%1\".\n\n%2"),
+                QStringLiteral("Could not install/prepare MSYS2 on \"%1\".\n\n%2"),
+                QStringLiteral("无法在 \"%1\" 上安装/准备 MSYS2。\n\n%2"))
+                .arg(p.name, detail));
+        refreshConnectionByIndex(idx);
+        return;
+    }
+
+    bashPath.clear();
+    missingPackages.clear();
+    detectDetail.clear();
+    detectState(bashPath, missingPackages, &detectDetail);
+    refreshConnectionByIndex(idx);
+
+    if (!bashPath.isEmpty() && missingPackages.isEmpty()) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_msys_install_ok_01"),
+                QStringLiteral("MSYS2 preparado correctamente en \"%1\"."),
+                QStringLiteral("MSYS2 was prepared successfully on \"%1\"."),
+                QStringLiteral("已在 \"%1\" 上成功准备 MSYS2。"))
+                .arg(p.name));
+        return;
+    }
+
+    QMessageBox::warning(
+        this,
+        QStringLiteral("ZFSMgr"),
+        trk(QStringLiteral("t_msys_install_partial_01"),
+            QStringLiteral("La instalaci\xf3n termin\xf3, pero faltan comandos en \"%1\": %2"),
+            QStringLiteral("The installation finished, but commands are still missing on \"%1\": %2"),
+            QStringLiteral("安装已完成，但 \"%1\" 上仍缺少命令：%2"))
+            .arg(p.name, missingPackages.join(QStringLiteral(", "))));
+}
+
 void MainWindow::deleteConnection() {
     if (actionsLocked()) {
         appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: borrado bloqueado"));

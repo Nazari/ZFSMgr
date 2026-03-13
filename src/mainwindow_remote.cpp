@@ -6,6 +6,8 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QHostAddress>
+#include <QHostInfo>
 #include <QLibrary>
 #include <QProcess>
 #include <QRegularExpression>
@@ -61,10 +63,20 @@ using mwhelpers::normalizeDriveLetterValue;
 using mwhelpers::oneLine;
 using mwhelpers::parentDatasetName;
 using mwhelpers::shSingleQuote;
+using mwhelpers::sshAddressFamilyOption;
 using mwhelpers::sshBaseCommand;
 using mwhelpers::sshControlPath;
 using mwhelpers::sshUserHost;
 using mwhelpers::sshUserHostPort;
+} // namespace
+
+namespace {
+QString describeHostAddress(const QHostAddress& address) {
+    const QString protocol =
+        (address.protocol() == QAbstractSocket::IPv6Protocol) ? QStringLiteral("IPv6")
+                                                              : QStringLiteral("IPv4");
+    return QStringLiteral("%1:%2").arg(protocol, address.toString());
+}
 } // namespace
 
 namespace {
@@ -166,7 +178,8 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                         QString& err,
                         int& rc,
                         const std::function<void(const QString&)>& onStdoutLine,
-                        const std::function<void(const QString&)>& onStderrLine) {
+                        const std::function<void(const QString&)>& onStderrLine,
+                        MainWindow::WindowsCommandMode windowsMode) {
     out.clear();
     err.clear();
     rc = -1;
@@ -182,7 +195,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         QStringList args;
 #ifdef Q_OS_WIN
         program = QStringLiteral("cmd.exe");
-        args << "/C" << wrapRemoteCommand(p, localCmd);
+        args << "/C" << wrapRemoteCommand(p, localCmd, windowsMode);
 #else
         program = QStringLiteral("sh");
         args << "-lc" << localCmd;
@@ -292,7 +305,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
 
         const QString hostEsc = QString(p.host).replace('\'', QStringLiteral("''"));
         const QString userEsc = QString(p.username).replace('\'', QStringLiteral("''"));
-        const QString wrappedRemoteCmd = wrapRemoteCommand(p, remoteCmd);
+        const QString wrappedRemoteCmd = wrapRemoteCommand(p, remoteCmd, windowsMode);
         const QString remoteB64 = QString::fromLatin1(wrappedRemoteCmd.toUtf8().toBase64());
         const QString passB64 = QString::fromLatin1(p.password.toUtf8().toBase64());
         const int port = (p.port > 0) ? p.port : 5986;
@@ -456,12 +469,15 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         }
     }
 
-    const QString wrappedCmd = wrapRemoteCommand(p, remoteCmd);
+    const QString wrappedCmd = wrapRemoteCommand(p, remoteCmd, windowsMode);
     const QString sshConnKey = QStringLiteral("%1|%2|%3|%4")
                                    .arg(p.username,
                                         p.host,
                                         QString::number((p.port > 0) ? p.port : 22),
                                         p.keyPath);
+    const QString sshResolutionKey = QStringLiteral("%1|%2")
+                                         .arg(p.host.trimmed().toLower(),
+                                              p.sshAddressFamily.trimmed().toLower());
 
     const QString cmdLine = QStringLiteral("%1 $ %2")
                                 .arg(sshUserHostPort(p), wrappedCmd);
@@ -477,6 +493,10 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         attemptRc = -1;
 
         QStringList args = sshpassPrefixArgs;
+        const QString familyOpt = sshAddressFamilyOption(p);
+        if (!familyOpt.isEmpty()) {
+            args << familyOpt;
+        }
         args << "-o" << "BatchMode=yes";
         args << "-o" << "ConnectTimeout=10";
         args << "-o" << "LogLevel=ERROR";
@@ -591,6 +611,36 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         return true;
     };
 
+    const QString hostLower = p.host.trimmed().toLower();
+    const QString familyLower = p.sshAddressFamily.trimmed().toLower();
+    if ((!hostLower.isEmpty() && hostLower.endsWith(QStringLiteral(".local")))
+        || (familyLower == QStringLiteral("ipv4"))
+        || (familyLower == QStringLiteral("ipv6"))) {
+        if (!m_loggedSshResolutionKeys.contains(sshResolutionKey)) {
+            m_loggedSshResolutionKeys.insert(sshResolutionKey);
+            const QHostInfo resolved = QHostInfo::fromName(p.host);
+            if (resolved.error() != QHostInfo::NoError) {
+                const QString msg = QStringLiteral("Resolucion SSH %1 (%2): %3")
+                                        .arg(p.host,
+                                             familyLower.isEmpty() ? QStringLiteral("auto") : familyLower,
+                                             resolved.errorString());
+                appLog(QStringLiteral("WARN"), QStringLiteral("%1: %2").arg(p.name, msg));
+                appendConnectionLog(p.id, msg);
+            } else {
+                QStringList addresses;
+                for (const QHostAddress& address : resolved.addresses()) {
+                    addresses << describeHostAddress(address);
+                }
+                const QString msg = QStringLiteral("Resolucion SSH %1 (%2): %3")
+                                        .arg(p.host,
+                                             familyLower.isEmpty() ? QStringLiteral("auto") : familyLower,
+                                             addresses.isEmpty() ? QStringLiteral("sin direcciones") : addresses.join(QStringLiteral(", ")));
+                appLog(QStringLiteral("INFO"), QStringLiteral("%1: %2").arg(p.name, msg));
+                appendConnectionLog(p.id, msg);
+            }
+        }
+    }
+
     const bool allowMultiplexing = !m_sshDisableMultiplexKeys.contains(sshConnKey);
     bool startedOk = runSshAttempt(allowMultiplexing, out, err, rc);
     if (allowMultiplexing && startedOk && rc != 0 && shouldRetrySshWithoutMultiplexing(err)) {
@@ -642,6 +692,10 @@ void MainWindow::closeAllSshControlMasters() {
         seen.insert(fingerprint);
 
         QStringList args;
+        const QString familyOpt = sshAddressFamilyOption(p);
+        if (!familyOpt.isEmpty()) {
+            args << familyOpt;
+        }
         args << "-o" << "BatchMode=yes";
         args << "-o" << "LogLevel=ERROR";
         args << "-o" << "StrictHostKeyChecking=no";
@@ -1417,7 +1471,9 @@ bool MainWindow::isWindowsConnection(int connIdx) const {
     return isWindowsConnection(m_profiles[connIdx]);
 }
 
-QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p, const QString& remoteCmd) const {
+QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p,
+                                      const QString& remoteCmd,
+                                      MainWindow::WindowsCommandMode windowsMode) const {
     if (!isWindowsConnection(p)) {
         return remoteCmd;
     }
@@ -1425,9 +1481,14 @@ QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p, const QString&
     const QString low = trimmed.toLower();
     const bool zfsStreamCmd = low.contains(QStringLiteral("zfs send"))
         || low.contains(QStringLiteral("zfs recv"));
-    // zfs send/recv transport binary streams; forcing PowerShell execution can break stdin/stdout.
-    // For these commands we must route through a Unix shell (MSYS/MinGW) when available.
-    const bool psLike = !zfsStreamCmd && looksLikePowerShellScript(trimmed);
+    MainWindow::WindowsCommandMode effectiveMode = windowsMode;
+    if (effectiveMode == MainWindow::WindowsCommandMode::Auto) {
+        // zfs send/recv transport binary streams; forcing PowerShell execution can break stdin/stdout.
+        // For these commands we must route through a Unix shell (MSYS/MinGW) when available.
+        effectiveMode = zfsStreamCmd || !looksLikePowerShellScript(trimmed)
+            ? MainWindow::WindowsCommandMode::UnixShell
+            : MainWindow::WindowsCommandMode::PowerShellNative;
+    }
     const QString psEscaped = QString(trimmed).replace('\'', QStringLiteral("''"));
     QString script = QStringLiteral(
         "$ProgressPreference='SilentlyContinue'; "
@@ -1447,7 +1508,7 @@ QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p, const QString&
         "    if(-not (($env:Path -split ';') -contains $p)){ $env:Path = $p + ';' + $env:Path } "
         "  } "
         "}; ");
-    if (psLike) {
+    if (effectiveMode == MainWindow::WindowsCommandMode::PowerShellNative) {
         script += trimmed;
     } else {
         script += QStringLiteral(
@@ -1468,7 +1529,7 @@ QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p, const QString&
     const QString b64 = QString::fromLatin1(utf16.toBase64());
     // Windows command-line length can be hit with very large EncodedCommand payloads.
     // For long PowerShell-native scripts, fallback to -Command to avoid UTF-16+Base64 expansion.
-    if (psLike && b64.size() > 7000) {
+    if (effectiveMode == MainWindow::WindowsCommandMode::PowerShellNative && b64.size() > 7000) {
         QString inlineScript = script;
         inlineScript.replace(QStringLiteral("\""), QStringLiteral("`\""));
         return QStringLiteral("powershell -NoProfile -NonInteractive -Command \"& { %1 }\"")
@@ -1477,13 +1538,15 @@ QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p, const QString&
     return QStringLiteral("powershell -NoProfile -NonInteractive -EncodedCommand %1").arg(b64);
 }
 
-QString MainWindow::sshExecFromLocal(const ConnectionProfile& p, const QString& remoteCmd) const {
+QString MainWindow::sshExecFromLocal(const ConnectionProfile& p,
+                                     const QString& remoteCmd,
+                                     MainWindow::WindowsCommandMode windowsMode) const {
     if (isLocalConnection(p)) {
         return remoteCmd;
     }
     const QString sshBase = sshBaseCommand(p);
     const QString target = shSingleQuote(sshUserHost(p));
-    const QString wrapped = wrapRemoteCommand(p, remoteCmd);
+    const QString wrapped = wrapRemoteCommand(p, remoteCmd, windowsMode);
     return sshBase + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrapped);
 }
 

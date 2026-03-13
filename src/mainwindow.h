@@ -131,12 +131,19 @@ private:
         QVector<DatasetPropCacheRow> rows;
     };
 
+    enum class WindowsCommandMode {
+        Auto,
+        PowerShellNative,
+        UnixShell,
+    };
+
     void buildUi();
     void loadConnections();
     void rebuildConnectionsTable();
     void refreshAllConnections();
     void refreshSelectedConnection();
     void createConnection();
+    void installMsysForSelectedConnection();
     void editConnection();
     void deleteConnection();
     void onConnectionSelectionChanged();
@@ -166,7 +173,8 @@ private:
                 QString& err,
                 int& rc,
                 const std::function<void(const QString&)>& onStdoutLine = {},
-                const std::function<void(const QString&)>& onStderrLine = {});
+                const std::function<void(const QString&)>& onStderrLine = {},
+                WindowsCommandMode windowsMode = WindowsCommandMode::Auto);
     void closeAllSshControlMasters();
     QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
     QString withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const;
@@ -186,8 +194,12 @@ private:
                                     QString* detail = nullptr) const;
     bool isWindowsConnection(const ConnectionProfile& p) const;
     bool isWindowsConnection(int connIdx) const;
-    QString wrapRemoteCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
-    QString sshExecFromLocal(const ConnectionProfile& p, const QString& remoteCmd) const;
+    QString wrapRemoteCommand(const ConnectionProfile& p,
+                              const QString& remoteCmd,
+                              WindowsCommandMode windowsMode = WindowsCommandMode::Auto) const;
+    QString sshExecFromLocal(const ConnectionProfile& p,
+                             const QString& remoteCmd,
+                             WindowsCommandMode windowsMode = WindowsCommandMode::Auto) const;
     bool getDatasetProperty(int connIdx, const QString& dataset, const QString& prop, QString& valueOut);
     QString effectiveMountPath(int connIdx, const QString& poolName, const QString& datasetName, const QString& mountpointHint, const QString& mountedValue);
     QString datasetCacheKey(int connIdx, const QString& poolName) const;
@@ -388,6 +400,7 @@ private:
     QPlainTextEdit* m_logView{nullptr};
     QMap<QString, QPlainTextEdit*> m_connectionLogViews;
     QSet<QString> m_sshDisableMultiplexKeys;
+    QSet<QString> m_loggedSshResolutionKeys;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
     QMap<QString, PoolDetailsCacheEntry> m_poolDetailsCache;
     QMap<QString, DatasetPropsCacheEntry> m_datasetPropsCache;

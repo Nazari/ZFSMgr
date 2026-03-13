@@ -12,6 +12,7 @@ struct ConnectionProfile {
     QString osType;
     QString host;
     int port{0};
+    QString sshAddressFamily;
     QString username;
     QString password;
     QString keyPath;

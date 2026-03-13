@@ -140,7 +140,9 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     const QString osProbeCmd = isWindowsConnection(p)
                                    ? QStringLiteral("[System.Environment]::OSVersion.VersionString")
                                    : QStringLiteral("uname -a");
-    if (!runSsh(p, osProbeCmd, 12000, out, err, rc) || rc != 0) {
+    const MainWindow::WindowsCommandMode winPsMode = MainWindow::WindowsCommandMode::PowerShellNative;
+    if (!runSsh(p, osProbeCmd, 12000, out, err, rc, {}, {},
+                isWindowsConnection(p) ? winPsMode : MainWindow::WindowsCommandMode::Auto) || rc != 0) {
         state.status = QStringLiteral("ERROR");
         state.detail = oneLine(err.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : err);
         appLog(QStringLiteral("NORMAL"),
@@ -172,7 +174,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             uOut.clear();
             uErr.clear();
             uRc = -1;
-            if (!runSsh(p, cmd, 8000, uOut, uErr, uRc) || uRc != 0) {
+            if (!runSsh(p, cmd, 8000, uOut, uErr, uRc, {}, {},
+                        isWindowsConnection(p) ? winPsMode : MainWindow::WindowsCommandMode::Auto) || uRc != 0) {
                 continue;
             }
             const QString uuid = extractMachineUuid(uOut + QStringLiteral("\n") + uErr);
@@ -188,7 +191,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             QString wOut, wErr;
             int wRc = -1;
             const QString whereCmd = QStringLiteral("where.exe %1").arg(exeName);
-            if (runSsh(p, whereCmd, 12000, wOut, wErr, wRc) && wRc == 0) {
+            if (runSsh(p, whereCmd, 12000, wOut, wErr, wRc, {}, {}, winPsMode) && wRc == 0) {
                 const QStringList lines = wOut.split('\n', Qt::SkipEmptyParts);
                 const QString firstPath = lines.isEmpty() ? QStringLiteral("(sin salida)") : lines.first().trimmed();
                 appLog(QStringLiteral("INFO"),
@@ -215,7 +218,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         err.clear();
         rc = -1;
         const QString zfsVersionCmd = withSudo(p, cand);
-        if (!runSsh(p, zfsVersionCmd, 12000, out, err, rc)) {
+        if (!runSsh(p, zfsVersionCmd, 12000, out, err, rc, {}, {},
+                    isWindowsConnection(p) ? winPsMode : MainWindow::WindowsCommandMode::Auto)) {
             continue;
         }
         const QString parsed = mwhelpers::parseOpenZfsVersionText(out + QStringLiteral("\n") + err);
@@ -265,7 +269,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 "foreach($c in $cmds){ $ok=$false; foreach($r in $present){ if(Test-Path -LiteralPath (Join-Path $r ($c + '.exe'))){ $ok=$true; break } }; "
                 "if($ok){ Write-Output ('OK:' + $c) } else { Write-Output ('KO:' + $c) } }")
                     .arg(wanted.join(' '));
-            if (runSsh(p, roots, 15000, dout, derr, drc) && drc == 0) {
+            if (runSsh(p, roots, 15000, dout, derr, drc, {}, {}, winPsMode) && drc == 0) {
                 const QStringList lines = dout.split('\n', Qt::SkipEmptyParts);
                 bool noLayer = false;
                 for (const QString& raw : lines) {
@@ -328,8 +332,15 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                         missing << line.mid(3).trimmed();
                     }
                 }
-            } else {
-                missing = wanted;
+            } else if (!derr.trimmed().isEmpty()) {
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("%1: detección de comandos Unix no concluyente -> %2")
+                           .arg(p.name, oneLine(derr)));
+            } else if (drc != 0) {
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("%1: detección de comandos Unix no concluyente (rc=%2)")
+                           .arg(p.name)
+                           .arg(drc));
             }
             state.detectedUnixCommands = detected;
             state.missingUnixCommands = missing;

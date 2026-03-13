@@ -74,6 +74,7 @@ QString buildWindowsMountPrecheckCommand(const QString& datasetName, const QStri
 QString sshControlPath();
 QString sshUserHost(const ConnectionProfile& p);
 QString sshUserHostPort(const ConnectionProfile& p);
+QString sshAddressFamilyOption(const ConnectionProfile& p);
 QString sshBaseCommand(const ConnectionProfile& p);
 QString buildSshTargetPrefix(const ConnectionProfile& p);
 QString buildSimpleSshInvocation(const ConnectionProfile& p, const QString& remoteCmd);

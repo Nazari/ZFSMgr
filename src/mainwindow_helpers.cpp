@@ -513,10 +513,25 @@ QString sshUserHostPort(const ConnectionProfile& p) {
     return QStringLiteral("%1:%2").arg(sshUserHost(p), port);
 }
 
+QString sshAddressFamilyOption(const ConnectionProfile& p) {
+    const QString family = p.sshAddressFamily.trimmed().toLower();
+    if (family == QStringLiteral("ipv4")) {
+        return QStringLiteral("-4");
+    }
+    if (family == QStringLiteral("ipv6")) {
+        return QStringLiteral("-6");
+    }
+    return QString();
+}
+
 QString sshBaseCommand(const ConnectionProfile& p) {
     QString cmd = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
                                  " -o ControlMaster=auto -o ControlPersist=yes -o ControlPath=%1")
                       .arg(shSingleQuote(sshControlPath()));
+    const QString familyOpt = sshAddressFamilyOption(p);
+    if (!familyOpt.isEmpty()) {
+        cmd += QStringLiteral(" ") + familyOpt;
+    }
     if (p.port > 0) {
         cmd += QStringLiteral(" -p ") + QString::number(p.port);
     }
@@ -634,6 +649,10 @@ QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cm
 QString buildSshPreviewCommandText(const ConnectionProfile& p, const QString& remoteCmd) {
     QStringList parts;
     parts << QStringLiteral("ssh");
+    const QString familyOpt = sshAddressFamilyOption(p);
+    if (!familyOpt.isEmpty()) {
+        parts << familyOpt;
+    }
     parts << QStringLiteral("-o BatchMode=yes");
     parts << QStringLiteral("-o ConnectTimeout=10");
     parts << QStringLiteral("-o LogLevel=ERROR");

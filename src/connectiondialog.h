@@ -33,6 +33,7 @@ private:
     QLineEdit* m_nameEdit{nullptr};
     QComboBox* m_connTypeCombo{nullptr};
     QComboBox* m_osTypeCombo{nullptr};
+    QComboBox* m_sshFamilyCombo{nullptr};
     QLineEdit* m_hostEdit{nullptr};
     QLineEdit* m_portEdit{nullptr};
     QLineEdit* m_userEdit{nullptr};

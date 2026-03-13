@@ -2176,6 +2176,15 @@ void MainWindow::buildUi() {
         const bool canRefresh = hasConn && !isDisconnected && !actionsLocked();
         const bool canEditDelete = hasConn && !actionsLocked() && !isLocalConnection(connIdx)
             && !isConnectionRedirectedToLocal(connIdx);
+        const bool hasWindowsUnixLayerReady =
+            hasConn
+            && connIdx < m_states.size()
+            && isWindowsConnection(connIdx)
+            && m_states[connIdx].unixFromMsysOrMingw
+            && m_states[connIdx].missingUnixCommands.isEmpty()
+            && !m_states[connIdx].detectedUnixCommands.isEmpty();
+        const bool canInstallMsys =
+            hasConn && !actionsLocked() && !isDisconnected && isWindowsConnection(connIdx) && !hasWindowsUnixLayerReady;
 
         QMenu menu(this);
         QAction* aConnect = menu.addAction(
@@ -2188,6 +2197,11 @@ void MainWindow::buildUi() {
                 QStringLiteral("Desconectar"),
                 QStringLiteral("Disconnect"),
                 QStringLiteral("断开连接")));
+        QAction* aInstallMsys = menu.addAction(
+            trk(QStringLiteral("t_install_msys_ctx001"),
+                QStringLiteral("Instalar MSYS2"),
+                QStringLiteral("Install MSYS2"),
+                QStringLiteral("安装 MSYS2")));
         menu.addSeparator();
         QAction* aRefresh = menu.addAction(
             trk(QStringLiteral("t_refresh_conn_ctx001"),
@@ -2222,6 +2236,7 @@ void MainWindow::buildUi() {
                 QStringLiteral("新建存储池")));
         aConnect->setEnabled(!actionsLocked() && hasConn && isDisconnected);
         aDisconnect->setEnabled(!actionsLocked() && hasConn && !isDisconnected);
+        aInstallMsys->setEnabled(canInstallMsys);
         aRefresh->setEnabled(canRefresh);
         aEdit->setEnabled(canEditDelete);
         aDelete->setEnabled(canEditDelete);
@@ -2254,6 +2269,9 @@ void MainWindow::buildUi() {
         } else if (chosen == aDelete) {
             logUiAction(QStringLiteral("Borrar conexión (menú conexiones)"));
             deleteConnection();
+        } else if (chosen == aInstallMsys) {
+            logUiAction(QStringLiteral("Instalar MSYS2 (menÃº conexiones)"));
+            installMsysForSelectedConnection();
         } else if (chosen == aRefreshAll) {
             logUiAction(QStringLiteral("Refrescar todas las conexiones (menú conexiones)"));
             refreshAllConnections();

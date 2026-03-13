@@ -228,6 +228,7 @@ ConnectionProfile ConnectionStore::loadProfileFromIni(const QString& path) {
     p.osType = ini.value(QStringLiteral("os_type")).toString();
     p.host = ini.value(QStringLiteral("host")).toString();
     p.port = ini.value(QStringLiteral("port"), 22).toInt();
+    p.sshAddressFamily = ini.value(QStringLiteral("ssh_address_family"), QStringLiteral("auto")).toString().trimmed().toLower();
     p.username = ini.value(QStringLiteral("username")).toString();
     p.password = ini.value(QStringLiteral("password")).toString();
     p.keyPath = ini.value(QStringLiteral("key_path")).toString();
@@ -251,6 +252,11 @@ bool ConnectionStore::saveProfileToIni(const QString& path, const ConnectionProf
                  profile.osType.trimmed().isEmpty() ? QStringLiteral("Linux") : profile.osType.trimmed());
     ini.setValue(QStringLiteral("host"), profile.host.trimmed());
     ini.setValue(QStringLiteral("port"), ensurePort(profile.connType, profile.port));
+    const QString sshFamily = profile.sshAddressFamily.trimmed().toLower();
+    ini.setValue(QStringLiteral("ssh_address_family"),
+                 (sshFamily == QStringLiteral("ipv4") || sshFamily == QStringLiteral("ipv6"))
+                     ? sshFamily
+                     : QStringLiteral("auto"));
     ini.setValue(QStringLiteral("username"), profile.username);
     ini.setValue(QStringLiteral("password"), profile.password);
     ini.setValue(QStringLiteral("key_path"), profile.keyPath.trimmed());
@@ -282,6 +288,7 @@ bool ConnectionStore::migrateLegacyConnectionsToPerFile(QString& error) const {
         p.osType = ini.value(QStringLiteral("os_type")).toString();
         p.host = ini.value(QStringLiteral("host")).toString();
         p.port = ini.value(QStringLiteral("port"), 22).toInt();
+        p.sshAddressFamily = ini.value(QStringLiteral("ssh_address_family"), QStringLiteral("auto")).toString().trimmed().toLower();
         p.username = ini.value(QStringLiteral("username")).toString();
         p.password = ini.value(QStringLiteral("password")).toString();
         p.keyPath = ini.value(QStringLiteral("key_path")).toString();
@@ -379,6 +386,7 @@ LoadResult ConnectionStore::loadConnections() const {
         local.connType = QStringLiteral("LOCAL");
         local.port = 0;
         local.host = QStringLiteral("localhost");
+        local.sshAddressFamily = QStringLiteral("auto");
         const QString userEnv = QProcessEnvironment::systemEnvironment().value(QStringLiteral("USER"));
         const QString userEnvWin = QProcessEnvironment::systemEnvironment().value(QStringLiteral("USERNAME"));
         local.username = !userEnv.trimmed().isEmpty() ? userEnv.trimmed() : userEnvWin.trimmed();

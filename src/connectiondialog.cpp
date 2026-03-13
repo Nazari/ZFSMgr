@@ -89,6 +89,10 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
 
     m_hostEdit = new QLineEdit(this);
     m_portEdit = new QLineEdit(this);
+    m_sshFamilyCombo = new QComboBox(this);
+    m_sshFamilyCombo->addItem(QStringLiteral("Auto"), QStringLiteral("auto"));
+    m_sshFamilyCombo->addItem(QStringLiteral("IPv4"), QStringLiteral("ipv4"));
+    m_sshFamilyCombo->addItem(QStringLiteral("IPv6"), QStringLiteral("ipv6"));
     m_portEdit->setValidator(new QIntValidator(1, 65535, m_portEdit));
     m_portEdit->setText(QStringLiteral("22"));
     auto* hostPortRow = new QWidget(this);
@@ -103,16 +107,26 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
                                    QStringLiteral("Port"),
                                    QStringLiteral("Port"),
                                    QStringLiteral("端口")), hostPortRow);
+    auto* familyLbl = new QLabel(trk(QStringLiteral("t_ip_family_001"),
+                                     QStringLiteral("IP"),
+                                     QStringLiteral("IP"),
+                                     QStringLiteral("IP")), hostPortRow);
     hostLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     portLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    familyLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     hostLbl->setMinimumWidth(76);
     portLbl->setMinimumWidth(76);
+    familyLbl->setMinimumWidth(52);
     m_portEdit->setMaximumWidth(110);
+    m_sshFamilyCombo->setMaximumWidth(110);
     hostPortLayout->addWidget(hostLbl, 0);
     hostPortLayout->addWidget(m_hostEdit, 1);
     hostPortLayout->addSpacing(12);
     hostPortLayout->addWidget(portLbl, 0);
     hostPortLayout->addWidget(m_portEdit, 0);
+    hostPortLayout->addSpacing(12);
+    hostPortLayout->addWidget(familyLbl, 0);
+    hostPortLayout->addWidget(m_sshFamilyCombo, 0);
     form->addRow(QString(), hostPortRow);
 
     m_userEdit = new QLineEdit(this);
@@ -234,6 +248,12 @@ void ConnectionDialog::setProfile(const ConnectionProfile& profile) {
     m_connTypeCombo->setCurrentText(profile.connType.isEmpty() ? QStringLiteral("SSH") : profile.connType);
     m_hostEdit->setText(profile.host);
     m_portEdit->setText(QString::number(profile.port > 0 ? profile.port : 22));
+    if (m_sshFamilyCombo) {
+        const QString family = profile.sshAddressFamily.trimmed().toLower();
+        const int idx = m_sshFamilyCombo->findData(
+            (family == QStringLiteral("ipv4") || family == QStringLiteral("ipv6")) ? family : QStringLiteral("auto"));
+        m_sshFamilyCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+    }
     m_userEdit->setText(profile.username);
     m_passwordEdit->setText(profile.password);
     m_keyEdit->setText(profile.keyPath);
@@ -253,6 +273,8 @@ ConnectionProfile ConnectionDialog::profile() const {
         const bool psrpMode = (p.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
         p.port = psrpMode ? 5986 : 22;
     }
+    p.sshAddressFamily = m_sshFamilyCombo ? m_sshFamilyCombo->currentData().toString().trimmed().toLower()
+                                          : QStringLiteral("auto");
     p.username = m_userEdit->text().trimmed();
     p.password = m_passwordEdit->text();
     p.keyPath = m_keyEdit->text().trimmed();
@@ -301,6 +323,9 @@ void ConnectionDialog::updateConnectionModeUi() {
     }
     if (m_privilegesRow) {
         m_privilegesRow->setVisible(!psrpMode);
+    }
+    if (m_sshFamilyCombo) {
+        m_sshFamilyCombo->setEnabled(!psrpMode);
     }
 
     if (psrpMode) {
@@ -353,6 +378,12 @@ bool ConnectionDialog::testSshConnection(const ConnectionProfile& p, QString& de
     args << "-o" << "LogLevel=ERROR";
     args << "-o" << "StrictHostKeyChecking=no";
     args << "-o" << "UserKnownHostsFile=/dev/null";
+    const QString sshFamily = p.sshAddressFamily.trimmed().toLower();
+    if (sshFamily == QStringLiteral("ipv4")) {
+        args << "-4";
+    } else if (sshFamily == QStringLiteral("ipv6")) {
+        args << "-6";
+    }
     if (hasPassword && usingSshpass) {
         args << "-o" << "BatchMode=no";
         args << "-o" << "PreferredAuthentications=password,keyboard-interactive,publickey";
