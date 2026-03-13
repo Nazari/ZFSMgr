@@ -387,6 +387,7 @@ private:
     QTabWidget* m_logsTabs{nullptr};
     QPlainTextEdit* m_logView{nullptr};
     QMap<QString, QPlainTextEdit*> m_connectionLogViews;
+    QSet<QString> m_sshDisableMultiplexKeys;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
     QMap<QString, PoolDetailsCacheEntry> m_poolDetailsCache;
     QMap<QString, DatasetPropsCacheEntry> m_datasetPropsCache;

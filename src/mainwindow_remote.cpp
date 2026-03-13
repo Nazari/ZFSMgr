@@ -48,6 +48,13 @@ QString sanitizePsrpText(const QString& raw) {
     return s.trimmed();
 }
 
+bool shouldRetrySshWithoutMultiplexing(const QString& stderrText) {
+    const QString lowered = stderrText.toLower();
+    return lowered.contains(QStringLiteral("getsockname failed"))
+        || lowered.contains(QStringLiteral("not a socket"))
+        || lowered.contains(QStringLiteral("bad stdio forwarding specification"));
+}
+
 using mwhelpers::isMountedValueTrue;
 using mwhelpers::looksLikePowerShellScript;
 using mwhelpers::normalizeDriveLetterValue;
@@ -438,39 +445,23 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
 
     const bool hasPassword = !p.password.trimmed().isEmpty();
     QString program = QStringLiteral("ssh");
-    QStringList args;
+    QStringList sshpassPrefixArgs;
     bool usingSshpass = false;
     if (hasPassword) {
         const QString sshpassExe = QStandardPaths::findExecutable(QStringLiteral("sshpass"));
         if (!sshpassExe.isEmpty()) {
             program = sshpassExe;
-            args << "-p" << p.password << "ssh";
+            sshpassPrefixArgs << "-p" << p.password << "ssh";
             usingSshpass = true;
         }
     }
 
-    args << "-o" << "BatchMode=yes";
-    args << "-o" << "ConnectTimeout=10";
-    args << "-o" << "LogLevel=ERROR";
-    args << "-o" << "StrictHostKeyChecking=no";
-    args << "-o" << "UserKnownHostsFile=/dev/null";
-    args << "-o" << "ControlMaster=auto";
-    args << "-o" << "ControlPersist=yes";
-    args << "-o" << QStringLiteral("ControlPath=%1").arg(sshControlPath());
-    if (hasPassword && usingSshpass) {
-        args << "-o" << "BatchMode=no";
-        args << "-o" << "PreferredAuthentications=password,keyboard-interactive,publickey";
-        args << "-o" << "NumberOfPasswordPrompts=1";
-    }
-    if (p.port > 0) {
-        args << "-p" << QString::number(p.port);
-    }
-    if (!p.keyPath.isEmpty()) {
-        args << "-i" << p.keyPath;
-    }
-    args << sshUserHost(p);
     const QString wrappedCmd = wrapRemoteCommand(p, remoteCmd);
-    args << wrappedCmd;
+    const QString sshConnKey = QStringLiteral("%1|%2|%3|%4")
+                                   .arg(p.username,
+                                        p.host,
+                                        QString::number((p.port > 0) ? p.port : 22),
+                                        p.keyPath);
 
     const QString cmdLine = QStringLiteral("%1 $ %2")
                                 .arg(sshUserHostPort(p), wrappedCmd);
@@ -480,96 +471,141 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         appendConnectionLog(p.id, QStringLiteral("Password guardado, pero sshpass no está disponible; se usará SSH no interactivo."));
     }
 
-    QProcess proc;
-    QElapsedTimer timer;
-    timer.start();
-    proc.start(program, args);
-    if (!proc.waitForStarted(4000)) {
-        err = QStringLiteral("No se pudo iniciar %1").arg(program);
-        appendConnectionLog(p.id, err);
-        return false;
-    }
-    QString outLineBuf;
-    QString errLineBuf;
-    auto flushLines = [&](QString& buf, const QString& chunk, const std::function<void(const QString&)>& cb) {
-        if (!chunk.isEmpty()) {
-            buf += chunk;
+    auto runSshAttempt = [&](bool enableMultiplexing, QString& attemptOut, QString& attemptErr, int& attemptRc) -> bool {
+        attemptOut.clear();
+        attemptErr.clear();
+        attemptRc = -1;
+
+        QStringList args = sshpassPrefixArgs;
+        args << "-o" << "BatchMode=yes";
+        args << "-o" << "ConnectTimeout=10";
+        args << "-o" << "LogLevel=ERROR";
+        args << "-o" << "StrictHostKeyChecking=no";
+        args << "-o" << "UserKnownHostsFile=/dev/null";
+        if (enableMultiplexing) {
+            args << "-o" << "ControlMaster=auto";
+            args << "-o" << "ControlPersist=yes";
+            args << "-o" << QStringLiteral("ControlPath=%1").arg(sshControlPath());
         }
-        int nl = -1;
-        while ((nl = buf.indexOf('\n')) >= 0) {
-            QString line = buf.left(nl);
-            buf.remove(0, nl + 1);
-            line = line.trimmed();
-            if (line.isEmpty()) {
-                continue;
+        if (hasPassword && usingSshpass) {
+            args << "-o" << "BatchMode=no";
+            args << "-o" << "PreferredAuthentications=password,keyboard-interactive,publickey";
+            args << "-o" << "NumberOfPasswordPrompts=1";
+        }
+        if (p.port > 0) {
+            args << "-p" << QString::number(p.port);
+        }
+        if (!p.keyPath.isEmpty()) {
+            args << "-i" << p.keyPath;
+        }
+        args << sshUserHost(p);
+        args << wrappedCmd;
+
+        QProcess proc;
+        QElapsedTimer timer;
+        timer.start();
+        proc.start(program, args);
+        if (!proc.waitForStarted(4000)) {
+            attemptErr = QStringLiteral("No se pudo iniciar %1").arg(program);
+            appendConnectionLog(p.id, attemptErr);
+            return false;
+        }
+        QString outLineBuf;
+        QString errLineBuf;
+        auto flushLines = [&](QString& buf, const QString& chunk, const std::function<void(const QString&)>& cb) {
+            if (!chunk.isEmpty()) {
+                buf += chunk;
             }
-            if (cb) {
-                cb(line);
+            int nl = -1;
+            while ((nl = buf.indexOf('\n')) >= 0) {
+                QString line = buf.left(nl);
+                buf.remove(0, nl + 1);
+                line = line.trimmed();
+                if (line.isEmpty()) {
+                    continue;
+                }
+                if (cb) {
+                    cb(line);
+                }
+                appendConnectionLog(p.id, line);
+            }
+        };
+
+        bool timedOut = false;
+        while (proc.state() != QProcess::NotRunning) {
+            proc.waitForReadyRead(120);
+            const QString outChunk = QString::fromUtf8(proc.readAllStandardOutput());
+            const QString errChunk = QString::fromUtf8(proc.readAllStandardError());
+            if (!outChunk.isEmpty()) {
+                attemptOut += outChunk;
+                flushLines(outLineBuf, outChunk, onStdoutLine);
+            }
+            if (!errChunk.isEmpty()) {
+                attemptErr += errChunk;
+                flushLines(errLineBuf, errChunk, onStderrLine);
+            }
+            if (timeoutMs > 0 && timer.elapsed() > timeoutMs) {
+                timedOut = true;
+                proc.kill();
+                proc.waitForFinished(1000);
+                break;
+            }
+            if (QThread::currentThread() == thread()) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            }
+        }
+
+        const QString outTail = QString::fromUtf8(proc.readAllStandardOutput());
+        const QString errTail = QString::fromUtf8(proc.readAllStandardError());
+        if (!outTail.isEmpty()) {
+            attemptOut += outTail;
+            flushLines(outLineBuf, outTail, onStdoutLine);
+        }
+        if (!errTail.isEmpty()) {
+            attemptErr += errTail;
+            flushLines(errLineBuf, errTail, onStderrLine);
+        }
+        if (!outLineBuf.trimmed().isEmpty()) {
+            const QString line = outLineBuf.trimmed();
+            if (onStdoutLine) {
+                onStdoutLine(line);
             }
             appendConnectionLog(p.id, line);
         }
+        if (!errLineBuf.trimmed().isEmpty()) {
+            const QString line = errLineBuf.trimmed();
+            if (onStderrLine) {
+                onStderrLine(line);
+            }
+            appendConnectionLog(p.id, line);
+        }
+
+        if (timedOut) {
+            attemptRc = -1;
+            attemptErr = QStringLiteral("Timeout");
+            appendConnectionLog(p.id, attemptErr);
+            return false;
+        }
+
+        attemptRc = proc.exitCode();
+        return true;
     };
 
-    bool timedOut = false;
-    while (proc.state() != QProcess::NotRunning) {
-        proc.waitForReadyRead(120);
-        const QString outChunk = QString::fromUtf8(proc.readAllStandardOutput());
-        const QString errChunk = QString::fromUtf8(proc.readAllStandardError());
-        if (!outChunk.isEmpty()) {
-            out += outChunk;
-            flushLines(outLineBuf, outChunk, onStdoutLine);
-        }
-        if (!errChunk.isEmpty()) {
-            err += errChunk;
-            flushLines(errLineBuf, errChunk, onStderrLine);
-        }
-        if (timeoutMs > 0 && timer.elapsed() > timeoutMs) {
-            timedOut = true;
-            proc.kill();
-            proc.waitForFinished(1000);
-            break;
-        }
-        // Keep UI responsive only when called from GUI thread.
-        if (QThread::currentThread() == thread()) {
-            QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
-        }
+    const bool allowMultiplexing = !m_sshDisableMultiplexKeys.contains(sshConnKey);
+    bool startedOk = runSshAttempt(allowMultiplexing, out, err, rc);
+    if (allowMultiplexing && startedOk && rc != 0 && shouldRetrySshWithoutMultiplexing(err)) {
+        m_sshDisableMultiplexKeys.insert(sshConnKey);
+        const QString retryMsg = QStringLiteral("SSH multiplexado falló; reintentando sin ControlMaster/ControlPath.");
+        appLog(QStringLiteral("WARN"), QStringLiteral("%1: %2").arg(p.name, retryMsg));
+        appendConnectionLog(p.id, retryMsg);
+        startedOk = runSshAttempt(false, out, err, rc);
+    } else if (!allowMultiplexing) {
+        appendConnectionLog(p.id, QStringLiteral("SSH multiplexado deshabilitado para esta conexión en la sesión actual."));
     }
 
-    const QString outTail = QString::fromUtf8(proc.readAllStandardOutput());
-    const QString errTail = QString::fromUtf8(proc.readAllStandardError());
-    if (!outTail.isEmpty()) {
-        out += outTail;
-        flushLines(outLineBuf, outTail, onStdoutLine);
-    }
-    if (!errTail.isEmpty()) {
-        err += errTail;
-        flushLines(errLineBuf, errTail, onStderrLine);
-    }
-    if (!outLineBuf.trimmed().isEmpty()) {
-        const QString line = outLineBuf.trimmed();
-        if (onStdoutLine) {
-            onStdoutLine(line);
-        }
-        appendConnectionLog(p.id, line);
-        outLineBuf.clear();
-    }
-    if (!errLineBuf.trimmed().isEmpty()) {
-        const QString line = errLineBuf.trimmed();
-        if (onStderrLine) {
-            onStderrLine(line);
-        }
-        appendConnectionLog(p.id, line);
-        errLineBuf.clear();
-    }
-
-    if (timedOut) {
-        rc = -1;
-        err = QStringLiteral("Timeout");
-        appendConnectionLog(p.id, err);
+    if (!startedOk) {
         return false;
     }
-
-    rc = proc.exitCode();
     if (isWindowsConnection(p)) {
         out = sanitizeWindowsCliXml(out);
         err = sanitizeWindowsCliXml(err);

@@ -135,6 +135,8 @@ The script builds the binary and can also generate an unsigned `.app` bundle.
 
 The script auto-detects toolchain/Qt and builds under `build-windows`.
 
+On Windows, `zfsmgr_qt.exe` is built with an embedded UAC manifest and must be started with administrator privileges.
+
 ## Run
 
 After building, run the generated binary for your platform and unlock with the master password.
