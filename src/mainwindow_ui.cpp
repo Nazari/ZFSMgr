@@ -7,6 +7,10 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDragEnterEvent>
+#include <QDragLeaveEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 #include <QFont>
 #include <QFontDatabase>
 #include <QFontMetrics>
@@ -18,6 +22,7 @@
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QLabel>
+#include <QListView>
 #include <QListWidget>
 #include <QMenu>
 #include <QMenuBar>
@@ -28,6 +33,8 @@
 #include <QCheckBox>
 #include <QPointer>
 #include <QScopedValueRollback>
+#include <QScrollBar>
+#include <QResizeEvent>
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QStyleFactory>
@@ -76,16 +83,15 @@ public:
 
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing, false);
-        QPen pen(option.palette.color(QPalette::Mid));
-        pen.setWidth(1);
-        painter->setPen(pen);
-        const QRect r = option.rect.adjusted(0, 0, -1, -1);
-        painter->drawLine(r.topLeft(), r.bottomLeft());
-        painter->drawLine(r.topRight(), r.bottomRight());
+        const QColor vBorder = option.palette.color(QPalette::Mid).darker(118);
+        const QColor hBorder = option.palette.color(QPalette::Mid).darker(108);
+        const QRect r = option.rect;
+        painter->fillRect(QRect(r.left(), r.top(), 1, r.height()), vBorder);
+        painter->fillRect(QRect(r.right(), r.top(), 1, r.height()), vBorder);
         if (kind == 1) {
-            painter->drawLine(r.topLeft(), r.topRight());
+            painter->fillRect(QRect(r.left(), r.top(), r.width(), 1), hBorder);
         } else {
-            painter->drawLine(r.bottomLeft(), r.bottomRight());
+            painter->fillRect(QRect(r.left(), r.bottom(), r.width(), 1), hBorder);
         }
         painter->restore();
     }
@@ -184,6 +190,166 @@ public:
         }
         return QStyledItemDelegate::editorEvent(event, model, option, index);
     }
+};
+
+class ManagePropsListWidget final : public QListWidget {
+public:
+    explicit ManagePropsListWidget(QWidget* parent = nullptr)
+        : QListWidget(parent) {}
+
+    void setManagedColumnCount(int cols) {
+        m_managedColumnCount = qMax(1, cols);
+        updateManagedGrid();
+    }
+
+protected:
+    void resizeEvent(QResizeEvent* event) override {
+        QListWidget::resizeEvent(event);
+        updateManagedGrid();
+    }
+
+    void adoptCheckStateFromNeighbors(QListWidgetItem* item) {
+        if (!item) {
+            return;
+        }
+        const int idx = row(item);
+        if (idx < 0) {
+            return;
+        }
+        bool shouldCheck = false;
+        if (idx > 0) {
+            if (QListWidgetItem* prev = this->item(idx - 1); prev && prev->checkState() == Qt::Checked) {
+                shouldCheck = true;
+            }
+        }
+        if (!shouldCheck && idx + 1 < count()) {
+            if (QListWidgetItem* next = this->item(idx + 1); next && next->checkState() == Qt::Checked) {
+                shouldCheck = true;
+            }
+        }
+        if (shouldCheck && item->checkState() != Qt::Checked) {
+            item->setCheckState(Qt::Checked);
+        }
+    }
+
+    void paintEvent(QPaintEvent* event) override {
+        QListWidget::paintEvent(event);
+        if (m_indicatorRow < 0 || m_indicatorRow >= count()) {
+            return;
+        }
+        QListWidgetItem* item = this->item(m_indicatorRow);
+        if (!item) {
+            return;
+        }
+        const QRect rect = visualItemRect(item).adjusted(1, 1, -1, -1);
+        if (!rect.isValid()) {
+            return;
+        }
+        QPainter painter(viewport());
+        painter.setRenderHint(QPainter::Antialiasing, false);
+        painter.fillRect(rect, QColor(220, 38, 38, 90));
+        QPen pen(QColor(185, 28, 28));
+        pen.setWidth(2);
+        painter.setPen(pen);
+        painter.drawRect(rect);
+    }
+
+    int insertionRowForPos(const QPoint& pos) const {
+        int to = count();
+        if (QListWidgetItem* target = itemAt(pos)) {
+            to = row(target);
+            const QRect rect = visualItemRect(target);
+            const bool afterTarget =
+                (pos.y() > rect.center().y())
+                || (qAbs(pos.y() - rect.center().y()) <= rect.height() / 3
+                    && pos.x() > rect.center().x());
+            if (afterTarget) {
+                ++to;
+            }
+        }
+        return qBound(0, to, count());
+    }
+
+    void dragEnterEvent(QDragEnterEvent* event) override {
+        if (event && event->source() == this) {
+            m_dragItem = currentItem();
+            m_indicatorRow = m_dragItem ? row(m_dragItem) : -1;
+            viewport()->update();
+            event->setDropAction(Qt::CopyAction);
+            event->accept();
+            return;
+        }
+        QListWidget::dragEnterEvent(event);
+    }
+
+    void dragMoveEvent(QDragMoveEvent* event) override {
+        if (event && event->source() == this && m_dragItem) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            const QPoint pos = event->position().toPoint();
+#else
+            const QPoint pos = event->pos();
+#endif
+            const int from = row(m_dragItem);
+            int to = insertionRowForPos(pos);
+            if (from >= 0) {
+                if (to > from) {
+                    --to;
+                }
+                to = qBound(0, to, count());
+                if (to != from) {
+                    QListWidgetItem* moved = takeItem(from);
+                    if (moved) {
+                        insertItem(to, moved);
+                        m_dragItem = moved;
+                        adoptCheckStateFromNeighbors(m_dragItem);
+                        setCurrentItem(m_dragItem);
+                        scrollToItem(m_dragItem);
+                    }
+                }
+                m_indicatorRow = row(m_dragItem);
+                viewport()->update();
+            }
+            event->setDropAction(Qt::CopyAction);
+            event->accept();
+            return;
+        }
+        QListWidget::dragMoveEvent(event);
+    }
+
+    void dragLeaveEvent(QDragLeaveEvent* event) override {
+        m_indicatorRow = -1;
+        viewport()->update();
+        QListWidget::dragLeaveEvent(event);
+    }
+
+    void dropEvent(QDropEvent* event) override {
+        if (!event || event->source() != this) {
+            m_dragItem = nullptr;
+            m_indicatorRow = -1;
+            viewport()->update();
+            QListWidget::dropEvent(event);
+            return;
+        }
+        event->setDropAction(Qt::CopyAction);
+        event->accept();
+        m_dragItem = nullptr;
+        m_indicatorRow = -1;
+        viewport()->update();
+    }
+
+private:
+    void updateManagedGrid() {
+        const int cols = qMax(1, m_managedColumnCount);
+        const int spacing = this->spacing();
+        const int viewportWidth = qMax(320, viewport()->width());
+        const int cellWidth = qMax(120, (viewportWidth - ((cols - 1) * spacing)) / cols);
+        setGridSize(QSize(cellWidth, 30));
+        setIconSize(QSize(0, 0));
+    }
+
+    QListWidgetItem* m_dragItem{nullptr};
+    int m_indicatorRow{-1};
+    int m_managedColumnCount{1};
 };
 }
 
@@ -498,116 +664,104 @@ void MainWindow::buildUi() {
 
     QMenu* helpMenu = menuBar()->addMenu(
         trk(QStringLiteral("t_help_menu_001"),
-            QStringLiteral("Ayuda"),
-            QStringLiteral("Help"),
-            QStringLiteral("帮助")));
+            QStringLiteral("Ayuda")));
     QAction* quickManualAct = helpMenu->addAction(
         trk(QStringLiteral("t_help_quick_001"),
-            QStringLiteral("Manual rápido"),
-            QStringLiteral("Quick manual"),
-            QStringLiteral("快速手册")));
+            QStringLiteral("Manual rápido")));
     connect(quickManualAct, &QAction::triggered, this, [this]() {
         openHelpTopic(QStringLiteral("manual_rapido"),
                       trk(QStringLiteral("t_help_quick_001"),
-                          QStringLiteral("Manual rápido"),
-                          QStringLiteral("Quick manual"),
-                          QStringLiteral("快速手册")));
+                          QStringLiteral("Manual rápido")));
     });
 
     QMenu* actionsHelpMenu = helpMenu->addMenu(
         trk(QStringLiteral("t_help_actions_001"),
-            QStringLiteral("Acciones"),
-            QStringLiteral("Actions"),
-            QStringLiteral("操作")));
+            QStringLiteral("Acciones")));
     struct HelpTopicItem {
         QString id;
         QString key;
         QString es;
-        QString en;
-        QString zh;
     };
     const QVector<HelpTopicItem> helpActions = {
-        {QStringLiteral("accion_copiar"), QStringLiteral("t_copy_001"), QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")},
-        {QStringLiteral("accion_clonar"), QStringLiteral("t_clone_btn_001"), QStringLiteral("Clonar"), QStringLiteral("Clone"), QStringLiteral("克隆")},
-        {QStringLiteral("accion_sincronizar"), QStringLiteral("t_sync_btn_001"), QStringLiteral("Sincronizar"), QStringLiteral("Sync"), QStringLiteral("同步")},
-        {QStringLiteral("accion_nivelar"), QStringLiteral("t_level_btn_001"), QStringLiteral("Nivelar"), QStringLiteral("Level"), QStringLiteral("对齐")},
-        {QStringLiteral("accion_desglosar"), QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Breakdown"), QStringLiteral("拆分")},
-        {QStringLiteral("accion_ensamblar"), QStringLiteral("t_assemble_btn1"), QStringLiteral("Ensamblar"), QStringLiteral("Assemble"), QStringLiteral("合并")},
-        {QStringLiteral("accion_desde_dir"), QStringLiteral("t_from_dir_btn1"), QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")},
-        {QStringLiteral("accion_hacia_dir"), QStringLiteral("t_to_dir_btn_001"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")}
+        {QStringLiteral("accion_copiar"), QStringLiteral("t_copy_001"), QStringLiteral("Copiar")},
+        {QStringLiteral("accion_clonar"), QStringLiteral("t_clone_btn_001"), QStringLiteral("Clonar")},
+        {QStringLiteral("accion_sincronizar"), QStringLiteral("t_sync_btn_001"), QStringLiteral("Sincronizar")},
+        {QStringLiteral("accion_nivelar"), QStringLiteral("t_level_btn_001"), QStringLiteral("Nivelar")},
+        {QStringLiteral("accion_desglosar"), QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar")},
+        {QStringLiteral("accion_ensamblar"), QStringLiteral("t_assemble_btn1"), QStringLiteral("Ensamblar")},
+        {QStringLiteral("accion_desde_dir"), QStringLiteral("t_from_dir_btn1"), QStringLiteral("Desde Dir")},
+        {QStringLiteral("accion_hacia_dir"), QStringLiteral("t_to_dir_btn_001"), QStringLiteral("Hacia Dir")}
     };
     for (const HelpTopicItem& item : helpActions) {
-        QAction* act = actionsHelpMenu->addAction(trk(item.key, item.es, item.en, item.zh));
+        QAction* act = actionsHelpMenu->addAction(trk(item.key, item.es));
         connect(act, &QAction::triggered, this, [this, item]() {
-            openHelpTopic(item.id, trk(item.key, item.es, item.en, item.zh));
+            openHelpTopic(item.id, trk(item.key, item.es));
         });
     }
 
     QAction* ctxMenusAct = helpMenu->addAction(
         trk(QStringLiteral("t_help_ctx_001"),
-            QStringLiteral("Menús contextuales"),
-            QStringLiteral("Context menus"),
-            QStringLiteral("上下文菜单")));
+            QStringLiteral("Menús contextuales")));
     connect(ctxMenusAct, &QAction::triggered, this, [this]() {
         openHelpTopic(QStringLiteral("menus_contextuales"),
                       trk(QStringLiteral("t_help_ctx_001"),
-                          QStringLiteral("Menús contextuales"),
-                          QStringLiteral("Context menus"),
-                          QStringLiteral("上下文菜单")));
+                          QStringLiteral("Menús contextuales")));
     });
 
-    QAction* shortcutsAct = helpMenu->addAction(
+    QAction* navigationAct = helpMenu->addAction(
         trk(QStringLiteral("t_help_short_001"),
-            QStringLiteral("Atajos y estados"),
-            QStringLiteral("Shortcuts and states"),
-            QStringLiteral("快捷键与状态")));
-    connect(shortcutsAct, &QAction::triggered, this, [this]() {
+            QStringLiteral("Navegación y estados")));
+    connect(navigationAct, &QAction::triggered, this, [this]() {
         openHelpTopic(QStringLiteral("atajos_estados"),
                       trk(QStringLiteral("t_help_short_001"),
-                          QStringLiteral("Atajos y estados"),
-                          QStringLiteral("Shortcuts and states"),
-                          QStringLiteral("快捷键与状态")));
+                          QStringLiteral("Navegación y estados")));
+    });
+
+    QAction* inlinePropsAct = helpMenu->addAction(
+        trk(QStringLiteral("t_help_inline_props_001"),
+            QStringLiteral("Propiedades inline y columnas")));
+    connect(inlinePropsAct, &QAction::triggered, this, [this]() {
+        openHelpTopic(QStringLiteral("propiedades_inline_columnas"),
+                      trk(QStringLiteral("t_help_inline_props_001"),
+                          QStringLiteral("Propiedades inline y columnas")));
+    });
+
+    QAction* windowsConnAct = helpMenu->addAction(
+        trk(QStringLiteral("t_help_windows_conn_001"),
+            QStringLiteral("Conexiones Windows")));
+    connect(windowsConnAct, &QAction::triggered, this, [this]() {
+        openHelpTopic(QStringLiteral("conexiones_windows"),
+                      trk(QStringLiteral("t_help_windows_conn_001"),
+                          QStringLiteral("Conexiones Windows")));
     });
 
     QAction* appLogHelpAct = helpMenu->addAction(
         trk(QStringLiteral("t_help_applog_001"),
-            QStringLiteral("Logs de aplicación"),
-            QStringLiteral("Application logs"),
-            QStringLiteral("应用日志")));
+            QStringLiteral("Logs de aplicación")));
     connect(appLogHelpAct, &QAction::triggered, this, [this]() {
         openHelpTopic(QStringLiteral("logs_aplicacion"),
                       trk(QStringLiteral("t_help_applog_001"),
-                          QStringLiteral("Logs de aplicación"),
-                          QStringLiteral("Application logs"),
-                          QStringLiteral("应用日志")));
+                          QStringLiteral("Logs de aplicación")));
     });
 
     QAction* cfgFilesHelpAct = helpMenu->addAction(
         trk(QStringLiteral("t_help_cfg_001"),
-            QStringLiteral("Configuración y archivos INI"),
-            QStringLiteral("Configuration and INI files"),
-            QStringLiteral("配置与 INI 文件")));
+            QStringLiteral("Configuración, columnas y archivos INI")));
     connect(cfgFilesHelpAct, &QAction::triggered, this, [this]() {
         openHelpTopic(QStringLiteral("configuracion_archivos"),
                       trk(QStringLiteral("t_help_cfg_001"),
-                          QStringLiteral("Configuración y archivos INI"),
-                          QStringLiteral("Configuration and INI files"),
-                          QStringLiteral("配置与 INI 文件")));
+                          QStringLiteral("Configuración, columnas y archivos INI")));
     });
 
     QAction* aboutAct = helpMenu->addAction(
         trk(QStringLiteral("t_about_001"),
-            QStringLiteral("Acerca de"),
-            QStringLiteral("About"),
-            QStringLiteral("关于")));
+            QStringLiteral("Acerca de")));
     connect(aboutAct, &QAction::triggered, this, [this]() {
         QMessageBox::information(
             this,
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_about_msg_001"),
-                QStringLiteral("ZFSMgr\nGestor ZFS multiplataforma.\nAutor: Eladio Linares\nLicencia: GNU"),
-                QStringLiteral("ZFSMgr\nCross-platform ZFS manager.\nAuthor: Eladio Linares\nLicense: GNU"),
-                QStringLiteral("ZFSMgr\n跨平台 ZFS 管理器。\n作者：Eladio Linares\n许可：GNU")));
+                QStringLiteral("ZFSMgr\nGestor ZFS multiplataforma.\nAutor: Eladio Linares\nLicencia: GNU")));
     });
 
     auto* central = new QWidget(this);
@@ -1068,7 +1222,7 @@ void MainWindow::buildUi() {
     m_connContentTree->setColumnHidden(1, true);
     m_connContentTree->setColumnHidden(2, true);
     m_connContentTree->setColumnHidden(3, true);
-    m_connContentTree->setUniformRowHeights(true);
+    m_connContentTree->setUniformRowHeights(false);
     m_connContentTree->setRootIsDecorated(true);
     m_connContentTree->setItemsExpandable(true);
     {
@@ -1218,7 +1372,7 @@ void MainWindow::buildUi() {
     m_bottomConnContentTree->setColumnHidden(1, true);
     m_bottomConnContentTree->setColumnHidden(2, true);
     m_bottomConnContentTree->setColumnHidden(3, true);
-    m_bottomConnContentTree->setUniformRowHeights(true);
+    m_bottomConnContentTree->setUniformRowHeights(false);
     m_bottomConnContentTree->setRootIsDecorated(true);
     m_bottomConnContentTree->setItemsExpandable(true);
     m_bottomConnContentTree->setStyleSheet(QStringLiteral(
@@ -1240,29 +1394,6 @@ void MainWindow::buildUi() {
         syncConnContentPropertyColumns();
         m_connContentTree = prevTree;
     }
-    auto syncTreeColumnWidths = [this](QTreeWidget* src, QTreeWidget* dst) {
-        if (!src || !dst || m_syncingConnContentColumns) {
-            return;
-        }
-        QScopedValueRollback<bool> guard(m_syncingConnContentColumns, true);
-        const QSignalBlocker b1(src->header());
-        const QSignalBlocker b2(dst->header());
-        const int cols = qMin(src->columnCount(), dst->columnCount());
-        for (int c = 0; c < cols; ++c) {
-            dst->setColumnWidth(c, src->columnWidth(c));
-            dst->setColumnHidden(c, src->isColumnHidden(c));
-        }
-    };
-    connect(m_connContentTree->header(), &QHeaderView::sectionResized, this,
-            [this, syncTreeColumnWidths](int, int, int) {
-        syncTreeColumnWidths(m_connContentTree, m_bottomConnContentTree);
-    });
-    connect(m_bottomConnContentTree->header(), &QHeaderView::sectionResized, this,
-            [this, syncTreeColumnWidths](int, int, int) {
-        syncTreeColumnWidths(m_bottomConnContentTree, m_connContentTree);
-    });
-    // Estado inicial consistente entre ambos.
-    syncTreeColumnWidths(m_bottomConnContentTree, m_connContentTree);
     bottomConnLayout->addWidget(m_bottomConnContentTree, 1);
     rightSplit->setStretchFactor(0, 1);
     rightSplit->setStretchFactor(1, 1);
@@ -1781,9 +1912,15 @@ void MainWindow::buildUi() {
             }
         }
 
+        const int propCols = qBound(5, m_connPropColumnsSetting, 10);
+        const int managePropsCellWidth = 120;
+        const int managePropsSpacing = 6;
+        const int managePropsDialogWidth =
+            140 + (propCols * managePropsCellWidth) + ((propCols - 1) * managePropsSpacing);
         QDialog dlg(this);
         dlg.setModal(true);
-        dlg.resize(760, 520);
+        dlg.resize(managePropsDialogWidth, 520);
+        dlg.setMinimumWidth(managePropsDialogWidth);
         dlg.setWindowTitle(
             trk(QStringLiteral("t_manage_props_vis001"),
                 QStringLiteral("Gestionar visualización de propiedades"),
@@ -1792,14 +1929,29 @@ void MainWindow::buildUi() {
         auto* root = new QVBoxLayout(&dlg);
         auto* hint = new QLabel(
             trk(QStringLiteral("t_manage_props_hint001"),
-                QStringLiteral("Marca qué propiedades quieres mostrar y usa Subir/Bajar para reordenar."),
-                QStringLiteral("Check properties to display and use Up/Down to reorder them."),
-                QStringLiteral("勾选要显示的属性，并用上移/下移调整顺序。")),
+                QStringLiteral("Marca qué propiedades quieres mostrar y reordénalas arrastrando y soltando."),
+                QStringLiteral("Check properties to display and reorder them with drag and drop."),
+                QStringLiteral("勾选要显示的属性，并通过拖放调整顺序。")),
             &dlg);
         hint->setWordWrap(true);
         root->addWidget(hint);
-        auto* list = new QListWidget(&dlg);
+        auto* list = new ManagePropsListWidget(&dlg);
         list->setSelectionMode(QAbstractItemView::SingleSelection);
+        list->setViewMode(QListView::IconMode);
+        list->setFlow(QListView::LeftToRight);
+        list->setWrapping(true);
+        list->setResizeMode(QListView::Adjust);
+        list->setMovement(QListView::Static);
+        list->setAcceptDrops(true);
+        list->setDragEnabled(true);
+        list->viewport()->setAcceptDrops(true);
+        list->setDropIndicatorShown(true);
+        list->setDragDropOverwriteMode(false);
+        list->setDragDropMode(QAbstractItemView::InternalMove);
+        list->setDefaultDropAction(Qt::CopyAction);
+        list->setSpacing(managePropsSpacing);
+        list->setUniformItemSizes(true);
+        list->setManagedColumnCount(propCols);
         for (const QString& p : orderedAll) {
             auto* it = new QListWidgetItem(p, list);
             bool checked = false;
@@ -1811,19 +1963,17 @@ void MainWindow::buildUi() {
             }
             it->setFlags(it->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsSelectable | Qt::ItemIsEnabled);
             it->setCheckState(checked ? Qt::Checked : Qt::Unchecked);
+            it->setTextAlignment(Qt::AlignCenter);
+            it->setSizeHint(QSize(140, 28));
         }
+        bool reorderingUncheckedItems = false;
+        list->setMinimumHeight(220);
         root->addWidget(list, 1);
         auto* rowBtns = new QHBoxLayout();
-        auto* btnUp = new QPushButton(
-            trk(QStringLiteral("t_up_001"), QStringLiteral("Subir"), QStringLiteral("Up"), QStringLiteral("上移")), &dlg);
-        auto* btnDown = new QPushButton(
-            trk(QStringLiteral("t_down_001"), QStringLiteral("Bajar"), QStringLiteral("Down"), QStringLiteral("下移")), &dlg);
         auto* btnAll = new QPushButton(
             trk(QStringLiteral("t_all_001"), QStringLiteral("Todo"), QStringLiteral("All"), QStringLiteral("全选")), &dlg);
         auto* btnNone = new QPushButton(
             trk(QStringLiteral("t_none_001"), QStringLiteral("Ninguno"), QStringLiteral("None"), QStringLiteral("全不选")), &dlg);
-        rowBtns->addWidget(btnUp);
-        rowBtns->addWidget(btnDown);
         rowBtns->addWidget(btnAll);
         rowBtns->addWidget(btnNone);
         rowBtns->addStretch(1);
@@ -1845,23 +1995,21 @@ void MainWindow::buildUi() {
                 }
             }
         });
-        connect(btnUp, &QPushButton::clicked, &dlg, [list]() {
-            const int row = list->currentRow();
-            if (row <= 0) {
+        connect(list, &QListWidget::itemChanged, &dlg, [list, &reorderingUncheckedItems](QListWidgetItem* item) {
+            if (!list || !item || reorderingUncheckedItems || item->checkState() != Qt::Unchecked) {
                 return;
             }
-            QListWidgetItem* it = list->takeItem(row);
-            list->insertItem(row - 1, it);
-            list->setCurrentRow(row - 1);
-        });
-        connect(btnDown, &QPushButton::clicked, &dlg, [list]() {
-            const int row = list->currentRow();
-            if (row < 0 || row >= list->count() - 1) {
+            const int row = list->row(item);
+            if (row < 0 || row == list->count() - 1) {
                 return;
             }
-            QListWidgetItem* it = list->takeItem(row);
-            list->insertItem(row + 1, it);
-            list->setCurrentRow(row + 1);
+            reorderingUncheckedItems = true;
+            QListWidgetItem* moved = list->takeItem(row);
+            if (moved) {
+                list->addItem(moved);
+                list->setCurrentItem(moved);
+            }
+            reorderingUncheckedItems = false;
         });
         if (QPushButton* okButton = bb->button(QDialogButtonBox::Ok)) {
             connect(okButton, &QPushButton::clicked, &dlg, [this, &dlg, list]() {

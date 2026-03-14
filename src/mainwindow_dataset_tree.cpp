@@ -7,10 +7,13 @@
 #include <QCheckBox>
 #include <QColor>
 #include <QComboBox>
+#include <QFontMetrics>
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QPainter>
+#include <QLineEdit>
 #include <QPointer>
 #include <QSignalBlocker>
 #include <QSet>
@@ -35,6 +38,14 @@ constexpr int kConnPropEditableRole = Qt::UserRole + 15;
 constexpr int kConnPropRowKindRole = Qt::UserRole + 16; // 1=name, 2=value
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 
+QColor connPropVerticalBorderColor(const QPalette& palette) {
+    return palette.color(QPalette::Mid).darker(118);
+}
+
+QColor connPropHorizontalBorderColor(const QPalette& palette) {
+    return palette.color(QPalette::Mid).darker(108);
+}
+
 class TreeScrollComboBox final : public QComboBox {
 public:
     explicit TreeScrollComboBox(QTreeWidget* tree, QWidget* parent = nullptr)
@@ -52,6 +63,75 @@ protected:
 
 private:
     QPointer<QTreeWidget> m_tree;
+};
+
+class InlinePropNameWidget final : public QWidget {
+public:
+    InlinePropNameWidget(const QString& name, bool inheritable, QWidget* parent = nullptr)
+        : QWidget(parent), m_inheritable(inheritable) {
+        auto* layout = new QHBoxLayout(this);
+        // Reserve 1px for left/top/right borders and add a small top inset so
+        // each name row reads as a new block under the previous value row.
+        layout->setContentsMargins(7, 5, 7, 2);
+        layout->setSpacing(8);
+        auto* left = new QLabel(name, this);
+        left->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        left->setStyleSheet(QStringLiteral("background: transparent;"));
+        layout->addWidget(left, 1);
+        if (m_inheritable) {
+            auto* right = new QLabel(QStringLiteral("Inh."), this);
+            right->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            right->setStyleSheet(QStringLiteral("background: transparent; color:#5f6b76;"));
+            layout->addWidget(right, 0);
+        }
+    }
+
+protected:
+    void paintEvent(QPaintEvent* event) override {
+        QWidget::paintEvent(event);
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing, false);
+        const QColor vBorder = connPropVerticalBorderColor(palette());
+        const QColor hBorder = connPropHorizontalBorderColor(palette());
+        const QRect r = rect();
+        painter.fillRect(0, 0, 1, r.height(), vBorder);
+        painter.fillRect(qMax(0, r.width() - 1), 0, 1, r.height(), vBorder);
+        painter.fillRect(0, 0, r.width(), 1, hBorder);
+    }
+
+private:
+    bool m_inheritable{false};
+};
+
+class InlinePropValueWidget final : public QWidget {
+public:
+    explicit InlinePropValueWidget(QWidget* parent = nullptr)
+        : QWidget(parent) {}
+
+    QHBoxLayout* ensureLayout() {
+        if (auto* lay = qobject_cast<QHBoxLayout*>(layout())) {
+            return lay;
+        }
+        auto* lay = new QHBoxLayout(this);
+        // Reserve 1px for left/right/bottom borders and keep editors slightly
+        // away from the bottom edge so adjacent property groups read cleaner.
+        lay->setContentsMargins(3, 2, 3, 6);
+        lay->setSpacing(4);
+        return lay;
+    }
+
+protected:
+    void paintEvent(QPaintEvent* event) override {
+        QWidget::paintEvent(event);
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing, false);
+        const QColor vBorder = connPropVerticalBorderColor(palette());
+        const QColor hBorder = connPropHorizontalBorderColor(palette());
+        const QRect r = rect();
+        painter.fillRect(0, 0, 1, r.height(), vBorder);
+        painter.fillRect(qMax(0, r.width() - 1), 0, 1, r.height(), vBorder);
+        painter.fillRect(0, qMax(0, r.height() - 1), r.width(), 1, hBorder);
+    }
 };
 
 QMap<QString, QStringList> connContentEnumValues() {
@@ -188,6 +268,18 @@ void refreshDatasetExpansionIndicators(QTreeWidget* tree) {
 
     for (int i = 0; i < tree->topLevelItemCount(); ++i) {
         rec(tree->topLevelItem(i));
+    }
+}
+
+void resizeTreeColumnsToVisibleContent(QTreeWidget* tree) {
+    if (!tree || !tree->headerItem()) {
+        return;
+    }
+    for (int col = 0; col < tree->columnCount(); ++col) {
+        if (tree->isColumnHidden(col)) {
+            continue;
+        }
+        tree->resizeColumnToContents(col);
     }
 }
 } // namespace
@@ -414,6 +506,73 @@ void MainWindow::syncConnContentPropertyColumns() {
         }
         return false;
     };
+    auto isInheritableProp = [this, &propsKey, &isReadonlyFlag, objectIsSnapshot](const QString& prop) -> bool {
+        if (objectIsSnapshot) {
+            return false;
+        }
+        const QString p = prop.trimmed();
+        if (p.isEmpty()) {
+            return false;
+        }
+        const auto itCache = m_datasetPropsCache.constFind(propsKey);
+        if (itCache == m_datasetPropsCache.cend() || !itCache->loaded) {
+            return false;
+        }
+        for (const DatasetPropCacheRow& row : itCache->rows) {
+            if (row.prop.compare(prop, Qt::CaseInsensitive) != 0) {
+                continue;
+            }
+            if (isReadonlyFlag(row.readonly)) {
+                return false;
+            }
+            if (row.source.trimmed() == QStringLiteral("-")) {
+                return false;
+            }
+            return true;
+        }
+        return false;
+    };
+    auto isCurrentlyInheritedProp = [this, &propsKey](const QString& prop) -> bool {
+        const auto itCache = m_datasetPropsCache.constFind(propsKey);
+        if (itCache == m_datasetPropsCache.cend() || !itCache->loaded) {
+            return false;
+        }
+        for (const DatasetPropCacheRow& row : itCache->rows) {
+            if (row.prop.compare(prop, Qt::CaseInsensitive) != 0) {
+                continue;
+            }
+            const QString src = row.source.trimmed().toLower();
+            if (src.isEmpty() || src == QStringLiteral("-")) {
+                return false;
+            }
+            if (src == QStringLiteral("local")
+                || src == QStringLiteral("default")
+                || src == QStringLiteral("received")
+                || src == QStringLiteral("temporary")) {
+                return false;
+            }
+            return src.startsWith(QStringLiteral("inherited"));
+        }
+        return false;
+    };
+    auto findPropsTableRowByProp = [this](const QString& prop) -> int {
+        if (!m_connContentPropsTable) {
+            return -1;
+        }
+        for (int r = 0; r < m_connContentPropsTable->rowCount(); ++r) {
+            QTableWidgetItem* k = m_connContentPropsTable->item(r, 0);
+            if (!k) {
+                continue;
+            }
+            const QString key = k->data(Qt::UserRole + 777).toString().trimmed().isEmpty()
+                                    ? k->text().trimmed()
+                                    : k->data(Qt::UserRole + 777).toString().trimmed();
+            if (key.compare(prop, Qt::CaseInsensitive) == 0) {
+                return r;
+            }
+        }
+        return -1;
+    };
     int insertAt = 0;
     for (int base = 0; base < props.size(); base += propCols) {
         auto* rowNames = new QTreeWidgetItem();
@@ -447,6 +606,7 @@ void MainWindow::syncConnContentPropertyColumns() {
             const int col = 4 + off;
             const QString value = it->value(prop);
             const QString propLower = prop.trimmed().toLower();
+            const bool inheritable = isInheritableProp(prop);
             const QString propLabel =
                 (propLower == QStringLiteral("estado"))
                     ? trk(QStringLiteral("t_montado_a97484"),
@@ -454,7 +614,11 @@ void MainWindow::syncConnContentPropertyColumns() {
                           QStringLiteral("Mounted"),
                           QStringLiteral("已挂载"))
                     : prop;
-            rowNames->setText(col, propLabel);
+            if (inheritable) {
+                tree->setItemWidget(rowNames, col, new InlinePropNameWidget(propLabel, true, tree));
+            } else {
+                rowNames->setText(col, propLabel);
+            }
             rowNames->setTextAlignment(col, Qt::AlignCenter);
             rowNames->setData(col, kConnPropKeyRole, prop);
             rowValues->setText(col, value);
@@ -472,10 +636,10 @@ void MainWindow::syncConnContentPropertyColumns() {
                                QStringLiteral("（无）"));
                 options += snaps;
                 auto* combo = new TreeScrollComboBox(tree, tree);
-                combo->setMinimumHeight(22);
-                combo->setMaximumHeight(22);
+                combo->setMinimumHeight(24);
+                combo->setMaximumHeight(24);
                 combo->setFont(tree->font());
-                combo->setStyleSheet(QStringLiteral("QComboBox{padding:0 2px; margin:0px;}"));
+                combo->setStyleSheet(QStringLiteral("QComboBox{padding:0 5px; margin:0px;}"));
                 combo->addItems(options);
                 const QString currentSnap = sel->data(1, Qt::UserRole).toString().trimmed();
                 const QString currentLabel = currentSnap.isEmpty() ? options.first() : currentSnap;
@@ -496,7 +660,7 @@ void MainWindow::syncConnContentPropertyColumns() {
                 combo->setMinimumHeight(22);
                 combo->setMaximumHeight(22);
                 combo->setFont(tree->font());
-                combo->setStyleSheet(QStringLiteral("QComboBox{padding:0 2px; margin:0px;}"));
+                combo->setStyleSheet(QStringLiteral("QComboBox{padding:0 5px; margin:0px;}"));
                 combo->addItem(QStringLiteral("off"));
                 combo->addItem(QStringLiteral("on"));
                 combo->setCurrentText(sel->checkState(2) == Qt::Checked ? QStringLiteral("on") : QStringLiteral("off"));
@@ -518,13 +682,116 @@ void MainWindow::syncConnContentPropertyColumns() {
             }
             if (editable) {
                 rowValues->setFlags(rowValues->flags() | Qt::ItemIsEditable);
+                if (inheritable) {
+                    auto* cell = new InlinePropValueWidget(tree);
+                    auto* lay = cell->ensureLayout();
+                    QWidget* valueEditor = nullptr;
+                    TreeScrollComboBox* inheritCombo = new TreeScrollComboBox(tree, cell);
+                    inheritCombo->setMinimumHeight(22);
+                    inheritCombo->setMaximumHeight(22);
+                    inheritCombo->setFont(tree->font());
+                    inheritCombo->setStyleSheet(QStringLiteral("QComboBox{padding:0 5px; margin:0px;}"));
+                    inheritCombo->addItem(QStringLiteral("off"));
+                    inheritCombo->addItem(QStringLiteral("on"));
+                    int propRow = findPropsTableRowByProp(prop);
+                    bool inheritChecked = isCurrentlyInheritedProp(prop);
+                    if (propRow >= 0) {
+                        if (QTableWidgetItem* pi = m_connContentPropsTable->item(propRow, 2)) {
+                            inheritChecked = (pi->flags() & Qt::ItemIsUserCheckable)
+                                             && pi->checkState() == Qt::Checked;
+                        }
+                    }
+                    inheritCombo->setCurrentText(inheritChecked ? QStringLiteral("on") : QStringLiteral("off"));
+                    const auto eIt = enumValues.constFind(propLower);
+                    if (eIt != enumValues.cend()) {
+                        auto* combo = new TreeScrollComboBox(tree, cell);
+                        combo->setMinimumHeight(22);
+                        combo->setMaximumHeight(22);
+                        combo->setFont(tree->font());
+                        combo->setStyleSheet(QStringLiteral("QComboBox{padding:0 5px; margin:0px;}"));
+                        QStringList opts = eIt.value();
+                        if (!value.isEmpty() && !opts.contains(value)) {
+                            opts.prepend(value);
+                        }
+                        combo->addItems(opts);
+                        combo->setCurrentText(value);
+                        combo->setEnabled(!inheritChecked);
+                        valueEditor = combo;
+                        lay->addWidget(combo, 1);
+                        QObject::connect(combo, &QComboBox::currentTextChanged, tree,
+                                         [this, tree, rowValues, col, inheritCombo](const QString& txt) {
+                            if (!rowValues) {
+                                return;
+                            }
+                            rowValues->setText(col, txt);
+                            if (inheritCombo && inheritCombo->currentText() != QStringLiteral("off")) {
+                                const QSignalBlocker blocker(inheritCombo);
+                                inheritCombo->setCurrentText(QStringLiteral("off"));
+                            }
+                            onDatasetTreeItemChanged(tree, rowValues, col, QStringLiteral("conncontent"));
+                        });
+                    } else {
+                        auto* edit = new QLineEdit(cell);
+                        edit->setText(value);
+                        edit->setMinimumHeight(22);
+                        edit->setMaximumHeight(22);
+                        edit->setFont(tree->font());
+                        edit->setStyleSheet(QStringLiteral("QLineEdit{padding:0 5px; margin:0px;}"));
+                        edit->setEnabled(!inheritChecked);
+                        valueEditor = edit;
+                        lay->addWidget(edit, 1);
+                        QObject::connect(edit, &QLineEdit::editingFinished, tree,
+                                         [this, tree, rowValues, col, edit, inheritCombo]() {
+                            if (!rowValues || !edit) {
+                                return;
+                            }
+                            rowValues->setText(col, edit->text());
+                            if (inheritCombo && inheritCombo->currentText() != QStringLiteral("off")) {
+                                const QSignalBlocker blocker(inheritCombo);
+                                inheritCombo->setCurrentText(QStringLiteral("off"));
+                            }
+                            onDatasetTreeItemChanged(tree, rowValues, col, QStringLiteral("conncontent"));
+                        });
+                    }
+                    lay->addWidget(inheritCombo, 0);
+                    tree->setItemWidget(rowValues, col, cell);
+                    QObject::connect(inheritCombo, &QComboBox::currentTextChanged, tree,
+                                     [this, valueEditor, prop, inheritCombo](const QString& txt) {
+                        const bool inheritOn = (txt.trimmed().compare(QStringLiteral("on"), Qt::CaseInsensitive) == 0);
+                        if (valueEditor) {
+                            valueEditor->setEnabled(!inheritOn);
+                        }
+                        if (!m_connContentPropsTable) {
+                            return;
+                        }
+                        for (int r = 0; r < m_connContentPropsTable->rowCount(); ++r) {
+                            QTableWidgetItem* k = m_connContentPropsTable->item(r, 0);
+                            QTableWidgetItem* pi = m_connContentPropsTable->item(r, 2);
+                            if (!k || !pi) {
+                                continue;
+                            }
+                            const QString key = k->data(Qt::UserRole + 777).toString().trimmed().isEmpty()
+                                                    ? k->text().trimmed()
+                                                    : k->data(Qt::UserRole + 777).toString().trimmed();
+                            if (key.compare(prop, Qt::CaseInsensitive) != 0) {
+                                continue;
+                            }
+                            if (pi->flags() & Qt::ItemIsUserCheckable) {
+                                pi->setCheckState(inheritOn ? Qt::Checked : Qt::Unchecked);
+                                onDatasetPropsCellChanged(r, 2);
+                            }
+                            break;
+                        }
+                    });
+                    continue;
+                }
                 const auto eIt = enumValues.constFind(propLower);
                 if (eIt != enumValues.cend()) {
                     auto* combo = new TreeScrollComboBox(tree, tree);
                     combo->setMinimumHeight(22);
                     combo->setMaximumHeight(22);
                     combo->setFont(tree->font());
-                    combo->setStyleSheet(QStringLiteral("QComboBox{padding:0 2px; margin:0px;}"));
+                    combo->setStyleSheet(QStringLiteral("QComboBox{padding:0 5px; margin:0px;}"));
                     QStringList opts = eIt.value();
                     if (!value.isEmpty() && !opts.contains(value)) {
                         opts.prepend(value);
@@ -552,6 +819,7 @@ void MainWindow::syncConnContentPropertyColumns() {
     }
     refreshDatasetExpansionIndicators(tree);
     sel->setExpanded(true);
+    resizeTreeColumnsToVisibleContent(tree);
     m_syncingConnContentColumns = false;
 }
 
@@ -597,13 +865,30 @@ void MainWindow::syncConnContentPoolColumns() {
     }
 
     QTreeWidgetItem* root = nullptr;
-    if (QTreeWidgetItem* cur = m_connContentTree->currentItem()) {
-        QTreeWidgetItem* p = cur;
-        while (p && !p->data(0, kIsPoolRootRole).toBool()) {
-            p = p->parent();
+    int wantedConnIdx = -1;
+    QString wantedPoolName;
+    const QString token = m_connContentToken.trimmed();
+    const int sep = token.indexOf(QStringLiteral("::"));
+    if (sep > 0) {
+        bool ok = false;
+        wantedConnIdx = token.left(sep).toInt(&ok);
+        wantedPoolName = token.mid(sep + 2).trimmed();
+        if (!ok) {
+            wantedConnIdx = -1;
+            wantedPoolName.clear();
         }
-        if (p && p->data(0, kIsPoolRootRole).toBool()) {
-            root = p;
+    }
+    if (wantedConnIdx >= 0 && !wantedPoolName.isEmpty()) {
+        for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* n = m_connContentTree->topLevelItem(i);
+            if (!n || !n->data(0, kIsPoolRootRole).toBool()) {
+                continue;
+            }
+            if (n->data(0, kConnIdxRole).toInt() == wantedConnIdx
+                && n->data(0, kPoolNameRole).toString().trimmed() == wantedPoolName) {
+                root = n;
+                break;
+            }
         }
     }
     if (!root) {
@@ -872,6 +1157,7 @@ void MainWindow::syncConnContentPoolColumns() {
                    nullptr,
                    true);
     root->setExpanded(true);
+    resizeTreeColumnsToVisibleContent(m_connContentTree);
     m_syncingConnContentColumns = false;
 }
 
@@ -1191,7 +1477,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
             combo->setMinimumHeight(22);
             combo->setMaximumHeight(22);
             combo->setFont(tree->font());
-            combo->setStyleSheet(QStringLiteral("QComboBox{padding:0 2px; margin:0px;}"));
+            combo->setStyleSheet(QStringLiteral("QComboBox{padding:0 5px; margin:0px;}"));
             tree->setItemWidget(n, 1, combo);
             QObject::connect(combo, &QComboBox::currentTextChanged, tree, [this, tree, n, side](const QString& txt) {
                 onSnapshotComboChanged(tree, n, side, txt);
