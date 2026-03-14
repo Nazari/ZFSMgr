@@ -479,8 +479,8 @@ void MainWindow::refreshAllConnections() {
         const ConnectionProfile profile = m_profiles[i];
         (void)QtConcurrent::run([this, generation, i, profile]() {
             const ConnectionRuntimeState state = refreshConnection(profile);
-            QMetaObject::invokeMethod(this, [this, generation, i, state]() {
-                onAsyncRefreshResult(generation, i, state);
+            QMetaObject::invokeMethod(this, [this, generation, i, state, profile]() {
+                onAsyncRefreshResult(generation, i, profile.id, state);
             }, Qt::QueuedConnection);
         });
     }
@@ -525,25 +525,42 @@ void MainWindow::refreshSelectedConnection() {
     const ConnectionProfile profile = m_profiles[idx];
     (void)QtConcurrent::run([this, generation, idx, profile]() {
         const ConnectionRuntimeState state = refreshConnection(profile);
-        QMetaObject::invokeMethod(this, [this, generation, idx, state]() {
-            onAsyncRefreshResult(generation, idx, state);
+        QMetaObject::invokeMethod(this, [this, generation, idx, state, profile]() {
+            onAsyncRefreshResult(generation, idx, profile.id, state);
         }, Qt::QueuedConnection);
     });
 }
 
-void MainWindow::onAsyncRefreshResult(int generation, int idx, const ConnectionRuntimeState& state) {
+void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& connId, const ConnectionRuntimeState& state) {
     if (generation != m_refreshGeneration) {
         return;
     }
-    if (idx < 0 || idx >= m_states.size()) {
+    int targetIdx = -1;
+    if (idx >= 0 && idx < m_profiles.size() && m_profiles[idx].id == connId) {
+        targetIdx = idx;
+    } else if (!connId.trimmed().isEmpty()) {
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            if (m_profiles[i].id == connId) {
+                targetIdx = i;
+                break;
+            }
+        }
+    }
+    if (targetIdx < 0 || targetIdx >= m_states.size()) {
+        if (m_refreshPending > 0) {
+            --m_refreshPending;
+        }
+        if (m_refreshPending == 0) {
+            onAsyncRefreshDone(generation);
+        }
         return;
     }
     const int selectedIdx = selectedConnectionRow(m_connectionsTable);
-    m_states[idx] = state;
-    invalidatePoolDetailsCacheForConnection(idx);
+    m_states[targetIdx] = state;
+    invalidatePoolDetailsCacheForConnection(targetIdx);
     rebuildConnectionsTable();
     if (m_connectionEntityTabs) {
-        const QString wantedTop = m_pendingRefreshTopTabDataByConn.value(idx);
+        const QString wantedTop = m_pendingRefreshTopTabDataByConn.value(targetIdx);
         if (!wantedTop.isEmpty()) {
             for (int t = 0; t < m_connectionEntityTabs->count(); ++t) {
                 if (m_connectionEntityTabs->tabData(t).toString() == wantedTop) {
@@ -554,7 +571,7 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const ConnectionR
         }
     }
     if (m_bottomConnectionEntityTabs) {
-        const QString wantedBottom = m_pendingRefreshBottomTabDataByConn.value(idx);
+        const QString wantedBottom = m_pendingRefreshBottomTabDataByConn.value(targetIdx);
         if (!wantedBottom.isEmpty()) {
             for (int t = 0; t < m_bottomConnectionEntityTabs->count(); ++t) {
                 if (m_bottomConnectionEntityTabs->tabData(t).toString() == wantedBottom) {
@@ -564,8 +581,8 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const ConnectionR
             }
         }
     }
-    m_pendingRefreshTopTabDataByConn.remove(idx);
-    m_pendingRefreshBottomTabDataByConn.remove(idx);
+    m_pendingRefreshTopTabDataByConn.remove(targetIdx);
+    m_pendingRefreshBottomTabDataByConn.remove(targetIdx);
     if (selectedIdx >= 0 && m_connectionsTable) {
         const int row = rowForConnectionIndex(m_connectionsTable, selectedIdx);
         if (row >= 0) {
@@ -699,6 +716,10 @@ void MainWindow::updateSecondaryConnectionDetail() {
     m_bottomConnContentTree->clear();
     if (m_bottomDetailConnIdx < 0 || m_bottomDetailConnIdx >= m_profiles.size()
         || m_bottomDetailConnIdx >= m_states.size() || isConnectionDisconnected(m_bottomDetailConnIdx)) {
+        QTreeWidget* prevTree = m_connContentTree;
+        m_connContentTree = m_bottomConnContentTree;
+        syncConnContentPropertyColumns();
+        m_connContentTree = prevTree;
         return;
     }
     const ConnectionRuntimeState& st = m_states[m_bottomDetailConnIdx];
@@ -792,6 +813,7 @@ void MainWindow::rebuildConnectionEntityTabs() {
     if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()
         || isConnectionDisconnected(connIdx)) {
         m_connContentTree->clear();
+        syncConnContentPropertyColumns();
         return;
     }
     if (m_forceRestoreTopStateConnIdx == connIdx) {
@@ -967,8 +989,8 @@ void MainWindow::refreshConnectionNodeDetails() {
         }
         setConnectionActionButtonsVisible(false);
         setPoolActionButtonsVisible(false);
-        if (m_connPropsStack && m_connPoolPropsPage) {
-            m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
+        if (m_connPropsStack && m_connContentPage) {
+            m_connPropsStack->setCurrentWidget(m_connContentPage);
         }
         if (m_connBottomStack && m_connStatusPage) {
             m_connBottomStack->setCurrentWidget(m_connStatusPage);
@@ -984,6 +1006,7 @@ void MainWindow::refreshConnectionNodeDetails() {
         resetPoolActionButtons();
         if (m_connContentTree) {
             m_connContentTree->clear();
+            syncConnContentPropertyColumns();
         }
         if (m_connContentPropsTable) {
             setTablePopulationMode(m_connContentPropsTable, true);
@@ -1041,8 +1064,8 @@ void MainWindow::refreshConnectionNodeDetails() {
             saveConnContentTreeState(m_connContentToken);
             m_connContentToken.clear();
         }
-        if (m_connPropsStack && m_connPoolPropsPage) {
-            m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
+        if (m_connPropsStack && m_connContentPage) {
+            m_connPropsStack->setCurrentWidget(m_connContentPage);
         }
         if (m_connBottomStack && m_connStatusPage) {
             m_connBottomStack->setCurrentWidget(m_connStatusPage);
@@ -1060,6 +1083,7 @@ void MainWindow::refreshConnectionNodeDetails() {
         }
         if (m_connContentTree) {
             m_connContentTree->clear();
+            syncConnContentPropertyColumns();
         }
         if (m_connContentPropsTable) {
             setTablePopulationMode(m_connContentPropsTable, true);
@@ -1423,13 +1447,15 @@ void MainWindow::rebuildConnectionsTable() {
                               : st.zfsVersionFull.trimmed());
         QStringList detected = st.detectedUnixCommands;
         QStringList missing = st.missingUnixCommands;
-        if (detected.isEmpty() && missing.isEmpty() && !st.powershellFallbackCommands.isEmpty()) {
-            detected = st.powershellFallbackCommands;
-        }
         lines << QStringLiteral("Comandos detectados: %1")
                      .arg(detected.isEmpty() ? QStringLiteral("(ninguno)") : detected.join(QStringLiteral(", ")));
         lines << QStringLiteral("Comandos no detectados: %1")
                      .arg(missing.isEmpty() ? QStringLiteral("(ninguno)") : missing.join(QStringLiteral(", ")));
+        if (st.commandsLayer.trimmed().compare(QStringLiteral("Powershell"), Qt::CaseInsensitive) == 0
+            && !st.powershellFallbackCommands.isEmpty()) {
+            lines << QStringLiteral("Comandos PowerShell usados: %1")
+                         .arg(st.powershellFallbackCommands.join(QStringLiteral(", ")));
+        }
         QStringList nonImportable;
         for (const PoolImportable& pool : st.importablePools) {
             const QString poolName = pool.pool.trimmed();
@@ -2064,5 +2090,14 @@ void MainWindow::deleteConnection() {
                                   QStringLiteral("无法删除连接：\n%1")).arg(err));
         return;
     }
+    // Invalidate in-flight async refresh callbacks that may still be reporting
+    // using stale indices while the profile list is being rebuilt.
+    ++m_refreshGeneration;
+    m_refreshPending = 0;
+    m_refreshTotal = 0;
+    m_refreshInProgress = false;
+    m_pendingRefreshTopTabDataByConn.clear();
+    m_pendingRefreshBottomTabDataByConn.clear();
+    updateBusyCursor();
     loadConnections();
 }

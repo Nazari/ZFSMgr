@@ -101,6 +101,24 @@ void MainWindow::loadUiSettings() {
     m_logMaxLinesSetting = ini.value(QStringLiteral("log_max_lines"), 500).toInt();
     m_showInlineDatasetProps = ini.value(QStringLiteral("show_inline_dataset_props"), true).toBool();
     m_connPropColumnsSetting = ini.value(QStringLiteral("conn_prop_columns"), 7).toInt();
+    m_datasetInlinePropsOrder = ini.value(QStringLiteral("dataset_inline_props_order")).toStringList();
+    m_poolInlinePropsOrder = ini.value(QStringLiteral("pool_inline_props_order")).toStringList();
+    auto normalizePropsOrder = [](QStringList in) {
+        QStringList out;
+        QSet<QString> seen;
+        for (const QString& raw : in) {
+            const QString t = raw.trimmed();
+            const QString k = t.toLower();
+            if (t.isEmpty() || seen.contains(k)) {
+                continue;
+            }
+            seen.insert(k);
+            out.push_back(t);
+        }
+        return out;
+    };
+    m_datasetInlinePropsOrder = normalizePropsOrder(m_datasetInlinePropsOrder);
+    m_poolInlinePropsOrder = normalizePropsOrder(m_poolInlinePropsOrder);
     m_disconnectedConnectionKeys.clear();
     {
         const QStringList raw = ini.value(QStringLiteral("disconnected_connections")).toStringList();
@@ -139,6 +157,8 @@ void MainWindow::saveUiSettings() const {
     ini.setValue(QStringLiteral("log_max_lines"), lines);
     ini.setValue(QStringLiteral("show_inline_dataset_props"), m_showInlineDatasetProps);
     ini.setValue(QStringLiteral("conn_prop_columns"), qBound(5, m_connPropColumnsSetting, 10));
+    ini.setValue(QStringLiteral("dataset_inline_props_order"), m_datasetInlinePropsOrder);
+    ini.setValue(QStringLiteral("pool_inline_props_order"), m_poolInlinePropsOrder);
     QStringList disconnected = QStringList(m_disconnectedConnectionKeys.begin(), m_disconnectedConnectionKeys.end());
     disconnected.sort(Qt::CaseInsensitive);
     ini.setValue(QStringLiteral("disconnected_connections"), disconnected);

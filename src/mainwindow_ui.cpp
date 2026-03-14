@@ -27,6 +27,7 @@
 #include <QPushButton>
 #include <QCheckBox>
 #include <QPointer>
+#include <QScopedValueRollback>
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QStyleFactory>
@@ -1059,7 +1060,7 @@ void MainWindow::buildUi() {
     m_connContentTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     m_connContentTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
     m_connContentTree->header()->setSectionResizeMode(3, QHeaderView::Interactive);
-    m_connContentTree->header()->setStretchLastSection(true);
+    m_connContentTree->header()->setStretchLastSection(false);
     m_connContentTree->setColumnWidth(0, 250);
     m_connContentTree->setColumnWidth(1, 90);
     m_connContentTree->setColumnWidth(2, 72);
@@ -1209,7 +1210,7 @@ void MainWindow::buildUi() {
     m_bottomConnContentTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
     m_bottomConnContentTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
     m_bottomConnContentTree->header()->setSectionResizeMode(3, QHeaderView::Interactive);
-    m_bottomConnContentTree->header()->setStretchLastSection(true);
+    m_bottomConnContentTree->header()->setStretchLastSection(false);
     m_bottomConnContentTree->setColumnWidth(0, 230);
     m_bottomConnContentTree->setColumnWidth(1, 90);
     m_bottomConnContentTree->setColumnWidth(2, 72);
@@ -1229,6 +1230,39 @@ void MainWindow::buildUi() {
         m_bottomConnContentTree->setStyle(fusion);
     }
 #endif
+    // Mantener esquema de columnas idéntico en ambos árboles (superior/inferior)
+    // incluso cuando uno de ellos esté vacío.
+    {
+        QTreeWidget* prevTree = m_connContentTree;
+        m_connContentTree = prevTree;
+        syncConnContentPropertyColumns();
+        m_connContentTree = m_bottomConnContentTree;
+        syncConnContentPropertyColumns();
+        m_connContentTree = prevTree;
+    }
+    auto syncTreeColumnWidths = [this](QTreeWidget* src, QTreeWidget* dst) {
+        if (!src || !dst || m_syncingConnContentColumns) {
+            return;
+        }
+        QScopedValueRollback<bool> guard(m_syncingConnContentColumns, true);
+        const QSignalBlocker b1(src->header());
+        const QSignalBlocker b2(dst->header());
+        const int cols = qMin(src->columnCount(), dst->columnCount());
+        for (int c = 0; c < cols; ++c) {
+            dst->setColumnWidth(c, src->columnWidth(c));
+            dst->setColumnHidden(c, src->isColumnHidden(c));
+        }
+    };
+    connect(m_connContentTree->header(), &QHeaderView::sectionResized, this,
+            [this, syncTreeColumnWidths](int, int, int) {
+        syncTreeColumnWidths(m_connContentTree, m_bottomConnContentTree);
+    });
+    connect(m_bottomConnContentTree->header(), &QHeaderView::sectionResized, this,
+            [this, syncTreeColumnWidths](int, int, int) {
+        syncTreeColumnWidths(m_bottomConnContentTree, m_connContentTree);
+    });
+    // Estado inicial consistente entre ambos.
+    syncTreeColumnWidths(m_bottomConnContentTree, m_connContentTree);
     bottomConnLayout->addWidget(m_bottomConnContentTree, 1);
     rightSplit->setStretchFactor(0, 1);
     rightSplit->setStretchFactor(1, 1);
@@ -1603,6 +1637,287 @@ void MainWindow::buildUi() {
         m_connContentTree = prevTree;
         m_connContentToken = prevToken;
     };
+    auto manageInlinePropsVisualization = [this](QTreeWidget* tree, QTreeWidgetItem* rawItem, bool poolContext) {
+        if (!tree || !rawItem) {
+            return;
+        }
+        QTreeWidgetItem* item = rawItem;
+        if (item->data(0, kConnPropRowRole).toBool() && item->parent()) {
+            item = item->parent();
+        }
+        QTreeWidgetItem* owner = item;
+        while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
+               && !owner->data(0, kIsPoolRootRole).toBool()) {
+            owner = owner->parent();
+        }
+        if (!owner) {
+            return;
+        }
+        const int connIdx = owner->data(0, kConnIdxRole).toInt();
+        const QString poolName = owner->data(0, kPoolNameRole).toString().trimmed();
+        if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+            return;
+        }
+        const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+        auto normalizeList = [](const QStringList& in) {
+            QStringList out;
+            QSet<QString> seen;
+            for (const QString& raw : in) {
+                const QString t = raw.trimmed();
+                const QString k = t.toLower();
+                if (t.isEmpty() || seen.contains(k)) {
+                    continue;
+                }
+                seen.insert(k);
+                out.push_back(t);
+            }
+            return out;
+        };
+        auto displayedPropsFromNode = [tree, normalizeList](QTreeWidgetItem* parentNode) {
+            QStringList out;
+            if (!parentNode) {
+                return out;
+            }
+            for (int i = 0; i < parentNode->childCount(); ++i) {
+                QTreeWidgetItem* row = parentNode->child(i);
+                if (!row || !row->data(0, kConnPropRowRole).toBool()
+                    || row->data(0, kConnPropRowKindRole).toInt() != 1) {
+                    continue;
+                }
+                for (int col = 4; col < tree->columnCount(); ++col) {
+                    QString key = row->data(col, kConnPropKeyRole).toString().trimmed();
+                    if (key.isEmpty()) {
+                        key = row->text(col).trimmed();
+                    }
+                    if (!key.isEmpty()) {
+                        out.push_back(key);
+                    }
+                }
+            }
+            return normalizeList(out);
+        };
+
+        QStringList allProps;
+        QStringList currentVisible;
+        if (poolContext) {
+            const QString cacheKey = poolDetailsCacheKey(connIdx, poolName);
+            const auto pit = m_poolDetailsCache.constFind(cacheKey);
+            if (pit != m_poolDetailsCache.cend() && pit->loaded) {
+                for (const QStringList& row : pit->propsRows) {
+                    if (row.isEmpty()) {
+                        continue;
+                    }
+                    const QString prop = row[0].trimmed();
+                    if (prop.isEmpty() || prop.startsWith(QStringLiteral("feature@"), Qt::CaseInsensitive)) {
+                        continue;
+                    }
+                    allProps.push_back(prop);
+                }
+            }
+            allProps = normalizeList(allProps);
+            QTreeWidgetItem* infoNode = item;
+            while (infoNode && infoNode->data(0, kConnPropKeyRole).toString() != QString::fromLatin1(kPoolBlockInfoKey)) {
+                infoNode = infoNode->parent();
+            }
+            currentVisible = displayedPropsFromNode(infoNode);
+            if (!m_poolInlinePropsOrder.isEmpty()) {
+                currentVisible.clear();
+                for (const QString& p : m_poolInlinePropsOrder) {
+                    for (const QString& have : allProps) {
+                        if (p.compare(have, Qt::CaseInsensitive) == 0) {
+                            currentVisible.push_back(have);
+                            break;
+                        }
+                    }
+                }
+            }
+        } else {
+            const QString ds = owner->data(0, Qt::UserRole).toString().trimmed();
+            if (ds.isEmpty()) {
+                return;
+            }
+            const QString key = QStringLiteral("%1|%2").arg(token.trimmed().toLower(), ds.trimmed().toLower());
+            const auto vit = m_connContentPropValuesByObject.constFind(key);
+            if (vit != m_connContentPropValuesByObject.cend()) {
+                allProps = vit.value().keys();
+            }
+            allProps = normalizeList(allProps);
+            currentVisible = displayedPropsFromNode(owner);
+            if (!m_datasetInlinePropsOrder.isEmpty()) {
+                currentVisible.clear();
+                for (const QString& p : m_datasetInlinePropsOrder) {
+                    for (const QString& have : allProps) {
+                        if (p.compare(have, Qt::CaseInsensitive) == 0) {
+                            currentVisible.push_back(have);
+                            break;
+                        }
+                    }
+                }
+            }
+            if (allProps.isEmpty()) {
+                allProps = currentVisible;
+            }
+        }
+        allProps = normalizeList(allProps);
+        currentVisible = normalizeList(currentVisible);
+        if (allProps.isEmpty()) {
+            return;
+        }
+        if (currentVisible.isEmpty()) {
+            currentVisible = allProps;
+        }
+
+        QStringList orderedAll = currentVisible;
+        for (const QString& p : allProps) {
+            bool exists = false;
+            for (const QString& q : orderedAll) {
+                if (q.compare(p, Qt::CaseInsensitive) == 0) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                orderedAll.push_back(p);
+            }
+        }
+
+        QDialog dlg(this);
+        dlg.setModal(true);
+        dlg.resize(760, 520);
+        dlg.setWindowTitle(
+            trk(QStringLiteral("t_manage_props_vis001"),
+                QStringLiteral("Gestionar visualización de propiedades"),
+                QStringLiteral("Manage property visualization"),
+                QStringLiteral("管理属性显示")));
+        auto* root = new QVBoxLayout(&dlg);
+        auto* hint = new QLabel(
+            trk(QStringLiteral("t_manage_props_hint001"),
+                QStringLiteral("Marca qué propiedades quieres mostrar y usa Subir/Bajar para reordenar."),
+                QStringLiteral("Check properties to display and use Up/Down to reorder them."),
+                QStringLiteral("勾选要显示的属性，并用上移/下移调整顺序。")),
+            &dlg);
+        hint->setWordWrap(true);
+        root->addWidget(hint);
+        auto* list = new QListWidget(&dlg);
+        list->setSelectionMode(QAbstractItemView::SingleSelection);
+        for (const QString& p : orderedAll) {
+            auto* it = new QListWidgetItem(p, list);
+            bool checked = false;
+            for (const QString& v : currentVisible) {
+                if (v.compare(p, Qt::CaseInsensitive) == 0) {
+                    checked = true;
+                    break;
+                }
+            }
+            it->setFlags(it->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+            it->setCheckState(checked ? Qt::Checked : Qt::Unchecked);
+        }
+        root->addWidget(list, 1);
+        auto* rowBtns = new QHBoxLayout();
+        auto* btnUp = new QPushButton(
+            trk(QStringLiteral("t_up_001"), QStringLiteral("Subir"), QStringLiteral("Up"), QStringLiteral("上移")), &dlg);
+        auto* btnDown = new QPushButton(
+            trk(QStringLiteral("t_down_001"), QStringLiteral("Bajar"), QStringLiteral("Down"), QStringLiteral("下移")), &dlg);
+        auto* btnAll = new QPushButton(
+            trk(QStringLiteral("t_all_001"), QStringLiteral("Todo"), QStringLiteral("All"), QStringLiteral("全选")), &dlg);
+        auto* btnNone = new QPushButton(
+            trk(QStringLiteral("t_none_001"), QStringLiteral("Ninguno"), QStringLiteral("None"), QStringLiteral("全不选")), &dlg);
+        rowBtns->addWidget(btnUp);
+        rowBtns->addWidget(btnDown);
+        rowBtns->addWidget(btnAll);
+        rowBtns->addWidget(btnNone);
+        rowBtns->addStretch(1);
+        root->addLayout(rowBtns);
+        auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+        root->addWidget(bb);
+        connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+        connect(btnAll, &QPushButton::clicked, &dlg, [list]() {
+            for (int i = 0; i < list->count(); ++i) {
+                if (QListWidgetItem* it = list->item(i)) {
+                    it->setCheckState(Qt::Checked);
+                }
+            }
+        });
+        connect(btnNone, &QPushButton::clicked, &dlg, [list]() {
+            for (int i = 0; i < list->count(); ++i) {
+                if (QListWidgetItem* it = list->item(i)) {
+                    it->setCheckState(Qt::Unchecked);
+                }
+            }
+        });
+        connect(btnUp, &QPushButton::clicked, &dlg, [list]() {
+            const int row = list->currentRow();
+            if (row <= 0) {
+                return;
+            }
+            QListWidgetItem* it = list->takeItem(row);
+            list->insertItem(row - 1, it);
+            list->setCurrentRow(row - 1);
+        });
+        connect(btnDown, &QPushButton::clicked, &dlg, [list]() {
+            const int row = list->currentRow();
+            if (row < 0 || row >= list->count() - 1) {
+                return;
+            }
+            QListWidgetItem* it = list->takeItem(row);
+            list->insertItem(row + 1, it);
+            list->setCurrentRow(row + 1);
+        });
+        if (QPushButton* okButton = bb->button(QDialogButtonBox::Ok)) {
+            connect(okButton, &QPushButton::clicked, &dlg, [this, &dlg, list]() {
+                int checkedCount = 0;
+                for (int i = 0; i < list->count(); ++i) {
+                    if (QListWidgetItem* it = list->item(i); it && it->checkState() == Qt::Checked) {
+                        ++checkedCount;
+                    }
+                }
+                if (checkedCount == 0) {
+                    QMessageBox::warning(
+                        &dlg,
+                        trk(QStringLiteral("t_manage_props_vis001"),
+                            QStringLiteral("Gestionar visualización de propiedades"),
+                            QStringLiteral("Manage property visualization"),
+                            QStringLiteral("管理属性显示")),
+                        trk(QStringLiteral("t_manage_props_need_one001"),
+                            QStringLiteral("Debes seleccionar al menos una propiedad."),
+                            QStringLiteral("Select at least one property."),
+                            QStringLiteral("请至少选择一个属性。")));
+                    return;
+                }
+                dlg.accept();
+            });
+        }
+        if (dlg.exec() != QDialog::Accepted) {
+            return;
+        }
+        QStringList selected;
+        for (int i = 0; i < list->count(); ++i) {
+            QListWidgetItem* it = list->item(i);
+            if (!it || it->checkState() != Qt::Checked) {
+                continue;
+            }
+            selected.push_back(it->text().trimmed());
+        }
+        selected = normalizeList(selected);
+        if (poolContext) {
+            m_poolInlinePropsOrder = selected;
+        } else {
+            m_datasetInlinePropsOrder = selected;
+        }
+        saveUiSettings();
+
+        const QString prevToken = m_connContentToken;
+        QTreeWidget* prevTree = m_connContentTree;
+        m_connContentTree = tree;
+        m_connContentToken = token;
+        if (poolContext) {
+            syncConnContentPoolColumns();
+        } else {
+            syncConnContentPropertyColumns();
+        }
+        m_connContentTree = prevTree;
+        m_connContentToken = prevToken;
+    };
     auto openEditDatasetDialogBottom = [this](QTreeWidget* tree) {
         if (!tree) {
             return;
@@ -1851,7 +2166,7 @@ void MainWindow::buildUi() {
         });
         m_bottomConnContentTree->setContextMenuPolicy(Qt::CustomContextMenu);
         connect(m_bottomConnContentTree, &QWidget::customContextMenuRequested, this,
-                [this, refreshInlinePropsVisualBottom, openEditDatasetDialogBottom](const QPoint& pos) {
+                [this, refreshInlinePropsVisualBottom, openEditDatasetDialogBottom, manageInlinePropsVisualization](const QPoint& pos) {
             if (!m_bottomConnContentTree) {
                 return;
             }
@@ -1891,6 +2206,15 @@ void MainWindow::buildUi() {
 
             QMenu menu(this);
             const bool isPoolRoot = item->data(0, kIsPoolRootRole).toBool();
+            auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
+                for (QTreeWidgetItem* p = n; p; p = p->parent()) {
+                    if (p->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            const bool isPoolInfoContext = isInfoNodeOrInside(item);
             if (isPoolRoot) {
                 int poolRow = -1;
                 if (connIdx >= 0 && connIdx < m_profiles.size() && !poolName.isEmpty()) {
@@ -1951,6 +2275,18 @@ void MainWindow::buildUi() {
                 }
                 return;
             }
+            if (isPoolInfoContext) {
+                QAction* aManage = menu.addAction(
+                    trk(QStringLiteral("t_manage_props_vis001"),
+                        QStringLiteral("Gestionar visualización de propiedades"),
+                        QStringLiteral("Manage property visualization"),
+                        QStringLiteral("管理属性显示")));
+                QAction* picked = menu.exec(m_bottomConnContentTree->viewport()->mapToGlobal(pos));
+                if (picked == aManage) {
+                    manageInlinePropsVisualization(m_bottomConnContentTree, item, true);
+                }
+                return;
+            }
 
             QAction* aShowInline = menu.addAction(
                 trk(QStringLiteral("t_show_inline_001"),
@@ -1964,6 +2300,11 @@ void MainWindow::buildUi() {
                     QStringLiteral("Editar dataset"),
                     QStringLiteral("Edit dataset"),
                     QStringLiteral("编辑数据集")));
+            QAction* aManage = menu.addAction(
+                trk(QStringLiteral("t_manage_props_vis001"),
+                    QStringLiteral("Gestionar visualización de propiedades"),
+                    QStringLiteral("Manage property visualization"),
+                    QStringLiteral("管理属性显示")));
             menu.addSeparator();
             QMenu* mSelectSnapshot = menu.addMenu(
                 trk(QStringLiteral("t_ctx_sel_snap001"),
@@ -2023,6 +2364,7 @@ void MainWindow::buildUi() {
             const bool hasConnSel = ctx.valid && !ctx.datasetName.isEmpty();
             const bool hasConnSnap = hasConnSel && !ctx.snapshotName.isEmpty();
             aEdit->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
+            aManage->setEnabled(hasConnSel);
             aRollback->setEnabled(!actionsLocked() && hasConnSnap);
             aCreate->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
             aDelete->setEnabled(!actionsLocked() && hasConnSel);
@@ -2097,6 +2439,12 @@ void MainWindow::buildUi() {
                 m_connContentToken = prevToken;
                 refreshInlinePropsVisualBottom(prevTree);
                 refreshInlinePropsVisualBottom(m_bottomConnContentTree);
+                return;
+            }
+            if (picked == aManage) {
+                manageInlinePropsVisualization(m_bottomConnContentTree, item, false);
+                m_connContentTree = prevTree;
+                m_connContentToken = prevToken;
                 return;
             }
             if (picked == aEdit) {
@@ -2630,7 +2978,7 @@ void MainWindow::buildUi() {
             updateConnectionActionsState();
         });
         connect(m_connContentTree, &QWidget::customContextMenuRequested, this,
-                [this, refreshInlinePropsVisual, openEditDatasetDialog](const QPoint& pos) {
+                [this, refreshInlinePropsVisual, openEditDatasetDialog, manageInlinePropsVisualization](const QPoint& pos) {
             if (!m_connContentTree) {
                 return;
             }
@@ -2649,6 +2997,15 @@ void MainWindow::buildUi() {
 
             QMenu menu(this);
             const bool isPoolRoot = item->data(0, kIsPoolRootRole).toBool();
+            auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
+                for (QTreeWidgetItem* p = n; p; p = p->parent()) {
+                    if (p->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            const bool isPoolInfoContext = isInfoNodeOrInside(item);
             if (isPoolRoot) {
                 const int connIdx = item->data(0, kConnIdxRole).toInt();
                 const QString poolName = item->data(0, kPoolNameRole).toString().trimmed();
@@ -2712,6 +3069,18 @@ void MainWindow::buildUi() {
                 }
                 return;
             }
+            if (isPoolInfoContext) {
+                QAction* aManage = menu.addAction(
+                    trk(QStringLiteral("t_manage_props_vis001"),
+                        QStringLiteral("Gestionar visualización de propiedades"),
+                        QStringLiteral("Manage property visualization"),
+                        QStringLiteral("管理属性显示")));
+                QAction* picked = menu.exec(m_connContentTree->viewport()->mapToGlobal(pos));
+                if (picked == aManage) {
+                    manageInlinePropsVisualization(m_connContentTree, item, true);
+                }
+                return;
+            }
 
             QAction* aShowInline = menu.addAction(
                 trk(QStringLiteral("t_show_inline_001"),
@@ -2725,6 +3094,11 @@ void MainWindow::buildUi() {
                     QStringLiteral("Editar dataset"),
                     QStringLiteral("Edit dataset"),
                     QStringLiteral("编辑数据集")));
+            QAction* aManage = menu.addAction(
+                trk(QStringLiteral("t_manage_props_vis001"),
+                    QStringLiteral("Gestionar visualización de propiedades"),
+                    QStringLiteral("Manage property visualization"),
+                    QStringLiteral("管理属性显示")));
             menu.addSeparator();
             QMenu* mSelectSnapshot = menu.addMenu(
                 trk(QStringLiteral("t_ctx_sel_snap001"),
@@ -2780,6 +3154,7 @@ void MainWindow::buildUi() {
             const bool hasConnSel = ctx.valid && !ctx.datasetName.isEmpty();
             const bool hasConnSnap = hasConnSel && !ctx.snapshotName.isEmpty();
             aEdit->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
+            aManage->setEnabled(hasConnSel);
             aRollback->setEnabled(!actionsLocked() && hasConnSnap);
             aCreate->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
             aDelete->setEnabled(!actionsLocked() && hasConnSel);
@@ -2846,6 +3221,10 @@ void MainWindow::buildUi() {
                 saveUiSettings();
                 refreshInlinePropsVisual(m_connContentTree);
                 refreshInlinePropsVisual(m_bottomConnContentTree);
+                return;
+            }
+            if (picked == aManage) {
+                manageInlinePropsVisualization(m_connContentTree, item, false);
                 return;
             }
             if (picked == aEdit) {

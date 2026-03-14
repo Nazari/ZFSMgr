@@ -5,6 +5,7 @@
 
 #include <QMainWindow>
 #include <QMap>
+#include <QPointer>
 #include <QSet>
 #include <QVector>
 #include <functional>
@@ -252,7 +253,7 @@ private:
     void trimLogWidget(QPlainTextEdit* widget);
     void syncConnectionLogTabs();
     void appendConnectionLog(const QString& connId, const QString& line);
-    void onAsyncRefreshResult(int generation, int idx, const ConnectionRuntimeState& state);
+    void onAsyncRefreshResult(int generation, int idx, const QString& connId, const ConnectionRuntimeState& state);
     void onAsyncRefreshDone(int generation);
     int findConnectionIndexByName(const QString& name) const;
     bool isConnectionRedirectedToLocal(int idx) const;
@@ -398,7 +399,7 @@ private:
     QTextEdit* m_lastDetailText{nullptr};
     QTabWidget* m_logsTabs{nullptr};
     QPlainTextEdit* m_logView{nullptr};
-    QMap<QString, QPlainTextEdit*> m_connectionLogViews;
+    QMap<QString, QPointer<QPlainTextEdit>> m_connectionLogViews;
     QSet<QString> m_sshDisableMultiplexKeys;
     QSet<QString> m_loggedSshResolutionKeys;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
@@ -420,6 +421,8 @@ private:
     int m_logMaxLinesSetting{500};
     bool m_showInlineDatasetProps{true};
     int m_connPropColumnsSetting{7};
+    QStringList m_datasetInlinePropsOrder;
+    QStringList m_poolInlinePropsOrder;
     QString m_appLogPath;
     bool m_compactPrevValid{false};
     QString m_compactPrevDate;

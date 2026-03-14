@@ -349,6 +349,18 @@ void MainWindow::syncConnContentPropertyColumns() {
         }
     }
     props = ordered;
+    if (!m_datasetInlinePropsOrder.isEmpty()) {
+        QStringList filtered;
+        for (const QString& wanted : m_datasetInlinePropsOrder) {
+            for (const QString& have : props) {
+                if (wanted.compare(have, Qt::CaseInsensitive) == 0) {
+                    filtered.push_back(have);
+                    break;
+                }
+            }
+        }
+        props = filtered;
+    }
     const auto enumValues = connContentEnumValues();
     const int itemConnIdx = sel->data(0, kConnIdxRole).toInt();
     const QString itemPool = sel->data(0, kPoolNameRole).toString();
@@ -444,6 +456,7 @@ void MainWindow::syncConnContentPropertyColumns() {
                     : prop;
             rowNames->setText(col, propLabel);
             rowNames->setTextAlignment(col, Qt::AlignCenter);
+            rowNames->setData(col, kConnPropKeyRole, prop);
             rowValues->setText(col, value);
             rowValues->setTextAlignment(col, Qt::AlignCenter);
             rowValues->setData(col, kConnPropKeyRole, prop);
@@ -749,6 +762,18 @@ void MainWindow::syncConnContentPoolColumns() {
         props.push_back(prop);
         values[prop] = value;
     }
+    if (!m_poolInlinePropsOrder.isEmpty()) {
+        QStringList filtered;
+        for (const QString& wanted : m_poolInlinePropsOrder) {
+            for (const QString& have : props) {
+                if (wanted.compare(have, Qt::CaseInsensitive) == 0) {
+                    filtered.push_back(have);
+                    break;
+                }
+            }
+        }
+        props = filtered;
+    }
     const QColor nameRowBg(232, 240, 250);
     auto addSectionRows = [&](QTreeWidgetItem* parent,
                                 const QString& title,
@@ -787,6 +812,7 @@ void MainWindow::syncConnContentPoolColumns() {
                 const int col = 4 + off;
                 rowNames->setText(col, name);
                 rowNames->setTextAlignment(col, Qt::AlignCenter);
+                rowNames->setData(col, kConnPropKeyRole, name);
             }
             if (namesOnly) {
                 continue;
@@ -804,6 +830,7 @@ void MainWindow::syncConnContentPoolColumns() {
                 const int col = 4 + off;
                 rowValues->setText(col, valuesByName ? valuesByName->value(name) : QString());
                 rowValues->setTextAlignment(col, Qt::AlignCenter);
+                rowValues->setData(col, kConnPropKeyRole, name);
             }
         }
     };

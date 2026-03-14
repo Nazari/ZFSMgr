@@ -31,8 +31,6 @@ QStringList zfsmgrUnixCommandSet() {
 
 QStringList zfsmgrPowershellCommandSet() {
     return {
-        QStringLiteral("zfs"),
-        QStringLiteral("zpool"),
         QStringLiteral("tar"),
         QStringLiteral("robocopy"),
         QStringLiteral("Get-ChildItem"),
@@ -208,38 +206,80 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
 
     out.clear();
     err.clear();
-    const QStringList zfsVersionCandidates = {
-        QStringLiteral("zfs version"),
-        QStringLiteral("zfs --version"),
-        QStringLiteral("zpool --version"),
-    };
-    for (const QString& cand : zfsVersionCandidates) {
-        out.clear();
-        err.clear();
+    if (isWindowsConnection(p)) {
+        const QString zfsVersionCmd = QStringLiteral(
+            "$zfsCand=@(); $zpoolCand=@(); "
+            "$known=@('C:\\\\Program Files\\\\OpenZFS On Windows\\\\zfs.exe','C:\\\\Program Files\\\\OpenZFS On Windows\\\\bin\\\\zfs.exe'); "
+            "foreach($k in $known){ if(Test-Path -LiteralPath $k){ $zfsCand += $k } }; "
+            "$knownPool=@('C:\\\\Program Files\\\\OpenZFS On Windows\\\\zpool.exe','C:\\\\Program Files\\\\OpenZFS On Windows\\\\bin\\\\zpool.exe'); "
+            "foreach($k in $knownPool){ if(Test-Path -LiteralPath $k){ $zpoolCand += $k } }; "
+            "$gc = Get-Command zfs.exe -ErrorAction SilentlyContinue; if($gc -and $gc.Source){ $zfsCand += $gc.Source }; "
+            "$gp = Get-Command zpool.exe -ErrorAction SilentlyContinue; if($gp -and $gp.Source){ $zpoolCand += $gp.Source }; "
+            "$zfsCand = $zfsCand | Select-Object -Unique; "
+            "$zpoolCand = $zpoolCand | Select-Object -Unique; "
+            "foreach($e in $zfsCand){ "
+            "  try { $o = (& $e 'version' 2>&1 | Out-String).Trim(); if($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($o)){ Write-Output $o; exit 0 } } catch {}; "
+            "  try { $o = (& $e '--version' 2>&1 | Out-String).Trim(); if($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($o)){ Write-Output $o; exit 0 } } catch {}; "
+            "}; "
+            "foreach($e in $zpoolCand){ "
+            "  try { $o = (& $e '--version' 2>&1 | Out-String).Trim(); if($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($o)){ Write-Output $o; exit 0 } } catch {}; "
+            "  try { $o = (& $e 'version' 2>&1 | Out-String).Trim(); if($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($o)){ Write-Output $o; exit 0 } } catch {}; "
+            "}; "
+            "exit 1");
         rc = -1;
-        const QString zfsVersionCmd = withSudo(p, cand);
-        if (!runSsh(p, zfsVersionCmd, 12000, out, err, rc, {}, {},
-                    isWindowsConnection(p) ? winPsMode : MainWindow::WindowsCommandMode::Auto)) {
-            continue;
-        }
-        const QString parsed = mwhelpers::parseOpenZfsVersionText(out + QStringLiteral("\n") + err);
-        if (!parsed.isEmpty()) {
-            state.zfsVersion = parsed;
-            state.zfsVersionFull = oneLine((out + QStringLiteral(" ") + err).simplified());
-            break;
-        }
-        if (rc == 0) {
-            // Algunos builds de OpenZFS en Windows imprimen solo el número de versión.
+        if (runSsh(p, zfsVersionCmd, 15000, out, err, rc, {}, {}, winPsMode)) {
             const QString merged = out + QStringLiteral("\n") + err;
-            const QRegularExpression simpleVerRx(QStringLiteral("\\b(\\d+\\.\\d+(?:\\.\\d+)?)\\b"));
-            const QRegularExpressionMatch m = simpleVerRx.match(merged);
-            if (m.hasMatch()) {
-                const QString ver = m.captured(1);
-                const int major = ver.section('.', 0, 0).toInt();
-                if (major <= 10) {
-                    state.zfsVersion = ver;
-                    state.zfsVersionFull = oneLine(merged);
-                    break;
+            const QString parsed = mwhelpers::parseOpenZfsVersionText(merged);
+            if (!parsed.isEmpty()) {
+                state.zfsVersion = parsed;
+                state.zfsVersionFull = oneLine(merged.simplified());
+            } else if (rc == 0) {
+                const QRegularExpression simpleVerRx(QStringLiteral("\\b(\\d+\\.\\d+(?:\\.\\d+)?)\\b"));
+                const QRegularExpressionMatch m = simpleVerRx.match(merged);
+                if (m.hasMatch()) {
+                    const QString ver = m.captured(1);
+                    const int major = ver.section('.', 0, 0).toInt();
+                    if (major <= 10) {
+                        state.zfsVersion = ver;
+                        state.zfsVersionFull = oneLine(merged);
+                    }
+                }
+            }
+        }
+    } else {
+        const QStringList zfsVersionCandidates = {
+            QStringLiteral("zfs version"),
+            QStringLiteral("zfs --version"),
+            QStringLiteral("zpool --version"),
+        };
+        for (const QString& cand : zfsVersionCandidates) {
+            out.clear();
+            err.clear();
+            rc = -1;
+            const QString zfsVersionCmd = withSudo(p, cand);
+            if (!runSsh(p, zfsVersionCmd, 12000, out, err, rc, {}, {},
+                        MainWindow::WindowsCommandMode::Auto)) {
+                continue;
+            }
+            const QString parsed = mwhelpers::parseOpenZfsVersionText(out + QStringLiteral("\n") + err);
+            if (!parsed.isEmpty()) {
+                state.zfsVersion = parsed;
+                state.zfsVersionFull = oneLine((out + QStringLiteral(" ") + err).simplified());
+                break;
+            }
+            if (rc == 0) {
+                // Algunos builds imprimen solo el número de versión.
+                const QString merged = out + QStringLiteral("\n") + err;
+                const QRegularExpression simpleVerRx(QStringLiteral("\\b(\\d+\\.\\d+(?:\\.\\d+)?)\\b"));
+                const QRegularExpressionMatch m = simpleVerRx.match(merged);
+                if (m.hasMatch()) {
+                    const QString ver = m.captured(1);
+                    const int major = ver.section('.', 0, 0).toInt();
+                    if (major <= 10) {
+                        state.zfsVersion = ver;
+                        state.zfsVersionFull = oneLine(merged);
+                        break;
+                    }
                 }
             }
         }
@@ -266,7 +306,17 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 "if($hasMsys){ Write-Output '__LAYER__:MSYS64' } elseif($hasMingw){ Write-Output '__LAYER__:MingGW' } else { Write-Output '__LAYER__:Powershell' }; "
                 "if($present.Count -eq 0){ Write-Output '__NO_UNIX_LAYER__'; exit 0 }; "
                 "$cmds='%1'.Split(' '); "
-                "foreach($c in $cmds){ $ok=$false; foreach($r in $present){ if(Test-Path -LiteralPath (Join-Path $r ($c + '.exe'))){ $ok=$true; break } }; "
+                "foreach($c in $cmds){ $ok=$false; foreach($r in $present){ "
+                "$exe = Join-Path $r ($c + '.exe'); "
+                "if(-not (Test-Path -LiteralPath $exe)){ continue }; "
+                "if($c -eq 'zfs' -or $c -eq 'zpool'){ "
+                "  try { & $exe 'version' | Out-Null; if($LASTEXITCODE -eq 0){ $ok=$true; break } } catch {}; "
+                "  try { & $exe '--version' | Out-Null; if($LASTEXITCODE -eq 0){ $ok=$true; break } } catch {}; "
+                "  try { & $exe 'list' '-H' '-o' 'name' | Out-Null; if($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 1){ $ok=$true; break } } catch {}; "
+                "} else { "
+                "  $ok=$true; break; "
+                "} "
+                "}; "
                 "if($ok){ Write-Output ('OK:' + $c) } else { Write-Output ('KO:' + $c) } }")
                     .arg(wanted.join(' '));
             if (runSsh(p, roots, 15000, dout, derr, drc, {}, {}, winPsMode) && drc == 0) {
@@ -299,7 +349,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 } else {
                     state.unixFromMsysOrMingw = false;
                     state.detectedUnixCommands.clear();
-                    state.missingUnixCommands.clear();
+                    state.missingUnixCommands = wanted;
                     state.commandsLayer = QStringLiteral("Powershell");
                 }
             }
