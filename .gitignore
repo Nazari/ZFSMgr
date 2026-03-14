@@ -12,3 +12,4 @@ build-windows/
 .tools/
 AppDir/
 scripts/buildall
+ccodex-linux
