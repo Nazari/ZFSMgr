@@ -36,9 +36,6 @@ QString MainWindow::loadHelpTopicMarkdown(const QString& topicId) const {
     const QString lang = normalizeLang(m_language);
     QStringList langCandidates;
     langCandidates << lang;
-    if (lang != QStringLiteral("en")) {
-        langCandidates << QStringLiteral("en");
-    }
     if (lang != QStringLiteral("es")) {
         langCandidates << QStringLiteral("es");
     }
@@ -80,16 +77,12 @@ QString MainWindow::loadHelpTopicMarkdown(const QString& topicId) const {
 void MainWindow::openHelpTopic(const QString& topicId, const QString& titleOverride) {
     const QString title = titleOverride.trimmed().isEmpty()
                               ? trk(QStringLiteral("t_help_title_001"),
-                                    QStringLiteral("Ayuda"),
-                                    QStringLiteral("Help"),
-                                    QStringLiteral("帮助"))
+                                    QStringLiteral("Ayuda"))
                               : titleOverride;
     QString md = loadHelpTopicMarkdown(topicId);
     if (md.trimmed().isEmpty()) {
         md = trk(QStringLiteral("t_help_missing_001"),
-                 QStringLiteral("# Ayuda no disponible\n\nNo se encontró contenido para este tema."),
-                 QStringLiteral("# Help not available\n\nNo content was found for this topic."),
-                 QStringLiteral("# 帮助不可用\n\n未找到该主题内容。"));
+                 QStringLiteral("# Ayuda no disponible\n\nNo se encontró contenido para este tema."));
     }
 
     QDialog dlg(this);
@@ -106,7 +99,7 @@ void MainWindow::openHelpTopic(const QString& topicId, const QString& titleOverr
 
     auto* buttons = new QDialogButtonBox(&dlg);
     QPushButton* closeBtn = buttons->addButton(
-        trk(QStringLiteral("t_close_btn_001"), QStringLiteral("Cerrar"), QStringLiteral("Close"), QStringLiteral("关闭")),
+        trk(QStringLiteral("t_close_btn_001"), QStringLiteral("Cerrar")),
         QDialogButtonBox::AcceptRole);
     QObject::connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
     root->addWidget(buttons);

@@ -1,4 +1,4 @@
-# Configuración y archivos INI
+# Configuración, columnas y archivos INI
 
 ZFSMgr usa un directorio de configuración por usuario y sistema operativo:
 
@@ -26,6 +26,9 @@ Ejemplo real:
 - `config.ini`:
   - idioma de la UI
   - opciones globales de logs
+  - número de columnas de propiedades (`conn_prop_columns`)
+  - mostrar propiedades inline
+  - orden persistido de propiedades inline de dataset y pool
   - valores por defecto (por ejemplo `[ZPoolCreationDefaults]`)
 - `conn*.ini`:
   - definición completa de una conexión concreta (host, puerto, usuario, clave, etc.)
