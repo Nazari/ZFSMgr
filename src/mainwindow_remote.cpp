@@ -180,7 +180,8 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                         const std::function<void(const QString&)>& onStdoutLine,
                         const std::function<void(const QString&)>& onStderrLine,
                         const std::function<void(int)>& onIdleTimeoutRemaining,
-                        MainWindow::WindowsCommandMode windowsMode) {
+                        MainWindow::WindowsCommandMode windowsMode,
+                        const QByteArray& stdinPayload) {
     out.clear();
     err.clear();
     rc = -1;
@@ -208,6 +209,10 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             err = QStringLiteral("No se pudo iniciar %1").arg(program);
             appendConnectionLog(p.id, err);
             return false;
+        }
+        if (!stdinPayload.isEmpty()) {
+            proc.write(stdinPayload);
+            proc.closeWriteChannel();
         }
         QString outLineBuf;
         QString errLineBuf;
@@ -370,6 +375,10 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             err = QStringLiteral("No se pudo iniciar %1").arg(program);
             appendConnectionLog(p.id, err);
             return false;
+        }
+        if (!stdinPayload.isEmpty()) {
+            proc.write(stdinPayload);
+            proc.closeWriteChannel();
         }
 
         QString outLineBuf;
@@ -554,6 +563,10 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             attemptErr = QStringLiteral("No se pudo iniciar %1").arg(program);
             appendConnectionLog(p.id, attemptErr);
             return false;
+        }
+        if (!stdinPayload.isEmpty()) {
+            proc.write(stdinPayload);
+            proc.closeWriteChannel();
         }
         QString outLineBuf;
         QString errLineBuf;

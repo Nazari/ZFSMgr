@@ -189,7 +189,8 @@ private:
                 const std::function<void(const QString&)>& onStdoutLine = {},
                 const std::function<void(const QString&)>& onStderrLine = {},
                 const std::function<void(int)>& onIdleTimeoutRemaining = {},
-                WindowsCommandMode windowsMode = WindowsCommandMode::Auto);
+                WindowsCommandMode windowsMode = WindowsCommandMode::Auto,
+                const QByteArray& stdinPayload = {});
     void closeAllSshControlMasters();
     QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
     QString withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const;

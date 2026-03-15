@@ -14,6 +14,7 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QFontMetrics>
+#include <QFormLayout>
 #include <QFrame>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -1269,6 +1270,8 @@ void MainWindow::buildUi() {
     m_connContentTree->setUniformRowHeights(false);
     m_connContentTree->setRootIsDecorated(true);
     m_connContentTree->setItemsExpandable(true);
+    m_connContentTree->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_connContentTree->verticalScrollBar()->setSingleStep(12);
     {
         QFont f = m_connContentTree->font();
         f.setPointSize(qMax(6, f.pointSize() - 1));
@@ -1424,6 +1427,8 @@ void MainWindow::buildUi() {
     m_bottomConnContentTree->setUniformRowHeights(false);
     m_bottomConnContentTree->setRootIsDecorated(true);
     m_bottomConnContentTree->setItemsExpandable(true);
+    m_bottomConnContentTree->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_bottomConnContentTree->verticalScrollBar()->setSingleStep(12);
     m_bottomConnContentTree->setStyleSheet(QStringLiteral(
         "QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"
         "QTreeWidget::indicator { width: 8px; height: 8px; margin: 2px; }"));
@@ -2425,6 +2430,96 @@ void MainWindow::buildUi() {
         m_connContentTree = prevTree;
         m_connContentToken = prevToken;
     };
+    auto executeDatasetActionWithStdin =
+        [this](const QString& side,
+               const QString& actionName,
+               const DatasetSelectionContext& ctx,
+               const QString& cmd,
+               const QByteArray& stdinPayload,
+               int timeoutMs = 45000) {
+            if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
+                return false;
+            }
+            ConnectionProfile profile = m_profiles[ctx.connIdx];
+            if (!ensureLocalSudoCredentials(profile)) {
+                appLog(QStringLiteral("INFO"), QStringLiteral("%1 cancelada: faltan credenciales sudo locales").arg(actionName));
+                return false;
+            }
+            const QString remoteCmd = withSudo(profile, cmd);
+            const QString preview = QStringLiteral("[%1]\n%2")
+                                        .arg(QStringLiteral("%1@%2:%3")
+                                                 .arg(profile.username, profile.host)
+                                                 .arg(profile.port > 0 ? QString::number(profile.port) : QStringLiteral("22")))
+                                        .arg(buildSshPreviewCommand(profile, remoteCmd));
+            if (!confirmActionExecution(actionName, {preview})) {
+                return false;
+            }
+            setActionsLocked(true);
+                appLog(QStringLiteral("NORMAL"), QStringLiteral("%1 %2::%3").arg(actionName, profile.name, ctx.datasetName));
+                updateStatus(QStringLiteral("%1 %2::%3").arg(actionName, profile.name, ctx.datasetName));
+            QString out;
+            QString err;
+            int rc = -1;
+                const bool ok = runSsh(profile,
+                                   remoteCmd,
+                                   timeoutMs,
+                                   out,
+                                   err,
+                                   rc,
+                                   {},
+                                   {},
+                                   {},
+                                   WindowsCommandMode::Auto,
+                                   stdinPayload);
+                if (!ok || rc != 0) {
+                    const QString failureDetail = err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err;
+                    appLog(QStringLiteral("NORMAL"),
+                       QStringLiteral("Error en %1: %2").arg(actionName, failureDetail.simplified()));
+                QMessageBox::critical(this,
+                                      QStringLiteral("ZFSMgr"),
+                                      trk(QStringLiteral("t_action_fail001"),
+                                          QStringLiteral("%1 falló:\n%2"))
+                                          .arg(actionName, failureDetail));
+                setActionsLocked(false);
+                return false;
+            }
+            if (!out.trimmed().isEmpty()) {
+                appLog(QStringLiteral("INFO"), out.simplified());
+            }
+            appLog(QStringLiteral("NORMAL"), QStringLiteral("%1 finalizado").arg(actionName));
+            updateStatus(QStringLiteral("%1 finalizado %2::%3").arg(actionName, profile.name, ctx.datasetName));
+            invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
+            reloadDatasetSide(side);
+            setActionsLocked(false);
+            return true;
+        };
+    auto promptNewPassphrase = [this](const QString& title, QString& passphraseOut) -> bool {
+        QDialog dlg(this);
+        dlg.setModal(true);
+        dlg.setWindowTitle(title);
+        auto* layout = new QFormLayout(&dlg);
+        auto* pass1 = new QLineEdit(&dlg);
+        auto* pass2 = new QLineEdit(&dlg);
+        pass1->setEchoMode(QLineEdit::Password);
+        pass2->setEchoMode(QLineEdit::Password);
+        layout->addRow(QStringLiteral("Nueva clave"), pass1);
+        layout->addRow(QStringLiteral("Repita la clave"), pass2);
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+        layout->addWidget(buttons);
+        connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+        if (dlg.exec() != QDialog::Accepted) {
+            return false;
+        }
+        const QString p1 = pass1->text();
+        const QString p2 = pass2->text();
+        if (p1.isEmpty() || p1 != p2) {
+            QMessageBox::warning(this, QStringLiteral("ZFSMgr"), QStringLiteral("Las claves no coinciden."));
+            return false;
+        }
+        passphraseOut = p1;
+        return true;
+    };
     auto createSnapshotHold = [this](QTreeWidget* tree, QTreeWidgetItem* rawItem) {
         if (!tree || !rawItem) {
             return;
@@ -2893,7 +2988,7 @@ void MainWindow::buildUi() {
         });
         m_bottomConnContentTree->setContextMenuPolicy(Qt::CustomContextMenu);
         connect(m_bottomConnContentTree, &QWidget::customContextMenuRequested, this,
-                [this, manageInlinePropsVisualization, createSnapshotHold, releaseSnapshotHold](const QPoint& pos) {
+                [this, manageInlinePropsVisualization, createSnapshotHold, releaseSnapshotHold, executeDatasetActionWithStdin, promptNewPassphrase](const QPoint& pos) {
             if (!m_bottomConnContentTree) {
                 return;
             }
@@ -3072,6 +3167,18 @@ void MainWindow::buildUi() {
                 trk(QStringLiteral("t_manage_props_vis001"),
                     QStringLiteral("Gestionar visualización de propiedades")));
             menu.addSeparator();
+            QAction* aCreate = menu.addAction(
+                trk(QStringLiteral("t_ctx_create_dsv001"),
+                    QStringLiteral("Crear dataset/snapshot/vol"),
+                    QStringLiteral("Create dataset/snapshot/vol"),
+                    QStringLiteral("创建 dataset/snapshot/vol")));
+            QAction* aDelete = menu.addAction(
+                deleteLabelForItem(connIdx, poolName, item));
+            QMenu* mEncryption = menu.addMenu(QStringLiteral("Encriptación"));
+            QAction* aLoadKey = mEncryption->addAction(QStringLiteral("Load key"));
+            QAction* aUnloadKey = mEncryption->addAction(QStringLiteral("Unload key"));
+            QAction* aChangeKey = mEncryption->addAction(QStringLiteral("Change key"));
+            menu.addSeparator();
             QMenu* mSelectSnapshot = menu.addMenu(
                 trk(QStringLiteral("t_ctx_sel_snap001"),
                     QStringLiteral("Seleccionar snapshot"),
@@ -3102,11 +3209,6 @@ void MainWindow::buildUi() {
             }
             mSelectSnapshot->setEnabled(!actionsLocked() && !snapshotActions.isEmpty());
             QAction* aRollback = menu.addAction(QStringLiteral("Rollback"));
-            QAction* aCreate = menu.addAction(
-                trk(QStringLiteral("t_ctx_create_dsv001"),
-                    QStringLiteral("Crear dataset/snapshot/vol"),
-                    QStringLiteral("Create dataset/snapshot/vol"),
-                    QStringLiteral("创建 dataset/snapshot/vol")));
             QAction* aNewHold = menu.addAction(
                 trk(QStringLiteral("t_new_hold_title001"),
                     QStringLiteral("Nuevo Hold")));
@@ -3118,8 +3220,6 @@ void MainWindow::buildUi() {
                           trk(QStringLiteral("t_release_hold_title001"),
                               QStringLiteral("Release")),
                           holdContextName));
-            QAction* aDelete = menu.addAction(
-                deleteLabelForItem(connIdx, poolName, item));
             menu.addSeparator();
             QAction* aBreakdown = menu.addAction(
                 trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")));
@@ -3137,6 +3237,35 @@ void MainWindow::buildUi() {
             const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
             const bool hasConnSel = ctx.valid && !ctx.datasetName.isEmpty();
             const bool hasConnSnap = hasConnSel && !ctx.snapshotName.isEmpty();
+            auto datasetPropFromCache = [this](const DatasetSelectionContext& c, const QString& prop) -> QString {
+                if (!c.valid || c.datasetName.isEmpty() || !c.snapshotName.isEmpty()) {
+                    return QString();
+                }
+                const auto itCache = m_datasetPropsCache.constFind(
+                    datasetPropsCacheKey(c.connIdx, c.poolName, c.datasetName));
+                if (itCache == m_datasetPropsCache.cend() || !itCache->loaded) {
+                    return QString();
+                }
+                for (const DatasetPropCacheRow& row : itCache->rows) {
+                    if (row.prop.compare(prop, Qt::CaseInsensitive) == 0) {
+                        return row.value.trimmed();
+                    }
+                }
+                return QString();
+            };
+            const QString encryptionRoot = datasetPropFromCache(ctx, QStringLiteral("encryptionroot"));
+            const QString keyStatus = datasetPropFromCache(ctx, QStringLiteral("keystatus")).toLower();
+            const QString keyLocation = datasetPropFromCache(ctx, QStringLiteral("keylocation")).toLower();
+            const QString keyFormat = datasetPropFromCache(ctx, QStringLiteral("keyformat")).toLower();
+            const bool isEncryptionRoot =
+                hasConnSel && !hasConnSnap
+                && !encryptionRoot.isEmpty()
+                && encryptionRoot.compare(ctx.datasetName, Qt::CaseInsensitive) == 0;
+            const bool keyLoaded = (keyStatus == QStringLiteral("available"));
+            aLoadKey->setEnabled(isEncryptionRoot && !keyLoaded);
+            aUnloadKey->setEnabled(isEncryptionRoot && keyLoaded);
+            aChangeKey->setEnabled(isEncryptionRoot && keyLoaded);
+            mEncryption->setEnabled(isEncryptionRoot);
             aManage->setEnabled(hasConnSel);
             aRollback->setEnabled(!actionsLocked() && hasConnSnap);
             aCreate->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
@@ -3255,6 +3384,56 @@ void MainWindow::buildUi() {
             } else if (picked == aDelete) {
                 logUiAction(QStringLiteral("Borrar dataset/snapshot (menú Contenido inferior)"));
                 actionDeleteDatasetOrSnapshot(QStringLiteral("conncontent"));
+            } else if (picked == aLoadKey || picked == aUnloadKey || picked == aChangeKey) {
+                auto shQuote = [](QString s) {
+                    s.replace('\'', QStringLiteral("'\"'\"'"));
+                    return QStringLiteral("'%1'").arg(s);
+                };
+                QString actionName;
+                QString cmd;
+                QByteArray stdinPayload;
+                if (picked == aLoadKey) {
+                    actionName = QStringLiteral("Load key");
+                    cmd = QStringLiteral("zfs load-key %1").arg(shQuote(ctx.datasetName));
+                } else if (picked == aUnloadKey) {
+                    actionName = QStringLiteral("Unload key");
+                    cmd = QStringLiteral("zfs unload-key %1").arg(shQuote(ctx.datasetName));
+                } else {
+                    actionName = QStringLiteral("Change key");
+                    cmd = QStringLiteral("zfs change-key -o keylocation=prompt%1 %2")
+                              .arg(keyFormat == QStringLiteral("passphrase")
+                                       ? QStringLiteral(" -o keyformat=passphrase")
+                                       : QString(),
+                                   shQuote(ctx.datasetName));
+                }
+                if (picked == aChangeKey) {
+                    QString newPassphrase;
+                    if (!promptNewPassphrase(actionName, newPassphrase)) {
+                        m_connContentTree = prevTree;
+                        m_connContentToken = prevToken;
+                        return;
+                    }
+                    stdinPayload = (newPassphrase + QStringLiteral("\n") + newPassphrase + QStringLiteral("\n")).toUtf8();
+                    executeDatasetActionWithStdin(QStringLiteral("conncontent"), actionName, ctx, cmd, stdinPayload, 90000);
+                } else if (picked == aLoadKey && keyLocation == QStringLiteral("prompt")) {
+                    bool ok = false;
+                    const QString passphrase = QInputDialog::getText(
+                        this,
+                        actionName,
+                        QStringLiteral("Clave"),
+                        QLineEdit::Password,
+                        QString(),
+                        &ok);
+                    if (!ok || passphrase.isEmpty()) {
+                        m_connContentTree = prevTree;
+                        m_connContentToken = prevToken;
+                        return;
+                    }
+                    stdinPayload = (passphrase + QStringLiteral("\n")).toUtf8();
+                    executeDatasetActionWithStdin(QStringLiteral("conncontent"), actionName, ctx, cmd, stdinPayload, 90000);
+                } else {
+                    executeDatasetAction(QStringLiteral("conncontent"), actionName, ctx, cmd, 90000);
+                }
             } else if (picked == aBreakdown && m_btnConnBreakdown) {
                 m_btnConnBreakdown->click();
             } else if (picked == aAssemble && m_btnConnAssemble) {
@@ -3760,7 +3939,7 @@ void MainWindow::buildUi() {
             updateConnectionActionsState();
         });
         connect(m_connContentTree, &QWidget::customContextMenuRequested, this,
-                [this, manageInlinePropsVisualization, createSnapshotHold, releaseSnapshotHold](const QPoint& pos) {
+                [this, manageInlinePropsVisualization, createSnapshotHold, releaseSnapshotHold, executeDatasetActionWithStdin, promptNewPassphrase](const QPoint& pos) {
             if (!m_connContentTree) {
                 return;
             }
@@ -3922,6 +4101,18 @@ void MainWindow::buildUi() {
                 trk(QStringLiteral("t_manage_props_vis001"),
                     QStringLiteral("Gestionar visualización de propiedades")));
             menu.addSeparator();
+            QAction* aCreate = menu.addAction(
+                trk(QStringLiteral("t_ctx_create_dsv001"),
+                    QStringLiteral("Crear dataset/snapshot/vol"),
+                    QStringLiteral("Create dataset/snapshot/vol"),
+                    QStringLiteral("创建 dataset/snapshot/vol")));
+            QAction* aDelete = menu.addAction(
+                deleteLabelForItem(item));
+            QMenu* mEncryption = menu.addMenu(QStringLiteral("Encriptación"));
+            QAction* aLoadKey = mEncryption->addAction(QStringLiteral("Load key"));
+            QAction* aUnloadKey = mEncryption->addAction(QStringLiteral("Unload key"));
+            QAction* aChangeKey = mEncryption->addAction(QStringLiteral("Change key"));
+            menu.addSeparator();
             QMenu* mSelectSnapshot = menu.addMenu(
                 trk(QStringLiteral("t_ctx_sel_snap001"),
                     QStringLiteral("Seleccionar snapshot"),
@@ -3952,11 +4143,6 @@ void MainWindow::buildUi() {
             }
             mSelectSnapshot->setEnabled(!actionsLocked() && !snapshotActions.isEmpty());
             QAction* aRollback = menu.addAction(QStringLiteral("Rollback"));
-            QAction* aCreate = menu.addAction(
-                trk(QStringLiteral("t_ctx_create_dsv001"),
-                    QStringLiteral("Crear dataset/snapshot/vol"),
-                    QStringLiteral("Create dataset/snapshot/vol"),
-                    QStringLiteral("创建 dataset/snapshot/vol")));
             QAction* aNewHold = menu.addAction(
                 trk(QStringLiteral("t_new_hold_title001"),
                     QStringLiteral("Nuevo Hold")));
@@ -3968,8 +4154,6 @@ void MainWindow::buildUi() {
                           trk(QStringLiteral("t_release_hold_title001"),
                               QStringLiteral("Release")),
                           holdContextName));
-            QAction* aDelete = menu.addAction(
-                deleteLabelForItem(item));
             menu.addSeparator();
             QAction* aBreakdown = menu.addAction(
                 trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")));
@@ -3983,6 +4167,35 @@ void MainWindow::buildUi() {
             const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
             const bool hasConnSel = ctx.valid && !ctx.datasetName.isEmpty();
             const bool hasConnSnap = hasConnSel && !ctx.snapshotName.isEmpty();
+            auto datasetPropFromCache = [this](const DatasetSelectionContext& c, const QString& prop) -> QString {
+                if (!c.valid || c.datasetName.isEmpty() || !c.snapshotName.isEmpty()) {
+                    return QString();
+                }
+                const auto itCache = m_datasetPropsCache.constFind(
+                    datasetPropsCacheKey(c.connIdx, c.poolName, c.datasetName));
+                if (itCache == m_datasetPropsCache.cend() || !itCache->loaded) {
+                    return QString();
+                }
+                for (const DatasetPropCacheRow& row : itCache->rows) {
+                    if (row.prop.compare(prop, Qt::CaseInsensitive) == 0) {
+                        return row.value.trimmed();
+                    }
+                }
+                return QString();
+            };
+            const QString encryptionRoot = datasetPropFromCache(ctx, QStringLiteral("encryptionroot"));
+            const QString keyStatus = datasetPropFromCache(ctx, QStringLiteral("keystatus")).toLower();
+            const QString keyLocation = datasetPropFromCache(ctx, QStringLiteral("keylocation")).toLower();
+            const QString keyFormat = datasetPropFromCache(ctx, QStringLiteral("keyformat")).toLower();
+            const bool isEncryptionRoot =
+                hasConnSel && !hasConnSnap
+                && !encryptionRoot.isEmpty()
+                && encryptionRoot.compare(ctx.datasetName, Qt::CaseInsensitive) == 0;
+            const bool keyLoaded = (keyStatus == QStringLiteral("available"));
+            aLoadKey->setEnabled(isEncryptionRoot && !keyLoaded);
+            aUnloadKey->setEnabled(isEncryptionRoot && keyLoaded);
+            aChangeKey->setEnabled(isEncryptionRoot && keyLoaded);
+            mEncryption->setEnabled(isEncryptionRoot);
             aManage->setEnabled(hasConnSel);
             aRollback->setEnabled(!actionsLocked() && hasConnSnap);
             aCreate->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
@@ -4085,6 +4298,52 @@ void MainWindow::buildUi() {
             } else if (picked == aDelete) {
                 logUiAction(QStringLiteral("Borrar dataset/snapshot (menú Contenido)"));
                 actionDeleteDatasetOrSnapshot(QStringLiteral("conncontent"));
+            } else if (picked == aLoadKey || picked == aUnloadKey || picked == aChangeKey) {
+                auto shQuote = [](QString s) {
+                    s.replace('\'', QStringLiteral("'\"'\"'"));
+                    return QStringLiteral("'%1'").arg(s);
+                };
+                QString actionName;
+                QString cmd;
+                QByteArray stdinPayload;
+                if (picked == aLoadKey) {
+                    actionName = QStringLiteral("Load key");
+                    cmd = QStringLiteral("zfs load-key %1").arg(shQuote(ctx.datasetName));
+                } else if (picked == aUnloadKey) {
+                    actionName = QStringLiteral("Unload key");
+                    cmd = QStringLiteral("zfs unload-key %1").arg(shQuote(ctx.datasetName));
+                } else {
+                    actionName = QStringLiteral("Change key");
+                    cmd = QStringLiteral("zfs change-key -o keylocation=prompt%1 %2")
+                              .arg(keyFormat == QStringLiteral("passphrase")
+                                       ? QStringLiteral(" -o keyformat=passphrase")
+                                       : QString(),
+                                   shQuote(ctx.datasetName));
+                }
+                if (picked == aChangeKey) {
+                    QString newPassphrase;
+                    if (!promptNewPassphrase(actionName, newPassphrase)) {
+                        return;
+                    }
+                    stdinPayload = (newPassphrase + QStringLiteral("\n") + newPassphrase + QStringLiteral("\n")).toUtf8();
+                    executeDatasetActionWithStdin(QStringLiteral("conncontent"), actionName, ctx, cmd, stdinPayload, 90000);
+                } else if (picked == aLoadKey && keyLocation == QStringLiteral("prompt")) {
+                    bool ok = false;
+                    const QString passphrase = QInputDialog::getText(
+                        this,
+                        actionName,
+                        QStringLiteral("Clave"),
+                        QLineEdit::Password,
+                        QString(),
+                        &ok);
+                    if (!ok || passphrase.isEmpty()) {
+                        return;
+                    }
+                    stdinPayload = (passphrase + QStringLiteral("\n")).toUtf8();
+                    executeDatasetActionWithStdin(QStringLiteral("conncontent"), actionName, ctx, cmd, stdinPayload, 90000);
+                } else {
+                    executeDatasetAction(QStringLiteral("conncontent"), actionName, ctx, cmd, 90000);
+                }
             } else if (picked == aBreakdown && m_btnConnBreakdown) {
                 m_btnConnBreakdown->click();
             } else if (picked == aAssemble && m_btnConnAssemble) {

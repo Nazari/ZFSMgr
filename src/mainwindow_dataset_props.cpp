@@ -356,8 +356,14 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     } else if (side == QStringLiteral("conncontent")) {
         const auto selected = m_connContentTree ? m_connContentTree->selectedItems() : QList<QTreeWidgetItem*>{};
         if (!selected.isEmpty()) {
-            dataset = selected.first()->data(0, Qt::UserRole).toString();
-            snapshot = selected.first()->data(1, Qt::UserRole).toString();
+            QTreeWidgetItem* sel = selected.first();
+            while (sel && sel->data(0, Qt::UserRole).toString().isEmpty() && sel->parent()) {
+                sel = sel->parent();
+            }
+            if (sel) {
+                dataset = sel->data(0, Qt::UserRole).toString();
+                snapshot = sel->data(1, Qt::UserRole).toString();
+            }
         }
     }
     QTableWidget* table = m_connContentPropsTable;

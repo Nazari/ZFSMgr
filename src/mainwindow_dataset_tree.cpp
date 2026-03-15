@@ -1171,7 +1171,7 @@ void MainWindow::syncConnContentPropertyColumns() {
                                  -1);
         }
     }
-    propsNode->setExpanded(true);
+    propsNode->setExpanded(false);
     refreshDatasetExpansionIndicators(tree);
     sel->setExpanded(true);
     if (!hasPersistedVisibleColumnWidths(tree, savedWidths)) {
