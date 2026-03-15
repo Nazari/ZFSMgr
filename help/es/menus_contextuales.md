@@ -27,7 +27,9 @@ Sobre el nodo raíz `Pool`:
 - `Importar`
 - `Exportar`
 - `Historial`
+- `Sync`
 - `Scrub`
+- `Trim`
 - `Destroy`
 
 Sobre dataset/snapshot seleccionado:

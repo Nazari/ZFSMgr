@@ -535,6 +535,106 @@ void MainWindow::destroyPoolFromRow(int row) {
     refreshSelectedPoolDetails(true, true);
 }
 
+void MainWindow::syncPoolFromRow(int row) {
+    if (actionsLocked()) {
+        return;
+    }
+    if (row < 0 || row >= m_poolListEntries.size()) {
+        return;
+    }
+    const auto& pe = m_poolListEntries[row];
+    const QString connName = pe.connection;
+    const QString poolName = pe.pool;
+    const QString poolAction = pe.action.trimmed();
+    if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
+        return;
+    }
+    if (poolAction.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) != 0) {
+        return;
+    }
+    const int idx = findConnectionIndexByName(connName);
+    if (idx < 0) {
+        return;
+    }
+
+    const ConnectionProfile& p = m_profiles[idx];
+    const QString cmd = withSudo(p, QStringLiteral("zpool sync %1").arg(shSingleQuote(poolName)));
+    const QString preview = QStringLiteral("[%1]\n%2")
+                                .arg(sshUserHostPort(p))
+                                .arg(buildSshPreviewCommand(p, cmd));
+    if (!confirmActionExecution(QStringLiteral("Sync"), {preview})) {
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio sync %1::%2").arg(connName, poolName));
+    setActionsLocked(true);
+    QString out;
+    QString err;
+    int rc = -1;
+    if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("Error sync %1::%2 -> %3")
+                                       .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
+                              QStringLiteral("Sync falló:\n%1").arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
+        setActionsLocked(false);
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin sync %1::%2").arg(connName, poolName));
+    setActionsLocked(false);
+    refreshConnectionByIndex(idx);
+}
+
+void MainWindow::trimPoolFromRow(int row) {
+    if (actionsLocked()) {
+        return;
+    }
+    if (row < 0 || row >= m_poolListEntries.size()) {
+        return;
+    }
+    const auto& pe = m_poolListEntries[row];
+    const QString connName = pe.connection;
+    const QString poolName = pe.pool;
+    const QString poolState = pe.state.trimmed().toUpper();
+    const QString poolAction = pe.action.trimmed();
+    if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
+        return;
+    }
+    if (poolState != QStringLiteral("ONLINE")) {
+        return;
+    }
+    if (poolAction.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) != 0) {
+        return;
+    }
+    const int idx = findConnectionIndexByName(connName);
+    if (idx < 0) {
+        return;
+    }
+
+    const ConnectionProfile& p = m_profiles[idx];
+    const QString cmd = withSudo(p, QStringLiteral("zpool trim %1").arg(shSingleQuote(poolName)));
+    const QString preview = QStringLiteral("[%1]\n%2")
+                                .arg(sshUserHostPort(p))
+                                .arg(buildSshPreviewCommand(p, cmd));
+    if (!confirmActionExecution(QStringLiteral("Trim"), {preview})) {
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio trim %1::%2").arg(connName, poolName));
+    setActionsLocked(true);
+    QString out;
+    QString err;
+    int rc = -1;
+    if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("Error trim %1::%2 -> %3")
+                                       .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
+                              QStringLiteral("Trim falló:\n%1").arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
+        setActionsLocked(false);
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin trim %1::%2").arg(connName, poolName));
+    setActionsLocked(false);
+    refreshConnectionByIndex(idx);
+}
+
 void MainWindow::showPoolHistoryFromRow(int row) {
     if (actionsLocked()) {
         return;

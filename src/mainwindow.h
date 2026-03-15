@@ -289,6 +289,8 @@ private:
     void exportPoolFromRow(int row);
     void importPoolFromRow(int row);
     void scrubPoolFromRow(int row);
+    void syncPoolFromRow(int row);
+    void trimPoolFromRow(int row);
     void destroyPoolFromRow(int row);
     void showPoolHistoryFromRow(int row);
     void createPoolForSelectedConnection();

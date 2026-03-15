@@ -3104,7 +3104,9 @@ void MainWindow::buildUi() {
                 const bool canImport = (poolAction.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) == 0);
                 const bool canExport = (poolAction.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) == 0);
                 const bool canHistory = canExport;
+                const bool canSync = canExport;
                 const bool canScrub = canExport;
+                const bool canTrim = canExport;
                 const bool canDestroy = canExport;
                 const bool canRefresh = (poolRow >= 0);
                 QAction* aUpdate = menu.addAction(
@@ -3125,13 +3127,17 @@ void MainWindow::buildUi() {
                 QAction* aHistory = menu.addAction(
                     trk(QStringLiteral("t_pool_history_t1"),
                         QStringLiteral("Historial")));
+                QAction* aSync = menu.addAction(QStringLiteral("Sync"));
                 QAction* aScrub = menu.addAction(QStringLiteral("Scrub"));
+                QAction* aTrim = menu.addAction(QStringLiteral("Trim"));
                 QAction* aDestroy = menu.addAction(QStringLiteral("Destroy"));
                 aUpdate->setEnabled(canRefresh);
                 aImport->setEnabled(canImport);
                 aExport->setEnabled(canExport);
                 aHistory->setEnabled(canHistory);
+                aSync->setEnabled(canSync);
                 aScrub->setEnabled(canScrub);
+                aTrim->setEnabled(canTrim);
                 aDestroy->setEnabled(canDestroy);
                 QAction* picked = menu.exec(m_bottomConnContentTree->viewport()->mapToGlobal(pos));
                 if (!picked) {
@@ -3145,8 +3151,12 @@ void MainWindow::buildUi() {
                     exportPoolFromRow(poolRow);
                 } else if (picked == aHistory && canHistory && poolRow >= 0) {
                     showPoolHistoryFromRow(poolRow);
+                } else if (picked == aSync && canSync && poolRow >= 0) {
+                    syncPoolFromRow(poolRow);
                 } else if (picked == aScrub && canScrub && poolRow >= 0) {
                     scrubPoolFromRow(poolRow);
+                } else if (picked == aTrim && canTrim && poolRow >= 0) {
+                    trimPoolFromRow(poolRow);
                 } else if (picked == aDestroy && canDestroy && poolRow >= 0) {
                     destroyPoolFromRow(poolRow);
                 }
@@ -4037,7 +4047,9 @@ void MainWindow::buildUi() {
                 const bool canImport = (poolAction.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) == 0);
                 const bool canExport = (poolAction.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) == 0);
                 const bool canHistory = canExport;
+                const bool canSync = canExport;
                 const bool canScrub = canExport;
+                const bool canTrim = canExport;
                 const bool canDestroy = canExport;
                 const bool canRefresh = (poolRow >= 0);
 
@@ -4059,13 +4071,17 @@ void MainWindow::buildUi() {
                 QAction* aHistory = menu.addAction(
                     trk(QStringLiteral("t_pool_history_t1"),
                         QStringLiteral("Historial")));
+                QAction* aSync = menu.addAction(QStringLiteral("Sync"));
                 QAction* aScrub = menu.addAction(QStringLiteral("Scrub"));
+                QAction* aTrim = menu.addAction(QStringLiteral("Trim"));
                 QAction* aDestroy = menu.addAction(QStringLiteral("Destroy"));
                 aUpdate->setEnabled(canRefresh);
                 aImport->setEnabled(canImport);
                 aExport->setEnabled(canExport);
                 aHistory->setEnabled(canHistory);
+                aSync->setEnabled(canSync);
                 aScrub->setEnabled(canScrub);
+                aTrim->setEnabled(canTrim);
                 aDestroy->setEnabled(canDestroy);
                 QAction* picked = menu.exec(m_connContentTree->viewport()->mapToGlobal(pos));
                 if (!picked) {
@@ -4079,8 +4095,12 @@ void MainWindow::buildUi() {
                     exportPoolFromRow(poolRow);
                 } else if (picked == aHistory && canHistory && poolRow >= 0) {
                     showPoolHistoryFromRow(poolRow);
+                } else if (picked == aSync && canSync && poolRow >= 0) {
+                    syncPoolFromRow(poolRow);
                 } else if (picked == aScrub && canScrub && poolRow >= 0) {
                     scrubPoolFromRow(poolRow);
+                } else if (picked == aTrim && canTrim && poolRow >= 0) {
+                    trimPoolFromRow(poolRow);
                 } else if (picked == aDestroy && canDestroy && poolRow >= 0) {
                     destroyPoolFromRow(poolRow);
                 }
