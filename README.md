@@ -1,6 +1,19 @@
-# ZFSMgr (C++/Qt)
+# ZFSMgr: OpenZFS GUI Manager for Local and Remote Systems
 
-Cross-platform OpenZFS GUI manager built with **C++17 + Qt6** for **Linux, macOS, and Windows**.
+**ZFSMgr** is a **full OpenZFS GUI manager** built with **C++17 + Qt6** for **Linux, macOS, and Windows**.
+
+If you are looking for a **ZFS GUI manager**, **OpenZFS GUI**, **remote ZFS manager**, or a **desktop ZFS administration tool**, ZFSMgr is designed to cover the whole workflow from one interface:
+
+- pools,
+- datasets,
+- snapshots,
+- properties,
+- delegated permissions,
+- encryption,
+- replication flows,
+- and remote administration over SSH.
+
+ZFSMgr is not a simple pool browser. It is intended to be a **complete graphical manager for ZFS and OpenZFS environments**, including **remote pools and datasets on other machines**.
 
 ## Beta notice and legal disclaimer
 
@@ -23,41 +36,137 @@ Legal references:
 
 - **Beta 0.9.7**: https://github.com/Nazari/ZFSMgr/releases
 
+## Why ZFSMgr
+
+ZFSMgr is designed for users who want a real **GUI for ZFS administration** without giving up low-level OpenZFS functionality.
+
+It gives you:
+
+- a **dual source/destination view** for comparing and operating on two ZFS trees at once,
+- **remote pool and dataset management** from the same desktop app,
+- **inline editing** of dataset and pool properties directly in the treeview,
+- **permission delegation management** with `zfs allow` / `zfs unallow`,
+- **snapshot-oriented workflows** such as copy, clone, diff, rollback and level/sync,
+- and **persistent operational logs** with secret masking.
+
 ## Main capabilities
 
-- Remote connection management (SSH and Windows through SSH/PowerShell).
-- Full/partial refresh and remote OpenZFS version detection.
-- Pool management:
-  - unified imported/importable pool list,
-  - import/export,
-  - pool creation with device selection and options,
-  - pool destroy with strong confirmation.
-- Dataset and snapshot management:
-  - create, modify, rename (`zfs rename`), delete,
-  - mount/unmount (including recursive flows),
-  - snapshot rollback.
-- Source/destination transfers:
-  - snapshot copy (`zfs send`/`zfs recv`),
-  - level and sync operations,
-  - breakdown/assemble operations.
-- Advanced operations:
-  - `From Dir` and `To Dir` with optional source deletion.
-- Logging:
-  - combined UI log plus persistent rotating logs,
-  - selectable log level and visible line limits (from main menu),
-  - command and execution detail views.
-- Multi-language UI (Spanish, English, Chinese) with runtime switching.
-- Secret masking in logs (`[secret]`).
+### Pool management
 
-## Remote source/destination support
+- Imported and importable pool discovery.
+- Pool import/export.
+- Pool creation with device selection and options.
+- Pool destroy with confirmation.
+- Pool history view.
+- Pool maintenance actions from the GUI:
+  - `zpool sync`
+  - `zpool scrub`
+  - `zpool trim`
+  - `zpool initialize`
+- Pool information and feature visibility directly in the treeview.
 
-ZFSMgr can operate with **remote source and/or destination** on:
+### Dataset, zvol and snapshot management
 
-- Linux
-- macOS/Unix
-- Windows
+- Create dataset, snapshot and zvol.
+- Rename and delete datasets.
+- Context-aware delete actions for:
+  - dataset,
+  - snapshot,
+  - zvol.
+- Mount/unmount operations.
+- Snapshot rollback.
+- Snapshot selection in source/destination trees.
+- Snapshot holds:
+  - create hold,
+  - inspect hold timestamp,
+  - release hold.
 
-The app adapts command strategies by remote OS and available tooling.
+### Inline property management
+
+- Dataset, pool and snapshot properties shown **inline in the treeview**.
+- Visual property groups per scope:
+  - pool,
+  - dataset,
+  - snapshot.
+- Reorder visible properties by drag and drop.
+- Persist visible properties and order in configuration.
+- Inline editing of property values.
+- Inline inheritance controls for inheritable properties.
+- Property column count configurable from the tree header context menu.
+- Independent column widths for top and bottom trees, with persistence in `config.ini`.
+
+### ZFS permissions management
+
+ZFSMgr includes **graphical management of delegated ZFS permissions** per dataset.
+
+Current permission features include:
+
+- `Permisos` node in dataset trees.
+- Delegation management based on:
+  - `zfs allow`
+  - `zfs unallow`
+- Support for:
+  - users,
+  - groups,
+  - `everyone`,
+  - local / descendant / local+descendant scopes,
+  - creation-time permissions,
+  - permission sets (`@setname`).
+- Inline permission editing in treeview grids.
+- Draft-based permission editing with batch application through **`Aplicar cambios`**.
+- Remote user/group enumeration on Linux, FreeBSD and macOS.
+- Windows excluded from permission UI in this phase.
+
+### Encryption workflows
+
+- Encryption submenu for encryption-root datasets.
+- `Load key`.
+- `Unload key`.
+- `Change key`.
+- Prompted password entry when `keylocation=prompt`.
+
+### Source/destination workflows
+
+ZFSMgr uses a **source / destination model** directly in the main window.
+
+That enables:
+
+- snapshot copy (`zfs send` / `zfs recv`),
+- snapshot clone,
+- `zfs diff` integration,
+- level / sync operations,
+- advanced breakdown / assemble operations,
+- `From Dir` and `To Dir` flows.
+
+The `Diff` action includes a dedicated results window with grouped tree output for:
+
+- added files,
+- deleted files,
+- modified files,
+- renamed files.
+
+### Logging and safety
+
+- Combined in-app log.
+- Persistent rotating logs.
+- Secret masking (`[secret]`).
+- Command previews and execution traces.
+- Busy-state locking for unsafe concurrent actions.
+- Async refresh safeguards to avoid stale refresh results being applied to the wrong connection.
+
+## Remote ZFS management
+
+ZFSMgr is designed to manage **local and remote OpenZFS systems**.
+
+You can work against:
+
+- local Linux systems,
+- remote Linux systems,
+- remote macOS systems,
+- remote Unix-like systems,
+- Windows hosts with the required OpenZFS tooling and compatible shell/runtime.
+
+This makes ZFSMgr suitable as a **remote ZFS GUI manager** for homelabs, NAS hosts, backup servers and multi-machine OpenZFS administration.
 
 ## Windows compatibility checks
 
@@ -66,15 +175,31 @@ For Windows targets, ZFSMgr validates runtime prerequisites so operations can ru
 - OpenZFS tools availability (`zfs`, `zpool`), including common install paths.
 - Shell/runtime availability and compatibility (PowerShell and optional MSYS64/MINGW tooling when needed).
 - Command path resolution and fallback behavior for mixed Unix/Windows command flows.
-- Mount semantics handling (including `driveletter`-based effective mount resolution).
+- Mount semantics handling, including effective `driveletter` resolution.
 
-If required components are missing, connection status and command availability are reported in the UI/logs.
+If required components are missing, the UI reports the situation clearly in connection status and logs.
 
-## UI layout
+## UI model
 
-- Left panel: connections list + quick actions.
-- Right panel: dynamic tabs per selected connection and its pools (properties/content/status).
-- Bottom panel: combined log.
+- Left panel:
+  - connections,
+  - source/destination actions,
+  - global quick operations.
+- Right panel:
+  - top tree = `Origen`,
+  - bottom tree = `Destino`.
+- Bottom area:
+  - combined log.
+
+Important characteristics:
+
+- The effective detail selection is driven by **Origen / Destino checks**, not by a simple row click.
+- Top and bottom trees preserve their own navigation state.
+- Tree headers include context actions for:
+  - resize this column,
+  - resize all columns,
+  - choose property column count.
+- `Aplicar cambios` batches real pending commands and shows them in a tooltip before execution.
 
 ## Configuration and data
 
@@ -82,6 +207,15 @@ If required components are missing, connection status and command availability a
 - Main config file: `config.ini`.
 - One file per connection: `conn_*.ini`.
 - Master password used to protect credentials in configuration.
+
+Persistent configuration includes, among other things:
+
+- connections,
+- selected source/destination trees,
+- visible property groups,
+- inline property order,
+- tree column widths,
+- UI state relevant to the dual-tree workflow.
 
 ## Build requirements
 
@@ -139,4 +273,8 @@ On Windows, `zfsmgr_qt.exe` is built with an embedded UAC manifest and must be s
 
 ## Run
 
-After building, run the generated binary for your platform and unlock with the master password.
+After building, run the generated binary for your platform and unlock it with the master password.
+
+## Keywords
+
+OpenZFS GUI, ZFS GUI manager, remote ZFS manager, ZFS desktop manager, graphical ZFS administration, ZFS snapshot manager, ZFS permissions GUI, zpool GUI, dataset manager, OpenZFS remote administration.
