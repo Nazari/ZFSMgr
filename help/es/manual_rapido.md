@@ -27,7 +27,7 @@ ZFSMgr gestiona conexiones y acciones ZFS.
 - Las propiedades inline pueden incluir edición directa y control de herencia (`Inh.`) cuando aplica.
 - Los pools no importables también aparecen como nodo raíz para permitir `Importar`.
 - Logs: panel único `Log combinado` (incluye salida SSH/PSRP con prefijo de conexión).
-- El encabezado de cada treeview tiene menú contextual para ajustar una columna o todas al contenido.
+- El encabezado de cada treeview tiene menú contextual para ajustar una columna o todas al contenido y para cambiar `Columnas de propiedades`.
 - El scroll vertical de los treeviews es suave, por píxel.
 - El botón `Aplicar cambios` solo se activa si hay comandos pendientes reales y su tooltip lista esos comandos.
 - `Diff` muestra sus resultados en una ventana de árbol con `Añadido`, `Borrado`, `Modificado` y `Renombrado`.

@@ -55,6 +55,8 @@ Sobre el encabezado de cualquiera de los treeviews:
 
 - `Ajustar tamaño de esta columna`
 - `Ajustar tamaño de todas las columnas`
+- `Columnas de propiedades`
+  - permite elegir entre `5` y `10` columnas
 
 ## Reglas
 
@@ -70,4 +72,5 @@ Sobre el encabezado de cualquiera de los treeviews:
 - `Encriptación` solo se habilita en datasets que son raíz de encriptación.
 - Si `keylocation=prompt`, `Load key` pide la clave y `Change key` abre una ventana para introducir la nueva clave dos veces.
 - El menú del encabezado ajusta el ancho como un doble clic sobre el separador de columnas.
+- El mismo menú del encabezado concentra también la configuración de `Columnas de propiedades`.
 - La caja `Acciones` incluye también `Diff`, que compara un snapshot de Origen con su dataset padre actual o con otro snapshot del mismo dataset.
