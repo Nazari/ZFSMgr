@@ -712,6 +712,7 @@ void MainWindow::buildUi() {
     const QVector<HelpTopicItem> helpActions = {
         {QStringLiteral("accion_copiar"), QStringLiteral("t_copy_001"), QStringLiteral("Copiar")},
         {QStringLiteral("accion_clonar"), QStringLiteral("t_clone_btn_001"), QStringLiteral("Clonar")},
+        {QStringLiteral("accion_diff"), QStringLiteral("t_diff_btn_001"), QStringLiteral("Diff")},
         {QStringLiteral("accion_sincronizar"), QStringLiteral("t_sync_btn_001"), QStringLiteral("Sincronizar")},
         {QStringLiteral("accion_nivelar"), QStringLiteral("t_level_btn_001"), QStringLiteral("Nivelar")},
         {QStringLiteral("accion_desglosar"), QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar")},
@@ -995,6 +996,10 @@ void MainWindow::buildUi() {
         trk(QStringLiteral("t_clone_btn_001"),
             QStringLiteral("Clonar")),
         connActionRightBox);
+    m_btnConnDiff = new QPushButton(
+        trk(QStringLiteral("t_diff_btn_001"),
+            QStringLiteral("Diff")),
+        connActionRightBox);
     m_btnConnLevel = new QPushButton(
         trk(QStringLiteral("t_level_btn_001"),
             QStringLiteral("Nivelar"),
@@ -1019,6 +1024,10 @@ void MainWindow::buildUi() {
         trk(QStringLiteral("t_tt_clone_001"),
             QStringLiteral("Clona un snapshot sobre un dataset destino en la misma conexión y el mismo pool.\n"
                            "Requiere: snapshot seleccionado en Origen y dataset seleccionado en Destino.")));
+    m_btnConnDiff->setToolTip(
+        trk(QStringLiteral("t_tt_diff_001"),
+            QStringLiteral("Compara un snapshot de Origen con su dataset padre actual o con otro snapshot del mismo dataset,\n"
+                           "si ambos están en la misma conexión y el mismo pool.")));
     m_btnConnLevel->setToolTip(
         trk(QStringLiteral("t_tt_level_001"),
             QStringLiteral("Genera/aplica envío diferencial para igualar Origen->Destino.\n"
@@ -1038,11 +1047,13 @@ void MainWindow::buildUi() {
     m_btnApplyConnContentProps->setMinimumHeight(stdLeftBtnH);
     m_btnConnCopy->setMinimumHeight(stdLeftBtnH);
     m_btnConnClone->setMinimumHeight(stdLeftBtnH);
+    m_btnConnDiff->setMinimumHeight(stdLeftBtnH);
     m_btnConnLevel->setMinimumHeight(stdLeftBtnH);
     m_btnConnSync->setMinimumHeight(stdLeftBtnH);
     m_btnApplyConnContentProps->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnCopy->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnClone->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnConnDiff->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnLevel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnSync->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     auto* connRightBtns = new QGridLayout();
@@ -1055,7 +1066,8 @@ void MainWindow::buildUi() {
     connRightBtns->addWidget(m_btnConnSync, 0, 1);
     connRightBtns->addWidget(m_btnConnCopy, 1, 0);
     connRightBtns->addWidget(m_btnConnClone, 1, 1);
-    connRightBtns->addWidget(m_btnConnLevel, 2, 0, 1, 2);
+    connRightBtns->addWidget(m_btnConnLevel, 2, 0);
+    connRightBtns->addWidget(m_btnConnDiff, 2, 1);
     connActionRightLayout->addLayout(connRightBtns);
     connActionsLayout->addWidget(connActionRightBox, 1);
     connLayout->addWidget(m_connActionsBox, 0);
@@ -4234,6 +4246,24 @@ void MainWindow::buildUi() {
         m_activeConnActionName = trk(QStringLiteral("t_clone_btn_001"), QStringLiteral("Clonar"));
         logUiAction(QStringLiteral("Clonar snapshot (botón Conexiones)"));
         executeConnectionTransferAction(QStringLiteral("clone"));
+        if (!actionsLocked()) {
+            m_activeConnActionBtn = nullptr;
+            m_activeConnActionName.clear();
+            updateConnectionActionsState();
+        }
+    });
+    connect(m_btnConnDiff, &QPushButton::clicked, this, [this]() {
+        if (actionsLocked()) {
+            if (m_activeConnActionBtn == m_btnConnDiff) {
+                logUiAction(QStringLiteral("Cancelar Diff (botón Conexiones)"));
+                requestCancelRunningAction();
+            }
+            return;
+        }
+        m_activeConnActionBtn = m_btnConnDiff;
+        m_activeConnActionName = trk(QStringLiteral("t_diff_btn_001"), QStringLiteral("Diff"));
+        logUiAction(QStringLiteral("Diff snapshot (botón Conexiones)"));
+        executeConnectionTransferAction(QStringLiteral("diff"));
         if (!actionsLocked()) {
             m_activeConnActionBtn = nullptr;
             m_activeConnActionName.clear();

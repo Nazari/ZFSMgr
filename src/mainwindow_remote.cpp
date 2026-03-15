@@ -179,6 +179,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                         int& rc,
                         const std::function<void(const QString&)>& onStdoutLine,
                         const std::function<void(const QString&)>& onStderrLine,
+                        const std::function<void(int)>& onIdleTimeoutRemaining,
                         MainWindow::WindowsCommandMode windowsMode) {
     out.clear();
     err.clear();
@@ -230,17 +231,29 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         };
 
         bool timedOut = false;
+        int lastIdleRemainingSec = -1;
         while (proc.state() != QProcess::NotRunning) {
             proc.waitForReadyRead(120);
             const QString outChunk = QString::fromUtf8(proc.readAllStandardOutput());
             const QString errChunk = QString::fromUtf8(proc.readAllStandardError());
             if (!outChunk.isEmpty()) {
+                timer.restart();
+                lastIdleRemainingSec = -1;
                 out += outChunk;
                 flushLines(outLineBuf, outChunk, onStdoutLine);
             }
             if (!errChunk.isEmpty()) {
+                timer.restart();
+                lastIdleRemainingSec = -1;
                 err += errChunk;
                 flushLines(errLineBuf, errChunk, onStderrLine);
+            }
+            if (timeoutMs > 0 && onIdleTimeoutRemaining) {
+                const int remainingSec = qMax(0, (timeoutMs - int(timer.elapsed()) + 999) / 1000);
+                if (remainingSec != lastIdleRemainingSec) {
+                    lastIdleRemainingSec = remainingSec;
+                    onIdleTimeoutRemaining(remainingSec);
+                }
             }
             if (timeoutMs > 0 && timer.elapsed() > timeoutMs) {
                 timedOut = true;
@@ -381,17 +394,29 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         };
 
         bool timedOut = false;
+        int lastIdleRemainingSec = -1;
         while (proc.state() != QProcess::NotRunning) {
             proc.waitForReadyRead(120);
             const QString outChunk = QString::fromUtf8(proc.readAllStandardOutput());
             const QString errChunk = QString::fromUtf8(proc.readAllStandardError());
             if (!outChunk.isEmpty()) {
+                timer.restart();
+                lastIdleRemainingSec = -1;
                 out += outChunk;
                 flushLines(outLineBuf, outChunk, onStdoutLine);
             }
             if (!errChunk.isEmpty()) {
+                timer.restart();
+                lastIdleRemainingSec = -1;
                 err += errChunk;
                 flushLines(errLineBuf, errChunk, onStderrLine);
+            }
+            if (timeoutMs > 0 && onIdleTimeoutRemaining) {
+                const int remainingSec = qMax(0, (timeoutMs - int(timer.elapsed()) + 999) / 1000);
+                if (remainingSec != lastIdleRemainingSec) {
+                    lastIdleRemainingSec = remainingSec;
+                    onIdleTimeoutRemaining(remainingSec);
+                }
             }
             if (timeoutMs > 0 && timer.elapsed() > timeoutMs) {
                 timedOut = true;
@@ -552,17 +577,29 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         };
 
         bool timedOut = false;
+        int lastIdleRemainingSec = -1;
         while (proc.state() != QProcess::NotRunning) {
             proc.waitForReadyRead(120);
             const QString outChunk = QString::fromUtf8(proc.readAllStandardOutput());
             const QString errChunk = QString::fromUtf8(proc.readAllStandardError());
             if (!outChunk.isEmpty()) {
+                timer.restart();
+                lastIdleRemainingSec = -1;
                 attemptOut += outChunk;
                 flushLines(outLineBuf, outChunk, onStdoutLine);
             }
             if (!errChunk.isEmpty()) {
+                timer.restart();
+                lastIdleRemainingSec = -1;
                 attemptErr += errChunk;
                 flushLines(errLineBuf, errChunk, onStderrLine);
+            }
+            if (timeoutMs > 0 && onIdleTimeoutRemaining) {
+                const int remainingSec = qMax(0, (timeoutMs - int(timer.elapsed()) + 999) / 1000);
+                if (remainingSec != lastIdleRemainingSec) {
+                    lastIdleRemainingSec = remainingSec;
+                    onIdleTimeoutRemaining(remainingSec);
+                }
             }
             if (timeoutMs > 0 && timer.elapsed() > timeoutMs) {
                 timedOut = true;

@@ -58,6 +58,8 @@ void MainWindow::updateConnectionActionsState() {
         trk(QStringLiteral("t_copy_001"), QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")));
     if (m_btnConnClone) m_btnConnClone->setText(
         trk(QStringLiteral("t_clone_btn_001"), QStringLiteral("Clonar")));
+    if (m_btnConnDiff) m_btnConnDiff->setText(
+        trk(QStringLiteral("t_diff_btn_001"), QStringLiteral("Diff")));
     if (m_btnConnLevel) m_btnConnLevel->setText(
         trk(QStringLiteral("t_level_btn_001"), QStringLiteral("Nivelar"), QStringLiteral("Level"), QStringLiteral("同步快照")));
     if (m_btnConnSync) m_btnConnSync->setText(
@@ -122,6 +124,7 @@ void MainWindow::updateConnectionActionsState() {
         if (m_btnConnToDir) m_btnConnToDir->setEnabled(false);
         if (m_btnConnCopy) m_btnConnCopy->setEnabled(false);
         if (m_btnConnClone) m_btnConnClone->setEnabled(false);
+        if (m_btnConnDiff) m_btnConnDiff->setEnabled(false);
         if (m_btnConnLevel) m_btnConnLevel->setEnabled(false);
         if (m_btnConnSync) m_btnConnSync->setEnabled(false);
         if (m_activeConnActionBtn) {
@@ -241,7 +244,15 @@ void MainWindow::updateConnectionActionsState() {
                 m_connActionDest.poolName.trimmed(),
                 Qt::CaseInsensitive) == 0);
     const bool cloneEnabled = srcSnap && dstDs && !dstSnap && samePoolForClone;
+    const bool diffEnabled = srcSnap
+        && dstDs
+        && samePoolForClone
+        && m_connActionOrigin.datasetName.trimmed().compare(m_connActionDest.datasetName.trimmed(), Qt::CaseInsensitive) == 0
+        && (!dstSnap || m_connActionOrigin.snapshotName.trimmed().compare(
+                            m_connActionDest.snapshotName.trimmed(),
+                            Qt::CaseInsensitive) != 0);
     if (m_btnConnClone) m_btnConnClone->setEnabled(!actionsLocked() && cloneEnabled && transferVersionAllowed);
+    if (m_btnConnDiff) m_btnConnDiff->setEnabled(!actionsLocked() && diffEnabled);
     if (m_btnConnLevel) m_btnConnLevel->setEnabled(!actionsLocked() && st.levelEnabled && transferVersionAllowed);
     if (m_btnConnSync) m_btnConnSync->setEnabled(!actionsLocked() && st.syncEnabled && transferVersionAllowed);
 
@@ -347,11 +358,13 @@ void MainWindow::executeConnectionTransferAction(const QString& action) {
     if (!src.valid || src.datasetName.isEmpty() || !dst.valid || dst.datasetName.isEmpty()) {
         return;
     }
-    QString transferVersionReason;
-    if (!isTransferVersionAllowed(src, dst, &transferVersionReason)) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), transferVersionReason);
-        appLog(QStringLiteral("WARN"), transferVersionReason);
-        return;
+    if (action != QStringLiteral("diff")) {
+        QString transferVersionReason;
+        if (!isTransferVersionAllowed(src, dst, &transferVersionReason)) {
+            QMessageBox::warning(this, QStringLiteral("ZFSMgr"), transferVersionReason);
+            appLog(QStringLiteral("WARN"), transferVersionReason);
+            return;
+        }
     }
     // Fuerza el uso de la selección real Origen/Destino de Conexiones
     // (árbol superior/inferior), evitando depender de combos legacy ocultos.
@@ -363,6 +376,8 @@ void MainWindow::executeConnectionTransferAction(const QString& action) {
         actionCopySnapshot();
     } else if (action == QStringLiteral("clone")) {
         actionCloneSnapshot();
+    } else if (action == QStringLiteral("diff")) {
+        actionDiffSnapshot();
     } else if (action == QStringLiteral("level")) {
         actionLevelSnapshot();
     } else if (action == QStringLiteral("sync")) {

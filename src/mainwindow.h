@@ -188,6 +188,7 @@ private:
                 int& rc,
                 const std::function<void(const QString&)>& onStdoutLine = {},
                 const std::function<void(const QString&)>& onStderrLine = {},
+                const std::function<void(int)>& onIdleTimeoutRemaining = {},
                 WindowsCommandMode windowsMode = WindowsCommandMode::Auto);
     void closeAllSshControlMasters();
     QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
@@ -243,6 +244,7 @@ private:
     bool runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs = 0, bool forceConfirmDialog = false, bool streamProgress = false);
     void actionCopySnapshot();
     void actionCloneSnapshot();
+    void actionDiffSnapshot();
     void actionLevelSnapshot();
     void actionSyncDatasets();
     void actionAdvancedBreakdown();
@@ -342,6 +344,7 @@ private:
     QLabel* m_connDestSelectionLabel{nullptr};
     QPushButton* m_btnConnCopy{nullptr};
     QPushButton* m_btnConnClone{nullptr};
+    QPushButton* m_btnConnDiff{nullptr};
     QPushButton* m_btnConnLevel{nullptr};
     QPushButton* m_btnConnSync{nullptr};
     DatasetSelectionContext m_connActionOrigin;

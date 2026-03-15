@@ -61,3 +61,4 @@ Sobre el encabezado de cualquiera de los treeviews:
 - `Nuevo Hold` solo aplica a snapshots.
 - `Release <hold>` solo aparece sobre un hold o su propiedad `TimeStamp`.
 - El menú del encabezado ajusta el ancho como un doble clic sobre el separador de columnas.
+- La caja `Acciones` incluye también `Diff`, que compara un snapshot de Origen con su dataset padre actual o con otro snapshot del mismo dataset.

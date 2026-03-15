@@ -1973,7 +1973,7 @@ void MainWindow::installMsysForSelectedConnection() {
         QString out;
         QString err;
         int rc = -1;
-        if (!runSsh(p, detectCmd, 30000, out, err, rc, {}, {}, psMode) || rc != 0) {
+        if (!runSsh(p, detectCmd, 30000, out, err, rc, {}, {}, {}, psMode) || rc != 0) {
             if (detailOut) {
                 *detailOut = (err.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : err).simplified().left(220);
             }
@@ -2070,7 +2070,7 @@ void MainWindow::installMsysForSelectedConnection() {
                      QStringLiteral("Instalando/verificando MSYS2 en %1..."),
                      QStringLiteral("Installing/checking MSYS2 on %1..."),
                      QStringLiteral("正在 %1 上安装/检查 MSYS2...")).arg(p.name));
-    const bool ok = runSsh(p, installCmd, 900000, installOut, installErr, installRc, {}, {}, psMode) && installRc == 0;
+    const bool ok = runSsh(p, installCmd, 900000, installOut, installErr, installRc, {}, {}, {}, psMode) && installRc == 0;
     endUiBusy();
 
     if (!ok) {

@@ -139,7 +139,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                                    ? QStringLiteral("[System.Environment]::OSVersion.VersionString")
                                    : QStringLiteral("uname -a");
     const MainWindow::WindowsCommandMode winPsMode = MainWindow::WindowsCommandMode::PowerShellNative;
-    if (!runSsh(p, osProbeCmd, 12000, out, err, rc, {}, {},
+    if (!runSsh(p, osProbeCmd, 12000, out, err, rc, {}, {}, {},
                 isWindowsConnection(p) ? winPsMode : MainWindow::WindowsCommandMode::Auto) || rc != 0) {
         state.status = QStringLiteral("ERROR");
         state.detail = oneLine(err.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : err);
@@ -172,7 +172,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             uOut.clear();
             uErr.clear();
             uRc = -1;
-            if (!runSsh(p, cmd, 8000, uOut, uErr, uRc, {}, {},
+            if (!runSsh(p, cmd, 8000, uOut, uErr, uRc, {}, {}, {},
                         isWindowsConnection(p) ? winPsMode : MainWindow::WindowsCommandMode::Auto) || uRc != 0) {
                 continue;
             }
@@ -189,7 +189,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             QString wOut, wErr;
             int wRc = -1;
             const QString whereCmd = QStringLiteral("where.exe %1").arg(exeName);
-            if (runSsh(p, whereCmd, 12000, wOut, wErr, wRc, {}, {}, winPsMode) && wRc == 0) {
+            if (runSsh(p, whereCmd, 12000, wOut, wErr, wRc, {}, {}, {}, winPsMode) && wRc == 0) {
                 const QStringList lines = wOut.split('\n', Qt::SkipEmptyParts);
                 const QString firstPath = lines.isEmpty() ? QStringLiteral("(sin salida)") : lines.first().trimmed();
                 appLog(QStringLiteral("INFO"),
@@ -227,7 +227,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             "}; "
             "exit 1");
         rc = -1;
-        if (runSsh(p, zfsVersionCmd, 15000, out, err, rc, {}, {}, winPsMode)) {
+        if (runSsh(p, zfsVersionCmd, 15000, out, err, rc, {}, {}, {}, winPsMode)) {
             const QString merged = out + QStringLiteral("\n") + err;
             const QString parsed = mwhelpers::parseOpenZfsVersionText(merged);
             if (!parsed.isEmpty()) {
@@ -257,7 +257,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             err.clear();
             rc = -1;
             const QString zfsVersionCmd = withSudo(p, cand);
-            if (!runSsh(p, zfsVersionCmd, 12000, out, err, rc, {}, {},
+            if (!runSsh(p, zfsVersionCmd, 12000, out, err, rc, {}, {}, {},
                         MainWindow::WindowsCommandMode::Auto)) {
                 continue;
             }
@@ -319,7 +319,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 "}; "
                 "if($ok){ Write-Output ('OK:' + $c) } else { Write-Output ('KO:' + $c) } }")
                     .arg(wanted.join(' '));
-            if (runSsh(p, roots, 15000, dout, derr, drc, {}, {}, winPsMode) && drc == 0) {
+            if (runSsh(p, roots, 15000, dout, derr, drc, {}, {}, {}, winPsMode) && drc == 0) {
                 const QStringList lines = dout.split('\n', Qt::SkipEmptyParts);
                 bool noLayer = false;
                 for (const QString& raw : lines) {

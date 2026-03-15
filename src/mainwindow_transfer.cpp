@@ -4,11 +4,15 @@
 #include <QCheckBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QFileInfo>
 #include <QFormLayout>
+#include <QHeaderView>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QRegularExpression>
+#include <QTreeWidget>
+#include <QVBoxLayout>
 
 namespace {
 using mwhelpers::isMountedValueTrue;
@@ -291,6 +295,230 @@ void MainWindow::actionCloneSnapshot() {
         refreshConnectionByIndex(dst.connIdx);
         reloadDatasetSide(QStringLiteral("dest"));
     }
+}
+
+void MainWindow::actionDiffSnapshot() {
+    const DatasetSelectionContext src = currentDatasetSelection(QStringLiteral("origin"));
+    const DatasetSelectionContext dst = currentDatasetSelection(QStringLiteral("dest"));
+    if (!src.valid || !dst.valid || src.snapshotName.isEmpty() || src.datasetName.isEmpty() || dst.datasetName.isEmpty()) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_diff_need_sel001"),
+                QStringLiteral("Para Diff debe seleccionar:\n"
+                               "- En Origen: un snapshot\n"
+                               "- En Destino: su dataset padre o un snapshot del mismo dataset.")));
+        return;
+    }
+    if (src.connIdx != dst.connIdx) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_diff_same_conn001"),
+                QStringLiteral("Diff requiere que Origen y Destino estén en la misma conexión.")));
+        return;
+    }
+    if (src.poolName.trimmed().compare(dst.poolName.trimmed(), Qt::CaseInsensitive) != 0) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_diff_same_pool001"),
+                QStringLiteral("Diff requiere que Origen y Destino estén en el mismo pool.")));
+        return;
+    }
+    if (src.datasetName.trimmed().compare(dst.datasetName.trimmed(), Qt::CaseInsensitive) != 0) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_diff_same_parent001"),
+                QStringLiteral("Diff requiere que Destino sea el dataset padre del snapshot origen o otro snapshot del mismo dataset.")));
+        return;
+    }
+    if (!dst.snapshotName.isEmpty()
+        && src.snapshotName.trimmed().compare(dst.snapshotName.trimmed(), Qt::CaseInsensitive) == 0) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_diff_other_snap001"),
+                QStringLiteral("Diff entre el mismo snapshot no aporta cambios. Seleccione el dataset padre u otro snapshot.")));
+        return;
+    }
+
+    ConnectionProfile profile = m_profiles[src.connIdx];
+    if (isLocalConnection(profile) && !isWindowsConnection(profile)) {
+        profile.useSudo = true;
+        if (!ensureLocalSudoCredentials(profile)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Diff cancelado: faltan credenciales sudo locales"));
+            return;
+        }
+    }
+
+    const QString srcObj = QStringLiteral("%1@%2").arg(src.datasetName, src.snapshotName);
+    const QString dstObj = dst.snapshotName.isEmpty()
+                               ? dst.datasetName
+                               : QStringLiteral("%1@%2").arg(dst.datasetName, dst.snapshotName);
+    const QString rawCmd = QStringLiteral("zfs diff %1 %2")
+                               .arg(shSingleQuote(srcObj),
+                                    shSingleQuote(dstObj));
+    const QString remoteCmd = withSudo(profile, rawCmd);
+    const QString preview = QStringLiteral("[%1]\n%2")
+                                .arg(QStringLiteral("%1@%2:%3")
+                                         .arg(profile.username, profile.host)
+                                         .arg(profile.port > 0 ? QString::number(profile.port) : QStringLiteral("22")))
+                                .arg(buildSshPreviewCommand(profile, remoteCmd));
+    if (!confirmActionExecution(QStringLiteral("Diff"), {preview})) {
+        return;
+    }
+
+    setActionsLocked(true);
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Diff %1 -> %2").arg(srcObj, dstObj));
+    updateStatus(QStringLiteral("Diff %1::%2").arg(profile.name, src.datasetName));
+    QString out;
+    QString err;
+    int rc = -1;
+    auto progressLogger = [this](const QString& rawLine) {
+        const QString line = rawLine.trimmed();
+        if (line.isEmpty()) {
+            return;
+        }
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("[DIFF] %1").arg(line));
+    };
+    int lastIdleBucket = -1;
+    auto idleLogger = [this, &lastIdleBucket](int remainingSec) {
+        const int bucket = (remainingSec / 10) * 10;
+        if (remainingSec <= 0 || bucket <= 0 || bucket == lastIdleBucket) {
+            return;
+        }
+        lastIdleBucket = bucket;
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("[DIFF] Sin salida todavía. Timeout por inactividad en %1 s.")
+                   .arg(bucket));
+    };
+    const bool ok = runSsh(profile, remoteCmd, 60000, out, err, rc, progressLogger, progressLogger, idleLogger);
+    setActionsLocked(false);
+    if (!ok || rc != 0) {
+        const QString failureDetail = err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err;
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Error en Diff: %1").arg(mwhelpers::oneLine(failureDetail)));
+        QMessageBox::critical(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_diff_fail001"),
+                QStringLiteral("Diff falló:\n%1").arg(failureDetail)));
+        return;
+    }
+
+    auto ensurePathNode = [](QTreeWidgetItem* root,
+                             const QString& rawPath,
+                             const QString& leafLabel = QString(),
+                             const QString& leafToolTip = QString()) {
+        if (!root) {
+            return;
+        }
+        QString path = rawPath.trimmed();
+        if (path.isEmpty()) {
+            if (!leafLabel.isEmpty()) {
+                auto* item = new QTreeWidgetItem(root, QStringList{leafLabel});
+                if (!leafToolTip.isEmpty()) {
+                    item->setToolTip(0, leafToolTip);
+                }
+            }
+            return;
+        }
+        while (path.startsWith('/')) {
+            path.remove(0, 1);
+        }
+        QStringList parts = path.split('/', Qt::SkipEmptyParts);
+        if (parts.isEmpty()) {
+            parts << path;
+        }
+        if (!leafLabel.isEmpty()) {
+            parts[parts.size() - 1] = leafLabel;
+        }
+        QTreeWidgetItem* parent = root;
+        for (const QString& part : parts) {
+            QTreeWidgetItem* child = nullptr;
+            for (int i = 0; i < parent->childCount(); ++i) {
+                if (parent->child(i)->text(0) == part) {
+                    child = parent->child(i);
+                    break;
+                }
+            }
+            if (!child) {
+                child = new QTreeWidgetItem(parent, QStringList{part});
+            }
+            parent = child;
+        }
+        if (!leafToolTip.isEmpty()) {
+            parent->setToolTip(0, leafToolTip);
+        }
+    };
+
+    QDialog dlg(this);
+    dlg.setModal(true);
+    dlg.resize(900, 620);
+    dlg.setWindowTitle(trk(QStringLiteral("t_diff_btn_001"), QStringLiteral("Diff")));
+    auto* rootLayout = new QVBoxLayout(&dlg);
+    auto* tree = new QTreeWidget(&dlg);
+    tree->setColumnCount(1);
+    tree->setHeaderLabel(QStringLiteral("%1 -> %2").arg(srcObj, dstObj));
+    tree->setAlternatingRowColors(true);
+    tree->setRootIsDecorated(true);
+    auto* addedRoot = new QTreeWidgetItem(tree, QStringList{QStringLiteral("Añadido")});
+    auto* deletedRoot = new QTreeWidgetItem(tree, QStringList{QStringLiteral("Borrado")});
+    auto* modifiedRoot = new QTreeWidgetItem(tree, QStringList{QStringLiteral("Modificado")});
+    auto* renamedRoot = new QTreeWidgetItem(tree, QStringList{QStringLiteral("Renombrado")});
+
+    const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+    for (const QString& rawLine : lines) {
+        const QString line = rawLine.trimmed();
+        if (line.isEmpty()) {
+            continue;
+        }
+        const QStringList cols = line.split('\t');
+        if (cols.isEmpty()) {
+            continue;
+        }
+        const QChar kind = cols.value(0).trimmed().isEmpty() ? QChar() : cols.value(0).trimmed().at(0);
+        QString path = cols.size() >= 3 ? cols.value(2).trimmed() : cols.value(cols.size() - 1).trimmed();
+        QString leafLabel;
+        QString leafToolTip;
+        QTreeWidgetItem* targetRoot = modifiedRoot;
+        if (kind == QLatin1Char('+')) {
+            targetRoot = addedRoot;
+        } else if (kind == QLatin1Char('-')) {
+            targetRoot = deletedRoot;
+        } else if (kind == QLatin1Char('M')) {
+            targetRoot = modifiedRoot;
+        } else if (kind == QLatin1Char('R')) {
+            targetRoot = renamedRoot;
+            const QString oldPath = cols.size() >= 3 ? cols.value(2).trimmed() : QString();
+            const QString newPath = cols.size() >= 4 ? cols.value(3).trimmed() : QString();
+            if (!newPath.isEmpty()) {
+                const QString oldLeaf = QFileInfo(oldPath).fileName();
+                const QString newLeaf = QFileInfo(newPath).fileName();
+                leafLabel = oldLeaf.isEmpty()
+                                ? newLeaf
+                                : QStringLiteral("%1 <- %2").arg(newLeaf, oldLeaf);
+                leafToolTip = QStringLiteral("Antes: %1\nAhora: %2").arg(oldPath, newPath);
+                path = newPath;
+            }
+        } else {
+            continue;
+        }
+        ensurePathNode(targetRoot, path, leafLabel, leafToolTip);
+    }
+
+    addedRoot->setExpanded(true);
+    deletedRoot->setExpanded(true);
+    modifiedRoot->setExpanded(true);
+    renamedRoot->setExpanded(true);
+    tree->header()->setStretchLastSection(true);
+    rootLayout->addWidget(tree, 1);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok, &dlg);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    rootLayout->addWidget(bb);
+    dlg.exec();
 }
 
 void MainWindow::actionLevelSnapshot() {
