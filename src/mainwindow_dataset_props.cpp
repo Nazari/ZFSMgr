@@ -168,7 +168,9 @@ bool isDatasetPropertyEditable(const QString& propName,
             QStringLiteral("mountpoint"), QStringLiteral("canmount"), QStringLiteral("recordsize"), QStringLiteral("quota"),
             QStringLiteral("reservation"), QStringLiteral("refquota"), QStringLiteral("refreservation"),
             QStringLiteral("snapdir"), QStringLiteral("exec"), QStringLiteral("setuid"), QStringLiteral("devices"),
-            QStringLiteral("driveletter")
+            QStringLiteral("driveletter"), QStringLiteral("sharesmb"), QStringLiteral("sharenfs"),
+            QStringLiteral("nbmand"), QStringLiteral("overlay"), QStringLiteral("jailed"),
+            QStringLiteral("zoned")
         });
         return s;
     }();

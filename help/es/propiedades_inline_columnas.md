@@ -55,7 +55,11 @@ Las propiedades no marcadas no se muestran en el árbol, aunque sigan estando di
 - Las propiedades editables pueden modificarse directamente en el árbol.
 - Algunas propiedades dependen del sistema operativo de la conexión.
   Si una propiedad no está soportada en ese sistema, se muestra atenuada (`greyed-out`) y no permite edición.
-  Ejemplo: `sharesmb` queda desactivada en conexiones macOS.
+  Ejemplos actuales:
+  - `sharesmb` desactivada en macOS
+  - `jailed` solo editable en FreeBSD
+  - `zoned` y `nbmand` solo editables en Linux
+  - `vscan` desactivada
 - Si una propiedad es heredable, aparece la marca `Inh.` en el nombre.
 - En ese caso la celda de valor puede incluir un control adicional `off/on` para aplicar `zfs inherit`.
 - El estado inicial de ese control refleja si la propiedad ya está heredada o no.

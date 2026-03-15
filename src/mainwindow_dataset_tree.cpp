@@ -93,6 +93,75 @@ bool isDatasetPropertySupportedOnPlatform(const QString& propName, DatasetPlatfo
     return true;
 }
 
+bool isUserProperty(const QString& prop) {
+    return prop.contains(':');
+}
+
+bool isDatasetPropertyEditableInline(const QString& propName,
+                                     const QString& datasetType,
+                                     const QString& source,
+                                     const QString& readonly,
+                                     DatasetPlatformFamily platform) {
+    const QString prop = propName.trimmed().toLower();
+    const QString dsType = datasetType.trimmed().toLower();
+    const QString src = source.trimmed();
+    const QString ro = readonly.trimmed().toLower();
+    if (prop.isEmpty()) {
+        return false;
+    }
+    if (!isDatasetPropertySupportedOnPlatform(propName, platform)) {
+        return false;
+    }
+    if (ro == QStringLiteral("true") || ro == QStringLiteral("on") || ro == QStringLiteral("yes") || ro == QStringLiteral("1")) {
+        return false;
+    }
+    if (src == QStringLiteral("-")) {
+        return false;
+    }
+    if (isUserProperty(prop)) {
+        return true;
+    }
+
+    static const QSet<QString> common = {
+        QStringLiteral("atime"), QStringLiteral("relatime"), QStringLiteral("readonly"), QStringLiteral("compression"),
+        QStringLiteral("checksum"), QStringLiteral("sync"), QStringLiteral("logbias"), QStringLiteral("primarycache"),
+        QStringLiteral("secondarycache"), QStringLiteral("dedup"), QStringLiteral("copies"), QStringLiteral("acltype"),
+        QStringLiteral("aclinherit"), QStringLiteral("xattr"), QStringLiteral("normalization"),
+        QStringLiteral("casesensitivity"), QStringLiteral("utf8only"), QStringLiteral("keylocation"), QStringLiteral("comment")
+    };
+    static const QSet<QString> fs = []() {
+        QSet<QString> s = common;
+        s.unite(QSet<QString>{
+            QStringLiteral("mountpoint"), QStringLiteral("canmount"), QStringLiteral("recordsize"), QStringLiteral("quota"),
+            QStringLiteral("reservation"), QStringLiteral("refquota"), QStringLiteral("refreservation"),
+            QStringLiteral("snapdir"), QStringLiteral("exec"), QStringLiteral("setuid"), QStringLiteral("devices"),
+            QStringLiteral("driveletter"), QStringLiteral("sharesmb"), QStringLiteral("sharenfs"),
+            QStringLiteral("nbmand"), QStringLiteral("overlay"), QStringLiteral("jailed"),
+            QStringLiteral("zoned")
+        });
+        return s;
+    }();
+    static const QSet<QString> vol = []() {
+        QSet<QString> s = common;
+        s.unite(QSet<QString>{
+            QStringLiteral("volsize"), QStringLiteral("volblocksize"), QStringLiteral("reservation"),
+            QStringLiteral("refreservation"), QStringLiteral("snapdev"), QStringLiteral("volmode")
+        });
+        return s;
+    }();
+
+    if (dsType == QStringLiteral("filesystem")) {
+        return fs.contains(prop);
+    }
+    if (dsType == QStringLiteral("volume")) {
+        return vol.contains(prop);
+    }
+    if (dsType == QStringLiteral("snapshot")) {
+        return false;
+    }
+    return fs.contains(prop) || vol.contains(prop);
+}
+
 QColor connPropVerticalBorderColor(const QPalette& palette) {
     return palette.color(QPalette::Mid).darker(118);
 }
@@ -777,16 +846,11 @@ void MainWindow::syncConnContentPropertyColumns() {
             if (row.prop.compare(prop, Qt::CaseInsensitive) != 0) {
                 continue;
             }
-            if (!isDatasetPropertySupportedOnPlatform(prop, platform)) {
-                return false;
-            }
-            if (isReadonlyFlag(row.readonly)) {
-                return false;
-            }
-            if (row.source.trimmed() == QStringLiteral("-")) {
-                return false;
-            }
-            return true;
+            return isDatasetPropertyEditableInline(row.prop,
+                                                   itCache->datasetType,
+                                                   row.source,
+                                                   row.readonly,
+                                                   platform);
         }
         return false;
     };
@@ -806,16 +870,11 @@ void MainWindow::syncConnContentPropertyColumns() {
             if (row.prop.compare(prop, Qt::CaseInsensitive) != 0) {
                 continue;
             }
-            if (!isDatasetPropertySupportedOnPlatform(prop, platform)) {
-                return false;
-            }
-            if (isReadonlyFlag(row.readonly)) {
-                return false;
-            }
-            if (row.source.trimmed() == QStringLiteral("-")) {
-                return false;
-            }
-            return true;
+            return isDatasetPropertyEditableInline(row.prop,
+                                                   itCache->datasetType,
+                                                   row.source,
+                                                   row.readonly,
+                                                   platform);
         }
         return false;
     };
