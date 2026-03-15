@@ -83,6 +83,20 @@ void MainWindow::endUiBusy() {
     updateBusyCursor();
 }
 
+void MainWindow::beginTransientUiBusy(const QString& statusText) {
+    m_transientStatusStack.push_back(m_statusText ? m_statusText->toPlainText() : QString());
+    beginUiBusy();
+    if (!statusText.trimmed().isEmpty()) {
+        updateStatus(statusText);
+    }
+}
+
+void MainWindow::endTransientUiBusy() {
+    const QString previous = m_transientStatusStack.isEmpty() ? QString() : m_transientStatusStack.takeLast();
+    endUiBusy();
+    updateStatus(previous);
+}
+
 void MainWindow::updateBusyCursor() {
     const bool shouldShow = m_actionsLocked || m_refreshInProgress || (m_uiBusyDepth > 0);
     if (shouldShow) {

@@ -340,6 +340,8 @@ private:
     void updateStatus(const QString& text);
     void beginUiBusy();
     void endUiBusy();
+    void beginTransientUiBusy(const QString& statusText);
+    void endTransientUiBusy();
     void updateBusyCursor();
     void setActionsLocked(bool locked);
     bool actionsLocked() const;
@@ -510,6 +512,7 @@ private:
     bool m_actionsLocked{false};
     bool m_waitCursorActive{false};
     int m_uiBusyDepth{0};
+    QStringList m_transientStatusStack;
     bool m_cancelActionRequested{false};
     QProcess* m_activeLocalProcess{nullptr};
     qint64 m_activeLocalPid{-1};

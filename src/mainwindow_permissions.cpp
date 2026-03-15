@@ -28,6 +28,7 @@ constexpr int kConnPermissionsEntryNameRole = Qt::UserRole + 30;
 constexpr int kConnPermissionsPendingRole = Qt::UserRole + 31;
 constexpr int kConnPropRowRole = Qt::UserRole + 13;
 constexpr int kConnPropRowKindRole = Qt::UserRole + 16;
+constexpr int kConnInlineCellUsedRole = Qt::UserRole + 32;
 
 enum class PermissionsSection {
     None,
@@ -600,6 +601,15 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
     if (!tree || !datasetItem) {
         return;
     }
+    beginTransientUiBusy(QStringLiteral("Leyendo permisos..."));
+    struct BusyGuard final {
+        MainWindow* self;
+        ~BusyGuard() {
+            if (self) {
+                self->endTransientUiBusy();
+            }
+        }
+    } busyGuard{this};
     const QSignalBlocker blocker(tree);
     const QString datasetName = datasetItem->data(0, Qt::UserRole).toString().trimmed();
     const QString snapshotName = datasetItem->data(1, Qt::UserRole).toString().trimmed();
@@ -621,6 +631,8 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
     if (!permissionsNode) {
         return;
     }
+
+    updateStatus(QStringLiteral("Leyendo permisos de %1").arg(datasetName));
 
     if (forceReload) {
         m_datasetPermissionsCache.remove(datasetPermissionsCacheKey(connIdx, poolName, datasetName));
@@ -690,9 +702,6 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
             rowValues->setFlags(rowValues->flags() & ~Qt::ItemIsUserCheckable);
             rowValues->setText(0, QString());
             rowValues->setSizeHint(0, QSize(0, 30));
-            for (int col = 0; col < tree->columnCount(); ++col) {
-                rowNames->setBackground(col, QBrush(nameRowBg));
-            }
             for (int off = 0; off < propCols; ++off) {
                 const int idx = base + off;
                 if (idx >= allSetTokens.size()) {
@@ -700,6 +709,9 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
                 }
                 const QString perm = allSetTokens.at(idx);
                 const int col = 4 + off;
+                rowNames->setData(col, kConnInlineCellUsedRole, true);
+                rowValues->setData(col, kConnInlineCellUsedRole, true);
+                rowNames->setBackground(col, QBrush(nameRowBg));
                 rowNames->setText(col, perm);
                 rowNames->setTextAlignment(col, Qt::AlignCenter);
                 rowNames->setData(col, kConnPermissionsEntryNameRole, perm);
@@ -819,9 +831,6 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
         rowValues->setFlags(rowValues->flags() & ~Qt::ItemIsUserCheckable);
         rowValues->setText(0, QString());
         rowValues->setSizeHint(0, QSize(0, 30));
-        for (int col = 0; col < tree->columnCount(); ++col) {
-            rowNames->setBackground(col, QBrush(nameRowBg));
-        }
         for (int off = 0; off < propCols; ++off) {
             const int idx = base + off;
             if (idx >= allSetTokens.size()) {
@@ -829,6 +838,9 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
             }
             const QString perm = allSetTokens.at(idx);
             const int col = 4 + off;
+            rowNames->setData(col, kConnInlineCellUsedRole, true);
+            rowValues->setData(col, kConnInlineCellUsedRole, true);
+            rowNames->setBackground(col, QBrush(nameRowBg));
             rowNames->setText(col, perm);
             rowNames->setTextAlignment(col, Qt::AlignCenter);
             rowNames->setData(col, kConnPermissionsEntryNameRole, perm);
@@ -933,9 +945,6 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
             rowValues->setFlags(rowValues->flags() & ~Qt::ItemIsUserCheckable);
             rowValues->setText(0, QString());
             rowValues->setSizeHint(0, QSize(0, 30));
-            for (int col = 0; col < tree->columnCount(); ++col) {
-                rowNames->setBackground(col, QBrush(nameRowBg));
-            }
             for (int off = 0; off < propCols; ++off) {
                 const int idx = base + off;
                 if (idx >= allSetTokens.size()) {
@@ -943,6 +952,9 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
                 }
                 const QString perm = allSetTokens.at(idx);
                 const int col = 4 + off;
+                rowNames->setData(col, kConnInlineCellUsedRole, true);
+                rowValues->setData(col, kConnInlineCellUsedRole, true);
+                rowNames->setBackground(col, QBrush(nameRowBg));
                 rowNames->setText(col, perm);
                 rowNames->setTextAlignment(col, Qt::AlignCenter);
                 rowNames->setData(col, kConnPermissionsEntryNameRole, perm);

@@ -37,6 +37,7 @@ constexpr int kConnPropRowRole = Qt::UserRole + 13;
 constexpr int kConnPropKeyRole = Qt::UserRole + 14;
 constexpr int kConnPropEditableRole = Qt::UserRole + 15;
 constexpr int kConnPropRowKindRole = Qt::UserRole + 16; // 1=name, 2=value
+constexpr int kConnInlineCellUsedRole = Qt::UserRole + 32;
 constexpr int kConnPropGroupNodeRole = Qt::UserRole + 17;
 constexpr int kConnPropGroupNameRole = Qt::UserRole + 18;
 constexpr int kConnContentNodeRole = Qt::UserRole + 19;
@@ -734,7 +735,17 @@ void MainWindow::syncConnContentPropertyColumns() {
                 continue;
             }
             if (c->data(0, kConnPropGroupNodeRole).toBool()) {
-                delete n->takeChild(i);
+                const bool isMainPropsNode =
+                    c->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
+                    && c->text(0).trimmed() == trk(QStringLiteral("t_props_lbl_001"),
+                                                   QStringLiteral("Propiedades"),
+                                                   QStringLiteral("Properties"),
+                                                   QStringLiteral("属性"));
+                if (isMainPropsNode) {
+                    self(self, c);
+                } else {
+                    delete n->takeChild(i);
+                }
                 continue;
             }
             self(self, c);
@@ -1039,8 +1050,8 @@ void MainWindow::syncConnContentPropertyColumns() {
         rowValues->setText(0, QString());
         rowValues->setSizeHint(0, QSize(0, 33));
         const QColor nameRowBg(232, 240, 250);
-        for (int col = 0; col < tree->columnCount(); ++col) {
-            rowNames->setBackground(col, QBrush(nameRowBg));
+        if (base == 0 && titleInFirstRow) {
+            rowNames->setBackground(0, QBrush(nameRowBg));
         }
             if (insertAt >= 0) {
                 parentNode->insertChild(insertAt++, rowNames);
@@ -1060,6 +1071,9 @@ void MainWindow::syncConnContentPropertyColumns() {
             const QString value = it->value(prop);
             const QString propLower = prop.trimmed().toLower();
             const bool inheritable = isInheritableProp(prop);
+            rowNames->setData(col, kConnInlineCellUsedRole, true);
+            rowValues->setData(col, kConnInlineCellUsedRole, true);
+            rowNames->setBackground(col, QBrush(nameRowBg));
             const QString propLabel =
                 (propLower == QStringLiteral("estado"))
                     ? trk(QStringLiteral("t_montado_a97484"),
@@ -1340,16 +1354,33 @@ void MainWindow::syncConnContentPropertyColumns() {
         return insertAt;
     };
     int insertAt = 0;
-    auto* propsNode = new QTreeWidgetItem();
-    propsNode->setText(0, trk(QStringLiteral("t_props_lbl_001"),
-                              QStringLiteral("Propiedades"),
-                              QStringLiteral("Properties"),
-                              QStringLiteral("属性")));
-    propsNode->setData(0, kConnPropGroupNodeRole, true);
-    propsNode->setData(0, kConnPropGroupNameRole, QString());
-    propsNode->setData(0, kConnIdxRole, itemConnIdx);
-    propsNode->setData(0, kPoolNameRole, itemPool);
-    sel->insertChild(insertAt++, propsNode);
+    QTreeWidgetItem* propsNode = nullptr;
+    for (int i = 0; i < sel->childCount(); ++i) {
+        QTreeWidgetItem* child = sel->child(i);
+        if (!child || !child->data(0, kConnPropGroupNodeRole).toBool()) {
+            continue;
+        }
+        if (child->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
+            && child->text(0).trimmed() == trk(QStringLiteral("t_props_lbl_001"),
+                                               QStringLiteral("Propiedades"),
+                                               QStringLiteral("Properties"),
+                                               QStringLiteral("属性"))) {
+            propsNode = child;
+            break;
+        }
+    }
+    if (!propsNode) {
+        propsNode = new QTreeWidgetItem();
+        propsNode->setText(0, trk(QStringLiteral("t_props_lbl_001"),
+                                  QStringLiteral("Propiedades"),
+                                  QStringLiteral("Properties"),
+                                  QStringLiteral("属性")));
+        propsNode->setData(0, kConnPropGroupNodeRole, true);
+        propsNode->setData(0, kConnPropGroupNameRole, QString());
+        propsNode->setData(0, kConnIdxRole, itemConnIdx);
+        propsNode->setData(0, kPoolNameRole, itemPool);
+        sel->insertChild(insertAt++, propsNode);
+    }
     appendPropRows(propsNode,
                    QString(),
                    mainProps,
@@ -1735,9 +1766,6 @@ void MainWindow::syncConnContentPoolColumns() {
             rowNames->setData(0, kConnPropRowRole, true);
             rowNames->setData(0, kConnPropRowKindRole, 1);
             rowNames->setFlags(rowNames->flags() & ~Qt::ItemIsUserCheckable);
-            for (int col = 0; col < m_connContentTree->columnCount(); ++col) {
-                rowNames->setBackground(col, QBrush(nameRowBg));
-            }
             for (int off = 0; off < propCols; ++off) {
                 const int idx = base + off;
                 if (idx >= names.size()) {
@@ -1745,6 +1773,8 @@ void MainWindow::syncConnContentPoolColumns() {
                 }
                 const QString& name = names.at(idx);
                 const int col = 4 + off;
+                rowNames->setData(col, kConnInlineCellUsedRole, true);
+                rowNames->setBackground(col, QBrush(nameRowBg));
                 rowNames->setText(col, name);
                 rowNames->setTextAlignment(col, Qt::AlignCenter);
                 rowNames->setData(col, kConnPropKeyRole, name);
@@ -1763,6 +1793,7 @@ void MainWindow::syncConnContentPoolColumns() {
                 }
                 const QString& name = names.at(idx);
                 const int col = 4 + off;
+                rowValues->setData(col, kConnInlineCellUsedRole, true);
                 rowValues->setText(col, valuesByName ? valuesByName->value(name) : QString());
                 rowValues->setTextAlignment(col, Qt::AlignCenter);
                 rowValues->setData(col, kConnPropKeyRole, name);

@@ -354,7 +354,7 @@ QString MainWindow::datasetPropsCacheKey(int connIdx, const QString& poolName, c
 }
 
 void MainWindow::refreshDatasetProperties(const QString& side) {
-    beginUiBusy();
+    beginTransientUiBusy(QStringLiteral("Leyendo propiedades..."));
     auto saveCurrentDraft = [this]() {
         if (!m_propsDirty || m_propsSide.isEmpty() || m_propsDataset.isEmpty()) {
             return;
@@ -428,7 +428,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     }
     QTableWidget* table = m_connContentPropsTable;
     if (!table) {
-        endUiBusy();
+        endTransientUiBusy();
         return;
     }
     if (dataset.isEmpty()) {
@@ -442,9 +442,10 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         m_propsOriginalInherit.clear();
         m_propsDirty = false;
         updateApplyPropsButtonState();
-        endUiBusy();
+        endTransientUiBusy();
         return;
     }
+    updateStatus(QStringLiteral("Leyendo propiedades de %1").arg(snapshot.isEmpty() ? dataset : QStringLiteral("%1@%2").arg(dataset, snapshot)));
 
     QString token;
     if (side == QStringLiteral("origin")) {
@@ -465,7 +466,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     const int sep = token.indexOf(QStringLiteral("::"));
     if (sep <= 0) {
         m_propsToken.clear();
-        endUiBusy();
+        endTransientUiBusy();
         return;
     }
     const int connIdx = token.left(sep).toInt();
@@ -473,13 +474,13 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     const QString key = datasetCacheKey(connIdx, poolName);
     const auto it = m_poolDatasetCache.constFind(key);
     if (it == m_poolDatasetCache.constEnd()) {
-        endUiBusy();
+        endTransientUiBusy();
         return;
     }
     const PoolDatasetCache& cache = it.value();
     const auto recIt = cache.recordByName.constFind(dataset);
     if (recIt == cache.recordByName.constEnd()) {
-        endUiBusy();
+        endTransientUiBusy();
         return;
     }
     const DatasetRecord& rec = recIt.value();
@@ -841,7 +842,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     setTablePopulationMode(table, false);
     m_loadingPropsTable = false;
     updateApplyPropsButtonState();
-    endUiBusy();
+    endTransientUiBusy();
 }
 
 void MainWindow::onDatasetPropsCellChanged(int row, int col) {

@@ -78,6 +78,7 @@ constexpr int kConnPermissionsTargetTypeRole = Qt::UserRole + 28;
 constexpr int kConnPermissionsTargetNameRole = Qt::UserRole + 29;
 constexpr int kConnPermissionsEntryNameRole = Qt::UserRole + 30;
 constexpr int kConnPermissionsPendingRole = Qt::UserRole + 31;
+constexpr int kConnInlineCellUsedRole = Qt::UserRole + 32;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 
 class ConnContentPropBorderDelegate final : public QStyledItemDelegate {
@@ -98,7 +99,12 @@ public:
         const bool isPropRow = index.sibling(index.row(), 0).data(kConnPropRowRole).toBool();
         if (isPropRow) {
             const int kind = index.sibling(index.row(), 0).data(kConnPropRowKindRole).toInt();
+            const bool used = index.data(kConnInlineCellUsedRole).toBool();
             if (kind == 1 || kind == 2) {
+                if (!used) {
+                    painter->restore();
+                    return;
+                }
                 painter->fillRect(QRect(r.left(), r.top(), 1, r.height()), vBorder);
                 painter->fillRect(QRect(r.right(), r.top(), 1, r.height()), vBorder);
                 if (kind == 1) {
@@ -115,7 +121,8 @@ public:
             const QModelIndex prev = index.sibling(index.row() - 1, 0);
             if (prev.isValid()
                 && prev.data(kConnPropRowRole).toBool()
-                && prev.data(kConnPropRowKindRole).toInt() == 2) {
+                && prev.data(kConnPropRowKindRole).toInt() == 2
+                && prev.sibling(prev.row(), index.column()).data(kConnInlineCellUsedRole).toBool()) {
                 painter->fillRect(QRect(r.left(), r.top(), r.width(), 1), hBorder);
             }
         }
@@ -3379,6 +3386,31 @@ void MainWindow::buildUi() {
     };
 
     if (m_bottomConnContentTree) {
+        connect(m_bottomConnContentTree, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem* item, int) {
+            if (!m_bottomConnContentTree || !item
+                || !item->data(0, kConnPermissionsNodeRole).toBool()
+                || item->data(0, kConnPermissionsKindRole).toString() != QStringLiteral("root")) {
+                return;
+            }
+            QTreeWidgetItem* owner = item->parent();
+            if (!owner) {
+                return;
+            }
+            const bool wasEmpty = (item->childCount() == 0);
+            QTimer::singleShot(0, this, [this, tree = m_bottomConnContentTree, owner, item, wasEmpty]() {
+                if (!tree || !owner || !item) {
+                    return;
+                }
+                if (wasEmpty && item->childCount() == 0) {
+                    populateDatasetPermissionsNode(tree, owner, false);
+                }
+                if (wasEmpty) {
+                    item->setExpanded(true);
+                } else {
+                    item->setExpanded(!item->isExpanded());
+                }
+            });
+        });
         connect(m_bottomConnContentTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
             if (!m_bottomConnContentTree || m_syncingConnContentColumns || m_rebuildingBottomConnContentTree) {
                 return;
@@ -4673,6 +4705,31 @@ void MainWindow::buildUi() {
     };
 
     if (m_connContentTree) {
+        connect(m_connContentTree, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem* item, int) {
+            if (!m_connContentTree || !item
+                || !item->data(0, kConnPermissionsNodeRole).toBool()
+                || item->data(0, kConnPermissionsKindRole).toString() != QStringLiteral("root")) {
+                return;
+            }
+            QTreeWidgetItem* owner = item->parent();
+            if (!owner) {
+                return;
+            }
+            const bool wasEmpty = (item->childCount() == 0);
+            QTimer::singleShot(0, this, [this, tree = m_connContentTree, owner, item, wasEmpty]() {
+                if (!tree || !owner || !item) {
+                    return;
+                }
+                if (wasEmpty && item->childCount() == 0) {
+                    populateDatasetPermissionsNode(tree, owner, false);
+                }
+                if (wasEmpty) {
+                    item->setExpanded(true);
+                } else {
+                    item->setExpanded(!item->isExpanded());
+                }
+            });
+        });
         connect(m_connContentTree, &QTreeWidget::itemSelectionChanged, this, [this]() {
             if (m_syncingConnContentColumns) {
                 return;
