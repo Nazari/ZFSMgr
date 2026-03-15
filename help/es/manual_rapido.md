@@ -26,6 +26,7 @@ ZFSMgr gestiona conexiones y acciones ZFS.
 - Cada dataset muestra siempre un nodo `Propiedades` inicialmente colapsado y, si tiene hijos, `Subdatasets (N)`.
 - Cuando hay un snapshot seleccionado en un dataset, ese árbol muestra las propiedades y grupos del snapshot, y aparece además `Holds (N)`.
 - Las propiedades inline pueden incluir edición directa y control de herencia (`Inh.`) cuando aplica.
+- Si una propiedad no está soportada por el sistema operativo de la conexión, aparece atenuada y no se puede editar.
 - Los pools no importables también aparecen como nodo raíz para permitir `Importar`.
 - Logs: panel único `Log combinado` (incluye salida SSH/PSRP con prefijo de conexión).
 - El encabezado de cada treeview tiene menú contextual para ajustar una columna o todas al contenido y para cambiar `Columnas de propiedades`.

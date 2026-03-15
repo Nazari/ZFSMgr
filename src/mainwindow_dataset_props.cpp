@@ -82,12 +82,67 @@ bool isUserProperty(const QString& prop) {
     return prop.contains(':');
 }
 
-bool isDatasetPropertyEditable(const QString& propName, const QString& datasetType, const QString& source, const QString& readonly) {
+enum class DatasetPlatformFamily {
+    Linux,
+    MacOS,
+    FreeBSD,
+    Windows,
+    Other,
+};
+
+DatasetPlatformFamily datasetPlatformFamilyFromStrings(const QString& osType, const QString& osLine) {
+    const QString merged = (osType + QStringLiteral(" ") + osLine).trimmed().toLower();
+    if (merged.contains(QStringLiteral("windows"))) {
+        return DatasetPlatformFamily::Windows;
+    }
+    if (merged.contains(QStringLiteral("darwin")) || merged.contains(QStringLiteral("mac"))) {
+        return DatasetPlatformFamily::MacOS;
+    }
+    if (merged.contains(QStringLiteral("freebsd"))) {
+        return DatasetPlatformFamily::FreeBSD;
+    }
+    if (merged.contains(QStringLiteral("linux"))) {
+        return DatasetPlatformFamily::Linux;
+    }
+    return DatasetPlatformFamily::Other;
+}
+
+bool isDatasetPropertySupportedOnPlatform(const QString& propName, DatasetPlatformFamily platform) {
+    const QString prop = propName.trimmed().toLower();
+    if (prop.isEmpty()) {
+        return false;
+    }
+    if (prop == QStringLiteral("vscan")) {
+        return false;
+    }
+    if (prop == QStringLiteral("jailed")) {
+        return platform == DatasetPlatformFamily::FreeBSD;
+    }
+    if (prop == QStringLiteral("zoned")) {
+        return platform == DatasetPlatformFamily::Linux;
+    }
+    if (prop == QStringLiteral("sharesmb")) {
+        return platform != DatasetPlatformFamily::MacOS;
+    }
+    if (prop == QStringLiteral("nbmand")) {
+        return platform == DatasetPlatformFamily::Linux;
+    }
+    return true;
+}
+
+bool isDatasetPropertyEditable(const QString& propName,
+                               const QString& datasetType,
+                               const QString& source,
+                               const QString& readonly,
+                               DatasetPlatformFamily platform) {
     const QString prop = propName.trimmed().toLower();
     const QString dsType = datasetType.trimmed().toLower();
     const QString src = source.trimmed();
     const QString ro = readonly.trimmed().toLower();
     if (prop.isEmpty()) {
+        return false;
+    }
+    if (!isDatasetPropertySupportedOnPlatform(propName, platform)) {
         return false;
     }
     if (ro == QStringLiteral("true") || ro == QStringLiteral("on") || ro == QStringLiteral("yes") || ro == QStringLiteral("1")) {
@@ -141,7 +196,8 @@ bool isDatasetPropertyEditable(const QString& propName, const QString& datasetTy
 bool isDatasetPropertyInheritable(const QString& propName,
                                   const QString& datasetType,
                                   const QString& source,
-                                  const QString& readonly) {
+                                  const QString& readonly,
+                                  DatasetPlatformFamily platform) {
     const QString prop = propName.trimmed().toLower();
     if (prop.isEmpty()
         || prop == QStringLiteral("dataset")
@@ -150,7 +206,7 @@ bool isDatasetPropertyInheritable(const QString& propName,
         || prop == QStringLiteral("snapshot")) {
         return false;
     }
-    return isDatasetPropertyEditable(propName, datasetType, source, readonly);
+    return isDatasetPropertyEditable(propName, datasetType, source, readonly, platform);
 }
 
 bool isDatasetPropertyCurrentlyInherited(const QString& source) {
@@ -427,6 +483,8 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     const QString draftKey = propsDraftKey(side, token, objectName);
     const ConnectionProfile& p = m_profiles[connIdx];
     const QString propsCacheKey = datasetPropsCacheKey(connIdx, poolName, objectName);
+    const DatasetPlatformFamily platform =
+        datasetPlatformFamilyFromStrings(p.osType, (connIdx >= 0 && connIdx < m_states.size()) ? m_states[connIdx].osLine : QString());
 
     struct PropRow {
         QString prop;
@@ -665,9 +723,21 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         auto* v = new PinnedSortItem(row.value);
         v->setData(Qt::UserRole + 501, (r < pinnedCount) ? r : -1);
         const bool editable =
-            isDatasetPropertyEditable(row.prop, datasetType, row.source, row.readonly);
+            isDatasetPropertyEditable(row.prop, datasetType, row.source, row.readonly, platform);
         if (!editable) {
             v->setFlags(v->flags() & ~Qt::ItemIsEditable);
+            const QColor disabledColor = table->palette().color(QPalette::Disabled, QPalette::Text);
+            k->setForeground(disabledColor);
+            v->setForeground(disabledColor);
+            const QString reason =
+                !isDatasetPropertySupportedOnPlatform(row.prop, platform)
+                    ? trk(QStringLiteral("t_prop_unsupported_platform_001"),
+                          QStringLiteral("Propiedad no soportada en este sistema operativo."))
+                    : QString();
+            if (!reason.isEmpty()) {
+                k->setToolTip(reason);
+                v->setToolTip(reason);
+            }
         }
         if (row.prop == QStringLiteral("estado") || row.prop == QStringLiteral("Tamaño")) {
             v->setFlags(v->flags() & ~Qt::ItemIsEditable);
@@ -704,7 +774,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         auto* inh = new PinnedSortItem();
         inh->setData(Qt::UserRole + 501, (r < pinnedCount) ? r : -1);
         inh->setData(kPropKeyRole, row.prop);
-        const bool inheritable = isDatasetPropertyInheritable(row.prop, datasetType, row.source, row.readonly);
+        const bool inheritable = isDatasetPropertyInheritable(row.prop, datasetType, row.source, row.readonly, platform);
         const bool currentlyInherited = isDatasetPropertyCurrentlyInherited(row.source);
         if (inheritable) {
             inh->setFlags((inh->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled) & ~Qt::ItemIsEditable);

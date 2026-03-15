@@ -45,6 +45,54 @@ constexpr int kConnSnapshotHoldTagRole = Qt::UserRole + 23;
 constexpr int kConnSnapshotHoldTimestampRole = Qt::UserRole + 24;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 
+enum class DatasetPlatformFamily {
+    Linux,
+    MacOS,
+    FreeBSD,
+    Windows,
+    Other,
+};
+
+DatasetPlatformFamily datasetPlatformFamilyFromStrings(const QString& osType, const QString& osLine) {
+    const QString merged = (osType + QStringLiteral(" ") + osLine).trimmed().toLower();
+    if (merged.contains(QStringLiteral("windows"))) {
+        return DatasetPlatformFamily::Windows;
+    }
+    if (merged.contains(QStringLiteral("darwin")) || merged.contains(QStringLiteral("mac"))) {
+        return DatasetPlatformFamily::MacOS;
+    }
+    if (merged.contains(QStringLiteral("freebsd"))) {
+        return DatasetPlatformFamily::FreeBSD;
+    }
+    if (merged.contains(QStringLiteral("linux"))) {
+        return DatasetPlatformFamily::Linux;
+    }
+    return DatasetPlatformFamily::Other;
+}
+
+bool isDatasetPropertySupportedOnPlatform(const QString& propName, DatasetPlatformFamily platform) {
+    const QString prop = propName.trimmed().toLower();
+    if (prop.isEmpty()) {
+        return false;
+    }
+    if (prop == QStringLiteral("vscan")) {
+        return false;
+    }
+    if (prop == QStringLiteral("jailed")) {
+        return platform == DatasetPlatformFamily::FreeBSD;
+    }
+    if (prop == QStringLiteral("zoned")) {
+        return platform == DatasetPlatformFamily::Linux;
+    }
+    if (prop == QStringLiteral("sharesmb")) {
+        return platform != DatasetPlatformFamily::MacOS;
+    }
+    if (prop == QStringLiteral("nbmand")) {
+        return platform == DatasetPlatformFamily::Linux;
+    }
+    return true;
+}
+
 QColor connPropVerticalBorderColor(const QPalette& palette) {
     return palette.color(QPalette::Mid).darker(118);
 }
@@ -686,12 +734,16 @@ void MainWindow::syncConnContentPropertyColumns() {
     const QString itemPool = sel->data(0, kPoolNameRole).toString();
     const QString propsKey = datasetPropsCacheKey(itemConnIdx, itemPool, obj);
     const QString draftToken = QStringLiteral("%1::%2").arg(itemConnIdx).arg(itemPool);
+    const DatasetPlatformFamily platform =
+        datasetPlatformFamilyFromStrings(
+            (itemConnIdx >= 0 && itemConnIdx < m_profiles.size()) ? m_profiles[itemConnIdx].osType : QString(),
+            (itemConnIdx >= 0 && itemConnIdx < m_states.size()) ? m_states[itemConnIdx].osLine : QString());
     auto isReadonlyFlag = [](const QString& v) {
         const QString s = v.trimmed().toLower();
         return s == QStringLiteral("true") || s == QStringLiteral("on")
                || s == QStringLiteral("yes") || s == QStringLiteral("1");
     };
-    auto isEditableProp = [this, &propsKey, &isReadonlyFlag](const QString& prop) -> bool {
+    auto isEditableProp = [this, &propsKey, &isReadonlyFlag, platform](const QString& prop) -> bool {
         if (m_connContentPropsTable) {
             for (int r = 0; r < m_connContentPropsTable->rowCount(); ++r) {
                 QTableWidgetItem* k = m_connContentPropsTable->item(r, 0);
@@ -725,6 +777,9 @@ void MainWindow::syncConnContentPropertyColumns() {
             if (row.prop.compare(prop, Qt::CaseInsensitive) != 0) {
                 continue;
             }
+            if (!isDatasetPropertySupportedOnPlatform(prop, platform)) {
+                return false;
+            }
             if (isReadonlyFlag(row.readonly)) {
                 return false;
             }
@@ -735,7 +790,7 @@ void MainWindow::syncConnContentPropertyColumns() {
         }
         return false;
     };
-    auto isInheritableProp = [this, &propsKey, &isReadonlyFlag, objectIsSnapshot](const QString& prop) -> bool {
+    auto isInheritableProp = [this, &propsKey, &isReadonlyFlag, objectIsSnapshot, platform](const QString& prop) -> bool {
         if (objectIsSnapshot) {
             return false;
         }
@@ -750,6 +805,9 @@ void MainWindow::syncConnContentPropertyColumns() {
         for (const DatasetPropCacheRow& row : itCache->rows) {
             if (row.prop.compare(prop, Qt::CaseInsensitive) != 0) {
                 continue;
+            }
+            if (!isDatasetPropertySupportedOnPlatform(prop, platform)) {
+                return false;
             }
             if (isReadonlyFlag(row.readonly)) {
                 return false;
@@ -802,6 +860,10 @@ void MainWindow::syncConnContentPropertyColumns() {
         }
         return -1;
     };
+    const QColor unsupportedColor = tree->palette().color(QPalette::Disabled, QPalette::Text);
+    const QString unsupportedReason =
+        trk(QStringLiteral("t_prop_unsupported_platform_001"),
+            QStringLiteral("Propiedad no soportada en este sistema operativo."));
     auto appendPropRows = [&](QTreeWidgetItem* parentNode,
                               const QString& title,
                               const QStringList& groupProps,
@@ -858,9 +920,15 @@ void MainWindow::syncConnContentPropertyColumns() {
             rowValues->setText(col, value);
             rowValues->setTextAlignment(col, Qt::AlignCenter);
             rowValues->setData(col, kConnPropKeyRole, prop);
-            const bool enumProp = enumValues.contains(propLower);
-            const bool editable = isEditableProp(prop) || enumProp;
+            const bool editable = isEditableProp(prop);
+            const bool supported = isDatasetPropertySupportedOnPlatform(prop, platform);
             rowValues->setData(col, kConnPropEditableRole, editable);
+            if (!supported) {
+                rowNames->setForeground(col, unsupportedColor);
+                rowValues->setForeground(col, unsupportedColor);
+                rowNames->setToolTip(col, unsupportedReason);
+                rowValues->setToolTip(col, unsupportedReason);
+            }
             if (propLower == QStringLiteral("snapshot")) {
                 QStringList snaps = sel->data(1, kSnapshotListRole).toStringList();
                 QStringList options;
@@ -1060,9 +1128,11 @@ void MainWindow::syncConnContentPropertyColumns() {
                     appLog(QStringLiteral("DEBUG"),
                            QStringLiteral("conncontent Prop. normalization editable=%1 enum=%2 combo=%3")
                                .arg(editable ? QStringLiteral("1") : QStringLiteral("0"),
-                                    enumProp ? QStringLiteral("1") : QStringLiteral("0"),
+                                    (eIt != enumValues.cend()) ? QStringLiteral("1") : QStringLiteral("0"),
                                     (eIt != enumValues.cend()) ? QStringLiteral("1") : QStringLiteral("0")));
                 }
+            } else if (!supported) {
+                rowValues->setFlags(rowValues->flags() & ~Qt::ItemIsEditable);
             }
             }
         }
