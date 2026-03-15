@@ -19,6 +19,8 @@
     <file alias="help/es/accion_desde_dir.md">../help/es/accion_desde_dir.md</file>
     <file alias="help/es/accion_hacia_dir.md">../help/es/accion_hacia_dir.md</file>
     <file alias="help/es/menus_contextuales.md">../help/es/menus_contextuales.md</file>
+    <file alias="help/es/propiedades_inline_columnas.md">../help/es/propiedades_inline_columnas.md</file>
+    <file alias="help/es/conexiones_windows.md">../help/es/conexiones_windows.md</file>
     <file alias="help/es/logs_aplicacion.md">../help/es/logs_aplicacion.md</file>
     <file alias="help/es/configuracion_archivos.md">../help/es/configuracion_archivos.md</file>
     <file alias="help/en/manual_rapido.md">../help/en/manual_rapido.md</file>

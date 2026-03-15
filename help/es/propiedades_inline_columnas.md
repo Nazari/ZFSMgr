@@ -4,7 +4,7 @@ ZFSMgr puede mostrar propiedades de dataset y pool directamente dentro de los á
 
 ## Dónde aparecen
 
-- En un dataset, las propiedades se muestran inline bajo el nodo `Propiedades`.
+- En un dataset, las propiedades se muestran inline bajo el nodo `Propiedades`, que arranca colapsado.
 - En un pool, las propiedades se muestran inline bajo el nodo `Información`.
 - En un snapshot, las propiedades se muestran inline bajo el nodo `Propiedades`.
 
@@ -13,6 +13,7 @@ ZFSMgr puede mostrar propiedades de dataset y pool directamente dentro de los á
 - El número de columnas visibles depende de `Menú > Ventana > Columnas de propiedades`.
 - Cada árbol usa sus propios anchos de columna.
 - Los anchos de columna se guardan en configuración y se restauran al abrir la aplicación.
+- El scroll vertical de ambos treeviews es por píxel para que el desplazamiento sea más suave.
 - Puede ajustar una columna o todas desde el menú contextual del encabezado del treeview.
   El efecto es el mismo que hacer doble clic en el separador de columnas.
 

@@ -33,12 +33,16 @@ Sobre el nodo raíz `Pool`:
 Sobre dataset/snapshot seleccionado:
 
 - `Gestionar visualización de propiedades`
+- `Crear dataset/snapshot/vol`
+- `Borrar Dataset <nombre>`, `Borrar Snapshot <dataset@snapshot>` o `Borrar ZVol <nombre>` según el objetivo real
+- `Encriptación`
+  - `Load key`
+  - `Unload key`
+  - `Change key`
 - `Seleccionar snapshot`
 - `Rollback`
-- `Crear dataset/snapshot/vol`
 - `Nuevo Hold`
 - `Release <hold>`
-- `Borrar Dataset <nombre>`, `Borrar Snapshot <dataset@snapshot>` o `Borrar ZVol <nombre>` según el objetivo real
 - `Desglosar`
 - `Ensamblar`
 - `Desde Dir`
@@ -60,5 +64,7 @@ Sobre el encabezado de cualquiera de los treeviews:
 - En snapshots, la propiedad `snapshot` queda fija en el grupo principal.
 - `Nuevo Hold` solo aplica a snapshots.
 - `Release <hold>` solo aparece sobre un hold o su propiedad `TimeStamp`.
+- `Encriptación` solo se habilita en datasets que son raíz de encriptación.
+- Si `keylocation=prompt`, `Load key` pide la clave y `Change key` abre una ventana para introducir la nueva clave dos veces.
 - El menú del encabezado ajusta el ancho como un doble clic sobre el separador de columnas.
 - La caja `Acciones` incluye también `Diff`, que compara un snapshot de Origen con su dataset padre actual o con otro snapshot del mismo dataset.
