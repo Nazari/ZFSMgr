@@ -2431,6 +2431,12 @@ void MainWindow::buildUi() {
 
         const QString prevToken = m_connContentToken;
         QTreeWidget* prevTree = m_connContentTree;
+        const bool isBottomTree = (tree == m_bottomConnContentTree);
+        if (isBottomTree) {
+            saveBottomTreeStateForConnection(connIdx);
+        } else {
+            saveTopTreeStateForConnection(connIdx);
+        }
         m_connContentTree = tree;
         m_connContentToken = token;
         if (poolContext) {
@@ -2440,6 +2446,11 @@ void MainWindow::buildUi() {
         }
         m_connContentTree = prevTree;
         m_connContentToken = prevToken;
+        if (isBottomTree) {
+            restoreBottomTreeStateForConnection(connIdx);
+        } else {
+            restoreTopTreeStateForConnection(connIdx);
+        }
     };
     auto executeDatasetActionWithStdin =
         [this](const QString& side,
