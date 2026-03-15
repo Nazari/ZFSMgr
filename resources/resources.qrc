@@ -11,6 +11,7 @@
     <file alias="help/es/atajos_estados.md">../help/es/atajos_estados.md</file>
     <file alias="help/es/accion_copiar.md">../help/es/accion_copiar.md</file>
     <file alias="help/es/accion_clonar.md">../help/es/accion_clonar.md</file>
+    <file alias="help/es/accion_diff.md">../help/es/accion_diff.md</file>
     <file alias="help/es/accion_sincronizar.md">../help/es/accion_sincronizar.md</file>
     <file alias="help/es/accion_nivelar.md">../help/es/accion_nivelar.md</file>
     <file alias="help/es/accion_desglosar.md">../help/es/accion_desglosar.md</file>
