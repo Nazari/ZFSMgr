@@ -135,6 +135,10 @@ fi
 if [[ -n "${QT_PREFIX}" ]]; then
   export PATH="${QT_PREFIX}/bin:${PATH}"
   export CMAKE_PREFIX_PATH="${QT_PREFIX}:${CMAKE_PREFIX_PATH:-}"
+  export QT_PLUGIN_PATH="${QT_PREFIX}/plugins"
+  export QML2_IMPORT_PATH="${QT_PREFIX}/qml"
+  export DYLD_FRAMEWORK_PATH="${QT_PREFIX}/lib"
+  export DYLD_LIBRARY_PATH="${QT_PREFIX}/lib"
 fi
 
 if [[ -d "/opt/homebrew/opt/openssl@3" ]]; then
@@ -173,7 +177,17 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
 
   # Empaqueta frameworks/plugins de Qt dentro del .app (sin firma).
   if command -v macdeployqt >/dev/null 2>&1; then
-    macdeployqt "${APP_BUNDLE}" -always-overwrite
+    macdeployqt_args=("${APP_BUNDLE}" -always-overwrite)
+    if [[ -n "${QT_PREFIX}" && -d "${QT_PREFIX}/lib" ]]; then
+      macdeployqt_args+=("-libpath=${QT_PREFIX}/lib")
+    fi
+    if [[ -n "${QT_PREFIX}" && -d "${QT_PREFIX}/plugins" ]]; then
+      macdeployqt_args+=("-plugindir=${QT_PREFIX}/plugins")
+    fi
+    if [[ -n "${QT_PREFIX}" && -d "${QT_PREFIX}/qml" ]]; then
+      macdeployqt_args+=("-qmldir=${PROJECT_ROOT}/src")
+    fi
+    "${QT_PREFIX}/bin/macdeployqt" "${macdeployqt_args[@]}"
   else
     echo "Aviso: macdeployqt no encontrado; el .app puede no ser portable fuera de este equipo."
   fi
