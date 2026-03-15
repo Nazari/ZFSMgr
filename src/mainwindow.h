@@ -163,6 +163,8 @@ private:
     void updateConnectionDetailTitlesForCurrentSelection();
     void saveTopTreeStateForConnection(int connIdx);
     void saveBottomTreeStateForConnection(int connIdx);
+    void restoreTopTreeStateForConnection(int connIdx);
+    void restoreBottomTreeStateForConnection(int connIdx);
     void saveConnContentTreeState(const QString& token);
     void restoreConnContentTreeState(const QString& token);
     void syncConnContentPropertyColumns();

@@ -509,6 +509,13 @@ void MainWindow::buildUi() {
             if (!tree) {
                 return;
             }
+            const bool isBottomTree = (tree == m_bottomConnContentTree);
+            const int connIdx = isBottomTree ? m_bottomDetailConnIdx : m_topDetailConnIdx;
+            if (isBottomTree) {
+                saveBottomTreeStateForConnection(connIdx);
+            } else {
+                saveTopTreeStateForConnection(connIdx);
+            }
             QTreeWidget* prevTree = m_connContentTree;
             m_connContentTree = tree;
             QTreeWidgetItem* cur = tree->currentItem();
@@ -524,6 +531,11 @@ void MainWindow::buildUi() {
                 syncConnContentPropertyColumns();
             }
             m_connContentTree = prevTree;
+            if (isBottomTree) {
+                restoreBottomTreeStateForConnection(connIdx);
+            } else {
+                restoreTopTreeStateForConnection(connIdx);
+            }
         };
         refreshOneConnContentTree(m_connContentTree);
         refreshOneConnContentTree(m_bottomConnContentTree);

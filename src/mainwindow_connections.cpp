@@ -825,6 +825,26 @@ void MainWindow::saveBottomTreeStateForConnection(int connIdx) {
     m_savedBottomSelectedKeyByConn[connIdx] = nav.selectedKey;
 }
 
+void MainWindow::restoreTopTreeStateForConnection(int connIdx) {
+    if (connIdx < 0 || !m_connContentTree) {
+        return;
+    }
+    ConnTreeNavSnapshot nav;
+    nav.expandedKeys = m_savedTopExpandedKeysByConn.value(connIdx);
+    nav.selectedKey = m_savedTopSelectedKeyByConn.value(connIdx);
+    restoreConnTreeNavSnapshot(m_connContentTree, nav);
+}
+
+void MainWindow::restoreBottomTreeStateForConnection(int connIdx) {
+    if (connIdx < 0 || !m_bottomConnContentTree) {
+        return;
+    }
+    ConnTreeNavSnapshot nav;
+    nav.expandedKeys = m_savedBottomExpandedKeysByConn.value(connIdx);
+    nav.selectedKey = m_savedBottomSelectedKeyByConn.value(connIdx);
+    restoreConnTreeNavSnapshot(m_bottomConnContentTree, nav);
+}
+
 void MainWindow::rebuildConnectionEntityTabs() {
     if (!m_connContentTree || !m_connectionsTable) {
         return;
