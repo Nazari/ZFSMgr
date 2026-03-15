@@ -22,6 +22,8 @@
 
 namespace {
 constexpr int kPropKeyRole = Qt::UserRole + 777;
+constexpr int kConnIdxRole = Qt::UserRole + 10;
+constexpr int kPoolNameRole = Qt::UserRole + 11;
 
 class PinnedSortItem final : public QTableWidgetItem {
 public:
@@ -882,7 +884,14 @@ void MainWindow::applyDatasetPropertyChanges() {
     if (actionsLocked()) {
         return;
     }
-    if (m_propsSide == QStringLiteral("conncontent")) {
+    bool hasPendingPermissionDrafts = false;
+    for (auto it = m_datasetPermissionsCache.cbegin(); it != m_datasetPermissionsCache.cend(); ++it) {
+        if (it.value().loaded && it.value().dirty) {
+            hasPendingPermissionDrafts = true;
+            break;
+        }
+    }
+    if (m_propsSide == QStringLiteral("conncontent") || hasPendingPermissionDrafts) {
         auto saveCurrentConnContentDraft = [this]() {
             if (m_propsDataset.isEmpty() || m_propsToken.isEmpty() || !m_connContentPropsTable) {
                 return;
@@ -949,12 +958,6 @@ void MainWindow::applyDatasetPropertyChanges() {
             ctx.datasetName = objectName;
             pending.push_back(PendingDraft{it.key(), token, objectName, ctx, it.value()});
         }
-        if (pending.isEmpty()) {
-            m_propsDirty = false;
-            updateApplyPropsButtonState();
-            return;
-        }
-
         auto isMountedText = [](const QString& v) -> bool {
             const QString s = v.trimmed().toLower();
             return s == QStringLiteral("montado")
@@ -1063,7 +1066,288 @@ void MainWindow::applyDatasetPropertyChanges() {
             m_propsDraftByKey.remove(item.draftKey);
         }
 
-        m_propsDirty = false;
+        auto normalizeTokens = [](QStringList tokens) {
+            QSet<QString> seen;
+            QStringList normalized;
+            for (const QString& token : tokens) {
+                const QString t = token.trimmed();
+                const QString key = t.toLower();
+                if (t.isEmpty() || seen.contains(key)) {
+                    continue;
+                }
+                seen.insert(key);
+                normalized.push_back(t);
+            }
+            normalized.sort(Qt::CaseInsensitive);
+            return normalized;
+        };
+        auto grantKey = [](const DatasetPermissionGrant& grant) {
+            return QStringLiteral("%1|%2|%3")
+                .arg(grant.scope.trimmed().toLower(),
+                     grant.targetType.trimmed().toLower(),
+                     grant.targetName.trimmed().toLower());
+        };
+        auto setKey = [](const DatasetPermissionSet& set) {
+            return set.name.trimmed().toLower();
+        };
+        auto scopeFlagsForPermission = [](const QString& scope) {
+            const QString s = scope.trimmed().toLower();
+            if (s == QStringLiteral("local")) {
+                return QStringLiteral("-l ");
+            }
+            if (s == QStringLiteral("descendant")) {
+                return QStringLiteral("-d ");
+            }
+            return QString();
+        };
+        auto targetFlagsForPermission = [](const QString& targetType, const QString& targetName) {
+            const QString tt = targetType.trimmed().toLower();
+            if (tt == QStringLiteral("user")) {
+                return QStringLiteral("-u %1 ").arg(shSingleQuote(targetName));
+            }
+            if (tt == QStringLiteral("group")) {
+                return QStringLiteral("-g %1 ").arg(shSingleQuote(targetName));
+            }
+            return QStringLiteral("-e ");
+        };
+        auto findDatasetItemByIdentityLocal = [](QTreeWidget* tree,
+                                                 int connIdx,
+                                                 const QString& poolName,
+                                                 const QString& datasetName) -> QTreeWidgetItem* {
+            if (!tree) {
+                return nullptr;
+            }
+            std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* node) -> QTreeWidgetItem* {
+                if (!node) {
+                    return nullptr;
+                }
+                if (node->data(0, Qt::UserRole).toString().trimmed() == datasetName
+                    && node->data(0, kConnIdxRole).toInt() == connIdx
+                    && node->data(0, kPoolNameRole).toString().trimmed() == poolName) {
+                    return node;
+                }
+                for (int i = 0; i < node->childCount(); ++i) {
+                    if (QTreeWidgetItem* found = rec(node->child(i))) {
+                        return found;
+                    }
+                }
+                return nullptr;
+            };
+            for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+                if (QTreeWidgetItem* found = rec(tree->topLevelItem(i))) {
+                    return found;
+                }
+            }
+            return nullptr;
+        };
+
+        QStringList permissionKeysToRefresh;
+        for (auto it = m_datasetPermissionsCache.cbegin(); it != m_datasetPermissionsCache.cend(); ++it) {
+            if (!it.value().loaded || !it.value().dirty) {
+                continue;
+            }
+            permissionKeysToRefresh << it.key();
+        }
+        for (const QString& cacheKey : permissionKeysToRefresh) {
+            auto it = m_datasetPermissionsCache.find(cacheKey);
+            if (it == m_datasetPermissionsCache.end()) {
+                continue;
+            }
+            const QStringList parts = cacheKey.split(QStringLiteral("::"));
+            if (parts.size() < 3) {
+                continue;
+            }
+            bool okConn = false;
+            const int connIdx = parts.at(0).toInt(&okConn);
+            const QString poolName = parts.at(1).trimmed();
+            const QString datasetName = parts.mid(2).join(QStringLiteral("::")).trimmed();
+            if (!okConn || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty() || datasetName.isEmpty()) {
+                continue;
+            }
+            QStringList subcmds;
+            auto appendGrantCommands = [&](const QVector<DatasetPermissionGrant>& original,
+                                           const QVector<DatasetPermissionGrant>& current) {
+                QMap<QString, DatasetPermissionGrant> origMap;
+                QMap<QString, DatasetPermissionGrant> currMap;
+                for (const DatasetPermissionGrant& g : original) {
+                    origMap.insert(grantKey(g), g);
+                }
+                for (const DatasetPermissionGrant& g : current) {
+                    currMap.insert(grantKey(g), g);
+                }
+                QSet<QString> keys;
+                for (auto k = origMap.cbegin(); k != origMap.cend(); ++k) keys.insert(k.key());
+                for (auto k = currMap.cbegin(); k != currMap.cend(); ++k) keys.insert(k.key());
+                for (const QString& key : keys) {
+                    const bool had = origMap.contains(key);
+                    const bool has = currMap.contains(key);
+                    const DatasetPermissionGrant before = origMap.value(key);
+                    const DatasetPermissionGrant after = currMap.value(key);
+                    const QString beforeFlags = scopeFlagsForPermission(before.scope) + targetFlagsForPermission(before.targetType, before.targetName);
+                    const QString afterFlags = scopeFlagsForPermission(after.scope) + targetFlagsForPermission(after.targetType, after.targetName);
+                    const QStringList beforeTokens = normalizeTokens(before.permissions);
+                    const QStringList afterTokens = normalizeTokens(after.permissions);
+                    if (had && (!has || afterTokens.isEmpty())) {
+                        subcmds << QStringLiteral("zfs unallow %1%2")
+                                       .arg(beforeFlags, shSingleQuote(datasetName));
+                        continue;
+                    }
+                    if (!had && has) {
+                        if (!afterTokens.isEmpty()) {
+                            subcmds << QStringLiteral("zfs allow %1%2 %3")
+                                           .arg(afterFlags,
+                                                afterTokens.join(','),
+                                                shSingleQuote(datasetName));
+                        }
+                        continue;
+                    }
+                    if (had && has && beforeTokens != afterTokens) {
+                        QString cmd = QStringLiteral("zfs unallow %1%2")
+                                          .arg(beforeFlags, shSingleQuote(datasetName));
+                        if (!afterTokens.isEmpty()) {
+                            cmd += QStringLiteral(" && zfs allow %1%2 %3")
+                                       .arg(afterFlags,
+                                            afterTokens.join(','),
+                                            shSingleQuote(datasetName));
+                        }
+                        subcmds << cmd;
+                    }
+                }
+            };
+            appendGrantCommands(it->originalLocalGrants, it->localGrants);
+            appendGrantCommands(it->originalDescendantGrants, it->descendantGrants);
+            appendGrantCommands(it->originalLocalDescendantGrants, it->localDescendantGrants);
+
+            const QStringList originalCreate = normalizeTokens(it->originalCreatePermissions);
+            const QStringList currentCreate = normalizeTokens(it->createPermissions);
+            if (originalCreate != currentCreate) {
+                QString cmd = QStringLiteral("zfs unallow -c %1").arg(shSingleQuote(datasetName));
+                if (!currentCreate.isEmpty()) {
+                    cmd += QStringLiteral(" && zfs allow -c %1 %2")
+                               .arg(currentCreate.join(','),
+                                    shSingleQuote(datasetName));
+                }
+                subcmds << cmd;
+            }
+
+            QMap<QString, DatasetPermissionSet> origSets;
+            QMap<QString, DatasetPermissionSet> currSets;
+            for (const DatasetPermissionSet& s : it->originalPermissionSets) {
+                origSets.insert(setKey(s), s);
+            }
+            for (const DatasetPermissionSet& s : it->permissionSets) {
+                currSets.insert(setKey(s), s);
+            }
+            QSet<QString> setKeys;
+            for (auto k = origSets.cbegin(); k != origSets.cend(); ++k) setKeys.insert(k.key());
+            for (auto k = currSets.cbegin(); k != currSets.cend(); ++k) setKeys.insert(k.key());
+            for (const QString& key : setKeys) {
+                const bool had = origSets.contains(key);
+                const bool has = currSets.contains(key);
+                const DatasetPermissionSet before = origSets.value(key);
+                const DatasetPermissionSet after = currSets.value(key);
+                const QStringList beforeTokens = normalizeTokens(before.permissions);
+                const QStringList afterTokens = normalizeTokens(after.permissions);
+                if (had && !has) {
+                    subcmds << QStringLiteral("zfs unallow -s %1 %2")
+                                   .arg(before.name, shSingleQuote(datasetName));
+                    continue;
+                }
+                if (!had && has) {
+                    if (!afterTokens.isEmpty()) {
+                        subcmds << QStringLiteral("zfs allow -s %1 %2 %3")
+                                       .arg(after.name,
+                                            afterTokens.join(','),
+                                            shSingleQuote(datasetName));
+                    }
+                    continue;
+                }
+                if (had && has && (before.name != after.name || beforeTokens != afterTokens)) {
+                    QString cmd = QStringLiteral("zfs unallow -s %1 %2")
+                                      .arg(before.name, shSingleQuote(datasetName));
+                    if (!afterTokens.isEmpty()) {
+                        cmd += QStringLiteral(" && zfs allow -s %1 %2 %3")
+                                   .arg(after.name,
+                                        afterTokens.join(','),
+                                        shSingleQuote(datasetName));
+                    }
+                    subcmds << cmd;
+                }
+            }
+
+            if (subcmds.isEmpty()) {
+                it->dirty = false;
+                continue;
+            }
+
+            DatasetSelectionContext ctx;
+            ctx.valid = true;
+            ctx.connIdx = connIdx;
+            ctx.poolName = poolName;
+            ctx.datasetName = datasetName;
+            const QString tokenForTree = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+            QTreeWidget* prevTree = m_connContentTree;
+            const QString prevToken = m_connContentToken;
+            if (QTreeWidgetItem* ownerNode = findDatasetItemByIdentityLocal(m_connContentTree, connIdx, poolName, datasetName)) {
+                m_connContentTree = m_connContentTree;
+                m_connContentToken = tokenForTree;
+                saveConnContentTreeState(tokenForTree);
+                Q_UNUSED(ownerNode);
+            } else if (QTreeWidgetItem* ownerNode = findDatasetItemByIdentityLocal(m_bottomConnContentTree, connIdx, poolName, datasetName)) {
+                m_connContentTree = m_bottomConnContentTree;
+                m_connContentToken = tokenForTree;
+                saveConnContentTreeState(tokenForTree);
+                Q_UNUSED(ownerNode);
+            }
+            m_connContentTree = prevTree;
+            m_connContentToken = prevToken;
+            const QString cmd = QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
+            if (!executeDatasetAction(QStringLiteral("conncontent"),
+                                      QStringLiteral("Aplicar permisos"),
+                                      ctx,
+                                      cmd,
+                                      60000,
+                                      false)) {
+                updateApplyPropsButtonState();
+                return;
+            }
+            m_datasetPermissionsCache.remove(cacheKey);
+            if (QTreeWidgetItem* ownerNode = findDatasetItemByIdentityLocal(m_connContentTree, connIdx, poolName, datasetName)) {
+                prevTree = m_connContentTree;
+                const QString prevApplyToken = m_connContentToken;
+                m_connContentToken = tokenForTree;
+                populateDatasetPermissionsNode(m_connContentTree, ownerNode, true);
+                restoreConnContentTreeState(tokenForTree);
+                m_connContentToken = prevApplyToken;
+                m_connContentTree = prevTree;
+            }
+            if (QTreeWidgetItem* ownerNode = findDatasetItemByIdentityLocal(m_bottomConnContentTree, connIdx, poolName, datasetName)) {
+                prevTree = m_connContentTree;
+                const QString prevApplyToken = m_connContentToken;
+                m_connContentTree = m_bottomConnContentTree;
+                m_connContentToken = tokenForTree;
+                populateDatasetPermissionsNode(m_bottomConnContentTree, ownerNode, true);
+                restoreConnContentTreeState(tokenForTree);
+                m_connContentToken = prevApplyToken;
+                m_connContentTree = prevTree;
+            }
+        }
+
+        bool hasPropertyDrafts = false;
+        for (auto it = m_propsDraftByKey.cbegin(); it != m_propsDraftByKey.cend(); ++it) {
+            if (it.key().startsWith(QStringLiteral("conncontent|")) && it.value().dirty) {
+                hasPropertyDrafts = true;
+                break;
+            }
+        }
+        bool hasPermissionDrafts = false;
+        for (auto it = m_datasetPermissionsCache.cbegin(); it != m_datasetPermissionsCache.cend(); ++it) {
+            if (it.value().loaded && it.value().dirty) {
+                hasPermissionDrafts = true;
+                break;
+            }
+        }
+        m_propsDirty = hasPropertyDrafts || hasPermissionDrafts;
         if (m_connContentPropsTable && !m_propsDataset.isEmpty()) {
             m_propsOriginalValues.clear();
             m_propsOriginalInherit.clear();
@@ -1493,6 +1777,50 @@ void MainWindow::applyDatasetPropertyChanges() {
 
 QStringList MainWindow::pendingConnContentApplyCommands() const {
     QStringList commands;
+    auto normalizeTokens = [](QStringList tokens) {
+        QSet<QString> seen;
+        QStringList normalized;
+        for (const QString& token : tokens) {
+            const QString t = token.trimmed();
+            const QString key = t.toLower();
+            if (t.isEmpty() || seen.contains(key)) {
+                continue;
+            }
+            seen.insert(key);
+            normalized.push_back(t);
+        }
+        normalized.sort(Qt::CaseInsensitive);
+        return normalized;
+    };
+    auto grantKey = [](const DatasetPermissionGrant& grant) {
+        return QStringLiteral("%1|%2|%3")
+            .arg(grant.scope.trimmed().toLower(),
+                 grant.targetType.trimmed().toLower(),
+                 grant.targetName.trimmed().toLower());
+    };
+    auto setKey = [](const DatasetPermissionSet& set) {
+        return set.name.trimmed().toLower();
+    };
+    auto scopeFlagsForPermission = [](const QString& scope) {
+        const QString s = scope.trimmed().toLower();
+        if (s == QStringLiteral("local")) {
+            return QStringLiteral("-l ");
+        }
+        if (s == QStringLiteral("descendant")) {
+            return QStringLiteral("-d ");
+        }
+        return QString();
+    };
+    auto targetFlagsForPermission = [](const QString& targetType, const QString& targetName) {
+        const QString tt = targetType.trimmed().toLower();
+        if (tt == QStringLiteral("user")) {
+            return QStringLiteral("-u %1 ").arg(shSingleQuote(targetName));
+        }
+        if (tt == QStringLiteral("group")) {
+            return QStringLiteral("-g %1 ").arg(shSingleQuote(targetName));
+        }
+        return QStringLiteral("-e ");
+    };
     auto isMountedText = [](const QString& v) -> bool {
         const QString s = v.trimmed().toLower();
         return s == QStringLiteral("montado")
@@ -1589,6 +1917,133 @@ QStringList MainWindow::pendingConnContentApplyCommands() const {
                 commands << QStringLiteral("zfs set %1 %2")
                                 .arg(shSingleQuote(prop + QStringLiteral("=") + finalValue),
                                      shSingleQuote(objectName));
+            }
+        }
+    }
+    for (auto it = m_datasetPermissionsCache.cbegin(); it != m_datasetPermissionsCache.cend(); ++it) {
+        const DatasetPermissionsCacheEntry& entry = it.value();
+        if (!entry.loaded || !entry.dirty) {
+            continue;
+        }
+        const QStringList parts = it.key().split(QStringLiteral("::"));
+        if (parts.size() < 3) {
+            continue;
+        }
+        bool okConn = false;
+        const int connIdx = parts.at(0).toInt(&okConn);
+        const QString datasetName = parts.mid(2).join(QStringLiteral("::")).trimmed();
+        if (!okConn || connIdx < 0 || connIdx >= m_profiles.size() || datasetName.isEmpty()) {
+            continue;
+        }
+        auto appendGrantCommands = [&](const QVector<DatasetPermissionGrant>& original,
+                                       const QVector<DatasetPermissionGrant>& current) {
+            QMap<QString, DatasetPermissionGrant> origMap;
+            QMap<QString, DatasetPermissionGrant> currMap;
+            for (const DatasetPermissionGrant& g : original) {
+                origMap.insert(grantKey(g), g);
+            }
+            for (const DatasetPermissionGrant& g : current) {
+                currMap.insert(grantKey(g), g);
+            }
+            QSet<QString> keys;
+            for (auto k = origMap.cbegin(); k != origMap.cend(); ++k) keys.insert(k.key());
+            for (auto k = currMap.cbegin(); k != currMap.cend(); ++k) keys.insert(k.key());
+            for (const QString& key : keys) {
+                const bool had = origMap.contains(key);
+                const bool has = currMap.contains(key);
+                const DatasetPermissionGrant before = origMap.value(key);
+                const DatasetPermissionGrant after = currMap.value(key);
+                const QString beforeFlags = scopeFlagsForPermission(before.scope) + targetFlagsForPermission(before.targetType, before.targetName);
+                const QString afterFlags = scopeFlagsForPermission(after.scope) + targetFlagsForPermission(after.targetType, after.targetName);
+                const QStringList beforeTokens = normalizeTokens(before.permissions);
+                const QStringList afterTokens = normalizeTokens(after.permissions);
+                if (had && (!has || afterTokens.isEmpty())) {
+                    commands << QStringLiteral("zfs unallow %1%2")
+                                    .arg(beforeFlags, shSingleQuote(datasetName));
+                    continue;
+                }
+                if (!had && has) {
+                    if (!afterTokens.isEmpty()) {
+                        commands << QStringLiteral("zfs allow %1%2%3 %4")
+                                        .arg(afterFlags,
+                                             afterTokens.join(','),
+                                             QString(),
+                                             shSingleQuote(datasetName));
+                    }
+                    continue;
+                }
+                if (had && has && beforeTokens != afterTokens) {
+                    QString cmd = QStringLiteral("zfs unallow %1%2")
+                                      .arg(beforeFlags, shSingleQuote(datasetName));
+                    if (!afterTokens.isEmpty()) {
+                        cmd += QStringLiteral(" && zfs allow %1%2%3 %4")
+                                   .arg(afterFlags,
+                                        afterTokens.join(','),
+                                        QString(),
+                                        shSingleQuote(datasetName));
+                    }
+                    commands << cmd;
+                }
+            }
+        };
+        appendGrantCommands(entry.originalLocalGrants, entry.localGrants);
+        appendGrantCommands(entry.originalDescendantGrants, entry.descendantGrants);
+        appendGrantCommands(entry.originalLocalDescendantGrants, entry.localDescendantGrants);
+
+        const QStringList originalCreate = normalizeTokens(entry.originalCreatePermissions);
+        const QStringList currentCreate = normalizeTokens(entry.createPermissions);
+        if (originalCreate != currentCreate) {
+            QString cmd = QStringLiteral("zfs unallow -c %1").arg(shSingleQuote(datasetName));
+            if (!currentCreate.isEmpty()) {
+                cmd += QStringLiteral(" && zfs allow -c %1 %2")
+                           .arg(currentCreate.join(','),
+                                shSingleQuote(datasetName));
+            }
+            commands << cmd;
+        }
+
+        QMap<QString, DatasetPermissionSet> origSets;
+        QMap<QString, DatasetPermissionSet> currSets;
+        for (const DatasetPermissionSet& s : entry.originalPermissionSets) {
+            origSets.insert(setKey(s), s);
+        }
+        for (const DatasetPermissionSet& s : entry.permissionSets) {
+            currSets.insert(setKey(s), s);
+        }
+        QSet<QString> setKeys;
+        for (auto k = origSets.cbegin(); k != origSets.cend(); ++k) setKeys.insert(k.key());
+        for (auto k = currSets.cbegin(); k != currSets.cend(); ++k) setKeys.insert(k.key());
+        for (const QString& key : setKeys) {
+            const bool had = origSets.contains(key);
+            const bool has = currSets.contains(key);
+            const DatasetPermissionSet before = origSets.value(key);
+            const DatasetPermissionSet after = currSets.value(key);
+            const QStringList beforeTokens = normalizeTokens(before.permissions);
+            const QStringList afterTokens = normalizeTokens(after.permissions);
+            if (had && !has) {
+                commands << QStringLiteral("zfs unallow -s %1 %2")
+                                .arg(before.name, shSingleQuote(datasetName));
+                continue;
+            }
+            if (!had && has) {
+                if (!afterTokens.isEmpty()) {
+                    commands << QStringLiteral("zfs allow -s %1 %2 %3")
+                                    .arg(after.name,
+                                         afterTokens.join(','),
+                                         shSingleQuote(datasetName));
+                }
+                continue;
+            }
+            if (had && has && (before.name != after.name || beforeTokens != afterTokens)) {
+                QString cmd = QStringLiteral("zfs unallow -s %1 %2")
+                                  .arg(before.name, shSingleQuote(datasetName));
+                if (!afterTokens.isEmpty()) {
+                    cmd += QStringLiteral(" && zfs allow -s %1 %2 %3")
+                               .arg(after.name,
+                                    afterTokens.join(','),
+                                    shSingleQuote(datasetName));
+                }
+                commands << cmd;
             }
         }
     }

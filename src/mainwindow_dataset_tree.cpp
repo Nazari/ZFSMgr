@@ -15,6 +15,7 @@
 #include <QPainter>
 #include <QLineEdit>
 #include <QPointer>
+#include <QScrollBar>
 #include <QSignalBlocker>
 #include <QSet>
 #include <QTableWidget>
@@ -43,6 +44,9 @@ constexpr int kConnSnapshotHoldsNodeRole = Qt::UserRole + 21;
 constexpr int kConnSnapshotHoldItemRole = Qt::UserRole + 22;
 constexpr int kConnSnapshotHoldTagRole = Qt::UserRole + 23;
 constexpr int kConnSnapshotHoldTimestampRole = Qt::UserRole + 24;
+constexpr int kConnPermissionsNodeRole = Qt::UserRole + 25;
+constexpr int kConnPermissionsKindRole = Qt::UserRole + 26;
+constexpr int kConnPermissionsEntryNameRole = Qt::UserRole + 30;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 
 enum class DatasetPlatformFamily {
@@ -91,6 +95,99 @@ bool isDatasetPropertySupportedOnPlatform(const QString& propName, DatasetPlatfo
         return platform == DatasetPlatformFamily::Linux;
     }
     return true;
+}
+
+QString connContentChildStableId(QTreeWidgetItem* node) {
+    if (!node) {
+        return QString();
+    }
+    if (node->data(0, kConnPermissionsNodeRole).toBool()) {
+        const QString kind = node->data(0, kConnPermissionsKindRole).toString();
+        const QString entry = node->data(0, kConnPermissionsEntryNameRole).toString().trimmed();
+        if (!kind.isEmpty()) {
+            return QStringLiteral("perm|%1|%2|%3")
+                .arg(kind,
+                     entry,
+                     node->text(0).trimmed());
+        }
+    }
+    if (node->data(0, kConnPropGroupNodeRole).toBool()) {
+        const QString groupName = node->data(0, kConnPropGroupNameRole).toString().trimmed();
+        const QString propKey = node->data(0, kConnPropKeyRole).toString().trimmed();
+        return QStringLiteral("group|%1|%2|%3")
+            .arg(groupName,
+                 propKey,
+                 node->text(0).trimmed());
+    }
+    if (node->data(0, kConnSnapshotHoldsNodeRole).toBool()) {
+        return QStringLiteral("holds|%1").arg(node->text(0).trimmed());
+    }
+    if (node->data(0, kConnSnapshotHoldItemRole).toBool()) {
+        return QStringLiteral("hold|%1").arg(node->data(0, kConnSnapshotHoldTagRole).toString().trimmed());
+    }
+    return QStringLiteral("text|%1").arg(node->text(0).trimmed());
+}
+
+QString connContentChildPath(QTreeWidgetItem* datasetNode, QTreeWidgetItem* node) {
+    if (!datasetNode || !node || datasetNode == node) {
+        return QString();
+    }
+    QStringList parts;
+    for (QTreeWidgetItem* cur = node; cur && cur != datasetNode; cur = cur->parent()) {
+        const QString id = connContentChildStableId(cur);
+        if (id.isEmpty()) {
+            return QString();
+        }
+        parts.prepend(id);
+    }
+    return parts.join(QStringLiteral("/"));
+}
+
+QStringList collectExpandedConnContentChildPaths(QTreeWidgetItem* datasetNode) {
+    QStringList paths;
+    if (!datasetNode) {
+        return paths;
+    }
+    QSet<QString> seen;
+    std::function<void(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* node) {
+        if (!node) {
+            return;
+        }
+        if (node != datasetNode && node->isExpanded()) {
+            const QString path = connContentChildPath(datasetNode, node);
+            if (!path.isEmpty() && !seen.contains(path)) {
+                seen.insert(path);
+                paths.push_back(path);
+            }
+        }
+        for (int i = 0; i < node->childCount(); ++i) {
+            rec(node->child(i));
+        }
+    };
+    rec(datasetNode);
+    return paths;
+}
+
+void restoreExpandedConnContentChildPaths(QTreeWidgetItem* datasetNode, const QStringList& paths) {
+    if (!datasetNode || paths.isEmpty()) {
+        return;
+    }
+    const QSet<QString> wanted(paths.cbegin(), paths.cend());
+    std::function<void(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* node) {
+        if (!node) {
+            return;
+        }
+        if (node != datasetNode) {
+            const QString path = connContentChildPath(datasetNode, node);
+            if (wanted.contains(path)) {
+                node->setExpanded(true);
+            }
+        }
+        for (int i = 0; i < node->childCount(); ++i) {
+            rec(node->child(i));
+        }
+    };
+    rec(datasetNode);
 }
 
 bool isUserProperty(const QString& prop) {
@@ -353,8 +450,9 @@ void applySnapshotVisualState(QTreeWidgetItem* item) {
         }
         const bool isPropRow = ch->data(0, kConnPropRowRole).toBool();
         const bool isContainerNode = ch->data(0, kConnContentNodeRole).toBool();
+        const bool isPermissionsNode = ch->data(0, kConnPermissionsNodeRole).toBool();
         const bool isDatasetNode = !ch->data(0, Qt::UserRole).toString().trimmed().isEmpty();
-        if ((isDatasetNode || isContainerNode) && !isPropRow) {
+        if ((isDatasetNode || isContainerNode || isPermissionsNode) && !isPropRow) {
             ch->setHidden(hideDatasetChildren);
         }
     }
@@ -1311,6 +1409,34 @@ void MainWindow::syncConnContentPropertyColumns() {
                                  -1);
         }
     }
+    auto refreshVisiblePermissionsNodes = [&](auto&& self, QTreeWidgetItem* node) -> void {
+        if (!node) {
+            return;
+        }
+        const QString datasetName = node->data(0, Qt::UserRole).toString().trimmed();
+        const QString snapshotName = node->data(1, Qt::UserRole).toString().trimmed();
+        if (!datasetName.isEmpty() && snapshotName.isEmpty()) {
+            QTreeWidgetItem* permissionsNode = nullptr;
+            for (int i = 0; i < node->childCount(); ++i) {
+                QTreeWidgetItem* child = node->child(i);
+                if (child && child->data(0, kConnPermissionsNodeRole).toBool()
+                    && child->data(0, kConnPermissionsKindRole).toString() == QStringLiteral("root")) {
+                    permissionsNode = child;
+                    break;
+                }
+            }
+            if (permissionsNode && !permissionsNode->isHidden()
+                && (permissionsNode->isExpanded() || permissionsNode->childCount() > 0)) {
+                populateDatasetPermissionsNode(tree, node, false);
+            }
+        }
+        for (int i = 0; i < node->childCount(); ++i) {
+            self(self, node->child(i));
+        }
+    };
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        refreshVisiblePermissionsNodes(refreshVisiblePermissionsNodes, tree->topLevelItem(i));
+    }
     propsNode->setExpanded(false);
     refreshDatasetExpansionIndicators(tree);
     sel->setExpanded(true);
@@ -1721,6 +1847,10 @@ void MainWindow::saveConnContentTreeState(const QString& token) {
             if (n->isExpanded()) {
                 st.expandedDatasets.push_back(ds);
             }
+            const QStringList childPaths = collectExpandedConnContentChildPaths(n);
+            if (!childPaths.isEmpty()) {
+                st.expandedChildPathsByDataset.insert(ds, childPaths);
+            }
             const QString snap = n->data(1, Qt::UserRole).toString();
             if (!snap.isEmpty()) {
                 st.snapshotByDataset.insert(ds, snap);
@@ -1738,7 +1868,30 @@ void MainWindow::saveConnContentTreeState(const QString& token) {
         st.selectedDataset = selected.first()->data(0, Qt::UserRole).toString();
         st.selectedSnapshot = selected.first()->data(1, Qt::UserRole).toString();
     }
+    if (m_connContentTree->verticalScrollBar()) {
+        st.verticalScrollValue = m_connContentTree->verticalScrollBar()->value();
+    }
+    if (m_connContentTree->horizontalScrollBar()) {
+        st.horizontalScrollValue = m_connContentTree->horizontalScrollBar()->value();
+    }
+    if ((!st.selectedDataset.isEmpty() || !st.expandedDatasets.isEmpty()
+         || !st.expandedChildPathsByDataset.isEmpty())
+        && !st.poolRootExpanded) {
+        st.poolRootExpanded = true;
+    }
     m_connContentTreeStateByToken[scopedToken] = st;
+    const QStringList childPathDatasets = st.expandedChildPathsByDataset.keys();
+    appLog(QStringLiteral("DEBUG"),
+           QStringLiteral("saveConnContentTreeState token=%1 poolExpanded=%2 infoExpanded=%3 selected=%4 snapshot=%5 expandedDatasets=%6 childPathDatasets=%7 vscroll=%8 hscroll=%9")
+               .arg(scopedToken,
+                    st.poolRootExpanded ? QStringLiteral("1") : QStringLiteral("0"),
+                    st.infoExpanded ? QStringLiteral("1") : QStringLiteral("0"),
+                    st.selectedDataset,
+                    st.selectedSnapshot,
+                    st.expandedDatasets.join(QStringLiteral(",")),
+                    childPathDatasets.join(QStringLiteral(",")),
+                    QString::number(st.verticalScrollValue),
+                    QString::number(st.horizontalScrollValue)));
 }
 
 void MainWindow::restoreConnContentTreeState(const QString& token) {
@@ -1750,10 +1903,24 @@ void MainWindow::restoreConnContentTreeState(const QString& token) {
                                                                  : QStringLiteral("|top"));
     const auto it = m_connContentTreeStateByToken.constFind(scopedToken);
     if (it == m_connContentTreeStateByToken.cend()) {
+        appLog(QStringLiteral("DEBUG"),
+               QStringLiteral("restoreConnContentTreeState token=%1 no-state").arg(scopedToken));
         return;
     }
     const ConnContentTreeState& st = it.value();
     const QSet<QString> expandedSet(st.expandedDatasets.cbegin(), st.expandedDatasets.cend());
+    const QStringList childPathDatasets = st.expandedChildPathsByDataset.keys();
+    appLog(QStringLiteral("DEBUG"),
+           QStringLiteral("restoreConnContentTreeState begin token=%1 poolExpanded=%2 infoExpanded=%3 selected=%4 snapshot=%5 expandedDatasets=%6 childPathDatasets=%7 vscroll=%8 hscroll=%9")
+               .arg(scopedToken,
+                    st.poolRootExpanded ? QStringLiteral("1") : QStringLiteral("0"),
+                    st.infoExpanded ? QStringLiteral("1") : QStringLiteral("0"),
+                    st.selectedDataset,
+                    st.selectedSnapshot,
+                    st.expandedDatasets.join(QStringLiteral(",")),
+                    childPathDatasets.join(QStringLiteral(",")),
+                    QString::number(st.verticalScrollValue),
+                    QString::number(st.horizontalScrollValue)));
 
     std::function<void(QTreeWidgetItem*)> applyExpand = [&](QTreeWidgetItem* n) {
         if (!n) {
@@ -1762,6 +1929,10 @@ void MainWindow::restoreConnContentTreeState(const QString& token) {
         const QString ds = n->data(0, Qt::UserRole).toString();
         if (!ds.isEmpty()) {
             n->setExpanded(expandedSet.contains(ds));
+            const auto childIt = st.expandedChildPathsByDataset.constFind(ds);
+            if (childIt != st.expandedChildPathsByDataset.cend()) {
+                restoreExpandedConnContentChildPaths(n, childIt.value());
+            }
         }
         for (int i = 0; i < n->childCount(); ++i) {
             applyExpand(n->child(i));
@@ -1834,10 +2005,50 @@ void MainWindow::restoreConnContentTreeState(const QString& token) {
             for (QTreeWidgetItem* p = sel->parent(); p; p = p->parent()) {
                 p->setExpanded(true);
             }
+            const QSignalBlocker blocker(m_connContentTree);
             m_connContentTree->setCurrentItem(sel);
-            m_connContentTree->scrollToItem(sel, QAbstractItemView::PositionAtCenter);
         }
     }
+    QPointer<QTreeWidget> safeTree(m_connContentTree);
+    const int vscroll = st.verticalScrollValue;
+    const int hscroll = st.horizontalScrollValue;
+    QTimer::singleShot(0, m_connContentTree, [safeTree, vscroll, hscroll]() {
+        if (!safeTree) {
+            return;
+        }
+        if (safeTree->verticalScrollBar()) {
+            safeTree->verticalScrollBar()->setValue(vscroll);
+        }
+        if (safeTree->horizontalScrollBar()) {
+            safeTree->horizontalScrollBar()->setValue(hscroll);
+        }
+    });
+    QTimer::singleShot(40, m_connContentTree, [safeTree, vscroll, hscroll]() {
+        if (!safeTree) {
+            return;
+        }
+        if (safeTree->verticalScrollBar()) {
+            safeTree->verticalScrollBar()->setValue(vscroll);
+        }
+        if (safeTree->horizontalScrollBar()) {
+            safeTree->horizontalScrollBar()->setValue(hscroll);
+        }
+    });
+    bool finalPoolExpanded = false;
+    for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* top = m_connContentTree->topLevelItem(i);
+        if (top && top->data(0, kIsPoolRootRole).toBool()) {
+            finalPoolExpanded = top->isExpanded();
+            break;
+        }
+    }
+    appLog(QStringLiteral("DEBUG"),
+           QStringLiteral("restoreConnContentTreeState end token=%1 finalPoolExpanded=%2 currentDataset=%3")
+               .arg(scopedToken,
+                    finalPoolExpanded ? QStringLiteral("1") : QStringLiteral("0"),
+                    m_connContentTree->currentItem()
+                        ? m_connContentTree->currentItem()->data(0, Qt::UserRole).toString()
+                        : QString()));
 }
 
 void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side, bool allowRemoteLoadIfMissing) {
@@ -1920,6 +2131,8 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         item->setText(0, displayName);
         {
             QFont f = item->font(0);
+            const qreal base = (f.pointSizeF() > 0.0) ? f.pointSizeF() : 9.0;
+            f.setPointSizeF(base + 0.5);
             f.setBold(true);
             item->setFont(0, f);
         }
@@ -1949,6 +2162,14 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         propsNode->setData(0, kConnIdxRole, connIdx);
         propsNode->setData(0, kPoolNameRole, poolName);
         propsNode->setFlags(propsNode->flags() & ~Qt::ItemIsUserCheckable);
+        auto* permissionsNode = new QTreeWidgetItem(item);
+        permissionsNode->setText(0, QStringLiteral("Permisos"));
+        permissionsNode->setData(0, kConnPermissionsNodeRole, true);
+        permissionsNode->setData(0, kConnPermissionsKindRole, QStringLiteral("root"));
+        permissionsNode->setData(0, kConnIdxRole, connIdx);
+        permissionsNode->setData(0, kPoolNameRole, poolName);
+        permissionsNode->setFlags(permissionsNode->flags() & ~Qt::ItemIsUserCheckable);
+        permissionsNode->setExpanded(false);
         byName.insert(rec.name, item);
     }
 

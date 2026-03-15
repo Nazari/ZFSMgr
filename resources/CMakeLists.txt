@@ -24,6 +24,7 @@ qt_add_executable(zfsmgr_qt
     ../src/mainwindow_pool_create.cpp
     ../src/mainwindow_selection.cpp
     ../src/mainwindow_dataset_tree.cpp
+    ../src/mainwindow_permissions.cpp
     ../src/mainwindow_dataset_props.cpp
     ../src/mainwindow_dataset_actions.cpp
     ../src/mainwindow_dataset_manage.cpp

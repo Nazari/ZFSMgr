@@ -5,6 +5,7 @@
 #include <QByteArray>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
@@ -298,10 +299,10 @@ bool MainWindow::confirmActionExecution(const QString& actionName, const QString
 }
 
 bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, const QStringList& items, QStringList& selected) {
-    selected.clear();
     if (items.isEmpty()) {
         return false;
     }
+    const QStringList initialSelected = selected;
 
     QDialog dlg(this);
     dlg.setModal(true);
@@ -315,11 +316,50 @@ bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, c
 
     QListWidget* list = new QListWidget(&dlg);
     list->setSelectionMode(QAbstractItemView::NoSelection);
+    list->setViewMode(QListView::IconMode);
+    list->setFlow(QListView::LeftToRight);
+    list->setWrapping(true);
+    list->setResizeMode(QListView::Adjust);
+    list->setMovement(QListView::Static);
+    list->setUniformItemSizes(true);
+    list->setWordWrap(true);
+    list->setSpacing(6);
+    list->setStyleSheet(QStringLiteral(
+        "QListWidget::item {"
+        " border: 1px solid palette(mid);"
+        " border-radius: 4px;"
+        " padding: 4px 8px;"
+        " margin: 2px;"
+        " background: palette(base);"
+        "}"
+        "QListWidget::item:hover {"
+        " background: palette(alternate-base);"
+        "}"
+        "QListWidget::item:selected {"
+        " color: palette(text);"
+        " background: palette(base);"
+        "}"
+    ));
+    const QFontMetrics fm(list->font());
+    int maxTextWidth = 120;
+    for (const QString& item : items) {
+        maxTextWidth = qMax(maxTextWidth, fm.horizontalAdvance(item));
+    }
+    const int cellWidth = qBound(150, maxTextWidth + 42, 280);
+    list->setGridSize(QSize(cellWidth, 28));
     for (const QString& item : items) {
         auto* lw = new QListWidgetItem(item, list);
         lw->setFlags(lw->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
-        lw->setCheckState(Qt::Checked);
+        const bool checked = initialSelected.contains(item, Qt::CaseInsensitive);
+        lw->setCheckState(checked ? Qt::Checked : Qt::Unchecked);
+        lw->setSizeHint(QSize(cellWidth, 28));
     }
+    QObject::connect(list, &QListWidget::itemPressed, &dlg, [](QListWidgetItem* item) {
+        if (!item) {
+            return;
+        }
+        item->setCheckState(item->checkState() == Qt::Checked ? Qt::Unchecked : Qt::Checked);
+    });
     root->addWidget(list, 1);
 
     QHBoxLayout* tools = new QHBoxLayout();
@@ -367,11 +407,12 @@ bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, c
     if (dlg.exec() != QDialog::Accepted) {
         return false;
     }
+    selected.clear();
     for (int i = 0; i < list->count(); ++i) {
         QListWidgetItem* it = list->item(i);
         if (it && it->checkState() == Qt::Checked) {
             selected.push_back(it->text());
         }
     }
-    return !selected.isEmpty();
+    return true;
 }

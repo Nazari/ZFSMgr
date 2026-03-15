@@ -111,6 +111,9 @@ private:
         QString selectedDataset;
         QString selectedSnapshot;
         QMap<QString, QString> snapshotByDataset;
+        QMap<QString, QStringList> expandedChildPathsByDataset;
+        int verticalScrollValue{0};
+        int horizontalScrollValue{0};
     };
 
     struct DatasetPropsDraft {
@@ -135,6 +138,33 @@ private:
         QString objectName;
         QString datasetType;
         QVector<DatasetPropCacheRow> rows;
+    };
+    struct DatasetPermissionGrant {
+        QString scope;
+        QString targetType;
+        QString targetName;
+        QStringList permissions;
+        bool pending{false};
+    };
+    struct DatasetPermissionSet {
+        QString name;
+        QStringList permissions;
+    };
+    struct DatasetPermissionsCacheEntry {
+        bool loaded{false};
+        QVector<DatasetPermissionGrant> localGrants;
+        QVector<DatasetPermissionGrant> descendantGrants;
+        QVector<DatasetPermissionGrant> localDescendantGrants;
+        QStringList createPermissions;
+        QVector<DatasetPermissionSet> permissionSets;
+        QVector<DatasetPermissionGrant> originalLocalGrants;
+        QVector<DatasetPermissionGrant> originalDescendantGrants;
+        QVector<DatasetPermissionGrant> originalLocalDescendantGrants;
+        QStringList originalCreatePermissions;
+        QVector<DatasetPermissionSet> originalPermissionSets;
+        QStringList systemUsers;
+        QStringList systemGroups;
+        bool dirty{false};
     };
 
     enum class WindowsCommandMode {
@@ -223,9 +253,14 @@ private:
     QString datasetCacheKey(int connIdx, const QString& poolName) const;
     QString datasetPropsCachePrefix(int connIdx, const QString& poolName) const;
     QString datasetPropsCacheKey(int connIdx, const QString& poolName, const QString& objectName) const;
+    QString datasetPermissionsCacheKey(int connIdx, const QString& poolName, const QString& datasetName) const;
     QStringList pendingConnContentApplyCommands() const;
     QString poolDetailsCacheKey(int connIdx, const QString& poolName) const;
     bool ensureDatasetsLoaded(int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing = true);
+    bool ensureDatasetPermissionsLoaded(int connIdx, const QString& poolName, const QString& datasetName);
+    void invalidateDatasetPermissionsCacheForPool(int connIdx, const QString& poolName);
+    void populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetItem* datasetItem, bool forceReload = false);
+    QStringList availableDelegablePermissions(const QString& datasetName, int connIdx, const QString& poolName) const;
     void populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side, bool allowRemoteLoadIfMissing = true);
     void refreshDatasetProperties(const QString& side);
     void setSelectedDataset(const QString& side, const QString& datasetName, const QString& snapshotName);
@@ -428,6 +463,7 @@ private:
     QSet<QString> m_sshDisableMultiplexKeys;
     QSet<QString> m_loggedSshResolutionKeys;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
+    QMap<QString, DatasetPermissionsCacheEntry> m_datasetPermissionsCache;
     QMap<QString, PoolDetailsCacheEntry> m_poolDetailsCache;
     QMap<QString, DatasetPropsCacheEntry> m_datasetPropsCache;
     QString m_propsSide;

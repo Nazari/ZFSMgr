@@ -477,6 +477,7 @@ QString MainWindow::diagnoseUmountFailure(const DatasetSelectionContext& ctx) {
 void MainWindow::invalidateDatasetCacheForPool(int connIdx, const QString& poolName) {
     m_poolDatasetCache.remove(datasetCacheKey(connIdx, poolName));
     m_poolDetailsCache.remove(poolDetailsCacheKey(connIdx, poolName));
+    invalidateDatasetPermissionsCacheForPool(connIdx, poolName);
     const QString prefix = datasetPropsCachePrefix(connIdx, poolName);
     if (!prefix.isEmpty()) {
         auto it = m_datasetPropsCache.begin();
