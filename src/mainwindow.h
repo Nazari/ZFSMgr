@@ -33,6 +33,11 @@ class QTextEdit;
 class MainWindow final : public QMainWindow {
     Q_OBJECT
 public:
+    struct InlinePropGroupConfig {
+        QString name;
+        QStringList props;
+    };
+
     explicit MainWindow(const QString& masterPassword, const QString& language, QWidget* parent = nullptr);
 
 protected:
@@ -165,6 +170,14 @@ private:
     void updateConnContentPropertyValues(const QString& token,
                                          const QString& objectName,
                                          const QMap<QString, QString>& valuesByProp);
+    void updateConnContentDraftValue(const QString& token,
+                                     const QString& objectName,
+                                     const QString& prop,
+                                     const QString& value);
+    void updateConnContentDraftInherit(const QString& token,
+                                       const QString& objectName,
+                                       const QString& prop,
+                                       bool inherit);
 
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
     bool runSsh(const ConnectionProfile& p,
@@ -206,6 +219,7 @@ private:
     QString datasetCacheKey(int connIdx, const QString& poolName) const;
     QString datasetPropsCachePrefix(int connIdx, const QString& poolName) const;
     QString datasetPropsCacheKey(int connIdx, const QString& poolName, const QString& objectName) const;
+    QStringList pendingConnContentApplyCommands() const;
     QString poolDetailsCacheKey(int connIdx, const QString& poolName) const;
     bool ensureDatasetsLoaded(int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing = true);
     void populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side, bool allowRemoteLoadIfMissing = true);
@@ -375,6 +389,8 @@ private:
     QMap<int, QSet<QString>> m_pendingBottomExpandedKeysByConn;
     QMap<int, QString> m_pendingBottomSelectedKeyByConn;
     QString m_userSelectedConnectionKey;
+    QString m_persistedTopDetailConnectionKey;
+    QString m_persistedBottomDetailConnectionKey;
     int m_topDetailConnIdx{-1};
     int m_bottomDetailConnIdx{-1};
     bool m_connSelectorDefaultsInitialized{false};
@@ -422,7 +438,13 @@ private:
     bool m_showInlineDatasetProps{true};
     int m_connPropColumnsSetting{7};
     QStringList m_datasetInlinePropsOrder;
+    QVector<InlinePropGroupConfig> m_datasetInlinePropGroups;
     QStringList m_poolInlinePropsOrder;
+    QVector<InlinePropGroupConfig> m_poolInlinePropGroups;
+    QStringList m_snapshotInlinePropsOrder;
+    QVector<InlinePropGroupConfig> m_snapshotInlinePropGroups;
+    QVector<int> m_topTreeColumnWidths;
+    QVector<int> m_bottomTreeColumnWidths;
     QString m_appLogPath;
     bool m_compactPrevValid{false};
     QString m_compactPrevDate;

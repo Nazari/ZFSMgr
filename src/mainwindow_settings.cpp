@@ -2,6 +2,9 @@
 #include "i18nmanager.h"
 
 #include <QComboBox>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMenuBar>
 #include <QPlainTextEdit>
 #include <QSettings>
@@ -47,6 +50,17 @@ int rowForConnectionId(const QTableWidget* table, const QVector<ConnectionProfil
     return -1;
 }
 
+QString connPersistKeyFromProfiles(const QVector<ConnectionProfile>& profiles, int connIdx) {
+    if (connIdx < 0 || connIdx >= profiles.size()) {
+        return QString();
+    }
+    const QString id = profiles[connIdx].id.trimmed();
+    if (!id.isEmpty()) {
+        return id.toLower();
+    }
+    return profiles[connIdx].name.trimmed().toLower();
+}
+
 void removeLegacyColumnWidthPersistence(QSettings& ini) {
     const QStringList keys = ini.allKeys();
     for (const QString& keyRaw : keys) {
@@ -66,6 +80,96 @@ void removeLegacyColumnWidthPersistence(QSettings& ini) {
             ini.remove(keyRaw);
         }
     }
+}
+
+QStringList normalizePropsOrderList(QStringList in) {
+    QStringList out;
+    QSet<QString> seen;
+    for (const QString& raw : in) {
+        const QString t = raw.trimmed();
+        const QString k = t.toLower();
+        if (t.isEmpty() || seen.contains(k)) {
+            continue;
+        }
+        seen.insert(k);
+        out.push_back(t);
+    }
+    return out;
+}
+
+QVector<MainWindow::InlinePropGroupConfig> decodeInlinePropGroups(const QString& raw) {
+    QVector<MainWindow::InlinePropGroupConfig> out;
+    if (raw.trimmed().isEmpty()) {
+        return out;
+    }
+    QJsonParseError err;
+    const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8(), &err);
+    if (err.error != QJsonParseError::NoError || !doc.isArray()) {
+        return out;
+    }
+    QSet<QString> seenNames;
+    for (const QJsonValue& v : doc.array()) {
+        if (!v.isObject()) {
+            continue;
+        }
+        const QJsonObject obj = v.toObject();
+        MainWindow::InlinePropGroupConfig cfg;
+        cfg.name = obj.value(QStringLiteral("name")).toString().trimmed();
+        const QString key = cfg.name.toLower();
+        if (cfg.name.isEmpty() || seenNames.contains(key)) {
+            continue;
+        }
+        seenNames.insert(key);
+        for (const QJsonValue& pv : obj.value(QStringLiteral("props")).toArray()) {
+            cfg.props.push_back(pv.toString());
+        }
+        cfg.props = normalizePropsOrderList(cfg.props);
+        out.push_back(cfg);
+    }
+    return out;
+}
+
+QString encodeInlinePropGroups(const QVector<MainWindow::InlinePropGroupConfig>& groups) {
+    QJsonArray arr;
+    for (const MainWindow::InlinePropGroupConfig& cfg : groups) {
+        const QString name = cfg.name.trimmed();
+        if (name.isEmpty()) {
+            continue;
+        }
+        QJsonObject obj;
+        obj.insert(QStringLiteral("name"), name);
+        QJsonArray props;
+        for (const QString& p : normalizePropsOrderList(cfg.props)) {
+            props.push_back(p);
+        }
+        obj.insert(QStringLiteral("props"), props);
+        arr.push_back(obj);
+    }
+    return QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact));
+}
+
+QVector<int> decodeColumnWidths(const QString& raw) {
+    QVector<int> out;
+    for (const QString& part : raw.split(',', Qt::SkipEmptyParts)) {
+        bool ok = false;
+        const int width = part.trimmed().toInt(&ok);
+        if (!ok || width <= 0) {
+            continue;
+        }
+        out.push_back(width);
+    }
+    return out;
+}
+
+QString encodeColumnWidths(const QVector<int>& widths) {
+    QStringList parts;
+    parts.reserve(widths.size());
+    for (int width : widths) {
+        if (width > 0) {
+            parts.push_back(QString::number(width));
+        }
+    }
+    return parts.join(QStringLiteral(","));
 }
 }
 
@@ -101,24 +205,24 @@ void MainWindow::loadUiSettings() {
     m_logMaxLinesSetting = ini.value(QStringLiteral("log_max_lines"), 500).toInt();
     m_showInlineDatasetProps = ini.value(QStringLiteral("show_inline_dataset_props"), true).toBool();
     m_connPropColumnsSetting = ini.value(QStringLiteral("conn_prop_columns"), 7).toInt();
+    m_persistedTopDetailConnectionKey =
+        ini.value(QStringLiteral("top_detail_connection")).toString().trimmed().toLower();
+    m_persistedBottomDetailConnectionKey =
+        ini.value(QStringLiteral("bottom_detail_connection")).toString().trimmed().toLower();
     m_datasetInlinePropsOrder = ini.value(QStringLiteral("dataset_inline_props_order")).toStringList();
+    m_datasetInlinePropGroups =
+        decodeInlinePropGroups(ini.value(QStringLiteral("dataset_inline_prop_groups")).toString());
     m_poolInlinePropsOrder = ini.value(QStringLiteral("pool_inline_props_order")).toStringList();
-    auto normalizePropsOrder = [](QStringList in) {
-        QStringList out;
-        QSet<QString> seen;
-        for (const QString& raw : in) {
-            const QString t = raw.trimmed();
-            const QString k = t.toLower();
-            if (t.isEmpty() || seen.contains(k)) {
-                continue;
-            }
-            seen.insert(k);
-            out.push_back(t);
-        }
-        return out;
-    };
-    m_datasetInlinePropsOrder = normalizePropsOrder(m_datasetInlinePropsOrder);
-    m_poolInlinePropsOrder = normalizePropsOrder(m_poolInlinePropsOrder);
+    m_poolInlinePropGroups =
+        decodeInlinePropGroups(ini.value(QStringLiteral("pool_inline_prop_groups")).toString());
+    m_snapshotInlinePropsOrder = ini.value(QStringLiteral("snapshot_inline_props_order")).toStringList();
+    m_snapshotInlinePropGroups =
+        decodeInlinePropGroups(ini.value(QStringLiteral("snapshot_inline_prop_groups")).toString());
+    m_topTreeColumnWidths = decodeColumnWidths(ini.value(QStringLiteral("top_tree_column_widths")).toString());
+    m_bottomTreeColumnWidths = decodeColumnWidths(ini.value(QStringLiteral("bottom_tree_column_widths")).toString());
+    m_datasetInlinePropsOrder = normalizePropsOrderList(m_datasetInlinePropsOrder);
+    m_poolInlinePropsOrder = normalizePropsOrderList(m_poolInlinePropsOrder);
+    m_snapshotInlinePropsOrder = normalizePropsOrderList(m_snapshotInlinePropsOrder);
     m_disconnectedConnectionKeys.clear();
     {
         const QStringList raw = ini.value(QStringLiteral("disconnected_connections")).toStringList();
@@ -157,8 +261,18 @@ void MainWindow::saveUiSettings() const {
     ini.setValue(QStringLiteral("log_max_lines"), lines);
     ini.setValue(QStringLiteral("show_inline_dataset_props"), m_showInlineDatasetProps);
     ini.setValue(QStringLiteral("conn_prop_columns"), qBound(5, m_connPropColumnsSetting, 10));
+    ini.setValue(QStringLiteral("top_detail_connection"),
+                 connPersistKeyFromProfiles(m_profiles, m_topDetailConnIdx));
+    ini.setValue(QStringLiteral("bottom_detail_connection"),
+                 connPersistKeyFromProfiles(m_profiles, m_bottomDetailConnIdx));
     ini.setValue(QStringLiteral("dataset_inline_props_order"), m_datasetInlinePropsOrder);
+    ini.setValue(QStringLiteral("dataset_inline_prop_groups"), encodeInlinePropGroups(m_datasetInlinePropGroups));
     ini.setValue(QStringLiteral("pool_inline_props_order"), m_poolInlinePropsOrder);
+    ini.setValue(QStringLiteral("pool_inline_prop_groups"), encodeInlinePropGroups(m_poolInlinePropGroups));
+    ini.setValue(QStringLiteral("snapshot_inline_props_order"), m_snapshotInlinePropsOrder);
+    ini.setValue(QStringLiteral("snapshot_inline_prop_groups"), encodeInlinePropGroups(m_snapshotInlinePropGroups));
+    ini.setValue(QStringLiteral("top_tree_column_widths"), encodeColumnWidths(m_topTreeColumnWidths));
+    ini.setValue(QStringLiteral("bottom_tree_column_widths"), encodeColumnWidths(m_bottomTreeColumnWidths));
     QStringList disconnected = QStringList(m_disconnectedConnectionKeys.begin(), m_disconnectedConnectionKeys.end());
     disconnected.sort(Qt::CaseInsensitive);
     ini.setValue(QStringLiteral("disconnected_connections"), disconnected);

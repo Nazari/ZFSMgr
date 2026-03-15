@@ -27,8 +27,10 @@ Ejemplo real:
   - idioma de la UI
   - opciones globales de logs
   - número de columnas de propiedades (`conn_prop_columns`)
-  - mostrar propiedades inline
-  - orden persistido de propiedades inline de dataset y pool
+  - conexión marcada como `Origen` y como `Destino`
+  - anchos de columna del treeview superior e inferior
+  - orden persistido de propiedades inline de pool, dataset y snapshot
+  - grupos de visualización de pool, dataset y snapshot
   - valores por defecto (por ejemplo `[ZPoolCreationDefaults]`)
 - `conn*.ini`:
   - definición completa de una conexión concreta (host, puerto, usuario, clave, etc.)

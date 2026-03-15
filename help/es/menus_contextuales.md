@@ -32,16 +32,22 @@ Sobre el nodo raíz `Pool`:
 
 Sobre dataset/snapshot seleccionado:
 
-- `Mostrar propiedades en línea` (check)
 - `Gestionar visualización de propiedades`
-- `Editar`
+- `Seleccionar snapshot`
 - `Rollback`
-- `Crear`
-- `Borrar`
+- `Crear dataset/snapshot/vol`
+- `Nuevo Hold`
+- `Release <hold>`
+- `Borrar Dataset <nombre>`, `Borrar Snapshot <dataset@snapshot>` o `Borrar ZVol <nombre>` según el objetivo real
 - `Desglosar`
 - `Ensamblar`
 - `Desde Dir`
 - `Hacia Dir`
+
+Sobre el encabezado de cualquiera de los treeviews:
+
+- `Ajustar tamaño de esta columna`
+- `Ajustar tamaño de todas las columnas`
 
 ## Reglas
 
@@ -49,4 +55,9 @@ Sobre dataset/snapshot seleccionado:
 - El estado habilitado/deshabilitado sigue la misma lógica de validación que el resto de acciones.
 - Durante una acción en curso se bloquean opciones no seguras.
 - `Gestionar visualización de propiedades` está disponible tanto en propiedades de dataset como en `Información` del pool.
-- Ese diálogo permite elegir qué propiedades se muestran y en qué orden aparecen en el árbol activo.
+- Ese diálogo permite elegir qué propiedades se muestran, reordenarlas por arrastrar y soltar y crear o borrar grupos de visualización.
+- Dataset, pool y snapshot usan grupos de visualización independientes.
+- En snapshots, la propiedad `snapshot` queda fija en el grupo principal.
+- `Nuevo Hold` solo aplica a snapshots.
+- `Release <hold>` solo aparece sobre un hold o su propiedad `TimeStamp`.
+- El menú del encabezado ajusta el ancho como un doble clic sobre el separador de columnas.

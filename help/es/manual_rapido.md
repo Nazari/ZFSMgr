@@ -17,12 +17,17 @@ ZFSMgr gestiona conexiones y acciones ZFS.
   - selección de dataset,
   - snapshot seleccionado,
   - anchos de columnas.
-- Cada árbol puede mostrar varios pools a la vez (un nodo raíz por pool), con datasets/snapshots debajo.
+- Cada árbol muestra el pool activo de su conexión seleccionada.
+- Bajo cada pool aparecen los nodos `Información`, `Capacidades activas` y `Contenido`.
 - El nodo `Información` del pool muestra propiedades de pool inline.
-- Los nodos dataset muestran propiedades inline distribuidas en columnas `C1..Cn`.
+- Los datasets cuelgan de `Contenido`.
+- Cada dataset muestra siempre un nodo `Propiedades` y, si tiene hijos, `Subdatasets (N)`.
+- Cuando hay un snapshot seleccionado en un dataset, ese árbol muestra las propiedades y grupos del snapshot, y aparece además `Holds (N)`.
 - Las propiedades inline pueden incluir edición directa y control de herencia (`Inh.`) cuando aplica.
 - Los pools no importables también aparecen como nodo raíz para permitir `Importar`.
 - Logs: panel único `Log combinado` (incluye salida SSH/PSRP con prefijo de conexión).
+- El encabezado de cada treeview tiene menú contextual para ajustar una columna o todas al contenido.
+- El botón `Aplicar cambios` solo se activa si hay comandos pendientes reales y su tooltip lista esos comandos.
 
 Comportamiento de navegación:
 
@@ -31,5 +36,6 @@ Comportamiento de navegación:
 - Se refresca al ejecutar acciones que modifican estado/datos o con refresco explícito.
 - Antes de cada acción se guarda/restaura el estado visual de ambos árboles (selección y expansión de nodos, cuando aplica).
 - Si ningún check `Origen`/`Destino` está activo para un árbol, ese árbol queda vacío pero conserva cabeceras coherentes.
+- `Origen` y `Destino` se persisten entre ejecuciones.
 
 Revise `Navegación y estados` y `Propiedades inline y columnas` para detalles de funcionamiento.

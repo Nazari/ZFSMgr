@@ -19,6 +19,7 @@
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QLabel>
@@ -52,7 +53,7 @@
 #include <QPainter>
 
 #ifndef ZFSMGR_APP_VERSION
-#define ZFSMGR_APP_VERSION "0.9.6"
+#define ZFSMGR_APP_VERSION "0.9.7"
 #endif
 
 namespace {
@@ -60,8 +61,14 @@ constexpr int kIsPoolRootRole = Qt::UserRole + 12;
 constexpr int kConnPropRowRole = Qt::UserRole + 13;
 constexpr int kConnPropRowKindRole = Qt::UserRole + 16; // 1=name, 2=value
 constexpr int kConnPropKeyRole = Qt::UserRole + 14;
+constexpr int kConnPropGroupNodeRole = Qt::UserRole + 17;
+constexpr int kConnPropGroupNameRole = Qt::UserRole + 18;
 constexpr int kConnIdxRole = Qt::UserRole + 10;
 constexpr int kPoolNameRole = Qt::UserRole + 11;
+constexpr int kConnSnapshotHoldsNodeRole = Qt::UserRole + 21;
+constexpr int kConnSnapshotHoldItemRole = Qt::UserRole + 22;
+constexpr int kConnSnapshotHoldTagRole = Qt::UserRole + 23;
+constexpr int kConnSnapshotHoldTimestampRole = Qt::UserRole + 24;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 
 class ConnContentPropBorderDelegate final : public QStyledItemDelegate {
@@ -73,25 +80,35 @@ public:
         if (!painter || !index.isValid() || index.column() < 4) {
             return;
         }
-        if (!index.sibling(index.row(), 0).data(kConnPropRowRole).toBool()) {
-            return;
-        }
-        const int kind = index.sibling(index.row(), 0).data(kConnPropRowKindRole).toInt();
-        if (kind != 1 && kind != 2) {
-            return;
-        }
 
         painter->save();
         painter->setRenderHint(QPainter::Antialiasing, false);
         const QColor vBorder = option.palette.color(QPalette::Mid).darker(118);
         const QColor hBorder = option.palette.color(QPalette::Mid).darker(108);
         const QRect r = option.rect;
-        painter->fillRect(QRect(r.left(), r.top(), 1, r.height()), vBorder);
-        painter->fillRect(QRect(r.right(), r.top(), 1, r.height()), vBorder);
-        if (kind == 1) {
-            painter->fillRect(QRect(r.left(), r.top(), r.width(), 1), hBorder);
-        } else {
-            painter->fillRect(QRect(r.left(), r.bottom(), r.width(), 1), hBorder);
+        const bool isPropRow = index.sibling(index.row(), 0).data(kConnPropRowRole).toBool();
+        if (isPropRow) {
+            const int kind = index.sibling(index.row(), 0).data(kConnPropRowKindRole).toInt();
+            if (kind == 1 || kind == 2) {
+                painter->fillRect(QRect(r.left(), r.top(), 1, r.height()), vBorder);
+                painter->fillRect(QRect(r.right(), r.top(), 1, r.height()), vBorder);
+                if (kind == 1) {
+                    painter->fillRect(QRect(r.left(), r.top(), r.width(), 1), hBorder);
+                } else {
+                    painter->fillRect(QRect(r.left(), r.bottom(), r.width(), 1), hBorder);
+                }
+            }
+            painter->restore();
+            return;
+        }
+
+        if (index.row() > 0) {
+            const QModelIndex prev = index.sibling(index.row() - 1, 0);
+            if (prev.isValid()
+                && prev.data(kConnPropRowRole).toBool()
+                && prev.data(kConnPropRowKindRole).toInt() == 2) {
+                painter->fillRect(QRect(r.left(), r.top(), r.width(), 1), hBorder);
+            }
         }
         painter->restore();
     }
@@ -202,6 +219,10 @@ public:
         updateManagedGrid();
     }
 
+    void setPinnedCount(int count) {
+        m_pinnedCount = qMax(0, count);
+    }
+
 protected:
     void resizeEvent(QResizeEvent* event) override {
         QListWidget::resizeEvent(event);
@@ -213,7 +234,7 @@ protected:
             return;
         }
         const int idx = row(item);
-        if (idx < 0) {
+        if (idx < 0 || idx < m_pinnedCount) {
             return;
         }
         bool shouldCheck = false;
@@ -267,12 +288,17 @@ protected:
                 ++to;
             }
         }
-        return qBound(0, to, count());
+        return qBound(m_pinnedCount, to, count());
     }
 
     void dragEnterEvent(QDragEnterEvent* event) override {
         if (event && event->source() == this) {
             m_dragItem = currentItem();
+            if (m_dragItem && row(m_dragItem) < m_pinnedCount) {
+                m_dragItem = nullptr;
+                event->ignore();
+                return;
+            }
             m_indicatorRow = m_dragItem ? row(m_dragItem) : -1;
             viewport()->update();
             event->setDropAction(Qt::CopyAction);
@@ -350,6 +376,7 @@ private:
     QListWidgetItem* m_dragItem{nullptr};
     int m_indicatorRow{-1};
     int m_managedColumnCount{1};
+    int m_pinnedCount{0};
 };
 }
 
@@ -990,7 +1017,7 @@ void MainWindow::buildUi() {
                            "条件：源端选择快照，目标端选择数据集。")));
     m_btnConnClone->setToolTip(
         trk(QStringLiteral("t_tt_clone_001"),
-            QStringLiteral("Clona un snapshot sobre un dataset destino en la misma conexión.\n"
+            QStringLiteral("Clona un snapshot sobre un dataset destino en la misma conexión y el mismo pool.\n"
                            "Requiere: snapshot seleccionado en Origen y dataset seleccionado en Destino.")));
     m_btnConnLevel->setToolTip(
         trk(QStringLiteral("t_tt_level_001"),
@@ -1219,6 +1246,11 @@ void MainWindow::buildUi() {
     m_connContentTree->setColumnWidth(1, 90);
     m_connContentTree->setColumnWidth(2, 72);
     m_connContentTree->setColumnWidth(3, 180);
+    for (int col = 0; col < m_topTreeColumnWidths.size() && col < m_connContentTree->columnCount(); ++col) {
+        if (m_topTreeColumnWidths[col] > 0) {
+            m_connContentTree->setColumnWidth(col, m_topTreeColumnWidths[col]);
+        }
+    }
     m_connContentTree->setColumnHidden(1, true);
     m_connContentTree->setColumnHidden(2, true);
     m_connContentTree->setColumnHidden(3, true);
@@ -1369,6 +1401,11 @@ void MainWindow::buildUi() {
     m_bottomConnContentTree->setColumnWidth(1, 90);
     m_bottomConnContentTree->setColumnWidth(2, 72);
     m_bottomConnContentTree->setColumnWidth(3, 170);
+    for (int col = 0; col < m_bottomTreeColumnWidths.size() && col < m_bottomConnContentTree->columnCount(); ++col) {
+        if (m_bottomTreeColumnWidths[col] > 0) {
+            m_bottomConnContentTree->setColumnWidth(col, m_bottomTreeColumnWidths[col]);
+        }
+    }
     m_bottomConnContentTree->setColumnHidden(1, true);
     m_bottomConnContentTree->setColumnHidden(2, true);
     m_bottomConnContentTree->setColumnHidden(3, true);
@@ -1394,6 +1431,70 @@ void MainWindow::buildUi() {
         syncConnContentPropertyColumns();
         m_connContentTree = prevTree;
     }
+    connect(m_connContentTree->header(), &QHeaderView::sectionResized, this,
+            [this](int logicalIndex, int, int newSize) {
+                if (logicalIndex < 0 || newSize <= 0) {
+                    return;
+                }
+                if (m_topTreeColumnWidths.size() <= logicalIndex) {
+                    m_topTreeColumnWidths.resize(logicalIndex + 1);
+                }
+                m_topTreeColumnWidths[logicalIndex] = newSize;
+                saveUiSettings();
+            });
+    connect(m_bottomConnContentTree->header(), &QHeaderView::sectionResized, this,
+            [this](int logicalIndex, int, int newSize) {
+                if (logicalIndex < 0 || newSize <= 0) {
+                    return;
+                }
+                if (m_bottomTreeColumnWidths.size() <= logicalIndex) {
+                    m_bottomTreeColumnWidths.resize(logicalIndex + 1);
+                }
+                m_bottomTreeColumnWidths[logicalIndex] = newSize;
+                saveUiSettings();
+            });
+    auto installTreeHeaderContextMenu = [this](QTreeWidget* tree) {
+        if (!tree || !tree->header()) {
+            return;
+        }
+        QHeaderView* header = tree->header();
+        header->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(header, &QWidget::customContextMenuRequested, this, [this, tree, header](const QPoint& pos) {
+            if (!tree || !header) {
+                return;
+            }
+            const int logicalIndex = header->logicalIndexAt(pos);
+            if (logicalIndex < 0) {
+                return;
+            }
+            QMenu menu(this);
+            QAction* aResizeThis = menu.addAction(
+                trk(QStringLiteral("t_ctx_resize_col_001"),
+                    QStringLiteral("Ajustar tamaño de esta columna")));
+            QAction* aResizeAll = menu.addAction(
+                trk(QStringLiteral("t_ctx_resize_allcol_001"),
+                    QStringLiteral("Ajustar tamaño de todas las columnas")));
+            QAction* picked = menu.exec(header->mapToGlobal(pos));
+            if (!picked) {
+                return;
+            }
+            auto resizeOne = [tree](int col) {
+                if (!tree || col < 0 || col >= tree->columnCount() || tree->isColumnHidden(col)) {
+                    return;
+                }
+                tree->resizeColumnToContents(col);
+            };
+            if (picked == aResizeThis) {
+                resizeOne(logicalIndex);
+            } else if (picked == aResizeAll) {
+                for (int col = 0; col < tree->columnCount(); ++col) {
+                    resizeOne(col);
+                }
+            }
+        });
+    };
+    installTreeHeaderContextMenu(m_connContentTree);
+    installTreeHeaderContextMenu(m_bottomConnContentTree);
     bottomConnLayout->addWidget(m_bottomConnContentTree, 1);
     rightSplit->setStretchFactor(0, 1);
     rightSplit->setStretchFactor(1, 1);
@@ -1776,6 +1877,7 @@ void MainWindow::buildUi() {
         if (item->data(0, kConnPropRowRole).toBool() && item->parent()) {
             item = item->parent();
         }
+        const QString clickedGroupName = item->data(0, kConnPropGroupNameRole).toString().trimmed();
         QTreeWidgetItem* owner = item;
         while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
                && !owner->data(0, kIsPoolRootRole).toBool()) {
@@ -1828,9 +1930,18 @@ void MainWindow::buildUi() {
             return normalizeList(out);
         };
 
+        enum class ManagePropsScope {
+            Pool,
+            Dataset,
+            Snapshot,
+        };
         QStringList allProps;
         QStringList currentVisible;
+        QVector<InlinePropGroupConfig> currentGroups;
+        ManagePropsScope scope = poolContext ? ManagePropsScope::Pool : ManagePropsScope::Dataset;
+        const QString fixedSnapshotProp = QStringLiteral("snapshot");
         if (poolContext) {
+            currentGroups = m_poolInlinePropGroups;
             const QString cacheKey = poolDetailsCacheKey(connIdx, poolName);
             const auto pit = m_poolDetailsCache.constFind(cacheKey);
             if (pit != m_poolDetailsCache.cend() && pit->loaded) {
@@ -1867,16 +1978,27 @@ void MainWindow::buildUi() {
             if (ds.isEmpty()) {
                 return;
             }
-            const QString key = QStringLiteral("%1|%2").arg(token.trimmed().toLower(), ds.trimmed().toLower());
+            const QString snap = owner->data(1, Qt::UserRole).toString().trimmed();
+            if (!snap.isEmpty()) {
+                scope = ManagePropsScope::Snapshot;
+                currentGroups = m_snapshotInlinePropGroups;
+            } else {
+                currentGroups = m_datasetInlinePropGroups;
+            }
+            const QString objectName = snap.isEmpty() ? ds : QStringLiteral("%1@%2").arg(ds, snap);
+            const QString key = QStringLiteral("%1|%2").arg(token.trimmed().toLower(),
+                                                            objectName.trimmed().toLower());
             const auto vit = m_connContentPropValuesByObject.constFind(key);
             if (vit != m_connContentPropValuesByObject.cend()) {
                 allProps = vit.value().keys();
             }
             allProps = normalizeList(allProps);
             currentVisible = displayedPropsFromNode(owner);
-            if (!m_datasetInlinePropsOrder.isEmpty()) {
+            const QStringList& savedOrder =
+                (scope == ManagePropsScope::Snapshot) ? m_snapshotInlinePropsOrder : m_datasetInlinePropsOrder;
+            if (!savedOrder.isEmpty()) {
                 currentVisible.clear();
-                for (const QString& p : m_datasetInlinePropsOrder) {
+                for (const QString& p : savedOrder) {
                     for (const QString& have : allProps) {
                         if (p.compare(have, Qt::CaseInsensitive) == 0) {
                             currentVisible.push_back(have);
@@ -1893,6 +2015,26 @@ void MainWindow::buildUi() {
         currentVisible = normalizeList(currentVisible);
         if (allProps.isEmpty()) {
             return;
+        }
+        bool snapshotFixedPresent = false;
+        if (scope == ManagePropsScope::Snapshot) {
+            QString canonicalSnapshot;
+            for (const QString& p : allProps) {
+                if (p.compare(fixedSnapshotProp, Qt::CaseInsensitive) == 0) {
+                    canonicalSnapshot = p;
+                    break;
+                }
+            }
+            snapshotFixedPresent = !canonicalSnapshot.isEmpty();
+            if (snapshotFixedPresent) {
+                allProps.removeAll(canonicalSnapshot);
+                allProps.prepend(canonicalSnapshot);
+                currentVisible.removeAll(canonicalSnapshot);
+                currentVisible.prepend(canonicalSnapshot);
+                for (InlinePropGroupConfig& cfg : currentGroups) {
+                    cfg.props.removeAll(canonicalSnapshot);
+                }
+            }
         }
         if (currentVisible.isEmpty()) {
             currentVisible = allProps;
@@ -1923,57 +2065,158 @@ void MainWindow::buildUi() {
         dlg.setMinimumWidth(managePropsDialogWidth);
         dlg.setWindowTitle(
             trk(QStringLiteral("t_manage_props_vis001"),
-                QStringLiteral("Gestionar visualización de propiedades"),
-                QStringLiteral("Manage property visualization"),
-                QStringLiteral("管理属性显示")));
+                QStringLiteral("Gestionar visualización de propiedades")));
         auto* root = new QVBoxLayout(&dlg);
         auto* hint = new QLabel(
             trk(QStringLiteral("t_manage_props_hint001"),
-                QStringLiteral("Marca qué propiedades quieres mostrar y reordénalas arrastrando y soltando."),
-                QStringLiteral("Check properties to display and reorder them with drag and drop."),
-                QStringLiteral("勾选要显示的属性，并通过拖放调整顺序。")),
+                QStringLiteral("Marca qué propiedades quieres mostrar y reordénalas arrastrando y soltando.")),
             &dlg);
         hint->setWordWrap(true);
         root->addWidget(hint);
-        auto* list = new ManagePropsListWidget(&dlg);
-        list->setSelectionMode(QAbstractItemView::SingleSelection);
-        list->setViewMode(QListView::IconMode);
-        list->setFlow(QListView::LeftToRight);
-        list->setWrapping(true);
-        list->setResizeMode(QListView::Adjust);
-        list->setMovement(QListView::Static);
-        list->setAcceptDrops(true);
-        list->setDragEnabled(true);
-        list->viewport()->setAcceptDrops(true);
-        list->setDropIndicatorShown(true);
-        list->setDragDropOverwriteMode(false);
-        list->setDragDropMode(QAbstractItemView::InternalMove);
-        list->setDefaultDropAction(Qt::CopyAction);
-        list->setSpacing(managePropsSpacing);
-        list->setUniformItemSizes(true);
-        list->setManagedColumnCount(propCols);
-        for (const QString& p : orderedAll) {
-            auto* it = new QListWidgetItem(p, list);
-            bool checked = false;
-            for (const QString& v : currentVisible) {
-                if (v.compare(p, Qt::CaseInsensitive) == 0) {
-                    checked = true;
+        auto* tabs = new QTabWidget(&dlg);
+        root->addWidget(tabs, 1);
+        struct ManageGroupTab {
+            QString name;
+            ManagePropsListWidget* list{nullptr};
+            bool isMain{false};
+        };
+        QVector<ManageGroupTab> groupTabs;
+        auto configureList = [this, propCols, managePropsSpacing, scope, snapshotFixedPresent, fixedSnapshotProp](ManagePropsListWidget* list,
+                                                                                                                    const QStringList& orderedProps,
+                                                                                                                    const QStringList& visible,
+                                                                                                                    bool isMain) {
+            if (!list) {
+                return;
+            }
+            list->setSelectionMode(QAbstractItemView::SingleSelection);
+            list->setViewMode(QListView::IconMode);
+            list->setFlow(QListView::LeftToRight);
+            list->setWrapping(true);
+            list->setResizeMode(QListView::Adjust);
+            list->setMovement(QListView::Static);
+            list->setAcceptDrops(true);
+            list->setDragEnabled(true);
+            list->viewport()->setAcceptDrops(true);
+            list->setDropIndicatorShown(true);
+            list->setDragDropOverwriteMode(false);
+            list->setDragDropMode(QAbstractItemView::InternalMove);
+            list->setDefaultDropAction(Qt::CopyAction);
+            list->setSpacing(managePropsSpacing);
+            list->setUniformItemSizes(true);
+            list->setManagedColumnCount(propCols);
+            list->setPinnedCount((scope == ManagePropsScope::Snapshot && snapshotFixedPresent && isMain) ? 1 : 0);
+            list->setMinimumHeight(220);
+            for (const QString& p : orderedProps) {
+                auto* it = new QListWidgetItem(p, list);
+                bool checked = false;
+                for (const QString& v : visible) {
+                    if (v.compare(p, Qt::CaseInsensitive) == 0) {
+                        checked = true;
+                        break;
+                    }
+                }
+                Qt::ItemFlags flags = it->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsSelectable | Qt::ItemIsEnabled;
+                const bool fixedSnapshot =
+                    (scope == ManagePropsScope::Snapshot && isMain
+                     && p.compare(fixedSnapshotProp, Qt::CaseInsensitive) == 0);
+                if (!fixedSnapshot) {
+                    flags |= Qt::ItemIsDragEnabled;
+                }
+                it->setFlags(flags);
+                it->setCheckState((fixedSnapshot || checked) ? Qt::Checked : Qt::Unchecked);
+                if (fixedSnapshot) {
+                    it->setToolTip(trk(QStringLiteral("t_snapshot_fixed_prop001"),
+                                       QStringLiteral("La propiedad snapshot queda fija en la primera posición.")));
+                }
+                it->setTextAlignment(Qt::AlignCenter);
+                it->setSizeHint(QSize(140, 28));
+            }
+        };
+        auto attachUncheckedReorder = [&dlg](ManagePropsListWidget* list) {
+            auto* reorderingUncheckedItems = new bool(false);
+            QObject::connect(list, &QListWidget::itemChanged, &dlg,
+                             [list, reorderingUncheckedItems](QListWidgetItem* item) {
+                if (!list || !item || *reorderingUncheckedItems || item->checkState() != Qt::Unchecked) {
+                    return;
+                }
+                const int row = list->row(item);
+                if (row < 0 || row == list->count() - 1) {
+                    return;
+                }
+                *reorderingUncheckedItems = true;
+                QListWidgetItem* moved = list->takeItem(row);
+                if (moved) {
+                    list->addItem(moved);
+                    list->setCurrentItem(moved);
+                }
+                *reorderingUncheckedItems = false;
+            });
+        };
+        auto addGroupTab = [&](const QString& name, const QStringList& visible, bool isMain) {
+            auto* list = new ManagePropsListWidget(tabs);
+            QStringList normalizedVisible = normalizeList(visible);
+            QStringList orderedProps = orderedAll;
+            if (scope == ManagePropsScope::Snapshot && !isMain) {
+                QString canonicalSnapshot;
+                for (const QString& p : orderedProps) {
+                    if (p.compare(fixedSnapshotProp, Qt::CaseInsensitive) == 0) {
+                        canonicalSnapshot = p;
+                        break;
+                    }
+                }
+                if (!canonicalSnapshot.isEmpty()) {
+                    orderedProps.removeAll(canonicalSnapshot);
+                    normalizedVisible.removeAll(canonicalSnapshot);
+                }
+            }
+            if (scope == ManagePropsScope::Snapshot && isMain && snapshotFixedPresent) {
+                QString canonicalSnapshot;
+                for (const QString& p : orderedProps) {
+                    if (p.compare(fixedSnapshotProp, Qt::CaseInsensitive) == 0) {
+                        canonicalSnapshot = p;
+                        break;
+                    }
+                }
+                if (!canonicalSnapshot.isEmpty()) {
+                    normalizedVisible.removeAll(canonicalSnapshot);
+                    normalizedVisible.prepend(canonicalSnapshot);
+                }
+            }
+            configureList(list, orderedProps, normalizedVisible, isMain);
+            attachUncheckedReorder(list);
+            tabs->addTab(list, name);
+            groupTabs.push_back({name, list, isMain});
+        };
+        addGroupTab(trk(QStringLiteral("t_main_group_001"),
+                        QStringLiteral("Principal")),
+                    currentVisible,
+                    true);
+        for (const InlinePropGroupConfig& cfg : currentGroups) {
+            addGroupTab(cfg.name, normalizeList(cfg.props), false);
+        }
+        if (!clickedGroupName.isEmpty()) {
+            for (int i = 0; i < groupTabs.size(); ++i) {
+                if (groupTabs[i].name.compare(clickedGroupName, Qt::CaseInsensitive) == 0) {
+                    tabs->setCurrentIndex(i);
                     break;
                 }
             }
-            it->setFlags(it->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-            it->setCheckState(checked ? Qt::Checked : Qt::Unchecked);
-            it->setTextAlignment(Qt::AlignCenter);
-            it->setSizeHint(QSize(140, 28));
         }
-        bool reorderingUncheckedItems = false;
-        list->setMinimumHeight(220);
-        root->addWidget(list, 1);
         auto* rowBtns = new QHBoxLayout();
+        auto* btnNewGroup = new QPushButton(
+            trk(QStringLiteral("t_new_group_001"),
+                QStringLiteral("Nuevo group")),
+            &dlg);
+        auto* btnDeleteGroup = new QPushButton(
+            trk(QStringLiteral("t_delete_group_001"),
+                QStringLiteral("Borrar grupo")),
+            &dlg);
         auto* btnAll = new QPushButton(
-            trk(QStringLiteral("t_all_001"), QStringLiteral("Todo"), QStringLiteral("All"), QStringLiteral("全选")), &dlg);
+            trk(QStringLiteral("t_all_001"), QStringLiteral("Todo")), &dlg);
         auto* btnNone = new QPushButton(
-            trk(QStringLiteral("t_none_001"), QStringLiteral("Ninguno"), QStringLiteral("None"), QStringLiteral("全不选")), &dlg);
+            trk(QStringLiteral("t_none_001"), QStringLiteral("Ninguno")), &dlg);
+        rowBtns->addWidget(btnNewGroup);
+        rowBtns->addWidget(btnDeleteGroup);
         rowBtns->addWidget(btnAll);
         rowBtns->addWidget(btnNone);
         rowBtns->addStretch(1);
@@ -1981,41 +2224,99 @@ void MainWindow::buildUi() {
         auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
         root->addWidget(bb);
         connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-        connect(btnAll, &QPushButton::clicked, &dlg, [list]() {
+        auto currentList = [tabs, &groupTabs]() -> ManagePropsListWidget* {
+            const int idx = tabs ? tabs->currentIndex() : -1;
+            return (idx >= 0 && idx < groupTabs.size()) ? groupTabs[idx].list : nullptr;
+        };
+        connect(btnNewGroup, &QPushButton::clicked, &dlg, [this, &dlg, tabs, &groupTabs, &addGroupTab]() {
+            bool ok = false;
+            const QString name = QInputDialog::getText(
+                &dlg,
+                trk(QStringLiteral("t_new_group_001"),
+                    QStringLiteral("Nuevo group")),
+                trk(QStringLiteral("t_group_name_001"),
+                    QStringLiteral("Nombre del group")),
+                QLineEdit::Normal,
+                QString(),
+                &ok).trimmed();
+            if (!ok || name.isEmpty()) {
+                return;
+            }
+            for (const ManageGroupTab& tab : groupTabs) {
+                if (tab.name.compare(name, Qt::CaseInsensitive) == 0) {
+                    QMessageBox::warning(
+                        &dlg,
+                        trk(QStringLiteral("t_new_group_001"),
+                            QStringLiteral("Nuevo group")),
+                        trk(QStringLiteral("t_group_exists_001"),
+                            QStringLiteral("Ya existe un group con ese nombre.")));
+                    return;
+                }
+            }
+            addGroupTab(name, QStringList(), false);
+            tabs->setCurrentIndex(groupTabs.size() - 1);
+        });
+        auto updateDeleteGroupButton = [tabs, &groupTabs, btnDeleteGroup]() {
+            const int idx = tabs ? tabs->currentIndex() : -1;
+            const bool canDelete = idx > 0 && idx < groupTabs.size() && !groupTabs[idx].isMain;
+            btnDeleteGroup->setEnabled(canDelete);
+        };
+        connect(tabs, &QTabWidget::currentChanged, &dlg, [updateDeleteGroupButton](int) {
+            updateDeleteGroupButton();
+        });
+        connect(btnDeleteGroup, &QPushButton::clicked, &dlg, [tabs, &groupTabs, updateDeleteGroupButton]() {
+            if (!tabs) {
+                return;
+            }
+            const int idx = tabs->currentIndex();
+            if (idx <= 0 || idx >= groupTabs.size() || groupTabs[idx].isMain) {
+                return;
+            }
+            QWidget* page = tabs->widget(idx);
+            tabs->removeTab(idx);
+            if (page) {
+                page->deleteLater();
+            }
+            groupTabs.removeAt(idx);
+            tabs->setCurrentIndex(qMax(0, idx - 1));
+            updateDeleteGroupButton();
+        });
+        connect(btnAll, &QPushButton::clicked, &dlg, [currentList]() {
+            ManagePropsListWidget* list = currentList();
+            if (!list) {
+                return;
+            }
             for (int i = 0; i < list->count(); ++i) {
                 if (QListWidgetItem* it = list->item(i)) {
                     it->setCheckState(Qt::Checked);
                 }
             }
         });
-        connect(btnNone, &QPushButton::clicked, &dlg, [list]() {
+        connect(btnNone, &QPushButton::clicked, &dlg, [currentList]() {
+            ManagePropsListWidget* list = currentList();
+            if (!list) {
+                return;
+            }
             for (int i = 0; i < list->count(); ++i) {
                 if (QListWidgetItem* it = list->item(i)) {
+                    if (!(it->flags() & Qt::ItemIsDragEnabled) && i == 0) {
+                        it->setCheckState(Qt::Checked);
+                        continue;
+                    }
                     it->setCheckState(Qt::Unchecked);
                 }
             }
         });
-        connect(list, &QListWidget::itemChanged, &dlg, [list, &reorderingUncheckedItems](QListWidgetItem* item) {
-            if (!list || !item || reorderingUncheckedItems || item->checkState() != Qt::Unchecked) {
-                return;
-            }
-            const int row = list->row(item);
-            if (row < 0 || row == list->count() - 1) {
-                return;
-            }
-            reorderingUncheckedItems = true;
-            QListWidgetItem* moved = list->takeItem(row);
-            if (moved) {
-                list->addItem(moved);
-                list->setCurrentItem(moved);
-            }
-            reorderingUncheckedItems = false;
-        });
+        updateDeleteGroupButton();
         if (QPushButton* okButton = bb->button(QDialogButtonBox::Ok)) {
-            connect(okButton, &QPushButton::clicked, &dlg, [this, &dlg, list]() {
+            connect(okButton, &QPushButton::clicked, &dlg, [this, &dlg, &groupTabs]() {
+                if (groupTabs.isEmpty() || !groupTabs[0].list) {
+                    dlg.reject();
+                    return;
+                }
                 int checkedCount = 0;
-                for (int i = 0; i < list->count(); ++i) {
-                    if (QListWidgetItem* it = list->item(i); it && it->checkState() == Qt::Checked) {
+                for (int i = 0; i < groupTabs[0].list->count(); ++i) {
+                    if (QListWidgetItem* it = groupTabs[0].list->item(i); it && it->checkState() == Qt::Checked) {
                         ++checkedCount;
                     }
                 }
@@ -2023,13 +2324,9 @@ void MainWindow::buildUi() {
                     QMessageBox::warning(
                         &dlg,
                         trk(QStringLiteral("t_manage_props_vis001"),
-                            QStringLiteral("Gestionar visualización de propiedades"),
-                            QStringLiteral("Manage property visualization"),
-                            QStringLiteral("管理属性显示")),
+                            QStringLiteral("Gestionar visualización de propiedades")),
                         trk(QStringLiteral("t_manage_props_need_one001"),
-                            QStringLiteral("Debes seleccionar al menos una propiedad."),
-                            QStringLiteral("Select at least one property."),
-                            QStringLiteral("请至少选择一个属性。")));
+                            QStringLiteral("Debes seleccionar al menos una propiedad.")));
                     return;
                 }
                 dlg.accept();
@@ -2038,19 +2335,69 @@ void MainWindow::buildUi() {
         if (dlg.exec() != QDialog::Accepted) {
             return;
         }
-        QStringList selected;
-        for (int i = 0; i < list->count(); ++i) {
-            QListWidgetItem* it = list->item(i);
-            if (!it || it->checkState() != Qt::Checked) {
-                continue;
+        auto selectedFromList = [normalizeList, scope, snapshotFixedPresent, fixedSnapshotProp](QListWidget* list, bool isMain) {
+            QStringList selected;
+            if (!list) {
+                return selected;
             }
-            selected.push_back(it->text().trimmed());
-        }
-        selected = normalizeList(selected);
-        if (poolContext) {
-            m_poolInlinePropsOrder = selected;
+            for (int i = 0; i < list->count(); ++i) {
+                QListWidgetItem* it = list->item(i);
+                if (!it || it->checkState() != Qt::Checked) {
+                    continue;
+                }
+                selected.push_back(it->text().trimmed());
+            }
+            selected = normalizeList(selected);
+            if (scope == ManagePropsScope::Snapshot) {
+                QString canonicalSnapshot;
+                for (const QString& p : selected) {
+                    if (p.compare(fixedSnapshotProp, Qt::CaseInsensitive) == 0) {
+                        canonicalSnapshot = p;
+                        break;
+                    }
+                }
+                if (isMain && snapshotFixedPresent) {
+                    if (canonicalSnapshot.isEmpty()) {
+                        canonicalSnapshot = fixedSnapshotProp;
+                    }
+                    selected.removeAll(canonicalSnapshot);
+                    selected.prepend(canonicalSnapshot);
+                } else if (!canonicalSnapshot.isEmpty()) {
+                    selected.removeAll(canonicalSnapshot);
+                }
+            }
+            return selected;
+        };
+        if (scope == ManagePropsScope::Pool) {
+            m_poolInlinePropsOrder = selectedFromList(groupTabs.isEmpty() ? nullptr : groupTabs[0].list, true);
+            QVector<InlinePropGroupConfig> groups;
+            for (int i = 1; i < groupTabs.size(); ++i) {
+                InlinePropGroupConfig cfg;
+                cfg.name = groupTabs[i].name.trimmed();
+                cfg.props = selectedFromList(groupTabs[i].list, false);
+                groups.push_back(cfg);
+            }
+            m_poolInlinePropGroups = groups;
+        } else if (scope == ManagePropsScope::Snapshot) {
+            m_snapshotInlinePropsOrder = selectedFromList(groupTabs.isEmpty() ? nullptr : groupTabs[0].list, true);
+            QVector<InlinePropGroupConfig> groups;
+            for (int i = 1; i < groupTabs.size(); ++i) {
+                InlinePropGroupConfig cfg;
+                cfg.name = groupTabs[i].name.trimmed();
+                cfg.props = selectedFromList(groupTabs[i].list, false);
+                groups.push_back(cfg);
+            }
+            m_snapshotInlinePropGroups = groups;
         } else {
-            m_datasetInlinePropsOrder = selected;
+            m_datasetInlinePropsOrder = selectedFromList(groupTabs.isEmpty() ? nullptr : groupTabs[0].list, true);
+            QVector<InlinePropGroupConfig> groups;
+            for (int i = 1; i < groupTabs.size(); ++i) {
+                InlinePropGroupConfig cfg;
+                cfg.name = groupTabs[i].name.trimmed();
+                cfg.props = selectedFromList(groupTabs[i].list, false);
+                groups.push_back(cfg);
+            }
+            m_datasetInlinePropGroups = groups;
         }
         saveUiSettings();
 
@@ -2061,6 +2408,216 @@ void MainWindow::buildUi() {
         if (poolContext) {
             syncConnContentPoolColumns();
         } else {
+            syncConnContentPropertyColumns();
+        }
+        m_connContentTree = prevTree;
+        m_connContentToken = prevToken;
+    };
+    auto createSnapshotHold = [this](QTreeWidget* tree, QTreeWidgetItem* rawItem) {
+        if (!tree || !rawItem) {
+            return;
+        }
+        QTreeWidgetItem* item = rawItem;
+        while (item && item->data(0, Qt::UserRole).toString().isEmpty()
+               && !item->data(0, kIsPoolRootRole).toBool()) {
+            item = item->parent();
+        }
+        if (!item) {
+            return;
+        }
+        const QString datasetName = item->data(0, Qt::UserRole).toString().trimmed();
+        const QString snapshotName = item->data(1, Qt::UserRole).toString().trimmed();
+        const int connIdx = item->data(0, kConnIdxRole).toInt();
+        const QString poolName = item->data(0, kPoolNameRole).toString().trimmed();
+        if (datasetName.isEmpty() || snapshotName.isEmpty() || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+            return;
+        }
+
+        bool ok = false;
+        const QString holdName = QInputDialog::getText(
+            this,
+            trk(QStringLiteral("t_new_hold_title001"),
+                QStringLiteral("Nuevo Hold")),
+            trk(QStringLiteral("t_new_hold_prompt001"),
+                QStringLiteral("Nombre del hold")),
+            QLineEdit::Normal,
+            QString(),
+            &ok).trimmed();
+        if (!ok || holdName.isEmpty()) {
+            return;
+        }
+
+        DatasetSelectionContext ctx;
+        ctx.valid = true;
+        ctx.connIdx = connIdx;
+        ctx.poolName = poolName;
+        ctx.datasetName = datasetName;
+        ctx.snapshotName = snapshotName;
+        const QString objectName = QStringLiteral("%1@%2").arg(datasetName, snapshotName);
+        auto shQuote = [](QString s) {
+            s.replace('\'', QStringLiteral("'\"'\"'"));
+            return QStringLiteral("'%1'").arg(s);
+        };
+        const QString cmd = QStringLiteral("zfs hold %1 %2")
+                                .arg(shQuote(holdName),
+                                     shQuote(objectName));
+        if (!executeDatasetAction(QStringLiteral("conncontent"),
+                                  QStringLiteral("Crear hold"),
+                                  ctx,
+                                  cmd,
+                                  45000,
+                                  isWindowsConnection(connIdx))) {
+            return;
+        }
+
+        const QString prevToken = m_connContentToken;
+        QTreeWidget* prevTree = m_connContentTree;
+        const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+        m_connContentTree = tree;
+        m_connContentToken = token;
+        saveConnContentTreeState(token);
+        populateDatasetTree(tree, connIdx, poolName, QStringLiteral("conncontent"), true);
+        auto findInTree = [](QTreeWidget* tw, const QString& ds) -> QTreeWidgetItem* {
+            if (!tw || ds.isEmpty()) {
+                return nullptr;
+            }
+            std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* n) -> QTreeWidgetItem* {
+                if (!n) {
+                    return nullptr;
+                }
+                if (n->data(0, Qt::UserRole).toString().trimmed() == ds) {
+                    return n;
+                }
+                for (int i = 0; i < n->childCount(); ++i) {
+                    if (QTreeWidgetItem* f = rec(n->child(i))) {
+                        return f;
+                    }
+                }
+                return nullptr;
+            };
+            for (int i = 0; i < tw->topLevelItemCount(); ++i) {
+                if (QTreeWidgetItem* f = rec(tw->topLevelItem(i))) {
+                    return f;
+                }
+            }
+            return nullptr;
+        };
+        if (QTreeWidgetItem* restored = findInTree(tree, datasetName)) {
+            restored->setData(1, Qt::UserRole, snapshotName);
+            if (QComboBox* cb = qobject_cast<QComboBox*>(tree->itemWidget(restored, 1))) {
+                const int idx = cb->findText(snapshotName);
+                if (idx > 0) {
+                    const QSignalBlocker blocker(cb);
+                    cb->setCurrentIndex(idx);
+                }
+            }
+            tree->setCurrentItem(restored);
+            refreshDatasetProperties(QStringLiteral("conncontent"));
+            syncConnContentPropertyColumns();
+        }
+        m_connContentTree = prevTree;
+        m_connContentToken = prevToken;
+    };
+    auto releaseSnapshotHold = [this](QTreeWidget* tree, QTreeWidgetItem* rawItem) {
+        if (!tree || !rawItem) {
+            return;
+        }
+        QTreeWidgetItem* holdItem = rawItem;
+        if (!holdItem->data(0, kConnSnapshotHoldItemRole).toBool()) {
+            holdItem = holdItem->parent();
+        }
+        while (holdItem && !holdItem->data(0, kConnSnapshotHoldItemRole).toBool()) {
+            holdItem = holdItem->parent();
+        }
+        if (!holdItem) {
+            return;
+        }
+        QTreeWidgetItem* snapshotItem = holdItem;
+        while (snapshotItem && snapshotItem->data(0, Qt::UserRole).toString().isEmpty()
+               && !snapshotItem->data(0, kIsPoolRootRole).toBool()) {
+            snapshotItem = snapshotItem->parent();
+        }
+        if (!snapshotItem) {
+            return;
+        }
+        const QString holdName = holdItem->data(0, kConnSnapshotHoldTagRole).toString().trimmed();
+        const QString datasetName = snapshotItem->data(0, Qt::UserRole).toString().trimmed();
+        const QString snapshotName = snapshotItem->data(1, Qt::UserRole).toString().trimmed();
+        const int connIdx = snapshotItem->data(0, kConnIdxRole).toInt();
+        const QString poolName = snapshotItem->data(0, kPoolNameRole).toString().trimmed();
+        if (holdName.isEmpty() || datasetName.isEmpty() || snapshotName.isEmpty()
+            || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+            return;
+        }
+        const auto confirm = QMessageBox::question(
+            this,
+            trk(QStringLiteral("t_release_hold_title001"),
+                QStringLiteral("Release")),
+            trk(QStringLiteral("t_release_hold_confirm001"),
+                QStringLiteral("¿Liberar hold \"%1\" del snapshot \"%2@%3\"?")
+                    .arg(holdName, datasetName, snapshotName)),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        if (confirm != QMessageBox::Yes) {
+            return;
+        }
+        DatasetSelectionContext ctx;
+        ctx.valid = true;
+        ctx.connIdx = connIdx;
+        ctx.poolName = poolName;
+        ctx.datasetName = datasetName;
+        ctx.snapshotName = snapshotName;
+        auto shQuote = [](QString s) {
+            s.replace('\'', QStringLiteral("'\"'\"'"));
+            return QStringLiteral("'%1'").arg(s);
+        };
+        const QString objectName = QStringLiteral("%1@%2").arg(datasetName, snapshotName);
+        const QString cmd = QStringLiteral("zfs release %1 %2")
+                                .arg(shQuote(holdName), shQuote(objectName));
+        if (!executeDatasetAction(QStringLiteral("conncontent"),
+                                  QStringLiteral("Release hold"),
+                                  ctx,
+                                  cmd,
+                                  45000,
+                                  isWindowsConnection(connIdx))) {
+            return;
+        }
+
+        const QString prevToken = m_connContentToken;
+        QTreeWidget* prevTree = m_connContentTree;
+        const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+        m_connContentTree = tree;
+        m_connContentToken = token;
+        saveConnContentTreeState(token);
+        populateDatasetTree(tree, connIdx, poolName, QStringLiteral("conncontent"), true);
+        std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* n) -> QTreeWidgetItem* {
+            if (!n) {
+                return nullptr;
+            }
+            if (n->data(0, Qt::UserRole).toString().trimmed() == datasetName) {
+                return n;
+            }
+            for (int i = 0; i < n->childCount(); ++i) {
+                if (QTreeWidgetItem* f = rec(n->child(i))) {
+                    return f;
+                }
+            }
+            return nullptr;
+        };
+        QTreeWidgetItem* restored = nullptr;
+        for (int i = 0; i < tree->topLevelItemCount() && !restored; ++i) {
+            restored = rec(tree->topLevelItem(i));
+        }
+        if (restored) {
+            if (QComboBox* cb = qobject_cast<QComboBox*>(tree->itemWidget(restored, 1))) {
+                const int idx = cb->findText(snapshotName);
+                if (idx > 0) {
+                    const QSignalBlocker blocker(cb);
+                    cb->setCurrentIndex(idx);
+                }
+            }
+            tree->setCurrentItem(restored);
+            refreshDatasetProperties(QStringLiteral("conncontent"));
             syncConnContentPropertyColumns();
         }
         m_connContentTree = prevTree;
@@ -2256,9 +2813,19 @@ void MainWindow::buildUi() {
                 return false;
             };
             const bool isPropRow = sel && sel->data(0, kConnPropRowRole).toBool();
+            const bool isGroupNode = sel && sel->data(0, kConnPropGroupNodeRole).toBool();
+            const bool isHoldItem = sel && sel->data(0, kConnSnapshotHoldItemRole).toBool();
             const bool isPoolContext =
                 sel && (sel->data(0, kIsPoolRootRole).toBool() || isInfoNodeOrInside(sel));
-            if (isPropRow && !isPoolContext) {
+            const bool isLazyPropsNode =
+                sel && isGroupNode && !isPoolContext
+                && sel->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
+                && sel->text(0).trimmed() == trk(QStringLiteral("t_props_lbl_001"),
+                                                 QStringLiteral("Propiedades"),
+                                                 QStringLiteral("Properties"),
+                                                 QStringLiteral("属性"))
+                && sel->childCount() == 0;
+            if ((isPropRow || isGroupNode || isHoldItem) && !isPoolContext && !isLazyPropsNode) {
                 // No reconstruir propiedades al seleccionar una fila de propiedades de dataset;
                 // si no, el combo se destruye al abrirse.
                 return;
@@ -2314,7 +2881,7 @@ void MainWindow::buildUi() {
         });
         m_bottomConnContentTree->setContextMenuPolicy(Qt::CustomContextMenu);
         connect(m_bottomConnContentTree, &QWidget::customContextMenuRequested, this,
-                [this, refreshInlinePropsVisualBottom, openEditDatasetDialogBottom, manageInlinePropsVisualization](const QPoint& pos) {
+                [this, manageInlinePropsVisualization, createSnapshotHold, releaseSnapshotHold](const QPoint& pos) {
             if (!m_bottomConnContentTree) {
                 return;
             }
@@ -2328,6 +2895,10 @@ void MainWindow::buildUi() {
             }
             if (m_bottomConnContentTree->currentItem() != item) {
                 m_bottomConnContentTree->setCurrentItem(item);
+                item = m_bottomConnContentTree->currentItem();
+                if (!item) {
+                    return;
+                }
             }
 
             int connIdx = item->data(0, kConnIdxRole).toInt();
@@ -2353,6 +2924,49 @@ void MainWindow::buildUi() {
             updateConnectionActionsState();
 
             QMenu menu(this);
+            auto deleteLabelForItem = [this](int itemConnIdx, const QString& itemPoolName, QTreeWidgetItem* targetItem) {
+                QTreeWidgetItem* owner = targetItem;
+                while (owner) {
+                    const QString ownerDatasetName = owner->data(0, Qt::UserRole).toString().trimmed();
+                    const QString ownerSnapshotName = owner->data(1, Qt::UserRole).toString().trimmed();
+                    if (!ownerDatasetName.isEmpty() || !ownerSnapshotName.isEmpty()
+                        || owner->data(0, kIsPoolRootRole).toBool()) {
+                        break;
+                    }
+                    owner = owner->parent();
+                }
+                const QString snapshotName = owner ? owner->data(1, Qt::UserRole).toString().trimmed() : QString();
+                const QString datasetName = owner ? owner->data(0, Qt::UserRole).toString().trimmed() : QString();
+                if (!snapshotName.isEmpty() && !datasetName.isEmpty()) {
+                    return QStringLiteral("%1 %2@%3").arg(
+                        trk(QStringLiteral("t_ctx_delete_snapshot001"),
+                            QStringLiteral("Borrar Snapshot")),
+                        datasetName,
+                        snapshotName);
+                }
+                if (!datasetName.isEmpty()) {
+                    const auto it = m_poolDatasetCache.constFind(datasetCacheKey(itemConnIdx, itemPoolName));
+                    if (it != m_poolDatasetCache.cend()) {
+                        const auto recIt = it->recordByName.constFind(datasetName);
+                        if (recIt != it->recordByName.cend()) {
+                            const DatasetRecord& rec = recIt.value();
+                            if (rec.mounted.trimmed() == QStringLiteral("-")
+                                && rec.mountpoint.trimmed() == QStringLiteral("-")) {
+                                return QStringLiteral("%1 %2").arg(
+                                    trk(QStringLiteral("t_ctx_delete_zvol001"),
+                                        QStringLiteral("Borrar ZVol")),
+                                    datasetName);
+                            }
+                        }
+                    }
+                    return QStringLiteral("%1 %2").arg(
+                        trk(QStringLiteral("t_ctx_delete_dataset001"),
+                            QStringLiteral("Borrar Dataset")),
+                        datasetName);
+                }
+                return trk(QStringLiteral("t_ctx_delete_dataset001"),
+                           QStringLiteral("Borrar Dataset"));
+            };
             const bool isPoolRoot = item->data(0, kIsPoolRootRole).toBool();
             auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
                 for (QTreeWidgetItem* p = n; p; p = p->parent()) {
@@ -2363,6 +2977,14 @@ void MainWindow::buildUi() {
                 return false;
             };
             const bool isPoolInfoContext = isInfoNodeOrInside(item);
+            const bool isSnapshotHoldContext = item->data(0, kConnSnapshotHoldItemRole).toBool()
+                                               || (item->parent() && item->parent()->data(0, kConnSnapshotHoldItemRole).toBool());
+            QTreeWidgetItem* holdContextItem = item;
+            if (holdContextItem && !holdContextItem->data(0, kConnSnapshotHoldItemRole).toBool()) {
+                holdContextItem = holdContextItem->parent();
+            }
+            const QString holdContextName =
+                holdContextItem ? holdContextItem->data(0, kConnSnapshotHoldTagRole).toString().trimmed() : QString();
             if (isPoolRoot) {
                 int poolRow = -1;
                 if (connIdx >= 0 && connIdx < m_profiles.size() && !poolName.isEmpty()) {
@@ -2426,9 +3048,7 @@ void MainWindow::buildUi() {
             if (isPoolInfoContext) {
                 QAction* aManage = menu.addAction(
                     trk(QStringLiteral("t_manage_props_vis001"),
-                        QStringLiteral("Gestionar visualización de propiedades"),
-                        QStringLiteral("Manage property visualization"),
-                        QStringLiteral("管理属性显示")));
+                        QStringLiteral("Gestionar visualización de propiedades")));
                 QAction* picked = menu.exec(m_bottomConnContentTree->viewport()->mapToGlobal(pos));
                 if (picked == aManage) {
                     manageInlinePropsVisualization(m_bottomConnContentTree, item, true);
@@ -2436,23 +3056,9 @@ void MainWindow::buildUi() {
                 return;
             }
 
-            QAction* aShowInline = menu.addAction(
-                trk(QStringLiteral("t_show_inline_001"),
-                    QStringLiteral("Mostrar propiedades en línea"),
-                    QStringLiteral("Show inline properties"),
-                    QStringLiteral("显示内联属性")));
-            aShowInline->setCheckable(true);
-            aShowInline->setChecked(m_showInlineDatasetProps);
-            QAction* aEdit = menu.addAction(
-                trk(QStringLiteral("t_ctx_edit_dataset001"),
-                    QStringLiteral("Editar dataset"),
-                    QStringLiteral("Edit dataset"),
-                    QStringLiteral("编辑数据集")));
             QAction* aManage = menu.addAction(
                 trk(QStringLiteral("t_manage_props_vis001"),
-                    QStringLiteral("Gestionar visualización de propiedades"),
-                    QStringLiteral("Manage property visualization"),
-                    QStringLiteral("管理属性显示")));
+                    QStringLiteral("Gestionar visualización de propiedades")));
             menu.addSeparator();
             QMenu* mSelectSnapshot = menu.addMenu(
                 trk(QStringLiteral("t_ctx_sel_snap001"),
@@ -2489,11 +3095,19 @@ void MainWindow::buildUi() {
                     QStringLiteral("Crear dataset/snapshot/vol"),
                     QStringLiteral("Create dataset/snapshot/vol"),
                     QStringLiteral("创建 dataset/snapshot/vol")));
+            QAction* aNewHold = menu.addAction(
+                trk(QStringLiteral("t_new_hold_title001"),
+                    QStringLiteral("Nuevo Hold")));
+            QAction* aReleaseHold = menu.addAction(
+                holdContextName.isEmpty()
+                    ? trk(QStringLiteral("t_release_hold_title001"),
+                          QStringLiteral("Release"))
+                    : QStringLiteral("%1 %2").arg(
+                          trk(QStringLiteral("t_release_hold_title001"),
+                              QStringLiteral("Release")),
+                          holdContextName));
             QAction* aDelete = menu.addAction(
-                trk(QStringLiteral("t_ctx_delete_dataset001"),
-                    QStringLiteral("Borrar dataset"),
-                    QStringLiteral("Delete dataset"),
-                    QStringLiteral("删除数据集")));
+                deleteLabelForItem(connIdx, poolName, item));
             menu.addSeparator();
             QAction* aBreakdown = menu.addAction(
                 trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")));
@@ -2511,10 +3125,11 @@ void MainWindow::buildUi() {
             const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
             const bool hasConnSel = ctx.valid && !ctx.datasetName.isEmpty();
             const bool hasConnSnap = hasConnSel && !ctx.snapshotName.isEmpty();
-            aEdit->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
             aManage->setEnabled(hasConnSel);
             aRollback->setEnabled(!actionsLocked() && hasConnSnap);
             aCreate->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
+            aNewHold->setEnabled(!actionsLocked() && hasConnSnap);
+            aReleaseHold->setEnabled(!actionsLocked() && hasConnSnap && isSnapshotHoldContext);
             aDelete->setEnabled(!actionsLocked() && hasConnSel);
             aBreakdown->setEnabled(m_btnConnBreakdown && m_btnConnBreakdown->isEnabled());
             aAssemble->setEnabled(m_btnConnAssemble && m_btnConnAssemble->isEnabled());
@@ -2580,23 +3195,20 @@ void MainWindow::buildUi() {
                 m_connContentToken = prevToken;
                 return;
             }
-            if (picked == aShowInline) {
-                m_showInlineDatasetProps = aShowInline->isChecked();
-                saveUiSettings();
-                m_connContentTree = prevTree;
-                m_connContentToken = prevToken;
-                refreshInlinePropsVisualBottom(prevTree);
-                refreshInlinePropsVisualBottom(m_bottomConnContentTree);
-                return;
-            }
             if (picked == aManage) {
                 manageInlinePropsVisualization(m_bottomConnContentTree, item, false);
                 m_connContentTree = prevTree;
                 m_connContentToken = prevToken;
                 return;
             }
-            if (picked == aEdit) {
-                openEditDatasetDialogBottom(m_bottomConnContentTree);
+            if (picked == aNewHold) {
+                createSnapshotHold(m_bottomConnContentTree, item);
+                m_connContentTree = prevTree;
+                m_connContentToken = prevToken;
+                return;
+            }
+            if (picked == aReleaseHold) {
+                releaseSnapshotHold(m_bottomConnContentTree, item);
                 m_connContentTree = prevTree;
                 m_connContentToken = prevToken;
                 return;
@@ -3080,9 +3692,19 @@ void MainWindow::buildUi() {
                 return false;
             };
             const bool isPropRow = sel && sel->data(0, kConnPropRowRole).toBool();
+            const bool isGroupNode = sel && sel->data(0, kConnPropGroupNodeRole).toBool();
+            const bool isHoldItem = sel && sel->data(0, kConnSnapshotHoldItemRole).toBool();
             const bool isPoolContext =
                 sel && (sel->data(0, kIsPoolRootRole).toBool() || isInfoNodeOrInside(sel));
-            if (isPropRow && !isPoolContext) {
+            const bool isLazyPropsNode =
+                sel && isGroupNode && !isPoolContext
+                && sel->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
+                && sel->text(0).trimmed() == trk(QStringLiteral("t_props_lbl_001"),
+                                                 QStringLiteral("Propiedades"),
+                                                 QStringLiteral("Properties"),
+                                                 QStringLiteral("属性"))
+                && sel->childCount() == 0;
+            if ((isPropRow || isGroupNode || isHoldItem) && !isPoolContext && !isLazyPropsNode) {
                 updateConnectionDetailTitlesForCurrentSelection();
                 updateConnectionActionsState();
                 return;
@@ -3126,7 +3748,7 @@ void MainWindow::buildUi() {
             updateConnectionActionsState();
         });
         connect(m_connContentTree, &QWidget::customContextMenuRequested, this,
-                [this, refreshInlinePropsVisual, openEditDatasetDialog, manageInlinePropsVisualization](const QPoint& pos) {
+                [this, manageInlinePropsVisualization, createSnapshotHold, releaseSnapshotHold](const QPoint& pos) {
             if (!m_connContentTree) {
                 return;
             }
@@ -3140,10 +3762,58 @@ void MainWindow::buildUi() {
             }
             if (m_connContentTree->currentItem() != item) {
                 m_connContentTree->setCurrentItem(item);
+                item = m_connContentTree->currentItem();
+                if (!item) {
+                    return;
+                }
             }
             updateConnectionActionsState();
 
             QMenu menu(this);
+            auto deleteLabelForItem = [this](QTreeWidgetItem* targetItem) {
+                const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
+                QTreeWidgetItem* owner = targetItem;
+                while (owner) {
+                    const QString ownerDatasetName = owner->data(0, Qt::UserRole).toString().trimmed();
+                    const QString ownerSnapshotName = owner->data(1, Qt::UserRole).toString().trimmed();
+                    if (!ownerDatasetName.isEmpty() || !ownerSnapshotName.isEmpty()
+                        || owner->data(0, kIsPoolRootRole).toBool()) {
+                        break;
+                    }
+                    owner = owner->parent();
+                }
+                const QString snapshotName = owner ? owner->data(1, Qt::UserRole).toString().trimmed() : QString();
+                const QString datasetName = owner ? owner->data(0, Qt::UserRole).toString().trimmed() : QString();
+                if (!snapshotName.isEmpty() && !datasetName.isEmpty()) {
+                    return QStringLiteral("%1 %2@%3").arg(
+                        trk(QStringLiteral("t_ctx_delete_snapshot001"),
+                            QStringLiteral("Borrar Snapshot")),
+                        datasetName,
+                        snapshotName);
+                }
+                if (ctx.valid && !datasetName.isEmpty()) {
+                    const auto it = m_poolDatasetCache.constFind(datasetCacheKey(ctx.connIdx, ctx.poolName));
+                    if (it != m_poolDatasetCache.cend()) {
+                        const auto recIt = it->recordByName.constFind(datasetName);
+                        if (recIt != it->recordByName.cend()) {
+                            const DatasetRecord& rec = recIt.value();
+                            if (rec.mounted.trimmed() == QStringLiteral("-")
+                                && rec.mountpoint.trimmed() == QStringLiteral("-")) {
+                                return QStringLiteral("%1 %2").arg(
+                                    trk(QStringLiteral("t_ctx_delete_zvol001"),
+                                        QStringLiteral("Borrar ZVol")),
+                                    datasetName);
+                            }
+                        }
+                    }
+                    return QStringLiteral("%1 %2").arg(
+                        trk(QStringLiteral("t_ctx_delete_dataset001"),
+                            QStringLiteral("Borrar Dataset")),
+                        datasetName);
+                }
+                return trk(QStringLiteral("t_ctx_delete_dataset001"),
+                           QStringLiteral("Borrar Dataset"));
+            };
             const bool isPoolRoot = item->data(0, kIsPoolRootRole).toBool();
             auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
                 for (QTreeWidgetItem* p = n; p; p = p->parent()) {
@@ -3154,6 +3824,14 @@ void MainWindow::buildUi() {
                 return false;
             };
             const bool isPoolInfoContext = isInfoNodeOrInside(item);
+            const bool isSnapshotHoldContext = item->data(0, kConnSnapshotHoldItemRole).toBool()
+                                               || (item->parent() && item->parent()->data(0, kConnSnapshotHoldItemRole).toBool());
+            QTreeWidgetItem* holdContextItem = item;
+            if (holdContextItem && !holdContextItem->data(0, kConnSnapshotHoldItemRole).toBool()) {
+                holdContextItem = holdContextItem->parent();
+            }
+            const QString holdContextName =
+                holdContextItem ? holdContextItem->data(0, kConnSnapshotHoldTagRole).toString().trimmed() : QString();
             if (isPoolRoot) {
                 const int connIdx = item->data(0, kConnIdxRole).toInt();
                 const QString poolName = item->data(0, kPoolNameRole).toString().trimmed();
@@ -3220,9 +3898,7 @@ void MainWindow::buildUi() {
             if (isPoolInfoContext) {
                 QAction* aManage = menu.addAction(
                     trk(QStringLiteral("t_manage_props_vis001"),
-                        QStringLiteral("Gestionar visualización de propiedades"),
-                        QStringLiteral("Manage property visualization"),
-                        QStringLiteral("管理属性显示")));
+                        QStringLiteral("Gestionar visualización de propiedades")));
                 QAction* picked = menu.exec(m_connContentTree->viewport()->mapToGlobal(pos));
                 if (picked == aManage) {
                     manageInlinePropsVisualization(m_connContentTree, item, true);
@@ -3230,23 +3906,9 @@ void MainWindow::buildUi() {
                 return;
             }
 
-            QAction* aShowInline = menu.addAction(
-                trk(QStringLiteral("t_show_inline_001"),
-                    QStringLiteral("Mostrar propiedades en línea"),
-                    QStringLiteral("Show inline properties"),
-                    QStringLiteral("显示内联属性")));
-            aShowInline->setCheckable(true);
-            aShowInline->setChecked(m_showInlineDatasetProps);
-            QAction* aEdit = menu.addAction(
-                trk(QStringLiteral("t_ctx_edit_dataset001"),
-                    QStringLiteral("Editar dataset"),
-                    QStringLiteral("Edit dataset"),
-                    QStringLiteral("编辑数据集")));
             QAction* aManage = menu.addAction(
                 trk(QStringLiteral("t_manage_props_vis001"),
-                    QStringLiteral("Gestionar visualización de propiedades"),
-                    QStringLiteral("Manage property visualization"),
-                    QStringLiteral("管理属性显示")));
+                    QStringLiteral("Gestionar visualización de propiedades")));
             menu.addSeparator();
             QMenu* mSelectSnapshot = menu.addMenu(
                 trk(QStringLiteral("t_ctx_sel_snap001"),
@@ -3283,11 +3945,19 @@ void MainWindow::buildUi() {
                     QStringLiteral("Crear dataset/snapshot/vol"),
                     QStringLiteral("Create dataset/snapshot/vol"),
                     QStringLiteral("创建 dataset/snapshot/vol")));
+            QAction* aNewHold = menu.addAction(
+                trk(QStringLiteral("t_new_hold_title001"),
+                    QStringLiteral("Nuevo Hold")));
+            QAction* aReleaseHold = menu.addAction(
+                holdContextName.isEmpty()
+                    ? trk(QStringLiteral("t_release_hold_title001"),
+                          QStringLiteral("Release"))
+                    : QStringLiteral("%1 %2").arg(
+                          trk(QStringLiteral("t_release_hold_title001"),
+                              QStringLiteral("Release")),
+                          holdContextName));
             QAction* aDelete = menu.addAction(
-                trk(QStringLiteral("t_ctx_delete_dataset001"),
-                    QStringLiteral("Borrar dataset"),
-                    QStringLiteral("Delete dataset"),
-                    QStringLiteral("删除数据集")));
+                deleteLabelForItem(item));
             menu.addSeparator();
             QAction* aBreakdown = menu.addAction(
                 trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")));
@@ -3301,10 +3971,11 @@ void MainWindow::buildUi() {
             const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
             const bool hasConnSel = ctx.valid && !ctx.datasetName.isEmpty();
             const bool hasConnSnap = hasConnSel && !ctx.snapshotName.isEmpty();
-            aEdit->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
             aManage->setEnabled(hasConnSel);
             aRollback->setEnabled(!actionsLocked() && hasConnSnap);
             aCreate->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
+            aNewHold->setEnabled(!actionsLocked() && hasConnSnap);
+            aReleaseHold->setEnabled(!actionsLocked() && hasConnSnap && isSnapshotHoldContext);
             aDelete->setEnabled(!actionsLocked() && hasConnSel);
             aBreakdown->setEnabled(m_btnConnBreakdown && m_btnConnBreakdown->isEnabled());
             aAssemble->setEnabled(m_btnConnAssemble && m_btnConnAssemble->isEnabled());
@@ -3364,19 +4035,16 @@ void MainWindow::buildUi() {
                 }
                 return;
             }
-            if (picked == aShowInline) {
-                m_showInlineDatasetProps = aShowInline->isChecked();
-                saveUiSettings();
-                refreshInlinePropsVisual(m_connContentTree);
-                refreshInlinePropsVisual(m_bottomConnContentTree);
-                return;
-            }
             if (picked == aManage) {
                 manageInlinePropsVisualization(m_connContentTree, item, false);
                 return;
             }
-            if (picked == aEdit) {
-                openEditDatasetDialog(m_connContentTree);
+            if (picked == aNewHold) {
+                createSnapshotHold(m_connContentTree, item);
+                return;
+            }
+            if (picked == aReleaseHold) {
+                releaseSnapshotHold(m_connContentTree, item);
                 return;
             }
             if (picked == aRollback) {

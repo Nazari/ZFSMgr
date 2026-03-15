@@ -804,6 +804,210 @@ void MainWindow::applyDatasetPropertyChanges() {
     if (actionsLocked()) {
         return;
     }
+    if (m_propsSide == QStringLiteral("conncontent")) {
+        auto saveCurrentConnContentDraft = [this]() {
+            if (m_propsDataset.isEmpty() || m_propsToken.isEmpty() || !m_connContentPropsTable) {
+                return;
+            }
+            DatasetPropsDraft draft;
+            for (int r = 0; r < m_connContentPropsTable->rowCount(); ++r) {
+                QTableWidgetItem* rk = m_connContentPropsTable->item(r, 0);
+                QTableWidgetItem* rv = m_connContentPropsTable->item(r, 1);
+                QTableWidgetItem* ri = m_connContentPropsTable->item(r, 2);
+                if (!rk || !rv || !ri) {
+                    continue;
+                }
+                const QString key = propKeyFromItem(rk);
+                if (key.isEmpty()) {
+                    continue;
+                }
+                draft.valuesByProp[key] = rv->text();
+                draft.inheritByProp[key] =
+                    (ri->flags() & Qt::ItemIsUserCheckable) && ri->checkState() == Qt::Checked;
+            }
+            draft.dirty = m_propsDirty;
+            const QString key = propsDraftKey(QStringLiteral("conncontent"), m_propsToken, m_propsDataset);
+            if (draft.dirty) {
+                m_propsDraftByKey[key] = draft;
+            }
+        };
+        saveCurrentConnContentDraft();
+
+        struct PendingDraft {
+            QString draftKey;
+            QString token;
+            QString objectName;
+            DatasetSelectionContext ctx;
+            DatasetPropsDraft draft;
+        };
+        QVector<PendingDraft> pending;
+        for (auto it = m_propsDraftByKey.cbegin(); it != m_propsDraftByKey.cend(); ++it) {
+            if (!it.value().dirty || !it.key().startsWith(QStringLiteral("conncontent|"))) {
+                continue;
+            }
+            const QStringList parts = it.key().split(QLatin1Char('|'));
+            if (parts.size() < 3) {
+                continue;
+            }
+            const QString token = parts.value(1).trimmed();
+            const QString objectName = parts.mid(2).join(QStringLiteral("|")).trimmed();
+            if (token.isEmpty() || objectName.isEmpty() || objectName.contains(QLatin1Char('@'))) {
+                continue;
+            }
+            const int sep = token.indexOf(QStringLiteral("::"));
+            if (sep <= 0) {
+                continue;
+            }
+            bool okConn = false;
+            const int connIdx = token.left(sep).toInt(&okConn);
+            const QString poolName = token.mid(sep + 2);
+            if (!okConn || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+                continue;
+            }
+            DatasetSelectionContext ctx;
+            ctx.valid = true;
+            ctx.connIdx = connIdx;
+            ctx.poolName = poolName;
+            ctx.datasetName = objectName;
+            pending.push_back(PendingDraft{it.key(), token, objectName, ctx, it.value()});
+        }
+        if (pending.isEmpty()) {
+            m_propsDirty = false;
+            updateApplyPropsButtonState();
+            return;
+        }
+
+        auto isMountedText = [](const QString& v) -> bool {
+            const QString s = v.trimmed().toLower();
+            return s == QStringLiteral("montado")
+                   || s == QStringLiteral("mounted")
+                   || s == QStringLiteral("已挂载")
+                   || s == QStringLiteral("on")
+                   || s == QStringLiteral("yes")
+                   || s == QStringLiteral("true")
+                   || s == QStringLiteral("1");
+        };
+
+        for (const PendingDraft& item : pending) {
+            const QString cacheKey = datasetPropsCacheKey(item.ctx.connIdx, item.ctx.poolName, item.objectName);
+            const auto cacheIt = m_datasetPropsCache.constFind(cacheKey);
+            if (cacheIt == m_datasetPropsCache.cend() || !cacheIt->loaded) {
+                QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                                     trk(QStringLiteral("t_seleccione_615ce3"),
+                                         QStringLiteral("No hay caché de propiedades para aplicar cambios a %1.")
+                                             .arg(item.objectName),
+                                         QStringLiteral("No property cache is available to apply changes to %1.")
+                                             .arg(item.objectName),
+                                         QStringLiteral("没有可用于将更改应用到 %1 的属性缓存。")
+                                             .arg(item.objectName)));
+                updateApplyPropsButtonState();
+                return;
+            }
+
+            QMap<QString, QString> originalValues;
+            QMap<QString, bool> originalInherit;
+            for (const DatasetPropCacheRow& row : cacheIt->rows) {
+                originalValues[row.prop] = row.value;
+                originalInherit[row.prop] = isDatasetPropertyCurrentlyInherited(row.source);
+            }
+
+            QSet<QString> touched;
+            for (auto it = item.draft.valuesByProp.cbegin(); it != item.draft.valuesByProp.cend(); ++it) {
+                touched.insert(it.key());
+            }
+            for (auto it = item.draft.inheritByProp.cbegin(); it != item.draft.inheritByProp.cend(); ++it) {
+                touched.insert(it.key());
+            }
+
+            QStringList subcmds;
+            for (const QString& prop : touched) {
+                if (prop.isEmpty() || prop == QStringLiteral("dataset")
+                    || prop == QStringLiteral("Tamaño")
+                    || prop == QStringLiteral("snapshot")) {
+                    continue;
+                }
+                const bool originalInh = originalInherit.value(prop, false);
+                const bool finalInh = item.draft.inheritByProp.contains(prop)
+                                          ? item.draft.inheritByProp.value(prop)
+                                          : originalInh;
+                const QString originalValue = originalValues.value(prop);
+                const QString finalValue = item.draft.valuesByProp.contains(prop)
+                                               ? item.draft.valuesByProp.value(prop)
+                                               : originalValue;
+
+                if (prop == QStringLiteral("estado")) {
+                    if (isMountedText(finalValue) != isMountedText(originalValue)) {
+                        subcmds << QStringLiteral("zfs %1 %2")
+                                       .arg((isWindowsConnection(item.ctx.connIdx)
+                                                 ? (isMountedText(finalValue) ? QStringLiteral("mount")
+                                                                              : QStringLiteral("unmount"))
+                                                 : (isMountedText(finalValue) ? QStringLiteral("mount")
+                                                                              : QStringLiteral("umount"))),
+                                            shSingleQuote(item.ctx.datasetName));
+                    }
+                    continue;
+                }
+                if (finalInh != originalInh) {
+                    if (finalInh) {
+                        subcmds << QStringLiteral("zfs inherit %1 %2")
+                                       .arg(shSingleQuote(prop), shSingleQuote(item.ctx.datasetName));
+                    } else {
+                        subcmds << QStringLiteral("zfs set %1 %2")
+                                       .arg(shSingleQuote(prop + QStringLiteral("=") + finalValue),
+                                            shSingleQuote(item.ctx.datasetName));
+                    }
+                    continue;
+                }
+                if (!finalInh && finalValue != originalValue) {
+                    subcmds << QStringLiteral("zfs set %1 %2")
+                                   .arg(shSingleQuote(prop + QStringLiteral("=") + finalValue),
+                                        shSingleQuote(item.ctx.datasetName));
+                }
+            }
+
+            if (subcmds.isEmpty()) {
+                m_propsDraftByKey.remove(item.draftKey);
+                continue;
+            }
+
+            const bool isWin = isWindowsConnection(item.ctx.connIdx);
+            const QString cmd = isWin ? subcmds.join(QStringLiteral("; "))
+                                      : QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
+            if (!executeDatasetAction(QStringLiteral("conncontent"),
+                                      QStringLiteral("Aplicar propiedades"),
+                                      item.ctx,
+                                      cmd,
+                                      60000,
+                                      isWin)) {
+                updateApplyPropsButtonState();
+                return;
+            }
+            m_propsDraftByKey.remove(item.draftKey);
+        }
+
+        m_propsDirty = false;
+        if (m_connContentPropsTable && !m_propsDataset.isEmpty()) {
+            m_propsOriginalValues.clear();
+            m_propsOriginalInherit.clear();
+            for (int r = 0; r < m_connContentPropsTable->rowCount(); ++r) {
+                QTableWidgetItem* rk = m_connContentPropsTable->item(r, 0);
+                QTableWidgetItem* rv = m_connContentPropsTable->item(r, 1);
+                QTableWidgetItem* ri = m_connContentPropsTable->item(r, 2);
+                if (!rk || !rv || !ri) {
+                    continue;
+                }
+                const QString key = propKeyFromItem(rk);
+                if (key.isEmpty()) {
+                    continue;
+                }
+                m_propsOriginalValues[key] = rv->text();
+                m_propsOriginalInherit[key] =
+                    (ri->flags() & Qt::ItemIsUserCheckable) && ri->checkState() == Qt::Checked;
+            }
+        }
+        updateApplyPropsButtonState();
+        return;
+    }
     if (!m_propsDirty || m_propsDataset.isEmpty() || m_propsSide.isEmpty()) {
         return;
     }
@@ -1209,7 +1413,135 @@ void MainWindow::applyDatasetPropertyChanges() {
     }
 }
 
+QStringList MainWindow::pendingConnContentApplyCommands() const {
+    QStringList commands;
+    auto isMountedText = [](const QString& v) -> bool {
+        const QString s = v.trimmed().toLower();
+        return s == QStringLiteral("montado")
+               || s == QStringLiteral("mounted")
+               || s == QStringLiteral("已挂载")
+               || s == QStringLiteral("on")
+               || s == QStringLiteral("yes")
+               || s == QStringLiteral("true")
+               || s == QStringLiteral("1");
+    };
+    for (auto it = m_propsDraftByKey.cbegin(); it != m_propsDraftByKey.cend(); ++it) {
+        if (!it.value().dirty || !it.key().startsWith(QStringLiteral("conncontent|"))) {
+            continue;
+        }
+        const QStringList parts = it.key().split(QLatin1Char('|'));
+        if (parts.size() < 3) {
+            continue;
+        }
+        const QString token = parts.value(1).trimmed();
+        const QString objectName = parts.mid(2).join(QStringLiteral("|")).trimmed();
+        if (token.isEmpty() || objectName.isEmpty() || objectName.contains(QLatin1Char('@'))) {
+            continue;
+        }
+        const int sep = token.indexOf(QStringLiteral("::"));
+        if (sep <= 0) {
+            continue;
+        }
+        bool okConn = false;
+        const int connIdx = token.left(sep).toInt(&okConn);
+        const QString poolName = token.mid(sep + 2);
+        if (!okConn || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+            continue;
+        }
+        const QString cacheKey = datasetPropsCacheKey(connIdx, poolName, objectName);
+        const auto cacheIt = m_datasetPropsCache.constFind(cacheKey);
+        if (cacheIt == m_datasetPropsCache.cend() || !cacheIt->loaded) {
+            continue;
+        }
+
+        QMap<QString, QString> originalValues;
+        QMap<QString, bool> originalInherit;
+        for (const DatasetPropCacheRow& row : cacheIt->rows) {
+            originalValues[row.prop] = row.value;
+            originalInherit[row.prop] = isDatasetPropertyCurrentlyInherited(row.source);
+        }
+
+        QSet<QString> touched;
+        for (auto vit = it.value().valuesByProp.cbegin(); vit != it.value().valuesByProp.cend(); ++vit) {
+            touched.insert(vit.key());
+        }
+        for (auto iit = it.value().inheritByProp.cbegin(); iit != it.value().inheritByProp.cend(); ++iit) {
+            touched.insert(iit.key());
+        }
+
+        for (const QString& prop : touched) {
+            if (prop.isEmpty() || prop == QStringLiteral("dataset")
+                || prop == QStringLiteral("Tamaño")
+                || prop == QStringLiteral("snapshot")) {
+                continue;
+            }
+            const bool originalInh = originalInherit.value(prop, false);
+            const bool finalInh = it.value().inheritByProp.contains(prop)
+                                      ? it.value().inheritByProp.value(prop)
+                                      : originalInh;
+            const QString originalValue = originalValues.value(prop);
+            const QString finalValue = it.value().valuesByProp.contains(prop)
+                                           ? it.value().valuesByProp.value(prop)
+                                           : originalValue;
+
+            if (prop == QStringLiteral("estado")) {
+                if (isMountedText(finalValue) != isMountedText(originalValue)) {
+                    commands << QStringLiteral("zfs %1 %2")
+                                    .arg((isWindowsConnection(connIdx)
+                                              ? (isMountedText(finalValue) ? QStringLiteral("mount")
+                                                                           : QStringLiteral("unmount"))
+                                              : (isMountedText(finalValue) ? QStringLiteral("mount")
+                                                                           : QStringLiteral("umount"))),
+                                         shSingleQuote(objectName));
+                }
+                continue;
+            }
+            if (finalInh != originalInh) {
+                if (finalInh) {
+                    commands << QStringLiteral("zfs inherit %1 %2")
+                                    .arg(shSingleQuote(prop), shSingleQuote(objectName));
+                } else {
+                    commands << QStringLiteral("zfs set %1 %2")
+                                    .arg(shSingleQuote(prop + QStringLiteral("=") + finalValue),
+                                         shSingleQuote(objectName));
+                }
+                continue;
+            }
+            if (!finalInh && finalValue != originalValue) {
+                commands << QStringLiteral("zfs set %1 %2")
+                                .arg(shSingleQuote(prop + QStringLiteral("=") + finalValue),
+                                     shSingleQuote(objectName));
+            }
+        }
+    }
+    return commands;
+}
+
 void MainWindow::updateApplyPropsButtonState() {
+    if (m_btnApplyConnContentProps) {
+        const QStringList pendingCommands = pendingConnContentApplyCommands();
+        if (m_propsSide == QStringLiteral("conncontent")) {
+            m_btnApplyConnContentProps->setEnabled(!pendingCommands.isEmpty());
+            m_btnApplyConnContentProps->setToolTip(
+                pendingCommands.isEmpty()
+                    ? trk(QStringLiteral("t_apply_changes_tt_001"),
+                          QStringLiteral("Sin cambios pendientes."),
+                          QStringLiteral("No pending changes."),
+                          QStringLiteral("没有待应用的更改。"))
+                    : pendingCommands.join(QLatin1Char('\n')));
+            return;
+        }
+        if (!pendingCommands.isEmpty()) {
+            m_btnApplyConnContentProps->setEnabled(true);
+            m_btnApplyConnContentProps->setToolTip(pendingCommands.join(QLatin1Char('\n')));
+            return;
+        }
+        m_btnApplyConnContentProps->setToolTip(
+            trk(QStringLiteral("t_apply_changes_tt_001"),
+                QStringLiteral("Sin cambios pendientes."),
+                QStringLiteral("No pending changes."),
+                QStringLiteral("没有待应用的更改。")));
+    }
     const DatasetSelectionContext ctx = currentDatasetSelection(m_propsSide);
     bool eligible = ctx.valid && ctx.snapshotName.isEmpty() && (ctx.datasetName == m_propsDataset);
     if (m_propsSide == QStringLiteral("conncontent")) {

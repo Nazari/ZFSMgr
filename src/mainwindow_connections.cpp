@@ -730,16 +730,20 @@ void MainWindow::updateSecondaryConnectionDetail() {
             m_bottomConnContentTree->addTopLevelItem(tmp.takeTopLevelItem(0));
         }
     };
+    QSet<QString> seenBottomPools;
     for (const PoolImported& pool : st.importedPools) {
         const QString poolName = pool.pool.trimmed();
-        if (poolName.isEmpty()) {
+        const QString poolKey = poolName.toLower();
+        if (poolName.isEmpty() || seenBottomPools.contains(poolKey)) {
             continue;
         }
+        seenBottomPools.insert(poolKey);
         addPoolTree(m_bottomDetailConnIdx, poolName, true);
     }
     for (const PoolImportable& pool : st.importablePools) {
         const QString poolName = pool.pool.trimmed();
-        if (poolName.isEmpty()) {
+        const QString poolKey = poolName.toLower();
+        if (poolName.isEmpty() || seenBottomPools.contains(poolKey)) {
             continue;
         }
         const QString stateUp = pool.state.trimmed().toUpper();
@@ -747,7 +751,29 @@ void MainWindow::updateSecondaryConnectionDetail() {
         if (stateUp != QStringLiteral("ONLINE") || actionTxt.isEmpty()) {
             continue;
         }
+        seenBottomPools.insert(poolKey);
         addPoolTree(m_bottomDetailConnIdx, poolName, false);
+    }
+    for (int i = m_bottomConnContentTree->topLevelItemCount() - 1; i >= 0; --i) {
+        QTreeWidgetItem* item = m_bottomConnContentTree->topLevelItem(i);
+        if (!item || !item->data(0, kIsPoolRootRole).toBool()) {
+            continue;
+        }
+        const QString poolKey = item->data(0, kPoolNameRole).toString().trimmed().toLower();
+        bool seenEarlier = false;
+        for (int j = 0; j < i; ++j) {
+            QTreeWidgetItem* prev = m_bottomConnContentTree->topLevelItem(j);
+            if (!prev || !prev->data(0, kIsPoolRootRole).toBool()) {
+                continue;
+            }
+            if (prev->data(0, kPoolNameRole).toString().trimmed().toLower() == poolKey) {
+                seenEarlier = true;
+                break;
+            }
+        }
+        if (seenEarlier) {
+            delete m_bottomConnContentTree->takeTopLevelItem(i);
+        }
     }
     if (m_bottomConnContentTree->topLevelItemCount() == 0) {
         auto* noPools = new QTreeWidgetItem();
@@ -833,16 +859,20 @@ void MainWindow::rebuildConnectionEntityTabs() {
             m_connContentTree->addTopLevelItem(tmp.takeTopLevelItem(0));
         }
     };
+    QSet<QString> seenTopPools;
     for (const PoolImported& pool : st.importedPools) {
         const QString poolName = pool.pool.trimmed();
-        if (poolName.isEmpty()) {
+        const QString poolKey = poolName.toLower();
+        if (poolName.isEmpty() || seenTopPools.contains(poolKey)) {
             continue;
         }
+        seenTopPools.insert(poolKey);
         addPoolTree(connIdx, poolName, true);
     }
     for (const PoolImportable& pool : st.importablePools) {
         const QString poolName = pool.pool.trimmed();
-        if (poolName.isEmpty()) {
+        const QString poolKey = poolName.toLower();
+        if (poolName.isEmpty() || seenTopPools.contains(poolKey)) {
             continue;
         }
         const QString stateUp = pool.state.trimmed().toUpper();
@@ -851,7 +881,29 @@ void MainWindow::rebuildConnectionEntityTabs() {
         if (stateUp != QStringLiteral("ONLINE") || actionTxt.isEmpty()) {
             continue;
         }
+        seenTopPools.insert(poolKey);
         addPoolTree(connIdx, poolName, false);
+    }
+    for (int i = m_connContentTree->topLevelItemCount() - 1; i >= 0; --i) {
+        QTreeWidgetItem* item = m_connContentTree->topLevelItem(i);
+        if (!item || !item->data(0, kIsPoolRootRole).toBool()) {
+            continue;
+        }
+        const QString poolKey = item->data(0, kPoolNameRole).toString().trimmed().toLower();
+        bool seenEarlier = false;
+        for (int j = 0; j < i; ++j) {
+            QTreeWidgetItem* prev = m_connContentTree->topLevelItem(j);
+            if (!prev || !prev->data(0, kIsPoolRootRole).toBool()) {
+                continue;
+            }
+            if (prev->data(0, kPoolNameRole).toString().trimmed().toLower() == poolKey) {
+                seenEarlier = true;
+                break;
+            }
+        }
+        if (seenEarlier) {
+            delete m_connContentTree->takeTopLevelItem(i);
+        }
     }
     if (m_connContentTree->topLevelItemCount() == 0) {
         auto* noPools = new QTreeWidgetItem();
@@ -1629,7 +1681,30 @@ void MainWindow::rebuildConnectionsTable() {
         }
         return -1;
     };
+    auto connIdxFromPersistedKey = [this](const QString& wantedKey) -> int {
+        const QString wanted = wantedKey.trimmed().toLower();
+        if (wanted.isEmpty()) {
+            return -1;
+        }
+        for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
+            const int idx = connectionIndexForRow(m_connectionsTable, r);
+            if (idx < 0 || idx >= m_profiles.size() || isConnectionDisconnected(idx)) {
+                continue;
+            }
+            const QString key = connPersistKeyFromProfiles(m_profiles, idx);
+            if (!key.isEmpty() && key == wanted) {
+                return idx;
+            }
+        }
+        return -1;
+    };
     if (!m_connSelectorDefaultsInitialized) {
+        if (m_topDetailConnIdx < 0) {
+            m_topDetailConnIdx = connIdxFromPersistedKey(m_persistedTopDetailConnectionKey);
+        }
+        if (m_bottomDetailConnIdx < 0) {
+            m_bottomDetailConnIdx = connIdxFromPersistedKey(m_persistedBottomDetailConnectionKey);
+        }
         if (!ensureValidConnIdx(m_topDetailConnIdx)) {
             m_topDetailConnIdx = (rowCount > 0) ? firstConnectedIndex() : -1;
         }

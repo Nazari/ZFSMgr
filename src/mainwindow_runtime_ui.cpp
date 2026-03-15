@@ -55,6 +55,17 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         event->ignore();
         return;
     }
+    if (m_refreshInProgress) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_close_refresh_block_001"),
+                QStringLiteral("Hay un refresco de conexiones en curso. Espere a que termine antes de cerrar la aplicación."),
+                QStringLiteral("A connection refresh is in progress. Wait for it to finish before closing the application."),
+                QStringLiteral("连接刷新正在进行中。请等待其完成后再关闭应用。")));
+        event->ignore();
+        return;
+    }
     saveUiSettings();
     closeAllSshControlMasters();
     QMainWindow::closeEvent(event);
