@@ -5,8 +5,28 @@ ZFSMgr puede mostrar propiedades de dataset y pool directamente dentro de los á
 ## Dónde aparecen
 
 - En un dataset, las propiedades se muestran inline bajo el nodo `Propiedades`, que arranca colapsado.
+- En un dataset no snapshot también aparece el nodo `Permisos`, independiente de `Propiedades`.
 - En un pool, las propiedades se muestran inline bajo el nodo `Información`.
 - En un snapshot, las propiedades se muestran inline bajo el nodo `Propiedades`.
+
+## Permisos
+
+- El nodo `Permisos` muestra delegaciones ZFS definidas con `zfs allow`.
+- Se organiza en:
+  - `Delegaciones`
+  - `Permisos para nuevos subdatasets`
+  - `Sets de permisos`
+- En `Delegaciones`, cada hijo representa una delegación concreta:
+  - `Usuario <nombre> Ámbito Local`
+  - `Grupo <nombre> Ámbito Desc.`
+  - `Everyone Ámbito Local y Desc.`
+- Al expandir una delegación o un set, los permisos se muestran inline en rejilla, igual que las propiedades del dataset:
+  - fila superior con nombres
+  - fila inferior con checks
+- `Permisos para nuevos subdatasets` indica qué permisos recibirá automáticamente quien cree nuevos descendientes bajo ese dataset.
+- Los checks de `Permisos` no ejecutan comandos inmediatamente.
+  Modifican un borrador local y el resultado se aplica con `Aplicar cambios`.
+- El tooltip de `Aplicar cambios` incluye también los comandos `zfs allow` / `zfs unallow` pendientes.
 
 ## Visualización
 
@@ -53,6 +73,7 @@ Las propiedades no marcadas no se muestran en el árbol, aunque sigan estando di
 ## Edición inline
 
 - Las propiedades editables pueden modificarse directamente en el árbol.
+- Los permisos ZFS de `Delegaciones`, `Permisos para nuevos subdatasets` y `Sets de permisos` también se modifican directamente en el árbol, pero en modo borrador.
 - Algunas propiedades dependen del sistema operativo de la conexión.
   Si una propiedad no está soportada en ese sistema, se muestra atenuada (`greyed-out`) y no permite edición.
   Ejemplos actuales:
