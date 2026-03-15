@@ -11,6 +11,7 @@ ZFSMgr puede mostrar propiedades de dataset y pool directamente dentro de los á
 ## Visualización
 
 - El número de columnas visibles se cambia desde el menú contextual del encabezado del treeview, en `Columnas de propiedades`.
+- La primera columna mantiene siempre el prefijo `Origen:` en el árbol superior y `Destino:` en el inferior.
 - Cada árbol usa sus propios anchos de columna.
 - Los anchos de columna se guardan en configuración y se restauran al abrir la aplicación.
 - El scroll vertical de ambos treeviews es por píxel para que el desplazamiento sea más suave.

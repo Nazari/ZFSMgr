@@ -1210,10 +1210,11 @@ void MainWindow::buildUi() {
     connContentLayout->setSpacing(4);
     m_connContentTree = new QTreeWidget(m_connContentPage);
     m_connContentTree->setColumnCount(4);
-    m_connContentTree->setHeaderLabels({trk(QStringLiteral("t_dataset_001"),
-                                            QStringLiteral("Dataset"),
-                                            QStringLiteral("Dataset"),
-                                            QStringLiteral("数据集")),
+    m_connContentTree->setHeaderLabels({QStringLiteral("Origen:")
+                                            + trk(QStringLiteral("t_dataset_001"),
+                                                  QStringLiteral("Dataset"),
+                                                  QStringLiteral("Dataset"),
+                                                  QStringLiteral("数据集")),
                                         trk(QStringLiteral("t_snapshot_col01"),
                                             QStringLiteral("Snapshot"),
                                             QStringLiteral("Snapshot"),
@@ -1367,10 +1368,11 @@ void MainWindow::buildUi() {
     bottomConnLayout->addWidget(m_bottomConnectionEntityTabs, 0);
     m_bottomConnContentTree = new QTreeWidget(bottomConnBox);
     m_bottomConnContentTree->setColumnCount(4);
-    m_bottomConnContentTree->setHeaderLabels({trk(QStringLiteral("t_dataset_001"),
-                                                   QStringLiteral("Dataset"),
-                                                   QStringLiteral("Dataset"),
-                                                   QStringLiteral("数据集")),
+    m_bottomConnContentTree->setHeaderLabels({QStringLiteral("Destino:")
+                                                   + trk(QStringLiteral("t_dataset_001"),
+                                                         QStringLiteral("Dataset"),
+                                                         QStringLiteral("Dataset"),
+                                                         QStringLiteral("数据集")),
                                                trk(QStringLiteral("t_snapshot_col01"),
                                                    QStringLiteral("Snapshot"),
                                                    QStringLiteral("Snapshot"),

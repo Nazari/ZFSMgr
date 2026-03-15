@@ -17,6 +17,7 @@ ZFSMgr gestiona conexiones y acciones ZFS.
   - selección de dataset,
   - snapshot seleccionado,
   - anchos de columnas.
+- La primera columna del árbol superior se identifica siempre como `Origen:...` y la del inferior como `Destino:...`.
 - Cada árbol muestra el pool activo de su conexión seleccionada.
 - Bajo cada pool aparecen los nodos `Información`, `Capacidades activas` y `Contenido`.
 - El nodo `Información` del pool muestra propiedades de pool inline.

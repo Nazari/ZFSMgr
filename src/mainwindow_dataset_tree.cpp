@@ -208,6 +208,14 @@ QString datasetLeafName(const QString& datasetName) {
     return datasetName.contains('/') ? datasetName.section('/', -1, -1) : datasetName;
 }
 
+QString connTreeSidePrefix(QTreeWidget* tree, QTreeWidget* bottomTree) {
+    return (tree && tree == bottomTree) ? QStringLiteral("Destino:") : QStringLiteral("Origen:");
+}
+
+QString connTreeSideHeader(QTreeWidget* tree, QTreeWidget* bottomTree, const QString& label) {
+    return connTreeSidePrefix(tree, bottomTree) + label;
+}
+
 void applySnapshotVisualState(QTreeWidgetItem* item) {
     if (!item) {
         return;
@@ -442,7 +450,10 @@ void MainWindow::syncConnContentPropertyColumns() {
     const QSignalBlocker blocker(tree);
 
     QStringList headers = {
-        trk(QStringLiteral("t_dataset_001"), QStringLiteral("Dataset"), QStringLiteral("Dataset"), QStringLiteral("数据集")),
+        connTreeSideHeader(
+            tree,
+            m_bottomConnContentTree,
+            trk(QStringLiteral("t_dataset_001"), QStringLiteral("Dataset"), QStringLiteral("Dataset"), QStringLiteral("数据集"))),
         trk(QStringLiteral("t_snapshot_col01"), QStringLiteral("Snapshot"), QStringLiteral("Snapshot"), QStringLiteral("快照")),
         trk(QStringLiteral("t_montado_a97484"), QStringLiteral("Montado"), QStringLiteral("Mounted"), QStringLiteral("已挂载")),
         trk(QStringLiteral("t_mountpoint_001"), QStringLiteral("Mountpoint"), QStringLiteral("Mountpoint"), QStringLiteral("挂载点"))
@@ -1191,7 +1202,10 @@ void MainWindow::syncConnContentPoolColumns() {
     const QSignalBlocker blocker(m_connContentTree);
     const int propCols = qBound(5, m_connPropColumnsSetting, 10);
     QStringList headers;
-    headers << trk(QStringLiteral("t_pool_title001"), QStringLiteral("Pool"), QStringLiteral("Pool"), QStringLiteral("存储池"))
+    headers << connTreeSideHeader(
+                   m_connContentTree,
+                   m_bottomConnContentTree,
+                   trk(QStringLiteral("t_pool_title001"), QStringLiteral("Pool"), QStringLiteral("Pool"), QStringLiteral("存储池")))
             << trk(QStringLiteral("t_snapshot_col01"), QStringLiteral("Snapshot"), QStringLiteral("Snapshot"), QStringLiteral("快照"))
             << trk(QStringLiteral("t_montado_a97484"), QStringLiteral("Montado"), QStringLiteral("Mounted"), QStringLiteral("已挂载"))
             << trk(QStringLiteral("t_mountpoint_001"), QStringLiteral("Mountpoint"), QStringLiteral("Mountpoint"), QStringLiteral("挂载点"));
