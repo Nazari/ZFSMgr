@@ -722,7 +722,7 @@ void MainWindow::updateSecondaryConnectionDetail() {
         m_connContentTree = prevTree;
         return;
     }
-    const ConnectionRuntimeState& st = m_states[m_bottomDetailConnIdx];
+    const ConnectionRuntimeState st = m_states[m_bottomDetailConnIdx];
     auto addPoolTree = [this](int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing) {
         QTreeWidget tmp;
         populateDatasetTree(&tmp, connIdx, poolName, QStringLiteral("conncontent_multi"), allowRemoteLoadIfMissing);
@@ -851,7 +851,7 @@ void MainWindow::rebuildConnectionEntityTabs() {
         nav.selectedKey = m_savedTopSelectedKeyByConn.value(connIdx);
     }
     m_connContentTree->clear();
-    const ConnectionRuntimeState& st = m_states[connIdx];
+    const ConnectionRuntimeState st = m_states[connIdx];
     auto addPoolTree = [this](int cidx, const QString& poolName, bool allowRemoteLoadIfMissing) {
         QTreeWidget tmp;
         populateDatasetTree(&tmp, cidx, poolName, QStringLiteral("conncontent_multi"), allowRemoteLoadIfMissing);
