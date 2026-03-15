@@ -291,6 +291,7 @@ private:
     void scrubPoolFromRow(int row);
     void syncPoolFromRow(int row);
     void trimPoolFromRow(int row);
+    void initializePoolFromRow(int row);
     void destroyPoolFromRow(int row);
     void showPoolHistoryFromRow(int row);
     void createPoolForSelectedConnection();

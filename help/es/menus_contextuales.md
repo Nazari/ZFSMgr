@@ -30,6 +30,7 @@ Sobre el nodo raíz `Pool`:
 - `Sync`
 - `Scrub`
 - `Trim`
+- `Initialize`
 - `Destroy`
 
 Sobre dataset/snapshot seleccionado:

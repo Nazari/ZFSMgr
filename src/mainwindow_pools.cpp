@@ -635,6 +635,58 @@ void MainWindow::trimPoolFromRow(int row) {
     refreshConnectionByIndex(idx);
 }
 
+void MainWindow::initializePoolFromRow(int row) {
+    if (actionsLocked()) {
+        return;
+    }
+    if (row < 0 || row >= m_poolListEntries.size()) {
+        return;
+    }
+    const auto& pe = m_poolListEntries[row];
+    const QString connName = pe.connection;
+    const QString poolName = pe.pool;
+    const QString poolState = pe.state.trimmed().toUpper();
+    const QString poolAction = pe.action.trimmed();
+    if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
+        return;
+    }
+    if (poolState != QStringLiteral("ONLINE")) {
+        return;
+    }
+    if (poolAction.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) != 0) {
+        return;
+    }
+    const int idx = findConnectionIndexByName(connName);
+    if (idx < 0) {
+        return;
+    }
+
+    const ConnectionProfile& p = m_profiles[idx];
+    const QString cmd = withSudo(p, QStringLiteral("zpool initialize %1").arg(shSingleQuote(poolName)));
+    const QString preview = QStringLiteral("[%1]\n%2")
+                                .arg(sshUserHostPort(p))
+                                .arg(buildSshPreviewCommand(p, cmd));
+    if (!confirmActionExecution(QStringLiteral("Initialize"), {preview})) {
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio initialize %1::%2").arg(connName, poolName));
+    setActionsLocked(true);
+    QString out;
+    QString err;
+    int rc = -1;
+    if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("Error initialize %1::%2 -> %3")
+                                       .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
+                              QStringLiteral("Initialize falló:\n%1").arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
+        setActionsLocked(false);
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin initialize %1::%2").arg(connName, poolName));
+    setActionsLocked(false);
+    refreshConnectionByIndex(idx);
+}
+
 void MainWindow::showPoolHistoryFromRow(int row) {
     if (actionsLocked()) {
         return;

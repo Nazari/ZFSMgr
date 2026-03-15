@@ -20,7 +20,7 @@ ZFSMgr gestiona conexiones y acciones ZFS.
 - Cada árbol muestra el pool activo de su conexión seleccionada.
 - Bajo cada pool aparecen los nodos `Información`, `Capacidades activas` y `Contenido`.
 - El nodo `Información` del pool muestra propiedades de pool inline.
-- El menú contextual del pool incluye `Actualizar`, `Importar`, `Exportar`, `Historial`, `Sync`, `Scrub`, `Trim` y `Destroy` según el estado del pool.
+- El menú contextual del pool incluye `Actualizar`, `Importar`, `Exportar`, `Historial`, `Sync`, `Scrub`, `Trim`, `Initialize` y `Destroy` según el estado del pool.
 - Los datasets cuelgan de `Contenido`.
 - Cada dataset muestra siempre un nodo `Propiedades` inicialmente colapsado y, si tiene hijos, `Subdatasets (N)`.
 - Cuando hay un snapshot seleccionado en un dataset, ese árbol muestra las propiedades y grupos del snapshot, y aparece además `Holds (N)`.

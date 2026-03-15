@@ -3107,6 +3107,7 @@ void MainWindow::buildUi() {
                 const bool canSync = canExport;
                 const bool canScrub = canExport;
                 const bool canTrim = canExport;
+                const bool canInitialize = canExport;
                 const bool canDestroy = canExport;
                 const bool canRefresh = (poolRow >= 0);
                 QAction* aUpdate = menu.addAction(
@@ -3130,6 +3131,7 @@ void MainWindow::buildUi() {
                 QAction* aSync = menu.addAction(QStringLiteral("Sync"));
                 QAction* aScrub = menu.addAction(QStringLiteral("Scrub"));
                 QAction* aTrim = menu.addAction(QStringLiteral("Trim"));
+                QAction* aInitialize = menu.addAction(QStringLiteral("Initialize"));
                 QAction* aDestroy = menu.addAction(QStringLiteral("Destroy"));
                 aUpdate->setEnabled(canRefresh);
                 aImport->setEnabled(canImport);
@@ -3138,6 +3140,7 @@ void MainWindow::buildUi() {
                 aSync->setEnabled(canSync);
                 aScrub->setEnabled(canScrub);
                 aTrim->setEnabled(canTrim);
+                aInitialize->setEnabled(canInitialize);
                 aDestroy->setEnabled(canDestroy);
                 QAction* picked = menu.exec(m_bottomConnContentTree->viewport()->mapToGlobal(pos));
                 if (!picked) {
@@ -3157,6 +3160,8 @@ void MainWindow::buildUi() {
                     scrubPoolFromRow(poolRow);
                 } else if (picked == aTrim && canTrim && poolRow >= 0) {
                     trimPoolFromRow(poolRow);
+                } else if (picked == aInitialize && canInitialize && poolRow >= 0) {
+                    initializePoolFromRow(poolRow);
                 } else if (picked == aDestroy && canDestroy && poolRow >= 0) {
                     destroyPoolFromRow(poolRow);
                 }
@@ -4050,6 +4055,7 @@ void MainWindow::buildUi() {
                 const bool canSync = canExport;
                 const bool canScrub = canExport;
                 const bool canTrim = canExport;
+                const bool canInitialize = canExport;
                 const bool canDestroy = canExport;
                 const bool canRefresh = (poolRow >= 0);
 
@@ -4074,6 +4080,7 @@ void MainWindow::buildUi() {
                 QAction* aSync = menu.addAction(QStringLiteral("Sync"));
                 QAction* aScrub = menu.addAction(QStringLiteral("Scrub"));
                 QAction* aTrim = menu.addAction(QStringLiteral("Trim"));
+                QAction* aInitialize = menu.addAction(QStringLiteral("Initialize"));
                 QAction* aDestroy = menu.addAction(QStringLiteral("Destroy"));
                 aUpdate->setEnabled(canRefresh);
                 aImport->setEnabled(canImport);
@@ -4082,6 +4089,7 @@ void MainWindow::buildUi() {
                 aSync->setEnabled(canSync);
                 aScrub->setEnabled(canScrub);
                 aTrim->setEnabled(canTrim);
+                aInitialize->setEnabled(canInitialize);
                 aDestroy->setEnabled(canDestroy);
                 QAction* picked = menu.exec(m_connContentTree->viewport()->mapToGlobal(pos));
                 if (!picked) {
@@ -4101,6 +4109,8 @@ void MainWindow::buildUi() {
                     scrubPoolFromRow(poolRow);
                 } else if (picked == aTrim && canTrim && poolRow >= 0) {
                     trimPoolFromRow(poolRow);
+                } else if (picked == aInitialize && canInitialize && poolRow >= 0) {
+                    initializePoolFromRow(poolRow);
                 } else if (picked == aDestroy && canDestroy && poolRow >= 0) {
                     destroyPoolFromRow(poolRow);
                 }
