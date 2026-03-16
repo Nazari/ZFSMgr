@@ -124,7 +124,11 @@ EOF
 }
 
 # Soporte Homebrew Apple Silicon e Intel.
-if [[ -d "/opt/homebrew/opt/qt@6" ]]; then
+if [[ -d "/opt/homebrew/opt/qt" ]]; then
+  QT_PREFIX="/opt/homebrew/opt/qt"
+elif [[ -d "/usr/local/opt/qt" ]]; then
+  QT_PREFIX="/usr/local/opt/qt"
+elif [[ -d "/opt/homebrew/opt/qt@6" ]]; then
   QT_PREFIX="/opt/homebrew/opt/qt@6"
 elif [[ -d "/usr/local/opt/qt@6" ]]; then
   QT_PREFIX="/usr/local/opt/qt@6"
@@ -140,6 +144,34 @@ if [[ -n "${QT_PREFIX}" ]]; then
   export DYLD_FRAMEWORK_PATH="${QT_PREFIX}/lib"
   export DYLD_LIBRARY_PATH="${QT_PREFIX}/lib"
 fi
+
+QT_EXTRA_LIB_DIRS=()
+add_qt_lib_dir() {
+  local libdir="$1"
+  if [[ -d "${libdir}" ]]; then
+    local existing
+    for existing in "${QT_EXTRA_LIB_DIRS[@]:-}"; do
+      if [[ "${existing}" == "${libdir}" ]]; then
+        return
+      fi
+    done
+    QT_EXTRA_LIB_DIRS+=("${libdir}")
+  fi
+}
+
+for qt_mod in qtpdf qtsvg qtvirtualkeyboard qtdeclarative qttools qtwebengine; do
+  for brew_prefix in /opt/homebrew/opt /usr/local/opt; do
+    add_qt_lib_dir "${brew_prefix}/${qt_mod}/lib"
+  done
+  for cellar_prefix in /opt/homebrew/Cellar /usr/local/Cellar; do
+    if [[ -d "${cellar_prefix}/${qt_mod}" ]]; then
+      latest_lib="$(ls -1dt "${cellar_prefix}/${qt_mod}"/*/lib 2>/dev/null | head -n1 || true)"
+      if [[ -n "${latest_lib}" ]]; then
+        add_qt_lib_dir "${latest_lib}"
+      fi
+    fi
+  done
+done
 
 if [[ -d "/opt/homebrew/opt/openssl@3" ]]; then
   export CMAKE_PREFIX_PATH="/opt/homebrew/opt/openssl@3:${CMAKE_PREFIX_PATH:-}"
@@ -186,6 +218,11 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
     fi
     if [[ -n "${QT_PREFIX}" && -d "${QT_PREFIX}/qml" ]]; then
       macdeployqt_args+=("-qmldir=${PROJECT_ROOT}/src")
+    fi
+    if [[ ${#QT_EXTRA_LIB_DIRS[@]} -gt 0 ]]; then
+      for libdir in "${QT_EXTRA_LIB_DIRS[@]}"; do
+        macdeployqt_args+=("-libpath=${libdir}")
+      done
     fi
     "${QT_PREFIX}/bin/macdeployqt" "${macdeployqt_args[@]}"
   else
