@@ -222,6 +222,7 @@ copy_framework_bundle() {
   local frameworks_dst="$2"
   local framework_name
   framework_name="$(basename "${framework_src}")"
+  mkdir -p "${frameworks_dst}"
   rm -rf "${frameworks_dst:?}/${framework_name}"
   cp -R "${framework_src}" "${frameworks_dst}/"
   local current_link="${frameworks_dst}/${framework_name}/${framework_name%.*}"
@@ -289,6 +290,7 @@ copy_binary_or_dylib() {
   local frameworks_dst="$2"
   local name
   name="$(basename "${src}")"
+  mkdir -p "${frameworks_dst}"
   cp -f "${src}" "${frameworks_dst}/${name}"
   chmod 755 "${frameworks_dst}/${name}" || true
 }
