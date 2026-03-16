@@ -134,6 +134,11 @@ prepare_codesign_keychain() {
   security default-keychain -d user -s "${keychain_path}" >/dev/null 2>&1 || true
   if [[ -n "${KEYCHAIN_PASSWORD}" ]]; then
     security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${keychain_path}" >/dev/null 2>&1 || true
+    security set-key-partition-list \
+      -S apple-tool:,apple:,codesign: \
+      -s \
+      -k "${KEYCHAIN_PASSWORD}" \
+      "${keychain_path}" >/dev/null 2>&1 || true
   fi
   security set-keychain-settings -lut 7200 "${keychain_path}" >/dev/null 2>&1 || true
 }
