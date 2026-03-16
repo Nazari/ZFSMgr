@@ -2,6 +2,7 @@
 
 #include <QComboBox>
 #include <QGroupBox>
+#include <QLabel>
 #include <QMetaObject>
 #include <QMessageBox>
 #include <QPlainTextEdit>
@@ -240,6 +241,11 @@ QTreeWidgetItem* findParentNodeForDeletedDataset(QTreeWidget* tree, const QStrin
 void restoreConnTreeNavSnapshot(QTreeWidget* tree, const ConnTreeNavSnapshot& snap) {
     if (!tree) {
         return;
+    }
+    const QSignalBlocker treeBlocker(tree);
+    std::unique_ptr<QSignalBlocker> selectionBlocker;
+    if (QItemSelectionModel* selectionModel = tree->selectionModel()) {
+        selectionBlocker = std::make_unique<QSignalBlocker>(selectionModel);
     }
     QTreeWidgetItem* selectedItem = nullptr;
     std::function<void(QTreeWidgetItem*)> apply = [&](QTreeWidgetItem* n) {
@@ -955,6 +961,7 @@ void MainWindow::rebuildConnectionEntityTabs() {
     if (!m_connContentTree || !m_connectionsTable) {
         return;
     }
+    QScopedValueRollback<bool> rebuildingGuard(m_rebuildingTopConnContentTree, true);
     ConnTreeNavSnapshot nav = captureConnTreeNavSnapshot(m_connContentTree);
     if (m_connectionEntityTabs) {
         while (m_connectionEntityTabs->count() > 0) {
@@ -1061,6 +1068,9 @@ void MainWindow::rebuildConnectionEntityTabs() {
     }
     restoreConnTreeNavSnapshot(m_connContentTree, nav);
     saveTopTreeStateForConnection(connIdx);
+    QTimer::singleShot(0, this, [this]() {
+        syncConnContentPoolColumns();
+    });
 }
 
 void MainWindow::onConnectionEntityTabChanged(int idx) {
@@ -1731,54 +1741,60 @@ void MainWindow::rebuildConnectionsTable() {
         m_connectionsTable->insertRow(row);
         const QString tooltip = buildConnectionStateTooltip(p, s);
 
-        auto* combo = new QComboBox(m_connectionsTable);
-        combo->addItem(trk(QStringLiteral("t_conn_show_none_01"),
-                           QStringLiteral("No"),
-                           QStringLiteral("Hide"),
-                           QStringLiteral("不显示")),
-                       QString());
-        combo->addItem(trk(QStringLiteral("t_conn_col_src_01"),
-                           QStringLiteral("Origen"),
-                           QStringLiteral("Source"),
-                           QStringLiteral("来源")),
-                       QStringLiteral("source"));
-        combo->addItem(trk(QStringLiteral("t_conn_col_dst_01"),
-                           QStringLiteral("Destino"),
-                           QStringLiteral("Target"),
-                           QStringLiteral("目标")),
-                       QStringLiteral("target"));
-        combo->addItem(trk(QStringLiteral("t_conn_show_both_01"),
-                           QStringLiteral("Ambos"),
-                           QStringLiteral("Both"),
-                           QStringLiteral("两者")),
-                       QStringLiteral("both"));
-        combo->setProperty(kConnDisplayModeRole, i);
-        combo->setToolTip(tooltip);
         if (disconnected) {
-            QPalette pal = combo->palette();
-            const QColor disabledText = m_connectionsTable->palette().color(QPalette::Disabled, QPalette::Text);
-            const QColor disabledBase = m_connectionsTable->palette().color(QPalette::Disabled, QPalette::Base);
-            pal.setColor(QPalette::Disabled, QPalette::ButtonText, disabledText);
-            pal.setColor(QPalette::Disabled, QPalette::Text, disabledText);
-            pal.setColor(QPalette::Disabled, QPalette::WindowText, disabledText);
-            pal.setColor(QPalette::Disabled, QPalette::Button, disabledBase);
-            pal.setColor(QPalette::Disabled, QPalette::Base, disabledBase);
-            combo->setPalette(pal);
-            combo->setStyleSheet(QStringLiteral(
-                "QComboBox:disabled { color: palette(mid); background-color: palette(base); }"
-                "QComboBox::drop-down:disabled { background-color: palette(base); }"));
+            auto* label = new QLabel(
+                trk(QStringLiteral("t_conn_show_none_01"),
+                    QStringLiteral("No"),
+                    QStringLiteral("Hide"),
+                    QStringLiteral("不显示")),
+                m_connectionsTable);
+            QFont labelFont = label->font();
+            labelFont.setItalic(true);
+            label->setFont(labelFont);
+            label->setToolTip(tooltip);
+            label->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
+            label->setMargin(6);
+            label->setStyleSheet(QStringLiteral(
+                "QLabel {"
+                " color: #8b9299;"
+                " background: transparent;"
+                " }"));
+            m_connectionsTable->setCellWidget(row, 0, label);
         } else {
+            auto* combo = new QComboBox(m_connectionsTable);
+            combo->addItem(trk(QStringLiteral("t_conn_show_none_01"),
+                               QStringLiteral("No"),
+                               QStringLiteral("Hide"),
+                               QStringLiteral("不显示")),
+                           QString());
+            combo->addItem(trk(QStringLiteral("t_conn_col_src_01"),
+                               QStringLiteral("Origen"),
+                               QStringLiteral("Source"),
+                               QStringLiteral("来源")),
+                           QStringLiteral("source"));
+            combo->addItem(trk(QStringLiteral("t_conn_col_dst_01"),
+                               QStringLiteral("Destino"),
+                               QStringLiteral("Target"),
+                               QStringLiteral("目标")),
+                           QStringLiteral("target"));
+            combo->addItem(trk(QStringLiteral("t_conn_show_both_01"),
+                               QStringLiteral("Ambos"),
+                               QStringLiteral("Both"),
+                               QStringLiteral("两者")),
+                           QStringLiteral("both"));
+            combo->setProperty(kConnDisplayModeRole, i);
+            combo->setToolTip(tooltip);
             combo->setStyleSheet(QString());
+            combo->setEnabled(true);
+            m_connectionsTable->setCellWidget(row, 0, combo);
+            QObject::connect(combo, &QComboBox::currentIndexChanged, m_connectionsTable, [this, combo](int) {
+                if (!combo || m_syncConnSelectorChecks) {
+                    return;
+                }
+                const int connIdx = combo->property(kConnDisplayModeRole).toInt();
+                applyConnectionDisplayMode(connIdx, combo->currentData().toString());
+            });
         }
-        combo->setEnabled(!disconnected);
-        m_connectionsTable->setCellWidget(row, 0, combo);
-        QObject::connect(combo, &QComboBox::currentIndexChanged, m_connectionsTable, [this, combo](int) {
-            if (!combo || m_syncConnSelectorChecks) {
-                return;
-            }
-            const int connIdx = combo->property(kConnDisplayModeRole).toInt();
-            applyConnectionDisplayMode(connIdx, combo->currentData().toString());
-        });
 
         auto* it = new QTableWidgetItem(line);
         it->setData(Qt::UserRole, i);

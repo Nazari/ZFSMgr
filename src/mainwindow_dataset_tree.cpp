@@ -1452,9 +1452,13 @@ void MainWindow::syncConnContentPoolColumns() {
     if (!m_connContentTree) {
         return;
     }
+    if (m_rebuildingTopConnContentTree) {
+        return;
+    }
     if (m_syncingConnContentColumns) {
         return;
     }
+    QPointer<QTreeWidget> safeTree(m_connContentTree);
     m_syncingConnContentColumns = true;
     const QSignalBlocker blocker(m_connContentTree);
     const int propCols = qBound(5, m_connPropColumnsSetting, 10);
@@ -1579,6 +1583,26 @@ void MainWindow::syncConnContentPoolColumns() {
             m_syncingConnContentColumns = false;
             return;
         }
+    }
+    if (!safeTree) {
+        m_syncingConnContentColumns = false;
+        return;
+    }
+    root = nullptr;
+    for (int i = 0; i < safeTree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* n = safeTree->topLevelItem(i);
+        if (!n || !n->data(0, kIsPoolRootRole).toBool()) {
+            continue;
+        }
+        if (n->data(0, kConnIdxRole).toInt() == connIdx
+            && n->data(0, kPoolNameRole).toString().trimmed() == poolName) {
+            root = n;
+            break;
+        }
+    }
+    if (!root) {
+        m_syncingConnContentColumns = false;
+        return;
     }
     {
         const QString tt = pit->statusText.toHtmlEscaped();

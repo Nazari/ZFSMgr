@@ -448,6 +448,7 @@ private:
     int m_bottomDetailConnIdx{-1};
     bool m_connSelectorDefaultsInitialized{false};
     bool m_syncConnSelectorChecks{false};
+    bool m_rebuildingTopConnContentTree{false};
     bool m_rebuildingBottomConnContentTree{false};
     QTabBar* m_bottomConnectionEntityTabs{nullptr};
     QTreeWidget* m_bottomConnContentTree{nullptr};
@@ -468,6 +469,7 @@ private:
     QTextEdit* m_lastDetailText{nullptr};
     QTabWidget* m_logsTabs{nullptr};
     QPlainTextEdit* m_logView{nullptr};
+    QPlainTextEdit* m_pendingChangesView{nullptr};
     QMap<QString, QPointer<QPlainTextEdit>> m_connectionLogViews;
     QSet<QString> m_sshDisableMultiplexKeys;
     QSet<QString> m_loggedSshResolutionKeys;

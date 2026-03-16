@@ -4,6 +4,7 @@
 #include <QCheckBox>
 #include <QColor>
 #include <QHBoxLayout>
+#include <QMouseEvent>
 #include <QRegularExpression>
 #include <QScrollBar>
 #include <QSignalBlocker>
@@ -57,6 +58,31 @@ struct ParsedPermissionsEntry {
     QVector<ParsedPermissionGrant> descendantGrants;
     QVector<ParsedPermissionGrant> localDescendantGrants;
     QVector<ParsedPermissionSet> permissionSets;
+};
+
+class InlinePermissionCheckHost final : public QWidget {
+public:
+    explicit InlinePermissionCheckHost(QWidget* parent = nullptr)
+        : QWidget(parent) {}
+
+    void setCheckbox(QCheckBox* checkbox) {
+        m_checkbox = checkbox;
+    }
+
+protected:
+    void mouseReleaseEvent(QMouseEvent* event) override {
+        if (event && event->button() == Qt::LeftButton && rect().contains(event->position().toPoint())) {
+            if (m_checkbox && m_checkbox->isEnabled()) {
+                m_checkbox->click();
+                event->accept();
+                return;
+            }
+        }
+        QWidget::mouseReleaseEvent(event);
+    }
+
+private:
+    QCheckBox* m_checkbox{nullptr};
 };
 
 QStringList splitPermissionTokens(const QString& raw) {
@@ -271,19 +297,9 @@ void styleInlinePermissionCheckHost(QWidget* host, const QTreeWidget* tree) {
     if (!host || !tree) {
         return;
     }
-    const QPalette pal = tree->palette();
-    const QColor vBorder = pal.color(QPalette::Mid).darker(118);
-    const QColor hBorder = pal.color(QPalette::Mid).darker(108);
-    const QColor bg = pal.color(QPalette::Base);
-    host->setAutoFillBackground(true);
-    host->setStyleSheet(QStringLiteral(
-        "background: %1;"
-        "border-left: 1px solid %2;"
-        "border-right: 1px solid %2;"
-        "border-bottom: 1px solid %3;")
-                            .arg(bg.name(QColor::HexRgb),
-                                 vBorder.name(QColor::HexRgb),
-                                 hBorder.name(QColor::HexRgb)));
+    host->setAutoFillBackground(false);
+    host->setAttribute(Qt::WA_StyledBackground, false);
+    host->setStyleSheet(QStringLiteral("background: transparent; border: 0px;"));
 }
 
 QFont inlinePermissionLabelFont(const QTreeWidget* tree) {
@@ -764,14 +780,15 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
                 rowNames->setTextAlignment(col, Qt::AlignCenter);
                 rowNames->setData(col, kConnPermissionsEntryNameRole, perm);
                 rowValues->setData(col, kConnPermissionsEntryNameRole, perm);
-                auto* boxHost = new QWidget(tree);
+                auto* boxHost = new InlinePermissionCheckHost(tree);
                 styleInlinePermissionCheckHost(boxHost, tree);
                 auto* layout = new QHBoxLayout(boxHost);
-                layout->setContentsMargins(0, 2, 0, 0);
+                layout->setContentsMargins(1, 1, 1, 1);
                 layout->setAlignment(Qt::AlignCenter);
                 auto* cb = new QCheckBox(boxHost);
                 cb->setChecked(grant.permissions.contains(perm, Qt::CaseInsensitive));
                 cb->setFocusPolicy(Qt::NoFocus);
+                boxHost->setCheckbox(cb);
                 layout->addWidget(cb);
                 tree->setItemWidget(rowValues, col, boxHost);
                 QObject::connect(cb, &QCheckBox::toggled, tree,
@@ -896,14 +913,15 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
             rowNames->setTextAlignment(col, Qt::AlignCenter);
             rowNames->setData(col, kConnPermissionsEntryNameRole, perm);
             rowValues->setData(col, kConnPermissionsEntryNameRole, perm);
-            auto* boxHost = new QWidget(tree);
+            auto* boxHost = new InlinePermissionCheckHost(tree);
             styleInlinePermissionCheckHost(boxHost, tree);
             auto* layout = new QHBoxLayout(boxHost);
-            layout->setContentsMargins(0, 2, 0, 0);
+            layout->setContentsMargins(1, 1, 1, 1);
             layout->setAlignment(Qt::AlignCenter);
             auto* cb = new QCheckBox(boxHost);
             cb->setChecked(entry.createPermissions.contains(perm, Qt::CaseInsensitive));
             cb->setFocusPolicy(Qt::NoFocus);
+            boxHost->setCheckbox(cb);
             layout->addWidget(cb);
             tree->setItemWidget(rowValues, col, boxHost);
             QObject::connect(cb, &QCheckBox::toggled, tree,
@@ -1015,14 +1033,15 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
                 rowNames->setTextAlignment(col, Qt::AlignCenter);
                 rowNames->setData(col, kConnPermissionsEntryNameRole, perm);
                 rowValues->setData(col, kConnPermissionsEntryNameRole, perm);
-                auto* boxHost = new QWidget(tree);
+                auto* boxHost = new InlinePermissionCheckHost(tree);
                 styleInlinePermissionCheckHost(boxHost, tree);
                 auto* layout = new QHBoxLayout(boxHost);
-                layout->setContentsMargins(0, 2, 0, 0);
+                layout->setContentsMargins(1, 1, 1, 1);
                 layout->setAlignment(Qt::AlignCenter);
                 auto* cb = new QCheckBox(boxHost);
                 cb->setChecked(set.permissions.contains(perm, Qt::CaseInsensitive));
                 cb->setFocusPolicy(Qt::NoFocus);
+                boxHost->setCheckbox(cb);
                 layout->addWidget(cb);
                 tree->setItemWidget(rowValues, col, boxHost);
                 QObject::connect(cb, &QCheckBox::toggled, tree,

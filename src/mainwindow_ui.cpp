@@ -50,6 +50,7 @@
 #include <QTableWidget>
 #include <QTextEdit>
 #include <QTimer>
+#include <QToolTip>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -131,68 +132,22 @@ public:
     }
 };
 
-class HierarchyLinesTreeWidget final : public QTreeWidget {
+class TooltipPushButton final : public QPushButton {
 public:
-    using QTreeWidget::QTreeWidget;
+    using QPushButton::QPushButton;
 
 protected:
-    void drawBranches(QPainter* painter, const QRect& rect, const QModelIndex& index) const override {
-        QTreeWidget::drawBranches(painter, rect, index);
-#ifdef Q_OS_MAC
-        if (!painter || !index.isValid() || !rootIsDecorated()) {
-            return;
+    void enterEvent(QEnterEvent* event) override {
+        QPushButton::enterEvent(event);
+        const QString text = toolTip().trimmed();
+        if (!text.isEmpty()) {
+            QToolTip::showText(mapToGlobal(rect().bottomLeft()), text, this, rect());
         }
+    }
 
-        const int step = indentation();
-        if (step <= 0) {
-            return;
-        }
-
-        auto hasNextSibling = [this](const QModelIndex& idx) {
-            const QModelIndex parentIdx = idx.parent();
-            return idx.row() + 1 < model()->rowCount(parentIdx);
-        };
-
-        painter->save();
-        painter->setRenderHint(QPainter::Antialiasing, false);
-        QPen pen(palette().color(QPalette::Mid).darker(105));
-        pen.setWidth(1);
-        painter->setPen(pen);
-
-        int depth = 0;
-        for (QModelIndex p = index.parent(); p.isValid(); p = p.parent()) {
-            ++depth;
-        }
-
-        constexpr int kBranchXOffset = -2;
-        constexpr int kBranchYOffset = -1;
-        const int centerY = rect.center().y() + kBranchYOffset;
-        for (int ancestorDepth = 0; ancestorDepth < depth; ++ancestorDepth) {
-            QModelIndex ancestor = index;
-            for (int climb = depth; climb > ancestorDepth; --climb) {
-                ancestor = ancestor.parent();
-            }
-            if (!hasNextSibling(ancestor)) {
-                continue;
-            }
-            const int x = rect.left() + ancestorDepth * step + step / 2 + kBranchXOffset;
-            painter->drawLine(x, rect.top(), x, rect.bottom());
-        }
-
-        const int branchX = rect.left() + depth * step + step / 2 + kBranchXOffset;
-        if (depth > 0) {
-            painter->drawLine(branchX, rect.top(), branchX, centerY);
-        }
-        if (hasNextSibling(index)) {
-            painter->drawLine(branchX, centerY, branchX, rect.bottom());
-        }
-        painter->drawLine(branchX, centerY, rect.right(), centerY);
-        painter->restore();
-#else
-        Q_UNUSED(painter);
-        Q_UNUSED(rect);
-        Q_UNUSED(index);
-#endif
+    void leaveEvent(QEvent* event) override {
+        QPushButton::leaveEvent(event);
+        QToolTip::hideText();
     }
 };
 
@@ -1037,12 +992,13 @@ void MainWindow::buildUi() {
     m_connDestSelectionLabel->setWordWrap(true);
     m_connDestSelectionLabel->setMinimumHeight(20);
     connActionRightLayout->addWidget(m_connDestSelectionLabel);
-    m_btnApplyConnContentProps = new QPushButton(
+    m_btnApplyConnContentProps = new TooltipPushButton(
         trk(QStringLiteral("t_apply_changes_001"),
             QStringLiteral("Aplicar cambios"),
             QStringLiteral("Apply changes"),
             QStringLiteral("应用更改")),
         connActionRightBox);
+    m_btnApplyConnContentProps->setAttribute(Qt::WA_AlwaysShowToolTips, true);
     m_btnConnCopy = new QPushButton(
         trk(QStringLiteral("t_copy_001"),
             QStringLiteral("Copiar"),
@@ -1287,7 +1243,7 @@ void MainWindow::buildUi() {
     auto* connContentLayout = new QVBoxLayout(m_connContentPage);
     connContentLayout->setContentsMargins(0, 0, 0, 0);
     connContentLayout->setSpacing(4);
-    m_connContentTree = new HierarchyLinesTreeWidget(m_connContentPage);
+    m_connContentTree = new QTreeWidget(m_connContentPage);
     m_connContentTree->setColumnCount(4);
     m_connContentTree->setHeaderLabels({QStringLiteral("Origen:")
                                             + trk(QStringLiteral("t_dataset_001"),
@@ -1440,7 +1396,7 @@ void MainWindow::buildUi() {
     m_bottomConnectionEntityTabs->setUsesScrollButtons(true);
     m_bottomConnectionEntityTabs->setVisible(false);
     bottomConnLayout->addWidget(m_bottomConnectionEntityTabs, 0);
-    m_bottomConnContentTree = new HierarchyLinesTreeWidget(bottomConnBox);
+    m_bottomConnContentTree = new QTreeWidget(bottomConnBox);
     m_bottomConnContentTree->setColumnCount(4);
     m_bottomConnContentTree->setHeaderLabels({QStringLiteral("Destino:")
                                                    + trk(QStringLiteral("t_dataset_001"),
@@ -1709,16 +1665,12 @@ void MainWindow::buildUi() {
     auto* rightLogsBody = new QHBoxLayout();
     rightLogsBody->setContentsMargins(0, 0, 0, 0);
     rightLogsBody->setSpacing(6);
-    auto* appLogBox = new QGroupBox(
-        trk(QStringLiteral("t_app_tab_001"),
-            QStringLiteral("Aplicación"),
-            QStringLiteral("Application"),
-            QStringLiteral("应用")),
-        rightLogs);
-    auto* appLogLayout = new QVBoxLayout(appLogBox);
-    appLogLayout->setContentsMargins(6, 8, 6, 6);
+    auto* appTabs = new QTabWidget(rightLogs);
+    auto* appLogTab = new QWidget(appTabs);
+    auto* appLogLayout = new QVBoxLayout(appLogTab);
+    appLogLayout->setContentsMargins(6, 6, 6, 6);
     appLogLayout->setSpacing(4);
-    m_logView = new QPlainTextEdit(appLogBox);
+    m_logView = new QPlainTextEdit(appLogTab);
     m_logView->setReadOnly(true);
     m_logView->setLineWrapMode(QPlainTextEdit::NoWrap);
     m_logView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -1727,9 +1679,31 @@ void MainWindow::buildUi() {
     mono.setPointSize(8);
     m_logView->setFont(mono);
     appLogLayout->addWidget(m_logView, 1);
+    appTabs->addTab(appLogTab,
+                    trk(QStringLiteral("t_app_tab_001"),
+                        QStringLiteral("Aplicación"),
+                        QStringLiteral("Application"),
+                        QStringLiteral("应用")));
+
+    auto* pendingChangesTab = new QWidget(appTabs);
+    auto* pendingChangesLayout = new QVBoxLayout(pendingChangesTab);
+    pendingChangesLayout->setContentsMargins(6, 6, 6, 6);
+    pendingChangesLayout->setSpacing(4);
+    m_pendingChangesView = new QPlainTextEdit(pendingChangesTab);
+    m_pendingChangesView->setReadOnly(true);
+    m_pendingChangesView->setLineWrapMode(QPlainTextEdit::WidgetWidth);
+    m_pendingChangesView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_pendingChangesView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_pendingChangesView->setFont(mono);
+    pendingChangesLayout->addWidget(m_pendingChangesView, 1);
+    appTabs->addTab(pendingChangesTab,
+                    trk(QStringLiteral("t_pending_changes_tab001"),
+                        QStringLiteral("Cambios pendientes"),
+                        QStringLiteral("Pending changes"),
+                        QStringLiteral("待处理更改")));
 
     loadPersistedAppLogToView();
-    rightLogsBody->addWidget(appLogBox, 1);
+    rightLogsBody->addWidget(appTabs, 1);
     rightLogsLayout->addLayout(rightLogsBody, 1);
 
     logBody->addWidget(leftInfo, 1);
@@ -3295,6 +3269,7 @@ void MainWindow::buildUi() {
             lbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
             lbl->setMinimumWidth(labelWidth);
             lbl->setMaximumWidth(labelWidth);
+            lbl->setStyleSheet(QStringLiteral("QLabel { background: #eef4f8; color: #102233; padding: 2px 6px; }"));
             if (!fields[i].rowWidget) {
                 continue;
             }
@@ -3337,8 +3312,48 @@ void MainWindow::buildUi() {
 
     if (m_bottomConnContentTree) {
         connect(m_bottomConnContentTree, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem* item, int) {
-            if (!m_bottomConnContentTree || !item
-                || !item->data(0, kConnPermissionsNodeRole).toBool()
+            if (!m_bottomConnContentTree || !item) {
+                return;
+            }
+            const bool isLazyPropsNode =
+                item->data(0, kConnPropGroupNodeRole).toBool()
+                && item->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
+                && item->text(0).trimmed() == trk(QStringLiteral("t_props_lbl_001"),
+                                                  QStringLiteral("Propiedades"),
+                                                  QStringLiteral("Properties"),
+                                                  QStringLiteral("属性"));
+            if (isLazyPropsNode) {
+                QTimer::singleShot(0, this, [this, tree = m_bottomConnContentTree, item]() {
+                    if (!tree || !item) {
+                        return;
+                    }
+                    QTreeWidget* prevTree = m_connContentTree;
+                    const QString prevToken = m_connContentToken;
+                    QTreeWidgetItem* owner = item->parent();
+                    while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
+                           && !owner->data(0, kIsPoolRootRole).toBool()) {
+                        owner = owner->parent();
+                    }
+                    if (!owner) {
+                        return;
+                    }
+                    const int connIdx = owner->data(0, kConnIdxRole).toInt();
+                    const QString poolName = owner->data(0, kPoolNameRole).toString().trimmed();
+                    if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+                        return;
+                    }
+                    m_connContentTree = tree;
+                    m_connContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+                    if (item->childCount() == 0) {
+                        refreshDatasetProperties(QStringLiteral("conncontent"));
+                    }
+                    item->setExpanded(true);
+                    m_connContentTree = prevTree;
+                    m_connContentToken = prevToken;
+                });
+                return;
+            }
+            if (!item->data(0, kConnPermissionsNodeRole).toBool()
                 || item->data(0, kConnPermissionsKindRole).toString() != QStringLiteral("root")) {
                 return;
             }
@@ -4608,6 +4623,7 @@ void MainWindow::buildUi() {
             lbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
             lbl->setMinimumWidth(labelWidth);
             lbl->setMaximumWidth(labelWidth);
+            lbl->setStyleSheet(QStringLiteral("QLabel { background: #eef4f8; color: #102233; padding: 2px 6px; }"));
             if (!fields[i].rowWidget) {
                 continue;
             }
@@ -4661,8 +4677,45 @@ void MainWindow::buildUi() {
 
     if (m_connContentTree) {
         connect(m_connContentTree, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem* item, int) {
-            if (!m_connContentTree || !item
-                || !item->data(0, kConnPermissionsNodeRole).toBool()
+            if (!m_connContentTree || !item) {
+                return;
+            }
+            const bool isLazyPropsNode =
+                item->data(0, kConnPropGroupNodeRole).toBool()
+                && item->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
+                && item->text(0).trimmed() == trk(QStringLiteral("t_props_lbl_001"),
+                                                  QStringLiteral("Propiedades"),
+                                                  QStringLiteral("Properties"),
+                                                  QStringLiteral("属性"));
+            if (isLazyPropsNode) {
+                QTimer::singleShot(0, this, [this, tree = m_connContentTree, item]() {
+                    if (!tree || !item) {
+                        return;
+                    }
+                    QTreeWidgetItem* owner = item->parent();
+                    while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
+                           && !owner->data(0, kIsPoolRootRole).toBool()) {
+                        owner = owner->parent();
+                    }
+                    if (!owner) {
+                        return;
+                    }
+                    const int connIdx = owner->data(0, kConnIdxRole).toInt();
+                    const QString poolName = owner->data(0, kPoolNameRole).toString().trimmed();
+                    if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+                        return;
+                    }
+                    const QString prevToken = m_connContentToken;
+                    m_connContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+                    if (item->childCount() == 0) {
+                        refreshDatasetProperties(QStringLiteral("conncontent"));
+                    }
+                    item->setExpanded(true);
+                    m_connContentToken = prevToken;
+                });
+                return;
+            }
+            if (!item->data(0, kConnPermissionsNodeRole).toBool()
                 || item->data(0, kConnPermissionsKindRole).toString() != QStringLiteral("root")) {
                 return;
             }

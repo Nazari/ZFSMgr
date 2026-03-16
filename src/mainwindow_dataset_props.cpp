@@ -8,6 +8,7 @@
 #include <QHeaderView>
 #include <QLocale>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSet>
@@ -1777,6 +1778,18 @@ void MainWindow::applyDatasetPropertyChanges() {
 
 QStringList MainWindow::pendingConnContentApplyCommands() const {
     QStringList commands;
+    auto connPoolPrefix = [this](int connIdx, const QString& poolName) {
+        const ConnectionProfile& p = m_profiles.at(connIdx);
+        const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
+        return QStringLiteral("%1::%2").arg(connLabel, poolName.trimmed());
+    };
+    auto appendPending = [&commands, &connPoolPrefix](int connIdx, const QString& poolName, const QString& cmd) {
+        const QString trimmed = cmd.trimmed();
+        if (trimmed.isEmpty()) {
+            return;
+        }
+        commands.push_back(QStringLiteral("%1  %2").arg(connPoolPrefix(connIdx, poolName), trimmed));
+    };
     auto normalizeTokens = [](QStringList tokens) {
         QSet<QString> seen;
         QStringList normalized;
@@ -1867,12 +1880,21 @@ QStringList MainWindow::pendingConnContentApplyCommands() const {
             originalInherit[row.prop] = isDatasetPropertyCurrentlyInherited(row.source);
         }
 
-        QSet<QString> touched;
+        QStringList touched;
+        auto appendTouched = [&touched](const QString& prop) {
+            if (prop.isEmpty() || touched.contains(prop)) {
+                return;
+            }
+            touched.push_back(prop);
+        };
+        for (const DatasetPropCacheRow& row : cacheIt->rows) {
+            appendTouched(row.prop);
+        }
         for (auto vit = it.value().valuesByProp.cbegin(); vit != it.value().valuesByProp.cend(); ++vit) {
-            touched.insert(vit.key());
+            appendTouched(vit.key());
         }
         for (auto iit = it.value().inheritByProp.cbegin(); iit != it.value().inheritByProp.cend(); ++iit) {
-            touched.insert(iit.key());
+            appendTouched(iit.key());
         }
 
         for (const QString& prop : touched) {
@@ -1892,31 +1914,39 @@ QStringList MainWindow::pendingConnContentApplyCommands() const {
 
             if (prop == QStringLiteral("estado")) {
                 if (isMountedText(finalValue) != isMountedText(originalValue)) {
-                    commands << QStringLiteral("zfs %1 %2")
-                                    .arg((isWindowsConnection(connIdx)
-                                              ? (isMountedText(finalValue) ? QStringLiteral("mount")
-                                                                           : QStringLiteral("unmount"))
-                                              : (isMountedText(finalValue) ? QStringLiteral("mount")
-                                                                           : QStringLiteral("umount"))),
-                                         shSingleQuote(objectName));
+                    appendPending(connIdx,
+                                  poolName,
+                                  QStringLiteral("zfs %1 %2")
+                                      .arg((isWindowsConnection(connIdx)
+                                                ? (isMountedText(finalValue) ? QStringLiteral("mount")
+                                                                             : QStringLiteral("unmount"))
+                                                : (isMountedText(finalValue) ? QStringLiteral("mount")
+                                                                             : QStringLiteral("umount"))),
+                                           shSingleQuote(objectName)));
                 }
                 continue;
             }
             if (finalInh != originalInh) {
                 if (finalInh) {
-                    commands << QStringLiteral("zfs inherit %1 %2")
-                                    .arg(shSingleQuote(prop), shSingleQuote(objectName));
+                    appendPending(connIdx,
+                                  poolName,
+                                  QStringLiteral("zfs inherit %1 %2")
+                                      .arg(shSingleQuote(prop), shSingleQuote(objectName)));
                 } else {
-                    commands << QStringLiteral("zfs set %1 %2")
-                                    .arg(shSingleQuote(prop + QStringLiteral("=") + finalValue),
-                                         shSingleQuote(objectName));
+                    appendPending(connIdx,
+                                  poolName,
+                                  QStringLiteral("zfs set %1 %2")
+                                      .arg(shSingleQuote(prop + QStringLiteral("=") + finalValue),
+                                           shSingleQuote(objectName)));
                 }
                 continue;
             }
             if (!finalInh && finalValue != originalValue) {
-                commands << QStringLiteral("zfs set %1 %2")
-                                .arg(shSingleQuote(prop + QStringLiteral("=") + finalValue),
-                                     shSingleQuote(objectName));
+                appendPending(connIdx,
+                              poolName,
+                              QStringLiteral("zfs set %1 %2")
+                                  .arg(shSingleQuote(prop + QStringLiteral("=") + finalValue),
+                                       shSingleQuote(objectName)));
             }
         }
     }
@@ -1931,8 +1961,9 @@ QStringList MainWindow::pendingConnContentApplyCommands() const {
         }
         bool okConn = false;
         const int connIdx = parts.at(0).toInt(&okConn);
+        const QString poolName = parts.at(1).trimmed();
         const QString datasetName = parts.mid(2).join(QStringLiteral("::")).trimmed();
-        if (!okConn || connIdx < 0 || connIdx >= m_profiles.size() || datasetName.isEmpty()) {
+        if (!okConn || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty() || datasetName.isEmpty()) {
             continue;
         }
         auto appendGrantCommands = [&](const QVector<DatasetPermissionGrant>& original,
@@ -1945,9 +1976,14 @@ QStringList MainWindow::pendingConnContentApplyCommands() const {
             for (const DatasetPermissionGrant& g : current) {
                 currMap.insert(grantKey(g), g);
             }
-            QSet<QString> keys;
-            for (auto k = origMap.cbegin(); k != origMap.cend(); ++k) keys.insert(k.key());
-            for (auto k = currMap.cbegin(); k != currMap.cend(); ++k) keys.insert(k.key());
+            QStringList keys;
+            auto appendKey = [&keys](const QString& key) {
+                if (!key.isEmpty() && !keys.contains(key)) {
+                    keys.push_back(key);
+                }
+            };
+            for (const DatasetPermissionGrant& g : original) appendKey(grantKey(g));
+            for (const DatasetPermissionGrant& g : current) appendKey(grantKey(g));
             for (const QString& key : keys) {
                 const bool had = origMap.contains(key);
                 const bool has = currMap.contains(key);
@@ -1958,17 +1994,21 @@ QStringList MainWindow::pendingConnContentApplyCommands() const {
                 const QStringList beforeTokens = normalizeTokens(before.permissions);
                 const QStringList afterTokens = normalizeTokens(after.permissions);
                 if (had && (!has || afterTokens.isEmpty())) {
-                    commands << QStringLiteral("zfs unallow %1%2")
-                                    .arg(beforeFlags, shSingleQuote(datasetName));
+                    appendPending(connIdx,
+                                  poolName,
+                                  QStringLiteral("zfs unallow %1%2")
+                                      .arg(beforeFlags, shSingleQuote(datasetName)));
                     continue;
                 }
                 if (!had && has) {
                     if (!afterTokens.isEmpty()) {
-                        commands << QStringLiteral("zfs allow %1%2%3 %4")
-                                        .arg(afterFlags,
-                                             afterTokens.join(','),
-                                             QString(),
-                                             shSingleQuote(datasetName));
+                        appendPending(connIdx,
+                                      poolName,
+                                      QStringLiteral("zfs allow %1%2%3 %4")
+                                          .arg(afterFlags,
+                                               afterTokens.join(','),
+                                               QString(),
+                                               shSingleQuote(datasetName)));
                     }
                     continue;
                 }
@@ -1982,7 +2022,7 @@ QStringList MainWindow::pendingConnContentApplyCommands() const {
                                         QString(),
                                         shSingleQuote(datasetName));
                     }
-                    commands << cmd;
+                    appendPending(connIdx, poolName, cmd);
                 }
             }
         };
@@ -1999,7 +2039,7 @@ QStringList MainWindow::pendingConnContentApplyCommands() const {
                            .arg(currentCreate.join(','),
                                 shSingleQuote(datasetName));
             }
-            commands << cmd;
+            appendPending(connIdx, poolName, cmd);
         }
 
         QMap<QString, DatasetPermissionSet> origSets;
@@ -2010,9 +2050,14 @@ QStringList MainWindow::pendingConnContentApplyCommands() const {
         for (const DatasetPermissionSet& s : entry.permissionSets) {
             currSets.insert(setKey(s), s);
         }
-        QSet<QString> setKeys;
-        for (auto k = origSets.cbegin(); k != origSets.cend(); ++k) setKeys.insert(k.key());
-        for (auto k = currSets.cbegin(); k != currSets.cend(); ++k) setKeys.insert(k.key());
+        QStringList setKeys;
+        auto appendSetKey = [&setKeys](const QString& key) {
+            if (!key.isEmpty() && !setKeys.contains(key)) {
+                setKeys.push_back(key);
+            }
+        };
+        for (const DatasetPermissionSet& s : entry.originalPermissionSets) appendSetKey(setKey(s));
+        for (const DatasetPermissionSet& s : entry.permissionSets) appendSetKey(setKey(s));
         for (const QString& key : setKeys) {
             const bool had = origSets.contains(key);
             const bool has = currSets.contains(key);
@@ -2021,16 +2066,20 @@ QStringList MainWindow::pendingConnContentApplyCommands() const {
             const QStringList beforeTokens = normalizeTokens(before.permissions);
             const QStringList afterTokens = normalizeTokens(after.permissions);
             if (had && !has) {
-                commands << QStringLiteral("zfs unallow -s %1 %2")
-                                .arg(before.name, shSingleQuote(datasetName));
+                appendPending(connIdx,
+                              poolName,
+                              QStringLiteral("zfs unallow -s %1 %2")
+                                  .arg(before.name, shSingleQuote(datasetName)));
                 continue;
             }
             if (!had && has) {
                 if (!afterTokens.isEmpty()) {
-                    commands << QStringLiteral("zfs allow -s %1 %2 %3")
-                                    .arg(after.name,
-                                         afterTokens.join(','),
-                                         shSingleQuote(datasetName));
+                    appendPending(connIdx,
+                                  poolName,
+                                  QStringLiteral("zfs allow -s %1 %2 %3")
+                                      .arg(after.name,
+                                           afterTokens.join(','),
+                                           shSingleQuote(datasetName)));
                 }
                 continue;
             }
@@ -2043,7 +2092,7 @@ QStringList MainWindow::pendingConnContentApplyCommands() const {
                                     afterTokens.join(','),
                                     shSingleQuote(datasetName));
                 }
-                commands << cmd;
+                appendPending(connIdx, poolName, cmd);
             }
         }
     }
@@ -2051,8 +2100,17 @@ QStringList MainWindow::pendingConnContentApplyCommands() const {
 }
 
 void MainWindow::updateApplyPropsButtonState() {
+    const QStringList pendingCommands = pendingConnContentApplyCommands();
+    if (m_pendingChangesView) {
+        m_pendingChangesView->setPlainText(
+            pendingCommands.isEmpty()
+                ? trk(QStringLiteral("t_apply_changes_tt_001"),
+                      QStringLiteral("Sin cambios pendientes."),
+                      QStringLiteral("No pending changes."),
+                      QStringLiteral("没有待应用的更改。"))
+                : pendingCommands.join(QLatin1Char('\n')));
+    }
     if (m_btnApplyConnContentProps) {
-        const QStringList pendingCommands = pendingConnContentApplyCommands();
         if (m_propsSide == QStringLiteral("conncontent")) {
             m_btnApplyConnContentProps->setEnabled(!pendingCommands.isEmpty());
             m_btnApplyConnContentProps->setToolTip(

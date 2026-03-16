@@ -3,17 +3,18 @@
 
 #include <QAbstractItemView>
 #include <QByteArray>
+#include <QCheckBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFontMetrics>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QListWidget>
-#include <QListWidgetItem>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QScrollArea>
 #include <QVBoxLayout>
 
 namespace {
@@ -306,7 +307,7 @@ bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, c
 
     QDialog dlg(this);
     dlg.setModal(true);
-    dlg.resize(640, 520);
+    dlg.resize(760, 560);
     dlg.setWindowTitle(title);
     QVBoxLayout* root = new QVBoxLayout(&dlg);
 
@@ -314,53 +315,53 @@ bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, c
     introLbl->setWordWrap(true);
     root->addWidget(introLbl);
 
-    QListWidget* list = new QListWidget(&dlg);
-    list->setSelectionMode(QAbstractItemView::NoSelection);
-    list->setViewMode(QListView::IconMode);
-    list->setFlow(QListView::LeftToRight);
-    list->setWrapping(true);
-    list->setResizeMode(QListView::Adjust);
-    list->setMovement(QListView::Static);
-    list->setUniformItemSizes(true);
-    list->setWordWrap(true);
-    list->setSpacing(6);
-    list->setStyleSheet(QStringLiteral(
-        "QListWidget::item {"
-        " border: 1px solid palette(mid);"
-        " border-radius: 4px;"
-        " padding: 4px 8px;"
-        " margin: 2px;"
-        " background: palette(base);"
-        "}"
-        "QListWidget::item:hover {"
-        " background: palette(alternate-base);"
-        "}"
-        "QListWidget::item:selected {"
-        " color: palette(text);"
-        " background: palette(base);"
-        "}"
-    ));
-    const QFontMetrics fm(list->font());
+    QScrollArea* scroll = new QScrollArea(&dlg);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto* content = new QWidget(scroll);
+    auto* grid = new QGridLayout(content);
+    grid->setContentsMargins(4, 4, 4, 4);
+    grid->setHorizontalSpacing(10);
+    grid->setVerticalSpacing(8);
+    content->setLayout(grid);
+    scroll->setWidget(content);
+
+    const QFontMetrics fm(dlg.font());
     int maxTextWidth = 120;
     for (const QString& item : items) {
         maxTextWidth = qMax(maxTextWidth, fm.horizontalAdvance(item));
     }
-    const int cellWidth = qBound(150, maxTextWidth + 42, 280);
-    list->setGridSize(QSize(cellWidth, 28));
-    for (const QString& item : items) {
-        auto* lw = new QListWidgetItem(item, list);
-        lw->setFlags(lw->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled);
-        const bool checked = initialSelected.contains(item, Qt::CaseInsensitive);
-        lw->setCheckState(checked ? Qt::Checked : Qt::Unchecked);
-        lw->setSizeHint(QSize(cellWidth, 28));
+    const int columns = 3;
+    const int cellWidth = qBound(190, maxTextWidth + 54, 300);
+    QVector<QCheckBox*> checkboxes;
+    checkboxes.reserve(items.size());
+    for (int i = 0; i < items.size(); ++i) {
+        const QString& item = items.at(i);
+        auto* cb = new QCheckBox(item, content);
+        cb->setChecked(initialSelected.contains(item, Qt::CaseInsensitive));
+        cb->setMinimumWidth(cellWidth);
+        cb->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        cb->setStyleSheet(QStringLiteral(
+            "QCheckBox {"
+            " border: 1px solid #b9c9d6;"
+            " border-radius: 6px;"
+            " background: #f4f8fb;"
+            " color: #132531;"
+            " padding: 6px 10px;"
+            " spacing: 10px;"
+            "}"
+            "QCheckBox:hover {"
+            " background: #e9f2f8;"
+            "}"
+        ));
+        grid->addWidget(cb, i / columns, i % columns);
+        checkboxes.push_back(cb);
     }
-    QObject::connect(list, &QListWidget::itemPressed, &dlg, [](QListWidgetItem* item) {
-        if (!item) {
-            return;
-        }
-        item->setCheckState(item->checkState() == Qt::Checked ? Qt::Unchecked : Qt::Checked);
-    });
-    root->addWidget(list, 1);
+    for (int col = 0; col < columns; ++col) {
+        grid->setColumnStretch(col, 1);
+    }
+    root->addWidget(scroll, 1);
 
     QHBoxLayout* tools = new QHBoxLayout();
     QPushButton* allBtn = new QPushButton(trk(QStringLiteral("t_sel_all_001"),
@@ -378,14 +379,18 @@ bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, c
     tools->addStretch(1);
     root->addLayout(tools);
 
-    QObject::connect(allBtn, &QPushButton::clicked, &dlg, [list]() {
-        for (int i = 0; i < list->count(); ++i) {
-            list->item(i)->setCheckState(Qt::Checked);
+    QObject::connect(allBtn, &QPushButton::clicked, &dlg, [checkboxes]() {
+        for (QCheckBox* cb : checkboxes) {
+            if (cb) {
+                cb->setChecked(true);
+            }
         }
     });
-    QObject::connect(noneBtn, &QPushButton::clicked, &dlg, [list]() {
-        for (int i = 0; i < list->count(); ++i) {
-            list->item(i)->setCheckState(Qt::Unchecked);
+    QObject::connect(noneBtn, &QPushButton::clicked, &dlg, [checkboxes]() {
+        for (QCheckBox* cb : checkboxes) {
+            if (cb) {
+                cb->setChecked(false);
+            }
         }
     });
 
@@ -408,10 +413,9 @@ bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, c
         return false;
     }
     selected.clear();
-    for (int i = 0; i < list->count(); ++i) {
-        QListWidgetItem* it = list->item(i);
-        if (it && it->checkState() == Qt::Checked) {
-            selected.push_back(it->text());
+    for (QCheckBox* cb : checkboxes) {
+        if (cb && cb->isChecked()) {
+            selected.push_back(cb->text());
         }
     }
     return true;
