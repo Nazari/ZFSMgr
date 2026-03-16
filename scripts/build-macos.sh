@@ -98,6 +98,8 @@ upload_to_sftp() {
   fi
 }
 
+OPENSSL_PREFIX=""
+
 has_codesign_identity() {
   local cert_name="$1"
   if security find-identity -v -p codesigning | grep -F "\"${cert_name}\"" >/dev/null 2>&1; then
@@ -220,7 +222,8 @@ copy_framework_bundle() {
   local frameworks_dst="$2"
   local framework_name
   framework_name="$(basename "${framework_src}")"
-  rsync -a --delete "${framework_src}" "${frameworks_dst}/"
+  rm -rf "${frameworks_dst:?}/${framework_name}"
+  cp -R "${framework_src}" "${frameworks_dst}/"
   local current_link="${frameworks_dst}/${framework_name}/${framework_name%.*}"
   if [[ ! -e "${current_link}" ]]; then
     local version_dir
@@ -241,6 +244,18 @@ resolve_dep_path() {
   if [[ "${dep}" == @executable_path/* ]]; then
     candidate="${APP_BUNDLE}/Contents/MacOS/${dep#@executable_path/}"
     [[ -e "${candidate}" ]] && { echo "${candidate}"; return 0; }
+    if [[ -n "${QT_PREFIX}" ]]; then
+      candidate="${QT_PREFIX}/lib/$(basename "${dep}")"
+      [[ -e "${candidate}" ]] && { echo "${candidate}"; return 0; }
+    fi
+    if [[ -n "${OPENSSL_PREFIX}" ]]; then
+      candidate="${OPENSSL_PREFIX}/lib/$(basename "${dep}")"
+      [[ -e "${candidate}" ]] && { echo "${candidate}"; return 0; }
+    fi
+    for libdir in "${QT_EXTRA_LIB_DIRS[@]:-}"; do
+      candidate="${libdir}/$(basename "${dep}")"
+      [[ -e "${candidate}" ]] && { echo "${candidate}"; return 0; }
+    done
   fi
   if [[ "${dep}" == @loader_path/* ]]; then
     candidate="${source_dir}/${dep#@loader_path/}"
@@ -365,9 +380,11 @@ if [[ ${#QT_EXTRA_LIB_DIRS[@]} -gt 0 ]]; then
 fi
 
 if [[ -d "/opt/homebrew/opt/openssl@3" ]]; then
-  export CMAKE_PREFIX_PATH="/opt/homebrew/opt/openssl@3:${CMAKE_PREFIX_PATH:-}"
+  OPENSSL_PREFIX="/opt/homebrew/opt/openssl@3"
+  export CMAKE_PREFIX_PATH="${OPENSSL_PREFIX}:${CMAKE_PREFIX_PATH:-}"
 elif [[ -d "/usr/local/opt/openssl@3" ]]; then
-  export CMAKE_PREFIX_PATH="/usr/local/opt/openssl@3:${CMAKE_PREFIX_PATH:-}"
+  OPENSSL_PREFIX="/usr/local/opt/openssl@3"
+  export CMAKE_PREFIX_PATH="${OPENSSL_PREFIX}:${CMAKE_PREFIX_PATH:-}"
 fi
 
 cmake_cmd=(cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release)
