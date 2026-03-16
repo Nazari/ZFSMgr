@@ -148,29 +148,6 @@ QString encodeInlinePropGroups(const QVector<MainWindow::InlinePropGroupConfig>&
     return QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact));
 }
 
-QVector<int> decodeColumnWidths(const QString& raw) {
-    QVector<int> out;
-    for (const QString& part : raw.split(',', Qt::SkipEmptyParts)) {
-        bool ok = false;
-        const int width = part.trimmed().toInt(&ok);
-        if (!ok || width <= 0) {
-            continue;
-        }
-        out.push_back(width);
-    }
-    return out;
-}
-
-QString encodeColumnWidths(const QVector<int>& widths) {
-    QStringList parts;
-    parts.reserve(widths.size());
-    for (int width : widths) {
-        if (width > 0) {
-            parts.push_back(QString::number(width));
-        }
-    }
-    return parts.join(QStringLiteral(","));
-}
 }
 
 QString MainWindow::trk(const QString& key, const QString& es, const QString& en, const QString& zh) const {
@@ -218,8 +195,6 @@ void MainWindow::loadUiSettings() {
     m_snapshotInlinePropsOrder = ini.value(QStringLiteral("snapshot_inline_props_order")).toStringList();
     m_snapshotInlinePropGroups =
         decodeInlinePropGroups(ini.value(QStringLiteral("snapshot_inline_prop_groups")).toString());
-    m_topTreeColumnWidths = decodeColumnWidths(ini.value(QStringLiteral("top_tree_column_widths")).toString());
-    m_bottomTreeColumnWidths = decodeColumnWidths(ini.value(QStringLiteral("bottom_tree_column_widths")).toString());
     m_datasetInlinePropsOrder = normalizePropsOrderList(m_datasetInlinePropsOrder);
     m_poolInlinePropsOrder = normalizePropsOrderList(m_poolInlinePropsOrder);
     m_snapshotInlinePropsOrder = normalizePropsOrderList(m_snapshotInlinePropsOrder);
@@ -271,8 +246,6 @@ void MainWindow::saveUiSettings() const {
     ini.setValue(QStringLiteral("pool_inline_prop_groups"), encodeInlinePropGroups(m_poolInlinePropGroups));
     ini.setValue(QStringLiteral("snapshot_inline_props_order"), m_snapshotInlinePropsOrder);
     ini.setValue(QStringLiteral("snapshot_inline_prop_groups"), encodeInlinePropGroups(m_snapshotInlinePropGroups));
-    ini.setValue(QStringLiteral("top_tree_column_widths"), encodeColumnWidths(m_topTreeColumnWidths));
-    ini.setValue(QStringLiteral("bottom_tree_column_widths"), encodeColumnWidths(m_bottomTreeColumnWidths));
     QStringList disconnected = QStringList(m_disconnectedConnectionKeys.begin(), m_disconnectedConnectionKeys.end());
     disconnected.sort(Qt::CaseInsensitive);
     ini.setValue(QStringLiteral("disconnected_connections"), disconnected);
@@ -339,7 +312,7 @@ void MainWindow::applyLanguageLive() {
     if (!selectedConnId.isEmpty() && m_connectionsTable) {
         const int row = rowForConnectionId(m_connectionsTable, m_profiles, selectedConnId);
         if (row >= 0) {
-            m_connectionsTable->setCurrentCell(row, 0);
+            m_connectionsTable->setCurrentCell(row, 1);
         }
     }
     if (m_leftTabs) {

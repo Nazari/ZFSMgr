@@ -197,6 +197,10 @@ private:
     void restoreBottomTreeStateForConnection(int connIdx);
     void saveConnContentTreeState(const QString& token);
     void restoreConnContentTreeState(const QString& token);
+    QString connectionDisplayModeForIndex(int connIdx) const;
+    void syncConnectionDisplaySelectors();
+    void applyConnectionDisplayMode(int connIdx, const QString& mode);
+    void resizeTreeColumnsToVisibleContent(QTreeWidget* tree);
     void syncConnContentPropertyColumns();
     void syncConnContentPoolColumns();
     void updateConnContentPropertyValues(const QString& token,
@@ -493,8 +497,6 @@ private:
     QVector<InlinePropGroupConfig> m_poolInlinePropGroups;
     QStringList m_snapshotInlinePropsOrder;
     QVector<InlinePropGroupConfig> m_snapshotInlinePropGroups;
-    QVector<int> m_topTreeColumnWidths;
-    QVector<int> m_bottomTreeColumnWidths;
     QString m_appLogPath;
     bool m_compactPrevValid{false};
     QString m_compactPrevDate;

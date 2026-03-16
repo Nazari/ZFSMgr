@@ -24,6 +24,7 @@ namespace {
 constexpr int kConnPropKeyRole = Qt::UserRole + 14;
 constexpr int kPoolNameRole = Qt::UserRole + 11;
 constexpr int kIsPoolRootRole = Qt::UserRole + 12;
+constexpr auto kConnDisplayModeRole = "connDisplayMode";
 
 struct ConnTreeNavSnapshot {
     QSet<QString> expandedKeys;
@@ -434,6 +435,111 @@ QString connPersistKeyFromProfiles(const QVector<ConnectionProfile>& profiles, i
 }
 }
 
+QString MainWindow::connectionDisplayModeForIndex(int connIdx) const {
+    if (connIdx < 0) {
+        return QString();
+    }
+    const bool isTop = (connIdx == m_topDetailConnIdx);
+    const bool isBottom = (connIdx == m_bottomDetailConnIdx);
+    if (isTop && isBottom) {
+        return QStringLiteral("both");
+    }
+    if (isTop) {
+        return QStringLiteral("source");
+    }
+    if (isBottom) {
+        return QStringLiteral("target");
+    }
+    return QString();
+}
+
+void MainWindow::syncConnectionDisplaySelectors() {
+    if (!m_connectionsTable) {
+        return;
+    }
+    const QSignalBlocker blocker(m_connectionsTable);
+    m_syncConnSelectorChecks = true;
+    for (int row = 0; row < m_connectionsTable->rowCount(); ++row) {
+        if (QComboBox* combo = qobject_cast<QComboBox*>(m_connectionsTable->cellWidget(row, 0))) {
+            const int connIdx = combo->property(kConnDisplayModeRole).toInt();
+            const QString mode = connectionDisplayModeForIndex(connIdx);
+            const int idx = combo->findData(mode);
+            combo->setCurrentIndex(idx >= 0 ? idx : 0);
+        }
+    }
+    m_syncConnSelectorChecks = false;
+}
+
+void MainWindow::applyConnectionDisplayMode(int connIdx, const QString& modeRaw) {
+    if (!m_connectionsTable || connIdx < 0 || connIdx >= m_profiles.size()) {
+        return;
+    }
+    const QString mode = modeRaw.trimmed().toLower();
+    if (isConnectionDisconnected(connIdx)) {
+        syncConnectionDisplaySelectors();
+        return;
+    }
+
+    const int prevTop = m_topDetailConnIdx;
+    const int prevBottom = m_bottomDetailConnIdx;
+    const bool wantTop = (mode == QStringLiteral("source") || mode == QStringLiteral("both"));
+    const bool wantBottom = (mode == QStringLiteral("target") || mode == QStringLiteral("both"));
+
+    if (wantTop && prevTop >= 0 && prevTop != connIdx) {
+        saveTopTreeStateForConnection(prevTop);
+        if (!m_connContentToken.isEmpty()) {
+            saveConnContentTreeState(m_connContentToken);
+        }
+    } else if (!wantTop && prevTop == connIdx) {
+        saveTopTreeStateForConnection(connIdx);
+        if (!m_connContentToken.isEmpty()) {
+            saveConnContentTreeState(m_connContentToken);
+        }
+    }
+
+    if (wantBottom && prevBottom >= 0 && prevBottom != connIdx) {
+        saveBottomTreeStateForConnection(prevBottom);
+    } else if (!wantBottom && prevBottom == connIdx) {
+        saveBottomTreeStateForConnection(connIdx);
+    }
+
+    m_topDetailConnIdx = wantTop ? connIdx : ((prevTop == connIdx) ? -1 : prevTop);
+    m_bottomDetailConnIdx = wantBottom ? connIdx : ((prevBottom == connIdx) ? -1 : prevBottom);
+    m_forceRestoreTopStateConnIdx = wantTop ? connIdx : ((prevTop == connIdx) ? -1 : m_forceRestoreTopStateConnIdx);
+    m_forceRestoreBottomStateConnIdx =
+        wantBottom ? connIdx : ((prevBottom == connIdx) ? -1 : m_forceRestoreBottomStateConnIdx);
+
+    if (prevTop == connIdx && !wantTop) {
+        setConnectionOriginSelection(DatasetSelectionContext{});
+    }
+    if (prevBottom == connIdx && !wantBottom) {
+        setConnectionDestinationSelection(DatasetSelectionContext{});
+    }
+
+    syncConnectionDisplaySelectors();
+
+    const bool topChanged = (prevTop != m_topDetailConnIdx);
+    const bool bottomChanged = (prevBottom != m_bottomDetailConnIdx);
+    if (wantTop || wantBottom) {
+        m_userSelectedConnectionKey = m_profiles[connIdx].id.trimmed().toLower();
+        if (m_userSelectedConnectionKey.isEmpty()) {
+            m_userSelectedConnectionKey = m_profiles[connIdx].name.trimmed().toLower();
+        }
+        const int row = rowForConnectionIndex(m_connectionsTable, connIdx);
+        if (row >= 0) {
+            m_connectionsTable->setCurrentCell(row, 1);
+        }
+    }
+    if (topChanged) {
+        rebuildConnectionEntityTabs();
+        refreshConnectionNodeDetails();
+    }
+    if (bottomChanged || topChanged) {
+        updateSecondaryConnectionDetail();
+    }
+    updateConnectionActionsState();
+}
+
 void MainWindow::refreshAllConnections() {
     if (actionsLocked()) {
         appLog(QStringLiteral("INFO"),
@@ -586,7 +692,7 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
     if (selectedIdx >= 0 && m_connectionsTable) {
         const int row = rowForConnectionIndex(m_connectionsTable, selectedIdx);
         if (row >= 0) {
-            m_connectionsTable->setCurrentCell(row, 2);
+            m_connectionsTable->setCurrentCell(row, 1);
         }
     }
     populateAllPoolsTables();
@@ -609,7 +715,7 @@ void MainWindow::onAsyncRefreshDone(int generation) {
         for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
             const int idx = connectionIndexForRow(m_connectionsTable, r);
             if (idx >= 0 && idx < m_profiles.size() && !isConnectionDisconnected(idx)) {
-                m_connectionsTable->setCurrentCell(r, 2);
+                m_connectionsTable->setCurrentCell(r, 1);
                 break;
             }
         }
@@ -981,7 +1087,7 @@ void MainWindow::onConnectionEntityTabChanged(int idx) {
         return;
     }
     if (m_connectionsTable->currentRow() != row) {
-        m_connectionsTable->setCurrentCell(row, 2);
+        m_connectionsTable->setCurrentCell(row, 1);
     } else {
         refreshConnectionNodeDetails();
     }
@@ -1464,7 +1570,7 @@ void MainWindow::loadConnections() {
             }
         }
         if (targetRow >= 0) {
-            m_connectionsTable->setCurrentCell(targetRow, 2);
+            m_connectionsTable->setCurrentCell(targetRow, 1);
         }
     }
 
@@ -1486,16 +1592,12 @@ void MainWindow::rebuildConnectionsTable() {
         }
     }
     m_connectionsTable->clear();
-    m_connectionsTable->setColumnCount(3);
+    m_connectionsTable->setColumnCount(2);
     m_connectionsTable->setHorizontalHeaderLabels({
-        trk(QStringLiteral("t_conn_col_src_01"),
-            QStringLiteral("Origen"),
-            QStringLiteral("Source"),
-            QStringLiteral("来源")),
-        trk(QStringLiteral("t_conn_col_dst_01"),
-            QStringLiteral("Destino"),
-            QStringLiteral("Target"),
-            QStringLiteral("目标")),
+        trk(QStringLiteral("t_conn_col_show_01"),
+            QStringLiteral("Mostrar"),
+            QStringLiteral("Show"),
+            QStringLiteral("显示")),
         trk(QStringLiteral("t_connections_001"),
             QStringLiteral("Conexión"),
             QStringLiteral("Connection"),
@@ -1627,44 +1729,68 @@ void MainWindow::rebuildConnectionsTable() {
 
         const int row = m_connectionsTable->rowCount();
         m_connectionsTable->insertRow(row);
-        auto* itTop = new QTableWidgetItem(QString());
-        itTop->setData(Qt::UserRole, i);
-        Qt::ItemFlags topFlags = (itTop->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable;
-        if (disconnected) {
-            topFlags &= ~Qt::ItemIsEnabled;
-        } else {
-            topFlags |= Qt::ItemIsEnabled;
-        }
-        itTop->setFlags(topFlags);
-        itTop->setCheckState((i == m_topDetailConnIdx) ? Qt::Checked : Qt::Unchecked);
-        itTop->setTextAlignment(Qt::AlignCenter);
-        itTop->setToolTip(buildConnectionStateTooltip(p, s));
-        m_connectionsTable->setItem(row, 0, itTop);
+        const QString tooltip = buildConnectionStateTooltip(p, s);
 
-        auto* itBottom = new QTableWidgetItem(QString());
-        itBottom->setData(Qt::UserRole, i);
-        Qt::ItemFlags bottomFlags = (itBottom->flags() | Qt::ItemIsUserCheckable) & ~Qt::ItemIsEditable;
+        auto* combo = new QComboBox(m_connectionsTable);
+        combo->addItem(trk(QStringLiteral("t_conn_show_none_01"),
+                           QStringLiteral("No"),
+                           QStringLiteral("Hide"),
+                           QStringLiteral("不显示")),
+                       QString());
+        combo->addItem(trk(QStringLiteral("t_conn_col_src_01"),
+                           QStringLiteral("Origen"),
+                           QStringLiteral("Source"),
+                           QStringLiteral("来源")),
+                       QStringLiteral("source"));
+        combo->addItem(trk(QStringLiteral("t_conn_col_dst_01"),
+                           QStringLiteral("Destino"),
+                           QStringLiteral("Target"),
+                           QStringLiteral("目标")),
+                       QStringLiteral("target"));
+        combo->addItem(trk(QStringLiteral("t_conn_show_both_01"),
+                           QStringLiteral("Ambos"),
+                           QStringLiteral("Both"),
+                           QStringLiteral("两者")),
+                       QStringLiteral("both"));
+        combo->setProperty(kConnDisplayModeRole, i);
+        combo->setToolTip(tooltip);
         if (disconnected) {
-            bottomFlags &= ~Qt::ItemIsEnabled;
+            QPalette pal = combo->palette();
+            const QColor disabledText = m_connectionsTable->palette().color(QPalette::Disabled, QPalette::Text);
+            const QColor disabledBase = m_connectionsTable->palette().color(QPalette::Disabled, QPalette::Base);
+            pal.setColor(QPalette::Disabled, QPalette::ButtonText, disabledText);
+            pal.setColor(QPalette::Disabled, QPalette::Text, disabledText);
+            pal.setColor(QPalette::Disabled, QPalette::WindowText, disabledText);
+            pal.setColor(QPalette::Disabled, QPalette::Button, disabledBase);
+            pal.setColor(QPalette::Disabled, QPalette::Base, disabledBase);
+            combo->setPalette(pal);
+            combo->setStyleSheet(QStringLiteral(
+                "QComboBox:disabled { color: palette(mid); background-color: palette(base); }"
+                "QComboBox::drop-down:disabled { background-color: palette(base); }"));
         } else {
-            bottomFlags |= Qt::ItemIsEnabled;
+            combo->setStyleSheet(QString());
         }
-        itBottom->setFlags(bottomFlags);
-        itBottom->setCheckState((i == m_bottomDetailConnIdx) ? Qt::Checked : Qt::Unchecked);
-        itBottom->setTextAlignment(Qt::AlignCenter);
-        itBottom->setToolTip(buildConnectionStateTooltip(p, s));
-        m_connectionsTable->setItem(row, 1, itBottom);
+        combo->setEnabled(!disconnected);
+        m_connectionsTable->setCellWidget(row, 0, combo);
+        QObject::connect(combo, &QComboBox::currentIndexChanged, m_connectionsTable, [this, combo](int) {
+            if (!combo || m_syncConnSelectorChecks) {
+                return;
+            }
+            const int connIdx = combo->property(kConnDisplayModeRole).toInt();
+            applyConnectionDisplayMode(connIdx, combo->currentData().toString());
+        });
 
         auto* it = new QTableWidgetItem(line);
         it->setData(Qt::UserRole, i);
         it->setForeground(QBrush(rowColor));
+        it->setBackground(m_connectionsTable->palette().base());
         if (disconnected) {
             QFont f = it->font();
             f.setItalic(true);
             it->setFont(f);
         }
-        it->setToolTip(buildConnectionStateTooltip(p, s));
-        m_connectionsTable->setItem(row, 2, it);
+        it->setToolTip(tooltip);
+        m_connectionsTable->setItem(row, 1, it);
 
     }
     auto ensureValidConnIdx = [this](int& idx) {
@@ -1746,23 +1872,14 @@ void MainWindow::rebuildConnectionsTable() {
             m_bottomDetailConnIdx = -1;
         }
     }
-    for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
-        if (QTableWidgetItem* it = m_connectionsTable->item(r, 0)) {
-            const int idx = it->data(Qt::UserRole).toInt();
-            it->setCheckState((idx == m_topDetailConnIdx) ? Qt::Checked : Qt::Unchecked);
-        }
-        if (QTableWidgetItem* it = m_connectionsTable->item(r, 1)) {
-            const int idx = it->data(Qt::UserRole).toInt();
-            it->setCheckState((idx == m_bottomDetailConnIdx) ? Qt::Checked : Qt::Unchecked);
-        }
-    }
+    syncConnectionDisplaySelectors();
     int targetRow = rowForConnectionIndex(m_connectionsTable, m_topDetailConnIdx);
     const QString preferredKey = !m_userSelectedConnectionKey.trimmed().isEmpty()
                                      ? m_userSelectedConnectionKey.trimmed().toLower()
                                      : prevSelectedKey;
     if (!preferredKey.isEmpty()) {
         for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
-            QTableWidgetItem* it = m_connectionsTable->item(r, 2);
+            QTableWidgetItem* it = m_connectionsTable->item(r, 1);
             if (!it) {
                 continue;
             }
@@ -1791,7 +1908,7 @@ void MainWindow::rebuildConnectionsTable() {
         }
     }
     if (targetRow >= 0) {
-        m_connectionsTable->setCurrentCell(targetRow, 2);
+        m_connectionsTable->setCurrentCell(targetRow, 1);
     }
     m_syncConnSelectorChecks = false;
 
@@ -1853,7 +1970,7 @@ void MainWindow::createConnection() {
             if (m_connectionsTable) {
                 const int row = rowForConnectionIndex(m_connectionsTable, i);
                 if (row >= 0) {
-                    m_connectionsTable->setCurrentCell(row, 2);
+                    m_connectionsTable->setCurrentCell(row, 1);
                 }
             }
             refreshSelectedConnection();

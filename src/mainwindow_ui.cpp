@@ -38,9 +38,10 @@
 #include <QScopedValueRollback>
 #include <QScrollBar>
 #include <QResizeEvent>
-#include <QSizePolicy>
-#include <QStackedWidget>
 #include <QStyleFactory>
+#include <QSizePolicy>
+#include <QStackedLayout>
+#include <QStackedWidget>
 #include <QStyledItemDelegate>
 #include <QStyleOptionButton>
 #include <QSplitter>
@@ -794,11 +795,14 @@ void MainWindow::buildUi() {
     root->setSpacing(6);
 
     auto* topArea = new QWidget(central);
-    auto* topLayout = new QHBoxLayout(topArea);
+    auto* topLayout = new QVBoxLayout(topArea);
     topLayout->setContentsMargins(0, 0, 0, 0);
-    topLayout->setSpacing(6);
+    topLayout->setSpacing(0);
+    auto* topSplit = new QSplitter(Qt::Horizontal, topArea);
+    topSplit->setChildrenCollapsible(true);
+    topSplit->setHandleWidth(4);
 
-    auto* leftPane = new QWidget(topArea);
+    auto* leftPane = new QWidget(topSplit);
     auto* leftLayout = new QVBoxLayout(leftPane);
     leftLayout->setContentsMargins(0, 0, 0, 0);
     leftLayout->setSpacing(4);
@@ -817,9 +821,8 @@ void MainWindow::buildUi() {
                                  QStringLiteral("New"),
                                  QStringLiteral("新建"))));
     const int leftBaseWidth = qMax(340, btnTextWidth + 190);
-    const int leftFixedWidth = qMax(220, static_cast<int>(leftBaseWidth * 0.69 * 1.20));
-    leftPane->setMinimumWidth(leftFixedWidth);
-    leftPane->setMaximumWidth(leftFixedWidth);
+    const int leftFixedWidth = qMax(220, static_cast<int>(leftBaseWidth * 0.69 * 1.08));
+    leftPane->setMinimumWidth(0);
 
     auto* connectionsTab = new QWidget(leftPane);
     auto* connLayout = new QVBoxLayout(connectionsTab);
@@ -837,16 +840,12 @@ void MainWindow::buildUi() {
     auto* connListBoxLayout = new QVBoxLayout(connListBox);
     connListBoxLayout->setContentsMargins(6, 8, 6, 6);
     m_connectionsTable = new QTableWidget(connListBox);
-    m_connectionsTable->setColumnCount(3);
+    m_connectionsTable->setColumnCount(2);
     m_connectionsTable->setHorizontalHeaderLabels({
-        trk(QStringLiteral("t_conn_col_src_01"),
-            QStringLiteral("Origen"),
-            QStringLiteral("Source"),
-            QStringLiteral("来源")),
-        trk(QStringLiteral("t_conn_col_dst_01"),
-            QStringLiteral("Destino"),
-            QStringLiteral("Target"),
-            QStringLiteral("目标")),
+        trk(QStringLiteral("t_conn_col_show_01"),
+            QStringLiteral("Mostrar"),
+            QStringLiteral("Show"),
+            QStringLiteral("显示")),
         trk(QStringLiteral("t_connections_001"),
             QStringLiteral("Conexión"),
             QStringLiteral("Connection"),
@@ -854,16 +853,13 @@ void MainWindow::buildUi() {
     });
     m_connectionsTable->horizontalHeader()->setVisible(true);
     m_connectionsTable->verticalHeader()->setVisible(false);
-    m_connectionsTable->setAlternatingRowColors(true);
+    m_connectionsTable->setAlternatingRowColors(false);
     m_connectionsTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_connectionsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_connectionsTable->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     m_connectionsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_connectionsTable->setItemDelegateForColumn(0, new CenteredCheckDelegate(m_connectionsTable));
-    m_connectionsTable->setItemDelegateForColumn(1, new CenteredCheckDelegate(m_connectionsTable));
     m_connectionsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_connectionsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    m_connectionsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    m_connectionsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
 #ifdef Q_OS_MAC
     if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
         m_connectionsTable->setStyle(fusion);
@@ -1046,7 +1042,7 @@ void MainWindow::buildUi() {
     m_btnConnDiff->setMinimumHeight(stdLeftBtnH);
     m_btnConnLevel->setMinimumHeight(stdLeftBtnH);
     m_btnConnSync->setMinimumHeight(stdLeftBtnH);
-    m_btnApplyConnContentProps->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnApplyConnContentProps->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_btnConnCopy->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnClone->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnDiff->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -1058,12 +1054,11 @@ void MainWindow::buildUi() {
     connRightBtns->setVerticalSpacing(6);
     connRightBtns->setColumnStretch(0, 1);
     connRightBtns->setColumnStretch(1, 1);
-    connRightBtns->addWidget(m_btnApplyConnContentProps, 0, 0);
-    connRightBtns->addWidget(m_btnConnSync, 0, 1);
-    connRightBtns->addWidget(m_btnConnCopy, 1, 0);
-    connRightBtns->addWidget(m_btnConnClone, 1, 1);
-    connRightBtns->addWidget(m_btnConnLevel, 2, 0);
-    connRightBtns->addWidget(m_btnConnDiff, 2, 1);
+    connRightBtns->addWidget(m_btnConnSync, 0, 0);
+    connRightBtns->addWidget(m_btnConnCopy, 0, 1);
+    connRightBtns->addWidget(m_btnConnClone, 1, 0);
+    connRightBtns->addWidget(m_btnConnLevel, 1, 1);
+    connRightBtns->addWidget(m_btnConnDiff, 2, 0, 1, 2);
     connActionRightLayout->addLayout(connRightBtns);
     connActionsLayout->addWidget(connActionRightBox, 1);
     connLayout->addWidget(m_connActionsBox, 0);
@@ -1086,7 +1081,7 @@ void MainWindow::buildUi() {
     m_leftTabs->hide();
     leftLayout->addWidget(connectionsTab, 1);
 
-    auto* rightPane = new QWidget(topArea);
+    auto* rightPane = new QWidget(topSplit);
     auto* rightLayout = new QVBoxLayout(rightPane);
     rightLayout->setContentsMargins(0, 0, 0, 0);
     rightLayout->setSpacing(4);
@@ -1255,11 +1250,6 @@ void MainWindow::buildUi() {
     m_connContentTree->setColumnWidth(1, 90);
     m_connContentTree->setColumnWidth(2, 72);
     m_connContentTree->setColumnWidth(3, 180);
-    for (int col = 0; col < m_topTreeColumnWidths.size() && col < m_connContentTree->columnCount(); ++col) {
-        if (m_topTreeColumnWidths[col] > 0) {
-            m_connContentTree->setColumnWidth(col, m_topTreeColumnWidths[col]);
-        }
-    }
     m_connContentTree->setColumnHidden(1, true);
     m_connContentTree->setColumnHidden(2, true);
     m_connContentTree->setColumnHidden(3, true);
@@ -1413,11 +1403,6 @@ void MainWindow::buildUi() {
     m_bottomConnContentTree->setColumnWidth(1, 90);
     m_bottomConnContentTree->setColumnWidth(2, 72);
     m_bottomConnContentTree->setColumnWidth(3, 170);
-    for (int col = 0; col < m_bottomTreeColumnWidths.size() && col < m_bottomConnContentTree->columnCount(); ++col) {
-        if (m_bottomTreeColumnWidths[col] > 0) {
-            m_bottomConnContentTree->setColumnWidth(col, m_bottomTreeColumnWidths[col]);
-        }
-    }
     m_bottomConnContentTree->setColumnHidden(1, true);
     m_bottomConnContentTree->setColumnHidden(2, true);
     m_bottomConnContentTree->setColumnHidden(3, true);
@@ -1445,28 +1430,6 @@ void MainWindow::buildUi() {
         syncConnContentPropertyColumns();
         m_connContentTree = prevTree;
     }
-    connect(m_connContentTree->header(), &QHeaderView::sectionResized, this,
-            [this](int logicalIndex, int, int newSize) {
-                if (logicalIndex < 0 || newSize <= 0) {
-                    return;
-                }
-                if (m_topTreeColumnWidths.size() <= logicalIndex) {
-                    m_topTreeColumnWidths.resize(logicalIndex + 1);
-                }
-                m_topTreeColumnWidths[logicalIndex] = newSize;
-                saveUiSettings();
-            });
-    connect(m_bottomConnContentTree->header(), &QHeaderView::sectionResized, this,
-            [this](int logicalIndex, int, int newSize) {
-                if (logicalIndex < 0 || newSize <= 0) {
-                    return;
-                }
-                if (m_bottomTreeColumnWidths.size() <= logicalIndex) {
-                    m_bottomTreeColumnWidths.resize(logicalIndex + 1);
-                }
-                m_bottomTreeColumnWidths[logicalIndex] = newSize;
-                saveUiSettings();
-            });
     auto installTreeHeaderContextMenu = [this, applyPropColumnsSetting](QTreeWidget* tree) {
         if (!tree || !tree->header()) {
             return;
@@ -1530,7 +1493,29 @@ void MainWindow::buildUi() {
     };
     installTreeHeaderContextMenu(m_connContentTree);
     installTreeHeaderContextMenu(m_bottomConnContentTree);
-    bottomConnLayout->addWidget(m_bottomConnContentTree, 1);
+    auto* bottomConnOverlayHost = new QWidget(bottomConnBox);
+    auto* bottomConnOverlayLayout = new QStackedLayout(bottomConnOverlayHost);
+    bottomConnOverlayLayout->setStackingMode(QStackedLayout::StackAll);
+    bottomConnOverlayLayout->setContentsMargins(0, 0, 0, 0);
+    bottomConnOverlayLayout->addWidget(m_bottomConnContentTree);
+    auto* bottomConnOverlay = new QWidget(bottomConnOverlayHost);
+    bottomConnOverlay->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    bottomConnOverlay->setStyleSheet(QStringLiteral("background: transparent;"));
+    auto* bottomConnOverlayButtons = new QVBoxLayout(bottomConnOverlay);
+    bottomConnOverlayButtons->setContentsMargins(0, 0, 10, 10);
+    bottomConnOverlayButtons->addStretch(1);
+    auto* bottomConnOverlayRow = new QHBoxLayout();
+    bottomConnOverlayRow->setContentsMargins(0, 0, 0, 0);
+    bottomConnOverlayRow->addStretch(1);
+    m_btnApplyConnContentProps->setAttribute(Qt::WA_TransparentForMouseEvents, false);
+    bottomConnOverlayRow->addWidget(m_btnApplyConnContentProps, 0, Qt::AlignRight | Qt::AlignBottom);
+    bottomConnOverlayButtons->addLayout(bottomConnOverlayRow);
+    bottomConnOverlayLayout->addWidget(bottomConnOverlay);
+    bottomConnOverlay->show();
+    bottomConnOverlay->raise();
+    m_btnApplyConnContentProps->show();
+    m_btnApplyConnContentProps->raise();
+    bottomConnLayout->addWidget(bottomConnOverlayHost, 1);
     rightSplit->setStretchFactor(0, 1);
     rightSplit->setStretchFactor(1, 1);
     rightSplit->setSizes({500, 500});
@@ -1581,8 +1566,12 @@ void MainWindow::buildUi() {
     QTimer::singleShot(900, this, equalizeTreeHeights);
     rightLayout->addWidget(rightSplit, 1);
 
-    topLayout->addWidget(leftPane, 0);
-    topLayout->addWidget(rightPane, 1);
+    topSplit->addWidget(leftPane);
+    topSplit->addWidget(rightPane);
+    topSplit->setStretchFactor(0, 0);
+    topSplit->setStretchFactor(1, 1);
+    topSplit->setSizes({leftFixedWidth, qMax(leftFixedWidth * 2, width() - leftFixedWidth)});
+    topLayout->addWidget(topSplit, 1);
 
     auto* logBox = new QGroupBox(trk(QStringLiteral("t_combined_log001"),
                                      QStringLiteral("Log combinado"),
@@ -1718,10 +1707,10 @@ void MainWindow::buildUi() {
         if (!m_connectionsTable || row < 0) {
             return;
         }
-        if (col == 0 || col == 1) {
+        if (col == 0) {
             return;
         }
-        QTableWidgetItem* it = m_connectionsTable->item(row, 2);
+        QTableWidgetItem* it = m_connectionsTable->item(row, 1);
         if (!it) {
             return;
         }
@@ -1734,90 +1723,6 @@ void MainWindow::buildUi() {
         if (m_userSelectedConnectionKey.isEmpty()) {
             m_userSelectedConnectionKey = m_profiles[connIdx].name.trimmed().toLower();
         }
-    });
-    connect(m_connectionsTable, &QTableWidget::itemChanged, this, [this](QTableWidgetItem* item) {
-        if (!item || m_syncConnSelectorChecks || !m_connectionsTable) {
-            return;
-        }
-        const int col = item->column();
-        if (col != 0 && col != 1) {
-            return;
-        }
-        bool ok = false;
-        const int connIdx = item->data(Qt::UserRole).toInt(&ok);
-        if (!ok || connIdx < 0 || connIdx >= m_profiles.size()) {
-            return;
-        }
-        if (isConnectionDisconnected(connIdx)) {
-            m_syncConnSelectorChecks = true;
-            item->setCheckState(Qt::Unchecked);
-            m_syncConnSelectorChecks = false;
-            return;
-        }
-        const bool checked = item->checkState() == Qt::Checked;
-        m_syncConnSelectorChecks = true;
-        if (col == 0) {
-            if (checked) {
-                m_topDetailConnIdx = connIdx;
-                m_forceRestoreTopStateConnIdx = connIdx;
-            } else if (m_topDetailConnIdx == connIdx) {
-                saveTopTreeStateForConnection(connIdx);
-                if (!m_connContentToken.isEmpty()) {
-                    saveConnContentTreeState(m_connContentToken);
-                }
-                m_topDetailConnIdx = -1;
-                m_forceRestoreTopStateConnIdx = -1;
-                setConnectionOriginSelection(DatasetSelectionContext{});
-            }
-            for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
-                QTableWidgetItem* it = m_connectionsTable->item(r, 0);
-                if (!it) {
-                    continue;
-                }
-                const int idx = it->data(Qt::UserRole).toInt();
-                it->setCheckState((idx == m_topDetailConnIdx) ? Qt::Checked : Qt::Unchecked);
-            }
-        } else {
-            if (checked) {
-                m_bottomDetailConnIdx = connIdx;
-                m_forceRestoreBottomStateConnIdx = connIdx;
-            } else if (m_bottomDetailConnIdx == connIdx) {
-                saveBottomTreeStateForConnection(connIdx);
-                m_bottomDetailConnIdx = -1;
-                m_forceRestoreBottomStateConnIdx = -1;
-            }
-            for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
-                QTableWidgetItem* it = m_connectionsTable->item(r, 1);
-                if (!it) {
-                    continue;
-                }
-                const int idx = it->data(Qt::UserRole).toInt();
-                it->setCheckState((idx == m_bottomDetailConnIdx) ? Qt::Checked : Qt::Unchecked);
-            }
-        }
-        m_syncConnSelectorChecks = false;
-        if (col == 0 && checked) {
-            for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
-                QTableWidgetItem* it = m_connectionsTable->item(r, 2);
-                if (!it) {
-                    continue;
-                }
-                const int idx = it->data(Qt::UserRole).toInt();
-                if (idx == connIdx) {
-                    m_connectionsTable->setCurrentCell(r, 2);
-                    break;
-                }
-            }
-        }
-        if (col == 1 && !checked && m_bottomDetailConnIdx < 0) {
-            setConnectionDestinationSelection(DatasetSelectionContext{});
-        }
-        if (col == 0) {
-            rebuildConnectionEntityTabs();
-            refreshConnectionNodeDetails();
-        }
-        updateSecondaryConnectionDetail();
-        updateConnectionActionsState();
     });
     if (m_connectionEntityTabs) {
         connect(m_connectionEntityTabs, &QTabBar::currentChanged, this, [this](int idx) {
@@ -3501,12 +3406,17 @@ void MainWindow::buildUi() {
             m_connContentToken = prevToken;
         });
         connect(m_bottomConnContentTree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
-            if (!m_bottomConnContentTree || !item || !item->data(0, kConnPermissionsNodeRole).toBool()) {
+            if (!m_bottomConnContentTree || !item) {
+                return;
+            }
+            resizeTreeColumnsToVisibleContent(m_bottomConnContentTree);
+            if (!item->data(0, kConnPermissionsNodeRole).toBool()) {
                 return;
             }
             if (item->data(0, kConnPermissionsKindRole).toString() == QStringLiteral("root") && item->childCount() == 0) {
                 if (QTreeWidgetItem* owner = item->parent()) {
                     populateDatasetPermissionsNode(m_bottomConnContentTree, owner, false);
+                    resizeTreeColumnsToVisibleContent(m_bottomConnContentTree);
                 }
             }
         });
@@ -4273,12 +4183,12 @@ void MainWindow::buildUi() {
         int rowForMenu = -1;
         if (idxAt.isValid() && idxAt.row() >= 0) {
             rowForMenu = idxAt.row();
-            m_connectionsTable->setCurrentCell(idxAt.row(), 2);
+            m_connectionsTable->setCurrentCell(idxAt.row(), 1);
         } else {
             rowForMenu = m_connectionsTable->currentRow();
         }
         if (rowForMenu >= 0 && rowForMenu < m_connectionsTable->rowCount()) {
-            QTableWidgetItem* it = m_connectionsTable->item(rowForMenu, 2);
+            QTableWidgetItem* it = m_connectionsTable->item(rowForMenu, 1);
             if (it) {
                 bool ok = false;
                 const int idx = it->data(Qt::UserRole).toInt(&ok);
@@ -4793,12 +4703,17 @@ void MainWindow::buildUi() {
             updateConnectionActionsState();
         });
         connect(m_connContentTree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
-            if (!m_connContentTree || !item || !item->data(0, kConnPermissionsNodeRole).toBool()) {
+            if (!m_connContentTree || !item) {
+                return;
+            }
+            resizeTreeColumnsToVisibleContent(m_connContentTree);
+            if (!item->data(0, kConnPermissionsNodeRole).toBool()) {
                 return;
             }
             if (item->data(0, kConnPermissionsKindRole).toString() == QStringLiteral("root") && item->childCount() == 0) {
                 if (QTreeWidgetItem* owner = item->parent()) {
                     populateDatasetPermissionsNode(m_connContentTree, owner, false);
+                    resizeTreeColumnsToVisibleContent(m_connContentTree);
                 }
             }
         });

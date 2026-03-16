@@ -511,7 +511,9 @@ void refreshDatasetExpansionIndicators(QTreeWidget* tree) {
     }
 }
 
-void resizeTreeColumnsToVisibleContent(QTreeWidget* tree) {
+} // namespace
+
+void MainWindow::resizeTreeColumnsToVisibleContent(QTreeWidget* tree) {
     if (!tree || !tree->headerItem()) {
         return;
     }
@@ -522,23 +524,6 @@ void resizeTreeColumnsToVisibleContent(QTreeWidget* tree) {
         tree->resizeColumnToContents(col);
     }
 }
-
-bool hasPersistedVisibleColumnWidths(QTreeWidget* tree,
-                                     const QVector<int>& savedWidths) {
-    if (!tree || savedWidths.isEmpty()) {
-        return false;
-    }
-    for (int col = 0; col < tree->columnCount(); ++col) {
-        if (tree->isColumnHidden(col)) {
-            continue;
-        }
-        if (col >= savedWidths.size() || savedWidths[col] <= 0) {
-            return false;
-        }
-    }
-    return true;
-}
-} // namespace
 
 void MainWindow::updateConnContentPropertyValues(const QString& token,
                                                  const QString& objectName,
@@ -699,21 +684,9 @@ void MainWindow::syncConnContentPropertyColumns() {
     for (int col = 4; col < tree->columnCount(); ++col) {
         tree->setColumnHidden(col, false);
     }
-    QVector<int>& savedWidths =
-        (tree == m_bottomConnContentTree) ? m_bottomTreeColumnWidths : m_topTreeColumnWidths;
     for (int col = 4; col < tree->columnCount(); ++col) {
-        if (col < savedWidths.size() && savedWidths[col] > 0) {
-            tree->setColumnWidth(col, savedWidths[col]);
-        } else if (tree->columnWidth(col) < 32) {
+        if (tree->columnWidth(col) < 32) {
             tree->setColumnWidth(col, 96);
-        }
-    }
-    for (int col = 0; col < tree->columnCount(); ++col) {
-        if (tree->columnWidth(col) > 0) {
-            if (savedWidths.size() <= col) {
-                savedWidths.resize(col + 1);
-            }
-            savedWidths[col] = tree->columnWidth(col);
         }
     }
 
@@ -1471,9 +1444,7 @@ void MainWindow::syncConnContentPropertyColumns() {
     propsNode->setExpanded(false);
     refreshDatasetExpansionIndicators(tree);
     sel->setExpanded(true);
-    if (!hasPersistedVisibleColumnWidths(tree, savedWidths)) {
-        resizeTreeColumnsToVisibleContent(tree);
-    }
+    resizeTreeColumnsToVisibleContent(tree);
     m_syncingConnContentColumns = false;
 }
 
@@ -1515,21 +1486,9 @@ void MainWindow::syncConnContentPoolColumns() {
     for (int col = 4; col < m_connContentTree->columnCount(); ++col) {
         m_connContentTree->setColumnHidden(col, false);
     }
-    QVector<int>& savedWidths =
-        (m_connContentTree == m_bottomConnContentTree) ? m_bottomTreeColumnWidths : m_topTreeColumnWidths;
     for (int col = 4; col < (4 + propCols) && col < m_connContentTree->columnCount(); ++col) {
-        if (col < savedWidths.size() && savedWidths[col] > 0) {
-            m_connContentTree->setColumnWidth(col, savedWidths[col]);
-        } else if (m_connContentTree->columnWidth(col) < 32) {
+        if (m_connContentTree->columnWidth(col) < 32) {
             m_connContentTree->setColumnWidth(col, 96);
-        }
-    }
-    for (int col = 0; col < m_connContentTree->columnCount(); ++col) {
-        if (m_connContentTree->columnWidth(col) > 0) {
-            if (savedWidths.size() <= col) {
-                savedWidths.resize(col + 1);
-            }
-            savedWidths[col] = m_connContentTree->columnWidth(col);
         }
     }
 
@@ -1849,9 +1808,7 @@ void MainWindow::syncConnContentPoolColumns() {
                    nullptr,
                    true);
     root->setExpanded(true);
-    if (!hasPersistedVisibleColumnWidths(m_connContentTree, savedWidths)) {
-        resizeTreeColumnsToVisibleContent(m_connContentTree);
-    }
+    resizeTreeColumnsToVisibleContent(m_connContentTree);
     m_syncingConnContentColumns = false;
 }
 
