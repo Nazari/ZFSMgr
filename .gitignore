@@ -11,6 +11,5 @@ build-windows/
 *.spec
 .tools/
 AppDir/
-scripts/buildall
-scripts/build-macos-mmela
 ccodex-linux
+scripts/collect-artifacts
