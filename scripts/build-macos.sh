@@ -9,6 +9,7 @@ APP_VERSION=""
 BUNDLE_NAME=""
 BUNDLE_APP=1
 SELF_SIGN_CERT_NAME="${SELF_SIGN_CERT_NAME:-ZFSMgr Local Self-Signed}"
+KEYCHAIN_PASSWORD="${KEYCHAIN_PASSWORD:-${MAC_PASS:-}}"
 SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese@fc16:Descargas/z}"
 UPLOAD_SFTP=0
 SIGN_APP_MODE="auto" # auto|yes|no
@@ -121,6 +122,20 @@ Crea primero un certificado de firma de código autofirmado en "Keychain Access"
 Luego vuelve a ejecutar: ./scripts/build-macos.sh --bundle
 EOF
   exit 1
+}
+
+prepare_codesign_keychain() {
+  local keychain_path="${HOME}/Library/Keychains/login.keychain-db"
+  if [[ ! -f "${keychain_path}" ]]; then
+    echo "Aviso: no se encontró login keychain en ${keychain_path}" >&2
+    return 0
+  fi
+  security list-keychains -d user -s "${keychain_path}" >/dev/null 2>&1 || true
+  security default-keychain -d user -s "${keychain_path}" >/dev/null 2>&1 || true
+  if [[ -n "${KEYCHAIN_PASSWORD}" ]]; then
+    security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${keychain_path}" >/dev/null 2>&1 || true
+  fi
+  security set-keychain-settings -lut 7200 "${keychain_path}" >/dev/null 2>&1 || true
 }
 
 # Soporte Homebrew Apple Silicon e Intel.
@@ -309,10 +324,14 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
 
   if [[ "${SHOULD_SIGN}" -eq 1 ]]; then
     ensure_codesign_identity "${SELF_SIGN_CERT_NAME}"
+    prepare_codesign_keychain
     MAIN_BIN="${APP_BUNDLE}/Contents/MacOS/${BUNDLE_NAME}"
+    echo "codesign debug:"
+    security find-identity -v -p codesigning || true
+    security show-keychain-info "${HOME}/Library/Keychains/login.keychain-db" || true
     /usr/bin/codesign --remove-signature "${MAIN_BIN}" >/dev/null 2>&1 || true
-    /usr/bin/codesign --force --sign "${SELF_SIGN_CERT_NAME}" --timestamp=none "${MAIN_BIN}"
-    /usr/bin/codesign --force --deep --sign "${SELF_SIGN_CERT_NAME}" --timestamp=none "${APP_BUNDLE}"
+    /usr/bin/codesign --force --sign "${SELF_SIGN_CERT_NAME}" --timestamp=none -vvv "${MAIN_BIN}"
+    /usr/bin/codesign --force --deep --sign "${SELF_SIGN_CERT_NAME}" --timestamp=none -vvv "${APP_BUNDLE}"
     /usr/bin/codesign --verify --strict --verbose=4 "${MAIN_BIN}"
     /usr/bin/codesign --verify --deep --strict --verbose=4 "${APP_BUNDLE}"
     echo "App macOS creada y firmada con certificado autofirmado: ${APP_BUNDLE}"
