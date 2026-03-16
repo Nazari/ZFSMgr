@@ -131,6 +131,69 @@ public:
     }
 };
 
+class HierarchyLinesTreeWidget final : public QTreeWidget {
+public:
+    using QTreeWidget::QTreeWidget;
+
+protected:
+    void drawBranches(QPainter* painter, const QRect& rect, const QModelIndex& index) const override {
+        QTreeWidget::drawBranches(painter, rect, index);
+#ifdef Q_OS_MAC
+        if (!painter || !index.isValid() || !rootIsDecorated()) {
+            return;
+        }
+
+        const int step = indentation();
+        if (step <= 0) {
+            return;
+        }
+
+        auto hasNextSibling = [this](const QModelIndex& idx) {
+            const QModelIndex parentIdx = idx.parent();
+            return idx.row() + 1 < model()->rowCount(parentIdx);
+        };
+
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, false);
+        QPen pen(palette().color(QPalette::Mid).darker(105));
+        pen.setWidth(1);
+        painter->setPen(pen);
+
+        int depth = 0;
+        for (QModelIndex p = index.parent(); p.isValid(); p = p.parent()) {
+            ++depth;
+        }
+
+        const int centerY = rect.center().y();
+        for (int ancestorDepth = 0; ancestorDepth < depth; ++ancestorDepth) {
+            QModelIndex ancestor = index;
+            for (int climb = depth; climb > ancestorDepth; --climb) {
+                ancestor = ancestor.parent();
+            }
+            if (!hasNextSibling(ancestor)) {
+                continue;
+            }
+            const int x = rect.left() + ancestorDepth * step + step / 2;
+            painter->drawLine(x, rect.top(), x, rect.bottom());
+        }
+
+        const int branchX = rect.left() + depth * step + step / 2;
+        if (depth > 0) {
+            painter->drawLine(branchX, rect.top(), branchX, centerY);
+        }
+        if (hasNextSibling(index)) {
+            painter->drawLine(branchX, centerY, branchX, rect.bottom());
+        }
+        painter->drawLine(branchX, centerY, rect.right(), centerY);
+        painter->restore();
+#else
+        Q_UNUSED(painter);
+        Q_UNUSED(rect);
+        Q_UNUSED(index);
+#endif
+    }
+};
+
 class CenteredCheckDelegate final : public QStyledItemDelegate {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
@@ -1222,7 +1285,7 @@ void MainWindow::buildUi() {
     auto* connContentLayout = new QVBoxLayout(m_connContentPage);
     connContentLayout->setContentsMargins(0, 0, 0, 0);
     connContentLayout->setSpacing(4);
-    m_connContentTree = new QTreeWidget(m_connContentPage);
+    m_connContentTree = new HierarchyLinesTreeWidget(m_connContentPage);
     m_connContentTree->setColumnCount(4);
     m_connContentTree->setHeaderLabels({QStringLiteral("Origen:")
                                             + trk(QStringLiteral("t_dataset_001"),
@@ -1375,7 +1438,7 @@ void MainWindow::buildUi() {
     m_bottomConnectionEntityTabs->setUsesScrollButtons(true);
     m_bottomConnectionEntityTabs->setVisible(false);
     bottomConnLayout->addWidget(m_bottomConnectionEntityTabs, 0);
-    m_bottomConnContentTree = new QTreeWidget(bottomConnBox);
+    m_bottomConnContentTree = new HierarchyLinesTreeWidget(bottomConnBox);
     m_bottomConnContentTree->setColumnCount(4);
     m_bottomConnContentTree->setHeaderLabels({QStringLiteral("Destino:")
                                                    + trk(QStringLiteral("t_dataset_001"),
