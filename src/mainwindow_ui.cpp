@@ -164,7 +164,9 @@ protected:
             ++depth;
         }
 
-        const int centerY = rect.center().y();
+        constexpr int kBranchXOffset = -2;
+        constexpr int kBranchYOffset = -1;
+        const int centerY = rect.center().y() + kBranchYOffset;
         for (int ancestorDepth = 0; ancestorDepth < depth; ++ancestorDepth) {
             QModelIndex ancestor = index;
             for (int climb = depth; climb > ancestorDepth; --climb) {
@@ -173,11 +175,11 @@ protected:
             if (!hasNextSibling(ancestor)) {
                 continue;
             }
-            const int x = rect.left() + ancestorDepth * step + step / 2;
+            const int x = rect.left() + ancestorDepth * step + step / 2 + kBranchXOffset;
             painter->drawLine(x, rect.top(), x, rect.bottom());
         }
 
-        const int branchX = rect.left() + depth * step + step / 2;
+        const int branchX = rect.left() + depth * step + step / 2 + kBranchXOffset;
         if (depth > 0) {
             painter->drawLine(branchX, rect.top(), branchX, centerY);
         }
