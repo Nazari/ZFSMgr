@@ -346,11 +346,13 @@ manual_deploy_bundle() {
         continue
       fi
       if [[ "${resolved}" == *.framework ]] || [[ "${resolved}" == *.framework/* ]]; then
-        framework_name="$(echo "${resolved}" | sed -n 's#^.*/\\([^/]*\\.framework\\)\\(/.*\\)?$#\\1#p')"
+        local framework_root
+        framework_root="${resolved%%.framework*}.framework"
+        framework_name="$(basename "${framework_root}")"
         framework_bin="${framework_name%.*}"
         dep_target="${frameworks_dst}/${framework_name}/Versions/A/${framework_bin}"
         if [[ ! -e "${dep_target}" ]]; then
-          copy_framework_bundle "$(echo "${resolved}" | sed -n 's#^\\(.*\\.framework\\)\\(/.*\\)?$#\\1#p')" "${frameworks_dst}"
+          copy_framework_bundle "${framework_root}" "${frameworks_dst}"
         fi
       else
         dep_target="${frameworks_dst}/$(basename "${resolved}")"
