@@ -19,7 +19,7 @@ Notes:
 - While actions are running, `Refresh` is blocked.
 - If you right-click on empty table space, only global options are shown (`Refresh all`, `New connection`, `New pool`).
 
-## Context menu in `Content <pool>`
+## Context menu in the pool tree
 
 On the `Pool` root node:
 
@@ -27,23 +27,50 @@ On the `Pool` root node:
 - `Import`
 - `Export`
 - `History`
+- `Sync`
+- `Trim`
+- `Initialize`
 - `Scrub`
 - `Destroy`
+- `Show pool information`
 
 On selected dataset/snapshot:
 
+- `Manage property visibility`
 - `Show inline properties` (check)
-- `Edit`
+- `Show inline permissions` (check)
 - `Rollback`
 - `Create`
 - `Delete`
+- `Encryption`
+- `Select snapshot`
+- `New Hold`
+- `Release <hold>`
 - `Break down`
 - `Assemble`
 - `From Dir`
 - `To Dir`
+
+On the `Permissions` node of a dataset:
+
+- `Refresh permissions`
+- `New delegation`
+- `New permission set`
+
+On a delegation:
+
+- `Edit delegation`
+- `Delete delegation`
+
+On a permission set:
+
+- `Rename permission set`
+- `Delete set`
 
 ## Rules
 
 - Destructive actions always require confirmation.
 - Enabled/disabled state follows the same validation logic used by other actions.
 - Unsafe options are blocked while an action is running.
+- `Show inline properties`, `Show inline permissions`, and `Show pool information` are persisted in configuration.
+- The tree no longer uses intermediate `Content` or `Subdatasets` nodes.

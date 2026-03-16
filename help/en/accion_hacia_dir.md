@@ -4,7 +4,7 @@ Goal: copy dataset content into a directory on the selected connection host.
 
 Conditions:
 
-- Dataset selected in `Content <pool>`.
+- Dataset selected in the pool tree.
 - Selection must be a dataset (not a snapshot).
 
 Behavior:

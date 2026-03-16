@@ -34,6 +34,7 @@
     <file alias="help/en/accion_desde_dir.md">../help/en/accion_desde_dir.md</file>
     <file alias="help/en/accion_hacia_dir.md">../help/en/accion_hacia_dir.md</file>
     <file alias="help/en/menus_contextuales.md">../help/en/menus_contextuales.md</file>
+    <file alias="help/en/propiedades_inline_columnas.md">../help/en/propiedades_inline_columnas.md</file>
     <file alias="help/en/logs_aplicacion.md">../help/en/logs_aplicacion.md</file>
     <file alias="help/en/configuracion_archivos.md">../help/en/configuracion_archivos.md</file>
     <file alias="help/zh/manual_rapido.md">../help/zh/manual_rapido.md</file>
@@ -47,6 +48,7 @@
     <file alias="help/zh/accion_desde_dir.md">../help/zh/accion_desde_dir.md</file>
     <file alias="help/zh/accion_hacia_dir.md">../help/zh/accion_hacia_dir.md</file>
     <file alias="help/zh/menus_contextuales.md">../help/zh/menus_contextuales.md</file>
+    <file alias="help/zh/propiedades_inline_columnas.md">../help/zh/propiedades_inline_columnas.md</file>
     <file alias="help/zh/logs_aplicacion.md">../help/zh/logs_aplicacion.md</file>
     <file alias="help/zh/configuracion_archivos.md">../help/zh/configuracion_archivos.md</file>
   </qresource>

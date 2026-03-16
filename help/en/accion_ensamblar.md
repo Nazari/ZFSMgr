@@ -4,7 +4,7 @@ Goal: convert child datasets into directories under the parent dataset.
 
 Conditions:
 
-- Dataset selected in `Content <pool>`.
+- Dataset selected in the pool tree.
 - Dataset and descendants mounted (safety rules).
 
 Behavior:

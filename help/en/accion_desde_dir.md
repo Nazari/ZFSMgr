@@ -4,7 +4,7 @@ Goal: create a child dataset from an existing directory on the selected connecti
 
 Conditions:
 
-- Dataset selected in `Content <pool>`.
+- Dataset selected in the pool tree.
 - Selection must be a dataset (not a snapshot).
 
 Behavior:
