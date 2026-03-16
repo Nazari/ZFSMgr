@@ -367,9 +367,11 @@ fix_install_names() {
 manual_deploy_bundle() {
   local main_bin="$1"
   local frameworks_dst="${APP_BUNDLE}/Contents/Frameworks"
+  local plugins_dst="${APP_BUNDLE}/Contents/PlugIns"
   local queue=("${main_bin}")
   local seen=""
   mkdir -p "${frameworks_dst}"
+  mkdir -p "${plugins_dst}"
   while [[ ${#queue[@]} -gt 0 ]]; do
     local current="${queue[0]}"
     queue=("${queue[@]:1}")
@@ -408,7 +410,43 @@ manual_deploy_bundle() {
   while IFS= read -r file; do
     fix_install_names "${file}"
   done < <(find "${frameworks_dst}" -type f \( -perm -111 -o -name "*.dylib" \))
+  while IFS= read -r file; do
+    fix_install_names "${file}"
+  done < <(find "${plugins_dst}" -type f \( -perm -111 -o -name "*.dylib" \))
   fix_install_names "${main_bin}"
+}
+
+copy_qt_plugin_dir() {
+  local dir_name="$1"
+  local src=""
+  local dst="${APP_BUNDLE}/Contents/PlugIns/${dir_name}"
+  if [[ -n "${QT_PREFIX}" && -d "${QT_PREFIX}/share/qt/plugins/${dir_name}" ]]; then
+    src="${QT_PREFIX}/share/qt/plugins/${dir_name}"
+  elif [[ -n "${QT_PREFIX}" && -d "${QT_PREFIX}/plugins/${dir_name}" ]]; then
+    src="${QT_PREFIX}/plugins/${dir_name}"
+  fi
+  if [[ -z "${src}" ]]; then
+    for plugin_root in /opt/homebrew/share/qt/plugins /usr/local/share/qt/plugins; do
+      if [[ -d "${plugin_root}/${dir_name}" ]]; then
+        src="${plugin_root}/${dir_name}"
+        break
+      fi
+    done
+  fi
+  if [[ -z "${src}" ]]; then
+    echo "Aviso: no se encontró el directorio de plugins Qt '${dir_name}'." >&2
+    return 0
+  fi
+  mkdir -p "${dst}"
+  cp -RL "${src}/." "${dst}/"
+}
+
+write_qt_conf() {
+  local qt_conf="${APP_BUNDLE}/Contents/Resources/qt.conf"
+  cat >"${qt_conf}" <<'EOF'
+[Paths]
+Plugins = PlugIns
+EOF
 }
 
 if [[ ${#QT_EXTRA_LIB_DIRS[@]} -gt 0 ]]; then
@@ -483,6 +521,13 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
     echo "  QT_EXTRA_LIB_DIRS: (none)"
   fi
   manual_deploy_bundle "${MAIN_BIN}"
+  copy_qt_plugin_dir "platforms"
+  copy_qt_plugin_dir "styles"
+  copy_qt_plugin_dir "imageformats"
+  copy_qt_plugin_dir "iconengines"
+  copy_qt_plugin_dir "networkinformation"
+  copy_qt_plugin_dir "tls"
+  write_qt_conf
 
   # Safety: never ship local connection secrets inside the macOS app bundle.
   find "${APP_BUNDLE}" -type f -name "connections.ini" -delete || true
