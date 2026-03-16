@@ -215,6 +215,140 @@ prepare_macdeployqt_staging() {
   done
 }
 
+copy_framework_bundle() {
+  local framework_src="$1"
+  local frameworks_dst="$2"
+  local framework_name
+  framework_name="$(basename "${framework_src}")"
+  rsync -a --delete "${framework_src}" "${frameworks_dst}/"
+  local current_link="${frameworks_dst}/${framework_name}/${framework_name%.*}"
+  if [[ ! -e "${current_link}" ]]; then
+    local version_dir
+    version_dir="$(find "${frameworks_dst}/${framework_name}/Versions" -mindepth 1 -maxdepth 1 -type d | sort | head -n1 || true)"
+    if [[ -n "${version_dir}" ]]; then
+      ln -sfn "Versions/$(basename "${version_dir}")/${framework_name%.*}" "${current_link}"
+    fi
+  fi
+}
+
+resolve_dep_path() {
+  local dep="$1"
+  local source_file="$2"
+  local source_dir source_framework_dir candidate libdir
+  source_dir="$(cd "$(dirname "${source_file}")" && pwd)"
+  source_framework_dir="$(cd "${source_dir}/../Frameworks" 2>/dev/null && pwd || true)"
+
+  if [[ "${dep}" == @executable_path/* ]]; then
+    candidate="${APP_BUNDLE}/Contents/MacOS/${dep#@executable_path/}"
+    [[ -e "${candidate}" ]] && { echo "${candidate}"; return 0; }
+  fi
+  if [[ "${dep}" == @loader_path/* ]]; then
+    candidate="${source_dir}/${dep#@loader_path/}"
+    [[ -e "${candidate}" ]] && { echo "${candidate}"; return 0; }
+  fi
+  if [[ "${dep}" == @rpath/* ]]; then
+    candidate="${APP_BUNDLE}/Contents/Frameworks/${dep#@rpath/}"
+    [[ -e "${candidate}" ]] && { echo "${candidate}"; return 0; }
+    if [[ -n "${source_framework_dir}" ]]; then
+      candidate="${source_framework_dir}/${dep#@rpath/}"
+      [[ -e "${candidate}" ]] && { echo "${candidate}"; return 0; }
+    fi
+    if [[ -n "${QT_PREFIX}" ]]; then
+      candidate="${QT_PREFIX}/lib/${dep#@rpath/}"
+      [[ -e "${candidate}" ]] && { echo "${candidate}"; return 0; }
+    fi
+    for libdir in "${QT_EXTRA_LIB_DIRS[@]:-}"; do
+      candidate="${libdir}/${dep#@rpath/}"
+      [[ -e "${candidate}" ]] && { echo "${candidate}"; return 0; }
+    done
+  fi
+  if [[ -e "${dep}" ]]; then
+    echo "${dep}"
+    return 0
+  fi
+  return 1
+}
+
+copy_binary_or_dylib() {
+  local src="$1"
+  local frameworks_dst="$2"
+  local name
+  name="$(basename "${src}")"
+  cp -f "${src}" "${frameworks_dst}/${name}"
+  chmod 755 "${frameworks_dst}/${name}" || true
+}
+
+fix_install_names() {
+  local target="$1"
+  local dep resolved dep_name framework_name framework_bin new_ref
+  while IFS= read -r dep; do
+    dep="$(echo "${dep}" | sed 's/^[[:space:]]*//; s/ (.*$//')"
+    [[ -z "${dep}" ]] && continue
+    [[ "${dep}" == /System/* || "${dep}" == /usr/lib/* ]] && continue
+    if ! resolved="$(resolve_dep_path "${dep}" "${target}")"; then
+      continue
+    fi
+    dep_name="$(basename "${resolved}")"
+    if [[ "${dep_name}" == *.framework ]]; then
+      framework_name="${dep_name}"
+      framework_bin="${framework_name%.*}"
+      new_ref="@executable_path/../Frameworks/${framework_name}/Versions/A/${framework_bin}"
+    elif [[ "${resolved}" == *.framework/* ]]; then
+      framework_name="$(echo "${resolved}" | sed -n 's#^.*/\\([^/]*\\.framework\\)/.*#\\1#p')"
+      framework_bin="${framework_name%.*}"
+      new_ref="@executable_path/../Frameworks/${framework_name}/Versions/A/${framework_bin}"
+    else
+      new_ref="@executable_path/../Frameworks/${dep_name}"
+    fi
+    install_name_tool -change "${dep}" "${new_ref}" "${target}" >/dev/null 2>&1 || true
+  done < <(otool -L "${target}" | tail -n +2)
+}
+
+manual_deploy_bundle() {
+  local main_bin="$1"
+  local frameworks_dst="${APP_BUNDLE}/Contents/Frameworks"
+  local queue=("${main_bin}")
+  local seen=""
+  mkdir -p "${frameworks_dst}"
+  while [[ ${#queue[@]} -gt 0 ]]; do
+    local current="${queue[0]}"
+    queue=("${queue[@]:1}")
+    if [[ "|${seen}|" == *"|${current}|"* ]]; then
+      continue
+    fi
+    seen="${seen}|${current}"
+    while IFS= read -r dep; do
+      dep="$(echo "${dep}" | sed 's/^[[:space:]]*//; s/ (.*$//')"
+      [[ -z "${dep}" ]] && continue
+      [[ "${dep}" == /System/* || "${dep}" == /usr/lib/* ]] && continue
+      local resolved dep_target framework_name framework_bin
+      if ! resolved="$(resolve_dep_path "${dep}" "${current}")"; then
+        echo "Aviso: dependencia no resuelta: ${dep}" >&2
+        continue
+      fi
+      if [[ "${resolved}" == *.framework ]] || [[ "${resolved}" == *.framework/* ]]; then
+        framework_name="$(echo "${resolved}" | sed -n 's#^.*/\\([^/]*\\.framework\\)\\(/.*\\)?$#\\1#p')"
+        framework_bin="${framework_name%.*}"
+        dep_target="${frameworks_dst}/${framework_name}/Versions/A/${framework_bin}"
+        if [[ ! -e "${dep_target}" ]]; then
+          copy_framework_bundle "$(echo "${resolved}" | sed -n 's#^\\(.*\\.framework\\)\\(/.*\\)?$#\\1#p')" "${frameworks_dst}"
+        fi
+      else
+        dep_target="${frameworks_dst}/$(basename "${resolved}")"
+        if [[ ! -e "${dep_target}" ]]; then
+          copy_binary_or_dylib "${resolved}" "${frameworks_dst}"
+        fi
+      fi
+      [[ -e "${dep_target}" ]] && queue+=("${dep_target}")
+    done < <(otool -L "${current}" | tail -n +2)
+  done
+
+  while IFS= read -r file; do
+    fix_install_names "${file}"
+  done < <(find "${frameworks_dst}" -type f \( -perm -111 -o -name "*.dylib" \))
+  fix_install_names "${main_bin}"
+}
+
 if [[ ${#QT_EXTRA_LIB_DIRS[@]} -gt 0 ]]; then
   qt_extra_joined=""
   for libdir in "${QT_EXTRA_LIB_DIRS[@]}"; do
@@ -264,49 +398,22 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
     exit 1
   fi
 
-  # Empaqueta frameworks/plugins de Qt dentro del .app (sin firma).
-  if command -v macdeployqt >/dev/null 2>&1; then
-    prepare_macdeployqt_staging "${BUILD_DIR}/lib"
-    macdeployqt_args=("${APP_BUNDLE}" -always-overwrite)
-    if [[ -n "${QT_PREFIX}" && -d "${QT_PREFIX}/lib" ]]; then
-      macdeployqt_args+=("-libpath=${QT_PREFIX}/lib")
-    fi
-    if [[ -n "${QT_PREFIX}" && -d "${QT_PREFIX}/plugins" ]]; then
-      macdeployqt_args+=("-plugindir=${QT_PREFIX}/plugins")
-    fi
-    if [[ -n "${QT_PREFIX}" && -d "${QT_PREFIX}/qml" ]]; then
-      macdeployqt_args+=("-qmldir=${PROJECT_ROOT}/src")
-    fi
-    if [[ ${#QT_EXTRA_LIB_DIRS[@]} -gt 0 ]]; then
-      for libdir in "${QT_EXTRA_LIB_DIRS[@]}"; do
-        macdeployqt_args+=("-libpath=${libdir}")
-      done
-    fi
-    echo "macOS Qt deploy debug:"
-    echo "  QT_PREFIX=${QT_PREFIX}"
-    echo "  QT_PLUGIN_PATH=${QT_PLUGIN_PATH:-}"
-    echo "  QML2_IMPORT_PATH=${QML2_IMPORT_PATH:-}"
-    echo "  DYLD_FRAMEWORK_PATH=${DYLD_FRAMEWORK_PATH:-}"
-    echo "  DYLD_LIBRARY_PATH=${DYLD_LIBRARY_PATH:-}"
-    echo "  macdeployqt staging dir: ${BUILD_DIR}/lib"
-    ls -1 "${BUILD_DIR}/lib" 2>/dev/null | sed 's/^/    * /' || true
-    if [[ ${#QT_EXTRA_LIB_DIRS[@]} -gt 0 ]]; then
-      echo "  QT_EXTRA_LIB_DIRS:"
-      for libdir in "${QT_EXTRA_LIB_DIRS[@]}"; do
-        echo "    - ${libdir}"
-      done
-    else
-      echo "  QT_EXTRA_LIB_DIRS: (none)"
-    fi
-    printf '  macdeployqt command:'
-    for arg in "${QT_PREFIX}/bin/macdeployqt" "${macdeployqt_args[@]}"; do
-      printf ' %q' "${arg}"
+  MAIN_BIN="${APP_BUNDLE}/Contents/MacOS/${BUNDLE_NAME}"
+  echo "macOS manual deploy debug:"
+  echo "  QT_PREFIX=${QT_PREFIX}"
+  echo "  QT_PLUGIN_PATH=${QT_PLUGIN_PATH:-}"
+  echo "  QML2_IMPORT_PATH=${QML2_IMPORT_PATH:-}"
+  echo "  DYLD_FRAMEWORK_PATH=${DYLD_FRAMEWORK_PATH:-}"
+  echo "  DYLD_LIBRARY_PATH=${DYLD_LIBRARY_PATH:-}"
+  if [[ ${#QT_EXTRA_LIB_DIRS[@]} -gt 0 ]]; then
+    echo "  QT_EXTRA_LIB_DIRS:"
+    for libdir in "${QT_EXTRA_LIB_DIRS[@]}"; do
+      echo "    - ${libdir}"
     done
-    printf '\n'
-    "${QT_PREFIX}/bin/macdeployqt" "${macdeployqt_args[@]}"
   else
-    echo "Aviso: macdeployqt no encontrado; el .app puede no ser portable fuera de este equipo."
+    echo "  QT_EXTRA_LIB_DIRS: (none)"
   fi
+  manual_deploy_bundle "${MAIN_BIN}"
 
   # Safety: never ship local connection secrets inside the macOS app bundle.
   find "${APP_BUNDLE}" -type f -name "connections.ini" -delete || true
@@ -330,7 +437,6 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   if [[ "${SHOULD_SIGN}" -eq 1 ]]; then
     ensure_codesign_identity "${SELF_SIGN_CERT_NAME}"
     prepare_codesign_keychain
-    MAIN_BIN="${APP_BUNDLE}/Contents/MacOS/${BUNDLE_NAME}"
     echo "codesign debug:"
     security find-identity -v -p codesigning || true
     security show-keychain-info "${HOME}/Library/Keychains/login.keychain-db" || true
