@@ -13,3 +13,4 @@ build-windows/
 AppDir/
 ccodex-linux
 scripts/collect-artifacts
+scripts/buildall.sh
