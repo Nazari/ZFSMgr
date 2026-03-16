@@ -182,7 +182,7 @@ EOF
 cp -f "${PROJECT_ROOT}/icons/ZFSMgr-512.png" "${APPDIR}/usr/share/icons/hicolor/512x512/apps/ZFSMgr.png"
 
 echo "Building AppImage..."
-export OUTPUT="${PROJECT_ROOT}/ZFSMgr-${APP_VERSION}-${ARCH}.AppImage"
+export OUTPUT="${BUILD_DIR}/ZFSMgr-${APP_VERSION}-${ARCH}.AppImage"
 export QMAKE="${QMAKE:-$(command -v qmake6 || command -v qmake || true)}"
 if [[ -z "${QMAKE}" ]]; then
   echo "Warning: qmake/qmake6 not found in PATH. linuxdeploy-plugin-qt may fail." >&2
@@ -196,7 +196,7 @@ fi
   --output appimage
 
 echo "AppImage generated:"
-ls -lh "${PROJECT_ROOT}"/*.AppImage
+ls -lh "${BUILD_DIR}"/*.AppImage
 if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
   upload_to_sftp "${OUTPUT}"
 fi
