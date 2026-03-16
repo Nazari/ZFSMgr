@@ -181,6 +181,9 @@ void MainWindow::loadUiSettings() {
     }
     m_logMaxLinesSetting = ini.value(QStringLiteral("log_max_lines"), 500).toInt();
     m_showInlineDatasetProps = ini.value(QStringLiteral("show_inline_dataset_props"), true).toBool();
+    m_showInlinePropertyNodes = ini.value(QStringLiteral("show_inline_property_nodes"), true).toBool();
+    m_showInlinePermissionsNodes = ini.value(QStringLiteral("show_inline_permissions_nodes"), true).toBool();
+    m_showPoolInfoNode = ini.value(QStringLiteral("show_pool_info_node"), true).toBool();
     m_connPropColumnsSetting = ini.value(QStringLiteral("conn_prop_columns"), 7).toInt();
     m_persistedTopDetailConnectionKey =
         ini.value(QStringLiteral("top_detail_connection")).toString().trimmed().toLower();
@@ -235,6 +238,9 @@ void MainWindow::saveUiSettings() const {
     }
     ini.setValue(QStringLiteral("log_max_lines"), lines);
     ini.setValue(QStringLiteral("show_inline_dataset_props"), m_showInlineDatasetProps);
+    ini.setValue(QStringLiteral("show_inline_property_nodes"), m_showInlinePropertyNodes);
+    ini.setValue(QStringLiteral("show_inline_permissions_nodes"), m_showInlinePermissionsNodes);
+    ini.setValue(QStringLiteral("show_pool_info_node"), m_showPoolInfoNode);
     ini.setValue(QStringLiteral("conn_prop_columns"), qBound(5, m_connPropColumnsSetting, 10));
     ini.setValue(QStringLiteral("top_detail_connection"),
                  connPersistKeyFromProfiles(m_profiles, m_topDetailConnIdx));

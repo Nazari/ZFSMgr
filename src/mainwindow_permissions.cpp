@@ -707,7 +707,7 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
         delete permissionsNode->takeChild(0);
     }
 
-    if (isWindowsConnection(connIdx)) {
+    if (!m_showInlinePermissionsNodes || isWindowsConnection(connIdx)) {
         permissionsNode->setHidden(true);
         return;
     }
@@ -731,7 +731,7 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
     allGrants += entry.localDescendantGrants;
     auto* grantsNode = ensurePermissionsSectionNode(
         permissionsNode,
-        QStringLiteral("Delegaciones"),
+        QStringLiteral("Deleg."),
         QStringLiteral("grants_root"),
         allGrants.size(),
         connIdx,
@@ -879,7 +879,7 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
     }
     auto* createNode = ensurePermissionsSectionNode(
         permissionsNode,
-        QStringLiteral("Permisos para nuevos subdatasets"),
+        QStringLiteral("Nuevos DS"),
         QStringLiteral("create_root"),
         entry.createPermissions.size(),
         connIdx,
@@ -991,7 +991,7 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
 
     auto* setsNode = ensurePermissionsSectionNode(
         permissionsNode,
-        QStringLiteral("Sets de permisos"),
+        QStringLiteral("Conjuntos"),
         QStringLiteral("sets_root"),
         entry.permissionSets.size(),
         connIdx,

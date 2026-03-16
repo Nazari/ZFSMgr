@@ -1327,6 +1327,20 @@ void MainWindow::syncConnContentPropertyColumns() {
         return insertAt;
     };
     int insertAt = 0;
+    if (!m_showInlinePropertyNodes) {
+        for (int i = sel->childCount() - 1; i >= 0; --i) {
+            QTreeWidgetItem* child = sel->child(i);
+            if (!child || !child->data(0, kConnPropGroupNodeRole).toBool()) {
+                continue;
+            }
+            delete sel->takeChild(i);
+        }
+        refreshDatasetExpansionIndicators(tree);
+        sel->setExpanded(true);
+        resizeTreeColumnsToVisibleContent(tree);
+        m_syncingConnContentColumns = false;
+        return;
+    }
     QTreeWidgetItem* propsNode = nullptr;
     for (int i = 0; i < sel->childCount(); ++i) {
         QTreeWidgetItem* child = sel->child(i);
@@ -1533,6 +1547,17 @@ void MainWindow::syncConnContentPoolColumns() {
         }
     }
     if (!root) {
+        m_syncingConnContentColumns = false;
+        return;
+    }
+    if (!m_showPoolInfoNode) {
+        for (int i = root->childCount() - 1; i >= 0; --i) {
+            QTreeWidgetItem* c = root->child(i);
+            if (c && c->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
+                delete root->takeChild(i);
+            }
+        }
+        resizeTreeColumnsToVisibleContent(m_connContentTree);
         m_syncingConnContentColumns = false;
         return;
     }
@@ -2111,14 +2136,16 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         poolRoot->setData(0, kIsPoolRootRole, true);
         poolRoot->setData(0, kConnIdxRole, connIdx);
         poolRoot->setData(0, kPoolNameRole, poolName);
-        auto* infoNode = new QTreeWidgetItem(poolRoot);
-        infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
-        infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);
-        infoNode->setText(0, trk(QStringLiteral("t_info_lbl_001"),
-                                 QStringLiteral("Información"),
-                                 QStringLiteral("Information"),
-                                 QStringLiteral("信息")));
-        infoNode->setExpanded(true);
+        if (m_showPoolInfoNode) {
+            auto* infoNode = new QTreeWidgetItem(poolRoot);
+            infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
+            infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);
+            infoNode->setText(0, trk(QStringLiteral("t_info_lbl_001"),
+                                     QStringLiteral("Información del pool"),
+                                     QStringLiteral("Pool information"),
+                                     QStringLiteral("存储池信息")));
+            infoNode->setExpanded(true);
+        }
         tree->addTopLevelItem(poolRoot);
         poolRoot->setExpanded(true);
     };
@@ -2164,24 +2191,28 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         item->setCheckState(2, isMounted ? Qt::Checked : Qt::Unchecked);
         const QString effectiveMp = effectiveMountPath(connIdx, poolName, rec.name, rec.mountpoint, rec.mounted);
         item->setText(3, effectiveMp.isEmpty() ? rec.mountpoint.trimmed() : effectiveMp);
-        auto* propsNode = new QTreeWidgetItem(item);
-        propsNode->setText(0, trk(QStringLiteral("t_props_lbl_001"),
-                                  QStringLiteral("Propiedades"),
-                                  QStringLiteral("Properties"),
-                                  QStringLiteral("属性")));
-        propsNode->setData(0, kConnPropGroupNodeRole, true);
-        propsNode->setData(0, kConnPropGroupNameRole, QString());
-        propsNode->setData(0, kConnIdxRole, connIdx);
-        propsNode->setData(0, kPoolNameRole, poolName);
-        propsNode->setFlags(propsNode->flags() & ~Qt::ItemIsUserCheckable);
-        auto* permissionsNode = new QTreeWidgetItem(item);
-        permissionsNode->setText(0, QStringLiteral("Permisos"));
-        permissionsNode->setData(0, kConnPermissionsNodeRole, true);
-        permissionsNode->setData(0, kConnPermissionsKindRole, QStringLiteral("root"));
-        permissionsNode->setData(0, kConnIdxRole, connIdx);
-        permissionsNode->setData(0, kPoolNameRole, poolName);
-        permissionsNode->setFlags(permissionsNode->flags() & ~Qt::ItemIsUserCheckable);
-        permissionsNode->setExpanded(false);
+        if (m_showInlinePropertyNodes) {
+            auto* propsNode = new QTreeWidgetItem(item);
+            propsNode->setText(0, trk(QStringLiteral("t_props_lbl_001"),
+                                      QStringLiteral("Propiedades"),
+                                      QStringLiteral("Properties"),
+                                      QStringLiteral("属性")));
+            propsNode->setData(0, kConnPropGroupNodeRole, true);
+            propsNode->setData(0, kConnPropGroupNameRole, QString());
+            propsNode->setData(0, kConnIdxRole, connIdx);
+            propsNode->setData(0, kPoolNameRole, poolName);
+            propsNode->setFlags(propsNode->flags() & ~Qt::ItemIsUserCheckable);
+        }
+        if (m_showInlinePermissionsNodes) {
+            auto* permissionsNode = new QTreeWidgetItem(item);
+            permissionsNode->setText(0, QStringLiteral("Permisos"));
+            permissionsNode->setData(0, kConnPermissionsNodeRole, true);
+            permissionsNode->setData(0, kConnPermissionsKindRole, QStringLiteral("root"));
+            permissionsNode->setData(0, kConnIdxRole, connIdx);
+            permissionsNode->setData(0, kPoolNameRole, poolName);
+            permissionsNode->setFlags(permissionsNode->flags() & ~Qt::ItemIsUserCheckable);
+            permissionsNode->setExpanded(false);
+        }
         byName.insert(rec.name, item);
     }
 
@@ -2194,28 +2225,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         const QString parent = parentDatasetName(rec.name);
         QTreeWidgetItem* parentItem = byName.value(parent, nullptr);
         if (parentItem) {
-            QTreeWidgetItem* subdatasetsNode = nullptr;
-            for (int i = 0; i < parentItem->childCount(); ++i) {
-                QTreeWidgetItem* ch = parentItem->child(i);
-                if (ch && ch->data(0, kConnContentNodeRole).toBool()) {
-                    subdatasetsNode = ch;
-                    break;
-                }
-            }
-            if (!subdatasetsNode) {
-                subdatasetsNode = new QTreeWidgetItem(parentItem);
-                subdatasetsNode->setData(0, kConnContentNodeRole, true);
-                subdatasetsNode->setExpanded(true);
-            }
-            subdatasetsNode->addChild(item);
-            const int childCount = subdatasetsNode->childCount();
-            subdatasetsNode->setText(
-                0,
-                trk(QStringLiteral("t_subdatasets_001"),
-                    QStringLiteral("Subdatasets"),
-                    QStringLiteral("Subdatasets"),
-                    QStringLiteral("子数据集"))
-                    + QStringLiteral(" (%1)").arg(childCount));
+            parentItem->addChild(item);
         } else {
             logicalTopLevelItems.push_back(item);
         }
@@ -2234,23 +2244,18 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         poolRoot->setData(0, kIsPoolRootRole, true);
         poolRoot->setData(0, kConnIdxRole, connIdx);
         poolRoot->setData(0, kPoolNameRole, poolName);
-        auto* infoNode = new QTreeWidgetItem(poolRoot);
-        infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
-        infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);
-        infoNode->setText(0, trk(QStringLiteral("t_props_lbl_001"),
-                                 QStringLiteral("Propiedades"),
-                                 QStringLiteral("Properties"),
-                                 QStringLiteral("属性")));
-        auto* contentNode = new QTreeWidgetItem(poolRoot);
-        contentNode->setText(0, trk(QStringLiteral("t_content_node_001"),
-                                    QStringLiteral("Contenido"),
-                                    QStringLiteral("Content"),
-                                    QStringLiteral("内容")));
-        contentNode->setData(0, kConnContentNodeRole, true);
-        contentNode->setExpanded(true);
+        if (m_showPoolInfoNode) {
+            auto* infoNode = new QTreeWidgetItem(poolRoot);
+            infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
+            infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);
+            infoNode->setText(0, trk(QStringLiteral("t_info_lbl_001"),
+                                     QStringLiteral("Información del pool"),
+                                     QStringLiteral("Pool information"),
+                                     QStringLiteral("存储池信息")));
+        }
         for (QTreeWidgetItem* top : logicalTopLevelItems) {
             if (top) {
-                contentNode->addChild(top);
+                poolRoot->addChild(top);
             }
         }
         tree->addTopLevelItem(poolRoot);

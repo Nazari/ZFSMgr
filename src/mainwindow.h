@@ -492,6 +492,9 @@ private:
     QString m_logLevelSetting{QStringLiteral("normal")};
     int m_logMaxLinesSetting{500};
     bool m_showInlineDatasetProps{true};
+    bool m_showInlinePropertyNodes{true};
+    bool m_showInlinePermissionsNodes{true};
+    bool m_showPoolInfoNode{true};
     int m_connPropColumnsSetting{7};
     QStringList m_datasetInlinePropsOrder;
     QVector<InlinePropGroupConfig> m_datasetInlinePropGroups;

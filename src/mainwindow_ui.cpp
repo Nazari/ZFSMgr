@@ -1848,6 +1848,91 @@ void MainWindow::buildUi() {
         m_connContentTree = prevTree;
         m_connContentToken = prevToken;
     };
+    auto rebuildInlineConnTree = [this](QTreeWidget* tree, const QString& token) {
+        if (!tree || token.trimmed().isEmpty()) {
+            return;
+        }
+        const int sep = token.indexOf(QStringLiteral("::"));
+        if (sep <= 0) {
+            return;
+        }
+        bool ok = false;
+        const int connIdx = token.left(sep).toInt(&ok);
+        const QString poolName = token.mid(sep + 2).trimmed();
+        if (!ok || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+            return;
+        }
+        const QString prevToken = m_connContentToken;
+        QTreeWidget* prevTree = m_connContentTree;
+        m_connContentTree = tree;
+        m_connContentToken = token;
+        saveConnContentTreeState(token);
+        populateDatasetTree(tree, connIdx, poolName, QStringLiteral("conncontent"), true);
+        restoreConnContentTreeState(token);
+        m_connContentTree = prevTree;
+        m_connContentToken = prevToken;
+    };
+    auto applyInlineSectionVisibility = [this,
+                                         rebuildInlineConnTree,
+                                         refreshInlinePropsVisualBottom]() {
+        auto tokenFromTree = [this](QTreeWidget* tree) -> QString {
+            if (!tree) {
+                return QString();
+            }
+            QTreeWidgetItem* owner = tree->currentItem();
+            if (!owner && tree->topLevelItemCount() > 0) {
+                owner = tree->topLevelItem(0);
+            }
+            while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
+                   && !owner->data(0, kIsPoolRootRole).toBool()) {
+                owner = owner->parent();
+            }
+            if (!owner) {
+                return QString();
+            }
+            const int connIdx = owner->data(0, kConnIdxRole).toInt();
+            const QString poolName = owner->data(0, kPoolNameRole).toString().trimmed();
+            if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+                return QString();
+            }
+            return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+        };
+        saveUiSettings();
+        if (m_connContentTree) {
+            const QString token = tokenFromTree(m_connContentTree);
+            if (!token.isEmpty()) {
+                rebuildInlineConnTree(m_connContentTree, token);
+                const QString prevToken = m_connContentToken;
+                QTreeWidget* prevTree = m_connContentTree;
+                m_connContentToken = token;
+                QTreeWidgetItem* sel = m_connContentTree->currentItem();
+                auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
+                    for (QTreeWidgetItem* p = n; p; p = p->parent()) {
+                        if (p->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
+                            return true;
+                        }
+                    }
+                    return false;
+                };
+                const bool isPoolContext =
+                    sel && (sel->data(0, kIsPoolRootRole).toBool() || isInfoNodeOrInside(sel));
+                if (isPoolContext) {
+                    syncConnContentPoolColumns();
+                } else {
+                    syncConnContentPropertyColumns();
+                }
+                m_connContentTree = prevTree;
+                m_connContentToken = prevToken;
+            }
+        }
+        if (m_bottomConnContentTree) {
+            const QString token = tokenFromTree(m_bottomConnContentTree);
+            if (!token.isEmpty()) {
+                rebuildInlineConnTree(m_bottomConnContentTree, token);
+                refreshInlinePropsVisualBottom(m_bottomConnContentTree);
+            }
+        }
+    };
     auto manageInlinePropsVisualization = [this](QTreeWidget* tree, QTreeWidgetItem* rawItem, bool poolContext) {
         if (!tree || !rawItem) {
             return;
@@ -3502,7 +3587,7 @@ void MainWindow::buildUi() {
         });
         m_bottomConnContentTree->setContextMenuPolicy(Qt::CustomContextMenu);
         connect(m_bottomConnContentTree, &QWidget::customContextMenuRequested, this,
-                [this, manageInlinePropsVisualization, createSnapshotHold, releaseSnapshotHold,
+                [this, applyInlineSectionVisibility, manageInlinePropsVisualization, createSnapshotHold, releaseSnapshotHold,
                  executeDatasetActionWithStdin, promptNewPassphrase, permissionNodeItem,
                  permissionOwnerItem, refreshPermissionsTreeNode, promptPermissionGrant,
                  promptPermissionSet, permissionTokensFromNode,
@@ -3924,6 +4009,10 @@ void MainWindow::buildUi() {
                 QAction* aTrim = menu.addAction(QStringLiteral("Trim"));
                 QAction* aInitialize = menu.addAction(QStringLiteral("Initialize"));
                 QAction* aDestroy = menu.addAction(QStringLiteral("Destroy"));
+                menu.addSeparator();
+                QAction* aShowPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del pool"));
+                aShowPoolInfo->setCheckable(true);
+                aShowPoolInfo->setChecked(m_showPoolInfoNode);
                 aUpdate->setEnabled(canRefresh);
                 aImport->setEnabled(canImport);
                 aExport->setEnabled(canExport);
@@ -3955,6 +4044,9 @@ void MainWindow::buildUi() {
                     initializePoolFromRow(poolRow);
                 } else if (picked == aDestroy && canDestroy && poolRow >= 0) {
                     destroyPoolFromRow(poolRow);
+                } else if (picked == aShowPoolInfo) {
+                    m_showPoolInfoNode = aShowPoolInfo->isChecked();
+                    applyInlineSectionVisibility();
                 }
                 return;
             }
@@ -3962,9 +4054,27 @@ void MainWindow::buildUi() {
                 QAction* aManage = menu.addAction(
                     trk(QStringLiteral("t_manage_props_vis001"),
                         QStringLiteral("Gestionar visualización de propiedades")));
+                QAction* aShowPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del pool"));
+                aShowPoolInfo->setCheckable(true);
+                aShowPoolInfo->setChecked(m_showPoolInfoNode);
+                QAction* aShowInlineProps = menu.addAction(QStringLiteral("Mostrar propiedades en línea"));
+                aShowInlineProps->setCheckable(true);
+                aShowInlineProps->setChecked(m_showInlinePropertyNodes);
+                QAction* aShowInlinePerms = menu.addAction(QStringLiteral("Mostrar Permisos en línea"));
+                aShowInlinePerms->setCheckable(true);
+                aShowInlinePerms->setChecked(m_showInlinePermissionsNodes);
                 QAction* picked = menu.exec(m_bottomConnContentTree->viewport()->mapToGlobal(pos));
                 if (picked == aManage) {
                     manageInlinePropsVisualization(m_bottomConnContentTree, item, true);
+                } else if (picked == aShowPoolInfo) {
+                    m_showPoolInfoNode = aShowPoolInfo->isChecked();
+                    applyInlineSectionVisibility();
+                } else if (picked == aShowInlineProps) {
+                    m_showInlinePropertyNodes = aShowInlineProps->isChecked();
+                    applyInlineSectionVisibility();
+                } else if (picked == aShowInlinePerms) {
+                    m_showInlinePermissionsNodes = aShowInlinePerms->isChecked();
+                    applyInlineSectionVisibility();
                 }
                 return;
             }
@@ -3972,6 +4082,12 @@ void MainWindow::buildUi() {
             QAction* aManage = menu.addAction(
                 trk(QStringLiteral("t_manage_props_vis001"),
                     QStringLiteral("Gestionar visualización de propiedades")));
+            QAction* aShowInlineProps = menu.addAction(QStringLiteral("Mostrar propiedades en línea"));
+            aShowInlineProps->setCheckable(true);
+            aShowInlineProps->setChecked(m_showInlinePropertyNodes);
+            QAction* aShowInlinePerms = menu.addAction(QStringLiteral("Mostrar Permisos en línea"));
+            aShowInlinePerms->setCheckable(true);
+            aShowInlinePerms->setChecked(m_showInlinePermissionsNodes);
             menu.addSeparator();
             QAction* aCreate = menu.addAction(
                 trk(QStringLiteral("t_ctx_create_dsv001"),
@@ -4146,6 +4262,20 @@ void MainWindow::buildUi() {
                 manageInlinePropsVisualization(m_bottomConnContentTree, item, false);
                 m_connContentTree = prevTree;
                 m_connContentToken = prevToken;
+                return;
+            }
+            if (picked == aShowInlineProps) {
+                m_showInlinePropertyNodes = aShowInlineProps->isChecked();
+                m_connContentTree = prevTree;
+                m_connContentToken = prevToken;
+                applyInlineSectionVisibility();
+                return;
+            }
+            if (picked == aShowInlinePerms) {
+                m_showInlinePermissionsNodes = aShowInlinePerms->isChecked();
+                m_connContentTree = prevTree;
+                m_connContentToken = prevToken;
+                applyInlineSectionVisibility();
                 return;
             }
             if (picked == aNewHold) {
@@ -4836,7 +4966,7 @@ void MainWindow::buildUi() {
             }
         });
         connect(m_connContentTree, &QWidget::customContextMenuRequested, this,
-                [this, manageInlinePropsVisualization, createSnapshotHold, releaseSnapshotHold,
+                [this, applyInlineSectionVisibility, manageInlinePropsVisualization, createSnapshotHold, releaseSnapshotHold,
                  executeDatasetActionWithStdin, promptNewPassphrase, permissionNodeItem,
                  permissionOwnerItem, refreshPermissionsTreeNode, promptPermissionGrant,
                  promptPermissionSet, permissionTokensFromNode,
@@ -5252,6 +5382,10 @@ void MainWindow::buildUi() {
                 QAction* aTrim = menu.addAction(QStringLiteral("Trim"));
                 QAction* aInitialize = menu.addAction(QStringLiteral("Initialize"));
                 QAction* aDestroy = menu.addAction(QStringLiteral("Destroy"));
+                menu.addSeparator();
+                QAction* aShowPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del pool"));
+                aShowPoolInfo->setCheckable(true);
+                aShowPoolInfo->setChecked(m_showPoolInfoNode);
                 aUpdate->setEnabled(canRefresh);
                 aImport->setEnabled(canImport);
                 aExport->setEnabled(canExport);
@@ -5283,6 +5417,9 @@ void MainWindow::buildUi() {
                     initializePoolFromRow(poolRow);
                 } else if (picked == aDestroy && canDestroy && poolRow >= 0) {
                     destroyPoolFromRow(poolRow);
+                } else if (picked == aShowPoolInfo) {
+                    m_showPoolInfoNode = aShowPoolInfo->isChecked();
+                    applyInlineSectionVisibility();
                 }
                 return;
             }
@@ -5290,9 +5427,27 @@ void MainWindow::buildUi() {
                 QAction* aManage = menu.addAction(
                     trk(QStringLiteral("t_manage_props_vis001"),
                         QStringLiteral("Gestionar visualización de propiedades")));
+                QAction* aShowPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del pool"));
+                aShowPoolInfo->setCheckable(true);
+                aShowPoolInfo->setChecked(m_showPoolInfoNode);
+                QAction* aShowInlineProps = menu.addAction(QStringLiteral("Mostrar propiedades en línea"));
+                aShowInlineProps->setCheckable(true);
+                aShowInlineProps->setChecked(m_showInlinePropertyNodes);
+                QAction* aShowInlinePerms = menu.addAction(QStringLiteral("Mostrar Permisos en línea"));
+                aShowInlinePerms->setCheckable(true);
+                aShowInlinePerms->setChecked(m_showInlinePermissionsNodes);
                 QAction* picked = menu.exec(m_connContentTree->viewport()->mapToGlobal(pos));
                 if (picked == aManage) {
                     manageInlinePropsVisualization(m_connContentTree, item, true);
+                } else if (picked == aShowPoolInfo) {
+                    m_showPoolInfoNode = aShowPoolInfo->isChecked();
+                    applyInlineSectionVisibility();
+                } else if (picked == aShowInlineProps) {
+                    m_showInlinePropertyNodes = aShowInlineProps->isChecked();
+                    applyInlineSectionVisibility();
+                } else if (picked == aShowInlinePerms) {
+                    m_showInlinePermissionsNodes = aShowInlinePerms->isChecked();
+                    applyInlineSectionVisibility();
                 }
                 return;
             }
@@ -5300,6 +5455,12 @@ void MainWindow::buildUi() {
             QAction* aManage = menu.addAction(
                 trk(QStringLiteral("t_manage_props_vis001"),
                     QStringLiteral("Gestionar visualización de propiedades")));
+            QAction* aShowInlineProps = menu.addAction(QStringLiteral("Mostrar propiedades en línea"));
+            aShowInlineProps->setCheckable(true);
+            aShowInlineProps->setChecked(m_showInlinePropertyNodes);
+            QAction* aShowInlinePerms = menu.addAction(QStringLiteral("Mostrar Permisos en línea"));
+            aShowInlinePerms->setCheckable(true);
+            aShowInlinePerms->setChecked(m_showInlinePermissionsNodes);
             menu.addSeparator();
             QAction* aCreate = menu.addAction(
                 trk(QStringLiteral("t_ctx_create_dsv001"),
@@ -5462,6 +5623,16 @@ void MainWindow::buildUi() {
             }
             if (picked == aManage) {
                 manageInlinePropsVisualization(m_connContentTree, item, false);
+                return;
+            }
+            if (picked == aShowInlineProps) {
+                m_showInlinePropertyNodes = aShowInlineProps->isChecked();
+                applyInlineSectionVisibility();
+                return;
+            }
+            if (picked == aShowInlinePerms) {
+                m_showInlinePermissionsNodes = aShowInlinePerms->isChecked();
+                applyInlineSectionVisibility();
                 return;
             }
             if (picked == aNewHold) {
