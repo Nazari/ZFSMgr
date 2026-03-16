@@ -1290,7 +1290,6 @@ void MainWindow::applyDatasetPropertyChanges() {
             QTreeWidget* prevTree = m_connContentTree;
             const QString prevToken = m_connContentToken;
             if (QTreeWidgetItem* ownerNode = findDatasetItemByIdentityLocal(m_connContentTree, connIdx, poolName, datasetName)) {
-                m_connContentTree = m_connContentTree;
                 m_connContentToken = tokenForTree;
                 saveConnContentTreeState(tokenForTree);
                 Q_UNUSED(ownerNode);
