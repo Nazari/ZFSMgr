@@ -8,8 +8,13 @@
 #include <QFile>
 #include <QIcon>
 #include <QMessageBox>
+#include <QPainter>
+#include <QPainterPath>
+#include <QProxyStyle>
 #include <QSettings>
 #include <QDir>
+#include <QStyleFactory>
+#include <QStyleOption>
 
 namespace {
 QString trk(const QString& lang,
@@ -19,13 +24,80 @@ QString trk(const QString& lang,
             const QString& zh = QString()) {
     return I18nManager::instance().translateKey(lang, key, es, en, zh);
 }
+
+#ifdef Q_OS_MAC
+class MacFusionProxyStyle final : public QProxyStyle {
+public:
+    explicit MacFusionProxyStyle(QStyle* baseStyle)
+        : QProxyStyle(baseStyle) {}
+
+    void drawPrimitive(PrimitiveElement element,
+                       const QStyleOption* option,
+                       QPainter* painter,
+                       const QWidget* widget = nullptr) const override {
+        if ((element == PE_IndicatorCheckBox || element == PE_IndicatorItemViewItemCheck)
+            && option && painter) {
+            drawTickIndicator(option, painter);
+            return;
+        }
+        QProxyStyle::drawPrimitive(element, option, painter, widget);
+    }
+
+private:
+    static void drawTickIndicator(const QStyleOption* option, QPainter* painter) {
+        const QRect rect = option->rect.adjusted(1, 1, -1, -1);
+        if (!rect.isValid()) {
+            return;
+        }
+
+        const bool enabled = option->state & State_Enabled;
+        const bool checked = option->state & State_On;
+        const bool mixed = option->state & State_NoChange;
+
+        const QColor border = enabled ? QColor(47, 95, 140) : QColor(139, 154, 168);
+        const QColor fill = checked || mixed ? QColor(53, 112, 168) : QColor(255, 255, 255);
+        const QColor tick = QColor(255, 255, 255);
+
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+        painter->setPen(QPen(border, 1.5));
+        painter->setBrush(fill);
+        painter->drawRoundedRect(rect, 3.0, 3.0);
+
+        if (checked || mixed) {
+            QPen tickPen(tick, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+            painter->setPen(tickPen);
+            if (mixed) {
+                const int y = rect.center().y();
+                painter->drawLine(rect.left() + 3, y, rect.right() - 3, y);
+            } else {
+                QPainterPath path;
+                path.moveTo(rect.left() + rect.width() * 0.22, rect.top() + rect.height() * 0.55);
+                path.lineTo(rect.left() + rect.width() * 0.44, rect.top() + rect.height() * 0.76);
+                path.lineTo(rect.left() + rect.width() * 0.78, rect.top() + rect.height() * 0.28);
+                painter->drawPath(path);
+            }
+        }
+        painter->restore();
+    }
+};
+#endif
 }
 
 int main(int argc, char* argv[]) {
+#ifdef Q_OS_MAC
+    // Keep macOS visuals consistent by routing dialogs and widgets through Qt's Fusion style.
+    QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
+#endif
     QApplication app(argc, argv);
     app.setWindowIcon(QIcon(QStringLiteral(":/icons/ZFSMgr-512.png")));
     QApplication::setOrganizationName(QStringLiteral("ZFSMgr"));
     QApplication::setApplicationName(QStringLiteral("ZFSMgr"));
+#ifdef Q_OS_MAC
+    if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
+        app.setStyle(new MacFusionProxyStyle(fusion));
+    }
+#endif
 
     QStringList missingI18n;
     if (!I18nManager::instance().areJsonCatalogsAvailable(&missingI18n)) {

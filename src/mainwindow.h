@@ -260,7 +260,10 @@ private:
     bool ensureDatasetPermissionsLoaded(int connIdx, const QString& poolName, const QString& datasetName);
     void invalidateDatasetPermissionsCacheForPool(int connIdx, const QString& poolName);
     void populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetItem* datasetItem, bool forceReload = false);
-    QStringList availableDelegablePermissions(const QString& datasetName, int connIdx, const QString& poolName) const;
+    QStringList availableDelegablePermissions(const QString& datasetName,
+                                              int connIdx,
+                                              const QString& poolName,
+                                              const QString& excludeSetName = QString()) const;
     void populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side, bool allowRemoteLoadIfMissing = true);
     void refreshDatasetProperties(const QString& side);
     void setSelectedDataset(const QString& side, const QString& datasetName, const QString& snapshotName);

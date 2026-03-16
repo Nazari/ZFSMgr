@@ -440,14 +440,6 @@ void MainWindow::buildUi() {
         "#zfsmgrDetailContainer > QWidget { border: 0px; background: transparent; }"
         "#zfsmgrDetailContainer QTabBar { background: transparent; }"
         "#zfsmgrSubtabContentFrame { border: 0px; background: transparent; margin-top: 0px; }"));
-#ifdef Q_OS_MAC
-    setStyleSheet(styleSheet() + QStringLiteral(
-        "QTreeView::indicator:unchecked, QTableView::indicator:unchecked, QCheckBox::indicator:unchecked {"
-        " border: 2px solid #5b7289; background: #ffffff; }"
-        "QTreeView::indicator:checked, QTableView::indicator:checked, QCheckBox::indicator:checked {"
-        " border: 2px solid #2f5f8c; background: #e7f1fb; }"));
-#endif
-
     QMenu* appMenu = menuBar()->addMenu(
         trk(QStringLiteral("t_menu_main_001"),
             QStringLiteral("Menú"),
@@ -2793,19 +2785,7 @@ void MainWindow::buildUi() {
         populateDatasetPermissionsNode(tree, owner, forceReload);
     };
     auto permissionTokensForDataset = [this](const DatasetSelectionContext& ctx) {
-        QStringList tokens = availableDelegablePermissions(ctx.datasetName, ctx.connIdx, ctx.poolName);
-        const auto it = m_datasetPermissionsCache.constFind(
-            datasetPermissionsCacheKey(ctx.connIdx, ctx.poolName, ctx.datasetName));
-        if (it != m_datasetPermissionsCache.cend()) {
-            for (const DatasetPermissionSet& set : it->permissionSets) {
-                if (!tokens.contains(set.name, Qt::CaseInsensitive)) {
-                    tokens.push_back(set.name);
-                }
-            }
-        }
-        tokens.removeDuplicates();
-        tokens.sort(Qt::CaseInsensitive);
-        return tokens;
+        return availableDelegablePermissions(ctx.datasetName, ctx.connIdx, ctx.poolName);
     };
     auto scopeFlagsForPermission = [](const QString& scope) {
         const QString s = scope.trimmed().toLower();

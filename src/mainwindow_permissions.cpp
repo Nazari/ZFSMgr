@@ -402,7 +402,10 @@ QString MainWindow::datasetPermissionsCacheKey(int connIdx, const QString& poolN
         .arg(poolName.trimmed().toLower(), datasetName.trimmed().toLower());
 }
 
-QStringList MainWindow::availableDelegablePermissions(const QString& datasetName, int connIdx, const QString& poolName) const {
+QStringList MainWindow::availableDelegablePermissions(const QString& datasetName,
+                                                      int connIdx,
+                                                      const QString& poolName,
+                                                      const QString& excludeSetName) const {
     QString datasetType = QStringLiteral("filesystem");
     const auto cacheIt = m_poolDatasetCache.constFind(datasetCacheKey(connIdx, poolName));
     if (cacheIt != m_poolDatasetCache.cend()) {
@@ -478,6 +481,23 @@ QStringList MainWindow::availableDelegablePermissions(const QString& datasetName
               << QStringLiteral("volmode")
               << QStringLiteral("volsize");
     }
+
+    const auto permsCacheIt = m_datasetPermissionsCache.constFind(
+        datasetPermissionsCacheKey(connIdx, poolName, datasetName));
+    if (permsCacheIt != m_datasetPermissionsCache.cend()) {
+        const QString excludeKey = excludeSetName.trimmed().toLower();
+        for (const DatasetPermissionSet& set : permsCacheIt->permissionSets) {
+            const QString setName = set.name.trimmed();
+            if (setName.isEmpty()) {
+                continue;
+            }
+            if (!excludeKey.isEmpty() && setName.compare(excludeSetName.trimmed(), Qt::CaseInsensitive) == 0) {
+                continue;
+            }
+            perms.push_back(setName);
+        }
+    }
+
     perms.removeDuplicates();
     perms.sort(Qt::CaseInsensitive);
     return perms;
@@ -934,7 +954,9 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
         setNode->setData(0, kConnIdxRole, connIdx);
         setNode->setData(0, kPoolNameRole, poolName);
         setNode->setExpanded(false);
-        for (int base = 0; base < allSetTokens.size(); base += propCols) {
+        const QStringList setAssignableTokens =
+            availableDelegablePermissions(datasetName, connIdx, poolName, set.name);
+        for (int base = 0; base < setAssignableTokens.size(); base += propCols) {
             auto* rowNames = new QTreeWidgetItem(setNode);
             rowNames->setData(0, kConnPropRowRole, true);
             rowNames->setData(0, kConnPropRowKindRole, 1);
@@ -947,10 +969,10 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
             rowValues->setSizeHint(0, QSize(0, 30));
             for (int off = 0; off < propCols; ++off) {
                 const int idx = base + off;
-                if (idx >= allSetTokens.size()) {
+                if (idx >= setAssignableTokens.size()) {
                     break;
                 }
-                const QString perm = allSetTokens.at(idx);
+                const QString perm = setAssignableTokens.at(idx);
                 const int col = 4 + off;
                 rowNames->setData(col, kConnInlineCellUsedRole, true);
                 rowValues->setData(col, kConnInlineCellUsedRole, true);
