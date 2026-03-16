@@ -173,6 +173,21 @@ for qt_mod in qtpdf qtsvg qtvirtualkeyboard qtdeclarative qttools qtwebengine; d
   done
 done
 
+if [[ ${#QT_EXTRA_LIB_DIRS[@]} -gt 0 ]]; then
+  qt_extra_joined=""
+  for libdir in "${QT_EXTRA_LIB_DIRS[@]}"; do
+    if [[ -z "${qt_extra_joined}" ]]; then
+      qt_extra_joined="${libdir}"
+    else
+      qt_extra_joined="${qt_extra_joined}:${libdir}"
+    fi
+  done
+  if [[ -n "${qt_extra_joined}" ]]; then
+    export DYLD_FRAMEWORK_PATH="${qt_extra_joined}:${DYLD_FRAMEWORK_PATH:-}"
+    export DYLD_LIBRARY_PATH="${qt_extra_joined}:${DYLD_LIBRARY_PATH:-}"
+  fi
+fi
+
 if [[ -d "/opt/homebrew/opt/openssl@3" ]]; then
   export CMAKE_PREFIX_PATH="/opt/homebrew/opt/openssl@3:${CMAKE_PREFIX_PATH:-}"
 elif [[ -d "/usr/local/opt/openssl@3" ]]; then
@@ -224,6 +239,25 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
         macdeployqt_args+=("-libpath=${libdir}")
       done
     fi
+    echo "macOS Qt deploy debug:"
+    echo "  QT_PREFIX=${QT_PREFIX}"
+    echo "  QT_PLUGIN_PATH=${QT_PLUGIN_PATH:-}"
+    echo "  QML2_IMPORT_PATH=${QML2_IMPORT_PATH:-}"
+    echo "  DYLD_FRAMEWORK_PATH=${DYLD_FRAMEWORK_PATH:-}"
+    echo "  DYLD_LIBRARY_PATH=${DYLD_LIBRARY_PATH:-}"
+    if [[ ${#QT_EXTRA_LIB_DIRS[@]} -gt 0 ]]; then
+      echo "  QT_EXTRA_LIB_DIRS:"
+      for libdir in "${QT_EXTRA_LIB_DIRS[@]}"; do
+        echo "    - ${libdir}"
+      done
+    else
+      echo "  QT_EXTRA_LIB_DIRS: (none)"
+    fi
+    printf '  macdeployqt command:'
+    for arg in "${QT_PREFIX}/bin/macdeployqt" "${macdeployqt_args[@]}"; do
+      printf ' %q' "${arg}"
+    done
+    printf '\n'
     "${QT_PREFIX}/bin/macdeployqt" "${macdeployqt_args[@]}"
   else
     echo "Aviso: macdeployqt no encontrado; el .app puede no ser portable fuera de este equipo."
