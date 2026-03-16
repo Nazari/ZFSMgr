@@ -59,6 +59,7 @@ bool shouldRetrySshWithoutMultiplexing(const QString& stderrText) {
 
 using mwhelpers::isMountedValueTrue;
 using mwhelpers::looksLikePowerShellScript;
+using mwhelpers::findLocalExecutable;
 using mwhelpers::normalizeDriveLetterValue;
 using mwhelpers::oneLine;
 using mwhelpers::parentDatasetName;
@@ -495,7 +496,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
     QStringList sshpassPrefixArgs;
     bool usingSshpass = false;
     if (hasPassword) {
-        const QString sshpassExe = QStandardPaths::findExecutable(QStringLiteral("sshpass"));
+        const QString sshpassExe = findLocalExecutable(QStringLiteral("sshpass"));
         if (!sshpassExe.isEmpty()) {
             program = sshpassExe;
             sshpassPrefixArgs << "-p" << p.password << "ssh";

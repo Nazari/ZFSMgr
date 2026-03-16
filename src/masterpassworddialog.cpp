@@ -31,7 +31,7 @@ QString trk(const QString& lang,
 MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     : QDialog(parent) {
     setModal(true);
-    resize(420, 340);
+    resize(336, 340);
     setWindowIcon(QIcon(QStringLiteral(":/icons/ZFSMgr-512.png")));
 
     auto* root = new QVBoxLayout(this);
@@ -78,11 +78,13 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     m_changePwdButton = new QPushButton(this);
     m_resetIniButton = new QPushButton(this);
 
-    auto* actionsCol = new QVBoxLayout();
-    actionsCol->setSpacing(6);
-    actionsCol->addWidget(m_changePwdButton);
-    actionsCol->addWidget(m_resetIniButton);
-    root->addLayout(actionsCol);
+    auto* actionsRow = new QHBoxLayout();
+    actionsRow->setSpacing(8);
+    actionsRow->addStretch(1);
+    actionsRow->addWidget(m_changePwdButton);
+    actionsRow->addWidget(m_resetIniButton);
+    actionsRow->addStretch(1);
+    root->addLayout(actionsRow);
 
     auto* decisionRow = new QHBoxLayout();
     decisionRow->setSpacing(8);
@@ -124,7 +126,7 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     if (layout()) {
         layout()->activate();
     }
-    const QSize lockedSize = sizeHint().expandedTo(QSize(420, 340));
+    const QSize lockedSize = sizeHint().expandedTo(QSize(336, 340));
     setFixedSize(lockedSize);
     QTimer::singleShot(0, this, [this]() {
         m_passwordEdit->setFocus(Qt::OtherFocusReason);
@@ -312,6 +314,6 @@ void MasterPasswordDialog::retranslateUi() {
     if (layout()) {
         layout()->activate();
     }
-    const QSize lockedSize = sizeHint().expandedTo(QSize(420, 340));
+    const QSize lockedSize = sizeHint().expandedTo(QSize(336, 340));
     setFixedSize(lockedSize);
 }

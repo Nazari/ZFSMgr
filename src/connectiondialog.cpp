@@ -1,5 +1,6 @@
 #include "connectiondialog.h"
 #include "i18nmanager.h"
+#include "mainwindow_helpers.h"
 
 #include <QCheckBox>
 #include <QDialogButtonBox>
@@ -365,7 +366,7 @@ bool ConnectionDialog::testSshConnection(const ConnectionProfile& p, QString& de
     QStringList args;
     bool usingSshpass = false;
     if (hasPassword) {
-        const QString sshpassExe = QStandardPaths::findExecutable(QStringLiteral("sshpass"));
+        const QString sshpassExe = mwhelpers::findLocalExecutable(QStringLiteral("sshpass"));
         if (!sshpassExe.isEmpty()) {
             program = sshpassExe;
             args << "-p" << p.password << "ssh";
@@ -589,7 +590,7 @@ void ConnectionDialog::testConnection() {
                                      .arg(p.port));
         return;
     }
-    if (!p.password.trimmed().isEmpty() && QStandardPaths::findExecutable(QStringLiteral("sshpass")).isEmpty()) {
+    if (!p.password.trimmed().isEmpty() && mwhelpers::findLocalExecutable(QStringLiteral("sshpass")).isEmpty()) {
         detail += QStringLiteral("\n\nNota: para autenticación por password sin prompt interactivo, instale sshpass.");
     }
     QMessageBox::critical(this,

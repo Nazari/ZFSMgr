@@ -1,9 +1,44 @@
 #include "mainwindow_helpers.h"
 
 #include <QDir>
+#include <QFileInfo>
 #include <QRegularExpression>
+#include <QStandardPaths>
 
 namespace mwhelpers {
+
+QString findLocalExecutable(const QString& name) {
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty()) {
+        return QString();
+    }
+
+    const QString fromPath = QStandardPaths::findExecutable(trimmed);
+    if (!fromPath.isEmpty()) {
+        return fromPath;
+    }
+
+    QStringList fallbackDirs;
+#if defined(Q_OS_MACOS)
+    fallbackDirs << QStringLiteral("/opt/homebrew/bin")
+                 << QStringLiteral("/opt/homebrew/sbin")
+                 << QStringLiteral("/usr/local/bin")
+                 << QStringLiteral("/usr/local/sbin");
+#endif
+    fallbackDirs << QStringLiteral("/usr/bin")
+                 << QStringLiteral("/usr/sbin")
+                 << QStringLiteral("/bin")
+                 << QStringLiteral("/sbin");
+
+    for (const QString& dir : fallbackDirs) {
+        const QString candidate = QDir(dir).filePath(trimmed);
+        const QFileInfo fi(candidate);
+        if (fi.exists() && fi.isFile() && fi.isExecutable()) {
+            return fi.absoluteFilePath();
+        }
+    }
+    return QString();
+}
 
 QString oneLine(const QString& v, int maxLen) {
     QString x = v.simplified();

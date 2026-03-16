@@ -72,6 +72,7 @@ QString buildSingleMountCommand(const QString& datasetName);
 QString buildMountChildrenCommand(bool isWindows, const QString& datasetName);
 QString buildWindowsMountPrecheckCommand(const QString& datasetName, const QString& effectiveMountpoint);
 QString sshControlPath();
+QString findLocalExecutable(const QString& name);
 QString sshUserHost(const ConnectionProfile& p);
 QString sshUserHostPort(const ConnectionProfile& p);
 QString sshAddressFamilyOption(const ConnectionProfile& p);
