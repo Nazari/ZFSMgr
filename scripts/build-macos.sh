@@ -173,6 +173,28 @@ for qt_mod in qtpdf qtsvg qtvirtualkeyboard qtdeclarative qttools qtwebengine; d
   done
 done
 
+prepare_macdeployqt_staging() {
+  local staging_dir="$1"
+  mkdir -p "${staging_dir}"
+  local framework_name framework_path libdir
+  for framework_name in QtPdf.framework QtSvg.framework QtVirtualKeyboard.framework QtVirtualKeyboardQml.framework; do
+    framework_path=""
+    if [[ -n "${QT_PREFIX}" && -d "${QT_PREFIX}/lib/${framework_name}" ]]; then
+      framework_path="${QT_PREFIX}/lib/${framework_name}"
+    else
+      for libdir in "${QT_EXTRA_LIB_DIRS[@]:-}"; do
+        if [[ -d "${libdir}/${framework_name}" ]]; then
+          framework_path="${libdir}/${framework_name}"
+          break
+        fi
+      done
+    fi
+    if [[ -n "${framework_path}" ]]; then
+      ln -sfn "${framework_path}" "${staging_dir}/${framework_name}"
+    fi
+  done
+}
+
 if [[ ${#QT_EXTRA_LIB_DIRS[@]} -gt 0 ]]; then
   qt_extra_joined=""
   for libdir in "${QT_EXTRA_LIB_DIRS[@]}"; do
@@ -224,6 +246,7 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
 
   # Empaqueta frameworks/plugins de Qt dentro del .app (sin firma).
   if command -v macdeployqt >/dev/null 2>&1; then
+    prepare_macdeployqt_staging "${BUILD_DIR}/lib"
     macdeployqt_args=("${APP_BUNDLE}" -always-overwrite)
     if [[ -n "${QT_PREFIX}" && -d "${QT_PREFIX}/lib" ]]; then
       macdeployqt_args+=("-libpath=${QT_PREFIX}/lib")
@@ -245,6 +268,8 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
     echo "  QML2_IMPORT_PATH=${QML2_IMPORT_PATH:-}"
     echo "  DYLD_FRAMEWORK_PATH=${DYLD_FRAMEWORK_PATH:-}"
     echo "  DYLD_LIBRARY_PATH=${DYLD_LIBRARY_PATH:-}"
+    echo "  macdeployqt staging dir: ${BUILD_DIR}/lib"
+    ls -1 "${BUILD_DIR}/lib" 2>/dev/null | sed 's/^/    * /' || true
     if [[ ${#QT_EXTRA_LIB_DIRS[@]} -gt 0 ]]; then
       echo "  QT_EXTRA_LIB_DIRS:"
       for libdir in "${QT_EXTRA_LIB_DIRS[@]}"; do
