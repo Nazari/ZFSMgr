@@ -168,6 +168,7 @@ if [[ -n "${QT_PREFIX}" ]]; then
 fi
 
 QT_EXTRA_LIB_DIRS=()
+EXTRA_LIB_SEARCH_DIRS=()
 add_qt_lib_dir() {
   local libdir="$1"
   if [[ -d "${libdir}" ]]; then
@@ -178,6 +179,19 @@ add_qt_lib_dir() {
       fi
     done
     QT_EXTRA_LIB_DIRS+=("${libdir}")
+  fi
+}
+
+add_extra_lib_search_dir() {
+  local libdir="$1"
+  if [[ -d "${libdir}" ]]; then
+    local existing
+    for existing in "${EXTRA_LIB_SEARCH_DIRS[@]:-}"; do
+      if [[ "${existing}" == "${libdir}" ]]; then
+        return
+      fi
+    done
+    EXTRA_LIB_SEARCH_DIRS+=("${libdir}")
   fi
 }
 
@@ -194,6 +208,23 @@ for qt_mod in qtpdf qtsvg qtvirtualkeyboard qtdeclarative qttools qtwebengine; d
     fi
   done
 done
+
+for brew_libdir in /opt/homebrew/lib /usr/local/lib; do
+  add_extra_lib_search_dir "${brew_libdir}"
+done
+
+framework_bundle_root_from_path() {
+  local path="$1"
+  if [[ "${path}" == *.framework ]]; then
+    echo "${path}"
+    return 0
+  fi
+  if [[ "${path}" == *".framework/"* ]]; then
+    echo "${path%%.framework/*}.framework"
+    return 0
+  fi
+  return 1
+}
 
 prepare_macdeployqt_staging() {
   local staging_dir="$1"
@@ -220,13 +251,18 @@ prepare_macdeployqt_staging() {
 copy_framework_bundle() {
   local framework_src="$1"
   local frameworks_dst="$2"
-  local framework_name
+  local framework_name resolved_framework_src current_link
   framework_name="$(basename "${framework_src}")"
+  if [[ -L "${framework_src}" ]]; then
+    resolved_framework_src="$(cd "${framework_src}" && pwd -P)"
+  else
+    resolved_framework_src="${framework_src}"
+  fi
   mkdir -p "${frameworks_dst}"
-  echo "  copy framework: ${framework_src} -> ${frameworks_dst}/${framework_name}"
+  echo "  copy framework: ${resolved_framework_src} -> ${frameworks_dst}/${framework_name}"
   rm -rf "${frameworks_dst:?}/${framework_name}"
-  cp -R "${framework_src}" "${frameworks_dst}/"
-  local current_link="${frameworks_dst}/${framework_name}/${framework_name%.*}"
+  cp -R "${resolved_framework_src}" "${frameworks_dst}/${framework_name}"
+  current_link="${frameworks_dst}/${framework_name}/${framework_name%.*}"
   if [[ ! -e "${current_link}" ]]; then
     local version_dir
     version_dir="$(find "${frameworks_dst}/${framework_name}/Versions" -mindepth 1 -maxdepth 1 -type d | sort | head -n1 || true)"
@@ -239,23 +275,28 @@ copy_framework_bundle() {
 resolve_dep_path() {
   local dep="$1"
   local source_file="$2"
-  local source_dir source_framework_dir candidate libdir
+  local source_dir source_framework_dir candidate libdir dep_basename
   source_dir="$(cd "$(dirname "${source_file}")" && pwd)"
   source_framework_dir="$(cd "${source_dir}/../Frameworks" 2>/dev/null && pwd || true)"
+  dep_basename="$(basename "${dep}")"
 
   if [[ "${dep}" == @executable_path/* ]]; then
     candidate="${APP_BUNDLE}/Contents/MacOS/${dep#@executable_path/}"
     [[ -e "${candidate}" ]] && { echo "${candidate}"; return 0; }
     if [[ -n "${QT_PREFIX}" ]]; then
-      candidate="${QT_PREFIX}/lib/$(basename "${dep}")"
+      candidate="${QT_PREFIX}/lib/${dep_basename}"
       [[ -e "${candidate}" ]] && { echo "${candidate}"; return 0; }
     fi
     if [[ -n "${OPENSSL_PREFIX}" ]]; then
-      candidate="${OPENSSL_PREFIX}/lib/$(basename "${dep}")"
+      candidate="${OPENSSL_PREFIX}/lib/${dep_basename}"
       [[ -e "${candidate}" ]] && { echo "${candidate}"; return 0; }
     fi
     for libdir in "${QT_EXTRA_LIB_DIRS[@]:-}"; do
-      candidate="${libdir}/$(basename "${dep}")"
+      candidate="${libdir}/${dep_basename}"
+      [[ -e "${candidate}" ]] && { echo "${candidate}"; return 0; }
+    done
+    for libdir in "${EXTRA_LIB_SEARCH_DIRS[@]:-}"; do
+      candidate="${libdir}/${dep_basename}"
       [[ -e "${candidate}" ]] && { echo "${candidate}"; return 0; }
     done
   fi
@@ -275,6 +316,10 @@ resolve_dep_path() {
       [[ -e "${candidate}" ]] && { echo "${candidate}"; return 0; }
     fi
     for libdir in "${QT_EXTRA_LIB_DIRS[@]:-}"; do
+      candidate="${libdir}/${dep#@rpath/}"
+      [[ -e "${candidate}" ]] && { echo "${candidate}"; return 0; }
+    done
+    for libdir in "${EXTRA_LIB_SEARCH_DIRS[@]:-}"; do
       candidate="${libdir}/${dep#@rpath/}"
       [[ -e "${candidate}" ]] && { echo "${candidate}"; return 0; }
     done
@@ -299,7 +344,7 @@ copy_binary_or_dylib() {
 
 fix_install_names() {
   local target="$1"
-  local dep resolved dep_name framework_name framework_bin new_ref
+  local dep resolved dep_name framework_root framework_name framework_bin new_ref
   while IFS= read -r dep; do
     dep="$(echo "${dep}" | sed 's/^[[:space:]]*//; s/ (.*$//')"
     [[ -z "${dep}" ]] && continue
@@ -308,12 +353,8 @@ fix_install_names() {
       continue
     fi
     dep_name="$(basename "${resolved}")"
-    if [[ "${dep_name}" == *.framework ]]; then
-      framework_name="${dep_name}"
-      framework_bin="${framework_name%.*}"
-      new_ref="@executable_path/../Frameworks/${framework_name}/Versions/A/${framework_bin}"
-    elif [[ "${resolved}" == *.framework/* ]]; then
-      framework_name="$(echo "${resolved}" | sed -n 's#^.*/\\([^/]*\\.framework\\)/.*#\\1#p')"
+    if framework_root="$(framework_bundle_root_from_path "${resolved}")"; then
+      framework_name="$(basename "${framework_root}")"
       framework_bin="${framework_name%.*}"
       new_ref="@executable_path/../Frameworks/${framework_name}/Versions/A/${framework_bin}"
     else
@@ -410,6 +451,11 @@ if [[ -z "${APP_VERSION}" ]]; then
   APP_VERSION="0.9.7"
 fi
 BUNDLE_NAME="ZFSMgr-${APP_VERSION}"
+
+if [[ "${BUNDLE_APP}" -eq 1 && -d "${BUILD_DIR}/${BUNDLE_NAME}.app" ]]; then
+  # El deploy manual reescribe install_names dentro del bundle; borrar la app fuerza un relink limpio.
+  rm -rf "${BUILD_DIR}/${BUNDLE_NAME}.app"
+fi
 
 cmake --build "${BUILD_DIR}" -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
