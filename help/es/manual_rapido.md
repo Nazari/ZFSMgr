@@ -19,19 +19,20 @@ ZFSMgr gestiona conexiones y acciones ZFS.
   - anchos de columnas.
 - La primera columna del árbol superior se identifica siempre como `Origen:...` y la del inferior como `Destino:...`.
 - Cada árbol muestra el pool activo de su conexión seleccionada.
-- Bajo cada pool aparecen los nodos `Información`, `Capacidades activas` y `Contenido`.
-- El nodo `Información` del pool muestra propiedades de pool inline.
+- Bajo cada pool puede aparecer el nodo `Información del pool`.
+- El nodo `Información del pool` muestra propiedades de pool inline.
 - El menú contextual del pool incluye `Actualizar`, `Importar`, `Exportar`, `Historial`, `Sync`, `Scrub`, `Trim`, `Initialize` y `Destroy` según el estado del pool.
-- Los datasets cuelgan de `Contenido`.
-- Cada dataset muestra siempre un nodo `Propiedades` inicialmente colapsado y, si tiene hijos, `Subdatasets (N)`.
-- En datasets no snapshot también aparece `Permisos`, para revisar y modificar delegaciones ZFS.
+- Los datasets cuelgan directamente del pool.
+- Los subdatasets cuelgan directamente de su dataset padre.
+- Cada dataset puede mostrar un nodo `Propiedades` inicialmente colapsado.
+- En datasets no snapshot también puede aparecer `Permisos`, para revisar y modificar delegaciones ZFS.
 - Dentro de `Permisos` aparecen:
-  - `Delegaciones`
-  - `Permisos para nuevos subdatasets`
-  - `Sets de permisos`
+  - `Deleg.`
+  - `Nuevos DS`
+  - `Conjuntos`
 - Los checks de `Permisos` trabajan en modo borrador.
   Los cambios se acumulan y se aplican junto con `Aplicar cambios`.
-- Dentro de `Permisos`, el bloque `Permisos para nuevos subdatasets` define qué permisos recibirá automáticamente quien cree descendientes nuevos bajo ese dataset.
+- Dentro de `Permisos`, el bloque `Nuevos DS` define qué permisos recibirá automáticamente quien cree descendientes nuevos bajo ese dataset.
 - Cuando hay un snapshot seleccionado en un dataset, ese árbol muestra las propiedades y grupos del snapshot, y aparece además `Holds (N)`.
 - Las propiedades inline pueden incluir edición directa y control de herencia (`Inh.`) cuando aplica.
 - Si una propiedad no está soportada por el sistema operativo de la conexión, aparece atenuada y no se puede editar.
@@ -40,6 +41,7 @@ ZFSMgr gestiona conexiones y acciones ZFS.
 - Logs: panel único `Log combinado` (incluye salida SSH/PSRP con prefijo de conexión).
 - El encabezado de cada treeview tiene menú contextual para ajustar una columna o todas al contenido y para cambiar `Columnas de propiedades`.
 - El scroll vertical de los treeviews es suave, por píxel.
+- El menú contextual del árbol permite además mostrar u ocultar `Información del pool`, `Propiedades` y `Permisos` inline.
 - El botón `Aplicar cambios` solo se activa si hay comandos pendientes reales y su tooltip lista esos comandos.
   Eso incluye tanto propiedades inline como cambios pendientes de `Permisos`.
 - `Diff` muestra sus resultados en una ventana de árbol con `Añadido`, `Borrado`, `Modificado` y `Renombrado`.

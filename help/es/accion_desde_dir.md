@@ -4,7 +4,7 @@ Objetivo: crear un dataset hijo a partir de un directorio existente en la maquin
 
 Condiciones:
 
-- Dataset seleccionado en `Contenido <pool>`.
+- Dataset seleccionado en el árbol del pool.
 - La seleccion debe ser dataset (no snapshot).
 
 Comportamiento:

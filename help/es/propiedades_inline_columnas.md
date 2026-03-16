@@ -5,17 +5,19 @@ ZFSMgr puede mostrar propiedades de dataset y pool directamente dentro de los á
 ## Dónde aparecen
 
 - En un dataset, las propiedades se muestran inline bajo el nodo `Propiedades`, que arranca colapsado.
-- En un dataset no snapshot también aparece el nodo `Permisos`, independiente de `Propiedades`.
-- En un pool, las propiedades se muestran inline bajo el nodo `Información`.
+- En un dataset no snapshot también puede aparecer el nodo `Permisos`, independiente de `Propiedades`.
+- En un pool, las propiedades se muestran inline bajo el nodo `Información del pool`.
 - En un snapshot, las propiedades se muestran inline bajo el nodo `Propiedades`.
+- Los datasets del pool cuelgan directamente del pool.
+- Los subdatasets cuelgan directamente de su dataset padre.
 
 ## Permisos
 
 - El nodo `Permisos` muestra delegaciones ZFS definidas con `zfs allow`.
 - Se organiza en:
-  - `Delegaciones`
-  - `Permisos para nuevos subdatasets`
-  - `Sets de permisos`
+  - `Deleg.`
+  - `Nuevos DS`
+  - `Conjuntos`
 - En `Delegaciones`, cada hijo representa una delegación concreta:
   - `Usuario <nombre> Ámbito Local`
   - `Grupo <nombre> Ámbito Desc.`
@@ -23,7 +25,7 @@ ZFSMgr puede mostrar propiedades de dataset y pool directamente dentro de los á
 - Al expandir una delegación o un set, los permisos se muestran inline en rejilla, igual que las propiedades del dataset:
   - fila superior con nombres
   - fila inferior con checks
-- `Permisos para nuevos subdatasets` indica qué permisos recibirá automáticamente quien cree nuevos descendientes bajo ese dataset.
+- `Nuevos DS` indica qué permisos recibirá automáticamente quien cree nuevos descendientes bajo ese dataset.
 - Los checks de `Permisos` no ejecutan comandos inmediatamente.
   Modifican un borrador local y el resultado se aplica con `Aplicar cambios`.
 - El tooltip de `Aplicar cambios` incluye también los comandos `zfs allow` / `zfs unallow` pendientes.
@@ -44,7 +46,7 @@ ZFSMgr puede mostrar propiedades de dataset y pool directamente dentro de los á
 Con clic derecho sobre:
 
 - `Propiedades` de un dataset, o
-- `Información` de un pool, o
+- `Información del pool` de un pool, o
 - `Propiedades` de un snapshot
 
 puede abrir `Gestionar visualización de propiedades`.
@@ -69,6 +71,21 @@ En snapshots:
 - los grupos extra no reutilizan los de dataset ni los de pool.
 
 Las propiedades no marcadas no se muestran en el árbol, aunque sigan estando disponibles en la lista de gestión.
+
+## Visibilidad de nodos inline
+
+En el menú contextual del árbol también puede activar o desactivar:
+
+- `Mostrar propiedades en línea`
+- `Mostrar Permisos en línea`
+- `Mostrar Información del pool`
+
+Efectos:
+
+- si desactiva `Mostrar propiedades en línea`, desaparece el nodo `Propiedades` del árbol;
+- si desactiva `Mostrar Permisos en línea`, desaparece el nodo `Permisos`;
+- si desactiva `Mostrar Información del pool`, desaparece el nodo `Información del pool`;
+- los datasets y subdatasets no usan nodos intermedios `Contenido` ni `Subdatasets`.
 
 ## Edición inline
 

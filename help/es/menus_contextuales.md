@@ -32,10 +32,13 @@ Sobre el nodo raíz `Pool`:
 - `Trim`
 - `Initialize`
 - `Destroy`
+- `Mostrar Información del pool`
 
 Sobre dataset/snapshot seleccionado:
 
 - `Gestionar visualización de propiedades`
+- `Mostrar propiedades en línea`
+- `Mostrar Permisos en línea`
 - `Crear dataset/snapshot/vol`
 - `Borrar Dataset <nombre>`, `Borrar Snapshot <dataset@snapshot>` o `Borrar ZVol <nombre>` según el objetivo real
 - `Encriptación`
@@ -79,10 +82,12 @@ Sobre el encabezado de cualquiera de los treeviews:
 - Las acciones destructivas piden confirmación.
 - El estado habilitado/deshabilitado sigue la misma lógica de validación que el resto de acciones.
 - Durante una acción en curso se bloquean opciones no seguras.
-- `Gestionar visualización de propiedades` está disponible tanto en propiedades de dataset como en `Información` del pool.
+- `Gestionar visualización de propiedades` está disponible tanto en propiedades de dataset como en `Información del pool`.
 - Ese diálogo permite elegir qué propiedades se muestran, reordenarlas por arrastrar y soltar y crear o borrar grupos de visualización.
 - Dataset, pool y snapshot usan grupos de visualización independientes.
 - En snapshots, la propiedad `snapshot` queda fija en el grupo principal.
+- `Mostrar propiedades en línea`, `Mostrar Permisos en línea` y `Mostrar Información del pool` cambian la estructura visible del árbol y se guardan en configuración.
+- El árbol ya no usa nodos intermedios `Contenido` ni `Subdatasets`.
 - En `Permisos`, la edición de checks es diferida.
   Los cambios se acumulan y se aplican con el botón `Aplicar cambios`.
 - `Nuevo Hold` solo aplica a snapshots.

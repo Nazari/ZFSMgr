@@ -4,7 +4,7 @@ Objetivo: crear subdatasets a partir de directorios del dataset padre.
 
 Condiciones:
 
-- Dataset seleccionado en `Contenido <pool>`.
+- Dataset seleccionado en el árbol del pool.
 - Dataset y descendientes montados (segun reglas de seguridad).
 
 Comportamiento:

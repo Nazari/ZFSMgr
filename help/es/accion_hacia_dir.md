@@ -4,7 +4,7 @@ Objetivo: copiar el contenido de un dataset a un directorio en la maquina de la 
 
 Condiciones:
 
-- Dataset seleccionado en `Contenido <pool>`.
+- Dataset seleccionado en el árbol del pool.
 - La seleccion debe ser dataset (no snapshot).
 
 Comportamiento:
