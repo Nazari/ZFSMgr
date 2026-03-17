@@ -228,6 +228,17 @@ bool isDatasetPropertyCurrentlyInherited(const QString& source) {
     return src.startsWith(QStringLiteral("inherited"));
 }
 
+template <typename Rows>
+bool encryptionDisabledForRows(const Rows& rows) {
+    for (const auto& row : rows) {
+        if (row.prop.compare(QStringLiteral("encryption"), Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+        return row.value.trimmed().compare(QStringLiteral("off"), Qt::CaseInsensitive) == 0;
+    }
+    return false;
+}
+
 using mwhelpers::shSingleQuote;
 
 bool parseSizeToBytes(const QString& input, double& bytesOut) {
@@ -357,7 +368,7 @@ QString MainWindow::datasetPropsCacheKey(int connIdx, const QString& poolName, c
 void MainWindow::refreshDatasetProperties(const QString& side) {
     beginTransientUiBusy(QStringLiteral("Leyendo propiedades..."));
     auto saveCurrentDraft = [this]() {
-        if (!m_propsDirty || m_propsSide.isEmpty() || m_propsDataset.isEmpty()) {
+        if (m_pendingChangeActivationInProgress || !m_propsDirty || m_propsSide.isEmpty() || m_propsDataset.isEmpty()) {
             return;
         }
         QString currToken;
@@ -386,7 +397,6 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
             return;
         }
         DatasetPropsDraft draft;
-        draft.dirty = true;
         for (int r = 0; r < currTable->rowCount(); ++r) {
             QTableWidgetItem* rk = currTable->item(r, 0);
             QTableWidgetItem* rv = currTable->item(r, 1);
@@ -398,11 +408,22 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
             if (key.isEmpty()) {
                 continue;
             }
-            draft.valuesByProp[key] = rv->text();
             const bool inh = (ri->flags() & Qt::ItemIsUserCheckable) && ri->checkState() == Qt::Checked;
-            draft.inheritByProp[key] = inh;
+            const QString currentValue = rv->text();
+            if (m_propsOriginalValues.value(key) != currentValue) {
+                draft.valuesByProp[key] = currentValue;
+            }
+            if (m_propsOriginalInherit.value(key, false) != inh) {
+                draft.inheritByProp[key] = inh;
+            }
         }
-        m_propsDraftByKey[propsDraftKey(m_propsSide, currToken, m_propsDataset)] = draft;
+        draft.dirty = !draft.valuesByProp.isEmpty() || !draft.inheritByProp.isEmpty();
+        const QString key = propsDraftKey(m_propsSide, currToken, m_propsDataset);
+        if (draft.dirty) {
+            m_propsDraftByKey[key] = draft;
+        } else {
+            m_propsDraftByKey.remove(key);
+        }
     };
     saveCurrentDraft();
 
@@ -713,6 +734,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     };
     const int pinnedCount = (!snapshot.isEmpty() ? 2 : (windowsConn ? 6 : 5));
     table->setProperty("pinned_rows", pinnedCount);
+    const bool encryptionOff = encryptionDisabledForRows(rows);
     for (const PropRow& row : rows) {
         const int r = table->rowCount();
         table->insertRow(r);
@@ -729,7 +751,8 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         auto* v = new PinnedSortItem(row.value);
         v->setData(Qt::UserRole + 501, (r < pinnedCount) ? r : -1);
         const bool editable =
-            isDatasetPropertyEditable(row.prop, datasetType, row.source, row.readonly, platform);
+            isDatasetPropertyEditable(row.prop, datasetType, row.source, row.readonly, platform)
+            && !(row.prop.compare(QStringLiteral("keylocation"), Qt::CaseInsensitive) == 0 && encryptionOff);
         if (!editable) {
             v->setFlags(v->flags() & ~Qt::ItemIsEditable);
             const QColor disabledColor = table->palette().color(QPalette::Disabled, QPalette::Text);
@@ -2102,6 +2125,7 @@ QStringList MainWindow::pendingConnContentApplyCommands() const {
 void MainWindow::updateApplyPropsButtonState() {
     const QStringList pendingCommands = pendingConnContentApplyCommands();
     if (m_pendingChangesView) {
+        const QSignalBlocker blocker(m_pendingChangesView);
         m_pendingChangesView->setPlainText(
             pendingCommands.isEmpty()
                 ? trk(QStringLiteral("t_apply_changes_tt_001"),

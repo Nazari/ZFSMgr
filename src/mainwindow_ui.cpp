@@ -35,6 +35,7 @@
 #include <QPushButton>
 #include <QCheckBox>
 #include <QPointer>
+#include <QRegularExpression>
 #include <QScopedValueRollback>
 #include <QScrollBar>
 #include <QResizeEvent>
@@ -49,6 +50,7 @@
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTextEdit>
+#include <QTextBlock>
 #include <QTimer>
 #include <QToolTip>
 #include <QTreeWidget>
@@ -82,6 +84,18 @@ constexpr int kConnPermissionsEntryNameRole = Qt::UserRole + 30;
 constexpr int kConnPermissionsPendingRole = Qt::UserRole + 31;
 constexpr int kConnInlineCellUsedRole = Qt::UserRole + 32;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
+
+QString pendingChangeLastQuotedArg(const QString& text) {
+    const int lastQuote = text.lastIndexOf(QLatin1Char('\''));
+    if (lastQuote <= 0) {
+        return QString();
+    }
+    const int prevQuote = text.lastIndexOf(QLatin1Char('\''), lastQuote - 1);
+    if (prevQuote < 0 || prevQuote >= lastQuote) {
+        return QString();
+    }
+    return text.mid(prevQuote + 1, lastQuote - prevQuote - 1).trimmed();
+}
 
 class ConnContentPropBorderDelegate final : public QStyledItemDelegate {
 public:
@@ -417,6 +431,236 @@ private:
 };
 }
 
+void MainWindow::activatePendingChangeAtCursor() {
+    if (!m_pendingChangesView || !m_pendingChangesView->hasFocus() || m_pendingChangeActivationInProgress) {
+        return;
+    }
+    const QScopedValueRollback<bool> guard(m_pendingChangeActivationInProgress, true);
+    const QString line = m_pendingChangesView->textCursor().block().text().trimmed();
+    if (line.isEmpty()) {
+        return;
+    }
+    focusPendingChangeLine(line);
+}
+
+bool MainWindow::focusPendingChangeLine(const QString& line) {
+    const QString trimmed = line.trimmed();
+    if (trimmed.isEmpty()) {
+        return false;
+    }
+    const int cmdSep = trimmed.indexOf(QStringLiteral("  "));
+    if (cmdSep <= 0) {
+        return false;
+    }
+    const QString prefix = trimmed.left(cmdSep).trimmed();
+    const QString cmd = trimmed.mid(cmdSep + 2).trimmed();
+    const int prefixSep = prefix.lastIndexOf(QStringLiteral("::"));
+    if (prefixSep <= 0) {
+        return false;
+    }
+    const QString connLabel = prefix.left(prefixSep).trimmed();
+    const QString poolName = prefix.mid(prefixSep + 2).trimmed();
+    if (connLabel.isEmpty() || poolName.isEmpty() || cmd.isEmpty()) {
+        return false;
+    }
+
+    int connIdx = -1;
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        const ConnectionProfile& p = m_profiles.at(i);
+        if (p.name.compare(connLabel, Qt::CaseInsensitive) == 0
+            || p.id.compare(connLabel, Qt::CaseInsensitive) == 0) {
+            connIdx = i;
+            break;
+        }
+    }
+    if (connIdx < 0) {
+        return false;
+    }
+
+    auto visiblePoolRoot = [&](QTreeWidget* tree) -> QTreeWidgetItem* {
+        if (!tree) {
+            return nullptr;
+        }
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* item = tree->topLevelItem(i);
+            if (!item || !item->data(0, kIsPoolRootRole).toBool()) {
+                continue;
+            }
+            if (item->data(0, kConnIdxRole).toInt() == connIdx
+                && item->data(0, kPoolNameRole).toString().trimmed().compare(poolName, Qt::CaseInsensitive) == 0) {
+                return item;
+            }
+        }
+        return nullptr;
+    };
+
+    QTreeWidgetItem* originPoolRoot = visiblePoolRoot(m_connContentTree);
+    QTreeWidgetItem* destPoolRoot = visiblePoolRoot(m_bottomConnContentTree);
+    QTreeWidget* targetTree = nullptr;
+    // Si el pool está visible en ambos árboles, priorizar siempre Origen.
+    if (originPoolRoot) {
+        targetTree = m_connContentTree;
+    } else if (destPoolRoot) {
+        targetTree = m_bottomConnContentTree;
+    }
+    if (!targetTree) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_pending_focus_pool_not_visible_001"),
+                QStringLiteral("Debes seleccionar en Origen o Destino la conexión/pool %1::%2 para poder situar el foco."),
+                QStringLiteral("You must select connection/pool %1::%2 in Source or Target before focusing this change."),
+                QStringLiteral("必须先在来源或目标中选择连接/存储池 %1::%2，才能定位到此更改。"))
+                .arg(connLabel, poolName));
+        return false;
+    }
+
+    const QString datasetName = pendingChangeLastQuotedArg(cmd);
+    if (datasetName.isEmpty()) {
+        return false;
+    }
+    auto findDatasetNode = [&](QTreeWidgetItem* node, auto&& self) -> QTreeWidgetItem* {
+        if (!node) {
+            return nullptr;
+        }
+        if (node->data(0, Qt::UserRole).toString().trimmed().compare(datasetName, Qt::CaseInsensitive) == 0) {
+            return node;
+        }
+        for (int i = 0; i < node->childCount(); ++i) {
+            if (QTreeWidgetItem* found = self(node->child(i), self)) {
+                return found;
+            }
+        }
+        return nullptr;
+    };
+    QTreeWidgetItem* datasetItem = nullptr;
+    for (int i = 0; i < targetTree->topLevelItemCount() && !datasetItem; ++i) {
+        datasetItem = findDatasetNode(targetTree->topLevelItem(i), findDatasetNode);
+    }
+    if (!datasetItem) {
+        return false;
+    }
+    const QString prevToken = m_connContentToken;
+    QTreeWidget* const prevTree = m_connContentTree;
+    m_connContentTree = targetTree;
+    m_connContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+
+    QSignalBlocker treeBlocker(targetTree);
+    std::unique_ptr<QSignalBlocker> selectionBlocker;
+    if (targetTree->selectionModel()) {
+        selectionBlocker = std::make_unique<QSignalBlocker>(targetTree->selectionModel());
+    }
+    for (QTreeWidgetItem* parent = datasetItem->parent(); parent; parent = parent->parent()) {
+        parent->setExpanded(true);
+    }
+    targetTree->setCurrentItem(datasetItem);
+    refreshDatasetProperties(QStringLiteral("conncontent"));
+    syncConnContentPropertyColumns();
+    datasetItem->setExpanded(true);
+    targetTree->scrollToItem(datasetItem, QAbstractItemView::PositionAtCenter);
+
+    auto findChild = [](QTreeWidgetItem* parent, auto&& pred) -> QTreeWidgetItem* {
+        if (!parent) {
+            return nullptr;
+        }
+        for (int i = 0; i < parent->childCount(); ++i) {
+            QTreeWidgetItem* child = parent->child(i);
+            if (child && pred(child)) {
+                return child;
+            }
+        }
+        return nullptr;
+    };
+    auto findPropRow = [&](QTreeWidgetItem* parent, const QString& propName, auto&& self) -> QTreeWidgetItem* {
+        if (!parent) {
+            return nullptr;
+        }
+        for (int i = 0; i < parent->childCount(); ++i) {
+            QTreeWidgetItem* child = parent->child(i);
+            if (!child) {
+                continue;
+            }
+            for (int col = 0; col < targetTree->columnCount(); ++col) {
+                if (child->text(col).trimmed().compare(propName, Qt::CaseInsensitive) == 0) {
+                    return child;
+                }
+            }
+            if (QTreeWidgetItem* nested = self(child, propName, self)) {
+                return nested;
+            }
+        }
+        return nullptr;
+    };
+
+    if (cmd.startsWith(QStringLiteral("zfs allow "), Qt::CaseInsensitive)
+        || cmd.startsWith(QStringLiteral("zfs unallow "), Qt::CaseInsensitive)) {
+        if (QTreeWidgetItem* permissionsNode = findChild(datasetItem, [](QTreeWidgetItem* child) {
+                return child->data(0, kConnPermissionsNodeRole).toBool()
+                       && child->data(0, kConnPermissionsKindRole).toString() == QStringLiteral("root");
+            })) {
+            if (permissionsNode->childCount() == 0) {
+                populateDatasetPermissionsNode(targetTree, datasetItem, false);
+            }
+            permissionsNode->setExpanded(true);
+            targetTree->setCurrentItem(permissionsNode);
+            targetTree->scrollToItem(permissionsNode, QAbstractItemView::PositionAtCenter);
+        }
+        m_connContentTree = prevTree;
+        m_connContentToken = prevToken;
+        targetTree->setFocus();
+        return true;
+    }
+
+    QString propName;
+    if (cmd.startsWith(QStringLiteral("zfs set "), Qt::CaseInsensitive)) {
+        const QString prefixCmd = cmd.left(cmd.lastIndexOf(QLatin1Char('\'')));
+        const QString firstArg = pendingChangeLastQuotedArg(prefixCmd);
+        const int eq = firstArg.indexOf(QLatin1Char('='));
+        if (eq > 0) {
+            propName = firstArg.left(eq).trimmed();
+        }
+    } else if (cmd.startsWith(QStringLiteral("zfs inherit "), Qt::CaseInsensitive)) {
+        const QRegularExpression rx(QStringLiteral("^zfs\\s+inherit\\s+'([^']+)'"),
+                                    QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch m = rx.match(cmd);
+        if (m.hasMatch()) {
+            propName = m.captured(1).trimmed();
+        }
+    } else if (cmd.startsWith(QStringLiteral("zfs mount "), Qt::CaseInsensitive)
+               || cmd.startsWith(QStringLiteral("zfs umount "), Qt::CaseInsensitive)
+               || cmd.startsWith(QStringLiteral("zfs unmount "), Qt::CaseInsensitive)) {
+        propName = QStringLiteral("Montado");
+    }
+
+    if (QTreeWidgetItem* propsNode = findChild(datasetItem, [this](QTreeWidgetItem* child) {
+            return child->data(0, kConnPropGroupNodeRole).toBool()
+                   && child->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
+                   && child->text(0).trimmed() == trk(QStringLiteral("t_props_lbl_001"),
+                                                      QStringLiteral("Propiedades"),
+                                                      QStringLiteral("Properties"),
+                                                      QStringLiteral("属性"));
+        })) {
+        propsNode->setExpanded(true);
+        if (!propName.isEmpty()) {
+            if (QTreeWidgetItem* propRow = findPropRow(propsNode, propName, findPropRow)) {
+                targetTree->setCurrentItem(propRow);
+                targetTree->scrollToItem(propRow, QAbstractItemView::PositionAtCenter);
+            } else {
+                targetTree->setCurrentItem(propsNode);
+                targetTree->scrollToItem(propsNode, QAbstractItemView::PositionAtCenter);
+            }
+        } else {
+            targetTree->setCurrentItem(propsNode);
+            targetTree->scrollToItem(propsNode, QAbstractItemView::PositionAtCenter);
+        }
+    }
+
+    m_connContentTree = prevTree;
+    m_connContentToken = prevToken;
+    targetTree->setFocus();
+    return true;
+}
+
 void MainWindow::buildUi() {
     setWindowTitle(QStringLiteral("ZFSMgr [%1]").arg(QStringLiteral(ZFSMGR_APP_VERSION)));
     setWindowIcon(QIcon(QStringLiteral(":/icons/ZFSMgr-512.png")));
@@ -457,6 +701,8 @@ void MainWindow::buildUi() {
         "#zfsmgrEntityFrame > QWidget { border: 0px; background: transparent; }"
         "#zfsmgrEntityTabs::tab, #zfsmgrPoolViewTabs::tab { border-bottom: 1px solid #b8c7d6; }"
         "#zfsmgrEntityTabs::tab:selected, #zfsmgrPoolViewTabs::tab:selected { border-bottom: 0px; margin-bottom: -1px; padding-bottom: 1px; }"
+        "#zfsmgrLogTabs QTabBar::tab { padding: 1px 8px; min-height: 14px; }"
+        "#zfsmgrLogTabs QTabBar::tab:selected { margin-bottom: -1px; }"
         "#zfsmgrDetailContainer { border: 0px; background: transparent; margin-top: 0px; }"
         "#zfsmgrDetailContainer > QWidget { border: 0px; background: transparent; }"
         "#zfsmgrDetailContainer QTabBar { background: transparent; }"
@@ -878,8 +1124,9 @@ void MainWindow::buildUi() {
     m_connectionsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_connectionsTable->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     m_connectionsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_connectionsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_connectionsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
     m_connectionsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_connectionsTable->setColumnWidth(0, 96);
 #ifdef Q_OS_MAC
     if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
         m_connectionsTable->setStyle(fusion);
@@ -1666,6 +1913,7 @@ void MainWindow::buildUi() {
     rightLogsBody->setContentsMargins(0, 0, 0, 0);
     rightLogsBody->setSpacing(6);
     auto* appTabs = new QTabWidget(rightLogs);
+    appTabs->setObjectName(QStringLiteral("zfsmgrLogTabs"));
     auto* appLogTab = new QWidget(appTabs);
     auto* appLogLayout = new QVBoxLayout(appLogTab);
     appLogLayout->setContentsMargins(6, 6, 6, 6);
@@ -1695,6 +1943,9 @@ void MainWindow::buildUi() {
     m_pendingChangesView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_pendingChangesView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_pendingChangesView->setFont(mono);
+    connect(m_pendingChangesView, &QPlainTextEdit::cursorPositionChanged, this, [this]() {
+        activatePendingChangeAtCursor();
+    });
     pendingChangesLayout->addWidget(m_pendingChangesView, 1);
     appTabs->addTab(pendingChangesTab,
                     trk(QStringLiteral("t_pending_changes_tab001"),

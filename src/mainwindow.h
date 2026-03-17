@@ -259,6 +259,8 @@ private:
     QString datasetPropsCacheKey(int connIdx, const QString& poolName, const QString& objectName) const;
     QString datasetPermissionsCacheKey(int connIdx, const QString& poolName, const QString& datasetName) const;
     QStringList pendingConnContentApplyCommands() const;
+    void activatePendingChangeAtCursor();
+    bool focusPendingChangeLine(const QString& line);
     QString poolDetailsCacheKey(int connIdx, const QString& poolName) const;
     bool ensureDatasetsLoaded(int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing = true);
     bool ensureDatasetPermissionsLoaded(int connIdx, const QString& poolName, const QString& datasetName);
@@ -496,6 +498,7 @@ private:
     bool m_showInlinePermissionsNodes{true};
     bool m_showPoolInfoNode{true};
     int m_connPropColumnsSetting{7};
+    bool m_pendingChangeActivationInProgress{false};
     QStringList m_datasetInlinePropsOrder;
     QVector<InlinePropGroupConfig> m_datasetInlinePropGroups;
     QStringList m_poolInlinePropsOrder;

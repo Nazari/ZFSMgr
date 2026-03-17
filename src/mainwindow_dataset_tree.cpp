@@ -98,6 +98,26 @@ bool isDatasetPropertySupportedOnPlatform(const QString& propName, DatasetPlatfo
     return true;
 }
 
+QString findCaseInsensitiveMapKey(const QMap<QString, QString>& map, const QString& wanted) {
+    const QString target = wanted.trimmed();
+    for (auto it = map.cbegin(); it != map.cend(); ++it) {
+        if (it.key().trimmed().compare(target, Qt::CaseInsensitive) == 0) {
+            return it.key();
+        }
+    }
+    return QString();
+}
+
+QString findCaseInsensitiveMapKey(const QMap<QString, bool>& map, const QString& wanted) {
+    const QString target = wanted.trimmed();
+    for (auto it = map.cbegin(); it != map.cend(); ++it) {
+        if (it.key().trimmed().compare(target, Qt::CaseInsensitive) == 0) {
+            return it.key();
+        }
+    }
+    return QString();
+}
+
 QString connContentChildStableId(QTreeWidgetItem* node) {
     if (!node) {
         return QString();
@@ -260,6 +280,17 @@ bool isDatasetPropertyEditableInline(const QString& propName,
     return fs.contains(prop) || vol.contains(prop);
 }
 
+template <typename Rows>
+bool encryptionDisabledForRows(const Rows& rows) {
+    for (const auto& row : rows) {
+        if (row.prop.compare(QStringLiteral("encryption"), Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+        return row.value.trimmed().compare(QStringLiteral("off"), Qt::CaseInsensitive) == 0;
+    }
+    return false;
+}
+
 QColor connPropVerticalBorderColor(const QPalette& palette) {
     return palette.color(QPalette::Mid).darker(118);
 }
@@ -363,6 +394,18 @@ protected:
         return handled;
     }
 };
+
+QWidget* wrapInlineCellEditor(QWidget* editor, QTreeWidget* tree) {
+    if (!editor || !tree) {
+        return editor;
+    }
+    auto* host = new InlinePropValueWidget(tree);
+    QHBoxLayout* layout = host->ensureLayout();
+    layout->setContentsMargins(3, 1, 3, 3);
+    layout->setSpacing(0);
+    layout->addWidget(editor);
+    return host;
+}
 
 QMap<QString, QStringList> connContentEnumValues() {
     return {
@@ -763,6 +806,9 @@ void MainWindow::syncConnContentPropertyColumns() {
     }
     clearPropRowsRec(clearPropRowsRec, sel);
     const QString obj = snap.isEmpty() ? ds : QStringLiteral("%1@%2").arg(ds, snap);
+    const int itemConnIdx = sel->data(0, kConnIdxRole).toInt();
+    const QString itemPool = sel->data(0, kPoolNameRole).toString();
+    const QString draftToken = QStringLiteral("%1::%2").arg(itemConnIdx).arg(itemPool);
     const QString key = QStringLiteral("%1|%2").arg(m_connContentToken.trimmed().toLower(),
                                                     obj.trimmed().toLower());
     const auto it = m_connContentPropValuesByObject.constFind(key);
@@ -770,8 +816,24 @@ void MainWindow::syncConnContentPropertyColumns() {
         m_syncingConnContentColumns = false;
         return;
     }
+    QMap<QString, QString> displayValues = it.value();
+    const QString objectDraftKey =
+        QStringLiteral("conncontent|%1|%2").arg(draftToken.trimmed().toLower(), obj.trimmed().toLower());
+    const auto objectDraftIt = m_propsDraftByKey.constFind(objectDraftKey);
+    const DatasetPropsDraft* objectDraft =
+        (objectDraftIt == m_propsDraftByKey.cend()) ? nullptr : &objectDraftIt.value();
+    if (objectDraft) {
+        for (auto vit = objectDraft->valuesByProp.cbegin(); vit != objectDraft->valuesByProp.cend(); ++vit) {
+            const QString existingKey = findCaseInsensitiveMapKey(displayValues, vit.key());
+            if (!existingKey.isEmpty()) {
+                displayValues[existingKey] = vit.value();
+            } else {
+                displayValues[vit.key()] = vit.value();
+            }
+        }
+    }
 
-    QStringList props = it->keys();
+    QStringList props = displayValues.keys();
     props.sort(Qt::CaseInsensitive);
     QStringList ordered;
     const QStringList pinned = {QStringLiteral("snapshot"), QStringLiteral("estado"), QStringLiteral("mountpoint")};
@@ -881,10 +943,7 @@ void MainWindow::syncConnContentPropertyColumns() {
     }
     mainProps = normalizePropsList(mainProps);
     const auto enumValues = connContentEnumValues();
-    const int itemConnIdx = sel->data(0, kConnIdxRole).toInt();
-    const QString itemPool = sel->data(0, kPoolNameRole).toString();
     const QString propsKey = datasetPropsCacheKey(itemConnIdx, itemPool, obj);
-    const QString draftToken = QStringLiteral("%1::%2").arg(itemConnIdx).arg(itemPool);
     const DatasetPlatformFamily platform =
         datasetPlatformFamilyFromStrings(
             (itemConnIdx >= 0 && itemConnIdx < m_profiles.size()) ? m_profiles[itemConnIdx].osType : QString(),
@@ -924,6 +983,7 @@ void MainWindow::syncConnContentPropertyColumns() {
         if (itCache == m_datasetPropsCache.cend() || !itCache->loaded) {
             return false;
         }
+        const bool encryptionOff = encryptionDisabledForRows(itCache->rows);
         for (const DatasetPropCacheRow& row : itCache->rows) {
             if (row.prop.compare(prop, Qt::CaseInsensitive) != 0) {
                 continue;
@@ -932,7 +992,8 @@ void MainWindow::syncConnContentPropertyColumns() {
                                                    itCache->datasetType,
                                                    row.source,
                                                    row.readonly,
-                                                   platform);
+                                                   platform)
+                   && !(row.prop.compare(QStringLiteral("keylocation"), Qt::CaseInsensitive) == 0 && encryptionOff);
         }
         return false;
     };
@@ -948,6 +1009,7 @@ void MainWindow::syncConnContentPropertyColumns() {
         if (itCache == m_datasetPropsCache.cend() || !itCache->loaded) {
             return false;
         }
+        const bool encryptionOff = encryptionDisabledForRows(itCache->rows);
         for (const DatasetPropCacheRow& row : itCache->rows) {
             if (row.prop.compare(prop, Qt::CaseInsensitive) != 0) {
                 continue;
@@ -956,7 +1018,8 @@ void MainWindow::syncConnContentPropertyColumns() {
                                                    itCache->datasetType,
                                                    row.source,
                                                    row.readonly,
-                                                   platform);
+                                                   platform)
+                   && !(row.prop.compare(QStringLiteral("keylocation"), Qt::CaseInsensitive) == 0 && encryptionOff);
         }
         return false;
     };
@@ -982,6 +1045,22 @@ void MainWindow::syncConnContentPropertyColumns() {
             return src.startsWith(QStringLiteral("inherited"));
         }
         return false;
+    };
+    auto draftInheritForProp = [objectDraft](const QString& prop, bool* found = nullptr) -> bool {
+        if (found) {
+            *found = false;
+        }
+        if (!objectDraft) {
+            return false;
+        }
+        const QString key = findCaseInsensitiveMapKey(objectDraft->inheritByProp, prop);
+        if (key.isEmpty()) {
+            return false;
+        }
+        if (found) {
+            *found = true;
+        }
+        return objectDraft->inheritByProp.value(key);
     };
     auto findPropsTableRowByProp = [this](const QString& prop) -> int {
         if (!m_connContentPropsTable) {
@@ -1041,7 +1120,7 @@ void MainWindow::syncConnContentPropertyColumns() {
             }
             const QString& prop = groupProps.at(idx);
             const int col = 4 + off;
-            const QString value = it->value(prop);
+            const QString value = displayValues.value(prop);
             const QString propLower = prop.trimmed().toLower();
             const bool inheritable = isInheritableProp(prop);
             rowNames->setData(col, kConnInlineCellUsedRole, true);
@@ -1090,7 +1169,7 @@ void MainWindow::syncConnContentPropertyColumns() {
                 const QString currentSnap = sel->data(1, Qt::UserRole).toString().trimmed();
                 const QString currentLabel = currentSnap.isEmpty() ? options.first() : currentSnap;
                 combo->setCurrentText(currentLabel);
-                tree->setItemWidget(rowValues, col, combo);
+                tree->setItemWidget(rowValues, col, wrapInlineCellEditor(combo, tree));
                 QObject::connect(combo, &QComboBox::currentTextChanged, tree, [this, tree, sel, rowValues, col](const QString& txt) {
                     if (!sel || !rowValues) {
                         return;
@@ -1110,7 +1189,7 @@ void MainWindow::syncConnContentPropertyColumns() {
                 combo->addItem(QStringLiteral("off"));
                 combo->addItem(QStringLiteral("on"));
                 combo->setCurrentText(sel->checkState(2) == Qt::Checked ? QStringLiteral("on") : QStringLiteral("off"));
-                tree->setItemWidget(rowValues, col, combo);
+                tree->setItemWidget(rowValues, col, wrapInlineCellEditor(combo, tree));
                 rowValues->setData(col, kConnPropEditableRole, true);
                 QObject::connect(combo, &QComboBox::currentTextChanged, tree, [this, tree, sel, rowValues, col, combo](const QString& txt) {
                     if (!sel || !rowValues || !combo) {
@@ -1145,6 +1224,11 @@ void MainWindow::syncConnContentPropertyColumns() {
                             ? findPropsTableRowByProp(prop)
                             : -1;
                     bool inheritChecked = isCurrentlyInheritedProp(prop);
+                    bool draftInheritFound = false;
+                    const bool draftInherit = draftInheritForProp(prop, &draftInheritFound);
+                    if (draftInheritFound) {
+                        inheritChecked = draftInherit;
+                    }
                     if (propRow >= 0) {
                         if (QTableWidgetItem* pi = m_connContentPropsTable->item(propRow, 2)) {
                             inheritChecked = (pi->flags() & Qt::ItemIsUserCheckable)
@@ -1165,7 +1249,6 @@ void MainWindow::syncConnContentPropertyColumns() {
                         }
                         combo->addItems(opts);
                         combo->setCurrentText(value);
-                        combo->setEnabled(!inheritChecked);
                         valueEditor = combo;
                         lay->addWidget(combo, 1);
                         QObject::connect(combo, &QComboBox::currentTextChanged, tree,
@@ -1191,7 +1274,6 @@ void MainWindow::syncConnContentPropertyColumns() {
                         edit->setMaximumHeight(22);
                         edit->setFont(tree->font());
                         edit->setStyleSheet(QStringLiteral("QLineEdit{padding:0 5px; margin:0px;}"));
-                        edit->setEnabled(!inheritChecked);
                         valueEditor = edit;
                         lay->addWidget(edit, 1);
                         QObject::connect(edit, &QLineEdit::editingFinished, tree,
@@ -1216,9 +1298,6 @@ void MainWindow::syncConnContentPropertyColumns() {
                     QObject::connect(inheritCombo, &QComboBox::currentTextChanged, tree,
                                      [this, valueEditor, prop, inheritCombo, draftToken, obj](const QString& txt) {
                         const bool inheritOn = (txt.trimmed().compare(QStringLiteral("on"), Qt::CaseInsensitive) == 0);
-                        if (valueEditor) {
-                            valueEditor->setEnabled(!inheritOn);
-                        }
                         updateConnContentDraftInherit(draftToken, obj, prop, inheritOn);
                         if (!m_connContentPropsTable
                             || m_propsToken.trimmed() != draftToken.trimmed()
@@ -1259,7 +1338,7 @@ void MainWindow::syncConnContentPropertyColumns() {
                     }
                     combo->addItems(opts);
                     combo->setCurrentText(value);
-                    tree->setItemWidget(rowValues, col, combo);
+                    tree->setItemWidget(rowValues, col, wrapInlineCellEditor(combo, tree));
                     QObject::connect(combo, &QComboBox::currentTextChanged, tree, [this, tree, rowValues, col](const QString& txt) {
                         if (!rowValues) {
                             return;

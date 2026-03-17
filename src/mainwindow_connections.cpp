@@ -1614,11 +1614,61 @@ void MainWindow::rebuildConnectionsTable() {
             QStringLiteral("连接"))
     });
     m_connectionsTable->setRowCount(0);
-    auto buildConnectionStateTooltip = [this](const ConnectionProfile& p, const ConnectionRuntimeState& st) {
+    auto zfsVersionTooOld = [](const QString& rawVersion) -> bool {
+        const QRegularExpression rx(QStringLiteral("^(\\d+)\\.(\\d+)(?:\\.(\\d+))?"));
+        const QRegularExpressionMatch m = rx.match(rawVersion.trimmed());
+        if (!m.hasMatch()) {
+            return false;
+        }
+        const int major = m.captured(1).toInt();
+        const int minor = m.captured(2).toInt();
+        const int patch = m.captured(3).isEmpty() ? 0 : m.captured(3).toInt();
+        if (major != 2) return false;
+        if (minor < 3) return true;
+        if (minor > 3) return false;
+        return patch < 3;
+    };
+    auto connectionRowColorReason = [&](const ConnectionProfile& p, const ConnectionRuntimeState& st, bool disconnected) {
+        Q_UNUSED(p);
+        if (disconnected) {
+            return trk(QStringLiteral("t_conn_color_reason_off_001"),
+                       QStringLiteral("La conexión está marcada como desconectada."),
+                       QStringLiteral("The connection is marked as disconnected."),
+                       QStringLiteral("该连接已标记为断开。"));
+        }
+        const QString stUp = st.status.trimmed().toUpper();
+        if (stUp != QStringLiteral("OK")) {
+            return st.detail.trimmed().isEmpty()
+                       ? trk(QStringLiteral("t_conn_color_reason_err_001"),
+                             QStringLiteral("La validación de la conexión ha fallado."),
+                             QStringLiteral("Connection validation failed."),
+                             QStringLiteral("连接校验失败。"))
+                       : st.detail.trimmed();
+        }
+        if (zfsVersionTooOld(st.zfsVersion)) {
+            return trk(QStringLiteral("t_conn_color_reason_zfs_old_001"),
+                       QStringLiteral("La versión de OpenZFS es demasiado antigua (mínimo recomendado: 2.3.3)."),
+                       QStringLiteral("The OpenZFS version is too old (recommended minimum: 2.3.3)."),
+                       QStringLiteral("OpenZFS 版本过旧（建议至少 2.3.3）。"));
+        }
+        if (!st.missingUnixCommands.isEmpty()) {
+            return trk(QStringLiteral("t_conn_color_reason_cmds_001"),
+                       QStringLiteral("Faltan comandos auxiliares requeridos: %1"),
+                       QStringLiteral("Required helper commands are missing: %1"),
+                       QStringLiteral("缺少必需的辅助命令：%1"))
+                .arg(st.missingUnixCommands.join(QStringLiteral(", ")));
+        }
+        return QString();
+    };
+    auto buildConnectionStateTooltip = [this, &connectionRowColorReason](const ConnectionProfile& p, const ConnectionRuntimeState& st, bool disconnected) {
         QStringList lines;
         lines << QStringLiteral("Host: %1").arg(p.host);
         lines << QStringLiteral("Port: %1").arg(p.port);
         lines << QStringLiteral("Estado: %1").arg(st.status.trimmed().isEmpty() ? QStringLiteral("-") : st.status.trimmed());
+        const QString colorReason = connectionRowColorReason(p, st, disconnected);
+        if (!colorReason.isEmpty()) {
+            lines << QStringLiteral("Motivo del color: %1").arg(colorReason);
+        }
         lines << QStringLiteral("Sistema operativo: %1")
                      .arg(st.osLine.trimmed().isEmpty() ? QStringLiteral("-") : st.osLine.trimmed());
         lines << QStringLiteral("Método de conexión: %1")
@@ -1667,20 +1717,6 @@ void MainWindow::rebuildConnectionsTable() {
         return QStringLiteral("<pre style=\"font-family:monospace; white-space:pre;\">%1</pre>").arg(plain);
     };
     QStringList redirectedToLocalNames;
-    auto zfsVersionTooOld = [](const QString& rawVersion) -> bool {
-        const QRegularExpression rx(QStringLiteral("^(\\d+)\\.(\\d+)(?:\\.(\\d+))?"));
-        const QRegularExpressionMatch m = rx.match(rawVersion.trimmed());
-        if (!m.hasMatch()) {
-            return false;
-        }
-        const int major = m.captured(1).toInt();
-        const int minor = m.captured(2).toInt();
-        const int patch = m.captured(3).isEmpty() ? 0 : m.captured(3).toInt();
-        if (major != 2) return false;
-        if (minor < 3) return true;
-        if (minor > 3) return false;
-        return patch < 3;
-    };
     for (int i = 0; i < m_profiles.size(); ++i) {
         if (i >= m_states.size()) {
             continue;
@@ -1702,7 +1738,7 @@ void MainWindow::rebuildConnectionsTable() {
             zfsTxt = QStringLiteral("?");
         }
         QString statusTag = QStringLiteral("[Ko]");
-        QColor rowColor("#14212b");
+        QColor rowBg = m_connectionsTable->palette().base().color();
         const bool disconnected = isConnectionDisconnected(i);
         const QString st = s.status.trimmed().toUpper();
         const bool localConn = isLocalConnection(p);
@@ -1715,16 +1751,17 @@ void MainWindow::rebuildConnectionsTable() {
         }
         if (disconnected) {
             statusTag = QStringLiteral("[Off]");
-            rowColor = QColor("#8b9299");
+            rowBg = QColor(QStringLiteral("#eef1f4"));
         } else if (st == QStringLiteral("OK")) {
             statusTag = QStringLiteral("[Ok]");
-            rowColor = s.missingUnixCommands.isEmpty() ? QColor("#1f7a1f") : QColor("#c77900");
+            rowBg = s.missingUnixCommands.isEmpty() ? QColor(QStringLiteral("#e4f4e4"))
+                                                    : QColor(QStringLiteral("#fff1d9"));
             if (zfsVersionTooOld(s.zfsVersion)) {
-                rowColor = QColor("#a12a2a");
+                rowBg = QColor(QStringLiteral("#f9dfdf"));
             }
         } else if (!st.isEmpty()) {
             statusTag = QStringLiteral("[Ko]");
-            rowColor = QColor("#a12a2a");
+            rowBg = QColor(QStringLiteral("#f9dfdf"));
         }
         QString connLabel = line1;
         if (localConn) {
@@ -1738,7 +1775,13 @@ void MainWindow::rebuildConnectionsTable() {
 
         const int row = m_connectionsTable->rowCount();
         m_connectionsTable->insertRow(row);
-        const QString tooltip = buildConnectionStateTooltip(p, s);
+        const QString tooltip = buildConnectionStateTooltip(p, s, disconnected);
+        auto* showBgItem = new QTableWidgetItem();
+        showBgItem->setFlags(showBgItem->flags() & ~Qt::ItemIsEditable);
+        showBgItem->setBackground(QBrush(rowBg));
+        showBgItem->setForeground(m_connectionsTable->palette().text());
+        showBgItem->setToolTip(tooltip);
+        m_connectionsTable->setItem(row, 0, showBgItem);
 
         if (disconnected) {
             auto* label = new QLabel(
@@ -1753,11 +1796,14 @@ void MainWindow::rebuildConnectionsTable() {
             label->setToolTip(tooltip);
             label->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
             label->setMargin(6);
-            label->setStyleSheet(QStringLiteral(
-                "QLabel {"
-                " color: #8b9299;"
-                " background: transparent;"
-                " }"));
+            label->setStyleSheet(
+                QStringLiteral(
+                    "QLabel {"
+                    " color: #102233;"
+                    " background: %1;"
+                    " border: 1px solid %2;"
+                    " }")
+                    .arg(rowBg.name(), m_connectionsTable->palette().color(QPalette::Mid).name()));
             m_connectionsTable->setCellWidget(row, 0, label);
         } else {
             auto* combo = new QComboBox(m_connectionsTable);
@@ -1783,7 +1829,10 @@ void MainWindow::rebuildConnectionsTable() {
                            QStringLiteral("both"));
             combo->setProperty(kConnDisplayModeRole, i);
             combo->setToolTip(tooltip);
-            combo->setStyleSheet(QString());
+            combo->setStyleSheet(QStringLiteral(
+                "QComboBox { background: %1; color: #102233; border: 1px solid %2; padding-left: 4px; padding-right: 18px; }"
+                "QComboBox::drop-down { background: %1; border: 0px; width: 18px; }")
+                                    .arg(rowBg.name(), m_connectionsTable->palette().color(QPalette::Mid).name()));
             combo->setEnabled(true);
             m_connectionsTable->setCellWidget(row, 0, combo);
             QObject::connect(combo, &QComboBox::currentIndexChanged, m_connectionsTable, [this, combo](int) {
@@ -1797,8 +1846,8 @@ void MainWindow::rebuildConnectionsTable() {
 
         auto* it = new QTableWidgetItem(line);
         it->setData(Qt::UserRole, i);
-        it->setForeground(QBrush(rowColor));
-        it->setBackground(m_connectionsTable->palette().base());
+        it->setForeground(m_connectionsTable->palette().text());
+        it->setBackground(QBrush(rowBg));
         if (disconnected) {
             QFont f = it->font();
             f.setItalic(true);
