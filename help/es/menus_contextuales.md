@@ -40,6 +40,7 @@ Sobre dataset/snapshot seleccionado:
 - `Mostrar propiedades en línea`
 - `Mostrar Permisos en línea`
 - `Crear dataset/snapshot/vol`
+- `Renombrar`
 - `Borrar Dataset <nombre>`, `Borrar Snapshot <dataset@snapshot>` o `Borrar ZVol <nombre>` según el objetivo real
 - `Encriptación`
   - `Load key`
@@ -92,10 +93,13 @@ Sobre el encabezado de cualquiera de los treeviews:
   Los cambios se acumulan y se aplican con el botón `Aplicar cambios`.
 - La pestaña `Cambios pendientes` del panel inferior lista esos cambios en el mismo orden en que se ejecutarían.
 - Al hacer clic en una línea de `Cambios pendientes`, ZFSMgr intenta enfocar el dataset y la sección afectada (`Propiedades` o `Permisos`).
+- `Renombrar` sobre dataset, snapshot o zvol no ejecuta el cambio al momento.
+  Abre un diálogo para pedir el nuevo nombre y añade un `zfs rename` pendiente.
 - `Nuevo Hold` solo aplica a snapshots.
 - `Release <hold>` solo aparece sobre un hold o su propiedad `TimeStamp`.
 - `Encriptación` solo se habilita en datasets que son raíz de encriptación.
 - Si `keylocation=prompt`, `Load key` pide la clave y `Change key` abre una ventana para introducir la nueva clave dos veces.
 - El menú del encabezado ajusta el ancho como un doble clic sobre el separador de columnas.
 - El mismo menú del encabezado concentra también la configuración de `Columnas de propiedades`.
+- La caja `Acciones` incluye también `Mover`, que añade un `zfs rename` pendiente para mover el dataset `Origen` dentro del dataset `Destino` en el mismo pool.
 - La caja `Acciones` incluye también `Diff`, que compara un snapshot de Origen con su dataset padre actual o con otro snapshot del mismo dataset.

@@ -41,6 +41,7 @@ On selected dataset/snapshot:
 - `Show inline permissions` (check)
 - `Rollback`
 - `Create`
+- `Rename`
 - `Delete`
 - `Encryption`
 - `Select snapshot`
@@ -76,3 +77,6 @@ On a permission set:
 - The tree no longer uses intermediate `Content` or `Subdatasets` nodes.
 - The `Pending changes` tab in the lower log area lists deferred commands in execution order.
 - Clicking a `Pending changes` line makes ZFSMgr try to focus the affected dataset and section (`Properties` or `Permissions`).
+- `Rename` on a dataset, snapshot, or zvol is deferred.
+  It opens a dialog for the new name and adds a pending `zfs rename`.
+- The `Actions` box also includes `Move`, which queues a pending `zfs rename` to move the `Source` dataset under the `Target` dataset in the same pool.

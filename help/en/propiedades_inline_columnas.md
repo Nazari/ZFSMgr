@@ -25,6 +25,7 @@ ZFSMgr can show pool and dataset properties directly inside the detail trees.
 - Permission checks do not execute commands immediately.
   They update a local draft that is later applied with `Apply changes`.
 - The `Pending changes` tab also lists pending `zfs allow` / `zfs unallow` commands with a `connection::pool` prefix.
+- The same tab also lists pending `zfs rename` commands created by `Move` or `Rename`.
 
 ## Visibility
 
@@ -83,4 +84,5 @@ In snapshots, the `snapshot` property stays fixed in the first position of the m
 - Even when an inheritable property is currently inherited, its inline value editor stays usable.
   Changing the value automatically switches the draft to local mode (`inherit=off`).
 - Clicking a `Pending changes` line makes ZFSMgr try to open the affected dataset and focus the matching property or permission section.
+- If the line is a pending `zfs rename`, focus is resolved from the source object of that rename.
 - Unsupported properties are shown dimmed and cannot be edited on that platform.

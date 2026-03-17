@@ -29,6 +29,7 @@ ZFSMgr puede mostrar propiedades de dataset y pool directamente dentro de los á
 - Los checks de `Permisos` no ejecutan comandos inmediatamente.
   Modifican un borrador local y el resultado se aplica con `Aplicar cambios`.
 - La pestaña `Cambios pendientes` lista también los comandos `zfs allow` / `zfs unallow` pendientes, con prefijo `conexión::pool`.
+- La misma pestaña muestra también los `zfs rename` pendientes generados por `Mover` o `Renombrar`.
 
 ## Visualización
 
@@ -104,4 +105,5 @@ Efectos:
 - Aunque una propiedad heredable esté actualmente heredada, su editor inline de valor sigue disponible.
   Al cambiar el valor, el borrador pasa automáticamente a modo local (`inherit=off`).
 - Al hacer clic en una línea de `Cambios pendientes`, ZFSMgr intenta abrir el dataset afectado y situarse sobre la propiedad o sección correspondiente.
+- Si la línea corresponde a un `zfs rename`, el foco se intenta situar sobre el objeto origen del renombrado.
 - Seleccionar un snapshot en un dataset `filesystem` no genera cambios pendientes ni ejecuta comandos ZFS; solo cambia el contexto visual del árbol.

@@ -5,7 +5,7 @@ ZFSMgr manages connections and ZFS actions.
 - Left panel:
 - `Connections`: simple table (one row per connection) with `Source` and `Target` checks.
 - `Actions`: transfer and advanced operations.
-  Includes `Copy`, `Clone`, `Level`, `Sync`, `Break down`, `Assemble`, `From Dir`, and `To Dir`.
+  Includes `Copy`, `Clone`, `Move`, `Level`, `Sync`, `Break down`, `Assemble`, `From Dir`, and `To Dir`.
 - Right panel:
 - Top area: content tree for the connection marked as `Source`.
 - Bottom area: content tree for the connection marked as `Target`.
@@ -23,6 +23,9 @@ ZFSMgr manages connections and ZFS actions.
   - `Pending changes` for deferred commands
 - `Pending changes` shows one command per line with a `connection::pool` prefix.
 - Pending changes keep execution order.
+- `Move` does not execute immediately: it adds a pending `zfs rename` that moves the `Source` dataset under the `Target` dataset.
+  It is only enabled when both selections are datasets in the same pool and connection.
+- `Rename` from the tree context menu for dataset/snapshot/zvol is also deferred and adds a `zfs rename` entry to `Pending changes`.
 - Clicking a `Pending changes` line tries to focus the affected dataset and section.
   If the pool is visible in both trees, `Source` is preferred.
 
@@ -32,6 +35,7 @@ Navigation behavior:
 - No automatic refresh happens just for navigation.
 - Refresh runs after modifying actions or explicit refresh.
 - Before each action, both trees preserve/restore visual state (selection and node expansion, when applicable).
+- If a modification affects a pool shown in both trees, both trees are rebuilt and their state is restored.
 - Clicking an empty `Properties` node loads its children and keeps it expanded.
 - Changing `Property columns` preserves expansion of an already open `Properties` node.
 

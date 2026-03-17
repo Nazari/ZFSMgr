@@ -5,7 +5,7 @@ ZFSMgr gestiona conexiones y acciones ZFS.
 - Panel izquierdo:
 - `Conexiones`: tabla simple (una fila por conexión) con checks `Origen` y `Destino`.
 - `Acciones`: operaciones de transferencia y avanzadas.
-  Incluye `Copiar`, `Clonar`, `Diff`, `Nivelar`, `Sincronizar`, `Desglosar`, `Ensamblar`, `Desde Dir` y `Hacia Dir`.
+  Incluye `Copiar`, `Clonar`, `Mover`, `Diff`, `Nivelar`, `Sincronizar`, `Desglosar`, `Ensamblar`, `Desde Dir` y `Hacia Dir`.
 - Panel derecho:
 - Arriba: árbol de contenido de la conexión marcada como `Origen`.
 - Abajo: árbol de contenido de la conexión marcada como `Destino`.
@@ -48,6 +48,9 @@ ZFSMgr gestiona conexiones y acciones ZFS.
 - El botón `Aplicar cambios` solo se activa si hay comandos pendientes reales.
 - `Cambios pendientes` muestra un cambio por línea, con prefijo `conexión::pool`.
 - Los cambios pendientes se conservan en orden de ejecución.
+- `Mover` no ejecuta nada al instante: añade un `zfs rename` pendiente para mover el dataset de `Origen` dentro del dataset `Destino`.
+  Solo se habilita si ambos son datasets del mismo pool y la misma conexión.
+- `Renombrar` en el menú contextual de dataset/snapshot/zvol también trabaja en modo diferido y añade un `zfs rename` a `Cambios pendientes`.
 - Al hacer clic en una línea de `Cambios pendientes`, ZFSMgr intenta llevar el foco al dataset y sección afectados.
   Si el pool está visible en ambos árboles, se prioriza `Origen`.
 - `Diff` muestra sus resultados en una ventana de árbol con `Añadido`, `Borrado`, `Modificado` y `Renombrado`.
@@ -59,6 +62,7 @@ Comportamiento de navegación:
 - Se refresca al ejecutar acciones que modifican estado/datos o con refresco explícito.
 - Antes de cada acción se guarda/restaura el estado visual de ambos árboles.
   Cuando aplica, eso incluye selección, expansión de nodos y posición de scroll.
+- Si una modificación afecta a un pool mostrado en ambos árboles, ambos treeviews se reconstruyen y restauran su estado.
 - Al pinchar un nodo `Propiedades` vacío, sus hijos se cargan y el nodo queda desplegado.
 - Si cambia `Columnas de propiedades`, un nodo `Propiedades` ya desplegado conserva su expansión.
 - Si ningún check `Origen`/`Destino` está activo para un árbol, ese árbol queda vacío pero conserva cabeceras coherentes.
