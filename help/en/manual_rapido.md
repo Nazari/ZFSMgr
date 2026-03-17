@@ -18,6 +18,13 @@ ZFSMgr manages connections and ZFS actions.
 - Permission sections are shown as `Deleg.`, `New child DS`, and `Sets`.
 - Non-importable pools are also shown as root nodes so `Import` can be executed.
 - Logs: single `Combined log` panel (includes SSH/PSRP output with connection prefix).
+- The lower log area uses tabs:
+  - `Application` for the textual log
+  - `Pending changes` for deferred commands
+- `Pending changes` shows one command per line with a `connection::pool` prefix.
+- Pending changes keep execution order.
+- Clicking a `Pending changes` line tries to focus the affected dataset and section.
+  If the pool is visible in both trees, `Source` is preferred.
 
 Navigation behavior:
 
@@ -25,5 +32,7 @@ Navigation behavior:
 - No automatic refresh happens just for navigation.
 - Refresh runs after modifying actions or explicit refresh.
 - Before each action, both trees preserve/restore visual state (selection and node expansion, when applicable).
+- Clicking an empty `Properties` node loads its children and keeps it expanded.
+- Changing `Property columns` preserves expansion of an already open `Properties` node.
 
 Check "Shortcuts and states" for action enabling rules.

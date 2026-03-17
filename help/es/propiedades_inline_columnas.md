@@ -28,7 +28,7 @@ ZFSMgr puede mostrar propiedades de dataset y pool directamente dentro de los á
 - `Nuevos DS` indica qué permisos recibirá automáticamente quien cree nuevos descendientes bajo ese dataset.
 - Los checks de `Permisos` no ejecutan comandos inmediatamente.
   Modifican un borrador local y el resultado se aplica con `Aplicar cambios`.
-- El tooltip de `Aplicar cambios` incluye también los comandos `zfs allow` / `zfs unallow` pendientes.
+- La pestaña `Cambios pendientes` lista también los comandos `zfs allow` / `zfs unallow` pendientes, con prefijo `conexión::pool`.
 
 ## Visualización
 
@@ -101,4 +101,7 @@ Efectos:
 - Si una propiedad es heredable, aparece la marca `Inh.` en el nombre.
 - En ese caso la celda de valor puede incluir un control adicional `off/on` para aplicar `zfs inherit`.
 - El estado inicial de ese control refleja si la propiedad ya está heredada o no.
+- Aunque una propiedad heredable esté actualmente heredada, su editor inline de valor sigue disponible.
+  Al cambiar el valor, el borrador pasa automáticamente a modo local (`inherit=off`).
+- Al hacer clic en una línea de `Cambios pendientes`, ZFSMgr intenta abrir el dataset afectado y situarse sobre la propiedad o sección correspondiente.
 - Seleccionar un snapshot en un dataset `filesystem` no genera cambios pendientes ni ejecuta comandos ZFS; solo cambia el contexto visual del árbol.

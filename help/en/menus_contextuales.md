@@ -74,3 +74,5 @@ On a permission set:
 - Unsafe options are blocked while an action is running.
 - `Show inline properties`, `Show inline permissions`, and `Show pool information` are persisted in configuration.
 - The tree no longer uses intermediate `Content` or `Subdatasets` nodes.
+- The `Pending changes` tab in the lower log area lists deferred commands in execution order.
+- Clicking a `Pending changes` line makes ZFSMgr try to focus the affected dataset and section (`Properties` or `Permissions`).

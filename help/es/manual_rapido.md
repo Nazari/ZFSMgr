@@ -39,11 +39,17 @@ ZFSMgr gestiona conexiones y acciones ZFS.
   Ejemplos: `sharesmb` en macOS, `jailed` fuera de FreeBSD, `zoned`/`nbmand` fuera de Linux.
 - Los pools no importables también aparecen como nodo raíz para permitir `Importar`.
 - Logs: panel único `Log combinado` (incluye salida SSH/PSRP con prefijo de conexión).
+- La zona inferior del log usa pestañas:
+  - `Aplicación` para el log textual
+  - `Cambios pendientes` para los comandos diferidos
 - El encabezado de cada treeview tiene menú contextual para ajustar una columna o todas al contenido y para cambiar `Columnas de propiedades`.
 - El scroll vertical de los treeviews es suave, por píxel.
 - El menú contextual del árbol permite además mostrar u ocultar `Información del pool`, `Propiedades` y `Permisos` inline.
-- El botón `Aplicar cambios` solo se activa si hay comandos pendientes reales y su tooltip lista esos comandos.
-  Eso incluye tanto propiedades inline como cambios pendientes de `Permisos`.
+- El botón `Aplicar cambios` solo se activa si hay comandos pendientes reales.
+- `Cambios pendientes` muestra un cambio por línea, con prefijo `conexión::pool`.
+- Los cambios pendientes se conservan en orden de ejecución.
+- Al hacer clic en una línea de `Cambios pendientes`, ZFSMgr intenta llevar el foco al dataset y sección afectados.
+  Si el pool está visible en ambos árboles, se prioriza `Origen`.
 - `Diff` muestra sus resultados en una ventana de árbol con `Añadido`, `Borrado`, `Modificado` y `Renombrado`.
 
 Comportamiento de navegación:
@@ -53,6 +59,8 @@ Comportamiento de navegación:
 - Se refresca al ejecutar acciones que modifican estado/datos o con refresco explícito.
 - Antes de cada acción se guarda/restaura el estado visual de ambos árboles.
   Cuando aplica, eso incluye selección, expansión de nodos y posición de scroll.
+- Al pinchar un nodo `Propiedades` vacío, sus hijos se cargan y el nodo queda desplegado.
+- Si cambia `Columnas de propiedades`, un nodo `Propiedades` ya desplegado conserva su expansión.
 - Si ningún check `Origen`/`Destino` está activo para un árbol, ese árbol queda vacío pero conserva cabeceras coherentes.
 - `Origen` y `Destino` se persisten entre ejecuciones.
 

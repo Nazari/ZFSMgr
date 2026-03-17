@@ -90,6 +90,8 @@ Sobre el encabezado de cualquiera de los treeviews:
 - El árbol ya no usa nodos intermedios `Contenido` ni `Subdatasets`.
 - En `Permisos`, la edición de checks es diferida.
   Los cambios se acumulan y se aplican con el botón `Aplicar cambios`.
+- La pestaña `Cambios pendientes` del panel inferior lista esos cambios en el mismo orden en que se ejecutarían.
+- Al hacer clic en una línea de `Cambios pendientes`, ZFSMgr intenta enfocar el dataset y la sección afectada (`Propiedades` o `Permisos`).
 - `Nuevo Hold` solo aplica a snapshots.
 - `Release <hold>` solo aparece sobre un hold o su propiedad `TimeStamp`.
 - `Encriptación` solo se habilita en datasets que son raíz de encriptación.

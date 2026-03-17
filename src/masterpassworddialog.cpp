@@ -15,7 +15,7 @@
 #include <QIcon>
 
 #ifndef ZFSMGR_APP_VERSION
-#define ZFSMGR_APP_VERSION "0.9.7"
+#define ZFSMGR_APP_VERSION "0.9.9rc1"
 #endif
 
 namespace {

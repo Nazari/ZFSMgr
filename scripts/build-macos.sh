@@ -480,13 +480,16 @@ fi
 
 # Leer versión real de CMake ya configurada (fuente de verdad).
 if [[ -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
-  APP_VERSION="$(sed -n 's/^CMAKE_PROJECT_VERSION:STATIC=//p' "${BUILD_DIR}/CMakeCache.txt" | head -n1)"
+  APP_VERSION="$(sed -n 's/^ZFSMGR_APP_VERSION_STRING:UNINITIALIZED=//p' "${BUILD_DIR}/CMakeCache.txt" | head -n1)"
+fi
+if [[ -z "${APP_VERSION}" && -f "${SOURCE_DIR}/CMakeLists.txt" ]]; then
+  APP_VERSION="$(sed -n 's/^set(ZFSMGR_APP_VERSION_STRING \"\\([^\"]*\\)\").*/\\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
 fi
 if [[ -z "${APP_VERSION}" && -f "${SOURCE_DIR}/CMakeLists.txt" ]]; then
   APP_VERSION="$(sed -n 's/.*VERSION[[:space:]]\\([0-9][0-9.]*\\).*/\\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
 fi
 if [[ -z "${APP_VERSION}" ]]; then
-  APP_VERSION="0.9.7"
+  APP_VERSION="0.9.9rc1"
 fi
 BUNDLE_NAME="ZFSMgr-${APP_VERSION}"
 

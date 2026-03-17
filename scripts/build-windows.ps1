@@ -264,6 +264,10 @@ function Get-ProjectVersion {
     return "0.0.0"
   }
   $content = Get-Content -Raw $cmakeFile
+  $appMatch = [regex]::Match($content, 'set\s*\(\s*ZFSMGR_APP_VERSION_STRING\s+"([^"]+)"')
+  if ($appMatch.Success) {
+    return $appMatch.Groups[1].Value
+  }
   $m = [regex]::Match($content, 'project\s*\(\s*[^)]*VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)')
   if ($m.Success) {
     return $m.Groups[1].Value

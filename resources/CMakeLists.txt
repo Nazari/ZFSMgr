@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
-project(ZFSMgrQt VERSION 0.9.7 LANGUAGES CXX)
+project(ZFSMgrQt VERSION 0.9.9 LANGUAGES CXX)
 include(CTest)
+set(ZFSMGR_APP_VERSION_STRING "0.9.9rc1")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -57,7 +58,7 @@ target_link_libraries(zfsmgr_qt PRIVATE Qt6::Widgets Qt6::Core Qt6::Gui Qt6::Con
 
 target_compile_definitions(zfsmgr_qt PRIVATE
     QT_NO_KEYWORDS
-    ZFSMGR_APP_VERSION="${PROJECT_VERSION}"
+    ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
 )
 
 if(WIN32)
@@ -66,7 +67,7 @@ if(WIN32)
 endif()
 
 if(APPLE)
-    set(ZFSMGR_BUNDLE_NAME "ZFSMgr-${PROJECT_VERSION}")
+    set(ZFSMGR_BUNDLE_NAME "ZFSMgr-${ZFSMGR_APP_VERSION_STRING}")
     set(app_icns "${CMAKE_CURRENT_SOURCE_DIR}/../icons/ZFSMgr.icns")
     set_source_files_properties(${app_icns} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
     target_sources(zfsmgr_qt PRIVATE ${app_icns})
@@ -92,7 +93,7 @@ if(BUILD_TESTING)
     target_link_libraries(zfsmgr_helpers_test PRIVATE Qt6::Core Qt6::Widgets)
     target_compile_definitions(zfsmgr_helpers_test PRIVATE
         QT_NO_KEYWORDS
-        ZFSMGR_APP_VERSION="${PROJECT_VERSION}"
+        ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
     )
     add_test(NAME zfsmgr_helpers_test COMMAND zfsmgr_helpers_test)
 endif()

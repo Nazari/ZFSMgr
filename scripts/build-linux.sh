@@ -9,13 +9,17 @@ APPDIR="${PROJECT_ROOT}/AppDir"
 TOOLS_DIR="${PROJECT_ROOT}/.tools/appimage"
 ARCH="$(uname -m)"
 SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese@fc16:Descargas/z}"
-APP_VERSION="$(sed -n 's/^project(ZFSMgrQt VERSION \([0-9.]*\).*/\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
+APP_VERSION="$(sed -n 's/^set(ZFSMGR_APP_VERSION_STRING \"\\([^\"]*\\)\").*/\\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
 BUILD_APPIMAGE=0
 UPLOAD_SFTP=0
 EXTRA_ARGS=()
 
 if [[ -z "${APP_VERSION}" ]]; then
-  APP_VERSION="0.9.7"
+  APP_VERSION="$(sed -n 's/^project(ZFSMgrQt VERSION \([0-9.]*\).*/\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
+fi
+
+if [[ -z "${APP_VERSION}" ]]; then
+  APP_VERSION="0.9.9rc1"
 fi
 
 for arg in "$@"; do
