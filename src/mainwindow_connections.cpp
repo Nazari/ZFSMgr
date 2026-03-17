@@ -1619,7 +1619,6 @@ void MainWindow::rebuildConnectionsTable() {
         lines << QStringLiteral("Host: %1").arg(p.host);
         lines << QStringLiteral("Port: %1").arg(p.port);
         lines << QStringLiteral("Estado: %1").arg(st.status.trimmed().isEmpty() ? QStringLiteral("-") : st.status.trimmed());
-        lines << QStringLiteral("Detalle: %1").arg(st.detail.trimmed().isEmpty() ? QStringLiteral("-") : st.detail.trimmed());
         lines << QStringLiteral("Sistema operativo: %1")
                      .arg(st.osLine.trimmed().isEmpty() ? QStringLiteral("-") : st.osLine.trimmed());
         lines << QStringLiteral("Método de conexión: %1")

@@ -17,6 +17,7 @@
 #include <QStandardPaths>
 #include <QHBoxLayout>
 #include <QFileDialog>
+#include <QFrame>
 #include <QRegularExpression>
 
 namespace {
@@ -33,6 +34,30 @@ QString sanitizePsrpDetail(QString raw) {
     raw.replace(QStringLiteral("&quot;"), QStringLiteral("\""));
     raw.replace(QStringLiteral("&#39;"), QStringLiteral("'"));
     return raw.simplified();
+}
+
+QString oneLine(QString text) {
+    return text.replace('\n', ' ').replace('\r', ' ').simplified();
+}
+
+QString macosFlavorLabel(const QString& fullText, const QString& versionText) {
+    const QString full = fullText.trimmed();
+    if (!full.isEmpty()) {
+        return full;
+    }
+    const QString version = versionText.trimmed();
+    if (version.isEmpty()) {
+        return QStringLiteral("macOS");
+    }
+    const int major = version.section('.', 0, 0).toInt();
+    QString codename;
+    if (major == 15) {
+        codename = QStringLiteral("Sequoia");
+    } else if (major == 16) {
+        codename = QStringLiteral("Tahoe");
+    }
+    return codename.isEmpty() ? QStringLiteral("macOS %1").arg(version)
+                              : QStringLiteral("macOS %1 %2").arg(codename, version);
 }
 } // namespace
 
@@ -52,10 +77,13 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     auto* form = new QFormLayout();
 
     m_nameEdit = new QLineEdit(this);
-    m_osTypeCombo = new QComboBox(this);
-    m_osTypeCombo->addItems({QStringLiteral("Linux"), QStringLiteral("macOS"), QStringLiteral("Windows")});
+    m_osInfoLabel = new QLabel(this);
+    m_osInfoLabel->setMinimumWidth(180);
+    m_osInfoLabel->setFrameShape(QFrame::StyledPanel);
+    m_osInfoLabel->setFrameShadow(QFrame::Sunken);
+    m_osInfoLabel->setMargin(4);
     m_connTypeCombo = new QComboBox(this);
-    m_connTypeCombo->addItems({QStringLiteral("SSH")});
+    m_connTypeCombo->addItems({QStringLiteral("SSH"), QStringLiteral("PSRP")});
     auto* nameOsRow = new QWidget(this);
     auto* nameOsLayout = new QHBoxLayout(nameOsRow);
     nameOsLayout->setContentsMargins(0, 0, 0, 0);
@@ -82,7 +110,7 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     nameOsLayout->addWidget(m_nameEdit, 2);
     nameOsLayout->addSpacing(12);
     nameOsLayout->addWidget(osLbl, 0);
-    nameOsLayout->addWidget(m_osTypeCombo, 1);
+    nameOsLayout->addWidget(m_osInfoLabel, 1);
     nameOsLayout->addSpacing(12);
     nameOsLayout->addWidget(typeLbl, 0);
     nameOsLayout->addWidget(m_connTypeCombo, 1);
@@ -198,9 +226,6 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     privLayout->addStretch(1);
     form->addRow(QString(), m_privilegesRow);
 
-    connect(m_osTypeCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
-        updateConnectionModeUi();
-    });
     connect(m_connTypeCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
         updateConnectionModeUi();
     });
@@ -223,7 +248,7 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
                                           QStringLiteral("Cancelar"),
                                           QStringLiteral("Cancel"),
                                           QStringLiteral("取消")), this);
-    connect(okBtn, &QPushButton::clicked, this, &QDialog::accept);
+    connect(okBtn, &QPushButton::clicked, this, [this]() { acceptDialog(); });
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
     connect(testBtn, &QPushButton::clicked, this, [this]() {
         testConnection();
@@ -235,6 +260,7 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     root->addLayout(btnRow);
 
     updateConnectionModeUi();
+    updateDetectedOsLabel();
     if (layout()) {
         layout()->activate();
     }
@@ -244,9 +270,11 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
 void ConnectionDialog::setProfile(const ConnectionProfile& profile) {
     m_id = profile.id;
     m_nameEdit->setText(profile.name);
-    m_osTypeCombo->setCurrentText(profile.osType.isEmpty() ? QStringLiteral("Linux") : profile.osType);
-    updateConnectionModeUi();
+    m_detectedOsType = profile.osType.trimmed();
+    m_detectedOsFlavor.clear();
     m_connTypeCombo->setCurrentText(profile.connType.isEmpty() ? QStringLiteral("SSH") : profile.connType);
+    updateDetectedOsLabel();
+    updateConnectionModeUi();
     m_hostEdit->setText(profile.host);
     m_portEdit->setText(QString::number(profile.port > 0 ? profile.port : 22));
     if (m_sshFamilyCombo) {
@@ -267,7 +295,9 @@ ConnectionProfile ConnectionDialog::profile() const {
     p.id = m_id;
     p.name = m_nameEdit->text().trimmed();
     p.connType = m_connTypeCombo->currentText().trimmed();
-    p.osType = m_osTypeCombo->currentText().trimmed();
+    p.osType = (p.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0)
+                   ? QStringLiteral("Windows")
+                   : m_detectedOsType.trimmed();
     p.host = m_hostEdit->text().trimmed();
     p.port = m_portEdit->text().toInt();
     if (p.port <= 0) {
@@ -295,20 +325,6 @@ void ConnectionDialog::ensureDefaultPortForMode() {
 }
 
 void ConnectionDialog::updateConnectionModeUi() {
-    const QString osType = m_osTypeCombo->currentText().trimmed();
-    const bool isWindows = (osType.compare(QStringLiteral("Windows"), Qt::CaseInsensitive) == 0);
-    {
-        QSignalBlocker b(m_connTypeCombo);
-        const QString prev = m_connTypeCombo->currentText().trimmed().toUpper();
-        m_connTypeCombo->clear();
-        if (isWindows) {
-            m_connTypeCombo->addItems({QStringLiteral("SSH"), QStringLiteral("PSRP")});
-            m_connTypeCombo->setCurrentText(prev == QStringLiteral("PSRP") ? QStringLiteral("PSRP") : QStringLiteral("SSH"));
-        } else {
-            m_connTypeCombo->addItem(QStringLiteral("SSH"));
-            m_connTypeCombo->setCurrentText(QStringLiteral("SSH"));
-        }
-    }
     const bool psrpMode = (m_connTypeCombo->currentText().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
 
     m_keyEdit->setEnabled(!psrpMode);
@@ -340,6 +356,29 @@ void ConnectionDialog::updateConnectionModeUi() {
     }
 
     ensureDefaultPortForMode();
+    updateDetectedOsLabel();
+}
+
+void ConnectionDialog::updateDetectedOsLabel() {
+    if (!m_osInfoLabel) {
+        return;
+    }
+    const bool psrpMode = (m_connTypeCombo
+                           && m_connTypeCombo->currentText().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
+    if (psrpMode) {
+        m_osInfoLabel->setText(QStringLiteral("Windows | PSRP"));
+        return;
+    }
+    const QString osType = m_detectedOsType.trimmed();
+    const QString flavor = m_detectedOsFlavor.trimmed();
+    if (osType.isEmpty() && flavor.isEmpty()) {
+        m_osInfoLabel->setText(trk(QStringLiteral("t_os_detect_pending_001"),
+                                   QStringLiteral("Pendiente de identificar"),
+                                   QStringLiteral("Pending identification"),
+                                   QStringLiteral("待识别")));
+        return;
+    }
+    m_osInfoLabel->setText(flavor.isEmpty() ? osType : QStringLiteral("%1 | %2").arg(osType, flavor));
 }
 
 void ConnectionDialog::browsePrivateKey() {
@@ -433,6 +472,155 @@ bool ConnectionDialog::testSshConnection(const ConnectionProfile& p, QString& de
                        QStringLiteral("SSH error (exit %1)"),
                        QStringLiteral("SSH 错误（退出码 %1）")).arg(rc)
                  : err;
+    return false;
+}
+
+bool ConnectionDialog::runSshProbe(const ConnectionProfile& p,
+                                   const QString& remoteCmd,
+                                   int timeoutMs,
+                                   QString& out,
+                                   QString& err) const {
+    out.clear();
+    err.clear();
+    const bool hasPassword = !p.password.trimmed().isEmpty();
+    QString program = QStringLiteral("ssh");
+    QStringList args;
+    if (hasPassword) {
+        const QString sshpassExe = mwhelpers::findLocalExecutable(QStringLiteral("sshpass"));
+        if (!sshpassExe.isEmpty()) {
+            program = sshpassExe;
+            args << "-p" << p.password << "ssh";
+        }
+    }
+    args << "-o" << "BatchMode=yes";
+    args << "-o" << QStringLiteral("ConnectTimeout=%1").arg(qMax(3, timeoutMs / 1000));
+    args << "-o" << "LogLevel=ERROR";
+    args << "-o" << "StrictHostKeyChecking=no";
+    args << "-o" << "UserKnownHostsFile=/dev/null";
+    const QString sshFamily = p.sshAddressFamily.trimmed().toLower();
+    if (sshFamily == QStringLiteral("ipv4")) {
+        args << "-4";
+    } else if (sshFamily == QStringLiteral("ipv6")) {
+        args << "-6";
+    }
+    if (hasPassword) {
+        args << "-o" << "BatchMode=no";
+        args << "-o" << "PreferredAuthentications=password,keyboard-interactive,publickey";
+        args << "-o" << "NumberOfPasswordPrompts=1";
+    }
+    if (p.port > 0) {
+        args << "-p" << QString::number(p.port);
+    }
+    if (!p.keyPath.isEmpty()) {
+        args << "-i" << p.keyPath;
+    }
+    args << QStringLiteral("%1@%2").arg(p.username, p.host);
+    args << remoteCmd;
+
+    QProcess proc;
+    proc.start(program, args);
+    if (!proc.waitForStarted(3000)) {
+        err = trk(QStringLiteral("t_no_se_pudo_99f7f4"),
+                  QStringLiteral("No se pudo iniciar %1"),
+                  QStringLiteral("Could not start %1"),
+                  QStringLiteral("无法启动 %1")).arg(program);
+        return false;
+    }
+    if (!proc.waitForFinished(timeoutMs)) {
+        proc.kill();
+        proc.waitForFinished(1000);
+        err = trk(QStringLiteral("t_timeout_de_0509c4"),
+                  QStringLiteral("Timeout de conexión SSH"),
+                  QStringLiteral("SSH connection timeout"),
+                  QStringLiteral("SSH 连接超时"));
+        return false;
+    }
+    out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+    err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
+    return proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0;
+}
+
+bool ConnectionDialog::detectSshPlatform(const ConnectionProfile& p,
+                                         QString& osTypeOut,
+                                         QString& flavorOut,
+                                         QString& detailOut) const {
+    osTypeOut.clear();
+    flavorOut.clear();
+    detailOut.clear();
+
+    QString out;
+    QString err;
+    if (runSshProbe(p, QStringLiteral("uname -s"), 8000, out, err)) {
+        const QString uname = oneLine(out);
+        if (uname.compare(QStringLiteral("Linux"), Qt::CaseInsensitive) == 0) {
+            osTypeOut = QStringLiteral("Linux");
+            QString lOut;
+            QString lErr;
+            const QString cmd =
+                QStringLiteral("sh -lc '. /etc/os-release 2>/dev/null; printf \"%s %s\" \"$NAME\" \"$VERSION_ID\"'");
+            if (runSshProbe(p, cmd, 8000, lOut, lErr)) {
+                flavorOut = oneLine(lOut);
+            }
+            if (flavorOut.isEmpty()) {
+                flavorOut = QStringLiteral("Linux");
+            }
+            detailOut = flavorOut;
+            return true;
+        }
+        if (uname.compare(QStringLiteral("Darwin"), Qt::CaseInsensitive) == 0) {
+            osTypeOut = QStringLiteral("macOS");
+            QString mOut;
+            QString mErr;
+            QString fullText;
+            QString versionText;
+            runSshProbe(p,
+                        QStringLiteral("sh -lc 'system_profiler SPSoftwareDataType 2>/dev/null | sed -n \"s/^ *System Version: //p\" | head -1'"),
+                        10000,
+                        mOut,
+                        mErr);
+            fullText = oneLine(mOut);
+            mOut.clear();
+            mErr.clear();
+            runSshProbe(p, QStringLiteral("sw_vers -productVersion"), 8000, mOut, mErr);
+            versionText = oneLine(mOut);
+            flavorOut = macosFlavorLabel(fullText, versionText);
+            detailOut = flavorOut;
+            return true;
+        }
+        if (uname.compare(QStringLiteral("FreeBSD"), Qt::CaseInsensitive) == 0) {
+            osTypeOut = QStringLiteral("FreeBSD");
+            QString fOut;
+            QString fErr;
+            if (runSshProbe(p, QStringLiteral("freebsd-version -k || freebsd-version || uname -r"), 8000, fOut, fErr)) {
+                flavorOut = QStringLiteral("FreeBSD %1").arg(oneLine(fOut));
+            }
+            if (flavorOut.isEmpty()) {
+                flavorOut = QStringLiteral("FreeBSD");
+            }
+            detailOut = flavorOut;
+            return true;
+        }
+    }
+
+    const QString winCmd = QStringLiteral(
+        "powershell -NoProfile -NonInteractive -Command "
+        "\"$cv=Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'; "
+        "$os=Get-CimInstance Win32_OperatingSystem; "
+        "$name=$cv.ProductName; $ver=$cv.DisplayVersion; "
+        "if([string]::IsNullOrWhiteSpace($ver)){$ver=$cv.ReleaseId}; "
+        "if([string]::IsNullOrWhiteSpace($ver)){$ver=$os.Version}; "
+        "Write-Output (($name + ' ' + $ver).Trim())\"");
+    if (runSshProbe(p, winCmd, 12000, out, err)) {
+        osTypeOut = QStringLiteral("Windows");
+        flavorOut = oneLine(out);
+        if (flavorOut.isEmpty()) {
+            flavorOut = QStringLiteral("Windows");
+        }
+        detailOut = flavorOut;
+        return true;
+    }
+
+    detailOut = oneLine(err);
     return false;
 }
 
@@ -580,14 +768,33 @@ void ConnectionDialog::testConnection() {
 
     QString detail;
     if (testSshConnection(p, detail)) {
+        QString osType;
+        QString flavor;
+        QString osDetail;
+        if (detectSshPlatform(p, osType, flavor, osDetail)) {
+            m_detectedOsType = osType;
+            m_detectedOsFlavor = flavor;
+        } else {
+            m_detectedOsType.clear();
+            m_detectedOsFlavor.clear();
+        }
+        updateDetectedOsLabel();
         QMessageBox::information(this,
                                  QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_conexi_n_s_62acc8"),
-                                     QStringLiteral("Conexión SSH correcta a %1@%2:%3"),
-                                     QStringLiteral("SSH connection successful to %1@%2:%3"),
-                                     QStringLiteral("SSH 连接成功：%1@%2:%3"))
+                                     QStringLiteral("Conexión SSH correcta a %1@%2:%3\nSistema: %4"),
+                                     QStringLiteral("SSH connection successful to %1@%2:%3\nSystem: %4"),
+                                     QStringLiteral("SSH 连接成功：%1@%2:%3\n系统：%4"))
                                      .arg(p.username, p.host)
-                                     .arg(p.port));
+                                     .arg(p.port)
+                                     .arg(m_detectedOsFlavor.isEmpty()
+                                              ? (m_detectedOsType.isEmpty()
+                                                     ? trk(QStringLiteral("t_os_detect_pending_001"),
+                                                           QStringLiteral("Pendiente de identificar"),
+                                                           QStringLiteral("Pending identification"),
+                                                           QStringLiteral("待识别"))
+                                                     : m_detectedOsType)
+                                              : QStringLiteral("%1 | %2").arg(m_detectedOsType, m_detectedOsFlavor)));
         return;
     }
     if (!p.password.trimmed().isEmpty() && mwhelpers::findLocalExecutable(QStringLiteral("sshpass")).isEmpty()) {
@@ -599,6 +806,43 @@ void ConnectionDialog::testConnection() {
                               QStringLiteral("Fallo en prueba SSH:\n%1"),
                               QStringLiteral("SSH test failed:\n%1"),
                               QStringLiteral("SSH 测试失败：\n%1")).arg(detail));
+}
+
+void ConnectionDialog::acceptDialog() {
+    if (m_connTypeCombo
+        && m_connTypeCombo->currentText().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0) {
+        ConnectionProfile p = profile();
+        if (p.host.isEmpty() || p.username.isEmpty()) {
+            QMessageBox::warning(this,
+                                 QStringLiteral("ZFSMgr"),
+                                 trk(QStringLiteral("t_complete_a_77b969"),
+                                     QStringLiteral("Complete al menos Host y Usuario para probar la conexión."),
+                                     QStringLiteral("Fill at least Host and User to test the connection."),
+                                     QStringLiteral("至少填写主机和用户后再测试连接。")));
+            return;
+        }
+        QString osType;
+        QString flavor;
+        QString detail;
+        if (!detectSshPlatform(p, osType, flavor, detail)) {
+            QMessageBox::warning(this,
+                                 QStringLiteral("ZFSMgr"),
+                                 trk(QStringLiteral("t_detect_os_fail_001"),
+                                     QStringLiteral("No se pudo identificar el sistema operativo remoto por SSH.\nPruebe la conexión antes de guardar.\n\n%1"),
+                                     QStringLiteral("Could not identify the remote operating system over SSH.\nTest the connection before saving.\n\n%1"),
+                                     QStringLiteral("无法通过 SSH 识别远程操作系统。\n请先测试连接再保存。\n\n%1"))
+                                     .arg(detail));
+            return;
+        }
+        m_detectedOsType = osType;
+        m_detectedOsFlavor = flavor;
+        updateDetectedOsLabel();
+    } else {
+        m_detectedOsType = QStringLiteral("Windows");
+        m_detectedOsFlavor = QStringLiteral("Windows");
+        updateDetectedOsLabel();
+    }
+    accept();
 }
 
 QString ConnectionDialog::trk(const QString& key,

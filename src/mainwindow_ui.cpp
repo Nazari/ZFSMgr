@@ -3433,6 +3433,11 @@ void MainWindow::buildUi() {
                         refreshDatasetProperties(QStringLiteral("conncontent"));
                     }
                     item->setExpanded(true);
+                    QTimer::singleShot(0, tree, [item]() {
+                        if (item) {
+                            item->setExpanded(true);
+                        }
+                    });
                     m_connContentTree = prevTree;
                     m_connContentToken = prevToken;
                 });
@@ -3533,6 +3538,14 @@ void MainWindow::buildUi() {
                     }
                 } else {
                     refreshDatasetProperties(QStringLiteral("conncontent"));
+                    if (isLazyPropsNode && sel) {
+                        sel->setExpanded(true);
+                        QTimer::singleShot(0, m_bottomConnContentTree, [sel]() {
+                            if (sel) {
+                                sel->setExpanded(true);
+                            }
+                        });
+                    }
                     syncConnContentPropertyColumns();
                 }
                 const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("conncontent"));
@@ -4841,6 +4854,11 @@ void MainWindow::buildUi() {
                         refreshDatasetProperties(QStringLiteral("conncontent"));
                     }
                     item->setExpanded(true);
+                    QTimer::singleShot(0, tree, [item]() {
+                        if (item) {
+                            item->setExpanded(true);
+                        }
+                    });
                     m_connContentToken = prevToken;
                 });
                 return;
@@ -4932,6 +4950,14 @@ void MainWindow::buildUi() {
                     }
                 } else {
                     refreshDatasetProperties(QStringLiteral("conncontent"));
+                    if (isLazyPropsNode && sel) {
+                        sel->setExpanded(true);
+                        QTimer::singleShot(0, m_connContentTree, [sel]() {
+                            if (sel) {
+                                sel->setExpanded(true);
+                            }
+                        });
+                    }
                     syncConnContentPropertyColumns();
                 }
                 const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("conncontent"));

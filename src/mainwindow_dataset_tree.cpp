@@ -1342,6 +1342,8 @@ void MainWindow::syncConnContentPropertyColumns() {
         return;
     }
     QTreeWidgetItem* propsNode = nullptr;
+    bool propsNodeWasExpanded = false;
+    bool shouldExpandPropsNode = false;
     for (int i = 0; i < sel->childCount(); ++i) {
         QTreeWidgetItem* child = sel->child(i);
         if (!child || !child->data(0, kConnPropGroupNodeRole).toBool()) {
@@ -1353,6 +1355,7 @@ void MainWindow::syncConnContentPropertyColumns() {
                                                QStringLiteral("Properties"),
                                                QStringLiteral("属性"))) {
             propsNode = child;
+            propsNodeWasExpanded = child->isExpanded();
             break;
         }
     }
@@ -1368,6 +1371,7 @@ void MainWindow::syncConnContentPropertyColumns() {
         propsNode->setData(0, kPoolNameRole, itemPool);
         sel->insertChild(insertAt++, propsNode);
     }
+    shouldExpandPropsNode = propsNodeWasExpanded || tree->currentItem() == propsNode;
     appendPropRows(propsNode,
                    QString(),
                    mainProps,
@@ -1455,7 +1459,7 @@ void MainWindow::syncConnContentPropertyColumns() {
     for (int i = 0; i < tree->topLevelItemCount(); ++i) {
         refreshVisiblePermissionsNodes(refreshVisiblePermissionsNodes, tree->topLevelItem(i));
     }
-    propsNode->setExpanded(false);
+    propsNode->setExpanded(shouldExpandPropsNode);
     refreshDatasetExpansionIndicators(tree);
     sel->setExpanded(true);
     resizeTreeColumnsToVisibleContent(tree);
