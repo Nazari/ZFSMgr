@@ -97,6 +97,24 @@ QString pendingChangeLastQuotedArg(const QString& text) {
     return text.mid(prevQuote + 1, lastQuote - prevQuote - 1).trimmed();
 }
 
+QString pendingChangeFirstQuotedArg(const QString& text) {
+    const int firstQuote = text.indexOf(QLatin1Char('\''));
+    if (firstQuote < 0) {
+        return QString();
+    }
+    const int nextQuote = text.indexOf(QLatin1Char('\''), firstQuote + 1);
+    if (nextQuote <= firstQuote) {
+        return QString();
+    }
+    return text.mid(firstQuote + 1, nextQuote - firstQuote - 1).trimmed();
+}
+
+QString datasetLeafNameUi(const QString& datasetName) {
+    const QString trimmed = datasetName.trimmed();
+    const int slash = trimmed.lastIndexOf(QLatin1Char('/'));
+    return (slash >= 0) ? trimmed.mid(slash + 1) : trimmed;
+}
+
 class ConnContentPropBorderDelegate final : public QStyledItemDelegate {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
@@ -515,10 +533,16 @@ bool MainWindow::focusPendingChangeLine(const QString& line) {
         return false;
     }
 
-    const QString datasetName = pendingChangeLastQuotedArg(cmd);
-    if (datasetName.isEmpty()) {
+    const QString objectName =
+        cmd.startsWith(QStringLiteral("zfs rename "), Qt::CaseInsensitive)
+            ? pendingChangeFirstQuotedArg(cmd)
+            : pendingChangeLastQuotedArg(cmd);
+    if (objectName.isEmpty()) {
         return false;
     }
+    const int objectAt = objectName.indexOf(QLatin1Char('@'));
+    const QString datasetName = (objectAt > 0) ? objectName.left(objectAt).trimmed() : objectName.trimmed();
+    const QString snapshotName = (objectAt > 0) ? objectName.mid(objectAt + 1).trimmed() : QString();
     auto findDatasetNode = [&](QTreeWidgetItem* node, auto&& self) -> QTreeWidgetItem* {
         if (!node) {
             return nullptr;
@@ -558,6 +582,12 @@ bool MainWindow::focusPendingChangeLine(const QString& line) {
     syncConnContentPropertyColumns();
     datasetItem->setExpanded(true);
     targetTree->scrollToItem(datasetItem, QAbstractItemView::PositionAtCenter);
+    if (!snapshotName.isEmpty()) {
+        m_connContentTree = prevTree;
+        m_connContentToken = prevToken;
+        targetTree->setFocus();
+        return true;
+    }
 
     auto findChild = [](QTreeWidgetItem* parent, auto&& pred) -> QTreeWidgetItem* {
         if (!parent) {
@@ -1256,6 +1286,12 @@ void MainWindow::buildUi() {
         trk(QStringLiteral("t_clone_btn_001"),
             QStringLiteral("Clonar")),
         connActionRightBox);
+    m_btnConnMove = new QPushButton(
+        trk(QStringLiteral("t_move_btn_001"),
+            QStringLiteral("Mover"),
+            QStringLiteral("Move"),
+            QStringLiteral("移动")),
+        connActionRightBox);
     m_btnConnDiff = new QPushButton(
         trk(QStringLiteral("t_diff_btn_001"),
             QStringLiteral("Diff")),
@@ -1284,6 +1320,14 @@ void MainWindow::buildUi() {
         trk(QStringLiteral("t_tt_clone_001"),
             QStringLiteral("Clona un snapshot sobre un dataset destino en la misma conexión y el mismo pool.\n"
                            "Requiere: snapshot seleccionado en Origen y dataset seleccionado en Destino.")));
+    m_btnConnMove->setToolTip(
+        trk(QStringLiteral("t_tt_move_001"),
+            QStringLiteral("Añade un zfs rename pendiente para mover el dataset Origen dentro del dataset Destino.\n"
+                           "Requiere: dataset seleccionado en Origen y Destino, misma conexión y mismo pool."),
+            QStringLiteral("Queue a pending zfs rename to move the Source dataset under the Target dataset.\n"
+                           "Requires: dataset selected in Source and Target, same connection and same pool."),
+            QStringLiteral("添加一个待处理的 zfs rename，将来源数据集移动到目标数据集下面。\n"
+                           "条件：来源和目标都选择数据集，且属于同一连接和同一存储池。")));
     m_btnConnDiff->setToolTip(
         trk(QStringLiteral("t_tt_diff_001"),
             QStringLiteral("Compara un snapshot de Origen con su dataset padre actual o con otro snapshot del mismo dataset,\n"
@@ -1307,12 +1351,14 @@ void MainWindow::buildUi() {
     m_btnApplyConnContentProps->setMinimumHeight(stdLeftBtnH);
     m_btnConnCopy->setMinimumHeight(stdLeftBtnH);
     m_btnConnClone->setMinimumHeight(stdLeftBtnH);
+    m_btnConnMove->setMinimumHeight(stdLeftBtnH);
     m_btnConnDiff->setMinimumHeight(stdLeftBtnH);
     m_btnConnLevel->setMinimumHeight(stdLeftBtnH);
     m_btnConnSync->setMinimumHeight(stdLeftBtnH);
     m_btnApplyConnContentProps->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_btnConnCopy->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnClone->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_btnConnMove->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnDiff->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnLevel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnSync->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -1325,8 +1371,9 @@ void MainWindow::buildUi() {
     connRightBtns->addWidget(m_btnConnSync, 0, 0);
     connRightBtns->addWidget(m_btnConnCopy, 0, 1);
     connRightBtns->addWidget(m_btnConnClone, 1, 0);
-    connRightBtns->addWidget(m_btnConnLevel, 1, 1);
-    connRightBtns->addWidget(m_btnConnDiff, 2, 0, 1, 2);
+    connRightBtns->addWidget(m_btnConnMove, 1, 1);
+    connRightBtns->addWidget(m_btnConnLevel, 2, 0);
+    connRightBtns->addWidget(m_btnConnDiff, 2, 1);
     connActionRightLayout->addLayout(connRightBtns);
     connActionsLayout->addWidget(connActionRightBox, 1);
     connLayout->addWidget(m_connActionsBox, 0);
@@ -1762,25 +1809,14 @@ void MainWindow::buildUi() {
     installTreeHeaderContextMenu(m_connContentTree);
     installTreeHeaderContextMenu(m_bottomConnContentTree);
     auto* bottomConnOverlayHost = new QWidget(bottomConnBox);
-    auto* bottomConnOverlayLayout = new QStackedLayout(bottomConnOverlayHost);
-    bottomConnOverlayLayout->setStackingMode(QStackedLayout::StackAll);
+    auto* bottomConnOverlayLayout = new QGridLayout(bottomConnOverlayHost);
     bottomConnOverlayLayout->setContentsMargins(0, 0, 0, 0);
-    bottomConnOverlayLayout->addWidget(m_bottomConnContentTree);
-    auto* bottomConnOverlay = new QWidget(bottomConnOverlayHost);
-    bottomConnOverlay->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-    bottomConnOverlay->setStyleSheet(QStringLiteral("background: transparent;"));
-    auto* bottomConnOverlayButtons = new QVBoxLayout(bottomConnOverlay);
-    bottomConnOverlayButtons->setContentsMargins(0, 0, 10, 10);
-    bottomConnOverlayButtons->addStretch(1);
-    auto* bottomConnOverlayRow = new QHBoxLayout();
-    bottomConnOverlayRow->setContentsMargins(0, 0, 0, 0);
-    bottomConnOverlayRow->addStretch(1);
+    bottomConnOverlayLayout->setSpacing(0);
+    bottomConnOverlayLayout->addWidget(m_bottomConnContentTree, 0, 0);
+    m_btnApplyConnContentProps->setParent(bottomConnOverlayHost);
     m_btnApplyConnContentProps->setAttribute(Qt::WA_TransparentForMouseEvents, false);
-    bottomConnOverlayRow->addWidget(m_btnApplyConnContentProps, 0, Qt::AlignRight | Qt::AlignBottom);
-    bottomConnOverlayButtons->addLayout(bottomConnOverlayRow);
-    bottomConnOverlayLayout->addWidget(bottomConnOverlay);
-    bottomConnOverlay->show();
-    bottomConnOverlay->raise();
+    bottomConnOverlayLayout->addWidget(m_btnApplyConnContentProps, 0, 0, Qt::AlignRight | Qt::AlignBottom);
+    bottomConnOverlayLayout->setContentsMargins(0, 0, 10, 10);
     m_btnApplyConnContentProps->show();
     m_btnApplyConnContentProps->raise();
     bottomConnLayout->addWidget(bottomConnOverlayHost, 1);
@@ -4358,6 +4394,11 @@ void MainWindow::buildUi() {
                     QStringLiteral("Crear dataset/snapshot/vol"),
                     QStringLiteral("Create dataset/snapshot/vol"),
                     QStringLiteral("创建 dataset/snapshot/vol")));
+            QAction* aRename = menu.addAction(
+                trk(QStringLiteral("t_ctx_rename_001"),
+                    QStringLiteral("Renombrar"),
+                    QStringLiteral("Rename"),
+                    QStringLiteral("重命名")));
             QAction* aDelete = menu.addAction(
                 deleteLabelForItem(connIdx, poolName, item));
             QMenu* mEncryption = menu.addMenu(QStringLiteral("Encriptación"));
@@ -4455,6 +4496,7 @@ void MainWindow::buildUi() {
             aManage->setEnabled(hasConnSel);
             aRollback->setEnabled(!actionsLocked() && hasConnSnap);
             aCreate->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
+            aRename->setEnabled(!actionsLocked() && hasConnSel);
             aNewHold->setEnabled(!actionsLocked() && hasConnSnap);
             aReleaseHold->setEnabled(!actionsLocked() && hasConnSnap && isSnapshotHoldContext);
             aDelete->setEnabled(!actionsLocked() && hasConnSel);
@@ -4581,6 +4623,75 @@ void MainWindow::buildUi() {
             } else if (picked == aCreate) {
                 logUiAction(QStringLiteral("Crear hijo dataset (menú Contenido inferior)"));
                 actionCreateChildDataset(QStringLiteral("conncontent"));
+            } else if (picked == aRename) {
+                const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("conncontent"));
+                if (!actx.valid || actx.datasetName.trimmed().isEmpty()) {
+                    m_connContentTree = prevTree;
+                    m_connContentToken = prevToken;
+                    return;
+                }
+                const bool isSnapshot = !actx.snapshotName.trimmed().isEmpty();
+                const QString currentObject = isSnapshot
+                    ? QStringLiteral("%1@%2").arg(actx.datasetName.trimmed(), actx.snapshotName.trimmed())
+                    : actx.datasetName.trimmed();
+                const QString currentLeaf = isSnapshot ? actx.snapshotName.trimmed() : datasetLeafNameUi(actx.datasetName);
+                bool ok = false;
+                const QString newLeaf = QInputDialog::getText(
+                    this,
+                    trk(QStringLiteral("t_ctx_rename_001"),
+                        QStringLiteral("Renombrar"),
+                        QStringLiteral("Rename"),
+                        QStringLiteral("重命名")),
+                    trk(QStringLiteral("t_new_name_001"),
+                        QStringLiteral("Nuevo nombre"),
+                        QStringLiteral("New name"),
+                        QStringLiteral("新名称")),
+                    QLineEdit::Normal,
+                    currentLeaf,
+                    &ok).trimmed();
+                if (!ok || newLeaf.isEmpty() || newLeaf == currentLeaf) {
+                    m_connContentTree = prevTree;
+                    m_connContentToken = prevToken;
+                    return;
+                }
+                if (newLeaf.contains(QLatin1Char('/')) || newLeaf.contains(QLatin1Char('@'))) {
+                    QMessageBox::warning(
+                        this,
+                        QStringLiteral("ZFSMgr"),
+                        trk(QStringLiteral("t_invalid_ds_name_001"),
+                            QStringLiteral("El nuevo nombre no puede contener '/' ni '@'."),
+                            QStringLiteral("The new name cannot contain '/' or '@'."),
+                            QStringLiteral("新名称不能包含“/”或“@”。")));
+                    m_connContentTree = prevTree;
+                    m_connContentToken = prevToken;
+                    return;
+                }
+                const QString parentName = mwhelpers::parentDatasetName(actx.datasetName.trimmed());
+                if (!isSnapshot && parentName.isEmpty()) {
+                    QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                                         trk(QStringLiteral("t_invalid_ds_target_001"),
+                                             QStringLiteral("El nuevo nombre no puede aplicarse a este dataset."),
+                                             QStringLiteral("The new name cannot be applied to this dataset."),
+                                             QStringLiteral("该新名称无法应用到此数据集。")));
+                    m_connContentTree = prevTree;
+                    m_connContentToken = prevToken;
+                    return;
+                }
+                const QString targetObject = isSnapshot
+                    ? QStringLiteral("%1@%2").arg(actx.datasetName.trimmed(), newLeaf)
+                    : QStringLiteral("%1/%2").arg(parentName, newLeaf);
+                QString errorText;
+                if (!queuePendingDatasetRename(PendingDatasetRenameDraft{actx.connIdx, actx.poolName, currentObject, targetObject},
+                                               &errorText)) {
+                    QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+                    m_connContentTree = prevTree;
+                    m_connContentToken = prevToken;
+                    return;
+                }
+                updateApplyPropsButtonState();
+                m_connContentTree = prevTree;
+                m_connContentToken = prevToken;
+                return;
             } else if (picked == aDelete) {
                 logUiAction(QStringLiteral("Borrar dataset/snapshot (menú Contenido inferior)"));
                 actionDeleteDatasetOrSnapshot(QStringLiteral("conncontent"));
@@ -5744,6 +5855,11 @@ void MainWindow::buildUi() {
                     QStringLiteral("Crear dataset/snapshot/vol"),
                     QStringLiteral("Create dataset/snapshot/vol"),
                     QStringLiteral("创建 dataset/snapshot/vol")));
+            QAction* aRename = menu.addAction(
+                trk(QStringLiteral("t_ctx_rename_001"),
+                    QStringLiteral("Renombrar"),
+                    QStringLiteral("Rename"),
+                    QStringLiteral("重命名")));
             QAction* aDelete = menu.addAction(
                 deleteLabelForItem(item));
             QMenu* mEncryption = menu.addMenu(QStringLiteral("Encriptación"));
@@ -5837,6 +5953,7 @@ void MainWindow::buildUi() {
             aManage->setEnabled(hasConnSel);
             aRollback->setEnabled(!actionsLocked() && hasConnSnap);
             aCreate->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
+            aRename->setEnabled(!actionsLocked() && hasConnSel);
             aNewHold->setEnabled(!actionsLocked() && hasConnSnap);
             aReleaseHold->setEnabled(!actionsLocked() && hasConnSnap && isSnapshotHoldContext);
             aDelete->setEnabled(!actionsLocked() && hasConnSel);
@@ -5943,6 +6060,63 @@ void MainWindow::buildUi() {
             } else if (picked == aCreate) {
                 logUiAction(QStringLiteral("Crear hijo dataset (menú Contenido)"));
                 actionCreateChildDataset(QStringLiteral("conncontent"));
+            } else if (picked == aRename) {
+                const DatasetSelectionContext actx = currentDatasetSelection(QStringLiteral("conncontent"));
+                if (!actx.valid || actx.datasetName.trimmed().isEmpty()) {
+                    return;
+                }
+                const bool isSnapshot = !actx.snapshotName.trimmed().isEmpty();
+                const QString currentObject = isSnapshot
+                    ? QStringLiteral("%1@%2").arg(actx.datasetName.trimmed(), actx.snapshotName.trimmed())
+                    : actx.datasetName.trimmed();
+                const QString currentLeaf = isSnapshot ? actx.snapshotName.trimmed() : datasetLeafNameUi(actx.datasetName);
+                bool ok = false;
+                const QString newLeaf = QInputDialog::getText(
+                    this,
+                    trk(QStringLiteral("t_ctx_rename_001"),
+                        QStringLiteral("Renombrar"),
+                        QStringLiteral("Rename"),
+                        QStringLiteral("重命名")),
+                    trk(QStringLiteral("t_new_name_001"),
+                        QStringLiteral("Nuevo nombre"),
+                        QStringLiteral("New name"),
+                        QStringLiteral("新名称")),
+                    QLineEdit::Normal,
+                    currentLeaf,
+                    &ok).trimmed();
+                if (!ok || newLeaf.isEmpty() || newLeaf == currentLeaf) {
+                    return;
+                }
+                if (newLeaf.contains(QLatin1Char('/')) || newLeaf.contains(QLatin1Char('@'))) {
+                    QMessageBox::warning(
+                        this,
+                        QStringLiteral("ZFSMgr"),
+                        trk(QStringLiteral("t_invalid_ds_name_001"),
+                            QStringLiteral("El nuevo nombre no puede contener '/' ni '@'."),
+                            QStringLiteral("The new name cannot contain '/' or '@'."),
+                            QStringLiteral("新名称不能包含“/”或“@”。")));
+                    return;
+                }
+                const QString parentName = mwhelpers::parentDatasetName(actx.datasetName.trimmed());
+                if (!isSnapshot && parentName.isEmpty()) {
+                    QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                                         trk(QStringLiteral("t_invalid_ds_target_001"),
+                                             QStringLiteral("El nuevo nombre no puede aplicarse a este dataset."),
+                                             QStringLiteral("The new name cannot be applied to this dataset."),
+                                             QStringLiteral("该新名称无法应用到此数据集。")));
+                    return;
+                }
+                const QString targetObject = isSnapshot
+                    ? QStringLiteral("%1@%2").arg(actx.datasetName.trimmed(), newLeaf)
+                    : QStringLiteral("%1/%2").arg(parentName, newLeaf);
+                QString errorText;
+                if (!queuePendingDatasetRename(PendingDatasetRenameDraft{actx.connIdx, actx.poolName, currentObject, targetObject},
+                                               &errorText)) {
+                    QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+                    return;
+                }
+                updateApplyPropsButtonState();
+                return;
             } else if (picked == aDelete) {
                 logUiAction(QStringLiteral("Borrar dataset/snapshot (menú Contenido)"));
                 actionDeleteDatasetOrSnapshot(QStringLiteral("conncontent"));
@@ -6010,6 +6184,7 @@ void MainWindow::buildUi() {
     }
     if (m_btnApplyConnContentProps) {
         connect(m_btnApplyConnContentProps, &QPushButton::clicked, this, [this]() {
+            logUiAction(QStringLiteral("Aplicar cambios (botón flotante)"));
             applyDatasetPropertyChanges();
         });
     }
@@ -6158,6 +6333,21 @@ void MainWindow::buildUi() {
             m_activeConnActionName.clear();
             updateConnectionActionsState();
         }
+    });
+    connect(m_btnConnMove, &QPushButton::clicked, this, [this]() {
+        if (actionsLocked()) {
+            return;
+        }
+        m_activeConnActionBtn = m_btnConnMove;
+        m_activeConnActionName = trk(QStringLiteral("t_move_btn_001"),
+                                     QStringLiteral("Mover"),
+                                     QStringLiteral("Move"),
+                                     QStringLiteral("移动"));
+        logUiAction(QStringLiteral("Mover dataset (botón Conexiones)"));
+        executeConnectionTransferAction(QStringLiteral("move"));
+        m_activeConnActionBtn = nullptr;
+        m_activeConnActionName.clear();
+        updateConnectionActionsState();
     });
     connect(m_btnConnDiff, &QPushButton::clicked, this, [this]() {
         if (actionsLocked()) {

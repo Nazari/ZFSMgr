@@ -122,6 +122,13 @@ private:
         bool dirty{false};
     };
 
+    struct PendingDatasetRenameDraft {
+        int connIdx{-1};
+        QString poolName;
+        QString sourceName;
+        QString targetName;
+    };
+
     struct PoolDetailsCacheEntry {
         bool loaded{false};
         QVector<QStringList> propsRows; // property,value,source
@@ -258,6 +265,8 @@ private:
     QString datasetPropsCachePrefix(int connIdx, const QString& poolName) const;
     QString datasetPropsCacheKey(int connIdx, const QString& poolName, const QString& objectName) const;
     QString datasetPermissionsCacheKey(int connIdx, const QString& poolName, const QString& datasetName) const;
+    QString pendingDatasetRenameCommand(const PendingDatasetRenameDraft& draft) const;
+    bool queuePendingDatasetRename(const PendingDatasetRenameDraft& draft, QString* errorOut = nullptr);
     QStringList pendingConnContentApplyCommands() const;
     void activatePendingChangeAtCursor();
     bool focusPendingChangeLine(const QString& line);
@@ -462,6 +471,7 @@ private:
     QPushButton* m_poolStatusDestroyBtn{nullptr};
     QStackedWidget* m_rightStack{nullptr};
     QPushButton* m_btnApplyConnContentProps{nullptr};
+    QPushButton* m_btnConnMove{nullptr};
     QPushButton* m_btnAdvancedBreakdown{nullptr};
     QPushButton* m_btnAdvancedAssemble{nullptr};
     QPushButton* m_btnAdvancedFromDir{nullptr};
@@ -486,6 +496,7 @@ private:
     QMap<QString, bool> m_propsOriginalInherit;
     bool m_propsDirty{false};
     QMap<QString, DatasetPropsDraft> m_propsDraftByKey;
+    QVector<PendingDatasetRenameDraft> m_pendingDatasetRenameDrafts;
     bool m_loadingPropsTable{false};
     bool m_loadingDatasetTrees{false};
     QString m_language{QStringLiteral("es")};

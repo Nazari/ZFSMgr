@@ -365,6 +365,51 @@ QString MainWindow::datasetPropsCacheKey(int connIdx, const QString& poolName, c
     return prefix + objectName.trimmed().toLower();
 }
 
+QString MainWindow::pendingDatasetRenameCommand(const PendingDatasetRenameDraft& draft) const {
+    return QStringLiteral("zfs rename %1 %2")
+        .arg(shSingleQuote(draft.sourceName.trimmed()),
+             shSingleQuote(draft.targetName.trimmed()));
+}
+
+bool MainWindow::queuePendingDatasetRename(const PendingDatasetRenameDraft& draft, QString* errorOut) {
+    auto fail = [errorOut](const QString& text) {
+        if (errorOut) {
+            *errorOut = text;
+        }
+        return false;
+    };
+    if (draft.connIdx < 0 || draft.connIdx >= m_profiles.size()) {
+        return fail(QStringLiteral("Conexión inválida para renombrado pendiente."));
+    }
+    const QString poolName = draft.poolName.trimmed();
+    const QString sourceName = draft.sourceName.trimmed();
+    const QString targetName = draft.targetName.trimmed();
+    if (poolName.isEmpty() || sourceName.isEmpty() || targetName.isEmpty()) {
+        return fail(QStringLiteral("Faltan datos para crear el renombrado pendiente."));
+    }
+    if (sourceName.compare(targetName, Qt::CaseInsensitive) == 0) {
+        return fail(QStringLiteral("El origen y el destino del renombrado son iguales."));
+    }
+
+    for (int i = m_pendingDatasetRenameDrafts.size() - 1; i >= 0; --i) {
+        const PendingDatasetRenameDraft& existing = m_pendingDatasetRenameDrafts.at(i);
+        if (existing.connIdx != draft.connIdx
+            || existing.poolName.trimmed().compare(poolName, Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+        if (existing.targetName.trimmed().compare(targetName, Qt::CaseInsensitive) == 0
+            && existing.sourceName.trimmed().compare(sourceName, Qt::CaseInsensitive) != 0) {
+            return fail(QStringLiteral("Ya existe un renombrado pendiente hacia %1.").arg(targetName));
+        }
+        if (existing.sourceName.trimmed().compare(sourceName, Qt::CaseInsensitive) == 0) {
+            m_pendingDatasetRenameDrafts.removeAt(i);
+        }
+    }
+
+    m_pendingDatasetRenameDrafts.push_back(PendingDatasetRenameDraft{draft.connIdx, poolName, sourceName, targetName});
+    return true;
+}
+
 void MainWindow::refreshDatasetProperties(const QString& side) {
     beginTransientUiBusy(QStringLiteral("Leyendo propiedades..."));
     auto saveCurrentDraft = [this]() {
@@ -916,7 +961,7 @@ void MainWindow::applyDatasetPropertyChanges() {
             break;
         }
     }
-    if (m_propsSide == QStringLiteral("conncontent") || hasPendingPermissionDrafts) {
+    if (m_propsSide == QStringLiteral("conncontent") || hasPendingPermissionDrafts || !m_pendingDatasetRenameDrafts.isEmpty()) {
         auto saveCurrentConnContentDraft = [this]() {
             if (m_propsDataset.isEmpty() || m_propsToken.isEmpty() || !m_connContentPropsTable) {
                 return;
@@ -1165,6 +1210,85 @@ void MainWindow::applyDatasetPropertyChanges() {
             }
             return nullptr;
         };
+        auto refreshConncontentToken = [this](const QString& token, const QString& datasetToSelect) {
+            const int sep2 = token.indexOf(QStringLiteral("::"));
+            if (sep2 <= 0) {
+                return;
+            }
+            bool okConn = false;
+            const int connIdx = token.left(sep2).toInt(&okConn);
+            const QString poolName = token.mid(sep2 + 2);
+            if (!okConn || connIdx < 0 || poolName.isEmpty()) {
+                return;
+            }
+            auto refreshOneTree = [this, connIdx, &poolName, &datasetToSelect](QTreeWidget* tree, const QString& tokenForTree) {
+                if (!tree || tokenForTree != QStringLiteral("%1::%2").arg(connIdx).arg(poolName)) {
+                    return false;
+                }
+                const QString prevToken = m_connContentToken;
+                QTreeWidget* prevTree = m_connContentTree;
+                m_connContentTree = tree;
+                m_connContentToken = tokenForTree;
+                saveConnContentTreeState(tokenForTree);
+                populateDatasetTree(tree, connIdx, poolName, QStringLiteral("conncontent"), true);
+                if (!datasetToSelect.trimmed().isEmpty()) {
+                    auto findInTree = [](QTreeWidget* tw, const QString& ds) -> QTreeWidgetItem* {
+                        std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* n) -> QTreeWidgetItem* {
+                            if (!n) {
+                                return nullptr;
+                            }
+                            if (n->data(0, Qt::UserRole).toString().trimmed() == ds.trimmed()) {
+                                return n;
+                            }
+                            for (int i = 0; i < n->childCount(); ++i) {
+                                if (QTreeWidgetItem* found = rec(n->child(i))) {
+                                    return found;
+                                }
+                            }
+                            return nullptr;
+                        };
+                        if (!tw) {
+                            return nullptr;
+                        }
+                        for (int i = 0; i < tw->topLevelItemCount(); ++i) {
+                            if (QTreeWidgetItem* found = rec(tw->topLevelItem(i))) {
+                                return found;
+                            }
+                        }
+                        return nullptr;
+                    };
+                    if (QTreeWidgetItem* item = findInTree(tree, datasetToSelect)) {
+                        tree->setCurrentItem(item);
+                    }
+                }
+                refreshDatasetProperties(QStringLiteral("conncontent"));
+                m_connContentTree = prevTree;
+                m_connContentToken = prevToken;
+                return true;
+            };
+            const QString topToken = m_connContentToken;
+            const int bIdx = m_bottomConnectionEntityTabs ? m_bottomConnectionEntityTabs->currentIndex() : -1;
+            const QString bottomToken =
+                (bIdx >= 0 && m_bottomConnectionEntityTabs && bIdx < m_bottomConnectionEntityTabs->count())
+                    ? ([this, bIdx]() {
+                          const QString key = m_bottomConnectionEntityTabs->tabData(bIdx).toString();
+                          const QStringList parts = key.split(':');
+                          if (parts.size() < 3 || parts.first() != QStringLiteral("pool")) {
+                              return QString();
+                          }
+                          return QStringLiteral("%1::%2").arg(parts.value(1)).arg(parts.value(2).trimmed());
+                      })()
+                    : QString();
+            bool refreshed = refreshOneTree(m_connContentTree, topToken);
+            refreshed = refreshOneTree(m_bottomConnContentTree, bottomToken) || refreshed;
+            if (!refreshed) {
+                reloadDatasetSide(QStringLiteral("conncontent"));
+            }
+        };
+        auto objectDatasetName = [](const QString& objectName) {
+            const int at = objectName.indexOf(QLatin1Char('@'));
+            return (at > 0) ? objectName.left(at).trimmed() : objectName.trimmed();
+        };
 
         QStringList permissionKeysToRefresh;
         for (auto it = m_datasetPermissionsCache.cbegin(); it != m_datasetPermissionsCache.cend(); ++it) {
@@ -1357,6 +1481,139 @@ void MainWindow::applyDatasetPropertyChanges() {
             }
         }
 
+        QMap<QString, QString> renameRefreshSelectionByToken;
+        const QVector<PendingDatasetRenameDraft> pendingRenames = m_pendingDatasetRenameDrafts;
+        QStringList renamePreviews;
+        for (const PendingDatasetRenameDraft& draft : pendingRenames) {
+            if (draft.connIdx < 0 || draft.connIdx >= m_profiles.size()
+                || draft.poolName.trimmed().isEmpty()
+                || draft.sourceName.trimmed().isEmpty()
+                || draft.targetName.trimmed().isEmpty()) {
+                continue;
+            }
+            const ConnectionProfile& p = m_profiles.at(draft.connIdx);
+            ConnectionProfile sudoProfile = p;
+            if (!ensureLocalSudoCredentials(sudoProfile)) {
+                appLog(QStringLiteral("INFO"), QStringLiteral("Aplicar renombrado cancelado: faltan credenciales sudo locales"));
+                updateApplyPropsButtonState();
+                return;
+            }
+            const QString remoteCmd = withSudo(sudoProfile, pendingDatasetRenameCommand(draft));
+            renamePreviews << QStringLiteral("[%1]\n%2")
+                                  .arg(QStringLiteral("%1@%2:%3").arg(p.username, p.host).arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
+                                  .arg(buildSshPreviewCommand(p, remoteCmd));
+        }
+        if (!renamePreviews.isEmpty() && !confirmActionExecution(QStringLiteral("Aplicar cambios"), renamePreviews)) {
+            updateApplyPropsButtonState();
+            return;
+        }
+        if (!renamePreviews.isEmpty()) {
+            setActionsLocked(true);
+        }
+        for (const PendingDatasetRenameDraft& draft : pendingRenames) {
+            if (draft.connIdx < 0 || draft.connIdx >= m_profiles.size()
+                || draft.poolName.trimmed().isEmpty()
+                || draft.sourceName.trimmed().isEmpty()
+                || draft.targetName.trimmed().isEmpty()) {
+                continue;
+            }
+            const ConnectionProfile& p = m_profiles.at(draft.connIdx);
+            ConnectionProfile sudoProfile = p;
+            if (!ensureLocalSudoCredentials(sudoProfile)) {
+                appLog(QStringLiteral("INFO"), QStringLiteral("Aplicar renombrado cancelado: faltan credenciales sudo locales"));
+                setActionsLocked(false);
+                updateApplyPropsButtonState();
+                return;
+            }
+            DatasetSelectionContext ctx;
+            ctx.valid = true;
+            ctx.connIdx = draft.connIdx;
+            ctx.poolName = draft.poolName.trimmed();
+            const int at = draft.sourceName.indexOf(QLatin1Char('@'));
+            if (at > 0) {
+                ctx.datasetName = draft.sourceName.left(at).trimmed();
+                ctx.snapshotName = draft.sourceName.mid(at + 1).trimmed();
+            } else {
+                ctx.datasetName = draft.sourceName.trimmed();
+            }
+            const QString cmd = pendingDatasetRenameCommand(draft);
+            const QString remoteCmd = withSudo(sudoProfile, cmd);
+            appLog(QStringLiteral("NORMAL"),
+                   QStringLiteral("Aplicar renombrado %1::%2")
+                       .arg(p.name, draft.sourceName.trimmed()));
+            updateStatus(QStringLiteral("Aplicar renombrado %1::%2").arg(p.name, draft.sourceName.trimmed()));
+            QString out;
+            QString err;
+            int rc = -1;
+            if (!runSsh(p, remoteCmd, 60000, out, err, rc) || rc != 0) {
+                const QString failureDetail = err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err;
+                appLog(QStringLiteral("NORMAL"),
+                       QStringLiteral("Error en Aplicar renombrado: %1")
+                           .arg(mwhelpers::oneLine(failureDetail)));
+                updateStatus(QStringLiteral("Aplicar renombrado (ERROR) %1::%2").arg(p.name, draft.sourceName.trimmed()));
+                QMessageBox::critical(
+                    this,
+                    QStringLiteral("ZFSMgr"),
+                    trk(QStringLiteral("t_action_fail001"),
+                        QStringLiteral("%1 falló:\n%2"),
+                        QStringLiteral("%1 failed:\n%2"),
+                        QStringLiteral("%1 失败：\n%2"))
+                        .arg(QStringLiteral("Aplicar renombrado"), failureDetail));
+                setActionsLocked(false);
+                updateApplyPropsButtonState();
+                return;
+            }
+            if (!out.trimmed().isEmpty()) {
+                appLog(QStringLiteral("INFO"), mwhelpers::oneLine(out));
+            }
+            appLog(QStringLiteral("NORMAL"), QStringLiteral("Aplicar renombrado finalizado"));
+            for (int i = m_pendingDatasetRenameDrafts.size() - 1; i >= 0; --i) {
+                const PendingDatasetRenameDraft& existing = m_pendingDatasetRenameDrafts.at(i);
+                if (existing.connIdx == draft.connIdx
+                    && existing.poolName.trimmed().compare(draft.poolName.trimmed(), Qt::CaseInsensitive) == 0
+                    && existing.sourceName.trimmed().compare(draft.sourceName.trimmed(), Qt::CaseInsensitive) == 0
+                    && existing.targetName.trimmed().compare(draft.targetName.trimmed(), Qt::CaseInsensitive) == 0) {
+                    m_pendingDatasetRenameDrafts.removeAt(i);
+                    break;
+                }
+            }
+            invalidateDatasetCacheForPool(draft.connIdx, draft.poolName);
+            invalidateDatasetPermissionsCacheForPool(draft.connIdx, draft.poolName);
+            const QString token = QStringLiteral("%1::%2").arg(draft.connIdx).arg(draft.poolName.trimmed());
+            renameRefreshSelectionByToken[token] = objectDatasetName(draft.targetName);
+            auto remapSelection = [&draft](DatasetSelectionContext& selection) {
+                const QString selectedObject =
+                    selection.snapshotName.trimmed().isEmpty()
+                        ? selection.datasetName.trimmed()
+                        : QStringLiteral("%1@%2").arg(selection.datasetName.trimmed(), selection.snapshotName.trimmed());
+                if (!selection.valid || selectedObject.compare(draft.sourceName.trimmed(), Qt::CaseInsensitive) != 0) {
+                    return;
+                }
+                selection.poolName = draft.poolName.trimmed();
+                const int at = draft.targetName.indexOf(QLatin1Char('@'));
+                if (at > 0) {
+                    selection.datasetName = draft.targetName.left(at).trimmed();
+                    selection.snapshotName = draft.targetName.mid(at + 1).trimmed();
+                } else {
+                    selection.datasetName = draft.targetName.trimmed();
+                    selection.snapshotName.clear();
+                }
+            };
+            remapSelection(m_connActionOrigin);
+            remapSelection(m_connActionDest);
+            if (m_propsSide == QStringLiteral("conncontent")
+                && m_propsToken.trimmed().compare(token, Qt::CaseInsensitive) == 0
+                && m_propsDataset.trimmed().compare(draft.sourceName.trimmed(), Qt::CaseInsensitive) == 0) {
+                m_propsDataset = draft.targetName.trimmed();
+            }
+        }
+        for (auto it = renameRefreshSelectionByToken.cbegin(); it != renameRefreshSelectionByToken.cend(); ++it) {
+            refreshConncontentToken(it.key(), it.value());
+        }
+        if (!renamePreviews.isEmpty()) {
+            setActionsLocked(false);
+        }
+
         bool hasPropertyDrafts = false;
         for (auto it = m_propsDraftByKey.cbegin(); it != m_propsDraftByKey.cend(); ++it) {
             if (it.key().startsWith(QStringLiteral("conncontent|")) && it.value().dirty) {
@@ -1371,7 +1628,7 @@ void MainWindow::applyDatasetPropertyChanges() {
                 break;
             }
         }
-        m_propsDirty = hasPropertyDrafts || hasPermissionDrafts;
+        m_propsDirty = hasPropertyDrafts || hasPermissionDrafts || !m_pendingDatasetRenameDrafts.isEmpty();
         if (m_connContentPropsTable && !m_propsDataset.isEmpty()) {
             m_propsOriginalValues.clear();
             m_propsOriginalInherit.clear();
@@ -2118,6 +2375,17 @@ QStringList MainWindow::pendingConnContentApplyCommands() const {
                 appendPending(connIdx, poolName, cmd);
             }
         }
+    }
+    for (const PendingDatasetRenameDraft& draft : m_pendingDatasetRenameDrafts) {
+        if (draft.connIdx < 0 || draft.connIdx >= m_profiles.size()
+            || draft.poolName.trimmed().isEmpty()
+            || draft.sourceName.trimmed().isEmpty()
+            || draft.targetName.trimmed().isEmpty()) {
+            continue;
+        }
+        appendPending(draft.connIdx,
+                      draft.poolName,
+                      pendingDatasetRenameCommand(draft));
     }
     return commands;
 }

@@ -16,6 +16,12 @@
 
 namespace {
 using mwhelpers::isMountedValueTrue;
+
+QString datasetLeafNameStateUi(const QString& datasetName) {
+    const QString trimmed = datasetName.trimmed();
+    const int slash = trimmed.lastIndexOf(QLatin1Char('/'));
+    return (slash >= 0) ? trimmed.mid(slash + 1) : trimmed;
+}
 } // namespace
 
 void MainWindow::setConnectionOriginSelection(const DatasetSelectionContext& ctx) {
@@ -58,6 +64,8 @@ void MainWindow::updateConnectionActionsState() {
         trk(QStringLiteral("t_copy_001"), QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")));
     if (m_btnConnClone) m_btnConnClone->setText(
         trk(QStringLiteral("t_clone_btn_001"), QStringLiteral("Clonar")));
+    if (m_btnConnMove) m_btnConnMove->setText(
+        trk(QStringLiteral("t_move_btn_001"), QStringLiteral("Mover"), QStringLiteral("Move"), QStringLiteral("移动")));
     if (m_btnConnDiff) m_btnConnDiff->setText(
         trk(QStringLiteral("t_diff_btn_001"), QStringLiteral("Diff")));
     if (m_btnConnLevel) m_btnConnLevel->setText(
@@ -244,6 +252,42 @@ void MainWindow::updateConnectionActionsState() {
                 m_connActionDest.poolName.trimmed(),
                 Qt::CaseInsensitive) == 0);
     const bool cloneEnabled = srcSnap && dstDs && !dstSnap && samePoolForClone;
+    auto datasetIsVolume = [this](const DatasetSelectionContext& ctx) -> bool {
+        if (!ctx.valid || ctx.connIdx < 0 || ctx.poolName.trimmed().isEmpty() || ctx.datasetName.trimmed().isEmpty()) {
+            return false;
+        }
+        const auto itCache = m_poolDatasetCache.constFind(datasetCacheKey(ctx.connIdx, ctx.poolName));
+        if (itCache == m_poolDatasetCache.cend()) {
+            return false;
+        }
+        const auto recIt = itCache->recordByName.constFind(ctx.datasetName);
+        if (recIt == itCache->recordByName.cend()) {
+            return false;
+        }
+        const DatasetRecord& rec = recIt.value();
+        return rec.mounted.trimmed() == QStringLiteral("-")
+               && rec.mountpoint.trimmed() == QStringLiteral("-");
+    };
+    const bool sourceDatasetOnly = srcDs && !srcSnap;
+    const bool destDatasetOnly = dstDs && !dstSnap;
+    const QString moveTargetName =
+        (sourceDatasetOnly && destDatasetOnly)
+            ? QStringLiteral("%1/%2").arg(m_connActionDest.datasetName.trimmed(),
+                                          datasetLeafNameStateUi(m_connActionOrigin.datasetName))
+            : QString();
+    const bool moveIntoSelfOrDescendant =
+        sourceDatasetOnly
+        && destDatasetOnly
+        && (m_connActionDest.datasetName.trimmed().compare(m_connActionOrigin.datasetName.trimmed(), Qt::CaseInsensitive) == 0
+            || m_connActionDest.datasetName.trimmed().startsWith(
+                   m_connActionOrigin.datasetName.trimmed() + QStringLiteral("/"),
+                   Qt::CaseInsensitive));
+    const bool moveEnabled = sourceDatasetOnly
+        && destDatasetOnly
+        && samePoolForClone
+        && !datasetIsVolume(m_connActionDest)
+        && !moveIntoSelfOrDescendant
+        && moveTargetName.compare(m_connActionOrigin.datasetName.trimmed(), Qt::CaseInsensitive) != 0;
     const bool diffEnabled = srcSnap
         && dstDs
         && samePoolForClone
@@ -252,6 +296,7 @@ void MainWindow::updateConnectionActionsState() {
                             m_connActionDest.snapshotName.trimmed(),
                             Qt::CaseInsensitive) != 0);
     if (m_btnConnClone) m_btnConnClone->setEnabled(!actionsLocked() && cloneEnabled && transferVersionAllowed);
+    if (m_btnConnMove) m_btnConnMove->setEnabled(!actionsLocked() && moveEnabled);
     if (m_btnConnDiff) m_btnConnDiff->setEnabled(!actionsLocked() && diffEnabled);
     if (m_btnConnLevel) m_btnConnLevel->setEnabled(!actionsLocked() && st.levelEnabled && transferVersionAllowed);
     if (m_btnConnSync) m_btnConnSync->setEnabled(!actionsLocked() && st.syncEnabled && transferVersionAllowed);
@@ -356,6 +401,35 @@ void MainWindow::executeConnectionTransferAction(const QString& action) {
     const DatasetSelectionContext src = m_connActionOrigin;
     const DatasetSelectionContext dst = m_connActionDest;
     if (!src.valid || src.datasetName.isEmpty() || !dst.valid || dst.datasetName.isEmpty()) {
+        return;
+    }
+    if (action == QStringLiteral("move")) {
+        if (!src.snapshotName.isEmpty() || !dst.snapshotName.isEmpty()
+            || src.connIdx != dst.connIdx
+            || src.poolName.trimmed().compare(dst.poolName.trimmed(), Qt::CaseInsensitive) != 0) {
+            return;
+        }
+        const QString targetName = QStringLiteral("%1/%2")
+                                       .arg(dst.datasetName.trimmed(),
+                                            datasetLeafNameStateUi(src.datasetName));
+        QString errorText;
+        if (!queuePendingDatasetRename(PendingDatasetRenameDraft{src.connIdx, src.poolName, src.datasetName, targetName}, &errorText)) {
+            QMessageBox::warning(this,
+                                 QStringLiteral("ZFSMgr"),
+                                 errorText.isEmpty()
+                                     ? trk(QStringLiteral("t_pending_move_failed_001"),
+                                           QStringLiteral("No se pudo añadir el movimiento pendiente."),
+                                           QStringLiteral("Could not queue the pending move."),
+                                           QStringLiteral("无法加入待处理移动。"))
+                                     : errorText);
+            return;
+        }
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Cambio pendiente añadido: %1::%2  %3")
+                   .arg(m_profiles.at(src.connIdx).name,
+                        src.poolName.trimmed(),
+                        pendingDatasetRenameCommand(PendingDatasetRenameDraft{src.connIdx, src.poolName, src.datasetName, targetName})));
+        updateApplyPropsButtonState();
         return;
     }
     if (action != QStringLiteral("diff")) {

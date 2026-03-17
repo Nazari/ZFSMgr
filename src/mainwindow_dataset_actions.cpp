@@ -515,9 +515,41 @@ void MainWindow::reloadDatasetSide(const QString& side) {
         if (sep > 0) {
             bool ok = false;
             const int connIdx = token.left(sep).toInt(&ok);
-            if (ok && connIdx >= 0 && connIdx < m_profiles.size()) {
-                // En UI multi-pool, recargar un solo pool deja el árbol incompleto.
-                // Refrescamos la conexión para reconstruir correctamente todos sus pools.
+            const QString poolName = token.mid(sep + 2).trimmed();
+            if (ok && connIdx >= 0 && connIdx < m_profiles.size() && !poolName.isEmpty()) {
+                auto tokenForBottomTree = [this]() {
+                    const int bIdx = m_bottomConnectionEntityTabs ? m_bottomConnectionEntityTabs->currentIndex() : -1;
+                    if (bIdx < 0 || !m_bottomConnectionEntityTabs || bIdx >= m_bottomConnectionEntityTabs->count()) {
+                        return QString();
+                    }
+                    const QString key = m_bottomConnectionEntityTabs->tabData(bIdx).toString();
+                    const QStringList parts = key.split(':');
+                    if (parts.size() < 3 || parts.first() != QStringLiteral("pool")) {
+                        return QString();
+                    }
+                    return QStringLiteral("%1::%2").arg(parts.value(1)).arg(parts.value(2).trimmed());
+                };
+                auto refreshOneTree = [this, connIdx, &poolName](QTreeWidget* tree, const QString& tokenForTree) {
+                    if (!tree || tokenForTree != QStringLiteral("%1::%2").arg(connIdx).arg(poolName)) {
+                        return false;
+                    }
+                    const QString prevToken = m_connContentToken;
+                    QTreeWidget* prevTree = m_connContentTree;
+                    m_connContentTree = tree;
+                    m_connContentToken = tokenForTree;
+                    saveConnContentTreeState(tokenForTree);
+                    populateDatasetTree(tree, connIdx, poolName, QStringLiteral("conncontent"), true);
+                    restoreConnContentTreeState(tokenForTree);
+                    m_connContentTree = prevTree;
+                    m_connContentToken = prevToken;
+                    return true;
+                };
+                bool refreshed = refreshOneTree(m_connContentTree, token);
+                refreshed = refreshOneTree(m_bottomConnContentTree, tokenForBottomTree()) || refreshed;
+                if (refreshed) {
+                    return;
+                }
+                // Si no hay ningún treeview mostrando ese pool, refrescamos la conexión completa.
                 refreshConnectionByIndex(connIdx);
                 return;
             }
