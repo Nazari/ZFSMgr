@@ -686,7 +686,7 @@ void MainWindow::syncConnContentPropertyColumns() {
         return;
     }
     QTreeWidget* const tree = m_connContentTree;
-    const int propCols = qBound(5, m_connPropColumnsSetting, 10);
+    const int propCols = qBound(5, m_connPropColumnsSetting, 12);
     if (m_syncingConnContentColumns) {
         return;
     }
@@ -1558,7 +1558,7 @@ void MainWindow::syncConnContentPoolColumns() {
     QPointer<QTreeWidget> safeTree(m_connContentTree);
     m_syncingConnContentColumns = true;
     const QSignalBlocker blocker(m_connContentTree);
-    const int propCols = qBound(5, m_connPropColumnsSetting, 10);
+    const int propCols = qBound(5, m_connPropColumnsSetting, 12);
     QStringList headers;
     headers << connTreeSideHeader(
                    m_connContentTree,

@@ -220,7 +220,7 @@ void MainWindow::loadUiSettings() {
     } else if (m_logMaxSizeMb > 1024) {
         m_logMaxSizeMb = 1024;
     }
-    m_connPropColumnsSetting = qBound(5, m_connPropColumnsSetting, 10);
+    m_connPropColumnsSetting = qBound(5, m_connPropColumnsSetting, 12);
     ini.endGroup();
 }
 
@@ -241,7 +241,7 @@ void MainWindow::saveUiSettings() const {
     ini.setValue(QStringLiteral("show_inline_property_nodes"), m_showInlinePropertyNodes);
     ini.setValue(QStringLiteral("show_inline_permissions_nodes"), m_showInlinePermissionsNodes);
     ini.setValue(QStringLiteral("show_pool_info_node"), m_showPoolInfoNode);
-    ini.setValue(QStringLiteral("conn_prop_columns"), qBound(5, m_connPropColumnsSetting, 10));
+    ini.setValue(QStringLiteral("conn_prop_columns"), qBound(5, m_connPropColumnsSetting, 12));
     ini.setValue(QStringLiteral("top_detail_connection"),
                  connPersistKeyFromProfiles(m_profiles, m_topDetailConnIdx));
     ini.setValue(QStringLiteral("bottom_detail_connection"),

@@ -800,7 +800,7 @@ void MainWindow::buildUi() {
     });
 
     auto applyPropColumnsSetting = [this](int cols) {
-        const int bounded = qBound(5, cols, 10);
+        const int bounded = qBound(5, cols, 12);
         if (bounded == m_connPropColumnsSetting) {
             return;
         }
@@ -1781,11 +1781,11 @@ void MainWindow::buildUi() {
                     QStringLiteral("Columnas de propiedades")));
             auto* propColsGroup = new QActionGroup(&menu);
             propColsGroup->setExclusive(true);
-            for (int cols = 5; cols <= 10; ++cols) {
+            for (int cols = 5; cols <= 12; ++cols) {
                 QAction* act = propColsMenu->addAction(QString::number(cols));
                 act->setCheckable(true);
                 act->setData(cols);
-                if (cols == qBound(5, m_connPropColumnsSetting, 10)) {
+                if (cols == qBound(5, m_connPropColumnsSetting, 12)) {
                     act->setChecked(true);
                 }
                 propColsGroup->addAction(act);
@@ -1875,17 +1875,16 @@ void MainWindow::buildUi() {
     topSplit->setSizes({leftFixedWidth, qMax(leftFixedWidth * 2, width() - leftFixedWidth)});
     topLayout->addWidget(topSplit, 1);
 
-    auto* logBox = new QGroupBox(trk(QStringLiteral("t_combined_log001"),
-                                     QStringLiteral("Log combinado"),
-                                     QStringLiteral("Combined log"),
-                                     QStringLiteral("组合日志")),
-                                 central);
-    auto* logLayout = new QVBoxLayout(logBox);
+    m_logsTabs = new QTabWidget(central);
+    m_logsTabs->setObjectName(QStringLiteral("zfsmgrLogTabs"));
+
+    auto* combinedLogTab = new QWidget(m_logsTabs);
+    auto* logLayout = new QVBoxLayout(combinedLogTab);
     logLayout->setContentsMargins(6, 6, 6, 6);
     logLayout->setSpacing(4);
     auto* logBody = new QHBoxLayout();
 
-    auto* leftInfo = new QWidget(logBox);
+    auto* leftInfo = new QWidget(combinedLogTab);
     auto* leftInfoLayout = new QVBoxLayout(leftInfo);
     leftInfoLayout->setContentsMargins(0, 0, 0, 0);
     leftInfoLayout->setSpacing(4);
@@ -1939,20 +1938,19 @@ void MainWindow::buildUi() {
     m_lastDetailText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     leftInfoLayout->addWidget(m_lastDetailText, 1);
 
-    auto* rightLogs = new QWidget(logBox);
+    auto* rightLogs = new QWidget(combinedLogTab);
     auto* rightLogsLayout = new QVBoxLayout(rightLogs);
     rightLogsLayout->setContentsMargins(0, 0, 0, 0);
     rightLogsLayout->setSpacing(4);
-    auto* rightLogsBody = new QHBoxLayout();
-    rightLogsBody->setContentsMargins(0, 0, 0, 0);
-    rightLogsBody->setSpacing(6);
-    auto* appTabs = new QTabWidget(rightLogs);
-    appTabs->setObjectName(QStringLiteral("zfsmgrLogTabs"));
-    auto* appLogTab = new QWidget(appTabs);
-    auto* appLogLayout = new QVBoxLayout(appLogTab);
+    auto* appLogBox = new QGroupBox(trk(QStringLiteral("t_app_tab_001"),
+                                        QStringLiteral("Aplicación"),
+                                        QStringLiteral("Application"),
+                                        QStringLiteral("应用")),
+                                    rightLogs);
+    auto* appLogLayout = new QVBoxLayout(appLogBox);
     appLogLayout->setContentsMargins(6, 6, 6, 6);
     appLogLayout->setSpacing(4);
-    m_logView = new QPlainTextEdit(appLogTab);
+    m_logView = new QPlainTextEdit(appLogBox);
     m_logView->setReadOnly(true);
     m_logView->setLineWrapMode(QPlainTextEdit::NoWrap);
     m_logView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -1961,16 +1959,24 @@ void MainWindow::buildUi() {
     mono.setPointSize(8);
     m_logView->setFont(mono);
     appLogLayout->addWidget(m_logView, 1);
-    appTabs->addTab(appLogTab,
-                    trk(QStringLiteral("t_app_tab_001"),
-                        QStringLiteral("Aplicación"),
-                        QStringLiteral("Application"),
-                        QStringLiteral("应用")));
 
-    auto* pendingChangesTab = new QWidget(appTabs);
+    auto* pendingChangesTab = new QWidget(m_logsTabs);
     auto* pendingChangesLayout = new QVBoxLayout(pendingChangesTab);
     pendingChangesLayout->setContentsMargins(6, 6, 6, 6);
     pendingChangesLayout->setSpacing(4);
+    auto* pendingChangesBody = new QHBoxLayout();
+    pendingChangesBody->setContentsMargins(0, 0, 0, 0);
+    pendingChangesBody->setSpacing(6);
+    auto* pendingButtonsCol = new QVBoxLayout();
+    pendingButtonsCol->setContentsMargins(0, 0, 0, 0);
+    pendingButtonsCol->setSpacing(4);
+    m_btnApplyConnContentProps->setParent(pendingChangesTab);
+    m_btnApplyConnContentProps->setAttribute(Qt::WA_TransparentForMouseEvents, false);
+    m_btnDiscardPendingChanges->setParent(pendingChangesTab);
+    pendingButtonsCol->addWidget(m_btnApplyConnContentProps, 0, Qt::AlignLeft | Qt::AlignTop);
+    pendingButtonsCol->addWidget(m_btnDiscardPendingChanges, 0, Qt::AlignLeft | Qt::AlignTop);
+    pendingButtonsCol->addStretch(1);
+    pendingChangesBody->addLayout(pendingButtonsCol, 0);
     m_pendingChangesView = new QPlainTextEdit(pendingChangesTab);
     m_pendingChangesView->setReadOnly(true);
     m_pendingChangesView->setLineWrapMode(QPlainTextEdit::WidgetWidth);
@@ -2001,40 +2007,31 @@ void MainWindow::buildUi() {
             removePendingQueuedChangeLine(line);
         }
     });
-    pendingChangesLayout->addWidget(m_pendingChangesView, 1);
-    auto* pendingChangesFooter = new QHBoxLayout();
-    pendingChangesFooter->setContentsMargins(0, 0, 0, 0);
-    auto* pendingButtonsCol = new QVBoxLayout();
-    pendingButtonsCol->setContentsMargins(0, 0, 0, 0);
-    pendingButtonsCol->setSpacing(4);
-    m_btnApplyConnContentProps->setParent(pendingChangesTab);
-    m_btnApplyConnContentProps->setAttribute(Qt::WA_TransparentForMouseEvents, false);
-    m_btnDiscardPendingChanges->setParent(pendingChangesTab);
-    pendingButtonsCol->addWidget(m_btnApplyConnContentProps, 0, Qt::AlignLeft | Qt::AlignTop);
-    pendingButtonsCol->addWidget(m_btnDiscardPendingChanges, 0, Qt::AlignLeft | Qt::AlignTop);
-    pendingButtonsCol->addStretch(1);
-    pendingChangesFooter->addLayout(pendingButtonsCol);
-    pendingChangesFooter->addStretch(1);
-    pendingChangesLayout->addLayout(pendingChangesFooter);
-    appTabs->addTab(pendingChangesTab,
-                    trk(QStringLiteral("t_pending_changes_tab001"),
-                        QStringLiteral("Cambios pendientes"),
-                        QStringLiteral("Pending changes"),
-                        QStringLiteral("待处理更改")));
+    pendingChangesBody->addWidget(m_pendingChangesView, 1);
+    pendingChangesLayout->addLayout(pendingChangesBody, 1);
 
     loadPersistedAppLogToView();
-    rightLogsBody->addWidget(appTabs, 1);
-    rightLogsLayout->addLayout(rightLogsBody, 1);
+    rightLogsLayout->addWidget(appLogBox, 1);
 
     logBody->addWidget(leftInfo, 1);
     logBody->addWidget(rightLogs, 3);
     logLayout->addLayout(logBody, 1);
+    m_logsTabs->addTab(combinedLogTab,
+                       trk(QStringLiteral("t_combined_log001"),
+                           QStringLiteral("Log combinado"),
+                           QStringLiteral("Combined log"),
+                           QStringLiteral("组合日志")));
+    m_logsTabs->addTab(pendingChangesTab,
+                       trk(QStringLiteral("t_pending_changes_tab001"),
+                           QStringLiteral("Cambios pendientes"),
+                           QStringLiteral("Pending changes"),
+                           QStringLiteral("待处理更改")));
 
     auto* verticalMainSplit = new QSplitter(Qt::Vertical, central);
     verticalMainSplit->setChildrenCollapsible(true);
     verticalMainSplit->setHandleWidth(4);
     verticalMainSplit->addWidget(topArea);
-    verticalMainSplit->addWidget(logBox);
+    verticalMainSplit->addWidget(m_logsTabs);
     verticalMainSplit->setStretchFactor(0, 81);
     verticalMainSplit->setStretchFactor(1, 19);
     verticalMainSplit->setSizes({810, 190});
@@ -2438,7 +2435,7 @@ void MainWindow::buildUi() {
             }
         }
 
-        const int propCols = qBound(5, m_connPropColumnsSetting, 10);
+        const int propCols = qBound(5, m_connPropColumnsSetting, 12);
         const int managePropsCellWidth = 120;
         const int managePropsSpacing = 6;
         const int managePropsDialogWidth =
