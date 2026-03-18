@@ -248,9 +248,7 @@ void MainWindow::updateConnectionActionsState() {
         && (m_connActionOrigin.connIdx == m_connActionDest.connIdx);
     const bool samePoolForClone = sameConnForClone
         && !m_connActionOrigin.poolName.trimmed().isEmpty()
-        && (m_connActionOrigin.poolName.trimmed().compare(
-                m_connActionDest.poolName.trimmed(),
-                Qt::CaseInsensitive) == 0);
+        && (m_connActionOrigin.poolName.trimmed() == m_connActionDest.poolName.trimmed());
     const bool cloneEnabled = srcSnap && dstDs && !dstSnap && samePoolForClone;
     auto datasetIsVolume = [this](const DatasetSelectionContext& ctx) -> bool {
         if (!ctx.valid || ctx.connIdx < 0 || ctx.poolName.trimmed().isEmpty() || ctx.datasetName.trimmed().isEmpty()) {
@@ -278,23 +276,20 @@ void MainWindow::updateConnectionActionsState() {
     const bool moveIntoSelfOrDescendant =
         sourceDatasetOnly
         && destDatasetOnly
-        && (m_connActionDest.datasetName.trimmed().compare(m_connActionOrigin.datasetName.trimmed(), Qt::CaseInsensitive) == 0
+        && (m_connActionDest.datasetName.trimmed() == m_connActionOrigin.datasetName.trimmed()
             || m_connActionDest.datasetName.trimmed().startsWith(
-                   m_connActionOrigin.datasetName.trimmed() + QStringLiteral("/"),
-                   Qt::CaseInsensitive));
+                   m_connActionOrigin.datasetName.trimmed() + QStringLiteral("/")));
     const bool moveEnabled = sourceDatasetOnly
         && destDatasetOnly
         && samePoolForClone
         && !datasetIsVolume(m_connActionDest)
         && !moveIntoSelfOrDescendant
-        && moveTargetName.compare(m_connActionOrigin.datasetName.trimmed(), Qt::CaseInsensitive) != 0;
+        && moveTargetName != m_connActionOrigin.datasetName.trimmed();
     const bool diffEnabled = srcSnap
         && dstDs
         && samePoolForClone
-        && m_connActionOrigin.datasetName.trimmed().compare(m_connActionDest.datasetName.trimmed(), Qt::CaseInsensitive) == 0
-        && (!dstSnap || m_connActionOrigin.snapshotName.trimmed().compare(
-                            m_connActionDest.snapshotName.trimmed(),
-                            Qt::CaseInsensitive) != 0);
+        && m_connActionOrigin.datasetName.trimmed() == m_connActionDest.datasetName.trimmed()
+        && (!dstSnap || m_connActionOrigin.snapshotName.trimmed() != m_connActionDest.snapshotName.trimmed());
     if (m_btnConnClone) m_btnConnClone->setEnabled(!actionsLocked() && cloneEnabled && transferVersionAllowed);
     if (m_btnConnMove) m_btnConnMove->setEnabled(!actionsLocked() && moveEnabled);
     if (m_btnConnDiff) m_btnConnDiff->setEnabled(!actionsLocked() && diffEnabled);
@@ -406,7 +401,7 @@ void MainWindow::executeConnectionTransferAction(const QString& action) {
     if (action == QStringLiteral("move")) {
         if (!src.snapshotName.isEmpty() || !dst.snapshotName.isEmpty()
             || src.connIdx != dst.connIdx
-            || src.poolName.trimmed().compare(dst.poolName.trimmed(), Qt::CaseInsensitive) != 0) {
+            || src.poolName.trimmed() != dst.poolName.trimmed()) {
             return;
         }
         const QString targetName = QStringLiteral("%1/%2")

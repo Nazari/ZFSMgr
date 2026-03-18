@@ -571,8 +571,8 @@ void MainWindow::resizeTreeColumnsToVisibleContent(QTreeWidget* tree) {
 void MainWindow::updateConnContentPropertyValues(const QString& token,
                                                  const QString& objectName,
                                                  const QMap<QString, QString>& valuesByProp) {
-    const QString t = token.trimmed().toLower();
-    const QString o = objectName.trimmed().toLower();
+    const QString t = token.trimmed();
+    const QString o = objectName.trimmed();
     if (t.isEmpty() || o.isEmpty()) {
         return;
     }
@@ -594,7 +594,7 @@ void MainWindow::updateConnContentDraftValue(const QString& token,
     if (t.isEmpty() || o.isEmpty() || p.isEmpty()) {
         return;
     }
-    const QString draftKey = QStringLiteral("conncontent|%1|%2").arg(t.toLower(), o.toLower());
+    const QString draftKey = QStringLiteral("conncontent|%1|%2").arg(t, o);
     DatasetPropsDraft draft = m_propsDraftByKey.value(draftKey);
     if (p.compare(QStringLiteral("snapshot"), Qt::CaseInsensitive) == 0) {
         draft.valuesByProp.remove(p);
@@ -646,7 +646,7 @@ void MainWindow::updateConnContentDraftInherit(const QString& token,
     if (t.isEmpty() || o.isEmpty() || p.isEmpty()) {
         return;
     }
-    const QString draftKey = QStringLiteral("conncontent|%1|%2").arg(t.toLower(), o.toLower());
+    const QString draftKey = QStringLiteral("conncontent|%1|%2").arg(t, o);
     DatasetPropsDraft draft = m_propsDraftByKey.value(draftKey);
     draft.inheritByProp[p] = inherit;
 
@@ -809,8 +809,8 @@ void MainWindow::syncConnContentPropertyColumns() {
     const int itemConnIdx = sel->data(0, kConnIdxRole).toInt();
     const QString itemPool = sel->data(0, kPoolNameRole).toString();
     const QString draftToken = QStringLiteral("%1::%2").arg(itemConnIdx).arg(itemPool);
-    const QString key = QStringLiteral("%1|%2").arg(m_connContentToken.trimmed().toLower(),
-                                                    obj.trimmed().toLower());
+    const QString key = QStringLiteral("%1|%2").arg(m_connContentToken.trimmed(),
+                                                    obj.trimmed());
     const auto it = m_connContentPropValuesByObject.constFind(key);
     if (it == m_connContentPropValuesByObject.cend() || it->isEmpty()) {
         m_syncingConnContentColumns = false;
@@ -818,7 +818,7 @@ void MainWindow::syncConnContentPropertyColumns() {
     }
     QMap<QString, QString> displayValues = it.value();
     const QString objectDraftKey =
-        QStringLiteral("conncontent|%1|%2").arg(draftToken.trimmed().toLower(), obj.trimmed().toLower());
+        QStringLiteral("conncontent|%1|%2").arg(draftToken.trimmed(), obj.trimmed());
     const auto objectDraftIt = m_propsDraftByKey.constFind(objectDraftKey);
     const DatasetPropsDraft* objectDraft =
         (objectDraftIt == m_propsDraftByKey.cend()) ? nullptr : &objectDraftIt.value();
@@ -1220,7 +1220,7 @@ void MainWindow::syncConnContentPropertyColumns() {
                     inheritCombo->addItem(QStringLiteral("on"));
                     int propRow =
                         (m_propsToken.trimmed() == draftToken.trimmed()
-                         && m_propsDataset.trimmed().compare(obj, Qt::CaseInsensitive) == 0)
+                         && m_propsDataset.trimmed() == obj)
                             ? findPropsTableRowByProp(prop)
                             : -1;
                     bool inheritChecked = isCurrentlyInheritedProp(prop);
@@ -1301,7 +1301,7 @@ void MainWindow::syncConnContentPropertyColumns() {
                         updateConnContentDraftInherit(draftToken, obj, prop, inheritOn);
                         if (!m_connContentPropsTable
                             || m_propsToken.trimmed() != draftToken.trimmed()
-                            || m_propsDataset.trimmed().compare(obj, Qt::CaseInsensitive) != 0) {
+                            || m_propsDataset.trimmed() != obj) {
                             return;
                         }
                         for (int r = 0; r < m_connContentPropsTable->rowCount(); ++r) {
@@ -2497,7 +2497,7 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
 
         if (m_connContentPropsTable
             && m_propsToken.trimmed() == token.trimmed()
-            && m_propsDataset.trimmed().compare(objectName, Qt::CaseInsensitive) == 0) {
+            && m_propsDataset.trimmed() == objectName) {
             for (int r = 0; r < m_connContentPropsTable->rowCount(); ++r) {
                 QTableWidgetItem* k = m_connContentPropsTable->item(r, 0);
                 QTableWidgetItem* v = m_connContentPropsTable->item(r, 1);
@@ -2518,8 +2518,8 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
             }
         }
         QMap<QString, QString> vals = m_connContentPropValuesByObject.value(
-            QStringLiteral("%1|%2").arg(m_connContentToken.trimmed().toLower(),
-                                        objectName.trimmed().toLower()));
+            QStringLiteral("%1|%2").arg(m_connContentToken.trimmed(),
+                                        objectName.trimmed()));
         vals[prop] = value;
         updateConnContentPropertyValues(m_connContentToken, objectName, vals);
         updateConnContentDraftValue(token, objectName, prop, value);
@@ -2596,7 +2596,7 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
         // Reflejar el borrador en la tabla auxiliar de propiedades.
         if (m_connContentPropsTable
             && m_propsToken.trimmed() == token.trimmed()
-            && m_propsDataset.trimmed().compare(objectName, Qt::CaseInsensitive) == 0) {
+            && m_propsDataset.trimmed() == objectName) {
             for (int r = 0; r < m_connContentPropsTable->rowCount(); ++r) {
                 QTableWidgetItem* k = m_connContentPropsTable->item(r, 0);
                 QTableWidgetItem* v = m_connContentPropsTable->item(r, 1);
@@ -2616,8 +2616,8 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
             }
         }
         QMap<QString, QString> vals = m_connContentPropValuesByObject.value(
-            QStringLiteral("%1|%2").arg(m_connContentToken.trimmed().toLower(),
-                                        objectName.trimmed().toLower()));
+            QStringLiteral("%1|%2").arg(m_connContentToken.trimmed(),
+                                        objectName.trimmed()));
         vals[QStringLiteral("estado")] = mountedLabel;
         updateConnContentPropertyValues(m_connContentToken, objectName, vals);
         updateConnContentDraftValue(token, objectName, QStringLiteral("estado"), mountedLabel);

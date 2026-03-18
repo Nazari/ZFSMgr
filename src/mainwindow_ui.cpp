@@ -547,7 +547,7 @@ bool MainWindow::focusPendingChangeLine(const QString& line) {
         if (!node) {
             return nullptr;
         }
-        if (node->data(0, Qt::UserRole).toString().trimmed().compare(datasetName, Qt::CaseInsensitive) == 0) {
+        if (node->data(0, Qt::UserRole).toString().trimmed() == datasetName) {
             return node;
         }
         for (int i = 0; i < node->childCount(); ++i) {
@@ -2337,8 +2337,8 @@ void MainWindow::buildUi() {
                 currentGroups = m_datasetInlinePropGroups;
             }
             const QString objectName = snap.isEmpty() ? ds : QStringLiteral("%1@%2").arg(ds, snap);
-            const QString key = QStringLiteral("%1|%2").arg(token.trimmed().toLower(),
-                                                            objectName.trimmed().toLower());
+            const QString key = QStringLiteral("%1|%2").arg(token.trimmed(),
+                                                            objectName.trimmed());
             const auto vit = m_connContentPropValuesByObject.constFind(key);
             if (vit != m_connContentPropValuesByObject.cend()) {
                 allProps = vit.value().keys();

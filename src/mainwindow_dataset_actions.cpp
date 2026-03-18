@@ -490,7 +490,7 @@ void MainWindow::invalidateDatasetCacheForPool(int connIdx, const QString& poolN
         }
     }
     const QString uiPrefix =
-        QStringLiteral("%1::%2|").arg(QString::number(connIdx), poolName.trimmed().toLower());
+        QStringLiteral("%1::%2|").arg(QString::number(connIdx), poolName.trimmed());
     auto vit = m_connContentPropValuesByObject.begin();
     while (vit != m_connContentPropValuesByObject.end()) {
         if (vit.key().startsWith(uiPrefix)) {

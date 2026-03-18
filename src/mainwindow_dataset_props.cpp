@@ -343,8 +343,8 @@ QString propKeyFromItem(const QTableWidgetItem* item) {
 QString propsDraftKey(const QString& side, const QString& token, const QString& objectName) {
     return QStringLiteral("%1|%2|%3")
         .arg(side.trimmed().toLower(),
-             token.trimmed().toLower(),
-             objectName.trimmed().toLower());
+             token.trimmed(),
+             objectName.trimmed());
 }
 
 } // namespace
@@ -362,7 +362,7 @@ QString MainWindow::datasetPropsCacheKey(int connIdx, const QString& poolName, c
     if (prefix.isEmpty()) {
         return QString();
     }
-    return prefix + objectName.trimmed().toLower();
+    return prefix + objectName.trimmed();
 }
 
 QString MainWindow::pendingDatasetRenameCommand(const PendingDatasetRenameDraft& draft) const {
@@ -387,21 +387,21 @@ bool MainWindow::queuePendingDatasetRename(const PendingDatasetRenameDraft& draf
     if (poolName.isEmpty() || sourceName.isEmpty() || targetName.isEmpty()) {
         return fail(QStringLiteral("Faltan datos para crear el renombrado pendiente."));
     }
-    if (sourceName.compare(targetName, Qt::CaseInsensitive) == 0) {
+    if (sourceName == targetName) {
         return fail(QStringLiteral("El origen y el destino del renombrado son iguales."));
     }
 
     for (int i = m_pendingDatasetRenameDrafts.size() - 1; i >= 0; --i) {
         const PendingDatasetRenameDraft& existing = m_pendingDatasetRenameDrafts.at(i);
         if (existing.connIdx != draft.connIdx
-            || existing.poolName.trimmed().compare(poolName, Qt::CaseInsensitive) != 0) {
+            || existing.poolName.trimmed() != poolName) {
             continue;
         }
-        if (existing.targetName.trimmed().compare(targetName, Qt::CaseInsensitive) == 0
-            && existing.sourceName.trimmed().compare(sourceName, Qt::CaseInsensitive) != 0) {
+        if (existing.targetName.trimmed() == targetName
+            && existing.sourceName.trimmed() != sourceName) {
             return fail(QStringLiteral("Ya existe un renombrado pendiente hacia %1.").arg(targetName));
         }
-        if (existing.sourceName.trimmed().compare(sourceName, Qt::CaseInsensitive) == 0) {
+        if (existing.sourceName.trimmed() == sourceName) {
             m_pendingDatasetRenameDrafts.removeAt(i);
         }
     }
@@ -1570,9 +1570,9 @@ void MainWindow::applyDatasetPropertyChanges() {
             for (int i = m_pendingDatasetRenameDrafts.size() - 1; i >= 0; --i) {
                 const PendingDatasetRenameDraft& existing = m_pendingDatasetRenameDrafts.at(i);
                 if (existing.connIdx == draft.connIdx
-                    && existing.poolName.trimmed().compare(draft.poolName.trimmed(), Qt::CaseInsensitive) == 0
-                    && existing.sourceName.trimmed().compare(draft.sourceName.trimmed(), Qt::CaseInsensitive) == 0
-                    && existing.targetName.trimmed().compare(draft.targetName.trimmed(), Qt::CaseInsensitive) == 0) {
+                    && existing.poolName.trimmed() == draft.poolName.trimmed()
+                    && existing.sourceName.trimmed() == draft.sourceName.trimmed()
+                    && existing.targetName.trimmed() == draft.targetName.trimmed()) {
                     m_pendingDatasetRenameDrafts.removeAt(i);
                     break;
                 }
@@ -1586,7 +1586,7 @@ void MainWindow::applyDatasetPropertyChanges() {
                     selection.snapshotName.trimmed().isEmpty()
                         ? selection.datasetName.trimmed()
                         : QStringLiteral("%1@%2").arg(selection.datasetName.trimmed(), selection.snapshotName.trimmed());
-                if (!selection.valid || selectedObject.compare(draft.sourceName.trimmed(), Qt::CaseInsensitive) != 0) {
+                if (!selection.valid || selectedObject != draft.sourceName.trimmed()) {
                     return;
                 }
                 selection.poolName = draft.poolName.trimmed();
@@ -1602,8 +1602,8 @@ void MainWindow::applyDatasetPropertyChanges() {
             remapSelection(m_connActionOrigin);
             remapSelection(m_connActionDest);
             if (m_propsSide == QStringLiteral("conncontent")
-                && m_propsToken.trimmed().compare(token, Qt::CaseInsensitive) == 0
-                && m_propsDataset.trimmed().compare(draft.sourceName.trimmed(), Qt::CaseInsensitive) == 0) {
+                && m_propsToken.trimmed() == token
+                && m_propsDataset.trimmed() == draft.sourceName.trimmed()) {
                 m_propsDataset = draft.targetName.trimmed();
             }
         }
