@@ -2,6 +2,7 @@
 #include "i18nmanager.h"
 
 #include <QComboBox>
+#include <QAbstractItemView>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -10,6 +11,7 @@
 #include <QMessageBox>
 #include <QPixmap>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QIcon>
@@ -39,31 +41,24 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     m_iconLabel->setAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
     m_iconLabel->setPixmap(QPixmap(QStringLiteral(":/icons/ZFSMgr-512.png")).scaled(72, 72, Qt::KeepAspectRatio, Qt::SmoothTransformation));
     root->addWidget(m_iconLabel);
-    auto* form = new QFormLayout();
+    m_formLayout = new QFormLayout();
 
     m_languageCombo = new QComboBox(this);
-    m_languageCombo->addItems({QStringLiteral("es"), QStringLiteral("en"), QStringLiteral("zh")});
-    form->addRow(trk(m_lang, QStringLiteral("t_idioma_009433"),
-                     QStringLiteral("Idioma"),
-                     QStringLiteral("Language"),
-                     QStringLiteral("语言")),
-                 m_languageCombo);
+    m_languageCombo->addItem(QString(), QStringLiteral("es"));
+    m_languageCombo->addItem(QString(), QStringLiteral("en"));
+    m_languageCombo->addItem(QString(), QStringLiteral("zh"));
+    m_languageLabel = new QLabel(this);
+    m_formLayout->addRow(m_languageLabel, m_languageCombo);
 
     m_passwordEdit = new QLineEdit(this);
     m_passwordEdit->setEchoMode(QLineEdit::Password);
-    form->addRow(trk(m_lang, QStringLiteral("t_password_8be3c9"),
-                     QStringLiteral("Password"),
-                     QStringLiteral("Password"),
-                     QStringLiteral("密码")),
-                 m_passwordEdit);
+    m_passwordLabel = new QLabel(this);
+    m_formLayout->addRow(m_passwordLabel, m_passwordEdit);
     m_passwordConfirmEdit = new QLineEdit(this);
     m_passwordConfirmEdit->setEchoMode(QLineEdit::Password);
-    form->addRow(trk(m_lang, QStringLiteral("t_repeat_pwd_001"),
-                     QStringLiteral("Repetir password"),
-                     QStringLiteral("Repeat password"),
-                     QStringLiteral("重复密码")),
-                 m_passwordConfirmEdit);
-    root->addLayout(form);
+    m_passwordConfirmLabel = new QLabel(this);
+    m_formLayout->addRow(m_passwordConfirmLabel, m_passwordConfirmEdit);
+    root->addLayout(m_formLayout);
 
     m_creationInfoLabel = new QLabel(this);
     m_creationInfoLabel->setWordWrap(true);
@@ -117,8 +112,8 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
         m_resetIniRequested = true;
         accept();
     });
-    connect(m_languageCombo, &QComboBox::currentTextChanged, this, [this](const QString& lang) {
-        m_lang = lang.trimmed().toLower();
+    connect(m_languageCombo, &QComboBox::currentIndexChanged, this, [this](int) {
+        m_lang = selectedLanguage();
         retranslateUi();
     });
 
@@ -143,7 +138,11 @@ QString MasterPasswordDialog::confirmPassword() const {
 }
 
 QString MasterPasswordDialog::selectedLanguage() const {
-    return m_languageCombo ? m_languageCombo->currentText().trimmed().toLower() : QStringLiteral("es");
+    if (!m_languageCombo) {
+        return QStringLiteral("es");
+    }
+    const QString code = m_languageCombo->currentData().toString().trimmed().toLower();
+    return code.isEmpty() ? QStringLiteral("es") : code;
 }
 
 bool MasterPasswordDialog::resetIniRequested() const {
@@ -166,8 +165,7 @@ void MasterPasswordDialog::setSelectedLanguage(const QString& langCode) {
     if (!m_languageCombo) {
         return;
     }
-    const QString lc = langCode.trimmed().toLower();
-    const int idx = m_languageCombo->findText(lc);
+    const int idx = languageIndexForCode(langCode);
     if (idx >= 0) {
         m_languageCombo->setCurrentIndex(idx);
     }
@@ -187,10 +185,11 @@ void MasterPasswordDialog::setFirstRunCreationMode(bool enabled) {
 }
 
 void MasterPasswordDialog::openChangePasswordDialog() {
+    const QString lang = selectedLanguage();
     QDialog dlg(this);
     dlg.setModal(true);
     dlg.resize(460, 220);
-    dlg.setWindowTitle(trk(m_lang,
+    dlg.setWindowTitle(trk(lang,
                            QStringLiteral("t_chg_master_001"),
                            QStringLiteral("Cambiar password maestro"),
                            QStringLiteral("Change master password"),
@@ -203,12 +202,26 @@ void MasterPasswordDialog::openChangePasswordDialog() {
     oldPwd->setEchoMode(QLineEdit::Password);
     newPwd->setEchoMode(QLineEdit::Password);
     newPwd2->setEchoMode(QLineEdit::Password);
-    form->addRow(trk(m_lang, QStringLiteral("t_cur_pwd_lbl001"), QStringLiteral("Password actual"), QStringLiteral("Current password"), QStringLiteral("当前密码")), oldPwd);
-    form->addRow(trk(m_lang, QStringLiteral("t_new_pwd_lbl001"), QStringLiteral("Password nuevo"), QStringLiteral("New password"), QStringLiteral("新密码")), newPwd);
-    form->addRow(trk(m_lang, QStringLiteral("t_rep_pwd_lbl001"), QStringLiteral("Repetir password"), QStringLiteral("Repeat password"), QStringLiteral("重复密码")), newPwd2);
+    form->addRow(trk(lang, QStringLiteral("t_cur_pwd_lbl001"), QStringLiteral("Password actual"), QStringLiteral("Current password"), QStringLiteral("当前密码")), oldPwd);
+    form->addRow(trk(lang, QStringLiteral("t_new_pwd_lbl001"), QStringLiteral("Password nuevo"), QStringLiteral("New password"), QStringLiteral("新密码")), newPwd);
+    form->addRow(trk(lang, QStringLiteral("t_rep_pwd_lbl001"), QStringLiteral("Repetir password"), QStringLiteral("Repeat password"), QStringLiteral("重复密码")), newPwd2);
     root->addLayout(form);
     auto* box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     root->addWidget(box);
+    if (QPushButton* okButton = box->button(QDialogButtonBox::Ok)) {
+        okButton->setText(trk(lang,
+                              QStringLiteral("t_aceptar_8f9f73"),
+                              QStringLiteral("Aceptar"),
+                              QStringLiteral("Accept"),
+                              QStringLiteral("确定")));
+    }
+    if (QPushButton* cancelButton = box->button(QDialogButtonBox::Cancel)) {
+        cancelButton->setText(trk(lang,
+                                  QStringLiteral("t_cancelar_c111e0"),
+                                  QStringLiteral("Cancelar"),
+                                  QStringLiteral("Cancel"),
+                                  QStringLiteral("取消")));
+    }
     connect(box, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
     connect(box, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     if (dlg.exec() != QDialog::Accepted) {
@@ -219,14 +232,14 @@ void MasterPasswordDialog::openChangePasswordDialog() {
     const QString newv2 = newPwd2->text();
     if (newv.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             trk(m_lang, QStringLiteral("t_new_pwd_empty1"), QStringLiteral("El nuevo password no puede estar vacío."),
+                             trk(lang, QStringLiteral("t_new_pwd_empty1"), QStringLiteral("El nuevo password no puede estar vacío."),
                                  QStringLiteral("New password cannot be empty."),
                                  QStringLiteral("新密码不能为空。")));
         return;
     }
     if (newv != newv2) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             trk(m_lang, QStringLiteral("t_pwd_confirm01"), QStringLiteral("La confirmación no coincide."),
+                             trk(lang, QStringLiteral("t_pwd_confirm01"), QStringLiteral("La confirmación no coincide."),
                                  QStringLiteral("Confirmation does not match."),
                                  QStringLiteral("两次输入不一致。")));
         return;
@@ -241,6 +254,37 @@ void MasterPasswordDialog::retranslateUi() {
     const QString lang = selectedLanguage();
     const QString appVersion = QStringLiteral(ZFSMGR_APP_VERSION);
     setWindowTitle(QStringLiteral("ZFSMgr [%1]").arg(appVersion));
+    refreshLanguageComboTexts();
+    if (m_languageLabel) {
+        m_languageLabel->setText(trk(lang, QStringLiteral("t_idioma_009433"),
+                                     QStringLiteral("Idioma"),
+                                     QStringLiteral("Language"),
+                                     QStringLiteral("语言")));
+    }
+    if (m_passwordLabel) {
+        m_passwordLabel->setText(trk(lang, QStringLiteral("t_password_8be3c9"),
+                                     QStringLiteral("Password"),
+                                     QStringLiteral("Password"),
+                                     QStringLiteral("密码")));
+    }
+    if (m_passwordConfirmLabel) {
+        const QString repeatText = trk(lang, QStringLiteral("t_repeat_pwd_001"),
+                                       QStringLiteral("Repetir password"),
+                                       QStringLiteral("Repeat password"),
+                                       QStringLiteral("重复密码"));
+        m_passwordConfirmLabel->setText(repeatText);
+        m_passwordConfirmLabel->setVisible(m_firstRunCreationMode);
+        m_passwordConfirmLabel->setEnabled(m_firstRunCreationMode);
+        if (m_formLayout) {
+            if (QWidget* rowLabel = m_formLayout->labelForField(m_passwordConfirmEdit)) {
+                if (auto* formLabel = qobject_cast<QLabel*>(rowLabel)) {
+                    formLabel->setText(repeatText);
+                    formLabel->setVisible(m_firstRunCreationMode);
+                    formLabel->setEnabled(m_firstRunCreationMode);
+                }
+            }
+        }
+    }
     m_passwordEdit->setPlaceholderText(trk(lang, QStringLiteral("t_password_m_07c917"),
                                            QStringLiteral("Password maestro"),
                                            QStringLiteral("Master password"),
@@ -316,4 +360,57 @@ void MasterPasswordDialog::retranslateUi() {
     }
     const QSize lockedSize = sizeHint().expandedTo(QSize(336, 340));
     setFixedSize(lockedSize);
+}
+
+int MasterPasswordDialog::languageIndexForCode(const QString& langCode) const {
+    if (!m_languageCombo) {
+        return -1;
+    }
+    const QString code = langCode.trimmed().toLower();
+    for (int i = 0; i < m_languageCombo->count(); ++i) {
+        if (m_languageCombo->itemData(i).toString().trimmed().toLower() == code) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void MasterPasswordDialog::refreshLanguageComboTexts() {
+    if (!m_languageCombo) {
+        return;
+    }
+    const QString currentCode = selectedLanguage();
+    const QSignalBlocker blocker(m_languageCombo);
+    const int esIdx = languageIndexForCode(QStringLiteral("es"));
+    const int enIdx = languageIndexForCode(QStringLiteral("en"));
+    const int zhIdx = languageIndexForCode(QStringLiteral("zh"));
+    QString esText = QStringLiteral("Español");
+    QString enText = QStringLiteral("Inglés");
+    QString zhText = QStringLiteral("Chino");
+    if (currentCode == QStringLiteral("en")) {
+        esText = QStringLiteral("Spanish");
+        enText = QStringLiteral("English");
+        zhText = QStringLiteral("Chinese");
+    } else if (currentCode == QStringLiteral("zh")) {
+        esText = QStringLiteral("西班牙语");
+        enText = QStringLiteral("英语");
+        zhText = QStringLiteral("中文");
+    }
+    if (esIdx >= 0) {
+        m_languageCombo->setItemText(esIdx, esText);
+    }
+    if (enIdx >= 0) {
+        m_languageCombo->setItemText(enIdx, enText);
+    }
+    if (zhIdx >= 0) {
+        m_languageCombo->setItemText(zhIdx, zhText);
+    }
+    const int currentIdx = languageIndexForCode(currentCode);
+    if (currentIdx >= 0) {
+        m_languageCombo->setCurrentIndex(currentIdx);
+    }
+    m_languageCombo->update();
+    if (QAbstractItemView* popupView = m_languageCombo->view()) {
+        popupView->viewport()->update();
+    }
 }

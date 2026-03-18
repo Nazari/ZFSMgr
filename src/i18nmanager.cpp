@@ -148,8 +148,6 @@ QString I18nManager::translateKey(const QString& language,
                                   const QString& fallbackEs,
                                   const QString& fallbackEn,
                                   const QString& fallbackZh) {
-    Q_UNUSED(fallbackEn);
-    Q_UNUSED(fallbackZh);
     const QString lang = normalizeLanguage(language);
     if (!m_catalogs.contains(lang)) {
         m_catalogs.insert(lang, loadCatalog(lang));
@@ -169,6 +167,15 @@ QString I18nManager::translateKey(const QString& language,
     QString out = tryFromLang(lang, key);
     if (!out.isEmpty()) {
         return out;
+    }
+    if (lang == QStringLiteral("en") && !fallbackEn.isEmpty()) {
+        return fallbackEn;
+    }
+    if (lang == QStringLiteral("zh") && !fallbackZh.isEmpty()) {
+        return fallbackZh;
+    }
+    if (lang == QStringLiteral("es") && !fallbackEs.isEmpty()) {
+        return fallbackEs;
     }
     out = tryFromLang(QStringLiteral("es"), key);
     if (!out.isEmpty()) {

@@ -6,6 +6,7 @@ class QComboBox;
 class QLineEdit;
 class QPushButton;
 class QLabel;
+class QFormLayout;
 
 class MasterPasswordDialog final : public QDialog {
     Q_OBJECT
@@ -25,16 +26,22 @@ public:
 private:
     void openChangePasswordDialog();
     void retranslateUi();
+    void refreshLanguageComboTexts();
+    int languageIndexForCode(const QString& langCode) const;
     QLineEdit* m_passwordEdit{nullptr};
     QLineEdit* m_passwordConfirmEdit{nullptr};
     QComboBox* m_languageCombo{nullptr};
     QLabel* m_iconLabel{nullptr};
     QLabel* m_creationInfoLabel{nullptr};
+    QLabel* m_languageLabel{nullptr};
+    QLabel* m_passwordLabel{nullptr};
+    QLabel* m_passwordConfirmLabel{nullptr};
     QPushButton* m_okButton{nullptr};
     QPushButton* m_cancelButton{nullptr};
     QPushButton* m_changePwdButton{nullptr};
     QPushButton* m_resetIniButton{nullptr};
     QLabel* m_authorLabel{nullptr};
+    QFormLayout* m_formLayout{nullptr};
     QString m_lang{QStringLiteral("es")};
     bool m_firstRunCreationMode{false};
     bool m_resetIniRequested{false};
