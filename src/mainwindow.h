@@ -129,6 +129,16 @@ private:
         QString targetName;
     };
 
+    struct PendingShellActionDraft {
+        QString scopeLabel;
+        QString displayLabel;
+        QString command;
+        int timeoutMs{0};
+        bool streamProgress{true};
+        DatasetSelectionContext refreshSource;
+        DatasetSelectionContext refreshTarget;
+    };
+
     struct PoolDetailsCacheEntry {
         bool loaded{false};
         QVector<QStringList> propsRows; // property,value,source
@@ -293,6 +303,8 @@ private:
     bool isTransferVersionAllowed(const DatasetSelectionContext& src,
                                   const DatasetSelectionContext& dst,
                                   QString* reasonOut = nullptr) const;
+    bool queuePendingShellAction(const PendingShellActionDraft& draft, QString* errorOut = nullptr);
+    QString pendingTransferScopeLabel(const DatasetSelectionContext& src, const DatasetSelectionContext& dst) const;
     void executeConnectionTransferAction(const QString& action);
     void executeConnectionAdvancedAction(const QString& action);
     void setConnectionOriginSelection(const DatasetSelectionContext& ctx);
@@ -316,6 +328,9 @@ private:
     void onDatasetPropsCellChanged(int row, int col);
     void applyDatasetPropertyChanges();
     void updateApplyPropsButtonState();
+    void clearAllPendingChanges();
+    bool removePendingQueuedChangeLine(const QString& line);
+    bool executePendingQueuedChangeLine(const QString& line);
     void initLogPersistence();
     void rotateLogIfNeeded();
     void appendLogToFile(const QString& line);
@@ -471,6 +486,7 @@ private:
     QPushButton* m_poolStatusDestroyBtn{nullptr};
     QStackedWidget* m_rightStack{nullptr};
     QPushButton* m_btnApplyConnContentProps{nullptr};
+    QPushButton* m_btnDiscardPendingChanges{nullptr};
     QPushButton* m_btnConnMove{nullptr};
     QPushButton* m_btnAdvancedBreakdown{nullptr};
     QPushButton* m_btnAdvancedAssemble{nullptr};
@@ -497,6 +513,7 @@ private:
     bool m_propsDirty{false};
     QMap<QString, DatasetPropsDraft> m_propsDraftByKey;
     QVector<PendingDatasetRenameDraft> m_pendingDatasetRenameDrafts;
+    QVector<PendingShellActionDraft> m_pendingShellActionDrafts;
     bool m_loadingPropsTable{false};
     bool m_loadingDatasetTrees{false};
     QString m_language{QStringLiteral("es")};

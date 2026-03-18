@@ -2,6 +2,7 @@
 #include "mainwindow_helpers.h"
 
 #include <QCheckBox>
+#include <QColor>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFileInfo>
@@ -9,6 +10,7 @@
 #include <QHeaderView>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QPalette>
 #include <QPlainTextEdit>
 #include <QRegularExpression>
 #include <QTreeWidget>
@@ -34,6 +36,46 @@ QString buildDirectWindowsBashSshInvocation(const ConnectionProfile& p, const QS
     return sshBase + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(winCmd);
 }
 } // namespace
+
+QString MainWindow::pendingTransferScopeLabel(const DatasetSelectionContext& src, const DatasetSelectionContext& dst) const {
+    auto connPoolLabel = [this](const DatasetSelectionContext& ctx) {
+        if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size() || ctx.poolName.trimmed().isEmpty()) {
+            return QString();
+        }
+        const ConnectionProfile& p = m_profiles.at(ctx.connIdx);
+        const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
+        return QStringLiteral("%1::%2").arg(connLabel, ctx.poolName.trimmed());
+    };
+    const QString srcLabel = connPoolLabel(src);
+    const QString dstLabel = connPoolLabel(dst);
+    if (srcLabel.isEmpty()) {
+        return dstLabel;
+    }
+    if (dstLabel.isEmpty() || dstLabel == srcLabel) {
+        return srcLabel;
+    }
+    return QStringLiteral("%1 -> %2").arg(srcLabel, dstLabel);
+}
+
+bool MainWindow::queuePendingShellAction(const PendingShellActionDraft& draft, QString* errorOut) {
+    auto fail = [errorOut](const QString& text) {
+        if (errorOut) {
+            *errorOut = text;
+        }
+        return false;
+    };
+    if (draft.command.trimmed().isEmpty()) {
+        return fail(QStringLiteral("No hay comando que añadir a cambios pendientes."));
+    }
+    for (const PendingShellActionDraft& existing : m_pendingShellActionDrafts) {
+        if (existing.displayLabel.trimmed() == draft.displayLabel.trimmed()
+            && existing.command.trimmed() == draft.command.trimmed()) {
+            return fail(QStringLiteral("Ese cambio ya está en la lista de pendientes."));
+        }
+    }
+    m_pendingShellActionDrafts.push_back(draft);
+    return true;
+}
 
 void MainWindow::actionCopySnapshot() {
     const DatasetSelectionContext src = currentDatasetSelection(QStringLiteral("origin"));
@@ -98,61 +140,64 @@ void MainWindow::actionCopySnapshot() {
         pipeline = buildPipedTransferCommand(srcSeg, dstSeg);
     }
 
-    const auto tryTarFallbackForSnapshot = [&]() -> bool {
-        if (!(isWindowsConnection(sp) || isWindowsConnection(dp))) {
-            return false;
-        }
-        appLog(QStringLiteral("NORMAL"),
-               trk(QStringLiteral("t_copy_fallback_tar1"),
-                   QStringLiteral("Copiar: fallback automático a TAR por incompatibilidad de stream ZFS con Windows"),
-                   QStringLiteral("Copy: automatic TAR fallback due to ZFS stream incompatibility with Windows"),
-                   QStringLiteral("复制：由于 Windows 上 ZFS 流不兼容，自动回退到 TAR")));
+    QString pendingCommand = pipeline;
+    QString displayLabel = QStringLiteral("Copiar snapshot %1 -> %2").arg(srcSnap, recvTarget);
+    if (isWindowsConnection(sp) || isWindowsConnection(dp)) {
+        const bool builtFallback = [&]() -> bool {
+            if (!(isWindowsConnection(sp) || isWindowsConnection(dp))) {
+                return false;
+            }
+            const QString srcScript = QStringLiteral(
+                "set -e; DATASET=%1; SNAP=%2; "
+                "WAS_MOUNTED=\"$(zfs get -H -o value mounted \"$DATASET\" 2>/dev/null)\"; "
+                "[ -n \"$WAS_MOUNTED\" ] || WAS_MOUNTED=no; "
+                "MP=\"$(zfs mount 2>/dev/null | grep -E \"^$DATASET[[:space:]]\" | head -n1 | cut -d\" \" -f2-)\"; "
+                "if [ -z \"$MP\" ]; then if ! zfs mount \"$DATASET\" >/dev/null 2>&1; then :; fi; "
+                "MP=\"$(zfs mount 2>/dev/null | grep -E \"^$DATASET[[:space:]]\" | head -n1 | cut -d\" \" -f2-)\"; fi; "
+                "[ -n \"$MP\" ] && [ -d \"$MP\" ] || { echo \"[COPY][ERROR] cannot mount source dataset: $DATASET\"; exit 41; }; "
+                "SRC=\"$MP/.zfs/snapshot/$SNAP\"; "
+                "[ -d \"$SRC\" ] || { echo \"[COPY][ERROR] snapshot path unavailable: $SRC\"; exit 42; }; "
+                "tar --acls --xattrs -cpf - -C \"$SRC\" .; RC=$?; "
+                "if [ \"$WAS_MOUNTED\" != \"yes\" ]; then if ! zfs unmount \"$DATASET\" >/dev/null 2>&1; then :; fi; fi; "
+                "exit $RC")
+                                          .arg(shSingleQuote(src.datasetName), shSingleQuote(src.snapshotName));
 
-        const QString srcScript = QStringLiteral(
-            "set -e; DATASET=%1; SNAP=%2; "
-            "WAS_MOUNTED=\"$(zfs get -H -o value mounted \"$DATASET\" 2>/dev/null)\"; "
-            "[ -n \"$WAS_MOUNTED\" ] || WAS_MOUNTED=no; "
-            "MP=\"$(zfs mount 2>/dev/null | grep -E \"^$DATASET[[:space:]]\" | head -n1 | cut -d\" \" -f2-)\"; "
-            "if [ -z \"$MP\" ]; then if ! zfs mount \"$DATASET\" >/dev/null 2>&1; then :; fi; "
-            "MP=\"$(zfs mount 2>/dev/null | grep -E \"^$DATASET[[:space:]]\" | head -n1 | cut -d\" \" -f2-)\"; fi; "
-            "[ -n \"$MP\" ] && [ -d \"$MP\" ] || { echo \"[COPY][ERROR] cannot mount source dataset: $DATASET\"; exit 41; }; "
-            "SRC=\"$MP/.zfs/snapshot/$SNAP\"; "
-            "[ -d \"$SRC\" ] || { echo \"[COPY][ERROR] snapshot path unavailable: $SRC\"; exit 42; }; "
-            "tar --acls --xattrs -cpf - -C \"$SRC\" .; RC=$?; "
-            "if [ \"$WAS_MOUNTED\" != \"yes\" ]; then if ! zfs unmount \"$DATASET\" >/dev/null 2>&1; then :; fi; fi; "
-            "exit $RC")
-                                      .arg(shSingleQuote(src.datasetName), shSingleQuote(src.snapshotName));
-
-        const QString dstScript = QStringLiteral(
-            "set -e; DATASET=%1; "
-            "if ! zfs list -H -o name \"$DATASET\" >/dev/null 2>&1; then zfs create -u \"$DATASET\"; fi; "
-            "WAS_MOUNTED=\"$(zfs get -H -o value mounted \"$DATASET\" 2>/dev/null)\"; "
-            "[ -n \"$WAS_MOUNTED\" ] || WAS_MOUNTED=no; "
-            "MP=\"$(zfs mount 2>/dev/null | grep -E \"^$DATASET[[:space:]]\" | head -n1 | cut -d\" \" -f2-)\"; "
-            "if [ -z \"$MP\" ]; then if ! zfs mount \"$DATASET\" >/dev/null 2>&1; then :; fi; "
-            "MP=\"$(zfs mount 2>/dev/null | grep -E \"^$DATASET[[:space:]]\" | head -n1 | cut -d\" \" -f2-)\"; fi; "
-            "[ -n \"$MP\" ] && [ -d \"$MP\" ] || { echo \"[COPY][ERROR] cannot mount destination dataset: $DATASET\"; exit 43; }; "
-            "mkdir -p \"$MP\"; tar --acls --xattrs -xpf - -C \"$MP\"; RC=$?; "
-            "if [ \"$WAS_MOUNTED\" != \"yes\" ]; then if ! zfs unmount \"$DATASET\" >/dev/null 2>&1; then :; fi; fi; "
-            "exit $RC")
-                                      .arg(shSingleQuote(recvTarget));
-
-        const QString srcSeg = sshExecFromLocal(sp, withSudo(sp, srcScript));
-        const QString dstSeg = sshExecFromLocal(dp, withSudoStreamInput(dp, dstScript));
-        const QString tarPipe = buildPipedTransferCommand(srcSeg, dstSeg);
-        return runLocalCommand(QStringLiteral("Copiar snapshot (fallback TAR) %1 -> %2").arg(srcSnap, recvTarget),
-                               tarPipe,
-                               0,
-                               false,
-                               true);
-    };
-
-    if (runLocalCommand(QStringLiteral("Copiar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0, false, true)
-        || tryTarFallbackForSnapshot()) {
-        invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
-        refreshConnectionByIndex(dst.connIdx);
-        reloadDatasetSide(QStringLiteral("dest"));
+            const QString dstScript = QStringLiteral(
+                "set -e; DATASET=%1; "
+                "if ! zfs list -H -o name \"$DATASET\" >/dev/null 2>&1; then zfs create -u \"$DATASET\"; fi; "
+                "WAS_MOUNTED=\"$(zfs get -H -o value mounted \"$DATASET\" 2>/dev/null)\"; "
+                "[ -n \"$WAS_MOUNTED\" ] || WAS_MOUNTED=no; "
+                "MP=\"$(zfs mount 2>/dev/null | grep -E \"^$DATASET[[:space:]]\" | head -n1 | cut -d\" \" -f2-)\"; "
+                "if [ -z \"$MP\" ]; then if ! zfs mount \"$DATASET\" >/dev/null 2>&1; then :; fi; "
+                "MP=\"$(zfs mount 2>/dev/null | grep -E \"^$DATASET[[:space:]]\" | head -n1 | cut -d\" \" -f2-)\"; fi; "
+                "[ -n \"$MP\" ] && [ -d \"$MP\" ] || { echo \"[COPY][ERROR] cannot mount destination dataset: $DATASET\"; exit 43; }; "
+                "mkdir -p \"$MP\"; tar --acls --xattrs -xpf - -C \"$MP\"; RC=$?; "
+                "if [ \"$WAS_MOUNTED\" != \"yes\" ]; then if ! zfs unmount \"$DATASET\" >/dev/null 2>&1; then :; fi; fi; "
+                "exit $RC")
+                                          .arg(shSingleQuote(recvTarget));
+            pendingCommand = buildPipedTransferCommand(sshExecFromLocal(sp, withSudo(sp, srcScript)),
+                                                       sshExecFromLocal(dp, withSudoStreamInput(dp, dstScript)));
+            displayLabel = QStringLiteral("Copiar snapshot (fallback TAR) %1 -> %2").arg(srcSnap, recvTarget);
+            return true;
+        }();
+        Q_UNUSED(builtFallback);
     }
+    QString errorText;
+    if (!queuePendingShellAction(PendingShellActionDraft{
+            pendingTransferScopeLabel(src, dst),
+            displayLabel,
+            pendingCommand,
+            0,
+            true,
+            src,
+            dst}, &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Cambio pendiente añadido: %1  %2")
+               .arg(pendingTransferScopeLabel(src, dst), displayLabel));
+    updateApplyPropsButtonState();
 }
 
 void MainWindow::actionCloneSnapshot() {
@@ -285,16 +330,30 @@ void MainWindow::actionCloneSnapshot() {
         }
     }
     const QString fullCmd = sshExecFromLocal(cp, withSudo(cp, cmd));
-    if (runLocalCommand(QStringLiteral("Clonar snapshot %1 -> %2").arg(sourceSnapshot, targetDataset), fullCmd, 0, false, true)) {
-        const QString targetPool = targetDataset.section('/', 0, 0).trimmed();
-        if (!targetPool.isEmpty()) {
-            invalidateDatasetCacheForPool(dst.connIdx, targetPool);
-        } else {
-            invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
-        }
-        refreshConnectionByIndex(dst.connIdx);
-        reloadDatasetSide(QStringLiteral("dest"));
+    DatasetSelectionContext refreshDst = dst;
+    const QString targetPool = targetDataset.section('/', 0, 0).trimmed();
+    if (!targetPool.isEmpty()) {
+        refreshDst.poolName = targetPool;
     }
+    refreshDst.datasetName = targetDataset;
+    refreshDst.snapshotName.clear();
+    QString errorText;
+    if (!queuePendingShellAction(PendingShellActionDraft{
+            pendingTransferScopeLabel(src, refreshDst),
+            QStringLiteral("Clonar snapshot %1 -> %2").arg(sourceSnapshot, targetDataset),
+            fullCmd,
+            0,
+            true,
+            src,
+            refreshDst}, &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Cambio pendiente añadido: %1  %2")
+               .arg(pendingTransferScopeLabel(src, refreshDst),
+                    QStringLiteral("Clonar snapshot %1 -> %2").arg(sourceSnapshot, targetDataset)));
+    updateApplyPropsButtonState();
 }
 
 void MainWindow::actionDiffSnapshot() {
@@ -462,8 +521,20 @@ void MainWindow::actionDiffSnapshot() {
     auto* tree = new QTreeWidget(&dlg);
     tree->setColumnCount(1);
     tree->setHeaderLabel(QStringLiteral("%1 -> %2").arg(srcObj, dstObj));
-    tree->setAlternatingRowColors(true);
+    tree->setAlternatingRowColors(false);
     tree->setRootIsDecorated(true);
+    QPalette treePalette = tree->palette();
+    treePalette.setColor(QPalette::Base, QColor(QStringLiteral("#fbfdff")));
+    treePalette.setColor(QPalette::AlternateBase, QColor(QStringLiteral("#fbfdff")));
+    treePalette.setColor(QPalette::Text, QColor(QStringLiteral("#132231")));
+    treePalette.setColor(QPalette::WindowText, QColor(QStringLiteral("#132231")));
+    tree->setPalette(treePalette);
+    tree->setStyleSheet(QStringLiteral(
+        "QTreeWidget{background:#fbfdff; color:#132231; alternate-background-color:#fbfdff;}"
+        "QTreeWidget::item{background:#fbfdff; color:#132231;}"
+        "QTreeWidget::item:selected{background:#dcecff; color:#132231;}"
+        "QHeaderView::section{background:#eef4f8; color:#132231;}"
+    ));
     auto* addedRoot = new QTreeWidgetItem(tree, QStringList{QStringLiteral("Añadido")});
     auto* deletedRoot = new QTreeWidgetItem(tree, QStringList{QStringLiteral("Borrado")});
     auto* modifiedRoot = new QTreeWidgetItem(tree, QStringList{QStringLiteral("Modificado")});
@@ -676,11 +747,23 @@ void MainWindow::actionLevelSnapshot() {
         pipeline = buildPipedTransferCommand(srcSeg, dstSeg);
     }
 
-    if (runLocalCommand(QStringLiteral("Nivelar snapshot %1 -> %2").arg(srcSnap, recvTarget), pipeline, 0, false, true)) {
-        invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
-        refreshConnectionByIndex(dst.connIdx);
-        reloadDatasetSide(QStringLiteral("dest"));
+    QString errorText;
+    const QString displayLabel = QStringLiteral("Nivelar snapshot %1 -> %2").arg(srcSnap, recvTarget);
+    if (!queuePendingShellAction(PendingShellActionDraft{
+            pendingTransferScopeLabel(src, dst),
+            displayLabel,
+            pipeline,
+            0,
+            true,
+            src,
+            dst}, &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+        return;
     }
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Cambio pendiente añadido: %1  %2")
+               .arg(pendingTransferScopeLabel(src, dst), displayLabel));
+    updateApplyPropsButtonState();
 }
 
 void MainWindow::actionSyncDatasets() {
@@ -770,6 +853,25 @@ void MainWindow::actionSyncDatasets() {
         const bool gzipBoth = remoteHasTool(src.connIdx, QStringLiteral("gzip")) && remoteHasTool(dst.connIdx, QStringLiteral("gzip"));
         return chooseStreamCodec(zstdBoth, gzipBoth);
     };
+    auto queueSyncCommand = [&](const QString& displayLabel, const QString& command) {
+        QString errorText;
+        if (!queuePendingShellAction(PendingShellActionDraft{
+                pendingTransferScopeLabel(src, dst),
+                displayLabel,
+                command,
+                0,
+                true,
+                src,
+                dst}, &errorText)) {
+            QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+            return false;
+        }
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Cambio pendiente añadido: %1  %2")
+                   .arg(pendingTransferScopeLabel(src, dst), displayLabel));
+        updateApplyPropsButtonState();
+        return true;
+    };
 
     if (srcRootMounted && dstRootMounted) {
         if (!isUsableMountPath(src.connIdx, srcEffectiveMp) || !isUsableMountPath(dst.connIdx, dstEffectiveMp)) {
@@ -804,11 +906,7 @@ void MainWindow::actionSyncDatasets() {
                        QStringLiteral("Sincronizar en Windows usa fallback tar/ssh (codec=%1, sin --delete)."),
                        QStringLiteral("Sync on Windows uses tar/ssh fallback (codec=%1, no --delete)."),
                        QStringLiteral("Windows 上同步使用 tar/ssh 回退（编码=%1，无 --delete）。")).arg(streamCodecName(codec)));
-            if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0, false, true)) {
-                invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
-                refreshConnectionByIndex(dst.connIdx);
-                reloadDatasetSide(QStringLiteral("dest"));
-            }
+            queueSyncCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command);
             return;
         }
         QString command;
@@ -836,11 +934,7 @@ void MainWindow::actionSyncDatasets() {
             remoteRsync = withSudo(sp, remoteRsync);
             command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
         }
-        if (runLocalCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command, 0, false, true)) {
-            invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
-            refreshConnectionByIndex(dst.connIdx);
-            reloadDatasetSide(QStringLiteral("dest"));
-        }
+        queueSyncCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command);
         return;
     }
 
@@ -959,17 +1053,10 @@ void MainWindow::actionSyncDatasets() {
                    QStringLiteral("Sincronizar subdatasets en Windows usa fallback tar/ssh (codec=%1, sin --delete)."),
                    QStringLiteral("Subdataset sync on Windows uses tar/ssh fallback (codec=%1, no --delete)."),
                    QStringLiteral("Windows 上子数据集同步使用 tar/ssh 回退（编码=%1，无 --delete）。")).arg(streamCodecName(codec)));
-        if (runLocalCommand(QStringLiteral("Sincronizar subdatasets %1 -> %2 (%3)")
-                                .arg(src.datasetName, dst.datasetName)
-                                .arg(syncPairs.size()),
-                            command,
-                            0,
-                            false,
-                            true)) {
-            invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
-            refreshConnectionByIndex(dst.connIdx);
-            reloadDatasetSide(QStringLiteral("dest"));
-        }
+        queueSyncCommand(QStringLiteral("Sincronizar subdatasets %1 -> %2 (%3)")
+                             .arg(src.datasetName, dst.datasetName)
+                             .arg(syncPairs.size()),
+                         command);
     } else {
         rsyncCommands.reserve(syncPairs.size());
         for (const auto& pair : syncPairs) {
@@ -988,16 +1075,9 @@ void MainWindow::actionSyncDatasets() {
                                   .arg(rsyncOptsProbe, rsyncCommands.join(QStringLiteral(" && ")));
         remoteRsync = withSudo(sp, remoteRsync);
         const QString command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
-        if (runLocalCommand(QStringLiteral("Sincronizar subdatasets %1 -> %2 (%3)")
-                                .arg(src.datasetName, dst.datasetName)
-                                .arg(syncPairs.size()),
-                            command,
-                            0,
-                            false,
-                            true)) {
-            invalidateDatasetCacheForPool(dst.connIdx, dst.poolName);
-            refreshConnectionByIndex(dst.connIdx);
-            reloadDatasetSide(QStringLiteral("dest"));
-        }
+        queueSyncCommand(QStringLiteral("Sincronizar subdatasets %1 -> %2 (%3)")
+                             .arg(src.datasetName, dst.datasetName)
+                             .arg(syncPairs.size()),
+                         command);
     }
 }

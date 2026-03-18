@@ -961,7 +961,10 @@ void MainWindow::applyDatasetPropertyChanges() {
             break;
         }
     }
-    if (m_propsSide == QStringLiteral("conncontent") || hasPendingPermissionDrafts || !m_pendingDatasetRenameDrafts.isEmpty()) {
+    if (m_propsSide == QStringLiteral("conncontent")
+        || hasPendingPermissionDrafts
+        || !m_pendingDatasetRenameDrafts.isEmpty()
+        || !m_pendingShellActionDrafts.isEmpty()) {
         auto saveCurrentConnContentDraft = [this]() {
             if (m_propsDataset.isEmpty() || m_propsToken.isEmpty() || !m_connContentPropsTable) {
                 return;
@@ -1614,6 +1617,41 @@ void MainWindow::applyDatasetPropertyChanges() {
             setActionsLocked(false);
         }
 
+        const QVector<PendingShellActionDraft> pendingShellActions = m_pendingShellActionDrafts;
+        for (const PendingShellActionDraft& draft : pendingShellActions) {
+            if (draft.command.trimmed().isEmpty()) {
+                continue;
+            }
+            if (!runLocalCommand(draft.displayLabel, draft.command, draft.timeoutMs, false, draft.streamProgress)) {
+                updateApplyPropsButtonState();
+                return;
+            }
+            for (int i = m_pendingShellActionDrafts.size() - 1; i >= 0; --i) {
+                const PendingShellActionDraft& existing = m_pendingShellActionDrafts.at(i);
+                if (existing.displayLabel.trimmed() == draft.displayLabel.trimmed()
+                    && existing.command.trimmed() == draft.command.trimmed()) {
+                    m_pendingShellActionDrafts.removeAt(i);
+                    break;
+                }
+            }
+            auto refreshCtx = [this](const DatasetSelectionContext& ctx, const QString& side) {
+                if (!ctx.valid || ctx.connIdx < 0 || ctx.poolName.trimmed().isEmpty()) {
+                    return;
+                }
+                invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
+                refreshConnectionByIndex(ctx.connIdx);
+                if (side == QStringLiteral("origin") || side == QStringLiteral("dest")) {
+                    reloadDatasetSide(side);
+                }
+            };
+            refreshCtx(draft.refreshTarget, QStringLiteral("dest"));
+            if (!draft.refreshSource.valid
+                || draft.refreshSource.connIdx != draft.refreshTarget.connIdx
+                || draft.refreshSource.poolName.trimmed() != draft.refreshTarget.poolName.trimmed()) {
+                refreshCtx(draft.refreshSource, QStringLiteral("origin"));
+            }
+        }
+
         bool hasPropertyDrafts = false;
         for (auto it = m_propsDraftByKey.cbegin(); it != m_propsDraftByKey.cend(); ++it) {
             if (it.key().startsWith(QStringLiteral("conncontent|")) && it.value().dirty) {
@@ -1628,7 +1666,10 @@ void MainWindow::applyDatasetPropertyChanges() {
                 break;
             }
         }
-        m_propsDirty = hasPropertyDrafts || hasPermissionDrafts || !m_pendingDatasetRenameDrafts.isEmpty();
+        m_propsDirty = hasPropertyDrafts
+                       || hasPermissionDrafts
+                       || !m_pendingDatasetRenameDrafts.isEmpty()
+                       || !m_pendingShellActionDrafts.isEmpty();
         if (m_connContentPropsTable && !m_propsDataset.isEmpty()) {
             m_propsOriginalValues.clear();
             m_propsOriginalInherit.clear();
@@ -2056,6 +2097,106 @@ void MainWindow::applyDatasetPropertyChanges() {
     }
 }
 
+void MainWindow::clearAllPendingChanges() {
+    for (auto it = m_propsDraftByKey.begin(); it != m_propsDraftByKey.end();) {
+        if (it.key().startsWith(QStringLiteral("conncontent|"))) {
+            it = m_propsDraftByKey.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = m_datasetPermissionsCache.begin(); it != m_datasetPermissionsCache.end(); ++it) {
+        if (!it.value().loaded) {
+            continue;
+        }
+        it.value().dirty = false;
+        it.value().localGrants = it.value().originalLocalGrants;
+        it.value().descendantGrants = it.value().originalDescendantGrants;
+        it.value().localDescendantGrants = it.value().originalLocalDescendantGrants;
+        it.value().createPermissions = it.value().originalCreatePermissions;
+        it.value().permissionSets = it.value().originalPermissionSets;
+    }
+    m_pendingDatasetRenameDrafts.clear();
+    m_pendingShellActionDrafts.clear();
+    m_propsDirty = false;
+    updateApplyPropsButtonState();
+}
+
+bool MainWindow::removePendingQueuedChangeLine(const QString& line) {
+    const QString trimmed = line.trimmed();
+    if (trimmed.isEmpty()) {
+        return false;
+    }
+    for (int i = 0; i < m_pendingShellActionDrafts.size(); ++i) {
+        const PendingShellActionDraft& draft = m_pendingShellActionDrafts.at(i);
+        const QString scope = draft.scopeLabel.trimmed().isEmpty() ? QStringLiteral("local") : draft.scopeLabel.trimmed();
+        if (QStringLiteral("%1  %2").arg(scope, draft.command.trimmed()) == trimmed) {
+            m_pendingShellActionDrafts.removeAt(i);
+            updateApplyPropsButtonState();
+            return true;
+        }
+    }
+    auto connPoolPrefix = [this](int connIdx, const QString& poolName) {
+        const ConnectionProfile& p = m_profiles.at(connIdx);
+        const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
+        return QStringLiteral("%1::%2").arg(connLabel, poolName.trimmed());
+    };
+    for (int i = 0; i < m_pendingDatasetRenameDrafts.size(); ++i) {
+        const PendingDatasetRenameDraft& draft = m_pendingDatasetRenameDrafts.at(i);
+        if (QStringLiteral("%1  %2")
+                .arg(connPoolPrefix(draft.connIdx, draft.poolName), pendingDatasetRenameCommand(draft))
+            == trimmed) {
+            m_pendingDatasetRenameDrafts.removeAt(i);
+            updateApplyPropsButtonState();
+            return true;
+        }
+    }
+    QMessageBox::information(this,
+                             QStringLiteral("ZFSMgr"),
+                             QStringLiteral("Eliminar individual solo está disponible para cambios en cola de acciones y renombrados."));
+    return false;
+}
+
+bool MainWindow::executePendingQueuedChangeLine(const QString& line) {
+    const QString trimmed = line.trimmed();
+    if (trimmed.isEmpty()) {
+        return false;
+    }
+    for (int i = 0; i < m_pendingShellActionDrafts.size(); ++i) {
+        const PendingShellActionDraft draft = m_pendingShellActionDrafts.at(i);
+        const QString scope = draft.scopeLabel.trimmed().isEmpty() ? QStringLiteral("local") : draft.scopeLabel.trimmed();
+        if (QStringLiteral("%1  %2").arg(scope, draft.command.trimmed()) != trimmed) {
+            continue;
+        }
+        if (!runLocalCommand(draft.displayLabel, draft.command, draft.timeoutMs, false, draft.streamProgress)) {
+            return false;
+        }
+        m_pendingShellActionDrafts.removeAt(i);
+        auto refreshCtx = [this](const DatasetSelectionContext& ctx, const QString& side) {
+            if (!ctx.valid || ctx.connIdx < 0 || ctx.poolName.trimmed().isEmpty()) {
+                return;
+            }
+            invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
+            refreshConnectionByIndex(ctx.connIdx);
+            if (side == QStringLiteral("origin") || side == QStringLiteral("dest")) {
+                reloadDatasetSide(side);
+            }
+        };
+        refreshCtx(draft.refreshTarget, QStringLiteral("dest"));
+        if (!draft.refreshSource.valid
+            || draft.refreshSource.connIdx != draft.refreshTarget.connIdx
+            || draft.refreshSource.poolName.trimmed() != draft.refreshTarget.poolName.trimmed()) {
+            refreshCtx(draft.refreshSource, QStringLiteral("origin"));
+        }
+        updateApplyPropsButtonState();
+        return true;
+    }
+    QMessageBox::information(this,
+                             QStringLiteral("ZFSMgr"),
+                             QStringLiteral("La ejecución individual solo está disponible para cambios en cola de acciones y renombrados."));
+    return false;
+}
+
 QStringList MainWindow::pendingConnContentApplyCommands() const {
     QStringList commands;
     auto connPoolPrefix = [this](int connIdx, const QString& poolName) {
@@ -2387,6 +2528,14 @@ QStringList MainWindow::pendingConnContentApplyCommands() const {
                       draft.poolName,
                       pendingDatasetRenameCommand(draft));
     }
+    for (const PendingShellActionDraft& draft : m_pendingShellActionDrafts) {
+        const QString trimmed = draft.command.trimmed();
+        if (trimmed.isEmpty()) {
+            continue;
+        }
+        const QString scope = draft.scopeLabel.trimmed().isEmpty() ? QStringLiteral("local") : draft.scopeLabel.trimmed();
+        commands.push_back(QStringLiteral("%1  %2").arg(scope, trimmed));
+    }
     return commands;
 }
 
@@ -2412,11 +2561,17 @@ void MainWindow::updateApplyPropsButtonState() {
                           QStringLiteral("No pending changes."),
                           QStringLiteral("没有待应用的更改。"))
                     : pendingCommands.join(QLatin1Char('\n')));
+            if (m_btnDiscardPendingChanges) {
+                m_btnDiscardPendingChanges->setEnabled(!pendingCommands.isEmpty());
+            }
             return;
         }
         if (!pendingCommands.isEmpty()) {
             m_btnApplyConnContentProps->setEnabled(true);
             m_btnApplyConnContentProps->setToolTip(pendingCommands.join(QLatin1Char('\n')));
+            if (m_btnDiscardPendingChanges) {
+                m_btnDiscardPendingChanges->setEnabled(true);
+            }
             return;
         }
         m_btnApplyConnContentProps->setToolTip(
@@ -2463,5 +2618,8 @@ void MainWindow::updateApplyPropsButtonState() {
     const bool baseEnable = m_propsDirty && eligible && hasChanges;
     if (m_btnApplyConnContentProps) {
         m_btnApplyConnContentProps->setEnabled(baseEnable && m_propsSide == QStringLiteral("conncontent"));
+    }
+    if (m_btnDiscardPendingChanges) {
+        m_btnDiscardPendingChanges->setEnabled(baseEnable && m_propsSide == QStringLiteral("conncontent"));
     }
 }

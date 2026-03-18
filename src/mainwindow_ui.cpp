@@ -1275,6 +1275,12 @@ void MainWindow::buildUi() {
             QStringLiteral("Apply changes"),
             QStringLiteral("应用更改")),
         connActionRightBox);
+    m_btnDiscardPendingChanges = new QPushButton(
+        trk(QStringLiteral("t_discard_changes_001"),
+            QStringLiteral("Deshacer cambios"),
+            QStringLiteral("Discard changes"),
+            QStringLiteral("撤销更改")),
+        connActionRightBox);
     m_btnApplyConnContentProps->setAttribute(Qt::WA_AlwaysShowToolTips, true);
     m_btnConnCopy = new QPushButton(
         trk(QStringLiteral("t_copy_001"),
@@ -1349,6 +1355,7 @@ void MainWindow::buildUi() {
             QStringLiteral("使用 rsync 同步源端到目标端的数据集内容。\n"
                            "条件：源端和目标端都选择数据集（非快照），且两端数据集均已挂载。")));
     m_btnApplyConnContentProps->setMinimumHeight(stdLeftBtnH);
+    m_btnDiscardPendingChanges->setMinimumHeight(stdLeftBtnH);
     m_btnConnCopy->setMinimumHeight(stdLeftBtnH);
     m_btnConnClone->setMinimumHeight(stdLeftBtnH);
     m_btnConnMove->setMinimumHeight(stdLeftBtnH);
@@ -1356,6 +1363,7 @@ void MainWindow::buildUi() {
     m_btnConnLevel->setMinimumHeight(stdLeftBtnH);
     m_btnConnSync->setMinimumHeight(stdLeftBtnH);
     m_btnApplyConnContentProps->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_btnDiscardPendingChanges->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_btnConnCopy->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnClone->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_btnConnMove->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -1594,6 +1602,7 @@ void MainWindow::buildUi() {
     if (m_btnConnToDir) m_btnConnToDir->setVisible(false);
     connContentLayout->addWidget(m_connContentTree, 1);
     m_btnApplyConnContentProps->setEnabled(false);
+    if (m_btnDiscardPendingChanges) m_btnDiscardPendingChanges->setEnabled(false);
     m_connPropsStack->addWidget(m_connContentPage);
     m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
     propsPoolLayout->addWidget(m_connPropsStack, 1);
@@ -1808,18 +1817,7 @@ void MainWindow::buildUi() {
     };
     installTreeHeaderContextMenu(m_connContentTree);
     installTreeHeaderContextMenu(m_bottomConnContentTree);
-    auto* bottomConnOverlayHost = new QWidget(bottomConnBox);
-    auto* bottomConnOverlayLayout = new QGridLayout(bottomConnOverlayHost);
-    bottomConnOverlayLayout->setContentsMargins(0, 0, 0, 0);
-    bottomConnOverlayLayout->setSpacing(0);
-    bottomConnOverlayLayout->addWidget(m_bottomConnContentTree, 0, 0);
-    m_btnApplyConnContentProps->setParent(bottomConnOverlayHost);
-    m_btnApplyConnContentProps->setAttribute(Qt::WA_TransparentForMouseEvents, false);
-    bottomConnOverlayLayout->addWidget(m_btnApplyConnContentProps, 0, 0, Qt::AlignRight | Qt::AlignBottom);
-    bottomConnOverlayLayout->setContentsMargins(0, 0, 10, 10);
-    m_btnApplyConnContentProps->show();
-    m_btnApplyConnContentProps->raise();
-    bottomConnLayout->addWidget(bottomConnOverlayHost, 1);
+    bottomConnLayout->addWidget(m_bottomConnContentTree, 1);
     rightSplit->setStretchFactor(0, 1);
     rightSplit->setStretchFactor(1, 1);
     rightSplit->setSizes({500, 500});
@@ -1982,7 +1980,42 @@ void MainWindow::buildUi() {
     connect(m_pendingChangesView, &QPlainTextEdit::cursorPositionChanged, this, [this]() {
         activatePendingChangeAtCursor();
     });
+    m_pendingChangesView->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_pendingChangesView, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        if (!m_pendingChangesView) {
+            return;
+        }
+        QTextCursor cursor = m_pendingChangesView->cursorForPosition(pos);
+        m_pendingChangesView->setTextCursor(cursor);
+        const QString line = cursor.block().text().trimmed();
+        if (line.isEmpty()) {
+            return;
+        }
+        QMenu menu(m_pendingChangesView);
+        QAction* aExecute = menu.addAction(QStringLiteral("Ejecutar"));
+        QAction* aDelete = menu.addAction(QStringLiteral("Eliminar"));
+        QAction* picked = menu.exec(m_pendingChangesView->viewport()->mapToGlobal(pos));
+        if (picked == aExecute) {
+            executePendingQueuedChangeLine(line);
+        } else if (picked == aDelete) {
+            removePendingQueuedChangeLine(line);
+        }
+    });
     pendingChangesLayout->addWidget(m_pendingChangesView, 1);
+    auto* pendingChangesFooter = new QHBoxLayout();
+    pendingChangesFooter->setContentsMargins(0, 0, 0, 0);
+    auto* pendingButtonsCol = new QVBoxLayout();
+    pendingButtonsCol->setContentsMargins(0, 0, 0, 0);
+    pendingButtonsCol->setSpacing(4);
+    m_btnApplyConnContentProps->setParent(pendingChangesTab);
+    m_btnApplyConnContentProps->setAttribute(Qt::WA_TransparentForMouseEvents, false);
+    m_btnDiscardPendingChanges->setParent(pendingChangesTab);
+    pendingButtonsCol->addWidget(m_btnApplyConnContentProps, 0, Qt::AlignLeft | Qt::AlignTop);
+    pendingButtonsCol->addWidget(m_btnDiscardPendingChanges, 0, Qt::AlignLeft | Qt::AlignTop);
+    pendingButtonsCol->addStretch(1);
+    pendingChangesFooter->addLayout(pendingButtonsCol);
+    pendingChangesFooter->addStretch(1);
+    pendingChangesLayout->addLayout(pendingChangesFooter);
     appTabs->addTab(pendingChangesTab,
                     trk(QStringLiteral("t_pending_changes_tab001"),
                         QStringLiteral("Cambios pendientes"),
@@ -6186,6 +6219,12 @@ void MainWindow::buildUi() {
         connect(m_btnApplyConnContentProps, &QPushButton::clicked, this, [this]() {
             logUiAction(QStringLiteral("Aplicar cambios (botón flotante)"));
             applyDatasetPropertyChanges();
+        });
+    }
+    if (m_btnDiscardPendingChanges) {
+        connect(m_btnDiscardPendingChanges, &QPushButton::clicked, this, [this]() {
+            logUiAction(QStringLiteral("Deshacer cambios (panel pendientes)"));
+            clearAllPendingChanges();
         });
     }
     m_rightStack->setCurrentIndex(0);
