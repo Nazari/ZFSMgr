@@ -91,7 +91,8 @@ Sobre el encabezado de cualquiera de los treeviews:
 - El árbol ya no usa nodos intermedios `Contenido` ni `Subdatasets`.
 - En `Permisos`, la edición de checks es diferida.
   Los cambios se acumulan y se aplican con el botón `Aplicar cambios`.
-- La pestaña `Cambios pendientes` del panel inferior lista esos cambios en el mismo orden en que se ejecutarían.
+- La pestaña `Cambios pendientes` del panel inferior es ahora la primera pestaña visible por defecto.
+- `Cambios pendientes` lista esos cambios en el mismo orden en que se ejecutarían, pero mostrando una descripción legible y no el comando real.
 - Al hacer clic en una línea de `Cambios pendientes`, ZFSMgr intenta enfocar el dataset y la sección afectada (`Propiedades` o `Permisos`).
 - `Renombrar` sobre dataset, snapshot o zvol no ejecuta el cambio al momento.
   Abre un diálogo para pedir el nuevo nombre y añade un `zfs rename` pendiente.
@@ -103,3 +104,4 @@ Sobre el encabezado de cualquiera de los treeviews:
 - El mismo menú del encabezado concentra también la configuración de `Columnas de propiedades`.
 - La caja `Acciones` incluye también `Mover`, que añade un `zfs rename` pendiente para mover el dataset `Origen` dentro del dataset `Destino` en el mismo pool.
 - La caja `Acciones` incluye también `Diff`, que compara un snapshot de Origen con su dataset padre actual o con otro snapshot del mismo dataset.
+- `Copiar` y `Nivelar`, cuando origen y destino son dos conexiones SSH remotas distintas, intentan ejecutar la transferencia directamente desde la máquina origen hacia la máquina destino, sin hacer pasar el flujo de datos por el host donde corre ZFSMgr.

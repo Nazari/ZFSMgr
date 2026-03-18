@@ -39,20 +39,22 @@ ZFSMgr gestiona conexiones y acciones ZFS.
   Ejemplos: `sharesmb` en macOS, `jailed` fuera de FreeBSD, `zoned`/`nbmand` fuera de Linux.
 - Los pools no importables también aparecen como nodo raíz para permitir `Importar`.
 - Logs: panel único `Log combinado` (incluye salida SSH/PSRP con prefijo de conexión).
-- La zona inferior del log usa pestañas:
-  - `Aplicación` para el log textual
-  - `Cambios pendientes` para los comandos diferidos
+- La zona inferior usa pestañas:
+  - `Cambios pendientes` como primera pestaña visible por defecto
+  - `Log combinado`, que incluye la caja `Aplicación` para el log textual
 - El encabezado de cada treeview tiene menú contextual para ajustar una columna o todas al contenido y para cambiar `Columnas de propiedades`.
 - El scroll vertical de los treeviews es suave, por píxel.
 - El menú contextual del árbol permite además mostrar u ocultar `Información del pool`, `Propiedades` y `Permisos` inline.
 - El botón `Aplicar cambios` solo se activa si hay comandos pendientes reales.
-- `Cambios pendientes` muestra un cambio por línea, con prefijo `conexión::pool`.
+- `Cambios pendientes` muestra una descripción legible por línea, con prefijo `conexión::pool`, y no el comando real.
 - Los cambios pendientes se conservan en orden de ejecución.
 - `Mover` no ejecuta nada al instante: añade un `zfs rename` pendiente para mover el dataset de `Origen` dentro del dataset `Destino`.
   Solo se habilita si ambos son datasets del mismo pool y la misma conexión.
 - `Renombrar` en el menú contextual de dataset/snapshot/zvol también trabaja en modo diferido y añade un `zfs rename` a `Cambios pendientes`.
 - Al hacer clic en una línea de `Cambios pendientes`, ZFSMgr intenta llevar el foco al dataset y sección afectados.
   Si el pool está visible en ambos árboles, se prioriza `Origen`.
+- `Copiar` y `Nivelar`, cuando usan dos conexiones SSH remotas distintas, intentan transferir directamente de `Origen` a `Destino`.
+  El tráfico de datos no pasa por la máquina donde se ejecuta ZFSMgr; esa máquina solo mantiene la sesión de control y recibe el progreso.
 - `Diff` muestra sus resultados en una ventana de árbol con `Añadido`, `Borrado`, `Modificado` y `Renombrado`.
 
 Comportamiento de navegación:

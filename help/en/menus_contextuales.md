@@ -75,8 +75,10 @@ On a permission set:
 - Unsafe options are blocked while an action is running.
 - `Show inline properties`, `Show inline permissions`, and `Show pool information` are persisted in configuration.
 - The tree no longer uses intermediate `Content` or `Subdatasets` nodes.
-- The `Pending changes` tab in the lower log area lists deferred commands in execution order.
+- `Pending changes` is now the first visible tab in the lower area.
+- The `Pending changes` tab lists deferred changes in execution order, but shows readable descriptions instead of raw commands.
 - Clicking a `Pending changes` line makes ZFSMgr try to focus the affected dataset and section (`Properties` or `Permissions`).
 - `Rename` on a dataset, snapshot, or zvol is deferred.
   It opens a dialog for the new name and adds a pending `zfs rename`.
 - The `Actions` box also includes `Move`, which queues a pending `zfs rename` to move the `Source` dataset under the `Target` dataset in the same pool.
+- `Copy` and `Level`, when source and target are two different remote SSH connections, try to execute the transfer directly from the source machine to the target machine, without routing the data stream through the host running ZFSMgr.

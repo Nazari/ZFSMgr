@@ -24,8 +24,8 @@ ZFSMgr can show pool and dataset properties directly inside the detail trees.
 - `New child DS` defines which permissions are automatically granted to users creating child datasets below the current dataset.
 - Permission checks do not execute commands immediately.
   They update a local draft that is later applied with `Apply changes`.
-- The `Pending changes` tab also lists pending `zfs allow` / `zfs unallow` commands with a `connection::pool` prefix.
-- The same tab also lists pending `zfs rename` commands created by `Move` or `Rename`.
+- The `Pending changes` tab also lists pending permission changes with a `connection::pool` prefix.
+- The same tab also lists pending changes created by `Move`, `Rename`, and other deferred actions, but shows readable descriptions instead of raw commands.
 
 ## Visibility
 
@@ -49,6 +49,7 @@ Effects:
 - Each tree keeps its own column widths.
 - Column widths are stored in configuration and restored on startup.
 - Vertical scrolling uses per-pixel scrolling for smoother movement.
+- The same header menu lets you choose between `5` and `12` visible property columns.
 
 ## Visible property management
 
@@ -85,4 +86,5 @@ In snapshots, the `snapshot` property stays fixed in the first position of the m
   Changing the value automatically switches the draft to local mode (`inherit=off`).
 - Clicking a `Pending changes` line makes ZFSMgr try to open the affected dataset and focus the matching property or permission section.
 - If the line is a pending `zfs rename`, focus is resolved from the source object of that rename.
+- `Pending changes` is the first visible tab by default in the lower area.
 - Unsupported properties are shown dimmed and cannot be edited on that platform.

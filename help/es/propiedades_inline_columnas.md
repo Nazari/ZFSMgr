@@ -28,8 +28,8 @@ ZFSMgr puede mostrar propiedades de dataset y pool directamente dentro de los á
 - `Nuevos DS` indica qué permisos recibirá automáticamente quien cree nuevos descendientes bajo ese dataset.
 - Los checks de `Permisos` no ejecutan comandos inmediatamente.
   Modifican un borrador local y el resultado se aplica con `Aplicar cambios`.
-- La pestaña `Cambios pendientes` lista también los comandos `zfs allow` / `zfs unallow` pendientes, con prefijo `conexión::pool`.
-- La misma pestaña muestra también los `zfs rename` pendientes generados por `Mover` o `Renombrar`.
+- La pestaña `Cambios pendientes` lista también los cambios pendientes de permisos, con prefijo `conexión::pool`.
+- La misma pestaña muestra también los cambios pendientes generados por `Mover`, `Renombrar` y otras acciones diferidas, pero enseñando una descripción legible en vez del comando real.
 
 ## Visualización
 
@@ -40,7 +40,7 @@ ZFSMgr puede mostrar propiedades de dataset y pool directamente dentro de los á
 - El scroll vertical de ambos treeviews es por píxel para que el desplazamiento sea más suave.
 - Puede ajustar una columna o todas desde el menú contextual del encabezado del treeview.
   El efecto es el mismo que hacer doble clic en el separador de columnas.
-- Desde ese mismo menú contextual también puede elegir entre `5` y `10` columnas de propiedades.
+- Desde ese mismo menú contextual también puede elegir entre `5` y `12` columnas de propiedades.
 
 ## Gestión de propiedades visibles
 
@@ -106,4 +106,5 @@ Efectos:
   Al cambiar el valor, el borrador pasa automáticamente a modo local (`inherit=off`).
 - Al hacer clic en una línea de `Cambios pendientes`, ZFSMgr intenta abrir el dataset afectado y situarse sobre la propiedad o sección correspondiente.
 - Si la línea corresponde a un `zfs rename`, el foco se intenta situar sobre el objeto origen del renombrado.
+- `Cambios pendientes` es la primera pestaña visible por defecto en la zona inferior.
 - Seleccionar un snapshot en un dataset `filesystem` no genera cambios pendientes ni ejecuta comandos ZFS; solo cambia el contexto visual del árbol.
