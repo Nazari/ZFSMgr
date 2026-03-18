@@ -122,6 +122,30 @@ void MainWindow::actionCopySnapshot() {
     QString recvCmd = withSudoStreamInput(dp, recvRawCmd);
 
     QString pipeline;
+    const bool directRemoteToRemote =
+        !sameConnection
+        && !isLocalConnection(sp)
+        && !isLocalConnection(dp)
+        && sp.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0
+        && dp.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
+    auto buildDestViaSource = [&](const QString& remoteCmd) {
+        const QString wrappedDst = wrapRemoteCommand(dp, remoteCmd);
+        const QString target = shSingleQuote(sshUserHost(dp));
+        if (!dp.password.trimmed().isEmpty()) {
+            return QStringLiteral(
+                       "if command -v sshpass >/dev/null 2>&1; then "
+                       "SSHPASS=%1 sshpass -e %2 -o BatchMode=no "
+                       "-o PreferredAuthentications=password,keyboard-interactive,publickey "
+                       "-o NumberOfPasswordPrompts=1 %3 %4; "
+                       "else echo %5 >&2; exit 127; fi")
+                .arg(shSingleQuote(dp.password),
+                     sshBaseCommand(dp),
+                     target,
+                     shSingleQuote(wrappedDst),
+                     shSingleQuote(QStringLiteral("ZFSMgr: sshpass no disponible en el origen para conectar al destino")));
+        }
+        return sshBaseCommand(dp) + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrappedDst);
+    };
     if (sameConnection) {
         appLog(QStringLiteral("INFO"),
                trk(QStringLiteral("t_copiar_mod_b1d73e"),
@@ -129,6 +153,12 @@ void MainWindow::actionCopySnapshot() {
                    QStringLiteral("Copy: remote-local mode (source and target on same connection)"),
                    QStringLiteral("复制：远端本地模式（源和目标在同一连接）")));
         const QString remotePipe = withSudo(sp, buildPipedTransferCommand(sendRawCmd, recvRawCmd));
+        pipeline = sshExecFromLocal(sp, remotePipe);
+    } else if (directRemoteToRemote) {
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("Copiar: modo remoto a remoto directo (%1 -> %2), sin pasar datos por el host local")
+                   .arg(sp.name, dp.name));
+        const QString remotePipe = buildPipedTransferCommand(sendCmd, buildDestViaSource(recvCmd));
         pipeline = sshExecFromLocal(sp, remotePipe);
     } else {
         const QString srcSeg = isWindowsConnection(sp)
@@ -175,8 +205,16 @@ void MainWindow::actionCopySnapshot() {
                 "if [ \"$WAS_MOUNTED\" != \"yes\" ]; then if ! zfs unmount \"$DATASET\" >/dev/null 2>&1; then :; fi; fi; "
                 "exit $RC")
                                           .arg(shSingleQuote(recvTarget));
-            pendingCommand = buildPipedTransferCommand(sshExecFromLocal(sp, withSudo(sp, srcScript)),
-                                                       sshExecFromLocal(dp, withSudoStreamInput(dp, dstScript)));
+            if (directRemoteToRemote) {
+                pendingCommand = sshExecFromLocal(
+                    sp,
+                    buildPipedTransferCommand(withSudo(sp, srcScript),
+                                              buildDestViaSource(withSudoStreamInput(dp, dstScript))),
+                    MainWindow::WindowsCommandMode::UnixShell);
+            } else {
+                pendingCommand = buildPipedTransferCommand(sshExecFromLocal(sp, withSudo(sp, srcScript)),
+                                                           sshExecFromLocal(dp, withSudoStreamInput(dp, dstScript)));
+            }
             displayLabel = QStringLiteral("Copiar snapshot (fallback TAR) %1 -> %2").arg(srcSnap, recvTarget);
             return true;
         }();
@@ -729,6 +767,30 @@ void MainWindow::actionLevelSnapshot() {
     QString recvCmd = withSudoStreamInput(dp, recvRawCmd);
 
     QString pipeline;
+    const bool directRemoteToRemote =
+        !sameConnection
+        && !isLocalConnection(sp)
+        && !isLocalConnection(dp)
+        && sp.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0
+        && dp.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
+    auto buildDestViaSource = [&](const QString& remoteCmd) {
+        const QString wrappedDst = wrapRemoteCommand(dp, remoteCmd);
+        const QString target = shSingleQuote(sshUserHost(dp));
+        if (!dp.password.trimmed().isEmpty()) {
+            return QStringLiteral(
+                       "if command -v sshpass >/dev/null 2>&1; then "
+                       "SSHPASS=%1 sshpass -e %2 -o BatchMode=no "
+                       "-o PreferredAuthentications=password,keyboard-interactive,publickey "
+                       "-o NumberOfPasswordPrompts=1 %3 %4; "
+                       "else echo %5 >&2; exit 127; fi")
+                .arg(shSingleQuote(dp.password),
+                     sshBaseCommand(dp),
+                     target,
+                     shSingleQuote(wrappedDst),
+                     shSingleQuote(QStringLiteral("ZFSMgr: sshpass no disponible en el origen para conectar al destino")));
+        }
+        return sshBaseCommand(dp) + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrappedDst);
+    };
     if (sameConnection) {
         appLog(QStringLiteral("INFO"),
                trk(QStringLiteral("t_nivelar_mo_2edd21"),
@@ -736,6 +798,12 @@ void MainWindow::actionLevelSnapshot() {
                    QStringLiteral("Level: remote-local mode (source and target on same connection)"),
                    QStringLiteral("同步快照：远端本地模式（源和目标在同一连接）")));
         const QString remotePipe = withSudo(sp, buildPipedTransferCommand(sendRawCmd, recvRawCmd));
+        pipeline = sshExecFromLocal(sp, remotePipe);
+    } else if (directRemoteToRemote) {
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("Nivelar: modo remoto a remoto directo (%1 -> %2), sin pasar datos por el host local")
+                   .arg(sp.name, dp.name));
+        const QString remotePipe = buildPipedTransferCommand(sendCmd, buildDestViaSource(recvCmd));
         pipeline = sshExecFromLocal(sp, remotePipe);
     } else {
         const QString srcSeg = isWindowsConnection(sp)

@@ -2016,16 +2016,17 @@ void MainWindow::buildUi() {
     logBody->addWidget(leftInfo, 1);
     logBody->addWidget(rightLogs, 3);
     logLayout->addLayout(logBody, 1);
-    m_logsTabs->addTab(combinedLogTab,
-                       trk(QStringLiteral("t_combined_log001"),
-                           QStringLiteral("Log combinado"),
-                           QStringLiteral("Combined log"),
-                           QStringLiteral("组合日志")));
     m_logsTabs->addTab(pendingChangesTab,
                        trk(QStringLiteral("t_pending_changes_tab001"),
                            QStringLiteral("Cambios pendientes"),
                            QStringLiteral("Pending changes"),
                            QStringLiteral("待处理更改")));
+    m_logsTabs->addTab(combinedLogTab,
+                       trk(QStringLiteral("t_combined_log001"),
+                           QStringLiteral("Log combinado"),
+                           QStringLiteral("Combined log"),
+                           QStringLiteral("组合日志")));
+    m_logsTabs->setCurrentIndex(0);
 
     auto* verticalMainSplit = new QSplitter(Qt::Vertical, central);
     verticalMainSplit->setChildrenCollapsible(true);

@@ -2130,7 +2130,7 @@ bool MainWindow::removePendingQueuedChangeLine(const QString& line) {
     for (int i = 0; i < m_pendingShellActionDrafts.size(); ++i) {
         const PendingShellActionDraft& draft = m_pendingShellActionDrafts.at(i);
         const QString scope = draft.scopeLabel.trimmed().isEmpty() ? QStringLiteral("local") : draft.scopeLabel.trimmed();
-        if (QStringLiteral("%1  %2").arg(scope, draft.command.trimmed()) == trimmed) {
+        if (QStringLiteral("%1  %2").arg(scope, draft.displayLabel.trimmed()) == trimmed) {
             m_pendingShellActionDrafts.removeAt(i);
             updateApplyPropsButtonState();
             return true;
@@ -2144,7 +2144,8 @@ bool MainWindow::removePendingQueuedChangeLine(const QString& line) {
     for (int i = 0; i < m_pendingDatasetRenameDrafts.size(); ++i) {
         const PendingDatasetRenameDraft& draft = m_pendingDatasetRenameDrafts.at(i);
         if (QStringLiteral("%1  %2")
-                .arg(connPoolPrefix(draft.connIdx, draft.poolName), pendingDatasetRenameCommand(draft))
+                .arg(connPoolPrefix(draft.connIdx, draft.poolName),
+                     QStringLiteral("Renombrar dataset %1 -> %2").arg(draft.sourceName.trimmed(), draft.targetName.trimmed()))
             == trimmed) {
             m_pendingDatasetRenameDrafts.removeAt(i);
             updateApplyPropsButtonState();
@@ -2165,7 +2166,7 @@ bool MainWindow::executePendingQueuedChangeLine(const QString& line) {
     for (int i = 0; i < m_pendingShellActionDrafts.size(); ++i) {
         const PendingShellActionDraft draft = m_pendingShellActionDrafts.at(i);
         const QString scope = draft.scopeLabel.trimmed().isEmpty() ? QStringLiteral("local") : draft.scopeLabel.trimmed();
-        if (QStringLiteral("%1  %2").arg(scope, draft.command.trimmed()) != trimmed) {
+        if (QStringLiteral("%1  %2").arg(scope, draft.displayLabel.trimmed()) != trimmed) {
             continue;
         }
         if (!runLocalCommand(draft.displayLabel, draft.command, draft.timeoutMs, false, draft.streamProgress)) {
@@ -2539,28 +2540,321 @@ QStringList MainWindow::pendingConnContentApplyCommands() const {
     return commands;
 }
 
+QStringList MainWindow::pendingConnContentApplyDisplayLines() const {
+    QStringList lines;
+    auto connPoolPrefix = [this](int connIdx, const QString& poolName) {
+        const ConnectionProfile& p = m_profiles.at(connIdx);
+        const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
+        return QStringLiteral("%1::%2").arg(connLabel, poolName.trimmed());
+    };
+    auto appendDisplay = [&lines, &connPoolPrefix](int connIdx, const QString& poolName, const QString& text) {
+        const QString trimmed = text.trimmed();
+        if (trimmed.isEmpty()) {
+            return;
+        }
+        lines.push_back(QStringLiteral("%1  %2").arg(connPoolPrefix(connIdx, poolName), trimmed));
+    };
+    auto normalizeTokens = [](QStringList tokens) {
+        QSet<QString> seen;
+        QStringList normalized;
+        for (const QString& token : tokens) {
+            const QString t = token.trimmed();
+            const QString key = t.toLower();
+            if (t.isEmpty() || seen.contains(key)) {
+                continue;
+            }
+            seen.insert(key);
+            normalized.push_back(t);
+        }
+        normalized.sort(Qt::CaseInsensitive);
+        return normalized;
+    };
+    auto grantKey = [](const DatasetPermissionGrant& grant) {
+        return QStringLiteral("%1|%2|%3")
+            .arg(grant.scope.trimmed().toLower(),
+                 grant.targetType.trimmed().toLower(),
+                 grant.targetName.trimmed().toLower());
+    };
+    auto setKey = [](const DatasetPermissionSet& set) {
+        return set.name.trimmed().toLower();
+    };
+    auto isMountedText = [](const QString& v) -> bool {
+        const QString s = v.trimmed().toLower();
+        return s == QStringLiteral("montado")
+               || s == QStringLiteral("mounted")
+               || s == QStringLiteral("已挂载")
+               || s == QStringLiteral("on")
+               || s == QStringLiteral("yes")
+               || s == QStringLiteral("true")
+               || s == QStringLiteral("1");
+    };
+    auto permissionTargetText = [](const DatasetPermissionGrant& grant) {
+        const QString tt = grant.targetType.trimmed().toLower();
+        if (tt == QStringLiteral("user")) {
+            return QStringLiteral("usuario %1").arg(grant.targetName.trimmed());
+        }
+        if (tt == QStringLiteral("group")) {
+            return QStringLiteral("grupo %1").arg(grant.targetName.trimmed());
+        }
+        return QStringLiteral("everyone");
+    };
+    auto permissionScopeText = [](const QString& scope) {
+        const QString s = scope.trimmed().toLower();
+        if (s == QStringLiteral("local")) {
+            return QStringLiteral("locales");
+        }
+        if (s == QStringLiteral("descendant")) {
+            return QStringLiteral("descendientes");
+        }
+        if (s == QStringLiteral("local+descendant")) {
+            return QStringLiteral("locales+descendientes");
+        }
+        return s;
+    };
+
+    for (auto it = m_propsDraftByKey.cbegin(); it != m_propsDraftByKey.cend(); ++it) {
+        if (!it.value().dirty || !it.key().startsWith(QStringLiteral("conncontent|"))) {
+            continue;
+        }
+        const QStringList parts = it.key().split(QLatin1Char('|'));
+        if (parts.size() < 3) {
+            continue;
+        }
+        const QString token = parts.value(1).trimmed();
+        const QString objectName = parts.mid(2).join(QStringLiteral("|")).trimmed();
+        if (token.isEmpty() || objectName.isEmpty() || objectName.contains(QLatin1Char('@'))) {
+            continue;
+        }
+        const int sep = token.indexOf(QStringLiteral("::"));
+        if (sep <= 0) {
+            continue;
+        }
+        bool okConn = false;
+        const int connIdx = token.left(sep).toInt(&okConn);
+        const QString poolName = token.mid(sep + 2);
+        if (!okConn || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+            continue;
+        }
+        const QString cacheKey = datasetPropsCacheKey(connIdx, poolName, objectName);
+        const auto cacheIt = m_datasetPropsCache.constFind(cacheKey);
+        if (cacheIt == m_datasetPropsCache.cend() || !cacheIt->loaded) {
+            continue;
+        }
+
+        QMap<QString, QString> originalValues;
+        QMap<QString, bool> originalInherit;
+        for (const DatasetPropCacheRow& row : cacheIt->rows) {
+            originalValues[row.prop] = row.value;
+            originalInherit[row.prop] = isDatasetPropertyCurrentlyInherited(row.source);
+        }
+
+        QStringList touched;
+        auto appendTouched = [&touched](const QString& prop) {
+            if (!prop.isEmpty() && !touched.contains(prop)) {
+                touched.push_back(prop);
+            }
+        };
+        for (const DatasetPropCacheRow& row : cacheIt->rows) appendTouched(row.prop);
+        for (auto vit = it.value().valuesByProp.cbegin(); vit != it.value().valuesByProp.cend(); ++vit) appendTouched(vit.key());
+        for (auto iit = it.value().inheritByProp.cbegin(); iit != it.value().inheritByProp.cend(); ++iit) appendTouched(iit.key());
+
+        for (const QString& prop : touched) {
+            if (prop.isEmpty() || prop == QStringLiteral("dataset")
+                || prop == QStringLiteral("Tamaño")
+                || prop == QStringLiteral("snapshot")) {
+                continue;
+            }
+            const bool originalInh = originalInherit.value(prop, false);
+            const bool finalInh = it.value().inheritByProp.contains(prop)
+                                      ? it.value().inheritByProp.value(prop)
+                                      : originalInh;
+            const QString originalValue = originalValues.value(prop);
+            const QString finalValue = it.value().valuesByProp.contains(prop)
+                                           ? it.value().valuesByProp.value(prop)
+                                           : originalValue;
+
+            if (prop == QStringLiteral("estado")) {
+                if (isMountedText(finalValue) != isMountedText(originalValue)) {
+                    appendDisplay(connIdx, poolName,
+                                  QStringLiteral("%1 dataset %2")
+                                      .arg(isMountedText(finalValue) ? QStringLiteral("Montar")
+                                                                     : QStringLiteral("Desmontar"),
+                                           objectName));
+                }
+                continue;
+            }
+            if (finalInh != originalInh) {
+                if (finalInh) {
+                    appendDisplay(connIdx, poolName,
+                                  QStringLiteral("Heredar propiedad %1 en %2").arg(prop, objectName));
+                } else {
+                    appendDisplay(connIdx, poolName,
+                                  QStringLiteral("Cambiar propiedad %1=%2 en %3").arg(prop, finalValue, objectName));
+                }
+                continue;
+            }
+            if (!finalInh && finalValue != originalValue) {
+                appendDisplay(connIdx, poolName,
+                              QStringLiteral("Cambiar propiedad %1=%2 en %3").arg(prop, finalValue, objectName));
+            }
+        }
+    }
+
+    for (auto it = m_datasetPermissionsCache.cbegin(); it != m_datasetPermissionsCache.cend(); ++it) {
+        const DatasetPermissionsCacheEntry& entry = it.value();
+        if (!entry.loaded || !entry.dirty) {
+            continue;
+        }
+        const QStringList parts = it.key().split(QStringLiteral("::"));
+        if (parts.size() < 3) {
+            continue;
+        }
+        bool okConn = false;
+        const int connIdx = parts.at(0).toInt(&okConn);
+        const QString poolName = parts.at(1).trimmed();
+        const QString datasetName = parts.mid(2).join(QStringLiteral("::")).trimmed();
+        if (!okConn || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty() || datasetName.isEmpty()) {
+            continue;
+        }
+        auto appendGrantDisplays = [&](const QVector<DatasetPermissionGrant>& original,
+                                       const QVector<DatasetPermissionGrant>& current) {
+            QMap<QString, DatasetPermissionGrant> origMap;
+            QMap<QString, DatasetPermissionGrant> currMap;
+            for (const DatasetPermissionGrant& g : original) origMap.insert(grantKey(g), g);
+            for (const DatasetPermissionGrant& g : current) currMap.insert(grantKey(g), g);
+            QStringList keys;
+            auto appendKey = [&keys](const QString& key) {
+                if (!key.isEmpty() && !keys.contains(key)) {
+                    keys.push_back(key);
+                }
+            };
+            for (const DatasetPermissionGrant& g : original) appendKey(grantKey(g));
+            for (const DatasetPermissionGrant& g : current) appendKey(grantKey(g));
+            for (const QString& key : keys) {
+                const bool had = origMap.contains(key);
+                const bool has = currMap.contains(key);
+                const DatasetPermissionGrant before = origMap.value(key);
+                const DatasetPermissionGrant after = currMap.value(key);
+                const QStringList beforeTokens = normalizeTokens(before.permissions);
+                const QStringList afterTokens = normalizeTokens(after.permissions);
+                if (had && (!has || afterTokens.isEmpty())) {
+                    appendDisplay(connIdx, poolName,
+                                  QStringLiteral("Eliminar permisos %1 de %2 en %3")
+                                      .arg(permissionScopeText(before.scope),
+                                           permissionTargetText(before),
+                                           datasetName));
+                    continue;
+                }
+                if (!had && has && !afterTokens.isEmpty()) {
+                    appendDisplay(connIdx, poolName,
+                                  QStringLiteral("Conceder permisos %1 a %2 en %3")
+                                      .arg(afterTokens.join(','),
+                                           permissionTargetText(after),
+                                           datasetName));
+                    continue;
+                }
+                if (had && has && beforeTokens != afterTokens) {
+                    appendDisplay(connIdx, poolName,
+                                  QStringLiteral("Actualizar permisos de %2 en %3 a %1")
+                                      .arg(afterTokens.join(','),
+                                           permissionTargetText(after),
+                                           datasetName));
+                }
+            }
+        };
+        appendGrantDisplays(entry.originalLocalGrants, entry.localGrants);
+        appendGrantDisplays(entry.originalDescendantGrants, entry.descendantGrants);
+        appendGrantDisplays(entry.originalLocalDescendantGrants, entry.localDescendantGrants);
+
+        const QStringList originalCreate = normalizeTokens(entry.originalCreatePermissions);
+        const QStringList currentCreate = normalizeTokens(entry.createPermissions);
+        if (originalCreate != currentCreate) {
+            appendDisplay(connIdx, poolName,
+                          QStringLiteral("Actualizar permisos de creación en %1 a %2")
+                              .arg(datasetName, currentCreate.join(',')));
+        }
+
+        QMap<QString, DatasetPermissionSet> origSets;
+        QMap<QString, DatasetPermissionSet> currSets;
+        for (const DatasetPermissionSet& s : entry.originalPermissionSets) origSets.insert(setKey(s), s);
+        for (const DatasetPermissionSet& s : entry.permissionSets) currSets.insert(setKey(s), s);
+        QStringList setKeys;
+        auto appendSetKey = [&setKeys](const QString& key) {
+            if (!key.isEmpty() && !setKeys.contains(key)) {
+                setKeys.push_back(key);
+            }
+        };
+        for (const DatasetPermissionSet& s : entry.originalPermissionSets) appendSetKey(setKey(s));
+        for (const DatasetPermissionSet& s : entry.permissionSets) appendSetKey(setKey(s));
+        for (const QString& key : setKeys) {
+            const bool had = origSets.contains(key);
+            const bool has = currSets.contains(key);
+            const DatasetPermissionSet before = origSets.value(key);
+            const DatasetPermissionSet after = currSets.value(key);
+            const QStringList beforeTokens = normalizeTokens(before.permissions);
+            const QStringList afterTokens = normalizeTokens(after.permissions);
+            if (had && !has) {
+                appendDisplay(connIdx, poolName,
+                              QStringLiteral("Eliminar conjunto %1 en %2").arg(before.name, datasetName));
+                continue;
+            }
+            if (!had && has && !afterTokens.isEmpty()) {
+                appendDisplay(connIdx, poolName,
+                              QStringLiteral("Crear conjunto %1 (%2) en %3").arg(after.name, afterTokens.join(','), datasetName));
+                continue;
+            }
+            if (had && has && (before.name != after.name || beforeTokens != afterTokens)) {
+                appendDisplay(connIdx, poolName,
+                              QStringLiteral("Actualizar conjunto %1 (%2) en %3").arg(after.name, afterTokens.join(','), datasetName));
+            }
+        }
+    }
+
+    for (const PendingDatasetRenameDraft& draft : m_pendingDatasetRenameDrafts) {
+        if (draft.connIdx < 0 || draft.connIdx >= m_profiles.size()
+            || draft.poolName.trimmed().isEmpty()
+            || draft.sourceName.trimmed().isEmpty()
+            || draft.targetName.trimmed().isEmpty()) {
+            continue;
+        }
+        appendDisplay(draft.connIdx,
+                      draft.poolName,
+                      QStringLiteral("Renombrar dataset %1 -> %2").arg(draft.sourceName.trimmed(), draft.targetName.trimmed()));
+    }
+    for (const PendingShellActionDraft& draft : m_pendingShellActionDrafts) {
+        const QString label = draft.displayLabel.trimmed();
+        if (label.isEmpty()) {
+            continue;
+        }
+        const QString scope = draft.scopeLabel.trimmed().isEmpty() ? QStringLiteral("local") : draft.scopeLabel.trimmed();
+        lines.push_back(QStringLiteral("%1  %2").arg(scope, label));
+    }
+    return lines;
+}
+
 void MainWindow::updateApplyPropsButtonState() {
     const QStringList pendingCommands = pendingConnContentApplyCommands();
+    const QStringList pendingDisplayLines = pendingConnContentApplyDisplayLines();
     if (m_pendingChangesView) {
         const QSignalBlocker blocker(m_pendingChangesView);
         m_pendingChangesView->setPlainText(
-            pendingCommands.isEmpty()
+            pendingDisplayLines.isEmpty()
                 ? trk(QStringLiteral("t_apply_changes_tt_001"),
                       QStringLiteral("Sin cambios pendientes."),
                       QStringLiteral("No pending changes."),
                       QStringLiteral("没有待应用的更改。"))
-                : pendingCommands.join(QLatin1Char('\n')));
+                : pendingDisplayLines.join(QLatin1Char('\n')));
     }
     if (m_btnApplyConnContentProps) {
         if (m_propsSide == QStringLiteral("conncontent")) {
             m_btnApplyConnContentProps->setEnabled(!pendingCommands.isEmpty());
             m_btnApplyConnContentProps->setToolTip(
-                pendingCommands.isEmpty()
+                pendingDisplayLines.isEmpty()
                     ? trk(QStringLiteral("t_apply_changes_tt_001"),
                           QStringLiteral("Sin cambios pendientes."),
                           QStringLiteral("No pending changes."),
                           QStringLiteral("没有待应用的更改。"))
-                    : pendingCommands.join(QLatin1Char('\n')));
+                    : pendingDisplayLines.join(QLatin1Char('\n')));
             if (m_btnDiscardPendingChanges) {
                 m_btnDiscardPendingChanges->setEnabled(!pendingCommands.isEmpty());
             }
@@ -2568,7 +2862,7 @@ void MainWindow::updateApplyPropsButtonState() {
         }
         if (!pendingCommands.isEmpty()) {
             m_btnApplyConnContentProps->setEnabled(true);
-            m_btnApplyConnContentProps->setToolTip(pendingCommands.join(QLatin1Char('\n')));
+            m_btnApplyConnContentProps->setToolTip(pendingDisplayLines.join(QLatin1Char('\n')));
             if (m_btnDiscardPendingChanges) {
                 m_btnDiscardPendingChanges->setEnabled(true);
             }

@@ -279,6 +279,7 @@ private:
     QString pendingDatasetRenameCommand(const PendingDatasetRenameDraft& draft) const;
     bool queuePendingDatasetRename(const PendingDatasetRenameDraft& draft, QString* errorOut = nullptr);
     QStringList pendingConnContentApplyCommands() const;
+    QStringList pendingConnContentApplyDisplayLines() const;
     void activatePendingChangeAtCursor();
     bool focusPendingChangeLine(const QString& line);
     QString poolDetailsCacheKey(int connIdx, const QString& poolName) const;

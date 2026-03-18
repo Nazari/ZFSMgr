@@ -64,7 +64,7 @@ QString MainWindow::cachedPoolStatusTooltipHtml(int connIdx, const QString& pool
         return QString();
     }
     const auto it = m_poolDetailsCache.constFind(cacheKey);
-    if (it == m_poolDetailsCache.cend() || !it->loaded) {
+    if (it == m_poolDetailsCache.cend()) {
         return QString();
     }
     return formatPoolStatusTooltipHtml(it->statusText);
@@ -118,7 +118,6 @@ void MainWindow::cachePoolStatusTextsForConnection(int connIdx, const Connection
             continue;
         }
         PoolDetailsCacheEntry entry = m_poolDetailsCache.value(cacheKey);
-        entry.loaded = true;
         entry.statusText = it.value().trimmed();
         m_poolDetailsCache.insert(cacheKey, entry);
         applyPoolRootTooltipToVisibleTrees(connIdx, poolName, entry.statusText);
