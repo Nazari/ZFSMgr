@@ -2219,7 +2219,8 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         poolRoot->setData(0, kIsPoolRootRole, true);
         poolRoot->setData(0, kConnIdxRole, connIdx);
         poolRoot->setData(0, kPoolNameRole, poolName);
-        poolRoot->setToolTip(0, poolRoot->text(0));
+        const QString tooltipHtml = cachedPoolStatusTooltipHtml(connIdx, poolName);
+        poolRoot->setToolTip(0, tooltipHtml.isEmpty() ? poolRoot->text(0) : tooltipHtml);
         if (m_showPoolInfoNode) {
             auto* infoNode = new QTreeWidgetItem(poolRoot);
             infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
@@ -2328,7 +2329,8 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         poolRoot->setData(0, kIsPoolRootRole, true);
         poolRoot->setData(0, kConnIdxRole, connIdx);
         poolRoot->setData(0, kPoolNameRole, poolName);
-        poolRoot->setToolTip(0, poolRoot->text(0));
+        const QString tooltipHtml = cachedPoolStatusTooltipHtml(connIdx, poolName);
+        poolRoot->setToolTip(0, tooltipHtml.isEmpty() ? poolRoot->text(0) : tooltipHtml);
         if (m_showPoolInfoNode) {
             auto* infoNode = new QTreeWidgetItem(poolRoot);
             infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));

@@ -435,6 +435,24 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         appLog(QStringLiteral("INFO"), QStringLiteral("%1: zpool list -> %2").arg(p.name, oneLine(err)));
     }
 
+    for (const PoolImported& pool : state.importedPools) {
+        const QString poolName = pool.pool.trimmed();
+        if (poolName.isEmpty()) {
+            continue;
+        }
+        out.clear();
+        err.clear();
+        rc = -1;
+        const QString stCmd = withSudo(
+            p, QStringLiteral("zpool status -v %1").arg(mwhelpers::shSingleQuote(poolName)));
+        if (runSsh(p, stCmd, 20000, out, err, rc) && rc == 0) {
+            state.poolStatusByName.insert(poolName, out.trimmed());
+        } else {
+            const QString fallback = !out.trimmed().isEmpty() ? out.trimmed() : err.trimmed();
+            state.poolStatusByName.insert(poolName, fallback);
+        }
+    }
+
     const QStringList importProbeArgs = {
         QStringLiteral("zpool import"),
         QStringLiteral("zpool import -s"),

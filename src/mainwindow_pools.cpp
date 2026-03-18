@@ -47,12 +47,41 @@ int selectedConnectionIndexFromTable(const QTableWidget* table) {
     return ok ? idx : -1;
 }
 
-void setPoolRootTooltipFor(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& statusText) {
+} // namespace
+
+QString MainWindow::formatPoolStatusTooltipHtml(const QString& statusText) const {
+    const QString trimmed = statusText.trimmed();
+    if (trimmed.isEmpty()) {
+        return QString();
+    }
+    return QStringLiteral("<pre style=\"font-family:monospace; white-space:pre;\">%1</pre>")
+        .arg(trimmed.toHtmlEscaped());
+}
+
+QString MainWindow::cachedPoolStatusTooltipHtml(int connIdx, const QString& poolName) const {
+    const QString cacheKey = poolDetailsCacheKey(connIdx, poolName);
+    if (cacheKey.isEmpty()) {
+        return QString();
+    }
+    const auto it = m_poolDetailsCache.constFind(cacheKey);
+    if (it == m_poolDetailsCache.cend() || !it->loaded) {
+        return QString();
+    }
+    return formatPoolStatusTooltipHtml(it->statusText);
+}
+
+void MainWindow::applyPoolRootTooltipForTree(QTreeWidget* tree,
+                                             int connIdx,
+                                             const QString& poolName,
+                                             const QString& statusText) const {
     if (!tree || connIdx < 0 || poolName.trimmed().isEmpty()) {
         return;
     }
     const QString poolKey = poolName.trimmed();
-    const QString tt = statusText.toHtmlEscaped();
+    const QString tooltipHtml = formatPoolStatusTooltipHtml(statusText);
+    const QString fallbackText = QStringLiteral("%1::%2")
+        .arg((connIdx >= 0 && connIdx < m_profiles.size()) ? m_profiles[connIdx].name : QString(),
+             poolKey);
     for (int i = 0; i < tree->topLevelItemCount(); ++i) {
         QTreeWidgetItem* root = tree->topLevelItem(i);
         if (!root || !root->data(0, kIsPoolRootRole).toBool()) {
@@ -60,16 +89,41 @@ void setPoolRootTooltipFor(QTreeWidget* tree, int connIdx, const QString& poolNa
         }
         const int rootConnIdx = root->data(0, kConnIdxRole).toInt();
         const QString rootPool = root->data(0, kPoolNameRole).toString().trimmed();
-        if (rootConnIdx != connIdx || rootPool.compare(poolKey, Qt::CaseInsensitive) != 0) {
+        if (rootConnIdx != connIdx || rootPool != poolKey) {
             continue;
         }
-        root->setToolTip(
-            0,
-            QStringLiteral("<pre style=\"font-family:monospace; white-space:pre;\">%1</pre>").arg(tt));
+        root->setToolTip(0, tooltipHtml.isEmpty() ? fallbackText : tooltipHtml);
         break;
     }
 }
-} // namespace
+
+void MainWindow::applyPoolRootTooltipToVisibleTrees(int connIdx,
+                                                    const QString& poolName,
+                                                    const QString& statusText) const {
+    applyPoolRootTooltipForTree(m_connContentTree, connIdx, poolName, statusText);
+    applyPoolRootTooltipForTree(m_bottomConnContentTree, connIdx, poolName, statusText);
+}
+
+void MainWindow::cachePoolStatusTextsForConnection(int connIdx, const ConnectionRuntimeState& state) {
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return;
+    }
+    for (auto it = state.poolStatusByName.cbegin(); it != state.poolStatusByName.cend(); ++it) {
+        const QString poolName = it.key().trimmed();
+        if (poolName.isEmpty()) {
+            continue;
+        }
+        const QString cacheKey = poolDetailsCacheKey(connIdx, poolName);
+        if (cacheKey.isEmpty()) {
+            continue;
+        }
+        PoolDetailsCacheEntry entry = m_poolDetailsCache.value(cacheKey);
+        entry.loaded = true;
+        entry.statusText = it.value().trimmed();
+        m_poolDetailsCache.insert(cacheKey, entry);
+        applyPoolRootTooltipToVisibleTrees(connIdx, poolName, entry.statusText);
+    }
+}
 
 int MainWindow::findPoolRow(const QString& connection, const QString& pool) const {
     const QString connKey = connection.trimmed();
@@ -892,7 +946,7 @@ void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteL
             m_poolPropsTable->setItem(r, 2, new QTableWidgetItem(row.value(2)));
         }
         m_poolStatusText->setPlainText(cached.statusText);
-        setPoolRootTooltipFor(m_connContentTree, idx, poolName, cached.statusText);
+        applyPoolRootTooltipToVisibleTrees(idx, poolName, cached.statusText);
         return true;
     };
 
@@ -948,7 +1002,7 @@ void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteL
         fresh.statusText = err.trimmed();
         m_poolStatusText->setPlainText(fresh.statusText);
     }
-    setPoolRootTooltipFor(m_connContentTree, idx, poolName, fresh.statusText);
+    applyPoolRootTooltipToVisibleTrees(idx, poolName, fresh.statusText);
     fresh.loaded = true;
     m_poolDetailsCache.insert(cacheKey, fresh);
     if (m_connContentTree) {

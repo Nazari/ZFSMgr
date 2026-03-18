@@ -670,6 +670,7 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
     const int selectedIdx = selectedConnectionRow(m_connectionsTable);
     m_states[targetIdx] = state;
     invalidatePoolDetailsCacheForConnection(targetIdx);
+    cachePoolStatusTextsForConnection(targetIdx, state);
     rebuildConnectionsTable();
     if (m_connectionEntityTabs) {
         const QString wantedTop = m_pendingRefreshTopTabDataByConn.value(targetIdx);
@@ -1467,6 +1468,7 @@ void MainWindow::refreshConnectionByIndex(int idx) {
         }
     }
     m_states[idx] = refreshConnection(m_profiles[idx]);
+    cachePoolStatusTextsForConnection(idx, m_states[idx]);
     rebuildConnectionsTable();
     if (m_connectionEntityTabs) {
         const QString wantedTop = m_pendingRefreshTopTabDataByConn.value(idx);

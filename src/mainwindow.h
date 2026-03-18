@@ -74,6 +74,7 @@ private:
         QVector<PoolImported> importedPools;
         QVector<PoolImportable> importablePools;
         QVector<QPair<QString, QString>> mountedDatasets; // dataset, mountpoint
+        QMap<QString, QString> poolStatusByName;
     };
 
     struct DatasetRecord {
@@ -400,6 +401,11 @@ private:
     void populateAllPoolsTables();
     void enableSortableHeader(QTableWidget* table);
     void setTablePopulationMode(QTableWidget* table, bool populating);
+    QString formatPoolStatusTooltipHtml(const QString& statusText) const;
+    QString cachedPoolStatusTooltipHtml(int connIdx, const QString& poolName) const;
+    void applyPoolRootTooltipForTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& statusText) const;
+    void applyPoolRootTooltipToVisibleTrees(int connIdx, const QString& poolName, const QString& statusText) const;
+    void cachePoolStatusTextsForConnection(int connIdx, const ConnectionRuntimeState& state);
 
     ConnectionStore m_store;
     QVector<ConnectionProfile> m_profiles;
