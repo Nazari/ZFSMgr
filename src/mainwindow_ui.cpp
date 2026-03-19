@@ -789,6 +789,7 @@ void MainWindow::buildUi() {
             QStringLiteral("Mostrar confirmación antes de ejecutar acciones"),
             QStringLiteral("Show confirmation before executing actions"),
             QStringLiteral("执行操作前显示确认")));
+    m_confirmActionsMenuAction = confirmAct;
     confirmAct->setCheckable(true);
     confirmAct->setChecked(m_actionConfirmEnabled);
     connect(confirmAct, &QAction::toggled, this, [this](bool checked) {

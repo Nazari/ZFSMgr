@@ -274,6 +274,17 @@ bool MainWindow::confirmActionExecution(const QString& actionName, const QString
     txt->setPlainText(rendered.join(QStringLiteral("\n\n")));
     root->addWidget(txt, 1);
 
+    QHBoxLayout* footer = new QHBoxLayout();
+    QCheckBox* confirmCb = new QCheckBox(
+        trk(QStringLiteral("t_confirm_before_exec_001"),
+            QStringLiteral("Confirmar acciones antes de ejecutar"),
+            QStringLiteral("Confirm actions before executing"),
+            QStringLiteral("执行前确认操作")),
+        &dlg);
+    confirmCb->setChecked(m_actionConfirmEnabled);
+    footer->addWidget(confirmCb);
+    footer->addStretch(1);
+
     QDialogButtonBox* box = new QDialogButtonBox(&dlg);
     QPushButton* cancelBtn = box->addButton(trk(QStringLiteral("t_cancelar_c111e0"),
                                                 QStringLiteral("Cancelar"),
@@ -285,7 +296,18 @@ bool MainWindow::confirmActionExecution(const QString& actionName, const QString
                                             QStringLiteral("Accept"),
                                             QStringLiteral("确认")),
                                         QDialogButtonBox::AcceptRole);
-    root->addWidget(box);
+    footer->addWidget(box);
+    root->addLayout(footer);
+    QObject::connect(confirmCb, &QCheckBox::toggled, this, [this](bool checked) {
+        if (m_confirmActionsMenuAction) {
+            if (m_confirmActionsMenuAction->isChecked() != checked) {
+                m_confirmActionsMenuAction->setChecked(checked);
+            }
+            return;
+        }
+        m_actionConfirmEnabled = checked;
+        saveUiSettings();
+    });
     QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
     QObject::connect(okBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
 

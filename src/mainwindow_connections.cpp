@@ -668,6 +668,30 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
         return;
     }
     const int selectedIdx = selectedConnectionRow(m_connectionsTable);
+    if (state.status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0
+        && !state.machineUuid.trimmed().isEmpty()
+        && !isLocalConnection(targetIdx)
+        && (m_profiles[targetIdx].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0
+            || m_profiles[targetIdx].connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0)) {
+        const QString newMachineUid = state.machineUuid.trimmed();
+        if (m_profiles[targetIdx].machineUid.trimmed().compare(newMachineUid, Qt::CaseInsensitive) != 0) {
+            ConnectionProfile persisted = m_profiles[targetIdx];
+            persisted.machineUid = newMachineUid;
+            QString persistErr;
+            if (m_store.upsertConnection(persisted, persistErr)) {
+                m_profiles[targetIdx].machineUid = newMachineUid;
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("machine_uid persistido para %1: %2")
+                           .arg(m_profiles[targetIdx].name,
+                                newMachineUid));
+            } else {
+                appLog(QStringLiteral("WARN"),
+                       QStringLiteral("No se pudo persistir machine_uid para %1: %2")
+                           .arg(m_profiles[targetIdx].name,
+                                persistErr.simplified()));
+            }
+        }
+    }
     m_states[targetIdx] = state;
     invalidatePoolDetailsCacheForConnection(targetIdx);
     cachePoolStatusTextsForConnection(targetIdx, state);

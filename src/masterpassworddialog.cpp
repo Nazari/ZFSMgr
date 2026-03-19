@@ -15,6 +15,7 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QIcon>
+#include <QProcessEnvironment>
 
 #ifndef ZFSMGR_APP_VERSION
 #define ZFSMGR_APP_VERSION "0.9.9rc1"
@@ -58,6 +59,16 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     m_passwordConfirmEdit->setEchoMode(QLineEdit::Password);
     m_passwordConfirmLabel = new QLabel(this);
     m_formLayout->addRow(m_passwordConfirmLabel, m_passwordConfirmEdit);
+    m_localUserEdit = new QLineEdit(this);
+    const QString envUser = QProcessEnvironment::systemEnvironment().value(QStringLiteral("USER")).trimmed();
+    const QString envUserWin = QProcessEnvironment::systemEnvironment().value(QStringLiteral("USERNAME")).trimmed();
+    m_localUserEdit->setText(!envUser.isEmpty() ? envUser : envUserWin);
+    m_localUserLabel = new QLabel(this);
+    m_formLayout->addRow(m_localUserLabel, m_localUserEdit);
+    m_localPasswordEdit = new QLineEdit(this);
+    m_localPasswordEdit->setEchoMode(QLineEdit::Password);
+    m_localPasswordLabel = new QLabel(this);
+    m_formLayout->addRow(m_localPasswordLabel, m_localPasswordEdit);
     root->addLayout(m_formLayout);
 
     m_creationInfoLabel = new QLabel(this);
@@ -159,6 +170,19 @@ QString MasterPasswordDialog::changeOldPassword() const {
 
 QString MasterPasswordDialog::changeNewPassword() const {
     return m_changeNewPwd;
+}
+
+void MasterPasswordDialog::setRequestLocalSudoCredentials(bool enabled) {
+    m_requestLocalSudoCredentials = enabled;
+    retranslateUi();
+}
+
+QString MasterPasswordDialog::localUsername() const {
+    return m_localUserEdit ? m_localUserEdit->text().trimmed() : QString();
+}
+
+QString MasterPasswordDialog::localPassword() const {
+    return m_localPasswordEdit ? m_localPasswordEdit->text() : QString();
 }
 
 void MasterPasswordDialog::setSelectedLanguage(const QString& langCode) {
@@ -300,6 +324,56 @@ void MasterPasswordDialog::retranslateUi() {
             m_passwordConfirmEdit->clear();
         }
     }
+    if (m_localUserLabel) {
+        const QString userText = trk(lang,
+                                     QStringLiteral("t_usuario_d31f58"),
+                                     QStringLiteral("Usuario"),
+                                     QStringLiteral("User"),
+                                     QStringLiteral("用户"));
+        m_localUserLabel->setText(userText);
+        m_localUserLabel->setVisible(m_requestLocalSudoCredentials);
+        m_localUserLabel->setEnabled(m_requestLocalSudoCredentials);
+        if (m_formLayout) {
+            if (QWidget* rowLabel = m_formLayout->labelForField(m_localUserEdit)) {
+                rowLabel->setVisible(m_requestLocalSudoCredentials);
+                rowLabel->setEnabled(m_requestLocalSudoCredentials);
+            }
+        }
+    }
+    if (m_localUserEdit) {
+        m_localUserEdit->setPlaceholderText(trk(lang,
+                                                QStringLiteral("t_local_user_ph_001"),
+                                                QStringLiteral("Usuario local con sudo"),
+                                                QStringLiteral("Local sudo user"),
+                                                QStringLiteral("本地 sudo 用户")));
+        m_localUserEdit->setVisible(m_requestLocalSudoCredentials);
+        m_localUserEdit->setEnabled(m_requestLocalSudoCredentials);
+    }
+    if (m_localPasswordLabel) {
+        const QString passwordText = trk(lang,
+                                         QStringLiteral("t_password_8be3c9"),
+                                         QStringLiteral("Password"),
+                                         QStringLiteral("Password"),
+                                         QStringLiteral("密码"));
+        m_localPasswordLabel->setText(passwordText);
+        m_localPasswordLabel->setVisible(m_requestLocalSudoCredentials);
+        m_localPasswordLabel->setEnabled(m_requestLocalSudoCredentials);
+        if (m_formLayout) {
+            if (QWidget* rowLabel = m_formLayout->labelForField(m_localPasswordEdit)) {
+                rowLabel->setVisible(m_requestLocalSudoCredentials);
+                rowLabel->setEnabled(m_requestLocalSudoCredentials);
+            }
+        }
+    }
+    if (m_localPasswordEdit) {
+        m_localPasswordEdit->setPlaceholderText(trk(lang,
+                                                    QStringLiteral("t_local_pwd_ph_001"),
+                                                    QStringLiteral("Password local sudo"),
+                                                    QStringLiteral("Local sudo password"),
+                                                    QStringLiteral("本地 sudo 密码")));
+        m_localPasswordEdit->setVisible(m_requestLocalSudoCredentials);
+        m_localPasswordEdit->setEnabled(m_requestLocalSudoCredentials);
+    }
     m_okButton->setText(trk(lang, QStringLiteral("t_aceptar_8f9f73"),
                             QStringLiteral("Aceptar"),
                             QStringLiteral("Accept"),
@@ -330,11 +404,26 @@ void MasterPasswordDialog::retranslateUi() {
     }
     if (m_creationInfoLabel) {
         if (m_firstRunCreationMode) {
+            QString info = trk(lang,
+                               QStringLiteral("t_create_ini_001"),
+                               QStringLiteral("No existe config.ini. Se va a crear ahora.\nIntroduzca y confirme el password maestro."),
+                               QStringLiteral("config.ini does not exist. It will be created now.\nEnter and confirm the master password."),
+                               QStringLiteral("config.ini 不存在，将立即创建。\n请输入并确认主密码。"));
+            if (m_requestLocalSudoCredentials) {
+                info += QStringLiteral("\n\n") + trk(lang,
+                                                     QStringLiteral("t_local_sudo_boot_001"),
+                                                     QStringLiteral("También debe indicar usuario y password local con sudo."),
+                                                     QStringLiteral("You must also provide the local sudo user and password."),
+                                                     QStringLiteral("还必须提供本地 sudo 用户和密码。"));
+            }
+            m_creationInfoLabel->setText(info);
+            m_creationInfoLabel->show();
+        } else if (m_requestLocalSudoCredentials) {
             m_creationInfoLabel->setText(trk(lang,
-                                             QStringLiteral("t_create_ini_001"),
-                                             QStringLiteral("No existe config.ini. Se va a crear ahora.\nIntroduzca y confirme el password maestro."),
-                                             QStringLiteral("config.ini does not exist. It will be created now.\nEnter and confirm the master password."),
-                                             QStringLiteral("config.ini 不存在，将立即创建。\n请输入并确认主密码。")));
+                                             QStringLiteral("t_local_sudo_boot_002"),
+                                             QStringLiteral("No existe connLocal.ini.\nIntroduzca usuario y password local con sudo."),
+                                             QStringLiteral("connLocal.ini does not exist.\nEnter the local sudo user and password."),
+                                             QStringLiteral("connLocal.ini 不存在。\n请输入本地 sudo 用户和密码。")));
             m_creationInfoLabel->show();
         } else {
             m_creationInfoLabel->hide();

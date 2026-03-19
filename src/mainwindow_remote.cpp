@@ -1245,18 +1245,19 @@ bool MainWindow::listLocalDatasetsLibzfs(const QString& poolName, PoolDatasetCac
         *detail = QStringLiteral("libzfs runtime dataset listing not available on Windows build");
     }
     return false;
+#elif defined(Q_OS_MACOS)
+    Q_UNUSED(poolName);
+    if (detail) {
+        *detail = QStringLiteral("libzfs runtime dataset listing disabled on macOS; using CLI fallback");
+    }
+    return false;
 #else
     QStringList candidates;
-#if defined(Q_OS_MACOS)
-    candidates << QStringLiteral("/usr/local/zfs/lib/libzfs.dylib")
-               << QStringLiteral("libzfs.dylib");
-#else
     candidates << QStringLiteral("libzfs.so.7")
                << QStringLiteral("libzfs.so.6")
                << QStringLiteral("libzfs.so.5")
                << QStringLiteral("libzfs.so.4")
                << QStringLiteral("libzfs.so");
-#endif
 
     QString localDetail = QStringLiteral("no loadable libzfs library found");
     for (const QString& cand : candidates) {

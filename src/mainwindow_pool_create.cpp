@@ -25,8 +25,8 @@
 #include <QSet>
 #include <QSignalBlocker>
 #include <QSettings>
-#include <QTableWidget>
-#include <QTableWidgetItem>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 #include <QTextEdit>
 #include <QVBoxLayout>
 
@@ -90,29 +90,6 @@ ZPoolCreationDefaults loadZPoolCreationDefaults(const QString& iniPath) {
     return d;
 }
 
-QString wrapDeviceDisplayText(const QString& raw, int softWidth = 42) {
-    const QString s = raw;
-    if (s.size() <= softWidth) {
-        return s;
-    }
-    QString out;
-    out.reserve(s.size() + (s.size() / softWidth) + 4);
-    int col = 0;
-    for (int i = 0; i < s.size(); ++i) {
-        const QChar ch = s[i];
-        out += ch;
-        ++col;
-        const bool breakChar = (ch == QChar('/') || ch == QChar('\\') || ch == QChar(' '));
-        if ((breakChar && col >= (softWidth / 2)) || col >= softWidth) {
-            if (i + 1 < s.size()) {
-                out += QChar('\n');
-            }
-            col = 0;
-        }
-    }
-    return out;
-}
-
 bool isRootDevicePath(const QString& rawPath) {
     const QString p = rawPath.trimmed();
     if (p.isEmpty()) {
@@ -132,6 +109,77 @@ bool isRootDevicePath(const QString& rawPath) {
         }
     }
     return false;
+}
+
+QString deviceTreeParentPath(const QString& rawPath) {
+    const QString path = rawPath.trimmed();
+    if (path.isEmpty()) {
+        return QString();
+    }
+
+    {
+        static const QRegularExpression rx(
+            QStringLiteral(R"(^(\\\\\.\\PhysicalDrive\d+)(?:\\Partition\d+)?$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch m = rx.match(path);
+        if (m.hasMatch()) {
+            const QString parent = m.captured(1);
+            return parent.compare(path, Qt::CaseInsensitive) == 0 ? QString() : parent;
+        }
+    }
+    {
+        static const QRegularExpression rx(
+            QStringLiteral(R"(^(\\\\\?\\PhysicalDrive\d+)(?:\\Partition\d+)?$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch m = rx.match(path);
+        if (m.hasMatch()) {
+            const QString parent = m.captured(1);
+            return parent.compare(path, Qt::CaseInsensitive) == 0 ? QString() : parent;
+        }
+    }
+    {
+        static const QRegularExpression rx(QStringLiteral(R"(^(/dev/disk\d+s\d+)s\d+$)"));
+        const QRegularExpressionMatch m = rx.match(path);
+        if (m.hasMatch()) {
+            return m.captured(1);
+        }
+    }
+    {
+        static const QRegularExpression rx(QStringLiteral(R"(^(/dev/disk\d+)s\d+$)"));
+        const QRegularExpressionMatch m = rx.match(path);
+        if (m.hasMatch()) {
+            return m.captured(1);
+        }
+    }
+    {
+        static const QRegularExpression rx(QStringLiteral(R"(^(/dev/nvme\d+n\d+)p\d+$)"));
+        const QRegularExpressionMatch m = rx.match(path);
+        if (m.hasMatch()) {
+            return m.captured(1);
+        }
+    }
+    {
+        static const QRegularExpression rx(QStringLiteral(R"(^(/dev/mmcblk\d+)p\d+$)"));
+        const QRegularExpressionMatch m = rx.match(path);
+        if (m.hasMatch()) {
+            return m.captured(1);
+        }
+    }
+    {
+        static const QRegularExpression rx(QStringLiteral(R"(^(/dev/(?:sd[a-z]+|vd[a-z]+|xvd[a-z]+))\d+$)"));
+        const QRegularExpressionMatch m = rx.match(path);
+        if (m.hasMatch()) {
+            return m.captured(1);
+        }
+    }
+    return QString();
+}
+
+QString mountedTextForDevice(const QString& mountpoint, bool mounted) {
+    if (mounted || (!mountpoint.isEmpty() && mountpoint != QStringLiteral("-"))) {
+        return QStringLiteral("yes");
+    }
+    return QStringLiteral("no");
 }
 } // namespace
 
@@ -176,6 +224,8 @@ void MainWindow::createPoolForSelectedConnection() {
         QString mountpoint;
         QString fsType;
         QString devType;
+        bool zfsSignature{false};
+        bool synthesized{false};
         bool inPool{false};
         bool mounted{false};
     };
@@ -427,7 +477,7 @@ void MainWindow::createPoolForSelectedConnection() {
                 || fsLower.contains(QStringLiteral("zfs"))
                 || fsLower.contains(QStringLiteral("6a945a3b-1dd2-11b2-99a6-080020736631"))
                 || fsLower.contains(QStringLiteral("6a898cc3-1dd2-11b2-99a6-080020736631"))) {
-                e.inPool = true;
+                e.zfsSignature = true;
             }
             const QString dedupeKey = (e.resolvedPath.isEmpty() ? e.path : e.resolvedPath).trimmed();
             if (!dedupeKey.isEmpty()) {
@@ -658,6 +708,64 @@ void MainWindow::createPoolForSelectedConnection() {
         }
     }
 
+    QSet<QString> macSynthesizedRootPaths;
+    if (isMacConn) {
+        QString synthOut;
+        const QString synthCmd = QStringLiteral(
+            "diskutil list | awk '"
+            "  /^\\/dev\\/disk[0-9]+/ { "
+            "    current=$1; sub(/:$/, \"\", current); "
+            "    if (index(tolower($0),\"synthesized\")>0) print current; "
+            "  }'");
+        if (runRemote(synthCmd, 15000, synthOut)) {
+            const QStringList lines = synthOut.split('\n', Qt::SkipEmptyParts);
+            for (const QString& line : lines) {
+                const QString path = line.trimmed();
+                if (!path.isEmpty()) {
+                    macSynthesizedRootPaths.insert(path);
+                }
+            }
+        }
+    }
+
+    {
+        QMap<QString, DeviceEntry> synthesizedRoots;
+        for (auto it = devicesByPath.cbegin(); it != devicesByPath.cend(); ++it) {
+            const DeviceEntry& e = it.value();
+            const QString parentPath = deviceTreeParentPath(e.path);
+            const QString parentResolved = deviceTreeParentPath(e.resolvedPath);
+            QString rootPath = parentPath;
+            if (rootPath.isEmpty()) {
+                rootPath = parentResolved;
+            }
+            if (rootPath.isEmpty() || devicesByPath.contains(rootPath) || synthesizedRoots.contains(rootPath)) {
+                continue;
+            }
+            DeviceEntry root;
+            root.path = rootPath;
+            root.resolvedPath = rootPath;
+            root.size = QStringLiteral("-");
+            root.mountpoint = QStringLiteral("-");
+            root.fsType = QStringLiteral("disk");
+            root.devType = QStringLiteral("disk");
+            root.zfsSignature = e.zfsSignature;
+            root.synthesized = macSynthesizedRootPaths.contains(rootPath);
+            root.inPool = e.inPool;
+            root.mounted = false;
+            synthesizedRoots.insert(rootPath, root);
+        }
+        for (auto it = synthesizedRoots.cbegin(); it != synthesizedRoots.cend(); ++it) {
+            devicesByPath.insert(it.key(), it.value());
+        }
+    }
+    for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
+        const QString rootPath = it.value().resolvedPath.isEmpty() ? it.value().path : it.value().resolvedPath;
+        if (it.value().devType == QStringLiteral("disk") || isRootDevicePath(rootPath)) {
+            it.value().synthesized = macSynthesizedRootPaths.contains(it.value().path)
+                                     || macSynthesizedRootPaths.contains(rootPath);
+        }
+    }
+
     QDialog dlg(this);
     dlg.setWindowTitle(
         trk(QStringLiteral("t_poolcrt_auto002"), QStringLiteral("Crear pool en %1"), QStringLiteral("Create pool on %1"), QStringLiteral("在 %1 创建池"))
@@ -672,11 +780,6 @@ void MainWindow::createPoolForSelectedConnection() {
     auto* leftLay = new QVBoxLayout(leftPane);
     leftLay->setContentsMargins(0, 0, 0, 0);
     leftLay->setSpacing(8);
-    auto* rightPane = new QWidget(&dlg);
-    auto* rightLay = new QVBoxLayout(rightPane);
-    rightLay->setContentsMargins(0, 0, 0, 0);
-    rightLay->setSpacing(0);
-
     auto* baseBox = new QGroupBox(
         trk(QStringLiteral("t_poolcrt_auto003"), QStringLiteral("Parámetros del pool"), QStringLiteral("Pool parameters"), QStringLiteral("池参数")), leftPane);
     auto* form = new QFormLayout(baseBox);
@@ -938,31 +1041,26 @@ void MainWindow::createPoolForSelectedConnection() {
         trk(QStringLiteral("t_poolcrt_auto015"), QStringLiteral("Block devices disponibles"),
             QStringLiteral("Available block devices"),
             QStringLiteral("可用块设备")),
-        rightPane);
+        &dlg);
     auto* devicesLayout = new QVBoxLayout(devicesBox);
-    QTableWidget* devicesTable = new QTableWidget(devicesBox);
-    devicesTable->setColumnCount(6);
-    devicesTable->setHorizontalHeaderLabels({
-        trk(QStringLiteral("t_poolcrt_auto016"), QStringLiteral("Usar"), QStringLiteral("Use"), QStringLiteral("使用")),
+    QTreeWidget* devicesTree = new QTreeWidget(devicesBox);
+    devicesTree->setColumnCount(5);
+    devicesTree->setHeaderLabels({
         trk(QStringLiteral("t_poolcrt_auto017"), QStringLiteral("Device"), QStringLiteral("Device"), QStringLiteral("设备")),
         trk(QStringLiteral("t_poolcrt_auto018"), QStringLiteral("Tamaño"), QStringLiteral("Size"), QStringLiteral("大小")),
-        trk(QStringLiteral("t_poolcrt_auto019"), QStringLiteral("Mount"), QStringLiteral("Mount"), QStringLiteral("挂载")),
-        trk(QStringLiteral("t_poolcrt_auto020"), QStringLiteral("Estado"), QStringLiteral("State"), QStringLiteral("状态")),
-        trk(QStringLiteral("t_poolcrt_auto021"), QStringLiteral("Detalle"), QStringLiteral("Detail"), QStringLiteral("详情")),
+        trk(QStringLiteral("t_poolcrt_auto034"), QStringLiteral("Tipo partición"), QStringLiteral("Partition type"), QStringLiteral("分区类型")),
+        trk(QStringLiteral("t_poolcrt_auto035"), QStringLiteral("Montada"), QStringLiteral("Mounted"), QStringLiteral("已挂载")),
+        trk(QStringLiteral("t_poolcrt_auto036"), QStringLiteral("En pool"), QStringLiteral("In pool"), QStringLiteral("在池中")),
     });
-    devicesTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    devicesTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    devicesTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    devicesTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
-    devicesTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
-    devicesTable->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Stretch);
-    devicesTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    devicesTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    devicesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    devicesTable->setWordWrap(true);
-    devicesTable->setTextElideMode(Qt::ElideNone);
-    devicesTable->verticalHeader()->setVisible(false);
-    devicesTable->verticalHeader()->setDefaultSectionSize(22);
+    for (int c = 0; c < devicesTree->columnCount(); ++c) {
+        devicesTree->header()->setSectionResizeMode(c, QHeaderView::Interactive);
+    }
+    devicesTree->header()->setStretchLastSection(false);
+    devicesTree->setSelectionBehavior(QAbstractItemView::SelectRows);
+    devicesTree->setSelectionMode(QAbstractItemView::SingleSelection);
+    devicesTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    devicesTree->setRootIsDecorated(true);
+    devicesTree->setUniformRowHeights(false);
     const QColor stRed("#ffcccc");
     const QColor stYellow("#fff5bf");
     const QColor stGreen("#d7f7d7");
@@ -978,7 +1076,23 @@ void MainWindow::createPoolForSelectedConnection() {
     QVector<DeviceRenderRow> renderRows;
     renderRows.reserve(devicesByPath.size());
     QSet<QString> yellowDevicePaths;
+    QMap<QString, DeviceRenderRow> renderRowsByPath;
+    QMap<QString, QStringList> childPathsByRoot;
     QStringList paths = devicesByPath.keys();
+    for (const QString& path : paths) {
+        const DeviceEntry& e = devicesByPath[path];
+        QString parentPath = deviceTreeParentPath(e.path);
+        if (parentPath.isEmpty()) {
+            parentPath = deviceTreeParentPath(e.resolvedPath);
+        }
+        if (!parentPath.isEmpty()) {
+            childPathsByRoot[parentPath].append(e.path);
+        }
+    }
+    auto isApfsLikeFsType = [](const QString& fsType) -> bool {
+        const QString fs = fsType.trimmed().toLower();
+        return fs.contains(QStringLiteral("apfs"));
+    };
     auto hasProtectedSystemMount = [](const DeviceEntry& e) -> bool {
         const QString fs = e.fsType.trimmed().toLower();
         if (windowsPartitionTypeIsProtected(e.fsType)) {
@@ -1025,28 +1139,52 @@ void MainWindow::createPoolForSelectedConnection() {
     for (const QString& path : paths) {
         const DeviceEntry e = devicesByPath.value(path);
         const QString realPath = e.resolvedPath.isEmpty() ? e.path : e.resolvedPath;
-        const bool isWinDisk = isWindowsConnection(p) && e.devType == QStringLiteral("disk");
-        const bool isWinEfiOrReservedOnlyOrEmptyDisk =
-            isWinDisk && e.fsType.contains(QStringLiteral("type=EFI_OR_RESERVED_ONLY_OR_EMPTY"), Qt::CaseInsensitive);
-        if (!isWinDisk && (e.devType == QStringLiteral("disk") || isRootDevicePath(e.path) || isRootDevicePath(realPath))) {
-            continue;
-        }
         DeviceRenderRow rr;
         rr.entry = e;
+        const bool isDiskRoot = (e.devType == QStringLiteral("disk")
+                                 || isRootDevicePath(e.path)
+                                 || isRootDevicePath(realPath));
+        bool macRootHasApfsChildren = false;
+        if (isMacConn && isDiskRoot) {
+            const QStringList childPaths = childPathsByRoot.value(e.path) + childPathsByRoot.value(realPath);
+            for (const QString& childPath : childPaths) {
+                const DeviceEntry child = devicesByPath.value(childPath);
+                if (isApfsLikeFsType(child.fsType)) {
+                    macRootHasApfsChildren = true;
+                    break;
+                }
+            }
+        }
+        const bool isWinEfiOrReservedOnlyOrEmptyDisk =
+            isDiskRoot && e.fsType.contains(QStringLiteral("type=EFI_OR_RESERVED_ONLY_OR_EMPTY"), Qt::CaseInsensitive);
         const bool protectedMount = hasProtectedSystemMount(e);
+        const bool isMacDisk0Root =
+            isMacConn && isDiskRoot
+            && (e.path == QStringLiteral("/dev/disk0") || realPath == QStringLiteral("/dev/disk0"));
+        const bool macApfsRootBlocked =
+            isMacConn && isDiskRoot
+            && (isMacDisk0Root || e.synthesized || macRootHasApfsChildren || isApfsLikeFsType(e.fsType));
         if (isWinEfiOrReservedOnlyOrEmptyDisk) {
             rr.stateText = trk(QStringLiteral("t_poolcrt_auto028"), QStringLiteral("LIBRE"), QStringLiteral("FREE"), QStringLiteral("空闲"));
             rr.detailText = trk(QStringLiteral("t_poolcrt_auto029"), QStringLiteral("Disponible"), QStringLiteral("Available"), QStringLiteral("可用"));
             rr.bgColor = stGreen;
             rr.colorRank = 0;
             rr.selectable = true;
-        } else if (protectedMount || e.inPool) {
+        } else if (protectedMount || e.inPool || macApfsRootBlocked) {
             rr.stateText = trk(QStringLiteral("t_poolcrt_auto022"), QStringLiteral("EN_POOL"), QStringLiteral("IN_POOL"), QStringLiteral("在池中"));
             if (protectedMount) {
                 rr.stateText = trk(QStringLiteral("t_poolcrt_auto023"), QStringLiteral("SISTEMA"), QStringLiteral("SYSTEM"), QStringLiteral("系统"));
                 rr.detailText = trk(QStringLiteral("t_poolcrt_auto024"), QStringLiteral("Dispositivo de sistema (/ /boot /boot/efi o SWAP)"),
                                     QStringLiteral("System device (/ /boot /boot/efi or SWAP)"),
                                     QStringLiteral("系统设备（/ /boot /boot/efi 或 SWAP）"));
+            } else if (isMacDisk0Root) {
+                rr.stateText = QStringLiteral("APFS");
+                rr.detailText = QStringLiteral("Disco físico interno de macOS no seleccionable");
+            } else if (macApfsRootBlocked) {
+                rr.stateText = QStringLiteral("APFS");
+                rr.detailText = e.synthesized
+                                    ? QStringLiteral("Disco APFS sintetizado por macOS")
+                                    : QStringLiteral("Disco contenedor APFS no seleccionable");
             } else {
                 rr.detailText = trk(QStringLiteral("t_poolcrt_auto026"), QStringLiteral("Ya pertenece a un pool"),
                                     QStringLiteral("Already part of a pool"),
@@ -1063,7 +1201,11 @@ void MainWindow::createPoolForSelectedConnection() {
             yellowDevicePaths.insert(e.path);
         } else {
             rr.stateText = trk(QStringLiteral("t_poolcrt_auto028"), QStringLiteral("LIBRE"), QStringLiteral("FREE"), QStringLiteral("空闲"));
-            rr.detailText = trk(QStringLiteral("t_poolcrt_auto029"), QStringLiteral("Disponible"), QStringLiteral("Available"), QStringLiteral("可用"));
+            if (e.zfsSignature) {
+                rr.detailText = QStringLiteral("Firma ZFS detectada, pero no aparece en zpool status/import");
+            } else {
+                rr.detailText = trk(QStringLiteral("t_poolcrt_auto029"), QStringLiteral("Disponible"), QStringLiteral("Available"), QStringLiteral("可用"));
+            }
             rr.bgColor = stGreen;
             rr.colorRank = 0;
         }
@@ -1074,6 +1216,7 @@ void MainWindow::createPoolForSelectedConnection() {
             rr.detailText = rr.detailText + QStringLiteral(" | ") + e.resolvedPath;
         }
         renderRows.push_back(rr);
+        renderRowsByPath.insert(e.path, rr);
     }
     std::sort(renderRows.begin(), renderRows.end(), [](const DeviceRenderRow& a, const DeviceRenderRow& b) {
         if (a.colorRank != b.colorRank) {
@@ -1081,78 +1224,293 @@ void MainWindow::createPoolForSelectedConnection() {
         }
         return a.entry.path < b.entry.path;
     });
-    for (const DeviceRenderRow& rr : renderRows) {
+
+    auto createDeviceTreeItem = [&](const DeviceRenderRow& rr) -> QTreeWidgetItem* {
         const DeviceEntry& e = rr.entry;
-        const int row = devicesTable->rowCount();
-        devicesTable->insertRow(row);
-
-        auto* useItem = new QTableWidgetItem();
-        Qt::ItemFlags uf = (useItem->flags() & ~Qt::ItemIsEditable);
-        if (rr.selectable) {
-            uf |= Qt::ItemIsUserCheckable;
-            useItem->setCheckState(Qt::Unchecked);
-        } else {
-            uf &= ~Qt::ItemIsUserCheckable;
-            useItem->setText(QStringLiteral("—"));
+        auto* item = new QTreeWidgetItem();
+        item->setText(0, e.path);
+        item->setText(1, e.size);
+        item->setText(2, e.fsType);
+        item->setText(4, e.inPool ? QStringLiteral("Sí") : QStringLiteral("No"));
+        item->setData(0, Qt::UserRole, e.path);
+        item->setData(0, Qt::UserRole + 1, rr.selectable);
+        item->setData(0, Qt::UserRole + 2, e.mounted || (!e.mountpoint.isEmpty() && e.mountpoint != QStringLiteral("-")));
+        item->setData(0, Qt::UserRole + 3, e.mountpoint);
+        item->setData(0, Qt::UserRole + 4, e.devType);
+        Qt::ItemFlags flags = item->flags() | Qt::ItemIsUserCheckable;
+        flags &= ~Qt::ItemIsEditable;
+        item->setFlags(flags);
+        item->setCheckState(0, Qt::Unchecked);
+        item->setToolTip(0, rr.detailText);
+        item->setToolTip(2, rr.detailText);
+        for (int c = 0; c < devicesTree->columnCount(); ++c) {
+            item->setBackground(c, rr.bgColor);
         }
-        useItem->setFlags(uf);
-        devicesTable->setItem(row, 0, useItem);
-
-        auto* devItem = new QTableWidgetItem(wrapDeviceDisplayText(e.path));
-        devItem->setData(Qt::UserRole, e.path);
-        devItem->setToolTip(e.path);
-        devicesTable->setItem(row, 1, devItem);
-        devicesTable->setItem(row, 2, new QTableWidgetItem(e.size));
-        devicesTable->setItem(row, 3, new QTableWidgetItem(e.mountpoint));
-        auto* stateItem = new QTableWidgetItem(rr.stateText);
-        if (!e.fsType.isEmpty() && e.fsType != QStringLiteral("-")) {
-            stateItem->setToolTip(QStringLiteral("fstype=%1").arg(e.fsType));
+        if (!rr.selectable) {
+            item->setDisabled(true);
         }
-        auto* detailItem = new QTableWidgetItem(rr.detailText);
-        devicesTable->setItem(row, 4, stateItem);
-        devicesTable->setItem(row, 5, detailItem);
-        for (int c = 0; c < devicesTable->columnCount(); ++c) {
-            if (QTableWidgetItem* cell = devicesTable->item(row, c)) {
-                cell->setBackground(rr.bgColor);
-            }
+        return item;
+    };
+
+    auto updateMountedWidget = [&](QTreeWidgetItem* item) {
+        if (!item) {
+            return;
+        }
+        auto* combo = qobject_cast<QComboBox*>(devicesTree->itemWidget(item, 3));
+        if (!combo) {
+            combo = new QComboBox(devicesTree);
+            combo->addItem(QStringLiteral("No"));
+            combo->addItem(QStringLiteral("Sí"));
+            devicesTree->setItemWidget(item, 3, combo);
+        }
+        const bool mounted = item->data(0, Qt::UserRole + 2).toBool();
+        QSignalBlocker blocker(combo);
+        combo->setCurrentText(mounted ? QStringLiteral("Sí") : QStringLiteral("No"));
+        const QString devType = item->data(0, Qt::UserRole + 4).toString();
+        combo->setEnabled(devType != QStringLiteral("disk") || isMacConn);
+    };
+
+    auto applyRowColor = [&](QTreeWidgetItem* item, const QColor& color) {
+        if (!item) {
+            return;
+        }
+        for (int c = 0; c < devicesTree->columnCount(); ++c) {
+            item->setBackground(c, color);
+        }
+    };
+
+    QMap<QString, QTreeWidgetItem*> rootItemsByPath;
+    QVector<DeviceRenderRow> rootRows;
+    QSet<QString> addedRootPaths;
+    for (const DeviceRenderRow& rr : renderRows) {
+        const QString parentPath = deviceTreeParentPath(rr.entry.path);
+        const QString resolvedParentPath = deviceTreeParentPath(rr.entry.resolvedPath);
+        if (!parentPath.isEmpty() && renderRowsByPath.contains(parentPath)) {
+            continue;
+        }
+        if (!resolvedParentPath.isEmpty() && renderRowsByPath.contains(resolvedParentPath)) {
+            continue;
+        }
+        const QString rootKey = rr.entry.path.trimmed();
+        if (rootKey.isEmpty() || addedRootPaths.contains(rootKey)) {
+            continue;
+        }
+        addedRootPaths.insert(rootKey);
+        rootRows.push_back(rr);
+    }
+    std::sort(rootRows.begin(), rootRows.end(), [](const DeviceRenderRow& a, const DeviceRenderRow& b) {
+        return a.entry.path.localeAwareCompare(b.entry.path) < 0;
+    });
+    for (const DeviceRenderRow& rr : rootRows) {
+        auto* item = createDeviceTreeItem(rr);
+        devicesTree->addTopLevelItem(item);
+        updateMountedWidget(item);
+        rootItemsByPath.insert(rr.entry.path, item);
+        if (!rr.entry.resolvedPath.isEmpty()) {
+            rootItemsByPath.insert(rr.entry.resolvedPath, item);
         }
     }
-    devicesTable->resizeRowsToContents();
-    devicesLayout->addWidget(devicesTable, 1);
-    rightLay->addWidget(devicesBox, 1);
+    for (const DeviceRenderRow& rr : renderRows) {
+        const QString parentPath = deviceTreeParentPath(rr.entry.path);
+        const QString resolvedParentPath = deviceTreeParentPath(rr.entry.resolvedPath);
+        QTreeWidgetItem* parentItem = nullptr;
+        if (!parentPath.isEmpty()) {
+            parentItem = rootItemsByPath.value(parentPath, nullptr);
+        }
+        if (!parentItem && !resolvedParentPath.isEmpty()) {
+            parentItem = rootItemsByPath.value(resolvedParentPath, nullptr);
+        }
+        if (!parentItem) {
+            continue;
+        }
+        const QString itemPath = rr.entry.path;
+        const QString parentRootPath = parentItem->data(0, Qt::UserRole).toString();
+        const QString parentResolved = devicesByPath.value(parentRootPath).resolvedPath;
+        if (itemPath == parentRootPath || (!parentResolved.isEmpty() && itemPath == parentResolved)) {
+            continue;
+        }
+        auto* childItem = createDeviceTreeItem(rr);
+        parentItem->addChild(childItem);
+        updateMountedWidget(childItem);
+    }
+    devicesTree->expandAll();
+    devicesTree->setColumnWidth(0, 360);
+    devicesTree->resizeColumnToContents(1);
+    devicesTree->setColumnWidth(2, 180);
+    devicesTree->setColumnWidth(3, 90);
+    devicesTree->setColumnWidth(4, 90);
+    devicesLayout->addWidget(devicesTree, 1);
     body->addWidget(leftPane, 0);
-    body->addWidget(rightPane, 1);
+    body->addWidget(devicesBox, 1);
     lay->addLayout(body, 1);
 
-    auto checkedDevices = [devicesTable]() -> QStringList {
-        QStringList selected;
-        for (int r = 0; r < devicesTable->rowCount(); ++r) {
-            QTableWidgetItem* use = devicesTable->item(r, 0);
-            QTableWidgetItem* dev = devicesTable->item(r, 1);
-            if (!use || !dev) {
-                continue;
+    auto handleMountedChoice = [&](QTreeWidgetItem* item, QComboBox* combo) {
+        if (!item || !combo) {
+            return;
+        }
+        const bool mounted = item->data(0, Qt::UserRole + 2).toBool();
+        const QString chosen = combo->currentText().trimmed();
+        if (!mounted && chosen == QStringLiteral("Sí")) {
+            QSignalBlocker blocker(combo);
+            combo->setCurrentText(QStringLiteral("No"));
+            QMessageBox::information(&dlg, QStringLiteral("ZFSMgr"),
+                                     QStringLiteral("Desde aquí solo se permite desmontar."));
+            return;
+        }
+        if (!mounted || chosen != QStringLiteral("No")) {
+            return;
+        }
+
+        const QString path = item->data(0, Qt::UserRole).toString().trimmed();
+        const QString devType = item->data(0, Qt::UserRole + 4).toString().trimmed();
+        QString unmountCmd;
+        if (isMacConn) {
+            unmountCmd = (devType == QStringLiteral("disk"))
+                             ? QStringLiteral("diskutil unmountDisk %1").arg(shSingleQuote(path))
+                             : QStringLiteral("diskutil unmount %1").arg(shSingleQuote(path));
+        } else if (!isWindowsConnection(p)) {
+            unmountCmd = QStringLiteral("umount %1").arg(shSingleQuote(path));
+        } else {
+            QSignalBlocker blocker(combo);
+            combo->setCurrentText(QStringLiteral("Sí"));
+            return;
+        }
+
+        QString cmdOut;
+        QString cmdErr;
+        int rc = -1;
+        const QString fullCmd = withSudo(p, unmountCmd);
+        if (!runSsh(p, fullCmd, 30000, cmdOut, cmdErr, rc) || rc != 0) {
+            QSignalBlocker blocker(combo);
+            combo->setCurrentText(QStringLiteral("Sí"));
+            QMessageBox::warning(
+                &dlg, QStringLiteral("ZFSMgr"),
+                QStringLiteral("No se pudo desmontar %1:\n%2")
+                    .arg(path, cmdErr.isEmpty() ? QStringLiteral("exit %1").arg(rc) : cmdErr));
+            return;
+        }
+
+        item->setData(0, Qt::UserRole + 2, false);
+        item->setData(0, Qt::UserRole + 3, QStringLiteral("-"));
+        yellowDevicePaths.remove(path);
+        if (auto it = devicesByPath.find(path); it != devicesByPath.end()) {
+            it->mounted = false;
+            it->mountpoint = QStringLiteral("-");
+        }
+        const bool selectable = item->data(0, Qt::UserRole + 1).toBool();
+        const bool inPool = item->text(4) == QStringLiteral("Sí");
+        applyRowColor(item, (selectable && !inPool) ? stGreen : stRed);
+        item->setToolTip(0, QStringLiteral("Disponible | %1").arg(path));
+        item->setToolTip(2, item->toolTip(2));
+        QSignalBlocker blocker(combo);
+        combo->setCurrentText(QStringLiteral("No"));
+    };
+
+    std::function<void(QTreeWidgetItem*)> bindMountedWidgets = [&](QTreeWidgetItem* item) {
+        if (!item) {
+            return;
+        }
+        if (auto* combo = qobject_cast<QComboBox*>(devicesTree->itemWidget(item, 3))) {
+            QObject::connect(combo, &QComboBox::currentTextChanged, &dlg, [&, item, combo](const QString&) {
+                handleMountedChoice(item, combo);
+            });
+        }
+        for (int i = 0; i < item->childCount(); ++i) {
+            bindMountedWidgets(item->child(i));
+        }
+    };
+    for (int i = 0; i < devicesTree->topLevelItemCount(); ++i) {
+        bindMountedWidgets(devicesTree->topLevelItem(i));
+    }
+
+    bool syncDeviceChecks = false;
+    connect(devicesTree, &QTreeWidget::itemChanged, &dlg, [&](QTreeWidgetItem* item, int column) {
+        if (!item || column != 0 || syncDeviceChecks) {
+            return;
+        }
+        if (!item->data(0, Qt::UserRole + 1).toBool()) {
+            return;
+        }
+        syncDeviceChecks = true;
+        const Qt::CheckState state = item->checkState(0);
+        for (int i = 0; i < item->childCount(); ++i) {
+            QTreeWidgetItem* child = item->child(i);
+            if (child && child->data(0, Qt::UserRole + 1).toBool()) {
+                child->setCheckState(0, state);
             }
-            if (use->checkState() == Qt::Checked) {
-                QString d = dev->data(Qt::UserRole).toString().trimmed();
-                if (d.isEmpty()) {
-                    d = dev->text();
-                    d.replace('\n', QString());
-                    d = d.trimmed();
+        }
+        if (QTreeWidgetItem* parent = item->parent()) {
+            int checkedChildren = 0;
+            int partialChildren = 0;
+            int selectableChildren = 0;
+            for (int i = 0; i < parent->childCount(); ++i) {
+                QTreeWidgetItem* child = parent->child(i);
+                if (!child || !child->data(0, Qt::UserRole + 1).toBool()) {
+                    continue;
                 }
-                if (!d.isEmpty()) {
-                    selected << d;
+                ++selectableChildren;
+                if (child->checkState(0) == Qt::Checked) {
+                    ++checkedChildren;
+                } else if (child->checkState(0) == Qt::PartiallyChecked) {
+                    ++partialChildren;
+                }
+            }
+            if (selectableChildren > 0) {
+                if (checkedChildren == selectableChildren) {
+                    parent->setCheckState(0, Qt::Checked);
+                } else if (checkedChildren == 0 && partialChildren == 0) {
+                    parent->setCheckState(0, Qt::Unchecked);
+                } else {
+                    parent->setCheckState(0, Qt::PartiallyChecked);
                 }
             }
         }
+        syncDeviceChecks = false;
+    });
+
+    auto checkedDevices = [devicesTree]() -> QStringList {
+        QStringList selected;
+        std::function<void(QTreeWidgetItem*)> visit = [&](QTreeWidgetItem* item) {
+            if (!item) {
+                return;
+            }
+            const bool selectable = item->data(0, Qt::UserRole + 1).toBool();
+            const Qt::CheckState state = item->checkState(0);
+            if (selectable && state == Qt::Checked) {
+                const QString path = item->data(0, Qt::UserRole).toString().trimmed();
+                if (!path.isEmpty()) {
+                    selected << path;
+                }
+            }
+            for (int i = 0; i < item->childCount(); ++i) {
+                visit(item->child(i));
+            }
+        };
+        for (int i = 0; i < devicesTree->topLevelItemCount(); ++i) {
+            visit(devicesTree->topLevelItem(i));
+        }
+        selected.removeDuplicates();
         return selected;
     };
-    connect(clearSelBtn, &QPushButton::clicked, &dlg, [devicesTable]() {
-        for (int r = 0; r < devicesTable->rowCount(); ++r) {
-            if (QTableWidgetItem* use = devicesTable->item(r, 0)) {
-                use->setCheckState(Qt::Unchecked);
+
+    auto clearDeviceChecks = [&]() {
+        QSignalBlocker blocker(devicesTree);
+        std::function<void(QTreeWidgetItem*)> visit = [&](QTreeWidgetItem* item) {
+            if (!item) {
+                return;
             }
+            if (item->data(0, Qt::UserRole + 1).toBool()) {
+                item->setCheckState(0, Qt::Unchecked);
+            }
+            for (int i = 0; i < item->childCount(); ++i) {
+                visit(item->child(i));
+            }
+        };
+        for (int i = 0; i < devicesTree->topLevelItemCount(); ++i) {
+            visit(devicesTree->topLevelItem(i));
         }
-    });
+    };
+    connect(clearSelBtn, &QPushButton::clicked, &dlg, clearDeviceChecks);
     connect(clearSpecBtn, &QPushButton::clicked, &dlg, [vdevSpecEdit]() {
         vdevSpecEdit->clear();
     });
@@ -1161,9 +1519,9 @@ void MainWindow::createPoolForSelectedConnection() {
         if (selected.isEmpty()) {
             QMessageBox::information(
                 &dlg, QStringLiteral("ZFSMgr"),
-                trk(QStringLiteral("t_poolcrt_auto030"), QStringLiteral("Seleccione dispositivos en la tabla de la derecha."),
-                    QStringLiteral("Select devices in the table on the right."),
-                    QStringLiteral("请在右侧表格中选择设备。")));
+                trk(QStringLiteral("t_poolcrt_auto030"), QStringLiteral("Seleccione dispositivos en el árbol de dispositivos."),
+                    QStringLiteral("Select devices in the device tree."),
+                    QStringLiteral("请在设备树中选择设备。")));
             return;
         }
         QStringList line;
@@ -1186,12 +1544,7 @@ void MainWindow::createPoolForSelectedConnection() {
         }
         cur += textLine;
         vdevSpecEdit->setPlainText(cur);
-        for (int r = 0; r < devicesTable->rowCount(); ++r) {
-            QTableWidgetItem* use = devicesTable->item(r, 0);
-            if (use) {
-                use->setCheckState(Qt::Unchecked);
-            }
-        }
+        clearDeviceChecks();
     });
 
     auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);

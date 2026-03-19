@@ -22,6 +22,9 @@ public:
     bool changePasswordRequested() const;
     QString changeOldPassword() const;
     QString changeNewPassword() const;
+    void setRequestLocalSudoCredentials(bool enabled);
+    QString localUsername() const;
+    QString localPassword() const;
 
 private:
     void openChangePasswordDialog();
@@ -36,14 +39,19 @@ private:
     QLabel* m_languageLabel{nullptr};
     QLabel* m_passwordLabel{nullptr};
     QLabel* m_passwordConfirmLabel{nullptr};
+    QLabel* m_localUserLabel{nullptr};
+    QLabel* m_localPasswordLabel{nullptr};
     QPushButton* m_okButton{nullptr};
     QPushButton* m_cancelButton{nullptr};
     QPushButton* m_changePwdButton{nullptr};
     QPushButton* m_resetIniButton{nullptr};
     QLabel* m_authorLabel{nullptr};
     QFormLayout* m_formLayout{nullptr};
+    QLineEdit* m_localUserEdit{nullptr};
+    QLineEdit* m_localPasswordEdit{nullptr};
     QString m_lang{QStringLiteral("es")};
     bool m_firstRunCreationMode{false};
+    bool m_requestLocalSudoCredentials{false};
     bool m_resetIniRequested{false};
     bool m_changePwdRequested{false};
     QString m_changeOldPwd;

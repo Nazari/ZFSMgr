@@ -7,6 +7,7 @@
 #include <QFormLayout>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QProcess>
 #include <QProcessEnvironment>
 #include <QSet>
 #include <QSysInfo>
@@ -59,6 +60,22 @@ bool isLocalHostTokenLocal(const QString& host) {
     }();
     return aliases.contains(h);
 }
+
+QString currentLocalMachineUidFallback() {
+#if defined(Q_OS_MACOS)
+    QProcess proc;
+    proc.start(QStringLiteral("sh"),
+               QStringList{QStringLiteral("-lc"),
+                           QStringLiteral("ioreg -rd1 -c IOPlatformExpertDevice 2>/dev/null | awk -F\\\" '/IOPlatformUUID/{print $(NF-1); exit}'")});
+    if (proc.waitForFinished(3000)) {
+        const QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+        if (!out.isEmpty()) {
+            return out;
+        }
+    }
+#endif
+    return QString::fromLatin1(QSysInfo::machineUniqueId().toHex()).trimmed();
+}
 } // namespace
 
 bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
@@ -68,7 +85,7 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
 
     QString localUid = m_localMachineUuid.trimmed();
     if (localUid.isEmpty()) {
-        localUid = QString::fromLatin1(QSysInfo::machineUniqueId().toHex()).trimmed();
+        localUid = currentLocalMachineUidFallback();
     }
 
     for (int i = 0; i < m_profiles.size(); ++i) {
@@ -252,6 +269,52 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
         }
     }
     return true;
+}
+
+bool MainWindow::hasEquivalentLocalSshConnection() const {
+    QString localUid = m_localMachineUuid.trimmed();
+    if (localUid.isEmpty()) {
+        localUid = currentLocalMachineUidFallback();
+    }
+
+    for (const ConnectionProfile& candidate : m_profiles) {
+        if (isLocalConnection(candidate)) {
+            continue;
+        }
+        if (candidate.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+        const QString candUid = candidate.machineUid.trimmed();
+        if (!localUid.isEmpty() && !candUid.isEmpty() && candUid.compare(localUid, Qt::CaseInsensitive) == 0) {
+            return true;
+        }
+        if (isLocalHostTokenLocal(candidate.host)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void MainWindow::ensureStartupLocalSudoConnection() {
+    if (m_startupLocalSudoChecked) {
+        return;
+    }
+    m_startupLocalSudoChecked = true;
+
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        ConnectionProfile& localProfile = m_profiles[i];
+        if (!isLocalConnection(localProfile) || isWindowsConnection(localProfile) || !localProfile.useSudo) {
+            continue;
+        }
+        if (hasEquivalentLocalSshConnection()) {
+            return;
+        }
+        if (ensureLocalSudoCredentials(localProfile)) {
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("Credenciales sudo locales comprobadas al arrancar"));
+        }
+        return;
+    }
 }
 
 

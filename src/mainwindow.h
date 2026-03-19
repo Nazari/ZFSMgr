@@ -193,6 +193,7 @@ private:
 
     void buildUi();
     void loadConnections();
+    void ensureStartupLocalSudoConnection();
     void rebuildConnectionsTable();
     void refreshAllConnections();
     void refreshSelectedConnection();
@@ -297,6 +298,7 @@ private:
     DatasetSelectionContext currentDatasetSelection(const QString& side) const;
     bool executeDatasetAction(const QString& side, const QString& actionName, const DatasetSelectionContext& ctx, const QString& cmd, int timeoutMs = 45000, bool allowWindowsScript = false);
     bool ensureLocalSudoCredentials(ConnectionProfile& profile);
+    bool hasEquivalentLocalSshConnection() const;
     QString diagnoseUmountFailure(const DatasetSelectionContext& ctx);
     void invalidateDatasetCacheForPool(int connIdx, const QString& poolName);
     void invalidatePoolDetailsCacheForConnection(int connIdx);
@@ -557,6 +559,7 @@ private:
     QString m_localSudoUsername;
     QString m_localSudoPassword;
     QString m_localMachineUuid;
+    bool m_startupLocalSudoChecked{false};
     bool m_actionsLocked{false};
     bool m_waitCursorActive{false};
     int m_uiBusyDepth{0};
@@ -566,6 +569,7 @@ private:
     qint64 m_activeLocalPid{-1};
     bool m_busyOnImportRefresh{false};
     QPushButton* m_activeConnActionBtn{nullptr};
+    QAction* m_confirmActionsMenuAction{nullptr};
     QString m_activeConnActionName;
     bool m_syncingConnContentColumns{false};
 };

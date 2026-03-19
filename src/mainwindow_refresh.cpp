@@ -85,26 +85,40 @@ int MainWindow::findConnectionIndexByName(const QString& name) const {
 
 MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const ConnectionProfile& p) {
     ConnectionRuntimeState state;
-    state.connectionMethod = p.connType;
+    ConnectionProfile profile = p;
+    state.connectionMethod = profile.connType;
     state.powershellFallbackCommands = zfsmgrPowershellCommandSet();
-    state.commandsLayer = isWindowsConnection(p) ? QStringLiteral("Powershell") : QString();
+    state.commandsLayer = isWindowsConnection(profile) ? QStringLiteral("Powershell") : QString();
     appLog(QStringLiteral("NORMAL"),
            trk(QStringLiteral("t_inicio_ref_521ce1"),
                QStringLiteral("Inicio refresh: %1 [%2]"),
                QStringLiteral("Refresh start: %1 [%2]"),
-               QStringLiteral("开始刷新：%1 [%2]")).arg(p.name, p.connType));
+               QStringLiteral("开始刷新：%1 [%2]")).arg(profile.name, profile.connType));
 
-    const bool localMode = isLocalConnection(p);
+    const bool localMode = isLocalConnection(profile);
     if (localMode) {
         QString libzfsDetail;
         const bool hasLibzfs = detectLocalLibzfs(&libzfsDetail);
         state.connectionMethod = hasLibzfs ? QStringLiteral("LOCAL/libzfs") : QStringLiteral("LOCAL/CLI");
         appLog(hasLibzfs ? QStringLiteral("INFO") : QStringLiteral("WARN"),
                QStringLiteral("%1: %2 (%3)")
-                   .arg(p.name, state.connectionMethod, libzfsDetail));
+                   .arg(profile.name, state.connectionMethod, libzfsDetail));
+        if (!ensureLocalSudoCredentials(profile)) {
+            state.status = QStringLiteral("ERROR");
+            state.detail = trk(QStringLiteral("t_local_sudo_req1"),
+                               QStringLiteral("Usuario y password sudo son obligatorios."),
+                               QStringLiteral("Sudo user and password are required."),
+                               QStringLiteral("必须提供 sudo 用户和密码。"));
+            appLog(QStringLiteral("NORMAL"),
+                   trk(QStringLiteral("t_fin_refres_5a87d4"),
+                       QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
+                       QStringLiteral("Refresh end: %1 -> ERROR (%2)"),
+                       QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(profile.name, state.detail));
+            return state;
+        }
     }
-    const bool sshMode = (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0);
-    const bool psrpMode = (p.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
+    const bool sshMode = (profile.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0);
+    const bool psrpMode = (profile.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
     if (!localMode && !sshMode && !psrpMode) {
         state.status = QStringLiteral("ERROR");
         state.detail = trk(QStringLiteral("t_tipo_de_co_e73161"),
@@ -115,10 +129,10 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                trk(QStringLiteral("t_fin_refres_5a87d4"),
                    QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
                    QStringLiteral("Refresh end: %1 -> ERROR (%2)"),
-                   QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(p.name, state.detail));
+                   QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(profile.name, state.detail));
         return state;
     }
-    if (!localMode && (p.host.isEmpty() || p.username.isEmpty())) {
+    if (!localMode && (profile.host.isEmpty() || profile.username.isEmpty())) {
         state.status = QStringLiteral("ERROR");
         state.detail = trk(QStringLiteral("t_host_usuar_97cc58"),
                            QStringLiteral("Host/usuario no definido"),
@@ -128,7 +142,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                trk(QStringLiteral("t_fin_refres_5a87d4"),
                    QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
                    QStringLiteral("Refresh end: %1 -> ERROR (%2)"),
-                   QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(p.name, state.detail));
+                   QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(profile.name, state.detail));
         return state;
     }
 
@@ -139,15 +153,15 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                                    ? QStringLiteral("[System.Environment]::OSVersion.VersionString")
                                    : QStringLiteral("uname -a");
     const MainWindow::WindowsCommandMode winPsMode = MainWindow::WindowsCommandMode::PowerShellNative;
-    if (!runSsh(p, osProbeCmd, 12000, out, err, rc, {}, {}, {},
-                isWindowsConnection(p) ? winPsMode : MainWindow::WindowsCommandMode::Auto) || rc != 0) {
+    if (!runSsh(profile, osProbeCmd, 12000, out, err, rc, {}, {}, {},
+                isWindowsConnection(profile) ? winPsMode : MainWindow::WindowsCommandMode::Auto) || rc != 0) {
         state.status = QStringLiteral("ERROR");
         state.detail = oneLine(err.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : err);
         appLog(QStringLiteral("NORMAL"),
                trk(QStringLiteral("t_fin_refres_5a87d4"),
                    QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
                    QStringLiteral("Refresh end: %1 -> ERROR (%2)"),
-                   QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(p.name, state.detail));
+                   QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(profile.name, state.detail));
         return state;
     }
     state.status = QStringLiteral("OK");

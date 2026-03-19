@@ -776,13 +776,11 @@ void MainWindow::syncConnContentPropertyColumns() {
             n->setData(col, kConnPropEditableRole, false);
         }
     };
-    if (!m_showInlineDatasetProps) {
+    const bool showInlineDatasetProps = m_showInlineDatasetProps;
+    if (!showInlineDatasetProps) {
         for (int i = 0; i < tree->topLevelItemCount(); ++i) {
             clearPropRowsRec(clearPropRowsRec, tree->topLevelItem(i));
         }
-        refreshDatasetExpansionIndicators(tree);
-        m_syncingConnContentColumns = false;
-        return;
     }
 
     QTreeWidgetItem* sel = tree->currentItem();
@@ -1405,8 +1403,43 @@ void MainWindow::syncConnContentPropertyColumns() {
         }
         return insertAt;
     };
+    auto appendSnapshotHoldsNode = [&](QTreeWidgetItem* parentNode, int insertPos) {
+        if (!parentNode || !objectIsSnapshot) {
+            return insertPos;
+        }
+        const QVector<QPair<QString, QString>> snapshotHolds = querySnapshotHolds(itemConnIdx, itemPool, obj);
+        auto* holdsNode = new QTreeWidgetItem();
+        holdsNode->setText(0,
+                           trk(QStringLiteral("t_holds_node_001"),
+                               QStringLiteral("Holds"),
+                               QStringLiteral("Holds"),
+                               QStringLiteral("Holds"))
+                               + QStringLiteral(" (%1)").arg(snapshotHolds.size()));
+        holdsNode->setData(0, kConnPropGroupNodeRole, true);
+        holdsNode->setData(0, kConnSnapshotHoldsNodeRole, true);
+        holdsNode->setData(0, kConnIdxRole, itemConnIdx);
+        holdsNode->setData(0, kPoolNameRole, itemPool);
+        holdsNode->setExpanded(false);
+        parentNode->insertChild(insertPos++, holdsNode);
+        for (const auto& holdEntry : snapshotHolds) {
+            auto* holdItem = new QTreeWidgetItem(holdsNode);
+            holdItem->setText(0, holdEntry.first);
+            holdItem->setData(0, kConnSnapshotHoldItemRole, true);
+            holdItem->setData(0, kConnSnapshotHoldTagRole, holdEntry.first);
+            holdItem->setData(0, kConnSnapshotHoldTimestampRole, holdEntry.second);
+            holdItem->setData(0, kConnIdxRole, itemConnIdx);
+            holdItem->setData(0, kPoolNameRole, itemPool);
+            holdItem->setFlags(holdItem->flags() & ~Qt::ItemIsUserCheckable);
+            appendStaticPropRows(holdItem,
+                                 QMap<QString, QString>{
+                                     {QStringLiteral("TimeStamp"), holdEntry.second}
+                                 },
+                                 -1);
+        }
+        return insertPos;
+    };
     int insertAt = 0;
-    if (!m_showInlinePropertyNodes) {
+    if (!m_showInlinePropertyNodes || !showInlineDatasetProps) {
         for (int i = sel->childCount() - 1; i >= 0; --i) {
             QTreeWidgetItem* child = sel->child(i);
             if (!child || !child->data(0, kConnPropGroupNodeRole).toBool()) {
@@ -1414,6 +1447,7 @@ void MainWindow::syncConnContentPropertyColumns() {
             }
             delete sel->takeChild(i);
         }
+        insertAt = appendSnapshotHoldsNode(sel, insertAt);
         refreshDatasetExpansionIndicators(tree);
         sel->setExpanded(true);
         resizeTreeColumnsToVisibleContent(tree);
@@ -1479,37 +1513,7 @@ void MainWindow::syncConnContentPropertyColumns() {
         appendPropRows(groupNode, cfg.name, groupProps, false, -1);
         groupNode->setExpanded(false);
     }
-    if (objectIsSnapshot) {
-        const QVector<QPair<QString, QString>> snapshotHolds = querySnapshotHolds(itemConnIdx, itemPool, obj);
-        auto* holdsNode = new QTreeWidgetItem();
-        holdsNode->setText(0,
-                           trk(QStringLiteral("t_holds_node_001"),
-                               QStringLiteral("Holds"),
-                               QStringLiteral("Holds"),
-                               QStringLiteral("Holds"))
-                               + QStringLiteral(" (%1)").arg(snapshotHolds.size()));
-        holdsNode->setData(0, kConnPropGroupNodeRole, true);
-        holdsNode->setData(0, kConnSnapshotHoldsNodeRole, true);
-        holdsNode->setData(0, kConnIdxRole, itemConnIdx);
-        holdsNode->setData(0, kPoolNameRole, itemPool);
-        holdsNode->setExpanded(false);
-        sel->insertChild(insertAt++, holdsNode);
-        for (const auto& holdEntry : snapshotHolds) {
-            auto* holdItem = new QTreeWidgetItem(holdsNode);
-            holdItem->setText(0, holdEntry.first);
-            holdItem->setData(0, kConnSnapshotHoldItemRole, true);
-            holdItem->setData(0, kConnSnapshotHoldTagRole, holdEntry.first);
-            holdItem->setData(0, kConnSnapshotHoldTimestampRole, holdEntry.second);
-            holdItem->setData(0, kConnIdxRole, itemConnIdx);
-            holdItem->setData(0, kPoolNameRole, itemPool);
-            holdItem->setFlags(holdItem->flags() & ~Qt::ItemIsUserCheckable);
-            appendStaticPropRows(holdItem,
-                                 QMap<QString, QString>{
-                                     {QStringLiteral("TimeStamp"), holdEntry.second}
-                                 },
-                                 -1);
-        }
-    }
+    insertAt = appendSnapshotHoldsNode(sel, insertAt);
     auto refreshVisiblePermissionsNodes = [&](auto&& self, QTreeWidgetItem* node) -> void {
         if (!node) {
             return;

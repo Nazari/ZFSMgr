@@ -19,6 +19,7 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
     initLogPersistence();
     buildUi();
     loadConnections();
+    ensureStartupLocalSudoConnection();
     QTimer::singleShot(0, this, [this]() {
         refreshAllConnections();
     });

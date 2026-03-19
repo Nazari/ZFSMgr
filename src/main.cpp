@@ -12,11 +12,14 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QProxyStyle>
+#include <QProcess>
 #include <QSettings>
 #include <QDir>
 #include <QStyleFactory>
 #include <QStyleOption>
 #include <QToolTip>
+#include <QProcessEnvironment>
+#include <QSysInfo>
 
 namespace {
 QString trk(const QString& lang,
@@ -25,6 +28,22 @@ QString trk(const QString& lang,
             const QString& en = QString(),
             const QString& zh = QString()) {
     return I18nManager::instance().translateKey(lang, key, es, en, zh);
+}
+
+QString currentLocalMachineUid() {
+#if defined(Q_OS_MACOS)
+    QProcess proc;
+    proc.start(QStringLiteral("sh"),
+               QStringList{QStringLiteral("-lc"),
+                           QStringLiteral("ioreg -rd1 -c IOPlatformExpertDevice 2>/dev/null | awk -F\\\" '/IOPlatformUUID/{print $(NF-1); exit}'")});
+    if (proc.waitForFinished(3000)) {
+        const QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+        if (!out.isEmpty()) {
+            return out;
+        }
+    }
+#endif
+    return QString::fromLatin1(QSysInfo::machineUniqueId().toHex()).trimmed();
 }
 
 QPalette createMacFusionDarkPalette() {
@@ -179,18 +198,19 @@ int main(int argc, char* argv[]) {
         language = QStringLiteral("es");
     }
     store.setLanguage(language);
-    store.ensureAppDefaults();
     bool firstRunCreateIni = false;
+    bool requireLocalSudoAtStartup = false;
     {
         const bool hasConfig = QFileInfo::exists(store.iniPath());
         const QDir cfgDir(store.configDir());
-        const bool hasConn = !cfgDir.entryList({QStringLiteral("conn*.ini")}, QDir::Files).isEmpty();
-        firstRunCreateIni = !hasConfig && !hasConn;
+        firstRunCreateIni = !hasConfig;
+        requireLocalSudoAtStartup = !QFileInfo::exists(cfgDir.filePath(QStringLiteral("connLocal.ini")));
     }
     while (true) {
         MasterPasswordDialog dlg;
         dlg.setSelectedLanguage(language);
         dlg.setFirstRunCreationMode(firstRunCreateIni);
+        dlg.setRequestLocalSudoCredentials(requireLocalSudoAtStartup);
         if (dlg.exec() != QDialog::Accepted) {
             return 0;
         }
@@ -223,6 +243,7 @@ int main(int argc, char* argv[]) {
                 continue;
             }
             firstRunCreateIni = true;
+            requireLocalSudoAtStartup = true;
             masterPassword.clear();
             continue;
         }
@@ -238,6 +259,54 @@ int main(int argc, char* argv[]) {
             ini.sync();
         }
         store.ensureAppDefaults();
+        auto ensureLocalConnAtStartup = [&](const QString& localUser, const QString& localPassword) -> bool {
+            if (!requireLocalSudoAtStartup) {
+                return true;
+            }
+            if (localUser.isEmpty() || localPassword.isEmpty()) {
+                QMessageBox::warning(
+                    nullptr,
+                    QStringLiteral("ZFSMgr"),
+                    trk(language,
+                        QStringLiteral("t_local_sudo_req1"),
+                        QStringLiteral("Usuario y password sudo son obligatorios."),
+                        QStringLiteral("Sudo user and password are required."),
+                        QStringLiteral("必须提供 sudo 用户和密码。")));
+                return false;
+            }
+            ConnectionProfile local;
+            local.id = QStringLiteral("local");
+            local.name = QStringLiteral("Local");
+            local.machineUid = currentLocalMachineUid();
+            local.connType = QStringLiteral("LOCAL");
+            local.port = 0;
+            local.host = QStringLiteral("localhost");
+            local.sshAddressFamily = QStringLiteral("auto");
+            local.username = localUser;
+            local.password = localPassword;
+#ifdef Q_OS_WIN
+            local.osType = QStringLiteral("Windows");
+#elif defined(Q_OS_MACOS)
+            local.osType = QStringLiteral("macOS");
+#else
+            local.osType = QStringLiteral("Linux");
+#endif
+            local.useSudo = !local.osType.contains(QStringLiteral("Windows"), Qt::CaseInsensitive);
+            QString localErr;
+            if (!store.upsertConnection(local, localErr)) {
+                QMessageBox::warning(
+                    nullptr,
+                    QStringLiteral("ZFSMgr"),
+                    trk(language,
+                        QStringLiteral("t_local_conn_create_err001"),
+                        QStringLiteral("No se pudo crear connLocal.ini.\n%1"),
+                        QStringLiteral("Could not create connLocal.ini.\n%1"),
+                        QStringLiteral("无法创建 connLocal.ini。\n%1")).arg(localErr));
+                return false;
+            }
+            requireLocalSudoAtStartup = false;
+            return true;
+        };
         if (dlg.changePasswordRequested()) {
             QString err;
             store.setMasterPassword(dlg.changeOldPassword());
@@ -264,7 +333,10 @@ int main(int argc, char* argv[]) {
                                         QStringLiteral("No se pudieron migrar passwords guardados.\n%1"),
                                         QStringLiteral("Could not migrate stored passwords.\n%1"),
                                         QStringLiteral("无法迁移已存储密码。\n%1")).arg(err);
-                QMessageBox::warning(nullptr, QStringLiteral("ZFSMgr"), msg);
+                    QMessageBox::warning(nullptr, QStringLiteral("ZFSMgr"), msg);
+                    continue;
+                }
+            if (!ensureLocalConnAtStartup(dlg.localUsername(), dlg.localPassword())) {
                 continue;
             }
             firstRunCreateIni = false;
@@ -305,6 +377,9 @@ int main(int argc, char* argv[]) {
                                             QStringLiteral("Could not migrate stored passwords.\n%1"),
                                             QStringLiteral("无法迁移已存储密码。\n%1")).arg(err);
                     QMessageBox::warning(nullptr, QStringLiteral("ZFSMgr"), msg);
+                    continue;
+                }
+                if (!ensureLocalConnAtStartup(dlg.localUsername(), dlg.localPassword())) {
                     continue;
                 }
                 firstRunCreateIni = false;

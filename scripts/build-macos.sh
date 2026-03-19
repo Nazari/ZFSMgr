@@ -145,17 +145,24 @@ prepare_codesign_keychain() {
   security set-keychain-settings -lut 7200 "${keychain_path}" >/dev/null 2>&1 || true
 }
 
-# Soporte Homebrew Apple Silicon e Intel.
-if [[ -d "/opt/homebrew/opt/qt" ]]; then
-  QT_PREFIX="/opt/homebrew/opt/qt"
-elif [[ -d "/usr/local/opt/qt" ]]; then
-  QT_PREFIX="/usr/local/opt/qt"
-elif [[ -d "/opt/homebrew/opt/qt@6" ]]; then
-  QT_PREFIX="/opt/homebrew/opt/qt@6"
-elif [[ -d "/usr/local/opt/qt@6" ]]; then
-  QT_PREFIX="/usr/local/opt/qt@6"
-else
-  QT_PREFIX=""
+# Soporte Homebrew Apple Silicon e Intel, y Qt instalado manualmente.
+QT_PREFIX=""
+for candidate in \
+  "/opt/homebrew/opt/qt" \
+  "/usr/local/opt/qt" \
+  "/opt/homebrew/opt/qt@6" \
+  "/usr/local/opt/qt@6"; do
+  if [[ -d "${candidate}" ]]; then
+    QT_PREFIX="${candidate}"
+    break
+  fi
+done
+
+if [[ -z "${QT_PREFIX}" && -d "/Users/linarese/Qt" ]]; then
+  latest_qt_macos="$(find /Users/linarese/Qt -maxdepth 2 -type d -path '/Users/linarese/Qt/*/macos' | sort -V | tail -n1 || true)"
+  if [[ -n "${latest_qt_macos}" ]]; then
+    QT_PREFIX="${latest_qt_macos}"
+  fi
 fi
 
 if [[ -n "${QT_PREFIX}" ]]; then
@@ -426,7 +433,7 @@ copy_qt_plugin_dir() {
     src="${QT_PREFIX}/plugins/${dir_name}"
   fi
   if [[ -z "${src}" ]]; then
-    for plugin_root in /opt/homebrew/share/qt/plugins /usr/local/share/qt/plugins; do
+    for plugin_root in /opt/homebrew/share/qt/plugins /usr/local/share/qt/plugins /Users/linarese/Qt/*/macos/plugins; do
       if [[ -d "${plugin_root}/${dir_name}" ]]; then
         src="${plugin_root}/${dir_name}"
         break

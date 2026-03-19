@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QProcessEnvironment>
+#include <QProcess>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QSysInfo>
@@ -30,6 +31,57 @@ int ensurePort(const QString& connType, int port) {
         return port;
     }
     return connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0 ? 5986 : 22;
+}
+
+bool shouldForceLocalSudo(const ConnectionProfile& p) {
+    const bool isLocal = p.id.trimmed().compare(QStringLiteral("local"), Qt::CaseInsensitive) == 0
+        || p.connType.trimmed().compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0;
+    if (!isLocal) {
+        return false;
+    }
+    return !p.osType.trimmed().toLower().contains(QStringLiteral("windows"));
+}
+
+QString currentLocalMachineUid() {
+#if defined(Q_OS_MACOS)
+    QProcess proc;
+    proc.start(QStringLiteral("sh"),
+               QStringList{QStringLiteral("-lc"),
+                           QStringLiteral("ioreg -rd1 -c IOPlatformExpertDevice 2>/dev/null | awk -F\\\" '/IOPlatformUUID/{print $(NF-1); exit}'")});
+    if (proc.waitForFinished(3000)) {
+        const QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+        if (!out.isEmpty()) {
+            return out;
+        }
+    }
+#endif
+    return QString::fromLatin1(QSysInfo::machineUniqueId().toHex()).trimmed();
+}
+
+QString decodeHexAsciiIfUuid(const QString& raw) {
+    const QByteArray bytes = QByteArray::fromHex(raw.trimmed().toLatin1());
+    if (bytes.isEmpty()) {
+        return QString();
+    }
+    const QString decoded = QString::fromLatin1(bytes).trimmed();
+    static const QRegularExpression uuidRx(
+        QStringLiteral("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"));
+    return uuidRx.match(decoded).hasMatch() ? decoded : QString();
+}
+
+QString normalizeMachineUidForStorage(const ConnectionProfile& p, QString raw) {
+    raw = raw.trimmed();
+    if (!shouldForceLocalSudo(p)) {
+        return raw;
+    }
+    if (raw.isEmpty()) {
+        return currentLocalMachineUid();
+    }
+    const QString decoded = decodeHexAsciiIfUuid(raw);
+    if (!decoded.isEmpty()) {
+        return decoded;
+    }
+    return raw;
 }
 } // namespace
 
@@ -171,6 +223,9 @@ QString ConnectionStore::sanitizedConnFileId(const QString& id) {
 }
 
 QString ConnectionStore::connectionIniPathForId(const QString& id) const {
+    if (id.trimmed().compare(QStringLiteral("local"), Qt::CaseInsensitive) == 0) {
+        return QDir(configDir()).filePath(QStringLiteral("connLocal.ini"));
+    }
     const QString safe = sanitizedConnFileId(id);
     return QDir(configDir()).filePath(QStringLiteral("conn_%1.ini").arg(safe));
 }
@@ -178,6 +233,11 @@ QString ConnectionStore::connectionIniPathForId(const QString& id) const {
 QString ConnectionStore::connectionIniPathForProfile(const ConnectionProfile& profile, const QString& currentPath) const {
     const QString dirPath = configDir();
     const QDir dir(dirPath);
+    const bool isLocal = profile.id.trimmed().compare(QStringLiteral("local"), Qt::CaseInsensitive) == 0
+        || profile.connType.trimmed().compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0;
+    if (isLocal) {
+        return dir.filePath(QStringLiteral("connLocal.ini"));
+    }
     const QString baseName = sanitizedConnFileId(profile.name.trimmed().isEmpty() ? profile.id : profile.name);
     QString candidate = dir.filePath(QStringLiteral("conn_%1.ini").arg(baseName));
     const QString currentNorm = QFileInfo(currentPath).absoluteFilePath();
@@ -223,7 +283,8 @@ ConnectionProfile ConnectionStore::loadProfileFromIni(const QString& path) {
     ConnectionProfile p;
     p.id = ini.value(QStringLiteral("id")).toString().trimmed();
     p.name = ini.value(QStringLiteral("name")).toString();
-    p.machineUid = ini.value(QStringLiteral("machine_uid")).toString();
+    const QString rawMachineUid = ini.value(QStringLiteral("machine_uid")).toString();
+    p.machineUid = rawMachineUid;
     p.connType = ini.value(QStringLiteral("conn_type")).toString();
     p.osType = ini.value(QStringLiteral("os_type")).toString();
     p.host = ini.value(QStringLiteral("host")).toString();
@@ -236,6 +297,14 @@ ConnectionProfile ConnectionStore::loadProfileFromIni(const QString& path) {
     if (p.id.isEmpty()) {
         p.id = QFileInfo(path).completeBaseName();
     }
+    p.machineUid = normalizeMachineUidForStorage(p, p.machineUid);
+    if (p.machineUid != rawMachineUid) {
+        ini.setValue(QStringLiteral("machine_uid"), p.machineUid);
+        ini.sync();
+    }
+    if (shouldForceLocalSudo(p)) {
+        p.useSudo = true;
+    }
     return p;
 }
 
@@ -245,7 +314,9 @@ bool ConnectionStore::saveProfileToIni(const QString& path, const ConnectionProf
     ini.clear();
     ini.setValue(QStringLiteral("id"), profile.id.trimmed());
     ini.setValue(QStringLiteral("name"), profile.name.trimmed());
-    ini.setValue(QStringLiteral("machine_uid"), profile.machineUid.trimmed());
+    ConnectionProfile normalized = profile;
+    normalized.machineUid = normalizeMachineUidForStorage(normalized, normalized.machineUid);
+    ini.setValue(QStringLiteral("machine_uid"), normalized.machineUid);
     ini.setValue(QStringLiteral("conn_type"),
                  profile.connType.trimmed().isEmpty() ? QStringLiteral("SSH") : profile.connType.trimmed());
     ini.setValue(QStringLiteral("os_type"),
@@ -260,7 +331,10 @@ bool ConnectionStore::saveProfileToIni(const QString& path, const ConnectionProf
     ini.setValue(QStringLiteral("username"), profile.username);
     ini.setValue(QStringLiteral("password"), profile.password);
     ini.setValue(QStringLiteral("key_path"), profile.keyPath.trimmed());
-    ini.setValue(QStringLiteral("use_sudo"), profile.useSudo);
+    if (shouldForceLocalSudo(normalized)) {
+        normalized.useSudo = true;
+    }
+    ini.setValue(QStringLiteral("use_sudo"), normalized.useSudo);
     ini.sync();
     if (ini.status() != QSettings::NoError) {
         error = QStringLiteral("Error saving INI");
@@ -296,6 +370,9 @@ bool ConnectionStore::migrateLegacyConnectionsToPerFile(QString& error) const {
         ini.endGroup();
         if (p.id.isEmpty()) {
             p.id = defaultIdFromGroup(group);
+        }
+        if (shouldForceLocalSudo(p)) {
+            p.useSudo = true;
         }
         const QString filePath = connectionIniPathForProfile(p);
         QString saveErr;
@@ -382,7 +459,7 @@ LoadResult ConnectionStore::loadConnections() const {
         ConnectionProfile local;
         local.id = QStringLiteral("local");
         local.name = QStringLiteral("Local");
-        local.machineUid = QString::fromLatin1(QSysInfo::machineUniqueId().toHex());
+        local.machineUid = currentLocalMachineUid();
         local.connType = QStringLiteral("LOCAL");
         local.port = 0;
         local.host = QStringLiteral("localhost");
@@ -397,6 +474,7 @@ LoadResult ConnectionStore::loadConnections() const {
 #else
         local.osType = QStringLiteral("Linux");
 #endif
+        local.useSudo = shouldForceLocalSudo(local);
         if (local.username.isEmpty()) {
             local.username = QStringLiteral("local");
         }
