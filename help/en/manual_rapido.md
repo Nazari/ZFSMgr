@@ -31,6 +31,35 @@ ZFSMgr manages connections and ZFS actions.
 - `Copy` and `Level`, when they use two different remote SSH connections, try to transfer directly from `Source` to `Target`.
   The data stream does not go through the machine running ZFSMgr; that host only keeps the control session and receives progress output.
 
+Pool creation:
+
+- `Create pool` opens a dialog with a horizontal splitter:
+  - left side: `Pool parameters` and `VDEV builder`
+  - right side: `Available block devices`
+- `altroot` automatically proposes `/mnt/<pool_name>` until it is edited manually.
+- `Available block devices` shows a device/partition tree with size, partition type, mounted state, and whether the device already belongs to a pool.
+- On macOS, internal/system APFS disks and synthesized APFS disks are not selectable.
+- The `Mounted` column lets you unmount directly from the dialog (`diskutil unmount` / `umount`).
+- Once a device is used in the pool layout, it becomes unavailable and cannot be reused elsewhere in the tree.
+- `VDEV builder` no longer uses free-form text:
+  - the root node is `Pool`
+  - valid nodes are created through the context menu
+  - block devices are dragged into the tree
+  - pool-tree nodes can also be reordered by drag and drop
+- The pool tree follows a restricted OpenZFS-compatible grammar:
+  - the root may only contain normal data vdevs (`stripe`, `mirror`, `raidz*`) and top-level classes (`log`, `cache`, `special`, `dedup`, `spare`)
+  - normal vdevs may only contain devices
+  - `log` may only contain a `mirror` subgroup
+  - `special` and `dedup` may contain direct devices or `mirror` / `raidz*` subgroups
+  - `cache` and `spare` may only contain direct devices
+- At least one normal data vdev must exist at pool root.
+- A full-width `zpool create` command preview is shown below the splitter.
+- That preview updates when:
+  - the pool tree changes
+  - `Pool parameters` change
+  - extra arguments change
+- If the structure is not valid, the preview is shown in red.
+
 Navigation behavior:
 
 - Switching connection/pool reuses cached data.

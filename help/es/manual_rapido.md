@@ -57,6 +57,35 @@ ZFSMgr gestiona conexiones y acciones ZFS.
   El tráfico de datos no pasa por la máquina donde se ejecuta ZFSMgr; esa máquina solo mantiene la sesión de control y recibe el progreso.
 - `Diff` muestra sus resultados en una ventana de árbol con `Añadido`, `Borrado`, `Modificado` y `Renombrado`.
 
+Creación de pools:
+
+- `Crear pool` abre un diálogo con splitter horizontal:
+  - a la izquierda: `Parámetros del pool` y `Constructor de VDEV`
+  - a la derecha: `Block devices disponibles`
+- `altroot` propone automáticamente `/mnt/<nombre_del_pool>` mientras no se edite manualmente.
+- `Block devices disponibles` muestra un árbol de dispositivos y particiones con columnas de tamaño, tipo de partición, si está montada y si ya pertenece a un pool.
+- En macOS, los discos APFS internos/sintetizados del sistema no son seleccionables.
+- La columna `Montada` permite desmontar desde el propio diálogo (`diskutil unmount`/`umount`).
+- Un dispositivo ya usado en la estructura del pool queda marcado como no disponible y no puede reutilizarse en otro nodo.
+- `Constructor de VDEV` ya no usa texto libre:
+  - el nodo raíz es `Pool`
+  - el menú contextual crea nodos válidos
+  - los block devices se arrastran al árbol
+  - los nodos del propio árbol también pueden reordenarse por arrastre
+- La estructura del árbol sigue una gramática restringida compatible con OpenZFS:
+  - en la raíz solo puede haber vdevs de datos (`stripe`, `mirror`, `raidz*`) y clases top-level (`log`, `cache`, `special`, `dedup`, `spare`)
+  - dentro de un vdev normal solo puede haber devices
+  - `log` solo admite `mirror` como subgrupo
+  - `special` y `dedup` admiten devices directos o subgrupos `mirror`/`raidz*`
+  - `cache` y `spare` admiten solo devices directos
+- Debe existir al menos un vdev de datos en la raíz del pool.
+- Debajo del splitter aparece una previsualización del comando `zpool create` a todo el ancho.
+- Esa previsualización se actualiza con:
+  - cambios en la estructura del árbol
+  - cambios en `Parámetros del pool`
+  - argumentos extra
+- Si la estructura no es válida, la previsualización se pinta en rojo.
+
 Comportamiento de navegación:
 
 - Cambiar de conexión/pool reutiliza caché de datos.
