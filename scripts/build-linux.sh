@@ -19,7 +19,7 @@ if [[ -z "${APP_VERSION}" ]]; then
 fi
 
 if [[ -z "${APP_VERSION}" ]]; then
-  APP_VERSION="0.9.9rc2"
+  APP_VERSION="0.9.9rc3"
 fi
 
 for arg in "$@"; do
