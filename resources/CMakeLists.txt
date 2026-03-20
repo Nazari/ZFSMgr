@@ -64,6 +64,9 @@ target_compile_definitions(zfsmgr_qt PRIVATE
 if(WIN32)
     target_sources(zfsmgr_qt PRIVATE appicon.rc)
     set_target_properties(zfsmgr_qt PROPERTIES WIN32_EXECUTABLE TRUE)
+    if(MSVC)
+        target_link_options(zfsmgr_qt PRIVATE "/MANIFESTUAC:level='requireAdministrator'")
+    endif()
 endif()
 
 if(APPLE)
