@@ -7,6 +7,7 @@ $BuildDir = Join-Path $ProjectRoot "build-windows"
 $SourceDir = Join-Path $ProjectRoot "resources"
 $NativeArgs = @()
 $GenerateInnoInstaller = $true
+$InstallerPreferenceExplicit = $false
 $InnoScriptPath = $null
 $InnoOutputDir = Join-Path $BuildDir "installer"
 $SftpTarget = if ($env:ZFSMGR_SFTP_TARGET) { $env:ZFSMGR_SFTP_TARGET } else { "sftp://linarese@fc16:Descargas/z" }
@@ -17,6 +18,7 @@ for ($i = 0; $i -lt $args.Count; $i++) {
   switch -Regex ($arg) {
     '^(--inno-setup|-inno-setup|--installer|-installer)$' {
       $GenerateInnoInstaller = $true
+      $InstallerPreferenceExplicit = $true
       continue
     }
     '^(--sftpfc16|-sftpfc16)$' {
@@ -25,6 +27,7 @@ for ($i = 0; $i -lt $args.Count; $i++) {
     }
     '^(--no-inno|-no-inno|--no-installer|-no-installer)$' {
       $GenerateInnoInstaller = $false
+      $InstallerPreferenceExplicit = $true
       continue
     }
     '^(--inno-script|-inno-script)$' {
@@ -32,6 +35,7 @@ for ($i = 0; $i -lt $args.Count; $i++) {
         throw "Falta valor para $arg."
       }
       $GenerateInnoInstaller = $true
+      $InstallerPreferenceExplicit = $true
       $InnoScriptPath = $args[$i + 1]
       $i++
       continue
@@ -41,6 +45,7 @@ for ($i = 0; $i -lt $args.Count; $i++) {
         throw "Falta valor para $arg."
       }
       $GenerateInnoInstaller = $true
+      $InstallerPreferenceExplicit = $true
       $InnoOutputDir = $args[$i + 1]
       $i++
       continue
@@ -50,6 +55,11 @@ for ($i = 0; $i -lt $args.Count; $i++) {
       continue
     }
   }
+}
+
+if (($env:GITHUB_ACTIONS -eq "true") -and -not $InstallerPreferenceExplicit) {
+  $GenerateInnoInstaller = $false
+  Write-Host "GitHub Actions detectado: se desactiva la generación de instalador Inno Setup por defecto."
 }
 
 function Resolve-SftpTarget([string]$target) {
