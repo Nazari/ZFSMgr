@@ -2822,7 +2822,7 @@ void MainWindow::buildUi() {
                 appLog(QStringLiteral("INFO"), QStringLiteral("%1 cancelada: faltan credenciales sudo locales").arg(actionName));
                 return false;
             }
-            const QString remoteCmd = withSudo(profile, cmd);
+            const QString remoteCmd = withSudoStreamInput(profile, cmd);
             const QString preview = QStringLiteral("[%1]\n%2")
                                         .arg(QStringLiteral("%1@%2:%3")
                                                  .arg(profile.username, profile.host)
