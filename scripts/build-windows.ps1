@@ -6,7 +6,7 @@ $ProjectRoot = Split-Path -Parent $ScriptDir
 $BuildDir = Join-Path $ProjectRoot "build-windows"
 $SourceDir = Join-Path $ProjectRoot "resources"
 $NativeArgs = @()
-$GenerateInnoInstaller = $true
+$GenerateInnoInstaller = $false
 $InstallerPreferenceExplicit = $false
 $InnoScriptPath = $null
 $InnoOutputDir = Join-Path $BuildDir "installer"
@@ -16,7 +16,7 @@ $UploadSftp = $false
 for ($i = 0; $i -lt $args.Count; $i++) {
   $arg = $args[$i]
   switch -Regex ($arg) {
-    '^(--inno-setup|-inno-setup|--installer|-installer)$' {
+    '^(--inno|--inno-setup|-inno|-inno-setup|--installer|-installer)$' {
       $GenerateInnoInstaller = $true
       $InstallerPreferenceExplicit = $true
       continue
