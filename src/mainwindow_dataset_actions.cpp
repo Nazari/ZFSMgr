@@ -318,7 +318,7 @@ void MainWindow::ensureStartupLocalSudoConnection() {
 }
 
 
-bool MainWindow::executeDatasetAction(const QString& side, const QString& actionName, const DatasetSelectionContext& ctx, const QString& cmd, int timeoutMs, bool allowWindowsScript) {
+bool MainWindow::executeDatasetAction(const QString& side, const QString& actionName, const DatasetSelectionContext& ctx, const QString& cmd, int timeoutMs, bool allowWindowsScript, const QByteArray& stdinPayload) {
     if (!ctx.valid) {
         return false;
     }
@@ -353,7 +353,9 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
         appLog(QStringLiteral("INFO"), QStringLiteral("%1 cancelada: faltan credenciales sudo locales").arg(actionName));
         return false;
     }
-    QString remoteCmd = withSudo(sudoProfile, cmd);
+    const bool usesStreamInput = !stdinPayload.isEmpty();
+    QString remoteCmd = usesStreamInput ? withSudoStreamInput(sudoProfile, cmd)
+                                        : withSudo(sudoProfile, cmd);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(QStringLiteral("%1@%2:%3").arg(p.username, p.host).arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
                                 .arg(buildSshPreviewCommand(p, remoteCmd));
@@ -381,8 +383,8 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     };
     const bool withRealtimeProgress = (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction);
     const bool ok = withRealtimeProgress
-                        ? runSsh(p, remoteCmd, timeoutMs, out, err, rc, progressLogger, progressLogger)
-                        : runSsh(p, remoteCmd, timeoutMs, out, err, rc);
+                        ? runSsh(p, remoteCmd, timeoutMs, out, err, rc, progressLogger, progressLogger, {}, WindowsCommandMode::Auto, stdinPayload)
+                        : runSsh(p, remoteCmd, timeoutMs, out, err, rc, {}, {}, {}, WindowsCommandMode::Auto, stdinPayload);
     if (!ok || rc != 0) {
         if (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction) {
             if (!loggedProgressRealtime) {

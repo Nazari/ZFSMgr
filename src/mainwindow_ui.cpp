@@ -1896,7 +1896,7 @@ void MainWindow::buildUi() {
                                    leftInfo);
     QFont smallTitle = statusTitle->font();
     smallTitle.setBold(true);
-    smallTitle.setPointSize(qMax(6, smallTitle.pointSize() - 1));
+    smallTitle.setPointSize(qMax(6, smallTitle.pointSize() - 3));
     statusTitle->setFont(smallTitle);
     m_statusText = new QTextEdit(leftInfo);
     m_statusText->setReadOnly(true);
@@ -1906,7 +1906,7 @@ void MainWindow::buildUi() {
     m_statusText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
     {
         QFont f = m_statusText->font();
-        f.setPointSize(qMax(6, f.pointSize() - 1));
+        f.setPointSize(qMax(6, f.pointSize() - 3));
         m_statusText->setFont(f);
     }
     {
@@ -1928,7 +1928,7 @@ void MainWindow::buildUi() {
     m_lastDetailText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
     {
         QFont f = m_lastDetailText->font();
-        f.setPointSize(qMax(6, f.pointSize() - 1));
+        f.setPointSize(qMax(6, f.pointSize() - 3));
         m_lastDetailText->setFont(f);
     }
     statusTitle->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);

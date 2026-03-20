@@ -189,7 +189,7 @@ void ConnectionStore::ensureAppDefaults() const {
     };
 
     ensure(QStringLiteral("ZPoolCreationDefaults"), QStringLiteral("force"), true);
-    ensure(QStringLiteral("ZPoolCreationDefaults"), QStringLiteral("altroot"), QStringLiteral("/mnt/fc16"));
+    ensure(QStringLiteral("ZPoolCreationDefaults"), QStringLiteral("altroot"), QString());
     ensure(QStringLiteral("ZPoolCreationDefaults"), QStringLiteral("ashift"), QStringLiteral("12"));
     ensure(QStringLiteral("ZPoolCreationDefaults"), QStringLiteral("autotrim"), QStringLiteral("on"));
     ensure(QStringLiteral("ZPoolCreationDefaults"), QStringLiteral("compatibility"), QStringLiteral("openzfs-2.4-linux"));

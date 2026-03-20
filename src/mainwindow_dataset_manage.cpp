@@ -30,6 +30,7 @@ struct CreateDatasetOptions {
     bool snapshotRecursive{false};
     QStringList properties;
     QString extraArgs;
+    QString encryptionPassphrase;
 };
 
 QString buildZfsCreateCmd(const CreateDatasetOptions& opt) {
@@ -211,6 +212,28 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
     form->addWidget(extraEdit, row, 1, 1, 3);
     row++;
 
+    QLabel* encPassLabel = new QLabel(trk(QStringLiteral("t_create_ds_encpass_001"),
+                                          QStringLiteral("Passphrase cifrado"),
+                                          QStringLiteral("Encryption passphrase"),
+                                          QStringLiteral("加密口令")),
+                                      formWidget);
+    QLineEdit* encPassEdit = new QLineEdit(formWidget);
+    encPassEdit->setEchoMode(QLineEdit::Password);
+    form->addWidget(encPassLabel, row, 0);
+    form->addWidget(encPassEdit, row, 1, 1, 3);
+    row++;
+
+    QLabel* encPass2Label = new QLabel(trk(QStringLiteral("t_create_ds_encpass_002"),
+                                           QStringLiteral("Repetir passphrase"),
+                                           QStringLiteral("Repeat passphrase"),
+                                           QStringLiteral("重复口令")),
+                                       formWidget);
+    QLineEdit* encPass2Edit = new QLineEdit(formWidget);
+    encPass2Edit->setEchoMode(QLineEdit::Password);
+    form->addWidget(encPass2Label, row, 0);
+    form->addWidget(encPass2Edit, row, 1, 1, 3);
+    row++;
+
     root->addWidget(formWidget);
 
     QGroupBox* propsGroup = new QGroupBox(trk(QStringLiteral("t_props_tab_001"),
@@ -285,6 +308,49 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
         }
         propEditors.push_back(editor);
     }
+
+    auto propValue = [&](const QString& name) -> QString {
+        for (const PropEditor& pe : propEditors) {
+            if (pe.name.compare(name, Qt::CaseInsensitive) != 0) {
+                continue;
+            }
+            if (pe.combo) {
+                return pe.combo->currentText().trimmed();
+            }
+            if (pe.edit) {
+                return pe.edit->text().trimmed();
+            }
+            return QString();
+        }
+        return QString();
+    };
+    auto updateEncryptionPassphraseUi = [&]() {
+        const QString enc = propValue(QStringLiteral("encryption")).toLower();
+        const QString keyformat = propValue(QStringLiteral("keyformat")).toLower();
+        const QString keylocation = propValue(QStringLiteral("keylocation")).trimmed().toLower();
+        const bool needsPromptPassphrase =
+            (enc == QStringLiteral("on") || enc.startsWith(QStringLiteral("aes-")))
+            && keyformat == QStringLiteral("passphrase")
+            && keylocation == QStringLiteral("prompt");
+        encPassLabel->setVisible(needsPromptPassphrase);
+        encPassEdit->setVisible(needsPromptPassphrase);
+        encPass2Label->setVisible(needsPromptPassphrase);
+        encPass2Edit->setVisible(needsPromptPassphrase);
+        if (!needsPromptPassphrase) {
+            encPassEdit->clear();
+            encPass2Edit->clear();
+        }
+    };
+    for (const PropEditor& pe : propEditors) {
+        if (pe.name.compare(QStringLiteral("encryption"), Qt::CaseInsensitive) == 0 && pe.combo) {
+            QObject::connect(pe.combo, qOverload<int>(&QComboBox::currentIndexChanged), &dlg, updateEncryptionPassphraseUi);
+        } else if (pe.name.compare(QStringLiteral("keyformat"), Qt::CaseInsensitive) == 0 && pe.combo) {
+            QObject::connect(pe.combo, qOverload<int>(&QComboBox::currentIndexChanged), &dlg, updateEncryptionPassphraseUi);
+        } else if (pe.name.compare(QStringLiteral("keylocation"), Qt::CaseInsensitive) == 0 && pe.edit) {
+            QObject::connect(pe.edit, &QLineEdit::textChanged, &dlg, updateEncryptionPassphraseUi);
+        }
+    }
+    updateEncryptionPassphraseUi();
     propsContainer->setLayout(propsGrid);
     propsScroll->setWidget(propsContainer);
     propsGroupLay->addWidget(propsScroll);
@@ -374,8 +440,6 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
     QObject::connect(typeCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dlg, [&]() { applyTypeUi(); });
     applyTypeUi();
 
-    bool accepted = false;
-    CreateDatasetOptions opt;
     QObject::connect(createBtn, &QPushButton::clicked, &dlg, [&]() {
         const QString path = pathEdit->text().trimmed();
         const QString dsType = typeCombo->currentData().toString().trimmed().toLower();
@@ -418,6 +482,33 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
             }
         }
 
+        const QString enc = propValue(QStringLiteral("encryption")).toLower();
+        const QString keyformat = propValue(QStringLiteral("keyformat")).toLower();
+        const QString keylocation = propValue(QStringLiteral("keylocation")).trimmed().toLower();
+        const bool needsPromptPassphrase =
+            (enc == QStringLiteral("on") || enc.startsWith(QStringLiteral("aes-")))
+            && keyformat == QStringLiteral("passphrase")
+            && keylocation == QStringLiteral("prompt");
+        if (needsPromptPassphrase) {
+            if (encPassEdit->text().isEmpty() || encPass2Edit->text().isEmpty()) {
+                QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
+                                     trk(QStringLiteral("t_create_ds_encpass_req_001"),
+                                         QStringLiteral("Debe indicar y repetir la passphrase de cifrado."),
+                                         QStringLiteral("You must enter and repeat the encryption passphrase."),
+                                         QStringLiteral("必须输入并重复加密口令。")));
+                return;
+            }
+            if (encPassEdit->text() != encPass2Edit->text()) {
+                QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
+                                     trk(QStringLiteral("t_create_ds_encpass_req_002"),
+                                         QStringLiteral("Las passphrases de cifrado no coinciden."),
+                                         QStringLiteral("Encryption passphrases do not match."),
+                                         QStringLiteral("加密口令不匹配。")));
+                return;
+            }
+        }
+
+        CreateDatasetOptions opt;
         opt.datasetPath = path;
         opt.dsType = dsType;
         opt.volsize = volsize;
@@ -428,25 +519,33 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
         opt.snapshotRecursive = snapRecursiveChk->isChecked();
         opt.properties = properties;
         opt.extraArgs = extraEdit->text().trimmed();
-        accepted = true;
-        dlg.accept();
+        opt.encryptionPassphrase = needsPromptPassphrase ? encPassEdit->text() : QString();
+
+        const QString actionLabel = (opt.dsType == QStringLiteral("snapshot"))
+                                        ? trk(QStringLiteral("t_create_snap001"),
+                                              QStringLiteral("Crear snapshot"),
+                                              QStringLiteral("Create snapshot"),
+                                              QStringLiteral("创建快照"))
+                                        : trk(QStringLiteral("t_create_ds_001"),
+                                              QStringLiteral("Crear dataset"),
+                                              QStringLiteral("Create dataset"),
+                                              QStringLiteral("创建数据集"));
+        const QString cmd = buildZfsCreateCmd(opt);
+        QByteArray stdinPayload;
+        if (!opt.encryptionPassphrase.isEmpty()) {
+            stdinPayload = opt.encryptionPassphrase.toUtf8();
+            stdinPayload += '\n';
+            stdinPayload += opt.encryptionPassphrase.toUtf8();
+            stdinPayload += '\n';
+        }
+        if (executeDatasetAction(side, actionLabel, ctx, cmd, 45000, false, stdinPayload)) {
+            dlg.accept();
+        }
     });
 
-    if (dlg.exec() != QDialog::Accepted || !accepted) {
+    if (dlg.exec() != QDialog::Accepted) {
         return;
     }
-
-    const QString actionLabel = (opt.dsType == QStringLiteral("snapshot"))
-                                    ? trk(QStringLiteral("t_create_snap001"),
-                                          QStringLiteral("Crear snapshot"),
-                                          QStringLiteral("Create snapshot"),
-                                          QStringLiteral("创建快照"))
-                                    : trk(QStringLiteral("t_create_ds_001"),
-                                          QStringLiteral("Crear dataset"),
-                                          QStringLiteral("Create dataset"),
-                                          QStringLiteral("创建数据集"));
-    const QString cmd = buildZfsCreateCmd(opt);
-    executeDatasetAction(side, actionLabel, ctx, cmd);
 }
 
 void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side) {
