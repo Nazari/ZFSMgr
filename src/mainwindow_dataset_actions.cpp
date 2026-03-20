@@ -5,6 +5,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QInputDialog>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QProcess>
@@ -625,6 +626,39 @@ void MainWindow::reloadDatasetSide(const QString& side) {
 bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext& ctx) {
     if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
         return false;
+    }
+    QString keyLocation;
+    getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("keylocation"), keyLocation);
+    keyLocation = keyLocation.trimmed().toLower();
+    QString keyStatus;
+    getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("keystatus"), keyStatus);
+    keyStatus = keyStatus.trimmed().toLower();
+    QString encryptionRoot;
+    getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("encryptionroot"), encryptionRoot);
+    encryptionRoot = encryptionRoot.trimmed();
+    const bool needsPromptLoadKey = keyLocation == QStringLiteral("prompt")
+                                    && keyStatus != QStringLiteral("available");
+    if (needsPromptLoadKey) {
+        bool ok = false;
+        const QString passphrase = QInputDialog::getText(
+            this,
+            QStringLiteral("Load key"),
+            QStringLiteral("Clave"),
+            QLineEdit::Password,
+            QString(),
+            &ok);
+        if (!ok || passphrase.isEmpty()) {
+            return false;
+        }
+        const QString keyTarget =
+            (!encryptionRoot.isEmpty() && encryptionRoot != QStringLiteral("-"))
+                ? encryptionRoot
+                : ctx.datasetName;
+        const QString cmd = QStringLiteral("zfs load-key %1 && %2")
+                                .arg(shSingleQuote(keyTarget),
+                                     mwhelpers::buildSingleMountCommand(ctx.datasetName));
+        const QByteArray stdinPayload = (passphrase + QStringLiteral("\n")).toUtf8();
+        return executeDatasetAction(side, QStringLiteral("Montar"), ctx, cmd, 90000, false, stdinPayload);
     }
     if (!ensureParentMountedBeforeMount(ctx)) {
         return false;
