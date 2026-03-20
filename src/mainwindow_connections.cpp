@@ -2172,7 +2172,7 @@ void MainWindow::installMsysForSelectedConnection() {
             QStringLiteral("Install MSYS2"),
             QStringLiteral("安装 MSYS2")),
         trk(QStringLiteral("t_msys_install_q_01"),
-            QStringLiteral("Se comprobar\xe1 MSYS2 en \"%1\" y, si falta, se intentar\xe1 instalar mediante winget junto con paquetes base (tar, gzip, zstd, rsync, grep, sed, gawk).\n\n\xbfContinuar?"),
+            QStringLiteral("Se comprobará MSYS2 en \"%1\" y, si falta, se intentará instalar mediante winget junto con paquetes base (tar, gzip, zstd, rsync, grep, sed, gawk).\n\n¿Continuar?"),
             QStringLiteral("ZFSMgr will check MSYS2 on \"%1\" and, if missing, try to install it with winget plus base packages (tar, gzip, zstd, rsync, grep, sed, gawk).\n\nContinue?"),
             QStringLiteral("ZFSMgr 将检查 \"%1\" 上的 MSYS2，如缺失则尝试使用 winget 安装，并补齐基础包（tar、gzip、zstd、rsync、grep、sed、gawk）。\n\n是否继续？"))
             .arg(p.name),
