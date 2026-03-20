@@ -28,13 +28,23 @@ Legal references:
 - **GNU GPL v3**, Section 15: **Disclaimer of Warranty**.
 - **GNU GPL v3**, Section 16: **Limitation of Liability**.
 
-## Screenshot
+## Screenshots
 
-![ZFSMgr UI](docs/images/scr1.png)
+### Main window
+
+![ZFSMgr main window](help/img/ventanaprincipal.png)
+
+### Pool creation
+
+![ZFSMgr create pool dialog](help/img/crearpool.png)
+
+### Dataset creation
+
+![ZFSMgr create dataset dialog](help/img/creardataset.png)
 
 ## Releases
 
-- **Beta 0.9.7**: https://github.com/Nazari/ZFSMgr/releases
+- **Current beta line: 0.9.9rc2**: https://github.com/Nazari/ZFSMgr/releases
 
 ## Why ZFSMgr
 
@@ -47,6 +57,8 @@ It gives you:
 - **inline editing** of dataset and pool properties directly in the treeview,
 - **permission delegation management** with `zfs allow` / `zfs unallow`,
 - **snapshot-oriented workflows** such as copy, clone, diff, rollback and level/sync,
+- a **graphical pool builder** with OpenZFS-aware VDEV validation,
+- **encrypted dataset creation and mount flows** with passphrase prompts when `keylocation=prompt`,
 - and **persistent operational logs** with secret masking.
 
 ## Main capabilities
@@ -56,6 +68,15 @@ It gives you:
 - Imported and importable pool discovery.
 - Pool import/export.
 - Pool creation with device selection and options.
+- Device tree for available block devices, including whole disks and partitions.
+- OpenZFS-aware pool layout builder:
+  - direct devices at pool root for implicit stripe,
+  - `mirror`,
+  - `raidz`, `raidz2`, `raidz3`,
+  - top-level classes such as `log`, `cache`, `special`, `dedup`, `spare`.
+- Live `zpool create` preview with invalid layouts highlighted in red.
+- macOS-specific filtering for internal APFS/synthesized system disks.
+- Mount-state controls in the pool-creation dialog to unmount devices before use.
 - Pool destroy with confirmation.
 - Pool history view.
 - Pool maintenance actions from the GUI:
@@ -68,12 +89,17 @@ It gives you:
 ### Dataset, zvol and snapshot management
 
 - Create dataset, snapshot and zvol.
+- Create encrypted datasets with passphrase confirmation when using:
+  - `encryption=on` or `aes-*`,
+  - `keyformat=passphrase`,
+  - `keylocation=prompt`.
 - Rename and delete datasets.
 - Context-aware delete actions for:
   - dataset,
   - snapshot,
   - zvol.
 - Mount/unmount operations.
+- Mount encrypted datasets by prompting for the passphrase and loading the key before mount when required.
 - Snapshot rollback.
 - Snapshot selection in source/destination trees.
 - Snapshot holds:
@@ -124,6 +150,7 @@ Current permission features include:
 - `Unload key`.
 - `Change key`.
 - Prompted password entry when `keylocation=prompt`.
+- `Create dataset` and `Mount` integrate passphrase prompts instead of expecting interactive shell input.
 
 ### Source/destination workflows
 
@@ -195,6 +222,7 @@ Important characteristics:
 
 - The effective detail selection is driven by **Origen / Destino checks**, not by a simple row click.
 - Top and bottom trees preserve their own navigation state.
+- Creation dialogs stay open on execution failure so entered values can be corrected and retried.
 - Tree headers include context actions for:
   - resize this column,
   - resize all columns,
@@ -245,7 +273,7 @@ What it does:
 - builds a Release binary,
 - creates an AppDir,
 - bundles Qt dependencies with `linuxdeploy` + `linuxdeploy-plugin-qt`,
-- generates `ZFSMgr-0.9.7-x86_64.AppImage`.
+- generates `ZFSMgr-0.9.9rc2-x86_64.AppImage`.
 
 Notes:
 
@@ -268,6 +296,14 @@ The script builds the binary and can also generate an unsigned `.app` bundle.
 ```
 
 The script auto-detects toolchain/Qt and builds under `build-windows`.
+
+Installer generation is now explicit:
+
+```powershell
+.\scripts\build-windows.ps1 --inno
+```
+
+Without `--inno`, the script only builds the application and skips Inno Setup packaging. This is also the behavior expected in GitHub Actions.
 
 On Windows, `zfsmgr_qt.exe` is built with an embedded UAC manifest and must be started with administrator privileges.
 

@@ -2,6 +2,10 @@
 
 ZFSMgr gestiona conexiones y acciones ZFS.
 
+## Vista general
+
+![Pantalla principal](help-img/ventanaprincipal.png)
+
 - Panel izquierdo:
 - `Conexiones`: tabla simple (una fila por conexión) con checks `Origen` y `Destino`.
 - `Acciones`: operaciones de transferencia y avanzadas.
@@ -59,11 +63,15 @@ ZFSMgr gestiona conexiones y acciones ZFS.
 
 Creación de pools:
 
+![Crear pool](help-img/crearpool.png)
+
 - `Crear pool` abre un diálogo con splitter horizontal:
   - a la izquierda: `Parámetros del pool` y `Constructor de VDEV`
   - a la derecha: `Block devices disponibles`
-- `altroot` propone automáticamente `/mnt/<nombre_del_pool>` mientras no se edite manualmente.
+- `altroot` arranca vacío por defecto.
+  Si está vacío, no se añade `-R` al comando `zpool create`.
 - `Block devices disponibles` muestra un árbol de dispositivos y particiones con columnas de tamaño, tipo de partición, si está montada y si ya pertenece a un pool.
+- En macOS también aparecen discos físicos sin particiones.
 - En macOS, los discos APFS internos/sintetizados del sistema no son seleccionables.
 - La columna `Montada` permite desmontar desde el propio diálogo (`diskutil unmount`/`umount`).
 - Un dispositivo ya usado en la estructura del pool queda marcado como no disponible y no puede reutilizarse en otro nodo.
@@ -73,18 +81,33 @@ Creación de pools:
   - los block devices se arrastran al árbol
   - los nodos del propio árbol también pueden reordenarse por arrastre
 - La estructura del árbol sigue una gramática restringida compatible con OpenZFS:
-  - en la raíz solo puede haber vdevs de datos (`stripe`, `mirror`, `raidz*`) y clases top-level (`log`, `cache`, `special`, `dedup`, `spare`)
+  - en la raíz puede haber devices directos (stripe implícito), `mirror`, `raidz*` y clases top-level (`log`, `cache`, `special`, `dedup`, `spare`)
   - dentro de un vdev normal solo puede haber devices
   - `log` solo admite `mirror` como subgrupo
   - `special` y `dedup` admiten devices directos o subgrupos `mirror`/`raidz*`
   - `cache` y `spare` admiten solo devices directos
-- Debe existir al menos un vdev de datos en la raíz del pool.
+- Debe existir al menos un grupo de datos en la raíz del pool, ya sea como devices directos o como `mirror`/`raidz*`.
 - Debajo del splitter aparece una previsualización del comando `zpool create` a todo el ancho.
 - Esa previsualización se actualiza con:
   - cambios en la estructura del árbol
   - cambios en `Parámetros del pool`
   - argumentos extra
 - Si la estructura no es válida, la previsualización se pinta en rojo.
+- Si falla `Crear pool`, el diálogo no se cierra; se mantiene abierto para corregir datos y reintentar.
+
+Creación y montaje de datasets:
+
+![Crear dataset](help-img/creardataset.png)
+
+- `Crear dataset` se ejecuta desde el árbol de contenido.
+- Si el dataset usa:
+  - `encryption=on` o `aes-*`
+  - `keyformat=passphrase`
+  - `keylocation=prompt`
+  el diálogo pide `Passphrase cifrado` y `Repetir passphrase`.
+- Esa passphrase se envía por entrada estándar al crear el dataset; no se añade a la línea de comando mostrada en confirmaciones o logs.
+- Si falla `Crear dataset`, el diálogo permanece abierto con los datos introducidos para poder corregirlos y reintentar.
+- Al montar un dataset cifrado con `keylocation=prompt`, ZFSMgr pide antes la passphrase, ejecuta `zfs load-key` y luego `zfs mount`.
 
 Comportamiento de navegación:
 

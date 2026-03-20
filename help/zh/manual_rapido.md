@@ -2,6 +2,10 @@
 
 ZFSMgr 用于管理连接和 ZFS 操作。
 
+## 总览
+
+![主窗口](help-img/ventanaprincipal.png)
+
 - 左侧面板：
 - `连接`：简单表格（每行一个连接），带 `源` 与 `目标` 复选标记。
 - `操作`：传输与高级操作。
@@ -33,11 +37,15 @@ ZFSMgr 用于管理连接和 ZFS 操作。
 
 创建池：
 
+![创建池](help-img/crearpool.png)
+
 - `创建池` 对话框使用水平分隔条：
   - 左侧：`池参数` 与 `VDEV 构建器`
   - 右侧：`可用块设备`
-- `altroot` 在未手动修改前，会自动建议为 `/mnt/<pool_name>`。
+- `altroot` 默认为空。
+  如果保持为空，最终的 `zpool create` 命令中不会加入 `-R`。
 - `可用块设备` 以树形显示磁盘与分区，并带有大小、分区类型、是否已挂载、是否已属于某个池等列。
+- 在 macOS 上，没有分区的物理磁盘也会显示出来。
 - 在 macOS 上，系统内部 APFS 磁盘与 synthesized APFS 磁盘不可选择。
 - `已挂载` 列可直接在对话框中执行卸载（`diskutil unmount` / `umount`）。
 - 某个设备一旦被拖入池结构，就会变为不可用，不能在树中的其他位置重复使用。
@@ -47,18 +55,33 @@ ZFSMgr 用于管理连接和 ZFS 操作。
   - 块设备通过拖放加入树中
   - 池树中的节点也可通过拖放重新排序
 - 池树遵循受限的 OpenZFS 语法：
-  - 根层只能包含普通数据 vdev（`stripe`、`mirror`、`raidz*`）以及顶层类（`log`、`cache`、`special`、`dedup`、`spare`）
+  - 根层可以包含直接设备（隐式 stripe）、`mirror`、`raidz*` 以及顶层类（`log`、`cache`、`special`、`dedup`、`spare`）
   - 普通 vdev 内只能直接挂设备
   - `log` 只允许包含 `mirror` 子组
   - `special` 与 `dedup` 允许直接挂设备，或包含 `mirror` / `raidz*` 子组
   - `cache` 与 `spare` 只允许直接挂设备
-- 根层必须至少存在一个普通数据 vdev。
+- 根层必须至少存在一个数据组，可以是直接设备，也可以是 `mirror` / `raidz*`。
 - 分隔条下方会显示一个全宽的 `zpool create` 命令预览。
 - 该预览会随着以下变化实时更新：
   - 池树结构变化
   - `池参数` 变化
   - 额外参数变化
 - 如果结构无效，命令预览会显示为红色。
+- 如果 `创建池` 失败，对话框不会关闭，方便直接修改后重试。
+
+创建数据集与加密挂载：
+
+![创建数据集](help-img/creardataset.png)
+
+- `创建数据集` 从内容树中启动。
+- 如果数据集使用：
+  - `encryption=on` 或某个 `aes-*` 模式
+  - `keyformat=passphrase`
+  - `keylocation=prompt`
+  对话框会显示 `加密口令` 和 `重复口令` 两个字段。
+- 创建数据集时，这个口令通过标准输入传给命令，不会附加到确认窗口或日志里显示的命令行中。
+- 如果 `创建数据集` 失败，对话框会保持打开，并保留已输入的数据，便于修改后重试。
+- 当挂载 `keylocation=prompt` 的加密数据集时，ZFSMgr 会先请求口令，执行 `zfs load-key`，然后再执行 `zfs mount`。
 
 导航行为：
 

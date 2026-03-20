@@ -2,6 +2,10 @@
 
 ZFSMgr manages connections and ZFS actions.
 
+## Overview
+
+![Main window](help-img/ventanaprincipal.png)
+
 - Left panel:
 - `Connections`: simple table (one row per connection) with `Source` and `Target` checks.
 - `Actions`: transfer and advanced operations.
@@ -33,11 +37,15 @@ ZFSMgr manages connections and ZFS actions.
 
 Pool creation:
 
+![Create pool](help-img/crearpool.png)
+
 - `Create pool` opens a dialog with a horizontal splitter:
   - left side: `Pool parameters` and `VDEV builder`
   - right side: `Available block devices`
-- `altroot` automatically proposes `/mnt/<pool_name>` until it is edited manually.
+- `altroot` starts empty by default.
+  If it stays empty, `-R` is omitted from the final `zpool create` command.
 - `Available block devices` shows a device/partition tree with size, partition type, mounted state, and whether the device already belongs to a pool.
+- On macOS, physical disks without partitions are also shown.
 - On macOS, internal/system APFS disks and synthesized APFS disks are not selectable.
 - The `Mounted` column lets you unmount directly from the dialog (`diskutil unmount` / `umount`).
 - Once a device is used in the pool layout, it becomes unavailable and cannot be reused elsewhere in the tree.
@@ -47,18 +55,33 @@ Pool creation:
   - block devices are dragged into the tree
   - pool-tree nodes can also be reordered by drag and drop
 - The pool tree follows a restricted OpenZFS-compatible grammar:
-  - the root may only contain normal data vdevs (`stripe`, `mirror`, `raidz*`) and top-level classes (`log`, `cache`, `special`, `dedup`, `spare`)
+  - the root may contain direct devices (implicit stripe), `mirror`, `raidz*`, and top-level classes (`log`, `cache`, `special`, `dedup`, `spare`)
   - normal vdevs may only contain devices
   - `log` may only contain a `mirror` subgroup
   - `special` and `dedup` may contain direct devices or `mirror` / `raidz*` subgroups
   - `cache` and `spare` may only contain direct devices
-- At least one normal data vdev must exist at pool root.
+- At least one root data group must exist, either as direct devices or as `mirror` / `raidz*`.
 - A full-width `zpool create` command preview is shown below the splitter.
 - That preview updates when:
   - the pool tree changes
   - `Pool parameters` change
   - extra arguments change
 - If the structure is not valid, the preview is shown in red.
+- If `Create pool` fails, the dialog stays open so the input can be corrected and retried.
+
+Dataset creation and encrypted mounts:
+
+![Create dataset](help-img/creardataset.png)
+
+- `Create dataset` is launched from the content tree.
+- If the dataset uses:
+  - `encryption=on` or an `aes-*` mode
+  - `keyformat=passphrase`
+  - `keylocation=prompt`
+  the dialog shows `Encryption passphrase` and `Repeat passphrase`.
+- That passphrase is sent through standard input when the dataset is created; it is not appended to the previewed command line or logs.
+- If `Create dataset` fails, the dialog remains open with the entered values so they can be fixed and retried.
+- When mounting an encrypted dataset with `keylocation=prompt`, ZFSMgr asks for the passphrase first, runs `zfs load-key`, and then runs `zfs mount`.
 
 Navigation behavior:
 

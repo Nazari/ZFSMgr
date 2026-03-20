@@ -3,6 +3,9 @@
     <file alias="icons/ZFSMgr-512.png">../icons/ZFSMgr-512.png</file>
     <file alias="icons/ZFSMgr.ico">../icons/ZFSMgr.ico</file>
     <file alias="icons/ZFSMgr.icns">../icons/ZFSMgr.icns</file>
+    <file alias="help-img/ventanaprincipal.png">../help/img/ventanaprincipal.png</file>
+    <file alias="help-img/crearpool.png">../help/img/crearpool.png</file>
+    <file alias="help-img/creardataset.png">../help/img/creardataset.png</file>
     <file alias="i18n/es.json">../i18n/es.json</file>
     <file alias="i18n/en.json">../i18n/en.json</file>
     <file alias="i18n/zh.json">../i18n/zh.json</file>

@@ -8,6 +8,7 @@
 #include <QHBoxLayout>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QTextDocument>
 #include <QTextBrowser>
 #include <QVBoxLayout>
 
@@ -94,6 +95,7 @@ void MainWindow::openHelpTopic(const QString& topicId, const QString& titleOverr
     auto* browser = new QTextBrowser(&dlg);
     browser->setOpenExternalLinks(true);
     browser->setReadOnly(true);
+    browser->document()->setBaseUrl(QUrl(QStringLiteral("qrc:/")));
     browser->setMarkdown(md);
     root->addWidget(browser, 1);
 
