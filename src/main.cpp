@@ -153,9 +153,11 @@ int main(int argc, char* argv[]) {
     QApplication::setOrganizationName(QStringLiteral("ZFSMgr"));
     QApplication::setApplicationName(QStringLiteral("ZFSMgr"));
     {
-        QFont tooltipFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-        tooltipFont.setPointSize(app.font().pointSize());
-        QToolTip::setFont(tooltipFont);
+        QFont uiFont = QFontDatabase::systemFont(QFontDatabase::GeneralFont);
+        const int basePointSize = (app.font().pointSize() > 0) ? app.font().pointSize() : uiFont.pointSize();
+        uiFont.setPointSize(qMax(6, basePointSize - 3));
+        app.setFont(uiFont);
+        QToolTip::setFont(uiFont);
     }
 #ifdef Q_OS_MAC
     if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {

@@ -44,7 +44,7 @@ Legal references:
 
 ## Releases
 
-- **Current beta line: 0.9.9rc2**: https://github.com/Nazari/ZFSMgr/releases
+- **Current beta line: 0.9.9rc4**: https://github.com/Nazari/ZFSMgr/releases
 
 ## Why ZFSMgr
 
@@ -273,7 +273,7 @@ What it does:
 - builds a Release binary,
 - creates an AppDir,
 - bundles Qt dependencies with `linuxdeploy` + `linuxdeploy-plugin-qt`,
-- generates `ZFSMgr-0.9.9rc2-x86_64.AppImage`.
+- generates `ZFSMgr-0.9.9rc4-x86_64.AppImage`.
 
 Notes:
 

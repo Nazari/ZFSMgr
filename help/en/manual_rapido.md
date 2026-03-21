@@ -4,24 +4,43 @@ ZFSMgr manages connections and ZFS actions.
 
 ## Overview
 
-![Main window](help-img/ventanaprincipal.png)
+<img src="help-img/ventanaprincipal.png" alt="Main window" width="50%">
 
 - Left panel:
-- `Connections`: simple table (one row per connection) with `Source` and `Target` checks.
-- `Actions`: transfer and advanced operations.
+- `Connections`: simple table (one row per connection) with a `Connection` column and `O` / `D` checks.
+- `Selected datasets`: transfer and advanced operations.
   Includes `Copy`, `Clone`, `Move`, `Level`, `Sync`, `Break down`, `Assemble`, `From Dir`, and `To Dir`.
 - Right panel:
 - Top area: content tree for the connection marked as `Source`.
 - Bottom area: content tree for the connection marked as `Target`.
+- Effective detail selection is driven by the checks, not by simply clicking a row:
+  - `O` controls the top tree (`Source`)
+  - `D` controls the bottom tree (`Target`)
+- Tree state is kept independently per connection/pool:
+  - expanded/collapsed nodes
+  - selected dataset
+  - selected snapshot
+  - column widths
+- The first column header is always shown as `Source:...` in the top tree and `Target:...` in the bottom tree.
 - Each tree can show multiple pools at once (one root node per pool), with dataset/snapshot nodes below.
 - A pool can show `Pool information` as a dedicated node.
 - Datasets hang directly from the pool root.
 - Child datasets hang directly from their parent dataset.
 - Dataset/snapshot nodes can show inline `Properties`, and non-snapshot datasets can also show `Permissions`.
+- When a snapshot is selected, the tree shows that snapshot's properties/groups and also a `Holds (N)` node.
+- Inline properties may include direct editing and an `Inh.` inheritance control.
+- If `Inh.=on`, the value editor is disabled and greyed out.
+  If `Inh.=off`, the value becomes editable again.
 - The tree context menu can show or hide `Pool information`, inline `Properties`, and inline `Permissions`.
 - Permission sections are shown as `Deleg.`, `New child DS`, and `Sets`.
 - Non-importable pools are also shown as root nodes so `Import` can be executed.
 - Logs: single `Combined log` panel (includes SSH/PSRP output with connection prefix).
+- The connections table includes a floating `Connectivity` button.
+  It opens a matrix where each row is the source connection and each column is the target connection.
+- A `✓` means the machine in the row can connect directly to the machine in the column using the credentials defined in the target connection.
+- If that `✓` is missing, ZFSMgr cannot perform a direct remote-to-remote transfer between that source and target.
+  In that case, the transfer has to pass through the local machine where ZFSMgr is running.
+  That means a double hop, more local traffic, and higher time/resource cost.
 - The lower log area uses tabs:
   - `Pending changes` as the first visible tab by default
   - `Combined log`, which includes the `Application` box for textual logs
@@ -34,10 +53,14 @@ ZFSMgr manages connections and ZFS actions.
   If the pool is visible in both trees, `Source` is preferred.
 - `Copy` and `Level`, when they use two different remote SSH connections, try to transfer directly from `Source` to `Target`.
   The data stream does not go through the machine running ZFSMgr; that host only keeps the control session and receives progress output.
+- The tree header has a context menu to resize one column, resize all visible columns, and change `Property columns`.
+- If no `O` or `D` check is active for one side, that tree stays empty but keeps consistent headers.
+- `O` and `D` are persisted across runs.
+- The `Select snapshot` menu is only enabled when the dataset actually has snapshots.
 
 Pool creation:
 
-![Create pool](help-img/crearpool.png)
+<img src="help-img/crearpool.png" alt="Create pool" width="50%">
 
 - `Create pool` opens a dialog with a horizontal splitter:
   - left side: `Pool parameters` and `VDEV builder`
@@ -71,7 +94,7 @@ Pool creation:
 
 Dataset creation and encrypted mounts:
 
-![Create dataset](help-img/creardataset.png)
+<img src="help-img/creardataset.png" alt="Create dataset" width="50%">
 
 - `Create dataset` is launched from the content tree.
 - If the dataset uses:

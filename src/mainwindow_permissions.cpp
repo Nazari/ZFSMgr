@@ -303,10 +303,7 @@ void styleInlinePermissionCheckHost(QWidget* host, const QTreeWidget* tree) {
 }
 
 QFont inlinePermissionLabelFont(const QTreeWidget* tree) {
-    QFont f = tree ? tree->font() : QFont();
-    const qreal current = f.pointSizeF() > 0.0 ? f.pointSizeF() : 10.0;
-    f.setPointSizeF(std::max<qreal>(7.0, current - 1.0));
-    return f;
+    return tree ? tree->font() : QFont();
 }
 
 QString permissionNodeStableId(QTreeWidgetItem* node) {

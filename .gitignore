@@ -3,6 +3,7 @@ __pycache__/
 connections.ini
 
 .DS_Store
+.vscode/
 dist/
 build/
 build-macos/

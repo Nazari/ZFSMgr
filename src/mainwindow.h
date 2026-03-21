@@ -42,6 +42,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     struct PoolImported {
@@ -201,6 +202,8 @@ private:
     void installMsysForSelectedConnection();
     void editConnection();
     void deleteConnection();
+    void openConnectivityMatrixDialog();
+    void repositionConnectivityButton();
     void onConnectionSelectionChanged();
     void updateSecondaryConnectionDetail();
     void rebuildConnectionEntityTabs();
@@ -415,6 +418,7 @@ private:
     QVector<ConnectionRuntimeState> m_states;
 
     QTableWidget* m_connectionsTable{nullptr};
+    QPushButton* m_connectivityMatrixBtn{nullptr};
     QTabWidget* m_leftTabs{nullptr};
     QTabWidget* m_rightTabs{nullptr};
 

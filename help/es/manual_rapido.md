@@ -4,18 +4,18 @@ ZFSMgr gestiona conexiones y acciones ZFS.
 
 ## Vista general
 
-![Pantalla principal](help-img/ventanaprincipal.png)
+<img src="help-img/ventanaprincipal.png" alt="Pantalla principal" width="50%">
 
 - Panel izquierdo:
-- `Conexiones`: tabla simple (una fila por conexión) con checks `Origen` y `Destino`.
-- `Acciones`: operaciones de transferencia y avanzadas.
+- `Conexiones`: tabla simple (una fila por conexión) con columna `Conexión` y checks `O` y `D`.
+- `Datasets seleccionados`: operaciones de transferencia y avanzadas.
   Incluye `Copiar`, `Clonar`, `Mover`, `Diff`, `Nivelar`, `Sincronizar`, `Desglosar`, `Ensamblar`, `Desde Dir` y `Hacia Dir`.
 - Panel derecho:
 - Arriba: árbol de contenido de la conexión marcada como `Origen`.
 - Abajo: árbol de contenido de la conexión marcada como `Destino`.
 - La selección efectiva del detalle no depende del clic en la fila, sino de los checks:
-  - `Origen` controla el árbol superior.
-  - `Destino` controla el árbol inferior.
+  - `O` controla el árbol superior (`Origen`).
+  - `D` controla el árbol inferior (`Destino`).
 - Cada árbol mantiene su propio estado de navegación por conexión/pool:
   - expansión/colapso,
   - selección de dataset,
@@ -39,10 +39,18 @@ ZFSMgr gestiona conexiones y acciones ZFS.
 - Dentro de `Permisos`, el bloque `Nuevos DS` define qué permisos recibirá automáticamente quien cree descendientes nuevos bajo ese dataset.
 - Cuando hay un snapshot seleccionado en un dataset, ese árbol muestra las propiedades y grupos del snapshot, y aparece además `Holds (N)`.
 - Las propiedades inline pueden incluir edición directa y control de herencia (`Inh.`) cuando aplica.
+- Si `Inh.=on`, el valor queda deshabilitado y atenuado.
+  Si `Inh.=off`, el valor vuelve a ser editable.
 - Si una propiedad no está soportada por el sistema operativo de la conexión, aparece atenuada y no se puede editar.
   Ejemplos: `sharesmb` en macOS, `jailed` fuera de FreeBSD, `zoned`/`nbmand` fuera de Linux.
 - Los pools no importables también aparecen como nodo raíz para permitir `Importar`.
 - Logs: panel único `Log combinado` (incluye salida SSH/PSRP con prefijo de conexión).
+- En la tabla de conexiones hay un botón flotante `Conectividad`.
+  Abre una matriz donde cada fila es la conexión origen y cada columna la conexión destino.
+- Un `✓` en una celda indica que desde la máquina de la fila se puede abrir conexión directa hacia la máquina de la columna usando las credenciales definidas.
+- Si falta ese `✓`, ZFSMgr no podrá hacer transferencia remota directa entre ese origen y ese destino.
+  En ese caso, la transferencia tendrá que pasar por la máquina local donde se ejecuta ZFSMgr.
+  Eso implica doble salto, más tráfico local y un coste mayor en tiempo y recursos.
 - La zona inferior usa pestañas:
   - `Cambios pendientes` como primera pestaña visible por defecto
   - `Log combinado`, que incluye la caja `Aplicación` para el log textual
@@ -63,7 +71,7 @@ ZFSMgr gestiona conexiones y acciones ZFS.
 
 Creación de pools:
 
-![Crear pool](help-img/crearpool.png)
+<img src="help-img/crearpool.png" alt="Crear pool" width="50%">
 
 - `Crear pool` abre un diálogo con splitter horizontal:
   - a la izquierda: `Parámetros del pool` y `Constructor de VDEV`
@@ -97,7 +105,7 @@ Creación de pools:
 
 Creación y montaje de datasets:
 
-![Crear dataset](help-img/creardataset.png)
+<img src="help-img/creardataset.png" alt="Crear dataset" width="50%">
 
 - `Crear dataset` se ejecuta desde el árbol de contenido.
 - Si el dataset usa:
@@ -120,6 +128,7 @@ Comportamiento de navegación:
 - Al pinchar un nodo `Propiedades` vacío, sus hijos se cargan y el nodo queda desplegado.
 - Si cambia `Columnas de propiedades`, un nodo `Propiedades` ya desplegado conserva su expansión.
 - Si ningún check `Origen`/`Destino` está activo para un árbol, ese árbol queda vacío pero conserva cabeceras coherentes.
-- `Origen` y `Destino` se persisten entre ejecuciones.
+- `O` y `D` se persisten entre ejecuciones.
+- El menú `Seleccionar snapshot` del árbol solo se habilita si el dataset tiene snapshots.
 
 Revise `Navegación y estados` y `Propiedades inline y columnas` para detalles de funcionamiento.

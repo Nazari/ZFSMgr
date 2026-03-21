@@ -318,7 +318,7 @@ void MainWindow::applyLanguageLive() {
     if (!selectedConnId.isEmpty() && m_connectionsTable) {
         const int row = rowForConnectionId(m_connectionsTable, m_profiles, selectedConnId);
         if (row >= 0) {
-            m_connectionsTable->setCurrentCell(row, 1);
+            m_connectionsTable->setCurrentCell(row, 0);
         }
     }
     if (m_leftTabs) {

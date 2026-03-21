@@ -1,8 +1,13 @@
 #include "mainwindow.h"
+#include "mainwindow_helpers.h"
 
+#include <QApplication>
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QGroupBox>
-#include <QLabel>
+#include <QHeaderView>
+#include <QEvent>
 #include <QMetaObject>
 #include <QMessageBox>
 #include <QPlainTextEdit>
@@ -17,6 +22,7 @@
 #include <QTableWidgetItem>
 #include <QStackedWidget>
 #include <QSplitter>
+#include <QVBoxLayout>
 #include <QTreeWidget>
 
 #include <QtConcurrent/QtConcurrent>
@@ -25,8 +31,6 @@ namespace {
 constexpr int kConnPropKeyRole = Qt::UserRole + 14;
 constexpr int kPoolNameRole = Qt::UserRole + 11;
 constexpr int kIsPoolRootRole = Qt::UserRole + 12;
-constexpr auto kConnDisplayModeRole = "connDisplayMode";
-
 struct ConnTreeNavSnapshot {
     QSet<QString> expandedKeys;
     QString selectedKey;
@@ -439,6 +443,34 @@ QString connPersistKeyFromProfiles(const QVector<ConnectionProfile>& profiles, i
     }
     return profiles[connIdx].name.trimmed().toLower();
 }
+
+struct ConnectivityProbeResult {
+    QString text;
+    QString tooltip;
+    bool ok{false};
+};
+
+QString connectivityMatrixRemoteProbe(const ConnectionProfile& target) {
+    if (target.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
+        return QString();
+    }
+    const QString targetHost = mwhelpers::shSingleQuote(mwhelpers::sshUserHost(target));
+    const QString targetCmd = mwhelpers::shSingleQuote(QStringLiteral("echo ZFSMGR_CONNECT_OK"));
+    if (!target.password.trimmed().isEmpty()) {
+        return QStringLiteral(
+                   "if command -v sshpass >/dev/null 2>&1; then "
+                   "SSHPASS=%1 sshpass -e %2 -o BatchMode=no "
+                   "-o PreferredAuthentications=password,keyboard-interactive,publickey "
+                   "-o NumberOfPasswordPrompts=1 %3 %4; "
+                   "else echo %5 >&2; exit 127; fi")
+            .arg(mwhelpers::shSingleQuote(target.password),
+                 mwhelpers::sshBaseCommand(target),
+                 targetHost,
+                 targetCmd,
+                 mwhelpers::shSingleQuote(QStringLiteral("ZFSMgr: sshpass no disponible para esta prueba")));
+    }
+    return mwhelpers::sshBaseCommand(target) + QStringLiteral(" ") + targetHost + QStringLiteral(" ") + targetCmd;
+}
 }
 
 QString MainWindow::connectionDisplayModeForIndex(int connIdx) const {
@@ -459,6 +491,218 @@ QString MainWindow::connectionDisplayModeForIndex(int connIdx) const {
     return QString();
 }
 
+bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+    if ((watched == m_connectionsTable || (m_connectionsTable && watched == m_connectionsTable->viewport()))
+        && event
+        && (event->type() == QEvent::Resize || event->type() == QEvent::Show || event->type() == QEvent::LayoutRequest)) {
+        QTimer::singleShot(0, this, [this]() { repositionConnectivityButton(); });
+    }
+    return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::repositionConnectivityButton() {
+    if (!m_connectionsTable || !m_connectivityMatrixBtn || !m_connectionsTable->viewport()) {
+        return;
+    }
+    QWidget* host = m_connectionsTable->viewport();
+    const QSize hint = m_connectivityMatrixBtn->sizeHint();
+    const int margin = 10;
+    const int x = qMax(margin, host->width() - hint.width() - margin);
+    const int y = qMax(margin, host->height() - hint.height() - margin);
+    m_connectivityMatrixBtn->setGeometry(x, y, hint.width(), hint.height());
+    m_connectivityMatrixBtn->raise();
+}
+
+void MainWindow::openConnectivityMatrixDialog() {
+    if (m_profiles.isEmpty()) {
+        QMessageBox::information(this,
+                                 trk(QStringLiteral("t_connectivity_title_001"),
+                                     QStringLiteral("Conectividad"),
+                                     QStringLiteral("Connectivity"),
+                                     QStringLiteral("连通性")),
+                                 trk(QStringLiteral("t_connectivity_empty_001"),
+                                     QStringLiteral("No hay conexiones definidas."),
+                                     QStringLiteral("There are no defined connections."),
+                                     QStringLiteral("没有已定义的连接。")));
+        return;
+    }
+
+    auto sameMachine = [this](int a, int b) -> bool {
+        if (a < 0 || a >= m_profiles.size() || b < 0 || b >= m_profiles.size()) {
+            return false;
+        }
+        const QString ua = m_profiles[a].machineUid.trimmed().toLower();
+        const QString ub = m_profiles[b].machineUid.trimmed().toLower();
+        return !ua.isEmpty() && !ub.isEmpty() && ua == ub;
+    };
+    auto equivalentSshForLocal = [this](int localIdx) -> int {
+        if (localIdx < 0 || localIdx >= m_profiles.size() || !isLocalConnection(localIdx)) {
+            return -1;
+        }
+        QString localUid = m_profiles[localIdx].machineUid.trimmed().toLower();
+        if (localUid.isEmpty() && localIdx < m_states.size()) {
+            localUid = m_states[localIdx].machineUuid.trimmed().toLower();
+        }
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            if (i == localIdx || isLocalConnection(i)) {
+                continue;
+            }
+            const ConnectionProfile& candidate = m_profiles[i];
+            if (candidate.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
+                continue;
+            }
+            const QString candUid = candidate.machineUid.trimmed().toLower();
+            if (!localUid.isEmpty() && !candUid.isEmpty() && candUid == localUid) {
+                return i;
+            }
+            if (isConnectionRedirectedToLocal(i)) {
+                return i;
+            }
+        }
+        return -1;
+    };
+    auto probeConnectivity = [&](int rowIdx, int colIdx) -> ConnectivityProbeResult {
+        ConnectivityProbeResult result;
+        if (rowIdx < 0 || rowIdx >= m_profiles.size() || colIdx < 0 || colIdx >= m_profiles.size()) {
+            result.text = QStringLiteral("-");
+            return result;
+        }
+        const ConnectionProfile& src = m_profiles[rowIdx];
+        const ConnectionProfile& dst = m_profiles[colIdx];
+        const bool srcOk = rowIdx < m_states.size() && m_states[rowIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
+        const bool dstOk = colIdx < m_states.size() && m_states[colIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
+        if (!srcOk || !dstOk) {
+            result.text = QStringLiteral("-");
+            result.tooltip = trk(QStringLiteral("t_connectivity_notready_001"),
+                                 QStringLiteral("La conexión origen o destino no está en estado OK."),
+                                 QStringLiteral("The source or target connection is not in OK state."),
+                                 QStringLiteral("源连接或目标连接不是 OK 状态。"));
+            return result;
+        }
+        if (rowIdx == colIdx || sameMachine(rowIdx, colIdx)) {
+            result.text = QStringLiteral("✓");
+            result.tooltip = trk(QStringLiteral("t_connectivity_same_machine_001"),
+                                 QStringLiteral("Misma máquina."),
+                                 QStringLiteral("Same machine."),
+                                 QStringLiteral("同一台机器。"));
+            result.ok = true;
+            return result;
+        }
+        ConnectionProfile effectiveDst = dst;
+        QString targetLabel = dst.name;
+        if (dst.connType.trimmed().compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0) {
+            const int sshIdx = equivalentSshForLocal(colIdx);
+            if (sshIdx >= 0) {
+                effectiveDst = m_profiles[sshIdx];
+                targetLabel = m_profiles[sshIdx].name;
+                if (rowIdx == sshIdx || sameMachine(rowIdx, sshIdx)) {
+                    result.text = QStringLiteral("✓");
+                    result.tooltip = trk(QStringLiteral("t_connectivity_same_machine_001"),
+                                         QStringLiteral("Misma máquina."),
+                                         QStringLiteral("Same machine."),
+                                         QStringLiteral("同一台机器。"));
+                    result.ok = true;
+                    return result;
+                }
+            } else {
+                result.text = QStringLiteral("-");
+                result.tooltip = trk(QStringLiteral("t_connectivity_local_no_ssh_001"),
+                                     QStringLiteral("Local no tiene una conexión SSH equivalente para comprobarla remotamente."),
+                                     QStringLiteral("Local has no equivalent SSH connection for remote probing."),
+                                     QStringLiteral("本地连接没有可用于远程探测的等效 SSH 连接。"));
+                return result;
+            }
+        }
+        if (effectiveDst.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
+            result.text = QStringLiteral("-");
+            result.tooltip = trk(QStringLiteral("t_connectivity_unsupported_target_001"),
+                                 QStringLiteral("Solo se comprueba conectividad SSH hacia conexiones SSH/Local."),
+                                 QStringLiteral("Only SSH connectivity to SSH/Local connections is checked."),
+                                 QStringLiteral("只检查到 SSH/本地连接的 SSH 连通性。"));
+            return result;
+        }
+        if (src.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
+            result.text = QStringLiteral("-");
+            result.tooltip = trk(QStringLiteral("t_connectivity_unsupported_source_001"),
+                                 QStringLiteral("No se comprueba conectividad saliente desde conexiones PSRP."),
+                                 QStringLiteral("Outgoing connectivity is not checked from PSRP connections."),
+                                 QStringLiteral("不检查来自 PSRP 连接的出站连通性。"));
+            return result;
+        }
+        const QString srcCmd = connectivityMatrixRemoteProbe(effectiveDst);
+        if (srcCmd.trimmed().isEmpty()) {
+            result.text = QStringLiteral("-");
+            return result;
+        }
+        QString out;
+        QString err;
+        int rc = -1;
+        const bool ok = runSsh(src, srcCmd, 12000, out, err, rc);
+        const QString merged = (out + QStringLiteral("\n") + err).trimmed();
+        if (ok && rc == 0 && merged.contains(QStringLiteral("ZFSMGR_CONNECT_OK"))) {
+            result.text = QStringLiteral("✓");
+            result.tooltip = trk(QStringLiteral("t_connectivity_ok_001"),
+                                 QStringLiteral("Conectividad verificada hacia %1."),
+                                 QStringLiteral("Connectivity verified to %1."),
+                                 QStringLiteral("到 %1 的连通性已验证。"))
+                                 .arg(targetLabel);
+            result.ok = true;
+            return result;
+        }
+        result.text = QString();
+        result.tooltip = merged.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : merged.left(300);
+        return result;
+    };
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(trk(QStringLiteral("t_connectivity_title_001"),
+                           QStringLiteral("Conectividad"),
+                           QStringLiteral("Connectivity"),
+                           QStringLiteral("连通性")));
+    dlg.resize(760, 460);
+    auto* layout = new QVBoxLayout(&dlg);
+    auto* matrix = new QTableWidget(&dlg);
+    matrix->setColumnCount(m_profiles.size());
+    matrix->setRowCount(m_profiles.size());
+    QStringList labels;
+    for (const ConnectionProfile& p : m_profiles) {
+        labels << (p.name.trimmed().isEmpty() ? p.id : p.name);
+    }
+    matrix->setHorizontalHeaderLabels(labels);
+    matrix->setVerticalHeaderLabels(labels);
+    matrix->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    matrix->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    matrix->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    matrix->setSelectionMode(QAbstractItemView::NoSelection);
+    matrix->setAlternatingRowColors(false);
+    beginUiBusy();
+    if (m_connectivityMatrixBtn) {
+        m_connectivityMatrixBtn->setEnabled(false);
+    }
+    for (int r = 0; r < m_profiles.size(); ++r) {
+        for (int c = 0; c < m_profiles.size(); ++c) {
+            const ConnectivityProbeResult probe = probeConnectivity(r, c);
+            auto* item = new QTableWidgetItem(probe.text);
+            item->setTextAlignment(Qt::AlignCenter);
+            item->setToolTip(probe.tooltip);
+            if (probe.ok) {
+                item->setForeground(QBrush(QColor(QStringLiteral("#1d6f42"))));
+            }
+            matrix->setItem(r, c, item);
+            qApp->processEvents();
+        }
+    }
+    if (m_connectivityMatrixBtn) {
+        m_connectivityMatrixBtn->setEnabled(true);
+    }
+    endUiBusy();
+    layout->addWidget(matrix, 1);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dlg);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    layout->addWidget(buttons);
+    dlg.exec();
+}
+
 void MainWindow::syncConnectionDisplaySelectors() {
     if (!m_connectionsTable) {
         return;
@@ -466,12 +710,20 @@ void MainWindow::syncConnectionDisplaySelectors() {
     const QSignalBlocker blocker(m_connectionsTable);
     m_syncConnSelectorChecks = true;
     for (int row = 0; row < m_connectionsTable->rowCount(); ++row) {
-        if (QComboBox* combo = qobject_cast<QComboBox*>(m_connectionsTable->cellWidget(row, 0))) {
-            const int connIdx = combo->property(kConnDisplayModeRole).toInt();
-            const QString mode = connectionDisplayModeForIndex(connIdx);
-            const int idx = combo->findData(mode);
-            combo->setCurrentIndex(idx >= 0 ? idx : 0);
+        QTableWidgetItem* connItem = m_connectionsTable->item(row, 0);
+        QTableWidgetItem* srcItem = m_connectionsTable->item(row, 1);
+        QTableWidgetItem* dstItem = m_connectionsTable->item(row, 2);
+        if (!connItem || !srcItem || !dstItem) {
+            continue;
         }
+        const int connIdx = connItem->data(Qt::UserRole).toInt();
+        const QString mode = connectionDisplayModeForIndex(connIdx);
+        srcItem->setCheckState((mode == QStringLiteral("source") || mode == QStringLiteral("both"))
+                                   ? Qt::Checked
+                                   : Qt::Unchecked);
+        dstItem->setCheckState((mode == QStringLiteral("target") || mode == QStringLiteral("both"))
+                                   ? Qt::Checked
+                                   : Qt::Unchecked);
     }
     m_syncConnSelectorChecks = false;
 }
@@ -533,7 +785,7 @@ void MainWindow::applyConnectionDisplayMode(int connIdx, const QString& modeRaw)
         }
         const int row = rowForConnectionIndex(m_connectionsTable, connIdx);
         if (row >= 0) {
-            m_connectionsTable->setCurrentCell(row, 1);
+            m_connectionsTable->setCurrentCell(row, 0);
         }
     }
     if (topChanged) {
@@ -723,7 +975,7 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
     if (selectedIdx >= 0 && m_connectionsTable) {
         const int row = rowForConnectionIndex(m_connectionsTable, selectedIdx);
         if (row >= 0) {
-            m_connectionsTable->setCurrentCell(row, 1);
+            m_connectionsTable->setCurrentCell(row, 0);
         }
     }
     populateAllPoolsTables();
@@ -746,7 +998,7 @@ void MainWindow::onAsyncRefreshDone(int generation) {
         for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
             const int idx = connectionIndexForRow(m_connectionsTable, r);
             if (idx >= 0 && idx < m_profiles.size() && !isConnectionDisconnected(idx)) {
-                m_connectionsTable->setCurrentCell(r, 1);
+                m_connectionsTable->setCurrentCell(r, 0);
                 break;
             }
         }
@@ -1122,7 +1374,7 @@ void MainWindow::onConnectionEntityTabChanged(int idx) {
         return;
     }
     if (m_connectionsTable->currentRow() != row) {
-        m_connectionsTable->setCurrentCell(row, 1);
+        m_connectionsTable->setCurrentCell(row, 0);
     } else {
         refreshConnectionNodeDetails();
     }
@@ -1606,7 +1858,7 @@ void MainWindow::loadConnections() {
             }
         }
         if (targetRow >= 0) {
-            m_connectionsTable->setCurrentCell(targetRow, 1);
+            m_connectionsTable->setCurrentCell(targetRow, 0);
         }
     }
 
@@ -1628,18 +1880,20 @@ void MainWindow::rebuildConnectionsTable() {
         }
     }
     m_connectionsTable->clear();
-    m_connectionsTable->setColumnCount(2);
+    m_connectionsTable->setColumnCount(3);
     m_connectionsTable->setHorizontalHeaderLabels({
-        trk(QStringLiteral("t_conn_col_show_01"),
-            QStringLiteral("Mostrar"),
-            QStringLiteral("Show"),
-            QStringLiteral("显示")),
         trk(QStringLiteral("t_connections_001"),
             QStringLiteral("Conexión"),
             QStringLiteral("Connection"),
-            QStringLiteral("连接"))
+            QStringLiteral("连接")),
+        QStringLiteral("O"),
+        QStringLiteral("D")
     });
     m_connectionsTable->setRowCount(0);
+    m_connectionsTable->setFont(QApplication::font());
+    if (m_connectionsTable->horizontalHeader()) {
+        m_connectionsTable->horizontalHeader()->setFont(QApplication::font());
+    }
     auto zfsVersionTooOld = [](const QString& rawVersion) -> bool {
         const QRegularExpression rx(QStringLiteral("^(\\d+)\\.(\\d+)(?:\\.(\\d+))?"));
         const QRegularExpressionMatch m = rx.match(rawVersion.trimmed());
@@ -1802,85 +2056,36 @@ void MainWindow::rebuildConnectionsTable() {
         const int row = m_connectionsTable->rowCount();
         m_connectionsTable->insertRow(row);
         const QString tooltip = buildConnectionStateTooltip(p, s, disconnected);
-        auto* showBgItem = new QTableWidgetItem();
-        showBgItem->setFlags(showBgItem->flags() & ~Qt::ItemIsEditable);
-        showBgItem->setBackground(QBrush(rowBg));
-        showBgItem->setForeground(m_connectionsTable->palette().text());
-        showBgItem->setToolTip(tooltip);
-        m_connectionsTable->setItem(row, 0, showBgItem);
-
-        if (disconnected) {
-            auto* label = new QLabel(
-                trk(QStringLiteral("t_conn_show_none_01"),
-                    QStringLiteral("No"),
-                    QStringLiteral("Hide"),
-                    QStringLiteral("不显示")),
-                m_connectionsTable);
-            QFont labelFont = label->font();
-            labelFont.setItalic(true);
-            label->setFont(labelFont);
-            label->setToolTip(tooltip);
-            label->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
-            label->setMargin(6);
-            label->setStyleSheet(
-                QStringLiteral(
-                    "QLabel {"
-                    " color: #102233;"
-                    " background: %1;"
-                    " border: 1px solid %2;"
-                    " }")
-                    .arg(rowBg.name(), m_connectionsTable->palette().color(QPalette::Mid).name()));
-            m_connectionsTable->setCellWidget(row, 0, label);
-        } else {
-            auto* combo = new QComboBox(m_connectionsTable);
-            combo->addItem(trk(QStringLiteral("t_conn_show_none_01"),
-                               QStringLiteral("No"),
-                               QStringLiteral("Hide"),
-                               QStringLiteral("不显示")),
-                           QString());
-            combo->addItem(trk(QStringLiteral("t_conn_col_src_01"),
-                               QStringLiteral("Origen"),
-                               QStringLiteral("Source"),
-                               QStringLiteral("来源")),
-                           QStringLiteral("source"));
-            combo->addItem(trk(QStringLiteral("t_conn_col_dst_01"),
-                               QStringLiteral("Destino"),
-                               QStringLiteral("Target"),
-                               QStringLiteral("目标")),
-                           QStringLiteral("target"));
-            combo->addItem(trk(QStringLiteral("t_conn_show_both_01"),
-                               QStringLiteral("Ambos"),
-                               QStringLiteral("Both"),
-                               QStringLiteral("两者")),
-                           QStringLiteral("both"));
-            combo->setProperty(kConnDisplayModeRole, i);
-            combo->setToolTip(tooltip);
-            combo->setStyleSheet(QStringLiteral(
-                "QComboBox { background: %1; color: #102233; border: 1px solid %2; padding-left: 4px; padding-right: 18px; }"
-                "QComboBox::drop-down { background: %1; border: 0px; width: 18px; }")
-                                    .arg(rowBg.name(), m_connectionsTable->palette().color(QPalette::Mid).name()));
-            combo->setEnabled(true);
-            m_connectionsTable->setCellWidget(row, 0, combo);
-            QObject::connect(combo, &QComboBox::currentIndexChanged, m_connectionsTable, [this, combo](int) {
-                if (!combo || m_syncConnSelectorChecks) {
-                    return;
-                }
-                const int connIdx = combo->property(kConnDisplayModeRole).toInt();
-                applyConnectionDisplayMode(connIdx, combo->currentData().toString());
-            });
-        }
-
         auto* it = new QTableWidgetItem(line);
         it->setData(Qt::UserRole, i);
         it->setForeground(m_connectionsTable->palette().text());
         it->setBackground(QBrush(rowBg));
+        it->setFont(m_connectionsTable->font());
         if (disconnected) {
             QFont f = it->font();
             f.setItalic(true);
             it->setFont(f);
         }
         it->setToolTip(tooltip);
-        m_connectionsTable->setItem(row, 1, it);
+        m_connectionsTable->setItem(row, 0, it);
+
+        auto makeCheckItem = [&](bool checked) {
+            auto* checkItem = new QTableWidgetItem();
+            checkItem->setData(Qt::UserRole, i);
+            checkItem->setFlags((checkItem->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled)
+                                & ~Qt::ItemIsEditable);
+            if (disconnected) {
+                checkItem->setFlags(checkItem->flags() & ~Qt::ItemIsEnabled);
+            }
+            checkItem->setCheckState(checked ? Qt::Checked : Qt::Unchecked);
+            checkItem->setBackground(QBrush(rowBg));
+            checkItem->setForeground(m_connectionsTable->palette().text());
+            checkItem->setToolTip(tooltip);
+            return checkItem;
+        };
+        const QString mode = connectionDisplayModeForIndex(i);
+        m_connectionsTable->setItem(row, 1, makeCheckItem(mode == QStringLiteral("source") || mode == QStringLiteral("both")));
+        m_connectionsTable->setItem(row, 2, makeCheckItem(mode == QStringLiteral("target") || mode == QStringLiteral("both")));
 
     }
     auto ensureValidConnIdx = [this](int& idx) {
@@ -1969,7 +2174,7 @@ void MainWindow::rebuildConnectionsTable() {
                                      : prevSelectedKey;
     if (!preferredKey.isEmpty()) {
         for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
-            QTableWidgetItem* it = m_connectionsTable->item(r, 1);
+            QTableWidgetItem* it = m_connectionsTable->item(r, 0);
             if (!it) {
                 continue;
             }
@@ -1997,8 +2202,11 @@ void MainWindow::rebuildConnectionsTable() {
             }
         }
     }
+    m_connectionsTable->resizeColumnToContents(0);
+    m_connectionsTable->resizeColumnToContents(1);
+    m_connectionsTable->resizeColumnToContents(2);
     if (targetRow >= 0) {
-        m_connectionsTable->setCurrentCell(targetRow, 1);
+        m_connectionsTable->setCurrentCell(targetRow, 0);
     }
     m_syncConnSelectorChecks = false;
 
@@ -2060,7 +2268,7 @@ void MainWindow::createConnection() {
             if (m_connectionsTable) {
                 const int row = rowForConnectionIndex(m_connectionsTable, i);
                 if (row >= 0) {
-                    m_connectionsTable->setCurrentCell(row, 1);
+                    m_connectionsTable->setCurrentCell(row, 0);
                 }
             }
             refreshSelectedConnection();

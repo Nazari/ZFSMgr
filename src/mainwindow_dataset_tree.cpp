@@ -322,21 +322,25 @@ class InlinePropNameWidget final : public QWidget {
 public:
     InlinePropNameWidget(const QString& name, bool inheritable, QWidget* parent = nullptr)
         : QWidget(parent), m_inheritable(inheritable) {
+        const QFont baseFont = parent ? parent->font() : font();
+        setFont(baseFont);
         auto* layout = new QHBoxLayout(this);
         // Reserve 1px for left/top/right borders and add a small top inset so
         // each name row reads as a new block under the previous value row.
         layout->setContentsMargins(7, 5, 7, 2);
         layout->setSpacing(8);
         auto* left = new QLabel(name, this);
+        left->setFont(baseFont);
         left->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
         left->setStyleSheet(QStringLiteral("background: transparent;"));
         layout->addWidget(left, 1);
-        if (m_inheritable) {
-            auto* right = new QLabel(QStringLiteral("Inh."), this);
-            right->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-            right->setStyleSheet(QStringLiteral("background: transparent; color:#5f6b76;"));
-            layout->addWidget(right, 0);
-        }
+        auto* right = new QLabel(m_inheritable ? QStringLiteral("Inh.") : QString(), this);
+        right->setFont(baseFont);
+        right->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        right->setStyleSheet(QStringLiteral("background: transparent; color:#5f6b76;"));
+        right->setMinimumWidth(right->fontMetrics().horizontalAdvance(QStringLiteral("Inh.")));
+        right->setVisible(m_inheritable);
+        layout->addWidget(right, 0);
     }
 
 protected:
@@ -400,6 +404,8 @@ QWidget* wrapInlineCellEditor(QWidget* editor, QTreeWidget* tree) {
         return editor;
     }
     auto* host = new InlinePropValueWidget(tree);
+    host->setFont(tree->font());
+    editor->setFont(tree->font());
     QHBoxLayout* layout = host->ensureLayout();
     layout->setContentsMargins(3, 1, 3, 3);
     layout->setSpacing(0);
@@ -1234,6 +1240,16 @@ void MainWindow::syncConnContentPropertyColumns() {
                         }
                     }
                     inheritCombo->setCurrentText(inheritChecked ? QStringLiteral("on") : QStringLiteral("off"));
+                    auto applyInheritedVisualState = [cell](QWidget* editor, bool inheritOn) {
+                        if (!cell || !editor) {
+                            return;
+                        }
+                        editor->setEnabled(!inheritOn);
+                        cell->setProperty("inheritedDisabled", inheritOn);
+                        cell->setStyleSheet(inheritOn
+                                                ? QStringLiteral("background:#f3f5f7; color:#7a8691;")
+                                                : QString());
+                    };
                     const auto eIt = enumValues.constFind(propLower);
                     if (eIt != enumValues.cend()) {
                         auto* combo = new TreeScrollComboBox(tree, cell);
@@ -1291,11 +1307,13 @@ void MainWindow::syncConnContentPropertyColumns() {
                             onDatasetTreeItemChanged(tree, rowValues, col, QStringLiteral("conncontent"));
                         });
                     }
+                    applyInheritedVisualState(valueEditor, inheritChecked);
                     lay->addWidget(inheritCombo, 0);
                     tree->setItemWidget(rowValues, col, cell);
                     QObject::connect(inheritCombo, &QComboBox::currentTextChanged, tree,
-                                     [this, valueEditor, prop, inheritCombo, draftToken, obj](const QString& txt) {
+                                     [this, valueEditor, prop, inheritCombo, draftToken, obj, applyInheritedVisualState](const QString& txt) {
                         const bool inheritOn = (txt.trimmed().compare(QStringLiteral("on"), Qt::CaseInsensitive) == 0);
+                        applyInheritedVisualState(valueEditor, inheritOn);
                         updateConnContentDraftInherit(draftToken, obj, prop, inheritOn);
                         if (!m_connContentPropsTable
                             || m_propsToken.trimmed() != draftToken.trimmed()
@@ -2212,13 +2230,6 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         }
         auto* poolRoot = new QTreeWidgetItem();
         poolRoot->setText(0, poolRootTitle());
-        {
-            QFont f = tree->font();
-            const qreal base = (f.pointSizeF() > 0.0) ? f.pointSizeF() : 9.0;
-            f.setPointSizeF(base + 0.5);
-            f.setBold(false);
-            poolRoot->setFont(0, f);
-        }
         poolRoot->setFlags(poolRoot->flags() & ~Qt::ItemIsUserCheckable);
         poolRoot->setData(0, kIsPoolRootRole, true);
         poolRoot->setData(0, kConnIdxRole, connIdx);
@@ -2259,8 +2270,6 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         item->setText(0, displayName);
         {
             QFont f = item->font(0);
-            const qreal base = (f.pointSizeF() > 0.0) ? f.pointSizeF() : 9.0;
-            f.setPointSizeF(base + 0.5);
             f.setBold(true);
             item->setFont(0, f);
         }
@@ -2322,13 +2331,6 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
     if (isConnContent) {
         auto* poolRoot = new QTreeWidgetItem();
         poolRoot->setText(0, poolRootTitle());
-        {
-            QFont f = tree->font();
-            const qreal base = (f.pointSizeF() > 0.0) ? f.pointSizeF() : 9.0;
-            f.setPointSizeF(base + 0.5);
-            f.setBold(false);
-            poolRoot->setFont(0, f);
-        }
         poolRoot->setFlags(poolRoot->flags() & ~Qt::ItemIsUserCheckable);
         poolRoot->setData(0, kIsPoolRootRole, true);
         poolRoot->setData(0, kConnIdxRole, connIdx);

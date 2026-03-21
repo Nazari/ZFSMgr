@@ -8,7 +8,6 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFont>
-#include <QFontDatabase>
 #include <QMetaObject>
 #include <QPlainTextEdit>
 #include <QRegularExpression>
@@ -385,9 +384,6 @@ void MainWindow::syncConnectionLogTabs() {
         view->setLineWrapMode(QPlainTextEdit::NoWrap);
         view->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         view->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-        mono.setPointSize(8);
-        view->setFont(mono);
         lay->addWidget(view, 1);
         m_logsTabs->addTab(tab, p.name);
         m_connectionLogViews.insert(p.id, view);

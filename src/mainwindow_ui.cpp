@@ -13,7 +13,6 @@
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QFont>
-#include <QFontDatabase>
 #include <QFontMetrics>
 #include <QFormLayout>
 #include <QFrame>
@@ -34,6 +33,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QCheckBox>
+#include <QPainterPath>
 #include <QPointer>
 #include <QRegularExpression>
 #include <QScopedValueRollback>
@@ -59,7 +59,7 @@
 #include <QPainter>
 
 #ifndef ZFSMGR_APP_VERSION
-#define ZFSMGR_APP_VERSION "0.9.9rc3"
+#define ZFSMGR_APP_VERSION "0.9.9rc4"
 #endif
 
 namespace {
@@ -275,6 +275,72 @@ public:
             break;
         }
         return QStyledItemDelegate::editorEvent(event, model, option, index);
+    }
+};
+
+class LightCenteredCheckDelegate final : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        if (!painter || !index.isValid() || !(index.flags() & Qt::ItemIsUserCheckable)) {
+            QStyledItemDelegate::paint(painter, option, index);
+            return;
+        }
+
+        QStyleOptionViewItem viewOpt(option);
+        initStyleOption(&viewOpt, index);
+        const QWidget* widget = viewOpt.widget;
+        QStyle* style = widget ? widget->style() : QApplication::style();
+
+        const QString savedText = viewOpt.text;
+        viewOpt.text.clear();
+        style->drawPrimitive(QStyle::PE_PanelItemViewItem, &viewOpt, painter, widget);
+        viewOpt.text = savedText;
+
+        const bool enabled = index.flags() & Qt::ItemIsEnabled;
+        const bool checked = (index.data(Qt::CheckStateRole).toInt() == Qt::Checked);
+        const int boxSize = qMax(12, qMin(option.rect.width() - 8, option.rect.height() - 8));
+        const QRect boxRect(option.rect.x() + (option.rect.width() - boxSize) / 2,
+                            option.rect.y() + (option.rect.height() - boxSize) / 2,
+                            boxSize,
+                            boxSize);
+
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, false);
+        const QColor border = enabled ? QColor(125, 146, 166) : QColor(176, 186, 196);
+        const QColor fill = enabled ? QColor(255, 255, 255) : QColor(243, 245, 247);
+        painter->setPen(border);
+        painter->setBrush(fill);
+        painter->drawRect(boxRect.adjusted(0, 0, -1, -1));
+
+        if (checked) {
+            QPen tickPen(enabled ? QColor(33, 92, 151) : QColor(132, 149, 166), 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+            painter->setPen(tickPen);
+            QPainterPath path;
+            path.moveTo(boxRect.left() + boxRect.width() * 0.20, boxRect.top() + boxRect.height() * 0.55);
+            path.lineTo(boxRect.left() + boxRect.width() * 0.42, boxRect.top() + boxRect.height() * 0.76);
+            path.lineTo(boxRect.left() + boxRect.width() * 0.78, boxRect.top() + boxRect.height() * 0.26);
+            painter->drawPath(path);
+        }
+        painter->restore();
+
+        if (option.state & QStyle::State_HasFocus) {
+            QStyleOptionFocusRect focusOpt;
+            focusOpt.QStyleOption::operator=(option);
+            focusOpt.rect = option.rect.adjusted(1, 1, -1, -1);
+            focusOpt.state |= QStyle::State_KeyboardFocusChange;
+            focusOpt.backgroundColor = option.palette.color(QPalette::Base);
+            style->drawPrimitive(QStyle::PE_FrameFocusRect, &focusOpt, painter, widget);
+        }
+    }
+
+    bool editorEvent(QEvent* event,
+                     QAbstractItemModel* model,
+                     const QStyleOptionViewItem& option,
+                     const QModelIndex& index) override {
+        CenteredCheckDelegate helper(parent());
+        return helper.editorEvent(event, model, option, index);
     }
 };
 
@@ -725,7 +791,7 @@ void MainWindow::buildUi() {
         "QScrollBar:horizontal { height: 8px; }"
         "QTreeWidget::item:selected, QTableWidget::item:selected, QListWidget::item:selected {"
         "  background: #dcecff; color: #0d2438; font-weight: 600; }"
-        "QHeaderView::section { background: #eaf1f7; border: 1px solid #c5d3e0; padding: 1px 3px; font-size: 85%; }"));
+        "QHeaderView::section { background: #eaf1f7; border: 1px solid #c5d3e0; padding: 1px 3px; }"));
     setStyleSheet(styleSheet() + QStringLiteral(
         "#zfsmgrEntityFrame { border: 0px; background: transparent; }"
         "#zfsmgrEntityFrame > QWidget { border: 0px; background: transparent; }"
@@ -1137,16 +1203,14 @@ void MainWindow::buildUi() {
     auto* connListBoxLayout = new QVBoxLayout(connListBox);
     connListBoxLayout->setContentsMargins(6, 8, 6, 6);
     m_connectionsTable = new QTableWidget(connListBox);
-    m_connectionsTable->setColumnCount(2);
+    m_connectionsTable->setColumnCount(3);
     m_connectionsTable->setHorizontalHeaderLabels({
-        trk(QStringLiteral("t_conn_col_show_01"),
-            QStringLiteral("Mostrar"),
-            QStringLiteral("Show"),
-            QStringLiteral("显示")),
         trk(QStringLiteral("t_connections_001"),
             QStringLiteral("Conexión"),
             QStringLiteral("Connection"),
-            QStringLiteral("连接"))
+            QStringLiteral("连接")),
+        QStringLiteral("O"),
+        QStringLiteral("D")
     });
     m_connectionsTable->horizontalHeader()->setVisible(true);
     m_connectionsTable->verticalHeader()->setVisible(false);
@@ -1155,23 +1219,43 @@ void MainWindow::buildUi() {
     m_connectionsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_connectionsTable->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     m_connectionsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_connectionsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
-    m_connectionsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    m_connectionsTable->setColumnWidth(0, 96);
+    m_connectionsTable->setFont(QApplication::font());
+    if (m_connectionsTable->horizontalHeader()) {
+        m_connectionsTable->horizontalHeader()->setFont(QApplication::font());
+    }
+    m_connectionsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    m_connectionsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
+    m_connectionsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
+    m_connectionsTable->setColumnWidth(1, 34);
+    m_connectionsTable->setColumnWidth(2, 34);
+    m_connectionsTable->setItemDelegateForColumn(1, new LightCenteredCheckDelegate(m_connectionsTable));
+    m_connectionsTable->setItemDelegateForColumn(2, new LightCenteredCheckDelegate(m_connectionsTable));
 #ifdef Q_OS_MAC
     if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
         m_connectionsTable->setStyle(fusion);
     }
 #endif
+    m_connectivityMatrixBtn = new QPushButton(
+        trk(QStringLiteral("t_connectivity_btn_001"),
+            QStringLiteral("Conectividad"),
+            QStringLiteral("Connectivity"),
+            QStringLiteral("连通性")),
+        m_connectionsTable->viewport());
+    m_connectivityMatrixBtn->setObjectName(QStringLiteral("zfsmgrConnectivityMatrixBtn"));
+    m_connectivityMatrixBtn->raise();
+    m_connectivityMatrixBtn->installEventFilter(this);
+    m_connectionsTable->installEventFilter(this);
+    m_connectionsTable->viewport()->installEventFilter(this);
     connListBoxLayout->addWidget(m_connectionsTable, 1);
     connLayout->addWidget(connListBox, 1);
 
     m_connActionsBox = new QGroupBox(
         trk(QStringLiteral("t_actions_box_001"),
-            QStringLiteral("Acciones"),
-            QStringLiteral("Actions"),
-            QStringLiteral("操作")),
+            QStringLiteral("Datasets seleccionados"),
+            QStringLiteral("Selected datasets"),
+            QStringLiteral("已选数据集")),
         connectionsTab);
+    m_connActionsBox->setFont(QApplication::font());
     auto* connActionsLayout = new QHBoxLayout(m_connActionsBox);
     connActionsLayout->setContentsMargins(6, 8, 6, 6);
     connActionsLayout->setSpacing(8);
@@ -1200,6 +1284,11 @@ void MainWindow::buildUi() {
             QStringLiteral("To Dir"),
             QStringLiteral("到目录")),
         m_connActionsBox);
+    const QFont baseUiFont = QApplication::font();
+    m_btnConnBreakdown->setFont(baseUiFont);
+    m_btnConnAssemble->setFont(baseUiFont);
+    m_btnConnFromDir->setFont(baseUiFont);
+    m_btnConnToDir->setFont(baseUiFont);
     m_btnConnBreakdown->setToolTip(
         trk(QStringLiteral("t_tt_breakdown001"), QStringLiteral("Construye datasets a partir de directorios. "
                            "Requiere dataset y descendientes montados. "
@@ -1260,6 +1349,7 @@ void MainWindow::buildUi() {
         connActionRightBox);
     m_connOriginSelectionLabel->setWordWrap(true);
     m_connOriginSelectionLabel->setMinimumHeight(20);
+    m_connOriginSelectionLabel->setFont(baseUiFont);
     connActionRightLayout->addWidget(m_connOriginSelectionLabel);
     m_connDestSelectionLabel = new QLabel(
         trk(QStringLiteral("t_conn_dest_sel01"),
@@ -1269,6 +1359,7 @@ void MainWindow::buildUi() {
         connActionRightBox);
     m_connDestSelectionLabel->setWordWrap(true);
     m_connDestSelectionLabel->setMinimumHeight(20);
+    m_connDestSelectionLabel->setFont(baseUiFont);
     connActionRightLayout->addWidget(m_connDestSelectionLabel);
     m_btnApplyConnContentProps = new TooltipPushButton(
         trk(QStringLiteral("t_apply_changes_001"),
@@ -1309,12 +1400,20 @@ void MainWindow::buildUi() {
             QStringLiteral("Level"),
             QStringLiteral("同步快照")),
         connActionRightBox);
+    m_btnApplyConnContentProps->setFont(baseUiFont);
+    m_btnDiscardPendingChanges->setFont(baseUiFont);
+    m_btnConnCopy->setFont(baseUiFont);
+    m_btnConnClone->setFont(baseUiFont);
+    m_btnConnMove->setFont(baseUiFont);
+    m_btnConnDiff->setFont(baseUiFont);
+    m_btnConnLevel->setFont(baseUiFont);
     m_btnConnSync = new QPushButton(
         trk(QStringLiteral("t_sync_btn_001"),
             QStringLiteral("Sincronizar"),
             QStringLiteral("Sync"),
             QStringLiteral("同步文件")),
         connActionRightBox);
+    m_btnConnSync->setFont(baseUiFont);
     m_btnConnCopy->setToolTip(
         trk(QStringLiteral("t_tt_copy_001"),
             QStringLiteral("Envía un snapshot desde Origen a Destino mediante send/recv.\n"
@@ -1577,16 +1676,15 @@ void MainWindow::buildUi() {
     m_connContentTree->setColumnHidden(1, true);
     m_connContentTree->setColumnHidden(2, true);
     m_connContentTree->setColumnHidden(3, true);
+    m_connContentTree->setFont(QApplication::font());
+    if (m_connContentTree->header()) {
+        m_connContentTree->header()->setFont(QApplication::font());
+    }
     m_connContentTree->setUniformRowHeights(false);
     m_connContentTree->setRootIsDecorated(true);
     m_connContentTree->setItemsExpandable(true);
     m_connContentTree->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     m_connContentTree->verticalScrollBar()->setSingleStep(12);
-    {
-        QFont f = m_connContentTree->font();
-        f.setPointSize(qMax(6, f.pointSize() - 1));
-        m_connContentTree->setFont(f);
-    }
     m_connContentTree->setStyleSheet(QStringLiteral(
         "QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"
         "QTreeWidget::indicator { width: 8px; height: 8px; margin: 2px; }"));
@@ -1620,11 +1718,6 @@ void MainWindow::buildUi() {
     m_poolStatusText->setReadOnly(true);
     m_poolStatusText->setLineWrapMode(QPlainTextEdit::NoWrap);
     m_poolStatusText->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    {
-        QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-        mono.setPointSize(9);
-        m_poolStatusText->setFont(mono);
-    }
     statusPageLayout->addWidget(m_poolStatusText, 1);
     m_connBottomStack->addWidget(m_connStatusPage);
 
@@ -1731,6 +1824,10 @@ void MainWindow::buildUi() {
     m_bottomConnContentTree->setColumnHidden(1, true);
     m_bottomConnContentTree->setColumnHidden(2, true);
     m_bottomConnContentTree->setColumnHidden(3, true);
+    m_bottomConnContentTree->setFont(QApplication::font());
+    if (m_bottomConnContentTree->header()) {
+        m_bottomConnContentTree->header()->setFont(QApplication::font());
+    }
     m_bottomConnContentTree->setUniformRowHeights(false);
     m_bottomConnContentTree->setRootIsDecorated(true);
     m_bottomConnContentTree->setItemsExpandable(true);
@@ -1896,7 +1993,6 @@ void MainWindow::buildUi() {
                                    leftInfo);
     QFont smallTitle = statusTitle->font();
     smallTitle.setBold(true);
-    smallTitle.setPointSize(qMax(6, smallTitle.pointSize() - 3));
     statusTitle->setFont(smallTitle);
     m_statusText = new QTextEdit(leftInfo);
     m_statusText->setReadOnly(true);
@@ -1904,11 +2000,6 @@ void MainWindow::buildUi() {
     m_statusText->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_statusText->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_statusText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
-    {
-        QFont f = m_statusText->font();
-        f.setPointSize(qMax(6, f.pointSize() - 3));
-        m_statusText->setFont(f);
-    }
     {
         const QFontMetrics statusFm(m_statusText->font());
         const int h = statusFm.lineSpacing() * 2 + 10;
@@ -1926,11 +2017,6 @@ void MainWindow::buildUi() {
     m_lastDetailText->setAcceptRichText(false);
     m_lastDetailText->setLineWrapMode(QTextEdit::WidgetWidth);
     m_lastDetailText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
-    {
-        QFont f = m_lastDetailText->font();
-        f.setPointSize(qMax(6, f.pointSize() - 3));
-        m_lastDetailText->setFont(f);
-    }
     statusTitle->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     detailTitle->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     leftInfoLayout->addWidget(statusTitle, 0);
@@ -1956,9 +2042,6 @@ void MainWindow::buildUi() {
     m_logView->setLineWrapMode(QPlainTextEdit::NoWrap);
     m_logView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_logView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-    mono.setPointSize(8);
-    m_logView->setFont(mono);
     appLogLayout->addWidget(m_logView, 1);
 
     auto* pendingChangesTab = new QWidget(m_logsTabs);
@@ -1983,7 +2066,6 @@ void MainWindow::buildUi() {
     m_pendingChangesView->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     m_pendingChangesView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_pendingChangesView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    m_pendingChangesView->setFont(mono);
     connect(m_pendingChangesView, &QPlainTextEdit::cursorPositionChanged, this, [this]() {
         activatePendingChangeAtCursor();
     });
@@ -2061,14 +2143,49 @@ void MainWindow::buildUi() {
     }
     connect(m_connectionsTable, &QTableWidget::currentCellChanged, this,
             [this](int, int, int, int) { onConnectionSelectionChanged(); });
+    if (m_connectivityMatrixBtn) {
+        connect(m_connectivityMatrixBtn, &QPushButton::clicked, this, [this]() {
+            openConnectivityMatrixDialog();
+        });
+        QTimer::singleShot(0, this, [this]() { repositionConnectivityButton(); });
+    }
+    connect(m_connectionsTable, &QTableWidget::itemChanged, this, [this](QTableWidgetItem* item) {
+        if (!m_connectionsTable || !item || m_syncConnSelectorChecks) {
+            return;
+        }
+        const int col = item->column();
+        if (col != 1 && col != 2) {
+            return;
+        }
+        bool ok = false;
+        const int connIdx = item->data(Qt::UserRole).toInt(&ok);
+        if (!ok || connIdx < 0 || connIdx >= m_profiles.size()) {
+            return;
+        }
+        const Qt::CheckState src = (m_connectionsTable->item(item->row(), 1)
+                                        ? m_connectionsTable->item(item->row(), 1)->checkState()
+                                        : Qt::Unchecked);
+        const Qt::CheckState dst = (m_connectionsTable->item(item->row(), 2)
+                                        ? m_connectionsTable->item(item->row(), 2)->checkState()
+                                        : Qt::Unchecked);
+        QString mode;
+        if (src == Qt::Checked && dst == Qt::Checked) {
+            mode = QStringLiteral("both");
+        } else if (src == Qt::Checked) {
+            mode = QStringLiteral("source");
+        } else if (dst == Qt::Checked) {
+            mode = QStringLiteral("target");
+        }
+        applyConnectionDisplayMode(connIdx, mode);
+    });
     connect(m_connectionsTable, &QTableWidget::cellClicked, this, [this](int row, int col) {
         if (!m_connectionsTable || row < 0) {
             return;
         }
-        if (col == 0) {
+        if (col == 1 || col == 2) {
             return;
         }
-        QTableWidgetItem* it = m_connectionsTable->item(row, 1);
+        QTableWidgetItem* it = m_connectionsTable->item(row, 0);
         if (!it) {
             return;
         }
@@ -4448,11 +4565,11 @@ void MainWindow::buildUi() {
             {
                 const QStringList snaps = item->data(1, Qt::UserRole + 1).toStringList();
                 const QString currentSnap = item->data(1, Qt::UserRole).toString().trimmed();
-                QAction* noneAct = mSelectSnapshot->addAction(QStringLiteral("(ninguno)"));
-                noneAct->setCheckable(true);
-                noneAct->setChecked(currentSnap.isEmpty());
-                snapshotActions.insert(noneAct, QString());
                 if (!snaps.isEmpty()) {
+                    QAction* noneAct = mSelectSnapshot->addAction(QStringLiteral("(ninguno)"));
+                    noneAct->setCheckable(true);
+                    noneAct->setChecked(currentSnap.isEmpty());
+                    snapshotActions.insert(noneAct, QString());
                     mSelectSnapshot->addSeparator();
                 }
                 for (const QString& s : snaps) {
@@ -4800,12 +4917,12 @@ void MainWindow::buildUi() {
         int rowForMenu = -1;
         if (idxAt.isValid() && idxAt.row() >= 0) {
             rowForMenu = idxAt.row();
-            m_connectionsTable->setCurrentCell(idxAt.row(), 1);
+            m_connectionsTable->setCurrentCell(idxAt.row(), 0);
         } else {
             rowForMenu = m_connectionsTable->currentRow();
         }
         if (rowForMenu >= 0 && rowForMenu < m_connectionsTable->rowCount()) {
-            QTableWidgetItem* it = m_connectionsTable->item(rowForMenu, 1);
+            QTableWidgetItem* it = m_connectionsTable->item(rowForMenu, 0);
             if (it) {
                 bool ok = false;
                 const int idx = it->data(Qt::UserRole).toInt(&ok);
@@ -5909,11 +6026,11 @@ void MainWindow::buildUi() {
             {
                 const QStringList snaps = item->data(1, Qt::UserRole + 1).toStringList();
                 const QString currentSnap = item->data(1, Qt::UserRole).toString().trimmed();
-                QAction* noneAct = mSelectSnapshot->addAction(QStringLiteral("(ninguno)"));
-                noneAct->setCheckable(true);
-                noneAct->setChecked(currentSnap.isEmpty());
-                snapshotActions.insert(noneAct, QString());
                 if (!snaps.isEmpty()) {
+                    QAction* noneAct = mSelectSnapshot->addAction(QStringLiteral("(ninguno)"));
+                    noneAct->setCheckable(true);
+                    noneAct->setChecked(currentSnap.isEmpty());
+                    snapshotActions.insert(noneAct, QString());
                     mSelectSnapshot->addSeparator();
                 }
                 for (const QString& s : snaps) {
