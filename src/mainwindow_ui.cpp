@@ -1244,6 +1244,7 @@ void MainWindow::buildUi() {
     m_connectivityMatrixBtn->setObjectName(QStringLiteral("zfsmgrConnectivityMatrixBtn"));
     m_connectivityMatrixBtn->raise();
     m_connectivityMatrixBtn->installEventFilter(this);
+    updateConnectivityMatrixButtonState();
     m_connectionsTable->installEventFilter(this);
     m_connectionsTable->viewport()->installEventFilter(this);
     connListBoxLayout->addWidget(m_connectionsTable, 1);

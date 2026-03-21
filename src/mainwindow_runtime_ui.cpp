@@ -110,6 +110,14 @@ void MainWindow::updateBusyCursor() {
     }
 }
 
+void MainWindow::updateConnectivityMatrixButtonState() {
+    if (!m_connectivityMatrixBtn) {
+        return;
+    }
+    const bool enabled = !m_refreshInProgress && !m_connectivityMatrixInProgress;
+    m_connectivityMatrixBtn->setEnabled(enabled);
+}
+
 void MainWindow::setActionsLocked(bool locked) {
     auto captureTabSelection = [this](QTabBar* tabs, QMap<int, QString>& outMap) {
         if (!tabs) {

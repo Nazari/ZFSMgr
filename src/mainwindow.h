@@ -383,6 +383,7 @@ private:
     void beginTransientUiBusy(const QString& statusText);
     void endTransientUiBusy();
     void updateBusyCursor();
+    void updateConnectivityMatrixButtonState();
     void setActionsLocked(bool locked);
     bool actionsLocked() const;
     void requestCancelRunningAction();
@@ -567,6 +568,7 @@ private:
     bool m_actionsLocked{false};
     bool m_waitCursorActive{false};
     int m_uiBusyDepth{0};
+    bool m_connectivityMatrixInProgress{false};
     QStringList m_transientStatusStack;
     bool m_cancelActionRequested{false};
     QProcess* m_activeLocalProcess{nullptr};

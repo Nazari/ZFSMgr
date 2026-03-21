@@ -471,6 +471,35 @@ QString connectivityMatrixRemoteProbe(const ConnectionProfile& target) {
     }
     return mwhelpers::sshBaseCommand(target) + QStringLiteral(" ") + targetHost + QStringLiteral(" ") + targetCmd;
 }
+
+QString connectivityMatrixRsyncProbe(const ConnectionProfile& target) {
+    if (target.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
+        return QString();
+    }
+    const QString targetHost = mwhelpers::shSingleQuote(mwhelpers::sshUserHost(target));
+    const QString targetCmd = mwhelpers::shSingleQuote(
+        QStringLiteral("if command -v rsync >/dev/null 2>&1; then echo ZFSMGR_RSYNC_OK; else echo ZFSMGR_RSYNC_MISSING >&2; exit 127; fi"));
+    const QString baseProbe = target.password.trimmed().isEmpty()
+        ? mwhelpers::sshBaseCommand(target) + QStringLiteral(" ") + targetHost + QStringLiteral(" ") + targetCmd
+        : QStringLiteral(
+              "if command -v sshpass >/dev/null 2>&1; then "
+              "SSHPASS=%1 sshpass -e %2 -o BatchMode=no "
+              "-o PreferredAuthentications=password,keyboard-interactive,publickey "
+              "-o NumberOfPasswordPrompts=1 %3 %4; "
+              "else echo %5 >&2; exit 127; fi")
+              .arg(mwhelpers::shSingleQuote(target.password),
+                   mwhelpers::sshBaseCommand(target),
+                   targetHost,
+                   targetCmd,
+                   mwhelpers::shSingleQuote(QStringLiteral("ZFSMgr: sshpass no disponible para esta prueba")));
+
+    return QStringLiteral(
+               "if command -v rsync >/dev/null 2>&1; then "
+               "%1; "
+               "else echo %2 >&2; exit 127; fi")
+        .arg(baseProbe,
+             mwhelpers::shSingleQuote(QStringLiteral("ZFSMgr: rsync no disponible en origen para esta prueba")));
+}
 }
 
 QString MainWindow::connectionDisplayModeForIndex(int connIdx) const {
@@ -563,8 +592,11 @@ void MainWindow::openConnectivityMatrixDialog() {
     };
     auto probeConnectivity = [&](int rowIdx, int colIdx) -> ConnectivityProbeResult {
         ConnectivityProbeResult result;
+        auto composeText = [](const QString& sshState, const QString& rsyncState) -> QString {
+            return QStringLiteral("SSH:%1\nrsync:%2").arg(sshState, rsyncState);
+        };
         if (rowIdx < 0 || rowIdx >= m_profiles.size() || colIdx < 0 || colIdx >= m_profiles.size()) {
-            result.text = QStringLiteral("-");
+            result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
             return result;
         }
         const ConnectionProfile& src = m_profiles[rowIdx];
@@ -572,7 +604,7 @@ void MainWindow::openConnectivityMatrixDialog() {
         const bool srcOk = rowIdx < m_states.size() && m_states[rowIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
         const bool dstOk = colIdx < m_states.size() && m_states[colIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
         if (!srcOk || !dstOk) {
-            result.text = QStringLiteral("-");
+            result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
             result.tooltip = trk(QStringLiteral("t_connectivity_notready_001"),
                                  QStringLiteral("La conexión origen o destino no está en estado OK."),
                                  QStringLiteral("The source or target connection is not in OK state."),
@@ -580,7 +612,7 @@ void MainWindow::openConnectivityMatrixDialog() {
             return result;
         }
         if (rowIdx == colIdx || sameMachine(rowIdx, colIdx)) {
-            result.text = QStringLiteral("✓");
+            result.text = composeText(QStringLiteral("✓"), QStringLiteral("✓"));
             result.tooltip = trk(QStringLiteral("t_connectivity_same_machine_001"),
                                  QStringLiteral("Misma máquina."),
                                  QStringLiteral("Same machine."),
@@ -596,7 +628,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                 effectiveDst = m_profiles[sshIdx];
                 targetLabel = m_profiles[sshIdx].name;
                 if (rowIdx == sshIdx || sameMachine(rowIdx, sshIdx)) {
-                    result.text = QStringLiteral("✓");
+                    result.text = composeText(QStringLiteral("✓"), QStringLiteral("✓"));
                     result.tooltip = trk(QStringLiteral("t_connectivity_same_machine_001"),
                                          QStringLiteral("Misma máquina."),
                                          QStringLiteral("Same machine."),
@@ -605,7 +637,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                     return result;
                 }
             } else {
-                result.text = QStringLiteral("-");
+                result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
                 result.tooltip = trk(QStringLiteral("t_connectivity_local_no_ssh_001"),
                                      QStringLiteral("Local no tiene una conexión SSH equivalente para comprobarla remotamente."),
                                      QStringLiteral("Local has no equivalent SSH connection for remote probing."),
@@ -614,7 +646,7 @@ void MainWindow::openConnectivityMatrixDialog() {
             }
         }
         if (effectiveDst.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
-            result.text = QStringLiteral("-");
+            result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
             result.tooltip = trk(QStringLiteral("t_connectivity_unsupported_target_001"),
                                  QStringLiteral("Solo se comprueba conectividad SSH hacia conexiones SSH/Local."),
                                  QStringLiteral("Only SSH connectivity to SSH/Local connections is checked."),
@@ -622,35 +654,60 @@ void MainWindow::openConnectivityMatrixDialog() {
             return result;
         }
         if (src.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
-            result.text = QStringLiteral("-");
+            result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
             result.tooltip = trk(QStringLiteral("t_connectivity_unsupported_source_001"),
                                  QStringLiteral("No se comprueba conectividad saliente desde conexiones PSRP."),
                                  QStringLiteral("Outgoing connectivity is not checked from PSRP connections."),
                                  QStringLiteral("不检查来自 PSRP 连接的出站连通性。"));
             return result;
         }
-        const QString srcCmd = connectivityMatrixRemoteProbe(effectiveDst);
-        if (srcCmd.trimmed().isEmpty()) {
-            result.text = QStringLiteral("-");
+        const QString sshCmd = connectivityMatrixRemoteProbe(effectiveDst);
+        if (sshCmd.trimmed().isEmpty()) {
+            result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
             return result;
         }
-        QString out;
-        QString err;
-        int rc = -1;
-        const bool ok = runSsh(src, srcCmd, 12000, out, err, rc);
-        const QString merged = (out + QStringLiteral("\n") + err).trimmed();
-        if (ok && rc == 0 && merged.contains(QStringLiteral("ZFSMGR_CONNECT_OK"))) {
-            result.text = QStringLiteral("✓");
-            result.tooltip = trk(QStringLiteral("t_connectivity_ok_001"),
-                                 QStringLiteral("Conectividad verificada hacia %1."),
-                                 QStringLiteral("Connectivity verified to %1."),
-                                 QStringLiteral("到 %1 的连通性已验证。"))
-                                 .arg(targetLabel);
+        QString sshOut;
+        QString sshErr;
+        int sshRc = -1;
+        const bool sshOk = runSsh(src, sshCmd, 12000, sshOut, sshErr, sshRc);
+        const QString sshMerged = (sshOut + QStringLiteral("\n") + sshErr).trimmed();
+        const bool sshProbeOk = sshOk && sshRc == 0 && sshMerged.contains(QStringLiteral("ZFSMGR_CONNECT_OK"));
+
+        QString rsyncState = QStringLiteral("-");
+        QStringList tooltipLines;
+        if (sshProbeOk) {
+            tooltipLines << trk(QStringLiteral("t_connectivity_ok_001"),
+                                QStringLiteral("Conectividad SSH verificada hacia %1."),
+                                QStringLiteral("SSH connectivity verified to %1."),
+                                QStringLiteral("到 %1 的 SSH 连通性已验证。"))
+                                .arg(targetLabel);
+            const QString rsyncCmd = connectivityMatrixRsyncProbe(effectiveDst);
+            if (!rsyncCmd.trimmed().isEmpty()) {
+                QString rsyncOut;
+                QString rsyncErr;
+                int rsyncRc = -1;
+                const bool rsyncOk = runSsh(src, rsyncCmd, 12000, rsyncOut, rsyncErr, rsyncRc);
+                const QString rsyncMerged = (rsyncOut + QStringLiteral("\n") + rsyncErr).trimmed();
+                if (rsyncOk && rsyncRc == 0 && rsyncMerged.contains(QStringLiteral("ZFSMGR_RSYNC_OK"))) {
+                    rsyncState = QStringLiteral("✓");
+                    tooltipLines << trk(QStringLiteral("t_connectivity_rsync_ok_001"),
+                                        QStringLiteral("rsync disponible en origen y destino."),
+                                        QStringLiteral("rsync available on source and target."),
+                                        QStringLiteral("源端和目标端均可用 rsync。"));
+                } else {
+                    rsyncState = QStringLiteral("✗");
+                    tooltipLines << (rsyncMerged.isEmpty()
+                                         ? QStringLiteral("rsync exit %1").arg(rsyncRc)
+                                         : rsyncMerged.left(300));
+                }
+            }
+            result.text = composeText(QStringLiteral("✓"), rsyncState);
+            result.tooltip = tooltipLines.join(QStringLiteral("\n"));
             result.ok = true;
             return result;
         }
-        result.text = QString();
-        result.tooltip = merged.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : merged.left(300);
+        result.text = composeText(QStringLiteral("✗"), QStringLiteral("-"));
+        result.tooltip = sshMerged.isEmpty() ? QStringLiteral("ssh exit %1").arg(sshRc) : sshMerged.left(300);
         return result;
     };
 
@@ -676,9 +733,8 @@ void MainWindow::openConnectivityMatrixDialog() {
     matrix->setSelectionMode(QAbstractItemView::NoSelection);
     matrix->setAlternatingRowColors(false);
     beginUiBusy();
-    if (m_connectivityMatrixBtn) {
-        m_connectivityMatrixBtn->setEnabled(false);
-    }
+    m_connectivityMatrixInProgress = true;
+    updateConnectivityMatrixButtonState();
     for (int r = 0; r < m_profiles.size(); ++r) {
         for (int c = 0; c < m_profiles.size(); ++c) {
             const ConnectivityProbeResult probe = probeConnectivity(r, c);
@@ -687,14 +743,15 @@ void MainWindow::openConnectivityMatrixDialog() {
             item->setToolTip(probe.tooltip);
             if (probe.ok) {
                 item->setForeground(QBrush(QColor(QStringLiteral("#1d6f42"))));
+            } else if (probe.text.contains(QStringLiteral("✗"))) {
+                item->setForeground(QBrush(QColor(QStringLiteral("#8b1e1e"))));
             }
             matrix->setItem(r, c, item);
             qApp->processEvents();
         }
     }
-    if (m_connectivityMatrixBtn) {
-        m_connectivityMatrixBtn->setEnabled(true);
-    }
+    m_connectivityMatrixInProgress = false;
+    updateConnectivityMatrixButtonState();
     endUiBusy();
     layout->addWidget(matrix, 1);
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dlg);
@@ -815,6 +872,7 @@ void MainWindow::refreshAllConnections() {
     if (m_profiles.isEmpty()) {
         m_refreshInProgress = false;
         updateBusyCursor();
+        updateConnectivityMatrixButtonState();
         rebuildConnectionsTable();
         populateAllPoolsTables();
         return;
@@ -830,6 +888,7 @@ void MainWindow::refreshAllConnections() {
     m_refreshTotal = refreshable;
     m_refreshInProgress = (m_refreshPending > 0);
     updateBusyCursor();
+    updateConnectivityMatrixButtonState();
     if (refreshable <= 0) {
         rebuildConnectionsTable();
         populateAllPoolsTables();
@@ -886,6 +945,7 @@ void MainWindow::refreshSelectedConnection() {
     m_refreshTotal = 1;
     m_refreshInProgress = true;
     updateBusyCursor();
+    updateConnectivityMatrixButtonState();
     const ConnectionProfile profile = m_profiles[idx];
     (void)QtConcurrent::run([this, generation, idx, profile]() {
         const ConnectionRuntimeState state = refreshConnection(profile);
@@ -1007,6 +1067,7 @@ void MainWindow::onAsyncRefreshDone(int generation) {
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Refresco paralelo finalizado"));
     m_refreshInProgress = false;
     updateBusyCursor();
+    updateConnectivityMatrixButtonState();
     if (m_busyOnImportRefresh) {
         m_busyOnImportRefresh = false;
         endUiBusy();
@@ -2606,6 +2667,7 @@ void MainWindow::deleteConnection() {
     m_refreshPending = 0;
     m_refreshTotal = 0;
     m_refreshInProgress = false;
+    updateConnectivityMatrixButtonState();
     m_pendingRefreshTopTabDataByConn.clear();
     m_pendingRefreshBottomTabDataByConn.clear();
     updateBusyCursor();
