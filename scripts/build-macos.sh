@@ -145,6 +145,42 @@ prepare_codesign_keychain() {
   security set-keychain-settings -lut 7200 "${keychain_path}" >/dev/null 2>&1 || true
 }
 
+codesign_path() {
+  local path="$1"
+  local cert_name="$2"
+  [[ -e "${path}" ]] || return 0
+  /usr/bin/codesign --remove-signature "${path}" >/dev/null 2>&1 || true
+  /usr/bin/codesign --force --sign "${cert_name}" --timestamp=none -vvv "${path}"
+}
+
+codesign_bundle_contents() {
+  local app_bundle="$1"
+  local cert_name="$2"
+  local main_bin="$3"
+  local frameworks_dir="${app_bundle}/Contents/Frameworks"
+  local plugins_dir="${app_bundle}/Contents/PlugIns"
+  local file
+
+  if [[ -d "${frameworks_dir}" ]]; then
+    while IFS= read -r -d '' file; do
+      codesign_path "${file}" "${cert_name}"
+    done < <(find "${frameworks_dir}" -type f \( -name "*.dylib" -o -perm -111 \) -print0)
+
+    while IFS= read -r -d '' file; do
+      codesign_path "${file}" "${cert_name}"
+    done < <(find "${frameworks_dir}" -type d -name "*.framework" -print0)
+  fi
+
+  if [[ -d "${plugins_dir}" ]]; then
+    while IFS= read -r -d '' file; do
+      codesign_path "${file}" "${cert_name}"
+    done < <(find "${plugins_dir}" -type f \( -name "*.dylib" -o -perm -111 \) -print0)
+  fi
+
+  codesign_path "${main_bin}" "${cert_name}"
+  codesign_path "${app_bundle}" "${cert_name}"
+}
+
 # Soporte Homebrew Apple Silicon e Intel, y Qt instalado manualmente.
 QT_PREFIX=""
 for candidate in \
@@ -564,9 +600,7 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
     echo "codesign debug:"
     security find-identity -v -p codesigning || true
     security show-keychain-info "${HOME}/Library/Keychains/login.keychain-db" || true
-    /usr/bin/codesign --remove-signature "${MAIN_BIN}" >/dev/null 2>&1 || true
-    /usr/bin/codesign --force --sign "${SELF_SIGN_CERT_NAME}" --timestamp=none -vvv "${MAIN_BIN}"
-    /usr/bin/codesign --force --deep --sign "${SELF_SIGN_CERT_NAME}" --timestamp=none -vvv "${APP_BUNDLE}"
+    codesign_bundle_contents "${APP_BUNDLE}" "${SELF_SIGN_CERT_NAME}" "${MAIN_BIN}"
     /usr/bin/codesign --verify --strict --verbose=4 "${MAIN_BIN}"
     /usr/bin/codesign --verify --deep --strict --verbose=4 "${APP_BUNDLE}"
     echo "App macOS creada y firmada con certificado autofirmado: ${APP_BUNDLE}"

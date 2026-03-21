@@ -703,6 +703,8 @@ if ($GenerateInnoInstaller) {
 
   $appVersion = Get-ProjectVersion
   New-Item -ItemType Directory -Force -Path $InnoOutputDir | Out-Null
+  Get-ChildItem -Path $InnoOutputDir -Filter "ZFSMgr-Setup-*.exe" -File -ErrorAction SilentlyContinue |
+    Remove-Item -Force
   $installerPayloadDir = Join-Path $BuildDir "package-runtime"
   New-InstallerPayload -sourceDir $exeDir -payloadDir $installerPayloadDir
 
@@ -720,11 +722,11 @@ if ($GenerateInnoInstaller) {
     throw "ISCC falló (exit $LASTEXITCODE)"
   }
   Write-Host "Instalador generado en: $InnoOutputDir"
-  $installerExe = Get-ChildItem -Path $InnoOutputDir -Filter "*.exe" -File -ErrorAction SilentlyContinue |
+  $installerExe = Get-ChildItem -Path $InnoOutputDir -Filter "ZFSMgr-Setup-$appVersion*.exe" -File -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
   if (-not $installerExe) {
-    throw "No se encontró el instalador .exe generado por Inno Setup."
+    throw "No se encontró el instalador .exe generado por Inno Setup para la versión $appVersion."
   }
   if ($UploadSftp) {
     Upload-ArtifactSftp $installerExe.FullName

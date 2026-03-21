@@ -5,8 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${HOME}/Downloads/zfsmgr-builds"
 
-LINUX_REMOTE="${LINUX_REMOTE:-linarese@fc16.local}"
-WINDOWS_REMOTE="${WINDOWS_REMOTE:-eladi@surface.local}"
+LINUX_REMOTE="${LINUX_REMOTE:-linarese@fc16}"
+WINDOWS_REMOTE="${WINDOWS_REMOTE:-eladi@surface}"
 
 log() {
   printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
@@ -57,11 +57,11 @@ zip_macos_bundle() {
 }
 
 ssh_linux() {
-  ssh -o BatchMode=yes "${LINUX_REMOTE}" "$@"
+  ssh -o BatchMode=yes -o ConnectTimeout=10 "${LINUX_REMOTE}" "$@"
 }
 
 ssh_windows() {
-  ssh -o BatchMode=yes "${WINDOWS_REMOTE}" "$@"
+  ssh -o BatchMode=yes -o ConnectTimeout=10 "${WINDOWS_REMOTE}" "$@"
 }
 
 copy_linux_remote_artifact() {
@@ -192,12 +192,24 @@ if (-not $repo) {
 }
 Set-Location $repo
 git pull --ff-only
+$appVersion = $null
+$cmakeFile = Join-Path $repo "resources\CMakeLists.txt"
+if (Test-Path $cmakeFile) {
+  $content = Get-Content -Raw $cmakeFile
+  $m = [regex]::Match($content, 'set\s*\(\s*ZFSMGR_APP_VERSION_STRING\s+"([^"]+)"')
+  if ($m.Success) {
+    $appVersion = $m.Groups[1].Value
+  }
+}
+if (-not $appVersion) {
+  throw "No se pudo resolver la versión de Windows."
+}
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo "scripts\build-windows.ps1") --inno
-$artifact = Get-ChildItem -Path (Join-Path $repo "build-windows\installer") -Filter "*.exe" -File -ErrorAction Stop |
+$artifact = Get-ChildItem -Path (Join-Path $repo "build-windows\installer") -Filter "ZFSMgr-Setup-$appVersion*.exe" -File -ErrorAction Stop |
   Sort-Object LastWriteTime -Descending |
   Select-Object -First 1 -ExpandProperty FullName
 if (-not $artifact) {
-  throw "No se encontró el .exe generado."
+  throw "No se encontró el .exe generado para la versión $appVersion."
 }
 Write-Output "ARTIFACT_WINDOWS=$artifact"
 EOF
