@@ -15,5 +15,4 @@ AppDir/
 ccodex-linux
 ccodex.macos
 scripts/collect-artifacts
-scripts/buildall.sh
 scripts/recopila.sh
