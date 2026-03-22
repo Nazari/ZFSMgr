@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
+#include "mainwindow_ui_logic.h"
 
 #include <QBrush>
 #include <QApplication>
@@ -307,26 +308,16 @@ void MainWindow::importPoolFromRow(int row) {
         if (connIdx < 0 || connIdx >= m_states.size()) {
             return false;
         }
-        const QString wanted = candidate.trimmed();
-        if (wanted.isEmpty()) {
-            return false;
-        }
-        const QString wantedLower = wanted.toLower();
-        const QString originalLower = originalPoolName.trimmed().toLower();
         const ConnectionRuntimeState& st = m_states[connIdx];
+        QStringList importedPools;
         for (const PoolImported& pool : st.importedPools) {
-            const QString current = pool.pool.trimmed();
-            if (!current.isEmpty() && current.toLower() == wantedLower && current.toLower() != originalLower) {
-                return true;
-            }
+            importedPools.push_back(pool.pool);
         }
+        QStringList importablePools;
         for (const PoolImportable& pool : st.importablePools) {
-            const QString current = pool.pool.trimmed();
-            if (!current.isEmpty() && current.toLower() == wantedLower && current.toLower() != originalLower) {
-                return true;
-            }
+            importablePools.push_back(pool.pool);
         }
-        return false;
+        return zfsmgr::uilogic::isPoolNameInUse(importedPools, importablePools, candidate, originalPoolName);
     };
 
     QDialog dlg(this);
@@ -393,15 +384,12 @@ void MainWindow::importPoolFromRow(int row) {
     connect(bb, &QDialogButtonBox::accepted, &dlg, [&, idx, poolName]() {
         const QString candidate = newNameEd->text().trimmed();
         if (!candidate.isEmpty()) {
-            if (candidate.contains(QLatin1Char('/')) || candidate.contains(QLatin1Char('@'))
-                || candidate.contains(QRegularExpression(QStringLiteral("\\s")))) {
+            QString validationError;
+            if (!zfsmgr::uilogic::isValidPoolRenameCandidate(candidate, &validationError)) {
                 QMessageBox::warning(
                     &dlg,
                     QStringLiteral("ZFSMgr"),
-                    trk(QStringLiteral("t_invalid_pool_new_name_001"),
-                        QStringLiteral("El nuevo nombre del pool no puede contener espacios, '/' ni '@'."),
-                        QStringLiteral("The new pool name cannot contain spaces, '/' or '@'."),
-                        QStringLiteral("新的池名称不能包含空格、“/”或“@”。")));
+                    validationError);
                 return;
             }
             if (poolNameInUseForConnection(idx, candidate, poolName)) {
@@ -540,26 +528,16 @@ void MainWindow::importPoolRenamingFromRow(int row) {
         if (connIdx < 0 || connIdx >= m_states.size()) {
             return false;
         }
-        const QString wanted = candidate.trimmed();
-        if (wanted.isEmpty()) {
-            return false;
-        }
-        const QString wantedLower = wanted.toLower();
-        const QString originalLower = originalPoolName.trimmed().toLower();
         const ConnectionRuntimeState& st = m_states[connIdx];
+        QStringList importedPools;
         for (const PoolImported& pool : st.importedPools) {
-            const QString current = pool.pool.trimmed();
-            if (!current.isEmpty() && current.toLower() == wantedLower && current.toLower() != originalLower) {
-                return true;
-            }
+            importedPools.push_back(pool.pool);
         }
+        QStringList importablePools;
         for (const PoolImportable& pool : st.importablePools) {
-            const QString current = pool.pool.trimmed();
-            if (!current.isEmpty() && current.toLower() == wantedLower && current.toLower() != originalLower) {
-                return true;
-            }
+            importablePools.push_back(pool.pool);
         }
-        return false;
+        return zfsmgr::uilogic::isPoolNameInUse(importedPools, importablePools, candidate, originalPoolName);
     };
 
     QString requestedNewName;
@@ -575,19 +553,12 @@ void MainWindow::importPoolRenamingFromRow(int row) {
         if (!ok) {
             return;
         }
-        if (newName.isEmpty()) {
+        QString validationError;
+        if (!zfsmgr::uilogic::isValidPoolRenameCandidate(newName, &validationError)) {
             QMessageBox::warning(
                 this,
                 QStringLiteral("ZFSMgr"),
-                QStringLiteral("El nuevo nombre del pool no puede estar vacío."));
-            continue;
-        }
-        if (newName.contains(QLatin1Char('/')) || newName.contains(QLatin1Char('@'))
-            || newName.contains(QRegularExpression(QStringLiteral("\\s")))) {
-            QMessageBox::warning(
-                this,
-                QStringLiteral("ZFSMgr"),
-                QStringLiteral("El nuevo nombre del pool no puede contener espacios, '/' ni '@'."));
+                validationError);
             continue;
         }
         if (poolNameInUseForConnection(idx, newName, poolName)) {
@@ -666,15 +637,9 @@ void MainWindow::importPoolRenamingFromRow(int row) {
     auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     connect(bb, &QDialogButtonBox::accepted, &dlg, [&, idx, poolName]() {
         const QString candidate = newNameEd->text().trimmed();
-        if (candidate.isEmpty()) {
-            QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
-                                 QStringLiteral("El nuevo nombre del pool no puede estar vacío."));
-            return;
-        }
-        if (candidate.contains(QLatin1Char('/')) || candidate.contains(QLatin1Char('@'))
-            || candidate.contains(QRegularExpression(QStringLiteral("\\s")))) {
-            QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
-                                 QStringLiteral("El nuevo nombre del pool no puede contener espacios, '/' ni '@'."));
+        QString validationError;
+        if (!zfsmgr::uilogic::isValidPoolRenameCandidate(candidate, &validationError)) {
+            QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"), validationError);
             return;
         }
         if (poolNameInUseForConnection(idx, candidate, poolName)) {

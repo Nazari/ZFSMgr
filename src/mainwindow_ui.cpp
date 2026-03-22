@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
+#include "mainwindow_ui_logic.h"
 
 #include <algorithm>
 #include <QAbstractItemView>
@@ -1206,6 +1207,7 @@ void MainWindow::buildUi() {
     auto* connListBoxLayout = new QVBoxLayout(connListBox);
     connListBoxLayout->setContentsMargins(6, 8, 6, 6);
     m_connectionsTable = new QTableWidget(connListBox);
+    m_connectionsTable->setObjectName(QStringLiteral("connectionsTable"));
     m_connectionsTable->setColumnCount(3);
     m_connectionsTable->setHorizontalHeaderLabels({
         trk(QStringLiteral("t_connections_001"),
@@ -1271,24 +1273,28 @@ void MainWindow::buildUi() {
             QStringLiteral("Break down"),
             QStringLiteral("拆分")),
         m_connActionsBox);
+    m_btnConnBreakdown->setObjectName(QStringLiteral("connBreakdownButton"));
     m_btnConnAssemble = new QPushButton(
         trk(QStringLiteral("t_assemble_btn1"),
             QStringLiteral("Ensamblar"),
             QStringLiteral("Assemble"),
             QStringLiteral("组装")),
         m_connActionsBox);
+    m_btnConnAssemble->setObjectName(QStringLiteral("connAssembleButton"));
     m_btnConnFromDir = new QPushButton(
         trk(QStringLiteral("t_from_dir_btn1"),
             QStringLiteral("Desde Dir"),
             QStringLiteral("From Dir"),
             QStringLiteral("来自目录")),
         m_connActionsBox);
+    m_btnConnFromDir->setObjectName(QStringLiteral("connFromDirButton"));
     m_btnConnToDir = new QPushButton(
         trk(QStringLiteral("t_to_dir_btn_001"),
             QStringLiteral("Hacia Dir"),
             QStringLiteral("To Dir"),
             QStringLiteral("到目录")),
         m_connActionsBox);
+    m_btnConnToDir->setObjectName(QStringLiteral("connToDirButton"));
     m_btnConnBreakdown->setFont(baseUiFont);
     m_btnConnAssemble->setFont(baseUiFont);
     m_btnConnFromDir->setFont(baseUiFont);
@@ -1384,26 +1390,31 @@ void MainWindow::buildUi() {
             QStringLiteral("Copy"),
             QStringLiteral("复制")),
         connActionRightBox);
+    m_btnConnCopy->setObjectName(QStringLiteral("connCopyButton"));
     m_btnConnClone = new QPushButton(
         trk(QStringLiteral("t_clone_btn_001"),
             QStringLiteral("Clonar")),
         connActionRightBox);
+    m_btnConnClone->setObjectName(QStringLiteral("connCloneButton"));
     m_btnConnMove = new QPushButton(
         trk(QStringLiteral("t_move_btn_001"),
             QStringLiteral("Mover"),
             QStringLiteral("Move"),
             QStringLiteral("移动")),
         connActionRightBox);
+    m_btnConnMove->setObjectName(QStringLiteral("connMoveButton"));
     m_btnConnDiff = new QPushButton(
         trk(QStringLiteral("t_diff_btn_001"),
             QStringLiteral("Diff")),
         connActionRightBox);
+    m_btnConnDiff->setObjectName(QStringLiteral("connDiffButton"));
     m_btnConnLevel = new QPushButton(
         trk(QStringLiteral("t_level_btn_001"),
             QStringLiteral("Nivelar"),
             QStringLiteral("Level"),
             QStringLiteral("同步快照")),
         connActionRightBox);
+    m_btnConnLevel->setObjectName(QStringLiteral("connLevelButton"));
     m_btnApplyConnContentProps->setFont(baseUiFont);
     m_btnDiscardPendingChanges->setFont(baseUiFont);
     m_btnConnCopy->setFont(baseUiFont);
@@ -1417,6 +1428,7 @@ void MainWindow::buildUi() {
             QStringLiteral("Sync"),
             QStringLiteral("同步文件")),
         connActionRightBox);
+    m_btnConnSync->setObjectName(QStringLiteral("connSyncButton"));
     m_btnConnSync->setFont(baseUiFont);
     m_btnConnCopy->setToolTip(
         trk(QStringLiteral("t_tt_copy_001"),
@@ -1650,6 +1662,7 @@ void MainWindow::buildUi() {
     connContentLayout->setContentsMargins(0, 0, 0, 0);
     connContentLayout->setSpacing(4);
     m_connContentTree = new QTreeWidget(m_connContentPage);
+    m_connContentTree->setObjectName(QStringLiteral("connContentTreeTop"));
     m_connContentTree->setColumnCount(4);
     m_connContentTree->setHeaderLabels({QStringLiteral("Origen:")
                                             + trk(QStringLiteral("t_dataset_001"),
@@ -1798,6 +1811,7 @@ void MainWindow::buildUi() {
     m_bottomConnectionEntityTabs->setVisible(false);
     bottomConnLayout->addWidget(m_bottomConnectionEntityTabs, 0);
     m_bottomConnContentTree = new QTreeWidget(bottomConnBox);
+    m_bottomConnContentTree->setObjectName(QStringLiteral("connContentTreeBottom"));
     m_bottomConnContentTree->setColumnCount(4);
     m_bottomConnContentTree->setHeaderLabels({QStringLiteral("Destino:")
                                                    + trk(QStringLiteral("t_dataset_001"),
@@ -2042,6 +2056,7 @@ void MainWindow::buildUi() {
     appLogLayout->setContentsMargins(6, 6, 6, 6);
     appLogLayout->setSpacing(4);
     m_logView = new QPlainTextEdit(appLogBox);
+    m_logView->setObjectName(QStringLiteral("applicationLogView"));
     m_logView->setReadOnly(true);
     m_logView->setLineWrapMode(QPlainTextEdit::NoWrap);
     m_logView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -4507,16 +4522,8 @@ void MainWindow::buildUi() {
                     (poolRow >= 0 && poolRow < m_poolListEntries.size())
                         ? m_poolListEntries[poolRow].action.trimmed()
                         : QString();
-                const bool canImport = (poolAction.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) == 0);
-                const bool canExport = (poolAction.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) == 0);
-                const bool canHistory = canExport;
-                const bool canSync = canExport;
-                const bool canScrub = canExport;
-                const bool canReguid = canExport;
-                const bool canTrim = canExport;
-                const bool canInitialize = canExport;
-                const bool canDestroy = canExport;
-                const bool canRefresh = (poolRow >= 0);
+                const zfsmgr::uilogic::PoolRootMenuState menuState =
+                    zfsmgr::uilogic::buildPoolRootMenuState(poolAction, QStringLiteral("ONLINE"), poolRow >= 0);
                 QAction* aUpdate = menu.addAction(
                     trk(QStringLiteral("t_refresh_btn001"),
                         QStringLiteral("Actualizar"),
@@ -4546,42 +4553,42 @@ void MainWindow::buildUi() {
                 QAction* aShowPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del pool"));
                 aShowPoolInfo->setCheckable(true);
                 aShowPoolInfo->setChecked(m_showPoolInfoNode);
-                aUpdate->setEnabled(canRefresh);
-                aImport->setEnabled(canImport);
-                aImportRename->setEnabled(canImport);
-                aExport->setEnabled(canExport);
-                aHistory->setEnabled(canHistory);
-                aSync->setEnabled(canSync);
-                aScrub->setEnabled(canScrub);
-                aReguid->setEnabled(canReguid);
-                aTrim->setEnabled(canTrim);
-                aInitialize->setEnabled(canInitialize);
-                aDestroy->setEnabled(canDestroy);
+                aUpdate->setEnabled(menuState.canRefresh);
+                aImport->setEnabled(menuState.canImport);
+                aImportRename->setEnabled(menuState.canImport);
+                aExport->setEnabled(menuState.canExport);
+                aHistory->setEnabled(menuState.canHistory);
+                aSync->setEnabled(menuState.canSync);
+                aScrub->setEnabled(menuState.canScrub);
+                aReguid->setEnabled(menuState.canReguid);
+                aTrim->setEnabled(menuState.canTrim);
+                aInitialize->setEnabled(menuState.canInitialize);
+                aDestroy->setEnabled(menuState.canDestroy);
                 QAction* picked = menu.exec(m_bottomConnContentTree->viewport()->mapToGlobal(pos));
                 if (!picked) {
                     return;
                 }
-                if (picked == aUpdate && canRefresh) {
+                if (picked == aUpdate && menuState.canRefresh) {
                     refreshSelectedPoolDetails(true, true);
-                } else if (picked == aImport && canImport && poolRow >= 0) {
+                } else if (picked == aImport && menuState.canImport && poolRow >= 0) {
                     importPoolFromRow(poolRow);
-                } else if (picked == aImportRename && canImport && poolRow >= 0) {
+                } else if (picked == aImportRename && menuState.canImport && poolRow >= 0) {
                     importPoolRenamingFromRow(poolRow);
-                } else if (picked == aExport && canExport && poolRow >= 0) {
+                } else if (picked == aExport && menuState.canExport && poolRow >= 0) {
                     exportPoolFromRow(poolRow);
-                } else if (picked == aHistory && canHistory && poolRow >= 0) {
+                } else if (picked == aHistory && menuState.canHistory && poolRow >= 0) {
                     showPoolHistoryFromRow(poolRow);
-                } else if (picked == aSync && canSync && poolRow >= 0) {
+                } else if (picked == aSync && menuState.canSync && poolRow >= 0) {
                     syncPoolFromRow(poolRow);
-                } else if (picked == aScrub && canScrub && poolRow >= 0) {
+                } else if (picked == aScrub && menuState.canScrub && poolRow >= 0) {
                     scrubPoolFromRow(poolRow);
-                } else if (picked == aReguid && canReguid && poolRow >= 0) {
+                } else if (picked == aReguid && menuState.canReguid && poolRow >= 0) {
                     reguidPoolFromRow(poolRow);
-                } else if (picked == aTrim && canTrim && poolRow >= 0) {
+                } else if (picked == aTrim && menuState.canTrim && poolRow >= 0) {
                     trimPoolFromRow(poolRow);
-                } else if (picked == aInitialize && canInitialize && poolRow >= 0) {
+                } else if (picked == aInitialize && menuState.canInitialize && poolRow >= 0) {
                     initializePoolFromRow(poolRow);
-                } else if (picked == aDestroy && canDestroy && poolRow >= 0) {
+                } else if (picked == aDestroy && menuState.canDestroy && poolRow >= 0) {
                     destroyPoolFromRow(poolRow);
                 } else if (picked == aShowPoolInfo) {
                     m_showPoolInfoNode = aShowPoolInfo->isChecked();
@@ -5057,9 +5064,6 @@ void MainWindow::buildUi() {
         }
         const bool hasConn = (connIdx >= 0 && connIdx < m_profiles.size());
         const bool isDisconnected = hasConn && isConnectionDisconnected(connIdx);
-        const bool canRefresh = hasConn && !isDisconnected && !actionsLocked();
-        const bool canEditDelete = hasConn && !actionsLocked() && !isLocalConnection(connIdx)
-            && !isConnectionRedirectedToLocal(connIdx);
         const bool hasWindowsUnixLayerReady =
             hasConn
             && connIdx < m_states.size()
@@ -5067,8 +5071,6 @@ void MainWindow::buildUi() {
             && m_states[connIdx].unixFromMsysOrMingw
             && m_states[connIdx].missingUnixCommands.isEmpty()
             && !m_states[connIdx].detectedUnixCommands.isEmpty();
-        const bool canInstallMsys =
-            hasConn && !actionsLocked() && !isDisconnected && isWindowsConnection(connIdx) && !hasWindowsUnixLayerReady;
         const bool canManageGsa =
             hasConn && !actionsLocked() && !isDisconnected
             && connIdx < m_states.size()
@@ -5082,6 +5084,17 @@ void MainWindow::buildUi() {
             hasConn && !actionsLocked() && !isDisconnected
             && connIdx < m_states.size()
             && m_states[connIdx].gsaInstalled;
+        const zfsmgr::uilogic::ConnectionContextMenuState menuState =
+            zfsmgr::uilogic::buildConnectionContextMenuState(
+                hasConn,
+                isDisconnected,
+                actionsLocked(),
+                hasConn && isLocalConnection(connIdx),
+                hasConn && isConnectionRedirectedToLocal(connIdx),
+                hasConn && isWindowsConnection(connIdx),
+                hasWindowsUnixLayerReady,
+                canManageGsa,
+                canUninstallGsa);
 
         QMenu menu(this);
         QAction* aConnect = menu.addAction(
@@ -5146,18 +5159,18 @@ void MainWindow::buildUi() {
                 QStringLiteral("Nuevo Pool"),
                 QStringLiteral("New Pool"),
                 QStringLiteral("新建存储池")));
-        aConnect->setEnabled(!actionsLocked() && hasConn && isDisconnected);
-        aDisconnect->setEnabled(!actionsLocked() && hasConn && !isDisconnected);
-        aInstallMsys->setEnabled(canInstallMsys);
-        aManageGsa->setEnabled(canManageGsa);
-        aUninstallGsa->setEnabled(canUninstallGsa);
-        gsaMenu->setEnabled(canManageGsa || canUninstallGsa);
-        aRefresh->setEnabled(canRefresh);
-        aRefreshAll->setEnabled(!actionsLocked());
-        aEdit->setEnabled(canEditDelete);
-        aDelete->setEnabled(canEditDelete);
-        aNewConn->setEnabled(!actionsLocked());
-        aNewPool->setEnabled(!actionsLocked() && hasConn && !isDisconnected);
+        aConnect->setEnabled(menuState.canConnect);
+        aDisconnect->setEnabled(menuState.canDisconnect);
+        aInstallMsys->setEnabled(menuState.canInstallMsys);
+        aManageGsa->setEnabled(menuState.canManageGsa);
+        aUninstallGsa->setEnabled(menuState.canUninstallGsa);
+        gsaMenu->setEnabled(menuState.gsaSubmenuEnabled);
+        aRefresh->setEnabled(menuState.canRefreshThis);
+        aRefreshAll->setEnabled(menuState.canRefreshAll);
+        aEdit->setEnabled(menuState.canEditDelete);
+        aDelete->setEnabled(menuState.canEditDelete);
+        aNewConn->setEnabled(menuState.canNewConnection);
+        aNewPool->setEnabled(menuState.canNewPool);
 
         QAction* chosen = menu.exec(m_connectionsTable->viewport()->mapToGlobal(pos));
         if (!chosen) {
@@ -6054,16 +6067,8 @@ void MainWindow::buildUi() {
                     (poolRow >= 0 && poolRow < m_poolListEntries.size())
                         ? m_poolListEntries[poolRow].action.trimmed()
                         : QString();
-                const bool canImport = (poolAction.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) == 0);
-                const bool canExport = (poolAction.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) == 0);
-                const bool canHistory = canExport;
-                const bool canSync = canExport;
-                const bool canScrub = canExport;
-                const bool canReguid = canExport;
-                const bool canTrim = canExport;
-                const bool canInitialize = canExport;
-                const bool canDestroy = canExport;
-                const bool canRefresh = (poolRow >= 0);
+                const zfsmgr::uilogic::PoolRootMenuState menuState =
+                    zfsmgr::uilogic::buildPoolRootMenuState(poolAction, QStringLiteral("ONLINE"), poolRow >= 0);
 
                 QAction* aUpdate = menu.addAction(
                     trk(QStringLiteral("t_refresh_btn001"),
@@ -6094,42 +6099,42 @@ void MainWindow::buildUi() {
                 QAction* aShowPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del pool"));
                 aShowPoolInfo->setCheckable(true);
                 aShowPoolInfo->setChecked(m_showPoolInfoNode);
-                aUpdate->setEnabled(canRefresh);
-                aImport->setEnabled(canImport);
-                aImportRename->setEnabled(canImport);
-                aExport->setEnabled(canExport);
-                aHistory->setEnabled(canHistory);
-                aSync->setEnabled(canSync);
-                aScrub->setEnabled(canScrub);
-                aReguid->setEnabled(canReguid);
-                aTrim->setEnabled(canTrim);
-                aInitialize->setEnabled(canInitialize);
-                aDestroy->setEnabled(canDestroy);
+                aUpdate->setEnabled(menuState.canRefresh);
+                aImport->setEnabled(menuState.canImport);
+                aImportRename->setEnabled(menuState.canImport);
+                aExport->setEnabled(menuState.canExport);
+                aHistory->setEnabled(menuState.canHistory);
+                aSync->setEnabled(menuState.canSync);
+                aScrub->setEnabled(menuState.canScrub);
+                aReguid->setEnabled(menuState.canReguid);
+                aTrim->setEnabled(menuState.canTrim);
+                aInitialize->setEnabled(menuState.canInitialize);
+                aDestroy->setEnabled(menuState.canDestroy);
                 QAction* picked = menu.exec(m_connContentTree->viewport()->mapToGlobal(pos));
                 if (!picked) {
                     return;
                 }
-                if (picked == aUpdate && canRefresh) {
+                if (picked == aUpdate && menuState.canRefresh) {
                     refreshSelectedPoolDetails(true, true);
-                } else if (picked == aImport && canImport && poolRow >= 0) {
+                } else if (picked == aImport && menuState.canImport && poolRow >= 0) {
                     importPoolFromRow(poolRow);
-                } else if (picked == aImportRename && canImport && poolRow >= 0) {
+                } else if (picked == aImportRename && menuState.canImport && poolRow >= 0) {
                     importPoolRenamingFromRow(poolRow);
-                } else if (picked == aExport && canExport && poolRow >= 0) {
+                } else if (picked == aExport && menuState.canExport && poolRow >= 0) {
                     exportPoolFromRow(poolRow);
-                } else if (picked == aHistory && canHistory && poolRow >= 0) {
+                } else if (picked == aHistory && menuState.canHistory && poolRow >= 0) {
                     showPoolHistoryFromRow(poolRow);
-                } else if (picked == aSync && canSync && poolRow >= 0) {
+                } else if (picked == aSync && menuState.canSync && poolRow >= 0) {
                     syncPoolFromRow(poolRow);
-                } else if (picked == aScrub && canScrub && poolRow >= 0) {
+                } else if (picked == aScrub && menuState.canScrub && poolRow >= 0) {
                     scrubPoolFromRow(poolRow);
-                } else if (picked == aReguid && canReguid && poolRow >= 0) {
+                } else if (picked == aReguid && menuState.canReguid && poolRow >= 0) {
                     reguidPoolFromRow(poolRow);
-                } else if (picked == aTrim && canTrim && poolRow >= 0) {
+                } else if (picked == aTrim && menuState.canTrim && poolRow >= 0) {
                     trimPoolFromRow(poolRow);
-                } else if (picked == aInitialize && canInitialize && poolRow >= 0) {
+                } else if (picked == aInitialize && menuState.canInitialize && poolRow >= 0) {
                     initializePoolFromRow(poolRow);
-                } else if (picked == aDestroy && canDestroy && poolRow >= 0) {
+                } else if (picked == aDestroy && menuState.canDestroy && poolRow >= 0) {
                     destroyPoolFromRow(poolRow);
                 } else if (picked == aShowPoolInfo) {
                     m_showPoolInfoNode = aShowPoolInfo->isChecked();

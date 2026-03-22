@@ -11,13 +11,13 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Core Gui Concurrent Network)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Core Gui Concurrent Network Test)
 find_package(OpenSSL REQUIRED)
 
-qt_add_executable(zfsmgr_qt
-    ../src/main.cpp
+set(ZFSMGR_CORE_SOURCES
     ../src/mainwindow.cpp
     ../src/mainwindow_helpers.cpp
+    ../src/mainwindow_ui_logic.cpp
     ../src/mainwindow_ui.cpp
     ../src/mainwindow_dialogs.cpp
     ../src/mainwindow_connections.cpp
@@ -54,12 +54,22 @@ qt_add_executable(zfsmgr_qt
     resources.qrc
 )
 
-target_link_libraries(zfsmgr_qt PRIVATE Qt6::Widgets Qt6::Core Qt6::Gui Qt6::Concurrent Qt6::Network OpenSSL::Crypto)
+qt_add_library(zfsmgr_core STATIC ${ZFSMGR_CORE_SOURCES})
 
-target_compile_definitions(zfsmgr_qt PRIVATE
+target_link_libraries(zfsmgr_core PUBLIC Qt6::Widgets Qt6::Core Qt6::Gui Qt6::Concurrent Qt6::Network OpenSSL::Crypto)
+
+target_include_directories(zfsmgr_core PUBLIC ../src)
+
+target_compile_definitions(zfsmgr_core PUBLIC
     QT_NO_KEYWORDS
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
 )
+
+qt_add_executable(zfsmgr_qt
+    ../src/main.cpp
+)
+
+target_link_libraries(zfsmgr_qt PRIVATE zfsmgr_core)
 
 if(WIN32)
     target_sources(zfsmgr_qt PRIVATE appicon.rc)
@@ -99,4 +109,29 @@ if(BUILD_TESTING)
         ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
     )
     add_test(NAME zfsmgr_helpers_test COMMAND zfsmgr_helpers_test)
+
+    qt_add_executable(zfsmgr_ui_logic_test
+        ../tests/ui_logic_test.cpp
+        ../src/mainwindow_ui_logic.cpp
+    )
+    target_include_directories(zfsmgr_ui_logic_test PRIVATE ../src)
+    target_link_libraries(zfsmgr_ui_logic_test PRIVATE Qt6::Core Qt6::Test)
+    target_compile_definitions(zfsmgr_ui_logic_test PRIVATE
+        QT_NO_KEYWORDS
+        ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
+    )
+    add_test(NAME zfsmgr_ui_logic_test COMMAND zfsmgr_ui_logic_test)
+
+    qt_add_executable(zfsmgr_gui_mainwindow_test
+        ../tests/gui_mainwindow_test.cpp
+    )
+    target_include_directories(zfsmgr_gui_mainwindow_test PRIVATE ../src)
+    target_link_libraries(zfsmgr_gui_mainwindow_test PRIVATE zfsmgr_core Qt6::Test)
+    target_compile_definitions(zfsmgr_gui_mainwindow_test PRIVATE
+        QT_NO_KEYWORDS
+        ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
+    )
+    add_test(NAME zfsmgr_gui_mainwindow_test COMMAND zfsmgr_gui_mainwindow_test)
+    set_tests_properties(zfsmgr_gui_mainwindow_test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;ZFSMGR_TEST_MODE=1")
 endif()
