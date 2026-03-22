@@ -68,6 +68,7 @@ private Q_SLOTS:
         window.configureSingleConnectionUiTestState(profile,
                                                     {QStringLiteral("tank1")},
                                                     {QStringLiteral("tank2")});
+        window.setShowPoolInfoNodeForTest(true);
         window.rebuildConnectionDetailsForTest();
 
         const QStringList initialTopPools = window.topLevelPoolNamesForTest(false);
@@ -159,6 +160,41 @@ private Q_SLOTS:
         QVERIFY(topChildren.contains(QStringLiteral("Programar snapshots")));
         bottomChildren = window.childLabelsForDatasetForTest(QStringLiteral("tank1"), true);
         QVERIFY(bottomChildren.contains(QStringLiteral("Programar snapshots")));
+    }
+
+    void gsaNodeKeepsExpandedStateAfterConnContentRebuild() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        profile.useSudo = true;
+
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
+        window.configurePoolDatasetsForTest(
+            0,
+            QStringLiteral("tank1"),
+            {MainWindow::UiTestDatasetSeed{QStringLiteral("tank1"),
+                                           QStringLiteral("/tank1"),
+                                           QStringLiteral("on"),
+                                           QStringLiteral("yes"),
+                                           {QStringLiteral("manual-001")}}});
+        window.rebuildConnectionDetailsForTest();
+
+        QVERIFY(window.selectDatasetForTest(QStringLiteral("tank1"), false));
+        QVERIFY(window.setDatasetChildExpandedForTest(QStringLiteral("tank1"),
+                                                     QStringLiteral("Programar snapshots"),
+                                                     true,
+                                                     false));
+        QVERIFY(window.isDatasetChildExpandedForTest(QStringLiteral("tank1"),
+                                                    QStringLiteral("Programar snapshots"),
+                                                    false));
+
+        window.rebuildConnContentTreeForTest(QStringLiteral("tank1"), false);
+
+        QVERIFY(window.isDatasetChildExpandedForTest(QStringLiteral("tank1"),
+                                                    QStringLiteral("Programar snapshots"),
+                                                    false));
     }
 
     void automaticSnapshotsAreFilteredFromDatasetWhenHidden() {

@@ -119,6 +119,171 @@ void MainWindow::setShowAutomaticSnapshotsForTest(bool visible) {
     rebuildConnectionDetailsForTest();
 }
 
+bool MainWindow::selectDatasetForTest(const QString& datasetName, bool bottom) {
+    QTreeWidget* tree = bottom ? m_bottomConnContentTree : m_connContentTree;
+    if (!tree || datasetName.trimmed().isEmpty()) {
+        return false;
+    }
+    const QString wanted = datasetName.trimmed();
+    std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* node) -> QTreeWidgetItem* {
+        if (!node) {
+            return nullptr;
+        }
+        if (node->data(0, Qt::UserRole).toString().trimmed() == wanted) {
+            return node;
+        }
+        for (int i = 0; i < node->childCount(); ++i) {
+            if (QTreeWidgetItem* found = rec(node->child(i))) {
+                return found;
+            }
+        }
+        return nullptr;
+    };
+    QTreeWidgetItem* item = nullptr;
+    for (int i = 0; i < tree->topLevelItemCount() && !item; ++i) {
+        item = rec(tree->topLevelItem(i));
+    }
+    if (!item) {
+        return false;
+    }
+    QTreeWidget* prevTree = m_connContentTree;
+    const QString prevToken = m_connContentToken;
+    if (bottom) {
+        const int bIdx = m_bottomConnectionEntityTabs ? m_bottomConnectionEntityTabs->currentIndex() : -1;
+        if (bIdx >= 0 && m_bottomConnectionEntityTabs && bIdx < m_bottomConnectionEntityTabs->count()) {
+            const QString key = m_bottomConnectionEntityTabs->tabData(bIdx).toString();
+            const QStringList parts = key.split(':');
+            if (parts.size() >= 3 && parts.first() == QStringLiteral("pool")) {
+                m_connContentToken = QStringLiteral("%1::%2").arg(parts.value(1)).arg(parts.value(2).trimmed());
+            }
+        }
+        m_connContentTree = tree;
+    }
+    tree->setCurrentItem(item);
+    refreshDatasetProperties(QStringLiteral("conncontent"));
+    m_connContentTree = prevTree;
+    m_connContentToken = prevToken;
+    return true;
+}
+
+bool MainWindow::setDatasetChildExpandedForTest(const QString& datasetName, const QString& childLabel, bool expanded, bool bottom) {
+    QTreeWidget* tree = bottom ? m_bottomConnContentTree : m_connContentTree;
+    if (!tree || datasetName.trimmed().isEmpty() || childLabel.trimmed().isEmpty()) {
+        return false;
+    }
+    const QString wantedDataset = datasetName.trimmed();
+    const QString wantedChild = childLabel.trimmed();
+    std::function<QTreeWidgetItem*(QTreeWidgetItem*)> recDataset = [&](QTreeWidgetItem* node) -> QTreeWidgetItem* {
+        if (!node) {
+            return nullptr;
+        }
+        if (node->data(0, Qt::UserRole).toString().trimmed() == wantedDataset) {
+            return node;
+        }
+        for (int i = 0; i < node->childCount(); ++i) {
+            if (QTreeWidgetItem* found = recDataset(node->child(i))) {
+                return found;
+            }
+        }
+        return nullptr;
+    };
+    QTreeWidgetItem* datasetItem = nullptr;
+    for (int i = 0; i < tree->topLevelItemCount() && !datasetItem; ++i) {
+        datasetItem = recDataset(tree->topLevelItem(i));
+    }
+    if (!datasetItem) {
+        return false;
+    }
+    for (int i = 0; i < datasetItem->childCount(); ++i) {
+        QTreeWidgetItem* child = datasetItem->child(i);
+        if (child && child->text(0).trimmed() == wantedChild) {
+            child->setExpanded(expanded);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool MainWindow::isDatasetChildExpandedForTest(const QString& datasetName, const QString& childLabel, bool bottom) const {
+    QTreeWidget* tree = bottom ? m_bottomConnContentTree : m_connContentTree;
+    if (!tree || datasetName.trimmed().isEmpty() || childLabel.trimmed().isEmpty()) {
+        return false;
+    }
+    const QString wantedDataset = datasetName.trimmed();
+    const QString wantedChild = childLabel.trimmed();
+    std::function<QTreeWidgetItem*(QTreeWidgetItem*)> recDataset = [&](QTreeWidgetItem* node) -> QTreeWidgetItem* {
+        if (!node) {
+            return nullptr;
+        }
+        if (node->data(0, Qt::UserRole).toString().trimmed() == wantedDataset) {
+            return node;
+        }
+        for (int i = 0; i < node->childCount(); ++i) {
+            if (QTreeWidgetItem* found = recDataset(node->child(i))) {
+                return found;
+            }
+        }
+        return nullptr;
+    };
+    QTreeWidgetItem* datasetItem = nullptr;
+    for (int i = 0; i < tree->topLevelItemCount() && !datasetItem; ++i) {
+        datasetItem = recDataset(tree->topLevelItem(i));
+    }
+    if (!datasetItem) {
+        return false;
+    }
+    for (int i = 0; i < datasetItem->childCount(); ++i) {
+        QTreeWidgetItem* child = datasetItem->child(i);
+        if (child && child->text(0).trimmed() == wantedChild) {
+            return child->isExpanded();
+        }
+    }
+    return false;
+}
+
+void MainWindow::rebuildConnContentTreeForTest(const QString& datasetToSelect, bool bottom) {
+    QTreeWidget* tree = bottom ? m_bottomConnContentTree : m_connContentTree;
+    if (!tree) {
+        return;
+    }
+    const QString token = [&]() -> QString {
+        if (!bottom) {
+            return m_connContentToken;
+        }
+        const int bIdx = m_bottomConnectionEntityTabs ? m_bottomConnectionEntityTabs->currentIndex() : -1;
+        if (bIdx < 0 || !m_bottomConnectionEntityTabs || bIdx >= m_bottomConnectionEntityTabs->count()) {
+            return QString();
+        }
+        const QString key = m_bottomConnectionEntityTabs->tabData(bIdx).toString();
+        const QStringList parts = key.split(':');
+        if (parts.size() < 3 || parts.first() != QStringLiteral("pool")) {
+            return QString();
+        }
+        return QStringLiteral("%1::%2").arg(parts.value(1)).arg(parts.value(2).trimmed());
+    }();
+    const int sep = token.indexOf(QStringLiteral("::"));
+    if (sep <= 0) {
+        return;
+    }
+    bool okConn = false;
+    const int connIdx = token.left(sep).toInt(&okConn);
+    const QString poolName = token.mid(sep + 2).trimmed();
+    if (!okConn || connIdx < 0 || poolName.isEmpty()) {
+        return;
+    }
+    QTreeWidget* prevTree = m_connContentTree;
+    const QString prevToken = m_connContentToken;
+    m_connContentTree = tree;
+    m_connContentToken = token;
+    saveConnContentTreeState(token);
+    populateDatasetTree(tree, connIdx, poolName, QStringLiteral("conncontent"), true);
+    if (!datasetToSelect.trimmed().isEmpty()) {
+        selectDatasetForTest(datasetToSelect, bottom);
+    }
+    m_connContentTree = prevTree;
+    m_connContentToken = prevToken;
+}
+
 QStringList MainWindow::topLevelPoolNamesForTest(bool bottom) const {
     QStringList names;
     QTreeWidget* tree = bottom ? m_bottomConnContentTree : m_connContentTree;

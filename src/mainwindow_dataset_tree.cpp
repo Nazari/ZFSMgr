@@ -1696,6 +1696,20 @@ void MainWindow::syncConnContentPropertyColumns() {
         gsaNode = nullptr;
     }
     insertAt = appendSnapshotHoldsNode(sel, insertAt);
+    if (tree == m_connContentTree && !m_connContentToken.trimmed().isEmpty()) {
+        const QString scopedToken =
+            m_connContentToken
+            + ((tree == m_bottomConnContentTree) ? QStringLiteral("|bottom")
+                                                 : QStringLiteral("|top"));
+        const auto stateIt = m_connContentTreeStateByToken.constFind(scopedToken);
+        const QString selectedDatasetName = sel->data(0, Qt::UserRole).toString().trimmed();
+        if (stateIt != m_connContentTreeStateByToken.cend() && !selectedDatasetName.isEmpty()) {
+            const auto childIt = stateIt->expandedChildPathsByDataset.constFind(selectedDatasetName);
+            if (childIt != stateIt->expandedChildPathsByDataset.cend()) {
+                restoreExpandedConnContentChildPaths(sel, childIt.value());
+            }
+        }
+    }
     auto refreshVisiblePermissionsNodes = [&](auto&& self, QTreeWidgetItem* node) -> void {
         if (!node) {
             return;

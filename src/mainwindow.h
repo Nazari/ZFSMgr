@@ -63,6 +63,10 @@ public:
     QStringList topLevelPoolNamesForTest(bool bottom = false) const;
     QStringList childLabelsForDatasetForTest(const QString& datasetName, bool bottom = false) const;
     QStringList snapshotNamesForDatasetForTest(const QString& datasetName, bool bottom = false) const;
+    bool selectDatasetForTest(const QString& datasetName, bool bottom = false);
+    bool setDatasetChildExpandedForTest(const QString& datasetName, const QString& childLabel, bool expanded, bool bottom = false);
+    bool isDatasetChildExpandedForTest(const QString& datasetName, const QString& childLabel, bool bottom = false) const;
+    void rebuildConnContentTreeForTest(const QString& datasetToSelect, bool bottom = false);
     QStringList connectionContextMenuTopLevelLabelsForTest() const;
     QStringList connectionRefreshMenuLabelsForTest() const;
     QStringList connectionGsaMenuLabelsForTest() const;

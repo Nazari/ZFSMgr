@@ -144,6 +144,7 @@ private:
 }
 
 int main(int argc, char* argv[]) {
+    Q_INIT_RESOURCE(resources);
 #ifdef Q_OS_MAC
     // Keep macOS visuals consistent by routing dialogs and widgets through Qt's Fusion style.
     QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs, true);
