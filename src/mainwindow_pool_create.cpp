@@ -2,6 +2,7 @@
 #include "mainwindow_helpers.h"
 
 #include <QAbstractItemView>
+#include <QApplication>
 #include <QBrush>
 #include <QCheckBox>
 #include <QColor>
@@ -899,8 +900,32 @@ void MainWindow::createPoolForSelectedConnection() {
                                      || macSynthesizedRootPaths.contains(rootPath);
         }
     }
+    {
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
+                if (it.value().inPool) {
+                    QString parentPath = deviceTreeParentPath(it.value().path);
+                    if (parentPath.isEmpty()) {
+                        parentPath = deviceTreeParentPath(it.value().resolvedPath);
+                    }
+                    if (parentPath.isEmpty()) {
+                        continue;
+                    }
+                    auto parentIt = devicesByPath.find(parentPath);
+                    if (parentIt != devicesByPath.end() && !parentIt->inPool) {
+                        parentIt->inPool = true;
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
 
     QDialog dlg(this);
+    const QFont baseUiFont = QApplication::font();
+    dlg.setFont(baseUiFont);
     dlg.setWindowTitle(
         trk(QStringLiteral("t_poolcrt_auto002"), QStringLiteral("Crear pool en %1"), QStringLiteral("Create pool on %1"), QStringLiteral("在 %1 创建池"))
             .arg(p.name));
@@ -1126,6 +1151,7 @@ void MainWindow::createPoolForSelectedConnection() {
     vdevHelp->setWordWrap(true);
     vdevLay->addWidget(vdevHelp, 0);
     PoolLayoutTreeWidget* poolTree = new PoolLayoutTreeWidget(vdevBox);
+    poolTree->setFont(baseUiFont);
     poolTree->setHeaderHidden(true);
     poolTree->setContextMenuPolicy(Qt::CustomContextMenu);
     poolTree->setDragEnabled(true);
@@ -1150,6 +1176,7 @@ void MainWindow::createPoolForSelectedConnection() {
         &dlg);
     auto* devicesLayout = new QVBoxLayout(devicesBox);
     DeviceDragTreeWidget* devicesTree = new DeviceDragTreeWidget(devicesBox);
+    devicesTree->setFont(baseUiFont);
     devicesTree->setColumnCount(5);
     devicesTree->setHeaderLabels({
         trk(QStringLiteral("t_poolcrt_auto017"), QStringLiteral("Device"), QStringLiteral("Device"), QStringLiteral("设备")),
@@ -1454,6 +1481,7 @@ void MainWindow::createPoolForSelectedConnection() {
     splitter->setStretchFactor(1, 1);
     lay->addWidget(splitter, 1);
     auto* poolCmdPreview = new QLabel(&dlg);
+    poolCmdPreview->setFont(baseUiFont);
     poolCmdPreview->setWordWrap(true);
     poolCmdPreview->setTextInteractionFlags(Qt::TextSelectableByMouse);
     lay->addWidget(poolCmdPreview, 0);
@@ -2219,6 +2247,7 @@ void MainWindow::createPoolForSelectedConnection() {
     updatePoolCommandPreview();
 
     auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    bb->setFont(baseUiFont);
     connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     lay->addWidget(bb);
     connect(bb, &QDialogButtonBox::accepted, &dlg, [&]() {
@@ -2368,6 +2397,17 @@ void MainWindow::createPoolForSelectedConnection() {
     });
     if (dlg.layout()) {
         dlg.layout()->activate();
+    }
+    for (QWidget* w : dlg.findChildren<QWidget*>()) {
+        if (w) {
+            w->setFont(baseUiFont);
+        }
+    }
+    if (devicesTree->header()) {
+        devicesTree->header()->setFont(baseUiFont);
+    }
+    if (poolTree->header()) {
+        poolTree->header()->setFont(baseUiFont);
     }
     dlg.setMinimumHeight(dlg.sizeHint().height());
 
