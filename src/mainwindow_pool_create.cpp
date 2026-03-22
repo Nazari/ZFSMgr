@@ -1227,6 +1227,15 @@ void MainWindow::createPoolForSelectedConnection() {
         const QString fs = fsType.trimmed().toLower();
         return fs.contains(QStringLiteral("apfs"));
     };
+    QSet<QString> importedPoolNames;
+    if (idx >= 0 && idx < m_states.size()) {
+        for (const PoolImported& pool : m_states[idx].importedPools) {
+            const QString name = pool.pool.trimmed().toLower();
+            if (!name.isEmpty()) {
+                importedPoolNames.insert(name);
+            }
+        }
+    }
     auto hasProtectedSystemMount = [](const DeviceEntry& e) -> bool {
         const QString fs = e.fsType.trimmed().toLower();
         if (windowsPartitionTypeIsProtected(e.fsType)) {
@@ -1295,6 +1304,9 @@ void MainWindow::createPoolForSelectedConnection() {
         const bool isMacDisk0Root =
             isMacConn && isDiskRoot
             && (e.path == QStringLiteral("/dev/disk0") || realPath == QStringLiteral("/dev/disk0"));
+        const bool macImportedPoolVirtualDisk =
+            isMacConn && isDiskRoot
+            && importedPoolNames.contains(e.fsType.trimmed().toLower());
         const bool macApfsRootBlocked =
             isMacConn && isDiskRoot
             && (isMacDisk0Root || e.synthesized || macRootHasApfsChildren || isApfsLikeFsType(e.fsType));
@@ -1304,13 +1316,16 @@ void MainWindow::createPoolForSelectedConnection() {
             rr.bgColor = stGreen;
             rr.colorRank = 0;
             rr.selectable = true;
-        } else if (protectedMount || e.inPool || macApfsRootBlocked) {
+        } else if (protectedMount || e.inPool || macApfsRootBlocked || macImportedPoolVirtualDisk) {
             rr.stateText = trk(QStringLiteral("t_poolcrt_auto022"), QStringLiteral("EN_POOL"), QStringLiteral("IN_POOL"), QStringLiteral("在池中"));
             if (protectedMount) {
                 rr.stateText = trk(QStringLiteral("t_poolcrt_auto023"), QStringLiteral("SISTEMA"), QStringLiteral("SYSTEM"), QStringLiteral("系统"));
                 rr.detailText = trk(QStringLiteral("t_poolcrt_auto024"), QStringLiteral("Dispositivo de sistema (/ /boot /boot/efi o SWAP)"),
                                     QStringLiteral("System device (/ /boot /boot/efi or SWAP)"),
                                     QStringLiteral("系统设备（/ /boot /boot/efi 或 SWAP）"));
+            } else if (macImportedPoolVirtualDisk) {
+                rr.stateText = QStringLiteral("POOL");
+                rr.detailText = QStringLiteral("Disco virtual sintetizado por ZFS para un pool ya importado");
             } else if (isMacDisk0Root) {
                 rr.stateText = QStringLiteral("APFS");
                 rr.detailText = QStringLiteral("Disco físico interno de macOS no seleccionable");
