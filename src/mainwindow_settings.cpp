@@ -8,6 +8,7 @@
 #include <QMenuBar>
 #include <QPlainTextEdit>
 #include <QSettings>
+#include <QSplitter>
 #include <QTableWidgetItem>
 #include <QTextEdit>
 
@@ -212,6 +213,11 @@ void MainWindow::loadUiSettings() {
             }
         }
     }
+    m_mainWindowGeometryState = ini.value(QStringLiteral("main_window_geometry")).toByteArray();
+    m_topMainSplitState = ini.value(QStringLiteral("top_main_splitter")).toByteArray();
+    m_rightMainSplitState = ini.value(QStringLiteral("right_main_splitter")).toByteArray();
+    m_connDetailSplitState = ini.value(QStringLiteral("conn_detail_splitter")).toByteArray();
+    m_verticalMainSplitState = ini.value(QStringLiteral("vertical_main_splitter")).toByteArray();
     if (m_logMaxLinesSetting != 100 && m_logMaxLinesSetting != 200
         && m_logMaxLinesSetting != 500 && m_logMaxLinesSetting != 1000) {
         m_logMaxLinesSetting = 500;
@@ -257,6 +263,15 @@ void MainWindow::saveUiSettings() const {
     QStringList disconnected = QStringList(m_disconnectedConnectionKeys.begin(), m_disconnectedConnectionKeys.end());
     disconnected.sort(Qt::CaseInsensitive);
     ini.setValue(QStringLiteral("disconnected_connections"), disconnected);
+    ini.setValue(QStringLiteral("main_window_geometry"), saveGeometry());
+    ini.setValue(QStringLiteral("top_main_splitter"),
+                 m_topMainSplit ? m_topMainSplit->saveState() : QByteArray());
+    ini.setValue(QStringLiteral("right_main_splitter"),
+                 m_rightMainSplit ? m_rightMainSplit->saveState() : QByteArray());
+    ini.setValue(QStringLiteral("conn_detail_splitter"),
+                 m_connDetailSplit ? m_connDetailSplit->saveState() : QByteArray());
+    ini.setValue(QStringLiteral("vertical_main_splitter"),
+                 m_verticalMainSplit ? m_verticalMainSplit->saveState() : QByteArray());
     ini.endGroup();
     // Remove legacy duplicated key.
     ini.beginGroup(QStringLiteral("ui"));

@@ -33,6 +33,7 @@ class QTreeWidget;
 class QTreeWidgetItem;
 class QStackedWidget;
 class QTextEdit;
+class QByteArray;
 
 class MainWindow final : public QMainWindow {
     Q_OBJECT
@@ -503,6 +504,9 @@ private:
     QWidget* m_connPropsGroup{nullptr};
     QWidget* m_connBottomGroup{nullptr};
     QSplitter* m_connDetailSplit{nullptr};
+    QSplitter* m_topMainSplit{nullptr};
+    QSplitter* m_rightMainSplit{nullptr};
+    QSplitter* m_verticalMainSplit{nullptr};
     QList<int> m_connSplitSizesProps;
     QList<int> m_connSplitSizesContent;
     int m_connSplitActiveTab{0};
@@ -522,6 +526,11 @@ private:
     QMap<QString, QMap<QString, QString>> m_connContentPropValuesByObject;
     QMap<QString, ConnContentTreeState> m_connContentTreeStateByToken;
     QSet<QString> m_disconnectedConnectionKeys;
+    QByteArray m_mainWindowGeometryState;
+    QByteArray m_topMainSplitState;
+    QByteArray m_rightMainSplitState;
+    QByteArray m_connDetailSplitState;
+    QByteArray m_verticalMainSplitState;
     QMap<int, QString> m_pendingRefreshTopTabDataByConn;
     QMap<int, QString> m_pendingRefreshBottomTabDataByConn;
     QMap<int, QSet<QString>> m_savedTopExpandedKeysByConn;

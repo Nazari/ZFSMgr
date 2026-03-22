@@ -1165,11 +1165,11 @@ void MainWindow::buildUi() {
     auto* topLayout = new QVBoxLayout(topArea);
     topLayout->setContentsMargins(0, 0, 0, 0);
     topLayout->setSpacing(0);
-    auto* topSplit = new QSplitter(Qt::Horizontal, topArea);
-    topSplit->setChildrenCollapsible(true);
-    topSplit->setHandleWidth(4);
+    m_topMainSplit = new QSplitter(Qt::Horizontal, topArea);
+    m_topMainSplit->setChildrenCollapsible(true);
+    m_topMainSplit->setHandleWidth(4);
 
-    auto* leftPane = new QWidget(topSplit);
+    auto* leftPane = new QWidget(m_topMainSplit);
     auto* leftLayout = new QVBoxLayout(leftPane);
     leftLayout->setContentsMargins(0, 0, 0, 0);
     leftLayout->setSpacing(4);
@@ -1520,7 +1520,7 @@ void MainWindow::buildUi() {
     m_leftTabs->hide();
     leftLayout->addWidget(connectionsTab, 1);
 
-    auto* rightPane = new QWidget(topSplit);
+    auto* rightPane = new QWidget(m_topMainSplit);
     auto* rightLayout = new QVBoxLayout(rightPane);
     rightLayout->setContentsMargins(0, 0, 0, 0);
     rightLayout->setSpacing(4);
@@ -1796,11 +1796,11 @@ void MainWindow::buildUi() {
     rightConnectionsLayout->addWidget(entityFrame, 1);
 
     m_rightStack->addWidget(rightConnectionsPage);
-    auto* rightSplit = new QSplitter(Qt::Vertical, rightPane);
-    rightSplit->setChildrenCollapsible(false);
-    rightSplit->setHandleWidth(4);
-    rightSplit->addWidget(m_rightStack);
-    auto* bottomConnBox = new QWidget(rightSplit);
+    m_rightMainSplit = new QSplitter(Qt::Vertical, rightPane);
+    m_rightMainSplit->setChildrenCollapsible(false);
+    m_rightMainSplit->setHandleWidth(4);
+    m_rightMainSplit->addWidget(m_rightStack);
+    auto* bottomConnBox = new QWidget(m_rightMainSplit);
     auto* bottomConnLayout = new QVBoxLayout(bottomConnBox);
     bottomConnLayout->setContentsMargins(6, 6, 6, 6);
     m_bottomConnectionEntityTabs = new QTabBar(bottomConnBox);
@@ -1934,21 +1934,21 @@ void MainWindow::buildUi() {
     installTreeHeaderContextMenu(m_connContentTree);
     installTreeHeaderContextMenu(m_bottomConnContentTree);
     bottomConnLayout->addWidget(m_bottomConnContentTree, 1);
-    rightSplit->setStretchFactor(0, 1);
-    rightSplit->setStretchFactor(1, 1);
-    rightSplit->setSizes({500, 500});
-    auto equalizeTreeHeights = [this, rightSplit, rightConnectionsPage, bottomConnBox]() {
+    m_rightMainSplit->setStretchFactor(0, 1);
+    m_rightMainSplit->setStretchFactor(1, 1);
+    m_rightMainSplit->setSizes({500, 500});
+    auto equalizeTreeHeights = [this, rightConnectionsPage, bottomConnBox]() {
         QTreeWidget* topTree = nullptr;
         if (m_connContentPage) {
             topTree = m_connContentPage->findChild<QTreeWidget*>();
         }
-        if (!rightSplit || !topTree || !m_bottomConnContentTree
+        if (!m_rightMainSplit || !topTree || !m_bottomConnContentTree
             || !rightConnectionsPage || !bottomConnBox) {
             return;
         }
-        const int total = rightSplit->size().height() > 0
-                              ? rightSplit->size().height()
-                              : rightSplit->sizes().value(0, 0) + rightSplit->sizes().value(1, 0);
+        const int total = m_rightMainSplit->size().height() > 0
+                              ? m_rightMainSplit->size().height()
+                              : m_rightMainSplit->sizes().value(0, 0) + m_rightMainSplit->sizes().value(1, 0);
         if (total <= 0) {
             return;
         }
@@ -1958,23 +1958,23 @@ void MainWindow::buildUi() {
         if (topTreeH <= 0 || bottomTreeH <= 0) {
             int topH = total / 2;
             topH = qBound(120, topH, total - 120);
-            rightSplit->setSizes({topH, total - topH});
+            m_rightMainSplit->setSizes({topH, total - topH});
             return;
         }
         const int delta = topTreeH - bottomTreeH;
         if (qAbs(delta) <= 1) {
             return;
         }
-        QList<int> sizes = rightSplit->sizes();
+        QList<int> sizes = m_rightMainSplit->sizes();
         if (sizes.size() < 2) {
             int topH = total / 2;
             topH = qBound(120, topH, total - 120);
-            rightSplit->setSizes({topH, total - topH});
+            m_rightMainSplit->setSizes({topH, total - topH});
             return;
         }
         int topH = sizes[0] - (delta / 2);
         topH = qBound(120, topH, total - 120);
-        rightSplit->setSizes({topH, total - topH});
+        m_rightMainSplit->setSizes({topH, total - topH});
     };
     QTimer::singleShot(0, this, equalizeTreeHeights);
     QTimer::singleShot(80, this, equalizeTreeHeights);
@@ -1982,14 +1982,14 @@ void MainWindow::buildUi() {
     QTimer::singleShot(320, this, equalizeTreeHeights);
     QTimer::singleShot(520, this, equalizeTreeHeights);
     QTimer::singleShot(900, this, equalizeTreeHeights);
-    rightLayout->addWidget(rightSplit, 1);
+    rightLayout->addWidget(m_rightMainSplit, 1);
 
-    topSplit->addWidget(leftPane);
-    topSplit->addWidget(rightPane);
-    topSplit->setStretchFactor(0, 0);
-    topSplit->setStretchFactor(1, 1);
-    topSplit->setSizes({leftFixedWidth, qMax(leftFixedWidth * 2, width() - leftFixedWidth)});
-    topLayout->addWidget(topSplit, 1);
+    m_topMainSplit->addWidget(leftPane);
+    m_topMainSplit->addWidget(rightPane);
+    m_topMainSplit->setStretchFactor(0, 0);
+    m_topMainSplit->setStretchFactor(1, 1);
+    m_topMainSplit->setSizes({leftFixedWidth, qMax(leftFixedWidth * 2, width() - leftFixedWidth)});
+    topLayout->addWidget(m_topMainSplit, 1);
 
     m_logsTabs = new QTabWidget(central);
     m_logsTabs->setObjectName(QStringLiteral("zfsmgrLogTabs"));
@@ -2130,17 +2130,34 @@ void MainWindow::buildUi() {
                            QStringLiteral("组合日志")));
     m_logsTabs->setCurrentIndex(0);
 
-    auto* verticalMainSplit = new QSplitter(Qt::Vertical, central);
-    verticalMainSplit->setChildrenCollapsible(true);
-    verticalMainSplit->setHandleWidth(4);
-    verticalMainSplit->addWidget(topArea);
-    verticalMainSplit->addWidget(m_logsTabs);
-    verticalMainSplit->setStretchFactor(0, 81);
-    verticalMainSplit->setStretchFactor(1, 19);
-    verticalMainSplit->setSizes({810, 190});
-    root->addWidget(verticalMainSplit, 1);
+    m_verticalMainSplit = new QSplitter(Qt::Vertical, central);
+    m_verticalMainSplit->setChildrenCollapsible(true);
+    m_verticalMainSplit->setHandleWidth(4);
+    m_verticalMainSplit->addWidget(topArea);
+    m_verticalMainSplit->addWidget(m_logsTabs);
+    m_verticalMainSplit->setStretchFactor(0, 81);
+    m_verticalMainSplit->setStretchFactor(1, 19);
+    m_verticalMainSplit->setSizes({810, 190});
+    root->addWidget(m_verticalMainSplit, 1);
 
     setCentralWidget(central);
+    QTimer::singleShot(0, this, [this]() {
+        if (!m_mainWindowGeometryState.isEmpty()) {
+            restoreGeometry(m_mainWindowGeometryState);
+        }
+        if (m_topMainSplit && !m_topMainSplitState.isEmpty()) {
+            m_topMainSplit->restoreState(m_topMainSplitState);
+        }
+        if (m_rightMainSplit && !m_rightMainSplitState.isEmpty()) {
+            m_rightMainSplit->restoreState(m_rightMainSplitState);
+        }
+        if (m_connDetailSplit && !m_connDetailSplitState.isEmpty()) {
+            m_connDetailSplit->restoreState(m_connDetailSplitState);
+        }
+        if (m_verticalMainSplit && !m_verticalMainSplitState.isEmpty()) {
+            m_verticalMainSplit->restoreState(m_verticalMainSplitState);
+        }
+    });
 
     if (m_connPropsRefreshBtn) {
         connect(m_connPropsRefreshBtn, &QPushButton::clicked, this, [this]() {
