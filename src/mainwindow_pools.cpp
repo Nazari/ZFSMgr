@@ -50,6 +50,22 @@ int selectedConnectionIndexFromTable(const QTableWidget* table) {
     return ok ? idx : -1;
 }
 
+QString mergedPoolCommandErrorText(const QString& out, const QString& err, int rc) {
+    QStringList parts;
+    const QString trimmedErr = err.trimmed();
+    const QString trimmedOut = out.trimmed();
+    if (!trimmedErr.isEmpty()) {
+        parts << trimmedErr;
+    }
+    if (!trimmedOut.isEmpty()) {
+        parts << trimmedOut;
+    }
+    if (parts.isEmpty()) {
+        return QStringLiteral("exit %1").arg(rc);
+    }
+    return parts.join(QStringLiteral("\n\n"));
+}
+
 } // namespace
 
 QString MainWindow::formatPoolStatusTooltipHtml(const QString& statusText) const {
@@ -484,14 +500,15 @@ void MainWindow::importPoolFromRow(int row) {
     QString err;
     int rc = -1;
     if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
+        const QString errorText = mergedPoolCommandErrorText(out, err, rc);
         appLog(QStringLiteral("NORMAL"), QStringLiteral("Error importando %1::%2 -> %3")
-                                       .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+                                       .arg(connName, poolName, oneLine(errorText)));
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
                               trk(QStringLiteral("t_import_pool_e1"),
                                   QStringLiteral("Importar falló:\n%1"),
                                   QStringLiteral("Import failed:\n%1"),
                                   QStringLiteral("导入失败：\n%1"))
-                                  .arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
+                                  .arg(errorText));
         setActionsLocked(false);
         return;
     }
@@ -726,14 +743,15 @@ void MainWindow::importPoolRenamingFromRow(int row) {
     QString err;
     int rc = -1;
     if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
+        const QString errorText = mergedPoolCommandErrorText(out, err, rc);
         appLog(QStringLiteral("NORMAL"),
                QStringLiteral("Error importando renombrando %1::%2 -> %3")
                    .arg(connName,
                         poolName,
-                        oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+                        oneLine(errorText)));
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
                               QStringLiteral("Importar renombrando falló:\n%1")
-                                  .arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
+                                  .arg(errorText));
         setActionsLocked(false);
         return;
     }

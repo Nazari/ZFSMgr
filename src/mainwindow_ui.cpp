@@ -2325,10 +2325,24 @@ void MainWindow::buildUi() {
             return;
         }
         if (tree == m_connContentTree) {
+            const QString prevToken = m_connContentToken;
+            QTreeWidget* prevTree = m_connContentTree;
+            m_connContentTree = tree;
+            m_connContentToken = token;
+            saveConnContentTreeState(token);
+            m_connContentTree = prevTree;
+            m_connContentToken = prevToken;
             rebuildConnectionEntityTabs();
             return;
         }
         if (tree == m_bottomConnContentTree) {
+            const QString prevToken = m_connContentToken;
+            QTreeWidget* prevTree = m_connContentTree;
+            m_connContentTree = tree;
+            m_connContentToken = token;
+            saveConnContentTreeState(token);
+            m_connContentTree = prevTree;
+            m_connContentToken = prevToken;
             updateSecondaryConnectionDetail();
             return;
         }

@@ -20,6 +20,15 @@
 namespace {
 using mwhelpers::shSingleQuote;
 
+void setRequiredLabelState(QLabel* label, bool required) {
+    if (!label) {
+        return;
+    }
+    label->setStyleSheet(required
+                             ? QStringLiteral("QLabel { color: #b00020; font-weight: 600; }")
+                             : QString());
+}
+
 struct CreateDatasetOptions {
     QString datasetPath;
     QString dsType;
@@ -343,6 +352,8 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
         encPassEdit->setVisible(needsPromptPassphrase);
         encPass2Label->setVisible(needsPromptPassphrase);
         encPass2Edit->setVisible(needsPromptPassphrase);
+        setRequiredLabelState(encPassLabel, needsPromptPassphrase);
+        setRequiredLabelState(encPass2Label, needsPromptPassphrase);
         if (!needsPromptPassphrase) {
             encPassEdit->clear();
             encPass2Edit->clear();
@@ -385,6 +396,10 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
             w->setFont(baseFont);
         }
     }
+    setRequiredLabelState(pathLabel, true);
+    setRequiredLabelState(volsizeLabel, false);
+    setRequiredLabelState(encPassLabel, false);
+    setRequiredLabelState(encPass2Label, false);
 
     auto setSuggestedPath = [&]() {
         const QString t = typeCombo->currentData().toString();
@@ -430,6 +445,7 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
 
         volsizeLabel->setVisible(isVolume);
         volsizeEdit->setVisible(isVolume);
+        setRequiredLabelState(volsizeLabel, isVolume);
         if (!isVolume) {
             volsizeEdit->clear();
         }
@@ -451,6 +467,7 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
             snapRecursiveChk->setChecked(false);
         }
         setSuggestedPath();
+        setRequiredLabelState(pathLabel, true);
     };
     QObject::connect(typeCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dlg, [&]() { applyTypeUi(); });
     applyTypeUi();

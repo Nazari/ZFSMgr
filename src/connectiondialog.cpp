@@ -61,6 +61,15 @@ QString macosFlavorLabel(const QString& fullText, const QString& versionText) {
     return codename.isEmpty() ? QStringLiteral("macOS %1").arg(version)
                               : QStringLiteral("macOS %1 %2").arg(codename, version);
 }
+
+void setRequiredLabelState(QLabel* label, bool required) {
+    if (!label) {
+        return;
+    }
+    label->setStyleSheet(required
+                             ? QStringLiteral("QLabel { color: #b00020; font-weight: 600; }")
+                             : QString());
+}
 } // namespace
 
 ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
@@ -118,6 +127,7 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     nameLbl->setMinimumWidth(76);
     osLbl->setMinimumWidth(76);
     typeLbl->setMinimumWidth(76);
+    setRequiredLabelState(nameLbl, true);
     nameOsLayout->addWidget(nameLbl, 0);
     nameOsLayout->addWidget(m_nameEdit, 2);
     nameOsLayout->addSpacing(12);
@@ -158,6 +168,7 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     hostLbl->setMinimumWidth(76);
     portLbl->setMinimumWidth(76);
     familyLbl->setMinimumWidth(52);
+    setRequiredLabelState(hostLbl, true);
     m_portEdit->setMaximumWidth(110);
     m_sshFamilyCombo->setMaximumWidth(110);
     hostPortLayout->addWidget(hostLbl, 0);
@@ -189,6 +200,7 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     passLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     userLbl->setMinimumWidth(76);
     passLbl->setMinimumWidth(76);
+    setRequiredLabelState(userLbl, true);
     userPassLayout->addWidget(userLbl, 0);
     userPassLayout->addWidget(m_userEdit, 1);
     userPassLayout->addSpacing(12);

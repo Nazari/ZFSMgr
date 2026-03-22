@@ -22,6 +22,15 @@
 #endif
 
 namespace {
+void setRequiredLabelState(QLabel* label, bool required) {
+    if (!label) {
+        return;
+    }
+    label->setStyleSheet(required
+                             ? QStringLiteral("QLabel { color: #b00020; font-weight: 600; }")
+                             : QString());
+}
+
 QString trk(const QString& lang,
             const QString& key,
             const QString& es = QString(),
@@ -290,6 +299,7 @@ void MasterPasswordDialog::retranslateUi() {
                                      QStringLiteral("Password"),
                                      QStringLiteral("Password"),
                                      QStringLiteral("密码")));
+        setRequiredLabelState(m_passwordLabel, true);
     }
     if (m_passwordConfirmLabel) {
         const QString repeatText = trk(lang, QStringLiteral("t_repeat_pwd_001"),
@@ -299,12 +309,14 @@ void MasterPasswordDialog::retranslateUi() {
         m_passwordConfirmLabel->setText(repeatText);
         m_passwordConfirmLabel->setVisible(m_firstRunCreationMode);
         m_passwordConfirmLabel->setEnabled(m_firstRunCreationMode);
+        setRequiredLabelState(m_passwordConfirmLabel, m_firstRunCreationMode);
         if (m_formLayout) {
             if (QWidget* rowLabel = m_formLayout->labelForField(m_passwordConfirmEdit)) {
                 if (auto* formLabel = qobject_cast<QLabel*>(rowLabel)) {
                     formLabel->setText(repeatText);
                     formLabel->setVisible(m_firstRunCreationMode);
                     formLabel->setEnabled(m_firstRunCreationMode);
+                    setRequiredLabelState(formLabel, m_firstRunCreationMode);
                 }
             }
         }
@@ -333,10 +345,14 @@ void MasterPasswordDialog::retranslateUi() {
         m_localUserLabel->setText(userText);
         m_localUserLabel->setVisible(m_requestLocalSudoCredentials);
         m_localUserLabel->setEnabled(m_requestLocalSudoCredentials);
+        setRequiredLabelState(m_localUserLabel, m_requestLocalSudoCredentials);
         if (m_formLayout) {
             if (QWidget* rowLabel = m_formLayout->labelForField(m_localUserEdit)) {
                 rowLabel->setVisible(m_requestLocalSudoCredentials);
                 rowLabel->setEnabled(m_requestLocalSudoCredentials);
+                if (auto* formLabel = qobject_cast<QLabel*>(rowLabel)) {
+                    setRequiredLabelState(formLabel, m_requestLocalSudoCredentials);
+                }
             }
         }
     }
@@ -358,10 +374,14 @@ void MasterPasswordDialog::retranslateUi() {
         m_localPasswordLabel->setText(passwordText);
         m_localPasswordLabel->setVisible(m_requestLocalSudoCredentials);
         m_localPasswordLabel->setEnabled(m_requestLocalSudoCredentials);
+        setRequiredLabelState(m_localPasswordLabel, m_requestLocalSudoCredentials);
         if (m_formLayout) {
             if (QWidget* rowLabel = m_formLayout->labelForField(m_localPasswordEdit)) {
                 rowLabel->setVisible(m_requestLocalSudoCredentials);
                 rowLabel->setEnabled(m_requestLocalSudoCredentials);
+                if (auto* formLabel = qobject_cast<QLabel*>(rowLabel)) {
+                    setRequiredLabelState(formLabel, m_requestLocalSudoCredentials);
+                }
             }
         }
     }

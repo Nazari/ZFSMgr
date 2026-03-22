@@ -46,6 +46,15 @@ using mwhelpers::sshUserHostPort;
 using mwhelpers::formatWindowsFsTypeDetail;
 using mwhelpers::windowsPartitionTypeIsProtected;
 
+void setRequiredLabelState(QLabel* label, bool required) {
+    if (!label) {
+        return;
+    }
+    label->setStyleSheet(required
+                             ? QStringLiteral("QLabel { color: #b00020; font-weight: 600; }")
+                             : QString());
+}
+
 constexpr int kRoleDevicePath = Qt::UserRole;
 constexpr int kRoleSelectable = Qt::UserRole + 1;
 constexpr int kRoleMounted = Qt::UserRole + 2;
@@ -1070,7 +1079,11 @@ void MainWindow::createPoolForSelectedConnection() {
         }
         fsPropsEd->setText(others.join(QStringLiteral(",")));
     }
-    form->addRow(trk(QStringLiteral("t_poolcrt_auto004"), QStringLiteral("Nombre"), QStringLiteral("Name"), QStringLiteral("名称")), poolNameEd);
+    auto* poolNameLabel = new QLabel(
+        trk(QStringLiteral("t_poolcrt_auto004"), QStringLiteral("Nombre"), QStringLiteral("Name"), QStringLiteral("名称")),
+        baseBox);
+    setRequiredLabelState(poolNameLabel, true);
+    form->addRow(poolNameLabel, poolNameEd);
     auto* flagsRow = new QHBoxLayout();
     flagsRow->addWidget(forceCb);
     flagsRow->addWidget(dryRunCb);
