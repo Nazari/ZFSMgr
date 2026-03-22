@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
 
+#include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
@@ -110,13 +111,16 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
                            QStringLiteral("Create dataset"),
                            QStringLiteral("创建数据集")));
     dlg.setModal(true);
-    dlg.resize(900, 760);
+    dlg.setFont(QApplication::font());
+    dlg.resize(700, 660);
+    dlg.setMinimumSize(620, 560);
 
     QVBoxLayout* root = new QVBoxLayout(&dlg);
     root->setContentsMargins(10, 10, 10, 10);
     root->setSpacing(8);
 
     QWidget* formWidget = new QWidget(&dlg);
+    formWidget->setFont(QApplication::font());
     QGridLayout* form = new QGridLayout(formWidget);
     form->setHorizontalSpacing(10);
     form->setVerticalSpacing(6);
@@ -241,13 +245,16 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
                                               QStringLiteral("Properties"),
                                               QStringLiteral("属性")),
                                           &dlg);
+    propsGroup->setFont(QApplication::font());
     QVBoxLayout* propsGroupLay = new QVBoxLayout(propsGroup);
     propsGroupLay->setContentsMargins(6, 6, 6, 6);
     propsGroupLay->setSpacing(4);
 
     QScrollArea* propsScroll = new QScrollArea(propsGroup);
+    propsScroll->setFont(QApplication::font());
     propsScroll->setWidgetResizable(true);
     QWidget* propsContainer = new QWidget(propsScroll);
+    propsContainer->setFont(QApplication::font());
     QGridLayout* propsGrid = new QGridLayout(propsContainer);
     propsGrid->setHorizontalSpacing(8);
     propsGrid->setVerticalSpacing(4);
@@ -370,6 +377,14 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
         QDialogButtonBox::AcceptRole);
     root->addWidget(buttons);
     QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
+
+    const QFont baseFont = QApplication::font();
+    const QList<QWidget*> allWidgets = dlg.findChildren<QWidget*>();
+    for (QWidget* w : allWidgets) {
+        if (w) {
+            w->setFont(baseFont);
+        }
+    }
 
     auto setSuggestedPath = [&]() {
         const QString t = typeCombo->currentData().toString();

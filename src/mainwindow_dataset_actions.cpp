@@ -595,6 +595,18 @@ void MainWindow::reloadDatasetSide(const QString& side) {
                     }
                     return QStringLiteral("%1::%2").arg(parts.value(1)).arg(parts.value(2).trimmed());
                 };
+                auto saveTreeState = [this](QTreeWidget* tree, const QString& tokenForTree) {
+                    if (!tree || tokenForTree.trimmed().isEmpty()) {
+                        return;
+                    }
+                    QTreeWidget* prevTree = m_connContentTree;
+                    const QString prevToken = m_connContentToken;
+                    m_connContentTree = tree;
+                    m_connContentToken = tokenForTree;
+                    saveConnContentTreeState(tokenForTree);
+                    m_connContentTree = prevTree;
+                    m_connContentToken = prevToken;
+                };
                 auto refreshOneTree = [this, connIdx, &poolName](QTreeWidget* tree, const QString& tokenForTree) {
                     if (!tree || tokenForTree != QStringLiteral("%1::%2").arg(connIdx).arg(poolName)) {
                         return false;
@@ -610,8 +622,21 @@ void MainWindow::reloadDatasetSide(const QString& side) {
                     m_connContentToken = prevToken;
                     return true;
                 };
-                bool refreshed = refreshOneTree(m_connContentTree, token);
-                refreshed = refreshOneTree(m_bottomConnContentTree, tokenForBottomTree()) || refreshed;
+                const QString bottomToken = tokenForBottomTree();
+                bool refreshed = false;
+                if (m_connContentTree && token == m_connContentToken) {
+                    rebuildConnectionEntityTabs();
+                    refreshed = true;
+                } else {
+                    refreshed = refreshOneTree(m_connContentTree, token);
+                }
+                if (m_bottomConnContentTree && !bottomToken.isEmpty() && bottomToken == QStringLiteral("%1::%2").arg(connIdx).arg(poolName)) {
+                    saveTreeState(m_bottomConnContentTree, bottomToken);
+                    updateSecondaryConnectionDetail();
+                    refreshed = true;
+                } else {
+                    refreshed = refreshOneTree(m_bottomConnContentTree, bottomToken) || refreshed;
+                }
                 if (refreshed) {
                     return;
                 }

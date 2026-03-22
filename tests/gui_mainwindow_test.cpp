@@ -134,6 +134,7 @@ private Q_SLOTS:
         profile.useSudo = true;
 
         window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
+        window.setShowInlineGsaNodeForTest(true);
         window.configurePoolDatasetsForTest(
             0,
             QStringLiteral("tank1"),
@@ -171,6 +172,7 @@ private Q_SLOTS:
         profile.useSudo = true;
 
         window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
+        window.setShowInlineGsaNodeForTest(true);
         window.configurePoolDatasetsForTest(
             0,
             QStringLiteral("tank1"),
