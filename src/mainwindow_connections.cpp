@@ -31,10 +31,572 @@ namespace {
 constexpr int kConnPropKeyRole = Qt::UserRole + 14;
 constexpr int kPoolNameRole = Qt::UserRole + 11;
 constexpr int kIsPoolRootRole = Qt::UserRole + 12;
+constexpr const char* kGsaTaskName = "ZFSMgr-GSA";
+constexpr const char* kGsaUnixScriptPath = "/usr/local/libexec/zfsmgr-gsa.sh";
+constexpr const char* kGsaMacPlistPath = "/Library/LaunchDaemons/org.zfsmgr.gsa.plist";
+constexpr const char* kGsaLinuxServicePath = "/etc/systemd/system/zfsmgr-gsa.service";
+constexpr const char* kGsaLinuxTimerPath = "/etc/systemd/system/zfsmgr-gsa.timer";
+constexpr const char* kGsaVersionSuffix = ".1";
 struct ConnTreeNavSnapshot {
     QSet<QString> expandedKeys;
     QString selectedKey;
 };
+
+QVector<int> versionOrderingKey(const QString& version) {
+    QVector<int> out;
+    const QRegularExpression rx(QStringLiteral("^(\\d+)\\.(\\d+)\\.(\\d+)(?:rc(\\d+))?(?:[.-](\\d+))?$"),
+                                QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch m = rx.match(version.trimmed());
+    if (!m.hasMatch()) {
+        return out;
+    }
+    out << m.captured(1).toInt()
+        << m.captured(2).toInt()
+        << m.captured(3).toInt();
+    if (m.captured(4).isEmpty()) {
+        out << 999999;
+    } else {
+        out << m.captured(4).toInt();
+    }
+    out << (m.captured(5).isEmpty() ? 0 : m.captured(5).toInt());
+    return out;
+}
+
+int compareAppVersions(const QString& a, const QString& b) {
+    const QVector<int> ka = versionOrderingKey(a);
+    const QVector<int> kb = versionOrderingKey(b);
+    if (ka.isEmpty() || kb.isEmpty()) {
+        return QString::compare(a.trimmed(), b.trimmed(), Qt::CaseInsensitive);
+    }
+    for (int i = 0; i < qMin(ka.size(), kb.size()); ++i) {
+        if (ka[i] < kb[i]) {
+            return -1;
+        }
+        if (ka[i] > kb[i]) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+QString escapePsSingleQuoted(QString s) {
+    return s.replace('\'', QStringLiteral("''"));
+}
+
+QString gsaScriptVersion() {
+    return QStringLiteral(ZFSMGR_APP_VERSION) + QString::fromLatin1(kGsaVersionSuffix);
+}
+
+QString gsaUnixScriptPayload(const QString& selfConnectionName) {
+    QString script = QString::fromUtf8(R"GSA(#!/bin/sh
+# ZFSMgr GSA Version: __VERSION__
+set -eu
+
+SELF_CONNECTION='__SELF_CONNECTION__'
+CONFIG_DIR='__CONFIG_DIR__'
+PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin:$PATH"
+
+PROP_ENABLED='zfsmgrgsa:activado'
+PROP_RECURSIVE='zfsmgrgsa:recursivo'
+PROP_HOURLY='zfsmgrgsa:horario'
+PROP_DAILY='zfsmgrgsa:diario'
+PROP_WEEKLY='zfsmgrgsa:semanal'
+PROP_MONTHLY='zfsmgrgsa:mensual'
+PROP_YEARLY='zfsmgrgsa:anual'
+PROP_LEVEL='zfsmgrgsa:nivelar'
+PROP_DEST='zfsmgrgsa:destino'
+LOG_FILE="$CONFIG_DIR/GSA.log"
+
+rotate_logs() {
+  mkdir -p "$CONFIG_DIR"
+  if [ -f "$LOG_FILE" ]; then
+    size="$(wc -c < "$LOG_FILE" 2>/dev/null | tr -d ' ' || printf '0')"
+    case "$size" in
+      ''|*[!0-9]*) size=0 ;;
+    esac
+    if [ "$size" -ge 1048576 ]; then
+      [ -f "$LOG_FILE.4" ] && rm -f "$LOG_FILE.4"
+      [ -f "$LOG_FILE.3" ] && mv -f "$LOG_FILE.3" "$LOG_FILE.4"
+      [ -f "$LOG_FILE.2" ] && mv -f "$LOG_FILE.2" "$LOG_FILE.3"
+      [ -f "$LOG_FILE.1" ] && mv -f "$LOG_FILE.1" "$LOG_FILE.2"
+      mv -f "$LOG_FILE" "$LOG_FILE.1"
+    fi
+  fi
+}
+
+init_logging() {
+  rotate_logs
+  touch "$LOG_FILE"
+  exec >>"$LOG_FILE" 2>&1
+}
+
+log() {
+  line="$(date '+%Y-%m-%d %H:%M:%S') $*"
+  printf '%s\n' "$line" >&2
+  if command -v logger >/dev/null 2>&1; then
+    logger -t ZFSMgr-GSA -- "$line" 2>/dev/null || true
+  fi
+}
+
+shq() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\"'\"'/g")"
+}
+
+prop_value() {
+  zfs get -H -o value "$2" "$1" 2>/dev/null | head -n1 | tr -d '\r'
+}
+
+bool_on() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    on|yes|true|1) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+int_value() {
+  case "$1" in
+    ''|*[!0-9]*) printf '0\n' ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+resolve_target_connection() {
+  TARGET_MODE=''
+  TARGET_HOST=''
+  TARGET_PORT=''
+  TARGET_USER=''
+  TARGET_PASS=''
+  TARGET_KEY=''
+  TARGET_USE_SUDO='0'
+  case "$1" in
+__CONNECTION_MAP__
+    *) return 1 ;;
+  esac
+  return 0
+}
+
+build_target_recv_command() {
+  ds="$1"
+  base="zfs recv -F $(shq "$ds")"
+  if bool_on "$TARGET_USE_SUDO"; then
+    if [ -n "$TARGET_PASS" ]; then
+      printf "{ printf '%%s\\n' %s; cat; } | sudo -S -p '' sh -lc %s\n" "$(shq "$TARGET_PASS")" "$(shq "$base")"
+    else
+      printf "sudo -n sh -lc %s\n" "$(shq "$base")"
+    fi
+  else
+    printf "%s\n" "$base"
+  fi
+}
+
+build_target_list_command() {
+  ds="$1"
+  base="zfs list -H -t snapshot -o name -s creation -r $(shq "$ds") 2>/dev/null"
+  if bool_on "$TARGET_USE_SUDO"; then
+    if [ -n "$TARGET_PASS" ]; then
+      printf "printf '%%s\\n' %s | sudo -S -p '' sh -lc %s\n" "$(shq "$TARGET_PASS")" "$(shq "$base")"
+    else
+      printf "sudo -n sh -lc %s\n" "$(shq "$base")"
+    fi
+  else
+    printf "%s\n" "$base"
+  fi
+}
+
+run_via_target_ssh() {
+  remote_cmd="$1"
+  target="${TARGET_USER}@${TARGET_HOST}"
+  port_opt=''
+  key_opt=''
+  [ -n "$TARGET_PORT" ] && port_opt="-p $TARGET_PORT"
+  [ -n "$TARGET_KEY" ] && key_opt="-i $(shq "$TARGET_KEY")"
+  if [ -n "$TARGET_PASS" ]; then
+    if ! command -v sshpass >/dev/null 2>&1; then
+      log "GSA level skip: sshpass no disponible para conectar a ${target}"
+      return 127
+    fi
+    eval "SSHPASS=$(shq "$TARGET_PASS") sshpass -e ssh -o BatchMode=no -o ConnectTimeout=10 -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${port_opt} ${key_opt} $(shq "$target") $(shq "$remote_cmd")"
+  else
+    eval "ssh -o BatchMode=yes -o ConnectTimeout=10 -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${port_opt} ${key_opt} $(shq "$target") $(shq "$remote_cmd")"
+  fi
+}
+
+list_target_gsa_snapshots() {
+  ds="$1"
+  if [ "$TARGET_MODE" = "local" ]; then
+    zfs list -H -t snapshot -o name -s creation -r "$ds" 2>/dev/null
+  else
+    run_via_target_ssh "$(build_target_list_command "$ds")"
+  fi
+}
+
+due_classes() {
+  hour="$(date '+%H')"
+  dow="$(date '+%u')"
+  dom="$(date '+%d')"
+  md="$(date '+%m%d')"
+  hourly="$(int_value "$1")"
+  daily="$(int_value "$2")"
+  weekly="$(int_value "$3")"
+  monthly="$(int_value "$4")"
+  yearly="$(int_value "$5")"
+  [ "$hourly" -gt 0 ] && printf 'hourly\n'
+  [ "$daily" -gt 0 ] && [ "$hour" = "00" ] && printf 'daily\n'
+  [ "$weekly" -gt 0 ] && [ "$hour" = "00" ] && [ "$dow" = "7" ] && printf 'weekly\n'
+  [ "$monthly" -gt 0 ] && [ "$hour" = "00" ] && [ "$dom" = "01" ] && printf 'monthly\n'
+  [ "$yearly" -gt 0 ] && [ "$hour" = "00" ] && [ "$md" = "0101" ] && printf 'yearly\n'
+}
+
+create_snapshot() {
+  ds="$1"
+  klass="$2"
+  recursive="$3"
+  stamp="$(date '+%Y%m%d-%H%M%S')"
+  snap_name="GSA-${klass}-${stamp}"
+  if bool_on "$recursive"; then
+    zfs snapshot -r "${ds}@${snap_name}"
+  else
+    zfs snapshot "${ds}@${snap_name}"
+  fi
+  printf '%s\n' "$snap_name"
+}
+
+prune_snapshots() {
+  ds="$1"
+  klass="$2"
+  keep="$3"
+  recursive="$4"
+  [ "$(int_value "$keep")" -gt 0 ] || return 0
+  snaps="$(zfs list -H -t snapshot -o name -s creation -r "$ds" 2>/dev/null | grep "^${ds}@GSA-${klass}-" || true)"
+  [ -n "$snaps" ] || return 0
+  total="$(printf '%s\n' "$snaps" | sed '/^$/d' | wc -l | tr -d ' ')"
+  [ "$total" -gt "$keep" ] || return 0
+  remove_count=$((total - keep))
+  printf '%s\n' "$snaps" | sed '/^$/d' | head -n "$remove_count" | while IFS= read -r snap; do
+    snap_short="${snap#${ds}@}"
+    if bool_on "$recursive"; then
+      zfs destroy -r "${ds}@${snap_short}" || true
+    else
+      zfs destroy "${ds}@${snap_short}" || true
+    fi
+  done
+}
+
+latest_common_gsa() {
+  src_ds="$1"
+  dst_ds="$2"
+  src_snaps="$(zfs list -H -t snapshot -o name -s creation -r "$src_ds" 2>/dev/null | grep "^${src_ds}@GSA-" | sed "s#^${src_ds}@##" || true)"
+  dst_snaps="$(list_target_gsa_snapshots "$dst_ds" | grep "^${dst_ds}@GSA-" | sed "s#^${dst_ds}@##" || true)"
+  [ -n "$src_snaps" ] && [ -n "$dst_snaps" ] || return 0
+  found=''
+  printf '%s\n' "$src_snaps" | while IFS= read -r snap; do
+    [ -z "$snap" ] && continue
+    if printf '%s\n' "$dst_snaps" | grep -Fx "$snap" >/dev/null 2>&1; then
+      found="$snap"
+    fi
+  done
+  printf '%s\n' "${found:-}"
+}
+
+level_snapshot() {
+  src_ds="$1"
+  recursive="$2"
+  snap_name="$3"
+  dst_spec="$4"
+  level_on="$5"
+  bool_on "$level_on" || return 0
+  [ -n "$dst_spec" ] || return 0
+  case "$dst_spec" in
+    *::*/*) : ;;
+    *) log "GSA level skip for $src_ds: invalid destination $dst_spec"; return 0 ;;
+  esac
+  dst_conn="${dst_spec%%::*}"
+  dst_dataset="${dst_spec#*::}"
+  if ! resolve_target_connection "$dst_conn"; then
+    log "GSA level skip for $src_ds: destination connection not resolvable ($dst_conn)"
+    return 0
+  fi
+  common="$(latest_common_gsa "$src_ds" "$dst_dataset")"
+  recv_cmd="$(build_target_recv_command "$dst_dataset")"
+  if [ "$TARGET_MODE" = "local" ]; then
+    if ! zfs list -H -o name "$dst_dataset" >/dev/null 2>&1; then
+      log "GSA level skip for $src_ds: destination dataset not found ($dst_dataset)"
+      return 0
+    fi
+    if bool_on "$recursive"; then
+      if [ -n "$common" ]; then
+        zfs send -R -I "@${common}" "${src_ds}@${snap_name}" | sh -lc "$recv_cmd"
+      else
+        zfs send -R "${src_ds}@${snap_name}" | sh -lc "$recv_cmd"
+      fi
+    else
+      if [ -n "$common" ]; then
+        zfs send -I "@${common}" "${src_ds}@${snap_name}" | sh -lc "$recv_cmd"
+      else
+        zfs send "${src_ds}@${snap_name}" | sh -lc "$recv_cmd"
+      fi
+    fi
+  else
+    if ! run_via_target_ssh "true" >/dev/null 2>&1; then
+      log "GSA level skip for $src_ds: SSH no disponible hacia $dst_conn"
+      return 0
+    fi
+    if bool_on "$recursive"; then
+      if [ -n "$common" ]; then
+        zfs send -R -I "@${common}" "${src_ds}@${snap_name}" | run_via_target_ssh "$recv_cmd"
+      else
+        zfs send -R "${src_ds}@${snap_name}" | run_via_target_ssh "$recv_cmd"
+      fi
+    else
+      if [ -n "$common" ]; then
+        zfs send -I "@${common}" "${src_ds}@${snap_name}" | run_via_target_ssh "$recv_cmd"
+      else
+        zfs send "${src_ds}@${snap_name}" | run_via_target_ssh "$recv_cmd"
+      fi
+    fi
+  fi
+}
+
+main() {
+  init_logging
+  log "GSA start version __VERSION__"
+  datasets="$(zfs list -H -o name -t filesystem 2>/dev/null || true)"
+  [ -n "$datasets" ] || exit 0
+  printf '%s\n' "$datasets" | while IFS= read -r ds; do
+    [ -n "$ds" ] || continue
+    enabled="$(prop_value "$ds" "$PROP_ENABLED")"
+    bool_on "$enabled" || continue
+    recursive="$(prop_value "$ds" "$PROP_RECURSIVE")"
+    hourly="$(prop_value "$ds" "$PROP_HOURLY")"
+    daily="$(prop_value "$ds" "$PROP_DAILY")"
+    weekly="$(prop_value "$ds" "$PROP_WEEKLY")"
+    monthly="$(prop_value "$ds" "$PROP_MONTHLY")"
+    yearly="$(prop_value "$ds" "$PROP_YEARLY")"
+    level_on="$(prop_value "$ds" "$PROP_LEVEL")"
+    dst_spec="$(prop_value "$ds" "$PROP_DEST")"
+    due="$(due_classes "$hourly" "$daily" "$weekly" "$monthly" "$yearly" || true)"
+    [ -n "$due" ] || continue
+    printf '%s\n' "$due" | while IFS= read -r klass; do
+      [ -n "$klass" ] || continue
+      snap_name="$(create_snapshot "$ds" "$klass" "$recursive")"
+      case "$klass" in
+        hourly) keep="$hourly" ;;
+        daily) keep="$daily" ;;
+        weekly) keep="$weekly" ;;
+        monthly) keep="$monthly" ;;
+        yearly) keep="$yearly" ;;
+        *) keep=0 ;;
+      esac
+      prune_snapshots "$ds" "$klass" "$keep" "$recursive"
+      level_snapshot "$ds" "$recursive" "$snap_name" "$dst_spec" "$level_on" || true
+    done
+  done
+}
+
+main "$@"
+)GSA");
+    script.replace(QStringLiteral("__VERSION__"), gsaScriptVersion());
+    QString safeSelfConnection = selfConnectionName;
+    safeSelfConnection.replace(QLatin1Char('\''), QStringLiteral("'\"'\"'"));
+    script.replace(QStringLiteral("__SELF_CONNECTION__"), safeSelfConnection);
+    return script;
+}
+
+QString gsaWindowsScriptPayload(const QString& selfConnectionName) {
+    QString script = QString::fromUtf8(R"GSA(# ZFSMgr GSA Version: __VERSION__
+$ErrorActionPreference = 'Stop'
+
+$SelfConnection = '__SELF_CONNECTION__'
+$ConfigDir = '__CONFIG_DIR__'
+$LogFile = Join-Path $ConfigDir 'GSA.log'
+$PropEnabled = 'zfsmgrgsa:activado'
+$PropRecursive = 'zfsmgrgsa:recursivo'
+$PropHourly = 'zfsmgrgsa:horario'
+$PropDaily = 'zfsmgrgsa:diario'
+$PropWeekly = 'zfsmgrgsa:semanal'
+$PropMonthly = 'zfsmgrgsa:mensual'
+$PropYearly = 'zfsmgrgsa:anual'
+$PropLevel = 'zfsmgrgsa:nivelar'
+$PropDest = 'zfsmgrgsa:destino'
+
+function Rotate-GsaLog {
+  New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
+  if (Test-Path -LiteralPath $LogFile) {
+    $size = (Get-Item -LiteralPath $LogFile).Length
+    if ($size -ge 1MB) {
+      if (Test-Path -LiteralPath ($LogFile + '.4')) { Remove-Item -Force -LiteralPath ($LogFile + '.4') }
+      if (Test-Path -LiteralPath ($LogFile + '.3')) { Move-Item -Force -LiteralPath ($LogFile + '.3') -Destination ($LogFile + '.4') }
+      if (Test-Path -LiteralPath ($LogFile + '.2')) { Move-Item -Force -LiteralPath ($LogFile + '.2') -Destination ($LogFile + '.3') }
+      if (Test-Path -LiteralPath ($LogFile + '.1')) { Move-Item -Force -LiteralPath ($LogFile + '.1') -Destination ($LogFile + '.2') }
+      Move-Item -Force -LiteralPath $LogFile -Destination ($LogFile + '.1')
+    }
+  }
+}
+
+function Write-NativeLog([string]$Message, [string]$Level = 'INFORMATION') {
+  $msg = $Message.Trim()
+  if ([string]::IsNullOrWhiteSpace($msg)) { return }
+  $exe = Get-Command eventcreate.exe -ErrorAction SilentlyContinue
+  if (-not $exe) { return }
+  $type = switch ($Level.Trim().ToUpperInvariant()) {
+    'ERROR' { 'ERROR' }
+    'WARNING' { 'WARNING' }
+    default { 'INFORMATION' }
+  }
+  try {
+    & $exe.Source /T $type /ID 1000 /L APPLICATION /SO ZFSMgr /D $msg | Out-Null
+  } catch {}
+}
+
+function Write-GsaLog([string]$Message, [string]$Level = 'INFORMATION') {
+  $line = ('{0} {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message.Trim())
+  Write-Output $line
+  Write-NativeLog $line $Level
+}
+
+function Get-PropValue([string]$Dataset, [string]$Prop) {
+  try {
+    return ((& zfs get -H -o value $Prop $Dataset 2>$null) | Select-Object -First 1).Trim()
+  } catch {
+    return ''
+  }
+}
+
+function Test-On([string]$Value) {
+  switch ($Value.Trim().ToLowerInvariant()) {
+    'on' { return $true }
+    'yes' { return $true }
+    'true' { return $true }
+    '1' { return $true }
+    default { return $false }
+  }
+}
+
+function Get-IntValue([string]$Value) {
+  $n = 0
+  [void][int]::TryParse($Value, [ref]$n)
+  return $n
+}
+
+function Get-DueClasses([int]$Hourly, [int]$Daily, [int]$Weekly, [int]$Monthly, [int]$Yearly) {
+  $now = Get-Date
+  $out = New-Object System.Collections.Generic.List[string]
+  if ($Hourly -gt 0) { $out.Add('hourly') }
+  if ($Daily -gt 0 -and $now.Hour -eq 0) { $out.Add('daily') }
+  if ($Weekly -gt 0 -and $now.Hour -eq 0 -and $now.DayOfWeek -eq [DayOfWeek]::Sunday) { $out.Add('weekly') }
+  if ($Monthly -gt 0 -and $now.Hour -eq 0 -and $now.Day -eq 1) { $out.Add('monthly') }
+  if ($Yearly -gt 0 -and $now.Hour -eq 0 -and $now.Day -eq 1 -and $now.Month -eq 1) { $out.Add('yearly') }
+  return $out
+}
+
+function New-GsaSnapshot([string]$Dataset, [string]$Class, [bool]$Recursive) {
+  $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+  $snapName = "GSA-$Class-$stamp"
+  if ($Recursive) {
+    & zfs snapshot -r "$Dataset@$snapName" | Out-Null
+  } else {
+    & zfs snapshot "$Dataset@$snapName" | Out-Null
+  }
+  return $snapName
+}
+
+function Prune-GsaSnapshots([string]$Dataset, [string]$Class, [int]$Keep, [bool]$Recursive) {
+  if ($Keep -le 0) { return }
+  $pattern = "^" + [regex]::Escape($Dataset + '@GSA-' + $Class + '-')
+  $snaps = @((& zfs list -H -t snapshot -o name -s creation -r $Dataset 2>$null) | Where-Object { $_ -match $pattern })
+  if ($snaps.Count -le $Keep) { return }
+  $remove = $snaps | Select-Object -First ($snaps.Count - $Keep)
+  foreach ($snap in $remove) {
+    $snapShort = $snap.Substring($Dataset.Length + 1)
+    try {
+      if ($Recursive) {
+        & zfs destroy -r "$Dataset@$snapShort" | Out-Null
+      } else {
+        & zfs destroy "$Dataset@$snapShort" | Out-Null
+      }
+    } catch {}
+  }
+}
+
+function Get-LatestCommonGsa([string]$SrcDataset, [string]$DstDataset) {
+  $src = @((& zfs list -H -t snapshot -o name -s creation -r $SrcDataset 2>$null) |
+    Where-Object { $_ -like "$SrcDataset@GSA-*" } |
+    ForEach-Object { $_.Substring($SrcDataset.Length + 1) })
+  $dstSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+  ((& zfs list -H -t snapshot -o name -s creation -r $DstDataset 2>$null) |
+    Where-Object { $_ -like "$DstDataset@GSA-*" } |
+    ForEach-Object { $null = $dstSet.Add($_.Substring($DstDataset.Length + 1)) })
+  $common = $null
+  foreach ($snap in $src) {
+    if ($dstSet.Contains($snap)) { $common = $snap }
+  }
+  return $common
+}
+
+function Invoke-GsaLevel([string]$SrcDataset, [bool]$Recursive, [string]$SnapName, [string]$DestSpec, [bool]$LevelOn) {
+  if (-not $LevelOn -or [string]::IsNullOrWhiteSpace($DestSpec)) { return }
+  if ($DestSpec -notmatch '^(?<conn>[^:]+)::(?<dataset>.+)$') { return }
+  $dstConn = $Matches['conn']
+  $dstDataset = $Matches['dataset']
+  if ($dstConn -ne $SelfConnection -and $dstConn -ne 'Local') { return }
+  try {
+    & zfs list -H -o name $dstDataset | Out-Null
+  } catch {
+    return
+  }
+  $common = Get-LatestCommonGsa $SrcDataset $DstDataset
+  if ($Recursive) {
+    if ($common) {
+      & powershell -NoProfile -Command "& zfs send -R -I '@$common' '$SrcDataset@$SnapName' | zfs recv -F '$DstDataset'" | Out-Null
+    } else {
+      & powershell -NoProfile -Command "& zfs send -R '$SrcDataset@$SnapName' | zfs recv -F '$DstDataset'" | Out-Null
+    }
+  } else {
+    if ($common) {
+      & powershell -NoProfile -Command "& zfs send -I '@$common' '$SrcDataset@$SnapName' | zfs recv -F '$DstDataset'" | Out-Null
+    } else {
+      & powershell -NoProfile -Command "& zfs send '$SrcDataset@$SnapName' | zfs recv -F '$DstDataset'" | Out-Null
+    }
+  }
+try {
+  Rotate-GsaLog
+  Start-Transcript -LiteralPath $LogFile -Append | Out-Null
+  Write-GsaLog ("GSA start version " + '__VERSION__')
+  $datasets = @((& zfs list -H -o name -t filesystem 2>$null))
+  foreach ($ds in $datasets) {
+    if ([string]::IsNullOrWhiteSpace($ds)) { continue }
+    if (-not (Test-On (Get-PropValue $ds $PropEnabled))) { continue }
+    $recursive = Test-On (Get-PropValue $ds $PropRecursive)
+    $hourly = Get-IntValue (Get-PropValue $ds $PropHourly)
+    $daily = Get-IntValue (Get-PropValue $ds $PropDaily)
+    $weekly = Get-IntValue (Get-PropValue $ds $PropWeekly)
+    $monthly = Get-IntValue (Get-PropValue $ds $PropMonthly)
+    $yearly = Get-IntValue (Get-PropValue $ds $PropYearly)
+    $levelOn = Test-On (Get-PropValue $ds $PropLevel)
+    $destSpec = Get-PropValue $ds $PropDest
+    foreach ($klass in (Get-DueClasses $hourly $daily $weekly $monthly $yearly)) {
+      $snapName = New-GsaSnapshot $ds $klass $recursive
+      switch ($klass) {
+        'hourly' { $keep = $hourly }
+        'daily' { $keep = $daily }
+        'weekly' { $keep = $weekly }
+        'monthly' { $keep = $monthly }
+        'yearly' { $keep = $yearly }
+        default { $keep = 0 }
+      }
+      Prune-GsaSnapshots $ds $klass $keep $recursive
+      Invoke-GsaLevel $ds $recursive $snapName $destSpec $levelOn
+    }
+  }
+} finally {
+  Write-GsaLog 'GSA end'
+  try { Stop-Transcript | Out-Null } catch {}
+}
+)GSA");
+    script.replace(QStringLiteral("__VERSION__"), gsaScriptVersion());
+    script.replace(QStringLiteral("__SELF_CONNECTION__"), escapePsSingleQuoted(selfConnectionName));
+    return script;
+}
 
 QString connTreeNodeKey(QTreeWidgetItem* n) {
     if (!n) {
@@ -518,6 +1080,137 @@ QString MainWindow::connectionDisplayModeForIndex(int connIdx) const {
         return QStringLiteral("target");
     }
     return QString();
+}
+
+int MainWindow::connectionIndexByNameOrId(const QString& value) const {
+    const QString wanted = value.trimmed();
+    if (wanted.isEmpty()) {
+        return -1;
+    }
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        const ConnectionProfile& p = m_profiles[i];
+        if (p.name.trimmed().compare(wanted, Qt::CaseInsensitive) == 0
+            || p.id.trimmed().compare(wanted, Qt::CaseInsensitive) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+bool MainWindow::connectionsReferToSameMachine(int a, int b) const {
+    if (a < 0 || a >= m_profiles.size() || b < 0 || b >= m_profiles.size()) {
+        return false;
+    }
+    QString ua = m_profiles[a].machineUid.trimmed().toLower();
+    QString ub = m_profiles[b].machineUid.trimmed().toLower();
+    if (ua.isEmpty() && a < m_states.size()) {
+        ua = m_states[a].machineUuid.trimmed().toLower();
+    }
+    if (ub.isEmpty() && b < m_states.size()) {
+        ub = m_states[b].machineUuid.trimmed().toLower();
+    }
+    return !ua.isEmpty() && !ub.isEmpty() && ua == ub;
+}
+
+int MainWindow::equivalentSshForLocal(int localIdx) const {
+    if (localIdx < 0 || localIdx >= m_profiles.size() || !isLocalConnection(localIdx)) {
+        return -1;
+    }
+    QString localUid = m_profiles[localIdx].machineUid.trimmed().toLower();
+    if (localUid.isEmpty() && localIdx < m_states.size()) {
+        localUid = m_states[localIdx].machineUuid.trimmed().toLower();
+    }
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        if (i == localIdx || isLocalConnection(i)) {
+            continue;
+        }
+        const ConnectionProfile& candidate = m_profiles[i];
+        if (candidate.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+        const QString candUid = candidate.machineUid.trimmed().toLower();
+        if (!localUid.isEmpty() && !candUid.isEmpty() && candUid == localUid) {
+            return i;
+        }
+        if (isConnectionRedirectedToLocal(i)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+bool MainWindow::canSshBetweenConnections(int rowIdx, int colIdx, QString* errorOut, int* effectiveDstIdxOut) {
+    if (effectiveDstIdxOut) {
+        *effectiveDstIdxOut = -1;
+    }
+    auto fail = [errorOut](const QString& msg) {
+        if (errorOut) {
+            *errorOut = msg;
+        }
+        return false;
+    };
+    if (rowIdx < 0 || rowIdx >= m_profiles.size() || colIdx < 0 || colIdx >= m_profiles.size()) {
+        return fail(QStringLiteral("indices inválidos"));
+    }
+    const bool srcOk = rowIdx < m_states.size() && m_states[rowIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
+    const bool dstOk = colIdx < m_states.size() && m_states[colIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
+    if (!srcOk || !dstOk) {
+        return fail(trk(QStringLiteral("t_connectivity_notready_001"),
+                        QStringLiteral("La conexión origen o destino no está en estado OK."),
+                        QStringLiteral("The source or target connection is not in OK state."),
+                        QStringLiteral("源连接或目标连接不是 OK 状态。")));
+    }
+    int effectiveIdx = colIdx;
+    if (isLocalConnection(colIdx)) {
+        const int sshIdx = equivalentSshForLocal(colIdx);
+        if (sshIdx < 0) {
+            return fail(trk(QStringLiteral("t_connectivity_local_no_ssh_001"),
+                            QStringLiteral("Local no tiene una conexión SSH equivalente para comprobarla remotamente."),
+                            QStringLiteral("Local has no equivalent SSH connection for remote probing."),
+                            QStringLiteral("本地连接没有可用于远程探测的等效 SSH 连接。")));
+        }
+        effectiveIdx = sshIdx;
+    }
+    if (effectiveDstIdxOut) {
+        *effectiveDstIdxOut = effectiveIdx;
+    }
+    if (rowIdx == colIdx || rowIdx == effectiveIdx || connectionsReferToSameMachine(rowIdx, colIdx) || connectionsReferToSameMachine(rowIdx, effectiveIdx)) {
+        if (errorOut) {
+            errorOut->clear();
+        }
+        return true;
+    }
+    const ConnectionProfile& src = m_profiles[rowIdx];
+    const ConnectionProfile& effectiveDst = m_profiles[effectiveIdx];
+    if (effectiveDst.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
+        return fail(trk(QStringLiteral("t_connectivity_unsupported_target_001"),
+                        QStringLiteral("Solo se comprueba conectividad SSH hacia conexiones SSH/Local."),
+                        QStringLiteral("Only SSH connectivity to SSH/Local connections is checked."),
+                        QStringLiteral("只检查到 SSH/本地连接的 SSH 连通性。")));
+    }
+    if (src.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
+        return fail(trk(QStringLiteral("t_connectivity_unsupported_source_001"),
+                        QStringLiteral("No se comprueba conectividad saliente desde conexiones PSRP."),
+                        QStringLiteral("Outgoing connectivity is not checked from PSRP connections."),
+                        QStringLiteral("不检查来自 PSRP 连接的出站连通性。")));
+    }
+    const QString sshCmd = connectivityMatrixRemoteProbe(effectiveDst);
+    if (sshCmd.trimmed().isEmpty()) {
+        return fail(QStringLiteral("probe SSH vacío"));
+    }
+    QString sshOut;
+    QString sshErr;
+    int sshRc = -1;
+    const bool sshOk = runSsh(src, sshCmd, 12000, sshOut, sshErr, sshRc);
+    const QString sshMerged = (sshOut + QStringLiteral("\n") + sshErr).trimmed();
+    const bool sshProbeOk = sshOk && sshRc == 0 && sshMerged.contains(QStringLiteral("ZFSMGR_CONNECT_OK"));
+    if (!sshProbeOk) {
+        return fail(sshMerged.isEmpty() ? QStringLiteral("ssh exit %1").arg(sshRc) : sshMerged.left(300));
+    }
+    if (errorOut) {
+        errorOut->clear();
+    }
+    return true;
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
@@ -2609,6 +3302,437 @@ void MainWindow::installMsysForSelectedConnection() {
             QStringLiteral("The installation finished, but commands are still missing on \"%1\": %2"),
             QStringLiteral("安装已完成，但 \"%1\" 上仍缺少命令：%2"))
             .arg(p.name, missingPackages.join(QStringLiteral(", "))));
+}
+
+QString MainWindow::gsaMenuLabelForConnection(int connIdx) const {
+    if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
+        return trk(QStringLiteral("t_gsa_install_001"),
+                   QStringLiteral("Instalar gestor de snapshots"),
+                   QStringLiteral("Install snapshot manager"),
+                   QStringLiteral("安装快照管理器"));
+    }
+    const ConnectionRuntimeState& st = m_states[connIdx];
+    if (!st.gsaInstalled) {
+        return trk(QStringLiteral("t_gsa_install_001"),
+                   QStringLiteral("Instalar gestor de snapshots"),
+                   QStringLiteral("Install snapshot manager"),
+                   QStringLiteral("安装快照管理器"));
+    }
+    if (compareAppVersions(gsaScriptVersion(), st.gsaVersion) > 0) {
+        return trk(QStringLiteral("t_gsa_update_001"),
+                   QStringLiteral("Actualizar versión del Gestor de snapshots"),
+                   QStringLiteral("Update snapshot manager version"),
+                   QStringLiteral("更新快照管理器版本"));
+    }
+    if (!st.gsaActive) {
+        return trk(QStringLiteral("t_gsa_enable_001"),
+                   QStringLiteral("Activar GSA"),
+                   QStringLiteral("Enable GSA"),
+                   QStringLiteral("启用 GSA"));
+    }
+    return trk(QStringLiteral("t_gsa_ok_001"),
+               QStringLiteral("GSA actualizado y funcionando"),
+               QStringLiteral("GSA updated and running"),
+               QStringLiteral("GSA 已更新并运行中"));
+}
+
+bool MainWindow::installOrUpdateGsaForConnection(int idx) {
+    if (actionsLocked()) {
+        return false;
+    }
+    if (idx < 0 || idx >= m_profiles.size()) {
+        return false;
+    }
+    if (isConnectionDisconnected(idx)) {
+        QMessageBox::information(this,
+                                 QStringLiteral("ZFSMgr"),
+                                 trk(QStringLiteral("t_gsa_conn_disc_001"),
+                                     QStringLiteral("La conexión está desconectada."),
+                                     QStringLiteral("The connection is disconnected."),
+                                     QStringLiteral("该连接已断开。")));
+        return false;
+    }
+    const ConnectionProfile& p = m_profiles[idx];
+    const QString selfConnName = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
+    const QString actionLabel = gsaMenuLabelForConnection(idx);
+
+    auto profileDisplayName = [this](int connIdx) {
+        const ConnectionProfile& cp = m_profiles[connIdx];
+        return cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
+    };
+    auto unixConfigDirForProfile = [this](const ConnectionProfile& cp, bool isMac) {
+        if (isLocalConnection(cp)) {
+            return m_store.configDir();
+        }
+        const QString user = cp.username.trimmed().isEmpty() ? QStringLiteral("root") : cp.username.trimmed();
+        if (isMac) {
+            return (user == QStringLiteral("root"))
+                       ? QStringLiteral("/var/root/.config/ZFSMgr")
+                       : QStringLiteral("/Users/%1/.config/ZFSMgr").arg(user);
+        }
+        return (user == QStringLiteral("root"))
+                   ? QStringLiteral("/root/.config/ZFSMgr")
+                   : QStringLiteral("/home/%1/.config/ZFSMgr").arg(user);
+    };
+    auto windowsConfigDirForProfile = [this](const ConnectionProfile& cp) {
+        Q_UNUSED(this);
+        QString user = cp.username.trimmed();
+        const int slash = qMax(user.lastIndexOf(QLatin1Char('\\')), user.lastIndexOf(QLatin1Char('/')));
+        if (slash >= 0) {
+            user = user.mid(slash + 1);
+        }
+        if (user.isEmpty()) {
+            user = QStringLiteral("Default");
+        }
+        return QStringLiteral("C:\\Users\\%1\\.config\\ZFSMgr").arg(user);
+    };
+    auto buildUnixConnectionMap = [this, idx, &profileDisplayName]() {
+        QString snippet;
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            const QString connName = profileDisplayName(i);
+            if (connName.isEmpty()) {
+                continue;
+            }
+            int effectiveIdx = i;
+            bool localMode = (i == idx) || connectionsReferToSameMachine(idx, i);
+            if (isLocalConnection(i)) {
+                const int sshIdx = equivalentSshForLocal(i);
+                if (!localMode && sshIdx < 0) {
+                    continue;
+                }
+                if (!localMode && sshIdx >= 0) {
+                    effectiveIdx = sshIdx;
+                    localMode = connectionsReferToSameMachine(idx, sshIdx);
+                }
+            }
+            const ConnectionProfile& effective = m_profiles[effectiveIdx];
+            if (!localMode && effective.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
+                continue;
+            }
+            snippet += QStringLiteral("    %1)\n").arg(mwhelpers::shSingleQuote(connName));
+            if (localMode) {
+                snippet += QStringLiteral("      TARGET_MODE='local'\n");
+            } else {
+                snippet += QStringLiteral("      TARGET_MODE='ssh'\n");
+                snippet += QStringLiteral("      TARGET_HOST=%1\n").arg(mwhelpers::shSingleQuote(effective.host.trimmed()));
+                snippet += QStringLiteral("      TARGET_PORT=%1\n").arg(mwhelpers::shSingleQuote(effective.port > 0 ? QString::number(effective.port) : QString()));
+                snippet += QStringLiteral("      TARGET_USER=%1\n").arg(mwhelpers::shSingleQuote(effective.username.trimmed()));
+                snippet += QStringLiteral("      TARGET_PASS=%1\n").arg(mwhelpers::shSingleQuote(effective.password));
+                snippet += QStringLiteral("      TARGET_KEY=%1\n").arg(mwhelpers::shSingleQuote(effective.keyPath.trimmed()));
+                snippet += QStringLiteral("      TARGET_USE_SUDO=%1\n").arg(mwhelpers::shSingleQuote(effective.useSudo ? QStringLiteral("1") : QStringLiteral("0")));
+            }
+            snippet += QStringLiteral("      ;;\n");
+        }
+        return snippet;
+    };
+
+    QStringList routeWarnings;
+    for (auto it = m_datasetPropsCache.cbegin(); it != m_datasetPropsCache.cend(); ++it) {
+        if (!it.value().loaded || it.value().datasetType.trimmed().compare(QStringLiteral("filesystem"), Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+        const QStringList parts = it.key().split(QStringLiteral("::"));
+        if (parts.size() < 3) {
+            continue;
+        }
+        bool okConn = false;
+        const int dsConnIdx = parts.at(0).toInt(&okConn);
+        const QString datasetName = parts.mid(2).join(QStringLiteral("::")).trimmed();
+        if (!okConn || dsConnIdx != idx || datasetName.isEmpty()) {
+            continue;
+        }
+        QMap<QString, QString> props;
+        for (const DatasetPropCacheRow& row : it.value().rows) {
+            props.insert(row.prop, row.value);
+        }
+        const QString token = QStringLiteral("%1::%2").arg(idx).arg(parts.at(1).trimmed());
+        const QString liveKey = QStringLiteral("%1|%2").arg(token, datasetName);
+        const auto liveIt = m_connContentPropValuesByObject.constFind(liveKey);
+        if (liveIt != m_connContentPropValuesByObject.cend()) {
+            for (auto vit = liveIt->cbegin(); vit != liveIt->cend(); ++vit) {
+                props[vit.key()] = vit.value();
+            }
+        }
+        const QString enabled = props.value(QStringLiteral("zfsmgrgsa:activado")).trimmed().toLower();
+        if (!(enabled == QStringLiteral("on") || enabled == QStringLiteral("yes") || enabled == QStringLiteral("true") || enabled == QStringLiteral("1"))) {
+            continue;
+        }
+        const QString dest = props.value(QStringLiteral("zfsmgrgsa:destino")).trimmed();
+        if (dest.isEmpty()) {
+            continue;
+        }
+        const QString destConnName = dest.section(QStringLiteral("::"), 0, 0).trimmed();
+        const int destIdx = connectionIndexByNameOrId(destConnName);
+        if (destIdx < 0) {
+            routeWarnings << trk(QStringLiteral("t_gsa_route_missing_conn_001"),
+                                 QStringLiteral("%1 -> %2: la conexión destino no existe."),
+                                 QStringLiteral("%1 -> %2: the destination connection does not exist."),
+                                 QStringLiteral("%1 -> %2：目标连接不存在。")).arg(datasetName, destConnName);
+            continue;
+        }
+        QString routeErr;
+        int effectiveDstIdx = -1;
+        if (!canSshBetweenConnections(idx, destIdx, &routeErr, &effectiveDstIdx)) {
+            routeWarnings << trk(QStringLiteral("t_gsa_route_warn_001"),
+                                 QStringLiteral("%1 -> %2: la interconexión SSH no está OK en la matriz de conectividad (%3)."),
+                                 QStringLiteral("%1 -> %2: SSH interconnection is not OK in the connectivity matrix (%3)."),
+                                 QStringLiteral("%1 -> %2：连通性矩阵中的 SSH 互连不是 OK（%3）。")).arg(datasetName, destConnName, routeErr);
+            continue;
+        }
+        if (isWindowsConnection(idx) && effectiveDstIdx >= 0 && effectiveDstIdx < m_profiles.size()
+            && !m_profiles[effectiveDstIdx].password.trimmed().isEmpty()
+            && !connectionsReferToSameMachine(idx, effectiveDstIdx)) {
+            routeWarnings << trk(QStringLiteral("t_gsa_route_windows_auth_warn_001"),
+                                 QStringLiteral("%1 -> %2: GSA en Windows requiere autenticación SSH no interactiva en el origen remoto. Este destino usa password y puede no ejecutarse sin clave SSH."),
+                                 QStringLiteral("%1 -> %2: GSA on Windows requires non-interactive SSH authentication on the remote source. This target uses a password and may not run without an SSH key."),
+                                 QStringLiteral("%1 -> %2：Windows 上的 GSA 需要远端源主机上的非交互式 SSH 认证。该目标使用密码，没有 SSH 密钥时可能无法执行。")).arg(datasetName, destConnName);
+        }
+    }
+    if (!routeWarnings.isEmpty()) {
+        const auto warnAnswer = QMessageBox::warning(
+            this,
+            actionLabel,
+            trk(QStringLiteral("t_gsa_route_warn_title_001"),
+                QStringLiteral("Hay nivelaciones GSA configuradas que no se podrán ejecutar directamente:\n\n%1\n\nSi continúas, GSA quedará instalado/actualizado, pero esas interconexiones seguirán fallando mientras no aparezcan como SSH OK en la matriz de conectividad.\n\n¿Continuar?"),
+                QStringLiteral("There are configured GSA leveling routes that will not run directly:\n\n%1\n\nIf you continue, GSA will be installed/updated, but those interconnections will still fail until they show up as SSH OK in the connectivity matrix.\n\nContinue?"),
+                QStringLiteral("存在已配置的 GSA 同步路径无法直接执行：\n\n%1\n\n如果继续，GSA 会安装/更新，但这些互连仍会失败，直到它们在连通性矩阵中显示为 SSH OK。\n\n是否继续？"))
+                .arg(routeWarnings.join(QStringLiteral("\n"))),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        if (warnAnswer != QMessageBox::Yes) {
+            return false;
+        }
+    }
+
+    const auto confirm = QMessageBox::question(
+        this,
+        actionLabel,
+        trk(QStringLiteral("t_gsa_confirm_001"),
+            QStringLiteral("ZFSMgr instalará o actualizará el GSA y lo programará cada hora usando el scheduler nativo de \"%1\".\n\n¿Continuar?"),
+            QStringLiteral("ZFSMgr will install or update GSA and schedule it hourly using the native scheduler on \"%1\".\n\nContinue?"),
+            QStringLiteral("ZFSMgr 将安装或更新 GSA，并使用 \"%1\" 上的原生计划任务每小时执行一次。\n\n是否继续？"))
+            .arg(p.name),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return false;
+    }
+
+    QString remoteCmd;
+    WindowsCommandMode winMode = WindowsCommandMode::Auto;
+    if (isWindowsConnection(idx)) {
+        winMode = WindowsCommandMode::PowerShellNative;
+        QString payload = gsaWindowsScriptPayload(selfConnName);
+        payload.replace(QStringLiteral("__CONFIG_DIR__"), windowsConfigDirForProfile(p));
+        const QString taskName = QString::fromLatin1(kGsaTaskName);
+        remoteCmd = QStringLiteral(
+            "$dir='C:\\ProgramData\\ZFSMgr'; "
+            "New-Item -ItemType Directory -Force -Path $dir | Out-Null; "
+            "$script=Join-Path $dir 'gsa.ps1'; "
+            "@'\n%1\n'@ | Set-Content -LiteralPath $script -Encoding UTF8; "
+            "$taskCmd='powershell -NoProfile -ExecutionPolicy Bypass -File \"' + $script + '\"'; "
+            "schtasks /Create /F /TN '%2' /SC HOURLY /MO 1 /RU SYSTEM /TR $taskCmd | Out-Null; "
+            "schtasks /Change /TN '%2' /ENABLE | Out-Null")
+                        .arg(payload, taskName);
+    } else {
+        const bool isMac = p.osType.trimmed().toLower().contains(QStringLiteral("darwin"))
+                           || (idx < m_states.size() && m_states[idx].osLine.toLower().contains(QStringLiteral("darwin")));
+        QString scriptPayload = gsaUnixScriptPayload(selfConnName);
+        scriptPayload.replace(QStringLiteral("__CONFIG_DIR__"), unixConfigDirForProfile(p, isMac));
+        scriptPayload.replace(QStringLiteral("__CONNECTION_MAP__"), buildUnixConnectionMap());
+        if (isMac) {
+            const QString plistPayload = QString::fromUtf8(R"(<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>org.zfsmgr.gsa</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/libexec/zfsmgr-gsa.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Minute</key><integer>0</integer></dict>
+  </array>
+  <key>RunAtLoad</key><true/>
+</dict>
+</plist>
+)");
+            remoteCmd = QStringLiteral(
+                "mkdir -p /usr/local/libexec; "
+                "cat > %1 <<'EOF_GSA'\n%2\nEOF_GSA\n"
+                "chmod 755 %1; "
+                "cat > %3 <<'EOF_GSA_PLIST'\n%4\nEOF_GSA_PLIST\n"
+                "chmod 644 %3; "
+                "launchctl bootout system/org.zfsmgr.gsa >/dev/null 2>&1 || true; "
+                "launchctl bootstrap system %3; "
+                "launchctl enable system/org.zfsmgr.gsa; "
+                "launchctl kickstart -k system/org.zfsmgr.gsa >/dev/null 2>&1 || true")
+                            .arg(QString::fromLatin1(kGsaUnixScriptPath),
+                                 scriptPayload,
+                                 QString::fromLatin1(kGsaMacPlistPath),
+                                 plistPayload);
+        } else {
+            const QString servicePayload = QString::fromUtf8(R"([Unit]
+Description=ZFSMgr automatic snapshot manager
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/zfsmgr-gsa.sh
+)");
+            const QString timerPayload = QString::fromUtf8(R"([Unit]
+Description=Run ZFSMgr automatic snapshot manager hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=zfsmgr-gsa.service
+
+[Install]
+WantedBy=timers.target
+)");
+            remoteCmd = QStringLiteral(
+                "if ! command -v systemctl >/dev/null 2>&1; then echo 'systemd not available' >&2; exit 1; fi; "
+                "mkdir -p /usr/local/libexec; "
+                "cat > %1 <<'EOF_GSA'\n%2\nEOF_GSA\n"
+                "chmod 755 %1; "
+                "cat > %3 <<'EOF_GSA_SERVICE'\n%4\nEOF_GSA_SERVICE\n"
+                "cat > %5 <<'EOF_GSA_TIMER'\n%6\nEOF_GSA_TIMER\n"
+                "systemctl daemon-reload; "
+                "systemctl enable --now zfsmgr-gsa.timer")
+                            .arg(QString::fromLatin1(kGsaUnixScriptPath),
+                                 scriptPayload,
+                                 QString::fromLatin1(kGsaLinuxServicePath),
+                                 servicePayload,
+                                 QString::fromLatin1(kGsaLinuxTimerPath),
+                                 timerPayload);
+        }
+        remoteCmd = withSudo(p, remoteCmd);
+    }
+
+    beginUiBusy();
+    updateStatus(actionLabel + QStringLiteral("..."));
+    QString out;
+    QString err;
+    int rc = -1;
+    const bool ok = runSsh(p, remoteCmd, 240000, out, err, rc, {}, {}, {}, winMode) && rc == 0;
+    endUiBusy();
+    if (!ok) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_gsa_install_fail_001"),
+                QStringLiteral("No se pudo instalar/actualizar el GSA en \"%1\".\n\n%2"),
+                QStringLiteral("Could not install/update GSA on \"%1\".\n\n%2"),
+                QStringLiteral("无法在 \"%1\" 上安装/更新 GSA。\n\n%2"))
+                .arg(p.name, (err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err).simplified().left(500)));
+        refreshConnectionByIndex(idx);
+        return false;
+    }
+    refreshConnectionByIndex(idx);
+    return true;
+}
+
+bool MainWindow::uninstallGsaForConnection(int idx) {
+    if (actionsLocked()) {
+        return false;
+    }
+    if (idx < 0 || idx >= m_profiles.size()) {
+        return false;
+    }
+    if (isConnectionDisconnected(idx)) {
+        QMessageBox::information(this,
+                                 QStringLiteral("ZFSMgr"),
+                                 trk(QStringLiteral("t_gsa_conn_disc_001"),
+                                     QStringLiteral("La conexión está desconectada."),
+                                     QStringLiteral("The connection is disconnected."),
+                                     QStringLiteral("该连接已断开。")));
+        return false;
+    }
+    if (idx >= m_states.size() || !m_states[idx].gsaInstalled) {
+        return false;
+    }
+
+    const ConnectionProfile& p = m_profiles[idx];
+    const auto confirm = QMessageBox::question(
+        this,
+        QStringLiteral("ZFSMgr"),
+        trk(QStringLiteral("t_gsa_uninstall_confirm_001"),
+            QStringLiteral("ZFSMgr desinstalará el GSA de \"%1\" y eliminará su programación nativa.\n\n¿Continuar?"),
+            QStringLiteral("ZFSMgr will uninstall GSA from \"%1\" and remove its native schedule.\n\nContinue?"),
+            QStringLiteral("ZFSMgr 将从 \"%1\" 卸载 GSA 并删除其原生计划任务。\n\n是否继续？"))
+            .arg(p.name),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return false;
+    }
+
+    QString remoteCmd;
+    WindowsCommandMode winMode = WindowsCommandMode::Auto;
+    if (isWindowsConnection(idx)) {
+        winMode = WindowsCommandMode::PowerShellNative;
+        const QString taskName = QString::fromLatin1(kGsaTaskName);
+        remoteCmd = QStringLiteral(
+            "$taskName='%1'; "
+            "$dir='C:\\ProgramData\\ZFSMgr'; "
+            "$script=Join-Path $dir 'gsa.ps1'; "
+            "schtasks /Delete /F /TN $taskName >$null 2>&1; "
+            "if (Test-Path -LiteralPath $script) { Remove-Item -Force -LiteralPath $script }; "
+            "if (Test-Path -LiteralPath $dir) { "
+            "  $remaining=Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue; "
+            "  if (-not $remaining) { Remove-Item -Force -LiteralPath $dir -ErrorAction SilentlyContinue } "
+            "}")
+                        .arg(taskName);
+    } else {
+        const bool isMac = p.osType.trimmed().toLower().contains(QStringLiteral("darwin"))
+                           || (idx < m_states.size() && m_states[idx].osLine.toLower().contains(QStringLiteral("darwin")));
+        if (isMac) {
+            remoteCmd = QStringLiteral(
+                "launchctl bootout system/org.zfsmgr.gsa >/dev/null 2>&1 || true; "
+                "launchctl disable system/org.zfsmgr.gsa >/dev/null 2>&1 || true; "
+                "rm -f %1 %2")
+                            .arg(QString::fromLatin1(kGsaMacPlistPath),
+                                 QString::fromLatin1(kGsaUnixScriptPath));
+        } else {
+            remoteCmd = QStringLiteral(
+                "if command -v systemctl >/dev/null 2>&1; then "
+                "  systemctl disable --now zfsmgr-gsa.timer >/dev/null 2>&1 || true; "
+                "  systemctl stop zfsmgr-gsa.service >/dev/null 2>&1 || true; "
+                "fi; "
+                "rm -f %1 %2 %3; "
+                "if command -v systemctl >/dev/null 2>&1; then systemctl daemon-reload >/dev/null 2>&1 || true; fi")
+                            .arg(QString::fromLatin1(kGsaUnixScriptPath),
+                                 QString::fromLatin1(kGsaLinuxServicePath),
+                                 QString::fromLatin1(kGsaLinuxTimerPath));
+        }
+        remoteCmd = withSudo(p, remoteCmd);
+    }
+
+    beginUiBusy();
+    updateStatus(trk(QStringLiteral("t_gsa_uninstall_progress_001"),
+                     QStringLiteral("Desinstalando GSA de %1..."),
+                     QStringLiteral("Uninstalling GSA from %1..."),
+                     QStringLiteral("正在从 %1 卸载 GSA...")).arg(p.name));
+    QString out;
+    QString err;
+    int rc = -1;
+    const bool ok = runSsh(p, remoteCmd, 120000, out, err, rc, {}, {}, {}, winMode) && rc == 0;
+    endUiBusy();
+    if (!ok) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_gsa_uninstall_fail_001"),
+                QStringLiteral("No se pudo desinstalar el GSA de \"%1\".\n\n%2"),
+                QStringLiteral("Could not uninstall GSA from \"%1\".\n\n%2"),
+                QStringLiteral("无法从 \"%1\" 卸载 GSA。\n\n%2"))
+                .arg(p.name, mwhelpers::oneLine(err.isEmpty() ? out : err)));
+        refreshConnectionByIndex(idx);
+        return false;
+    }
+    refreshConnectionByIndex(idx);
+    return true;
 }
 
 void MainWindow::deleteConnection() {

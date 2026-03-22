@@ -31,14 +31,22 @@ ZFSMgr manages connections and ZFS actions.
 - Inline properties may include direct editing and an `Inh.` inheritance control.
 - If `Inh.=on`, the value editor is disabled and greyed out.
   If `Inh.=off`, the value becomes editable again.
-- The tree context menu can show or hide `Pool information`, inline `Properties`, and inline `Permissions`.
+- `Schedule snapshots` properties (`zfsmgrgsa:*`) are user properties and do not expose inheritance controls.
+- The tree context menu can show or hide `Pool information` and, inside `Show inline`, inline `Properties`, `Permissions`, and `Schedule snapshots`.
+- The dataset context menu can also show or hide automatic snapshots (`GSA-*`).
 - Permission sections are shown as `Deleg.`, `New child DS`, and `Sets`.
 - Non-importable pools are also shown as root nodes so `Import` can be executed.
 - Logs: single `Combined log` panel (includes SSH/PSRP output with connection prefix).
+- In addition to `application.log`, ZFSMgr sends high-level events to the native system log:
+  - macOS: Unified Logging (`Console.app`, `log show`, `log stream`)
+  - Linux: `syslog` / `journald` (`journalctl`)
+  - Windows: `Windows Event Log` (`Event Viewer`)
 - The connections table includes a floating `Connectivity` button.
   It opens a matrix where each row is the source connection and each column is the target connection.
-- A `✓` means the machine in the row can connect directly to the machine in the column using the credentials defined in the target connection.
-- If that `✓` is missing, ZFSMgr cannot perform a direct remote-to-remote transfer between that source and target.
+- Each cell shows `SSH` and `rsync` state.
+  `SSH:✓` means the machine in the row can connect directly to the machine in the column using the credentials defined in the target connection.
+  `rsync:✓` means `rsync` is also available on that route.
+- If `SSH:✓` is missing, ZFSMgr cannot perform a direct remote-to-remote transfer between that source and target.
   In that case, the transfer has to pass through the local machine where ZFSMgr is running.
   That means a double hop, more local traffic, and higher time/resource cost.
 - The lower log area uses tabs:
@@ -105,6 +113,35 @@ Dataset creation and encrypted mounts:
 - That passphrase is sent through standard input when the dataset is created; it is not appended to the previewed command line or logs.
 - If `Create dataset` fails, the dialog remains open with the entered values so they can be fixed and retried.
 - When mounting an encrypted dataset with `keylocation=prompt`, ZFSMgr asks for the passphrase first, runs `zfs load-key`, and then runs `zfs mount`.
+
+Automatic snapshot scheduling (GSA):
+
+- The connection context menu shows the `Snapshot manager` state.
+  Depending on the connection, it may appear as `Install snapshot manager`, `Update snapshot manager version`, `Enable GSA`, or `GSA up to date and running`.
+- ZFSMgr uses the native scheduler for each platform:
+  - macOS: `launchd`
+  - Linux: `systemd timer`
+  - Windows: `Task Scheduler`
+- Filesystem datasets can show a `Schedule snapshots` node.
+- That node exposes these inline properties:
+  - `Enabled`
+  - `Recursive`
+  - `Hourly`
+  - `Daily`
+  - `Weekly`
+  - `Monthly`
+  - `Yearly`
+  - `Level`
+  - `Destination`
+- These settings are stored as dataset user properties with `zfsmgrgsa:*` names.
+- A retention value of `0` disables that schedule class.
+- If `Level=on`, `Destination` must use `Conn::Pool/Dataset` format.
+- ZFSMgr blocks overlapping schedules:
+  - one dataset cannot belong to more than one active schedule
+  - if a dataset has recursive scheduling, its children cannot define another one
+- Automatic snapshots use `GSA-...` names.
+- The GSA scheduler writes its log in ZFSMgr's config directory and rotates `GSA.log`.
+- If a remote leveling route does not have `SSH:✓` in the `Connectivity` matrix, ZFSMgr warns before installing or updating GSA.
 
 Navigation behavior:
 

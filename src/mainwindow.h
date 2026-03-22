@@ -3,6 +3,10 @@
 #include "connectionstore.h"
 #include "connectiondialog.h"
 
+#ifndef ZFSMGR_APP_VERSION
+#define ZFSMGR_APP_VERSION "0.10.0rc1"
+#endif
+
 #include <QMainWindow>
 #include <QMap>
 #include <QPointer>
@@ -76,6 +80,11 @@ private:
         QVector<PoolImportable> importablePools;
         QVector<QPair<QString, QString>> mountedDatasets; // dataset, mountpoint
         QMap<QString, QString> poolStatusByName;
+        QString gsaScheduler;
+        QString gsaVersion;
+        QString gsaDetail;
+        bool gsaInstalled{false};
+        bool gsaActive{false};
     };
 
     struct DatasetRecord {
@@ -196,6 +205,10 @@ private:
     void loadConnections();
     void ensureStartupLocalSudoConnection();
     void rebuildConnectionsTable();
+    int connectionIndexByNameOrId(const QString& value) const;
+    bool connectionsReferToSameMachine(int a, int b) const;
+    int equivalentSshForLocal(int localIdx) const;
+    bool canSshBetweenConnections(int rowIdx, int colIdx, QString* errorOut = nullptr, int* effectiveDstIdxOut = nullptr);
     void refreshAllConnections();
     void refreshSelectedConnection();
     void createConnection();
@@ -236,6 +249,11 @@ private:
                                        const QString& objectName,
                                        const QString& prop,
                                        bool inherit);
+    QString gsaMenuLabelForConnection(int connIdx) const;
+    bool installOrUpdateGsaForConnection(int connIdx);
+    bool uninstallGsaForConnection(int connIdx);
+    bool validatePendingGsaDrafts(QString* errorOut = nullptr);
+    bool showAutomaticSnapshots() const;
 
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
     bool runSsh(const ConnectionProfile& p,
@@ -341,6 +359,7 @@ private:
     void initLogPersistence();
     void rotateLogIfNeeded();
     void appendLogToFile(const QString& line);
+    void appendLogToNative(const QString& level, const QString& line);
     void clearAppLog();
     void copyAppLogToClipboard();
     int maxLogLines() const;
@@ -538,7 +557,9 @@ private:
     bool m_showInlineDatasetProps{true};
     bool m_showInlinePropertyNodes{true};
     bool m_showInlinePermissionsNodes{true};
+    bool m_showInlineGsaNode{true};
     bool m_showPoolInfoNode{true};
+    bool m_showAutomaticGsaSnapshots{true};
     int m_connPropColumnsSetting{7};
     bool m_pendingChangeActivationInProgress{false};
     QStringList m_datasetInlinePropsOrder;

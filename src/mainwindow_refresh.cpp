@@ -71,6 +71,23 @@ QString extractMachineUuid(const QString& text) {
     return normalizeMachineUuid(t.section('\n', 0, 0).trimmed());
 }
 
+QMap<QString, QString> parseKeyValueOutput(const QString& text) {
+    QMap<QString, QString> out;
+    const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
+    for (const QString& raw : lines) {
+        const int eq = raw.indexOf('=');
+        if (eq <= 0) {
+            continue;
+        }
+        const QString key = raw.left(eq).trimmed().toUpper();
+        const QString value = raw.mid(eq + 1).trimmed();
+        if (!key.isEmpty()) {
+            out.insert(key, value);
+        }
+    }
+    return out;
+}
+
 } // namespace
 
 int MainWindow::findConnectionIndexByName(const QString& name) const {
@@ -410,6 +427,70 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             state.missingUnixCommands = missing;
             state.unixFromMsysOrMingw = false;
             state.commandsLayer.clear();
+        }
+    }
+
+    {
+        QString gsaOut;
+        QString gsaErr;
+        int gsaRc = -1;
+        QString gsaProbeCmd;
+        WindowsCommandMode gsaWinMode = WindowsCommandMode::Auto;
+        if (isWindowsConnection(p)) {
+            gsaWinMode = winPsMode;
+            gsaProbeCmd = QStringLiteral(
+                "$taskName='ZFSMgr-GSA'; "
+                "$scriptPath='C:\\ProgramData\\ZFSMgr\\gsa.ps1'; "
+                "$scheduler='taskschd'; "
+                "$installed=$false; $active=$false; $ver=''; $detail=''; "
+                "$task=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue; "
+                "if ($task) { $installed=$true; if ($task.State -eq 'Ready' -or $task.State -eq 'Running') { $active=$true } } "
+                "if (Test-Path -LiteralPath $scriptPath) { "
+                "  $installed=$true; "
+                "  $m=Select-String -LiteralPath $scriptPath -Pattern '^# ZFSMgr GSA Version: (.+)$' -ErrorAction SilentlyContinue | Select-Object -First 1; "
+                "  if ($m) { $ver=$m.Matches[0].Groups[1].Value.Trim() } "
+                "} "
+                "Write-Output ('SCHEDULER=' + $scheduler); "
+                "Write-Output ('INSTALLED=' + ($(if($installed){'1'}else{'0'}))); "
+                "Write-Output ('ACTIVE=' + ($(if($active){'1'}else{'0'}))); "
+                "Write-Output ('VERSION=' + $ver); "
+                "Write-Output ('DETAIL=' + $detail)");
+        } else {
+            gsaProbeCmd = QStringLiteral(
+                "set +e; "
+                "scheduler=''; installed=0; active=0; version=''; detail=''; "
+                "if [ \"$(uname -s 2>/dev/null)\" = 'Darwin' ]; then "
+                "  scheduler='launchd'; "
+                "  script='/usr/local/libexec/zfsmgr-gsa.sh'; "
+                "  plist='/Library/LaunchDaemons/org.zfsmgr.gsa.plist'; "
+                "  [ -f \"$script\" ] && [ -f \"$plist\" ] && installed=1; "
+                "  if [ \"$installed\" -eq 1 ]; then "
+                "    version=$(sed -n 's/^# ZFSMgr GSA Version: //p' \"$script\" | head -n1); "
+                "    launchctl print system/org.zfsmgr.gsa >/dev/null 2>&1 && active=1; "
+                "  fi; "
+                "elif command -v systemctl >/dev/null 2>&1; then "
+                "  scheduler='systemd'; "
+                "  script='/usr/local/libexec/zfsmgr-gsa.sh'; "
+                "  service='/etc/systemd/system/zfsmgr-gsa.service'; "
+                "  timer='/etc/systemd/system/zfsmgr-gsa.timer'; "
+                "  [ -f \"$script\" ] && [ -f \"$service\" ] && [ -f \"$timer\" ] && installed=1; "
+                "  if [ \"$installed\" -eq 1 ]; then "
+                "    version=$(sed -n 's/^# ZFSMgr GSA Version: //p' \"$script\" | head -n1); "
+                "    systemctl is-enabled zfsmgr-gsa.timer >/dev/null 2>&1 && systemctl is-active zfsmgr-gsa.timer >/dev/null 2>&1 && active=1; "
+                "  fi; "
+                "else "
+                "  detail='No native scheduler detected'; "
+                "fi; "
+                "printf 'SCHEDULER=%s\\nINSTALLED=%s\\nACTIVE=%s\\nVERSION=%s\\nDETAIL=%s\\n' \"$scheduler\" \"$installed\" \"$active\" \"$version\" \"$detail\"");
+            gsaProbeCmd = withSudo(p, gsaProbeCmd);
+        }
+        if (runSsh(p, gsaProbeCmd, 15000, gsaOut, gsaErr, gsaRc, {}, {}, {}, gsaWinMode)) {
+            const QMap<QString, QString> kv = parseKeyValueOutput(gsaOut + QStringLiteral("\n") + gsaErr);
+            state.gsaScheduler = kv.value(QStringLiteral("SCHEDULER")).trimmed();
+            state.gsaVersion = kv.value(QStringLiteral("VERSION")).trimmed();
+            state.gsaDetail = kv.value(QStringLiteral("DETAIL")).trimmed();
+            state.gsaInstalled = (kv.value(QStringLiteral("INSTALLED")).trimmed() == QStringLiteral("1"));
+            state.gsaActive = (kv.value(QStringLiteral("ACTIVE")).trimmed() == QStringLiteral("1"));
         }
     }
 

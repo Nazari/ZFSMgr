@@ -2,10 +2,12 @@
 #include "mainwindow_helpers.h"
 
 #include <QBrush>
+#include <QApplication>
 #include <QCheckBox>
 #include <QColor>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QFont>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHeaderView>
@@ -302,6 +304,16 @@ void MainWindow::importPoolFromRow(int row) {
     }
 
     QDialog dlg(this);
+    dlg.setFont(QApplication::font());
+    {
+        const QFont baseUiFont = QApplication::font();
+        const int baseUiPointSize = qMax(6, baseUiFont.pointSize());
+        dlg.setStyleSheet(QStringLiteral(
+            "QLabel, QLineEdit, QComboBox, QPushButton, QCheckBox, QGroupBox { "
+            "font-family: '%1'; font-size: %2pt; }")
+                              .arg(baseUiFont.family(),
+                                   QString::number(baseUiPointSize)));
+    }
     dlg.setWindowTitle(trk(QStringLiteral("t_import_pool_w1"),
                            QStringLiteral("Importar pool: %1"),
                            QStringLiteral("Import pool: %1"),

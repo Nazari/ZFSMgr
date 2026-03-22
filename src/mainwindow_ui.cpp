@@ -59,7 +59,7 @@
 #include <QPainter>
 
 #ifndef ZFSMGR_APP_VERSION
-#define ZFSMGR_APP_VERSION "0.9.9rc4"
+#define ZFSMGR_APP_VERSION "0.10.0rc1"
 #endif
 
 namespace {
@@ -761,7 +761,9 @@ void MainWindow::buildUi() {
     setWindowTitle(QStringLiteral("ZFSMgr [%1]").arg(QStringLiteral(ZFSMGR_APP_VERSION)));
     setWindowIcon(QIcon(QStringLiteral(":/icons/ZFSMgr-512.png")));
     resize(1200, 736);
-    setMinimumSize(1120, 736);
+    setMinimumSize(560, 368);
+    const QFont baseUiFont = QApplication::font();
+    const int baseUiPointSize = qMax(6, baseUiFont.pointSize());
     setStyleSheet(QStringLiteral(
         "QMainWindow, QWidget { background: #f3f7fb; color: #14212b; }"
         "QTabWidget::pane { border: 1px solid #b8c7d6; border-radius: 0px; background: #f8fbff; top: -1px; }"
@@ -778,7 +780,7 @@ void MainWindow::buildUi() {
         "QPushButton:hover { background: #d6e6f2; }"
         "QPushButton:pressed { background: #c4d8e8; }"
         "QPushButton:disabled { background: #edf1f5; color: #8c99a6; border: 1px solid #c8d2dc; }"
-        "QMenu { background: #ffffff; border: 1px solid #9db0c4; padding: 3px; }"
+        "QMenu { background: #ffffff; border: 1px solid #9db0c4; padding: 3px; font-family: \"%1\"; font-size: %2pt; }"
         "QMenu::item { padding: 4px 14px; color: #102233; }"
         "QMenu::item:selected { background: #cfe5ff; color: #0b2f4f; }"
         "QMenu::item:disabled { color: #8f9aa5; background: #f4f6f8; }"
@@ -791,7 +793,8 @@ void MainWindow::buildUi() {
         "QScrollBar:horizontal { height: 8px; }"
         "QTreeWidget::item:selected, QTableWidget::item:selected, QListWidget::item:selected {"
         "  background: #dcecff; color: #0d2438; font-weight: 600; }"
-        "QHeaderView::section { background: #eaf1f7; border: 1px solid #c5d3e0; padding: 1px 3px; }"));
+        "QHeaderView::section { background: #eaf1f7; border: 1px solid #c5d3e0; padding: 1px 3px; }")
+        .arg(baseUiFont.family(), QString::number(baseUiPointSize)));
     setStyleSheet(styleSheet() + QStringLiteral(
         "#zfsmgrEntityFrame { border: 0px; background: transparent; }"
         "#zfsmgrEntityFrame > QWidget { border: 0px; background: transparent; }"
@@ -1242,6 +1245,7 @@ void MainWindow::buildUi() {
             QStringLiteral("连通性")),
         m_connectionsTable->viewport());
     m_connectivityMatrixBtn->setObjectName(QStringLiteral("zfsmgrConnectivityMatrixBtn"));
+    m_connectivityMatrixBtn->setFont(QApplication::font());
     m_connectivityMatrixBtn->raise();
     m_connectivityMatrixBtn->installEventFilter(this);
     updateConnectivityMatrixButtonState();
@@ -1285,7 +1289,6 @@ void MainWindow::buildUi() {
             QStringLiteral("To Dir"),
             QStringLiteral("到目录")),
         m_connActionsBox);
-    const QFont baseUiFont = QApplication::font();
     m_btnConnBreakdown->setFont(baseUiFont);
     m_btnConnAssemble->setFont(baseUiFont);
     m_btnConnFromDir->setFont(baseUiFont);
@@ -2603,7 +2606,7 @@ void MainWindow::buildUi() {
             list->setDragDropMode(QAbstractItemView::InternalMove);
             list->setDefaultDropAction(Qt::CopyAction);
             list->setSpacing(managePropsSpacing);
-            list->setUniformItemSizes(true);
+            list->setUniformItemSizes(scope != ManagePropsScope::Snapshot);
             list->setManagedColumnCount(propCols);
             list->setPinnedCount((scope == ManagePropsScope::Snapshot && snapshotFixedPresent && isMain) ? 1 : 0);
             list->setMinimumHeight(220);
@@ -2630,8 +2633,67 @@ void MainWindow::buildUi() {
                                        QStringLiteral("La propiedad snapshot queda fija en la primera posición.")));
                 }
                 it->setTextAlignment(Qt::AlignCenter);
-                it->setSizeHint(QSize(140, 28));
+                it->setSizeHint(scope == ManagePropsScope::Snapshot ? QSize(140, 56) : QSize(140, 28));
             }
+        };
+        auto decorateSnapshotList = [&dlg](ManagePropsListWidget* list) {
+            if (!list) {
+                return;
+            }
+            auto syncItemWidget = [list](QListWidgetItem* item) {
+                if (!list || !item) {
+                    return;
+                }
+                QWidget* host = list->itemWidget(item);
+                if (!host) {
+                    return;
+                }
+                if (auto* cb = host->findChild<QCheckBox*>(QStringLiteral("managePropsSnapshotCheck"))) {
+                    const QSignalBlocker blocker(cb);
+                    cb->setChecked(item->checkState() == Qt::Checked);
+                    cb->setEnabled(item->flags().testFlag(Qt::ItemIsEnabled));
+                }
+                if (auto* lbl = host->findChild<QLabel*>(QStringLiteral("managePropsSnapshotLabel"))) {
+                    lbl->setEnabled(item->flags().testFlag(Qt::ItemIsEnabled));
+                }
+            };
+            for (int i = 0; i < list->count(); ++i) {
+                QListWidgetItem* it = list->item(i);
+                if (!it) {
+                    continue;
+                }
+                auto* cell = new QWidget(list);
+                auto* cellLayout = new QVBoxLayout(cell);
+                cellLayout->setContentsMargins(6, 4, 6, 4);
+                cellLayout->setSpacing(2);
+                auto* lbl = new QLabel(it->text(), cell);
+                lbl->setObjectName(QStringLiteral("managePropsSnapshotLabel"));
+                lbl->setAlignment(Qt::AlignHCenter | Qt::AlignBottom);
+                lbl->setWordWrap(true);
+                lbl->setFont(list->font());
+                auto* cb = new QCheckBox(cell);
+                cb->setObjectName(QStringLiteral("managePropsSnapshotCheck"));
+                cb->setCursor(Qt::PointingHandCursor);
+                auto* cbRow = new QHBoxLayout();
+                cbRow->setContentsMargins(0, 0, 0, 0);
+                cbRow->addStretch(1);
+                cbRow->addWidget(cb, 0, Qt::AlignCenter);
+                cbRow->addStretch(1);
+                cellLayout->addWidget(lbl, 1);
+                cellLayout->addLayout(cbRow);
+                cell->setStyleSheet(QStringLiteral(
+                    "QWidget { background: transparent; }"
+                    "QLabel { color: #102233; }"
+                ));
+                list->setItemWidget(it, cell);
+                QObject::connect(cb, &QCheckBox::toggled, &dlg, [it](bool checked) {
+                    it->setCheckState(checked ? Qt::Checked : Qt::Unchecked);
+                });
+                syncItemWidget(it);
+            }
+            QObject::connect(list, &QListWidget::itemChanged, &dlg, [syncItemWidget](QListWidgetItem* item) {
+                syncItemWidget(item);
+            });
         };
         auto attachUncheckedReorder = [&dlg](ManagePropsListWidget* list) {
             auto* reorderingUncheckedItems = new bool(false);
@@ -2684,6 +2746,9 @@ void MainWindow::buildUi() {
                 }
             }
             configureList(list, orderedProps, normalizedVisible, isMain);
+            if (scope == ManagePropsScope::Snapshot) {
+                decorateSnapshotList(list);
+            }
             attachUncheckedReorder(list);
             tabs->addTab(list, name);
             groupTabs.push_back({name, list, isMain});
@@ -3934,6 +3999,7 @@ void MainWindow::buildUi() {
             };
             const bool isPropRow = sel && sel->data(0, kConnPropRowRole).toBool();
             const bool isGroupNode = sel && sel->data(0, kConnPropGroupNodeRole).toBool();
+            const bool isGsaNode = sel && sel->data(0, Qt::UserRole + 33).toBool();
             const bool isHoldItem = sel && sel->data(0, kConnSnapshotHoldItemRole).toBool();
             const bool isPermissionsNode = sel && sel->data(0, kConnPermissionsNodeRole).toBool();
             const bool isPoolContext =
@@ -3950,7 +4016,7 @@ void MainWindow::buildUi() {
                 sel && isPermissionsNode
                 && sel->data(0, kConnPermissionsKindRole).toString() == QStringLiteral("root")
                 && sel->childCount() == 0;
-            if ((isPropRow || isGroupNode || isHoldItem || isPermissionsNode)
+            if ((isPropRow || (isGroupNode && !isGsaNode) || isHoldItem || isPermissionsNode)
                 && !isPoolContext && !isLazyPropsNode && !isLazyPermissionsNode) {
                 // No reconstruir propiedades al seleccionar una fila de propiedades de dataset;
                 // si no, el combo se destruye al abrirse.
@@ -4034,6 +4100,12 @@ void MainWindow::buildUi() {
                     resizeTreeColumnsToVisibleContent(m_bottomConnContentTree);
                 }
             }
+        });
+        connect(m_bottomConnContentTree, &QTreeWidget::itemCollapsed, this, [this](QTreeWidgetItem* item) {
+            if (!m_bottomConnContentTree || !item) {
+                return;
+            }
+            resizeTreeColumnsToVisibleContent(m_bottomConnContentTree);
         });
         m_bottomConnContentTree->setContextMenuPolicy(Qt::CustomContextMenu);
         connect(m_bottomConnContentTree, &QWidget::customContextMenuRequested, this,
@@ -4507,12 +4579,19 @@ void MainWindow::buildUi() {
                 QAction* aShowPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del pool"));
                 aShowPoolInfo->setCheckable(true);
                 aShowPoolInfo->setChecked(m_showPoolInfoNode);
-                QAction* aShowInlineProps = menu.addAction(QStringLiteral("Mostrar propiedades en línea"));
+                QMenu* inlineMenu = menu.addMenu(QStringLiteral("Mostrar en línea"));
+                QAction* aShowInlineProps = inlineMenu->addAction(QStringLiteral("Mostrar propiedades en línea"));
                 aShowInlineProps->setCheckable(true);
                 aShowInlineProps->setChecked(m_showInlinePropertyNodes);
-                QAction* aShowInlinePerms = menu.addAction(QStringLiteral("Mostrar Permisos en línea"));
+                QAction* aShowInlinePerms = inlineMenu->addAction(QStringLiteral("Mostrar Permisos en línea"));
                 aShowInlinePerms->setCheckable(true);
                 aShowInlinePerms->setChecked(m_showInlinePermissionsNodes);
+                QAction* aShowInlineGsa = inlineMenu->addAction(QStringLiteral("Programar snapshots"));
+                aShowInlineGsa->setCheckable(true);
+                aShowInlineGsa->setChecked(m_showInlineGsaNode);
+                QAction* aShowAutoGsa = menu.addAction(QStringLiteral("Mostrar snapshots automáticos"));
+                aShowAutoGsa->setCheckable(true);
+                aShowAutoGsa->setChecked(showAutomaticSnapshots());
                 QAction* picked = menu.exec(m_bottomConnContentTree->viewport()->mapToGlobal(pos));
                 if (picked == aManage) {
                     manageInlinePropsVisualization(m_bottomConnContentTree, item, true);
@@ -4525,6 +4604,12 @@ void MainWindow::buildUi() {
                 } else if (picked == aShowInlinePerms) {
                     m_showInlinePermissionsNodes = aShowInlinePerms->isChecked();
                     applyInlineSectionVisibility();
+                } else if (picked == aShowInlineGsa) {
+                    m_showInlineGsaNode = aShowInlineGsa->isChecked();
+                    applyInlineSectionVisibility();
+                } else if (picked == aShowAutoGsa) {
+                    m_showAutomaticGsaSnapshots = aShowAutoGsa->isChecked();
+                    applyInlineSectionVisibility();
                 }
                 return;
             }
@@ -4532,12 +4617,16 @@ void MainWindow::buildUi() {
             QAction* aManage = menu.addAction(
                 trk(QStringLiteral("t_manage_props_vis001"),
                     QStringLiteral("Gestionar visualización de propiedades")));
-            QAction* aShowInlineProps = menu.addAction(QStringLiteral("Mostrar propiedades en línea"));
+            QMenu* inlineMenu = menu.addMenu(QStringLiteral("Mostrar en línea"));
+            QAction* aShowInlineProps = inlineMenu->addAction(QStringLiteral("Mostrar propiedades en línea"));
             aShowInlineProps->setCheckable(true);
             aShowInlineProps->setChecked(m_showInlinePropertyNodes);
-            QAction* aShowInlinePerms = menu.addAction(QStringLiteral("Mostrar Permisos en línea"));
+            QAction* aShowInlinePerms = inlineMenu->addAction(QStringLiteral("Mostrar Permisos en línea"));
             aShowInlinePerms->setCheckable(true);
             aShowInlinePerms->setChecked(m_showInlinePermissionsNodes);
+            QAction* aShowInlineGsa = inlineMenu->addAction(QStringLiteral("Programar snapshots"));
+            aShowInlineGsa->setCheckable(true);
+            aShowInlineGsa->setChecked(m_showInlineGsaNode);
             menu.addSeparator();
             QAction* aCreate = menu.addAction(
                 trk(QStringLiteral("t_ctx_create_dsv001"),
@@ -4556,6 +4645,9 @@ void MainWindow::buildUi() {
             QAction* aUnloadKey = mEncryption->addAction(QStringLiteral("Unload key"));
             QAction* aChangeKey = mEncryption->addAction(QStringLiteral("Change key"));
             menu.addSeparator();
+            QAction* aShowAutoGsa = menu.addAction(QStringLiteral("Mostrar snapshots automáticos"));
+            aShowAutoGsa->setCheckable(true);
+            aShowAutoGsa->setChecked(showAutomaticSnapshots());
             QMenu* mSelectSnapshot = menu.addMenu(
                 trk(QStringLiteral("t_ctx_sel_snap001"),
                     QStringLiteral("Seleccionar snapshot"),
@@ -4729,6 +4821,20 @@ void MainWindow::buildUi() {
             }
             if (picked == aShowInlinePerms) {
                 m_showInlinePermissionsNodes = aShowInlinePerms->isChecked();
+                m_connContentTree = prevTree;
+                m_connContentToken = prevToken;
+                applyInlineSectionVisibility();
+                return;
+            }
+            if (picked == aShowInlineGsa) {
+                m_showInlineGsaNode = aShowInlineGsa->isChecked();
+                m_connContentTree = prevTree;
+                m_connContentToken = prevToken;
+                applyInlineSectionVisibility();
+                return;
+            }
+            if (picked == aShowAutoGsa) {
+                m_showAutomaticGsaSnapshots = aShowAutoGsa->isChecked();
                 m_connContentTree = prevTree;
                 m_connContentToken = prevToken;
                 applyInlineSectionVisibility();
@@ -4946,6 +5052,19 @@ void MainWindow::buildUi() {
             && !m_states[connIdx].detectedUnixCommands.isEmpty();
         const bool canInstallMsys =
             hasConn && !actionsLocked() && !isDisconnected && isWindowsConnection(connIdx) && !hasWindowsUnixLayerReady;
+        const bool canManageGsa =
+            hasConn && !actionsLocked() && !isDisconnected
+            && connIdx < m_states.size()
+            && gsaMenuLabelForConnection(connIdx).compare(
+                   trk(QStringLiteral("t_gsa_ok_001"),
+                       QStringLiteral("GSA actualizado y funcionando"),
+                       QStringLiteral("GSA updated and running"),
+                       QStringLiteral("GSA 已更新并运行中")),
+                   Qt::CaseInsensitive) != 0;
+        const bool canUninstallGsa =
+            hasConn && !actionsLocked() && !isDisconnected
+            && connIdx < m_states.size()
+            && m_states[connIdx].gsaInstalled;
 
         QMenu menu(this);
         QAction* aConnect = menu.addAction(
@@ -4963,6 +5082,16 @@ void MainWindow::buildUi() {
                 QStringLiteral("Instalar MSYS2"),
                 QStringLiteral("Install MSYS2"),
                 QStringLiteral("安装 MSYS2")));
+        QAction* aManageGsa = menu.addAction(hasConn ? gsaMenuLabelForConnection(connIdx)
+                                                     : trk(QStringLiteral("t_gsa_install_001"),
+                                                           QStringLiteral("Instalar gestor de snapshots"),
+                                                           QStringLiteral("Install snapshot manager"),
+                                                           QStringLiteral("安装快照管理器")));
+        QAction* aUninstallGsa = menu.addAction(
+            trk(QStringLiteral("t_gsa_uninstall_001"),
+                QStringLiteral("Desinstalar el GSA"),
+                QStringLiteral("Uninstall GSA"),
+                QStringLiteral("卸载 GSA")));
         menu.addSeparator();
         QAction* aRefresh = menu.addAction(
             trk(QStringLiteral("t_refresh_conn_ctx001"),
@@ -4998,6 +5127,8 @@ void MainWindow::buildUi() {
         aConnect->setEnabled(!actionsLocked() && hasConn && isDisconnected);
         aDisconnect->setEnabled(!actionsLocked() && hasConn && !isDisconnected);
         aInstallMsys->setEnabled(canInstallMsys);
+        aManageGsa->setEnabled(canManageGsa);
+        aUninstallGsa->setEnabled(canUninstallGsa);
         aRefresh->setEnabled(canRefresh);
         aEdit->setEnabled(canEditDelete);
         aDelete->setEnabled(canEditDelete);
@@ -5033,6 +5164,12 @@ void MainWindow::buildUi() {
         } else if (chosen == aInstallMsys) {
             logUiAction(QStringLiteral("Instalar MSYS2 (menÃº conexiones)"));
             installMsysForSelectedConnection();
+        } else if (chosen == aManageGsa && hasConn) {
+            logUiAction(QStringLiteral("Gestionar GSA (menú conexiones)"));
+            installOrUpdateGsaForConnection(connIdx);
+        } else if (chosen == aUninstallGsa && hasConn) {
+            logUiAction(QStringLiteral("Desinstalar GSA (menú conexiones)"));
+            uninstallGsaForConnection(connIdx);
         } else if (chosen == aRefreshAll) {
             logUiAction(QStringLiteral("Refrescar todas las conexiones (menú conexiones)"));
             refreshAllConnections();
@@ -5413,6 +5550,7 @@ void MainWindow::buildUi() {
             };
             const bool isPropRow = sel && sel->data(0, kConnPropRowRole).toBool();
             const bool isGroupNode = sel && sel->data(0, kConnPropGroupNodeRole).toBool();
+            const bool isGsaNode = sel && sel->data(0, Qt::UserRole + 33).toBool();
             const bool isHoldItem = sel && sel->data(0, kConnSnapshotHoldItemRole).toBool();
             const bool isPermissionsNode = sel && sel->data(0, kConnPermissionsNodeRole).toBool();
             const bool isPoolContext =
@@ -5429,7 +5567,7 @@ void MainWindow::buildUi() {
                 sel && isPermissionsNode
                 && sel->data(0, kConnPermissionsKindRole).toString() == QStringLiteral("root")
                 && sel->childCount() == 0;
-            if ((isPropRow || isGroupNode || isHoldItem || isPermissionsNode)
+            if ((isPropRow || (isGroupNode && !isGsaNode) || isHoldItem || isPermissionsNode)
                 && !isPoolContext && !isLazyPropsNode && !isLazyPermissionsNode) {
                 updateConnectionDetailTitlesForCurrentSelection();
                 updateConnectionActionsState();
@@ -5502,6 +5640,12 @@ void MainWindow::buildUi() {
                     resizeTreeColumnsToVisibleContent(m_connContentTree);
                 }
             }
+        });
+        connect(m_connContentTree, &QTreeWidget::itemCollapsed, this, [this](QTreeWidgetItem* item) {
+            if (!m_connContentTree || !item) {
+                return;
+            }
+            resizeTreeColumnsToVisibleContent(m_connContentTree);
         });
         connect(m_connContentTree, &QWidget::customContextMenuRequested, this,
                 [this, applyInlineSectionVisibility, manageInlinePropsVisualization, createSnapshotHold, releaseSnapshotHold,
@@ -5968,12 +6112,19 @@ void MainWindow::buildUi() {
                 QAction* aShowPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del pool"));
                 aShowPoolInfo->setCheckable(true);
                 aShowPoolInfo->setChecked(m_showPoolInfoNode);
-                QAction* aShowInlineProps = menu.addAction(QStringLiteral("Mostrar propiedades en línea"));
+                QMenu* inlineMenu = menu.addMenu(QStringLiteral("Mostrar en línea"));
+                QAction* aShowInlineProps = inlineMenu->addAction(QStringLiteral("Mostrar propiedades en línea"));
                 aShowInlineProps->setCheckable(true);
                 aShowInlineProps->setChecked(m_showInlinePropertyNodes);
-                QAction* aShowInlinePerms = menu.addAction(QStringLiteral("Mostrar Permisos en línea"));
+                QAction* aShowInlinePerms = inlineMenu->addAction(QStringLiteral("Mostrar Permisos en línea"));
                 aShowInlinePerms->setCheckable(true);
                 aShowInlinePerms->setChecked(m_showInlinePermissionsNodes);
+                QAction* aShowInlineGsa = inlineMenu->addAction(QStringLiteral("Programar snapshots"));
+                aShowInlineGsa->setCheckable(true);
+                aShowInlineGsa->setChecked(m_showInlineGsaNode);
+                QAction* aShowAutoGsa = menu.addAction(QStringLiteral("Mostrar snapshots automáticos"));
+                aShowAutoGsa->setCheckable(true);
+                aShowAutoGsa->setChecked(showAutomaticSnapshots());
                 QAction* picked = menu.exec(m_connContentTree->viewport()->mapToGlobal(pos));
                 if (picked == aManage) {
                     manageInlinePropsVisualization(m_connContentTree, item, true);
@@ -5986,6 +6137,12 @@ void MainWindow::buildUi() {
                 } else if (picked == aShowInlinePerms) {
                     m_showInlinePermissionsNodes = aShowInlinePerms->isChecked();
                     applyInlineSectionVisibility();
+                } else if (picked == aShowInlineGsa) {
+                    m_showInlineGsaNode = aShowInlineGsa->isChecked();
+                    applyInlineSectionVisibility();
+                } else if (picked == aShowAutoGsa) {
+                    m_showAutomaticGsaSnapshots = aShowAutoGsa->isChecked();
+                    applyInlineSectionVisibility();
                 }
                 return;
             }
@@ -5993,12 +6150,16 @@ void MainWindow::buildUi() {
             QAction* aManage = menu.addAction(
                 trk(QStringLiteral("t_manage_props_vis001"),
                     QStringLiteral("Gestionar visualización de propiedades")));
-            QAction* aShowInlineProps = menu.addAction(QStringLiteral("Mostrar propiedades en línea"));
+            QMenu* inlineMenu = menu.addMenu(QStringLiteral("Mostrar en línea"));
+            QAction* aShowInlineProps = inlineMenu->addAction(QStringLiteral("Mostrar propiedades en línea"));
             aShowInlineProps->setCheckable(true);
             aShowInlineProps->setChecked(m_showInlinePropertyNodes);
-            QAction* aShowInlinePerms = menu.addAction(QStringLiteral("Mostrar Permisos en línea"));
+            QAction* aShowInlinePerms = inlineMenu->addAction(QStringLiteral("Mostrar Permisos en línea"));
             aShowInlinePerms->setCheckable(true);
             aShowInlinePerms->setChecked(m_showInlinePermissionsNodes);
+            QAction* aShowInlineGsa = inlineMenu->addAction(QStringLiteral("Programar snapshots"));
+            aShowInlineGsa->setCheckable(true);
+            aShowInlineGsa->setChecked(m_showInlineGsaNode);
             menu.addSeparator();
             QAction* aCreate = menu.addAction(
                 trk(QStringLiteral("t_ctx_create_dsv001"),
@@ -6017,6 +6178,9 @@ void MainWindow::buildUi() {
             QAction* aUnloadKey = mEncryption->addAction(QStringLiteral("Unload key"));
             QAction* aChangeKey = mEncryption->addAction(QStringLiteral("Change key"));
             menu.addSeparator();
+            QAction* aShowAutoGsa = menu.addAction(QStringLiteral("Mostrar snapshots automáticos"));
+            aShowAutoGsa->setCheckable(true);
+            aShowAutoGsa->setChecked(showAutomaticSnapshots());
             QMenu* mSelectSnapshot = menu.addMenu(
                 trk(QStringLiteral("t_ctx_sel_snap001"),
                     QStringLiteral("Seleccionar snapshot"),
@@ -6176,6 +6340,16 @@ void MainWindow::buildUi() {
             }
             if (picked == aShowInlinePerms) {
                 m_showInlinePermissionsNodes = aShowInlinePerms->isChecked();
+                applyInlineSectionVisibility();
+                return;
+            }
+            if (picked == aShowInlineGsa) {
+                m_showInlineGsaNode = aShowInlineGsa->isChecked();
+                applyInlineSectionVisibility();
+                return;
+            }
+            if (picked == aShowAutoGsa) {
+                m_showAutomaticGsaSnapshots = aShowAutoGsa->isChecked();
                 applyInlineSectionVisibility();
                 return;
             }

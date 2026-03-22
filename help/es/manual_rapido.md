@@ -41,14 +41,21 @@ ZFSMgr gestiona conexiones y acciones ZFS.
 - Las propiedades inline pueden incluir edición directa y control de herencia (`Inh.`) cuando aplica.
 - Si `Inh.=on`, el valor queda deshabilitado y atenuado.
   Si `Inh.=off`, el valor vuelve a ser editable.
+- Las propiedades de `Programar snapshots` (`zfsmgrgsa:*`) son propiedades de usuario y no muestran control de herencia.
 - Si una propiedad no está soportada por el sistema operativo de la conexión, aparece atenuada y no se puede editar.
   Ejemplos: `sharesmb` en macOS, `jailed` fuera de FreeBSD, `zoned`/`nbmand` fuera de Linux.
 - Los pools no importables también aparecen como nodo raíz para permitir `Importar`.
 - Logs: panel único `Log combinado` (incluye salida SSH/PSRP con prefijo de conexión).
+- Además de `application.log`, ZFSMgr envía eventos de alto nivel al sistema de logs nativo:
+  - macOS: Unified Logging (`Console.app`, `log show`, `log stream`)
+  - Linux: `syslog` / `journald` (`journalctl`)
+  - Windows: `Windows Event Log` (`Event Viewer`)
 - En la tabla de conexiones hay un botón flotante `Conectividad`.
   Abre una matriz donde cada fila es la conexión origen y cada columna la conexión destino.
-- Un `✓` en una celda indica que desde la máquina de la fila se puede abrir conexión directa hacia la máquina de la columna usando las credenciales definidas.
-- Si falta ese `✓`, ZFSMgr no podrá hacer transferencia remota directa entre ese origen y ese destino.
+- Cada celda muestra el estado de `SSH` y `rsync`.
+  `SSH:✓` indica que desde la máquina de la fila se puede abrir conexión directa hacia la máquina de la columna usando las credenciales definidas.
+  `rsync:✓` indica además que esa ruta dispone de `rsync`.
+- Si falta `SSH:✓`, ZFSMgr no podrá hacer transferencia remota directa entre ese origen y ese destino.
   En ese caso, la transferencia tendrá que pasar por la máquina local donde se ejecuta ZFSMgr.
   Eso implica doble salto, más tráfico local y un coste mayor en tiempo y recursos.
 - La zona inferior usa pestañas:
@@ -56,7 +63,8 @@ ZFSMgr gestiona conexiones y acciones ZFS.
   - `Log combinado`, que incluye la caja `Aplicación` para el log textual
 - El encabezado de cada treeview tiene menú contextual para ajustar una columna o todas al contenido y para cambiar `Columnas de propiedades`.
 - El scroll vertical de los treeviews es suave, por píxel.
-- El menú contextual del árbol permite además mostrar u ocultar `Información del pool`, `Propiedades` y `Permisos` inline.
+- El menú contextual del árbol permite además mostrar u ocultar `Información del pool` y, dentro de `Mostrar en línea`, `Propiedades`, `Permisos` y `Programar snapshots`.
+- El menú contextual de dataset permite mostrar u ocultar los snapshots automáticos (`GSA-*`).
 - El botón `Aplicar cambios` solo se activa si hay comandos pendientes reales.
 - `Cambios pendientes` muestra una descripción legible por línea, con prefijo `conexión::pool`, y no el comando real.
 - Los cambios pendientes se conservan en orden de ejecución.
@@ -116,6 +124,35 @@ Creación y montaje de datasets:
 - Esa passphrase se envía por entrada estándar al crear el dataset; no se añade a la línea de comando mostrada en confirmaciones o logs.
 - Si falla `Crear dataset`, el diálogo permanece abierto con los datos introducidos para poder corregirlos y reintentar.
 - Al montar un dataset cifrado con `keylocation=prompt`, ZFSMgr pide antes la passphrase, ejecuta `zfs load-key` y luego `zfs mount`.
+
+Programación automática de snapshots (GSA):
+
+- En el menú contextual de conexiones aparece el estado del `Gestor de snapshots`.
+  Según la conexión puede mostrarse como `Instalar gestor de snapshots`, `Actualizar versión del Gestor de snapshots`, `Activar GSA` o `GSA actualizado y funcionando`.
+- Según el sistema operativo, ZFSMgr usa el scheduler nativo:
+  - macOS: `launchd`
+  - Linux: `systemd timer`
+  - Windows: `Task Scheduler`
+- En datasets de tipo filesystem puede aparecer el nodo `Programar snapshots`.
+- Ese nodo expone inline:
+  - `Activado`
+  - `Recursivo`
+  - `Horario`
+  - `Diario`
+  - `Semanal`
+  - `Mensual`
+  - `Anual`
+  - `Nivelar`
+  - `Destino`
+- Esas opciones se guardan como propiedades de usuario del propio dataset con nombres `zfsmgrgsa:*`.
+- Una retención `0` desactiva esa periodicidad.
+- Si `Nivelar=on`, `Destino` debe tener formato `Con::Pool/Dataset`.
+- ZFSMgr bloquea programaciones solapadas:
+  - un dataset no puede pertenecer a más de una programación activa
+  - si un dataset tiene programación recursiva, sus hijos no pueden tener otra programación
+- Los snapshots automáticos usan nombres `GSA-...`.
+- El scheduler GSA deja su log en el directorio de configuración de ZFSMgr y rota el fichero `GSA.log`.
+- Si una ruta de nivelación remota no tiene `SSH:✓` en la matriz de `Conectividad`, ZFSMgr avisa antes de instalar o actualizar GSA.
 
 Comportamiento de navegación:
 

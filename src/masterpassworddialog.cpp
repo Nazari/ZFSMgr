@@ -18,7 +18,7 @@
 #include <QProcessEnvironment>
 
 #ifndef ZFSMGR_APP_VERSION
-#define ZFSMGR_APP_VERSION "0.9.9rc4"
+#define ZFSMGR_APP_VERSION "0.10.0rc1"
 #endif
 
 namespace {

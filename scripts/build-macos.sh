@@ -532,7 +532,7 @@ if [[ -z "${APP_VERSION}" && -f "${SOURCE_DIR}/CMakeLists.txt" ]]; then
   APP_VERSION="$(sed -n 's/.*VERSION[[:space:]]\\([0-9][0-9.]*\\).*/\\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
 fi
 if [[ -z "${APP_VERSION}" ]]; then
-  APP_VERSION="0.9.9rc4"
+  APP_VERSION="0.10.0rc1"
 fi
 BUNDLE_NAME="ZFSMgr-${APP_VERSION}"
 

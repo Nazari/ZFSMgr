@@ -5,6 +5,7 @@
 #include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QFont>
 #include <QIntValidator>
 #include <QLabel>
 #include <QLineEdit>
@@ -19,6 +20,7 @@
 #include <QFileDialog>
 #include <QFrame>
 #include <QRegularExpression>
+#include <QApplication>
 
 namespace {
 QString sanitizePsrpDetail(QString raw) {
@@ -66,6 +68,16 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     m_language = language.trimmed().toLower();
     if (m_language.isEmpty()) {
         m_language = QStringLiteral("es");
+    }
+    setFont(QApplication::font());
+    {
+        const QFont baseUiFont = QApplication::font();
+        const int baseUiPointSize = qMax(6, baseUiFont.pointSize());
+        setStyleSheet(QStringLiteral(
+            "QLabel, QLineEdit, QComboBox, QPushButton, QCheckBox, QGroupBox { "
+            "font-family: '%1'; font-size: %2pt; }")
+                          .arg(baseUiFont.family(),
+                               QString::number(baseUiPointSize)));
     }
     setWindowTitle(trk(QStringLiteral("t_conexi_n_d70cf0"),
                        QStringLiteral("Conexión"),

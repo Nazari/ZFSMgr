@@ -31,14 +31,22 @@ ZFSMgr 用于管理连接和 ZFS 操作。
 - 内联属性在适用时可直接编辑，并带有 `Inh.` 继承控制。
 - 当 `Inh.=on` 时，属性值编辑器会被禁用并显示为灰色。
   当 `Inh.=off` 时，属性值会重新变为可编辑。
-- 树的右键菜单可显示或隐藏 `池信息`、内联 `属性` 和内联 `权限`。
+- `Programar snapshots` 中的 `zfsmgrgsa:*` 属性属于用户属性，在界面里不提供继承控制。
+- 树的右键菜单可显示或隐藏 `池信息`，并可在 `Mostrar en línea` 子菜单中控制内联 `属性`、`权限` 与 `Programar snapshots`。
+- 数据集右键菜单还可显示或隐藏自动快照（`GSA-*`）。
 - 权限分组显示为 `Deleg.`、`Nuevos DS` 和 `Conjuntos`。
 - 不可导入池也会显示为根节点，以便执行 `Import`。
 - 日志：单一 `组合日志` 面板（含 SSH/PSRP 输出并带连接前缀）。
+- 除了 `application.log` 之外，ZFSMgr 还会把高层事件写入系统原生日志：
+  - macOS: Unified Logging（`Console.app`、`log show`、`log stream`）
+  - Linux: `syslog` / `journald`（`journalctl`）
+  - Windows: `Windows Event Log`（`Event Viewer`）
 - 连接表右下角带有一个浮动按钮 `Conectividad`。
   点击后会打开一个矩阵，行表示源连接，列表示目标连接。
-- 某个单元格中的 `✓` 表示：行对应机器可以使用目标连接中定义的凭据，直接连接到列对应机器。
-- 如果该 `✓` 缺失，ZFSMgr 就不能在该源和目标之间执行真正的远端直连传输。
+- 每个单元格会显示 `SSH` 与 `rsync` 状态。
+  `SSH:✓` 表示：行对应机器可以使用目标连接中定义的凭据，直接连接到列对应机器。
+  `rsync:✓` 表示该路径上的两端也具备 `rsync`。
+- 如果 `SSH:✓` 缺失，ZFSMgr 就不能在该源和目标之间执行真正的远端直连传输。
   此时数据传输必须经过运行 ZFSMgr 的本地机器中转。
   这意味着双跳、更高的本地流量，以及更高的时间和资源开销。
 - 日志下方区域使用标签页：
@@ -105,6 +113,35 @@ ZFSMgr 用于管理连接和 ZFS 操作。
 - 创建数据集时，这个口令通过标准输入传给命令，不会附加到确认窗口或日志里显示的命令行中。
 - 如果 `创建数据集` 失败，对话框会保持打开，并保留已输入的数据，便于修改后重试。
 - 当挂载 `keylocation=prompt` 的加密数据集时，ZFSMgr 会先请求口令，执行 `zfs load-key`，然后再执行 `zfs mount`。
+
+自动快照计划（GSA）：
+
+- 连接右键菜单会显示 `Gestor de snapshots` 的当前状态。
+  它可能显示为 `Instalar gestor de snapshots`、`Actualizar versión del Gestor de snapshots`、`Activar GSA` 或 `GSA actualizado y funcionando`。
+- ZFSMgr 按平台使用原生调度器：
+  - macOS: `launchd`
+  - Linux: `systemd timer`
+  - Windows: `Task Scheduler`
+- filesystem 类型的数据集可以显示 `Programar snapshots` 节点。
+- 该节点提供以下内联属性：
+  - `Activado`
+  - `Recursivo`
+  - `Horario`
+  - `Diario`
+  - `Semanal`
+  - `Mensual`
+  - `Anual`
+  - `Nivelar`
+  - `Destino`
+- 这些设置保存在数据集自身的用户属性中，名称为 `zfsmgrgsa:*`。
+- 保留值为 `0` 表示禁用该周期。
+- 如果 `Nivelar=on`，则 `Destino` 必须使用 `Con::Pool/Dataset` 格式。
+- ZFSMgr 会阻止重叠计划：
+  - 同一个数据集不能属于多个活动计划
+  - 如果某个数据集启用了递归计划，它的子数据集就不能再定义另一套计划
+- 自动快照使用 `GSA-...` 形式的名称。
+- GSA 调度器会把日志写入 ZFSMgr 配置目录，并轮转 `GSA.log`。
+- 如果远程对齐路径在 `Conectividad` 矩阵中没有 `SSH:✓`，ZFSMgr 会在安装或更新 GSA 之前给出警告。
 
 导航行为：
 

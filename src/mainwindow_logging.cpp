@@ -20,6 +20,20 @@
 #include <QSysInfo>
 #include <QVBoxLayout>
 
+#if defined(Q_OS_LINUX) || defined(Q_OS_FREEBSD)
+#include <syslog.h>
+#endif
+
+#ifdef Q_OS_MACOS
+#include <os/log.h>
+#endif
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
+#include <string>
+
 namespace {
 QString tsNowForLog() {
     return QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
@@ -154,6 +168,71 @@ void MainWindow::appendLogToFile(const QString& line) {
     ts.flush();
 }
 
+void MainWindow::appendLogToNative(const QString& level, const QString& line) {
+    const QString msg = maskSecrets(line).trimmed();
+    if (msg.isEmpty()) {
+        return;
+    }
+
+#ifdef Q_OS_MACOS
+    static os_log_t nativeLog = os_log_create("com.zfsmgr.app", "application");
+    os_log_type_t type = OS_LOG_TYPE_DEFAULT;
+    const QString lvl = level.trimmed().toLower();
+    if (lvl == QStringLiteral("error")) {
+        type = OS_LOG_TYPE_ERROR;
+    } else if (lvl == QStringLiteral("warn")) {
+        type = OS_LOG_TYPE_FAULT;
+    } else if (lvl == QStringLiteral("info")) {
+        type = OS_LOG_TYPE_INFO;
+    } else if (lvl == QStringLiteral("debug")) {
+        type = OS_LOG_TYPE_DEBUG;
+    }
+    const QByteArray utf8 = msg.toUtf8();
+    os_log_with_type(nativeLog, type, "%{public}s", utf8.constData());
+#elif defined(Q_OS_WIN)
+    WORD eventType = EVENTLOG_INFORMATION_TYPE;
+    const QString lvl = level.trimmed().toLower();
+    if (lvl == QStringLiteral("error")) {
+        eventType = EVENTLOG_ERROR_TYPE;
+    } else if (lvl == QStringLiteral("warn")) {
+        eventType = EVENTLOG_WARNING_TYPE;
+    }
+    HANDLE handle = RegisterEventSourceW(nullptr, L"ZFSMgr");
+    if (!handle) {
+        handle = RegisterEventSourceW(nullptr, L"Application");
+    }
+    if (!handle) {
+        return;
+    }
+    const std::wstring wide = msg.toStdWString();
+    LPCWSTR strings[1] = { wide.c_str() };
+    ReportEventW(handle, eventType, 0, 0x1000, nullptr, 1, 0, strings, nullptr);
+    DeregisterEventSource(handle);
+#elif defined(Q_OS_LINUX) || defined(Q_OS_FREEBSD)
+    static bool nativeOpen = false;
+    if (!nativeOpen) {
+        openlog("ZFSMgr", LOG_PID | LOG_NDELAY, LOG_USER);
+        nativeOpen = true;
+    }
+    int priority = LOG_NOTICE;
+    const QString lvl = level.trimmed().toLower();
+    if (lvl == QStringLiteral("error")) {
+        priority = LOG_ERR;
+    } else if (lvl == QStringLiteral("warn")) {
+        priority = LOG_WARNING;
+    } else if (lvl == QStringLiteral("info")) {
+        priority = LOG_INFO;
+    } else if (lvl == QStringLiteral("debug")) {
+        priority = LOG_DEBUG;
+    }
+    const QByteArray utf8 = msg.toUtf8();
+    syslog(priority, "%s", utf8.constData());
+#else
+    Q_UNUSED(level);
+    Q_UNUSED(msg);
+#endif
+}
+
 void MainWindow::clearAppLog() {
     m_logView->clear();
     m_compactPrevValid = false;
@@ -250,6 +329,7 @@ void MainWindow::appLog(const QString& level, const QString& msg) {
         m_lastDetailText->setPlainText(line);
     }
     appendLogToFile(line);
+    appendLogToNative(level, line);
 }
 
 void MainWindow::appendAppLogLineToView(const QString& fullLine) {

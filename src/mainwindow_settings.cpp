@@ -183,6 +183,7 @@ void MainWindow::loadUiSettings() {
     m_showInlineDatasetProps = ini.value(QStringLiteral("show_inline_dataset_props"), true).toBool();
     m_showInlinePropertyNodes = ini.value(QStringLiteral("show_inline_property_nodes"), true).toBool();
     m_showInlinePermissionsNodes = ini.value(QStringLiteral("show_inline_permissions_nodes"), true).toBool();
+    m_showInlineGsaNode = ini.value(QStringLiteral("show_inline_gsa_node"), true).toBool();
     m_showPoolInfoNode = ini.value(QStringLiteral("show_pool_info_node"), true).toBool();
     m_connPropColumnsSetting = ini.value(QStringLiteral("conn_prop_columns"), 7).toInt();
     m_persistedTopDetailConnectionKey =
@@ -240,6 +241,7 @@ void MainWindow::saveUiSettings() const {
     ini.setValue(QStringLiteral("show_inline_dataset_props"), m_showInlineDatasetProps);
     ini.setValue(QStringLiteral("show_inline_property_nodes"), m_showInlinePropertyNodes);
     ini.setValue(QStringLiteral("show_inline_permissions_nodes"), m_showInlinePermissionsNodes);
+    ini.setValue(QStringLiteral("show_inline_gsa_node"), m_showInlineGsaNode);
     ini.setValue(QStringLiteral("show_pool_info_node"), m_showPoolInfoNode);
     ini.setValue(QStringLiteral("conn_prop_columns"), qBound(5, m_connPropColumnsSetting, 12));
     ini.setValue(QStringLiteral("top_detail_connection"),
