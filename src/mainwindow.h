@@ -119,6 +119,8 @@ private:
         QStringList expandedDatasets;
         bool poolRootExpanded{true};
         bool infoExpanded{false};
+        QMap<QString, bool> poolRootExpandedByPool;
+        QMap<QString, bool> infoExpandedByPool;
         QString selectedDataset;
         QString selectedSnapshot;
         QMap<QString, QString> snapshotByDataset;
@@ -384,7 +386,9 @@ private:
     };
     void exportPoolFromRow(int row);
     void importPoolFromRow(int row);
+    void importPoolRenamingFromRow(int row);
     void scrubPoolFromRow(int row);
+    void reguidPoolFromRow(int row);
     void syncPoolFromRow(int row);
     void trimPoolFromRow(int row);
     void initializePoolFromRow(int row);

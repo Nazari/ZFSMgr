@@ -2292,6 +2292,14 @@ void MainWindow::buildUi() {
         if (!tree || token.trimmed().isEmpty()) {
             return;
         }
+        if (tree == m_connContentTree) {
+            rebuildConnectionEntityTabs();
+            return;
+        }
+        if (tree == m_bottomConnContentTree) {
+            updateSecondaryConnectionDetail();
+            return;
+        }
         const int sep = token.indexOf(QStringLiteral("::"));
         if (sep <= 0) {
             return;
@@ -4504,6 +4512,7 @@ void MainWindow::buildUi() {
                 const bool canHistory = canExport;
                 const bool canSync = canExport;
                 const bool canScrub = canExport;
+                const bool canReguid = canExport;
                 const bool canTrim = canExport;
                 const bool canInitialize = canExport;
                 const bool canDestroy = canExport;
@@ -4518,6 +4527,7 @@ void MainWindow::buildUi() {
                         QStringLiteral("Importar"),
                         QStringLiteral("Import"),
                         QStringLiteral("导入")));
+                QAction* aImportRename = menu.addAction(QStringLiteral("Importar renombrando"));
                 QAction* aExport = menu.addAction(
                     trk(QStringLiteral("t_export_btn001"),
                         QStringLiteral("Exportar"),
@@ -4528,6 +4538,7 @@ void MainWindow::buildUi() {
                         QStringLiteral("Historial")));
                 QAction* aSync = menu.addAction(QStringLiteral("Sync"));
                 QAction* aScrub = menu.addAction(QStringLiteral("Scrub"));
+                QAction* aReguid = menu.addAction(QStringLiteral("Reguid"));
                 QAction* aTrim = menu.addAction(QStringLiteral("Trim"));
                 QAction* aInitialize = menu.addAction(QStringLiteral("Initialize"));
                 QAction* aDestroy = menu.addAction(QStringLiteral("Destroy"));
@@ -4537,10 +4548,12 @@ void MainWindow::buildUi() {
                 aShowPoolInfo->setChecked(m_showPoolInfoNode);
                 aUpdate->setEnabled(canRefresh);
                 aImport->setEnabled(canImport);
+                aImportRename->setEnabled(canImport);
                 aExport->setEnabled(canExport);
                 aHistory->setEnabled(canHistory);
                 aSync->setEnabled(canSync);
                 aScrub->setEnabled(canScrub);
+                aReguid->setEnabled(canReguid);
                 aTrim->setEnabled(canTrim);
                 aInitialize->setEnabled(canInitialize);
                 aDestroy->setEnabled(canDestroy);
@@ -4552,6 +4565,8 @@ void MainWindow::buildUi() {
                     refreshSelectedPoolDetails(true, true);
                 } else if (picked == aImport && canImport && poolRow >= 0) {
                     importPoolFromRow(poolRow);
+                } else if (picked == aImportRename && canImport && poolRow >= 0) {
+                    importPoolRenamingFromRow(poolRow);
                 } else if (picked == aExport && canExport && poolRow >= 0) {
                     exportPoolFromRow(poolRow);
                 } else if (picked == aHistory && canHistory && poolRow >= 0) {
@@ -4560,6 +4575,8 @@ void MainWindow::buildUi() {
                     syncPoolFromRow(poolRow);
                 } else if (picked == aScrub && canScrub && poolRow >= 0) {
                     scrubPoolFromRow(poolRow);
+                } else if (picked == aReguid && canReguid && poolRow >= 0) {
+                    reguidPoolFromRow(poolRow);
                 } else if (picked == aTrim && canTrim && poolRow >= 0) {
                     trimPoolFromRow(poolRow);
                 } else if (picked == aInitialize && canInitialize && poolRow >= 0) {
@@ -5082,22 +5099,33 @@ void MainWindow::buildUi() {
                 QStringLiteral("Instalar MSYS2"),
                 QStringLiteral("Install MSYS2"),
                 QStringLiteral("安装 MSYS2")));
-        QAction* aManageGsa = menu.addAction(hasConn ? gsaMenuLabelForConnection(connIdx)
-                                                     : trk(QStringLiteral("t_gsa_install_001"),
-                                                           QStringLiteral("Instalar gestor de snapshots"),
-                                                           QStringLiteral("Install snapshot manager"),
-                                                           QStringLiteral("安装快照管理器")));
-        QAction* aUninstallGsa = menu.addAction(
+        QMenu* refreshMenu = menu.addMenu(
+            trk(QStringLiteral("t_refresh_conn_ctx001"),
+                QStringLiteral("Refrescar"),
+                QStringLiteral("Refresh"),
+                QStringLiteral("刷新")));
+        QAction* aRefresh = refreshMenu->addAction(
+            trk(QStringLiteral("t_refresh_this_conn_001"),
+                QStringLiteral("Esta conexión"),
+                QStringLiteral("This connection"),
+                QStringLiteral("此连接")));
+        QAction* aRefreshAll = refreshMenu->addAction(
+            trk(QStringLiteral("t_refresh_all_001"),
+                QStringLiteral("Todas las conexiones"),
+                QStringLiteral("All connections"),
+                QStringLiteral("所有连接")));
+        QMenu* gsaMenu = menu.addMenu(QStringLiteral("GSA"));
+        QAction* aManageGsa = gsaMenu->addAction(hasConn ? gsaMenuLabelForConnection(connIdx)
+                                                         : trk(QStringLiteral("t_gsa_install_001"),
+                                                               QStringLiteral("Instalar gestor de snapshots"),
+                                                               QStringLiteral("Install snapshot manager"),
+                                                               QStringLiteral("安装快照管理器")));
+        QAction* aUninstallGsa = gsaMenu->addAction(
             trk(QStringLiteral("t_gsa_uninstall_001"),
                 QStringLiteral("Desinstalar el GSA"),
                 QStringLiteral("Uninstall GSA"),
                 QStringLiteral("卸载 GSA")));
         menu.addSeparator();
-        QAction* aRefresh = menu.addAction(
-            trk(QStringLiteral("t_refresh_conn_ctx001"),
-                QStringLiteral("Refrescar"),
-                QStringLiteral("Refresh"),
-                QStringLiteral("刷新")));
         QAction* aEdit = menu.addAction(
             trk(QStringLiteral("t_edit_conn_ctx001"),
                 QStringLiteral("Editar"),
@@ -5108,12 +5136,6 @@ void MainWindow::buildUi() {
                 QStringLiteral("Borrar"),
                 QStringLiteral("Delete"),
                 QStringLiteral("删除")));
-        menu.addSeparator();
-        QAction* aRefreshAll = menu.addAction(
-            trk(QStringLiteral("t_refresh_all_001"),
-                QStringLiteral("Refrescar todas las conexiones"),
-                QStringLiteral("Refresh all connections"),
-                QStringLiteral("刷新所有连接")));
         QAction* aNewConn = menu.addAction(
             trk(QStringLiteral("t_new_conn_ctx001"),
                 QStringLiteral("Nueva Conexión"),
@@ -5129,10 +5151,11 @@ void MainWindow::buildUi() {
         aInstallMsys->setEnabled(canInstallMsys);
         aManageGsa->setEnabled(canManageGsa);
         aUninstallGsa->setEnabled(canUninstallGsa);
+        gsaMenu->setEnabled(canManageGsa || canUninstallGsa);
         aRefresh->setEnabled(canRefresh);
+        aRefreshAll->setEnabled(!actionsLocked());
         aEdit->setEnabled(canEditDelete);
         aDelete->setEnabled(canEditDelete);
-        aRefreshAll->setEnabled(!actionsLocked());
         aNewConn->setEnabled(!actionsLocked());
         aNewPool->setEnabled(!actionsLocked() && hasConn && !isDisconnected);
 
@@ -6036,6 +6059,7 @@ void MainWindow::buildUi() {
                 const bool canHistory = canExport;
                 const bool canSync = canExport;
                 const bool canScrub = canExport;
+                const bool canReguid = canExport;
                 const bool canTrim = canExport;
                 const bool canInitialize = canExport;
                 const bool canDestroy = canExport;
@@ -6051,6 +6075,7 @@ void MainWindow::buildUi() {
                         QStringLiteral("Importar"),
                         QStringLiteral("Import"),
                         QStringLiteral("导入")));
+                QAction* aImportRename = menu.addAction(QStringLiteral("Importar renombrando"));
                 QAction* aExport = menu.addAction(
                     trk(QStringLiteral("t_export_btn001"),
                         QStringLiteral("Exportar"),
@@ -6061,6 +6086,7 @@ void MainWindow::buildUi() {
                         QStringLiteral("Historial")));
                 QAction* aSync = menu.addAction(QStringLiteral("Sync"));
                 QAction* aScrub = menu.addAction(QStringLiteral("Scrub"));
+                QAction* aReguid = menu.addAction(QStringLiteral("Reguid"));
                 QAction* aTrim = menu.addAction(QStringLiteral("Trim"));
                 QAction* aInitialize = menu.addAction(QStringLiteral("Initialize"));
                 QAction* aDestroy = menu.addAction(QStringLiteral("Destroy"));
@@ -6070,10 +6096,12 @@ void MainWindow::buildUi() {
                 aShowPoolInfo->setChecked(m_showPoolInfoNode);
                 aUpdate->setEnabled(canRefresh);
                 aImport->setEnabled(canImport);
+                aImportRename->setEnabled(canImport);
                 aExport->setEnabled(canExport);
                 aHistory->setEnabled(canHistory);
                 aSync->setEnabled(canSync);
                 aScrub->setEnabled(canScrub);
+                aReguid->setEnabled(canReguid);
                 aTrim->setEnabled(canTrim);
                 aInitialize->setEnabled(canInitialize);
                 aDestroy->setEnabled(canDestroy);
@@ -6085,6 +6113,8 @@ void MainWindow::buildUi() {
                     refreshSelectedPoolDetails(true, true);
                 } else if (picked == aImport && canImport && poolRow >= 0) {
                     importPoolFromRow(poolRow);
+                } else if (picked == aImportRename && canImport && poolRow >= 0) {
+                    importPoolRenamingFromRow(poolRow);
                 } else if (picked == aExport && canExport && poolRow >= 0) {
                     exportPoolFromRow(poolRow);
                 } else if (picked == aHistory && canHistory && poolRow >= 0) {
@@ -6093,6 +6123,8 @@ void MainWindow::buildUi() {
                     syncPoolFromRow(poolRow);
                 } else if (picked == aScrub && canScrub && poolRow >= 0) {
                     scrubPoolFromRow(poolRow);
+                } else if (picked == aReguid && canReguid && poolRow >= 0) {
+                    reguidPoolFromRow(poolRow);
                 } else if (picked == aTrim && canTrim && poolRow >= 0) {
                     trimPoolFromRow(poolRow);
                 } else if (picked == aInitialize && canInitialize && poolRow >= 0) {

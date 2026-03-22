@@ -54,12 +54,15 @@ It gives you:
 
 - a **dual source/destination view** for comparing and operating on two ZFS trees at once,
 - **remote pool and dataset management** from the same desktop app,
+- a **connectivity matrix** between connections with `SSH` and `rsync` checks,
 - **inline editing** of dataset and pool properties directly in the treeview,
 - **permission delegation management** with `zfs allow` / `zfs unallow`,
+- **automatic snapshot scheduling (GSA)** using the native scheduler of each OS,
 - **snapshot-oriented workflows** such as copy, clone, diff, rollback and level/sync,
 - a **graphical pool builder** with OpenZFS-aware VDEV validation,
 - **encrypted dataset creation and mount flows** with passphrase prompts when `keylocation=prompt`,
-- and **persistent operational logs** with secret masking.
+- **persistent operational logs** with secret masking,
+- and **native system logging** integration on macOS, Linux and Windows.
 
 ## Main capabilities
 
@@ -67,6 +70,7 @@ It gives you:
 
 - Imported and importable pool discovery.
 - Pool import/export.
+- Pool import with rename validation from the context menu.
 - Pool creation with device selection and options.
 - Device tree for available block devices, including whole disks and partitions.
 - OpenZFS-aware pool layout builder:
@@ -82,6 +86,7 @@ It gives you:
 - Pool maintenance actions from the GUI:
   - `zpool sync`
   - `zpool scrub`
+  - `zpool reguid`
   - `zpool trim`
   - `zpool initialize`
 - Pool information and feature visibility directly in the treeview.
@@ -89,6 +94,7 @@ It gives you:
 ### Dataset, zvol and snapshot management
 
 - Create dataset, snapshot and zvol.
+- Automatic snapshot scheduling node for filesystem datasets.
 - Create encrypted datasets with passphrase confirmation when using:
   - `encryption=on` or `aes-*`,
   - `keyformat=passphrase`,
@@ -102,10 +108,35 @@ It gives you:
 - Mount encrypted datasets by prompting for the passphrase and loading the key before mount when required.
 - Snapshot rollback.
 - Snapshot selection in source/destination trees.
+- Optional filtering of automatic snapshots (`GSA-*`) from dataset context menus.
 - Snapshot holds:
   - create hold,
   - inspect hold timestamp,
   - release hold.
+
+### Automatic snapshot scheduling (GSA)
+
+- Per-connection GSA management from the connection context menu.
+- Dynamic GSA actions depending on state:
+  - install,
+  - update,
+  - enable,
+  - uninstall,
+  - up-to-date/running state.
+- Native scheduler integration:
+  - `launchd` on macOS,
+  - `systemd timer` on Linux,
+  - `Task Scheduler` on Windows.
+- Inline dataset scheduling properties stored as ZFS user properties (`zfsmgrgsa:*`):
+  - enabled,
+  - recursive,
+  - hourly/daily/weekly/monthly/yearly retention,
+  - leveling,
+  - destination dataset.
+- Validation to avoid conflicting recursive schedules between parent and child datasets.
+- Sequential leveling support toward configured destination datasets.
+- Scheduler log rotation in `GSA.log` inside the ZFSMgr configuration directory.
+- High-level GSA events are also forwarded to the native OS log.
 
 ### Inline property management
 
@@ -172,10 +203,24 @@ The `Diff` action includes a dedicated results window with grouped tree output f
 - modified files,
 - renamed files.
 
+### Connectivity matrix
+
+- Floating `Conectividad` button in the connections table.
+- Matrix view with connections as rows and columns.
+- Per-cell checks for:
+  - `SSH`
+  - `rsync`
+- If a direct route is not available, transfers may need to pass through the local machine running ZFSMgr, which is more expensive than a direct remote-to-remote path.
+- GSA warns before installation or update if a required remote leveling route does not have `SSH` connectivity.
+
 ### Logging and safety
 
 - Combined in-app log.
 - Persistent rotating logs.
+- Native system log integration:
+  - macOS Unified Logging,
+  - Linux `syslog` / `journald`,
+  - Windows Event Log (best effort).
 - Secret masking (`[secret]`).
 - Command previews and execution traces.
 - Busy-state locking for unsafe concurrent actions.

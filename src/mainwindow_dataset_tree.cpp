@@ -2140,15 +2140,32 @@ void MainWindow::saveConnContentTreeState(const QString& token) {
         token + ((m_connContentTree == m_bottomConnContentTree) ? QStringLiteral("|bottom")
                                                                  : QStringLiteral("|top"));
     ConnContentTreeState st;
+    auto poolStateKey = [](QTreeWidgetItem* n) -> QString {
+        if (!n || !n->data(0, kIsPoolRootRole).toBool()) {
+            return QString();
+        }
+        return QStringLiteral("%1::%2")
+            .arg(n->data(0, kConnIdxRole).toInt())
+            .arg(n->data(0, kPoolNameRole).toString().trimmed());
+    };
     std::function<void(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* n) {
         if (!n) {
             return;
         }
         if (n->data(0, kIsPoolRootRole).toBool()) {
             st.poolRootExpanded = n->isExpanded();
+            const QString key = poolStateKey(n);
+            if (!key.isEmpty()) {
+                st.poolRootExpandedByPool.insert(key, n->isExpanded());
+            }
         }
         if (n->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
             st.infoExpanded = n->isExpanded();
+            QTreeWidgetItem* p = n->parent();
+            const QString key = poolStateKey(p);
+            if (!key.isEmpty()) {
+                st.infoExpandedByPool.insert(key, n->isExpanded());
+            }
         }
         const QString ds = n->data(0, Qt::UserRole).toString();
         if (!ds.isEmpty()) {
@@ -2189,11 +2206,13 @@ void MainWindow::saveConnContentTreeState(const QString& token) {
     }
     m_connContentTreeStateByToken[scopedToken] = st;
     const QStringList childPathDatasets = st.expandedChildPathsByDataset.keys();
+    const QStringList poolKeys = st.poolRootExpandedByPool.keys();
     appLog(QStringLiteral("DEBUG"),
-           QStringLiteral("saveConnContentTreeState token=%1 poolExpanded=%2 infoExpanded=%3 selected=%4 snapshot=%5 expandedDatasets=%6 childPathDatasets=%7 vscroll=%8 hscroll=%9")
+           QStringLiteral("saveConnContentTreeState token=%1 poolExpanded=%2 infoExpanded=%3 pools=%4 selected=%5 snapshot=%6 expandedDatasets=%7 childPathDatasets=%8 vscroll=%9 hscroll=%10")
                .arg(scopedToken,
                     st.poolRootExpanded ? QStringLiteral("1") : QStringLiteral("0"),
                     st.infoExpanded ? QStringLiteral("1") : QStringLiteral("0"),
+                    poolKeys.join(QStringLiteral(",")),
                     st.selectedDataset,
                     st.selectedSnapshot,
                     st.expandedDatasets.join(QStringLiteral(",")),
@@ -2218,11 +2237,20 @@ void MainWindow::restoreConnContentTreeState(const QString& token) {
     const ConnContentTreeState& st = it.value();
     const QSet<QString> expandedSet(st.expandedDatasets.cbegin(), st.expandedDatasets.cend());
     const QStringList childPathDatasets = st.expandedChildPathsByDataset.keys();
+    auto poolStateKey = [](QTreeWidgetItem* n) -> QString {
+        if (!n || !n->data(0, kIsPoolRootRole).toBool()) {
+            return QString();
+        }
+        return QStringLiteral("%1::%2")
+            .arg(n->data(0, kConnIdxRole).toInt())
+            .arg(n->data(0, kPoolNameRole).toString().trimmed());
+    };
     appLog(QStringLiteral("DEBUG"),
-           QStringLiteral("restoreConnContentTreeState begin token=%1 poolExpanded=%2 infoExpanded=%3 selected=%4 snapshot=%5 expandedDatasets=%6 childPathDatasets=%7 vscroll=%8 hscroll=%9")
+           QStringLiteral("restoreConnContentTreeState begin token=%1 poolExpanded=%2 infoExpanded=%3 pools=%4 selected=%5 snapshot=%6 expandedDatasets=%7 childPathDatasets=%8 vscroll=%9 hscroll=%10")
                .arg(scopedToken,
                     st.poolRootExpanded ? QStringLiteral("1") : QStringLiteral("0"),
                     st.infoExpanded ? QStringLiteral("1") : QStringLiteral("0"),
+                    st.poolRootExpandedByPool.keys().join(QStringLiteral(",")),
                     st.selectedDataset,
                     st.selectedSnapshot,
                     st.expandedDatasets.join(QStringLiteral(",")),
@@ -2255,18 +2283,24 @@ void MainWindow::restoreConnContentTreeState(const QString& token) {
             continue;
         }
         if (top->data(0, kIsPoolRootRole).toBool()) {
-            top->setExpanded(st.poolRootExpanded);
+            const QString key = poolStateKey(top);
+            const bool poolExpanded = key.isEmpty()
+                                          ? st.poolRootExpanded
+                                          : st.poolRootExpandedByPool.value(key, st.poolRootExpanded);
+            top->setExpanded(poolExpanded);
             for (int c = 0; c < top->childCount(); ++c) {
                 QTreeWidgetItem* ch = top->child(c);
                 if (!ch) {
                     continue;
                 }
                 if (ch->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
-                    ch->setExpanded(st.infoExpanded);
+                    const bool infoExpanded = key.isEmpty()
+                                                  ? st.infoExpanded
+                                                  : st.infoExpandedByPool.value(key, st.infoExpanded);
+                    ch->setExpanded(infoExpanded);
                     break;
                 }
             }
-            break;
         }
     }
 
@@ -2342,18 +2376,20 @@ void MainWindow::restoreConnContentTreeState(const QString& token) {
             safeTree->horizontalScrollBar()->setValue(hscroll);
         }
     });
-    bool finalPoolExpanded = false;
+    QStringList finalPoolStates;
     for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
         QTreeWidgetItem* top = m_connContentTree->topLevelItem(i);
         if (top && top->data(0, kIsPoolRootRole).toBool()) {
-            finalPoolExpanded = top->isExpanded();
-            break;
+            finalPoolStates.push_back(QStringLiteral("%1=%2")
+                                          .arg(poolStateKey(top),
+                                               top->isExpanded() ? QStringLiteral("1")
+                                                                 : QStringLiteral("0")));
         }
     }
     appLog(QStringLiteral("DEBUG"),
-           QStringLiteral("restoreConnContentTreeState end token=%1 finalPoolExpanded=%2 currentDataset=%3")
+           QStringLiteral("restoreConnContentTreeState end token=%1 finalPools=%2 currentDataset=%3")
                .arg(scopedToken,
-                    finalPoolExpanded ? QStringLiteral("1") : QStringLiteral("0"),
+                    finalPoolStates.join(QStringLiteral(",")),
                     m_connContentTree->currentItem()
                         ? m_connContentTree->currentItem()->data(0, Qt::UserRole).toString()
                         : QString()));

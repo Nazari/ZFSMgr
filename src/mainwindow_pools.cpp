@@ -303,6 +303,32 @@ void MainWindow::importPoolFromRow(int row) {
         return;
     }
 
+    auto poolNameInUseForConnection = [this](int connIdx, const QString& candidate, const QString& originalPoolName) -> bool {
+        if (connIdx < 0 || connIdx >= m_states.size()) {
+            return false;
+        }
+        const QString wanted = candidate.trimmed();
+        if (wanted.isEmpty()) {
+            return false;
+        }
+        const QString wantedLower = wanted.toLower();
+        const QString originalLower = originalPoolName.trimmed().toLower();
+        const ConnectionRuntimeState& st = m_states[connIdx];
+        for (const PoolImported& pool : st.importedPools) {
+            const QString current = pool.pool.trimmed();
+            if (!current.isEmpty() && current.toLower() == wantedLower && current.toLower() != originalLower) {
+                return true;
+            }
+        }
+        for (const PoolImportable& pool : st.importablePools) {
+            const QString current = pool.pool.trimmed();
+            if (!current.isEmpty() && current.toLower() == wantedLower && current.toLower() != originalLower) {
+                return true;
+            }
+        }
+        return false;
+    };
+
     QDialog dlg(this);
     dlg.setFont(QApplication::font());
     {
@@ -364,7 +390,33 @@ void MainWindow::importPoolFromRow(int row) {
     lay->addWidget(fieldsBox);
 
     auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, [&, idx, poolName]() {
+        const QString candidate = newNameEd->text().trimmed();
+        if (!candidate.isEmpty()) {
+            if (candidate.contains(QLatin1Char('/')) || candidate.contains(QLatin1Char('@'))
+                || candidate.contains(QRegularExpression(QStringLiteral("\\s")))) {
+                QMessageBox::warning(
+                    &dlg,
+                    QStringLiteral("ZFSMgr"),
+                    trk(QStringLiteral("t_invalid_pool_new_name_001"),
+                        QStringLiteral("El nuevo nombre del pool no puede contener espacios, '/' ni '@'."),
+                        QStringLiteral("The new pool name cannot contain spaces, '/' or '@'."),
+                        QStringLiteral("新的池名称不能包含空格、“/”或“@”。")));
+                return;
+            }
+            if (poolNameInUseForConnection(idx, candidate, poolName)) {
+                QMessageBox::warning(
+                    &dlg,
+                    QStringLiteral("ZFSMgr"),
+                    trk(QStringLiteral("t_import_pool_name_used_001"),
+                        QStringLiteral("Ya existe un pool con ese nombre en esa conexión."),
+                        QStringLiteral("A pool with that name already exists in that connection."),
+                        QStringLiteral("该连接中已存在同名存储池。")));
+                return;
+            }
+        }
+        dlg.accept();
+    });
     connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     lay->addWidget(bb);
 
@@ -460,6 +512,271 @@ void MainWindow::importPoolFromRow(int row) {
     refreshConnectionByIndex(idx);
 }
 
+void MainWindow::importPoolRenamingFromRow(int row) {
+    if (actionsLocked()) {
+        return;
+    }
+    if (row < 0 || row >= m_poolListEntries.size()) {
+        return;
+    }
+    const auto& pe = m_poolListEntries[row];
+    const QString connName = pe.connection.trimmed();
+    const QString poolName = pe.pool.trimmed();
+    const QString poolState = pe.state.trimmed().toUpper();
+    const QString action = pe.action.trimmed();
+    if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
+        return;
+    }
+    if (action.compare(QStringLiteral("Importar"), Qt::CaseInsensitive) != 0
+        || poolState != QStringLiteral("ONLINE")) {
+        return;
+    }
+    const int idx = findConnectionIndexByName(connName);
+    if (idx < 0 || idx >= m_states.size()) {
+        return;
+    }
+
+    auto poolNameInUseForConnection = [this](int connIdx, const QString& candidate, const QString& originalPoolName) -> bool {
+        if (connIdx < 0 || connIdx >= m_states.size()) {
+            return false;
+        }
+        const QString wanted = candidate.trimmed();
+        if (wanted.isEmpty()) {
+            return false;
+        }
+        const QString wantedLower = wanted.toLower();
+        const QString originalLower = originalPoolName.trimmed().toLower();
+        const ConnectionRuntimeState& st = m_states[connIdx];
+        for (const PoolImported& pool : st.importedPools) {
+            const QString current = pool.pool.trimmed();
+            if (!current.isEmpty() && current.toLower() == wantedLower && current.toLower() != originalLower) {
+                return true;
+            }
+        }
+        for (const PoolImportable& pool : st.importablePools) {
+            const QString current = pool.pool.trimmed();
+            if (!current.isEmpty() && current.toLower() == wantedLower && current.toLower() != originalLower) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    QString requestedNewName;
+    while (true) {
+        bool ok = false;
+        const QString newName = QInputDialog::getText(
+            this,
+            QStringLiteral("Importar renombrando"),
+            QStringLiteral("Nuevo nombre del pool"),
+            QLineEdit::Normal,
+            poolName,
+            &ok).trimmed();
+        if (!ok) {
+            return;
+        }
+        if (newName.isEmpty()) {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("ZFSMgr"),
+                QStringLiteral("El nuevo nombre del pool no puede estar vacío."));
+            continue;
+        }
+        if (newName.contains(QLatin1Char('/')) || newName.contains(QLatin1Char('@'))
+            || newName.contains(QRegularExpression(QStringLiteral("\\s")))) {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("ZFSMgr"),
+                QStringLiteral("El nuevo nombre del pool no puede contener espacios, '/' ni '@'."));
+            continue;
+        }
+        if (poolNameInUseForConnection(idx, newName, poolName)) {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("ZFSMgr"),
+                QStringLiteral("Ya existe un pool con ese nombre en esa conexión."));
+            continue;
+        }
+        requestedNewName = newName;
+        break;
+    }
+
+    // Reusar el diálogo de importación estándar, precargando el nuevo nombre.
+    QDialog dlg(this);
+    dlg.setFont(QApplication::font());
+    {
+        const QFont baseUiFont = QApplication::font();
+        const int baseUiPointSize = qMax(6, baseUiFont.pointSize());
+        dlg.setStyleSheet(QStringLiteral(
+            "QLabel, QLineEdit, QComboBox, QPushButton, QCheckBox, QGroupBox { "
+            "font-family: '%1'; font-size: %2pt; }")
+                              .arg(baseUiFont.family(),
+                                   QString::number(baseUiPointSize)));
+    }
+    dlg.setWindowTitle(trk(QStringLiteral("t_import_pool_w1"),
+                           QStringLiteral("Importar pool: %1"),
+                           QStringLiteral("Import pool: %1"),
+                           QStringLiteral("导入池：%1")).arg(poolName));
+    dlg.setModal(true);
+    auto* lay = new QVBoxLayout(&dlg);
+
+    auto* flagsBox = new QGroupBox(
+        trk(QStringLiteral("t_flags_label001"), QStringLiteral("Flags"), QStringLiteral("Flags"), QStringLiteral("标志")), &dlg);
+    auto* flagsLay = new QGridLayout(flagsBox);
+    QCheckBox* forceCb = new QCheckBox(QStringLiteral("-f force"), flagsBox);
+    QCheckBox* missingLogCb = new QCheckBox(QStringLiteral("-m missing log"), flagsBox);
+    QCheckBox* noMountCb = new QCheckBox(QStringLiteral("-N do not mount"), flagsBox);
+    QCheckBox* rewindCb = new QCheckBox(QStringLiteral("-F rewind"), flagsBox);
+    QCheckBox* dryRunCb = new QCheckBox(QStringLiteral("-n dry run"), flagsBox);
+    QCheckBox* destroyedCb = new QCheckBox(QStringLiteral("-D destroyed"), flagsBox);
+    QCheckBox* extremeCb = new QCheckBox(QStringLiteral("-X extreme rewind"), flagsBox);
+    QCheckBox* loadKeysCb = new QCheckBox(QStringLiteral("-l load keys"), flagsBox);
+    flagsLay->addWidget(forceCb, 0, 0);
+    flagsLay->addWidget(missingLogCb, 0, 1);
+    flagsLay->addWidget(noMountCb, 1, 0);
+    flagsLay->addWidget(rewindCb, 1, 1);
+    flagsLay->addWidget(dryRunCb, 2, 0);
+    flagsLay->addWidget(destroyedCb, 2, 1);
+    flagsLay->addWidget(extremeCb, 3, 0);
+    flagsLay->addWidget(loadKeysCb, 3, 1);
+    lay->addWidget(flagsBox);
+
+    auto* fieldsBox = new QGroupBox(
+        trk(QStringLiteral("t_values_label01"), QStringLiteral("Valores"), QStringLiteral("Values"), QStringLiteral("参数值")), &dlg);
+    auto* form = new QFormLayout(fieldsBox);
+    QLineEdit* cachefileEd = new QLineEdit(fieldsBox);
+    QLineEdit* altrootEd = new QLineEdit(fieldsBox);
+    QLineEdit* dirsEd = new QLineEdit(fieldsBox);
+    QLineEdit* mntoptsEd = new QLineEdit(fieldsBox);
+    QLineEdit* propsEd = new QLineEdit(fieldsBox);
+    QLineEdit* txgEd = new QLineEdit(fieldsBox);
+    QLineEdit* newNameEd = new QLineEdit(fieldsBox);
+    newNameEd->setText(requestedNewName);
+    QLineEdit* extraEd = new QLineEdit(fieldsBox);
+    form->addRow(QStringLiteral("cachefile"), cachefileEd);
+    form->addRow(QStringLiteral("altroot"), altrootEd);
+    form->addRow(QStringLiteral("directories (, )"), dirsEd);
+    form->addRow(QStringLiteral("mntopts"), mntoptsEd);
+    form->addRow(QStringLiteral("properties (, )"), propsEd);
+    form->addRow(QStringLiteral("txg"), txgEd);
+    form->addRow(QStringLiteral("new name"), newNameEd);
+    form->addRow(QStringLiteral("extra args"), extraEd);
+    lay->addWidget(fieldsBox);
+
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, [&, idx, poolName]() {
+        const QString candidate = newNameEd->text().trimmed();
+        if (candidate.isEmpty()) {
+            QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
+                                 QStringLiteral("El nuevo nombre del pool no puede estar vacío."));
+            return;
+        }
+        if (candidate.contains(QLatin1Char('/')) || candidate.contains(QLatin1Char('@'))
+            || candidate.contains(QRegularExpression(QStringLiteral("\\s")))) {
+            QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
+                                 QStringLiteral("El nuevo nombre del pool no puede contener espacios, '/' ni '@'."));
+            return;
+        }
+        if (poolNameInUseForConnection(idx, candidate, poolName)) {
+            QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
+                                 QStringLiteral("Ya existe un pool con ese nombre en esa conexión."));
+            return;
+        }
+        dlg.accept();
+    });
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(bb);
+
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    QStringList parts;
+    parts << QStringLiteral("zpool import");
+    if (forceCb->isChecked()) {
+        parts << QStringLiteral("-f");
+    }
+    if (missingLogCb->isChecked()) {
+        parts << QStringLiteral("-m");
+    }
+    if (noMountCb->isChecked()) {
+        parts << QStringLiteral("-N");
+    }
+    if (rewindCb->isChecked()) {
+        parts << QStringLiteral("-F");
+    }
+    if (dryRunCb->isChecked()) {
+        parts << QStringLiteral("-n");
+    }
+    if (destroyedCb->isChecked()) {
+        parts << QStringLiteral("-D");
+    }
+    if (extremeCb->isChecked()) {
+        parts << QStringLiteral("-X");
+    }
+    if (loadKeysCb->isChecked()) {
+        parts << QStringLiteral("-l");
+    }
+    if (!cachefileEd->text().trimmed().isEmpty()) {
+        parts << QStringLiteral("-c") << shSingleQuote(cachefileEd->text().trimmed());
+    }
+    if (!altrootEd->text().trimmed().isEmpty()) {
+        parts << QStringLiteral("-R") << shSingleQuote(altrootEd->text().trimmed());
+    }
+    for (const QString& d : dirsEd->text().split(',', Qt::SkipEmptyParts)) {
+        const QString dd = d.trimmed();
+        if (!dd.isEmpty()) {
+            parts << QStringLiteral("-d") << shSingleQuote(dd);
+        }
+    }
+    if (!mntoptsEd->text().trimmed().isEmpty()) {
+        parts << QStringLiteral("-o") << shSingleQuote(mntoptsEd->text().trimmed());
+    }
+    for (const QString& pval : propsEd->text().split(',', Qt::SkipEmptyParts)) {
+        const QString pp = pval.trimmed();
+        if (!pp.isEmpty()) {
+            parts << QStringLiteral("-o") << shSingleQuote(pp);
+        }
+    }
+    if (!txgEd->text().trimmed().isEmpty()) {
+        parts << QStringLiteral("-T") << shSingleQuote(txgEd->text().trimmed());
+    }
+    parts << shSingleQuote(poolName) << shSingleQuote(newNameEd->text().trimmed());
+    if (!extraEd->text().trimmed().isEmpty()) {
+        parts << extraEd->text().trimmed();
+    }
+
+    const ConnectionProfile& p = m_profiles[idx];
+    const QString cmd = withSudo(p, parts.join(' '));
+    const QString preview = QStringLiteral("[%1]\n%2")
+                                .arg(sshUserHostPort(p))
+                                .arg(buildSshPreviewCommand(p, cmd));
+    if (!confirmActionExecution(QStringLiteral("Importar renombrando"), {preview})) {
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio importar renombrando %1::%2 -> %3")
+                                       .arg(connName, poolName, newNameEd->text().trimmed()));
+    setActionsLocked(true);
+    QString out;
+    QString err;
+    int rc = -1;
+    if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Error importando renombrando %1::%2 -> %3")
+                   .arg(connName,
+                        poolName,
+                        oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
+                              QStringLiteral("Importar renombrando falló:\n%1")
+                                  .arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
+        setActionsLocked(false);
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin importar renombrando %1::%2").arg(connName, poolName));
+    setActionsLocked(false);
+    refreshConnectionByIndex(idx);
+}
+
 void MainWindow::scrubPoolFromRow(int row) {
     if (actionsLocked()) {
         return;
@@ -517,6 +834,72 @@ void MainWindow::scrubPoolFromRow(int row) {
         return;
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin scrub %1::%2").arg(connName, poolName));
+    setActionsLocked(false);
+    refreshConnectionByIndex(idx);
+}
+
+void MainWindow::reguidPoolFromRow(int row) {
+    if (actionsLocked()) {
+        return;
+    }
+    if (row < 0 || row >= m_poolListEntries.size()) {
+        return;
+    }
+    const auto& pe = m_poolListEntries[row];
+    const QString connName = pe.connection;
+    const QString poolName = pe.pool;
+    const QString poolState = pe.state.trimmed().toUpper();
+    const QString action = pe.action;
+    if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
+        return;
+    }
+    if (poolState != QStringLiteral("ONLINE")) {
+        return;
+    }
+    if (action.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) != 0) {
+        return;
+    }
+    const int idx = findConnectionIndexByName(connName);
+    if (idx < 0) {
+        return;
+    }
+
+    const auto confirm = QMessageBox::question(
+        this,
+        QStringLiteral("Reguid pool"),
+        QStringLiteral("¿Ejecutar zpool reguid en %1 de %2?").arg(poolName, connName),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return;
+    }
+
+    const ConnectionProfile& p = m_profiles[idx];
+    const QString cmd = withSudo(p, QStringLiteral("zpool reguid %1").arg(shSingleQuote(poolName)));
+    const QString preview = QStringLiteral("[%1]\n%2")
+                                .arg(sshUserHostPort(p))
+                                .arg(buildSshPreviewCommand(p, cmd));
+    if (!confirmActionExecution(QStringLiteral("Reguid"), {preview})) {
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio reguid %1::%2").arg(connName, poolName));
+    setActionsLocked(true);
+    QString out;
+    QString err;
+    int rc = -1;
+    if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Error reguid %1::%2 -> %3")
+                   .arg(connName, poolName,
+                        oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+        QMessageBox::critical(
+            this,
+            QStringLiteral("ZFSMgr"),
+            QStringLiteral("Reguid falló:\n%1").arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
+        setActionsLocked(false);
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin reguid %1::%2").arg(connName, poolName));
     setActionsLocked(false);
     refreshConnectionByIndex(idx);
 }
