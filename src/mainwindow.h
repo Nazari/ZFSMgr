@@ -41,8 +41,32 @@ public:
         QString name;
         QStringList props;
     };
+    struct UiTestDatasetSeed {
+        QString name;
+        QString mountpoint;
+        QString canmount{QStringLiteral("on")};
+        QString mounted{QStringLiteral("yes")};
+        QStringList snapshots;
+    };
 
     explicit MainWindow(const QString& masterPassword, const QString& language, QWidget* parent = nullptr);
+    void configureSingleConnectionUiTestState(const ConnectionProfile& profile,
+                                              const QStringList& importedPools,
+                                              const QStringList& importablePools);
+    void configurePoolDatasetsForTest(int connIdx,
+                                      const QString& poolName,
+                                      const QVector<UiTestDatasetSeed>& datasets);
+    void rebuildConnectionDetailsForTest();
+    void setShowPoolInfoNodeForTest(bool visible);
+    void setShowInlineGsaNodeForTest(bool visible);
+    void setShowAutomaticSnapshotsForTest(bool visible);
+    QStringList topLevelPoolNamesForTest(bool bottom = false) const;
+    QStringList childLabelsForDatasetForTest(const QString& datasetName, bool bottom = false) const;
+    QStringList snapshotNamesForDatasetForTest(const QString& datasetName, bool bottom = false) const;
+    QStringList connectionContextMenuTopLevelLabelsForTest() const;
+    QStringList connectionRefreshMenuLabelsForTest() const;
+    QStringList connectionGsaMenuLabelsForTest() const;
+    QStringList poolContextMenuLabelsForTest(const QString& poolName, bool bottom = false) const;
 
 protected:
     void closeEvent(QCloseEvent* event) override;

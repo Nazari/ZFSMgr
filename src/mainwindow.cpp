@@ -1,6 +1,10 @@
 #include "mainwindow.h"
+#include "mainwindow_ui_logic.h"
 
+#include <QComboBox>
+#include <QTableWidget>
 #include <QTimer>
+#include <QTreeWidget>
 
 namespace {
 bool zfsmgrTestModeEnabled() {
@@ -33,4 +37,320 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
             refreshAllConnections();
         });
     }
+}
+
+void MainWindow::configureSingleConnectionUiTestState(const ConnectionProfile& profile,
+                                                      const QStringList& importedPools,
+                                                      const QStringList& importablePools) {
+    m_profiles.clear();
+    m_states.clear();
+    m_profiles.push_back(profile);
+
+    ConnectionRuntimeState state;
+    state.status = QStringLiteral("OK");
+    state.detail = QStringLiteral("test");
+    state.connectionMethod = profile.connType.trimmed();
+    for (const QString& poolName : importedPools) {
+        const QString trimmed = poolName.trimmed();
+        if (trimmed.isEmpty()) {
+            continue;
+        }
+        state.importedPools.push_back(PoolImported{profile.name, trimmed, QStringLiteral("Exportar")});
+    }
+    for (const QString& poolName : importablePools) {
+        const QString trimmed = poolName.trimmed();
+        if (trimmed.isEmpty()) {
+            continue;
+        }
+        state.importablePools.push_back(
+            PoolImportable{profile.name, trimmed, QStringLiteral("ONLINE"), QString(), QStringLiteral("Importar")});
+    }
+    m_states.push_back(state);
+
+    rebuildConnectionsTable();
+    m_topDetailConnIdx = 0;
+    m_bottomDetailConnIdx = 0;
+    if (m_connectionsTable && m_connectionsTable->rowCount() > 0) {
+        m_connectionsTable->setCurrentCell(0, 0);
+    }
+}
+
+void MainWindow::rebuildConnectionDetailsForTest() {
+    rebuildConnectionEntityTabs();
+    updateSecondaryConnectionDetail();
+}
+
+void MainWindow::configurePoolDatasetsForTest(int connIdx,
+                                              const QString& poolName,
+                                              const QVector<UiTestDatasetSeed>& datasets) {
+    if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.trimmed().isEmpty()) {
+        return;
+    }
+    PoolDatasetCache cache;
+    cache.loaded = true;
+    for (const UiTestDatasetSeed& seed : datasets) {
+        DatasetRecord record;
+        record.name = seed.name.trimmed();
+        record.mountpoint = seed.mountpoint.trimmed();
+        record.canmount = seed.canmount.trimmed();
+        record.mounted = seed.mounted.trimmed();
+        if (record.name.isEmpty()) {
+            continue;
+        }
+        cache.datasets.push_back(record);
+        cache.recordByName.insert(record.name, record);
+        cache.snapshotsByDataset.insert(record.name, seed.snapshots);
+    }
+    m_poolDatasetCache.insert(datasetCacheKey(connIdx, poolName), cache);
+}
+
+void MainWindow::setShowPoolInfoNodeForTest(bool visible) {
+    m_showPoolInfoNode = visible;
+    rebuildConnectionDetailsForTest();
+}
+
+void MainWindow::setShowInlineGsaNodeForTest(bool visible) {
+    m_showInlineGsaNode = visible;
+    rebuildConnectionDetailsForTest();
+}
+
+void MainWindow::setShowAutomaticSnapshotsForTest(bool visible) {
+    m_showAutomaticGsaSnapshots = visible;
+    rebuildConnectionDetailsForTest();
+}
+
+QStringList MainWindow::topLevelPoolNamesForTest(bool bottom) const {
+    QStringList names;
+    QTreeWidget* tree = bottom ? m_bottomConnContentTree : m_connContentTree;
+    if (!tree) {
+        return names;
+    }
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        if (QTreeWidgetItem* item = tree->topLevelItem(i)) {
+            names.push_back(item->text(0).trimmed());
+        }
+    }
+    return names;
+}
+
+QStringList MainWindow::childLabelsForDatasetForTest(const QString& datasetName, bool bottom) const {
+    QStringList labels;
+    QTreeWidget* tree = bottom ? m_bottomConnContentTree : m_connContentTree;
+    if (!tree || datasetName.trimmed().isEmpty()) {
+        return labels;
+    }
+    const QString wanted = datasetName.trimmed();
+    std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* node) -> QTreeWidgetItem* {
+        if (!node) {
+            return nullptr;
+        }
+        if (node->data(0, Qt::UserRole).toString().trimmed() == wanted) {
+            return node;
+        }
+        for (int i = 0; i < node->childCount(); ++i) {
+            if (QTreeWidgetItem* found = rec(node->child(i))) {
+                return found;
+            }
+        }
+        return nullptr;
+    };
+    QTreeWidgetItem* item = nullptr;
+    for (int i = 0; i < tree->topLevelItemCount() && !item; ++i) {
+        item = rec(tree->topLevelItem(i));
+    }
+    if (!item) {
+        return labels;
+    }
+    for (int i = 0; i < item->childCount(); ++i) {
+        if (QTreeWidgetItem* child = item->child(i)) {
+            labels.push_back(child->text(0).trimmed());
+        }
+    }
+    return labels;
+}
+
+QStringList MainWindow::snapshotNamesForDatasetForTest(const QString& datasetName, bool bottom) const {
+    QStringList names;
+    QTreeWidget* tree = bottom ? m_bottomConnContentTree : m_connContentTree;
+    if (!tree || datasetName.trimmed().isEmpty()) {
+        return names;
+    }
+    const QString wanted = datasetName.trimmed();
+    std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* node) -> QTreeWidgetItem* {
+        if (!node) {
+            return nullptr;
+        }
+        if (node->data(0, Qt::UserRole).toString().trimmed() == wanted) {
+            return node;
+        }
+        for (int i = 0; i < node->childCount(); ++i) {
+            if (QTreeWidgetItem* found = rec(node->child(i))) {
+                return found;
+            }
+        }
+        return nullptr;
+    };
+    QTreeWidgetItem* item = nullptr;
+    for (int i = 0; i < tree->topLevelItemCount() && !item; ++i) {
+        item = rec(tree->topLevelItem(i));
+    }
+    if (!item) {
+        return names;
+    }
+    constexpr int kSnapshotListRole = Qt::UserRole + 1;
+    names = item->data(1, kSnapshotListRole).toStringList();
+    return names;
+}
+
+QStringList MainWindow::connectionContextMenuTopLevelLabelsForTest() const {
+    const int connIdx = (m_connectionsTable && m_connectionsTable->currentRow() >= 0) ? m_topDetailConnIdx : -1;
+    const bool hasConn = (connIdx >= 0 && connIdx < m_profiles.size());
+    const bool isDisconnected = hasConn && isConnectionDisconnected(connIdx);
+    const bool hasWindowsUnixLayerReady =
+        hasConn
+        && connIdx < m_states.size()
+        && isWindowsConnection(connIdx)
+        && m_states[connIdx].unixFromMsysOrMingw
+        && m_states[connIdx].missingUnixCommands.isEmpty()
+        && !m_states[connIdx].detectedUnixCommands.isEmpty();
+    const bool canManageGsa =
+        hasConn && !actionsLocked() && !isDisconnected
+        && connIdx < m_states.size()
+        && gsaMenuLabelForConnection(connIdx).compare(
+               trk(QStringLiteral("t_gsa_ok_001"),
+                   QStringLiteral("GSA actualizado y funcionando"),
+                   QStringLiteral("GSA updated and running"),
+                   QStringLiteral("GSA 已更新并运行中")),
+               Qt::CaseInsensitive) != 0;
+    const bool canUninstallGsa =
+        hasConn && !actionsLocked() && !isDisconnected
+        && connIdx < m_states.size()
+        && m_states[connIdx].gsaInstalled;
+    const zfsmgr::uilogic::ConnectionContextMenuState menuState =
+        zfsmgr::uilogic::buildConnectionContextMenuState(
+            hasConn,
+            isDisconnected,
+            actionsLocked(),
+            hasConn && isLocalConnection(connIdx),
+            hasConn && isConnectionRedirectedToLocal(connIdx),
+            hasConn && isWindowsConnection(connIdx),
+            hasWindowsUnixLayerReady,
+            canManageGsa,
+            canUninstallGsa);
+    Q_UNUSED(menuState);
+    return {
+        trk(QStringLiteral("t_connect_ctx_001"),
+            QStringLiteral("Conectar"),
+            QStringLiteral("Connect"),
+            QStringLiteral("连接")),
+        trk(QStringLiteral("t_disconnect_ctx001"),
+            QStringLiteral("Desconectar"),
+            QStringLiteral("Disconnect"),
+            QStringLiteral("断开连接")),
+        trk(QStringLiteral("t_install_msys_ctx001"),
+            QStringLiteral("Instalar MSYS2"),
+            QStringLiteral("Install MSYS2"),
+            QStringLiteral("安装 MSYS2")),
+        trk(QStringLiteral("t_refresh_conn_ctx001"),
+            QStringLiteral("Refrescar"),
+            QStringLiteral("Refresh"),
+            QStringLiteral("刷新")),
+        QStringLiteral("GSA"),
+        trk(QStringLiteral("t_edit_conn_ctx001"),
+            QStringLiteral("Editar"),
+            QStringLiteral("Edit"),
+            QStringLiteral("编辑")),
+        trk(QStringLiteral("t_del_conn_ctx001"),
+            QStringLiteral("Borrar"),
+            QStringLiteral("Delete"),
+            QStringLiteral("删除")),
+        trk(QStringLiteral("t_new_conn_ctx001"),
+            QStringLiteral("Nueva Conexión"),
+            QStringLiteral("New Connection"),
+            QStringLiteral("新建连接")),
+        trk(QStringLiteral("t_new_pool_ctx_001"),
+            QStringLiteral("Nuevo Pool"),
+            QStringLiteral("New Pool"),
+            QStringLiteral("新建存储池")),
+    };
+}
+
+QStringList MainWindow::connectionRefreshMenuLabelsForTest() const {
+    return {
+        trk(QStringLiteral("t_refresh_this_conn_001"),
+            QStringLiteral("Esta conexión"),
+            QStringLiteral("This connection"),
+            QStringLiteral("此连接")),
+        trk(QStringLiteral("t_refresh_all_001"),
+            QStringLiteral("Todas las conexiones"),
+            QStringLiteral("All connections"),
+            QStringLiteral("所有连接")),
+    };
+}
+
+QStringList MainWindow::connectionGsaMenuLabelsForTest() const {
+    const int connIdx = m_topDetailConnIdx;
+    const bool hasConn = (connIdx >= 0 && connIdx < m_profiles.size());
+    const QString manageLabel = hasConn ? gsaMenuLabelForConnection(connIdx)
+                                        : trk(QStringLiteral("t_gsa_install_001"),
+                                              QStringLiteral("Instalar gestor de snapshots"),
+                                              QStringLiteral("Install snapshot manager"),
+                                              QStringLiteral("安装快照管理器"));
+    return {
+        manageLabel,
+        trk(QStringLiteral("t_gsa_uninstall_001"),
+            QStringLiteral("Desinstalar el GSA"),
+            QStringLiteral("Uninstall GSA"),
+            QStringLiteral("卸载 GSA")),
+    };
+}
+
+QStringList MainWindow::poolContextMenuLabelsForTest(const QString& poolName, bool bottom) const {
+    const int connIdx = bottom ? m_bottomDetailConnIdx : m_topDetailConnIdx;
+    if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size() || poolName.trimmed().isEmpty()) {
+        return {};
+    }
+    QString poolAction;
+    const ConnectionRuntimeState& st = m_states[connIdx];
+    for (const PoolImported& pool : st.importedPools) {
+        if (pool.pool.trimmed().compare(poolName.trimmed(), Qt::CaseInsensitive) == 0) {
+            poolAction = QStringLiteral("Exportar");
+            break;
+        }
+    }
+    if (poolAction.isEmpty()) {
+        for (const PoolImportable& pool : st.importablePools) {
+            if (pool.pool.trimmed().compare(poolName.trimmed(), Qt::CaseInsensitive) == 0) {
+                poolAction = pool.action.trimmed();
+                break;
+            }
+        }
+    }
+    const zfsmgr::uilogic::PoolRootMenuState menuState =
+        zfsmgr::uilogic::buildPoolRootMenuState(poolAction, QStringLiteral("ONLINE"), true);
+    Q_UNUSED(menuState);
+    return {
+        trk(QStringLiteral("t_refresh_btn001"),
+            QStringLiteral("Actualizar"),
+            QStringLiteral("Refresh"),
+            QStringLiteral("刷新")),
+        trk(QStringLiteral("t_import_btn001"),
+            QStringLiteral("Importar"),
+            QStringLiteral("Import"),
+            QStringLiteral("导入")),
+        QStringLiteral("Importar renombrando"),
+        trk(QStringLiteral("t_export_btn001"),
+            QStringLiteral("Exportar"),
+            QStringLiteral("Export"),
+            QStringLiteral("导出")),
+        trk(QStringLiteral("t_pool_history_t1"),
+            QStringLiteral("Historial")),
+        QStringLiteral("Sync"),
+        QStringLiteral("Scrub"),
+        QStringLiteral("Reguid"),
+        QStringLiteral("Trim"),
+        QStringLiteral("Initialize"),
+        QStringLiteral("Destroy"),
+        QStringLiteral("Mostrar Información del pool"),
+    };
 }
