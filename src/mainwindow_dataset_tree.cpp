@@ -104,15 +104,15 @@ bool isDatasetPropertySupportedOnPlatform(const QString& propName, DatasetPlatfo
 
 QStringList gsaUserProps() {
     return {
-        QStringLiteral("zfsmgrgsa:activado"),
-        QStringLiteral("zfsmgrgsa:recursivo"),
-        QStringLiteral("zfsmgrgsa:horario"),
-        QStringLiteral("zfsmgrgsa:diario"),
-        QStringLiteral("zfsmgrgsa:semanal"),
-        QStringLiteral("zfsmgrgsa:mensual"),
-        QStringLiteral("zfsmgrgsa:anual"),
-        QStringLiteral("zfsmgrgsa:nivelar"),
-        QStringLiteral("zfsmgrgsa:destino"),
+        QStringLiteral("org.fc16.gsa:activado"),
+        QStringLiteral("org.fc16.gsa:recursivo"),
+        QStringLiteral("org.fc16.gsa:horario"),
+        QStringLiteral("org.fc16.gsa:diario"),
+        QStringLiteral("org.fc16.gsa:semanal"),
+        QStringLiteral("org.fc16.gsa:mensual"),
+        QStringLiteral("org.fc16.gsa:anual"),
+        QStringLiteral("org.fc16.gsa:nivelar"),
+        QStringLiteral("org.fc16.gsa:destino"),
     };
 }
 
@@ -127,26 +127,26 @@ bool isGsaUserProperty(const QString& prop) {
 
 QString gsaUserPropertyLabel(const QString& prop) {
     const QString p = prop.trimmed();
-    if (p.compare(QStringLiteral("zfsmgrgsa:activado"), Qt::CaseInsensitive) == 0) return QStringLiteral("Activado");
-    if (p.compare(QStringLiteral("zfsmgrgsa:recursivo"), Qt::CaseInsensitive) == 0) return QStringLiteral("Recursivo");
-    if (p.compare(QStringLiteral("zfsmgrgsa:horario"), Qt::CaseInsensitive) == 0) return QStringLiteral("Horario");
-    if (p.compare(QStringLiteral("zfsmgrgsa:diario"), Qt::CaseInsensitive) == 0) return QStringLiteral("Diario");
-    if (p.compare(QStringLiteral("zfsmgrgsa:semanal"), Qt::CaseInsensitive) == 0) return QStringLiteral("Semanal");
-    if (p.compare(QStringLiteral("zfsmgrgsa:mensual"), Qt::CaseInsensitive) == 0) return QStringLiteral("Mensual");
-    if (p.compare(QStringLiteral("zfsmgrgsa:anual"), Qt::CaseInsensitive) == 0) return QStringLiteral("Anual");
-    if (p.compare(QStringLiteral("zfsmgrgsa:nivelar"), Qt::CaseInsensitive) == 0) return QStringLiteral("Nivelar");
-    if (p.compare(QStringLiteral("zfsmgrgsa:destino"), Qt::CaseInsensitive) == 0) return QStringLiteral("Destino");
+    if (p.compare(QStringLiteral("org.fc16.gsa:activado"), Qt::CaseInsensitive) == 0) return QStringLiteral("Activado");
+    if (p.compare(QStringLiteral("org.fc16.gsa:recursivo"), Qt::CaseInsensitive) == 0) return QStringLiteral("Recursivo");
+    if (p.compare(QStringLiteral("org.fc16.gsa:horario"), Qt::CaseInsensitive) == 0) return QStringLiteral("Horario");
+    if (p.compare(QStringLiteral("org.fc16.gsa:diario"), Qt::CaseInsensitive) == 0) return QStringLiteral("Diario");
+    if (p.compare(QStringLiteral("org.fc16.gsa:semanal"), Qt::CaseInsensitive) == 0) return QStringLiteral("Semanal");
+    if (p.compare(QStringLiteral("org.fc16.gsa:mensual"), Qt::CaseInsensitive) == 0) return QStringLiteral("Mensual");
+    if (p.compare(QStringLiteral("org.fc16.gsa:anual"), Qt::CaseInsensitive) == 0) return QStringLiteral("Anual");
+    if (p.compare(QStringLiteral("org.fc16.gsa:nivelar"), Qt::CaseInsensitive) == 0) return QStringLiteral("Nivelar");
+    if (p.compare(QStringLiteral("org.fc16.gsa:destino"), Qt::CaseInsensitive) == 0) return QStringLiteral("Destino");
     return p;
 }
 
 QString gsaUserPropertyDefaultValue(const QString& prop) {
     const QString p = prop.trimmed();
-    if (p.compare(QStringLiteral("zfsmgrgsa:destino"), Qt::CaseInsensitive) == 0) return QString();
-    if (p.compare(QStringLiteral("zfsmgrgsa:horario"), Qt::CaseInsensitive) == 0
-        || p.compare(QStringLiteral("zfsmgrgsa:diario"), Qt::CaseInsensitive) == 0
-        || p.compare(QStringLiteral("zfsmgrgsa:semanal"), Qt::CaseInsensitive) == 0
-        || p.compare(QStringLiteral("zfsmgrgsa:mensual"), Qt::CaseInsensitive) == 0
-        || p.compare(QStringLiteral("zfsmgrgsa:anual"), Qt::CaseInsensitive) == 0) {
+    if (p.compare(QStringLiteral("org.fc16.gsa:destino"), Qt::CaseInsensitive) == 0) return QString();
+    if (p.compare(QStringLiteral("org.fc16.gsa:horario"), Qt::CaseInsensitive) == 0
+        || p.compare(QStringLiteral("org.fc16.gsa:diario"), Qt::CaseInsensitive) == 0
+        || p.compare(QStringLiteral("org.fc16.gsa:semanal"), Qt::CaseInsensitive) == 0
+        || p.compare(QStringLiteral("org.fc16.gsa:mensual"), Qt::CaseInsensitive) == 0
+        || p.compare(QStringLiteral("org.fc16.gsa:anual"), Qt::CaseInsensitive) == 0) {
         return QStringLiteral("0");
     }
     return QStringLiteral("off");
@@ -154,9 +154,9 @@ QString gsaUserPropertyDefaultValue(const QString& prop) {
 
 bool isGsaOnOffProperty(const QString& prop) {
     const QString p = prop.trimmed();
-    return p.compare(QStringLiteral("zfsmgrgsa:activado"), Qt::CaseInsensitive) == 0
-           || p.compare(QStringLiteral("zfsmgrgsa:recursivo"), Qt::CaseInsensitive) == 0
-           || p.compare(QStringLiteral("zfsmgrgsa:nivelar"), Qt::CaseInsensitive) == 0;
+    return p.compare(QStringLiteral("org.fc16.gsa:activado"), Qt::CaseInsensitive) == 0
+           || p.compare(QStringLiteral("org.fc16.gsa:recursivo"), Qt::CaseInsensitive) == 0
+           || p.compare(QStringLiteral("org.fc16.gsa:nivelar"), Qt::CaseInsensitive) == 0;
 }
 
 bool isAutomaticGsaSnapshotName(const QString& snap) {
@@ -1044,9 +1044,9 @@ void MainWindow::syncConnContentPropertyColumns() {
     }
     mainProps = normalizePropsList(mainProps);
     auto enumValues = connContentEnumValues();
-    enumValues.insert(QStringLiteral("zfsmgrgsa:activado"), QStringList{QStringLiteral("off"), QStringLiteral("on")});
-    enumValues.insert(QStringLiteral("zfsmgrgsa:recursivo"), QStringList{QStringLiteral("off"), QStringLiteral("on")});
-    enumValues.insert(QStringLiteral("zfsmgrgsa:nivelar"), QStringList{QStringLiteral("off"), QStringLiteral("on")});
+    enumValues.insert(QStringLiteral("org.fc16.gsa:activado"), QStringList{QStringLiteral("off"), QStringLiteral("on")});
+    enumValues.insert(QStringLiteral("org.fc16.gsa:recursivo"), QStringList{QStringLiteral("off"), QStringLiteral("on")});
+    enumValues.insert(QStringLiteral("org.fc16.gsa:nivelar"), QStringList{QStringLiteral("off"), QStringLiteral("on")});
     const QString propsKey = datasetPropsCacheKey(itemConnIdx, itemPool, obj);
     const DatasetPlatformFamily platform =
         datasetPlatformFamilyFromStrings(

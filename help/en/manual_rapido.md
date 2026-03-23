@@ -31,7 +31,7 @@ ZFSMgr manages connections and ZFS actions.
 - Inline properties may include direct editing and an `Inh.` inheritance control.
 - If `Inh.=on`, the value editor is disabled and greyed out.
   If `Inh.=off`, the value becomes editable again.
-- `Schedule snapshots` properties (`zfsmgrgsa:*`) are user properties and do not expose inheritance controls.
+- `Schedule snapshots` properties (`org.fc16.gsa:*`) are user properties and do not expose inheritance controls.
 - The tree context menu can show or hide `Pool information` and, inside `Show inline`, inline `Properties`, `Permissions`, and `Schedule snapshots`.
 - The dataset context menu can also show or hide automatic snapshots (`GSA-*`).
 - Permission sections are shown as `Deleg.`, `New child DS`, and `Sets`.
@@ -133,7 +133,7 @@ Automatic snapshot scheduling (GSA):
   - `Yearly`
   - `Level`
   - `Destination`
-- These settings are stored as dataset user properties with `zfsmgrgsa:*` names.
+- These settings are stored as dataset user properties with `org.fc16.gsa:*` names.
 - A retention value of `0` disables that schedule class.
 - If `Level=on`, `Destination` must use `Conn::Pool/Dataset` format.
 - ZFSMgr blocks overlapping schedules:

@@ -41,7 +41,7 @@ ZFSMgr gestiona conexiones y acciones ZFS.
 - Las propiedades inline pueden incluir edición directa y control de herencia (`Inh.`) cuando aplica.
 - Si `Inh.=on`, el valor queda deshabilitado y atenuado.
   Si `Inh.=off`, el valor vuelve a ser editable.
-- Las propiedades de `Programar snapshots` (`zfsmgrgsa:*`) son propiedades de usuario y no muestran control de herencia.
+- Las propiedades de `Programar snapshots` (`org.fc16.gsa:*`) son propiedades de usuario y no muestran control de herencia.
 - Si una propiedad no está soportada por el sistema operativo de la conexión, aparece atenuada y no se puede editar.
   Ejemplos: `sharesmb` en macOS, `jailed` fuera de FreeBSD, `zoned`/`nbmand` fuera de Linux.
 - Los pools no importables también aparecen como nodo raíz para permitir `Importar`.
@@ -144,7 +144,7 @@ Programación automática de snapshots (GSA):
   - `Anual`
   - `Nivelar`
   - `Destino`
-- Esas opciones se guardan como propiedades de usuario del propio dataset con nombres `zfsmgrgsa:*`.
+- Esas opciones se guardan como propiedades de usuario del propio dataset con nombres `org.fc16.gsa:*`.
 - Una retención `0` desactiva esa periodicidad.
 - Si `Nivelar=on`, `Destino` debe tener formato `Con::Pool/Dataset`.
 - ZFSMgr bloquea programaciones solapadas:

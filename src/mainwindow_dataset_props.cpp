@@ -475,36 +475,36 @@ bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
         state.connIdx = connIdx;
         state.poolName = poolName;
         state.datasetName = datasetName;
-        state.enabled = gsaBoolOn(findMapValueCaseInsensitive(propValues, QStringLiteral("zfsmgrgsa:activado")));
-        state.recursive = gsaBoolOn(findMapValueCaseInsensitive(propValues, QStringLiteral("zfsmgrgsa:recursivo")));
-        state.level = gsaBoolOn(findMapValueCaseInsensitive(propValues, QStringLiteral("zfsmgrgsa:nivelar")));
-        state.destination = findMapValueCaseInsensitive(propValues, QStringLiteral("zfsmgrgsa:destino")).trimmed();
+        state.enabled = gsaBoolOn(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:activado")));
+        state.recursive = gsaBoolOn(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:recursivo")));
+        state.level = gsaBoolOn(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:nivelar")));
+        state.destination = findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:destino")).trimmed();
 
-        if (!gsaParseNonNegativeInt(findMapValueCaseInsensitive(propValues, QStringLiteral("zfsmgrgsa:horario")), state.hourly)) {
+        if (!gsaParseNonNegativeInt(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:horario")), state.hourly)) {
             return fail(trk(QStringLiteral("t_gsa_invalid_hourly_001"),
                             QStringLiteral("La retención horaria de %1 no es válida. Debe ser un entero mayor o igual que 0."),
                             QStringLiteral("The hourly retention for %1 is invalid. It must be an integer greater than or equal to 0."),
                             QStringLiteral("%1 的每小时保留值无效。它必须是大于或等于 0 的整数。")).arg(datasetName));
         }
-        if (!gsaParseNonNegativeInt(findMapValueCaseInsensitive(propValues, QStringLiteral("zfsmgrgsa:diario")), state.daily)) {
+        if (!gsaParseNonNegativeInt(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:diario")), state.daily)) {
             return fail(trk(QStringLiteral("t_gsa_invalid_daily_001"),
                             QStringLiteral("La retención diaria de %1 no es válida. Debe ser un entero mayor o igual que 0."),
                             QStringLiteral("The daily retention for %1 is invalid. It must be an integer greater than or equal to 0."),
                             QStringLiteral("%1 的每日保留值无效。它必须是大于或等于 0 的整数。")).arg(datasetName));
         }
-        if (!gsaParseNonNegativeInt(findMapValueCaseInsensitive(propValues, QStringLiteral("zfsmgrgsa:semanal")), state.weekly)) {
+        if (!gsaParseNonNegativeInt(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:semanal")), state.weekly)) {
             return fail(trk(QStringLiteral("t_gsa_invalid_weekly_001"),
                             QStringLiteral("La retención semanal de %1 no es válida. Debe ser un entero mayor o igual que 0."),
                             QStringLiteral("The weekly retention for %1 is invalid. It must be an integer greater than or equal to 0."),
                             QStringLiteral("%1 的每周保留值无效。它必须是大于或等于 0 的整数。")).arg(datasetName));
         }
-        if (!gsaParseNonNegativeInt(findMapValueCaseInsensitive(propValues, QStringLiteral("zfsmgrgsa:mensual")), state.monthly)) {
+        if (!gsaParseNonNegativeInt(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:mensual")), state.monthly)) {
             return fail(trk(QStringLiteral("t_gsa_invalid_monthly_001"),
                             QStringLiteral("La retención mensual de %1 no es válida. Debe ser un entero mayor o igual que 0."),
                             QStringLiteral("The monthly retention for %1 is invalid. It must be an integer greater than or equal to 0."),
                             QStringLiteral("%1 的每月保留值无效。它必须是大于或等于 0 的整数。")).arg(datasetName));
         }
-        if (!gsaParseNonNegativeInt(findMapValueCaseInsensitive(propValues, QStringLiteral("zfsmgrgsa:anual")), state.yearly)) {
+        if (!gsaParseNonNegativeInt(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:anual")), state.yearly)) {
             return fail(trk(QStringLiteral("t_gsa_invalid_yearly_001"),
                             QStringLiteral("La retención anual de %1 no es válida. Debe ser un entero mayor o igual que 0."),
                             QStringLiteral("The yearly retention for %1 is invalid. It must be an integer greater than or equal to 0."),

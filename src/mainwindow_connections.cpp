@@ -96,15 +96,15 @@ SELF_CONNECTION='__SELF_CONNECTION__'
 CONFIG_DIR='__CONFIG_DIR__'
 PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin:$PATH"
 
-PROP_ENABLED='zfsmgrgsa:activado'
-PROP_RECURSIVE='zfsmgrgsa:recursivo'
-PROP_HOURLY='zfsmgrgsa:horario'
-PROP_DAILY='zfsmgrgsa:diario'
-PROP_WEEKLY='zfsmgrgsa:semanal'
-PROP_MONTHLY='zfsmgrgsa:mensual'
-PROP_YEARLY='zfsmgrgsa:anual'
-PROP_LEVEL='zfsmgrgsa:nivelar'
-PROP_DEST='zfsmgrgsa:destino'
+PROP_ENABLED='org.fc16.gsa:activado'
+PROP_RECURSIVE='org.fc16.gsa:recursivo'
+PROP_HOURLY='org.fc16.gsa:horario'
+PROP_DAILY='org.fc16.gsa:diario'
+PROP_WEEKLY='org.fc16.gsa:semanal'
+PROP_MONTHLY='org.fc16.gsa:mensual'
+PROP_YEARLY='org.fc16.gsa:anual'
+PROP_LEVEL='org.fc16.gsa:nivelar'
+PROP_DEST='org.fc16.gsa:destino'
 LOG_FILE="$CONFIG_DIR/GSA.log"
 
 rotate_logs() {
@@ -409,15 +409,15 @@ $ErrorActionPreference = 'Stop'
 $SelfConnection = '__SELF_CONNECTION__'
 $ConfigDir = '__CONFIG_DIR__'
 $LogFile = Join-Path $ConfigDir 'GSA.log'
-$PropEnabled = 'zfsmgrgsa:activado'
-$PropRecursive = 'zfsmgrgsa:recursivo'
-$PropHourly = 'zfsmgrgsa:horario'
-$PropDaily = 'zfsmgrgsa:diario'
-$PropWeekly = 'zfsmgrgsa:semanal'
-$PropMonthly = 'zfsmgrgsa:mensual'
-$PropYearly = 'zfsmgrgsa:anual'
-$PropLevel = 'zfsmgrgsa:nivelar'
-$PropDest = 'zfsmgrgsa:destino'
+$PropEnabled = 'org.fc16.gsa:activado'
+$PropRecursive = 'org.fc16.gsa:recursivo'
+$PropHourly = 'org.fc16.gsa:horario'
+$PropDaily = 'org.fc16.gsa:diario'
+$PropWeekly = 'org.fc16.gsa:semanal'
+$PropMonthly = 'org.fc16.gsa:mensual'
+$PropYearly = 'org.fc16.gsa:anual'
+$PropLevel = 'org.fc16.gsa:nivelar'
+$PropDest = 'org.fc16.gsa:destino'
 
 function Rotate-GsaLog {
   New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
@@ -3453,11 +3453,11 @@ bool MainWindow::installOrUpdateGsaForConnection(int idx) {
                 props[vit.key()] = vit.value();
             }
         }
-        const QString enabled = props.value(QStringLiteral("zfsmgrgsa:activado")).trimmed().toLower();
+        const QString enabled = props.value(QStringLiteral("org.fc16.gsa:activado")).trimmed().toLower();
         if (!(enabled == QStringLiteral("on") || enabled == QStringLiteral("yes") || enabled == QStringLiteral("true") || enabled == QStringLiteral("1"))) {
             continue;
         }
-        const QString dest = props.value(QStringLiteral("zfsmgrgsa:destino")).trimmed();
+        const QString dest = props.value(QStringLiteral("org.fc16.gsa:destino")).trimmed();
         if (dest.isEmpty()) {
             continue;
         }

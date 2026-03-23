@@ -31,7 +31,7 @@ ZFSMgr 用于管理连接和 ZFS 操作。
 - 内联属性在适用时可直接编辑，并带有 `Inh.` 继承控制。
 - 当 `Inh.=on` 时，属性值编辑器会被禁用并显示为灰色。
   当 `Inh.=off` 时，属性值会重新变为可编辑。
-- `Programar snapshots` 中的 `zfsmgrgsa:*` 属性属于用户属性，在界面里不提供继承控制。
+- `Programar snapshots` 中的 `org.fc16.gsa:*` 属性属于用户属性，在界面里不提供继承控制。
 - 树的右键菜单可显示或隐藏 `池信息`，并可在 `Mostrar en línea` 子菜单中控制内联 `属性`、`权限` 与 `Programar snapshots`。
 - 数据集右键菜单还可显示或隐藏自动快照（`GSA-*`）。
 - 权限分组显示为 `Deleg.`、`Nuevos DS` 和 `Conjuntos`。
@@ -133,7 +133,7 @@ ZFSMgr 用于管理连接和 ZFS 操作。
   - `Anual`
   - `Nivelar`
   - `Destino`
-- 这些设置保存在数据集自身的用户属性中，名称为 `zfsmgrgsa:*`。
+- 这些设置保存在数据集自身的用户属性中，名称为 `org.fc16.gsa:*`。
 - 保留值为 `0` 表示禁用该周期。
 - 如果 `Nivelar=on`，则 `Destino` 必须使用 `Con::Pool/Dataset` 格式。
 - ZFSMgr 会阻止重叠计划：
