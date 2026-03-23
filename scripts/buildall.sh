@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-OUTPUT_DIR="${HOME}/Downloads/zfsmgr-builds"
+OUTPUT_DIR="${HOME}/Descargas/z"
 
 LINUX_REMOTE="${LINUX_REMOTE:-linarese@fc16}"
 WINDOWS_REMOTE="${WINDOWS_REMOTE:-eladi@surface}"
@@ -160,16 +160,26 @@ fi
 [[ -n "${app_version}" ]] || { echo "No se pudo resolver la versión de la AppImage." >&2; exit 1; }
 arch="$(uname -m)"
 find "${repo}/build-linux" -maxdepth 1 -type f -name 'ZFSMgr-*.AppImage' -delete 2>/dev/null || true
-./scripts/build-linux.sh --appimage
-artifact="${repo}/build-linux/ZFSMgr-${app_version}-${arch}.AppImage"
-[[ -n "${artifact}" ]] || { echo "No se encontró el .AppImage generado." >&2; exit 1; }
-[[ -f "${artifact}" ]] || { echo "No se encontró el .AppImage generado: ${artifact}" >&2; exit 1; }
-printf 'ARTIFACT_LINUX=%s\n' "${artifact}"
+find "${repo}/build-linux" -maxdepth 1 -type f -name 'zfsmgr_*.deb' -delete 2>/dev/null || true
+./scripts/build-linux.sh --appimage --deb
+artifact_appimage="${repo}/build-linux/ZFSMgr-${app_version}-${arch}.AppImage"
+artifact_deb="$(find "${repo}/build-linux" -maxdepth 1 -type f -name "zfsmgr_${app_version}_*.deb" -print0 \
+  | xargs -0 -r ls -td 2>/dev/null | head -n1)"
+[[ -f "${artifact_appimage}" ]] || { echo "No se encontró el .AppImage generado: ${artifact_appimage}" >&2; exit 1; }
+[[ -n "${artifact_deb}" ]] || { echo "No se encontró el .deb generado para la versión ${app_version}." >&2; exit 1; }
+[[ -f "${artifact_deb}" ]] || { echo "No se encontró el .deb generado: ${artifact_deb}" >&2; exit 1; }
+printf 'ARTIFACT_LINUX_APPIMAGE=%s\n' "${artifact_appimage}"
+printf 'ARTIFACT_LINUX_DEB=%s\n' "${artifact_deb}"
 EOF
-LINUX_ARTIFACT="$(run_linux_b64_script "${LINUX_BUILD_SCRIPT}" | extract_marked_artifact 'ARTIFACT_LINUX=')"
-[[ -n "${LINUX_ARTIFACT}" ]] || fail "No se pudo resolver el artefacto Linux"
-copy_linux_remote_artifact "${LINUX_ARTIFACT}"
-log "Artefacto Linux copiado: $(basename "${LINUX_ARTIFACT}")"
+LINUX_BUILD_OUTPUT="$(run_linux_b64_script "${LINUX_BUILD_SCRIPT}")"
+LINUX_APPIMAGE_ARTIFACT="$(printf '%s\n' "${LINUX_BUILD_OUTPUT}" | extract_marked_artifact 'ARTIFACT_LINUX_APPIMAGE=')"
+LINUX_DEB_ARTIFACT="$(printf '%s\n' "${LINUX_BUILD_OUTPUT}" | extract_marked_artifact 'ARTIFACT_LINUX_DEB=')"
+[[ -n "${LINUX_APPIMAGE_ARTIFACT}" ]] || fail "No se pudo resolver el artefacto Linux AppImage"
+[[ -n "${LINUX_DEB_ARTIFACT}" ]] || fail "No se pudo resolver el artefacto Linux DEB"
+copy_linux_remote_artifact "${LINUX_APPIMAGE_ARTIFACT}"
+log "Artefacto Linux copiado: $(basename "${LINUX_APPIMAGE_ARTIFACT}")"
+copy_linux_remote_artifact "${LINUX_DEB_ARTIFACT}"
+log "Artefacto Linux copiado: $(basename "${LINUX_DEB_ARTIFACT}")"
 
 log "Compilando Windows remoto en ${WINDOWS_REMOTE}"
 read -r -d '' WINDOWS_BUILD_SCRIPT <<'EOF' || true

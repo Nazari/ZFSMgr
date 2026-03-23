@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 project(ZFSMgrQt VERSION 0.10.0 LANGUAGES CXX)
 include(CTest)
 set(ZFSMGR_APP_VERSION_STRING "0.10.0rc1")
+set(ZFSMGR_LINUX_DESKTOP_FILE "${CMAKE_CURRENT_BINARY_DIR}/zfsmgr.desktop")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -98,6 +99,40 @@ install(TARGETS zfsmgr_qt
     BUNDLE DESTINATION .
     RUNTIME DESTINATION bin
 )
+
+if(UNIX AND NOT APPLE)
+    file(WRITE "${ZFSMGR_LINUX_DESKTOP_FILE}" [=[
+[Desktop Entry]
+Type=Application
+Name=ZFSMgr
+Comment=Cross-platform OpenZFS GUI manager
+Exec=zfsmgr_qt
+Icon=ZFSMgr
+Categories=System;Utility;
+Terminal=false
+]=])
+
+    install(FILES "${ZFSMGR_LINUX_DESKTOP_FILE}"
+        DESTINATION share/applications
+    )
+    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../icons/ZFSMgr-512.png"
+        DESTINATION share/icons/hicolor/512x512/apps
+        RENAME ZFSMgr.png
+    )
+
+    set(CPACK_PACKAGE_NAME "zfsmgr")
+    set(CPACK_PACKAGE_VENDOR "Nazari")
+    set(CPACK_PACKAGE_CONTACT "Nazari")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Cross-platform OpenZFS GUI manager")
+    set(CPACK_PACKAGE_VERSION "${ZFSMGR_APP_VERSION_STRING}")
+    set(CPACK_GENERATOR "DEB")
+    set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Nazari")
+    set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
+    set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+    include(CPack)
+endif()
 
 if(BUILD_TESTING)
     add_executable(zfsmgr_helpers_test

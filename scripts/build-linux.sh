@@ -11,6 +11,7 @@ ARCH="$(uname -m)"
 SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese@fc16:Descargas/z}"
 APP_VERSION="$(sed -nE 's/^[[:space:]]*set\([[:space:]]*ZFSMGR_APP_VERSION_STRING[[:space:]]*"([^"]+)".*/\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
 BUILD_APPIMAGE=0
+BUILD_DEB=0
 UPLOAD_SFTP=0
 EXTRA_ARGS=()
 
@@ -26,6 +27,9 @@ for arg in "$@"; do
   case "${arg}" in
     --appimage)
       BUILD_APPIMAGE=1
+      ;;
+    --deb)
+      BUILD_DEB=1
       ;;
     --sftpfc16)
       UPLOAD_SFTP=1
@@ -120,7 +124,7 @@ ensure_build_dir_source_match() {
   fi
 }
 
-if [[ "${BUILD_APPIMAGE}" -eq 0 ]]; then
+if [[ "${BUILD_APPIMAGE}" -eq 0 && "${BUILD_DEB}" -eq 0 ]]; then
   if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
     echo "Error: --sftpfc16 solo es válido junto con --appimage." >&2
     exit 1
@@ -132,15 +136,15 @@ if [[ "${BUILD_APPIMAGE}" -eq 0 ]]; then
   exit 0
 fi
 
-if [[ "${ARCH}" != "x86_64" ]]; then
-  echo "Error: AppImage build script currently supports x86_64 only (detected: ${ARCH})." >&2
+if [[ "${BUILD_DEB}" -eq 1 && "${UPLOAD_SFTP}" -eq 1 && "${BUILD_APPIMAGE}" -eq 0 ]]; then
+  echo "Error: --sftpfc16 solo es válido junto con --appimage." >&2
   exit 1
 fi
 
-mkdir -p "${TOOLS_DIR}"
-
-LINUXDEPLOY_APPIMAGE="${TOOLS_DIR}/linuxdeploy-x86_64.AppImage"
-LINUXDEPLOY_QT_PLUGIN="${TOOLS_DIR}/linuxdeploy-plugin-qt-x86_64.AppImage"
+if [[ "${BUILD_APPIMAGE}" -eq 1 && "${ARCH}" != "x86_64" ]]; then
+  echo "Error: AppImage build script currently supports x86_64 only (detected: ${ARCH})." >&2
+  exit 1
+fi
 
 download_if_missing() {
   local url="$1"
@@ -153,17 +157,33 @@ download_if_missing() {
   chmod +x "${out}"
 }
 
+echo "Configuring and building Release binary..."
+ensure_build_dir_source_match
+cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
+cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
+
+if [[ "${BUILD_DEB}" -eq 1 ]]; then
+  echo "Building Debian package..."
+  cpack --config "${BUILD_DIR}/CPackConfig.cmake" -G DEB -B "${BUILD_DIR}"
+  echo "DEB generated:"
+  ls -lh "${BUILD_DIR}"/*.deb
+fi
+
+if [[ "${BUILD_APPIMAGE}" -eq 0 ]]; then
+  exit 0
+fi
+
+mkdir -p "${TOOLS_DIR}"
+
+LINUXDEPLOY_APPIMAGE="${TOOLS_DIR}/linuxdeploy-x86_64.AppImage"
+LINUXDEPLOY_QT_PLUGIN="${TOOLS_DIR}/linuxdeploy-plugin-qt-x86_64.AppImage"
+
 download_if_missing \
   "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage" \
   "${LINUXDEPLOY_APPIMAGE}"
 download_if_missing \
   "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage" \
   "${LINUXDEPLOY_QT_PLUGIN}"
-
-echo "Configuring and building Release binary..."
-ensure_build_dir_source_match
-cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
-cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
 
 echo "Preparing AppDir..."
 rm -rf "${APPDIR}"
