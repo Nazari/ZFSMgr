@@ -397,6 +397,7 @@ private:
     void trimLogWidget(QPlainTextEdit* widget);
     void syncConnectionLogTabs();
     void appendConnectionLog(const QString& connId, const QString& line);
+    void refreshConnectionGsaLogAsync(int idx);
     void onAsyncRefreshResult(int generation, int idx, const QString& connId, const ConnectionRuntimeState& state);
     void onAsyncRefreshDone(int generation);
     int findConnectionIndexByName(const QString& name) const;
@@ -573,6 +574,8 @@ private:
     QPlainTextEdit* m_logView{nullptr};
     QPlainTextEdit* m_pendingChangesView{nullptr};
     QMap<QString, QPointer<QPlainTextEdit>> m_connectionLogViews;
+    QMap<QString, QPointer<QPlainTextEdit>> m_connectionGsaLogViews;
+    QMap<QString, QPointer<QWidget>> m_connectionLogTabs;
     QSet<QString> m_sshDisableMultiplexKeys;
     QSet<QString> m_loggedSshResolutionKeys;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;

@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "mainwindow_helpers.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -19,6 +20,8 @@
 #include <QSet>
 #include <QSysInfo>
 #include <QVBoxLayout>
+
+#include <QtConcurrent/QtConcurrent>
 
 #if defined(Q_OS_LINUX) || defined(Q_OS_FREEBSD)
 #include <syslog.h>
@@ -119,6 +122,7 @@ CompactLogParts parseCompactLogParts(const QString& fullLine) {
     }
     return out;
 }
+
 } // namespace
 
 void MainWindow::initLogPersistence() {
@@ -241,6 +245,11 @@ void MainWindow::clearAppLog() {
     m_compactPrevConn.clear();
     m_compactPrevLevel.clear();
     for (auto it = m_connectionLogViews.begin(); it != m_connectionLogViews.end(); ++it) {
+        if (it.value()) {
+            it.value()->clear();
+        }
+    }
+    for (auto it = m_connectionGsaLogViews.begin(); it != m_connectionGsaLogViews.end(); ++it) {
         if (it.value()) {
             it.value()->clear();
         }
@@ -455,18 +464,45 @@ void MainWindow::syncConnectionLogTabs() {
         }
         wanted.insert(p.id);
         if (m_connectionLogViews.contains(p.id)) {
+            refreshConnectionGsaLogAsync(i);
             continue;
         }
         auto* tab = new QWidget(m_logsTabs);
         auto* lay = new QVBoxLayout(tab);
-        auto* view = new QPlainTextEdit(tab);
-        view->setReadOnly(true);
-        view->setLineWrapMode(QPlainTextEdit::NoWrap);
-        view->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        view->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        lay->addWidget(view, 1);
+        lay->setContentsMargins(0, 0, 0, 0);
+        lay->setSpacing(0);
+
+        auto* innerTabs = new QTabWidget(tab);
+        auto* terminalPage = new QWidget(innerTabs);
+        auto* terminalLay = new QVBoxLayout(terminalPage);
+        terminalLay->setContentsMargins(0, 0, 0, 0);
+        terminalLay->setSpacing(0);
+        auto* terminalView = new QPlainTextEdit(terminalPage);
+        terminalView->setReadOnly(true);
+        terminalView->setLineWrapMode(QPlainTextEdit::NoWrap);
+        terminalView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        terminalView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        terminalLay->addWidget(terminalView, 1);
+        innerTabs->addTab(terminalPage, QStringLiteral("Terminal"));
+
+        auto* gsaPage = new QWidget(innerTabs);
+        auto* gsaLay = new QVBoxLayout(gsaPage);
+        gsaLay->setContentsMargins(0, 0, 0, 0);
+        gsaLay->setSpacing(0);
+        auto* gsaView = new QPlainTextEdit(gsaPage);
+        gsaView->setReadOnly(true);
+        gsaView->setLineWrapMode(QPlainTextEdit::NoWrap);
+        gsaView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        gsaView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        gsaLay->addWidget(gsaView, 1);
+        innerTabs->addTab(gsaPage, QStringLiteral("GSA"));
+
+        lay->addWidget(innerTabs, 1);
         m_logsTabs->addTab(tab, p.name);
-        m_connectionLogViews.insert(p.id, view);
+        m_connectionLogViews.insert(p.id, terminalView);
+        m_connectionGsaLogViews.insert(p.id, gsaView);
+        m_connectionLogTabs.insert(p.id, tab);
+        refreshConnectionGsaLogAsync(i);
     }
 
     for (auto it = m_connectionLogViews.begin(); it != m_connectionLogViews.end();) {
@@ -474,7 +510,7 @@ void MainWindow::syncConnectionLogTabs() {
             ++it;
             continue;
         }
-        QWidget* tab = it.value() ? it.value()->parentWidget() : nullptr;
+        QWidget* tab = m_connectionLogTabs.value(it.key(), nullptr);
         const int idx = tab ? m_logsTabs->indexOf(tab) : -1;
         if (idx >= 0) {
             m_logsTabs->removeTab(idx);
@@ -482,6 +518,8 @@ void MainWindow::syncConnectionLogTabs() {
         if (tab) {
             tab->deleteLater();
         }
+        m_connectionGsaLogViews.remove(it.key());
+        m_connectionLogTabs.remove(it.key());
         it = m_connectionLogViews.erase(it);
     }
 
@@ -493,14 +531,106 @@ void MainWindow::syncConnectionLogTabs() {
         if (!wanted.contains(id)) {
             continue;
         }
-        QWidget* tab = m_connectionLogViews.value(id)
-                           ? m_connectionLogViews.value(id)->parentWidget()
-                           : nullptr;
+        QWidget* tab = m_connectionLogTabs.value(id, nullptr);
         const int idx = tab ? m_logsTabs->indexOf(tab) : -1;
         if (idx >= 0) {
             m_logsTabs->setTabText(idx, m_profiles[i].name);
         }
     }
+}
+
+void MainWindow::refreshConnectionGsaLogAsync(int idx) {
+    if (idx < 0 || idx >= m_profiles.size()) {
+        return;
+    }
+    const QString connId = m_profiles[idx].id;
+    QPlainTextEdit* target = m_connectionGsaLogViews.value(connId, nullptr);
+    if (!target) {
+        return;
+    }
+    if (isConnectionDisconnected(idx)) {
+        target->clear();
+        return;
+    }
+
+    const ConnectionProfile profile = m_profiles[idx];
+    const ConnectionRuntimeState state = (idx < m_states.size()) ? m_states[idx] : ConnectionRuntimeState{};
+    if (!state.gsaInstalled) {
+        target->setPlainText(QStringLiteral("GSA no instalado."));
+        return;
+    }
+
+    const auto gsaConfigDir = [this](const ConnectionProfile& cp, const ConnectionRuntimeState& st) {
+        if (isLocalConnection(cp)) {
+            return m_store.configDir();
+        }
+        const QString osHint = (cp.osType + QStringLiteral(" ") + st.osLine).trimmed().toLower();
+        const bool isMac = osHint.contains(QStringLiteral("darwin")) || osHint.contains(QStringLiteral("mac"));
+        const bool isWindows = osHint.contains(QStringLiteral("windows"));
+        QString user = cp.username.trimmed();
+        if (isWindows) {
+            const int slash = qMax(user.lastIndexOf(QLatin1Char('\\')), user.lastIndexOf(QLatin1Char('/')));
+            if (slash >= 0) {
+                user = user.mid(slash + 1);
+            }
+            if (user.isEmpty()) {
+                user = QStringLiteral("Default");
+            }
+            return QStringLiteral("C:\\Users\\%1\\.config\\ZFSMgr").arg(user);
+        }
+        if (user.isEmpty()) {
+            user = QStringLiteral("root");
+        }
+        if (isMac) {
+            return (user == QStringLiteral("root"))
+                       ? QStringLiteral("/var/root/.config/ZFSMgr")
+                       : QStringLiteral("/Users/%1/.config/ZFSMgr").arg(user);
+        }
+        return (user == QStringLiteral("root"))
+                   ? QStringLiteral("/root/.config/ZFSMgr")
+                   : QStringLiteral("/home/%1/.config/ZFSMgr").arg(user);
+    };
+
+    const QString configDir = gsaConfigDir(profile, state);
+    if (configDir.isEmpty()) {
+        target->clear();
+        return;
+    }
+
+    if (isLocalConnection(profile)) {
+        QFile f(QDir(configDir).filePath(QStringLiteral("GSA.log")));
+        QString text;
+        if (f.exists() && f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            text = QString::fromUtf8(f.readAll());
+        }
+        target->setPlainText(maskSecrets(text));
+        return;
+    }
+
+    const bool isWindows = isWindowsConnection(profile);
+    const QString remoteCmd = isWindows
+        ? QStringLiteral(
+              "$f='%1\\GSA.log'; "
+              "if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f -Raw }")
+              .arg(configDir)
+        : withSudo(profile,
+                   QStringLiteral("f=%1; if [ -f \"$f\" ]; then cat \"$f\"; fi")
+                       .arg(mwhelpers::shSingleQuote(QDir::cleanPath(configDir + QStringLiteral("/GSA.log")))));
+    const WindowsCommandMode mode = isWindows ? WindowsCommandMode::PowerShellNative
+                                              : WindowsCommandMode::Auto;
+
+    (void)QtConcurrent::run([this, connId, profile, remoteCmd, mode]() {
+        QString out;
+        QString err;
+        int rc = -1;
+        const bool ok = runSsh(profile, remoteCmd, 15000, out, err, rc, {}, {}, {}, mode) && rc == 0;
+        const QString text = ok ? out : QString();
+        QMetaObject::invokeMethod(this, [this, connId, text]() {
+            if (QPlainTextEdit* view = m_connectionGsaLogViews.value(connId, nullptr)) {
+                view->setPlainText(maskSecrets(text));
+            }
+        }, Qt::QueuedConnection);
+    });
 }
 
 void MainWindow::appendConnectionLog(const QString& connId, const QString& line) {
