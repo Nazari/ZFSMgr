@@ -12,6 +12,7 @@
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QProcess>
 #include <QRegularExpression>
 #include <QScopedValueRollback>
 #include <QSet>
@@ -33,10 +34,14 @@ constexpr int kPoolNameRole = Qt::UserRole + 11;
 constexpr int kIsPoolRootRole = Qt::UserRole + 12;
 constexpr const char* kGsaTaskName = "ZFSMgr-GSA";
 constexpr const char* kGsaUnixScriptPath = "/usr/local/libexec/zfsmgr-gsa.sh";
+constexpr const char* kGsaUnixConfigDirPath = "/etc/zfsmgr";
+constexpr const char* kGsaUnixConfigPath = "/etc/zfsmgr/gsa.conf";
+constexpr const char* kGsaUnixConnectionsPath = "/etc/zfsmgr/gsa-connections.conf";
+constexpr const char* kGsaUnixKnownHostsPath = "/etc/zfsmgr/gsa_known_hosts";
 constexpr const char* kGsaMacPlistPath = "/Library/LaunchDaemons/org.zfsmgr.gsa.plist";
 constexpr const char* kGsaLinuxServicePath = "/etc/systemd/system/zfsmgr-gsa.service";
 constexpr const char* kGsaLinuxTimerPath = "/etc/systemd/system/zfsmgr-gsa.timer";
-constexpr const char* kGsaVersionSuffix = ".1";
+constexpr const char* kGsaVersionSuffix = ".3";
 struct ConnTreeNavSnapshot {
     QSet<QString> expandedKeys;
     QString selectedKey;
@@ -87,14 +92,23 @@ QString gsaScriptVersion() {
     return QStringLiteral(ZFSMGR_APP_VERSION) + QString::fromLatin1(kGsaVersionSuffix);
 }
 
-QString gsaUnixScriptPayload(const QString& selfConnectionName) {
+QString gsaUnixMainConfigPayload(const QString& selfConnectionName, const QString& runtimeConfigDir) {
+    QString payload;
+    payload += QStringLiteral("SELF_CONNECTION=%1\n").arg(mwhelpers::shSingleQuote(selfConnectionName));
+    payload += QStringLiteral("CONFIG_DIR=%1\n").arg(mwhelpers::shSingleQuote(runtimeConfigDir));
+    payload += QStringLiteral("LOG_FILE=%1\n").arg(mwhelpers::shSingleQuote(runtimeConfigDir + QStringLiteral("/GSA.log")));
+    payload += QStringLiteral("KNOWN_HOSTS_FILE=%1\n").arg(mwhelpers::shSingleQuote(QString::fromLatin1(kGsaUnixKnownHostsPath)));
+    payload += QStringLiteral("CONNECTIONS_FILE=%1\n").arg(mwhelpers::shSingleQuote(QString::fromLatin1(kGsaUnixConnectionsPath)));
+    return payload;
+}
+
+QString gsaUnixScriptPayload() {
     QString script = QString::fromUtf8(R"GSA(#!/bin/sh
 # ZFSMgr GSA Version: __VERSION__
 set -eu
 
-SELF_CONNECTION='__SELF_CONNECTION__'
-CONFIG_DIR='__CONFIG_DIR__'
 PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin:$PATH"
+GSA_CONFIG_FILE='__GSA_CONFIG_FILE__'
 
 PROP_ENABLED='org.fc16.gsa:activado'
 PROP_RECURSIVE='org.fc16.gsa:recursivo'
@@ -105,7 +119,16 @@ PROP_MONTHLY='org.fc16.gsa:mensual'
 PROP_YEARLY='org.fc16.gsa:anual'
 PROP_LEVEL='org.fc16.gsa:nivelar'
 PROP_DEST='org.fc16.gsa:destino'
-LOG_FILE="$CONFIG_DIR/GSA.log"
+
+[ -r "$GSA_CONFIG_FILE" ] || exit 1
+. "$GSA_CONFIG_FILE"
+[ -n "${CONFIG_DIR:-}" ] || exit 1
+[ -n "${LOG_FILE:-}" ] || exit 1
+[ -n "${CONNECTIONS_FILE:-}" ] || exit 1
+[ -r "$CONNECTIONS_FILE" ] || exit 1
+. "$CONNECTIONS_FILE"
+[ -n "${SELF_CONNECTION:-}" ] || exit 1
+[ -n "${KNOWN_HOSTS_FILE:-}" ] || exit 1
 
 rotate_logs() {
   mkdir -p "$CONFIG_DIR"
@@ -160,19 +183,18 @@ int_value() {
   esac
 }
 
-resolve_target_connection() {
-  TARGET_MODE=''
-  TARGET_HOST=''
-  TARGET_PORT=''
-  TARGET_USER=''
-  TARGET_PASS=''
-  TARGET_KEY=''
-  TARGET_USE_SUDO='0'
-  case "$1" in
-__CONNECTION_MAP__
-    *) return 1 ;;
-  esac
-  return 0
+has_recursive_gsa_ancestor() {
+  ds="$1"
+  parent="${ds%/*}"
+  while [ "$parent" != "$ds" ] && [ -n "$parent" ]; do
+    if bool_on "$(prop_value "$parent" "$PROP_ENABLED")" \
+       && bool_on "$(prop_value "$parent" "$PROP_RECURSIVE")"; then
+      return 0
+    fi
+    ds="$parent"
+    parent="${ds%/*}"
+  done
+  return 1
 }
 
 build_target_recv_command() {
@@ -208,6 +230,11 @@ run_via_target_ssh() {
   target="${TARGET_USER}@${TARGET_HOST}"
   port_opt=''
   key_opt=''
+  known_hosts_opt="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$(shq "$KNOWN_HOSTS_FILE")"
+  [ -r "$KNOWN_HOSTS_FILE" ] || {
+    log "GSA level skip: fichero known_hosts no disponible: $KNOWN_HOSTS_FILE"
+    return 126
+  }
   [ -n "$TARGET_PORT" ] && port_opt="-p $TARGET_PORT"
   [ -n "$TARGET_KEY" ] && key_opt="-i $(shq "$TARGET_KEY")"
   if [ -n "$TARGET_PASS" ]; then
@@ -215,9 +242,9 @@ run_via_target_ssh() {
       log "GSA level skip: sshpass no disponible para conectar a ${target}"
       return 127
     fi
-    eval "SSHPASS=$(shq "$TARGET_PASS") sshpass -e ssh -o BatchMode=no -o ConnectTimeout=10 -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${port_opt} ${key_opt} $(shq "$target") $(shq "$remote_cmd")"
+    eval "SSHPASS=$(shq "$TARGET_PASS") sshpass -e ssh -o BatchMode=no -o ConnectTimeout=10 -o LogLevel=ERROR ${known_hosts_opt} ${port_opt} ${key_opt} $(shq "$target") $(shq "$remote_cmd")"
   else
-    eval "ssh -o BatchMode=yes -o ConnectTimeout=10 -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${port_opt} ${key_opt} $(shq "$target") $(shq "$remote_cmd")"
+    eval "ssh -o BatchMode=yes -o ConnectTimeout=10 -o LogLevel=ERROR ${known_hosts_opt} ${port_opt} ${key_opt} $(shq "$target") $(shq "$remote_cmd")"
   fi
 }
 
@@ -253,6 +280,11 @@ create_snapshot() {
   recursive="$3"
   stamp="$(date '+%Y%m%d-%H%M%S')"
   snap_name="GSA-${klass}-${stamp}"
+  if zfs list -H -t snapshot -o name "${ds}@${snap_name}" >/dev/null 2>&1; then
+    log "GSA snapshot skip for $ds: ${snap_name} ya existe"
+    printf '%s\n' "$snap_name"
+    return 0
+  fi
   if bool_on "$recursive"; then
     zfs snapshot -r "${ds}@${snap_name}"
   else
@@ -367,6 +399,10 @@ main() {
     enabled="$(prop_value "$ds" "$PROP_ENABLED")"
     bool_on "$enabled" || continue
     recursive="$(prop_value "$ds" "$PROP_RECURSIVE")"
+    if has_recursive_gsa_ancestor "$ds"; then
+      log "GSA skip for $ds: cubierto por ancestro con programación recursiva"
+      continue
+    fi
     hourly="$(prop_value "$ds" "$PROP_HOURLY")"
     daily="$(prop_value "$ds" "$PROP_DAILY")"
     weekly="$(prop_value "$ds" "$PROP_WEEKLY")"
@@ -396,9 +432,7 @@ main() {
 main "$@"
 )GSA");
     script.replace(QStringLiteral("__VERSION__"), gsaScriptVersion());
-    QString safeSelfConnection = selfConnectionName;
-    safeSelfConnection.replace(QLatin1Char('\''), QStringLiteral("'\"'\"'"));
-    script.replace(QStringLiteral("__SELF_CONNECTION__"), safeSelfConnection);
+    script.replace(QStringLiteral("__GSA_CONFIG_FILE__"), QString::fromLatin1(kGsaUnixConfigPath));
     return script;
 }
 
@@ -478,6 +512,18 @@ function Get-IntValue([string]$Value) {
   return $n
 }
 
+function Test-HasRecursiveGsaAncestor([string]$Dataset) {
+  $current = $Dataset
+  while ($true) {
+    $idx = $current.LastIndexOf('/')
+    if ($idx -lt 0) { return $false }
+    $current = $current.Substring(0, $idx)
+    if ((Test-On (Get-PropValue $current $PropEnabled)) -and (Test-On (Get-PropValue $current $PropRecursive))) {
+      return $true
+    }
+  }
+}
+
 function Get-DueClasses([int]$Hourly, [int]$Daily, [int]$Weekly, [int]$Monthly, [int]$Yearly) {
   $now = Get-Date
   $out = New-Object System.Collections.Generic.List[string]
@@ -492,6 +538,11 @@ function Get-DueClasses([int]$Hourly, [int]$Daily, [int]$Weekly, [int]$Monthly, 
 function New-GsaSnapshot([string]$Dataset, [string]$Class, [bool]$Recursive) {
   $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
   $snapName = "GSA-$Class-$stamp"
+  try {
+    & zfs list -H -t snapshot -o name "$Dataset@$snapName" | Out-Null
+    Write-GsaLog ("GSA snapshot skip for " + $Dataset + ": " + $snapName + " ya existe")
+    return $snapName
+  } catch {}
   if ($Recursive) {
     & zfs snapshot -r "$Dataset@$snapName" | Out-Null
   } else {
@@ -566,6 +617,10 @@ try {
   foreach ($ds in $datasets) {
     if ([string]::IsNullOrWhiteSpace($ds)) { continue }
     if (-not (Test-On (Get-PropValue $ds $PropEnabled))) { continue }
+    if (Test-HasRecursiveGsaAncestor $ds) {
+      Write-GsaLog ("GSA skip for " + $ds + ": cubierto por ancestro con programación recursiva")
+      continue
+    }
     $recursive = Test-On (Get-PropValue $ds $PropRecursive)
     $hourly = Get-IntValue (Get-PropValue $ds $PropHourly)
     $daily = Get-IntValue (Get-PropValue $ds $PropDaily)
@@ -596,6 +651,54 @@ try {
     script.replace(QStringLiteral("__VERSION__"), gsaScriptVersion());
     script.replace(QStringLiteral("__SELF_CONNECTION__"), escapePsSingleQuoted(selfConnectionName));
     return script;
+}
+
+QString gsaKnownHostsPayload(const QVector<ConnectionProfile>& profiles, int selfIdx, const QSet<QString>& requiredConnNames) {
+    QSet<QString> seen;
+    QStringList lines;
+    for (int i = 0; i < profiles.size(); ++i) {
+        if (i == selfIdx) {
+            continue;
+        }
+        const ConnectionProfile& cp = profiles[i];
+        const QString connName = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
+        if (!requiredConnNames.contains(connName)) {
+            continue;
+        }
+        if (cp.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+        const QString host = cp.host.trimmed();
+        if (host.isEmpty()) {
+            continue;
+        }
+        const int port = cp.port > 0 ? cp.port : 22;
+        const QString scanKey = QStringLiteral("%1:%2").arg(host).arg(port);
+        if (seen.contains(scanKey)) {
+            continue;
+        }
+        seen.insert(scanKey);
+
+        QProcess proc;
+        QStringList args;
+        args << QStringLiteral("-T") << QStringLiteral("5")
+             << QStringLiteral("-p") << QString::number(port)
+             << host;
+        proc.start(QStringLiteral("ssh-keyscan"), args);
+        if (!proc.waitForFinished(8000) || proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0) {
+            continue;
+        }
+        const QString out = QString::fromUtf8(proc.readAllStandardOutput());
+        for (const QString& line : out.split(QLatin1Char('\n'))) {
+            const QString trimmed = line.trimmed();
+            if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
+                continue;
+            }
+            lines << trimmed;
+        }
+    }
+    lines.removeDuplicates();
+    return lines.join(QStringLiteral("\n")) + (lines.isEmpty() ? QString() : QStringLiteral("\n"));
 }
 
 QString connTreeNodeKey(QTreeWidgetItem* n) {
@@ -3394,11 +3497,20 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
         }
         return QStringLiteral("C:\\Users\\%1\\.config\\ZFSMgr").arg(user);
     };
-    auto buildUnixConnectionMap = [this, idx, &profileDisplayName]() {
-        QString snippet;
+    auto buildUnixConnectionsPayload = [this, idx, &profileDisplayName](const QSet<QString>& requiredConnNames) {
+        QString payload;
+        payload += QStringLiteral("resolve_target_connection() {\n");
+        payload += QStringLiteral("  TARGET_MODE=''\n");
+        payload += QStringLiteral("  TARGET_HOST=''\n");
+        payload += QStringLiteral("  TARGET_PORT=''\n");
+        payload += QStringLiteral("  TARGET_USER=''\n");
+        payload += QStringLiteral("  TARGET_PASS=''\n");
+        payload += QStringLiteral("  TARGET_KEY=''\n");
+        payload += QStringLiteral("  TARGET_USE_SUDO='0'\n");
+        payload += QStringLiteral("  case \"$1\" in\n");
         for (int i = 0; i < m_profiles.size(); ++i) {
             const QString connName = profileDisplayName(i);
-            if (connName.isEmpty()) {
+            if (connName.isEmpty() || !requiredConnNames.contains(connName)) {
                 continue;
             }
             int effectiveIdx = i;
@@ -3417,24 +3529,29 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
             if (!localMode && effective.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
                 continue;
             }
-            snippet += QStringLiteral("    %1)\n").arg(mwhelpers::shSingleQuote(connName));
+            payload += QStringLiteral("    %1)\n").arg(mwhelpers::shSingleQuote(connName));
             if (localMode) {
-                snippet += QStringLiteral("      TARGET_MODE='local'\n");
+                payload += QStringLiteral("      TARGET_MODE='local'\n");
             } else {
-                snippet += QStringLiteral("      TARGET_MODE='ssh'\n");
-                snippet += QStringLiteral("      TARGET_HOST=%1\n").arg(mwhelpers::shSingleQuote(effective.host.trimmed()));
-                snippet += QStringLiteral("      TARGET_PORT=%1\n").arg(mwhelpers::shSingleQuote(effective.port > 0 ? QString::number(effective.port) : QString()));
-                snippet += QStringLiteral("      TARGET_USER=%1\n").arg(mwhelpers::shSingleQuote(effective.username.trimmed()));
-                snippet += QStringLiteral("      TARGET_PASS=%1\n").arg(mwhelpers::shSingleQuote(effective.password));
-                snippet += QStringLiteral("      TARGET_KEY=%1\n").arg(mwhelpers::shSingleQuote(effective.keyPath.trimmed()));
-                snippet += QStringLiteral("      TARGET_USE_SUDO=%1\n").arg(mwhelpers::shSingleQuote(effective.useSudo ? QStringLiteral("1") : QStringLiteral("0")));
+                payload += QStringLiteral("      TARGET_MODE='ssh'\n");
+                payload += QStringLiteral("      TARGET_HOST=%1\n").arg(mwhelpers::shSingleQuote(effective.host.trimmed()));
+                payload += QStringLiteral("      TARGET_PORT=%1\n").arg(mwhelpers::shSingleQuote(effective.port > 0 ? QString::number(effective.port) : QString()));
+                payload += QStringLiteral("      TARGET_USER=%1\n").arg(mwhelpers::shSingleQuote(effective.username.trimmed()));
+                payload += QStringLiteral("      TARGET_PASS=%1\n").arg(mwhelpers::shSingleQuote(effective.password));
+                payload += QStringLiteral("      TARGET_KEY=%1\n").arg(mwhelpers::shSingleQuote(effective.keyPath.trimmed()));
+                payload += QStringLiteral("      TARGET_USE_SUDO=%1\n")
+                               .arg(mwhelpers::shSingleQuote(effective.useSudo ? QStringLiteral("1") : QStringLiteral("0")));
             }
-            snippet += QStringLiteral("      ;;\n");
+            payload += QStringLiteral("      return 0\n");
+            payload += QStringLiteral("      ;;\n");
         }
-        return snippet;
+        payload += QStringLiteral("    *) return 1 ;;\n");
+        payload += QStringLiteral("  esac\n");
+        payload += QStringLiteral("}\n");
+        return payload;
     };
-
     QStringList routeWarnings;
+    QSet<QString> requiredDestinationConnNames;
     for (auto it = m_datasetPropsCache.cbegin(); it != m_datasetPropsCache.cend(); ++it) {
         if (!it.value().loaded || it.value().datasetType.trimmed().compare(QStringLiteral("filesystem"), Qt::CaseInsensitive) != 0) {
             continue;
@@ -3465,11 +3582,19 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
         if (!(enabled == QStringLiteral("on") || enabled == QStringLiteral("yes") || enabled == QStringLiteral("true") || enabled == QStringLiteral("1"))) {
             continue;
         }
+        const QString levelOn = props.value(QStringLiteral("org.fc16.gsa:nivelar")).trimmed().toLower();
+        if (!(levelOn == QStringLiteral("on") || levelOn == QStringLiteral("yes")
+              || levelOn == QStringLiteral("true") || levelOn == QStringLiteral("1"))) {
+            continue;
+        }
         const QString dest = props.value(QStringLiteral("org.fc16.gsa:destino")).trimmed();
         if (dest.isEmpty()) {
             continue;
         }
         const QString destConnName = dest.section(QStringLiteral("::"), 0, 0).trimmed();
+        if (!destConnName.isEmpty()) {
+            requiredDestinationConnNames.insert(destConnName);
+        }
         const int destIdx = connectionIndexByNameOrId(destConnName);
         if (destIdx < 0) {
             routeWarnings << trk(QStringLiteral("t_gsa_route_missing_conn_001"),
@@ -3547,9 +3672,11 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
     } else {
         const bool isMac = p.osType.trimmed().toLower().contains(QStringLiteral("darwin"))
                            || (idx < m_states.size() && m_states[idx].osLine.toLower().contains(QStringLiteral("darwin")));
-        QString scriptPayload = gsaUnixScriptPayload(selfConnName);
-        scriptPayload.replace(QStringLiteral("__CONFIG_DIR__"), unixConfigDirForProfile(p, isMac));
-        scriptPayload.replace(QStringLiteral("__CONNECTION_MAP__"), buildUnixConnectionMap());
+        const QString runtimeConfigDir = unixConfigDirForProfile(p, isMac);
+        const QString scriptPayload = gsaUnixScriptPayload();
+        const QString mainConfigPayload = gsaUnixMainConfigPayload(selfConnName, runtimeConfigDir);
+        const QString connectionsPayload = buildUnixConnectionsPayload(requiredDestinationConnNames);
+        const QString knownHostsPayload = gsaKnownHostsPayload(m_profiles, idx, requiredDestinationConnNames);
         if (isMac) {
             const QString plistPayload = QString::fromUtf8(R"(<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -3569,9 +3696,14 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
 </plist>
 )");
             remoteCmd = QStringLiteral(
-                "mkdir -p /usr/local/libexec; "
+                "mkdir -p /usr/local/libexec %5; "
                 "cat > %1 <<'EOF_GSA'\n%2\nEOF_GSA\n"
-                "chmod 755 %1; "
+                "cat > %6 <<'EOF_GSA_CONF'\n%7\nEOF_GSA_CONF\n"
+                "cat > %8 <<'EOF_GSA_CONN'\n%9\nEOF_GSA_CONN\n"
+                "cat > %10 <<'EOF_GSA_KNOWN'\n%11\nEOF_GSA_KNOWN\n"
+                "chmod 700 %1; "
+                "chmod 600 %6 %8 %10; "
+                "chmod 700 %5; "
                 "cat > %3 <<'EOF_GSA_PLIST'\n%4\nEOF_GSA_PLIST\n"
                 "chmod 644 %3; "
                 "launchctl bootout system/org.zfsmgr.gsa >/dev/null 2>&1 || true; "
@@ -3581,7 +3713,14 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
                             .arg(QString::fromLatin1(kGsaUnixScriptPath),
                                  scriptPayload,
                                  QString::fromLatin1(kGsaMacPlistPath),
-                                 plistPayload);
+                                 plistPayload,
+                                 QString::fromLatin1(kGsaUnixConfigDirPath),
+                                 QString::fromLatin1(kGsaUnixConfigPath),
+                                 mainConfigPayload,
+                                 QString::fromLatin1(kGsaUnixConnectionsPath),
+                                 connectionsPayload,
+                                 QString::fromLatin1(kGsaUnixKnownHostsPath),
+                                 knownHostsPayload);
         } else {
             const QString servicePayload = QString::fromUtf8(R"([Unit]
 Description=ZFSMgr automatic snapshot manager
@@ -3603,9 +3742,14 @@ WantedBy=timers.target
 )");
             remoteCmd = QStringLiteral(
                 "if ! command -v systemctl >/dev/null 2>&1; then echo 'systemd not available' >&2; exit 1; fi; "
-                "mkdir -p /usr/local/libexec; "
+                "mkdir -p /usr/local/libexec %7; "
                 "cat > %1 <<'EOF_GSA'\n%2\nEOF_GSA\n"
-                "chmod 755 %1; "
+                "cat > %8 <<'EOF_GSA_CONF'\n%9\nEOF_GSA_CONF\n"
+                "cat > %10 <<'EOF_GSA_CONN'\n%11\nEOF_GSA_CONN\n"
+                "cat > %12 <<'EOF_GSA_KNOWN'\n%13\nEOF_GSA_KNOWN\n"
+                "chmod 700 %1; "
+                "chmod 600 %8 %10 %12; "
+                "chmod 700 %7; "
                 "cat > %3 <<'EOF_GSA_SERVICE'\n%4\nEOF_GSA_SERVICE\n"
                 "cat > %5 <<'EOF_GSA_TIMER'\n%6\nEOF_GSA_TIMER\n"
                 "systemctl daemon-reload; "
@@ -3615,7 +3759,14 @@ WantedBy=timers.target
                                  QString::fromLatin1(kGsaLinuxServicePath),
                                  servicePayload,
                                  QString::fromLatin1(kGsaLinuxTimerPath),
-                                 timerPayload);
+                                 timerPayload,
+                                 QString::fromLatin1(kGsaUnixConfigDirPath),
+                                 QString::fromLatin1(kGsaUnixConfigPath),
+                                 mainConfigPayload,
+                                 QString::fromLatin1(kGsaUnixConnectionsPath),
+                                 connectionsPayload,
+                                 QString::fromLatin1(kGsaUnixKnownHostsPath),
+                                 knownHostsPayload);
         }
         remoteCmd = withSudo(p, remoteCmd);
     }
@@ -3777,20 +3928,30 @@ bool MainWindow::uninstallGsaForConnection(int idx) {
             remoteCmd = QStringLiteral(
                 "launchctl bootout system/org.zfsmgr.gsa >/dev/null 2>&1 || true; "
                 "launchctl disable system/org.zfsmgr.gsa >/dev/null 2>&1 || true; "
-                "rm -f %1 %2")
+                "rm -f %1 %2 %3 %4 %5; "
+                "rmdir %6 >/dev/null 2>&1 || true")
                             .arg(QString::fromLatin1(kGsaMacPlistPath),
-                                 QString::fromLatin1(kGsaUnixScriptPath));
+                                 QString::fromLatin1(kGsaUnixScriptPath),
+                                 QString::fromLatin1(kGsaUnixConfigPath),
+                                 QString::fromLatin1(kGsaUnixConnectionsPath),
+                                 QString::fromLatin1(kGsaUnixKnownHostsPath),
+                                 QString::fromLatin1(kGsaUnixConfigDirPath));
         } else {
             remoteCmd = QStringLiteral(
                 "if command -v systemctl >/dev/null 2>&1; then "
                 "  systemctl disable --now zfsmgr-gsa.timer >/dev/null 2>&1 || true; "
                 "  systemctl stop zfsmgr-gsa.service >/dev/null 2>&1 || true; "
                 "fi; "
-                "rm -f %1 %2 %3; "
+                "rm -f %1 %2 %3 %4 %5 %6; "
+                "rmdir %7 >/dev/null 2>&1 || true; "
                 "if command -v systemctl >/dev/null 2>&1; then systemctl daemon-reload >/dev/null 2>&1 || true; fi")
                             .arg(QString::fromLatin1(kGsaUnixScriptPath),
                                  QString::fromLatin1(kGsaLinuxServicePath),
-                                 QString::fromLatin1(kGsaLinuxTimerPath));
+                                 QString::fromLatin1(kGsaLinuxTimerPath),
+                                 QString::fromLatin1(kGsaUnixConfigPath),
+                                 QString::fromLatin1(kGsaUnixConnectionsPath),
+                                 QString::fromLatin1(kGsaUnixKnownHostsPath),
+                                 QString::fromLatin1(kGsaUnixConfigDirPath));
         }
         remoteCmd = withSudo(p, remoteCmd);
     }
