@@ -871,7 +871,10 @@ void MainWindow::buildUi() {
     });
 
     auto applyPropColumnsSetting = [this](int cols) {
-        const int bounded = qBound(5, cols, 12);
+        int bounded = qBound(6, cols, 20);
+        if ((bounded % 2) != 0) {
+            ++bounded;
+        }
         if (bounded == m_connPropColumnsSetting) {
             return;
         }
@@ -1897,11 +1900,11 @@ void MainWindow::buildUi() {
                     QStringLiteral("Columnas de propiedades")));
             auto* propColsGroup = new QActionGroup(&menu);
             propColsGroup->setExclusive(true);
-            for (int cols = 5; cols <= 12; ++cols) {
+            for (int cols = 6; cols <= 20; cols += 2) {
                 QAction* act = propColsMenu->addAction(QString::number(cols));
                 act->setCheckable(true);
                 act->setData(cols);
-                if (cols == qBound(5, m_connPropColumnsSetting, 12)) {
+                if (cols == qBound(6, m_connPropColumnsSetting, 20)) {
                     act->setChecked(true);
                 }
                 propColsGroup->addAction(act);
@@ -2612,7 +2615,7 @@ void MainWindow::buildUi() {
             }
         }
 
-        const int propCols = qBound(5, m_connPropColumnsSetting, 12);
+        const int propCols = qBound(6, m_connPropColumnsSetting, 20);
         const int managePropsCellWidth = 120;
         const int managePropsSpacing = 6;
         const int managePropsDialogWidth =
@@ -5209,11 +5212,17 @@ void MainWindow::buildUi() {
         }
         if (chosen == aConnect && hasConn) {
             logUiAction(QStringLiteral("Conectar conexión (menú conexiones)"));
+            beginTransientUiBusy(
+                trk(QStringLiteral("t_connecting_conn_busy_001"),
+                    QStringLiteral("Conectando %1..."),
+                    QStringLiteral("Connecting %1..."),
+                    QStringLiteral("正在连接 %1...")).arg(m_profiles[connIdx].name));
             setConnectionDisconnected(connIdx, false);
             appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como conectada: %1").arg(m_profiles[connIdx].name));
             rebuildConnectionsTable();
             populateAllPoolsTables();
             refreshConnectionByIndex(connIdx);
+            endTransientUiBusy();
         } else if (chosen == aDisconnect && hasConn) {
             setConnectionDisconnected(connIdx, true);
             appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como desconectada: %1").arg(m_profiles[connIdx].name));

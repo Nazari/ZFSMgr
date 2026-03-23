@@ -156,7 +156,7 @@ int main(int argc, char* argv[]) {
     {
         QFont uiFont = QFontDatabase::systemFont(QFontDatabase::GeneralFont);
         const int basePointSize = (app.font().pointSize() > 0) ? app.font().pointSize() : uiFont.pointSize();
-        uiFont.setPointSize(qMax(6, basePointSize - 3));
+        uiFont.setPointSize(qMax(6, basePointSize - 1));
         app.setFont(uiFont);
         QToolTip::setFont(uiFont);
     }
