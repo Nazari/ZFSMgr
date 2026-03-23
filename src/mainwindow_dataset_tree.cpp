@@ -2741,16 +2741,28 @@ void MainWindow::restoreConnContentTreeState(const QString& token) {
                         : QString()));
 }
 
-void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side, bool allowRemoteLoadIfMissing) {
+MainWindow::DatasetTreeRenderOptions MainWindow::datasetTreeRenderOptionsForTree(const QTreeWidget* tree,
+                                                                                 const QString& side) const {
+    DatasetTreeRenderOptions options;
+    options.includePoolRoot = (side == QStringLiteral("conncontent")
+                               || side == QStringLiteral("conncontent_multi"));
+    options.interactiveConnContent = (side == QStringLiteral("conncontent"));
+    options.showInlinePropertyNodes = showInlinePropertyNodesForTree(tree);
+    options.showInlinePermissionsNodes = showInlinePermissionsNodesForTree(tree);
+    options.showInlineGsaNode = showInlineGsaNodeForTree(tree);
+    options.showAutomaticSnapshots = showAutomaticSnapshots();
+    return options;
+}
+
+void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
+                                          int connIdx,
+                                          const QString& poolName,
+                                          const QString& side,
+                                          const DatasetTreeRenderOptions& options,
+                                          bool allowRemoteLoadIfMissing) {
     if (!tree) {
         return;
     }
-    beginUiBusy();
-    m_loadingDatasetTrees = true;
-    tree->clear();
-    const bool isConnContentInteractive = (side == QStringLiteral("conncontent"));
-    const bool isConnContent = (side == QStringLiteral("conncontent")
-                                || side == QStringLiteral("conncontent_multi"));
     auto poolRootTitle = [&]() -> QString {
         QString connName = (connIdx >= 0 && connIdx < m_profiles.size()) ? m_profiles[connIdx].name : QStringLiteral("?");
         bool imported = false;
@@ -2773,7 +2785,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         return QStringLiteral("%1::%2 [%3]").arg(connName, poolName, stateText);
     };
     auto addPoolRootOnlyForConnContent = [&]() {
-        if (!isConnContent) {
+        if (!options.includePoolRoot) {
             return;
         }
         auto* poolRoot = new QTreeWidgetItem();
@@ -2802,18 +2814,10 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
     };
     if (!ensureDatasetsLoaded(connIdx, poolName, allowRemoteLoadIfMissing)) {
         addPoolRootOnlyForConnContent();
-        if (isConnContentInteractive) {
-            syncConnContentPoolColumns();
-        }
-        m_loadingDatasetTrees = false;
-        endUiBusy();
         return;
     }
     const QString key = datasetCacheKey(connIdx, poolName);
     const PoolDatasetCache& cache = m_poolDatasetCache[key];
-    const bool showInlinePropertyNodes = showInlinePropertyNodesForTree(tree);
-    const bool showInlinePermissionsNodes = showInlinePermissionsNodesForTree(tree);
-    const bool showInlineGsaNode = showInlineGsaNodeForTree(tree);
     auto isFilesystemRecord = [](const DatasetRecord& rec) -> bool {
         const QString mp = rec.mountpoint.trimmed();
         const QString cm = rec.canmount.trimmed();
@@ -2840,7 +2844,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
             item->setFont(0, f);
         }
         QStringList snaps = cache.snapshotsByDataset.value(rec.name);
-        if (!showAutomaticSnapshots()) {
+        if (!options.showAutomaticSnapshots) {
             QStringList filtered;
             for (const QString& snapName : snaps) {
                 if (!isAutomaticGsaSnapshotName(snapName)) {
@@ -2864,7 +2868,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         item->setCheckState(2, isMounted ? Qt::Checked : Qt::Unchecked);
         const QString effectiveMp = effectiveMountPath(connIdx, poolName, rec.name, rec.mountpoint, rec.mounted);
         item->setText(3, effectiveMp.isEmpty() ? rec.mountpoint.trimmed() : effectiveMp);
-        if (showInlinePropertyNodes) {
+        if (options.showInlinePropertyNodes) {
             auto* propsNode = new QTreeWidgetItem(item);
             propsNode->setText(0, trk(QStringLiteral("t_props_lbl_001"),
                                       QStringLiteral("Propiedades"),
@@ -2877,7 +2881,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
             propsNode->setData(0, kPoolNameRole, poolName);
             propsNode->setFlags(propsNode->flags() & ~Qt::ItemIsUserCheckable);
         }
-        if (showInlinePermissionsNodes) {
+        if (options.showInlinePermissionsNodes) {
             auto* permissionsNode = new QTreeWidgetItem(item);
             permissionsNode->setText(0, QStringLiteral("Permisos"));
             permissionsNode->setIcon(0, treeStandardIcon(QStyle::SP_DialogYesButton));
@@ -2888,7 +2892,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
             permissionsNode->setFlags(permissionsNode->flags() & ~Qt::ItemIsUserCheckable);
             permissionsNode->setExpanded(false);
         }
-        if (isFilesystemRecord(rec) && showInlineGsaNode) {
+        if (isFilesystemRecord(rec) && options.showInlineGsaNode) {
             auto* gsaNode = new QTreeWidgetItem(item);
             gsaNode->setText(0, QStringLiteral("Programar snapshots"));
             gsaNode->setIcon(0, treeStandardIcon(QStyle::SP_BrowserReload));
@@ -2917,7 +2921,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
             logicalTopLevelItems.push_back(item);
         }
     }
-    if (isConnContent) {
+    if (options.includePoolRoot) {
         auto* poolRoot = new QTreeWidgetItem();
         poolRoot->setText(0, poolRootTitle());
         poolRoot->setIcon(0, treeStandardIcon(QStyle::SP_DriveHDIcon));
@@ -2951,8 +2955,12 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
             }
         }
     }
-    tree->expandToDepth(0);
-    // Dropdown embebido en celda Snapshot, sin seleccionar ninguno al inicio.
+}
+
+void MainWindow::attachDatasetTreeSnapshotCombos(QTreeWidget* tree, const QString& side) {
+    if (!tree) {
+        return;
+    }
     std::function<void(QTreeWidgetItem*)> attachCombos = [&](QTreeWidgetItem* n) {
         if (!n) {
             return;
@@ -2994,9 +3002,22 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
     for (int i = 0; i < tree->topLevelItemCount(); ++i) {
         attachCombos(tree->topLevelItem(i));
     }
+}
+
+void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side, bool allowRemoteLoadIfMissing) {
+    if (!tree) {
+        return;
+    }
+    beginUiBusy();
+    m_loadingDatasetTrees = true;
+    tree->clear();
+    const DatasetTreeRenderOptions options = datasetTreeRenderOptionsForTree(tree, side);
+    appendDatasetTreeForPool(tree, connIdx, poolName, side, options, allowRemoteLoadIfMissing);
+    tree->expandToDepth(0);
+    attachDatasetTreeSnapshotCombos(tree, side);
     refreshDatasetExpansionIndicators(tree);
 
-    if (isConnContentInteractive) {
+    if (options.interactiveConnContent) {
         syncConnContentPropertyColumns();
         restoreConnContentTreeState(m_connContentToken);
     }

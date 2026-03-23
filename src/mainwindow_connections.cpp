@@ -2019,6 +2019,43 @@ void MainWindow::updateSecondaryConnectionDetail() {
     restoreConnTreeNavSnapshot(m_bottomConnContentTree, nav);
     expandPoolRootsIfNoNav(m_bottomConnContentTree, nav);
     saveBottomTreeStateForConnection(m_bottomDetailConnIdx);
+    QTimer::singleShot(0, this, [this]() {
+        if (!m_bottomConnContentTree || m_bottomDetailConnIdx < 0 || m_bottomDetailConnIdx >= m_profiles.size()) {
+            return;
+        }
+        QTreeWidgetItem* owner = m_bottomConnContentTree->currentItem();
+        if (!owner && m_bottomConnContentTree->topLevelItemCount() > 0) {
+            owner = m_bottomConnContentTree->topLevelItem(0);
+        }
+        while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
+               && !owner->data(0, kIsPoolRootRole).toBool()) {
+            owner = owner->parent();
+        }
+        if (!owner) {
+            return;
+        }
+        const int connIdx = m_bottomDetailConnIdx;
+        const QString ownerKey = connTreeNodeKey(owner);
+        QString poolName;
+        if (ownerKey.startsWith(QStringLiteral("pool:"))) {
+            poolName = ownerKey.mid(5).trimmed();
+        } else if (ownerKey.startsWith(QStringLiteral("info:"))) {
+            poolName = ownerKey.mid(5).trimmed();
+        } else if (ownerKey.startsWith(QStringLiteral("ds:"))) {
+            const SnapshotKeyParts keyParts = parseSnapshotKey(ownerKey);
+            poolName = keyParts.pool.trimmed();
+        }
+        if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+            return;
+        }
+        const QString prevToken = m_connContentToken;
+        QTreeWidget* prevTree = m_connContentTree;
+        m_connContentTree = m_bottomConnContentTree;
+        m_connContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+        syncConnContentPoolColumns();
+        m_connContentTree = prevTree;
+        m_connContentToken = prevToken;
+    });
 }
 
 void MainWindow::saveTopTreeStateForConnection(int connIdx) {
@@ -2115,12 +2152,15 @@ void MainWindow::populateConnectionPoolsIntoTree(QTreeWidget* tree,
     if (!tree || connIdx < 0 || connIdx >= m_profiles.size()) {
         return;
     }
-    auto addPoolTree = [this, tree](int cidx, const QString& poolName, bool allowRemoteLoadIfMissing) {
-        QTreeWidget tmp;
-        populateDatasetTree(&tmp, cidx, poolName, QStringLiteral("conncontent_multi"), allowRemoteLoadIfMissing);
-        while (tmp.topLevelItemCount() > 0) {
-            tree->addTopLevelItem(tmp.takeTopLevelItem(0));
-        }
+    const DatasetTreeRenderOptions options =
+        datasetTreeRenderOptionsForTree(tree, QStringLiteral("conncontent_multi"));
+    auto addPoolTree = [this, tree, &options](int cidx, const QString& poolName, bool allowRemoteLoadIfMissing) {
+        appendDatasetTreeForPool(tree,
+                                 cidx,
+                                 poolName,
+                                 QStringLiteral("conncontent_multi"),
+                                 options,
+                                 allowRemoteLoadIfMissing);
     };
     QSet<QString> seenPools;
     for (const PoolImported& pool : st.importedPools) {
@@ -2167,6 +2207,8 @@ void MainWindow::populateConnectionPoolsIntoTree(QTreeWidget* tree,
             delete tree->takeTopLevelItem(i);
         }
     }
+    tree->expandToDepth(0);
+    attachDatasetTreeSnapshotCombos(tree, QStringLiteral("conncontent"));
 }
 
 void restoreSnapshotSelectionInTree(QTreeWidget* tree, const ConnTreeNavSnapshot& nav) {

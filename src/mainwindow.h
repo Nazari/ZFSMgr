@@ -253,6 +253,23 @@ private:
     void onConnectionSelectionChanged();
     void updateSecondaryConnectionDetail();
     void rebuildConnectionEntityTabs();
+    struct DatasetTreeRenderOptions {
+        bool includePoolRoot{false};
+        bool interactiveConnContent{false};
+        bool showInlinePropertyNodes{true};
+        bool showInlinePermissionsNodes{true};
+        bool showInlineGsaNode{true};
+        bool showAutomaticSnapshots{true};
+    };
+    DatasetTreeRenderOptions datasetTreeRenderOptionsForTree(const QTreeWidget* tree,
+                                                             const QString& side) const;
+    void appendDatasetTreeForPool(QTreeWidget* tree,
+                                  int connIdx,
+                                  const QString& poolName,
+                                  const QString& side,
+                                  const DatasetTreeRenderOptions& options,
+                                  bool allowRemoteLoadIfMissing = true);
+    void attachDatasetTreeSnapshotCombos(QTreeWidget* tree, const QString& side);
     void populateConnectionPoolsIntoTree(QTreeWidget* tree,
                                          int connIdx,
                                          const ConnectionRuntimeState& st);
