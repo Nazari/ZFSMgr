@@ -1900,6 +1900,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     heartbeatTimer.start();
     int lastProgressPercent = -1;
     QString lastProgressSnippet;
+    bool sawProgressOutput = false;
     auto flushLines = [&](QString& remainder, const QString& chunk, const QString& level, bool progressAware) {
         if (chunk.isEmpty()) {
             return;
@@ -1939,6 +1940,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                                 continue;
                             }
                             lastProgressPercent = pct;
+                            sawProgressOutput = true;
                             appLog(QStringLiteral("INFO"), QStringLiteral("[progress] %1").arg(ln));
                             continue;
                         }
@@ -1948,6 +1950,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                     }
                     progressTimer.restart();
                     lastProgressSnippet = ln;
+                    sawProgressOutput = true;
                     appLog(QStringLiteral("INFO"), QStringLiteral("[progress] %1").arg(ln));
                     continue;
                 }
@@ -1966,6 +1969,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
                 if (looksLikeProgress && progressTimer.elapsed() >= 900 && partial != lastProgressSnippet) {
                     progressTimer.restart();
                     lastProgressSnippet = partial;
+                    sawProgressOutput = true;
                     appLog(QStringLiteral("INFO"), QStringLiteral("[progress] %1").arg(partial));
                 }
             }
@@ -2016,7 +2020,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
         if (streamProgress) {
             flushLines(outRemainder, outChunk, QStringLiteral("INFO"), true);
             flushLines(errRemainder, errChunk, QStringLiteral("INFO"), true);
-            if (heartbeatTimer.elapsed() >= 2000) {
+            if (!sawProgressOutput && heartbeatTimer.elapsed() >= 2000) {
                 heartbeatTimer.restart();
                 appLog(QStringLiteral("INFO"), QStringLiteral("[progress] running..."));
             }
