@@ -1561,6 +1561,23 @@ void MainWindow::syncConnContentPropertyColumns() {
         }
         return insertPos;
     };
+    auto clearNodeChildrenAndCells = [&](QTreeWidgetItem* node) {
+        if (!node) {
+            return;
+        }
+        while (node->childCount() > 0) {
+            delete node->takeChild(0);
+        }
+        for (int col = 4; col < tree->columnCount(); ++col) {
+            if (QWidget* w = tree->itemWidget(node, col)) {
+                tree->removeItemWidget(node, col);
+                w->deleteLater();
+            }
+            node->setText(col, QString());
+            node->setData(col, kConnPropKeyRole, QVariant());
+            node->setData(col, kConnPropEditableRole, false);
+        }
+    };
     int insertAt = 0;
     if (!showInlineDatasetProps) {
         for (int i = sel->childCount() - 1; i >= 0; --i) {
@@ -1671,25 +1688,38 @@ void MainWindow::syncConnContentPropertyColumns() {
             gsaNode->setFlags(gsaNode->flags() & ~Qt::ItemIsUserCheckable);
             sel->insertChild(insertAt++, gsaNode);
         }
-        QMap<QString, QString> gsaValues;
-        for (const QString& gsaProp : gsaUserProps()) {
-            const QString existingKey = findCaseInsensitiveMapKey(displayValues, gsaProp);
-            gsaValues[gsaProp] = existingKey.isEmpty() ? gsaUserPropertyDefaultValue(gsaProp)
-                                                       : displayValues.value(existingKey);
-        }
-        if (objectDraft) {
-            for (auto itDraft = objectDraft->valuesByProp.cbegin(); itDraft != objectDraft->valuesByProp.cend(); ++itDraft) {
-                if (isGsaUserProperty(itDraft.key())) {
-                    const QString existingKey = findCaseInsensitiveMapKey(gsaValues, itDraft.key());
-                    gsaValues[existingKey.isEmpty() ? itDraft.key() : existingKey] = itDraft.value();
+        clearNodeChildrenAndCells(gsaNode);
+        const bool gsaInstalled = (itemConnIdx >= 0
+                                   && itemConnIdx < m_states.size()
+                                   && m_states[itemConnIdx].gsaInstalled);
+        if (!gsaInstalled) {
+            auto* msgItem = new QTreeWidgetItem(gsaNode);
+            msgItem->setText(0,
+                             QStringLiteral("Por favor instale el GSA en esta conexión desde la tabla Conexiones"));
+            msgItem->setFlags(msgItem->flags() & ~Qt::ItemIsUserCheckable);
+            msgItem->setFirstColumnSpanned(true);
+            msgItem->setToolTip(0, msgItem->text(0));
+        } else {
+            QMap<QString, QString> gsaValues;
+            for (const QString& gsaProp : gsaUserProps()) {
+                const QString existingKey = findCaseInsensitiveMapKey(displayValues, gsaProp);
+                gsaValues[gsaProp] = existingKey.isEmpty() ? gsaUserPropertyDefaultValue(gsaProp)
+                                                           : displayValues.value(existingKey);
+            }
+            if (objectDraft) {
+                for (auto itDraft = objectDraft->valuesByProp.cbegin(); itDraft != objectDraft->valuesByProp.cend(); ++itDraft) {
+                    if (isGsaUserProperty(itDraft.key())) {
+                        const QString existingKey = findCaseInsensitiveMapKey(gsaValues, itDraft.key());
+                        gsaValues[existingKey.isEmpty() ? itDraft.key() : existingKey] = itDraft.value();
+                    }
                 }
             }
+            const QStringList gsaProps = gsaUserProps();
+            const QMap<QString, QString> savedDisplayValues = displayValues;
+            displayValues = gsaValues;
+            appendPropRows(gsaNode, QString(), gsaProps, false, -1);
+            displayValues = savedDisplayValues;
         }
-        const QStringList gsaProps = gsaUserProps();
-        const QMap<QString, QString> savedDisplayValues = displayValues;
-        displayValues = gsaValues;
-        appendPropRows(gsaNode, QString(), gsaProps, false, -1);
-        displayValues = savedDisplayValues;
         gsaNode->setExpanded(gsaNodeWasExpanded || tree->currentItem() == gsaNode);
     } else if (gsaNode) {
         delete sel->takeChild(sel->indexOfChild(gsaNode));

@@ -406,6 +406,8 @@ private:
     bool isConnectionDisconnected(int idx) const;
     void setConnectionDisconnected(int idx, bool disconnected);
     void refreshConnectionByIndex(int idx);
+    bool installOrUpdateGsaForConnectionInternal(int idx, bool interactive);
+    void refreshInstalledGsaAfterConnectionChange(const QString& changedConnectionName);
     struct PoolListEntry {
         QString connection;
         QString pool;

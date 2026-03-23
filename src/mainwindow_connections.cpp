@@ -3017,6 +3017,7 @@ void MainWindow::createConnection() {
         return;
     }
     loadConnections();
+    refreshInstalledGsaAfterConnectionChange(created.name.trimmed());
     for (int i = 0; i < m_profiles.size(); ++i) {
         if (m_profiles[i].id == createdId) {
             if (m_connectionsTable) {
@@ -3094,6 +3095,7 @@ void MainWindow::editConnection() {
         return;
     }
     loadConnections();
+    refreshInstalledGsaAfterConnectionChange(edited.name.trimmed());
 }
 
 void MainWindow::installMsysForSelectedConnection() {
@@ -3337,6 +3339,10 @@ QString MainWindow::gsaMenuLabelForConnection(int connIdx) const {
 }
 
 bool MainWindow::installOrUpdateGsaForConnection(int idx) {
+    return installOrUpdateGsaForConnectionInternal(idx, true);
+}
+
+bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interactive) {
     if (actionsLocked()) {
         return false;
     }
@@ -3344,12 +3350,14 @@ bool MainWindow::installOrUpdateGsaForConnection(int idx) {
         return false;
     }
     if (isConnectionDisconnected(idx)) {
-        QMessageBox::information(this,
-                                 QStringLiteral("ZFSMgr"),
-                                 trk(QStringLiteral("t_gsa_conn_disc_001"),
-                                     QStringLiteral("La conexión está desconectada."),
-                                     QStringLiteral("The connection is disconnected."),
-                                     QStringLiteral("该连接已断开。")));
+        if (interactive) {
+            QMessageBox::information(this,
+                                     QStringLiteral("ZFSMgr"),
+                                     trk(QStringLiteral("t_gsa_conn_disc_001"),
+                                         QStringLiteral("La conexión está desconectada."),
+                                         QStringLiteral("The connection is disconnected."),
+                                         QStringLiteral("该连接已断开。")));
+        }
         return false;
     }
     const ConnectionProfile& p = m_profiles[idx];
@@ -3488,7 +3496,7 @@ bool MainWindow::installOrUpdateGsaForConnection(int idx) {
                                  QStringLiteral("%1 -> %2：Windows 上的 GSA 需要远端源主机上的非交互式 SSH 认证。该目标使用密码，没有 SSH 密钥时可能无法执行。")).arg(datasetName, destConnName);
         }
     }
-    if (!routeWarnings.isEmpty()) {
+    if (interactive && !routeWarnings.isEmpty()) {
         const auto warnAnswer = QMessageBox::warning(
             this,
             actionLabel,
@@ -3504,18 +3512,20 @@ bool MainWindow::installOrUpdateGsaForConnection(int idx) {
         }
     }
 
-    const auto confirm = QMessageBox::question(
-        this,
-        actionLabel,
-        trk(QStringLiteral("t_gsa_confirm_001"),
-            QStringLiteral("ZFSMgr instalará o actualizará el GSA y lo programará cada hora usando el scheduler nativo de \"%1\".\n\n¿Continuar?"),
-            QStringLiteral("ZFSMgr will install or update GSA and schedule it hourly using the native scheduler on \"%1\".\n\nContinue?"),
-            QStringLiteral("ZFSMgr 将安装或更新 GSA，并使用 \"%1\" 上的原生计划任务每小时执行一次。\n\n是否继续？"))
-            .arg(p.name),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm != QMessageBox::Yes) {
-        return false;
+    if (interactive) {
+        const auto confirm = QMessageBox::question(
+            this,
+            actionLabel,
+            trk(QStringLiteral("t_gsa_confirm_001"),
+                QStringLiteral("ZFSMgr instalará o actualizará el GSA y lo programará cada hora usando el scheduler nativo de \"%1\".\n\n¿Continuar?"),
+                QStringLiteral("ZFSMgr will install or update GSA and schedule it hourly using the native scheduler on \"%1\".\n\nContinue?"),
+                QStringLiteral("ZFSMgr 将安装或更新 GSA，并使用 \"%1\" 上的原生计划任务每小时执行一次。\n\n是否继续？"))
+                .arg(p.name),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        if (confirm != QMessageBox::Yes) {
+            return false;
+        }
     }
 
     QString remoteCmd;
@@ -3612,25 +3622,101 @@ WantedBy=timers.target
 
     beginUiBusy();
     updateStatus(actionLabel + QStringLiteral("..."));
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
     QString out;
     QString err;
     int rc = -1;
     const bool ok = runSsh(p, remoteCmd, 240000, out, err, rc, {}, {}, {}, winMode) && rc == 0;
     endUiBusy();
     if (!ok) {
-        QMessageBox::warning(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_gsa_install_fail_001"),
-                QStringLiteral("No se pudo instalar/actualizar el GSA en \"%1\".\n\n%2"),
-                QStringLiteral("Could not install/update GSA on \"%1\".\n\n%2"),
-                QStringLiteral("无法在 \"%1\" 上安装/更新 GSA。\n\n%2"))
-                .arg(p.name, (err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err).simplified().left(500)));
+        if (interactive) {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_gsa_install_fail_001"),
+                    QStringLiteral("No se pudo instalar/actualizar el GSA en \"%1\".\n\n%2"),
+                    QStringLiteral("Could not install/update GSA on \"%1\".\n\n%2"),
+                    QStringLiteral("无法在 \"%1\" 上安装/更新 GSA。\n\n%2"))
+                    .arg(p.name, (err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err).simplified().left(500)));
+        } else {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Actualización automática de GSA fallida en \"%1\": %2")
+                       .arg(p.name,
+                            (err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err).simplified().left(500)));
+        }
         refreshConnectionByIndex(idx);
         return false;
     }
     refreshConnectionByIndex(idx);
     return true;
+}
+
+void MainWindow::refreshInstalledGsaAfterConnectionChange(const QString& changedConnectionName) {
+    QVector<int> targets;
+    for (int i = 0; i < m_profiles.size() && i < m_states.size(); ++i) {
+        if (!m_states[i].gsaInstalled) {
+            continue;
+        }
+        if (isConnectionDisconnected(i)) {
+            continue;
+        }
+        targets.push_back(i);
+    }
+    if (targets.isEmpty()) {
+        return;
+    }
+
+    const QString targetList = [&]() {
+        QStringList names;
+        names.reserve(targets.size());
+        for (int idx : targets) {
+            const ConnectionProfile& cp = m_profiles[idx];
+            names << (cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed());
+        }
+        return names.join(QStringLiteral(", "));
+    }();
+
+    QMessageBox::information(
+        this,
+        QStringLiteral("ZFSMgr"),
+        trk(QStringLiteral("t_gsa_auto_refresh_notice_001"),
+            QStringLiteral("La conexión \"%1\" ha cambiado. ZFSMgr actualizará automáticamente los GSA instalados en: %2"),
+            QStringLiteral("Connection \"%1\" changed. ZFSMgr will automatically update installed GSA on: %2"),
+            QStringLiteral("连接 \"%1\" 已变更。ZFSMgr 将自动更新以下连接上的已安装 GSA：%2"))
+            .arg(changedConnectionName.isEmpty() ? QStringLiteral("?") : changedConnectionName, targetList));
+
+    QStringList okNames;
+    QStringList failedNames;
+    for (int idx : targets) {
+        const ConnectionProfile& cp = m_profiles[idx];
+        const QString name = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("Actualizando automáticamente GSA en \"%1\" por cambio de conexión").arg(name));
+        if (installOrUpdateGsaForConnectionInternal(idx, false)) {
+            okNames << name;
+        } else {
+            failedNames << name;
+        }
+    }
+
+    QStringList summary;
+    if (!okNames.isEmpty()) {
+        summary << trk(QStringLiteral("t_gsa_auto_refresh_ok_001"),
+                       QStringLiteral("Actualizados: %1"),
+                       QStringLiteral("Updated: %1"),
+                       QStringLiteral("已更新：%1"))
+                          .arg(okNames.join(QStringLiteral(", ")));
+    }
+    if (!failedNames.isEmpty()) {
+        summary << trk(QStringLiteral("t_gsa_auto_refresh_fail_001"),
+                       QStringLiteral("Con error: %1"),
+                       QStringLiteral("Failed: %1"),
+                       QStringLiteral("失败：%1"))
+                          .arg(failedNames.join(QStringLiteral(", ")));
+    }
+    if (!summary.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("ZFSMgr"), summary.join(QStringLiteral("\n")));
+    }
 }
 
 bool MainWindow::uninstallGsaForConnection(int idx) {
@@ -3714,6 +3800,7 @@ bool MainWindow::uninstallGsaForConnection(int idx) {
                      QStringLiteral("Desinstalando GSA de %1..."),
                      QStringLiteral("Uninstalling GSA from %1..."),
                      QStringLiteral("正在从 %1 卸载 GSA...")).arg(p.name));
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
     QString out;
     QString err;
     int rc = -1;
