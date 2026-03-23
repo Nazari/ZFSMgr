@@ -147,12 +147,31 @@ Programación automática de snapshots (GSA):
 - Esas opciones se guardan como propiedades de usuario del propio dataset con nombres `org.fc16.gsa:*`.
 - Una retención `0` desactiva esa periodicidad.
 - Si `Nivelar=on`, `Destino` debe tener formato `Con::Pool/Dataset`.
+- `Con` no se resuelve leyendo dinámicamente las conexiones del equipo donde corre ZFSMgr.
+  Al instalar o actualizar GSA en una conexión, ZFSMgr genera un payload para esa conexión con un mapa estático de destinos embebido.
+- Consecuencia práctica:
+  si cambian datos relevantes de una conexión (`host`, `puerto`, `usuario`, `password`, `clave`, `sudo`), los GSA ya instalados pueden quedar desactualizados hasta volver a actualizarlos.
+- ZFSMgr intenta mitigar esto actualizando automáticamente los GSA instalados cuando se crea o edita una conexión, pero conviene entender que el diseño actual sigue dependiendo de payload desplegado.
 - ZFSMgr bloquea programaciones solapadas:
   - un dataset no puede pertenecer a más de una programación activa
   - si un dataset tiene programación recursiva, sus hijos no pueden tener otra programación
 - Los snapshots automáticos usan nombres `GSA-...`.
 - El scheduler GSA deja su log en el directorio de configuración de ZFSMgr y rota el fichero `GSA.log`.
 - Si una ruta de nivelación remota no tiene `SSH:✓` en la matriz de `Conectividad`, ZFSMgr avisa antes de instalar o actualizar GSA.
+- Si el GSA no está instalado en esa conexión, el nodo `Programar snapshots` no muestra las propiedades y enseña un aviso para instalarlo desde la tabla `Conexiones`.
+- Limitación importante:
+  la implementación Unix/macOS resuelve destinos remotos con el mapa embebido, pero la ruta Windows no tiene hoy la misma paridad para nivelación remota arbitraria.
+
+Seguridad del GSA:
+
+- El diseño actual del payload GSA todavía tiene implicaciones de seguridad relevantes.
+- En Unix/macOS, el script instalado puede llevar embebidos datos de conexión destino.
+- Si una conexión usa password o `sudo` con password, esos secretos pueden formar parte del payload desplegado.
+- La ruta remota actual prioriza compatibilidad operativa y no una postura estricta de validación SSH.
+- Por tanto:
+  - el GSA actual debe considerarse funcional, pero no endurecido al máximo;
+  - para un endurecimiento real hace falta separar script y configuración, reducir el mapa desplegado y validar huellas SSH.
+- Revise también [docs/propuesta_endurecimiento_gsa.md](/home/linarese/work/ZFSMgr/docs/propuesta_endurecimiento_gsa.md) para la propuesta técnica de mejora.
 
 Comportamiento de navegación:
 

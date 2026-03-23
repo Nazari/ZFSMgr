@@ -127,16 +127,24 @@ It gives you:
   - `launchd` on macOS,
   - `systemd timer` on Linux,
   - `Task Scheduler` on Windows.
-- Inline dataset scheduling properties stored as ZFS user properties (`zfsmgrgsa:*`):
+- Inline dataset scheduling properties stored as ZFS user properties (`org.fc16.gsa:*`):
   - enabled,
   - recursive,
   - hourly/daily/weekly/monthly/yearly retention,
   - leveling,
   - destination dataset.
+- Destination values use the `Connection::Pool/Dataset` format.
+- GSA does not dynamically read the connection list from the machine running ZFSMgr.
+  Instead, when ZFSMgr installs or updates GSA on a connection, it deploys a payload that includes a static destination map for that connection.
+- Operational consequence:
+  when a connection changes (`host`, `port`, `username`, `password`, SSH key or `sudo` settings), previously installed GSA payloads may become outdated until they are refreshed.
+- ZFSMgr can refresh installed GSA payloads automatically after connection changes, but the current design still depends on deployed static payloads.
 - Validation to avoid conflicting recursive schedules between parent and child datasets.
 - Sequential leveling support toward configured destination datasets.
 - Scheduler log rotation in `GSA.log` inside the ZFSMgr configuration directory.
 - High-level GSA events are also forwarded to the native OS log.
+- Current platform note:
+  Unix/macOS payloads resolve remote destinations through the embedded connection map, while Windows does not yet have full parity for arbitrary remote leveling routes.
 
 ### Inline property management
 
@@ -225,6 +233,17 @@ The `Diff` action includes a dedicated results window with grouped tree output f
 - Command previews and execution traces.
 - Busy-state locking for unsafe concurrent actions.
 - Async refresh safeguards to avoid stale refresh results being applied to the wrong connection.
+- Current GSA security model:
+  - GSA is functional, but its deployed payload is not yet fully hardened.
+  - Unix/macOS payloads may embed destination connection details for remote leveling.
+  - If password-based SSH or password-based `sudo` is used, those secrets may become part of the deployed payload.
+  - The current remote-leveling path prioritizes operability and compatibility over strict SSH trust validation.
+- Recommended hardening direction:
+  - separate the stable GSA script from a protected deployed connection-config file,
+  - deploy only the minimum destination map required by each source connection,
+  - tighten file permissions,
+  - and replace permissive SSH trust handling with pinned host-key validation.
+- See [docs/propuesta_endurecimiento_gsa.md](docs/propuesta_endurecimiento_gsa.md) for the hardening proposal.
 
 ## Remote ZFS management
 
