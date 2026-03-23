@@ -704,7 +704,7 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
         delete permissionsNode->takeChild(0);
     }
 
-    if (!m_showInlinePermissionsNodes || isWindowsConnection(connIdx)) {
+    if (!showInlinePermissionsNodesForTree(tree) || isWindowsConnection(connIdx)) {
         permissionsNode->setHidden(true);
         return;
     }
