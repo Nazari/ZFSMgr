@@ -51,6 +51,8 @@ constexpr int kConnPermissionsNodeRole = Qt::UserRole + 25;
 constexpr int kConnPermissionsKindRole = Qt::UserRole + 26;
 constexpr int kConnPermissionsEntryNameRole = Qt::UserRole + 30;
 constexpr int kConnGsaNodeRole = Qt::UserRole + 33;
+constexpr int kConnPoolAutoSnapshotsNodeRole = Qt::UserRole + 34;
+constexpr int kConnPoolAutoSnapshotsDatasetRole = Qt::UserRole + 35;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 constexpr char kGsaBlockInfoKey[] = "__gsa_block_info__";
 
@@ -875,6 +877,9 @@ void MainWindow::syncConnContentPropertyColumns() {
         }
     };
     const bool showInlineDatasetProps = m_showInlineDatasetProps;
+    const bool showInlinePropertyNodes = showInlinePropertyNodesForTree(tree);
+    const bool showInlinePermissionsNodes = showInlinePermissionsNodesForTree(tree);
+    const bool showInlineGsaNode = showInlineGsaNodeForTree(tree);
     if (!showInlineDatasetProps) {
         for (int i = 0; i < tree->topLevelItemCount(); ++i) {
             clearPropRowsRec(clearPropRowsRec, tree->topLevelItem(i));
@@ -1048,6 +1053,72 @@ void MainWindow::syncConnContentPropertyColumns() {
     enumValues.insert(QStringLiteral("org.fc16.gsa:recursivo"), QStringList{QStringLiteral("off"), QStringLiteral("on")});
     enumValues.insert(QStringLiteral("org.fc16.gsa:nivelar"), QStringList{QStringLiteral("off"), QStringLiteral("on")});
     const QString propsKey = datasetPropsCacheKey(itemConnIdx, itemPool, obj);
+    auto gsaBoolOn = [](const QString& raw) {
+        const QString v = raw.trimmed().toLower();
+        return v == QStringLiteral("on")
+               || v == QStringLiteral("yes")
+               || v == QStringLiteral("true")
+               || v == QStringLiteral("1");
+    };
+    auto effectiveGsaValuesForDataset = [this, itemConnIdx, itemPool](const QString& datasetName) {
+        QMap<QString, QString> values;
+        if (itemConnIdx < 0 || itemPool.trimmed().isEmpty() || datasetName.trimmed().isEmpty()) {
+            return values;
+        }
+        const QString datasetKey = datasetPropsCacheKey(itemConnIdx, itemPool, datasetName);
+        const auto cacheIt = m_datasetPropsCache.constFind(datasetKey);
+        if (cacheIt != m_datasetPropsCache.cend() && cacheIt->loaded) {
+            for (const DatasetPropCacheRow& row : cacheIt->rows) {
+                if (isGsaUserProperty(row.prop)) {
+                    values[row.prop] = row.value;
+                }
+            }
+        }
+        const QString token = QStringLiteral("%1::%2").arg(itemConnIdx).arg(itemPool);
+        const QString liveKey = QStringLiteral("%1|%2").arg(token, datasetName);
+        const auto liveIt = m_connContentPropValuesByObject.constFind(liveKey);
+        if (liveIt != m_connContentPropValuesByObject.cend()) {
+            for (auto it = liveIt->cbegin(); it != liveIt->cend(); ++it) {
+                if (isGsaUserProperty(it.key())) {
+                    const QString key = findCaseInsensitiveMapKey(values, it.key());
+                    values[key.isEmpty() ? it.key() : key] = it.value();
+                }
+            }
+        }
+        const QString draftKey = QStringLiteral("%1|%2|%3")
+                                     .arg(QStringLiteral("conncontent"),
+                                          token.trimmed(),
+                                          datasetName.trimmed());
+        const auto draftIt = m_propsDraftByKey.constFind(draftKey);
+        if (draftIt != m_propsDraftByKey.cend()) {
+            for (auto it = draftIt->valuesByProp.cbegin(); it != draftIt->valuesByProp.cend(); ++it) {
+                if (isGsaUserProperty(it.key())) {
+                    const QString key = findCaseInsensitiveMapKey(values, it.key());
+                    values[key.isEmpty() ? it.key() : key] = it.value();
+                }
+            }
+            for (auto it = draftIt->inheritByProp.cbegin(); it != draftIt->inheritByProp.cend(); ++it) {
+                if (it.value() && isGsaUserProperty(it.key())) {
+                    const QString key = findCaseInsensitiveMapKey(values, it.key());
+                    values.remove(key.isEmpty() ? it.key() : key);
+                }
+            }
+        }
+        return values;
+    };
+    auto recursiveGsaAncestorForDataset = [&](const QString& datasetName) {
+        QString parent = parentDatasetName(datasetName);
+        while (!parent.trimmed().isEmpty()) {
+            const QMap<QString, QString> values = effectiveGsaValuesForDataset(parent);
+            if (gsaBoolOn(values.value(findCaseInsensitiveMapKey(values, QStringLiteral("org.fc16.gsa:activado"))))
+                && gsaBoolOn(values.value(findCaseInsensitiveMapKey(values, QStringLiteral("org.fc16.gsa:recursivo"))))) {
+                return parent;
+            }
+            parent = parentDatasetName(parent);
+        }
+        return QString();
+    };
+    const QString recursiveGsaAncestor = objectIsSnapshot ? QString() : recursiveGsaAncestorForDataset(obj);
     const DatasetPlatformFamily platform =
         datasetPlatformFamilyFromStrings(
             (itemConnIdx >= 0 && itemConnIdx < m_profiles.size()) ? m_profiles[itemConnIdx].osType : QString(),
@@ -1627,7 +1698,7 @@ void MainWindow::syncConnContentPropertyColumns() {
             }
         }
     }
-    if (m_showInlinePropertyNodes && !propsNode) {
+    if (showInlinePropertyNodes && !propsNode) {
         propsNode = new QTreeWidgetItem();
         propsNode->setText(0, trk(QStringLiteral("t_props_lbl_001"),
                                   QStringLiteral("Propiedades"),
@@ -1639,7 +1710,7 @@ void MainWindow::syncConnContentPropertyColumns() {
         propsNode->setData(0, kPoolNameRole, itemPool);
         sel->insertChild(insertAt++, propsNode);
     }
-    if (m_showInlinePropertyNodes && propsNode) {
+    if (showInlinePropertyNodes && propsNode) {
         shouldExpandPropsNode = propsNodeWasExpanded || tree->currentItem() == propsNode;
         appendPropRows(propsNode,
                        QString(),
@@ -1675,7 +1746,7 @@ void MainWindow::syncConnContentPropertyColumns() {
     }
     const QString mountpointForGsa = displayValues.value(QStringLiteral("mountpoint")).trimmed();
     const bool datasetSupportsGsa = !objectIsSnapshot && !mountpointForGsa.isEmpty() && mountpointForGsa != QStringLiteral("-");
-    if (datasetSupportsGsa && m_showInlineGsaNode) {
+    if (datasetSupportsGsa && showInlineGsaNode) {
         if (!gsaNode) {
             gsaNode = new QTreeWidgetItem();
             gsaNode->setText(0, QStringLiteral("Programar snapshots"));
@@ -1699,6 +1770,12 @@ void MainWindow::syncConnContentPropertyColumns() {
             msgItem->setFlags(msgItem->flags() & ~Qt::ItemIsUserCheckable);
             msgItem->setFirstColumnSpanned(true);
             msgItem->setToolTip(0, msgItem->text(0));
+        } else if (!recursiveGsaAncestor.isEmpty()) {
+            auto* msgItem = new QTreeWidgetItem(gsaNode);
+            msgItem->setText(0, QStringLiteral("Programación gestionada desde ancestro"));
+            msgItem->setFlags(msgItem->flags() & ~Qt::ItemIsUserCheckable);
+            msgItem->setFirstColumnSpanned(true);
+            msgItem->setToolTip(0, QStringLiteral("Programación gestionada desde ancestro: %1").arg(recursiveGsaAncestor));
         } else {
             QMap<QString, QString> gsaValues;
             for (const QString& gsaProp : gsaUserProps()) {
@@ -1711,6 +1788,13 @@ void MainWindow::syncConnContentPropertyColumns() {
                     if (isGsaUserProperty(itDraft.key())) {
                         const QString existingKey = findCaseInsensitiveMapKey(gsaValues, itDraft.key());
                         gsaValues[existingKey.isEmpty() ? itDraft.key() : existingKey] = itDraft.value();
+                    }
+                }
+                for (auto itDraft = objectDraft->inheritByProp.cbegin(); itDraft != objectDraft->inheritByProp.cend(); ++itDraft) {
+                    if (itDraft.value() && isGsaUserProperty(itDraft.key())) {
+                        const QString existingKey = findCaseInsensitiveMapKey(gsaValues, itDraft.key());
+                        const QString key = existingKey.isEmpty() ? itDraft.key() : existingKey;
+                        gsaValues[key] = gsaUserPropertyDefaultValue(key);
                     }
                 }
             }
@@ -2132,7 +2216,7 @@ void MainWindow::syncConnContentPoolColumns() {
         root->insertChild(0, infoNode);
     }
     infoNode->setText(0, trk(QStringLiteral("t_info_lbl_001"),
-                             QStringLiteral("Información"),
+                             QStringLiteral("Información del pool"),
                              QStringLiteral("Information"),
                              QStringLiteral("信息")));
 
@@ -2143,7 +2227,9 @@ void MainWindow::syncConnContentPoolColumns() {
                        QStringLiteral("属性")),
                    mainProps,
                    &values,
-                   false);
+                   false,
+                   true,
+                   true);
     for (const InlinePropGroupConfig& cfg : m_poolInlinePropGroups) {
         addSectionRows(infoNode,
                        cfg.name,
@@ -2170,7 +2256,196 @@ void MainWindow::syncConnContentPoolColumns() {
                        QStringLiteral("已禁用能力")),
                    featureDisabled,
                    nullptr,
+                   true,
+                   true,
                    true);
+
+    QMap<QString, QMap<QString, QString>> autoSnapshotPropsByDataset;
+    auto isLocallyConfiguredGsaSource = [](const QString& source) {
+        const QString src = source.trimmed().toLower();
+        if (src.isEmpty() || src == QStringLiteral("-")) {
+            return false;
+        }
+        if (src.startsWith(QStringLiteral("inherited")) || src == QStringLiteral("default")) {
+            return false;
+        }
+        return true;
+    };
+    auto gsaBoolOn = [](const QString& raw) {
+        const QString v = raw.trimmed().toLower();
+        return v == QStringLiteral("on")
+               || v == QStringLiteral("yes")
+               || v == QStringLiteral("true")
+               || v == QStringLiteral("1");
+    };
+    const QString poolToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+    for (auto itCache = m_datasetPropsCache.cbegin(); itCache != m_datasetPropsCache.cend(); ++itCache) {
+        if (!itCache->loaded) {
+            continue;
+        }
+        const QStringList parts = itCache.key().split(QStringLiteral("::"));
+        if (parts.size() < 3) {
+            continue;
+        }
+        bool okConn = false;
+        const int cacheConnIdx = parts.at(0).toInt(&okConn);
+        const QString cachePool = parts.at(1).trimmed();
+        const QString datasetName = parts.mid(2).join(QStringLiteral("::")).trimmed();
+        if (!okConn || cacheConnIdx != connIdx || cachePool != poolName || datasetName.isEmpty() || datasetName.contains(QLatin1Char('@'))) {
+            continue;
+        }
+        for (const DatasetPropCacheRow& row : itCache->rows) {
+            if (row.prop.trimmed().startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)
+                && isLocallyConfiguredGsaSource(row.source)) {
+                autoSnapshotPropsByDataset[datasetName].insert(row.prop.trimmed(), row.value);
+            }
+        }
+    }
+    const QString draftPrefix = QStringLiteral("conncontent|%1|").arg(poolToken);
+    for (auto itDraft = m_propsDraftByKey.cbegin(); itDraft != m_propsDraftByKey.cend(); ++itDraft) {
+        if (!itDraft.key().startsWith(draftPrefix, Qt::CaseInsensitive)) {
+            continue;
+        }
+        const QString datasetName = itDraft.key().mid(draftPrefix.size()).trimmed();
+        if (datasetName.isEmpty() || datasetName.contains(QLatin1Char('@'))) {
+            continue;
+        }
+        for (auto vit = itDraft->valuesByProp.cbegin(); vit != itDraft->valuesByProp.cend(); ++vit) {
+            if (vit.key().trimmed().startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+                autoSnapshotPropsByDataset[datasetName].insert(vit.key().trimmed(), vit.value());
+            }
+        }
+        for (auto iit = itDraft->inheritByProp.cbegin(); iit != itDraft->inheritByProp.cend(); ++iit) {
+            if (iit.value() && iit.key().trimmed().startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+                autoSnapshotPropsByDataset[datasetName].remove(iit.key().trimmed());
+            }
+        }
+    }
+    if (connIdx >= 0 && connIdx < m_profiles.size() && !isWindowsConnection(connIdx)) {
+        const ConnectionProfile& cp = m_profiles[connIdx];
+        const QStringList gsaProps = gsaUserProps();
+        QStringList propArgs;
+        for (const QString& prop : gsaProps) {
+            propArgs << mwhelpers::shSingleQuote(prop);
+        }
+        const QString cmd =
+            withSudo(cp,
+                     QStringLiteral("zfs get -H -o name,property,value,source -r %1 %2")
+                         .arg(propArgs.join(QLatin1Char(',')),
+                              mwhelpers::shSingleQuote(poolName)));
+        QString out;
+        QString err;
+        int rc = -1;
+        if (runSsh(cp, cmd, 20000, out, err, rc) && rc == 0) {
+            for (const QString& line : out.split(QLatin1Char('\n'))) {
+                const QString trimmed = line.trimmed();
+                if (trimmed.isEmpty()) {
+                    continue;
+                }
+                const QStringList cols = trimmed.split(QRegularExpression(QStringLiteral("\\s+")),
+                                                       Qt::SkipEmptyParts);
+                if (cols.size() < 4) {
+                    continue;
+                }
+                const QString dsName = cols.at(0).trimmed();
+                const QString prop = cols.at(1).trimmed();
+                const QString value = cols.at(2).trimmed();
+                const QString source = cols.mid(3).join(QStringLiteral(" ")).trimmed();
+                if (dsName.isEmpty() || dsName.contains(QLatin1Char('@'))) {
+                    continue;
+                }
+                if (prop.startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)
+                    && isLocallyConfiguredGsaSource(source)) {
+                    autoSnapshotPropsByDataset[dsName].insert(prop, value);
+                }
+            }
+        }
+    }
+    QStringList autoSnapshotDatasets;
+    for (auto it = autoSnapshotPropsByDataset.cbegin(); it != autoSnapshotPropsByDataset.cend(); ++it) {
+        const QString enabledKey = findCaseInsensitiveMapKey(it.value(), QStringLiteral("org.fc16.gsa:activado"));
+        if (!enabledKey.isEmpty() && gsaBoolOn(it.value().value(enabledKey))) {
+            autoSnapshotDatasets.push_back(it.key());
+        }
+    }
+    std::sort(autoSnapshotDatasets.begin(), autoSnapshotDatasets.end(), [](const QString& a, const QString& b) {
+        return QString::compare(a, b, Qt::CaseInsensitive) < 0;
+    });
+    QTreeWidgetItem* autoSnapsNode = nullptr;
+    for (int i = 0; i < infoNode->childCount(); ++i) {
+        QTreeWidgetItem* child = infoNode->child(i);
+        if (child && child->data(0, kConnPoolAutoSnapshotsNodeRole).toBool()) {
+            autoSnapsNode = child;
+            break;
+        }
+    }
+    if (autoSnapshotDatasets.isEmpty()) {
+        if (autoSnapsNode) {
+            delete infoNode->takeChild(infoNode->indexOfChild(autoSnapsNode));
+        }
+    } else {
+        if (!autoSnapsNode) {
+            autoSnapsNode = new QTreeWidgetItem(infoNode);
+            autoSnapsNode->setData(0, kConnPoolAutoSnapshotsNodeRole, true);
+            autoSnapsNode->setFlags(autoSnapsNode->flags() & ~Qt::ItemIsUserCheckable);
+            autoSnapsNode->setIcon(0, treeStandardIcon(QStyle::SP_BrowserReload));
+        } else {
+            while (autoSnapsNode->childCount() > 0) {
+                delete autoSnapsNode->takeChild(0);
+            }
+        }
+        autoSnapsNode->setText(0, QStringLiteral("Snapshots automáticos"));
+        autoSnapsNode->setExpanded(false);
+        for (const QString& datasetName : autoSnapshotDatasets) {
+            auto* dsItem = new QTreeWidgetItem(autoSnapsNode);
+            dsItem->setText(0, datasetName);
+            dsItem->setToolTip(0, datasetName);
+            dsItem->setData(0, kConnPoolAutoSnapshotsDatasetRole, datasetName);
+            dsItem->setData(0, kConnIdxRole, connIdx);
+            dsItem->setData(0, kPoolNameRole, poolName);
+            dsItem->setFlags(dsItem->flags() & ~Qt::ItemIsUserCheckable);
+            const auto propsMap = autoSnapshotPropsByDataset.value(datasetName);
+            QStringList propNames = filterPropsByWanted(gsaUserProps(), propsMap.keys());
+            QStringList remainingProps = propsMap.keys();
+            for (const QString& propName : propNames) {
+                remainingProps.removeAll(propName);
+            }
+            std::sort(remainingProps.begin(), remainingProps.end(), [](const QString& a, const QString& b) {
+                return QString::compare(a, b, Qt::CaseInsensitive) < 0;
+            });
+            propNames += remainingProps;
+            for (int base = 0; base < propNames.size(); base += propCols) {
+                auto* rowNames = new QTreeWidgetItem(dsItem);
+                rowNames->setData(0, kConnPropRowRole, true);
+                rowNames->setData(0, kConnPropRowKindRole, 1);
+                rowNames->setFlags(rowNames->flags() & ~Qt::ItemIsUserCheckable);
+                auto* rowValues = new QTreeWidgetItem(dsItem);
+                rowValues->setData(0, kConnPropRowRole, true);
+                rowValues->setData(0, kConnPropRowKindRole, 2);
+                rowValues->setFlags(rowValues->flags() & ~Qt::ItemIsUserCheckable);
+                for (int off = 0; off < propCols; ++off) {
+                    const int idx = base + off;
+                    if (idx >= propNames.size()) {
+                        break;
+                    }
+                    const QString& propName = propNames.at(idx);
+                    const int col = 4 + off;
+                    rowNames->setData(col, kConnInlineCellUsedRole, true);
+                    rowValues->setData(col, kConnInlineCellUsedRole, true);
+                    rowNames->setBackground(col, QBrush(nameRowBg));
+                    rowNames->setText(col, gsaUserPropertyLabel(propName));
+                    rowNames->setTextAlignment(col, Qt::AlignCenter);
+                    rowNames->setData(col, kConnPropKeyRole, propName);
+                    rowNames->setToolTip(col, propName);
+                    rowValues->setText(col, propsMap.value(propName));
+                    rowValues->setTextAlignment(col, Qt::AlignCenter);
+                    rowValues->setData(col, kConnPropKeyRole, propName);
+                    rowValues->setToolTip(col, propsMap.value(propName));
+                }
+            }
+        }
+    }
+
     root->setExpanded(true);
     resizeTreeColumnsToVisibleContent(m_connContentTree);
     m_syncingConnContentColumns = false;
@@ -2237,11 +2512,20 @@ void MainWindow::saveConnContentTreeState(const QString& token) {
         st.selectedDataset = selected.first()->data(0, Qt::UserRole).toString();
         st.selectedSnapshot = selected.first()->data(1, Qt::UserRole).toString();
     }
-    if (m_connContentTree->verticalScrollBar()) {
-        st.verticalScrollValue = m_connContentTree->verticalScrollBar()->value();
-    }
-    if (m_connContentTree->horizontalScrollBar()) {
-        st.horizontalScrollValue = m_connContentTree->horizontalScrollBar()->value();
+    ConnectionDatasetTreePane* pane =
+        (m_connContentTree == m_bottomConnContentTree) ? m_bottomDatasetPane : m_topDatasetPane;
+    if (pane) {
+        const ConnectionDatasetTreePane::VisualState visualState = pane->captureVisualState();
+        st.headerState = visualState.headerState;
+        st.verticalScrollValue = visualState.verticalScroll;
+        st.horizontalScrollValue = visualState.horizontalScroll;
+    } else {
+        if (m_connContentTree->verticalScrollBar()) {
+            st.verticalScrollValue = m_connContentTree->verticalScrollBar()->value();
+        }
+        if (m_connContentTree->horizontalScrollBar()) {
+            st.horizontalScrollValue = m_connContentTree->horizontalScrollBar()->value();
+        }
     }
     if ((!st.selectedDataset.isEmpty() || !st.expandedDatasets.isEmpty()
          || !st.expandedChildPathsByDataset.isEmpty())
@@ -2274,6 +2558,14 @@ void MainWindow::restoreConnContentTreeState(const QString& token) {
                                                                  : QStringLiteral("|top"));
     const auto it = m_connContentTreeStateByToken.constFind(scopedToken);
     if (it == m_connContentTreeStateByToken.cend()) {
+        if (m_connContentTree == m_bottomConnContentTree) {
+            for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
+                QTreeWidgetItem* top = m_connContentTree->topLevelItem(i);
+                if (top && top->data(0, kIsPoolRootRole).toBool()) {
+                    top->setExpanded(true);
+                }
+            }
+        }
         appLog(QStringLiteral("DEBUG"),
                QStringLiteral("restoreConnContentTreeState token=%1 no-state").arg(scopedToken));
         return;
@@ -2395,31 +2687,41 @@ void MainWindow::restoreConnContentTreeState(const QString& token) {
             m_connContentTree->setCurrentItem(sel);
         }
     }
-    QPointer<QTreeWidget> safeTree(m_connContentTree);
-    const int vscroll = st.verticalScrollValue;
-    const int hscroll = st.horizontalScrollValue;
-    QTimer::singleShot(0, m_connContentTree, [safeTree, vscroll, hscroll]() {
-        if (!safeTree) {
-            return;
-        }
-        if (safeTree->verticalScrollBar()) {
-            safeTree->verticalScrollBar()->setValue(vscroll);
-        }
-        if (safeTree->horizontalScrollBar()) {
-            safeTree->horizontalScrollBar()->setValue(hscroll);
-        }
-    });
-    QTimer::singleShot(40, m_connContentTree, [safeTree, vscroll, hscroll]() {
-        if (!safeTree) {
-            return;
-        }
-        if (safeTree->verticalScrollBar()) {
-            safeTree->verticalScrollBar()->setValue(vscroll);
-        }
-        if (safeTree->horizontalScrollBar()) {
-            safeTree->horizontalScrollBar()->setValue(hscroll);
-        }
-    });
+    ConnectionDatasetTreePane* pane =
+        (m_connContentTree == m_bottomConnContentTree) ? m_bottomDatasetPane : m_topDatasetPane;
+    if (pane) {
+        ConnectionDatasetTreePane::VisualState visualState;
+        visualState.headerState = st.headerState;
+        visualState.verticalScroll = st.verticalScrollValue;
+        visualState.horizontalScroll = st.horizontalScrollValue;
+        pane->restoreVisualState(visualState);
+    } else {
+        QPointer<QTreeWidget> safeTree(m_connContentTree);
+        const int vscroll = st.verticalScrollValue;
+        const int hscroll = st.horizontalScrollValue;
+        QTimer::singleShot(0, m_connContentTree, [safeTree, vscroll, hscroll]() {
+            if (!safeTree) {
+                return;
+            }
+            if (safeTree->verticalScrollBar()) {
+                safeTree->verticalScrollBar()->setValue(vscroll);
+            }
+            if (safeTree->horizontalScrollBar()) {
+                safeTree->horizontalScrollBar()->setValue(hscroll);
+            }
+        });
+        QTimer::singleShot(40, m_connContentTree, [safeTree, vscroll, hscroll]() {
+            if (!safeTree) {
+                return;
+            }
+            if (safeTree->verticalScrollBar()) {
+                safeTree->verticalScrollBar()->setValue(vscroll);
+            }
+            if (safeTree->horizontalScrollBar()) {
+                safeTree->horizontalScrollBar()->setValue(hscroll);
+            }
+        });
+    }
     QStringList finalPoolStates;
     for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
         QTreeWidgetItem* top = m_connContentTree->topLevelItem(i);
@@ -2481,6 +2783,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         poolRoot->setData(0, kIsPoolRootRole, true);
         poolRoot->setData(0, kConnIdxRole, connIdx);
         poolRoot->setData(0, kPoolNameRole, poolName);
+        poolRoot->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
         const QString tooltipHtml = cachedPoolStatusTooltipHtml(connIdx, poolName);
         poolRoot->setToolTip(0, tooltipHtml.isEmpty() ? poolRoot->text(0) : tooltipHtml);
         if (m_showPoolInfoNode) {
@@ -2508,6 +2811,9 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
     }
     const QString key = datasetCacheKey(connIdx, poolName);
     const PoolDatasetCache& cache = m_poolDatasetCache[key];
+    const bool showInlinePropertyNodes = showInlinePropertyNodesForTree(tree);
+    const bool showInlinePermissionsNodes = showInlinePermissionsNodesForTree(tree);
+    const bool showInlineGsaNode = showInlineGsaNodeForTree(tree);
     auto isFilesystemRecord = [](const DatasetRecord& rec) -> bool {
         const QString mp = rec.mountpoint.trimmed();
         const QString cm = rec.canmount.trimmed();
@@ -2558,7 +2864,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         item->setCheckState(2, isMounted ? Qt::Checked : Qt::Unchecked);
         const QString effectiveMp = effectiveMountPath(connIdx, poolName, rec.name, rec.mountpoint, rec.mounted);
         item->setText(3, effectiveMp.isEmpty() ? rec.mountpoint.trimmed() : effectiveMp);
-        if (m_showInlinePropertyNodes) {
+        if (showInlinePropertyNodes) {
             auto* propsNode = new QTreeWidgetItem(item);
             propsNode->setText(0, trk(QStringLiteral("t_props_lbl_001"),
                                       QStringLiteral("Propiedades"),
@@ -2571,7 +2877,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
             propsNode->setData(0, kPoolNameRole, poolName);
             propsNode->setFlags(propsNode->flags() & ~Qt::ItemIsUserCheckable);
         }
-        if (m_showInlinePermissionsNodes) {
+        if (showInlinePermissionsNodes) {
             auto* permissionsNode = new QTreeWidgetItem(item);
             permissionsNode->setText(0, QStringLiteral("Permisos"));
             permissionsNode->setIcon(0, treeStandardIcon(QStyle::SP_DialogYesButton));
@@ -2582,7 +2888,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
             permissionsNode->setFlags(permissionsNode->flags() & ~Qt::ItemIsUserCheckable);
             permissionsNode->setExpanded(false);
         }
-        if (isFilesystemRecord(rec) && m_showInlineGsaNode) {
+        if (isFilesystemRecord(rec) && showInlineGsaNode) {
             auto* gsaNode = new QTreeWidgetItem(item);
             gsaNode->setText(0, QStringLiteral("Programar snapshots"));
             gsaNode->setIcon(0, treeStandardIcon(QStyle::SP_BrowserReload));
@@ -2619,6 +2925,7 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         poolRoot->setData(0, kIsPoolRootRole, true);
         poolRoot->setData(0, kConnIdxRole, connIdx);
         poolRoot->setData(0, kPoolNameRole, poolName);
+        poolRoot->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
         const QString tooltipHtml = cachedPoolStatusTooltipHtml(connIdx, poolName);
         poolRoot->setToolTip(0, tooltipHtml.isEmpty() ? poolRoot->text(0) : tooltipHtml);
         if (m_showPoolInfoNode) {

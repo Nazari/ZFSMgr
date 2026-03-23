@@ -182,9 +182,24 @@ void MainWindow::loadUiSettings() {
     }
     m_logMaxLinesSetting = ini.value(QStringLiteral("log_max_lines"), 500).toInt();
     m_showInlineDatasetProps = ini.value(QStringLiteral("show_inline_dataset_props"), true).toBool();
-    m_showInlinePropertyNodes = ini.value(QStringLiteral("show_inline_property_nodes"), true).toBool();
-    m_showInlinePermissionsNodes = ini.value(QStringLiteral("show_inline_permissions_nodes"), true).toBool();
-    m_showInlineGsaNode = ini.value(QStringLiteral("show_inline_gsa_node"), true).toBool();
+    const bool legacyShowInlinePropertyNodes =
+        ini.value(QStringLiteral("show_inline_property_nodes"), true).toBool();
+    const bool legacyShowInlinePermissionsNodes =
+        ini.value(QStringLiteral("show_inline_permissions_nodes"), true).toBool();
+    const bool legacyShowInlineGsaNode =
+        ini.value(QStringLiteral("show_inline_gsa_node"), true).toBool();
+    m_showInlinePropertyNodesTop =
+        ini.value(QStringLiteral("show_inline_property_nodes_top"), legacyShowInlinePropertyNodes).toBool();
+    m_showInlinePropertyNodesBottom =
+        ini.value(QStringLiteral("show_inline_property_nodes_bottom"), legacyShowInlinePropertyNodes).toBool();
+    m_showInlinePermissionsNodesTop =
+        ini.value(QStringLiteral("show_inline_permissions_nodes_top"), legacyShowInlinePermissionsNodes).toBool();
+    m_showInlinePermissionsNodesBottom =
+        ini.value(QStringLiteral("show_inline_permissions_nodes_bottom"), legacyShowInlinePermissionsNodes).toBool();
+    m_showInlineGsaNodeTop =
+        ini.value(QStringLiteral("show_inline_gsa_node_top"), legacyShowInlineGsaNode).toBool();
+    m_showInlineGsaNodeBottom =
+        ini.value(QStringLiteral("show_inline_gsa_node_bottom"), legacyShowInlineGsaNode).toBool();
     m_showPoolInfoNode = ini.value(QStringLiteral("show_pool_info_node"), true).toBool();
     m_connPropColumnsSetting = ini.value(QStringLiteral("conn_prop_columns"), 7).toInt();
     m_persistedTopDetailConnectionKey =
@@ -218,6 +233,7 @@ void MainWindow::loadUiSettings() {
     m_rightMainSplitState = ini.value(QStringLiteral("right_main_splitter")).toByteArray();
     m_connDetailSplitState = ini.value(QStringLiteral("conn_detail_splitter")).toByteArray();
     m_verticalMainSplitState = ini.value(QStringLiteral("vertical_main_splitter")).toByteArray();
+    m_bottomInfoSplitState = ini.value(QStringLiteral("bottom_info_splitter")).toByteArray();
     if (m_logMaxLinesSetting != 100 && m_logMaxLinesSetting != 200
         && m_logMaxLinesSetting != 500 && m_logMaxLinesSetting != 1000) {
         m_logMaxLinesSetting = 500;
@@ -245,9 +261,30 @@ void MainWindow::saveUiSettings() const {
     }
     ini.setValue(QStringLiteral("log_max_lines"), lines);
     ini.setValue(QStringLiteral("show_inline_dataset_props"), m_showInlineDatasetProps);
-    ini.setValue(QStringLiteral("show_inline_property_nodes"), m_showInlinePropertyNodes);
-    ini.setValue(QStringLiteral("show_inline_permissions_nodes"), m_showInlinePermissionsNodes);
-    ini.setValue(QStringLiteral("show_inline_gsa_node"), m_showInlineGsaNode);
+    const bool showInlinePropertyNodesTop =
+        m_topDatasetPane ? m_topDatasetPane->visualOptions().showInlineProperties
+                         : m_showInlinePropertyNodesTop;
+    const bool showInlinePropertyNodesBottom =
+        m_bottomDatasetPane ? m_bottomDatasetPane->visualOptions().showInlineProperties
+                            : m_showInlinePropertyNodesBottom;
+    const bool showInlinePermissionsNodesTop =
+        m_topDatasetPane ? m_topDatasetPane->visualOptions().showInlinePermissions
+                         : m_showInlinePermissionsNodesTop;
+    const bool showInlinePermissionsNodesBottom =
+        m_bottomDatasetPane ? m_bottomDatasetPane->visualOptions().showInlinePermissions
+                            : m_showInlinePermissionsNodesBottom;
+    const bool showInlineGsaNodeTop =
+        m_topDatasetPane ? m_topDatasetPane->visualOptions().showInlineGsa
+                         : m_showInlineGsaNodeTop;
+    const bool showInlineGsaNodeBottom =
+        m_bottomDatasetPane ? m_bottomDatasetPane->visualOptions().showInlineGsa
+                            : m_showInlineGsaNodeBottom;
+    ini.setValue(QStringLiteral("show_inline_property_nodes_top"), showInlinePropertyNodesTop);
+    ini.setValue(QStringLiteral("show_inline_property_nodes_bottom"), showInlinePropertyNodesBottom);
+    ini.setValue(QStringLiteral("show_inline_permissions_nodes_top"), showInlinePermissionsNodesTop);
+    ini.setValue(QStringLiteral("show_inline_permissions_nodes_bottom"), showInlinePermissionsNodesBottom);
+    ini.setValue(QStringLiteral("show_inline_gsa_node_top"), showInlineGsaNodeTop);
+    ini.setValue(QStringLiteral("show_inline_gsa_node_bottom"), showInlineGsaNodeBottom);
     ini.setValue(QStringLiteral("show_pool_info_node"), m_showPoolInfoNode);
     ini.setValue(QStringLiteral("conn_prop_columns"), qBound(6, m_connPropColumnsSetting, 20));
     ini.setValue(QStringLiteral("top_detail_connection"),
@@ -272,6 +309,8 @@ void MainWindow::saveUiSettings() const {
                  m_connDetailSplit ? m_connDetailSplit->saveState() : QByteArray());
     ini.setValue(QStringLiteral("vertical_main_splitter"),
                  m_verticalMainSplit ? m_verticalMainSplit->saveState() : QByteArray());
+    ini.setValue(QStringLiteral("bottom_info_splitter"),
+                 m_bottomInfoSplit ? m_bottomInfoSplit->saveState() : QByteArray());
     ini.endGroup();
     // Remove legacy duplicated key.
     ini.beginGroup(QStringLiteral("ui"));

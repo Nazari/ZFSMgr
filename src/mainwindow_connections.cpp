@@ -946,6 +946,39 @@ void restoreConnTreeNavSnapshot(QTreeWidget* tree, const ConnTreeNavSnapshot& sn
     }
 }
 
+void restoreSnapshotSelectionInTree(QTreeWidget* tree, const ConnTreeNavSnapshot& nav) {
+    if (!tree) {
+        return;
+    }
+    const SnapshotKeyParts sk = parseSnapshotKey(nav.selectedKey);
+    if (sk.snapshot.isEmpty()) {
+        return;
+    }
+    if (QTreeWidgetItem* dsNode = findDatasetNode(tree, sk.pool, sk.dataset)) {
+        if (QComboBox* cb = qobject_cast<QComboBox*>(tree->itemWidget(dsNode, 1))) {
+            const int idx = cb->findText(sk.snapshot);
+            if (idx > 0) {
+                const QSignalBlocker b(cb);
+                cb->setCurrentIndex(idx);
+                dsNode->setData(1, Qt::UserRole, sk.snapshot);
+                applySnapshotVisualStateConn(dsNode);
+            }
+        }
+    }
+}
+
+void expandPoolRootsIfNoNav(QTreeWidget* tree, const ConnTreeNavSnapshot& nav) {
+    if (!tree || !nav.expandedKeys.isEmpty() || !nav.selectedKey.trimmed().isEmpty()) {
+        return;
+    }
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* item = tree->topLevelItem(i);
+        if (item && item->data(0, kIsPoolRootRole).toBool()) {
+            item->setExpanded(true);
+        }
+    }
+}
+
 QString normalizeHostToken(QString host) {
     host = host.trimmed().toLower();
     if (host.startsWith('[') && host.endsWith(']') && host.size() > 2) {
@@ -1969,58 +2002,7 @@ void MainWindow::updateSecondaryConnectionDetail() {
         return;
     }
     const ConnectionRuntimeState st = m_states[m_bottomDetailConnIdx];
-    auto addPoolTree = [this](int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing) {
-        QTreeWidget tmp;
-        populateDatasetTree(&tmp, connIdx, poolName, QStringLiteral("conncontent_multi"), allowRemoteLoadIfMissing);
-        while (tmp.topLevelItemCount() > 0) {
-            m_bottomConnContentTree->addTopLevelItem(tmp.takeTopLevelItem(0));
-        }
-    };
-    QSet<QString> seenBottomPools;
-    for (const PoolImported& pool : st.importedPools) {
-        const QString poolName = pool.pool.trimmed();
-        const QString poolKey = poolName.toLower();
-        if (poolName.isEmpty() || seenBottomPools.contains(poolKey)) {
-            continue;
-        }
-        seenBottomPools.insert(poolKey);
-        addPoolTree(m_bottomDetailConnIdx, poolName, true);
-    }
-    for (const PoolImportable& pool : st.importablePools) {
-        const QString poolName = pool.pool.trimmed();
-        const QString poolKey = poolName.toLower();
-        if (poolName.isEmpty() || seenBottomPools.contains(poolKey)) {
-            continue;
-        }
-        const QString stateUp = pool.state.trimmed().toUpper();
-        const QString actionTxt = pool.action.trimmed();
-        if (stateUp != QStringLiteral("ONLINE") || actionTxt.isEmpty()) {
-            continue;
-        }
-        seenBottomPools.insert(poolKey);
-        addPoolTree(m_bottomDetailConnIdx, poolName, false);
-    }
-    for (int i = m_bottomConnContentTree->topLevelItemCount() - 1; i >= 0; --i) {
-        QTreeWidgetItem* item = m_bottomConnContentTree->topLevelItem(i);
-        if (!item || !item->data(0, kIsPoolRootRole).toBool()) {
-            continue;
-        }
-        const QString poolKey = item->data(0, kPoolNameRole).toString().trimmed().toLower();
-        bool seenEarlier = false;
-        for (int j = 0; j < i; ++j) {
-            QTreeWidgetItem* prev = m_bottomConnContentTree->topLevelItem(j);
-            if (!prev || !prev->data(0, kIsPoolRootRole).toBool()) {
-                continue;
-            }
-            if (prev->data(0, kPoolNameRole).toString().trimmed().toLower() == poolKey) {
-                seenEarlier = true;
-                break;
-            }
-        }
-        if (seenEarlier) {
-            delete m_bottomConnContentTree->takeTopLevelItem(i);
-        }
-    }
+    populateConnectionPoolsIntoTree(m_bottomConnContentTree, m_bottomDetailConnIdx, st);
     if (m_bottomConnContentTree->topLevelItemCount() == 0) {
         auto* noPools = new QTreeWidgetItem();
         noPools->setText(0, trk(QStringLiteral("t_no_pools_001"),
@@ -2033,23 +2015,9 @@ void MainWindow::updateSecondaryConnectionDetail() {
         noPools->setFlags((noPools->flags() & ~Qt::ItemIsSelectable) & ~Qt::ItemIsEnabled);
         m_bottomConnContentTree->addTopLevelItem(noPools);
     }
-    {
-        const SnapshotKeyParts sk = parseSnapshotKey(nav.selectedKey);
-        if (!sk.snapshot.isEmpty()) {
-            if (QTreeWidgetItem* dsNode = findDatasetNode(m_bottomConnContentTree, sk.pool, sk.dataset)) {
-                if (QComboBox* cb = qobject_cast<QComboBox*>(m_bottomConnContentTree->itemWidget(dsNode, 1))) {
-                    const int idx = cb->findText(sk.snapshot);
-                    if (idx > 0) {
-                        const QSignalBlocker b(cb);
-                        cb->setCurrentIndex(idx);
-                        dsNode->setData(1, Qt::UserRole, sk.snapshot);
-                        applySnapshotVisualStateConn(dsNode);
-                    }
-                }
-            }
-        }
-    }
+    restoreSnapshotSelectionInTree(m_bottomConnContentTree, nav);
     restoreConnTreeNavSnapshot(m_bottomConnContentTree, nav);
+    expandPoolRootsIfNoNav(m_bottomConnContentTree, nav);
     saveBottomTreeStateForConnection(m_bottomDetailConnIdx);
 }
 
@@ -2119,59 +2087,7 @@ void MainWindow::rebuildConnectionEntityTabs() {
     }
     m_connContentTree->clear();
     const ConnectionRuntimeState st = m_states[connIdx];
-    auto addPoolTree = [this](int cidx, const QString& poolName, bool allowRemoteLoadIfMissing) {
-        QTreeWidget tmp;
-        populateDatasetTree(&tmp, cidx, poolName, QStringLiteral("conncontent_multi"), allowRemoteLoadIfMissing);
-        while (tmp.topLevelItemCount() > 0) {
-            m_connContentTree->addTopLevelItem(tmp.takeTopLevelItem(0));
-        }
-    };
-    QSet<QString> seenTopPools;
-    for (const PoolImported& pool : st.importedPools) {
-        const QString poolName = pool.pool.trimmed();
-        const QString poolKey = poolName.toLower();
-        if (poolName.isEmpty() || seenTopPools.contains(poolKey)) {
-            continue;
-        }
-        seenTopPools.insert(poolKey);
-        addPoolTree(connIdx, poolName, true);
-    }
-    for (const PoolImportable& pool : st.importablePools) {
-        const QString poolName = pool.pool.trimmed();
-        const QString poolKey = poolName.toLower();
-        if (poolName.isEmpty() || seenTopPools.contains(poolKey)) {
-            continue;
-        }
-        const QString stateUp = pool.state.trimmed().toUpper();
-        const QString actionTxt = pool.action.trimmed();
-        // No crear tabs para pools no importables.
-        if (stateUp != QStringLiteral("ONLINE") || actionTxt.isEmpty()) {
-            continue;
-        }
-        seenTopPools.insert(poolKey);
-        addPoolTree(connIdx, poolName, false);
-    }
-    for (int i = m_connContentTree->topLevelItemCount() - 1; i >= 0; --i) {
-        QTreeWidgetItem* item = m_connContentTree->topLevelItem(i);
-        if (!item || !item->data(0, kIsPoolRootRole).toBool()) {
-            continue;
-        }
-        const QString poolKey = item->data(0, kPoolNameRole).toString().trimmed().toLower();
-        bool seenEarlier = false;
-        for (int j = 0; j < i; ++j) {
-            QTreeWidgetItem* prev = m_connContentTree->topLevelItem(j);
-            if (!prev || !prev->data(0, kIsPoolRootRole).toBool()) {
-                continue;
-            }
-            if (prev->data(0, kPoolNameRole).toString().trimmed().toLower() == poolKey) {
-                seenEarlier = true;
-                break;
-            }
-        }
-        if (seenEarlier) {
-            delete m_connContentTree->takeTopLevelItem(i);
-        }
-    }
+    populateConnectionPoolsIntoTree(m_connContentTree, connIdx, st);
     if (m_connContentTree->topLevelItemCount() == 0) {
         auto* noPools = new QTreeWidgetItem();
         noPools->setText(0, trk(QStringLiteral("t_no_pools_001"),
@@ -2184,27 +2100,106 @@ void MainWindow::rebuildConnectionEntityTabs() {
         noPools->setFlags((noPools->flags() & ~Qt::ItemIsSelectable) & ~Qt::ItemIsEnabled);
         m_connContentTree->addTopLevelItem(noPools);
     }
-    {
-        const SnapshotKeyParts sk = parseSnapshotKey(nav.selectedKey);
-        if (!sk.snapshot.isEmpty()) {
-            if (QTreeWidgetItem* dsNode = findDatasetNode(m_connContentTree, sk.pool, sk.dataset)) {
-                if (QComboBox* cb = qobject_cast<QComboBox*>(m_connContentTree->itemWidget(dsNode, 1))) {
-                    const int idx = cb->findText(sk.snapshot);
-                    if (idx > 0) {
-                        const QSignalBlocker b(cb);
-                        cb->setCurrentIndex(idx);
-                        dsNode->setData(1, Qt::UserRole, sk.snapshot);
-                        applySnapshotVisualStateConn(dsNode);
-                    }
-                }
-            }
-        }
-    }
+    restoreSnapshotSelectionInTree(m_connContentTree, nav);
     restoreConnTreeNavSnapshot(m_connContentTree, nav);
+    expandPoolRootsIfNoNav(m_connContentTree, nav);
     saveTopTreeStateForConnection(connIdx);
     QTimer::singleShot(0, this, [this]() {
         syncConnContentPoolColumns();
     });
+}
+
+void MainWindow::populateConnectionPoolsIntoTree(QTreeWidget* tree,
+                                                 int connIdx,
+                                                 const ConnectionRuntimeState& st) {
+    if (!tree || connIdx < 0 || connIdx >= m_profiles.size()) {
+        return;
+    }
+    auto addPoolTree = [this, tree](int cidx, const QString& poolName, bool allowRemoteLoadIfMissing) {
+        QTreeWidget tmp;
+        populateDatasetTree(&tmp, cidx, poolName, QStringLiteral("conncontent_multi"), allowRemoteLoadIfMissing);
+        while (tmp.topLevelItemCount() > 0) {
+            tree->addTopLevelItem(tmp.takeTopLevelItem(0));
+        }
+    };
+    QSet<QString> seenPools;
+    for (const PoolImported& pool : st.importedPools) {
+        const QString poolName = pool.pool.trimmed();
+        const QString poolKey = poolName.toLower();
+        if (poolName.isEmpty() || seenPools.contains(poolKey)) {
+            continue;
+        }
+        seenPools.insert(poolKey);
+        addPoolTree(connIdx, poolName, true);
+    }
+    for (const PoolImportable& pool : st.importablePools) {
+        const QString poolName = pool.pool.trimmed();
+        const QString poolKey = poolName.toLower();
+        if (poolName.isEmpty() || seenPools.contains(poolKey)) {
+            continue;
+        }
+        const QString stateUp = pool.state.trimmed().toUpper();
+        const QString actionTxt = pool.action.trimmed();
+        if (stateUp != QStringLiteral("ONLINE") || actionTxt.isEmpty()) {
+            continue;
+        }
+        seenPools.insert(poolKey);
+        addPoolTree(connIdx, poolName, false);
+    }
+    for (int i = tree->topLevelItemCount() - 1; i >= 0; --i) {
+        QTreeWidgetItem* item = tree->topLevelItem(i);
+        if (!item || !item->data(0, kIsPoolRootRole).toBool()) {
+            continue;
+        }
+        const QString poolKey = item->data(0, kPoolNameRole).toString().trimmed().toLower();
+        bool seenEarlier = false;
+        for (int j = 0; j < i; ++j) {
+            QTreeWidgetItem* prev = tree->topLevelItem(j);
+            if (!prev || !prev->data(0, kIsPoolRootRole).toBool()) {
+                continue;
+            }
+            if (prev->data(0, kPoolNameRole).toString().trimmed().toLower() == poolKey) {
+                seenEarlier = true;
+                break;
+            }
+        }
+        if (seenEarlier) {
+            delete tree->takeTopLevelItem(i);
+        }
+    }
+}
+
+void restoreSnapshotSelectionInTree(QTreeWidget* tree, const ConnTreeNavSnapshot& nav) {
+    if (!tree) {
+        return;
+    }
+    const SnapshotKeyParts sk = parseSnapshotKey(nav.selectedKey);
+    if (sk.snapshot.isEmpty()) {
+        return;
+    }
+    if (QTreeWidgetItem* dsNode = findDatasetNode(tree, sk.pool, sk.dataset)) {
+        if (QComboBox* cb = qobject_cast<QComboBox*>(tree->itemWidget(dsNode, 1))) {
+            const int idx = cb->findText(sk.snapshot);
+            if (idx > 0) {
+                const QSignalBlocker b(cb);
+                cb->setCurrentIndex(idx);
+                dsNode->setData(1, Qt::UserRole, sk.snapshot);
+                applySnapshotVisualStateConn(dsNode);
+            }
+        }
+    }
+}
+
+void expandPoolRootsIfNoNav(QTreeWidget* tree, const ConnTreeNavSnapshot& nav) {
+    if (!tree || !nav.expandedKeys.isEmpty() || !nav.selectedKey.trimmed().isEmpty()) {
+        return;
+    }
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* item = tree->topLevelItem(i);
+        if (item && item->data(0, kIsPoolRootRole).toBool()) {
+            item->setExpanded(true);
+        }
+    }
 }
 
 void MainWindow::onConnectionEntityTabChanged(int idx) {

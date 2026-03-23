@@ -84,6 +84,8 @@ constexpr int kConnPermissionsTargetNameRole = Qt::UserRole + 29;
 constexpr int kConnPermissionsEntryNameRole = Qt::UserRole + 30;
 constexpr int kConnPermissionsPendingRole = Qt::UserRole + 31;
 constexpr int kConnInlineCellUsedRole = Qt::UserRole + 32;
+constexpr int kConnPoolAutoSnapshotsNodeRole = Qt::UserRole + 34;
+constexpr int kConnPoolAutoSnapshotsDatasetRole = Qt::UserRole + 35;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 
 QString pendingChangeLastQuotedArg(const QString& text) {
@@ -756,6 +758,93 @@ bool MainWindow::focusPendingChangeLine(const QString& line) {
     m_connContentToken = prevToken;
     targetTree->setFocus();
     return true;
+}
+
+bool MainWindow::showInlinePropertyNodesForTree(const QTreeWidget* tree) const {
+    if (tree == m_bottomConnContentTree && m_bottomDatasetPane) {
+        return m_bottomDatasetPane->visualOptions().showInlineProperties;
+    }
+    if (tree == m_connContentTree && m_topDatasetPane) {
+        return m_topDatasetPane->visualOptions().showInlineProperties;
+    }
+    return (tree == m_bottomConnContentTree) ? m_showInlinePropertyNodesBottom
+                                             : m_showInlinePropertyNodesTop;
+}
+
+bool MainWindow::showInlinePermissionsNodesForTree(const QTreeWidget* tree) const {
+    if (tree == m_bottomConnContentTree && m_bottomDatasetPane) {
+        return m_bottomDatasetPane->visualOptions().showInlinePermissions;
+    }
+    if (tree == m_connContentTree && m_topDatasetPane) {
+        return m_topDatasetPane->visualOptions().showInlinePermissions;
+    }
+    return (tree == m_bottomConnContentTree) ? m_showInlinePermissionsNodesBottom
+                                             : m_showInlinePermissionsNodesTop;
+}
+
+bool MainWindow::showInlineGsaNodeForTree(const QTreeWidget* tree) const {
+    if (tree == m_bottomConnContentTree && m_bottomDatasetPane) {
+        return m_bottomDatasetPane->visualOptions().showInlineGsa;
+    }
+    if (tree == m_connContentTree && m_topDatasetPane) {
+        return m_topDatasetPane->visualOptions().showInlineGsa;
+    }
+    return (tree == m_bottomConnContentTree) ? m_showInlineGsaNodeBottom
+                                             : m_showInlineGsaNodeTop;
+}
+
+void MainWindow::setShowInlinePropertyNodesForTree(QTreeWidget* tree, bool visible) {
+    if (tree == m_bottomConnContentTree) {
+        m_showInlinePropertyNodesBottom = visible;
+        if (m_bottomDatasetPane) {
+            auto options = m_bottomDatasetPane->visualOptions();
+            options.showInlineProperties = visible;
+            m_bottomDatasetPane->setVisualOptions(options);
+        }
+    } else {
+        m_showInlinePropertyNodesTop = visible;
+        if (m_topDatasetPane) {
+            auto options = m_topDatasetPane->visualOptions();
+            options.showInlineProperties = visible;
+            m_topDatasetPane->setVisualOptions(options);
+        }
+    }
+}
+
+void MainWindow::setShowInlinePermissionsNodesForTree(QTreeWidget* tree, bool visible) {
+    if (tree == m_bottomConnContentTree) {
+        m_showInlinePermissionsNodesBottom = visible;
+        if (m_bottomDatasetPane) {
+            auto options = m_bottomDatasetPane->visualOptions();
+            options.showInlinePermissions = visible;
+            m_bottomDatasetPane->setVisualOptions(options);
+        }
+    } else {
+        m_showInlinePermissionsNodesTop = visible;
+        if (m_topDatasetPane) {
+            auto options = m_topDatasetPane->visualOptions();
+            options.showInlinePermissions = visible;
+            m_topDatasetPane->setVisualOptions(options);
+        }
+    }
+}
+
+void MainWindow::setShowInlineGsaNodeForTree(QTreeWidget* tree, bool visible) {
+    if (tree == m_bottomConnContentTree) {
+        m_showInlineGsaNodeBottom = visible;
+        if (m_bottomDatasetPane) {
+            auto options = m_bottomDatasetPane->visualOptions();
+            options.showInlineGsa = visible;
+            m_bottomDatasetPane->setVisualOptions(options);
+        }
+    } else {
+        m_showInlineGsaNodeTop = visible;
+        if (m_topDatasetPane) {
+            auto options = m_topDatasetPane->visualOptions();
+            options.showInlineGsa = visible;
+            m_topDatasetPane->setVisualOptions(options);
+        }
+    }
 }
 
 void MainWindow::buildUi() {
@@ -1664,9 +1753,8 @@ void MainWindow::buildUi() {
     auto* connContentLayout = new QVBoxLayout(m_connContentPage);
     connContentLayout->setContentsMargins(0, 0, 0, 0);
     connContentLayout->setSpacing(4);
-    m_connContentTree = new QTreeWidget(m_connContentPage);
-    m_connContentTree->setObjectName(QStringLiteral("connContentTreeTop"));
-    m_connContentTree->setColumnCount(4);
+    m_topDatasetPane = new ConnectionDatasetTreePane(ConnectionDatasetTreePane::Role::Top, m_connContentPage);
+    m_connContentTree = m_topDatasetPane->tree();
     m_connContentTree->setHeaderLabels({QStringLiteral("Origen:")
                                             + trk(QStringLiteral("t_dataset_001"),
                                                   QStringLiteral("Dataset"),
@@ -1684,42 +1772,16 @@ void MainWindow::buildUi() {
                                             QStringLiteral("Mountpoint"),
                                             QStringLiteral("Mountpoint"),
                                             QStringLiteral("挂载点"))});
-    m_connContentTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
-    m_connContentTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
-    m_connContentTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
-    m_connContentTree->header()->setSectionResizeMode(3, QHeaderView::Interactive);
-    m_connContentTree->header()->setStretchLastSection(false);
-    m_connContentTree->setColumnWidth(0, 250);
-    m_connContentTree->setColumnWidth(1, 90);
-    m_connContentTree->setColumnWidth(2, 72);
-    m_connContentTree->setColumnWidth(3, 180);
-    m_connContentTree->setColumnHidden(1, true);
-    m_connContentTree->setColumnHidden(2, true);
-    m_connContentTree->setColumnHidden(3, true);
-    m_connContentTree->setFont(QApplication::font());
-    if (m_connContentTree->header()) {
-        m_connContentTree->header()->setFont(QApplication::font());
-    }
-    m_connContentTree->setUniformRowHeights(false);
-    m_connContentTree->setRootIsDecorated(true);
-    m_connContentTree->setItemsExpandable(true);
-    m_connContentTree->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-    m_connContentTree->verticalScrollBar()->setSingleStep(12);
-    m_connContentTree->setStyleSheet(QStringLiteral(
-        "QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"
-        "QTreeWidget::indicator { width: 8px; height: 8px; margin: 2px; }"));
+    m_topDatasetPane->setVisualOptions({m_showInlinePropertyNodesTop,
+                                        m_showInlinePermissionsNodesTop,
+                                        m_showInlineGsaNodeTop});
     m_connContentTree->setItemDelegate(new ConnContentPropBorderDelegate(m_connContentTree));
-#ifdef Q_OS_MAC
-    if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
-        m_connContentTree->setStyle(fusion);
-    }
-#endif
     // Las acciones se exponen por menú contextual del árbol.
     if (m_btnConnBreakdown) m_btnConnBreakdown->setVisible(false);
     if (m_btnConnAssemble) m_btnConnAssemble->setVisible(false);
     if (m_btnConnFromDir) m_btnConnFromDir->setVisible(false);
     if (m_btnConnToDir) m_btnConnToDir->setVisible(false);
-    connContentLayout->addWidget(m_connContentTree, 1);
+    connContentLayout->addWidget(m_topDatasetPane, 1);
     m_btnApplyConnContentProps->setEnabled(false);
     if (m_btnDiscardPendingChanges) m_btnDiscardPendingChanges->setEnabled(false);
     m_connPropsStack->addWidget(m_connContentPage);
@@ -1813,9 +1875,8 @@ void MainWindow::buildUi() {
     m_bottomConnectionEntityTabs->setUsesScrollButtons(true);
     m_bottomConnectionEntityTabs->setVisible(false);
     bottomConnLayout->addWidget(m_bottomConnectionEntityTabs, 0);
-    m_bottomConnContentTree = new QTreeWidget(bottomConnBox);
-    m_bottomConnContentTree->setObjectName(QStringLiteral("connContentTreeBottom"));
-    m_bottomConnContentTree->setColumnCount(4);
+    m_bottomDatasetPane = new ConnectionDatasetTreePane(ConnectionDatasetTreePane::Role::Bottom, bottomConnBox);
+    m_bottomConnContentTree = m_bottomDatasetPane->tree();
     m_bottomConnContentTree->setHeaderLabels({QStringLiteral("Destino:")
                                                    + trk(QStringLiteral("t_dataset_001"),
                                                          QStringLiteral("Dataset"),
@@ -1833,36 +1894,10 @@ void MainWindow::buildUi() {
                                                    QStringLiteral("Mountpoint"),
                                                    QStringLiteral("Mountpoint"),
                                                    QStringLiteral("挂载点"))});
-    m_bottomConnContentTree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
-    m_bottomConnContentTree->header()->setSectionResizeMode(1, QHeaderView::Interactive);
-    m_bottomConnContentTree->header()->setSectionResizeMode(2, QHeaderView::Interactive);
-    m_bottomConnContentTree->header()->setSectionResizeMode(3, QHeaderView::Interactive);
-    m_bottomConnContentTree->header()->setStretchLastSection(false);
-    m_bottomConnContentTree->setColumnWidth(0, 230);
-    m_bottomConnContentTree->setColumnWidth(1, 90);
-    m_bottomConnContentTree->setColumnWidth(2, 72);
-    m_bottomConnContentTree->setColumnWidth(3, 170);
-    m_bottomConnContentTree->setColumnHidden(1, true);
-    m_bottomConnContentTree->setColumnHidden(2, true);
-    m_bottomConnContentTree->setColumnHidden(3, true);
-    m_bottomConnContentTree->setFont(QApplication::font());
-    if (m_bottomConnContentTree->header()) {
-        m_bottomConnContentTree->header()->setFont(QApplication::font());
-    }
-    m_bottomConnContentTree->setUniformRowHeights(false);
-    m_bottomConnContentTree->setRootIsDecorated(true);
-    m_bottomConnContentTree->setItemsExpandable(true);
-    m_bottomConnContentTree->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-    m_bottomConnContentTree->verticalScrollBar()->setSingleStep(12);
-    m_bottomConnContentTree->setStyleSheet(QStringLiteral(
-        "QTreeWidget::item { height: 22px; padding: 0px; margin: 0px; }"
-        "QTreeWidget::indicator { width: 8px; height: 8px; margin: 2px; }"));
+    m_bottomDatasetPane->setVisualOptions({m_showInlinePropertyNodesBottom,
+                                           m_showInlinePermissionsNodesBottom,
+                                           m_showInlineGsaNodeBottom});
     m_bottomConnContentTree->setItemDelegate(new ConnContentPropBorderDelegate(m_bottomConnContentTree));
-#ifdef Q_OS_MAC
-    if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
-        m_bottomConnContentTree->setStyle(fusion);
-    }
-#endif
     // Mantener esquema de columnas idéntico en ambos árboles (superior/inferior)
     // incluso cuando uno de ellos esté vacío.
     {
@@ -1936,15 +1971,12 @@ void MainWindow::buildUi() {
     };
     installTreeHeaderContextMenu(m_connContentTree);
     installTreeHeaderContextMenu(m_bottomConnContentTree);
-    bottomConnLayout->addWidget(m_bottomConnContentTree, 1);
+    bottomConnLayout->addWidget(m_bottomDatasetPane, 1);
     m_rightMainSplit->setStretchFactor(0, 1);
     m_rightMainSplit->setStretchFactor(1, 1);
     m_rightMainSplit->setSizes({500, 500});
     auto equalizeTreeHeights = [this, rightConnectionsPage, bottomConnBox]() {
-        QTreeWidget* topTree = nullptr;
-        if (m_connContentPage) {
-            topTree = m_connContentPage->findChild<QTreeWidget*>();
-        }
+        QTreeWidget* topTree = m_topDatasetPane ? m_topDatasetPane->tree() : nullptr;
         if (!m_rightMainSplit || !topTree || !m_bottomConnContentTree
             || !rightConnectionsPage || !bottomConnBox) {
             return;
@@ -2007,54 +2039,59 @@ void MainWindow::buildUi() {
     auto* leftInfoLayout = new QVBoxLayout(leftInfo);
     leftInfoLayout->setContentsMargins(0, 0, 0, 0);
     leftInfoLayout->setSpacing(4);
-    auto* statusTitle = new QLabel(trk(QStringLiteral("t_status_col_001"),
-                                       QStringLiteral("Estado"),
-                                       QStringLiteral("Status"),
-                                       QStringLiteral("状态")),
-                                   leftInfo);
-    QFont smallTitle = statusTitle->font();
-    smallTitle.setBold(true);
-    statusTitle->setFont(smallTitle);
-    m_statusText = new QTextEdit(leftInfo);
+    auto* statusBox = new QGroupBox(trk(QStringLiteral("t_status_col_001"),
+                                        QStringLiteral("Estado"),
+                                        QStringLiteral("Status"),
+                                        QStringLiteral("状态")),
+                                    leftInfo);
+    auto* statusLayout = new QVBoxLayout(statusBox);
+    statusLayout->setContentsMargins(6, 6, 6, 6);
+    statusLayout->setSpacing(4);
+    m_statusText = new QTextEdit(statusBox);
     m_statusText->setReadOnly(true);
     m_statusText->setAcceptRichText(false);
     m_statusText->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_statusText->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_statusText->setLineWrapMode(QTextEdit::NoWrap);
     m_statusText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
     {
         const QFontMetrics statusFm(m_statusText->font());
-        const int h = statusFm.lineSpacing() * 2 + 10;
+        const int h = statusFm.lineSpacing() + 10;
         m_statusText->setFixedHeight(h);
         m_statusText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     }
-    auto* detailTitle = new QLabel(trk(QStringLiteral("t_detail_lbl001"),
-                                       QStringLiteral("Progreso"),
-                                       QStringLiteral("Progress"),
-                                       QStringLiteral("进度")),
-                                   leftInfo);
-    detailTitle->setFont(smallTitle);
-    m_lastDetailText = new QTextEdit(leftInfo);
+    statusLayout->addWidget(m_statusText, 0);
+
+    auto* detailBox = new QGroupBox(trk(QStringLiteral("t_detail_lbl001"),
+                                        QStringLiteral("Progreso"),
+                                        QStringLiteral("Progress"),
+                                        QStringLiteral("进度")),
+                                    leftInfo);
+    auto* detailLayout = new QVBoxLayout(detailBox);
+    detailLayout->setContentsMargins(6, 6, 6, 6);
+    detailLayout->setSpacing(4);
+    m_lastDetailText = new QTextEdit(detailBox);
     m_lastDetailText->setReadOnly(true);
     m_lastDetailText->setAcceptRichText(false);
-    m_lastDetailText->setLineWrapMode(QTextEdit::WidgetWidth);
+    m_lastDetailText->setLineWrapMode(QTextEdit::NoWrap);
+    m_lastDetailText->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_lastDetailText->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_lastDetailText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
-    statusTitle->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    detailTitle->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    leftInfoLayout->addWidget(statusTitle, 0);
-    leftInfoLayout->addWidget(m_statusText, 0);
-    leftInfoLayout->addWidget(detailTitle, 0);
-    m_lastDetailText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    leftInfoLayout->addWidget(m_lastDetailText, 1);
+    {
+        const QFontMetrics detailFm(m_lastDetailText->font());
+        const int h = detailFm.lineSpacing() + 10;
+        m_lastDetailText->setFixedHeight(h);
+        m_lastDetailText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    }
+    detailLayout->addWidget(m_lastDetailText, 0);
+    leftInfoLayout->addWidget(statusBox, 0);
+    leftInfoLayout->addWidget(detailBox, 0);
 
-    auto* rightLogs = new QWidget(combinedLogTab);
-    auto* rightLogsLayout = new QVBoxLayout(rightLogs);
-    rightLogsLayout->setContentsMargins(0, 0, 0, 0);
-    rightLogsLayout->setSpacing(4);
     auto* appLogBox = new QGroupBox(trk(QStringLiteral("t_app_tab_001"),
                                         QStringLiteral("Aplicación"),
                                         QStringLiteral("Application"),
                                         QStringLiteral("应用")),
-                                    rightLogs);
+                                    leftInfo);
     auto* appLogLayout = new QVBoxLayout(appLogBox);
     appLogLayout->setContentsMargins(6, 6, 6, 6);
     appLogLayout->setSpacing(4);
@@ -2065,9 +2102,15 @@ void MainWindow::buildUi() {
     m_logView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_logView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     appLogLayout->addWidget(m_logView, 1);
+    leftInfoLayout->addWidget(appLogBox, 1);
 
-    auto* pendingChangesTab = new QWidget(m_logsTabs);
-    auto* pendingChangesLayout = new QVBoxLayout(pendingChangesTab);
+    auto* pendingChangesBox = new QGroupBox(
+        trk(QStringLiteral("t_pending_changes_tab001"),
+            QStringLiteral("Cambios pendientes"),
+            QStringLiteral("Pending changes"),
+            QStringLiteral("待处理更改")),
+        central);
+    auto* pendingChangesLayout = new QVBoxLayout(pendingChangesBox);
     pendingChangesLayout->setContentsMargins(6, 6, 6, 6);
     pendingChangesLayout->setSpacing(4);
     auto* pendingChangesBody = new QHBoxLayout();
@@ -2076,14 +2119,14 @@ void MainWindow::buildUi() {
     auto* pendingButtonsCol = new QVBoxLayout();
     pendingButtonsCol->setContentsMargins(0, 0, 0, 0);
     pendingButtonsCol->setSpacing(4);
-    m_btnApplyConnContentProps->setParent(pendingChangesTab);
+    m_btnApplyConnContentProps->setParent(pendingChangesBox);
     m_btnApplyConnContentProps->setAttribute(Qt::WA_TransparentForMouseEvents, false);
-    m_btnDiscardPendingChanges->setParent(pendingChangesTab);
+    m_btnDiscardPendingChanges->setParent(pendingChangesBox);
     pendingButtonsCol->addWidget(m_btnApplyConnContentProps, 0, Qt::AlignLeft | Qt::AlignTop);
     pendingButtonsCol->addWidget(m_btnDiscardPendingChanges, 0, Qt::AlignLeft | Qt::AlignTop);
     pendingButtonsCol->addStretch(1);
     pendingChangesBody->addLayout(pendingButtonsCol, 0);
-    m_pendingChangesView = new QPlainTextEdit(pendingChangesTab);
+    m_pendingChangesView = new QPlainTextEdit(pendingChangesBox);
     m_pendingChangesView->setReadOnly(true);
     m_pendingChangesView->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     m_pendingChangesView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -2114,18 +2157,12 @@ void MainWindow::buildUi() {
     });
     pendingChangesBody->addWidget(m_pendingChangesView, 1);
     pendingChangesLayout->addLayout(pendingChangesBody, 1);
+    pendingChangesBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
 
     loadPersistedAppLogToView();
-    rightLogsLayout->addWidget(appLogBox, 1);
 
     logBody->addWidget(leftInfo, 1);
-    logBody->addWidget(rightLogs, 3);
     logLayout->addLayout(logBody, 1);
-    m_logsTabs->addTab(pendingChangesTab,
-                       trk(QStringLiteral("t_pending_changes_tab001"),
-                           QStringLiteral("Cambios pendientes"),
-                           QStringLiteral("Pending changes"),
-                           QStringLiteral("待处理更改")));
     m_logsTabs->addTab(combinedLogTab,
                        trk(QStringLiteral("t_combined_log001"),
                            QStringLiteral("Log combinado"),
@@ -2133,11 +2170,30 @@ void MainWindow::buildUi() {
                            QStringLiteral("组合日志")));
     m_logsTabs->setCurrentIndex(0);
 
+    auto* bottomTabsPane = new QWidget(central);
+    auto* bottomTabsLayout = new QVBoxLayout(bottomTabsPane);
+    bottomTabsLayout->setContentsMargins(0, 0, 0, 0);
+    bottomTabsLayout->setSpacing(0);
+    bottomTabsLayout->addWidget(m_logsTabs, 1);
+
+    m_bottomInfoSplit = new QSplitter(Qt::Horizontal, central);
+    m_bottomInfoSplit->setChildrenCollapsible(true);
+    m_bottomInfoSplit->setHandleWidth(4);
+    m_bottomInfoSplit->addWidget(pendingChangesBox);
+    m_bottomInfoSplit->addWidget(bottomTabsPane);
+    m_bottomInfoSplit->setStretchFactor(0, 0);
+    m_bottomInfoSplit->setStretchFactor(1, 1);
+    m_bottomInfoSplit->setSizes({360, 840});
+
     m_verticalMainSplit = new QSplitter(Qt::Vertical, central);
     m_verticalMainSplit->setChildrenCollapsible(true);
     m_verticalMainSplit->setHandleWidth(4);
+    topArea->setMinimumHeight(0);
+    pendingChangesBox->setMinimumHeight(0);
+    bottomTabsPane->setMinimumHeight(0);
+    m_bottomInfoSplit->setMinimumHeight(0);
     m_verticalMainSplit->addWidget(topArea);
-    m_verticalMainSplit->addWidget(m_logsTabs);
+    m_verticalMainSplit->addWidget(m_bottomInfoSplit);
     m_verticalMainSplit->setStretchFactor(0, 81);
     m_verticalMainSplit->setStretchFactor(1, 19);
     m_verticalMainSplit->setSizes({810, 190});
@@ -2159,6 +2215,9 @@ void MainWindow::buildUi() {
         }
         if (m_verticalMainSplit && !m_verticalMainSplitState.isEmpty()) {
             m_verticalMainSplit->restoreState(m_verticalMainSplitState);
+        }
+        if (m_bottomInfoSplit && !m_bottomInfoSplitState.isEmpty()) {
+            m_bottomInfoSplit->restoreState(m_bottomInfoSplitState);
         }
     });
 
@@ -3954,6 +4013,123 @@ void MainWindow::buildUi() {
         if (m_btnApplyConnContentProps && m_btnApplyConnContentProps->isEnabled()) applyDatasetPropertyChanges();
     };
 
+    struct PermissionMenuActions {
+        QAction* refreshPerms{nullptr};
+        QAction* newGrant{nullptr};
+        QAction* newSet{nullptr};
+        QAction* editGrant{nullptr};
+        QAction* deleteGrant{nullptr};
+        QAction* renameSet{nullptr};
+        QAction* deleteSet{nullptr};
+    };
+    auto buildPermissionMenu = [](QMenu& menu, const QString& kind) {
+        PermissionMenuActions actions;
+        actions.refreshPerms = menu.addAction(QStringLiteral("Refrescar permisos"));
+        actions.newGrant = menu.addAction(QStringLiteral("Nueva delegación"));
+        actions.newSet = menu.addAction(QStringLiteral("Nuevo set de permisos"));
+        if (kind == QStringLiteral("grant") || kind == QStringLiteral("grant_perm")) {
+            menu.addSeparator();
+            actions.editGrant = menu.addAction(QStringLiteral("Editar delegación"));
+            actions.deleteGrant = menu.addAction(QStringLiteral("Eliminar delegación"));
+        } else if (kind == QStringLiteral("set") || kind == QStringLiteral("set_perm")) {
+            menu.addSeparator();
+            actions.renameSet = menu.addAction(QStringLiteral("Renombrar conjunto de permisos"));
+            actions.deleteSet = menu.addAction(QStringLiteral("Eliminar set"));
+        }
+        return actions;
+    };
+
+    struct PoolRootMenuActions {
+        QAction* update{nullptr};
+        QAction* importPool{nullptr};
+        QAction* importRename{nullptr};
+        QAction* exportPool{nullptr};
+        QAction* history{nullptr};
+        QAction* sync{nullptr};
+        QAction* scrub{nullptr};
+        QAction* reguid{nullptr};
+        QAction* trim{nullptr};
+        QAction* initialize{nullptr};
+        QAction* destroy{nullptr};
+        QAction* showPoolInfo{nullptr};
+    };
+    auto buildPoolRootMenu = [this](QMenu& menu) {
+        PoolRootMenuActions actions;
+        actions.update = menu.addAction(
+            trk(QStringLiteral("t_refresh_btn001"),
+                QStringLiteral("Actualizar"),
+                QStringLiteral("Refresh"),
+                QStringLiteral("刷新")));
+        actions.importPool = menu.addAction(
+            trk(QStringLiteral("t_import_btn001"),
+                QStringLiteral("Importar"),
+                QStringLiteral("Import"),
+                QStringLiteral("导入")));
+        actions.importRename = menu.addAction(QStringLiteral("Importar renombrando"));
+        actions.exportPool = menu.addAction(
+            trk(QStringLiteral("t_export_btn001"),
+                QStringLiteral("Exportar"),
+                QStringLiteral("Export"),
+                QStringLiteral("导出")));
+        actions.history = menu.addAction(
+            trk(QStringLiteral("t_pool_history_t1"),
+                QStringLiteral("Historial")));
+        QMenu* management = menu.addMenu(QStringLiteral("Gestión"));
+        actions.sync = management->addAction(QStringLiteral("Sync"));
+        actions.scrub = management->addAction(QStringLiteral("Scrub"));
+        actions.reguid = management->addAction(QStringLiteral("Reguid"));
+        actions.trim = management->addAction(QStringLiteral("Trim"));
+        actions.initialize = management->addAction(QStringLiteral("Initialize"));
+        actions.destroy = management->addAction(QStringLiteral("Destroy"));
+        menu.addSeparator();
+        actions.showPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del pool"));
+        actions.showPoolInfo->setCheckable(true);
+        actions.showPoolInfo->setChecked(m_showPoolInfoNode);
+        return actions;
+    };
+
+    struct InlineVisibilityMenuActions {
+        QAction* manage{nullptr};
+        QAction* showPoolInfo{nullptr};
+        QAction* showInlineProps{nullptr};
+        QAction* showInlinePerms{nullptr};
+        QAction* showInlineGsa{nullptr};
+        QAction* showAutoGsa{nullptr};
+    };
+    auto buildInlineVisibilityMenu = [this](QMenu& menu,
+                                            QTreeWidget* tree,
+                                            bool includeManage,
+                                            bool includePoolInfo,
+                                            bool includeAutoGsa) {
+        InlineVisibilityMenuActions actions;
+        if (includeManage) {
+            actions.manage = menu.addAction(
+                trk(QStringLiteral("t_manage_props_vis001"),
+                    QStringLiteral("Gestionar visualización de propiedades")));
+        }
+        if (includePoolInfo) {
+            actions.showPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del pool"));
+            actions.showPoolInfo->setCheckable(true);
+            actions.showPoolInfo->setChecked(m_showPoolInfoNode);
+        }
+        QMenu* inlineMenu = menu.addMenu(QStringLiteral("Mostrar en línea"));
+        actions.showInlineProps = inlineMenu->addAction(QStringLiteral("Mostrar propiedades en línea"));
+        actions.showInlineProps->setCheckable(true);
+        actions.showInlineProps->setChecked(showInlinePropertyNodesForTree(tree));
+        actions.showInlinePerms = inlineMenu->addAction(QStringLiteral("Mostrar Permisos en línea"));
+        actions.showInlinePerms->setCheckable(true);
+        actions.showInlinePerms->setChecked(showInlinePermissionsNodesForTree(tree));
+        actions.showInlineGsa = inlineMenu->addAction(QStringLiteral("Programar snapshots"));
+        actions.showInlineGsa->setCheckable(true);
+        actions.showInlineGsa->setChecked(showInlineGsaNodeForTree(tree));
+        if (includeAutoGsa) {
+            actions.showAutoGsa = menu.addAction(QStringLiteral("Mostrar snapshots automáticos"));
+            actions.showAutoGsa->setCheckable(true);
+            actions.showAutoGsa->setChecked(showAutomaticSnapshots());
+        }
+        return actions;
+    };
+
     if (m_bottomConnContentTree) {
         connect(m_bottomConnContentTree, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem* item, int) {
             if (!m_bottomConnContentTree || !item) {
@@ -4059,6 +4235,10 @@ void MainWindow::buildUi() {
             const bool isGsaNode = sel && sel->data(0, Qt::UserRole + 33).toBool();
             const bool isHoldItem = sel && sel->data(0, kConnSnapshotHoldItemRole).toBool();
             const bool isPermissionsNode = sel && sel->data(0, kConnPermissionsNodeRole).toBool();
+            const bool isAutoSnapshotsSummary =
+                sel && (sel->data(0, kConnPoolAutoSnapshotsNodeRole).toBool()
+                        || sel->data(0, kConnPoolAutoSnapshotsDatasetRole).toString().trimmed().isEmpty() == false
+                        || (sel->parent() && sel->parent()->data(0, kConnPoolAutoSnapshotsNodeRole).toBool()));
             const bool isPoolContext =
                 sel && (sel->data(0, kIsPoolRootRole).toBool() || isInfoNodeOrInside(sel));
             const bool isLazyPropsNode =
@@ -4077,6 +4257,9 @@ void MainWindow::buildUi() {
                 && !isPoolContext && !isLazyPropsNode && !isLazyPermissionsNode) {
                 // No reconstruir propiedades al seleccionar una fila de propiedades de dataset;
                 // si no, el combo se destruye al abrirse.
+                return;
+            }
+            if (isAutoSnapshotsSummary) {
                 return;
             }
 
@@ -4170,12 +4353,79 @@ void MainWindow::buildUi() {
                  executeDatasetActionWithStdin, promptNewPassphrase, permissionNodeItem,
                  permissionOwnerItem, refreshPermissionsTreeNode, promptPermissionGrant,
                  promptPermissionSet, permissionTokensFromNode,
-                 executePermissionCommand, scopeFlagsForPermission, targetFlagsForPermission](const QPoint& pos) {
+                 executePermissionCommand, scopeFlagsForPermission, targetFlagsForPermission,
+                 buildPermissionMenu, buildPoolRootMenu, buildInlineVisibilityMenu](const QPoint& pos) {
             if (!m_bottomConnContentTree) {
                 return;
             }
             QTreeWidgetItem* item = m_bottomConnContentTree->itemAt(pos);
             if (!item) {
+                return;
+            }
+            const QString autoSnapshotDataset = item->data(0, kConnPoolAutoSnapshotsDatasetRole).toString().trimmed();
+            bool insideAutoSnapshots = false;
+            for (QTreeWidgetItem* p = item; p; p = p->parent()) {
+                if (p->data(0, kConnPoolAutoSnapshotsNodeRole).toBool()) {
+                    insideAutoSnapshots = true;
+                    break;
+                }
+            }
+            if (insideAutoSnapshots) {
+                if (autoSnapshotDataset.isEmpty()) {
+                    return;
+                }
+                const int connIdx = item->data(0, kConnIdxRole).toInt();
+                const QString poolName = item->data(0, kPoolNameRole).toString().trimmed();
+                if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+                    return;
+                }
+                const QStringList gsaProps = {
+                    QStringLiteral("org.fc16.gsa:activado"),
+                    QStringLiteral("org.fc16.gsa:recursivo"),
+                    QStringLiteral("org.fc16.gsa:horario"),
+                    QStringLiteral("org.fc16.gsa:diario"),
+                    QStringLiteral("org.fc16.gsa:semanal"),
+                    QStringLiteral("org.fc16.gsa:mensual"),
+                    QStringLiteral("org.fc16.gsa:anual"),
+                    QStringLiteral("org.fc16.gsa:nivelar"),
+                    QStringLiteral("org.fc16.gsa:destino"),
+                };
+                QMenu autoMenu(this);
+                QAction* aDeleteSchedule = autoMenu.addAction(QStringLiteral("Borrar programación"));
+                QAction* picked = autoMenu.exec(m_bottomConnContentTree->viewport()->mapToGlobal(pos));
+                if (picked != aDeleteSchedule) {
+                    return;
+                }
+                const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+                for (const QString& prop : gsaProps) {
+                    updateConnContentDraftInherit(token, autoSnapshotDataset, prop, true);
+                }
+                m_propsDirty = true;
+                updateApplyPropsButtonState();
+                auto refreshTreeForPool = [this, &token, &autoSnapshotDataset](QTreeWidget* tree) {
+                    if (!tree) {
+                        return;
+                    }
+                    const QString prevToken = m_connContentToken;
+                    QTreeWidget* prevTree = m_connContentTree;
+                    m_connContentTree = tree;
+                    m_connContentToken = token;
+                    syncConnContentPoolColumns();
+                    QTreeWidgetItem* current = tree->currentItem();
+                    QTreeWidgetItem* owner = current;
+                    while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
+                           && !owner->data(0, kIsPoolRootRole).toBool()) {
+                        owner = owner->parent();
+                    }
+                    if (owner && owner->data(0, Qt::UserRole).toString().trimmed() == autoSnapshotDataset) {
+                        refreshDatasetProperties(QStringLiteral("conncontent"));
+                        syncConnContentPropertyColumns();
+                    }
+                    m_connContentTree = prevTree;
+                    m_connContentToken = prevToken;
+                };
+                refreshTreeForPool(m_bottomConnContentTree);
+                refreshTreeForPool(m_connContentTree);
                 return;
             }
             const bool isPropRow = item->data(0, kConnPropRowRole).toBool();
@@ -4213,26 +4463,11 @@ void MainWindow::buildUi() {
                 }
                 QMenu permMenu(this);
                 const QString kind = permNode->data(0, kConnPermissionsKindRole).toString();
-                QAction* aRefreshPerms = permMenu.addAction(QStringLiteral("Refrescar permisos"));
-                QAction* aNewGrant = permMenu.addAction(QStringLiteral("Nueva delegación"));
-                QAction* aNewSet = permMenu.addAction(QStringLiteral("Nuevo set de permisos"));
-                QAction* aEditGrant = nullptr;
-                QAction* aDeleteGrant = nullptr;
-                QAction* aRenameSet = nullptr;
-                QAction* aDeleteSet = nullptr;
-                if (kind == QStringLiteral("grant") || kind == QStringLiteral("grant_perm")) {
-                    permMenu.addSeparator();
-                    aEditGrant = permMenu.addAction(QStringLiteral("Editar delegación"));
-                    aDeleteGrant = permMenu.addAction(QStringLiteral("Eliminar delegación"));
-                } else if (kind == QStringLiteral("set") || kind == QStringLiteral("set_perm")) {
-                    permMenu.addSeparator();
-                    aRenameSet = permMenu.addAction(QStringLiteral("Renombrar conjunto de permisos"));
-                    aDeleteSet = permMenu.addAction(QStringLiteral("Eliminar set"));
-                }
+                const PermissionMenuActions permActions = buildPermissionMenu(permMenu, kind);
                 QAction* picked = permMenu.exec(m_bottomConnContentTree->viewport()->mapToGlobal(pos));
-                if (picked == aRefreshPerms) {
+                if (picked == permActions.refreshPerms) {
                     refreshPermissionsTreeNode(m_bottomConnContentTree, item, true);
-                } else if (picked == aNewGrant) {
+                } else if (picked == permActions.newGrant) {
                     QString targetType;
                     QString targetName;
                     QString scope;
@@ -4309,7 +4544,7 @@ void MainWindow::buildUi() {
                             }
                         }
                     }
-                } else if (picked == aEditGrant) {
+                } else if (picked == permActions.editGrant) {
                     QTreeWidgetItem* grantNode = permNode;
                     if (kind == QStringLiteral("grant_perm") && permNode->parent()) {
                         grantNode = permNode->parent();
@@ -4355,7 +4590,7 @@ void MainWindow::buildUi() {
                             }
                         }
                     }
-                } else if (picked == aNewSet) {
+                } else if (picked == permActions.newSet) {
                     QString setName;
                     QStringList tokens;
                     if (promptPermissionSet(ctx,
@@ -4386,7 +4621,7 @@ void MainWindow::buildUi() {
                             }
                         }
                     }
-                } else if (picked == aRenameSet) {
+                } else if (picked == permActions.renameSet) {
                     QTreeWidgetItem* setNode = permNode;
                     if (kind == QStringLiteral("set_perm") && permNode->parent()) {
                         setNode = permNode->parent();
@@ -4419,7 +4654,7 @@ void MainWindow::buildUi() {
                             updateApplyPropsButtonState();
                         }
                     }
-                } else if (picked == aDeleteGrant) {
+                } else if (picked == permActions.deleteGrant) {
                     const QString cacheKey = datasetPermissionsCacheKey(ctx.connIdx, ctx.poolName, ctx.datasetName);
                     auto it = m_datasetPermissionsCache.find(cacheKey);
                     if (it != m_datasetPermissionsCache.end()) {
@@ -4440,7 +4675,7 @@ void MainWindow::buildUi() {
                         populateDatasetPermissionsNode(m_bottomConnContentTree, owner, false);
                         updateApplyPropsButtonState();
                     }
-                } else if (picked == aDeleteSet) {
+                } else if (picked == permActions.deleteSet) {
                     QString setName = permNode->data(0, kConnPermissionsEntryNameRole).toString().trimmed();
                     if (kind == QStringLiteral("set_perm") && permNode->parent()) {
                         setName = permNode->parent()->data(0, kConnPermissionsEntryNameRole).toString().trimmed();
@@ -4558,133 +4793,77 @@ void MainWindow::buildUi() {
                         : QString();
                 const zfsmgr::uilogic::PoolRootMenuState menuState =
                     zfsmgr::uilogic::buildPoolRootMenuState(poolAction, QStringLiteral("ONLINE"), poolRow >= 0);
-                QAction* aUpdate = menu.addAction(
-                    trk(QStringLiteral("t_refresh_btn001"),
-                        QStringLiteral("Actualizar"),
-                        QStringLiteral("Refresh"),
-                        QStringLiteral("刷新")));
-                QAction* aImport = menu.addAction(
-                    trk(QStringLiteral("t_import_btn001"),
-                        QStringLiteral("Importar"),
-                        QStringLiteral("Import"),
-                        QStringLiteral("导入")));
-                QAction* aImportRename = menu.addAction(QStringLiteral("Importar renombrando"));
-                QAction* aExport = menu.addAction(
-                    trk(QStringLiteral("t_export_btn001"),
-                        QStringLiteral("Exportar"),
-                        QStringLiteral("Export"),
-                        QStringLiteral("导出")));
-                QAction* aHistory = menu.addAction(
-                    trk(QStringLiteral("t_pool_history_t1"),
-                        QStringLiteral("Historial")));
-                QAction* aSync = menu.addAction(QStringLiteral("Sync"));
-                QAction* aScrub = menu.addAction(QStringLiteral("Scrub"));
-                QAction* aReguid = menu.addAction(QStringLiteral("Reguid"));
-                QAction* aTrim = menu.addAction(QStringLiteral("Trim"));
-                QAction* aInitialize = menu.addAction(QStringLiteral("Initialize"));
-                QAction* aDestroy = menu.addAction(QStringLiteral("Destroy"));
-                menu.addSeparator();
-                QAction* aShowPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del pool"));
-                aShowPoolInfo->setCheckable(true);
-                aShowPoolInfo->setChecked(m_showPoolInfoNode);
-                aUpdate->setEnabled(menuState.canRefresh);
-                aImport->setEnabled(menuState.canImport);
-                aImportRename->setEnabled(menuState.canImport);
-                aExport->setEnabled(menuState.canExport);
-                aHistory->setEnabled(menuState.canHistory);
-                aSync->setEnabled(menuState.canSync);
-                aScrub->setEnabled(menuState.canScrub);
-                aReguid->setEnabled(menuState.canReguid);
-                aTrim->setEnabled(menuState.canTrim);
-                aInitialize->setEnabled(menuState.canInitialize);
-                aDestroy->setEnabled(menuState.canDestroy);
+                const PoolRootMenuActions poolActions = buildPoolRootMenu(menu);
+                poolActions.update->setEnabled(menuState.canRefresh);
+                poolActions.importPool->setEnabled(menuState.canImport);
+                poolActions.importRename->setEnabled(menuState.canImport);
+                poolActions.exportPool->setEnabled(menuState.canExport);
+                poolActions.history->setEnabled(menuState.canHistory);
+                poolActions.sync->setEnabled(menuState.canSync);
+                poolActions.scrub->setEnabled(menuState.canScrub);
+                poolActions.reguid->setEnabled(menuState.canReguid);
+                poolActions.trim->setEnabled(menuState.canTrim);
+                poolActions.initialize->setEnabled(menuState.canInitialize);
+                poolActions.destroy->setEnabled(menuState.canDestroy);
                 QAction* picked = menu.exec(m_bottomConnContentTree->viewport()->mapToGlobal(pos));
                 if (!picked) {
                     return;
                 }
-                if (picked == aUpdate && menuState.canRefresh) {
+                if (picked == poolActions.update && menuState.canRefresh) {
                     refreshSelectedPoolDetails(true, true);
-                } else if (picked == aImport && menuState.canImport && poolRow >= 0) {
+                } else if (picked == poolActions.importPool && menuState.canImport && poolRow >= 0) {
                     importPoolFromRow(poolRow);
-                } else if (picked == aImportRename && menuState.canImport && poolRow >= 0) {
+                } else if (picked == poolActions.importRename && menuState.canImport && poolRow >= 0) {
                     importPoolRenamingFromRow(poolRow);
-                } else if (picked == aExport && menuState.canExport && poolRow >= 0) {
+                } else if (picked == poolActions.exportPool && menuState.canExport && poolRow >= 0) {
                     exportPoolFromRow(poolRow);
-                } else if (picked == aHistory && menuState.canHistory && poolRow >= 0) {
+                } else if (picked == poolActions.history && menuState.canHistory && poolRow >= 0) {
                     showPoolHistoryFromRow(poolRow);
-                } else if (picked == aSync && menuState.canSync && poolRow >= 0) {
+                } else if (picked == poolActions.sync && menuState.canSync && poolRow >= 0) {
                     syncPoolFromRow(poolRow);
-                } else if (picked == aScrub && menuState.canScrub && poolRow >= 0) {
+                } else if (picked == poolActions.scrub && menuState.canScrub && poolRow >= 0) {
                     scrubPoolFromRow(poolRow);
-                } else if (picked == aReguid && menuState.canReguid && poolRow >= 0) {
+                } else if (picked == poolActions.reguid && menuState.canReguid && poolRow >= 0) {
                     reguidPoolFromRow(poolRow);
-                } else if (picked == aTrim && menuState.canTrim && poolRow >= 0) {
+                } else if (picked == poolActions.trim && menuState.canTrim && poolRow >= 0) {
                     trimPoolFromRow(poolRow);
-                } else if (picked == aInitialize && menuState.canInitialize && poolRow >= 0) {
+                } else if (picked == poolActions.initialize && menuState.canInitialize && poolRow >= 0) {
                     initializePoolFromRow(poolRow);
-                } else if (picked == aDestroy && menuState.canDestroy && poolRow >= 0) {
+                } else if (picked == poolActions.destroy && menuState.canDestroy && poolRow >= 0) {
                     destroyPoolFromRow(poolRow);
-                } else if (picked == aShowPoolInfo) {
-                    m_showPoolInfoNode = aShowPoolInfo->isChecked();
+                } else if (picked == poolActions.showPoolInfo) {
+                    m_showPoolInfoNode = poolActions.showPoolInfo->isChecked();
                     applyInlineSectionVisibility();
                 }
                 return;
             }
             if (isPoolInfoContext) {
-                QAction* aManage = menu.addAction(
-                    trk(QStringLiteral("t_manage_props_vis001"),
-                        QStringLiteral("Gestionar visualización de propiedades")));
-                QAction* aShowPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del pool"));
-                aShowPoolInfo->setCheckable(true);
-                aShowPoolInfo->setChecked(m_showPoolInfoNode);
-                QMenu* inlineMenu = menu.addMenu(QStringLiteral("Mostrar en línea"));
-                QAction* aShowInlineProps = inlineMenu->addAction(QStringLiteral("Mostrar propiedades en línea"));
-                aShowInlineProps->setCheckable(true);
-                aShowInlineProps->setChecked(m_showInlinePropertyNodes);
-                QAction* aShowInlinePerms = inlineMenu->addAction(QStringLiteral("Mostrar Permisos en línea"));
-                aShowInlinePerms->setCheckable(true);
-                aShowInlinePerms->setChecked(m_showInlinePermissionsNodes);
-                QAction* aShowInlineGsa = inlineMenu->addAction(QStringLiteral("Programar snapshots"));
-                aShowInlineGsa->setCheckable(true);
-                aShowInlineGsa->setChecked(m_showInlineGsaNode);
-                QAction* aShowAutoGsa = menu.addAction(QStringLiteral("Mostrar snapshots automáticos"));
-                aShowAutoGsa->setCheckable(true);
-                aShowAutoGsa->setChecked(showAutomaticSnapshots());
+                const InlineVisibilityMenuActions inlineActions =
+                    buildInlineVisibilityMenu(menu, m_bottomConnContentTree, true, true, true);
                 QAction* picked = menu.exec(m_bottomConnContentTree->viewport()->mapToGlobal(pos));
-                if (picked == aManage) {
+                if (picked == inlineActions.manage) {
                     manageInlinePropsVisualization(m_bottomConnContentTree, item, true);
-                } else if (picked == aShowPoolInfo) {
-                    m_showPoolInfoNode = aShowPoolInfo->isChecked();
+                } else if (picked == inlineActions.showPoolInfo) {
+                    m_showPoolInfoNode = inlineActions.showPoolInfo->isChecked();
                     applyInlineSectionVisibility();
-                } else if (picked == aShowInlineProps) {
-                    m_showInlinePropertyNodes = aShowInlineProps->isChecked();
+                } else if (picked == inlineActions.showInlineProps) {
+                    setShowInlinePropertyNodesForTree(m_bottomConnContentTree, inlineActions.showInlineProps->isChecked());
                     applyInlineSectionVisibility();
-                } else if (picked == aShowInlinePerms) {
-                    m_showInlinePermissionsNodes = aShowInlinePerms->isChecked();
+                } else if (picked == inlineActions.showInlinePerms) {
+                    setShowInlinePermissionsNodesForTree(m_bottomConnContentTree, inlineActions.showInlinePerms->isChecked());
                     applyInlineSectionVisibility();
-                } else if (picked == aShowInlineGsa) {
-                    m_showInlineGsaNode = aShowInlineGsa->isChecked();
+                } else if (picked == inlineActions.showInlineGsa) {
+                    setShowInlineGsaNodeForTree(m_bottomConnContentTree, inlineActions.showInlineGsa->isChecked());
                     applyInlineSectionVisibility();
-                } else if (picked == aShowAutoGsa) {
-                    m_showAutomaticGsaSnapshots = aShowAutoGsa->isChecked();
+                } else if (picked == inlineActions.showAutoGsa) {
+                    m_showAutomaticGsaSnapshots = inlineActions.showAutoGsa->isChecked();
                     applyInlineSectionVisibility();
                 }
                 return;
             }
 
-            QAction* aManage = menu.addAction(
-                trk(QStringLiteral("t_manage_props_vis001"),
-                    QStringLiteral("Gestionar visualización de propiedades")));
-            QMenu* inlineMenu = menu.addMenu(QStringLiteral("Mostrar en línea"));
-            QAction* aShowInlineProps = inlineMenu->addAction(QStringLiteral("Mostrar propiedades en línea"));
-            aShowInlineProps->setCheckable(true);
-            aShowInlineProps->setChecked(m_showInlinePropertyNodes);
-            QAction* aShowInlinePerms = inlineMenu->addAction(QStringLiteral("Mostrar Permisos en línea"));
-            aShowInlinePerms->setCheckable(true);
-            aShowInlinePerms->setChecked(m_showInlinePermissionsNodes);
-            QAction* aShowInlineGsa = inlineMenu->addAction(QStringLiteral("Programar snapshots"));
-            aShowInlineGsa->setCheckable(true);
-            aShowInlineGsa->setChecked(m_showInlineGsaNode);
+            const InlineVisibilityMenuActions inlineActions =
+                buildInlineVisibilityMenu(menu, m_bottomConnContentTree, true, false, false);
             menu.addSeparator();
             QAction* aCreate = menu.addAction(
                 trk(QStringLiteral("t_ctx_create_dsv001"),
@@ -4793,7 +4972,7 @@ void MainWindow::buildUi() {
             aUnloadKey->setEnabled(isEncryptionRoot && keyLoaded);
             aChangeKey->setEnabled(isEncryptionRoot && keyLoaded);
             mEncryption->setEnabled(isEncryptionRoot);
-            aManage->setEnabled(hasConnSel);
+            inlineActions.manage->setEnabled(hasConnSel);
             aRollback->setEnabled(!actionsLocked() && hasConnSnap);
             aCreate->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
             aRename->setEnabled(!actionsLocked() && hasConnSel);
@@ -4864,28 +5043,28 @@ void MainWindow::buildUi() {
                 m_connContentToken = prevToken;
                 return;
             }
-            if (picked == aManage) {
+            if (picked == inlineActions.manage) {
                 manageInlinePropsVisualization(m_bottomConnContentTree, item, false);
                 m_connContentTree = prevTree;
                 m_connContentToken = prevToken;
                 return;
             }
-            if (picked == aShowInlineProps) {
-                m_showInlinePropertyNodes = aShowInlineProps->isChecked();
+            if (picked == inlineActions.showInlineProps) {
+                setShowInlinePropertyNodesForTree(m_bottomConnContentTree, inlineActions.showInlineProps->isChecked());
                 m_connContentTree = prevTree;
                 m_connContentToken = prevToken;
                 applyInlineSectionVisibility();
                 return;
             }
-            if (picked == aShowInlinePerms) {
-                m_showInlinePermissionsNodes = aShowInlinePerms->isChecked();
+            if (picked == inlineActions.showInlinePerms) {
+                setShowInlinePermissionsNodesForTree(m_bottomConnContentTree, inlineActions.showInlinePerms->isChecked());
                 m_connContentTree = prevTree;
                 m_connContentToken = prevToken;
                 applyInlineSectionVisibility();
                 return;
             }
-            if (picked == aShowInlineGsa) {
-                m_showInlineGsaNode = aShowInlineGsa->isChecked();
+            if (picked == inlineActions.showInlineGsa) {
+                setShowInlineGsaNodeForTree(m_bottomConnContentTree, inlineActions.showInlineGsa->isChecked());
                 m_connContentTree = prevTree;
                 m_connContentToken = prevToken;
                 applyInlineSectionVisibility();
@@ -5629,6 +5808,10 @@ void MainWindow::buildUi() {
             const bool isGsaNode = sel && sel->data(0, Qt::UserRole + 33).toBool();
             const bool isHoldItem = sel && sel->data(0, kConnSnapshotHoldItemRole).toBool();
             const bool isPermissionsNode = sel && sel->data(0, kConnPermissionsNodeRole).toBool();
+            const bool isAutoSnapshotsSummary =
+                sel && (sel->data(0, kConnPoolAutoSnapshotsNodeRole).toBool()
+                        || sel->data(0, kConnPoolAutoSnapshotsDatasetRole).toString().trimmed().isEmpty() == false
+                        || (sel->parent() && sel->parent()->data(0, kConnPoolAutoSnapshotsNodeRole).toBool()));
             const bool isPoolContext =
                 sel && (sel->data(0, kIsPoolRootRole).toBool() || isInfoNodeOrInside(sel));
             const bool isLazyPropsNode =
@@ -5645,6 +5828,11 @@ void MainWindow::buildUi() {
                 && sel->childCount() == 0;
             if ((isPropRow || (isGroupNode && !isGsaNode) || isHoldItem || isPermissionsNode)
                 && !isPoolContext && !isLazyPropsNode && !isLazyPermissionsNode) {
+                updateConnectionDetailTitlesForCurrentSelection();
+                updateConnectionActionsState();
+                return;
+            }
+            if (isAutoSnapshotsSummary) {
                 updateConnectionDetailTitlesForCurrentSelection();
                 updateConnectionActionsState();
                 return;
@@ -5728,12 +5916,79 @@ void MainWindow::buildUi() {
                  executeDatasetActionWithStdin, promptNewPassphrase, permissionNodeItem,
                  permissionOwnerItem, refreshPermissionsTreeNode, promptPermissionGrant,
                  promptPermissionSet, permissionTokensFromNode,
-                 executePermissionCommand, scopeFlagsForPermission, targetFlagsForPermission](const QPoint& pos) {
+                 executePermissionCommand, scopeFlagsForPermission, targetFlagsForPermission,
+                 buildPermissionMenu, buildPoolRootMenu, buildInlineVisibilityMenu](const QPoint& pos) {
             if (!m_connContentTree) {
                 return;
             }
             QTreeWidgetItem* item = m_connContentTree->itemAt(pos);
             if (!item) {
+                return;
+            }
+            const QString autoSnapshotDataset = item->data(0, kConnPoolAutoSnapshotsDatasetRole).toString().trimmed();
+            bool insideAutoSnapshots = false;
+            for (QTreeWidgetItem* p = item; p; p = p->parent()) {
+                if (p->data(0, kConnPoolAutoSnapshotsNodeRole).toBool()) {
+                    insideAutoSnapshots = true;
+                    break;
+                }
+            }
+            if (insideAutoSnapshots) {
+                if (autoSnapshotDataset.isEmpty()) {
+                    return;
+                }
+                const int connIdx = item->data(0, kConnIdxRole).toInt();
+                const QString poolName = item->data(0, kPoolNameRole).toString().trimmed();
+                if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+                    return;
+                }
+                const QStringList gsaProps = {
+                    QStringLiteral("org.fc16.gsa:activado"),
+                    QStringLiteral("org.fc16.gsa:recursivo"),
+                    QStringLiteral("org.fc16.gsa:horario"),
+                    QStringLiteral("org.fc16.gsa:diario"),
+                    QStringLiteral("org.fc16.gsa:semanal"),
+                    QStringLiteral("org.fc16.gsa:mensual"),
+                    QStringLiteral("org.fc16.gsa:anual"),
+                    QStringLiteral("org.fc16.gsa:nivelar"),
+                    QStringLiteral("org.fc16.gsa:destino"),
+                };
+                QMenu autoMenu(this);
+                QAction* aDeleteSchedule = autoMenu.addAction(QStringLiteral("Borrar programación"));
+                QAction* picked = autoMenu.exec(m_connContentTree->viewport()->mapToGlobal(pos));
+                if (picked != aDeleteSchedule) {
+                    return;
+                }
+                const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+                for (const QString& prop : gsaProps) {
+                    updateConnContentDraftInherit(token, autoSnapshotDataset, prop, true);
+                }
+                m_propsDirty = true;
+                updateApplyPropsButtonState();
+                auto refreshTreeForPool = [this, &token, &autoSnapshotDataset](QTreeWidget* tree) {
+                    if (!tree) {
+                        return;
+                    }
+                    const QString prevToken = m_connContentToken;
+                    QTreeWidget* prevTree = m_connContentTree;
+                    m_connContentTree = tree;
+                    m_connContentToken = token;
+                    syncConnContentPoolColumns();
+                    QTreeWidgetItem* current = tree->currentItem();
+                    QTreeWidgetItem* owner = current;
+                    while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
+                           && !owner->data(0, kIsPoolRootRole).toBool()) {
+                        owner = owner->parent();
+                    }
+                    if (owner && owner->data(0, Qt::UserRole).toString().trimmed() == autoSnapshotDataset) {
+                        refreshDatasetProperties(QStringLiteral("conncontent"));
+                        syncConnContentPropertyColumns();
+                    }
+                    m_connContentTree = prevTree;
+                    m_connContentToken = prevToken;
+                };
+                refreshTreeForPool(m_connContentTree);
+                refreshTreeForPool(m_bottomConnContentTree);
                 return;
             }
             const bool isPropRow = item->data(0, kConnPropRowRole).toBool();
@@ -5764,31 +6019,16 @@ void MainWindow::buildUi() {
                 }
                 QMenu permMenu(this);
                 const QString kind = permNode->data(0, kConnPermissionsKindRole).toString();
-                QAction* aRefreshPerms = permMenu.addAction(QStringLiteral("Refrescar permisos"));
-                QAction* aNewGrant = permMenu.addAction(QStringLiteral("Nueva delegación"));
-                QAction* aNewSet = permMenu.addAction(QStringLiteral("Nuevo set de permisos"));
-                QAction* aEditGrant = nullptr;
-                QAction* aDeleteGrant = nullptr;
-                QAction* aRenameSet = nullptr;
-                QAction* aDeleteSet = nullptr;
-                if (kind == QStringLiteral("grant") || kind == QStringLiteral("grant_perm")) {
-                    permMenu.addSeparator();
-                    aEditGrant = permMenu.addAction(QStringLiteral("Editar delegación"));
-                    aDeleteGrant = permMenu.addAction(QStringLiteral("Eliminar delegación"));
-                } else if (kind == QStringLiteral("set") || kind == QStringLiteral("set_perm")) {
-                    permMenu.addSeparator();
-                    aRenameSet = permMenu.addAction(QStringLiteral("Renombrar conjunto de permisos"));
-                    aDeleteSet = permMenu.addAction(QStringLiteral("Eliminar set"));
-                }
+                const PermissionMenuActions permActions = buildPermissionMenu(permMenu, kind);
                 QAction* picked = permMenu.exec(m_connContentTree->viewport()->mapToGlobal(pos));
                 if (!picked) {
                     return;
                 }
-                if (picked == aRefreshPerms) {
+                if (picked == permActions.refreshPerms) {
                     refreshPermissionsTreeNode(m_connContentTree, item, true);
                     return;
                 }
-                if (picked == aNewGrant) {
+                if (picked == permActions.newGrant) {
                     QString targetType;
                     QString targetName;
                     QString scope;
@@ -5869,7 +6109,7 @@ void MainWindow::buildUi() {
                     }
                     return;
                 }
-                if (picked == aEditGrant) {
+                if (picked == permActions.editGrant) {
                     QTreeWidgetItem* grantNode = permNode;
                     if (kind == QStringLiteral("grant_perm") && permNode->parent()) {
                         grantNode = permNode->parent();
@@ -5918,7 +6158,7 @@ void MainWindow::buildUi() {
                     }
                     return;
                 }
-                if (picked == aNewSet) {
+                if (picked == permActions.newSet) {
                     QString setName;
                     QStringList tokens;
                     if (!promptPermissionSet(ctx,
@@ -5952,7 +6192,7 @@ void MainWindow::buildUi() {
                     }
                     return;
                 }
-                if (picked == aRenameSet) {
+                if (picked == permActions.renameSet) {
                     QTreeWidgetItem* setNode = permNode;
                     if (kind == QStringLiteral("set_perm") && permNode->parent()) {
                         setNode = permNode->parent();
@@ -5988,7 +6228,7 @@ void MainWindow::buildUi() {
                     }
                     return;
                 }
-                if (picked == aDeleteGrant) {
+                if (picked == permActions.deleteGrant) {
                     const QString cacheKey = datasetPermissionsCacheKey(ctx.connIdx, ctx.poolName, ctx.datasetName);
                     auto it = m_datasetPermissionsCache.find(cacheKey);
                     if (it != m_datasetPermissionsCache.end()) {
@@ -6011,7 +6251,7 @@ void MainWindow::buildUi() {
                     }
                     return;
                 }
-                if (picked == aDeleteSet) {
+                if (picked == permActions.deleteSet) {
                     QString setName = permNode->data(0, kConnPermissionsEntryNameRole).toString().trimmed();
                     if (kind == QStringLiteral("set_perm") && permNode->parent()) {
                         setName = permNode->parent()->data(0, kConnPermissionsEntryNameRole).toString().trimmed();
@@ -6110,133 +6350,77 @@ void MainWindow::buildUi() {
                 const zfsmgr::uilogic::PoolRootMenuState menuState =
                     zfsmgr::uilogic::buildPoolRootMenuState(poolAction, QStringLiteral("ONLINE"), poolRow >= 0);
 
-                QAction* aUpdate = menu.addAction(
-                    trk(QStringLiteral("t_refresh_btn001"),
-                        QStringLiteral("Actualizar"),
-                        QStringLiteral("Refresh"),
-                        QStringLiteral("刷新")));
-                QAction* aImport = menu.addAction(
-                    trk(QStringLiteral("t_import_btn001"),
-                        QStringLiteral("Importar"),
-                        QStringLiteral("Import"),
-                        QStringLiteral("导入")));
-                QAction* aImportRename = menu.addAction(QStringLiteral("Importar renombrando"));
-                QAction* aExport = menu.addAction(
-                    trk(QStringLiteral("t_export_btn001"),
-                        QStringLiteral("Exportar"),
-                        QStringLiteral("Export"),
-                        QStringLiteral("导出")));
-                QAction* aHistory = menu.addAction(
-                    trk(QStringLiteral("t_pool_history_t1"),
-                        QStringLiteral("Historial")));
-                QAction* aSync = menu.addAction(QStringLiteral("Sync"));
-                QAction* aScrub = menu.addAction(QStringLiteral("Scrub"));
-                QAction* aReguid = menu.addAction(QStringLiteral("Reguid"));
-                QAction* aTrim = menu.addAction(QStringLiteral("Trim"));
-                QAction* aInitialize = menu.addAction(QStringLiteral("Initialize"));
-                QAction* aDestroy = menu.addAction(QStringLiteral("Destroy"));
-                menu.addSeparator();
-                QAction* aShowPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del pool"));
-                aShowPoolInfo->setCheckable(true);
-                aShowPoolInfo->setChecked(m_showPoolInfoNode);
-                aUpdate->setEnabled(menuState.canRefresh);
-                aImport->setEnabled(menuState.canImport);
-                aImportRename->setEnabled(menuState.canImport);
-                aExport->setEnabled(menuState.canExport);
-                aHistory->setEnabled(menuState.canHistory);
-                aSync->setEnabled(menuState.canSync);
-                aScrub->setEnabled(menuState.canScrub);
-                aReguid->setEnabled(menuState.canReguid);
-                aTrim->setEnabled(menuState.canTrim);
-                aInitialize->setEnabled(menuState.canInitialize);
-                aDestroy->setEnabled(menuState.canDestroy);
+                const PoolRootMenuActions poolActions = buildPoolRootMenu(menu);
+                poolActions.update->setEnabled(menuState.canRefresh);
+                poolActions.importPool->setEnabled(menuState.canImport);
+                poolActions.importRename->setEnabled(menuState.canImport);
+                poolActions.exportPool->setEnabled(menuState.canExport);
+                poolActions.history->setEnabled(menuState.canHistory);
+                poolActions.sync->setEnabled(menuState.canSync);
+                poolActions.scrub->setEnabled(menuState.canScrub);
+                poolActions.reguid->setEnabled(menuState.canReguid);
+                poolActions.trim->setEnabled(menuState.canTrim);
+                poolActions.initialize->setEnabled(menuState.canInitialize);
+                poolActions.destroy->setEnabled(menuState.canDestroy);
                 QAction* picked = menu.exec(m_connContentTree->viewport()->mapToGlobal(pos));
                 if (!picked) {
                     return;
                 }
-                if (picked == aUpdate && menuState.canRefresh) {
+                if (picked == poolActions.update && menuState.canRefresh) {
                     refreshSelectedPoolDetails(true, true);
-                } else if (picked == aImport && menuState.canImport && poolRow >= 0) {
+                } else if (picked == poolActions.importPool && menuState.canImport && poolRow >= 0) {
                     importPoolFromRow(poolRow);
-                } else if (picked == aImportRename && menuState.canImport && poolRow >= 0) {
+                } else if (picked == poolActions.importRename && menuState.canImport && poolRow >= 0) {
                     importPoolRenamingFromRow(poolRow);
-                } else if (picked == aExport && menuState.canExport && poolRow >= 0) {
+                } else if (picked == poolActions.exportPool && menuState.canExport && poolRow >= 0) {
                     exportPoolFromRow(poolRow);
-                } else if (picked == aHistory && menuState.canHistory && poolRow >= 0) {
+                } else if (picked == poolActions.history && menuState.canHistory && poolRow >= 0) {
                     showPoolHistoryFromRow(poolRow);
-                } else if (picked == aSync && menuState.canSync && poolRow >= 0) {
+                } else if (picked == poolActions.sync && menuState.canSync && poolRow >= 0) {
                     syncPoolFromRow(poolRow);
-                } else if (picked == aScrub && menuState.canScrub && poolRow >= 0) {
+                } else if (picked == poolActions.scrub && menuState.canScrub && poolRow >= 0) {
                     scrubPoolFromRow(poolRow);
-                } else if (picked == aReguid && menuState.canReguid && poolRow >= 0) {
+                } else if (picked == poolActions.reguid && menuState.canReguid && poolRow >= 0) {
                     reguidPoolFromRow(poolRow);
-                } else if (picked == aTrim && menuState.canTrim && poolRow >= 0) {
+                } else if (picked == poolActions.trim && menuState.canTrim && poolRow >= 0) {
                     trimPoolFromRow(poolRow);
-                } else if (picked == aInitialize && menuState.canInitialize && poolRow >= 0) {
+                } else if (picked == poolActions.initialize && menuState.canInitialize && poolRow >= 0) {
                     initializePoolFromRow(poolRow);
-                } else if (picked == aDestroy && menuState.canDestroy && poolRow >= 0) {
+                } else if (picked == poolActions.destroy && menuState.canDestroy && poolRow >= 0) {
                     destroyPoolFromRow(poolRow);
-                } else if (picked == aShowPoolInfo) {
-                    m_showPoolInfoNode = aShowPoolInfo->isChecked();
+                } else if (picked == poolActions.showPoolInfo) {
+                    m_showPoolInfoNode = poolActions.showPoolInfo->isChecked();
                     applyInlineSectionVisibility();
                 }
                 return;
             }
             if (isPoolInfoContext) {
-                QAction* aManage = menu.addAction(
-                    trk(QStringLiteral("t_manage_props_vis001"),
-                        QStringLiteral("Gestionar visualización de propiedades")));
-                QAction* aShowPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del pool"));
-                aShowPoolInfo->setCheckable(true);
-                aShowPoolInfo->setChecked(m_showPoolInfoNode);
-                QMenu* inlineMenu = menu.addMenu(QStringLiteral("Mostrar en línea"));
-                QAction* aShowInlineProps = inlineMenu->addAction(QStringLiteral("Mostrar propiedades en línea"));
-                aShowInlineProps->setCheckable(true);
-                aShowInlineProps->setChecked(m_showInlinePropertyNodes);
-                QAction* aShowInlinePerms = inlineMenu->addAction(QStringLiteral("Mostrar Permisos en línea"));
-                aShowInlinePerms->setCheckable(true);
-                aShowInlinePerms->setChecked(m_showInlinePermissionsNodes);
-                QAction* aShowInlineGsa = inlineMenu->addAction(QStringLiteral("Programar snapshots"));
-                aShowInlineGsa->setCheckable(true);
-                aShowInlineGsa->setChecked(m_showInlineGsaNode);
-                QAction* aShowAutoGsa = menu.addAction(QStringLiteral("Mostrar snapshots automáticos"));
-                aShowAutoGsa->setCheckable(true);
-                aShowAutoGsa->setChecked(showAutomaticSnapshots());
+                const InlineVisibilityMenuActions inlineActions =
+                    buildInlineVisibilityMenu(menu, m_connContentTree, true, true, true);
                 QAction* picked = menu.exec(m_connContentTree->viewport()->mapToGlobal(pos));
-                if (picked == aManage) {
+                if (picked == inlineActions.manage) {
                     manageInlinePropsVisualization(m_connContentTree, item, true);
-                } else if (picked == aShowPoolInfo) {
-                    m_showPoolInfoNode = aShowPoolInfo->isChecked();
+                } else if (picked == inlineActions.showPoolInfo) {
+                    m_showPoolInfoNode = inlineActions.showPoolInfo->isChecked();
                     applyInlineSectionVisibility();
-                } else if (picked == aShowInlineProps) {
-                    m_showInlinePropertyNodes = aShowInlineProps->isChecked();
+                } else if (picked == inlineActions.showInlineProps) {
+                    setShowInlinePropertyNodesForTree(m_connContentTree, inlineActions.showInlineProps->isChecked());
                     applyInlineSectionVisibility();
-                } else if (picked == aShowInlinePerms) {
-                    m_showInlinePermissionsNodes = aShowInlinePerms->isChecked();
+                } else if (picked == inlineActions.showInlinePerms) {
+                    setShowInlinePermissionsNodesForTree(m_connContentTree, inlineActions.showInlinePerms->isChecked());
                     applyInlineSectionVisibility();
-                } else if (picked == aShowInlineGsa) {
-                    m_showInlineGsaNode = aShowInlineGsa->isChecked();
+                } else if (picked == inlineActions.showInlineGsa) {
+                    setShowInlineGsaNodeForTree(m_connContentTree, inlineActions.showInlineGsa->isChecked());
                     applyInlineSectionVisibility();
-                } else if (picked == aShowAutoGsa) {
-                    m_showAutomaticGsaSnapshots = aShowAutoGsa->isChecked();
+                } else if (picked == inlineActions.showAutoGsa) {
+                    m_showAutomaticGsaSnapshots = inlineActions.showAutoGsa->isChecked();
                     applyInlineSectionVisibility();
                 }
                 return;
             }
 
-            QAction* aManage = menu.addAction(
-                trk(QStringLiteral("t_manage_props_vis001"),
-                    QStringLiteral("Gestionar visualización de propiedades")));
-            QMenu* inlineMenu = menu.addMenu(QStringLiteral("Mostrar en línea"));
-            QAction* aShowInlineProps = inlineMenu->addAction(QStringLiteral("Mostrar propiedades en línea"));
-            aShowInlineProps->setCheckable(true);
-            aShowInlineProps->setChecked(m_showInlinePropertyNodes);
-            QAction* aShowInlinePerms = inlineMenu->addAction(QStringLiteral("Mostrar Permisos en línea"));
-            aShowInlinePerms->setCheckable(true);
-            aShowInlinePerms->setChecked(m_showInlinePermissionsNodes);
-            QAction* aShowInlineGsa = inlineMenu->addAction(QStringLiteral("Programar snapshots"));
-            aShowInlineGsa->setCheckable(true);
-            aShowInlineGsa->setChecked(m_showInlineGsaNode);
+            const InlineVisibilityMenuActions inlineActions =
+                buildInlineVisibilityMenu(menu, m_connContentTree, true, false, false);
             menu.addSeparator();
             QAction* aCreate = menu.addAction(
                 trk(QStringLiteral("t_ctx_create_dsv001"),
@@ -6341,7 +6525,7 @@ void MainWindow::buildUi() {
             aUnloadKey->setEnabled(isEncryptionRoot && keyLoaded);
             aChangeKey->setEnabled(isEncryptionRoot && keyLoaded);
             mEncryption->setEnabled(isEncryptionRoot);
-            aManage->setEnabled(hasConnSel);
+            inlineActions.manage->setEnabled(hasConnSel);
             aRollback->setEnabled(!actionsLocked() && hasConnSnap);
             aCreate->setEnabled(!actionsLocked() && hasConnSel && !hasConnSnap);
             aRename->setEnabled(!actionsLocked() && hasConnSel);
@@ -6406,22 +6590,22 @@ void MainWindow::buildUi() {
                 }
                 return;
             }
-            if (picked == aManage) {
+            if (picked == inlineActions.manage) {
                 manageInlinePropsVisualization(m_connContentTree, item, false);
                 return;
             }
-            if (picked == aShowInlineProps) {
-                m_showInlinePropertyNodes = aShowInlineProps->isChecked();
+            if (picked == inlineActions.showInlineProps) {
+                setShowInlinePropertyNodesForTree(m_connContentTree, inlineActions.showInlineProps->isChecked());
                 applyInlineSectionVisibility();
                 return;
             }
-            if (picked == aShowInlinePerms) {
-                m_showInlinePermissionsNodes = aShowInlinePerms->isChecked();
+            if (picked == inlineActions.showInlinePerms) {
+                setShowInlinePermissionsNodesForTree(m_connContentTree, inlineActions.showInlinePerms->isChecked());
                 applyInlineSectionVisibility();
                 return;
             }
-            if (picked == aShowInlineGsa) {
-                m_showInlineGsaNode = aShowInlineGsa->isChecked();
+            if (picked == inlineActions.showInlineGsa) {
+                setShowInlineGsaNodeForTree(m_connContentTree, inlineActions.showInlineGsa->isChecked());
                 applyInlineSectionVisibility();
                 return;
             }

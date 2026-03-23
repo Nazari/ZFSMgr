@@ -110,7 +110,18 @@ void MainWindow::setShowPoolInfoNodeForTest(bool visible) {
 }
 
 void MainWindow::setShowInlineGsaNodeForTest(bool visible) {
-    m_showInlineGsaNode = visible;
+    m_showInlineGsaNodeTop = visible;
+    m_showInlineGsaNodeBottom = visible;
+    if (m_topDatasetPane) {
+        auto options = m_topDatasetPane->visualOptions();
+        options.showInlineGsa = visible;
+        m_topDatasetPane->setVisualOptions(options);
+    }
+    if (m_bottomDatasetPane) {
+        auto options = m_bottomDatasetPane->visualOptions();
+        options.showInlineGsa = visible;
+        m_bottomDatasetPane->setVisualOptions(options);
+    }
     rebuildConnectionDetailsForTest();
 }
 

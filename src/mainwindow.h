@@ -2,6 +2,7 @@
 
 #include "connectionstore.h"
 #include "connectiondialog.h"
+#include "connectiondatasettreepane.h"
 
 #ifndef ZFSMGR_APP_VERSION
 #define ZFSMGR_APP_VERSION "0.10.0rc1"
@@ -154,6 +155,7 @@ private:
         QString selectedSnapshot;
         QMap<QString, QString> snapshotByDataset;
         QMap<QString, QStringList> expandedChildPathsByDataset;
+        QByteArray headerState;
         int verticalScrollValue{0};
         int horizontalScrollValue{0};
     };
@@ -251,6 +253,9 @@ private:
     void onConnectionSelectionChanged();
     void updateSecondaryConnectionDetail();
     void rebuildConnectionEntityTabs();
+    void populateConnectionPoolsIntoTree(QTreeWidget* tree,
+                                         int connIdx,
+                                         const ConnectionRuntimeState& st);
     void onConnectionEntityTabChanged(int idx);
     void onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item, const QString& side, const QString& chosen);
     void onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* item, int col, const QString& side);
@@ -375,6 +380,12 @@ private:
     void actionAdvancedAssemble();
     void actionAdvancedCreateFromDir();
     void actionAdvancedToDir();
+    bool showInlinePropertyNodesForTree(const QTreeWidget* tree) const;
+    bool showInlinePermissionsNodesForTree(const QTreeWidget* tree) const;
+    bool showInlineGsaNodeForTree(const QTreeWidget* tree) const;
+    void setShowInlinePropertyNodesForTree(QTreeWidget* tree, bool visible);
+    void setShowInlinePermissionsNodesForTree(QTreeWidget* tree, bool visible);
+    void setShowInlineGsaNodeForTree(QTreeWidget* tree, bool visible);
     bool mountDataset(const QString& side, const DatasetSelectionContext& ctx);
     bool umountDataset(const QString& side, const DatasetSelectionContext& ctx);
     void actionCreateChildDataset(const QString& side);
@@ -510,6 +521,7 @@ private:
     QSplitter* m_topMainSplit{nullptr};
     QSplitter* m_rightMainSplit{nullptr};
     QSplitter* m_verticalMainSplit{nullptr};
+    QSplitter* m_bottomInfoSplit{nullptr};
     QList<int> m_connSplitSizesProps;
     QList<int> m_connSplitSizesContent;
     int m_connSplitActiveTab{0};
@@ -520,6 +532,7 @@ private:
     QStackedWidget* m_connPropsStack{nullptr};
     QWidget* m_connPoolPropsPage{nullptr};
     QWidget* m_connContentPage{nullptr};
+    ConnectionDatasetTreePane* m_topDatasetPane{nullptr};
     QTreeWidget* m_connContentTree{nullptr};
     QTableWidget* m_connContentPropsTable{nullptr};
     QStackedWidget* m_connBottomStack{nullptr};
@@ -534,6 +547,7 @@ private:
     QByteArray m_rightMainSplitState;
     QByteArray m_connDetailSplitState;
     QByteArray m_verticalMainSplitState;
+    QByteArray m_bottomInfoSplitState;
     QMap<int, QString> m_pendingRefreshTopTabDataByConn;
     QMap<int, QString> m_pendingRefreshBottomTabDataByConn;
     QMap<int, QSet<QString>> m_savedTopExpandedKeysByConn;
@@ -554,6 +568,7 @@ private:
     bool m_rebuildingTopConnContentTree{false};
     bool m_rebuildingBottomConnContentTree{false};
     QTabBar* m_bottomConnectionEntityTabs{nullptr};
+    ConnectionDatasetTreePane* m_bottomDatasetPane{nullptr};
     QTreeWidget* m_bottomConnContentTree{nullptr};
     QPlainTextEdit* m_poolStatusText{nullptr};
     QPushButton* m_poolStatusRefreshBtn{nullptr};
@@ -601,9 +616,12 @@ private:
     QString m_logLevelSetting{QStringLiteral("normal")};
     int m_logMaxLinesSetting{500};
     bool m_showInlineDatasetProps{true};
-    bool m_showInlinePropertyNodes{true};
-    bool m_showInlinePermissionsNodes{true};
-    bool m_showInlineGsaNode{true};
+    bool m_showInlinePropertyNodesTop{true};
+    bool m_showInlinePropertyNodesBottom{true};
+    bool m_showInlinePermissionsNodesTop{true};
+    bool m_showInlinePermissionsNodesBottom{true};
+    bool m_showInlineGsaNodeTop{true};
+    bool m_showInlineGsaNodeBottom{true};
     bool m_showPoolInfoNode{true};
     bool m_showAutomaticGsaSnapshots{true};
     int m_connPropColumnsSetting{7};
