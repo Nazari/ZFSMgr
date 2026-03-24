@@ -41,7 +41,7 @@ constexpr const char* kGsaUnixKnownHostsPath = "/etc/zfsmgr/gsa_known_hosts";
 constexpr const char* kGsaMacPlistPath = "/Library/LaunchDaemons/org.zfsmgr.gsa.plist";
 constexpr const char* kGsaLinuxServicePath = "/etc/systemd/system/zfsmgr-gsa.service";
 constexpr const char* kGsaLinuxTimerPath = "/etc/systemd/system/zfsmgr-gsa.timer";
-constexpr const char* kGsaVersionSuffix = ".3";
+constexpr const char* kGsaVersionSuffix = ".4";
 struct ConnTreeNavSnapshot {
     QSet<QString> expandedKeys;
     QString selectedKey;
@@ -184,17 +184,53 @@ int_value() {
 }
 
 has_recursive_gsa_ancestor() {
-  ds="$1"
-  parent="${ds%/*}"
-  while [ "$parent" != "$ds" ] && [ -n "$parent" ]; do
-    if bool_on "$(prop_value "$parent" "$PROP_ENABLED")" \
-       && bool_on "$(prop_value "$parent" "$PROP_RECURSIVE")"; then
+  probe_ds="$1"
+  probe_parent="${probe_ds%/*}"
+  while [ "$probe_parent" != "$probe_ds" ] && [ -n "$probe_parent" ]; do
+    if bool_on "$(prop_value "$probe_parent" "$PROP_ENABLED")" \
+       && bool_on "$(prop_value "$probe_parent" "$PROP_RECURSIVE")"; then
       return 0
     fi
-    ds="$parent"
-    parent="${ds%/*}"
+    probe_ds="$probe_parent"
+    probe_parent="${probe_ds%/*}"
   done
   return 1
+}
+
+is_descendant_of_root() {
+  ds="$1"
+  root="$2"
+  case "$ds" in
+    "$root"/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+is_descendant_of_processed_recursive_root() {
+  ds="$1"
+  [ -n "${PROCESSED_RECURSIVE_ROOTS:-}" ] || return 1
+  old_ifs="${IFS:- }"
+  IFS='
+'
+  for root in $PROCESSED_RECURSIVE_ROOTS; do
+    [ -n "$root" ] || continue
+    if is_descendant_of_root "$ds" "$root"; then
+      IFS="$old_ifs"
+      return 0
+    fi
+  done
+  IFS="$old_ifs"
+  return 1
+}
+
+mark_processed_recursive_root() {
+  ds="$1"
+  if [ -z "${PROCESSED_RECURSIVE_ROOTS:-}" ]; then
+    PROCESSED_RECURSIVE_ROOTS="$ds"
+  else
+    PROCESSED_RECURSIVE_ROOTS="${PROCESSED_RECURSIVE_ROOTS}
+$ds"
+  fi
 }
 
 build_target_recv_command() {
@@ -280,6 +316,7 @@ create_snapshot() {
   recursive="$3"
   stamp="$(date '+%Y%m%d-%H%M%S')"
   snap_name="GSA-${klass}-${stamp}"
+  log "GSA snapshot attempt for $ds: class=$klass recursive=$recursive snap=$snap_name"
   if zfs list -H -t snapshot -o name "${ds}@${snap_name}" >/dev/null 2>&1; then
     log "GSA snapshot skip for $ds: ${snap_name} ya existe"
     printf '%s\n' "$snap_name"
@@ -290,6 +327,7 @@ create_snapshot() {
   else
     zfs snapshot "${ds}@${snap_name}"
   fi
+  log "GSA snapshot created for $ds: ${snap_name}"
   printf '%s\n' "$snap_name"
 }
 
@@ -394,10 +432,15 @@ main() {
   log "GSA start version __VERSION__"
   datasets="$(zfs list -H -o name -t filesystem 2>/dev/null || true)"
   [ -n "$datasets" ] || exit 0
-  printf '%s\n' "$datasets" | while IFS= read -r ds; do
+  PROCESSED_RECURSIVE_ROOTS=''
+  while IFS= read -r ds; do
     [ -n "$ds" ] || continue
     enabled="$(prop_value "$ds" "$PROP_ENABLED")"
     bool_on "$enabled" || continue
+    if is_descendant_of_processed_recursive_root "$ds"; then
+      log "GSA skip for $ds: cubierto por snapshot recursivo ya realizado en esta ejecución"
+      continue
+    fi
     recursive="$(prop_value "$ds" "$PROP_RECURSIVE")"
     if has_recursive_gsa_ancestor "$ds"; then
       log "GSA skip for $ds: cubierto por ancestro con programación recursiva"
@@ -411,6 +454,7 @@ main() {
     level_on="$(prop_value "$ds" "$PROP_LEVEL")"
     dst_spec="$(prop_value "$ds" "$PROP_DEST")"
     due="$(due_classes "$hourly" "$daily" "$weekly" "$monthly" "$yearly" || true)"
+    log "GSA evaluate $ds: recursive=$recursive hourly=$hourly daily=$daily weekly=$weekly monthly=$monthly yearly=$yearly due=$(printf '%s' "$due" | tr '\n' ',' | sed 's/,$//')"
     [ -n "$due" ] || continue
     printf '%s\n' "$due" | while IFS= read -r klass; do
       [ -n "$klass" ] || continue
@@ -426,7 +470,12 @@ main() {
       prune_snapshots "$ds" "$klass" "$keep" "$recursive"
       level_snapshot "$ds" "$recursive" "$snap_name" "$dst_spec" "$level_on" || true
     done
-  done
+    if bool_on "$recursive"; then
+      mark_processed_recursive_root "$ds"
+    fi
+  done <<EOF
+$datasets
+EOF
 }
 
 main "$@"
@@ -524,6 +573,18 @@ function Test-HasRecursiveGsaAncestor([string]$Dataset) {
   }
 }
 
+function Test-IsDescendantOfRoot([string]$Dataset, [string]$Root) {
+  return $Dataset.StartsWith($Root + '/', [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Test-IsDescendantOfProcessedRecursiveRoot([string]$Dataset, [System.Collections.Generic.List[string]]$ProcessedRoots) {
+  foreach ($root in $ProcessedRoots) {
+    if ([string]::IsNullOrWhiteSpace($root)) { continue }
+    if (Test-IsDescendantOfRoot $Dataset $root) { return $true }
+  }
+  return $false
+}
+
 function Get-DueClasses([int]$Hourly, [int]$Daily, [int]$Weekly, [int]$Monthly, [int]$Yearly) {
   $now = Get-Date
   $out = New-Object System.Collections.Generic.List[string]
@@ -538,6 +599,7 @@ function Get-DueClasses([int]$Hourly, [int]$Daily, [int]$Weekly, [int]$Monthly, 
 function New-GsaSnapshot([string]$Dataset, [string]$Class, [bool]$Recursive) {
   $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
   $snapName = "GSA-$Class-$stamp"
+  Write-GsaLog ("GSA snapshot attempt for " + $Dataset + ": class=" + $Class + " recursive=" + $Recursive + " snap=" + $snapName)
   try {
     & zfs list -H -t snapshot -o name "$Dataset@$snapName" | Out-Null
     Write-GsaLog ("GSA snapshot skip for " + $Dataset + ": " + $snapName + " ya existe")
@@ -548,6 +610,7 @@ function New-GsaSnapshot([string]$Dataset, [string]$Class, [bool]$Recursive) {
   } else {
     & zfs snapshot "$Dataset@$snapName" | Out-Null
   }
+  Write-GsaLog ("GSA snapshot created for " + $Dataset + ": " + $snapName)
   return $snapName
 }
 
@@ -614,9 +677,14 @@ try {
   Start-Transcript -LiteralPath $LogFile -Append | Out-Null
   Write-GsaLog ("GSA start version " + '__VERSION__')
   $datasets = @((& zfs list -H -o name -t filesystem 2>$null))
+  $processedRecursiveRoots = New-Object 'System.Collections.Generic.List[string]'
   foreach ($ds in $datasets) {
     if ([string]::IsNullOrWhiteSpace($ds)) { continue }
     if (-not (Test-On (Get-PropValue $ds $PropEnabled))) { continue }
+    if (Test-IsDescendantOfProcessedRecursiveRoot $ds $processedRecursiveRoots) {
+      Write-GsaLog ("GSA skip for " + $ds + ": cubierto por snapshot recursivo ya realizado en esta ejecución")
+      continue
+    }
     if (Test-HasRecursiveGsaAncestor $ds) {
       Write-GsaLog ("GSA skip for " + $ds + ": cubierto por ancestro con programación recursiva")
       continue
@@ -629,7 +697,9 @@ try {
     $yearly = Get-IntValue (Get-PropValue $ds $PropYearly)
     $levelOn = Test-On (Get-PropValue $ds $PropLevel)
     $destSpec = Get-PropValue $ds $PropDest
-    foreach ($klass in (Get-DueClasses $hourly $daily $weekly $monthly $yearly)) {
+    $dueClasses = @(Get-DueClasses $hourly $daily $weekly $monthly $yearly)
+    Write-GsaLog ("GSA evaluate " + $ds + ": recursive=" + $recursive + " hourly=" + $hourly + " daily=" + $daily + " weekly=" + $weekly + " monthly=" + $monthly + " yearly=" + $yearly + " due=" + ($dueClasses -join ','))
+    foreach ($klass in $dueClasses) {
       $snapName = New-GsaSnapshot $ds $klass $recursive
       switch ($klass) {
         'hourly' { $keep = $hourly }
@@ -642,6 +712,7 @@ try {
       Prune-GsaSnapshots $ds $klass $keep $recursive
       Invoke-GsaLevel $ds $recursive $snapName $destSpec $levelOn
     }
+    if ($recursive) { $processedRecursiveRoots.Add($ds) | Out-Null }
   }
 } finally {
   Write-GsaLog 'GSA end'
