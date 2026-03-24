@@ -2203,59 +2203,6 @@ void MainWindow::syncConnContentPoolColumns() {
         }
         return nullptr;
     };
-    QTreeWidgetItem* infoNode = blockForKey(QString::fromLatin1(kPoolBlockInfoKey));
-    if (!infoNode) {
-        infoNode = new QTreeWidgetItem();
-        infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
-        infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);
-        infoNode->setExpanded(true);
-        root->insertChild(0, infoNode);
-    }
-    infoNode->setText(0, trk(QStringLiteral("t_info_lbl_001"),
-                             QStringLiteral("Información del pool"),
-                             QStringLiteral("Information"),
-                             QStringLiteral("信息")));
-
-    addSectionRows(infoNode,
-                   trk(QStringLiteral("t_props_lbl_001"),
-                       QStringLiteral("Propiedades"),
-                       QStringLiteral("Properties"),
-                       QStringLiteral("属性")),
-                   mainProps,
-                   &values,
-                   false,
-                   true,
-                   true);
-    for (const InlinePropGroupConfig& cfg : m_poolInlinePropGroups) {
-        addSectionRows(infoNode,
-                       cfg.name,
-                       filterPropsByWanted(props, cfg.props),
-                       &values,
-                       false,
-                       true,
-                       false);
-    }
-    addSectionRows(infoNode,
-                   trk(QStringLiteral("t_pool_caps_on001"),
-                       QStringLiteral("Capacidades activas"),
-                       QStringLiteral("Enabled features"),
-                       QStringLiteral("已启用能力")),
-                   featureEnabled,
-                   nullptr,
-                   true,
-                   true,
-                   false);
-    addSectionRows(infoNode,
-                   trk(QStringLiteral("t_pool_caps_off01"),
-                       QStringLiteral("Capacidades deshabilitadas"),
-                       QStringLiteral("Disabled features"),
-                       QStringLiteral("已禁用能力")),
-                   featureDisabled,
-                   nullptr,
-                   true,
-                   true,
-                   true);
-
     QMap<QString, QMap<QString, QString>> autoSnapshotPropsByDataset;
     auto isLocallyConfiguredGsaSource = [](const QString& source) {
         const QString src = source.trimmed().toLower();
@@ -2432,6 +2379,58 @@ void MainWindow::syncConnContentPoolColumns() {
             clearDatasetNodeRec(clearDatasetNodeRec, c);
         }
     }
+    QTreeWidgetItem* infoNode = blockForKey(QString::fromLatin1(kPoolBlockInfoKey));
+    if (!infoNode) {
+        infoNode = new QTreeWidgetItem();
+        infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
+        infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);
+        infoNode->setExpanded(true);
+        root->insertChild(0, infoNode);
+    }
+    infoNode->setText(0, trk(QStringLiteral("t_info_lbl_001"),
+                             QStringLiteral("Información del pool"),
+                             QStringLiteral("Information"),
+                             QStringLiteral("信息")));
+
+    addSectionRows(infoNode,
+                   trk(QStringLiteral("t_props_lbl_001"),
+                       QStringLiteral("Propiedades"),
+                       QStringLiteral("Properties"),
+                       QStringLiteral("属性")),
+                   mainProps,
+                   &values,
+                   false,
+                   true,
+                   true);
+    for (const InlinePropGroupConfig& cfg : m_poolInlinePropGroups) {
+        addSectionRows(infoNode,
+                       cfg.name,
+                       filterPropsByWanted(props, cfg.props),
+                       &values,
+                       false,
+                       true,
+                       false);
+    }
+    addSectionRows(infoNode,
+                   trk(QStringLiteral("t_pool_caps_on001"),
+                       QStringLiteral("Capacidades activas"),
+                       QStringLiteral("Enabled features"),
+                       QStringLiteral("已启用能力")),
+                   featureEnabled,
+                   nullptr,
+                   true,
+                   true,
+                   false);
+    addSectionRows(infoNode,
+                   trk(QStringLiteral("t_pool_caps_off01"),
+                       QStringLiteral("Capacidades deshabilitadas"),
+                       QStringLiteral("Disabled features"),
+                       QStringLiteral("已禁用能力")),
+                   featureDisabled,
+                   nullptr,
+                   true,
+                   true,
+                   true);
     QStringList autoSnapshotDatasets;
     for (auto it = autoSnapshotPropsByDataset.cbegin(); it != autoSnapshotPropsByDataset.cend(); ++it) {
         const QString enabledKey = findCaseInsensitiveMapKey(it.value(), QStringLiteral("org.fc16.gsa:activado"));

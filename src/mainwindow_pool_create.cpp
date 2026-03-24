@@ -1426,6 +1426,7 @@ void MainWindow::createPoolForSelectedConnection() {
             combo->setFocusPolicy(Qt::NoFocus);
             devicesTree->setItemWidget(item, 3, combo);
         }
+        combo->setProperty("zfsmgr_device_path", item->data(0, kRoleDevicePath));
         const bool mounted = item->data(0, kRoleMounted).toBool();
         QSignalBlocker blocker(combo);
         combo->setCurrentText(mounted ? QStringLiteral("Sí") : QStringLiteral("No"));
@@ -1576,13 +1577,50 @@ void MainWindow::createPoolForSelectedConnection() {
         combo->setCurrentText(QStringLiteral("No"));
     };
 
+    auto findDeviceItemByPath = [&](const QString& wantedPath) -> QTreeWidgetItem* {
+        if (wantedPath.trimmed().isEmpty()) {
+            return nullptr;
+        }
+        std::function<QTreeWidgetItem*(QTreeWidgetItem*)> visit = [&](QTreeWidgetItem* node) -> QTreeWidgetItem* {
+            if (!node) {
+                return nullptr;
+            }
+            if (node->data(0, kRoleDevicePath).toString().trimmed() == wantedPath) {
+                return node;
+            }
+            for (int i = 0; i < node->childCount(); ++i) {
+                if (QTreeWidgetItem* found = visit(node->child(i))) {
+                    return found;
+                }
+            }
+            return nullptr;
+        };
+        for (int i = 0; i < devicesTree->topLevelItemCount(); ++i) {
+            if (QTreeWidgetItem* found = visit(devicesTree->topLevelItem(i))) {
+                return found;
+            }
+        }
+        return nullptr;
+    };
+
     std::function<void(QTreeWidgetItem*)> bindMountedWidgets = [&](QTreeWidgetItem* item) {
         if (!item) {
             return;
         }
         if (auto* combo = qobject_cast<QComboBox*>(devicesTree->itemWidget(item, 3))) {
-            QObject::connect(combo, &QComboBox::currentTextChanged, &dlg, [&, item, combo](const QString&) {
-                handleMountedChoice(item, combo);
+            QObject::connect(combo, &QComboBox::currentTextChanged, &dlg, [&, combo](const QString&) {
+                if (!devicesTree) {
+                    return;
+                }
+                const QString devicePath = combo->property("zfsmgr_device_path").toString().trimmed();
+                if (devicePath.isEmpty()) {
+                    return;
+                }
+                QTreeWidgetItem* currentItem = findDeviceItemByPath(devicePath);
+                if (!currentItem) {
+                    return;
+                }
+                handleMountedChoice(currentItem, combo);
             });
         }
         for (int i = 0; i < item->childCount(); ++i) {
@@ -2293,6 +2331,16 @@ void MainWindow::createPoolForSelectedConnection() {
 
     auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     bb->setFont(baseUiFont);
+    QObject::connect(&dlg, &QDialog::finished, &dlg, [devicesTree]() {
+        if (!devicesTree) {
+            return;
+        }
+        const auto combos = devicesTree->findChildren<QComboBox*>();
+        for (QComboBox* combo : combos) {
+            QObject::disconnect(combo, nullptr, nullptr, nullptr);
+        }
+        QObject::disconnect(devicesTree, nullptr, nullptr, nullptr);
+    });
     connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     lay->addWidget(bb);
     connect(bb, &QDialogButtonBox::accepted, &dlg, [&]() {
