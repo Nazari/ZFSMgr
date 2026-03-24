@@ -1248,6 +1248,25 @@ bool MainWindow::connectionsReferToSameMachine(int a, int b) const {
     return !ua.isEmpty() && !ub.isEmpty() && ua == ub;
 }
 
+void MainWindow::withConnContentContext(QTreeWidget* tree,
+                                        const QString& token,
+                                        const std::function<void()>& fn) {
+    if (!fn) {
+        return;
+    }
+    QTreeWidget* prevTree = m_connContentTree;
+    const QString prevToken = m_connContentToken;
+    if (tree) {
+        m_connContentTree = tree;
+    }
+    if (!token.isNull()) {
+        m_connContentToken = token;
+    }
+    fn();
+    m_connContentTree = prevTree;
+    m_connContentToken = prevToken;
+}
+
 int MainWindow::equivalentSshForLocal(int localIdx) const {
     if (localIdx < 0 || localIdx >= m_profiles.size() || !isLocalConnection(localIdx)) {
         return -1;
@@ -1995,10 +2014,7 @@ void MainWindow::updateSecondaryConnectionDetail() {
     m_bottomConnContentTree->clear();
     if (m_bottomDetailConnIdx < 0 || m_bottomDetailConnIdx >= m_profiles.size()
         || m_bottomDetailConnIdx >= m_states.size() || isConnectionDisconnected(m_bottomDetailConnIdx)) {
-        QTreeWidget* prevTree = m_connContentTree;
-        m_connContentTree = m_bottomConnContentTree;
-        syncConnContentPropertyColumns();
-        m_connContentTree = prevTree;
+        syncConnContentPropertyColumnsFor(m_bottomConnContentTree, m_connContentToken);
         return;
     }
     const ConnectionRuntimeState st = m_states[m_bottomDetailConnIdx];
@@ -2048,13 +2064,8 @@ void MainWindow::updateSecondaryConnectionDetail() {
         if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
             return;
         }
-        const QString prevToken = m_connContentToken;
-        QTreeWidget* prevTree = m_connContentTree;
-        m_connContentTree = m_bottomConnContentTree;
-        m_connContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
-        syncConnContentPoolColumns();
-        m_connContentTree = prevTree;
-        m_connContentToken = prevToken;
+        syncConnContentPoolColumnsFor(m_bottomConnContentTree,
+                                      QStringLiteral("%1::%2").arg(connIdx).arg(poolName));
     });
 }
 
@@ -2153,12 +2164,12 @@ void MainWindow::populateConnectionPoolsIntoTree(QTreeWidget* tree,
         return;
     }
     const DatasetTreeRenderOptions options =
-        datasetTreeRenderOptionsForTree(tree, QStringLiteral("conncontent_multi"));
+        datasetTreeRenderOptionsForTree(tree, DatasetTreeContext::ConnectionContentMulti);
     auto addPoolTree = [this, tree, &options](int cidx, const QString& poolName, bool allowRemoteLoadIfMissing) {
         appendDatasetTreeForPool(tree,
                                  cidx,
                                  poolName,
-                                 QStringLiteral("conncontent_multi"),
+                                 DatasetTreeContext::ConnectionContentMulti,
                                  options,
                                  allowRemoteLoadIfMissing);
     };
@@ -2208,7 +2219,7 @@ void MainWindow::populateConnectionPoolsIntoTree(QTreeWidget* tree,
         }
     }
     tree->expandToDepth(0);
-    attachDatasetTreeSnapshotCombos(tree, QStringLiteral("conncontent"));
+    attachDatasetTreeSnapshotCombos(tree, DatasetTreeContext::ConnectionContent);
 }
 
 void restoreSnapshotSelectionInTree(QTreeWidget* tree, const ConnTreeNavSnapshot& nav) {
@@ -2471,7 +2482,7 @@ void MainWindow::refreshConnectionNodeDetails() {
     refreshSelectedPoolDetails(false, true);
     if (connIdx >= 0 && connIdx < m_profiles.size() && m_connContentTree) {
         m_connContentToken = newConnContentToken;
-        populateDatasetTree(m_connContentTree, connIdx, poolName, QStringLiteral("conncontent"), true);
+        populateDatasetTree(m_connContentTree, connIdx, poolName, DatasetTreeContext::ConnectionContent, true);
         syncConnContentPoolColumns();
         refreshDatasetProperties(QStringLiteral("conncontent"));
     }
@@ -2603,13 +2614,7 @@ void MainWindow::refreshConnectionByIndex(int idx) {
             const QStringList parts = key.split(':');
             if (parts.size() >= 3 && parts.first() == QStringLiteral("pool")) {
                 const QString bottomToken = QStringLiteral("%1::%2").arg(parts.value(1), parts.value(2).trimmed());
-                const QString prevToken = m_connContentToken;
-                QTreeWidget* prevTree = m_connContentTree;
-                m_connContentTree = m_bottomConnContentTree;
-                m_connContentToken = bottomToken;
-                saveConnContentTreeState(bottomToken);
-                m_connContentTree = prevTree;
-                m_connContentToken = prevToken;
+                saveConnContentTreeStateFor(m_bottomConnContentTree, bottomToken);
             }
         }
     }

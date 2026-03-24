@@ -287,7 +287,7 @@ void MainWindow::rebuildConnContentTreeForTest(const QString& datasetToSelect, b
     m_connContentTree = tree;
     m_connContentToken = token;
     saveConnContentTreeState(token);
-    populateDatasetTree(tree, connIdx, poolName, QStringLiteral("conncontent"), true);
+    populateDatasetTree(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, true);
     if (!datasetToSelect.trimmed().isEmpty()) {
         selectDatasetForTest(datasetToSelect, bottom);
     }

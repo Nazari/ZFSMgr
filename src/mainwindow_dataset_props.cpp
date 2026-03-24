@@ -1610,20 +1610,13 @@ void MainWindow::applyDatasetPropertyChanges() {
             ctx.poolName = poolName;
             ctx.datasetName = datasetName;
             const QString tokenForTree = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
-            QTreeWidget* prevTree = m_connContentTree;
-            const QString prevToken = m_connContentToken;
             if (QTreeWidgetItem* ownerNode = findDatasetItemByIdentityLocal(m_connContentTree, connIdx, poolName, datasetName)) {
-                m_connContentToken = tokenForTree;
-                saveConnContentTreeState(tokenForTree);
+                saveConnContentTreeStateFor(m_connContentTree, tokenForTree);
                 Q_UNUSED(ownerNode);
             } else if (QTreeWidgetItem* ownerNode = findDatasetItemByIdentityLocal(m_bottomConnContentTree, connIdx, poolName, datasetName)) {
-                m_connContentTree = m_bottomConnContentTree;
-                m_connContentToken = tokenForTree;
-                saveConnContentTreeState(tokenForTree);
+                saveConnContentTreeStateFor(m_bottomConnContentTree, tokenForTree);
                 Q_UNUSED(ownerNode);
             }
-            m_connContentTree = prevTree;
-            m_connContentToken = prevToken;
             const QString cmd = QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
             if (!executeDatasetAction(QStringLiteral("conncontent"),
                                       QStringLiteral("Aplicar permisos"),

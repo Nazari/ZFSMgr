@@ -39,6 +39,12 @@ class QByteArray;
 class MainWindow final : public QMainWindow {
     Q_OBJECT
 public:
+    enum class DatasetTreeContext {
+        Origin,
+        Destination,
+        ConnectionContent,
+        ConnectionContentMulti,
+    };
     struct InlinePropGroupConfig {
         QString name;
         QStringList props;
@@ -262,20 +268,20 @@ private:
         bool showAutomaticSnapshots{true};
     };
     DatasetTreeRenderOptions datasetTreeRenderOptionsForTree(const QTreeWidget* tree,
-                                                             const QString& side) const;
+                                                             DatasetTreeContext side) const;
     void appendDatasetTreeForPool(QTreeWidget* tree,
                                   int connIdx,
                                   const QString& poolName,
-                                  const QString& side,
+                                  DatasetTreeContext side,
                                   const DatasetTreeRenderOptions& options,
                                   bool allowRemoteLoadIfMissing = true);
-    void attachDatasetTreeSnapshotCombos(QTreeWidget* tree, const QString& side);
+    void attachDatasetTreeSnapshotCombos(QTreeWidget* tree, DatasetTreeContext side);
     void populateConnectionPoolsIntoTree(QTreeWidget* tree,
                                          int connIdx,
                                          const ConnectionRuntimeState& st);
     void onConnectionEntityTabChanged(int idx);
-    void onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item, const QString& side, const QString& chosen);
-    void onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* item, int col, const QString& side);
+    void onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item, DatasetTreeContext side, const QString& chosen);
+    void onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* item, int col, DatasetTreeContext side);
     void clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem* keepItem);
     void refreshConnectionNodeDetails();
     void updateConnectionDetailTitlesForCurrentSelection();
@@ -283,13 +289,26 @@ private:
     void saveBottomTreeStateForConnection(int connIdx);
     void restoreTopTreeStateForConnection(int connIdx);
     void restoreBottomTreeStateForConnection(int connIdx);
+    void saveConnContentTreeStateFor(QTreeWidget* tree, const QString& token);
     void saveConnContentTreeState(const QString& token);
+    void restoreConnContentTreeStateFor(QTreeWidget* tree, const QString& token);
     void restoreConnContentTreeState(const QString& token);
+    void rebuildConnContentTreeFor(QTreeWidget* tree,
+                                   const QString& token,
+                                   int connIdx,
+                                   const QString& poolName,
+                                   bool restoreState = true);
+    QTreeWidgetItem* findConnContentDatasetItemFor(QTreeWidget* tree,
+                                                   int connIdx,
+                                                   const QString& poolName,
+                                                   const QString& datasetName) const;
     QString connectionDisplayModeForIndex(int connIdx) const;
     void syncConnectionDisplaySelectors();
     void applyConnectionDisplayMode(int connIdx, const QString& mode);
     void resizeTreeColumnsToVisibleContent(QTreeWidget* tree);
+    void syncConnContentPropertyColumnsFor(QTreeWidget* tree, const QString& token);
     void syncConnContentPropertyColumns();
+    void syncConnContentPoolColumnsFor(QTreeWidget* tree, const QString& token);
     void syncConnContentPoolColumns();
     void updateConnContentPropertyValues(const QString& token,
                                          const QString& objectName,
@@ -366,7 +385,7 @@ private:
                                               int connIdx,
                                               const QString& poolName,
                                               const QString& excludeSetName = QString()) const;
-    void populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& side, bool allowRemoteLoadIfMissing = true);
+    void populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, DatasetTreeContext side, bool allowRemoteLoadIfMissing = true);
     void refreshDatasetProperties(const QString& side);
     void setSelectedDataset(const QString& side, const QString& datasetName, const QString& snapshotName);
     DatasetSelectionContext currentDatasetSelection(const QString& side) const;
@@ -387,6 +406,9 @@ private:
     void executeConnectionAdvancedAction(const QString& action);
     void setConnectionOriginSelection(const DatasetSelectionContext& ctx);
     void setConnectionDestinationSelection(const DatasetSelectionContext& ctx);
+    void withConnContentContext(QTreeWidget* tree,
+                                const QString& token,
+                                const std::function<void()>& fn);
     bool runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs = 0, bool forceConfirmDialog = false, bool streamProgress = false);
     void actionCopySnapshot();
     void actionCloneSnapshot();
