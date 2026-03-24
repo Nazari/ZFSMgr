@@ -466,7 +466,11 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
         });
         return true;
     }
-    reloadDatasetSide(side);
+    if (side == QStringLiteral("conncontent")) {
+        reloadConnContentPool(ctx.connIdx, ctx.poolName);
+    } else {
+        reloadDatasetSide(side);
+    }
     setActionsLocked(false);
     return true;
 }
@@ -567,6 +571,50 @@ void MainWindow::invalidateDatasetCacheForPool(int connIdx, const QString& poolN
     }
 }
 
+void MainWindow::reloadConnContentPool(int connIdx, const QString& poolName) {
+    if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.trimmed().isEmpty()) {
+        return;
+    }
+    const QString targetToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName.trimmed());
+    auto tokenForBottomTree = [this]() {
+        const int bIdx = m_bottomConnectionEntityTabs ? m_bottomConnectionEntityTabs->currentIndex() : -1;
+        if (bIdx < 0 || !m_bottomConnectionEntityTabs || bIdx >= m_bottomConnectionEntityTabs->count()) {
+            return QString();
+        }
+        const QString key = m_bottomConnectionEntityTabs->tabData(bIdx).toString();
+        const QStringList parts = key.split(':');
+        if (parts.size() < 3 || parts.first() != QStringLiteral("pool")) {
+            return QString();
+        }
+        return QStringLiteral("%1::%2").arg(parts.value(1)).arg(parts.value(2).trimmed());
+    };
+    auto saveTreeState = [this](QTreeWidget* tree, const QString& tokenForTree) {
+        if (!tree || tokenForTree.trimmed().isEmpty()) {
+            return;
+        }
+        saveConnContentTreeStateFor(tree, tokenForTree);
+    };
+    auto refreshOneTree = [this, connIdx, &poolName](QTreeWidget* tree, const QString& tokenForTree) {
+        const QString wantedToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName.trimmed());
+        if (!tree || tokenForTree != wantedToken) {
+            return false;
+        }
+        saveConnContentTreeStateFor(tree, tokenForTree);
+        populateDatasetTree(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, true);
+        restoreConnContentTreeStateFor(tree, tokenForTree);
+        return true;
+    };
+
+    const QString topToken = m_connContentToken;
+    const QString bottomToken = tokenForBottomTree();
+    bool refreshed = false;
+    refreshed = refreshOneTree(m_connContentTree, topToken) || refreshed;
+    refreshed = refreshOneTree(m_bottomConnContentTree, bottomToken) || refreshed;
+    if (!refreshed) {
+        refreshConnectionByIndex(connIdx);
+    }
+}
+
 void MainWindow::reloadDatasetSide(const QString& side) {
     if (side == QStringLiteral("origin") || side == QStringLiteral("dest")) {
         const DatasetSelectionContext ctx = currentDatasetSelection(side);
@@ -583,53 +631,7 @@ void MainWindow::reloadDatasetSide(const QString& side) {
             const int connIdx = token.left(sep).toInt(&ok);
             const QString poolName = token.mid(sep + 2).trimmed();
             if (ok && connIdx >= 0 && connIdx < m_profiles.size() && !poolName.isEmpty()) {
-                auto tokenForBottomTree = [this]() {
-                    const int bIdx = m_bottomConnectionEntityTabs ? m_bottomConnectionEntityTabs->currentIndex() : -1;
-                    if (bIdx < 0 || !m_bottomConnectionEntityTabs || bIdx >= m_bottomConnectionEntityTabs->count()) {
-                        return QString();
-                    }
-                    const QString key = m_bottomConnectionEntityTabs->tabData(bIdx).toString();
-                    const QStringList parts = key.split(':');
-                    if (parts.size() < 3 || parts.first() != QStringLiteral("pool")) {
-                        return QString();
-                    }
-                    return QStringLiteral("%1::%2").arg(parts.value(1)).arg(parts.value(2).trimmed());
-                };
-                auto saveTreeState = [this](QTreeWidget* tree, const QString& tokenForTree) {
-                    if (!tree || tokenForTree.trimmed().isEmpty()) {
-                        return;
-                    }
-                    saveConnContentTreeStateFor(tree, tokenForTree);
-                };
-                auto refreshOneTree = [this, connIdx, &poolName](QTreeWidget* tree, const QString& tokenForTree) {
-                    if (!tree || tokenForTree != QStringLiteral("%1::%2").arg(connIdx).arg(poolName)) {
-                        return false;
-                    }
-                    saveConnContentTreeStateFor(tree, tokenForTree);
-                    populateDatasetTree(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, true);
-                    restoreConnContentTreeStateFor(tree, tokenForTree);
-                    return true;
-                };
-                const QString bottomToken = tokenForBottomTree();
-                bool refreshed = false;
-                if (m_connContentTree && token == m_connContentToken) {
-                    rebuildConnectionEntityTabs();
-                    refreshed = true;
-                } else {
-                    refreshed = refreshOneTree(m_connContentTree, token);
-                }
-                if (m_bottomConnContentTree && !bottomToken.isEmpty() && bottomToken == QStringLiteral("%1::%2").arg(connIdx).arg(poolName)) {
-                    saveTreeState(m_bottomConnContentTree, bottomToken);
-                    updateSecondaryConnectionDetail();
-                    refreshed = true;
-                } else {
-                    refreshed = refreshOneTree(m_bottomConnContentTree, bottomToken) || refreshed;
-                }
-                if (refreshed) {
-                    return;
-                }
-                // Si no hay ningún treeview mostrando ese pool, refrescamos la conexión completa.
-                refreshConnectionByIndex(connIdx);
+                reloadConnContentPool(connIdx, poolName);
                 return;
             }
         }

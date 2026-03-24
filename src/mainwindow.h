@@ -395,6 +395,7 @@ private:
     QString diagnoseUmountFailure(const DatasetSelectionContext& ctx);
     void invalidateDatasetCacheForPool(int connIdx, const QString& poolName);
     void invalidatePoolDetailsCacheForConnection(int connIdx);
+    void reloadConnContentPool(int connIdx, const QString& poolName);
     void reloadDatasetSide(const QString& side);
     void updateConnectionActionsState();
     bool isTransferVersionAllowed(const DatasetSelectionContext& src,
