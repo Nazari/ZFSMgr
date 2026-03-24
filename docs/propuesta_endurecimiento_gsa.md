@@ -6,14 +6,27 @@ Reducir el riesgo operativo y de seguridad del `Gestor de snapshots` (GSA) sin p
 
 ## Situación actual
 
-El GSA se instala por conexión. Durante esa instalación, ZFSMgr genera un script para el sistema operativo remoto e incrusta dentro de él:
+El GSA se instala por conexión.
+
+A fecha actual, ZFSMgr ya despliega por separado:
+
+- un script principal estable,
+- una configuración principal,
+- un mapa mínimo de conexiones destino,
+- un fichero `known_hosts` propio del GSA.
+
+Ese cambio ya reduce parte de la exposición inicial del diseño antiguo.
+
+Sin embargo, el modelo actual sigue teniendo limitaciones de seguridad y mantenimiento.
+
+En el diseño anterior, durante la instalación, ZFSMgr generaba un script para el sistema operativo remoto e incrustaba dentro de él:
 
 - la versión del script,
 - la conexión `self`,
 - la ruta de configuración,
 - y, en Unix/macOS, un mapa estático de conexiones destino.
 
-Ese mapa estático incluye actualmente, cuando aplica:
+Ese mapa estático incluía, cuando aplicaba:
 
 - host,
 - puerto,
@@ -25,26 +38,26 @@ Ese mapa estático incluye actualmente, cuando aplica:
 Consecuencia:
 
 - el GSA no consulta dinámicamente las conexiones configuradas en el equipo donde corre ZFSMgr;
-- usa la copia embebida en el payload instalado en la conexión remota;
+- usa la configuración desplegada en la conexión remota;
 - si cambian datos de una conexión, los GSA instalados pueden quedar desactualizados hasta reinstalarse o actualizarse.
 
 ## Riesgos principales del diseño actual
 
-### 1. Secretos embebidos en el script
+### 1. Secretos aún desplegados junto al payload
 
-El script desplegado puede contener credenciales reutilizables:
+Aunque el script principal ya no debería contener secretos, el payload desplegado sigue pudiendo depender de credenciales reutilizables en la configuración desplegada:
 
 - password SSH,
 - password para `sudo`,
 - ruta de clave privada.
 
-Si el archivo remoto es legible por usuarios no autorizados, esas credenciales quedan expuestas.
+Si esos archivos remotos son legibles por usuarios no autorizados, esas credenciales quedan expuestas.
 
-### 2. Permisos de fichero demasiado amplios
+### 2. Permisos de fichero insuficientemente homogéneos entre plataformas
 
-En Unix/macOS el script se despliega actualmente como ejecutable global (`755`).
+Linux ya usa permisos restrictivos y ownership explícito `root:root`, pero macOS y Windows todavía no están endurecidos al mismo nivel.
 
-Si contiene datos de conexión sensibles, ese permiso es excesivo.
+El objetivo sigue siendo dejar el despliegue endurecido y coherente en todas las plataformas.
 
 ### 3. Verificación SSH debilitada
 
@@ -165,13 +178,13 @@ Documentar explícitamente:
 
 ### Actualización automática controlada de GSA
 
-Mientras siga existiendo mapa estático desplegado, ZFSMgr debe:
+Mientras siga existiendo configuración desplegada por conexión, ZFSMgr debe:
 
 - detectar cambios de conexión relevantes,
 - avisar claramente,
 - actualizar automáticamente los GSA instalados afectados.
 
-Esto reduce incoherencias operativas, pero no resuelve por sí mismo el problema de seguridad del payload.
+Esto ya está parcialmente implementado y reduce incoherencias operativas, pero no resuelve por sí mismo el problema de seguridad del payload.
 
 ### Diagnóstico visible en UI
 

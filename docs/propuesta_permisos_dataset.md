@@ -372,7 +372,6 @@ Integrar `Permisos` en el mismo flujo de `Aplicar cambios` de la vista `conncont
 Propuesta adoptada:
 
 - las modificaciones de permisos quedan como borrador local
-- el tooltip de `Aplicar cambios` muestra tambien los `zfs allow` / `zfs unallow` pendientes
 - al aplicar se ejecutan por dataset y se refresca el nodo `Permisos`
 
 ## Fases recomendadas

@@ -11,6 +11,23 @@ Rediseñar el despliegue del `Gestor de snapshots` (GSA) para:
 
 Este documento concreta la propuesta de [propuesta_endurecimiento_gsa.md](./propuesta_endurecimiento_gsa.md).
 
+## Estado del documento
+
+Este documento mezcla:
+
+- diseño objetivo aún no completado,
+- y notas de implementación ya materializadas.
+
+Estado ya implementado de forma relevante:
+
+- separación entre script principal y configuración desplegada,
+- mapa mínimo de conexiones por origen,
+- `known_hosts` propio del GSA,
+- runtime y log en Linux bajo `/var/lib/zfsmgr`,
+- permisos restrictivos y ownership explícito en Linux.
+
+Lo pendiente debe leerse como trabajo futuro o endurecimiento adicional.
+
 ## Alcance
 
 Incluye:
@@ -76,7 +93,7 @@ Configuración general:
 
 Mapa de conexiones:
 
-- `/etc/zfsmgr/gsa-connections.json`
+- `/etc/zfsmgr/gsa-connections.conf`
 
 Host keys conocidas:
 
@@ -88,8 +105,10 @@ Estado local opcional:
 
 Log:
 
-- `~/.config/ZFSMgr/GSA.log` para el usuario efectivo actual o
-- `/var/log/zfsmgr-gsa.log` si se decide centralizarlo en fase posterior
+- Linux:
+  - `/var/lib/zfsmgr/GSA.log`
+- macOS:
+  - según `gsa.conf` del payload desplegado
 
 ### Componentes desplegados en Windows
 
@@ -145,9 +164,9 @@ Ejemplo conceptual:
   "gsa_version": "0.9.9rc1-gsa1",
   "self_connection": "OrigenA",
   "os_type": "Linux",
-  "log_file": "/root/.config/ZFSMgr/GSA.log",
+  "log_file": "/var/lib/zfsmgr/GSA.log",
   "known_hosts_file": "/etc/zfsmgr/gsa_known_hosts",
-  "connections_file": "/etc/zfsmgr/gsa-connections.json"
+  "connections_file": "/etc/zfsmgr/gsa-connections.conf"
 }
 ```
 
@@ -254,10 +273,12 @@ ACL:
 
 - mantener `systemd service` + `systemd timer`
 
-Cambios:
+Estado actual:
 
-- el service debe ejecutar el script estable
-- el script leerá la config externa
+- el service ejecuta el script estable
+- el script lee configuración externa
+- el runtime del GSA se deja en `/var/lib/zfsmgr`
+- el despliegue fija `root:root` y permisos restrictivos
 
 ### macOS
 

@@ -6,6 +6,20 @@ Reducir la duplicación entre el treeview superior y el inferior mediante un com
 
 El objetivo no es rehacer toda la arquitectura del módulo de conexiones, sino extraer una pieza reutilizable que elimine divergencias visuales y de interacción entre ambos árboles.
 
+## Estado actual
+
+La refactorización descrita en este documento ya está aplicada en lo esencial.
+
+Estado implementado:
+
+- existe `ConnectionDatasetTreePane`,
+- ambos paneles usan el widget compartido,
+- las opciones `Mostrar en línea` son independientes por panel,
+- el renderer base del árbol se comparte,
+- las fases 1 a 4 descritas aquí se consideran completadas en un nivel pragmático.
+
+Lo que queda pendiente ya no es la extracción inicial del componente, sino refinamiento o refactor adicional.
+
 ## Problema actual
 
 Actualmente existen dos controles y dos rutas de interacción muy parecidas para:
