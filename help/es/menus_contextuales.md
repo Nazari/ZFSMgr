@@ -6,6 +6,8 @@ La GUI usa menús contextuales por clic derecho en tres zonas.
 
 Sobre una fila de conexión:
 
+![Menú contextual de conexiones](qrc:/help/img/auto/connection-context-menu.png)
+
 - `Refrescar`
 - `Editar`
 - `Borrar`
@@ -18,10 +20,19 @@ Notas:
 - `Editar` y `Borrar` se deshabilitan para `Local` y conexiones redirigidas a `Local`.
 - Durante acciones en curso, `Refrescar` queda bloqueado.
 - Si el clic derecho se hace en zona vacía, solo aparecen opciones globales (`Refrescar todas`, `Nueva conexión`, `Nuevo pool`).
+- El submenú `Refrescar` tiene este aspecto:
+
+![Submenú Refrescar](qrc:/help/img/auto/connection-refresh-menu.png)
+
+- El submenú `GSA` tiene este aspecto:
+
+![Submenú GSA](qrc:/help/img/auto/connection-gsa-menu.png)
 
 ## Menú contextual en los árboles de detalle
 
 Sobre el nodo raíz `Pool`:
+
+![Menú contextual de pool importado](qrc:/help/img/auto/pool-context-menu-imported.png)
 
 - `Actualizar`
 - `Importar`
@@ -33,6 +44,10 @@ Sobre el nodo raíz `Pool`:
 - `Initialize`
 - `Destroy`
 - `Mostrar Información del pool`
+
+Sobre un pool importable:
+
+![Menú contextual de pool importable](qrc:/help/img/auto/pool-context-menu-importable.png)
 
 Sobre dataset/snapshot seleccionado:
 

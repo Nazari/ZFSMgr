@@ -56,6 +56,12 @@ public:
         QString mounted{QStringLiteral("yes")};
         QStringList snapshots;
     };
+    struct UiTestPropertySeed {
+        QString prop;
+        QString value;
+        QString source{QStringLiteral("local")};
+        QString readonly{QStringLiteral("no")};
+    };
 
     explicit MainWindow(const QString& masterPassword, const QString& language, QWidget* parent = nullptr);
     void configureSingleConnectionUiTestState(const ConnectionProfile& profile,
@@ -68,6 +74,11 @@ public:
     void setShowPoolInfoNodeForTest(bool visible);
     void setShowInlineGsaNodeForTest(bool visible);
     void setShowAutomaticSnapshotsForTest(bool visible);
+    void setConnectionGsaStateForTest(int connIdx, bool installed, bool active, const QString& version = QString());
+    void configureDatasetPropertiesForTest(int connIdx,
+                                           const QString& objectName,
+                                           const QString& datasetType,
+                                           const QVector<UiTestPropertySeed>& rows);
     QStringList topLevelPoolNamesForTest(bool bottom = false) const;
     QStringList childLabelsForDatasetForTest(const QString& datasetName, bool bottom = false) const;
     QStringList snapshotNamesForDatasetForTest(const QString& datasetName, bool bottom = false) const;

@@ -171,4 +171,14 @@ if(BUILD_TESTING)
     add_test(NAME zfsmgr_gui_mainwindow_test COMMAND zfsmgr_gui_mainwindow_test)
     set_tests_properties(zfsmgr_gui_mainwindow_test PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;ZFSMGR_TEST_MODE=1")
+
+    qt_add_executable(zfsmgr_ui_doc_capture
+        ../tests/ui_doc_capture.cpp
+    )
+    target_include_directories(zfsmgr_ui_doc_capture PRIVATE ../src)
+    target_link_libraries(zfsmgr_ui_doc_capture PRIVATE zfsmgr_core)
+    target_compile_definitions(zfsmgr_ui_doc_capture PRIVATE
+        QT_NO_KEYWORDS
+        ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
+    )
 endif()

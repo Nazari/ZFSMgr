@@ -8,6 +8,7 @@
 #include <QHBoxLayout>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QTextDocument>
 #include <QTextBrowser>
 #include <QVBoxLayout>
@@ -30,6 +31,36 @@ QString readUtf8File(const QString& path) {
         return QString();
     }
     return QString::fromUtf8(f.readAll());
+}
+
+QString helpMarkdownToHtml(const QString& md) {
+    QTextDocument doc;
+    doc.setBaseUrl(QUrl(QStringLiteral("qrc:/")));
+    doc.setMarkdown(md);
+    QString html = doc.toHtml();
+    QRegularExpression imgTag(QStringLiteral(R"REGEX(<img\b([^>]*)/?>)REGEX"),
+                              QRegularExpression::CaseInsensitiveOption);
+    QString rewritten;
+    rewritten.reserve(html.size() + 256);
+    int last = 0;
+    QRegularExpressionMatchIterator it = imgTag.globalMatch(html);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch match = it.next();
+        rewritten += html.mid(last, match.capturedStart() - last);
+        QString attrs = match.captured(1);
+        if (!attrs.contains(QRegularExpression(QStringLiteral(R"REGEX(\bwidth\s*=)REGEX"),
+                                               QRegularExpression::CaseInsensitiveOption))) {
+            attrs += QStringLiteral(" width=\"380\"");
+        }
+        if (!attrs.contains(QRegularExpression(QStringLiteral(R"REGEX(\bstyle\s*=)REGEX"),
+                                               QRegularExpression::CaseInsensitiveOption))) {
+            attrs += QStringLiteral(" style=\"height:auto;\"");
+        }
+        rewritten += QStringLiteral("<img%1 />").arg(attrs);
+        last = match.capturedEnd();
+    }
+    rewritten += html.mid(last);
+    return rewritten;
 }
 } // namespace
 
@@ -96,7 +127,7 @@ void MainWindow::openHelpTopic(const QString& topicId, const QString& titleOverr
     browser->setOpenExternalLinks(true);
     browser->setReadOnly(true);
     browser->document()->setBaseUrl(QUrl(QStringLiteral("qrc:/")));
-    browser->setMarkdown(md);
+    browser->setHtml(helpMarkdownToHtml(md));
     root->addWidget(browser, 1);
 
     auto* buttons = new QDialogButtonBox(&dlg);

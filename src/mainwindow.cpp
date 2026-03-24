@@ -130,6 +130,46 @@ void MainWindow::setShowAutomaticSnapshotsForTest(bool visible) {
     rebuildConnectionDetailsForTest();
 }
 
+void MainWindow::setConnectionGsaStateForTest(int connIdx, bool installed, bool active, const QString& version) {
+    if (connIdx < 0 || connIdx >= m_states.size()) {
+        return;
+    }
+    ConnectionRuntimeState& state = m_states[connIdx];
+    state.gsaInstalled = installed;
+    state.gsaActive = active;
+    if (!version.trimmed().isEmpty()) {
+        state.gsaVersion = version.trimmed();
+    }
+}
+
+void MainWindow::configureDatasetPropertiesForTest(int connIdx,
+                                                   const QString& objectName,
+                                                   const QString& datasetType,
+                                                   const QVector<UiTestPropertySeed>& rows) {
+    const QString trimmedObject = objectName.trimmed();
+    const QString poolName = trimmedObject.section('/', 0, 0).trimmed();
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedObject.isEmpty()) {
+        return;
+    }
+    DatasetPropsCacheEntry entry;
+    entry.loaded = true;
+    entry.objectName = trimmedObject;
+    entry.datasetType = datasetType.trimmed();
+    for (const UiTestPropertySeed& seed : rows) {
+        const QString prop = seed.prop.trimmed();
+        if (prop.isEmpty()) {
+            continue;
+        }
+        DatasetPropCacheRow row;
+        row.prop = prop;
+        row.value = seed.value;
+        row.source = seed.source.trimmed().isEmpty() ? QStringLiteral("local") : seed.source.trimmed();
+        row.readonly = seed.readonly.trimmed().isEmpty() ? QStringLiteral("no") : seed.readonly.trimmed();
+        entry.rows.push_back(row);
+    }
+    m_datasetPropsCache.insert(datasetPropsCacheKey(connIdx, poolName, trimmedObject), entry);
+}
+
 bool MainWindow::selectDatasetForTest(const QString& datasetName, bool bottom) {
     QTreeWidget* tree = bottom ? m_bottomConnContentTree : m_connContentTree;
     if (!tree || datasetName.trimmed().isEmpty()) {
