@@ -236,7 +236,12 @@ $ds"
 
 build_target_recv_command() {
   ds="$1"
-  base="zfs recv -F $(shq "$ds")"
+  force_flag="$2"
+  if bool_on "$force_flag"; then
+    base="zfs recv -F $(shq "$ds")"
+  else
+    base="zfs recv $(shq "$ds")"
+  fi
   if bool_on "$TARGET_USE_SUDO"; then
     if [ -n "$TARGET_PASS" ]; then
       printf "{ printf '%%s\\n' %s; cat; } | sudo -S -p '' sh -lc %s\n" "$(shq "$TARGET_PASS")" "$(shq "$base")"
@@ -291,6 +296,24 @@ list_target_gsa_snapshots() {
     zfs list -H -t snapshot -o name -s creation -r "$ds" 2>/dev/null
   else
     run_via_target_ssh "$(build_target_list_command "$ds")"
+  fi
+}
+
+target_dataset_exists() {
+  ds="$1"
+  if [ "$TARGET_MODE" = "local" ]; then
+    zfs list -H -o name "$ds" >/dev/null 2>&1
+  else
+    run_via_target_ssh "zfs list -H -o name $(shq "$ds") >/dev/null 2>&1"
+  fi
+}
+
+target_dataset_has_snapshots() {
+  ds="$1"
+  if [ "$TARGET_MODE" = "local" ]; then
+    zfs list -H -t snapshot -o name -r "$ds" 2>/dev/null | grep -q .
+  else
+    run_via_target_ssh "zfs list -H -t snapshot -o name -r $(shq "$ds") 2>/dev/null | grep -q ."
   fi
 }
 
@@ -388,12 +411,16 @@ level_snapshot() {
     return 0
   fi
   common="$(latest_common_gsa "$src_ds" "$dst_dataset")"
-  recv_cmd="$(build_target_recv_command "$dst_dataset")"
+  target_exists='0'
+  if target_dataset_exists "$dst_dataset"; then
+    target_exists='1'
+  fi
+  if [ "$target_exists" = "1" ] && [ -z "$common" ] && target_dataset_has_snapshots "$dst_dataset"; then
+    log "GSA level skip for $src_ds: destination $dst_dataset already has snapshots and no common GSA base"
+    return 0
+  fi
+  recv_cmd="$(build_target_recv_command "$dst_dataset" "$target_exists")"
   if [ "$TARGET_MODE" = "local" ]; then
-    if ! zfs list -H -o name "$dst_dataset" >/dev/null 2>&1; then
-      log "GSA level skip for $src_ds: destination dataset not found ($dst_dataset)"
-      return 0
-    fi
     if bool_on "$recursive"; then
       if [ -n "$common" ]; then
         zfs send -R -I "@${common}" "${src_ds}@${snap_name}" | sh -lc "$recv_cmd"
@@ -654,23 +681,37 @@ function Invoke-GsaLevel([string]$SrcDataset, [bool]$Recursive, [string]$SnapNam
   $dstConn = $Matches['conn']
   $dstDataset = $Matches['dataset']
   if ($dstConn -ne $SelfConnection -and $dstConn -ne 'Local') { return }
+  $targetExists = $true
   try {
     & zfs list -H -o name $dstDataset | Out-Null
   } catch {
-    return
+    $targetExists = $false
   }
   $common = Get-LatestCommonGsa $SrcDataset $DstDataset
+  if ($targetExists -and -not $common) {
+    $dstHasSnapshots = $false
+    try {
+      $dstHasSnapshots = @((& zfs list -H -t snapshot -o name -r $DstDataset 2>$null)).Count -gt 0
+    } catch {
+      $dstHasSnapshots = $false
+    }
+    if ($dstHasSnapshots) {
+      Write-GsaLog ("GSA level skip for " + $SrcDataset + ": destination " + $DstDataset + " already has snapshots and no common GSA base")
+      return
+    }
+  }
+  $recvCmd = if ($targetExists) { "zfs recv -F '$DstDataset'" } else { "zfs recv '$DstDataset'" }
   if ($Recursive) {
     if ($common) {
-      & powershell -NoProfile -Command "& zfs send -R -I '@$common' '$SrcDataset@$SnapName' | zfs recv -F '$DstDataset'" | Out-Null
+      & powershell -NoProfile -Command "& zfs send -R -I '@$common' '$SrcDataset@$SnapName' | $recvCmd" | Out-Null
     } else {
-      & powershell -NoProfile -Command "& zfs send -R '$SrcDataset@$SnapName' | zfs recv -F '$DstDataset'" | Out-Null
+      & powershell -NoProfile -Command "& zfs send -R '$SrcDataset@$SnapName' | $recvCmd" | Out-Null
     }
   } else {
     if ($common) {
-      & powershell -NoProfile -Command "& zfs send -I '@$common' '$SrcDataset@$SnapName' | zfs recv -F '$DstDataset'" | Out-Null
+      & powershell -NoProfile -Command "& zfs send -I '@$common' '$SrcDataset@$SnapName' | $recvCmd" | Out-Null
     } else {
-      & powershell -NoProfile -Command "& zfs send '$SrcDataset@$SnapName' | zfs recv -F '$DstDataset'" | Out-Null
+      & powershell -NoProfile -Command "& zfs send '$SrcDataset@$SnapName' | $recvCmd" | Out-Null
     }
   }
 try {
@@ -3728,6 +3769,80 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
     };
     QStringList routeWarnings;
     QSet<QString> requiredDestinationConnNames;
+    QSet<QString> candidatePools;
+    for (auto it = m_poolDatasetCache.cbegin(); it != m_poolDatasetCache.cend(); ++it) {
+        const QStringList parts = it.key().split(QStringLiteral("::"));
+        if (parts.size() != 2) {
+            continue;
+        }
+        bool okConn = false;
+        const int poolConnIdx = parts.at(0).toInt(&okConn);
+        const QString poolName = parts.at(1).trimmed();
+        if (okConn && poolConnIdx == idx && !poolName.isEmpty()) {
+            candidatePools.insert(poolName);
+        }
+    }
+    for (auto it = m_datasetPropsCache.cbegin(); it != m_datasetPropsCache.cend(); ++it) {
+        const QStringList parts = it.key().split(QStringLiteral("::"));
+        if (parts.size() < 3) {
+            continue;
+        }
+        bool okConn = false;
+        const int dsConnIdx = parts.at(0).toInt(&okConn);
+        const QString poolName = parts.at(1).trimmed();
+        if (okConn && dsConnIdx == idx && !poolName.isEmpty()) {
+            candidatePools.insert(poolName);
+        }
+    }
+    auto boolOnString = [](const QString& raw) {
+        const QString v = raw.trimmed().toLower();
+        return v == QStringLiteral("on")
+               || v == QStringLiteral("yes")
+               || v == QStringLiteral("true")
+               || v == QStringLiteral("1");
+    };
+    for (const QString& poolName : candidatePools) {
+        QString out;
+        QString err;
+        int rc = -1;
+        const QString cmd = withSudo(
+            p,
+            QStringLiteral("zfs get -H -o name,property,value -r %1 %2")
+                .arg(QStringLiteral("'org.fc16.gsa:activado','org.fc16.gsa:nivelar','org.fc16.gsa:destino'"),
+                     mwhelpers::shSingleQuote(poolName)));
+        if (!runSsh(p, cmd, 20000, out, err, rc) || rc != 0) {
+            continue;
+        }
+        QMap<QString, QMap<QString, QString>> propsByDataset;
+        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+        for (const QString& line : lines) {
+            const QStringList parts = line.split('\t');
+            if (parts.size() < 3) {
+                continue;
+            }
+            const QString datasetName = parts.at(0).trimmed();
+            const QString propName = parts.at(1).trimmed();
+            const QString propValue = parts.at(2).trimmed();
+            if (datasetName.isEmpty() || datasetName.contains(QLatin1Char('@')) || propName.isEmpty()) {
+                continue;
+            }
+            propsByDataset[datasetName].insert(propName, propValue);
+        }
+        for (auto dsIt = propsByDataset.cbegin(); dsIt != propsByDataset.cend(); ++dsIt) {
+            const QMap<QString, QString>& props = dsIt.value();
+            if (!boolOnString(props.value(QStringLiteral("org.fc16.gsa:activado")))) {
+                continue;
+            }
+            if (!boolOnString(props.value(QStringLiteral("org.fc16.gsa:nivelar")))) {
+                continue;
+            }
+            const QString dest = props.value(QStringLiteral("org.fc16.gsa:destino")).trimmed();
+            const QString destConnName = dest.section(QStringLiteral("::"), 0, 0).trimmed();
+            if (!destConnName.isEmpty()) {
+                requiredDestinationConnNames.insert(destConnName);
+            }
+        }
+    }
     for (auto it = m_datasetPropsCache.cbegin(); it != m_datasetPropsCache.cend(); ++it) {
         if (!it.value().loaded || it.value().datasetType.trimmed().compare(QStringLiteral("filesystem"), Qt::CaseInsensitive) != 0) {
             continue;
@@ -3755,12 +3870,11 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
             }
         }
         const QString enabled = props.value(QStringLiteral("org.fc16.gsa:activado")).trimmed().toLower();
-        if (!(enabled == QStringLiteral("on") || enabled == QStringLiteral("yes") || enabled == QStringLiteral("true") || enabled == QStringLiteral("1"))) {
+        if (!boolOnString(enabled)) {
             continue;
         }
         const QString levelOn = props.value(QStringLiteral("org.fc16.gsa:nivelar")).trimmed().toLower();
-        if (!(levelOn == QStringLiteral("on") || levelOn == QStringLiteral("yes")
-              || levelOn == QStringLiteral("true") || levelOn == QStringLiteral("1"))) {
+        if (!boolOnString(levelOn)) {
             continue;
         }
         const QString dest = props.value(QStringLiteral("org.fc16.gsa:destino")).trimmed();

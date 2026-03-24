@@ -1190,7 +1190,10 @@ void MainWindow::applyDatasetPropertyChanges() {
             if (m_propsDataset.isEmpty() || m_propsToken.isEmpty() || !m_connContentPropsTable) {
                 return;
             }
-            DatasetPropsDraft draft;
+            const QString draftStorageKey =
+                propsDraftKey(QStringLiteral("conncontent"), m_propsToken, m_propsDataset);
+            DatasetPropsDraft draft = m_propsDraftByKey.value(draftStorageKey);
+            QSet<QString> visibleKeys;
             for (int r = 0; r < m_connContentPropsTable->rowCount(); ++r) {
                 QTableWidgetItem* rk = m_connContentPropsTable->item(r, 0);
                 QTableWidgetItem* rv = m_connContentPropsTable->item(r, 1);
@@ -1202,6 +1205,7 @@ void MainWindow::applyDatasetPropertyChanges() {
                 if (key.isEmpty()) {
                     continue;
                 }
+                visibleKeys.insert(key);
                 const QString nowValue = rv->text();
                 const bool nowInherit =
                     (ri->flags() & Qt::ItemIsUserCheckable) && ri->checkState() == Qt::Checked;
@@ -1209,17 +1213,20 @@ void MainWindow::applyDatasetPropertyChanges() {
                 const bool originalInherit = m_propsOriginalInherit.value(key, false);
                 if (nowValue != originalValue) {
                     draft.valuesByProp[key] = nowValue;
+                } else {
+                    draft.valuesByProp.remove(key);
                 }
                 if (nowInherit != originalInherit) {
                     draft.inheritByProp[key] = nowInherit;
+                } else {
+                    draft.inheritByProp.remove(key);
                 }
             }
             draft.dirty = !draft.valuesByProp.isEmpty() || !draft.inheritByProp.isEmpty();
-            const QString key = propsDraftKey(QStringLiteral("conncontent"), m_propsToken, m_propsDataset);
             if (draft.dirty) {
-                m_propsDraftByKey[key] = draft;
+                m_propsDraftByKey[draftStorageKey] = draft;
             } else {
-                m_propsDraftByKey.remove(key);
+                m_propsDraftByKey.remove(draftStorageKey);
             }
         };
         saveCurrentConnContentDraft();
