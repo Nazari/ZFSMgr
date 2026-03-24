@@ -83,7 +83,7 @@ Pool creation:
 - `VDEV builder` no longer uses free-form text:
   - the root node is `Pool`
   - valid nodes are created through the context menu
-  - block devices are dragged into the tree
+  - mark the desired block devices with their checkboxes and click `Add selected`
   - pool-tree nodes can also be reordered by drag and drop
 - The pool tree follows a restricted OpenZFS-compatible grammar:
   - the root may contain direct devices (implicit stripe), `mirror`, `raidz*`, and top-level classes (`log`, `cache`, `special`, `dedup`, `spare`)

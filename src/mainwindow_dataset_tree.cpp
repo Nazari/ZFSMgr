@@ -2076,93 +2076,6 @@ void MainWindow::syncConnContentPoolColumns() {
             return;
         }
     }
-    if (!safeTree) {
-        m_syncingConnContentColumns = false;
-        return;
-    }
-    root = nullptr;
-    for (int i = 0; i < safeTree->topLevelItemCount(); ++i) {
-        QTreeWidgetItem* n = safeTree->topLevelItem(i);
-        if (!n || !n->data(0, kIsPoolRootRole).toBool()) {
-            continue;
-        }
-        if (n->data(0, kConnIdxRole).toInt() == connIdx
-            && n->data(0, kPoolNameRole).toString().trimmed() == poolName) {
-            root = n;
-            break;
-        }
-    }
-    if (!root) {
-        m_syncingConnContentColumns = false;
-        return;
-    }
-    {
-        const QString tt = pit->statusText.toHtmlEscaped();
-        root->setToolTip(
-            0,
-            QStringLiteral("<pre style=\"font-family:monospace; white-space:pre;\">%1</pre>").arg(tt));
-    }
-    auto clearNodeRows = [](QTreeWidgetItem* parent) {
-        if (!parent) {
-            return;
-        }
-        for (int i = parent->childCount() - 1; i >= 0; --i) {
-            delete parent->takeChild(i);
-        }
-    };
-    auto clearDatasetNodeRec = [&](auto&& self, QTreeWidgetItem* n) -> void {
-        if (!n) {
-            return;
-        }
-        for (int i = n->childCount() - 1; i >= 0; --i) {
-            QTreeWidgetItem* c = n->child(i);
-            if (!c) {
-                continue;
-            }
-            if (c->data(0, kConnPropRowRole).toBool()) {
-                delete n->takeChild(i);
-                continue;
-            }
-            self(self, c);
-        }
-        // Limpiar solo columnas dinámicas de propiedades; no tocar estado base del dataset
-        // (snapshot/check de montado/mountpoint), que se reutiliza al volver a selección de dataset.
-        for (int col = 4; col < tree->columnCount(); ++col) {
-            if (QWidget* w = tree->itemWidget(n, col)) {
-                tree->removeItemWidget(n, col);
-                w->deleteLater();
-            }
-            n->setText(col, QString());
-        }
-    };
-    auto blockForKey = [root](const QString& key) -> QTreeWidgetItem* {
-        for (int i = 0; i < root->childCount(); ++i) {
-            QTreeWidgetItem* c = root->child(i);
-            if (!c) {
-                continue;
-            }
-            if (c->data(0, kConnPropKeyRole).toString() == key) {
-                return c;
-            }
-        }
-        return nullptr;
-    };
-    for (int i = root->childCount() - 1; i >= 0; --i) {
-        QTreeWidgetItem* c = root->child(i);
-        if (!c) {
-            continue;
-        }
-        const QString marker = c->data(0, kConnPropKeyRole).toString();
-        if (marker == QString::fromLatin1(kPoolBlockInfoKey)) {
-            clearNodeRows(c);
-            continue;
-        }
-        if (c->data(0, kConnPropRowRole).toBool()) {
-            delete root->takeChild(i);
-        } else {
-            clearDatasetNodeRec(clearDatasetNodeRec, c);
-        }
-    }
     QStringList props;
     QMap<QString, QString> values;
     QStringList featureEnabled;
@@ -2274,6 +2187,21 @@ void MainWindow::syncConnContentPoolColumns() {
                 rowValues->setData(col, kConnPropKeyRole, name);
             }
         }
+    };
+    auto blockForKey = [root](const QString& key) -> QTreeWidgetItem* {
+        if (!root) {
+            return nullptr;
+        }
+        for (int i = 0; i < root->childCount(); ++i) {
+            QTreeWidgetItem* c = root->child(i);
+            if (!c) {
+                continue;
+            }
+            if (c->data(0, kConnPropKeyRole).toString() == key) {
+                return c;
+            }
+        }
+        return nullptr;
     };
     QTreeWidgetItem* infoNode = blockForKey(QString::fromLatin1(kPoolBlockInfoKey));
     if (!infoNode) {
@@ -2427,6 +2355,81 @@ void MainWindow::syncConnContentPoolColumns() {
                     autoSnapshotPropsByDataset[dsName].insert(prop, value);
                 }
             }
+        }
+    }
+    if (!safeTree) {
+        m_syncingConnContentColumns = false;
+        return;
+    }
+    root = nullptr;
+    for (int i = 0; i < safeTree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* n = safeTree->topLevelItem(i);
+        if (!n || !n->data(0, kIsPoolRootRole).toBool()) {
+            continue;
+        }
+        if (n->data(0, kConnIdxRole).toInt() == connIdx
+            && n->data(0, kPoolNameRole).toString().trimmed() == poolName) {
+            root = n;
+            break;
+        }
+    }
+    if (!root) {
+        m_syncingConnContentColumns = false;
+        return;
+    }
+    {
+        const QString tt = pit->statusText.toHtmlEscaped();
+        root->setToolTip(
+            0,
+            QStringLiteral("<pre style=\"font-family:monospace; white-space:pre;\">%1</pre>").arg(tt));
+    }
+    auto clearNodeRows = [](QTreeWidgetItem* parent) {
+        if (!parent) {
+            return;
+        }
+        for (int i = parent->childCount() - 1; i >= 0; --i) {
+            delete parent->takeChild(i);
+        }
+    };
+    auto clearDatasetNodeRec = [&](auto&& self, QTreeWidgetItem* n) -> void {
+        if (!n) {
+            return;
+        }
+        for (int i = n->childCount() - 1; i >= 0; --i) {
+            QTreeWidgetItem* c = n->child(i);
+            if (!c) {
+                continue;
+            }
+            if (c->data(0, kConnPropRowRole).toBool()) {
+                delete n->takeChild(i);
+                continue;
+            }
+            self(self, c);
+        }
+        // Limpiar solo columnas dinámicas de propiedades; no tocar estado base del dataset
+        // (snapshot/check de montado/mountpoint), que se reutiliza al volver a selección de dataset.
+        for (int col = 4; col < tree->columnCount(); ++col) {
+            if (QWidget* w = tree->itemWidget(n, col)) {
+                tree->removeItemWidget(n, col);
+                w->deleteLater();
+            }
+            n->setText(col, QString());
+        }
+    };
+    for (int i = root->childCount() - 1; i >= 0; --i) {
+        QTreeWidgetItem* c = root->child(i);
+        if (!c) {
+            continue;
+        }
+        const QString marker = c->data(0, kConnPropKeyRole).toString();
+        if (marker == QString::fromLatin1(kPoolBlockInfoKey)) {
+            clearNodeRows(c);
+            continue;
+        }
+        if (c->data(0, kConnPropRowRole).toBool()) {
+            delete root->takeChild(i);
+        } else {
+            clearDatasetNodeRec(clearDatasetNodeRec, c);
         }
     }
     QStringList autoSnapshotDatasets;

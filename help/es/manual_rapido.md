@@ -4,7 +4,7 @@ ZFSMgr gestiona conexiones y acciones ZFS.
 
 ## Vista general
 
-<img src="help-img/ventanaprincipal.png" alt="Pantalla principal" width="50%">
+![Ventana principal](qrc:/help/img/auto/main-window.png)
 
 - Panel izquierdo:
 - `Conexiones`: tabla simple (una fila por conexión) con columna `Conexión` y checks `O` y `D`.
@@ -13,6 +13,13 @@ ZFSMgr gestiona conexiones y acciones ZFS.
 - Panel derecho:
 - Arriba: árbol de contenido de la conexión marcada como `Origen`.
 - Abajo: árbol de contenido de la conexión marcada como `Destino`.
+- Referencia visual del árbol superior:
+
+![Treeview superior](qrc:/help/img/auto/top-tree.png)
+
+- Referencia visual del árbol inferior:
+
+![Treeview inferior](qrc:/help/img/auto/bottom-tree.png)
 - La selección efectiva del detalle no depende del clic en la fila, sino de los checks:
   - `O` controla el árbol superior (`Origen`).
   - `D` controla el árbol inferior (`Destino`).
@@ -34,6 +41,9 @@ ZFSMgr gestiona conexiones y acciones ZFS.
   - `Deleg.`
   - `Nuevos DS`
   - `Conjuntos`
+- Vista del nodo `Permisos`:
+
+![Nodo Permisos](qrc:/help/img/auto/permissions-node.png)
 - Los checks de `Permisos` trabajan en modo borrador.
   Los cambios se acumulan y se aplican junto con `Aplicar cambios`.
 - Dentro de `Permisos`, el bloque `Nuevos DS` define qué permisos recibirá automáticamente quien cree descendientes nuevos bajo ese dataset.
@@ -79,7 +89,7 @@ ZFSMgr gestiona conexiones y acciones ZFS.
 
 Creación de pools:
 
-<img src="help-img/crearpool.png" alt="Crear pool" width="50%">
+![Crear pool](qrc:/help/img/crearpool.png)
 
 - `Crear pool` abre un diálogo con splitter horizontal:
   - a la izquierda: `Parámetros del pool` y `Constructor de VDEV`
@@ -94,7 +104,7 @@ Creación de pools:
 - `Constructor de VDEV` ya no usa texto libre:
   - el nodo raíz es `Pool`
   - el menú contextual crea nodos válidos
-  - los block devices se arrastran al árbol
+  - marque los block devices deseados con sus checks y pulse `Añadir seleccionados`
   - los nodos del propio árbol también pueden reordenarse por arrastre
 - La estructura del árbol sigue una gramática restringida compatible con OpenZFS:
   - en la raíz puede haber devices directos (stripe implícito), `mirror`, `raidz*` y clases top-level (`log`, `cache`, `special`, `dedup`, `spare`)
@@ -113,7 +123,7 @@ Creación de pools:
 
 Creación y montaje de datasets:
 
-<img src="help-img/creardataset.png" alt="Crear dataset" width="50%">
+![Crear dataset](qrc:/help/img/creardataset.png)
 
 - `Crear dataset` se ejecuta desde el árbol de contenido.
 - Si el dataset usa:
@@ -134,6 +144,9 @@ Programación automática de snapshots (GSA):
   - Linux: `systemd timer`
   - Windows: `Task Scheduler`
 - En datasets de tipo filesystem puede aparecer el nodo `Programar snapshots`.
+- Vista del nodo `Programar snapshots`:
+
+![Nodo Programar snapshots](qrc:/help/img/auto/schedule-snapshots-node.png)
 - Ese nodo expone inline:
   - `Activado`
   - `Recursivo`

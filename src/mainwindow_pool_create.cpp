@@ -9,8 +9,10 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDrag>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QMouseEvent>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QGridLayout>
@@ -76,29 +78,6 @@ QStringList draggedDevicePaths(const QMimeData* mimeData) {
 class DeviceDragTreeWidget : public QTreeWidget {
 public:
     using QTreeWidget::QTreeWidget;
-
-protected:
-    QStringList mimeTypes() const override {
-        return {QStringLiteral("application/x-zfsmgr-device-paths")};
-    }
-
-    QMimeData* mimeData(const QList<QTreeWidgetItem*>& items) const override {
-        auto* mimeData = new QMimeData();
-        QStringList paths;
-        for (QTreeWidgetItem* item : items) {
-            if (!item) {
-                continue;
-            }
-            const QString path = item->data(0, kRoleDevicePath).toString().trimmed();
-            if (!path.isEmpty()) {
-                paths << path;
-            }
-        }
-        paths.removeDuplicates();
-        mimeData->setData(QStringLiteral("application/x-zfsmgr-device-paths"),
-                          paths.join('\n').toUtf8());
-        return mimeData;
-    }
 };
 
 class PoolLayoutTreeWidget : public QTreeWidget {
@@ -1150,16 +1129,28 @@ void MainWindow::createPoolForSelectedConnection() {
                           QStringLiteral("VDEV 构建器")),
                       leftPane);
     auto* vdevLay = new QVBoxLayout(vdevBox);
+    auto* vdevButtonsRow = new QHBoxLayout();
+    auto* addSelectedBtn = new QPushButton(
+        trk(QStringLiteral("t_poolcrt_auto011b"),
+            QStringLiteral("Añadir seleccionados"),
+            QStringLiteral("Add selected"),
+            QStringLiteral("添加所选设备")),
+        vdevBox);
     auto* clearSelBtn = new QPushButton(trk(QStringLiteral("t_poolcrt_auto011"), QStringLiteral("Limpiar selección dispositivos"),
                                             QStringLiteral("Clear device selection"),
                                             QStringLiteral("清除设备选择")),
                                         vdevBox);
-    vdevLay->addWidget(clearSelBtn, 0);
+    addSelectedBtn->setFont(baseUiFont);
+    clearSelBtn->setFont(baseUiFont);
+    vdevButtonsRow->addWidget(addSelectedBtn, 0);
+    vdevButtonsRow->addWidget(clearSelBtn, 0);
+    vdevButtonsRow->addStretch(1);
+    vdevLay->addLayout(vdevButtonsRow, 0);
     auto* vdevHelp =
         new QLabel(trk(QStringLiteral("t_poolcrt_auto013"),
-                       QStringLiteral("Cree nodos con el menú contextual del árbol y arrastre block devices sobre ellos."),
-                       QStringLiteral("Create nodes with the tree context menu and drag block devices onto them."),
-                       QStringLiteral("通过树的上下文菜单创建节点，并将块设备拖到其上。")),
+                       QStringLiteral("Cree nodos con el menú contextual del árbol, marque block devices y pulse Añadir seleccionados."),
+                       QStringLiteral("Create nodes with the tree context menu, check block devices, and click Add selected."),
+                       QStringLiteral("通过树的上下文菜单创建节点，勾选块设备后点击添加所选设备。")),
                    vdevBox);
     vdevHelp->setWordWrap(true);
     vdevLay->addWidget(vdevHelp, 0);
@@ -1172,6 +1163,9 @@ void MainWindow::createPoolForSelectedConnection() {
     poolTree->setDropIndicatorShown(true);
     poolTree->setDragDropMode(QAbstractItemView::InternalMove);
     poolTree->setDefaultDropAction(Qt::MoveAction);
+    if (poolTree->viewport()) {
+        poolTree->viewport()->setAcceptDrops(true);
+    }
     auto* poolRootItem = new QTreeWidgetItem(QStringList{QStringLiteral("Pool")});
     poolRootItem->setData(0, kRoleNodeKind, QStringLiteral("root"));
     poolRootItem->setFlags((poolRootItem->flags() | Qt::ItemIsDropEnabled) & ~Qt::ItemIsDragEnabled);
@@ -1207,7 +1201,10 @@ void MainWindow::createPoolForSelectedConnection() {
     devicesTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
     devicesTree->setRootIsDecorated(true);
     devicesTree->setUniformRowHeights(false);
-    devicesTree->setDragEnabled(true);
+    devicesTree->setDragEnabled(false);
+    devicesTree->setAcceptDrops(false);
+    devicesTree->setDropIndicatorShown(false);
+    devicesTree->setDragDropMode(QAbstractItemView::NoDragDrop);
     const QColor stRed("#ffcccc");
     const QColor stYellow("#fff5bf");
     const QColor stGreen("#d7f7d7");
@@ -1400,7 +1397,12 @@ void MainWindow::createPoolForSelectedConnection() {
         item->setData(0, kRoleMounted, e.mounted || (!e.mountpoint.isEmpty() && e.mountpoint != QStringLiteral("-")));
         item->setData(0, kRoleMountpoint, e.mountpoint);
         item->setData(0, kRoleDevType, e.devType);
-        Qt::ItemFlags flags = item->flags() | Qt::ItemIsUserCheckable;
+        Qt::ItemFlags flags = item->flags() | Qt::ItemIsSelectable | Qt::ItemIsEnabled;
+        if (rr.selectable) {
+            flags |= Qt::ItemIsUserCheckable;
+        } else {
+            flags &= ~Qt::ItemIsUserCheckable;
+        }
         flags &= ~Qt::ItemIsEditable;
         item->setFlags(flags);
         item->setCheckState(0, Qt::Unchecked);
@@ -1408,9 +1410,6 @@ void MainWindow::createPoolForSelectedConnection() {
         item->setToolTip(2, rr.detailText);
         for (int c = 0; c < devicesTree->columnCount(); ++c) {
             item->setBackground(c, rr.bgColor);
-        }
-        if (!rr.selectable) {
-            item->setDisabled(true);
         }
         return item;
     };
@@ -1421,9 +1420,10 @@ void MainWindow::createPoolForSelectedConnection() {
         }
         auto* combo = qobject_cast<QComboBox*>(devicesTree->itemWidget(item, 3));
         if (!combo) {
-            combo = new QComboBox(devicesTree);
+            combo = new QComboBox(devicesTree->viewport());
             combo->addItem(QStringLiteral("No"));
             combo->addItem(QStringLiteral("Sí"));
+            combo->setFocusPolicy(Qt::NoFocus);
             devicesTree->setItemWidget(item, 3, combo);
         }
         const bool mounted = item->data(0, kRoleMounted).toBool();
@@ -1637,7 +1637,6 @@ void MainWindow::createPoolForSelectedConnection() {
         }
         syncDeviceChecks = false;
     });
-
     auto checkedDevices = [devicesTree]() -> QStringList {
         QStringList selected;
         std::function<void(QTreeWidgetItem*)> visit = [&](QTreeWidgetItem* item) {
@@ -1868,15 +1867,21 @@ void MainWindow::createPoolForSelectedConnection() {
             const bool isUsed = !path.isEmpty() && used.contains(path);
             const bool effectiveSelectable = intrinsicSelectable && !isUsed;
             item->setData(0, kRoleSelectable, effectiveSelectable);
+            Qt::ItemFlags flags = item->flags() | Qt::ItemIsSelectable | Qt::ItemIsEnabled;
+            if (effectiveSelectable) {
+                flags |= Qt::ItemIsUserCheckable;
+            } else {
+                flags &= ~Qt::ItemIsUserCheckable;
+                item->setCheckState(0, Qt::Unchecked);
+            }
+            item->setFlags(flags);
             if (isUsed) {
                 item->setCheckState(0, Qt::Unchecked);
-                item->setDisabled(true);
                 item->setToolTip(0, QStringLiteral("Ya usado en la estructura del pool"));
                 for (int c = 0; c < devicesTree->columnCount(); ++c) {
                     item->setBackground(c, QColor("#e0e0e0"));
                 }
             } else if (intrinsicSelectable) {
-                item->setDisabled(false);
                 const bool mounted = item->data(0, kRoleMounted).toBool();
                 const bool inPool = item->text(4) == QStringLiteral("Sí");
                 applyRowColor(item, inPool ? stRed : (mounted ? stYellow : stGreen));
@@ -2204,6 +2209,18 @@ void MainWindow::createPoolForSelectedConnection() {
         syncDeviceAvailability();
         updatePoolCommandPreview();
     };
+    connect(addSelectedBtn, &QPushButton::clicked, &dlg, [&]() {
+        const QStringList selectedPaths = checkedDevices();
+        if (selectedPaths.isEmpty()) {
+            return;
+        }
+        QTreeWidgetItem* targetItem = poolTree->currentItem();
+        if (!targetItem) {
+            targetItem = poolRootItem;
+        }
+        poolTree->handleExternalDrop(selectedPaths, targetItem);
+        clearDeviceChecks();
+    });
     poolTree->canAcceptInternalDrop = [&](const QList<QTreeWidgetItem*>& draggedItems, QTreeWidgetItem* targetItem) -> bool {
         if (draggedItems.isEmpty()) {
             return false;
