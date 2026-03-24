@@ -35,13 +35,14 @@ constexpr int kIsPoolRootRole = Qt::UserRole + 12;
 constexpr const char* kGsaTaskName = "ZFSMgr-GSA";
 constexpr const char* kGsaUnixScriptPath = "/usr/local/libexec/zfsmgr-gsa.sh";
 constexpr const char* kGsaUnixConfigDirPath = "/etc/zfsmgr";
+constexpr const char* kGsaLinuxRuntimeDirPath = "/var/lib/zfsmgr";
 constexpr const char* kGsaUnixConfigPath = "/etc/zfsmgr/gsa.conf";
 constexpr const char* kGsaUnixConnectionsPath = "/etc/zfsmgr/gsa-connections.conf";
 constexpr const char* kGsaUnixKnownHostsPath = "/etc/zfsmgr/gsa_known_hosts";
 constexpr const char* kGsaMacPlistPath = "/Library/LaunchDaemons/org.zfsmgr.gsa.plist";
 constexpr const char* kGsaLinuxServicePath = "/etc/systemd/system/zfsmgr-gsa.service";
 constexpr const char* kGsaLinuxTimerPath = "/etc/systemd/system/zfsmgr-gsa.timer";
-constexpr const char* kGsaVersionSuffix = ".4";
+constexpr const char* kGsaVersionSuffix = ".5";
 struct ConnTreeNavSnapshot {
     QSet<QString> expandedKeys;
     QString selectedKey;
@@ -3585,6 +3586,9 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
         return cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
     };
     auto unixConfigDirForProfile = [this](const ConnectionProfile& cp, bool isMac) {
+        if (!isMac) {
+            return QString::fromLatin1(kGsaLinuxRuntimeDirPath);
+        }
         if (isLocalConnection(cp)) {
             return m_store.configDir();
         }
@@ -3840,6 +3844,8 @@ Description=ZFSMgr automatic snapshot manager
 
 [Service]
 Type=oneshot
+User=root
+Group=root
 ExecStart=/usr/local/libexec/zfsmgr-gsa.sh
 )");
             const QString timerPayload = QString::fromUtf8(R"([Unit]
@@ -3855,16 +3861,18 @@ WantedBy=timers.target
 )");
             remoteCmd = QStringLiteral(
                 "if ! command -v systemctl >/dev/null 2>&1; then echo 'systemd not available' >&2; exit 1; fi; "
-                "mkdir -p /usr/local/libexec %7; "
+                "mkdir -p /usr/local/libexec %7 %14; "
                 "cat > %1 <<'EOF_GSA'\n%2\nEOF_GSA\n"
                 "cat > %8 <<'EOF_GSA_CONF'\n%9\nEOF_GSA_CONF\n"
                 "cat > %10 <<'EOF_GSA_CONN'\n%11\nEOF_GSA_CONN\n"
                 "cat > %12 <<'EOF_GSA_KNOWN'\n%13\nEOF_GSA_KNOWN\n"
                 "chmod 700 %1; "
                 "chmod 600 %8 %10 %12; "
-                "chmod 700 %7; "
+                "chmod 700 %7 %14; "
                 "cat > %3 <<'EOF_GSA_SERVICE'\n%4\nEOF_GSA_SERVICE\n"
                 "cat > %5 <<'EOF_GSA_TIMER'\n%6\nEOF_GSA_TIMER\n"
+                "chown root:root %1 %8 %10 %12 %3 %5; "
+                "chown root:root %7 %14; "
                 "systemctl daemon-reload; "
                 "systemctl enable --now zfsmgr-gsa.timer")
                             .arg(QString::fromLatin1(kGsaUnixScriptPath),
@@ -3879,7 +3887,8 @@ WantedBy=timers.target
                                  QString::fromLatin1(kGsaUnixConnectionsPath),
                                  connectionsPayload,
                                  QString::fromLatin1(kGsaUnixKnownHostsPath),
-                                 knownHostsPayload);
+                                 knownHostsPayload,
+                                 runtimeConfigDir);
         }
         remoteCmd = withSudo(p, remoteCmd);
     }

@@ -12,6 +12,7 @@
 #include <QMetaObject>
 #include <QPlainTextEdit>
 #include <QRegularExpression>
+#include <QScrollBar>
 #include <QTabWidget>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -38,6 +39,8 @@
 #include <string>
 
 namespace {
+constexpr const char* kGsaLinuxRuntimeDirPath = "/var/lib/zfsmgr";
+
 QString tsNowForLog() {
     return QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
 }
@@ -121,6 +124,22 @@ CompactLogParts parseCompactLogParts(const QString& fullLine) {
         out.msg = QStringLiteral("-");
     }
     return out;
+}
+
+void scrollLogViewToLatest(QPlainTextEdit* view) {
+    if (!view) {
+        return;
+    }
+    auto apply = [view]() {
+        if (QScrollBar* h = view->horizontalScrollBar()) {
+            h->setValue(h->minimum());
+        }
+        if (QScrollBar* v = view->verticalScrollBar()) {
+            v->setValue(v->maximum());
+        }
+    };
+    apply();
+    QMetaObject::invokeMethod(view, apply, Qt::QueuedConnection);
 }
 
 } // namespace
@@ -550,6 +569,7 @@ void MainWindow::refreshConnectionGsaLogAsync(int idx) {
     }
     if (isConnectionDisconnected(idx)) {
         target->clear();
+        scrollLogViewToLatest(target);
         return;
     }
 
@@ -557,12 +577,13 @@ void MainWindow::refreshConnectionGsaLogAsync(int idx) {
     const ConnectionRuntimeState state = (idx < m_states.size()) ? m_states[idx] : ConnectionRuntimeState{};
     if (!state.gsaInstalled) {
         target->setPlainText(QStringLiteral("GSA no instalado."));
+        scrollLogViewToLatest(target);
         return;
     }
 
     const auto gsaConfigDir = [this](const ConnectionProfile& cp, const ConnectionRuntimeState& st) {
         if (isLocalConnection(cp)) {
-            return m_store.configDir();
+            return QString::fromLatin1(kGsaLinuxRuntimeDirPath);
         }
         const QString osHint = (cp.osType + QStringLiteral(" ") + st.osLine).trimmed().toLower();
         const bool isMac = osHint.contains(QStringLiteral("darwin")) || osHint.contains(QStringLiteral("mac"));
@@ -586,24 +607,12 @@ void MainWindow::refreshConnectionGsaLogAsync(int idx) {
                        ? QStringLiteral("/var/root/.config/ZFSMgr")
                        : QStringLiteral("/Users/%1/.config/ZFSMgr").arg(user);
         }
-        return (user == QStringLiteral("root"))
-                   ? QStringLiteral("/root/.config/ZFSMgr")
-                   : QStringLiteral("/home/%1/.config/ZFSMgr").arg(user);
+        return QString::fromLatin1(kGsaLinuxRuntimeDirPath);
     };
 
     const QString configDir = gsaConfigDir(profile, state);
     if (configDir.isEmpty()) {
         target->clear();
-        return;
-    }
-
-    if (isLocalConnection(profile)) {
-        QFile f(QDir(configDir).filePath(QStringLiteral("GSA.log")));
-        QString text;
-        if (f.exists() && f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            text = QString::fromUtf8(f.readAll());
-        }
-        target->setPlainText(maskSecrets(text));
         return;
     }
 
@@ -628,6 +637,7 @@ void MainWindow::refreshConnectionGsaLogAsync(int idx) {
         QMetaObject::invokeMethod(this, [this, connId, text]() {
             if (QPlainTextEdit* view = m_connectionGsaLogViews.value(connId, nullptr)) {
                 view->setPlainText(maskSecrets(text));
+                scrollLogViewToLatest(view);
             }
         }, Qt::QueuedConnection);
     });
@@ -658,4 +668,5 @@ void MainWindow::appendConnectionLog(const QString& connId, const QString& line)
     }
     view->appendPlainText(QStringLiteral("[%1] %2").arg(tsNowForLog(), maskSecrets(line)));
     trimLogWidget(view);
+    scrollLogViewToLatest(view);
 }
