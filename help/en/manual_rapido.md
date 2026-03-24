@@ -46,12 +46,14 @@ ZFSMgr manages connections and ZFS actions.
 - Each cell shows `SSH` and `rsync` state.
   `SSH:✓` means the machine in the row can connect directly to the machine in the column using the credentials defined in the target connection.
   `rsync:✓` means `rsync` is also available on that route.
+- If a cell is red, its tooltip explains the concrete reason for the failure.
+  Examples: missing `sshpass` on the source side, authentication failure, DNS failure, timeout, or missing `rsync`.
 - If `SSH:✓` is missing, ZFSMgr cannot perform a direct remote-to-remote transfer between that source and target.
   In that case, the transfer has to pass through the local machine where ZFSMgr is running.
   That means a double hop, more local traffic, and higher time/resource cost.
-- The lower log area uses tabs:
-  - `Pending changes` as the first visible tab by default
-  - `Combined log`, which includes the `Application` box for textual logs
+- The lower area shows:
+  - `Pending changes` in a fixed box on the left
+  - log tabs on the right (`Combined log` and per-connection logs)
 - `Pending changes` shows one readable description per line with a `connection::pool` prefix, not the raw command.
 - Pending changes keep execution order.
 - `Move` does not execute immediately: it adds a pending `zfs rename` that moves the `Source` dataset under the `Target` dataset.

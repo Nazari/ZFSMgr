@@ -218,6 +218,8 @@ The `Diff` action includes a dedicated results window with grouped tree output f
 - Per-cell checks for:
   - `SSH`
   - `rsync`
+- Red cells expose the concrete failure reason in a tooltip.
+- On Unix/macOS, the probe expands `PATH` before checking helper tools such as `sshpass` and `rsync`, so non-interactive shells still see standard Homebrew and `/usr/local` locations.
 - If a direct route is not available, transfers may need to pass through the local machine running ZFSMgr, which is more expensive than a direct remote-to-remote path.
 - GSA warns before installation or update if a required remote leveling route does not have `SSH` connectivity.
 
@@ -291,7 +293,7 @@ Important characteristics:
   - resize this column,
   - resize all columns,
   - choose property column count.
-- `Aplicar cambios` batches real pending commands and shows them in a tooltip before execution.
+- `Aplicar cambios` batches real pending commands and lists them in `Cambios pendientes` before execution.
 
 ## Configuration and data
 

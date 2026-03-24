@@ -65,12 +65,14 @@ ZFSMgr gestiona conexiones y acciones ZFS.
 - Cada celda muestra el estado de `SSH` y `rsync`.
   `SSH:✓` indica que desde la máquina de la fila se puede abrir conexión directa hacia la máquina de la columna usando las credenciales definidas.
   `rsync:✓` indica además que esa ruta dispone de `rsync`.
+- Si una celda sale en rojo, el tooltip explica el motivo concreto del fallo.
+  Ejemplos: falta `sshpass` en origen, fallo de autenticación, DNS, timeout o falta de `rsync`.
 - Si falta `SSH:✓`, ZFSMgr no podrá hacer transferencia remota directa entre ese origen y ese destino.
   En ese caso, la transferencia tendrá que pasar por la máquina local donde se ejecuta ZFSMgr.
   Eso implica doble salto, más tráfico local y un coste mayor en tiempo y recursos.
-- La zona inferior usa pestañas:
-  - `Cambios pendientes` como primera pestaña visible por defecto
-  - `Log combinado`, que incluye la caja `Aplicación` para el log textual
+- La zona inferior muestra:
+  - `Cambios pendientes` en una caja fija a la izquierda
+  - a la derecha, pestañas de logs (`Log combinado` y logs por conexión)
 - El encabezado de cada treeview tiene menú contextual para ajustar una columna o todas al contenido y para cambiar `Columnas de propiedades`.
 - El scroll vertical de los treeviews es suave, por píxel.
 - El menú contextual del árbol permite además mostrar u ocultar `Información del pool` y, dentro de `Mostrar en línea`, `Propiedades`, `Permisos` y `Programar snapshots`.

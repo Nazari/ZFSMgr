@@ -1224,10 +1224,12 @@ QString connectivityMatrixRemoteProbe(const ConnectionProfile& target) {
     if (target.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
         return QString();
     }
+    const QString unixPathPrefix =
+        QStringLiteral("PATH=\"/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin:$PATH\"; export PATH; ");
     const QString targetHost = mwhelpers::shSingleQuote(mwhelpers::sshUserHost(target));
     const QString targetCmd = mwhelpers::shSingleQuote(QStringLiteral("echo ZFSMGR_CONNECT_OK"));
     if (!target.password.trimmed().isEmpty()) {
-        return QStringLiteral(
+        return unixPathPrefix + QStringLiteral(
                    "if command -v sshpass >/dev/null 2>&1; then "
                    "SSHPASS=%1 sshpass -e %2 -o BatchMode=no "
                    "-o PreferredAuthentications=password,keyboard-interactive,publickey "
@@ -1239,19 +1241,21 @@ QString connectivityMatrixRemoteProbe(const ConnectionProfile& target) {
                  targetCmd,
                  mwhelpers::shSingleQuote(QStringLiteral("ZFSMgr: sshpass no disponible para esta prueba")));
     }
-    return mwhelpers::sshBaseCommand(target) + QStringLiteral(" ") + targetHost + QStringLiteral(" ") + targetCmd;
+    return unixPathPrefix + mwhelpers::sshBaseCommand(target) + QStringLiteral(" ") + targetHost + QStringLiteral(" ") + targetCmd;
 }
 
 QString connectivityMatrixRsyncProbe(const ConnectionProfile& target) {
     if (target.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
         return QString();
     }
+    const QString unixPathPrefix =
+        QStringLiteral("PATH=\"/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin:$PATH\"; export PATH; ");
     const QString targetHost = mwhelpers::shSingleQuote(mwhelpers::sshUserHost(target));
     const QString targetCmd = mwhelpers::shSingleQuote(
         QStringLiteral("if command -v rsync >/dev/null 2>&1; then echo ZFSMGR_RSYNC_OK; else echo ZFSMGR_RSYNC_MISSING >&2; exit 127; fi"));
     const QString baseProbe = target.password.trimmed().isEmpty()
-        ? mwhelpers::sshBaseCommand(target) + QStringLiteral(" ") + targetHost + QStringLiteral(" ") + targetCmd
-        : QStringLiteral(
+        ? unixPathPrefix + mwhelpers::sshBaseCommand(target) + QStringLiteral(" ") + targetHost + QStringLiteral(" ") + targetCmd
+        : unixPathPrefix + QStringLiteral(
               "if command -v sshpass >/dev/null 2>&1; then "
               "SSHPASS=%1 sshpass -e %2 -o BatchMode=no "
               "-o PreferredAuthentications=password,keyboard-interactive,publickey "
@@ -1515,6 +1519,62 @@ void MainWindow::openConnectivityMatrixDialog() {
         auto composeText = [](const QString& sshState, const QString& rsyncState) -> QString {
             return QStringLiteral("SSH:%1\nrsync:%2").arg(sshState, rsyncState);
         };
+        auto explainFailure = [this](const QString& raw, int rc) -> QString {
+            const QString merged = raw.trimmed();
+            if (merged.contains(QStringLiteral("sshpass no disponible"), Qt::CaseInsensitive)) {
+                return trk(QStringLiteral("t_connectivity_reason_sshpass_001"),
+                           QStringLiteral("Motivo: en la conexión origen no está instalado sshpass y el destino requiere autenticación por contraseña."),
+                           QStringLiteral("Reason: sshpass is not installed on the source connection and the target requires password authentication."),
+                           QStringLiteral("原因：源连接未安装 sshpass，而目标需要密码认证。"));
+            }
+            if (merged.contains(QStringLiteral("rsync no disponible"), Qt::CaseInsensitive)
+                || merged.contains(QStringLiteral("ZFSMGR_RSYNC_MISSING"), Qt::CaseInsensitive)) {
+                return trk(QStringLiteral("t_connectivity_reason_rsync_001"),
+                           QStringLiteral("Motivo: rsync no está disponible en origen o destino."),
+                           QStringLiteral("Reason: rsync is not available on source or target."),
+                           QStringLiteral("原因：源端或目标端不可用 rsync。"));
+            }
+            if (merged.contains(QStringLiteral("permission denied"), Qt::CaseInsensitive)
+                || merged.contains(QStringLiteral("publickey"), Qt::CaseInsensitive)
+                || merged.contains(QStringLiteral("authentication"), Qt::CaseInsensitive)) {
+                return trk(QStringLiteral("t_connectivity_reason_auth_001"),
+                           QStringLiteral("Motivo: fallo de autenticación SSH hacia el destino."),
+                           QStringLiteral("Reason: SSH authentication to the target failed."),
+                           QStringLiteral("原因：到目标的 SSH 认证失败。"));
+            }
+            if (merged.contains(QStringLiteral("could not resolve hostname"), Qt::CaseInsensitive)
+                || merged.contains(QStringLiteral("name or service not known"), Qt::CaseInsensitive)) {
+                return trk(QStringLiteral("t_connectivity_reason_dns_001"),
+                           QStringLiteral("Motivo: no se puede resolver el nombre del host destino."),
+                           QStringLiteral("Reason: the target hostname cannot be resolved."),
+                           QStringLiteral("原因：无法解析目标主机名。"));
+            }
+            if (merged.contains(QStringLiteral("connection refused"), Qt::CaseInsensitive)) {
+                return trk(QStringLiteral("t_connectivity_reason_refused_001"),
+                           QStringLiteral("Motivo: el puerto SSH destino rechaza la conexión."),
+                           QStringLiteral("Reason: the target SSH port refused the connection."),
+                           QStringLiteral("原因：目标 SSH 端口拒绝了连接。"));
+            }
+            if (merged.contains(QStringLiteral("timed out"), Qt::CaseInsensitive)
+                || merged.contains(QStringLiteral("operation timed out"), Qt::CaseInsensitive)) {
+                return trk(QStringLiteral("t_connectivity_reason_timeout_001"),
+                           QStringLiteral("Motivo: tiempo de espera agotado al conectar con el destino."),
+                           QStringLiteral("Reason: timed out while connecting to the target."),
+                           QStringLiteral("原因：连接目标时超时。"));
+            }
+            if (!merged.isEmpty()) {
+                return trk(QStringLiteral("t_connectivity_reason_raw_001"),
+                           QStringLiteral("Motivo: %1"),
+                           QStringLiteral("Reason: %1"),
+                           QStringLiteral("原因：%1"))
+                    .arg(merged.left(300));
+            }
+            return trk(QStringLiteral("t_connectivity_reason_exit_001"),
+                       QStringLiteral("Motivo: la comprobación terminó con código %1."),
+                       QStringLiteral("Reason: the probe finished with exit code %1."),
+                       QStringLiteral("原因：探测以退出码 %1 结束。"))
+                .arg(rc);
+        };
         if (rowIdx < 0 || rowIdx >= m_profiles.size() || colIdx < 0 || colIdx >= m_profiles.size()) {
             result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
             return result;
@@ -1616,9 +1676,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                                         QStringLiteral("源端和目标端均可用 rsync。"));
                 } else {
                     rsyncState = QStringLiteral("✗");
-                    tooltipLines << (rsyncMerged.isEmpty()
-                                         ? QStringLiteral("rsync exit %1").arg(rsyncRc)
-                                         : rsyncMerged.left(300));
+                    tooltipLines << explainFailure(rsyncMerged, rsyncRc);
                 }
             }
             result.text = composeText(QStringLiteral("✓"), rsyncState);
@@ -1627,7 +1685,7 @@ void MainWindow::openConnectivityMatrixDialog() {
             return result;
         }
         result.text = composeText(QStringLiteral("✗"), QStringLiteral("-"));
-        result.tooltip = sshMerged.isEmpty() ? QStringLiteral("ssh exit %1").arg(sshRc) : sshMerged.left(300);
+        result.tooltip = explainFailure(sshMerged, sshRc);
         return result;
     };
 
@@ -1665,6 +1723,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                 item->setForeground(QBrush(QColor(QStringLiteral("#1d6f42"))));
             } else if (probe.text.contains(QStringLiteral("✗"))) {
                 item->setForeground(QBrush(QColor(QStringLiteral("#8b1e1e"))));
+                item->setBackground(QBrush(QColor(QStringLiteral("#fde7e7"))));
             }
             matrix->setItem(r, c, item);
             qApp->processEvents();

@@ -12,7 +12,7 @@
 - `Clonar` solo se habilita cuando origen es snapshot, destino es dataset, y ambos estan en la misma conexion y el mismo pool.
 - Si origen o destino usan OpenZFS `< 2.3.3`, `Copiar`, `Nivelar` y `Sincronizar` se bloquean y los labels `Origen/Destino` se muestran en rojo.
 - En propiedades inline, los cambios pendientes se conservan al navegar y volver al mismo dataset/pool.
-- `Aplicar cambios` se desactiva cuando no hay cambios reales pendientes y su tooltip muestra los comandos pendientes.
+- `Aplicar cambios` se desactiva cuando no hay cambios reales pendientes y los comandos acumulados se muestran en `Cambios pendientes`.
 - Navegar entre conexiones/pools no fuerza refresco: se usa caché y solo se refresca en acciones o refresco explícito.
 
 Estados comunes:
