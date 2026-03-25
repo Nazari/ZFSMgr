@@ -24,9 +24,24 @@ MAC_REMOTE="${MAC_REMOTE:-linarese@mmela.local}"
 BUILD_GIT_REMOTE="${BUILD_GIT_REMOTE:-github}"
 BUILD_GIT_REF="${BUILD_GIT_REF:-}"
 BUILDALL_LOG_DIR="${BUILDALL_LOG_DIR:-}"
+BUILD_PLATFORMS="${BUILD_PLATFORMS:-mac,linux,windows}"
 
 log() {
   printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
+}
+
+platform_enabled() {
+  local needle="$1"
+  local token
+  IFS=',' read -r -a _platform_tokens <<< "${BUILD_PLATFORMS}"
+  for token in "${_platform_tokens[@]}"; do
+    token="${token//[[:space:]]/}"
+    [[ -n "${token}" ]] || continue
+    if [[ "${token}" == "${needle}" ]]; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 run_platform_logged() {
@@ -201,8 +216,9 @@ fi
 if [[ -n "${BUILDALL_LOG_DIR}" ]]; then
   log "Logs por plataforma en: ${BUILDALL_LOG_DIR}"
 fi
+log "Plataformas solicitadas: ${BUILD_PLATFORMS}"
 
-if [[ "$(local_os)" == "Darwin" ]]; then
+if platform_enabled mac && [[ "$(local_os)" == "Darwin" ]]; then
   log "Compilando macOS en local"
   run_platform_logged macos-local "${SCRIPT_DIR}/build-macos.sh" --bundle --no-sign
   MAC_ARTIFACT="$(find_local_artifact 'ZFSMgr-*.app' d)"
@@ -210,7 +226,7 @@ if [[ "$(local_os)" == "Darwin" ]]; then
   copy_local_artifact "${MAC_ARTIFACT}"
   zip_macos_bundle "${OUTPUT_DIR}/$(basename "${MAC_ARTIFACT}")"
   log "Artefacto macOS copiado: $(basename "${MAC_ARTIFACT}").zip"
-else
+elif platform_enabled mac; then
   log "Compilando macOS remoto en ${MAC_REMOTE}"
   read -r -d '' MAC_BUILD_SCRIPT <<'EOF' || true
 set -euo pipefail
@@ -257,8 +273,11 @@ EOF
   copy_mac_remote_artifact "${MAC_ARTIFACT}"
   zip_macos_bundle "${OUTPUT_DIR}/$(basename "${MAC_ARTIFACT}")"
   log "Artefacto macOS copiado: $(basename "${MAC_ARTIFACT}").zip"
+else
+  log "macOS omitido"
 fi
 
+if platform_enabled linux; then
 log "Compilando Linux remoto en ${LINUX_REMOTE}"
 read -r -d '' LINUX_BUILD_SCRIPT <<'EOF' || true
 set -euo pipefail
@@ -320,7 +339,11 @@ copy_linux_remote_artifact "${LINUX_APPIMAGE_ARTIFACT}"
 log "Artefacto Linux copiado: $(basename "${LINUX_APPIMAGE_ARTIFACT}")"
 copy_linux_remote_artifact "${LINUX_DEB_ARTIFACT}"
 log "Artefacto Linux copiado: $(basename "${LINUX_DEB_ARTIFACT}")"
+else
+  log "Linux omitido"
+fi
 
+if platform_enabled windows; then
 log "Compilando Windows remoto en ${WINDOWS_REMOTE}"
 read -r -d '' WINDOWS_BUILD_SCRIPT <<'EOF' || true
 $ErrorActionPreference = "Stop"
@@ -392,6 +415,9 @@ WINDOWS_ARTIFACT="$(run_platform_logged windows-remote run_windows_b64_ps "${WIN
 WINDOWS_SCP_PATH="$(windows_to_scp_path "${WINDOWS_ARTIFACT}")"
 scp -p "${WINDOWS_REMOTE}:${WINDOWS_SCP_PATH}" "${OUTPUT_DIR}/"
 log "Artefacto Windows copiado: $(basename "${WINDOWS_ARTIFACT}")"
+else
+  log "Windows omitido"
+fi
 
 log "Artefactos disponibles en ${OUTPUT_DIR}"
 ls -1 "${OUTPUT_DIR}"

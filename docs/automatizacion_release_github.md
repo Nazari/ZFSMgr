@@ -23,6 +23,7 @@ o en modo simulación:
 ./scripts/release-github.sh --resume 0.10.1rc1
 ./scripts/release-github.sh --resume --skip-build 0.10.1rc1
 ./scripts/release-github.sh --only-release 0.10.1rc1
+./scripts/release-github.sh --resume --platforms linux,windows 0.10.2rc1
 ```
 
 el script:
@@ -72,6 +73,9 @@ Ya no dependen de la rama activa remota ni de que `git pull` los deje en el esta
 - `WINDOWS_REMOTE`
 - `RELEASE_LOG_DIR`
   - directorio donde guardar logs por fase
+- `BUILD_PLATFORMS`
+  - lista separada por comas para `buildall.sh`
+  - valores admitidos: `mac`, `linux`, `windows`
 
 ## Limitación importante
 
@@ -143,6 +147,25 @@ Condición:
 - los cuatro artefactos deben existir ya
 
 Si no existen, el script falla al validar artefactos, que es el comportamiento correcto.
+
+## Plataformas selectivas
+
+Puedes limitar `buildall.sh` a plataformas concretas:
+
+```bash
+./scripts/release-github.sh --resume --platforms linux,windows 0.10.2rc1
+```
+
+Valores admitidos:
+
+- `mac`
+- `linux`
+- `windows`
+
+Uso típico:
+
+- relanzar solo Windows tras un fallo del instalador
+- regenerar solo Linux cuando cambió AppImage o DEB
 
 ## Only Release
 

@@ -10,6 +10,7 @@ DRY_RUN=0
 RESUME=0
 SKIP_BUILD=0
 ONLY_RELEASE=0
+BUILD_PLATFORMS_OVERRIDE=""
 
 log() {
   printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
@@ -27,7 +28,7 @@ require_cmd() {
 usage() {
   cat <<'USAGE'
 Uso:
-  release-github.sh [--dry-run] [--resume] [--skip-build] [--only-release] <version>
+  release-github.sh [--dry-run] [--resume] [--skip-build] [--only-release] [--platforms mac,linux,windows] <version>
 
 Ejemplo:
   release-github.sh 0.10.1rc1
@@ -59,6 +60,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --only-release)
       ONLY_RELEASE=1
+      shift
+      ;;
+    --platforms)
+      shift
+      [[ $# -gt 0 ]] || fail "--platforms requiere una lista separada por comas"
+      BUILD_PLATFORMS_OVERRIDE="$1"
       shift
       ;;
     -h|--help)
@@ -156,6 +163,7 @@ write_state() {
   "dry_run": ${DRY_RUN},
   "skip_build": ${SKIP_BUILD},
   "only_release": ${ONLY_RELEASE},
+  "build_platforms": "$(json_escape "${BUILD_PLATFORMS_OVERRIDE:-mac,linux,windows}")",
   "git_remote": "$(json_escape "${GIT_REMOTE}")",
   "local_tag_exists": ${LOCAL_TAG_EXISTS},
   "remote_tag_exists": ${REMOTE_TAG_EXISTS},
@@ -201,6 +209,7 @@ Dry run de release GitHub
   modo resume: ${RESUME}
   skip build: ${SKIP_BUILD}
   only release: ${ONLY_RELEASE}
+  plataformas build: ${BUILD_PLATFORMS_OVERRIDE:-mac,linux,windows}
   remoto git: ${GIT_REMOTE}
   tag: ${TAG}
   directorio de artefactos: ${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}
@@ -284,7 +293,7 @@ else
   rm -rf "${ARTIFACTS_DIR}"
   mkdir -p "${ARTIFACTS_DIR}"
   log "Ejecutando buildall.sh con artefactos en ${ARTIFACTS_DIR}"
-  run_logged buildall env OUTPUT_DIR="${ARTIFACTS_DIR}" BUILDALL_LOG_DIR="${BUILDALL_PLATFORM_LOG_DIR}" BUILD_GIT_REMOTE="${GIT_REMOTE}" BUILD_GIT_REF="${BUILD_REF}" "${SCRIPT_DIR}/buildall.sh"
+  run_logged buildall env OUTPUT_DIR="${ARTIFACTS_DIR}" BUILDALL_LOG_DIR="${BUILDALL_PLATFORM_LOG_DIR}" BUILD_GIT_REMOTE="${GIT_REMOTE}" BUILD_GIT_REF="${BUILD_REF}" BUILD_PLATFORMS="${BUILD_PLATFORMS_OVERRIDE:-mac,linux,windows}" "${SCRIPT_DIR}/buildall.sh"
   MAC_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}.app.zip" | head -n1)"
   WIN_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-Setup-${VERSION}*.exe" | head -n1)"
   LINUX_APPIMAGE="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}-*.AppImage" | head -n1)"
