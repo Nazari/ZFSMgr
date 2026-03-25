@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
+#include "helperinstallcatalog.h"
 
 #include <algorithm>
 #include <QRegularExpression>
@@ -188,7 +189,103 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                QStringLiteral("Refresh start: %1 [%2]"),
                QStringLiteral("开始刷新：%1 [%2]")).arg(profile.name, profile.connType));
 
+    const MainWindow::WindowsCommandMode winPsMode = MainWindow::WindowsCommandMode::PowerShellNative;
     const bool localMode = isLocalConnection(profile);
+    auto refineOsLineForRefresh = [&](const QString& currentOsLine) -> QString {
+        if (isWindowsConnection(profile)) {
+            return currentOsLine.trimmed();
+        }
+        QString unameOut;
+        QString unameErr;
+        int unameRc = -1;
+        if (!runSsh(profile, QStringLiteral("uname -s"), 8000, unameOut, unameErr, unameRc)
+            || unameRc != 0) {
+            return currentOsLine.trimmed();
+        }
+        const QString uname = oneLine(unameOut);
+        QString probeOut;
+        QString probeErr;
+        int probeRc = -1;
+        if (uname.compare(QStringLiteral("Linux"), Qt::CaseInsensitive) == 0) {
+            const QString cmd = QStringLiteral(
+                "sh -lc '. /etc/os-release 2>/dev/null; printf \"%s %s\" \"$NAME\" \"$VERSION_ID\"'");
+            if (runSsh(profile, cmd, 8000, probeOut, probeErr, probeRc) && probeRc == 0) {
+                const QString refined = oneLine(probeOut);
+                if (!refined.isEmpty()) {
+                    return refined;
+                }
+            }
+            return QStringLiteral("Linux");
+        }
+        if (uname.compare(QStringLiteral("Darwin"), Qt::CaseInsensitive) == 0) {
+            if (runSsh(profile,
+                       QStringLiteral(
+                           "sh -lc 'system_profiler SPSoftwareDataType 2>/dev/null | sed -n \"s/^ *System Version: //p\" | head -1'"),
+                       10000,
+                       probeOut,
+                       probeErr,
+                       probeRc,
+                       {},
+                       {},
+                       {},
+                       winPsMode)
+                && probeRc == 0) {
+                const QString refined = oneLine(probeOut);
+                if (!refined.isEmpty()) {
+                    return refined;
+                }
+            }
+            return QStringLiteral("macOS");
+        }
+        if (uname.compare(QStringLiteral("FreeBSD"), Qt::CaseInsensitive) == 0) {
+            if (runSsh(profile,
+                       QStringLiteral("freebsd-version -k || freebsd-version || uname -r"),
+                       8000,
+                       probeOut,
+                       probeErr,
+                       probeRc,
+                       {},
+                       {},
+                       {},
+                       winPsMode)
+                && probeRc == 0) {
+                const QString refined = oneLine(probeOut);
+                if (!refined.isEmpty()) {
+                    return QStringLiteral("FreeBSD %1").arg(refined);
+                }
+            }
+            return QStringLiteral("FreeBSD");
+        }
+        return currentOsLine.trimmed();
+    };
+    auto detectPackageManagerAvailability = [&](const QString& packageManagerId) -> bool {
+        const QString pm = packageManagerId.trimmed().toLower();
+        if (pm.isEmpty()) {
+            return false;
+        }
+        if (pm == QStringLiteral("msys2")) {
+            return true;
+        }
+        QString cmd;
+        if (pm == QStringLiteral("apt")) {
+            cmd = QStringLiteral("command -v apt-get >/dev/null 2>&1");
+        } else if (pm == QStringLiteral("pacman")) {
+            cmd = QStringLiteral("command -v pacman >/dev/null 2>&1");
+        } else if (pm == QStringLiteral("zypper")) {
+            cmd = QStringLiteral("command -v zypper >/dev/null 2>&1");
+        } else if (pm == QStringLiteral("brew")) {
+            cmd = QStringLiteral(
+                "PATH=\"$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin\"; command -v brew >/dev/null 2>&1");
+        } else if (pm == QStringLiteral("pkg")) {
+            cmd = QStringLiteral("command -v pkg >/dev/null 2>&1");
+        } else {
+            return false;
+        }
+        QString probeOut;
+        QString probeErr;
+        int probeRc = -1;
+        return runSsh(profile, cmd, 8000, probeOut, probeErr, probeRc, {}, {}, {}, winPsMode) && probeRc == 0;
+    };
     if (localMode) {
         QString libzfsDetail;
         const bool hasLibzfs = detectLocalLibzfs(&libzfsDetail);
@@ -245,7 +342,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     const QString osProbeCmd = isWindowsConnection(p)
                                    ? QStringLiteral("[System.Environment]::OSVersion.VersionString")
                                    : QStringLiteral("uname -a");
-    const MainWindow::WindowsCommandMode winPsMode = MainWindow::WindowsCommandMode::PowerShellNative;
     if (!runSsh(profile, osProbeCmd, 12000, out, err, rc, {}, {}, {},
                 isWindowsConnection(profile) ? winPsMode : MainWindow::WindowsCommandMode::Auto) || rc != 0) {
         state.status = QStringLiteral("ERROR");
@@ -260,6 +356,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     state.status = QStringLiteral("OK");
     state.detail = oneLine(out);
     state.osLine = oneLine(out);
+    state.osLine = refineOsLineForRefresh(state.osLine);
     state.zfsVersion.clear();
     state.machineUuid.clear();
 
@@ -503,6 +600,44 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             state.missingUnixCommands = missing;
             state.unixFromMsysOrMingw = false;
             state.commandsLayer.clear();
+        }
+    }
+
+    {
+        const helperinstall::PlatformInfo helperPlatform = helperinstall::detectPlatform(profile, state.osLine);
+        state.helperPlatformId = helperPlatform.platformId;
+        state.helperPlatformLabel = helperPlatform.platformLabel;
+        state.helperPackageManagerId = helperPlatform.packageManagerId;
+        state.helperPackageManagerLabel = helperPlatform.packageManagerLabel;
+        state.helperPackageManagerDetected = detectPackageManagerAvailability(helperPlatform.packageManagerId);
+        if (!state.missingUnixCommands.isEmpty()) {
+            const bool canElevate = localMode || profile.useSudo
+                || profile.username.trimmed().compare(QStringLiteral("root"), Qt::CaseInsensitive) == 0;
+            const helperinstall::InstallPlan helperPlan =
+                helperinstall::buildInstallPlan(helperPlatform, state.missingUnixCommands, canElevate);
+            state.helperInstallableCommands = helperPlan.supportedCommands;
+            state.helperUnsupportedCommands = helperPlan.unsupportedCommands;
+            state.helperInstallPackages = helperPlan.packages;
+            state.helperInstallCommandPreview = helperPlan.commandPreview;
+            if (!helperPlatform.supportedByDesign) {
+                state.helperInstallReason = helperPlatform.reason.trimmed();
+            } else if (!state.helperPackageManagerDetected && !helperPlatform.windowsUsesMsys2) {
+                state.helperInstallReason =
+                    QStringLiteral("Gestor de paquetes no detectado: %1").arg(helperPlatform.packageManagerLabel);
+            } else if (!helperPlan.supported) {
+                if (!helperPlan.unsupportedCommands.isEmpty()) {
+                    state.helperInstallReason =
+                        QStringLiteral("Hay comandos faltantes sin instalación asistida: %1")
+                            .arg(helperPlan.unsupportedCommands.join(QStringLiteral(", ")));
+                } else if (!helperPlan.warnings.isEmpty()) {
+                    state.helperInstallReason = helperPlan.warnings.join(QStringLiteral(" | "));
+                }
+            } else {
+                state.helperInstallSupported = true;
+            }
+            if (state.helperInstallReason.isEmpty() && !helperPlan.warnings.isEmpty()) {
+                state.helperInstallReason = helperPlan.warnings.join(QStringLiteral(" | "));
+            }
         }
     }
 

@@ -120,9 +120,20 @@ private:
         QString zfsVersionFull;
         QStringList detectedUnixCommands;
         QStringList missingUnixCommands;
+        QString helperPlatformId;
+        QString helperPlatformLabel;
+        QString helperPackageManagerId;
+        QString helperPackageManagerLabel;
+        QString helperInstallReason;
+        QString helperInstallCommandPreview;
+        QStringList helperInstallableCommands;
+        QStringList helperUnsupportedCommands;
+        QStringList helperInstallPackages;
         bool unixFromMsysOrMingw{false};
         QString commandsLayer;
         QStringList powershellFallbackCommands;
+        bool helperPackageManagerDetected{false};
+        bool helperInstallSupported{false};
         QVector<PoolImported> importedPools;
         QVector<PoolImportable> importablePools;
         QVector<QPair<QString, QString>> mountedDatasets; // dataset, mountpoint
@@ -266,6 +277,7 @@ private:
     void refreshAllConnections();
     void refreshSelectedConnection();
     void createConnection();
+    void installHelperCommandsForSelectedConnection();
     void installMsysForSelectedConnection();
     void editConnection();
     void deleteConnection();

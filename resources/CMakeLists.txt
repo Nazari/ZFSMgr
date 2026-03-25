@@ -26,6 +26,8 @@ find_package(OpenSSL REQUIRED)
 set(ZFSMGR_CORE_SOURCES
     ../src/mainwindow.cpp
     ../src/mainwindow_helpers.cpp
+    ../src/helperinstallcatalog.cpp
+    ../src/helperinstallcatalog.h
     ../src/mainwindow_ui_logic.cpp
     ../src/mainwindow_ui.cpp
     ../src/mainwindow_dialogs.cpp

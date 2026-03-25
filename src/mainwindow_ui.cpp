@@ -5373,6 +5373,11 @@ void MainWindow::buildUi() {
                 QStringLiteral("Instalar MSYS2"),
                 QStringLiteral("Install MSYS2"),
                 QStringLiteral("安装 MSYS2")));
+        QAction* aInstallHelpers = menu.addAction(
+            trk(QStringLiteral("t_install_helpers_ctx001"),
+                QStringLiteral("Instalar comandos auxiliares"),
+                QStringLiteral("Install helper commands"),
+                QStringLiteral("安装辅助命令")));
         QMenu* refreshMenu = menu.addMenu(
             trk(QStringLiteral("t_refresh_conn_ctx001"),
                 QStringLiteral("Refrescar"),
@@ -5423,6 +5428,12 @@ void MainWindow::buildUi() {
         aConnect->setEnabled(menuState.canConnect);
         aDisconnect->setEnabled(menuState.canDisconnect);
         aInstallMsys->setEnabled(menuState.canInstallMsys);
+        const bool canInstallHelpers =
+            hasConn && !actionsLocked() && !isDisconnected
+            && connIdx < m_states.size()
+            && !isWindowsConnection(connIdx)
+            && m_states[connIdx].helperInstallSupported;
+        aInstallHelpers->setEnabled(canInstallHelpers);
         aManageGsa->setEnabled(menuState.canManageGsa);
         aUninstallGsa->setEnabled(menuState.canUninstallGsa);
         gsaMenu->setEnabled(menuState.gsaSubmenuEnabled);
@@ -5467,6 +5478,9 @@ void MainWindow::buildUi() {
         } else if (chosen == aInstallMsys) {
             logUiAction(QStringLiteral("Instalar MSYS2 (menÃº conexiones)"));
             installMsysForSelectedConnection();
+        } else if (chosen == aInstallHelpers) {
+            logUiAction(QStringLiteral("Instalar comandos auxiliares (menú conexiones)"));
+            installHelperCommandsForSelectedConnection();
         } else if (chosen == aManageGsa && hasConn) {
             logUiAction(QStringLiteral("Gestionar GSA (menú conexiones)"));
             installOrUpdateGsaForConnection(connIdx);

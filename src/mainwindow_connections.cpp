@@ -5,9 +5,11 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QCheckBox>
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QEvent>
+#include <QLabel>
 #include <QMetaObject>
 #include <QMessageBox>
 #include <QPlainTextEdit>
@@ -49,6 +51,33 @@ struct ConnTreeNavSnapshot {
     QSet<QString> expandedKeys;
     QString selectedKey;
 };
+
+QString mergedConnectionCommandErrorText(const QString& out, const QString& err, int rc) {
+    QStringList parts;
+    const QString trimmedErr = err.trimmed();
+    const QString trimmedOut = out.trimmed();
+    if (!trimmedErr.isEmpty()) {
+        parts << trimmedErr;
+    }
+    if (!trimmedOut.isEmpty()) {
+        parts << trimmedOut;
+    }
+    if (parts.isEmpty()) {
+        return QStringLiteral("exit %1").arg(rc);
+    }
+    return parts.join(QStringLiteral("\n\n"));
+}
+
+QString stripLeadingSudoForExecution(QString cmd) {
+    cmd = cmd.trimmed();
+    if (cmd.startsWith(QStringLiteral("sudo "))) {
+        cmd = cmd.mid(5).trimmed();
+    }
+    cmd.replace(QStringLiteral("&& sudo "), QStringLiteral("&& "));
+    cmd.replace(QStringLiteral("; sudo "), QStringLiteral("; "));
+    cmd.replace(QStringLiteral("\n sudo "), QStringLiteral("\n "));
+    return cmd.trimmed();
+}
 
 QVector<int> versionOrderingKey(const QString& version) {
     QVector<int> out;
@@ -3071,6 +3100,29 @@ void MainWindow::rebuildConnectionsTable() {
                      .arg(detected.isEmpty() ? QStringLiteral("(ninguno)") : detected.join(QStringLiteral(", ")));
         lines << QStringLiteral("Comandos no detectados: %1")
                      .arg(missing.isEmpty() ? QStringLiteral("(ninguno)") : missing.join(QStringLiteral(", ")));
+        lines << QStringLiteral("Plataforma instalación auxiliar: %1")
+                     .arg(st.helperPlatformLabel.trimmed().isEmpty() ? QStringLiteral("-")
+                                                                    : st.helperPlatformLabel.trimmed());
+        lines << QStringLiteral("Gestor de paquetes: %1")
+                     .arg(st.helperPackageManagerLabel.trimmed().isEmpty()
+                              ? QStringLiteral("-")
+                              : QStringLiteral("%1%2")
+                                    .arg(st.helperPackageManagerLabel.trimmed(),
+                                         st.helperPackageManagerDetected ? QStringLiteral(" (detectado)")
+                                                                         : QStringLiteral(" (no detectado)")));
+        lines << QStringLiteral("Instalación asistida: %1")
+                     .arg(st.helperInstallSupported ? QStringLiteral("sí") : QStringLiteral("no"));
+        lines << QStringLiteral("Comandos instalables desde ZFSMgr: %1")
+                     .arg(st.helperInstallableCommands.isEmpty()
+                              ? QStringLiteral("(ninguno)")
+                              : st.helperInstallableCommands.join(QStringLiteral(", ")));
+        lines << QStringLiteral("Comandos no soportados por instalador: %1")
+                     .arg(st.helperUnsupportedCommands.isEmpty()
+                              ? QStringLiteral("(ninguno)")
+                              : st.helperUnsupportedCommands.join(QStringLiteral(", ")));
+        if (!st.helperInstallReason.trimmed().isEmpty()) {
+            lines << QStringLiteral("Motivo instalación asistida: %1").arg(st.helperInstallReason.trimmed());
+        }
         if (st.commandsLayer.trimmed().compare(QStringLiteral("Powershell"), Qt::CaseInsensitive) == 0
             && !st.powershellFallbackCommands.isEmpty()) {
             lines << QStringLiteral("Comandos PowerShell usados: %1")
@@ -3660,6 +3712,189 @@ void MainWindow::installMsysForSelectedConnection() {
             QStringLiteral("The installation finished, but commands are still missing on \"%1\": %2"),
             QStringLiteral("安装已完成，但 \"%1\" 上仍缺少命令：%2"))
             .arg(p.name, missingPackages.join(QStringLiteral(", "))));
+}
+
+void MainWindow::installHelperCommandsForSelectedConnection() {
+    if (actionsLocked()) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: instalación de comandos auxiliares bloqueada"));
+        return;
+    }
+    const int idx = selectedConnectionRow(m_connectionsTable);
+    if (idx < 0 || idx >= m_profiles.size()) {
+        return;
+    }
+    const ConnectionProfile& p = m_profiles[idx];
+    if (isConnectionDisconnected(idx)) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_helper_conn_disc_01"),
+                QStringLiteral("La conexión está desconectada."),
+                QStringLiteral("The connection is disconnected."),
+                QStringLiteral("该连接已断开。")));
+        return;
+    }
+    if (idx >= m_states.size()) {
+        return;
+    }
+    const ConnectionRuntimeState& st = m_states[idx];
+    if (isWindowsConnection(idx)) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_helper_windows_later_01"),
+                QStringLiteral("La instalación asistida de comandos auxiliares para Windows se implementará sobre el flujo de MSYS2, no en esta fase."),
+                QStringLiteral("Assisted installation of helper commands for Windows will be implemented on top of the MSYS2 flow, not in this phase."),
+                QStringLiteral("Windows 的辅助命令安装将在后续阶段基于 MSYS2 流程实现。")));
+        return;
+    }
+    if (st.missingUnixCommands.isEmpty()) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_helper_none_missing_01"),
+                QStringLiteral("No faltan comandos auxiliares en esta conexión."),
+                QStringLiteral("No helper commands are missing on this connection."),
+                QStringLiteral("该连接不缺少辅助命令。")));
+        return;
+    }
+    if (!st.helperInstallSupported || st.helperInstallCommandPreview.trimmed().isEmpty()) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_helper_not_supported_01"),
+                QStringLiteral("No hay instalación asistida disponible para esta conexión.\n\n%1"),
+                QStringLiteral("Assisted installation is not available for this connection.\n\n%1"),
+                QStringLiteral("此连接不可用辅助安装。\n\n%1"))
+                .arg(st.helperInstallReason.trimmed().isEmpty() ? QStringLiteral("-") : st.helperInstallReason.trimmed()));
+        return;
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(
+        trk(QStringLiteral("t_helper_install_title_01"),
+            QStringLiteral("Instalar comandos auxiliares"),
+            QStringLiteral("Install helper commands"),
+            QStringLiteral("安装辅助命令")));
+    dlg.resize(760, 520);
+
+    auto* layout = new QVBoxLayout(&dlg);
+    auto* summary = new QLabel(
+        trk(QStringLiteral("t_helper_install_summary_01"),
+            QStringLiteral("Se va a preparar la conexión \"%1\" para instalar los comandos auxiliares que faltan."),
+            QStringLiteral("Connection \"%1\" will be prepared to install the missing helper commands."),
+            QStringLiteral("将为连接 \"%1\" 准备缺失的辅助命令安装。")).arg(p.name),
+        &dlg);
+    summary->setWordWrap(true);
+    layout->addWidget(summary);
+
+    QStringList metaLines;
+    metaLines << QStringLiteral("Plataforma: %1").arg(st.helperPlatformLabel.trimmed().isEmpty()
+                                                          ? QStringLiteral("-")
+                                                          : st.helperPlatformLabel.trimmed());
+    metaLines << QStringLiteral("Gestor de paquetes: %1").arg(st.helperPackageManagerLabel.trimmed().isEmpty()
+                                                                  ? QStringLiteral("-")
+                                                                  : st.helperPackageManagerLabel.trimmed());
+    metaLines << QStringLiteral("Comandos faltantes: %1").arg(st.missingUnixCommands.join(QStringLiteral(", ")));
+    metaLines << QStringLiteral("Comandos instalables: %1").arg(st.helperInstallableCommands.join(QStringLiteral(", ")));
+    metaLines << QStringLiteral("Paquetes a instalar: %1").arg(st.helperInstallPackages.join(QStringLiteral(", ")));
+    if (!st.helperUnsupportedCommands.isEmpty()) {
+        metaLines << QStringLiteral("Comandos no soportados en esta fase: %1")
+                         .arg(st.helperUnsupportedCommands.join(QStringLiteral(", ")));
+    }
+    if (!st.helperInstallReason.trimmed().isEmpty()) {
+        metaLines << QStringLiteral("Notas: %1").arg(st.helperInstallReason.trimmed());
+    }
+
+    auto* metaBox = new QPlainTextEdit(metaLines.join(QStringLiteral("\n")), &dlg);
+    metaBox->setReadOnly(true);
+    metaBox->setMaximumBlockCount(200);
+    layout->addWidget(metaBox);
+
+    auto* previewLabel = new QLabel(
+        trk(QStringLiteral("t_helper_cmd_preview_01"),
+            QStringLiteral("Comando remoto previsto"),
+            QStringLiteral("Planned remote command"),
+            QStringLiteral("计划执行的远程命令")),
+        &dlg);
+    layout->addWidget(previewLabel);
+
+    auto* preview = new QPlainTextEdit(st.helperInstallCommandPreview, &dlg);
+    preview->setReadOnly(true);
+    layout->addWidget(preview, 1);
+
+    auto* refreshAfter = new QCheckBox(
+        trk(QStringLiteral("t_helper_refresh_after_01"),
+            QStringLiteral("Refrescar conexión al terminar"),
+            QStringLiteral("Refresh connection when finished"),
+            QStringLiteral("完成后刷新连接")),
+        &dlg);
+    refreshAfter->setChecked(true);
+    layout->addWidget(refreshAfter);
+
+    auto* buttons = new QDialogButtonBox(&dlg);
+    QPushButton* cancelBtn = buttons->addButton(
+        trk(QStringLiteral("t_helper_cancel_01"),
+            QStringLiteral("Cancelar"),
+            QStringLiteral("Cancel"),
+            QStringLiteral("取消")),
+        QDialogButtonBox::RejectRole);
+    QPushButton* installBtn = buttons->addButton(
+        trk(QStringLiteral("t_helper_install_btn_01"),
+            QStringLiteral("Instalar"),
+            QStringLiteral("Install"),
+            QStringLiteral("安装")),
+        QDialogButtonBox::AcceptRole);
+    Q_UNUSED(cancelBtn);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    QString out;
+    QString err;
+    int rc = -1;
+    const QString installCmd = withSudo(p, stripLeadingSudoForExecution(st.helperInstallCommandPreview));
+    beginUiBusy();
+    updateStatus(
+        trk(QStringLiteral("t_helper_install_busy_01"),
+            QStringLiteral("Instalando comandos auxiliares en %1..."),
+            QStringLiteral("Installing helper commands on %1..."),
+            QStringLiteral("正在 %1 上安装辅助命令...")).arg(p.name));
+    const bool ok = runSsh(p, installCmd, 1800000, out, err, rc) && rc == 0;
+    endUiBusy();
+
+    if (!ok) {
+        const QString detail = mergedConnectionCommandErrorText(out, err, rc).left(1200);
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_helper_install_fail_01"),
+                QStringLiteral("No se pudieron instalar los comandos auxiliares en \"%1\".\n\n%2"),
+                QStringLiteral("Could not install helper commands on \"%1\".\n\n%2"),
+                QStringLiteral("无法在 \"%1\" 上安装辅助命令。\n\n%2"))
+                .arg(p.name, detail));
+        if (refreshAfter->isChecked()) {
+            refreshConnectionByIndex(idx);
+        }
+        return;
+    }
+
+    if (refreshAfter->isChecked()) {
+        refreshConnectionByIndex(idx);
+    }
+
+    QMessageBox::information(
+        this,
+        QStringLiteral("ZFSMgr"),
+        trk(QStringLiteral("t_helper_install_ok_01"),
+            QStringLiteral("La instalación terminó correctamente en \"%1\"."),
+            QStringLiteral("The installation finished successfully on \"%1\"."),
+            QStringLiteral("\"%1\" 上的安装已成功完成。"))
+            .arg(p.name));
 }
 
 QString MainWindow::gsaMenuLabelForConnection(int connIdx) const {
