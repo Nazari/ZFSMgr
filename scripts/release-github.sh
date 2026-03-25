@@ -8,6 +8,8 @@ GIT_REMOTE="${GIT_REMOTE:-github}"
 ARTIFACTS_ROOT="${ARTIFACTS_DIR:-${PROJECT_ROOT}/.release-artifacts}"
 DRY_RUN=0
 RESUME=0
+SKIP_BUILD=0
+ONLY_RELEASE=0
 
 log() {
   printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
@@ -25,7 +27,7 @@ require_cmd() {
 usage() {
   cat <<'USAGE'
 Uso:
-  release-github.sh [--dry-run] [--resume] <version>
+  release-github.sh [--dry-run] [--resume] [--skip-build] [--only-release] <version>
 
 Ejemplo:
   release-github.sh 0.10.1rc1
@@ -51,6 +53,14 @@ while [[ $# -gt 0 ]]; do
       RESUME=1
       shift
       ;;
+    --skip-build)
+      SKIP_BUILD=1
+      shift
+      ;;
+    --only-release)
+      ONLY_RELEASE=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -73,6 +83,11 @@ BASE_VERSION="$(printf '%s' "${VERSION}" | sed -E 's/^([0-9]+\.[0-9]+\.[0-9]+).*
 [[ -n "${BASE_VERSION}" ]] || fail "No se pudo resolver la versión base desde ${VERSION}"
 LOG_DIR="${RELEASE_LOG_DIR:-${ARTIFACTS_ROOT}/logs/${VERSION}}"
 STATE_FILE="${ARTIFACTS_ROOT}/state/${VERSION}/release-state.json"
+
+if [[ "${ONLY_RELEASE}" -eq 1 ]]; then
+  RESUME=1
+  SKIP_BUILD=1
+fi
 
 require_cmd git
 require_cmd gh
@@ -133,6 +148,8 @@ write_state() {
   "current_version": "$(json_escape "${CURRENT_VERSION}")",
   "resume": ${RESUME},
   "dry_run": ${DRY_RUN},
+  "skip_build": ${SKIP_BUILD},
+  "only_release": ${ONLY_RELEASE},
   "git_remote": "$(json_escape "${GIT_REMOTE}")",
   "local_tag_exists": ${LOCAL_TAG_EXISTS},
   "remote_tag_exists": ${REMOTE_TAG_EXISTS},
@@ -168,6 +185,8 @@ Dry run de release GitHub
   version objetivo: ${VERSION}
   version base CMake: ${BASE_VERSION}
   modo resume: ${RESUME}
+  skip build: ${SKIP_BUILD}
+  only release: ${ONLY_RELEASE}
   remoto git: ${GIT_REMOTE}
   tag: ${TAG}
   directorio de artefactos: ${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}
@@ -181,7 +200,7 @@ Fases previstas:
   1. Actualizar resources/CMakeLists.txt a ${VERSION}
   2. Crear commit \"Release ${VERSION}\" si hay cambios
   3. Hacer push a ${GIT_REMOTE}
-  4. Ejecutar scripts/buildall.sh o reutilizar artefactos existentes
+  4. Ejecutar scripts/buildall.sh, reutilizar artefactos o saltar build
   5. Crear y subir tag ${TAG} o reutilizarlo si ya existe en resume
   6. Crear release ${TAG} en GitHub y subir artefactos
 EOF
@@ -240,7 +259,10 @@ if [[ -n "${MAC_ARTIFACT}" && -f "${MAC_ARTIFACT}" && -n "${WIN_ARTIFACT}" && -f
   HAS_ALL_ARTIFACTS=1
 fi
 
-if [[ "${RESUME}" -eq 1 && "${HAS_ALL_ARTIFACTS}" -eq 1 ]]; then
+if [[ "${SKIP_BUILD}" -eq 1 ]]; then
+  log "Modo skip-build: no se ejecuta buildall.sh"
+  write_state "buildall" "skipped" "build omitido por opción"
+elif [[ "${RESUME}" -eq 1 && "${HAS_ALL_ARTIFACTS}" -eq 1 ]]; then
   log "Modo resume: se reutilizan los artefactos ya existentes en ${ARTIFACTS_DIR}"
   write_state "buildall" "reused" "artefactos reutilizados"
 else
@@ -265,6 +287,7 @@ if [[ "${LOCAL_TAG_EXISTS}" -eq 1 ]]; then
 elif [[ "${REMOTE_TAG_EXISTS}" -eq 1 ]]; then
   log "Modo resume: el tag ${TAG} ya existe en ${GIT_REMOTE}"
 else
+  [[ "${ONLY_RELEASE}" -eq 0 ]] || fail "--only-release requiere que el tag ${TAG} ya exista"
   log "Creando tag ${TAG}"
   git tag "${TAG}"
   LOCAL_TAG_EXISTS=1

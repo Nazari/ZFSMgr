@@ -21,6 +21,8 @@ o en modo simulación:
 ```bash
 ./scripts/release-github.sh --dry-run 0.10.1rc1
 ./scripts/release-github.sh --resume 0.10.1rc1
+./scripts/release-github.sh --resume --skip-build 0.10.1rc1
+./scripts/release-github.sh --only-release 0.10.1rc1
 ```
 
 el script:
@@ -127,6 +129,35 @@ Sí hace:
 - recuperar el tag local desde el remoto si existe solo en GitHub
 - saltarse `buildall.sh` si los cuatro artefactos ya están presentes
 - saltarse la creación o el push del tag si ese paso ya estaba completado
+
+## Skip Build
+
+`--skip-build` sirve para reutilizar artefactos ya presentes en:
+
+```text
+.release-artifacts/<version>/
+```
+
+Condición:
+
+- los cuatro artefactos deben existir ya
+
+Si no existen, el script falla al validar artefactos, que es el comportamiento correcto.
+
+## Only Release
+
+`--only-release` equivale a:
+
+- `--resume`
+- `--skip-build`
+
+y además exige que el tag ya exista.
+
+Caso de uso:
+
+- build ya completado
+- tag ya creado y publicado
+- release de GitHub pendiente de crear o de reintentar
 
 ## Logs
 

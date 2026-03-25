@@ -136,6 +136,7 @@ Estado:
 - los builders remotos ya no construyen “la rama actual”, sino el `commit` exacto que les pasa `release-github.sh`
 - el script permite reentrada si la versión ya estaba aplicada
 - el script ofrece también `--resume` explícito, con reutilización de artefactos y tags ya creados
+- el script ofrece además `--skip-build` y `--only-release` para retomar fases finales
 - los logs por fase se guardan en `.release-artifacts/logs/<version>/`
 - el estado por fase queda persistido en `.release-artifacts/state/<version>/release-state.json`
 - el bundle de macOS de release no se firma en este pipeline
