@@ -3,10 +3,24 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-OUTPUT_DIR="${HOME}/Descargas/z"
+
+preferred_downloads_dir() {
+  if [[ -d "${HOME}/Descargas" ]]; then
+    printf '%s\n' "${HOME}/Descargas"
+    return 0
+  fi
+  if [[ -d "${HOME}/Downloads" ]]; then
+    printf '%s\n' "${HOME}/Downloads"
+    return 0
+  fi
+  printf '%s\n' "${HOME}"
+}
+
+OUTPUT_DIR="${OUTPUT_DIR:-$(preferred_downloads_dir)/z}"
 
 LINUX_REMOTE="${LINUX_REMOTE:-linarese@fc16}"
 WINDOWS_REMOTE="${WINDOWS_REMOTE:-eladi@surface}"
+MAC_REMOTE="${MAC_REMOTE:-linarese@mmela.local}"
 
 log() {
   printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
@@ -19,6 +33,10 @@ fail() {
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "No se encontró el comando requerido: $1"
+}
+
+local_os() {
+  uname -s
 }
 
 find_local_artifact() {
@@ -51,7 +69,11 @@ zip_macos_bundle() {
   (
     cd "${OUTPUT_DIR}"
     rm -f "${zip_name}"
-    ditto -c -k --sequesterRsrc --keepParent "${app_name}" "${zip_name}"
+    if command -v ditto >/dev/null 2>&1; then
+      ditto -c -k --sequesterRsrc --keepParent "${app_name}" "${zip_name}"
+    else
+      zip -qry "${zip_name}" "${app_name}"
+    fi
     rm -rf "${app_name}"
   )
 }
@@ -62,6 +84,10 @@ ssh_linux() {
 
 ssh_windows() {
   ssh -o BatchMode=yes -o ConnectTimeout=10 "${WINDOWS_REMOTE}" "$@"
+}
+
+ssh_mac() {
+  ssh -o BatchMode=yes -o ConnectTimeout=10 "${MAC_REMOTE}" "$@"
 }
 
 copy_linux_remote_artifact() {
@@ -98,6 +124,13 @@ run_windows_b64_ps() {
   ssh_windows "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"\$s=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}')); Invoke-Expression \$s\""
 }
 
+run_mac_b64_script() {
+  local script="$1"
+  local encoded
+  encoded="$(printf '%s' "${script}" | base64 | tr -d '\n')"
+  ssh_mac "bash -lc \"\$(printf '%s' '${encoded}' | base64 -d)\""
+}
+
 extract_marked_artifact() {
   local marker="$1"
   awk -v marker="${marker}" 'index($0, marker) == 1 { value = substr($0, length(marker) + 1) } END { if (value != "") print value }' \
@@ -117,23 +150,77 @@ windows_to_scp_path() {
   fail "Ruta Windows no válida para scp: ${win_path}"
 }
 
+copy_mac_remote_artifact() {
+  local remote_path="$1"
+  local dest="${OUTPUT_DIR}/$(basename "${remote_path}")"
+  local quoted_remote
+  quoted_remote="$(printf '%q' "${remote_path}")"
+
+  log "Ruta remota macOS resuelta: ${remote_path}"
+  if scp -p "${MAC_REMOTE}:${remote_path}" "${OUTPUT_DIR}/"; then
+    return 0
+  fi
+  log "scp directo falló; reintentando con ruta remota entrecomillada"
+  if scp -p "${MAC_REMOTE}:\"${remote_path}\"" "${OUTPUT_DIR}/"; then
+    return 0
+  fi
+  log "scp volvió a fallar; usando fallback por tar vía ssh"
+  rm -rf "${dest}"
+  mkdir -p "${dest}"
+  ssh_mac "tar -C $(printf '%q' "$(dirname "${remote_path}")") -cf - $(printf '%q' "$(basename "${remote_path}")")" \
+    | tar -C "${OUTPUT_DIR}" -xf -
+}
+
 mkdir -p "${OUTPUT_DIR}"
 
 require_cmd ssh
 require_cmd scp
 require_cmd git
 require_cmd base64
-require_cmd ditto
+require_cmd zip
 
 log "Directorio destino local: ${OUTPUT_DIR}"
 
-log "Compilando macOS en local"
-"${SCRIPT_DIR}/build-macos.sh" --bundle
-MAC_ARTIFACT="$(find_local_artifact 'ZFSMgr-*.app' d)"
-[[ -n "${MAC_ARTIFACT}" ]] || fail "No se encontró el .app generado en build-macos"
-copy_local_artifact "${MAC_ARTIFACT}"
-zip_macos_bundle "${OUTPUT_DIR}/$(basename "${MAC_ARTIFACT}")"
-log "Artefacto macOS copiado: $(basename "${MAC_ARTIFACT}").zip"
+if [[ "$(local_os)" == "Darwin" ]]; then
+  log "Compilando macOS en local"
+  "${SCRIPT_DIR}/build-macos.sh" --bundle
+  MAC_ARTIFACT="$(find_local_artifact 'ZFSMgr-*.app' d)"
+  [[ -n "${MAC_ARTIFACT}" ]] || fail "No se encontró el .app generado en build-macos"
+  copy_local_artifact "${MAC_ARTIFACT}"
+  zip_macos_bundle "${OUTPUT_DIR}/$(basename "${MAC_ARTIFACT}")"
+  log "Artefacto macOS copiado: $(basename "${MAC_ARTIFACT}").zip"
+else
+  log "Compilando macOS remoto en ${MAC_REMOTE}"
+  read -r -d '' MAC_BUILD_SCRIPT <<'EOF' || true
+set -euo pipefail
+repo=""
+for candidate in \
+  "$HOME/work/ZFSMgr" \
+  "$HOME/Work/ZFSMgr" \
+  "/Users/linarese/work/ZFSMgr" \
+  "/Users/linarese/Work/ZFSMgr"
+do
+  if [[ -d "${candidate}/.git" ]]; then
+    repo="${candidate}"
+    break
+  fi
+done
+[[ -n "${repo}" ]] || { echo "No se encontró el repo ZFSMgr en macOS." >&2; exit 1; }
+cd "${repo}"
+git pull --ff-only
+find "${repo}/build-macos" -maxdepth 1 -type d -name 'ZFSMgr-*.app' -prune -exec rm -rf {} + 2>/dev/null || true
+./scripts/build-macos.sh --bundle
+artifact="$(find "${repo}/build-macos" -maxdepth 1 -type d -name 'ZFSMgr-*.app' -print0 | xargs -0 -r ls -td 2>/dev/null | head -n1)"
+[[ -n "${artifact}" ]] || { echo "No se encontró el .app generado en macOS." >&2; exit 1; }
+printf 'ARTIFACT_MAC=%s\n' "${artifact}"
+EOF
+  MAC_BUILD_OUTPUT="$(run_mac_b64_script "${MAC_BUILD_SCRIPT}")"
+  MAC_ARTIFACT="$(printf '%s\n' "${MAC_BUILD_OUTPUT}" | extract_marked_artifact 'ARTIFACT_MAC=')"
+  [[ -n "${MAC_ARTIFACT}" ]] || fail "No se pudo resolver el artefacto macOS"
+  copy_mac_remote_artifact "${MAC_ARTIFACT}"
+  zip_macos_bundle "${OUTPUT_DIR}/$(basename "${MAC_ARTIFACT}")"
+  log "Artefacto macOS copiado: $(basename "${MAC_ARTIFACT}").zip"
+fi
 
 log "Compilando Linux remoto en ${LINUX_REMOTE}"
 read -r -d '' LINUX_BUILD_SCRIPT <<'EOF' || true
