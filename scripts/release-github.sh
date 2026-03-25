@@ -6,6 +6,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CMAKE_FILE="${PROJECT_ROOT}/resources/CMakeLists.txt"
 GIT_REMOTE="${GIT_REMOTE:-github}"
 ARTIFACTS_ROOT="${ARTIFACTS_DIR:-${PROJECT_ROOT}/.release-artifacts}"
+DRY_RUN=0
 
 log() {
   printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
@@ -23,7 +24,7 @@ require_cmd() {
 usage() {
   cat <<'USAGE'
 Uso:
-  release-github.sh <version>
+  release-github.sh [--dry-run] <version>
 
 Ejemplo:
   release-github.sh 0.10.1rc1
@@ -35,8 +36,25 @@ Variables opcionales:
   LINUX_REMOTE   host Linux remoto para buildall.sh
   MAC_REMOTE     host macOS remoto para buildall.sh si local no es macOS
   WINDOWS_REMOTE host Windows remoto para buildall.sh
+  RELEASE_LOG_DIR directorio donde guardar logs por fase
 USAGE
 }
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
 
 [[ $# -eq 1 ]] || {
   usage
@@ -48,11 +66,13 @@ TAG="v${VERSION}"
 [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([A-Za-z0-9.-]*)?$ ]] || fail "Versión no válida: ${VERSION}"
 BASE_VERSION="$(printf '%s' "${VERSION}" | sed -E 's/^([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
 [[ -n "${BASE_VERSION}" ]] || fail "No se pudo resolver la versión base desde ${VERSION}"
+LOG_DIR="${RELEASE_LOG_DIR:-${ARTIFACTS_ROOT}/logs/${VERSION}}"
 
 require_cmd git
 require_cmd gh
 require_cmd perl
 require_cmd sed
+require_cmd tee
 
 cd "${PROJECT_ROOT}"
 [[ -f "${CMAKE_FILE}" ]] || fail "No se encontró ${CMAKE_FILE}"
@@ -73,6 +93,36 @@ fi
 CURRENT_VERSION="$(sed -nE 's/^[[:space:]]*set\([[:space:]]*ZFSMGR_APP_VERSION_STRING[[:space:]]*"([^"]+)".*/\1/p' "${CMAKE_FILE}" | head -n1)"
 [[ -n "${CURRENT_VERSION}" ]] || fail "No se pudo leer ZFSMGR_APP_VERSION_STRING"
 
+run_logged() {
+  local phase="$1"
+  shift
+  mkdir -p "${LOG_DIR}"
+  log "Fase ${phase}: guardando log en ${LOG_DIR}/${phase}.log"
+  "$@" 2>&1 | tee "${LOG_DIR}/${phase}.log"
+}
+
+if [[ "${DRY_RUN}" -eq 1 ]]; then
+  cat <<EOF
+Dry run de release GitHub
+  version actual: ${CURRENT_VERSION}
+  version objetivo: ${VERSION}
+  version base CMake: ${BASE_VERSION}
+  remoto git: ${GIT_REMOTE}
+  tag: ${TAG}
+  directorio de artefactos: ${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}
+  directorio de logs: ${LOG_DIR}
+
+Fases previstas:
+  1. Actualizar resources/CMakeLists.txt a ${VERSION}
+  2. Crear commit \"Release ${VERSION}\" si hay cambios
+  3. Hacer push a ${GIT_REMOTE}
+  4. Ejecutar scripts/buildall.sh
+  5. Crear y subir tag ${TAG}
+  6. Crear release ${TAG} en GitHub y subir artefactos
+EOF
+  exit 0
+fi
+
 log "Actualizando versión ${CURRENT_VERSION} -> ${VERSION}"
 perl -0pi -e 's/project\(ZFSMgrQt VERSION\s+[^ )]+/project(ZFSMgrQt VERSION '"${BASE_VERSION}"'/; s/set\(ZFSMGR_APP_VERSION_STRING\s+"[^"]+"/set(ZFSMGR_APP_VERSION_STRING "'"${VERSION}"'"/' "${CMAKE_FILE}"
 
@@ -87,14 +137,15 @@ else
 fi
 
 log "Publicando commit de release en ${GIT_REMOTE}"
-git push "${GIT_REMOTE}" HEAD
+run_logged git-push git push "${GIT_REMOTE}" HEAD
 
 ARTIFACTS_DIR="${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}"
 rm -rf "${ARTIFACTS_DIR}"
 mkdir -p "${ARTIFACTS_DIR}"
+mkdir -p "${LOG_DIR}"
 
 log "Ejecutando buildall.sh con artefactos en ${ARTIFACTS_DIR}"
-OUTPUT_DIR="${ARTIFACTS_DIR}" "${SCRIPT_DIR}/buildall.sh"
+run_logged buildall env OUTPUT_DIR="${ARTIFACTS_DIR}" "${SCRIPT_DIR}/buildall.sh"
 
 MAC_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}.app.zip" | head -n1)"
 WIN_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-Setup-${VERSION}*.exe" | head -n1)"
@@ -108,10 +159,10 @@ LINUX_DEB="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "zfsmgr_${VERSION
 
 log "Creando tag ${TAG}"
 git tag "${TAG}"
-git push "${GIT_REMOTE}" "${TAG}"
+run_logged git-push-tag git push "${GIT_REMOTE}" "${TAG}"
 
 log "Creando release ${TAG} en GitHub"
-gh release create "${TAG}" \
+run_logged github-release gh release create "${TAG}" \
   "${WIN_ARTIFACT}" \
   "${LINUX_APPIMAGE}" \
   "${LINUX_DEB}" \
@@ -122,5 +173,7 @@ gh release create "${TAG}" \
 
 log "Release creada correctamente"
 printf 'Tag: %s\n' "${TAG}"
+printf 'Logs:\n'
+printf '  %s\n' "${LOG_DIR}/git-push.log" "${LOG_DIR}/buildall.log" "${LOG_DIR}/git-push-tag.log" "${LOG_DIR}/github-release.log"
 printf 'Artefactos:\n'
 printf '  %s\n' "${WIN_ARTIFACT}" "${LINUX_APPIMAGE}" "${LINUX_DEB}" "${MAC_ARTIFACT}"

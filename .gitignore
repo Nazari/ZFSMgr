@@ -16,3 +16,5 @@ ccodex-linux
 ccodex.macos
 scripts/collect-artifacts
 scripts/recopila.sh
+
+.release-artifacts/

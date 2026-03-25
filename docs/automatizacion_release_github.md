@@ -16,6 +16,12 @@ Dado un parámetro de versión, por ejemplo:
 ./scripts/release-github.sh 0.10.1rc1
 ```
 
+o en modo simulación:
+
+```bash
+./scripts/release-github.sh --dry-run 0.10.1rc1
+```
+
 el script:
 
 1. valida que el árbol git esté limpio
@@ -32,6 +38,11 @@ el script:
 8. hace `push` del tag
 9. crea la release en GitHub con nombre igual al tag
 10. sube los cuatro artefactos a la release
+11. guarda logs por fase de:
+   - `git push`
+   - `buildall.sh`
+   - `git push` del tag
+   - creación de la release en GitHub
 
 ## Supuestos
 
@@ -52,6 +63,8 @@ el script:
 - `LINUX_REMOTE`
 - `MAC_REMOTE`
 - `WINDOWS_REMOTE`
+- `RELEASE_LOG_DIR`
+  - directorio donde guardar logs por fase
 
 ## Limitación importante
 
@@ -66,6 +79,45 @@ Consecuencia:
 
 - si el build falla a mitad, el commit de versión ya existe y ya está subido
 - la release y el tag no se crean hasta que el build termina bien
+
+## Reentrada
+
+El script ya tolera el caso en que la versión objetivo ya esté aplicada en `resources/CMakeLists.txt`.
+
+En ese caso:
+
+- no intenta crear un commit vacío
+- hace `push` del `HEAD` actual
+- continúa con build, tag y release
+
+Esto permite retomar una release interrumpida antes de crear tag o release en GitHub.
+
+## Logs
+
+Por defecto, los logs se guardan en:
+
+```text
+.release-artifacts/logs/<version>/
+```
+
+Ficheros principales:
+
+- `git-push.log`
+- `buildall.log`
+- `git-push-tag.log`
+- `github-release.log`
+
+## Dry Run
+
+`--dry-run` valida:
+
+- formato de versión
+- árbol git limpio
+- presencia de `gh`
+- autenticación de `gh`
+- inexistencia previa de tag y release
+
+y después muestra el plan sin modificar versión, sin hacer commit y sin lanzar builds.
 
 ## Requisito operativo
 
