@@ -44,6 +44,7 @@ el script:
    - `buildall.sh`
    - `git push` del tag
    - creación de la release en GitHub
+12. guarda un manifiesto de estado por versión en JSON
 
 Durante `buildall.sh`, los builders remotos reciben además el `commit` exacto a construir.
 Ya no dependen de la rama activa remota ni de que `git pull` los deje en el estado esperado.
@@ -142,6 +143,10 @@ Ficheros principales:
 - `git-push-tag.log`
 - `github-release.log`
 
+Estado persistente:
+
+- `.release-artifacts/state/<version>/release-state.json`
+
 Dentro de `buildall.log` queda también trazado el `BUILD_GIT_REF` exacto usado por los builders remotos.
 
 ## Dry Run
@@ -155,6 +160,11 @@ Dentro de `buildall.log` queda también trazado el `BUILD_GIT_REF` exacto usado 
 - inexistencia previa de tag y release
 
 y después muestra el plan sin modificar versión, sin hacer commit y sin lanzar builds.
+
+En `dry-run` también informa si:
+
+- el tag ya existe local o remotamente
+- la release ya existe en GitHub
 
 ## Requisito operativo
 
