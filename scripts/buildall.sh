@@ -23,9 +23,22 @@ WINDOWS_REMOTE="${WINDOWS_REMOTE:-eladi@surface}"
 MAC_REMOTE="${MAC_REMOTE:-linarese@mmela.local}"
 BUILD_GIT_REMOTE="${BUILD_GIT_REMOTE:-github}"
 BUILD_GIT_REF="${BUILD_GIT_REF:-}"
+BUILDALL_LOG_DIR="${BUILDALL_LOG_DIR:-}"
 
 log() {
   printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
+}
+
+run_platform_logged() {
+  local phase="$1"
+  shift
+  if [[ -z "${BUILDALL_LOG_DIR}" ]]; then
+    "$@"
+    return
+  fi
+  mkdir -p "${BUILDALL_LOG_DIR}"
+  log "Log de ${phase}: ${BUILDALL_LOG_DIR}/${phase}.log"
+  "$@" 2>&1 | tee "${BUILDALL_LOG_DIR}/${phase}.log"
 }
 
 fail() {
@@ -185,10 +198,13 @@ log "Directorio destino local: ${OUTPUT_DIR}"
 if [[ -n "${BUILD_GIT_REF}" ]]; then
   log "Build remoto fijado al ref git: ${BUILD_GIT_REF} (${BUILD_GIT_REMOTE})"
 fi
+if [[ -n "${BUILDALL_LOG_DIR}" ]]; then
+  log "Logs por plataforma en: ${BUILDALL_LOG_DIR}"
+fi
 
 if [[ "$(local_os)" == "Darwin" ]]; then
   log "Compilando macOS en local"
-  "${SCRIPT_DIR}/build-macos.sh" --bundle --no-sign
+  run_platform_logged macos-local "${SCRIPT_DIR}/build-macos.sh" --bundle --no-sign
   MAC_ARTIFACT="$(find_local_artifact 'ZFSMgr-*.app' d)"
   [[ -n "${MAC_ARTIFACT}" ]] || fail "No se encontró el .app generado en build-macos"
   copy_local_artifact "${MAC_ARTIFACT}"
@@ -235,7 +251,7 @@ artifact="$(find "${repo}/build-macos" -maxdepth 1 -type d -name 'ZFSMgr-*.app' 
 [[ -n "${artifact}" ]] || { echo "No se encontró el .app generado en macOS." >&2; exit 1; }
 printf 'ARTIFACT_MAC=%s\n' "${artifact}"
 EOF
-  MAC_BUILD_OUTPUT="$(run_mac_b64_script "${MAC_BUILD_SCRIPT}")"
+  MAC_BUILD_OUTPUT="$(run_platform_logged macos-remote run_mac_b64_script "${MAC_BUILD_SCRIPT}")"
   MAC_ARTIFACT="$(printf '%s\n' "${MAC_BUILD_OUTPUT}" | extract_marked_artifact 'ARTIFACT_MAC=')"
   [[ -n "${MAC_ARTIFACT}" ]] || fail "No se pudo resolver el artefacto macOS"
   copy_mac_remote_artifact "${MAC_ARTIFACT}"
@@ -295,7 +311,7 @@ artifact_deb="$(find "${repo}/build-linux" -maxdepth 1 -type f -name "zfsmgr_${a
 printf 'ARTIFACT_LINUX_APPIMAGE=%s\n' "${artifact_appimage}"
 printf 'ARTIFACT_LINUX_DEB=%s\n' "${artifact_deb}"
 EOF
-LINUX_BUILD_OUTPUT="$(run_linux_b64_script "${LINUX_BUILD_SCRIPT}")"
+LINUX_BUILD_OUTPUT="$(run_platform_logged linux-remote run_linux_b64_script "${LINUX_BUILD_SCRIPT}")"
 LINUX_APPIMAGE_ARTIFACT="$(printf '%s\n' "${LINUX_BUILD_OUTPUT}" | extract_marked_artifact 'ARTIFACT_LINUX_APPIMAGE=')"
 LINUX_DEB_ARTIFACT="$(printf '%s\n' "${LINUX_BUILD_OUTPUT}" | extract_marked_artifact 'ARTIFACT_LINUX_DEB=')"
 [[ -n "${LINUX_APPIMAGE_ARTIFACT}" ]] || fail "No se pudo resolver el artefacto Linux AppImage"
@@ -371,7 +387,7 @@ try {
   }
 }
 EOF
-WINDOWS_ARTIFACT="$(run_windows_b64_ps "${WINDOWS_BUILD_SCRIPT}" | extract_marked_artifact 'ARTIFACT_WINDOWS=')"
+WINDOWS_ARTIFACT="$(run_platform_logged windows-remote run_windows_b64_ps "${WINDOWS_BUILD_SCRIPT}" | extract_marked_artifact 'ARTIFACT_WINDOWS=')"
 [[ -n "${WINDOWS_ARTIFACT}" ]] || fail "No se pudo resolver el artefacto Windows"
 WINDOWS_SCP_PATH="$(windows_to_scp_path "${WINDOWS_ARTIFACT}")"
 scp -p "${WINDOWS_REMOTE}:${WINDOWS_SCP_PATH}" "${OUTPUT_DIR}/"

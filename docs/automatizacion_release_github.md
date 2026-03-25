@@ -174,11 +174,19 @@ Ficheros principales:
 - `git-push-tag.log`
 - `github-release.log`
 
+Logs por plataforma de `buildall.sh`:
+
+- `.release-artifacts/logs/<version>/buildall-platforms/macos-local.log`
+- `.release-artifacts/logs/<version>/buildall-platforms/macos-remote.log`
+- `.release-artifacts/logs/<version>/buildall-platforms/linux-remote.log`
+- `.release-artifacts/logs/<version>/buildall-platforms/windows-remote.log`
+
 Estado persistente:
 
 - `.release-artifacts/state/<version>/release-state.json`
 
 Dentro de `buildall.log` queda también trazado el `BUILD_GIT_REF` exacto usado por los builders remotos.
+El `release-state.json` guarda además el inventario de artefactos detectados.
 
 ## Dry Run
 

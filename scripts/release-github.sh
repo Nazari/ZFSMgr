@@ -83,6 +83,12 @@ BASE_VERSION="$(printf '%s' "${VERSION}" | sed -E 's/^([0-9]+\.[0-9]+\.[0-9]+).*
 [[ -n "${BASE_VERSION}" ]] || fail "No se pudo resolver la versión base desde ${VERSION}"
 LOG_DIR="${RELEASE_LOG_DIR:-${ARTIFACTS_ROOT}/logs/${VERSION}}"
 STATE_FILE="${ARTIFACTS_ROOT}/state/${VERSION}/release-state.json"
+ARTIFACTS_DIR="${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}"
+BUILDALL_PLATFORM_LOG_DIR="${LOG_DIR}/buildall-platforms"
+MAC_ARTIFACT=""
+WIN_ARTIFACT=""
+LINUX_APPIMAGE=""
+LINUX_DEB=""
 
 if [[ "${ONLY_RELEASE}" -eq 1 ]]; then
   RESUME=1
@@ -154,7 +160,15 @@ write_state() {
   "local_tag_exists": ${LOCAL_TAG_EXISTS},
   "remote_tag_exists": ${REMOTE_TAG_EXISTS},
   "release_exists": ${RELEASE_EXISTS},
-  "state_file": "$(json_escape "${STATE_FILE}")"
+  "state_file": "$(json_escape "${STATE_FILE}")",
+  "artifacts_dir": "$(json_escape "${ARTIFACTS_DIR}")",
+  "buildall_platform_log_dir": "$(json_escape "${BUILDALL_PLATFORM_LOG_DIR}")",
+  "artifacts": {
+    "mac_app_zip": "$(json_escape "${MAC_ARTIFACT}")",
+    "windows_exe": "$(json_escape "${WIN_ARTIFACT}")",
+    "linux_appimage": "$(json_escape "${LINUX_APPIMAGE}")",
+    "linux_deb": "$(json_escape "${LINUX_DEB}")"
+  }
 }
 EOF
 }
@@ -191,6 +205,7 @@ Dry run de release GitHub
   tag: ${TAG}
   directorio de artefactos: ${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}
   directorio de logs: ${LOG_DIR}
+  directorio de logs buildall por plataforma: ${BUILDALL_PLATFORM_LOG_DIR}
   fichero de estado: ${STATE_FILE}
   tag local existente: ${LOCAL_TAG_EXISTS}
   tag remoto existente: ${REMOTE_TAG_EXISTS}
@@ -269,7 +284,7 @@ else
   rm -rf "${ARTIFACTS_DIR}"
   mkdir -p "${ARTIFACTS_DIR}"
   log "Ejecutando buildall.sh con artefactos en ${ARTIFACTS_DIR}"
-  run_logged buildall env OUTPUT_DIR="${ARTIFACTS_DIR}" BUILD_GIT_REMOTE="${GIT_REMOTE}" BUILD_GIT_REF="${BUILD_REF}" "${SCRIPT_DIR}/buildall.sh"
+  run_logged buildall env OUTPUT_DIR="${ARTIFACTS_DIR}" BUILDALL_LOG_DIR="${BUILDALL_PLATFORM_LOG_DIR}" BUILD_GIT_REMOTE="${GIT_REMOTE}" BUILD_GIT_REF="${BUILD_REF}" "${SCRIPT_DIR}/buildall.sh"
   MAC_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}.app.zip" | head -n1)"
   WIN_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-Setup-${VERSION}*.exe" | head -n1)"
   LINUX_APPIMAGE="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}-*.AppImage" | head -n1)"
@@ -315,6 +330,8 @@ write_state "github-release" "completed" "release creada correctamente"
 printf 'Tag: %s\n' "${TAG}"
 printf 'Logs:\n'
 printf '  %s\n' "${LOG_DIR}/git-push.log" "${LOG_DIR}/buildall.log" "${LOG_DIR}/git-push-tag.log" "${LOG_DIR}/github-release.log"
+printf 'Logs buildall por plataforma:\n'
+printf '  %s\n' "${BUILDALL_PLATFORM_LOG_DIR}/macos-local.log" "${BUILDALL_PLATFORM_LOG_DIR}/macos-remote.log" "${BUILDALL_PLATFORM_LOG_DIR}/linux-remote.log" "${BUILDALL_PLATFORM_LOG_DIR}/windows-remote.log"
 printf 'Estado:\n'
 printf '  %s\n' "${STATE_FILE}"
 printf 'Artefactos:\n'

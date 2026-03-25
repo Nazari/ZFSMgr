@@ -138,7 +138,9 @@ Estado:
 - el script ofrece también `--resume` explícito, con reutilización de artefactos y tags ya creados
 - el script ofrece además `--skip-build` y `--only-release` para retomar fases finales
 - los logs por fase se guardan en `.release-artifacts/logs/<version>/`
+- `buildall.sh` deja además logs separados por plataforma
 - el estado por fase queda persistido en `.release-artifacts/state/<version>/release-state.json`
+- el estado persistente incluye inventario de artefactos detectados
 - el bundle de macOS de release no se firma en este pipeline
 
 ## Pendientes razonables
