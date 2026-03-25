@@ -2454,6 +2454,9 @@ void MainWindow::buildUi() {
                 m_bottomConnContentTree->clear();
                 return;
             }
+            if (m_bottomDetailConnIdx >= 0 && connIdx != m_bottomDetailConnIdx) {
+                return;
+            }
             withConnContentContext(m_bottomConnContentTree,
                                    QStringLiteral("%1::%2").arg(connIdx).arg(poolName),
                                    [this, connIdx, poolName]() {
@@ -2473,6 +2476,20 @@ void MainWindow::buildUi() {
         if (!tree) {
             return QString();
         }
+        if (tree == m_bottomConnContentTree) {
+            for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+                QTreeWidgetItem* root = tree->topLevelItem(i);
+                if (!root || !root->data(0, kIsPoolRootRole).toBool()) {
+                    continue;
+                }
+                const int connIdx = root->data(0, kConnIdxRole).toInt();
+                const QString poolName = root->data(0, kPoolNameRole).toString().trimmed();
+                if (connIdx >= 0 && connIdx < m_profiles.size() && !poolName.isEmpty()) {
+                    return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+                }
+            }
+            return QString();
+        }
         QTreeWidgetItem* owner = tree->currentItem();
         while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
                && !owner->data(0, kIsPoolRootRole).toBool()) {
@@ -2488,7 +2505,7 @@ void MainWindow::buildUi() {
         }
         return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
     };
-    auto refreshInlinePropsVisualBottom = [this, connTokenFromTreeSelectionBottom](QTreeWidget* tree) {
+    auto refreshInlinePropsVisualBottom = [this, connTokenFromTreeSelectionBottom](QTreeWidget* tree, const QString& explicitToken) {
         if (!tree) {
             return;
         }
@@ -2499,7 +2516,8 @@ void MainWindow::buildUi() {
                 tree->setCurrentItem(cur->parent());
             }
         }
-        const QString token = connTokenFromTreeSelectionBottom(tree);
+        const QString token = explicitToken.trimmed().isEmpty() ? connTokenFromTreeSelectionBottom(tree)
+                                                                : explicitToken.trimmed();
         if (token.isEmpty()) {
             return;
         }
@@ -2515,11 +2533,6 @@ void MainWindow::buildUi() {
             rebuildConnectionEntityTabs();
             return;
         }
-        if (tree == m_bottomConnContentTree) {
-            saveConnContentTreeStateFor(tree, token);
-            updateSecondaryConnectionDetail();
-            return;
-        }
         const int sep = token.indexOf(QStringLiteral("::"));
         if (sep <= 0) {
             return;
@@ -2530,15 +2543,83 @@ void MainWindow::buildUi() {
         if (!ok || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
             return;
         }
+        if (tree == m_bottomConnContentTree) {
+            rebuildConnContentTreeFor(tree, token, connIdx, poolName, true);
+            return;
+        }
         saveConnContentTreeStateFor(tree, token);
         populateDatasetTree(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, true);
         restoreConnContentTreeStateFor(tree, token);
     };
     auto applyInlineSectionVisibility = [this,
                                          rebuildInlineConnTree,
-                                         refreshInlinePropsVisualBottom]() {
+                                         refreshInlinePropsVisualBottom](QTreeWidget* preferredTree = nullptr,
+                                                                         const QString& preferredToken = QString()) {
+        auto alignBottomTabsToToken = [this](const QString& token) {
+            if (!m_bottomConnectionEntityTabs || token.trimmed().isEmpty()) {
+                return;
+            }
+            const int sep = token.indexOf(QStringLiteral("::"));
+            if (sep <= 0) {
+                return;
+            }
+            bool ok = false;
+            const int connIdx = token.left(sep).toInt(&ok);
+            const QString poolName = token.mid(sep + 2).trimmed();
+            if (!ok || connIdx < 0 || poolName.isEmpty()) {
+                return;
+            }
+            const QString wantedKey = QStringLiteral("pool:%1:%2").arg(connIdx).arg(poolName);
+            if (m_bottomConnectionEntityTabs->currentIndex() >= 0
+                && m_bottomConnectionEntityTabs->currentIndex() < m_bottomConnectionEntityTabs->count()
+                && m_bottomConnectionEntityTabs->tabData(m_bottomConnectionEntityTabs->currentIndex()).toString()
+                       == wantedKey) {
+                return;
+            }
+            const QSignalBlocker blocker(m_bottomConnectionEntityTabs);
+            for (int i = 0; i < m_bottomConnectionEntityTabs->count(); ++i) {
+                if (m_bottomConnectionEntityTabs->tabData(i).toString() == wantedKey) {
+                    m_bottomConnectionEntityTabs->setCurrentIndex(i);
+                    break;
+                }
+            }
+        };
+        auto alignDetailContextToToken = [this](QTreeWidget* tree, const QString& token) {
+            const int sep = token.indexOf(QStringLiteral("::"));
+            if (!tree || sep <= 0) {
+                return;
+            }
+            bool ok = false;
+            const int connIdx = token.left(sep).toInt(&ok);
+            if (!ok || connIdx < 0 || connIdx >= m_profiles.size()) {
+                return;
+            }
+            if (tree == m_bottomConnContentTree) {
+                m_bottomDetailConnIdx = connIdx;
+                const QString key = m_profiles[connIdx].id.trimmed().toLower();
+                m_persistedBottomDetailConnectionKey = key.isEmpty()
+                                                          ? m_profiles[connIdx].name.trimmed().toLower()
+                                                          : key;
+            } else if (tree == m_connContentTree) {
+                m_topDetailConnIdx = connIdx;
+            }
+        };
         auto tokenFromTree = [this](QTreeWidget* tree) -> QString {
             if (!tree) {
+                return QString();
+            }
+            if (tree == m_bottomConnContentTree) {
+                for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+                    QTreeWidgetItem* root = tree->topLevelItem(i);
+                    if (!root || !root->data(0, kIsPoolRootRole).toBool()) {
+                        continue;
+                    }
+                    const int connIdx = root->data(0, kConnIdxRole).toInt();
+                    const QString poolName = root->data(0, kPoolNameRole).toString().trimmed();
+                    if (connIdx >= 0 && connIdx < m_profiles.size() && !poolName.isEmpty()) {
+                        return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+                    }
+                }
                 return QString();
             }
             QTreeWidgetItem* owner = tree->currentItem();
@@ -2560,9 +2641,68 @@ void MainWindow::buildUi() {
             return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
         };
         saveUiSettings();
+        const bool onlyPreferredTree = (preferredTree && !preferredToken.trimmed().isEmpty());
+        auto refreshExplicitTreeFromToken = [this, &refreshInlinePropsVisualBottom](QTreeWidget* tree,
+                                                                                    const QString& token) {
+            const int sep = token.indexOf(QStringLiteral("::"));
+            if (!tree || sep <= 0) {
+                return;
+            }
+            bool ok = false;
+            const int connIdx = token.left(sep).toInt(&ok);
+            const QString poolName = token.mid(sep + 2).trimmed();
+            if (!ok || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+                return;
+            }
+            if (tree == m_bottomConnContentTree) {
+                m_bottomDetailConnIdx = connIdx;
+                const QString key = m_profiles[connIdx].id.trimmed().toLower();
+                m_persistedBottomDetailConnectionKey = key.isEmpty()
+                                                          ? m_profiles[connIdx].name.trimmed().toLower()
+                                                          : key;
+            } else if (tree == m_connContentTree) {
+                m_topDetailConnIdx = connIdx;
+            }
+            saveConnContentTreeStateFor(tree, token);
+            populateDatasetTree(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, true);
+            restoreConnContentTreeStateFor(tree, token);
+            QTreeWidgetItem* sel = tree->currentItem();
+            auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
+                for (QTreeWidgetItem* p = n; p; p = p->parent()) {
+                    if (p->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            const bool isPoolContext =
+                sel && (sel->data(0, kIsPoolRootRole).toBool() || isInfoNodeOrInside(sel));
+            if (tree == m_bottomConnContentTree) {
+                if (isPoolContext) {
+                    syncConnContentPoolColumnsFor(tree, token);
+                } else {
+                    refreshInlinePropsVisualBottom(tree, token);
+                }
+            } else {
+                if (isPoolContext) {
+                    syncConnContentPoolColumnsFor(tree, token);
+                } else {
+                    syncConnContentPropertyColumnsFor(tree, token);
+                }
+            }
+        };
+
+        if (onlyPreferredTree) {
+            refreshExplicitTreeFromToken(preferredTree, preferredToken.trimmed());
+            return;
+        }
+
         if (m_connContentTree) {
-            const QString token = tokenFromTree(m_connContentTree);
+            const QString token = (preferredTree == m_connContentTree && !preferredToken.trimmed().isEmpty())
+                                      ? preferredToken.trimmed()
+                                      : tokenFromTree(m_connContentTree);
             if (!token.isEmpty()) {
+                alignDetailContextToToken(m_connContentTree, token);
                 rebuildInlineConnTree(m_connContentTree, token);
                 QTreeWidgetItem* sel = m_connContentTree->currentItem();
                 auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
@@ -2583,10 +2723,14 @@ void MainWindow::buildUi() {
             }
         }
         if (m_bottomConnContentTree) {
-            const QString token = tokenFromTree(m_bottomConnContentTree);
+            const QString token = (preferredTree == m_bottomConnContentTree && !preferredToken.trimmed().isEmpty())
+                                      ? preferredToken.trimmed()
+                                      : tokenFromTree(m_bottomConnContentTree);
             if (!token.isEmpty()) {
+                alignBottomTabsToToken(token);
+                alignDetailContextToToken(m_bottomConnContentTree, token);
                 rebuildInlineConnTree(m_bottomConnContentTree, token);
-                refreshInlinePropsVisualBottom(m_bottomConnContentTree);
+                refreshInlinePropsVisualBottom(m_bottomConnContentTree, token);
             }
         }
     };
@@ -3135,11 +3279,7 @@ void MainWindow::buildUi() {
         saveUiSettings();
 
         const bool isBottomTree = (tree == m_bottomConnContentTree);
-        if (isBottomTree) {
-            saveBottomTreeStateForConnection(connIdx);
-        } else {
-            saveTopTreeStateForConnection(connIdx);
-        }
+        saveConnContentTreeStateFor(tree, token);
         withConnContentContext(tree, token, [&, this]() {
             if (poolContext) {
                 syncConnContentPoolColumns();
@@ -3147,11 +3287,7 @@ void MainWindow::buildUi() {
                 syncConnContentPropertyColumns();
             }
         });
-        if (isBottomTree) {
-            restoreBottomTreeStateForConnection(connIdx);
-        } else {
-            restoreTopTreeStateForConnection(connIdx);
-        }
+        restoreConnContentTreeStateFor(tree, token);
     };
     auto executeDatasetActionWithStdin =
         [this](const QString& side,
@@ -4717,6 +4853,9 @@ void MainWindow::buildUi() {
                            QStringLiteral("Borrar Dataset"));
             };
             const bool isPoolRoot = item->data(0, kIsPoolRootRole).toBool();
+            const QString bottomMenuToken = QStringLiteral("%1::%2")
+                                                .arg(item->data(0, kConnIdxRole).toInt())
+                                                .arg(item->data(0, kPoolNameRole).toString().trimmed());
             auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
                 for (QTreeWidgetItem* p = n; p; p = p->parent()) {
                     if (p->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
@@ -4785,7 +4924,7 @@ void MainWindow::buildUi() {
                     destroyPoolFromRow(poolRow);
                 } else if (picked == poolActions.showPoolInfo) {
                     setShowPoolInfoNodeForTree(m_bottomConnContentTree, poolActions.showPoolInfo->isChecked());
-                    applyInlineSectionVisibility();
+                    applyInlineSectionVisibility(m_bottomConnContentTree, bottomMenuToken);
                 }
                 return;
             }
@@ -4797,19 +4936,19 @@ void MainWindow::buildUi() {
                     manageInlinePropsVisualization(m_bottomConnContentTree, item, true);
                 } else if (picked == inlineActions.showPoolInfo) {
                     setShowPoolInfoNodeForTree(m_bottomConnContentTree, inlineActions.showPoolInfo->isChecked());
-                    applyInlineSectionVisibility();
+                    applyInlineSectionVisibility(m_bottomConnContentTree, bottomMenuToken);
                 } else if (picked == inlineActions.showInlineProps) {
                     setShowInlinePropertyNodesForTree(m_bottomConnContentTree, inlineActions.showInlineProps->isChecked());
-                    applyInlineSectionVisibility();
+                    applyInlineSectionVisibility(m_bottomConnContentTree, bottomMenuToken);
                 } else if (picked == inlineActions.showInlinePerms) {
                     setShowInlinePermissionsNodesForTree(m_bottomConnContentTree, inlineActions.showInlinePerms->isChecked());
-                    applyInlineSectionVisibility();
+                    applyInlineSectionVisibility(m_bottomConnContentTree, bottomMenuToken);
                 } else if (picked == inlineActions.showInlineGsa) {
                     setShowInlineGsaNodeForTree(m_bottomConnContentTree, inlineActions.showInlineGsa->isChecked());
-                    applyInlineSectionVisibility();
+                    applyInlineSectionVisibility(m_bottomConnContentTree, bottomMenuToken);
                 } else if (picked == inlineActions.showAutoGsa) {
                     m_showAutomaticGsaSnapshots = inlineActions.showAutoGsa->isChecked();
-                    applyInlineSectionVisibility();
+                    applyInlineSectionVisibility(m_bottomConnContentTree, bottomMenuToken);
                 }
                 return;
             }
@@ -4993,22 +5132,22 @@ void MainWindow::buildUi() {
                 }
                 if (picked == inlineActions.showInlineProps) {
                     setShowInlinePropertyNodesForTree(m_bottomConnContentTree, inlineActions.showInlineProps->isChecked());
-                    applyInlineSectionVisibility();
+                    applyInlineSectionVisibility(m_bottomConnContentTree, bottomMenuToken);
                     return;
                 }
                 if (picked == inlineActions.showInlinePerms) {
                     setShowInlinePermissionsNodesForTree(m_bottomConnContentTree, inlineActions.showInlinePerms->isChecked());
-                    applyInlineSectionVisibility();
+                    applyInlineSectionVisibility(m_bottomConnContentTree, bottomMenuToken);
                     return;
                 }
                 if (picked == inlineActions.showInlineGsa) {
                     setShowInlineGsaNodeForTree(m_bottomConnContentTree, inlineActions.showInlineGsa->isChecked());
-                    applyInlineSectionVisibility();
+                    applyInlineSectionVisibility(m_bottomConnContentTree, bottomMenuToken);
                     return;
                 }
                 if (picked == aShowAutoGsa) {
                     m_showAutomaticGsaSnapshots = aShowAutoGsa->isChecked();
-                    applyInlineSectionVisibility();
+                    applyInlineSectionVisibility(m_bottomConnContentTree, bottomMenuToken);
                     return;
                 }
                 if (picked == aNewHold) {

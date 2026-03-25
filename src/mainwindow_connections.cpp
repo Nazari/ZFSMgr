@@ -410,10 +410,10 @@ level_snapshot() {
   fi
   base_snap=''
   recv_opts='-u'
-  send_opts='-wLEc'
+  send_opts='-wLec'
   if bool_on "$recursive"; then
     recv_opts='-u -s'
-    send_opts='-wLEcR'
+    send_opts='-wLecR'
   fi
   if [ "$target_exists" = "1" ] && target_dataset_has_snapshots "$dst_dataset"; then
     base_snap="$(latest_target_snapshot "$dst_dataset")"
@@ -687,7 +687,7 @@ function Invoke-GsaLevel([string]$SrcDataset, [bool]$Recursive, [string]$SnapNam
   }
   $baseSnap = $null
   $recvOpts = if ($Recursive) { "-u -s" } else { "-u" }
-  $sendOpts = if ($Recursive) { "-wLEcR" } else { "-wLEc" }
+  $sendOpts = if ($Recursive) { "-wLecR" } else { "-wLec" }
   if ($targetExists) {
     $dstHasSnapshots = $false
     try {
@@ -2779,13 +2779,28 @@ void MainWindow::refreshConnectionByIndex(int idx) {
         saveConnContentTreeState(m_connContentToken);
     }
     if (m_bottomConnContentTree && m_bottomConnectionEntityTabs
-        && m_bottomConnectionEntityTabs->isVisible()) {
-        const int bIdx = m_bottomConnectionEntityTabs->currentIndex();
-        if (bIdx >= 0 && bIdx < m_bottomConnectionEntityTabs->count()) {
-            const QString key = m_bottomConnectionEntityTabs->tabData(bIdx).toString();
-            const QStringList parts = key.split(':');
-            if (parts.size() >= 3 && parts.first() == QStringLiteral("pool")) {
-                const QString bottomToken = QStringLiteral("%1::%2").arg(parts.value(1), parts.value(2).trimmed());
+        && m_bottomConnectionEntityTabs->isVisible() && idx == m_bottomDetailConnIdx) {
+        QTreeWidgetItem* owner = m_bottomConnContentTree->currentItem();
+        if (!owner && m_bottomConnContentTree->topLevelItemCount() > 0) {
+            owner = m_bottomConnContentTree->topLevelItem(0);
+        }
+        while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
+               && !owner->data(0, kIsPoolRootRole).toBool()) {
+            owner = owner->parent();
+        }
+        if (owner) {
+            const QString ownerKey = connTreeNodeKey(owner);
+            QString poolName;
+            if (ownerKey.startsWith(QStringLiteral("pool:"))) {
+                poolName = ownerKey.mid(5).trimmed();
+            } else if (ownerKey.startsWith(QStringLiteral("info:"))) {
+                poolName = ownerKey.mid(5).trimmed();
+            } else if (ownerKey.startsWith(QStringLiteral("ds:"))) {
+                const SnapshotKeyParts keyParts = parseSnapshotKey(ownerKey);
+                poolName = keyParts.pool.trimmed();
+            }
+            if (!poolName.isEmpty()) {
+                const QString bottomToken = QStringLiteral("%1::%2").arg(idx).arg(poolName);
                 saveConnContentTreeStateFor(m_bottomConnContentTree, bottomToken);
             }
         }
@@ -3661,7 +3676,7 @@ QString MainWindow::gsaMenuLabelForConnection(int connIdx) const {
                    QStringLiteral("Install snapshot manager"),
                    QStringLiteral("安装快照管理器"));
     }
-    if (st.gsaNeedsAttention || compareAppVersions(gsaScriptVersion(), st.gsaVersion) > 0) {
+    if (st.gsaNeedsAttention || st.gsaVersion.trimmed() != gsaScriptVersion().trimmed()) {
         return trk(QStringLiteral("t_gsa_update_001"),
                    QStringLiteral("Actualizar versión del Gestor de snapshots"),
                    QStringLiteral("Update snapshot manager version"),

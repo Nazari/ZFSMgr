@@ -2637,7 +2637,23 @@ void MainWindow::rebuildConnContentTreeFor(QTreeWidget* tree,
     if (!tree || connIdx < 0 || poolName.isEmpty()) {
         return;
     }
-    saveConnContentTreeStateFor(tree, token);
+    auto treeMatchesToken = [tree, connIdx, &poolName]() -> bool {
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* root = tree->topLevelItem(i);
+            if (!root || !root->data(0, kIsPoolRootRole).toBool()) {
+                continue;
+            }
+            const int rootConnIdx = root->data(0, kConnIdxRole).toInt();
+            const QString rootPoolName = root->data(0, kPoolNameRole).toString().trimmed();
+            if (rootConnIdx == connIdx && rootPoolName == poolName) {
+                return true;
+            }
+        }
+        return tree->topLevelItemCount() == 0;
+    };
+    if (treeMatchesToken()) {
+        saveConnContentTreeStateFor(tree, token);
+    }
     populateDatasetTree(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, true);
     if (restoreState) {
         restoreConnContentTreeStateFor(tree, token);

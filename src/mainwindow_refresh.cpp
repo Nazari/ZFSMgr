@@ -694,7 +694,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     }
 
     if (state.gsaInstalled) {
-        if (refreshCompareAppVersions(refreshGsaScriptVersion(), state.gsaVersion) > 0) {
+        const QString expectedGsaVersion = refreshGsaScriptVersion().trimmed();
+        if (state.gsaVersion.trimmed() != expectedGsaVersion) {
             state.gsaNeedsAttention = true;
             state.gsaAttentionReasons.push_back(QStringLiteral("versión GSA antigua"));
         }
