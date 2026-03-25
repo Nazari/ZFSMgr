@@ -89,10 +89,18 @@ git diff --quiet || fail "El árbol de trabajo tiene cambios sin commit"
 git diff --cached --quiet || fail "Hay cambios staged sin commit"
 [[ -z "$(git status --short --untracked-files=all)" ]] || fail "Hay cambios pendientes o ficheros sin versionar"
 
-git rev-parse --verify "${TAG}" >/dev/null 2>&1 && fail "El tag ${TAG} ya existe en local"
-git ls-remote --tags "${GIT_REMOTE}" "refs/tags/${TAG}" | grep -q . && fail "El tag ${TAG} ya existe en ${GIT_REMOTE}"
 if gh release view "${TAG}" >/dev/null 2>&1; then
   fail "La release ${TAG} ya existe en GitHub"
+fi
+
+LOCAL_TAG_EXISTS=0
+REMOTE_TAG_EXISTS=0
+git rev-parse --verify "${TAG}" >/dev/null 2>&1 && LOCAL_TAG_EXISTS=1
+git ls-remote --tags "${GIT_REMOTE}" "refs/tags/${TAG}" | grep -q . && REMOTE_TAG_EXISTS=1
+
+if [[ "${RESUME}" -eq 0 ]]; then
+  [[ "${LOCAL_TAG_EXISTS}" -eq 0 ]] || fail "El tag ${TAG} ya existe en local"
+  [[ "${REMOTE_TAG_EXISTS}" -eq 0 ]] || fail "El tag ${TAG} ya existe en ${GIT_REMOTE}"
 fi
 
 CURRENT_VERSION="$(sed -nE 's/^[[:space:]]*set\([[:space:]]*ZFSMGR_APP_VERSION_STRING[[:space:]]*"([^"]+)".*/\1/p' "${CMAKE_FILE}" | head -n1)"
@@ -122,8 +130,8 @@ Fases previstas:
   1. Actualizar resources/CMakeLists.txt a ${VERSION}
   2. Crear commit \"Release ${VERSION}\" si hay cambios
   3. Hacer push a ${GIT_REMOTE}
-  4. Ejecutar scripts/buildall.sh
-  5. Crear y subir tag ${TAG}
+  4. Ejecutar scripts/buildall.sh o reutilizar artefactos existentes
+  5. Crear y subir tag ${TAG} o reutilizarlo si ya existe en resume
   6. Crear release ${TAG} en GitHub y subir artefactos
 EOF
   exit 0
@@ -132,6 +140,11 @@ fi
 if [[ "${RESUME}" -eq 1 ]]; then
   [[ "${CURRENT_VERSION}" == "${VERSION}" ]] || fail "--resume requiere que la versión actual ya sea ${VERSION}"
   log "Modo resume: se reutiliza la versión ${VERSION} ya aplicada"
+  if [[ "${REMOTE_TAG_EXISTS}" -eq 1 && "${LOCAL_TAG_EXISTS}" -eq 0 ]]; then
+    log "Modo resume: recuperando tag ${TAG} desde ${GIT_REMOTE}"
+    git fetch "${GIT_REMOTE}" "refs/tags/${TAG}:refs/tags/${TAG}"
+    LOCAL_TAG_EXISTS=1
+  fi
 else
   log "Actualizando versión ${CURRENT_VERSION} -> ${VERSION}"
   perl -0pi -e 's/project\(ZFSMgrQt VERSION\s+[^ )]+/project(ZFSMgrQt VERSION '"${BASE_VERSION}"'/; s/set\(ZFSMGR_APP_VERSION_STRING\s+"[^"]+"/set(ZFSMGR_APP_VERSION_STRING "'"${VERSION}"'"/' "${CMAKE_FILE}"
@@ -157,26 +170,52 @@ BUILD_REF="$(git rev-parse HEAD)"
 log "Commit exacto de release para builders remotos: ${BUILD_REF}"
 
 ARTIFACTS_DIR="${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}"
-rm -rf "${ARTIFACTS_DIR}"
 mkdir -p "${ARTIFACTS_DIR}"
 mkdir -p "${LOG_DIR}"
-
-log "Ejecutando buildall.sh con artefactos en ${ARTIFACTS_DIR}"
-run_logged buildall env OUTPUT_DIR="${ARTIFACTS_DIR}" BUILD_GIT_REMOTE="${GIT_REMOTE}" BUILD_GIT_REF="${BUILD_REF}" "${SCRIPT_DIR}/buildall.sh"
 
 MAC_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}.app.zip" | head -n1)"
 WIN_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-Setup-${VERSION}*.exe" | head -n1)"
 LINUX_APPIMAGE="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}-*.AppImage" | head -n1)"
 LINUX_DEB="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "zfsmgr_${VERSION}_*.deb" | head -n1)"
 
+HAS_ALL_ARTIFACTS=0
+if [[ -n "${MAC_ARTIFACT}" && -f "${MAC_ARTIFACT}" && -n "${WIN_ARTIFACT}" && -f "${WIN_ARTIFACT}" && -n "${LINUX_APPIMAGE}" && -f "${LINUX_APPIMAGE}" && -n "${LINUX_DEB}" && -f "${LINUX_DEB}" ]]; then
+  HAS_ALL_ARTIFACTS=1
+fi
+
+if [[ "${RESUME}" -eq 1 && "${HAS_ALL_ARTIFACTS}" -eq 1 ]]; then
+  log "Modo resume: se reutilizan los artefactos ya existentes en ${ARTIFACTS_DIR}"
+else
+  rm -rf "${ARTIFACTS_DIR}"
+  mkdir -p "${ARTIFACTS_DIR}"
+  log "Ejecutando buildall.sh con artefactos en ${ARTIFACTS_DIR}"
+  run_logged buildall env OUTPUT_DIR="${ARTIFACTS_DIR}" BUILD_GIT_REMOTE="${GIT_REMOTE}" BUILD_GIT_REF="${BUILD_REF}" "${SCRIPT_DIR}/buildall.sh"
+  MAC_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}.app.zip" | head -n1)"
+  WIN_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-Setup-${VERSION}*.exe" | head -n1)"
+  LINUX_APPIMAGE="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}-*.AppImage" | head -n1)"
+  LINUX_DEB="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "zfsmgr_${VERSION}_*.deb" | head -n1)"
+fi
+
 [[ -n "${MAC_ARTIFACT}" && -f "${MAC_ARTIFACT}" ]] || fail "No se encontró el artefacto macOS (.app.zip)"
 [[ -n "${WIN_ARTIFACT}" && -f "${WIN_ARTIFACT}" ]] || fail "No se encontró el artefacto Windows (.exe)"
 [[ -n "${LINUX_APPIMAGE}" && -f "${LINUX_APPIMAGE}" ]] || fail "No se encontró el artefacto Linux (.AppImage)"
 [[ -n "${LINUX_DEB}" && -f "${LINUX_DEB}" ]] || fail "No se encontró el artefacto Linux (.deb)"
 
-log "Creando tag ${TAG}"
-git tag "${TAG}"
-run_logged git-push-tag git push "${GIT_REMOTE}" "${TAG}"
+if [[ "${LOCAL_TAG_EXISTS}" -eq 1 ]]; then
+  log "Modo resume: reutilizando tag local ${TAG}"
+elif [[ "${REMOTE_TAG_EXISTS}" -eq 1 ]]; then
+  log "Modo resume: el tag ${TAG} ya existe en ${GIT_REMOTE}"
+else
+  log "Creando tag ${TAG}"
+  git tag "${TAG}"
+  LOCAL_TAG_EXISTS=1
+fi
+
+if [[ "${REMOTE_TAG_EXISTS}" -eq 1 ]]; then
+  log "Modo resume: el tag ${TAG} ya estaba publicado en ${GIT_REMOTE}"
+else
+  run_logged git-push-tag git push "${GIT_REMOTE}" "${TAG}"
+fi
 
 log "Creando release ${TAG} en GitHub"
 run_logged github-release gh release create "${TAG}" \

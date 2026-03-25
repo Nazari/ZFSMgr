@@ -54,7 +54,7 @@ Ya no dependen de la rama activa remota ni de que `git pull` los deje en el esta
 - `gh` está instalado y autenticado
 - `buildall.sh` funciona correctamente en el entorno actual
 - las máquinas remotas de Linux, macOS y Windows están preparadas para compilar
-- los repositorios remotos que usa `buildall.sh` hacen `git pull --ff-only` sobre la rama correcta
+- los repositorios remotos que usa `buildall.sh` tienen acceso al remoto git indicado y pueden hacer `fetch` del commit objetivo
 
 ## Variables útiles
 
@@ -103,6 +103,8 @@ Esto permite retomar una release interrumpida antes de crear tag o release en Gi
 - la versión ya quedó aplicada en `resources/CMakeLists.txt`
 - quieres evitar tocar otra vez la versión
 - quieres forzar que el flujo continúe desde el `HEAD` actual
+- quieres reutilizar artefactos ya construidos si siguen presentes
+- quieres reutilizar un tag ya creado si la release final todavía no existe
 
 Ejemplo:
 
@@ -118,6 +120,12 @@ No hace:
 
 - ni rollback
 - ni limpieza de tags o releases ya creadas
+
+Sí hace:
+
+- recuperar el tag local desde el remoto si existe solo en GitHub
+- saltarse `buildall.sh` si los cuatro artefactos ya están presentes
+- saltarse la creación o el push del tag si ese paso ya estaba completado
 
 ## Logs
 
@@ -158,4 +166,7 @@ Antes de ejecutar el script, el árbol debe estar limpio:
 
 ## Siguiente mejora posible
 
-Si en el futuro se quiere hacer el flujo más robusto, el siguiente paso sería desacoplar `buildall.sh` de `git pull` remoto y permitirle construir un commit exacto por hash.
+Si en el futuro se quiere hacer el flujo más robusto, el siguiente paso sería:
+
+- persistir un manifiesto de release con estado por fase
+- añadir limpieza selectiva de artefactos o relanzamiento por plataforma

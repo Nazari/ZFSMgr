@@ -135,13 +135,12 @@ Estado:
 - el commit de versión se hace antes del build
 - los builders remotos ya no construyen “la rama actual”, sino el `commit` exacto que les pasa `release-github.sh`
 - el script permite reentrada si la versión ya estaba aplicada
-- el script ofrece también `--resume` explícito
+- el script ofrece también `--resume` explícito, con reutilización de artefactos y tags ya creados
 - los logs por fase se guardan en `.release-artifacts/logs/<version>/`
 - el bundle de macOS de release no se firma en este pipeline
 
 ## Pendientes razonables
 
-- desacoplar `buildall.sh` de `git pull` remoto y construir por hash exacto
-- añadir `--resume` explícito si en el futuro se necesita distinguirlo de la reentrada implícita
+- persistir estado por fase para reanudar releases de forma todavía más selectiva
 - mejorar logs internos por plataforma dentro de `buildall.sh`
 - decidir si el flujo de release final debe soportar firma macOS opcional en un entorno CI preparado
