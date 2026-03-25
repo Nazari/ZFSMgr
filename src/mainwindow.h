@@ -433,9 +433,11 @@ private:
     void actionAdvancedToDir();
     bool showInlinePropertyNodesForTree(const QTreeWidget* tree) const;
     bool showInlinePermissionsNodesForTree(const QTreeWidget* tree) const;
+    bool showPoolInfoNodeForTree(const QTreeWidget* tree) const;
     bool showInlineGsaNodeForTree(const QTreeWidget* tree) const;
     void setShowInlinePropertyNodesForTree(QTreeWidget* tree, bool visible);
     void setShowInlinePermissionsNodesForTree(QTreeWidget* tree, bool visible);
+    void setShowPoolInfoNodeForTree(const QTreeWidget* tree, bool visible);
     void setShowInlineGsaNodeForTree(QTreeWidget* tree, bool visible);
     bool mountDataset(const QString& side, const DatasetSelectionContext& ctx);
     bool umountDataset(const QString& side, const DatasetSelectionContext& ctx);
@@ -673,7 +675,8 @@ private:
     bool m_showInlinePermissionsNodesBottom{true};
     bool m_showInlineGsaNodeTop{true};
     bool m_showInlineGsaNodeBottom{true};
-    bool m_showPoolInfoNode{true};
+    bool m_showPoolInfoNodeTop{true};
+    bool m_showPoolInfoNodeBottom{true};
     bool m_showAutomaticGsaSnapshots{true};
     int m_connPropColumnsSetting{7};
     bool m_pendingChangeActivationInProgress{false};

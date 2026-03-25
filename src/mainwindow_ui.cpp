@@ -880,6 +880,17 @@ bool MainWindow::showInlinePermissionsNodesForTree(const QTreeWidget* tree) cons
                                              : m_showInlinePermissionsNodesTop;
 }
 
+bool MainWindow::showPoolInfoNodeForTree(const QTreeWidget* tree) const {
+    if (tree == m_bottomConnContentTree && m_bottomDatasetPane) {
+        return m_bottomDatasetPane->visualOptions().showPoolInfo;
+    }
+    if (tree == m_connContentTree && m_topDatasetPane) {
+        return m_topDatasetPane->visualOptions().showPoolInfo;
+    }
+    return (tree == m_bottomConnContentTree) ? m_showPoolInfoNodeBottom
+                                             : m_showPoolInfoNodeTop;
+}
+
 bool MainWindow::showInlineGsaNodeForTree(const QTreeWidget* tree) const {
     if (tree == m_bottomConnContentTree && m_bottomDatasetPane) {
         return m_bottomDatasetPane->visualOptions().showInlineGsa;
@@ -940,6 +951,24 @@ void MainWindow::setShowInlineGsaNodeForTree(QTreeWidget* tree, bool visible) {
         if (m_topDatasetPane) {
             auto options = m_topDatasetPane->visualOptions();
             options.showInlineGsa = visible;
+            m_topDatasetPane->setVisualOptions(options);
+        }
+    }
+}
+
+void MainWindow::setShowPoolInfoNodeForTree(const QTreeWidget* tree, bool visible) {
+    if (tree == m_bottomConnContentTree) {
+        m_showPoolInfoNodeBottom = visible;
+        if (m_bottomDatasetPane) {
+            auto options = m_bottomDatasetPane->visualOptions();
+            options.showPoolInfo = visible;
+            m_bottomDatasetPane->setVisualOptions(options);
+        }
+    } else {
+        m_showPoolInfoNodeTop = visible;
+        if (m_topDatasetPane) {
+            auto options = m_topDatasetPane->visualOptions();
+            options.showPoolInfo = visible;
             m_topDatasetPane->setVisualOptions(options);
         }
     }
@@ -1871,7 +1900,8 @@ void MainWindow::buildUi() {
                                             QStringLiteral("挂载点"))});
     m_topDatasetPane->setVisualOptions({m_showInlinePropertyNodesTop,
                                         m_showInlinePermissionsNodesTop,
-                                        m_showInlineGsaNodeTop});
+                                        m_showInlineGsaNodeTop,
+                                        m_showPoolInfoNodeTop});
     m_connContentTree->setItemDelegate(new ConnContentPropBorderDelegate(m_connContentTree));
     // Las acciones se exponen por menú contextual del árbol.
     if (m_btnConnBreakdown) m_btnConnBreakdown->setVisible(false);
@@ -1993,7 +2023,8 @@ void MainWindow::buildUi() {
                                                    QStringLiteral("挂载点"))});
     m_bottomDatasetPane->setVisualOptions({m_showInlinePropertyNodesBottom,
                                            m_showInlinePermissionsNodesBottom,
-                                           m_showInlineGsaNodeBottom});
+                                           m_showInlineGsaNodeBottom,
+                                           m_showPoolInfoNodeBottom});
     m_bottomConnContentTree->setItemDelegate(new ConnContentPropBorderDelegate(m_bottomConnContentTree));
     // Mantener esquema de columnas idéntico en ambos árboles (superior/inferior)
     // incluso cuando uno de ellos esté vacío.
@@ -3986,7 +4017,7 @@ void MainWindow::buildUi() {
         QAction* destroy{nullptr};
         QAction* showPoolInfo{nullptr};
     };
-    auto buildPoolRootMenu = [this](QMenu& menu) {
+    auto buildPoolRootMenu = [this](QMenu& menu, QTreeWidget* tree) {
         PoolRootMenuActions actions;
         actions.update = menu.addAction(
             trk(QStringLiteral("t_refresh_btn001"),
@@ -4017,7 +4048,7 @@ void MainWindow::buildUi() {
         menu.addSeparator();
         actions.showPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del pool"));
         actions.showPoolInfo->setCheckable(true);
-        actions.showPoolInfo->setChecked(m_showPoolInfoNode);
+        actions.showPoolInfo->setChecked(showPoolInfoNodeForTree(tree));
         return actions;
     };
 
@@ -4043,7 +4074,7 @@ void MainWindow::buildUi() {
         if (includePoolInfo) {
             actions.showPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del pool"));
             actions.showPoolInfo->setCheckable(true);
-            actions.showPoolInfo->setChecked(m_showPoolInfoNode);
+            actions.showPoolInfo->setChecked(showPoolInfoNodeForTree(tree));
         }
         QMenu* inlineMenu = menu.addMenu(QStringLiteral("Mostrar en línea"));
         actions.showInlineProps = inlineMenu->addAction(QStringLiteral("Mostrar propiedades en línea"));
@@ -4711,7 +4742,7 @@ void MainWindow::buildUi() {
                         : QString();
                 const zfsmgr::uilogic::PoolRootMenuState menuState =
                     zfsmgr::uilogic::buildPoolRootMenuState(poolAction, QStringLiteral("ONLINE"), poolRow >= 0);
-                const PoolRootMenuActions poolActions = buildPoolRootMenu(menu);
+                const PoolRootMenuActions poolActions = buildPoolRootMenu(menu, m_bottomConnContentTree);
                 poolActions.update->setEnabled(menuState.canRefresh);
                 poolActions.importPool->setEnabled(menuState.canImport);
                 poolActions.importRename->setEnabled(menuState.canImport);
@@ -4750,7 +4781,7 @@ void MainWindow::buildUi() {
                 } else if (picked == poolActions.destroy && menuState.canDestroy && poolRow >= 0) {
                     destroyPoolFromRow(poolRow);
                 } else if (picked == poolActions.showPoolInfo) {
-                    m_showPoolInfoNode = poolActions.showPoolInfo->isChecked();
+                    setShowPoolInfoNodeForTree(m_bottomConnContentTree, poolActions.showPoolInfo->isChecked());
                     applyInlineSectionVisibility();
                 }
                 return;
@@ -4762,7 +4793,7 @@ void MainWindow::buildUi() {
                 if (picked == inlineActions.manage) {
                     manageInlinePropsVisualization(m_bottomConnContentTree, item, true);
                 } else if (picked == inlineActions.showPoolInfo) {
-                    m_showPoolInfoNode = inlineActions.showPoolInfo->isChecked();
+                    setShowPoolInfoNodeForTree(m_bottomConnContentTree, inlineActions.showPoolInfo->isChecked());
                     applyInlineSectionVisibility();
                 } else if (picked == inlineActions.showInlineProps) {
                     setShowInlinePropertyNodesForTree(m_bottomConnContentTree, inlineActions.showInlineProps->isChecked());
@@ -6219,7 +6250,7 @@ void MainWindow::buildUi() {
                 const zfsmgr::uilogic::PoolRootMenuState menuState =
                     zfsmgr::uilogic::buildPoolRootMenuState(poolAction, QStringLiteral("ONLINE"), poolRow >= 0);
 
-                const PoolRootMenuActions poolActions = buildPoolRootMenu(menu);
+                const PoolRootMenuActions poolActions = buildPoolRootMenu(menu, m_connContentTree);
                 poolActions.update->setEnabled(menuState.canRefresh);
                 poolActions.importPool->setEnabled(menuState.canImport);
                 poolActions.importRename->setEnabled(menuState.canImport);
@@ -6258,7 +6289,7 @@ void MainWindow::buildUi() {
                 } else if (picked == poolActions.destroy && menuState.canDestroy && poolRow >= 0) {
                     destroyPoolFromRow(poolRow);
                 } else if (picked == poolActions.showPoolInfo) {
-                    m_showPoolInfoNode = poolActions.showPoolInfo->isChecked();
+                    setShowPoolInfoNodeForTree(m_connContentTree, poolActions.showPoolInfo->isChecked());
                     applyInlineSectionVisibility();
                 }
                 return;
@@ -6270,7 +6301,7 @@ void MainWindow::buildUi() {
                 if (picked == inlineActions.manage) {
                     manageInlinePropsVisualization(m_connContentTree, item, true);
                 } else if (picked == inlineActions.showPoolInfo) {
-                    m_showPoolInfoNode = inlineActions.showPoolInfo->isChecked();
+                    setShowPoolInfoNodeForTree(m_connContentTree, inlineActions.showPoolInfo->isChecked());
                     applyInlineSectionVisibility();
                 } else if (picked == inlineActions.showInlineProps) {
                     setShowInlinePropertyNodesForTree(m_connContentTree, inlineActions.showInlineProps->isChecked());

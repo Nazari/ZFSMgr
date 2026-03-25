@@ -2017,7 +2017,7 @@ void MainWindow::syncConnContentPoolColumns() {
         m_syncingConnContentColumns = false;
         return;
     }
-    if (!m_showPoolInfoNode) {
+    if (!showPoolInfoNodeForTree(tree)) {
         for (int i = root->childCount() - 1; i >= 0; --i) {
             QTreeWidgetItem* c = root->child(i);
             if (c && c->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
@@ -2899,7 +2899,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         poolRoot->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
         const QString tooltipHtml = cachedPoolStatusTooltipHtml(connIdx, poolName);
         poolRoot->setToolTip(0, tooltipHtml.isEmpty() ? poolRoot->text(0) : tooltipHtml);
-        if (m_showPoolInfoNode) {
+        if (showPoolInfoNodeForTree(tree)) {
             auto* infoNode = new QTreeWidgetItem(poolRoot);
             infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
             infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);
@@ -3033,7 +3033,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         poolRoot->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
         const QString tooltipHtml = cachedPoolStatusTooltipHtml(connIdx, poolName);
         poolRoot->setToolTip(0, tooltipHtml.isEmpty() ? poolRoot->text(0) : tooltipHtml);
-        if (m_showPoolInfoNode) {
+        if (showPoolInfoNodeForTree(tree)) {
             auto* infoNode = new QTreeWidgetItem(poolRoot);
             infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
             infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);

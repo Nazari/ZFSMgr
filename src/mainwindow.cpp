@@ -105,7 +105,18 @@ void MainWindow::configurePoolDatasetsForTest(int connIdx,
 }
 
 void MainWindow::setShowPoolInfoNodeForTest(bool visible) {
-    m_showPoolInfoNode = visible;
+    m_showPoolInfoNodeTop = visible;
+    m_showPoolInfoNodeBottom = visible;
+    if (m_topDatasetPane) {
+        auto options = m_topDatasetPane->visualOptions();
+        options.showPoolInfo = visible;
+        m_topDatasetPane->setVisualOptions(options);
+    }
+    if (m_bottomDatasetPane) {
+        auto options = m_bottomDatasetPane->visualOptions();
+        options.showPoolInfo = visible;
+        m_bottomDatasetPane->setVisualOptions(options);
+    }
     rebuildConnectionDetailsForTest();
 }
 

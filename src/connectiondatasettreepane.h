@@ -15,6 +15,7 @@ public:
         bool showInlineProperties{true};
         bool showInlinePermissions{true};
         bool showInlineGsa{true};
+        bool showPoolInfo{true};
     };
 
     struct VisualState {

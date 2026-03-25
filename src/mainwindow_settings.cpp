@@ -200,7 +200,12 @@ void MainWindow::loadUiSettings() {
         ini.value(QStringLiteral("show_inline_gsa_node_top"), legacyShowInlineGsaNode).toBool();
     m_showInlineGsaNodeBottom =
         ini.value(QStringLiteral("show_inline_gsa_node_bottom"), legacyShowInlineGsaNode).toBool();
-    m_showPoolInfoNode = ini.value(QStringLiteral("show_pool_info_node"), true).toBool();
+    const bool legacyShowPoolInfoNode =
+        ini.value(QStringLiteral("show_pool_info_node"), true).toBool();
+    m_showPoolInfoNodeTop =
+        ini.value(QStringLiteral("show_pool_info_node_top"), legacyShowPoolInfoNode).toBool();
+    m_showPoolInfoNodeBottom =
+        ini.value(QStringLiteral("show_pool_info_node_bottom"), legacyShowPoolInfoNode).toBool();
     m_connPropColumnsSetting = ini.value(QStringLiteral("conn_prop_columns"), 7).toInt();
     m_persistedTopDetailConnectionKey =
         ini.value(QStringLiteral("top_detail_connection")).toString().trimmed().toLower();
@@ -279,13 +284,20 @@ void MainWindow::saveUiSettings() const {
     const bool showInlineGsaNodeBottom =
         m_bottomDatasetPane ? m_bottomDatasetPane->visualOptions().showInlineGsa
                             : m_showInlineGsaNodeBottom;
+    const bool showPoolInfoNodeTop =
+        m_topDatasetPane ? m_topDatasetPane->visualOptions().showPoolInfo
+                         : m_showPoolInfoNodeTop;
+    const bool showPoolInfoNodeBottom =
+        m_bottomDatasetPane ? m_bottomDatasetPane->visualOptions().showPoolInfo
+                            : m_showPoolInfoNodeBottom;
     ini.setValue(QStringLiteral("show_inline_property_nodes_top"), showInlinePropertyNodesTop);
     ini.setValue(QStringLiteral("show_inline_property_nodes_bottom"), showInlinePropertyNodesBottom);
     ini.setValue(QStringLiteral("show_inline_permissions_nodes_top"), showInlinePermissionsNodesTop);
     ini.setValue(QStringLiteral("show_inline_permissions_nodes_bottom"), showInlinePermissionsNodesBottom);
     ini.setValue(QStringLiteral("show_inline_gsa_node_top"), showInlineGsaNodeTop);
     ini.setValue(QStringLiteral("show_inline_gsa_node_bottom"), showInlineGsaNodeBottom);
-    ini.setValue(QStringLiteral("show_pool_info_node"), m_showPoolInfoNode);
+    ini.setValue(QStringLiteral("show_pool_info_node_top"), showPoolInfoNodeTop);
+    ini.setValue(QStringLiteral("show_pool_info_node_bottom"), showPoolInfoNodeBottom);
     ini.setValue(QStringLiteral("conn_prop_columns"), qBound(6, m_connPropColumnsSetting, 20));
     ini.setValue(QStringLiteral("top_detail_connection"),
                  connPersistKeyFromProfiles(m_profiles, m_topDetailConnIdx));
