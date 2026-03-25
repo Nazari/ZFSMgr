@@ -17,6 +17,8 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include <functional>
+
 namespace {
 using mwhelpers::shSingleQuote;
 
@@ -27,6 +29,19 @@ void setRequiredLabelState(QLabel* label, bool required) {
     label->setStyleSheet(required
                              ? QStringLiteral("QLabel { color: #b00020; font-weight: 600; }")
                              : QString());
+}
+
+void bindRequiredLineEditLabel(QLineEdit* edit, QLabel* label, const std::function<bool()>& requirementActive) {
+    if (!edit || !label) {
+        return;
+    }
+    auto refresh = [edit, label, requirementActive]() {
+        setRequiredLabelState(label, requirementActive() && edit->text().trimmed().isEmpty());
+    };
+    QObject::connect(edit, &QLineEdit::textChanged, label, [refresh](const QString&) {
+        refresh();
+    });
+    refresh();
 }
 
 struct CreateDatasetOptions {
@@ -400,6 +415,28 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
     setRequiredLabelState(volsizeLabel, false);
     setRequiredLabelState(encPassLabel, false);
     setRequiredLabelState(encPass2Label, false);
+    bindRequiredLineEditLabel(pathEdit, pathLabel, []() { return true; });
+    bindRequiredLineEditLabel(volsizeEdit, volsizeLabel, [typeCombo]() {
+        return typeCombo && typeCombo->currentData().toString() == QStringLiteral("volume");
+    });
+    bindRequiredLineEditLabel(encPassEdit, encPassLabel, [&, typeCombo]() {
+        Q_UNUSED(typeCombo);
+        const QString enc = propValue(QStringLiteral("encryption")).toLower();
+        const QString keyformat = propValue(QStringLiteral("keyformat")).toLower();
+        const QString keylocation = propValue(QStringLiteral("keylocation")).trimmed().toLower();
+        return (enc == QStringLiteral("on") || enc.startsWith(QStringLiteral("aes-")))
+               && keyformat == QStringLiteral("passphrase")
+               && keylocation == QStringLiteral("prompt");
+    });
+    bindRequiredLineEditLabel(encPass2Edit, encPass2Label, [&, typeCombo]() {
+        Q_UNUSED(typeCombo);
+        const QString enc = propValue(QStringLiteral("encryption")).toLower();
+        const QString keyformat = propValue(QStringLiteral("keyformat")).toLower();
+        const QString keylocation = propValue(QStringLiteral("keylocation")).trimmed().toLower();
+        return (enc == QStringLiteral("on") || enc.startsWith(QStringLiteral("aes-")))
+               && keyformat == QStringLiteral("passphrase")
+               && keylocation == QStringLiteral("prompt");
+    });
 
     auto setSuggestedPath = [&]() {
         const QString t = typeCombo->currentData().toString();

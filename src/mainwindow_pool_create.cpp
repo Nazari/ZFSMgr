@@ -57,6 +57,19 @@ void setRequiredLabelState(QLabel* label, bool required) {
                              : QString());
 }
 
+void bindRequiredLineEditLabel(QLineEdit* edit, QLabel* label) {
+    if (!edit || !label) {
+        return;
+    }
+    auto refresh = [edit, label]() {
+        setRequiredLabelState(label, edit->text().trimmed().isEmpty());
+    };
+    QObject::connect(edit, &QLineEdit::textChanged, label, [refresh](const QString&) {
+        refresh();
+    });
+    refresh();
+}
+
 constexpr int kRoleDevicePath = Qt::UserRole;
 constexpr int kRoleSelectable = Qt::UserRole + 1;
 constexpr int kRoleMounted = Qt::UserRole + 2;
@@ -1062,6 +1075,7 @@ void MainWindow::createPoolForSelectedConnection() {
         trk(QStringLiteral("t_poolcrt_auto004"), QStringLiteral("Nombre"), QStringLiteral("Name"), QStringLiteral("名称")),
         baseBox);
     setRequiredLabelState(poolNameLabel, true);
+    bindRequiredLineEditLabel(poolNameEd, poolNameLabel);
     form->addRow(poolNameLabel, poolNameEd);
     auto* flagsRow = new QHBoxLayout();
     flagsRow->addWidget(forceCb);

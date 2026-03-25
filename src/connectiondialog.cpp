@@ -70,6 +70,19 @@ void setRequiredLabelState(QLabel* label, bool required) {
                              ? QStringLiteral("QLabel { color: #b00020; font-weight: 600; }")
                              : QString());
 }
+
+void bindRequiredLineEditLabel(QLineEdit* edit, QLabel* label) {
+    if (!edit || !label) {
+        return;
+    }
+    auto refresh = [edit, label]() {
+        setRequiredLabelState(label, edit->text().trimmed().isEmpty());
+    };
+    QObject::connect(edit, &QLineEdit::textChanged, label, [refresh](const QString&) {
+        refresh();
+    });
+    refresh();
+}
 } // namespace
 
 ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
@@ -128,6 +141,7 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     osLbl->setMinimumWidth(76);
     typeLbl->setMinimumWidth(76);
     setRequiredLabelState(nameLbl, true);
+    bindRequiredLineEditLabel(m_nameEdit, nameLbl);
     nameOsLayout->addWidget(nameLbl, 0);
     nameOsLayout->addWidget(m_nameEdit, 2);
     nameOsLayout->addSpacing(12);
@@ -169,6 +183,7 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     portLbl->setMinimumWidth(76);
     familyLbl->setMinimumWidth(52);
     setRequiredLabelState(hostLbl, true);
+    bindRequiredLineEditLabel(m_hostEdit, hostLbl);
     m_portEdit->setMaximumWidth(110);
     m_sshFamilyCombo->setMaximumWidth(110);
     hostPortLayout->addWidget(hostLbl, 0);
@@ -201,6 +216,7 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     userLbl->setMinimumWidth(76);
     passLbl->setMinimumWidth(76);
     setRequiredLabelState(userLbl, true);
+    bindRequiredLineEditLabel(m_userEdit, userLbl);
     userPassLayout->addWidget(userLbl, 0);
     userPassLayout->addWidget(m_userEdit, 1);
     userPassLayout->addSpacing(12);
