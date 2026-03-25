@@ -3739,13 +3739,7 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
     }
     const ConnectionRuntimeState& st = m_states[idx];
     if (isWindowsConnection(idx)) {
-        QMessageBox::information(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_helper_windows_later_01"),
-                QStringLiteral("La instalación asistida de comandos auxiliares para Windows se implementará sobre el flujo de MSYS2, no en esta fase."),
-                QStringLiteral("Assisted installation of helper commands for Windows will be implemented on top of the MSYS2 flow, not in this phase."),
-                QStringLiteral("Windows 的辅助命令安装将在后续阶段基于 MSYS2 流程实现。")));
+        installMsysForSelectedConnection();
         return;
     }
     if (st.missingUnixCommands.isEmpty()) {

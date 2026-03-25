@@ -5431,7 +5431,6 @@ void MainWindow::buildUi() {
         const bool canInstallHelpers =
             hasConn && !actionsLocked() && !isDisconnected
             && connIdx < m_states.size()
-            && !isWindowsConnection(connIdx)
             && m_states[connIdx].helperInstallSupported;
         aInstallHelpers->setEnabled(canInstallHelpers);
         aManageGsa->setEnabled(menuState.canManageGsa);

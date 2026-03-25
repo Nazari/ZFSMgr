@@ -306,6 +306,7 @@ Resultado:
 Resultado:
 
 - instalación asistida funcional en Linux, macOS y FreeBSD
+- Windows entra de forma básica reutilizando el flujo actual de MSYS2
 
 ### Entrega C
 
@@ -321,7 +322,7 @@ Resultado:
 
 Resultado:
 
-- soporte real de Windows con MSYS2
+- refinamiento del soporte Windows: plan explícito de paquetes MSYS2 y, si compensa, integración más rica con `winget`
 
 ## Pruebas mínimas por plataforma
 

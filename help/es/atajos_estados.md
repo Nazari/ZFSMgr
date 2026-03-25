@@ -21,6 +21,7 @@ Estados comunes:
 - `KO/Error` (rojo): fallo de conexión o comando.
 - `OK` con OpenZFS `< 2.3.3` (rojo): conexión operativa, pero no apta para transferencias `send/recv` y asociadas.
 - `OK` con comandos faltantes (naranja): conexión operativa, pero faltan comandos auxiliares.
+- Desde el menú contextual de `Conexiones`, `Instalar comandos auxiliares` permite intentar resolver ese estado; en Windows reutiliza la preparación de `MSYS2`.
 - En Windows, la detección distingue entre comandos Unix realmente ejecutables y comandos PowerShell usados por compatibilidad.
 - `Montado/Desmontado`: estado actual del dataset.
 - `Pools no importables`: se informan en `Estado de la conexión`, con un bloque por pool y su motivo.

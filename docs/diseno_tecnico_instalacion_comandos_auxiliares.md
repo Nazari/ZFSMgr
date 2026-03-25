@@ -324,6 +324,7 @@ Comportamiento:
 - visible o habilitada solo si la conexión está en `OK con comandos faltantes`
 - deshabilitada si la plataforma no tiene instalador soportado
 - si está deshabilitada, tooltip con motivo
+- en Windows, esta misma acción reutiliza el flujo existente de `MSYS2` en lugar de abrir un instalador distinto
 
 ## Diálogo de instalación
 
@@ -368,16 +369,15 @@ Reglas:
 
 ### Windows
 
-Dos rutas posibles:
+La implementación actual reutiliza el flujo existente de `MSYS2` desde la misma acción `Instalar comandos auxiliares...`.
 
-1. PowerShell remoto
-2. comandos MSYS2 ya integrados en el flujo actual
+En la práctica:
 
-Para coherencia con el código existente, la primera versión debería reutilizar:
+- si faltan comandos auxiliares en Windows, ZFSMgr deriva a la preparación de `MSYS2`
+- el despliegue instala o verifica `MSYS2` y completa el conjunto base soportado
+- la verificación posterior sigue pasando por el refresh normal de la conexión
 
-- instalación de MSYS2 si falta,
-- instalación de paquetes MSYS2 desde ZFSMgr,
-- verificación posterior.
+El soporte de `winget` fuera de este flujo queda como ampliación futura, no como ruta separada en la UI actual.
 
 ## Seguridad y límites
 
