@@ -183,7 +183,7 @@ log "Directorio destino local: ${OUTPUT_DIR}"
 
 if [[ "$(local_os)" == "Darwin" ]]; then
   log "Compilando macOS en local"
-  "${SCRIPT_DIR}/build-macos.sh" --bundle
+  "${SCRIPT_DIR}/build-macos.sh" --bundle --no-sign
   MAC_ARTIFACT="$(find_local_artifact 'ZFSMgr-*.app' d)"
   [[ -n "${MAC_ARTIFACT}" ]] || fail "No se encontró el .app generado en build-macos"
   copy_local_artifact "${MAC_ARTIFACT}"
@@ -209,7 +209,7 @@ done
 cd "${repo}"
 git pull --ff-only
 find "${repo}/build-macos" -maxdepth 1 -type d -name 'ZFSMgr-*.app' -prune -exec rm -rf {} + 2>/dev/null || true
-./scripts/build-macos.sh --bundle
+./scripts/build-macos.sh --bundle --no-sign
 artifact="$(find "${repo}/build-macos" -maxdepth 1 -type d -name 'ZFSMgr-*.app' -print0 | xargs -0 -r ls -td 2>/dev/null | head -n1)"
 [[ -n "${artifact}" ]] || { echo "No se encontró el .app generado en macOS." >&2; exit 1; }
 printf 'ARTIFACT_MAC=%s\n' "${artifact}"
