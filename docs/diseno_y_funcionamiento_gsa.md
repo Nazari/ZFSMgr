@@ -88,6 +88,46 @@ Consecuencia operativa:
 
 - si cambian datos relevantes de una conexión (`host`, `port`, `usuario`, `password`, clave SSH, `sudo`), los GSA desplegados pueden quedar obsoletos
 - ZFSMgr intenta mitigarlo actualizando automáticamente los GSA instalados afectados cuando se crea o edita una conexión
+- además, ZFSMgr compara las conexiones realmente requeridas por las programaciones activas con las conexiones dadas de alta dentro del GSA desplegado; si no coinciden, la conexión queda marcada para actualización
+
+## Versionado del GSA
+
+La versión visible del GSA tiene formato:
+
+- `ZFSMgrAppVersion.GsaPayloadFingerprint`
+
+Ejemplo:
+
+- `0.10.0rc1.854224243`
+
+Reglas actuales:
+
+- la parte base (`0.10.0rc1`) coincide con la versión de la aplicación
+- el sufijo numérico se deriva automáticamente del hash del código fuente que contiene el payload y el despliegue del GSA
+- no se incrementa manualmente
+
+Consecuencia práctica:
+
+- si cambia el payload o el esquema de despliegue del GSA, la versión local cambia automáticamente
+- cualquier conexión con una versión anterior pasa a requerir actualización aunque la versión base de la app siga siendo la misma
+
+## Señalización en la UI
+
+En la tabla `Conexiones`, ZFSMgr añade `(*)` al nombre de una conexión si su GSA necesita atención.
+
+Actualmente eso ocurre cuando:
+
+- la versión instalada del GSA es anterior a la versión esperada por la aplicación
+- o el GSA desplegado no contiene las conexiones destino realmente requeridas por las programaciones activas de esa conexión
+
+Efectos visibles:
+
+- la fila de la conexión muestra `(*)`
+- el tooltip de la fila incluye:
+  - conexiones dadas de alta en el GSA
+  - conexiones requeridas por sus programaciones actuales
+  - motivo de atención
+- el menú contextual `GSA` pasa a ofrecer `Actualizar versión del Gestor de snapshots`
 
 ## Diseño desplegado actualmente
 
@@ -186,7 +226,7 @@ El GSA registra eventos de alto nivel, por ejemplo:
 
 Ejemplos reales de líneas esperadas:
 
-- `GSA start version 0.10.0rc1.5`
+- `GSA start version 0.10.0rc1.854224243`
 - `GSA evaluate tank1/user: recursive=on hourly=3 ... due=hourly`
 - `GSA snapshot attempt for tank1/user: class=hourly recursive=on snap=GSA-hourly-...`
 - `GSA snapshot created for tank1/user: GSA-hourly-...`

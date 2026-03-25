@@ -141,6 +141,15 @@ Programación automática de snapshots (GSA):
 
 - En el menú contextual de conexiones aparece el estado del `Gestor de snapshots`.
   Según la conexión puede mostrarse como `Instalar gestor de snapshots`, `Actualizar versión del Gestor de snapshots`, `Activar GSA` o `GSA actualizado y funcionando`.
+- Si una conexión tiene el GSA instalado pero necesita atención, su nombre aparece como `Conexión (*)` en la tabla.
+  Ese `(*)` indica que conviene redeplegar el GSA en esa conexión.
+- ZFSMgr marca el `(*)` y ofrece `Actualizar versión del Gestor de snapshots` en estos casos:
+  - la versión del GSA desplegado es anterior a la versión actual que usa la aplicación;
+  - o las conexiones dadas de alta dentro del GSA desplegado no coinciden con las conexiones que realmente requieren sus programaciones activas.
+- La versión del GSA ya no se incrementa manualmente.
+  Se deriva automáticamente del payload y del esquema de despliegue, así que cualquier cambio real en el GSA hace que ZFSMgr detecte la instalación remota como antigua.
+- En conexiones Unix/macOS, ZFSMgr también puede leer qué conexiones tiene dadas de alta ese GSA.
+  Esa información aparece en el tooltip de la fila de conexión y en la subpestaña `GSA`.
 - Según el sistema operativo, ZFSMgr usa el scheduler nativo:
   - macOS: `launchd`
   - Linux: `systemd timer`
@@ -171,7 +180,10 @@ Programación automática de snapshots (GSA):
   - un dataset no puede pertenecer a más de una programación activa
   - si un dataset tiene programación recursiva, sus hijos no pueden tener otra programación
 - Los snapshots automáticos usan nombres `GSA-...`.
-- El scheduler GSA deja su log en el directorio de configuración de ZFSMgr y rota el fichero `GSA.log`.
+- El scheduler GSA rota `GSA.log`.
+  La ruta actual depende del sistema:
+  - Linux: `/var/lib/zfsmgr/GSA.log`
+  - macOS: `~/.config/ZFSMgr/GSA.log`
 - Si una ruta de nivelación remota no tiene `SSH:✓` en la matriz de `Conectividad`, ZFSMgr avisa antes de instalar o actualizar GSA.
 - Si el GSA no está instalado en esa conexión, el nodo `Programar snapshots` no muestra las propiedades y enseña un aviso para instalarlo desde la tabla `Conexiones`.
 - Limitación importante:

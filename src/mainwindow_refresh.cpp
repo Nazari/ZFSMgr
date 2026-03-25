@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
 
+#include <algorithm>
 #include <QRegularExpression>
 
 namespace {
@@ -86,6 +87,81 @@ QMap<QString, QString> parseKeyValueOutput(const QString& text) {
         }
     }
     return out;
+}
+
+QStringList parseGsaKnownConnections(const QString& text) {
+    QStringList out;
+    QSet<QString> seen;
+    const QRegularExpression rx(QStringLiteral("^\\s*(?:'([^']+)'|([^'\\s\\)]+))\\)\\s*$"));
+    const QStringList lines = text.split('\n');
+    for (const QString& raw : lines) {
+        const QString line = raw.trimmed();
+        if (line.isEmpty() || line == QStringLiteral("*) return 1 ;;") || line.startsWith(QStringLiteral("#"))) {
+            continue;
+        }
+        const QRegularExpressionMatch m = rx.match(line);
+        if (!m.hasMatch()) {
+            continue;
+        }
+        QString name = m.captured(1).trimmed();
+        if (name.isEmpty()) {
+            name = m.captured(2).trimmed();
+        }
+        if (name.isEmpty() || name == QStringLiteral("*")) {
+            continue;
+        }
+        const QString key = name.toLower();
+        if (seen.contains(key)) {
+            continue;
+        }
+        seen.insert(key);
+        out.push_back(name);
+    }
+    return out;
+}
+
+QSet<QString> toLowerSet(const QStringList& values) {
+    QSet<QString> out;
+    for (const QString& raw : values) {
+        const QString key = raw.trimmed().toLower();
+        if (!key.isEmpty()) {
+            out.insert(key);
+        }
+    }
+    return out;
+}
+
+QVector<int> refreshVersionOrderingKey(const QString& version) {
+    QVector<int> out;
+    const QRegularExpression rx(QStringLiteral("^(\\d+)\\.(\\d+)\\.(\\d+)(?:rc(\\d+))?(?:[.-](\\d+))?$"),
+                                QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch m = rx.match(version.trimmed());
+    if (!m.hasMatch()) {
+        return out;
+    }
+    out << m.captured(1).toInt()
+        << m.captured(2).toInt()
+        << m.captured(3).toInt();
+    out << (m.captured(4).isEmpty() ? 999999 : m.captured(4).toInt());
+    out << (m.captured(5).isEmpty() ? 0 : m.captured(5).toInt());
+    return out;
+}
+
+int refreshCompareAppVersions(const QString& a, const QString& b) {
+    const QVector<int> ka = refreshVersionOrderingKey(a);
+    const QVector<int> kb = refreshVersionOrderingKey(b);
+    if (ka.isEmpty() || kb.isEmpty()) {
+        return QString::compare(a.trimmed(), b.trimmed(), Qt::CaseInsensitive);
+    }
+    for (int i = 0; i < qMin(ka.size(), kb.size()); ++i) {
+        if (ka[i] < kb[i]) return -1;
+        if (ka[i] > kb[i]) return 1;
+    }
+    return 0;
+}
+
+QString refreshGsaScriptVersion() {
+    return QStringLiteral(ZFSMGR_APP_VERSION) + QStringLiteral(".") + QStringLiteral(ZFSMGR_GSA_VERSION_SUFFIX);
 }
 
 } // namespace
@@ -468,6 +544,15 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 "    version=$(sed -n 's/^# ZFSMgr GSA Version: //p' \"$script\" | head -n1); "
                 "    launchctl print system/org.zfsmgr.gsa >/dev/null 2>&1 && active=1; "
                 "  fi; "
+                "elif [ \"$(uname -s 2>/dev/null)\" = 'FreeBSD' ]; then "
+                "  scheduler='cron'; "
+                "  script='/usr/local/libexec/zfsmgr-gsa.sh'; "
+                "  conf='/etc/zfsmgr/gsa.conf'; "
+                "  [ -f \"$script\" ] && [ -f \"$conf\" ] && installed=1; "
+                "  if [ \"$installed\" -eq 1 ]; then "
+                "    version=$(sed -n 's/^# ZFSMgr GSA Version: //p' \"$script\" | head -n1); "
+                "    if crontab -l 2>/dev/null | grep -F '/usr/local/libexec/zfsmgr-gsa.sh' >/dev/null 2>&1; then active=1; fi; "
+                "  fi; "
                 "elif command -v systemctl >/dev/null 2>&1; then "
                 "  scheduler='systemd'; "
                 "  script='/usr/local/libexec/zfsmgr-gsa.sh'; "
@@ -491,6 +576,17 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             state.gsaDetail = kv.value(QStringLiteral("DETAIL")).trimmed();
             state.gsaInstalled = (kv.value(QStringLiteral("INSTALLED")).trimmed() == QStringLiteral("1"));
             state.gsaActive = (kv.value(QStringLiteral("ACTIVE")).trimmed() == QStringLiteral("1"));
+        }
+    }
+    if (state.gsaInstalled && !isWindowsConnection(p)) {
+        QString mapOut;
+        QString mapErr;
+        int mapRc = -1;
+        const QString cmd = withSudo(
+            p,
+            QStringLiteral("if [ -f /etc/zfsmgr/gsa-connections.conf ]; then cat /etc/zfsmgr/gsa-connections.conf; fi"));
+        if (runSsh(p, cmd, 12000, mapOut, mapErr, mapRc) && mapRc == 0) {
+            state.gsaKnownConnections = parseGsaKnownConnections(mapOut);
         }
     }
 
@@ -595,6 +691,76 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         }
     } else if (!err.isEmpty()) {
         appLog(QStringLiteral("INFO"), QStringLiteral("%1: zfs mount -> %2").arg(p.name, oneLine(err)));
+    }
+
+    if (state.gsaInstalled) {
+        if (refreshCompareAppVersions(refreshGsaScriptVersion(), state.gsaVersion) > 0) {
+            state.gsaNeedsAttention = true;
+            state.gsaAttentionReasons.push_back(QStringLiteral("versión GSA antigua"));
+        }
+        if (!isWindowsConnection(p)) {
+            const auto boolOnString = [](const QString& raw) {
+                const QString v = raw.trimmed().toLower();
+                return v == QStringLiteral("on")
+                       || v == QStringLiteral("yes")
+                       || v == QStringLiteral("true")
+                       || v == QStringLiteral("1");
+            };
+            QSet<QString> requiredConnections;
+            for (const PoolImported& pool : state.importedPools) {
+                const QString poolName = pool.pool.trimmed();
+                if (poolName.isEmpty()) {
+                    continue;
+                }
+                QString gout;
+                QString gerr;
+                int grc = -1;
+                const QString gcmd = withSudo(
+                    p,
+                    QStringLiteral("zfs get -H -o name,property,value -r %1 %2")
+                        .arg(QStringLiteral("'org.fc16.gsa:activado','org.fc16.gsa:nivelar','org.fc16.gsa:destino'"),
+                             mwhelpers::shSingleQuote(poolName)));
+                if (!runSsh(p, gcmd, 20000, gout, gerr, grc) || grc != 0) {
+                    continue;
+                }
+                QMap<QString, QMap<QString, QString>> propsByDataset;
+                const QStringList lines = gout.split('\n', Qt::SkipEmptyParts);
+                for (const QString& line : lines) {
+                    const QStringList parts = line.split('\t');
+                    if (parts.size() < 3) {
+                        continue;
+                    }
+                    const QString datasetName = parts.at(0).trimmed();
+                    const QString propName = parts.at(1).trimmed();
+                    const QString propValue = parts.at(2).trimmed();
+                    if (datasetName.isEmpty() || datasetName.contains(QLatin1Char('@')) || propName.isEmpty()) {
+                        continue;
+                    }
+                    propsByDataset[datasetName].insert(propName, propValue);
+                }
+                for (auto dsIt = propsByDataset.cbegin(); dsIt != propsByDataset.cend(); ++dsIt) {
+                    const QMap<QString, QString>& props = dsIt.value();
+                    if (!boolOnString(props.value(QStringLiteral("org.fc16.gsa:activado")))) {
+                        continue;
+                    }
+                    if (!boolOnString(props.value(QStringLiteral("org.fc16.gsa:nivelar")))) {
+                        continue;
+                    }
+                    const QString dest = props.value(QStringLiteral("org.fc16.gsa:destino")).trimmed();
+                    const QString destConnName = dest.section(QStringLiteral("::"), 0, 0).trimmed();
+                    if (!destConnName.isEmpty()) {
+                        requiredConnections.insert(destConnName);
+                    }
+                }
+            }
+            state.gsaRequiredConnections = QStringList(requiredConnections.begin(), requiredConnections.end());
+            std::sort(state.gsaRequiredConnections.begin(), state.gsaRequiredConnections.end(),
+                      [](const QString& a, const QString& b) { return a.compare(b, Qt::CaseInsensitive) < 0; });
+            if (toLowerSet(state.gsaKnownConnections) != toLowerSet(state.gsaRequiredConnections)) {
+                state.gsaNeedsAttention = true;
+                state.gsaAttentionReasons.push_back(QStringLiteral("conexiones GSA desactualizadas"));
+            }
+        }
     }
 
     appLog(QStringLiteral("NORMAL"),

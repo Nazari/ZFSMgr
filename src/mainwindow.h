@@ -130,6 +130,10 @@ private:
         QString gsaScheduler;
         QString gsaVersion;
         QString gsaDetail;
+        QStringList gsaKnownConnections;
+        QStringList gsaRequiredConnections;
+        QStringList gsaAttentionReasons;
+        bool gsaNeedsAttention{false};
         bool gsaInstalled{false};
         bool gsaActive{false};
     };

@@ -36,13 +36,15 @@ constexpr const char* kGsaTaskName = "ZFSMgr-GSA";
 constexpr const char* kGsaUnixScriptPath = "/usr/local/libexec/zfsmgr-gsa.sh";
 constexpr const char* kGsaUnixConfigDirPath = "/etc/zfsmgr";
 constexpr const char* kGsaLinuxRuntimeDirPath = "/var/lib/zfsmgr";
+constexpr const char* kGsaFreeBsdRuntimeDirPath = "/var/db/zfsmgr";
 constexpr const char* kGsaUnixConfigPath = "/etc/zfsmgr/gsa.conf";
 constexpr const char* kGsaUnixConnectionsPath = "/etc/zfsmgr/gsa-connections.conf";
 constexpr const char* kGsaUnixKnownHostsPath = "/etc/zfsmgr/gsa_known_hosts";
 constexpr const char* kGsaMacPlistPath = "/Library/LaunchDaemons/org.zfsmgr.gsa.plist";
 constexpr const char* kGsaLinuxServicePath = "/etc/systemd/system/zfsmgr-gsa.service";
 constexpr const char* kGsaLinuxTimerPath = "/etc/systemd/system/zfsmgr-gsa.timer";
-constexpr const char* kGsaVersionSuffix = ".5";
+constexpr const char* kGsaFreeBsdCronMarkerBegin = "# BEGIN ZFSMgr GSA";
+constexpr const char* kGsaFreeBsdCronMarkerEnd = "# END ZFSMgr GSA";
 struct ConnTreeNavSnapshot {
     QSet<QString> expandedKeys;
     QString selectedKey;
@@ -90,7 +92,7 @@ QString escapePsSingleQuoted(QString s) {
 }
 
 QString gsaScriptVersion() {
-    return QStringLiteral(ZFSMGR_APP_VERSION) + QString::fromLatin1(kGsaVersionSuffix);
+    return QStringLiteral(ZFSMGR_APP_VERSION) + QStringLiteral(".") + QStringLiteral(ZFSMGR_GSA_VERSION_SUFFIX);
 }
 
 QString gsaUnixMainConfigPayload(const QString& selfConnectionName, const QString& runtimeConfigDir) {
@@ -236,12 +238,8 @@ $ds"
 
 build_target_recv_command() {
   ds="$1"
-  force_flag="$2"
-  if bool_on "$force_flag"; then
-    base="zfs recv -F $(shq "$ds")"
-  else
-    base="zfs recv $(shq "$ds")"
-  fi
+  recv_opts="$2"
+  base="zfs recv ${recv_opts} $(shq "$ds")"
   if bool_on "$TARGET_USE_SUDO"; then
     if [ -n "$TARGET_PASS" ]; then
       printf "{ printf '%%s\\n' %s; cat; } | sudo -S -p '' sh -lc %s\n" "$(shq "$TARGET_PASS")" "$(shq "$base")"
@@ -255,7 +253,7 @@ build_target_recv_command() {
 
 build_target_list_command() {
   ds="$1"
-  base="zfs list -H -t snapshot -o name -s creation -r $(shq "$ds") 2>/dev/null"
+  base="zfs list -H -t snapshot -o name -s creation -d 1 $(shq "$ds") 2>/dev/null"
   if bool_on "$TARGET_USE_SUDO"; then
     if [ -n "$TARGET_PASS" ]; then
       printf "printf '%%s\\n' %s | sudo -S -p '' sh -lc %s\n" "$(shq "$TARGET_PASS")" "$(shq "$base")"
@@ -290,10 +288,10 @@ run_via_target_ssh() {
   fi
 }
 
-list_target_gsa_snapshots() {
+list_target_snapshots() {
   ds="$1"
   if [ "$TARGET_MODE" = "local" ]; then
-    zfs list -H -t snapshot -o name -s creation -r "$ds" 2>/dev/null
+    zfs list -H -t snapshot -o name -s creation -d 1 "$ds" 2>/dev/null
   else
     run_via_target_ssh "$(build_target_list_command "$ds")"
   fi
@@ -311,9 +309,9 @@ target_dataset_exists() {
 target_dataset_has_snapshots() {
   ds="$1"
   if [ "$TARGET_MODE" = "local" ]; then
-    zfs list -H -t snapshot -o name -r "$ds" 2>/dev/null | grep -q .
+    zfs list -H -t snapshot -o name -d 1 "$ds" 2>/dev/null | grep -q .
   else
-    run_via_target_ssh "zfs list -H -t snapshot -o name -r $(shq "$ds") 2>/dev/null | grep -q ."
+    run_via_target_ssh "zfs list -H -t snapshot -o name -d 1 $(shq "$ds") 2>/dev/null | grep -q ."
   fi
 }
 
@@ -376,20 +374,16 @@ prune_snapshots() {
   done
 }
 
-latest_common_gsa() {
+latest_target_snapshot() {
+  dst_ds="$1"
+  list_target_snapshots "$dst_ds" | sed -n "s#^${dst_ds}@##p" | tail -n 1
+}
+
+source_has_snapshot() {
   src_ds="$1"
-  dst_ds="$2"
-  src_snaps="$(zfs list -H -t snapshot -o name -s creation -r "$src_ds" 2>/dev/null | grep "^${src_ds}@GSA-" | sed "s#^${src_ds}@##" || true)"
-  dst_snaps="$(list_target_gsa_snapshots "$dst_ds" | grep "^${dst_ds}@GSA-" | sed "s#^${dst_ds}@##" || true)"
-  [ -n "$src_snaps" ] && [ -n "$dst_snaps" ] || return 0
-  found=''
-  printf '%s\n' "$src_snaps" | while IFS= read -r snap; do
-    [ -z "$snap" ] && continue
-    if printf '%s\n' "$dst_snaps" | grep -Fx "$snap" >/dev/null 2>&1; then
-      found="$snap"
-    fi
-  done
-  printf '%s\n' "${found:-}"
+  snap_name="$2"
+  [ -n "$snap_name" ] || return 1
+  zfs list -H -t snapshot -o name "${src_ds}@${snap_name}" >/dev/null 2>&1
 }
 
 level_snapshot() {
@@ -410,47 +404,48 @@ level_snapshot() {
     log "GSA level skip for $src_ds: destination connection not resolvable ($dst_conn)"
     return 0
   fi
-  common="$(latest_common_gsa "$src_ds" "$dst_dataset")"
   target_exists='0'
   if target_dataset_exists "$dst_dataset"; then
     target_exists='1'
   fi
-  if [ "$target_exists" = "1" ] && [ -z "$common" ] && target_dataset_has_snapshots "$dst_dataset"; then
-    log "GSA level skip for $src_ds: destination $dst_dataset already has snapshots and no common GSA base"
-    return 0
+  base_snap=''
+  recv_opts='-u'
+  send_opts='-wLEc'
+  if bool_on "$recursive"; then
+    recv_opts='-u -s'
+    send_opts='-wLEcR'
   fi
-  recv_cmd="$(build_target_recv_command "$dst_dataset" "$target_exists")"
-  if [ "$TARGET_MODE" = "local" ]; then
+  if [ "$target_exists" = "1" ] && target_dataset_has_snapshots "$dst_dataset"; then
+    base_snap="$(latest_target_snapshot "$dst_dataset")"
+    if [ -z "$base_snap" ]; then
+      log "GSA level skip for $src_ds: destination $dst_dataset has snapshots but latest snapshot could not be determined"
+      return 0
+    fi
+    if ! source_has_snapshot "$src_ds" "$base_snap"; then
+      log "GSA level skip for $src_ds: latest destination snapshot $dst_dataset@$base_snap does not exist in source"
+      return 0
+    fi
+    recv_opts='-u -F'
     if bool_on "$recursive"; then
-      if [ -n "$common" ]; then
-        zfs send -R -I "@${common}" "${src_ds}@${snap_name}" | sh -lc "$recv_cmd"
-      else
-        zfs send -R "${src_ds}@${snap_name}" | sh -lc "$recv_cmd"
-      fi
+      recv_opts='-u -s -F'
+    fi
+  fi
+  recv_cmd="$(build_target_recv_command "$dst_dataset" "$recv_opts")"
+  if [ "$TARGET_MODE" = "local" ]; then
+    if [ -n "$base_snap" ]; then
+      zfs send ${send_opts} -i "@${base_snap}" "${src_ds}@${snap_name}" | sh -lc "$recv_cmd"
     else
-      if [ -n "$common" ]; then
-        zfs send -I "@${common}" "${src_ds}@${snap_name}" | sh -lc "$recv_cmd"
-      else
-        zfs send "${src_ds}@${snap_name}" | sh -lc "$recv_cmd"
-      fi
+      zfs send ${send_opts} "${src_ds}@${snap_name}" | sh -lc "$recv_cmd"
     fi
   else
     if ! run_via_target_ssh "true" >/dev/null 2>&1; then
       log "GSA level skip for $src_ds: SSH no disponible hacia $dst_conn"
       return 0
     fi
-    if bool_on "$recursive"; then
-      if [ -n "$common" ]; then
-        zfs send -R -I "@${common}" "${src_ds}@${snap_name}" | run_via_target_ssh "$recv_cmd"
-      else
-        zfs send -R "${src_ds}@${snap_name}" | run_via_target_ssh "$recv_cmd"
-      fi
+    if [ -n "$base_snap" ]; then
+      zfs send ${send_opts} -i "@${base_snap}" "${src_ds}@${snap_name}" | run_via_target_ssh "$recv_cmd"
     else
-      if [ -n "$common" ]; then
-        zfs send -I "@${common}" "${src_ds}@${snap_name}" | run_via_target_ssh "$recv_cmd"
-      else
-        zfs send "${src_ds}@${snap_name}" | run_via_target_ssh "$recv_cmd"
-      fi
+      zfs send ${send_opts} "${src_ds}@${snap_name}" | run_via_target_ssh "$recv_cmd"
     fi
   fi
 }
@@ -660,19 +655,22 @@ function Prune-GsaSnapshots([string]$Dataset, [string]$Class, [int]$Keep, [bool]
   }
 }
 
-function Get-LatestCommonGsa([string]$SrcDataset, [string]$DstDataset) {
-  $src = @((& zfs list -H -t snapshot -o name -s creation -r $SrcDataset 2>$null) |
-    Where-Object { $_ -like "$SrcDataset@GSA-*" } |
-    ForEach-Object { $_.Substring($SrcDataset.Length + 1) })
-  $dstSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
-  ((& zfs list -H -t snapshot -o name -s creation -r $DstDataset 2>$null) |
-    Where-Object { $_ -like "$DstDataset@GSA-*" } |
-    ForEach-Object { $null = $dstSet.Add($_.Substring($DstDataset.Length + 1)) })
-  $common = $null
-  foreach ($snap in $src) {
-    if ($dstSet.Contains($snap)) { $common = $snap }
+function Get-LatestTargetSnapshot([string]$DstDataset) {
+  $snaps = @((& zfs list -H -t snapshot -o name -s creation -d 1 $DstDataset 2>$null) |
+    Where-Object { $_ -like "$DstDataset@*" } |
+    ForEach-Object { $_.Substring($DstDataset.Length + 1) })
+  if ($snaps.Count -le 0) { return $null }
+  return $snaps[-1]
+}
+
+function Test-SourceHasSnapshot([string]$SrcDataset, [string]$SnapName) {
+  if ([string]::IsNullOrWhiteSpace($SnapName)) { return $false }
+  try {
+    & zfs list -H -t snapshot -o name "$SrcDataset@$SnapName" | Out-Null
+    return $true
+  } catch {
+    return $false
   }
-  return $common
 }
 
 function Invoke-GsaLevel([string]$SrcDataset, [bool]$Recursive, [string]$SnapName, [string]$DestSpec, [bool]$LevelOn) {
@@ -687,32 +685,34 @@ function Invoke-GsaLevel([string]$SrcDataset, [bool]$Recursive, [string]$SnapNam
   } catch {
     $targetExists = $false
   }
-  $common = Get-LatestCommonGsa $SrcDataset $DstDataset
-  if ($targetExists -and -not $common) {
+  $baseSnap = $null
+  $recvOpts = if ($Recursive) { "-u -s" } else { "-u" }
+  $sendOpts = if ($Recursive) { "-wLEcR" } else { "-wLEc" }
+  if ($targetExists) {
     $dstHasSnapshots = $false
     try {
-      $dstHasSnapshots = @((& zfs list -H -t snapshot -o name -r $DstDataset 2>$null)).Count -gt 0
+      $dstHasSnapshots = @((& zfs list -H -t snapshot -o name -d 1 $DstDataset 2>$null)).Count -gt 0
     } catch {
       $dstHasSnapshots = $false
     }
     if ($dstHasSnapshots) {
-      Write-GsaLog ("GSA level skip for " + $SrcDataset + ": destination " + $DstDataset + " already has snapshots and no common GSA base")
-      return
+      $baseSnap = Get-LatestTargetSnapshot $DstDataset
+      if (-not $baseSnap) {
+        Write-GsaLog ("GSA level skip for " + $SrcDataset + ": destination " + $DstDataset + " has snapshots but latest snapshot could not be determined")
+        return
+      }
+      if (-not (Test-SourceHasSnapshot $SrcDataset $baseSnap)) {
+        Write-GsaLog ("GSA level skip for " + $SrcDataset + ": latest destination snapshot " + $DstDataset + "@" + $baseSnap + " does not exist in source")
+        return
+      }
+      $recvOpts = if ($Recursive) { "-u -s -F" } else { "-u -F" }
     }
   }
-  $recvCmd = if ($targetExists) { "zfs recv -F '$DstDataset'" } else { "zfs recv '$DstDataset'" }
-  if ($Recursive) {
-    if ($common) {
-      & powershell -NoProfile -Command "& zfs send -R -I '@$common' '$SrcDataset@$SnapName' | $recvCmd" | Out-Null
-    } else {
-      & powershell -NoProfile -Command "& zfs send -R '$SrcDataset@$SnapName' | $recvCmd" | Out-Null
-    }
+  $recvCmd = "zfs recv $recvOpts '$DstDataset'"
+  if ($baseSnap) {
+    & powershell -NoProfile -Command "& zfs send $sendOpts -i '@$baseSnap' '$SrcDataset@$SnapName' | $recvCmd" | Out-Null
   } else {
-    if ($common) {
-      & powershell -NoProfile -Command "& zfs send -I '@$common' '$SrcDataset@$SnapName' | $recvCmd" | Out-Null
-    } else {
-      & powershell -NoProfile -Command "& zfs send '$SrcDataset@$SnapName' | $recvCmd" | Out-Null
-    }
+    & powershell -NoProfile -Command "& zfs send $sendOpts '$SrcDataset@$SnapName' | $recvCmd" | Out-Null
   }
 try {
   Rotate-GsaLog
@@ -3029,6 +3029,27 @@ void MainWindow::rebuildConnectionsTable() {
                               ? (st.zfsVersion.trimmed().isEmpty() ? QStringLiteral("-")
                                                                    : QStringLiteral("OpenZFS %1").arg(st.zfsVersion.trimmed()))
                               : st.zfsVersionFull.trimmed());
+        lines << QStringLiteral("GSA: %1")
+                     .arg(!st.gsaInstalled ? QStringLiteral("no instalado")
+                                           : QStringLiteral("%1 | %2 | %3")
+                                                 .arg(st.gsaVersion.trimmed().isEmpty() ? QStringLiteral("-")
+                                                                                        : st.gsaVersion.trimmed(),
+                                                      st.gsaScheduler.trimmed().isEmpty() ? QStringLiteral("-")
+                                                                                          : st.gsaScheduler.trimmed(),
+                                                      st.gsaActive ? QStringLiteral("activo")
+                                                                   : QStringLiteral("inactivo")));
+        lines << QStringLiteral("Conexiones dadas de alta en GSA: %1")
+                     .arg(st.gsaKnownConnections.isEmpty()
+                              ? QStringLiteral("(ninguna)")
+                              : st.gsaKnownConnections.join(QStringLiteral(", ")));
+        lines << QStringLiteral("Conexiones requeridas por GSA: %1")
+                     .arg(st.gsaRequiredConnections.isEmpty()
+                              ? QStringLiteral("(ninguna)")
+                              : st.gsaRequiredConnections.join(QStringLiteral(", ")));
+        if (st.gsaNeedsAttention && !st.gsaAttentionReasons.isEmpty()) {
+            lines << QStringLiteral("Atención GSA: %1")
+                         .arg(st.gsaAttentionReasons.join(QStringLiteral(", ")));
+        }
         QStringList detected = st.detectedUnixCommands;
         QStringList missing = st.missingUnixCommands;
         lines << QStringLiteral("Comandos detectados: %1")
@@ -3118,6 +3139,9 @@ void MainWindow::rebuildConnectionsTable() {
         if (localConn) {
             connLabel = redirectedToLocalNames.isEmpty() ? QStringLiteral("Local")
                                                          : redirectedToLocalNames.first();
+        }
+        if (s.gsaNeedsAttention) {
+            connLabel += QStringLiteral(" (*)");
         }
         QString line = QStringLiteral("%1 %2").arg(statusTag, connLabel);
         if (localConn) {
@@ -3637,7 +3661,7 @@ QString MainWindow::gsaMenuLabelForConnection(int connIdx) const {
                    QStringLiteral("Install snapshot manager"),
                    QStringLiteral("安装快照管理器"));
     }
-    if (compareAppVersions(gsaScriptVersion(), st.gsaVersion) > 0) {
+    if (st.gsaNeedsAttention || compareAppVersions(gsaScriptVersion(), st.gsaVersion) > 0) {
         return trk(QStringLiteral("t_gsa_update_001"),
                    QStringLiteral("Actualizar versión del Gestor de snapshots"),
                    QStringLiteral("Update snapshot manager version"),
@@ -3685,8 +3709,11 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
         const ConnectionProfile& cp = m_profiles[connIdx];
         return cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
     };
-    auto unixConfigDirForProfile = [this](const ConnectionProfile& cp, bool isMac) {
+    auto unixConfigDirForProfile = [this](const ConnectionProfile& cp, bool isMac, bool isFreeBsd) {
         if (!isMac) {
+            if (isFreeBsd) {
+                return QString::fromLatin1(kGsaFreeBsdRuntimeDirPath);
+            }
             return QString::fromLatin1(kGsaLinuxRuntimeDirPath);
         }
         if (isLocalConnection(cp)) {
@@ -3960,9 +3987,13 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
             "schtasks /Change /TN '%2' /ENABLE | Out-Null")
                         .arg(payload, taskName);
     } else {
-        const bool isMac = p.osType.trimmed().toLower().contains(QStringLiteral("darwin"))
-                           || (idx < m_states.size() && m_states[idx].osLine.toLower().contains(QStringLiteral("darwin")));
-        const QString runtimeConfigDir = unixConfigDirForProfile(p, isMac);
+        const QString osHint = (p.osType + QStringLiteral(" ")
+                                + ((idx < m_states.size()) ? m_states[idx].osLine : QString()))
+                                   .trimmed()
+                                   .toLower();
+        const bool isMac = osHint.contains(QStringLiteral("darwin"));
+        const bool isFreeBsd = osHint.contains(QStringLiteral("freebsd"));
+        const QString runtimeConfigDir = unixConfigDirForProfile(p, isMac, isFreeBsd);
         const QString scriptPayload = gsaUnixScriptPayload();
         const QString mainConfigPayload = gsaUnixMainConfigPayload(selfConnName, runtimeConfigDir);
         const QString connectionsPayload = buildUnixConnectionsPayload(requiredDestinationConnNames);
@@ -4011,6 +4042,44 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
                                  connectionsPayload,
                                  QString::fromLatin1(kGsaUnixKnownHostsPath),
                                  knownHostsPayload);
+        } else if (isFreeBsd) {
+            remoteCmd = QStringLiteral(
+                "if ! command -v crontab >/dev/null 2>&1; then echo 'cron not available' >&2; exit 1; fi; "
+                "mkdir -p /usr/local/libexec %7 %14; "
+                "cat > %1 <<'EOF_GSA'\n%2\nEOF_GSA\n"
+                "cat > %8 <<'EOF_GSA_CONF'\n%9\nEOF_GSA_CONF\n"
+                "cat > %10 <<'EOF_GSA_CONN'\n%11\nEOF_GSA_CONN\n"
+                "cat > %12 <<'EOF_GSA_KNOWN'\n%13\nEOF_GSA_KNOWN\n"
+                "chmod 700 %1; "
+                "chmod 600 %8 %10 %12; "
+                "chmod 700 %7 %14; "
+                "chown root:wheel %1 %8 %10 %12; "
+                "chown root:wheel %7 %14; "
+                "tmp=$(mktemp); "
+                "{ crontab -l 2>/dev/null || true; } | "
+                "awk -v begin=%3 -v end=%4 'BEGIN { skip=0 } "
+                "$0==begin { skip=1; next } "
+                "$0==end { skip=0; next } "
+                "skip==0 { print }' > \"$tmp\"; "
+                "printf '%s\n' %3 >> \"$tmp\"; "
+                "printf '%s\n' '0 * * * * /usr/local/libexec/zfsmgr-gsa.sh' >> \"$tmp\"; "
+                "printf '%s\n' %4 >> \"$tmp\"; "
+                "crontab \"$tmp\"; "
+                "rm -f \"$tmp\"")
+                            .arg(QString::fromLatin1(kGsaUnixScriptPath),
+                                 scriptPayload,
+                                 mwhelpers::shSingleQuote(QString::fromLatin1(kGsaFreeBsdCronMarkerBegin)),
+                                 mwhelpers::shSingleQuote(QString::fromLatin1(kGsaFreeBsdCronMarkerEnd)),
+                                 QString(),
+                                 QString(),
+                                 QString::fromLatin1(kGsaUnixConfigDirPath),
+                                 QString::fromLatin1(kGsaUnixConfigPath),
+                                 mainConfigPayload,
+                                 QString::fromLatin1(kGsaUnixConnectionsPath),
+                                 connectionsPayload,
+                                 QString::fromLatin1(kGsaUnixKnownHostsPath),
+                                 knownHostsPayload,
+                                 runtimeConfigDir);
         } else {
             const QString servicePayload = QString::fromUtf8(R"([Unit]
 Description=ZFSMgr automatic snapshot manager
@@ -4217,8 +4286,12 @@ bool MainWindow::uninstallGsaForConnection(int idx) {
             "}")
                         .arg(taskName);
     } else {
-        const bool isMac = p.osType.trimmed().toLower().contains(QStringLiteral("darwin"))
-                           || (idx < m_states.size() && m_states[idx].osLine.toLower().contains(QStringLiteral("darwin")));
+        const QString osHint = (p.osType + QStringLiteral(" ")
+                                + ((idx < m_states.size()) ? m_states[idx].osLine : QString()))
+                                   .trimmed()
+                                   .toLower();
+        const bool isMac = osHint.contains(QStringLiteral("darwin"));
+        const bool isFreeBsd = osHint.contains(QStringLiteral("freebsd"));
         if (isMac) {
             remoteCmd = QStringLiteral(
                 "launchctl bootout system/org.zfsmgr.gsa >/dev/null 2>&1 || true; "
@@ -4231,6 +4304,31 @@ bool MainWindow::uninstallGsaForConnection(int idx) {
                                  QString::fromLatin1(kGsaUnixConnectionsPath),
                                  QString::fromLatin1(kGsaUnixKnownHostsPath),
                                  QString::fromLatin1(kGsaUnixConfigDirPath));
+        } else if (isFreeBsd) {
+            remoteCmd = QStringLiteral(
+                "if command -v crontab >/dev/null 2>&1; then "
+                "  tmp=$(mktemp); "
+                "  { crontab -l 2>/dev/null || true; } | "
+                "  awk -v begin=%1 -v end=%2 'BEGIN { skip=0 } "
+                "  $0==begin { skip=1; next } "
+                "  $0==end { skip=0; next } "
+                "  skip==0 { print }' > \"$tmp\"; "
+                "  crontab \"$tmp\"; "
+                "  rm -f \"$tmp\"; "
+                "fi; "
+                "rm -f %3 %4 %5 %6; "
+                "rmdir %7 >/dev/null 2>&1 || true; "
+                "rm -f %8; "
+                "rmdir %9 >/dev/null 2>&1 || true")
+                            .arg(mwhelpers::shSingleQuote(QString::fromLatin1(kGsaFreeBsdCronMarkerBegin)),
+                                 mwhelpers::shSingleQuote(QString::fromLatin1(kGsaFreeBsdCronMarkerEnd)),
+                                 QString::fromLatin1(kGsaUnixScriptPath),
+                                 QString::fromLatin1(kGsaUnixConfigPath),
+                                 QString::fromLatin1(kGsaUnixConnectionsPath),
+                                 QString::fromLatin1(kGsaUnixKnownHostsPath),
+                                 QString::fromLatin1(kGsaUnixConfigDirPath),
+                                 QStringLiteral("%1/GSA.log").arg(QString::fromLatin1(kGsaFreeBsdRuntimeDirPath)),
+                                 QString::fromLatin1(kGsaFreeBsdRuntimeDirPath));
         } else {
             remoteCmd = QStringLiteral(
                 "if command -v systemctl >/dev/null 2>&1; then "

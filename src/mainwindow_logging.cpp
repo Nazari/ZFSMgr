@@ -40,6 +40,7 @@
 
 namespace {
 constexpr const char* kGsaLinuxRuntimeDirPath = "/var/lib/zfsmgr";
+constexpr const char* kGsaFreeBsdRuntimeDirPath = "/var/db/zfsmgr";
 
 QString tsNowForLog() {
     return QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
@@ -587,6 +588,7 @@ void MainWindow::refreshConnectionGsaLogAsync(int idx) {
         }
         const QString osHint = (cp.osType + QStringLiteral(" ") + st.osLine).trimmed().toLower();
         const bool isMac = osHint.contains(QStringLiteral("darwin")) || osHint.contains(QStringLiteral("mac"));
+        const bool isFreeBsd = osHint.contains(QStringLiteral("freebsd"));
         const bool isWindows = osHint.contains(QStringLiteral("windows"));
         QString user = cp.username.trimmed();
         if (isWindows) {
@@ -606,6 +608,9 @@ void MainWindow::refreshConnectionGsaLogAsync(int idx) {
             return (user == QStringLiteral("root"))
                        ? QStringLiteral("/var/root/.config/ZFSMgr")
                        : QStringLiteral("/Users/%1/.config/ZFSMgr").arg(user);
+        }
+        if (isFreeBsd) {
+            return QString::fromLatin1(kGsaFreeBsdRuntimeDirPath);
         }
         return QString::fromLatin1(kGsaLinuxRuntimeDirPath);
     };
@@ -628,12 +633,19 @@ void MainWindow::refreshConnectionGsaLogAsync(int idx) {
     const WindowsCommandMode mode = isWindows ? WindowsCommandMode::PowerShellNative
                                               : WindowsCommandMode::Auto;
 
-    (void)QtConcurrent::run([this, connId, profile, remoteCmd, mode]() {
+    (void)QtConcurrent::run([this, connId, profile, remoteCmd, mode, state]() {
         QString out;
         QString err;
         int rc = -1;
         const bool ok = runSsh(profile, remoteCmd, 15000, out, err, rc, {}, {}, {}, mode) && rc == 0;
-        const QString text = ok ? out : QString();
+        QString text;
+        if (!state.gsaKnownConnections.isEmpty()) {
+            text += QStringLiteral("Conexiones dadas de alta en GSA: %1\n\n")
+                        .arg(state.gsaKnownConnections.join(QStringLiteral(", ")));
+        }
+        if (ok) {
+            text += out;
+        }
         QMetaObject::invokeMethod(this, [this, connId, text]() {
             if (QPlainTextEdit* view = m_connectionGsaLogViews.value(connId, nullptr)) {
                 view->setPlainText(maskSecrets(text));
