@@ -132,8 +132,10 @@ Estado:
 
 ## Decisiones de diseño actuales
 
-- el commit de versión se hace antes del build porque los builders remotos hacen `git pull`
+- el commit de versión se hace antes del build
+- los builders remotos ya no construyen “la rama actual”, sino el `commit` exacto que les pasa `release-github.sh`
 - el script permite reentrada si la versión ya estaba aplicada
+- el script ofrece también `--resume` explícito
 - los logs por fase se guardan en `.release-artifacts/logs/<version>/`
 - el bundle de macOS de release no se firma en este pipeline
 

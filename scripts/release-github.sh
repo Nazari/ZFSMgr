@@ -7,6 +7,7 @@ CMAKE_FILE="${PROJECT_ROOT}/resources/CMakeLists.txt"
 GIT_REMOTE="${GIT_REMOTE:-github}"
 ARTIFACTS_ROOT="${ARTIFACTS_DIR:-${PROJECT_ROOT}/.release-artifacts}"
 DRY_RUN=0
+RESUME=0
 
 log() {
   printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
@@ -24,7 +25,7 @@ require_cmd() {
 usage() {
   cat <<'USAGE'
 Uso:
-  release-github.sh [--dry-run] <version>
+  release-github.sh [--dry-run] [--resume] <version>
 
 Ejemplo:
   release-github.sh 0.10.1rc1
@@ -44,6 +45,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run)
       DRY_RUN=1
+      shift
+      ;;
+    --resume)
+      RESUME=1
       shift
       ;;
     -h|--help)
@@ -107,6 +112,7 @@ Dry run de release GitHub
   version actual: ${CURRENT_VERSION}
   version objetivo: ${VERSION}
   version base CMake: ${BASE_VERSION}
+  modo resume: ${RESUME}
   remoto git: ${GIT_REMOTE}
   tag: ${TAG}
   directorio de artefactos: ${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}
@@ -123,21 +129,32 @@ EOF
   exit 0
 fi
 
-log "Actualizando versión ${CURRENT_VERSION} -> ${VERSION}"
-perl -0pi -e 's/project\(ZFSMgrQt VERSION\s+[^ )]+/project(ZFSMgrQt VERSION '"${BASE_VERSION}"'/; s/set\(ZFSMGR_APP_VERSION_STRING\s+"[^"]+"/set(ZFSMGR_APP_VERSION_STRING "'"${VERSION}"'"/' "${CMAKE_FILE}"
+if [[ "${RESUME}" -eq 1 ]]; then
+  [[ "${CURRENT_VERSION}" == "${VERSION}" ]] || fail "--resume requiere que la versión actual ya sea ${VERSION}"
+  log "Modo resume: se reutiliza la versión ${VERSION} ya aplicada"
+else
+  log "Actualizando versión ${CURRENT_VERSION} -> ${VERSION}"
+  perl -0pi -e 's/project\(ZFSMgrQt VERSION\s+[^ )]+/project(ZFSMgrQt VERSION '"${BASE_VERSION}"'/; s/set\(ZFSMGR_APP_VERSION_STRING\s+"[^"]+"/set(ZFSMGR_APP_VERSION_STRING "'"${VERSION}"'"/' "${CMAKE_FILE}"
+fi
 
 UPDATED_VERSION="$(sed -nE 's/^[[:space:]]*set\([[:space:]]*ZFSMGR_APP_VERSION_STRING[[:space:]]*"([^"]+)".*/\1/p' "${CMAKE_FILE}" | head -n1)"
 [[ "${UPDATED_VERSION}" == "${VERSION}" ]] || fail "No se pudo actualizar la versión en CMakeLists.txt"
 
 git add "${CMAKE_FILE}"
 if git diff --cached --quiet; then
-  log "La versión ${VERSION} ya estaba aplicada; continúo sin crear commit nuevo"
+  if [[ "${RESUME}" -eq 1 ]]; then
+    log "Modo resume: no se crea commit nuevo"
+  else
+    log "La versión ${VERSION} ya estaba aplicada; continúo sin crear commit nuevo"
+  fi
 else
   git commit -m "Release ${VERSION}"
 fi
 
 log "Publicando commit de release en ${GIT_REMOTE}"
 run_logged git-push git push "${GIT_REMOTE}" HEAD
+BUILD_REF="$(git rev-parse HEAD)"
+log "Commit exacto de release para builders remotos: ${BUILD_REF}"
 
 ARTIFACTS_DIR="${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}"
 rm -rf "${ARTIFACTS_DIR}"
@@ -145,7 +162,7 @@ mkdir -p "${ARTIFACTS_DIR}"
 mkdir -p "${LOG_DIR}"
 
 log "Ejecutando buildall.sh con artefactos en ${ARTIFACTS_DIR}"
-run_logged buildall env OUTPUT_DIR="${ARTIFACTS_DIR}" "${SCRIPT_DIR}/buildall.sh"
+run_logged buildall env OUTPUT_DIR="${ARTIFACTS_DIR}" BUILD_GIT_REMOTE="${GIT_REMOTE}" BUILD_GIT_REF="${BUILD_REF}" "${SCRIPT_DIR}/buildall.sh"
 
 MAC_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}.app.zip" | head -n1)"
 WIN_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-Setup-${VERSION}*.exe" | head -n1)"

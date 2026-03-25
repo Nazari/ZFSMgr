@@ -20,6 +20,7 @@ o en modo simulación:
 
 ```bash
 ./scripts/release-github.sh --dry-run 0.10.1rc1
+./scripts/release-github.sh --resume 0.10.1rc1
 ```
 
 el script:
@@ -43,6 +44,9 @@ el script:
    - `buildall.sh`
    - `git push` del tag
    - creación de la release en GitHub
+
+Durante `buildall.sh`, los builders remotos reciben además el `commit` exacto a construir.
+Ya no dependen de la rama activa remota ni de que `git pull` los deje en el estado esperado.
 
 ## Supuestos
 
@@ -92,6 +96,29 @@ En ese caso:
 
 Esto permite retomar una release interrumpida antes de crear tag o release en GitHub.
 
+## Resume explícito
+
+`--resume` sirve para retomar una release cuando:
+
+- la versión ya quedó aplicada en `resources/CMakeLists.txt`
+- quieres evitar tocar otra vez la versión
+- quieres forzar que el flujo continúe desde el `HEAD` actual
+
+Ejemplo:
+
+```bash
+./scripts/release-github.sh --resume 0.10.1rc1
+```
+
+Condición:
+
+- la versión actual del código debe coincidir ya con la versión pedida
+
+No hace:
+
+- ni rollback
+- ni limpieza de tags o releases ya creadas
+
 ## Logs
 
 Por defecto, los logs se guardan en:
@@ -106,6 +133,8 @@ Ficheros principales:
 - `buildall.log`
 - `git-push-tag.log`
 - `github-release.log`
+
+Dentro de `buildall.log` queda también trazado el `BUILD_GIT_REF` exacto usado por los builders remotos.
 
 ## Dry Run
 

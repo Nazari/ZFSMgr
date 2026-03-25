@@ -21,6 +21,8 @@ OUTPUT_DIR="${OUTPUT_DIR:-$(preferred_downloads_dir)/z}"
 LINUX_REMOTE="${LINUX_REMOTE:-linarese@fc16}"
 WINDOWS_REMOTE="${WINDOWS_REMOTE:-eladi@surface}"
 MAC_REMOTE="${MAC_REMOTE:-linarese@mmela.local}"
+BUILD_GIT_REMOTE="${BUILD_GIT_REMOTE:-github}"
+BUILD_GIT_REF="${BUILD_GIT_REF:-}"
 
 log() {
   printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
@@ -114,21 +116,21 @@ run_linux_b64_script() {
   local script="$1"
   local encoded
   encoded="$(printf '%s' "${script}" | base64 | tr -d '\n')"
-  ssh_linux "bash -lc \"\$(printf '%s' '${encoded}' | base64 -d)\""
+  ssh_linux "env BUILD_GIT_REMOTE=$(printf '%q' "${BUILD_GIT_REMOTE}") BUILD_GIT_REF=$(printf '%q' "${BUILD_GIT_REF}") bash -lc \"\$(printf '%s' '${encoded}' | base64 -d)\""
 }
 
 run_windows_b64_ps() {
   local script="$1"
   local encoded
   encoded="$(printf '%s' "${script}" | base64 | tr -d '\n')"
-  ssh_windows "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"\$s=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}')); Invoke-Expression \$s\""
+  ssh_windows "set BUILD_GIT_REMOTE=$(printf '%q' "${BUILD_GIT_REMOTE}") && set BUILD_GIT_REF=$(printf '%q' "${BUILD_GIT_REF}") && powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"\$s=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}')); Invoke-Expression \$s\""
 }
 
 run_mac_b64_script() {
   local script="$1"
   local encoded
   encoded="$(printf '%s' "${script}" | base64 | tr -d '\n')"
-  ssh_mac "bash -lc \"\$(printf '%s' '${encoded}' | base64 -d)\""
+  ssh_mac "env BUILD_GIT_REMOTE=$(printf '%q' "${BUILD_GIT_REMOTE}") BUILD_GIT_REF=$(printf '%q' "${BUILD_GIT_REF}") bash -lc \"\$(printf '%s' '${encoded}' | base64 -d)\""
 }
 
 extract_marked_artifact() {
@@ -180,6 +182,9 @@ require_cmd base64
 require_cmd zip
 
 log "Directorio destino local: ${OUTPUT_DIR}"
+if [[ -n "${BUILD_GIT_REF}" ]]; then
+  log "Build remoto fijado al ref git: ${BUILD_GIT_REF} (${BUILD_GIT_REMOTE})"
+fi
 
 if [[ "$(local_os)" == "Darwin" ]]; then
   log "Compilando macOS en local"
@@ -207,7 +212,23 @@ do
 done
 [[ -n "${repo}" ]] || { echo "No se encontró el repo ZFSMgr en macOS." >&2; exit 1; }
 cd "${repo}"
-git pull --ff-only
+if [[ -n "${BUILD_GIT_REF:-}" ]]; then
+  original_ref="$(git symbolic-ref -q --short HEAD || git rev-parse --short HEAD)"
+  original_detached=0
+  git symbolic-ref -q HEAD >/dev/null 2>&1 || original_detached=1
+  restore_ref() {
+    if [[ "${original_detached}" -eq 1 ]]; then
+      git checkout --detach "${original_ref}" >/dev/null 2>&1 || true
+    else
+      git checkout "${original_ref}" >/dev/null 2>&1 || true
+    fi
+  }
+  trap restore_ref EXIT
+  git fetch "${BUILD_GIT_REMOTE}" "${BUILD_GIT_REF}"
+  git checkout --detach FETCH_HEAD
+else
+  git pull --ff-only
+fi
 find "${repo}/build-macos" -maxdepth 1 -type d -name 'ZFSMgr-*.app' -prune -exec rm -rf {} + 2>/dev/null || true
 ./scripts/build-macos.sh --bundle --no-sign
 artifact="$(find "${repo}/build-macos" -maxdepth 1 -type d -name 'ZFSMgr-*.app' -print0 | xargs -0 -r ls -td 2>/dev/null | head -n1)"
@@ -239,7 +260,23 @@ do
 done
 [[ -n "${repo}" ]] || { echo "No se encontró el repo ZFSMgr en Linux." >&2; exit 1; }
 cd "${repo}"
-git pull --ff-only
+if [[ -n "${BUILD_GIT_REF:-}" ]]; then
+  original_ref="$(git symbolic-ref -q --short HEAD || git rev-parse --short HEAD)"
+  original_detached=0
+  git symbolic-ref -q HEAD >/dev/null 2>&1 || original_detached=1
+  restore_ref() {
+    if [[ "${original_detached}" -eq 1 ]]; then
+      git checkout --detach "${original_ref}" >/dev/null 2>&1 || true
+    else
+      git checkout "${original_ref}" >/dev/null 2>&1 || true
+    fi
+  }
+  trap restore_ref EXIT
+  git fetch "${BUILD_GIT_REMOTE}" "${BUILD_GIT_REF}"
+  git checkout --detach FETCH_HEAD
+else
+  git pull --ff-only
+fi
 app_version="$(sed -nE 's/^[[:space:]]*set\(ZFSMGR_APP_VERSION_STRING "([^"]+)"\).*/\1/p' "${repo}/resources/CMakeLists.txt" | head -n1)"
 if [[ -z "${app_version}" ]]; then
   app_version="$(sed -nE 's/^[[:space:]]*project\(ZFSMgrQt VERSION ([^ )]+).*/\1/p' "${repo}/resources/CMakeLists.txt" | head -n1)"
@@ -288,27 +325,51 @@ if (-not $repo) {
   throw "No se encontró el repo ZFSMgr en Windows."
 }
 Set-Location $repo
-git pull --ff-only
-$appVersion = $null
-$cmakeFile = Join-Path $repo "resources\CMakeLists.txt"
-if (Test-Path $cmakeFile) {
-  $content = Get-Content -Raw $cmakeFile
-  $m = [regex]::Match($content, 'set\s*\(\s*ZFSMGR_APP_VERSION_STRING\s+"([^"]+)"')
-  if ($m.Success) {
-    $appVersion = $m.Groups[1].Value
+$restoreNeeded = $false
+if ($env:BUILD_GIT_REF) {
+  $originalDetached = $false
+  $originalRef = (git symbolic-ref -q --short HEAD) 2>$null
+  if (-not $originalRef) {
+    $originalDetached = $true
+    $originalRef = (git rev-parse --short HEAD).Trim()
+  }
+  git fetch $env:BUILD_GIT_REMOTE $env:BUILD_GIT_REF
+  git checkout --detach FETCH_HEAD
+  if ($LASTEXITCODE -ne 0) { throw "No se pudo hacer checkout de FETCH_HEAD" }
+  $restoreNeeded = $true
+} else {
+  git pull --ff-only
+}
+try {
+  $appVersion = $null
+  $cmakeFile = Join-Path $repo "resources\CMakeLists.txt"
+  if (Test-Path $cmakeFile) {
+    $content = Get-Content -Raw $cmakeFile
+    $m = [regex]::Match($content, 'set\s*\(\s*ZFSMGR_APP_VERSION_STRING\s+"([^"]+)"')
+    if ($m.Success) {
+      $appVersion = $m.Groups[1].Value
+    }
+  }
+  if (-not $appVersion) {
+    throw "No se pudo resolver la versión de Windows."
+  }
+  & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo "scripts\build-windows.ps1") --inno
+  $artifact = Get-ChildItem -Path (Join-Path $repo "build-windows\installer") -Filter "ZFSMgr-Setup-$appVersion*.exe" -File -ErrorAction Stop |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1 -ExpandProperty FullName
+  if (-not $artifact) {
+    throw "No se encontró el .exe generado para la versión $appVersion."
+  }
+  Write-Output "ARTIFACT_WINDOWS=$artifact"
+} finally {
+  if ($restoreNeeded) {
+    if ($originalDetached) {
+      git checkout --detach $originalRef *> $null
+    } else {
+      git checkout $originalRef *> $null
+    }
   }
 }
-if (-not $appVersion) {
-  throw "No se pudo resolver la versión de Windows."
-}
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo "scripts\build-windows.ps1") --inno
-$artifact = Get-ChildItem -Path (Join-Path $repo "build-windows\installer") -Filter "ZFSMgr-Setup-$appVersion*.exe" -File -ErrorAction Stop |
-  Sort-Object LastWriteTime -Descending |
-  Select-Object -First 1 -ExpandProperty FullName
-if (-not $artifact) {
-  throw "No se encontró el .exe generado para la versión $appVersion."
-}
-Write-Output "ARTIFACT_WINDOWS=$artifact"
 EOF
 WINDOWS_ARTIFACT="$(run_windows_b64_ps "${WINDOWS_BUILD_SCRIPT}" | extract_marked_artifact 'ARTIFACT_WINDOWS=')"
 [[ -n "${WINDOWS_ARTIFACT}" ]] || fail "No se pudo resolver el artefacto Windows"
