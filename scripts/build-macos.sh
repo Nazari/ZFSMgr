@@ -15,6 +15,23 @@ UPLOAD_SFTP=0
 SIGN_APP_MODE="auto" # auto|yes|no
 EXTRA_CMAKE_ARGS=()
 
+resolve_app_version() {
+  local version=""
+  if [[ -f "${SOURCE_DIR}/CMakeLists.txt" ]]; then
+    version="$(sed -nE 's/^[[:space:]]*set\([[:space:]]*ZFSMGR_APP_VERSION_STRING[[:space:]]*"([^"]+)".*/\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
+  fi
+  if [[ -z "${version}" && -f "${SOURCE_DIR}/CMakeLists.txt" ]]; then
+    version="$(sed -nE 's/^[[:space:]]*project\([[:space:]]*ZFSMgrQt[[:space:]]+VERSION[[:space:]]+([^[:space:])]+).*/\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
+  fi
+  if [[ -z "${version}" && -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
+    version="$(sed -n 's/^ZFSMGR_APP_VERSION_STRING:UNINITIALIZED=//p' "${BUILD_DIR}/CMakeCache.txt" | head -n1)"
+  fi
+  if [[ -z "${version}" ]]; then
+    version="0.10.0rc1"
+  fi
+  printf '%s\n' "${version}"
+}
+
 for arg in "$@"; do
   if [[ "${arg}" == "--bundle" ]]; then
     BUNDLE_APP=1
@@ -521,19 +538,7 @@ if [[ ${#EXTRA_CMAKE_ARGS[@]} -gt 0 ]]; then
 fi
 "${cmake_cmd[@]}"
 
-# Leer versión real de CMake ya configurada (fuente de verdad).
-if [[ -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
-  APP_VERSION="$(sed -n 's/^ZFSMGR_APP_VERSION_STRING:UNINITIALIZED=//p' "${BUILD_DIR}/CMakeCache.txt" | head -n1)"
-fi
-if [[ -z "${APP_VERSION}" && -f "${SOURCE_DIR}/CMakeLists.txt" ]]; then
-  APP_VERSION="$(sed -n 's/^set(ZFSMGR_APP_VERSION_STRING \"\\([^\"]*\\)\").*/\\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
-fi
-if [[ -z "${APP_VERSION}" && -f "${SOURCE_DIR}/CMakeLists.txt" ]]; then
-  APP_VERSION="$(sed -n 's/.*VERSION[[:space:]]\\([0-9][0-9.]*\\).*/\\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
-fi
-if [[ -z "${APP_VERSION}" ]]; then
-  APP_VERSION="0.10.0rc1"
-fi
+APP_VERSION="$(resolve_app_version)"
 BUNDLE_NAME="ZFSMgr-${APP_VERSION}"
 
 if [[ "${BUNDLE_APP}" -eq 1 && -d "${BUILD_DIR}/${BUNDLE_NAME}.app" ]]; then

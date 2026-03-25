@@ -15,13 +15,24 @@ BUILD_DEB=0
 UPLOAD_SFTP=0
 EXTRA_ARGS=()
 
-if [[ -z "${APP_VERSION}" ]]; then
-  APP_VERSION="$(sed -nE 's/^[[:space:]]*project\([[:space:]]*ZFSMgrQt[[:space:]]+VERSION[[:space:]]+([^[:space:])]+).*/\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
-fi
+resolve_app_version() {
+  local version=""
+  if [[ -f "${SOURCE_DIR}/CMakeLists.txt" ]]; then
+    version="$(sed -nE 's/^[[:space:]]*set\([[:space:]]*ZFSMGR_APP_VERSION_STRING[[:space:]]*"([^"]+)".*/\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
+  fi
+  if [[ -z "${version}" && -f "${SOURCE_DIR}/CMakeLists.txt" ]]; then
+    version="$(sed -nE 's/^[[:space:]]*project\([[:space:]]*ZFSMgrQt[[:space:]]+VERSION[[:space:]]+([^[:space:])]+).*/\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
+  fi
+  if [[ -z "${version}" && -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
+    version="$(sed -n 's/^ZFSMGR_APP_VERSION_STRING:UNINITIALIZED=//p' "${BUILD_DIR}/CMakeCache.txt" | head -n1)"
+  fi
+  if [[ -z "${version}" ]]; then
+    version="0.10.0rc1"
+  fi
+  printf '%s\n' "${version}"
+}
 
-if [[ -z "${APP_VERSION}" ]]; then
-  APP_VERSION="0.10.0rc1"
-fi
+APP_VERSION="$(resolve_app_version)"
 
 for arg in "$@"; do
   case "${arg}" in
