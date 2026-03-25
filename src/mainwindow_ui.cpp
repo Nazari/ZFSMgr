@@ -4108,7 +4108,7 @@ void MainWindow::buildUi() {
                                                   QStringLiteral("属性"));
             if (isLazyPropsNode) {
                 QTimer::singleShot(0, this, [this, tree = m_bottomConnContentTree, item]() {
-                    if (!tree || !item) {
+                    if (m_closing || !tree || !item) {
                         return;
                     }
                     QTreeWidgetItem* owner = item->parent();
@@ -4126,6 +4126,9 @@ void MainWindow::buildUi() {
                     }
                     const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
                     withConnContentContext(tree, token, [&, this]() {
+                        if (m_closing) {
+                            return;
+                        }
                         if (item->childCount() == 0) {
                             refreshDatasetProperties(QStringLiteral("conncontent"));
                         }
@@ -4149,7 +4152,7 @@ void MainWindow::buildUi() {
             }
             const bool wasEmpty = (item->childCount() == 0);
             QTimer::singleShot(0, this, [this, tree = m_bottomConnContentTree, owner, item, wasEmpty]() {
-                if (!tree || !owner || !item) {
+                if (m_closing || !tree || !owner || !item) {
                     return;
                 }
                 if (wasEmpty && item->childCount() == 0) {
@@ -5638,7 +5641,7 @@ void MainWindow::buildUi() {
                                                   QStringLiteral("属性"));
             if (isLazyPropsNode) {
                 QTimer::singleShot(0, this, [this, tree = m_connContentTree, item]() {
-                    if (!tree || !item) {
+                    if (m_closing || !tree || !item) {
                         return;
                     }
                     QTreeWidgetItem* owner = item->parent();
@@ -5656,6 +5659,9 @@ void MainWindow::buildUi() {
                     }
                     const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
                     withConnContentContext(tree, token, [&, this]() {
+                        if (m_closing) {
+                            return;
+                        }
                         if (item->childCount() == 0) {
                             refreshDatasetProperties(QStringLiteral("conncontent"));
                         }
@@ -5679,7 +5685,7 @@ void MainWindow::buildUi() {
             }
             const bool wasEmpty = (item->childCount() == 0);
             QTimer::singleShot(0, this, [this, tree = m_connContentTree, owner, item, wasEmpty]() {
-                if (!tree || !owner || !item) {
+                if (m_closing || !tree || !owner || !item) {
                     return;
                 }
                 if (wasEmpty && item->childCount() == 0) {

@@ -44,7 +44,9 @@ void MainWindow::terminateProcessTree(qint64 rootPid) {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
+    m_closing = true;
     if (m_actionsLocked) {
+        m_closing = false;
         QMessageBox::warning(
             this,
             QStringLiteral("ZFSMgr"),
@@ -56,6 +58,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         return;
     }
     if (m_refreshInProgress) {
+        m_closing = false;
         QMessageBox::warning(
             this,
             QStringLiteral("ZFSMgr"),

@@ -708,6 +708,7 @@ private:
     bool m_waitCursorActive{false};
     int m_uiBusyDepth{0};
     bool m_connectivityMatrixInProgress{false};
+    bool m_closing{false};
     QStringList m_transientStatusStack;
     bool m_cancelActionRequested{false};
     QProcess* m_activeLocalProcess{nullptr};
