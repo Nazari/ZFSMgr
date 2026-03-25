@@ -2475,15 +2475,13 @@ void MainWindow::syncConnContentPoolColumns() {
             dsItem->setData(0, kPoolNameRole, poolName);
             dsItem->setFlags(dsItem->flags() & ~Qt::ItemIsUserCheckable);
             const auto propsMap = autoSnapshotPropsByDataset.value(datasetName);
-            QStringList propNames = filterPropsByWanted(gsaUserProps(), propsMap.keys());
-            QStringList remainingProps = propsMap.keys();
-            for (const QString& propName : propNames) {
-                remainingProps.removeAll(propName);
+            QStringList propNames;
+            for (const QString& wantedProp : gsaUserProps()) {
+                const QString existingKey = findCaseInsensitiveMapKey(propsMap, wantedProp);
+                if (!existingKey.isEmpty()) {
+                    propNames.push_back(existingKey);
+                }
             }
-            std::sort(remainingProps.begin(), remainingProps.end(), [](const QString& a, const QString& b) {
-                return QString::compare(a, b, Qt::CaseInsensitive) < 0;
-            });
-            propNames += remainingProps;
             for (int base = 0; base < propNames.size(); base += propCols) {
                 auto* rowNames = new QTreeWidgetItem(dsItem);
                 rowNames->setData(0, kConnPropRowRole, true);
