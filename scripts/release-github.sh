@@ -80,7 +80,11 @@ UPDATED_VERSION="$(sed -nE 's/^[[:space:]]*set\([[:space:]]*ZFSMGR_APP_VERSION_S
 [[ "${UPDATED_VERSION}" == "${VERSION}" ]] || fail "No se pudo actualizar la versión en CMakeLists.txt"
 
 git add "${CMAKE_FILE}"
-git commit -m "Release ${VERSION}"
+if git diff --cached --quiet; then
+  log "La versión ${VERSION} ya estaba aplicada; continúo sin crear commit nuevo"
+else
+  git commit -m "Release ${VERSION}"
+fi
 
 log "Publicando commit de release en ${GIT_REMOTE}"
 git push "${GIT_REMOTE}" HEAD
