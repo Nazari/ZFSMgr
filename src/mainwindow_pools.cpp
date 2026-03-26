@@ -33,6 +33,11 @@ constexpr int kConnIdxRole = Qt::UserRole + 10;
 constexpr int kPoolNameRole = Qt::UserRole + 11;
 constexpr int kIsPoolRootRole = Qt::UserRole + 12;
 
+QString importTargetForPoolEntry(const QString& poolGuid, const QString& poolName) {
+    const QString guid = poolGuid.trimmed();
+    return guid.isEmpty() ? poolName.trimmed() : guid;
+}
+
 int selectedConnectionIndexFromTable(const QTableWidget* table) {
     if (!table) {
         return -1;
@@ -302,6 +307,7 @@ void MainWindow::importPoolFromRow(int row) {
     const auto& pe = m_poolListEntries[row];
     const QString connName = pe.connection;
     const QString poolName = pe.pool;
+    const QString importTarget = importTargetForPoolEntry(pe.guid, pe.pool);
     const QString poolState = pe.state.trimmed().toUpper();
     const QString action = pe.action;
     if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
@@ -478,7 +484,7 @@ void MainWindow::importPoolFromRow(int row) {
     if (!txgEd->text().trimmed().isEmpty()) {
         parts << QStringLiteral("-T") << shSingleQuote(txgEd->text().trimmed());
     }
-    parts << shSingleQuote(poolName);
+    parts << shSingleQuote(importTarget);
     if (!newNameEd->text().trimmed().isEmpty()) {
         parts << shSingleQuote(newNameEd->text().trimmed());
     }
@@ -527,6 +533,7 @@ void MainWindow::importPoolRenamingFromRow(int row) {
     const auto& pe = m_poolListEntries[row];
     const QString connName = pe.connection.trimmed();
     const QString poolName = pe.pool.trimmed();
+    const QString importTarget = importTargetForPoolEntry(pe.guid, pe.pool);
     const QString poolState = pe.state.trimmed().toUpper();
     const QString action = pe.action.trimmed();
     if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
@@ -723,7 +730,7 @@ void MainWindow::importPoolRenamingFromRow(int row) {
     if (!txgEd->text().trimmed().isEmpty()) {
         parts << QStringLiteral("-T") << shSingleQuote(txgEd->text().trimmed());
     }
-    parts << shSingleQuote(poolName) << shSingleQuote(newNameEd->text().trimmed());
+    parts << shSingleQuote(importTarget) << shSingleQuote(newNameEd->text().trimmed());
     if (!extraEd->text().trimmed().isEmpty()) {
         parts << extraEd->text().trimmed();
     }
@@ -1223,6 +1230,7 @@ void MainWindow::populateAllPoolsTables() {
             PoolListEntry e;
             e.connection = pool.connection;
             e.pool = pool.pool;
+            e.guid = pool.guid;
             e.state = pool.state;
             e.imported = QStringLiteral("No");
             e.reason = pool.reason;

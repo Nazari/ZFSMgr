@@ -11,6 +11,7 @@ namespace mwhelpers {
 
 struct ImportablePoolInfo {
     QString pool;
+    QString guid;
     QString state;
     QString reason;
 };

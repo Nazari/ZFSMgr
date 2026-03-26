@@ -799,6 +799,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 state.importablePools.push_back(PoolImportable{
                     p.name,
                     row.pool,
+                    row.guid,
                     row.state,
                     row.reason,
                     QStringLiteral("Importar"),

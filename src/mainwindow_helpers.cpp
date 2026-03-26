@@ -251,6 +251,7 @@ QVector<ImportablePoolInfo> parseZpoolImportOutput(const QString& text) {
     QVector<ImportablePoolInfo> rows;
     const QRegularExpression poolNameRx(QStringLiteral("^[A-Za-z0-9_.:-]+$"));
     QString currentPool;
+    QString currentGuid;
     QString currentState;
     QString currentReason;
     bool collectingStatus = false;
@@ -261,6 +262,7 @@ QVector<ImportablePoolInfo> parseZpoolImportOutput(const QString& text) {
         }
         if (!poolNameRx.match(currentPool).hasMatch()) {
             currentPool.clear();
+            currentGuid.clear();
             currentState.clear();
             currentReason.clear();
             collectingStatus = false;
@@ -268,15 +270,18 @@ QVector<ImportablePoolInfo> parseZpoolImportOutput(const QString& text) {
         }
         if (currentState.isEmpty() && currentReason.isEmpty()) {
             currentPool.clear();
+            currentGuid.clear();
             collectingStatus = false;
             return;
         }
         rows.push_back(ImportablePoolInfo{
             currentPool,
+            currentGuid,
             currentState.isEmpty() ? QStringLiteral("UNKNOWN") : currentState,
             currentReason,
         });
         currentPool.clear();
+        currentGuid.clear();
         currentState.clear();
         currentReason.clear();
         collectingStatus = false;
@@ -296,6 +301,10 @@ QVector<ImportablePoolInfo> parseZpoolImportOutput(const QString& text) {
         if (line.startsWith(QStringLiteral("state: "))) {
             currentState = line.mid(QStringLiteral("state: ").size()).trimmed();
             collectingStatus = false;
+            continue;
+        }
+        if (line.startsWith(QStringLiteral("id: "))) {
+            currentGuid = line.mid(QStringLiteral("id: ").size()).trimmed();
             continue;
         }
         if (line.startsWith(QStringLiteral("status: "))) {

@@ -450,6 +450,30 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     appLog(QStringLiteral("NORMAL"), QStringLiteral("%1 finalizado").arg(actionName));
     updateStatus(QStringLiteral("%1 finalizado %2::%3").arg(actionName, p.name, ctx.datasetName));
     invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
+    if (actionName == QStringLiteral("Borrar") && !ctx.snapshotName.isEmpty()) {
+        if (side == QStringLiteral("origin") && m_connActionOrigin.valid
+            && m_connActionOrigin.connIdx == ctx.connIdx
+            && m_connActionOrigin.poolName == ctx.poolName
+            && m_connActionOrigin.datasetName == ctx.datasetName
+            && m_connActionOrigin.snapshotName == ctx.snapshotName) {
+            m_connActionOrigin.snapshotName.clear();
+        } else if (side == QStringLiteral("dest") && m_connActionDest.valid
+                   && m_connActionDest.connIdx == ctx.connIdx
+                   && m_connActionDest.poolName == ctx.poolName
+                   && m_connActionDest.datasetName == ctx.datasetName
+                   && m_connActionDest.snapshotName == ctx.snapshotName) {
+            m_connActionDest.snapshotName.clear();
+        } else if (side == QStringLiteral("conncontent") && m_connContentTree) {
+            const auto selected = m_connContentTree->selectedItems();
+            if (!selected.isEmpty()) {
+                QTreeWidgetItem* item = selected.first();
+                if (item->data(0, Qt::UserRole).toString().trimmed() == ctx.datasetName
+                    && item->data(1, Qt::UserRole).toString().trimmed() == ctx.snapshotName) {
+                    item->setData(1, Qt::UserRole, QString());
+                }
+            }
+        }
+    }
     const bool needsDeferredRefresh =
         (actionName == QStringLiteral("Montar")
          || actionName == QStringLiteral("Montar con todos los hijos")

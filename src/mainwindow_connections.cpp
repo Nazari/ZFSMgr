@@ -2865,7 +2865,7 @@ void MainWindow::refreshConnectionByIndex(int idx) {
     }
     // Al refrescar una conexión, invalidar toda la caché asociada a todos sus pools.
     {
-        const QString connPrefix = QStringLiteral("%1::").arg(m_profiles[idx].name.trimmed().toLower());
+        const QString connPrefix = QStringLiteral("%1::").arg(idx);
         auto dsIt = m_poolDatasetCache.begin();
         while (dsIt != m_poolDatasetCache.end()) {
             if (dsIt.key().startsWith(connPrefix)) {

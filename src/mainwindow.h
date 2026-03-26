@@ -106,6 +106,7 @@ private:
     struct PoolImportable {
         QString connection;
         QString pool;
+        QString guid;
         QString state;
         QString reason;
         QString action;
@@ -492,6 +493,7 @@ private:
     struct PoolListEntry {
         QString connection;
         QString pool;
+        QString guid;
         QString state;
         QString imported;
         QString reason;
