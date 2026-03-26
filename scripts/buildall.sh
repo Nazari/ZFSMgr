@@ -91,23 +91,6 @@ copy_local_artifact() {
   fi
 }
 
-zip_macos_bundle() {
-  local app_path="$1"
-  local app_name zip_name
-  app_name="$(basename "${app_path}")"
-  zip_name="${app_name}.zip"
-  (
-    cd "${OUTPUT_DIR}"
-    rm -f "${zip_name}"
-    if command -v ditto >/dev/null 2>&1; then
-      ditto -c -k --sequesterRsrc --keepParent "${app_name}" "${zip_name}"
-    else
-      zip -qry "${zip_name}" "${app_name}"
-    fi
-    rm -rf "${app_name}"
-  )
-}
-
 create_macos_dmg() {
   local app_path="$1"
   local app_name dmg_name staging_dir
@@ -116,6 +99,7 @@ create_macos_dmg() {
   staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/zfsmgr-dmg.XXXXXX")"
   (
     cp -R "${app_path}" "${staging_dir}/${app_name}"
+    ln -s /Applications "${staging_dir}/Applications"
     rm -f "${OUTPUT_DIR}/${dmg_name}"
     hdiutil create \
       -quiet \
@@ -244,8 +228,8 @@ if platform_enabled mac && [[ "$(local_os)" == "Darwin" ]]; then
   [[ -n "${MAC_ARTIFACT}" ]] || fail "No se encontró el .app generado en build-macos"
   copy_local_artifact "${MAC_ARTIFACT}"
   create_macos_dmg "${OUTPUT_DIR}/$(basename "${MAC_ARTIFACT}")"
-  zip_macos_bundle "${OUTPUT_DIR}/$(basename "${MAC_ARTIFACT}")"
-  log "Artefactos macOS copiados: $(basename "${MAC_ARTIFACT}").zip y $(basename "${MAC_ARTIFACT}" .app).dmg"
+  rm -rf "${OUTPUT_DIR}/$(basename "${MAC_ARTIFACT}")"
+  log "Artefacto macOS copiado: $(basename "${MAC_ARTIFACT}" .app).dmg"
 elif platform_enabled mac; then
   log "Compilando macOS remoto en ${MAC_REMOTE}"
   read -r -d '' MAC_BUILD_SCRIPT <<'EOF' || true
