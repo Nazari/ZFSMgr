@@ -151,7 +151,7 @@ run_windows_b64_ps() {
   local script="$1"
   local encoded
   encoded="$(printf '%s' "${script}" | base64 | tr -d '\n')"
-  ssh_windows "set BUILD_GIT_REMOTE=$(printf '%q' "${BUILD_GIT_REMOTE}") && set BUILD_GIT_REF=$(printf '%q' "${BUILD_GIT_REF}") && powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"\$s=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}')); Invoke-Expression \$s\""
+  ssh_windows "set \"BUILD_GIT_REMOTE=${BUILD_GIT_REMOTE}\" && set \"BUILD_GIT_REF=${BUILD_GIT_REF}\" && powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"\$s=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}')); Invoke-Expression \$s\""
 }
 
 run_mac_b64_script() {
@@ -163,8 +163,14 @@ run_mac_b64_script() {
 
 extract_marked_artifact() {
   local marker="$1"
-  awk -v marker="${marker}" 'index($0, marker) == 1 { value = substr($0, length(marker) + 1) } END { if (value != "") print value }' \
-    | tr -d '\r'
+  MARKER="${marker}" perl -ne '
+    BEGIN { binmode STDIN; binmode STDOUT; $marker = $ENV{"MARKER"} // ""; }
+    if (index($_, $marker) == 0) {
+      $value = substr($_, length($marker));
+      $value =~ s/\r?\n\z//;
+    }
+    END { print $value if defined $value && length $value; }
+  '
 }
 
 windows_to_scp_path() {
