@@ -572,17 +572,7 @@ void MainWindow::invalidateDatasetCacheForPool(int connIdx, const QString& poolN
     m_poolDatasetCache.remove(datasetCacheKey(connIdx, poolName));
     m_poolDetailsCache.remove(poolDetailsCacheKey(connIdx, poolName));
     invalidateDatasetPermissionsCacheForPool(connIdx, poolName);
-    const QString prefix = datasetPropsCachePrefix(connIdx, poolName);
-    if (!prefix.isEmpty()) {
-        auto it = m_datasetPropsCache.begin();
-        while (it != m_datasetPropsCache.end()) {
-            if (it.key().startsWith(prefix)) {
-                it = m_datasetPropsCache.erase(it);
-            } else {
-                ++it;
-            }
-        }
-    }
+    removeDatasetPropertyEntriesForPool(connIdx, poolName);
     const QString uiPrefix =
         QStringLiteral("%1::%2|").arg(QString::number(connIdx), poolName.trimmed());
     auto vit = m_connContentPropValuesByObject.begin();
@@ -593,6 +583,7 @@ void MainWindow::invalidateDatasetCacheForPool(int connIdx, const QString& poolN
             ++vit;
         }
     }
+    rebuildConnInfoFor(connIdx);
 }
 
 void MainWindow::reloadConnContentPool(int connIdx, const QString& poolName) {
@@ -781,12 +772,7 @@ bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& c
         if (!ensureDatasetsLoaded(idx, ctx.poolName)) {
             return false;
         }
-        const QString key = datasetCacheKey(idx, ctx.poolName);
-        const auto it = m_poolDatasetCache.constFind(key);
-        if (it == m_poolDatasetCache.constEnd() || !it->loaded) {
-            return false;
-        }
-        return it->recordByName.contains(ctx.datasetName);
+        return datasetExistsInModel(idx, ctx.poolName, ctx.datasetName);
     };
     if (!datasetExistsInConn(resolvedConnIdx)) {
         for (int i = 0; i < m_profiles.size(); ++i) {

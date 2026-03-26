@@ -9,6 +9,7 @@
 #endif
 
 #include <QMainWindow>
+#include <QDateTime>
 #include <QMap>
 #include <QPointer>
 #include <QSet>
@@ -216,6 +217,13 @@ private:
         DatasetSelectionContext refreshSource;
         DatasetSelectionContext refreshTarget;
     };
+    struct PendingPropertyDraftEntry {
+        int connIdx{-1};
+        QString poolName;
+        QString token;
+        QString objectName;
+        DatasetPropsDraft draft;
+    };
 
     struct PoolDetailsCacheEntry {
         bool loaded{false};
@@ -227,12 +235,6 @@ private:
         QString value;
         QString source;
         QString readonly;
-    };
-    struct DatasetPropsCacheEntry {
-        bool loaded{false};
-        QString objectName;
-        QString datasetType;
-        QVector<DatasetPropCacheRow> rows;
     };
     struct DatasetPermissionGrant {
         QString scope;
@@ -260,6 +262,187 @@ private:
         QStringList systemUsers;
         QStringList systemGroups;
         bool dirty{false};
+    };
+    struct PendingPermissionDraftEntry {
+        int connIdx{-1};
+        QString poolName;
+        QString datasetName;
+        DatasetPermissionsCacheEntry entry;
+    };
+    struct PendingChange {
+        enum class Kind {
+            Property,
+            Permission,
+            Rename,
+            ShellAction,
+        };
+        Kind kind{Kind::Property};
+        QString stableId;
+        QString displayLine;
+        QString commandLine;
+        int connIdx{-1};
+        QString poolName;
+        QString objectName;
+        QString propertyName;
+        bool focusPermissionsNode{false};
+        bool removableIndividually{false};
+        bool executableIndividually{false};
+        PendingDatasetRenameDraft renameDraft;
+        PendingShellActionDraft shellDraft;
+    };
+
+    struct ConnKey {
+        QString connectionId;
+    };
+
+    struct PoolKey {
+        ConnKey conn;
+        QString poolGuid;
+        QString poolName;
+    };
+
+    struct DSKey {
+        PoolKey pool;
+        QString fullName;
+    };
+
+    enum class LoadState {
+        NotLoaded,
+        Loading,
+        Loaded,
+        Stale,
+        Error,
+    };
+
+    enum class DSKind {
+        Filesystem,
+        Volume,
+        Snapshot,
+        Unknown,
+    };
+
+    struct DSPropertyCapability {
+        bool visible{true};
+        bool editableInline{false};
+        bool editableBySet{false};
+        bool editableBySpecialAction{false};
+        QString specialActionId;
+        bool inheritable{false};
+    };
+
+    struct DSCapabilities {
+        bool canMount{false};
+        bool canUnmount{false};
+        bool canDestroy{false};
+        bool canRename{false};
+        bool canClone{false};
+        bool canManagePermissions{false};
+        bool canManageSchedules{false};
+        QMap<QString, DSPropertyCapability> propertyCaps;
+    };
+
+    struct DSPropertyEditValue {
+        QString value;
+        bool inherit{false};
+        bool dirty{false};
+    };
+
+    struct DSPropertyEditState {
+        QMap<QString, DSPropertyEditValue> byName;
+        bool dirty() const {
+            for (auto it = byName.cbegin(); it != byName.cend(); ++it) {
+                if (it->dirty) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        void clear() {
+            byName.clear();
+        }
+    };
+
+    struct DSPermissionsEditState {
+        bool dirty{false};
+    };
+
+    struct DSScheduleEditState {
+        bool dirty{false};
+    };
+
+    struct DSEditSession {
+        DSKey target;
+        DSPropertyEditState propertyEdits;
+        DSPermissionsEditState permissionsEdits;
+        DSScheduleEditState scheduleEdits;
+
+        bool dirty() const {
+            return propertyEdits.dirty() || permissionsEdits.dirty || scheduleEdits.dirty;
+        }
+
+        void clear() {
+            propertyEdits.clear();
+            permissionsEdits = DSPermissionsEditState{};
+            scheduleEdits = DSScheduleEditState{};
+        }
+    };
+
+    struct ConnectionRuntimeInfo {
+        LoadState state{LoadState::NotLoaded};
+        QString errorText;
+        QDateTime loadedAt;
+        ConnectionRuntimeState snapshot;
+    };
+
+    struct PoolRuntimeInfo {
+        LoadState detailsState{LoadState::NotLoaded};
+        QString errorText;
+        QDateTime loadedAt;
+        QString poolStatusText;
+        QMap<QString, QString> zpoolProperties;
+        bool imported{false};
+        bool importable{false};
+        QString importState;
+        QString importReason;
+        QString importAction;
+    };
+
+    struct DSRuntimeInfo {
+        LoadState propertiesState{LoadState::NotLoaded};
+        LoadState permissionsState{LoadState::NotLoaded};
+        LoadState schedulesState{LoadState::NotLoaded};
+        QString errorText;
+        QDateTime loadedAt;
+        QString datasetType;
+        QMap<QString, QString> properties;
+        QVector<DatasetPropCacheRow> propertyRows;
+        QStringList directSnapshots;
+    };
+
+    struct DSInfo {
+        DSKey key;
+        DSKind kind{DSKind::Unknown};
+        QString parentFullName;
+        QStringList childFullNames;
+        DSRuntimeInfo runtime;
+        DSCapabilities capabilities;
+        DatasetPermissionsCacheEntry permissionsCache;
+        DSEditSession editSession;
+    };
+
+    struct PoolInfo {
+        PoolKey key;
+        PoolRuntimeInfo runtime;
+        QMap<QString, DSInfo> objectsByFullName;
+        QStringList rootObjectNames;
+    };
+
+    struct ConnInfo {
+        ConnKey key;
+        int connIdx{-1};
+        ConnectionProfile profile;
+        ConnectionRuntimeInfo runtime;
+        QMap<QString, PoolInfo> poolsByStableId;
     };
 
     enum class WindowsCommandMode {
@@ -396,11 +579,11 @@ private:
     bool getDatasetProperty(int connIdx, const QString& dataset, const QString& prop, QString& valueOut);
     QString effectiveMountPath(int connIdx, const QString& poolName, const QString& datasetName, const QString& mountpointHint, const QString& mountedValue);
     QString datasetCacheKey(int connIdx, const QString& poolName) const;
-    QString datasetPropsCachePrefix(int connIdx, const QString& poolName) const;
-    QString datasetPropsCacheKey(int connIdx, const QString& poolName, const QString& objectName) const;
     QString datasetPermissionsCacheKey(int connIdx, const QString& poolName, const QString& datasetName) const;
     QString pendingDatasetRenameCommand(const PendingDatasetRenameDraft& draft) const;
     bool queuePendingDatasetRename(const PendingDatasetRenameDraft& draft, QString* errorOut = nullptr);
+    QVector<PendingChange> pendingChanges() const;
+    bool findPendingChangeByDisplayLine(const QString& line, PendingChange* out) const;
     QStringList pendingConnContentApplyCommands() const;
     QStringList pendingConnContentApplyDisplayLines() const;
     void activatePendingChangeAtCursor();
@@ -469,6 +652,7 @@ private:
     void clearAllPendingChanges();
     bool removePendingQueuedChangeLine(const QString& line);
     bool executePendingQueuedChangeLine(const QString& line);
+    bool executePendingChange(const PendingChange& change);
     void initLogPersistence();
     void rotateLogIfNeeded();
     void appendLogToFile(const QString& line);
@@ -551,10 +735,41 @@ private:
     void applyPoolRootTooltipForTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& statusText) const;
     void applyPoolRootTooltipToVisibleTrees(int connIdx, const QString& poolName, const QString& statusText) const;
     void cachePoolStatusTextsForConnection(int connIdx, const ConnectionRuntimeState& state);
+    QString connStableIdForIndex(int connIdx) const;
+    QString poolStableId(const PoolKey& key) const;
+    QString dsStableId(const DSKey& key) const;
+    void rebuildConnInfoModel();
+    void rebuildConnInfoFor(int connIdx);
+    void rebuildPoolInfoFromCache(PoolInfo& poolInfo, int connIdx, const QString& poolName, const PoolInfo* previousPoolInfo = nullptr);
+    static DSKind dsKindFromNames(const QString& fullName, const QString& datasetType);
+    const ConnInfo* findConnInfo(int connIdx) const;
+    ConnInfo* findConnInfo(int connIdx);
+    const PoolInfo* findPoolInfo(int connIdx, const QString& poolName) const;
+    PoolInfo* findPoolInfo(int connIdx, const QString& poolName);
+    const DSInfo* findDsInfo(int connIdx, const QString& poolName, const QString& fullName) const;
+    DSInfo* findDsInfo(int connIdx, const QString& poolName, const QString& fullName);
+    QStringList datasetSnapshotsFromModel(int connIdx, const QString& poolName, const QString& datasetName) const;
+    bool datasetMountedFromModel(int connIdx, const QString& poolName, const QString& datasetName, QString* mountedValueOut = nullptr) const;
+    bool datasetExistsInModel(int connIdx, const QString& poolName, const QString& datasetName) const;
+    QVector<DatasetPropCacheRow> datasetPropertyRowsFromModelOrCache(int connIdx, const QString& poolName, const QString& objectName) const;
+    void storeDatasetPropertyRows(int connIdx, const QString& poolName, const QString& objectName, const QString& datasetType, const QVector<DatasetPropCacheRow>& rows);
+    void removeDatasetPropertyEntry(int connIdx, const QString& poolName, const QString& objectName);
+    void removeDatasetPropertyEntriesForPool(int connIdx, const QString& poolName);
+    DatasetPropsDraft propertyDraftForObject(const QString& side, const QString& token, const QString& objectName) const;
+    void storePropertyDraftForObject(const QString& side, const QString& token, const QString& objectName, const DatasetPropsDraft& draft);
+    QVector<PendingPropertyDraftEntry> pendingConnContentPropertyDraftsFromModel() const;
+    const DatasetPermissionsCacheEntry* datasetPermissionsEntry(int connIdx, const QString& poolName, const QString& datasetName) const;
+    DatasetPermissionsCacheEntry* datasetPermissionsEntryMutable(int connIdx, const QString& poolName, const QString& datasetName);
+    void mirrorDatasetPermissionsEntryToModel(int connIdx, const QString& poolName, const QString& datasetName);
+    QVector<PendingPermissionDraftEntry> dirtyDatasetPermissionsEntriesFromModel() const;
+    void removeDatasetPermissionsEntry(int connIdx, const QString& poolName, const QString& datasetName);
+    void removeDatasetPermissionsEntriesForPool(int connIdx, const QString& poolName);
+    void resetAllDatasetPermissionDrafts();
 
     ConnectionStore m_store;
     QVector<ConnectionProfile> m_profiles;
     QVector<ConnectionRuntimeState> m_states;
+    QMap<QString, ConnInfo> m_connInfoById;
 
     QTableWidget* m_connectionsTable{nullptr};
     QPushButton* m_connectivityMatrixBtn{nullptr};
@@ -670,16 +885,13 @@ private:
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
     QMap<QString, DatasetPermissionsCacheEntry> m_datasetPermissionsCache;
     QMap<QString, PoolDetailsCacheEntry> m_poolDetailsCache;
-    QMap<QString, DatasetPropsCacheEntry> m_datasetPropsCache;
     QString m_propsSide;
     QString m_propsDataset;
     QString m_propsToken;
     QMap<QString, QString> m_propsOriginalValues;
     QMap<QString, bool> m_propsOriginalInherit;
     bool m_propsDirty{false};
-    QMap<QString, DatasetPropsDraft> m_propsDraftByKey;
-    QVector<PendingDatasetRenameDraft> m_pendingDatasetRenameDrafts;
-    QVector<PendingShellActionDraft> m_pendingShellActionDrafts;
+    QVector<PendingChange> m_pendingChangesModel;
     bool m_loadingPropsTable{false};
     bool m_loadingDatasetTrees{false};
     QString m_language{QStringLiteral("es")};

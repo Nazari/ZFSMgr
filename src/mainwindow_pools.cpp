@@ -144,6 +144,7 @@ void MainWindow::cachePoolStatusTextsForConnection(int connIdx, const Connection
         PoolDetailsCacheEntry entry = m_poolDetailsCache.value(cacheKey);
         entry.statusText = it.value().trimmed();
         m_poolDetailsCache.insert(cacheKey, entry);
+        rebuildConnInfoFor(connIdx);
         applyPoolRootTooltipToVisibleTrees(connIdx, poolName, entry.statusText);
     }
 }
@@ -185,12 +186,9 @@ void MainWindow::invalidatePoolDetailsCacheForConnection(int connIdx) {
             ++it;
         }
     }
-    auto pit = m_datasetPropsCache.begin();
-    while (pit != m_datasetPropsCache.end()) {
-        if (pit.key().startsWith(prefix)) {
-            pit = m_datasetPropsCache.erase(pit);
-        } else {
-            ++pit;
+    if (const ConnInfo* connInfo = findConnInfo(connIdx)) {
+        for (auto itPool = connInfo->poolsByStableId.cbegin(); itPool != connInfo->poolsByStableId.cend(); ++itPool) {
+            removeDatasetPropertyEntriesForPool(connIdx, itPool->key.poolName);
         }
     }
 }
@@ -1390,6 +1388,7 @@ void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteL
     applyPoolRootTooltipToVisibleTrees(idx, poolName, fresh.statusText);
     fresh.loaded = true;
     m_poolDetailsCache.insert(cacheKey, fresh);
+    rebuildConnInfoFor(idx);
     if (m_connContentTree) {
         QTreeWidgetItem* sel = m_connContentTree->currentItem();
         if (sel && sel->data(0, kIsPoolRootRole).toBool()) {

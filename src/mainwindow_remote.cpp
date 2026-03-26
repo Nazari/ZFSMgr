@@ -1752,6 +1752,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
                 loadSnapshotsFromCli(m_profiles[connIdx], cache);
             }
             cache.loaded = true;
+            rebuildConnInfoFor(connIdx);
             appLog(QStringLiteral("INFO"),
                    QStringLiteral("Datasets loaded via libzfs %1::%2 (%3)")
                        .arg(m_profiles[connIdx].name, poolName, detail));
@@ -1858,6 +1859,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
         }
     }
     cache.loaded = true;
+    rebuildConnInfoFor(connIdx);
     appLog(QStringLiteral("DEBUG"), QStringLiteral("Datasets loaded %1::%2 (%3)")
                                      .arg(p.name)
                                      .arg(poolName)

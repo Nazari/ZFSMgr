@@ -743,17 +743,11 @@ void MainWindow::updateConnContentDraftValue(const QString& token,
     if (t.isEmpty() || o.isEmpty() || p.isEmpty()) {
         return;
     }
-    const QString draftKey = QStringLiteral("conncontent|%1|%2").arg(t, o);
-    DatasetPropsDraft draft = m_propsDraftByKey.value(draftKey);
+    DatasetPropsDraft draft = propertyDraftForObject(QStringLiteral("conncontent"), t, o);
     if (p.compare(QStringLiteral("snapshot"), Qt::CaseInsensitive) == 0) {
         draft.valuesByProp.remove(p);
         draft.inheritByProp.remove(p);
-        draft.dirty = !draft.valuesByProp.isEmpty() || !draft.inheritByProp.isEmpty();
-        if (draft.dirty) {
-            m_propsDraftByKey.insert(draftKey, draft);
-        } else {
-            m_propsDraftByKey.remove(draftKey);
-        }
+        storePropertyDraftForObject(QStringLiteral("conncontent"), t, o, draft);
         return;
     }
     draft.valuesByProp[p] = value;
@@ -764,25 +758,18 @@ void MainWindow::updateConnContentDraftValue(const QString& token,
         const int connIdx = t.left(sep).toInt(&okConn);
         const QString poolName = t.mid(sep + 2);
         if (okConn && connIdx >= 0 && !poolName.isEmpty()) {
-            const QString cacheKey = datasetPropsCacheKey(connIdx, poolName, o);
-            const auto it = m_datasetPropsCache.constFind(cacheKey);
-            if (it != m_datasetPropsCache.cend() && it->loaded) {
-                for (const DatasetPropCacheRow& row : it->rows) {
-                    if (row.prop.compare(p, Qt::CaseInsensitive) == 0 && row.value == value) {
-                        draft.valuesByProp.remove(p);
-                        break;
-                    }
+            const QVector<DatasetPropCacheRow> rows =
+                datasetPropertyRowsFromModelOrCache(connIdx, poolName, o);
+            for (const DatasetPropCacheRow& row : rows) {
+                if (row.prop.compare(p, Qt::CaseInsensitive) == 0 && row.value == value) {
+                    draft.valuesByProp.remove(p);
+                    break;
                 }
             }
         }
     }
 
-    draft.dirty = !draft.valuesByProp.isEmpty() || !draft.inheritByProp.isEmpty();
-    if (draft.dirty) {
-        m_propsDraftByKey.insert(draftKey, draft);
-    } else {
-        m_propsDraftByKey.remove(draftKey);
-    }
+    storePropertyDraftForObject(QStringLiteral("conncontent"), t, o, draft);
 }
 
 void MainWindow::updateConnContentDraftInherit(const QString& token,
@@ -795,8 +782,7 @@ void MainWindow::updateConnContentDraftInherit(const QString& token,
     if (t.isEmpty() || o.isEmpty() || p.isEmpty()) {
         return;
     }
-    const QString draftKey = QStringLiteral("conncontent|%1|%2").arg(t, o);
-    DatasetPropsDraft draft = m_propsDraftByKey.value(draftKey);
+    DatasetPropsDraft draft = propertyDraftForObject(QStringLiteral("conncontent"), t, o);
     draft.inheritByProp[p] = inherit;
 
     const int sep = t.indexOf(QStringLiteral("::"));
@@ -805,29 +791,22 @@ void MainWindow::updateConnContentDraftInherit(const QString& token,
         const int connIdx = t.left(sep).toInt(&okConn);
         const QString poolName = t.mid(sep + 2);
         if (okConn && connIdx >= 0 && !poolName.isEmpty()) {
-            const QString cacheKey = datasetPropsCacheKey(connIdx, poolName, o);
-            const auto it = m_datasetPropsCache.constFind(cacheKey);
-            if (it != m_datasetPropsCache.cend() && it->loaded) {
-                for (const DatasetPropCacheRow& row : it->rows) {
-                    if (row.prop.compare(p, Qt::CaseInsensitive) != 0) {
-                        continue;
-                    }
-                    const bool original = row.source.trimmed().toLower().startsWith(QStringLiteral("inherited"));
-                    if (original == inherit) {
-                        draft.inheritByProp.remove(p);
-                    }
-                    break;
+            const QVector<DatasetPropCacheRow> rows =
+                datasetPropertyRowsFromModelOrCache(connIdx, poolName, o);
+            for (const DatasetPropCacheRow& row : rows) {
+                if (row.prop.compare(p, Qt::CaseInsensitive) != 0) {
+                    continue;
                 }
+                const bool original = row.source.trimmed().toLower().startsWith(QStringLiteral("inherited"));
+                if (original == inherit) {
+                    draft.inheritByProp.remove(p);
+                }
+                break;
             }
         }
     }
 
-    draft.dirty = !draft.valuesByProp.isEmpty() || !draft.inheritByProp.isEmpty();
-    if (draft.dirty) {
-        m_propsDraftByKey.insert(draftKey, draft);
-    } else {
-        m_propsDraftByKey.remove(draftKey);
-    }
+    storePropertyDraftForObject(QStringLiteral("conncontent"), t, o, draft);
 }
 
 bool MainWindow::showAutomaticSnapshots() const {
@@ -979,11 +958,9 @@ void MainWindow::syncConnContentPropertyColumns() {
         return;
     }
     QMap<QString, QString> displayValues = it.value();
-    const QString objectDraftKey =
-        QStringLiteral("conncontent|%1|%2").arg(draftToken.trimmed(), obj.trimmed());
-    const auto objectDraftIt = m_propsDraftByKey.constFind(objectDraftKey);
-    const DatasetPropsDraft* objectDraft =
-        (objectDraftIt == m_propsDraftByKey.cend()) ? nullptr : &objectDraftIt.value();
+    const DatasetPropsDraft objectDraftValue =
+        propertyDraftForObject(QStringLiteral("conncontent"), draftToken, obj);
+    const DatasetPropsDraft* objectDraft = objectDraftValue.dirty ? &objectDraftValue : nullptr;
     if (objectDraft) {
         for (auto vit = objectDraft->valuesByProp.cbegin(); vit != objectDraft->valuesByProp.cend(); ++vit) {
             const QString existingKey = findCaseInsensitiveMapKey(displayValues, vit.key());
@@ -1113,7 +1090,13 @@ void MainWindow::syncConnContentPropertyColumns() {
     enumValues.insert(QStringLiteral("org.fc16.gsa:activado"), QStringList{QStringLiteral("off"), QStringLiteral("on")});
     enumValues.insert(QStringLiteral("org.fc16.gsa:recursivo"), QStringList{QStringLiteral("off"), QStringLiteral("on")});
     enumValues.insert(QStringLiteral("org.fc16.gsa:nivelar"), QStringList{QStringLiteral("off"), QStringLiteral("on")});
-    const QString propsKey = datasetPropsCacheKey(itemConnIdx, itemPool, obj);
+    const QVector<DatasetPropCacheRow> objectRows =
+        datasetPropertyRowsFromModelOrCache(itemConnIdx, itemPool, obj);
+    QString objectDatasetType = objectIsSnapshot ? QStringLiteral("snapshot") : QString();
+    if (const DSInfo* objectInfo = findDsInfo(itemConnIdx, itemPool, obj);
+        objectInfo && !objectInfo->runtime.datasetType.trimmed().isEmpty()) {
+        objectDatasetType = objectInfo->runtime.datasetType.trimmed();
+    }
     auto gsaBoolOn = [](const QString& raw) {
         const QString v = raw.trimmed().toLower();
         return v == QStringLiteral("on")
@@ -1126,13 +1109,11 @@ void MainWindow::syncConnContentPropertyColumns() {
         if (itemConnIdx < 0 || itemPool.trimmed().isEmpty() || datasetName.trimmed().isEmpty()) {
             return values;
         }
-        const QString datasetKey = datasetPropsCacheKey(itemConnIdx, itemPool, datasetName);
-        const auto cacheIt = m_datasetPropsCache.constFind(datasetKey);
-        if (cacheIt != m_datasetPropsCache.cend() && cacheIt->loaded) {
-            for (const DatasetPropCacheRow& row : cacheIt->rows) {
-                if (isGsaUserProperty(row.prop)) {
-                    values[row.prop] = row.value;
-                }
+        const QVector<DatasetPropCacheRow> rows =
+            datasetPropertyRowsFromModelOrCache(itemConnIdx, itemPool, datasetName);
+        for (const DatasetPropCacheRow& row : rows) {
+            if (isGsaUserProperty(row.prop)) {
+                values[row.prop] = row.value;
             }
         }
         const QString token = QStringLiteral("%1::%2").arg(itemConnIdx).arg(itemPool);
@@ -1146,19 +1127,16 @@ void MainWindow::syncConnContentPropertyColumns() {
                 }
             }
         }
-        const QString draftKey = QStringLiteral("%1|%2|%3")
-                                     .arg(QStringLiteral("conncontent"),
-                                          token.trimmed(),
-                                          datasetName.trimmed());
-        const auto draftIt = m_propsDraftByKey.constFind(draftKey);
-        if (draftIt != m_propsDraftByKey.cend()) {
-            for (auto it = draftIt->valuesByProp.cbegin(); it != draftIt->valuesByProp.cend(); ++it) {
+        const DatasetPropsDraft draft =
+            propertyDraftForObject(QStringLiteral("conncontent"), token, datasetName);
+        if (draft.dirty) {
+            for (auto it = draft.valuesByProp.cbegin(); it != draft.valuesByProp.cend(); ++it) {
                 if (isGsaUserProperty(it.key())) {
                     const QString key = findCaseInsensitiveMapKey(values, it.key());
                     values[key.isEmpty() ? it.key() : key] = it.value();
                 }
             }
-            for (auto it = draftIt->inheritByProp.cbegin(); it != draftIt->inheritByProp.cend(); ++it) {
+            for (auto it = draft.inheritByProp.cbegin(); it != draft.inheritByProp.cend(); ++it) {
                 if (it.value() && isGsaUserProperty(it.key())) {
                     const QString key = findCaseInsensitiveMapKey(values, it.key());
                     values.remove(key.isEmpty() ? it.key() : key);
@@ -1189,7 +1167,7 @@ void MainWindow::syncConnContentPropertyColumns() {
         return s == QStringLiteral("true") || s == QStringLiteral("on")
                || s == QStringLiteral("yes") || s == QStringLiteral("1");
     };
-    auto isEditableProp = [this, &propsKey, &isReadonlyFlag, platform](const QString& prop) -> bool {
+    auto isEditableProp = [this, &objectRows, &objectDatasetType, &isReadonlyFlag, platform](const QString& prop) -> bool {
         if (m_connContentPropsTable) {
             for (int r = 0; r < m_connContentPropsTable->rowCount(); ++r) {
                 QTableWidgetItem* k = m_connContentPropsTable->item(r, 0);
@@ -1215,17 +1193,16 @@ void MainWindow::syncConnContentPropertyColumns() {
         if (prop.contains(':')) {
             return true;
         }
-        const auto itCache = m_datasetPropsCache.constFind(propsKey);
-        if (itCache == m_datasetPropsCache.cend() || !itCache->loaded) {
+        if (objectRows.isEmpty()) {
             return false;
         }
-        const bool encryptionOff = encryptionDisabledForRows(itCache->rows);
-        for (const DatasetPropCacheRow& row : itCache->rows) {
+        const bool encryptionOff = encryptionDisabledForRows(objectRows);
+        for (const DatasetPropCacheRow& row : objectRows) {
             if (row.prop.compare(prop, Qt::CaseInsensitive) != 0) {
                 continue;
             }
             return isDatasetPropertyEditableInline(row.prop,
-                                                   itCache->datasetType,
+                                                   objectDatasetType,
                                                    row.source,
                                                    row.readonly,
                                                    platform)
@@ -1233,7 +1210,7 @@ void MainWindow::syncConnContentPropertyColumns() {
         }
         return false;
     };
-    auto isInheritableProp = [this, &propsKey, &isReadonlyFlag, objectIsSnapshot, platform](const QString& prop) -> bool {
+    auto isInheritableProp = [this, &objectRows, &objectDatasetType, &isReadonlyFlag, objectIsSnapshot, platform](const QString& prop) -> bool {
         if (objectIsSnapshot) {
             return false;
         }
@@ -1244,17 +1221,16 @@ void MainWindow::syncConnContentPropertyColumns() {
         if (isGsaUserProperty(p) || p.contains(QLatin1Char(':'))) {
             return false;
         }
-        const auto itCache = m_datasetPropsCache.constFind(propsKey);
-        if (itCache == m_datasetPropsCache.cend() || !itCache->loaded) {
+        if (objectRows.isEmpty()) {
             return false;
         }
-        const bool encryptionOff = encryptionDisabledForRows(itCache->rows);
-        for (const DatasetPropCacheRow& row : itCache->rows) {
+        const bool encryptionOff = encryptionDisabledForRows(objectRows);
+        for (const DatasetPropCacheRow& row : objectRows) {
             if (row.prop.compare(prop, Qt::CaseInsensitive) != 0) {
                 continue;
             }
             return isDatasetPropertyEditableInline(row.prop,
-                                                   itCache->datasetType,
+                                                   objectDatasetType,
                                                    row.source,
                                                    row.readonly,
                                                    platform)
@@ -1262,12 +1238,11 @@ void MainWindow::syncConnContentPropertyColumns() {
         }
         return false;
     };
-    auto isCurrentlyInheritedProp = [this, &propsKey](const QString& prop) -> bool {
-        const auto itCache = m_datasetPropsCache.constFind(propsKey);
-        if (itCache == m_datasetPropsCache.cend() || !itCache->loaded) {
+    auto isCurrentlyInheritedProp = [&objectRows](const QString& prop) -> bool {
+        if (objectRows.isEmpty()) {
             return false;
         }
-        for (const DatasetPropCacheRow& row : itCache->rows) {
+        for (const DatasetPropCacheRow& row : objectRows) {
             if (row.prop.compare(prop, Qt::CaseInsensitive) != 0) {
                 continue;
             }
@@ -2069,6 +2044,7 @@ void MainWindow::syncConnContentPoolColumns() {
             }
             fresh.loaded = true;
             m_poolDetailsCache.insert(cacheKey, fresh);
+            rebuildConnInfoFor(connIdx);
             pit = m_poolDetailsCache.constFind(cacheKey);
         }
         if (pit == m_poolDetailsCache.cend() || !pit->loaded) {
@@ -2222,43 +2198,34 @@ void MainWindow::syncConnContentPoolColumns() {
                || v == QStringLiteral("1");
     };
     const QString poolToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
-    for (auto itCache = m_datasetPropsCache.cbegin(); itCache != m_datasetPropsCache.cend(); ++itCache) {
-        if (!itCache->loaded) {
-            continue;
-        }
-        const QStringList parts = itCache.key().split(QStringLiteral("::"));
-        if (parts.size() < 3) {
-            continue;
-        }
-        bool okConn = false;
-        const int cacheConnIdx = parts.at(0).toInt(&okConn);
-        const QString cachePool = parts.at(1).trimmed();
-        const QString datasetName = parts.mid(2).join(QStringLiteral("::")).trimmed();
-        if (!okConn || cacheConnIdx != connIdx || cachePool != poolName || datasetName.isEmpty() || datasetName.contains(QLatin1Char('@'))) {
-            continue;
-        }
-        for (const DatasetPropCacheRow& row : itCache->rows) {
-            if (row.prop.trimmed().startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)
-                && isLocallyConfiguredGsaSource(row.source)) {
-                autoSnapshotPropsByDataset[datasetName].insert(row.prop.trimmed(), row.value);
+    if (const PoolInfo* poolInfo = findPoolInfo(connIdx, poolName)) {
+        for (auto itDs = poolInfo->objectsByFullName.cbegin(); itDs != poolInfo->objectsByFullName.cend(); ++itDs) {
+            const QString datasetName = itDs.key().trimmed();
+            if (datasetName.isEmpty() || datasetName.contains(QLatin1Char('@'))) {
+                continue;
+            }
+            for (const DatasetPropCacheRow& row : itDs->runtime.propertyRows) {
+                if (row.prop.trimmed().startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)
+                    && isLocallyConfiguredGsaSource(row.source)) {
+                    autoSnapshotPropsByDataset[datasetName].insert(row.prop.trimmed(), row.value);
+                }
             }
         }
     }
-    const QString draftPrefix = QStringLiteral("conncontent|%1|").arg(poolToken);
-    for (auto itDraft = m_propsDraftByKey.cbegin(); itDraft != m_propsDraftByKey.cend(); ++itDraft) {
-        if (!itDraft.key().startsWith(draftPrefix, Qt::CaseInsensitive)) {
+    for (const PendingPropertyDraftEntry& item : pendingConnContentPropertyDraftsFromModel()) {
+        if (item.connIdx != connIdx || item.poolName != poolName) {
             continue;
         }
-        const QString datasetName = itDraft.key().mid(draftPrefix.size()).trimmed();
+        const QString datasetName = item.objectName.trimmed();
         if (datasetName.isEmpty() || datasetName.contains(QLatin1Char('@'))) {
             continue;
         }
-        for (auto vit = itDraft->valuesByProp.cbegin(); vit != itDraft->valuesByProp.cend(); ++vit) {
+        for (auto vit = item.draft.valuesByProp.cbegin(); vit != item.draft.valuesByProp.cend(); ++vit) {
             if (vit.key().trimmed().startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
                 autoSnapshotPropsByDataset[datasetName].insert(vit.key().trimmed(), vit.value());
             }
         }
-        for (auto iit = itDraft->inheritByProp.cbegin(); iit != itDraft->inheritByProp.cend(); ++iit) {
+        for (auto iit = item.draft.inheritByProp.cbegin(); iit != item.draft.inheritByProp.cend(); ++iit) {
             if (iit.value() && iit.key().trimmed().startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
                 autoSnapshotPropsByDataset[datasetName].remove(iit.key().trimmed());
             }
@@ -2933,26 +2900,25 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         addPoolRootOnlyForConnContent();
         return;
     }
-    const QString key = datasetCacheKey(connIdx, poolName);
-    const PoolDatasetCache& cache = m_poolDatasetCache[key];
-    auto isFilesystemRecord = [](const DatasetRecord& rec) -> bool {
-        const QString mp = rec.mountpoint.trimmed();
-        const QString cm = rec.canmount.trimmed();
-        const QString mounted = rec.mounted.trimmed();
-        // Algunos datasets filesystem llegan en la carga base sin mountpoint
-        // útil todavía, pero sí con canmount/mounted distintos de "-".
-        // En esos casos el nodo GSA debe existir ya al expandir por el angulito.
+    const PoolInfo* poolInfo = findPoolInfo(connIdx, poolName);
+    if (!poolInfo) {
+        addPoolRootOnlyForConnContent();
+        return;
+    }
+    auto isFilesystemObject = [](const DSInfo& dsInfo) -> bool {
+        const QString mp = dsInfo.runtime.properties.value(QStringLiteral("mountpoint")).trimmed();
+        const QString cm = dsInfo.runtime.properties.value(QStringLiteral("canmount")).trimmed();
+        const QString mounted = dsInfo.runtime.properties.value(QStringLiteral("mounted")).trimmed();
         return (mp != QStringLiteral("-") && !mp.isEmpty())
                || (cm != QStringLiteral("-") && !cm.isEmpty())
                || (mounted != QStringLiteral("-") && !mounted.isEmpty());
     };
-
-    QMap<QString, QTreeWidgetItem*> byName;
-    for (const DatasetRecord& rec : cache.datasets) {
+    auto buildDatasetItem = [&](const DSInfo& dsInfo, auto&& buildDatasetItemRef) -> QTreeWidgetItem* {
         auto* item = new QTreeWidgetItem();
-        const QString displayName = rec.name.contains('/')
-                                        ? rec.name.section('/', -1, -1)
-                                        : rec.name;
+        const QString fullName = dsInfo.key.fullName.trimmed();
+        const QString displayName = fullName.contains('/')
+                                        ? fullName.section('/', -1, -1)
+                                        : fullName;
         item->setText(0, displayName);
         item->setIcon(0, treeStandardIcon(QStyle::SP_DirIcon));
         {
@@ -2960,7 +2926,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             f.setBold(true);
             item->setFont(0, f);
         }
-        QStringList snaps = cache.snapshotsByDataset.value(rec.name);
+        QStringList snaps = dsInfo.runtime.directSnapshots;
         if (!options.showAutomaticSnapshots) {
             QStringList filtered;
             for (const QString& snapName : snaps) {
@@ -2972,19 +2938,20 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         }
         item->setText(1, snaps.isEmpty() ? QString() : QStringLiteral("(ninguno)"));
         item->setData(1, Qt::UserRole, QString());
-        item->setData(0, Qt::UserRole, rec.name);
+        item->setData(0, Qt::UserRole, fullName);
         item->setData(1, kSnapshotListRole, snaps);
         item->setData(0, kConnIdxRole, connIdx);
         item->setData(0, kPoolNameRole, poolName);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-        const QString mounted = rec.mounted.trimmed().toLower();
+        const QString mounted = dsInfo.runtime.properties.value(QStringLiteral("mounted")).trimmed().toLower();
         const bool isMounted = (mounted == QStringLiteral("yes")
                                 || mounted == QStringLiteral("on")
                                 || mounted == QStringLiteral("true")
                                 || mounted == QStringLiteral("1"));
         item->setCheckState(2, isMounted ? Qt::Checked : Qt::Unchecked);
-        const QString effectiveMp = effectiveMountPath(connIdx, poolName, rec.name, rec.mountpoint, rec.mounted);
-        item->setText(3, effectiveMp.isEmpty() ? rec.mountpoint.trimmed() : effectiveMp);
+        const QString mountpoint = dsInfo.runtime.properties.value(QStringLiteral("mountpoint")).trimmed();
+        const QString effectiveMp = effectiveMountPath(connIdx, poolName, fullName, mountpoint, mounted);
+        item->setText(3, effectiveMp.isEmpty() ? mountpoint : effectiveMp);
         if (options.showInlinePropertyNodes) {
             auto* propsNode = new QTreeWidgetItem(item);
             propsNode->setText(0, trk(QStringLiteral("t_props_lbl_001"),
@@ -3009,7 +2976,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             permissionsNode->setFlags(permissionsNode->flags() & ~Qt::ItemIsUserCheckable);
             permissionsNode->setExpanded(false);
         }
-        if (isFilesystemRecord(rec) && options.showInlineGsaNode) {
+        if (isFilesystemObject(dsInfo) && options.showInlineGsaNode) {
             auto* gsaNode = new QTreeWidgetItem(item);
             gsaNode->setText(0, QStringLiteral("Programar snapshots"));
             gsaNode->setIcon(0, treeStandardIcon(QStyle::SP_BrowserReload));
@@ -3021,22 +2988,23 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             gsaNode->setFlags(gsaNode->flags() & ~Qt::ItemIsUserCheckable);
             gsaNode->setExpanded(false);
         }
-        byName.insert(rec.name, item);
-    }
+        for (const QString& childName : dsInfo.childFullNames) {
+            const auto childIt = poolInfo->objectsByFullName.constFind(childName);
+            if (childIt == poolInfo->objectsByFullName.cend() || childIt->kind == DSKind::Snapshot) {
+                continue;
+            }
+            item->addChild(buildDatasetItemRef(childIt.value(), buildDatasetItemRef));
+        }
+        return item;
+    };
 
     QVector<QTreeWidgetItem*> logicalTopLevelItems;
-    for (const DatasetRecord& rec : cache.datasets) {
-        QTreeWidgetItem* item = byName.value(rec.name, nullptr);
-        if (!item) {
+    for (const QString& rootName : poolInfo->rootObjectNames) {
+        const auto it = poolInfo->objectsByFullName.constFind(rootName);
+        if (it == poolInfo->objectsByFullName.cend() || it->kind == DSKind::Snapshot) {
             continue;
         }
-        const QString parent = parentDatasetName(rec.name);
-        QTreeWidgetItem* parentItem = byName.value(parent, nullptr);
-        if (parentItem) {
-            parentItem->addChild(item);
-        } else {
-            logicalTopLevelItems.push_back(item);
-        }
+        logicalTopLevelItems.push_back(buildDatasetItem(it.value(), buildDatasetItem));
     }
     if (options.includePoolRoot) {
         auto* poolRoot = new QTreeWidgetItem();

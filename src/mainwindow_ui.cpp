@@ -688,38 +688,17 @@ void MainWindow::activatePendingChangeAtCursor() {
 }
 
 bool MainWindow::focusPendingChangeLine(const QString& line) {
-    const QString trimmed = line.trimmed();
-    if (trimmed.isEmpty()) {
+    PendingChange change;
+    if (!findPendingChangeByDisplayLine(line, &change)) {
         return false;
     }
-    const int cmdSep = trimmed.indexOf(QStringLiteral("  "));
-    if (cmdSep <= 0) {
+    if (change.connIdx < 0 || change.connIdx >= m_profiles.size() || change.poolName.trimmed().isEmpty()) {
         return false;
     }
-    const QString prefix = trimmed.left(cmdSep).trimmed();
-    const QString cmd = trimmed.mid(cmdSep + 2).trimmed();
-    const int prefixSep = prefix.lastIndexOf(QStringLiteral("::"));
-    if (prefixSep <= 0) {
-        return false;
-    }
-    const QString connLabel = prefix.left(prefixSep).trimmed();
-    const QString poolName = prefix.mid(prefixSep + 2).trimmed();
-    if (connLabel.isEmpty() || poolName.isEmpty() || cmd.isEmpty()) {
-        return false;
-    }
-
-    int connIdx = -1;
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        const ConnectionProfile& p = m_profiles.at(i);
-        if (p.name.compare(connLabel, Qt::CaseInsensitive) == 0
-            || p.id.compare(connLabel, Qt::CaseInsensitive) == 0) {
-            connIdx = i;
-            break;
-        }
-    }
-    if (connIdx < 0) {
-        return false;
-    }
+    const int connIdx = change.connIdx;
+    const QString poolName = change.poolName.trimmed();
+    const ConnectionProfile& p = m_profiles.at(connIdx);
+    const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
 
     auto visiblePoolRoot = [&](QTreeWidget* tree) -> QTreeWidgetItem* {
         if (!tree) {
@@ -759,10 +738,7 @@ bool MainWindow::focusPendingChangeLine(const QString& line) {
         return false;
     }
 
-    const QString objectName =
-        cmd.startsWith(QStringLiteral("zfs rename "), Qt::CaseInsensitive)
-            ? pendingChangeFirstQuotedArg(cmd)
-            : pendingChangeLastQuotedArg(cmd);
+    const QString objectName = change.objectName.trimmed();
     if (objectName.isEmpty()) {
         return false;
     }
@@ -844,8 +820,7 @@ bool MainWindow::focusPendingChangeLine(const QString& line) {
         return nullptr;
     };
 
-    if (cmd.startsWith(QStringLiteral("zfs allow "), Qt::CaseInsensitive)
-        || cmd.startsWith(QStringLiteral("zfs unallow "), Qt::CaseInsensitive)) {
+    if (change.focusPermissionsNode) {
         if (QTreeWidgetItem* permissionsNode = findChild(datasetItem, [](QTreeWidgetItem* child) {
                 return child->data(0, kConnPermissionsNodeRole).toBool()
                        && child->data(0, kConnPermissionsKindRole).toString() == QStringLiteral("root");
@@ -863,26 +838,7 @@ bool MainWindow::focusPendingChangeLine(const QString& line) {
         return true;
     }
 
-    QString propName;
-    if (cmd.startsWith(QStringLiteral("zfs set "), Qt::CaseInsensitive)) {
-        const QString prefixCmd = cmd.left(cmd.lastIndexOf(QLatin1Char('\'')));
-        const QString firstArg = pendingChangeLastQuotedArg(prefixCmd);
-        const int eq = firstArg.indexOf(QLatin1Char('='));
-        if (eq > 0) {
-            propName = firstArg.left(eq).trimmed();
-        }
-    } else if (cmd.startsWith(QStringLiteral("zfs inherit "), Qt::CaseInsensitive)) {
-        const QRegularExpression rx(QStringLiteral("^zfs\\s+inherit\\s+'([^']+)'"),
-                                    QRegularExpression::CaseInsensitiveOption);
-        const QRegularExpressionMatch m = rx.match(cmd);
-        if (m.hasMatch()) {
-            propName = m.captured(1).trimmed();
-        }
-    } else if (cmd.startsWith(QStringLiteral("zfs mount "), Qt::CaseInsensitive)
-               || cmd.startsWith(QStringLiteral("zfs umount "), Qt::CaseInsensitive)
-               || cmd.startsWith(QStringLiteral("zfs unmount "), Qt::CaseInsensitive)) {
-        propName = QStringLiteral("Montado");
-    }
+    QString propName = change.propertyName.trimmed();
 
     if (QTreeWidgetItem* propsNode = findChild(datasetItem, [this](QTreeWidgetItem* child) {
             return child->data(0, kConnPropGroupNodeRole).toBool()
@@ -3660,16 +3616,16 @@ void MainWindow::buildUi() {
         scope->addItem(QStringLiteral("Local"), QStringLiteral("local"));
         scope->addItem(QStringLiteral("Descendiente"), QStringLiteral("descendant"));
         scope->addItem(QStringLiteral("Local + descendiente"), QStringLiteral("local_descendant"));
-        const auto cacheIt = m_datasetPermissionsCache.constFind(
-            datasetPermissionsCacheKey(ctx.connIdx, ctx.poolName, ctx.datasetName));
-        auto reloadTargetNames = [this, cacheIt, targetType, targetName]() {
+        const DatasetPermissionsCacheEntry* cachedPermissions =
+            datasetPermissionsEntry(ctx.connIdx, ctx.poolName, ctx.datasetName);
+        auto reloadTargetNames = [cachedPermissions, targetType, targetName]() {
             targetName->clear();
-            if (cacheIt == m_datasetPermissionsCache.cend()) {
+            if (!cachedPermissions) {
                 return;
             }
             const QString kind = targetType->currentData().toString();
             const QStringList names =
-                (kind == QStringLiteral("group")) ? cacheIt->systemGroups : cacheIt->systemUsers;
+                (kind == QStringLiteral("group")) ? cachedPermissions->systemGroups : cachedPermissions->systemUsers;
             targetName->addItems(names);
             targetName->setEnabled(kind != QStringLiteral("everyone"));
         };
@@ -4627,9 +4583,8 @@ void MainWindow::buildUi() {
                                               targetName,
                                               scope,
                                               tokens)) {
-                        const QString cacheKey = datasetPermissionsCacheKey(ctx.connIdx, ctx.poolName, ctx.datasetName);
-                        auto it = m_datasetPermissionsCache.find(cacheKey);
-                        if (it != m_datasetPermissionsCache.end()) {
+                        auto* it = datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
+                        if (it) {
                             bool exists = false;
                             auto appendPending = [&](QVector<DatasetPermissionGrant>& grants) {
                                 for (const DatasetPermissionGrant& g : grants) {
@@ -4656,6 +4611,7 @@ void MainWindow::buildUi() {
                             } else {
                                 appendPending(it->localDescendantGrants);
                             }
+                            mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
                             populateDatasetPermissionsNode(m_bottomConnContentTree, owner, false);
                             updateApplyPropsButtonState();
                             for (int i = 0; i < owner->childCount(); ++i) {
@@ -4712,9 +4668,8 @@ void MainWindow::buildUi() {
                                               newTargetName,
                                               newScope,
                                               newTokens)) {
-                        const QString cacheKey = datasetPermissionsCacheKey(ctx.connIdx, ctx.poolName, ctx.datasetName);
-                        auto it = m_datasetPermissionsCache.find(cacheKey);
-                        if (it != m_datasetPermissionsCache.end()) {
+                        auto* it = datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
+                        if (it) {
                             auto updateGrant = [&](QVector<DatasetPermissionGrant>& grants) {
                                 for (DatasetPermissionGrant& g : grants) {
                                     if (g.scope == scope && g.targetType == targetType && g.targetName == targetName) {
@@ -4729,6 +4684,7 @@ void MainWindow::buildUi() {
                             };
                             if (updateGrant(it->localGrants) || updateGrant(it->descendantGrants)
                                 || updateGrant(it->localDescendantGrants)) {
+                                mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
                                 populateDatasetPermissionsNode(m_bottomConnContentTree, owner, false);
                                 updateApplyPropsButtonState();
                             }
@@ -4744,9 +4700,8 @@ void MainWindow::buildUi() {
                                             false,
                                             setName,
                                             tokens)) {
-                        const QString cacheKey = datasetPermissionsCacheKey(ctx.connIdx, ctx.poolName, ctx.datasetName);
-                        auto it = m_datasetPermissionsCache.find(cacheKey);
-                        if (it != m_datasetPermissionsCache.end()) {
+                        auto* it = datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
+                        if (it) {
                             bool exists = false;
                             for (const DatasetPermissionSet& s : it->permissionSets) {
                                 if (s.name.compare(setName, Qt::CaseInsensitive) == 0) {
@@ -4760,6 +4715,7 @@ void MainWindow::buildUi() {
                                 s.permissions = tokens;
                                 it->permissionSets.push_back(s);
                                 it->dirty = true;
+                                mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
                                 populateDatasetPermissionsNode(m_bottomConnContentTree, owner, false);
                                 updateApplyPropsButtonState();
                             }
@@ -4784,9 +4740,8 @@ void MainWindow::buildUi() {
                         if (!newSetName.startsWith(QLatin1Char('@'))) {
                             newSetName.prepend(QLatin1Char('@'));
                         }
-                        const QString cacheKey = datasetPermissionsCacheKey(ctx.connIdx, ctx.poolName, ctx.datasetName);
-                        auto it = m_datasetPermissionsCache.find(cacheKey);
-                        if (it != m_datasetPermissionsCache.end()) {
+                        auto* it = datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
+                        if (it) {
                             for (DatasetPermissionSet& s : it->permissionSets) {
                                 if (s.name.compare(oldSetName, Qt::CaseInsensitive) == 0) {
                                     s.name = newSetName;
@@ -4794,14 +4749,14 @@ void MainWindow::buildUi() {
                                     break;
                                 }
                             }
+                            mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
                             populateDatasetPermissionsNode(m_bottomConnContentTree, owner, false);
                             updateApplyPropsButtonState();
                         }
                     }
                 } else if (picked == permActions.deleteGrant) {
-                    const QString cacheKey = datasetPermissionsCacheKey(ctx.connIdx, ctx.poolName, ctx.datasetName);
-                    auto it = m_datasetPermissionsCache.find(cacheKey);
-                    if (it != m_datasetPermissionsCache.end()) {
+                    auto* it = datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
+                    if (it) {
                         auto removeGrant = [&](QVector<DatasetPermissionGrant>& grants) {
                             for (int i = grants.size() - 1; i >= 0; --i) {
                                 const DatasetPermissionGrant& g = grants.at(i);
@@ -4816,6 +4771,7 @@ void MainWindow::buildUi() {
                         removeGrant(it->localGrants);
                         removeGrant(it->descendantGrants);
                         removeGrant(it->localDescendantGrants);
+                        mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
                         populateDatasetPermissionsNode(m_bottomConnContentTree, owner, false);
                         updateApplyPropsButtonState();
                     }
@@ -4824,15 +4780,15 @@ void MainWindow::buildUi() {
                     if (kind == QStringLiteral("set_perm") && permNode->parent()) {
                         setName = permNode->parent()->data(0, kConnPermissionsEntryNameRole).toString().trimmed();
                     }
-                    const QString cacheKey = datasetPermissionsCacheKey(ctx.connIdx, ctx.poolName, ctx.datasetName);
-                    auto it = m_datasetPermissionsCache.find(cacheKey);
-                    if (it != m_datasetPermissionsCache.end()) {
+                    auto* it = datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
+                    if (it) {
                         for (int i = it->permissionSets.size() - 1; i >= 0; --i) {
                             if (it->permissionSets.at(i).name.compare(setName, Qt::CaseInsensitive) == 0) {
                                 it->permissionSets.removeAt(i);
                                 it->dirty = true;
                             }
                         }
+                        mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
                         populateDatasetPermissionsNode(m_bottomConnContentTree, owner, false);
                         updateApplyPropsButtonState();
                     }
@@ -5086,26 +5042,23 @@ void MainWindow::buildUi() {
                 const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
                 const bool hasConnSel = ctx.valid && !ctx.datasetName.isEmpty();
                 const bool hasConnSnap = hasConnSel && !ctx.snapshotName.isEmpty();
-                auto datasetPropFromCache = [this](const DatasetSelectionContext& c, const QString& prop) -> QString {
+                auto datasetPropFromModel = [this](const DatasetSelectionContext& c, const QString& prop) -> QString {
                     if (!c.valid || c.datasetName.isEmpty() || !c.snapshotName.isEmpty()) {
                         return QString();
                     }
-                    const auto itCache = m_datasetPropsCache.constFind(
-                        datasetPropsCacheKey(c.connIdx, c.poolName, c.datasetName));
-                    if (itCache == m_datasetPropsCache.cend() || !itCache->loaded) {
-                        return QString();
-                    }
-                    for (const DatasetPropCacheRow& row : itCache->rows) {
+                    const QVector<DatasetPropCacheRow> rows =
+                        datasetPropertyRowsFromModelOrCache(c.connIdx, c.poolName, c.datasetName);
+                    for (const DatasetPropCacheRow& row : rows) {
                         if (row.prop.compare(prop, Qt::CaseInsensitive) == 0) {
                             return row.value.trimmed();
                         }
                     }
                     return QString();
                 };
-                const QString encryptionRoot = datasetPropFromCache(ctx, QStringLiteral("encryptionroot"));
-                const QString keyStatus = datasetPropFromCache(ctx, QStringLiteral("keystatus")).toLower();
-                const QString keyLocation = datasetPropFromCache(ctx, QStringLiteral("keylocation")).toLower();
-                const QString keyFormat = datasetPropFromCache(ctx, QStringLiteral("keyformat")).toLower();
+                const QString encryptionRoot = datasetPropFromModel(ctx, QStringLiteral("encryptionroot"));
+                const QString keyStatus = datasetPropFromModel(ctx, QStringLiteral("keystatus")).toLower();
+                const QString keyLocation = datasetPropFromModel(ctx, QStringLiteral("keylocation")).toLower();
+                const QString keyFormat = datasetPropFromModel(ctx, QStringLiteral("keyformat")).toLower();
                 const bool isEncryptionRoot =
                     hasConnSel && !hasConnSnap
                     && !encryptionRoot.isEmpty()
@@ -6158,9 +6111,8 @@ void MainWindow::buildUi() {
                                                tokens)) {
                         return;
                     }
-                    const QString cacheKey = datasetPermissionsCacheKey(ctx.connIdx, ctx.poolName, ctx.datasetName);
-                    auto it = m_datasetPermissionsCache.find(cacheKey);
-                    if (it == m_datasetPermissionsCache.end()) {
+                    auto* it = datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
+                    if (!it) {
                         return;
                     }
                     bool exists = false;
@@ -6189,6 +6141,7 @@ void MainWindow::buildUi() {
                     } else {
                         appendPending(it->localDescendantGrants);
                     }
+                    mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
                     populateDatasetPermissionsNode(m_connContentTree, owner, false);
                     updateApplyPropsButtonState();
                     for (int i = 0; i < owner->childCount(); ++i) {
@@ -6247,9 +6200,8 @@ void MainWindow::buildUi() {
                                                newTokens)) {
                         return;
                     }
-                    const QString cacheKey = datasetPermissionsCacheKey(ctx.connIdx, ctx.poolName, ctx.datasetName);
-                    auto it = m_datasetPermissionsCache.find(cacheKey);
-                    if (it != m_datasetPermissionsCache.end()) {
+                    auto* it = datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
+                    if (it) {
                         auto updateGrant = [&](QVector<DatasetPermissionGrant>& grants) {
                             for (DatasetPermissionGrant& g : grants) {
                                 if (g.scope == scope && g.targetType == targetType && g.targetName == targetName) {
@@ -6264,6 +6216,7 @@ void MainWindow::buildUi() {
                         };
                         if (updateGrant(it->localGrants) || updateGrant(it->descendantGrants)
                             || updateGrant(it->localDescendantGrants)) {
+                            mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
                             populateDatasetPermissionsNode(m_connContentTree, owner, false);
                             updateApplyPropsButtonState();
                         }
@@ -6282,9 +6235,8 @@ void MainWindow::buildUi() {
                                              tokens)) {
                         return;
                     }
-                    const QString cacheKey = datasetPermissionsCacheKey(ctx.connIdx, ctx.poolName, ctx.datasetName);
-                    auto it = m_datasetPermissionsCache.find(cacheKey);
-                    if (it != m_datasetPermissionsCache.end()) {
+                    auto* it = datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
+                    if (it) {
                         bool exists = false;
                         for (const DatasetPermissionSet& s : it->permissionSets) {
                             if (s.name.compare(setName, Qt::CaseInsensitive) == 0) {
@@ -6298,6 +6250,7 @@ void MainWindow::buildUi() {
                             s.permissions = tokens;
                             it->permissionSets.push_back(s);
                             it->dirty = true;
+                            mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
                             populateDatasetPermissionsNode(m_connContentTree, owner, false);
                             updateApplyPropsButtonState();
                         }
@@ -6325,9 +6278,8 @@ void MainWindow::buildUi() {
                     if (!newSetName.startsWith(QLatin1Char('@'))) {
                         newSetName.prepend(QLatin1Char('@'));
                     }
-                    const QString cacheKey = datasetPermissionsCacheKey(ctx.connIdx, ctx.poolName, ctx.datasetName);
-                    auto it = m_datasetPermissionsCache.find(cacheKey);
-                    if (it != m_datasetPermissionsCache.end()) {
+                    auto* it = datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
+                    if (it) {
                         for (DatasetPermissionSet& s : it->permissionSets) {
                             if (s.name.compare(oldSetName, Qt::CaseInsensitive) == 0) {
                                 s.name = newSetName;
@@ -6335,15 +6287,15 @@ void MainWindow::buildUi() {
                                 break;
                             }
                         }
+                        mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
                         populateDatasetPermissionsNode(m_connContentTree, owner, false);
                         updateApplyPropsButtonState();
                     }
                     return;
                 }
                 if (picked == permActions.deleteGrant) {
-                    const QString cacheKey = datasetPermissionsCacheKey(ctx.connIdx, ctx.poolName, ctx.datasetName);
-                    auto it = m_datasetPermissionsCache.find(cacheKey);
-                    if (it != m_datasetPermissionsCache.end()) {
+                    auto* it = datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
+                    if (it) {
                         auto removeGrant = [&](QVector<DatasetPermissionGrant>& grants) {
                             for (int i = grants.size() - 1; i >= 0; --i) {
                                 const DatasetPermissionGrant& g = grants.at(i);
@@ -6358,6 +6310,7 @@ void MainWindow::buildUi() {
                         removeGrant(it->localGrants);
                         removeGrant(it->descendantGrants);
                         removeGrant(it->localDescendantGrants);
+                        mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
                         populateDatasetPermissionsNode(m_connContentTree, owner, false);
                         updateApplyPropsButtonState();
                     }
@@ -6368,15 +6321,15 @@ void MainWindow::buildUi() {
                     if (kind == QStringLiteral("set_perm") && permNode->parent()) {
                         setName = permNode->parent()->data(0, kConnPermissionsEntryNameRole).toString().trimmed();
                     }
-                    const QString cacheKey = datasetPermissionsCacheKey(ctx.connIdx, ctx.poolName, ctx.datasetName);
-                    auto it = m_datasetPermissionsCache.find(cacheKey);
-                    if (it != m_datasetPermissionsCache.end()) {
+                    auto* it = datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
+                    if (it) {
                         for (int i = it->permissionSets.size() - 1; i >= 0; --i) {
                             if (it->permissionSets.at(i).name.compare(setName, Qt::CaseInsensitive) == 0) {
                                 it->permissionSets.removeAt(i);
                                 it->dirty = true;
                             }
                         }
+                        mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
                         populateDatasetPermissionsNode(m_connContentTree, owner, false);
                         updateApplyPropsButtonState();
                     }
@@ -6608,26 +6561,23 @@ void MainWindow::buildUi() {
             const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
             const bool hasConnSel = ctx.valid && !ctx.datasetName.isEmpty();
             const bool hasConnSnap = hasConnSel && !ctx.snapshotName.isEmpty();
-            auto datasetPropFromCache = [this](const DatasetSelectionContext& c, const QString& prop) -> QString {
+            auto datasetPropFromModel = [this](const DatasetSelectionContext& c, const QString& prop) -> QString {
                 if (!c.valid || c.datasetName.isEmpty() || !c.snapshotName.isEmpty()) {
                     return QString();
                 }
-                const auto itCache = m_datasetPropsCache.constFind(
-                    datasetPropsCacheKey(c.connIdx, c.poolName, c.datasetName));
-                if (itCache == m_datasetPropsCache.cend() || !itCache->loaded) {
-                    return QString();
-                }
-                for (const DatasetPropCacheRow& row : itCache->rows) {
+                const QVector<DatasetPropCacheRow> rows =
+                    datasetPropertyRowsFromModelOrCache(c.connIdx, c.poolName, c.datasetName);
+                for (const DatasetPropCacheRow& row : rows) {
                     if (row.prop.compare(prop, Qt::CaseInsensitive) == 0) {
                         return row.value.trimmed();
                     }
                 }
                 return QString();
             };
-            const QString encryptionRoot = datasetPropFromCache(ctx, QStringLiteral("encryptionroot"));
-            const QString keyStatus = datasetPropFromCache(ctx, QStringLiteral("keystatus")).toLower();
-            const QString keyLocation = datasetPropFromCache(ctx, QStringLiteral("keylocation")).toLower();
-            const QString keyFormat = datasetPropFromCache(ctx, QStringLiteral("keyformat")).toLower();
+            const QString encryptionRoot = datasetPropFromModel(ctx, QStringLiteral("encryptionroot"));
+            const QString keyStatus = datasetPropFromModel(ctx, QStringLiteral("keystatus")).toLower();
+            const QString keyLocation = datasetPropFromModel(ctx, QStringLiteral("keylocation")).toLower();
+            const QString keyFormat = datasetPropFromModel(ctx, QStringLiteral("keyformat")).toLower();
             const bool isEncryptionRoot =
                 hasConnSel && !hasConnSnap
                 && !encryptionRoot.isEmpty()

@@ -67,13 +67,24 @@ bool MainWindow::queuePendingShellAction(const PendingShellActionDraft& draft, Q
     if (draft.command.trimmed().isEmpty()) {
         return fail(QStringLiteral("No hay comando que añadir a cambios pendientes."));
     }
-    for (const PendingShellActionDraft& existing : m_pendingShellActionDrafts) {
-        if (existing.displayLabel.trimmed() == draft.displayLabel.trimmed()
-            && existing.command.trimmed() == draft.command.trimmed()) {
+    for (const PendingChange& existing : m_pendingChangesModel) {
+        if (existing.kind != PendingChange::Kind::ShellAction) {
+            continue;
+        }
+        if (existing.shellDraft.displayLabel.trimmed() == draft.displayLabel.trimmed()
+            && existing.shellDraft.command.trimmed() == draft.command.trimmed()) {
             return fail(QStringLiteral("Ese cambio ya está en la lista de pendientes."));
         }
     }
-    m_pendingShellActionDrafts.push_back(draft);
+    PendingChange change;
+    change.kind = PendingChange::Kind::ShellAction;
+    change.shellDraft = draft;
+    change.removableIndividually = true;
+    change.executableIndividually = true;
+    change.stableId = QStringLiteral("shell|%1|%2")
+                          .arg(draft.displayLabel.trimmed(),
+                               draft.command.trimmed());
+    m_pendingChangesModel.push_back(change);
     return true;
 }
 
@@ -672,10 +683,8 @@ void MainWindow::actionLevelSnapshot() {
                                  QStringLiteral("无法加载用于同步快照的快照列表。")));
         return;
     }
-    const QString srcKey = datasetCacheKey(src.connIdx, src.poolName);
-    const QString dstKey = datasetCacheKey(dst.connIdx, dst.poolName);
-    const QStringList srcSnaps = m_poolDatasetCache.value(srcKey).snapshotsByDataset.value(src.datasetName);
-    const QStringList dstSnaps = m_poolDatasetCache.value(dstKey).snapshotsByDataset.value(dst.datasetName);
+    const QStringList srcSnaps = datasetSnapshotsFromModel(src.connIdx, src.poolName, src.datasetName);
+    const QStringList dstSnaps = datasetSnapshotsFromModel(dst.connIdx, dst.poolName, dst.datasetName);
     if (srcSnaps.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_level_no_src01"),

@@ -2085,6 +2085,7 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
     m_states[targetIdx] = state;
     invalidatePoolDetailsCacheForConnection(targetIdx);
     cachePoolStatusTextsForConnection(targetIdx, state);
+    rebuildConnInfoFor(targetIdx);
     rebuildConnectionsTable();
     if (m_connectionEntityTabs) {
         const QString wantedTop = m_pendingRefreshTopTabDataByConn.value(targetIdx);
@@ -2889,6 +2890,7 @@ void MainWindow::refreshConnectionByIndex(int idx) {
     }
     m_states[idx] = refreshConnection(m_profiles[idx]);
     cachePoolStatusTextsForConnection(idx, m_states[idx]);
+    rebuildConnInfoFor(idx);
     rebuildConnectionsTable();
     if (m_connectionEntityTabs) {
         const QString wantedTop = m_pendingRefreshTopTabDataByConn.value(idx);
@@ -2970,6 +2972,7 @@ void MainWindow::loadConnections() {
             m_states[i] = prevByName.value(nameKey);
         }
     }
+    rebuildConnInfoModel();
 
     rebuildConnectionsTable();
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Loaded %1 connections from %2")
@@ -4097,16 +4100,11 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
             candidatePools.insert(poolName);
         }
     }
-    for (auto it = m_datasetPropsCache.cbegin(); it != m_datasetPropsCache.cend(); ++it) {
-        const QStringList parts = it.key().split(QStringLiteral("::"));
-        if (parts.size() < 3) {
-            continue;
-        }
-        bool okConn = false;
-        const int dsConnIdx = parts.at(0).toInt(&okConn);
-        const QString poolName = parts.at(1).trimmed();
-        if (okConn && dsConnIdx == idx && !poolName.isEmpty()) {
-            candidatePools.insert(poolName);
+    if (const ConnInfo* connInfo = findConnInfo(idx)) {
+        for (auto itPool = connInfo->poolsByStableId.cbegin(); itPool != connInfo->poolsByStableId.cend(); ++itPool) {
+            if (!itPool->key.poolName.trimmed().isEmpty()) {
+                candidatePools.insert(itPool->key.poolName.trimmed());
+            }
         }
     }
     auto boolOnString = [](const QString& raw) {
@@ -4158,72 +4156,72 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
             }
         }
     }
-    for (auto it = m_datasetPropsCache.cbegin(); it != m_datasetPropsCache.cend(); ++it) {
-        if (!it.value().loaded || it.value().datasetType.trimmed().compare(QStringLiteral("filesystem"), Qt::CaseInsensitive) != 0) {
-            continue;
-        }
-        const QStringList parts = it.key().split(QStringLiteral("::"));
-        if (parts.size() < 3) {
-            continue;
-        }
-        bool okConn = false;
-        const int dsConnIdx = parts.at(0).toInt(&okConn);
-        const QString datasetName = parts.mid(2).join(QStringLiteral("::")).trimmed();
-        if (!okConn || dsConnIdx != idx || datasetName.isEmpty()) {
-            continue;
-        }
-        QMap<QString, QString> props;
-        for (const DatasetPropCacheRow& row : it.value().rows) {
-            props.insert(row.prop, row.value);
-        }
-        const QString token = QStringLiteral("%1::%2").arg(idx).arg(parts.at(1).trimmed());
-        const QString liveKey = QStringLiteral("%1|%2").arg(token, datasetName);
-        const auto liveIt = m_connContentPropValuesByObject.constFind(liveKey);
-        if (liveIt != m_connContentPropValuesByObject.cend()) {
-            for (auto vit = liveIt->cbegin(); vit != liveIt->cend(); ++vit) {
-                props[vit.key()] = vit.value();
+    if (const ConnInfo* connInfo = findConnInfo(idx)) {
+        for (auto itPool = connInfo->poolsByStableId.cbegin(); itPool != connInfo->poolsByStableId.cend(); ++itPool) {
+            const QString poolName = itPool->key.poolName.trimmed();
+            if (poolName.isEmpty()) {
+                continue;
             }
-        }
-        const QString enabled = props.value(QStringLiteral("org.fc16.gsa:activado")).trimmed().toLower();
-        if (!boolOnString(enabled)) {
-            continue;
-        }
-        const QString levelOn = props.value(QStringLiteral("org.fc16.gsa:nivelar")).trimmed().toLower();
-        if (!boolOnString(levelOn)) {
-            continue;
-        }
-        const QString dest = props.value(QStringLiteral("org.fc16.gsa:destino")).trimmed();
-        if (dest.isEmpty()) {
-            continue;
-        }
-        const QString destConnName = dest.section(QStringLiteral("::"), 0, 0).trimmed();
-        if (!destConnName.isEmpty()) {
-            requiredDestinationConnNames.insert(destConnName);
-        }
-        const int destIdx = connectionIndexByNameOrId(destConnName);
-        if (destIdx < 0) {
-            routeWarnings << trk(QStringLiteral("t_gsa_route_missing_conn_001"),
-                                 QStringLiteral("%1 -> %2: la conexión destino no existe."),
-                                 QStringLiteral("%1 -> %2: the destination connection does not exist."),
-                                 QStringLiteral("%1 -> %2：目标连接不存在。")).arg(datasetName, destConnName);
-            continue;
-        }
-        QString routeErr;
-        int effectiveDstIdx = -1;
-        if (!canSshBetweenConnections(idx, destIdx, &routeErr, &effectiveDstIdx)) {
-            routeWarnings << trk(QStringLiteral("t_gsa_route_warn_001"),
-                                 QStringLiteral("%1 -> %2: la interconexión SSH no está OK en la matriz de conectividad (%3)."),
-                                 QStringLiteral("%1 -> %2: SSH interconnection is not OK in the connectivity matrix (%3)."),
-                                 QStringLiteral("%1 -> %2：连通性矩阵中的 SSH 互连不是 OK（%3）。")).arg(datasetName, destConnName, routeErr);
-            continue;
-        }
-        if (isWindowsConnection(idx) && effectiveDstIdx >= 0 && effectiveDstIdx < m_profiles.size()
-            && !m_profiles[effectiveDstIdx].password.trimmed().isEmpty()
-            && !connectionsReferToSameMachine(idx, effectiveDstIdx)) {
-            routeWarnings << trk(QStringLiteral("t_gsa_route_windows_auth_warn_001"),
-                                 QStringLiteral("%1 -> %2: GSA en Windows requiere autenticación SSH no interactiva en el origen remoto. Este destino usa password y puede no ejecutarse sin clave SSH."),
-                                 QStringLiteral("%1 -> %2: GSA on Windows requires non-interactive SSH authentication on the remote source. This target uses a password and may not run without an SSH key."),
-                                 QStringLiteral("%1 -> %2：Windows 上的 GSA 需要远端源主机上的非交互式 SSH 认证。该目标使用密码，没有 SSH 密钥时可能无法执行。")).arg(datasetName, destConnName);
+            for (auto itDs = itPool->objectsByFullName.cbegin(); itDs != itPool->objectsByFullName.cend(); ++itDs) {
+                const QString datasetName = itDs.key().trimmed();
+                if (datasetName.isEmpty()
+                    || itDs->runtime.datasetType.trimmed().compare(QStringLiteral("filesystem"), Qt::CaseInsensitive) != 0) {
+                    continue;
+                }
+                QMap<QString, QString> props;
+                for (const DatasetPropCacheRow& row : itDs->runtime.propertyRows) {
+                    props.insert(row.prop, row.value);
+                }
+                const QString token = QStringLiteral("%1::%2").arg(idx).arg(poolName);
+                const QString liveKey = QStringLiteral("%1|%2").arg(token, datasetName);
+                const auto liveIt = m_connContentPropValuesByObject.constFind(liveKey);
+                if (liveIt != m_connContentPropValuesByObject.cend()) {
+                    for (auto vit = liveIt->cbegin(); vit != liveIt->cend(); ++vit) {
+                        props[vit.key()] = vit.value();
+                    }
+                }
+                const QString enabled = props.value(QStringLiteral("org.fc16.gsa:activado")).trimmed().toLower();
+                if (!boolOnString(enabled)) {
+                    continue;
+                }
+                const QString levelOn = props.value(QStringLiteral("org.fc16.gsa:nivelar")).trimmed().toLower();
+                if (!boolOnString(levelOn)) {
+                    continue;
+                }
+                const QString dest = props.value(QStringLiteral("org.fc16.gsa:destino")).trimmed();
+                if (dest.isEmpty()) {
+                    continue;
+                }
+                const QString destConnName = dest.section(QStringLiteral("::"), 0, 0).trimmed();
+                if (!destConnName.isEmpty()) {
+                    requiredDestinationConnNames.insert(destConnName);
+                }
+                const int destIdx = connectionIndexByNameOrId(destConnName);
+                if (destIdx < 0) {
+                    routeWarnings << trk(QStringLiteral("t_gsa_route_missing_conn_001"),
+                                         QStringLiteral("%1 -> %2: la conexión destino no existe."),
+                                         QStringLiteral("%1 -> %2: the destination connection does not exist."),
+                                         QStringLiteral("%1 -> %2：目标连接不存在。")).arg(datasetName, destConnName);
+                    continue;
+                }
+                QString routeErr;
+                int effectiveDstIdx = -1;
+                if (!canSshBetweenConnections(idx, destIdx, &routeErr, &effectiveDstIdx)) {
+                    routeWarnings << trk(QStringLiteral("t_gsa_route_warn_001"),
+                                         QStringLiteral("%1 -> %2: la interconexión SSH no está OK en la matriz de conectividad (%3)."),
+                                         QStringLiteral("%1 -> %2: SSH interconnection is not OK in the connectivity matrix (%3)."),
+                                         QStringLiteral("%1 -> %2：连通性矩阵中的 SSH 互连不是 OK（%3）。")).arg(datasetName, destConnName, routeErr);
+                    continue;
+                }
+                if (isWindowsConnection(idx) && effectiveDstIdx >= 0 && effectiveDstIdx < m_profiles.size()
+                    && !m_profiles[effectiveDstIdx].password.trimmed().isEmpty()
+                    && !connectionsReferToSameMachine(idx, effectiveDstIdx)) {
+                    routeWarnings << trk(QStringLiteral("t_gsa_route_windows_auth_warn_001"),
+                                         QStringLiteral("%1 -> %2: GSA en Windows requiere autenticación SSH no interactiva en el origen remoto. Este destino usa password y puede no ejecutarse sin clave SSH."),
+                                         QStringLiteral("%1 -> %2: GSA on Windows requires non-interactive SSH authentication on the remote source. This target uses a password and may not run without an SSH key."),
+                                         QStringLiteral("%1 -> %2：Windows 上的 GSA 需要远端源主机上的非交互式 SSH 认证。该目标使用密码，没有 SSH 密钥时可能无法执行。")).arg(datasetName, destConnName);
+                }
+            }
         }
     }
     if (interactive && !routeWarnings.isEmpty()) {

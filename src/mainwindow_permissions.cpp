@@ -446,14 +446,12 @@ QStringList MainWindow::availableDelegablePermissions(const QString& datasetName
                                                       const QString& poolName,
                                                       const QString& excludeSetName) const {
     QString datasetType = QStringLiteral("filesystem");
-    const auto cacheIt = m_poolDatasetCache.constFind(datasetCacheKey(connIdx, poolName));
-    if (cacheIt != m_poolDatasetCache.cend()) {
-        const auto recIt = cacheIt->recordByName.constFind(datasetName);
-        if (recIt != cacheIt->recordByName.cend()) {
-            const DatasetRecord& rec = recIt.value();
-            if (rec.mounted.trimmed() == QStringLiteral("-") && rec.mountpoint.trimmed() == QStringLiteral("-")) {
-                datasetType = QStringLiteral("volume");
-            }
+    const DSInfo* dsInfo = findDsInfo(connIdx, poolName, datasetName);
+    if (dsInfo) {
+        const QString mounted = dsInfo->runtime.properties.value(QStringLiteral("mounted")).trimmed();
+        const QString mountpoint = dsInfo->runtime.properties.value(QStringLiteral("mountpoint")).trimmed();
+        if (mounted == QStringLiteral("-") && mountpoint == QStringLiteral("-")) {
+            datasetType = QStringLiteral("volume");
         }
     }
 
@@ -521,9 +519,7 @@ QStringList MainWindow::availableDelegablePermissions(const QString& datasetName
               << QStringLiteral("volsize");
     }
 
-    const auto permsCacheIt = m_datasetPermissionsCache.constFind(
-        datasetPermissionsCacheKey(connIdx, poolName, datasetName));
-    if (permsCacheIt != m_datasetPermissionsCache.cend()) {
+    if (const DatasetPermissionsCacheEntry* permsCacheIt = datasetPermissionsEntry(connIdx, poolName, datasetName)) {
         const QString excludeKey = excludeSetName.trimmed().toLower();
         for (const DatasetPermissionSet& set : permsCacheIt->permissionSets) {
             const QString setName = set.name.trimmed();
@@ -543,14 +539,8 @@ QStringList MainWindow::availableDelegablePermissions(const QString& datasetName
 }
 
 void MainWindow::invalidateDatasetPermissionsCacheForPool(int connIdx, const QString& poolName) {
-    const QString prefix = QStringLiteral("%1::%2::").arg(connIdx).arg(poolName.trimmed().toLower());
-    for (auto it = m_datasetPermissionsCache.begin(); it != m_datasetPermissionsCache.end();) {
-        if (it.key().startsWith(prefix)) {
-            it = m_datasetPermissionsCache.erase(it);
-        } else {
-            ++it;
-        }
-    }
+    removeDatasetPermissionsEntriesForPool(connIdx, poolName);
+    rebuildConnInfoFor(connIdx);
 }
 
 bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& poolName, const QString& datasetName) {
@@ -562,8 +552,12 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
         return false;
     }
     const QString key = datasetPermissionsCacheKey(connIdx, poolName, datasetName);
-    const auto cached = m_datasetPermissionsCache.constFind(key);
-    if (cached != m_datasetPermissionsCache.cend() && cached->loaded) {
+    if (const DSInfo* dsInfo = findDsInfo(connIdx, poolName, datasetName);
+        dsInfo && dsInfo->runtime.permissionsState == LoadState::Loaded && dsInfo->permissionsCache.loaded) {
+        return true;
+    }
+    const DatasetPermissionsCacheEntry* cached = datasetPermissionsEntry(connIdx, poolName, datasetName);
+    if (cached && cached->loaded) {
         return true;
     }
 
@@ -652,7 +646,14 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
     };
     entry.systemUsers = queryAccounts(QStringLiteral("user"));
     entry.systemGroups = queryAccounts(QStringLiteral("group"));
-    m_datasetPermissionsCache.insert(key, entry);
+    if (auto* mutableEntry = datasetPermissionsEntryMutable(connIdx, poolName, datasetName)) {
+        *mutableEntry = entry;
+        mirrorDatasetPermissionsEntryToModel(connIdx, poolName, datasetName);
+    } else {
+        m_datasetPermissionsCache.insert(key, entry);
+        mirrorDatasetPermissionsEntryToModel(connIdx, poolName, datasetName);
+    }
+    rebuildConnInfoFor(connIdx);
     return true;
 }
 
@@ -694,7 +695,8 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
     updateStatus(QStringLiteral("Leyendo permisos de %1").arg(datasetName));
 
     if (forceReload) {
-        m_datasetPermissionsCache.remove(datasetPermissionsCacheKey(connIdx, poolName, datasetName));
+        removeDatasetPermissionsEntry(connIdx, poolName, datasetName);
+        rebuildConnInfoFor(connIdx);
     }
 
     const bool rootExpanded = permissionsNode->isExpanded();
@@ -713,11 +715,11 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
     if (!ensureDatasetPermissionsLoaded(connIdx, poolName, datasetName)) {
         return;
     }
-    const auto it = m_datasetPermissionsCache.constFind(datasetPermissionsCacheKey(connIdx, poolName, datasetName));
-    if (it == m_datasetPermissionsCache.cend()) {
+    const DatasetPermissionsCacheEntry* entryPtr = datasetPermissionsEntry(connIdx, poolName, datasetName);
+    if (!entryPtr) {
         return;
     }
-    const DatasetPermissionsCacheEntry& entry = it.value();
+    const DatasetPermissionsCacheEntry& entry = *entryPtr;
 
     const QStringList allSetTokens = availableDelegablePermissions(datasetName, connIdx, poolName);
     const int propCols = qBound(5, m_connPropColumnsSetting, 10);
@@ -848,8 +850,8 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
                     QStringList checkedTokens = collectCheckedTokens(grantTreeNode);
                     normalizePermissionTokens(checkedTokens);
                     const QString cacheKey = datasetPermissionsCacheKey(connIdx, poolName, datasetName);
-                    auto cacheIt = m_datasetPermissionsCache.find(cacheKey);
-                    if (cacheIt == m_datasetPermissionsCache.end()) {
+                    auto* cacheIt = datasetPermissionsEntryMutable(connIdx, poolName, datasetName);
+                    if (!cacheIt) {
                         return;
                     }
                     auto updateGrantList = [&](QVector<DatasetPermissionGrant>& grants) -> bool {
@@ -869,6 +871,7 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
                         && !updateGrantList(cacheIt->localDescendantGrants)) {
                         return;
                     }
+                    mirrorDatasetPermissionsEntryToModel(connIdx, poolName, datasetName);
                     updateApplyPropsButtonState();
                 });
             }
@@ -975,12 +978,13 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
                 QStringList checkedTokens = collectCheckedTokens(createRootNode);
                 normalizePermissionTokens(checkedTokens);
                 const QString cacheKey = datasetPermissionsCacheKey(connIdx, poolName, datasetName);
-                auto cacheIt = m_datasetPermissionsCache.find(cacheKey);
-                if (cacheIt == m_datasetPermissionsCache.end()) {
+                auto* cacheIt = datasetPermissionsEntryMutable(connIdx, poolName, datasetName);
+                if (!cacheIt) {
                     return;
                 }
                 cacheIt->createPermissions = checkedTokens;
                 cacheIt->dirty = true;
+                mirrorDatasetPermissionsEntryToModel(connIdx, poolName, datasetName);
                 updateApplyPropsButtonState();
             });
         }
@@ -1168,8 +1172,8 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
                     QStringList checkedTokens = collectCheckedTokens(setTreeNode);
                     normalizePermissionTokens(checkedTokens);
                     const QString cacheKey = datasetPermissionsCacheKey(connIdx, poolName, datasetName);
-                    auto cacheIt = m_datasetPermissionsCache.find(cacheKey);
-                    if (cacheIt == m_datasetPermissionsCache.end()) {
+                    auto* cacheIt = datasetPermissionsEntryMutable(connIdx, poolName, datasetName);
+                    if (!cacheIt) {
                         return;
                     }
                     for (DatasetPermissionSet& cachedSet : cacheIt->permissionSets) {
@@ -1179,6 +1183,7 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
                             break;
                         }
                     }
+                    mirrorDatasetPermissionsEntryToModel(connIdx, poolName, datasetName);
                     appLog(QStringLiteral("DEBUG"),
                            QStringLiteral("setCheckbox after draft-only dataset=%1 set=%2 ownerExpanded=%3")
                                .arg(datasetName,

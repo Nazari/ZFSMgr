@@ -151,19 +151,21 @@ void MainWindow::updateConnectionActionsState() {
 
     bool connAdvDatasetOnly = dctx.valid && !dctx.datasetName.isEmpty() && dctx.snapshotName.isEmpty();
     if (connAdvDatasetOnly) {
-        const QString key = datasetCacheKey(dctx.connIdx, dctx.poolName);
-        const auto cacheIt = m_poolDatasetCache.constFind(key);
-        if (cacheIt == m_poolDatasetCache.constEnd() || !cacheIt->loaded) {
+        const PoolInfo* poolInfo = findPoolInfo(dctx.connIdx, dctx.poolName);
+        if (!poolInfo) {
             connAdvDatasetOnly = false;
         } else {
             const QString base = dctx.datasetName;
             const QString pref = base + QStringLiteral("/");
-            for (auto it = cacheIt->recordByName.constBegin(); it != cacheIt->recordByName.constEnd(); ++it) {
+            for (auto it = poolInfo->objectsByFullName.constBegin(); it != poolInfo->objectsByFullName.constEnd(); ++it) {
                 const QString& ds = it.key();
                 if (ds != base && !ds.startsWith(pref)) {
                     continue;
                 }
-                if (!isMountedValueTrue(it.value().mounted)) {
+                if (it->kind == DSKind::Snapshot) {
+                    continue;
+                }
+                if (!isMountedValueTrue(it->runtime.properties.value(QStringLiteral("mounted")))) {
                     connAdvDatasetOnly = false;
                     break;
                 }
@@ -188,13 +190,9 @@ void MainWindow::updateConnectionActionsState() {
         if (!c.valid || c.datasetName.isEmpty()) {
             return false;
         }
-        const QString key = datasetCacheKey(c.connIdx, c.poolName);
-        const auto it = m_poolDatasetCache.constFind(key);
-        if (it != m_poolDatasetCache.constEnd() && it->loaded) {
-            const auto recIt = it->recordByName.constFind(c.datasetName);
-            if (recIt != it->recordByName.constEnd()) {
-                return isMountedValueTrue(recIt->mounted);
-            }
+        QString mountedValue;
+        if (datasetMountedFromModel(c.connIdx, c.poolName, c.datasetName, &mountedValue)) {
+            return isMountedValueTrue(mountedValue);
         }
         if (!treeHint) {
             return false;
@@ -254,17 +252,13 @@ void MainWindow::updateConnectionActionsState() {
         if (!ctx.valid || ctx.connIdx < 0 || ctx.poolName.trimmed().isEmpty() || ctx.datasetName.trimmed().isEmpty()) {
             return false;
         }
-        const auto itCache = m_poolDatasetCache.constFind(datasetCacheKey(ctx.connIdx, ctx.poolName));
-        if (itCache == m_poolDatasetCache.cend()) {
+        const DSInfo* dsInfo = findDsInfo(ctx.connIdx, ctx.poolName, ctx.datasetName);
+        if (!dsInfo) {
             return false;
         }
-        const auto recIt = itCache->recordByName.constFind(ctx.datasetName);
-        if (recIt == itCache->recordByName.cend()) {
-            return false;
-        }
-        const DatasetRecord& rec = recIt.value();
-        return rec.mounted.trimmed() == QStringLiteral("-")
-               && rec.mountpoint.trimmed() == QStringLiteral("-");
+        const QString mounted = dsInfo->runtime.properties.value(QStringLiteral("mounted")).trimmed();
+        const QString mountpoint = dsInfo->runtime.properties.value(QStringLiteral("mountpoint")).trimmed();
+        return mounted == QStringLiteral("-") && mountpoint == QStringLiteral("-");
     };
     const bool sourceDatasetOnly = srcDs && !srcSnap;
     const bool destDatasetOnly = dstDs && !dstSnap;
