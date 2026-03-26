@@ -3085,6 +3085,10 @@ void MainWindow::rebuildConnectionsTable() {
         return QString();
     };
     auto buildConnectionStateTooltip = [this, &connectionRowColorReason](const ConnectionProfile& p, const ConnectionRuntimeState& st, bool disconnected) {
+        const QString osHint = (p.osType + QStringLiteral(" ") + st.osLine).trimmed().toLower();
+        const bool windowsSshConn =
+            p.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0
+            && osHint.contains(QStringLiteral("windows"));
         QStringList lines;
         lines << QStringLiteral("Host: %1").arg(p.host);
         lines << QStringLiteral("Port: %1").arg(p.port);
@@ -3156,6 +3160,17 @@ void MainWindow::rebuildConnectionsTable() {
             && !st.powershellFallbackCommands.isEmpty()) {
             lines << QStringLiteral("Comandos PowerShell usados: %1")
                          .arg(st.powershellFallbackCommands.join(QStringLiteral(", ")));
+        }
+        if (windowsSshConn && !disconnected
+            && st.status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) != 0) {
+            lines << QString();
+            lines << QStringLiteral("PowerShell para habilitar OpenSSH Server:");
+            lines << QStringLiteral("# Install OpenSSH Server");
+            lines << QStringLiteral("Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0");
+            lines << QString();
+            lines << QStringLiteral("# Start and set to Automatic");
+            lines << QStringLiteral("Start-Service sshd");
+            lines << QStringLiteral("Set-Service -Name sshd -StartupType 'Automatic'");
         }
         QStringList nonImportable;
         for (const PoolImportable& pool : st.importablePools) {
