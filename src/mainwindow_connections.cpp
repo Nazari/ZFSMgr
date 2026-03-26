@@ -445,6 +445,10 @@ level_snapshot() {
     send_opts='-wLecR'
   fi
   if [ "$target_exists" = "1" ] && target_dataset_has_snapshots "$dst_dataset"; then
+    if target_has_snapshot_name "$dst_dataset" "$snap_name"; then
+      log "GSA level skip for $src_ds: destination snapshot $dst_dataset@$snap_name already exists"
+      return 0
+    fi
     base_snap="$(latest_target_snapshot "$dst_dataset")"
     if [ -z "$base_snap" ]; then
       log "GSA level skip for $src_ds: destination $dst_dataset has snapshots but latest snapshot could not be determined"
@@ -725,6 +729,10 @@ function Invoke-GsaLevel([string]$SrcDataset, [bool]$Recursive, [string]$SnapNam
       $dstHasSnapshots = $false
     }
     if ($dstHasSnapshots) {
+      if (Test-TargetHasSnapshotName $DstDataset $SnapName) {
+        Write-GsaLog ("GSA level skip for " + $SrcDataset + ": destination snapshot " + $DstDataset + "@" + $SnapName + " already exists")
+        return
+      }
       $baseSnap = Get-LatestTargetSnapshot $DstDataset
       if (-not $baseSnap) {
         Write-GsaLog ("GSA level skip for " + $SrcDataset + ": destination " + $DstDataset + " has snapshots but latest snapshot could not be determined")
@@ -4232,11 +4240,16 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
                         .arg(payload, taskName);
     } else {
         const QString osHint = (p.osType + QStringLiteral(" ")
-                                + ((idx < m_states.size()) ? m_states[idx].osLine : QString()))
+                                + ((idx < m_states.size()) ? m_states[idx].osLine : QString())
+                                + QStringLiteral(" ")
+                                + ((idx < m_states.size()) ? m_states[idx].gsaScheduler : QString()))
                                    .trimmed()
                                    .toLower();
-        const bool isMac = osHint.contains(QStringLiteral("darwin"));
-        const bool isFreeBsd = osHint.contains(QStringLiteral("freebsd"));
+        const bool isMac = osHint.contains(QStringLiteral("darwin"))
+                           || osHint.contains(QStringLiteral("macos"))
+                           || osHint.contains(QStringLiteral("launchd"));
+        const bool isFreeBsd = osHint.contains(QStringLiteral("freebsd"))
+                               || osHint.contains(QStringLiteral("cron"));
         const QString runtimeConfigDir = unixConfigDirForProfile(p, isMac, isFreeBsd);
         const QString scriptPayload = gsaUnixScriptPayload();
         const QString mainConfigPayload = gsaUnixMainConfigPayload(selfConnName, runtimeConfigDir);
