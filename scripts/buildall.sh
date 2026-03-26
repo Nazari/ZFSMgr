@@ -26,6 +26,39 @@ BUILD_GIT_REF="${BUILD_GIT_REF:-}"
 BUILDALL_LOG_DIR="${BUILDALL_LOG_DIR:-}"
 BUILD_PLATFORMS="${BUILD_PLATFORMS:-mac,linux,windows}"
 
+usage() {
+  cat <<'EOF'
+Uso:
+  buildall.sh
+
+Compila y recopila artefactos de macOS, Linux y Windows.
+
+No acepta argumentos posicionales. Se configura por variables de entorno:
+  OUTPUT_DIR         Directorio local de salida
+  BUILD_PLATFORMS    Lista separada por comas: mac,linux,windows
+  BUILD_GIT_REMOTE   Remoto git desde el que fijar el ref en builders remotos
+  BUILD_GIT_REF      Commit/ref exacto a construir en builders remotos
+  BUILDALL_LOG_DIR   Directorio de logs por plataforma
+  MAC_REMOTE         Host remoto macOS
+  LINUX_REMOTE       Host remoto Linux
+  WINDOWS_REMOTE     Host remoto Windows
+
+Ejemplos:
+  ./scripts/buildall.sh
+  BUILD_PLATFORMS=linux,windows ./scripts/buildall.sh
+  BUILD_GIT_REF=$(git rev-parse HEAD) ./scripts/buildall.sh
+EOF
+}
+
+for arg in "$@"; do
+  case "${arg}" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+  esac
+done
+
 log() {
   printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
 }
@@ -212,6 +245,14 @@ copy_mac_remote_artifact() {
 }
 
 mkdir -p "${OUTPUT_DIR}"
+
+if [[ $# -gt 0 ]]; then
+  case "$1" in
+    *)
+      fail "Este script no acepta argumentos posicionales. Usa --help para ver las variables soportadas."
+      ;;
+  esac
+fi
 
 require_cmd ssh
 require_cmd scp

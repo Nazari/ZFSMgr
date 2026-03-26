@@ -13,9 +13,36 @@ $InnoOutputDir = Join-Path $BuildDir "installer"
 $SftpTarget = if ($env:ZFSMGR_SFTP_TARGET) { $env:ZFSMGR_SFTP_TARGET } else { "sftp://linarese@fc16:Descargas/z" }
 $UploadSftp = $false
 
+function Show-Usage {
+  @"
+Uso:
+  build-windows.ps1 [opciones] [-- <args extra de CMake>]
+
+Opciones:
+  --inno, --installer       Genera instalador con Inno Setup
+  --no-inno, --no-installer No genera instalador
+  --inno-script <ruta>      Usa un script .iss concreto
+  --inno-output <dir>       Directorio de salida para el instalador
+  --sftpfc16                Sube el artefacto generado al destino SFTP configurado
+  -h, --help                Muestra esta ayuda
+
+Variables opcionales:
+  ZFSMGR_SFTP_TARGET        Destino SFTP para --sftpfc16
+  INNO_SETUP_COMPILER       Ruta explícita de ISCC.exe
+
+Ejemplos:
+  ./scripts/build-windows.ps1
+  ./scripts/build-windows.ps1 --inno
+"@
+}
+
 for ($i = 0; $i -lt $args.Count; $i++) {
   $arg = $args[$i]
   switch -Regex ($arg) {
+    '^(--help|-h)$' {
+      Show-Usage
+      exit 0
+    }
     '^(--inno|--inno-setup|-inno|-inno-setup|--installer|-installer)$' {
       $GenerateInnoInstaller = $true
       $InstallerPreferenceExplicit = $true

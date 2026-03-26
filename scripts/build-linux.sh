@@ -15,6 +15,36 @@ BUILD_DEB=0
 UPLOAD_SFTP=0
 EXTRA_ARGS=()
 
+usage() {
+  cat <<'EOF'
+Uso:
+  build-linux.sh [opciones] [-- <args extra de CMake>]
+
+Opciones:
+  --appimage   Genera también el artefacto AppImage
+  --deb        Genera también el paquete .deb mediante CPack
+  --sftpfc16   Sube el AppImage generado al destino SFTP configurado
+  -h, --help   Muestra esta ayuda
+
+Variables opcionales:
+  ZFSMGR_SFTP_TARGET  Destino SFTP para --sftpfc16
+
+Ejemplos:
+  ./scripts/build-linux.sh
+  ./scripts/build-linux.sh --deb
+  ./scripts/build-linux.sh --appimage --deb
+EOF
+}
+
+for arg in "$@"; do
+  case "${arg}" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+  esac
+done
+
 resolve_app_version() {
   local version=""
   if [[ -f "${SOURCE_DIR}/CMakeLists.txt" ]]; then

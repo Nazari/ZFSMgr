@@ -15,6 +15,39 @@ UPLOAD_SFTP=0
 SIGN_APP_MODE="auto" # auto|yes|no
 EXTRA_CMAKE_ARGS=()
 
+usage() {
+  cat <<'EOF'
+Uso:
+  build-macos.sh [opciones] [-- <args extra de CMake>]
+
+Opciones:
+  --bundle       Genera el bundle .app (por defecto)
+  --no-bundle    Compila sin empaquetar el bundle final
+  --sign         Fuerza la firma del bundle
+  --no-sign      Desactiva la firma del bundle
+  --sftpfc16     Sube el artefacto generado al destino SFTP configurado
+  -h, --help     Muestra esta ayuda
+
+Variables opcionales:
+  SELF_SIGN_CERT_NAME  Nombre del certificado local
+  KEYCHAIN_PASSWORD    Password del llavero para codesign
+  ZFSMGR_SFTP_TARGET   Destino SFTP para --sftpfc16
+
+Ejemplos:
+  ./scripts/build-macos.sh
+  ./scripts/build-macos.sh --bundle --no-sign
+EOF
+}
+
+for arg in "$@"; do
+  case "${arg}" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+  esac
+done
+
 resolve_app_version() {
   local version=""
   if [[ -f "${SOURCE_DIR}/CMakeLists.txt" ]]; then
