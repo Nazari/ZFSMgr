@@ -1,13 +1,41 @@
 #include "mainwindow.h"
 
 #include <QApplication>
+#include <QCoreApplication>
 #include <QCloseEvent>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QProcess>
 #include <QPushButton>
+#include <QTableWidget>
 #include <QTabBar>
+#include <QTabWidget>
 #include <QTextEdit>
 #include <QThread>
+#include <QTreeWidget>
+
+MainWindow::~MainWindow() {
+    m_closing = true;
+    QCoreApplication::removePostedEvents(this);
+
+    auto quiesceObject = [](QObject* obj) {
+        if (!obj) {
+            return;
+        }
+        obj->blockSignals(true);
+        QCoreApplication::removePostedEvents(obj);
+    };
+
+    quiesceObject(m_connectionsTable);
+    quiesceObject(m_connectionEntityTabs);
+    quiesceObject(m_bottomConnectionEntityTabs);
+    quiesceObject(m_connContentTree);
+    quiesceObject(m_bottomConnContentTree);
+    quiesceObject(m_poolViewTabBar);
+    quiesceObject(m_connContentPropsTable);
+    quiesceObject(m_pendingChangesView);
+    quiesceObject(m_logsTabs);
+}
 
 void MainWindow::updateStatus(const QString& text) {
     if (QThread::currentThread() != thread()) {

@@ -64,6 +64,7 @@ public:
     };
 
     explicit MainWindow(const QString& masterPassword, const QString& language, QWidget* parent = nullptr);
+    ~MainWindow() override;
     void configureSingleConnectionUiTestState(const ConnectionProfile& profile,
                                               const QStringList& importedPools,
                                               const QStringList& importablePools);
