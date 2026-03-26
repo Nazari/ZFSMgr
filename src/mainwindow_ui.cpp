@@ -186,6 +186,49 @@ protected:
     }
 };
 
+void paintConnectionSelectionOverlay(QPainter* painter,
+                                     const QStyleOptionViewItem& option,
+                                     const QModelIndex& index) {
+    if (!painter || !index.isValid() || !(option.state & QStyle::State_Selected)) {
+        return;
+    }
+    const QRect r = option.rect.adjusted(0, 0, -1, -1);
+    const QColor overlay(58, 124, 210, 28);
+    const QColor border(58, 124, 210, 170);
+    painter->save();
+    painter->fillRect(r, overlay);
+    painter->setPen(border);
+    painter->drawLine(r.topLeft(), r.topRight());
+    painter->drawLine(r.bottomLeft(), r.bottomRight());
+    if (index.column() == 0) {
+        painter->drawLine(r.topLeft(), r.bottomLeft());
+    }
+    if (index.model() && index.column() == index.model()->columnCount() - 1) {
+        painter->drawLine(r.topRight(), r.bottomRight());
+    }
+    painter->restore();
+}
+
+class ConnectionRowTextDelegate final : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        if (!painter || !index.isValid()) {
+            QStyledItemDelegate::paint(painter, option, index);
+            return;
+        }
+        QStyleOptionViewItem viewOpt(option);
+        initStyleOption(&viewOpt, index);
+        const bool selected = viewOpt.state & QStyle::State_Selected;
+        viewOpt.state &= ~QStyle::State_Selected;
+        QStyledItemDelegate::paint(painter, viewOpt, index);
+        if (selected) {
+            paintConnectionSelectionOverlay(painter, option, index);
+        }
+    }
+};
+
 class CenteredCheckDelegate final : public QStyledItemDelegate {
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
@@ -199,6 +242,8 @@ public:
 
         QStyleOptionViewItem viewOpt(option);
         initStyleOption(&viewOpt, index);
+        const bool selected = viewOpt.state & QStyle::State_Selected;
+        viewOpt.state &= ~QStyle::State_Selected;
         const QWidget* widget = viewOpt.widget;
         QStyle* style = widget ? widget->style() : QApplication::style();
 
@@ -224,6 +269,9 @@ public:
         cbOpt.rect = QRect(centeredPos, indicator.size());
 
         style->drawPrimitive(QStyle::PE_IndicatorItemViewItemCheck, &cbOpt, painter, widget);
+        if (selected) {
+            paintConnectionSelectionOverlay(painter, option, index);
+        }
 
         if (option.state & QStyle::State_HasFocus) {
             QStyleOptionFocusRect focusOpt;
@@ -293,6 +341,8 @@ public:
 
         QStyleOptionViewItem viewOpt(option);
         initStyleOption(&viewOpt, index);
+        const bool selected = viewOpt.state & QStyle::State_Selected;
+        viewOpt.state &= ~QStyle::State_Selected;
         const QWidget* widget = viewOpt.widget;
         QStyle* style = widget ? widget->style() : QApplication::style();
 
@@ -327,6 +377,9 @@ public:
             painter->drawPath(path);
         }
         painter->restore();
+        if (selected) {
+            paintConnectionSelectionOverlay(painter, option, index);
+        }
 
         if (option.state & QStyle::State_HasFocus) {
             QStyleOptionFocusRect focusOpt;
@@ -1451,6 +1504,7 @@ void MainWindow::buildUi() {
     m_connectionsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
     m_connectionsTable->setColumnWidth(1, 34);
     m_connectionsTable->setColumnWidth(2, 34);
+    m_connectionsTable->setItemDelegateForColumn(0, new ConnectionRowTextDelegate(m_connectionsTable));
     m_connectionsTable->setItemDelegateForColumn(1, new LightCenteredCheckDelegate(m_connectionsTable));
     m_connectionsTable->setItemDelegateForColumn(2, new LightCenteredCheckDelegate(m_connectionsTable));
 #ifdef Q_OS_MAC
