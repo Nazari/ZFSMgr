@@ -344,6 +344,17 @@ target_dataset_has_snapshots() {
   fi
 }
 
+target_has_snapshot_name() {
+  ds="$1"
+  snap_name="$2"
+  [ -n "$snap_name" ] || return 1
+  if [ "$TARGET_MODE" = "local" ]; then
+    zfs list -H -t snapshot -o name "${ds}@${snap_name}" >/dev/null 2>&1
+  else
+    run_via_target_ssh "zfs list -H -t snapshot -o name $(shq "${ds}@${snap_name}") >/dev/null 2>&1"
+  fi
+}
+
 due_classes() {
   hour="$(date '+%H')"
   dow="$(date '+%u')"
@@ -700,6 +711,16 @@ function Test-SourceHasSnapshot([string]$SrcDataset, [string]$SnapName) {
   if ([string]::IsNullOrWhiteSpace($SnapName)) { return $false }
   try {
     & zfs list -H -t snapshot -o name "$SrcDataset@$SnapName" | Out-Null
+    return $true
+  } catch {
+    return $false
+  }
+}
+
+function Test-TargetHasSnapshotName([string]$DstDataset, [string]$SnapName) {
+  if ([string]::IsNullOrWhiteSpace($SnapName)) { return $false }
+  try {
+    & zfs list -H -t snapshot -o name "$DstDataset@$SnapName" | Out-Null
     return $true
   } catch {
     return $false
