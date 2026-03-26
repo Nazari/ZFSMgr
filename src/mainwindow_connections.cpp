@@ -318,40 +318,40 @@ run_via_target_ssh() {
 }
 
 list_target_snapshots() {
-  ds="$1"
+  target_list_ds="$1"
   if [ "$TARGET_MODE" = "local" ]; then
-    zfs list -H -t snapshot -o name -s creation -d 1 "$ds" 2>/dev/null
+    zfs list -H -t snapshot -o name -s creation -d 1 "$target_list_ds" 2>/dev/null
   else
-    run_via_target_ssh "$(build_target_list_command "$ds")"
+    run_via_target_ssh "$(build_target_list_command "$target_list_ds")"
   fi
 }
 
 target_dataset_exists() {
-  ds="$1"
+  target_exists_ds="$1"
   if [ "$TARGET_MODE" = "local" ]; then
-    zfs list -H -o name "$ds" >/dev/null 2>&1
+    zfs list -H -o name "$target_exists_ds" >/dev/null 2>&1
   else
-    run_via_target_ssh "zfs list -H -o name $(shq "$ds") >/dev/null 2>&1"
+    run_via_target_ssh "zfs list -H -o name $(shq "$target_exists_ds") >/dev/null 2>&1"
   fi
 }
 
 target_dataset_has_snapshots() {
-  ds="$1"
+  target_snap_ds="$1"
   if [ "$TARGET_MODE" = "local" ]; then
-    zfs list -H -t snapshot -o name -d 1 "$ds" 2>/dev/null | grep -q .
+    zfs list -H -t snapshot -o name -d 1 "$target_snap_ds" 2>/dev/null | grep -q .
   else
-    run_via_target_ssh "zfs list -H -t snapshot -o name -d 1 $(shq "$ds") 2>/dev/null | grep -q ."
+    run_via_target_ssh "zfs list -H -t snapshot -o name -d 1 $(shq "$target_snap_ds") 2>/dev/null | grep -q ."
   fi
 }
 
 target_has_snapshot_name() {
-  ds="$1"
-  snap_name="$2"
-  [ -n "$snap_name" ] || return 1
+  target_snap_ds="$1"
+  target_snap_name="$2"
+  [ -n "$target_snap_name" ] || return 1
   if [ "$TARGET_MODE" = "local" ]; then
-    zfs list -H -t snapshot -o name "${ds}@${snap_name}" >/dev/null 2>&1
+    zfs list -H -t snapshot -o name "${target_snap_ds}@${target_snap_name}" >/dev/null 2>&1
   else
-    run_via_target_ssh "zfs list -H -t snapshot -o name $(shq "${ds}@${snap_name}") >/dev/null 2>&1"
+    run_via_target_ssh "zfs list -H -t snapshot -o name $(shq "${target_snap_ds}@${target_snap_name}") >/dev/null 2>&1"
   fi
 }
 
@@ -415,15 +415,15 @@ prune_snapshots() {
 }
 
 latest_target_snapshot() {
-  dst_ds="$1"
-  list_target_snapshots "$dst_ds" | sed -n "s#^${dst_ds}@##p" | tail -n 1
+  latest_dst_ds="$1"
+  list_target_snapshots "$latest_dst_ds" | sed -n "s#^${latest_dst_ds}@##p" | tail -n 1
 }
 
 source_has_snapshot() {
-  src_ds="$1"
-  snap_name="$2"
-  [ -n "$snap_name" ] || return 1
-  zfs list -H -t snapshot -o name "${src_ds}@${snap_name}" >/dev/null 2>&1
+  source_probe_ds="$1"
+  source_probe_snap_name="$2"
+  [ -n "$source_probe_snap_name" ] || return 1
+  zfs list -H -t snapshot -o name "${source_probe_ds}@${source_probe_snap_name}" >/dev/null 2>&1
 }
 
 level_snapshot() {
