@@ -172,7 +172,7 @@ write_state() {
   "artifacts_dir": "$(json_escape "${ARTIFACTS_DIR}")",
   "buildall_platform_log_dir": "$(json_escape "${BUILDALL_PLATFORM_LOG_DIR}")",
   "artifacts": {
-    "mac_app_zip": "$(json_escape "${MAC_ARTIFACT}")",
+    "mac_dmg": "$(json_escape "${MAC_ARTIFACT}")",
     "windows_exe": "$(json_escape "${WIN_ARTIFACT}")",
     "linux_appimage": "$(json_escape "${LINUX_APPIMAGE}")",
     "linux_deb": "$(json_escape "${LINUX_DEB}")"
@@ -273,7 +273,7 @@ ARTIFACTS_DIR="${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}"
 mkdir -p "${ARTIFACTS_DIR}"
 mkdir -p "${LOG_DIR}"
 
-MAC_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}.app.zip" | head -n1)"
+MAC_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}.dmg" | head -n1)"
 WIN_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-Setup-${VERSION}*.exe" | head -n1)"
 LINUX_APPIMAGE="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}-*.AppImage" | head -n1)"
 LINUX_DEB="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "zfsmgr_${VERSION}_*.deb" | head -n1)"
@@ -290,17 +290,19 @@ elif [[ "${RESUME}" -eq 1 && "${HAS_ALL_ARTIFACTS}" -eq 1 ]]; then
   log "Modo resume: se reutilizan los artefactos ya existentes en ${ARTIFACTS_DIR}"
   write_state "buildall" "reused" "artefactos reutilizados"
 else
-  rm -rf "${ARTIFACTS_DIR}"
+  if [[ "${RESUME}" -eq 0 ]]; then
+    rm -rf "${ARTIFACTS_DIR}"
+  fi
   mkdir -p "${ARTIFACTS_DIR}"
   log "Ejecutando buildall.sh con artefactos en ${ARTIFACTS_DIR}"
   run_logged buildall env OUTPUT_DIR="${ARTIFACTS_DIR}" BUILDALL_LOG_DIR="${BUILDALL_PLATFORM_LOG_DIR}" BUILD_GIT_REMOTE="${GIT_REMOTE}" BUILD_GIT_REF="${BUILD_REF}" BUILD_PLATFORMS="${BUILD_PLATFORMS_OVERRIDE:-mac,linux,windows}" "${SCRIPT_DIR}/buildall.sh"
-  MAC_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}.app.zip" | head -n1)"
+  MAC_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}.dmg" | head -n1)"
   WIN_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-Setup-${VERSION}*.exe" | head -n1)"
   LINUX_APPIMAGE="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}-*.AppImage" | head -n1)"
   LINUX_DEB="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "zfsmgr_${VERSION}_*.deb" | head -n1)"
 fi
 
-[[ -n "${MAC_ARTIFACT}" && -f "${MAC_ARTIFACT}" ]] || fail "No se encontró el artefacto macOS (.app.zip)"
+[[ -n "${MAC_ARTIFACT}" && -f "${MAC_ARTIFACT}" ]] || fail "No se encontró el artefacto macOS (.dmg)"
 [[ -n "${WIN_ARTIFACT}" && -f "${WIN_ARTIFACT}" ]] || fail "No se encontró el artefacto Windows (.exe)"
 [[ -n "${LINUX_APPIMAGE}" && -f "${LINUX_APPIMAGE}" ]] || fail "No se encontró el artefacto Linux (.AppImage)"
 [[ -n "${LINUX_DEB}" && -f "${LINUX_DEB}" ]] || fail "No se encontró el artefacto Linux (.deb)"
