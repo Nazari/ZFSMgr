@@ -454,11 +454,14 @@ try {
   Write-Output "ARTIFACT_WINDOWS=$artifact"
 } finally {
   if ($restoreNeeded) {
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     if ($originalDetached) {
-      git checkout --detach $originalRef *> $null
+      git -c advice.detachedHead=false checkout --detach $originalRef *> $null
     } else {
       git checkout $originalRef *> $null
     }
+    $ErrorActionPreference = $previousErrorActionPreference
   }
 }
 EOF
