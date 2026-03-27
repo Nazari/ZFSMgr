@@ -2041,7 +2041,7 @@ void MainWindow::buildUi() {
     // incluso cuando uno de ellos esté vacío.
     {
         if (m_connContentTree) {
-            syncConnContentPropertyColumnsFor(m_connContentTree, m_connContentToken);
+            syncConnContentPropertyColumnsFor(m_connContentTree, connContentTokenForTree(m_connContentTree));
         }
         if (m_bottomConnContentTree) {
             withConnContentContext(m_bottomConnContentTree, QString(), [this]() {

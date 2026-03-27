@@ -811,7 +811,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
                         .arg(m_connActionDest.poolName);
         }
     } else if (side == QStringLiteral("conncontent")) {
-        token = m_connContentToken;
+        token = connContentTokenForTree(m_connContentTree);
     }
     const int sep = token.indexOf(QStringLiteral("::"));
     if (sep <= 0) {

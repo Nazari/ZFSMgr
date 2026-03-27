@@ -678,6 +678,7 @@ private:
     void executeConnectionAdvancedAction(const QString& action);
     void setConnectionOriginSelection(const DatasetSelectionContext& ctx);
     void setConnectionDestinationSelection(const DatasetSelectionContext& ctx);
+    QString connContentTokenForTree(const QTreeWidget* tree) const;
     void withConnContentContext(QTreeWidget* tree,
                                 const QString& token,
                                 const std::function<void()>& fn);

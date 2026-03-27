@@ -1929,16 +1929,17 @@ void MainWindow::applyConnectionDisplayMode(int connIdx, const QString& modeRaw)
     const int prevBottom = m_bottomDetailConnIdx;
     const bool wantTop = (mode == QStringLiteral("source") || mode == QStringLiteral("both"));
     const bool wantBottom = (mode == QStringLiteral("target") || mode == QStringLiteral("both"));
+    const QString topTreeToken = connContentTokenForTree(m_connContentTree);
 
     if (wantTop && prevTop >= 0 && prevTop != connIdx) {
         saveTopTreeStateForConnection(prevTop);
-        if (!m_connContentToken.isEmpty()) {
-            saveConnContentTreeState(m_connContentToken);
+        if (!topTreeToken.isEmpty()) {
+            saveConnContentTreeState(topTreeToken);
         }
     } else if (!wantTop && prevTop == connIdx) {
         saveTopTreeStateForConnection(connIdx);
-        if (!m_connContentToken.isEmpty()) {
-            saveConnContentTreeState(m_connContentToken);
+        if (!topTreeToken.isEmpty()) {
+            saveConnContentTreeState(topTreeToken);
         }
     }
 
@@ -2293,7 +2294,7 @@ void MainWindow::updateSecondaryConnectionDetail() {
     m_bottomConnContentTree->clear();
     if (m_bottomDetailConnIdx < 0 || m_bottomDetailConnIdx >= m_profiles.size()
         || m_bottomDetailConnIdx >= m_states.size() || isConnectionDisconnected(m_bottomDetailConnIdx)) {
-        syncConnContentPropertyColumnsFor(m_bottomConnContentTree, m_connContentToken);
+        syncConnContentPropertyColumnsFor(m_bottomConnContentTree, connContentTokenForTree(m_bottomConnContentTree));
         return;
     }
     const ConnectionRuntimeState st = m_states[m_bottomDetailConnIdx];
@@ -2635,10 +2636,10 @@ void MainWindow::refreshConnectionNodeDetails() {
     };
 
     int connIdx = m_topDetailConnIdx;
+    const QString currentConnContentToken = connContentTokenForTree(m_connContentTree);
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
-        if (!m_connContentToken.isEmpty()) {
-            saveConnContentTreeState(m_connContentToken);
-            m_connContentToken.clear();
+        if (!currentConnContentToken.isEmpty()) {
+            saveConnContentTreeState(currentConnContentToken);
         }
         if (m_poolViewTabBar) {
             m_poolViewTabBar->setVisible(false);
@@ -2717,9 +2718,8 @@ void MainWindow::refreshConnectionNodeDetails() {
         m_poolViewTabBar->setTabData(1, QVariant());
     }
     if (!hasPoolTabSelected) {
-        if (!m_connContentToken.isEmpty()) {
-            saveConnContentTreeState(m_connContentToken);
-            m_connContentToken.clear();
+        if (!currentConnContentToken.isEmpty()) {
+            saveConnContentTreeState(currentConnContentToken);
         }
         if (m_connPropsStack && m_connContentPage) {
             m_connPropsStack->setCurrentWidget(m_connContentPage);
@@ -2756,8 +2756,8 @@ void MainWindow::refreshConnectionNodeDetails() {
     const QString connName = (connIdx >= 0 && connIdx < m_profiles.size()) ? m_profiles[connIdx].name : QString();
     const QString poolName = activePoolName;
     const QString newConnContentToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
-    if (!m_connContentToken.isEmpty() && m_connContentToken != newConnContentToken) {
-        saveConnContentTreeState(m_connContentToken);
+    if (!currentConnContentToken.isEmpty() && currentConnContentToken != newConnContentToken) {
+        saveConnContentTreeState(currentConnContentToken);
     }
     if (m_connPropsStack && m_connContentPage) {
         m_connPropsStack->setCurrentWidget(m_connContentPage);
@@ -2768,7 +2768,6 @@ void MainWindow::refreshConnectionNodeDetails() {
     resetPoolActionButtons();
     refreshSelectedPoolDetails(false, true);
     if (connIdx >= 0 && connIdx < m_profiles.size() && m_connContentTree) {
-        m_connContentToken = newConnContentToken;
         populateDatasetTree(m_connContentTree, connIdx, poolName, DatasetTreeContext::ConnectionContent, true);
         syncConnContentPoolColumns();
         refreshDatasetProperties(QStringLiteral("conncontent"));
@@ -2890,8 +2889,9 @@ void MainWindow::refreshConnectionByIndex(int idx) {
             }
         }
     }
-    if (!m_connContentToken.isEmpty() && m_connContentTree) {
-        saveConnContentTreeState(m_connContentToken);
+    const QString topTreeToken = connContentTokenForTree(m_connContentTree);
+    if (!topTreeToken.isEmpty() && m_connContentTree) {
+        saveConnContentTreeState(topTreeToken);
     }
     if (m_bottomConnContentTree && m_bottomConnectionEntityTabs
         && m_bottomConnectionEntityTabs->isVisible() && idx == m_bottomDetailConnIdx) {

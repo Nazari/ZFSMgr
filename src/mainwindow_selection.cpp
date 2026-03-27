@@ -3,6 +3,55 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 
+QString MainWindow::connContentTokenForTree(const QTreeWidget* tree) const {
+    if (!tree) {
+        return m_connContentToken.trimmed();
+    }
+    auto tokenFromItem = [](QTreeWidgetItem* item) -> QString {
+        if (!item) {
+            return QString();
+        }
+        QTreeWidgetItem* owner = item;
+        while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
+               && !owner->data(0, Qt::UserRole + 12).toBool()) {
+            owner = owner->parent();
+        }
+        if (!owner) {
+            return QString();
+        }
+        const int connIdx = owner->data(0, Qt::UserRole + 10).toInt();
+        const QString poolName = owner->data(0, Qt::UserRole + 11).toString().trimmed();
+        if (connIdx < 0 || poolName.isEmpty()) {
+            return QString();
+        }
+        return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+    };
+    if (QTreeWidgetItem* current = tree->currentItem()) {
+        const QString token = tokenFromItem(current);
+        if (!token.isEmpty()) {
+            return token;
+        }
+    }
+    const auto selected = tree->selectedItems();
+    if (!selected.isEmpty()) {
+        const QString token = tokenFromItem(selected.first());
+        if (!token.isEmpty()) {
+            return token;
+        }
+    }
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* root = tree->topLevelItem(i);
+        if (!root || !root->data(0, Qt::UserRole + 12).toBool()) {
+            continue;
+        }
+        const QString token = tokenFromItem(root);
+        if (!token.isEmpty()) {
+            return token;
+        }
+    }
+    return m_connContentToken.trimmed();
+}
+
 MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QString& side) const {
     DatasetSelectionContext ctx;
     if (m_transferSelectionOverrideActive) {
@@ -46,7 +95,7 @@ MainWindow::DatasetSelectionContext MainWindow::currentDatasetSelection(const QS
             }
         }
         if (token.isEmpty()) {
-            token = m_connContentToken;
+            token = connContentTokenForTree(m_connContentTree);
         }
     } else {
         return ctx;

@@ -1862,8 +1862,9 @@ void MainWindow::syncConnContentPropertyColumns() {
     if (propsNode) {
         propsNode->setExpanded(shouldExpandPropsNode);
     }
-    if (tree == m_connContentTree && !m_connContentToken.trimmed().isEmpty()) {
-        const QString normalizedToken = normalizedConnContentStateToken(tree, m_connContentToken);
+    const QString activeTreeToken = connContentTokenForTree(tree);
+    if (!activeTreeToken.trimmed().isEmpty()) {
+        const QString normalizedToken = normalizedConnContentStateToken(tree, activeTreeToken);
         const QString scopedToken =
             normalizedToken
             + ((tree == m_bottomConnContentTree) ? QStringLiteral("|bottom")
@@ -1975,7 +1976,7 @@ void MainWindow::syncConnContentPoolColumns() {
 
     int wantedConnIdx = -1;
     QString wantedPoolName;
-    const QString token = m_connContentToken.trimmed();
+    const QString token = connContentTokenForTree(tree).trimmed();
     const int sep = token.indexOf(QStringLiteral("::"));
     if (sep > 0) {
         bool ok = false;
@@ -3078,7 +3079,8 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
 
     if (options.interactiveConnContent) {
         syncConnContentPropertyColumns();
-        restoreConnContentTreeState(m_connContentToken);
+        const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+        restoreConnContentTreeState(token);
     }
 
     m_loadingDatasetTrees = false;
@@ -3198,10 +3200,10 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
             }
         }
         QMap<QString, QString> vals = m_connContentPropValuesByObject.value(
-            QStringLiteral("%1|%2").arg(m_connContentToken.trimmed(),
+            QStringLiteral("%1|%2").arg(token.trimmed(),
                                         objectName.trimmed()));
         vals[prop] = value;
-        updateConnContentPropertyValues(m_connContentToken, objectName, vals);
+        updateConnContentPropertyValues(token, objectName, vals);
         updateConnContentDraftValue(token, objectName, prop, value);
         updateApplyPropsButtonState();
         return;
@@ -3232,7 +3234,7 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
         if (itemConnIdx >= 0 && !itemPool.isEmpty()) {
             token = QStringLiteral("%1::%2").arg(itemConnIdx).arg(itemPool);
         } else {
-            token = m_connContentToken;
+            token = connContentTokenForTree(tree);
         }
     } else {
         token.clear();
@@ -3296,11 +3298,14 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
             }
         }
         QMap<QString, QString> vals = m_connContentPropValuesByObject.value(
-            QStringLiteral("%1|%2").arg(m_connContentToken.trimmed(),
+            QStringLiteral("%1|%2").arg(token.trimmed(),
                                         objectName.trimmed()));
-        vals[QStringLiteral("estado")] = mountedLabel;
-        updateConnContentPropertyValues(m_connContentToken, objectName, vals);
-        updateConnContentDraftValue(token, objectName, QStringLiteral("estado"), mountedLabel);
+        vals[QStringLiteral("mounted")] = willBeMounted ? QStringLiteral("yes") : QStringLiteral("no");
+        updateConnContentPropertyValues(token, objectName, vals);
+        updateConnContentDraftValue(token,
+                                    objectName,
+                                    QStringLiteral("mounted"),
+                                    willBeMounted ? QStringLiteral("yes") : QStringLiteral("no"));
         updateApplyPropsButtonState();
         updateConnectionActionsState();
         return;

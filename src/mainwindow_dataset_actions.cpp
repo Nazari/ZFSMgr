@@ -680,7 +680,7 @@ void MainWindow::reloadConnContentPool(int connIdx, const QString& poolName) {
         return true;
     };
 
-    const QString topToken = m_connContentToken;
+    const QString topToken = connContentTokenForTree(m_connContentTree);
     const QString bottomToken = tokenForBottomTree();
     bool refreshed = false;
     refreshed = refreshOneTree(m_connContentTree, topToken) || refreshed;
@@ -698,7 +698,7 @@ void MainWindow::reloadDatasetSide(const QString& side) {
         }
         return;
     } else if (side == QStringLiteral("conncontent")) {
-        const QString token = m_connContentToken;
+        const QString token = connContentTokenForTree(m_connContentTree);
         saveConnContentTreeState(token);
         const int sep = token.indexOf(QStringLiteral("::"));
         if (sep > 0) {

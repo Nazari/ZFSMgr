@@ -1602,23 +1602,15 @@ bool MainWindow::selectDatasetForTest(const QString& datasetName, bool bottom) {
     if (!item) {
         return false;
     }
-    QTreeWidget* prevTree = m_connContentTree;
-    const QString prevToken = m_connContentToken;
-    if (bottom) {
-        const int bIdx = m_bottomConnectionEntityTabs ? m_bottomConnectionEntityTabs->currentIndex() : -1;
-        if (bIdx >= 0 && m_bottomConnectionEntityTabs && bIdx < m_bottomConnectionEntityTabs->count()) {
-            const QString key = m_bottomConnectionEntityTabs->tabData(bIdx).toString();
-            const QStringList parts = key.split(':');
-            if (parts.size() >= 3 && parts.first() == QStringLiteral("pool")) {
-                m_connContentToken = QStringLiteral("%1::%2").arg(parts.value(1)).arg(parts.value(2).trimmed());
-            }
-        }
-        m_connContentTree = tree;
-    }
-    tree->setCurrentItem(item);
-    refreshDatasetProperties(QStringLiteral("conncontent"));
-    m_connContentTree = prevTree;
-    m_connContentToken = prevToken;
+    const int connIdx = item->data(0, Qt::UserRole + 10).toInt();
+    const QString poolName = item->data(0, Qt::UserRole + 11).toString().trimmed();
+    const QString token = (connIdx >= 0 && !poolName.isEmpty())
+                              ? QStringLiteral("%1::%2").arg(connIdx).arg(poolName)
+                              : QString();
+    withConnContentContext(tree, token, [this, tree, item]() {
+        tree->setCurrentItem(item);
+        refreshDatasetProperties(QStringLiteral("conncontent"));
+    });
     return true;
 }
 
@@ -1704,7 +1696,7 @@ void MainWindow::rebuildConnContentTreeForTest(const QString& datasetToSelect, b
     }
     const QString token = [&]() -> QString {
         if (!bottom) {
-            return m_connContentToken;
+            return connContentTokenForTree(tree);
         }
         const int bIdx = m_bottomConnectionEntityTabs ? m_bottomConnectionEntityTabs->currentIndex() : -1;
         if (bIdx < 0 || !m_bottomConnectionEntityTabs || bIdx >= m_bottomConnectionEntityTabs->count()) {
@@ -1727,17 +1719,13 @@ void MainWindow::rebuildConnContentTreeForTest(const QString& datasetToSelect, b
     if (!okConn || connIdx < 0 || poolName.isEmpty()) {
         return;
     }
-    QTreeWidget* prevTree = m_connContentTree;
-    const QString prevToken = m_connContentToken;
-    m_connContentTree = tree;
-    m_connContentToken = token;
-    saveConnContentTreeState(token);
-    populateDatasetTree(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, true);
-    if (!datasetToSelect.trimmed().isEmpty()) {
-        selectDatasetForTest(datasetToSelect, bottom);
-    }
-    m_connContentTree = prevTree;
-    m_connContentToken = prevToken;
+    withConnContentContext(tree, token, [this, tree, token, connIdx, poolName, &datasetToSelect, bottom]() {
+        saveConnContentTreeState(token);
+        populateDatasetTree(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, true);
+        if (!datasetToSelect.trimmed().isEmpty()) {
+            selectDatasetForTest(datasetToSelect, bottom);
+        }
+    });
 }
 
 QStringList MainWindow::topLevelPoolNamesForTest(bool bottom) const {
