@@ -973,6 +973,21 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         const auto existingInlineIt = m_connContentPropValuesByObject.constFind(inlineCacheKey);
         if (existingInlineIt != m_connContentPropValuesByObject.cend()) {
             valuesByProp = existingInlineIt.value();
+        } else {
+            const QVector<DatasetPropCacheRow> fullRows =
+                datasetPropertyRowsFromModelOrCache(connIdx, poolName, objectName);
+            for (const DatasetPropCacheRow& row : fullRows) {
+                const QString prop = row.prop.trimmed();
+                if (!prop.isEmpty()) {
+                    valuesByProp[prop] = row.value;
+                }
+            }
+            const auto runtimeProps = dsInfo->runtime.properties;
+            for (auto it = runtimeProps.cbegin(); it != runtimeProps.cend(); ++it) {
+                if (!it.key().trimmed().isEmpty() && !valuesByProp.contains(it.key())) {
+                    valuesByProp[it.key()] = it.value();
+                }
+            }
         }
         valuesByProp[QStringLiteral("snapshot")] =
             snapshot.trimmed().isEmpty()

@@ -355,8 +355,10 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
         return false;
     }
     const bool usesStreamInput = !stdinPayload.isEmpty();
-    QString remoteCmd = usesStreamInput ? withSudoStreamInput(sudoProfile, cmd)
-                                        : withSudo(sudoProfile, cmd);
+    const QString effectiveCmd =
+        isWindowsConnection(p) ? cmd : mwhelpers::withUnixSearchPathCommand(cmd);
+    QString remoteCmd = usesStreamInput ? withSudoStreamInput(sudoProfile, effectiveCmd)
+                                        : withSudo(sudoProfile, effectiveCmd);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(QStringLiteral("%1@%2:%3").arg(p.username, p.host).arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
                                 .arg(buildSshPreviewCommand(p, remoteCmd));
@@ -521,7 +523,10 @@ bool MainWindow::executePendingDatasetRenameDraft(const PendingDatasetRenameDraf
         }
         return false;
     }
-    const QString remoteCmd = withSudo(sudoProfile, pendingDatasetRenameCommand(draft));
+    const QString renameCmd = isWindowsConnection(p)
+                                  ? pendingDatasetRenameCommand(draft)
+                                  : mwhelpers::withUnixSearchPathCommand(pendingDatasetRenameCommand(draft));
+    const QString remoteCmd = withSudo(sudoProfile, renameCmd);
     appLog(QStringLiteral("NORMAL"),
            QStringLiteral("Aplicar renombrado %1::%2")
                .arg(p.name, draft.sourceName.trimmed()));
@@ -614,7 +619,9 @@ QString MainWindow::diagnoseUmountFailure(const DatasetSelectionContext& ctx) {
                       .arg(mpQ);
     }
 
-    if (!runSsh(p, withSudo(p, diagCmd), 15000, out, err, rc)) {
+    const QString effectiveDiagCmd =
+        isWindowsConnection(p) ? diagCmd : mwhelpers::withUnixSearchPathCommand(diagCmd);
+    if (!runSsh(p, withSudo(p, effectiveDiagCmd), 15000, out, err, rc)) {
         return trk(QStringLiteral("t_diag_run_fail1"), QStringLiteral("No se pudo ejecutar el diagnóstico remoto."),
                    QStringLiteral("Could not execute remote diagnostics."),
                    QStringLiteral("无法执行远程诊断。"));
@@ -952,7 +959,7 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
     QString mountedOut;
     QString mountedErr;
     int mountedRc = -1;
-    const QString mountedCmd = withSudo(p, QStringLiteral("zfs mount"));
+    const QString mountedCmd = withSudo(p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs mount")));
     if (!runSsh(p, mountedCmd, 20000, mountedOut, mountedErr, mountedRc) || mountedRc != 0) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_mounted_rd_err1"), QStringLiteral("No se pudo leer datasets montados."),
@@ -1001,7 +1008,7 @@ bool MainWindow::umountDataset(const QString& side, const DatasetSelectionContex
     QString err;
     int rc = -1;
     const ConnectionProfile& p = m_profiles[ctx.connIdx];
-    QString checkCmd = withSudo(p, hasChildrenCmd);
+    QString checkCmd = withSudo(p, isWin ? hasChildrenCmd : mwhelpers::withUnixSearchPathCommand(hasChildrenCmd));
     const bool ran = runSsh(p, checkCmd, 12000, out, err, rc);
     bool hasChildrenMounted = ran && rc == 0;
     QString cmd;

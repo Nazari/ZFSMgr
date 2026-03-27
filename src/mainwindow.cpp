@@ -835,6 +835,10 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
         if (prop.isEmpty()) {
             continue;
         }
+        val = gsaComparableValue(prop, val);
+        if (source == QStringLiteral("-")) {
+            source.clear();
+        }
         DatasetPropCacheRow row{prop, val, source, QString()};
         mergedByKey.insert(normalizedPropKey(prop), row);
         dsInfo->runtime.properties.insert(prop, val);
