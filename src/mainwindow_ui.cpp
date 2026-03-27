@@ -1892,15 +1892,14 @@ void MainWindow::buildUi() {
     connContentLayout->setSpacing(4);
     m_topDatasetPane = new ConnectionDatasetTreePane(ConnectionDatasetTreePane::Role::Top, m_connContentPage);
     m_connContentTree = m_topDatasetPane->tree();
-    m_connContentTree->setHeaderLabels({QStringLiteral("Origen:")
-                                            + trk(QStringLiteral("t_dataset_001"),
-                                                  QStringLiteral("Dataset"),
-                                                  QStringLiteral("Dataset"),
-                                                  QStringLiteral("数据集")),
-                                        trk(QStringLiteral("t_snapshot_col01"),
-                                            QStringLiteral("Snapshot"),
-                                            QStringLiteral("Snapshot"),
-                                            QStringLiteral("快照")),
+    m_connContentTree->setHeaderLabels({trk(QStringLiteral("t_origin_dataset_col001"),
+                                            QStringLiteral("Origen:Dataset"),
+                                            QStringLiteral("Origin:Dataset"),
+                                            QStringLiteral("源:数据集")),
+                                         trk(QStringLiteral("t_snapshot_col01"),
+                                             QStringLiteral("Snapshot"),
+                                             QStringLiteral("Snapshot"),
+                                             QStringLiteral("快照")),
                                         trk(QStringLiteral("t_montado_a97484"),
                                             QStringLiteral("Montado"),
                                             QStringLiteral("Mounted"),
@@ -2015,11 +2014,10 @@ void MainWindow::buildUi() {
     bottomConnLayout->addWidget(m_bottomConnectionEntityTabs, 0);
     m_bottomDatasetPane = new ConnectionDatasetTreePane(ConnectionDatasetTreePane::Role::Bottom, bottomConnBox);
     m_bottomConnContentTree = m_bottomDatasetPane->tree();
-    m_bottomConnContentTree->setHeaderLabels({QStringLiteral("Destino:")
-                                                   + trk(QStringLiteral("t_dataset_001"),
-                                                         QStringLiteral("Dataset"),
-                                                         QStringLiteral("Dataset"),
-                                                         QStringLiteral("数据集")),
+    m_bottomConnContentTree->setHeaderLabels({trk(QStringLiteral("t_target_dataset_col001"),
+                                                  QStringLiteral("Destino:Dataset"),
+                                                  QStringLiteral("Destination:Dataset"),
+                                                  QStringLiteral("目标:数据集")),
                                                trk(QStringLiteral("t_snapshot_col01"),
                                                    QStringLiteral("Snapshot"),
                                                    QStringLiteral("Snapshot"),
@@ -2112,7 +2110,10 @@ void MainWindow::buildUi() {
     };
     installTreeHeaderContextMenu(m_connContentTree);
     installTreeHeaderContextMenu(m_bottomConnContentTree);
-    bottomConnLayout->addWidget(m_bottomDatasetPane, 1);
+    auto* bottomContentSplit = new QSplitter(Qt::Vertical, bottomConnBox);
+    bottomContentSplit->setChildrenCollapsible(true);
+    bottomContentSplit->setHandleWidth(4);
+    bottomContentSplit->addWidget(m_bottomDatasetPane);
     m_rightMainSplit->setStretchFactor(0, 1);
     m_rightMainSplit->setStretchFactor(1, 1);
     m_rightMainSplit->setSizes({500, 500});
@@ -2250,7 +2251,7 @@ void MainWindow::buildUi() {
             QStringLiteral("Cambios pendientes"),
             QStringLiteral("Pending changes"),
             QStringLiteral("待处理更改")),
-        central);
+        bottomConnBox);
     auto* pendingChangesLayout = new QVBoxLayout(pendingChangesBox);
     pendingChangesLayout->setContentsMargins(6, 6, 6, 6);
     pendingChangesLayout->setSpacing(4);
@@ -2299,6 +2300,12 @@ void MainWindow::buildUi() {
     pendingChangesBody->addWidget(m_pendingChangesView, 1);
     pendingChangesLayout->addLayout(pendingChangesBody, 1);
     pendingChangesBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    pendingChangesBox->setMinimumHeight(0);
+    bottomContentSplit->addWidget(pendingChangesBox);
+    bottomContentSplit->setStretchFactor(0, 1);
+    bottomContentSplit->setStretchFactor(1, 0);
+    bottomContentSplit->setSizes({700, 220});
+    bottomConnLayout->addWidget(bottomContentSplit, 1);
 
     loadPersistedAppLogToView();
 
@@ -2317,24 +2324,13 @@ void MainWindow::buildUi() {
     bottomTabsLayout->setSpacing(0);
     bottomTabsLayout->addWidget(m_logsTabs, 1);
 
-    m_bottomInfoSplit = new QSplitter(Qt::Horizontal, central);
-    m_bottomInfoSplit->setChildrenCollapsible(true);
-    m_bottomInfoSplit->setHandleWidth(4);
-    m_bottomInfoSplit->addWidget(pendingChangesBox);
-    m_bottomInfoSplit->addWidget(bottomTabsPane);
-    m_bottomInfoSplit->setStretchFactor(0, 0);
-    m_bottomInfoSplit->setStretchFactor(1, 1);
-    m_bottomInfoSplit->setSizes({360, 840});
-
     m_verticalMainSplit = new QSplitter(Qt::Vertical, central);
     m_verticalMainSplit->setChildrenCollapsible(true);
     m_verticalMainSplit->setHandleWidth(4);
     topArea->setMinimumHeight(0);
-    pendingChangesBox->setMinimumHeight(0);
     bottomTabsPane->setMinimumHeight(0);
-    m_bottomInfoSplit->setMinimumHeight(0);
     m_verticalMainSplit->addWidget(topArea);
-    m_verticalMainSplit->addWidget(m_bottomInfoSplit);
+    m_verticalMainSplit->addWidget(bottomTabsPane);
     m_verticalMainSplit->setStretchFactor(0, 81);
     m_verticalMainSplit->setStretchFactor(1, 19);
     m_verticalMainSplit->setSizes({810, 190});
@@ -2356,9 +2352,6 @@ void MainWindow::buildUi() {
         }
         if (m_verticalMainSplit && !m_verticalMainSplitState.isEmpty()) {
             m_verticalMainSplit->restoreState(m_verticalMainSplitState);
-        }
-        if (m_bottomInfoSplit && !m_bottomInfoSplitState.isEmpty()) {
-            m_bottomInfoSplit->restoreState(m_bottomInfoSplitState);
         }
     });
 

@@ -440,6 +440,28 @@ bool mountedStateFromText(const QString& value, bool* mountedOut) {
     return false;
 }
 
+QString gsaComparableValue(const QString& propName, const QString& rawValue) {
+    const QString prop = propName.trimmed();
+    const QString value = rawValue.trimmed();
+    if (!prop.startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+        return rawValue;
+    }
+    if (prop.compare(QStringLiteral("org.fc16.gsa:destino"), Qt::CaseInsensitive) == 0) {
+        return (value == QStringLiteral("-")) ? QString() : rawValue;
+    }
+    if (value.isEmpty() || value == QStringLiteral("-")) {
+        if (prop.compare(QStringLiteral("org.fc16.gsa:horario"), Qt::CaseInsensitive) == 0
+            || prop.compare(QStringLiteral("org.fc16.gsa:diario"), Qt::CaseInsensitive) == 0
+            || prop.compare(QStringLiteral("org.fc16.gsa:semanal"), Qt::CaseInsensitive) == 0
+            || prop.compare(QStringLiteral("org.fc16.gsa:mensual"), Qt::CaseInsensitive) == 0
+            || prop.compare(QStringLiteral("org.fc16.gsa:anual"), Qt::CaseInsensitive) == 0) {
+            return QStringLiteral("0");
+        }
+        return QStringLiteral("off");
+    }
+    return rawValue;
+}
+
 } // namespace
 
 bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
@@ -547,18 +569,34 @@ bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
                                     QStringLiteral("%1 的每年保留值无效。它必须是大于或等于 0 的整数。")).arg(datasetName));
                 }
 
+                if (state.level && state.destination.isEmpty()) {
+                    return fail(trk(QStringLiteral("t_gsa_level_dest_required_001"),
+                                    QStringLiteral("La programación GSA de %1 tiene Nivelar=on pero no tiene Destino."),
+                                    QStringLiteral("GSA scheduling for %1 has Level=on but no Destination."),
+                                    QStringLiteral("%1 的 GSA 计划启用了层级同步，但未指定目标。")).arg(datasetName));
+                }
+                if (state.level && !state.destination.contains(QStringLiteral("::"))) {
+                    return fail(trk(QStringLiteral("t_gsa_dest_format_001"),
+                                    QStringLiteral("El destino GSA de %1 debe tener formato Con::Pool/Dataset."),
+                                    QStringLiteral("The GSA destination for %1 must use the Con::Pool/Dataset format."),
+                                    QStringLiteral("%1 的 GSA 目标必须使用 Con::Pool/Dataset 格式。")).arg(datasetName));
+                }
+                if (state.level) {
+                    const QString destConnName = state.destination.section(QStringLiteral("::"), 0, 0).trimmed();
+                    if (connectionIndexByNameOrId(destConnName) < 0) {
+                        return fail(trk(QStringLiteral("t_gsa_dest_conn_missing_001"),
+                                        QStringLiteral("El destino GSA de %1 referencia una conexión inexistente: %2."),
+                                        QStringLiteral("The GSA destination for %1 references a missing connection: %2."),
+                                        QStringLiteral("%1 的 GSA 目标引用了不存在的连接：%2。")).arg(datasetName, destConnName));
+                    }
+                }
+
                 if (state.enabled) {
                     if (state.hourly <= 0 && state.daily <= 0 && state.weekly <= 0 && state.monthly <= 0 && state.yearly <= 0) {
                         return fail(trk(QStringLiteral("t_gsa_requires_retention_001"),
                                         QStringLiteral("La programación GSA de %1 está activada pero no tiene ninguna retención mayor que 0."),
                                         QStringLiteral("GSA scheduling for %1 is enabled but it does not have any retention greater than 0."),
                                         QStringLiteral("%1 的 GSA 计划已启用，但没有任何大于 0 的保留值。")).arg(datasetName));
-                    }
-                    if (state.level && state.destination.isEmpty()) {
-                        return fail(trk(QStringLiteral("t_gsa_level_dest_required_001"),
-                                        QStringLiteral("La programación GSA de %1 tiene Nivelar=on pero no tiene Destino."),
-                                        QStringLiteral("GSA scheduling for %1 has Level=on but no Destination."),
-                                        QStringLiteral("%1 的 GSA 计划启用了层级同步，但未指定目标。")).arg(datasetName));
                     }
                     if (!state.destination.isEmpty() && !state.destination.contains(QStringLiteral("::"))) {
                         return fail(trk(QStringLiteral("t_gsa_dest_format_001"),
@@ -915,8 +953,27 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         rows.push_back(byProp.value(prop));
     }
 
+    if (selectedInsideGsaNode) {
+        QVector<PropRow> gsaRows;
+        const QStringList wanted = gsaPropsForView();
+        gsaRows.reserve(wanted.size());
+        for (const QString& prop : wanted) {
+            if (byProp.contains(prop)) {
+                gsaRows.push_back(byProp.value(prop));
+                continue;
+            }
+            gsaRows.push_back({prop, gsaComparableValue(prop, QString()), QString(), QStringLiteral("false")});
+        }
+        rows = gsaRows;
+    }
+
     if (side == QStringLiteral("conncontent")) {
         QMap<QString, QString> valuesByProp;
+        const QString inlineCacheKey = QStringLiteral("%1|%2").arg(token, objectName);
+        const auto existingInlineIt = m_connContentPropValuesByObject.constFind(inlineCacheKey);
+        if (existingInlineIt != m_connContentPropValuesByObject.cend()) {
+            valuesByProp = existingInlineIt.value();
+        }
         valuesByProp[QStringLiteral("snapshot")] =
             snapshot.trimmed().isEmpty()
                 ? trk(QStringLiteral("t_none_paren_001"),
@@ -993,7 +1050,8 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
                            QStringLiteral("名称")));
         }
         table->setItem(r, 0, k);
-        auto* v = new PinnedSortItem(row.value);
+        const QString displayValue = gsaComparableValue(row.prop, row.value);
+        auto* v = new PinnedSortItem(displayValue);
         v->setData(Qt::UserRole + 501, (r < pinnedCount) ? r : -1);
         const bool editable =
             isDatasetPropertyEditable(row.prop, datasetType, row.source, row.readonly, platform)
@@ -1024,7 +1082,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
             auto* combo = new NoWheelComboBox(table);
             combo->setSizeAdjustPolicy(QComboBox::AdjustToContentsOnFirstShow);
             QStringList options = enumIt.value();
-            const QString current = row.value.trimmed();
+            const QString current = displayValue.trimmed();
             if (!current.isEmpty() && !options.contains(current)) {
                 options.prepend(current);
             }
@@ -1075,7 +1133,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
                 cb->setFont(cf);
             }
         }
-        m_propsOriginalValues[row.prop] = row.value;
+        m_propsOriginalValues[row.prop] = displayValue;
         m_propsOriginalInherit[row.prop] = currentlyInherited;
     }
     const DatasetPropsDraft draft = propertyDraftForObject(m_propsSide, token, m_propsDataset);
@@ -2398,7 +2456,7 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
             datasetPropertyRowsFromModelOrCache(connIdx, poolName, objectName);
         const bool hasLoadedCache = !propertyRows.isEmpty();
         for (const DatasetPropCacheRow& row : propertyRows) {
-            originalValues[row.prop] = row.value;
+            originalValues[row.prop] = gsaComparableValue(row.prop, row.value);
             originalInherit[row.prop] = isDatasetPropertyCurrentlyInherited(row.source);
             appendTouched(row.prop);
         }
@@ -2429,9 +2487,9 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
             const bool finalInh = draft.inheritByProp.contains(prop)
                                       ? draft.inheritByProp.value(prop)
                                       : originalInh;
-            const QString originalValue = originalValues.value(prop);
+            const QString originalValue = gsaComparableValue(prop, originalValues.value(prop));
             const QString finalValue = draft.valuesByProp.contains(prop)
-                                           ? draft.valuesByProp.value(prop)
+                                           ? gsaComparableValue(prop, draft.valuesByProp.value(prop))
                                            : originalValue;
 
             if (prop == QStringLiteral("mounted")) {

@@ -44,6 +44,28 @@ QStringList gsaPropertyKeysForModel() {
     };
 }
 
+QString gsaComparableValue(const QString& propName, const QString& rawValue) {
+    const QString prop = propName.trimmed();
+    const QString value = rawValue.trimmed();
+    if (!prop.startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+        return rawValue;
+    }
+    if (prop.compare(QStringLiteral("org.fc16.gsa:destino"), Qt::CaseInsensitive) == 0) {
+        return (value == QStringLiteral("-")) ? QString() : rawValue;
+    }
+    if (value.isEmpty() || value == QStringLiteral("-")) {
+        if (prop.compare(QStringLiteral("org.fc16.gsa:horario"), Qt::CaseInsensitive) == 0
+            || prop.compare(QStringLiteral("org.fc16.gsa:diario"), Qt::CaseInsensitive) == 0
+            || prop.compare(QStringLiteral("org.fc16.gsa:semanal"), Qt::CaseInsensitive) == 0
+            || prop.compare(QStringLiteral("org.fc16.gsa:mensual"), Qt::CaseInsensitive) == 0
+            || prop.compare(QStringLiteral("org.fc16.gsa:anual"), Qt::CaseInsensitive) == 0) {
+            return QStringLiteral("0");
+        }
+        return QStringLiteral("off");
+    }
+    return rawValue;
+}
+
 QString normalizedPropKey(const QString& propName) {
     return propName.trimmed().toLower();
 }
@@ -971,23 +993,24 @@ void MainWindow::storePropertyDraftForObject(const QString& side,
     QMap<QString, QString> originalValues;
     QMap<QString, bool> originalInherit;
     for (const DatasetPropCacheRow& row : originalRows) {
-        originalValues.insert(row.prop, row.value);
+        originalValues.insert(row.prop, gsaComparableValue(row.prop, row.value));
         originalInherit.insert(row.prop, row.source.trimmed().toLower().startsWith(QStringLiteral("inherited")));
     }
     auto valueIt = draft.valuesByProp.begin();
     while (valueIt != draft.valuesByProp.end()) {
-        const QString originalValue = originalValues.value(valueIt.key());
+        const QString originalValue = gsaComparableValue(valueIt.key(), originalValues.value(valueIt.key()));
+        const QString currentValue = gsaComparableValue(valueIt.key(), valueIt.value());
         bool erase = false;
         if (valueIt.key().compare(QStringLiteral("mounted"), Qt::CaseInsensitive) == 0) {
             bool currentMounted = false;
             bool originalMounted = false;
-            if (mountedStateFromAnyText(valueIt.value(), &currentMounted)
+            if (mountedStateFromAnyText(currentValue, &currentMounted)
                 && mountedStateFromAnyText(originalValue, &originalMounted)
                 && currentMounted == originalMounted
                 && !draft.inheritByProp.contains(valueIt.key())) {
                 erase = true;
             }
-        } else if (valueIt.value() == originalValue && !draft.inheritByProp.contains(valueIt.key())) {
+        } else if (currentValue == originalValue && !draft.inheritByProp.contains(valueIt.key())) {
             erase = true;
         }
         if (erase) {

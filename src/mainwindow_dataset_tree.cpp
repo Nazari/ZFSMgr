@@ -615,14 +615,6 @@ QString datasetLeafName(const QString& datasetName) {
     return datasetName.contains('/') ? datasetName.section('/', -1, -1) : datasetName;
 }
 
-QString connTreeSidePrefix(QTreeWidget* tree, QTreeWidget* bottomTree) {
-    return (tree && tree == bottomTree) ? QStringLiteral("Destino:") : QStringLiteral("Origen:");
-}
-
-QString connTreeSideHeader(QTreeWidget* tree, QTreeWidget* bottomTree, const QString& label) {
-    return connTreeSidePrefix(tree, bottomTree) + label;
-}
-
 QIcon treeStandardIcon(QStyle::StandardPixmap sp) {
     QStyle* style = QApplication::style();
     return style ? style->standardIcon(sp) : QIcon();
@@ -862,10 +854,15 @@ void MainWindow::syncConnContentPropertyColumns() {
     const QSignalBlocker blocker(tree);
 
     QStringList headers = {
-        connTreeSideHeader(
-            tree,
-            m_bottomConnContentTree,
-            trk(QStringLiteral("t_dataset_001"), QStringLiteral("Dataset"), QStringLiteral("Dataset"), QStringLiteral("数据集"))),
+        (tree && tree == m_bottomConnContentTree)
+            ? trk(QStringLiteral("t_target_dataset_col001"),
+                  QStringLiteral("Destino:Dataset"),
+                  QStringLiteral("Destination:Dataset"),
+                  QStringLiteral("目标:数据集"))
+            : trk(QStringLiteral("t_origin_dataset_col001"),
+                  QStringLiteral("Origen:Dataset"),
+                  QStringLiteral("Origin:Dataset"),
+                  QStringLiteral("源:数据集")),
         trk(QStringLiteral("t_snapshot_col01"), QStringLiteral("Snapshot"), QStringLiteral("Snapshot"), QStringLiteral("快照")),
         trk(QStringLiteral("t_montado_a97484"), QStringLiteral("Montado"), QStringLiteral("Mounted"), QStringLiteral("已挂载")),
         trk(QStringLiteral("t_mountpoint_001"), QStringLiteral("Mountpoint"), QStringLiteral("Mountpoint"), QStringLiteral("挂载点"))
@@ -1955,10 +1952,15 @@ void MainWindow::syncConnContentPoolColumns() {
     });
     const int propCols = qBound(6, m_connPropColumnsSetting, 20);
     QStringList headers;
-    headers << connTreeSideHeader(
-                   tree,
-                   m_bottomConnContentTree,
-                   trk(QStringLiteral("t_pool_title001"), QStringLiteral("Pool"), QStringLiteral("Pool"), QStringLiteral("存储池")))
+    headers << ((tree && tree == m_bottomConnContentTree)
+                    ? trk(QStringLiteral("t_target_pool_col001"),
+                          QStringLiteral("Destino:Pool"),
+                          QStringLiteral("Destination:Pool"),
+                          QStringLiteral("目标:存储池"))
+                    : trk(QStringLiteral("t_origin_pool_col001"),
+                          QStringLiteral("Origen:Pool"),
+                          QStringLiteral("Origin:Pool"),
+                          QStringLiteral("源:存储池")))
             << trk(QStringLiteral("t_snapshot_col01"), QStringLiteral("Snapshot"), QStringLiteral("Snapshot"), QStringLiteral("快照"))
             << trk(QStringLiteral("t_montado_a97484"), QStringLiteral("Montado"), QStringLiteral("Mounted"), QStringLiteral("已挂载"))
             << trk(QStringLiteral("t_mountpoint_001"), QStringLiteral("Mountpoint"), QStringLiteral("Mountpoint"), QStringLiteral("挂载点"));
