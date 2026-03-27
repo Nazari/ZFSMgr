@@ -1610,6 +1610,9 @@ bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const Q
     const ConnectionProfile& p = m_profiles[connIdx];
     QString cmd =
         QStringLiteral("zfs get -H -o value %1 %2").arg(shSingleQuote(prop), shSingleQuote(dataset));
+    if (!isWindowsConnection(p)) {
+        cmd = mwhelpers::withUnixSearchPathCommand(cmd);
+    }
     cmd = withSudo(p, cmd);
     QString out;
     QString err;
@@ -1695,6 +1698,9 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
     auto loadSnapshotsFromCli = [&](const ConnectionProfile& p, PoolDatasetCache& targetCache) {
         QString snapCmd = QStringLiteral("zfs list -H -p -t snapshot -o name,creation -r %1")
                               .arg(shSingleQuote(poolName));
+        if (!isWindowsConnection(p)) {
+            snapCmd = mwhelpers::withUnixSearchPathCommand(snapCmd);
+        }
         snapCmd = withSudo(p, snapCmd);
         QString snapOut;
         QString snapErr;
@@ -1768,6 +1774,9 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
         "zfs list -H -p -t filesystem,volume,snapshot "
         "-o name,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount -r %1")
                       .arg(poolName);
+    if (!isWindowsConnection(p)) {
+        cmd = mwhelpers::withUnixSearchPathCommand(cmd);
+    }
     cmd = withSudo(p, cmd);
 
     QString out;

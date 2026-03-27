@@ -460,7 +460,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             out.clear();
             err.clear();
             rc = -1;
-            const QString zfsVersionCmd = withSudo(p, cand);
+            const QString zfsVersionCmd = withSudo(p, mwhelpers::withUnixSearchPathCommand(cand));
             if (!runSsh(p, zfsVersionCmd, 12000, out, err, rc, {}, {}, {},
                         MainWindow::WindowsCommandMode::Auto)) {
                 continue;
@@ -561,7 +561,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             QString dout, derr;
             int drc = -1;
             const QString checkCmd = QStringLiteral(
-                "PATH=\"$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin\"; "
+                "PATH=\"$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin\"; "
                 "for c in %1; do "
                 "  found=0; "
                 "  command -v \"$c\" >/dev/null 2>&1 && found=1; "
@@ -725,7 +725,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         }
     }
 
-    QString zpoolListCmd = withSudo(p, QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio"));
+    QString zpoolListCmd = withSudo(
+        p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio")));
     bool loadedPoolsFromLibzfs = false;
     if (localMode) {
         QStringList localPools;
@@ -770,7 +771,9 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         err.clear();
         rc = -1;
         const QString stCmd = withSudo(
-            p, QStringLiteral("zpool status -v %1").arg(mwhelpers::shSingleQuote(poolName)));
+            p,
+            mwhelpers::withUnixSearchPathCommand(
+                QStringLiteral("zpool status -v %1").arg(mwhelpers::shSingleQuote(poolName))));
         if (runSsh(p, stCmd, 20000, out, err, rc) && rc == 0) {
             state.poolStatusByName.insert(poolName, out.trimmed());
         } else {
@@ -787,7 +790,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         out.clear();
         err.clear();
         rc = -1;
-        const QString cmd = withSudo(p, probe);
+        const QString cmd = withSudo(p, mwhelpers::withUnixSearchPathCommand(probe));
         if (!runSsh(p, cmd, 18000, out, err, rc)) {
             continue;
         }
@@ -815,7 +818,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     out.clear();
     err.clear();
     rc = -1;
-    const QString mountedCmd = withSudo(p, QStringLiteral("zfs mount"));
+    const QString mountedCmd = withSudo(p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs mount")));
     if (runSsh(p, mountedCmd, 18000, out, err, rc) && rc == 0) {
         const QVector<QPair<QString, QString>> mountedRows = mwhelpers::parseZfsMountOutput(out);
         for (const auto& row : mountedRows) {

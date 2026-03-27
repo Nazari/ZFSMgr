@@ -792,7 +792,8 @@ void ConnectionDialog::testConnection() {
                                          QStringLiteral("Conexión PSRP correcta a %1@%2:%3\n%4"),
                                          QStringLiteral("PSRP connection successful to %1@%2:%3\n%4"),
                                          QStringLiteral("PSRP 连接成功：%1@%2:%3\n%4"))
-                                         .arg(p.username, p.host)
+                                         .arg(p.username)
+                                         .arg(p.host)
                                          .arg(p.port)
                                          .arg(psrpDetail));
             return;
@@ -825,7 +826,8 @@ void ConnectionDialog::testConnection() {
                                      QStringLiteral("Conexión SSH correcta a %1@%2:%3\nSistema: %4"),
                                      QStringLiteral("SSH connection successful to %1@%2:%3\nSystem: %4"),
                                      QStringLiteral("SSH 连接成功：%1@%2:%3\n系统：%4"))
-                                     .arg(p.username, p.host)
+                                     .arg(p.username)
+                                     .arg(p.host)
                                      .arg(p.port)
                                      .arg(m_detectedOsFlavor.isEmpty()
                                               ? (m_detectedOsType.isEmpty()

@@ -662,6 +662,13 @@ QString buildTarDestinationCommand(bool isWindows, const QString& mountPath, Str
         .arg(shSingleQuote(mountPath), decodePipe);
 }
 
+QString withUnixSearchPathCommand(const QString& cmd) {
+    return QStringLiteral(
+               "PATH=\"$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin\"; "
+               "export PATH; %1")
+        .arg(cmd);
+}
+
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {
     if (isWindowsOsType(p.osType)) {
         return cmd;

@@ -510,12 +510,20 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
         Q_UNUSED(token);
     };
     auto alignDetailContextToToken = [this](QTreeWidget* tree, const QString& token) {
-        const int sep = token.indexOf(QStringLiteral("::"));
-        if (!tree || sep <= 0) {
+        if (!tree) {
             return;
         }
+        const QString trimmed = token.trimmed();
+        int connIdx = -1;
         bool ok = false;
-        const int connIdx = token.left(sep).toInt(&ok);
+        const int sep = trimmed.indexOf(QStringLiteral("::"));
+        if (sep > 0) {
+            connIdx = trimmed.left(sep).toInt(&ok);
+        } else if (trimmed.startsWith(QStringLiteral("conn:"))) {
+            const QString rest = trimmed.mid(QStringLiteral("conn:").size());
+            const int pipe = rest.indexOf(QLatin1Char('|'));
+            connIdx = (pipe >= 0 ? rest.left(pipe) : rest).toInt(&ok);
+        }
         if (!ok || connIdx < 0 || connIdx >= m_mainWindow->m_profiles.size()) {
             return;
         }
@@ -530,40 +538,7 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
         }
     };
     auto tokenFromTree = [this](QTreeWidget* tree) -> QString {
-        if (!tree) {
-            return QString();
-        }
-        if (tree == m_mainWindow->m_bottomConnContentTree) {
-            for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-                QTreeWidgetItem* root = tree->topLevelItem(i);
-                if (!root || !root->data(0, kIsPoolRootRole).toBool()) {
-                    continue;
-                }
-                const int connIdx = root->data(0, kConnIdxRole).toInt();
-                const QString poolName = root->data(0, kPoolNameRole).toString().trimmed();
-                if (connIdx >= 0 && connIdx < m_mainWindow->m_profiles.size() && !poolName.isEmpty()) {
-                    return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
-                }
-            }
-            return QString();
-        }
-        QTreeWidgetItem* owner = tree->currentItem();
-        if (!owner && tree->topLevelItemCount() > 0) {
-            owner = tree->topLevelItem(0);
-        }
-        while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
-               && !owner->data(0, kIsPoolRootRole).toBool()) {
-            owner = owner->parent();
-        }
-        if (!owner) {
-            return QString();
-        }
-        const int connIdx = owner->data(0, kConnIdxRole).toInt();
-        const QString poolName = owner->data(0, kPoolNameRole).toString().trimmed();
-        if (connIdx < 0 || connIdx >= m_mainWindow->m_profiles.size() || poolName.isEmpty()) {
-            return QString();
-        }
-        return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+        return m_mainWindow ? m_mainWindow->connContentTokenForTree(tree) : QString();
     };
     auto refreshExplicitTreeFromToken = [this, &refreshInlinePropsVisualBottom, &rebuildInlineConnTree, &alignDetailContextToToken](QTreeWidget* tree,
                                                                                 const QString& token) {
@@ -574,9 +549,15 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
         if (tree == m_mainWindow->m_bottomConnContentTree) {
             m_mainWindow->saveConnContentTreeStateFor(tree, token);
             rebuildInlineConnTree(tree, token);
+            if (m_mainWindow->showPoolInfoNodeForTree(tree)) {
+                m_mainWindow->syncConnContentPoolColumnsFor(tree, token);
+            }
             rehydrateExpandedDatasetNodes(tree, token);
             m_mainWindow->restoreConnContentTreeStateFor(tree, token);
             refreshInlinePropsVisualBottom(tree, token);
+            if (m_mainWindow->showPoolInfoNodeForTree(tree)) {
+                m_mainWindow->syncConnContentPoolColumnsFor(tree, token);
+            }
             rehydrateExpandedDatasetNodes(tree, token);
             m_mainWindow->restoreConnContentTreeStateFor(tree, token);
             return;
@@ -584,6 +565,9 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
         m_mainWindow->saveConnContentTreeStateFor(tree, token);
         rebuildInlineConnTree(tree, token);
         m_mainWindow->restoreConnContentTreeStateFor(tree, token);
+        if (m_mainWindow->showPoolInfoNodeForTree(tree)) {
+            m_mainWindow->syncConnContentPoolColumnsFor(tree, token);
+        }
         QTreeWidgetItem* sel = tree->currentItem();
         auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
             for (QTreeWidgetItem* p = n; p; p = p->parent()) {
@@ -626,6 +610,9 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
         if (!token.isEmpty()) {
             alignDetailContextToToken(m_mainWindow->m_connContentTree, token);
             rebuildInlineConnTree(m_mainWindow->m_connContentTree, token);
+            if (m_mainWindow->showPoolInfoNodeForTree(m_mainWindow->m_connContentTree)) {
+                m_mainWindow->syncConnContentPoolColumnsFor(m_mainWindow->m_connContentTree, token);
+            }
             QTreeWidgetItem* sel = m_mainWindow->m_connContentTree->currentItem();
             auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
                 for (QTreeWidgetItem* p = n; p; p = p->parent()) {
@@ -654,6 +641,9 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
             alignBottomTabsToToken(token);
             alignDetailContextToToken(m_mainWindow->m_bottomConnContentTree, token);
             rebuildInlineConnTree(m_mainWindow->m_bottomConnContentTree, token);
+            if (m_mainWindow->showPoolInfoNodeForTree(m_mainWindow->m_bottomConnContentTree)) {
+                m_mainWindow->syncConnContentPoolColumnsFor(m_mainWindow->m_bottomConnContentTree, token);
+            }
             refreshInlinePropsVisualBottom(m_mainWindow->m_bottomConnContentTree, token);
             rehydrateExpandedDatasetNodes(m_mainWindow->m_bottomConnContentTree, token);
             m_mainWindow->restoreConnContentTreeStateFor(m_mainWindow->m_bottomConnContentTree, token);
@@ -1120,6 +1110,36 @@ void MainWindowConnectionDatasetTreeDelegate::releaseSnapshotHold(QTreeWidget* t
 
 void MainWindowConnectionDatasetTreeDelegate::itemClicked(QTreeWidget* tree, QTreeWidgetItem* item) {
     if (!m_mainWindow || !tree || !item) {
+        return;
+    }
+    const bool isPoolInfoNode =
+        item->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey);
+    if (isPoolInfoNode) {
+        QTimer::singleShot(0, m_mainWindow, [this, tree, item]() {
+            if (!m_mainWindow || m_mainWindow->m_closing || !tree || !item) {
+                return;
+            }
+            QTreeWidgetItem* owner = ownerItemForNode(item->parent());
+            if (!owner) {
+                return;
+            }
+            const QString token = tokenForOwnerItem(owner);
+            if (token.isEmpty()) {
+                return;
+            }
+            m_mainWindow->withConnContentContext(tree, token, [&, this]() {
+                if (m_mainWindow->m_closing) {
+                    return;
+                }
+                m_mainWindow->syncConnContentPoolColumnsFor(tree, token);
+                item->setExpanded(true);
+                QTimer::singleShot(0, tree, [item]() {
+                    if (item) {
+                        item->setExpanded(true);
+                    }
+                });
+            });
+        });
         return;
     }
     const bool isLazyPropsNode =

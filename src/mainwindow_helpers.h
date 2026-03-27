@@ -86,6 +86,7 @@ QString streamCodecName(StreamCodec codec);
 StreamCodec chooseStreamCodec(bool hasZstdBoth, bool hasGzipBoth);
 QString buildTarSourceCommand(bool isWindows, const QString& mountPath, StreamCodec codec);
 QString buildTarDestinationCommand(bool isWindows, const QString& mountPath, StreamCodec codec);
+QString withUnixSearchPathCommand(const QString& cmd);
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd);
 QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cmd);
 QString buildSshPreviewCommandText(const ConnectionProfile& p, const QString& remoteCmd);

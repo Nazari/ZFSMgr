@@ -450,7 +450,6 @@ void MainWindow::rebuildConnInfoFor(int connIdx) {
         poolInfo.runtime.importAction = pool.action;
         poolInfo.runtime.poolStatusText = state.poolStatusByName.value(pool.pool.trimmed());
         if (!poolInfo.runtime.poolStatusText.trimmed().isEmpty()) {
-            poolInfo.runtime.detailsState = LoadState::Loaded;
             poolInfo.runtime.loadedAt = QDateTime::currentDateTimeUtc();
         }
     }
@@ -468,9 +467,13 @@ void MainWindow::rebuildConnInfoFor(int connIdx) {
         const QString cacheKey = poolDetailsCacheKey(connIdx, poolInfo.key.poolName);
         const auto poolDetailsIt = m_poolDetailsCache.constFind(cacheKey);
         if (poolDetailsIt != m_poolDetailsCache.cend() && poolDetailsIt->loaded) {
-            poolInfo.runtime.detailsState = LoadState::Loaded;
+            poolInfo.runtime.detailsState =
+                (!poolDetailsIt->propsRows.isEmpty() || !poolDetailsIt->statusText.trimmed().isEmpty())
+                    ? LoadState::Loaded
+                    : LoadState::NotLoaded;
             poolInfo.runtime.loadedAt = QDateTime::currentDateTimeUtc();
             poolInfo.runtime.poolStatusText = poolDetailsIt->statusText;
+            poolInfo.runtime.zpoolPropertyRows = poolDetailsIt->propsRows;
             for (const QStringList& row : poolDetailsIt->propsRows) {
                 if (row.size() >= 2) {
                     poolInfo.runtime.zpoolProperties.insert(row.value(0).trimmed(), row.value(1));
@@ -657,7 +660,8 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
         int tRc = -1;
         const QString typeCmd = withSudo(
             p,
-            QStringLiteral("zfs get -H -o value type %1").arg(mwhelpers::shSingleQuote(trimmedObject)));
+            mwhelpers::withUnixSearchPathCommand(
+                QStringLiteral("zfs get -H -o value type %1").arg(mwhelpers::shSingleQuote(trimmedObject))));
         if (runSsh(p, typeCmd, 12000, tOut, tErr, tRc) && tRc == 0) {
             const QString t = tOut.trimmed().toLower();
             if (!t.isEmpty()) {
@@ -671,7 +675,8 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
     int rc = -1;
     const QString propsCmd = withSudo(
         p,
-        QStringLiteral("zfs get -H -o property,value,source all %1").arg(mwhelpers::shSingleQuote(trimmedObject)));
+        mwhelpers::withUnixSearchPathCommand(
+            QStringLiteral("zfs get -H -o property,value,source all %1").arg(mwhelpers::shSingleQuote(trimmedObject))));
     if (!runSsh(p, propsCmd, 20000, out, err, rc) || rc != 0) {
         if (dsInfo) {
             dsInfo->runtime.propertiesState = LoadState::Error;
@@ -774,9 +779,10 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
     }
     const QString propsCmd = withSudo(
         p,
-        QStringLiteral("zfs get -H -o property,value,source %1 %2")
-            .arg(quotedProps.join(QLatin1Char(',')),
-                 mwhelpers::shSingleQuote(trimmedObject)));
+        mwhelpers::withUnixSearchPathCommand(
+            QStringLiteral("zfs get -H -o property,value,source %1 %2")
+                .arg(quotedProps.join(QLatin1Char(',')),
+                     mwhelpers::shSingleQuote(trimmedObject))));
     if (!runSsh(p, propsCmd, 20000, out, err, rc) || rc != 0) {
         dsInfo->runtime.propertiesState = LoadState::Error;
         dsInfo->runtime.errorText = err.trimmed();
@@ -1093,7 +1099,8 @@ bool MainWindow::ensurePoolDetailsLoaded(int connIdx, const QString& poolName) {
         return true;
     }
     const PoolDetailsCacheEntry* cached = poolDetailsEntry(connIdx, trimmedPool);
-    if (cached && cached->loaded) {
+    if (cached && cached->loaded
+        && (!cached->propsRows.isEmpty() || !cached->statusText.trimmed().isEmpty())) {
         return true;
     }
 
@@ -1103,7 +1110,9 @@ bool MainWindow::ensurePoolDetailsLoaded(int connIdx, const QString& poolName) {
     QString err;
     int rc = -1;
     const QString propsCmd = withSudo(
-        p, QStringLiteral("zpool get -H -o property,value,source all %1").arg(mwhelpers::shSingleQuote(trimmedPool)));
+        p,
+        mwhelpers::withUnixSearchPathCommand(
+            QStringLiteral("zpool get -H -o property,value,source all %1").arg(mwhelpers::shSingleQuote(trimmedPool))));
     if (runSsh(p, propsCmd, 20000, out, err, rc) && rc == 0) {
         const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
         for (const QString& line : lines) {
@@ -1119,7 +1128,9 @@ bool MainWindow::ensurePoolDetailsLoaded(int connIdx, const QString& poolName) {
     err.clear();
     rc = -1;
     const QString stCmd = withSudo(
-        p, QStringLiteral("zpool status -v %1").arg(mwhelpers::shSingleQuote(trimmedPool)));
+        p,
+        mwhelpers::withUnixSearchPathCommand(
+            QStringLiteral("zpool status -v %1").arg(mwhelpers::shSingleQuote(trimmedPool))));
     if (runSsh(p, stCmd, 20000, out, err, rc) && rc == 0) {
         fresh.statusText = out.trimmed();
     } else {
@@ -1151,9 +1162,10 @@ bool MainWindow::ensurePoolAutoSnapshotInfoLoaded(int connIdx, const QString& po
     }
     const QString cmd =
         withSudo(cp,
-                 QStringLiteral("zfs get -H -o name,property,value,source -r %1 %2")
-                     .arg(propArgs.join(QLatin1Char(',')),
-                          mwhelpers::shSingleQuote(trimmedPool)));
+                 mwhelpers::withUnixSearchPathCommand(
+                     QStringLiteral("zfs get -H -o name,property,value,source -r %1 %2")
+                         .arg(propArgs.join(QLatin1Char(',')),
+                              mwhelpers::shSingleQuote(trimmedPool))));
     QString out;
     QString err;
     int rc = -1;
