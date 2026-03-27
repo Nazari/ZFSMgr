@@ -562,13 +562,17 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
     }
 
     QString out;
-    QString err;
-    int rc = -1;
+    QString detail;
     const QString cmd = withSudo(p, QStringLiteral("zfs allow %1").arg(shSingleQuote(datasetName)));
-    if (!runSsh(p, cmd, 30000, out, err, rc) || rc != 0) {
+    if (!fetchConnectionCommandOutput(connIdx,
+                                      QStringLiteral("Leer permisos"),
+                                      cmd,
+                                      &out,
+                                      &detail,
+                                      30000)) {
         appLog(QStringLiteral("WARN"),
                QStringLiteral("No se pudieron cargar permisos ZFS para %1: %2")
-                   .arg(datasetName, oneLine(err)));
+                   .arg(datasetName, oneLine(detail)));
         return false;
     }
 
@@ -619,15 +623,19 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
         entry.originalPermissionSets.push_back(ps);
     }
     const QString osLine = (connIdx >= 0 && connIdx < m_states.size()) ? m_states[connIdx].osLine : QString();
-    auto queryAccounts = [this, &p, &osLine](const QString& kind) {
+    auto queryAccounts = [this, connIdx, &p, &osLine](const QString& kind) {
         QString listOut;
-        QString listErr;
-        int listRc = -1;
+        QString listDetail;
         const QString listCmd = accountListCommand(kind, p, osLine);
-        if (!runSsh(p, listCmd, 15000, listOut, listErr, listRc) || listRc != 0) {
+        if (!fetchConnectionCommandOutput(connIdx,
+                                          QStringLiteral("Enumerar cuentas"),
+                                          listCmd,
+                                          &listOut,
+                                          &listDetail,
+                                          15000)) {
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("No se pudo enumerar %1 remotos: %2")
-                       .arg(kind, oneLine(listErr)));
+                       .arg(kind, oneLine(listDetail)));
             return QStringList{};
         }
         QStringList names;
@@ -712,10 +720,8 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
     }
     permissionsNode->setHidden(false);
 
-    if (!ensureDatasetPermissionsLoaded(connIdx, poolName, datasetName)) {
-        return;
-    }
-    const DatasetPermissionsCacheEntry* entryPtr = datasetPermissionsEntry(connIdx, poolName, datasetName);
+    const DatasetPermissionsCacheEntry* entryPtr =
+        ensureDatasetPermissionsEntryLoaded(connIdx, poolName, datasetName);
     if (!entryPtr) {
         return;
     }

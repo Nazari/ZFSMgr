@@ -55,22 +55,6 @@ int selectedConnectionIndexFromTable(const QTableWidget* table) {
     return ok ? idx : -1;
 }
 
-QString mergedPoolCommandErrorText(const QString& out, const QString& err, int rc) {
-    QStringList parts;
-    const QString trimmedErr = err.trimmed();
-    const QString trimmedOut = out.trimmed();
-    if (!trimmedErr.isEmpty()) {
-        parts << trimmedErr;
-    }
-    if (!trimmedOut.isEmpty()) {
-        parts << trimmedOut;
-    }
-    if (parts.isEmpty()) {
-        return QStringLiteral("exit %1").arg(rc);
-    }
-    return parts.join(QStringLiteral("\n\n"));
-}
-
 } // namespace
 
 QString MainWindow::formatPoolStatusTooltipHtml(const QString& statusText) const {
@@ -78,7 +62,7 @@ QString MainWindow::formatPoolStatusTooltipHtml(const QString& statusText) const
     if (trimmed.isEmpty()) {
         return QString();
     }
-    return QStringLiteral("<pre style=\"font-family:monospace; white-space:pre;\">%1</pre>")
+    return QStringLiteral("<pre style=\"font-family:'SF Mono','Menlo','Monaco','Consolas','Liberation Mono',monospace; white-space:pre;\">%1</pre>")
         .arg(trimmed.toHtmlEscaped());
 }
 
@@ -266,33 +250,20 @@ void MainWindow::exportPoolFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Exportar"), {preview})) {
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio exportar %1::%2").arg(connName, poolName));
-    setActionsLocked(true);
-    QString out;
-    QString err;
-    int rc = -1;
-    if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Error exportando %1::%2 -> %3")
-                                       .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+    QString failureDetail;
+    if (!executePoolCommand(idx, poolName, QStringLiteral("Exportar"), cmd, 45000, &failureDetail, true, true)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
                               trk(QStringLiteral("t_export_pool_e1"),
                                   QStringLiteral("Exportar falló:\n%1"),
                                   QStringLiteral("Export failed:\n%1"),
                                   QStringLiteral("导出失败：\n%1"))
-                                  .arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
-        setActionsLocked(false);
+                                  .arg(failureDetail));
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin exportar %1::%2").arg(connName, poolName));
     invalidateDatasetCacheForPool(idx, poolName);
     appLog(QStringLiteral("DEBUG"),
            QStringLiteral("Caché invalidada tras exportar %1::%2").arg(connName, poolName));
-    setActionsLocked(false);
-    appLog(QStringLiteral("INFO"), QStringLiteral("Refrescando conexión y listado de pools tras exportar: %1").arg(connName));
-    refreshConnectionByIndex(idx);
-    // Refuerzo explícito del refresco visual global de pools tras mutación.
-    populateAllPoolsTables();
-    refreshSelectedPoolDetails(true, true);
+    appLog(QStringLiteral("INFO"), QStringLiteral("Refresco completado tras exportar: %1").arg(connName));
 }
 
 void MainWindow::importPoolFromRow(int row) {
@@ -498,26 +469,16 @@ void MainWindow::importPoolFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Importar"), {preview})) {
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio importar %1::%2").arg(connName, poolName));
-    setActionsLocked(true);
-    QString out;
-    QString err;
-    int rc = -1;
-    if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
-        const QString errorText = mergedPoolCommandErrorText(out, err, rc);
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Error importando %1::%2 -> %3")
-                                       .arg(connName, poolName, oneLine(errorText)));
+    QString failureDetail;
+    if (!executePoolCommand(idx, poolName, QStringLiteral("Importar"), cmd, 45000, &failureDetail)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
                               trk(QStringLiteral("t_import_pool_e1"),
                                   QStringLiteral("Importar falló:\n%1"),
                                   QStringLiteral("Import failed:\n%1"),
                                   QStringLiteral("导入失败：\n%1"))
-                                  .arg(errorText));
-        setActionsLocked(false);
+                                  .arg(failureDetail));
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin importar %1::%2").arg(connName, poolName));
-    setActionsLocked(false);
     refreshConnectionByIndex(idx);
 }
 
@@ -741,27 +702,13 @@ void MainWindow::importPoolRenamingFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Importar renombrando"), {preview})) {
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio importar renombrando %1::%2 -> %3")
-                                       .arg(connName, poolName, newNameEd->text().trimmed()));
-    setActionsLocked(true);
-    QString out;
-    QString err;
-    int rc = -1;
-    if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
-        const QString errorText = mergedPoolCommandErrorText(out, err, rc);
-        appLog(QStringLiteral("NORMAL"),
-               QStringLiteral("Error importando renombrando %1::%2 -> %3")
-                   .arg(connName,
-                        poolName,
-                        oneLine(errorText)));
+    QString failureDetail;
+    if (!executePoolCommand(idx, poolName, QStringLiteral("Importar renombrando"), cmd, 45000, &failureDetail)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
                               QStringLiteral("Importar renombrando falló:\n%1")
-                                  .arg(errorText));
-        setActionsLocked(false);
+                                  .arg(failureDetail));
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin importar renombrando %1::%2").arg(connName, poolName));
-    setActionsLocked(false);
     refreshConnectionByIndex(idx);
 }
 
@@ -808,22 +755,12 @@ void MainWindow::scrubPoolFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Scrub"), {preview})) {
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio scrub %1::%2").arg(connName, poolName));
-    setActionsLocked(true);
-    QString out;
-    QString err;
-    int rc = -1;
-    if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Error scrub %1::%2 -> %3")
-                                       .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+    QString failureDetail;
+    if (!executePoolCommand(idx, poolName, QStringLiteral("Scrub"), cmd, 45000, &failureDetail)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              QStringLiteral("Scrub falló:\n%1").arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
-        setActionsLocked(false);
+                              QStringLiteral("Scrub falló:\n%1").arg(failureDetail));
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin scrub %1::%2").arg(connName, poolName));
-    setActionsLocked(false);
-    refreshConnectionByIndex(idx);
 }
 
 void MainWindow::reguidPoolFromRow(int row) {
@@ -870,26 +807,14 @@ void MainWindow::reguidPoolFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Reguid"), {preview})) {
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio reguid %1::%2").arg(connName, poolName));
-    setActionsLocked(true);
-    QString out;
-    QString err;
-    int rc = -1;
-    if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
-        appLog(QStringLiteral("NORMAL"),
-               QStringLiteral("Error reguid %1::%2 -> %3")
-                   .arg(connName, poolName,
-                        oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+    QString failureDetail;
+    if (!executePoolCommand(idx, poolName, QStringLiteral("Reguid"), cmd, 45000, &failureDetail)) {
         QMessageBox::critical(
             this,
             QStringLiteral("ZFSMgr"),
-            QStringLiteral("Reguid falló:\n%1").arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
-        setActionsLocked(false);
+            QStringLiteral("Reguid falló:\n%1").arg(failureDetail));
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin reguid %1::%2").arg(connName, poolName));
-    setActionsLocked(false);
-    refreshConnectionByIndex(idx);
 }
 
 void MainWindow::destroyPoolFromRow(int row) {
@@ -951,24 +876,12 @@ void MainWindow::destroyPoolFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Destroy"), {preview})) {
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio destroy %1::%2").arg(connName, poolName));
-    setActionsLocked(true);
-    QString out;
-    QString err;
-    int rc = -1;
-    if (!runSsh(p, cmd, 60000, out, err, rc) || rc != 0) {
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Error destroy %1::%2 -> %3")
-                                       .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+    QString failureDetail;
+    if (!executePoolCommand(idx, poolName, QStringLiteral("Destroy"), cmd, 60000, &failureDetail, true, true)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              QStringLiteral("Destroy falló:\n%1").arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
-        setActionsLocked(false);
+                              QStringLiteral("Destroy falló:\n%1").arg(failureDetail));
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin destroy %1::%2").arg(connName, poolName));
-    setActionsLocked(false);
-    refreshConnectionByIndex(idx);
-    populateAllPoolsTables();
-    refreshSelectedPoolDetails(true, true);
 }
 
 void MainWindow::syncPoolFromRow(int row) {
@@ -1001,22 +914,12 @@ void MainWindow::syncPoolFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Sync"), {preview})) {
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio sync %1::%2").arg(connName, poolName));
-    setActionsLocked(true);
-    QString out;
-    QString err;
-    int rc = -1;
-    if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Error sync %1::%2 -> %3")
-                                       .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+    QString failureDetail;
+    if (!executePoolCommand(idx, poolName, QStringLiteral("Sync"), cmd, 45000, &failureDetail)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              QStringLiteral("Sync falló:\n%1").arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
-        setActionsLocked(false);
+                              QStringLiteral("Sync falló:\n%1").arg(failureDetail));
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin sync %1::%2").arg(connName, poolName));
-    setActionsLocked(false);
-    refreshConnectionByIndex(idx);
 }
 
 void MainWindow::trimPoolFromRow(int row) {
@@ -1053,22 +956,12 @@ void MainWindow::trimPoolFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Trim"), {preview})) {
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio trim %1::%2").arg(connName, poolName));
-    setActionsLocked(true);
-    QString out;
-    QString err;
-    int rc = -1;
-    if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Error trim %1::%2 -> %3")
-                                       .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+    QString failureDetail;
+    if (!executePoolCommand(idx, poolName, QStringLiteral("Trim"), cmd, 45000, &failureDetail)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              QStringLiteral("Trim falló:\n%1").arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
-        setActionsLocked(false);
+                              QStringLiteral("Trim falló:\n%1").arg(failureDetail));
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin trim %1::%2").arg(connName, poolName));
-    setActionsLocked(false);
-    refreshConnectionByIndex(idx);
 }
 
 void MainWindow::initializePoolFromRow(int row) {
@@ -1105,22 +998,12 @@ void MainWindow::initializePoolFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Initialize"), {preview})) {
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio initialize %1::%2").arg(connName, poolName));
-    setActionsLocked(true);
-    QString out;
-    QString err;
-    int rc = -1;
-    if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Error initialize %1::%2 -> %3")
-                                       .arg(connName, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+    QString failureDetail;
+    if (!executePoolCommand(idx, poolName, QStringLiteral("Initialize"), cmd, 45000, &failureDetail)) {
         QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              QStringLiteral("Initialize falló:\n%1").arg(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err));
-        setActionsLocked(false);
+                              QStringLiteral("Initialize falló:\n%1").arg(failureDetail));
         return;
     }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin initialize %1::%2").arg(connName, poolName));
-    setActionsLocked(false);
-    refreshConnectionByIndex(idx);
 }
 
 void MainWindow::showPoolHistoryFromRow(int row) {
@@ -1143,12 +1026,9 @@ void MainWindow::showPoolHistoryFromRow(int row) {
 
     const ConnectionProfile& p = m_profiles[idx];
     const QString cmd = withSudo(p, QStringLiteral("zpool history %1").arg(shSingleQuote(poolName)));
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Consulta historial %1::%2").arg(connName, poolName));
     QString out;
-    QString err;
-    int rc = -1;
-    if (!runSsh(p, cmd, 45000, out, err, rc) || rc != 0) {
-        const QString detail = err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err;
+    QString detail;
+    if (!fetchPoolCommandOutput(idx, poolName, QStringLiteral("Historial"), cmd, &out, &detail, 45000)) {
         appLog(QStringLiteral("NORMAL"), QStringLiteral("Error historial %1::%2 -> %3")
                                        .arg(connName, poolName, oneLine(detail)));
         QMessageBox::critical(
@@ -1350,45 +1230,27 @@ void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteL
         return;
     }
 
-    PoolDetailsCacheEntry fresh;
-    QString out;
-    QString err;
-    int rc = -1;
-    const QString propsCmd = withSudo(
-        p, QStringLiteral("zpool get -H -o property,value,source all %1").arg(shSingleQuote(poolName)));
-    if (runSsh(p, propsCmd, 20000, out, err, rc) && rc == 0) {
-        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-        for (const QString& line : lines) {
-            const QStringList parts = line.split('\t');
-            if (parts.size() < 3) {
-                continue;
-            }
-            const QStringList row{parts[0].trimmed(), parts[1].trimmed(), parts[2].trimmed()};
-            fresh.propsRows.push_back(row);
-            const int r = m_poolPropsTable->rowCount();
-            m_poolPropsTable->insertRow(r);
-            m_poolPropsTable->setItem(r, 0, new QTableWidgetItem(row.value(0)));
-            m_poolPropsTable->setItem(r, 1, new QTableWidgetItem(row.value(1)));
-            m_poolPropsTable->setItem(r, 2, new QTableWidgetItem(row.value(2)));
+    if (!ensurePoolDetailsLoaded(idx, poolName)) {
+        setTablePopulationMode(m_poolPropsTable, false);
+        return;
+    }
+    const PoolDetailsCacheEntry* loaded = poolDetailsEntry(idx, poolName);
+    if (!loaded) {
+        setTablePopulationMode(m_poolPropsTable, false);
+        return;
+    }
+    for (const QStringList& row : loaded->propsRows) {
+        if (row.size() < 3) {
+            continue;
         }
+        const int r = m_poolPropsTable->rowCount();
+        m_poolPropsTable->insertRow(r);
+        m_poolPropsTable->setItem(r, 0, new QTableWidgetItem(row.value(0)));
+        m_poolPropsTable->setItem(r, 1, new QTableWidgetItem(row.value(1)));
+        m_poolPropsTable->setItem(r, 2, new QTableWidgetItem(row.value(2)));
     }
-
-    out.clear();
-    err.clear();
-    rc = -1;
-    const QString stCmd = withSudo(
-        p, QStringLiteral("zpool status -v %1").arg(shSingleQuote(poolName)));
-    if (runSsh(p, stCmd, 20000, out, err, rc) && rc == 0) {
-        fresh.statusText = out.trimmed();
-        m_poolStatusText->setPlainText(fresh.statusText);
-    } else {
-        fresh.statusText = err.trimmed();
-        m_poolStatusText->setPlainText(fresh.statusText);
-    }
-    applyPoolRootTooltipToVisibleTrees(idx, poolName, fresh.statusText);
-    fresh.loaded = true;
-    m_poolDetailsCache.insert(cacheKey, fresh);
-    rebuildConnInfoFor(idx);
+    m_poolStatusText->setPlainText(loaded->statusText);
+    applyPoolRootTooltipToVisibleTrees(idx, poolName, loaded->statusText);
     if (m_connContentTree) {
         QTreeWidgetItem* sel = m_connContentTree->currentItem();
         if (sel && sel->data(0, kIsPoolRootRole).toBool()) {

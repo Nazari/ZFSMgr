@@ -54,6 +54,12 @@ set(ZFSMGR_CORE_SOURCES
     ../src/mainwindow.h
     ../src/connectiondatasettreepane.cpp
     ../src/connectiondatasettreepane.h
+    ../src/connectiondatasettreecontroller.cpp
+    ../src/connectiondatasettreecontroller.h
+    ../src/connectiondatasettreecoordinator.cpp
+    ../src/connectiondatasettreecoordinator.h
+    ../src/mainwindow_connectiondatasettreedelegate.cpp
+    ../src/mainwindow_connectiondatasettreedelegate.h
     ../src/connectionstore.cpp
     ../src/connectionstore.h
     ../src/connectiondialog.cpp

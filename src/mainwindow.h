@@ -3,6 +3,7 @@
 #include "connectionstore.h"
 #include "connectiondialog.h"
 #include "connectiondatasettreepane.h"
+#include "connectiondatasettreecoordinator.h"
 
 #ifndef ZFSMGR_APP_VERSION
 #define ZFSMGR_APP_VERSION "0.10.0rc1"
@@ -36,6 +37,7 @@ class QTreeWidgetItem;
 class QStackedWidget;
 class QTextEdit;
 class QByteArray;
+class MainWindowConnectionDatasetTreeDelegate;
 
 class MainWindow final : public QMainWindow {
     Q_OBJECT
@@ -98,6 +100,9 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+    friend class MainWindowConnectionDatasetTreeDelegate;
+    struct DatasetSelectionContext;
+
     struct PoolImported {
         QString connection;
         QString pool;
@@ -344,14 +349,18 @@ private:
     struct DSPropertyEditValue {
         QString value;
         bool inherit{false};
-        bool dirty{false};
+        bool valueDirty{false};
+        bool inheritDirty{false};
+        bool dirty() const {
+            return valueDirty || inheritDirty;
+        }
     };
 
     struct DSPropertyEditState {
         QMap<QString, DSPropertyEditValue> byName;
         bool dirty() const {
             for (auto it = byName.cbegin(); it != byName.cend(); ++it) {
-                if (it->dirty) {
+                if (it->dirty()) {
                     return true;
                 }
             }
@@ -396,10 +405,13 @@ private:
 
     struct PoolRuntimeInfo {
         LoadState detailsState{LoadState::NotLoaded};
+        LoadState schedulesState{LoadState::NotLoaded};
         QString errorText;
         QDateTime loadedAt;
         QString poolStatusText;
         QMap<QString, QString> zpoolProperties;
+        QVector<QStringList> zpoolPropertyRows;
+        QMap<QString, QMap<QString, QString>> autoSnapshotPropsByDataset;
         bool imported{false};
         bool importable{false};
         QString importState;
@@ -411,12 +423,16 @@ private:
         LoadState propertiesState{LoadState::NotLoaded};
         LoadState permissionsState{LoadState::NotLoaded};
         LoadState schedulesState{LoadState::NotLoaded};
+        LoadState holdsState{LoadState::NotLoaded};
         QString errorText;
         QDateTime loadedAt;
         QString datasetType;
         QMap<QString, QString> properties;
         QVector<DatasetPropCacheRow> propertyRows;
+        QSet<QString> loadedPropertyNames;
+        bool allPropertiesLoaded{false};
         QStringList directSnapshots;
+        QVector<QPair<QString, QString>> snapshotHolds;
     };
 
     struct DSInfo {
@@ -591,6 +607,12 @@ private:
     QString poolDetailsCacheKey(int connIdx, const QString& poolName) const;
     bool ensureDatasetsLoaded(int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing = true);
     bool ensureDatasetPermissionsLoaded(int connIdx, const QString& poolName, const QString& datasetName);
+    bool ensurePoolDetailsLoaded(int connIdx, const QString& poolName);
+    const PoolDetailsCacheEntry* poolDetailsEntry(int connIdx, const QString& poolName) const;
+    bool ensurePoolAutoSnapshotInfoLoaded(int connIdx, const QString& poolName);
+    QMap<QString, QMap<QString, QString>> poolAutoSnapshotPropsByDataset(int connIdx, const QString& poolName) const;
+    bool ensureDatasetSnapshotHoldsLoaded(int connIdx, const QString& poolName, const QString& objectName);
+    QVector<QPair<QString, QString>> datasetSnapshotHolds(int connIdx, const QString& poolName, const QString& objectName) const;
     void invalidateDatasetPermissionsCacheForPool(int connIdx, const QString& poolName);
     void populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetItem* datasetItem, bool forceReload = false);
     QStringList availableDelegablePermissions(const QString& datasetName,
@@ -602,6 +624,43 @@ private:
     void setSelectedDataset(const QString& side, const QString& datasetName, const QString& snapshotName);
     DatasetSelectionContext currentDatasetSelection(const QString& side) const;
     bool executeDatasetAction(const QString& side, const QString& actionName, const DatasetSelectionContext& ctx, const QString& cmd, int timeoutMs = 45000, bool allowWindowsScript = false, const QByteArray& stdinPayload = {});
+    bool executePendingDatasetRenameDraft(const PendingDatasetRenameDraft& draft,
+                                          bool interactiveErrorDialog = true,
+                                          QString* failureDetailOut = nullptr);
+    bool executePoolCommand(int connIdx,
+                            const QString& poolName,
+                            const QString& actionName,
+                            const QString& remoteCmd,
+                            int timeoutMs,
+                            QString* failureDetailOut = nullptr,
+                            bool refreshPoolsTable = false,
+                            bool refreshSelectedPoolDetailsAfter = false);
+    bool fetchPoolCommandOutput(int connIdx,
+                                const QString& poolName,
+                                const QString& actionName,
+                                const QString& remoteCmd,
+                                QString* outputOut,
+                                QString* failureDetailOut = nullptr,
+                                int timeoutMs = 45000);
+    bool executeConnectionCommand(int connIdx,
+                                  const QString& actionName,
+                                  const QString& remoteCmd,
+                                  int timeoutMs,
+                                  QString* failureDetailOut = nullptr,
+                                  WindowsCommandMode windowsMode = WindowsCommandMode::Auto);
+    bool fetchConnectionCommandOutput(int connIdx,
+                                      const QString& actionName,
+                                      const QString& remoteCmd,
+                                      QString* outputOut,
+                                      QString* failureDetailOut = nullptr,
+                                      int timeoutMs = 45000,
+                                      WindowsCommandMode windowsMode = WindowsCommandMode::Auto);
+    bool fetchConnectionProbeOutput(int sourceConnIdx,
+                                    const QString& actionName,
+                                    const QString& remoteCmd,
+                                    QString* mergedOutputOut,
+                                    QString* failureDetailOut = nullptr,
+                                    int timeoutMs = 12000);
     bool ensureLocalSudoCredentials(ConnectionProfile& profile);
     bool hasEquivalentLocalSshConnection() const;
     QString diagnoseUmountFailure(const DatasetSelectionContext& ctx);
@@ -752,6 +811,22 @@ private:
     bool datasetMountedFromModel(int connIdx, const QString& poolName, const QString& datasetName, QString* mountedValueOut = nullptr) const;
     bool datasetExistsInModel(int connIdx, const QString& poolName, const QString& datasetName) const;
     QVector<DatasetPropCacheRow> datasetPropertyRowsFromModelOrCache(int connIdx, const QString& poolName, const QString& objectName) const;
+    QVector<DatasetPropCacheRow> datasetPropertyRowsForNames(int connIdx,
+                                                             const QString& poolName,
+                                                             const QString& objectName,
+                                                             const QStringList& propNames) const;
+    QMap<QString, QString> datasetPropertyValuesForNames(int connIdx,
+                                                         const QString& poolName,
+                                                         const QString& objectName,
+                                                         const QStringList& propNames) const;
+    QMap<QString, QString> datasetGsaPropertyValues(int connIdx,
+                                                    const QString& poolName,
+                                                    const QString& objectName) const;
+    bool ensureDatasetAllPropertiesLoaded(int connIdx, const QString& poolName, const QString& objectName);
+    bool ensureDatasetPropertySubsetLoaded(int connIdx,
+                                           const QString& poolName,
+                                           const QString& objectName,
+                                           const QStringList& propNames);
     void storeDatasetPropertyRows(int connIdx, const QString& poolName, const QString& objectName, const QString& datasetType, const QVector<DatasetPropCacheRow>& rows);
     void removeDatasetPropertyEntry(int connIdx, const QString& poolName, const QString& objectName);
     void removeDatasetPropertyEntriesForPool(int connIdx, const QString& poolName);
@@ -759,6 +834,9 @@ private:
     void storePropertyDraftForObject(const QString& side, const QString& token, const QString& objectName, const DatasetPropsDraft& draft);
     QVector<PendingPropertyDraftEntry> pendingConnContentPropertyDraftsFromModel() const;
     const DatasetPermissionsCacheEntry* datasetPermissionsEntry(int connIdx, const QString& poolName, const QString& datasetName) const;
+    const DatasetPermissionsCacheEntry* ensureDatasetPermissionsEntryLoaded(int connIdx,
+                                                                            const QString& poolName,
+                                                                            const QString& datasetName);
     DatasetPermissionsCacheEntry* datasetPermissionsEntryMutable(int connIdx, const QString& poolName, const QString& datasetName);
     void mirrorDatasetPermissionsEntryToModel(int connIdx, const QString& poolName, const QString& datasetName);
     QVector<PendingPermissionDraftEntry> dirtyDatasetPermissionsEntriesFromModel() const;
@@ -820,6 +898,8 @@ private:
     QWidget* m_connPoolPropsPage{nullptr};
     QWidget* m_connContentPage{nullptr};
     ConnectionDatasetTreePane* m_topDatasetPane{nullptr};
+    MainWindowConnectionDatasetTreeDelegate* m_topConnContentDelegate{nullptr};
+    ConnectionDatasetTreeCoordinator* m_topConnContentCoordinator{nullptr};
     QTreeWidget* m_connContentTree{nullptr};
     QTableWidget* m_connContentPropsTable{nullptr};
     QStackedWidget* m_connBottomStack{nullptr};
@@ -856,6 +936,8 @@ private:
     bool m_rebuildingBottomConnContentTree{false};
     QTabBar* m_bottomConnectionEntityTabs{nullptr};
     ConnectionDatasetTreePane* m_bottomDatasetPane{nullptr};
+    MainWindowConnectionDatasetTreeDelegate* m_bottomConnContentDelegate{nullptr};
+    ConnectionDatasetTreeCoordinator* m_bottomConnContentCoordinator{nullptr};
     QTreeWidget* m_bottomConnContentTree{nullptr};
     QPlainTextEdit* m_poolStatusText{nullptr};
     QPushButton* m_poolStatusRefreshBtn{nullptr};

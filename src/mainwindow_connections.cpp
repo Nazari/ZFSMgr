@@ -31,6 +31,7 @@
 #include <QtConcurrent/QtConcurrent>
 
 namespace {
+constexpr int kConnIdxRole = Qt::UserRole + 10;
 constexpr int kConnPropKeyRole = Qt::UserRole + 14;
 constexpr int kPoolNameRole = Qt::UserRole + 11;
 constexpr int kIsPoolRootRole = Qt::UserRole + 12;
@@ -51,6 +52,48 @@ struct ConnTreeNavSnapshot {
     QSet<QString> expandedKeys;
     QString selectedKey;
 };
+
+QString connContentStateTokenForTree(QTreeWidget* tree) {
+    if (!tree) {
+        return QString();
+    }
+    auto tokenFromItem = [](QTreeWidgetItem* item) -> QString {
+        if (!item) {
+            return QString();
+        }
+        QTreeWidgetItem* owner = item;
+        while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
+               && !owner->data(0, kIsPoolRootRole).toBool()) {
+            owner = owner->parent();
+        }
+        if (!owner) {
+            return QString();
+        }
+        const int connIdx = owner->data(0, kConnIdxRole).toInt();
+        const QString poolName = owner->data(0, kPoolNameRole).toString().trimmed();
+        if (connIdx < 0 || poolName.isEmpty()) {
+            return QString();
+        }
+        return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+    };
+    if (QTreeWidgetItem* current = tree->currentItem()) {
+        const QString token = tokenFromItem(current);
+        if (!token.isEmpty()) {
+            return token;
+        }
+    }
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* root = tree->topLevelItem(i);
+        if (!root || !root->data(0, kIsPoolRootRole).toBool()) {
+            continue;
+        }
+        const QString token = tokenFromItem(root);
+        if (!token.isEmpty()) {
+            return token;
+        }
+    }
+    return QString();
+}
 
 QString mergedConnectionCommandErrorText(const QString& out, const QString& err, int rc) {
     QStringList parts;
@@ -1528,14 +1571,17 @@ bool MainWindow::canSshBetweenConnections(int rowIdx, int colIdx, QString* error
     if (sshCmd.trimmed().isEmpty()) {
         return fail(QStringLiteral("probe SSH vacío"));
     }
-    QString sshOut;
-    QString sshErr;
-    int sshRc = -1;
-    const bool sshOk = runSsh(src, sshCmd, 12000, sshOut, sshErr, sshRc);
-    const QString sshMerged = (sshOut + QStringLiteral("\n") + sshErr).trimmed();
-    const bool sshProbeOk = sshOk && sshRc == 0 && sshMerged.contains(QStringLiteral("ZFSMGR_CONNECT_OK"));
+    QString sshMerged;
+    QString sshDetail;
+    const bool sshOk = fetchConnectionProbeOutput(rowIdx,
+                                                  QStringLiteral("Probe SSH"),
+                                                  sshCmd,
+                                                  &sshMerged,
+                                                  &sshDetail,
+                                                  12000);
+    const bool sshProbeOk = sshOk && sshMerged.contains(QStringLiteral("ZFSMGR_CONNECT_OK"));
     if (!sshProbeOk) {
-        return fail(sshMerged.isEmpty() ? QStringLiteral("ssh exit %1").arg(sshRc) : sshMerged.left(300));
+        return fail((sshDetail.isEmpty() ? sshMerged : sshDetail).left(300));
     }
     if (errorOut) {
         errorOut->clear();
@@ -1745,12 +1791,15 @@ void MainWindow::openConnectivityMatrixDialog() {
             result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
             return result;
         }
-        QString sshOut;
-        QString sshErr;
-        int sshRc = -1;
-        const bool sshOk = runSsh(src, sshCmd, 12000, sshOut, sshErr, sshRc);
-        const QString sshMerged = (sshOut + QStringLiteral("\n") + sshErr).trimmed();
-        const bool sshProbeOk = sshOk && sshRc == 0 && sshMerged.contains(QStringLiteral("ZFSMGR_CONNECT_OK"));
+        QString sshMerged;
+        QString sshDetail;
+        const bool sshOk = fetchConnectionProbeOutput(rowIdx,
+                                                      QStringLiteral("Probe SSH"),
+                                                      sshCmd,
+                                                      &sshMerged,
+                                                      &sshDetail,
+                                                      12000);
+        const bool sshProbeOk = sshOk && sshMerged.contains(QStringLiteral("ZFSMGR_CONNECT_OK"));
 
         QString rsyncState = QStringLiteral("-");
         QStringList tooltipLines;
@@ -1762,12 +1811,15 @@ void MainWindow::openConnectivityMatrixDialog() {
                                 .arg(targetLabel);
             const QString rsyncCmd = connectivityMatrixRsyncProbe(effectiveDst);
             if (!rsyncCmd.trimmed().isEmpty()) {
-                QString rsyncOut;
-                QString rsyncErr;
-                int rsyncRc = -1;
-                const bool rsyncOk = runSsh(src, rsyncCmd, 12000, rsyncOut, rsyncErr, rsyncRc);
-                const QString rsyncMerged = (rsyncOut + QStringLiteral("\n") + rsyncErr).trimmed();
-                if (rsyncOk && rsyncRc == 0 && rsyncMerged.contains(QStringLiteral("ZFSMGR_RSYNC_OK"))) {
+                QString rsyncMerged;
+                QString rsyncDetail;
+                const bool rsyncOk = fetchConnectionProbeOutput(rowIdx,
+                                                                QStringLiteral("Probe rsync"),
+                                                                rsyncCmd,
+                                                                &rsyncMerged,
+                                                                &rsyncDetail,
+                                                                12000);
+                if (rsyncOk && rsyncMerged.contains(QStringLiteral("ZFSMGR_RSYNC_OK"))) {
                     rsyncState = QStringLiteral("✓");
                     tooltipLines << trk(QStringLiteral("t_connectivity_rsync_ok_001"),
                                         QStringLiteral("rsync disponible en origen y destino."),
@@ -1775,7 +1827,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                                         QStringLiteral("源端和目标端均可用 rsync。"));
                 } else {
                     rsyncState = QStringLiteral("✗");
-                    tooltipLines << explainFailure(rsyncMerged, rsyncRc);
+                    tooltipLines << explainFailure(rsyncDetail.isEmpty() ? rsyncMerged : rsyncDetail, rsyncOk ? 0 : -1);
                 }
             }
             result.text = composeText(QStringLiteral("✓"), rsyncState);
@@ -1784,7 +1836,7 @@ void MainWindow::openConnectivityMatrixDialog() {
             return result;
         }
         result.text = composeText(QStringLiteral("✗"), QStringLiteral("-"));
-        result.tooltip = explainFailure(sshMerged, sshRc);
+        result.tooltip = explainFailure(sshDetail.isEmpty() ? sshMerged : sshDetail, sshOk ? 0 : -1);
         return result;
     };
 
@@ -2226,21 +2278,17 @@ void MainWindow::updateSecondaryConnectionDetail() {
     }
     QScopedValueRollback<bool> rebuildingGuard(m_rebuildingBottomConnContentTree, true);
     const QSignalBlocker blockBottomTree(m_bottomConnContentTree);
-    ConnTreeNavSnapshot nav;
+    const QString savedStateToken = connContentStateTokenForTree(m_bottomConnContentTree);
+    if (!savedStateToken.isEmpty()) {
+        saveConnContentTreeStateFor(m_bottomConnContentTree, savedStateToken);
+    }
     const int pendingConnIdx = m_bottomDetailConnIdx;
     if (pendingConnIdx >= 0 && m_pendingBottomExpandedKeysByConn.contains(pendingConnIdx)) {
-        nav.expandedKeys = m_pendingBottomExpandedKeysByConn.take(pendingConnIdx);
-        nav.selectedKey = m_pendingBottomSelectedKeyByConn.take(pendingConnIdx);
-    } else {
-        nav = captureConnTreeNavSnapshot(m_bottomConnContentTree);
+        m_pendingBottomExpandedKeysByConn.remove(pendingConnIdx);
+        m_pendingBottomSelectedKeyByConn.remove(pendingConnIdx);
     }
     if (pendingConnIdx >= 0 && m_forceRestoreBottomStateConnIdx == pendingConnIdx) {
-        nav.expandedKeys = m_savedBottomExpandedKeysByConn.value(pendingConnIdx);
-        nav.selectedKey = m_savedBottomSelectedKeyByConn.value(pendingConnIdx);
         m_forceRestoreBottomStateConnIdx = -1;
-    } else if (nav.expandedKeys.isEmpty() && nav.selectedKey.isEmpty() && pendingConnIdx >= 0) {
-        nav.expandedKeys = m_savedBottomExpandedKeysByConn.value(pendingConnIdx);
-        nav.selectedKey = m_savedBottomSelectedKeyByConn.value(pendingConnIdx);
     }
     m_bottomConnContentTree->clear();
     if (m_bottomDetailConnIdx < 0 || m_bottomDetailConnIdx >= m_profiles.size()
@@ -2262,41 +2310,41 @@ void MainWindow::updateSecondaryConnectionDetail() {
         noPools->setFlags((noPools->flags() & ~Qt::ItemIsSelectable) & ~Qt::ItemIsEnabled);
         m_bottomConnContentTree->addTopLevelItem(noPools);
     }
-    restoreSnapshotSelectionInTree(m_bottomConnContentTree, nav);
-    restoreConnTreeNavSnapshot(m_bottomConnContentTree, nav);
-    expandPoolRootsIfNoNav(m_bottomConnContentTree, nav);
+    const QString restoreStateToken = !savedStateToken.isEmpty()
+                                          ? savedStateToken
+                                          : connContentStateTokenForTree(m_bottomConnContentTree);
+    if (!restoreStateToken.isEmpty()) {
+        restoreConnContentTreeStateFor(m_bottomConnContentTree, restoreStateToken);
+    } else if (m_bottomConnContentTree->topLevelItemCount() > 0) {
+        for (int i = 0; i < m_bottomConnContentTree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* item = m_bottomConnContentTree->topLevelItem(i);
+            if (item && item->data(0, kIsPoolRootRole).toBool()) {
+                item->setExpanded(true);
+            }
+        }
+    }
     saveBottomTreeStateForConnection(m_bottomDetailConnIdx);
     QTimer::singleShot(0, this, [this]() {
         if (!m_bottomConnContentTree || m_bottomDetailConnIdx < 0 || m_bottomDetailConnIdx >= m_profiles.size()) {
             return;
         }
-        QTreeWidgetItem* owner = m_bottomConnContentTree->currentItem();
-        if (!owner && m_bottomConnContentTree->topLevelItemCount() > 0) {
-            owner = m_bottomConnContentTree->topLevelItem(0);
+        QString token;
+        for (int i = 0; i < m_bottomConnContentTree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* root = m_bottomConnContentTree->topLevelItem(i);
+            if (!root || !root->data(0, kIsPoolRootRole).toBool()) {
+                continue;
+            }
+            const int connIdx = root->data(0, Qt::UserRole + 10).toInt();
+            const QString poolName = root->data(0, Qt::UserRole + 11).toString().trimmed();
+            if (connIdx >= 0 && connIdx < m_profiles.size() && !poolName.isEmpty()) {
+                token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
+                break;
+            }
         }
-        while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
-               && !owner->data(0, kIsPoolRootRole).toBool()) {
-            owner = owner->parent();
-        }
-        if (!owner) {
+        if (token.isEmpty()) {
             return;
         }
-        const int connIdx = m_bottomDetailConnIdx;
-        const QString ownerKey = connTreeNodeKey(owner);
-        QString poolName;
-        if (ownerKey.startsWith(QStringLiteral("pool:"))) {
-            poolName = ownerKey.mid(5).trimmed();
-        } else if (ownerKey.startsWith(QStringLiteral("info:"))) {
-            poolName = ownerKey.mid(5).trimmed();
-        } else if (ownerKey.startsWith(QStringLiteral("ds:"))) {
-            const SnapshotKeyParts keyParts = parseSnapshotKey(ownerKey);
-            poolName = keyParts.pool.trimmed();
-        }
-        if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
-            return;
-        }
-        syncConnContentPoolColumnsFor(m_bottomConnContentTree,
-                                      QStringLiteral("%1::%2").arg(connIdx).arg(poolName));
+        syncConnContentPoolColumnsFor(m_bottomConnContentTree, token);
     });
 }
 
@@ -2343,7 +2391,10 @@ void MainWindow::rebuildConnectionEntityTabs() {
         return;
     }
     QScopedValueRollback<bool> rebuildingGuard(m_rebuildingTopConnContentTree, true);
-    ConnTreeNavSnapshot nav = captureConnTreeNavSnapshot(m_connContentTree);
+    const QString savedStateToken = connContentStateTokenForTree(m_connContentTree);
+    if (!savedStateToken.isEmpty()) {
+        saveConnContentTreeStateFor(m_connContentTree, savedStateToken);
+    }
     if (m_connectionEntityTabs) {
         while (m_connectionEntityTabs->count() > 0) {
             m_connectionEntityTabs->removeTab(m_connectionEntityTabs->count() - 1);
@@ -2357,12 +2408,7 @@ void MainWindow::rebuildConnectionEntityTabs() {
         return;
     }
     if (m_forceRestoreTopStateConnIdx == connIdx) {
-        nav.expandedKeys = m_savedTopExpandedKeysByConn.value(connIdx);
-        nav.selectedKey = m_savedTopSelectedKeyByConn.value(connIdx);
         m_forceRestoreTopStateConnIdx = -1;
-    } else if (nav.expandedKeys.isEmpty() && nav.selectedKey.isEmpty()) {
-        nav.expandedKeys = m_savedTopExpandedKeysByConn.value(connIdx);
-        nav.selectedKey = m_savedTopSelectedKeyByConn.value(connIdx);
     }
     m_connContentTree->clear();
     const ConnectionRuntimeState st = m_states[connIdx];
@@ -2379,9 +2425,19 @@ void MainWindow::rebuildConnectionEntityTabs() {
         noPools->setFlags((noPools->flags() & ~Qt::ItemIsSelectable) & ~Qt::ItemIsEnabled);
         m_connContentTree->addTopLevelItem(noPools);
     }
-    restoreSnapshotSelectionInTree(m_connContentTree, nav);
-    restoreConnTreeNavSnapshot(m_connContentTree, nav);
-    expandPoolRootsIfNoNav(m_connContentTree, nav);
+    const QString restoreStateToken = !savedStateToken.isEmpty()
+                                          ? savedStateToken
+                                          : connContentStateTokenForTree(m_connContentTree);
+    if (!restoreStateToken.isEmpty()) {
+        restoreConnContentTreeStateFor(m_connContentTree, restoreStateToken);
+    } else if (m_connContentTree->topLevelItemCount() > 0) {
+        for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* item = m_connContentTree->topLevelItem(i);
+            if (item && item->data(0, kIsPoolRootRole).toBool()) {
+                item->setExpanded(true);
+            }
+        }
+    }
     saveTopTreeStateForConnection(connIdx);
     QTimer::singleShot(0, this, [this]() {
         syncConnContentPoolColumns();
@@ -3200,7 +3256,7 @@ void MainWindow::rebuildConnectionsTable() {
             lines += nonImportable;
         }
         const QString plain = lines.join(QStringLiteral("\n")).toHtmlEscaped();
-        return QStringLiteral("<pre style=\"font-family:monospace; white-space:pre;\">%1</pre>").arg(plain);
+        return QStringLiteral("<pre style=\"font-family:'SF Mono','Menlo','Monaco','Consolas','Liberation Mono',monospace; white-space:pre;\">%1</pre>").arg(plain);
     };
     QStringList redirectedToLocalNames;
     for (int i = 0; i < m_profiles.size(); ++i) {
@@ -3617,11 +3673,10 @@ void MainWindow::installMsysForSelectedConnection() {
         bashPath.clear();
         missing.clear();
         QString out;
-        QString err;
-        int rc = -1;
-        if (!runSsh(p, detectCmd, 30000, out, err, rc, {}, {}, {}, psMode) || rc != 0) {
+        QString detail;
+        if (!fetchConnectionCommandOutput(idx, QStringLiteral("Detectar MSYS2"), detectCmd, &out, &detail, 30000, psMode)) {
             if (detailOut) {
-                *detailOut = (err.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : err).simplified().left(220);
+                *detailOut = detail.simplified().left(220);
             }
             return false;
         }
@@ -3668,9 +3723,6 @@ void MainWindow::installMsysForSelectedConnection() {
         return;
     }
 
-    QString installOut;
-    QString installErr;
-    int installRc = -1;
     QString installCmd;
     if (bashPath.isEmpty()) {
         installCmd = QStringLiteral(
@@ -3716,11 +3768,12 @@ void MainWindow::installMsysForSelectedConnection() {
                      QStringLiteral("Instalando/verificando MSYS2 en %1..."),
                      QStringLiteral("Installing/checking MSYS2 on %1..."),
                      QStringLiteral("正在 %1 上安装/检查 MSYS2...")).arg(p.name));
-    const bool ok = runSsh(p, installCmd, 900000, installOut, installErr, installRc, {}, {}, {}, psMode) && installRc == 0;
+    QString installDetail;
+    const bool ok = executeConnectionCommand(idx, QStringLiteral("Instalar MSYS2"), installCmd, 900000, &installDetail, psMode);
     endUiBusy();
 
     if (!ok) {
-        const QString detail = (installErr.isEmpty() ? QStringLiteral("ssh exit %1").arg(installRc) : installErr).simplified().left(400);
+        const QString detail = installDetail.simplified().left(400);
         QMessageBox::warning(
             this,
             QStringLiteral("ZFSMgr"),
@@ -3895,9 +3948,6 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
         return;
     }
 
-    QString out;
-    QString err;
-    int rc = -1;
     const QString installCmd = withSudo(p, stripLeadingSudoForExecution(st.helperInstallCommandPreview));
     beginUiBusy();
     updateStatus(
@@ -3905,11 +3955,12 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
             QStringLiteral("Instalando comandos auxiliares en %1..."),
             QStringLiteral("Installing helper commands on %1..."),
             QStringLiteral("正在 %1 上安装辅助命令...")).arg(p.name));
-    const bool ok = runSsh(p, installCmd, 1800000, out, err, rc) && rc == 0;
+    QString detail;
+    const bool ok = executeConnectionCommand(idx, QStringLiteral("Instalar auxiliares"), installCmd, 1800000, &detail);
     endUiBusy();
 
     if (!ok) {
-        const QString detail = mergedConnectionCommandErrorText(out, err, rc).left(1200);
+        detail = detail.left(1200);
         QMessageBox::warning(
             this,
             QStringLiteral("ZFSMgr"),
@@ -4116,14 +4167,18 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
     };
     for (const QString& poolName : candidatePools) {
         QString out;
-        QString err;
-        int rc = -1;
+        QString detail;
         const QString cmd = withSudo(
             p,
             QStringLiteral("zfs get -H -o name,property,value -r %1 %2")
                 .arg(QStringLiteral("'org.fc16.gsa:activado','org.fc16.gsa:nivelar','org.fc16.gsa:destino'"),
                      mwhelpers::shSingleQuote(poolName)));
-        if (!runSsh(p, cmd, 20000, out, err, rc) || rc != 0) {
+        if (!fetchConnectionCommandOutput(idx,
+                                          QStringLiteral("Leer GSA datasets"),
+                                          cmd,
+                                          &out,
+                                          &detail,
+                                          20000)) {
             continue;
         }
         QMap<QString, QMap<QString, QString>> propsByDataset;
@@ -4429,10 +4484,8 @@ WantedBy=timers.target
     beginUiBusy();
     updateStatus(actionLabel + QStringLiteral("..."));
     QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
-    QString out;
-    QString err;
-    int rc = -1;
-    const bool ok = runSsh(p, remoteCmd, 240000, out, err, rc, {}, {}, {}, winMode) && rc == 0;
+    QString detail;
+    const bool ok = executeConnectionCommand(idx, actionLabel, remoteCmd, 240000, &detail, winMode);
     endUiBusy();
     if (!ok) {
         if (interactive) {
@@ -4443,12 +4496,12 @@ WantedBy=timers.target
                     QStringLiteral("No se pudo instalar/actualizar el GSA en \"%1\".\n\n%2"),
                     QStringLiteral("Could not install/update GSA on \"%1\".\n\n%2"),
                     QStringLiteral("无法在 \"%1\" 上安装/更新 GSA。\n\n%2"))
-                    .arg(p.name, (err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err).simplified().left(500)));
+                    .arg(p.name, detail.simplified().left(500)));
         } else {
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("Actualización automática de GSA fallida en \"%1\": %2")
                        .arg(p.name,
-                            (err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err).simplified().left(500)));
+                            detail.simplified().left(500)));
         }
         refreshConnectionByIndex(idx);
         return false;
@@ -4646,10 +4699,8 @@ bool MainWindow::uninstallGsaForConnection(int idx) {
                      QStringLiteral("Uninstalling GSA from %1..."),
                      QStringLiteral("正在从 %1 卸载 GSA...")).arg(p.name));
     QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
-    QString out;
-    QString err;
-    int rc = -1;
-    const bool ok = runSsh(p, remoteCmd, 120000, out, err, rc, {}, {}, {}, winMode) && rc == 0;
+    QString detail;
+    const bool ok = executeConnectionCommand(idx, QStringLiteral("Desinstalar GSA"), remoteCmd, 120000, &detail, winMode);
     endUiBusy();
     if (!ok) {
         QMessageBox::warning(
@@ -4659,7 +4710,7 @@ bool MainWindow::uninstallGsaForConnection(int idx) {
                 QStringLiteral("No se pudo desinstalar el GSA de \"%1\".\n\n%2"),
                 QStringLiteral("Could not uninstall GSA from \"%1\".\n\n%2"),
                 QStringLiteral("无法从 \"%1\" 卸载 GSA。\n\n%2"))
-                .arg(p.name, mwhelpers::oneLine(err.isEmpty() ? out : err)));
+                .arg(p.name, mwhelpers::oneLine(detail)));
         refreshConnectionByIndex(idx);
         return false;
     }

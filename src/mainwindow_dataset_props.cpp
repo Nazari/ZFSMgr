@@ -24,6 +24,7 @@
 
 namespace {
 constexpr int kPropKeyRole = Qt::UserRole + 777;
+constexpr int kPropValueEditableRole = Qt::UserRole + 778;
 constexpr int kConnIdxRole = Qt::UserRole + 10;
 constexpr int kPoolNameRole = Qt::UserRole + 11;
 
@@ -208,8 +209,8 @@ bool isDatasetPropertyInheritable(const QString& propName,
     if (prop.isEmpty()
         || prop == QStringLiteral("dataset")
         || prop == QStringLiteral("tamaño")
-        || prop == QStringLiteral("estado")
-        || prop == QStringLiteral("snapshot")) {
+        || prop == QStringLiteral("snapshot")
+        || prop == QStringLiteral("canmount")) {
         return false;
     }
     return isDatasetPropertyEditable(propName, datasetType, source, readonly, platform);
@@ -341,6 +342,30 @@ QString propKeyFromItem(const QTableWidgetItem* item) {
     return item->text().trimmed();
 }
 
+void applyInheritedStateToPropsRow(QTableWidget* table, int row) {
+    if (!table || row < 0 || row >= table->rowCount()) {
+        return;
+    }
+    QTableWidgetItem* valueItem = table->item(row, 1);
+    QTableWidgetItem* inheritItem = table->item(row, 2);
+    if (!valueItem || !inheritItem) {
+        return;
+    }
+    const bool baseEditable = valueItem->data(kPropValueEditableRole).toBool();
+    const bool inheritable = (inheritItem->flags() & Qt::ItemIsUserCheckable);
+    const bool inheritOn = inheritable && inheritItem->checkState() == Qt::Checked;
+    if (QWidget* editor = table->cellWidget(row, 1)) {
+        editor->setEnabled(baseEditable && !inheritOn);
+    }
+    Qt::ItemFlags flags = valueItem->flags();
+    if (baseEditable && !inheritOn) {
+        flags |= Qt::ItemIsEditable;
+    } else {
+        flags &= ~Qt::ItemIsEditable;
+    }
+    valueItem->setFlags(flags);
+}
+
 QString propsDraftKey(const QString& side, const QString& token, const QString& objectName) {
     return QStringLiteral("%1|%2|%3")
         .arg(side.trimmed().toLower(),
@@ -384,6 +409,35 @@ bool datasetIsSameOrDescendantOf(const QString& dataset, const QString& ancestor
     const QString d = dataset.trimmed();
     const QString a = ancestor.trimmed();
     return d == a || d.startsWith(a + QLatin1Char('/'));
+}
+
+bool mountedStateFromText(const QString& value, bool* mountedOut) {
+    const QString s = value.trimmed().toLower();
+    if (s == QStringLiteral("montado")
+        || s == QStringLiteral("mounted")
+        || s == QStringLiteral("已挂载")
+        || s == QStringLiteral("on")
+        || s == QStringLiteral("yes")
+        || s == QStringLiteral("true")
+        || s == QStringLiteral("1")) {
+        if (mountedOut) {
+            *mountedOut = true;
+        }
+        return true;
+    }
+    if (s == QStringLiteral("desmontado")
+        || s == QStringLiteral("unmounted")
+        || s == QStringLiteral("未挂载")
+        || s == QStringLiteral("off")
+        || s == QStringLiteral("no")
+        || s == QStringLiteral("false")
+        || s == QStringLiteral("0")) {
+        if (mountedOut) {
+            *mountedOut = false;
+        }
+        return true;
+    }
+    return false;
 }
 
 } // namespace
@@ -628,6 +682,19 @@ bool MainWindow::queuePendingDatasetRename(const PendingDatasetRenameDraft& draf
 
 void MainWindow::refreshDatasetProperties(const QString& side) {
     beginTransientUiBusy(QStringLiteral("Leyendo propiedades..."));
+    auto gsaPropsForView = []() {
+        return QStringList{
+            QStringLiteral("org.fc16.gsa:activado"),
+            QStringLiteral("org.fc16.gsa:recursivo"),
+            QStringLiteral("org.fc16.gsa:horario"),
+            QStringLiteral("org.fc16.gsa:diario"),
+            QStringLiteral("org.fc16.gsa:semanal"),
+            QStringLiteral("org.fc16.gsa:mensual"),
+            QStringLiteral("org.fc16.gsa:anual"),
+            QStringLiteral("org.fc16.gsa:nivelar"),
+            QStringLiteral("org.fc16.gsa:destino"),
+        };
+    };
     auto saveCurrentDraft = [this]() {
         if (m_pendingChangeActivationInProgress || !m_propsDirty || m_propsSide.isEmpty() || m_propsDataset.isEmpty()) {
             return;
@@ -754,6 +821,18 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         endTransientUiBusy();
         return;
     }
+    bool selectedInsideGsaNode = false;
+    if (side == QStringLiteral("conncontent") && m_connContentTree) {
+        const auto selected = m_connContentTree->selectedItems();
+        if (!selected.isEmpty()) {
+            for (QTreeWidgetItem* p = selected.first(); p; p = p->parent()) {
+                if (p->text(0).trimmed() == QStringLiteral("Programar snapshots")) {
+                    selectedInsideGsaNode = true;
+                    break;
+                }
+            }
+        }
+    }
     const QString objectName = snapshot.isEmpty() ? dataset : QStringLiteral("%1@%2").arg(dataset, snapshot);
     const ConnectionProfile& p = m_profiles[connIdx];
     const DatasetPlatformFamily platform =
@@ -767,77 +846,24 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     };
     QVector<PropRow> rawRows;
     QString datasetType = objectName.contains('@') ? QStringLiteral("snapshot") : QStringLiteral("filesystem");
-    bool propsFromCache = false;
     const DSInfo* objectInfo = findDsInfo(connIdx, poolName, objectName);
-    const QVector<DatasetPropCacheRow> cachedRows =
-        datasetPropertyRowsFromModelOrCache(connIdx, poolName, objectName);
     if (objectInfo && !objectInfo->runtime.datasetType.trimmed().isEmpty()) {
         datasetType = objectInfo->runtime.datasetType;
     }
-    if (!cachedRows.isEmpty()) {
-        rawRows.reserve(cachedRows.size());
-        for (const DatasetPropCacheRow& row : cachedRows) {
+    const bool propsLoaded = selectedInsideGsaNode
+                                 ? ensureDatasetPropertySubsetLoaded(connIdx, poolName, objectName, gsaPropsForView())
+                                 : ensureDatasetAllPropertiesLoaded(connIdx, poolName, objectName);
+    const QVector<DatasetPropCacheRow> loadedRows = selectedInsideGsaNode
+                                                        ? datasetPropertyRowsForNames(connIdx, poolName, objectName, gsaPropsForView())
+                                                        : datasetPropertyRowsFromModelOrCache(connIdx, poolName, objectName);
+    if (propsLoaded && !loadedRows.isEmpty()) {
+        rawRows.reserve(loadedRows.size());
+        for (const DatasetPropCacheRow& row : loadedRows) {
             rawRows.push_back({row.prop, row.value, row.source, row.readonly});
         }
-        propsFromCache = !rawRows.isEmpty();
-        if (propsFromCache) {
-            appLog(QStringLiteral("DEBUG"),
-                   QStringLiteral("Dataset props model hit %1::%2")
-                       .arg(p.name, objectName));
-        }
-    }
-
-    if (!propsFromCache) {
-        rawRows.push_back({QStringLiteral("dataset"), objectName, QString(), QStringLiteral("true")});
-        {
-            QString tOut, tErr;
-            int tRc = -1;
-            const QString typeCmd = withSudo(
-                p,
-                QStringLiteral("zfs get -H -o value type %1").arg(shSingleQuote(objectName)));
-            if (runSsh(p, typeCmd, 12000, tOut, tErr, tRc) && tRc == 0) {
-                const QString t = tOut.trimmed().toLower();
-                if (!t.isEmpty()) {
-                    datasetType = t;
-                }
-            }
-        }
-
-        QString out;
-        QString err;
-        int rc = -1;
-        QString propsCmd = withSudo(
-            p,
-            QStringLiteral("zfs get -H -o property,value,source all %1").arg(shSingleQuote(objectName)));
-        runSsh(p, propsCmd, 20000, out, err, rc);
-        if (rc == 0) {
-            const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-            for (const QString& raw : lines) {
-                QString prop, val, source, ro;
-                const QStringList parts = raw.split('\t');
-                if (parts.size() >= 4) {
-                    prop = parts[0].trimmed();
-                    val = parts[1].trimmed();
-                    source = parts[2].trimmed();
-                    ro = parts[3].trimmed().toLower();
-                } else if (parts.size() >= 3) {
-                    prop = parts[0].trimmed();
-                    val = parts[1].trimmed();
-                    source = parts[2].trimmed();
-                    ro.clear();
-                } else {
-                    const QStringList sp = raw.simplified().split(' ');
-                    if (sp.size() < 3) {
-                        continue;
-                    }
-                    prop = sp[0].trimmed();
-                    val = sp[1].trimmed();
-                    source = sp[2].trimmed();
-                    ro = (sp.size() > 3) ? sp[3].trimmed().toLower() : QString();
-                }
-                rawRows.push_back({prop, val, source, ro});
-            }
-        }
+        appLog(QStringLiteral("DEBUG"),
+               QStringLiteral("Dataset props model hit %1::%2")
+                   .arg(p.name, objectName));
     }
 
     QMap<QString, PropRow> byProp;
@@ -867,22 +893,6 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
                             QString(),
                             QStringLiteral("true")});
         }
-        const QString mountedRaw = dsInfo->runtime.properties.value(QStringLiteral("mounted")).trimmed().toLower();
-        const bool mountedYes = (mountedRaw == QStringLiteral("yes")
-                                 || mountedRaw == QStringLiteral("on")
-                                 || mountedRaw == QStringLiteral("true")
-                                 || mountedRaw == QStringLiteral("1"));
-        rows.push_back({QStringLiteral("estado"),
-                        mountedYes ? trk(QStringLiteral("t_montado_a97484"),
-                                         QStringLiteral("Montado"),
-                                         QStringLiteral("Mounted"),
-                                         QStringLiteral("已挂载"))
-                                   : trk(QStringLiteral("t_desmontado_bbceae"),
-                                         QStringLiteral("Desmontado"),
-                                         QStringLiteral("Unmounted"),
-                                        QStringLiteral("未挂载")),
-                        QString(),
-                        QStringLiteral("true")});
         rows.push_back({QStringLiteral("Tamaño"),
                         formatDatasetSize(dsInfo->runtime.properties.value(QStringLiteral("used")).trimmed()),
                         QString(),
@@ -894,25 +904,10 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
                 rows.push_back({QStringLiteral("driveletter"), QString(), QString(), QStringLiteral("true")});
             }
         }
-    } else {
-        rows.push_back({QStringLiteral("estado"), QStringLiteral("Snapshot"), QString(), QStringLiteral("true")});
     }
     const QStringList remainingProps = byProp.keys();
     for (const QString& prop : remainingProps) {
         rows.push_back(byProp.value(prop));
-    }
-
-    if (!propsFromCache) {
-        QVector<DatasetPropCacheRow> cacheRows;
-        cacheRows.reserve(rows.size());
-        for (const PropRow& row : rows) {
-            cacheRows.push_back(DatasetPropCacheRow{row.prop, row.value, row.source, row.readonly});
-        }
-        storeDatasetPropertyRows(connIdx, poolName, objectName, datasetType, cacheRows);
-        appLog(QStringLiteral("DEBUG"),
-               QStringLiteral("Dataset props cache store %1::%2 (%3 rows)")
-                   .arg(p.name, objectName)
-                   .arg(cacheRows.size()));
     }
 
     if (side == QStringLiteral("conncontent")) {
@@ -977,7 +972,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         {QStringLiteral("snapdev"), {QStringLiteral("hidden"), QStringLiteral("visible")}},
         {QStringLiteral("volmode"), {QStringLiteral("default"), QStringLiteral("full"), QStringLiteral("dev"), QStringLiteral("none"), QStringLiteral("geom")}},
     };
-    const int pinnedCount = (!snapshot.isEmpty() ? 2 : (windowsConn ? 6 : 5));
+    const int pinnedCount = (!snapshot.isEmpty() ? 1 : (windowsConn ? 5 : 4));
     table->setProperty("pinned_rows", pinnedCount);
     const bool encryptionOff = encryptionDisabledForRows(rows);
     for (const PropRow& row : rows) {
@@ -998,6 +993,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         const bool editable =
             isDatasetPropertyEditable(row.prop, datasetType, row.source, row.readonly, platform)
             && !(row.prop.compare(QStringLiteral("keylocation"), Qt::CaseInsensitive) == 0 && encryptionOff);
+        v->setData(kPropValueEditableRole, editable);
         if (!editable) {
             v->setFlags(v->flags() & ~Qt::ItemIsEditable);
             const QColor disabledColor = table->palette().color(QPalette::Disabled, QPalette::Text);
@@ -1013,7 +1009,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
                 v->setToolTip(reason);
             }
         }
-        if (row.prop == QStringLiteral("estado") || row.prop == QStringLiteral("Tamaño")) {
+        if (row.prop == QStringLiteral("Tamaño")) {
             v->setFlags(v->flags() & ~Qt::ItemIsEditable);
         }
         table->setItem(r, 1, v);
@@ -1078,8 +1074,8 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         m_propsOriginalInherit[row.prop] = currentlyInherited;
     }
     const DatasetPropsDraft draft = propertyDraftForObject(m_propsSide, token, m_propsDataset);
-    if (draft.dirty) {
-        for (int r = 0; r < table->rowCount(); ++r) {
+        if (draft.dirty) {
+            for (int r = 0; r < table->rowCount(); ++r) {
             QTableWidgetItem* rk = table->item(r, 0);
             QTableWidgetItem* rv = table->item(r, 1);
             QTableWidgetItem* ri = table->item(r, 2);
@@ -1102,9 +1098,13 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
                 && (ri->flags() & Qt::ItemIsUserCheckable)) {
                 ri->setCheckState(iIt.value() ? Qt::Checked : Qt::Unchecked);
             }
+            applyInheritedStateToPropsRow(table, r);
         }
         m_propsDirty = draft.dirty;
     } else {
+        for (int r = 0; r < table->rowCount(); ++r) {
+            applyInheritedStateToPropsRow(table, r);
+        }
         m_propsDirty = false;
     }
     setTablePopulationMode(table, false);
@@ -1130,6 +1130,52 @@ void MainWindow::onDatasetPropsCellChanged(int row, int col) {
     if (!pk || !pv || !pi) {
         return;
     }
+    if (col == 2) {
+        applyInheritedStateToPropsRow(table, row);
+    }
+    QString currentToken;
+    if (m_propsSide == QStringLiteral("origin")) {
+        if (m_connActionOrigin.valid) {
+            currentToken = QStringLiteral("%1::%2")
+                               .arg(m_connActionOrigin.connIdx)
+                               .arg(m_connActionOrigin.poolName);
+        }
+    } else if (m_propsSide == QStringLiteral("dest")) {
+        if (m_connActionDest.valid) {
+            currentToken = QStringLiteral("%1::%2")
+                               .arg(m_connActionDest.connIdx)
+                               .arg(m_connActionDest.poolName);
+        }
+    } else if (m_propsSide == QStringLiteral("conncontent")) {
+        currentToken = m_propsToken;
+    }
+
+    if (!currentToken.isEmpty() && !m_propsDataset.isEmpty()) {
+        DatasetPropsDraft draft;
+        for (int r = 0; r < table->rowCount(); ++r) {
+            QTableWidgetItem* rk = table->item(r, 0);
+            QTableWidgetItem* rv = table->item(r, 1);
+            QTableWidgetItem* ri = table->item(r, 2);
+            if (!rk || !rv || !ri) {
+                continue;
+            }
+            const QString key = propKeyFromItem(rk);
+            if (key.isEmpty()) {
+                continue;
+            }
+            const bool inh = (ri->flags() & Qt::ItemIsUserCheckable) && ri->checkState() == Qt::Checked;
+            const QString nowValue = rv->text();
+            if (m_propsOriginalValues.value(key) != nowValue) {
+                draft.valuesByProp[key] = nowValue;
+            }
+            if (m_propsOriginalInherit.value(key, false) != inh) {
+                draft.inheritByProp[key] = inh;
+            }
+        }
+        draft.dirty = !draft.valuesByProp.isEmpty() || !draft.inheritByProp.isEmpty();
+        storePropertyDraftForObject(m_propsSide, currentToken, m_propsDataset, draft);
+    }
+
     m_propsDirty = false;
     for (int r = 0; r < table->rowCount(); ++r) {
         QTableWidgetItem* rk = table->item(r, 0);
@@ -1246,17 +1292,6 @@ void MainWindow::applyDatasetPropertyChanges() {
         for (const PendingDraft& item : pendingPropertyDrafts) {
             connectionsToRefresh.insert(item.ctx.connIdx);
         }
-        auto isMountedText = [](const QString& v) -> bool {
-            const QString s = v.trimmed().toLower();
-            return s == QStringLiteral("montado")
-                   || s == QStringLiteral("mounted")
-                   || s == QStringLiteral("已挂载")
-                   || s == QStringLiteral("on")
-                   || s == QStringLiteral("yes")
-                   || s == QStringLiteral("true")
-                   || s == QStringLiteral("1");
-        };
-
         for (const PendingDraft& item : pendingPropertyDrafts) {
             QMap<QString, QString> originalValues;
             QMap<QString, bool> originalInherit;
@@ -1267,7 +1302,6 @@ void MainWindow::applyDatasetPropertyChanges() {
                 originalValues[row.prop] = row.value;
                 originalInherit[row.prop] = isDatasetPropertyCurrentlyInherited(row.source);
             }
-
             QSet<QString> touched;
             for (auto it = item.draft.valuesByProp.cbegin(); it != item.draft.valuesByProp.cend(); ++it) {
                 touched.insert(it.key());
@@ -1283,7 +1317,9 @@ void MainWindow::applyDatasetPropertyChanges() {
                     || prop == QStringLiteral("snapshot")) {
                     continue;
                 }
-                if (!hasLoadedCache && !prop.startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+                if (!hasLoadedCache
+                    && prop.compare(QStringLiteral("mounted"), Qt::CaseInsensitive) != 0
+                    && !prop.startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
                     continue;
                 }
                 const bool originalInh = originalInherit.value(prop, false);
@@ -1295,14 +1331,18 @@ void MainWindow::applyDatasetPropertyChanges() {
                                                ? item.draft.valuesByProp.value(prop)
                                                : originalValue;
 
-                if (prop == QStringLiteral("estado")) {
-                    if (isMountedText(finalValue) != isMountedText(originalValue)) {
+                if (prop == QStringLiteral("mounted")) {
+                    bool finalMounted = false;
+                    bool originalMounted = false;
+                    const bool finalKnown = mountedStateFromText(finalValue, &finalMounted);
+                    const bool originalKnown = mountedStateFromText(originalValue, &originalMounted);
+                    if (finalKnown && originalKnown && finalMounted != originalMounted) {
                         subcmds << QStringLiteral("zfs %1 %2")
                                        .arg((isWindowsConnection(item.ctx.connIdx)
-                                                 ? (isMountedText(finalValue) ? QStringLiteral("mount")
-                                                                              : QStringLiteral("unmount"))
-                                                 : (isMountedText(finalValue) ? QStringLiteral("mount")
-                                                                              : QStringLiteral("umount"))),
+                                                 ? (finalMounted ? QStringLiteral("mount")
+                                                                 : QStringLiteral("unmount"))
+                                                 : (finalMounted ? QStringLiteral("mount")
+                                                                 : QStringLiteral("umount"))),
                                             shSingleQuote(item.ctx.datasetName));
                     }
                     continue;
@@ -1644,56 +1684,12 @@ void MainWindow::applyDatasetPropertyChanges() {
                 || draft.targetName.trimmed().isEmpty()) {
                 continue;
             }
-            const ConnectionProfile& p = m_profiles.at(draft.connIdx);
-            ConnectionProfile sudoProfile = p;
-            if (!ensureLocalSudoCredentials(sudoProfile)) {
-                appLog(QStringLiteral("INFO"), QStringLiteral("Aplicar renombrado cancelado: faltan credenciales sudo locales"));
+            QString failureDetail;
+            if (!executePendingDatasetRenameDraft(draft, true, &failureDetail)) {
                 setActionsLocked(false);
                 updateApplyPropsButtonState();
                 return;
             }
-            DatasetSelectionContext ctx;
-            ctx.valid = true;
-            ctx.connIdx = draft.connIdx;
-            ctx.poolName = draft.poolName.trimmed();
-            const int at = draft.sourceName.indexOf(QLatin1Char('@'));
-            if (at > 0) {
-                ctx.datasetName = draft.sourceName.left(at).trimmed();
-                ctx.snapshotName = draft.sourceName.mid(at + 1).trimmed();
-            } else {
-                ctx.datasetName = draft.sourceName.trimmed();
-            }
-            const QString cmd = pendingDatasetRenameCommand(draft);
-            const QString remoteCmd = withSudo(sudoProfile, cmd);
-            appLog(QStringLiteral("NORMAL"),
-                   QStringLiteral("Aplicar renombrado %1::%2")
-                       .arg(p.name, draft.sourceName.trimmed()));
-            updateStatus(QStringLiteral("Aplicar renombrado %1::%2").arg(p.name, draft.sourceName.trimmed()));
-            QString out;
-            QString err;
-            int rc = -1;
-            if (!runSsh(p, remoteCmd, 60000, out, err, rc) || rc != 0) {
-                const QString failureDetail = err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err;
-                appLog(QStringLiteral("NORMAL"),
-                       QStringLiteral("Error en Aplicar renombrado: %1")
-                           .arg(mwhelpers::oneLine(failureDetail)));
-                updateStatus(QStringLiteral("Aplicar renombrado (ERROR) %1::%2").arg(p.name, draft.sourceName.trimmed()));
-                QMessageBox::critical(
-                    this,
-                    QStringLiteral("ZFSMgr"),
-                    trk(QStringLiteral("t_action_fail001"),
-                        QStringLiteral("%1 falló:\n%2"),
-                        QStringLiteral("%1 failed:\n%2"),
-                        QStringLiteral("%1 失败：\n%2"))
-                        .arg(QStringLiteral("Aplicar renombrado"), failureDetail));
-                setActionsLocked(false);
-                updateApplyPropsButtonState();
-                return;
-            }
-            if (!out.trimmed().isEmpty()) {
-                appLog(QStringLiteral("INFO"), mwhelpers::oneLine(out));
-            }
-            appLog(QStringLiteral("NORMAL"), QStringLiteral("Aplicar renombrado finalizado"));
             for (int i = m_pendingChangesModel.size() - 1; i >= 0; --i) {
                 const PendingChange& existing = m_pendingChangesModel.at(i);
                 if (existing.kind == PendingChange::Kind::Rename
@@ -2373,16 +2369,6 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
         }
         return QStringLiteral("-e ");
     };
-    auto isMountedText = [](const QString& v) -> bool {
-        const QString s = v.trimmed().toLower();
-        return s == QStringLiteral("montado")
-               || s == QStringLiteral("mounted")
-               || s == QStringLiteral("已挂载")
-               || s == QStringLiteral("on")
-               || s == QStringLiteral("yes")
-               || s == QStringLiteral("true")
-               || s == QStringLiteral("1");
-    };
     for (const PendingPropertyDraftEntry& item : pendingConnContentPropertyDraftsFromModel()) {
         const int connIdx = item.connIdx;
         const QString poolName = item.poolName;
@@ -2411,6 +2397,11 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
             originalInherit[row.prop] = isDatasetPropertyCurrentlyInherited(row.source);
             appendTouched(row.prop);
         }
+        if (const DSInfo* dsInfo = findDsInfo(connIdx, poolName, objectName)) {
+            originalValues[QStringLiteral("mounted")] =
+                dsInfo->runtime.properties.value(QStringLiteral("mounted"));
+            appendTouched(QStringLiteral("mounted"));
+        }
         for (auto vit = draft.valuesByProp.cbegin(); vit != draft.valuesByProp.cend(); ++vit) {
             appendTouched(vit.key());
         }
@@ -2424,7 +2415,9 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
                 || prop == QStringLiteral("snapshot")) {
                 continue;
             }
-            if (!hasLoadedCache && !prop.startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+            if (!hasLoadedCache
+                && prop.compare(QStringLiteral("mounted"), Qt::CaseInsensitive) != 0
+                && !prop.startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
                 continue;
             }
             const bool originalInh = originalInherit.value(prop, false);
@@ -2436,8 +2429,12 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
                                            ? draft.valuesByProp.value(prop)
                                            : originalValue;
 
-            if (prop == QStringLiteral("estado")) {
-                if (isMountedText(finalValue) != isMountedText(originalValue)) {
+            if (prop == QStringLiteral("mounted")) {
+                bool finalMounted = false;
+                bool originalMounted = false;
+                const bool finalKnown = mountedStateFromText(finalValue, &finalMounted);
+                const bool originalKnown = mountedStateFromText(originalValue, &originalMounted);
+                if (finalKnown && originalKnown && finalMounted != originalMounted) {
                     PendingChange change;
                     change.kind = PendingChange::Kind::Property;
                     change.objectName = objectName;
@@ -2447,14 +2444,14 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
                                   poolName,
                                   QStringLiteral("zfs %1 %2")
                                       .arg((isWindowsConnection(connIdx)
-                                                ? (isMountedText(finalValue) ? QStringLiteral("mount")
-                                                                             : QStringLiteral("unmount"))
-                                                : (isMountedText(finalValue) ? QStringLiteral("mount")
-                                                                             : QStringLiteral("umount"))),
+                                                ? (finalMounted ? QStringLiteral("mount")
+                                                                : QStringLiteral("unmount"))
+                                                : (finalMounted ? QStringLiteral("mount")
+                                                                : QStringLiteral("umount"))),
                                            shSingleQuote(objectName)),
                                   QStringLiteral("%1 dataset %2")
-                                      .arg(isMountedText(finalValue) ? QStringLiteral("Montar")
-                                                                     : QStringLiteral("Desmontar"),
+                                      .arg(finalMounted ? QStringLiteral("Montar")
+                                                        : QStringLiteral("Desmontar"),
                                            objectName));
                 }
                 continue;
@@ -2821,30 +2818,8 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
         if (draft.connIdx < 0 || draft.connIdx >= m_profiles.size()) {
             return false;
         }
-        const ConnectionProfile& p = m_profiles.at(draft.connIdx);
-        ConnectionProfile sudoProfile = p;
-        if (!ensureLocalSudoCredentials(sudoProfile)) {
-            appLog(QStringLiteral("INFO"), QStringLiteral("Aplicar renombrado cancelado: faltan credenciales sudo locales"));
+        if (!executePendingDatasetRenameDraft(draft, true, nullptr)) {
             return false;
-        }
-        const QString remoteCmd = withSudo(sudoProfile, pendingDatasetRenameCommand(draft));
-        QString out;
-        QString err;
-        int rc = -1;
-        if (!runSsh(p, remoteCmd, 60000, out, err, rc) || rc != 0) {
-            const QString failureDetail = err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err;
-            QMessageBox::critical(
-                this,
-                QStringLiteral("ZFSMgr"),
-                trk(QStringLiteral("t_action_fail001"),
-                    QStringLiteral("%1 falló:\n%2"),
-                    QStringLiteral("%1 failed:\n%2"),
-                    QStringLiteral("%1 失败：\n%2"))
-                    .arg(QStringLiteral("Aplicar renombrado"), failureDetail));
-            return false;
-        }
-        if (!out.trimmed().isEmpty()) {
-            appLog(QStringLiteral("INFO"), mwhelpers::oneLine(out));
         }
         for (int i = 0; i < m_pendingChangesModel.size(); ++i) {
             const PendingChange& existing = m_pendingChangesModel.at(i);

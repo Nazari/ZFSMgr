@@ -499,6 +499,66 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     return true;
 }
 
+bool MainWindow::executePendingDatasetRenameDraft(const PendingDatasetRenameDraft& draft,
+                                                  bool interactiveErrorDialog,
+                                                  QString* failureDetailOut) {
+    if (draft.connIdx < 0 || draft.connIdx >= m_profiles.size()
+        || draft.poolName.trimmed().isEmpty()
+        || draft.sourceName.trimmed().isEmpty()
+        || draft.targetName.trimmed().isEmpty()) {
+        if (failureDetailOut) {
+            *failureDetailOut = QStringLiteral("invalid draft");
+        }
+        return false;
+    }
+    const ConnectionProfile& p = m_profiles.at(draft.connIdx);
+    ConnectionProfile sudoProfile = p;
+    if (!ensureLocalSudoCredentials(sudoProfile)) {
+        const QString msg = QStringLiteral("faltan credenciales sudo locales");
+        appLog(QStringLiteral("INFO"), QStringLiteral("Aplicar renombrado cancelado: %1").arg(msg));
+        if (failureDetailOut) {
+            *failureDetailOut = msg;
+        }
+        return false;
+    }
+    const QString remoteCmd = withSudo(sudoProfile, pendingDatasetRenameCommand(draft));
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Aplicar renombrado %1::%2")
+               .arg(p.name, draft.sourceName.trimmed()));
+    updateStatus(QStringLiteral("Aplicar renombrado %1::%2").arg(p.name, draft.sourceName.trimmed()));
+    QString out;
+    QString err;
+    int rc = -1;
+    if (!runSsh(p, remoteCmd, 60000, out, err, rc) || rc != 0) {
+        const QString failureDetail = err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err;
+        if (failureDetailOut) {
+            *failureDetailOut = failureDetail;
+        }
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Error en Aplicar renombrado: %1")
+                   .arg(oneLine(failureDetail)));
+        updateStatus(QStringLiteral("Aplicar renombrado (ERROR) %1::%2").arg(p.name, draft.sourceName.trimmed()));
+        if (interactiveErrorDialog) {
+            QMessageBox::critical(
+                this,
+                QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_action_fail001"),
+                    QStringLiteral("%1 falló:\n%2"),
+                    QStringLiteral("%1 failed:\n%2"),
+                    QStringLiteral("%1 失败：\n%2"))
+                    .arg(QStringLiteral("Aplicar renombrado"), failureDetail));
+        }
+        return false;
+    }
+    if (!out.trimmed().isEmpty()) {
+        appLog(QStringLiteral("INFO"), oneLine(out));
+    }
+    appLog(QStringLiteral("NORMAL"), QStringLiteral("Aplicar renombrado finalizado"));
+    invalidateDatasetCacheForPool(draft.connIdx, draft.poolName.trimmed());
+    rebuildConnInfoFor(draft.connIdx);
+    return true;
+}
+
 QString MainWindow::diagnoseUmountFailure(const DatasetSelectionContext& ctx) {
     if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_profiles.size()) {
         return QString();

@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "mainwindow_helpers.h"
 #include "mainwindow_ui_logic.h"
 
 #include <algorithm>
@@ -27,6 +28,53 @@ QString canonicalDatasetParentName(const QString& fullName) {
         return trimmed.left(slashPos);
     }
     return QString();
+}
+
+QStringList gsaPropertyKeysForModel() {
+    return {
+        QStringLiteral("org.fc16.gsa:activado"),
+        QStringLiteral("org.fc16.gsa:recursivo"),
+        QStringLiteral("org.fc16.gsa:horario"),
+        QStringLiteral("org.fc16.gsa:diario"),
+        QStringLiteral("org.fc16.gsa:semanal"),
+        QStringLiteral("org.fc16.gsa:mensual"),
+        QStringLiteral("org.fc16.gsa:anual"),
+        QStringLiteral("org.fc16.gsa:nivelar"),
+        QStringLiteral("org.fc16.gsa:destino"),
+    };
+}
+
+QString normalizedPropKey(const QString& propName) {
+    return propName.trimmed().toLower();
+}
+
+bool mountedStateFromAnyText(const QString& value, bool* mountedOut) {
+    const QString s = value.trimmed().toLower();
+    if (s == QStringLiteral("montado")
+        || s == QStringLiteral("mounted")
+        || s == QStringLiteral("已挂载")
+        || s == QStringLiteral("on")
+        || s == QStringLiteral("yes")
+        || s == QStringLiteral("true")
+        || s == QStringLiteral("1")) {
+        if (mountedOut) {
+            *mountedOut = true;
+        }
+        return true;
+    }
+    if (s == QStringLiteral("desmontado")
+        || s == QStringLiteral("unmounted")
+        || s == QStringLiteral("未挂载")
+        || s == QStringLiteral("off")
+        || s == QStringLiteral("no")
+        || s == QStringLiteral("false")
+        || s == QStringLiteral("0")) {
+        if (mountedOut) {
+            *mountedOut = false;
+        }
+        return true;
+    }
+    return false;
 }
 }
 
@@ -353,6 +401,10 @@ void MainWindow::rebuildPoolInfoFromCache(PoolInfo& poolInfo,
                         : prevDsIt->runtime.datasetType.trimmed();
                 it->runtime.propertyRows = prevDsIt->runtime.propertyRows;
                 it->runtime.properties = prevDsIt->runtime.properties;
+                it->runtime.loadedPropertyNames = prevDsIt->runtime.loadedPropertyNames;
+                it->runtime.allPropertiesLoaded = prevDsIt->runtime.allPropertiesLoaded;
+                it->runtime.holdsState = prevDsIt->runtime.holdsState;
+                it->runtime.snapshotHolds = prevDsIt->runtime.snapshotHolds;
                 it->kind = dsKindFromNames(it.key(), it->runtime.datasetType);
             }
         }
@@ -430,6 +482,8 @@ void MainWindow::rebuildConnInfoFor(int connIdx) {
             const auto prevPoolIt = oldConnInfo->poolsByStableId.constFind(it.key());
             if (prevPoolIt != oldConnInfo->poolsByStableId.cend()) {
                 previousPoolInfo = &prevPoolIt.value();
+                poolInfo.runtime.schedulesState = previousPoolInfo->runtime.schedulesState;
+                poolInfo.runtime.autoSnapshotPropsByDataset = previousPoolInfo->runtime.autoSnapshotPropsByDataset;
             }
         }
         rebuildPoolInfoFromCache(poolInfo, connIdx, poolInfo.key.poolName, previousPoolInfo);
@@ -538,6 +592,240 @@ QVector<MainWindow::DatasetPropCacheRow> MainWindow::datasetPropertyRowsFromMode
     return {};
 }
 
+QVector<MainWindow::DatasetPropCacheRow> MainWindow::datasetPropertyRowsForNames(int connIdx,
+                                                                                 const QString& poolName,
+                                                                                 const QString& objectName,
+                                                                                 const QStringList& propNames) const {
+    const QVector<DatasetPropCacheRow> rows = datasetPropertyRowsFromModelOrCache(connIdx, poolName, objectName);
+    if (propNames.isEmpty() || rows.isEmpty()) {
+        return rows;
+    }
+    QSet<QString> wanted;
+    for (const QString& propName : propNames) {
+        const QString key = normalizedPropKey(propName);
+        if (!key.isEmpty()) {
+            wanted.insert(key);
+        }
+    }
+    QVector<DatasetPropCacheRow> filtered;
+    for (const DatasetPropCacheRow& row : rows) {
+        if (wanted.contains(normalizedPropKey(row.prop))) {
+            filtered.push_back(row);
+        }
+    }
+    return filtered;
+}
+
+QMap<QString, QString> MainWindow::datasetPropertyValuesForNames(int connIdx,
+                                                                 const QString& poolName,
+                                                                 const QString& objectName,
+                                                                 const QStringList& propNames) const {
+    QMap<QString, QString> values;
+    for (const DatasetPropCacheRow& row : datasetPropertyRowsForNames(connIdx, poolName, objectName, propNames)) {
+        values.insert(row.prop, row.value);
+    }
+    return values;
+}
+
+QMap<QString, QString> MainWindow::datasetGsaPropertyValues(int connIdx,
+                                                            const QString& poolName,
+                                                            const QString& objectName) const {
+    return datasetPropertyValuesForNames(connIdx, poolName, objectName, gsaPropertyKeysForModel());
+}
+
+bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
+                                                  const QString& poolName,
+                                                  const QString& objectName) {
+    const QString trimmedPool = poolName.trimmed();
+    const QString trimmedObject = objectName.trimmed();
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty() || trimmedObject.isEmpty()) {
+        return false;
+    }
+    DSInfo* dsInfo = findDsInfo(connIdx, trimmedPool, trimmedObject);
+    if (dsInfo && dsInfo->runtime.propertiesState == LoadState::Loaded && dsInfo->runtime.allPropertiesLoaded) {
+        return true;
+    }
+
+    const ConnectionProfile& p = m_profiles[connIdx];
+    QString datasetType = trimmedObject.contains(QLatin1Char('@')) ? QStringLiteral("snapshot") : QStringLiteral("filesystem");
+    if (dsInfo && !dsInfo->runtime.datasetType.trimmed().isEmpty()) {
+        datasetType = dsInfo->runtime.datasetType.trimmed();
+    }
+
+    if (datasetType.trimmed().isEmpty()) {
+        QString tOut, tErr;
+        int tRc = -1;
+        const QString typeCmd = withSudo(
+            p,
+            QStringLiteral("zfs get -H -o value type %1").arg(mwhelpers::shSingleQuote(trimmedObject)));
+        if (runSsh(p, typeCmd, 12000, tOut, tErr, tRc) && tRc == 0) {
+            const QString t = tOut.trimmed().toLower();
+            if (!t.isEmpty()) {
+                datasetType = t;
+            }
+        }
+    }
+
+    QString out;
+    QString err;
+    int rc = -1;
+    const QString propsCmd = withSudo(
+        p,
+        QStringLiteral("zfs get -H -o property,value,source all %1").arg(mwhelpers::shSingleQuote(trimmedObject)));
+    if (!runSsh(p, propsCmd, 20000, out, err, rc) || rc != 0) {
+        if (dsInfo) {
+            dsInfo->runtime.propertiesState = LoadState::Error;
+            dsInfo->runtime.errorText = err.trimmed();
+        }
+        return false;
+    }
+
+    QVector<DatasetPropCacheRow> rows;
+    rows.push_back(DatasetPropCacheRow{QStringLiteral("dataset"), trimmedObject, QString(), QStringLiteral("true")});
+    const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+    for (const QString& raw : lines) {
+        QString prop, val, source, ro;
+        const QStringList parts = raw.split('\t');
+        if (parts.size() >= 4) {
+            prop = parts[0].trimmed();
+            val = parts[1].trimmed();
+            source = parts[2].trimmed();
+            ro = parts[3].trimmed().toLower();
+        } else if (parts.size() >= 3) {
+            prop = parts[0].trimmed();
+            val = parts[1].trimmed();
+            source = parts[2].trimmed();
+            ro.clear();
+        } else {
+            const QStringList sp = raw.simplified().split(' ');
+            if (sp.size() < 3) {
+                continue;
+            }
+            prop = sp[0].trimmed();
+            val = sp[1].trimmed();
+            source = sp[2].trimmed();
+            ro = (sp.size() > 3) ? sp[3].trimmed().toLower() : QString();
+        }
+        rows.push_back(DatasetPropCacheRow{prop, val, source, ro});
+    }
+
+    storeDatasetPropertyRows(connIdx, trimmedPool, trimmedObject, datasetType, rows);
+    if (DSInfo* refreshed = findDsInfo(connIdx, trimmedPool, trimmedObject)) {
+        refreshed->runtime.propertiesState = LoadState::Loaded;
+        refreshed->runtime.loadedAt = QDateTime::currentDateTimeUtc();
+        refreshed->runtime.errorText.clear();
+        refreshed->runtime.allPropertiesLoaded = true;
+        refreshed->runtime.loadedPropertyNames.clear();
+        for (const DatasetPropCacheRow& row : refreshed->runtime.propertyRows) {
+            refreshed->runtime.loadedPropertyNames.insert(normalizedPropKey(row.prop));
+        }
+    }
+    return true;
+}
+
+bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
+                                                   const QString& poolName,
+                                                   const QString& objectName,
+                                                   const QStringList& propNames) {
+    const QString trimmedPool = poolName.trimmed();
+    const QString trimmedObject = objectName.trimmed();
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty() || trimmedObject.isEmpty()) {
+        return false;
+    }
+    if (propNames.isEmpty()) {
+        return ensureDatasetAllPropertiesLoaded(connIdx, trimmedPool, trimmedObject);
+    }
+    DSInfo* dsInfo = findDsInfo(connIdx, trimmedPool, trimmedObject);
+    if (!dsInfo) {
+        return false;
+    }
+    if (dsInfo->runtime.allPropertiesLoaded) {
+        return true;
+    }
+
+    QStringList wantedProps;
+    QSet<QString> missingKeys;
+    for (const QString& propName : propNames) {
+        const QString key = normalizedPropKey(propName);
+        if (key.isEmpty()) {
+            continue;
+        }
+        wantedProps.push_back(propName.trimmed());
+        if (!dsInfo->runtime.loadedPropertyNames.contains(key)) {
+            missingKeys.insert(key);
+        }
+    }
+    if (missingKeys.isEmpty()) {
+        return true;
+    }
+
+    const ConnectionProfile& p = m_profiles[connIdx];
+    QString datasetType = dsInfo->runtime.datasetType.trimmed();
+    if (datasetType.isEmpty()) {
+        datasetType = trimmedObject.contains(QLatin1Char('@')) ? QStringLiteral("snapshot")
+                                                               : QStringLiteral("filesystem");
+    }
+    QString out;
+    QString err;
+    int rc = -1;
+    QStringList quotedProps;
+    for (const QString& propName : wantedProps) {
+        quotedProps.push_back(mwhelpers::shSingleQuote(propName.trimmed()));
+    }
+    const QString propsCmd = withSudo(
+        p,
+        QStringLiteral("zfs get -H -o property,value,source %1 %2")
+            .arg(quotedProps.join(QLatin1Char(',')),
+                 mwhelpers::shSingleQuote(trimmedObject)));
+    if (!runSsh(p, propsCmd, 20000, out, err, rc) || rc != 0) {
+        dsInfo->runtime.propertiesState = LoadState::Error;
+        dsInfo->runtime.errorText = err.trimmed();
+        return false;
+    }
+
+    QMap<QString, DatasetPropCacheRow> mergedByKey;
+    for (const DatasetPropCacheRow& row : dsInfo->runtime.propertyRows) {
+        mergedByKey.insert(normalizedPropKey(row.prop), row);
+    }
+    const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+    for (const QString& raw : lines) {
+        QString prop, val, source;
+        const QStringList parts = raw.split('\t');
+        if (parts.size() >= 3) {
+            prop = parts[0].trimmed();
+            val = parts[1].trimmed();
+            source = parts[2].trimmed();
+        } else {
+            const QStringList sp = raw.simplified().split(' ');
+            if (sp.size() < 3) {
+                continue;
+            }
+            prop = sp[0].trimmed();
+            val = sp[1].trimmed();
+            source = sp.mid(2).join(QStringLiteral(" ")).trimmed();
+        }
+        if (prop.isEmpty()) {
+            continue;
+        }
+        DatasetPropCacheRow row{prop, val, source, QString()};
+        mergedByKey.insert(normalizedPropKey(prop), row);
+        dsInfo->runtime.properties.insert(prop, val);
+        dsInfo->runtime.loadedPropertyNames.insert(normalizedPropKey(prop));
+    }
+
+    QVector<DatasetPropCacheRow> mergedRows;
+    mergedRows.reserve(mergedByKey.size());
+    for (auto it = mergedByKey.cbegin(); it != mergedByKey.cend(); ++it) {
+        mergedRows.push_back(it.value());
+    }
+    dsInfo->runtime.propertyRows = mergedRows;
+    dsInfo->runtime.propertiesState = LoadState::Loaded;
+    dsInfo->runtime.loadedAt = QDateTime::currentDateTimeUtc();
+    dsInfo->runtime.errorText.clear();
+    dsInfo->runtime.datasetType = datasetType;
+    return true;
+}
+
 void MainWindow::storeDatasetPropertyRows(int connIdx,
                                           const QString& poolName,
                                           const QString& objectName,
@@ -551,23 +839,33 @@ void MainWindow::storeDatasetPropertyRows(int connIdx,
 
     if (DSInfo* objectInfo = findDsInfo(connIdx, trimmedPool, trimmedObject)) {
         objectInfo->runtime.propertiesState = LoadState::Loaded;
+        objectInfo->runtime.loadedAt = QDateTime::currentDateTimeUtc();
+        objectInfo->runtime.errorText.clear();
         objectInfo->runtime.datasetType = datasetType.trimmed();
         objectInfo->runtime.propertyRows = rows;
         objectInfo->runtime.properties.clear();
+        objectInfo->runtime.loadedPropertyNames.clear();
         for (const DatasetPropCacheRow& row : rows) {
             objectInfo->runtime.properties.insert(row.prop.trimmed(), row.value);
+            objectInfo->runtime.loadedPropertyNames.insert(normalizedPropKey(row.prop));
         }
+        objectInfo->runtime.allPropertiesLoaded = true;
         objectInfo->kind = dsKindFromNames(trimmedObject, datasetType.trimmed());
     } else {
         rebuildConnInfoFor(connIdx);
         if (DSInfo* rebuilt = findDsInfo(connIdx, trimmedPool, trimmedObject)) {
             rebuilt->runtime.propertiesState = LoadState::Loaded;
+            rebuilt->runtime.loadedAt = QDateTime::currentDateTimeUtc();
+            rebuilt->runtime.errorText.clear();
             rebuilt->runtime.datasetType = datasetType.trimmed();
             rebuilt->runtime.propertyRows = rows;
             rebuilt->runtime.properties.clear();
+            rebuilt->runtime.loadedPropertyNames.clear();
             for (const DatasetPropCacheRow& row : rows) {
                 rebuilt->runtime.properties.insert(row.prop.trimmed(), row.value);
+                rebuilt->runtime.loadedPropertyNames.insert(normalizedPropKey(row.prop));
             }
+            rebuilt->runtime.allPropertiesLoaded = true;
             rebuilt->kind = dsKindFromNames(trimmedObject, datasetType.trimmed());
         }
     }
@@ -583,6 +881,8 @@ void MainWindow::removeDatasetPropertyEntry(int connIdx, const QString& poolName
         objectInfo->runtime.propertiesState = LoadState::NotLoaded;
         objectInfo->runtime.propertyRows.clear();
         objectInfo->runtime.properties.clear();
+        objectInfo->runtime.loadedPropertyNames.clear();
+        objectInfo->runtime.allPropertiesLoaded = false;
     }
 }
 
@@ -592,6 +892,8 @@ void MainWindow::removeDatasetPropertyEntriesForPool(int connIdx, const QString&
             itDs->runtime.propertiesState = LoadState::NotLoaded;
             itDs->runtime.propertyRows.clear();
             itDs->runtime.properties.clear();
+            itDs->runtime.loadedPropertyNames.clear();
+            itDs->runtime.allPropertiesLoaded = false;
         }
     }
 }
@@ -618,11 +920,15 @@ MainWindow::DatasetPropsDraft MainWindow::propertyDraftForObject(const QString& 
     for (auto itProp = dsInfo->editSession.propertyEdits.byName.cbegin();
          itProp != dsInfo->editSession.propertyEdits.byName.cend();
          ++itProp) {
-        if (!itProp->dirty) {
+        if (!itProp->dirty()) {
             continue;
         }
-        draft.valuesByProp.insert(itProp.key(), itProp->value);
-        draft.inheritByProp.insert(itProp.key(), itProp->inherit);
+        if (itProp->valueDirty) {
+            draft.valuesByProp.insert(itProp.key(), itProp->value);
+        }
+        if (itProp->inheritDirty) {
+            draft.inheritByProp.insert(itProp.key(), itProp->inherit);
+        }
     }
     draft.dirty = !draft.valuesByProp.isEmpty() || !draft.inheritByProp.isEmpty();
     return draft;
@@ -640,7 +946,6 @@ void MainWindow::storePropertyDraftForObject(const QString& side,
     }
 
     DatasetPropsDraft draft = draftIn;
-    draft.dirty = !draft.valuesByProp.isEmpty() || !draft.inheritByProp.isEmpty();
     const int sep = normToken.indexOf(QStringLiteral("::"));
     if (sep <= 0) {
         return;
@@ -656,13 +961,56 @@ void MainWindow::storePropertyDraftForObject(const QString& side,
         return;
     }
 
+    const QVector<DatasetPropCacheRow> originalRows = datasetPropertyRowsFromModelOrCache(connIdx, poolName, normObject);
+    QMap<QString, QString> originalValues;
+    QMap<QString, bool> originalInherit;
+    for (const DatasetPropCacheRow& row : originalRows) {
+        originalValues.insert(row.prop, row.value);
+        originalInherit.insert(row.prop, row.source.trimmed().toLower().startsWith(QStringLiteral("inherited")));
+    }
+    auto valueIt = draft.valuesByProp.begin();
+    while (valueIt != draft.valuesByProp.end()) {
+        const QString originalValue = originalValues.value(valueIt.key());
+        bool erase = false;
+        if (valueIt.key().compare(QStringLiteral("mounted"), Qt::CaseInsensitive) == 0) {
+            bool currentMounted = false;
+            bool originalMounted = false;
+            if (mountedStateFromAnyText(valueIt.value(), &currentMounted)
+                && mountedStateFromAnyText(originalValue, &originalMounted)
+                && currentMounted == originalMounted
+                && !draft.inheritByProp.contains(valueIt.key())) {
+                erase = true;
+            }
+        } else if (valueIt.value() == originalValue && !draft.inheritByProp.contains(valueIt.key())) {
+            erase = true;
+        }
+        if (erase) {
+            valueIt = draft.valuesByProp.erase(valueIt);
+        } else {
+            ++valueIt;
+        }
+    }
+    auto inheritIt = draft.inheritByProp.begin();
+    while (inheritIt != draft.inheritByProp.end()) {
+        const bool originalInherited = originalInherit.value(inheritIt.key(), false);
+        if (inheritIt.value() == originalInherited && !draft.valuesByProp.contains(inheritIt.key())) {
+            inheritIt = draft.inheritByProp.erase(inheritIt);
+        } else {
+            ++inheritIt;
+        }
+    }
+    draft.dirty = !draft.valuesByProp.isEmpty() || !draft.inheritByProp.isEmpty();
+
     dsInfo->editSession.target = dsInfo->key;
     dsInfo->editSession.propertyEdits.clear();
     for (auto itProp = draft.valuesByProp.cbegin(); itProp != draft.valuesByProp.cend(); ++itProp) {
         DSPropertyEditValue value;
         value.value = itProp.value();
-        value.inherit = draft.inheritByProp.value(itProp.key(), false);
-        value.dirty = true;
+        value.valueDirty = true;
+        if (draft.inheritByProp.contains(itProp.key())) {
+            value.inherit = draft.inheritByProp.value(itProp.key(), false);
+            value.inheritDirty = true;
+        }
         dsInfo->editSession.propertyEdits.byName.insert(itProp.key(), value);
     }
     for (auto itInh = draft.inheritByProp.cbegin(); itInh != draft.inheritByProp.cend(); ++itInh) {
@@ -670,11 +1018,11 @@ void MainWindow::storePropertyDraftForObject(const QString& side,
         if (existing == dsInfo->editSession.propertyEdits.byName.end()) {
             DSPropertyEditValue value;
             value.inherit = itInh.value();
-            value.dirty = true;
+            value.inheritDirty = true;
             dsInfo->editSession.propertyEdits.byName.insert(itInh.key(), value);
         } else {
             existing->inherit = itInh.value();
-            existing->dirty = true;
+            existing->inheritDirty = true;
         }
     }
 }
@@ -717,6 +1065,400 @@ const MainWindow::DatasetPermissionsCacheEntry* MainWindow::datasetPermissionsEn
     const QString key = datasetPermissionsCacheKey(connIdx, poolName, datasetName);
     const auto it = m_datasetPermissionsCache.constFind(key);
     return (it == m_datasetPermissionsCache.cend()) ? nullptr : &it.value();
+}
+
+const MainWindow::DatasetPermissionsCacheEntry* MainWindow::ensureDatasetPermissionsEntryLoaded(int connIdx,
+                                                                                               const QString& poolName,
+                                                                                               const QString& datasetName) {
+    if (!ensureDatasetPermissionsLoaded(connIdx, poolName, datasetName)) {
+        return nullptr;
+    }
+    return datasetPermissionsEntry(connIdx, poolName, datasetName);
+}
+
+const MainWindow::PoolDetailsCacheEntry* MainWindow::poolDetailsEntry(int connIdx, const QString& poolName) const {
+    const QString cacheKey = poolDetailsCacheKey(connIdx, poolName);
+    const auto it = m_poolDetailsCache.constFind(cacheKey);
+    return (it == m_poolDetailsCache.cend()) ? nullptr : &it.value();
+}
+
+bool MainWindow::ensurePoolDetailsLoaded(int connIdx, const QString& poolName) {
+    const QString trimmedPool = poolName.trimmed();
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty()) {
+        return false;
+    }
+    if (const PoolInfo* poolInfo = findPoolInfo(connIdx, trimmedPool);
+        poolInfo && poolInfo->runtime.detailsState == LoadState::Loaded
+        && (!poolInfo->runtime.zpoolPropertyRows.isEmpty() || !poolInfo->runtime.poolStatusText.trimmed().isEmpty())) {
+        return true;
+    }
+    const PoolDetailsCacheEntry* cached = poolDetailsEntry(connIdx, trimmedPool);
+    if (cached && cached->loaded) {
+        return true;
+    }
+
+    const ConnectionProfile& p = m_profiles[connIdx];
+    PoolDetailsCacheEntry fresh;
+    QString out;
+    QString err;
+    int rc = -1;
+    const QString propsCmd = withSudo(
+        p, QStringLiteral("zpool get -H -o property,value,source all %1").arg(mwhelpers::shSingleQuote(trimmedPool)));
+    if (runSsh(p, propsCmd, 20000, out, err, rc) && rc == 0) {
+        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+        for (const QString& line : lines) {
+            const QStringList parts = line.split('\t');
+            if (parts.size() < 3) {
+                continue;
+            }
+            fresh.propsRows.push_back(QStringList{parts[0].trimmed(), parts[1].trimmed(), parts[2].trimmed()});
+        }
+    }
+
+    out.clear();
+    err.clear();
+    rc = -1;
+    const QString stCmd = withSudo(
+        p, QStringLiteral("zpool status -v %1").arg(mwhelpers::shSingleQuote(trimmedPool)));
+    if (runSsh(p, stCmd, 20000, out, err, rc) && rc == 0) {
+        fresh.statusText = out.trimmed();
+    } else {
+        fresh.statusText = err.trimmed();
+    }
+    fresh.loaded = true;
+    m_poolDetailsCache.insert(poolDetailsCacheKey(connIdx, trimmedPool), fresh);
+    rebuildConnInfoFor(connIdx);
+    return true;
+}
+
+bool MainWindow::ensurePoolAutoSnapshotInfoLoaded(int connIdx, const QString& poolName) {
+    const QString trimmedPool = poolName.trimmed();
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty()) {
+        return false;
+    }
+    PoolInfo* poolInfo = findPoolInfo(connIdx, trimmedPool);
+    if (poolInfo && poolInfo->runtime.schedulesState == LoadState::Loaded) {
+        return true;
+    }
+    if (isWindowsConnection(connIdx)) {
+        return false;
+    }
+    const ConnectionProfile& cp = m_profiles[connIdx];
+    const QStringList gsaProps = gsaPropertyKeysForModel();
+    QStringList propArgs;
+    for (const QString& prop : gsaProps) {
+        propArgs << mwhelpers::shSingleQuote(prop);
+    }
+    const QString cmd =
+        withSudo(cp,
+                 QStringLiteral("zfs get -H -o name,property,value,source -r %1 %2")
+                     .arg(propArgs.join(QLatin1Char(',')),
+                          mwhelpers::shSingleQuote(trimmedPool)));
+    QString out;
+    QString err;
+    int rc = -1;
+    if (!runSsh(cp, cmd, 20000, out, err, rc) || rc != 0) {
+        if (poolInfo) {
+            poolInfo->runtime.schedulesState = LoadState::Error;
+            poolInfo->runtime.errorText = err.trimmed();
+        }
+        return false;
+    }
+
+    auto isLocallyConfiguredGsaSource = [](const QString& source) {
+        const QString src = source.trimmed().toLower();
+        if (src.isEmpty() || src == QStringLiteral("-")) {
+            return false;
+        }
+        if (src.startsWith(QStringLiteral("inherited")) || src == QStringLiteral("default")) {
+            return false;
+        }
+        return true;
+    };
+    QMap<QString, QMap<QString, QString>> loaded;
+    for (const QString& line : out.split(QLatin1Char('\n'))) {
+        const QString trimmed = line.trimmed();
+        if (trimmed.isEmpty()) {
+            continue;
+        }
+        const QStringList cols = trimmed.split(QRegularExpression(QStringLiteral("\\s+")),
+                                               Qt::SkipEmptyParts);
+        if (cols.size() < 4) {
+            continue;
+        }
+        const QString dsName = cols.at(0).trimmed();
+        const QString prop = cols.at(1).trimmed();
+        const QString value = cols.at(2).trimmed();
+        const QString source = cols.mid(3).join(QStringLiteral(" ")).trimmed();
+        if (dsName.isEmpty() || dsName.contains(QLatin1Char('@'))) {
+            continue;
+        }
+        if (prop.startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)
+            && isLocallyConfiguredGsaSource(source)) {
+            loaded[dsName].insert(prop, value);
+        }
+    }
+    if (!poolInfo) {
+        rebuildConnInfoFor(connIdx);
+        poolInfo = findPoolInfo(connIdx, trimmedPool);
+    }
+    if (poolInfo) {
+        poolInfo->runtime.autoSnapshotPropsByDataset = loaded;
+        poolInfo->runtime.schedulesState = LoadState::Loaded;
+        poolInfo->runtime.errorText.clear();
+    }
+    return true;
+}
+
+bool MainWindow::executePoolCommand(int connIdx,
+                                    const QString& poolName,
+                                    const QString& actionName,
+                                    const QString& remoteCmd,
+                                    int timeoutMs,
+                                    QString* failureDetailOut,
+                                    bool refreshPoolsTable,
+                                    bool refreshSelectedPoolDetailsAfter) {
+    const QString trimmedPool = poolName.trimmed();
+    const QString trimmedAction = actionName.trimmed();
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty() || trimmedAction.isEmpty()) {
+        if (failureDetailOut) {
+            *failureDetailOut = QStringLiteral("invalid pool command context");
+        }
+        return false;
+    }
+
+    const ConnectionProfile& p = m_profiles[connIdx];
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Inicio %1 %2::%3").arg(trimmedAction.toLower(), p.name, trimmedPool));
+    setActionsLocked(true);
+    QString out;
+    QString err;
+    int rc = -1;
+    const bool ok = runSsh(p, remoteCmd, timeoutMs, out, err, rc) && rc == 0;
+    setActionsLocked(false);
+    if (!ok) {
+        const QString detail = mwhelpers::oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err);
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Error %1 %2::%3 -> %4")
+                   .arg(trimmedAction.toLower(), p.name, trimmedPool, detail));
+        if (failureDetailOut) {
+            *failureDetailOut = err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err;
+        }
+        return false;
+    }
+
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Fin %1 %2::%3").arg(trimmedAction.toLower(), p.name, trimmedPool));
+    refreshConnectionByIndex(connIdx);
+    if (refreshPoolsTable) {
+        populateAllPoolsTables();
+    }
+    if (refreshSelectedPoolDetailsAfter) {
+        refreshSelectedPoolDetails(true, true);
+    }
+    return true;
+}
+
+bool MainWindow::fetchPoolCommandOutput(int connIdx,
+                                        const QString& poolName,
+                                        const QString& actionName,
+                                        const QString& remoteCmd,
+                                        QString* outputOut,
+                                        QString* failureDetailOut,
+                                        int timeoutMs) {
+    const QString trimmedPool = poolName.trimmed();
+    const QString trimmedAction = actionName.trimmed();
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty() || trimmedAction.isEmpty()) {
+        if (failureDetailOut) {
+            *failureDetailOut = QStringLiteral("invalid pool query context");
+        }
+        return false;
+    }
+
+    const ConnectionProfile& p = m_profiles[connIdx];
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Consulta %1 %2::%3").arg(trimmedAction.toLower(), p.name, trimmedPool));
+    QString out;
+    QString err;
+    int rc = -1;
+    if (!runSsh(p, remoteCmd, timeoutMs, out, err, rc) || rc != 0) {
+        const QString detail = err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err;
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Error %1 %2::%3 -> %4")
+                   .arg(trimmedAction.toLower(), p.name, trimmedPool, mwhelpers::oneLine(detail)));
+        if (failureDetailOut) {
+            *failureDetailOut = detail;
+        }
+        return false;
+    }
+    if (outputOut) {
+        *outputOut = out;
+    }
+    return true;
+}
+
+bool MainWindow::executeConnectionCommand(int connIdx,
+                                          const QString& actionName,
+                                          const QString& remoteCmd,
+                                          int timeoutMs,
+                                          QString* failureDetailOut,
+                                          WindowsCommandMode windowsMode) {
+    if (connIdx < 0 || connIdx >= m_profiles.size() || actionName.trimmed().isEmpty()) {
+        if (failureDetailOut) {
+            *failureDetailOut = QStringLiteral("invalid connection command context");
+        }
+        return false;
+    }
+    const ConnectionProfile& p = m_profiles[connIdx];
+    QString out;
+    QString err;
+    int rc = -1;
+    const bool ok = runSsh(p, remoteCmd, timeoutMs, out, err, rc, {}, {}, {}, windowsMode) && rc == 0;
+    if (!ok && failureDetailOut) {
+        QStringList parts;
+        if (!err.trimmed().isEmpty()) {
+            parts << err.trimmed();
+        }
+        if (!out.trimmed().isEmpty()) {
+            parts << out.trimmed();
+        }
+        *failureDetailOut = parts.isEmpty() ? QStringLiteral("exit %1").arg(rc) : parts.join(QStringLiteral("\n\n"));
+    }
+    return ok;
+}
+
+bool MainWindow::fetchConnectionCommandOutput(int connIdx,
+                                              const QString& actionName,
+                                              const QString& remoteCmd,
+                                              QString* outputOut,
+                                              QString* failureDetailOut,
+                                              int timeoutMs,
+                                              WindowsCommandMode windowsMode) {
+    if (connIdx < 0 || connIdx >= m_profiles.size() || actionName.trimmed().isEmpty()) {
+        if (failureDetailOut) {
+            *failureDetailOut = QStringLiteral("invalid connection query context");
+        }
+        return false;
+    }
+    const ConnectionProfile& p = m_profiles[connIdx];
+    QString out;
+    QString err;
+    int rc = -1;
+    const bool ok = runSsh(p, remoteCmd, timeoutMs, out, err, rc, {}, {}, {}, windowsMode) && rc == 0;
+    if (!ok) {
+        if (failureDetailOut) {
+            QStringList parts;
+            if (!err.trimmed().isEmpty()) {
+                parts << err.trimmed();
+            }
+            if (!out.trimmed().isEmpty()) {
+                parts << out.trimmed();
+            }
+            *failureDetailOut = parts.isEmpty() ? QStringLiteral("exit %1").arg(rc) : parts.join(QStringLiteral("\n\n"));
+        }
+        return false;
+    }
+    if (outputOut) {
+        *outputOut = out;
+    }
+    return true;
+}
+
+bool MainWindow::fetchConnectionProbeOutput(int sourceConnIdx,
+                                            const QString& actionName,
+                                            const QString& remoteCmd,
+                                            QString* mergedOutputOut,
+                                            QString* failureDetailOut,
+                                            int timeoutMs) {
+    if (sourceConnIdx < 0 || sourceConnIdx >= m_profiles.size() || actionName.trimmed().isEmpty()) {
+        if (failureDetailOut) {
+            *failureDetailOut = QStringLiteral("invalid probe context");
+        }
+        return false;
+    }
+    const ConnectionProfile& src = m_profiles[sourceConnIdx];
+    QString out;
+    QString err;
+    int rc = -1;
+    const bool ok = runSsh(src, remoteCmd, timeoutMs, out, err, rc);
+    const QString merged = (out + QStringLiteral("\n") + err).trimmed();
+    if (mergedOutputOut) {
+        *mergedOutputOut = merged;
+    }
+    if (!ok || rc != 0) {
+        if (failureDetailOut) {
+            *failureDetailOut = merged.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : merged;
+        }
+        return false;
+    }
+    if (failureDetailOut) {
+        failureDetailOut->clear();
+    }
+    return true;
+}
+
+QMap<QString, QMap<QString, QString>> MainWindow::poolAutoSnapshotPropsByDataset(int connIdx, const QString& poolName) const {
+    if (const PoolInfo* poolInfo = findPoolInfo(connIdx, poolName)) {
+        return poolInfo->runtime.autoSnapshotPropsByDataset;
+    }
+    return {};
+}
+
+bool MainWindow::ensureDatasetSnapshotHoldsLoaded(int connIdx, const QString& poolName, const QString& objectName) {
+    const QString trimmedPool = poolName.trimmed();
+    const QString trimmedObject = objectName.trimmed();
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty() || trimmedObject.isEmpty()) {
+        return false;
+    }
+    DSInfo* dsInfo = findDsInfo(connIdx, trimmedPool, trimmedObject);
+    if (dsInfo && dsInfo->runtime.holdsState == LoadState::Loaded) {
+        return true;
+    }
+    const ConnectionProfile& p = m_profiles[connIdx];
+    QString out;
+    QString err;
+    int rc = -1;
+    const QString cmd = withSudo(
+        p,
+        QStringLiteral("zfs holds -H %1").arg(mwhelpers::shSingleQuote(trimmedObject)));
+    if (!runSsh(p, cmd, 20000, out, err, rc) || rc != 0) {
+        if (dsInfo) {
+            dsInfo->runtime.holdsState = LoadState::Error;
+            dsInfo->runtime.errorText = err.trimmed();
+        }
+        return false;
+    }
+
+    QVector<QPair<QString, QString>> holds;
+    QSet<QString> seen;
+    for (const QString& line : out.split('\n', Qt::SkipEmptyParts)) {
+        const QStringList parts = line.split('\t');
+        if (parts.size() < 2) {
+            continue;
+        }
+        const QString tag = parts.value(1).trimmed();
+        const QString timestamp = parts.value(2).trimmed();
+        const QString key = tag.toLower();
+        if (tag.isEmpty() || seen.contains(key)) {
+            continue;
+        }
+        seen.insert(key);
+        holds.push_back(qMakePair(tag, timestamp));
+    }
+    if (dsInfo) {
+        dsInfo->runtime.snapshotHolds = holds;
+        dsInfo->runtime.holdsState = LoadState::Loaded;
+        dsInfo->runtime.loadedAt = QDateTime::currentDateTimeUtc();
+        dsInfo->runtime.errorText.clear();
+    }
+    return true;
+}
+
+QVector<QPair<QString, QString>> MainWindow::datasetSnapshotHolds(int connIdx, const QString& poolName, const QString& objectName) const {
+    if (const DSInfo* dsInfo = findDsInfo(connIdx, poolName, objectName)) {
+        return dsInfo->runtime.snapshotHolds;
+    }
+    return {};
 }
 
 MainWindow::DatasetPermissionsCacheEntry* MainWindow::datasetPermissionsEntryMutable(int connIdx,
