@@ -244,6 +244,23 @@ QString connContentChildStableId(QTreeWidgetItem* node) {
     return QStringLiteral("text|%1").arg(node->text(0).trimmed());
 }
 
+QString normalizedConnContentStateToken(QTreeWidget* tree, const QString& token) {
+    if (!tree) {
+        return token.trimmed();
+    }
+    const QString trimmed = token.trimmed();
+    const int sep = trimmed.indexOf(QStringLiteral("::"));
+    if (sep <= 0) {
+        return trimmed;
+    }
+    bool ok = false;
+    const int connIdx = trimmed.left(sep).toInt(&ok);
+    if (!ok || connIdx < 0) {
+        return trimmed;
+    }
+    return QStringLiteral("conn:%1").arg(connIdx);
+}
+
 QString connContentChildPath(QTreeWidgetItem* datasetNode, QTreeWidgetItem* node) {
     if (!datasetNode || !node || datasetNode == node) {
         return QString();
@@ -963,7 +980,7 @@ void MainWindow::syncConnContentPropertyColumns() {
     const int itemConnIdx = sel->data(0, kConnIdxRole).toInt();
     const QString itemPool = sel->data(0, kPoolNameRole).toString();
     const QString draftToken = QStringLiteral("%1::%2").arg(itemConnIdx).arg(itemPool);
-    const QString key = QStringLiteral("%1|%2").arg(m_connContentToken.trimmed(),
+    const QString key = QStringLiteral("%1|%2").arg(draftToken.trimmed(),
                                                     obj.trimmed());
     const auto it = m_connContentPropValuesByObject.constFind(key);
     if (it == m_connContentPropValuesByObject.cend() || it->isEmpty()) {
@@ -1846,8 +1863,9 @@ void MainWindow::syncConnContentPropertyColumns() {
         propsNode->setExpanded(shouldExpandPropsNode);
     }
     if (tree == m_connContentTree && !m_connContentToken.trimmed().isEmpty()) {
+        const QString normalizedToken = normalizedConnContentStateToken(tree, m_connContentToken);
         const QString scopedToken =
-            m_connContentToken
+            normalizedToken
             + ((tree == m_bottomConnContentTree) ? QStringLiteral("|bottom")
                                                  : QStringLiteral("|top"));
         const auto stateIt = m_connContentTreeStateByToken.constFind(scopedToken);
@@ -2399,9 +2417,10 @@ void MainWindow::saveConnContentTreeState(const QString& token) {
     if (token.isEmpty() || !m_connContentTree) {
         return;
     }
+    const QString normalizedToken = normalizedConnContentStateToken(m_connContentTree, token);
     const QString scopedToken =
-        token + ((m_connContentTree == m_bottomConnContentTree) ? QStringLiteral("|bottom")
-                                                                 : QStringLiteral("|top"));
+        normalizedToken + ((m_connContentTree == m_bottomConnContentTree) ? QStringLiteral("|bottom")
+                                                                          : QStringLiteral("|top"));
     ConnContentTreeState st;
     auto poolStateKey = [](QTreeWidgetItem* n) -> QString {
         if (!n || !n->data(0, kIsPoolRootRole).toBool()) {
@@ -2544,9 +2563,10 @@ void MainWindow::restoreConnContentTreeState(const QString& token) {
     if (token.isEmpty() || !m_connContentTree) {
         return;
     }
+    const QString normalizedToken = normalizedConnContentStateToken(m_connContentTree, token);
     const QString scopedToken =
-        token + ((m_connContentTree == m_bottomConnContentTree) ? QStringLiteral("|bottom")
-                                                                 : QStringLiteral("|top"));
+        normalizedToken + ((m_connContentTree == m_bottomConnContentTree) ? QStringLiteral("|bottom")
+                                                                          : QStringLiteral("|top"));
     const auto it = m_connContentTreeStateByToken.constFind(scopedToken);
     if (it == m_connContentTreeStateByToken.cend()) {
         if (m_connContentTree == m_bottomConnContentTree) {
@@ -2666,6 +2686,33 @@ void MainWindow::restoreConnContentTreeState(const QString& token) {
                 applySnapshotVisualState(item);
             }
         }
+    }
+
+    auto needsExpandedPropertyMaterialization = [](const QStringList& paths) {
+        for (const QString& path : paths) {
+            if (path.startsWith(QStringLiteral("group|"))
+                || path.startsWith(QStringLiteral("gsa|"))
+                || path.startsWith(QStringLiteral("holds|"))
+                || path.startsWith(QStringLiteral("hold|"))) {
+                return true;
+            }
+        }
+        return false;
+    };
+    for (auto childIt = st.expandedChildPathsByDataset.cbegin(); childIt != st.expandedChildPathsByDataset.cend(); ++childIt) {
+        if (!needsExpandedPropertyMaterialization(childIt.value())) {
+            continue;
+        }
+        QTreeWidgetItem* item = findDatasetItem(m_connContentTree, childIt.key());
+        if (!item) {
+            continue;
+        }
+        {
+            const QSignalBlocker blocker(m_connContentTree);
+            m_connContentTree->setCurrentItem(item);
+        }
+        refreshDatasetProperties(QStringLiteral("conncontent"));
+        syncConnContentPropertyColumns();
     }
 
     if (!st.selectedDataset.isEmpty()) {

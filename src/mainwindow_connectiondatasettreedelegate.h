@@ -71,6 +71,7 @@ private:
     bool isPoolInfoNodeOrInside(QTreeWidgetItem* item) const;
     QString tokenForOwnerItem(QTreeWidgetItem* owner) const;
     QString tokenForNode(QTreeWidgetItem* item) const;
+    QString visualStateTokenForTree(QTreeWidget* tree, const QString& token) const;
     SelectionSnapshot currentSelection(QTreeWidget* tree, const QString& token) const;
     void applySelectionToSide(bool isBottom, const SelectionSnapshot& ctx);
     void refreshTreeForTokenAndDataset(QTreeWidget* tree, const QString& token, const QString& datasetName);

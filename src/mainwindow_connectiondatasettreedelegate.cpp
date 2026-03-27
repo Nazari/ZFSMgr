@@ -87,6 +87,25 @@ QString MainWindowConnectionDatasetTreeDelegate::tokenForNode(QTreeWidgetItem* i
     return tokenForOwnerItem(ownerItemForNode(item));
 }
 
+QString MainWindowConnectionDatasetTreeDelegate::visualStateTokenForTree(QTreeWidget* tree, const QString& token) const {
+    if (!tree) {
+        return QString();
+    }
+    const int sep = token.indexOf(QStringLiteral("::"));
+    if (sep <= 0) {
+        return token.trimmed();
+    }
+    bool ok = false;
+    const int connIdx = token.left(sep).toInt(&ok);
+    if (!ok || connIdx < 0) {
+        return token.trimmed();
+    }
+    if (tree == m_mainWindow->m_connContentTree || tree == m_mainWindow->m_bottomConnContentTree) {
+        return QStringLiteral("conn:%1").arg(connIdx);
+    }
+    return token.trimmed();
+}
+
 MainWindowConnectionDatasetTreeDelegate::SelectionSnapshot
 MainWindowConnectionDatasetTreeDelegate::currentSelection(QTreeWidget* tree, const QString& token) const {
     SelectionSnapshot snapshot;
@@ -173,19 +192,45 @@ void MainWindowConnectionDatasetTreeDelegate::rehydrateExpandedDatasetNodes(QTre
     }
     bool ok = false;
     const int connIdx = token.left(sep).toInt(&ok);
-    const QString poolName = token.mid(sep + 2).trimmed();
-    if (!ok || connIdx < 0 || poolName.isEmpty()) {
+    if (!ok || connIdx < 0) {
         return;
     }
     const QString scopedToken =
-        token + ((tree == m_mainWindow->m_bottomConnContentTree) ? QStringLiteral("|bottom")
-                                                                 : QStringLiteral("|top"));
+        visualStateTokenForTree(tree, token)
+        + ((tree == m_mainWindow->m_bottomConnContentTree) ? QStringLiteral("|bottom")
+                                                           : QStringLiteral("|top"));
     const auto it = m_mainWindow->m_connContentTreeStateByToken.constFind(scopedToken);
     if (it == m_mainWindow->m_connContentTreeStateByToken.cend()) {
         return;
     }
     const MainWindow::ConnContentTreeState& st = it.value();
     const QSignalBlocker blocker(tree);
+    auto findDatasetItemInTree = [tree](int wantedConnIdx, const QString& wantedDatasetName) -> QTreeWidgetItem* {
+        if (!tree || wantedDatasetName.trimmed().isEmpty()) {
+            return nullptr;
+        }
+        std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* n) -> QTreeWidgetItem* {
+            if (!n) {
+                return nullptr;
+            }
+            if (n->data(0, kConnIdxRole).toInt() == wantedConnIdx
+                && n->data(0, Qt::UserRole).toString().trimmed() == wantedDatasetName) {
+                return n;
+            }
+            for (int i = 0; i < n->childCount(); ++i) {
+                if (QTreeWidgetItem* found = rec(n->child(i))) {
+                    return found;
+                }
+            }
+            return nullptr;
+        };
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            if (QTreeWidgetItem* found = rec(tree->topLevelItem(i))) {
+                return found;
+            }
+        }
+        return nullptr;
+    };
     for (auto childIt = st.expandedChildPathsByDataset.cbegin(); childIt != st.expandedChildPathsByDataset.cend(); ++childIt) {
         const QString datasetName = childIt.key().trimmed();
         if (datasetName.isEmpty()) {
@@ -206,11 +251,7 @@ void MainWindowConnectionDatasetTreeDelegate::rehydrateExpandedDatasetNodes(QTre
         if (!needsProps && !needsPerms) {
             continue;
         }
-        QTreeWidgetItem* owner = m_mainWindow->findConnContentDatasetItemFor(
-            tree,
-            connIdx,
-            poolName,
-            datasetName);
+        QTreeWidgetItem* owner = findDatasetItemInTree(connIdx, datasetName);
         if (!owner) {
             continue;
         }
@@ -524,14 +565,15 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
         }
         return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
     };
-    auto refreshExplicitTreeFromToken = [this, &refreshInlinePropsVisualBottom](QTreeWidget* tree,
+    auto refreshExplicitTreeFromToken = [this, &refreshInlinePropsVisualBottom, &rebuildInlineConnTree, &alignDetailContextToToken](QTreeWidget* tree,
                                                                                 const QString& token) {
         if (!tree) {
             return;
         }
+        alignDetailContextToToken(tree, token);
         if (tree == m_mainWindow->m_bottomConnContentTree) {
             m_mainWindow->saveConnContentTreeStateFor(tree, token);
-            m_mainWindow->updateSecondaryConnectionDetail();
+            rebuildInlineConnTree(tree, token);
             rehydrateExpandedDatasetNodes(tree, token);
             m_mainWindow->restoreConnContentTreeStateFor(tree, token);
             refreshInlinePropsVisualBottom(tree, token);
@@ -539,21 +581,8 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
             m_mainWindow->restoreConnContentTreeStateFor(tree, token);
             return;
         }
-        const int sep = token.indexOf(QStringLiteral("::"));
-        if (sep <= 0) {
-            return;
-        }
-        bool ok = false;
-        const int connIdx = token.left(sep).toInt(&ok);
-        const QString poolName = token.mid(sep + 2).trimmed();
-        if (!ok || connIdx < 0 || connIdx >= m_mainWindow->m_profiles.size() || poolName.isEmpty()) {
-            return;
-        }
-        if (tree == m_mainWindow->m_connContentTree) {
-            m_mainWindow->m_topDetailConnIdx = connIdx;
-        }
         m_mainWindow->saveConnContentTreeStateFor(tree, token);
-        m_mainWindow->populateDatasetTree(tree, connIdx, poolName, MainWindow::DatasetTreeContext::ConnectionContent, true);
+        rebuildInlineConnTree(tree, token);
         m_mainWindow->restoreConnContentTreeStateFor(tree, token);
         QTreeWidgetItem* sel = tree->currentItem();
         auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
@@ -1581,6 +1610,18 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
     if (!ctx.valid || !ctx.snapshotName.isEmpty() || m_mainWindow->isWindowsConnection(ctx.connIdx)) {
         return true;
     }
+    auto rebuildPermissionsNodeWithState = [&]() {
+        m_mainWindow->saveConnContentTreeStateFor(tree, token);
+        refreshPermissionsOwnerNode(tree, owner, false);
+        rehydrateExpandedDatasetNodes(tree, token);
+        m_mainWindow->restoreConnContentTreeStateFor(tree, token);
+    };
+    auto refreshPermissionsNodeWithState = [&]() {
+        m_mainWindow->saveConnContentTreeStateFor(tree, token);
+        refreshPermissionsOwnerNode(tree, owner, true);
+        rehydrateExpandedDatasetNodes(tree, token);
+        m_mainWindow->restoreConnContentTreeStateFor(tree, token);
+    };
 
     QMenu permMenu(m_mainWindow);
     const QString kind = permNode->data(0, kConnPermissionsKindRole).toString();
@@ -1605,7 +1646,7 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
         return true;
     }
     if (picked == aRefreshPerms) {
-        refreshPermissionsOwnerNode(tree, owner, true);
+        refreshPermissionsNodeWithState();
         return true;
     }
     if (picked == aNewGrant) {
@@ -1657,7 +1698,7 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
             appendPending(entry->localDescendantGrants);
         }
         m_mainWindow->mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
-        m_mainWindow->populateDatasetPermissionsNode(tree, owner, false);
+        rebuildPermissionsNodeWithState();
         m_mainWindow->updateApplyPropsButtonState();
         for (int i = 0; i < owner->childCount(); ++i) {
             QTreeWidgetItem* child = owner->child(i);
@@ -1732,7 +1773,7 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
             if (updateGrant(entry->localGrants) || updateGrant(entry->descendantGrants)
                 || updateGrant(entry->localDescendantGrants)) {
                 m_mainWindow->mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
-                m_mainWindow->populateDatasetPermissionsNode(tree, owner, false);
+                rebuildPermissionsNodeWithState();
                 m_mainWindow->updateApplyPropsButtonState();
             }
         }
@@ -1766,7 +1807,7 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
                 entry->permissionSets.push_back(s);
                 entry->dirty = true;
                 m_mainWindow->mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
-                m_mainWindow->populateDatasetPermissionsNode(tree, owner, false);
+                rebuildPermissionsNodeWithState();
                 m_mainWindow->updateApplyPropsButtonState();
             }
         }
@@ -1802,7 +1843,7 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
                 }
             }
             m_mainWindow->mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
-            m_mainWindow->populateDatasetPermissionsNode(tree, owner, false);
+            rebuildPermissionsNodeWithState();
             m_mainWindow->updateApplyPropsButtonState();
         }
         return true;
@@ -1825,7 +1866,7 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
             removeGrant(entry->descendantGrants);
             removeGrant(entry->localDescendantGrants);
             m_mainWindow->mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
-            m_mainWindow->populateDatasetPermissionsNode(tree, owner, false);
+            rebuildPermissionsNodeWithState();
             m_mainWindow->updateApplyPropsButtonState();
         }
         return true;
@@ -1844,7 +1885,7 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
                 }
             }
             m_mainWindow->mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
-            m_mainWindow->populateDatasetPermissionsNode(tree, owner, false);
+            rebuildPermissionsNodeWithState();
             m_mainWindow->updateApplyPropsButtonState();
         }
         return true;
