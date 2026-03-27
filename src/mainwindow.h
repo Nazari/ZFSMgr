@@ -776,6 +776,12 @@ private:
     void openHelpTopic(const QString& topicId, const QString& titleOverride = QString());
     QString loadHelpTopicMarkdown(const QString& topicId) const;
     bool selectItemsDialog(const QString& title, const QString& intro, const QStringList& items, QStringList& selected);
+    bool editInlinePropertiesDialog(const QString& title,
+                                    const QString& intro,
+                                    const QStringList& items,
+                                    QStringList& selected,
+                                    QVector<InlinePropGroupConfig>& groups,
+                                    const QString& initialGroupName = QString());
     bool confirmActionExecution(const QString& actionName, const QStringList& commands, bool forceDialog = false);
     QString buildSshPreviewCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
     QString trk(const QString& key,

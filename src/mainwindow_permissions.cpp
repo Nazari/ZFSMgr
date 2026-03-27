@@ -563,7 +563,10 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
 
     QString out;
     QString detail;
-    const QString cmd = withSudo(p, QStringLiteral("zfs allow %1").arg(shSingleQuote(datasetName)));
+    const QString cmd = withSudo(
+        p,
+        mwhelpers::withUnixSearchPathCommand(
+            QStringLiteral("zfs allow %1").arg(shSingleQuote(datasetName))));
     if (!fetchConnectionCommandOutput(connIdx,
                                       QStringLiteral("Leer permisos"),
                                       cmd,

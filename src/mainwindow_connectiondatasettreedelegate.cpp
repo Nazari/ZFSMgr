@@ -800,51 +800,26 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
     }
     allProps = normalizeList(allProps);
     currentVisible = normalizeList(currentVisible);
+    if (poolContext && currentVisible.isEmpty()) {
+        currentVisible = allProps;
+    }
     if (allProps.isEmpty()) {
         QMessageBox::information(m_mainWindow,
                                  QStringLiteral("ZFSMgr"),
                                  QStringLiteral("No hay propiedades disponibles para gestionar en este nodo."));
         return;
     }
-    if (!clickedGroupName.isEmpty() && clickedGroupName != QStringLiteral("__all__")) {
-        const auto git = std::find_if(currentGroups.begin(), currentGroups.end(), [&](const MainWindow::InlinePropGroupConfig& g) {
-            return g.name.compare(clickedGroupName, Qt::CaseInsensitive) == 0;
-        });
-        if (git != currentGroups.end()) {
-            QStringList subset;
-            for (const QString& p : git->props) {
-                for (const QString& have : allProps) {
-                    if (p.compare(have, Qt::CaseInsensitive) == 0) {
-                        subset.push_back(have);
-                        break;
-                    }
-                }
-            }
-            subset = normalizeList(subset);
-            if (!subset.isEmpty()) {
-                allProps = subset;
-                currentVisible.clear();
-                for (const QString& p : subset) {
-                    for (const QString& vis : displayedPropsFromNode(owner)) {
-                        if (p.compare(vis, Qt::CaseInsensitive) == 0) {
-                            currentVisible.push_back(p);
-                            break;
-                        }
-                    }
-                }
-                currentVisible = normalizeList(currentVisible);
-            }
-        }
-    }
-
     QStringList selection = currentVisible;
+    QVector<MainWindow::InlinePropGroupConfig> editedGroups = currentGroups;
     if (scope == ManagePropsScope::Snapshot && !selection.contains(fixedSnapshotProp, Qt::CaseInsensitive)) {
         selection.prepend(fixedSnapshotProp);
     }
-    if (!m_mainWindow->selectItemsDialog(QStringLiteral("Propiedades visibles"),
-                                         QStringLiteral("Seleccione las propiedades que desea mostrar en línea."),
-                                         allProps,
-                                         selection)) {
+    if (!m_mainWindow->editInlinePropertiesDialog(QStringLiteral("Propiedades visibles"),
+                                                  QStringLiteral("Seleccione las propiedades que desea mostrar en línea y organícelas en grupos."),
+                                                  allProps,
+                                                  selection,
+                                                  editedGroups,
+                                                  clickedGroupName)) {
         return;
     }
     selection = normalizeList(selection);
@@ -853,56 +828,18 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
         selection.prepend(fixedSnapshotProp);
     }
 
-    auto rebuildGroups = [](const QVector<MainWindow::InlinePropGroupConfig>& baseGroups,
-                            const QStringList& selected) {
-        QVector<MainWindow::InlinePropGroupConfig> out;
-        QSet<QString> remaining;
-        for (const QString& p : selected) {
-            remaining.insert(p.toLower());
-        }
-        for (const MainWindow::InlinePropGroupConfig& g : baseGroups) {
-            MainWindow::InlinePropGroupConfig ng;
-            ng.name = g.name;
-            for (const QString& p : g.props) {
-                const QString key = p.trimmed().toLower();
-                if (remaining.contains(key)) {
-                    ng.props.push_back(p.trimmed());
-                    remaining.remove(key);
-                }
-            }
-            if (!ng.props.isEmpty()) {
-                out.push_back(ng);
-            }
-        }
-        if (!remaining.isEmpty()) {
-            MainWindow::InlinePropGroupConfig extra;
-            extra.name = QStringLiteral("__all__");
-            for (const QString& p : selected) {
-                const QString key = p.trimmed().toLower();
-                if (remaining.contains(key)) {
-                    extra.props.push_back(p.trimmed());
-                    remaining.remove(key);
-                }
-            }
-            if (!extra.props.isEmpty()) {
-                out.push_back(extra);
-            }
-        }
-        return out;
-    };
-
     switch (scope) {
     case ManagePropsScope::Pool:
         m_mainWindow->m_poolInlinePropsOrder = selection;
-        m_mainWindow->m_poolInlinePropGroups = rebuildGroups(currentGroups, selection);
+        m_mainWindow->m_poolInlinePropGroups = editedGroups;
         break;
     case ManagePropsScope::Dataset:
         m_mainWindow->m_datasetInlinePropsOrder = selection;
-        m_mainWindow->m_datasetInlinePropGroups = rebuildGroups(currentGroups, selection);
+        m_mainWindow->m_datasetInlinePropGroups = editedGroups;
         break;
     case ManagePropsScope::Snapshot:
         m_mainWindow->m_snapshotInlinePropsOrder = selection;
-        m_mainWindow->m_snapshotInlinePropGroups = rebuildGroups(currentGroups, selection);
+        m_mainWindow->m_snapshotInlinePropGroups = editedGroups;
         break;
     }
 

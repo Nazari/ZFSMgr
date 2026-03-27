@@ -117,7 +117,7 @@ QVector<MainWindow::InlinePropGroupConfig> decodeInlinePropGroups(const QString&
         MainWindow::InlinePropGroupConfig cfg;
         cfg.name = obj.value(QStringLiteral("name")).toString().trimmed();
         const QString key = cfg.name.toLower();
-        if (cfg.name.isEmpty() || seenNames.contains(key)) {
+        if (cfg.name.isEmpty() || key == QStringLiteral("__all__") || seenNames.contains(key)) {
             continue;
         }
         seenNames.insert(key);

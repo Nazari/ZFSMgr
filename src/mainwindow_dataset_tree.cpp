@@ -983,11 +983,23 @@ void MainWindow::syncConnContentPropertyColumns() {
     const QString key = QStringLiteral("%1|%2").arg(draftToken.trimmed(),
                                                     obj.trimmed());
     const auto it = m_connContentPropValuesByObject.constFind(key);
-    if (it == m_connContentPropValuesByObject.cend() || it->isEmpty()) {
-        m_syncingConnContentColumns = false;
-        return;
+    QMap<QString, QString> displayValues;
+    if (it != m_connContentPropValuesByObject.cend() && !it->isEmpty()) {
+        displayValues = it.value();
+    } else {
+        const QVector<DatasetPropCacheRow> fallbackRows =
+            datasetPropertyRowsFromModelOrCache(itemConnIdx, itemPool, obj);
+        for (const DatasetPropCacheRow& row : fallbackRows) {
+            if (!row.prop.trimmed().isEmpty()) {
+                displayValues.insert(row.prop, row.value);
+            }
+        }
+        if (displayValues.isEmpty()) {
+            m_syncingConnContentColumns = false;
+            return;
+        }
+        updateConnContentPropertyValues(draftToken, obj, displayValues);
     }
-    QMap<QString, QString> displayValues = it.value();
     const DatasetPropsDraft objectDraftValue =
         propertyDraftForObject(QStringLiteral("conncontent"), draftToken, obj);
     const DatasetPropsDraft* objectDraft = objectDraftValue.dirty ? &objectDraftValue : nullptr;
@@ -1761,11 +1773,13 @@ void MainWindow::syncConnContentPropertyColumns() {
     }
     if (showInlinePropertyNodes && propsNode) {
         shouldExpandPropsNode = propsNodeWasExpanded || tree->currentItem() == propsNode;
-        appendPropRows(propsNode,
-                       QString(),
-                       mainProps,
-                       false,
-                       -1);
+        if (!mainProps.isEmpty()) {
+            appendPropRows(propsNode,
+                           QString(),
+                           mainProps,
+                           false,
+                           -1);
+        }
         for (const InlinePropGroupConfig& cfg : *savedGroups) {
             QStringList wantedProps = cfg.props;
             if (objectIsSnapshot) {
@@ -2292,6 +2306,10 @@ void MainWindow::syncConnContentPoolColumns() {
                        true,
                        true);
         for (const InlinePropGroupConfig& cfg : m_poolInlinePropGroups) {
+            if (cfg.name.trimmed().isEmpty()
+                || cfg.name.trimmed().compare(QStringLiteral("__all__"), Qt::CaseInsensitive) == 0) {
+                continue;
+            }
             addSectionRows(infoNode,
                            cfg.name,
                            filterPropsByWanted(props, cfg.props),

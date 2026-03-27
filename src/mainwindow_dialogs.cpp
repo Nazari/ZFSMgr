@@ -6,15 +6,22 @@
 #include <QCheckBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QEvent>
 #include <QFontMetrics>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
+#include <QMouseEvent>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QPointer>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScrollArea>
+#include <QTabWidget>
 #include <QVBoxLayout>
 
 namespace {
@@ -25,6 +32,33 @@ QString trkl(const QString& lang,
              const QString& zh = QString()) {
     return I18nManager::instance().translateKey(lang, key, es, en, zh);
 }
+
+class ToggleCheckEventFilter final : public QObject {
+public:
+    explicit ToggleCheckEventFilter(QCheckBox* checkbox, QObject* parent = nullptr)
+        : QObject(parent)
+        , m_checkbox(checkbox) {}
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        Q_UNUSED(watched);
+        if (!m_checkbox) {
+            return QObject::eventFilter(watched, event);
+        }
+        if (event->type() != QEvent::MouseButtonRelease) {
+            return QObject::eventFilter(watched, event);
+        }
+        auto* mouseEvent = static_cast<QMouseEvent*>(event);
+        if (mouseEvent->button() != Qt::LeftButton) {
+            return QObject::eventFilter(watched, event);
+        }
+        m_checkbox->setChecked(!m_checkbox->isChecked());
+        return true;
+    }
+
+private:
+    QPointer<QCheckBox> m_checkbox;
+};
 
 QString prettifyCommandText(const QString& cmd) {
     QString pretty = cmd.trimmed();
@@ -354,30 +388,56 @@ bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, c
     for (const QString& item : items) {
         maxTextWidth = qMax(maxTextWidth, fm.horizontalAdvance(item));
     }
-    const int columns = 3;
-    const int cellWidth = qBound(190, maxTextWidth + 54, 300);
+    const int columns = 5;
+    const int cellWidth = qBound(150, maxTextWidth + 36, 240);
     QVector<QCheckBox*> checkboxes;
     checkboxes.reserve(items.size());
     for (int i = 0; i < items.size(); ++i) {
         const QString& item = items.at(i);
-        auto* cb = new QCheckBox(item, content);
-        cb->setChecked(initialSelected.contains(item, Qt::CaseInsensitive));
-        cb->setMinimumWidth(cellWidth);
-        cb->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        cb->setStyleSheet(QStringLiteral(
-            "QCheckBox {"
+        auto* card = new QWidget(content);
+        card->setMinimumWidth(cellWidth);
+        card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        card->setStyleSheet(QStringLiteral(
+            "QWidget {"
             " border: 1px solid #b9c9d6;"
             " border-radius: 6px;"
             " background: #f4f8fb;"
             " color: #132531;"
-            " padding: 6px 10px;"
-            " spacing: 10px;"
             "}"
-            "QCheckBox:hover {"
+            "QWidget:hover {"
             " background: #e9f2f8;"
             "}"
+            "QLabel {"
+            " border: 0;"
+            " background: transparent;"
+            " color: #132531;"
+            " font-weight: 600;"
+            " padding: 0;"
+            "}"
+            "QCheckBox {"
+            " border: 0;"
+            " background: transparent;"
+            " color: #132531;"
+            " padding: 0;"
+            " spacing: 8px;"
+            "}"
         ));
-        grid->addWidget(cb, i / columns, i % columns);
+        auto* cardLayout = new QVBoxLayout(card);
+        cardLayout->setContentsMargins(10, 8, 10, 8);
+        cardLayout->setSpacing(8);
+        auto* label = new QLabel(item, card);
+        label->setWordWrap(true);
+        label->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
+        auto* cb = new QCheckBox(QString(), card);
+        cb->setChecked(initialSelected.contains(item, Qt::CaseInsensitive));
+        cb->setProperty("itemText", item);
+        auto* toggleFilter = new ToggleCheckEventFilter(cb, card);
+        card->installEventFilter(toggleFilter);
+        label->installEventFilter(toggleFilter);
+        cardLayout->addWidget(label);
+        cardLayout->addWidget(cb, 0, Qt::AlignHCenter);
+        cardLayout->addStretch(1);
+        grid->addWidget(card, i / columns, i % columns);
         checkboxes.push_back(cb);
     }
     for (int col = 0; col < columns; ++col) {
@@ -437,8 +497,478 @@ bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, c
     selected.clear();
     for (QCheckBox* cb : checkboxes) {
         if (cb && cb->isChecked()) {
-            selected.push_back(cb->text());
+            selected.push_back(cb->property("itemText").toString());
         }
     }
+    return true;
+}
+
+bool MainWindow::editInlinePropertiesDialog(const QString& title,
+                                            const QString& intro,
+                                            const QStringList& items,
+                                            QStringList& selected,
+                                            QVector<InlinePropGroupConfig>& groups,
+                                            const QString& initialGroupName) {
+    if (items.isEmpty()) {
+        return false;
+    }
+
+    auto normalizeProps = [](const QStringList& in) {
+        QStringList out;
+        QSet<QString> seen;
+        for (const QString& raw : in) {
+            const QString t = raw.trimmed();
+            const QString k = t.toLower();
+            if (t.isEmpty() || seen.contains(k)) {
+                continue;
+            }
+            seen.insert(k);
+            out.push_back(t);
+        }
+        return out;
+    };
+    auto normalizeGroups = [&normalizeProps](const QVector<InlinePropGroupConfig>& in) {
+        QVector<InlinePropGroupConfig> out;
+        QSet<QString> seenNames;
+        for (const InlinePropGroupConfig& raw : in) {
+            InlinePropGroupConfig cfg;
+            cfg.name = raw.name.trimmed();
+            const QString key = cfg.name.toLower();
+            if (cfg.name.isEmpty() || seenNames.contains(key)) {
+                continue;
+            }
+            seenNames.insert(key);
+            cfg.props = normalizeProps(raw.props);
+            out.push_back(cfg);
+        }
+        return out;
+    };
+
+    QStringList workingSelected = normalizeProps(selected);
+    QVector<InlinePropGroupConfig> workingGroups = normalizeGroups(groups);
+
+    struct GroupTabState {
+        QString name;
+        QWidget* page{nullptr};
+        QListWidget* available{nullptr};
+        QListWidget* shown{nullptr};
+    };
+
+    QDialog dlg(this);
+    dlg.setModal(true);
+    dlg.resize(1120, 760);
+    dlg.setWindowTitle(title);
+    QVBoxLayout* root = new QVBoxLayout(&dlg);
+
+    QLabel* introLbl = new QLabel(intro, &dlg);
+    introLbl->setWordWrap(true);
+    root->addWidget(introLbl);
+
+    auto* tabsBar = new QHBoxLayout();
+    auto* tabs = new QTabWidget(&dlg);
+    QPushButton* newGroupBtn = new QPushButton(trk(QStringLiteral("t_new_group_001"),
+                                                   QStringLiteral("Nuevo grupo"),
+                                                   QStringLiteral("New group"),
+                                                   QStringLiteral("新建分组")),
+                                               &dlg);
+    QPushButton* renameGroupBtn = new QPushButton(trk(QStringLiteral("t_rename_group_001"),
+                                                      QStringLiteral("Renombrar"),
+                                                      QStringLiteral("Rename"),
+                                                      QStringLiteral("重命名")),
+                                                  &dlg);
+    QPushButton* deleteGroupBtn = new QPushButton(trk(QStringLiteral("t_delete_group_001"),
+                                                      QStringLiteral("Eliminar"),
+                                                      QStringLiteral("Delete"),
+                                                      QStringLiteral("删除")),
+                                                  &dlg);
+    tabsBar->addWidget(tabs, 1);
+    auto* sideBtns = new QVBoxLayout();
+    sideBtns->addWidget(newGroupBtn);
+    sideBtns->addWidget(renameGroupBtn);
+    sideBtns->addWidget(deleteGroupBtn);
+    sideBtns->addStretch(1);
+    tabsBar->addLayout(sideBtns);
+    root->addLayout(tabsBar, 1);
+
+    auto createReorderList = [&](QWidget* parent) {
+        auto* list = new QListWidget(parent);
+        list->setSelectionMode(QAbstractItemView::ExtendedSelection);
+        list->setDragEnabled(true);
+        list->viewport()->setAcceptDrops(true);
+        list->setDropIndicatorShown(true);
+        list->setDragDropMode(QAbstractItemView::InternalMove);
+        list->setDefaultDropAction(Qt::MoveAction);
+        return list;
+    };
+    auto listValues = [](QListWidget* list) {
+        QStringList out;
+        if (!list) {
+            return out;
+        }
+        for (int i = 0; i < list->count(); ++i) {
+            if (QListWidgetItem* item = list->item(i)) {
+                out.push_back(item->text().trimmed());
+            }
+        }
+        return out;
+    };
+    auto setListValues = [&](QListWidget* list, const QStringList& values) {
+        if (!list) {
+            return;
+        }
+        list->clear();
+        for (const QString& value : values) {
+            list->addItem(value);
+        }
+    };
+    auto subtractOrdered = [](const QStringList& base, const QStringList& remove) {
+        QStringList out;
+        for (const QString& candidate : base) {
+            if (!remove.contains(candidate, Qt::CaseInsensitive)) {
+                out.push_back(candidate);
+            }
+        }
+        return out;
+    };
+    std::function<void()> refreshGroupTabs;
+    bool refreshingGroupLists = false;
+    std::function<void(QListWidget*, QListWidget*)> moveSelected;
+
+    auto createDualListPage = [&](QWidget* parent,
+                                  const QString& leftTitle,
+                                  const QString& rightTitle,
+                                  QListWidget*& availableOut,
+                                  QListWidget*& shownOut) {
+        auto* page = new QWidget(parent);
+        auto* layout = new QHBoxLayout(page);
+
+        auto* leftCol = new QVBoxLayout();
+        auto* leftLbl = new QLabel(leftTitle, page);
+        leftCol->addWidget(leftLbl);
+        availableOut = new QListWidget(page);
+        availableOut->setSelectionMode(QAbstractItemView::ExtendedSelection);
+        leftCol->addWidget(availableOut, 1);
+
+        auto* centerCol = new QVBoxLayout();
+        centerCol->addStretch(1);
+        auto* addBtn = new QPushButton(QStringLiteral(">"), page);
+        auto* removeBtn = new QPushButton(QStringLiteral("<"), page);
+        centerCol->addWidget(addBtn);
+        centerCol->addWidget(removeBtn);
+        centerCol->addStretch(1);
+
+        auto* rightCol = new QVBoxLayout();
+        auto* rightLbl = new QLabel(rightTitle, page);
+        rightCol->addWidget(rightLbl);
+        shownOut = createReorderList(page);
+        rightCol->addWidget(shownOut, 1);
+
+        layout->addLayout(leftCol, 1);
+        layout->addLayout(centerCol);
+        layout->addLayout(rightCol, 1);
+
+        QObject::connect(addBtn, &QPushButton::clicked, page, [&moveSelected, availableOut, shownOut]() {
+            moveSelected(availableOut, shownOut);
+        });
+        QObject::connect(removeBtn, &QPushButton::clicked, page, [&moveSelected, availableOut, shownOut]() {
+            moveSelected(shownOut, availableOut);
+        });
+        QObject::connect(availableOut, &QListWidget::itemDoubleClicked, page, [&moveSelected, availableOut, shownOut](QListWidgetItem*) {
+            moveSelected(availableOut, shownOut);
+        });
+        QObject::connect(shownOut, &QListWidget::itemDoubleClicked, page, [&moveSelected, availableOut, shownOut](QListWidgetItem*) {
+            moveSelected(shownOut, availableOut);
+        });
+        return page;
+    };
+
+    QListWidget* visibleAvailable = nullptr;
+    QListWidget* visibleShown = nullptr;
+    QWidget* visiblePage = createDualListPage(
+        &dlg,
+        trk(QStringLiteral("t_available_props_001"),
+            QStringLiteral("Disponibles"),
+            QStringLiteral("Available"),
+            QStringLiteral("可用")),
+        trk(QStringLiteral("t_visible_props_title_001"),
+            QStringLiteral("Visibles"),
+            QStringLiteral("Visible"),
+            QStringLiteral("可见")),
+        visibleAvailable,
+        visibleShown);
+    tabs->addTab(visiblePage,
+                 trk(QStringLiteral("t_visible_props_tab_001"),
+                     QStringLiteral("Todas"),
+                     QStringLiteral("All"),
+                     QStringLiteral("全部")));
+
+    QVector<GroupTabState> groupTabs;
+
+    auto refreshVisibleLists = [&]() {
+        workingSelected = normalizeProps(listValues(visibleShown));
+        setListValues(visibleShown, workingSelected);
+        setListValues(visibleAvailable, subtractOrdered(items, workingSelected));
+    };
+
+    std::function<void(GroupTabState&)> connectGroupTabModels;
+    moveSelected = [&](QListWidget* from, QListWidget* to) {
+        if (!from || !to) {
+            return;
+        }
+        if (refreshingGroupLists) {
+            return;
+        }
+        refreshingGroupLists = true;
+        QStringList movedTexts;
+        QList<int> rowsToRemove;
+        for (QListWidgetItem* item : from->selectedItems()) {
+            if (!item) {
+                continue;
+            }
+            movedTexts.push_back(item->text().trimmed());
+            rowsToRemove.push_back(from->row(item));
+        }
+        std::sort(rowsToRemove.begin(), rowsToRemove.end(), std::greater<int>());
+        rowsToRemove.erase(std::unique(rowsToRemove.begin(), rowsToRemove.end()), rowsToRemove.end());
+        {
+            const QSignalBlocker blockFromModel(from->model());
+            const QSignalBlocker blockToModel(to->model());
+            const QSignalBlocker blockFrom(from);
+            const QSignalBlocker blockTo(to);
+            for (int row : rowsToRemove) {
+                if (row >= 0 && row < from->count()) {
+                    delete from->takeItem(row);
+                }
+            }
+            for (const QString& text : movedTexts) {
+                if (!text.isEmpty() && to->findItems(text, Qt::MatchFixedString).isEmpty()) {
+                    to->addItem(text);
+                }
+            }
+        }
+        refreshingGroupLists = false;
+        if (refreshGroupTabs) {
+            refreshGroupTabs();
+        }
+    };
+    auto createGroupTab = [&](const QString& groupName, const QStringList& groupProps) {
+        GroupTabState state;
+        state.name = groupName.trimmed();
+        state.page = createDualListPage(
+            &dlg,
+            trk(QStringLiteral("t_group_available_props_001"),
+                QStringLiteral("Visibles no incluidas"),
+                QStringLiteral("Visible not included"),
+                QStringLiteral("未包含的可见属性")),
+            trk(QStringLiteral("t_group_visible_props_001"),
+                QStringLiteral("Propiedades del grupo"),
+                QStringLiteral("Group properties"),
+                QStringLiteral("分组属性")),
+            state.available,
+            state.shown);
+        tabs->addTab(state.page, state.name);
+        groupTabs.push_back(state);
+        refreshingGroupLists = true;
+        setListValues(groupTabs.back().shown, normalizeProps(groupProps));
+        refreshingGroupLists = false;
+        if (connectGroupTabModels) {
+            connectGroupTabModels(groupTabs.back());
+        }
+    };
+
+    for (const InlinePropGroupConfig& cfg : workingGroups) {
+        createGroupTab(cfg.name, cfg.props);
+    }
+
+    refreshGroupTabs = [&]() {
+        if (refreshingGroupLists) {
+            return;
+        }
+        refreshingGroupLists = true;
+        refreshVisibleLists();
+        for (GroupTabState& tab : groupTabs) {
+            QStringList shown = normalizeProps(listValues(tab.shown));
+            shown = normalizeProps(subtractOrdered(items, subtractOrdered(items, shown)));
+            setListValues(tab.shown, shown);
+            setListValues(tab.available, subtractOrdered(items, shown));
+        }
+        const bool isGroupTab = tabs->currentIndex() > 0;
+        renameGroupBtn->setEnabled(isGroupTab);
+        deleteGroupBtn->setEnabled(isGroupTab);
+        refreshingGroupLists = false;
+    };
+
+    setListValues(visibleShown, workingSelected);
+    setListValues(visibleAvailable, subtractOrdered(items, workingSelected));
+    refreshGroupTabs();
+
+    QObject::connect(visibleShown->model(), &QAbstractItemModel::rowsMoved, &dlg, [&](const QModelIndex&, int, int, const QModelIndex&, int) {
+        refreshGroupTabs();
+    });
+    QObject::connect(visibleShown->model(), &QAbstractItemModel::rowsInserted, &dlg, [&](const QModelIndex&, int, int) {
+        refreshGroupTabs();
+    });
+    QObject::connect(visibleShown->model(), &QAbstractItemModel::rowsRemoved, &dlg, [&](const QModelIndex&, int, int) {
+        refreshGroupTabs();
+    });
+    QObject::connect(visibleAvailable->model(), &QAbstractItemModel::rowsInserted, &dlg, [&](const QModelIndex&, int, int) {
+        refreshGroupTabs();
+    });
+    QObject::connect(visibleAvailable->model(), &QAbstractItemModel::rowsRemoved, &dlg, [&](const QModelIndex&, int, int) {
+        refreshGroupTabs();
+    });
+    QObject::connect(tabs, &QTabWidget::currentChanged, &dlg, [&](int) {
+        refreshGroupTabs();
+    });
+
+    QObject::connect(newGroupBtn, &QPushButton::clicked, &dlg, [&]() {
+        bool ok = false;
+        const QString name = QInputDialog::getText(&dlg,
+                                                   trk(QStringLiteral("t_new_group_001"),
+                                                       QStringLiteral("Nuevo grupo"),
+                                                       QStringLiteral("New group"),
+                                                       QStringLiteral("新建分组")),
+                                                   trk(QStringLiteral("t_group_name_001"),
+                                                       QStringLiteral("Nombre del grupo"),
+                                                       QStringLiteral("Group name"),
+                                                       QStringLiteral("分组名称")),
+                                                   QLineEdit::Normal,
+                                                   QString(),
+                                                   &ok)
+                                 .trimmed();
+        if (!ok || name.isEmpty()) {
+            return;
+        }
+        for (const GroupTabState& tab : groupTabs) {
+            if (tab.name.compare(name, Qt::CaseInsensitive) == 0) {
+                QMessageBox::warning(&dlg,
+                                     QStringLiteral("ZFSMgr"),
+                                     trk(QStringLiteral("t_group_exists_001"),
+                                         QStringLiteral("Ya existe un grupo con ese nombre."),
+                                         QStringLiteral("A group with that name already exists."),
+                                         QStringLiteral("该名称的分组已存在。")));
+                return;
+            }
+        }
+        createGroupTab(name, {});
+        tabs->setCurrentIndex(tabs->count() - 1);
+        refreshGroupTabs();
+    });
+
+    QObject::connect(renameGroupBtn, &QPushButton::clicked, &dlg, [&]() {
+        const int idx = tabs->currentIndex() - 1;
+        if (idx < 0 || idx >= groupTabs.size()) {
+            return;
+        }
+        bool ok = false;
+        const QString name = QInputDialog::getText(&dlg,
+                                                   trk(QStringLiteral("t_rename_group_001"),
+                                                       QStringLiteral("Renombrar grupo"),
+                                                       QStringLiteral("Rename group"),
+                                                       QStringLiteral("重命名分组")),
+                                                   trk(QStringLiteral("t_group_name_001"),
+                                                       QStringLiteral("Nombre del grupo"),
+                                                       QStringLiteral("Group name"),
+                                                       QStringLiteral("分组名称")),
+                                                   QLineEdit::Normal,
+                                                   groupTabs[idx].name,
+                                                   &ok)
+                                 .trimmed();
+        if (!ok || name.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < groupTabs.size(); ++i) {
+            if (i != idx && groupTabs[i].name.compare(name, Qt::CaseInsensitive) == 0) {
+                QMessageBox::warning(&dlg,
+                                     QStringLiteral("ZFSMgr"),
+                                     trk(QStringLiteral("t_group_exists_001"),
+                                         QStringLiteral("Ya existe un grupo con ese nombre."),
+                                         QStringLiteral("A group with that name already exists."),
+                                         QStringLiteral("该名称的分组已存在。")));
+                return;
+            }
+        }
+        groupTabs[idx].name = name;
+        tabs->setTabText(idx + 1, name);
+    });
+
+    QObject::connect(deleteGroupBtn, &QPushButton::clicked, &dlg, [&]() {
+        const int idx = tabs->currentIndex() - 1;
+        if (idx < 0 || idx >= groupTabs.size()) {
+            return;
+        }
+        QWidget* page = groupTabs[idx].page;
+        groupTabs.removeAt(idx);
+        tabs->removeTab(idx + 1);
+        if (page) {
+            page->deleteLater();
+        }
+        if (tabs->count() > 0) {
+            tabs->setCurrentIndex(qMin(idx + 1, tabs->count() - 1));
+        }
+        refreshGroupTabs();
+    });
+
+    connectGroupTabModels = [&](GroupTabState& tab) {
+        QObject::connect(tab.shown->model(), &QAbstractItemModel::rowsMoved, &dlg, [&](const QModelIndex&, int, int, const QModelIndex&, int) {
+            refreshGroupTabs();
+        });
+        QObject::connect(tab.shown->model(), &QAbstractItemModel::rowsInserted, &dlg, [&](const QModelIndex&, int, int) {
+            refreshGroupTabs();
+        });
+        QObject::connect(tab.shown->model(), &QAbstractItemModel::rowsRemoved, &dlg, [&](const QModelIndex&, int, int) {
+            refreshGroupTabs();
+        });
+        QObject::connect(tab.available->model(), &QAbstractItemModel::rowsInserted, &dlg, [&](const QModelIndex&, int, int) {
+            refreshGroupTabs();
+        });
+        QObject::connect(tab.available->model(), &QAbstractItemModel::rowsRemoved, &dlg, [&](const QModelIndex&, int, int) {
+            refreshGroupTabs();
+        });
+    };
+    for (GroupTabState& tab : groupTabs) {
+        connectGroupTabModels(tab);
+    }
+
+    if (!initialGroupName.trimmed().isEmpty()) {
+        for (int i = 0; i < groupTabs.size(); ++i) {
+            if (groupTabs[i].name.compare(initialGroupName.trimmed(), Qt::CaseInsensitive) == 0) {
+                tabs->setCurrentIndex(i + 1);
+                break;
+            }
+        }
+    }
+
+    QDialogButtonBox* box = new QDialogButtonBox(&dlg);
+    QPushButton* cancelBtn = box->addButton(trk(QStringLiteral("t_cancelar_c111e0"),
+                                                QStringLiteral("Cancelar"),
+                                                QStringLiteral("Cancel"),
+                                                QStringLiteral("取消")),
+                                            QDialogButtonBox::RejectRole);
+    QPushButton* okBtn = box->addButton(trk(QStringLiteral("t_aceptar_8f9f73"),
+                                            QStringLiteral("Aceptar"),
+                                            QStringLiteral("Accept"),
+                                            QStringLiteral("确认")),
+                                        QDialogButtonBox::AcceptRole);
+    root->addWidget(box);
+    QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
+    QObject::connect(okBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+
+    if (dlg.exec() != QDialog::Accepted) {
+        return false;
+    }
+
+    refreshGroupTabs();
+    selected = normalizeProps(listValues(visibleShown));
+    QVector<InlinePropGroupConfig> outGroups;
+    for (const GroupTabState& tab : groupTabs) {
+        InlinePropGroupConfig cfg;
+        cfg.name = tab.name.trimmed();
+        cfg.props = normalizeProps(listValues(tab.shown));
+        if (!cfg.name.isEmpty() && !cfg.props.isEmpty()) {
+            outGroups.push_back(cfg);
+        }
+    }
+    groups = outGroups;
     return true;
 }
