@@ -650,37 +650,6 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const Datase
         return;
     }
     const QString target = ctx.snapshotName.isEmpty() ? ctx.datasetName : (ctx.datasetName + QStringLiteral("@") + ctx.snapshotName);
-    const auto confirm1 = QMessageBox::question(
-        this,
-        trk(QStringLiteral("t_confirm_del_001"),
-            QStringLiteral("Confirmar borrado"),
-            QStringLiteral("Confirm deletion"),
-            QStringLiteral("确认删除")),
-        trk(QStringLiteral("t_confirm_del_msg1"),
-            QStringLiteral("Se va a borrar:\n%1\n¿Continuar?"),
-            QStringLiteral("This will be deleted:\n%1\nContinue?"),
-            QStringLiteral("将要删除：\n%1\n是否继续？")).arg(target),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm1 != QMessageBox::Yes) {
-        return;
-    }
-    const auto confirm2 = QMessageBox::question(
-        this,
-        trk(QStringLiteral("t_confirm_del_002"),
-            QStringLiteral("Confirmar borrado (2/2)"),
-            QStringLiteral("Confirm deletion (2/2)"),
-            QStringLiteral("确认删除（2/2）")),
-        trk(QStringLiteral("t_confirm_del_msg2"),
-            QStringLiteral("Confirmación final de borrado:\n%1"),
-            QStringLiteral("Final deletion confirmation:\n%1"),
-            QStringLiteral("最终删除确认：\n%1")).arg(target),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm2 != QMessageBox::Yes) {
-        return;
-    }
-
     const auto askRec = QMessageBox::question(
         this,
         trk(QStringLiteral("t_recursive_del01"),
@@ -699,24 +668,69 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const Datase
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No);
     const bool recursive = (askRec == QMessageBox::Yes);
+    const auto confirm = QMessageBox::question(
+        this,
+        trk(QStringLiteral("t_confirm_del_001"),
+            QStringLiteral("Confirmar borrado"),
+            QStringLiteral("Confirm deletion"),
+            QStringLiteral("确认删除")),
+        trk(QStringLiteral("t_confirm_del_msg1"),
+            QStringLiteral("Se añadirá a cambios pendientes el borrado%2 de:\n%1\n¿Continuar?"),
+            QStringLiteral("A%2 delete for the following will be added to pending changes:\n%1\nContinue?"),
+            QStringLiteral("将把以下对象的%2删除加入待处理更改：\n%1\n是否继续？"))
+            .arg(target,
+                 recursive
+                     ? trk(QStringLiteral("t_recursive_suffix_001"),
+                           QStringLiteral(" recursivo"),
+                           QStringLiteral(" recursive"),
+                           QStringLiteral(" 递归"))
+                     : QString()),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return;
+    }
     QString cmd;
     cmd = recursive ? QStringLiteral("zfs destroy -r %1").arg(shSingleQuote(target))
                     : QStringLiteral("zfs destroy %1").arg(shSingleQuote(target));
-    const auto refreshAfterDelete = [this, side, ctx]() {
-        invalidatePoolDatasetListingCache(ctx.connIdx, ctx.poolName);
-        if (side == QStringLiteral("conncontent")) {
-            reloadConnContentPool(ctx.connIdx, ctx.poolName);
-        } else {
-            reloadDatasetSide(side);
+    ConnectionProfile cp = m_profiles[ctx.connIdx];
+    if (isLocalConnection(cp) && !isWindowsConnection(cp)) {
+        cp.useSudo = true;
+        if (!ensureLocalSudoCredentials(cp)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Borrar cancelado: faltan credenciales sudo locales"));
+            return;
         }
+    }
+    const QString fullCmd = sshExecFromLocal(cp, withSudo(cp, cmd));
+    auto connPoolLabel = [this](const DatasetSelectionContext& selCtx) {
+        if (!selCtx.valid || selCtx.connIdx < 0 || selCtx.connIdx >= m_profiles.size() || selCtx.poolName.trimmed().isEmpty()) {
+            return QString();
+        }
+        const ConnectionProfile& p = m_profiles.at(selCtx.connIdx);
+        const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
+        return QStringLiteral("%1::%2").arg(connLabel, selCtx.poolName.trimmed());
     };
-    executeDatasetAction(side,
-                         QStringLiteral("Borrar"),
-                         ctx,
-                         cmd,
-                         90000,
-                         false,
-                         {},
-                         false,
-                         refreshAfterDelete);
+    QString errorText;
+    if (!queuePendingShellAction(PendingShellActionDraft{
+            connPoolLabel(ctx),
+            recursive
+                ? QStringLiteral("Borrar recursivamente %1").arg(target)
+                : QStringLiteral("Borrar %1").arg(target),
+            fullCmd,
+            90000,
+            false,
+            {},
+            ctx,
+            PendingShellActionDraft::RefreshScope::TargetOnly},
+            &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Cambio pendiente añadido: %1  %2")
+               .arg(connPoolLabel(ctx),
+                    recursive
+                        ? QStringLiteral("Borrar recursivamente %1").arg(target)
+                        : QStringLiteral("Borrar %1").arg(target)));
+    updateApplyPropsButtonState();
 }
