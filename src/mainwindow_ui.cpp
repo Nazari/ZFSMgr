@@ -2155,19 +2155,28 @@ void MainWindow::buildUi() {
     logLayout->setSpacing(4);
     auto* logBody = new QHBoxLayout();
 
-    auto* leftInfo = new QWidget(combinedLogTab);
-    auto* leftInfoLayout = new QVBoxLayout(leftInfo);
-    leftInfoLayout->setContentsMargins(0, 0, 0, 0);
-    leftInfoLayout->setSpacing(4);
+    QFont combinedLogFont = baseUiFont;
+    combinedLogFont.setPointSize(qMax(6, baseUiFont.pointSize() - 2));
+
+    auto* stateProgressBox = new QGroupBox(
+        trk(QStringLiteral("t_state_progress_col_001"),
+            QStringLiteral("Estado y progreso"),
+            QStringLiteral("Status and progress"),
+            QStringLiteral("状态和进度")),
+        combinedLogTab);
+    auto* stateProgressLayout = new QVBoxLayout(stateProgressBox);
+    stateProgressLayout->setContentsMargins(6, 6, 6, 6);
+    stateProgressLayout->setSpacing(4);
     auto* statusBox = new QGroupBox(trk(QStringLiteral("t_status_col_001"),
                                         QStringLiteral("Estado"),
                                         QStringLiteral("Status"),
                                         QStringLiteral("状态")),
-                                    leftInfo);
+                                    stateProgressBox);
     auto* statusLayout = new QVBoxLayout(statusBox);
     statusLayout->setContentsMargins(6, 6, 6, 6);
     statusLayout->setSpacing(4);
     m_statusText = new QTextEdit(statusBox);
+    m_statusText->setFont(combinedLogFont);
     m_statusText->setReadOnly(true);
     m_statusText->setAcceptRichText(false);
     m_statusText->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -2186,11 +2195,12 @@ void MainWindow::buildUi() {
                                         QStringLiteral("Progreso"),
                                         QStringLiteral("Progress"),
                                         QStringLiteral("进度")),
-                                    leftInfo);
+                                    stateProgressBox);
     auto* detailLayout = new QVBoxLayout(detailBox);
     detailLayout->setContentsMargins(6, 6, 6, 6);
     detailLayout->setSpacing(4);
     m_lastDetailText = new QTextEdit(detailBox);
+    m_lastDetailText->setFont(combinedLogFont);
     m_lastDetailText->setReadOnly(true);
     m_lastDetailText->setAcceptRichText(false);
     m_lastDetailText->setLineWrapMode(QTextEdit::NoWrap);
@@ -2204,25 +2214,27 @@ void MainWindow::buildUi() {
         m_lastDetailText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     }
     detailLayout->addWidget(m_lastDetailText, 0);
-    leftInfoLayout->addWidget(statusBox, 0);
-    leftInfoLayout->addWidget(detailBox, 0);
+    stateProgressLayout->addWidget(statusBox, 0);
+    stateProgressLayout->addWidget(detailBox, 0);
 
     auto* appLogBox = new QGroupBox(trk(QStringLiteral("t_app_tab_001"),
                                         QStringLiteral("Aplicación"),
                                         QStringLiteral("Application"),
                                         QStringLiteral("应用")),
-                                    leftInfo);
+                                    combinedLogTab);
     auto* appLogLayout = new QVBoxLayout(appLogBox);
     appLogLayout->setContentsMargins(6, 6, 6, 6);
     appLogLayout->setSpacing(4);
     m_logView = new QPlainTextEdit(appLogBox);
     m_logView->setObjectName(QStringLiteral("applicationLogView"));
+    m_logView->setFont(combinedLogFont);
     m_logView->setReadOnly(true);
     m_logView->setLineWrapMode(QPlainTextEdit::NoWrap);
     m_logView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_logView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     appLogLayout->addWidget(m_logView, 1);
-    leftInfoLayout->addWidget(appLogBox, 1);
+    stateProgressBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    appLogBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     auto* pendingChangesBox = new QGroupBox(
         trk(QStringLiteral("t_pending_changes_tab001"),
@@ -2287,7 +2299,8 @@ void MainWindow::buildUi() {
 
     loadPersistedAppLogToView();
 
-    logBody->addWidget(leftInfo, 1);
+    logBody->addWidget(stateProgressBox, 0);
+    logBody->addWidget(appLogBox, 1);
     logLayout->addLayout(logBody, 1);
     m_logsTabs->addTab(combinedLogTab,
                        trk(QStringLiteral("t_combined_log001"),

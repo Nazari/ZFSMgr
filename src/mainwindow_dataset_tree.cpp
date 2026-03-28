@@ -2019,36 +2019,57 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
             wantedPoolName.clear();
         }
     }
+    struct PoolRootRef {
+        int connIdx{-1};
+        QString poolName;
+    };
+    auto findPoolRoot = [tree](int connIdx, const QString& poolName) -> QTreeWidgetItem* {
+        if (!tree || connIdx < 0 || poolName.trimmed().isEmpty()) {
+            return nullptr;
+        }
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* n = tree->topLevelItem(i);
+            if (!n || !n->data(0, kIsPoolRootRole).toBool()) {
+                continue;
+            }
+            if (n->data(0, kConnIdxRole).toInt() == connIdx
+                && n->data(0, kPoolNameRole).toString().trimmed() == poolName) {
+                return n;
+            }
+        }
+        return nullptr;
+    };
     auto poolRoots = [&]() {
-        QVector<QTreeWidgetItem*> roots;
+        QVector<PoolRootRef> roots;
         if (!safeTree) {
             return roots;
         }
         for (int i = 0; i < tree->topLevelItemCount(); ++i) {
             QTreeWidgetItem* n = tree->topLevelItem(i);
             if (n && n->data(0, kIsPoolRootRole).toBool()) {
-                roots.push_back(n);
+                roots.push_back(PoolRootRef{
+                    n->data(0, kConnIdxRole).toInt(),
+                    n->data(0, kPoolNameRole).toString().trimmed()});
             }
         }
         if (wantedConnIdx >= 0 && !wantedPoolName.isEmpty()) {
-            std::stable_sort(roots.begin(), roots.end(), [&](QTreeWidgetItem* a, QTreeWidgetItem* b) {
-                const bool aWanted = a && a->data(0, kConnIdxRole).toInt() == wantedConnIdx
-                                     && a->data(0, kPoolNameRole).toString().trimmed() == wantedPoolName;
-                const bool bWanted = b && b->data(0, kConnIdxRole).toInt() == wantedConnIdx
-                                     && b->data(0, kPoolNameRole).toString().trimmed() == wantedPoolName;
+            std::stable_sort(roots.begin(), roots.end(), [&](const PoolRootRef& a, const PoolRootRef& b) {
+                const bool aWanted = a.connIdx == wantedConnIdx && a.poolName == wantedPoolName;
+                const bool bWanted = b.connIdx == wantedConnIdx && b.poolName == wantedPoolName;
                 return aWanted && !bWanted;
             });
         }
         return roots;
     };
 
-    QVector<QTreeWidgetItem*> roots = poolRoots();
+    QVector<PoolRootRef> roots = poolRoots();
     if (roots.isEmpty()) {
         m_syncingConnContentColumns = false;
         return;
     }
     if (!showPoolInfoNodeForTree(tree)) {
-        for (QTreeWidgetItem* root : roots) {
+        for (const PoolRootRef& ref : roots) {
+            QTreeWidgetItem* root = findPoolRoot(ref.connIdx, ref.poolName);
             if (!root) {
                 continue;
             }
@@ -2192,14 +2213,19 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
             n->setText(col, QString());
         }
     };
-    for (QTreeWidgetItem* root : roots) {
+    for (const PoolRootRef& ref : roots) {
+        QTreeWidgetItem* root = findPoolRoot(ref.connIdx, ref.poolName);
         if (!root) {
             continue;
         }
 
-        const int connIdx = root->data(0, kConnIdxRole).toInt();
-        const QString poolName = root->data(0, kPoolNameRole).toString();
+        const int connIdx = ref.connIdx;
+        const QString poolName = ref.poolName;
         if (!ensurePoolDetailsLoaded(connIdx, poolName)) {
+            continue;
+        }
+        root = findPoolRoot(ref.connIdx, ref.poolName);
+        if (!root) {
             continue;
         }
         const PoolDetailsCacheEntry* pit = poolDetailsEntry(connIdx, poolName);
