@@ -763,6 +763,58 @@ void MainWindow::scrubPoolFromRow(int row) {
     }
 }
 
+void MainWindow::upgradePoolFromRow(int row) {
+    if (actionsLocked()) {
+        return;
+    }
+    if (row < 0 || row >= m_poolListEntries.size()) {
+        return;
+    }
+    const auto& pe = m_poolListEntries[row];
+    const QString connName = pe.connection;
+    const QString poolName = pe.pool;
+    const QString poolState = pe.state.trimmed().toUpper();
+    const QString action = pe.action;
+    if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
+        return;
+    }
+    if (poolState != QStringLiteral("ONLINE")) {
+        return;
+    }
+    if (action.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) != 0) {
+        return;
+    }
+    const int idx = findConnectionIndexByName(connName);
+    if (idx < 0) {
+        return;
+    }
+
+    const auto confirm = QMessageBox::question(
+        this,
+        QStringLiteral("Upgrade pool"),
+        QStringLiteral("¿Ejecutar zpool upgrade en %1 de %2?").arg(poolName, connName),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return;
+    }
+
+    const ConnectionProfile& p = m_profiles[idx];
+    const QString cmd = withSudo(p, QStringLiteral("zpool upgrade %1").arg(shSingleQuote(poolName)));
+    const QString preview = QStringLiteral("[%1]\n%2")
+                                .arg(sshUserHostPort(p))
+                                .arg(buildSshPreviewCommand(p, cmd));
+    if (!confirmActionExecution(QStringLiteral("Upgrade"), {preview})) {
+        return;
+    }
+    QString failureDetail;
+    if (!executePoolCommand(idx, poolName, QStringLiteral("Upgrade"), cmd, 45000, &failureDetail)) {
+        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
+                              QStringLiteral("Upgrade falló:\n%1").arg(failureDetail));
+        return;
+    }
+}
+
 void MainWindow::reguidPoolFromRow(int row) {
     if (actionsLocked()) {
         return;

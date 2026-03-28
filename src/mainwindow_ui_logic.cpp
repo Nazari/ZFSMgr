@@ -19,6 +19,7 @@ PoolRootMenuState buildPoolRootMenuState(const QString& poolAction,
     state.canHistory = state.canExport;
     state.canSync = state.canExport;
     state.canScrub = state.canExport;
+    state.canUpgrade = state.canExport;
     state.canReguid = state.canExport;
     state.canTrim = state.canExport;
     state.canInitialize = state.canExport;

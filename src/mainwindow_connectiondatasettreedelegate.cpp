@@ -393,6 +393,7 @@ MainWindowConnectionDatasetTreeDelegate::buildPoolRootMenu(QMenu& menu, QTreeWid
     QMenu* management = menu.addMenu(QStringLiteral("Gestión"));
     actions.sync = management->addAction(QStringLiteral("Sync"));
     actions.scrub = management->addAction(QStringLiteral("Scrub"));
+    actions.upgrade = management->addAction(QStringLiteral("Upgrade"));
     actions.reguid = management->addAction(QStringLiteral("Reguid"));
     actions.trim = management->addAction(QStringLiteral("Trim"));
     actions.initialize = management->addAction(QStringLiteral("Initialize"));
@@ -564,6 +565,52 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
         if (!tree) {
             return;
         }
+        auto rematerializeVisiblePropertyNodes = [this](QTreeWidget* targetTree, const QString& targetToken) {
+            if (!m_mainWindow || !targetTree || targetToken.trimmed().isEmpty()) {
+                return;
+            }
+            QTreeWidgetItem* originalCurrent = targetTree->currentItem();
+            std::function<void(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* item) {
+                if (!item) {
+                    return;
+                }
+                const QString datasetName = item->data(0, Qt::UserRole).toString().trimmed();
+                if (!datasetName.isEmpty()) {
+                    for (int i = 0; i < item->childCount(); ++i) {
+                        QTreeWidgetItem* child = item->child(i);
+                        if (!child || !child->data(0, kConnPropGroupNodeRole).toBool()) {
+                            continue;
+                        }
+                        const bool isMainPropsNode =
+                            child->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
+                            && child->text(0).trimmed() == m_mainWindow->trk(QStringLiteral("t_props_lbl_001"),
+                                                                              QStringLiteral("Propiedades"),
+                                                                              QStringLiteral("Properties"),
+                                                                              QStringLiteral("属性"));
+                        if (!isMainPropsNode || !child->isExpanded()) {
+                            continue;
+                        }
+                        {
+                            const QSignalBlocker blocker(targetTree);
+                            targetTree->setCurrentItem(item);
+                        }
+                        m_mainWindow->refreshConnContentPropertiesFor(targetTree);
+                        m_mainWindow->syncConnContentPropertyColumnsFor(targetTree, targetToken);
+                        break;
+                    }
+                }
+                for (int i = 0; i < item->childCount(); ++i) {
+                    rec(item->child(i));
+                }
+            };
+            for (int i = 0; i < targetTree->topLevelItemCount(); ++i) {
+                rec(targetTree->topLevelItem(i));
+            }
+            if (originalCurrent) {
+                const QSignalBlocker blocker(targetTree);
+                targetTree->setCurrentItem(originalCurrent);
+            }
+        };
         alignDetailContextToToken(tree, token);
         m_mainWindow->saveConnContentTreeStateFor(tree, token);
         rebuildInlineConnTree(tree, token);
@@ -578,6 +625,7 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
         }
         rehydrateExpandedDatasetNodes(tree, token);
         m_mainWindow->restoreConnContentTreeStateFor(tree, token);
+        rematerializeVisiblePropertyNodes(tree, token);
     };
 
     m_mainWindow->saveUiSettings();
@@ -1867,6 +1915,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         poolActions.history->setEnabled(menuState.canHistory);
         poolActions.sync->setEnabled(menuState.canSync);
         poolActions.scrub->setEnabled(menuState.canScrub);
+        poolActions.upgrade->setEnabled(menuState.canUpgrade);
         poolActions.reguid->setEnabled(menuState.canReguid);
         poolActions.trim->setEnabled(menuState.canTrim);
         poolActions.initialize->setEnabled(menuState.canInitialize);
@@ -1889,6 +1938,8 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             m_mainWindow->syncPoolFromRow(poolRow);
         } else if (picked == poolActions.scrub && menuState.canScrub && poolRow >= 0) {
             m_mainWindow->scrubPoolFromRow(poolRow);
+        } else if (picked == poolActions.upgrade && menuState.canUpgrade && poolRow >= 0) {
+            m_mainWindow->upgradePoolFromRow(poolRow);
         } else if (picked == poolActions.reguid && menuState.canReguid && poolRow >= 0) {
             m_mainWindow->reguidPoolFromRow(poolRow);
         } else if (picked == poolActions.trim && menuState.canTrim && poolRow >= 0) {

@@ -789,6 +789,7 @@ private:
     void importPoolFromRow(int row);
     void importPoolRenamingFromRow(int row);
     void scrubPoolFromRow(int row);
+    void upgradePoolFromRow(int row);
     void reguidPoolFromRow(int row);
     void syncPoolFromRow(int row);
     void trimPoolFromRow(int row);
