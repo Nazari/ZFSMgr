@@ -1029,6 +1029,8 @@ private:
     QMap<QString, bool> m_propsOriginalInherit;
     bool m_propsDirty{false};
     QVector<PendingChange> m_pendingChangesModel;
+    mutable QMap<QString, int> m_pendingChangeOrderByStableId;
+    mutable int m_nextPendingChangeOrder{0};
     bool m_loadingPropsTable{false};
     bool m_loadingDatasetTrees{false};
     QString m_language{QStringLiteral("es")};

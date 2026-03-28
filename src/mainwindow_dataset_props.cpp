@@ -2450,11 +2450,11 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
         const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
         return QStringLiteral("%1::%2").arg(connLabel, poolName.trimmed());
     };
-    auto appendPending = [&changes, &connPoolPrefix](const PendingChange& base,
-                                                     int connIdx,
-                                                     const QString& poolName,
-                                                     const QString& command,
-                                                     const QString& displayText) {
+    auto appendPending = [this, &changes, &connPoolPrefix](const PendingChange& base,
+                                                           int connIdx,
+                                                           const QString& poolName,
+                                                           const QString& command,
+                                                           const QString& displayText) {
         const QString trimmedCmd = command.trimmed();
         const QString trimmedDisplay = displayText.trimmed();
         if (trimmedCmd.isEmpty() || trimmedDisplay.isEmpty()) {
@@ -2470,6 +2470,9 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
                                   .arg(static_cast<int>(change.kind))
                                   .arg(connIdx)
                                   .arg(poolName.trimmed(), trimmedCmd);
+        }
+        if (!m_pendingChangeOrderByStableId.contains(change.stableId)) {
+            m_pendingChangeOrderByStableId.insert(change.stableId, m_nextPendingChangeOrder++);
         }
         changes.push_back(change);
     };
@@ -2906,8 +2909,16 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
         change.commandLine = QStringLiteral("%1  %2").arg(scope, trimmed);
         change.displayLine = QStringLiteral("%1  %2").arg(scope, draft.displayLabel.trimmed());
         change.stableId = QStringLiteral("shell|%1|%2").arg(draft.displayLabel.trimmed(), trimmed);
+        if (!m_pendingChangeOrderByStableId.contains(change.stableId)) {
+            m_pendingChangeOrderByStableId.insert(change.stableId, m_nextPendingChangeOrder++);
+        }
         changes.push_back(change);
     }
+    std::stable_sort(changes.begin(), changes.end(), [this](const PendingChange& a, const PendingChange& b) {
+        const int orderA = m_pendingChangeOrderByStableId.value(a.stableId, std::numeric_limits<int>::max());
+        const int orderB = m_pendingChangeOrderByStableId.value(b.stableId, std::numeric_limits<int>::max());
+        return orderA < orderB;
+    });
     return changes;
 }
 
