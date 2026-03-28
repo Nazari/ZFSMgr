@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "i18nmanager.h"
+#include "mainwindow_helpers.h"
 
 #include <QAbstractItemView>
 #include <QByteArray>
@@ -67,6 +68,23 @@ QString prettifyCommandText(const QString& cmd) {
     pretty.replace(QStringLiteral(" | "), QStringLiteral(" |\n  "));
     pretty.replace(QStringLiteral("; "), QStringLiteral(";\n"));
     return pretty;
+}
+
+QString maskSecretsForPreview(const QString& input) {
+    QString out = input;
+
+    const auto replaceAll = [&out](const QRegularExpression& rx, const QString& replacement) {
+        out.replace(rx, replacement);
+    };
+
+    replaceAll(QRegularExpression(QStringLiteral("(SSHPASS=)([^\\s]+)")),
+               QStringLiteral("\\1[secret]"));
+    replaceAll(QRegularExpression(QStringLiteral("(printf\\s+'%s\\\\n'\\s+)'(?:[^'\\\\]|\\\\.)*'(?=\\s*\\|\\s*sudo\\s+-S)")),
+               QStringLiteral("\\1'[secret]'"));
+    replaceAll(QRegularExpression(QStringLiteral("(printf\\s+'%s\\\\n'\\s+)'(?:[^'\\\\]|\\\\.)*'(?=\\s*;\\s*cat\\s*;\\s*}\\s*\\|\\s*sudo\\s+-S)")),
+               QStringLiteral("\\1'[secret]'"));
+
+    return out;
 }
 
 QString decodePowerShellEncodedCommand(const QString& encoded) {
@@ -300,7 +318,7 @@ bool MainWindow::confirmActionExecution(const QString& actionName, const QString
     QStringList rendered;
     rendered.reserve(commands.size());
     for (const QString& cmd : commands) {
-        rendered.push_back(formatCommandPreview(cmd, m_language));
+        rendered.push_back(formatCommandPreview(maskSecretsForPreview(cmd), m_language));
     }
 
     QPlainTextEdit* txt = new QPlainTextEdit(&dlg);
