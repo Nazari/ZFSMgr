@@ -35,6 +35,53 @@ QString buildDirectWindowsBashSshInvocation(const ConnectionProfile& p, const QS
                                .arg(shSingleQuote(remoteCmd));
     return sshBase + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(winCmd);
 }
+
+QString unixAlternateMountHelpersScript() {
+    return QStringLiteral(
+        "mount_alt_zfs(){ ds=\"$1\"; mp=\"$2\"; "
+        "if command -v mount_zfs >/dev/null 2>&1; then mount_zfs \"$ds\" \"$mp\"; "
+        "elif command -v mount.zfs >/dev/null 2>&1; then mount.zfs \"$ds\" \"$mp\"; "
+        "else mount -t zfs \"$ds\" \"$mp\"; fi; }; "
+        "umount_alt_zfs(){ mp=\"$1\"; "
+        "if command -v umount >/dev/null 2>&1; then umount \"$mp\"; else zfs unmount \"$mp\"; fi; }; "
+        "resolve_mp(){ ds=\"$1\"; mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
+        "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$ds\" '$1==d{print $2; exit}');; esac; "
+        "printf '%s' \"$mp\"; }; ");
+}
+
+QString buildUnixTemporaryTarSourceScript(const QString& dataset, mwhelpers::StreamCodec codec) {
+    const QString tarFromVar =
+        (codec == mwhelpers::StreamCodec::Zstd) ? QStringLiteral("tar --acls --xattrs -cpf - -C \"$MP\" . | zstd -1 -T0 -q -c")
+        : (codec == mwhelpers::StreamCodec::Gzip) ? QStringLiteral("tar --acls --xattrs -cpf - -C \"$MP\" . | gzip -1 -c")
+        : QStringLiteral("tar --acls --xattrs -cpf - -C \"$MP\" .");
+    return QStringLiteral(
+               "set -e; DATASET=%1; %2"
+               "TMP_MP=''; "
+               "cleanup(){ if [ -n \"$TMP_MP\" ]; then umount_alt_zfs \"$TMP_MP\" >/dev/null 2>&1 || true; rmdir \"$TMP_MP\" >/dev/null 2>&1 || true; fi; }; "
+               "trap cleanup EXIT INT TERM; "
+               "MP=$(resolve_mp \"$DATASET\"); "
+               "if [ -z \"$MP\" ]; then TMP_MP=$(mktemp -d /tmp/zfsmgr-sync-src-XXXXXX); mount_alt_zfs \"$DATASET\" \"$TMP_MP\"; MP=\"$TMP_MP\"; fi; "
+               "[ -n \"$MP\" ] && [ -d \"$MP\" ] || exit 41; "
+               "%3")
+        .arg(shSingleQuote(dataset), unixAlternateMountHelpersScript(), tarFromVar);
+}
+
+QString buildUnixTemporaryTarDestinationScript(const QString& dataset, mwhelpers::StreamCodec codec) {
+    const QString decodePipe =
+        (codec == mwhelpers::StreamCodec::Zstd) ? QStringLiteral("zstd -d -q -c - | ")
+        : (codec == mwhelpers::StreamCodec::Gzip) ? QStringLiteral("gzip -d -c - | ")
+        : QString();
+    return QStringLiteral(
+               "set -e; DATASET=%1; %2"
+               "TMP_MP=''; "
+               "cleanup(){ if [ -n \"$TMP_MP\" ]; then umount_alt_zfs \"$TMP_MP\" >/dev/null 2>&1 || true; rmdir \"$TMP_MP\" >/dev/null 2>&1 || true; fi; }; "
+               "trap cleanup EXIT INT TERM; "
+               "MP=$(resolve_mp \"$DATASET\"); "
+               "if [ -z \"$MP\" ]; then TMP_MP=$(mktemp -d /tmp/zfsmgr-sync-dst-XXXXXX); mount_alt_zfs \"$DATASET\" \"$TMP_MP\"; MP=\"$TMP_MP\"; fi; "
+               "mkdir -p \"$MP\"; "
+               "%3tar --acls --xattrs -xpf - -C \"$MP\"")
+        .arg(shSingleQuote(dataset), unixAlternateMountHelpersScript(), decodePipe);
+}
 } // namespace
 
 QString MainWindow::pendingTransferScopeLabel(const DatasetSelectionContext& src, const DatasetSelectionContext& dst) const {
@@ -1015,13 +1062,43 @@ void MainWindow::actionSyncDatasets() {
         return;
     }
 
+    const bool canTempMountSrc = supportsAlternateDatasetMount(src.connIdx);
+    const bool canTempMountDst = supportsAlternateDatasetMount(dst.connIdx);
     if ((!srcRootMounted && !srcCanmountOff) || (!dstRootMounted && !dstCanmountOff)) {
+        if (!isWindowsConnection(sp) && !isWindowsConnection(dp) && canTempMountSrc && canTempMountDst) {
+            const mwhelpers::StreamCodec codec = chooseCodec();
+            const QString srcScript = buildUnixTemporaryTarSourceScript(src.datasetName, codec);
+            const QString dstScript = buildUnixTemporaryTarDestinationScript(dst.datasetName, codec);
+            QString command;
+            if (sameConnection) {
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("Sincronizar: usando montaje temporal alternativo (%1)")
+                           .arg(streamCodecName(codec)));
+                const QString remotePipe =
+                    buildPipedTransferCommand(withSudo(sp, srcScript), withSudoStreamInput(dp, dstScript));
+                command = sshExecFromLocal(sp, remotePipe);
+            } else {
+                command = buildPipedTransferCommand(sshExecFromLocal(sp, withSudo(sp, srcScript)),
+                                                    sshExecFromLocal(dp, withSudoStreamInput(dp, dstScript)));
+            }
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Sincronizar: fallback tar/ssh con montajes temporales alternativos (codec=%1, sin --delete)")
+                       .arg(streamCodecName(codec)));
+            queueSyncCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command);
+            return;
+        }
         QMessageBox::warning(this,
                              QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_origen_y_d_79e6b3"),
-                                 QStringLiteral("Origen y destino deben estar montados para sincronizar,\no bien tener canmount=off con subdatasets montados.\nOrigen mounted=%1 canmount=%2\nDestino mounted=%3 canmount=%4"),
-                                 QStringLiteral("Source and target must be mounted to synchronize,\nor canmount=off with mounted subdatasets.\nSource mounted=%1 canmount=%2\nTarget mounted=%3 canmount=%4"),
-                                 QStringLiteral("源和目标必须已挂载才能同步，\n或设置 canmount=off 且子数据集已挂载。\n源 mounted=%1 canmount=%2\n目标 mounted=%3 canmount=%4"))
+                                 QStringLiteral("Origen y destino deben estar montados para sincronizar,\no bien tener canmount=off con subdatasets montados.\n"
+                                                "En Linux, macOS y FreeBSD también puede usarse montaje temporal alternativo.\n"
+                                                "Origen mounted=%1 canmount=%2\nDestino mounted=%3 canmount=%4"),
+                                 QStringLiteral("Source and target must be mounted to synchronize,\nor canmount=off with mounted subdatasets.\n"
+                                                "Linux, macOS and FreeBSD can also use a temporary alternate mount.\n"
+                                                "Source mounted=%1 canmount=%2\nTarget mounted=%3 canmount=%4"),
+                                 QStringLiteral("源和目标必须已挂载才能同步，\n或设置 canmount=off 且子数据集已挂载。\n"
+                                                "在 Linux、macOS 和 FreeBSD 上也可使用临时替代挂载。\n"
+                                                "源 mounted=%1 canmount=%2\n目标 mounted=%3 canmount=%4"))
                                  .arg(srcMounted, srcCanmount, dstMounted, dstCanmount));
         return;
     }

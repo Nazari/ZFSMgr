@@ -1523,6 +1523,22 @@ bool MainWindow::isWindowsConnection(int connIdx) const {
     return isWindowsConnection(m_profiles[connIdx]);
 }
 
+bool MainWindow::supportsAlternateDatasetMount(int connIdx) const {
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return false;
+    }
+    const ConnectionProfile& p = m_profiles[connIdx];
+    if (isWindowsConnection(p)) {
+        return false;
+    }
+    const QString os = p.osType.trimmed().toLower();
+    return os.contains(QStringLiteral("linux"))
+           || os.contains(QStringLiteral("freebsd"))
+           || os.contains(QStringLiteral("macos"))
+           || os.contains(QStringLiteral("darwin"))
+           || os.contains(QStringLiteral("os x"));
+}
+
 QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p,
                                       const QString& remoteCmd,
                                       MainWindow::WindowsCommandMode windowsMode) const {

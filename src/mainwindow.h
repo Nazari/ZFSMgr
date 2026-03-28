@@ -596,6 +596,7 @@ private:
                                     QString* detail = nullptr) const;
     bool isWindowsConnection(const ConnectionProfile& p) const;
     bool isWindowsConnection(int connIdx) const;
+    bool supportsAlternateDatasetMount(int connIdx) const;
     QString wrapRemoteCommand(const ConnectionProfile& p,
                               const QString& remoteCmd,
                               WindowsCommandMode windowsMode = WindowsCommandMode::Auto) const;

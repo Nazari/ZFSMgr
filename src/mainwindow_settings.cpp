@@ -206,7 +206,7 @@ void MainWindow::loadUiSettings() {
         ini.value(QStringLiteral("show_pool_info_node_top"), legacyShowPoolInfoNode).toBool();
     m_showPoolInfoNodeBottom =
         ini.value(QStringLiteral("show_pool_info_node_bottom"), legacyShowPoolInfoNode).toBool();
-    m_connPropColumnsSetting = ini.value(QStringLiteral("conn_prop_columns"), 7).toInt();
+    m_connPropColumnsSetting = ini.value(QStringLiteral("conn_prop_columns"), 4).toInt();
     m_persistedTopDetailConnectionKey =
         ini.value(QStringLiteral("top_detail_connection")).toString().trimmed().toLower();
     m_persistedBottomDetailConnectionKey =
@@ -248,7 +248,7 @@ void MainWindow::loadUiSettings() {
     } else if (m_logMaxSizeMb > 1024) {
         m_logMaxSizeMb = 1024;
     }
-    m_connPropColumnsSetting = qBound(6, m_connPropColumnsSetting, 20);
+    m_connPropColumnsSetting = qBound(4, m_connPropColumnsSetting, 16);
     ini.endGroup();
 }
 
@@ -298,7 +298,7 @@ void MainWindow::saveUiSettings() const {
     ini.setValue(QStringLiteral("show_inline_gsa_node_bottom"), showInlineGsaNodeBottom);
     ini.setValue(QStringLiteral("show_pool_info_node_top"), showPoolInfoNodeTop);
     ini.setValue(QStringLiteral("show_pool_info_node_bottom"), showPoolInfoNodeBottom);
-    ini.setValue(QStringLiteral("conn_prop_columns"), qBound(6, m_connPropColumnsSetting, 20));
+    ini.setValue(QStringLiteral("conn_prop_columns"), qBound(4, m_connPropColumnsSetting, 16));
     ini.setValue(QStringLiteral("top_detail_connection"),
                  connPersistKeyFromProfiles(m_profiles, m_topDetailConnIdx));
     ini.setValue(QStringLiteral("bottom_detail_connection"),

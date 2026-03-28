@@ -1093,7 +1093,7 @@ void MainWindow::buildUi() {
     });
 
     auto applyPropColumnsSetting = [this](int cols) {
-        int bounded = qBound(6, cols, 20);
+        int bounded = qBound(4, cols, 16);
         if ((bounded % 2) != 0) {
             ++bounded;
         }
@@ -1525,28 +1525,28 @@ void MainWindow::buildUi() {
     m_btnConnToDir->setFont(baseUiFont);
     m_btnConnBreakdown->setToolTip(
         trk(QStringLiteral("t_tt_breakdown001"), QStringLiteral("Construye datasets a partir de directorios. "
-                           "Requiere dataset y descendientes montados. "
+                           "Requiere dataset accesible por mountpoint; en Linux, macOS y FreeBSD puede montarse temporalmente. "
                            "Permite seleccionar directorios a desglosar. "
                            "No se ejecuta si hay conflictos de mountpoint."),
             QStringLiteral("Builds datasets from directories. "
-                           "Requires dataset and descendants mounted. "
+                           "Requires the dataset to be reachable by mountpoint; on Linux, macOS and FreeBSD it can be mounted temporarily. "
                            "Lets you select directories to split. "
                            "Will not run if mountpoint conflicts exist."),
             QStringLiteral("从目录构建数据集。"
-                           "要求数据集及其后代已挂载。"
+                           "要求数据集可通过挂载点访问；在 Linux、macOS 和 FreeBSD 上可临时挂载。"
                            "可选择要拆分的目录。"
                            "若存在挂载点冲突则不会执行。")));
     m_btnConnAssemble->setToolTip(
         trk(QStringLiteral("t_tt_assemble001"), QStringLiteral("Convierte datasets en directorios. "
-                           "Requiere dataset y descendientes montados. "
+                           "Requiere dataset accesible por mountpoint; en Linux, macOS y FreeBSD puede montarse temporalmente. "
                            "Permite seleccionar subdatasets a ensamblar. "
                            "zfs destroy solo se ejecuta si rsync finaliza OK."),
             QStringLiteral("Converts datasets into directories. "
-                           "Requires dataset and descendants mounted. "
+                           "Requires the dataset to be reachable by mountpoint; on Linux, macOS and FreeBSD it can be mounted temporarily. "
                            "Lets you select child datasets to assemble. "
                            "zfs destroy runs only if rsync succeeds."),
             QStringLiteral("将数据集转换为目录。"
-                           "要求数据集及其后代已挂载。"
+                           "要求数据集可通过挂载点访问；在 Linux、macOS 和 FreeBSD 上可临时挂载。"
                            "可选择要组装的子数据集。"
                            "仅当 rsync 成功时才执行 zfs destroy。")));
     m_btnConnFromDir->setToolTip(
@@ -1689,11 +1689,14 @@ void MainWindow::buildUi() {
     m_btnConnSync->setToolTip(
         trk(QStringLiteral("t_tt_sync_001"),
             QStringLiteral("Sincroniza contenido de dataset Origen a Destino con rsync.\n"
-                           "Requiere: dataset seleccionado (no snapshot) en Origen y Destino, y ambos datasets montados."),
+                           "Requiere: dataset seleccionado (no snapshot) en Origen y Destino.\n"
+                           "Si no están montados, en Linux, macOS y FreeBSD puede usarse un montaje temporal."),
             QStringLiteral("Sync dataset contents from Source to Target with rsync.\n"
-                           "Requires: dataset selected (not snapshot) in Source and Target, and both datasets mounted."),
+                           "Requires: dataset selected (not snapshot) in Source and Target.\n"
+                           "If not mounted, Linux, macOS and FreeBSD can use a temporary mount."),
             QStringLiteral("使用 rsync 同步源端到目标端的数据集内容。\n"
-                           "条件：源端和目标端都选择数据集（非快照），且两端数据集均已挂载。")));
+                           "条件：源端和目标端都选择数据集（非快照）。\n"
+                           "若未挂载，在 Linux、macOS 和 FreeBSD 上可使用临时挂载。")));
     m_btnApplyConnContentProps->setMinimumHeight(stdLeftBtnH);
     m_btnDiscardPendingChanges->setMinimumHeight(stdLeftBtnH);
     m_btnConnCopy->setMinimumHeight(stdLeftBtnH);
@@ -2052,11 +2055,11 @@ void MainWindow::buildUi() {
                     QStringLiteral("Columnas de propiedades")));
             auto* propColsGroup = new QActionGroup(&menu);
             propColsGroup->setExclusive(true);
-            for (int cols = 6; cols <= 20; cols += 2) {
+            for (int cols = 4; cols <= 16; cols += 2) {
                 QAction* act = propColsMenu->addAction(QString::number(cols));
                 act->setCheckable(true);
                 act->setData(cols);
-                if (cols == qBound(6, m_connPropColumnsSetting, 20)) {
+                if (cols == qBound(4, m_connPropColumnsSetting, 16)) {
                     act->setChecked(true);
                 }
                 propColsGroup->addAction(act);

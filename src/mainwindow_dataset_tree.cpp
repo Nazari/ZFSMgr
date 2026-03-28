@@ -844,7 +844,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
     if (!tree) {
         return;
     }
-    const int propCols = qBound(6, m_connPropColumnsSetting, 20);
+    const int propCols = qBound(4, m_connPropColumnsSetting, 16);
     if (m_syncingConnContentColumns) {
         return;
     }
@@ -1965,7 +1965,7 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
             tree->setSortingEnabled(sortingWasEnabled);
         }
     });
-    const int propCols = qBound(6, m_connPropColumnsSetting, 20);
+    const int propCols = qBound(4, m_connPropColumnsSetting, 16);
     QStringList headers;
     headers << ((tree == m_bottomConnContentTree)
                     ? trk(QStringLiteral("t_target_pool_col001"),
