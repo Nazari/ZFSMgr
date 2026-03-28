@@ -1175,16 +1175,23 @@ void MainWindowConnectionDatasetTreeDelegate::selectionChanged(QTreeWidget* tree
                 sel->setExpanded(true);
             }
         } else {
-            m_mainWindow->refreshConnContentPropertiesFor(tree);
-            if (isLazyPropsNode && sel) {
-                sel->setExpanded(true);
-                QTimer::singleShot(0, tree, [sel]() {
-                    if (sel) {
-                        sel->setExpanded(true);
-                    }
-                });
-            }
-            m_mainWindow->syncConnContentPropertyColumnsFor(tree, token);
+            QPointer<QTreeWidget> safeTree(tree);
+            QPointer<QObject> context(tree);
+            QTreeWidgetItem* selectedNode = sel;
+            QTimer::singleShot(0, context, [this, safeTree, token, isBottom, selectedNode, isLazyPropsNode]() {
+                if (!m_mainWindow || !safeTree) {
+                    return;
+                }
+                if ((isBottom && m_mainWindow->m_rebuildingBottomConnContentTree)
+                    || (!isBottom && m_mainWindow->m_rebuildingTopConnContentTree)) {
+                    return;
+                }
+                m_mainWindow->refreshConnContentPropertiesFor(safeTree);
+                if (isLazyPropsNode && selectedNode) {
+                    selectedNode->setExpanded(true);
+                }
+                m_mainWindow->syncConnContentPropertyColumnsFor(safeTree, token);
+            });
         }
         applySelectionToSide(isBottom, currentSelection(tree, token));
     }

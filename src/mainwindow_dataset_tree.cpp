@@ -2221,6 +2221,31 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
 
         const int connIdx = ref.connIdx;
         const QString poolName = ref.poolName;
+        const bool poolImported = [&]() -> bool {
+            if (connIdx < 0 || connIdx >= m_states.size()) {
+                return false;
+            }
+            const ConnectionRuntimeState& st = m_states[connIdx];
+            for (const PoolImported& p : st.importedPools) {
+                if (p.pool.trimmed() == poolName.trimmed()) {
+                    return true;
+                }
+            }
+            return false;
+        }();
+        if (!poolImported) {
+            for (int i = root->childCount() - 1; i >= 0; --i) {
+                QTreeWidgetItem* c = root->child(i);
+                if (!c) {
+                    continue;
+                }
+                if (c->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)
+                    || c->data(0, kConnPoolAutoSnapshotsNodeRole).toBool()) {
+                    delete root->takeChild(i);
+                }
+            }
+            continue;
+        }
         if (!ensurePoolDetailsLoaded(connIdx, poolName)) {
             continue;
         }

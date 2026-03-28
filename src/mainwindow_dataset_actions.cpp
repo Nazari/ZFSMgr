@@ -761,21 +761,14 @@ void MainWindow::reloadConnContentPool(int connIdx, const QString& poolName) {
     if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.trimmed().isEmpty()) {
         return;
     }
-    auto refreshOneTree = [this, connIdx, &poolName](QTreeWidget* tree, const QString& tokenForTree) {
-        const QString wantedToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName.trimmed());
-        if (!tree || tokenForTree != wantedToken) {
-            return false;
-        }
-        saveConnContentTreeStateFor(tree, tokenForTree);
-        populateDatasetTree(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, true);
-        restoreConnContentTreeStateFor(tree, tokenForTree);
-        return true;
-    };
-
     bool refreshed = false;
-    const QList<QTreeWidget*> trees{m_connContentTree, m_bottomConnContentTree};
-    for (QTreeWidget* tree : trees) {
-        refreshed = refreshOneTree(tree, connContentTokenForTree(tree)) || refreshed;
+    if (m_connContentTree && m_topDetailConnIdx == connIdx) {
+        rebuildConnectionEntityTabs();
+        refreshed = true;
+    }
+    if (m_bottomConnContentTree && m_bottomDetailConnIdx == connIdx) {
+        updateSecondaryConnectionDetail();
+        refreshed = true;
     }
     if (!refreshed) {
         refreshConnectionByIndex(connIdx);

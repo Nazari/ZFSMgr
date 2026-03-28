@@ -478,6 +478,7 @@ bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
         int monthly{0};
         int yearly{0};
         QString destination;
+        bool hasExplicitConfig{false};
     };
 
     auto fail = [errorOut](const QString& msg) {
@@ -503,8 +504,10 @@ bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
                 }
 
                 QMap<QString, QString> propValues;
+                QMap<QString, QString> propSources;
                 for (const DatasetPropCacheRow& row : itDs->runtime.propertyRows) {
                     propValues.insert(row.prop, row.value);
+                    propSources.insert(row.prop, row.source);
                 }
 
                 const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
@@ -518,14 +521,36 @@ bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
 
                 const DatasetPropsDraft draft =
                     propertyDraftForObject(QStringLiteral("conncontent"), token, datasetName);
+                bool hasExplicitDraftGsaEdit = false;
                 if (draft.dirty) {
                     for (auto vit = draft.valuesByProp.cbegin(); vit != draft.valuesByProp.cend(); ++vit) {
                         propValues[vit.key()] = vit.value();
+                        if (vit.key().startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+                            hasExplicitDraftGsaEdit = true;
+                        }
                     }
                     for (auto iit = draft.inheritByProp.cbegin(); iit != draft.inheritByProp.cend(); ++iit) {
                         if (iit.value()) {
                             propValues.remove(iit.key());
+                            propSources.remove(iit.key());
                         }
+                        if (iit.key().startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+                            hasExplicitDraftGsaEdit = true;
+                        }
+                    }
+                }
+
+                bool hasExplicitRuntimeGsaConfig = false;
+                for (auto sit = propSources.cbegin(); sit != propSources.cend(); ++sit) {
+                    if (!sit.key().startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+                        continue;
+                    }
+                    const QString source = sit.value().trimmed().toLower();
+                    if (!source.startsWith(QStringLiteral("inherited"))
+                        && source != QStringLiteral("-")
+                        && !source.isEmpty()) {
+                        hasExplicitRuntimeGsaConfig = true;
+                        break;
                     }
                 }
 
@@ -533,10 +558,15 @@ bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
                 state.connIdx = connIdx;
                 state.poolName = poolName;
                 state.datasetName = datasetName;
+                state.hasExplicitConfig = hasExplicitRuntimeGsaConfig || hasExplicitDraftGsaEdit;
                 state.enabled = gsaBoolOn(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:activado")));
                 state.recursive = gsaBoolOn(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:recursivo")));
                 state.level = gsaBoolOn(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:nivelar")));
                 state.destination = findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:destino")).trimmed();
+
+                if (!state.hasExplicitConfig) {
+                    continue;
+                }
 
                 if (!gsaParseNonNegativeInt(findMapValueCaseInsensitive(propValues, QStringLiteral("org.fc16.gsa:horario")), state.hourly)) {
                     return fail(trk(QStringLiteral("t_gsa_invalid_hourly_001"),
@@ -623,7 +653,7 @@ bool MainWindow::validatePendingGsaDrafts(QString* errorOut) {
     QVector<GsaState> enabledStates;
     enabledStates.reserve(statesByKey.size());
     for (auto it = statesByKey.cbegin(); it != statesByKey.cend(); ++it) {
-        if (it.value().enabled) {
+        if (it.value().enabled && it.value().hasExplicitConfig) {
             enabledStates.push_back(it.value());
         }
     }
@@ -778,12 +808,13 @@ void MainWindow::refreshDatasetProperties(const QString& side, QTreeWidget* conn
             if (key.isEmpty()) {
                 continue;
             }
-            const bool inh = (ri->flags() & Qt::ItemIsUserCheckable) && ri->checkState() == Qt::Checked;
+            const bool inheritable = (ri->flags() & Qt::ItemIsUserCheckable);
+            const bool inh = inheritable && ri->checkState() == Qt::Checked;
             const QString currentValue = rv->text();
             if (m_propsOriginalValues.value(key) != currentValue) {
                 draft.valuesByProp[key] = currentValue;
             }
-            if (m_propsOriginalInherit.value(key, false) != inh) {
+            if (inheritable && m_propsOriginalInherit.value(key, false) != inh) {
                 draft.inheritByProp[key] = inh;
             }
         }
@@ -1245,12 +1276,13 @@ void MainWindow::onDatasetPropsCellChanged(int row, int col) {
             if (key.isEmpty()) {
                 continue;
             }
-            const bool inh = (ri->flags() & Qt::ItemIsUserCheckable) && ri->checkState() == Qt::Checked;
+            const bool inheritable = (ri->flags() & Qt::ItemIsUserCheckable);
+            const bool inh = inheritable && ri->checkState() == Qt::Checked;
             const QString nowValue = rv->text();
             if (m_propsOriginalValues.value(key) != nowValue) {
                 draft.valuesByProp[key] = nowValue;
             }
-            if (m_propsOriginalInherit.value(key, false) != inh) {
+            if (inheritable && m_propsOriginalInherit.value(key, false) != inh) {
                 draft.inheritByProp[key] = inh;
             }
         }
@@ -1343,8 +1375,8 @@ void MainWindow::applyDatasetPropertyChanges() {
                 }
                 visibleKeys.insert(key);
                 const QString nowValue = rv->text();
-                const bool nowInherit =
-                    (ri->flags() & Qt::ItemIsUserCheckable) && ri->checkState() == Qt::Checked;
+                const bool inheritable = (ri->flags() & Qt::ItemIsUserCheckable);
+                const bool nowInherit = inheritable && ri->checkState() == Qt::Checked;
                 const QString originalValue = m_propsOriginalValues.value(key);
                 const bool originalInherit = m_propsOriginalInherit.value(key, false);
                 if (nowValue != originalValue) {
@@ -1352,7 +1384,7 @@ void MainWindow::applyDatasetPropertyChanges() {
                 } else {
                     draft.valuesByProp.remove(key);
                 }
-                if (nowInherit != originalInherit) {
+                if (inheritable && nowInherit != originalInherit) {
                     draft.inheritByProp[key] = nowInherit;
                 } else {
                     draft.inheritByProp.remove(key);
@@ -3014,29 +3046,28 @@ void MainWindow::refreshPendingShellActionDraft(const PendingShellActionDraft& d
         if (!ctx.valid || ctx.connIdx < 0 || ctx.poolName.trimmed().isEmpty()) {
             return;
         }
-        if (!ctx.datasetName.trimmed().isEmpty()) {
+        if (invalidatePoolListing) {
+            invalidatePoolDatasetListingCache(ctx.connIdx, ctx.poolName);
+        } else if (!ctx.datasetName.trimmed().isEmpty()) {
             invalidateDatasetSubtreeCacheEntries(ctx.connIdx,
                                                 ctx.poolName,
                                                 ctx.datasetName,
                                                 true);
-        } else if (invalidatePoolListing) {
-            invalidatePoolDatasetListingCache(ctx.connIdx, ctx.poolName);
         } else {
             invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
         }
 
-        const QList<QTreeWidget*> trees{m_connContentTree, m_bottomConnContentTree};
-        for (QTreeWidget* tree : trees) {
-            if (!tree) {
-                continue;
-            }
-            const QString token = connContentTokenForTree(tree).trimmed();
-            const QString wantedToken =
-                QStringLiteral("%1::%2").arg(ctx.connIdx).arg(ctx.poolName.trimmed());
-            if (token == wantedToken) {
-                reloadConnContentPool(ctx.connIdx, ctx.poolName);
-                break;
-            }
+        bool refreshed = false;
+        if (m_connContentTree && m_topDetailConnIdx == ctx.connIdx) {
+            reloadConnContentPool(ctx.connIdx, ctx.poolName);
+            refreshed = true;
+        }
+        if (m_bottomConnContentTree && m_bottomDetailConnIdx == ctx.connIdx) {
+            reloadConnContentPool(ctx.connIdx, ctx.poolName);
+            refreshed = true;
+        }
+        if (!refreshed) {
+            refreshConnectionByIndex(ctx.connIdx);
         }
     };
 
@@ -3044,10 +3075,10 @@ void MainWindow::refreshPendingShellActionDraft(const PendingShellActionDraft& d
     case PendingShellActionDraft::RefreshScope::None:
         break;
     case PendingShellActionDraft::RefreshScope::TargetOnly:
-        refreshCtx(draft.refreshTarget, false);
+        refreshCtx(draft.refreshTarget, true);
         break;
     case PendingShellActionDraft::RefreshScope::SourceAndTarget:
-        refreshCtx(draft.refreshTarget, false);
+        refreshCtx(draft.refreshTarget, true);
         if (!draft.refreshSource.valid
             || draft.refreshSource.connIdx != draft.refreshTarget.connIdx
             || draft.refreshSource.poolName.trimmed() != draft.refreshTarget.poolName.trimmed()

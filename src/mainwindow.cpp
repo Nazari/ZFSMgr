@@ -1000,6 +1000,14 @@ void MainWindow::storePropertyDraftForObject(const QString& side,
         originalValues.insert(row.prop, gsaComparableValue(row.prop, row.value));
         originalInherit.insert(row.prop, row.source.trimmed().toLower().startsWith(QStringLiteral("inherited")));
     }
+    const auto runtimeProps = dsInfo->runtime.properties;
+    for (auto it = runtimeProps.cbegin(); it != runtimeProps.cend(); ++it) {
+        const QString prop = it.key().trimmed();
+        if (prop.isEmpty() || originalValues.contains(prop)) {
+            continue;
+        }
+        originalValues.insert(prop, gsaComparableValue(prop, it.value()));
+    }
     auto valueIt = draft.valuesByProp.begin();
     while (valueIt != draft.valuesByProp.end()) {
         const QString originalValue = gsaComparableValue(valueIt.key(), originalValues.value(valueIt.key()));
