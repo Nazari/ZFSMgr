@@ -45,7 +45,8 @@ void MainWindow::updateStatus(const QString& text) {
         return;
     }
     if (m_statusText) {
-        m_statusText->setPlainText(maskSecrets(text));
+        const QString masked = maskSecrets(text.trimmed());
+        m_statusText->setPlainText(masked.isEmpty() ? defaultStatusTextForCurrentState() : masked);
     }
 }
 
@@ -128,6 +129,31 @@ void MainWindow::endTransientUiBusy() {
     updateStatus(previous);
 }
 
+QString MainWindow::defaultStatusTextForCurrentState() const {
+    if (!m_initialRefreshCompleted) {
+        return trk(QStringLiteral("t_status_loading_001"),
+                   QStringLiteral("Loading..."),
+                   QStringLiteral("Loading..."),
+                   QStringLiteral("加载中..."));
+    }
+    if (m_refreshInProgress) {
+        return trk(QStringLiteral("t_status_refreshing_001"),
+                   QStringLiteral("Refreshing connections..."),
+                   QStringLiteral("Refreshing connections..."),
+                   QStringLiteral("正在刷新连接..."));
+    }
+    if (m_actionsLocked || m_uiBusyDepth > 0) {
+        return trk(QStringLiteral("t_status_busy_001"),
+                   QStringLiteral("Working..."),
+                   QStringLiteral("Working..."),
+                   QStringLiteral("处理中..."));
+    }
+    return trk(QStringLiteral("t_status_ready_001"),
+               QStringLiteral("Ready"),
+               QStringLiteral("Ready"),
+               QStringLiteral("就绪"));
+}
+
 void MainWindow::updateBusyCursor() {
     const bool shouldShow = m_actionsLocked || m_refreshInProgress || (m_uiBusyDepth > 0);
     if (shouldShow) {
@@ -135,9 +161,17 @@ void MainWindow::updateBusyCursor() {
             QApplication::setOverrideCursor(Qt::BusyCursor);
             m_waitCursorActive = true;
         }
+        if (m_statusText && m_statusText->toPlainText().trimmed().isEmpty()) {
+            m_statusText->setPlainText(defaultStatusTextForCurrentState());
+        }
     } else if (m_waitCursorActive) {
         QApplication::restoreOverrideCursor();
         m_waitCursorActive = false;
+        if (m_statusText && m_statusText->toPlainText().trimmed().isEmpty()) {
+            m_statusText->setPlainText(defaultStatusTextForCurrentState());
+        }
+    } else if (m_statusText && m_statusText->toPlainText().trimmed().isEmpty()) {
+        m_statusText->setPlainText(defaultStatusTextForCurrentState());
     }
 }
 

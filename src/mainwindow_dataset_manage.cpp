@@ -111,10 +111,14 @@ QString buildZfsCreateCmd(const CreateDatasetOptions& opt) {
 } // namespace
 
 void MainWindow::actionCreateChildDataset(const QString& side) {
+    actionCreateChildDataset(side, currentDatasetSelection(side));
+}
+
+void MainWindow::actionCreateChildDataset(const QString& side, const DatasetSelectionContext& explicitCtx) {
     if (actionsLocked()) {
         return;
     }
-    const DatasetSelectionContext ctx = currentDatasetSelection(side);
+    const DatasetSelectionContext ctx = explicitCtx.valid ? explicitCtx : currentDatasetSelection(side);
     if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
         return;
     }
@@ -607,7 +611,23 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
             stdinPayload += opt.encryptionPassphrase.toUtf8();
             stdinPayload += '\n';
         }
-        if (executeDatasetAction(side, actionLabel, ctx, cmd, 45000, false, stdinPayload)) {
+        const auto refreshAfterCreate = [this, side, ctx]() {
+            invalidatePoolDatasetListingCache(ctx.connIdx, ctx.poolName);
+            if (side == QStringLiteral("conncontent")) {
+                reloadConnContentPool(ctx.connIdx, ctx.poolName);
+            } else {
+                reloadDatasetSide(side);
+            }
+        };
+        if (executeDatasetAction(side,
+                                 actionLabel,
+                                 ctx,
+                                 cmd,
+                                 45000,
+                                 false,
+                                 stdinPayload,
+                                 false,
+                                 refreshAfterCreate)) {
             dlg.accept();
         }
     });
@@ -618,10 +638,14 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
 }
 
 void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side) {
+    actionDeleteDatasetOrSnapshot(side, currentDatasetSelection(side));
+}
+
+void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const DatasetSelectionContext& explicitCtx) {
     if (actionsLocked()) {
         return;
     }
-    const DatasetSelectionContext ctx = currentDatasetSelection(side);
+    const DatasetSelectionContext ctx = explicitCtx.valid ? explicitCtx : currentDatasetSelection(side);
     if (!ctx.valid) {
         return;
     }
@@ -678,5 +702,21 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side) {
     QString cmd;
     cmd = recursive ? QStringLiteral("zfs destroy -r %1").arg(shSingleQuote(target))
                     : QStringLiteral("zfs destroy %1").arg(shSingleQuote(target));
-    executeDatasetAction(side, QStringLiteral("Borrar"), ctx, cmd, 90000);
+    const auto refreshAfterDelete = [this, side, ctx]() {
+        invalidatePoolDatasetListingCache(ctx.connIdx, ctx.poolName);
+        if (side == QStringLiteral("conncontent")) {
+            reloadConnContentPool(ctx.connIdx, ctx.poolName);
+        } else {
+            reloadDatasetSide(side);
+        }
+    };
+    executeDatasetAction(side,
+                         QStringLiteral("Borrar"),
+                         ctx,
+                         cmd,
+                         90000,
+                         false,
+                         {},
+                         false,
+                         refreshAfterDelete);
 }

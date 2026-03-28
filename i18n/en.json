@@ -11,7 +11,7 @@
     "t_clave_ssh_37a1aa": "SSH key",
     "t_complete_a_77b969": "Fill at least Host and User to test the connection.",
     "t_conexi_n_d70cf0": "Connection",
-    "t_conexi_n_s_62acc8": "SSH connection successful to %1@%2:%3",
+    "t_conexi_n_s_62acc8": "SSH connection successful to %1@%2:%3\nSystem: %4",
     "t_copiar_mod_b1d73e": "Copy: remote-local mode (source and target on same connection)",
     "t_could_not__25cbd2": "Could not migrate stored passwords.\n%1",
     "t_could_not__c30942": "Could not change master password.\n%1",

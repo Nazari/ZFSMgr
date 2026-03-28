@@ -2391,8 +2391,8 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
             return QString::compare(a, b, Qt::CaseInsensitive) < 0;
         });
         QTreeWidgetItem* autoSnapsNode = nullptr;
-        for (int i = 0; i < infoNode->childCount(); ++i) {
-            QTreeWidgetItem* child = infoNode->child(i);
+        for (int i = 0; i < root->childCount(); ++i) {
+            QTreeWidgetItem* child = root->child(i);
             if (child && child->data(0, kConnPoolAutoSnapshotsNodeRole).toBool()) {
                 autoSnapsNode = child;
                 break;
@@ -2400,14 +2400,18 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
         }
         if (autoSnapshotDatasets.isEmpty()) {
             if (autoSnapsNode) {
-                delete infoNode->takeChild(infoNode->indexOfChild(autoSnapsNode));
+                delete root->takeChild(root->indexOfChild(autoSnapsNode));
             }
         } else {
             if (!autoSnapsNode) {
-                autoSnapsNode = new QTreeWidgetItem(infoNode);
+                autoSnapsNode = new QTreeWidgetItem();
                 autoSnapsNode->setData(0, kConnPoolAutoSnapshotsNodeRole, true);
                 autoSnapsNode->setFlags(autoSnapsNode->flags() & ~Qt::ItemIsUserCheckable);
                 autoSnapsNode->setIcon(0, treeStandardIcon(QStyle::SP_BrowserReload));
+                autoSnapsNode->setData(0, kConnIdxRole, connIdx);
+                autoSnapsNode->setData(0, kPoolNameRole, poolName);
+                const int infoIndex = root->indexOfChild(infoNode);
+                root->insertChild(infoIndex >= 0 ? infoIndex + 1 : root->childCount(), autoSnapsNode);
             } else {
                 while (autoSnapsNode->childCount() > 0) {
                     delete autoSnapsNode->takeChild(0);

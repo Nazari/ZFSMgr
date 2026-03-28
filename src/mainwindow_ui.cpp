@@ -2153,7 +2153,6 @@ void MainWindow::buildUi() {
     auto* logLayout = new QVBoxLayout(combinedLogTab);
     logLayout->setContentsMargins(6, 6, 6, 6);
     logLayout->setSpacing(4);
-    auto* logBody = new QHBoxLayout();
 
     QFont combinedLogFont = baseUiFont;
     combinedLogFont.setPointSize(qMax(6, baseUiFont.pointSize() - 2));
@@ -2179,17 +2178,16 @@ void MainWindow::buildUi() {
     m_statusText->setFont(combinedLogFont);
     m_statusText->setReadOnly(true);
     m_statusText->setAcceptRichText(false);
-    m_statusText->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_statusText->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_statusText->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_statusText->setLineWrapMode(QTextEdit::NoWrap);
+    m_statusText->setLineWrapMode(QTextEdit::WidgetWidth);
     m_statusText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
-    {
-        const QFontMetrics statusFm(m_statusText->font());
-        const int h = statusFm.lineSpacing() + 10;
-        m_statusText->setFixedHeight(h);
-        m_statusText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    }
-    statusLayout->addWidget(m_statusText, 0);
+    m_statusText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_statusText->setPlainText(trk(QStringLiteral("t_status_loading_001"),
+                                   QStringLiteral("Loading..."),
+                                   QStringLiteral("Loading..."),
+                                   QStringLiteral("加载中...")));
+    statusLayout->addWidget(m_statusText, 1);
 
     auto* detailBox = new QGroupBox(trk(QStringLiteral("t_detail_lbl001"),
                                         QStringLiteral("Progreso"),
@@ -2203,19 +2201,14 @@ void MainWindow::buildUi() {
     m_lastDetailText->setFont(combinedLogFont);
     m_lastDetailText->setReadOnly(true);
     m_lastDetailText->setAcceptRichText(false);
-    m_lastDetailText->setLineWrapMode(QTextEdit::NoWrap);
-    m_lastDetailText->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_lastDetailText->setLineWrapMode(QTextEdit::WidgetWidth);
+    m_lastDetailText->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_lastDetailText->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_lastDetailText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
-    {
-        const QFontMetrics detailFm(m_lastDetailText->font());
-        const int h = detailFm.lineSpacing() + 10;
-        m_lastDetailText->setFixedHeight(h);
-        m_lastDetailText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    }
-    detailLayout->addWidget(m_lastDetailText, 0);
-    stateProgressLayout->addWidget(statusBox, 0);
-    stateProgressLayout->addWidget(detailBox, 0);
+    m_lastDetailText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    detailLayout->addWidget(m_lastDetailText, 1);
+    stateProgressLayout->addWidget(statusBox, 1);
+    stateProgressLayout->addWidget(detailBox, 1);
 
     auto* appLogBox = new QGroupBox(trk(QStringLiteral("t_app_tab_001"),
                                         QStringLiteral("Aplicación"),
@@ -2235,6 +2228,7 @@ void MainWindow::buildUi() {
     appLogLayout->addWidget(m_logView, 1);
     stateProgressBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
     appLogBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    logLayout->addWidget(appLogBox, 1);
 
     auto* pendingChangesBox = new QGroupBox(
         trk(QStringLiteral("t_pending_changes_tab001"),
@@ -2299,9 +2293,6 @@ void MainWindow::buildUi() {
 
     loadPersistedAppLogToView();
 
-    logBody->addWidget(stateProgressBox, 0);
-    logBody->addWidget(appLogBox, 1);
-    logLayout->addLayout(logBody, 1);
     m_logsTabs->addTab(combinedLogTab,
                        trk(QStringLiteral("t_combined_log001"),
                            QStringLiteral("Log combinado"),
@@ -2310,10 +2301,11 @@ void MainWindow::buildUi() {
     m_logsTabs->setCurrentIndex(0);
 
     auto* bottomTabsPane = new QWidget(central);
-    auto* bottomTabsLayout = new QVBoxLayout(bottomTabsPane);
+    auto* bottomTabsLayout = new QHBoxLayout(bottomTabsPane);
     bottomTabsLayout->setContentsMargins(0, 0, 0, 0);
-    bottomTabsLayout->setSpacing(0);
-    bottomTabsLayout->addWidget(m_logsTabs, 1);
+    bottomTabsLayout->setSpacing(6);
+    bottomTabsLayout->addWidget(stateProgressBox, 1);
+    bottomTabsLayout->addWidget(m_logsTabs, 2);
 
     m_verticalMainSplit = new QSplitter(Qt::Vertical, central);
     m_verticalMainSplit->setChildrenCollapsible(true);

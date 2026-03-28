@@ -319,7 +319,15 @@ void MainWindow::ensureStartupLocalSudoConnection() {
 }
 
 
-bool MainWindow::executeDatasetAction(const QString& side, const QString& actionName, const DatasetSelectionContext& ctx, const QString& cmd, int timeoutMs, bool allowWindowsScript, const QByteArray& stdinPayload) {
+bool MainWindow::executeDatasetAction(const QString& side,
+                                      const QString& actionName,
+                                      const DatasetSelectionContext& ctx,
+                                      const QString& cmd,
+                                      int timeoutMs,
+                                      bool allowWindowsScript,
+                                      const QByteArray& stdinPayload,
+                                      bool invalidatePoolCache,
+                                      const std::function<void()>& onSuccessRefresh) {
     if (!ctx.valid) {
         return false;
     }
@@ -451,7 +459,9 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("%1 finalizado").arg(actionName));
     updateStatus(QStringLiteral("%1 finalizado %2::%3").arg(actionName, p.name, ctx.datasetName));
-    invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
+    if (invalidatePoolCache) {
+        invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
+    }
     if (actionName == QStringLiteral("Borrar") && !ctx.snapshotName.isEmpty()) {
         if (side == QStringLiteral("origin") && m_connActionOrigin.valid
             && m_connActionOrigin.connIdx == ctx.connIdx
@@ -492,10 +502,18 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
          || actionName == QStringLiteral("Hacia Dir")
          || actionName == QStringLiteral("Desglosar")
          || actionName == QStringLiteral("Ensamblar"));
+    if (onSuccessRefresh) {
+        onSuccessRefresh();
+        setActionsLocked(false);
+        return true;
+    }
     if (needsDeferredRefresh) {
-        const int refreshIdx = ctx.connIdx;
-        QTimer::singleShot(0, this, [this, refreshIdx]() {
-            refreshConnectionByIndex(refreshIdx);
+        QTimer::singleShot(0, this, [this, side, ctx]() {
+            if (side == QStringLiteral("conncontent")) {
+                reloadConnContentPool(ctx.connIdx, ctx.poolName);
+            } else {
+                reloadDatasetSide(side);
+            }
             setActionsLocked(false);
         });
         return true;
@@ -567,8 +585,7 @@ bool MainWindow::executePendingDatasetRenameDraft(const PendingDatasetRenameDraf
         appLog(QStringLiteral("INFO"), oneLine(out));
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Aplicar renombrado finalizado"));
-    invalidateDatasetCacheForPool(draft.connIdx, draft.poolName.trimmed());
-    rebuildConnInfoFor(draft.connIdx);
+    invalidatePoolDatasetListingCache(draft.connIdx, draft.poolName.trimmed());
     return true;
 }
 
@@ -641,6 +658,85 @@ QString MainWindow::diagnoseUmountFailure(const DatasetSelectionContext& ctx) {
         return out.trimmed();
     }
     return err.trimmed();
+}
+
+void MainWindow::invalidateDatasetCacheEntry(int connIdx,
+                                             const QString& poolName,
+                                             const QString& objectName,
+                                             bool invalidatePermissions) {
+    const QString trimmedPool = poolName.trimmed();
+    const QString trimmedObject = objectName.trimmed();
+    if (connIdx < 0 || trimmedPool.isEmpty() || trimmedObject.isEmpty()) {
+        return;
+    }
+
+    removeDatasetPropertyEntry(connIdx, trimmedPool, trimmedObject);
+    if (invalidatePermissions) {
+        removeDatasetPermissionsEntry(connIdx, trimmedPool, trimmedObject);
+    }
+
+    const QString uiKey = QStringLiteral("%1::%2|%3")
+                              .arg(QString::number(connIdx),
+                                   trimmedPool,
+                                   trimmedObject);
+    m_connContentPropValuesByObject.remove(uiKey);
+
+    if (DSInfo* dsInfo = findDsInfo(connIdx, trimmedPool, trimmedObject)) {
+        dsInfo->runtime.errorText.clear();
+    }
+}
+
+void MainWindow::invalidateDatasetSubtreeCacheEntries(int connIdx,
+                                                      const QString& poolName,
+                                                      const QString& datasetName,
+                                                      bool invalidatePermissions) {
+    const QString trimmedPool = poolName.trimmed();
+    const QString trimmedDataset = datasetName.trimmed();
+    if (connIdx < 0 || trimmedPool.isEmpty() || trimmedDataset.isEmpty()) {
+        return;
+    }
+
+    QStringList objectsToInvalidate{trimmedDataset};
+    if (const PoolInfo* poolInfo = findPoolInfo(connIdx, trimmedPool)) {
+        const QString childPrefix = trimmedDataset + QStringLiteral("/");
+        const QString snapshotPrefix = trimmedDataset + QStringLiteral("@");
+        for (auto itDs = poolInfo->objectsByFullName.cbegin();
+             itDs != poolInfo->objectsByFullName.cend();
+             ++itDs) {
+            const QString objectName = itDs.key().trimmed();
+            if (objectName == trimmedDataset
+                || objectName.startsWith(childPrefix)
+                || objectName.startsWith(snapshotPrefix)) {
+                objectsToInvalidate.push_back(objectName);
+            }
+        }
+    }
+
+    objectsToInvalidate.removeDuplicates();
+    for (const QString& objectName : std::as_const(objectsToInvalidate)) {
+        invalidateDatasetCacheEntry(connIdx, trimmedPool, objectName, invalidatePermissions);
+    }
+}
+
+void MainWindow::invalidatePoolDatasetListingCache(int connIdx, const QString& poolName) {
+    const QString trimmedPool = poolName.trimmed();
+    if (connIdx < 0 || trimmedPool.isEmpty()) {
+        return;
+    }
+    m_poolDatasetCache.remove(datasetCacheKey(connIdx, trimmedPool));
+    removeDatasetPropertyEntriesForPool(connIdx, trimmedPool);
+    removeDatasetPermissionsEntriesForPool(connIdx, trimmedPool);
+    const QString uiPrefix =
+        QStringLiteral("%1::%2|").arg(QString::number(connIdx), trimmedPool);
+    auto vit = m_connContentPropValuesByObject.begin();
+    while (vit != m_connContentPropValuesByObject.end()) {
+        if (vit.key().startsWith(uiPrefix)) {
+            vit = m_connContentPropValuesByObject.erase(vit);
+        } else {
+            ++vit;
+        }
+    }
+    rebuildConnInfoFor(connIdx);
 }
 
 void MainWindow::invalidateDatasetCacheForPool(int connIdx, const QString& poolName) {
@@ -725,6 +821,14 @@ bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext
     if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
         return false;
     }
+    auto mountRefresh = [this, side, ctx]() {
+        invalidateDatasetSubtreeCacheEntries(ctx.connIdx, ctx.poolName, ctx.datasetName, false);
+        if (side == QStringLiteral("conncontent")) {
+            reloadConnContentPool(ctx.connIdx, ctx.poolName);
+        } else {
+            reloadDatasetSide(side);
+        }
+    };
     QString keyLocation;
     getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("keylocation"), keyLocation);
     keyLocation = keyLocation.trimmed().toLower();
@@ -756,7 +860,15 @@ bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext
                                 .arg(shSingleQuote(keyTarget),
                                      mwhelpers::buildSingleMountCommand(ctx.datasetName));
         const QByteArray stdinPayload = (passphrase + QStringLiteral("\n")).toUtf8();
-        return executeDatasetAction(side, QStringLiteral("Montar"), ctx, cmd, 90000, false, stdinPayload);
+        return executeDatasetAction(side,
+                                    QStringLiteral("Montar"),
+                                    ctx,
+                                    cmd,
+                                    90000,
+                                    false,
+                                    stdinPayload,
+                                    false,
+                                    mountRefresh);
     }
     if (!ensureParentMountedBeforeMount(ctx)) {
         return false;
@@ -814,18 +926,24 @@ bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext
             setActionsLocked(false);
             const QString cmd = mwhelpers::buildSingleMountCommand(ctx.datasetName);
             return executeDatasetAction(side, QStringLiteral("Montar"), ctx, cmd);
-        }
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Montar finalizado (%1)").arg(oneLine(detail)));
-        invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
-        const int refreshIdx = ctx.connIdx;
-        QTimer::singleShot(0, this, [this, refreshIdx]() {
-            refreshConnectionByIndex(refreshIdx);
+            }
+            appLog(QStringLiteral("NORMAL"), QStringLiteral("Montar finalizado (%1)").arg(oneLine(detail)));
+        QTimer::singleShot(0, this, [this, mountRefresh]() {
+            mountRefresh();
             setActionsLocked(false);
         });
         return true;
     }
     const QString cmd = mwhelpers::buildSingleMountCommand(ctx.datasetName);
-    return executeDatasetAction(side, QStringLiteral("Montar"), ctx, cmd);
+    return executeDatasetAction(side,
+                                QStringLiteral("Montar"),
+                                ctx,
+                                cmd,
+                                45000,
+                                false,
+                                {},
+                                false,
+                                mountRefresh);
 }
 
 bool MainWindow::ensureParentMountedBeforeMount(const DatasetSelectionContext& ctx) {
@@ -1002,6 +1120,14 @@ bool MainWindow::umountDataset(const QString& side, const DatasetSelectionContex
     if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
         return false;
     }
+    auto umountRefresh = [this, side, ctx]() {
+        invalidateDatasetSubtreeCacheEntries(ctx.connIdx, ctx.poolName, ctx.datasetName, false);
+        if (side == QStringLiteral("conncontent")) {
+            reloadConnContentPool(ctx.connIdx, ctx.poolName);
+        } else {
+            reloadDatasetSide(side);
+        }
+    };
     const bool isWin = isWindowsConnection(ctx.connIdx);
     const QString hasChildrenCmd = mwhelpers::buildHasMountedChildrenCommand(isWin, ctx.datasetName);
 
@@ -1044,18 +1170,32 @@ bool MainWindow::umountDataset(const QString& side, const DatasetSelectionContex
                            .arg(oneLine(detail)));
                 setActionsLocked(false);
                 const QString cliCmd = mwhelpers::buildSingleUmountCommand(false, ctx.datasetName);
-                return executeDatasetAction(side, QStringLiteral("Desmontar"), ctx, cliCmd, 90000, false);
+                return executeDatasetAction(side,
+                                            QStringLiteral("Desmontar"),
+                                            ctx,
+                                            cliCmd,
+                                            90000,
+                                            false,
+                                            {},
+                                            false,
+                                            umountRefresh);
             }
             appLog(QStringLiteral("NORMAL"), QStringLiteral("Desmontar finalizado (%1)").arg(oneLine(detail)));
-            invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
-            const int refreshIdx = ctx.connIdx;
-            QTimer::singleShot(0, this, [this, refreshIdx]() {
-                refreshConnectionByIndex(refreshIdx);
+            QTimer::singleShot(0, this, [this, umountRefresh]() {
+                umountRefresh();
                 setActionsLocked(false);
             });
             return true;
         }
         cmd = mwhelpers::buildSingleUmountCommand(isWin, ctx.datasetName);
     }
-    return executeDatasetAction(side, QStringLiteral("Desmontar"), ctx, cmd, 90000, isWin);
+    return executeDatasetAction(side,
+                                QStringLiteral("Desmontar"),
+                                ctx,
+                                cmd,
+                                90000,
+                                isWin,
+                                {},
+                                false,
+                                umountRefresh);
 }

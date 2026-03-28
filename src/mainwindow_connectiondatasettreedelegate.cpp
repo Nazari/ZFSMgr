@@ -2164,8 +2164,15 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             return;
         }
         if (picked == aCreate) {
+            const SelectionSnapshot actx = currentSelection(tree, token);
+            MainWindow::DatasetSelectionContext mwActx;
+            mwActx.valid = actx.valid;
+            mwActx.connIdx = actx.connIdx;
+            mwActx.poolName = actx.poolName;
+            mwActx.datasetName = actx.datasetName;
+            mwActx.snapshotName = actx.snapshotName;
             m_mainWindow->logUiAction(QStringLiteral("Crear hijo dataset (menú Contenido)"));
-            m_mainWindow->actionCreateChildDataset(QStringLiteral("conncontent"));
+            m_mainWindow->actionCreateChildDataset(QStringLiteral("conncontent"), mwActx);
             return;
         }
         if (picked == aRename) {
@@ -2230,8 +2237,15 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             return;
         }
         if (picked == aDelete) {
+            const SelectionSnapshot actx = currentSelection(tree, token);
+            MainWindow::DatasetSelectionContext mwActx;
+            mwActx.valid = actx.valid;
+            mwActx.connIdx = actx.connIdx;
+            mwActx.poolName = actx.poolName;
+            mwActx.datasetName = actx.datasetName;
+            mwActx.snapshotName = actx.snapshotName;
             m_mainWindow->logUiAction(QStringLiteral("Borrar dataset/snapshot (menú Contenido)"));
-            m_mainWindow->actionDeleteDatasetOrSnapshot(QStringLiteral("conncontent"));
+            m_mainWindow->actionDeleteDatasetOrSnapshot(QStringLiteral("conncontent"), mwActx);
             return;
         }
         if (picked == aLoadKey || picked == aUnloadKey || picked == aChangeKey) {
@@ -2308,19 +2322,43 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             return;
         }
         if (picked == aBreakdown && m_mainWindow->m_btnConnBreakdown) {
-            m_mainWindow->m_btnConnBreakdown->click();
+            MainWindow::DatasetSelectionContext mwCtx;
+            mwCtx.valid = ctx.valid;
+            mwCtx.connIdx = ctx.connIdx;
+            mwCtx.poolName = ctx.poolName;
+            mwCtx.datasetName = ctx.datasetName;
+            mwCtx.snapshotName = ctx.snapshotName;
+            m_mainWindow->actionAdvancedBreakdown(mwCtx);
             return;
         }
         if (picked == aAssemble && m_mainWindow->m_btnConnAssemble) {
-            m_mainWindow->m_btnConnAssemble->click();
+            MainWindow::DatasetSelectionContext mwCtx;
+            mwCtx.valid = ctx.valid;
+            mwCtx.connIdx = ctx.connIdx;
+            mwCtx.poolName = ctx.poolName;
+            mwCtx.datasetName = ctx.datasetName;
+            mwCtx.snapshotName = ctx.snapshotName;
+            m_mainWindow->actionAdvancedAssemble(mwCtx);
             return;
         }
         if (picked == aFromDir && m_mainWindow->m_btnConnFromDir) {
-            m_mainWindow->m_btnConnFromDir->click();
+            MainWindow::DatasetSelectionContext mwCtx;
+            mwCtx.valid = ctx.valid;
+            mwCtx.connIdx = ctx.connIdx;
+            mwCtx.poolName = ctx.poolName;
+            mwCtx.datasetName = ctx.datasetName;
+            mwCtx.snapshotName = ctx.snapshotName;
+            m_mainWindow->actionAdvancedCreateFromDir(mwCtx);
             return;
         }
         if (picked == aToDir && m_mainWindow->m_btnConnToDir) {
-            m_mainWindow->m_btnConnToDir->click();
+            MainWindow::DatasetSelectionContext mwCtx;
+            mwCtx.valid = ctx.valid;
+            mwCtx.connIdx = ctx.connIdx;
+            mwCtx.poolName = ctx.poolName;
+            mwCtx.datasetName = ctx.datasetName;
+            mwCtx.snapshotName = ctx.snapshotName;
+            m_mainWindow->actionAdvancedToDir(mwCtx);
             return;
         }
 }

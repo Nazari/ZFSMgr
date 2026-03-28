@@ -2008,8 +2008,12 @@ void MainWindow::refreshAllConnections() {
                QStringLiteral("Refresh all connections"),
                QStringLiteral("刷新所有连接")));
     if (m_profiles.isEmpty()) {
+        if (!m_initialRefreshCompleted) {
+            m_initialRefreshCompleted = true;
+        }
         m_refreshInProgress = false;
         updateBusyCursor();
+        updateStatus(QString());
         updateConnectivityMatrixButtonState();
         rebuildConnectionsTable();
         populateAllPoolsTables();
@@ -2028,8 +2032,12 @@ void MainWindow::refreshAllConnections() {
     updateBusyCursor();
     updateConnectivityMatrixButtonState();
     if (refreshable <= 0) {
+        if (!m_initialRefreshCompleted) {
+            m_initialRefreshCompleted = true;
+        }
         rebuildConnectionsTable();
         populateAllPoolsTables();
+        updateStatus(QString());
         return;
     }
 
@@ -2185,6 +2193,7 @@ void MainWindow::onAsyncRefreshDone(int generation) {
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Refresco paralelo finalizado"));
     m_refreshInProgress = false;
     updateBusyCursor();
+    updateStatus(QString());
     updateConnectivityMatrixButtonState();
     if (m_busyOnImportRefresh) {
         m_busyOnImportRefresh = false;

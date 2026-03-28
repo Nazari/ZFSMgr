@@ -77,10 +77,14 @@ QString buildZfsCreateCmd(const CreateDatasetOptions& opt) {
 } // namespace
 
 void MainWindow::actionAdvancedCreateFromDir() {
+    actionAdvancedCreateFromDir(currentConnContentSelection(m_connContentTree));
+}
+
+void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& explicitCtx) {
     if (actionsLocked()) {
         return;
     }
-    const DatasetSelectionContext curr = currentConnContentSelection(m_connContentTree);
+    const DatasetSelectionContext curr = explicitCtx.valid ? explicitCtx : currentConnContentSelection(m_connContentTree);
     if (!curr.valid || curr.datasetName.isEmpty() || !curr.snapshotName.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_advdir_auto001"), QStringLiteral("Seleccione un dataset en Avanzado."),
@@ -656,10 +660,14 @@ void MainWindow::actionAdvancedCreateFromDir() {
 }
 
 void MainWindow::actionAdvancedToDir() {
+    actionAdvancedToDir(currentConnContentSelection(m_connContentTree));
+}
+
+void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx) {
     if (actionsLocked()) {
         return;
     }
-    const DatasetSelectionContext curr = currentConnContentSelection(m_connContentTree);
+    const DatasetSelectionContext curr = explicitCtx.valid ? explicitCtx : currentConnContentSelection(m_connContentTree);
     if (!curr.valid || curr.datasetName.isEmpty() || !curr.snapshotName.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_advdir_auto025"), QStringLiteral("Seleccione un dataset en Avanzado."),

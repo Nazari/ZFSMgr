@@ -636,7 +636,15 @@ private:
     void setSelectedDataset(const QString& side, const QString& datasetName, const QString& snapshotName);
     DatasetSelectionContext currentDatasetSelection(const QString& side) const;
     DatasetSelectionContext currentConnContentSelection(const QTreeWidget* tree) const;
-    bool executeDatasetAction(const QString& side, const QString& actionName, const DatasetSelectionContext& ctx, const QString& cmd, int timeoutMs = 45000, bool allowWindowsScript = false, const QByteArray& stdinPayload = {});
+    bool executeDatasetAction(const QString& side,
+                              const QString& actionName,
+                              const DatasetSelectionContext& ctx,
+                              const QString& cmd,
+                              int timeoutMs = 45000,
+                              bool allowWindowsScript = false,
+                              const QByteArray& stdinPayload = {},
+                              bool invalidatePoolCache = true,
+                              const std::function<void()>& onSuccessRefresh = {});
     bool executePendingDatasetRenameDraft(const PendingDatasetRenameDraft& draft,
                                           bool interactiveErrorDialog = true,
                                           QString* failureDetailOut = nullptr);
@@ -677,6 +685,12 @@ private:
     bool ensureLocalSudoCredentials(ConnectionProfile& profile);
     bool hasEquivalentLocalSshConnection() const;
     QString diagnoseUmountFailure(const DatasetSelectionContext& ctx);
+    void invalidateDatasetCacheEntry(int connIdx, const QString& poolName, const QString& objectName, bool invalidatePermissions = true);
+    void invalidateDatasetSubtreeCacheEntries(int connIdx,
+                                              const QString& poolName,
+                                              const QString& datasetName,
+                                              bool invalidatePermissions = true);
+    void invalidatePoolDatasetListingCache(int connIdx, const QString& poolName);
     void invalidateDatasetCacheForPool(int connIdx, const QString& poolName);
     void invalidatePoolDetailsCacheForConnection(int connIdx);
     void reloadConnContentPool(int connIdx, const QString& poolName);
@@ -702,9 +716,13 @@ private:
     void actionLevelSnapshot();
     void actionSyncDatasets();
     void actionAdvancedBreakdown();
+    void actionAdvancedBreakdown(const DatasetSelectionContext& explicitCtx);
     void actionAdvancedAssemble();
+    void actionAdvancedAssemble(const DatasetSelectionContext& explicitCtx);
     void actionAdvancedCreateFromDir();
+    void actionAdvancedCreateFromDir(const DatasetSelectionContext& explicitCtx);
     void actionAdvancedToDir();
+    void actionAdvancedToDir(const DatasetSelectionContext& explicitCtx);
     bool showInlinePropertyNodesForTree(const QTreeWidget* tree) const;
     bool showInlinePermissionsNodesForTree(const QTreeWidget* tree) const;
     bool showPoolInfoNodeForTree(const QTreeWidget* tree) const;
@@ -716,7 +734,9 @@ private:
     bool mountDataset(const QString& side, const DatasetSelectionContext& ctx);
     bool umountDataset(const QString& side, const DatasetSelectionContext& ctx);
     void actionCreateChildDataset(const QString& side);
+    void actionCreateChildDataset(const QString& side, const DatasetSelectionContext& explicitCtx);
     void actionDeleteDatasetOrSnapshot(const QString& side);
+    void actionDeleteDatasetOrSnapshot(const QString& side, const DatasetSelectionContext& explicitCtx);
     bool ensureParentMountedBeforeMount(const DatasetSelectionContext& ctx);
     bool ensureNoMountpointConflictsBeforeMount(const DatasetSelectionContext& ctx, bool includeDescendants);
     void onDatasetPropsCellChanged(int row, int col);
@@ -778,6 +798,7 @@ private:
     void beginTransientUiBusy(const QString& statusText);
     void endTransientUiBusy();
     void updateBusyCursor();
+    QString defaultStatusTextForCurrentState() const;
     void updateConnectivityMatrixButtonState();
     void setActionsLocked(bool locked);
     bool actionsLocked() const;

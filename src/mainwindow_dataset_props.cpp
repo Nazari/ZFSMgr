@@ -1312,6 +1312,17 @@ void MainWindow::applyDatasetPropertyChanges() {
         || hasPendingConnContentDrafts
         || hasPendingPermissionDrafts
         || !m_pendingChangesModel.isEmpty()) {
+        const QStringList gsaProps = {
+            QStringLiteral("org.fc16.gsa:activado"),
+            QStringLiteral("org.fc16.gsa:recursivo"),
+            QStringLiteral("org.fc16.gsa:horario"),
+            QStringLiteral("org.fc16.gsa:diario"),
+            QStringLiteral("org.fc16.gsa:semanal"),
+            QStringLiteral("org.fc16.gsa:mensual"),
+            QStringLiteral("org.fc16.gsa:anual"),
+            QStringLiteral("org.fc16.gsa:nivelar"),
+            QStringLiteral("org.fc16.gsa:destino"),
+        };
         auto saveCurrentConnContentDraft = [this]() {
             if (m_propsDataset.isEmpty() || m_propsToken.isEmpty() || !m_connContentPropsTable) {
                 return;
@@ -1372,9 +1383,6 @@ void MainWindow::applyDatasetPropertyChanges() {
         TransientBusyGuard busyGuard{this, true};
         QSet<int> connectionsToRefresh;
         for (const PendingDraft& item : pendingPropertyDrafts) {
-            connectionsToRefresh.insert(item.ctx.connIdx);
-        }
-        for (const PendingDraft& item : pendingPropertyDrafts) {
             QMap<QString, QString> originalValues;
             QMap<QString, bool> originalInherit;
             const QVector<DatasetPropCacheRow> propertyRows =
@@ -1393,11 +1401,17 @@ void MainWindow::applyDatasetPropertyChanges() {
             }
 
             QStringList subcmds;
+            bool touchedAnyProperty = false;
+            bool touchedOnlyGsaProperties = true;
             for (const QString& prop : touched) {
                 if (prop.isEmpty() || prop == QStringLiteral("dataset")
                     || prop == QStringLiteral("Tamaño")
                     || prop == QStringLiteral("snapshot")) {
                     continue;
+                }
+                touchedAnyProperty = true;
+                if (!prop.startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+                    touchedOnlyGsaProperties = false;
                 }
                 if (!hasLoadedCache
                     && prop.compare(QStringLiteral("mounted"), Qt::CaseInsensitive) != 0
@@ -1455,14 +1469,65 @@ void MainWindow::applyDatasetPropertyChanges() {
             const bool isWin = isWindowsConnection(item.ctx.connIdx);
             const QString cmd = isWin ? subcmds.join(QStringLiteral("; "))
                                       : QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
+            const bool useGranularDatasetRefresh = touchedAnyProperty;
+            const bool useGranularGsaRefresh = useGranularDatasetRefresh && touchedOnlyGsaProperties;
             if (!executeDatasetAction(QStringLiteral("conncontent"),
                                       QStringLiteral("Aplicar propiedades"),
                                       item.ctx,
                                       cmd,
                                       60000,
-                                      isWin)) {
+                                      isWin,
+                                      {},
+                                      !useGranularDatasetRefresh,
+                                      useGranularDatasetRefresh
+                                          ? [this, item, gsaProps, useGranularGsaRefresh]() {
+                                                invalidateDatasetCacheEntry(item.ctx.connIdx,
+                                                                            item.ctx.poolName,
+                                                                            item.objectName,
+                                                                            false);
+                                                if (useGranularGsaRefresh) {
+                                                    ensureDatasetPropertySubsetLoaded(item.ctx.connIdx,
+                                                                                     item.ctx.poolName,
+                                                                                     item.objectName,
+                                                                                     gsaProps);
+                                                    if (PoolInfo* poolInfo = findPoolInfo(item.ctx.connIdx, item.ctx.poolName)) {
+                                                        poolInfo->runtime.schedulesState = LoadState::NotLoaded;
+                                                        poolInfo->runtime.autoSnapshotPropsByDataset.remove(item.objectName);
+                                                    }
+                                                } else {
+                                                    ensureDatasetAllPropertiesLoaded(item.ctx.connIdx,
+                                                                                     item.ctx.poolName,
+                                                                                     item.objectName);
+                                                }
+                                                const QString token = item.token.trimmed();
+                                                const QList<QTreeWidget*> trees{m_connContentTree, m_bottomConnContentTree};
+                                                for (QTreeWidget* tree : trees) {
+                                                    if (!tree || connContentTokenForTree(tree).trimmed() != token) {
+                                                        continue;
+                                                    }
+                                                    syncConnContentPropertyColumnsFor(tree, token);
+                                                    syncConnContentPoolColumnsFor(tree, token);
+                                                    const DatasetSelectionContext selected = currentConnContentSelection(tree);
+                                                    const QString selectedObjectName =
+                                                        selected.snapshotName.trimmed().isEmpty()
+                                                            ? selected.datasetName.trimmed()
+                                                            : QStringLiteral("%1@%2")
+                                                                  .arg(selected.datasetName.trimmed(),
+                                                                       selected.snapshotName.trimmed());
+                                                    if (selected.valid
+                                                        && selected.connIdx == item.ctx.connIdx
+                                                        && selected.poolName.trimmed() == item.ctx.poolName.trimmed()
+                                                        && selectedObjectName == item.objectName.trimmed()) {
+                                                        refreshConnContentPropertiesFor(tree);
+                                                    }
+                                                }
+                                            }
+                                          : std::function<void()>{})) {
                 updateApplyPropsButtonState();
                 return;
+            }
+            if (!useGranularDatasetRefresh) {
+                connectionsToRefresh.insert(item.ctx.connIdx);
             }
             storePropertyDraftForObject(QStringLiteral("conncontent"), item.token, item.objectName, DatasetPropsDraft{});
         }
@@ -1541,6 +1606,38 @@ void MainWindow::applyDatasetPropertyChanges() {
             }
             return nullptr;
         };
+        auto refreshVisiblePermissionsNodes = [this, &findDatasetItemByIdentityLocal](int connIdx,
+                                                                                      const QString& poolName,
+                                                                                      const QString& datasetName) {
+            const QList<QTreeWidget*> trees{m_connContentTree, m_bottomConnContentTree};
+            for (QTreeWidget* tree : trees) {
+                if (!tree) {
+                    continue;
+                }
+                QTreeWidgetItem* ownerNode =
+                    findDatasetItemByIdentityLocal(tree, connIdx, poolName, datasetName);
+                if (!ownerNode) {
+                    continue;
+                }
+                const QString token = connContentTokenForTree(tree).trimmed();
+                if (!token.isEmpty()) {
+                    saveConnContentTreeStateFor(tree, token);
+                }
+                populateDatasetPermissionsNode(tree, ownerNode, false);
+                if (!token.isEmpty()) {
+                    syncConnContentPropertyColumnsFor(tree, token);
+                    restoreConnContentTreeStateFor(tree, token);
+                }
+                const DatasetSelectionContext selected = currentConnContentSelection(tree);
+                if (selected.valid
+                    && selected.connIdx == connIdx
+                    && selected.poolName.trimmed() == poolName.trimmed()
+                    && selected.datasetName.trimmed() == datasetName.trimmed()
+                    && selected.snapshotName.trimmed().isEmpty()) {
+                    refreshConnContentPropertiesFor(tree);
+                }
+            }
+        };
         auto objectDatasetName = [](const QString& objectName) {
             const int at = objectName.indexOf(QLatin1Char('@'));
             return (at > 0) ? objectName.left(at).trimmed() : objectName.trimmed();
@@ -1576,7 +1673,6 @@ void MainWindow::applyDatasetPropertyChanges() {
             const QString poolName = pendingPerm.poolName;
             const QString datasetName = pendingPerm.datasetName;
             DatasetPermissionsCacheEntry entry = pendingPerm.entry;
-            connectionsToRefresh.insert(connIdx);
             QStringList subcmds;
             auto appendGrantCommands = [&](const QVector<DatasetPermissionGrant>& original,
                                            const QVector<DatasetPermissionGrant>& current) {
@@ -1715,11 +1811,17 @@ void MainWindow::applyDatasetPropertyChanges() {
                                       ctx,
                                       cmd,
                                       60000,
-                                      false)) {
+                                      false,
+                                      {},
+                                      false,
+                                      [this, connIdx, poolName, datasetName, refreshVisiblePermissionsNodes]() {
+                                          removeDatasetPermissionsEntry(connIdx, poolName, datasetName);
+                                          ensureDatasetPermissionsLoaded(connIdx, poolName, datasetName);
+                                          refreshVisiblePermissionsNodes(connIdx, poolName, datasetName);
+                                      })) {
                 updateApplyPropsButtonState();
                 return;
             }
-            removeDatasetPermissionsEntry(connIdx, poolName, datasetName);
         }
 
         QMap<QString, QString> renameRefreshSelectionByToken;
@@ -2881,8 +2983,20 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
             if (!ctx.valid || ctx.connIdx < 0 || ctx.poolName.trimmed().isEmpty()) {
                 return;
             }
-            invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
-            refreshConnectionByIndex(ctx.connIdx);
+            invalidatePoolDatasetListingCache(ctx.connIdx, ctx.poolName);
+            const QList<QTreeWidget*> trees{m_connContentTree, m_bottomConnContentTree};
+            for (QTreeWidget* tree : trees) {
+                if (!tree) {
+                    continue;
+                }
+                const QString token = connContentTokenForTree(tree).trimmed();
+                const QString wantedToken =
+                    QStringLiteral("%1::%2").arg(ctx.connIdx).arg(ctx.poolName.trimmed());
+                if (token == wantedToken) {
+                    reloadConnContentPool(ctx.connIdx, ctx.poolName);
+                    break;
+                }
+            }
             if (side == QStringLiteral("origin") || side == QStringLiteral("dest")) {
                 reloadDatasetSide(side);
             }
@@ -2914,9 +3028,8 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
                 break;
             }
         }
-        invalidateDatasetCacheForPool(draft.connIdx, draft.poolName);
-        invalidateDatasetPermissionsCacheForPool(draft.connIdx, draft.poolName);
-        refreshConnectionByIndex(draft.connIdx);
+        invalidatePoolDatasetListingCache(draft.connIdx, draft.poolName);
+        reloadConnContentPool(draft.connIdx, draft.poolName);
         reloadDatasetSide(QStringLiteral("origin"));
         reloadDatasetSide(QStringLiteral("dest"));
         return true;
