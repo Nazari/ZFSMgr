@@ -7,6 +7,7 @@
 #include <QCheckBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDropEvent>
 #include <QEvent>
 #include <QFontMetrics>
 #include <QGridLayout>
@@ -59,6 +60,91 @@ protected:
 
 private:
     QPointer<QCheckBox> m_checkbox;
+};
+
+class MultiMoveListWidget final : public QListWidget {
+public:
+    explicit MultiMoveListWidget(QWidget* parent = nullptr)
+        : QListWidget(parent) {}
+
+    std::function<void()> onInternalReorder;
+
+protected:
+    void dropEvent(QDropEvent* event) override {
+        if (!event || dragDropMode() != QAbstractItemView::InternalMove) {
+            QListWidget::dropEvent(event);
+            return;
+        }
+        QList<QListWidgetItem*> selected = selectedItems();
+        if (selected.size() <= 1) {
+            QListWidget::dropEvent(event);
+            if (event->isAccepted() && onInternalReorder) {
+                onInternalReorder();
+            }
+            return;
+        }
+
+        QList<int> selectedRows;
+        QStringList movedTexts;
+        for (QListWidgetItem* item : selected) {
+            if (!item) {
+                continue;
+            }
+            selectedRows.push_back(row(item));
+        }
+        std::sort(selectedRows.begin(), selectedRows.end());
+        selectedRows.erase(std::unique(selectedRows.begin(), selectedRows.end()), selectedRows.end());
+        for (int rowIndex : std::as_const(selectedRows)) {
+            if (QListWidgetItem* item = this->item(rowIndex)) {
+                movedTexts.push_back(item->text());
+            }
+        }
+        if (movedTexts.isEmpty()) {
+            QListWidget::dropEvent(event);
+            return;
+        }
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        const QPoint dropPos = event->position().toPoint();
+#else
+        const QPoint dropPos = event->pos();
+#endif
+        int insertRow = count();
+        if (QListWidgetItem* target = itemAt(dropPos)) {
+            insertRow = row(target);
+            const QRect vr = visualItemRect(target);
+            if (dropPos.y() > vr.center().y()) {
+                ++insertRow;
+            }
+        }
+
+        int removedBeforeInsert = 0;
+        for (int rowIndex : std::as_const(selectedRows)) {
+            if (rowIndex < insertRow) {
+                ++removedBeforeInsert;
+            }
+        }
+        insertRow -= removedBeforeInsert;
+        insertRow = qBound(0, insertRow, count());
+
+        {
+            const QSignalBlocker blockModel(model());
+            const QSignalBlocker blockList(this);
+            for (int i = selectedRows.size() - 1; i >= 0; --i) {
+                delete takeItem(selectedRows.at(i));
+            }
+            for (int i = 0; i < movedTexts.size(); ++i) {
+                auto* item = new QListWidgetItem(movedTexts.at(i));
+                insertItem(insertRow + i, item);
+                item->setSelected(true);
+            }
+        }
+        setCurrentRow(insertRow);
+        event->acceptProposedAction();
+        if (onInternalReorder) {
+            onInternalReorder();
+        }
+    }
 };
 
 QString prettifyCommandText(const QString& cmd) {
@@ -622,7 +708,7 @@ bool MainWindow::editInlinePropertiesDialog(const QString& title,
     root->addLayout(tabsBar, 1);
 
     auto createReorderList = [&](QWidget* parent) {
-        auto* list = new QListWidget(parent);
+        auto* list = new MultiMoveListWidget(parent);
         list->setSelectionMode(QAbstractItemView::ExtendedSelection);
         list->setDragEnabled(true);
         list->viewport()->setAcceptDrops(true);
@@ -802,6 +888,13 @@ bool MainWindow::editInlinePropertiesDialog(const QString& title,
         refreshingGroupLists = true;
         setListValues(groupTabs.back().shown, normalizeProps(groupProps));
         refreshingGroupLists = false;
+        if (auto* reorderList = dynamic_cast<MultiMoveListWidget*>(groupTabs.back().shown)) {
+            reorderList->onInternalReorder = [&]() {
+                if (refreshGroupTabs) {
+                    refreshGroupTabs();
+                }
+            };
+        }
         if (connectGroupTabModels) {
             connectGroupTabModels(groupTabs.back());
         }
@@ -831,6 +924,13 @@ bool MainWindow::editInlinePropertiesDialog(const QString& title,
 
     setListValues(visibleShown, workingSelected);
     setListValues(visibleAvailable, subtractOrdered(items, workingSelected));
+    if (auto* reorderList = dynamic_cast<MultiMoveListWidget*>(visibleShown)) {
+        reorderList->onInternalReorder = [&]() {
+            if (refreshGroupTabs) {
+                refreshGroupTabs();
+            }
+        };
+    }
     refreshGroupTabs();
 
     QObject::connect(visibleShown->model(), &QAbstractItemModel::rowsMoved, &dlg, [&](const QModelIndex&, int, int, const QModelIndex&, int) {

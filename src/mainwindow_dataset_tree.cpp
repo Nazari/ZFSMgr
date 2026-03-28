@@ -2931,19 +2931,21 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
     if (!tree) {
         return;
     }
-    auto poolRootTitle = [&]() -> QString {
-        QString connName = (connIdx >= 0 && connIdx < m_profiles.size()) ? m_profiles[connIdx].name : QStringLiteral("?");
-        bool imported = false;
-        if (connIdx >= 0 && connIdx < m_states.size()) {
-            const ConnectionRuntimeState& st = m_states[connIdx];
-            for (const PoolImported& p : st.importedPools) {
-                if (p.pool.trimmed() == poolName.trimmed()) {
-                    imported = true;
-                    break;
-                }
+    const bool poolImported = [&]() -> bool {
+        if (connIdx < 0 || connIdx >= m_states.size()) {
+            return false;
+        }
+        const ConnectionRuntimeState& st = m_states[connIdx];
+        for (const PoolImported& p : st.importedPools) {
+            if (p.pool.trimmed() == poolName.trimmed()) {
+                return true;
             }
         }
-        if (imported) {
+        return false;
+    }();
+    auto poolRootTitle = [&]() -> QString {
+        QString connName = (connIdx >= 0 && connIdx < m_profiles.size()) ? m_profiles[connIdx].name : QStringLiteral("?");
+        if (poolImported) {
             return QStringLiteral("%1::%2").arg(connName, poolName);
         }
         const QString stateText = trk(QStringLiteral("t_pool_impable_001"),
@@ -2966,7 +2968,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         poolRoot->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
         const QString tooltipHtml = cachedPoolStatusTooltipHtml(connIdx, poolName);
         poolRoot->setToolTip(0, tooltipHtml.isEmpty() ? poolRoot->text(0) : tooltipHtml);
-        if (showPoolInfoNodeForTree(tree)) {
+        if (poolImported && showPoolInfoNodeForTree(tree)) {
             auto* infoNode = new QTreeWidgetItem(poolRoot);
             infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
             infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);
@@ -3101,7 +3103,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         poolRoot->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
         const QString tooltipHtml = cachedPoolStatusTooltipHtml(connIdx, poolName);
         poolRoot->setToolTip(0, tooltipHtml.isEmpty() ? poolRoot->text(0) : tooltipHtml);
-        if (showPoolInfoNodeForTree(tree)) {
+        if (poolImported && showPoolInfoNodeForTree(tree)) {
             auto* infoNode = new QTreeWidgetItem(poolRoot);
             infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
             infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);

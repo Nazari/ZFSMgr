@@ -73,6 +73,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
     const ConnectionProfile& p = m_profiles[ctx.connIdx];
     QString mountedValue;
     if (!getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("mounted"), mountedValue)) {
+        stopBusy();
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_adv_chk_mnt_01"), QStringLiteral("No se pudo comprobar el estado de montaje del dataset."),
                                  QStringLiteral("Could not verify dataset mount state."),
@@ -135,6 +136,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
         }
     } else {
         if (!rootMounted && !canTempMount) {
+            stopBusy();
             QMessageBox::warning(
                 this,
                 QStringLiteral("ZFSMgr"),
@@ -201,6 +203,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                     WindowsCommandMode::Auto,
                     mountStdinPayload)
             || listRc != 0) {
+            stopBusy();
             QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_adv_break_ls01"), QStringLiteral("No se pudieron listar directorios para desglosar."),
                                      QStringLiteral("Could not list directories for breakdown."),
@@ -480,6 +483,7 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
     const ConnectionProfile& p = m_profiles[ctx.connIdx];
     QString mountedValue;
     if (!getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("mounted"), mountedValue)) {
+        stopBusy();
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_adv_chk_mnt_01"), QStringLiteral("No se pudo comprobar el estado de montaje del dataset."),
                                  QStringLiteral("Could not verify dataset mount state."),
@@ -489,6 +493,7 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
     const bool rootMounted = isMountedValueTrue(mountedValue);
     const bool canTempMount = supportsAlternateDatasetMount(ctx.connIdx);
     if (!rootMounted && !canTempMount) {
+        stopBusy();
         QMessageBox::warning(
             this,
             QStringLiteral("ZFSMgr"),
@@ -628,6 +633,7 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
                 QString(),
                 &ok);
             if (!ok || passphrase.isEmpty()) {
+                stopBusy();
                 return;
             }
             mountStdinPayload = (passphrase + QStringLiteral("\n")).toUtf8();

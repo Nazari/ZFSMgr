@@ -1359,10 +1359,11 @@ QString connPersistKeyFromProfiles(const QVector<ConnectionProfile>& profiles, i
 struct ConnectivityProbeResult {
     QString text;
     QString tooltip;
+    QString detail;
     bool ok{false};
 };
 
-QString connectivityMatrixRemoteProbe(const ConnectionProfile& target) {
+QString connectivityMatrixRemoteProbe(const ConnectionProfile& target, bool verbose = false) {
     if (target.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
         return QString();
     }
@@ -1370,6 +1371,11 @@ QString connectivityMatrixRemoteProbe(const ConnectionProfile& target) {
         QStringLiteral("PATH=\"/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin:$PATH\"; export PATH; ");
     const QString targetHost = mwhelpers::shSingleQuote(mwhelpers::sshUserHost(target));
     const QString targetCmd = mwhelpers::shSingleQuote(QStringLiteral("echo ZFSMGR_CONNECT_OK"));
+    QString sshBase = mwhelpers::sshBaseCommand(target);
+    if (verbose) {
+        sshBase.replace(QStringLiteral("-o LogLevel=ERROR"),
+                        QStringLiteral("-o LogLevel=DEBUG3 -vvv"));
+    }
     if (!target.password.trimmed().isEmpty()) {
         return unixPathPrefix + QStringLiteral(
                    "if command -v sshpass >/dev/null 2>&1; then "
@@ -1378,12 +1384,12 @@ QString connectivityMatrixRemoteProbe(const ConnectionProfile& target) {
                    "-o NumberOfPasswordPrompts=1 %3 %4; "
                    "else echo %5 >&2; exit 127; fi")
             .arg(mwhelpers::shSingleQuote(target.password),
-                 mwhelpers::sshBaseCommand(target),
+                 sshBase,
                  targetHost,
                  targetCmd,
                  mwhelpers::shSingleQuote(QStringLiteral("ZFSMgr: sshpass no disponible para esta prueba")));
     }
-    return unixPathPrefix + mwhelpers::sshBaseCommand(target) + QStringLiteral(" ") + targetHost + QStringLiteral(" ") + targetCmd;
+    return unixPathPrefix + sshBase + QStringLiteral(" ") + targetHost + QStringLiteral(" ") + targetCmd;
 }
 
 QString connectivityMatrixRsyncProbe(const ConnectionProfile& target) {
@@ -1734,6 +1740,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                                  QStringLiteral("La conexión origen o destino no está en estado OK."),
                                  QStringLiteral("The source or target connection is not in OK state."),
                                  QStringLiteral("源连接或目标连接不是 OK 状态。"));
+            result.detail = result.tooltip;
             return result;
         }
         if (rowIdx == colIdx || sameMachine(rowIdx, colIdx)) {
@@ -1742,6 +1749,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                                  QStringLiteral("Misma máquina."),
                                  QStringLiteral("Same machine."),
                                  QStringLiteral("同一台机器。"));
+            result.detail = result.tooltip;
             result.ok = true;
             return result;
         }
@@ -1758,6 +1766,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                                          QStringLiteral("Misma máquina."),
                                          QStringLiteral("Same machine."),
                                          QStringLiteral("同一台机器。"));
+                    result.detail = result.tooltip;
                     result.ok = true;
                     return result;
                 }
@@ -1767,6 +1776,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                                      QStringLiteral("Local no tiene una conexión SSH equivalente para comprobarla remotamente."),
                                      QStringLiteral("Local has no equivalent SSH connection for remote probing."),
                                      QStringLiteral("本地连接没有可用于远程探测的等效 SSH 连接。"));
+                result.detail = result.tooltip;
                 return result;
             }
         }
@@ -1776,6 +1786,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                                  QStringLiteral("Solo se comprueba conectividad SSH hacia conexiones SSH/Local."),
                                  QStringLiteral("Only SSH connectivity to SSH/Local connections is checked."),
                                  QStringLiteral("只检查到 SSH/本地连接的 SSH 连通性。"));
+            result.detail = result.tooltip;
             return result;
         }
         if (src.connType.trimmed().compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0) {
@@ -1784,6 +1795,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                                  QStringLiteral("No se comprueba conectividad saliente desde conexiones PSRP."),
                                  QStringLiteral("Outgoing connectivity is not checked from PSRP connections."),
                                  QStringLiteral("不检查来自 PSRP 连接的出站连通性。"));
+            result.detail = result.tooltip;
             return result;
         }
         const QString sshCmd = connectivityMatrixRemoteProbe(effectiveDst);
@@ -1832,11 +1844,35 @@ void MainWindow::openConnectivityMatrixDialog() {
             }
             result.text = composeText(QStringLiteral("✓"), rsyncState);
             result.tooltip = tooltipLines.join(QStringLiteral("\n"));
+            result.detail = result.tooltip;
             result.ok = true;
             return result;
         }
         result.text = composeText(QStringLiteral("✗"), QStringLiteral("-"));
         result.tooltip = explainFailure(sshDetail.isEmpty() ? sshMerged : sshDetail, sshOk ? 0 : -1);
+        QString sshVerboseMerged;
+        QString sshVerboseDetail;
+        const QString sshVerboseCmd = connectivityMatrixRemoteProbe(effectiveDst, true);
+        if (!sshVerboseCmd.trimmed().isEmpty()) {
+            fetchConnectionProbeOutput(rowIdx,
+                                       QStringLiteral("Probe SSH verbose"),
+                                       sshVerboseCmd,
+                                       &sshVerboseMerged,
+                                       &sshVerboseDetail,
+                                       12000);
+        }
+        result.detail = QStringList{
+                            result.tooltip,
+                            QString(),
+                            trk(QStringLiteral("t_connectivity_probe_log_001"),
+                                QStringLiteral("Log del probe:"),
+                                QStringLiteral("Probe log:"),
+                                QStringLiteral("探测日志：")),
+                            (sshDetail.isEmpty() ? sshMerged : sshDetail).trimmed(),
+                            QString(),
+                            QStringLiteral("ssh -vvv:"),
+                            (sshVerboseDetail.isEmpty() ? sshVerboseMerged : sshVerboseDetail).trimmed()
+                        }.join(QStringLiteral("\n"));
         return result;
     };
 
@@ -1859,8 +1895,23 @@ void MainWindow::openConnectivityMatrixDialog() {
     matrix->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     matrix->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     matrix->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    matrix->setSelectionMode(QAbstractItemView::NoSelection);
+    matrix->setSelectionMode(QAbstractItemView::SingleSelection);
+    matrix->setSelectionBehavior(QAbstractItemView::SelectItems);
     matrix->setAlternatingRowColors(false);
+    auto* detailLabel = new QLabel(
+        trk(QStringLiteral("t_connectivity_detail_title_001"),
+            QStringLiteral("Detalle de la casilla seleccionada"),
+            QStringLiteral("Selected cell detail"),
+            QStringLiteral("所选单元格详情")),
+        &dlg);
+    auto* detailView = new QPlainTextEdit(&dlg);
+    detailView->setReadOnly(true);
+    detailView->setMaximumBlockCount(2000);
+    detailView->setPlaceholderText(
+        trk(QStringLiteral("t_connectivity_detail_ph_001"),
+            QStringLiteral("Seleccione una celda para ver su detalle."),
+            QStringLiteral("Select a cell to view its detail."),
+            QStringLiteral("选择一个单元格以查看详情。")));
     beginUiBusy();
     m_connectivityMatrixInProgress = true;
     updateConnectivityMatrixButtonState();
@@ -1870,6 +1921,7 @@ void MainWindow::openConnectivityMatrixDialog() {
             auto* item = new QTableWidgetItem(probe.text);
             item->setTextAlignment(Qt::AlignCenter);
             item->setToolTip(probe.tooltip);
+            item->setData(Qt::UserRole, probe.detail);
             if (probe.ok) {
                 item->setForeground(QBrush(QColor(QStringLiteral("#1d6f42"))));
             } else if (probe.text.contains(QStringLiteral("✗"))) {
@@ -1884,6 +1936,17 @@ void MainWindow::openConnectivityMatrixDialog() {
     updateConnectivityMatrixButtonState();
     endUiBusy();
     layout->addWidget(matrix, 1);
+    layout->addWidget(detailLabel);
+    layout->addWidget(detailView);
+    connect(matrix, &QTableWidget::currentItemChanged, &dlg, [detailView](QTableWidgetItem* current, QTableWidgetItem*) {
+        if (!detailView) {
+            return;
+        }
+        detailView->setPlainText(current ? current->data(Qt::UserRole).toString() : QString());
+    });
+    if (matrix->rowCount() > 0 && matrix->columnCount() > 0) {
+        matrix->setCurrentCell(0, 0);
+    }
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dlg);
     connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     layout->addWidget(buttons);
