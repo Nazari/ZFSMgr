@@ -2011,6 +2011,12 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
 
     const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
     const SelectionSnapshot ctx = currentSelection(tree, token);
+    MainWindow::DatasetSelectionContext mwSelCtx;
+    mwSelCtx.valid = ctx.valid;
+    mwSelCtx.connIdx = ctx.connIdx;
+    mwSelCtx.poolName = ctx.poolName;
+    mwSelCtx.datasetName = ctx.datasetName;
+    mwSelCtx.snapshotName = ctx.snapshotName;
     const bool hasConnSel = ctx.valid && !ctx.datasetName.isEmpty();
     const bool hasConnSnap = hasConnSel && !ctx.snapshotName.isEmpty();
     auto datasetPropFromModel = [this](const SelectionSnapshot& c, const QString& prop) -> QString {
@@ -2046,8 +2052,8 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         aNewHold->setEnabled(!m_mainWindow->actionsLocked() && hasConnSnap);
         aReleaseHold->setEnabled(!m_mainWindow->actionsLocked() && hasConnSnap && isSnapshotHoldContext);
         aDelete->setEnabled(!m_mainWindow->actionsLocked() && hasConnSel);
-        aBreakdown->setEnabled(m_mainWindow->m_btnConnBreakdown && m_mainWindow->m_btnConnBreakdown->isEnabled());
-        aAssemble->setEnabled(m_mainWindow->m_btnConnAssemble && m_mainWindow->m_btnConnAssemble->isEnabled());
+        aBreakdown->setEnabled(!m_mainWindow->actionsLocked() && m_mainWindow->connAdvancedDatasetActionAllowed(mwSelCtx));
+        aAssemble->setEnabled(!m_mainWindow->actionsLocked() && m_mainWindow->connAdvancedDatasetActionAllowed(mwSelCtx));
         aFromDir->setEnabled(m_mainWindow->m_btnConnFromDir && m_mainWindow->m_btnConnFromDir->isEnabled());
         aToDir->setEnabled(m_mainWindow->m_btnConnToDir && m_mainWindow->m_btnConnToDir->isEnabled());
 

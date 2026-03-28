@@ -355,7 +355,11 @@ bool MainWindow::confirmActionExecution(const QString& actionName, const QString
     return accepted;
 }
 
-bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, const QStringList& items, QStringList& selected) {
+bool MainWindow::selectItemsDialog(const QString& title,
+                                   const QString& intro,
+                                   const QStringList& items,
+                                   QStringList& selected,
+                                   const QString& detail) {
     if (items.isEmpty()) {
         return false;
     }
@@ -371,6 +375,14 @@ bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, c
     introLbl->setWordWrap(true);
     root->addWidget(introLbl);
 
+    if (!detail.trimmed().isEmpty()) {
+        QLabel* detailLbl = new QLabel(detail, &dlg);
+        detailLbl->setWordWrap(true);
+        detailLbl->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        detailLbl->setStyleSheet(QStringLiteral("QLabel { color: #4b6170; }"));
+        root->addWidget(detailLbl);
+    }
+
     QScrollArea* scroll = new QScrollArea(&dlg);
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
@@ -384,19 +396,19 @@ bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, c
     scroll->setWidget(content);
 
     const QFontMetrics fm(dlg.font());
-    int maxTextWidth = 120;
+    int maxTextWidth = 0;
     for (const QString& item : items) {
         maxTextWidth = qMax(maxTextWidth, fm.horizontalAdvance(item));
     }
     const int columns = 5;
-    const int cellWidth = qBound(150, maxTextWidth + 36, 240);
+    const int cellWidth = qBound(92, maxTextWidth + 24, 220);
     QVector<QCheckBox*> checkboxes;
     checkboxes.reserve(items.size());
     for (int i = 0; i < items.size(); ++i) {
         const QString& item = items.at(i);
         auto* card = new QWidget(content);
-        card->setMinimumWidth(cellWidth);
-        card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        card->setFixedWidth(cellWidth);
+        card->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         card->setStyleSheet(QStringLiteral(
             "QWidget {"
             " border: 1px solid #b9c9d6;"
@@ -423,11 +435,13 @@ bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, c
             "}"
         ));
         auto* cardLayout = new QVBoxLayout(card);
-        cardLayout->setContentsMargins(10, 8, 10, 8);
-        cardLayout->setSpacing(8);
+        cardLayout->setSizeConstraint(QLayout::SetFixedSize);
+        cardLayout->setContentsMargins(8, 6, 8, 6);
+        cardLayout->setSpacing(6);
         auto* label = new QLabel(item, card);
         label->setWordWrap(true);
         label->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
+        label->setFixedWidth(cellWidth - 16);
         auto* cb = new QCheckBox(QString(), card);
         cb->setChecked(initialSelected.contains(item, Qt::CaseInsensitive));
         cb->setProperty("itemText", item);
@@ -436,7 +450,6 @@ bool MainWindow::selectItemsDialog(const QString& title, const QString& intro, c
         label->installEventFilter(toggleFilter);
         cardLayout->addWidget(label);
         cardLayout->addWidget(cb, 0, Qt::AlignHCenter);
-        cardLayout->addStretch(1);
         grid->addWidget(card, i / columns, i % columns);
         checkboxes.push_back(cb);
     }

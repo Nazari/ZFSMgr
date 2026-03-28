@@ -39,14 +39,18 @@ QString buildDirectWindowsBashSshInvocation(const ConnectionProfile& p, const QS
 QString unixAlternateMountHelpersScript() {
     return QStringLiteral(
         "mount_alt_zfs(){ ds=\"$1\"; mp=\"$2\"; "
-        "if command -v mount_zfs >/dev/null 2>&1; then mount_zfs \"$ds\" \"$mp\"; "
-        "elif command -v mount.zfs >/dev/null 2>&1; then mount.zfs \"$ds\" \"$mp\"; "
-        "else mount -t zfs \"$ds\" \"$mp\"; fi; }; "
-        "umount_alt_zfs(){ mp=\"$1\"; "
-        "if command -v umount >/dev/null 2>&1; then umount \"$mp\"; else zfs unmount \"$mp\"; fi; }; "
-        "resolve_mp(){ ds=\"$1\"; mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
-        "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$ds\" '$1==d{print $2; exit}');; esac; "
-        "printf '%s' \"$mp\"; }; ");
+        "saved_prop='org.fc16.zfsmgr:savedmountpoint'; "
+        "current_mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
+        "zfs set \"$saved_prop=$current_mp\" \"$ds\"; "
+        "zfs set mountpoint=\"$mp\" \"$ds\"; "
+        "zfs mount \"$ds\"; }; "
+        "umount_alt_zfs(){ ds=\"$1\"; mp=\"$2\"; "
+        "saved_prop='org.fc16.zfsmgr:savedmountpoint'; "
+        "zfs unmount \"$ds\" >/dev/null 2>&1 || zfs unmount \"$mp\" >/dev/null 2>&1 || true; "
+        "saved_mp=$(zfs get -H -o value \"$saved_prop\" \"$ds\" 2>/dev/null || true); "
+        "if [ -n \"$saved_mp\" ] && [ \"$saved_mp\" != \"-\" ]; then zfs set mountpoint=\"$saved_mp\" \"$ds\" >/dev/null 2>&1 || true; fi; "
+        "zfs inherit \"$saved_prop\" \"$ds\" >/dev/null 2>&1 || true; }; "
+        "resolve_mp(){ ds=\"$1\"; zfs mount 2>/dev/null | awk -v d=\"$ds\" '$1==d{print $2; exit}'; }; ");
 }
 
 QString buildUnixTemporaryTarSourceScript(const QString& dataset, mwhelpers::StreamCodec codec) {
@@ -57,7 +61,7 @@ QString buildUnixTemporaryTarSourceScript(const QString& dataset, mwhelpers::Str
     return QStringLiteral(
                "set -e; DATASET=%1; %2"
                "TMP_MP=''; "
-               "cleanup(){ if [ -n \"$TMP_MP\" ]; then umount_alt_zfs \"$TMP_MP\" >/dev/null 2>&1 || true; rmdir \"$TMP_MP\" >/dev/null 2>&1 || true; fi; }; "
+               "cleanup(){ if [ -n \"$TMP_MP\" ]; then umount_alt_zfs \"$DATASET\" \"$TMP_MP\" >/dev/null 2>&1 || true; rmdir \"$TMP_MP\" >/dev/null 2>&1 || true; fi; }; "
                "trap cleanup EXIT INT TERM; "
                "MP=$(resolve_mp \"$DATASET\"); "
                "if [ -z \"$MP\" ]; then TMP_MP=$(mktemp -d /tmp/zfsmgr-sync-src-XXXXXX); mount_alt_zfs \"$DATASET\" \"$TMP_MP\"; MP=\"$TMP_MP\"; fi; "
@@ -74,7 +78,7 @@ QString buildUnixTemporaryTarDestinationScript(const QString& dataset, mwhelpers
     return QStringLiteral(
                "set -e; DATASET=%1; %2"
                "TMP_MP=''; "
-               "cleanup(){ if [ -n \"$TMP_MP\" ]; then umount_alt_zfs \"$TMP_MP\" >/dev/null 2>&1 || true; rmdir \"$TMP_MP\" >/dev/null 2>&1 || true; fi; }; "
+               "cleanup(){ if [ -n \"$TMP_MP\" ]; then umount_alt_zfs \"$DATASET\" \"$TMP_MP\" >/dev/null 2>&1 || true; rmdir \"$TMP_MP\" >/dev/null 2>&1 || true; fi; }; "
                "trap cleanup EXIT INT TERM; "
                "MP=$(resolve_mp \"$DATASET\"); "
                "if [ -z \"$MP\" ]; then TMP_MP=$(mktemp -d /tmp/zfsmgr-sync-dst-XXXXXX); mount_alt_zfs \"$DATASET\" \"$TMP_MP\"; MP=\"$TMP_MP\"; fi; "
@@ -286,7 +290,8 @@ void MainWindow::actionCopySnapshot() {
             0,
             true,
             src,
-            dst}, &errorText)) {
+            dst,
+            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
         return;
     }
@@ -441,7 +446,8 @@ void MainWindow::actionCloneSnapshot() {
             0,
             true,
             src,
-            refreshDst}, &errorText)) {
+            refreshDst,
+            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
         return;
     }
@@ -880,7 +886,8 @@ void MainWindow::actionLevelSnapshot() {
             0,
             true,
             src,
-            dst}, &errorText)) {
+            dst,
+            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
         return;
     }
@@ -986,7 +993,8 @@ void MainWindow::actionSyncDatasets() {
                 0,
                 true,
                 src,
-                dst}, &errorText)) {
+                dst,
+                PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
             QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
             return false;
         }

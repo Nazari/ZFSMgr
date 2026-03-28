@@ -215,6 +215,11 @@ private:
     };
 
     struct PendingShellActionDraft {
+        enum class RefreshScope {
+            None,
+            TargetOnly,
+            SourceAndTarget
+        };
         QString scopeLabel;
         QString displayLabel;
         QString command;
@@ -222,6 +227,7 @@ private:
         bool streamProgress{true};
         DatasetSelectionContext refreshSource;
         DatasetSelectionContext refreshTarget;
+        RefreshScope refreshScope{RefreshScope::SourceAndTarget};
     };
     struct PendingPropertyDraftEntry {
         int connIdx{-1};
@@ -696,6 +702,7 @@ private:
     void invalidatePoolDetailsCacheForConnection(int connIdx);
     void reloadConnContentPool(int connIdx, const QString& poolName);
     void reloadDatasetSide(const QString& side);
+    void refreshPendingShellActionDraft(const PendingShellActionDraft& draft);
     void updateConnectionActionsState();
     bool isTransferVersionAllowed(const DatasetSelectionContext& src,
                                   const DatasetSelectionContext& dst,
@@ -706,6 +713,7 @@ private:
     void executeConnectionAdvancedAction(const QString& action);
     void setConnectionOriginSelection(const DatasetSelectionContext& ctx);
     void setConnectionDestinationSelection(const DatasetSelectionContext& ctx);
+    bool connAdvancedDatasetActionAllowed(const DatasetSelectionContext& ctx) const;
     QString connContentTokenForTree(const QTreeWidget* tree) const;
     void withConnContentContext(QTreeWidget* tree,
                                 const QString& token,
@@ -810,7 +818,11 @@ private:
     void applyLanguageLive();
     void openHelpTopic(const QString& topicId, const QString& titleOverride = QString());
     QString loadHelpTopicMarkdown(const QString& topicId) const;
-    bool selectItemsDialog(const QString& title, const QString& intro, const QStringList& items, QStringList& selected);
+    bool selectItemsDialog(const QString& title,
+                           const QString& intro,
+                           const QStringList& items,
+                           QStringList& selected,
+                           const QString& detail = QString());
     bool editInlinePropertiesDialog(const QString& title,
                                     const QString& intro,
                                     const QStringList& items,

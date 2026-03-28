@@ -14,14 +14,28 @@ using mwhelpers::shSingleQuote;
 QString unixAlternateMountHelpersScript() {
     return QStringLiteral(
         "mount_alt_zfs(){ ds=\"$1\"; mp=\"$2\"; "
-        "if command -v mount_zfs >/dev/null 2>&1; then mount_zfs \"$ds\" \"$mp\"; "
-        "elif command -v mount.zfs >/dev/null 2>&1; then mount.zfs \"$ds\" \"$mp\"; "
-        "else mount -t zfs \"$ds\" \"$mp\"; fi; }; "
-        "umount_alt_zfs(){ mp=\"$1\"; "
-        "if command -v umount >/dev/null 2>&1; then umount \"$mp\"; else zfs unmount \"$mp\"; fi; }; "
-        "resolve_mp(){ ds=\"$1\"; mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
-        "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$ds\" '$1==d{print $2; exit}');; esac; "
-        "printf '%s' \"$mp\"; }; ");
+        "saved_prop='org.fc16.zfsmgr:savedmountpoint'; "
+        "current_mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
+        "zfs set \"$saved_prop=$current_mp\" \"$ds\"; "
+        "zfs set mountpoint=\"$mp\" \"$ds\"; "
+        "zfs mount \"$ds\"; }; "
+        "umount_alt_zfs(){ ds=\"$1\"; mp=\"$2\"; "
+        "saved_prop='org.fc16.zfsmgr:savedmountpoint'; "
+        "zfs unmount \"$ds\" >/dev/null 2>&1 || zfs unmount \"$mp\" >/dev/null 2>&1 || true; "
+        "saved_mp=$(zfs get -H -o value \"$saved_prop\" \"$ds\" 2>/dev/null || true); "
+        "if [ -n \"$saved_mp\" ] && [ \"$saved_mp\" != \"-\" ]; then zfs set mountpoint=\"$saved_mp\" \"$ds\" >/dev/null 2>&1 || true; fi; "
+        "zfs inherit \"$saved_prop\" \"$ds\" >/dev/null 2>&1 || true; }; "
+        "resolve_mp(){ ds=\"$1\"; zfs mount 2>/dev/null | awk -v d=\"$ds\" '$1==d{print $2; exit}'; }; "
+        "load_key_if_needed(){ ds=\"$1\"; "
+        "ks=$(zfs get -H -o value keystatus \"$ds\" 2>/dev/null || true); "
+        "[ \"$ks\" = \"available\" ] && return 0; "
+        "kl=$(zfs get -H -o value keylocation \"$ds\" 2>/dev/null || true); "
+        "if [ \"$kl\" = \"prompt\" ]; then "
+        "  if [ \"$ZFSMGR_PASS_READ\" != 1 ]; then IFS= read -r ZFSMGR_KEY_PASS || return 1; ZFSMGR_PASS_READ=1; fi; "
+        "  printf '%s\\n' \"$ZFSMGR_KEY_PASS\" | zfs load-key \"$ds\" >/dev/null; "
+        "else "
+        "  zfs load-key \"$ds\" >/dev/null 2>&1 || true; "
+        "fi; }; ");
 }
 } // namespace
 
@@ -67,6 +81,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
     }
     const bool rootMounted = isMountedValueTrue(mountedValue);
     const bool canTempMount = supportsAlternateDatasetMount(ctx.connIdx);
+    QByteArray mountStdinPayload;
 
     QStringList dirs;
     QString resolvedMp;
@@ -128,20 +143,64 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                     QStringLiteral("拆分要求数据集已挂载，或系统支持临时替代挂载。")));
             return;
         }
-        const QString listCmd = withSudo(
-            p,
-            QStringLiteral("set -e; DATASET=%1; %2"
+        const QString listScript =
+            QStringLiteral("set -e; DATASET=%1; ZFSMGR_PASS_READ=0; ZFSMGR_KEY_PASS=''; %2"
                            "TMP_ROOT=''; "
-                           "cleanup(){ if [ -n \"$TMP_ROOT\" ]; then umount_alt_zfs \"$TMP_ROOT\" >/dev/null 2>&1 || true; rmdir \"$TMP_ROOT\" >/dev/null 2>&1 || true; fi; }; "
+                           "cleanup(){ "
+                           "if [ -n \"$TMP_ROOT\" ]; then umount_alt_zfs \"$DATASET\" \"$TMP_ROOT\" >/dev/null 2>&1 || true; fi; "
+                           "if [ -n \"$TMP_ROOT\" ]; then rmdir \"$TMP_ROOT\" >/dev/null 2>&1 || true; fi; "
+                           "}; "
                            "trap cleanup EXIT INT TERM; "
                            "MP=$(resolve_mp \"$DATASET\"); "
-                           "if [ -z \"$MP\" ]; then TMP_ROOT=$(mktemp -d /tmp/zfsmgr-break-root-XXXXXX); mount_alt_zfs \"$DATASET\" \"$TMP_ROOT\"; MP=\"$TMP_ROOT\"; fi; "
+                           "if [ -z \"$MP\" ]; then "
+                           "  load_key_if_needed \"$DATASET\"; "
+                           "  TMP_ROOT=$(mktemp -d /tmp/zfsmgr-break-root-XXXXXX); "
+                           "  mount_alt_zfs \"$DATASET\" \"$TMP_ROOT\"; "
+                           "  MP=$(resolve_mp \"$DATASET\"); "
+                           "fi; "
                            "[ -n \"$MP\" ] || exit 0; "
                            "[ -d \"$MP\" ] || exit 0; "
                            "printf '__MP__=%s\\n' \"$MP\"; "
                            "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); [ -n \"$bn\" ] && printf '%s\\n' \"$bn\"; done | sort -u")
-                .arg(shSingleQuote(ds), unixAlternateMountHelpersScript()));
-        if (!runSsh(p, listCmd, 25000, listOut, listErr, listRc) || listRc != 0) {
+                .arg(shSingleQuote(ds), unixAlternateMountHelpersScript());
+        QString keyLocation;
+        getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("keylocation"), keyLocation);
+        keyLocation = keyLocation.trimmed().toLower();
+        QString keyStatus;
+        getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("keystatus"), keyStatus);
+        keyStatus = keyStatus.trimmed().toLower();
+        if (!rootMounted
+            && keyLocation == QStringLiteral("prompt")
+            && keyStatus != QStringLiteral("available")) {
+            bool ok = false;
+            const QString passphrase = QInputDialog::getText(
+                this,
+                QStringLiteral("Load key"),
+                QStringLiteral("Clave"),
+                QLineEdit::Password,
+                QString(),
+                &ok);
+            if (!ok || passphrase.isEmpty()) {
+                stopBusy();
+                return;
+            }
+            mountStdinPayload = (passphrase + QStringLiteral("\n")).toUtf8();
+        }
+        const QString effectiveListCmd = mountStdinPayload.isEmpty()
+            ? withSudo(p, mwhelpers::withUnixSearchPathCommand(listScript))
+            : withSudoStreamInput(p, mwhelpers::withUnixSearchPathCommand(listScript));
+        if (!runSsh(p,
+                    effectiveListCmd,
+                    25000,
+                    listOut,
+                    listErr,
+                    listRc,
+                    {},
+                    {},
+                    {},
+                    WindowsCommandMode::Auto,
+                    mountStdinPayload)
+            || listRc != 0) {
             QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_adv_break_ls01"), QStringLiteral("No se pudieron listar directorios para desglosar."),
                                      QStringLiteral("Could not list directories for breakdown."),
@@ -270,7 +329,11 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                 QStringLiteral("Select directories to split into subdatasets."),
                 QStringLiteral("请选择要拆分为子数据集的目录。")),
             dirs,
-            selectedDirs)) {
+            selectedDirs,
+            trk(QStringLiteral("t_adv_break_mp001"),
+                QStringLiteral("Mountpoint usado para explorar directorios: %1").arg(resolvedMp),
+                QStringLiteral("Mountpoint used to scan directories: %1").arg(resolvedMp),
+                QStringLiteral("用于扫描目录的挂载点：%1").arg(resolvedMp)))) {
         appLog(QStringLiteral("INFO"),
                trk(QStringLiteral("t_adv_break_can1"), QStringLiteral("Desglosar cancelado o sin selección."),
                    QStringLiteral("Break down canceled or no selection."),
@@ -348,7 +411,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                            "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; fi; "
                            "TMP_ROOT=''; "
                            "cleanup(){ "
-                           "  if [ -n \"$TMP_ROOT\" ]; then umount_alt_zfs \"$TMP_ROOT\" >/dev/null 2>&1 || true; rmdir \"$TMP_ROOT\" >/dev/null 2>&1 || true; fi; "
+                           "  if [ -n \"$TMP_ROOT\" ]; then umount_alt_zfs \"$DATASET\" \"$TMP_ROOT\" >/dev/null 2>&1 || true; rmdir \"$TMP_ROOT\" >/dev/null 2>&1 || true; fi; "
                            "}; "
                            "trap cleanup EXIT INT TERM; "
                            "MP=$(resolve_mp \"$DATASET\"); "
@@ -486,6 +549,7 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
     }
     QString cmd;
     bool allowWindowsScript = false;
+    QByteArray mountStdinPayload;
     if (isWindowsConnection(p)) {
         QStringList selectedPs;
         selectedPs.reserve(selectedChildren.size());
@@ -535,6 +599,39 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
                   .arg(dsPs, selectedPs.join(QStringLiteral(",")));
         allowWindowsScript = true;
     } else {
+        QStringList promptKeyDatasets;
+        auto appendPromptDatasetIfNeeded = [&](const QString& datasetName) {
+            QString keyLocation;
+            getDatasetProperty(ctx.connIdx, datasetName, QStringLiteral("keylocation"), keyLocation);
+            keyLocation = keyLocation.trimmed().toLower();
+            QString keyStatus;
+            getDatasetProperty(ctx.connIdx, datasetName, QStringLiteral("keystatus"), keyStatus);
+            keyStatus = keyStatus.trimmed().toLower();
+            if (keyLocation == QStringLiteral("prompt") && keyStatus != QStringLiteral("available")) {
+                promptKeyDatasets << datasetName;
+            }
+        };
+        if (!rootMounted) {
+            appendPromptDatasetIfNeeded(ds);
+        }
+        for (const QString& child : selectedChildren) {
+            appendPromptDatasetIfNeeded(child);
+        }
+        promptKeyDatasets.removeDuplicates();
+        if (!promptKeyDatasets.isEmpty()) {
+            bool ok = false;
+            const QString passphrase = QInputDialog::getText(
+                this,
+                QStringLiteral("Load key"),
+                QStringLiteral("Clave"),
+                QLineEdit::Password,
+                QString(),
+                &ok);
+            if (!ok || passphrase.isEmpty()) {
+                return;
+            }
+            mountStdinPayload = (passphrase + QStringLiteral("\n")).toUtf8();
+        }
         QStringList selectedQuoted;
         selectedQuoted.reserve(selectedChildren.size());
         for (const QString& c : selectedChildren) {
@@ -548,20 +645,20 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
                            "if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS=\"$RSYNC_OPTS -X\"; "
                            "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; fi; "
                            "TMP_PARENT=''; "
-                           "cleanup(){ if [ -n \"$TMP_PARENT\" ]; then umount_alt_zfs \"$TMP_PARENT\" >/dev/null 2>&1 || true; rmdir \"$TMP_PARENT\" >/dev/null 2>&1 || true; fi; }; "
+                           "cleanup(){ if [ -n \"$TMP_PARENT\" ]; then umount_alt_zfs \"$DATASET\" \"$TMP_PARENT\" >/dev/null 2>&1 || true; rmdir \"$TMP_PARENT\" >/dev/null 2>&1 || true; fi; }; "
                            "trap cleanup EXIT INT TERM; "
                            "MP=$(resolve_mp \"$DATASET\"); "
-                           "if [ -z \"$MP\" ]; then TMP_PARENT=$(mktemp -d /tmp/zfsmgr-assemble-parent-XXXXXX); mount_alt_zfs \"$DATASET\" \"$TMP_PARENT\"; MP=\"$TMP_PARENT\"; fi; "
+                           "if [ -z \"$MP\" ]; then load_key_if_needed \"$DATASET\"; TMP_PARENT=$(mktemp -d /tmp/zfsmgr-assemble-parent-XXXXXX); mount_alt_zfs \"$DATASET\" \"$TMP_PARENT\"; MP=\"$TMP_PARENT\"; fi; "
                            "[ -n \"$MP\" ] || { echo \"mountpoint=none\"; exit 2; }; "
                            "SELECTED_CHILDREN=(%2); "
                            "for child in \"${SELECTED_CHILDREN[@]}\"; do bn=${child##*/}; "
                            "echo \"[ASSEMBLE] start $child\"; "
                            "CMP=$(resolve_mp \"$child\"); "
                            "CHILD_TMP=''; "
-                           "if [ -z \"$CMP\" ]; then CHILD_TMP=$(mktemp -d /tmp/zfsmgr-assemble-child-XXXXXX); mount_alt_zfs \"$child\" \"$CHILD_TMP\"; CMP=\"$CHILD_TMP\"; fi; "
+                           "if [ -z \"$CMP\" ]; then load_key_if_needed \"$child\"; CHILD_TMP=$(mktemp -d /tmp/zfsmgr-assemble-child-XXXXXX); mount_alt_zfs \"$child\" \"$CHILD_TMP\"; CMP=\"$CHILD_TMP\"; fi; "
                            "TMP=$(mktemp -d /tmp/zfsmgr-assemble-XXXXXX); "
                            "rsync $RSYNC_OPTS \"$CMP\"/ \"$TMP\"/; "
-                           "if [ -n \"$CHILD_TMP\" ]; then umount_alt_zfs \"$CHILD_TMP\" >/dev/null 2>&1 || true; rmdir \"$CHILD_TMP\" >/dev/null 2>&1 || true; fi; "
+                           "if [ -n \"$CHILD_TMP\" ]; then umount_alt_zfs \"$child\" \"$CHILD_TMP\" >/dev/null 2>&1 || true; rmdir \"$CHILD_TMP\" >/dev/null 2>&1 || true; fi; "
                            "zfs destroy -r \"$child\"; "
                            "mkdir -p \"$MP/$bn\"; "
                            "rsync $RSYNC_OPTS \"$TMP\"/ \"$MP/$bn\"/; "
@@ -570,5 +667,11 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
                            "done")
                 .arg(shSingleQuote(ds), selectedList, unixAlternateMountHelpersScript());
     }
-    executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Ensamblar"), ctx, cmd, 0, allowWindowsScript);
+    executeDatasetAction(QStringLiteral("origin"),
+                         QStringLiteral("Ensamblar"),
+                         ctx,
+                         cmd,
+                         0,
+                         allowWindowsScript,
+                         mountStdinPayload);
 }

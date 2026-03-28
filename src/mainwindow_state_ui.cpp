@@ -42,6 +42,34 @@ void MainWindow::setConnectionDestinationSelection(const DatasetSelectionContext
     updateConnectionActionsState();
 }
 
+bool MainWindow::connAdvancedDatasetActionAllowed(const DatasetSelectionContext& ctx) const {
+    if (!ctx.valid || ctx.datasetName.isEmpty() || !ctx.snapshotName.isEmpty()) {
+        return false;
+    }
+    if (supportsAlternateDatasetMount(ctx.connIdx)) {
+        return true;
+    }
+    const PoolInfo* poolInfo = findPoolInfo(ctx.connIdx, ctx.poolName);
+    if (!poolInfo) {
+        return false;
+    }
+    const QString base = ctx.datasetName;
+    const QString pref = base + QStringLiteral("/");
+    for (auto it = poolInfo->objectsByFullName.constBegin(); it != poolInfo->objectsByFullName.constEnd(); ++it) {
+        const QString& ds = it.key();
+        if (ds != base && !ds.startsWith(pref)) {
+            continue;
+        }
+        if (it->kind == DSKind::Snapshot) {
+            continue;
+        }
+        if (!isMountedValueTrue(it->runtime.properties.value(QStringLiteral("mounted")))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void MainWindow::updateConnectionActionsState() {
     if (!(m_topDetailConnIdx >= 0 && m_topDetailConnIdx < m_profiles.size()
           && !isConnectionDisconnected(m_topDetailConnIdx))) {
@@ -149,29 +177,7 @@ void MainWindow::updateConnectionActionsState() {
         return;
     }
 
-    bool connAdvDatasetOnly = dctx.valid && !dctx.datasetName.isEmpty() && dctx.snapshotName.isEmpty();
-    if (connAdvDatasetOnly) {
-        const PoolInfo* poolInfo = findPoolInfo(dctx.connIdx, dctx.poolName);
-        if (!poolInfo) {
-            connAdvDatasetOnly = false;
-        } else {
-            const QString base = dctx.datasetName;
-            const QString pref = base + QStringLiteral("/");
-            for (auto it = poolInfo->objectsByFullName.constBegin(); it != poolInfo->objectsByFullName.constEnd(); ++it) {
-                const QString& ds = it.key();
-                if (ds != base && !ds.startsWith(pref)) {
-                    continue;
-                }
-                if (it->kind == DSKind::Snapshot) {
-                    continue;
-                }
-                if (!isMountedValueTrue(it->runtime.properties.value(QStringLiteral("mounted")))) {
-                    connAdvDatasetOnly = false;
-                    break;
-                }
-            }
-        }
-    }
+    const bool connAdvDatasetOnly = connAdvancedDatasetActionAllowed(dctx);
     if (m_btnConnBreakdown) m_btnConnBreakdown->setEnabled(!actionsLocked() && connAdvDatasetOnly);
     if (m_btnConnAssemble) m_btnConnAssemble->setEnabled(!actionsLocked() && connAdvDatasetOnly);
     if (m_btnConnFromDir) m_btnConnFromDir->setEnabled(!actionsLocked() && dctx.valid && !dctx.datasetName.isEmpty() && dctx.snapshotName.isEmpty());

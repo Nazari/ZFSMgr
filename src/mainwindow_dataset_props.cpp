@@ -1946,20 +1946,7 @@ void MainWindow::applyDatasetPropertyChanges() {
                     break;
                 }
             }
-            auto refreshCtx = [this, &connectionsToRefresh](const DatasetSelectionContext& ctx) {
-                if (!ctx.valid || ctx.connIdx < 0 || ctx.poolName.trimmed().isEmpty()) {
-                    return;
-                }
-                invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
-                invalidateDatasetPermissionsCacheForPool(ctx.connIdx, ctx.poolName);
-                connectionsToRefresh.insert(ctx.connIdx);
-            };
-            refreshCtx(draft.refreshTarget);
-            if (!draft.refreshSource.valid
-                || draft.refreshSource.connIdx != draft.refreshTarget.connIdx
-                || draft.refreshSource.poolName.trimmed() != draft.refreshTarget.poolName.trimmed()) {
-                refreshCtx(draft.refreshSource);
-            }
+            refreshPendingShellActionDraft(draft);
         }
 
         for (int connIdx : std::as_const(connectionsToRefresh)) {
@@ -1969,10 +1956,10 @@ void MainWindow::applyDatasetPropertyChanges() {
             refreshConnectionByIndex(connIdx);
         }
 
-        if (m_connActionOrigin.valid) {
+        if (!connectionsToRefresh.isEmpty() && m_connActionOrigin.valid) {
             reloadDatasetSide(QStringLiteral("origin"));
         }
-        if (m_connActionDest.valid) {
+        if (!connectionsToRefresh.isEmpty() && m_connActionDest.valid) {
             reloadDatasetSide(QStringLiteral("dest"));
         }
 
@@ -2979,34 +2966,7 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
                 break;
             }
         }
-        auto refreshCtx = [this](const DatasetSelectionContext& ctx, const QString& side) {
-            if (!ctx.valid || ctx.connIdx < 0 || ctx.poolName.trimmed().isEmpty()) {
-                return;
-            }
-            invalidatePoolDatasetListingCache(ctx.connIdx, ctx.poolName);
-            const QList<QTreeWidget*> trees{m_connContentTree, m_bottomConnContentTree};
-            for (QTreeWidget* tree : trees) {
-                if (!tree) {
-                    continue;
-                }
-                const QString token = connContentTokenForTree(tree).trimmed();
-                const QString wantedToken =
-                    QStringLiteral("%1::%2").arg(ctx.connIdx).arg(ctx.poolName.trimmed());
-                if (token == wantedToken) {
-                    reloadConnContentPool(ctx.connIdx, ctx.poolName);
-                    break;
-                }
-            }
-            if (side == QStringLiteral("origin") || side == QStringLiteral("dest")) {
-                reloadDatasetSide(side);
-            }
-        };
-        refreshCtx(draft.refreshTarget, QStringLiteral("dest"));
-        if (!draft.refreshSource.valid
-            || draft.refreshSource.connIdx != draft.refreshTarget.connIdx
-            || draft.refreshSource.poolName.trimmed() != draft.refreshTarget.poolName.trimmed()) {
-            refreshCtx(draft.refreshSource, QStringLiteral("origin"));
-        }
+        refreshPendingShellActionDraft(draft);
         return true;
     }
     if (change.kind == PendingChange::Kind::Rename) {
@@ -3035,6 +2995,56 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
         return true;
     }
     return false;
+}
+
+void MainWindow::refreshPendingShellActionDraft(const PendingShellActionDraft& draft) {
+    auto refreshCtx = [this](const DatasetSelectionContext& ctx,
+                             bool invalidatePoolListing) {
+        if (!ctx.valid || ctx.connIdx < 0 || ctx.poolName.trimmed().isEmpty()) {
+            return;
+        }
+        if (!ctx.datasetName.trimmed().isEmpty()) {
+            invalidateDatasetSubtreeCacheEntries(ctx.connIdx,
+                                                ctx.poolName,
+                                                ctx.datasetName,
+                                                true);
+        } else if (invalidatePoolListing) {
+            invalidatePoolDatasetListingCache(ctx.connIdx, ctx.poolName);
+        } else {
+            invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
+        }
+
+        const QList<QTreeWidget*> trees{m_connContentTree, m_bottomConnContentTree};
+        for (QTreeWidget* tree : trees) {
+            if (!tree) {
+                continue;
+            }
+            const QString token = connContentTokenForTree(tree).trimmed();
+            const QString wantedToken =
+                QStringLiteral("%1::%2").arg(ctx.connIdx).arg(ctx.poolName.trimmed());
+            if (token == wantedToken) {
+                reloadConnContentPool(ctx.connIdx, ctx.poolName);
+                break;
+            }
+        }
+    };
+
+    switch (draft.refreshScope) {
+    case PendingShellActionDraft::RefreshScope::None:
+        break;
+    case PendingShellActionDraft::RefreshScope::TargetOnly:
+        refreshCtx(draft.refreshTarget, false);
+        break;
+    case PendingShellActionDraft::RefreshScope::SourceAndTarget:
+        refreshCtx(draft.refreshTarget, false);
+        if (!draft.refreshSource.valid
+            || draft.refreshSource.connIdx != draft.refreshTarget.connIdx
+            || draft.refreshSource.poolName.trimmed() != draft.refreshTarget.poolName.trimmed()
+            || draft.refreshSource.datasetName.trimmed() != draft.refreshTarget.datasetName.trimmed()) {
+            refreshCtx(draft.refreshSource, false);
+        }
+        break;
+    }
 }
 
 void MainWindow::updateApplyPropsButtonState() {
