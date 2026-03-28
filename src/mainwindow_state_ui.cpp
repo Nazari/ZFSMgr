@@ -73,7 +73,7 @@ void MainWindow::updateConnectionActionsState() {
     if (m_btnConnSync) m_btnConnSync->setText(
         trk(QStringLiteral("t_sync_btn_001"), QStringLiteral("Sincronizar"), QStringLiteral("Sync"), QStringLiteral("同步文件")));
 
-    const DatasetSelectionContext dctx = currentDatasetSelection(QStringLiteral("conncontent"));
+    const DatasetSelectionContext dctx = currentConnContentSelection(m_connContentTree);
     auto fmtSel = [this](const DatasetSelectionContext& c) -> QString {
         if (!c.valid || c.datasetName.isEmpty() || c.connIdx < 0 || c.connIdx >= m_profiles.size()) {
             return trk(QStringLiteral("t_empty_sel_001"),
@@ -370,7 +370,7 @@ bool MainWindow::isTransferVersionAllowed(const DatasetSelectionContext& src,
 }
 
 void MainWindow::executeConnectionAdvancedAction(const QString& action) {
-    const DatasetSelectionContext ctx = currentDatasetSelection(QStringLiteral("conncontent"));
+    const DatasetSelectionContext ctx = currentConnContentSelection(m_connContentTree);
     if (!ctx.valid || ctx.datasetName.isEmpty()) {
         return;
     }

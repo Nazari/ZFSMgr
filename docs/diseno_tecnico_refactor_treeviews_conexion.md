@@ -8,17 +8,29 @@ El objetivo no es rehacer toda la arquitectura del módulo de conexiones, sino e
 
 ## Estado actual
 
-La refactorización descrita en este documento ya está aplicada en lo esencial.
+La refactorización descrita en este documento ya no está solo en fase de propuesta. Ya existe una cadena reusable real:
 
-Estado implementado:
+- `ConnectionDatasetTreeWidget`
+- `ConnectionDatasetTreePane`
+- `ConnectionDatasetTreeController`
+- `ConnectionDatasetTreeCoordinator`
+- un adaptador de dominio actual: `MainWindowConnectionDatasetTreeDelegate`
 
-- existe `ConnectionDatasetTreePane`,
-- ambos paneles usan el widget compartido,
-- las opciones `Mostrar en línea` son independientes por panel,
-- el renderer base del árbol se comparte,
-- las fases 1 a 4 descritas aquí se consideran completadas en un nivel pragmático.
+Estado implementado a fecha de este documento:
 
-Lo que queda pendiente ya no es la extracción inicial del componente, sino refinamiento o refactor adicional.
+- ambos paneles se crean mediante `ConnectionDatasetTreeWidget(Config, DomainAdapter, parent)`
+- `ConnectionDatasetTreePane` encapsula el `QTreeWidget`
+- `ConnectionDatasetTreeController` centraliza el cableado de señales del pane
+- `ConnectionDatasetTreeCoordinator` coordina el flujo de interacción del árbol
+- el `DomainAdapter` actual está implementado por `MainWindowConnectionDatasetTreeDelegate`
+- las opciones `Mostrar en línea` son independientes por panel
+- el constructor de los treeviews superior e inferior ya usa la misma vía de creación
+
+Lo que sigue pendiente:
+
+- reducir todavía más la dependencia funcional de `MainWindow`
+- mover más lógica de refresco/render/selección fuera de métodos globales que siguen usando `m_connContentTree` implícito
+- eliminar por completo las asimetrías residuales entre árbol superior e inferior
 
 ## Problema actual
 
@@ -53,22 +65,40 @@ En la primera fase:
 - se conserva en `MainWindow` la lógica de dominio y de ejecución
 - no se intenta mover todavía la lógica ZFS/SSH ni las cachés
 
-## Componente propuesto
+## Componente objetivo
 
 ### Nombre
 
-`ConnectionDatasetTreePane`
+`ConnectionDatasetTreeWidget`
 
 ### Naturaleza
 
-`QWidget` compuesto que encapsula un `QTreeWidget` y su configuración visual.
+`QWidget` reusable construido a partir de:
 
-### Instancias previstas
+- `Config`
+- `DomainAdapter`
+- `parent`
+
+Internamente compone:
+
+- `ConnectionDatasetTreePane`
+- `ConnectionDatasetTreeCoordinator`
+- `ConnectionDatasetTreeController`
+
+### Instancias actuales
 
 - una instancia para el panel superior
 - una instancia para el panel inferior
+- el diseño ya permite una tercera instancia sin volver a cablear `pane + controller + coordinator` manualmente
 
 ## Responsabilidades del nuevo componente
+
+`ConnectionDatasetTreeWidget` debe encargarse de:
+
+- crear el pane interno
+- aplicarle un `Config`
+- conectarlo a un `DomainAdapter`
+- exponer el `QTreeWidget` y el `Coordinator` para compatibilidad incremental
 
 `ConnectionDatasetTreePane` debe encargarse de:
 
@@ -87,6 +117,14 @@ No debe encargarse de:
 - aplicar reglas de negocio complejas
 - decidir operaciones sobre `Origen` o `Destino`
 
+## Estado propio del widget
+
+Cada instancia de `ConnectionDatasetTreeWidget` mantiene:
+
+- `Config`
+- `ConnectionDatasetTreePane`
+- `ConnectionDatasetTreeCoordinator`
+
 ## Estado propio del pane
 
 Cada instancia debe mantener al menos:
@@ -104,7 +142,35 @@ Cada instancia debe mantener al menos:
   - scroll horizontal
   - selección
 
-## Interfaz pública sugerida
+## Interfaz pública aplicada
+
+La interfaz efectiva del wrapper reusable es:
+
+```cpp
+class ConnectionDatasetTreeWidget final : public QWidget {
+    Q_OBJECT
+public:
+    using DomainAdapter = ConnectionDatasetTreeDomainAdapter;
+
+    struct Config {
+        QString treeName;
+        QString primaryColumnTitle;
+        ConnectionDatasetTreePane::Role role;
+        ConnectionDatasetTreePane::VisualOptions visualOptions;
+    };
+
+    explicit ConnectionDatasetTreeWidget(const Config& config,
+                                         DomainAdapter* adapter,
+                                         QWidget* parent = nullptr);
+
+    const Config& config() const;
+    QTreeWidget* tree() const;
+    ConnectionDatasetTreePane* pane() const;
+    ConnectionDatasetTreeCoordinator* coordinator() const;
+};
+```
+
+El pane interno mantiene una interfaz muy parecida a la prevista originalmente:
 
 ```cpp
 class ConnectionDatasetTreePane final : public QWidget {
@@ -165,12 +231,30 @@ signals:
 - refrescos de conexión
 - reglas de negocio
 
-`MainWindow` usará el widget como vista:
+`MainWindow` usa hoy el componente reusable así:
+
+- `m_topDatasetTreeWidget`
+- `m_bottomDatasetTreeWidget`
+
+Y mantiene por compatibilidad referencias derivadas:
 
 - `m_topDatasetPane`
 - `m_bottomDatasetPane`
+- `m_connContentTree`
+- `m_bottomConnContentTree`
+- `m_topConnContentCoordinator`
+- `m_bottomConnContentCoordinator`
 
-En esta fase, el código de render seguirá recibiendo un `QTreeWidget*`, pero ese puntero se obtendrá desde el pane.
+El acoplamiento pendiente está aquí:
+
+- el `DomainAdapter` actual es `MainWindowConnectionDatasetTreeDelegate`
+- ese adapter sigue delegando mucha lógica en `MainWindow`
+- varias rutas comunes de refresco/render siguen dependiendo de helpers globales de `MainWindow`
+
+Es decir:
+
+- la construcción del componente ya está encapsulada
+- la lógica de dominio todavía no está totalmente desacoplada
 
 ## Cambios previstos por fases
 
@@ -207,6 +291,10 @@ Mover a `ConnectionDatasetTreePane`:
 - opciones visuales realmente independientes por pane
 - menos duplicación en `mainwindow_ui.cpp`
 
+Estado:
+
+- completada
+
 ### Fase 2: extracción del menú contextual de items
 
 #### Alcance
@@ -224,6 +312,10 @@ Crear un constructor común de menú contextual para items de árbol, parametriz
 
 - evita divergencias entre menús superior e inferior
 
+Estado:
+
+- completada en gran parte mediante `ConnectionDatasetTreeCoordinator` y `MainWindowConnectionDatasetTreeDelegate`
+
 ### Fase 3: estado visual unificado del pane
 
 #### Alcance
@@ -233,6 +325,11 @@ Mover la captura/restauración de estado visual a un helper del pane o a una est
 #### Beneficio
 
 - menos dependencia de `m_connContentTree` como puntero mutable global
+
+Estado:
+
+- parcialmente completada
+- todavía quedan rutas de estado visual y render que dependen del árbol implícito de `MainWindow`
 
 ### Fase 4: presenter opcional
 
@@ -252,12 +349,43 @@ Introducir un presenter o renderer reutilizable que construya el árbol a partir
 
 ### Paso 1
 
-Crear `ConnectionDatasetTreePane` y sustituir en `MainWindow`:
+Crear `ConnectionDatasetTreeWidget` como única forma de instanciación del árbol.
 
-- `m_connContentTree`
-- `m_bottomConnContentTree`
+Estado:
 
-por:
+- ya aplicado para árbol superior e inferior
+
+### Paso 2
+
+Mantener punteros derivados para migración incremental:
+
+- `pane()`
+- `tree()`
+- `coordinator()`
+
+Estado:
+
+- ya aplicado
+
+### Paso 3
+
+Reducir dependencia de `MainWindow` en el adapter de dominio.
+
+Objetivo siguiente:
+
+- introducir un adapter de dominio menos acoplado
+- hacer que el wrapper reusable no necesite conocer `MainWindow`
+
+### Paso 4
+
+Eliminar el uso de `m_connContentTree` como árbol implícito en rutas comunes.
+
+Objetivo siguiente:
+
+- `save/restore`
+- selección
+- refresco de propiedades
+- sincronización de columnas
 
 - `m_topDatasetPane`
 - `m_bottomDatasetPane`

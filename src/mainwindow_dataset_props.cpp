@@ -719,6 +719,10 @@ bool MainWindow::queuePendingDatasetRename(const PendingDatasetRenameDraft& draf
 }
 
 void MainWindow::refreshDatasetProperties(const QString& side) {
+    refreshDatasetProperties(side, m_connContentTree);
+}
+
+void MainWindow::refreshDatasetProperties(const QString& side, QTreeWidget* connContentTree) {
     beginTransientUiBusy(QStringLiteral("Leyendo propiedades..."));
     auto gsaPropsForView = []() {
         return QStringList{
@@ -797,22 +801,9 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         dataset = m_connActionDest.datasetName;
         snapshot = m_connActionDest.snapshotName;
     } else if (side == QStringLiteral("conncontent")) {
-        QTreeWidgetItem* sel = m_connContentTree ? m_connContentTree->currentItem() : nullptr;
-        if (!sel && m_connContentTree) {
-            const auto selected = m_connContentTree->selectedItems();
-            if (!selected.isEmpty()) {
-                sel = selected.first();
-            }
-        }
-        if (sel) {
-            while (sel && sel->data(0, Qt::UserRole).toString().isEmpty() && sel->parent()) {
-                sel = sel->parent();
-            }
-            if (sel) {
-                dataset = sel->data(0, Qt::UserRole).toString();
-                snapshot = sel->data(1, Qt::UserRole).toString();
-            }
-        }
+        const DatasetSelectionContext ctx = currentConnContentSelection(connContentTree);
+        dataset = ctx.datasetName;
+        snapshot = ctx.snapshotName;
     }
     QTableWidget* table = m_connContentPropsTable;
     if (!table) {
@@ -849,7 +840,7 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
                         .arg(m_connActionDest.poolName);
         }
     } else if (side == QStringLiteral("conncontent")) {
-        token = connContentTokenForTree(m_connContentTree);
+        token = connContentTokenForTree(connContentTree);
     }
     const int sep = token.indexOf(QStringLiteral("::"));
     if (sep <= 0) {
@@ -865,10 +856,16 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
         return;
     }
     bool selectedInsideGsaNode = false;
-    if (side == QStringLiteral("conncontent") && m_connContentTree) {
-        const auto selected = m_connContentTree->selectedItems();
-        if (!selected.isEmpty()) {
-            for (QTreeWidgetItem* p = selected.first(); p; p = p->parent()) {
+    if (side == QStringLiteral("conncontent") && connContentTree) {
+        QTreeWidgetItem* selectedItem = connContentTree->currentItem();
+        if (!selectedItem) {
+            const auto selected = connContentTree->selectedItems();
+            if (!selected.isEmpty()) {
+                selectedItem = selected.first();
+            }
+        }
+        if (selectedItem) {
+            for (QTreeWidgetItem* p = selectedItem; p; p = p->parent()) {
                 if (p->text(0).trimmed() == QStringLiteral("Programar snapshots")) {
                     selectedInsideGsaNode = true;
                     break;
@@ -1189,6 +1186,13 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
     m_loadingPropsTable = false;
     updateApplyPropsButtonState();
     endTransientUiBusy();
+}
+
+void MainWindow::refreshConnContentPropertiesFor(QTreeWidget* tree) {
+    if (!tree) {
+        return;
+    }
+    refreshDatasetProperties(QStringLiteral("conncontent"), tree);
 }
 
 void MainWindow::onDatasetPropsCellChanged(int row, int col) {

@@ -1646,10 +1646,9 @@ bool MainWindow::selectDatasetForTest(const QString& datasetName, bool bottom) {
     const QString token = (connIdx >= 0 && !poolName.isEmpty())
                               ? QStringLiteral("%1::%2").arg(connIdx).arg(poolName)
                               : QString();
-    withConnContentContext(tree, token, [this, tree, item]() {
-        tree->setCurrentItem(item);
-        refreshDatasetProperties(QStringLiteral("conncontent"));
-    });
+    Q_UNUSED(token);
+    tree->setCurrentItem(item);
+    refreshConnContentPropertiesFor(tree);
     return true;
 }
 
@@ -1758,13 +1757,11 @@ void MainWindow::rebuildConnContentTreeForTest(const QString& datasetToSelect, b
     if (!okConn || connIdx < 0 || poolName.isEmpty()) {
         return;
     }
-    withConnContentContext(tree, token, [this, tree, token, connIdx, poolName, &datasetToSelect, bottom]() {
-        saveConnContentTreeState(token);
-        populateDatasetTree(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, true);
-        if (!datasetToSelect.trimmed().isEmpty()) {
-            selectDatasetForTest(datasetToSelect, bottom);
-        }
-    });
+    saveConnContentTreeState(tree, token);
+    populateDatasetTree(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, true);
+    if (!datasetToSelect.trimmed().isEmpty()) {
+        selectDatasetForTest(datasetToSelect, bottom);
+    }
 }
 
 QStringList MainWindow::topLevelPoolNamesForTest(bool bottom) const {

@@ -7,7 +7,7 @@ constexpr int kConnPropRowRoleCoordinator = Qt::UserRole + 13;
 }
 
 ConnectionDatasetTreeCoordinator::ConnectionDatasetTreeCoordinator(ConnectionDatasetTreePane* pane,
-                                                                   ConnectionDatasetTreeDelegate* delegate,
+                                                                   ConnectionDatasetTreeDomainAdapter* delegate,
                                                                    QObject* parent)
     : QObject(parent)
     , m_pane(pane)

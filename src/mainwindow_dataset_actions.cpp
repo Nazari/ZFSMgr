@@ -465,15 +465,23 @@ bool MainWindow::executeDatasetAction(const QString& side, const QString& action
                    && m_connActionDest.datasetName == ctx.datasetName
                    && m_connActionDest.snapshotName == ctx.snapshotName) {
             m_connActionDest.snapshotName.clear();
-        } else if (side == QStringLiteral("conncontent") && m_connContentTree) {
-            const auto selected = m_connContentTree->selectedItems();
-            if (!selected.isEmpty()) {
+        } else if (side == QStringLiteral("conncontent")) {
+            const auto clearDeletedSnapshotSelection = [&](QTreeWidget* tree) {
+                if (!tree) {
+                    return;
+                }
+                const auto selected = tree->selectedItems();
+                if (selected.isEmpty()) {
+                    return;
+                }
                 QTreeWidgetItem* item = selected.first();
                 if (item->data(0, Qt::UserRole).toString().trimmed() == ctx.datasetName
                     && item->data(1, Qt::UserRole).toString().trimmed() == ctx.snapshotName) {
                     item->setData(1, Qt::UserRole, QString());
                 }
-            }
+            };
+            clearDeletedSnapshotSelection(m_connContentTree);
+            clearDeletedSnapshotSelection(m_bottomConnContentTree);
         }
     }
     const bool needsDeferredRefresh =
@@ -657,25 +665,6 @@ void MainWindow::reloadConnContentPool(int connIdx, const QString& poolName) {
     if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.trimmed().isEmpty()) {
         return;
     }
-    const QString targetToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName.trimmed());
-    auto tokenForBottomTree = [this]() {
-        const int bIdx = m_bottomConnectionEntityTabs ? m_bottomConnectionEntityTabs->currentIndex() : -1;
-        if (bIdx < 0 || !m_bottomConnectionEntityTabs || bIdx >= m_bottomConnectionEntityTabs->count()) {
-            return QString();
-        }
-        const QString key = m_bottomConnectionEntityTabs->tabData(bIdx).toString();
-        const QStringList parts = key.split(':');
-        if (parts.size() < 3 || parts.first() != QStringLiteral("pool")) {
-            return QString();
-        }
-        return QStringLiteral("%1::%2").arg(parts.value(1)).arg(parts.value(2).trimmed());
-    };
-    auto saveTreeState = [this](QTreeWidget* tree, const QString& tokenForTree) {
-        if (!tree || tokenForTree.trimmed().isEmpty()) {
-            return;
-        }
-        saveConnContentTreeStateFor(tree, tokenForTree);
-    };
     auto refreshOneTree = [this, connIdx, &poolName](QTreeWidget* tree, const QString& tokenForTree) {
         const QString wantedToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName.trimmed());
         if (!tree || tokenForTree != wantedToken) {
@@ -687,11 +676,11 @@ void MainWindow::reloadConnContentPool(int connIdx, const QString& poolName) {
         return true;
     };
 
-    const QString topToken = connContentTokenForTree(m_connContentTree);
-    const QString bottomToken = tokenForBottomTree();
     bool refreshed = false;
-    refreshed = refreshOneTree(m_connContentTree, topToken) || refreshed;
-    refreshed = refreshOneTree(m_bottomConnContentTree, bottomToken) || refreshed;
+    const QList<QTreeWidget*> trees{m_connContentTree, m_bottomConnContentTree};
+    for (QTreeWidget* tree : trees) {
+        refreshed = refreshOneTree(tree, connContentTokenForTree(tree)) || refreshed;
+    }
     if (!refreshed) {
         refreshConnectionByIndex(connIdx);
     }
@@ -705,17 +694,29 @@ void MainWindow::reloadDatasetSide(const QString& side) {
         }
         return;
     } else if (side == QStringLiteral("conncontent")) {
-        const QString token = connContentTokenForTree(m_connContentTree);
-        saveConnContentTreeState(token);
-        const int sep = token.indexOf(QStringLiteral("::"));
-        if (sep > 0) {
+        auto reloadTree = [this](QTreeWidget* tree) -> bool {
+            const QString token = connContentTokenForTree(tree);
+            if (token.isEmpty()) {
+                return false;
+            }
+            saveConnContentTreeState(tree, token);
+            const int sep = token.indexOf(QStringLiteral("::"));
+            if (sep <= 0) {
+                return false;
+            }
             bool ok = false;
             const int connIdx = token.left(sep).toInt(&ok);
             const QString poolName = token.mid(sep + 2).trimmed();
-            if (ok && connIdx >= 0 && connIdx < m_profiles.size() && !poolName.isEmpty()) {
-                reloadConnContentPool(connIdx, poolName);
-                return;
+            if (!ok || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
+                return false;
             }
+            reloadConnContentPool(connIdx, poolName);
+            return true;
+        };
+        const bool reloadedTop = reloadTree(m_connContentTree);
+        const bool reloadedBottom = reloadTree(m_bottomConnContentTree);
+        if (reloadedTop || reloadedBottom) {
+            return;
         }
     }
 }

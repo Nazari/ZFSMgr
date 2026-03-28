@@ -50,6 +50,36 @@ Regla básica:
 - el treeview no es la fuente de verdad del dominio
 - el treeview solo proyecta dominio + edición + estado visual
 
+## Estado actual del componente de treeview
+
+Además del modelo `ConnInfo / PoolInfo / DSInfo`, el desarrollo ya ha cristalizado en un componente reusable para los treeviews de conexión.
+
+Ese componente actual es:
+
+- `ConnectionDatasetTreeWidget(Config, DomainAdapter, parent)`
+
+Internamente encapsula:
+
+- `ConnectionDatasetTreePane`
+- `ConnectionDatasetTreeController`
+- `ConnectionDatasetTreeCoordinator`
+
+Y hoy sus dos instancias reales son:
+
+- treeview superior (`Origen`)
+- treeview inferior (`Destino`)
+
+La parte importante para este documento es:
+
+- el estado visual ya no debería pensarse como algo incrustado en `MainWindow`
+- el tree reusable es una pieza separada, aunque todavía usa un adaptador de dominio acoplado a `MainWindow`
+
+Conclusión de coherencia con el estado real:
+
+- el modelo de dominio y el componente de treeview han avanzado en paralelo
+- el componente reusable existe ya
+- la independencia total de `MainWindow` todavía no está completada
+
 ## Cambios aceptados sobre el diseño inicial
 
 Quedan aceptados estos ajustes respecto a la primera propuesta:

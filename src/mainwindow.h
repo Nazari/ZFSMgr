@@ -4,6 +4,7 @@
 #include "connectiondialog.h"
 #include "connectiondatasettreepane.h"
 #include "connectiondatasettreecoordinator.h"
+#include "connectiondatasettreewidget.h"
 
 #ifndef ZFSMGR_APP_VERSION
 #define ZFSMGR_APP_VERSION "0.10.0rc1"
@@ -507,18 +508,25 @@ private:
     void populateConnectionPoolsIntoTree(QTreeWidget* tree,
                                          int connIdx,
                                          const ConnectionRuntimeState& st);
-    void onConnectionEntityTabChanged(int idx);
     void onSnapshotComboChanged(QTreeWidget* tree, QTreeWidgetItem* item, DatasetTreeContext side, const QString& chosen);
     void onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* item, int col, DatasetTreeContext side);
     void clearOtherSnapshotSelections(QTreeWidget* tree, QTreeWidgetItem* keepItem);
     void refreshConnectionNodeDetails();
     void updateConnectionDetailTitlesForCurrentSelection();
+    void rebuildConnContentDetailTree(QTreeWidget* tree,
+                                      int connIdx,
+                                      bool& rebuildingFlag,
+                                      int* forceRestoreConnIdx,
+                                      const std::function<void(int)>& saveTreeState,
+                                      const std::function<void()>& clearPendingState = {});
     void saveTopTreeStateForConnection(int connIdx);
     void saveBottomTreeStateForConnection(int connIdx);
     void restoreTopTreeStateForConnection(int connIdx);
     void restoreBottomTreeStateForConnection(int connIdx);
+    void saveConnContentTreeState(QTreeWidget* tree, const QString& token);
     void saveConnContentTreeStateFor(QTreeWidget* tree, const QString& token);
     void saveConnContentTreeState(const QString& token);
+    void restoreConnContentTreeState(QTreeWidget* tree, const QString& token);
     void restoreConnContentTreeStateFor(QTreeWidget* tree, const QString& token);
     void restoreConnContentTreeState(const QString& token);
     void rebuildConnContentTreeFor(QTreeWidget* tree,
@@ -534,8 +542,10 @@ private:
     void syncConnectionDisplaySelectors();
     void applyConnectionDisplayMode(int connIdx, const QString& mode);
     void resizeTreeColumnsToVisibleContent(QTreeWidget* tree);
+    void syncConnContentPropertyColumns(QTreeWidget* tree);
     void syncConnContentPropertyColumnsFor(QTreeWidget* tree, const QString& token);
     void syncConnContentPropertyColumns();
+    void syncConnContentPoolColumns(QTreeWidget* tree, const QString& token);
     void syncConnContentPoolColumnsFor(QTreeWidget* tree, const QString& token);
     void syncConnContentPoolColumns();
     void updateConnContentPropertyValues(const QString& token,
@@ -621,8 +631,11 @@ private:
                                               const QString& excludeSetName = QString()) const;
     void populateDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName, DatasetTreeContext side, bool allowRemoteLoadIfMissing = true);
     void refreshDatasetProperties(const QString& side);
+    void refreshDatasetProperties(const QString& side, QTreeWidget* connContentTree);
+    void refreshConnContentPropertiesFor(QTreeWidget* tree);
     void setSelectedDataset(const QString& side, const QString& datasetName, const QString& snapshotName);
     DatasetSelectionContext currentDatasetSelection(const QString& side) const;
+    DatasetSelectionContext currentConnContentSelection(const QTreeWidget* tree) const;
     bool executeDatasetAction(const QString& side, const QString& actionName, const DatasetSelectionContext& ctx, const QString& cmd, int timeoutMs = 45000, bool allowWindowsScript = false, const QByteArray& stdinPayload = {});
     bool executePendingDatasetRenameDraft(const PendingDatasetRenameDraft& draft,
                                           bool interactiveErrorDialog = true,
@@ -904,6 +917,7 @@ private:
     QStackedWidget* m_connPropsStack{nullptr};
     QWidget* m_connPoolPropsPage{nullptr};
     QWidget* m_connContentPage{nullptr};
+    ConnectionDatasetTreeWidget* m_topDatasetTreeWidget{nullptr};
     ConnectionDatasetTreePane* m_topDatasetPane{nullptr};
     MainWindowConnectionDatasetTreeDelegate* m_topConnContentDelegate{nullptr};
     ConnectionDatasetTreeCoordinator* m_topConnContentCoordinator{nullptr};
@@ -922,7 +936,6 @@ private:
     QByteArray m_connDetailSplitState;
     QByteArray m_verticalMainSplitState;
     QByteArray m_bottomInfoSplitState;
-    QMap<int, QString> m_pendingRefreshTopTabDataByConn;
     QMap<int, QString> m_pendingRefreshBottomTabDataByConn;
     QMap<int, QSet<QString>> m_savedTopExpandedKeysByConn;
     QMap<int, QString> m_savedTopSelectedKeyByConn;
@@ -942,6 +955,7 @@ private:
     bool m_rebuildingTopConnContentTree{false};
     bool m_rebuildingBottomConnContentTree{false};
     QTabBar* m_bottomConnectionEntityTabs{nullptr};
+    ConnectionDatasetTreeWidget* m_bottomDatasetTreeWidget{nullptr};
     ConnectionDatasetTreePane* m_bottomDatasetPane{nullptr};
     MainWindowConnectionDatasetTreeDelegate* m_bottomConnContentDelegate{nullptr};
     ConnectionDatasetTreeCoordinator* m_bottomConnContentCoordinator{nullptr};

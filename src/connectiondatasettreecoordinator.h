@@ -9,9 +9,9 @@ class QTreeWidget;
 class QTreeWidgetItem;
 class QPoint;
 
-class ConnectionDatasetTreeDelegate {
+class ConnectionDatasetTreeDomainAdapter {
 public:
-    virtual ~ConnectionDatasetTreeDelegate() = default;
+    virtual ~ConnectionDatasetTreeDomainAdapter() = default;
 
     virtual void itemClicked(QTreeWidget* tree, QTreeWidgetItem* item) = 0;
     virtual void selectionChanged(QTreeWidget* tree, bool isBottom) = 0;
@@ -24,12 +24,14 @@ public:
     virtual void showGeneralMenu(QTreeWidget* tree, bool isBottom, QTreeWidgetItem* item, const QPoint& pos) = 0;
 };
 
+using ConnectionDatasetTreeDelegate = ConnectionDatasetTreeDomainAdapter;
+
 class ConnectionDatasetTreeCoordinator final : public QObject {
     Q_OBJECT
 public:
 
     explicit ConnectionDatasetTreeCoordinator(ConnectionDatasetTreePane* pane,
-                                              ConnectionDatasetTreeDelegate* delegate,
+                                              ConnectionDatasetTreeDomainAdapter* delegate,
                                               QObject* parent = nullptr);
 
     ConnectionDatasetTreePane* pane() const;
@@ -41,6 +43,6 @@ private:
     void wireController();
 
     ConnectionDatasetTreePane* m_pane{nullptr};
-    ConnectionDatasetTreeDelegate* m_delegate{nullptr};
+    ConnectionDatasetTreeDomainAdapter* m_delegate{nullptr};
     ConnectionDatasetTreeController* m_controller{nullptr};
 };

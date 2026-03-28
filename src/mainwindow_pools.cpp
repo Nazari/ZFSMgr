@@ -1216,12 +1216,17 @@ void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteL
     const bool cacheHit = loadFromCache();
 
     if (!forceRefresh && cacheHit) {
-        if (m_connContentTree) {
-            QTreeWidgetItem* sel = m_connContentTree->currentItem();
-            if (sel && sel->data(0, kIsPoolRootRole).toBool()) {
-                syncConnContentPoolColumns();
+        auto syncTreeIfPoolRootSelected = [this](QTreeWidget* tree) {
+            if (!tree) {
+                return;
             }
-        }
+            QTreeWidgetItem* sel = tree->currentItem();
+            if (sel && sel->data(0, kIsPoolRootRole).toBool()) {
+                syncConnContentPoolColumnsFor(tree, connContentTokenForTree(tree));
+            }
+        };
+        syncTreeIfPoolRootSelected(m_connContentTree);
+        syncTreeIfPoolRootSelected(m_bottomConnContentTree);
         setTablePopulationMode(m_poolPropsTable, false);
         return;
     }
@@ -1251,11 +1256,16 @@ void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteL
     }
     m_poolStatusText->setPlainText(loaded->statusText);
     applyPoolRootTooltipToVisibleTrees(idx, poolName, loaded->statusText);
-    if (m_connContentTree) {
-        QTreeWidgetItem* sel = m_connContentTree->currentItem();
-        if (sel && sel->data(0, kIsPoolRootRole).toBool()) {
-            syncConnContentPoolColumns();
+    auto syncTreeIfPoolRootSelected = [this](QTreeWidget* tree) {
+        if (!tree) {
+            return;
         }
-    }
+        QTreeWidgetItem* sel = tree->currentItem();
+        if (sel && sel->data(0, kIsPoolRootRole).toBool()) {
+            syncConnContentPoolColumnsFor(tree, connContentTokenForTree(tree));
+        }
+    };
+    syncTreeIfPoolRootSelected(m_connContentTree);
+    syncTreeIfPoolRootSelected(m_bottomConnContentTree);
     setTablePopulationMode(m_poolPropsTable, false);
 }

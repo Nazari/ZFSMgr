@@ -80,7 +80,7 @@ void MainWindow::actionAdvancedCreateFromDir() {
     if (actionsLocked()) {
         return;
     }
-    const DatasetSelectionContext curr = currentDatasetSelection(QStringLiteral("conncontent"));
+    const DatasetSelectionContext curr = currentConnContentSelection(m_connContentTree);
     if (!curr.valid || curr.datasetName.isEmpty() || !curr.snapshotName.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_advdir_auto001"), QStringLiteral("Seleccione un dataset en Avanzado."),
@@ -659,7 +659,7 @@ void MainWindow::actionAdvancedToDir() {
     if (actionsLocked()) {
         return;
     }
-    const DatasetSelectionContext curr = currentDatasetSelection(QStringLiteral("conncontent"));
+    const DatasetSelectionContext curr = currentConnContentSelection(m_connContentTree);
     if (!curr.valid || curr.datasetName.isEmpty() || !curr.snapshotName.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_advdir_auto025"), QStringLiteral("Seleccione un dataset en Avanzado."),

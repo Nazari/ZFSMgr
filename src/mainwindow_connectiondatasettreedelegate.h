@@ -8,7 +8,7 @@ class QAction;
 class MainWindow;
 class QMenu;
 
-class MainWindowConnectionDatasetTreeDelegate final : public QObject, public ConnectionDatasetTreeDelegate {
+class MainWindowConnectionDatasetTreeDelegate final : public QObject, public ConnectionDatasetTreeDomainAdapter {
     Q_OBJECT
 public:
     explicit MainWindowConnectionDatasetTreeDelegate(MainWindow* mainWindow,

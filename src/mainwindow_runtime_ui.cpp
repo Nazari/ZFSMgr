@@ -187,7 +187,6 @@ void MainWindow::setActionsLocked(bool locked) {
     };
 
     if (locked) {
-        captureTabSelection(m_connectionEntityTabs, m_pendingRefreshTopTabDataByConn);
         captureTabSelection(m_bottomConnectionEntityTabs, m_pendingRefreshBottomTabDataByConn);
     }
 
@@ -218,9 +217,7 @@ void MainWindow::setActionsLocked(bool locked) {
         m_connPropsDeleteBtn->setEnabled(!locked && can);
     }
     if (!locked) {
-        restoreTabSelection(m_connectionEntityTabs, m_pendingRefreshTopTabDataByConn, m_topDetailConnIdx);
         restoreTabSelection(m_bottomConnectionEntityTabs, m_pendingRefreshBottomTabDataByConn, m_bottomDetailConnIdx);
-        m_pendingRefreshTopTabDataByConn.remove(m_topDetailConnIdx);
         m_pendingRefreshBottomTabDataByConn.remove(m_bottomDetailConnIdx);
         m_activeConnActionBtn = nullptr;
         m_activeConnActionName.clear();
