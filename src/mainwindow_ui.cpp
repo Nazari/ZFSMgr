@@ -1396,9 +1396,6 @@ void MainWindow::buildUi() {
     auto* leftLayout = new QVBoxLayout(leftPane);
     leftLayout->setContentsMargins(0, 0, 0, 0);
     leftLayout->setSpacing(4);
-    m_leftTabs = new QTabWidget(leftPane);
-    m_leftTabs->setDocumentMode(false);
-    m_leftTabs->setTabPosition(QTabWidget::North);
     // Anchura fija basada en el texto real de botones para evitar solapes en macOS.
     const QFontMetrics fm(font());
     const int btnTextWidth = qMax(
@@ -1744,7 +1741,6 @@ void MainWindow::buildUi() {
     m_btnAdvancedFromDir = nullptr;
     m_btnAdvancedToDir = nullptr;
 
-    m_leftTabs->hide();
     leftLayout->addWidget(connectionsTab, 1);
 
     auto* rightPane = new QWidget(m_topMainSplit);
@@ -1771,7 +1767,6 @@ void MainWindow::buildUi() {
     auto* poolDetailLayout = new QVBoxLayout(m_poolDetailTabs);
     poolDetailLayout->setContentsMargins(3, 3, 3, 3);
     poolDetailLayout->setSpacing(0);
-    m_connectionEntityTabs = nullptr;
     auto* detailContainer = new QFrame(m_poolDetailTabs);
     detailContainer->setObjectName(QStringLiteral("zfsmgrDetailContainer"));
     detailContainer->setFrameShape(QFrame::NoFrame);
@@ -1992,13 +1987,6 @@ void MainWindow::buildUi() {
     auto* bottomConnBox = new QWidget(m_rightMainSplit);
     auto* bottomConnLayout = new QVBoxLayout(bottomConnBox);
     bottomConnLayout->setContentsMargins(6, 6, 6, 6);
-    m_bottomConnectionEntityTabs = new QTabBar(bottomConnBox);
-    m_bottomConnectionEntityTabs->setObjectName(QStringLiteral("zfsmgrEntityTabsBottom"));
-    m_bottomConnectionEntityTabs->setExpanding(false);
-    m_bottomConnectionEntityTabs->setDrawBase(false);
-    m_bottomConnectionEntityTabs->setUsesScrollButtons(true);
-    m_bottomConnectionEntityTabs->setVisible(false);
-    bottomConnLayout->addWidget(m_bottomConnectionEntityTabs, 0);
     delete m_bottomConnContentDelegate;
     m_bottomConnContentDelegate = new MainWindowConnectionDatasetTreeDelegate(this, this);
     ConnectionDatasetTreeWidget::Config bottomTreeConfig;
@@ -2417,20 +2405,6 @@ void MainWindow::buildUi() {
             m_userSelectedConnectionKey = m_profiles[connIdx].name.trimmed().toLower();
         }
     });
-    if (m_connectionEntityTabs) {
-        connect(m_connectionEntityTabs, &QTabBar::currentChanged, this, [this](int idx) {
-            Q_UNUSED(idx);
-            // El árbol superior ya no debe reconstruirse por pestaña/pool individual.
-            // Se mantiene el tab bar solo por compatibilidad visual residual.
-        });
-    }
-    if (m_bottomConnectionEntityTabs) {
-        connect(m_bottomConnectionEntityTabs, &QTabBar::currentChanged, this, [this](int idx) {
-            Q_UNUSED(idx);
-            // El árbol inferior ya no debe reconstruirse por pestaña/pool individual.
-            // Se mantiene el tab bar solo por compatibilidad visual residual.
-        });
-    }
     auto connTokenFromTreeSelectionBottom = [this](QTreeWidget* tree) -> QString {
         if (!tree) {
             return QString();

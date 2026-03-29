@@ -333,8 +333,6 @@ void MainWindow::saveUiSettings() const {
 }
 
 void MainWindow::applyLanguageLive() {
-    const int leftTabIndex = m_leftTabs ? m_leftTabs->currentIndex() : 0;
-
     QString selectedConnId;
     if (m_connectionsTable) {
         const int idx = connectionIndexFromTable(m_connectionsTable);
@@ -391,10 +389,5 @@ void MainWindow::applyLanguageLive() {
             m_connectionsTable->setCurrentCell(row, 0);
         }
     }
-    if (m_leftTabs) {
-        const int idx = qBound(0, leftTabIndex, m_leftTabs->count() - 1);
-        m_leftTabs->setCurrentIndex(idx);
-    }
-
     updateConnectionActionsState();
 }

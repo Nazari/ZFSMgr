@@ -1740,21 +1740,7 @@ void MainWindow::rebuildConnContentTreeForTest(const QString& datasetToSelect, b
     if (!tree) {
         return;
     }
-    const QString token = [&]() -> QString {
-        if (!bottom) {
-            return connContentTokenForTree(tree);
-        }
-        const int bIdx = m_bottomConnectionEntityTabs ? m_bottomConnectionEntityTabs->currentIndex() : -1;
-        if (bIdx < 0 || !m_bottomConnectionEntityTabs || bIdx >= m_bottomConnectionEntityTabs->count()) {
-            return QString();
-        }
-        const QString key = m_bottomConnectionEntityTabs->tabData(bIdx).toString();
-        const QStringList parts = key.split(':');
-        if (parts.size() < 3 || parts.first() != QStringLiteral("pool")) {
-            return QString();
-        }
-        return QStringLiteral("%1::%2").arg(parts.value(1)).arg(parts.value(2).trimmed());
-    }();
+    const QString token = connContentTokenForTree(tree);
     const int sep = token.indexOf(QStringLiteral("::"));
     if (sep <= 0) {
         return;

@@ -178,36 +178,7 @@ void MainWindow::invalidatePoolDetailsCacheForConnection(int connIdx) {
 }
 
 int MainWindow::selectedPoolRowFromTabs() const {
-    if (!m_connectionsTable || !m_connectionEntityTabs) {
-        return -1;
-    }
-    const int selectedConnIdx = selectedConnectionIndexFromTable(m_connectionsTable);
-    if (selectedConnIdx < 0 || selectedConnIdx >= m_profiles.size()) {
-        return -1;
-    }
-    const int tabIdx = m_connectionEntityTabs->currentIndex();
-    if (tabIdx < 0 || tabIdx >= m_connectionEntityTabs->count()) {
-        return -1;
-    }
-    const QString key = m_connectionEntityTabs->tabData(tabIdx).toString();
-    const QStringList parts = key.split(':');
-    if (parts.size() < 3 || parts.first() != QStringLiteral("pool")) {
-        return -1;
-    }
-    bool ok = false;
-    const int connIdx = parts.value(1).toInt(&ok);
-    if (!ok || connIdx < 0 || connIdx >= m_profiles.size()) {
-        return -1;
-    }
-    if (connIdx != selectedConnIdx) {
-        return -1;
-    }
-    const QString connName = m_profiles[connIdx].name.trimmed();
-    const QString poolName = parts.value(2).trimmed();
-    if (connName.isEmpty() || poolName.isEmpty()) {
-        return -1;
-    }
-    return findPoolRow(connName, poolName);
+    return -1;
 }
 
 void MainWindow::exportPoolFromRow(int row) {

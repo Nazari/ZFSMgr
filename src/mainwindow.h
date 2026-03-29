@@ -906,7 +906,6 @@ private:
 
     QTableWidget* m_connectionsTable{nullptr};
     QPushButton* m_connectivityMatrixBtn{nullptr};
-    QTabWidget* m_leftTabs{nullptr};
     QTabWidget* m_rightTabs{nullptr};
 
     QGroupBox* m_poolMgmtBox{nullptr};
@@ -931,7 +930,6 @@ private:
 
     QVector<PoolListEntry> m_poolListEntries;
     QWidget* m_poolDetailTabs{nullptr};
-    QTabBar* m_connectionEntityTabs{nullptr};
     bool m_updatingConnectionEntityTabs{false};
     QString m_lastConnectionSelectionKey;
     QTabBar* m_poolViewTabBar{nullptr};
@@ -971,7 +969,6 @@ private:
     QByteArray m_connDetailSplitState;
     QByteArray m_verticalMainSplitState;
     QByteArray m_bottomInfoSplitState;
-    QMap<int, QString> m_pendingRefreshBottomTabDataByConn;
     QMap<int, QSet<QString>> m_savedTopExpandedKeysByConn;
     QMap<int, QString> m_savedTopSelectedKeyByConn;
     QMap<int, QSet<QString>> m_savedBottomExpandedKeysByConn;
@@ -989,7 +986,6 @@ private:
     bool m_syncConnSelectorChecks{false};
     bool m_rebuildingTopConnContentTree{false};
     bool m_rebuildingBottomConnContentTree{false};
-    QTabBar* m_bottomConnectionEntityTabs{nullptr};
     ConnectionDatasetTreeWidget* m_bottomDatasetTreeWidget{nullptr};
     ConnectionDatasetTreePane* m_bottomDatasetPane{nullptr};
     MainWindowConnectionDatasetTreeDelegate* m_bottomConnContentDelegate{nullptr};

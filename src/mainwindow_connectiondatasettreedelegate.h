@@ -41,6 +41,7 @@ private:
         QAction* history{nullptr};
         QAction* sync{nullptr};
         QAction* scrub{nullptr};
+        QAction* upgrade{nullptr};
         QAction* reguid{nullptr};
         QAction* trim{nullptr};
         QAction* initialize{nullptr};

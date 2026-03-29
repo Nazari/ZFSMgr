@@ -2131,15 +2131,6 @@ void MainWindow::refreshSelectedConnection() {
     if (idx < 0 || idx >= m_profiles.size() || isConnectionDisconnected(idx)) {
         return;
     }
-    if (m_bottomConnectionEntityTabs && m_bottomConnectionEntityTabs->isVisible()) {
-        const int t = m_bottomConnectionEntityTabs->currentIndex();
-        if (t >= 0 && t < m_bottomConnectionEntityTabs->count()) {
-            const QString key = m_bottomConnectionEntityTabs->tabData(t).toString();
-            if (key.startsWith(QStringLiteral("pool:%1:").arg(idx))) {
-                m_pendingRefreshBottomTabDataByConn[idx] = key;
-            }
-        }
-    }
     const int generation = ++m_refreshGeneration;
     m_refreshPending = 1;
     m_refreshTotal = 1;
@@ -2209,18 +2200,6 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
     cachePoolStatusTextsForConnection(targetIdx, state);
     rebuildConnInfoFor(targetIdx);
     rebuildConnectionsTable();
-    if (m_bottomConnectionEntityTabs) {
-        const QString wantedBottom = m_pendingRefreshBottomTabDataByConn.value(targetIdx);
-        if (!wantedBottom.isEmpty()) {
-            for (int t = 0; t < m_bottomConnectionEntityTabs->count(); ++t) {
-                if (m_bottomConnectionEntityTabs->tabData(t).toString() == wantedBottom) {
-                    m_bottomConnectionEntityTabs->setCurrentIndex(t);
-                    break;
-                }
-            }
-        }
-    }
-    m_pendingRefreshBottomTabDataByConn.remove(targetIdx);
     if (selectedIdx >= 0 && m_connectionsTable) {
         const int row = rowForConnectionIndex(m_connectionsTable, selectedIdx);
         if (row >= 0) {
@@ -2677,55 +2656,20 @@ void MainWindow::refreshConnectionNodeDetails() {
 
     // Modo sin tabs de pools: el contenido se muestra directamente en el árbol
     // (múltiples raíces de pool). No vaciar ni repoblar aquí por "pool activo".
-    if (!m_connectionEntityTabs || !m_connectionEntityTabs->isVisible()) {
-        if (m_connPropsStack && m_connContentPage) {
-            m_connPropsStack->setCurrentWidget(m_connContentPage);
-        }
-        if (m_connBottomGroup) {
-            m_connBottomGroup->setVisible(false);
-        }
-        if (m_connDetailSplit) {
-            m_connDetailSplit->setSizes({1, 0});
-        }
-        setConnectionActionButtonsVisible(false);
-        setPoolActionButtonsVisible(false);
-        updateConnectionActionsState();
-        updateConnectionDetailTitlesForCurrentSelection();
-        return;
-    }
-
-    setConnectionActionButtonsVisible(false);
-    setPoolActionButtonsVisible(false);
-    if (m_poolViewTabBar) {
-        m_poolViewTabBar->setVisible(false);
-        m_poolViewTabBar->setCurrentIndex(0);
-        m_poolViewTabBar->setTabData(0, QVariant());
-        m_poolViewTabBar->setTabData(1, QVariant());
-    }
-    const QString topConnContentToken = connContentTokenForTree(m_connContentTree);
-    if (!topConnContentToken.isEmpty()) {
-        saveConnContentTreeState(m_connContentTree, topConnContentToken);
-    }
     if (m_connPropsStack && m_connContentPage) {
         m_connPropsStack->setCurrentWidget(m_connContentPage);
     }
     if (m_connBottomGroup) {
-        m_connBottomGroup->setVisible(true);
+        m_connBottomGroup->setVisible(false);
     }
     if (m_connDetailSplit) {
         m_connDetailSplit->setSizes({1, 0});
     }
-    resetPoolActionButtons();
-    if (m_poolPropsTable) {
-        setTablePopulationMode(m_poolPropsTable, true);
-        m_poolPropsTable->setRowCount(0);
-        setTablePopulationMode(m_poolPropsTable, false);
-    }
-    if (m_poolStatusText) {
-        m_poolStatusText->clear();
-    }
+    setConnectionActionButtonsVisible(false);
+    setPoolActionButtonsVisible(false);
     updateConnectionActionsState();
     updateConnectionDetailTitlesForCurrentSelection();
+    return;
 }
 
 void MainWindow::updateConnectionDetailTitlesForCurrentSelection() {
@@ -2800,15 +2744,6 @@ void MainWindow::refreshConnectionByIndex(int idx) {
         m_pendingBottomExpandedKeysByConn[idx] = expandedKeys;
         m_pendingBottomSelectedKeyByConn[idx] = selectedKey;
     }
-    if (m_bottomConnectionEntityTabs) {
-        const int t = m_bottomConnectionEntityTabs->currentIndex();
-        if (t >= 0 && t < m_bottomConnectionEntityTabs->count()) {
-            const QString key = m_bottomConnectionEntityTabs->tabData(t).toString();
-            if (key.startsWith(QStringLiteral("pool:%1:").arg(idx))) {
-                m_pendingRefreshBottomTabDataByConn[idx] = key;
-            }
-        }
-    }
     const QString topTreeToken = connContentTokenForTree(m_connContentTree);
     if (!topTreeToken.isEmpty() && m_connContentTree) {
         saveConnContentTreeState(m_connContentTree, topTreeToken);
@@ -2816,33 +2751,6 @@ void MainWindow::refreshConnectionByIndex(int idx) {
     const QString bottomTreeToken = connContentTokenForTree(m_bottomConnContentTree);
     if (!bottomTreeToken.isEmpty() && m_bottomConnContentTree) {
         saveConnContentTreeState(m_bottomConnContentTree, bottomTreeToken);
-    }
-    if (m_bottomConnContentTree && m_bottomConnectionEntityTabs
-        && m_bottomConnectionEntityTabs->isVisible() && idx == m_bottomDetailConnIdx) {
-        QTreeWidgetItem* owner = m_bottomConnContentTree->currentItem();
-        if (!owner && m_bottomConnContentTree->topLevelItemCount() > 0) {
-            owner = m_bottomConnContentTree->topLevelItem(0);
-        }
-        while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
-               && !owner->data(0, kIsPoolRootRole).toBool()) {
-            owner = owner->parent();
-        }
-        if (owner) {
-            const QString ownerKey = connTreeNodeKey(owner);
-            QString poolName;
-            if (ownerKey.startsWith(QStringLiteral("pool:"))) {
-                poolName = ownerKey.mid(5).trimmed();
-            } else if (ownerKey.startsWith(QStringLiteral("info:"))) {
-                poolName = ownerKey.mid(5).trimmed();
-            } else if (ownerKey.startsWith(QStringLiteral("ds:"))) {
-                const SnapshotKeyParts keyParts = parseSnapshotKey(ownerKey);
-                poolName = keyParts.pool.trimmed();
-            }
-            if (!poolName.isEmpty()) {
-                const QString bottomToken = QStringLiteral("%1::%2").arg(idx).arg(poolName);
-                saveConnContentTreeStateFor(m_bottomConnContentTree, bottomToken);
-            }
-        }
     }
     // Al refrescar una conexión, invalidar toda la caché asociada a todos sus pools.
     {
@@ -2872,18 +2780,6 @@ void MainWindow::refreshConnectionByIndex(int idx) {
     cachePoolStatusTextsForConnection(idx, m_states[idx]);
     rebuildConnInfoFor(idx);
     rebuildConnectionsTable();
-    if (m_bottomConnectionEntityTabs && m_bottomConnectionEntityTabs->isVisible()) {
-        const QString wantedBottom = m_pendingRefreshBottomTabDataByConn.value(idx);
-        if (!wantedBottom.isEmpty()) {
-            for (int t = 0; t < m_bottomConnectionEntityTabs->count(); ++t) {
-                if (m_bottomConnectionEntityTabs->tabData(t).toString() == wantedBottom) {
-                    m_bottomConnectionEntityTabs->setCurrentIndex(t);
-                    break;
-                }
-            }
-        }
-    }
-    m_pendingRefreshBottomTabDataByConn.remove(idx);
     populateAllPoolsTables();
 }
 void MainWindow::loadConnections() {
@@ -4687,7 +4583,6 @@ void MainWindow::deleteConnection() {
     m_refreshTotal = 0;
     m_refreshInProgress = false;
     updateConnectivityMatrixButtonState();
-    m_pendingRefreshBottomTabDataByConn.clear();
     updateBusyCursor();
     loadConnections();
 }

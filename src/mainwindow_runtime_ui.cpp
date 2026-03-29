@@ -27,8 +27,6 @@ MainWindow::~MainWindow() {
     };
 
     quiesceObject(m_connectionsTable);
-    quiesceObject(m_connectionEntityTabs);
-    quiesceObject(m_bottomConnectionEntityTabs);
     quiesceObject(m_connContentTree);
     quiesceObject(m_bottomConnContentTree);
     quiesceObject(m_poolViewTabBar);
@@ -184,46 +182,6 @@ void MainWindow::updateConnectivityMatrixButtonState() {
 }
 
 void MainWindow::setActionsLocked(bool locked) {
-    auto captureTabSelection = [this](QTabBar* tabs, QMap<int, QString>& outMap) {
-        if (!tabs) {
-            return;
-        }
-        const int t = tabs->currentIndex();
-        if (t < 0 || t >= tabs->count()) {
-            return;
-        }
-        const QString key = tabs->tabData(t).toString();
-        const QStringList parts = key.split(':');
-        if (parts.size() < 3 || parts.value(0) != QStringLiteral("pool")) {
-            return;
-        }
-        bool ok = false;
-        const int connIdx = parts.value(1).toInt(&ok);
-        if (!ok || connIdx < 0) {
-            return;
-        }
-        outMap[connIdx] = key;
-    };
-    auto restoreTabSelection = [this](QTabBar* tabs, QMap<int, QString>& map, int connIdx) {
-        if (!tabs || connIdx < 0) {
-            return;
-        }
-        const QString wanted = map.value(connIdx).trimmed();
-        if (wanted.isEmpty()) {
-            return;
-        }
-        for (int i = 0; i < tabs->count(); ++i) {
-            if (tabs->tabData(i).toString() == wanted) {
-                tabs->setCurrentIndex(i);
-                break;
-            }
-        }
-    };
-
-    if (locked) {
-        captureTabSelection(m_bottomConnectionEntityTabs, m_pendingRefreshBottomTabDataByConn);
-    }
-
     m_actionsLocked = locked;
     updateBusyCursor();
     if (m_menuExitAction) {
@@ -251,8 +209,6 @@ void MainWindow::setActionsLocked(bool locked) {
         m_connPropsDeleteBtn->setEnabled(!locked && can);
     }
     if (!locked) {
-        restoreTabSelection(m_bottomConnectionEntityTabs, m_pendingRefreshBottomTabDataByConn, m_bottomDetailConnIdx);
-        m_pendingRefreshBottomTabDataByConn.remove(m_bottomDetailConnIdx);
         m_activeConnActionBtn = nullptr;
         m_activeConnActionName.clear();
         updateApplyPropsButtonState();
