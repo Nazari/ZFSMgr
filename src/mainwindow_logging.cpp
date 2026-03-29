@@ -361,6 +361,10 @@ void MainWindow::appLog(const QString& level, const QString& msg) {
     appendLogToNative(level, line);
 }
 
+void MainWindow::debugTrace(const QString& msg) {
+    appLog(QStringLiteral("DEBUG"), msg);
+}
+
 void MainWindow::appendAppLogLineToView(const QString& fullLine) {
     if (!m_logView) {
         return;

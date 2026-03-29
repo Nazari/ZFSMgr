@@ -2,7 +2,10 @@
 
 #include <QAbstractItemView>
 #include <QApplication>
+#include <QContextMenuEvent>
+#include <QEvent>
 #include <QHeaderView>
+#include <QMouseEvent>
 #include <QPointer>
 #include <QScrollBar>
 #include <QStyle>
@@ -40,14 +43,38 @@ ConnectionDatasetTreePane::ConnectionDatasetTreePane(Role role, QWidget* parent)
     connect(m_tree, &QTreeWidget::itemCollapsed, this, &ConnectionDatasetTreePane::itemCollapsed);
     connect(m_tree, &QTreeWidget::itemSelectionChanged, this, &ConnectionDatasetTreePane::selectionChanged);
     connect(m_tree, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        m_contextMenuGestureActive = false;
         Q_EMIT contextMenuRequested(pos, m_tree ? m_tree->itemAt(pos) : nullptr);
     });
+    if (m_tree->viewport()) {
+        m_tree->viewport()->installEventFilter(this);
+    }
     if (QHeaderView* header = m_tree->header()) {
         connect(header, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
             const int logicalIndex = (m_tree && m_tree->header()) ? m_tree->header()->logicalIndexAt(pos) : -1;
             Q_EMIT headerContextMenuRequested(pos, logicalIndex);
         });
     }
+}
+
+bool ConnectionDatasetTreePane::eventFilter(QObject* watched, QEvent* event) {
+    if (m_tree && watched == m_tree->viewport() && event) {
+        if (event->type() == QEvent::MouseButtonPress) {
+            auto* me = static_cast<QMouseEvent*>(event);
+            if (me && me->button() == Qt::RightButton) {
+                m_contextMenuGestureActive = true;
+                const QPoint pos = me->position().toPoint();
+                Q_EMIT contextMenuGestureStarted(pos, m_tree->itemAt(pos));
+            }
+        } else if (event->type() == QEvent::ContextMenu) {
+            auto* ce = static_cast<QContextMenuEvent*>(event);
+            if (ce && !m_contextMenuGestureActive) {
+                const QPoint pos = ce->pos();
+                Q_EMIT contextMenuGestureStarted(pos, m_tree->itemAt(pos));
+            }
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 ConnectionDatasetTreePane::Role ConnectionDatasetTreePane::role() const {

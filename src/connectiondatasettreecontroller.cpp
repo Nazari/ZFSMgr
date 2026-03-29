@@ -52,6 +52,11 @@ void ConnectionDatasetTreeController::wireSignals() {
             m_callbacks.itemCollapsed(item);
         }
     });
+    connect(m_pane, &ConnectionDatasetTreePane::contextMenuGestureStarted, this, [this](const QPoint& pos, QTreeWidgetItem* item) {
+        if (m_callbacks.contextMenuGestureStarted) {
+            m_callbacks.contextMenuGestureStarted(pos, item);
+        }
+    });
     connect(m_pane, &ConnectionDatasetTreePane::contextMenuRequested, this, [this](const QPoint& pos, QTreeWidgetItem* item) {
         if (m_callbacks.contextMenuRequested) {
             m_callbacks.contextMenuRequested(pos, item);

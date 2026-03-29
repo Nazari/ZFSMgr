@@ -85,6 +85,7 @@ public:
                                            const QString& objectName,
                                            const QString& datasetType,
                                            const QVector<UiTestPropertySeed>& rows);
+    void debugTrace(const QString& msg);
     QStringList topLevelPoolNamesForTest(bool bottom = false) const;
     QStringList childLabelsForDatasetForTest(const QString& datasetName, bool bottom = false) const;
     QStringList snapshotNamesForDatasetForTest(const QString& datasetName, bool bottom = false) const;
@@ -633,8 +634,22 @@ private:
     bool ensureDatasetPermissionsLoaded(int connIdx, const QString& poolName, const QString& datasetName);
     bool ensurePoolDetailsLoaded(int connIdx, const QString& poolName);
     const PoolDetailsCacheEntry* poolDetailsEntry(int connIdx, const QString& poolName) const;
+    void schedulePoolDetailsLoad(int connIdx, const QString& poolName);
+    void applyPoolDetailsLoadResult(int connIdx,
+                                    const QString& poolName,
+                                    bool ok,
+                                    const PoolDetailsCacheEntry& fresh,
+                                    const QString& errorText);
     bool ensurePoolAutoSnapshotInfoLoaded(int connIdx, const QString& poolName);
     QMap<QString, QMap<QString, QString>> poolAutoSnapshotPropsByDataset(int connIdx, const QString& poolName) const;
+    void invalidatePoolAutoSnapshotInfoForConnection(int connIdx);
+    void preloadPoolAutoSnapshotInfoForConnection(int connIdx);
+    void schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& poolName);
+    void applyPoolAutoSnapshotInfoLoadResult(int connIdx,
+                                             const QString& poolName,
+                                             bool ok,
+                                             const QString& errorText,
+                                             const QMap<QString, QMap<QString, QString>>& loaded);
     bool ensureDatasetSnapshotHoldsLoaded(int connIdx, const QString& poolName, const QString& objectName);
     QVector<QPair<QString, QString>> datasetSnapshotHolds(int connIdx, const QString& poolName, const QString& objectName) const;
     void invalidateDatasetPermissionsCacheForPool(int connIdx, const QString& poolName);
@@ -1075,4 +1090,6 @@ private:
     QAction* m_confirmActionsMenuAction{nullptr};
     QString m_activeConnActionName;
     bool m_syncingConnContentColumns{false};
+    QSet<QString> m_poolDetailsLoadsInFlight;
+    QSet<QString> m_poolAutoSnapshotLoadsInFlight;
 };

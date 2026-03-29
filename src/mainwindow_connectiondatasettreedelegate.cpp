@@ -7,8 +7,11 @@
 #include <QAction>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QElapsedTimer>
+#include <QEventLoop>
 #include <QFormLayout>
 #include <QInputDialog>
 #include <QLabel>
@@ -63,6 +66,23 @@ int connectionTableRowForIndex(QTableWidget* table, int connIdx) {
         }
     }
     return -1;
+}
+
+void logContextMenuPerf(MainWindow* mw,
+                        const QString& phase,
+                        const QString& extra,
+                        qint64 elapsedMs = -1) {
+    if (!mw) {
+        return;
+    }
+    QString msg = QStringLiteral("Context menu %1").arg(phase);
+    if (elapsedMs >= 0) {
+        msg += QStringLiteral(" (%1 ms)").arg(elapsedMs);
+    }
+    if (!extra.trimmed().isEmpty()) {
+        msg += QStringLiteral(": %1").arg(extra.trimmed());
+    }
+    mw->debugTrace(msg);
 }
 }
 
@@ -1273,7 +1293,15 @@ void MainWindowConnectionDatasetTreeDelegate::itemCollapsed(QTreeWidget* tree, Q
 void MainWindowConnectionDatasetTreeDelegate::beforeContextMenu(QTreeWidget* tree) {
     Q_UNUSED(tree);
     if (m_mainWindow) {
+        QElapsedTimer timer;
+        timer.start();
+        m_mainWindow->beginUiBusy();
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 25);
         m_mainWindow->updateConnectionActionsState();
+        logContextMenuPerf(m_mainWindow,
+                           QStringLiteral("beforeContextMenu"),
+                           QStringLiteral("busy entered"),
+                           timer.elapsed());
     }
 }
 
@@ -1284,6 +1312,8 @@ bool MainWindowConnectionDatasetTreeDelegate::handleAutoSnapshotsMenu(QTreeWidge
         return false;
     }
     const QString autoSnapshotDataset = item->data(0, kConnPoolAutoSnapshotsDatasetRole).toString().trimmed();
+    QElapsedTimer timer;
+    timer.start();
     bool insideAutoSnapshots = false;
     for (QTreeWidgetItem* p = item; p; p = p->parent()) {
         if (p->data(0, kConnPoolAutoSnapshotsNodeRole).toBool()) {
@@ -1292,6 +1322,10 @@ bool MainWindowConnectionDatasetTreeDelegate::handleAutoSnapshotsMenu(QTreeWidge
         }
     }
     if (!insideAutoSnapshots) {
+        logContextMenuPerf(m_mainWindow,
+                           QStringLiteral("autoSnapshots.skip"),
+                           QStringLiteral("outside auto-snapshots"),
+                           timer.elapsed());
         return false;
     }
     if (autoSnapshotDataset.isEmpty()) {
@@ -1300,6 +1334,10 @@ bool MainWindowConnectionDatasetTreeDelegate::handleAutoSnapshotsMenu(QTreeWidge
     const int connIdx = item->data(0, kConnIdxRole).toInt();
     const QString poolName = item->data(0, kPoolNameRole).toString().trimmed();
     if (connIdx < 0 || connIdx >= m_mainWindow->m_profiles.size() || poolName.isEmpty()) {
+        logContextMenuPerf(m_mainWindow,
+                           QStringLiteral("autoSnapshots.fallback"),
+                           QStringLiteral("invalid pool context"),
+                           timer.elapsed());
         return true;
     }
     const QStringList gsaProps = {
@@ -1315,6 +1353,12 @@ bool MainWindowConnectionDatasetTreeDelegate::handleAutoSnapshotsMenu(QTreeWidge
     };
     QMenu autoMenu(m_mainWindow);
     QAction* aDeleteSchedule = autoMenu.addAction(QStringLiteral("Borrar programación"));
+    m_mainWindow->endUiBusy();
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 25);
+    logContextMenuPerf(m_mainWindow,
+                       QStringLiteral("autoSnapshots.exec"),
+                       QStringLiteral("dataset=%1").arg(autoSnapshotDataset),
+                       timer.elapsed());
     QAction* picked = autoMenu.exec(tree->viewport()->mapToGlobal(pos));
     if (picked != aDeleteSchedule) {
         return true;
@@ -1334,6 +1378,8 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
                                                                     QTreeWidgetItem* item,
                                                                     const QPoint& pos) {
     Q_UNUSED(isBottom);
+    QElapsedTimer timer;
+    timer.start();
     if (!m_mainWindow || !tree || !item) {
         return false;
     }
@@ -1545,6 +1591,10 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
 
     QTreeWidgetItem* permNode = permissionNodeItem(item);
     if (!permNode) {
+        logContextMenuPerf(m_mainWindow,
+                           QStringLiteral("permissions.skip"),
+                           QStringLiteral("not a permissions node"),
+                           timer.elapsed());
         return false;
     }
     QTreeWidgetItem* owner = ownerItemForNode(item);
@@ -1600,6 +1650,12 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
         aRenameSet = permMenu.addAction(QStringLiteral("Renombrar conjunto de permisos"));
         aDeleteSet = permMenu.addAction(QStringLiteral("Eliminar set"));
     }
+    m_mainWindow->endUiBusy();
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 25);
+    logContextMenuPerf(m_mainWindow,
+                       QStringLiteral("permissions.exec"),
+                       QStringLiteral("kind=%1").arg(kind),
+                       timer.elapsed());
     QAction* picked = permMenu.exec(tree->viewport()->mapToGlobal(pos));
     if (!picked) {
         return true;
@@ -1860,10 +1916,12 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     if (!m_mainWindow || !tree || !item) {
         return;
     }
-    m_mainWindow->beginUiBusy();
+    QElapsedTimer timer;
+    timer.start();
     const auto endBusy = [this]() {
         if (m_mainWindow) {
             m_mainWindow->endUiBusy();
+            QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 25);
         }
     };
     int connIdx = item->data(0, kConnIdxRole).toInt();
@@ -1886,6 +1944,10 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     const bool isPoolInfoContext = isInfoNodeOrInside(item);
 
     if (isConnectionRoot) {
+        logContextMenuPerf(m_mainWindow,
+                           QStringLiteral("general.redirect"),
+                           QStringLiteral("connection root connIdx=%1").arg(connIdx),
+                           timer.elapsed());
         endBusy();
         m_mainWindow->showConnectionContextMenu(connIdx, tree->viewport()->mapToGlobal(pos));
         return;
@@ -1924,6 +1986,10 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     if (isPoolInfoContext) {
         const InlineVisibilityMenuActions inlineActions =
             buildInlineVisibilityMenu(menu, tree, true, true, true);
+        logContextMenuPerf(m_mainWindow,
+                           QStringLiteral("general.poolInfo.exec"),
+                           QStringLiteral("conn=%1 pool=%2").arg(connIdx).arg(poolName),
+                           timer.elapsed());
         endBusy();
         QAction* picked = menu.exec(tree->viewport()->mapToGlobal(pos));
         if (picked == inlineActions.manage) {
@@ -2102,6 +2168,14 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         aSelectOrigin->setEnabled(hasConnSel);
         aSelectDestination->setEnabled(hasConnSel);
 
+        logContextMenuPerf(m_mainWindow,
+                           QStringLiteral("general.exec"),
+                           QStringLiteral("conn=%1 pool=%2 dataset=%3 snapshot=%4")
+                               .arg(connIdx)
+                               .arg(poolName)
+                               .arg(ctx.datasetName)
+                               .arg(ctx.snapshotName),
+                           timer.elapsed());
         endBusy();
         QAction* picked = menu.exec(tree->viewport()->mapToGlobal(pos));
         if (!picked) {

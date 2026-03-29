@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QPoint>
 #include <QTreeWidget>
 #include <QWidget>
 
@@ -42,14 +43,17 @@ Q_SIGNALS:
     void itemExpanded(QTreeWidgetItem* item);
     void itemCollapsed(QTreeWidgetItem* item);
     void selectionChanged();
+    void contextMenuGestureStarted(const QPoint& pos, QTreeWidgetItem* item);
     void contextMenuRequested(const QPoint& pos, QTreeWidgetItem* item);
     void headerContextMenuRequested(const QPoint& pos, int logicalColumn);
 
 private:
+    bool eventFilter(QObject* watched, QEvent* event) override;
     void configureTree();
     void updateHeaders();
 
     Role m_role;
     QTreeWidget* m_tree{nullptr};
     VisualOptions m_visualOptions;
+    bool m_contextMenuGestureActive{false};
 };

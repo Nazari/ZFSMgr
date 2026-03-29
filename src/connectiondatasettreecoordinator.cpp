@@ -1,5 +1,6 @@
 #include "connectiondatasettreecoordinator.h"
 
+#include <QSignalBlocker>
 #include <QTreeWidget>
 
 namespace {
@@ -38,6 +39,7 @@ void ConnectionDatasetTreeCoordinator::normalizeContextItem(QTreeWidgetItem*& it
     if (!tw || tw->currentItem() == item) {
         return;
     }
+    const QSignalBlocker blocker(tw);
     tw->setCurrentItem(item);
     item = tw->currentItem();
 }
@@ -73,6 +75,11 @@ void ConnectionDatasetTreeCoordinator::wireController() {
             m_delegate->itemCollapsed(tree(), item);
         }
     };
+    callbacks.contextMenuGestureStarted = [this](const QPoint&, QTreeWidgetItem* item) {
+        if (m_delegate && item) {
+            m_delegate->beforeContextMenu(tree());
+        }
+    };
     callbacks.contextMenuRequested = [this](const QPoint& pos, QTreeWidgetItem* rawItem) {
         if (!rawItem) {
             return;
@@ -84,9 +91,6 @@ void ConnectionDatasetTreeCoordinator::wireController() {
         normalizeContextItem(item);
         if (!item) {
             return;
-        }
-        if (m_delegate) {
-            m_delegate->beforeContextMenu(tree());
         }
         if (m_delegate && m_delegate->handlePermissionsMenu(tree(), isBottom(), item, pos)) {
             return;

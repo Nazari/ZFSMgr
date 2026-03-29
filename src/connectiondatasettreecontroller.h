@@ -18,6 +18,7 @@ public:
         std::function<void(QTreeWidgetItem* item, int column)> itemChanged;
         std::function<void(QTreeWidgetItem* item)> itemExpanded;
         std::function<void(QTreeWidgetItem* item)> itemCollapsed;
+        std::function<void(const QPoint& pos, QTreeWidgetItem* item)> contextMenuGestureStarted;
         std::function<void(const QPoint& pos, QTreeWidgetItem* item)> contextMenuRequested;
     };
 

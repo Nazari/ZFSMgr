@@ -169,6 +169,14 @@ void MainWindow::invalidatePoolDetailsCacheForConnection(int connIdx) {
             ++it;
         }
     }
+    auto inFlight = m_poolDetailsLoadsInFlight.begin();
+    while (inFlight != m_poolDetailsLoadsInFlight.end()) {
+        if (inFlight->startsWith(prefix)) {
+            inFlight = m_poolDetailsLoadsInFlight.erase(inFlight);
+        } else {
+            ++inFlight;
+        }
+    }
     if (const ConnInfo* connInfo = findConnInfo(connIdx)) {
         for (auto itPool = connInfo->poolsByStableId.cbegin(); itPool != connInfo->poolsByStableId.cend(); ++itPool) {
             removeDatasetPropertyEntriesForPool(connIdx, itPool->key.poolName);

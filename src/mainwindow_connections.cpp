@@ -4,9 +4,11 @@
 
 #include <QApplication>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QCheckBox>
+#include <QEventLoop>
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QEvent>
@@ -2180,7 +2182,6 @@ void MainWindow::openConnectivityMatrixDialog() {
 }
 
 void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos) {
-    beginUiBusy();
     const auto endBusy = [this]() { endUiBusy(); };
     const bool hasConn = (connIdx >= 0 && connIdx < m_profiles.size());
     if (hasConn) {
@@ -2537,8 +2538,10 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
     }
     m_states[targetIdx] = state;
     invalidatePoolDetailsCacheForConnection(targetIdx);
+    invalidatePoolAutoSnapshotInfoForConnection(targetIdx);
     cachePoolStatusTextsForConnection(targetIdx, state);
     rebuildConnInfoFor(targetIdx);
+    preloadPoolAutoSnapshotInfoForConnection(targetIdx);
     rebuildConnectionsTable();
     if (selectedIdx >= 0) {
         setCurrentConnectionInUi(selectedIdx);
@@ -3050,6 +3053,7 @@ void MainWindow::refreshConnectionByIndex(int idx) {
         }
         // Reutiliza la invalidación existente para detalle de pool + props de dataset.
         invalidatePoolDetailsCacheForConnection(idx);
+        invalidatePoolAutoSnapshotInfoForConnection(idx);
         // Limpiar caché de propiedades inline del árbol de contenido para esta conexión.
         const QString uiPrefix = QStringLiteral("%1::").arg(QString::number(idx));
         auto valIt = m_connContentPropValuesByObject.begin();
@@ -3064,6 +3068,7 @@ void MainWindow::refreshConnectionByIndex(int idx) {
     m_states[idx] = refreshConnection(m_profiles[idx]);
     cachePoolStatusTextsForConnection(idx, m_states[idx]);
     rebuildConnInfoFor(idx);
+    preloadPoolAutoSnapshotInfoForConnection(idx);
     rebuildConnectionsTable();
     populateAllPoolsTables();
 }

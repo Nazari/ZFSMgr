@@ -8,6 +8,8 @@
 #include <QTimer>
 #include <QTreeWidget>
 
+#include <QtConcurrent/QtConcurrent>
+
 namespace {
 bool zfsmgrTestModeEnabled() {
     const QByteArray value = qgetenv("ZFSMGR_TEST_MODE");
@@ -98,6 +100,14 @@ bool mountedStateFromAnyText(const QString& value, bool* mountedOut) {
     }
     return false;
 }
+
+struct PoolAutoSnapshotLoadResult {
+    int connIdx{-1};
+    QString poolName;
+    bool ok{false};
+    QString errorText;
+    QMap<QString, QMap<QString, QString>> loaded;
+};
 }
 
 MainWindow::MainWindow(const QString& masterPassword, const QString& language, QWidget* parent)
@@ -1122,43 +1132,102 @@ bool MainWindow::ensurePoolDetailsLoaded(int connIdx, const QString& poolName) {
         && (!cached->propsRows.isEmpty() || !cached->statusText.trimmed().isEmpty())) {
         return true;
     }
+    schedulePoolDetailsLoad(connIdx, trimmedPool);
+    return false;
+}
 
-    const ConnectionProfile& p = m_profiles[connIdx];
-    PoolDetailsCacheEntry fresh;
-    QString out;
-    QString err;
-    int rc = -1;
-    const QString propsCmd = withSudo(
-        p,
-        mwhelpers::withUnixSearchPathCommand(
-            QStringLiteral("zpool get -H -o property,value,source all %1").arg(mwhelpers::shSingleQuote(trimmedPool))));
-    if (runSsh(p, propsCmd, 20000, out, err, rc) && rc == 0) {
-        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-        for (const QString& line : lines) {
-            const QStringList parts = line.split('\t');
-            if (parts.size() < 3) {
-                continue;
+void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
+    const QString trimmedPool = poolName.trimmed();
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty()) {
+        return;
+    }
+    const QString key = poolDetailsCacheKey(connIdx, trimmedPool);
+    if (m_poolDetailsLoadsInFlight.contains(key)) {
+        return;
+    }
+    m_poolDetailsLoadsInFlight.insert(key);
+    const ConnectionProfile profile = m_profiles[connIdx];
+    (void)QtConcurrent::run([this, profile, connIdx, trimmedPool]() {
+        PoolDetailsCacheEntry fresh;
+        QString errorText;
+        QString out;
+        QString err;
+        int rc = -1;
+        const QString propsCmd = withSudo(
+            profile,
+            mwhelpers::withUnixSearchPathCommand(
+                QStringLiteral("zpool get -H -o property,value,source all %1")
+                    .arg(mwhelpers::shSingleQuote(trimmedPool))));
+        if (runSsh(profile, propsCmd, 20000, out, err, rc) && rc == 0) {
+            const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+            for (const QString& line : lines) {
+                const QStringList parts = line.split('\t');
+                if (parts.size() < 3) {
+                    continue;
+                }
+                fresh.propsRows.push_back(
+                    QStringList{parts[0].trimmed(), parts[1].trimmed(), parts[2].trimmed()});
             }
-            fresh.propsRows.push_back(QStringList{parts[0].trimmed(), parts[1].trimmed(), parts[2].trimmed()});
+        } else {
+            errorText = err.trimmed();
+        }
+
+        out.clear();
+        err.clear();
+        rc = -1;
+        const QString stCmd = withSudo(
+            profile,
+            mwhelpers::withUnixSearchPathCommand(
+                QStringLiteral("zpool status -v %1")
+                    .arg(mwhelpers::shSingleQuote(trimmedPool))));
+        if (runSsh(profile, stCmd, 20000, out, err, rc) && rc == 0) {
+            fresh.statusText = out.trimmed();
+        } else {
+            const QString statusErr = err.trimmed();
+            fresh.statusText = statusErr;
+            if (errorText.isEmpty()) {
+                errorText = statusErr;
+            }
+        }
+        fresh.loaded = true;
+        const bool ok = errorText.isEmpty() || !fresh.propsRows.isEmpty() || !fresh.statusText.trimmed().isEmpty();
+        QMetaObject::invokeMethod(this, [this, connIdx, trimmedPool, ok, fresh, errorText]() {
+            applyPoolDetailsLoadResult(connIdx, trimmedPool, ok, fresh, errorText);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void MainWindow::applyPoolDetailsLoadResult(int connIdx,
+                                            const QString& poolName,
+                                            bool ok,
+                                            const PoolDetailsCacheEntry& fresh,
+                                            const QString& errorText) {
+    const QString trimmedPool = poolName.trimmed();
+    const QString key = poolDetailsCacheKey(connIdx, trimmedPool);
+    m_poolDetailsLoadsInFlight.remove(key);
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty()) {
+        return;
+    }
+    Q_UNUSED(ok);
+    Q_UNUSED(errorText);
+    m_poolDetailsCache.insert(key, fresh);
+    rebuildConnInfoFor(connIdx);
+    applyPoolRootTooltipToVisibleTrees(connIdx, trimmedPool, fresh.statusText);
+    const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
+    if (m_connContentTree) {
+        syncConnContentPoolColumnsFor(m_connContentTree, token);
+    }
+    if (m_bottomConnContentTree && m_bottomConnContentTree != m_connContentTree) {
+        syncConnContentPoolColumnsFor(m_bottomConnContentTree, token);
+    }
+    const int row = selectedPoolRowFromTabs();
+    if (row >= 0 && row < m_poolListEntries.size()) {
+        const auto& pe = m_poolListEntries[row];
+        if (findConnectionIndexByName(pe.connection) == connIdx
+            && pe.pool.trimmed().compare(trimmedPool, Qt::CaseInsensitive) == 0) {
+            refreshSelectedPoolDetails(false, false);
         }
     }
-
-    out.clear();
-    err.clear();
-    rc = -1;
-    const QString stCmd = withSudo(
-        p,
-        mwhelpers::withUnixSearchPathCommand(
-            QStringLiteral("zpool status -v %1").arg(mwhelpers::shSingleQuote(trimmedPool))));
-    if (runSsh(p, stCmd, 20000, out, err, rc) && rc == 0) {
-        fresh.statusText = out.trimmed();
-    } else {
-        fresh.statusText = err.trimmed();
-    }
-    fresh.loaded = true;
-    m_poolDetailsCache.insert(poolDetailsCacheKey(connIdx, trimmedPool), fresh);
-    rebuildConnInfoFor(connIdx);
-    return true;
 }
 
 bool MainWindow::ensurePoolAutoSnapshotInfoLoaded(int connIdx, const QString& poolName) {
@@ -1173,72 +1242,172 @@ bool MainWindow::ensurePoolAutoSnapshotInfoLoaded(int connIdx, const QString& po
     if (isWindowsConnection(connIdx)) {
         return false;
     }
-    const ConnectionProfile& cp = m_profiles[connIdx];
-    const QStringList gsaProps = gsaPropertyKeysForModel();
-    QStringList propArgs;
-    for (const QString& prop : gsaProps) {
-        propArgs << mwhelpers::shSingleQuote(prop);
-    }
-    const QString cmd =
-        withSudo(cp,
-                 mwhelpers::withUnixSearchPathCommand(
-                     QStringLiteral("zfs get -H -o name,property,value,source -r %1 %2")
-                         .arg(propArgs.join(QLatin1Char(',')),
-                              mwhelpers::shSingleQuote(trimmedPool))));
-    QString out;
-    QString err;
-    int rc = -1;
-    if (!runSsh(cp, cmd, 20000, out, err, rc) || rc != 0) {
-        if (poolInfo) {
-            poolInfo->runtime.schedulesState = LoadState::Error;
-            poolInfo->runtime.errorText = err.trimmed();
-        }
+    if (poolInfo && poolInfo->runtime.schedulesState == LoadState::Loading) {
         return false;
     }
+    schedulePoolAutoSnapshotInfoLoad(connIdx, trimmedPool);
+    return false;
+}
 
-    auto isLocallyConfiguredGsaSource = [](const QString& source) {
-        const QString src = source.trimmed().toLower();
-        if (src.isEmpty() || src == QStringLiteral("-")) {
-            return false;
+void MainWindow::invalidatePoolAutoSnapshotInfoForConnection(int connIdx) {
+    if (ConnInfo* connInfo = findConnInfo(connIdx)) {
+        for (auto itPool = connInfo->poolsByStableId.begin(); itPool != connInfo->poolsByStableId.end(); ++itPool) {
+            itPool->runtime.schedulesState = LoadState::NotLoaded;
+            itPool->runtime.autoSnapshotPropsByDataset.clear();
         }
-        if (src.startsWith(QStringLiteral("inherited")) || src == QStringLiteral("default")) {
-            return false;
+    }
+    const QString prefix = QStringLiteral("%1::").arg(connIdx);
+    for (auto it = m_poolAutoSnapshotLoadsInFlight.begin(); it != m_poolAutoSnapshotLoadsInFlight.end();) {
+        if (it->startsWith(prefix)) {
+            it = m_poolAutoSnapshotLoadsInFlight.erase(it);
+        } else {
+            ++it;
         }
-        return true;
-    };
-    QMap<QString, QMap<QString, QString>> loaded;
-    for (const QString& line : out.split(QLatin1Char('\n'))) {
-        const QString trimmed = line.trimmed();
-        if (trimmed.isEmpty()) {
+    }
+}
+
+void MainWindow::preloadPoolAutoSnapshotInfoForConnection(int connIdx) {
+    if (connIdx < 0 || connIdx >= m_profiles.size() || isWindowsConnection(connIdx)) {
+        return;
+    }
+    const ConnectionRuntimeState state =
+        (connIdx < m_states.size()) ? m_states[connIdx] : ConnectionRuntimeState{};
+    if (!state.gsaInstalled) {
+        return;
+    }
+    for (const PoolImported& pool : state.importedPools) {
+        const QString trimmedPool = pool.pool.trimmed();
+        if (trimmedPool.isEmpty()) {
             continue;
         }
-        const QStringList cols = trimmed.split(QRegularExpression(QStringLiteral("\\s+")),
-                                               Qt::SkipEmptyParts);
-        if (cols.size() < 4) {
-            continue;
-        }
-        const QString dsName = cols.at(0).trimmed();
-        const QString prop = cols.at(1).trimmed();
-        const QString value = cols.at(2).trimmed();
-        const QString source = cols.mid(3).join(QStringLiteral(" ")).trimmed();
-        if (dsName.isEmpty() || dsName.contains(QLatin1Char('@'))) {
-            continue;
-        }
-        if (prop.startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)
-            && isLocallyConfiguredGsaSource(source)) {
-            loaded[dsName].insert(prop, value);
-        }
+        schedulePoolAutoSnapshotInfoLoad(connIdx, trimmedPool);
+    }
+}
+
+void MainWindow::schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& poolName) {
+    const QString trimmedPool = poolName.trimmed();
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty() || isWindowsConnection(connIdx)) {
+        return;
+    }
+    PoolInfo* poolInfo = findPoolInfo(connIdx, trimmedPool);
+    if (poolInfo && (poolInfo->runtime.schedulesState == LoadState::Loaded
+                     || poolInfo->runtime.schedulesState == LoadState::Loading)) {
+        return;
+    }
+    const QString key = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
+    if (m_poolAutoSnapshotLoadsInFlight.contains(key)) {
+        return;
     }
     if (!poolInfo) {
         rebuildConnInfoFor(connIdx);
         poolInfo = findPoolInfo(connIdx, trimmedPool);
     }
     if (poolInfo) {
+        poolInfo->runtime.schedulesState = LoadState::Loading;
+        poolInfo->runtime.errorText.clear();
+    }
+    m_poolAutoSnapshotLoadsInFlight.insert(key);
+    const ConnectionProfile profile = m_profiles[connIdx];
+    (void)QtConcurrent::run([this, profile, connIdx, trimmedPool]() {
+        PoolAutoSnapshotLoadResult result;
+        result.connIdx = connIdx;
+        result.poolName = trimmedPool;
+        const QStringList gsaProps = gsaPropertyKeysForModel();
+        QStringList propArgs;
+        for (const QString& prop : gsaProps) {
+            propArgs << mwhelpers::shSingleQuote(prop);
+        }
+        const QString cmd =
+            withSudo(profile,
+                     mwhelpers::withUnixSearchPathCommand(
+                         QStringLiteral("zfs get -H -o name,property,value,source -r %1 %2")
+                             .arg(propArgs.join(QLatin1Char(',')),
+                                  mwhelpers::shSingleQuote(trimmedPool))));
+        QString out;
+        QString err;
+        int rc = -1;
+        if (!runSsh(profile, cmd, 20000, out, err, rc) || rc != 0) {
+            result.errorText = err.trimmed();
+        } else {
+            auto isLocallyConfiguredGsaSource = [](const QString& source) {
+                const QString src = source.trimmed().toLower();
+                if (src.isEmpty() || src == QStringLiteral("-")) {
+                    return false;
+                }
+                if (src.startsWith(QStringLiteral("inherited")) || src == QStringLiteral("default")) {
+                    return false;
+                }
+                return true;
+            };
+            for (const QString& line : out.split(QLatin1Char('\n'))) {
+                const QString trimmed = line.trimmed();
+                if (trimmed.isEmpty()) {
+                    continue;
+                }
+                const QStringList cols = trimmed.split(QRegularExpression(QStringLiteral("\\s+")),
+                                                       Qt::SkipEmptyParts);
+                if (cols.size() < 4) {
+                    continue;
+                }
+                const QString dsName = cols.at(0).trimmed();
+                const QString prop = cols.at(1).trimmed();
+                const QString value = cols.at(2).trimmed();
+                const QString source = cols.mid(3).join(QStringLiteral(" ")).trimmed();
+                if (dsName.isEmpty() || dsName.contains(QLatin1Char('@'))) {
+                    continue;
+                }
+                if (prop.startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)
+                    && isLocallyConfiguredGsaSource(source)) {
+                    result.loaded[dsName].insert(prop, value);
+                }
+            }
+            result.ok = true;
+        }
+        QMetaObject::invokeMethod(this, [this, result]() {
+            applyPoolAutoSnapshotInfoLoadResult(result.connIdx,
+                                                result.poolName,
+                                                result.ok,
+                                                result.errorText,
+                                                result.loaded);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void MainWindow::applyPoolAutoSnapshotInfoLoadResult(
+    int connIdx,
+    const QString& poolName,
+    bool ok,
+    const QString& errorText,
+    const QMap<QString, QMap<QString, QString>>& loaded) {
+    const QString trimmedPool = poolName.trimmed();
+    const QString key = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
+    m_poolAutoSnapshotLoadsInFlight.remove(key);
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty()) {
+        return;
+    }
+    PoolInfo* poolInfo = findPoolInfo(connIdx, trimmedPool);
+    if (!poolInfo) {
+        rebuildConnInfoFor(connIdx);
+        poolInfo = findPoolInfo(connIdx, trimmedPool);
+    }
+    if (!poolInfo) {
+        return;
+    }
+    if (ok) {
         poolInfo->runtime.autoSnapshotPropsByDataset = loaded;
         poolInfo->runtime.schedulesState = LoadState::Loaded;
         poolInfo->runtime.errorText.clear();
+    } else {
+        poolInfo->runtime.schedulesState = LoadState::Error;
+        poolInfo->runtime.errorText = errorText.trimmed();
     }
-    return true;
+    const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
+    if (m_connContentTree) {
+        syncConnContentPoolColumnsFor(m_connContentTree, token);
+    }
+    if (m_bottomConnContentTree && m_bottomConnContentTree != m_connContentTree) {
+        syncConnContentPoolColumnsFor(m_bottomConnContentTree, token);
+    }
 }
 
 bool MainWindow::executePoolCommand(int connIdx,
