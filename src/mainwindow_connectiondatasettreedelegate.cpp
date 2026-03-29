@@ -1200,7 +1200,6 @@ void MainWindowConnectionDatasetTreeDelegate::selectionChanged(QTreeWidget* tree
             sel->setExpanded(true);
         }
         m_mainWindow->syncConnContentPoolColumnsFor(tree, token);
-        applySelectionToSide(isBottom, SelectionSnapshot{});
     } else {
         if (isLazyPermissionsNode) {
             m_mainWindow->populateDatasetPermissionsNode(tree, owner, false);
@@ -1225,7 +1224,6 @@ void MainWindowConnectionDatasetTreeDelegate::selectionChanged(QTreeWidget* tree
                 m_mainWindow->syncConnContentPropertyColumnsFor(safeTree, token);
             });
         }
-        applySelectionToSide(false, currentSelection(tree, token));
     }
     m_mainWindow->updateConnectionDetailTitlesForCurrentSelection();
     m_mainWindow->updateConnectionActionsState();
@@ -1862,6 +1860,12 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     if (!m_mainWindow || !tree || !item) {
         return;
     }
+    m_mainWindow->beginUiBusy();
+    const auto endBusy = [this]() {
+        if (m_mainWindow) {
+            m_mainWindow->endUiBusy();
+        }
+    };
     int connIdx = item->data(0, kConnIdxRole).toInt();
     const QString poolName = item->data(0, kPoolNameRole).toString().trimmed();
 
@@ -1882,6 +1886,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     const bool isPoolInfoContext = isInfoNodeOrInside(item);
 
     if (isConnectionRoot) {
+        endBusy();
         m_mainWindow->showConnectionContextMenu(connIdx, tree->viewport()->mapToGlobal(pos));
         return;
     }
@@ -1919,6 +1924,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     if (isPoolInfoContext) {
         const InlineVisibilityMenuActions inlineActions =
             buildInlineVisibilityMenu(menu, tree, true, true, true);
+        endBusy();
         QAction* picked = menu.exec(tree->viewport()->mapToGlobal(pos));
         if (picked == inlineActions.manage) {
             manageInlinePropsVisualization(tree, item, true);
@@ -2096,6 +2102,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         aSelectOrigin->setEnabled(hasConnSel);
         aSelectDestination->setEnabled(hasConnSel);
 
+        endBusy();
         QAction* picked = menu.exec(tree->viewport()->mapToGlobal(pos));
         if (!picked) {
             return;
@@ -2202,7 +2209,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 targetItem,
                 MainWindow::DatasetTreeContext::ConnectionContent,
                 snapName.isEmpty() ? QStringLiteral("(ninguno)") : snapName);
-            applySelectionToSide(isBottom, currentSelection(tree, token));
             return;
         }
         if (picked == inlineActions.manage) {

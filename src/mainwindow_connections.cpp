@@ -2180,6 +2180,8 @@ void MainWindow::openConnectivityMatrixDialog() {
 }
 
 void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos) {
+    beginUiBusy();
+    const auto endBusy = [this]() { endUiBusy(); };
     const bool hasConn = (connIdx >= 0 && connIdx < m_profiles.size());
     if (hasConn) {
         setCurrentConnectionInUi(connIdx);
@@ -2303,6 +2305,7 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos)
     aNewConn->setEnabled(menuState.canNewConnection);
     aNewPool->setEnabled(menuState.canNewPool);
 
+    endBusy();
     QAction* chosen = menu.exec(globalPos);
     if (!chosen) {
         return;
