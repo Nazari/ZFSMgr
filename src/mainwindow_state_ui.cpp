@@ -79,10 +79,6 @@ void MainWindow::updateConnectionActionsState() {
           && !isConnectionDisconnected(m_topDetailConnIdx))) {
         m_connActionOrigin = DatasetSelectionContext{};
     }
-    if (!(m_bottomDetailConnIdx >= 0 && m_bottomDetailConnIdx < m_profiles.size()
-          && !isConnectionDisconnected(m_bottomDetailConnIdx))) {
-        m_connActionDest = DatasetSelectionContext{};
-    }
 
     if (m_btnConnCopy) m_btnConnCopy->setText(
         trk(QStringLiteral("t_copy_001"), QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")));
@@ -110,27 +106,19 @@ void MainWindow::updateConnectionActionsState() {
                                  : QStringLiteral("%1@%2").arg(c.datasetName, c.snapshotName);
         return QStringLiteral("%1::%2").arg(m_profiles[c.connIdx].name, base);
     };
-    QString dstText;
-    if (m_bottomDetailConnIdx >= 0 && m_bottomDetailConnIdx < m_profiles.size()
-        && !isConnectionDisconnected(m_bottomDetailConnIdx)) {
-        dstText = trk(QStringLiteral("t_conn_dest_sel01"),
-                      QStringLiteral("Destino:%1"),
-                      QStringLiteral("Target:%1"),
-                      QStringLiteral("目标：%1")).arg(fmtSel(m_connActionDest));
-    }
+    const QString dstText = trk(QStringLiteral("t_conn_dest_sel01"),
+                                QStringLiteral("Destino:%1"),
+                                QStringLiteral("Target:%1"),
+                                QStringLiteral("目标：%1")).arg(fmtSel(m_connActionDest));
     if (m_connDestSelectionLabel) {
         m_connDestSelectionLabel->setText(dstText);
     }
-    QString originText;
-    if (m_topDetailConnIdx >= 0 && m_topDetailConnIdx < m_profiles.size()
-        && !isConnectionDisconnected(m_topDetailConnIdx)) {
-        originText =
-            trk(QStringLiteral("t_conn_origin_sel1"),
-                QStringLiteral("Origen:%1"),
-                QStringLiteral("Source:%1"),
-                QStringLiteral("源：%1"))
-                .arg(fmtSel(m_connActionOrigin));
-    }
+    const QString originText =
+        trk(QStringLiteral("t_conn_origin_sel1"),
+            QStringLiteral("Origen:%1"),
+            QStringLiteral("Source:%1"),
+            QStringLiteral("源：%1"))
+            .arg(fmtSel(m_connActionOrigin));
     if (m_connOriginSelectionLabel) {
         m_connOriginSelectionLabel->setText(originText);
     }
@@ -219,7 +207,7 @@ void MainWindow::updateConnectionActionsState() {
         srcDs,
         dstDs,
         datasetMountedForCtx(m_connActionOrigin, m_connContentTree),
-        datasetMountedForCtx(m_connActionDest, m_bottomConnContentTree),
+        datasetMountedForCtx(m_connActionDest, m_connContentTree),
     };
     const mwhelpers::TransferButtonState st = mwhelpers::computeTransferButtonState(transferIn);
     if (m_btnConnCopy) m_btnConnCopy->setEnabled(!actionsLocked() && st.copyEnabled && transferVersionAllowed);

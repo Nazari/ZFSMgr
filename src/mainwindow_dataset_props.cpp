@@ -1551,7 +1551,7 @@ void MainWindow::applyDatasetPropertyChanges() {
                                                                                      item.objectName);
                                                 }
                                                 const QString token = item.token.trimmed();
-                                                const QList<QTreeWidget*> trees{m_connContentTree, m_bottomConnContentTree};
+                                                const QList<QTreeWidget*> trees{m_connContentTree};
                                                 for (QTreeWidget* tree : trees) {
                                                     if (!tree || connContentTokenForTree(tree).trimmed() != token) {
                                                         continue;
@@ -1660,7 +1660,7 @@ void MainWindow::applyDatasetPropertyChanges() {
         auto refreshVisiblePermissionsNodes = [this, &findDatasetItemByIdentityLocal](int connIdx,
                                                                                       const QString& poolName,
                                                                                       const QString& datasetName) {
-            const QList<QTreeWidget*> trees{m_connContentTree, m_bottomConnContentTree};
+            const QList<QTreeWidget*> trees{m_connContentTree};
             for (QTreeWidget* tree : trees) {
                 if (!tree) {
                     continue;
@@ -1851,9 +1851,6 @@ void MainWindow::applyDatasetPropertyChanges() {
             const QString tokenForTree = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
             if (QTreeWidgetItem* ownerNode = findDatasetItemByIdentityLocal(m_connContentTree, connIdx, poolName, datasetName)) {
                 saveConnContentTreeStateFor(m_connContentTree, tokenForTree);
-                Q_UNUSED(ownerNode);
-            } else if (QTreeWidgetItem* ownerNode = findDatasetItemByIdentityLocal(m_bottomConnContentTree, connIdx, poolName, datasetName)) {
-                saveConnContentTreeStateFor(m_bottomConnContentTree, tokenForTree);
                 Q_UNUSED(ownerNode);
             }
             const QString cmd = QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
@@ -2147,7 +2144,6 @@ void MainWindow::applyDatasetPropertyChanges() {
         };
         reloadDatasetSide(QStringLiteral("conncontent"));
         reselectDatasetInTree(m_connContentTree);
-        reselectDatasetInTree(m_bottomConnContentTree);
     };
 
     QStringList subcmds;
@@ -3078,10 +3074,6 @@ void MainWindow::refreshPendingShellActionDraft(const PendingShellActionDraft& d
 
         bool refreshed = false;
         if (m_connContentTree && m_topDetailConnIdx == ctx.connIdx) {
-            reloadConnContentPool(ctx.connIdx, ctx.poolName);
-            refreshed = true;
-        }
-        if (m_bottomConnContentTree && m_bottomDetailConnIdx == ctx.connIdx) {
             reloadConnContentPool(ctx.connIdx, ctx.poolName);
             refreshed = true;
         }

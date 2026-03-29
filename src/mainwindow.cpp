@@ -158,15 +158,11 @@ void MainWindow::configureSingleConnectionUiTestState(const ConnectionProfile& p
 
     rebuildConnectionsTable();
     m_topDetailConnIdx = 0;
-    m_bottomDetailConnIdx = 0;
-    if (m_connectionsTable && m_connectionsTable->rowCount() > 0) {
-        m_connectionsTable->setCurrentCell(0, 0);
-    }
+    setCurrentConnectionInUi(0);
 }
 
 void MainWindow::rebuildConnectionDetailsForTest() {
     rebuildConnectionEntityTabs();
-    updateSecondaryConnectionDetail();
 }
 
 void MainWindow::configurePoolDatasetsForTest(int connIdx,
@@ -196,32 +192,20 @@ void MainWindow::configurePoolDatasetsForTest(int connIdx,
 
 void MainWindow::setShowPoolInfoNodeForTest(bool visible) {
     m_showPoolInfoNodeTop = visible;
-    m_showPoolInfoNodeBottom = visible;
     if (m_topDatasetPane) {
         auto options = m_topDatasetPane->visualOptions();
         options.showPoolInfo = visible;
         m_topDatasetPane->setVisualOptions(options);
-    }
-    if (m_bottomDatasetPane) {
-        auto options = m_bottomDatasetPane->visualOptions();
-        options.showPoolInfo = visible;
-        m_bottomDatasetPane->setVisualOptions(options);
     }
     rebuildConnectionDetailsForTest();
 }
 
 void MainWindow::setShowInlineGsaNodeForTest(bool visible) {
     m_showInlineGsaNodeTop = visible;
-    m_showInlineGsaNodeBottom = visible;
     if (m_topDatasetPane) {
         auto options = m_topDatasetPane->visualOptions();
         options.showInlineGsa = visible;
         m_topDatasetPane->setVisualOptions(options);
-    }
-    if (m_bottomDatasetPane) {
-        auto options = m_bottomDatasetPane->visualOptions();
-        options.showInlineGsa = visible;
-        m_bottomDatasetPane->setVisualOptions(options);
     }
     rebuildConnectionDetailsForTest();
 }
@@ -1623,7 +1607,8 @@ void MainWindow::resetAllDatasetPermissionDrafts() {
 }
 
 bool MainWindow::selectDatasetForTest(const QString& datasetName, bool bottom) {
-    QTreeWidget* tree = bottom ? m_bottomConnContentTree : m_connContentTree;
+    Q_UNUSED(bottom);
+    QTreeWidget* tree = m_connContentTree;
     if (!tree || datasetName.trimmed().isEmpty()) {
         return false;
     }
@@ -1661,7 +1646,8 @@ bool MainWindow::selectDatasetForTest(const QString& datasetName, bool bottom) {
 }
 
 bool MainWindow::setDatasetChildExpandedForTest(const QString& datasetName, const QString& childLabel, bool expanded, bool bottom) {
-    QTreeWidget* tree = bottom ? m_bottomConnContentTree : m_connContentTree;
+    Q_UNUSED(bottom);
+    QTreeWidget* tree = m_connContentTree;
     if (!tree || datasetName.trimmed().isEmpty() || childLabel.trimmed().isEmpty()) {
         return false;
     }
@@ -1699,7 +1685,8 @@ bool MainWindow::setDatasetChildExpandedForTest(const QString& datasetName, cons
 }
 
 bool MainWindow::isDatasetChildExpandedForTest(const QString& datasetName, const QString& childLabel, bool bottom) const {
-    QTreeWidget* tree = bottom ? m_bottomConnContentTree : m_connContentTree;
+    Q_UNUSED(bottom);
+    QTreeWidget* tree = m_connContentTree;
     if (!tree || datasetName.trimmed().isEmpty() || childLabel.trimmed().isEmpty()) {
         return false;
     }
@@ -1736,7 +1723,8 @@ bool MainWindow::isDatasetChildExpandedForTest(const QString& datasetName, const
 }
 
 void MainWindow::rebuildConnContentTreeForTest(const QString& datasetToSelect, bool bottom) {
-    QTreeWidget* tree = bottom ? m_bottomConnContentTree : m_connContentTree;
+    Q_UNUSED(bottom);
+    QTreeWidget* tree = m_connContentTree;
     if (!tree) {
         return;
     }
@@ -1760,7 +1748,8 @@ void MainWindow::rebuildConnContentTreeForTest(const QString& datasetToSelect, b
 
 QStringList MainWindow::topLevelPoolNamesForTest(bool bottom) const {
     QStringList names;
-    QTreeWidget* tree = bottom ? m_bottomConnContentTree : m_connContentTree;
+    Q_UNUSED(bottom);
+    QTreeWidget* tree = m_connContentTree;
     if (!tree) {
         return names;
     }
@@ -1774,7 +1763,8 @@ QStringList MainWindow::topLevelPoolNamesForTest(bool bottom) const {
 
 QStringList MainWindow::childLabelsForDatasetForTest(const QString& datasetName, bool bottom) const {
     QStringList labels;
-    QTreeWidget* tree = bottom ? m_bottomConnContentTree : m_connContentTree;
+    Q_UNUSED(bottom);
+    QTreeWidget* tree = m_connContentTree;
     if (!tree || datasetName.trimmed().isEmpty()) {
         return labels;
     }
@@ -1810,7 +1800,8 @@ QStringList MainWindow::childLabelsForDatasetForTest(const QString& datasetName,
 
 QStringList MainWindow::snapshotNamesForDatasetForTest(const QString& datasetName, bool bottom) const {
     QStringList names;
-    QTreeWidget* tree = bottom ? m_bottomConnContentTree : m_connContentTree;
+    Q_UNUSED(bottom);
+    QTreeWidget* tree = m_connContentTree;
     if (!tree || datasetName.trimmed().isEmpty()) {
         return names;
     }
@@ -1842,7 +1833,7 @@ QStringList MainWindow::snapshotNamesForDatasetForTest(const QString& datasetNam
 }
 
 QStringList MainWindow::connectionContextMenuTopLevelLabelsForTest() const {
-    const int connIdx = (m_connectionsTable && m_connectionsTable->currentRow() >= 0) ? m_topDetailConnIdx : -1;
+    const int connIdx = m_topDetailConnIdx;
     const bool hasConn = (connIdx >= 0 && connIdx < m_profiles.size());
     const bool isDisconnected = hasConn && isConnectionDisconnected(connIdx);
     const bool hasWindowsUnixLayerReady =
@@ -1878,6 +1869,11 @@ QStringList MainWindow::connectionContextMenuTopLevelLabelsForTest() const {
             canUninstallGsa);
     Q_UNUSED(menuState);
     return {
+        trk(QStringLiteral("t_new_conn_ctx001"),
+            QStringLiteral("Nueva Conexión"),
+            QStringLiteral("New Connection"),
+            QStringLiteral("新建连接")),
+        QString(),
         trk(QStringLiteral("t_connect_ctx_001"),
             QStringLiteral("Conectar"),
             QStringLiteral("Connect"),
@@ -1907,10 +1903,6 @@ QStringList MainWindow::connectionContextMenuTopLevelLabelsForTest() const {
             QStringLiteral("Borrar"),
             QStringLiteral("Delete"),
             QStringLiteral("删除")),
-        trk(QStringLiteral("t_new_conn_ctx001"),
-            QStringLiteral("Nueva Conexión"),
-            QStringLiteral("New Connection"),
-            QStringLiteral("新建连接")),
         trk(QStringLiteral("t_new_pool_ctx_001"),
             QStringLiteral("Nuevo Pool"),
             QStringLiteral("New Pool"),
@@ -1949,7 +1941,8 @@ QStringList MainWindow::connectionGsaMenuLabelsForTest() const {
 }
 
 QStringList MainWindow::poolContextMenuLabelsForTest(const QString& poolName, bool bottom) const {
-    const int connIdx = bottom ? m_bottomDetailConnIdx : m_topDetailConnIdx;
+    Q_UNUSED(bottom);
+    const int connIdx = m_topDetailConnIdx;
     if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size() || poolName.trimmed().isEmpty()) {
         return {};
     }
@@ -1990,10 +1983,12 @@ QStringList MainWindow::poolContextMenuLabelsForTest(const QString& poolName, bo
             QStringLiteral("Historial")),
         QStringLiteral("Sync"),
         QStringLiteral("Scrub"),
+        QStringLiteral("Upgrade"),
         QStringLiteral("Reguid"),
         QStringLiteral("Trim"),
         QStringLiteral("Initialize"),
         QStringLiteral("Destroy"),
-        QStringLiteral("Mostrar Información del pool"),
+        QStringLiteral("Mostrar Información del Pool"),
+        QStringLiteral("Mostrar Datasets programados"),
     };
 }

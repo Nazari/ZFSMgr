@@ -1,122 +1,60 @@
 # Menús contextuales
 
-La GUI usa menús contextuales por clic derecho en tres zonas.
+ZFSMgr usa menús contextuales sobre el árbol unificado.
 
-## Menú contextual en `Conexiones`
-
-Sobre una fila de conexión:
+## Sobre una conexión
 
 ![Menú contextual de conexiones](qrc:/help/img/auto/connection-context-menu.png)
 
-- `Refrescar`
-- `Editar`
-- `Borrar`
-- `Refrescar todas las conexiones`
-- `Nueva conexión`
-- `Nuevo pool`
+- El menú que antes colgaba de la tabla de conexiones ahora cuelga del nodo raíz de conexión.
+- Incluye acciones como:
+  - `Nueva conexión`
+  - `Refrescar`
+  - `Editar`
+  - `Borrar`
+  - `Nuevo pool`
+  - acciones GSA y refresco
 
-Notas:
-
-- `Editar` y `Borrar` se deshabilitan para `Local` y conexiones redirigidas a `Local`.
-- Durante acciones en curso, `Refrescar` queda bloqueado.
-- Si el clic derecho se hace en zona vacía, solo aparecen opciones globales (`Refrescar todas`, `Nueva conexión`, `Nuevo pool`).
-- El submenú `Refrescar` tiene este aspecto:
-
-![Submenú Refrescar](qrc:/help/img/auto/connection-refresh-menu.png)
-
-- El submenú `GSA` tiene este aspecto:
-
-![Submenú GSA](qrc:/help/img/auto/connection-gsa-menu.png)
-
-## Menú contextual en los árboles de detalle
-
-Sobre el nodo raíz `Pool`:
+## Sobre el nodo raíz del pool fusionado
 
 ![Menú contextual de pool importado](qrc:/help/img/auto/pool-context-menu-imported.png)
 
-- `Actualizar`
-- `Importar`
-- `Exportar`
-- `Historial`
-- `Sync`
-- `Scrub`
-- `Trim`
-- `Initialize`
-- `Destroy`
-- `Mostrar Información del pool`
+- El primer submenú es `Pool`.
+- Dentro de `Pool` aparecen las acciones de pool:
+  - `Actualizar`
+  - `Importar`
+  - `Importar renombrando`
+  - `Exportar`
+  - `Historial`
+  - `Gestión`
+  - `Mostrar Información del Pool`
+  - `Mostrar Datasets programados`
+- Después del submenú `Pool` siguen las acciones normales de dataset sobre ese mismo nodo dual.
 
-Sobre un pool importable:
+## Sobre datasets y snapshots
 
-![Menú contextual de pool importable](qrc:/help/img/auto/pool-context-menu-importable.png)
-
-Sobre dataset/snapshot seleccionado:
-
-- `Gestionar visualización de propiedades`
-- `Mostrar propiedades en línea`
-- `Mostrar Permisos en línea`
-- `Crear dataset/snapshot/vol`
-- `Renombrar`
-- `Borrar Dataset <nombre>`, `Borrar Snapshot <dataset@snapshot>` o `Borrar ZVol <nombre>` según el objetivo real
-- `Encriptación`
-  - `Load key`
-  - `Unload key`
-  - `Change key`
-- `Seleccionar snapshot`
-- `Rollback`
-- `Nuevo Hold`
-- `Release <hold>`
-- `Desglosar`
-- `Ensamblar`
-- `Desde Dir`
-- `Hacia Dir`
-
-Sobre el nodo `Permisos` de un dataset:
-
-- `Refrescar permisos`
-- `Nueva delegación`
-- `Nuevo set de permisos`
-
-Sobre una delegación:
-
-- `Editar delegación`
-- `Eliminar delegación`
-
-Sobre un set de permisos:
-
-- `Renombrar conjunto de permisos`
-- `Eliminar set`
-
-Sobre el encabezado de cualquiera de los treeviews:
-
-- `Ajustar tamaño de esta columna`
-- `Ajustar tamaño de todas las columnas`
-- `Columnas de propiedades`
-  - permite elegir entre `5` y `10` columnas
+- Acciones típicas:
+  - `Gestionar visualización de propiedades`
+  - `Mostrar propiedades en línea`
+  - `Mostrar Permisos en línea`
+  - `Crear dataset/snapshot/vol`
+  - `Renombrar`
+  - `Borrar`
+  - `Encriptación`
+  - `Seleccionar snapshot`
+  - `Rollback`
+  - `Nuevo Hold`
+  - `Release`
+  - `Desglosar`
+  - `Ensamblar`
+  - `Desde Dir`
+  - `Hacia Dir`
+  - `Seleccionar como origen`
+  - `Seleccionar como destino`
 
 ## Reglas
 
 - Las acciones destructivas piden confirmación.
-- El estado habilitado/deshabilitado sigue la misma lógica de validación que el resto de acciones.
-- Durante una acción en curso se bloquean opciones no seguras.
-- `Gestionar visualización de propiedades` está disponible tanto en propiedades de dataset como en `Información del pool`.
-- Ese diálogo permite elegir qué propiedades se muestran, reordenarlas por arrastrar y soltar y crear o borrar grupos de visualización.
-- Dataset, pool y snapshot usan grupos de visualización independientes.
-- En snapshots, la propiedad `snapshot` queda fija en el grupo principal.
-- `Mostrar propiedades en línea`, `Mostrar Permisos en línea` y `Mostrar Información del pool` cambian la estructura visible del árbol y se guardan en configuración.
-- El árbol ya no usa nodos intermedios `Contenido` ni `Subdatasets`.
-- En `Permisos`, la edición de checks es diferida.
-  Los cambios se acumulan y se aplican con el botón `Aplicar cambios`.
-- La pestaña `Cambios pendientes` del panel inferior es ahora la primera pestaña visible por defecto.
-- `Cambios pendientes` lista esos cambios en el mismo orden en que se ejecutarían, pero mostrando una descripción legible y no el comando real.
-- Al hacer clic en una línea de `Cambios pendientes`, ZFSMgr intenta enfocar el dataset y la sección afectada (`Propiedades` o `Permisos`).
-- `Renombrar` sobre dataset, snapshot o zvol no ejecuta el cambio al momento.
-  Abre un diálogo para pedir el nuevo nombre y añade un `zfs rename` pendiente.
-- `Nuevo Hold` solo aplica a snapshots.
-- `Release <hold>` solo aparece sobre un hold o su propiedad `TimeStamp`.
-- `Encriptación` solo se habilita en datasets que son raíz de encriptación.
-- Si `keylocation=prompt`, `Load key` pide la clave y `Change key` abre una ventana para introducir la nueva clave dos veces.
-- El menú del encabezado ajusta el ancho como un doble clic sobre el separador de columnas.
-- El mismo menú del encabezado concentra también la configuración de `Columnas de propiedades`.
-- La caja `Acciones` incluye también `Mover`, que añade un `zfs rename` pendiente para mover el dataset `Origen` dentro del dataset `Destino` en el mismo pool.
-- La caja `Acciones` incluye también `Diff`, que compara un snapshot de Origen con su dataset padre actual o con otro snapshot del mismo dataset.
-- `Copiar` y `Nivelar`, cuando origen y destino son dos conexiones SSH remotas distintas, intentan ejecutar la transferencia directamente desde la máquina origen hacia la máquina destino, sin hacer pasar el flujo de datos por el host donde corre ZFSMgr.
+- Varias acciones trabajan en modo diferido y se acumulan en `Pending changes`.
+- `Seleccionar como origen` y `Seleccionar como destino` rellenan la caja `Selected datasets`.
+- `Gestionar visualización de propiedades` aplica a `Dataset properties` y `Pool Information`.

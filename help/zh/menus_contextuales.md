@@ -1,84 +1,46 @@
 # 上下文菜单
 
-GUI 在三个区域使用右键菜单。
+ZFSMgr 在统一树上使用上下文菜单。
 
-## `连接` 区域右键菜单
+## 在连接节点上
 
-在连接行上：
+![连接菜单](qrc:/help/img/auto/connection-context-menu.png)
 
-- `刷新`
-- `编辑`
-- `删除`
-- `刷新所有连接`
-- `新建连接`
-- `新建池`
+- 原来属于连接表的菜单现在挂在连接根节点上。
 
-说明：
+## 在合并后的池根节点上
 
-- `Local` 以及重定向到 `Local` 的连接，`编辑` 与 `删除` 会禁用。
-- 有操作运行时，`刷新` 会被阻止。
-- 在表格空白处右键时，仅显示全局项（`刷新所有连接`、`新建连接`、`新建池`）。
+![已导入池菜单](qrc:/help/img/auto/pool-context-menu-imported.png)
 
-## 池树右键菜单
+- 第一个子菜单是 `Pool`。
+- `Pool` 中包含池操作：
+  - `Refresh`
+  - `Import`
+  - `Import with rename`
+  - `Export`
+  - `History`
+  - `Management`
+  - `Show Pool Information`
+  - `Show Scheduled Datasets`
+- 在 `Pool` 子菜单之后，是该合并节点的普通数据集菜单项。
 
-在 `Pool` 根节点上：
+## 在数据集和快照上
 
-- `刷新`
-- `导入`
-- `导出`
-- `历史`
-- `Sync`
-- `Trim`
-- `Initialize`
-- `Scrub`
-- `Destroy`
-- `显示池信息`
-
-在当前选中的数据集/快照上：
-
-- `管理属性显示`
-- `显示内联属性`（勾选）
-- `显示内联权限`（勾选）
-- `Rollback`
-- `创建`
-- `重命名`
-- `删除`
-- `加密`
-- `选择快照`
-- `新建 Hold`
-- `Release <hold>`
-- `拆分`
-- `合并`
-- `来自目录`
-- `到目录`
-
-在数据集的 `权限` 节点上：
-
-- `刷新权限`
-- `新建委派`
-- `新建权限集合`
-
-在某个委派上：
-
-- `编辑委派`
-- `删除委派`
-
-在某个权限集合上：
-
-- `重命名权限集合`
-- `删除集合`
-
-## 规则
-
-- 破坏性操作必须二次确认。
-- 菜单启用/禁用与其它操作采用相同校验逻辑。
-- 操作执行期间，不安全选项会被禁用。
-- `显示内联属性`、`显示内联权限` 和 `显示池信息` 会保存到配置中。
-- 树中已不再使用中间的 `Content` 或 `Subdatasets` 节点。
-- `待执行更改` 现在是下方区域默认首先显示的标签页。
-- 下方日志区域中的 `待执行更改` 会按实际执行顺序列出延后更改，但显示的是可读描述而不是原始命令。
-- 点击 `待执行更改` 中的一行时，ZFSMgr 会尝试定位到受影响的数据集以及对应的 `属性` 或 `权限` 区段。
-- 对数据集、快照或 zvol 执行 `重命名` 时，不会立即执行命令。
-  它会先弹出输入新名称的对话框，然后加入一条待执行的 `zfs rename`。
-- `操作` 区域还包含 `移动`，用于把 `源` 数据集移动到同一池中的 `目标` 数据集下面，并加入一条待执行的 `zfs rename`。
-- 当源和目标是两个不同的远程 SSH 连接时，`复制` 与 `对齐` 会尽量直接在源机器与目标机器之间传输，而不让数据流经过运行 ZFSMgr 的主机。
+- 常见操作包括：
+  - `Manage visible properties`
+  - `Show inline properties`
+  - `Show inline permissions`
+  - `Create dataset/snapshot/vol`
+  - `Rename`
+  - `Delete`
+  - `Encryption`
+  - `Select snapshot`
+  - `Rollback`
+  - `New Hold`
+  - `Release`
+  - `Break down`
+  - `Assemble`
+  - `From Dir`
+  - `To Dir`
+  - `Select as source`
+  - `Select as destination`

@@ -16,6 +16,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QTableWidget>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <functional>
@@ -29,6 +30,7 @@ constexpr int kConnPropGroupNodeRole = Qt::UserRole + 17;
 constexpr int kConnPropGroupNameRole = Qt::UserRole + 18;
 constexpr int kConnIdxRole = Qt::UserRole + 10;
 constexpr int kPoolNameRole = Qt::UserRole + 11;
+constexpr int kIsConnectionRootRole = Qt::UserRole + 36;
 constexpr int kConnSnapshotHoldItemRole = Qt::UserRole + 22;
 constexpr int kConnSnapshotHoldTagRole = Qt::UserRole + 23;
 constexpr int kConnPermissionsNodeRole = Qt::UserRole + 25;
@@ -45,6 +47,22 @@ QString datasetLeafNameUi(const QString& datasetName) {
     const QString trimmed = datasetName.trimmed();
     const int slash = trimmed.lastIndexOf(QLatin1Char('/'));
     return (slash >= 0) ? trimmed.mid(slash + 1) : trimmed;
+}
+
+int connectionTableRowForIndex(QTableWidget* table, int connIdx) {
+    if (!table || connIdx < 0) {
+        return -1;
+    }
+    for (int row = 0; row < table->rowCount(); ++row) {
+        QTableWidgetItem* item = table->item(row, 0);
+        if (!item) {
+            continue;
+        }
+        if (item->data(Qt::UserRole).toInt() == connIdx) {
+            return row;
+        }
+    }
+    return -1;
 }
 }
 
@@ -100,7 +118,7 @@ QString MainWindowConnectionDatasetTreeDelegate::visualStateTokenForTree(QTreeWi
     if (!ok || connIdx < 0) {
         return token.trimmed();
     }
-    if (tree == m_mainWindow->m_connContentTree || tree == m_mainWindow->m_bottomConnContentTree) {
+    if (tree == m_mainWindow->m_connContentTree) {
         return QStringLiteral("conn:%1").arg(connIdx);
     }
     return token.trimmed();
@@ -165,7 +183,6 @@ void MainWindowConnectionDatasetTreeDelegate::refreshTreeForTokenAndDataset(QTre
 void MainWindowConnectionDatasetTreeDelegate::refreshAllTreesForTokenAndDataset(const QString& token,
                                                                                 const QString& datasetName) {
     refreshTreeForTokenAndDataset(m_mainWindow ? m_mainWindow->m_connContentTree : nullptr, token, datasetName);
-    refreshTreeForTokenAndDataset(m_mainWindow ? m_mainWindow->m_bottomConnContentTree : nullptr, token, datasetName);
 }
 
 void MainWindowConnectionDatasetTreeDelegate::refreshPermissionsOwnerNode(QTreeWidget* tree,
@@ -192,9 +209,7 @@ void MainWindowConnectionDatasetTreeDelegate::rehydrateExpandedDatasetNodes(QTre
         return;
     }
     const QString scopedToken =
-        visualStateTokenForTree(tree, token)
-        + ((tree == m_mainWindow->m_bottomConnContentTree) ? QStringLiteral("|bottom")
-                                                           : QStringLiteral("|top"));
+        visualStateTokenForTree(tree, token) + QStringLiteral("|top");
     const auto it = m_mainWindow->m_connContentTreeStateByToken.constFind(scopedToken);
     if (it == m_mainWindow->m_connContentTreeStateByToken.cend()) {
         return;
@@ -398,10 +413,12 @@ MainWindowConnectionDatasetTreeDelegate::buildPoolRootMenu(QMenu& menu, QTreeWid
     actions.trim = management->addAction(QStringLiteral("Trim"));
     actions.initialize = management->addAction(QStringLiteral("Initialize"));
     actions.destroy = management->addAction(QStringLiteral("Destroy"));
-    menu.addSeparator();
-    actions.showPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del pool"));
+    actions.showPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del Pool"));
     actions.showPoolInfo->setCheckable(true);
     actions.showPoolInfo->setChecked(m_mainWindow->showPoolInfoNodeForTree(tree));
+    actions.showAutoGsa = menu.addAction(QStringLiteral("Mostrar Datasets programados"));
+    actions.showAutoGsa->setCheckable(true);
+    actions.showAutoGsa->setChecked(m_mainWindow->showAutomaticSnapshots());
     return actions;
 }
 
@@ -421,7 +438,7 @@ MainWindowConnectionDatasetTreeDelegate::buildInlineVisibilityMenu(QMenu& menu,
                               QStringLiteral("Gestionar visualización de propiedades")));
     }
     if (includePoolInfo) {
-        actions.showPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del pool"));
+        actions.showPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del Pool"));
         actions.showPoolInfo->setCheckable(true);
         actions.showPoolInfo->setChecked(m_mainWindow->showPoolInfoNodeForTree(tree));
     }
@@ -436,7 +453,7 @@ MainWindowConnectionDatasetTreeDelegate::buildInlineVisibilityMenu(QMenu& menu,
     actions.showInlineGsa->setCheckable(true);
     actions.showInlineGsa->setChecked(m_mainWindow->showInlineGsaNodeForTree(tree));
     if (includeAutoGsa) {
-        actions.showAutoGsa = menu.addAction(QStringLiteral("Mostrar snapshots automáticos"));
+        actions.showAutoGsa = menu.addAction(QStringLiteral("Mostrar Datasets programados"));
         actions.showAutoGsa->setCheckable(true);
         actions.showAutoGsa->setChecked(m_mainWindow->showAutomaticSnapshots());
     }
@@ -450,20 +467,6 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
     }
     auto connTokenFromTreeSelectionBottom = [this](QTreeWidget* tree) -> QString {
         if (!tree) {
-            return QString();
-        }
-        if (tree == m_mainWindow->m_bottomConnContentTree) {
-            for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-                QTreeWidgetItem* root = tree->topLevelItem(i);
-                if (!root || !root->data(0, kIsPoolRootRole).toBool()) {
-                    continue;
-                }
-                const int connIdx = root->data(0, kConnIdxRole).toInt();
-                const QString poolName = root->data(0, kPoolNameRole).toString().trimmed();
-                if (connIdx >= 0 && connIdx < m_mainWindow->m_profiles.size() && !poolName.isEmpty()) {
-                    return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
-                }
-            }
             return QString();
         }
         QTreeWidgetItem* owner = tree->currentItem();
@@ -509,11 +512,6 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
             m_mainWindow->rebuildConnectionEntityTabs();
             return;
         }
-        if (tree == m_mainWindow->m_bottomConnContentTree) {
-            m_mainWindow->saveConnContentTreeStateFor(tree, token);
-            m_mainWindow->updateSecondaryConnectionDetail();
-            return;
-        }
         const int sep = token.indexOf(QStringLiteral("::"));
         if (sep <= 0) {
             return;
@@ -525,9 +523,6 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
             return;
         }
         m_mainWindow->rebuildConnContentTreeFor(tree, token, connIdx, poolName, true);
-    };
-    auto alignBottomTabsToToken = [this](const QString& token) {
-        Q_UNUSED(token);
     };
     auto alignDetailContextToToken = [this](QTreeWidget* tree, const QString& token) {
         if (!tree) {
@@ -547,13 +542,7 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
         if (!ok || connIdx < 0 || connIdx >= m_mainWindow->m_profiles.size()) {
             return;
         }
-        if (tree == m_mainWindow->m_bottomConnContentTree) {
-            m_mainWindow->m_bottomDetailConnIdx = connIdx;
-            const QString key = m_mainWindow->m_profiles[connIdx].id.trimmed().toLower();
-            m_mainWindow->m_persistedBottomDetailConnectionKey = key.isEmpty()
-                                                                     ? m_mainWindow->m_profiles[connIdx].name.trimmed().toLower()
-                                                                     : key;
-        } else if (tree == m_mainWindow->m_connContentTree) {
+        if (tree == m_mainWindow->m_connContentTree) {
             m_mainWindow->m_topDetailConnIdx = connIdx;
         }
     };
@@ -583,10 +572,7 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
                         }
                         const bool isMainPropsNode =
                             child->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
-                            && child->text(0).trimmed() == m_mainWindow->trk(QStringLiteral("t_props_lbl_001"),
-                                                                              QStringLiteral("Propiedades"),
-                                                                              QStringLiteral("Properties"),
-                                                                              QStringLiteral("属性"));
+                            && child->text(0).trimmed() == QStringLiteral("Dataset properties");
                         if (!isMainPropsNode || !child->isExpanded()) {
                             continue;
                         }
@@ -642,15 +628,6 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
         if (!token.isEmpty()) {
             alignDetailContextToToken(m_mainWindow->m_connContentTree, token);
             refreshExplicitTreeFromToken(m_mainWindow->m_connContentTree, token);
-        }
-    }
-    if (m_mainWindow->m_bottomConnContentTree) {
-        const QString token = (preferredTree == m_mainWindow->m_bottomConnContentTree && !preferredToken.trimmed().isEmpty())
-                                  ? preferredToken.trimmed()
-                                  : tokenFromTree(m_mainWindow->m_bottomConnContentTree);
-        if (!token.isEmpty()) {
-            alignBottomTabsToToken(token);
-            refreshExplicitTreeFromToken(m_mainWindow->m_bottomConnContentTree, token);
         }
     }
 }
@@ -1073,6 +1050,10 @@ void MainWindowConnectionDatasetTreeDelegate::itemClicked(QTreeWidget* tree, QTr
     if (!m_mainWindow || !tree || !item) {
         return;
     }
+    if (item->data(0, kIsConnectionRootRole).toBool()) {
+        m_mainWindow->updatePoolManagementBoxTitle();
+        return;
+    }
     const bool isPoolInfoNode =
         item->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey);
     if (isPoolInfoNode) {
@@ -1104,10 +1085,7 @@ void MainWindowConnectionDatasetTreeDelegate::itemClicked(QTreeWidget* tree, QTr
     const bool isLazyPropsNode =
         item->data(0, kConnPropGroupNodeRole).toBool()
         && item->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
-        && item->text(0).trimmed() == m_mainWindow->trk(QStringLiteral("t_props_lbl_001"),
-                                                        QStringLiteral("Propiedades"),
-                                                        QStringLiteral("Properties"),
-                                                        QStringLiteral("属性"));
+        && item->text(0).trimmed() == QStringLiteral("Dataset properties");
     if (isLazyPropsNode) {
         QTimer::singleShot(0, m_mainWindow, [this, tree, item]() {
             if (!m_mainWindow || m_mainWindow->m_closing || !tree || !item) {
@@ -1164,11 +1142,21 @@ void MainWindowConnectionDatasetTreeDelegate::selectionChanged(QTreeWidget* tree
     if (!m_mainWindow || !tree || m_mainWindow->m_syncingConnContentColumns) {
         return;
     }
-    if ((isBottom && m_mainWindow->m_rebuildingBottomConnContentTree)
-        || (!isBottom && m_mainWindow->m_rebuildingTopConnContentTree)) {
+    Q_UNUSED(isBottom);
+    if (m_mainWindow->m_rebuildingTopConnContentTree) {
         return;
     }
     QTreeWidgetItem* sel = tree->currentItem();
+    const int selectedConnIdx = sel ? sel->data(0, kConnIdxRole).toInt() : -1;
+    if (selectedConnIdx >= 0 && selectedConnIdx < m_mainWindow->m_profiles.size()) {
+        m_mainWindow->m_topDetailConnIdx = selectedConnIdx;
+    }
+    if (sel && sel->data(0, kIsConnectionRootRole).toBool()) {
+        m_mainWindow->updatePoolManagementBoxTitle();
+        m_mainWindow->updateConnectionDetailTitlesForCurrentSelection();
+        m_mainWindow->updateConnectionActionsState();
+        return;
+    }
     const bool isPropRow = sel && sel->data(0, kConnPropRowRole).toBool();
     const bool isGroupNode = sel && sel->data(0, kConnPropGroupNodeRole).toBool();
     const bool isGsaNode = sel && sel->data(0, Qt::UserRole + 33).toBool();
@@ -1183,10 +1171,7 @@ void MainWindowConnectionDatasetTreeDelegate::selectionChanged(QTreeWidget* tree
     const bool isLazyPropsNode =
         sel && isGroupNode && !isPoolContext
         && sel->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
-        && sel->text(0).trimmed() == m_mainWindow->trk(QStringLiteral("t_props_lbl_001"),
-                                                       QStringLiteral("Propiedades"),
-                                                       QStringLiteral("Properties"),
-                                                       QStringLiteral("属性"))
+        && sel->text(0).trimmed() == QStringLiteral("Dataset properties")
         && sel->childCount() == 0;
     const bool isLazyPermissionsNode =
         sel && isPermissionsNode
@@ -1230,8 +1215,7 @@ void MainWindowConnectionDatasetTreeDelegate::selectionChanged(QTreeWidget* tree
                 if (!m_mainWindow || !safeTree) {
                     return;
                 }
-                if ((isBottom && m_mainWindow->m_rebuildingBottomConnContentTree)
-                    || (!isBottom && m_mainWindow->m_rebuildingTopConnContentTree)) {
+                if (m_mainWindow->m_rebuildingTopConnContentTree) {
                     return;
                 }
                 m_mainWindow->refreshConnContentPropertiesFor(safeTree);
@@ -1241,7 +1225,7 @@ void MainWindowConnectionDatasetTreeDelegate::selectionChanged(QTreeWidget* tree
                 m_mainWindow->syncConnContentPropertyColumnsFor(safeTree, token);
             });
         }
-        applySelectionToSide(isBottom, currentSelection(tree, token));
+        applySelectionToSide(false, currentSelection(tree, token));
     }
     m_mainWindow->updateConnectionDetailTitlesForCurrentSelection();
     m_mainWindow->updateConnectionActionsState();
@@ -1884,6 +1868,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     m_mainWindow->updateConnectionActionsState();
 
     QMenu menu(m_mainWindow);
+    const bool isConnectionRoot = item->data(0, kIsConnectionRootRole).toBool();
     const bool isPoolRoot = item->data(0, kIsPoolRootRole).toBool();
     const QString menuToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
     auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
@@ -1896,63 +1881,39 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     };
     const bool isPoolInfoContext = isInfoNodeOrInside(item);
 
+    if (isConnectionRoot) {
+        m_mainWindow->showConnectionContextMenu(connIdx, tree->viewport()->mapToGlobal(pos));
+        return;
+    }
+
+    int poolRow = -1;
+    QString poolAction;
+    zfsmgr::uilogic::PoolRootMenuState poolMenuState;
+    PoolRootMenuActions poolActions;
     if (isPoolRoot) {
-        int poolRow = -1;
         if (connIdx >= 0 && connIdx < m_mainWindow->m_profiles.size() && !poolName.isEmpty()) {
             poolRow = m_mainWindow->findPoolRow(m_mainWindow->m_profiles[connIdx].name.trimmed(), poolName);
         }
-        const QString poolAction =
+        poolAction =
             (poolRow >= 0 && poolRow < m_mainWindow->m_poolListEntries.size())
                 ? m_mainWindow->m_poolListEntries[poolRow].action.trimmed()
                 : QString();
-        const zfsmgr::uilogic::PoolRootMenuState menuState =
+        poolMenuState =
             zfsmgr::uilogic::buildPoolRootMenuState(poolAction, QStringLiteral("ONLINE"), poolRow >= 0);
-        const PoolRootMenuActions poolActions = buildPoolRootMenu(menu, tree);
-        poolActions.update->setEnabled(menuState.canRefresh);
-        poolActions.importPool->setEnabled(menuState.canImport);
-        poolActions.importRename->setEnabled(menuState.canImport);
-        poolActions.exportPool->setEnabled(menuState.canExport);
-        poolActions.history->setEnabled(menuState.canHistory);
-        poolActions.sync->setEnabled(menuState.canSync);
-        poolActions.scrub->setEnabled(menuState.canScrub);
-        poolActions.upgrade->setEnabled(menuState.canUpgrade);
-        poolActions.reguid->setEnabled(menuState.canReguid);
-        poolActions.trim->setEnabled(menuState.canTrim);
-        poolActions.initialize->setEnabled(menuState.canInitialize);
-        poolActions.destroy->setEnabled(menuState.canDestroy);
-        QAction* picked = menu.exec(tree->viewport()->mapToGlobal(pos));
-        if (!picked) {
-            return;
-        }
-        if (picked == poolActions.update && menuState.canRefresh) {
-            m_mainWindow->refreshSelectedPoolDetails(true, true);
-        } else if (picked == poolActions.importPool && menuState.canImport && poolRow >= 0) {
-            m_mainWindow->importPoolFromRow(poolRow);
-        } else if (picked == poolActions.importRename && menuState.canImport && poolRow >= 0) {
-            m_mainWindow->importPoolRenamingFromRow(poolRow);
-        } else if (picked == poolActions.exportPool && menuState.canExport && poolRow >= 0) {
-            m_mainWindow->exportPoolFromRow(poolRow);
-        } else if (picked == poolActions.history && menuState.canHistory && poolRow >= 0) {
-            m_mainWindow->showPoolHistoryFromRow(poolRow);
-        } else if (picked == poolActions.sync && menuState.canSync && poolRow >= 0) {
-            m_mainWindow->syncPoolFromRow(poolRow);
-        } else if (picked == poolActions.scrub && menuState.canScrub && poolRow >= 0) {
-            m_mainWindow->scrubPoolFromRow(poolRow);
-        } else if (picked == poolActions.upgrade && menuState.canUpgrade && poolRow >= 0) {
-            m_mainWindow->upgradePoolFromRow(poolRow);
-        } else if (picked == poolActions.reguid && menuState.canReguid && poolRow >= 0) {
-            m_mainWindow->reguidPoolFromRow(poolRow);
-        } else if (picked == poolActions.trim && menuState.canTrim && poolRow >= 0) {
-            m_mainWindow->trimPoolFromRow(poolRow);
-        } else if (picked == poolActions.initialize && menuState.canInitialize && poolRow >= 0) {
-            m_mainWindow->initializePoolFromRow(poolRow);
-        } else if (picked == poolActions.destroy && menuState.canDestroy && poolRow >= 0) {
-            m_mainWindow->destroyPoolFromRow(poolRow);
-        } else if (picked == poolActions.showPoolInfo) {
-            m_mainWindow->setShowPoolInfoNodeForTree(tree, poolActions.showPoolInfo->isChecked());
-            applyInlineSectionVisibility(tree, menuToken);
-        }
-        return;
+        QMenu* poolMenu = menu.addMenu(QStringLiteral("Pool"));
+        poolActions = buildPoolRootMenu(*poolMenu, tree);
+        poolActions.update->setEnabled(poolMenuState.canRefresh);
+        poolActions.importPool->setEnabled(poolMenuState.canImport);
+        poolActions.importRename->setEnabled(poolMenuState.canImport);
+        poolActions.exportPool->setEnabled(poolMenuState.canExport);
+        poolActions.history->setEnabled(poolMenuState.canHistory);
+        poolActions.sync->setEnabled(poolMenuState.canSync);
+        poolActions.scrub->setEnabled(poolMenuState.canScrub);
+        poolActions.upgrade->setEnabled(poolMenuState.canUpgrade);
+        poolActions.reguid->setEnabled(poolMenuState.canReguid);
+        poolActions.trim->setEnabled(poolMenuState.canTrim);
+        poolActions.initialize->setEnabled(poolMenuState.canInitialize);
+        poolActions.destroy->setEnabled(poolMenuState.canDestroy);
     }
 
     if (isPoolInfoContext) {
@@ -2017,9 +1978,12 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     QAction* aUnloadKey = mEncryption->addAction(QStringLiteral("Unload key"));
     QAction* aChangeKey = mEncryption->addAction(QStringLiteral("Change key"));
     menu.addSeparator();
-    QAction* aShowAutoGsa = menu.addAction(QStringLiteral("Mostrar snapshots automáticos"));
-    aShowAutoGsa->setCheckable(true);
-    aShowAutoGsa->setChecked(m_mainWindow->showAutomaticSnapshots());
+    QAction* aShowAutoGsa = nullptr;
+    if (!isPoolRoot) {
+        aShowAutoGsa = menu.addAction(QStringLiteral("Mostrar Datasets programados"));
+        aShowAutoGsa->setCheckable(true);
+        aShowAutoGsa->setChecked(m_mainWindow->showAutomaticSnapshots());
+    }
     QMenu* mSelectSnapshot = menu.addMenu(
         m_mainWindow->trk(QStringLiteral("t_ctx_sel_snap001"),
                           QStringLiteral("Seleccionar snapshot"),
@@ -2066,9 +2030,24 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         m_mainWindow->trk(QStringLiteral("t_from_dir_btn1"), QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")));
     QAction* aToDir = menu.addAction(
         m_mainWindow->trk(QStringLiteral("t_to_dir_btn_001"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")));
+    menu.addSeparator();
+    QAction* aSelectOrigin = menu.addAction(QStringLiteral("Seleccionar como origen"));
+    QAction* aSelectDestination = menu.addAction(QStringLiteral("Seleccionar como destino"));
 
     const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
-    const SelectionSnapshot ctx = currentSelection(tree, token);
+    auto selectionForMenuContext = [&]() -> SelectionSnapshot {
+        SelectionSnapshot snapshot = currentSelection(tree, token);
+        if ((!snapshot.valid || snapshot.datasetName.trimmed().isEmpty()) && isPoolRoot
+            && connIdx >= 0 && !poolName.isEmpty()) {
+            snapshot.valid = true;
+            snapshot.connIdx = connIdx;
+            snapshot.poolName = poolName;
+            snapshot.datasetName = poolName;
+            snapshot.snapshotName.clear();
+        }
+        return snapshot;
+    };
+    const SelectionSnapshot ctx = selectionForMenuContext();
     MainWindow::DatasetSelectionContext mwSelCtx;
     mwSelCtx.valid = ctx.valid;
     mwSelCtx.connIdx = ctx.connIdx;
@@ -2114,10 +2093,73 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         aAssemble->setEnabled(!m_mainWindow->actionsLocked() && m_mainWindow->connAdvancedDatasetActionAllowed(mwSelCtx));
         aFromDir->setEnabled(!m_mainWindow->actionsLocked() && m_mainWindow->connDirectoryDatasetActionAllowed(mwSelCtx));
         aToDir->setEnabled(!m_mainWindow->actionsLocked() && m_mainWindow->connDirectoryDatasetActionAllowed(mwSelCtx));
+        aSelectOrigin->setEnabled(hasConnSel);
+        aSelectDestination->setEnabled(hasConnSel);
 
         QAction* picked = menu.exec(tree->viewport()->mapToGlobal(pos));
         if (!picked) {
             return;
+        }
+        if (isPoolRoot) {
+            if (picked == poolActions.update && poolMenuState.canRefresh) {
+                m_mainWindow->refreshSelectedPoolDetails(true, true);
+                return;
+            }
+            if (picked == poolActions.importPool && poolMenuState.canImport && poolRow >= 0) {
+                m_mainWindow->importPoolFromRow(poolRow);
+                return;
+            }
+            if (picked == poolActions.importRename && poolMenuState.canImport && poolRow >= 0) {
+                m_mainWindow->importPoolRenamingFromRow(poolRow);
+                return;
+            }
+            if (picked == poolActions.exportPool && poolMenuState.canExport && poolRow >= 0) {
+                m_mainWindow->exportPoolFromRow(poolRow);
+                return;
+            }
+            if (picked == poolActions.history && poolMenuState.canHistory && poolRow >= 0) {
+                m_mainWindow->showPoolHistoryFromRow(poolRow);
+                return;
+            }
+            if (picked == poolActions.sync && poolMenuState.canSync && poolRow >= 0) {
+                m_mainWindow->syncPoolFromRow(poolRow);
+                return;
+            }
+            if (picked == poolActions.scrub && poolMenuState.canScrub && poolRow >= 0) {
+                m_mainWindow->scrubPoolFromRow(poolRow);
+                return;
+            }
+            if (picked == poolActions.upgrade && poolMenuState.canUpgrade && poolRow >= 0) {
+                m_mainWindow->upgradePoolFromRow(poolRow);
+                return;
+            }
+            if (picked == poolActions.reguid && poolMenuState.canReguid && poolRow >= 0) {
+                m_mainWindow->reguidPoolFromRow(poolRow);
+                return;
+            }
+            if (picked == poolActions.trim && poolMenuState.canTrim && poolRow >= 0) {
+                m_mainWindow->trimPoolFromRow(poolRow);
+                return;
+            }
+            if (picked == poolActions.initialize && poolMenuState.canInitialize && poolRow >= 0) {
+                m_mainWindow->initializePoolFromRow(poolRow);
+                return;
+            }
+            if (picked == poolActions.destroy && poolMenuState.canDestroy && poolRow >= 0) {
+                m_mainWindow->destroyPoolFromRow(poolRow);
+                return;
+            }
+            if (picked == poolActions.showPoolInfo) {
+                m_mainWindow->setShowPoolInfoNodeForTree(tree, poolActions.showPoolInfo->isChecked());
+                applyInlineSectionVisibility(tree, menuToken);
+                return;
+            }
+            if (picked == poolActions.showAutoGsa) {
+                focusContextItemForInlineVisibility(tree, item);
+                m_mainWindow->m_showAutomaticGsaSnapshots = poolActions.showAutoGsa->isChecked();
+                applyInlineSectionVisibility(tree, menuToken);
+                return;
+            }
         }
         if (snapshotActions.contains(picked)) {
             const QString snapName = snapshotActions.value(picked);
@@ -2185,7 +2227,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             applyInlineSectionVisibility(tree, menuToken);
             return;
         }
-        if (picked == aShowAutoGsa) {
+        if (aShowAutoGsa && picked == aShowAutoGsa) {
             focusContextItemForInlineVisibility(tree, item);
             m_mainWindow->m_showAutomaticGsaSnapshots = aShowAutoGsa->isChecked();
             applyInlineSectionVisibility(tree, menuToken);
@@ -2200,7 +2242,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             return;
         }
         if (picked == aRollback) {
-            const SelectionSnapshot actx = currentSelection(tree, token);
+            const SelectionSnapshot actx = selectionForMenuContext();
             if (!actx.valid || actx.snapshotName.isEmpty()) {
                 return;
             }
@@ -2228,7 +2270,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             return;
         }
         if (picked == aCreate) {
-            const SelectionSnapshot actx = currentSelection(tree, token);
+            const SelectionSnapshot actx = selectionForMenuContext();
             MainWindow::DatasetSelectionContext mwActx;
             mwActx.valid = actx.valid;
             mwActx.connIdx = actx.connIdx;
@@ -2240,7 +2282,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             return;
         }
         if (picked == aRename) {
-            const SelectionSnapshot actx = currentSelection(tree, token);
+            const SelectionSnapshot actx = selectionForMenuContext();
             if (!actx.valid || actx.datasetName.trimmed().isEmpty()) {
                 return;
             }
@@ -2301,7 +2343,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             return;
         }
         if (picked == aDelete) {
-            const SelectionSnapshot actx = currentSelection(tree, token);
+            const SelectionSnapshot actx = selectionForMenuContext();
             MainWindow::DatasetSelectionContext mwActx;
             mwActx.valid = actx.valid;
             mwActx.connIdx = actx.connIdx;
@@ -2310,6 +2352,23 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             mwActx.snapshotName = actx.snapshotName;
             m_mainWindow->logUiAction(QStringLiteral("Borrar dataset/snapshot (menú Contenido)"));
             m_mainWindow->actionDeleteDatasetOrSnapshot(QStringLiteral("conncontent"), mwActx);
+            return;
+        }
+        if (picked == aSelectOrigin || picked == aSelectDestination) {
+            MainWindow::DatasetSelectionContext mwCtx;
+            mwCtx.valid = ctx.valid;
+            mwCtx.connIdx = ctx.connIdx;
+            mwCtx.poolName = ctx.poolName;
+            mwCtx.datasetName = ctx.datasetName;
+            mwCtx.snapshotName = ctx.snapshotName;
+            if (picked == aSelectOrigin) {
+                m_mainWindow->m_topDetailConnIdx = ctx.connIdx;
+                m_mainWindow->setConnectionOriginSelection(mwCtx);
+            } else {
+                mwCtx.snapshotName.clear();
+                m_mainWindow->setConnectionDestinationSelection(mwCtx);
+            }
+            m_mainWindow->updatePoolManagementBoxTitle();
             return;
         }
         if (picked == aLoadKey || picked == aUnloadKey || picked == aChangeKey) {

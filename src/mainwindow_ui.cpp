@@ -719,14 +719,7 @@ bool MainWindow::focusPendingChangeLine(const QString& line) {
     };
 
     QTreeWidgetItem* originPoolRoot = visiblePoolRoot(m_connContentTree);
-    QTreeWidgetItem* destPoolRoot = visiblePoolRoot(m_bottomConnContentTree);
-    QTreeWidget* targetTree = nullptr;
-    // Si el pool está visible en ambos árboles, priorizar siempre Origen.
-    if (originPoolRoot) {
-        targetTree = m_connContentTree;
-    } else if (destPoolRoot) {
-        targetTree = m_bottomConnContentTree;
-    }
+    QTreeWidget* targetTree = originPoolRoot ? m_connContentTree : nullptr;
     if (!targetTree) {
         QMessageBox::information(
             this,
@@ -865,118 +858,70 @@ bool MainWindow::focusPendingChangeLine(const QString& line) {
 }
 
 bool MainWindow::showInlinePropertyNodesForTree(const QTreeWidget* tree) const {
-    if (tree == m_bottomConnContentTree && m_bottomDatasetPane) {
-        return m_bottomDatasetPane->visualOptions().showInlineProperties;
-    }
     if (tree == m_connContentTree && m_topDatasetPane) {
         return m_topDatasetPane->visualOptions().showInlineProperties;
     }
-    return (tree == m_bottomConnContentTree) ? m_showInlinePropertyNodesBottom
-                                             : m_showInlinePropertyNodesTop;
+    return m_showInlinePropertyNodesTop;
 }
 
 bool MainWindow::showInlinePermissionsNodesForTree(const QTreeWidget* tree) const {
-    if (tree == m_bottomConnContentTree && m_bottomDatasetPane) {
-        return m_bottomDatasetPane->visualOptions().showInlinePermissions;
-    }
     if (tree == m_connContentTree && m_topDatasetPane) {
         return m_topDatasetPane->visualOptions().showInlinePermissions;
     }
-    return (tree == m_bottomConnContentTree) ? m_showInlinePermissionsNodesBottom
-                                             : m_showInlinePermissionsNodesTop;
+    return m_showInlinePermissionsNodesTop;
 }
 
 bool MainWindow::showPoolInfoNodeForTree(const QTreeWidget* tree) const {
-    if (tree == m_bottomConnContentTree && m_bottomDatasetPane) {
-        return m_bottomDatasetPane->visualOptions().showPoolInfo;
-    }
     if (tree == m_connContentTree && m_topDatasetPane) {
         return m_topDatasetPane->visualOptions().showPoolInfo;
     }
-    return (tree == m_bottomConnContentTree) ? m_showPoolInfoNodeBottom
-                                             : m_showPoolInfoNodeTop;
+    return m_showPoolInfoNodeTop;
 }
 
 bool MainWindow::showInlineGsaNodeForTree(const QTreeWidget* tree) const {
-    if (tree == m_bottomConnContentTree && m_bottomDatasetPane) {
-        return m_bottomDatasetPane->visualOptions().showInlineGsa;
-    }
     if (tree == m_connContentTree && m_topDatasetPane) {
         return m_topDatasetPane->visualOptions().showInlineGsa;
     }
-    return (tree == m_bottomConnContentTree) ? m_showInlineGsaNodeBottom
-                                             : m_showInlineGsaNodeTop;
+    return m_showInlineGsaNodeTop;
 }
 
 void MainWindow::setShowInlinePropertyNodesForTree(QTreeWidget* tree, bool visible) {
-    if (tree == m_bottomConnContentTree) {
-        m_showInlinePropertyNodesBottom = visible;
-        if (m_bottomDatasetPane) {
-            auto options = m_bottomDatasetPane->visualOptions();
-            options.showInlineProperties = visible;
-            m_bottomDatasetPane->setVisualOptions(options);
-        }
-    } else {
-        m_showInlinePropertyNodesTop = visible;
-        if (m_topDatasetPane) {
-            auto options = m_topDatasetPane->visualOptions();
-            options.showInlineProperties = visible;
-            m_topDatasetPane->setVisualOptions(options);
-        }
+    Q_UNUSED(tree);
+    m_showInlinePropertyNodesTop = visible;
+    if (m_topDatasetPane) {
+        auto options = m_topDatasetPane->visualOptions();
+        options.showInlineProperties = visible;
+        m_topDatasetPane->setVisualOptions(options);
     }
 }
 
 void MainWindow::setShowInlinePermissionsNodesForTree(QTreeWidget* tree, bool visible) {
-    if (tree == m_bottomConnContentTree) {
-        m_showInlinePermissionsNodesBottom = visible;
-        if (m_bottomDatasetPane) {
-            auto options = m_bottomDatasetPane->visualOptions();
-            options.showInlinePermissions = visible;
-            m_bottomDatasetPane->setVisualOptions(options);
-        }
-    } else {
-        m_showInlinePermissionsNodesTop = visible;
-        if (m_topDatasetPane) {
-            auto options = m_topDatasetPane->visualOptions();
-            options.showInlinePermissions = visible;
-            m_topDatasetPane->setVisualOptions(options);
-        }
+    Q_UNUSED(tree);
+    m_showInlinePermissionsNodesTop = visible;
+    if (m_topDatasetPane) {
+        auto options = m_topDatasetPane->visualOptions();
+        options.showInlinePermissions = visible;
+        m_topDatasetPane->setVisualOptions(options);
     }
 }
 
 void MainWindow::setShowInlineGsaNodeForTree(QTreeWidget* tree, bool visible) {
-    if (tree == m_bottomConnContentTree) {
-        m_showInlineGsaNodeBottom = visible;
-        if (m_bottomDatasetPane) {
-            auto options = m_bottomDatasetPane->visualOptions();
-            options.showInlineGsa = visible;
-            m_bottomDatasetPane->setVisualOptions(options);
-        }
-    } else {
-        m_showInlineGsaNodeTop = visible;
-        if (m_topDatasetPane) {
-            auto options = m_topDatasetPane->visualOptions();
-            options.showInlineGsa = visible;
-            m_topDatasetPane->setVisualOptions(options);
-        }
+    Q_UNUSED(tree);
+    m_showInlineGsaNodeTop = visible;
+    if (m_topDatasetPane) {
+        auto options = m_topDatasetPane->visualOptions();
+        options.showInlineGsa = visible;
+        m_topDatasetPane->setVisualOptions(options);
     }
 }
 
 void MainWindow::setShowPoolInfoNodeForTree(const QTreeWidget* tree, bool visible) {
-    if (tree == m_bottomConnContentTree) {
-        m_showPoolInfoNodeBottom = visible;
-        if (m_bottomDatasetPane) {
-            auto options = m_bottomDatasetPane->visualOptions();
-            options.showPoolInfo = visible;
-            m_bottomDatasetPane->setVisualOptions(options);
-        }
-    } else {
-        m_showPoolInfoNodeTop = visible;
-        if (m_topDatasetPane) {
-            auto options = m_topDatasetPane->visualOptions();
-            options.showPoolInfo = visible;
-            m_topDatasetPane->setVisualOptions(options);
-        }
+    Q_UNUSED(tree);
+    m_showPoolInfoNodeTop = visible;
+    if (m_topDatasetPane) {
+        auto options = m_topDatasetPane->visualOptions();
+        options.showPoolInfo = visible;
+        m_topDatasetPane->setVisualOptions(options);
     }
 }
 
@@ -1076,6 +1021,16 @@ void MainWindow::buildUi() {
         applyLanguageLive();
     });
 
+    m_connectivityMatrixAction = appMenu->addAction(
+        trk(QStringLiteral("t_connectivity_menu_001"),
+            QStringLiteral("Comprobar conectividad"),
+            QStringLiteral("Check connectivity"),
+            QStringLiteral("检查连通性")));
+    connect(m_connectivityMatrixAction, &QAction::triggered, this, [this]() {
+        logUiAction(QStringLiteral("Comprobar conectividad (menú)"));
+        openConnectivityMatrixDialog();
+    });
+
     QAction* confirmAct = appMenu->addAction(
         trk(QStringLiteral("t_show_confirm_001"),
             QStringLiteral("Mostrar confirmación antes de ejecutar acciones"),
@@ -1109,13 +1064,8 @@ void MainWindow::buildUi() {
             if (!tree) {
                 return;
             }
-            const bool isBottomTree = (tree == m_bottomConnContentTree);
-            const int connIdx = isBottomTree ? m_bottomDetailConnIdx : m_topDetailConnIdx;
-            if (isBottomTree) {
-                saveBottomTreeStateForConnection(connIdx);
-            } else {
-                saveTopTreeStateForConnection(connIdx);
-            }
+            const int connIdx = m_topDetailConnIdx;
+            saveTopTreeStateForConnection(connIdx);
             QTreeWidgetItem* cur = tree->currentItem();
             QTreeWidgetItem* owner = cur;
             while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
@@ -1129,14 +1079,9 @@ void MainWindow::buildUi() {
             } else {
                 syncConnContentPropertyColumnsFor(tree, token);
             }
-            if (isBottomTree) {
-                restoreBottomTreeStateForConnection(connIdx);
-            } else {
-                restoreTopTreeStateForConnection(connIdx);
-            }
+            restoreTopTreeStateForConnection(connIdx);
         };
         refreshOneConnContentTree(m_connContentTree);
-        refreshOneConnContentTree(m_bottomConnContentTree);
     };
 
     QMenu* logsMenu = appMenu->addMenu(
@@ -1418,64 +1363,8 @@ void MainWindow::buildUi() {
     const int stdLeftBtnH = 34;
     m_poolMgmtBox = nullptr;
 
-    auto* connListBox = new QGroupBox(
-        trk(QStringLiteral("t_list_001"),
-            QStringLiteral("Conexiones"),
-            QStringLiteral("Connections"),
-            QStringLiteral("连接")),
-        connectionsTab);
-    auto* connListBoxLayout = new QVBoxLayout(connListBox);
-    connListBoxLayout->setContentsMargins(6, 8, 6, 6);
-    m_connectionsTable = new QTableWidget(connListBox);
-    m_connectionsTable->setObjectName(QStringLiteral("connectionsTable"));
-    m_connectionsTable->setColumnCount(3);
-    m_connectionsTable->setHorizontalHeaderLabels({
-        trk(QStringLiteral("t_connections_001"),
-            QStringLiteral("Conexión"),
-            QStringLiteral("Connection"),
-            QStringLiteral("连接")),
-        QStringLiteral("O"),
-        QStringLiteral("D")
-    });
-    m_connectionsTable->horizontalHeader()->setVisible(true);
-    m_connectionsTable->verticalHeader()->setVisible(false);
-    m_connectionsTable->setAlternatingRowColors(false);
-    m_connectionsTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_connectionsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_connectionsTable->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-    m_connectionsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_connectionsTable->setFont(QApplication::font());
-    if (m_connectionsTable->horizontalHeader()) {
-        m_connectionsTable->horizontalHeader()->setFont(QApplication::font());
-    }
-    m_connectionsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-    m_connectionsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
-    m_connectionsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
-    m_connectionsTable->setColumnWidth(1, 34);
-    m_connectionsTable->setColumnWidth(2, 34);
-    m_connectionsTable->setItemDelegateForColumn(0, new ConnectionRowTextDelegate(m_connectionsTable));
-    m_connectionsTable->setItemDelegateForColumn(1, new LightCenteredCheckDelegate(m_connectionsTable));
-    m_connectionsTable->setItemDelegateForColumn(2, new LightCenteredCheckDelegate(m_connectionsTable));
-#ifdef Q_OS_MAC
-    if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
-        m_connectionsTable->setStyle(fusion);
-    }
-#endif
-    m_connectivityMatrixBtn = new QPushButton(
-        trk(QStringLiteral("t_connectivity_btn_001"),
-            QStringLiteral("Conectividad"),
-            QStringLiteral("Connectivity"),
-            QStringLiteral("连通性")),
-        m_connectionsTable->viewport());
-    m_connectivityMatrixBtn->setObjectName(QStringLiteral("zfsmgrConnectivityMatrixBtn"));
-    m_connectivityMatrixBtn->setFont(QApplication::font());
-    m_connectivityMatrixBtn->raise();
-    m_connectivityMatrixBtn->installEventFilter(this);
+    m_connectionsTable = nullptr;
     updateConnectivityMatrixButtonState();
-    m_connectionsTable->installEventFilter(this);
-    m_connectionsTable->viewport()->installEventFilter(this);
-    connListBoxLayout->addWidget(m_connectionsTable, 1);
-    connLayout->addWidget(connListBox, 1);
 
     m_connActionsBox = new QGroupBox(
         trk(QStringLiteral("t_actions_box_001"),
@@ -1484,14 +1373,14 @@ void MainWindow::buildUi() {
             QStringLiteral("已选数据集")),
         connectionsTab);
     m_connActionsBox->setFont(QApplication::font());
-    auto* connActionsLayout = new QHBoxLayout(m_connActionsBox);
+    auto* connActionsLayout = new QVBoxLayout(m_connActionsBox);
     connActionsLayout->setContentsMargins(6, 8, 6, 6);
-    connActionsLayout->setSpacing(8);
+    connActionsLayout->setSpacing(6);
 
     auto* connActionRightBox = new QWidget(m_connActionsBox);
     auto* connActionRightLayout = new QVBoxLayout(connActionRightBox);
-    connActionRightLayout->setContentsMargins(6, 2, 6, 4);
-    connActionRightLayout->setSpacing(4);
+    connActionRightLayout->setContentsMargins(2, 2, 2, 2);
+    connActionRightLayout->setSpacing(6);
     m_connOriginSelectionLabel = new QLabel(
         trk(QStringLiteral("t_conn_origin_sel1"),
             QStringLiteral("Origen:(vacío)"),
@@ -1499,7 +1388,7 @@ void MainWindow::buildUi() {
             QStringLiteral("源：（空）")),
         connActionRightBox);
     m_connOriginSelectionLabel->setWordWrap(true);
-    m_connOriginSelectionLabel->setMinimumHeight(20);
+    m_connOriginSelectionLabel->setMinimumHeight(18);
     m_connOriginSelectionLabel->setFont(baseUiFont);
     connActionRightLayout->addWidget(m_connOriginSelectionLabel);
     m_connDestSelectionLabel = new QLabel(
@@ -1509,7 +1398,7 @@ void MainWindow::buildUi() {
             QStringLiteral("目标：（空）")),
         connActionRightBox);
     m_connDestSelectionLabel->setWordWrap(true);
-    m_connDestSelectionLabel->setMinimumHeight(20);
+    m_connDestSelectionLabel->setMinimumHeight(18);
     m_connDestSelectionLabel->setFont(baseUiFont);
     connActionRightLayout->addWidget(m_connDestSelectionLabel);
     m_btnApplyConnContentProps = new TooltipPushButton(
@@ -1643,7 +1532,7 @@ void MainWindow::buildUi() {
     connRightBtns->addWidget(m_btnConnLevel, 2, 0);
     connRightBtns->addWidget(m_btnConnDiff, 2, 1);
     connActionRightLayout->addLayout(connRightBtns);
-    connActionsLayout->addWidget(connActionRightBox, 1);
+    connActionsLayout->addWidget(connActionRightBox, 0);
     connLayout->addWidget(m_connActionsBox, 0);
     connectionsTab->setLayout(connLayout);
 
@@ -1785,15 +1674,16 @@ void MainWindow::buildUi() {
     m_topConnContentDelegate = new MainWindowConnectionDatasetTreeDelegate(this, this);
     ConnectionDatasetTreeWidget::Config topTreeConfig;
     topTreeConfig.treeName = QStringLiteral("originDatasetTreeWidget");
-    topTreeConfig.primaryColumnTitle = trk(QStringLiteral("t_origin_dataset_col001"),
-                                           QStringLiteral("Origen:Dataset"),
-                                           QStringLiteral("Origin:Dataset"),
-                                           QStringLiteral("源:数据集"));
-    topTreeConfig.role = ConnectionDatasetTreePane::Role::Top;
+    topTreeConfig.primaryColumnTitle = trk(QStringLiteral("t_unified_dataset_col001"),
+                                           QStringLiteral("Conexión/Pool/Dataset"),
+                                           QStringLiteral("Connection/Pool/Dataset"),
+                                           QStringLiteral("连接/存储池/数据集"));
+    topTreeConfig.role = ConnectionDatasetTreePane::Role::Unified;
     topTreeConfig.visualOptions = {m_showInlinePropertyNodesTop,
                                    m_showInlinePermissionsNodesTop,
                                    m_showInlineGsaNodeTop,
                                    m_showPoolInfoNodeTop};
+    topTreeConfig.groupPoolsByConnectionRoots = true;
     m_topDatasetTreeWidget = new ConnectionDatasetTreeWidget(topTreeConfig, m_topConnContentDelegate, m_connContentPage);
     m_topDatasetPane = m_topDatasetTreeWidget->pane();
     m_topConnContentCoordinator = m_topDatasetTreeWidget->coordinator();
@@ -1817,38 +1707,15 @@ void MainWindow::buildUi() {
     m_rightMainSplit->setChildrenCollapsible(false);
     m_rightMainSplit->setHandleWidth(4);
     m_rightMainSplit->addWidget(m_rightStack);
-    auto* bottomConnBox = new QWidget(m_rightMainSplit);
-    auto* bottomConnLayout = new QVBoxLayout(bottomConnBox);
-    bottomConnLayout->setContentsMargins(6, 6, 6, 6);
     delete m_bottomConnContentDelegate;
-    m_bottomConnContentDelegate = new MainWindowConnectionDatasetTreeDelegate(this, this);
-    ConnectionDatasetTreeWidget::Config bottomTreeConfig;
-    bottomTreeConfig.treeName = QStringLiteral("destinationDatasetTreeWidget");
-    bottomTreeConfig.primaryColumnTitle = trk(QStringLiteral("t_target_dataset_col001"),
-                                              QStringLiteral("Destino:Dataset"),
-                                              QStringLiteral("Destination:Dataset"),
-                                              QStringLiteral("目标:数据集"));
-    bottomTreeConfig.role = ConnectionDatasetTreePane::Role::Bottom;
-    bottomTreeConfig.visualOptions = {m_showInlinePropertyNodesBottom,
-                                      m_showInlinePermissionsNodesBottom,
-                                      m_showInlineGsaNodeBottom,
-                                      m_showPoolInfoNodeBottom};
-    m_bottomDatasetTreeWidget = new ConnectionDatasetTreeWidget(bottomTreeConfig, m_bottomConnContentDelegate, bottomConnBox);
-    m_bottomDatasetPane = m_bottomDatasetTreeWidget->pane();
-    m_bottomConnContentCoordinator = m_bottomDatasetTreeWidget->coordinator();
-    m_bottomConnContentTree = m_bottomDatasetTreeWidget->tree();
-    m_bottomConnContentTree->setItemDelegate(new ConnContentPropBorderDelegate(m_bottomConnContentTree));
+    m_bottomConnContentDelegate = nullptr;
+    m_bottomDatasetTreeWidget = nullptr;
+    m_bottomDatasetPane = nullptr;
+    m_bottomConnContentCoordinator = nullptr;
+    m_bottomConnContentTree = nullptr;
     // Mantener esquema de columnas idéntico en ambos árboles (superior/inferior)
     // incluso cuando uno de ellos esté vacío.
-    {
-        const QList<QTreeWidget*> trees{m_connContentTree, m_bottomConnContentTree};
-        for (QTreeWidget* tree : trees) {
-            if (!tree) {
-                continue;
-            }
-            syncConnContentPropertyColumnsFor(tree, connContentTokenForTree(tree));
-        }
-    }
+    syncConnContentPropertyColumnsFor(m_connContentTree, connContentTokenForTree(m_connContentTree));
     auto installTreeHeaderContextMenu = [this, applyPropColumnsSetting](QTreeWidget* tree) {
         if (!tree || !tree->header()) {
             return;
@@ -1911,56 +1778,9 @@ void MainWindow::buildUi() {
         });
     };
     installTreeHeaderContextMenu(m_connContentTree);
-    installTreeHeaderContextMenu(m_bottomConnContentTree);
-    auto* bottomContentSplit = new QSplitter(Qt::Vertical, bottomConnBox);
-    bottomContentSplit->setChildrenCollapsible(true);
-    bottomContentSplit->setHandleWidth(4);
-    bottomContentSplit->addWidget(m_bottomDatasetTreeWidget);
     m_rightMainSplit->setStretchFactor(0, 1);
     m_rightMainSplit->setStretchFactor(1, 1);
-    m_rightMainSplit->setSizes({500, 500});
-    auto equalizeTreeHeights = [this, rightConnectionsPage, bottomConnBox]() {
-        QTreeWidget* topTree = m_topDatasetPane ? m_topDatasetPane->tree() : nullptr;
-        if (!m_rightMainSplit || !topTree || !m_bottomConnContentTree
-            || !rightConnectionsPage || !bottomConnBox) {
-            return;
-        }
-        const int total = m_rightMainSplit->size().height() > 0
-                              ? m_rightMainSplit->size().height()
-                              : m_rightMainSplit->sizes().value(0, 0) + m_rightMainSplit->sizes().value(1, 0);
-        if (total <= 0) {
-            return;
-        }
-        const int topTreeH = topTree->viewport() ? topTree->viewport()->height() : topTree->height();
-        const int bottomTreeH = m_bottomConnContentTree->viewport() ? m_bottomConnContentTree->viewport()->height()
-                                                                     : m_bottomConnContentTree->height();
-        if (topTreeH <= 0 || bottomTreeH <= 0) {
-            int topH = total / 2;
-            topH = qBound(120, topH, total - 120);
-            m_rightMainSplit->setSizes({topH, total - topH});
-            return;
-        }
-        const int delta = topTreeH - bottomTreeH;
-        if (qAbs(delta) <= 1) {
-            return;
-        }
-        QList<int> sizes = m_rightMainSplit->sizes();
-        if (sizes.size() < 2) {
-            int topH = total / 2;
-            topH = qBound(120, topH, total - 120);
-            m_rightMainSplit->setSizes({topH, total - topH});
-            return;
-        }
-        int topH = sizes[0] - (delta / 2);
-        topH = qBound(120, topH, total - 120);
-        m_rightMainSplit->setSizes({topH, total - topH});
-    };
-    QTimer::singleShot(0, this, equalizeTreeHeights);
-    QTimer::singleShot(80, this, equalizeTreeHeights);
-    QTimer::singleShot(180, this, equalizeTreeHeights);
-    QTimer::singleShot(320, this, equalizeTreeHeights);
-    QTimer::singleShot(520, this, equalizeTreeHeights);
-    QTimer::singleShot(900, this, equalizeTreeHeights);
+    m_rightMainSplit->setSizes({900, 220});
     rightLayout->addWidget(m_rightMainSplit, 1);
 
     m_topMainSplit->addWidget(leftPane);
@@ -1986,7 +1806,7 @@ void MainWindow::buildUi() {
             QStringLiteral("Estado y progreso"),
             QStringLiteral("Status and progress"),
             QStringLiteral("状态和进度")),
-        combinedLogTab);
+        connectionsTab);
     auto* stateProgressLayout = new QVBoxLayout(stateProgressBox);
     stateProgressLayout->setContentsMargins(6, 6, 6, 6);
     stateProgressLayout->setSpacing(4);
@@ -2053,13 +1873,14 @@ void MainWindow::buildUi() {
     stateProgressBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
     appLogBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     logLayout->addWidget(appLogBox, 1);
+    connLayout->addWidget(stateProgressBox, 1);
 
     auto* pendingChangesBox = new QGroupBox(
         trk(QStringLiteral("t_pending_changes_tab001"),
             QStringLiteral("Cambios pendientes"),
             QStringLiteral("Pending changes"),
             QStringLiteral("待处理更改")),
-        bottomConnBox);
+        rightConnectionsPage);
     auto* pendingChangesLayout = new QVBoxLayout(pendingChangesBox);
     pendingChangesLayout->setContentsMargins(6, 6, 6, 6);
     pendingChangesLayout->setSpacing(4);
@@ -2107,13 +1928,9 @@ void MainWindow::buildUi() {
     });
     pendingChangesBody->addWidget(m_pendingChangesView, 1);
     pendingChangesLayout->addLayout(pendingChangesBody, 1);
-    pendingChangesBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    pendingChangesBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     pendingChangesBox->setMinimumHeight(0);
-    bottomContentSplit->addWidget(pendingChangesBox);
-    bottomContentSplit->setStretchFactor(0, 1);
-    bottomContentSplit->setStretchFactor(1, 0);
-    bottomContentSplit->setSizes({700, 220});
-    bottomConnLayout->addWidget(bottomContentSplit, 1);
+    rightConnectionsLayout->addWidget(pendingChangesBox, 0);
 
     loadPersistedAppLogToView();
 
@@ -2125,11 +1942,10 @@ void MainWindow::buildUi() {
     m_logsTabs->setCurrentIndex(0);
 
     auto* bottomTabsPane = new QWidget(central);
-    auto* bottomTabsLayout = new QHBoxLayout(bottomTabsPane);
+    auto* bottomTabsLayout = new QVBoxLayout(bottomTabsPane);
     bottomTabsLayout->setContentsMargins(0, 0, 0, 0);
     bottomTabsLayout->setSpacing(6);
-    bottomTabsLayout->addWidget(stateProgressBox, 1);
-    bottomTabsLayout->addWidget(m_logsTabs, 2);
+    bottomTabsLayout->addWidget(m_logsTabs, 1);
 
     m_verticalMainSplit = new QSplitter(Qt::Vertical, central);
     m_verticalMainSplit->setChildrenCollapsible(true);
@@ -2159,80 +1975,8 @@ void MainWindow::buildUi() {
         }
     });
 
-    connect(m_connectionsTable, &QTableWidget::currentCellChanged, this,
-            [this](int, int, int, int) { onConnectionSelectionChanged(); });
-    if (m_connectivityMatrixBtn) {
-        connect(m_connectivityMatrixBtn, &QPushButton::clicked, this, [this]() {
-            openConnectivityMatrixDialog();
-        });
-        QTimer::singleShot(0, this, [this]() { repositionConnectivityButton(); });
-    }
-    connect(m_connectionsTable, &QTableWidget::itemChanged, this, [this](QTableWidgetItem* item) {
-        if (!m_connectionsTable || !item || m_syncConnSelectorChecks) {
-            return;
-        }
-        const int col = item->column();
-        if (col != 1 && col != 2) {
-            return;
-        }
-        bool ok = false;
-        const int connIdx = item->data(Qt::UserRole).toInt(&ok);
-        if (!ok || connIdx < 0 || connIdx >= m_profiles.size()) {
-            return;
-        }
-        const Qt::CheckState src = (m_connectionsTable->item(item->row(), 1)
-                                        ? m_connectionsTable->item(item->row(), 1)->checkState()
-                                        : Qt::Unchecked);
-        const Qt::CheckState dst = (m_connectionsTable->item(item->row(), 2)
-                                        ? m_connectionsTable->item(item->row(), 2)->checkState()
-                                        : Qt::Unchecked);
-        QString mode;
-        if (src == Qt::Checked && dst == Qt::Checked) {
-            mode = QStringLiteral("both");
-        } else if (src == Qt::Checked) {
-            mode = QStringLiteral("source");
-        } else if (dst == Qt::Checked) {
-            mode = QStringLiteral("target");
-        }
-        applyConnectionDisplayMode(connIdx, mode);
-    });
-    connect(m_connectionsTable, &QTableWidget::cellClicked, this, [this](int row, int col) {
-        if (!m_connectionsTable || row < 0) {
-            return;
-        }
-        if (col == 1 || col == 2) {
-            return;
-        }
-        QTableWidgetItem* it = m_connectionsTable->item(row, 0);
-        if (!it) {
-            return;
-        }
-        bool ok = false;
-        const int connIdx = it->data(Qt::UserRole).toInt(&ok);
-        if (!ok || connIdx < 0 || connIdx >= m_profiles.size()) {
-            return;
-        }
-        m_userSelectedConnectionKey = m_profiles[connIdx].id.trimmed().toLower();
-        if (m_userSelectedConnectionKey.isEmpty()) {
-            m_userSelectedConnectionKey = m_profiles[connIdx].name.trimmed().toLower();
-        }
-    });
     auto connTokenFromTreeSelectionBottom = [this](QTreeWidget* tree) -> QString {
         if (!tree) {
-            return QString();
-        }
-        if (tree == m_bottomConnContentTree) {
-            for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-                QTreeWidgetItem* root = tree->topLevelItem(i);
-                if (!root || !root->data(0, kIsPoolRootRole).toBool()) {
-                    continue;
-                }
-                const int connIdx = root->data(0, kConnIdxRole).toInt();
-                const QString poolName = root->data(0, kPoolNameRole).toString().trimmed();
-                if (connIdx >= 0 && connIdx < m_profiles.size() && !poolName.isEmpty()) {
-                    return QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
-                }
-            }
             return QString();
         }
         QTreeWidgetItem* owner = tree->currentItem();
@@ -3182,204 +2926,6 @@ void MainWindow::buildUi() {
             }
             return true;
         };
-    m_connectionsTable->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_connectionsTable, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
-        if (!m_connectionsTable) {
-            return;
-        }
-        const QModelIndex idxAt = m_connectionsTable->indexAt(pos);
-        int connIdx = -1;
-        int rowForMenu = -1;
-        if (idxAt.isValid() && idxAt.row() >= 0) {
-            rowForMenu = idxAt.row();
-            m_connectionsTable->setCurrentCell(idxAt.row(), 0);
-        } else {
-            rowForMenu = m_connectionsTable->currentRow();
-        }
-        if (rowForMenu >= 0 && rowForMenu < m_connectionsTable->rowCount()) {
-            QTableWidgetItem* it = m_connectionsTable->item(rowForMenu, 0);
-            if (it) {
-                bool ok = false;
-                const int idx = it->data(Qt::UserRole).toInt(&ok);
-                if (ok) {
-                    connIdx = idx;
-                }
-            }
-        }
-        const bool hasConn = (connIdx >= 0 && connIdx < m_profiles.size());
-        const bool isDisconnected = hasConn && isConnectionDisconnected(connIdx);
-        const bool hasWindowsUnixLayerReady =
-            hasConn
-            && connIdx < m_states.size()
-            && isWindowsConnection(connIdx)
-            && m_states[connIdx].unixFromMsysOrMingw
-            && m_states[connIdx].missingUnixCommands.isEmpty()
-            && !m_states[connIdx].detectedUnixCommands.isEmpty();
-        const bool canManageGsa =
-            hasConn && !actionsLocked() && !isDisconnected
-            && connIdx < m_states.size()
-            && gsaMenuLabelForConnection(connIdx).compare(
-                   trk(QStringLiteral("t_gsa_ok_001"),
-                       QStringLiteral("GSA actualizado y funcionando"),
-                       QStringLiteral("GSA updated and running"),
-                       QStringLiteral("GSA 已更新并运行中")),
-                   Qt::CaseInsensitive) != 0;
-        const bool canUninstallGsa =
-            hasConn && !actionsLocked() && !isDisconnected
-            && connIdx < m_states.size()
-            && m_states[connIdx].gsaInstalled;
-        const zfsmgr::uilogic::ConnectionContextMenuState menuState =
-            zfsmgr::uilogic::buildConnectionContextMenuState(
-                hasConn,
-                isDisconnected,
-                actionsLocked(),
-                hasConn && isLocalConnection(connIdx),
-                hasConn && isConnectionRedirectedToLocal(connIdx),
-                hasConn && isWindowsConnection(connIdx),
-                hasWindowsUnixLayerReady,
-                canManageGsa,
-                canUninstallGsa);
-
-        QMenu menu(this);
-        QAction* aConnect = menu.addAction(
-            trk(QStringLiteral("t_connect_ctx_001"),
-                QStringLiteral("Conectar"),
-                QStringLiteral("Connect"),
-                QStringLiteral("连接")));
-        QAction* aDisconnect = menu.addAction(
-            trk(QStringLiteral("t_disconnect_ctx001"),
-                QStringLiteral("Desconectar"),
-                QStringLiteral("Disconnect"),
-                QStringLiteral("断开连接")));
-        QAction* aInstallMsys = menu.addAction(
-            trk(QStringLiteral("t_install_msys_ctx001"),
-                QStringLiteral("Instalar MSYS2"),
-                QStringLiteral("Install MSYS2"),
-                QStringLiteral("安装 MSYS2")));
-        QAction* aInstallHelpers = menu.addAction(
-            trk(QStringLiteral("t_install_helpers_ctx001"),
-                QStringLiteral("Instalar comandos auxiliares"),
-                QStringLiteral("Install helper commands"),
-                QStringLiteral("安装辅助命令")));
-        QMenu* refreshMenu = menu.addMenu(
-            trk(QStringLiteral("t_refresh_conn_ctx001"),
-                QStringLiteral("Refrescar"),
-                QStringLiteral("Refresh"),
-                QStringLiteral("刷新")));
-        QAction* aRefresh = refreshMenu->addAction(
-            trk(QStringLiteral("t_refresh_this_conn_001"),
-                QStringLiteral("Esta conexión"),
-                QStringLiteral("This connection"),
-                QStringLiteral("此连接")));
-        QAction* aRefreshAll = refreshMenu->addAction(
-            trk(QStringLiteral("t_refresh_all_001"),
-                QStringLiteral("Todas las conexiones"),
-                QStringLiteral("All connections"),
-                QStringLiteral("所有连接")));
-        QMenu* gsaMenu = menu.addMenu(QStringLiteral("GSA"));
-        QAction* aManageGsa = gsaMenu->addAction(hasConn ? gsaMenuLabelForConnection(connIdx)
-                                                         : trk(QStringLiteral("t_gsa_install_001"),
-                                                               QStringLiteral("Instalar gestor de snapshots"),
-                                                               QStringLiteral("Install snapshot manager"),
-                                                               QStringLiteral("安装快照管理器")));
-        QAction* aUninstallGsa = gsaMenu->addAction(
-            trk(QStringLiteral("t_gsa_uninstall_001"),
-                QStringLiteral("Desinstalar el GSA"),
-                QStringLiteral("Uninstall GSA"),
-                QStringLiteral("卸载 GSA")));
-        menu.addSeparator();
-        QAction* aEdit = menu.addAction(
-            trk(QStringLiteral("t_edit_conn_ctx001"),
-                QStringLiteral("Editar"),
-                QStringLiteral("Edit"),
-                QStringLiteral("编辑")));
-        QAction* aDelete = menu.addAction(
-            trk(QStringLiteral("t_del_conn_ctx001"),
-                QStringLiteral("Borrar"),
-                QStringLiteral("Delete"),
-                QStringLiteral("删除")));
-        QAction* aNewConn = menu.addAction(
-            trk(QStringLiteral("t_new_conn_ctx001"),
-                QStringLiteral("Nueva Conexión"),
-                QStringLiteral("New Connection"),
-                QStringLiteral("新建连接")));
-        QAction* aNewPool = menu.addAction(
-            trk(QStringLiteral("t_new_pool_ctx_001"),
-                QStringLiteral("Nuevo Pool"),
-                QStringLiteral("New Pool"),
-                QStringLiteral("新建存储池")));
-        aConnect->setEnabled(menuState.canConnect);
-        aDisconnect->setEnabled(menuState.canDisconnect);
-        aInstallMsys->setEnabled(menuState.canInstallMsys);
-        const bool canInstallHelpers =
-            hasConn && !actionsLocked() && !isDisconnected
-            && connIdx < m_states.size()
-            && m_states[connIdx].helperInstallSupported;
-        aInstallHelpers->setEnabled(canInstallHelpers);
-        aManageGsa->setEnabled(menuState.canManageGsa);
-        aUninstallGsa->setEnabled(menuState.canUninstallGsa);
-        gsaMenu->setEnabled(menuState.gsaSubmenuEnabled);
-        aRefresh->setEnabled(menuState.canRefreshThis);
-        aRefreshAll->setEnabled(menuState.canRefreshAll);
-        aEdit->setEnabled(menuState.canEditDelete);
-        aDelete->setEnabled(menuState.canEditDelete);
-        aNewConn->setEnabled(menuState.canNewConnection);
-        aNewPool->setEnabled(menuState.canNewPool);
-
-        QAction* chosen = menu.exec(m_connectionsTable->viewport()->mapToGlobal(pos));
-        if (!chosen) {
-            return;
-        }
-        if (chosen == aConnect && hasConn) {
-            logUiAction(QStringLiteral("Conectar conexión (menú conexiones)"));
-            beginTransientUiBusy(
-                trk(QStringLiteral("t_connecting_conn_busy_001"),
-                    QStringLiteral("Conectando %1..."),
-                    QStringLiteral("Connecting %1..."),
-                    QStringLiteral("正在连接 %1...")).arg(m_profiles[connIdx].name));
-            setConnectionDisconnected(connIdx, false);
-            appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como conectada: %1").arg(m_profiles[connIdx].name));
-            rebuildConnectionsTable();
-            populateAllPoolsTables();
-            refreshConnectionByIndex(connIdx);
-            endTransientUiBusy();
-        } else if (chosen == aDisconnect && hasConn) {
-            setConnectionDisconnected(connIdx, true);
-            appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como desconectada: %1").arg(m_profiles[connIdx].name));
-            rebuildConnectionsTable();
-            populateAllPoolsTables();
-        } else if (chosen == aRefresh) {
-            logUiAction(QStringLiteral("Refrescar conexión (menú conexiones)"));
-            refreshSelectedConnection();
-        } else if (chosen == aEdit) {
-            logUiAction(QStringLiteral("Editar conexión (menú conexiones)"));
-            editConnection();
-        } else if (chosen == aDelete) {
-            logUiAction(QStringLiteral("Borrar conexión (menú conexiones)"));
-            deleteConnection();
-        } else if (chosen == aInstallMsys) {
-            logUiAction(QStringLiteral("Instalar MSYS2 (menÃº conexiones)"));
-            installMsysForSelectedConnection();
-        } else if (chosen == aInstallHelpers) {
-            logUiAction(QStringLiteral("Instalar comandos auxiliares (menú conexiones)"));
-            installHelperCommandsForSelectedConnection();
-        } else if (chosen == aManageGsa && hasConn) {
-            logUiAction(QStringLiteral("Gestionar GSA (menú conexiones)"));
-            installOrUpdateGsaForConnection(connIdx);
-        } else if (chosen == aUninstallGsa && hasConn) {
-            logUiAction(QStringLiteral("Desinstalar GSA (menú conexiones)"));
-            uninstallGsaForConnection(connIdx);
-        } else if (chosen == aRefreshAll) {
-            logUiAction(QStringLiteral("Refrescar todas las conexiones (menú conexiones)"));
-            refreshAllConnections();
-        } else if (chosen == aNewConn) {
-            logUiAction(QStringLiteral("Nueva conexión (menú conexiones)"));
-            createConnection();
-        } else if (chosen == aNewPool) {
-            logUiAction(QStringLiteral("Nuevo pool (menú conexiones)"));
-            createPoolForSelectedConnection();
-        }
-    });
     auto connTokenFromTreeSelection = [this](QTreeWidget* tree) -> QString {
         if (!tree) {
             return QString();

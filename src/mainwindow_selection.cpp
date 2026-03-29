@@ -105,6 +105,7 @@ MainWindow::DatasetSelectionContext MainWindow::currentConnContentSelection(cons
     }
     constexpr int connIdxRole = Qt::UserRole + 10;
     constexpr int poolNameRole = Qt::UserRole + 11;
+    constexpr int isPoolRootRole = Qt::UserRole + 12;
     QString token;
     QString ds;
     QString snap;
@@ -123,7 +124,10 @@ MainWindow::DatasetSelectionContext MainWindow::currentConnContentSelection(cons
             ds = sel->data(0, Qt::UserRole).toString();
             snap = sel->data(1, Qt::UserRole).toString();
             const int itemConnIdx = sel->data(0, connIdxRole).toInt();
-            const QString itemPool = sel->data(0, poolNameRole).toString();
+            const QString itemPool = sel->data(0, poolNameRole).toString().trimmed();
+            if (ds.trimmed().isEmpty() && sel->data(0, isPoolRootRole).toBool()) {
+                ds = itemPool;
+            }
             if (itemConnIdx >= 0 && !itemPool.isEmpty()) {
                 token = QStringLiteral("%1::%2").arg(itemConnIdx).arg(itemPool);
             }

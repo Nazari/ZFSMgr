@@ -2,6 +2,10 @@
 
 #include <QVBoxLayout>
 
+namespace {
+constexpr char kGroupPoolsByConnectionRootsProperty[] = "zfsmgr.groupPoolsByConnectionRoots";
+}
+
 ConnectionDatasetTreeWidget::ConnectionDatasetTreeWidget(const Config& config,
                                                          DomainAdapter* adapter,
                                                          QWidget* parent)
@@ -21,6 +25,9 @@ ConnectionDatasetTreeWidget::ConnectionDatasetTreeWidget(const Config& config,
         m_pane->setPrimaryColumnTitle(m_config.primaryColumnTitle.trimmed());
     }
     m_pane->setVisualOptions(m_config.visualOptions);
+    if (QTreeWidget* tree = m_pane->tree()) {
+        tree->setProperty(kGroupPoolsByConnectionRootsProperty, m_config.groupPoolsByConnectionRoots);
+    }
 
     m_coordinator = new ConnectionDatasetTreeCoordinator(m_pane, adapter, this);
 }

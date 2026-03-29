@@ -52,7 +52,7 @@ Regla básica:
 
 ## Estado actual del componente de treeview
 
-Además del modelo `ConnInfo / PoolInfo / DSInfo`, el desarrollo ya ha cristalizado en un componente reusable para los treeviews de conexión.
+Además del modelo `ConnInfo / PoolInfo / DSInfo`, el desarrollo ya ha cristalizado en un componente reusable para el árbol de conexión.
 
 Ese componente actual es:
 
@@ -64,10 +64,9 @@ Internamente encapsula:
 - `ConnectionDatasetTreeController`
 - `ConnectionDatasetTreeCoordinator`
 
-Y hoy sus dos instancias reales son:
+Y hoy su instancia visible real es:
 
-- treeview superior (`Origen`)
-- treeview inferior (`Destino`)
+- el árbol global unificado de conexiones, pools y datasets
 
 La parte importante para este documento es:
 
@@ -79,6 +78,31 @@ Conclusión de coherencia con el estado real:
 - el modelo de dominio y el componente de treeview han avanzado en paralelo
 - el componente reusable existe ya
 - la independencia total de `MainWindow` todavía no está completada
+
+## Dirección actual de la UI
+
+La evolución prevista en documentos anteriores ya se ha aplicado:
+
+- desapareció la tabla de conexiones de la UI activa
+- desapareció la duplicación de árbol superior e inferior en la UI activa
+- el árbol visible tiene conexiones como raíz, pools como segundo nivel y datasets/snapshots por debajo
+
+Esto afecta al modelo solo en su proyección visual, no a la identidad de dominio:
+
+- `ConnInfo` sigue siendo el propietario natural de `PoolInfo`
+- `PoolInfo` sigue siendo el propietario natural de `DSInfo`
+- la diferencia es que esa jerarquía pasará a proyectarse directamente en un único árbol visible
+
+Consecuencia de diseño:
+
+- el árbol reutilizable ya no es solo un árbol multi-pool por conexión
+- ahora es un árbol multi-conexión, multi-pool y multi-dataset
+
+Eso refuerza la necesidad de mantener separadas:
+
+- identidad de dominio (`ConnKey`, `PoolKey`, `DSKey`)
+- selección lógica (`Origen`, `Destino`)
+- selección visual del item actual del árbol
 
 ## Cambios aceptados sobre el diseño inicial
 

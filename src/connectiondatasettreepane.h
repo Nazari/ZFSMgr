@@ -8,7 +8,8 @@ class ConnectionDatasetTreePane final : public QWidget {
 public:
     enum class Role {
         Top,
-        Bottom
+        Bottom,
+        Unified
     };
 
     struct VisualOptions {

@@ -109,7 +109,6 @@ void MainWindow::applyPoolRootTooltipToVisibleTrees(int connIdx,
                                                     const QString& poolName,
                                                     const QString& statusText) const {
     applyPoolRootTooltipForTree(m_connContentTree, connIdx, poolName, statusText);
-    applyPoolRootTooltipForTree(m_bottomConnContentTree, connIdx, poolName, statusText);
 }
 
 void MainWindow::cachePoolStatusTextsForConnection(int connIdx, const ConnectionRuntimeState& state) {
@@ -1249,7 +1248,6 @@ void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteL
             }
         };
         syncTreeIfPoolRootSelected(m_connContentTree);
-        syncTreeIfPoolRootSelected(m_bottomConnContentTree);
         setTablePopulationMode(m_poolPropsTable, false);
         return;
     }
@@ -1289,6 +1287,5 @@ void MainWindow::refreshSelectedPoolDetails(bool forceRefresh, bool allowRemoteL
         }
     };
     syncTreeIfPoolRootSelected(m_connContentTree);
-    syncTreeIfPoolRootSelected(m_bottomConnContentTree);
     setTablePopulationMode(m_poolPropsTable, false);
 }

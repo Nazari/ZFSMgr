@@ -19,7 +19,7 @@ Además, en ZFSMgr hay muchas superficies diferentes:
 - tabs y paneles
 - diálogos modales
 - menús contextuales
-- árboles superior e inferior
+- árbol global unificado
 - estados con datos cargados y estados vacíos
 
 ## Enfoque recomendado
@@ -73,8 +73,7 @@ Las capturas deben guardarse con nombres estables, por ejemplo:
 - `connection-context-menu.png`
 - `pool-context-menu-imported.png`
 - `pool-context-menu-importable.png`
-- `top-tree-dataset.png`
-- `bottom-tree-dataset.png`
+- `unified-tree.png`
 - `schedule-snapshots-node.png`
 - `permissions-node.png`
 
@@ -169,8 +168,7 @@ Debe cubrir solo:
 - menú contextual de conexiones
 - menú contextual de pool importado
 - menú contextual de pool importable
-- árbol superior con dataset expandido
-- árbol inferior con dataset expandido
+- árbol unificado con dataset expandido
 - nodo `Programar snapshots`
 - nodo `Permisos`
 

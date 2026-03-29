@@ -2,9 +2,181 @@
 
 ## Objetivo
 
-Reducir la duplicación entre el treeview superior y el inferior mediante un componente común reutilizable, manteniendo en una primera fase la lógica de datos, cachés y acciones en `MainWindow`.
+Reducir la duplicación entre árboles de conexión y converger hacia una sola superficie de navegación reusable.
 
-El objetivo no es rehacer toda la arquitectura del módulo de conexiones, sino extraer una pieza reutilizable que elimine divergencias visuales y de interacción entre ambos árboles.
+## Estado actual implementado
+
+La fase de árbol global único ya está aplicada en la UI actual.
+
+Ahora mismo la interfaz usa:
+
+- un único árbol global visible
+- conexiones como nodos raíz
+- pools bajo cada conexión
+- datasets y snapshots bajo cada pool
+- selección lógica `Origen/Destino` desde el menú contextual del árbol
+
+Ya no forman parte de la UI activa:
+
+- la tabla de conexiones
+- el treeview superior separado
+- el treeview inferior separado
+- el botón flotante `Connectivity`
+
+La funcionalidad de conectividad vive ahora en el menú principal como:
+
+- `Comprobar conectividad`
+
+## Objetivo funcional del rediseño aplicado
+
+El rediseño global persigue y ya materializa:
+
+- dejar un solo árbol visible en la zona central de navegación
+- usar conexiones como nodos raíz del árbol
+- hacer desaparecer la tabla de conexiones como control independiente
+- seleccionar `Origen` y `Destino` desde el propio menú contextual del árbol
+- integrar esa lógica en el componente reusable del árbol
+
+## Estructura objetivo del árbol
+
+El árbol único debe quedar estructurado así:
+
+- raíz de nivel 1: conexiones
+- bajo cada conexión: pools
+- bajo cada pool: datasets, snapshots y nodos inline
+
+Consecuencias de esta decisión:
+
+- los pools ya no necesitan mostrarse con el prefijo `Conexion::Pool`
+- el nombre visible del pool puede ser solo el `poolName`
+- la identidad completa sigue existiendo en datos internos (`connIdx`, `poolName`, `DSKey`, etc.), pero no en el texto visible del nodo
+
+## Sustitución de la tabla de conexiones
+
+La tabla de conexiones ya ha desaparecido de la UI activa.
+
+Su funcionalidad se redistribuye así:
+
+- la navegación por conexión pasa al árbol único
+- el menú contextual que hoy se abre sobre filas de la tabla debe abrirse sobre los nodos raíz de conexión del nuevo árbol
+- los colores visuales de la tabla actual deben trasladarse a las filas raíz de conexión en el árbol
+- la marca `(*)` asociada al nombre de conexión debe seguir existiendo, pero aplicada al texto del nodo raíz de conexión
+
+## Selección de origen y destino
+
+La selección de `Origen` y `Destino` ya no depende de checks en ninguna tabla.
+
+La implementación actual usa:
+
+- en el menú contextual de dataset dos acciones:
+  - `Seleccionar como origen`
+  - `Seleccionar como destino`
+- esas acciones rellenan las labels de la caja `Selected datasets`
+- la caja `Selected datasets` permanece en la UI
+- la semántica de `Origen` y `Destino` sigue existiendo, pero su selección se hace desde el árbol único
+
+Esto implica que el árbol reusable debe poder emitir intención de selección lógica, no solo selección visual del item actual.
+
+## Reubicación del árbol en la UI
+
+El árbol único ocupa el espacio central principal de navegación.
+
+La disposición actual relevante es:
+
+- columna izquierda:
+  - `Selected datasets`
+  - `Status and progress`
+- columna derecha:
+  - árbol único
+  - `Pending changes` debajo del árbol
+- zona inferior:
+  - logs
+
+## Reglas de comportamiento
+
+### Desconexión
+
+Si una conexión se marca como desconectada:
+
+- la conexión sigue visible como nodo raíz
+- desaparecen del árbol sus pools
+- y por tanto también sus datasets y snapshots
+
+### Menús contextuales
+
+Debe haber al menos dos familias claras de menús contextuales:
+
+- menú de conexión sobre nodo raíz de conexión
+- menú de pool/dataset/snapshot sobre los nodos ya existentes del árbol reusable
+
+La funcionalidad que hoy cuelga de la tabla de conexiones debe migrar al nodo de conexión.
+
+### Selección lógica frente a selección visual
+
+El árbol único debe distinguir entre:
+
+- item actualmente seleccionado en la UI
+- dataset marcado como `Origen`
+- dataset marcado como `Destino`
+
+No deben confundirse esos tres conceptos.
+
+## Integración requerida en el componente reusable
+
+La propuesta exige que el cambio no se resuelva solo a base de lógica extra en `MainWindow`.
+
+Debe quedar integrado en el componente reusable del árbol, al menos en estos planos:
+
+- configuración del árbol con conexiones como raíz
+- representación visual de estados de conexión
+- soporte de acciones contextuales de conexión
+- soporte de selección lógica `Origen/Destino`
+- preservación del estado visual en un árbol mixto conexión/pool/dataset
+
+Eso implica evolucionar el `Config` y el `DomainAdapter` actuales.
+
+## Cambios previstos sobre `ConnectionDatasetTreeWidget`
+
+El wrapper reusable actual:
+
+```cpp
+ConnectionDatasetTreeWidget(Config, DomainAdapter, parent)
+```
+
+deberá evolucionar para soportar explícitamente:
+
+- modo de raíz por conexión
+- acciones contextuales de conexión
+- resaltado/estilo de fila de conexión
+- selección lógica `Origen/Destino`
+- árbol único en vez de dos instancias acopladas
+
+No se fija todavía la forma exacta del API nueva, pero sí el sentido del cambio:
+
+- la selección lógica no debe seguir siendo un detalle externo a la vista
+- el árbol reusable debe ser la pieza central de navegación del módulo
+
+## Migración funcional prevista
+
+La migración propuesta debe seguir este orden lógico:
+
+1. permitir que el árbol reusable renderice conexiones como raíz
+2. mover el menú contextual de conexión desde la tabla a esos nodos raíz
+3. introducir `Seleccionar como origen` y `Seleccionar como destino`
+4. trasladar color y marca `(*)` de la tabla a filas de conexión
+5. eliminar la tabla de conexiones
+6. eliminar el árbol duplicado superior/inferior y dejar una sola instancia
+
+## Conectividad
+
+El botón flotante `Connectivity` asociado a la tabla de conexiones debe eliminarse.
+
+Su funcionalidad se traslada al menú principal de la aplicación:
+
+- debajo de `Logs`
+- con el nombre `Comprobar conectividad`
+
+Esto deja de depender de la existencia física de la tabla de conexiones.
 
 ## Estado actual
 
@@ -18,19 +190,18 @@ La refactorización descrita en este documento ya no está solo en fase de propu
 
 Estado implementado a fecha de este documento:
 
-- ambos paneles se crean mediante `ConnectionDatasetTreeWidget(Config, DomainAdapter, parent)`
+- el árbol visible se crea mediante `ConnectionDatasetTreeWidget(Config, DomainAdapter, parent)`
 - `ConnectionDatasetTreePane` encapsula el `QTreeWidget`
 - `ConnectionDatasetTreeController` centraliza el cableado de señales del pane
 - `ConnectionDatasetTreeCoordinator` coordina el flujo de interacción del árbol
 - el `DomainAdapter` actual está implementado por `MainWindowConnectionDatasetTreeDelegate`
-- las opciones `Mostrar en línea` son independientes por panel
-- el constructor de los treeviews superior e inferior ya usa la misma vía de creación
+- el árbol está en modo unificado, con conexiones como raíz
+- las opciones `Mostrar en línea` se aplican al árbol único visible
 
 Lo que sigue pendiente:
 
 - reducir todavía más la dependencia funcional de `MainWindow`
-- mover más lógica de refresco/render/selección fuera de métodos globales que siguen usando `m_connContentTree` implícito
-- eliminar por completo las asimetrías residuales entre árbol superior e inferior
+- seguir desacoplando más lógica de refresco/render/selección del `MainWindow`
 
 ## Problema actual
 
