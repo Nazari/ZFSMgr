@@ -15,6 +15,7 @@ public:
         QString primaryColumnTitle;
         ConnectionDatasetTreePane::Role role{ConnectionDatasetTreePane::Role::Top};
         ConnectionDatasetTreePane::VisualOptions visualOptions;
+        bool groupPoolsByConnectionRoots{false};
     };
 
     explicit ConnectionDatasetTreeWidget(const Config& config,

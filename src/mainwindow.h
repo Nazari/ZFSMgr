@@ -19,6 +19,7 @@
 #include <functional>
 
 class QComboBox;
+class QColor;
 class QGroupBox;
 class QLabel;
 class QListWidget;
@@ -489,8 +490,14 @@ private:
     void installMsysForSelectedConnection();
     void editConnection();
     void deleteConnection();
+    int currentConnectionIndexFromUnifiedTree() const;
+    int currentConnectionIndexFromUi() const;
+    void setCurrentConnectionInUi(int connIdx);
+    QColor connectionStateRowColor(int connIdx) const;
+    QString connectionStateColorReason(int connIdx) const;
+    QString connectionStateTooltipHtml(int connIdx) const;
     void openConnectivityMatrixDialog();
-    void repositionConnectivityButton();
+    void showConnectionContextMenu(int connIdx, const QPoint& globalPos);
     void onConnectionSelectionChanged();
     void updateSecondaryConnectionDetail();
     void rebuildConnectionEntityTabs();
@@ -905,7 +912,7 @@ private:
     QMap<QString, ConnInfo> m_connInfoById;
 
     QTableWidget* m_connectionsTable{nullptr};
-    QPushButton* m_connectivityMatrixBtn{nullptr};
+    QAction* m_connectivityMatrixAction{nullptr};
     QTabWidget* m_rightTabs{nullptr};
 
     QGroupBox* m_poolMgmtBox{nullptr};

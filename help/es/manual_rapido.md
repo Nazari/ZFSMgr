@@ -1,217 +1,139 @@
 # Manual rapido
 
-ZFSMgr gestiona conexiones y acciones ZFS.
+ZFSMgr gestiona conexiones y acciones ZFS desde un árbol unificado.
 
 ## Vista general
 
 ![Ventana principal](qrc:/help/img/auto/main-window.png)
 
-- Panel izquierdo:
-- `Conexiones`: tabla simple (una fila por conexión) con columna `Conexión` y checks `O` y `D`.
-- `Datasets seleccionados`: operaciones de transferencia y avanzadas.
-  Incluye `Copiar`, `Clonar`, `Mover`, `Diff`, `Nivelar`, `Sincronizar`, `Desglosar`, `Ensamblar`, `Desde Dir` y `Hacia Dir`.
-- Panel derecho:
-- Arriba: árbol de contenido de la conexión marcada como `Origen`.
-- Abajo: árbol de contenido de la conexión marcada como `Destino`.
-- Referencia visual del árbol superior:
+- Columna izquierda:
+- `Selected datasets`: muestra el dataset marcado como `Origen` y el marcado como `Destino`.
+- `Status and progress`: resume estado actual, carga y progreso.
+- Columna derecha:
+- un único árbol unificado con:
+  - conexiones como nodos raíz
+  - pools bajo cada conexión
+  - datasets y snapshots bajo cada pool
+- Debajo del árbol:
+  - `Pending changes`
+- Zona inferior:
+  - logs
 
-![Treeview superior](qrc:/help/img/auto/top-tree.png)
+## Árbol unificado
 
-- Referencia visual del árbol inferior:
+- Las conexiones aparecen siempre como nodos raíz, incluso si están desconectadas.
+- Si una conexión está desconectada:
+  - la conexión sigue visible
+  - sus pools desaparecen del árbol
+- El color y el tooltip de cada conexión mantienen la semántica de estado que antes tenía la tabla de conexiones.
+- Si una conexión necesita atención GSA, su nombre aparece con `(*)`.
+- Los pools ya no se muestran como `Conexion::Pool`; el texto visible del pool es solo el nombre del pool.
+- El nodo raíz del pool está fusionado con el dataset raíz del pool:
+  - mantiene el icono y el tooltip de pool
+  - actúa también como dataset raíz
+  - sus hijos cuelgan directamente de él
+- En pools importados puede aparecer:
+  - `Pool Information`
+  - `Datasets programados`
 
-![Treeview inferior](qrc:/help/img/auto/bottom-tree.png)
-- La selección efectiva del detalle no depende del clic en la fila, sino de los checks:
-  - `O` controla el árbol superior (`Origen`).
-  - `D` controla el árbol inferior (`Destino`).
-- Cada árbol mantiene su propio estado de navegación por conexión/pool:
-  - expansión/colapso,
-  - selección de dataset,
-  - snapshot seleccionado,
-  - anchos de columnas.
-- La primera columna del árbol superior se identifica siempre como `Origen:...` y la del inferior como `Destino:...`.
-- Cada árbol muestra el pool activo de su conexión seleccionada.
-- Bajo cada pool puede aparecer el nodo `Información del pool`.
-- El nodo `Información del pool` muestra propiedades de pool inline.
-- El menú contextual del pool incluye `Actualizar`, `Importar`, `Exportar`, `Historial`, `Sync`, `Scrub`, `Trim`, `Initialize` y `Destroy` según el estado del pool.
-- Los datasets cuelgan directamente del pool.
-- Los subdatasets cuelgan directamente de su dataset padre.
-- Cada dataset puede mostrar un nodo `Propiedades` inicialmente colapsado.
-- En datasets no snapshot también puede aparecer `Permisos`, para revisar y modificar delegaciones ZFS.
-- Dentro de `Permisos` aparecen:
-  - `Deleg.`
-  - `Nuevos DS`
-  - `Conjuntos`
-- Vista del nodo `Permisos`:
+## Nodos inline
 
-![Nodo Permisos](qrc:/help/img/auto/permissions-node.png)
-- Los checks de `Permisos` trabajan en modo borrador.
-  Los cambios se acumulan y se aplican junto con `Aplicar cambios`.
-- Dentro de `Permisos`, el bloque `Nuevos DS` define qué permisos recibirá automáticamente quien cree descendientes nuevos bajo ese dataset.
-- Cuando hay un snapshot seleccionado en un dataset, ese árbol muestra las propiedades y grupos del snapshot, y aparece además `Holds (N)`.
-- Las propiedades inline pueden incluir edición directa y control de herencia (`Inh.`) cuando aplica.
-- Si `Inh.=on`, el valor queda deshabilitado y atenuado.
-  Si `Inh.=off`, el valor vuelve a ser editable.
-- Las propiedades de `Programar snapshots` (`org.fc16.gsa:*`) son propiedades de usuario y no muestran control de herencia.
-- Si una propiedad no está soportada por el sistema operativo de la conexión, aparece atenuada y no se puede editar.
-  Ejemplos: `sharesmb` en macOS, `jailed` fuera de FreeBSD, `zoned`/`nbmand` fuera de Linux.
-- Los pools no importables también aparecen como nodo raíz para permitir `Importar`.
-- Logs: panel único `Log combinado` (incluye salida SSH/PSRP con prefijo de conexión).
-- Además de `application.log`, ZFSMgr envía eventos de alto nivel al sistema de logs nativo:
-  - macOS: Unified Logging (`Console.app`, `log show`, `log stream`)
-  - Linux: `syslog` / `journald` (`journalctl`)
-  - Windows: `Windows Event Log` (`Event Viewer`)
-- En la tabla de conexiones hay un botón flotante `Conectividad`.
-  Abre una matriz donde cada fila es la conexión origen y cada columna la conexión destino.
-- Cada celda muestra el estado de `SSH` y `rsync`.
-  `SSH:✓` indica que desde la máquina de la fila se puede abrir conexión directa hacia la máquina de la columna usando las credenciales definidas.
-  `rsync:✓` indica además que esa ruta dispone de `rsync`.
-- Si una celda sale en rojo, el tooltip explica el motivo concreto del fallo.
-  Ejemplos: falta `sshpass` en origen, fallo de autenticación, DNS, timeout o falta de `rsync`.
-- Si falta `SSH:✓`, ZFSMgr no podrá hacer transferencia remota directa entre ese origen y ese destino.
-  En ese caso, la transferencia tendrá que pasar por la máquina local donde se ejecuta ZFSMgr.
-  Eso implica doble salto, más tráfico local y un coste mayor en tiempo y recursos.
-- La zona inferior muestra:
-  - `Cambios pendientes` en una caja fija a la izquierda
-  - a la derecha, pestañas de logs (`Log combinado` y logs por conexión)
-- El encabezado de cada treeview tiene menú contextual para ajustar una columna o todas al contenido y para cambiar `Columnas de propiedades`.
-- El scroll vertical de los treeviews es suave, por píxel.
-- El menú contextual del árbol permite además mostrar u ocultar `Información del pool` y, dentro de `Mostrar en línea`, `Propiedades`, `Permisos` y `Programar snapshots`.
-- El menú contextual de dataset permite mostrar u ocultar los snapshots automáticos (`GSA-*`).
-- El botón `Aplicar cambios` solo se activa si hay comandos pendientes reales.
-- `Cambios pendientes` muestra una descripción legible por línea, con prefijo `conexión::pool`, y no el comando real.
-- Los cambios pendientes se conservan en orden de ejecución.
-- `Mover` no ejecuta nada al instante: añade un `zfs rename` pendiente para mover el dataset de `Origen` dentro del dataset `Destino`.
-  Solo se habilita si ambos son datasets del mismo pool y la misma conexión.
-- `Renombrar` en el menú contextual de dataset/snapshot/zvol también trabaja en modo diferido y añade un `zfs rename` a `Cambios pendientes`.
-- Al hacer clic en una línea de `Cambios pendientes`, ZFSMgr intenta llevar el foco al dataset y sección afectados.
-  Si el pool está visible en ambos árboles, se prioriza `Origen`.
-- `Copiar` y `Nivelar`, cuando usan dos conexiones SSH remotas distintas, intentan transferir directamente de `Origen` a `Destino`.
-  El tráfico de datos no pasa por la máquina donde se ejecuta ZFSMgr; esa máquina solo mantiene la sesión de control y recibe el progreso.
-- `Diff` muestra sus resultados en una ventana de árbol con `Añadido`, `Borrado`, `Modificado` y `Renombrado`.
+- En datasets y snapshots puede aparecer `Dataset properties`.
+- En datasets no snapshot también puede aparecer `Permisos`.
+- En datasets filesystem puede aparecer `Programar snapshots`.
 
-Creación de pools:
-
-![Crear pool](qrc:/help/img/crearpool.png)
-
-- `Crear pool` abre un diálogo con splitter horizontal:
-  - a la izquierda: `Parámetros del pool` y `Constructor de VDEV`
-  - a la derecha: `Block devices disponibles`
-- `altroot` arranca vacío por defecto.
-  Si está vacío, no se añade `-R` al comando `zpool create`.
-- `Block devices disponibles` muestra un árbol de dispositivos y particiones con columnas de tamaño, tipo de partición, si está montada y si ya pertenece a un pool.
-- En macOS también aparecen discos físicos sin particiones.
-- En macOS, los discos APFS internos/sintetizados del sistema no son seleccionables.
-- La columna `Montada` permite desmontar desde el propio diálogo (`diskutil unmount`/`umount`).
-- Un dispositivo ya usado en la estructura del pool queda marcado como no disponible y no puede reutilizarse en otro nodo.
-- `Constructor de VDEV` ya no usa texto libre:
-  - el nodo raíz es `Pool`
-  - el menú contextual crea nodos válidos
-  - marque los block devices deseados con sus checks y pulse `Añadir seleccionados`
-  - los nodos del propio árbol también pueden reordenarse por arrastre
-- La estructura del árbol sigue una gramática restringida compatible con OpenZFS:
-  - en la raíz puede haber devices directos (stripe implícito), `mirror`, `raidz*` y clases top-level (`log`, `cache`, `special`, `dedup`, `spare`)
-  - dentro de un vdev normal solo puede haber devices
-  - `log` solo admite `mirror` como subgrupo
-  - `special` y `dedup` admiten devices directos o subgrupos `mirror`/`raidz*`
-  - `cache` y `spare` admiten solo devices directos
-- Debe existir al menos un grupo de datos en la raíz del pool, ya sea como devices directos o como `mirror`/`raidz*`.
-- Debajo del splitter aparece una previsualización del comando `zpool create` a todo el ancho.
-- Esa previsualización se actualiza con:
-  - cambios en la estructura del árbol
-  - cambios en `Parámetros del pool`
-  - argumentos extra
-- Si la estructura no es válida, la previsualización se pinta en rojo.
-- Si falla `Crear pool`, el diálogo no se cierra; se mantiene abierto para corregir datos y reintentar.
-
-Creación y montaje de datasets:
-
-![Crear dataset](qrc:/help/img/creardataset.png)
-
-- `Crear dataset` se ejecuta desde el árbol de contenido.
-- Si el dataset usa:
-  - `encryption=on` o `aes-*`
-  - `keyformat=passphrase`
-  - `keylocation=prompt`
-  el diálogo pide `Passphrase cifrado` y `Repetir passphrase`.
-- Esa passphrase se envía por entrada estándar al crear el dataset; no se añade a la línea de comando mostrada en confirmaciones o logs.
-- Si falla `Crear dataset`, el diálogo permanece abierto con los datos introducidos para poder corregirlos y reintentar.
-- Al montar un dataset cifrado con `keylocation=prompt`, ZFSMgr pide antes la passphrase, ejecuta `zfs load-key` y luego `zfs mount`.
-
-Programación automática de snapshots (GSA):
-
-- En el menú contextual de conexiones aparece el estado del `Gestor de snapshots`.
-  Según la conexión puede mostrarse como `Instalar gestor de snapshots`, `Actualizar versión del Gestor de snapshots`, `Activar GSA` o `GSA actualizado y funcionando`.
-- Si una conexión tiene el GSA instalado pero necesita atención, su nombre aparece como `Conexión (*)` en la tabla.
-  Ese `(*)` indica que conviene redeplegar el GSA en esa conexión.
-- ZFSMgr marca el `(*)` y ofrece `Actualizar versión del Gestor de snapshots` en estos casos:
-  - la versión del GSA desplegado es anterior a la versión actual que usa la aplicación;
-  - o las conexiones dadas de alta dentro del GSA desplegado no coinciden con las conexiones que realmente requieren sus programaciones activas.
-- La versión del GSA ya no se incrementa manualmente.
-  Se deriva automáticamente del payload y del esquema de despliegue, así que cualquier cambio real en el GSA hace que ZFSMgr detecte la instalación remota como antigua.
-- En conexiones Unix/macOS, ZFSMgr también puede leer qué conexiones tiene dadas de alta ese GSA.
-  Esa información aparece en el tooltip de la fila de conexión y en la subpestaña `GSA`.
-- Según el sistema operativo, ZFSMgr usa el scheduler nativo:
-  - macOS: `launchd`
-  - Linux: `systemd timer`
-  - Windows: `Task Scheduler`
-- En datasets de tipo filesystem puede aparecer el nodo `Programar snapshots`.
 - Vista del nodo `Programar snapshots`:
 
 ![Nodo Programar snapshots](qrc:/help/img/auto/schedule-snapshots-node.png)
-- Ese nodo expone inline:
-  - `Activado`
-  - `Recursivo`
-  - `Horario`
-  - `Diario`
-  - `Semanal`
-  - `Mensual`
-  - `Anual`
-  - `Nivelar`
-  - `Destino`
-- Esas opciones se guardan como propiedades de usuario del propio dataset con nombres `org.fc16.gsa:*`.
-- Una retención `0` desactiva esa periodicidad.
-- Si `Nivelar=on`, `Destino` debe tener formato `Con::Pool/Dataset`.
-- `Con` no se resuelve leyendo dinámicamente las conexiones del equipo donde corre ZFSMgr.
-  Al instalar o actualizar GSA en una conexión, ZFSMgr genera un payload para esa conexión con un mapa estático de destinos embebido.
-- Consecuencia práctica:
-  si cambian datos relevantes de una conexión (`host`, `puerto`, `usuario`, `password`, `clave`, `sudo`), los GSA ya instalados pueden quedar desactualizados hasta volver a actualizarlos.
-- ZFSMgr intenta mitigar esto actualizando automáticamente los GSA instalados cuando se crea o edita una conexión, pero conviene entender que el diseño actual sigue dependiendo de payload desplegado.
-- ZFSMgr bloquea programaciones solapadas:
-  - un dataset no puede pertenecer a más de una programación activa
-  - si un dataset tiene programación recursiva, sus hijos no pueden tener otra programación
-- Los snapshots automáticos usan nombres `GSA-...`.
-- El scheduler GSA rota `GSA.log`.
-  La ruta actual depende del sistema:
-  - Linux: `/var/lib/zfsmgr/GSA.log`
-  - macOS: `~/.config/ZFSMgr/GSA.log`
-- Si una ruta de nivelación remota no tiene `SSH:✓` en la matriz de `Conectividad`, ZFSMgr avisa antes de instalar o actualizar GSA.
-- Si el GSA no está instalado en esa conexión, el nodo `Programar snapshots` no muestra las propiedades y enseña un aviso para instalarlo desde la tabla `Conexiones`.
-- Limitación importante:
-  la implementación Unix/macOS resuelve destinos remotos con el mapa embebido, pero la ruta Windows no tiene hoy la misma paridad para nivelación remota arbitraria.
 
-Seguridad del GSA:
+- Las propiedades inline pueden editarse directamente en el árbol.
+- Si una propiedad admite herencia, aparece `Inh.` y el borrador se acumula sin ejecutar inmediatamente.
+- `Permisos` también trabaja en modo borrador.
+- `Programar snapshots` usa propiedades `org.fc16.gsa:*`.
 
-- El diseño actual del payload GSA todavía tiene implicaciones de seguridad relevantes.
-- En Unix/macOS, el script instalado puede llevar embebidos datos de conexión destino.
-- Si una conexión usa password o `sudo` con password, esos secretos pueden formar parte del payload desplegado.
-- La ruta remota actual prioriza compatibilidad operativa y no una postura estricta de validación SSH.
-- Por tanto:
-  - el GSA actual debe considerarse funcional, pero no endurecido al máximo;
-  - para un endurecimiento real hace falta separar script y configuración, reducir el mapa desplegado y validar huellas SSH.
-- Revise también [docs/propuesta_endurecimiento_gsa.md](/home/linarese/work/ZFSMgr/docs/propuesta_endurecimiento_gsa.md) para la propuesta técnica de mejora.
+## Selección de origen y destino
 
-Comportamiento de navegación:
+- Ya no existe selección `Origen/Destino` por checks en una tabla.
+- Para elegirlos:
+  - clic derecho sobre un dataset
+  - `Seleccionar como origen`
+  - `Seleccionar como destino`
+- La caja `Selected datasets` refleja esa selección lógica.
+- La selección visual actual del árbol y las selecciones lógicas `Origen/Destino` son independientes.
 
-- Cambiar de conexión/pool reutiliza caché de datos.
-- No se refresca automáticamente por solo navegar.
-- Se refresca al ejecutar acciones que modifican estado/datos o con refresco explícito.
-- Antes de cada acción se guarda/restaura el estado visual de ambos árboles.
-  Cuando aplica, eso incluye selección, expansión de nodos y posición de scroll.
-- Si una modificación afecta a un pool mostrado en ambos árboles, ambos treeviews se reconstruyen y restauran su estado.
-- Al pinchar un nodo `Propiedades` vacío, sus hijos se cargan y el nodo queda desplegado.
-- Si cambia `Columnas de propiedades`, un nodo `Propiedades` ya desplegado conserva su expansión.
-- Si ningún check `Origen`/`Destino` está activo para un árbol, ese árbol queda vacío pero conserva cabeceras coherentes.
-- `O` y `D` se persisten entre ejecuciones.
-- El menú `Seleccionar snapshot` del árbol solo se habilita si el dataset tiene snapshots.
+## Menús contextuales
 
-Revise `Navegación y estados` y `Propiedades inline y columnas` para detalles de funcionamiento.
+- Sobre una conexión:
+  - aparece el antiguo menú contextual de conexiones
+- Sobre el nodo raíz fusionado del pool:
+  - aparece primero un submenú `Pool`
+  - luego el resto de acciones de dataset
+- El submenú `Pool` concentra acciones de pool:
+  - `Actualizar`
+  - `Importar`
+  - `Importar renombrando`
+  - `Exportar`
+  - `Historial`
+  - `Gestión`:
+    - `Sync`
+    - `Scrub`
+    - `Upgrade`
+    - `Reguid`
+    - `Trim`
+    - `Initialize`
+    - `Destroy`
+  - `Mostrar Información del Pool`
+  - `Mostrar Datasets programados`
+- En datasets/snapshots sigue habiendo acciones como:
+  - `Crear dataset/snapshot/vol`
+  - `Renombrar`
+  - `Borrar`
+  - `Encriptación`
+  - `Seleccionar snapshot`
+  - `Rollback`
+  - `Nuevo Hold`
+  - `Release`
+  - `Desglosar`
+  - `Ensamblar`
+  - `Desde Dir`
+  - `Hacia Dir`
+
+## Cambios pendientes
+
+- `Pending changes` muestra descripciones legibles, no comandos crudos.
+- Los cambios se acumulan en orden de inserción.
+- Al hacer clic en una línea, ZFSMgr intenta enfocar el objeto y la sección afectada.
+- Acciones diferidas típicas:
+  - cambios de propiedades
+  - permisos
+  - `Rename`
+  - `Move`
+  - borrado diferido de datasets/snapshots
+
+## Conectividad y logs
+
+- `Comprobar conectividad` ya no es un botón flotante.
+- Ahora está en el menú principal de la aplicación.
+- `Combined log` sigue mostrando salida de aplicación y de conexiones.
+
+## Creación de pools
+
+![Crear pool](qrc:/help/img/crearpool.png)
+
+- `Crear pool` abre el constructor de VDEV y parámetros del pool.
+- La estructura del árbol del pool valida combinaciones OpenZFS compatibles.
+- Si falla, el diálogo permanece abierto para corregir y reintentar.
+
+## Creación de datasets
+
+![Crear dataset](qrc:/help/img/creardataset.png)
+
+- `Crear dataset` se abre desde el menú contextual del árbol.
+- Si el dataset es cifrado con `keylocation=prompt`, ZFSMgr pide passphrase.
+- Si falla, el diálogo permanece abierto con los datos introducidos.
+
+## Navegación
+
+- El árbol recuerda expansión, selección y snapshots seleccionados.
+- Cambiar columnas de propiedades conserva la apertura de nodos visibles.
+- Al pulsar un nodo vacío de `Dataset properties`, sus hijos se materializan y el nodo queda abierto.

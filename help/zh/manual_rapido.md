@@ -1,158 +1,96 @@
 # 快速手册
 
-ZFSMgr 用于管理连接和 ZFS 操作。
+ZFSMgr 现在通过一个统一树管理连接和 ZFS 操作。
 
 ## 总览
 
-<img src="help-img/ventanaprincipal.png" alt="主窗口" width="50%">
+![主窗口](qrc:/help/img/auto/main-window.png)
 
-- 左侧面板：
-- `连接`：简单表格（每行一个连接），包含 `连接` 列以及 `O` / `D` 复选框列。
-- `已选数据集`：传输与高级操作。
-  包括 `复制`、`克隆`、`移动`、`对齐`、`同步`、`拆分`、`合并`、`来自目录`、`到目录`。
-- 右侧面板：
-- 上半区：显示被标记为 `源` 的连接内容树。
-- 下半区：显示被标记为 `目标` 的连接内容树。
-- 实际显示哪一侧，不取决于单纯点击行，而取决于复选框：
-  - `O` 控制上方树（`源`）
-  - `D` 控制下方树（`目标`）
-- 每棵树都会按连接/池分别保存自己的导航状态：
-  - 展开/折叠状态
-  - 当前数据集选择
-  - 当前快照选择
-  - 列宽
-- 上方树第一列表头始终显示为 `Source:...`，下方树第一列表头始终显示为 `Target:...`。
-- 每棵树可同时显示多个池（每个池一个根节点），其下为数据集/快照节点。
-- 池下可显示独立的 `池信息` 节点。
-- 数据集直接挂在池下面。
-- 子数据集直接挂在其父数据集下面。
-- 数据集/快照节点可显示内联 `属性`；非快照数据集还可显示 `权限`。
-- 选中某个快照时，该树会显示该快照对应的属性/分组，并额外显示 `Holds (N)` 节点。
-- 内联属性在适用时可直接编辑，并带有 `Inh.` 继承控制。
-- 当 `Inh.=on` 时，属性值编辑器会被禁用并显示为灰色。
-  当 `Inh.=off` 时，属性值会重新变为可编辑。
-- `Programar snapshots` 中的 `org.fc16.gsa:*` 属性属于用户属性，在界面里不提供继承控制。
-- 树的右键菜单可显示或隐藏 `池信息`，并可在 `Mostrar en línea` 子菜单中控制内联 `属性`、`权限` 与 `Programar snapshots`。
-- 数据集右键菜单还可显示或隐藏自动快照（`GSA-*`）。
-- 权限分组显示为 `Deleg.`、`Nuevos DS` 和 `Conjuntos`。
-- 不可导入池也会显示为根节点，以便执行 `Import`。
-- 日志：单一 `组合日志` 面板（含 SSH/PSRP 输出并带连接前缀）。
-- 除了 `application.log` 之外，ZFSMgr 还会把高层事件写入系统原生日志：
-  - macOS: Unified Logging（`Console.app`、`log show`、`log stream`）
-  - Linux: `syslog` / `journald`（`journalctl`）
-  - Windows: `Windows Event Log`（`Event Viewer`）
-- 连接表右下角带有一个浮动按钮 `Conectividad`。
-  点击后会打开一个矩阵，行表示源连接，列表示目标连接。
-- 每个单元格会显示 `SSH` 与 `rsync` 状态。
-  `SSH:✓` 表示：行对应机器可以使用目标连接中定义的凭据，直接连接到列对应机器。
-  `rsync:✓` 表示该路径上的两端也具备 `rsync`。
-- 如果某个单元格为红色，其 tooltip 会说明具体失败原因。
-  例如：源端缺少 `sshpass`、认证失败、DNS 失败、超时或缺少 `rsync`。
-- 如果 `SSH:✓` 缺失，ZFSMgr 就不能在该源和目标之间执行真正的远端直连传输。
-  此时数据传输必须经过运行 ZFSMgr 的本地机器中转。
-  这意味着双跳、更高的本地流量，以及更高的时间和资源开销。
-- 下方区域显示为：
-  - 左侧固定的 `待执行更改`
-  - 右侧日志标签页（`组合日志` 与各连接日志）
-- `待执行更改` 每行显示一条可读描述，并带 `连接::池` 前缀，而不是原始命令。
-- 待执行更改保持实际执行顺序。
-- `移动` 不会立即执行，而是添加一个待执行的 `zfs rename`，把 `源` 数据集移动到 `目标` 数据集下面。
-  只有当两边都选中同一连接、同一池中的数据集时才会启用。
-- 树右键菜单中的 `重命名` 也是延后执行的，会向 `待执行更改` 添加一条 `zfs rename`。
-- 点击 `待执行更改` 的某一行时，程序会尝试定位到对应的数据集与相关区段。
-  若同一池同时显示在上下两棵树中，优先定位到 `源`。
-- `复制` 与 `对齐` 在源和目标为两个不同的远程 SSH 连接时，会尽量直接从源端传到目标端。
-  数据流不会经过运行 ZFSMgr 的本机；本机只保留控制会话并接收进度输出。
-- 树表头带有右键菜单，可调整单列宽度、调整全部可见列宽度，并修改 `属性列` 数量。
-- 如果某一侧没有任何 `O` 或 `D` 勾选，该侧树会保持为空，但表头仍然一致。
-- `O` 与 `D` 的状态会在程序重启后保留。
-- 只有当数据集确实存在快照时，`选择快照` 菜单才会启用。
+- 左侧：
+- `Selected datasets`：显示当前标记为 `Source` 和 `Target` 的数据集。
+- `Status and progress`：显示当前状态、加载和进度。
+- 右侧：
+- 一个统一树，结构为：
+  - 连接
+  - 连接下的池
+  - 池下的数据集和快照
+- 树下方：
+  - `Pending changes`
+- 底部区域：
+  - 日志
 
-创建池：
+## 统一树
 
-<img src="help-img/crearpool.png" alt="创建池" width="50%">
+- 连接始终显示为根节点，即使已断开。
+- 如果连接断开：
+  - 连接节点仍然可见
+  - 该连接下的池会从树中消失
+- 连接节点保留原来连接表中的颜色和 tooltip 语义。
+- 如果连接需要 GSA 注意，名称会显示 `(*)`。
+- 池不再显示为 `Connection::Pool`，可见文本只显示池名。
+- 池根节点与池根数据集合并：
+  - 保留池图标和池 tooltip
+  - 也作为根数据集使用
+  - 其真实子节点直接挂在其下
+- 已导入的池可以显示：
+  - `Pool Information`
+  - `Datasets programados`
 
-- `创建池` 对话框使用水平分隔条：
-  - 左侧：`池参数` 与 `VDEV 构建器`
-  - 右侧：`可用块设备`
-- `altroot` 默认为空。
-  如果保持为空，最终的 `zpool create` 命令中不会加入 `-R`。
-- `可用块设备` 以树形显示磁盘与分区，并带有大小、分区类型、是否已挂载、是否已属于某个池等列。
-- 在 macOS 上，没有分区的物理磁盘也会显示出来。
-- 在 macOS 上，系统内部 APFS 磁盘与 synthesized APFS 磁盘不可选择。
-- `已挂载` 列可直接在对话框中执行卸载（`diskutil unmount` / `umount`）。
-- 某个设备一旦被拖入池结构，就会变为不可用，不能在树中的其他位置重复使用。
-- `VDEV 构建器` 不再使用自由文本：
-  - 根节点固定为 `Pool`
-  - 通过右键菜单创建合法节点
-  - 勾选需要的块设备，然后点击 `添加所选设备`
-  - 池树中的节点也可通过拖放重新排序
-- 池树遵循受限的 OpenZFS 语法：
-  - 根层可以包含直接设备（隐式 stripe）、`mirror`、`raidz*` 以及顶层类（`log`、`cache`、`special`、`dedup`、`spare`）
-  - 普通 vdev 内只能直接挂设备
-  - `log` 只允许包含 `mirror` 子组
-  - `special` 与 `dedup` 允许直接挂设备，或包含 `mirror` / `raidz*` 子组
-  - `cache` 与 `spare` 只允许直接挂设备
-- 根层必须至少存在一个数据组，可以是直接设备，也可以是 `mirror` / `raidz*`。
-- 分隔条下方会显示一个全宽的 `zpool create` 命令预览。
-- 该预览会随着以下变化实时更新：
-  - 池树结构变化
-  - `池参数` 变化
-  - 额外参数变化
-- 如果结构无效，命令预览会显示为红色。
-- 如果 `创建池` 失败，对话框不会关闭，方便直接修改后重试。
+## 内联节点
 
-创建数据集与加密挂载：
+- 数据集和快照可以显示 `Dataset properties`。
+- 非快照数据集还可以显示 `Permissions`。
+- filesystem 数据集可以显示 `Schedule snapshots`。
 
-<img src="help-img/creardataset.png" alt="创建数据集" width="50%">
+![计划快照节点](qrc:/help/img/auto/schedule-snapshots-node.png)
 
-- `创建数据集` 从内容树中启动。
-- 如果数据集使用：
-  - `encryption=on` 或某个 `aes-*` 模式
-  - `keyformat=passphrase`
-  - `keylocation=prompt`
-  对话框会显示 `加密口令` 和 `重复口令` 两个字段。
-- 创建数据集时，这个口令通过标准输入传给命令，不会附加到确认窗口或日志里显示的命令行中。
-- 如果 `创建数据集` 失败，对话框会保持打开，并保留已输入的数据，便于修改后重试。
-- 当挂载 `keylocation=prompt` 的加密数据集时，ZFSMgr 会先请求口令，执行 `zfs load-key`，然后再执行 `zfs mount`。
+## Source / Target 选择
 
-自动快照计划（GSA）：
+- 不再有连接表中的 `Source/Target` 复选框。
+- 现在通过数据集右键菜单选择：
+  - `Select as source`
+  - `Select as destination`
+- `Selected datasets` 区域反映这个逻辑选择。
 
-- 连接右键菜单会显示 `Gestor de snapshots` 的当前状态。
-  它可能显示为 `Instalar gestor de snapshots`、`Actualizar versión del Gestor de snapshots`、`Activar GSA` 或 `GSA actualizado y funcionando`。
-- ZFSMgr 按平台使用原生调度器：
-  - macOS: `launchd`
-  - Linux: `systemd timer`
-  - Windows: `Task Scheduler`
-- filesystem 类型的数据集可以显示 `Programar snapshots` 节点。
-- 该节点提供以下内联属性：
-  - `Activado`
-  - `Recursivo`
-  - `Horario`
-  - `Diario`
-  - `Semanal`
-  - `Mensual`
-  - `Anual`
-  - `Nivelar`
-  - `Destino`
-- 这些设置保存在数据集自身的用户属性中，名称为 `org.fc16.gsa:*`。
-- 保留值为 `0` 表示禁用该周期。
-- 如果 `Nivelar=on`，则 `Destino` 必须使用 `Con::Pool/Dataset` 格式。
-- ZFSMgr 会阻止重叠计划：
-  - 同一个数据集不能属于多个活动计划
-  - 如果某个数据集启用了递归计划，它的子数据集就不能再定义另一套计划
-- 自动快照使用 `GSA-...` 形式的名称。
-- GSA 调度器会把日志写入 ZFSMgr 配置目录，并轮转 `GSA.log`。
-- 如果远程对齐路径在 `Conectividad` 矩阵中没有 `SSH:✓`，ZFSMgr 会在安装或更新 GSA 之前给出警告。
+## 上下文菜单
 
-导航行为：
+- 在连接根节点上：
+  - 可打开原来的连接菜单
+- 在合并后的池根节点上：
+  - 首先出现 `Pool` 子菜单
+  - 之后是数据集菜单项
+- `Pool` 子菜单包含：
+  - `Refresh`
+  - `Import`
+  - `Import with rename`
+  - `Export`
+  - `History`
+  - `Management`
+  - `Show Pool Information`
+  - `Show Scheduled Datasets`
 
-- 切换连接/池会复用缓存。
-- 仅导航不会自动刷新。
-- 只有执行修改类操作或显式刷新时才刷新。
-- 每次动作执行前会保存并恢复上下两棵树的可视状态（选择与展开状态，若适用）。
-- 如果某次修改影响到一个同时显示在上下两棵树中的池，则两棵树都会重建并恢复原状态。
-- 点击尚未加载的 `属性` 节点时，会加载其子项并保持展开。
-- 修改 `属性列` 数量后，已展开的 `属性` 节点会保持展开状态。
+## 待执行变更
 
-操作可用条件请参阅“快捷键与状态”。
+- `Pending changes` 显示可读描述，而不是原始命令。
+- 变更按加入顺序累积。
+- 点击某一行时，ZFSMgr 会尝试定位到相关对象和相关区段。
+
+## 连通性和日志
+
+- `Check connectivity` 不再是浮动按钮。
+- 它现在位于主应用菜单中。
+- `Combined log` 仍然显示应用和连接输出。
+
+## 创建池
+
+![创建池](qrc:/help/img/crearpool.png)
+
+## 创建数据集
+
+![创建数据集](qrc:/help/img/creardataset.png)
+
+## 导航
+
+- 树会保留展开状态、当前选择和所选快照。
+- 修改属性列数时，已打开节点会保持展开。
+- 点击空的 `Dataset properties` 节点时，会即时生成其子节点并保持展开。

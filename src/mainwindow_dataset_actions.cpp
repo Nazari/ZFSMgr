@@ -491,7 +491,6 @@ bool MainWindow::executeDatasetAction(const QString& side,
                 }
             };
             clearDeletedSnapshotSelection(m_connContentTree);
-            clearDeletedSnapshotSelection(m_bottomConnContentTree);
         }
     }
     const bool needsDeferredRefresh =
@@ -766,10 +765,6 @@ void MainWindow::reloadConnContentPool(int connIdx, const QString& poolName) {
         rebuildConnectionEntityTabs();
         refreshed = true;
     }
-    if (m_bottomConnContentTree && m_bottomDetailConnIdx == connIdx) {
-        updateSecondaryConnectionDetail();
-        refreshed = true;
-    }
     if (!refreshed) {
         refreshConnectionByIndex(connIdx);
     }
@@ -803,8 +798,7 @@ void MainWindow::reloadDatasetSide(const QString& side) {
             return true;
         };
         const bool reloadedTop = reloadTree(m_connContentTree);
-        const bool reloadedBottom = reloadTree(m_bottomConnContentTree);
-        if (reloadedTop || reloadedBottom) {
+        if (reloadedTop) {
             return;
         }
     }

@@ -12,8 +12,13 @@
 
 namespace {
 QString defaultPrimaryTitle(ConnectionDatasetTreePane::Role role) {
-    return (role == ConnectionDatasetTreePane::Role::Bottom) ? QStringLiteral("Destino:")
-                                                             : QStringLiteral("Origen:");
+    if (role == ConnectionDatasetTreePane::Role::Bottom) {
+        return QStringLiteral("Destino:");
+    }
+    if (role == ConnectionDatasetTreePane::Role::Unified) {
+        return QStringLiteral("Conexiones:");
+    }
+    return QStringLiteral("Origen:");
 }
 }
 
@@ -135,7 +140,9 @@ void ConnectionDatasetTreePane::configureTree() {
         return;
     }
     m_tree->setObjectName((m_role == Role::Bottom) ? QStringLiteral("connContentTreeBottom")
-                                                   : QStringLiteral("connContentTreeTop"));
+                                                   : ((m_role == Role::Unified)
+                                                          ? QStringLiteral("connContentTreeUnified")
+                                                          : QStringLiteral("connContentTreeTop")));
     m_tree->setColumnCount(4);
     updateHeaders();
     if (QHeaderView* header = m_tree->header()) {
@@ -147,7 +154,7 @@ void ConnectionDatasetTreePane::configureTree() {
         header->setFont(QApplication::font());
         header->setContextMenuPolicy(Qt::CustomContextMenu);
     }
-    m_tree->setColumnWidth(0, (m_role == Role::Bottom) ? 230 : 250);
+    m_tree->setColumnWidth(0, (m_role == Role::Bottom) ? 230 : ((m_role == Role::Unified) ? 280 : 250));
     m_tree->setColumnWidth(1, 90);
     m_tree->setColumnWidth(2, 72);
     m_tree->setColumnWidth(3, (m_role == Role::Bottom) ? 170 : 180);

@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
+#include "mainwindow_ui_logic.h"
 
 #include <QApplication>
 #include <QComboBox>
@@ -10,6 +11,7 @@
 #include <QHeaderView>
 #include <QEvent>
 #include <QLabel>
+#include <QMenu>
 #include <QMetaObject>
 #include <QMessageBox>
 #include <QPlainTextEdit>
@@ -32,6 +34,7 @@
 
 namespace {
 constexpr int kConnIdxRole = Qt::UserRole + 10;
+constexpr int kIsConnectionRootRole = Qt::UserRole + 36;
 constexpr int kConnPropKeyRole = Qt::UserRole + 14;
 constexpr int kPoolNameRole = Qt::UserRole + 11;
 constexpr int kIsPoolRootRole = Qt::UserRole + 12;
@@ -1238,6 +1241,245 @@ bool isLocalHostForUi(const QString& host) {
 
 } // namespace
 
+int MainWindow::currentConnectionIndexFromUnifiedTree() const {
+    if (!m_connContentTree
+        || !m_connContentTree->property("zfsmgr.groupPoolsByConnectionRoots").toBool()
+        || !m_connContentTree->isVisible()) {
+        return -1;
+    }
+    QTreeWidgetItem* item = m_connContentTree->currentItem();
+    while (item && !item->data(0, kIsConnectionRootRole).toBool()
+           && !item->data(0, kIsPoolRootRole).toBool()) {
+        item = item->parent();
+    }
+    if (!item) {
+        return -1;
+    }
+    return item->data(0, kConnIdxRole).toInt();
+}
+
+int MainWindow::currentConnectionIndexFromUi() const {
+    const int treeIdx = currentConnectionIndexFromUnifiedTree();
+    if (treeIdx >= 0 && treeIdx < m_profiles.size()) {
+        return treeIdx;
+    }
+    return -1;
+}
+
+void MainWindow::setCurrentConnectionInUi(int connIdx) {
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return;
+    }
+    if (m_connContentTree
+        && m_connContentTree->property("zfsmgr.groupPoolsByConnectionRoots").toBool()) {
+        for (int i = 0; i < m_connContentTree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* root = m_connContentTree->topLevelItem(i);
+            if (!root || !root->data(0, kIsConnectionRootRole).toBool()) {
+                continue;
+            }
+            if (root->data(0, kConnIdxRole).toInt() == connIdx) {
+                m_connContentTree->setCurrentItem(root);
+                break;
+            }
+        }
+    }
+}
+
+QColor MainWindow::connectionStateRowColor(int connIdx) const {
+    const QColor baseColor = palette().base().color();
+    if (connIdx < 0 || connIdx >= m_states.size()) {
+        return baseColor;
+    }
+    if (isConnectionDisconnected(connIdx)) {
+        return QColor(QStringLiteral("#eef1f4"));
+    }
+    const ConnectionRuntimeState& st = m_states[connIdx];
+    const QString status = st.status.trimmed().toUpper();
+    const QRegularExpression rx(QStringLiteral("^(\\d+)\\.(\\d+)(?:\\.(\\d+))?"));
+    const QRegularExpressionMatch m = rx.match(st.zfsVersion.trimmed());
+    const bool zfsTooOld = m.hasMatch()
+                           && m.captured(1).toInt() == 2
+                           && (m.captured(2).toInt() < 3
+                               || (m.captured(2).toInt() == 3
+                                   && (m.captured(3).isEmpty() ? 0 : m.captured(3).toInt()) < 3));
+    if (status == QStringLiteral("OK")) {
+        if (zfsTooOld) {
+            return QColor(QStringLiteral("#f9dfdf"));
+        }
+        return st.missingUnixCommands.isEmpty() ? QColor(QStringLiteral("#e4f4e4"))
+                                                : QColor(QStringLiteral("#fff1d9"));
+    }
+    if (!status.isEmpty()) {
+        return QColor(QStringLiteral("#f9dfdf"));
+    }
+    return baseColor;
+}
+
+QString MainWindow::connectionStateColorReason(int connIdx) const {
+    if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
+        return QString();
+    }
+    const ConnectionRuntimeState& st = m_states[connIdx];
+    if (isConnectionDisconnected(connIdx)) {
+        return trk(QStringLiteral("t_conn_color_reason_off_001"),
+                   QStringLiteral("La conexión está marcada como desconectada."),
+                   QStringLiteral("The connection is marked as disconnected."),
+                   QStringLiteral("该连接已标记为断开。"));
+    }
+    const QString stUp = st.status.trimmed().toUpper();
+    if (stUp != QStringLiteral("OK")) {
+        return st.detail.trimmed().isEmpty()
+                   ? trk(QStringLiteral("t_conn_color_reason_err_001"),
+                         QStringLiteral("La validación de la conexión ha fallado."),
+                         QStringLiteral("Connection validation failed."),
+                         QStringLiteral("连接校验失败。"))
+                   : st.detail.trimmed();
+    }
+    const QRegularExpression rx(QStringLiteral("^(\\d+)\\.(\\d+)(?:\\.(\\d+))?"));
+    const QRegularExpressionMatch m = rx.match(st.zfsVersion.trimmed());
+    const bool zfsTooOld = m.hasMatch()
+                           && m.captured(1).toInt() == 2
+                           && (m.captured(2).toInt() < 3
+                               || (m.captured(2).toInt() == 3
+                                   && (m.captured(3).isEmpty() ? 0 : m.captured(3).toInt()) < 3));
+    if (zfsTooOld) {
+        return trk(QStringLiteral("t_conn_color_reason_zfs_old_001"),
+                   QStringLiteral("La versión de OpenZFS es demasiado antigua (mínimo recomendado: 2.3.3)."),
+                   QStringLiteral("The OpenZFS version is too old (recommended minimum: 2.3.3)."),
+                   QStringLiteral("OpenZFS 版本过旧（建议至少 2.3.3）。"));
+    }
+    if (!st.missingUnixCommands.isEmpty()) {
+        return trk(QStringLiteral("t_conn_color_reason_cmds_001"),
+                   QStringLiteral("Faltan comandos auxiliares requeridos: %1"),
+                   QStringLiteral("Required helper commands are missing: %1"),
+                   QStringLiteral("缺少必需的辅助命令：%1"))
+            .arg(st.missingUnixCommands.join(QStringLiteral(", ")));
+    }
+    return QString();
+}
+
+QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
+    if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
+        return QString();
+    }
+    const ConnectionProfile& p = m_profiles[connIdx];
+    const ConnectionRuntimeState& st = m_states[connIdx];
+    const bool disconnected = isConnectionDisconnected(connIdx);
+    const QString osHint = (p.osType + QStringLiteral(" ") + st.osLine).trimmed().toLower();
+    const bool windowsSshConn =
+        p.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0
+        && osHint.contains(QStringLiteral("windows"));
+    QStringList lines;
+    lines << QStringLiteral("Host: %1").arg(p.host);
+    lines << QStringLiteral("Port: %1").arg(p.port);
+    lines << QStringLiteral("Estado: %1").arg(st.status.trimmed().isEmpty() ? QStringLiteral("-") : st.status.trimmed());
+    const QString colorReason = connectionStateColorReason(connIdx);
+    if (!colorReason.isEmpty()) {
+        lines << QStringLiteral("Motivo del color: %1").arg(colorReason);
+    }
+    lines << QStringLiteral("Sistema operativo: %1")
+                 .arg(st.osLine.trimmed().isEmpty() ? QStringLiteral("-") : st.osLine.trimmed());
+    lines << QStringLiteral("Método de conexión: %1")
+                 .arg(st.connectionMethod.trimmed().isEmpty() ? p.connType : st.connectionMethod.trimmed());
+    lines << QStringLiteral("OpenZFS: %1")
+                 .arg(st.zfsVersionFull.trimmed().isEmpty()
+                          ? (st.zfsVersion.trimmed().isEmpty() ? QStringLiteral("-")
+                                                               : QStringLiteral("OpenZFS %1").arg(st.zfsVersion.trimmed()))
+                          : st.zfsVersionFull.trimmed());
+    lines << QStringLiteral("GSA: %1")
+                 .arg(!st.gsaInstalled ? QStringLiteral("no instalado")
+                                       : QStringLiteral("%1 | %2 | %3")
+                                             .arg(st.gsaVersion.trimmed().isEmpty() ? QStringLiteral("-")
+                                                                                    : st.gsaVersion.trimmed(),
+                                                  st.gsaScheduler.trimmed().isEmpty() ? QStringLiteral("-")
+                                                                                      : st.gsaScheduler.trimmed(),
+                                                  st.gsaActive ? QStringLiteral("activo")
+                                                               : QStringLiteral("inactivo")));
+    lines << QStringLiteral("Conexiones dadas de alta en GSA: %1")
+                 .arg(st.gsaKnownConnections.isEmpty()
+                          ? QStringLiteral("(ninguna)")
+                          : st.gsaKnownConnections.join(QStringLiteral(", ")));
+    lines << QStringLiteral("Conexiones requeridas por GSA: %1")
+                 .arg(st.gsaRequiredConnections.isEmpty()
+                          ? QStringLiteral("(ninguna)")
+                          : st.gsaRequiredConnections.join(QStringLiteral(", ")));
+    if (st.gsaNeedsAttention && !st.gsaAttentionReasons.isEmpty()) {
+        lines << QStringLiteral("Atención GSA: %1")
+                     .arg(st.gsaAttentionReasons.join(QStringLiteral(", ")));
+    }
+    lines << QStringLiteral("Comandos detectados: %1")
+                 .arg(st.detectedUnixCommands.isEmpty() ? QStringLiteral("(ninguno)")
+                                                        : st.detectedUnixCommands.join(QStringLiteral(", ")));
+    lines << QStringLiteral("Comandos no detectados: %1")
+                 .arg(st.missingUnixCommands.isEmpty() ? QStringLiteral("(ninguno)")
+                                                       : st.missingUnixCommands.join(QStringLiteral(", ")));
+    lines << QStringLiteral("Plataforma instalación auxiliar: %1")
+                 .arg(st.helperPlatformLabel.trimmed().isEmpty() ? QStringLiteral("-")
+                                                                 : st.helperPlatformLabel.trimmed());
+    lines << QStringLiteral("Gestor de paquetes: %1")
+                 .arg(st.helperPackageManagerLabel.trimmed().isEmpty()
+                          ? QStringLiteral("-")
+                          : QStringLiteral("%1%2")
+                                .arg(st.helperPackageManagerLabel.trimmed(),
+                                     st.helperPackageManagerDetected ? QStringLiteral(" (detectado)")
+                                                                     : QStringLiteral(" (no detectado)")));
+    lines << QStringLiteral("Instalación asistida: %1")
+                 .arg(st.helperInstallSupported ? QStringLiteral("sí") : QStringLiteral("no"));
+    lines << QStringLiteral("Comandos instalables desde ZFSMgr: %1")
+                 .arg(st.helperInstallableCommands.isEmpty()
+                          ? QStringLiteral("(ninguno)")
+                          : st.helperInstallableCommands.join(QStringLiteral(", ")));
+    lines << QStringLiteral("Comandos no soportados por instalador: %1")
+                 .arg(st.helperUnsupportedCommands.isEmpty()
+                          ? QStringLiteral("(ninguno)")
+                          : st.helperUnsupportedCommands.join(QStringLiteral(", ")));
+    if (!st.helperInstallReason.trimmed().isEmpty()) {
+        lines << QStringLiteral("Motivo instalación asistida: %1").arg(st.helperInstallReason.trimmed());
+    }
+    if (st.commandsLayer.trimmed().compare(QStringLiteral("Powershell"), Qt::CaseInsensitive) == 0
+        && !st.powershellFallbackCommands.isEmpty()) {
+        lines << QStringLiteral("Comandos PowerShell usados: %1")
+                     .arg(st.powershellFallbackCommands.join(QStringLiteral(", ")));
+    }
+    if (windowsSshConn && !disconnected
+        && st.status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) != 0) {
+        lines << QString();
+        lines << QStringLiteral("PowerShell para habilitar OpenSSH Server:");
+        lines << QStringLiteral("# Install OpenSSH Server");
+        lines << QStringLiteral("Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0");
+        lines << QString();
+        lines << QStringLiteral("# Start and set to Automatic");
+        lines << QStringLiteral("Start-Service sshd");
+        lines << QStringLiteral("Set-Service -Name sshd -StartupType 'Automatic'");
+    }
+    QStringList nonImportable;
+    for (const PoolImportable& pool : st.importablePools) {
+        const QString poolName = pool.pool.trimmed();
+        if (poolName.isEmpty()) {
+            continue;
+        }
+        const QString stateUp = pool.state.trimmed().toUpper();
+        const QString actionTxt = pool.action.trimmed();
+        if (stateUp == QStringLiteral("ONLINE") && !actionTxt.isEmpty()) {
+            continue;
+        }
+        QString reason = pool.reason.trimmed();
+        if (reason.isEmpty()) {
+            reason = QStringLiteral("-");
+        }
+        nonImportable << QStringLiteral("%1").arg(poolName);
+        nonImportable << QStringLiteral("  Motivo: %1").arg(reason);
+    }
+    lines << QStringLiteral("Pools no importables:");
+    if (nonImportable.isEmpty()) {
+        lines << QStringLiteral("  (ninguno)");
+    } else {
+        lines += nonImportable;
+    }
+    const QString plain = lines.join(QStringLiteral("\n")).toHtmlEscaped();
+    return QStringLiteral("<pre style=\"font-family:'SF Mono','Menlo','Monaco','Consolas','Liberation Mono',monospace; white-space:pre;\">%1</pre>").arg(plain);
+}
+
 QString MainWindow::connectionPersistKey(int idx) const {
     if (idx < 0 || idx >= m_profiles.size()) {
         return QString();
@@ -1428,18 +1670,7 @@ QString MainWindow::connectionDisplayModeForIndex(int connIdx) const {
     if (connIdx < 0) {
         return QString();
     }
-    const bool isTop = (connIdx == m_topDetailConnIdx);
-    const bool isBottom = (connIdx == m_bottomDetailConnIdx);
-    if (isTop && isBottom) {
-        return QStringLiteral("both");
-    }
-    if (isTop) {
-        return QStringLiteral("source");
-    }
-    if (isBottom) {
-        return QStringLiteral("target");
-    }
-    return QString();
+    return (connIdx == m_topDetailConnIdx) ? QStringLiteral("source") : QString();
 }
 
 int MainWindow::connectionIndexByNameOrId(const QString& value) const {
@@ -1596,25 +1827,9 @@ bool MainWindow::canSshBetweenConnections(int rowIdx, int colIdx, QString* error
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
-    if ((watched == m_connectionsTable || (m_connectionsTable && watched == m_connectionsTable->viewport()))
-        && event
-        && (event->type() == QEvent::Resize || event->type() == QEvent::Show || event->type() == QEvent::LayoutRequest)) {
-        QTimer::singleShot(0, this, [this]() { repositionConnectivityButton(); });
-    }
+    Q_UNUSED(watched);
+    Q_UNUSED(event);
     return QMainWindow::eventFilter(watched, event);
-}
-
-void MainWindow::repositionConnectivityButton() {
-    if (!m_connectionsTable || !m_connectivityMatrixBtn || !m_connectionsTable->viewport()) {
-        return;
-    }
-    QWidget* host = m_connectionsTable->viewport();
-    const QSize hint = m_connectivityMatrixBtn->sizeHint();
-    const int margin = 10;
-    const int x = qMax(margin, host->width() - hint.width() - margin);
-    const int y = qMax(margin, host->height() - hint.height() - margin);
-    m_connectivityMatrixBtn->setGeometry(x, y, hint.width(), hint.height());
-    m_connectivityMatrixBtn->raise();
 }
 
 void MainWindow::openConnectivityMatrixDialog() {
@@ -1953,106 +2168,217 @@ void MainWindow::openConnectivityMatrixDialog() {
     dlg.exec();
 }
 
-void MainWindow::syncConnectionDisplaySelectors() {
-    if (!m_connectionsTable) {
+void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos) {
+    const bool hasConn = (connIdx >= 0 && connIdx < m_profiles.size());
+    if (hasConn) {
+        setCurrentConnectionInUi(connIdx);
+    }
+    const bool isDisconnected = hasConn && isConnectionDisconnected(connIdx);
+    const bool hasWindowsUnixLayerReady =
+        hasConn
+        && connIdx < m_states.size()
+        && isWindowsConnection(connIdx)
+        && m_states[connIdx].unixFromMsysOrMingw
+        && m_states[connIdx].missingUnixCommands.isEmpty()
+        && !m_states[connIdx].detectedUnixCommands.isEmpty();
+    const bool canManageGsa =
+        hasConn && !actionsLocked() && !isDisconnected
+        && connIdx < m_states.size()
+        && gsaMenuLabelForConnection(connIdx).compare(
+               trk(QStringLiteral("t_gsa_ok_001"),
+                   QStringLiteral("GSA actualizado y funcionando"),
+                   QStringLiteral("GSA updated and running"),
+                   QStringLiteral("GSA 已更新并运行中")),
+               Qt::CaseInsensitive) != 0;
+    const bool canUninstallGsa =
+        hasConn && !actionsLocked() && !isDisconnected
+        && connIdx < m_states.size()
+        && m_states[connIdx].gsaInstalled;
+    const zfsmgr::uilogic::ConnectionContextMenuState menuState =
+        zfsmgr::uilogic::buildConnectionContextMenuState(
+            hasConn,
+            isDisconnected,
+            actionsLocked(),
+            hasConn && isLocalConnection(connIdx),
+            hasConn && isConnectionRedirectedToLocal(connIdx),
+            hasConn && isWindowsConnection(connIdx),
+            hasWindowsUnixLayerReady,
+            canManageGsa,
+            canUninstallGsa);
+
+    QMenu menu(this);
+    QAction* aNewConn = menu.addAction(
+        trk(QStringLiteral("t_new_conn_ctx001"),
+            QStringLiteral("Nueva Conexión"),
+            QStringLiteral("New Connection"),
+            QStringLiteral("新建连接")));
+    menu.addSeparator();
+    QAction* aConnect = menu.addAction(
+        trk(QStringLiteral("t_connect_ctx_001"),
+            QStringLiteral("Conectar"),
+            QStringLiteral("Connect"),
+            QStringLiteral("连接")));
+    QAction* aDisconnect = menu.addAction(
+        trk(QStringLiteral("t_disconnect_ctx001"),
+            QStringLiteral("Desconectar"),
+            QStringLiteral("Disconnect"),
+            QStringLiteral("断开连接")));
+    QAction* aInstallMsys = menu.addAction(
+        trk(QStringLiteral("t_install_msys_ctx001"),
+            QStringLiteral("Instalar MSYS2"),
+            QStringLiteral("Install MSYS2"),
+            QStringLiteral("安装 MSYS2")));
+    QAction* aInstallHelpers = menu.addAction(
+        trk(QStringLiteral("t_install_helpers_ctx001"),
+            QStringLiteral("Instalar comandos auxiliares"),
+            QStringLiteral("Install helper commands"),
+            QStringLiteral("安装辅助命令")));
+    QMenu* refreshMenu = menu.addMenu(
+        trk(QStringLiteral("t_refresh_conn_ctx001"),
+            QStringLiteral("Refrescar"),
+            QStringLiteral("Refresh"),
+            QStringLiteral("刷新")));
+    QAction* aRefresh = refreshMenu->addAction(
+        trk(QStringLiteral("t_refresh_this_conn_001"),
+            QStringLiteral("Esta conexión"),
+            QStringLiteral("This connection"),
+            QStringLiteral("此连接")));
+    QAction* aRefreshAll = refreshMenu->addAction(
+        trk(QStringLiteral("t_refresh_all_001"),
+            QStringLiteral("Todas las conexiones"),
+            QStringLiteral("All connections"),
+            QStringLiteral("所有连接")));
+    QMenu* gsaMenu = menu.addMenu(QStringLiteral("GSA"));
+    QAction* aManageGsa = gsaMenu->addAction(hasConn ? gsaMenuLabelForConnection(connIdx)
+                                                     : trk(QStringLiteral("t_gsa_install_001"),
+                                                           QStringLiteral("Instalar gestor de snapshots"),
+                                                           QStringLiteral("Install snapshot manager"),
+                                                           QStringLiteral("安装快照管理器")));
+    QAction* aUninstallGsa = gsaMenu->addAction(
+        trk(QStringLiteral("t_gsa_uninstall_001"),
+            QStringLiteral("Desinstalar el GSA"),
+            QStringLiteral("Uninstall GSA"),
+            QStringLiteral("卸载 GSA")));
+    QAction* aEdit = menu.addAction(
+        trk(QStringLiteral("t_edit_conn_ctx001"),
+            QStringLiteral("Editar"),
+            QStringLiteral("Edit"),
+            QStringLiteral("编辑")));
+    QAction* aDelete = menu.addAction(
+        trk(QStringLiteral("t_del_conn_ctx001"),
+            QStringLiteral("Borrar"),
+            QStringLiteral("Delete"),
+            QStringLiteral("删除")));
+    QAction* aNewPool = menu.addAction(
+        trk(QStringLiteral("t_new_pool_ctx_001"),
+            QStringLiteral("Nuevo Pool"),
+            QStringLiteral("New Pool"),
+            QStringLiteral("新建存储池")));
+    aConnect->setEnabled(menuState.canConnect);
+    aDisconnect->setEnabled(menuState.canDisconnect);
+    aInstallMsys->setEnabled(menuState.canInstallMsys);
+    const bool canInstallHelpers =
+        hasConn && !actionsLocked() && !isDisconnected
+        && connIdx < m_states.size()
+        && m_states[connIdx].helperInstallSupported;
+    aInstallHelpers->setEnabled(canInstallHelpers);
+    aManageGsa->setEnabled(menuState.canManageGsa);
+    aUninstallGsa->setEnabled(menuState.canUninstallGsa);
+    gsaMenu->setEnabled(menuState.gsaSubmenuEnabled);
+    aRefresh->setEnabled(menuState.canRefreshThis);
+    aRefreshAll->setEnabled(menuState.canRefreshAll);
+    aEdit->setEnabled(menuState.canEditDelete);
+    aDelete->setEnabled(menuState.canEditDelete);
+    aNewConn->setEnabled(menuState.canNewConnection);
+    aNewPool->setEnabled(menuState.canNewPool);
+
+    QAction* chosen = menu.exec(globalPos);
+    if (!chosen) {
         return;
     }
-    const QSignalBlocker blocker(m_connectionsTable);
-    m_syncConnSelectorChecks = true;
-    for (int row = 0; row < m_connectionsTable->rowCount(); ++row) {
-        QTableWidgetItem* connItem = m_connectionsTable->item(row, 0);
-        QTableWidgetItem* srcItem = m_connectionsTable->item(row, 1);
-        QTableWidgetItem* dstItem = m_connectionsTable->item(row, 2);
-        if (!connItem || !srcItem || !dstItem) {
-            continue;
-        }
-        const int connIdx = connItem->data(Qt::UserRole).toInt();
-        const QString mode = connectionDisplayModeForIndex(connIdx);
-        srcItem->setCheckState((mode == QStringLiteral("source") || mode == QStringLiteral("both"))
-                                   ? Qt::Checked
-                                   : Qt::Unchecked);
-        dstItem->setCheckState((mode == QStringLiteral("target") || mode == QStringLiteral("both"))
-                                   ? Qt::Checked
-                                   : Qt::Unchecked);
+    if (chosen == aConnect && hasConn) {
+        logUiAction(QStringLiteral("Conectar conexión (menú conexiones)"));
+        beginTransientUiBusy(
+            trk(QStringLiteral("t_connecting_conn_busy_001"),
+                QStringLiteral("Conectando %1..."),
+                QStringLiteral("Connecting %1..."),
+                QStringLiteral("正在连接 %1...")).arg(m_profiles[connIdx].name));
+        setConnectionDisconnected(connIdx, false);
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como conectada: %1").arg(m_profiles[connIdx].name));
+        rebuildConnectionsTable();
+        populateAllPoolsTables();
+        refreshConnectionByIndex(connIdx);
+        endTransientUiBusy();
+    } else if (chosen == aDisconnect && hasConn) {
+        setConnectionDisconnected(connIdx, true);
+        appLog(QStringLiteral("NORMAL"), QStringLiteral("Conexión marcada como desconectada: %1").arg(m_profiles[connIdx].name));
+        rebuildConnectionsTable();
+        populateAllPoolsTables();
+    } else if (chosen == aRefresh) {
+        logUiAction(QStringLiteral("Refrescar conexión (menú conexiones)"));
+        refreshSelectedConnection();
+    } else if (chosen == aEdit) {
+        logUiAction(QStringLiteral("Editar conexión (menú conexiones)"));
+        editConnection();
+    } else if (chosen == aDelete) {
+        logUiAction(QStringLiteral("Borrar conexión (menú conexiones)"));
+        deleteConnection();
+    } else if (chosen == aInstallMsys) {
+        logUiAction(QStringLiteral("Instalar MSYS2 (menú conexiones)"));
+        installMsysForSelectedConnection();
+    } else if (chosen == aInstallHelpers) {
+        logUiAction(QStringLiteral("Instalar comandos auxiliares (menú conexiones)"));
+        installHelperCommandsForSelectedConnection();
+    } else if (chosen == aManageGsa && hasConn) {
+        logUiAction(QStringLiteral("Gestionar GSA (menú conexiones)"));
+        installOrUpdateGsaForConnection(connIdx);
+    } else if (chosen == aUninstallGsa && hasConn) {
+        logUiAction(QStringLiteral("Desinstalar GSA (menú conexiones)"));
+        uninstallGsaForConnection(connIdx);
+    } else if (chosen == aRefreshAll) {
+        logUiAction(QStringLiteral("Refrescar todas las conexiones (menú conexiones)"));
+        refreshAllConnections();
+    } else if (chosen == aNewConn) {
+        logUiAction(QStringLiteral("Nueva conexión (menú conexiones)"));
+        createConnection();
+    } else if (chosen == aNewPool) {
+        logUiAction(QStringLiteral("Nuevo pool (menú conexiones)"));
+        createPoolForSelectedConnection();
     }
-    m_syncConnSelectorChecks = false;
+}
+
+void MainWindow::syncConnectionDisplaySelectors() {
+    // Árbol unificado: ya no hay selectores O/D en la tabla.
 }
 
 void MainWindow::applyConnectionDisplayMode(int connIdx, const QString& modeRaw) {
-    if (!m_connectionsTable || connIdx < 0 || connIdx >= m_profiles.size()) {
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
         return;
     }
     const QString mode = modeRaw.trimmed().toLower();
     if (isConnectionDisconnected(connIdx)) {
-        syncConnectionDisplaySelectors();
         return;
     }
 
+    if (mode != QStringLiteral("source") && mode != QStringLiteral("both")) {
+        return;
+    }
     const int prevTop = m_topDetailConnIdx;
-    const int prevBottom = m_bottomDetailConnIdx;
-    const bool wantTop = (mode == QStringLiteral("source") || mode == QStringLiteral("both"));
-    const bool wantBottom = (mode == QStringLiteral("target") || mode == QStringLiteral("both"));
-    const QString topTreeToken = connContentTokenForTree(m_connContentTree);
-    const QString bottomTreeToken = connContentTokenForTree(m_bottomConnContentTree);
-
-    if (wantTop && prevTop >= 0 && prevTop != connIdx) {
+    if (prevTop >= 0 && prevTop != connIdx) {
         saveTopTreeStateForConnection(prevTop);
-        if (!topTreeToken.isEmpty()) {
-            saveConnContentTreeState(m_connContentTree, topTreeToken);
-        }
-    } else if (!wantTop && prevTop == connIdx) {
-        saveTopTreeStateForConnection(connIdx);
+        const QString topTreeToken = connContentTokenForTree(m_connContentTree);
         if (!topTreeToken.isEmpty()) {
             saveConnContentTreeState(m_connContentTree, topTreeToken);
         }
     }
-
-    if (wantBottom && prevBottom >= 0 && prevBottom != connIdx) {
-        saveBottomTreeStateForConnection(prevBottom);
-        if (!bottomTreeToken.isEmpty()) {
-            saveConnContentTreeState(m_bottomConnContentTree, bottomTreeToken);
-        }
-    } else if (!wantBottom && prevBottom == connIdx) {
-        saveBottomTreeStateForConnection(connIdx);
-        if (!bottomTreeToken.isEmpty()) {
-            saveConnContentTreeState(m_bottomConnContentTree, bottomTreeToken);
-        }
+    m_topDetailConnIdx = connIdx;
+    m_forceRestoreTopStateConnIdx = connIdx;
+    m_userSelectedConnectionKey = m_profiles[connIdx].id.trimmed().toLower();
+    if (m_userSelectedConnectionKey.isEmpty()) {
+        m_userSelectedConnectionKey = m_profiles[connIdx].name.trimmed().toLower();
     }
-
-    m_topDetailConnIdx = wantTop ? connIdx : ((prevTop == connIdx) ? -1 : prevTop);
-    m_bottomDetailConnIdx = wantBottom ? connIdx : ((prevBottom == connIdx) ? -1 : prevBottom);
-    m_forceRestoreTopStateConnIdx = wantTop ? connIdx : ((prevTop == connIdx) ? -1 : m_forceRestoreTopStateConnIdx);
-    m_forceRestoreBottomStateConnIdx =
-        wantBottom ? connIdx : ((prevBottom == connIdx) ? -1 : m_forceRestoreBottomStateConnIdx);
-
-    if (prevTop == connIdx && !wantTop) {
-        setConnectionOriginSelection(DatasetSelectionContext{});
-    }
-    if (prevBottom == connIdx && !wantBottom) {
-        setConnectionDestinationSelection(DatasetSelectionContext{});
-    }
-
-    syncConnectionDisplaySelectors();
-
-    const bool topChanged = (prevTop != m_topDetailConnIdx);
-    const bool bottomChanged = (prevBottom != m_bottomDetailConnIdx);
-    if (wantTop || wantBottom) {
-        m_userSelectedConnectionKey = m_profiles[connIdx].id.trimmed().toLower();
-        if (m_userSelectedConnectionKey.isEmpty()) {
-            m_userSelectedConnectionKey = m_profiles[connIdx].name.trimmed().toLower();
-        }
-        const int row = rowForConnectionIndex(m_connectionsTable, connIdx);
-        if (row >= 0) {
-            m_connectionsTable->setCurrentCell(row, 0);
-        }
-    }
-    if (topChanged) {
-        rebuildConnectionEntityTabs();
-        refreshConnectionNodeDetails();
-    }
-    if (bottomChanged || topChanged) {
-        updateSecondaryConnectionDetail();
-    }
+    rebuildConnectionEntityTabs();
+    refreshConnectionNodeDetails();
     updateConnectionActionsState();
 }
 
@@ -2127,7 +2453,7 @@ void MainWindow::refreshSelectedConnection() {
                    QStringLiteral("操作进行中：刷新被阻止")));
         return;
     }
-    const int idx = selectedConnectionRow(m_connectionsTable);
+    const int idx = currentConnectionIndexFromUi();
     if (idx < 0 || idx >= m_profiles.size() || isConnectionDisconnected(idx)) {
         return;
     }
@@ -2170,7 +2496,7 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
         }
         return;
     }
-    const int selectedIdx = selectedConnectionRow(m_connectionsTable);
+    const int selectedIdx = currentConnectionIndexFromUi();
     if (state.status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0
         && !state.machineUuid.trimmed().isEmpty()
         && !isLocalConnection(targetIdx)
@@ -2200,11 +2526,8 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
     cachePoolStatusTextsForConnection(targetIdx, state);
     rebuildConnInfoFor(targetIdx);
     rebuildConnectionsTable();
-    if (selectedIdx >= 0 && m_connectionsTable) {
-        const int row = rowForConnectionIndex(m_connectionsTable, selectedIdx);
-        if (row >= 0) {
-            m_connectionsTable->setCurrentCell(row, 0);
-        }
+    if (selectedIdx >= 0) {
+        setCurrentConnectionInUi(selectedIdx);
     }
     populateAllPoolsTables();
     if (m_refreshPending > 0) {
@@ -2222,11 +2545,10 @@ void MainWindow::onAsyncRefreshDone(int generation) {
     if (!m_initialRefreshCompleted) {
         m_initialRefreshCompleted = true;
     }
-    if (m_connectionsTable && m_connectionsTable->rowCount() > 0 && m_connectionsTable->currentRow() < 0) {
-        for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
-            const int idx = connectionIndexForRow(m_connectionsTable, r);
-            if (idx >= 0 && idx < m_profiles.size() && !isConnectionDisconnected(idx)) {
-                m_connectionsTable->setCurrentCell(r, 0);
+    if (currentConnectionIndexFromUi() < 0) {
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            if (!isConnectionDisconnected(i)) {
+                setCurrentConnectionInUi(i);
                 break;
             }
         }
@@ -2244,22 +2566,25 @@ void MainWindow::onAsyncRefreshDone(int generation) {
 }
 
 void MainWindow::onConnectionSelectionChanged() {
+    if (m_connContentTree
+        && m_connContentTree->property("zfsmgr.groupPoolsByConnectionRoots").toBool()) {
+        updatePoolManagementBoxTitle();
+        return;
+    }
     QWidget* paintRoot = m_poolDetailTabs ? m_poolDetailTabs : static_cast<QWidget*>(m_rightTabs);
     if (paintRoot) {
         paintRoot->setUpdatesEnabled(false);
     }
 
     QString selectionKey;
-    if (m_connectionsTable) {
-        int idx = m_topDetailConnIdx;
-        if (idx < 0) {
-            idx = selectedConnectionRow(m_connectionsTable);
-        }
-        if (idx >= 0 && isConnectionDisconnected(idx)) {
-            idx = -1;
-        }
-        selectionKey = QStringLiteral("%1").arg(idx);
+    int idx = m_topDetailConnIdx;
+    if (idx < 0) {
+        idx = currentConnectionIndexFromUi();
     }
+    if (idx >= 0 && isConnectionDisconnected(idx)) {
+        idx = -1;
+    }
+    selectionKey = QStringLiteral("%1").arg(idx);
     if (!selectionKey.isEmpty() && selectionKey == m_lastConnectionSelectionKey) {
         // Evita reconstrucciones redundantes (y consultas SSH) cuando el usuario
         // vuelve a pinchar la misma conexión/tab ya cargada.
@@ -2273,8 +2598,7 @@ void MainWindow::onConnectionSelectionChanged() {
             return tree->topLevelItemCount() > 0;
         };
         const bool topLoaded = detailLoadedFor(m_topDetailConnIdx, m_connContentTree);
-        const bool bottomLoaded = detailLoadedFor(m_bottomDetailConnIdx, m_bottomConnContentTree);
-        if (topLoaded && bottomLoaded) {
+        if (topLoaded) {
             updatePoolManagementBoxTitle();
             if (paintRoot) {
                 paintRoot->setUpdatesEnabled(true);
@@ -2285,7 +2609,6 @@ void MainWindow::onConnectionSelectionChanged() {
         // Si falta contenido (p.ej. tras refresh), repoblar una sola vez.
         rebuildConnectionEntityTabs();
         refreshConnectionNodeDetails();
-        updateSecondaryConnectionDetail();
         updatePoolManagementBoxTitle();
         if (paintRoot) {
             paintRoot->setUpdatesEnabled(true);
@@ -2298,7 +2621,6 @@ void MainWindow::onConnectionSelectionChanged() {
     populateAllPoolsTables();
     refreshConnectionNodeDetails();
     updatePoolManagementBoxTitle();
-    updateSecondaryConnectionDetail();
     if (paintRoot) {
         paintRoot->setUpdatesEnabled(true);
         paintRoot->update();
@@ -2327,13 +2649,23 @@ void MainWindow::rebuildConnContentDetailTree(QTreeWidget* tree,
         *forceRestoreConnIdx = -1;
     }
     tree->clear();
-    if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()
-        || isConnectionDisconnected(connIdx)) {
+    const bool unifiedTree = tree->property("zfsmgr.groupPoolsByConnectionRoots").toBool();
+    if (!unifiedTree
+        && (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()
+            || isConnectionDisconnected(connIdx))) {
         syncConnContentPropertyColumnsFor(tree, connContentTokenForTree(tree));
         return;
     }
-    const ConnectionRuntimeState st = m_states[connIdx];
-    populateConnectionPoolsIntoTree(tree, connIdx, st);
+    if (unifiedTree) {
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            const ConnectionRuntimeState state =
+                (i < m_states.size()) ? m_states[i] : ConnectionRuntimeState{};
+            populateConnectionPoolsIntoTree(tree, i, state);
+        }
+    } else {
+        const ConnectionRuntimeState st = m_states[connIdx];
+        populateConnectionPoolsIntoTree(tree, connIdx, st);
+    }
     if (tree->topLevelItemCount() == 0) {
         auto* noPools = new QTreeWidgetItem();
         noPools->setText(0, trk(QStringLiteral("t_no_pools_001"),
@@ -2365,20 +2697,24 @@ void MainWindow::rebuildConnContentDetailTree(QTreeWidget* tree,
     QPointer<QTreeWidget> safeTree(tree);
     QTimer::singleShot(0, this, [this, safeTree, connIdx]() {
         QTreeWidget* tree = safeTree.data();
-        if (!tree || connIdx < 0 || connIdx >= m_profiles.size()) {
+        if (!tree) {
             return;
         }
         QString token;
-        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-            QTreeWidgetItem* root = tree->topLevelItem(i);
-            if (!root || !root->data(0, kIsPoolRootRole).toBool()) {
-                continue;
-            }
-            const int rootConnIdx = root->data(0, Qt::UserRole + 10).toInt();
-            const QString poolName = root->data(0, Qt::UserRole + 11).toString().trimmed();
-            if (rootConnIdx == connIdx && !poolName.isEmpty()) {
-                token = QStringLiteral("%1::%2").arg(rootConnIdx).arg(poolName);
-                break;
+        if (tree->property("zfsmgr.groupPoolsByConnectionRoots").toBool()) {
+            token = connContentTokenForTree(tree);
+        } else if (connIdx >= 0 && connIdx < m_profiles.size()) {
+            for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+                QTreeWidgetItem* root = tree->topLevelItem(i);
+                if (!root || !root->data(0, kIsPoolRootRole).toBool()) {
+                    continue;
+                }
+                const int rootConnIdx = root->data(0, Qt::UserRole + 10).toInt();
+                const QString poolName = root->data(0, Qt::UserRole + 11).toString().trimmed();
+                if (rootConnIdx == connIdx && !poolName.isEmpty()) {
+                    token = QStringLiteral("%1::%2").arg(rootConnIdx).arg(poolName);
+                    break;
+                }
             }
         }
         if (token.isEmpty()) {
@@ -2389,19 +2725,7 @@ void MainWindow::rebuildConnContentDetailTree(QTreeWidget* tree,
 }
 
 void MainWindow::updateSecondaryConnectionDetail() {
-    rebuildConnContentDetailTree(
-        m_bottomConnContentTree,
-        m_bottomDetailConnIdx,
-        m_rebuildingBottomConnContentTree,
-        &m_forceRestoreBottomStateConnIdx,
-        [this](int connIdx) { saveBottomTreeStateForConnection(connIdx); },
-        [this]() {
-            const int pendingConnIdx = m_bottomDetailConnIdx;
-            if (pendingConnIdx >= 0 && m_pendingBottomExpandedKeysByConn.contains(pendingConnIdx)) {
-                m_pendingBottomExpandedKeysByConn.remove(pendingConnIdx);
-                m_pendingBottomSelectedKeyByConn.remove(pendingConnIdx);
-            }
-        });
+    // Árbol inferior eliminado en el rediseño global.
 }
 
 void MainWindow::saveTopTreeStateForConnection(int connIdx) {
@@ -2414,12 +2738,7 @@ void MainWindow::saveTopTreeStateForConnection(int connIdx) {
 }
 
 void MainWindow::saveBottomTreeStateForConnection(int connIdx) {
-    if (connIdx < 0 || !m_bottomConnContentTree) {
-        return;
-    }
-    const ConnTreeNavSnapshot nav = captureConnTreeNavSnapshot(m_bottomConnContentTree);
-    m_savedBottomExpandedKeysByConn[connIdx] = nav.expandedKeys;
-    m_savedBottomSelectedKeyByConn[connIdx] = nav.selectedKey;
+    Q_UNUSED(connIdx);
 }
 
 void MainWindow::restoreTopTreeStateForConnection(int connIdx) {
@@ -2433,13 +2752,7 @@ void MainWindow::restoreTopTreeStateForConnection(int connIdx) {
 }
 
 void MainWindow::restoreBottomTreeStateForConnection(int connIdx) {
-    if (connIdx < 0 || !m_bottomConnContentTree) {
-        return;
-    }
-    ConnTreeNavSnapshot nav;
-    nav.expandedKeys = m_savedBottomExpandedKeysByConn.value(connIdx);
-    nav.selectedKey = m_savedBottomSelectedKeyByConn.value(connIdx);
-    restoreConnTreeNavSnapshot(m_bottomConnContentTree, nav);
+    Q_UNUSED(connIdx);
 }
 
 void MainWindow::rebuildConnectionEntityTabs() {
@@ -2455,6 +2768,44 @@ void MainWindow::populateConnectionPoolsIntoTree(QTreeWidget* tree,
                                                  const ConnectionRuntimeState& st) {
     if (!tree || connIdx < 0 || connIdx >= m_profiles.size()) {
         return;
+    }
+    const bool unifiedTree = tree->property("zfsmgr.groupPoolsByConnectionRoots").toBool();
+    if (unifiedTree) {
+        QTreeWidgetItem* connRoot = nullptr;
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* item = tree->topLevelItem(i);
+            if (!item || !item->data(0, kIsConnectionRootRole).toBool()) {
+                continue;
+            }
+            if (item->data(0, kConnIdxRole).toInt() == connIdx) {
+                connRoot = item;
+                break;
+            }
+        }
+        if (!connRoot) {
+            connRoot = new QTreeWidgetItem();
+            connRoot->setData(0, kIsConnectionRootRole, true);
+            connRoot->setData(0, kConnIdxRole, connIdx);
+            connRoot->setFlags(connRoot->flags() & ~Qt::ItemIsUserCheckable);
+            connRoot->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
+            tree->addTopLevelItem(connRoot);
+        }
+        QString connName = m_profiles[connIdx].name.trimmed().isEmpty()
+                               ? m_profiles[connIdx].id.trimmed()
+                               : m_profiles[connIdx].name.trimmed();
+        if (connIdx < m_states.size() && m_states[connIdx].gsaNeedsAttention) {
+            connName += QStringLiteral(" (*)");
+        }
+        connRoot->setText(0, connName);
+        connRoot->setBackground(0, QBrush(connectionStateRowColor(connIdx)));
+        connRoot->setToolTip(0, connectionStateTooltipHtml(connIdx));
+        QFont f = connRoot->font(0);
+        f.setItalic(isConnectionDisconnected(connIdx));
+        connRoot->setFont(0, f);
+        connRoot->setExpanded(true);
+        if (isConnectionDisconnected(connIdx)) {
+            return;
+        }
     }
     const DatasetTreeRenderOptions options =
         datasetTreeRenderOptionsForTree(tree, DatasetTreeContext::ConnectionContentMulti);
@@ -2591,11 +2942,10 @@ void MainWindow::refreshConnectionNodeDetails() {
 
     int connIdx = m_topDetailConnIdx;
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
-        const QList<QTreeWidget*> trees{m_connContentTree, m_bottomConnContentTree};
-        for (QTreeWidget* tree : trees) {
-            const QString token = connContentTokenForTree(tree);
+        if (m_connContentTree) {
+            const QString token = connContentTokenForTree(m_connContentTree);
             if (!token.isEmpty()) {
-                saveConnContentTreeState(tree, token);
+                saveConnContentTreeState(m_connContentTree, token);
             }
         }
         setConnectionActionButtonsVisible(false);
@@ -2643,11 +2993,9 @@ void MainWindow::updateConnectionDetailTitlesForCurrentSelection() {
 }
 
 int MainWindow::selectedConnectionIndexForPoolManagement() const {
-    if (m_connectionsTable) {
-        const int idx = selectedConnectionRow(m_connectionsTable);
-        if (idx >= 0 && idx < m_profiles.size() && !isConnectionDisconnected(idx)) {
-            return idx;
-        }
+    const int idx = currentConnectionIndexFromUi();
+    if (idx >= 0 && idx < m_profiles.size() && !isConnectionDisconnected(idx)) {
+        return idx;
     }
     return -1;
 }
@@ -2671,43 +3019,9 @@ void MainWindow::refreshConnectionByIndex(int idx) {
     if (idx < 0 || idx >= m_profiles.size() || isConnectionDisconnected(idx)) {
         return;
     }
-    if (m_bottomConnContentTree && idx == m_bottomDetailConnIdx) {
-        QSet<QString> expandedKeys;
-        QString selectedKey;
-        std::function<void(QTreeWidgetItem*)> collect = [&](QTreeWidgetItem* n) {
-            if (!n) {
-                return;
-            }
-            const QString k = connTreeNodeKey(n);
-            if (!k.isEmpty() && n->isExpanded()) {
-                expandedKeys.insert(k);
-            }
-            for (int i = 0; i < n->childCount(); ++i) {
-                collect(n->child(i));
-            }
-        };
-        for (int i = 0; i < m_bottomConnContentTree->topLevelItemCount(); ++i) {
-            collect(m_bottomConnContentTree->topLevelItem(i));
-        }
-        if (QTreeWidgetItem* cur = m_bottomConnContentTree->currentItem()) {
-            QTreeWidgetItem* owner = cur;
-            while (owner && connTreeNodeKey(owner).isEmpty()) {
-                owner = owner->parent();
-            }
-            if (owner) {
-                selectedKey = connTreeNodeKey(owner);
-            }
-        }
-        m_pendingBottomExpandedKeysByConn[idx] = expandedKeys;
-        m_pendingBottomSelectedKeyByConn[idx] = selectedKey;
-    }
     const QString topTreeToken = connContentTokenForTree(m_connContentTree);
     if (!topTreeToken.isEmpty() && m_connContentTree) {
         saveConnContentTreeState(m_connContentTree, topTreeToken);
-    }
-    const QString bottomTreeToken = connContentTokenForTree(m_bottomConnContentTree);
-    if (!bottomTreeToken.isEmpty() && m_bottomConnContentTree) {
-        saveConnContentTreeState(m_bottomConnContentTree, bottomTreeToken);
     }
     // Al refrescar una conexión, invalidar toda la caché asociada a todos sus pools.
     {
@@ -2741,8 +3055,8 @@ void MainWindow::refreshConnectionByIndex(int idx) {
 }
 void MainWindow::loadConnections() {
     QString prevSelectedConnId;
-    if (m_connectionsTable) {
-        const int prevIdx = selectedConnectionRow(m_connectionsTable);
+    {
+        const int prevIdx = currentConnectionIndexFromUi();
         if (prevIdx >= 0 && prevIdx < m_profiles.size()) {
             prevSelectedConnId = m_profiles[prevIdx].id.trimmed();
         }
@@ -2803,31 +3117,25 @@ void MainWindow::loadConnections() {
         appLog(QStringLiteral("WARN"), warning);
     }
 
-    if (m_connectionsTable && m_connectionsTable->rowCount() > 0) {
-        int targetRow = -1;
-        if (!prevSelectedConnId.trimmed().isEmpty()) {
-            for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
-                const int connIdx = connectionIndexForRow(m_connectionsTable, r);
-                if (connIdx >= 0
-                    && connIdx < m_profiles.size()
-                    && m_profiles[connIdx].id.trimmed().compare(prevSelectedConnId, Qt::CaseInsensitive) == 0) {
-                    targetRow = r;
-                    break;
-                }
+    int targetConnIdx = -1;
+    if (!prevSelectedConnId.trimmed().isEmpty()) {
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            if (m_profiles[i].id.trimmed().compare(prevSelectedConnId, Qt::CaseInsensitive) == 0) {
+                targetConnIdx = i;
+                break;
             }
         }
-        if (targetRow < 0 && m_initialRefreshCompleted) {
-            for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
-                const int connIdx = connectionIndexForRow(m_connectionsTable, r);
-                if (connIdx >= 0 && connIdx < m_profiles.size() && !isConnectionDisconnected(connIdx)) {
-                    targetRow = r;
-                    break;
-                }
+    }
+    if (targetConnIdx < 0 && m_initialRefreshCompleted) {
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            if (!isConnectionDisconnected(i)) {
+                targetConnIdx = i;
+                break;
             }
         }
-        if (targetRow >= 0) {
-            m_connectionsTable->setCurrentCell(targetRow, 0);
-        }
+    }
+    if (targetConnIdx >= 0) {
+        setCurrentConnectionInUi(targetConnIdx);
     }
 
     syncConnectionLogTabs();
@@ -2835,336 +3143,26 @@ void MainWindow::loadConnections() {
 }
 
 void MainWindow::rebuildConnectionsTable() {
-    beginUiBusy();
-    m_syncConnSelectorChecks = true;
-    QString prevSelectedKey;
-    {
-        const int prevIdx = selectedConnectionRow(m_connectionsTable);
-        if (prevIdx >= 0 && prevIdx < m_profiles.size()) {
-            prevSelectedKey = m_profiles[prevIdx].id.trimmed().toLower();
-            if (prevSelectedKey.isEmpty()) {
-                prevSelectedKey = m_profiles[prevIdx].name.trimmed().toLower();
-            }
-        }
-    }
-    m_connectionsTable->clear();
-    m_connectionsTable->setColumnCount(3);
-    m_connectionsTable->setHorizontalHeaderLabels({
-        trk(QStringLiteral("t_connections_001"),
-            QStringLiteral("Conexión"),
-            QStringLiteral("Connection"),
-            QStringLiteral("连接")),
-        QStringLiteral("O"),
-        QStringLiteral("D")
-    });
-    m_connectionsTable->setRowCount(0);
-    m_connectionsTable->setFont(QApplication::font());
-    if (m_connectionsTable->horizontalHeader()) {
-        m_connectionsTable->horizontalHeader()->setFont(QApplication::font());
-    }
-    auto zfsVersionTooOld = [](const QString& rawVersion) -> bool {
-        const QRegularExpression rx(QStringLiteral("^(\\d+)\\.(\\d+)(?:\\.(\\d+))?"));
-        const QRegularExpressionMatch m = rx.match(rawVersion.trimmed());
-        if (!m.hasMatch()) {
-            return false;
-        }
-        const int major = m.captured(1).toInt();
-        const int minor = m.captured(2).toInt();
-        const int patch = m.captured(3).isEmpty() ? 0 : m.captured(3).toInt();
-        if (major != 2) return false;
-        if (minor < 3) return true;
-        if (minor > 3) return false;
-        return patch < 3;
-    };
-    auto connectionRowColorReason = [&](const ConnectionProfile& p, const ConnectionRuntimeState& st, bool disconnected) {
-        Q_UNUSED(p);
-        if (disconnected) {
-            return trk(QStringLiteral("t_conn_color_reason_off_001"),
-                       QStringLiteral("La conexión está marcada como desconectada."),
-                       QStringLiteral("The connection is marked as disconnected."),
-                       QStringLiteral("该连接已标记为断开。"));
-        }
-        const QString stUp = st.status.trimmed().toUpper();
-        if (stUp != QStringLiteral("OK")) {
-            return st.detail.trimmed().isEmpty()
-                       ? trk(QStringLiteral("t_conn_color_reason_err_001"),
-                             QStringLiteral("La validación de la conexión ha fallado."),
-                             QStringLiteral("Connection validation failed."),
-                             QStringLiteral("连接校验失败。"))
-                       : st.detail.trimmed();
-        }
-        if (zfsVersionTooOld(st.zfsVersion)) {
-            return trk(QStringLiteral("t_conn_color_reason_zfs_old_001"),
-                       QStringLiteral("La versión de OpenZFS es demasiado antigua (mínimo recomendado: 2.3.3)."),
-                       QStringLiteral("The OpenZFS version is too old (recommended minimum: 2.3.3)."),
-                       QStringLiteral("OpenZFS 版本过旧（建议至少 2.3.3）。"));
-        }
-        if (!st.missingUnixCommands.isEmpty()) {
-            return trk(QStringLiteral("t_conn_color_reason_cmds_001"),
-                       QStringLiteral("Faltan comandos auxiliares requeridos: %1"),
-                       QStringLiteral("Required helper commands are missing: %1"),
-                       QStringLiteral("缺少必需的辅助命令：%1"))
-                .arg(st.missingUnixCommands.join(QStringLiteral(", ")));
-        }
-        return QString();
-    };
-    auto buildConnectionStateTooltip = [this, &connectionRowColorReason](const ConnectionProfile& p, const ConnectionRuntimeState& st, bool disconnected) {
-        const QString osHint = (p.osType + QStringLiteral(" ") + st.osLine).trimmed().toLower();
-        const bool windowsSshConn =
-            p.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0
-            && osHint.contains(QStringLiteral("windows"));
-        QStringList lines;
-        lines << QStringLiteral("Host: %1").arg(p.host);
-        lines << QStringLiteral("Port: %1").arg(p.port);
-        lines << QStringLiteral("Estado: %1").arg(st.status.trimmed().isEmpty() ? QStringLiteral("-") : st.status.trimmed());
-        const QString colorReason = connectionRowColorReason(p, st, disconnected);
-        if (!colorReason.isEmpty()) {
-            lines << QStringLiteral("Motivo del color: %1").arg(colorReason);
-        }
-        lines << QStringLiteral("Sistema operativo: %1")
-                     .arg(st.osLine.trimmed().isEmpty() ? QStringLiteral("-") : st.osLine.trimmed());
-        lines << QStringLiteral("Método de conexión: %1")
-                     .arg(st.connectionMethod.trimmed().isEmpty() ? p.connType : st.connectionMethod.trimmed());
-        lines << QStringLiteral("OpenZFS: %1")
-                     .arg(st.zfsVersionFull.trimmed().isEmpty()
-                              ? (st.zfsVersion.trimmed().isEmpty() ? QStringLiteral("-")
-                                                                   : QStringLiteral("OpenZFS %1").arg(st.zfsVersion.trimmed()))
-                              : st.zfsVersionFull.trimmed());
-        lines << QStringLiteral("GSA: %1")
-                     .arg(!st.gsaInstalled ? QStringLiteral("no instalado")
-                                           : QStringLiteral("%1 | %2 | %3")
-                                                 .arg(st.gsaVersion.trimmed().isEmpty() ? QStringLiteral("-")
-                                                                                        : st.gsaVersion.trimmed(),
-                                                      st.gsaScheduler.trimmed().isEmpty() ? QStringLiteral("-")
-                                                                                          : st.gsaScheduler.trimmed(),
-                                                      st.gsaActive ? QStringLiteral("activo")
-                                                                   : QStringLiteral("inactivo")));
-        lines << QStringLiteral("Conexiones dadas de alta en GSA: %1")
-                     .arg(st.gsaKnownConnections.isEmpty()
-                              ? QStringLiteral("(ninguna)")
-                              : st.gsaKnownConnections.join(QStringLiteral(", ")));
-        lines << QStringLiteral("Conexiones requeridas por GSA: %1")
-                     .arg(st.gsaRequiredConnections.isEmpty()
-                              ? QStringLiteral("(ninguna)")
-                              : st.gsaRequiredConnections.join(QStringLiteral(", ")));
-        if (st.gsaNeedsAttention && !st.gsaAttentionReasons.isEmpty()) {
-            lines << QStringLiteral("Atención GSA: %1")
-                         .arg(st.gsaAttentionReasons.join(QStringLiteral(", ")));
-        }
-        QStringList detected = st.detectedUnixCommands;
-        QStringList missing = st.missingUnixCommands;
-        lines << QStringLiteral("Comandos detectados: %1")
-                     .arg(detected.isEmpty() ? QStringLiteral("(ninguno)") : detected.join(QStringLiteral(", ")));
-        lines << QStringLiteral("Comandos no detectados: %1")
-                     .arg(missing.isEmpty() ? QStringLiteral("(ninguno)") : missing.join(QStringLiteral(", ")));
-        lines << QStringLiteral("Plataforma instalación auxiliar: %1")
-                     .arg(st.helperPlatformLabel.trimmed().isEmpty() ? QStringLiteral("-")
-                                                                    : st.helperPlatformLabel.trimmed());
-        lines << QStringLiteral("Gestor de paquetes: %1")
-                     .arg(st.helperPackageManagerLabel.trimmed().isEmpty()
-                              ? QStringLiteral("-")
-                              : QStringLiteral("%1%2")
-                                    .arg(st.helperPackageManagerLabel.trimmed(),
-                                         st.helperPackageManagerDetected ? QStringLiteral(" (detectado)")
-                                                                         : QStringLiteral(" (no detectado)")));
-        lines << QStringLiteral("Instalación asistida: %1")
-                     .arg(st.helperInstallSupported ? QStringLiteral("sí") : QStringLiteral("no"));
-        lines << QStringLiteral("Comandos instalables desde ZFSMgr: %1")
-                     .arg(st.helperInstallableCommands.isEmpty()
-                              ? QStringLiteral("(ninguno)")
-                              : st.helperInstallableCommands.join(QStringLiteral(", ")));
-        lines << QStringLiteral("Comandos no soportados por instalador: %1")
-                     .arg(st.helperUnsupportedCommands.isEmpty()
-                              ? QStringLiteral("(ninguno)")
-                              : st.helperUnsupportedCommands.join(QStringLiteral(", ")));
-        if (!st.helperInstallReason.trimmed().isEmpty()) {
-            lines << QStringLiteral("Motivo instalación asistida: %1").arg(st.helperInstallReason.trimmed());
-        }
-        if (st.commandsLayer.trimmed().compare(QStringLiteral("Powershell"), Qt::CaseInsensitive) == 0
-            && !st.powershellFallbackCommands.isEmpty()) {
-            lines << QStringLiteral("Comandos PowerShell usados: %1")
-                         .arg(st.powershellFallbackCommands.join(QStringLiteral(", ")));
-        }
-        if (windowsSshConn && !disconnected
-            && st.status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) != 0) {
-            lines << QString();
-            lines << QStringLiteral("PowerShell para habilitar OpenSSH Server:");
-            lines << QStringLiteral("# Install OpenSSH Server");
-            lines << QStringLiteral("Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0");
-            lines << QString();
-            lines << QStringLiteral("# Start and set to Automatic");
-            lines << QStringLiteral("Start-Service sshd");
-            lines << QStringLiteral("Set-Service -Name sshd -StartupType 'Automatic'");
-        }
-        QStringList nonImportable;
-        for (const PoolImportable& pool : st.importablePools) {
-            const QString poolName = pool.pool.trimmed();
-            if (poolName.isEmpty()) {
-                continue;
-            }
-            const QString stateUp = pool.state.trimmed().toUpper();
-            const QString actionTxt = pool.action.trimmed();
-            if (stateUp == QStringLiteral("ONLINE") && !actionTxt.isEmpty()) {
-                continue;
-            }
-            QString reason = pool.reason.trimmed();
-            if (reason.isEmpty()) {
-                reason = QStringLiteral("-");
-            }
-            nonImportable << QStringLiteral("%1").arg(poolName);
-            nonImportable << QStringLiteral("  Motivo: %1").arg(reason);
-        }
-        lines << QStringLiteral("Pools no importables:");
-        if (nonImportable.isEmpty()) {
-            lines << QStringLiteral("  (ninguno)");
-        } else {
-            lines += nonImportable;
-        }
-        const QString plain = lines.join(QStringLiteral("\n")).toHtmlEscaped();
-        return QStringLiteral("<pre style=\"font-family:'SF Mono','Menlo','Monaco','Consolas','Liberation Mono',monospace; white-space:pre;\">%1</pre>").arg(plain);
-    };
-    QStringList redirectedToLocalNames;
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        if (i >= m_states.size()) {
-            continue;
-        }
-        if (isLocalConnection(i)) {
-            continue;
-        }
-        if (isConnectionRedirectedToLocal(i)) {
-            redirectedToLocalNames << m_profiles[i].name;
-        }
-    }
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        const auto& p = m_profiles[i];
-        const auto& s = m_states[i];
-
-        const QString line1 = QStringLiteral("%1").arg(p.name);
-        QString zfsTxt = s.zfsVersion.trimmed();
-        if (zfsTxt.isEmpty()) {
-            zfsTxt = QStringLiteral("?");
-        }
-        QString statusTag = QStringLiteral("[Ko]");
-        QColor rowBg = m_connectionsTable->palette().base().color();
-        const bool disconnected = isConnectionDisconnected(i);
-        const QString st = s.status.trimmed().toUpper();
-        const bool localConn = isLocalConnection(p);
-        const bool redirectedLocal = isConnectionRedirectedToLocal(i);
-        if (redirectedLocal) {
-            continue;
-        }
-        if (localConn && !s.machineUuid.trimmed().isEmpty()) {
-            m_localMachineUuid = s.machineUuid.trimmed();
-        }
-        if (disconnected) {
-            statusTag = QStringLiteral("[Off]");
-            rowBg = QColor(QStringLiteral("#eef1f4"));
-        } else if (st == QStringLiteral("OK")) {
-            statusTag = QStringLiteral("[Ok]");
-            rowBg = s.missingUnixCommands.isEmpty() ? QColor(QStringLiteral("#e4f4e4"))
-                                                    : QColor(QStringLiteral("#fff1d9"));
-            if (zfsVersionTooOld(s.zfsVersion)) {
-                rowBg = QColor(QStringLiteral("#f9dfdf"));
-            }
-        } else if (!st.isEmpty()) {
-            statusTag = QStringLiteral("[Ko]");
-            rowBg = QColor(QStringLiteral("#f9dfdf"));
-        }
-        QString connLabel = line1;
-        if (localConn) {
-            connLabel = redirectedToLocalNames.isEmpty() ? QStringLiteral("Local")
-                                                         : redirectedToLocalNames.first();
-        }
-        if (s.gsaNeedsAttention) {
-            connLabel += QStringLiteral(" (*)");
-        }
-        QString line = QStringLiteral("%1 %2").arg(statusTag, connLabel);
-        if (localConn) {
-            line += QStringLiteral(" [Local]");
-        }
-
-        const int row = m_connectionsTable->rowCount();
-        m_connectionsTable->insertRow(row);
-        const QString tooltip = buildConnectionStateTooltip(p, s, disconnected);
-        auto* it = new QTableWidgetItem(line);
-        it->setData(Qt::UserRole, i);
-        it->setForeground(m_connectionsTable->palette().text());
-        it->setBackground(QBrush(rowBg));
-        it->setFont(m_connectionsTable->font());
-        if (disconnected) {
-            QFont f = it->font();
-            f.setItalic(true);
-            it->setFont(f);
-        }
-        it->setToolTip(tooltip);
-        m_connectionsTable->setItem(row, 0, it);
-
-        auto makeCheckItem = [&](bool checked) {
-            auto* checkItem = new QTableWidgetItem();
-            checkItem->setData(Qt::UserRole, i);
-            checkItem->setFlags((checkItem->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsEnabled)
-                                & ~Qt::ItemIsEditable);
-            if (disconnected) {
-                checkItem->setFlags(checkItem->flags() & ~Qt::ItemIsEnabled);
-            }
-            checkItem->setCheckState(checked ? Qt::Checked : Qt::Unchecked);
-            checkItem->setBackground(QBrush(rowBg));
-            checkItem->setForeground(m_connectionsTable->palette().text());
-            checkItem->setToolTip(tooltip);
-            return checkItem;
-        };
-        const QString mode = connectionDisplayModeForIndex(i);
-        m_connectionsTable->setItem(row, 1, makeCheckItem(mode == QStringLiteral("source") || mode == QStringLiteral("both")));
-        m_connectionsTable->setItem(row, 2, makeCheckItem(mode == QStringLiteral("target") || mode == QStringLiteral("both")));
-
-    }
-    auto ensureValidConnIdx = [this](int& idx) {
-        if (idx < 0) {
-            return false;
-        }
-        if (isConnectionDisconnected(idx)) {
-            return false;
-        }
-        return rowForConnectionIndex(m_connectionsTable, idx) >= 0;
-    };
-    const int rowCount = m_connectionsTable->rowCount();
-    auto firstConnectedIndex = [this]() -> int {
-        for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
-            const int idx = connectionIndexForRow(m_connectionsTable, r);
-            if (idx >= 0 && idx < m_profiles.size() && !isConnectionDisconnected(idx)) {
-                return idx;
-            }
-        }
-        return -1;
-    };
-    auto secondConnectedIndex = [this](int firstIdx) -> int {
-        bool seenFirst = false;
-        for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
-            const int idx = connectionIndexForRow(m_connectionsTable, r);
-            if (idx < 0 || idx >= m_profiles.size() || isConnectionDisconnected(idx)) {
-                continue;
-            }
-            if (!seenFirst && idx == firstIdx) {
-                seenFirst = true;
-                continue;
-            }
-            return idx;
-        }
-        return -1;
-    };
     auto connIdxFromPersistedKey = [this](const QString& wantedKey) -> int {
         const QString wanted = wantedKey.trimmed().toLower();
         if (wanted.isEmpty()) {
             return -1;
         }
-        for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
-            const int idx = connectionIndexForRow(m_connectionsTable, r);
-            if (idx < 0 || idx >= m_profiles.size() || isConnectionDisconnected(idx)) {
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            if (isConnectionDisconnected(i)) {
                 continue;
             }
-            const QString key = connPersistKeyFromProfiles(m_profiles, idx);
+            const QString key = connPersistKeyFromProfiles(m_profiles, i);
             if (!key.isEmpty() && key == wanted) {
-                return idx;
+                return i;
+            }
+        }
+        return -1;
+    };
+    auto firstConnectedIndex = [this]() -> int {
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            if (!isConnectionDisconnected(i)) {
+                return i;
             }
         }
         return -1;
@@ -3173,78 +3171,26 @@ void MainWindow::rebuildConnectionsTable() {
         if (m_topDetailConnIdx < 0) {
             m_topDetailConnIdx = connIdxFromPersistedKey(m_persistedTopDetailConnectionKey);
         }
-        if (m_bottomDetailConnIdx < 0) {
-            m_bottomDetailConnIdx = connIdxFromPersistedKey(m_persistedBottomDetailConnectionKey);
+        if (m_topDetailConnIdx < 0 || m_topDetailConnIdx >= m_profiles.size()
+            || isConnectionDisconnected(m_topDetailConnIdx)) {
+            m_topDetailConnIdx = firstConnectedIndex();
         }
-        if (!ensureValidConnIdx(m_topDetailConnIdx)) {
-            m_topDetailConnIdx = (rowCount > 0) ? firstConnectedIndex() : -1;
-        }
-        if (!ensureValidConnIdx(m_bottomDetailConnIdx)) {
-            if (rowCount > 1) {
-                // Inicialmente: primera conexión conectada como Origen y segunda conectada como Destino.
-                const int second = secondConnectedIndex(m_topDetailConnIdx);
-                m_bottomDetailConnIdx = (second >= 0) ? second : m_topDetailConnIdx;
-            } else {
-                m_bottomDetailConnIdx = m_topDetailConnIdx;
-            }
-        }
+        m_bottomDetailConnIdx = -1;
         m_connSelectorDefaultsInitialized = true;
     } else {
-        if (!ensureValidConnIdx(m_topDetailConnIdx)) {
+        if (m_topDetailConnIdx < 0 || m_topDetailConnIdx >= m_profiles.size()
+            || isConnectionDisconnected(m_topDetailConnIdx)) {
             m_topDetailConnIdx = -1;
-        }
-        if (!ensureValidConnIdx(m_bottomDetailConnIdx)) {
-            m_bottomDetailConnIdx = -1;
+            m_topDetailConnIdx = firstConnectedIndex();
         }
     }
-    syncConnectionDisplaySelectors();
-    int targetRow = rowForConnectionIndex(m_connectionsTable, m_topDetailConnIdx);
-    const QString preferredKey = !m_userSelectedConnectionKey.trimmed().isEmpty()
-                                     ? m_userSelectedConnectionKey.trimmed().toLower()
-                                     : prevSelectedKey;
-    if (!preferredKey.isEmpty()) {
-        for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
-            QTableWidgetItem* it = m_connectionsTable->item(r, 0);
-            if (!it) {
-                continue;
-            }
-            bool ok = false;
-            const int connIdx = it->data(Qt::UserRole).toInt(&ok);
-            if (!ok || connIdx < 0 || connIdx >= m_profiles.size()) {
-                continue;
-            }
-            QString key = m_profiles[connIdx].id.trimmed().toLower();
-            if (key.isEmpty()) {
-                key = m_profiles[connIdx].name.trimmed().toLower();
-            }
-            if (key == preferredKey) {
-                targetRow = r;
-                break;
-            }
-        }
-    }
-    if (targetRow < 0 && m_connectionsTable->rowCount() > 0) {
-        for (int r = 0; r < m_connectionsTable->rowCount(); ++r) {
-            const int idx = connectionIndexForRow(m_connectionsTable, r);
-            if (idx >= 0 && idx < m_profiles.size() && !isConnectionDisconnected(idx)) {
-                targetRow = r;
-                break;
-            }
-        }
-    }
-    m_connectionsTable->resizeColumnToContents(0);
-    m_connectionsTable->resizeColumnToContents(1);
-    m_connectionsTable->resizeColumnToContents(2);
-    if (targetRow >= 0) {
-        m_connectionsTable->setCurrentCell(targetRow, 0);
-    }
-    m_syncConnSelectorChecks = false;
 
     rebuildConnectionEntityTabs();
+    if (m_topDetailConnIdx >= 0) {
+        setCurrentConnectionInUi(m_topDetailConnIdx);
+    }
     syncConnectionLogTabs();
-    endUiBusy();
     refreshConnectionNodeDetails();
-    updateSecondaryConnectionDetail();
     updatePoolManagementBoxTitle();
 }
 
@@ -3296,12 +3242,7 @@ void MainWindow::createConnection() {
     refreshInstalledGsaAfterConnectionChange(created.name.trimmed());
     for (int i = 0; i < m_profiles.size(); ++i) {
         if (m_profiles[i].id == createdId) {
-            if (m_connectionsTable) {
-                const int row = rowForConnectionIndex(m_connectionsTable, i);
-                if (row >= 0) {
-                    m_connectionsTable->setCurrentCell(row, 0);
-                }
-            }
+            setCurrentConnectionInUi(i);
             refreshSelectedConnection();
             break;
         }
@@ -3313,7 +3254,7 @@ void MainWindow::editConnection() {
         appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: edición bloqueada"));
         return;
     }
-    const int idx = selectedConnectionRow(m_connectionsTable);
+    const int idx = currentConnectionIndexFromUi();
     if (idx < 0 || idx >= m_profiles.size()) {
         return;
     }
@@ -3379,7 +3320,7 @@ void MainWindow::installMsysForSelectedConnection() {
         appLog(QStringLiteral("INFO"), QStringLiteral("Acci\xf3n en curso: instalaci\xf3n de MSYS2 bloqueada"));
         return;
     }
-    const int idx = selectedConnectionRow(m_connectionsTable);
+    const int idx = currentConnectionIndexFromUi();
     if (idx < 0 || idx >= m_profiles.size()) {
         return;
     }
@@ -3584,7 +3525,7 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
         appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: instalación de comandos auxiliares bloqueada"));
         return;
     }
-    const int idx = selectedConnectionRow(m_connectionsTable);
+    const int idx = currentConnectionIndexFromUi();
     if (idx < 0 || idx >= m_profiles.size()) {
         return;
     }
@@ -4488,7 +4429,7 @@ void MainWindow::deleteConnection() {
         appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: borrado bloqueado"));
         return;
     }
-    const int idx = selectedConnectionRow(m_connectionsTable);
+    const int idx = currentConnectionIndexFromUi();
     if (idx < 0 || idx >= m_profiles.size()) {
         return;
     }

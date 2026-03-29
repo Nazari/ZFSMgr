@@ -26,9 +26,7 @@ MainWindow::~MainWindow() {
         QCoreApplication::removePostedEvents(obj);
     };
 
-    quiesceObject(m_connectionsTable);
     quiesceObject(m_connContentTree);
-    quiesceObject(m_bottomConnContentTree);
     quiesceObject(m_connContentPropsTable);
     quiesceObject(m_pendingChangesView);
     quiesceObject(m_logsTabs);
@@ -173,11 +171,11 @@ void MainWindow::updateBusyCursor() {
 }
 
 void MainWindow::updateConnectivityMatrixButtonState() {
-    if (!m_connectivityMatrixBtn) {
+    if (!m_connectivityMatrixAction) {
         return;
     }
     const bool enabled = !m_refreshInProgress && !m_connectivityMatrixInProgress;
-    m_connectivityMatrixBtn->setEnabled(enabled);
+    m_connectivityMatrixAction->setEnabled(enabled);
 }
 
 void MainWindow::setActionsLocked(bool locked) {

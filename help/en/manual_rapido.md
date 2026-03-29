@@ -1,158 +1,139 @@
 # Quick manual
 
-ZFSMgr manages connections and ZFS actions.
+ZFSMgr manages connections and ZFS actions from a unified tree.
 
 ## Overview
 
-<img src="help-img/ventanaprincipal.png" alt="Main window" width="50%">
+![Main window](qrc:/help/img/auto/main-window.png)
 
-- Left panel:
-- `Connections`: simple table (one row per connection) with a `Connection` column and `O` / `D` checks.
-- `Selected datasets`: transfer and advanced operations.
-  Includes `Copy`, `Clone`, `Move`, `Level`, `Sync`, `Break down`, `Assemble`, `From Dir`, and `To Dir`.
-- Right panel:
-- Top area: content tree for the connection marked as `Source`.
-- Bottom area: content tree for the connection marked as `Target`.
-- Effective detail selection is driven by the checks, not by simply clicking a row:
-  - `O` controls the top tree (`Source`)
-  - `D` controls the bottom tree (`Target`)
-- Tree state is kept independently per connection/pool:
-  - expanded/collapsed nodes
-  - selected dataset
-  - selected snapshot
-  - column widths
-- The first column header is always shown as `Source:...` in the top tree and `Target:...` in the bottom tree.
-- Each tree can show multiple pools at once (one root node per pool), with dataset/snapshot nodes below.
-- A pool can show `Pool information` as a dedicated node.
-- Datasets hang directly from the pool root.
-- Child datasets hang directly from their parent dataset.
-- Dataset/snapshot nodes can show inline `Properties`, and non-snapshot datasets can also show `Permissions`.
-- When a snapshot is selected, the tree shows that snapshot's properties/groups and also a `Holds (N)` node.
-- Inline properties may include direct editing and an `Inh.` inheritance control.
-- If `Inh.=on`, the value editor is disabled and greyed out.
-  If `Inh.=off`, the value becomes editable again.
-- `Schedule snapshots` properties (`org.fc16.gsa:*`) are user properties and do not expose inheritance controls.
-- The tree context menu can show or hide `Pool information` and, inside `Show inline`, inline `Properties`, `Permissions`, and `Schedule snapshots`.
-- The dataset context menu can also show or hide automatic snapshots (`GSA-*`).
-- Permission sections are shown as `Deleg.`, `New child DS`, and `Sets`.
-- Non-importable pools are also shown as root nodes so `Import` can be executed.
-- Logs: single `Combined log` panel (includes SSH/PSRP output with connection prefix).
-- In addition to `application.log`, ZFSMgr sends high-level events to the native system log:
-  - macOS: Unified Logging (`Console.app`, `log show`, `log stream`)
-  - Linux: `syslog` / `journald` (`journalctl`)
-  - Windows: `Windows Event Log` (`Event Viewer`)
-- The connections table includes a floating `Connectivity` button.
-  It opens a matrix where each row is the source connection and each column is the target connection.
-- Each cell shows `SSH` and `rsync` state.
-  `SSH:✓` means the machine in the row can connect directly to the machine in the column using the credentials defined in the target connection.
-  `rsync:✓` means `rsync` is also available on that route.
-- If a cell is red, its tooltip explains the concrete reason for the failure.
-  Examples: missing `sshpass` on the source side, authentication failure, DNS failure, timeout, or missing `rsync`.
-- If `SSH:✓` is missing, ZFSMgr cannot perform a direct remote-to-remote transfer between that source and target.
-  In that case, the transfer has to pass through the local machine where ZFSMgr is running.
-  That means a double hop, more local traffic, and higher time/resource cost.
-- The lower area shows:
-  - `Pending changes` in a fixed box on the left
-  - log tabs on the right (`Combined log` and per-connection logs)
-- `Pending changes` shows one readable description per line with a `connection::pool` prefix, not the raw command.
-- Pending changes keep execution order.
-- `Move` does not execute immediately: it adds a pending `zfs rename` that moves the `Source` dataset under the `Target` dataset.
-  It is only enabled when both selections are datasets in the same pool and connection.
-- `Rename` from the tree context menu for dataset/snapshot/zvol is also deferred and adds a `zfs rename` entry to `Pending changes`.
-- Clicking a `Pending changes` line tries to focus the affected dataset and section.
-  If the pool is visible in both trees, `Source` is preferred.
-- `Copy` and `Level`, when they use two different remote SSH connections, try to transfer directly from `Source` to `Target`.
-  The data stream does not go through the machine running ZFSMgr; that host only keeps the control session and receives progress output.
-- The tree header has a context menu to resize one column, resize all visible columns, and change `Property columns`.
-- If no `O` or `D` check is active for one side, that tree stays empty but keeps consistent headers.
-- `O` and `D` are persisted across runs.
-- The `Select snapshot` menu is only enabled when the dataset actually has snapshots.
+- Left column:
+- `Selected datasets`: shows the dataset marked as `Source` and the one marked as `Target`.
+- `Status and progress`: current status, loading and progress.
+- Right column:
+- one unified tree with:
+  - connections as root nodes
+  - pools under each connection
+  - datasets and snapshots under each pool
+- Below the tree:
+  - `Pending changes`
+- Bottom area:
+  - logs
 
-Pool creation:
+## Unified tree
 
-<img src="help-img/crearpool.png" alt="Create pool" width="50%">
+- Connections are always visible as root nodes, even when disconnected.
+- If a connection is disconnected:
+  - the connection root stays visible
+  - its pools disappear from the tree
+- Connection row colors and tooltips keep the same meaning the old table had.
+- If a connection needs GSA attention, its name shows `(*)`.
+- Pools are no longer shown as `Connection::Pool`; the visible pool text is just the pool name.
+- The pool root is merged with the pool root dataset:
+  - it keeps the pool icon and pool tooltip
+  - it also acts as the root dataset
+  - its real children hang directly from it
+- Imported pools may show:
+  - `Pool Information`
+  - `Datasets programados`
 
-- `Create pool` opens a dialog with a horizontal splitter:
-  - left side: `Pool parameters` and `VDEV builder`
-  - right side: `Available block devices`
-- `altroot` starts empty by default.
-  If it stays empty, `-R` is omitted from the final `zpool create` command.
-- `Available block devices` shows a device/partition tree with size, partition type, mounted state, and whether the device already belongs to a pool.
-- On macOS, physical disks without partitions are also shown.
-- On macOS, internal/system APFS disks and synthesized APFS disks are not selectable.
-- The `Mounted` column lets you unmount directly from the dialog (`diskutil unmount` / `umount`).
-- Once a device is used in the pool layout, it becomes unavailable and cannot be reused elsewhere in the tree.
-- `VDEV builder` no longer uses free-form text:
-  - the root node is `Pool`
-  - valid nodes are created through the context menu
-  - mark the desired block devices with their checkboxes and click `Add selected`
-  - pool-tree nodes can also be reordered by drag and drop
-- The pool tree follows a restricted OpenZFS-compatible grammar:
-  - the root may contain direct devices (implicit stripe), `mirror`, `raidz*`, and top-level classes (`log`, `cache`, `special`, `dedup`, `spare`)
-  - normal vdevs may only contain devices
-  - `log` may only contain a `mirror` subgroup
-  - `special` and `dedup` may contain direct devices or `mirror` / `raidz*` subgroups
-  - `cache` and `spare` may only contain direct devices
-- At least one root data group must exist, either as direct devices or as `mirror` / `raidz*`.
-- A full-width `zpool create` command preview is shown below the splitter.
-- That preview updates when:
-  - the pool tree changes
-  - `Pool parameters` change
-  - extra arguments change
-- If the structure is not valid, the preview is shown in red.
-- If `Create pool` fails, the dialog stays open so the input can be corrected and retried.
+## Inline nodes
 
-Dataset creation and encrypted mounts:
+- Datasets and snapshots may show `Dataset properties`.
+- Non-snapshot datasets may also show `Permissions`.
+- Filesystem datasets may show `Schedule snapshots`.
 
-<img src="help-img/creardataset.png" alt="Create dataset" width="50%">
+- `Schedule snapshots` view:
 
-- `Create dataset` is launched from the content tree.
-- If the dataset uses:
-  - `encryption=on` or an `aes-*` mode
-  - `keyformat=passphrase`
-  - `keylocation=prompt`
-  the dialog shows `Encryption passphrase` and `Repeat passphrase`.
-- That passphrase is sent through standard input when the dataset is created; it is not appended to the previewed command line or logs.
-- If `Create dataset` fails, the dialog remains open with the entered values so they can be fixed and retried.
-- When mounting an encrypted dataset with `keylocation=prompt`, ZFSMgr asks for the passphrase first, runs `zfs load-key`, and then runs `zfs mount`.
+![Schedule snapshots node](qrc:/help/img/auto/schedule-snapshots-node.png)
 
-Automatic snapshot scheduling (GSA):
+- Inline properties can be edited directly in the tree.
+- If a property supports inheritance, it shows `Inh.` and stays in draft mode until changes are applied.
+- `Permissions` also works in draft mode.
+- `Schedule snapshots` uses `org.fc16.gsa:*` properties.
 
-- The connection context menu shows the `Snapshot manager` state.
-  Depending on the connection, it may appear as `Install snapshot manager`, `Update snapshot manager version`, `Enable GSA`, or `GSA up to date and running`.
-- ZFSMgr uses the native scheduler for each platform:
-  - macOS: `launchd`
-  - Linux: `systemd timer`
-  - Windows: `Task Scheduler`
-- Filesystem datasets can show a `Schedule snapshots` node.
-- That node exposes these inline properties:
-  - `Enabled`
-  - `Recursive`
-  - `Hourly`
-  - `Daily`
-  - `Weekly`
-  - `Monthly`
-  - `Yearly`
-  - `Level`
-  - `Destination`
-- These settings are stored as dataset user properties with `org.fc16.gsa:*` names.
-- A retention value of `0` disables that schedule class.
-- If `Level=on`, `Destination` must use `Conn::Pool/Dataset` format.
-- ZFSMgr blocks overlapping schedules:
-  - one dataset cannot belong to more than one active schedule
-  - if a dataset has recursive scheduling, its children cannot define another one
-- Automatic snapshots use `GSA-...` names.
-- The GSA scheduler writes its log in ZFSMgr's config directory and rotates `GSA.log`.
-- If a remote leveling route does not have `SSH:✓` in the `Connectivity` matrix, ZFSMgr warns before installing or updating GSA.
+## Source and target selection
 
-Navigation behavior:
+- There are no longer `Source/Target` checks in a connections table.
+- To choose them:
+  - right click a dataset
+  - `Select as source`
+  - `Select as destination`
+- The `Selected datasets` box reflects that logical selection.
+- The current visual selection in the tree and the logical `Source/Target` selections are independent.
 
-- Switching connection/pool reuses cached data.
-- No automatic refresh happens just for navigation.
-- Refresh runs after modifying actions or explicit refresh.
-- Before each action, both trees preserve/restore visual state (selection and node expansion, when applicable).
-- If a modification affects a pool shown in both trees, both trees are rebuilt and their state is restored.
-- Clicking an empty `Properties` node loads its children and keeps it expanded.
-- Changing `Property columns` preserves expansion of an already open `Properties` node.
+## Context menus
 
-Check "Shortcuts and states" for action enabling rules.
+- On a connection root:
+  - the old connection context menu is available
+- On the merged pool root:
+  - a `Pool` submenu appears first
+  - then the dataset actions follow
+- The `Pool` submenu contains:
+  - `Refresh`
+  - `Import`
+  - `Import with rename`
+  - `Export`
+  - `History`
+  - `Management`:
+    - `Sync`
+    - `Scrub`
+    - `Upgrade`
+    - `Reguid`
+    - `Trim`
+    - `Initialize`
+    - `Destroy`
+  - `Show Pool Information`
+  - `Show Scheduled Datasets`
+- Dataset/snapshot actions still include:
+  - `Create dataset/snapshot/vol`
+  - `Rename`
+  - `Delete`
+  - `Encryption`
+  - `Select snapshot`
+  - `Rollback`
+  - `New Hold`
+  - `Release`
+  - `Break down`
+  - `Assemble`
+  - `From Dir`
+  - `To Dir`
+
+## Pending changes
+
+- `Pending changes` shows readable descriptions, not raw commands.
+- Changes accumulate in insertion order.
+- Clicking one line makes ZFSMgr try to focus the affected object and section.
+- Typical deferred actions:
+  - property changes
+  - permissions
+  - `Rename`
+  - `Move`
+  - deferred dataset/snapshot deletion
+
+## Connectivity and logs
+
+- `Check connectivity` is no longer a floating button.
+- It now lives in the main application menu.
+- `Combined log` still shows application and connection output.
+
+## Pool creation
+
+![Create pool](qrc:/help/img/crearpool.png)
+
+- `Create pool` opens the VDEV builder and pool parameters dialog.
+- The pool tree validates OpenZFS-compatible layouts.
+- If creation fails, the dialog stays open so you can correct and retry.
+
+## Dataset creation
+
+![Create dataset](qrc:/help/img/creardataset.png)
+
+- `Create dataset` is launched from the tree context menu.
+- If the dataset is encrypted with `keylocation=prompt`, ZFSMgr asks for the passphrase.
+- If creation fails, the dialog stays open with the entered values.
+
+## Navigation
+
+- The tree keeps expansion, selection and selected snapshots.
+- Changing property columns preserves open nodes.
+- Clicking an empty `Dataset properties` node materializes its children and keeps it open.

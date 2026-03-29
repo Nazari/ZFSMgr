@@ -268,40 +268,22 @@ void MainWindow::saveUiSettings() const {
     const bool showInlinePropertyNodesTop =
         m_topDatasetPane ? m_topDatasetPane->visualOptions().showInlineProperties
                          : m_showInlinePropertyNodesTop;
-    const bool showInlinePropertyNodesBottom =
-        m_bottomDatasetPane ? m_bottomDatasetPane->visualOptions().showInlineProperties
-                            : m_showInlinePropertyNodesBottom;
     const bool showInlinePermissionsNodesTop =
         m_topDatasetPane ? m_topDatasetPane->visualOptions().showInlinePermissions
                          : m_showInlinePermissionsNodesTop;
-    const bool showInlinePermissionsNodesBottom =
-        m_bottomDatasetPane ? m_bottomDatasetPane->visualOptions().showInlinePermissions
-                            : m_showInlinePermissionsNodesBottom;
     const bool showInlineGsaNodeTop =
         m_topDatasetPane ? m_topDatasetPane->visualOptions().showInlineGsa
                          : m_showInlineGsaNodeTop;
-    const bool showInlineGsaNodeBottom =
-        m_bottomDatasetPane ? m_bottomDatasetPane->visualOptions().showInlineGsa
-                            : m_showInlineGsaNodeBottom;
     const bool showPoolInfoNodeTop =
         m_topDatasetPane ? m_topDatasetPane->visualOptions().showPoolInfo
                          : m_showPoolInfoNodeTop;
-    const bool showPoolInfoNodeBottom =
-        m_bottomDatasetPane ? m_bottomDatasetPane->visualOptions().showPoolInfo
-                            : m_showPoolInfoNodeBottom;
     ini.setValue(QStringLiteral("show_inline_property_nodes_top"), showInlinePropertyNodesTop);
-    ini.setValue(QStringLiteral("show_inline_property_nodes_bottom"), showInlinePropertyNodesBottom);
     ini.setValue(QStringLiteral("show_inline_permissions_nodes_top"), showInlinePermissionsNodesTop);
-    ini.setValue(QStringLiteral("show_inline_permissions_nodes_bottom"), showInlinePermissionsNodesBottom);
     ini.setValue(QStringLiteral("show_inline_gsa_node_top"), showInlineGsaNodeTop);
-    ini.setValue(QStringLiteral("show_inline_gsa_node_bottom"), showInlineGsaNodeBottom);
     ini.setValue(QStringLiteral("show_pool_info_node_top"), showPoolInfoNodeTop);
-    ini.setValue(QStringLiteral("show_pool_info_node_bottom"), showPoolInfoNodeBottom);
     ini.setValue(QStringLiteral("conn_prop_columns"), qBound(4, m_connPropColumnsSetting, 16));
     ini.setValue(QStringLiteral("top_detail_connection"),
                  connPersistKeyFromProfiles(m_profiles, m_topDetailConnIdx));
-    ini.setValue(QStringLiteral("bottom_detail_connection"),
-                 connPersistKeyFromProfiles(m_profiles, m_bottomDetailConnIdx));
     ini.setValue(QStringLiteral("dataset_inline_props_order"), m_datasetInlinePropsOrder);
     ini.setValue(QStringLiteral("dataset_inline_prop_groups"), encodeInlinePropGroups(m_datasetInlinePropGroups));
     ini.setValue(QStringLiteral("pool_inline_props_order"), m_poolInlinePropsOrder);
@@ -331,11 +313,9 @@ void MainWindow::saveUiSettings() const {
 
 void MainWindow::applyLanguageLive() {
     QString selectedConnId;
-    if (m_connectionsTable) {
-        const int idx = connectionIndexFromTable(m_connectionsTable);
-        if (idx >= 0 && idx < m_profiles.size()) {
-            selectedConnId = m_profiles[idx].id;
-        }
+    const int selectedConnIdx = currentConnectionIndexFromUi();
+    if (selectedConnIdx >= 0 && selectedConnIdx < m_profiles.size()) {
+        selectedConnId = m_profiles[selectedConnIdx].id;
     }
 
     const QString appLogText = m_logView ? m_logView->toPlainText() : QString();
@@ -380,10 +360,12 @@ void MainWindow::applyLanguageLive() {
         m_lastDetailText->setPlainText(detailText);
     }
 
-    if (!selectedConnId.isEmpty() && m_connectionsTable) {
-        const int row = rowForConnectionId(m_connectionsTable, m_profiles, selectedConnId);
-        if (row >= 0) {
-            m_connectionsTable->setCurrentCell(row, 0);
+    if (!selectedConnId.isEmpty()) {
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            if (m_profiles[i].id.trimmed().compare(selectedConnId, Qt::CaseInsensitive) == 0) {
+                setCurrentConnectionInUi(i);
+                break;
+            }
         }
     }
     updateConnectionActionsState();
