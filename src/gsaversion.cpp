@@ -366,6 +366,13 @@ level_snapshot() {
       log "GSA level skip for $src_ds: destination $dst_dataset has snapshots but latest snapshot could not be determined"
       return 0
     fi
+    case "$base_snap" in
+      GSA-*) : ;;
+      *)
+        log "GSA level error for $src_ds: Destino tiene snapshots manuales ($dst_dataset@$base_snap)"
+        return 1
+        ;;
+    esac
     if ! source_has_snapshot "$src_ds" "$base_snap"; then
       log "GSA level skip for $src_ds: latest destination snapshot $dst_dataset@$base_snap does not exist in source"
       return 0
