@@ -2551,15 +2551,6 @@ void expandPoolRootsIfNoNav(QTreeWidget* tree, const ConnTreeNavSnapshot& nav) {
 void MainWindow::refreshConnectionNodeDetails() {
     auto setConnectionActionButtonsVisible = [this](bool visible) {
         Q_UNUSED(visible);
-        if (m_connPropsRefreshBtn) {
-            m_connPropsRefreshBtn->setVisible(false);
-        }
-        if (m_connPropsEditBtn) {
-            m_connPropsEditBtn->setVisible(false);
-        }
-        if (m_connPropsDeleteBtn) {
-            m_connPropsDeleteBtn->setVisible(false);
-        }
     };
     auto setPoolActionButtonsVisible = [this](bool visible) {
         if (m_poolStatusRefreshBtn) {
@@ -2596,18 +2587,6 @@ void MainWindow::refreshConnectionNodeDetails() {
         if (m_poolStatusDestroyBtn) {
             m_poolStatusDestroyBtn->setEnabled(false);
         }
-        if (m_connPropsRefreshBtn) {
-            m_connPropsRefreshBtn->setProperty("zfsmgr_can_conn_action", false);
-            m_connPropsRefreshBtn->setEnabled(false);
-        }
-        if (m_connPropsEditBtn) {
-            m_connPropsEditBtn->setProperty("zfsmgr_can_conn_action", false);
-            m_connPropsEditBtn->setEnabled(false);
-        }
-        if (m_connPropsDeleteBtn) {
-            m_connPropsDeleteBtn->setProperty("zfsmgr_can_conn_action", false);
-            m_connPropsDeleteBtn->setEnabled(false);
-        }
     };
 
     int connIdx = m_topDetailConnIdx;
@@ -2619,17 +2598,10 @@ void MainWindow::refreshConnectionNodeDetails() {
                 saveConnContentTreeState(tree, token);
             }
         }
-        if (m_poolViewTabBar) {
-            m_poolViewTabBar->setVisible(false);
-            m_poolViewTabBar->setCurrentIndex(0);
-        }
         setConnectionActionButtonsVisible(false);
         setPoolActionButtonsVisible(false);
         if (m_connPropsStack && m_connContentPage) {
             m_connPropsStack->setCurrentWidget(m_connContentPage);
-        }
-        if (m_connBottomStack && m_connStatusPage) {
-            m_connBottomStack->setCurrentWidget(m_connStatusPage);
         }
         if (m_poolPropsTable) {
             setTablePopulationMode(m_poolPropsTable, true);
@@ -2659,12 +2631,6 @@ void MainWindow::refreshConnectionNodeDetails() {
     if (m_connPropsStack && m_connContentPage) {
         m_connPropsStack->setCurrentWidget(m_connContentPage);
     }
-    if (m_connBottomGroup) {
-        m_connBottomGroup->setVisible(false);
-    }
-    if (m_connDetailSplit) {
-        m_connDetailSplit->setSizes({1, 0});
-    }
     setConnectionActionButtonsVisible(false);
     setPoolActionButtonsVisible(false);
     updateConnectionActionsState();
@@ -2673,16 +2639,7 @@ void MainWindow::refreshConnectionNodeDetails() {
 }
 
 void MainWindow::updateConnectionDetailTitlesForCurrentSelection() {
-    if (m_poolViewTabBar) {
-        m_poolViewTabBar->setTabText(0, trk(QStringLiteral("t_pool_props001"),
-                                            QStringLiteral("Propiedades"),
-                                            QStringLiteral("Properties"),
-                                            QStringLiteral("属性")));
-        m_poolViewTabBar->setTabText(1, trk(QStringLiteral("t_content_node_001"),
-                                            QStringLiteral("Contenido"),
-                                            QStringLiteral("Content"),
-                                            QStringLiteral("内容")));
-    }
+    // No-op: la vista de detalle ya no usa subpestañas internas ocultas.
 }
 
 int MainWindow::selectedConnectionIndexForPoolManagement() const {

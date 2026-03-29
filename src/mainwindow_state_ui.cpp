@@ -70,6 +70,10 @@ bool MainWindow::connAdvancedDatasetActionAllowed(const DatasetSelectionContext&
     return true;
 }
 
+bool MainWindow::connDirectoryDatasetActionAllowed(const DatasetSelectionContext& ctx) const {
+    return ctx.valid && !ctx.datasetName.isEmpty() && ctx.snapshotName.isEmpty();
+}
+
 void MainWindow::updateConnectionActionsState() {
     if (!(m_topDetailConnIdx >= 0 && m_topDetailConnIdx < m_profiles.size()
           && !isConnectionDisconnected(m_topDetailConnIdx))) {
@@ -80,14 +84,6 @@ void MainWindow::updateConnectionActionsState() {
         m_connActionDest = DatasetSelectionContext{};
     }
 
-    if (m_btnConnBreakdown) m_btnConnBreakdown->setText(
-        trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")));
-    if (m_btnConnAssemble) m_btnConnAssemble->setText(
-        trk(QStringLiteral("t_assemble_btn1"), QStringLiteral("Ensamblar"), QStringLiteral("Assemble"), QStringLiteral("组装")));
-    if (m_btnConnFromDir) m_btnConnFromDir->setText(
-        trk(QStringLiteral("t_from_dir_btn1"), QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")));
-    if (m_btnConnToDir) m_btnConnToDir->setText(
-        trk(QStringLiteral("t_to_dir_btn_001"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")));
     if (m_btnConnCopy) m_btnConnCopy->setText(
         trk(QStringLiteral("t_copy_001"), QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")));
     if (m_btnConnClone) m_btnConnClone->setText(
@@ -154,34 +150,14 @@ void MainWindow::updateConnectionActionsState() {
     }
 
     if (actionsLocked()) {
-        if (m_btnConnBreakdown) m_btnConnBreakdown->setEnabled(false);
-        if (m_btnConnAssemble) m_btnConnAssemble->setEnabled(false);
-        if (m_btnConnFromDir) m_btnConnFromDir->setEnabled(false);
-        if (m_btnConnToDir) m_btnConnToDir->setEnabled(false);
         if (m_btnConnCopy) m_btnConnCopy->setEnabled(false);
         if (m_btnConnClone) m_btnConnClone->setEnabled(false);
         if (m_btnConnDiff) m_btnConnDiff->setEnabled(false);
         if (m_btnConnLevel) m_btnConnLevel->setEnabled(false);
         if (m_btnConnSync) m_btnConnSync->setEnabled(false);
-        if (m_activeConnActionBtn) {
-            const QString actionName = m_activeConnActionName.isEmpty()
-                                           ? m_activeConnActionBtn->text()
-                                           : m_activeConnActionName;
-            m_activeConnActionBtn->setText(
-                trk(QStringLiteral("t_cancel_action1"),
-                    QStringLiteral("Cancelar %1"),
-                    QStringLiteral("Cancel %1"),
-                    QStringLiteral("取消 %1")).arg(actionName));
-            m_activeConnActionBtn->setEnabled(true);
-        }
         return;
     }
 
-    const bool connAdvDatasetOnly = connAdvancedDatasetActionAllowed(dctx);
-    if (m_btnConnBreakdown) m_btnConnBreakdown->setEnabled(!actionsLocked() && connAdvDatasetOnly);
-    if (m_btnConnAssemble) m_btnConnAssemble->setEnabled(!actionsLocked() && connAdvDatasetOnly);
-    if (m_btnConnFromDir) m_btnConnFromDir->setEnabled(!actionsLocked() && dctx.valid && !dctx.datasetName.isEmpty() && dctx.snapshotName.isEmpty());
-    if (m_btnConnToDir) m_btnConnToDir->setEnabled(!actionsLocked() && dctx.valid && !dctx.datasetName.isEmpty() && dctx.snapshotName.isEmpty());
     const bool srcDs = m_connActionOrigin.valid && !m_connActionOrigin.datasetName.isEmpty();
     const bool srcSnap = srcDs && !m_connActionOrigin.snapshotName.isEmpty();
     const bool dstDs = m_connActionDest.valid && !m_connActionDest.datasetName.isEmpty();
@@ -373,23 +349,6 @@ bool MainWindow::isTransferVersionAllowed(const DatasetSelectionContext& src,
                              .arg(badConn, badVer));
     }
     return false;
-}
-
-void MainWindow::executeConnectionAdvancedAction(const QString& action) {
-    const DatasetSelectionContext ctx = currentConnContentSelection(m_connContentTree);
-    if (!ctx.valid || ctx.datasetName.isEmpty()) {
-        return;
-    }
-
-    if (action == QStringLiteral("breakdown")) {
-        actionAdvancedBreakdown();
-    } else if (action == QStringLiteral("assemble")) {
-        actionAdvancedAssemble();
-    } else if (action == QStringLiteral("fromdir")) {
-        actionAdvancedCreateFromDir();
-    } else if (action == QStringLiteral("todir")) {
-        actionAdvancedToDir();
-    }
 }
 
 void MainWindow::executeConnectionTransferAction(const QString& action) {

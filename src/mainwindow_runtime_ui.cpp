@@ -29,7 +29,6 @@ MainWindow::~MainWindow() {
     quiesceObject(m_connectionsTable);
     quiesceObject(m_connContentTree);
     quiesceObject(m_bottomConnContentTree);
-    quiesceObject(m_poolViewTabBar);
     quiesceObject(m_connContentPropsTable);
     quiesceObject(m_pendingChangesView);
     quiesceObject(m_logsTabs);
@@ -196,20 +195,7 @@ void MainWindow::setActionsLocked(bool locked) {
     if (m_poolStatusScrubBtn) m_poolStatusScrubBtn->setEnabled(!locked && m_poolStatusScrubBtn->isEnabled());
     if (m_poolStatusDestroyBtn) m_poolStatusDestroyBtn->setEnabled(!locked && m_poolStatusDestroyBtn->isEnabled());
     if (m_btnApplyConnContentProps) m_btnApplyConnContentProps->setEnabled(!locked && m_btnApplyConnContentProps->isEnabled());
-    if (m_connPropsRefreshBtn) {
-        const bool can = m_connPropsRefreshBtn->property("zfsmgr_can_conn_action").toBool();
-        m_connPropsRefreshBtn->setEnabled(!locked && can);
-    }
-    if (m_connPropsEditBtn) {
-        const bool can = m_connPropsEditBtn->property("zfsmgr_can_conn_action").toBool();
-        m_connPropsEditBtn->setEnabled(!locked && can);
-    }
-    if (m_connPropsDeleteBtn) {
-        const bool can = m_connPropsDeleteBtn->property("zfsmgr_can_conn_action").toBool();
-        m_connPropsDeleteBtn->setEnabled(!locked && can);
-    }
     if (!locked) {
-        m_activeConnActionBtn = nullptr;
         m_activeConnActionName.clear();
         updateApplyPropsButtonState();
         refreshSelectedPoolDetails(false, false);

@@ -1488,86 +1488,6 @@ void MainWindow::buildUi() {
     connActionsLayout->setContentsMargins(6, 8, 6, 6);
     connActionsLayout->setSpacing(8);
 
-    m_btnConnBreakdown = new QPushButton(
-        trk(QStringLiteral("t_breakdown_btn1"),
-            QStringLiteral("Desglosar"),
-            QStringLiteral("Break down"),
-            QStringLiteral("拆分")),
-        m_connActionsBox);
-    m_btnConnBreakdown->setObjectName(QStringLiteral("connBreakdownButton"));
-    m_btnConnAssemble = new QPushButton(
-        trk(QStringLiteral("t_assemble_btn1"),
-            QStringLiteral("Ensamblar"),
-            QStringLiteral("Assemble"),
-            QStringLiteral("组装")),
-        m_connActionsBox);
-    m_btnConnAssemble->setObjectName(QStringLiteral("connAssembleButton"));
-    m_btnConnFromDir = new QPushButton(
-        trk(QStringLiteral("t_from_dir_btn1"),
-            QStringLiteral("Desde Dir"),
-            QStringLiteral("From Dir"),
-            QStringLiteral("来自目录")),
-        m_connActionsBox);
-    m_btnConnFromDir->setObjectName(QStringLiteral("connFromDirButton"));
-    m_btnConnToDir = new QPushButton(
-        trk(QStringLiteral("t_to_dir_btn_001"),
-            QStringLiteral("Hacia Dir"),
-            QStringLiteral("To Dir"),
-            QStringLiteral("到目录")),
-        m_connActionsBox);
-    m_btnConnToDir->setObjectName(QStringLiteral("connToDirButton"));
-    m_btnConnBreakdown->setFont(baseUiFont);
-    m_btnConnAssemble->setFont(baseUiFont);
-    m_btnConnFromDir->setFont(baseUiFont);
-    m_btnConnToDir->setFont(baseUiFont);
-    m_btnConnBreakdown->setToolTip(
-        trk(QStringLiteral("t_tt_breakdown001"), QStringLiteral("Construye datasets a partir de directorios. "
-                           "Requiere dataset accesible por mountpoint; en Linux, macOS y FreeBSD puede montarse temporalmente. "
-                           "Permite seleccionar directorios a desglosar. "
-                           "No se ejecuta si hay conflictos de mountpoint."),
-            QStringLiteral("Builds datasets from directories. "
-                           "Requires the dataset to be reachable by mountpoint; on Linux, macOS and FreeBSD it can be mounted temporarily. "
-                           "Lets you select directories to split. "
-                           "Will not run if mountpoint conflicts exist."),
-            QStringLiteral("从目录构建数据集。"
-                           "要求数据集可通过挂载点访问；在 Linux、macOS 和 FreeBSD 上可临时挂载。"
-                           "可选择要拆分的目录。"
-                           "若存在挂载点冲突则不会执行。")));
-    m_btnConnAssemble->setToolTip(
-        trk(QStringLiteral("t_tt_assemble001"), QStringLiteral("Convierte datasets en directorios. "
-                           "Requiere dataset accesible por mountpoint; en Linux, macOS y FreeBSD puede montarse temporalmente. "
-                           "Permite seleccionar subdatasets a ensamblar. "
-                           "zfs destroy solo se ejecuta si rsync finaliza OK."),
-            QStringLiteral("Converts datasets into directories. "
-                           "Requires the dataset to be reachable by mountpoint; on Linux, macOS and FreeBSD it can be mounted temporarily. "
-                           "Lets you select child datasets to assemble. "
-                           "zfs destroy runs only if rsync succeeds."),
-            QStringLiteral("将数据集转换为目录。"
-                           "要求数据集可通过挂载点访问；在 Linux、macOS 和 FreeBSD 上可临时挂载。"
-                           "可选择要组装的子数据集。"
-                           "仅当 rsync 成功时才执行 zfs destroy。")));
-    m_btnConnFromDir->setToolTip(
-        trk(QStringLiteral("t_tt_fromdir001"), QStringLiteral("Crea un dataset hijo usando un directorio local como mountpoint.\n"
-                           "Requiere dataset seleccionado en Avanzado."),
-            QStringLiteral("Create a child dataset using a local directory as mountpoint.\n"
-                           "Requires a dataset selected in Advanced."),
-            QStringLiteral("使用本地目录作为挂载点创建子数据集。\n"
-                           "需要在高级页选择一个数据集。")));
-    m_btnConnToDir->setToolTip(
-        trk(QStringLiteral("t_tt_todir_001"), QStringLiteral("Hace lo contrario de Desde Dir: copia el contenido del dataset a un directorio local\n"
-                           "y elimina el dataset al finalizar correctamente."),
-            QStringLiteral("Inverse of From Dir: copy dataset content to a local directory\n"
-                           "and remove dataset when finished successfully."),
-            QStringLiteral("与“来自目录”相反：将数据集内容复制到本地目录，\n"
-                           "成功后删除该数据集。")));
-    m_btnConnBreakdown->setMinimumHeight(stdLeftBtnH);
-    m_btnConnAssemble->setMinimumHeight(stdLeftBtnH);
-    m_btnConnFromDir->setMinimumHeight(stdLeftBtnH);
-    m_btnConnToDir->setMinimumHeight(stdLeftBtnH);
-    m_btnConnBreakdown->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnConnAssemble->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnConnFromDir->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_btnConnToDir->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     auto* connActionRightBox = new QWidget(m_connActionsBox);
     auto* connActionRightLayout = new QVBoxLayout(connActionRightBox);
     connActionRightLayout->setContentsMargins(6, 2, 6, 4);
@@ -1775,7 +1695,6 @@ void MainWindow::buildUi() {
     auto* detailContainerLayout = new QVBoxLayout(detailContainer);
     detailContainerLayout->setContentsMargins(0, 0, 0, 0);
     detailContainerLayout->setSpacing(0);
-    m_poolViewTabBar = nullptr;
     m_connPropsGroup = new QWidget(m_poolDetailTabs);
     auto* propsPoolLayout = new QVBoxLayout(m_connPropsGroup);
     propsPoolLayout->setContentsMargins(0, 0, 0, 0);
@@ -1806,34 +1725,6 @@ void MainWindow::buildUi() {
     m_poolPropsTable->verticalHeader()->setVisible(false);
     m_poolPropsTable->verticalHeader()->setDefaultSectionSize(22);
     enableSortableHeader(m_poolPropsTable);
-    auto* connPropBtns = new QHBoxLayout();
-    connPropBtns->setContentsMargins(0, 0, 0, 0);
-    connPropBtns->setSpacing(6);
-    m_connPropsRefreshBtn = new QPushButton(
-        trk(QStringLiteral("t_refresh_conn_ctx001"),
-            QStringLiteral("Refrescar"),
-            QStringLiteral("Refresh"),
-            QStringLiteral("刷新")),
-        m_connPoolPropsPage);
-    m_connPropsEditBtn = new QPushButton(
-        trk(QStringLiteral("t_edit_conn_ctx001"),
-            QStringLiteral("Editar"),
-            QStringLiteral("Edit"),
-            QStringLiteral("编辑")),
-        m_connPoolPropsPage);
-    m_connPropsDeleteBtn = new QPushButton(
-        trk(QStringLiteral("t_del_conn_ctx001"),
-            QStringLiteral("Borrar"),
-            QStringLiteral("Delete"),
-            QStringLiteral("删除")),
-        m_connPoolPropsPage);
-    m_connPropsRefreshBtn->setEnabled(false);
-    m_connPropsEditBtn->setEnabled(false);
-    m_connPropsDeleteBtn->setEnabled(false);
-    connPropBtns->addWidget(m_connPropsRefreshBtn, 0);
-    connPropBtns->addWidget(m_connPropsEditBtn, 0);
-    connPropBtns->addWidget(m_connPropsDeleteBtn, 0);
-    connPropBtns->addStretch(1);
     auto* poolPropBtns = new QHBoxLayout();
     poolPropBtns->setContentsMargins(0, 0, 0, 0);
     poolPropBtns->setSpacing(6);
@@ -1869,8 +1760,21 @@ void MainWindow::buildUi() {
     poolPropBtns->addWidget(m_poolStatusDestroyBtn, 0);
     poolPropBtns->addStretch(1);
     poolPropsPageLayout->addLayout(poolPropBtns);
-    poolPropsPageLayout->addLayout(connPropBtns);
     poolPropsPageLayout->addWidget(m_poolPropsTable, 1);
+    auto* poolStatusBox = new QGroupBox(
+        trk(QStringLiteral("t_pool_status_box_001"),
+            QStringLiteral("Estado del pool"),
+            QStringLiteral("Pool status"),
+            QStringLiteral("存储池状态")),
+        m_connPoolPropsPage);
+    auto* poolStatusBoxLayout = new QVBoxLayout(poolStatusBox);
+    poolStatusBoxLayout->setContentsMargins(6, 8, 6, 6);
+    m_poolStatusText = new QPlainTextEdit(poolStatusBox);
+    m_poolStatusText->setReadOnly(true);
+    m_poolStatusText->setLineWrapMode(QPlainTextEdit::NoWrap);
+    m_poolStatusText->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    poolStatusBoxLayout->addWidget(m_poolStatusText, 1);
+    poolPropsPageLayout->addWidget(poolStatusBox, 1);
     m_connPropsStack->addWidget(m_connPoolPropsPage);
 
     m_connContentPage = new QWidget(m_connPropsStack);
@@ -1896,37 +1800,17 @@ void MainWindow::buildUi() {
     m_connContentTree = m_topDatasetTreeWidget->tree();
     m_connContentTree->setItemDelegate(new ConnContentPropBorderDelegate(m_connContentTree));
     // Las acciones se exponen por menú contextual del árbol.
-    if (m_btnConnBreakdown) m_btnConnBreakdown->setVisible(false);
-    if (m_btnConnAssemble) m_btnConnAssemble->setVisible(false);
-    if (m_btnConnFromDir) m_btnConnFromDir->setVisible(false);
-    if (m_btnConnToDir) m_btnConnToDir->setVisible(false);
     connContentLayout->addWidget(m_topDatasetTreeWidget, 1);
-    m_btnApplyConnContentProps->setEnabled(false);
-    if (m_btnDiscardPendingChanges) m_btnDiscardPendingChanges->setEnabled(false);
-    m_connPropsStack->addWidget(m_connContentPage);
-    m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
-    propsPoolLayout->addWidget(m_connPropsStack, 1);
-
-    m_connBottomGroup = new QWidget(m_poolDetailTabs);
-    auto* statusPoolLayout = new QVBoxLayout(m_connBottomGroup);
-    statusPoolLayout->setContentsMargins(0, 0, 0, 0);
-    statusPoolLayout->setSpacing(4);
-    m_connBottomStack = new QStackedWidget(m_connBottomGroup);
-    m_connStatusPage = new QWidget(m_connBottomStack);
-    auto* statusPageLayout = new QVBoxLayout(m_connStatusPage);
-    statusPageLayout->setContentsMargins(0, 0, 0, 0);
-    m_poolStatusText = new QPlainTextEdit(m_connStatusPage);
-    m_poolStatusText->setReadOnly(true);
-    m_poolStatusText->setLineWrapMode(QPlainTextEdit::NoWrap);
-    m_poolStatusText->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    statusPageLayout->addWidget(m_poolStatusText, 1);
-    m_connBottomStack->addWidget(m_connStatusPage);
-
-    m_connDatasetPropsPage = new QWidget(m_connBottomStack);
-    auto* connDsPropsLayout = new QVBoxLayout(m_connDatasetPropsPage);
-    connDsPropsLayout->setContentsMargins(0, 0, 0, 0);
+    auto* datasetPropsBox = new QGroupBox(
+        trk(QStringLiteral("t_ds_props_box_001"),
+            QStringLiteral("Propiedades del dataset"),
+            QStringLiteral("Dataset properties"),
+            QStringLiteral("数据集属性")),
+        m_connContentPage);
+    auto* connDsPropsLayout = new QVBoxLayout(datasetPropsBox);
+    connDsPropsLayout->setContentsMargins(6, 8, 6, 6);
     connDsPropsLayout->setSpacing(4);
-    m_connContentPropsTable = new QTableWidget(m_connDatasetPropsPage);
+    m_connContentPropsTable = new QTableWidget(datasetPropsBox);
     m_connContentPropsTable->setColumnCount(3);
     m_connContentPropsTable->setHorizontalHeaderLabels({trk(QStringLiteral("t_prop_col_001"),
                                                              QStringLiteral("Propiedad"),
@@ -1954,26 +1838,13 @@ void MainWindow::buildUi() {
     m_connContentPropsTable->verticalHeader()->setDefaultSectionSize(22);
     enableSortableHeader(m_connContentPropsTable);
     connDsPropsLayout->addWidget(m_connContentPropsTable, 1);
-    m_connBottomStack->addWidget(m_connDatasetPropsPage);
-    m_connBottomStack->setCurrentWidget(m_connStatusPage);
-    statusPoolLayout->addWidget(m_connBottomStack, 1);
-    auto* subtabContentFrame = new QFrame(detailContainer);
-    subtabContentFrame->setObjectName(QStringLiteral("zfsmgrSubtabContentFrame"));
-    subtabContentFrame->setFrameShape(QFrame::NoFrame);
-    subtabContentFrame->setFrameShadow(QFrame::Plain);
-    subtabContentFrame->setLineWidth(0);
-    auto* subtabContentLayout = new QVBoxLayout(subtabContentFrame);
-    subtabContentLayout->setContentsMargins(0, 0, 0, 0);
-    subtabContentLayout->setSpacing(0);
-    m_connDetailSplit = new QSplitter(Qt::Vertical, subtabContentFrame);
-    m_connDetailSplit->setChildrenCollapsible(false);
-    m_connDetailSplit->setHandleWidth(1);
-    m_connDetailSplit->addWidget(m_connPropsGroup);
-    m_connDetailSplit->addWidget(m_connBottomGroup);
-    m_connDetailSplit->setStretchFactor(0, 55);
-    m_connDetailSplit->setStretchFactor(1, 45);
-    subtabContentLayout->addWidget(m_connDetailSplit, 1);
-    detailContainerLayout->addWidget(subtabContentFrame, 1);
+    connContentLayout->addWidget(datasetPropsBox, 1);
+    m_btnApplyConnContentProps->setEnabled(false);
+    if (m_btnDiscardPendingChanges) m_btnDiscardPendingChanges->setEnabled(false);
+    m_connPropsStack->addWidget(m_connContentPage);
+    m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
+    propsPoolLayout->addWidget(m_connPropsStack, 1);
+    detailContainerLayout->addWidget(m_connPropsGroup, 1);
     poolDetailLayout->addWidget(detailContainer, 1);
     entityFrameLayout->addWidget(m_poolDetailTabs, 1);
     rightConnectionsLayout->setSpacing(0);
@@ -2321,32 +2192,11 @@ void MainWindow::buildUi() {
         if (m_rightMainSplit && !m_rightMainSplitState.isEmpty()) {
             m_rightMainSplit->restoreState(m_rightMainSplitState);
         }
-        if (m_connDetailSplit && !m_connDetailSplitState.isEmpty()) {
-            m_connDetailSplit->restoreState(m_connDetailSplitState);
-        }
         if (m_verticalMainSplit && !m_verticalMainSplitState.isEmpty()) {
             m_verticalMainSplit->restoreState(m_verticalMainSplitState);
         }
     });
 
-    if (m_connPropsRefreshBtn) {
-        connect(m_connPropsRefreshBtn, &QPushButton::clicked, this, [this]() {
-            logUiAction(QStringLiteral("Refrescar conexión (botón propiedades)"));
-            refreshSelectedConnection();
-        });
-    }
-    if (m_connPropsEditBtn) {
-        connect(m_connPropsEditBtn, &QPushButton::clicked, this, [this]() {
-            logUiAction(QStringLiteral("Editar conexión (botón propiedades)"));
-            editConnection();
-        });
-    }
-    if (m_connPropsDeleteBtn) {
-        connect(m_connPropsDeleteBtn, &QPushButton::clicked, this, [this]() {
-            logUiAction(QStringLiteral("Borrar conexión (botón propiedades)"));
-            deleteConnection();
-        });
-    }
     connect(m_connectionsTable, &QTableWidget::currentCellChanged, this,
             [this](int, int, int, int) { onConnectionSelectionChanged(); });
     if (m_connectivityMatrixBtn) {
@@ -3568,38 +3418,6 @@ void MainWindow::buildUi() {
             createPoolForSelectedConnection();
         }
     });
-    if (m_poolViewTabBar) {
-        m_connSplitSizesProps = m_connDetailSplit ? m_connDetailSplit->sizes() : QList<int>{};
-        m_connSplitSizesContent = m_connSplitSizesProps;
-        m_connSplitActiveTab = m_poolViewTabBar->currentIndex();
-        connect(m_poolViewTabBar, &QTabBar::currentChanged, this, [this](int idx) {
-            if (!m_connPropsStack || !m_connBottomStack) {
-                return;
-            }
-            if (m_connDetailSplit) {
-                const QList<int> cur = m_connDetailSplit->sizes();
-                if (m_connSplitActiveTab == 0) {
-                    m_connSplitSizesProps = cur;
-                } else {
-                    m_connSplitSizesContent = cur;
-                }
-            }
-            if (idx == 1) {
-                if (m_connContentPage) m_connPropsStack->setCurrentWidget(m_connContentPage);
-                if (m_connDatasetPropsPage) m_connBottomStack->setCurrentWidget(m_connDatasetPropsPage);
-            } else {
-                if (m_connPoolPropsPage) m_connPropsStack->setCurrentWidget(m_connPoolPropsPage);
-                if (m_connStatusPage) m_connBottomStack->setCurrentWidget(m_connStatusPage);
-            }
-            if (m_connDetailSplit) {
-                const QList<int> next = (idx == 1) ? m_connSplitSizesContent : m_connSplitSizesProps;
-                if (!next.isEmpty()) {
-                    m_connDetailSplit->setSizes(next);
-                }
-            }
-            m_connSplitActiveTab = idx;
-        });
-    }
     auto connTokenFromTreeSelection = [this](QTreeWidget* tree) -> QString {
         if (!tree) {
             return QString();
@@ -3898,84 +3716,6 @@ void MainWindow::buildUi() {
         if (row < 0) return;
         logUiAction(QStringLiteral("Destroy pool (botón Estado)"));
         destroyPoolFromRow(row);
-    });
-    // Datasets/Avanzado legacy pages are hidden in the current UI and intentionally
-    // have no live signal wiring. Active workflow runs through "conncontent".
-    connect(m_btnConnBreakdown, &QPushButton::clicked, this, [this]() {
-        if (actionsLocked()) {
-            if (m_activeConnActionBtn == m_btnConnBreakdown) {
-                logUiAction(QStringLiteral("Cancelar Desglosar (botón Conexiones)"));
-                requestCancelRunningAction();
-            }
-            return;
-        }
-        m_activeConnActionBtn = m_btnConnBreakdown;
-        m_activeConnActionName = trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"),
-                                     QStringLiteral("Break down"), QStringLiteral("拆分"));
-        logUiAction(QStringLiteral("Desglosar (botón Conexiones)"));
-        executeConnectionAdvancedAction(QStringLiteral("breakdown"));
-        if (!actionsLocked()) {
-            m_activeConnActionBtn = nullptr;
-            m_activeConnActionName.clear();
-            updateConnectionActionsState();
-        }
-    });
-    connect(m_btnConnAssemble, &QPushButton::clicked, this, [this]() {
-        if (actionsLocked()) {
-            if (m_activeConnActionBtn == m_btnConnAssemble) {
-                logUiAction(QStringLiteral("Cancelar Ensamblar (botón Conexiones)"));
-                requestCancelRunningAction();
-            }
-            return;
-        }
-        m_activeConnActionBtn = m_btnConnAssemble;
-        m_activeConnActionName = trk(QStringLiteral("t_assemble_btn1"), QStringLiteral("Ensamblar"),
-                                     QStringLiteral("Assemble"), QStringLiteral("组装"));
-        logUiAction(QStringLiteral("Ensamblar (botón Conexiones)"));
-        executeConnectionAdvancedAction(QStringLiteral("assemble"));
-        if (!actionsLocked()) {
-            m_activeConnActionBtn = nullptr;
-            m_activeConnActionName.clear();
-            updateConnectionActionsState();
-        }
-    });
-    connect(m_btnConnFromDir, &QPushButton::clicked, this, [this]() {
-        if (actionsLocked()) {
-            if (m_activeConnActionBtn == m_btnConnFromDir) {
-                logUiAction(QStringLiteral("Cancelar Desde Dir (botón Conexiones)"));
-                requestCancelRunningAction();
-            }
-            return;
-        }
-        m_activeConnActionBtn = m_btnConnFromDir;
-        m_activeConnActionName = trk(QStringLiteral("t_from_dir_btn1"), QStringLiteral("Desde Dir"),
-                                     QStringLiteral("From Dir"), QStringLiteral("来自目录"));
-        logUiAction(QStringLiteral("Desde Dir (botón Conexiones)"));
-        executeConnectionAdvancedAction(QStringLiteral("fromdir"));
-        if (!actionsLocked()) {
-            m_activeConnActionBtn = nullptr;
-            m_activeConnActionName.clear();
-            updateConnectionActionsState();
-        }
-    });
-    connect(m_btnConnToDir, &QPushButton::clicked, this, [this]() {
-        if (actionsLocked()) {
-            if (m_activeConnActionBtn == m_btnConnToDir) {
-                logUiAction(QStringLiteral("Cancelar Hacia Dir (botón Conexiones)"));
-                requestCancelRunningAction();
-            }
-            return;
-        }
-        m_activeConnActionBtn = m_btnConnToDir;
-        m_activeConnActionName = trk(QStringLiteral("t_to_dir_btn_001"), QStringLiteral("Hacia Dir"),
-                                     QStringLiteral("To Dir"), QStringLiteral("到目录"));
-        logUiAction(QStringLiteral("Hacia Dir (botón Conexiones)"));
-        executeConnectionAdvancedAction(QStringLiteral("todir"));
-        if (!actionsLocked()) {
-            m_activeConnActionBtn = nullptr;
-            m_activeConnActionName.clear();
-            updateConnectionActionsState();
-        }
     });
     connect(m_btnConnCopy, &QPushButton::clicked, this, [this]() {
         if (actionsLocked()) {

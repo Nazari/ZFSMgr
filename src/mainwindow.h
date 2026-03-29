@@ -710,10 +710,10 @@ private:
     bool queuePendingShellAction(const PendingShellActionDraft& draft, QString* errorOut = nullptr);
     QString pendingTransferScopeLabel(const DatasetSelectionContext& src, const DatasetSelectionContext& dst) const;
     void executeConnectionTransferAction(const QString& action);
-    void executeConnectionAdvancedAction(const QString& action);
     void setConnectionOriginSelection(const DatasetSelectionContext& ctx);
     void setConnectionDestinationSelection(const DatasetSelectionContext& ctx);
     bool connAdvancedDatasetActionAllowed(const DatasetSelectionContext& ctx) const;
+    bool connDirectoryDatasetActionAllowed(const DatasetSelectionContext& ctx) const;
     QString connContentTokenForTree(const QTreeWidget* tree) const;
     void withConnContentContext(QTreeWidget* tree,
                                 const QString& token,
@@ -911,10 +911,6 @@ private:
     QGroupBox* m_poolMgmtBox{nullptr};
     QAction* m_menuExitAction{nullptr};
     QGroupBox* m_connActionsBox{nullptr};
-    QPushButton* m_btnConnBreakdown{nullptr};
-    QPushButton* m_btnConnAssemble{nullptr};
-    QPushButton* m_btnConnFromDir{nullptr};
-    QPushButton* m_btnConnToDir{nullptr};
     QLabel* m_connOriginSelectionLabel{nullptr};
     QLabel* m_connDestSelectionLabel{nullptr};
     QPushButton* m_btnConnCopy{nullptr};
@@ -932,21 +928,12 @@ private:
     QWidget* m_poolDetailTabs{nullptr};
     bool m_updatingConnectionEntityTabs{false};
     QString m_lastConnectionSelectionKey;
-    QTabBar* m_poolViewTabBar{nullptr};
     QWidget* m_connPropsGroup{nullptr};
-    QWidget* m_connBottomGroup{nullptr};
-    QSplitter* m_connDetailSplit{nullptr};
     QSplitter* m_topMainSplit{nullptr};
     QSplitter* m_rightMainSplit{nullptr};
     QSplitter* m_verticalMainSplit{nullptr};
     QSplitter* m_bottomInfoSplit{nullptr};
-    QList<int> m_connSplitSizesProps;
-    QList<int> m_connSplitSizesContent;
-    int m_connSplitActiveTab{0};
     QTableWidget* m_poolPropsTable{nullptr};
-    QPushButton* m_connPropsRefreshBtn{nullptr};
-    QPushButton* m_connPropsEditBtn{nullptr};
-    QPushButton* m_connPropsDeleteBtn{nullptr};
     QStackedWidget* m_connPropsStack{nullptr};
     QWidget* m_connPoolPropsPage{nullptr};
     QWidget* m_connContentPage{nullptr};
@@ -956,9 +943,6 @@ private:
     ConnectionDatasetTreeCoordinator* m_topConnContentCoordinator{nullptr};
     QTreeWidget* m_connContentTree{nullptr};
     QTableWidget* m_connContentPropsTable{nullptr};
-    QStackedWidget* m_connBottomStack{nullptr};
-    QWidget* m_connStatusPage{nullptr};
-    QWidget* m_connDatasetPropsPage{nullptr};
     QString m_connContentToken;
     QMap<QString, QMap<QString, QString>> m_connContentPropValuesByObject;
     QMap<QString, ConnContentTreeState> m_connContentTreeStateByToken;
@@ -966,7 +950,6 @@ private:
     QByteArray m_mainWindowGeometryState;
     QByteArray m_topMainSplitState;
     QByteArray m_rightMainSplitState;
-    QByteArray m_connDetailSplitState;
     QByteArray m_verticalMainSplitState;
     QByteArray m_bottomInfoSplitState;
     QMap<int, QSet<QString>> m_savedTopExpandedKeysByConn;

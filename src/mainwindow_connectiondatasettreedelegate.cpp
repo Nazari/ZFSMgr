@@ -2112,8 +2112,8 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         aDelete->setEnabled(!m_mainWindow->actionsLocked() && hasConnSel);
         aBreakdown->setEnabled(!m_mainWindow->actionsLocked() && m_mainWindow->connAdvancedDatasetActionAllowed(mwSelCtx));
         aAssemble->setEnabled(!m_mainWindow->actionsLocked() && m_mainWindow->connAdvancedDatasetActionAllowed(mwSelCtx));
-        aFromDir->setEnabled(m_mainWindow->m_btnConnFromDir && m_mainWindow->m_btnConnFromDir->isEnabled());
-        aToDir->setEnabled(m_mainWindow->m_btnConnToDir && m_mainWindow->m_btnConnToDir->isEnabled());
+        aFromDir->setEnabled(!m_mainWindow->actionsLocked() && m_mainWindow->connDirectoryDatasetActionAllowed(mwSelCtx));
+        aToDir->setEnabled(!m_mainWindow->actionsLocked() && m_mainWindow->connDirectoryDatasetActionAllowed(mwSelCtx));
 
         QAction* picked = menu.exec(tree->viewport()->mapToGlobal(pos));
         if (!picked) {
@@ -2385,7 +2385,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             }
             return;
         }
-        if (picked == aBreakdown && m_mainWindow->m_btnConnBreakdown) {
+        if (picked == aBreakdown) {
             MainWindow::DatasetSelectionContext mwCtx;
             mwCtx.valid = ctx.valid;
             mwCtx.connIdx = ctx.connIdx;
@@ -2395,7 +2395,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             m_mainWindow->actionAdvancedBreakdown(mwCtx);
             return;
         }
-        if (picked == aAssemble && m_mainWindow->m_btnConnAssemble) {
+        if (picked == aAssemble) {
             MainWindow::DatasetSelectionContext mwCtx;
             mwCtx.valid = ctx.valid;
             mwCtx.connIdx = ctx.connIdx;
@@ -2405,7 +2405,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             m_mainWindow->actionAdvancedAssemble(mwCtx);
             return;
         }
-        if (picked == aFromDir && m_mainWindow->m_btnConnFromDir) {
+        if (picked == aFromDir) {
             MainWindow::DatasetSelectionContext mwCtx;
             mwCtx.valid = ctx.valid;
             mwCtx.connIdx = ctx.connIdx;
@@ -2415,7 +2415,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             m_mainWindow->actionAdvancedCreateFromDir(mwCtx);
             return;
         }
-        if (picked == aToDir && m_mainWindow->m_btnConnToDir) {
+        if (picked == aToDir) {
             MainWindow::DatasetSelectionContext mwCtx;
             mwCtx.valid = ctx.valid;
             mwCtx.connIdx = ctx.connIdx;
