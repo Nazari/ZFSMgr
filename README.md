@@ -32,7 +32,7 @@ Legal references:
 
 ### Main window
 
-![ZFSMgr main window](help/img/ventanaprincipal.png)
+![ZFSMgr main window](help/img/auto/main-window.png)
 
 ### Pool creation
 
@@ -44,7 +44,8 @@ Legal references:
 
 ## Releases
 
-- **Current beta line: 0.10.0rc1**: https://github.com/Nazari/ZFSMgr/releases
+- **Current beta line**: check the latest published release here:
+  https://github.com/Nazari/ZFSMgr/releases
 
 ## Why ZFSMgr
 
@@ -52,7 +53,8 @@ ZFSMgr is designed for users who want a real **GUI for ZFS administration** with
 
 It gives you:
 
-- a **dual source/destination view** for comparing and operating on two ZFS trees at once,
+- a **single unified connection/pool/dataset tree** for all navigation,
+- **logical source/target selection** from the dataset context menu,
 - **remote pool and dataset management** from the same desktop app,
 - a **connectivity matrix** between connections with `SSH` and `rsync` checks,
 - **inline editing** of dataset and pool properties directly in the treeview,
@@ -71,6 +73,7 @@ It gives you:
 - Imported and importable pool discovery.
 - Pool import/export.
 - Pool import with rename validation from the context menu.
+- Pool upgrade from the GUI (`zpool upgrade`).
 - Pool creation with device selection and options.
 - Device tree for available block devices, including whole disks and partitions.
 - OpenZFS-aware pool layout builder:
@@ -86,10 +89,11 @@ It gives you:
 - Pool maintenance actions from the GUI:
   - `zpool sync`
   - `zpool scrub`
+  - `zpool upgrade`
   - `zpool reguid`
   - `zpool trim`
   - `zpool initialize`
-- Pool information and feature visibility directly in the treeview.
+- Pool information and scheduled-dataset visibility directly in the unified tree.
 
 ### Dataset, zvol and snapshot management
 
@@ -100,6 +104,9 @@ It gives you:
   - `keyformat=passphrase`,
   - `keylocation=prompt`.
 - Rename and delete datasets.
+- Pool root fused with its root dataset in the tree:
+  - the pool root keeps pool icon and tooltip,
+  - the duplicate `pool/pool/...` visual level is removed.
 - Context-aware delete actions for:
   - dataset,
   - snapshot,
@@ -107,7 +114,7 @@ It gives you:
 - Mount/unmount operations.
 - Mount encrypted datasets by prompting for the passphrase and loading the key before mount when required.
 - Snapshot rollback.
-- Snapshot selection in source/destination trees.
+- Snapshot selection directly in the unified tree.
 - Optional filtering of automatic snapshots (`GSA-*`) from dataset context menus.
 - Snapshot holds:
   - create hold,
@@ -148,17 +155,22 @@ It gives you:
 
 ### Inline property management
 
-- Dataset, pool and snapshot properties shown **inline in the treeview**.
+- Dataset, pool and snapshot properties shown **inline in the unified tree**.
 - Visual property groups per scope:
   - pool,
   - dataset,
   - snapshot.
+- Main inline nodes currently include:
+  - `Dataset properties`
+  - `Pool Information`
+  - `Datasets programados`
 - Reorder visible properties by drag and drop.
 - Persist visible properties and order in configuration.
 - Inline editing of property values.
 - Inline inheritance controls for inheritable properties.
 - Property column count configurable from the tree header context menu.
-- Independent column widths for top and bottom trees, with persistence in `config.ini`.
+- Current property-column range:
+  - `4, 6, 8, 10, 12, 14, 16`
 
 ### ZFS permissions management
 
@@ -166,7 +178,7 @@ ZFSMgr includes **graphical management of delegated ZFS permissions** per datase
 
 Current permission features include:
 
-- `Permisos` node in dataset trees.
+- A dedicated permissions node in dataset trees.
 - Delegation management based on:
   - `zfs allow`
   - `zfs unallow`
@@ -191,9 +203,9 @@ Current permission features include:
 - Prompted password entry when `keylocation=prompt`.
 - `Create dataset` and `Mount` integrate passphrase prompts instead of expecting interactive shell input.
 
-### Source/destination workflows
+### Source/target workflows
 
-ZFSMgr uses a **source / destination model** directly in the main window.
+ZFSMgr uses a **source / target model** directly in the main window.
 
 That enables:
 
@@ -204,6 +216,14 @@ That enables:
 - advanced breakdown / assemble operations,
 - `From Dir` and `To Dir` flows.
 
+Selection model:
+
+- `Source` and `Target` are no longer chosen with checks in a connections table.
+- They are selected from the dataset context menu:
+  - `Select as source`
+  - `Select as destination`
+- The current selections are shown in the `Selected datasets` box.
+
 The `Diff` action includes a dedicated results window with grouped tree output for:
 
 - added files,
@@ -213,7 +233,7 @@ The `Diff` action includes a dedicated results window with grouped tree output f
 
 ### Connectivity matrix
 
-- Floating `Conectividad` button in the connections table.
+- `Check connectivity` action in the main application menu.
 - Matrix view with connections as rows and columns.
 - Per-cell checks for:
   - `SSH`
@@ -275,25 +295,26 @@ If required components are missing, the UI reports the situation clearly in conn
 ## UI model
 
 - Left panel:
-  - connections,
-  - source/destination actions,
-  - global quick operations.
+  - `Selected datasets`,
+  - source/target action buttons,
+  - `Status and progress`.
 - Right panel:
-  - top tree = `Origen`,
-  - bottom tree = `Destino`.
+  - one unified tree with connections as roots,
+  - `Pending changes` below the tree.
 - Bottom area:
-  - combined log.
+  - logs (`Application` and `SSHs`).
 
 Important characteristics:
 
-- The effective detail selection is driven by **Origen / Destino checks**, not by a simple row click.
-- Top and bottom trees preserve their own navigation state.
+- Connections stay visible in the tree even when disconnected.
+  Their pools disappear until the connection is active again.
+- The effective detail selection comes from the unified tree, while logical `Source` / `Target` are separate selections.
 - Creation dialogs stay open on execution failure so entered values can be corrected and retried.
 - Tree headers include context actions for:
   - resize this column,
   - resize all columns,
   - choose property column count.
-- `Aplicar cambios` batches real pending commands and lists them in `Cambios pendientes` before execution.
+- `Apply changes` batches real pending commands and lists them in `Pending changes` before execution.
 
 ## Configuration and data
 
@@ -305,11 +326,11 @@ Important characteristics:
 Persistent configuration includes, among other things:
 
 - connections,
-- selected source/destination trees,
+- logical source/target selections,
 - visible property groups,
 - inline property order,
 - tree column widths,
-- UI state relevant to the dual-tree workflow.
+- UI state relevant to the unified-tree workflow.
 
 ## Build requirements
 
