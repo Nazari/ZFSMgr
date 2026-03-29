@@ -1801,44 +1801,6 @@ void MainWindow::buildUi() {
     m_connContentTree->setItemDelegate(new ConnContentPropBorderDelegate(m_connContentTree));
     // Las acciones se exponen por menú contextual del árbol.
     connContentLayout->addWidget(m_topDatasetTreeWidget, 1);
-    auto* datasetPropsBox = new QGroupBox(
-        trk(QStringLiteral("t_ds_props_box_001"),
-            QStringLiteral("Propiedades del dataset"),
-            QStringLiteral("Dataset properties"),
-            QStringLiteral("数据集属性")),
-        m_connContentPage);
-    auto* connDsPropsLayout = new QVBoxLayout(datasetPropsBox);
-    connDsPropsLayout->setContentsMargins(6, 8, 6, 6);
-    connDsPropsLayout->setSpacing(4);
-    m_connContentPropsTable = new QTableWidget(datasetPropsBox);
-    m_connContentPropsTable->setColumnCount(3);
-    m_connContentPropsTable->setHorizontalHeaderLabels({trk(QStringLiteral("t_prop_col_001"),
-                                                             QStringLiteral("Propiedad"),
-                                                             QStringLiteral("Property"),
-                                                             QStringLiteral("属性")),
-                                                        trk(QStringLiteral("t_value_col_001"),
-                                                            QStringLiteral("Valor"),
-                                                            QStringLiteral("Value"),
-                                                            QStringLiteral("值")),
-                                                        trk(QStringLiteral("t_inherit_col001"),
-                                                            QStringLiteral("Inherit"),
-                                                            QStringLiteral("Inherit"),
-                                                            QStringLiteral("继承"))});
-    m_connContentPropsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
-    m_connContentPropsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
-    m_connContentPropsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
-    m_connContentPropsTable->horizontalHeader()->setStretchLastSection(false);
-    m_connContentPropsTable->setColumnWidth(0, 200);
-    m_connContentPropsTable->setColumnWidth(1, 210);
-    const int inheritTextPx = m_connContentPropsTable->fontMetrics().horizontalAdvance(QStringLiteral("Inherit"));
-    const int connInheritColWidth = qMax(36, static_cast<int>(((static_cast<double>(inheritTextPx) / 2.0) + 12.0) * 1.10));
-    m_connContentPropsTable->setColumnWidth(2, connInheritColWidth);
-    m_connContentPropsTable->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
-    m_connContentPropsTable->verticalHeader()->setVisible(false);
-    m_connContentPropsTable->verticalHeader()->setDefaultSectionSize(22);
-    enableSortableHeader(m_connContentPropsTable);
-    connDsPropsLayout->addWidget(m_connContentPropsTable, 1);
-    connContentLayout->addWidget(datasetPropsBox, 1);
     m_btnApplyConnContentProps->setEnabled(false);
     if (m_btnDiscardPendingChanges) m_btnDiscardPendingChanges->setEnabled(false);
     m_connPropsStack->addWidget(m_connContentPage);
@@ -3668,11 +3630,6 @@ void MainWindow::buildUi() {
 
     if (m_connContentTree) {
         connect(m_connContentTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem*, int) {});
-    }
-    if (m_connContentPropsTable) {
-        connect(m_connContentPropsTable, &QTableWidget::cellChanged, this, [this](int row, int col) {
-            onDatasetPropsCellChanged(row, col);
-        });
     }
     if (m_btnApplyConnContentProps) {
         connect(m_btnApplyConnContentProps, &QPushButton::clicked, this, [this]() {

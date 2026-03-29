@@ -837,14 +837,13 @@ void MainWindow::refreshDatasetProperties(const QString& side, QTreeWidget* conn
         snapshot = ctx.snapshotName;
     }
     QTableWidget* table = m_connContentPropsTable;
-    if (!table) {
-        endTransientUiBusy();
-        return;
-    }
+    const bool hasPropsTable = (table != nullptr);
     if (dataset.isEmpty()) {
-        setTablePopulationMode(table, true);
-        table->setRowCount(0);
-        setTablePopulationMode(table, false);
+        if (hasPropsTable) {
+            setTablePopulationMode(table, true);
+            table->setRowCount(0);
+            setTablePopulationMode(table, false);
+        }
         m_propsDataset.clear();
         m_propsToken.clear();
         m_propsSide = side;
@@ -1043,14 +1042,34 @@ void MainWindow::refreshDatasetProperties(const QString& side, QTreeWidget* conn
         syncConnContentPropertyColumns();
     }
 
+    m_propsSide = side;
+    m_propsDataset = objectName;
+    m_propsToken = token;
+    m_propsOriginalValues.clear();
+    m_propsOriginalInherit.clear();
+    for (const PropRow& row : rows) {
+        const QString key = row.prop.trimmed();
+        if (key.isEmpty()) {
+            continue;
+        }
+        m_propsOriginalValues[key] = gsaComparableValue(row.prop, row.value);
+        m_propsOriginalInherit[key] = isDatasetPropertyCurrentlyInherited(row.source);
+    }
+    m_propsDirty =
+        propertyDraftForObject(m_propsSide, m_propsToken, m_propsDataset).dirty
+        || !m_pendingChangesModel.isEmpty();
+    updateApplyPropsButtonState();
+
+    if (!hasPropsTable) {
+        endTransientUiBusy();
+        return;
+    }
+
     m_loadingPropsTable = true;
     setTablePopulationMode(table, true);
     table->setRowCount(0);
     m_propsOriginalValues.clear();
     m_propsOriginalInherit.clear();
-    m_propsSide = side;
-    m_propsDataset = objectName;
-    m_propsToken = token;
     const QMap<QString, QStringList> enumValues = {
         {QStringLiteral("atime"), {QStringLiteral("on"), QStringLiteral("off")}},
         {QStringLiteral("relatime"), {QStringLiteral("on"), QStringLiteral("off")}},
