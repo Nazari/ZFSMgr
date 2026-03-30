@@ -1,5 +1,12 @@
-1.(Hecho) Actualizar automáticamente aquellos GSA de conexiones que se hayan quedado obsoletos por un cambio en una conexión.
-2. Evaluar la precarga completa de información de propiedades de pool y datasets
-3. (Hecho)Mostrar en el tab GSA la información sobre conexiones que tiene esa conexión
-4. Cuando selecciono una fila del tab de conexiones se marca en azul, escondiendo el color verde, naranja y rojo
-5. confeccionar un juego completo de pruebas.
+Listado de cambios.
+
+1. Activo el menu contextual sobre el nodo dual pool/dataset debe mostrar greyed-out la opción de Borrar dataset
+2. El menú rename si se refiere a un nodo dual pool/dataset; debe avisar que para renombrar un pool es necesario exportarlo y volver a importarlo para poder renombrar
+3. He creado un set de permisos (se llama Full) en mbp::tank1, luego he creado una Delegacion de permisos sobre mbp::tank1/user, pero no me aparece el set de permisos Full para asignar. Los set de permisos son heredables.
+4. El nodo 'Permisos' no está traducido al inglés. Su hijos tampoco: Deleg. (debe ser Delegación), Nuevos DS (debe ser Permisos por defecto para nuevos hijos), y Conjuntos tampoco están traducidos al inglés.
+5. Los nodos 'Propiedades del dataset' a veces muestran información, a veces no. Además la propiedades de dataset del nodo dual no usan el mismo conjunto de propiedades visibles de datasets del resto.
+6. Hay que retirar el check 'Mostrar datasets programados', se deben visualizar siempre, pero en el listado de snapshots que se despliega cuando el cursor pasa por encima de 'Select snapshot', deben aparecer primero los que no son GSA, luego hay que agrupar en varios menús los snapshots en Horarios, Diarios, Semanales, etc.; de tal forma que si me posiciono dentro del item 'Horarios' se me despliguen los snapshots que son diarios.
+7. Si un dataset tiene la programación de snapshot gestionada desde ancestro, no debe salir el nodo 'Programar snapshot' incluso si la opción de visualización correspndiente está activa.
+8. Cuando estoy editando un valor de propiedad inline, si presiono 'Tab', el foco debería moverse a la siguiente propiedad editable leyendo de izquierda a derecha y de arriba a abajo.
+9. En el nodo pool, solo si los dos checks 'Mostrar información del pool' y 'Mostrar datasets programados', se muestra el nodo 'Datasets programados'. Tiene que ser suficiente que esté marcado el check 'Mostrar datasets programados' para que 'Dataset programaods' se muestre.
+
