@@ -83,7 +83,7 @@ void MainWindow::updateConnectionActionsState() {
     if (m_btnConnCopy) m_btnConnCopy->setText(
         trk(QStringLiteral("t_copy_001"), QStringLiteral("Copiar"), QStringLiteral("Copy"), QStringLiteral("复制")));
     if (m_btnConnClone) m_btnConnClone->setText(
-        trk(QStringLiteral("t_clone_btn_001"), QStringLiteral("Clonar")));
+        trk(QStringLiteral("t_clone_btn_001"), QStringLiteral("Clonar"), QStringLiteral("Clone"), QStringLiteral("克隆")));
     if (m_btnConnMove) m_btnConnMove->setText(
         trk(QStringLiteral("t_move_btn_001"), QStringLiteral("Mover"), QStringLiteral("Move"), QStringLiteral("移动")));
     if (m_btnConnDiff) m_btnConnDiff->setText(

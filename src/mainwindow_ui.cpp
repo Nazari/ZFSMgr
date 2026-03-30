@@ -1332,12 +1332,11 @@ void MainWindow::buildUi() {
     auto* topArea = new QWidget(central);
     auto* topLayout = new QVBoxLayout(topArea);
     topLayout->setContentsMargins(0, 0, 0, 0);
-    topLayout->setSpacing(0);
-    m_topMainSplit = new QSplitter(Qt::Horizontal, topArea);
-    m_topMainSplit->setChildrenCollapsible(true);
-    m_topMainSplit->setHandleWidth(4);
+    topLayout->setSpacing(6);
+    m_topMainSplit = nullptr;
+    m_rightMainSplit = nullptr;
 
-    auto* leftPane = new QWidget(m_topMainSplit);
+    auto* leftPane = new QWidget(topArea);
     auto* leftLayout = new QVBoxLayout(leftPane);
     leftLayout->setContentsMargins(0, 0, 0, 0);
     leftLayout->setSpacing(4);
@@ -1368,19 +1367,30 @@ void MainWindow::buildUi() {
 
     m_connActionsBox = new QGroupBox(
         trk(QStringLiteral("t_actions_box_001"),
-            QStringLiteral("Datasets seleccionados"),
-            QStringLiteral("Selected datasets"),
-            QStringLiteral("已选数据集")),
+            QStringLiteral("Acciones"),
+            QStringLiteral("Actions"),
+            QStringLiteral("操作")),
         connectionsTab);
     m_connActionsBox->setFont(QApplication::font());
+    m_connActionsBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     auto* connActionsLayout = new QVBoxLayout(m_connActionsBox);
     connActionsLayout->setContentsMargins(6, 8, 6, 6);
     connActionsLayout->setSpacing(6);
 
+    auto* selectionRow = new QWidget(connectionsTab);
+    selectionRow->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    auto* selectionRowLayout = new QHBoxLayout(selectionRow);
+    selectionRowLayout->setContentsMargins(2, 2, 2, 2);
+    selectionRowLayout->setSpacing(6);
     auto* connActionRightBox = new QWidget(m_connActionsBox);
-    auto* connActionRightLayout = new QVBoxLayout(connActionRightBox);
+    connActionRightBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    auto* connActionRightLayout = new QHBoxLayout(connActionRightBox);
     connActionRightLayout->setContentsMargins(2, 2, 2, 2);
     connActionRightLayout->setSpacing(6);
+    auto* actionButtonsBox = new QWidget(connActionRightBox);
+    auto* actionButtonsLayout = new QVBoxLayout(actionButtonsBox);
+    actionButtonsLayout->setContentsMargins(0, 0, 0, 0);
+    actionButtonsLayout->setSpacing(6);
     m_connOriginSelectionLabel = new QLabel(
         trk(QStringLiteral("t_conn_origin_sel1"),
             QStringLiteral("Origen:(vacío)"),
@@ -1390,7 +1400,7 @@ void MainWindow::buildUi() {
     m_connOriginSelectionLabel->setWordWrap(true);
     m_connOriginSelectionLabel->setMinimumHeight(18);
     m_connOriginSelectionLabel->setFont(baseUiFont);
-    connActionRightLayout->addWidget(m_connOriginSelectionLabel);
+    selectionRowLayout->addWidget(m_connOriginSelectionLabel, 1);
     m_connDestSelectionLabel = new QLabel(
         trk(QStringLiteral("t_conn_dest_sel01"),
             QStringLiteral("Destino:(vacío)"),
@@ -1400,7 +1410,7 @@ void MainWindow::buildUi() {
     m_connDestSelectionLabel->setWordWrap(true);
     m_connDestSelectionLabel->setMinimumHeight(18);
     m_connDestSelectionLabel->setFont(baseUiFont);
-    connActionRightLayout->addWidget(m_connDestSelectionLabel);
+    selectionRowLayout->addWidget(m_connDestSelectionLabel, 1);
     m_btnApplyConnContentProps = new TooltipPushButton(
         trk(QStringLiteral("t_apply_changes_001"),
             QStringLiteral("Aplicar cambios"),
@@ -1423,7 +1433,9 @@ void MainWindow::buildUi() {
     m_btnConnCopy->setObjectName(QStringLiteral("connCopyButton"));
     m_btnConnClone = new QPushButton(
         trk(QStringLiteral("t_clone_btn_001"),
-            QStringLiteral("Clonar")),
+            QStringLiteral("Clonar"),
+            QStringLiteral("Clone"),
+            QStringLiteral("克隆")),
         connActionRightBox);
     m_btnConnClone->setObjectName(QStringLiteral("connCloneButton"));
     m_btnConnMove = new QPushButton(
@@ -1531,19 +1543,87 @@ void MainWindow::buildUi() {
     connRightBtns->addWidget(m_btnConnMove, 1, 1);
     connRightBtns->addWidget(m_btnConnLevel, 2, 0);
     connRightBtns->addWidget(m_btnConnDiff, 2, 1);
-    connActionRightLayout->addLayout(connRightBtns);
-    connActionsLayout->addWidget(connActionRightBox, 0);
-    connLayout->addWidget(m_connActionsBox, 0);
+    actionButtonsLayout->addLayout(connRightBtns);
+    const int actionButtonsMinHeight = (stdLeftBtnH * 3) + (connRightBtns->verticalSpacing() * 2);
+    actionButtonsBox->setMinimumHeight(actionButtonsMinHeight);
+    actionButtonsBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+
+    auto* pendingChangesBox = new QGroupBox(
+        trk(QStringLiteral("t_pending_changes_tab001"),
+            QStringLiteral("Cambios pendientes"),
+            QStringLiteral("Pending changes"),
+            QStringLiteral("待处理更改")),
+        m_connActionsBox);
+    auto* pendingChangesLayout = new QVBoxLayout(pendingChangesBox);
+    pendingChangesLayout->setContentsMargins(6, 6, 6, 6);
+    pendingChangesLayout->setSpacing(4);
+    auto* pendingChangesBody = new QHBoxLayout();
+    pendingChangesBody->setContentsMargins(0, 0, 0, 0);
+    pendingChangesBody->setSpacing(6);
+    auto* pendingButtonsCol = new QVBoxLayout();
+    pendingButtonsCol->setContentsMargins(0, 0, 0, 0);
+    pendingButtonsCol->setSpacing(4);
+    m_btnApplyConnContentProps->setParent(pendingChangesBox);
+    m_btnApplyConnContentProps->setAttribute(Qt::WA_TransparentForMouseEvents, false);
+    m_btnDiscardPendingChanges->setParent(pendingChangesBox);
+    pendingButtonsCol->addWidget(m_btnApplyConnContentProps, 0, Qt::AlignLeft | Qt::AlignTop);
+    pendingButtonsCol->addWidget(m_btnDiscardPendingChanges, 0, Qt::AlignLeft | Qt::AlignTop);
+    pendingButtonsCol->addStretch(1);
+    pendingChangesBody->addLayout(pendingButtonsCol, 0);
+    m_pendingChangesView = new QPlainTextEdit(pendingChangesBox);
+    m_pendingChangesView->setReadOnly(true);
+    m_pendingChangesView->setLineWrapMode(QPlainTextEdit::WidgetWidth);
+    m_pendingChangesView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_pendingChangesView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_pendingChangesView->setMinimumHeight(0);
+    m_pendingChangesView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::MinimumExpanding);
+    connect(m_pendingChangesView, &QPlainTextEdit::cursorPositionChanged, this, [this]() {
+        activatePendingChangeAtCursor();
+    });
+    m_pendingChangesView->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_pendingChangesView, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        if (!m_pendingChangesView) {
+            return;
+        }
+        QTextCursor cursor = m_pendingChangesView->cursorForPosition(pos);
+        m_pendingChangesView->setTextCursor(cursor);
+        const QString line = cursor.block().text().trimmed();
+        if (line.isEmpty()) {
+            return;
+        }
+        QMenu menu(m_pendingChangesView);
+        QAction* aExecute = menu.addAction(QStringLiteral("Ejecutar"));
+        QAction* aDelete = menu.addAction(QStringLiteral("Eliminar"));
+        QAction* picked = menu.exec(m_pendingChangesView->viewport()->mapToGlobal(pos));
+        if (picked == aExecute) {
+            executePendingQueuedChangeLine(line);
+        } else if (picked == aDelete) {
+            removePendingQueuedChangeLine(line);
+        }
+    });
+    pendingChangesBody->addWidget(m_pendingChangesView, 1);
+    pendingChangesLayout->addLayout(pendingChangesBody, 1);
+    pendingChangesBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::MinimumExpanding);
+    pendingChangesBox->setMinimumHeight(0);
+    pendingChangesBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    connActionRightLayout->addWidget(actionButtonsBox, 0);
+    connActionRightLayout->addWidget(pendingChangesBox, 1);
+    connActionRightLayout->setStretch(0, 0);
+    connActionRightLayout->setStretch(1, 1);
+    connActionsLayout->addWidget(connActionRightBox, 1);
+    connLayout->addWidget(selectionRow, 0);
+    connLayout->addWidget(m_connActionsBox, 1);
     connectionsTab->setLayout(connLayout);
 
     // Legacy left "Datasets" tab removed from UI.
     // Legacy "advanced" layer removed from visible UI.
-    const int actionsBoxHeight = qMax(130, m_connActionsBox ? m_connActionsBox->sizeHint().height() : 130);
+    const int actionsBoxHeight = actionButtonsMinHeight + 12;
     if (m_poolMgmtBox) {
         m_poolMgmtBox->setFixedHeight(actionsBoxHeight);
     }
     if (m_connActionsBox) {
         m_connActionsBox->setMinimumHeight(actionsBoxHeight);
+        m_connActionsBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     }
     m_btnAdvancedBreakdown = nullptr;
     m_btnAdvancedAssemble = nullptr;
@@ -1552,11 +1632,7 @@ void MainWindow::buildUi() {
 
     leftLayout->addWidget(connectionsTab, 1);
 
-    auto* rightPane = new QWidget(m_topMainSplit);
-    auto* rightLayout = new QVBoxLayout(rightPane);
-    rightLayout->setContentsMargins(0, 0, 0, 0);
-    rightLayout->setSpacing(4);
-    m_rightStack = new QStackedWidget(rightPane);
+    m_rightStack = new QStackedWidget(topArea);
 
     auto* rightConnectionsPage = new QWidget(m_rightStack);
     auto* rightConnectionsLayout = new QVBoxLayout(rightConnectionsPage);
@@ -1703,10 +1779,6 @@ void MainWindow::buildUi() {
     rightConnectionsLayout->addWidget(entityFrame, 1);
 
     m_rightStack->addWidget(rightConnectionsPage);
-    m_rightMainSplit = new QSplitter(Qt::Vertical, rightPane);
-    m_rightMainSplit->setChildrenCollapsible(false);
-    m_rightMainSplit->setHandleWidth(4);
-    m_rightMainSplit->addWidget(m_rightStack);
     delete m_bottomConnContentDelegate;
     m_bottomConnContentDelegate = nullptr;
     m_bottomDatasetTreeWidget = nullptr;
@@ -1778,17 +1850,6 @@ void MainWindow::buildUi() {
         });
     };
     installTreeHeaderContextMenu(m_connContentTree);
-    m_rightMainSplit->setStretchFactor(0, 1);
-    m_rightMainSplit->setStretchFactor(1, 1);
-    m_rightMainSplit->setSizes({900, 220});
-    rightLayout->addWidget(m_rightMainSplit, 1);
-
-    m_topMainSplit->addWidget(leftPane);
-    m_topMainSplit->addWidget(rightPane);
-    m_topMainSplit->setStretchFactor(0, 0);
-    m_topMainSplit->setStretchFactor(1, 1);
-    m_topMainSplit->setSizes({leftFixedWidth, qMax(leftFixedWidth * 2, width() - leftFixedWidth)});
-    topLayout->addWidget(m_topMainSplit, 1);
 
     m_logsTabs = new QTabWidget(central);
     m_logsTabs->setObjectName(QStringLiteral("zfsmgrLogTabs"));
@@ -1801,58 +1862,59 @@ void MainWindow::buildUi() {
     QFont combinedLogFont = baseUiFont;
     combinedLogFont.setPointSize(qMax(6, baseUiFont.pointSize() - 2));
 
-    auto* stateProgressBox = new QGroupBox(
-        trk(QStringLiteral("t_state_progress_col_001"),
-            QStringLiteral("Estado y progreso"),
-            QStringLiteral("Status and progress"),
-            QStringLiteral("状态和进度")),
-        connectionsTab);
-    auto* stateProgressLayout = new QVBoxLayout(stateProgressBox);
-    stateProgressLayout->setContentsMargins(6, 6, 6, 6);
+    auto* stateProgressRow = new QWidget(topArea);
+    auto* stateProgressLayout = new QHBoxLayout(stateProgressRow);
+    stateProgressLayout->setContentsMargins(0, 0, 0, 0);
     stateProgressLayout->setSpacing(4);
-    auto* statusBox = new QGroupBox(trk(QStringLiteral("t_status_col_001"),
-                                        QStringLiteral("Estado"),
-                                        QStringLiteral("Status"),
-                                        QStringLiteral("状态")),
-                                    stateProgressBox);
-    auto* statusLayout = new QVBoxLayout(statusBox);
-    statusLayout->setContentsMargins(6, 6, 6, 6);
-    statusLayout->setSpacing(4);
-    m_statusText = new QTextEdit(statusBox);
+    auto* statusWrap = new QWidget(stateProgressRow);
+    auto* statusLayout = new QHBoxLayout(statusWrap);
+    statusLayout->setContentsMargins(0, 0, 0, 0);
+    statusLayout->setSpacing(6);
+    auto* statusLabel = new QLabel(trk(QStringLiteral("t_status_col_001"),
+                                       QStringLiteral("Estado"),
+                                       QStringLiteral("Status"),
+                                       QStringLiteral("状态")),
+                                   statusWrap);
+    m_statusText = new QTextEdit(statusWrap);
     m_statusText->setFont(combinedLogFont);
     m_statusText->setReadOnly(true);
     m_statusText->setAcceptRichText(false);
-    m_statusText->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    m_statusText->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_statusText->setLineWrapMode(QTextEdit::WidgetWidth);
+    m_statusText->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_statusText->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_statusText->setLineWrapMode(QTextEdit::NoWrap);
     m_statusText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
-    m_statusText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_statusText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_statusText->setFixedHeight(30);
     m_statusText->setPlainText(trk(QStringLiteral("t_status_loading_001"),
                                    QStringLiteral("Loading..."),
                                    QStringLiteral("Loading..."),
                                    QStringLiteral("加载中...")));
+    statusLayout->addWidget(statusLabel, 0);
     statusLayout->addWidget(m_statusText, 1);
 
-    auto* detailBox = new QGroupBox(trk(QStringLiteral("t_detail_lbl001"),
-                                        QStringLiteral("Progreso"),
-                                        QStringLiteral("Progress"),
-                                        QStringLiteral("进度")),
-                                    stateProgressBox);
-    auto* detailLayout = new QVBoxLayout(detailBox);
-    detailLayout->setContentsMargins(6, 6, 6, 6);
-    detailLayout->setSpacing(4);
-    m_lastDetailText = new QTextEdit(detailBox);
+    auto* detailWrap = new QWidget(stateProgressRow);
+    auto* detailLayout = new QHBoxLayout(detailWrap);
+    detailLayout->setContentsMargins(0, 0, 0, 0);
+    detailLayout->setSpacing(6);
+    auto* detailLabel = new QLabel(trk(QStringLiteral("t_detail_lbl001"),
+                                       QStringLiteral("Progreso"),
+                                       QStringLiteral("Progress"),
+                                       QStringLiteral("进度")),
+                                   detailWrap);
+    m_lastDetailText = new QTextEdit(detailWrap);
     m_lastDetailText->setFont(combinedLogFont);
     m_lastDetailText->setReadOnly(true);
     m_lastDetailText->setAcceptRichText(false);
-    m_lastDetailText->setLineWrapMode(QTextEdit::WidgetWidth);
-    m_lastDetailText->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    m_lastDetailText->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_lastDetailText->setLineWrapMode(QTextEdit::NoWrap);
+    m_lastDetailText->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_lastDetailText->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_lastDetailText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
-    m_lastDetailText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_lastDetailText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_lastDetailText->setFixedHeight(30);
+    detailLayout->addWidget(detailLabel, 0);
     detailLayout->addWidget(m_lastDetailText, 1);
-    stateProgressLayout->addWidget(statusBox, 1);
-    stateProgressLayout->addWidget(detailBox, 1);
+    stateProgressLayout->addWidget(statusWrap, 1);
+    stateProgressLayout->addWidget(detailWrap, 3);
 
     auto* appLogBox = new QGroupBox(trk(QStringLiteral("t_app_tab_001"),
                                         QStringLiteral("Aplicación"),
@@ -1870,67 +1932,31 @@ void MainWindow::buildUi() {
     m_logView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_logView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     appLogLayout->addWidget(m_logView, 1);
-    stateProgressBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    stateProgressRow->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     appLogBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     logLayout->addWidget(appLogBox, 1);
-    connLayout->addWidget(stateProgressBox, 1);
 
-    auto* pendingChangesBox = new QGroupBox(
-        trk(QStringLiteral("t_pending_changes_tab001"),
-            QStringLiteral("Cambios pendientes"),
-            QStringLiteral("Pending changes"),
-            QStringLiteral("待处理更改")),
-        rightConnectionsPage);
-    auto* pendingChangesLayout = new QVBoxLayout(pendingChangesBox);
-    pendingChangesLayout->setContentsMargins(6, 6, 6, 6);
-    pendingChangesLayout->setSpacing(4);
-    auto* pendingChangesBody = new QHBoxLayout();
-    pendingChangesBody->setContentsMargins(0, 0, 0, 0);
-    pendingChangesBody->setSpacing(6);
-    auto* pendingButtonsCol = new QVBoxLayout();
-    pendingButtonsCol->setContentsMargins(0, 0, 0, 0);
-    pendingButtonsCol->setSpacing(4);
-    m_btnApplyConnContentProps->setParent(pendingChangesBox);
-    m_btnApplyConnContentProps->setAttribute(Qt::WA_TransparentForMouseEvents, false);
-    m_btnDiscardPendingChanges->setParent(pendingChangesBox);
-    pendingButtonsCol->addWidget(m_btnApplyConnContentProps, 0, Qt::AlignLeft | Qt::AlignTop);
-    pendingButtonsCol->addWidget(m_btnDiscardPendingChanges, 0, Qt::AlignLeft | Qt::AlignTop);
-    pendingButtonsCol->addStretch(1);
-    pendingChangesBody->addLayout(pendingButtonsCol, 0);
-    m_pendingChangesView = new QPlainTextEdit(pendingChangesBox);
-    m_pendingChangesView->setReadOnly(true);
-    m_pendingChangesView->setLineWrapMode(QPlainTextEdit::WidgetWidth);
-    m_pendingChangesView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    m_pendingChangesView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    connect(m_pendingChangesView, &QPlainTextEdit::cursorPositionChanged, this, [this]() {
-        activatePendingChangeAtCursor();
-    });
-    m_pendingChangesView->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_pendingChangesView, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
-        if (!m_pendingChangesView) {
-            return;
-        }
-        QTextCursor cursor = m_pendingChangesView->cursorForPosition(pos);
-        m_pendingChangesView->setTextCursor(cursor);
-        const QString line = cursor.block().text().trimmed();
-        if (line.isEmpty()) {
-            return;
-        }
-        QMenu menu(m_pendingChangesView);
-        QAction* aExecute = menu.addAction(QStringLiteral("Ejecutar"));
-        QAction* aDelete = menu.addAction(QStringLiteral("Eliminar"));
-        QAction* picked = menu.exec(m_pendingChangesView->viewport()->mapToGlobal(pos));
-        if (picked == aExecute) {
-            executePendingQueuedChangeLine(line);
-        } else if (picked == aDelete) {
-            removePendingQueuedChangeLine(line);
-        }
-    });
-    pendingChangesBody->addWidget(m_pendingChangesView, 1);
-    pendingChangesLayout->addLayout(pendingChangesBody, 1);
-    pendingChangesBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    pendingChangesBox->setMinimumHeight(0);
-    rightConnectionsLayout->addWidget(pendingChangesBox, 0);
+    leftPane->setMinimumHeight(stateProgressRow->sizeHint().height() + actionsBoxHeight + 2);
+    leftPane->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    leftPane->setMaximumWidth(QWIDGETSIZE_MAX);
+    auto* topBottomPane = new QWidget(topArea);
+    auto* topBottomLayout = new QVBoxLayout(topBottomPane);
+    topBottomLayout->setContentsMargins(0, 0, 0, 0);
+    topBottomLayout->setSpacing(6);
+    topBottomLayout->addWidget(stateProgressRow, 0);
+    topBottomLayout->addWidget(leftPane, 1);
+    const int defaultBottomInfoMinHeight = stateProgressRow->sizeHint().height() + actionsBoxHeight + 2;
+    topBottomPane->setMinimumHeight(defaultBottomInfoMinHeight);
+
+    m_bottomInfoSplit = new QSplitter(Qt::Vertical, topArea);
+    m_bottomInfoSplit->setChildrenCollapsible(false);
+    m_bottomInfoSplit->setHandleWidth(4);
+    m_bottomInfoSplit->addWidget(m_rightStack);
+    m_bottomInfoSplit->addWidget(topBottomPane);
+    m_bottomInfoSplit->setStretchFactor(0, 1);
+    m_bottomInfoSplit->setStretchFactor(1, 0);
+    m_bottomInfoSplit->setSizes({700, 220});
+    topLayout->addWidget(m_bottomInfoSplit, 1);
 
     loadPersistedAppLogToView();
 
@@ -1960,7 +1986,7 @@ void MainWindow::buildUi() {
     root->addWidget(m_verticalMainSplit, 1);
 
     setCentralWidget(central);
-    QTimer::singleShot(0, this, [this]() {
+    QTimer::singleShot(0, this, [this, topBottomPane]() {
         if (!m_mainWindowGeometryState.isEmpty()) {
             restoreGeometry(m_mainWindowGeometryState);
         }
@@ -1969,6 +1995,13 @@ void MainWindow::buildUi() {
         }
         if (m_rightMainSplit && !m_rightMainSplitState.isEmpty()) {
             m_rightMainSplit->restoreState(m_rightMainSplitState);
+        }
+        if (m_bottomInfoSplit && !m_bottomInfoSplitState.isEmpty()) {
+            m_bottomInfoSplit->restoreState(m_bottomInfoSplitState);
+            const QList<int> bottomInfoSizes = m_bottomInfoSplit->sizes();
+            if (bottomInfoSizes.size() >= 2 && bottomInfoSizes.at(1) > 0) {
+                topBottomPane->setMinimumHeight(bottomInfoSizes.at(1));
+            }
         }
         if (m_verticalMainSplit && !m_verticalMainSplitState.isEmpty()) {
             m_verticalMainSplit->restoreState(m_verticalMainSplitState);
@@ -3248,7 +3281,10 @@ void MainWindow::buildUi() {
             return;
         }
         m_activeConnActionBtn = m_btnConnClone;
-        m_activeConnActionName = trk(QStringLiteral("t_clone_btn_001"), QStringLiteral("Clonar"));
+        m_activeConnActionName = trk(QStringLiteral("t_clone_btn_001"),
+                                     QStringLiteral("Clonar"),
+                                     QStringLiteral("Clone"),
+                                     QStringLiteral("克隆"));
         logUiAction(QStringLiteral("Clonar snapshot (botón Conexiones)"));
         executeConnectionTransferAction(QStringLiteral("clone"));
         if (!actionsLocked()) {
