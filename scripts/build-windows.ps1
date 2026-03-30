@@ -389,6 +389,8 @@ function New-DefaultInnoScript([string]$path, [string]$version, [string]$sourceD
 AppId={{9A34D91D-B01A-4D0B-9CD9-3DF295C8DDB8}
 AppName=ZFSMgr
 AppVersion=$version
+PrivilegesRequired=admin
+PrivilegesRequiredOverridesAllowed=dialog
 DefaultDirName={autopf}\ZFSMgr
 DefaultGroupName=ZFSMgr
 OutputDir=$outputDir
