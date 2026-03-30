@@ -2427,6 +2427,47 @@ void MainWindow::clearAllPendingChanges() {
     }
     m_pendingChangesModel.clear();
     m_propsDirty = false;
+    if (m_connContentTree) {
+        auto refreshVisiblePermissionNodes = [this](QTreeWidget* tree) {
+            std::function<void(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* node) {
+                if (!node) {
+                    return;
+                }
+                const QString datasetName = node->data(0, Qt::UserRole).toString().trimmed();
+                const QString snapshotName = node->data(1, Qt::UserRole).toString().trimmed();
+                if (!datasetName.isEmpty() && snapshotName.isEmpty()) {
+                    bool hasVisiblePermissionsNode = false;
+                    for (int i = 0; i < node->childCount(); ++i) {
+                        QTreeWidgetItem* child = node->child(i);
+                        if (!child) {
+                            continue;
+                        }
+                        const QString label = child->text(0).trimmed();
+                        if (label == QStringLiteral("Permisos")
+                            || label == QStringLiteral("Permissions")
+                            || label == QStringLiteral("权限")) {
+                            hasVisiblePermissionsNode = true;
+                            break;
+                        }
+                    }
+                    if (hasVisiblePermissionsNode) {
+                        populateDatasetPermissionsNode(tree, node, false);
+                    }
+                }
+                for (int i = 0; i < node->childCount(); ++i) {
+                    rec(node->child(i));
+                }
+            };
+            for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+                rec(tree->topLevelItem(i));
+            }
+        };
+        refreshVisiblePermissionNodes(m_connContentTree);
+        const DatasetSelectionContext current = currentConnContentSelection(m_connContentTree);
+        if (current.valid) {
+            refreshConnContentPropertiesFor(m_connContentTree);
+        }
+    }
     updateApplyPropsButtonState();
 }
 

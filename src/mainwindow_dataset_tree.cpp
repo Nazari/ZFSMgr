@@ -190,6 +190,14 @@ bool isAutomaticGsaSnapshotName(const QString& snap) {
     return snap.trimmed().startsWith(QStringLiteral("GSA-"), Qt::CaseInsensitive);
 }
 
+bool gsaBoolOn(const QString& value) {
+    const QString normalized = value.trimmed().toLower();
+    return normalized == QStringLiteral("on")
+           || normalized == QStringLiteral("yes")
+           || normalized == QStringLiteral("true")
+           || normalized == QStringLiteral("1");
+}
+
 QString findCaseInsensitiveMapKey(const QMap<QString, QString>& map, const QString& wanted) {
     const QString target = wanted.trimmed();
     for (auto it = map.cbegin(); it != map.cend(); ++it) {
@@ -597,6 +605,45 @@ QWidget* wrapInlineCellEditor(QWidget* editor, QTreeWidget* tree) {
     return host;
 }
 
+QWidget* primaryInlineEditor(QWidget* host) {
+    if (!host || !host->layout() || host->layout()->count() <= 0) {
+        return nullptr;
+    }
+    QWidget* editor = host->layout()->itemAt(0) ? host->layout()->itemAt(0)->widget() : nullptr;
+    return (editor && editor->focusPolicy() != Qt::NoFocus) ? editor : nullptr;
+}
+
+void rebuildInlineEditorTabOrder(QTreeWidget* tree) {
+    if (!tree) {
+        return;
+    }
+    QList<QWidget*> editors;
+    std::function<void(QTreeWidgetItem*)> collect = [&](QTreeWidgetItem* item) {
+        if (!item) {
+            return;
+        }
+        if (item->data(0, kConnPropRowRole).toBool()
+            && item->data(0, kConnPropRowKindRole).toInt() == 2) {
+            for (int col = 4; col < tree->columnCount(); ++col) {
+                QWidget* host = tree->itemWidget(item, col);
+                QWidget* editor = primaryInlineEditor(host);
+                if (editor && editor->isEnabled() && editor->isVisible()) {
+                    editors.push_back(editor);
+                }
+            }
+        }
+        for (int i = 0; i < item->childCount(); ++i) {
+            collect(item->child(i));
+        }
+    };
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        collect(tree->topLevelItem(i));
+    }
+    for (int i = 0; i + 1 < editors.size(); ++i) {
+        QWidget::setTabOrder(editors.at(i), editors.at(i + 1));
+    }
+}
+
 QMap<QString, QStringList> connContentEnumValues() {
     return {
         {QStringLiteral("atime"), {QStringLiteral("on"), QStringLiteral("off")}},
@@ -906,7 +953,7 @@ void MainWindow::updateConnContentDraftInherit(const QString& token,
 }
 
 bool MainWindow::showAutomaticSnapshots() const {
-    return m_showAutomaticGsaSnapshots;
+    return true;
 }
 
 void MainWindow::syncConnContentPropertyColumnsFor(QTreeWidget* tree, const QString& token) {
@@ -1886,10 +1933,13 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
     }
     const QString mountpointForGsa = displayValues.value(QStringLiteral("mountpoint")).trimmed();
     const bool datasetSupportsGsa = !objectIsSnapshot && !mountpointForGsa.isEmpty() && mountpointForGsa != QStringLiteral("-");
-    if (datasetSupportsGsa && showInlineGsaNode) {
+    if (datasetSupportsGsa && showInlineGsaNode && recursiveGsaAncestor.isEmpty()) {
         if (!gsaNode) {
             gsaNode = new QTreeWidgetItem();
-            gsaNode->setText(0, QStringLiteral("Programar snapshots"));
+            gsaNode->setText(0, trk(QStringLiteral("t_inline_gsa_root_001"),
+                                    QStringLiteral("Programar snapshots"),
+                                    QStringLiteral("Schedule snapshots"),
+                                    QStringLiteral("计划快照")));
             gsaNode->setIcon(0, treeStandardIcon(QStyle::SP_BrowserReload));
             gsaNode->setData(0, kConnGsaNodeRole, true);
             gsaNode->setData(0, kConnPropGroupNodeRole, true);
@@ -1906,16 +1956,13 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
         if (!gsaInstalled) {
             auto* msgItem = new QTreeWidgetItem(gsaNode);
             msgItem->setText(0,
-                             QStringLiteral("Por favor instale el GSA en esta conexión desde la tabla Conexiones"));
+                             trk(QStringLiteral("t_gsa_install_needed_001"),
+                                 QStringLiteral("Por favor instale el GSA en esta conexión desde el menú de conexión."),
+                                 QStringLiteral("Please install GSA on this connection from the connection menu."),
+                                 QStringLiteral("请从连接菜单在此连接上安装 GSA。")));
             msgItem->setFlags(msgItem->flags() & ~Qt::ItemIsUserCheckable);
             msgItem->setFirstColumnSpanned(true);
             msgItem->setToolTip(0, msgItem->text(0));
-        } else if (!recursiveGsaAncestor.isEmpty()) {
-            auto* msgItem = new QTreeWidgetItem(gsaNode);
-            msgItem->setText(0, QStringLiteral("Programación gestionada desde ancestro"));
-            msgItem->setFlags(msgItem->flags() & ~Qt::ItemIsUserCheckable);
-            msgItem->setFirstColumnSpanned(true);
-            msgItem->setToolTip(0, QStringLiteral("Programación gestionada desde ancestro: %1").arg(recursiveGsaAncestor));
         } else {
             QMap<QString, QString> gsaValues;
             for (const QString& gsaProp : gsaUserProps()) {
@@ -1996,6 +2043,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
         refreshVisiblePermissionsNodes(refreshVisiblePermissionsNodes, tree->topLevelItem(i));
     }
     refreshDatasetExpansionIndicators(tree);
+    rebuildInlineEditorTabOrder(tree);
     sel->setExpanded(true);
     resizeTreeColumnsToVisibleContent(tree);
     m_syncingConnContentColumns = false;
@@ -2418,7 +2466,10 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
         infoNode->setText(0, QStringLiteral("Pool Information"));
 
         addSectionRows(infoNode,
-                       QStringLiteral("Dataset properties"),
+                       trk(QStringLiteral("t_pool_props_section_001"),
+                           QStringLiteral("Propiedades del pool"),
+                           QStringLiteral("Pool properties"),
+                           QStringLiteral("存储池属性")),
                        mainProps,
                        &values,
                        false,
@@ -2494,7 +2545,10 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
                     delete autoSnapsNode->takeChild(0);
                 }
             }
-            autoSnapsNode->setText(0, QStringLiteral("Datasets programados"));
+            autoSnapsNode->setText(0, trk(QStringLiteral("t_pool_auto_datasets_001"),
+                                          QStringLiteral("Datasets programados"),
+                                          QStringLiteral("Scheduled datasets"),
+                                          QStringLiteral("已计划数据集")));
             autoSnapsNode->setExpanded(false);
             for (const QString& datasetName : autoSnapshotDatasets) {
                 auto* dsItem = new QTreeWidgetItem(autoSnapsNode);
@@ -3097,6 +3151,25 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                || (cm != QStringLiteral("-") && !cm.isEmpty())
                || (mounted != QStringLiteral("-") && !mounted.isEmpty());
     };
+    auto recursiveGsaAncestorForDataset = [&](const QString& datasetName) {
+        QString current = datasetName.trimmed();
+        while (current.contains(QLatin1Char('/'))) {
+            current = current.section(QLatin1Char('/'), 0, -2);
+            const auto itAncestor = poolInfo->objectsByFullName.constFind(current);
+            if (itAncestor == poolInfo->objectsByFullName.cend()) {
+                continue;
+            }
+            const auto& props = itAncestor->runtime.properties;
+            const QString activeKey = findCaseInsensitiveMapKey(props, QStringLiteral("org.fc16.gsa:activado"));
+            const QString recursiveKey = findCaseInsensitiveMapKey(props, QStringLiteral("org.fc16.gsa:recursivo"));
+            if (!activeKey.isEmpty() && !recursiveKey.isEmpty()
+                && gsaBoolOn(props.value(activeKey))
+                && gsaBoolOn(props.value(recursiveKey))) {
+                return current;
+            }
+        }
+        return QString();
+    };
     auto buildDatasetItem = [&](const DSInfo& dsInfo, auto&& buildDatasetItemRef) -> QTreeWidgetItem* {
         auto* item = new QTreeWidgetItem();
         const QString fullName = dsInfo.key.fullName.trimmed();
@@ -3148,7 +3221,10 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         }
         if (options.showInlinePermissionsNodes) {
             auto* permissionsNode = new QTreeWidgetItem(item);
-            permissionsNode->setText(0, QStringLiteral("Permisos"));
+            permissionsNode->setText(0, trk(QStringLiteral("t_permissions_node_001"),
+                                            QStringLiteral("Permisos"),
+                                            QStringLiteral("Permissions"),
+                                            QStringLiteral("权限")));
             permissionsNode->setIcon(0, treeStandardIcon(QStyle::SP_DialogYesButton));
             permissionsNode->setData(0, kConnPermissionsNodeRole, true);
             permissionsNode->setData(0, kConnPermissionsKindRole, QStringLiteral("root"));
@@ -3157,9 +3233,13 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             permissionsNode->setFlags(permissionsNode->flags() & ~Qt::ItemIsUserCheckable);
             permissionsNode->setExpanded(false);
         }
-        if (isFilesystemObject(dsInfo) && options.showInlineGsaNode) {
+        if (isFilesystemObject(dsInfo) && options.showInlineGsaNode
+            && recursiveGsaAncestorForDataset(fullName).isEmpty()) {
             auto* gsaNode = new QTreeWidgetItem(item);
-            gsaNode->setText(0, QStringLiteral("Programar snapshots"));
+            gsaNode->setText(0, trk(QStringLiteral("t_inline_gsa_root_001"),
+                                    QStringLiteral("Programar snapshots"),
+                                    QStringLiteral("Schedule snapshots"),
+                                    QStringLiteral("计划快照")));
             gsaNode->setIcon(0, treeStandardIcon(QStyle::SP_BrowserReload));
             gsaNode->setData(0, kConnGsaNodeRole, true);
             gsaNode->setData(0, kConnPropGroupNodeRole, true);

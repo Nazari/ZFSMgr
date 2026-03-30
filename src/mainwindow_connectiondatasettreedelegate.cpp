@@ -52,6 +52,19 @@ QString datasetLeafNameUi(const QString& datasetName) {
     return (slash >= 0) ? trimmed.mid(slash + 1) : trimmed;
 }
 
+QString gsaSnapshotClass(const QString& snapshotName) {
+    const QString trimmed = snapshotName.trimmed();
+    if (!trimmed.startsWith(QStringLiteral("GSA-"), Qt::CaseInsensitive)) {
+        return QString();
+    }
+    const int firstDash = trimmed.indexOf(QLatin1Char('-'));
+    const int secondDash = trimmed.indexOf(QLatin1Char('-'), firstDash + 1);
+    if (firstDash < 0 || secondDash <= firstDash + 1) {
+        return QString();
+    }
+    return trimmed.mid(firstDash + 1, secondDash - firstDash - 1).trimmed().toLower();
+}
+
 int connectionTableRowForIndex(QTableWidget* table, int connIdx) {
     if (!table || connIdx < 0) {
         return -1;
@@ -436,9 +449,6 @@ MainWindowConnectionDatasetTreeDelegate::buildPoolRootMenu(QMenu& menu, QTreeWid
     actions.showPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del Pool"));
     actions.showPoolInfo->setCheckable(true);
     actions.showPoolInfo->setChecked(m_mainWindow->showPoolInfoNodeForTree(tree));
-    actions.showAutoGsa = menu.addAction(QStringLiteral("Mostrar Datasets programados"));
-    actions.showAutoGsa->setCheckable(true);
-    actions.showAutoGsa->setChecked(m_mainWindow->showAutomaticSnapshots());
     return actions;
 }
 
@@ -472,11 +482,7 @@ MainWindowConnectionDatasetTreeDelegate::buildInlineVisibilityMenu(QMenu& menu,
     actions.showInlineGsa = inlineMenu->addAction(QStringLiteral("Programar snapshots"));
     actions.showInlineGsa->setCheckable(true);
     actions.showInlineGsa->setChecked(m_mainWindow->showInlineGsaNodeForTree(tree));
-    if (includeAutoGsa) {
-        actions.showAutoGsa = menu.addAction(QStringLiteral("Mostrar Datasets programados"));
-        actions.showAutoGsa->setCheckable(true);
-        actions.showAutoGsa->setChecked(m_mainWindow->showAutomaticSnapshots());
-    }
+    Q_UNUSED(includeAutoGsa);
     return actions;
 }
 
@@ -2010,10 +2016,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             focusContextItemForInlineVisibility(tree, item);
             m_mainWindow->setShowInlineGsaNodeForTree(tree, inlineActions.showInlineGsa->isChecked());
             applyInlineSectionVisibility(tree, menuToken);
-        } else if (picked == inlineActions.showAutoGsa) {
-            focusContextItemForInlineVisibility(tree, item);
-            m_mainWindow->m_showAutomaticGsaSnapshots = inlineActions.showAutoGsa->isChecked();
-            applyInlineSectionVisibility(tree, menuToken);
         }
         return;
     }
@@ -2050,12 +2052,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     QAction* aUnloadKey = mEncryption->addAction(QStringLiteral("Unload key"));
     QAction* aChangeKey = mEncryption->addAction(QStringLiteral("Change key"));
     menu.addSeparator();
-    QAction* aShowAutoGsa = nullptr;
-    if (!isPoolRoot) {
-        aShowAutoGsa = menu.addAction(QStringLiteral("Mostrar Datasets programados"));
-        aShowAutoGsa->setCheckable(true);
-        aShowAutoGsa->setChecked(m_mainWindow->showAutomaticSnapshots());
-    }
     QMenu* mSelectSnapshot = menu.addMenu(
         m_mainWindow->trk(QStringLiteral("t_ctx_sel_snap001"),
                           QStringLiteral("Seleccionar snapshot"),
@@ -2066,6 +2062,15 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     {
         const QStringList snaps = item->data(1, Qt::UserRole + 1).toStringList();
         const QString currentSnap = item->data(1, Qt::UserRole).toString().trimmed();
+        auto addSnapshotAction = [&](QMenu* targetMenu, const QString& snapName) {
+            if (!targetMenu) {
+                return;
+            }
+            QAction* sa = targetMenu->addAction(snapName);
+            sa->setCheckable(true);
+            sa->setChecked(snapName == currentSnap);
+            snapshotActions.insert(sa, snapName);
+        };
         if (!snaps.isEmpty()) {
             QAction* noneAct = mSelectSnapshot->addAction(QStringLiteral("(ninguno)"));
             noneAct->setCheckable(true);
@@ -2073,15 +2078,70 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             snapshotActions.insert(noneAct, QString());
             mSelectSnapshot->addSeparator();
         }
+        QStringList manualSnapshots;
+        QMap<QString, QStringList> gsaSnapshotsByClass;
         for (const QString& s : snaps) {
             const QString snapName = s.trimmed();
             if (snapName.isEmpty()) {
                 continue;
             }
-            QAction* sa = mSelectSnapshot->addAction(snapName);
-            sa->setCheckable(true);
-            sa->setChecked(snapName == currentSnap);
-            snapshotActions.insert(sa, snapName);
+            const QString klass = gsaSnapshotClass(snapName);
+            if (klass.isEmpty()) {
+                manualSnapshots.push_back(snapName);
+            } else {
+                gsaSnapshotsByClass[klass].push_back(snapName);
+            }
+        }
+        for (const QString& snapName : manualSnapshots) {
+            addSnapshotAction(mSelectSnapshot, snapName);
+        }
+        auto addGsaGroup = [&](const QString& klass,
+                               const QString& es,
+                               const QString& en,
+                               const QString& zh) {
+            const QStringList grouped = gsaSnapshotsByClass.value(klass);
+            if (grouped.isEmpty()) {
+                return;
+            }
+            QMenu* sub = mSelectSnapshot->addMenu(m_mainWindow->trk(
+                QStringLiteral("t_ctx_snap_group_%1").arg(klass), es, en, zh));
+            for (const QString& snapName : grouped) {
+                addSnapshotAction(sub, snapName);
+            }
+        };
+        addGsaGroup(QStringLiteral("hourly"),
+                    QStringLiteral("Horarios"),
+                    QStringLiteral("Hourly"),
+                    QStringLiteral("每小时"));
+        addGsaGroup(QStringLiteral("daily"),
+                    QStringLiteral("Diarios"),
+                    QStringLiteral("Daily"),
+                    QStringLiteral("每日"));
+        addGsaGroup(QStringLiteral("weekly"),
+                    QStringLiteral("Semanales"),
+                    QStringLiteral("Weekly"),
+                    QStringLiteral("每周"));
+        addGsaGroup(QStringLiteral("monthly"),
+                    QStringLiteral("Mensuales"),
+                    QStringLiteral("Monthly"),
+                    QStringLiteral("每月"));
+        addGsaGroup(QStringLiteral("yearly"),
+                    QStringLiteral("Anuales"),
+                    QStringLiteral("Yearly"),
+                    QStringLiteral("每年"));
+        for (auto it = gsaSnapshotsByClass.cbegin(); it != gsaSnapshotsByClass.cend(); ++it) {
+            const QString klass = it.key();
+            if (klass == QStringLiteral("hourly")
+                || klass == QStringLiteral("daily")
+                || klass == QStringLiteral("weekly")
+                || klass == QStringLiteral("monthly")
+                || klass == QStringLiteral("yearly")) {
+                continue;
+            }
+            QMenu* sub = mSelectSnapshot->addMenu(klass);
+            for (const QString& snapName : it.value()) {
+                addSnapshotAction(sub, snapName);
+            }
         }
     }
     mSelectSnapshot->setEnabled(!m_mainWindow->actionsLocked() && !snapshotActions.isEmpty());
@@ -2160,7 +2220,10 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         aRename->setEnabled(!m_mainWindow->actionsLocked() && hasConnSel);
         aNewHold->setEnabled(!m_mainWindow->actionsLocked() && hasConnSnap);
         aReleaseHold->setEnabled(!m_mainWindow->actionsLocked() && hasConnSnap && isSnapshotHoldContext);
-        aDelete->setEnabled(!m_mainWindow->actionsLocked() && hasConnSel);
+    aDelete->setEnabled(!m_mainWindow->actionsLocked() && hasConnSel);
+    if (isPoolRoot) {
+        aDelete->setEnabled(false);
+    }
         aBreakdown->setEnabled(!m_mainWindow->actionsLocked() && m_mainWindow->connAdvancedDatasetActionAllowed(mwSelCtx));
         aAssemble->setEnabled(!m_mainWindow->actionsLocked() && m_mainWindow->connAdvancedDatasetActionAllowed(mwSelCtx));
         aFromDir->setEnabled(!m_mainWindow->actionsLocked() && m_mainWindow->connDirectoryDatasetActionAllowed(mwSelCtx));
@@ -2235,12 +2298,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 applyInlineSectionVisibility(tree, menuToken);
                 return;
             }
-            if (picked == poolActions.showAutoGsa) {
-                focusContextItemForInlineVisibility(tree, item);
-                m_mainWindow->m_showAutomaticGsaSnapshots = poolActions.showAutoGsa->isChecked();
-                applyInlineSectionVisibility(tree, menuToken);
-                return;
-            }
         }
         if (snapshotActions.contains(picked)) {
             const QString snapName = snapshotActions.value(picked);
@@ -2307,12 +2364,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             applyInlineSectionVisibility(tree, menuToken);
             return;
         }
-        if (aShowAutoGsa && picked == aShowAutoGsa) {
-            focusContextItemForInlineVisibility(tree, item);
-            m_mainWindow->m_showAutomaticGsaSnapshots = aShowAutoGsa->isChecked();
-            applyInlineSectionVisibility(tree, menuToken);
-            return;
-        }
         if (picked == aNewHold) {
             createSnapshotHold(tree, item);
             return;
@@ -2364,6 +2415,16 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         if (picked == aRename) {
             const SelectionSnapshot actx = selectionForMenuContext();
             if (!actx.valid || actx.datasetName.trimmed().isEmpty()) {
+                return;
+            }
+            if (isPoolRoot) {
+                QMessageBox::information(
+                    m_mainWindow,
+                    QStringLiteral("ZFSMgr"),
+                    m_mainWindow->trk(QStringLiteral("t_pool_rename_info_001"),
+                                      QStringLiteral("Para renombrar un pool hay que exportarlo y volver a importarlo con el nuevo nombre."),
+                                      QStringLiteral("To rename a pool, export it and import it again with the new name."),
+                                      QStringLiteral("要重命名存储池，必须先导出，再以新名称重新导入。")));
                 return;
             }
             const bool isSnapshot = !actx.snapshotName.trimmed().isEmpty();

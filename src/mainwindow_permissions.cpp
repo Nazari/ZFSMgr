@@ -519,17 +519,45 @@ QStringList MainWindow::availableDelegablePermissions(const QString& datasetName
               << QStringLiteral("volsize");
     }
 
-    if (const DatasetPermissionsCacheEntry* permsCacheIt = datasetPermissionsEntry(connIdx, poolName, datasetName)) {
+    auto appendPermissionSets = [&](const QString& dsName) {
+        if (dsName.trimmed().isEmpty()) {
+            return;
+        }
+        if (const_cast<MainWindow*>(this)->ensureDatasetPermissionsEntryLoaded(connIdx, poolName, dsName);
+            const DatasetPermissionsCacheEntry* permsCacheIt = datasetPermissionsEntry(connIdx, poolName, dsName)) {
+            const QString excludeKey = excludeSetName.trimmed().toLower();
+            for (const DatasetPermissionSet& set : permsCacheIt->permissionSets) {
+                const QString setName = set.name.trimmed();
+                if (setName.isEmpty()) {
+                    continue;
+                }
+                if (!excludeKey.isEmpty() && setName.compare(excludeSetName.trimmed(), Qt::CaseInsensitive) == 0) {
+                    continue;
+                }
+                perms.push_back(setName);
+            }
+        }
+    };
+
+    appendPermissionSets(datasetName);
+    QString ancestorName = datasetName.trimmed();
+    while (!ancestorName.isEmpty()) {
+        const int slashPos = ancestorName.lastIndexOf(QLatin1Char('/'));
+        if (slashPos <= 0) {
+            break;
+        }
+        ancestorName = ancestorName.left(slashPos).trimmed();
+        appendPermissionSets(ancestorName);
+    }
+
+    {
         const QString excludeKey = excludeSetName.trimmed().toLower();
-        for (const DatasetPermissionSet& set : permsCacheIt->permissionSets) {
-            const QString setName = set.name.trimmed();
-            if (setName.isEmpty()) {
-                continue;
+        if (!excludeKey.isEmpty()) {
+            for (int i = perms.size() - 1; i >= 0; --i) {
+                if (perms.at(i).trimmed().compare(excludeSetName.trimmed(), Qt::CaseInsensitive) == 0) {
+                    perms.removeAt(i);
+                }
             }
-            if (!excludeKey.isEmpty() && setName.compare(excludeSetName.trimmed(), Qt::CaseInsensitive) == 0) {
-                continue;
-            }
-            perms.push_back(setName);
         }
     }
 
@@ -739,7 +767,10 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
     allGrants += entry.localDescendantGrants;
     auto* grantsNode = ensurePermissionsSectionNode(
         permissionsNode,
-        QStringLiteral("Deleg."),
+        trk(QStringLiteral("t_perm_grants_root_001"),
+            QStringLiteral("Delegación"),
+            QStringLiteral("Delegation"),
+            QStringLiteral("委派")),
         QStringLiteral("grants_root"),
         allGrants.size(),
         connIdx,
@@ -888,14 +919,20 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
     }
     auto* createNode = ensurePermissionsSectionNode(
         permissionsNode,
-        QStringLiteral("Nuevos DS"),
+        trk(QStringLiteral("t_perm_new_children_root_001"),
+            QStringLiteral("Permisos por defecto para nuevos hijos"),
+            QStringLiteral("Default permissions for new children"),
+            QStringLiteral("新子数据集默认权限")),
         QStringLiteral("create_root"),
         entry.createPermissions.size(),
         connIdx,
         poolName);
     createNode->setToolTip(
         0,
-        QStringLiteral("Permisos que recibirá automáticamente quien cree nuevos subdatasets debajo de este dataset."));
+        trk(QStringLiteral("t_perm_new_children_tt_001"),
+            QStringLiteral("Permisos que recibirá automáticamente quien cree nuevos subdatasets debajo de este dataset."),
+            QStringLiteral("Permissions automatically granted to whoever creates new child datasets below this dataset."),
+            QStringLiteral("在此数据集下创建新子数据集的用户将自动获得的权限。")));
     for (int base = 0; base < allSetTokens.size(); base += propCols) {
         auto* rowNames = new QTreeWidgetItem(createNode);
         rowNames->setData(0, kConnPropRowRole, true);
@@ -1001,7 +1038,10 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
 
     auto* setsNode = ensurePermissionsSectionNode(
         permissionsNode,
-        QStringLiteral("Conjuntos"),
+        trk(QStringLiteral("t_perm_sets_root_001"),
+            QStringLiteral("Conjuntos"),
+            QStringLiteral("Sets"),
+            QStringLiteral("集合")),
         QStringLiteral("sets_root"),
         entry.permissionSets.size(),
         connIdx,
