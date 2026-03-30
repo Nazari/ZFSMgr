@@ -295,6 +295,55 @@ function Test-OpenSslHeaderPresent([string]$root) {
   return (Test-Path $inc)
 }
 
+function Copy-OpenSslRuntimeDlls([string]$root, [string]$destDir) {
+  if ([string]::IsNullOrWhiteSpace($root) -or -not (Test-Path $root)) {
+    Write-Host "Aviso: no se pudo copiar OpenSSL runtime; prefijo no válido."
+    return
+  }
+  if ([string]::IsNullOrWhiteSpace($destDir) -or -not (Test-Path $destDir)) {
+    throw "Destino inválido para desplegar DLLs OpenSSL: $destDir"
+  }
+
+  $searchDirs = @(
+    (Join-Path $root "bin"),
+    (Join-Path $root "lib"),
+    $root
+  ) | Select-Object -Unique
+
+  $patterns = @(
+    "libcrypto-3-x64.dll",
+    "libssl-3-x64.dll",
+    "libcrypto-*.dll",
+    "libssl-*.dll",
+    "libcrypto*.dll",
+    "libssl*.dll"
+  )
+
+  $copied = New-Object System.Collections.Generic.HashSet[string]
+  foreach ($dir in $searchDirs) {
+    if (-not (Test-Path $dir)) {
+      continue
+    }
+    foreach ($pattern in $patterns) {
+      Get-ChildItem -Path $dir -File -Filter $pattern -ErrorAction SilentlyContinue |
+        Sort-Object Name |
+        ForEach-Object {
+          if ($copied.Add($_.Name)) {
+            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $destDir $_.Name) -Force
+            Write-Host "OpenSSL runtime desplegado: $($_.Name)"
+          }
+        }
+    }
+  }
+
+  if (-not ($copied.Contains("libcrypto-3-x64.dll")) -and -not ($copied | Where-Object { $_ -like "libcrypto*.dll" })) {
+    Write-Host "Aviso: no se encontró ninguna DLL runtime de libcrypto en '$root'."
+  }
+  if (-not ($copied.Contains("libssl-3-x64.dll")) -and -not ($copied | Where-Object { $_ -like "libssl*.dll" })) {
+    Write-Host "Aviso: no se encontró ninguna DLL runtime de libssl en '$root'."
+  }
+}
+
 function Get-ProjectVersion {
   $cmakeFile = Join-Path $SourceDir "CMakeLists.txt"
   if (-not (Test-Path $cmakeFile)) {
@@ -707,6 +756,13 @@ if ($windeployExe) {
   Write-Host "Runtime Qt desplegado en: $(Split-Path -Parent $exePath)"
 } else {
   Write-Host "Aviso: no se encontró windeployqt.exe; el ejecutable podría fallar por DLLs Qt faltantes."
+}
+
+$opensslRuntimeRoot = Find-OpenSslRoot
+if ($opensslRuntimeRoot) {
+  Copy-OpenSslRuntimeDlls -root $opensslRuntimeRoot -destDir (Split-Path -Parent $exePath)
+} else {
+  Write-Host "Aviso: no se encontró OpenSSL para desplegar sus DLLs runtime."
 }
 
 # Safety: never ship local connection secrets in Windows build artifacts.
