@@ -110,9 +110,6 @@ void MainWindow::updateConnectionActionsState() {
                                 QStringLiteral("Destino:%1"),
                                 QStringLiteral("Target:%1"),
                                 QStringLiteral("目标：%1")).arg(fmtSel(m_connActionDest));
-    if (m_connDestSelectionLabel) {
-        m_connDestSelectionLabel->setText(dstText);
-    }
     const QString originText =
         trk(QStringLiteral("t_conn_origin_sel1"),
             QStringLiteral("Origen:%1"),
@@ -120,7 +117,10 @@ void MainWindow::updateConnectionActionsState() {
             QStringLiteral("源：%1"))
             .arg(fmtSel(m_connActionOrigin));
     if (m_connOriginSelectionLabel) {
-        m_connOriginSelectionLabel->setText(originText);
+        m_connOriginSelectionLabel->setText(QStringLiteral("%1    %2").arg(originText, dstText));
+    }
+    if (m_connDestSelectionLabel) {
+        m_connDestSelectionLabel->setText(dstText);
     }
     QString versionTransferReason;
     const bool transferVersionAllowed = isTransferVersionAllowed(m_connActionOrigin, m_connActionDest, &versionTransferReason);

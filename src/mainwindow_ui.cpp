@@ -1410,7 +1410,7 @@ void MainWindow::buildUi() {
     m_connDestSelectionLabel->setWordWrap(true);
     m_connDestSelectionLabel->setMinimumHeight(18);
     m_connDestSelectionLabel->setFont(baseUiFont);
-    selectionRowLayout->addWidget(m_connDestSelectionLabel, 1);
+    m_connDestSelectionLabel->hide();
     m_btnApplyConnContentProps = new TooltipPushButton(
         trk(QStringLiteral("t_apply_changes_001"),
             QStringLiteral("Aplicar cambios"),
