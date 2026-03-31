@@ -11,6 +11,7 @@ $InstallerPreferenceExplicit = $false
 $InnoScriptPath = $null
 $InnoOutputDir = Join-Path $BuildDir "installer"
 $SftpTarget = if ($env:ZFSMGR_SFTP_TARGET) { $env:ZFSMGR_SFTP_TARGET } else { "sftp://linarese@fc16:Descargas/z" }
+$DownloadsDir = if ($env:DOWNLOADS_DIR) { $env:DOWNLOADS_DIR } else { Join-Path $env:USERPROFILE "Downloads\z" }
 $UploadSftp = $false
 
 function Show-Usage {
@@ -198,6 +199,17 @@ function Upload-ArtifactSftp([string]$artifactPath) {
   }
   if ($LASTEXITCODE -ne 0) {
     throw "Falló la subida SFTP del artefacto."
+  }
+}
+
+function Upload-DownloadsDaemons() {
+  $daemonRoot = Join-Path $DownloadsDir "daemons"
+  if (-not (Test-Path $daemonRoot)) {
+    Write-Host "No se encontró ${daemonRoot}; no hay daemons para subir."
+    return
+  }
+  Get-ChildItem -Path $daemonRoot -Recurse -File -Filter 'zfsmgr_daemon*' | ForEach-Object {
+    Upload-ArtifactSftp $_.FullName
   }
 }
 
@@ -911,6 +923,7 @@ if ($GenerateInnoInstaller) {
   }
   if ($UploadSftp) {
     Upload-ArtifactSftp $installerExe.FullName
+    Upload-DownloadsDaemons
   }
 } elseif ($UploadSftp) {
   throw "--sftpfc16 solo puede usarse junto con --inno cuando se sube un instalador."

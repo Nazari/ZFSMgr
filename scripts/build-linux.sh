@@ -9,6 +9,7 @@ APPDIR="${PROJECT_ROOT}/AppDir"
 TOOLS_DIR="${PROJECT_ROOT}/.tools/appimage"
 ARCH="$(uname -m)"
 SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese@fc16:Descargas/z}"
+DOWNLOADS_DIR="${DOWNLOADS_DIR:-${HOME}/Downloads/z}"
 APP_VERSION="$(sed -nE 's/^[[:space:]]*set\([[:space:]]*ZFSMGR_APP_VERSION_STRING[[:space:]]*"([^"]+)".*/\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
 BUILD_APPIMAGE=0
 BUILD_DEB=0
@@ -164,6 +165,17 @@ upload_deb_artifacts() {
   fi
 }
 
+upload_daemons() {
+  local download_daemon_dir="${DOWNLOADS_DIR}/daemons"
+  if [[ ! -d "${download_daemon_dir}" ]]; then
+    echo "Advertencia: no hay daemons en ${download_daemon_dir}" >&2
+    return 0
+  fi
+  while IFS= read -r -d '' daemon; do
+    upload_to_sftp "${daemon}"
+  done < <(find "${download_daemon_dir}" -type f -name 'zfsmgr_daemon*' -print0)
+}
+
 ensure_build_dir_source_match() {
   if [[ ! -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
     return 0
@@ -219,6 +231,7 @@ if [[ "${BUILD_DEB}" -eq 1 ]]; then
   ls -lh "${BUILD_DIR}"/*.deb
   if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
     upload_deb_artifacts
+    upload_daemons
   fi
 fi
 
@@ -274,11 +287,12 @@ fi
 
 echo "AppImage generated:"
 ls -lh "${BUILD_DIR}"/*.AppImage
-if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
-  if [[ -f "${OUTPUT}" ]]; then
-    upload_to_sftp "${OUTPUT}"
-  else
-    echo "Error: no se encontró AppImage ${OUTPUT}" >&2
-    exit 1
+  if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
+    if [[ -f "${OUTPUT}" ]]; then
+      upload_to_sftp "${OUTPUT}"
+    else
+      echo "Error: no se encontró AppImage ${OUTPUT}" >&2
+      exit 1
+    fi
+    upload_daemons
   fi
-fi
