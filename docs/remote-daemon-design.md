@@ -37,6 +37,62 @@ El daemon ofrece llamadas RPC similares al stack actual:
 
 Las respuestas devuelven estructuras idénticas (`PoolInfo`, `DSInfo`, `PendingAction`, `GsaPlan`) para mantener compatibilidad con el modelo interno de ZFSMgr.
 
+### RPC core
+
+El daemon implementa un servidor RPC ligero sobre el canal `libssh`. Cada conexión establece un canal cifrado, envía paquetes JSON con los campos `id`, `method` y `params`, y espera una respuesta `result`/`error`. El servidor mantiene un `HandlerRegistry` que corresponde cada ruta (por ejemplo `/datasets/{name}/properties`) con una función que invoca `libzfs_core` (o proxies Windows) y serializa el resultado.
+
+Las rutas iniciales son:
+
+- `GET /pools`: lista `PoolInfo` educida desde `libzfs_core_get_pool_list()`.
+- `GET /pools/{pool}/datasets`: devuelve la lista de `DSInfo` para un pool.
+- `GET /datasets/{dataset}/properties`: propiedades completas de dataset/snapshot (`zfs get -H -o property,value`).
+- `POST /datasets/{dataset}/actions`: ejecuta el action dispatcher (mount, set, snapshot, destroy, send/recv). Las acciones masivas (`send/recv`, `rsync`, `tar`) devuelven el campo `fallback: "ssh"` para que ZFSMgr lance el comando tradicional.
+- `GET /gsa/{pool}`: estado de GSA, plan de snapshots y reglas heredadas.
+- `GET /health`: estado del daemon (`uptime`, colas, última consulta) que el cliente usa para decidir reconexiones.
+
+Cada handler retorna código `200`/`400`/`500`, etiquetas `error.code` y un `audit_id` para correlacionar con los logs.
+
+### Autenticación
+
+Usamos la clave Ed25519 generada en `scripts/generate-daemon-keys.sh`:
+
+1. ZFSMgr firma cada petición con su clave privada, el daemon valida la firma antes de ejecutar la ruta.
+2. La whitelist del daemon consiste en el fingerprint publicado en `/etc/zfsmgr/fingerprint` (Windows: `%PROGRAMDATA%\ZFSMgr\fingerprint`).
+3. La rotación lógicamente se hace con `zfsmgr key rotate`: el cliente distribuye la nueva pública, actualiza la whitelist y mantiene la clave antigua hasta una fecha de expiración.
+
+El daemon rechaza cualquier sesión no verificada (HTTP-like 401) y graba en log la IP + fingerprint.
+
+### Backend `libzfs_core` y Windows proxy
+
+En Linux/FreeBSD/macOS el daemon enlaza con `libzfs_core` y expone funciones equivalentes a las que usa el cliente:
+
+- `PoolInfo getPoolInfo(libzfs_handle_t*)`
+- `DSInfo getDatasetInfo(pool, dataset)`
+- `QStringList getDatasetProperties(dataset, snapshot?)`
+- `ActionResult runAction(dataset, action)`
+- `GsaPlan getGsaPlan(pool)`
+
+El daemon mantiene un `LockManager` y serializa accesos a un pool/dataset para evitar concurrencias destructivas.
+
+En Windows, una capa `WindowsZfsBackend` ejecuta `zfs.exe` y usa PowerShell para recabar la misma salida formateada en JSON; el handler mapea la respuesta a `PoolInfo`/`DSInfo`.
+
+### Concurrencia y salud
+
+- Cola de peticiones (`std::deque<Request>` con `std::mutex`) y pool de workers.
+- `GET /health` refleja `status`, `uptime`, `queue_length`, `last_error` y `current_action`.
+- Logs con trazas `RPC [method] -> status 200/500/601` y métricas exported a JSON para monitoreo.
+
+### Documentación y ayuda
+
+Se debe ampliar la ayuda/README con cómo:
+
+1. Generar claves (`scripts/generate-daemon-keys.sh`).
+2. Desplegar el daemon (`scripts/deploy-daemon.{sh,ps1}`).
+3. Consumir la API RPC y tratar fallbacks SSH (`rsync`, `tar`).
+4. Monitorear `/health` y rotar fingerprints.
+
+El nuevo flujo se ilustra con un diagrama cliente → daemon RPC → `libzfs_core` → UI.
+
 ## Gestión de la autenticación
 
 1. ZFSMgr genera el par de claves (`zfsmgr_id_ed25519` / `zfsmgr_id_ed25519.pub`) y almacena la privada cifrada con el `keyring` local.
@@ -78,4 +134,3 @@ Se debe añadir una sección en la ayuda y en el README que describa:
 - Cómo monitorizar el puerto 32099 y la salud del servicio (`GET /health`).
 
 Un esquema complementario describe los pasos: cliente detecta daemon → RPC JSON → `libzfs_core` → respuesta → UI.
-

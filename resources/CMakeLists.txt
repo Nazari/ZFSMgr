@@ -62,6 +62,8 @@ set(ZFSMGR_CORE_SOURCES
     ../src/connectiondatasettreewidget.h
     ../src/mainwindow_connectiondatasettreedelegate.cpp
     ../src/mainwindow_connectiondatasettreedelegate.h
+    ../src/daemon_transport.cpp
+    ../src/daemon_transport.h
     ../src/connectionstore.cpp
     ../src/connectionstore.h
     ../src/connectiondialog.cpp
