@@ -246,7 +246,7 @@ function Import-VsDevEnv {
 function Get-Msys2RootPrefixes {
   $prefixes = [System.Collections.Generic.List[string]]::new()
   if ($env:MSYS2_ROOT -and (Test-Path $env:MSYS2_ROOT)) {
-    $prefixes.AddRange(@(
+    $prefixes.AddRange([string[]]@(
       (Join-Path $env:MSYS2_ROOT "mingw64"),
       (Join-Path $env:MSYS2_ROOT "ucrt64"),
       (Join-Path $env:MSYS2_ROOT "clang64"),
@@ -254,7 +254,7 @@ function Get-Msys2RootPrefixes {
       (Join-Path $env:MSYS2_ROOT "clang32")
     ))
   }
-  $prefixes.AddRange(@(
+  $prefixes.AddRange([string[]]@(
     "C:\msys64\mingw64",
     "C:\msys64\ucrt64",
     "C:\msys64\clang64",
@@ -266,7 +266,7 @@ function Get-Msys2RootPrefixes {
     $msysCandidates = Get-ChildItem -Path $msysRoot -Directory -ErrorAction SilentlyContinue |
       Where-Object { $_.Name -match '^(mingw|ucrt|clang)' } |
       ForEach-Object { $_.FullName }
-    $prefixes.AddRange($msysCandidates)
+    $prefixes.AddRange([string[]]$msysCandidates)
   }
   return $prefixes | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
 }
@@ -327,26 +327,6 @@ function Find-OpenSslRoot {
     $libVc = Join-Path $root "lib\libcrypto.lib"
     $libVcDeep = Get-ChildItem -Path $root -Filter "libcrypto.lib" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
     if ((Test-Path $inc) -and ((Test-Path $libA) -or (Test-Path $libDllA) -or (Test-Path $libVc) -or $libVcDeep)) {
-      return $root
-    }
-  }
-  return $null
-}
-
-function Find-LibsshRoot {
-  if ($env:LIBSSH_ROOT -and (Test-Path $env:LIBSSH_ROOT)) {
-    return $env:LIBSSH_ROOT
-  }
-
-  $candidates = Get-Msys2RootPrefixes
-  foreach ($root in $candidates) {
-    if (-not (Test-Path $root)) {
-      continue
-    }
-    $cmakeDir = Join-Path $root "lib\cmake\libssh"
-    $configA = Join-Path $cmakeDir "libsshConfig.cmake"
-    $configB = Join-Path $cmakeDir "libssh-config.cmake"
-    if (Test-Path $configA -or Test-Path $configB) {
       return $root
     }
   }
@@ -455,14 +435,15 @@ function Find-LibsshRoot {
     if (-not (Test-Path $root)) {
       continue
     }
-    $cfg = Join-Path $root "lib\cmake\libssh\libsshConfig.cmake"
+    $cmakeDir = Join-Path $root "lib\cmake\libssh"
+    $cfg = (Test-Path (Join-Path $cmakeDir "libsshConfig.cmake")) -or (Test-Path (Join-Path $cmakeDir "libssh-config.cmake"))
     $header = Join-Path $root "include\libssh\libssh.h"
     $importLibs = @(
       (Join-Path $root "lib\libssh.dll.a"),
       (Join-Path $root "lib\libssh.a"),
       (Join-Path $root "lib\libssh.lib")
     )
-    if ((Test-Path $cfg) -and (Test-Path $header) -and (($importLibs | Where-Object { Test-Path $_ }).Count -gt 0)) {
+    if ($cfg -and (Test-Path $header) -and (($importLibs | Where-Object { Test-Path $_ }).Count -gt 0)) {
       return $root
     }
   }
@@ -474,11 +455,12 @@ function Test-LibsshMingwCompatible([string]$root) {
   if ([string]::IsNullOrWhiteSpace($root)) {
     return $false
   }
-  $cfg = Join-Path $root "lib\cmake\libssh\libsshConfig.cmake"
+  $cmakeDir = Join-Path $root "lib\cmake\libssh"
+  $cfg = (Test-Path (Join-Path $cmakeDir "libsshConfig.cmake")) -or (Test-Path (Join-Path $cmakeDir "libssh-config.cmake"))
   $header = Join-Path $root "include\libssh\libssh.h"
   $a = Join-Path $root "lib\libssh.a"
   $dlla = Join-Path $root "lib\libssh.dll.a"
-  return (Test-Path $cfg) -and (Test-Path $header) -and ((Test-Path $a) -or (Test-Path $dlla))
+  return $cfg -and (Test-Path $header) -and ((Test-Path $a) -or (Test-Path $dlla))
 }
 
 function Copy-LibsshRuntimeDlls([string]$root, [string]$destDir) {
