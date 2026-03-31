@@ -23,7 +23,7 @@ Opciones:
   --no-inno, --no-installer No genera instalador
   --inno-script <ruta>      Usa un script .iss concreto
   --inno-output <dir>       Directorio de salida para el instalador
-  --sftpfc16                Sube el artefacto generado al destino SFTP configurado
+  --sftpfc16                Sube el instalador .exe generado con --inno (Inno Setup) al destino SFTP configurado
   -h, --help                Muestra esta ayuda
 
 Variables opcionales:
@@ -87,6 +87,10 @@ for ($i = 0; $i -lt $args.Count; $i++) {
 if (($env:GITHUB_ACTIONS -eq "true") -and -not $InstallerPreferenceExplicit) {
   $GenerateInnoInstaller = $false
   Write-Host "GitHub Actions detectado: se desactiva la generación de instalador Inno Setup por defecto."
+}
+
+if ($UploadSftp -and -not $GenerateInnoInstaller) {
+  throw "--sftpfc16 requiere generar el instalador con --inno/--installer."
 }
 
 function Resolve-SftpTarget([string]$target) {
@@ -909,7 +913,7 @@ if ($GenerateInnoInstaller) {
     Upload-ArtifactSftp $installerExe.FullName
   }
 } elseif ($UploadSftp) {
-  Upload-ArtifactSftp $exePath
+  throw "--sftpfc16 solo puede usarse junto con --inno cuando se sube un instalador."
 }
 
 Write-Host "Build completado: $exePath"
