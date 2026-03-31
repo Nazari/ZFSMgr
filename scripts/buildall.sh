@@ -160,10 +160,12 @@ finalize_macos_artifact() {
   rm -rf "${OUTPUT_DIR}/${app_name}"
   local final_dmg="${OUTPUT_DIR}/${dmg_name}"
   if [[ -n "${arch}" ]]; then
-    local target="${OUTPUT_DIR}/${app_name%.app}-${arch}.dmg"
+    local target="${OUTPUT_DIR}/${app_name%.app}_${arch}.dmg"
     mv "${final_dmg}" "${target}"
     final_dmg="${target}"
   fi
+  mkdir -p "${DOWNLOADS_DIR}"
+  cp -f "${final_dmg}" "${DOWNLOADS_DIR}/"
   printf '%s\n' "${final_dmg}"
 }
 
