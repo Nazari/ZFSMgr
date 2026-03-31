@@ -1,0 +1,1 @@
+-I"C:/Users/eladi/work/ZFSMgr/build-windows-alt/zfsmgr_helpers_test_autogen/include" -IC:/Users/eladi/work/ZFSMgr/resources/../src -isystem C:/Qt/6.10.2/mingw_64/include/QtCore -isystem C:/Qt/6.10.2/mingw_64/include -isystem "C:/Qt/6.10.2/mingw_64/mkspecs/win32-g++" -isystem C:/Qt/6.10.2/mingw_64/include/QtWidgets -isystem C:/Qt/6.10.2/mingw_64/include/QtGui

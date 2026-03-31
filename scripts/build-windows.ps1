@@ -344,6 +344,103 @@ function Copy-OpenSslRuntimeDlls([string]$root, [string]$destDir) {
   }
 }
 
+function Find-LibsshRoot {
+  if ($env:libssh_DIR -and (Test-Path (Join-Path $env:libssh_DIR "libsshConfig.cmake"))) {
+    return Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $env:libssh_DIR))
+  }
+
+  if ($env:LIBSSH_ROOT_DIR -and (Test-Path $env:LIBSSH_ROOT_DIR)) {
+    $cfg = Join-Path $env:LIBSSH_ROOT_DIR "lib\cmake\libssh\libsshConfig.cmake"
+    if (Test-Path $cfg) {
+      return $env:LIBSSH_ROOT_DIR
+    }
+  }
+
+  $candidates = @()
+  if ($env:MSYS2_ROOT -and (Test-Path $env:MSYS2_ROOT)) {
+    $candidates += @(
+      (Join-Path $env:MSYS2_ROOT "mingw64"),
+      (Join-Path $env:MSYS2_ROOT "ucrt64"),
+      (Join-Path $env:MSYS2_ROOT "clang64"),
+      (Join-Path $env:MSYS2_ROOT "clangarm64"),
+      (Join-Path $env:MSYS2_ROOT "clang32")
+    )
+  }
+  $candidates += @(
+    "C:\msys64\mingw64",
+    "C:\msys64\ucrt64",
+    "C:\msys64\clang64",
+    "C:\msys64\clangarm64",
+    "C:\msys64\clang32",
+    "C:\Program Files\libssh",
+    "C:\libssh"
+  )
+
+  foreach ($root in ($candidates | Select-Object -Unique)) {
+    if (-not (Test-Path $root)) {
+      continue
+    }
+    $cfg = Join-Path $root "lib\cmake\libssh\libsshConfig.cmake"
+    $header = Join-Path $root "include\libssh\libssh.h"
+    $importLibs = @(
+      (Join-Path $root "lib\libssh.dll.a"),
+      (Join-Path $root "lib\libssh.a"),
+      (Join-Path $root "lib\libssh.lib")
+    )
+    if ((Test-Path $cfg) -and (Test-Path $header) -and (($importLibs | Where-Object { Test-Path $_ }).Count -gt 0)) {
+      return $root
+    }
+  }
+
+  return $null
+}
+
+function Test-LibsshMingwCompatible([string]$root) {
+  if ([string]::IsNullOrWhiteSpace($root)) {
+    return $false
+  }
+  $cfg = Join-Path $root "lib\cmake\libssh\libsshConfig.cmake"
+  $header = Join-Path $root "include\libssh\libssh.h"
+  $a = Join-Path $root "lib\libssh.a"
+  $dlla = Join-Path $root "lib\libssh.dll.a"
+  return (Test-Path $cfg) -and (Test-Path $header) -and ((Test-Path $a) -or (Test-Path $dlla))
+}
+
+function Copy-LibsshRuntimeDlls([string]$root, [string]$destDir) {
+  if ([string]::IsNullOrWhiteSpace($root) -or -not (Test-Path $root)) {
+    Write-Host "Aviso: no se pudo copiar libssh runtime; prefijo no válido."
+    return
+  }
+  if ([string]::IsNullOrWhiteSpace($destDir) -or -not (Test-Path $destDir)) {
+    throw "Destino inválido para desplegar DLLs libssh: $destDir"
+  }
+
+  $searchDirs = @(
+    (Join-Path $root "bin"),
+    (Join-Path $root "lib"),
+    $root
+  ) | Select-Object -Unique
+
+  $copied = New-Object System.Collections.Generic.HashSet[string]
+  foreach ($dir in $searchDirs) {
+    if (-not (Test-Path $dir)) {
+      continue
+    }
+    Get-ChildItem -Path $dir -File -Filter "libssh*.dll" -ErrorAction SilentlyContinue |
+      Sort-Object Name |
+      ForEach-Object {
+        if ($copied.Add($_.Name)) {
+          Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $destDir $_.Name) -Force
+          Write-Host "libssh runtime desplegado: $($_.Name)"
+        }
+      }
+  }
+
+  if (-not ($copied | Where-Object { $_ -like "libssh*.dll" })) {
+    Write-Host "Aviso: no se encontró ninguna DLL runtime de libssh en '$root'."
+  }
+}
+
 function Get-ProjectVersion {
   $cmakeFile = Join-Path $SourceDir "CMakeLists.txt"
   if (-not (Test-Path $cmakeFile)) {
@@ -653,6 +750,17 @@ if ($hasGenerator) {
     } else {
       throw "No se encontrÃ³ OpenSSL para MinGW. Instala el paquete de toolchain correcto en MSYS2 (por ejemplo mingw-w64-x86_64-openssl en C:\msys64\mingw64) o define OPENSSL_ROOT_DIR al prefijo que contiene include\openssl\ssl.h y lib\libcrypto*.a."
     }
+
+    $libsshRoot = Find-LibsshRoot
+    if ($libsshRoot) {
+      if (-not (Test-LibsshMingwCompatible $libsshRoot)) {
+        throw "libssh detectado en '$libsshRoot' pero no parece un prefijo MinGW valido (esperado: lib\cmake\libssh\libsshConfig.cmake, include\libssh\libssh.h y lib\libssh.a o lib\libssh.dll.a). En MSYS2 instala mingw-w64-x86_64-libssh (o equivalente ucrt/clang) y evita mezclar binarios MSVC con Qt MinGW."
+      }
+      $NativeArgs += @("-Dlibssh_DIR=$(Join-Path $libsshRoot 'lib\cmake\libssh')")
+      Write-Host "libssh detectado en: $libsshRoot"
+    } else {
+      throw "No se encontrÃ³ libssh para MinGW. Instala el paquete de toolchain correcto en MSYS2 (por ejemplo mingw-w64-x86_64-libssh en C:\msys64\mingw64) o define libssh_DIR al directorio que contiene libsshConfig.cmake."
+    }
   }
 
   $devEnvLoaded = $false
@@ -765,6 +873,13 @@ if ($opensslRuntimeRoot) {
   Copy-OpenSslRuntimeDlls -root $opensslRuntimeRoot -destDir (Split-Path -Parent $exePath)
 } else {
   Write-Host "Aviso: no se encontró OpenSSL para desplegar sus DLLs runtime."
+}
+
+$libsshRuntimeRoot = Find-LibsshRoot
+if ($libsshRuntimeRoot) {
+  Copy-LibsshRuntimeDlls -root $libsshRuntimeRoot -destDir (Split-Path -Parent $exePath)
+} else {
+  Write-Host "Aviso: no se encontró libssh para desplegar su DLL runtime."
 }
 
 # Safety: never ship local connection secrets in Windows build artifacts.
