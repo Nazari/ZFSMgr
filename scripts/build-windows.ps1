@@ -227,40 +227,79 @@ function Import-VsDevEnv {
   return $true
 }
 
-function Find-OpenSslRoot {
-  if ($env:OPENSSL_ROOT_DIR -and (Test-Path $env:OPENSSL_ROOT_DIR)) {
-    return $env:OPENSSL_ROOT_DIR
-  }
-
-  $candidates = @()
+function Get-Msys2RootPrefixes {
+  $prefixes = [System.Collections.Generic.List[string]]::new()
   if ($env:MSYS2_ROOT -and (Test-Path $env:MSYS2_ROOT)) {
-    $candidates += @(
+    $prefixes.AddRange(@(
       (Join-Path $env:MSYS2_ROOT "mingw64"),
       (Join-Path $env:MSYS2_ROOT "ucrt64"),
       (Join-Path $env:MSYS2_ROOT "clang64"),
       (Join-Path $env:MSYS2_ROOT "clangarm64"),
       (Join-Path $env:MSYS2_ROOT "clang32")
-    )
+    ))
   }
-  $candidates += @(
+  $prefixes.AddRange(@(
     "C:\msys64\mingw64",
     "C:\msys64\ucrt64",
     "C:\msys64\clang64",
     "C:\msys64\clangarm64",
-    "C:\msys64\clang32",
-    "C:\Qt\Tools\OpenSSLv3\Win_x64",
-    "C:\QT\Tools\OpenSSLv3\Win_x64",
-    "C:\Program Files\OpenSSL-Win64",
-    "C:\OpenSSL-Win64"
-  )
-
+    "C:\msys64\clang32"
+  ))
   $msysRoot = "C:\msys64"
   if (Test-Path $msysRoot) {
     $msysCandidates = Get-ChildItem -Path $msysRoot -Directory -ErrorAction SilentlyContinue |
       Where-Object { $_.Name -match '^(mingw|ucrt|clang)' } |
       ForEach-Object { $_.FullName }
-    $candidates += $msysCandidates
+    $prefixes.AddRange($msysCandidates)
   }
+  return $prefixes | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
+}
+
+function Prepend-CmakePrefixPath([string]$prefix) {
+  if ([string]::IsNullOrWhiteSpace($prefix) -or -not (Test-Path $prefix)) {
+    return
+  }
+  try {
+    $canonical = (Resolve-Path -LiteralPath $prefix).Path
+  } catch {
+    $canonical = $prefix
+  }
+  $normalize = { param($value)
+    if ([string]::IsNullOrWhiteSpace($value)) { return $null }
+    $trimmed = $value.Trim()
+    if ($trimmed.EndsWith('\') -or $trimmed.EndsWith('/')) {
+      $trimmed = $trimmed.Substring(0, $trimmed.Length - 1)
+    }
+    return $trimmed.ToLowerInvariant()
+  }
+  $existing = @()
+  if (-not [string]::IsNullOrWhiteSpace($env:CMAKE_PREFIX_PATH)) {
+    $existing = $env:CMAKE_PREFIX_PATH -split ';'
+  }
+  $normalizedEntries = $existing | ForEach-Object { & $normalize $_ } | Where-Object { $_ -ne $null }
+  $candidateNormalized = & $normalize $canonical
+  if ($candidateNormalized -and ($normalizedEntries -contains $candidateNormalized)) {
+    return
+  }
+  if ([string]::IsNullOrWhiteSpace($env:CMAKE_PREFIX_PATH)) {
+    $env:CMAKE_PREFIX_PATH = $canonical
+  } else {
+    $env:CMAKE_PREFIX_PATH = "${canonical};${env:CMAKE_PREFIX_PATH}"
+  }
+}
+
+function Find-OpenSslRoot {
+  if ($env:OPENSSL_ROOT_DIR -and (Test-Path $env:OPENSSL_ROOT_DIR)) {
+    return $env:OPENSSL_ROOT_DIR
+  }
+
+  $candidates = Get-Msys2RootPrefixes
+  $candidates += @(
+    "C:\Qt\Tools\OpenSSLv3\Win_x64",
+    "C:\QT\Tools\OpenSSLv3\Win_x64",
+    "C:\Program Files\OpenSSL-Win64",
+    "C:\OpenSSL-Win64"
+  )
 
   foreach ($root in $candidates) {
     if (-not (Test-Path $root)) {
@@ -272,6 +311,26 @@ function Find-OpenSslRoot {
     $libVc = Join-Path $root "lib\libcrypto.lib"
     $libVcDeep = Get-ChildItem -Path $root -Filter "libcrypto.lib" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
     if ((Test-Path $inc) -and ((Test-Path $libA) -or (Test-Path $libDllA) -or (Test-Path $libVc) -or $libVcDeep)) {
+      return $root
+    }
+  }
+  return $null
+}
+
+function Find-LibsshRoot {
+  if ($env:LIBSSH_ROOT -and (Test-Path $env:LIBSSH_ROOT)) {
+    return $env:LIBSSH_ROOT
+  }
+
+  $candidates = Get-Msys2RootPrefixes
+  foreach ($root in $candidates) {
+    if (-not (Test-Path $root)) {
+      continue
+    }
+    $cmakeDir = Join-Path $root "lib\cmake\libssh"
+    $configA = Join-Path $cmakeDir "libsshConfig.cmake"
+    $configB = Join-Path $cmakeDir "libssh-config.cmake"
+    if (Test-Path $configA -or Test-Path $configB) {
       return $root
     }
   }
@@ -684,6 +743,39 @@ if ($env:Qt6_DIR) {
   if (-not (($NativeArgs | Where-Object { $_ -like "-DQt6_DIR=*" }).Count -gt 0)) {
     $NativeArgs += @("-DQt6_DIR=$($env:Qt6_DIR)")
   }
+}
+
+# Agregar prefijos de libssh para CMake cuando sea posible.
+$libsshDirValid = $false
+$existingLibsshDir = $null
+if ($env:libssh_DIR) {
+  $existingLibsshDir = $env:libssh_DIR
+  if (Test-Path $existingLibsshDir) {
+    $libsshDirValid = $true
+  } else {
+    Write-Host "Aviso: libssh_DIR definido en '$existingLibsshDir' no existe."
+  }
+}
+
+if (-not $libsshDirValid) {
+  $libsshRoot = Find-LibsshRoot
+  if ($libsshRoot) {
+    Prepend-CmakePrefixPath $libsshRoot
+    $libsshCmakeDir = Join-Path $libsshRoot "lib\cmake\libssh"
+    if (Test-Path $libsshCmakeDir) {
+      $env:libssh_DIR = $libsshCmakeDir
+      if (-not $env:LIBSSH_ROOT) {
+        $env:LIBSSH_ROOT = $libsshRoot
+      }
+      Write-Host "libssh detectado en: $libsshRoot"
+    } else {
+      Write-Host "Aviso: libssh encontrado en $libsshRoot pero no se localizó '$libsshCmakeDir'."
+    }
+  } else {
+    Write-Host "Aviso: no se encontró libssh. Instala 'mingw-w64-x86_64-libssh' en MSYS2 o define LIBSSH_ROOT/libssh_DIR."
+  }
+} else {
+  Write-Host "Usando libssh_DIR preexistente: $existingLibsshDir"
 }
 
 # Si el usuario ya pasÃ³ -G/--generator, no forzamos uno.
