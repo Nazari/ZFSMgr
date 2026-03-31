@@ -23,7 +23,7 @@ Uso:
 Opciones:
   --appimage   Genera también el artefacto AppImage
   --deb        Genera también el paquete .deb mediante CPack
-  --sftpfc16   Sube el AppImage generado al destino SFTP configurado
+  --sftpfc16   Sube los artefactos finales (.AppImage y/o .deb) al destino SFTP configurado
   -h, --help   Muestra esta ayuda
 
 Variables opcionales:
@@ -80,6 +80,11 @@ for arg in "$@"; do
       ;;
   esac
 done
+
+if [[ "${UPLOAD_SFTP}" -eq 1 && "${BUILD_APPIMAGE}" -eq 0 && "${BUILD_DEB}" -eq 0 ]]; then
+  echo "Error: --sftpfc16 requiere --appimage o --deb." >&2
+  exit 1
+fi
 
 parse_sftp_target() {
   local target="$1"
@@ -146,6 +151,19 @@ upload_to_sftp() {
   fi
 }
 
+upload_deb_artifacts() {
+  local deb_file
+  local found=0
+  while IFS= read -r -d '' deb_file; do
+    upload_to_sftp "${deb_file}"
+    found=1
+  done < <(find "${BUILD_DIR}" -maxdepth 1 -type f -name '*.deb' -print0)
+  if [[ ${found} -eq 0 ]]; then
+    echo "Error: no se encontró ningún paquete .deb para subir." >&2
+    exit 1
+  fi
+}
+
 ensure_build_dir_source_match() {
   if [[ ! -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
     return 0
@@ -166,20 +184,11 @@ ensure_build_dir_source_match() {
 }
 
 if [[ "${BUILD_APPIMAGE}" -eq 0 && "${BUILD_DEB}" -eq 0 ]]; then
-  if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
-    echo "Error: --sftpfc16 solo es válido junto con --appimage." >&2
-    exit 1
-  fi
   ensure_build_dir_source_match
   cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
   cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
   echo "Build completado: ${BUILD_DIR}/zfsmgr_qt"
   exit 0
-fi
-
-if [[ "${BUILD_DEB}" -eq 1 && "${UPLOAD_SFTP}" -eq 1 && "${BUILD_APPIMAGE}" -eq 0 ]]; then
-  echo "Error: --sftpfc16 solo es válido junto con --appimage." >&2
-  exit 1
 fi
 
 if [[ "${BUILD_APPIMAGE}" -eq 1 && "${ARCH}" != "x86_64" ]]; then
@@ -208,6 +217,9 @@ if [[ "${BUILD_DEB}" -eq 1 ]]; then
   cpack --config "${BUILD_DIR}/CPackConfig.cmake" -G DEB -B "${BUILD_DIR}"
   echo "DEB generated:"
   ls -lh "${BUILD_DIR}"/*.deb
+  if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
+    upload_deb_artifacts
+  fi
 fi
 
 if [[ "${BUILD_APPIMAGE}" -eq 0 ]]; then
@@ -263,5 +275,10 @@ fi
 echo "AppImage generated:"
 ls -lh "${BUILD_DIR}"/*.AppImage
 if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
-  upload_to_sftp "${OUTPUT}"
+  if [[ -f "${OUTPUT}" ]]; then
+    upload_to_sftp "${OUTPUT}"
+  else
+    echo "Error: no se encontró AppImage ${OUTPUT}" >&2
+    exit 1
+  fi
 fi

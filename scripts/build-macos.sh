@@ -26,7 +26,7 @@ Opciones:
   --no-bundle    Compila sin empaquetar el bundle final
   --sign         Fuerza la firma del bundle
   --no-sign      Desactiva la firma del bundle
-  --sftpfc16     Sube el artefacto generado al destino SFTP configurado
+  --sftpfc16     Sube el artefacto final (.dmg) al destino SFTP configurado
   -h, --help     Muestra esta ayuda
 
 Variables opcionales:
@@ -81,6 +81,11 @@ for arg in "$@"; do
     EXTRA_CMAKE_ARGS+=("${arg}")
   fi
 done
+
+if [[ "${UPLOAD_SFTP}" -eq 1 && "${BUNDLE_APP}" -eq 0 ]]; then
+  echo "Error: --sftpfc16 requiere que se genere el bundle (.app)." >&2
+  exit 1
+fi
 
 parse_sftp_target() {
   local target="$1"
@@ -147,6 +152,36 @@ upload_to_sftp() {
     ssh -o BatchMode=yes "${remote}" "mkdir -p \"\$HOME/${path}\""
     scp -r "${artifact}" "${remote}:~/${path}/"
   fi
+}
+
+create_macos_dmg() {
+  local app_path="$1"
+  local dmg_path="$2"
+  local app_name volume staging_dir hdi_rc
+  app_name="$(basename "${app_path}")"
+  volume="${app_name%.app}"
+  staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/zfsmgr-dmg.XXXXXX")"
+  trap 'rm -rf "${staging_dir}"' RETURN
+  cp -R "${app_path}" "${staging_dir}/${app_name}"
+  ln -s /Applications "${staging_dir}/Applications"
+  rm -f "${dmg_path}"
+  set +e
+  hdiutil create \
+    -quiet \
+    -ov \
+    -volname "${volume}" \
+    -srcfolder "${staging_dir}" \
+    -format UDZO \
+    "${dmg_path}"
+  hdi_rc=$?
+  set -e
+  trap - RETURN
+  rm -rf "${staging_dir}"
+  if [[ ${hdi_rc} -ne 0 ]]; then
+    echo "Error: hdiutil falló al crear ${dmg_path}" >&2
+    exit "${hdi_rc}"
+  fi
+  printf '%s\n' "${dmg_path}"
 }
 
 OPENSSL_PREFIX=""
@@ -648,7 +683,10 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   fi
 
   if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
-    upload_to_sftp "${APP_BUNDLE}"
+    dmg_path="${BUILD_DIR}/${BUNDLE_NAME}.dmg"
+    dmg_path="$(create_macos_dmg "${APP_BUNDLE}" "${dmg_path}")"
+    echo "DMG creado: ${dmg_path}"
+    upload_to_sftp "${dmg_path}"
   fi
 
   local dmg_arch="${ARCH:-$(uname -m)}"
