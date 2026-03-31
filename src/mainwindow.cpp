@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <QComboBox>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QTableWidget>
 #include <QTimer>
 #include <QTreeWidget>
@@ -431,6 +433,14 @@ void MainWindow::rebuildPoolInfoFromCache(PoolInfo& poolInfo,
             it->runtime.permissionsState = LoadState::Loaded;
             it->permissionsCache = permsIt.value();
         }
+    }
+
+    if (cache.autoSnapshotPropsLoaded) {
+        poolInfo.runtime.autoSnapshotPropsByDataset = cache.autoSnapshotPropsByDataset;
+        poolInfo.runtime.schedulesState = LoadState::Loaded;
+    } else if (previousPoolInfo) {
+        poolInfo.runtime.autoSnapshotPropsByDataset = previousPoolInfo->runtime.autoSnapshotPropsByDataset;
+        poolInfo.runtime.schedulesState = previousPoolInfo->runtime.schedulesState;
     }
 }
 
@@ -1150,43 +1160,72 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
     (void)QtConcurrent::run([this, profile, connIdx, trimmedPool]() {
         PoolDetailsCacheEntry fresh;
         QString errorText;
-        QString out;
-        QString err;
-        int rc = -1;
-        const QString propsCmd = withSudo(
-            profile,
-            mwhelpers::withUnixSearchPathCommand(
-                QStringLiteral("zpool get -H -o property,value,source all %1")
-                    .arg(mwhelpers::shSingleQuote(trimmedPool))));
-        if (runSsh(profile, propsCmd, 20000, out, err, rc) && rc == 0) {
-            const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-            for (const QString& line : lines) {
-                const QStringList parts = line.split('\t');
-                if (parts.size() < 3) {
-                    continue;
+        bool loadedFromDaemon = false;
+        if (!isLocalConnection(profile) && m_daemonTransport.isDaemonAvailable()) {
+            const zfsmgr::DaemonRpcResult res =
+                m_daemonTransport.call(QStringLiteral("/pools/details"),
+                                       QJsonObject{{QStringLiteral("pool"), trimmedPool}},
+                                       profile);
+            if (res.code == 200) {
+                const QJsonObject payload = res.payload;
+                const QJsonArray rows = payload.value(QStringLiteral("propsRows")).toArray();
+                for (const QJsonValue& rowValue : rows) {
+                    const QJsonArray row = rowValue.toArray();
+                    if (row.size() < 3) {
+                        continue;
+                    }
+                    fresh.propsRows.push_back(
+                        QStringList{row.at(0).toString().trimmed(),
+                                    row.at(1).toString().trimmed(),
+                                    row.at(2).toString().trimmed()});
                 }
-                fresh.propsRows.push_back(
-                    QStringList{parts[0].trimmed(), parts[1].trimmed(), parts[2].trimmed()});
+                fresh.statusText = payload.value(QStringLiteral("statusText")).toString().trimmed();
+                fresh.loaded = true;
+                loadedFromDaemon = true;
+            } else {
+                errorText = res.message.trimmed();
             }
-        } else {
-            errorText = err.trimmed();
         }
 
-        out.clear();
-        err.clear();
-        rc = -1;
-        const QString stCmd = withSudo(
-            profile,
-            mwhelpers::withUnixSearchPathCommand(
-                QStringLiteral("zpool status -v %1")
-                    .arg(mwhelpers::shSingleQuote(trimmedPool))));
-        if (runSsh(profile, stCmd, 20000, out, err, rc) && rc == 0) {
-            fresh.statusText = out.trimmed();
-        } else {
-            const QString statusErr = err.trimmed();
-            fresh.statusText = statusErr;
-            if (errorText.isEmpty()) {
-                errorText = statusErr;
+        if (!loadedFromDaemon) {
+            QString out;
+            QString err;
+            int rc = -1;
+            const QString propsCmd = withSudo(
+                profile,
+                mwhelpers::withUnixSearchPathCommand(
+                    QStringLiteral("zpool get -H -o property,value,source all %1")
+                        .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            if (runSsh(profile, propsCmd, 20000, out, err, rc) && rc == 0) {
+                const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+                for (const QString& line : lines) {
+                    const QStringList parts = line.split('\t');
+                    if (parts.size() < 3) {
+                        continue;
+                    }
+                    fresh.propsRows.push_back(
+                        QStringList{parts[0].trimmed(), parts[1].trimmed(), parts[2].trimmed()});
+                }
+            } else {
+                errorText = err.trimmed();
+            }
+
+            out.clear();
+            err.clear();
+            rc = -1;
+            const QString stCmd = withSudo(
+                profile,
+                mwhelpers::withUnixSearchPathCommand(
+                    QStringLiteral("zpool status -v %1")
+                        .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            if (runSsh(profile, stCmd, 20000, out, err, rc) && rc == 0) {
+                fresh.statusText = out.trimmed();
+            } else {
+                const QString statusErr = err.trimmed();
+                fresh.statusText = statusErr;
+                if (errorText.isEmpty()) {
+                    errorText = statusErr;
+                }
             }
         }
         fresh.loaded = true;
@@ -1615,6 +1654,40 @@ bool MainWindow::ensureDatasetSnapshotHoldsLoaded(int connIdx, const QString& po
         return true;
     }
     const ConnectionProfile& p = m_profiles[connIdx];
+    if (!isLocalConnection(connIdx) && m_daemonTransport.isDaemonAvailable()) {
+        const zfsmgr::DaemonRpcResult res =
+            m_daemonTransport.call(QStringLiteral("/holds"),
+                                   QJsonObject{{QStringLiteral("dataset"), trimmedObject}},
+                                   p);
+        if (res.code == 200) {
+            QVector<QPair<QString, QString>> holds;
+            QSet<QString> seen;
+            const QJsonArray arr = res.payload.value(QStringLiteral("holds")).toArray();
+            for (const QJsonValue& value : arr) {
+                const QJsonObject obj = value.toObject();
+                const QString tag = obj.value(QStringLiteral("tag")).toString().trimmed();
+                const QString timestamp = obj.value(QStringLiteral("timestamp")).toString().trimmed();
+                const QString key = tag.toLower();
+                if (tag.isEmpty() || seen.contains(key)) {
+                    continue;
+                }
+                seen.insert(key);
+                holds.push_back(qMakePair(tag, timestamp));
+            }
+            if (dsInfo) {
+                dsInfo->runtime.snapshotHolds = holds;
+                dsInfo->runtime.holdsState = LoadState::Loaded;
+                dsInfo->runtime.loadedAt = QDateTime::currentDateTimeUtc();
+                dsInfo->runtime.errorText.clear();
+            }
+            return true;
+        }
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("Daemon holds fallback to SSH %1::%2 (%3)")
+                   .arg(m_profiles[connIdx].name, trimmedObject, mwhelpers::oneLine(res.message.isEmpty()
+                                                                             ? QStringLiteral("daemon rc %1").arg(res.code)
+                                                                             : res.message)));
+    }
     QString out;
     QString err;
     int rc = -1;

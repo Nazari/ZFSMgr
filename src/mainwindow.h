@@ -179,10 +179,12 @@ private:
 
     struct PoolDatasetCache {
         bool loaded{false};
+        bool autoSnapshotPropsLoaded{false};
         QVector<DatasetRecord> datasets;
         QMap<QString, QStringList> snapshotsByDataset;
         QMap<QString, DatasetRecord> recordByName;
         QMap<QString, QString> driveletterByDataset;
+        QMap<QString, QMap<QString, QString>> autoSnapshotPropsByDataset;
     };
 
     struct DatasetSelectionContext {

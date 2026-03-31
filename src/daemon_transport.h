@@ -12,6 +12,7 @@ namespace zfsmgr {
 struct DaemonRpcResult {
     int code{0};
     QString message;
+    QString fallback;
     QJsonObject payload;
 };
 
@@ -31,6 +32,7 @@ public:
     DaemonRpcResult call(const QString& method,
                          const QJsonObject& params,
                          const ConnectionProfile& profile);
+    void setEnabled(bool enabled);
 
 private:
     bool sendRpc(const QString& host,

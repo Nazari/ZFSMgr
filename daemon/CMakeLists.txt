@@ -10,4 +10,5 @@ set(DAEMON_SOURCES
 
 qt_add_executable(zfsmgr_daemon ${DAEMON_SOURCES})
 target_link_libraries(zfsmgr_daemon PRIVATE Qt6::Core ssh)
+target_include_directories(zfsmgr_daemon PRIVATE ../src)
 target_compile_features(zfsmgr_daemon PRIVATE cxx_std_17)

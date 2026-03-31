@@ -5,7 +5,7 @@ title: Implementación libssh del transport del daemon
 
 ## Objetivo
 
-Reemplazar la capa TCP sintética de `DaemonTransport` por una implementación real sobre `libssh` que autentica con clave Ed25519, firma cada request y permite gestionar el canal RPC JSON descrito en `docs/daemon-transport-protocol.md`.
+Reemplazar la capa TCP sintética de `DaemonTransport` por una implementación real sobre `libssh` que autentica con clave Ed25519 y permite gestionar el canal RPC JSON descrito en `docs/daemon-transport-protocol.md`.
 
 ## Dependencias
 
@@ -14,18 +14,30 @@ Reemplazar la capa TCP sintética de `DaemonTransport` por una implementación r
 
 ## Módulos
 
-1. **DaemonRpcMessage**: struct con `id`, `method`, `params`, `result`, `error`. Serializa/parsea JSON y valida la inclusión de `fallback`.
-2. **DaemonTransport::probeDaemon**: abre sesión `ssh_new()` + `ssh_options_set` (host, port 32099, user configurable). Carga la clave pública generada (`ssh_privatekey_new`), se conecta con `ssh_connect()`, comprueba `ssh_userauth_publickey_auto`, envía `GET /health` y cierra la sesión.
-3. **DaemonTransport::call**: reutiliza la sesión (`ssh_channel_new`, `ssh_channel_request_exec` o `ssh_channel_request_subsystem`), envía la petición JSON (append newline), lee la respuesta en buffer, parsea con `QJsonDocument`, cierra canal.
+1. **`src/daemon_rpc_protocol.h`**: contrato compartido entre cliente y daemon. Define `RpcRequest`, `RpcResponse`, `RpcResult`, `PoolInfoJson`, `DSInfoJson` y `GsaPlanJson`.
+2. **`DaemonTransport::probeDaemon`**: abre sesión `ssh_new()` + `ssh_options_set` (host, port 32099, user configurable), autentica con la clave privada generada y llama a `/health`.
+3. **`DaemonTransport::call`**: abre canal, serializa `RpcRequest` a JSON compacto, lee `RpcResponse` desde el stream y valida `id`, `result` y `error`.
+
+## Estado actual del daemon
+
+El daemon ya deja de responder con estructuras hardcoded en `/pools`, `/datasets` y `/datasets/properties`.
+
+- `/pools` y `/datasets` usan `libzfs` cargado dinámicamente para enumerar pools importados y datasets/snapshots del pool solicitado.
+- `/pools/details` devuelve propiedades y `zpool status` del pool solicitado; el cliente lo usa para rellenar la información del panel de pool sin depender de `ssh`.
+- `/permissions` devuelve el volcado estructurado de `zfs allow` más listas de usuarios/grupos del sistema.
+- `/holds` devuelve los holds activos del dataset/snapshot solicitado.
+- `/datasets/properties` abre el dataset real con `libzfs` y devuelve sus propiedades efectivas en JSON.
+- `/gsa` todavía combina la base `libzfs` con una consulta auxiliar de propiedades `org.fc16.gsa:*` para reconstruir el plan efectivo por dataset.
+- Windows sigue marcado como backend pendiente: el contrato existe, pero el enumerador real aún queda para el proxy específico de esa plataforma.
 
 ## Firma Ed25519 y headers
 
-Cada request incluye un header `X-Key-Fingerprint` con el fingerprint de la clave pública. Antes de enviar, el transport firma el cuerpo con la clave privada usando `crypto_sign_detached` y añade `X-Signature`. El daemon valida la firma antes de ejecutar handlers.
+Cada request se asocia con el fingerprint de la clave pública permitida por el daemon. La firma del payload y los headers `X-Key-Fingerprint`/`X-Signature` siguen siendo una extensión prevista para la siguiente iteración del daemon.
 
 ## Reintentos y timeouts
 
 - `probeDaemon` usa timeout de 2s; si falla marca `isDaemonAvailable=false` y planifica reintentos cada 30s.
-- `call` usa un timeout de 5s y captura errores `SSH_ERROR_CHANNEL_NOT_OPEN` para forzar fallback.
+- `call` usa un timeout de 5s y captura errores de canal para forzar fallback.
 
 ## Logging y tracing
 

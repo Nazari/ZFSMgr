@@ -1,5 +1,6 @@
 #include "connectionstore.h"
 #include "daemon_transport.h"
+#include "daemon_rpc_protocol.h"
 
 #include <QByteArray>
 #include <QDir>
@@ -20,6 +21,10 @@ void DaemonTransport::setDaemonPort(int port) {
 
 int DaemonTransport::daemonPort() const {
     return m_port;
+}
+
+void DaemonTransport::setEnabled(bool enabled) {
+    m_enabled = enabled;
 }
 
 bool DaemonTransport::isDaemonAvailable() const {
@@ -51,6 +56,7 @@ DaemonRpcResult DaemonTransport::call(const QString& method,
     }
     result.code = payload.value(QStringLiteral("code")).toInt(200);
     result.message = payload.value(QStringLiteral("message")).toString();
+    result.fallback = payload.value(QStringLiteral("fallback")).toString();
     result.payload = payload.value(QStringLiteral("payload")).toObject();
     return result;
 }
@@ -78,11 +84,8 @@ bool DaemonTransport::sendRpc(const QString& host,
         return false;
     }
     const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    QJsonObject request;
-    request.insert(QStringLiteral("id"), id);
-    request.insert(QStringLiteral("method"), method);
-    request.insert(QStringLiteral("params"), params);
-    const QByteArray body = QJsonDocument(request).toJson(QJsonDocument::Compact);
+    const daemonrpc::RpcRequest request{id, method, params};
+    const QByteArray body = request.toJson();
     if (ssh_channel_write(channel, body.constData(), body.size()) != body.size()) {
         m_lastError = QStringLiteral("failed to write request");
         ssh_channel_close(channel);
@@ -110,25 +113,21 @@ bool DaemonTransport::sendRpc(const QString& host,
     ssh_channel_free(channel);
     ssh_disconnect(session);
     ssh_free(session);
-    QJsonParseError err;
-    const QJsonDocument doc = QJsonDocument::fromJson(response, &err);
-    if (err.error != QJsonParseError::NoError) {
-        m_lastError = QStringLiteral("daemon response invalid JSON");
+    daemonrpc::RpcResponse responseEnvelope;
+    QString parseError;
+    if (!daemonrpc::RpcResponse::fromJson(response, &responseEnvelope, &parseError)) {
+        m_lastError = parseError;
         return false;
     }
-    const QJsonObject resp = doc.object();
-    const QJsonValue result = resp.value(QStringLiteral("result"));
-    if (!result.isObject()) {
-        m_lastError = QStringLiteral("daemon missing result");
+    if (responseEnvelope.id != id) {
+        m_lastError = QStringLiteral("daemon response id mismatch");
         return false;
     }
-    outPayload = result.toObject();
-    const QJsonValue error = resp.value(QStringLiteral("error"));
-    if (error.isObject()) {
-        const QJsonObject errObj = error.toObject();
-        m_lastError = errObj.value(QStringLiteral("message")).toString();
+    if (responseEnvelope.hasError) {
+        m_lastError = responseEnvelope.errorMessage;
         return false;
     }
+    outPayload = responseEnvelope.result.toJsonObject();
     return true;
 }
 

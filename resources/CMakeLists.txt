@@ -48,6 +48,7 @@ set(ZFSMGR_CORE_SOURCES
     ../src/mainwindow_runtime_ui.cpp
     ../src/mainwindow_remote.cpp
     ../src/mainwindow_table_utils.cpp
+    ../src/daemon_rpc_protocol.h
     ../src/mainwindow_settings.cpp
     ../src/mainwindow_logging.cpp
     ../src/mainwindow_help.cpp
