@@ -15,6 +15,7 @@ SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese@fc16:Descargas/z}"
 UPLOAD_SFTP=0
 SIGN_APP_MODE="auto" # auto|yes|no
 EXTRA_CMAKE_ARGS=()
+MAC_ARCH="$(uname -m)"
 
 usage() {
   cat <<'EOF'
@@ -157,7 +158,8 @@ upload_to_sftp() {
 create_macos_dmg() {
   local app_path="$1"
   local dmg_path="$2"
-  local app_name volume staging_dir hdi_rc
+  local arch="$3"
+  local app_name volume staging_dir hdi_rc final_dmg
   app_name="$(basename "${app_path}")"
   volume="${app_name%.app}"
   staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/zfsmgr-dmg.XXXXXX")"
@@ -181,7 +183,10 @@ create_macos_dmg() {
     echo "Error: hdiutil falló al crear ${dmg_path}" >&2
     exit "${hdi_rc}"
   fi
-  printf '%s\n' "${dmg_path}"
+  final_dmg="${dmg_path%.dmg}-${arch}.dmg"
+  rm -f "${final_dmg}"
+  mv "${dmg_path}" "${final_dmg}"
+  printf '%s\n' "${final_dmg}"
 }
 
 OPENSSL_PREFIX=""
@@ -684,50 +689,11 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
 
   if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
     dmg_path="${BUILD_DIR}/${BUNDLE_NAME}.dmg"
-    dmg_path="$(create_macos_dmg "${APP_BUNDLE}" "${dmg_path}")"
+    dmg_path="$(create_macos_dmg "${APP_BUNDLE}" "${dmg_path}" "${MAC_ARCH}")"
     echo "DMG creado: ${dmg_path}"
     upload_to_sftp "${dmg_path}"
   fi
 
-  local dmg_arch="${ARCH:-$(uname -m)}"
-  local dmg_path
-  dmg_path="$(generate_arch_dmg "${APP_BUNDLE}" "${dmg_arch}")"
-  echo "DMG generado: ${dmg_path}"
 else
   echo "Empaquetado .app omitido (usa --bundle para generarlo)."
 fi
-
-create_macos_dmg() {
-  local app_path="$1"
-  local app_name dmg_name staging_dir
-  app_name="$(basename "${app_path}")"
-  dmg_name="${app_name%.app}.dmg"
-  staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/zfsmgr-dmg.XXXXXX")"
-  (
-    cp -R "${app_path}" "${staging_dir}/${app_name}"
-    ln -s /Applications "${staging_dir}/Applications"
-    rm -f "${OUTPUT_DIR:-${BUILD_DIR}}/${dmg_name}"
-    hdiutil create \
-      -quiet \
-      -volname "${app_name%.app}" \
-      -srcfolder "${staging_dir}" \
-      -format UDZO \
-      "${OUTPUT_DIR:-${BUILD_DIR}}/${dmg_name}"
-  )
-  rm -rf "${staging_dir}"
-}
-
-generate_arch_dmg() {
-  local app_path="$1"
-  local arch="$2"
-  local app_name base_name dmg_name output_dir final_dmg arch_dmg
-  app_name="$(basename "${app_path}")"
-  base_name="${app_name%.app}"
-  dmg_name="${base_name}.dmg"
-  output_dir="${OUTPUT_DIR:-${BUILD_DIR}}"
-  create_macos_dmg "${app_path}"
-  final_dmg="${output_dir}/${dmg_name}"
-  arch_dmg="${output_dir}/${base_name}_${arch}.dmg"
-  mv "${final_dmg}" "${arch_dmg}"
-  printf '%s\n' "${arch_dmg}"
-}
