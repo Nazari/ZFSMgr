@@ -5,6 +5,28 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build-macos"
 OUTPUT_DIR="${OUTPUT_DIR:-${BUILD_DIR}}"
+DOWNLOADS_DIR="${DOWNLOADS_DIR:-${HOME}/Downloads/z}"
+
+create_macos_dmg() {
+  local app_path="$1"
+  local app_name dmg_name staging_dir
+  app_name="$(basename "${app_path}")"
+  dmg_name="${app_name%.app}.dmg"
+  staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/zfsmgr-dmg.XXXXXX")"
+  (
+    cp -R "${app_path}" "${staging_dir}/${app_name}"
+    ln -s /Applications "${staging_dir}/Applications"
+    rm -f "${BUILD_DIR}/${dmg_name}"
+    hdiutil create \
+      -quiet \
+      -volname "${app_name%.app}" \
+      -srcfolder "${staging_dir}" \
+      -format UDZO \
+      "${BUILD_DIR}/${dmg_name}"
+  )
+  rm -rf "${staging_dir}"
+}
+OUTPUT_DIR="${OUTPUT_DIR:-${BUILD_DIR}}"
 SOURCE_DIR="${PROJECT_ROOT}/resources"
 APP_VERSION=""
 BUNDLE_NAME=""
@@ -688,10 +710,18 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   fi
 
   if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
-    dmg_path="${BUILD_DIR}/${BUNDLE_NAME}.dmg"
-    dmg_path="$(create_macos_dmg "${APP_BUNDLE}" "${dmg_path}" "${MAC_ARCH}")"
-    echo "DMG creado: ${dmg_path}"
-    upload_to_sftp "${dmg_path}"
+    local dmg_arch="${ARCH:-$(uname -m)}"
+    dmg_path="$(create_macos_dmg "${APP_BUNDLE}")"
+    local final_dmg="${BUILD_DIR}/${BUNDLE_NAME}_${dmg_arch}.dmg"
+    mv "${BUILD_DIR}/${BUNDLE_NAME}.dmg" "${final_dmg}"
+    echo "DMG creado: ${final_dmg}"
+    upload_to_sftp "${final_dmg}"
+    local daemon_dir="${DOWNLOADS_DIR}/daemons"
+    if [[ -d "${daemon_dir}" ]]; then
+      while IFS= read -r -d '' daemon; do
+        upload_to_sftp "${daemon}"
+      done < <(find "${daemon_dir}" -type f -name 'zfsmgr_daemon*' -print0)
+    fi
   fi
 
 else
