@@ -12,7 +12,10 @@
 #include <QVector>
 #include <QDebug>
 #include <QLibrary>
-#include <libssh/libssh.h>
+#ifdef SERVER_H
+#undef SERVER_H
+#endif
+#include <libssh/server.h>
 
 #include <algorithm>
 #include <cstring>
@@ -637,18 +640,41 @@ QJsonObject datasetPropertiesPayload(const QString& datasetName, QString* detail
         backend.clear();
         return payload;
     }
-    void* zh = backend.zfsOpenFn(h, datasetName.toUtf8().constData(), 0xFFFF);
-    if (!zh) {
+    QProcess proc;
+    proc.setProgram(QStringLiteral("zfs"));
+    proc.setArguments({
+        QStringLiteral("get"),
+        QStringLiteral("-H"),
+        QStringLiteral("-o"),
+        QStringLiteral("name,property,value,source"),
+        QStringLiteral("all"),
+        datasetName,
+    });
+    proc.start();
+    if (!proc.waitForFinished(5000) || proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0) {
         backend.finiFn(h);
         backend.lib.unload();
         backend.clear();
         if (detail) {
-            *detail = QStringLiteral("zfs_open(%1) failed").arg(datasetName);
+            *detail = QStringLiteral("failed to run zfs get all");
         }
         return payload;
     }
 
-    QJsonObject props = buildDatasetProps(backend, zh, datasetName);
+    QJsonObject props;
+    const QStringList lines = QString::fromUtf8(proc.readAllStandardOutput()).split('\n', Qt::SkipEmptyParts);
+    for (const QString& line : lines) {
+        const QStringList fields = line.split('\t');
+        if (fields.size() < 4) {
+            continue;
+        }
+        const QString prop = fields.value(1).trimmed();
+        const QString value = fields.value(2).trimmed();
+        if (!prop.isEmpty()) {
+            props.insert(prop, value);
+        }
+    }
+    props.insert(QStringLiteral("mountpointVisible"), !props.value(QStringLiteral("mountpoint")).toString().trimmed().isEmpty());
     const QJsonObject gsa = loadGsaPropsByDataset(poolNameFromDataset(datasetName)).value(datasetName);
     for (auto it = gsa.begin(); it != gsa.end(); ++it) {
         props.insert(it.key(), it.value());
@@ -658,7 +684,6 @@ QJsonObject datasetPropertiesPayload(const QString& datasetName, QString* detail
     payload.insert(QStringLiteral("properties"), props);
     payload.insert(QStringLiteral("gsaStatus"), gsa.isEmpty() ? QJsonValue::Null : QJsonValue(gsa));
 
-    backend.zfsCloseFn(zh);
     backend.finiFn(h);
     backend.lib.unload();
     backend.clear();
@@ -1012,12 +1037,17 @@ int main(int argc, char** argv) {
         }
         unsigned char* hash = nullptr;
         size_t hlen = 0;
-        ssh_key pubkey = ssh_get_publickey(session);
+        ssh_key pubkey = nullptr;
         bool authorized = false;
-        if (pubkey && ssh_get_publickey_hash(pubkey, SSH_PUBLICKEY_HASH_SHA256, &hash, &hlen) == SSH_OK) {
+        if (ssh_get_server_publickey(session, &pubkey) == SSH_OK
+            && pubkey
+            && ssh_get_publickey_hash(pubkey, SSH_PUBLICKEY_HASH_SHA256, &hash, &hlen) == SSH_OK) {
             const QByteArray fingerprint = QByteArray::fromRawData(reinterpret_cast<char*>(hash), hlen).toBase64();
             ssh_clean_pubkey_hash(&hash);
             authorized = fingerprint.toLower() == allowedFingerprint;
+        }
+        if (pubkey) {
+            ssh_key_free(pubkey);
         }
         if (!authorized) {
             qWarning() << "unauthorized fingerprint";
