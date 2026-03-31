@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build-macos"
+OUTPUT_DIR="${OUTPUT_DIR:-${BUILD_DIR}}"
 SOURCE_DIR="${PROJECT_ROOT}/resources"
 APP_VERSION=""
 BUNDLE_NAME=""
@@ -649,6 +650,46 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
     upload_to_sftp "${APP_BUNDLE}"
   fi
+
+  local dmg_arch="${ARCH:-$(uname -m)}"
+  local dmg_path
+  dmg_path="$(generate_arch_dmg "${APP_BUNDLE}" "${dmg_arch}")"
+  echo "DMG generado: ${dmg_path}"
 else
   echo "Empaquetado .app omitido (usa --bundle para generarlo)."
 fi
+
+create_macos_dmg() {
+  local app_path="$1"
+  local app_name dmg_name staging_dir
+  app_name="$(basename "${app_path}")"
+  dmg_name="${app_name%.app}.dmg"
+  staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/zfsmgr-dmg.XXXXXX")"
+  (
+    cp -R "${app_path}" "${staging_dir}/${app_name}"
+    ln -s /Applications "${staging_dir}/Applications"
+    rm -f "${OUTPUT_DIR:-${BUILD_DIR}}/${dmg_name}"
+    hdiutil create \
+      -quiet \
+      -volname "${app_name%.app}" \
+      -srcfolder "${staging_dir}" \
+      -format UDZO \
+      "${OUTPUT_DIR:-${BUILD_DIR}}/${dmg_name}"
+  )
+  rm -rf "${staging_dir}"
+}
+
+generate_arch_dmg() {
+  local app_path="$1"
+  local arch="$2"
+  local app_name base_name dmg_name output_dir final_dmg arch_dmg
+  app_name="$(basename "${app_path}")"
+  base_name="${app_name%.app}"
+  dmg_name="${base_name}.dmg"
+  output_dir="${OUTPUT_DIR:-${BUILD_DIR}}"
+  create_macos_dmg "${app_path}"
+  final_dmg="${output_dir}/${dmg_name}"
+  arch_dmg="${output_dir}/${base_name}_${arch}.dmg"
+  mv "${final_dmg}" "${arch_dmg}"
+  printf '%s\n' "${arch_dmg}"
+}
