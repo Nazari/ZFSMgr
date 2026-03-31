@@ -9,6 +9,7 @@ build/
 build-macos/
 build-linux/
 build-windows/
+build-daemon/
 *.spec
 .tools/
 AppDir/

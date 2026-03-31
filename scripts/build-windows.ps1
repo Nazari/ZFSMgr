@@ -11,6 +11,7 @@ $InstallerPreferenceExplicit = $false
 $InnoScriptPath = $null
 $InnoOutputDir = Join-Path $BuildDir "installer"
 $SftpTarget = if ($env:ZFSMGR_SFTP_TARGET) { $env:ZFSMGR_SFTP_TARGET } else { "sftp://linarese@fc16:Descargas/z" }
+$DownloadsDir = if ($env:DOWNLOADS_DIR) { $env:DOWNLOADS_DIR } else { Join-Path $env:USERPROFILE "Downloads\z" }
 $UploadSftp = $false
 
 function Show-Usage {
@@ -23,7 +24,7 @@ Opciones:
   --no-inno, --no-installer No genera instalador
   --inno-script <ruta>      Usa un script .iss concreto
   --inno-output <dir>       Directorio de salida para el instalador
-  --sftpfc16                Sube el artefacto generado al destino SFTP configurado
+  --sftpfc16                Sube el instalador .exe generado con --inno (Inno Setup) al destino SFTP configurado
   -h, --help                Muestra esta ayuda
 
 Variables opcionales:
@@ -87,6 +88,10 @@ for ($i = 0; $i -lt $args.Count; $i++) {
 if (($env:GITHUB_ACTIONS -eq "true") -and -not $InstallerPreferenceExplicit) {
   $GenerateInnoInstaller = $false
   Write-Host "GitHub Actions detectado: se desactiva la generación de instalador Inno Setup por defecto."
+}
+
+if ($UploadSftp -and -not $GenerateInnoInstaller) {
+  throw "--sftpfc16 requiere generar el instalador con --inno/--installer."
 }
 
 function Resolve-SftpTarget([string]$target) {
@@ -194,6 +199,17 @@ function Upload-ArtifactSftp([string]$artifactPath) {
   }
   if ($LASTEXITCODE -ne 0) {
     throw "Falló la subida SFTP del artefacto."
+  }
+}
+
+function Upload-DownloadsDaemons() {
+  $daemonRoot = Join-Path $DownloadsDir "daemons"
+  if (-not (Test-Path $daemonRoot)) {
+    Write-Host "No se encontró ${daemonRoot}; no hay daemons para subir."
+    return
+  }
+  Get-ChildItem -Path $daemonRoot -Recurse -File -Filter 'zfsmgr_daemon*' | ForEach-Object {
+    Upload-ArtifactSftp $_.FullName
   }
 }
 
@@ -1022,9 +1038,10 @@ if ($GenerateInnoInstaller) {
   }
   if ($UploadSftp) {
     Upload-ArtifactSftp $installerExe.FullName
+    Upload-DownloadsDaemons
   }
 } elseif ($UploadSftp) {
-  Upload-ArtifactSftp $exePath
+  throw "--sftpfc16 solo puede usarse junto con --inno cuando se sube un instalador."
 }
 
 Write-Host "Build completado: $exePath"

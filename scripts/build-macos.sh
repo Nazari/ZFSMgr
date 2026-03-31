@@ -4,6 +4,29 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build-macos"
+OUTPUT_DIR="${OUTPUT_DIR:-${BUILD_DIR}}"
+DOWNLOADS_DIR="${DOWNLOADS_DIR:-${HOME}/Downloads/z}"
+
+create_macos_dmg() {
+  local app_path="$1"
+  local app_name dmg_name staging_dir
+  app_name="$(basename "${app_path}")"
+  dmg_name="${app_name%.app}.dmg"
+  staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/zfsmgr-dmg.XXXXXX")"
+  (
+    cp -R "${app_path}" "${staging_dir}/${app_name}"
+    ln -s /Applications "${staging_dir}/Applications"
+    rm -f "${BUILD_DIR}/${dmg_name}"
+    hdiutil create \
+      -quiet \
+      -volname "${app_name%.app}" \
+      -srcfolder "${staging_dir}" \
+      -format UDZO \
+      "${BUILD_DIR}/${dmg_name}"
+  )
+  rm -rf "${staging_dir}"
+}
+OUTPUT_DIR="${OUTPUT_DIR:-${BUILD_DIR}}"
 SOURCE_DIR="${PROJECT_ROOT}/resources"
 APP_VERSION=""
 BUNDLE_NAME=""
@@ -14,6 +37,7 @@ SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese@fc16:Descargas/z}"
 UPLOAD_SFTP=0
 SIGN_APP_MODE="auto" # auto|yes|no
 EXTRA_CMAKE_ARGS=()
+MAC_ARCH="$(uname -m)"
 
 usage() {
   cat <<'EOF'
@@ -25,7 +49,7 @@ Opciones:
   --no-bundle    Compila sin empaquetar el bundle final
   --sign         Fuerza la firma del bundle
   --no-sign      Desactiva la firma del bundle
-  --sftpfc16     Sube el artefacto generado al destino SFTP configurado
+  --sftpfc16     Sube el artefacto final (.dmg) al destino SFTP configurado
   -h, --help     Muestra esta ayuda
 
 Variables opcionales:
@@ -80,6 +104,11 @@ for arg in "$@"; do
     EXTRA_CMAKE_ARGS+=("${arg}")
   fi
 done
+
+if [[ "${UPLOAD_SFTP}" -eq 1 && "${BUNDLE_APP}" -eq 0 ]]; then
+  echo "Error: --sftpfc16 requiere que se genere el bundle (.app)." >&2
+  exit 1
+fi
 
 parse_sftp_target() {
   local target="$1"
@@ -146,6 +175,40 @@ upload_to_sftp() {
     ssh -o BatchMode=yes "${remote}" "mkdir -p \"\$HOME/${path}\""
     scp -r "${artifact}" "${remote}:~/${path}/"
   fi
+}
+
+create_macos_dmg() {
+  local app_path="$1"
+  local dmg_path="$2"
+  local arch="$3"
+  local app_name volume staging_dir hdi_rc final_dmg
+  app_name="$(basename "${app_path}")"
+  volume="${app_name%.app}"
+  staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/zfsmgr-dmg.XXXXXX")"
+  trap 'rm -rf "${staging_dir}"' RETURN
+  cp -R "${app_path}" "${staging_dir}/${app_name}"
+  ln -s /Applications "${staging_dir}/Applications"
+  rm -f "${dmg_path}"
+  set +e
+  hdiutil create \
+    -quiet \
+    -ov \
+    -volname "${volume}" \
+    -srcfolder "${staging_dir}" \
+    -format UDZO \
+    "${dmg_path}"
+  hdi_rc=$?
+  set -e
+  trap - RETURN
+  rm -rf "${staging_dir}"
+  if [[ ${hdi_rc} -ne 0 ]]; then
+    echo "Error: hdiutil falló al crear ${dmg_path}" >&2
+    exit "${hdi_rc}"
+  fi
+  final_dmg="${dmg_path%.dmg}-${arch}.dmg"
+  rm -f "${final_dmg}"
+  mv "${dmg_path}" "${final_dmg}"
+  printf '%s\n' "${final_dmg}"
 }
 
 OPENSSL_PREFIX=""
@@ -647,8 +710,20 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   fi
 
   if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
-    upload_to_sftp "${APP_BUNDLE}"
+    local dmg_arch="${ARCH:-$(uname -m)}"
+    dmg_path="$(create_macos_dmg "${APP_BUNDLE}")"
+    local final_dmg="${BUILD_DIR}/${BUNDLE_NAME}_${dmg_arch}.dmg"
+    mv "${BUILD_DIR}/${BUNDLE_NAME}.dmg" "${final_dmg}"
+    echo "DMG creado: ${final_dmg}"
+    upload_to_sftp "${final_dmg}"
+    local daemon_dir="${DOWNLOADS_DIR}/daemons"
+    if [[ -d "${daemon_dir}" ]]; then
+      while IFS= read -r -d '' daemon; do
+        upload_to_sftp "${daemon}"
+      done < <(find "${daemon_dir}" -type f -name 'zfsmgr_daemon*' -print0)
+    fi
   fi
+
 else
   echo "Empaquetado .app omitido (usa --bundle para generarlo)."
 fi
