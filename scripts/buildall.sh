@@ -150,6 +150,23 @@ create_macos_dmg() {
   rm -rf "${staging_dir}"
 }
 
+finalize_macos_artifact() {
+  local app_path="$1"
+  local arch="${2:-}"
+  local app_name dmg_name
+  app_name="$(basename "${app_path}")"
+  dmg_name="${app_name%.app}.dmg"
+  create_macos_dmg "${OUTPUT_DIR}/${app_name}"
+  rm -rf "${OUTPUT_DIR}/${app_name}"
+  local final_dmg="${OUTPUT_DIR}/${dmg_name}"
+  if [[ -n "${arch}" ]]; then
+    local target="${OUTPUT_DIR}/${app_name%.app}-${arch}.dmg"
+    mv "${final_dmg}" "${target}"
+    final_dmg="${target}"
+  fi
+  printf '%s\n' "${final_dmg}"
+}
+
 ssh_linux() {
   ssh -o BatchMode=yes -o ConnectTimeout=10 "${LINUX_REMOTE}" "$@"
 }
@@ -322,9 +339,9 @@ if platform_enabled mac && [[ "$(local_os)" == "Darwin" ]]; then
   local_daemon_artifact="${PROJECT_ROOT}/build-daemon/zfsmgr_daemon"
   [[ -f "${local_daemon_artifact}" ]] || fail "No se encontró el daemon macOS local generado"
   copy_daemon_artifact "${local_daemon_artifact}" "macos-$(uname -m)"
-  create_macos_dmg "${OUTPUT_DIR}/$(basename "${MAC_ARTIFACT}")"
-  rm -rf "${OUTPUT_DIR}/$(basename "${MAC_ARTIFACT}")"
-  log "Artefacto macOS copiado: $(basename "${MAC_ARTIFACT}" .app).dmg"
+  MAC_ARCH_LOCAL="$(uname -m)"
+  MAC_DMG="$(finalize_macos_artifact "${MAC_ARTIFACT}" "${MAC_ARCH_LOCAL}")"
+  log "Artefacto macOS copiado: $(basename "${MAC_DMG}")"
 elif platform_enabled mac; then
   log "Compilando macOS remoto en ${MAC_REMOTE}"
   read -r -d '' MAC_BUILD_SCRIPT <<'EOF' || true
@@ -364,15 +381,20 @@ find "${repo}/build-macos" -maxdepth 1 -type d -name 'ZFSMgr-*.app' -prune -exec
 ./scripts/build-macos.sh --bundle --sign
 artifact="$(find "${repo}/build-macos" -maxdepth 1 -type d -name 'ZFSMgr-*.app' -print0 | xargs -0 -r ls -td 2>/dev/null | head -n1)"
 [[ -n "${artifact}" ]] || { echo "No se encontró el .app generado en macOS." >&2; exit 1; }
+arch="$(uname -m)"
+printf 'ARCH_MAC=%s\n' "${arch}"
 printf 'ARTIFACT_MAC=%s\n' "${artifact}"
 EOF
   MAC_BUILD_OUTPUT="$(run_platform_logged macos-remote run_mac_b64_script "${MAC_BUILD_SCRIPT}")"
   MAC_ARTIFACT="$(printf '%s\n' "${MAC_BUILD_OUTPUT}" | extract_marked_artifact 'ARTIFACT_MAC=')"
   [[ -n "${MAC_ARTIFACT}" ]] || fail "No se pudo resolver el artefacto macOS"
+  MAC_ARCH="$(printf '%s\n' "${MAC_BUILD_OUTPUT}" | extract_marked_artifact 'ARCH_MAC=')"
+  if [[ -z "${MAC_ARCH}" ]]; then
+    MAC_ARCH="x86_64"
+  fi
   copy_mac_remote_artifact "${MAC_ARTIFACT}"
-  create_macos_dmg "${OUTPUT_DIR}/$(basename "${MAC_ARTIFACT}")"
-  rm -rf "${OUTPUT_DIR}/$(basename "${MAC_ARTIFACT}")"
-  log "Artefacto macOS copiado: $(basename "${MAC_ARTIFACT}" .app).dmg"
+  MAC_DMG="$(finalize_macos_artifact "${MAC_ARTIFACT}" "${MAC_ARCH}")"
+  log "Artefacto macOS copiado: $(basename "${MAC_DMG}")"
 else
   log "macOS omitido"
 fi
