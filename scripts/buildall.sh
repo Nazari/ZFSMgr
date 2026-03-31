@@ -294,6 +294,8 @@ copy_daemon_remote_artifact() {
   local dest_dir="${DAEMON_OUTPUT_DIR}/${tag}"
   mkdir -p "${dest_dir}"
   scp -p "${remote_host}:${remote_path}" "${dest_dir}/"
+  mkdir -p "${DAEMON_DOWNLOADS_DIR}/${tag}"
+  scp -p "${remote_host}:${remote_path}" "${DAEMON_DOWNLOADS_DIR}/${tag}/"
 }
 
 mkdir -p "${OUTPUT_DIR}"
