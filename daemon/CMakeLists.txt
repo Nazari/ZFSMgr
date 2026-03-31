@@ -1,10 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
 project(zfsmgr_daemon LANGUAGES CXX)
 
+find_package(Qt6 6.5 COMPONENTS Core REQUIRED)
+find_package(libssh REQUIRED)
+
 set(DAEMON_SOURCES
-    main.cpp
+    libssh_daemon.cpp
 )
 
-add_executable(zfsmgr_daemon ${DAEMON_SOURCES})
+qt_add_executable(zfsmgr_daemon ${DAEMON_SOURCES})
+target_link_libraries(zfsmgr_daemon PRIVATE Qt6::Core ssh)
 target_compile_features(zfsmgr_daemon PRIVATE cxx_std_17)
-targeT_include_directories(zfsmgr_daemon PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
