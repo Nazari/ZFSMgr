@@ -1,10 +1,13 @@
-#include "daemon_transport.h"
 #include "connectionstore.h"
+#include "daemon_transport.h"
 
-#include <QTcpSocket>
+#include <QByteArray>
+#include <QDir>
+#include <QFile>
 #include <QJsonDocument>
-#include <QJsonParseError>
 #include <QUuid>
+#include <QStandardPaths>
+#include <libssh/libssh.h>
 
 namespace zfsmgr {
 
@@ -52,65 +55,129 @@ DaemonRpcResult DaemonTransport::call(const QString& method,
     return result;
 }
 
-bool DaemonTransport::writeRequest(QTcpSocket& socket, const QString& method, const QJsonObject& params) {
-    const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    QJsonObject req;
-    req.insert(QStringLiteral("id"), id);
-    req.insert(QStringLiteral("method"), method);
-    req.insert(QStringLiteral("params"), params);
-    const QByteArray body = QJsonDocument(req).toJson(QJsonDocument::Compact);
-    const QByteArray line = body + '\n';
-    socket.write(line);
-    return socket.waitForBytesWritten(1000);
-}
-
-bool DaemonTransport::readResponse(QTcpSocket& socket, QJsonObject& response) {
-    if (!socket.waitForReadyRead(2000)) {
-        m_lastError = QStringLiteral("daemon timeout waiting for response");
-        return false;
-    }
-    const QByteArray data = socket.readAll();
-    QJsonParseError err;
-    const QJsonDocument doc = QJsonDocument::fromJson(data, &err);
-    if (err.error != QJsonParseError::NoError) {
-        m_lastError = QStringLiteral("invalid JSON response from daemon");
-        return false;
-    }
-    response = doc.object();
-    return true;
-}
-
 bool DaemonTransport::sendRpc(const QString& host,
                               const QString& method,
                               const QJsonObject& params,
                               QJsonObject& outPayload) {
-    QTcpSocket socket;
-    socket.connectToHost(host, m_port);
-    if (!socket.waitForConnected(1500)) {
-        m_lastError = QStringLiteral("daemon not reachable");
+    ssh_session session = nullptr;
+    if (!openSession(session, host)) {
         return false;
     }
-    if (!writeRequest(socket, method, params)) {
-        m_lastError = QStringLiteral("daemon request failed to send");
+    ssh_channel channel = ssh_channel_new(session);
+    if (!channel) {
+        m_lastError = ssh_get_error(session);
+        ssh_disconnect(session);
+        ssh_free(session);
         return false;
     }
-    QJsonObject response;
-    if (!readResponse(socket, response)) {
+    if (ssh_channel_open_session(channel) != SSH_OK) {
+        m_lastError = ssh_get_error(session);
+        ssh_channel_free(channel);
+        ssh_disconnect(session);
+        ssh_free(session);
         return false;
     }
-    const QJsonValue res = response.value(QStringLiteral("result"));
-    if (!res.isObject()) {
-        m_lastError = QStringLiteral("daemon response missing result");
+    const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    QJsonObject request;
+    request.insert(QStringLiteral("id"), id);
+    request.insert(QStringLiteral("method"), method);
+    request.insert(QStringLiteral("params"), params);
+    const QByteArray body = QJsonDocument(request).toJson(QJsonDocument::Compact);
+    if (ssh_channel_write(channel, body.constData(), body.size()) != body.size()) {
+        m_lastError = QStringLiteral("failed to write request");
+        ssh_channel_close(channel);
+        ssh_channel_free(channel);
+        ssh_disconnect(session);
+        ssh_free(session);
         return false;
     }
-    outPayload = res.toObject();
-    const QJsonValue err = response.value(QStringLiteral("error"));
-    if (err.isObject()) {
-        const QJsonObject errObj = err.toObject();
+    ssh_channel_send_eof(channel);
+    QByteArray response;
+    char buf[256];
+    int n;
+    while ((n = ssh_channel_read(channel, buf, sizeof(buf), 0)) > 0) {
+        response.append(buf, n);
+    }
+    if (n < 0) {
+        m_lastError = ssh_get_error(session);
+        ssh_channel_close(channel);
+        ssh_channel_free(channel);
+        ssh_disconnect(session);
+        ssh_free(session);
+        return false;
+    }
+    ssh_channel_close(channel);
+    ssh_channel_free(channel);
+    ssh_disconnect(session);
+    ssh_free(session);
+    QJsonParseError err;
+    const QJsonDocument doc = QJsonDocument::fromJson(response, &err);
+    if (err.error != QJsonParseError::NoError) {
+        m_lastError = QStringLiteral("daemon response invalid JSON");
+        return false;
+    }
+    const QJsonObject resp = doc.object();
+    const QJsonValue result = resp.value(QStringLiteral("result"));
+    if (!result.isObject()) {
+        m_lastError = QStringLiteral("daemon missing result");
+        return false;
+    }
+    outPayload = result.toObject();
+    const QJsonValue error = resp.value(QStringLiteral("error"));
+    if (error.isObject()) {
+        const QJsonObject errObj = error.toObject();
         m_lastError = errObj.value(QStringLiteral("message")).toString();
         return false;
     }
     return true;
+}
+
+bool DaemonTransport::openSession(ssh_session& session, const QString& host) {
+    session = ssh_new();
+    if (!session) {
+        m_lastError = QStringLiteral("failed to allocate ssh session");
+        return false;
+    }
+    int port = m_port;
+    ssh_options_set(session, SSH_OPTIONS_HOST, host.toUtf8().constData());
+    ssh_options_set(session, SSH_OPTIONS_PORT, &port);
+    ssh_options_set(session, SSH_OPTIONS_USER, QStringLiteral("zfsmgr").toUtf8().constData());
+    if (ssh_connect(session) != SSH_OK) {
+        m_lastError = ssh_get_error(session);
+        ssh_free(session);
+        return false;
+    }
+    if (!authenticateSession(session)) {
+        ssh_disconnect(session);
+        ssh_free(session);
+        return false;
+    }
+    return true;
+}
+
+bool DaemonTransport::authenticateSession(ssh_session session) {
+    ssh_key key = nullptr;
+    const QString keyPath = privateKeyPath();
+    if (!QFile::exists(keyPath)) {
+        m_lastError = QStringLiteral("daemon key missing");
+        return false;
+    }
+    if (ssh_pki_import_privkey_file(keyPath.toUtf8().constData(), nullptr, nullptr, nullptr, &key) != SSH_OK) {
+        m_lastError = QStringLiteral("unable to load private key");
+        return false;
+    }
+    if (ssh_userauth_publickey(session, nullptr, key) != SSH_AUTH_SUCCESS) {
+        m_lastError = ssh_get_error(session);
+        ssh_key_free(key);
+        return false;
+    }
+    ssh_key_free(key);
+    return true;
+}
+
+QString DaemonTransport::privateKeyPath() const {
+    return QDir(QStandardPaths::writableLocation(QStandardPaths::HomeLocation))
+        .filePath(QStringLiteral(".zfsmgr/zfsmgr_daemon_id"));
 }
 
 } // namespace zfsmgr

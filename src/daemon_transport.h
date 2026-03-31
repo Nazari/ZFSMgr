@@ -3,7 +3,7 @@
 #include <QObject>
 #include <QJsonObject>
 #include <QString>
-#include <QTcpSocket>
+#include <libssh/libssh.h>
 
 struct ConnectionProfile;
 
@@ -37,8 +37,9 @@ private:
                  const QString& method,
                  const QJsonObject& params,
                  QJsonObject& outPayload);
-    bool writeRequest(QTcpSocket& socket, const QString& method, const QJsonObject& params);
-    bool readResponse(QTcpSocket& socket, QJsonObject& response);
+    bool openSession(ssh_session& session, const QString& host);
+    bool authenticateSession(ssh_session session);
+    QString privateKeyPath() const;
 
     int m_port{32099};
     bool m_enabled{true};
