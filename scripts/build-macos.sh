@@ -710,13 +710,13 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   fi
 
   if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
-    local dmg_arch="${ARCH:-$(uname -m)}"
+    dmg_arch="${ARCH:-$(uname -m)}"
     dmg_path="$(create_macos_dmg "${APP_BUNDLE}")"
-    local final_dmg="${BUILD_DIR}/${BUNDLE_NAME}_${dmg_arch}.dmg"
+    final_dmg="${BUILD_DIR}/${BUNDLE_NAME}_${dmg_arch}.dmg"
     mv "${BUILD_DIR}/${BUNDLE_NAME}.dmg" "${final_dmg}"
     echo "DMG creado: ${final_dmg}"
     upload_to_sftp "${final_dmg}"
-    local daemon_dir="${DOWNLOADS_DIR}/daemons"
+    daemon_dir="${DOWNLOADS_DIR}/daemons"
     if [[ -d "${daemon_dir}" ]]; then
       while IFS= read -r -d '' daemon; do
         upload_to_sftp "${daemon}"
