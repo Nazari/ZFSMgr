@@ -179,11 +179,10 @@ upload_to_sftp() {
 
 create_macos_dmg() {
   local app_path="$1"
-  local dmg_path="$2"
-  local arch="$3"
-  local app_name volume staging_dir hdi_rc final_dmg
+  local app_name volume staging_dir hdi_rc dmg_path
   app_name="$(basename "${app_path}")"
   volume="${app_name%.app}"
+  dmg_path="${BUILD_DIR}/${volume}.dmg"
   staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/zfsmgr-dmg.XXXXXX")"
   trap 'rm -rf "${staging_dir}"' RETURN
   cp -R "${app_path}" "${staging_dir}/${app_name}"
@@ -205,10 +204,7 @@ create_macos_dmg() {
     echo "Error: hdiutil falló al crear ${dmg_path}" >&2
     exit "${hdi_rc}"
   fi
-  final_dmg="${dmg_path%.dmg}-${arch}.dmg"
-  rm -f "${final_dmg}"
-  mv "${dmg_path}" "${final_dmg}"
-  printf '%s\n' "${final_dmg}"
+  printf '%s\n' "${dmg_path}"
 }
 
 OPENSSL_PREFIX=""
