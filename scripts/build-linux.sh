@@ -16,6 +16,7 @@ BUILD_DEB=0
 BUILD_DAEMONS=0
 UPLOAD_SFTP=0
 EXTRA_ARGS=()
+DAEMON_BUILD_DIR="${BUILD_DIR}/daemon"
 
 usage() {
   cat <<'EOF'
@@ -25,8 +26,8 @@ Uso:
 Opciones:
   --appimage   Genera también el artefacto AppImage
   --deb        Genera también el paquete .deb mediante CPack
-  --daemons    Compila también el daemon (daemon/CMakeLists.txt)
-  --sftpfc16   Sube los artefactos finales (.AppImage y/o .deb) al destino SFTP configurado
+  --daemons    Construye también el daemon (zfsmgr_daemon)
+  --sftpfc16   Sube los artefactos finales (.AppImage, .deb y/o daemon) al destino SFTP configurado
   -h, --help   Muestra esta ayuda
 
 Variables opcionales:
@@ -87,8 +88,8 @@ for arg in "$@"; do
   esac
 done
 
-if [[ "${UPLOAD_SFTP}" -eq 1 && "${BUILD_APPIMAGE}" -eq 0 && "${BUILD_DEB}" -eq 0 ]]; then
-  echo "Error: --sftpfc16 requiere --appimage o --deb." >&2
+if [[ "${UPLOAD_SFTP}" -eq 1 && "${BUILD_APPIMAGE}" -eq 0 && "${BUILD_DEB}" -eq 0 && "${BUILD_DAEMONS}" -eq 0 ]]; then
+  echo "Error: --sftpfc16 requiere --appimage, --deb o --daemons." >&2
   exit 1
 fi
 
@@ -170,23 +171,32 @@ upload_deb_artifacts() {
   fi
 }
 
-upload_daemons() {
-  local download_daemon_dir="${DOWNLOADS_DIR}/daemons"
-  if [[ ! -d "${download_daemon_dir}" ]]; then
-    echo "Advertencia: no hay daemons en ${download_daemon_dir}" >&2
-    return 0
-  fi
-  while IFS= read -r -d '' daemon; do
-    upload_to_sftp "${daemon}"
-  done < <(find "${download_daemon_dir}" -type f -name 'zfsmgr_daemon*' -print0)
+build_daemon() {
+  local daemon_dir="${PROJECT_ROOT}/daemon"
+  echo "Configurando y construyendo daemon..."
+  cmake -S "${daemon_dir}" -B "${DAEMON_BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release
+  cmake --build "${DAEMON_BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
+  echo "Daemon construido: ${DAEMON_BUILD_DIR}/zfsmgr_daemon"
 }
 
-build_daemons() {
-  local daemon_build_dir="${BUILD_DIR}/daemon"
-  echo "Building daemons..."
-  cmake -S "${PROJECT_ROOT}/daemon" -B "${daemon_build_dir}" -DCMAKE_BUILD_TYPE=Release
-  cmake --build "${daemon_build_dir}" -j"$(nproc 2>/dev/null || echo 4)"
-  echo "Daemon build completado: ${daemon_build_dir}/zfsmgr_daemon"
+upload_daemons() {
+  local daemon_binary="${DAEMON_BUILD_DIR}/zfsmgr_daemon"
+  if [[ ! -f "${daemon_binary}" ]]; then
+    echo "Error: no se encontró el daemon en ${daemon_binary}" >&2
+    exit 1
+  fi
+  local parsed remote path
+  parsed="$(parse_sftp_target "${SFTP_TARGET}")"
+  remote="${parsed%%|*}"
+  path="${parsed#*|}/daemons"
+  echo "Subiendo daemon a ${remote}:${path}"
+  if [[ "${path}" == /* ]]; then
+    ssh -o BatchMode=yes "${remote}" "mkdir -p '${path}'"
+    scp "${daemon_binary}" "${remote}:${path}/"
+  else
+    ssh -o BatchMode=yes "${remote}" "mkdir -p \"\$HOME/${path}\""
+    scp "${daemon_binary}" "${remote}:~/${path}/"
+  fi
 }
 
 ensure_build_dir_source_match() {
@@ -209,10 +219,16 @@ ensure_build_dir_source_match() {
 }
 
 if [[ "${BUILD_APPIMAGE}" -eq 0 && "${BUILD_DEB}" -eq 0 ]]; then
+  if [[ "${BUILD_DAEMONS}" -eq 1 ]]; then
+    build_daemon
+    if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
+      upload_daemons
+    fi
+    exit 0
+  fi
   ensure_build_dir_source_match
   cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
   cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
-  if [[ "${BUILD_DAEMONS}" -eq 1 ]]; then build_daemons; fi
   echo "Build completado: ${BUILD_DIR}/zfsmgr_qt"
   exit 0
 fi
@@ -237,7 +253,10 @@ echo "Configuring and building Release binary..."
 ensure_build_dir_source_match
 cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
 cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
-if [[ "${BUILD_DAEMONS}" -eq 1 ]]; then build_daemons; fi
+
+if [[ "${BUILD_DAEMONS}" -eq 1 ]]; then
+  build_daemon
+fi
 
 if [[ "${BUILD_DEB}" -eq 1 ]]; then
   echo "Building Debian package..."
@@ -246,7 +265,9 @@ if [[ "${BUILD_DEB}" -eq 1 ]]; then
   ls -lh "${BUILD_DIR}"/*.deb
   if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
     upload_deb_artifacts
-    upload_daemons
+    if [[ "${BUILD_DAEMONS}" -eq 1 ]]; then
+      upload_daemons
+    fi
   fi
 fi
 
@@ -309,5 +330,7 @@ ls -lh "${BUILD_DIR}"/*.AppImage
       echo "Error: no se encontró AppImage ${OUTPUT}" >&2
       exit 1
     fi
-    upload_daemons
+    if [[ "${BUILD_DAEMONS}" -eq 1 ]]; then
+      upload_daemons
+    fi
   fi
