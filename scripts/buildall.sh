@@ -17,6 +17,8 @@ preferred_downloads_dir() {
 }
 
 OUTPUT_DIR="${OUTPUT_DIR:-$(preferred_downloads_dir)/z}"
+DOWNLOADS_DIR="${DOWNLOADS_DIR:-${HOME}/Downloads/z}"
+DAEMON_DOWNLOADS_DIR="${DOWNLOADS_DIR}/daemons"
 
 LINUX_REMOTE="${LINUX_REMOTE:-linarese@fc16}"
 WINDOWS_REMOTE="${WINDOWS_REMOTE:-eladi@surface}"
@@ -264,6 +266,8 @@ copy_daemon_artifact() {
   local dest_dir="${DAEMON_OUTPUT_DIR}/${tag}"
   mkdir -p "${dest_dir}"
   cp -f "${source}" "${dest_dir}/"
+  mkdir -p "${DAEMON_DOWNLOADS_DIR}/${tag}"
+  cp -f "${source}" "${DAEMON_DOWNLOADS_DIR}/${tag}/"
 }
 
 copy_daemon_remote_artifact() {
@@ -276,6 +280,9 @@ copy_daemon_remote_artifact() {
 }
 
 mkdir -p "${OUTPUT_DIR}"
+mkdir -p "${DOWNLOADS_DIR}/tools"
+cp -f "${PROJECT_ROOT}/scripts/generate-daemon-keys.sh" "${DOWNLOADS_DIR}/tools/"
+cp -f "${PROJECT_ROOT}/scripts/deploy-daemon.sh" "${DOWNLOADS_DIR}/tools/"
 
 if [[ $# -gt 0 ]]; then
   case "$1" in
