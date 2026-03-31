@@ -13,6 +13,7 @@ DOWNLOADS_DIR="${DOWNLOADS_DIR:-${HOME}/Downloads/z}"
 APP_VERSION="$(sed -nE 's/^[[:space:]]*set\([[:space:]]*ZFSMGR_APP_VERSION_STRING[[:space:]]*"([^"]+)".*/\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1)"
 BUILD_APPIMAGE=0
 BUILD_DEB=0
+BUILD_DAEMONS=0
 UPLOAD_SFTP=0
 EXTRA_ARGS=()
 
@@ -24,6 +25,7 @@ Uso:
 Opciones:
   --appimage   Genera también el artefacto AppImage
   --deb        Genera también el paquete .deb mediante CPack
+  --daemons    Compila también el daemon (daemon/CMakeLists.txt)
   --sftpfc16   Sube los artefactos finales (.AppImage y/o .deb) al destino SFTP configurado
   -h, --help   Muestra esta ayuda
 
@@ -72,6 +74,9 @@ for arg in "$@"; do
       ;;
     --deb)
       BUILD_DEB=1
+      ;;
+    --daemons)
+      BUILD_DAEMONS=1
       ;;
     --sftpfc16)
       UPLOAD_SFTP=1
@@ -176,6 +181,14 @@ upload_daemons() {
   done < <(find "${download_daemon_dir}" -type f -name 'zfsmgr_daemon*' -print0)
 }
 
+build_daemons() {
+  local daemon_build_dir="${BUILD_DIR}/daemon"
+  echo "Building daemons..."
+  cmake -S "${PROJECT_ROOT}/daemon" -B "${daemon_build_dir}" -DCMAKE_BUILD_TYPE=Release
+  cmake --build "${daemon_build_dir}" -j"$(nproc 2>/dev/null || echo 4)"
+  echo "Daemon build completado: ${daemon_build_dir}/zfsmgr_daemon"
+}
+
 ensure_build_dir_source_match() {
   if [[ ! -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
     return 0
@@ -199,6 +212,7 @@ if [[ "${BUILD_APPIMAGE}" -eq 0 && "${BUILD_DEB}" -eq 0 ]]; then
   ensure_build_dir_source_match
   cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
   cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
+  if [[ "${BUILD_DAEMONS}" -eq 1 ]]; then build_daemons; fi
   echo "Build completado: ${BUILD_DIR}/zfsmgr_qt"
   exit 0
 fi
@@ -223,6 +237,7 @@ echo "Configuring and building Release binary..."
 ensure_build_dir_source_match
 cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
 cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
+if [[ "${BUILD_DAEMONS}" -eq 1 ]]; then build_daemons; fi
 
 if [[ "${BUILD_DEB}" -eq 1 ]]; then
   echo "Building Debian package..."

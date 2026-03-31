@@ -31,6 +31,7 @@ SOURCE_DIR="${PROJECT_ROOT}/resources"
 APP_VERSION=""
 BUNDLE_NAME=""
 BUNDLE_APP=1
+BUILD_DAEMONS=0
 SELF_SIGN_CERT_NAME="${SELF_SIGN_CERT_NAME:-ZFSMgr Local Self-Signed}"
 KEYCHAIN_PASSWORD="${KEYCHAIN_PASSWORD:-${MAC_PASS:-}}"
 SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese@fc16:Descargas/z}"
@@ -49,6 +50,7 @@ Opciones:
   --no-bundle    Compila sin empaquetar el bundle final
   --sign         Fuerza la firma del bundle
   --no-sign      Desactiva la firma del bundle
+  --daemons      Compila también el daemon (daemon/CMakeLists.txt)
   --sftpfc16     Sube el artefacto final (.dmg) al destino SFTP configurado
   -h, --help     Muestra esta ayuda
 
@@ -94,6 +96,8 @@ for arg in "$@"; do
     BUNDLE_APP=1
   elif [[ "${arg}" == "--no-bundle" ]]; then
     BUNDLE_APP=0
+  elif [[ "${arg}" == "--daemons" ]]; then
+    BUILD_DAEMONS=1
   elif [[ "${arg}" == "--sftpfc16" ]]; then
     UPLOAD_SFTP=1
   elif [[ "${arg}" == "--sign" ]]; then
@@ -174,6 +178,25 @@ upload_to_sftp() {
   else
     ssh -o BatchMode=yes "${remote}" "mkdir -p \"\$HOME/${path}\""
     scp -r "${artifact}" "${remote}:~/${path}/"
+  fi
+}
+
+upload_daemon_to_sftp() {
+  local artifact="$1"
+  local parsed remote path daemon_path
+  parsed="$(parse_sftp_target "${SFTP_TARGET}")"
+  remote="${parsed%%|*}"
+  path="${parsed#*|}"
+  if [[ "${path}" == /* ]]; then
+    daemon_path="${path}/daemons"
+    echo "Subiendo daemon a ${remote}:${daemon_path}"
+    ssh -o BatchMode=yes "${remote}" "mkdir -p '${daemon_path}'"
+    scp "${artifact}" "${remote}:${daemon_path}/"
+  else
+    daemon_path="${path}/daemons"
+    echo "Subiendo daemon a ${remote}:~/${daemon_path}"
+    ssh -o BatchMode=yes "${remote}" "mkdir -p \"\$HOME/${daemon_path}\""
+    scp "${artifact}" "${remote}:~/${daemon_path}/"
   fi
 }
 
@@ -640,6 +663,13 @@ fi
 
 cmake --build "${BUILD_DIR}" -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
+if [[ "${BUILD_DAEMONS}" -eq 1 ]]; then
+  echo "Building daemons..."
+  cmake -S "${PROJECT_ROOT}/daemon" -B "${BUILD_DIR}/daemon" -DCMAKE_BUILD_TYPE=Release
+  cmake --build "${BUILD_DIR}/daemon" -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+  echo "Daemon build completado: ${BUILD_DIR}/daemon/zfsmgr_daemon"
+fi
+
 echo "Build completado: ${BUILD_DIR}/${BUNDLE_NAME}.app"
 if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   APP_BUNDLE="${BUILD_DIR}/${BUNDLE_NAME}.app"
@@ -712,10 +742,13 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
     mv "${BUILD_DIR}/${BUNDLE_NAME}.dmg" "${final_dmg}"
     echo "DMG creado: ${final_dmg}"
     upload_to_sftp "${final_dmg}"
+    if [[ "${BUILD_DAEMONS}" -eq 1 ]]; then
+      upload_daemon_to_sftp "${BUILD_DIR}/daemon/zfsmgr_daemon"
+    fi
     daemon_dir="${DOWNLOADS_DIR}/daemons"
     if [[ -d "${daemon_dir}" ]]; then
       while IFS= read -r -d '' daemon; do
-        upload_to_sftp "${daemon}"
+        upload_daemon_to_sftp "${daemon}"
       done < <(find "${daemon_dir}" -type f -name 'zfsmgr_daemon*' -print0)
     fi
   fi
