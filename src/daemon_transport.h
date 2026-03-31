@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QJsonObject>
 #include <QString>
+#include <QTcpSocket>
 
 struct ConnectionProfile;
 
@@ -32,6 +33,13 @@ public:
                          const ConnectionProfile& profile);
 
 private:
+    bool sendRpc(const QString& host,
+                 const QString& method,
+                 const QJsonObject& params,
+                 QJsonObject& outPayload);
+    bool writeRequest(QTcpSocket& socket, const QString& method, const QJsonObject& params);
+    bool readResponse(QTcpSocket& socket, QJsonObject& response);
+
     int m_port{32099};
     bool m_enabled{true};
     QString m_lastError;
