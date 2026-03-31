@@ -22,7 +22,6 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Core Gui Concurrent Network Test)
 find_package(OpenSSL REQUIRED)
-find_package(libssh REQUIRED)
 
 set(ZFSMGR_CORE_SOURCES
     ../src/mainwindow.cpp
@@ -80,7 +79,9 @@ set(ZFSMGR_CORE_SOURCES
 
 qt_add_library(zfsmgr_core STATIC ${ZFSMGR_CORE_SOURCES})
 
-target_link_libraries(zfsmgr_core PUBLIC Qt6::Widgets Qt6::Core Qt6::Gui Qt6::Concurrent Qt6::Network OpenSSL::Crypto libssh)
+find_package(libssh REQUIRED COMPONENTS ssh)
+
+target_link_libraries(zfsmgr_core PUBLIC Qt6::Widgets Qt6::Core Qt6::Gui Qt6::Concurrent Qt6::Network OpenSSL::Crypto ssh)
 
 target_include_directories(zfsmgr_core PUBLIC ../src)
 
