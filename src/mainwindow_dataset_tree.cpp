@@ -219,6 +219,12 @@ QString findCaseInsensitiveMapKey(const QMap<QString, bool>& map, const QString&
     return QString();
 }
 
+bool isMainPropertiesNodeLabel(const QString& text) {
+    const QString trimmed = text.trimmed();
+    return trimmed == QStringLiteral("Dataset properties")
+           || trimmed == QStringLiteral("Snapshot properties");
+}
+
 QString connContentChildStableId(QTreeWidgetItem* node) {
     if (!node) {
         return QString();
@@ -261,6 +267,7 @@ QString normalizeConnContentChildPathForCompat(const QString& path) {
     normalized.replace(QStringLiteral("group|||Propiedades"), QStringLiteral("group||mainprops"));
     normalized.replace(QStringLiteral("group|||Properties"), QStringLiteral("group||mainprops"));
     normalized.replace(QStringLiteral("group|||Dataset properties"), QStringLiteral("group||mainprops"));
+    normalized.replace(QStringLiteral("group|||Snapshot properties"), QStringLiteral("group||mainprops"));
     return normalized;
 }
 
@@ -1037,7 +1044,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
             if (c->data(0, kConnPropGroupNodeRole).toBool()) {
                 const bool isMainPropsNode =
                     c->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
-                    && c->text(0).trimmed() == QStringLiteral("Dataset properties");
+                    && isMainPropertiesNodeLabel(c->text(0));
                 const bool isGsaNode = c->data(0, kConnGsaNodeRole).toBool()
                                        || c->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kGsaBlockInfoKey);
                 if (isMainPropsNode || isGsaNode) {
@@ -1127,36 +1134,6 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
         }
     }
 
-    QStringList props = displayValues.keys();
-    for (int i = props.size() - 1; i >= 0; --i) {
-        if (isGsaUserProperty(props.at(i))) {
-            props.removeAt(i);
-        }
-    }
-    props.sort(Qt::CaseInsensitive);
-    QStringList ordered;
-    const QStringList pinned = {QStringLiteral("snapshot"), QStringLiteral("estado"), QStringLiteral("mountpoint")};
-    for (const QString& p : pinned) {
-        for (const QString& k : props) {
-            if (k.compare(p, Qt::CaseInsensitive) == 0) {
-                ordered.push_back(k);
-                break;
-            }
-        }
-    }
-    for (const QString& k : props) {
-        bool already = false;
-        for (const QString& p : ordered) {
-            if (p.compare(k, Qt::CaseInsensitive) == 0) {
-                already = true;
-                break;
-            }
-        }
-        if (!already) {
-            ordered.push_back(k);
-        }
-    }
-    props = ordered;
     const QString fixedSnapshotProp = QStringLiteral("snapshot");
     auto filterPropsByWanted = [](const QStringList& available, const QStringList& wanted) {
         QStringList filtered;
@@ -1196,6 +1173,51 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
         }
         return datasetSnapshotHolds(connIdx, poolName, objectName);
     };
+    const QVector<DatasetPropCacheRow> objectRows =
+        datasetPropertyRowsFromModelOrCache(itemConnIdx, itemPool, obj);
+    QStringList props;
+    if (objectIsSnapshot) {
+        for (const DatasetPropCacheRow& row : objectRows) {
+            const QString prop = row.prop.trimmed();
+            if (prop.isEmpty() || isGsaUserProperty(prop)) {
+                continue;
+            }
+            if (!props.contains(prop, Qt::CaseInsensitive)) {
+                props.push_back(prop);
+            }
+        }
+    } else {
+        props = displayValues.keys();
+        for (int i = props.size() - 1; i >= 0; --i) {
+            if (isGsaUserProperty(props.at(i))) {
+                props.removeAt(i);
+            }
+        }
+        props.sort(Qt::CaseInsensitive);
+        QStringList ordered;
+        const QStringList pinned = {QStringLiteral("snapshot"), QStringLiteral("estado"), QStringLiteral("mountpoint")};
+        for (const QString& p : pinned) {
+            for (const QString& k : props) {
+                if (k.compare(p, Qt::CaseInsensitive) == 0) {
+                    ordered.push_back(k);
+                    break;
+                }
+            }
+        }
+        for (const QString& k : props) {
+            bool already = false;
+            for (const QString& p : ordered) {
+                if (p.compare(k, Qt::CaseInsensitive) == 0) {
+                    already = true;
+                    break;
+                }
+            }
+            if (!already) {
+                ordered.push_back(k);
+            }
+        }
+        props = ordered;
+    }
     QStringList mainProps = props;
     if (!savedOrder->isEmpty()) {
         mainProps = filterPropsByWanted(props, *savedOrder);
@@ -1218,8 +1240,6 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
     enumValues.insert(QStringLiteral("org.fc16.gsa:activado"), QStringList{QStringLiteral("off"), QStringLiteral("on")});
     enumValues.insert(QStringLiteral("org.fc16.gsa:recursivo"), QStringList{QStringLiteral("off"), QStringLiteral("on")});
     enumValues.insert(QStringLiteral("org.fc16.gsa:nivelar"), QStringList{QStringLiteral("off"), QStringLiteral("on")});
-    const QVector<DatasetPropCacheRow> objectRows =
-        datasetPropertyRowsFromModelOrCache(itemConnIdx, itemPool, obj);
     QString objectDatasetType = objectIsSnapshot ? QStringLiteral("snapshot") : QString();
     if (const DSInfo* objectInfo = findDsInfo(itemConnIdx, itemPool, obj);
         objectInfo && !objectInfo->runtime.datasetType.trimmed().isEmpty()) {
@@ -1851,7 +1871,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
             continue;
         }
         if (child->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
-            && child->text(0).trimmed() == QStringLiteral("Dataset properties")) {
+            && isMainPropertiesNodeLabel(child->text(0))) {
             if (!propsNode) {
                 propsNode = child;
                 propsNodeWasExpanded = child->isExpanded();
@@ -1882,7 +1902,8 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
     }
     if (showInlinePropertyNodes && !propsNode) {
         propsNode = new QTreeWidgetItem();
-        propsNode->setText(0, QStringLiteral("Dataset properties"));
+        propsNode->setText(0, objectIsSnapshot ? QStringLiteral("Snapshot properties")
+                                               : QStringLiteral("Dataset properties"));
         propsNode->setData(0, kConnPropGroupNodeRole, true);
         propsNode->setData(0, kConnPropGroupNameRole, QString());
         propsNode->setData(0, kConnIdxRole, itemConnIdx);
@@ -1890,6 +1911,8 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
         sel->insertChild(insertAt++, propsNode);
     }
     if (showInlinePropertyNodes && propsNode) {
+        propsNode->setText(0, objectIsSnapshot ? QStringLiteral("Snapshot properties")
+                                               : QStringLiteral("Dataset properties"));
         shouldExpandPropsNode = propsNodeWasExpanded || tree->currentItem() == propsNode;
         clearNodeChildrenAndCells(propsNode);
         if (!mainProps.isEmpty()) {

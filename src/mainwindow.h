@@ -934,7 +934,6 @@ private:
     QAction* m_menuExitAction{nullptr};
     QGroupBox* m_connActionsBox{nullptr};
     QLabel* m_connOriginSelectionLabel{nullptr};
-    QLabel* m_connDestSelectionLabel{nullptr};
     QPushButton* m_btnConnCopy{nullptr};
     QPushButton* m_btnConnClone{nullptr};
     QPushButton* m_btnConnDiff{nullptr};

@@ -1401,16 +1401,6 @@ void MainWindow::buildUi() {
     m_connOriginSelectionLabel->setMinimumHeight(18);
     m_connOriginSelectionLabel->setFont(baseUiFont);
     selectionRowLayout->addWidget(m_connOriginSelectionLabel, 1);
-    m_connDestSelectionLabel = new QLabel(
-        trk(QStringLiteral("t_conn_dest_sel01"),
-            QStringLiteral("Destino:(vacío)"),
-            QStringLiteral("Target:(empty)"),
-            QStringLiteral("目标：（空）")),
-        connActionRightBox);
-    m_connDestSelectionLabel->setWordWrap(true);
-    m_connDestSelectionLabel->setMinimumHeight(18);
-    m_connDestSelectionLabel->setFont(baseUiFont);
-    m_connDestSelectionLabel->hide();
     m_btnApplyConnContentProps = new TooltipPushButton(
         trk(QStringLiteral("t_apply_changes_001"),
             QStringLiteral("Aplicar cambios"),

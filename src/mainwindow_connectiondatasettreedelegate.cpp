@@ -65,6 +65,12 @@ QString gsaSnapshotClass(const QString& snapshotName) {
     return trimmed.mid(firstDash + 1, secondDash - firstDash - 1).trimmed().toLower();
 }
 
+bool isMainPropertiesNodeLabel(const QString& text) {
+    const QString trimmed = text.trimmed();
+    return trimmed == QStringLiteral("Dataset properties")
+           || trimmed == QStringLiteral("Snapshot properties");
+}
+
 int connectionTableRowForIndex(QTableWidget* table, int connIdx) {
     if (!table || connIdx < 0) {
         return -1;
@@ -598,7 +604,7 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
                         }
                         const bool isMainPropsNode =
                             child->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
-                            && child->text(0).trimmed() == QStringLiteral("Dataset properties");
+                            && isMainPropertiesNodeLabel(child->text(0));
                         if (!isMainPropsNode || !child->isExpanded()) {
                             continue;
                         }
@@ -1111,7 +1117,7 @@ void MainWindowConnectionDatasetTreeDelegate::itemClicked(QTreeWidget* tree, QTr
     const bool isLazyPropsNode =
         item->data(0, kConnPropGroupNodeRole).toBool()
         && item->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
-        && item->text(0).trimmed() == QStringLiteral("Dataset properties");
+        && isMainPropertiesNodeLabel(item->text(0));
     if (isLazyPropsNode) {
         QTimer::singleShot(0, m_mainWindow, [this, tree, item]() {
             if (!m_mainWindow || m_mainWindow->m_closing || !tree || !item) {
@@ -1197,7 +1203,7 @@ void MainWindowConnectionDatasetTreeDelegate::selectionChanged(QTreeWidget* tree
     const bool isLazyPropsNode =
         sel && isGroupNode && !isPoolContext
         && sel->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
-        && sel->text(0).trimmed() == QStringLiteral("Dataset properties")
+        && isMainPropertiesNodeLabel(sel->text(0))
         && sel->childCount() == 0;
     const bool isLazyPermissionsNode =
         sel && isPermissionsNode

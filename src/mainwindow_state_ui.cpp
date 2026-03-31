@@ -119,9 +119,6 @@ void MainWindow::updateConnectionActionsState() {
     if (m_connOriginSelectionLabel) {
         m_connOriginSelectionLabel->setText(QStringLiteral("%1    %2").arg(originText, dstText));
     }
-    if (m_connDestSelectionLabel) {
-        m_connDestSelectionLabel->setText(dstText);
-    }
     QString versionTransferReason;
     const bool transferVersionAllowed = isTransferVersionAllowed(m_connActionOrigin, m_connActionDest, &versionTransferReason);
     const bool paintActionLabelsRed = (!transferVersionAllowed
@@ -132,9 +129,6 @@ void MainWindow::updateConnectionActionsState() {
         : QStringLiteral("QLabel { color: #000000; }");
     if (m_connOriginSelectionLabel) {
         m_connOriginSelectionLabel->setStyleSheet(actionLabelsStyle);
-    }
-    if (m_connDestSelectionLabel) {
-        m_connDestSelectionLabel->setStyleSheet(actionLabelsStyle);
     }
 
     if (actionsLocked()) {
