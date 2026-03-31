@@ -14,6 +14,8 @@
 #include <QSet>
 #include <QStandardPaths>
 #include <QThread>
+#include <QJsonDocument>
+#include "daemon_transport.h"
 
 #include <algorithm>
 #include <cstring>
@@ -308,6 +310,10 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         if (!err.trimmed().isEmpty()) {
             appendConnectionLog(p.id, oneLine(err));
         }
+        return true;
+    }
+
+    if (runDaemonRpc(p, remoteCmd, timeoutMs, out, err, rc, onStdoutLine, onStderrLine, onIdleTimeoutRemaining)) {
         return true;
     }
 
@@ -2088,4 +2094,45 @@ QString MainWindow::buildSshPreviewCommand(const ConnectionProfile& p, const QSt
         return QStringLiteral("[local] %1").arg(remoteCmd);
     }
     return mwhelpers::buildSshPreviewCommandText(p, remoteCmd);
+}
+bool MainWindow::runDaemonRpc(const ConnectionProfile& profile,
+                              const QString& remoteCmd,
+                              int timeoutMs,
+                              QString& out,
+                              QString& err,
+                              int& rc,
+                              const std::function<void(const QString&)>& onStdoutLine,
+                              const std::function<void(const QString&)>& onStderrLine,
+                              const std::function<void(int)>& onIdleTimeoutRemaining,
+                              WindowsCommandMode windowsMode,
+                              const QByteArray& stdinPayload) {
+    Q_UNUSED(timeoutMs);
+    Q_UNUSED(onStdoutLine);
+    Q_UNUSED(onStderrLine);
+    Q_UNUSED(onIdleTimeoutRemaining);
+    Q_UNUSED(windowsMode);
+    Q_UNUSED(stdinPayload);
+
+    if (!m_daemonTransport.isDaemonAvailable()) {
+        return false;
+    }
+    QString detail;
+    if (!m_daemonTransport.probeDaemon(profile, &detail)) {
+        appendConnectionLog(profile.id, QStringLiteral("Daemon probe failed: %1").arg(detail));
+        return false;
+    }
+    appendConnectionLog(profile.id, QStringLiteral("Daemon available: %1").arg(detail));
+
+    const zfsmgr::DaemonRpcResult res = m_daemonTransport.call(QStringLiteral("exec"),
+                                                      QJsonObject{{QStringLiteral("cmd"), remoteCmd}},
+                                                      profile);
+    rc = res.code;
+    if (res.code != 200) {
+        err = res.message;
+        appendConnectionLog(profile.id, QStringLiteral("Daemon RPC failed: %1").arg(err));
+        return false;
+    }
+    out = QString::fromUtf8(QJsonDocument(res.payload).toJson(QJsonDocument::Compact));
+    appendConnectionLog(profile.id, QStringLiteral("Daemon RPC succeeded: %1").arg(remoteCmd));
+    return true;
 }

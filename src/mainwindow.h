@@ -5,6 +5,11 @@
 #include "connectiondatasettreepane.h"
 #include "connectiondatasettreecoordinator.h"
 #include "connectiondatasettreewidget.h"
+#include "daemon_transport.h"
+
+namespace zfsmgr {
+class DaemonTransport;
+}
 
 #ifndef ZFSMGR_APP_VERSION
 #define ZFSMGR_APP_VERSION "0.10.0rc1"
@@ -591,6 +596,17 @@ private:
                 const std::function<void(int)>& onIdleTimeoutRemaining = {},
                 WindowsCommandMode windowsMode = WindowsCommandMode::Auto,
                 const QByteArray& stdinPayload = {});
+    bool runDaemonRpc(const ConnectionProfile& p,
+                      const QString& remoteCmd,
+                      int timeoutMs,
+                      QString& out,
+                      QString& err,
+                      int& rc,
+                      const std::function<void(const QString&)>& onStdoutLine = {},
+                      const std::function<void(const QString&)>& onStderrLine = {},
+                      const std::function<void(int)>& onIdleTimeoutRemaining = {},
+                      WindowsCommandMode windowsMode = WindowsCommandMode::Auto,
+                      const QByteArray& stdinPayload = {});
     void closeAllSshControlMasters();
     QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
     QString withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const;
@@ -1091,4 +1107,5 @@ private:
     bool m_syncingConnContentColumns{false};
     QSet<QString> m_poolDetailsLoadsInFlight;
     QSet<QString> m_poolAutoSnapshotLoadsInFlight;
+    zfsmgr::DaemonTransport m_daemonTransport;
 };
