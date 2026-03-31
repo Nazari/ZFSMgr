@@ -1,3 +1,0 @@
-"C:\Program Files\CMake\bin\cmake.exe" -E rm -f CMakeFiles\zfsmgr_qt.dir/objects.a
-C:\Qt\Tools\mingw1310_64\bin\ar.exe qc CMakeFiles\zfsmgr_qt.dir/objects.a @CMakeFiles\zfsmgr_qt.dir\objects1.rsp
-C:\Qt\Tools\mingw1310_64\bin\g++.exe -mwindows -Wl,--whole-archive CMakeFiles\zfsmgr_qt.dir/objects.a -Wl,--no-whole-archive -o zfsmgr_qt.exe -Wl,--out-implib,libzfsmgr_qt.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\zfsmgr_qt.dir\linkLibs.rsp
