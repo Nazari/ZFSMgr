@@ -217,18 +217,19 @@ function Upload-DownloadsDaemons() {
     Write-Host "No se encontró ${daemonRoot}; no hay daemons para subir."
     return
   }
-  Get-ChildItem -Path $daemonRoot -Recurse -File -Filter 'zfsmgr_daemon*' | ForEach-Object {
-    Upload-ArtifactSftp $_.FullName
+  Get-ChildItem -Path $daemonRoot -Recurse -File | Where-Object { $_.Name -like 'zfsmgrd-*' -or $_.Name -like 'zfsmgr_daemon*' } | ForEach-Object {
+    Upload-ArtifactSftpToSubdir $_.FullName "daemons"
   }
 }
 
-function Upload-ArtifactSftpToSubdir([string]$artifactPath, [string]$subdir) {
+function Upload-ArtifactSftpToSubdir([string]$artifactPath, [string]$subdir, [string]$destName = "") {
   if (-not (Test-Path $artifactPath)) {
     throw "No se encontró artefacto para subir: $artifactPath"
   }
   $dst = Resolve-SftpTarget $SftpTarget
   $remotePath = "$($dst.Path)/$subdir"
-  Write-Host "Subiendo $artifactPath a $($dst.Remote):$remotePath"
+  $remoteFile = if ($destName) { "$remotePath/$destName" } else { "$remotePath/" }
+  Write-Host "Subiendo $(Split-Path -Leaf $artifactPath) como $( if ($destName) { $destName } else { Split-Path -Leaf $artifactPath } ) a $($dst.Remote):$remotePath"
   if ($dst.HomeRelative) {
     & ssh -o BatchMode=yes $dst.Remote "mkdir -p `"`$HOME/$remotePath`""
   } else {
@@ -238,9 +239,9 @@ function Upload-ArtifactSftpToSubdir([string]$artifactPath, [string]$subdir) {
     throw "No se pudo crear el directorio remoto SFTP."
   }
   if ($dst.HomeRelative) {
-    & scp $artifactPath "$($dst.Remote):~/$remotePath/"
+    & scp $artifactPath "$($dst.Remote):~/$remoteFile"
   } else {
-    & scp $artifactPath "$($dst.Remote):$remotePath/"
+    & scp $artifactPath "$($dst.Remote):$remoteFile"
   }
   if ($LASTEXITCODE -ne 0) {
     throw "Falló la subida SFTP del artefacto."
@@ -1053,6 +1054,13 @@ foreach ($ini in $candidateIni) {
   }
 }
 
+$daemonArch = switch ($env:PROCESSOR_ARCHITECTURE) {
+  "AMD64"  { "x86_64" }
+  "ARM64"  { "arm64" }
+  default  { $env:PROCESSOR_ARCHITECTURE.ToLower() }
+}
+$DaemonRemoteName = "zfsmgrd-windows-$daemonArch.exe"
+
 $builtDaemonExe = $null
 if ($BuildDaemons) {
   $builtDaemonExe = Build-WindowsDaemon
@@ -1094,13 +1102,13 @@ if ($GenerateInnoInstaller) {
   if ($UploadSftp) {
     Upload-ArtifactSftp $installerExe.FullName
     if ($builtDaemonExe) {
-      Upload-ArtifactSftpToSubdir $builtDaemonExe "daemons"
+      Upload-ArtifactSftpToSubdir $builtDaemonExe "daemons" $DaemonRemoteName
     }
     Upload-DownloadsDaemons
   }
 } elseif ($UploadSftp) {
   if ($builtDaemonExe) {
-    Upload-ArtifactSftpToSubdir $builtDaemonExe "daemons"
+    Upload-ArtifactSftpToSubdir $builtDaemonExe "daemons" $DaemonRemoteName
   } else {
     throw "--sftpfc16 solo puede usarse junto con --inno o --daemons."
   }

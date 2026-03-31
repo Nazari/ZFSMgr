@@ -183,20 +183,21 @@ upload_to_sftp() {
 
 upload_daemon_to_sftp() {
   local artifact="$1"
+  local dest_name="${2:-$(basename "${artifact}")}"
   local parsed remote path daemon_path
   parsed="$(parse_sftp_target "${SFTP_TARGET}")"
   remote="${parsed%%|*}"
   path="${parsed#*|}"
   if [[ "${path}" == /* ]]; then
     daemon_path="${path}/daemons"
-    echo "Subiendo daemon a ${remote}:${daemon_path}"
+    echo "Subiendo daemon como ${dest_name} a ${remote}:${daemon_path}"
     ssh -o BatchMode=yes "${remote}" "mkdir -p '${daemon_path}'"
-    scp "${artifact}" "${remote}:${daemon_path}/"
+    scp "${artifact}" "${remote}:${daemon_path}/${dest_name}"
   else
     daemon_path="${path}/daemons"
-    echo "Subiendo daemon a ${remote}:~/${daemon_path}"
+    echo "Subiendo daemon como ${dest_name} a ${remote}:~/${daemon_path}"
     ssh -o BatchMode=yes "${remote}" "mkdir -p \"\$HOME/${daemon_path}\""
-    scp "${artifact}" "${remote}:~/${daemon_path}/"
+    scp "${artifact}" "${remote}:~/${daemon_path}/${dest_name}"
   fi
 }
 
@@ -743,13 +744,13 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
     echo "DMG creado: ${final_dmg}"
     upload_to_sftp "${final_dmg}"
     if [[ "${BUILD_DAEMONS}" -eq 1 ]]; then
-      upload_daemon_to_sftp "${BUILD_DIR}/daemon/zfsmgr_daemon"
+      upload_daemon_to_sftp "${BUILD_DIR}/daemon/zfsmgr_daemon" "zfsmgrd-macos-${MAC_ARCH}"
     fi
     daemon_dir="${DOWNLOADS_DIR}/daemons"
     if [[ -d "${daemon_dir}" ]]; then
       while IFS= read -r -d '' daemon; do
         upload_daemon_to_sftp "${daemon}"
-      done < <(find "${daemon_dir}" -type f -name 'zfsmgr_daemon*' -print0)
+      done < <(find "${daemon_dir}" -type f \( -name 'zfsmgrd-*' -o -name 'zfsmgr_daemon*' \) -print0)
     fi
   fi
 

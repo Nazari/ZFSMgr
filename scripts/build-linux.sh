@@ -185,17 +185,18 @@ upload_daemons() {
     echo "Error: no se encontró el daemon en ${daemon_binary}" >&2
     exit 1
   fi
+  local dest_name="zfsmgrd-linux-${ARCH}"
   local parsed remote path
   parsed="$(parse_sftp_target "${SFTP_TARGET}")"
   remote="${parsed%%|*}"
   path="${parsed#*|}/daemons"
-  echo "Subiendo daemon a ${remote}:${path}"
+  echo "Subiendo daemon como ${dest_name} a ${remote}:${path}"
   if [[ "${path}" == /* ]]; then
     ssh -o BatchMode=yes "${remote}" "mkdir -p '${path}'"
-    scp "${daemon_binary}" "${remote}:${path}/"
+    scp "${daemon_binary}" "${remote}:${path}/${dest_name}"
   else
     ssh -o BatchMode=yes "${remote}" "mkdir -p \"\$HOME/${path}\""
-    scp "${daemon_binary}" "${remote}:~/${path}/"
+    scp "${daemon_binary}" "${remote}:~/${path}/${dest_name}"
   fi
 }
 
