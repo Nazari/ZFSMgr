@@ -67,9 +67,12 @@ run_macos() {
   local host="$1"
   local logfile="${LOG_DIR}/${host}.log"
   log "${host}" "Iniciando build macOS..."
+  # bash -l: login shell para que sourcea ~/.bash_profile y tenga el PATH de Homebrew.
+  # Adicionalmente se fuerza el PATH de Homebrew por si el perfil es sólo zsh.
   # Se expande ${ENCODED_PASS} localmente; lo demás se ejecuta en remoto.
-  ssh -o BatchMode=yes "${host}" bash -s << EOF >> "${logfile}" 2>&1
+  ssh -o BatchMode=yes "${host}" bash -l -s << EOF >> "${logfile}" 2>&1
 set -euo pipefail
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:\${PATH}"
 cd ~/work/ZFSMgr
 git pull
 export KEYCHAIN_PASSWORD="\$(printf '%s' '${ENCODED_PASS}' | base64 -d)"
