@@ -894,103 +894,102 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
     if (!allowRemoteLoadIfMissing) {
         return false;
     }
-    auto loadSnapshotsFromCli = [&](const ConnectionProfile& p, PoolDatasetCache& targetCache) {
-        QString snapCmd = QStringLiteral("zfs list -H -p -t snapshot -o name,creation -r %1")
-                              .arg(shSingleQuote(poolName));
-        if (!isWindowsConnection(p)) {
-            snapCmd = mwhelpers::withUnixSearchPathCommand(snapCmd);
-        }
-        snapCmd = withSudo(p, snapCmd);
-        QString snapOut;
-        QString snapErr;
-        int snapRc = -1;
-        if (!runSsh(p, snapCmd, 25000, snapOut, snapErr, snapRc) || snapRc != 0) {
-            return;
-        }
-        QMap<QString, QVector<QPair<QString, QString>>> snapshotMetaByDataset;
-        const QStringList snapLines = snapOut.split('\n', Qt::SkipEmptyParts);
-        for (const QString& line : snapLines) {
-            const QStringList f = line.split('\t');
-            if (f.size() < 2) {
-                continue;
-            }
-            const QString name = f[0].trimmed();
-            const QString creation = f[1].trimmed();
-            if (!name.contains('@')) {
-                continue;
-            }
-            const QString ds = name.section('@', 0, 0);
-            const QString snap = name.section('@', 1);
-            if (ds.isEmpty() || snap.isEmpty()) {
-                continue;
-            }
-            snapshotMetaByDataset[ds].push_back(qMakePair(creation, snap));
-        }
-        for (auto it = snapshotMetaByDataset.begin(); it != snapshotMetaByDataset.end(); ++it) {
-            auto rows = it.value();
-            std::sort(rows.begin(), rows.end(), [](const QPair<QString, QString>& a, const QPair<QString, QString>& b) {
-                bool aOk = false;
-                bool bOk = false;
-                const qlonglong av = a.first.toLongLong(&aOk);
-                const qlonglong bv = b.first.toLongLong(&bOk);
-                if (aOk && bOk && av != bv) {
-                    return av > bv;
-                }
-                if (a.first != b.first) {
-                    return a.first > b.first;
-                }
-                return a.second > b.second;
-            });
-            QStringList sortedSnaps;
-            sortedSnaps.reserve(rows.size());
-            for (const auto& row : rows) {
-                sortedSnaps.push_back(row.second);
-            }
-            targetCache.snapshotsByDataset.insert(it.key(), sortedSnaps);
-        }
-    };
-
     const ConnectionProfile& p = m_profiles[connIdx];
-    QString cmd = QStringLiteral(
-        "zfs list -H -p -t filesystem,volume,snapshot "
-        "-o name,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount -r %1")
-                      .arg(poolName);
-    if (!isWindowsConnection(p)) {
-        cmd = mwhelpers::withUnixSearchPathCommand(cmd);
-    }
-    cmd = withSudo(p, cmd);
-
+    const bool isWin = isWindowsConnection(p);
     QString out;
     QString err;
     int rc = -1;
+    QMap<QString, QVector<QPair<QString, QString>>> snapshotMetaByDataset;
+    bool loadedFromJson = false;
     appLog(QStringLiteral("INFO"), QStringLiteral("Loading datasets %1::%2").arg(p.name, poolName));
-    if (!runSsh(p, cmd, 35000, out, err, rc) || rc != 0) {
-        appLog(QStringLiteral("WARN"), QStringLiteral("Failed datasets %1::%2 -> %3")
-                                        .arg(p.name, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
-        return false;
+
+    if (!isWin) {
+        QString jsonCmd = mwhelpers::withUnixSearchPathCommand(
+            QStringLiteral("zfs get -j -p -r -t filesystem,volume,snapshot "
+                           "type,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount %1")
+                .arg(shSingleQuote(poolName)));
+        jsonCmd = withSudo(p, jsonCmd);
+        if (runSsh(p, jsonCmd, 35000, out, err, rc) && rc == 0) {
+            const QJsonDocument doc = QJsonDocument::fromJson(out.toUtf8());
+            const QJsonObject datasets = doc.object().value(QStringLiteral("datasets")).toObject();
+            if (!datasets.isEmpty()) {
+                loadedFromJson = true;
+                for (auto it = datasets.constBegin(); it != datasets.constEnd(); ++it) {
+                    const QString name = it.key().trimmed();
+                    if (name.isEmpty()) {
+                        continue;
+                    }
+                    const QJsonObject props = it.value().toObject()
+                                              .value(QStringLiteral("properties")).toObject();
+                    auto propValue = [&props](const QString& prop) -> QString {
+                        return props.value(prop).toObject().value(QStringLiteral("value")).toString();
+                    };
+                    DatasetRecord rec{
+                        name,
+                        propValue(QStringLiteral("used")),
+                        propValue(QStringLiteral("compressratio")),
+                        propValue(QStringLiteral("encryption")),
+                        propValue(QStringLiteral("creation")),
+                        propValue(QStringLiteral("referenced")),
+                        propValue(QStringLiteral("mounted")),
+                        propValue(QStringLiteral("mountpoint")),
+                        propValue(QStringLiteral("canmount")),
+                    };
+                    const QString type = propValue(QStringLiteral("type")).trimmed().toLower();
+                    if (type == QStringLiteral("snapshot") || name.contains(QLatin1Char('@'))) {
+                        const QString ds = name.section('@', 0, 0);
+                        const QString snap = name.section('@', 1);
+                        if (!ds.isEmpty() && !snap.isEmpty()) {
+                            snapshotMetaByDataset[ds].push_back(qMakePair(rec.creation, snap));
+                        }
+                    } else {
+                        cache.datasets.push_back(rec);
+                        cache.recordByName[name] = rec;
+                    }
+                }
+            }
+        }
     }
 
-    QMap<QString, QVector<QPair<QString, QString>>> snapshotMetaByDataset;
-    const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-    for (const QString& line : lines) {
-        const QStringList f = line.split('\t');
-        if (f.size() < 9) {
-            continue;
+    if (!loadedFromJson) {
+        QString cmd = QStringLiteral(
+            "zfs list -H -p -t filesystem,volume,snapshot "
+            "-o name,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount -r %1")
+                          .arg(poolName);
+        if (!isWin) {
+            cmd = mwhelpers::withUnixSearchPathCommand(cmd);
         }
-        const QString name = f[0].trimmed();
-        if (name.isEmpty()) {
-            continue;
+        cmd = withSudo(p, cmd);
+        out.clear();
+        err.clear();
+        rc = -1;
+        if (!runSsh(p, cmd, 35000, out, err, rc) || rc != 0) {
+            appLog(QStringLiteral("WARN"), QStringLiteral("Failed datasets %1::%2 -> %3")
+                                            .arg(p.name, poolName, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+            return false;
         }
-        DatasetRecord rec{name, f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8]};
-        if (name.contains('@')) {
-            const QString ds = name.section('@', 0, 0);
-            const QString snap = name.section('@', 1);
-            snapshotMetaByDataset[ds].push_back(qMakePair(rec.creation, snap));
-        } else {
-            cache.datasets.push_back(rec);
-            cache.recordByName[name] = rec;
+        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+        for (const QString& line : lines) {
+            const QStringList f = line.split('\t');
+            if (f.size() < 9) {
+                continue;
+            }
+            const QString name = f[0].trimmed();
+            if (name.isEmpty()) {
+                continue;
+            }
+            DatasetRecord rec{name, f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8]};
+            if (name.contains('@')) {
+                const QString ds = name.section('@', 0, 0);
+                const QString snap = name.section('@', 1);
+                snapshotMetaByDataset[ds].push_back(qMakePair(rec.creation, snap));
+            } else {
+                cache.datasets.push_back(rec);
+                cache.recordByName[name] = rec;
+            }
         }
     }
+
     for (auto it = snapshotMetaByDataset.begin(); it != snapshotMetaByDataset.end(); ++it) {
         auto rows = it.value();
         std::sort(rows.begin(), rows.end(), [](const QPair<QString, QString>& a, const QPair<QString, QString>& b) {

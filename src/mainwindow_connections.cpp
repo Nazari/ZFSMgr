@@ -31,6 +31,8 @@
 #include <QSplitter>
 #include <QVBoxLayout>
 #include <QTreeWidget>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #include <QtConcurrent/QtConcurrent>
 
@@ -3893,11 +3895,17 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
     for (const QString& poolName : candidatePools) {
         QString out;
         QString detail;
+        const bool isWin = isWindowsConnection(p);
         const QString cmd = withSudo(
             p,
-            QStringLiteral("zfs get -H -o name,property,value -r %1 %2")
-                .arg(QStringLiteral("'org.fc16.gsa:activado','org.fc16.gsa:nivelar','org.fc16.gsa:destino'"),
-                     mwhelpers::shSingleQuote(poolName)));
+            isWin
+                ? QStringLiteral("zfs get -H -o name,property,value -r %1 %2")
+                      .arg(QStringLiteral("'org.fc16.gsa:activado','org.fc16.gsa:nivelar','org.fc16.gsa:destino'"),
+                           mwhelpers::shSingleQuote(poolName))
+                : mwhelpers::withUnixSearchPathCommand(
+                      QStringLiteral("zfs get -j -r %1 %2")
+                          .arg(QStringLiteral("org.fc16.gsa:activado,org.fc16.gsa:nivelar,org.fc16.gsa:destino"),
+                               mwhelpers::shSingleQuote(poolName))));
         if (!fetchConnectionCommandOutput(idx,
                                           QStringLiteral("Leer GSA datasets"),
                                           cmd,
@@ -3907,19 +3915,41 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
             continue;
         }
         QMap<QString, QMap<QString, QString>> propsByDataset;
-        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-        for (const QString& line : lines) {
-            const QStringList parts = line.split('\t');
-            if (parts.size() < 3) {
-                continue;
+        if (!isWin) {
+            const QJsonDocument doc = QJsonDocument::fromJson(out.toUtf8());
+            const QJsonObject datasets = doc.object().value(QStringLiteral("datasets")).toObject();
+            for (auto dsIt = datasets.constBegin(); dsIt != datasets.constEnd(); ++dsIt) {
+                const QString datasetName = dsIt.key().trimmed();
+                if (datasetName.isEmpty() || datasetName.contains(QLatin1Char('@'))) {
+                    continue;
+                }
+                const QJsonObject props = dsIt.value().toObject()
+                                          .value(QStringLiteral("properties")).toObject();
+                for (auto pIt = props.constBegin(); pIt != props.constEnd(); ++pIt) {
+                    const QString propName = pIt.key().trimmed();
+                    const QString propValue = pIt.value().toObject()
+                                              .value(QStringLiteral("value")).toString().trimmed();
+                    if (propName.isEmpty()) {
+                        continue;
+                    }
+                    propsByDataset[datasetName].insert(propName, propValue);
+                }
             }
-            const QString datasetName = parts.at(0).trimmed();
-            const QString propName = parts.at(1).trimmed();
-            const QString propValue = parts.at(2).trimmed();
-            if (datasetName.isEmpty() || datasetName.contains(QLatin1Char('@')) || propName.isEmpty()) {
-                continue;
+        } else {
+            const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+            for (const QString& line : lines) {
+                const QStringList parts = line.split('\t');
+                if (parts.size() < 3) {
+                    continue;
+                }
+                const QString datasetName = parts.at(0).trimmed();
+                const QString propName = parts.at(1).trimmed();
+                const QString propValue = parts.at(2).trimmed();
+                if (datasetName.isEmpty() || datasetName.contains(QLatin1Char('@')) || propName.isEmpty()) {
+                    continue;
+                }
+                propsByDataset[datasetName].insert(propName, propValue);
             }
-            propsByDataset[datasetName].insert(propName, propValue);
         }
         for (auto dsIt = propsByDataset.cbegin(); dsIt != propsByDataset.cend(); ++dsIt) {
             const QMap<QString, QString>& props = dsIt.value();
