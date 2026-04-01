@@ -699,10 +699,13 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
     QString out;
     QString err;
     int rc = -1;
+    const bool dsWin = isWindowsConnection(connIdx);
     const QString propsCmd = withSudo(
         p,
         mwhelpers::withUnixSearchPathCommand(
-            QStringLiteral("zfs get -H -o property,value,source all %1").arg(mwhelpers::shSingleQuote(trimmedObject))));
+            dsWin
+                ? QStringLiteral("zfs get -H -o property,value,source all %1").arg(mwhelpers::shSingleQuote(trimmedObject))
+                : QStringLiteral("zfs get -j all %1").arg(mwhelpers::shSingleQuote(trimmedObject))));
     if (!runSsh(p, propsCmd, 20000, out, err, rc) || rc != 0) {
         if (dsInfo) {
             dsInfo->runtime.propertiesState = LoadState::Error;
@@ -713,31 +716,37 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
 
     QVector<DatasetPropCacheRow> rows;
     rows.push_back(DatasetPropCacheRow{QStringLiteral("dataset"), trimmedObject, QString(), QStringLiteral("true")});
-    const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-    for (const QString& raw : lines) {
-        QString prop, val, source, ro;
-        const QStringList parts = raw.split('\t');
-        if (parts.size() >= 4) {
-            prop = parts[0].trimmed();
-            val = parts[1].trimmed();
-            source = parts[2].trimmed();
-            ro = parts[3].trimmed().toLower();
-        } else if (parts.size() >= 3) {
-            prop = parts[0].trimmed();
-            val = parts[1].trimmed();
-            source = parts[2].trimmed();
-            ro.clear();
-        } else {
-            const QStringList sp = raw.simplified().split(' ');
-            if (sp.size() < 3) {
-                continue;
+    if (dsWin) {
+        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+        for (const QString& raw : lines) {
+            QString prop, val, source, ro;
+            const QStringList parts = raw.split('\t');
+            if (parts.size() >= 4) {
+                prop = parts[0].trimmed(); val = parts[1].trimmed();
+                source = parts[2].trimmed(); ro = parts[3].trimmed().toLower();
+            } else if (parts.size() >= 3) {
+                prop = parts[0].trimmed(); val = parts[1].trimmed();
+                source = parts[2].trimmed(); ro.clear();
+            } else {
+                const QStringList sp = raw.simplified().split(' ');
+                if (sp.size() < 3) { continue; }
+                prop = sp[0].trimmed(); val = sp[1].trimmed(); source = sp[2].trimmed();
+                ro = (sp.size() > 3) ? sp[3].trimmed().toLower() : QString();
             }
-            prop = sp[0].trimmed();
-            val = sp[1].trimmed();
-            source = sp[2].trimmed();
-            ro = (sp.size() > 3) ? sp[3].trimmed().toLower() : QString();
+            rows.push_back(DatasetPropCacheRow{prop, val, source, ro});
         }
-        rows.push_back(DatasetPropCacheRow{prop, val, source, ro});
+    } else {
+        const QJsonDocument doc = QJsonDocument::fromJson(out.toUtf8());
+        const QJsonObject datasets = doc.object().value(QStringLiteral("datasets")).toObject();
+        const QJsonObject dsObj = datasets.value(trimmedObject).toObject();
+        const QJsonObject properties = dsObj.value(QStringLiteral("properties")).toObject();
+        for (auto it = properties.constBegin(); it != properties.constEnd(); ++it) {
+            const QJsonObject propObj = it.value().toObject();
+            const QString val = propObj.value(QStringLiteral("value")).toString().trimmed();
+            const QJsonObject sourceObj = propObj.value(QStringLiteral("source")).toObject();
+            const QString source = sourceObj.value(QStringLiteral("type")).toString().trimmed();
+            rows.push_back(DatasetPropCacheRow{it.key(), val, source, QString()});
+        }
     }
 
     storeDatasetPropertyRows(connIdx, trimmedPool, trimmedObject, datasetType, rows);
@@ -799,16 +808,27 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
     QString out;
     QString err;
     int rc = -1;
+    const bool subWin = isWindowsConnection(connIdx);
     QStringList quotedProps;
     for (const QString& propName : wantedProps) {
         quotedProps.push_back(mwhelpers::shSingleQuote(propName.trimmed()));
     }
-    const QString propsCmd = withSudo(
-        p,
-        mwhelpers::withUnixSearchPathCommand(
-            QStringLiteral("zfs get -H -o property,value,source %1 %2")
-                .arg(quotedProps.join(QLatin1Char(',')),
-                     mwhelpers::shSingleQuote(trimmedObject))));
+    QString propsCmd;
+    if (subWin) {
+        propsCmd = withSudo(
+            p,
+            mwhelpers::withUnixSearchPathCommand(
+                QStringLiteral("zfs get -H -o property,value,source %1 %2")
+                    .arg(quotedProps.join(QLatin1Char(',')),
+                         mwhelpers::shSingleQuote(trimmedObject))));
+    } else {
+        propsCmd = withSudo(
+            p,
+            mwhelpers::withUnixSearchPathCommand(
+                QStringLiteral("zfs get -j %1 %2")
+                    .arg(wantedProps.join(QLatin1Char(',')),
+                         mwhelpers::shSingleQuote(trimmedObject))));
+    }
     if (!runSsh(p, propsCmd, 20000, out, err, rc) || rc != 0) {
         dsInfo->runtime.propertiesState = LoadState::Error;
         dsInfo->runtime.errorText = err.trimmed();
@@ -819,34 +839,48 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
     for (const DatasetPropCacheRow& row : dsInfo->runtime.propertyRows) {
         mergedByKey.insert(normalizedPropKey(row.prop), row);
     }
-    const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-    for (const QString& raw : lines) {
-        QString prop, val, source;
-        const QStringList parts = raw.split('\t');
-        if (parts.size() >= 3) {
-            prop = parts[0].trimmed();
-            val = parts[1].trimmed();
-            source = parts[2].trimmed();
-        } else {
-            const QStringList sp = raw.simplified().split(' ');
-            if (sp.size() < 3) {
+    if (subWin) {
+        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+        for (const QString& raw : lines) {
+            QString prop, val, source;
+            const QStringList parts = raw.split('\t');
+            if (parts.size() >= 3) {
+                prop = parts[0].trimmed(); val = parts[1].trimmed(); source = parts[2].trimmed();
+            } else {
+                const QStringList sp = raw.simplified().split(' ');
+                if (sp.size() < 3) { continue; }
+                prop = sp[0].trimmed(); val = sp[1].trimmed();
+                source = sp.mid(2).join(QStringLiteral(" ")).trimmed();
+            }
+            if (prop.isEmpty()) {
                 continue;
             }
-            prop = sp[0].trimmed();
-            val = sp[1].trimmed();
-            source = sp.mid(2).join(QStringLiteral(" ")).trimmed();
+            val = gsaComparableValue(prop, val);
+            if (source == QStringLiteral("-")) {
+                source.clear();
+            }
+            DatasetPropCacheRow row{prop, val, source, QString()};
+            mergedByKey.insert(normalizedPropKey(prop), row);
+            dsInfo->runtime.properties.insert(prop, val);
+            dsInfo->runtime.loadedPropertyNames.insert(normalizedPropKey(prop));
         }
-        if (prop.isEmpty()) {
-            continue;
+    } else {
+        const QJsonDocument doc = QJsonDocument::fromJson(out.toUtf8());
+        const QJsonObject datasets = doc.object().value(QStringLiteral("datasets")).toObject();
+        const QJsonObject dsObj = datasets.value(trimmedObject).toObject();
+        const QJsonObject properties = dsObj.value(QStringLiteral("properties")).toObject();
+        for (auto it = properties.constBegin(); it != properties.constEnd(); ++it) {
+            const QJsonObject propObj = it.value().toObject();
+            QString val = propObj.value(QStringLiteral("value")).toString().trimmed();
+            const QJsonObject sourceObj = propObj.value(QStringLiteral("source")).toObject();
+            QString source = sourceObj.value(QStringLiteral("type")).toString().trimmed();
+            val = gsaComparableValue(it.key(), val);
+            if (source == QStringLiteral("-")) { source.clear(); }
+            DatasetPropCacheRow newRow{it.key(), val, source, QString()};
+            mergedByKey.insert(normalizedPropKey(it.key()), newRow);
+            dsInfo->runtime.properties.insert(it.key(), val);
+            dsInfo->runtime.loadedPropertyNames.insert(normalizedPropKey(it.key()));
         }
-        val = gsaComparableValue(prop, val);
-        if (source == QStringLiteral("-")) {
-            source.clear();
-        }
-        DatasetPropCacheRow row{prop, val, source, QString()};
-        mergedByKey.insert(normalizedPropKey(prop), row);
-        dsInfo->runtime.properties.insert(prop, val);
-        dsInfo->runtime.loadedPropertyNames.insert(normalizedPropKey(prop));
     }
 
     QVector<DatasetPropCacheRow> mergedRows;
@@ -1191,20 +1225,38 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
             QString out;
             QString err;
             int rc = -1;
+            const bool poolWin = isWindowsConnection(connIdx);
             const QString propsCmd = withSudo(
                 profile,
                 mwhelpers::withUnixSearchPathCommand(
-                    QStringLiteral("zpool get -H -o property,value,source all %1")
-                        .arg(mwhelpers::shSingleQuote(trimmedPool))));
+                    poolWin
+                        ? QStringLiteral("zpool get -H -o property,value,source all %1")
+                              .arg(mwhelpers::shSingleQuote(trimmedPool))
+                        : QStringLiteral("zpool get -j all %1")
+                              .arg(mwhelpers::shSingleQuote(trimmedPool))));
             if (runSsh(profile, propsCmd, 20000, out, err, rc) && rc == 0) {
-                const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-                for (const QString& line : lines) {
-                    const QStringList parts = line.split('\t');
-                    if (parts.size() < 3) {
-                        continue;
+                if (poolWin) {
+                    const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+                    for (const QString& line : lines) {
+                        const QStringList parts = line.split('\t');
+                        if (parts.size() < 3) {
+                            continue;
+                        }
+                        fresh.propsRows.push_back(
+                            QStringList{parts[0].trimmed(), parts[1].trimmed(), parts[2].trimmed()});
                     }
-                    fresh.propsRows.push_back(
-                        QStringList{parts[0].trimmed(), parts[1].trimmed(), parts[2].trimmed()});
+                } else {
+                    const QJsonDocument doc = QJsonDocument::fromJson(out.toUtf8());
+                    const QJsonObject pools = doc.object().value(QStringLiteral("pools")).toObject();
+                    const QJsonObject poolObj = pools.value(trimmedPool).toObject();
+                    const QJsonObject properties = poolObj.value(QStringLiteral("properties")).toObject();
+                    for (auto it = properties.constBegin(); it != properties.constEnd(); ++it) {
+                        const QJsonObject propObj = it.value().toObject();
+                        const QString value = propObj.value(QStringLiteral("value")).toString().trimmed();
+                        const QJsonObject sourceObj = propObj.value(QStringLiteral("source")).toObject();
+                        const QString source = sourceObj.value(QStringLiteral("type")).toString().trimmed();
+                        fresh.propsRows.push_back(QStringList{it.key(), value, source});
+                    }
                 }
             } else {
                 errorText = err.trimmed();

@@ -894,33 +894,6 @@ bool MainWindow::mountDataset(const QString& side, const DatasetSelectionContext
             return false;
         }
     }
-    if (isLocalConnection(ctx.connIdx) && !isWindowsConnection(ctx.connIdx) && detectLocalLibzfs()) {
-        const QString preview = QStringLiteral("[local/libzfs]\nzfs mount %1").arg(shSingleQuote(ctx.datasetName));
-        if (!confirmActionExecution(QStringLiteral("Montar"), {preview})) {
-            return false;
-        }
-        setActionsLocked(true);
-        const ConnectionProfile& p = m_profiles[ctx.connIdx];
-        appLog(QStringLiteral("NORMAL"),
-               QStringLiteral("Montar %1::%2 (backend=LOCAL/libzfs)")
-                   .arg(p.name, ctx.datasetName));
-        QString detail;
-        const bool ok = localLibzfsMountDataset(ctx.datasetName, &detail);
-        if (!ok) {
-            appLog(QStringLiteral("WARN"),
-                   QStringLiteral("Montar LOCAL/libzfs falló: %1; fallback CLI")
-                       .arg(oneLine(detail)));
-            setActionsLocked(false);
-            const QString cmd = mwhelpers::buildSingleMountCommand(ctx.datasetName);
-            return executeDatasetAction(side, QStringLiteral("Montar"), ctx, cmd);
-            }
-            appLog(QStringLiteral("NORMAL"), QStringLiteral("Montar finalizado (%1)").arg(oneLine(detail)));
-        QTimer::singleShot(0, this, [this, mountRefresh]() {
-            mountRefresh();
-            setActionsLocked(false);
-        });
-        return true;
-    }
     const QString cmd = mwhelpers::buildSingleMountCommand(ctx.datasetName);
     return executeDatasetAction(side,
                                 QStringLiteral("Montar"),
@@ -1139,41 +1112,6 @@ bool MainWindow::umountDataset(const QString& side, const DatasetSelectionContex
         }
         cmd = mwhelpers::buildRecursiveUmountCommand(isWin, ctx.datasetName);
     } else {
-        if (isLocalConnection(ctx.connIdx) && !isWin && detectLocalLibzfs()) {
-            const QString preview = QStringLiteral("[local/libzfs]\nzfs unmount %1").arg(shSingleQuote(ctx.datasetName));
-            if (!confirmActionExecution(QStringLiteral("Desmontar"), {preview})) {
-                return false;
-            }
-            setActionsLocked(true);
-            const ConnectionProfile& p2 = m_profiles[ctx.connIdx];
-            appLog(QStringLiteral("NORMAL"),
-                   QStringLiteral("Desmontar %1::%2 (backend=LOCAL/libzfs)")
-                       .arg(p2.name, ctx.datasetName));
-            QString detail;
-            const bool ok = localLibzfsUnmountDataset(ctx.datasetName, &detail);
-            if (!ok) {
-                appLog(QStringLiteral("WARN"),
-                       QStringLiteral("Desmontar LOCAL/libzfs falló: %1; fallback CLI")
-                           .arg(oneLine(detail)));
-                setActionsLocked(false);
-                const QString cliCmd = mwhelpers::buildSingleUmountCommand(false, ctx.datasetName);
-                return executeDatasetAction(side,
-                                            QStringLiteral("Desmontar"),
-                                            ctx,
-                                            cliCmd,
-                                            90000,
-                                            false,
-                                            {},
-                                            false,
-                                            umountRefresh);
-            }
-            appLog(QStringLiteral("NORMAL"), QStringLiteral("Desmontar finalizado (%1)").arg(oneLine(detail)));
-            QTimer::singleShot(0, this, [this, umountRefresh]() {
-                umountRefresh();
-                setActionsLocked(false);
-            });
-            return true;
-        }
         cmd = mwhelpers::buildSingleUmountCommand(isWin, ctx.datasetName);
     }
     return executeDatasetAction(side,

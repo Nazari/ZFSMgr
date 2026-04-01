@@ -3,6 +3,9 @@
 #include "helperinstallcatalog.h"
 
 #include <algorithm>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRegularExpression>
 
 namespace {
@@ -287,12 +290,9 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         return runSsh(profile, cmd, 8000, probeOut, probeErr, probeRc, {}, {}, {}, winPsMode) && probeRc == 0;
     };
     if (localMode) {
-        QString libzfsDetail;
-        const bool hasLibzfs = detectLocalLibzfs(&libzfsDetail);
-        state.connectionMethod = hasLibzfs ? QStringLiteral("LOCAL/libzfs") : QStringLiteral("LOCAL/CLI");
-        appLog(hasLibzfs ? QStringLiteral("INFO") : QStringLiteral("WARN"),
-               QStringLiteral("%1: %2 (%3)")
-                   .arg(profile.name, state.connectionMethod, libzfsDetail));
+        state.connectionMethod = QStringLiteral("LOCAL/CLI");
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("%1: %2").arg(profile.name, state.connectionMethod));
         if (!ensureLocalSudoCredentials(profile)) {
             state.status = QStringLiteral("ERROR");
             state.detail = trk(QStringLiteral("t_local_sudo_req1"),
@@ -725,38 +725,32 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         }
     }
 
-    QString zpoolListCmd = withSudo(
-        p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio")));
-    bool loadedPoolsFromLibzfs = false;
-    if (localMode) {
-        QStringList localPools;
-        QString poolLibDetail;
-        if (detectLocalLibzfs() && listLocalImportedPoolsLibzfs(localPools, &poolLibDetail)) {
-            for (const QString& poolName : localPools) {
+    const bool isWinConn = isWindowsConnection(p);
+    const QString zpoolListCmd = withSudo(
+        p, mwhelpers::withUnixSearchPathCommand(
+            isWinConn
+                ? QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio")
+                : QStringLiteral("zpool list -j")));
+    out.clear(); err.clear(); rc = -1;
+    if (runSsh(p, zpoolListCmd, 18000, out, err, rc) && rc == 0) {
+        if (isWinConn) {
+            const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+            for (const QString& line : lines) {
+                const QString poolName = line.section('\t', 0, 0).trimmed();
+                if (poolName.isEmpty()) {
+                    continue;
+                }
+                state.importedPools.push_back(PoolImported{p.name, poolName, QStringLiteral("Exportar")});
+            }
+        } else {
+            const QJsonDocument doc = QJsonDocument::fromJson(out.toUtf8());
+            const QJsonObject pools = doc.object().value(QStringLiteral("pools")).toObject();
+            for (const QString& poolName : pools.keys()) {
                 if (poolName.trimmed().isEmpty()) {
                     continue;
                 }
-                state.importedPools.push_back(PoolImported{p.name, poolName.trimmed(), QStringLiteral("Exportar")});
+                state.importedPools.push_back(PoolImported{p.name, poolName, QStringLiteral("Exportar")});
             }
-            loadedPoolsFromLibzfs = true;
-            appLog(QStringLiteral("INFO"),
-                   QStringLiteral("%1: imported pools via libzfs (%2)")
-                       .arg(p.name)
-                       .arg(poolLibDetail));
-        }
-    }
-
-    out.clear();
-    err.clear();
-    rc = -1;
-    if (!loadedPoolsFromLibzfs && runSsh(p, zpoolListCmd, 18000, out, err, rc) && rc == 0) {
-        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-        for (const QString& line : lines) {
-            const QString poolName = line.section('\t', 0, 0).trimmed();
-            if (poolName.isEmpty()) {
-                continue;
-            }
-            state.importedPools.push_back(PoolImported{p.name, poolName, QStringLiteral("Exportar")});
         }
     } else if (!err.isEmpty()) {
         appLog(QStringLiteral("INFO"), QStringLiteral("%1: zpool list -> %2").arg(p.name, oneLine(err)));
@@ -855,28 +849,31 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 QString gout;
                 QString gerr;
                 int grc = -1;
+                const QString gsaProps = QStringLiteral("org.fc16.gsa:activado,org.fc16.gsa:nivelar,org.fc16.gsa:destino");
                 const QString gcmd = withSudo(
                     p,
-                    QStringLiteral("zfs get -H -o name,property,value -r %1 %2")
-                        .arg(QStringLiteral("'org.fc16.gsa:activado','org.fc16.gsa:nivelar','org.fc16.gsa:destino'"),
-                             mwhelpers::shSingleQuote(poolName)));
+                    QStringLiteral("zfs get -j -r %1 %2")
+                        .arg(gsaProps, mwhelpers::shSingleQuote(poolName)));
                 if (!runSsh(p, gcmd, 20000, gout, gerr, grc) || grc != 0) {
                     continue;
                 }
                 QMap<QString, QMap<QString, QString>> propsByDataset;
-                const QStringList lines = gout.split('\n', Qt::SkipEmptyParts);
-                for (const QString& line : lines) {
-                    const QStringList parts = line.split('\t');
-                    if (parts.size() < 3) {
-                        continue;
+                {
+                    const QJsonDocument doc = QJsonDocument::fromJson(gout.toUtf8());
+                    const QJsonObject datasets = doc.object().value(QStringLiteral("datasets")).toObject();
+                    for (auto dsIt = datasets.constBegin(); dsIt != datasets.constEnd(); ++dsIt) {
+                        const QString datasetName = dsIt.key();
+                        if (datasetName.isEmpty() || datasetName.contains(QLatin1Char('@'))) {
+                            continue;
+                        }
+                        const QJsonObject props = dsIt.value().toObject()
+                                                      .value(QStringLiteral("properties")).toObject();
+                        for (auto pIt = props.constBegin(); pIt != props.constEnd(); ++pIt) {
+                            const QString val = pIt.value().toObject()
+                                                    .value(QStringLiteral("value")).toString().trimmed();
+                            propsByDataset[datasetName].insert(pIt.key(), val);
+                        }
                     }
-                    const QString datasetName = parts.at(0).trimmed();
-                    const QString propName = parts.at(1).trimmed();
-                    const QString propValue = parts.at(2).trimmed();
-                    if (datasetName.isEmpty() || datasetName.contains(QLatin1Char('@')) || propName.isEmpty()) {
-                        continue;
-                    }
-                    propsByDataset[datasetName].insert(propName, propValue);
                 }
                 for (auto dsIt = propsByDataset.cbegin(); dsIt != propsByDataset.cend(); ++dsIt) {
                     const QMap<QString, QString>& props = dsIt.value();

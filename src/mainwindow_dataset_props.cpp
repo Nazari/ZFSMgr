@@ -2236,52 +2236,7 @@ void MainWindow::applyDatasetPropertyChanges() {
                                                       : QStringLiteral("umount"),
                                    shSingleQuote(targetDataset)));
     }
-    const bool localRenameEligible =
-        renameRequested && isLocalConnection(ctx.connIdx) && !isWindowsConnection(ctx.connIdx) && detectLocalLibzfs();
     bool localRenameDone = false;
-    if (localRenameEligible) {
-        const QString preview =
-            QStringLiteral("[local/libzfs]\nzfs rename %1 %2")
-                .arg(shSingleQuote(renameOld), shSingleQuote(renameNew));
-        if (!confirmActionExecution(QStringLiteral("Aplicar propiedades"), {preview})) {
-            return;
-        }
-        setActionsLocked(true);
-        const ConnectionProfile& p = m_profiles[ctx.connIdx];
-        appLog(QStringLiteral("NORMAL"),
-               QStringLiteral("Aplicar propiedades %1::%2 (rename backend=LOCAL/libzfs)")
-                   .arg(p.name, renameOld));
-        QString detail;
-        const bool ok = localLibzfsRenameDataset(renameOld, renameNew, &detail);
-        if (!ok) {
-            appLog(QStringLiteral("WARN"),
-                   QStringLiteral("Rename LOCAL/libzfs falló: %1; fallback CLI")
-                       .arg(mwhelpers::oneLine(detail)));
-            setActionsLocked(false);
-            QStringList fallbackSubcmds = subcmds;
-            fallbackSubcmds.prepend(QStringLiteral("zfs rename %1 %2")
-                                        .arg(shSingleQuote(renameOld), shSingleQuote(renameNew)));
-            const bool isWinFallback = isWindowsConnection(ctx.connIdx);
-            const QString fallbackCmd = isWinFallback ? fallbackSubcmds.join(QStringLiteral("; "))
-                                                      : QStringLiteral("set -e; %1").arg(fallbackSubcmds.join(QStringLiteral("; ")));
-            if (executeDatasetAction(m_propsSide, QStringLiteral("Aplicar propiedades"), ctx, fallbackCmd, 60000, isWinFallback)) {
-                setSelectedDataset(m_propsSide, renameNew, QString());
-                m_propsDirty = false;
-                if (!currentDraftKey.isEmpty()) {
-                    storePropertyDraftForObject(m_propsSide, currentToken, m_propsDataset, DatasetPropsDraft{});
-                }
-                updateApplyPropsButtonState();
-            }
-            return;
-        }
-        appLog(QStringLiteral("NORMAL"),
-               QStringLiteral("Aplicar propiedades rename finalizado (%1)").arg(mwhelpers::oneLine(detail)));
-        invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
-        setSelectedDataset(m_propsSide, renameNew, QString());
-        ctx.datasetName = renameNew;
-        localRenameDone = true;
-        setActionsLocked(false);
-    }
 
     if (subcmds.isEmpty()) {
         if (localRenameDone) {
@@ -2311,86 +2266,6 @@ void MainWindow::applyDatasetPropertyChanges() {
         updateApplyPropsButtonState();
         return;
     }
-    const bool localPropsEligible =
-        isLocalConnection(ctx.connIdx) && !isWindowsConnection(ctx.connIdx) && detectLocalLibzfs();
-    if (localPropsEligible && !propChanges.isEmpty()) {
-        QStringList previewLines;
-        for (const PropChange& c : propChanges) {
-            if (c.inherit) {
-                previewLines << QStringLiteral("zfs inherit %1 %2").arg(shSingleQuote(c.prop), shSingleQuote(targetDataset));
-            } else {
-                previewLines << QStringLiteral("zfs set %1 %2")
-                                    .arg(shSingleQuote(c.prop + QStringLiteral("=") + c.value), shSingleQuote(targetDataset));
-            }
-        }
-        const QString preview = QStringLiteral("[local/libzfs]\n%1").arg(previewLines.join(QStringLiteral("\n")));
-        if (!confirmActionExecution(QStringLiteral("Aplicar propiedades"), {preview})) {
-            return;
-        }
-        setActionsLocked(true);
-        const ConnectionProfile& p = m_profiles[ctx.connIdx];
-        appLog(QStringLiteral("NORMAL"),
-               QStringLiteral("Aplicar propiedades %1::%2 (backend=LOCAL/libzfs)")
-                   .arg(p.name, targetDataset));
-        bool allOk = true;
-        QString failDetail;
-        for (const PropChange& c : propChanges) {
-            QString detail;
-            const bool ok = c.inherit
-                                ? localLibzfsInheritProperty(targetDataset, c.prop, &detail)
-                                : localLibzfsSetProperty(targetDataset, c.prop, c.value, &detail);
-            if (!ok) {
-                allOk = false;
-                failDetail = detail;
-                break;
-            }
-            appLog(QStringLiteral("INFO"), mwhelpers::oneLine(detail));
-        }
-        if (!allOk) {
-            appLog(QStringLiteral("WARN"),
-                   QStringLiteral("Aplicar propiedades LOCAL/libzfs falló: %1; fallback CLI")
-                       .arg(mwhelpers::oneLine(failDetail)));
-            setActionsLocked(false);
-            const bool isWinFallback = isWindowsConnection(ctx.connIdx);
-            const QString cmdFallback = isWinFallback ? subcmds.join(QStringLiteral("; "))
-                                                      : QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
-            if (executeDatasetAction(m_propsSide, QStringLiteral("Aplicar propiedades"), ctx, cmdFallback, 60000, isWinFallback)) {
-                if (targetDataset != ctx.datasetName) {
-                    setSelectedDataset(m_propsSide, targetDataset, QString());
-                }
-                m_propsDirty = false;
-                if (!currentDraftKey.isEmpty()) {
-                    storePropertyDraftForObject(m_propsSide, currentToken, m_propsDataset, DatasetPropsDraft{});
-                }
-                if (!currentToken.isEmpty() && targetDataset != m_propsDataset) {
-                    storePropertyDraftForObject(m_propsSide, currentToken, targetDataset, DatasetPropsDraft{});
-                }
-                updateApplyPropsButtonState();
-            }
-            return;
-        }
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Aplicar propiedades finalizado"));
-        invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
-        if (m_propsSide == QStringLiteral("conncontent")) {
-            refreshConncontentTarget(currentToken, targetDataset);
-        } else {
-            reloadDatasetSide(m_propsSide);
-        }
-        if (targetDataset != ctx.datasetName) {
-            setSelectedDataset(m_propsSide, targetDataset, QString());
-        }
-        m_propsDirty = false;
-        if (!currentDraftKey.isEmpty()) {
-            storePropertyDraftForObject(m_propsSide, currentToken, m_propsDataset, DatasetPropsDraft{});
-        }
-        if (!currentToken.isEmpty() && targetDataset != m_propsDataset) {
-            storePropertyDraftForObject(m_propsSide, currentToken, targetDataset, DatasetPropsDraft{});
-        }
-        updateApplyPropsButtonState();
-        setActionsLocked(false);
-        return;
-    }
-
     const bool isWin = isWindowsConnection(ctx.connIdx);
     const QString cmd = isWin ? subcmds.join(QStringLiteral("; "))
                               : QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));

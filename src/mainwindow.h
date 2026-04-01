@@ -614,18 +614,6 @@ private:
     QString withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const;
     bool isLocalConnection(const ConnectionProfile& p) const;
     bool isLocalConnection(int connIdx) const;
-    bool detectLocalLibzfs(QString* detail = nullptr) const;
-    bool localLibzfsMountDataset(const QString& dataset, QString* detail = nullptr) const;
-    bool localLibzfsUnmountDataset(const QString& dataset, QString* detail = nullptr) const;
-    bool localLibzfsRenameDataset(const QString& oldName, const QString& newName, QString* detail = nullptr) const;
-    bool localLibzfsSetProperty(const QString& dataset, const QString& prop, const QString& value, QString* detail = nullptr) const;
-    bool localLibzfsInheritProperty(const QString& dataset, const QString& prop, QString* detail = nullptr) const;
-    bool listLocalImportedPoolsLibzfs(QStringList& poolsOut, QString* detail = nullptr) const;
-    bool listLocalDatasetsLibzfs(const QString& poolName, PoolDatasetCache& cacheOut, QString* detail = nullptr) const;
-    bool getLocalDatasetPropsLibzfs(const QString& objectName,
-                                    const QStringList& propNames,
-                                    QMap<QString, QString>& valuesOut,
-                                    QString* detail = nullptr) const;
     bool isWindowsConnection(const ConnectionProfile& p) const;
     bool isWindowsConnection(int connIdx) const;
     bool supportsAlternateDatasetMount(int connIdx) const;
@@ -1091,9 +1079,6 @@ private:
     int m_refreshTotal{0};
     bool m_refreshInProgress{false};
     bool m_initialRefreshCompleted{false};
-    mutable bool m_localLibzfsChecked{false};
-    mutable bool m_localLibzfsAvailable{false};
-    mutable QString m_localLibzfsDetail;
     QString m_localSudoUsername;
     QString m_localSudoPassword;
     QString m_localMachineUuid;
