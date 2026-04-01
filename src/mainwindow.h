@@ -1036,6 +1036,11 @@ private:
     QMap<QString, QPointer<QPlainTextEdit>> m_connectionLogViews;
     QMap<QString, QPointer<QPlainTextEdit>> m_connectionGsaLogViews;
     QMap<QString, QPointer<QWidget>> m_connectionLogTabs;
+    struct ConnCompactState {
+        bool valid{false};
+        QString date, time, conn, level;
+    };
+    QMap<QString, ConnCompactState> m_connCompactState;
     QSet<QString> m_sshDisableMultiplexKeys;
     QSet<QString> m_loggedSshResolutionKeys;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;

@@ -506,6 +506,9 @@ void MainWindow::syncConnectionLogTabs() {
         terminalView->setLineWrapMode(QPlainTextEdit::NoWrap);
         terminalView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         terminalView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        if (m_logView) {
+            terminalView->setFont(m_logView->font());
+        }
         terminalLay->addWidget(terminalView, 1);
         innerTabs->addTab(terminalPage, QStringLiteral("Terminal"));
 
@@ -544,6 +547,7 @@ void MainWindow::syncConnectionLogTabs() {
         }
         m_connectionGsaLogViews.remove(it.key());
         m_connectionLogTabs.remove(it.key());
+        m_connCompactState.remove(it.key());
         it = m_connectionLogViews.erase(it);
     }
 
@@ -682,7 +686,31 @@ void MainWindow::appendConnectionLog(const QString& connId, const QString& line)
     if (!view) {
         return;
     }
-    view->appendPlainText(QStringLiteral("[%1] %2").arg(tsNowForLog(), maskSecrets(line)));
+    // Format as a full log line so parseCompactLogParts can extract fields.
+    const QString fullLine = QStringLiteral("[%1] [NORMAL] [SSH %2] %3")
+                                 .arg(tsNowForLog(), connName, maskSecrets(line));
+    const CompactLogParts p = parseCompactLogParts(fullLine);
+    ConnCompactState& st = m_connCompactState[connId];
+    QStringList changed;
+    if (!st.valid || p.date != st.date) {
+        changed << p.date;
+    }
+    if (!st.valid || p.time != st.time) {
+        changed << p.time;
+    }
+    if (!st.valid || p.conn != st.conn) {
+        changed << QStringLiteral("ssh=%1").arg(p.conn);
+    }
+    if (!st.valid || p.level != st.level) {
+        changed << QStringLiteral("lvl=%1").arg(p.level);
+    }
+    const QString head = changed.isEmpty() ? QStringLiteral("...") : changed.join(' ');
+    view->appendPlainText(QStringLiteral("%1 | %2").arg(head, p.msg));
+    st.valid = true;
+    st.date = p.date;
+    st.time = p.time;
+    st.conn = p.conn;
+    st.level = p.level;
     trimLogWidget(view);
     scrollLogViewToLatest(view);
 }
