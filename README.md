@@ -172,15 +172,6 @@ It gives you:
 - Current property-column range:
   - `4, 6, 8, 10, 12, 14, 16`
 
-### Daemon remoto (próximo)
-
-- `docs/remote-daemon-design.md` describe la arquitectura del daemon que reemplazará las consultas `zfs/zpool` por RPC sobre `libssh` + `libzfs_core`.
-- `scripts/generate-daemon-keys.sh` crea el par Ed25519 usado para autenticar la app contra los daemons.
-- `scripts/deploy-daemon.sh` y `scripts/deploy-daemon.ps1` despliegan el daemon en Linux/FreeBSD/macOS y Windows, respectivamente, y abren el puerto 32099.
-- `daemon/` contiene la plantilla del binario que implementará el servidor y los handlers JSON/SOAP.
-
-Cuando el daemon está instalado, ZFSMgr se conecta al puerto 32099 antes de caer al SSH tradicional y el servicio responde con los mismos objetos `PoolInfo`/`DSInfo` que usa el árbol.
-
 ### ZFS permissions management
 
 ZFSMgr includes **graphical management of delegated ZFS permissions** per dataset.

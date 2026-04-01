@@ -16,7 +16,6 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonDocument>
-#include "daemon_transport.h"
 
 #include <algorithm>
 #include <cstring>
@@ -219,10 +218,6 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         if (!err.trimmed().isEmpty()) {
             appendConnectionLog(p.id, oneLine(err));
         }
-        return true;
-    }
-
-    if (runDaemonRpc(p, remoteCmd, timeoutMs, out, err, rc, onStdoutLine, onStderrLine, onIdleTimeoutRemaining)) {
         return true;
     }
 
@@ -956,89 +951,6 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
     };
 
     const ConnectionProfile& p = m_profiles[connIdx];
-    if (!isLocalConnection(connIdx) && m_daemonTransport.isDaemonAvailable()) {
-        const zfsmgr::DaemonRpcResult daemonRes =
-            m_daemonTransport.call(QStringLiteral("/datasets"),
-                                   QJsonObject{{QStringLiteral("pool"), poolName}},
-                                   p);
-        if (daemonRes.code == 200 && daemonRes.payload.value(QStringLiteral("datasets")).isArray()) {
-            cache.datasets.clear();
-            cache.snapshotsByDataset.clear();
-            cache.recordByName.clear();
-            cache.driveletterByDataset.clear();
-            cache.autoSnapshotPropsByDataset.clear();
-            cache.autoSnapshotPropsLoaded = true;
-            const QJsonArray datasetArray = daemonRes.payload.value(QStringLiteral("datasets")).toArray();
-            QMap<QString, QStringList> snapshotsByDataset;
-            for (const QJsonValue& value : datasetArray) {
-                const QJsonObject obj = value.toObject();
-                const QString datasetName = obj.value(QStringLiteral("dataset")).toString().trimmed();
-                if (datasetName.isEmpty()) {
-                    continue;
-                }
-                const QJsonObject props = obj.value(QStringLiteral("properties")).toObject();
-                QMap<QString, QString> gsaProps;
-                for (auto it = props.begin(); it != props.end(); ++it) {
-                    const QString keyName = it.key().trimmed();
-                    if (keyName.startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
-                        gsaProps.insert(keyName, it.value().toString());
-                    }
-                }
-                if (!gsaProps.isEmpty()) {
-                    cache.autoSnapshotPropsByDataset.insert(datasetName, gsaProps);
-                }
-                const QString type = obj.value(QStringLiteral("type")).toString().trimmed().toLower();
-                if (datasetName.contains(QLatin1Char('@')) || type == QStringLiteral("snapshot")) {
-                    const QString parent = datasetName.section(QLatin1Char('@'), 0, 0);
-                    if (!parent.isEmpty()) {
-                        snapshotsByDataset[parent].push_back(datasetName);
-                    }
-                    continue;
-                }
-                DatasetRecord rec;
-                rec.name = datasetName;
-                rec.used = props.value(QStringLiteral("used")).toString();
-                rec.compressRatio = props.value(QStringLiteral("compressratio")).toString();
-                rec.encryption = props.value(QStringLiteral("encryption")).toString();
-                rec.creation = props.value(QStringLiteral("creation")).toString();
-                rec.referenced = props.value(QStringLiteral("referenced")).toString();
-                rec.mounted = props.value(QStringLiteral("mounted")).toString(
-                    obj.value(QStringLiteral("mounted")).toString());
-                rec.mountpoint = props.value(QStringLiteral("mountpoint")).toString(
-                    obj.value(QStringLiteral("mountpoint")).toString());
-                rec.canmount = props.value(QStringLiteral("canmount")).toString(
-                    obj.value(QStringLiteral("canmount")).toString());
-                cache.datasets.push_back(rec);
-                cache.recordByName[datasetName] = rec;
-                const QJsonArray snaps = obj.value(QStringLiteral("snapshots")).toArray();
-                for (const QJsonValue& snapValue : snaps) {
-                    const QString snapName = snapValue.toString().trimmed();
-                    if (!snapName.isEmpty()) {
-                        snapshotsByDataset[datasetName].push_back(snapName);
-                    }
-                }
-            }
-            std::sort(cache.datasets.begin(), cache.datasets.end(), [](const DatasetRecord& a, const DatasetRecord& b) {
-                return a.name.compare(b.name, Qt::CaseInsensitive) < 0;
-            });
-            for (auto it = snapshotsByDataset.begin(); it != snapshotsByDataset.end(); ++it) {
-                auto snaps = it.value();
-                snaps.removeDuplicates();
-                cache.snapshotsByDataset.insert(it.key(), snaps);
-            }
-            cache.loaded = true;
-            rebuildConnInfoFor(connIdx);
-            appLog(QStringLiteral("INFO"),
-                   QStringLiteral("Datasets loaded via daemon %1::%2")
-                       .arg(p.name, poolName));
-            return true;
-        }
-        appLog(QStringLiteral("WARN"),
-               QStringLiteral("Daemon dataset listing fallback to SSH %1::%2 (%3)")
-                   .arg(p.name, poolName, oneLine(daemonRes.message.isEmpty()
-                                                       ? QStringLiteral("daemon rc %1").arg(daemonRes.code)
-                                                       : daemonRes.message)));
-    }
     QString cmd = QStringLiteral(
         "zfs list -H -p -t filesystem,volume,snapshot "
         "-o name,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount -r %1")
@@ -1341,45 +1253,4 @@ QString MainWindow::buildSshPreviewCommand(const ConnectionProfile& p, const QSt
         return QStringLiteral("[local] %1").arg(remoteCmd);
     }
     return mwhelpers::buildSshPreviewCommandText(p, remoteCmd);
-}
-bool MainWindow::runDaemonRpc(const ConnectionProfile& profile,
-                              const QString& remoteCmd,
-                              int timeoutMs,
-                              QString& out,
-                              QString& err,
-                              int& rc,
-                              const std::function<void(const QString&)>& onStdoutLine,
-                              const std::function<void(const QString&)>& onStderrLine,
-                              const std::function<void(int)>& onIdleTimeoutRemaining,
-                              WindowsCommandMode windowsMode,
-                              const QByteArray& stdinPayload) {
-    Q_UNUSED(timeoutMs);
-    Q_UNUSED(onStdoutLine);
-    Q_UNUSED(onStderrLine);
-    Q_UNUSED(onIdleTimeoutRemaining);
-    Q_UNUSED(windowsMode);
-    Q_UNUSED(stdinPayload);
-
-    if (!m_daemonTransport.isDaemonAvailable()) {
-        return false;
-    }
-    QString detail;
-    if (!m_daemonTransport.probeDaemon(profile, &detail)) {
-        appendConnectionLog(profile.id, QStringLiteral("Daemon probe failed: %1").arg(detail));
-        return false;
-    }
-    appendConnectionLog(profile.id, QStringLiteral("Daemon available: %1").arg(detail));
-
-    const zfsmgr::DaemonRpcResult res = m_daemonTransport.call(QStringLiteral("exec"),
-                                                      QJsonObject{{QStringLiteral("cmd"), remoteCmd}},
-                                                      profile);
-    rc = res.code;
-    if (res.code != 200) {
-        err = res.message;
-        appendConnectionLog(profile.id, QStringLiteral("Daemon RPC failed: %1").arg(err));
-        return false;
-    }
-    out = QString::fromUtf8(QJsonDocument(res.payload).toJson(QJsonDocument::Compact));
-    appendConnectionLog(profile.id, QStringLiteral("Daemon RPC succeeded: %1").arg(remoteCmd));
-    return true;
 }

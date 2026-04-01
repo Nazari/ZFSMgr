@@ -13,8 +13,6 @@ $InnoOutputDir = Join-Path $BuildDir "installer"
 $SftpTarget = if ($env:ZFSMGR_SFTP_TARGET) { $env:ZFSMGR_SFTP_TARGET } else { "sftp://linarese@fc16:Descargas/z" }
 $DownloadsDir = if ($env:DOWNLOADS_DIR) { $env:DOWNLOADS_DIR } else { Join-Path $env:USERPROFILE "Downloads\z" }
 $UploadSftp = $false
-$BuildDaemons = $false
-$DaemonBuildDir = Join-Path $ProjectRoot "build-windows-daemon"
 $SelectedCmakeGenerator = $null
 $SelectedCmakeGeneratorExtra = @()
 
@@ -28,8 +26,7 @@ Opciones:
   --no-inno, --no-installer No genera instalador
   --inno-script <ruta>      Usa un script .iss concreto
   --inno-output <dir>       Directorio de salida para el instalador
-  --daemons                 Construye también el daemon (zfsmgr_daemon.exe) en build-windows-daemon/
-  --sftpfc16                Sube el instalador .exe (con --inno) y/o el daemon Windows (con --daemons) al destino SFTP configurado (el daemon se sube al subdirectorio daemons/)
+  --sftpfc16                Sube el instalador .exe (con --inno) al destino SFTP configurado
   -h, --help                Muestra esta ayuda
 
 Variables opcionales:
@@ -56,10 +53,6 @@ for ($i = 0; $i -lt $args.Count; $i++) {
     }
     '^(--sftpfc16|-sftpfc16)$' {
       $UploadSftp = $true
-      continue
-    }
-    '^(--daemons|-daemons)$' {
-      $BuildDaemons = $true
       continue
     }
     '^(--no-inno|-no-inno|--no-installer|-no-installer)$' {
@@ -99,8 +92,8 @@ if (($env:GITHUB_ACTIONS -eq "true") -and -not $InstallerPreferenceExplicit) {
   Write-Host "GitHub Actions detectado: se desactiva la generación de instalador Inno Setup por defecto."
 }
 
-if ($UploadSftp -and -not $GenerateInnoInstaller -and -not $BuildDaemons) {
-  throw "--sftpfc16 requiere --inno/--installer o --daemons."
+if ($UploadSftp -and -not $GenerateInnoInstaller) {
+  throw "--sftpfc16 requiere --inno/--installer."
 }
 
 function Resolve-SftpTarget([string]$target) {
@@ -211,17 +204,6 @@ function Upload-ArtifactSftp([string]$artifactPath) {
   }
 }
 
-function Upload-DownloadsDaemons() {
-  $daemonRoot = Join-Path $DownloadsDir "daemons"
-  if (-not (Test-Path $daemonRoot)) {
-    Write-Host "No se encontró ${daemonRoot}; no hay daemons para subir."
-    return
-  }
-  Get-ChildItem -Path $daemonRoot -Recurse -File | Where-Object { $_.Name -like 'zfsmgrd-*' -or $_.Name -like 'zfsmgr_daemon*' } | ForEach-Object {
-    Upload-ArtifactSftpToSubdir $_.FullName "daemons"
-  }
-}
-
 function Upload-ArtifactSftpToSubdir([string]$artifactPath, [string]$subdir, [string]$destName = "") {
   if (-not (Test-Path $artifactPath)) {
     throw "No se encontró artefacto para subir: $artifactPath"
@@ -246,38 +228,6 @@ function Upload-ArtifactSftpToSubdir([string]$artifactPath, [string]$subdir, [st
   if ($LASTEXITCODE -ne 0) {
     throw "Falló la subida SFTP del artefacto."
   }
-}
-
-function Build-WindowsDaemon {
-  $daemonSourceDir = Join-Path $ProjectRoot "daemon"
-  if (-not (Test-Path $daemonSourceDir)) {
-    throw "No se encontró el directorio del daemon: $daemonSourceDir"
-  }
-  Write-Host "Construyendo daemon en: $DaemonBuildDir"
-  if (Test-Path $DaemonBuildDir) {
-    Remove-Item -Recurse -Force $DaemonBuildDir
-  }
-  New-Item -ItemType Directory -Force -Path $DaemonBuildDir | Out-Null
-
-  $genArgs = @($NativeArgs)
-  if (-not $hasGenerator -and -not [string]::IsNullOrWhiteSpace($SelectedCmakeGenerator)) {
-    $genArgs += @("-G", $SelectedCmakeGenerator) + $SelectedCmakeGeneratorExtra
-  }
-  cmake -S $daemonSourceDir -B $DaemonBuildDir @genArgs
-  if ($LASTEXITCODE -ne 0) {
-    throw "Fallo en configuración CMake del daemon (exit $LASTEXITCODE)"
-  }
-  cmake --build $DaemonBuildDir --config Release
-  if ($LASTEXITCODE -ne 0) {
-    throw "Fallo en compilación del daemon (exit $LASTEXITCODE)"
-  }
-  $daemonExe = Get-ChildItem -Path $DaemonBuildDir -Filter "zfsmgr_daemon.exe" -Recurse -ErrorAction SilentlyContinue |
-    Select-Object -First 1
-  if (-not $daemonExe) {
-    throw "Compilación del daemon finalizada, pero no se encontró zfsmgr_daemon.exe en $DaemonBuildDir."
-  }
-  Write-Host "Daemon compilado: $($daemonExe.FullName)"
-  return $daemonExe.FullName
 }
 
 $qtKit = ""
@@ -1054,13 +1004,6 @@ foreach ($ini in $candidateIni) {
   }
 }
 
-$DaemonRemoteName = "zfsmgrd-windows.exe"
-
-$builtDaemonExe = $null
-if ($BuildDaemons) {
-  $builtDaemonExe = Build-WindowsDaemon
-}
-
 if ($GenerateInnoInstaller) {
   $isccExe = Find-InnoSetupCompiler
   if (-not $isccExe) {
@@ -1096,16 +1039,6 @@ if ($GenerateInnoInstaller) {
   }
   if ($UploadSftp) {
     Upload-ArtifactSftp $installerExe.FullName
-    if ($builtDaemonExe) {
-      Upload-ArtifactSftpToSubdir $builtDaemonExe "daemons" $DaemonRemoteName
-    }
-    Upload-DownloadsDaemons
-  }
-} elseif ($UploadSftp) {
-  if ($builtDaemonExe) {
-    Upload-ArtifactSftpToSubdir $builtDaemonExe "daemons" $DaemonRemoteName
-  } else {
-    throw "--sftpfc16 solo puede usarse junto con --inno o --daemons."
   }
 }
 

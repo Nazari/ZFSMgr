@@ -23,16 +23,10 @@ Opciones:
 
 Descripción:
   Lanza en paralelo builds en:
-    mmela   (macOS)   — build-macos.sh --sign --daemons --sftpfc16
-    mbp     (macOS)   — build-macos.sh --sign --daemons --sftpfc16
-    fc16    (Linux)   — build-linux.sh --deb --appimage --daemons --sftpfc16
-    surface (Windows) — build-windows.ps1 --inno --daemons --sftpfc16
-
-  Cuando todos terminan, copia los scripts de deploy del daemon a
-  fc16:Descargas/z/:
-    generate-daemon-keys.sh
-    deploy-daemon.sh
-    deploy-daemon.ps1
+    mmela   (macOS)   — build-macos.sh --sign --sftpfc16
+    mbp     (macOS)   — build-macos.sh --sign --sftpfc16
+    fc16    (Linux)   — build-linux.sh --deb --appimage --sftpfc16
+    surface (Windows) — build-windows.ps1 --inno --sftpfc16
 
   Los logs de cada host se guardan en buildall-logs/<timestamp>/.
 EOF
@@ -76,7 +70,7 @@ export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:\${PATH}"
 cd ~/work/ZFSMgr
 git pull
 export KEYCHAIN_PASSWORD="\$(printf '%s' '${ENCODED_PASS}' | base64 -d)"
-./scripts/build-macos.sh --sign --daemons --sftpfc16
+./scripts/build-macos.sh --sign --sftpfc16
 EOF
   local rc=$?
   [[ ${rc} -eq 0 ]] && log "${host}" "Completado." || { log "${host}" "FALLÓ (rc=${rc}) — ver ${logfile}"; return 1; }
@@ -92,7 +86,7 @@ run_linux() {
 set -euo pipefail
 cd ~/work/ZFSMgr
 git pull
-./scripts/build-linux.sh --deb --appimage --daemons --sftpfc16
+./scripts/build-linux.sh --deb --appimage --sftpfc16
 EOF
   local rc=$?
   [[ ${rc} -eq 0 ]] && log "fc16" "Completado." || { log "fc16" "FALLÓ (rc=${rc}) — ver ${LOG_DIR}/fc16.log"; return 1; }
@@ -105,7 +99,7 @@ run_windows() {
   local logfile="${LOG_DIR}/surface.log"
   log "surface" "Iniciando build Windows..."
   ssh -o BatchMode=yes surface \
-    'pwsh -NoProfile -Command "& { cd ~/work/ZFSMgr; git pull; & ./scripts/build-windows.ps1 --inno --daemons --sftpfc16 }"' \
+    'pwsh -NoProfile -Command "& { cd ~/work/ZFSMgr; git pull; & ./scripts/build-windows.ps1 --inno --sftpfc16 }"' \
     >> "${logfile}" 2>&1
   local rc=$?
   [[ ${rc} -eq 0 ]] && log "surface" "Completado." || { log "surface" "FALLÓ (rc=${rc}) — ver ${logfile}"; return 1; }
@@ -137,18 +131,6 @@ printf "  %-10s %s\n" "surface" "${STATUS_SURFACE}"
 echo ""
 echo "Logs guardados en: ${LOG_DIR}/"
 echo ""
-
-# ---------------------------------------------------------------------------
-# Copiar scripts de deploy del daemon a fc16:Descargas/z/
-# ---------------------------------------------------------------------------
-echo "Copiando scripts de deploy a ${SFTP_REMOTE}:${SFTP_PATH}/..."
-ssh -o BatchMode=yes "${SFTP_REMOTE}" "mkdir -p '${SFTP_PATH}'"
-scp \
-  "${SCRIPT_DIR}/generate-daemon-keys.sh" \
-  "${SCRIPT_DIR}/deploy-daemon.sh" \
-  "${SCRIPT_DIR}/deploy-daemon.ps1" \
-  "${SFTP_REMOTE}:${SFTP_PATH}/"
-echo "Scripts copiados."
 
 # ---------------------------------------------------------------------------
 # Resultado final

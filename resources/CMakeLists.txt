@@ -48,7 +48,6 @@ set(ZFSMGR_CORE_SOURCES
     ../src/mainwindow_runtime_ui.cpp
     ../src/mainwindow_remote.cpp
     ../src/mainwindow_table_utils.cpp
-    ../src/daemon_rpc_protocol.h
     ../src/mainwindow_settings.cpp
     ../src/mainwindow_logging.cpp
     ../src/mainwindow_help.cpp
@@ -63,8 +62,6 @@ set(ZFSMGR_CORE_SOURCES
     ../src/connectiondatasettreewidget.h
     ../src/mainwindow_connectiondatasettreedelegate.cpp
     ../src/mainwindow_connectiondatasettreedelegate.h
-    ../src/daemon_transport.cpp
-    ../src/daemon_transport.h
     ../src/connectionstore.cpp
     ../src/connectionstore.h
     ../src/connectiondialog.cpp
@@ -80,9 +77,7 @@ set(ZFSMGR_CORE_SOURCES
 
 qt_add_library(zfsmgr_core STATIC ${ZFSMGR_CORE_SOURCES})
 
-find_package(libssh REQUIRED COMPONENTS ssh)
-
-target_link_libraries(zfsmgr_core PUBLIC Qt6::Widgets Qt6::Core Qt6::Gui Qt6::Concurrent Qt6::Network OpenSSL::Crypto ssh)
+target_link_libraries(zfsmgr_core PUBLIC Qt6::Widgets Qt6::Core Qt6::Gui Qt6::Concurrent Qt6::Network OpenSSL::Crypto)
 
 target_include_directories(zfsmgr_core PUBLIC ../src)
 
