@@ -1054,12 +1054,7 @@ foreach ($ini in $candidateIni) {
   }
 }
 
-$daemonArch = switch ($env:PROCESSOR_ARCHITECTURE) {
-  "AMD64"  { "x86_64" }
-  "ARM64"  { "arm64" }
-  default  { $env:PROCESSOR_ARCHITECTURE.ToLower() }
-}
-$DaemonRemoteName = "zfsmgrd-windows-$daemonArch.exe"
+$DaemonRemoteName = "zfsmgrd-windows.exe"
 
 $builtDaemonExe = $null
 if ($BuildDaemons) {
