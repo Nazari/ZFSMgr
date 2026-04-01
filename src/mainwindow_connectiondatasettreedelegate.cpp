@@ -960,6 +960,7 @@ void MainWindowConnectionDatasetTreeDelegate::createSnapshotHold(QTreeWidget* tr
     if (!m_mainWindow || !tree || !rawItem) {
         return;
     }
+    Q_UNUSED(tree);
     QTreeWidgetItem* item = rawItem;
     while (item && item->data(0, Qt::UserRole).toString().isEmpty()
            && !item->data(0, kIsPoolRootRole).toBool()) {
@@ -1001,21 +1002,40 @@ void MainWindowConnectionDatasetTreeDelegate::createSnapshotHold(QTreeWidget* tr
         return QStringLiteral("'%1'").arg(s);
     };
     const QString cmd = QStringLiteral("zfs hold %1 %2").arg(shQuote(holdName), shQuote(objectName));
-    if (!m_mainWindow->executeDatasetAction(QStringLiteral("conncontent"),
-                                            QStringLiteral("Crear hold"),
-                                            ctx,
-                                            cmd,
-                                            45000,
-                                            m_mainWindow->isWindowsConnection(connIdx))) {
+    ConnectionProfile cp = m_mainWindow->m_profiles[connIdx];
+    if (m_mainWindow->isLocalConnection(cp) && !m_mainWindow->isWindowsConnection(cp)) {
+        cp.useSudo = true;
+        if (!m_mainWindow->ensureLocalSudoCredentials(cp)) {
+            m_mainWindow->appLog(QStringLiteral("INFO"), QStringLiteral("Crear hold cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
+    const QString fullCmd = m_mainWindow->sshExecFromLocal(cp, m_mainWindow->withSudo(cp, cmd));
+    const QString connLabel = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
+    QString errorText;
+    if (!m_mainWindow->queuePendingShellAction(MainWindow::PendingShellActionDraft{
+            QStringLiteral("%1::%2").arg(connLabel, poolName),
+            QStringLiteral("Crear hold %1 en %2").arg(holdName, objectName),
+            fullCmd,
+            45000,
+            false,
+            {},
+            ctx,
+            MainWindow::PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+        QMessageBox::warning(m_mainWindow, QStringLiteral("ZFSMgr"), errorText);
         return;
     }
-    rebuildAndRestoreDatasetNode(tree, connIdx, poolName, datasetName, snapshotName, true);
+    m_mainWindow->appLog(QStringLiteral("NORMAL"),
+                         QStringLiteral("Cambio pendiente añadido: %1::%2  Crear hold %3 en %4")
+                             .arg(connLabel, poolName, holdName, objectName));
+    m_mainWindow->updateApplyPropsButtonState();
 }
 
 void MainWindowConnectionDatasetTreeDelegate::releaseSnapshotHold(QTreeWidget* tree, QTreeWidgetItem* rawItem) {
     if (!m_mainWindow || !tree || !rawItem) {
         return;
     }
+    Q_UNUSED(tree);
     QTreeWidgetItem* holdItem = rawItem;
     if (!holdItem->data(0, kConnSnapshotHoldItemRole).toBool()) {
         holdItem = holdItem->parent();
@@ -1067,15 +1087,33 @@ void MainWindowConnectionDatasetTreeDelegate::releaseSnapshotHold(QTreeWidget* t
     };
     const QString objectName = QStringLiteral("%1@%2").arg(datasetName, snapshotName);
     const QString cmd = QStringLiteral("zfs release %1 %2").arg(shQuote(holdName), shQuote(objectName));
-    if (!m_mainWindow->executeDatasetAction(QStringLiteral("conncontent"),
-                                            QStringLiteral("Release hold"),
-                                            ctx,
-                                            cmd,
-                                            45000,
-                                            m_mainWindow->isWindowsConnection(connIdx))) {
+    ConnectionProfile cp = m_mainWindow->m_profiles[connIdx];
+    if (m_mainWindow->isLocalConnection(cp) && !m_mainWindow->isWindowsConnection(cp)) {
+        cp.useSudo = true;
+        if (!m_mainWindow->ensureLocalSudoCredentials(cp)) {
+            m_mainWindow->appLog(QStringLiteral("INFO"), QStringLiteral("Release hold cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
+    const QString fullCmd = m_mainWindow->sshExecFromLocal(cp, m_mainWindow->withSudo(cp, cmd));
+    const QString connLabel = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
+    QString errorText;
+    if (!m_mainWindow->queuePendingShellAction(MainWindow::PendingShellActionDraft{
+            QStringLiteral("%1::%2").arg(connLabel, poolName),
+            QStringLiteral("Release hold %1 en %2").arg(holdName, objectName),
+            fullCmd,
+            45000,
+            false,
+            {},
+            ctx,
+            MainWindow::PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+        QMessageBox::warning(m_mainWindow, QStringLiteral("ZFSMgr"), errorText);
         return;
     }
-    rebuildAndRestoreDatasetNode(tree, connIdx, poolName, datasetName, snapshotName, true);
+    m_mainWindow->appLog(QStringLiteral("NORMAL"),
+                         QStringLiteral("Cambio pendiente añadido: %1::%2  Release hold %3 en %4")
+                             .arg(connLabel, poolName, holdName, objectName));
+    m_mainWindow->updateApplyPropsButtonState();
 }
 
 void MainWindowConnectionDatasetTreeDelegate::itemClicked(QTreeWidget* tree, QTreeWidgetItem* item) {
@@ -2403,7 +2441,35 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             mwActx.poolName = actx.poolName;
             mwActx.datasetName = actx.datasetName;
             mwActx.snapshotName = actx.snapshotName;
-            m_mainWindow->executeDatasetAction(QStringLiteral("conncontent"), QStringLiteral("Rollback"), mwActx, cmd, 90000);
+            ConnectionProfile cp = m_mainWindow->m_profiles[actx.connIdx];
+            if (m_mainWindow->isLocalConnection(cp) && !m_mainWindow->isWindowsConnection(cp)) {
+                cp.useSudo = true;
+                if (!m_mainWindow->ensureLocalSudoCredentials(cp)) {
+                    m_mainWindow->appLog(QStringLiteral("INFO"), QStringLiteral("Rollback cancelada: faltan credenciales sudo locales"));
+                    return;
+                }
+            }
+            const QString fullCmd = m_mainWindow->sshExecFromLocal(cp, m_mainWindow->withSudo(cp, cmd));
+            MainWindow::DatasetSelectionContext refreshTarget = mwActx;
+            refreshTarget.snapshotName.clear();
+            const QString connLabel = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
+            QString errorText;
+            if (!m_mainWindow->queuePendingShellAction(MainWindow::PendingShellActionDraft{
+                    QStringLiteral("%1::%2").arg(connLabel, actx.poolName),
+                    QStringLiteral("Rollback snapshot %1").arg(snapObj),
+                    fullCmd,
+                    90000,
+                    false,
+                    {},
+                    refreshTarget,
+                    MainWindow::PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+                QMessageBox::warning(m_mainWindow, QStringLiteral("ZFSMgr"), errorText);
+                return;
+            }
+            m_mainWindow->appLog(QStringLiteral("NORMAL"),
+                                 QStringLiteral("Cambio pendiente añadido: %1::%2  Rollback snapshot %3")
+                                     .arg(connLabel, actx.poolName, snapObj));
+            m_mainWindow->updateApplyPropsButtonState();
             return;
         }
         if (picked == aCreate) {

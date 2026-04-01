@@ -118,6 +118,10 @@ prop_value() {
   zfs get -H -o value "$2" "$1" 2>/dev/null | head -n1 | tr -d '\r'
 }
 
+prop_local_value() {
+  zfs get -H -o value -s local "$2" "$1" 2>/dev/null | head -n1 | tr -d '\r'
+}
+
 bool_on() {
   case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
     on|yes|true|1) return 0 ;;
@@ -136,7 +140,7 @@ has_recursive_gsa_ancestor() {
   probe_ds="$1"
   probe_parent="${probe_ds%/*}"
   while [ "$probe_parent" != "$probe_ds" ] && [ -n "$probe_parent" ]; do
-    if bool_on "$(prop_value "$probe_parent" "$PROP_ENABLED")" \
+    if bool_on "$(prop_local_value "$probe_parent" "$PROP_ENABLED")" \
        && bool_on "$(prop_value "$probe_parent" "$PROP_RECURSIVE")"; then
       return 0
     fi
@@ -410,15 +414,13 @@ main() {
   PROCESSED_RECURSIVE_ROOTS=''
   while IFS= read -r ds; do
     [ -n "$ds" ] || continue
-    enabled="$(prop_value "$ds" "$PROP_ENABLED")"
+    enabled="$(prop_local_value "$ds" "$PROP_ENABLED")"
     bool_on "$enabled" || continue
     if is_descendant_of_processed_recursive_root "$ds"; then
-      log "GSA skip for $ds: cubierto por snapshot recursivo ya realizado en esta ejecución"
       continue
     fi
     recursive="$(prop_value "$ds" "$PROP_RECURSIVE")"
     if has_recursive_gsa_ancestor "$ds"; then
-      log "GSA skip for $ds: cubierto por ancestro con programación recursiva"
       continue
     fi
     hourly="$(prop_value "$ds" "$PROP_HOURLY")"

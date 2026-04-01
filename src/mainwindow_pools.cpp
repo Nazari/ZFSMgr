@@ -220,7 +220,14 @@ void MainWindow::exportPoolFromRow(int row) {
     if (confirm != QMessageBox::Yes) {
         return;
     }
-    const ConnectionProfile& p = m_profiles[idx];
+    ConnectionProfile p = m_profiles[idx];
+    if (isLocalConnection(p) && !isWindowsConnection(p)) {
+        p.useSudo = true;
+        if (!ensureLocalSudoCredentials(p)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Exportar pool cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
     const QString cmd = withSudo(p, QStringLiteral("zpool export %1").arg(shSingleQuote(poolName)));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
@@ -228,20 +235,27 @@ void MainWindow::exportPoolFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Exportar"), {preview})) {
         return;
     }
-    QString failureDetail;
-    if (!executePoolCommand(idx, poolName, QStringLiteral("Exportar"), cmd, 45000, &failureDetail, true, true)) {
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              trk(QStringLiteral("t_export_pool_e1"),
-                                  QStringLiteral("Exportar falló:\n%1"),
-                                  QStringLiteral("Export failed:\n%1"),
-                                  QStringLiteral("导出失败：\n%1"))
-                                  .arg(failureDetail));
+    DatasetSelectionContext refreshCtx;
+    refreshCtx.valid = true;
+    refreshCtx.connIdx = idx;
+    refreshCtx.poolName = poolName;
+    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
+    QString errorText;
+    if (!queuePendingShellAction(PendingShellActionDraft{
+            scopeLabel,
+            QStringLiteral("Exportar pool %1").arg(poolName),
+            sshExecFromLocal(p, cmd),
+            45000,
+            false,
+            {},
+            refreshCtx,
+            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
         return;
     }
-    invalidateDatasetCacheForPool(idx, poolName);
-    appLog(QStringLiteral("DEBUG"),
-           QStringLiteral("Caché invalidada tras exportar %1::%2").arg(connName, poolName));
-    appLog(QStringLiteral("INFO"), QStringLiteral("Refresco completado tras exportar: %1").arg(connName));
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Cambio pendiente añadido: %1  Exportar pool %2").arg(scopeLabel, poolName));
+    updateApplyPropsButtonState();
 }
 
 void MainWindow::importPoolFromRow(int row) {
@@ -439,7 +453,14 @@ void MainWindow::importPoolFromRow(int row) {
         parts << extraEd->text().trimmed();
     }
 
-    const ConnectionProfile& p = m_profiles[idx];
+    ConnectionProfile p = m_profiles[idx];
+    if (isLocalConnection(p) && !isWindowsConnection(p)) {
+        p.useSudo = true;
+        if (!ensureLocalSudoCredentials(p)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Importar pool cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
     const QString cmd = withSudo(p, parts.join(' '));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
@@ -447,17 +468,27 @@ void MainWindow::importPoolFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Importar"), {preview})) {
         return;
     }
-    QString failureDetail;
-    if (!executePoolCommand(idx, poolName, QStringLiteral("Importar"), cmd, 45000, &failureDetail)) {
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              trk(QStringLiteral("t_import_pool_e1"),
-                                  QStringLiteral("Importar falló:\n%1"),
-                                  QStringLiteral("Import failed:\n%1"),
-                                  QStringLiteral("导入失败：\n%1"))
-                                  .arg(failureDetail));
+    DatasetSelectionContext refreshCtx;
+    refreshCtx.valid = true;
+    refreshCtx.connIdx = idx;
+    refreshCtx.poolName = poolName;
+    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
+    QString errorText;
+    if (!queuePendingShellAction(PendingShellActionDraft{
+            scopeLabel,
+            QStringLiteral("Importar pool %1").arg(poolName),
+            sshExecFromLocal(p, cmd),
+            45000,
+            false,
+            {},
+            refreshCtx,
+            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
         return;
     }
-    refreshConnectionByIndex(idx);
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Cambio pendiente añadido: %1  Importar pool %2").arg(scopeLabel, poolName));
+    updateApplyPropsButtonState();
 }
 
 void MainWindow::importPoolRenamingFromRow(int row) {
@@ -672,7 +703,14 @@ void MainWindow::importPoolRenamingFromRow(int row) {
         parts << extraEd->text().trimmed();
     }
 
-    const ConnectionProfile& p = m_profiles[idx];
+    ConnectionProfile p = m_profiles[idx];
+    if (isLocalConnection(p) && !isWindowsConnection(p)) {
+        p.useSudo = true;
+        if (!ensureLocalSudoCredentials(p)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Importar renombrando cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
     const QString cmd = withSudo(p, parts.join(' '));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
@@ -680,14 +718,28 @@ void MainWindow::importPoolRenamingFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Importar renombrando"), {preview})) {
         return;
     }
-    QString failureDetail;
-    if (!executePoolCommand(idx, poolName, QStringLiteral("Importar renombrando"), cmd, 45000, &failureDetail)) {
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              QStringLiteral("Importar renombrando falló:\n%1")
-                                  .arg(failureDetail));
+    DatasetSelectionContext refreshCtx;
+    refreshCtx.valid = true;
+    refreshCtx.connIdx = idx;
+    refreshCtx.poolName = newNameEd->text().trimmed();
+    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
+    QString errorText;
+    if (!queuePendingShellAction(PendingShellActionDraft{
+            scopeLabel,
+            QStringLiteral("Importar pool %1 renombrando a %2").arg(poolName, refreshCtx.poolName),
+            sshExecFromLocal(p, cmd),
+            45000,
+            false,
+            {},
+            refreshCtx,
+            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
         return;
     }
-    refreshConnectionByIndex(idx);
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Cambio pendiente añadido: %1  Importar pool %2 renombrando a %3")
+               .arg(scopeLabel, poolName, refreshCtx.poolName));
+    updateApplyPropsButtonState();
 }
 
 void MainWindow::scrubPoolFromRow(int row) {
@@ -725,7 +777,14 @@ void MainWindow::scrubPoolFromRow(int row) {
         return;
     }
 
-    const ConnectionProfile& p = m_profiles[idx];
+    ConnectionProfile p = m_profiles[idx];
+    if (isLocalConnection(p) && !isWindowsConnection(p)) {
+        p.useSudo = true;
+        if (!ensureLocalSudoCredentials(p)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Scrub cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
     const QString cmd = withSudo(p, QStringLiteral("zpool scrub %1").arg(shSingleQuote(poolName)));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
@@ -733,12 +792,27 @@ void MainWindow::scrubPoolFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Scrub"), {preview})) {
         return;
     }
-    QString failureDetail;
-    if (!executePoolCommand(idx, poolName, QStringLiteral("Scrub"), cmd, 45000, &failureDetail)) {
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              QStringLiteral("Scrub falló:\n%1").arg(failureDetail));
+    DatasetSelectionContext refreshCtx;
+    refreshCtx.valid = true;
+    refreshCtx.connIdx = idx;
+    refreshCtx.poolName = poolName;
+    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
+    QString errorText;
+    if (!queuePendingShellAction(PendingShellActionDraft{
+            scopeLabel,
+            QStringLiteral("Scrub pool %1").arg(poolName),
+            sshExecFromLocal(p, cmd),
+            45000,
+            false,
+            {},
+            refreshCtx,
+            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
         return;
     }
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Cambio pendiente añadido: %1  Scrub pool %2").arg(scopeLabel, poolName));
+    updateApplyPropsButtonState();
 }
 
 void MainWindow::upgradePoolFromRow(int row) {
@@ -777,7 +851,14 @@ void MainWindow::upgradePoolFromRow(int row) {
         return;
     }
 
-    const ConnectionProfile& p = m_profiles[idx];
+    ConnectionProfile p = m_profiles[idx];
+    if (isLocalConnection(p) && !isWindowsConnection(p)) {
+        p.useSudo = true;
+        if (!ensureLocalSudoCredentials(p)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Upgrade cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
     const QString cmd = withSudo(p, QStringLiteral("zpool upgrade %1").arg(shSingleQuote(poolName)));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
@@ -785,12 +866,27 @@ void MainWindow::upgradePoolFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Upgrade"), {preview})) {
         return;
     }
-    QString failureDetail;
-    if (!executePoolCommand(idx, poolName, QStringLiteral("Upgrade"), cmd, 45000, &failureDetail)) {
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              QStringLiteral("Upgrade falló:\n%1").arg(failureDetail));
+    DatasetSelectionContext refreshCtx;
+    refreshCtx.valid = true;
+    refreshCtx.connIdx = idx;
+    refreshCtx.poolName = poolName;
+    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
+    QString errorText;
+    if (!queuePendingShellAction(PendingShellActionDraft{
+            scopeLabel,
+            QStringLiteral("Upgrade pool %1").arg(poolName),
+            sshExecFromLocal(p, cmd),
+            45000,
+            false,
+            {},
+            refreshCtx,
+            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
         return;
     }
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Cambio pendiente añadido: %1  Upgrade pool %2").arg(scopeLabel, poolName));
+    updateApplyPropsButtonState();
 }
 
 void MainWindow::reguidPoolFromRow(int row) {
@@ -829,7 +925,14 @@ void MainWindow::reguidPoolFromRow(int row) {
         return;
     }
 
-    const ConnectionProfile& p = m_profiles[idx];
+    ConnectionProfile p = m_profiles[idx];
+    if (isLocalConnection(p) && !isWindowsConnection(p)) {
+        p.useSudo = true;
+        if (!ensureLocalSudoCredentials(p)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Reguid cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
     const QString cmd = withSudo(p, QStringLiteral("zpool reguid %1").arg(shSingleQuote(poolName)));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
@@ -837,14 +940,27 @@ void MainWindow::reguidPoolFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Reguid"), {preview})) {
         return;
     }
-    QString failureDetail;
-    if (!executePoolCommand(idx, poolName, QStringLiteral("Reguid"), cmd, 45000, &failureDetail)) {
-        QMessageBox::critical(
-            this,
-            QStringLiteral("ZFSMgr"),
-            QStringLiteral("Reguid falló:\n%1").arg(failureDetail));
+    DatasetSelectionContext refreshCtx;
+    refreshCtx.valid = true;
+    refreshCtx.connIdx = idx;
+    refreshCtx.poolName = poolName;
+    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
+    QString errorText;
+    if (!queuePendingShellAction(PendingShellActionDraft{
+            scopeLabel,
+            QStringLiteral("Reguid pool %1").arg(poolName),
+            sshExecFromLocal(p, cmd),
+            45000,
+            false,
+            {},
+            refreshCtx,
+            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
         return;
     }
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Cambio pendiente añadido: %1  Reguid pool %2").arg(scopeLabel, poolName));
+    updateApplyPropsButtonState();
 }
 
 void MainWindow::destroyPoolFromRow(int row) {
@@ -898,7 +1014,14 @@ void MainWindow::destroyPoolFromRow(int row) {
         return;
     }
 
-    const ConnectionProfile& p = m_profiles[idx];
+    ConnectionProfile p = m_profiles[idx];
+    if (isLocalConnection(p) && !isWindowsConnection(p)) {
+        p.useSudo = true;
+        if (!ensureLocalSudoCredentials(p)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Destroy pool cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
     const QString cmd = withSudo(p, QStringLiteral("zpool destroy %1").arg(shSingleQuote(poolName)));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
@@ -906,12 +1029,27 @@ void MainWindow::destroyPoolFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Destroy"), {preview})) {
         return;
     }
-    QString failureDetail;
-    if (!executePoolCommand(idx, poolName, QStringLiteral("Destroy"), cmd, 60000, &failureDetail, true, true)) {
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              QStringLiteral("Destroy falló:\n%1").arg(failureDetail));
+    DatasetSelectionContext refreshCtx;
+    refreshCtx.valid = true;
+    refreshCtx.connIdx = idx;
+    refreshCtx.poolName = poolName;
+    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
+    QString errorText;
+    if (!queuePendingShellAction(PendingShellActionDraft{
+            scopeLabel,
+            QStringLiteral("Destroy pool %1").arg(poolName),
+            sshExecFromLocal(p, cmd),
+            60000,
+            false,
+            {},
+            refreshCtx,
+            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
         return;
     }
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Cambio pendiente añadido: %1  Destroy pool %2").arg(scopeLabel, poolName));
+    updateApplyPropsButtonState();
 }
 
 void MainWindow::syncPoolFromRow(int row) {
@@ -936,7 +1074,14 @@ void MainWindow::syncPoolFromRow(int row) {
         return;
     }
 
-    const ConnectionProfile& p = m_profiles[idx];
+    ConnectionProfile p = m_profiles[idx];
+    if (isLocalConnection(p) && !isWindowsConnection(p)) {
+        p.useSudo = true;
+        if (!ensureLocalSudoCredentials(p)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Sync cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
     const QString cmd = withSudo(p, QStringLiteral("zpool sync %1").arg(shSingleQuote(poolName)));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
@@ -944,12 +1089,27 @@ void MainWindow::syncPoolFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Sync"), {preview})) {
         return;
     }
-    QString failureDetail;
-    if (!executePoolCommand(idx, poolName, QStringLiteral("Sync"), cmd, 45000, &failureDetail)) {
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              QStringLiteral("Sync falló:\n%1").arg(failureDetail));
+    DatasetSelectionContext refreshCtx;
+    refreshCtx.valid = true;
+    refreshCtx.connIdx = idx;
+    refreshCtx.poolName = poolName;
+    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
+    QString errorText;
+    if (!queuePendingShellAction(PendingShellActionDraft{
+            scopeLabel,
+            QStringLiteral("Sync pool %1").arg(poolName),
+            sshExecFromLocal(p, cmd),
+            45000,
+            false,
+            {},
+            refreshCtx,
+            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
         return;
     }
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Cambio pendiente añadido: %1  Sync pool %2").arg(scopeLabel, poolName));
+    updateApplyPropsButtonState();
 }
 
 void MainWindow::trimPoolFromRow(int row) {
@@ -978,7 +1138,14 @@ void MainWindow::trimPoolFromRow(int row) {
         return;
     }
 
-    const ConnectionProfile& p = m_profiles[idx];
+    ConnectionProfile p = m_profiles[idx];
+    if (isLocalConnection(p) && !isWindowsConnection(p)) {
+        p.useSudo = true;
+        if (!ensureLocalSudoCredentials(p)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Trim cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
     const QString cmd = withSudo(p, QStringLiteral("zpool trim %1").arg(shSingleQuote(poolName)));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
@@ -986,12 +1153,27 @@ void MainWindow::trimPoolFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Trim"), {preview})) {
         return;
     }
-    QString failureDetail;
-    if (!executePoolCommand(idx, poolName, QStringLiteral("Trim"), cmd, 45000, &failureDetail)) {
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              QStringLiteral("Trim falló:\n%1").arg(failureDetail));
+    DatasetSelectionContext refreshCtx;
+    refreshCtx.valid = true;
+    refreshCtx.connIdx = idx;
+    refreshCtx.poolName = poolName;
+    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
+    QString errorText;
+    if (!queuePendingShellAction(PendingShellActionDraft{
+            scopeLabel,
+            QStringLiteral("Trim pool %1").arg(poolName),
+            sshExecFromLocal(p, cmd),
+            45000,
+            false,
+            {},
+            refreshCtx,
+            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
         return;
     }
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Cambio pendiente añadido: %1  Trim pool %2").arg(scopeLabel, poolName));
+    updateApplyPropsButtonState();
 }
 
 void MainWindow::initializePoolFromRow(int row) {
@@ -1020,7 +1202,14 @@ void MainWindow::initializePoolFromRow(int row) {
         return;
     }
 
-    const ConnectionProfile& p = m_profiles[idx];
+    ConnectionProfile p = m_profiles[idx];
+    if (isLocalConnection(p) && !isWindowsConnection(p)) {
+        p.useSudo = true;
+        if (!ensureLocalSudoCredentials(p)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Initialize cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
     const QString cmd = withSudo(p, QStringLiteral("zpool initialize %1").arg(shSingleQuote(poolName)));
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
@@ -1028,12 +1217,27 @@ void MainWindow::initializePoolFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Initialize"), {preview})) {
         return;
     }
-    QString failureDetail;
-    if (!executePoolCommand(idx, poolName, QStringLiteral("Initialize"), cmd, 45000, &failureDetail)) {
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              QStringLiteral("Initialize falló:\n%1").arg(failureDetail));
+    DatasetSelectionContext refreshCtx;
+    refreshCtx.valid = true;
+    refreshCtx.connIdx = idx;
+    refreshCtx.poolName = poolName;
+    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
+    QString errorText;
+    if (!queuePendingShellAction(PendingShellActionDraft{
+            scopeLabel,
+            QStringLiteral("Initialize pool %1").arg(poolName),
+            sshExecFromLocal(p, cmd),
+            45000,
+            false,
+            {},
+            refreshCtx,
+            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
         return;
     }
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Cambio pendiente añadido: %1  Initialize pool %2").arg(scopeLabel, poolName));
+    updateApplyPropsButtonState();
 }
 
 void MainWindow::showPoolHistoryFromRow(int row) {

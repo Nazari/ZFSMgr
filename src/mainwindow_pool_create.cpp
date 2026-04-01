@@ -2471,35 +2471,43 @@ void MainWindow::createPoolForSelectedConnection() {
                 cmd = QStringLiteral("set -e; %1; %2").arg(pre.join(QStringLiteral("; ")), createCmd);
             }
         }
-        cmd = withSudo(p, cmd);
+        ConnectionProfile execProfile = p;
+        if (isLocalConnection(execProfile) && !isWindowsConnection(execProfile)) {
+            execProfile.useSudo = true;
+            if (!ensureLocalSudoCredentials(execProfile)) {
+                appLog(QStringLiteral("INFO"), QStringLiteral("Crear pool cancelada: faltan credenciales sudo locales"));
+                return;
+            }
+        }
+        cmd = withSudo(execProfile, cmd);
         const QString preview = QStringLiteral("[%1]\n%2")
-                                    .arg(sshUserHostPort(p))
-                                    .arg(buildSshPreviewCommand(p, cmd));
+                                    .arg(sshUserHostPort(execProfile))
+                                    .arg(buildSshPreviewCommand(execProfile, cmd));
         if (!confirmActionExecution(QStringLiteral("Crear pool"), {preview})) {
             return;
         }
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio crear pool en %1: %2").arg(p.name, poolName));
-        setActionsLocked(true);
-        QString cmdOut;
-        QString cmdErr;
-        int rc = -1;
-        if (!runSsh(p, cmd, 120000, cmdOut, cmdErr, rc) || rc != 0) {
-            appLog(QStringLiteral("NORMAL"),
-                   QStringLiteral("Error creando pool en %1::%2 -> %3")
-                       .arg(p.name, poolName, oneLine(cmdErr.isEmpty() ? QStringLiteral("exit %1").arg(rc) : cmdErr)));
-            QMessageBox::critical(
-                this, QStringLiteral("ZFSMgr"),
-                trk(QStringLiteral("t_poolcrt_auto033"), QStringLiteral("Crear pool falló:\n%1"),
-                    QStringLiteral("Pool creation failed:\n%1"),
-                    QStringLiteral("创建池失败：\n%1")).arg(cmdErr.isEmpty() ? QStringLiteral("exit %1").arg(rc) : cmdErr));
-            setActionsLocked(false);
+        DatasetSelectionContext refreshCtx;
+        refreshCtx.valid = true;
+        refreshCtx.connIdx = idx;
+        refreshCtx.poolName = poolName;
+        const QString connLabel = execProfile.name.trimmed().isEmpty() ? execProfile.id.trimmed() : execProfile.name.trimmed();
+        QString errorText;
+        if (!queuePendingShellAction(PendingShellActionDraft{
+                QStringLiteral("%1::%2").arg(connLabel, poolName),
+                QStringLiteral("Crear pool %1").arg(poolName),
+                sshExecFromLocal(execProfile, cmd),
+                120000,
+                false,
+                {},
+                refreshCtx,
+                PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+            QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
             return;
         }
-        appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin crear pool en %1: %2").arg(p.name, poolName));
-        setActionsLocked(false);
-        refreshConnectionByIndex(idx);
-        populateAllPoolsTables();
-        refreshSelectedPoolDetails(true, true);
+        appLog(QStringLiteral("NORMAL"),
+               QStringLiteral("Cambio pendiente añadido: %1::%2  Crear pool %3")
+                   .arg(connLabel, poolName, poolName));
+        updateApplyPropsButtonState();
         dlg.accept();
     });
     if (dlg.layout()) {

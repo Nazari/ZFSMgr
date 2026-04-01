@@ -251,6 +251,10 @@ prop_value() {
   zfs get -H -o value "$2" "$1" 2>/dev/null | head -n1 | tr -d '\r'
 }
 
+prop_local_value() {
+  zfs get -H -o value -s local "$2" "$1" 2>/dev/null | head -n1 | tr -d '\r'
+}
+
 bool_on() {
   case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
     on|yes|true|1) return 0 ;;
@@ -269,7 +273,7 @@ has_recursive_gsa_ancestor() {
   probe_ds="$1"
   probe_parent="${probe_ds%/*}"
   while [ "$probe_parent" != "$probe_ds" ] && [ -n "$probe_parent" ]; do
-    if bool_on "$(prop_value "$probe_parent" "$PROP_ENABLED")" \
+    if bool_on "$(prop_local_value "$probe_parent" "$PROP_ENABLED")" \
        && bool_on "$(prop_value "$probe_parent" "$PROP_RECURSIVE")"; then
       return 0
     fi
@@ -559,15 +563,13 @@ main() {
   PROCESSED_RECURSIVE_ROOTS=''
   while IFS= read -r ds; do
     [ -n "$ds" ] || continue
-    enabled="$(prop_value "$ds" "$PROP_ENABLED")"
+    enabled="$(prop_local_value "$ds" "$PROP_ENABLED")"
     bool_on "$enabled" || continue
     if is_descendant_of_processed_recursive_root "$ds"; then
-      log "GSA skip for $ds: cubierto por snapshot recursivo ya realizado en esta ejecución"
       continue
     fi
     recursive="$(prop_value "$ds" "$PROP_RECURSIVE")"
     if has_recursive_gsa_ancestor "$ds"; then
-      log "GSA skip for $ds: cubierto por ancestro con programación recursiva"
       continue
     fi
     hourly="$(prop_value "$ds" "$PROP_HOURLY")"
@@ -669,6 +671,14 @@ function Get-PropValue([string]$Dataset, [string]$Prop) {
   }
 }
 
+function Get-PropLocalValue([string]$Dataset, [string]$Prop) {
+  try {
+    return ((& zfs get -H -o value -s local $Prop $Dataset 2>$null) | Select-Object -First 1).Trim()
+  } catch {
+    return ''
+  }
+}
+
 function Test-On([string]$Value) {
   switch ($Value.Trim().ToLowerInvariant()) {
     'on' { return $true }
@@ -691,7 +701,7 @@ function Test-HasRecursiveGsaAncestor([string]$Dataset) {
     $idx = $current.LastIndexOf('/')
     if ($idx -lt 0) { return $false }
     $current = $current.Substring(0, $idx)
-    if ((Test-On (Get-PropValue $current $PropEnabled)) -and (Test-On (Get-PropValue $current $PropRecursive))) {
+    if ((Test-On (Get-PropLocalValue $current $PropEnabled)) -and (Test-On (Get-PropValue $current $PropRecursive))) {
       return $true
     }
   }
@@ -841,13 +851,11 @@ try {
   $processedRecursiveRoots = New-Object 'System.Collections.Generic.List[string]'
   foreach ($ds in $datasets) {
     if ([string]::IsNullOrWhiteSpace($ds)) { continue }
-    if (-not (Test-On (Get-PropValue $ds $PropEnabled))) { continue }
+    if (-not (Test-On (Get-PropLocalValue $ds $PropEnabled))) { continue }
     if (Test-IsDescendantOfProcessedRecursiveRoot $ds $processedRecursiveRoots) {
-      Write-GsaLog ("GSA skip for " + $ds + ": cubierto por snapshot recursivo ya realizado en esta ejecución")
       continue
     }
     if (Test-HasRecursiveGsaAncestor $ds) {
-      Write-GsaLog ("GSA skip for " + $ds + ": cubierto por ancestro con programación recursiva")
       continue
     }
     $recursive = Test-On (Get-PropValue $ds $PropRecursive)
