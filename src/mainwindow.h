@@ -1012,6 +1012,7 @@ private:
         QString date, time, conn, level;
     };
     QMap<QString, ConnCompactState> m_connCompactState;
+    QMap<QString, ConnCompactState> m_connGsaCompactState;
     QSet<QString> m_sshDisableMultiplexKeys;
     QSet<QString> m_loggedSshResolutionKeys;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;

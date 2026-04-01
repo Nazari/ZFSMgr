@@ -127,6 +127,46 @@ CompactLogParts parseCompactLogParts(const QString& fullLine) {
     return out;
 }
 
+CompactLogParts parseGsaLogParts(const QString& line, const QString& connName) {
+    CompactLogParts out;
+    static const QRegularExpression gsaRx(
+        QStringLiteral("^(\\d{4}-\\d{2}-\\d{2})\\s+(\\d{2}:\\d{2}:\\d{2})\\s+(.*)$"));
+    const QString trimmed = line.trimmed();
+    const QRegularExpressionMatch m = gsaRx.match(trimmed);
+    if (m.hasMatch()) {
+        out.date = m.captured(1).trimmed();
+        out.time = m.captured(2).trimmed();
+        out.msg = m.captured(3).trimmed();
+    } else {
+        out.date = QStringLiteral("-");
+        out.time = QStringLiteral("-");
+        out.msg = trimmed;
+    }
+    out.conn = connName.trimmed().isEmpty() ? QStringLiteral("-") : connName.trimmed();
+    out.level = QStringLiteral("GSA");
+    if (out.msg.isEmpty()) {
+        out.msg = QStringLiteral("-");
+    }
+    return out;
+}
+
+bool looksLikeGsaRuntimeLine(const QString& line) {
+    const QString s = line.trimmed();
+    if (s.isEmpty()) {
+        return false;
+    }
+    static const QRegularExpression gsaStamped(
+        QStringLiteral("^\\d{4}-\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}:\\d{2}\\s+GSA\\b"));
+    if (gsaStamped.match(s).hasMatch()) {
+        return true;
+    }
+    const QString low = s.toLower();
+    return low.startsWith(QStringLiteral("gsa "))
+           || low.contains(QStringLiteral(" zfsmgr-gsa"))
+           || low.contains(QStringLiteral(" gsa "))
+           || low.contains(QStringLiteral("org.fc16.gsa:"));
+}
+
 void scrollLogViewToLatest(QPlainTextEdit* view) {
     if (!view) {
         return;
@@ -264,6 +304,8 @@ void MainWindow::clearAppLog() {
     m_compactPrevTime.clear();
     m_compactPrevConn.clear();
     m_compactPrevLevel.clear();
+    m_connCompactState.clear();
+    m_connGsaCompactState.clear();
     for (auto it = m_connectionLogViews.begin(); it != m_connectionLogViews.end(); ++it) {
         if (it.value()) {
             it.value()->clear();
@@ -521,6 +563,9 @@ void MainWindow::syncConnectionLogTabs() {
         gsaView->setLineWrapMode(QPlainTextEdit::NoWrap);
         gsaView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         gsaView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        if (m_logView) {
+            gsaView->setFont(m_logView->font());
+        }
         gsaLay->addWidget(gsaView, 1);
         innerTabs->addTab(gsaPage, QStringLiteral("GSA"));
 
@@ -548,6 +593,7 @@ void MainWindow::syncConnectionLogTabs() {
         m_connectionGsaLogViews.remove(it.key());
         m_connectionLogTabs.remove(it.key());
         m_connCompactState.remove(it.key());
+        m_connGsaCompactState.remove(it.key());
         it = m_connectionLogViews.erase(it);
     }
 
@@ -656,7 +702,45 @@ void MainWindow::refreshConnectionGsaLogAsync(int idx) {
         }
         QMetaObject::invokeMethod(this, [this, connId, text]() {
             if (QPlainTextEdit* view = m_connectionGsaLogViews.value(connId, nullptr)) {
-                view->setPlainText(maskSecrets(text));
+                QString connName = connId;
+                for (const auto& p : m_profiles) {
+                    if (p.id == connId) {
+                        connName = p.name.trimmed().isEmpty() ? p.id : p.name;
+                        break;
+                    }
+                }
+                view->clear();
+                ConnCompactState st;
+                const QStringList lines = maskSecrets(text).split('\n');
+                for (const QString& rawLine : lines) {
+                    const QString trimmed = rawLine.trimmed();
+                    if (trimmed.isEmpty()) {
+                        continue;
+                    }
+                    const CompactLogParts p = parseGsaLogParts(trimmed, connName);
+                    QStringList changed;
+                    if (!st.valid || p.date != st.date) {
+                        changed << p.date;
+                    }
+                    if (!st.valid || p.time != st.time) {
+                        changed << p.time;
+                    }
+                    if (!st.valid || p.conn != st.conn) {
+                        changed << QStringLiteral("ssh=%1").arg(p.conn);
+                    }
+                    if (!st.valid || p.level != st.level) {
+                        changed << QStringLiteral("lvl=%1").arg(p.level);
+                    }
+                    const QString head = changed.isEmpty() ? QStringLiteral("...") : changed.join(' ');
+                    view->appendPlainText(QStringLiteral("%1 | %2").arg(head, p.msg));
+                    st.valid = true;
+                    st.date = p.date;
+                    st.time = p.time;
+                    st.conn = p.conn;
+                    st.level = p.level;
+                }
+                m_connGsaCompactState[connId] = st;
+                trimLogWidget(view);
                 scrollLogViewToLatest(view);
             }
         }, Qt::QueuedConnection);
@@ -677,20 +761,22 @@ void MainWindow::appendConnectionLog(const QString& connId, const QString& line)
             break;
         }
     }
-    // Mirror SSH/PSRP session output into Application log so the SSH tabs can be removed
-    // without losing per-connection command/output traceability.
+    const QString maskedLine = maskSecrets(line);
+    const bool routeToGsa = looksLikeGsaRuntimeLine(maskedLine);
     appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("[SSH %1] %2").arg(connName, maskSecrets(line)));
+           QStringLiteral("[SSH %1] %2").arg(connName, maskedLine));
 
-    QPlainTextEdit* view = m_connectionLogViews.value(connId, nullptr);
+    QPlainTextEdit* view = routeToGsa ? m_connectionGsaLogViews.value(connId, nullptr)
+                                      : m_connectionLogViews.value(connId, nullptr);
     if (!view) {
         return;
     }
-    // Format as a full log line so parseCompactLogParts can extract fields.
-    const QString fullLine = QStringLiteral("[%1] [NORMAL] [SSH %2] %3")
-                                 .arg(tsNowForLog(), connName, maskSecrets(line));
-    const CompactLogParts p = parseCompactLogParts(fullLine);
-    ConnCompactState& st = m_connCompactState[connId];
+    const CompactLogParts p = routeToGsa
+        ? parseGsaLogParts(maskedLine, connName)
+        : parseCompactLogParts(QStringLiteral("[%1] [NORMAL] [SSH %2] %3")
+                                   .arg(tsNowForLog(), connName, maskedLine));
+    ConnCompactState& st = routeToGsa ? m_connGsaCompactState[connId]
+                                      : m_connCompactState[connId];
     QStringList changed;
     if (!st.valid || p.date != st.date) {
         changed << p.date;
