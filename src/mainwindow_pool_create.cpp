@@ -202,7 +202,7 @@ bool isRootDevicePath(const QString& rawPath) {
         return true;
     }
     static const QList<QRegularExpression> rootPatterns = {
-        QRegularExpression(QStringLiteral(R"(^/dev/(sd[a-z]+|vd[a-z]+|xvd[a-z]+)$)")),
+        QRegularExpression(QStringLiteral(R"(^/dev/(sd[a-z]+|vd[a-z]+|xvd[a-z]+|vtbd\d+|vtdb\d+)$)")),
         QRegularExpression(QStringLiteral(R"(^/dev/nvme\d+n\d+$)")),
         QRegularExpression(QStringLiteral(R"(^/dev/mmcblk\d+$)")),
         QRegularExpression(QStringLiteral(R"(^/dev/disk\d+$)")),
@@ -273,6 +273,13 @@ QString deviceTreeParentPath(const QString& rawPath) {
     }
     {
         static const QRegularExpression rx(QStringLiteral(R"(^(/dev/(?:sd[a-z]+|vd[a-z]+|xvd[a-z]+))\d+$)"));
+        const QRegularExpressionMatch m = rx.match(path);
+        if (m.hasMatch()) {
+            return m.captured(1);
+        }
+    }
+    {
+        static const QRegularExpression rx(QStringLiteral(R"(^(/dev/(?:vtbd|vtdb)\d+)p\d+$)"));
         const QRegularExpressionMatch m = rx.match(path);
         if (m.hasMatch()) {
             return m.captured(1);
@@ -502,7 +509,9 @@ void MainWindow::createPoolForSelectedConnection() {
             "    done; "
             "  } | awk -F '\\t' '!seen[$4]++'; "
             "elif command -v lsblk >/dev/null 2>&1; then "
-            "  lsblk -fpPno NAME,SIZE,FSTYPE,MOUNTPOINTS,TYPE; "
+            "  (lsblk -fpPno NAME,SIZE,FSTYPE,MOUNTPOINTS,TYPE 2>/dev/null "
+            "   || lsblk -fpPno NAME,SIZE,FSTYPE,MOUNTPOINT,TYPE 2>/dev/null "
+            "   || lsblk -fpno NAME,SIZE,FSTYPE,MOUNTPOINT,TYPE 2>/dev/null); "
             "elif command -v diskutil >/dev/null 2>&1; then "
             "  diskutil list | awk '"
             "    /^\\/dev\\/disk[0-9]+/ { "
@@ -521,7 +530,7 @@ void MainWindow::createPoolForSelectedConnection() {
             "    }"
             "  '; "
             "else "
-            "  for d in /dev/sd?* /dev/vd?* /dev/xvd?* /dev/nvme*n* /dev/disk?s*; do [ -e \"$d\" ] && printf \"%s\\t-\\t-\\t%s\\t-\\tpart\\n\" \"$d\" \"$d\"; done; "
+            "  for d in /dev/sd?* /dev/vd?* /dev/xvd?* /dev/nvme*n* /dev/disk?s* /dev/ada* /dev/da* /dev/nvd* /dev/nvme*ns* /dev/vtbd* /dev/vtdb*; do [ -e \"$d\" ] && printf \"%s\\t-\\t-\\t%s\\t-\\tpart\\n\" \"$d\" \"$d\"; done; "
             "fi");
     }
     if (runRemote(devCmd, 25000, out)) {
@@ -544,6 +553,9 @@ void MainWindow::createPoolForSelectedConnection() {
                 size = parseKv(line, QStringLiteral("SIZE")).trimmed();
                 fsType = parseKv(line, QStringLiteral("FSTYPE")).trimmed();
                 mp = parseKv(line, QStringLiteral("MOUNTPOINTS")).trimmed();
+                if (mp.isEmpty()) {
+                    mp = parseKv(line, QStringLiteral("MOUNTPOINT")).trimmed();
+                }
                 type = parseKv(line, QStringLiteral("TYPE")).trimmed().toLower();
                 resolved = path;
                 if (type != QStringLiteral("disk") && type != QStringLiteral("part")) {
