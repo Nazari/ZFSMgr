@@ -747,6 +747,15 @@ bool MainWindow::editInlinePropertiesDialog(const QString& title,
         }
         return out;
     };
+    auto keepOrderedSubset = [](const QStringList& orderedCandidates, const QStringList& allowed) {
+        QStringList out;
+        for (const QString& candidate : orderedCandidates) {
+            if (allowed.contains(candidate, Qt::CaseInsensitive) && !out.contains(candidate, Qt::CaseInsensitive)) {
+                out.push_back(candidate);
+            }
+        }
+        return out;
+    };
     std::function<void()> refreshGroupTabs;
     bool refreshingGroupLists = false;
     std::function<void(QListWidget*, QListWidget*)> moveSelected;
@@ -874,9 +883,9 @@ bool MainWindow::editInlinePropertiesDialog(const QString& title,
         state.page = createDualListPage(
             &dlg,
             trk(QStringLiteral("t_group_available_props_001"),
-                QStringLiteral("Visibles no incluidas"),
-                QStringLiteral("Visible not included"),
-                QStringLiteral("未包含的可见属性")),
+                QStringLiteral("Todas"),
+                QStringLiteral("All"),
+                QStringLiteral("全部")),
             trk(QStringLiteral("t_group_visible_props_001"),
                 QStringLiteral("Propiedades del grupo"),
                 QStringLiteral("Group properties"),
@@ -912,7 +921,7 @@ bool MainWindow::editInlinePropertiesDialog(const QString& title,
         refreshVisibleLists();
         for (GroupTabState& tab : groupTabs) {
             QStringList shown = normalizeProps(listValues(tab.shown));
-            shown = normalizeProps(subtractOrdered(items, subtractOrdered(items, shown)));
+            shown = keepOrderedSubset(shown, items);
             setListValues(tab.shown, shown);
             setListValues(tab.available, subtractOrdered(items, shown));
         }

@@ -754,22 +754,27 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
         if (!parentNode) {
             return out;
         }
-        for (int i = 0; i < parentNode->childCount(); ++i) {
-            QTreeWidgetItem* row = parentNode->child(i);
-            if (!row || !row->data(0, kConnPropRowRole).toBool()
-                || row->data(0, kConnPropRowKindRole).toInt() != 1) {
-                continue;
+        std::function<void(QTreeWidgetItem*)> collect = [&](QTreeWidgetItem* node) {
+            if (!node) {
+                return;
             }
-            for (int col = 4; col < tree->columnCount(); ++col) {
-                QString key = row->data(col, kConnPropKeyRole).toString().trimmed();
-                if (key.isEmpty()) {
-                    key = row->text(col).trimmed();
-                }
-                if (!key.isEmpty()) {
-                    out.push_back(key);
+            if (node->data(0, kConnPropRowRole).toBool()
+                && node->data(0, kConnPropRowKindRole).toInt() == 1) {
+                for (int col = 4; col < tree->columnCount(); ++col) {
+                    QString key = node->data(col, kConnPropKeyRole).toString().trimmed();
+                    if (key.isEmpty()) {
+                        key = node->text(col).trimmed();
+                    }
+                    if (!key.isEmpty()) {
+                        out.push_back(key);
+                    }
                 }
             }
-        }
+            for (int i = 0; i < node->childCount(); ++i) {
+                collect(node->child(i));
+            }
+        };
+        collect(parentNode);
         return normalizeList(out);
     };
 
@@ -833,6 +838,14 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
         const auto vit = m_mainWindow->m_connContentPropValuesByObject.constFind(key);
         if (vit != m_mainWindow->m_connContentPropValuesByObject.cend()) {
             allProps = vit.value().keys();
+        } else {
+            const QVector<MainWindow::DatasetPropCacheRow> rows =
+                m_mainWindow->datasetPropertyRowsFromModelOrCache(connIdx, poolName, objectName);
+            for (const MainWindow::DatasetPropCacheRow& row : rows) {
+                if (!row.prop.trimmed().isEmpty()) {
+                    allProps.push_back(row.prop.trimmed());
+                }
+            }
         }
         allProps = normalizeList(allProps);
         currentVisible = displayedPropsFromNode(owner);
