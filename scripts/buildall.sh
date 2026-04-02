@@ -26,6 +26,7 @@ Descripción:
     mmela   (macOS)   — build-macos.sh --sign --sftpfc16
     mbp     (macOS)   — build-macos.sh --sign --sftpfc16
     fc16    (Linux)   — build-linux.sh --deb --appimage --sftpfc16
+    freebsd (FreeBSD) — build-freebsd.sh --pkg --sftpfc16 (linarese@192.168.1.13)
     surface (Windows) — build-windows.ps1 --inno --sftpfc16
 
   Los logs de cada host se guardan en buildall-logs/<timestamp>/.
@@ -93,6 +94,22 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# build en FreeBSD (192.168.1.13)
+# ---------------------------------------------------------------------------
+run_freebsd() {
+  local logfile="${LOG_DIR}/freebsd.log"
+  log "freebsd" "Iniciando build FreeBSD..."
+  ssh -o BatchMode=yes "linarese@192.168.1.13" sh -s << 'EOF' >> "${logfile}" 2>&1
+set -euo pipefail
+cd ~/work/ZFSMgr
+git pull
+./scripts/build-freebsd.sh --pkg --sftpfc16
+EOF
+  local rc=$?
+  [[ ${rc} -eq 0 ]] && log "freebsd" "Completado." || { log "freebsd" "FALLÓ (rc=${rc}) — ver ${logfile}"; return 1; }
+}
+
+# ---------------------------------------------------------------------------
 # build en Windows (surface)
 # ---------------------------------------------------------------------------
 run_windows() {
@@ -111,6 +128,7 @@ run_windows() {
 run_macos "mmela" & PID_MMELA=$!
 run_macos "mbp"   & PID_MBP=$!
 run_linux         & PID_FC16=$!
+run_freebsd       & PID_FREEBSD=$!
 run_windows       & PID_SURFACE=$!
 
 # ---------------------------------------------------------------------------
@@ -120,6 +138,7 @@ FAILED=0
 STATUS_MMELA="OK";   wait "${PID_MMELA}"   || { STATUS_MMELA="FALLÓ";   FAILED=1; }
 STATUS_MBP="OK";     wait "${PID_MBP}"     || { STATUS_MBP="FALLÓ";     FAILED=1; }
 STATUS_FC16="OK";    wait "${PID_FC16}"    || { STATUS_FC16="FALLÓ";    FAILED=1; }
+STATUS_FREEBSD="OK"; wait "${PID_FREEBSD}" || { STATUS_FREEBSD="FALLÓ"; FAILED=1; }
 STATUS_SURFACE="OK"; wait "${PID_SURFACE}" || { STATUS_SURFACE="FALLÓ"; FAILED=1; }
 
 echo ""
@@ -127,6 +146,7 @@ echo "=== Resumen de builds ==="
 printf "  %-10s %s\n" "mmela"   "${STATUS_MMELA}"
 printf "  %-10s %s\n" "mbp"     "${STATUS_MBP}"
 printf "  %-10s %s\n" "fc16"    "${STATUS_FC16}"
+printf "  %-10s %s\n" "freebsd" "${STATUS_FREEBSD}"
 printf "  %-10s %s\n" "surface" "${STATUS_SURFACE}"
 echo ""
 echo "Logs guardados en: ${LOG_DIR}/"
