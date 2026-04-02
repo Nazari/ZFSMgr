@@ -732,7 +732,7 @@ QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {
         return cmd;
     }
     if (!p.password.isEmpty()) {
-        return QStringLiteral("printf '%s\\n' %1 | sudo -S -p '' sh -lc %2")
+        return QStringLiteral("printf '%s\\n' %1 | sudo -S -p '' sh -c %2")
             .arg(shSingleQuote(p.password), shSingleQuote(cmd));
     }
     return QStringLiteral("sudo -n ") + cmd;
@@ -746,10 +746,10 @@ QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cm
         return cmd;
     }
     if (!p.password.isEmpty()) {
-        return QStringLiteral("{ printf '%s\\n' %1; cat; } | sudo -S -p '' sh -lc %2")
+        return QStringLiteral("{ printf '%s\\n' %1; cat; } | sudo -S -p '' sh -c %2")
             .arg(shSingleQuote(p.password), shSingleQuote(cmd));
     }
-    return QStringLiteral("sudo -n sh -lc %1").arg(shSingleQuote(cmd));
+    return QStringLiteral("sudo -n sh -c %1").arg(shSingleQuote(cmd));
 }
 
 QString buildSshPreviewCommandText(const ConnectionProfile& p, const QString& remoteCmd) {
