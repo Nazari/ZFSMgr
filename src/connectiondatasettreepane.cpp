@@ -61,6 +61,16 @@ bool ConnectionDatasetTreePane::eventFilter(QObject* watched, QEvent* event) {
     if (m_tree && watched == m_tree->viewport() && event) {
         if (event->type() == QEvent::MouseButtonPress) {
             auto* me = static_cast<QMouseEvent*>(event);
+            if (me && me->button() == Qt::LeftButton) {
+                const QPoint pos = me->position().toPoint();
+                const QModelIndex idx = m_tree->indexAt(pos);
+                if (idx.isValid() && idx.column() != 0) {
+                    QTreeWidgetItem* item = m_tree->itemAt(pos);
+                    if (!item || !m_tree->itemWidget(item, idx.column())) {
+                        return true;
+                    }
+                }
+            }
             if (me && me->button() == Qt::RightButton) {
                 m_contextMenuGestureActive = true;
                 const QPoint pos = me->position().toPoint();

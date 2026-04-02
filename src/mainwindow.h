@@ -519,6 +519,12 @@ private:
                                   DatasetTreeContext side,
                                   const DatasetTreeRenderOptions& options,
                                   bool allowRemoteLoadIfMissing = true);
+    void ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem* connRoot, int connIdx);
+    bool applyConnectionInlineFieldValue(int connIdx,
+                                         const QString& fieldKey,
+                                         const QString& rawValue,
+                                         QString* normalizedOut = nullptr,
+                                         QString* errorOut = nullptr);
     void attachDatasetTreeSnapshotCombos(QTreeWidget* tree, DatasetTreeContext side);
     void populateConnectionPoolsIntoTree(QTreeWidget* tree,
                                          int connIdx,

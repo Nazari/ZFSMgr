@@ -65,9 +65,65 @@ QString gsaSnapshotClass(const QString& snapshotName) {
     return trimmed.mid(firstDash + 1, secondDash - firstDash - 1).trimmed().toLower();
 }
 
+QStringList gsaUserPropsForScheduling() {
+    return {
+        QStringLiteral("org.fc16.gsa:activado"),
+        QStringLiteral("org.fc16.gsa:recursivo"),
+        QStringLiteral("org.fc16.gsa:horario"),
+        QStringLiteral("org.fc16.gsa:diario"),
+        QStringLiteral("org.fc16.gsa:semanal"),
+        QStringLiteral("org.fc16.gsa:mensual"),
+        QStringLiteral("org.fc16.gsa:anual"),
+        QStringLiteral("org.fc16.gsa:nivelar"),
+        QStringLiteral("org.fc16.gsa:destino"),
+    };
+}
+
+bool isGsaProp(const QString& prop) {
+    for (const QString& p : gsaUserPropsForScheduling()) {
+        if (p.compare(prop, Qt::CaseInsensitive) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+QString gsaDefaultValueForScheduling(const QString& prop) {
+    const QString p = prop.trimmed();
+    if (p.compare(QStringLiteral("org.fc16.gsa:destino"), Qt::CaseInsensitive) == 0) {
+        return QString();
+    }
+    if (p.compare(QStringLiteral("org.fc16.gsa:horario"), Qt::CaseInsensitive) == 0
+        || p.compare(QStringLiteral("org.fc16.gsa:diario"), Qt::CaseInsensitive) == 0
+        || p.compare(QStringLiteral("org.fc16.gsa:semanal"), Qt::CaseInsensitive) == 0
+        || p.compare(QStringLiteral("org.fc16.gsa:mensual"), Qt::CaseInsensitive) == 0
+        || p.compare(QStringLiteral("org.fc16.gsa:anual"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("0");
+    }
+    return QStringLiteral("off");
+}
+
+bool gsaValueOn(const QString& raw) {
+    const QString v = raw.trimmed().toLower();
+    return v == QStringLiteral("on")
+           || v == QStringLiteral("yes")
+           || v == QStringLiteral("true")
+           || v == QStringLiteral("1");
+}
+
+QString findCaseInsensitivePropKey(const QMap<QString, QString>& values, const QString& wanted) {
+    for (auto it = values.cbegin(); it != values.cend(); ++it) {
+        if (it.key().compare(wanted, Qt::CaseInsensitive) == 0) {
+            return it.key();
+        }
+    }
+    return QString();
+}
+
 bool isMainPropertiesNodeLabel(const QString& text) {
     const QString trimmed = text.trimmed();
-    return trimmed == QStringLiteral("Dataset properties")
+    return trimmed == QStringLiteral("Properties")
+           || trimmed == QStringLiteral("Dataset properties")
            || trimmed == QStringLiteral("Snapshot properties");
 }
 
@@ -478,16 +534,6 @@ MainWindowConnectionDatasetTreeDelegate::buildInlineVisibilityMenu(QMenu& menu,
         actions.showPoolInfo->setCheckable(true);
         actions.showPoolInfo->setChecked(m_mainWindow->showPoolInfoNodeForTree(tree));
     }
-    QMenu* inlineMenu = menu.addMenu(QStringLiteral("Mostrar en línea"));
-    actions.showInlineProps = inlineMenu->addAction(QStringLiteral("Mostrar propiedades en línea"));
-    actions.showInlineProps->setCheckable(true);
-    actions.showInlineProps->setChecked(m_mainWindow->showInlinePropertyNodesForTree(tree));
-    actions.showInlinePerms = inlineMenu->addAction(QStringLiteral("Mostrar Permisos en línea"));
-    actions.showInlinePerms->setCheckable(true);
-    actions.showInlinePerms->setChecked(m_mainWindow->showInlinePermissionsNodesForTree(tree));
-    actions.showInlineGsa = inlineMenu->addAction(QStringLiteral("Programar snapshots"));
-    actions.showInlineGsa->setCheckable(true);
-    actions.showInlineGsa->setChecked(m_mainWindow->showInlineGsaNodeForTree(tree));
     Q_UNUSED(includeAutoGsa);
     return actions;
 }
@@ -1120,6 +1166,9 @@ void MainWindowConnectionDatasetTreeDelegate::itemClicked(QTreeWidget* tree, QTr
     if (!m_mainWindow || !tree || !item) {
         return;
     }
+    if (m_contextMenuInProgress) {
+        return;
+    }
     if (item->data(0, kIsConnectionRootRole).toBool()) {
         m_mainWindow->updatePoolManagementBoxTitle();
         return;
@@ -1267,13 +1316,15 @@ void MainWindowConnectionDatasetTreeDelegate::selectionChanged(QTreeWidget* tree
     }
     if (isPoolContext) {
         if (sel && sel->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
-            sel->setExpanded(true);
+            if (!m_contextMenuInProgress) {
+                sel->setExpanded(true);
+            }
         }
         m_mainWindow->syncConnContentPoolColumnsFor(tree, token);
     } else {
         if (isLazyPermissionsNode) {
             m_mainWindow->populateDatasetPermissionsNode(tree, owner, false);
-            if (sel) {
+            if (sel && !m_contextMenuInProgress) {
                 sel->setExpanded(true);
             }
         } else {
@@ -1288,7 +1339,7 @@ void MainWindowConnectionDatasetTreeDelegate::selectionChanged(QTreeWidget* tree
                     return;
                 }
                 m_mainWindow->refreshConnContentPropertiesFor(safeTree);
-                if (isLazyPropsNode && selectedNode) {
+                if (!m_contextMenuInProgress && isLazyPropsNode && selectedNode) {
                     selectedNode->setExpanded(true);
                 }
                 m_mainWindow->syncConnContentPropertyColumnsFor(safeTree, token);
@@ -1342,6 +1393,7 @@ void MainWindowConnectionDatasetTreeDelegate::itemCollapsed(QTreeWidget* tree, Q
 
 void MainWindowConnectionDatasetTreeDelegate::beforeContextMenu(QTreeWidget* tree) {
     Q_UNUSED(tree);
+    m_contextMenuInProgress = true;
     if (m_mainWindow) {
         QElapsedTimer timer;
         timer.start();
@@ -1353,6 +1405,11 @@ void MainWindowConnectionDatasetTreeDelegate::beforeContextMenu(QTreeWidget* tre
                            QStringLiteral("busy entered"),
                            timer.elapsed());
     }
+}
+
+void MainWindowConnectionDatasetTreeDelegate::afterContextMenu(QTreeWidget* tree) {
+    Q_UNUSED(tree);
+    m_contextMenuInProgress = false;
 }
 
 bool MainWindowConnectionDatasetTreeDelegate::handleAutoSnapshotsMenu(QTreeWidget* tree,
@@ -1390,17 +1447,7 @@ bool MainWindowConnectionDatasetTreeDelegate::handleAutoSnapshotsMenu(QTreeWidge
                            timer.elapsed());
         return true;
     }
-    const QStringList gsaProps = {
-        QStringLiteral("org.fc16.gsa:activado"),
-        QStringLiteral("org.fc16.gsa:recursivo"),
-        QStringLiteral("org.fc16.gsa:horario"),
-        QStringLiteral("org.fc16.gsa:diario"),
-        QStringLiteral("org.fc16.gsa:semanal"),
-        QStringLiteral("org.fc16.gsa:mensual"),
-        QStringLiteral("org.fc16.gsa:anual"),
-        QStringLiteral("org.fc16.gsa:nivelar"),
-        QStringLiteral("org.fc16.gsa:destino"),
-    };
+    const QStringList gsaProps = gsaUserPropsForScheduling();
     QMenu autoMenu(m_mainWindow);
     QAction* aDeleteSchedule = autoMenu.addAction(QStringLiteral("Borrar programación"));
     m_mainWindow->endUiBusy();
@@ -1685,8 +1732,9 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
     QMenu permMenu(m_mainWindow);
     const QString kind = permNode->data(0, kConnPermissionsKindRole).toString();
     QAction* aRefreshPerms = permMenu.addAction(QStringLiteral("Refrescar permisos"));
-    QAction* aNewGrant = permMenu.addAction(QStringLiteral("Nueva delegación"));
-    QAction* aNewSet = permMenu.addAction(QStringLiteral("Nuevo set de permisos"));
+    QMenu* newMenu = permMenu.addMenu(QStringLiteral("Nuevo"));
+    QAction* aNewGrant = newMenu->addAction(QStringLiteral("Delegación"));
+    QAction* aNewSet = newMenu->addAction(QStringLiteral("Set de permisos"));
     QAction* aEditGrant = nullptr;
     QAction* aDeleteGrant = nullptr;
     QAction* aRenameSet = nullptr;
@@ -1981,6 +2029,11 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
 
     QMenu menu(m_mainWindow);
     const bool isConnectionRoot = item->data(0, kIsConnectionRootRole).toBool();
+    const bool isConnectionAuxChild =
+        item->parent()
+        && item->parent()->data(0, kIsConnectionRootRole).toBool()
+        && item->data(0, Qt::UserRole).toString().trimmed().isEmpty()
+        && !item->data(0, kIsPoolRootRole).toBool();
     const bool isPoolRoot = item->data(0, kIsPoolRootRole).toBool();
     const QString menuToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
     auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
@@ -1993,7 +2046,10 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     };
     const bool isPoolInfoContext = isInfoNodeOrInside(item);
 
-    if (isConnectionRoot) {
+    if (isConnectionRoot || isConnectionAuxChild) {
+        if (!isConnectionRoot && item->parent()) {
+            connIdx = item->parent()->data(0, kConnIdxRole).toInt();
+        }
         logContextMenuPerf(m_mainWindow,
                            QStringLiteral("general.redirect"),
                            QStringLiteral("connection root connIdx=%1").arg(connIdx),
@@ -2047,18 +2103,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         } else if (picked == inlineActions.showPoolInfo) {
             focusContextItemForInlineVisibility(tree, item);
             m_mainWindow->setShowPoolInfoNodeForTree(tree, inlineActions.showPoolInfo->isChecked());
-            applyInlineSectionVisibility(tree, menuToken);
-        } else if (picked == inlineActions.showInlineProps) {
-            focusContextItemForInlineVisibility(tree, item);
-            m_mainWindow->setShowInlinePropertyNodesForTree(tree, inlineActions.showInlineProps->isChecked());
-            applyInlineSectionVisibility(tree, menuToken);
-        } else if (picked == inlineActions.showInlinePerms) {
-            focusContextItemForInlineVisibility(tree, item);
-            m_mainWindow->setShowInlinePermissionsNodesForTree(tree, inlineActions.showInlinePerms->isChecked());
-            applyInlineSectionVisibility(tree, menuToken);
-        } else if (picked == inlineActions.showInlineGsa) {
-            focusContextItemForInlineVisibility(tree, item);
-            m_mainWindow->setShowInlineGsaNodeForTree(tree, inlineActions.showInlineGsa->isChecked());
             applyInlineSectionVisibility(tree, menuToken);
         }
         return;
@@ -2189,6 +2233,11 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         }
     }
     mSelectSnapshot->setEnabled(!m_mainWindow->actionsLocked() && !snapshotActions.isEmpty());
+    QAction* aScheduleSnapshots = menu.addAction(
+        m_mainWindow->trk(QStringLiteral("t_ctx_schedule_auto_snaps_001"),
+                          QStringLiteral("Programar snapshots automáticos"),
+                          QStringLiteral("Schedule automatic snapshots"),
+                          QStringLiteral("计划自动快照")));
     QAction* aRollback = menu.addAction(QStringLiteral("Rollback"));
     QAction* aNewHold = menu.addAction(m_mainWindow->trk(QStringLiteral("t_new_hold_title001"), QStringLiteral("Nuevo Hold")));
     QAction* aReleaseHold = menu.addAction(
@@ -2207,8 +2256,16 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     QAction* aToDir = menu.addAction(
         m_mainWindow->trk(QStringLiteral("t_to_dir_btn_001"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")));
     menu.addSeparator();
-    QAction* aSelectOrigin = menu.addAction(QStringLiteral("Seleccionar como origen"));
-    QAction* aSelectDestination = menu.addAction(QStringLiteral("Seleccionar como destino"));
+    QAction* aSelectOrigin = menu.addAction(
+        m_mainWindow->trk(QStringLiteral("t_ctx_select_as_origin_001"),
+                          QStringLiteral("Seleccionar como origen"),
+                          QStringLiteral("Select as source"),
+                          QStringLiteral("设为源")));
+    QAction* aSelectDestination = menu.addAction(
+        m_mainWindow->trk(QStringLiteral("t_ctx_select_as_dest_001"),
+                          QStringLiteral("Seleccionar como destino"),
+                          QStringLiteral("Select as destination"),
+                          QStringLiteral("设为目标")));
 
     const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
     auto selectionForMenuContext = [&]() -> SelectionSnapshot {
@@ -2232,6 +2289,11 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     mwSelCtx.snapshotName = ctx.snapshotName;
     const bool hasConnSel = ctx.valid && !ctx.datasetName.isEmpty();
     const bool hasConnSnap = hasConnSel && !ctx.snapshotName.isEmpty();
+    const bool menuOpenedOnDatasetNode =
+        !item->data(0, Qt::UserRole).toString().trimmed().isEmpty()
+        && !item->data(0, kConnPropRowRole).toBool()
+        && !item->data(0, kConnPropGroupNodeRole).toBool()
+        && !item->data(0, kConnPermissionsNodeRole).toBool();
     auto datasetPropFromModel = [this](const SelectionSnapshot& c, const QString& prop) -> QString {
         if (!c.valid || c.datasetName.isEmpty() || !c.snapshotName.isEmpty()) {
             return QString();
@@ -2245,7 +2307,54 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         }
         return QString();
     };
+    auto effectiveGsaValuesForDataset = [&](const QString& datasetName) -> QMap<QString, QString> {
+        QMap<QString, QString> values;
+        if (datasetName.trimmed().isEmpty() || !ctx.valid || ctx.connIdx < 0 || ctx.poolName.isEmpty()) {
+            return values;
+        }
+        const QVector<MainWindow::DatasetPropCacheRow> rows =
+            m_mainWindow->datasetPropertyRowsFromModelOrCache(ctx.connIdx, ctx.poolName, datasetName);
+        for (const MainWindow::DatasetPropCacheRow& row : rows) {
+            if (isGsaProp(row.prop)) {
+                values[row.prop] = row.value;
+            }
+        }
+        const MainWindow::DatasetPropsDraft draft =
+            m_mainWindow->propertyDraftForObject(QStringLiteral("conncontent"), token, datasetName);
+        if (draft.dirty) {
+            for (auto it = draft.valuesByProp.cbegin(); it != draft.valuesByProp.cend(); ++it) {
+                if (isGsaProp(it.key())) {
+                    const QString existingKey = findCaseInsensitivePropKey(values, it.key());
+                    values[existingKey.isEmpty() ? it.key() : existingKey] = it.value();
+                }
+            }
+            for (auto it = draft.inheritByProp.cbegin(); it != draft.inheritByProp.cend(); ++it) {
+                if (!it.value() || !isGsaProp(it.key())) {
+                    continue;
+                }
+                const QString existingKey = findCaseInsensitivePropKey(values, it.key());
+                values.remove(existingKey.isEmpty() ? it.key() : existingKey);
+            }
+        }
+        return values;
+    };
+    auto recursiveGsaAncestorForDataset = [&](const QString& datasetName) -> QString {
+        QString parent = datasetName.trimmed();
+        while (parent.contains(QLatin1Char('/'))) {
+            parent = parent.section(QLatin1Char('/'), 0, -2);
+            const QMap<QString, QString> values = effectiveGsaValuesForDataset(parent);
+            const QString activeKey = findCaseInsensitivePropKey(values, QStringLiteral("org.fc16.gsa:activado"));
+            const QString recursiveKey = findCaseInsensitivePropKey(values, QStringLiteral("org.fc16.gsa:recursivo"));
+            if (!activeKey.isEmpty() && !recursiveKey.isEmpty()
+                && gsaValueOn(values.value(activeKey))
+                && gsaValueOn(values.value(recursiveKey))) {
+                return parent;
+            }
+        }
+        return QString();
+    };
     const QString encryptionRoot = datasetPropFromModel(ctx, QStringLiteral("encryptionroot"));
+    const QString objectType = datasetPropFromModel(ctx, QStringLiteral("type")).toLower();
     const QString keyStatus = datasetPropFromModel(ctx, QStringLiteral("keystatus")).toLower();
     const QString keyLocation = datasetPropFromModel(ctx, QStringLiteral("keylocation")).toLower();
     const QString keyFormat = datasetPropFromModel(ctx, QStringLiteral("keyformat")).toLower();
@@ -2274,6 +2383,18 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         aToDir->setEnabled(!m_mainWindow->actionsLocked() && m_mainWindow->connDirectoryDatasetActionAllowed(mwSelCtx));
         aSelectOrigin->setEnabled(hasConnSel);
         aSelectDestination->setEnabled(hasConnSel);
+        bool scheduleEnabled = false;
+        if (!m_mainWindow->actionsLocked() && hasConnSel && !hasConnSnap
+            && menuOpenedOnDatasetNode
+            && objectType != QStringLiteral("volume")) {
+            const QMap<QString, QString> selfGsaValues = effectiveGsaValuesForDataset(ctx.datasetName);
+            const QString selfActiveKey = findCaseInsensitivePropKey(selfGsaValues, QStringLiteral("org.fc16.gsa:activado"));
+            const bool selfAlreadyActive =
+                !selfActiveKey.isEmpty() && gsaValueOn(selfGsaValues.value(selfActiveKey));
+            const bool ancestorAlreadyActive = !recursiveGsaAncestorForDataset(ctx.datasetName).isEmpty();
+            scheduleEnabled = !selfAlreadyActive && !ancestorAlreadyActive;
+        }
+        aScheduleSnapshots->setEnabled(scheduleEnabled);
 
         logContextMenuPerf(m_mainWindow,
                            QStringLiteral("general.exec"),
@@ -2390,22 +2511,21 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             manageInlinePropsVisualization(tree, item, false);
             return;
         }
-        if (picked == inlineActions.showInlineProps) {
-            focusContextItemForInlineVisibility(tree, item);
-            m_mainWindow->setShowInlinePropertyNodesForTree(tree, inlineActions.showInlineProps->isChecked());
-            applyInlineSectionVisibility(tree, menuToken);
-            return;
-        }
-        if (picked == inlineActions.showInlinePerms) {
-            focusContextItemForInlineVisibility(tree, item);
-            m_mainWindow->setShowInlinePermissionsNodesForTree(tree, inlineActions.showInlinePerms->isChecked());
-            applyInlineSectionVisibility(tree, menuToken);
-            return;
-        }
-        if (picked == inlineActions.showInlineGsa) {
-            focusContextItemForInlineVisibility(tree, item);
-            m_mainWindow->setShowInlineGsaNodeForTree(tree, inlineActions.showInlineGsa->isChecked());
-            applyInlineSectionVisibility(tree, menuToken);
+        if (picked == aScheduleSnapshots) {
+            const SelectionSnapshot actx = selectionForMenuContext();
+            if (!actx.valid || actx.datasetName.isEmpty() || !actx.snapshotName.isEmpty()) {
+                return;
+            }
+            for (const QString& prop : gsaUserPropsForScheduling()) {
+                const QString value = prop.compare(QStringLiteral("org.fc16.gsa:activado"), Qt::CaseInsensitive) == 0
+                                          ? QStringLiteral("on")
+                                          : gsaDefaultValueForScheduling(prop);
+                m_mainWindow->updateConnContentDraftInherit(token, actx.datasetName, prop, false);
+                m_mainWindow->updateConnContentDraftValue(token, actx.datasetName, prop, value);
+            }
+            m_mainWindow->m_propsDirty = true;
+            m_mainWindow->updateApplyPropsButtonState();
+            refreshAllTreesForTokenAndDataset(token, actx.datasetName);
             return;
         }
         if (picked == aNewHold) {

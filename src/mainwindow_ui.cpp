@@ -858,17 +858,13 @@ bool MainWindow::focusPendingChangeLine(const QString& line) {
 }
 
 bool MainWindow::showInlinePropertyNodesForTree(const QTreeWidget* tree) const {
-    if (tree == m_connContentTree && m_topDatasetPane) {
-        return m_topDatasetPane->visualOptions().showInlineProperties;
-    }
-    return m_showInlinePropertyNodesTop;
+    Q_UNUSED(tree);
+    return true;
 }
 
 bool MainWindow::showInlinePermissionsNodesForTree(const QTreeWidget* tree) const {
-    if (tree == m_connContentTree && m_topDatasetPane) {
-        return m_topDatasetPane->visualOptions().showInlinePermissions;
-    }
-    return m_showInlinePermissionsNodesTop;
+    Q_UNUSED(tree);
+    return true;
 }
 
 bool MainWindow::showPoolInfoNodeForTree(const QTreeWidget* tree) const {
@@ -879,40 +875,23 @@ bool MainWindow::showPoolInfoNodeForTree(const QTreeWidget* tree) const {
 }
 
 bool MainWindow::showInlineGsaNodeForTree(const QTreeWidget* tree) const {
-    if (tree == m_connContentTree && m_topDatasetPane) {
-        return m_topDatasetPane->visualOptions().showInlineGsa;
-    }
-    return m_showInlineGsaNodeTop;
+    Q_UNUSED(tree);
+    return true;
 }
 
 void MainWindow::setShowInlinePropertyNodesForTree(QTreeWidget* tree, bool visible) {
     Q_UNUSED(tree);
-    m_showInlinePropertyNodesTop = visible;
-    if (m_topDatasetPane) {
-        auto options = m_topDatasetPane->visualOptions();
-        options.showInlineProperties = visible;
-        m_topDatasetPane->setVisualOptions(options);
-    }
+    Q_UNUSED(visible);
 }
 
 void MainWindow::setShowInlinePermissionsNodesForTree(QTreeWidget* tree, bool visible) {
     Q_UNUSED(tree);
-    m_showInlinePermissionsNodesTop = visible;
-    if (m_topDatasetPane) {
-        auto options = m_topDatasetPane->visualOptions();
-        options.showInlinePermissions = visible;
-        m_topDatasetPane->setVisualOptions(options);
-    }
+    Q_UNUSED(visible);
 }
 
 void MainWindow::setShowInlineGsaNodeForTree(QTreeWidget* tree, bool visible) {
     Q_UNUSED(tree);
-    m_showInlineGsaNodeTop = visible;
-    if (m_topDatasetPane) {
-        auto options = m_topDatasetPane->visualOptions();
-        options.showInlineGsa = visible;
-        m_topDatasetPane->setVisualOptions(options);
-    }
+    Q_UNUSED(visible);
 }
 
 void MainWindow::setShowPoolInfoNodeForTree(const QTreeWidget* tree, bool visible) {

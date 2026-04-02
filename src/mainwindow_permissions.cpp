@@ -325,7 +325,7 @@ QString permissionNodeStableId(QTreeWidgetItem* node) {
         return QStringLiteral("%1|%2")
             .arg(kind, node->data(0, kConnPermissionsEntryNameRole).toString());
     }
-    return QStringLiteral("%1|%2").arg(kind, node->text(0));
+    return kind;
 }
 
 QString permissionPath(QTreeWidgetItem* root, QTreeWidgetItem* node) {
@@ -747,7 +747,7 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
         delete permissionsNode->takeChild(0);
     }
 
-    if (!showInlinePermissionsNodesForTree(tree) || isWindowsConnection(connIdx)) {
+    if (isWindowsConnection(connIdx)) {
         permissionsNode->setHidden(true);
         return;
     }
@@ -767,155 +767,157 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
     QVector<DatasetPermissionGrant> allGrants = entry.localGrants;
     allGrants += entry.descendantGrants;
     allGrants += entry.localDescendantGrants;
-    auto* grantsNode = ensurePermissionsSectionNode(
-        permissionsNode,
-        trk(QStringLiteral("t_perm_grants_root_001"),
-            QStringLiteral("Delegación"),
-            QStringLiteral("Delegation"),
-            QStringLiteral("委派")),
-        QStringLiteral("grants_root"),
-        allGrants.size(),
-        connIdx,
-        poolName);
-    for (const DatasetPermissionGrant& grant : allGrants) {
-        auto* targetNode = new QTreeWidgetItem(grantsNode);
-        QString who = QStringLiteral("Everyone");
-        if (grant.targetType == QStringLiteral("user")) {
-            who = QStringLiteral("Usuario %1").arg(grant.targetName);
-        } else if (grant.targetType == QStringLiteral("group")) {
-            who = QStringLiteral("Grupo %1").arg(grant.targetName);
-        }
-        targetNode->setText(0, QStringLiteral("%1 Ámbito %2").arg(who, grantScopeLabel(grant.scope)));
-        targetNode->setData(0, kConnPermissionsNodeRole, true);
-        targetNode->setData(0, kConnPermissionsKindRole, QStringLiteral("grant"));
-        targetNode->setData(0, kConnPermissionsScopeRole, grant.scope);
-        targetNode->setData(0, kConnPermissionsTargetTypeRole, grant.targetType);
-        targetNode->setData(0, kConnPermissionsTargetNameRole, grant.targetName);
-        targetNode->setData(0, kConnPermissionsPendingRole, grant.pending);
-        targetNode->setData(0, kConnIdxRole, connIdx);
-        targetNode->setData(0, kPoolNameRole, poolName);
-        targetNode->setExpanded(false);
-        for (int base = 0; base < allSetTokens.size(); base += propCols) {
-            auto* rowNames = new QTreeWidgetItem(targetNode);
-            rowNames->setData(0, kConnPropRowRole, true);
-            rowNames->setData(0, kConnPropRowKindRole, 1);
-            rowNames->setFlags(rowNames->flags() & ~Qt::ItemIsUserCheckable);
-            auto* rowValues = new QTreeWidgetItem(targetNode);
-            rowValues->setData(0, kConnPropRowRole, true);
-            rowValues->setData(0, kConnPropRowKindRole, 2);
-            rowValues->setFlags(rowValues->flags() & ~Qt::ItemIsUserCheckable);
-            rowValues->setText(0, QString());
-            rowValues->setSizeHint(0, QSize(0, 24));
-            for (int off = 0; off < propCols; ++off) {
-                const int idx = base + off;
-                if (idx >= allSetTokens.size()) {
-                    break;
-                }
-                const QString perm = allSetTokens.at(idx);
-                const int col = 4 + off;
-                rowNames->setData(col, kConnInlineCellUsedRole, true);
-                rowValues->setData(col, kConnInlineCellUsedRole, true);
-                rowNames->setBackground(col, QBrush(nameRowBg));
-                rowNames->setText(col, perm);
-                rowNames->setFont(col, inlineLabelFont);
-                rowNames->setTextAlignment(col, Qt::AlignCenter);
-                rowNames->setData(col, kConnPermissionsEntryNameRole, perm);
-                rowValues->setData(col, kConnPermissionsEntryNameRole, perm);
-                auto* boxHost = new InlinePermissionCheckHost(tree);
-                styleInlinePermissionCheckHost(boxHost, tree);
-                auto* layout = new QHBoxLayout(boxHost);
-                layout->setContentsMargins(1, 1, 1, 1);
-                layout->setAlignment(Qt::AlignCenter);
-                auto* cb = new QCheckBox(boxHost);
-                cb->setChecked(grant.permissions.contains(perm, Qt::CaseInsensitive));
-                cb->setFocusPolicy(Qt::NoFocus);
-                boxHost->setCheckbox(cb);
-                layout->addWidget(cb);
-                tree->setItemWidget(rowValues, col, boxHost);
-                QObject::connect(cb, &QCheckBox::toggled, tree,
-                                 [this, tree, connIdx, poolName, datasetName,
-                                  grantScope = grant.scope,
-                                  grantTargetType = grant.targetType,
-                                  grantTargetName = grant.targetName](bool) {
-                    auto collectCheckedTokens = [tree](QTreeWidgetItem* grantNode) {
-                        QStringList checkedTokens;
-                        if (!tree || !grantNode) {
-                            return checkedTokens;
-                        }
-                        for (int i = 0; i < grantNode->childCount(); ++i) {
-                            QTreeWidgetItem* row = grantNode->child(i);
-                            if (!row || row->data(0, kConnPropRowKindRole).toInt() != 2) {
-                                continue;
+    if (!allGrants.isEmpty()) {
+        auto* grantsNode = ensurePermissionsSectionNode(
+            permissionsNode,
+            trk(QStringLiteral("t_perm_grants_root_001"),
+                QStringLiteral("Delegación"),
+                QStringLiteral("Delegation"),
+                QStringLiteral("委派")),
+            QStringLiteral("grants_root"),
+            allGrants.size(),
+            connIdx,
+            poolName);
+        for (const DatasetPermissionGrant& grant : allGrants) {
+            auto* targetNode = new QTreeWidgetItem(grantsNode);
+            QString who = QStringLiteral("Everyone");
+            if (grant.targetType == QStringLiteral("user")) {
+                who = QStringLiteral("Usuario %1").arg(grant.targetName);
+            } else if (grant.targetType == QStringLiteral("group")) {
+                who = QStringLiteral("Grupo %1").arg(grant.targetName);
+            }
+            targetNode->setText(0, QStringLiteral("%1 Ámbito %2").arg(who, grantScopeLabel(grant.scope)));
+            targetNode->setData(0, kConnPermissionsNodeRole, true);
+            targetNode->setData(0, kConnPermissionsKindRole, QStringLiteral("grant"));
+            targetNode->setData(0, kConnPermissionsScopeRole, grant.scope);
+            targetNode->setData(0, kConnPermissionsTargetTypeRole, grant.targetType);
+            targetNode->setData(0, kConnPermissionsTargetNameRole, grant.targetName);
+            targetNode->setData(0, kConnPermissionsPendingRole, grant.pending);
+            targetNode->setData(0, kConnIdxRole, connIdx);
+            targetNode->setData(0, kPoolNameRole, poolName);
+            targetNode->setExpanded(false);
+            for (int base = 0; base < allSetTokens.size(); base += propCols) {
+                auto* rowNames = new QTreeWidgetItem(targetNode);
+                rowNames->setData(0, kConnPropRowRole, true);
+                rowNames->setData(0, kConnPropRowKindRole, 1);
+                rowNames->setFlags(rowNames->flags() & ~Qt::ItemIsUserCheckable);
+                auto* rowValues = new QTreeWidgetItem(targetNode);
+                rowValues->setData(0, kConnPropRowRole, true);
+                rowValues->setData(0, kConnPropRowKindRole, 2);
+                rowValues->setFlags(rowValues->flags() & ~Qt::ItemIsUserCheckable);
+                rowValues->setText(0, QString());
+                rowValues->setSizeHint(0, QSize(0, 24));
+                for (int off = 0; off < propCols; ++off) {
+                    const int idx = base + off;
+                    if (idx >= allSetTokens.size()) {
+                        break;
+                    }
+                    const QString perm = allSetTokens.at(idx);
+                    const int col = 4 + off;
+                    rowNames->setData(col, kConnInlineCellUsedRole, true);
+                    rowValues->setData(col, kConnInlineCellUsedRole, true);
+                    rowNames->setBackground(col, QBrush(nameRowBg));
+                    rowNames->setText(col, perm);
+                    rowNames->setFont(col, inlineLabelFont);
+                    rowNames->setTextAlignment(col, Qt::AlignCenter);
+                    rowNames->setData(col, kConnPermissionsEntryNameRole, perm);
+                    rowValues->setData(col, kConnPermissionsEntryNameRole, perm);
+                    auto* boxHost = new InlinePermissionCheckHost(tree);
+                    styleInlinePermissionCheckHost(boxHost, tree);
+                    auto* layout = new QHBoxLayout(boxHost);
+                    layout->setContentsMargins(1, 1, 1, 1);
+                    layout->setAlignment(Qt::AlignCenter);
+                    auto* cb = new QCheckBox(boxHost);
+                    cb->setChecked(grant.permissions.contains(perm, Qt::CaseInsensitive));
+                    cb->setFocusPolicy(Qt::NoFocus);
+                    boxHost->setCheckbox(cb);
+                    layout->addWidget(cb);
+                    tree->setItemWidget(rowValues, col, boxHost);
+                    QObject::connect(cb, &QCheckBox::toggled, tree,
+                                     [this, tree, connIdx, poolName, datasetName,
+                                      grantScope = grant.scope,
+                                      grantTargetType = grant.targetType,
+                                      grantTargetName = grant.targetName](bool) {
+                        auto collectCheckedTokens = [tree](QTreeWidgetItem* grantNode) {
+                            QStringList checkedTokens;
+                            if (!tree || !grantNode) {
+                                return checkedTokens;
                             }
-                            for (int col = 4; col < tree->columnCount(); ++col) {
-                                const QString token = row->data(col, kConnPermissionsEntryNameRole).toString().trimmed();
-                                if (token.isEmpty() || checkedTokens.contains(token, Qt::CaseInsensitive)) {
+                            for (int i = 0; i < grantNode->childCount(); ++i) {
+                                QTreeWidgetItem* row = grantNode->child(i);
+                                if (!row || row->data(0, kConnPropRowKindRole).toInt() != 2) {
                                     continue;
                                 }
-                                QWidget* host = tree->itemWidget(row, col);
-                                QCheckBox* rowCb = host ? host->findChild<QCheckBox*>() : nullptr;
-                                if (rowCb && rowCb->isChecked()) {
-                                    checkedTokens.push_back(token);
+                                for (int col = 4; col < tree->columnCount(); ++col) {
+                                    const QString token = row->data(col, kConnPermissionsEntryNameRole).toString().trimmed();
+                                    if (token.isEmpty() || checkedTokens.contains(token, Qt::CaseInsensitive)) {
+                                        continue;
+                                    }
+                                    QWidget* host = tree->itemWidget(row, col);
+                                    QCheckBox* rowCb = host ? host->findChild<QCheckBox*>() : nullptr;
+                                    if (rowCb && rowCb->isChecked()) {
+                                        checkedTokens.push_back(token);
+                                    }
                                 }
                             }
-                        }
-                        return checkedTokens;
-                    };
-                    auto findGrantNode = [&](QTreeWidgetItem* ownerNode) -> QTreeWidgetItem* {
-                        if (!ownerNode) {
-                            return nullptr;
-                        }
-                        std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* node) -> QTreeWidgetItem* {
-                            if (!node) {
+                            return checkedTokens;
+                        };
+                        auto findGrantNode = [&](QTreeWidgetItem* ownerNode) -> QTreeWidgetItem* {
+                            if (!ownerNode) {
                                 return nullptr;
                             }
-                            if (node->data(0, kConnPermissionsKindRole).toString() == QStringLiteral("grant")
-                                && node->data(0, kConnPermissionsScopeRole).toString() == grantScope
-                                && node->data(0, kConnPermissionsTargetTypeRole).toString() == grantTargetType
-                                && node->data(0, kConnPermissionsTargetNameRole).toString() == grantTargetName) {
-                                return node;
-                            }
-                            for (int i = 0; i < node->childCount(); ++i) {
-                                if (QTreeWidgetItem* found = rec(node->child(i))) {
-                                    return found;
+                            std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* node) -> QTreeWidgetItem* {
+                                if (!node) {
+                                    return nullptr;
+                                }
+                                if (node->data(0, kConnPermissionsKindRole).toString() == QStringLiteral("grant")
+                                    && node->data(0, kConnPermissionsScopeRole).toString() == grantScope
+                                    && node->data(0, kConnPermissionsTargetTypeRole).toString() == grantTargetType
+                                    && node->data(0, kConnPermissionsTargetNameRole).toString() == grantTargetName) {
+                                    return node;
+                                }
+                                for (int i = 0; i < node->childCount(); ++i) {
+                                    if (QTreeWidgetItem* found = rec(node->child(i))) {
+                                        return found;
+                                    }
+                                }
+                                return nullptr;
+                            };
+                            return rec(ownerNode);
+                        };
+                        QTreeWidgetItem* ownerNode = findDatasetItemByIdentity(tree, connIdx, poolName, datasetName);
+                        QTreeWidgetItem* grantTreeNode = findGrantNode(ownerNode);
+                        if (!ownerNode || !grantTreeNode) {
+                            return;
+                        }
+                        QStringList checkedTokens = collectCheckedTokens(grantTreeNode);
+                        normalizePermissionTokens(checkedTokens);
+                        const QString cacheKey = datasetPermissionsCacheKey(connIdx, poolName, datasetName);
+                        auto* cacheIt = datasetPermissionsEntryMutable(connIdx, poolName, datasetName);
+                        if (!cacheIt) {
+                            return;
+                        }
+                        auto updateGrantList = [&](QVector<DatasetPermissionGrant>& grants) -> bool {
+                            for (DatasetPermissionGrant& g : grants) {
+                                if (g.scope == grantScope
+                                    && g.targetType == grantTargetType
+                                    && g.targetName == grantTargetName) {
+                                    g.permissions = checkedTokens;
+                                    cacheIt->dirty = true;
+                                    return true;
                                 }
                             }
-                            return nullptr;
+                            return false;
                         };
-                        return rec(ownerNode);
-                    };
-                    QTreeWidgetItem* ownerNode = findDatasetItemByIdentity(tree, connIdx, poolName, datasetName);
-                    QTreeWidgetItem* grantTreeNode = findGrantNode(ownerNode);
-                    if (!ownerNode || !grantTreeNode) {
-                        return;
-                    }
-                    QStringList checkedTokens = collectCheckedTokens(grantTreeNode);
-                    normalizePermissionTokens(checkedTokens);
-                    const QString cacheKey = datasetPermissionsCacheKey(connIdx, poolName, datasetName);
-                    auto* cacheIt = datasetPermissionsEntryMutable(connIdx, poolName, datasetName);
-                    if (!cacheIt) {
-                        return;
-                    }
-                    auto updateGrantList = [&](QVector<DatasetPermissionGrant>& grants) -> bool {
-                        for (DatasetPermissionGrant& g : grants) {
-                            if (g.scope == grantScope
-                                && g.targetType == grantTargetType
-                                && g.targetName == grantTargetName) {
-                                g.permissions = checkedTokens;
-                                cacheIt->dirty = true;
-                                return true;
-                            }
+                        if (!updateGrantList(cacheIt->localGrants)
+                            && !updateGrantList(cacheIt->descendantGrants)
+                            && !updateGrantList(cacheIt->localDescendantGrants)) {
+                            return;
                         }
-                        return false;
-                    };
-                    if (!updateGrantList(cacheIt->localGrants)
-                        && !updateGrantList(cacheIt->descendantGrants)
-                        && !updateGrantList(cacheIt->localDescendantGrants)) {
-                        return;
-                    }
-                    mirrorDatasetPermissionsEntryToModel(connIdx, poolName, datasetName);
-                    updateApplyPropsButtonState();
-                });
+                        mirrorDatasetPermissionsEntryToModel(connIdx, poolName, datasetName);
+                        updateApplyPropsButtonState();
+                    });
+                }
             }
         }
     }
@@ -1038,66 +1040,67 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
         }
     }
 
-    auto* setsNode = ensurePermissionsSectionNode(
-        permissionsNode,
-        trk(QStringLiteral("t_perm_sets_root_001"),
-            QStringLiteral("Conjuntos"),
-            QStringLiteral("Sets"),
-            QStringLiteral("集合")),
-        QStringLiteral("sets_root"),
-        entry.permissionSets.size(),
-        connIdx,
-        poolName);
-    for (const DatasetPermissionSet& set : entry.permissionSets) {
-        auto* setNode = new QTreeWidgetItem(setsNode);
-        setNode->setText(0, set.name);
-        setNode->setData(0, kConnPermissionsNodeRole, true);
-        setNode->setData(0, kConnPermissionsKindRole, QStringLiteral("set"));
-        setNode->setData(0, kConnPermissionsEntryNameRole, set.name);
-        setNode->setData(0, kConnIdxRole, connIdx);
-        setNode->setData(0, kPoolNameRole, poolName);
-        setNode->setExpanded(false);
-        const QStringList setAssignableTokens =
-            availableDelegablePermissions(datasetName, connIdx, poolName, set.name);
-        for (int base = 0; base < setAssignableTokens.size(); base += propCols) {
-            auto* rowNames = new QTreeWidgetItem(setNode);
-            rowNames->setData(0, kConnPropRowRole, true);
-            rowNames->setData(0, kConnPropRowKindRole, 1);
-            rowNames->setFlags(rowNames->flags() & ~Qt::ItemIsUserCheckable);
-            auto* rowValues = new QTreeWidgetItem(setNode);
-            rowValues->setData(0, kConnPropRowRole, true);
-            rowValues->setData(0, kConnPropRowKindRole, 2);
-            rowValues->setFlags(rowValues->flags() & ~Qt::ItemIsUserCheckable);
-            rowValues->setText(0, QString());
-            rowValues->setSizeHint(0, QSize(0, 24));
-            for (int off = 0; off < propCols; ++off) {
-                const int idx = base + off;
-                if (idx >= setAssignableTokens.size()) {
-                    break;
-                }
-                const QString perm = setAssignableTokens.at(idx);
-                const int col = 4 + off;
-                rowNames->setData(col, kConnInlineCellUsedRole, true);
-                rowValues->setData(col, kConnInlineCellUsedRole, true);
-                rowNames->setBackground(col, QBrush(nameRowBg));
-                rowNames->setText(col, perm);
-                rowNames->setFont(col, inlineLabelFont);
-                rowNames->setTextAlignment(col, Qt::AlignCenter);
-                rowNames->setData(col, kConnPermissionsEntryNameRole, perm);
-                rowValues->setData(col, kConnPermissionsEntryNameRole, perm);
-                auto* boxHost = new InlinePermissionCheckHost(tree);
-                styleInlinePermissionCheckHost(boxHost, tree);
-                auto* layout = new QHBoxLayout(boxHost);
-                layout->setContentsMargins(1, 1, 1, 1);
-                layout->setAlignment(Qt::AlignCenter);
-                auto* cb = new QCheckBox(boxHost);
-                cb->setChecked(set.permissions.contains(perm, Qt::CaseInsensitive));
-                cb->setFocusPolicy(Qt::NoFocus);
-                boxHost->setCheckbox(cb);
-                layout->addWidget(cb);
-                tree->setItemWidget(rowValues, col, boxHost);
-                QObject::connect(cb, &QCheckBox::toggled, tree,
-                                 [this, tree, connIdx, poolName, datasetName, setName = set.name](bool) {
+    if (!entry.permissionSets.isEmpty()) {
+        auto* setsNode = ensurePermissionsSectionNode(
+            permissionsNode,
+            trk(QStringLiteral("t_perm_sets_root_001"),
+                QStringLiteral("Conjuntos"),
+                QStringLiteral("Sets"),
+                QStringLiteral("集合")),
+            QStringLiteral("sets_root"),
+            entry.permissionSets.size(),
+            connIdx,
+            poolName);
+        for (const DatasetPermissionSet& set : entry.permissionSets) {
+            auto* setNode = new QTreeWidgetItem(setsNode);
+            setNode->setText(0, set.name);
+            setNode->setData(0, kConnPermissionsNodeRole, true);
+            setNode->setData(0, kConnPermissionsKindRole, QStringLiteral("set"));
+            setNode->setData(0, kConnPermissionsEntryNameRole, set.name);
+            setNode->setData(0, kConnIdxRole, connIdx);
+            setNode->setData(0, kPoolNameRole, poolName);
+            setNode->setExpanded(false);
+            const QStringList setAssignableTokens =
+                availableDelegablePermissions(datasetName, connIdx, poolName, set.name);
+            for (int base = 0; base < setAssignableTokens.size(); base += propCols) {
+                auto* rowNames = new QTreeWidgetItem(setNode);
+                rowNames->setData(0, kConnPropRowRole, true);
+                rowNames->setData(0, kConnPropRowKindRole, 1);
+                rowNames->setFlags(rowNames->flags() & ~Qt::ItemIsUserCheckable);
+                auto* rowValues = new QTreeWidgetItem(setNode);
+                rowValues->setData(0, kConnPropRowRole, true);
+                rowValues->setData(0, kConnPropRowKindRole, 2);
+                rowValues->setFlags(rowValues->flags() & ~Qt::ItemIsUserCheckable);
+                rowValues->setText(0, QString());
+                rowValues->setSizeHint(0, QSize(0, 24));
+                for (int off = 0; off < propCols; ++off) {
+                    const int idx = base + off;
+                    if (idx >= setAssignableTokens.size()) {
+                        break;
+                    }
+                    const QString perm = setAssignableTokens.at(idx);
+                    const int col = 4 + off;
+                    rowNames->setData(col, kConnInlineCellUsedRole, true);
+                    rowValues->setData(col, kConnInlineCellUsedRole, true);
+                    rowNames->setBackground(col, QBrush(nameRowBg));
+                    rowNames->setText(col, perm);
+                    rowNames->setFont(col, inlineLabelFont);
+                    rowNames->setTextAlignment(col, Qt::AlignCenter);
+                    rowNames->setData(col, kConnPermissionsEntryNameRole, perm);
+                    rowValues->setData(col, kConnPermissionsEntryNameRole, perm);
+                    auto* boxHost = new InlinePermissionCheckHost(tree);
+                    styleInlinePermissionCheckHost(boxHost, tree);
+                    auto* layout = new QHBoxLayout(boxHost);
+                    layout->setContentsMargins(1, 1, 1, 1);
+                    layout->setAlignment(Qt::AlignCenter);
+                    auto* cb = new QCheckBox(boxHost);
+                    cb->setChecked(set.permissions.contains(perm, Qt::CaseInsensitive));
+                    cb->setFocusPolicy(Qt::NoFocus);
+                    boxHost->setCheckbox(cb);
+                    layout->addWidget(cb);
+                    tree->setItemWidget(rowValues, col, boxHost);
+                    QObject::connect(cb, &QCheckBox::toggled, tree,
+                                     [this, tree, connIdx, poolName, datasetName, setName = set.name](bool) {
                     auto stableId = [](QTreeWidgetItem* node) {
                         if (!node) {
                             return QString();
@@ -1242,7 +1245,8 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
                                     ownerExpanded ? QStringLiteral("1") : QStringLiteral("0")));
                     Q_UNUSED(ownerExpandedPaths);
                     updateApplyPropsButtonState();
-                });
+                    });
+                }
             }
         }
     }

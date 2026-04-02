@@ -975,8 +975,8 @@ void applySnapshotVisualStateConn(QTreeWidgetItem* item) {
         return;
     }
     const QString snap = item->data(1, Qt::UserRole).toString().trimmed();
-    item->setText(0, snap.isEmpty() ? datasetLeafNameConn(ds)
-                                    : QStringLiteral("%1@%2").arg(datasetLeafNameConn(ds), snap));
+    item->setText(0, snap.isEmpty() ? QStringLiteral("Dataset %1").arg(datasetLeafNameConn(ds))
+                                    : QStringLiteral("Dataset %1@%2").arg(datasetLeafNameConn(ds), snap));
     const bool hideChildren = !snap.isEmpty();
     for (int i = 0; i < item->childCount(); ++i) {
         QTreeWidgetItem* ch = item->child(i);
@@ -2823,12 +2823,19 @@ void MainWindow::populateConnectionPoolsIntoTree(QTreeWidget* tree,
         if (connIdx < m_states.size() && m_states[connIdx].gsaNeedsAttention) {
             connName += QStringLiteral(" (*)");
         }
-        connRoot->setText(0, connName);
+        const QString connPrefix =
+            trk(QStringLiteral("t_tree_connection_prefix_001"),
+                QStringLiteral("Conexión"),
+                QStringLiteral("Connection"),
+                QStringLiteral("连接"));
+        connRoot->setText(0, QStringLiteral("%1 %2").arg(connPrefix, connName));
         connRoot->setBackground(0, QBrush(connectionStateRowColor(connIdx)));
         connRoot->setToolTip(0, connectionStateTooltipHtml(connIdx));
         QFont f = connRoot->font(0);
+        f.setBold(true);
         f.setItalic(isConnectionDisconnected(connIdx));
         connRoot->setFont(0, f);
+        ensureConnectionRootAuxNodes(tree, connRoot, connIdx);
         connRoot->setExpanded(true);
         if (isConnectionDisconnected(connIdx)) {
             return;

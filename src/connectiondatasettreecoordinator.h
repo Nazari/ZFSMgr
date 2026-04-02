@@ -19,6 +19,7 @@ public:
     virtual void itemExpanded(QTreeWidget* tree, QTreeWidgetItem* item) = 0;
     virtual void itemCollapsed(QTreeWidget* tree, QTreeWidgetItem* item) = 0;
     virtual void beforeContextMenu(QTreeWidget* tree) = 0;
+    virtual void afterContextMenu(QTreeWidget* tree) = 0;
     virtual bool handleAutoSnapshotsMenu(QTreeWidget* tree, QTreeWidgetItem* item, const QPoint& pos) = 0;
     virtual bool handlePermissionsMenu(QTreeWidget* tree, bool isBottom, QTreeWidgetItem* item, const QPoint& pos) = 0;
     virtual void showGeneralMenu(QTreeWidget* tree, bool isBottom, QTreeWidgetItem* item, const QPoint& pos) = 0;

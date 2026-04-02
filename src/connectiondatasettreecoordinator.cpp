@@ -81,23 +81,29 @@ void ConnectionDatasetTreeCoordinator::wireController() {
         }
     };
     callbacks.contextMenuRequested = [this](const QPoint& pos, QTreeWidgetItem* rawItem) {
+        if (!m_delegate) {
+            return;
+        }
         if (!rawItem) {
+            m_delegate->afterContextMenu(tree());
             return;
         }
         QTreeWidgetItem* item = rawItem;
-        if (m_delegate && m_delegate->handleAutoSnapshotsMenu(tree(), item, pos)) {
+        if (m_delegate->handleAutoSnapshotsMenu(tree(), item, pos)) {
+            m_delegate->afterContextMenu(tree());
             return;
         }
         normalizeContextItem(item);
         if (!item) {
+            m_delegate->afterContextMenu(tree());
             return;
         }
-        if (m_delegate && m_delegate->handlePermissionsMenu(tree(), isBottom(), item, pos)) {
+        if (m_delegate->handlePermissionsMenu(tree(), isBottom(), item, pos)) {
+            m_delegate->afterContextMenu(tree());
             return;
         }
-        if (m_delegate) {
-            m_delegate->showGeneralMenu(tree(), isBottom(), item, pos);
-        }
+        m_delegate->showGeneralMenu(tree(), isBottom(), item, pos);
+        m_delegate->afterContextMenu(tree());
     };
     m_controller = new ConnectionDatasetTreeController(m_pane, callbacks, this);
 }

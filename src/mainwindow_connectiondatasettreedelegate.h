@@ -20,6 +20,7 @@ public:
     void itemExpanded(QTreeWidget* tree, QTreeWidgetItem* item) override;
     void itemCollapsed(QTreeWidget* tree, QTreeWidgetItem* item) override;
     void beforeContextMenu(QTreeWidget* tree) override;
+    void afterContextMenu(QTreeWidget* tree) override;
     bool handleAutoSnapshotsMenu(QTreeWidget* tree, QTreeWidgetItem* item, const QPoint& pos) override;
     bool handlePermissionsMenu(QTreeWidget* tree, bool isBottom, QTreeWidgetItem* item, const QPoint& pos) override;
     void showGeneralMenu(QTreeWidget* tree, bool isBottom, QTreeWidgetItem* item, const QPoint& pos) override;
@@ -100,4 +101,5 @@ private:
     void releaseSnapshotHold(QTreeWidget* tree, QTreeWidgetItem* rawItem);
 
     MainWindow* m_mainWindow{nullptr};
+    bool m_contextMenuInProgress{false};
 };
