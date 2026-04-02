@@ -743,7 +743,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 state.importedPools.push_back(PoolImported{p.name, poolName, QStringLiteral("Exportar")});
             }
         } else {
-            const QJsonDocument doc = QJsonDocument::fromJson(out.toUtf8());
+            const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(out).toUtf8());
             const QJsonObject pools = doc.object().value(QStringLiteral("pools")).toObject();
             for (const QString& poolName : pools.keys()) {
                 if (poolName.trimmed().isEmpty()) {
@@ -877,7 +877,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 }
                 QMap<QString, QMap<QString, QString>> propsByDataset;
                 {
-                    const QJsonDocument doc = QJsonDocument::fromJson(gout.toUtf8());
+                    const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(gout).toUtf8());
                     const QJsonObject datasets = doc.object().value(QStringLiteral("datasets")).toObject();
                     for (auto dsIt = datasets.constBegin(); dsIt != datasets.constEnd(); ++dsIt) {
                         const QString datasetName = dsIt.key();

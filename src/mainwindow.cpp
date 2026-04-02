@@ -736,7 +736,7 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
             rows.push_back(DatasetPropCacheRow{prop, val, source, ro});
         }
     } else {
-        const QJsonDocument doc = QJsonDocument::fromJson(out.toUtf8());
+        const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(out).toUtf8());
         const QJsonObject datasets = doc.object().value(QStringLiteral("datasets")).toObject();
         const QJsonObject dsObj = datasets.value(trimmedObject).toObject();
         const QJsonObject properties = dsObj.value(QStringLiteral("properties")).toObject();
@@ -865,7 +865,7 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
             dsInfo->runtime.loadedPropertyNames.insert(normalizedPropKey(prop));
         }
     } else {
-        const QJsonDocument doc = QJsonDocument::fromJson(out.toUtf8());
+        const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(out).toUtf8());
         const QJsonObject datasets = doc.object().value(QStringLiteral("datasets")).toObject();
         const QJsonObject dsObj = datasets.value(trimmedObject).toObject();
         const QJsonObject properties = dsObj.value(QStringLiteral("properties")).toObject();
@@ -1219,7 +1219,7 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
                             QStringList{parts[0].trimmed(), parts[1].trimmed(), parts[2].trimmed()});
                     }
                 } else {
-                    const QJsonDocument doc = QJsonDocument::fromJson(out.toUtf8());
+                    const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(out).toUtf8());
                     const QJsonObject pools = doc.object().value(QStringLiteral("pools")).toObject();
                     const QJsonObject poolObj = pools.value(trimmedPool).toObject();
                     const QJsonObject properties = poolObj.value(QStringLiteral("properties")).toObject();

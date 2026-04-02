@@ -111,7 +111,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         args << "/C" << wrapRemoteCommand(p, localCmd, windowsMode);
 #else
         program = QStringLiteral("sh");
-        args << "-lc" << localCmd;
+        args << "-c" << localCmd;
 #endif
         QElapsedTimer timer;
         timer.start();
@@ -910,7 +910,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
                 .arg(shSingleQuote(poolName)));
         jsonCmd = withSudo(p, jsonCmd);
         if (runSsh(p, jsonCmd, 35000, out, err, rc) && rc == 0) {
-            const QJsonDocument doc = QJsonDocument::fromJson(out.toUtf8());
+            const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(out).toUtf8());
             const QJsonObject datasets = doc.object().value(QStringLiteral("datasets")).toObject();
             if (!datasets.isEmpty()) {
                 loadedFromJson = true;
@@ -1067,7 +1067,7 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     QProcess proc;
     m_cancelActionRequested = false;
     m_activeLocalProcess = &proc;
-    proc.start(QStringLiteral("sh"), QStringList{QStringLiteral("-lc"), command});
+    proc.start(QStringLiteral("sh"), QStringList{QStringLiteral("-c"), command});
     if (!proc.waitForStarted(4000)) {
         appLog(QStringLiteral("NORMAL"),
                trk(QStringLiteral("t_no_se_pudo_874fae"),

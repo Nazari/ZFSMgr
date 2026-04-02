@@ -752,6 +752,11 @@ QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cm
     return QStringLiteral("sudo -n sh -c %1").arg(shSingleQuote(cmd));
 }
 
+QString stripToJson(const QString& output) {
+    const int idx = output.indexOf('{');
+    return idx >= 0 ? output.mid(idx) : output;
+}
+
 QString buildSshPreviewCommandText(const ConnectionProfile& p, const QString& remoteCmd) {
     QStringList parts;
     parts << QStringLiteral("ssh");

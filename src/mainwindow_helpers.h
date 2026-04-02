@@ -91,5 +91,7 @@ QString withUnixSearchPathCommand(const QString& cmd);
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd);
 QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cmd);
 QString buildSshPreviewCommandText(const ConnectionProfile& p, const QString& remoteCmd);
+// Strips any leading non-JSON text (e.g. MOTD banners) before the first '{'.
+QString stripToJson(const QString& output);
 
 } // namespace mwhelpers

@@ -3931,7 +3931,7 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
         }
         QMap<QString, QMap<QString, QString>> propsByDataset;
         if (!isWin) {
-            const QJsonDocument doc = QJsonDocument::fromJson(out.toUtf8());
+            const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(out).toUtf8());
             const QJsonObject datasets = doc.object().value(QStringLiteral("datasets")).toObject();
             for (auto dsIt = datasets.constBegin(); dsIt != datasets.constEnd(); ++dsIt) {
                 const QString datasetName = dsIt.key().trimmed();
