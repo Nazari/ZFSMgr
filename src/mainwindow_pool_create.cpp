@@ -2387,8 +2387,11 @@ void MainWindow::createPoolForSelectedConnection() {
             parts << extraEd->text().trimmed();
         }
         const QString createCmd = parts.join(' ');
-        QString cmd = createCmd;
         ConnectionProfile execProfile = p;
+        QString cmd = createCmd;
+        if (!isWindowsConnection(execProfile)) {
+            cmd = mwhelpers::withUnixSearchPathCommand(cmd);
+        }
         if (isLocalConnection(execProfile) && !isWindowsConnection(execProfile)) {
             execProfile.useSudo = true;
             if (!ensureLocalSudoCredentials(execProfile)) {
@@ -2403,28 +2406,28 @@ void MainWindow::createPoolForSelectedConnection() {
         if (!confirmActionExecution(QStringLiteral("Crear pool"), {preview})) {
             return;
         }
-        DatasetSelectionContext refreshCtx;
-        refreshCtx.valid = true;
-        refreshCtx.connIdx = idx;
-        refreshCtx.poolName = poolName;
-        const QString connLabel = execProfile.name.trimmed().isEmpty() ? execProfile.id.trimmed() : execProfile.name.trimmed();
         QString errorText;
-        if (!queuePendingShellAction(PendingShellActionDraft{
-                QStringLiteral("%1::%2").arg(connLabel, poolName),
-                QStringLiteral("Crear pool %1").arg(poolName),
-                sshExecFromLocal(execProfile, cmd),
-                120000,
-                false,
-                {},
-                refreshCtx,
-                PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
-            QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+        if (!executePoolCommand(idx,
+                                poolName,
+                                QStringLiteral("Create"),
+                                cmd,
+                                120000,
+                                &errorText,
+                                true,
+                                false)) {
+            QMessageBox::critical(
+                this,
+                trk(QStringLiteral("t_poolcrt_exec_err_t001"),
+                    QStringLiteral("Crear pool"),
+                    QStringLiteral("Create pool"),
+                    QStringLiteral("创建池")),
+                trk(QStringLiteral("t_poolcrt_exec_err_q001"),
+                    QStringLiteral("No se pudo crear el pool:\n%1"),
+                    QStringLiteral("Could not create pool:\n%1"),
+                    QStringLiteral("无法创建存储池：\n%1"))
+                    .arg(errorText));
             return;
         }
-        appLog(QStringLiteral("NORMAL"),
-               QStringLiteral("Cambio pendiente añadido: %1::%2  Crear pool %3")
-                   .arg(connLabel, poolName, poolName));
-        updateApplyPropsButtonState();
         dlg.accept();
     });
     if (dlg.layout()) {

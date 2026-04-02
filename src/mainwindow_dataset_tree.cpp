@@ -3618,7 +3618,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         }
         connRoot->setText(0, connectionRootTitle());
         connRoot->setBackground(0, QBrush(connectionRootColor()));
-        connRoot->setToolTip(0, connectionStateTooltipHtml(connIdx));
+        connRoot->setToolTip(0, QString());
         QFont connFont = connRoot->font(0);
         connFont.setBold(true);
         if (isConnectionDisconnected(connIdx)) {
@@ -4077,7 +4077,7 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
                         QStringLiteral("Connection"),
                         QStringLiteral("连接"));
                 connRoot->setText(0, QStringLiteral("%1 %2").arg(connPrefix, connName));
-                connRoot->setToolTip(0, connectionStateTooltipHtml(connIdx));
+                connRoot->setToolTip(0, QString());
                 ensureConnectionRootAuxNodes(tree, connRoot, connIdx);
             }
             updateConnectionDetailTitlesForCurrentSelection();

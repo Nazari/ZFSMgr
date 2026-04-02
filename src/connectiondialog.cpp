@@ -21,6 +21,9 @@
 #include <QFrame>
 #include <QRegularExpression>
 #include <QApplication>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
 
 namespace {
 QString sanitizePsrpDetail(QString raw) {
@@ -62,6 +65,11 @@ QString macosFlavorLabel(const QString& fullText, const QString& versionText) {
                               : QStringLiteral("macOS %1 %2").arg(codename, version);
 }
 
+QString encodedPowerShellCommand(const QString& script) {
+    const QByteArray utf16(reinterpret_cast<const char*>(script.utf16()), script.size() * 2);
+    return QString::fromLatin1(utf16.toBase64());
+}
+
 void setRequiredLabelState(QLabel* label, bool required) {
     if (!label) {
         return;
@@ -82,6 +90,27 @@ void bindRequiredLineEditLabel(QLineEdit* edit, QLabel* label) {
         refresh();
     });
     refresh();
+}
+
+QString tsNowForLog() {
+    return QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+}
+
+void appendConnectionDialogTrace(const QString& level, const QString& msg) {
+    const QString configRoot = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+    if (configRoot.isEmpty()) {
+        return;
+    }
+    const QString cfgDir = configRoot + QStringLiteral("/ZFSMgr");
+    QDir().mkpath(cfgDir);
+    QFile f(cfgDir + QStringLiteral("/application.log"));
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        return;
+    }
+    const QString line = QStringLiteral("[%1] [%2] [ConnectionDialog] %3\n")
+                             .arg(tsNowForLog(), level, msg);
+    f.write(line.toUtf8());
+    f.close();
 }
 } // namespace
 
@@ -557,6 +586,17 @@ bool ConnectionDialog::runSshProbe(const ConnectionProfile& p,
     args << QStringLiteral("%1@%2").arg(p.username, p.host);
     args << remoteCmd;
 
+    appendConnectionDialogTrace(
+        QStringLiteral("DEBUG"),
+        QStringLiteral("SSH probe start: %1@%2:%3 cmd=\"%4\" timeoutMs=%5 auth=%6 key=%7")
+            .arg(p.username,
+                 p.host,
+                 QString::number(p.port),
+                 oneLine(remoteCmd),
+                 QString::number(timeoutMs),
+                 hasPassword ? QStringLiteral("password/key") : QStringLiteral("key/agent"),
+                 p.keyPath.isEmpty() ? QStringLiteral("no") : QStringLiteral("yes")));
+
     QProcess proc;
     proc.start(program, args);
     if (!proc.waitForStarted(3000)) {
@@ -564,6 +604,9 @@ bool ConnectionDialog::runSshProbe(const ConnectionProfile& p,
                   QStringLiteral("No se pudo iniciar %1"),
                   QStringLiteral("Could not start %1"),
                   QStringLiteral("无法启动 %1")).arg(program);
+        appendConnectionDialogTrace(QStringLiteral("WARN"),
+                                    QStringLiteral("SSH probe failed to start: program=%1 detail=%2")
+                                        .arg(program, oneLine(err)));
         return false;
     }
     if (!proc.waitForFinished(timeoutMs)) {
@@ -573,11 +616,25 @@ bool ConnectionDialog::runSshProbe(const ConnectionProfile& p,
                   QStringLiteral("Timeout de conexión SSH"),
                   QStringLiteral("SSH connection timeout"),
                   QStringLiteral("SSH 连接超时"));
+        appendConnectionDialogTrace(QStringLiteral("WARN"),
+                                    QStringLiteral("SSH probe timeout: %1@%2:%3 cmd=\"%4\"")
+                                        .arg(p.username,
+                                             p.host,
+                                             QString::number(p.port),
+                                             oneLine(remoteCmd)));
         return false;
     }
     out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
     err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
-    return proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0;
+    const bool ok = proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0;
+    appendConnectionDialogTrace(
+        ok ? QStringLiteral("DEBUG") : QStringLiteral("WARN"),
+        QStringLiteral("SSH probe finished rc=%1 ok=%2 stdout=\"%3\" stderr=\"%4\"")
+            .arg(QString::number(proc.exitCode()),
+                 ok ? QStringLiteral("true") : QStringLiteral("false"),
+                 oneLine(out),
+                 oneLine(err)));
+    return ok;
 }
 
 bool ConnectionDialog::detectSshPlatform(const ConnectionProfile& p,
@@ -642,14 +699,50 @@ bool ConnectionDialog::detectSshPlatform(const ConnectionProfile& p,
         }
     }
 
-    const QString winCmd = QStringLiteral(
-        "powershell -NoProfile -NonInteractive -Command "
-        "\"$cv=Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'; "
+    const QString winVerCmd = QStringLiteral("cmd.exe /c ver");
+    const bool winVerOk = runSshProbe(p, winVerCmd, 12000, out, err)
+                          || runSshProbe(p, QStringLiteral("ver"), 12000, out, err);
+    if (winVerOk) {
+        osTypeOut = QStringLiteral("Windows");
+        flavorOut = oneLine(out);
+        if (flavorOut.isEmpty()) {
+            flavorOut = QStringLiteral("Windows");
+        }
+        detailOut = flavorOut;
+
+        // Optional refinement via PowerShell (best-effort only).
+        QString psOut;
+        QString psErr;
+        const QString winScript = QStringLiteral(
+            "$cv=Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'; "
+            "$os=Get-CimInstance Win32_OperatingSystem; "
+            "$name=$cv.ProductName; $ver=$cv.DisplayVersion; "
+            "if([string]::IsNullOrWhiteSpace($ver)){$ver=$cv.ReleaseId}; "
+            "if([string]::IsNullOrWhiteSpace($ver)){$ver=$os.Version}; "
+            "Write-Output (($name + ' ' + $ver).Trim())");
+        const QString winCmd = QStringLiteral(
+            "powershell -NoProfile -NonInteractive -EncodedCommand %1")
+                                   .arg(encodedPowerShellCommand(winScript));
+        if (runSshProbe(p, winCmd, 12000, psOut, psErr)) {
+            const QString refined = oneLine(psOut);
+            if (!refined.isEmpty()) {
+                flavorOut = refined;
+                detailOut = flavorOut;
+            }
+        }
+        return true;
+    }
+
+    const QString winScript = QStringLiteral(
+        "$cv=Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'; "
         "$os=Get-CimInstance Win32_OperatingSystem; "
         "$name=$cv.ProductName; $ver=$cv.DisplayVersion; "
         "if([string]::IsNullOrWhiteSpace($ver)){$ver=$cv.ReleaseId}; "
         "if([string]::IsNullOrWhiteSpace($ver)){$ver=$os.Version}; "
-        "Write-Output (($name + ' ' + $ver).Trim())\"");
+        "Write-Output (($name + ' ' + $ver).Trim())");
+    const QString winCmd = QStringLiteral(
+        "powershell -NoProfile -NonInteractive -EncodedCommand %1")
+                               .arg(encodedPowerShellCommand(winScript));
     if (runSshProbe(p, winCmd, 12000, out, err)) {
         osTypeOut = QStringLiteral("Windows");
         flavorOut = oneLine(out);
@@ -666,6 +759,9 @@ bool ConnectionDialog::detectSshPlatform(const ConnectionProfile& p,
 
 bool ConnectionDialog::testPsrpConnection(const ConnectionProfile& p, QString& detail) const {
     detail.clear();
+    appendConnectionDialogTrace(QStringLiteral("INFO"),
+                                QStringLiteral("PSRP test start: %1@%2:%3")
+                                    .arg(p.username, p.host, QString::number(p.port > 0 ? p.port : 5986)));
     QString program = QStandardPaths::findExecutable(QStringLiteral("pwsh"));
     if (program.isEmpty()) {
         program = QStandardPaths::findExecutable(QStringLiteral("powershell"));
@@ -675,6 +771,8 @@ bool ConnectionDialog::testPsrpConnection(const ConnectionProfile& p, QString& d
                      QStringLiteral("No se encontró pwsh/powershell para validar PSRP."),
                      QStringLiteral("pwsh/powershell not found to validate PSRP."),
                      QStringLiteral("未找到 pwsh/powershell，无法验证 PSRP。"));
+        appendConnectionDialogTrace(QStringLiteral("WARN"),
+                                    QStringLiteral("PSRP test failed: no pwsh/powershell executable"));
         return false;
     }
 
@@ -716,6 +814,9 @@ bool ConnectionDialog::testPsrpConnection(const ConnectionProfile& p, QString& d
                      QStringLiteral("No se pudo iniciar %1"),
                      QStringLiteral("Could not start %1"),
                      QStringLiteral("无法启动 %1")).arg(program);
+        appendConnectionDialogTrace(QStringLiteral("WARN"),
+                                    QStringLiteral("PSRP test failed to start: program=%1 detail=%2")
+                                        .arg(program, oneLine(detail)));
         return false;
     }
     if (!proc.waitForFinished(15000)) {
@@ -725,6 +826,9 @@ bool ConnectionDialog::testPsrpConnection(const ConnectionProfile& p, QString& d
                      QStringLiteral("Timeout de conexión PSRP"),
                      QStringLiteral("PSRP connection timeout"),
                      QStringLiteral("PSRP 连接超时"));
+        appendConnectionDialogTrace(QStringLiteral("WARN"),
+                                    QStringLiteral("PSRP test timeout: %1@%2:%3")
+                                        .arg(p.username, p.host, QString::number(port)));
         return false;
     }
 
@@ -734,6 +838,12 @@ bool ConnectionDialog::testPsrpConnection(const ConnectionProfile& p, QString& d
     const QString merged = (out + QStringLiteral("\n") + err).trimmed();
     if (rc == 0 && !out.isEmpty()) {
         detail = out.section('\n', 0, 0).trimmed();
+        appendConnectionDialogTrace(QStringLiteral("INFO"),
+                                    QStringLiteral("PSRP test ok: %1@%2:%3 detail=\"%4\"")
+                                        .arg(p.username,
+                                             p.host,
+                                             QString::number(port),
+                                             oneLine(detail)));
         return true;
     }
     if (merged.contains(QStringLiteral("no supported wsman client library"), Qt::CaseInsensitive)) {
@@ -741,6 +851,8 @@ bool ConnectionDialog::testPsrpConnection(const ConnectionProfile& p, QString& d
                      QStringLiteral("PSRP no disponible: falta cliente WSMan en este sistema.\nInstale PSWSMan para PowerShell (ejemplo: Install-Module PSWSMan; Install-WSMan)."),
                      QStringLiteral("PSRP unavailable: WSMan client library is missing on this system.\nInstall PSWSMan for PowerShell (e.g. Install-Module PSWSMan; Install-WSMan)."),
                      QStringLiteral("PSRP 不可用：此系统缺少 WSMan 客户端库。\n请安装 PowerShell 的 PSWSMan（例如：Install-Module PSWSMan; Install-WSMan）。"));
+        appendConnectionDialogTrace(QStringLiteral("WARN"),
+                                    QStringLiteral("PSRP test failed: missing WSMan client library"));
         return false;
     }
     detail = err.isEmpty()
@@ -749,12 +861,25 @@ bool ConnectionDialog::testPsrpConnection(const ConnectionProfile& p, QString& d
                        QStringLiteral("PSRP error (exit %1)"),
                        QStringLiteral("PSRP 错误（退出码 %1）")).arg(rc)
                  : err;
+    appendConnectionDialogTrace(QStringLiteral("WARN"),
+                                QStringLiteral("PSRP test failed rc=%1 merged=\"%2\"")
+                                    .arg(QString::number(rc), oneLine(merged)));
     return false;
 }
 
 void ConnectionDialog::testConnection() {
     const ConnectionProfile p = profile();
+    appendConnectionDialogTrace(
+        QStringLiteral("INFO"),
+        QStringLiteral("Test connection clicked: name=\"%1\" mode=%2 host=%3 port=%4 user=%5")
+            .arg(p.name,
+                 p.connType.isEmpty() ? QStringLiteral("SSH") : p.connType,
+                 p.host,
+                 QString::number(p.port),
+                 p.username));
     if (p.host.isEmpty() || p.username.isEmpty()) {
+        appendConnectionDialogTrace(QStringLiteral("WARN"),
+                                    QStringLiteral("Test connection blocked: missing host/user"));
         QMessageBox::warning(this,
                              QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_complete_a_77b969"),
@@ -764,6 +889,9 @@ void ConnectionDialog::testConnection() {
         return;
     }
     if (p.port <= 0) {
+        appendConnectionDialogTrace(QStringLiteral("WARN"),
+                                    QStringLiteral("Test connection blocked: invalid port=%1")
+                                        .arg(QString::number(p.port)));
         QMessageBox::warning(this,
                              QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_puerto_inv_1bda91"),
@@ -776,6 +904,8 @@ void ConnectionDialog::testConnection() {
     const bool psrpMode = (p.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) == 0);
     if (psrpMode) {
         if (p.password.trimmed().isEmpty()) {
+            appendConnectionDialogTrace(QStringLiteral("WARN"),
+                                        QStringLiteral("PSRP test blocked: missing password"));
             QMessageBox::warning(this,
                                  QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_psrp_pwd_req001"),
@@ -786,6 +916,9 @@ void ConnectionDialog::testConnection() {
         }
         QString psrpDetail;
         if (testPsrpConnection(p, psrpDetail)) {
+            appendConnectionDialogTrace(QStringLiteral("INFO"),
+                                        QStringLiteral("PSRP test success: %1@%2:%3")
+                                            .arg(p.username, p.host, QString::number(p.port)));
             QMessageBox::information(this,
                                      QStringLiteral("ZFSMgr"),
                                      trk(QStringLiteral("t_psrp_ok_msg001"),
@@ -798,6 +931,9 @@ void ConnectionDialog::testConnection() {
                                          .arg(psrpDetail));
             return;
         }
+        appendConnectionDialogTrace(QStringLiteral("WARN"),
+                                    QStringLiteral("PSRP test failed: %1")
+                                        .arg(oneLine(psrpDetail)));
         QMessageBox::critical(this,
                               QStringLiteral("ZFSMgr"),
                               trk(QStringLiteral("t_psrp_failmsg001"),
@@ -809,13 +945,22 @@ void ConnectionDialog::testConnection() {
 
     QString detail;
     if (testSshConnection(p, detail)) {
+        appendConnectionDialogTrace(QStringLiteral("INFO"),
+                                    QStringLiteral("SSH test success: %1@%2:%3")
+                                        .arg(p.username, p.host, QString::number(p.port)));
         QString osType;
         QString flavor;
         QString osDetail;
         if (detectSshPlatform(p, osType, flavor, osDetail)) {
+            appendConnectionDialogTrace(QStringLiteral("DEBUG"),
+                                        QStringLiteral("SSH platform detected: osType=%1 flavor=\"%2\"")
+                                            .arg(osType, oneLine(flavor)));
             m_detectedOsType = osType;
             m_detectedOsFlavor = flavor;
         } else {
+            appendConnectionDialogTrace(QStringLiteral("WARN"),
+                                        QStringLiteral("SSH platform detection failed: %1")
+                                            .arg(oneLine(osDetail)));
             m_detectedOsType.clear();
             m_detectedOsFlavor.clear();
         }
@@ -841,7 +986,13 @@ void ConnectionDialog::testConnection() {
     }
     if (!p.password.trimmed().isEmpty() && mwhelpers::findLocalExecutable(QStringLiteral("sshpass")).isEmpty()) {
         detail += QStringLiteral("\n\nNota: para autenticación por password sin prompt interactivo, instale sshpass.");
+        appendConnectionDialogTrace(
+            QStringLiteral("INFO"),
+            QStringLiteral("SSH test warning: password provided but sshpass executable not found"));
     }
+    appendConnectionDialogTrace(QStringLiteral("WARN"),
+                                QStringLiteral("SSH test failed: %1")
+                                    .arg(oneLine(detail)));
     QMessageBox::critical(this,
                           QStringLiteral("ZFSMgr"),
                           trk(QStringLiteral("t_fallo_en_p_f63bd9"),
