@@ -131,6 +131,16 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
     buildUi();
     if (!zfsmgrTestModeEnabled()) {
         loadConnections();
+        for (const ConnectionProfile& p : std::as_const(m_profiles)) {
+            if (!isLocalConnection(p) || p.username.trimmed().isEmpty() || p.password.isEmpty()) {
+                continue;
+            }
+            m_localSudoUsername = p.username.trimmed();
+            m_localSudoPassword = p.password;
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("Credenciales sudo locales inyectadas en memoria al arrancar (connLocal)"));
+            break;
+        }
         ensureStartupLocalSudoConnection();
         QTimer::singleShot(0, this, [this]() {
             refreshAllConnections();

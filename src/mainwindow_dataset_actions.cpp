@@ -234,7 +234,19 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
         localCfg.id = QStringLiteral("local");
         localCfg.name = QStringLiteral("Local");
         localCfg.connType = QStringLiteral("LOCAL");
-        localCfg.osType = profile.osType.isEmpty() ? QStringLiteral("Linux") : profile.osType;
+        if (!profile.osType.isEmpty()) {
+            localCfg.osType = profile.osType;
+        } else {
+#ifdef Q_OS_WIN
+            localCfg.osType = QStringLiteral("Windows");
+#elif defined(Q_OS_MACOS)
+            localCfg.osType = QStringLiteral("macOS");
+#elif defined(Q_OS_FREEBSD)
+            localCfg.osType = QStringLiteral("FreeBSD");
+#else
+            localCfg.osType = QStringLiteral("Linux");
+#endif
+        }
         localCfg.host = QStringLiteral("localhost");
         localCfg.port = 0;
         localCfg.useSudo = true;

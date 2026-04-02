@@ -291,6 +291,8 @@ int main(int argc, char* argv[]) {
             local.osType = QStringLiteral("Windows");
 #elif defined(Q_OS_MACOS)
             local.osType = QStringLiteral("macOS");
+#elif defined(Q_OS_FREEBSD)
+            local.osType = QStringLiteral("FreeBSD");
 #else
             local.osType = QStringLiteral("Linux");
 #endif
