@@ -66,6 +66,7 @@ QMap<QString, QStringList> duplicateMountpoints(const QMap<QString, QString>& da
 QVector<MountpointConflict> externalMountpointConflicts(const QMap<QString, QString>& targetDatasetMountpoints,
                                                         const QMap<QString, QStringList>& mountedByMountpoint);
 QVector<QPair<QString, QString>> parseZfsMountOutput(const QString& text);
+QVector<QPair<QString, QString>> parseZfsMountJsonOutput(const QString& text);
 QString buildHasMountedChildrenCommand(bool isWindows, const QString& datasetName);
 QString buildRecursiveUmountCommand(bool isWindows, const QString& datasetName);
 QString buildSingleUmountCommand(bool isWindows, const QString& datasetName);

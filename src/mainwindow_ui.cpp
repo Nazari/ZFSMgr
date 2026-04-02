@@ -1031,21 +1031,7 @@ void MainWindow::buildUi() {
         openConnectivityMatrixDialog();
     });
 
-    QAction* confirmAct = appMenu->addAction(
-        trk(QStringLiteral("t_show_confirm_001"),
-            QStringLiteral("Mostrar confirmación antes de ejecutar acciones"),
-            QStringLiteral("Show confirmation before executing actions"),
-            QStringLiteral("执行操作前显示确认")));
-    m_confirmActionsMenuAction = confirmAct;
-    confirmAct->setCheckable(true);
-    confirmAct->setChecked(m_actionConfirmEnabled);
-    connect(confirmAct, &QAction::toggled, this, [this](bool checked) {
-        m_actionConfirmEnabled = checked;
-        saveUiSettings();
-        appLog(QStringLiteral("INFO"),
-               QStringLiteral("Confirmación de acciones: %1").arg(checked ? QStringLiteral("on")
-                                                                          : QStringLiteral("off")));
-    });
+    m_confirmActionsMenuAction = nullptr;
 
     auto applyPropColumnsSetting = [this](int cols) {
         int bounded = qBound(4, cols, 16);
@@ -1083,129 +1069,6 @@ void MainWindow::buildUi() {
         };
         refreshOneConnContentTree(m_connContentTree);
     };
-
-    QMenu* logsMenu = appMenu->addMenu(
-        trk(QStringLiteral("t_logs_menu_001"),
-            QStringLiteral("Logs"),
-            QStringLiteral("Logs"),
-            QStringLiteral("日志")));
-    QMenu* logLevelMenu = logsMenu->addMenu(
-        trk(QStringLiteral("t_log_level_001"),
-            QStringLiteral("Nivel de log"),
-            QStringLiteral("Log level"),
-            QStringLiteral("日志级别")));
-    auto* logLevelGroup = new QActionGroup(this);
-    logLevelGroup->setExclusive(true);
-    for (const QString& lv : {QStringLiteral("normal"), QStringLiteral("info"), QStringLiteral("debug")}) {
-        QAction* act = logLevelMenu->addAction(lv);
-        act->setCheckable(true);
-        act->setData(lv);
-        if (lv == m_logLevelSetting) {
-            act->setChecked(true);
-        }
-        logLevelGroup->addAction(act);
-    }
-    connect(logLevelGroup, &QActionGroup::triggered, this, [this](QAction* act) {
-        if (!act) {
-            return;
-        }
-        m_logLevelSetting = act->data().toString().trimmed().toLower();
-        if (m_logLevelSetting != QStringLiteral("normal")
-            && m_logLevelSetting != QStringLiteral("info")
-            && m_logLevelSetting != QStringLiteral("debug")) {
-            m_logLevelSetting = QStringLiteral("normal");
-        }
-        saveUiSettings();
-    });
-
-    QMenu* logLinesMenu = logsMenu->addMenu(
-        trk(QStringLiteral("t_log_lines_001"),
-            QStringLiteral("Número de líneas"),
-            QStringLiteral("Number of lines"),
-            QStringLiteral("行数")));
-    auto* logLinesGroup = new QActionGroup(this);
-    logLinesGroup->setExclusive(true);
-    for (int lines : {100, 200, 500, 1000}) {
-        QAction* act = logLinesMenu->addAction(QString::number(lines));
-        act->setCheckable(true);
-        act->setData(lines);
-        if (lines == m_logMaxLinesSetting) {
-            act->setChecked(true);
-        }
-        logLinesGroup->addAction(act);
-    }
-    connect(logLinesGroup, &QActionGroup::triggered, this, [this](QAction* act) {
-        if (!act) {
-            return;
-        }
-        const int lines = act->data().toInt();
-        if (lines == 100 || lines == 200 || lines == 500 || lines == 1000) {
-            m_logMaxLinesSetting = lines;
-        }
-        trimLogWidget(m_logView);
-        saveUiSettings();
-    });
-
-    QAction* clearLogsAct = logsMenu->addAction(
-        trk(QStringLiteral("t_clear_001"),
-            QStringLiteral("Limpiar"),
-            QStringLiteral("Clear"),
-            QStringLiteral("清空")));
-    connect(clearLogsAct, &QAction::triggered, this, [this]() {
-        logUiAction(QStringLiteral("Limpiar log (menú)"));
-        clearAppLog();
-    });
-    QAction* copyLogsAct = logsMenu->addAction(
-        trk(QStringLiteral("t_copy_001"),
-            QStringLiteral("Copiar"),
-            QStringLiteral("Copy"),
-            QStringLiteral("复制")));
-    connect(copyLogsAct, &QAction::triggered, this, [this]() {
-        logUiAction(QStringLiteral("Copiar log (menú)"));
-        copyAppLogToClipboard();
-    });
-    logsMenu->addSeparator();
-
-    QMenu* logSizeMenu = logsMenu->addMenu(
-        trk(QStringLiteral("t_log_max_rot_001"),
-            QStringLiteral("Tamaño máximo log rotativo"),
-            QStringLiteral("Max rotating log size"),
-            QStringLiteral("滚动日志最大大小")));
-    auto* logSizeGroup = new QActionGroup(this);
-    logSizeGroup->setExclusive(true);
-    QList<int> sizesMb = {5, 10, 20, 50, 100, 200, 500, 1024};
-    if (!sizesMb.contains(m_logMaxSizeMb)) {
-        sizesMb.push_back(qBound(1, m_logMaxSizeMb, 1024));
-        std::sort(sizesMb.begin(), sizesMb.end());
-        sizesMb.erase(std::unique(sizesMb.begin(), sizesMb.end()), sizesMb.end());
-    }
-    for (int mb : sizesMb) {
-        QAction* act = logSizeMenu->addAction(QStringLiteral("%1 MB").arg(mb));
-        act->setCheckable(true);
-        act->setData(mb);
-        if (mb == m_logMaxSizeMb) {
-            act->setChecked(true);
-        }
-        logSizeGroup->addAction(act);
-    }
-    connect(logSizeGroup, &QActionGroup::triggered, this, [this](QAction* act) {
-        if (!act) {
-            return;
-        }
-        bool ok = false;
-        const int mb = act->data().toInt(&ok);
-        if (!ok) {
-            return;
-        }
-        const int bounded = qBound(1, mb, 1024);
-        if (bounded == m_logMaxSizeMb) {
-            return;
-        }
-        m_logMaxSizeMb = bounded;
-        saveUiSettings();
-        rotateLogIfNeeded();
-        appLog(QStringLiteral("INFO"), QStringLiteral("Tamaño máximo de log rotativo: %1 MB").arg(m_logMaxSizeMb));
-    });
 
     appMenu->addSeparator();
     m_menuExitAction = appMenu->addAction(
@@ -1844,6 +1707,174 @@ void MainWindow::buildUi() {
     m_logsTabs = new QTabWidget(central);
     m_logsTabs->setObjectName(QStringLiteral("zfsmgrLogTabs"));
 
+    auto* settingsTab = new QWidget(m_logsTabs);
+    auto* settingsLayout = new QVBoxLayout(settingsTab);
+    settingsLayout->setContentsMargins(8, 8, 8, 8);
+    settingsLayout->setSpacing(8);
+
+    auto* logsSettingsBox = new QGroupBox(
+        trk(QStringLiteral("t_logs_menu_001"),
+            QStringLiteral("Logs"),
+            QStringLiteral("Logs"),
+            QStringLiteral("日志")),
+        settingsTab);
+    auto* logsSettingsLayout = new QFormLayout(logsSettingsBox);
+    logsSettingsLayout->setContentsMargins(8, 8, 8, 8);
+    logsSettingsLayout->setSpacing(6);
+    logsSettingsLayout->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+
+    auto* logLevelCombo = new QComboBox(logsSettingsBox);
+    logLevelCombo->addItem(QStringLiteral("normal"), QStringLiteral("normal"));
+    logLevelCombo->addItem(QStringLiteral("info"), QStringLiteral("info"));
+    logLevelCombo->addItem(QStringLiteral("debug"), QStringLiteral("debug"));
+    {
+        const int idx = qMax(0, logLevelCombo->findData(m_logLevelSetting));
+        logLevelCombo->setCurrentIndex(idx);
+    }
+    logLevelCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    logLevelCombo->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    logLevelCombo->setMaximumWidth(180);
+    connect(logLevelCombo, &QComboBox::currentIndexChanged, this, [this, logLevelCombo](int) {
+        const QString level = logLevelCombo->currentData().toString().trimmed().toLower();
+        if (level == QStringLiteral("normal")
+            || level == QStringLiteral("info")
+            || level == QStringLiteral("debug")) {
+            m_logLevelSetting = level;
+            saveUiSettings();
+        }
+    });
+
+    auto* logLinesCombo = new QComboBox(logsSettingsBox);
+    for (int lines : {100, 200, 500, 1000}) {
+        logLinesCombo->addItem(QString::number(lines), lines);
+    }
+    {
+        int idx = logLinesCombo->findData(m_logMaxLinesSetting);
+        if (idx < 0) {
+            idx = logLinesCombo->findData(500);
+        }
+        logLinesCombo->setCurrentIndex(qMax(0, idx));
+    }
+    logLinesCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    logLinesCombo->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    logLinesCombo->setMaximumWidth(180);
+    connect(logLinesCombo, &QComboBox::currentIndexChanged, this, [this, logLinesCombo](int) {
+        const int lines = logLinesCombo->currentData().toInt();
+        if (lines == 100 || lines == 200 || lines == 500 || lines == 1000) {
+            m_logMaxLinesSetting = lines;
+            trimLogWidget(m_logView);
+            saveUiSettings();
+        }
+    });
+
+    auto* logSizeCombo = new QComboBox(logsSettingsBox);
+    QList<int> sizesMb = {5, 10, 20, 50, 100, 200, 500, 1024};
+    if (!sizesMb.contains(m_logMaxSizeMb)) {
+        sizesMb.push_back(qBound(1, m_logMaxSizeMb, 1024));
+        std::sort(sizesMb.begin(), sizesMb.end());
+        sizesMb.erase(std::unique(sizesMb.begin(), sizesMb.end()), sizesMb.end());
+    }
+    for (int mb : sizesMb) {
+        logSizeCombo->addItem(QStringLiteral("%1 MB").arg(mb), mb);
+    }
+    {
+        int idx = logSizeCombo->findData(m_logMaxSizeMb);
+        if (idx < 0) {
+            idx = logSizeCombo->findData(10);
+        }
+        logSizeCombo->setCurrentIndex(qMax(0, idx));
+    }
+    logSizeCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    logSizeCombo->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    logSizeCombo->setMaximumWidth(180);
+    connect(logSizeCombo, &QComboBox::currentIndexChanged, this, [this, logSizeCombo](int) {
+        const int mb = qBound(1, logSizeCombo->currentData().toInt(), 1024);
+        if (mb == m_logMaxSizeMb) {
+            return;
+        }
+        m_logMaxSizeMb = mb;
+        saveUiSettings();
+        rotateLogIfNeeded();
+        appLog(QStringLiteral("INFO"), QStringLiteral("Tamaño máximo de log rotativo: %1 MB").arg(m_logMaxSizeMb));
+    });
+
+    auto* logsActionsRow = new QWidget(logsSettingsBox);
+    auto* logsActionsLayout = new QHBoxLayout(logsActionsRow);
+    logsActionsLayout->setContentsMargins(0, 0, 0, 0);
+    logsActionsLayout->setSpacing(6);
+    auto* clearLogsBtn = new QPushButton(
+        trk(QStringLiteral("t_clear_001"),
+            QStringLiteral("Limpiar"),
+            QStringLiteral("Clear"),
+            QStringLiteral("清空")),
+        logsActionsRow);
+    auto* copyLogsBtn = new QPushButton(
+        trk(QStringLiteral("t_copy_001"),
+            QStringLiteral("Copiar"),
+            QStringLiteral("Copy"),
+            QStringLiteral("复制")),
+        logsActionsRow);
+    logsActionsLayout->addWidget(clearLogsBtn, 0);
+    logsActionsLayout->addWidget(copyLogsBtn, 0);
+    logsActionsLayout->addStretch(1);
+    connect(clearLogsBtn, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Limpiar log (ajustes)"));
+        clearAppLog();
+    });
+    connect(copyLogsBtn, &QPushButton::clicked, this, [this]() {
+        logUiAction(QStringLiteral("Copiar log (ajustes)"));
+        copyAppLogToClipboard();
+    });
+    auto* confirmActionsCb = new QCheckBox(
+        trk(QStringLiteral("t_show_confirm_001"),
+            QStringLiteral("Mostrar confirmación antes de ejecutar acciones"),
+            QStringLiteral("Show confirmation before executing actions"),
+            QStringLiteral("执行操作前显示确认")),
+        logsSettingsBox);
+    confirmActionsCb->setChecked(m_actionConfirmEnabled);
+    connect(confirmActionsCb, &QCheckBox::toggled, this, [this](bool checked) {
+        m_actionConfirmEnabled = checked;
+        saveUiSettings();
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("Confirmación de acciones: %1").arg(checked ? QStringLiteral("on")
+                                                                          : QStringLiteral("off")));
+    });
+
+    auto* combosRow = new QWidget(logsSettingsBox);
+    auto* combosLayout = new QHBoxLayout(combosRow);
+    combosLayout->setContentsMargins(0, 0, 0, 0);
+    combosLayout->setSpacing(10);
+    auto* levelLabel = new QLabel(
+        trk(QStringLiteral("t_log_level_001"),
+            QStringLiteral("Nivel de log"),
+            QStringLiteral("Log level"),
+            QStringLiteral("日志级别")),
+        combosRow);
+    auto* linesLabel = new QLabel(
+        trk(QStringLiteral("t_log_lines_001"),
+            QStringLiteral("Número de líneas"),
+            QStringLiteral("Number of lines"),
+            QStringLiteral("行数")),
+        combosRow);
+    auto* sizeLabel = new QLabel(
+        trk(QStringLiteral("t_log_max_rot_001"),
+            QStringLiteral("Tamaño máximo log rotativo"),
+            QStringLiteral("Max rotating log size"),
+            QStringLiteral("滚动日志最大大小")),
+        combosRow);
+    combosLayout->addWidget(levelLabel, 0);
+    combosLayout->addWidget(logLevelCombo, 0);
+    combosLayout->addWidget(linesLabel, 0);
+    combosLayout->addWidget(logLinesCombo, 0);
+    combosLayout->addWidget(sizeLabel, 0);
+    combosLayout->addWidget(logSizeCombo, 0);
+    combosLayout->addStretch(1);
+    logsSettingsLayout->addRow(combosRow);
+    logsSettingsLayout->addRow(confirmActionsCb);
+    logsSettingsLayout->addRow(logsActionsRow);
+    settingsLayout->addWidget(logsSettingsBox, 0);
+    settingsLayout->addStretch(1);
+
     auto* combinedLogTab = new QWidget(m_logsTabs);
     auto* logLayout = new QVBoxLayout(combinedLogTab);
     logLayout->setContentsMargins(6, 6, 6, 6);
@@ -1950,12 +1981,17 @@ void MainWindow::buildUi() {
 
     loadPersistedAppLogToView();
 
+    m_logsTabs->addTab(settingsTab,
+                       trk(QStringLiteral("t_settings_tab_001"),
+                           QStringLiteral("Ajustes"),
+                           QStringLiteral("Settings"),
+                           QStringLiteral("设置")));
     m_logsTabs->addTab(combinedLogTab,
                        trk(QStringLiteral("t_combined_log001"),
                            QStringLiteral("Log combinado"),
                            QStringLiteral("Combined log"),
                            QStringLiteral("组合日志")));
-    m_logsTabs->setCurrentIndex(0);
+    m_logsTabs->setCurrentIndex(1);
 
     auto* bottomTabsPane = new QWidget(central);
     auto* bottomTabsLayout = new QVBoxLayout(bottomTabsPane);

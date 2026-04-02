@@ -812,9 +812,27 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     out.clear();
     err.clear();
     rc = -1;
-    const QString mountedCmd = withSudo(p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs mount")));
+    const QString mountedCmd = withSudo(
+        p,
+        mwhelpers::withUnixSearchPathCommand(
+            isWinConn ? QStringLiteral("zfs mount")
+                      : QStringLiteral("zfs mount -j")));
+    QVector<QPair<QString, QString>> mountedRows;
     if (runSsh(p, mountedCmd, 18000, out, err, rc) && rc == 0) {
-        const QVector<QPair<QString, QString>> mountedRows = mwhelpers::parseZfsMountOutput(out);
+        mountedRows = isWinConn
+            ? mwhelpers::parseZfsMountOutput(out)
+            : mwhelpers::parseZfsMountJsonOutput(out);
+    }
+    if (!isWinConn && mountedRows.isEmpty()) {
+        QString fbOut;
+        QString fbErr;
+        int fbRc = -1;
+        const QString fallbackCmd = withSudo(p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs mount")));
+        if (runSsh(p, fallbackCmd, 18000, fbOut, fbErr, fbRc) && fbRc == 0) {
+            mountedRows = mwhelpers::parseZfsMountOutput(fbOut);
+        }
+    }
+    if (!mountedRows.isEmpty()) {
         for (const auto& row : mountedRows) {
             const QString ds = row.first;
             const QString mp = row.second;

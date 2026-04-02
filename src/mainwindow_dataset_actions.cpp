@@ -1038,8 +1038,28 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
     QString mountedOut;
     QString mountedErr;
     int mountedRc = -1;
-    const QString mountedCmd = withSudo(p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs mount")));
-    if (!runSsh(p, mountedCmd, 20000, mountedOut, mountedErr, mountedRc) || mountedRc != 0) {
+    const bool isWinConn = isWindowsConnection(p);
+    const QString mountedCmd = withSudo(
+        p,
+        mwhelpers::withUnixSearchPathCommand(
+            isWinConn ? QStringLiteral("zfs mount")
+                      : QStringLiteral("zfs mount -j")));
+    QVector<QPair<QString, QString>> mountedRows;
+    if (runSsh(p, mountedCmd, 20000, mountedOut, mountedErr, mountedRc) && mountedRc == 0) {
+        mountedRows = isWinConn
+            ? mwhelpers::parseZfsMountOutput(mountedOut)
+            : mwhelpers::parseZfsMountJsonOutput(mountedOut);
+    }
+    if (!isWinConn && mountedRows.isEmpty()) {
+        QString fallbackOut;
+        QString fallbackErr;
+        int fallbackRc = -1;
+        const QString fallbackCmd = withSudo(p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs mount")));
+        if (runSsh(p, fallbackCmd, 20000, fallbackOut, fallbackErr, fallbackRc) && fallbackRc == 0) {
+            mountedRows = mwhelpers::parseZfsMountOutput(fallbackOut);
+        }
+    }
+    if (mountedRows.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_mounted_rd_err1"), QStringLiteral("No se pudo leer datasets montados."),
                                  QStringLiteral("Could not read mounted datasets."),
@@ -1048,7 +1068,6 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
     }
 
     QMap<QString, QStringList> mountedByMp;
-    const QVector<QPair<QString, QString>> mountedRows = mwhelpers::parseZfsMountOutput(mountedOut);
     for (const auto& row : mountedRows) {
         const QString ds = row.first;
         const QString mp = row.second;

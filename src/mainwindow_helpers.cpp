@@ -2,6 +2,9 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonValue>
 #include <QRegularExpression>
 #include <QStandardPaths>
 
@@ -426,6 +429,58 @@ QVector<QPair<QString, QString>> parseZfsMountOutput(const QString& text) {
             continue;
         }
         out.push_back(qMakePair(ds, mp));
+    }
+    return out;
+}
+
+QVector<QPair<QString, QString>> parseZfsMountJsonOutput(const QString& text) {
+    QVector<QPair<QString, QString>> out;
+    const QJsonDocument doc = QJsonDocument::fromJson(text.toUtf8());
+    if (!doc.isObject()) {
+        return out;
+    }
+    const QJsonObject root = doc.object();
+    auto extractMountpoint = [](const QJsonValue& v) -> QString {
+        if (v.isString()) {
+            return v.toString().trimmed();
+        }
+        if (!v.isObject()) {
+            return QString();
+        }
+        const QJsonObject o = v.toObject();
+        if (o.contains(QStringLiteral("value"))) {
+            return o.value(QStringLiteral("value")).toString().trimmed();
+        }
+        if (o.contains(QStringLiteral("mountpoint"))) {
+            const QJsonValue inner = o.value(QStringLiteral("mountpoint"));
+            if (inner.isString()) {
+                return inner.toString().trimmed();
+            }
+            if (inner.isObject()) {
+                return inner.toObject().value(QStringLiteral("value")).toString().trimmed();
+            }
+        }
+        return QString();
+    };
+    auto appendFromMap = [&out, &extractMountpoint](const QJsonObject& mapObj) {
+        for (auto it = mapObj.constBegin(); it != mapObj.constEnd(); ++it) {
+            const QString ds = it.key().trimmed();
+            if (ds.isEmpty()) {
+                continue;
+            }
+            const QString mp = extractMountpoint(it.value());
+            if (mp.isEmpty()) {
+                continue;
+            }
+            out.push_back(qMakePair(ds, mp));
+        }
+    };
+    if (root.contains(QStringLiteral("datasets")) && root.value(QStringLiteral("datasets")).isObject()) {
+        appendFromMap(root.value(QStringLiteral("datasets")).toObject());
+    } else if (root.contains(QStringLiteral("mounts")) && root.value(QStringLiteral("mounts")).isObject()) {
+        appendFromMap(root.value(QStringLiteral("mounts")).toObject());
+    } else {
+        appendFromMap(root);
     }
     return out;
 }

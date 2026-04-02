@@ -167,13 +167,42 @@ bool looksLikeGsaRuntimeLine(const QString& line) {
            || low.contains(QStringLiteral("org.fc16.gsa:"));
 }
 
+void ensureLogHorizontalScrollTracking(QPlainTextEdit* view) {
+    if (!view) {
+        return;
+    }
+    if (view->property("zfsmgr_hscroll_track_init").toBool()) {
+        return;
+    }
+    view->setProperty("zfsmgr_hscroll_track_init", true);
+    view->setProperty("zfsmgr_hscroll_user_override", false);
+    QScrollBar* h = view->horizontalScrollBar();
+    if (!h) {
+        return;
+    }
+    QObject::connect(h, &QScrollBar::valueChanged, view, [view, h](int value) {
+        if (h->property("zfsmgr_hscroll_programmatic").toBool()) {
+            return;
+        }
+        if (value != h->minimum()) {
+            view->setProperty("zfsmgr_hscroll_user_override", true);
+        }
+    });
+}
+
 void scrollLogViewToLatest(QPlainTextEdit* view) {
     if (!view) {
         return;
     }
+    ensureLogHorizontalScrollTracking(view);
     auto apply = [view]() {
         if (QScrollBar* h = view->horizontalScrollBar()) {
-            h->setValue(h->minimum());
+            const bool userOverride = view->property("zfsmgr_hscroll_user_override").toBool();
+            if (!userOverride) {
+                h->setProperty("zfsmgr_hscroll_programmatic", true);
+                h->setValue(h->minimum());
+                h->setProperty("zfsmgr_hscroll_programmatic", false);
+            }
         }
         if (QScrollBar* v = view->verticalScrollBar()) {
             v->setValue(v->maximum());
