@@ -728,28 +728,30 @@ QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {
     if (isWindowsOsType(p.osType)) {
         return cmd;
     }
+    const QString preparedCmd = withUnixSearchPathCommand(cmd);
     if (!p.useSudo) {
-        return cmd;
+        return preparedCmd;
     }
     if (!p.password.isEmpty()) {
         return QStringLiteral("printf '%s\\n' %1 | sudo -S -p '' sh -c %2")
-            .arg(shSingleQuote(p.password), shSingleQuote(cmd));
+            .arg(shSingleQuote(p.password), shSingleQuote(preparedCmd));
     }
-    return QStringLiteral("sudo -n ") + cmd;
+    return QStringLiteral("sudo -n ") + preparedCmd;
 }
 
 QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cmd) {
     if (isWindowsOsType(p.osType)) {
         return cmd;
     }
+    const QString preparedCmd = withUnixSearchPathCommand(cmd);
     if (!p.useSudo) {
-        return cmd;
+        return preparedCmd;
     }
     if (!p.password.isEmpty()) {
         return QStringLiteral("{ printf '%s\\n' %1; cat; } | sudo -S -p '' sh -c %2")
-            .arg(shSingleQuote(p.password), shSingleQuote(cmd));
+            .arg(shSingleQuote(p.password), shSingleQuote(preparedCmd));
     }
-    return QStringLiteral("sudo -n sh -c %1").arg(shSingleQuote(cmd));
+    return QStringLiteral("sudo -n sh -c %1").arg(shSingleQuote(preparedCmd));
 }
 
 QString stripToJson(const QString& output) {

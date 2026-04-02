@@ -52,19 +52,6 @@ QString datasetLeafNameUi(const QString& datasetName) {
     return (slash >= 0) ? trimmed.mid(slash + 1) : trimmed;
 }
 
-QString gsaSnapshotClass(const QString& snapshotName) {
-    const QString trimmed = snapshotName.trimmed();
-    if (!trimmed.startsWith(QStringLiteral("GSA-"), Qt::CaseInsensitive)) {
-        return QString();
-    }
-    const int firstDash = trimmed.indexOf(QLatin1Char('-'));
-    const int secondDash = trimmed.indexOf(QLatin1Char('-'), firstDash + 1);
-    if (firstDash < 0 || secondDash <= firstDash + 1) {
-        return QString();
-    }
-    return trimmed.mid(firstDash + 1, secondDash - firstDash - 1).trimmed().toLower();
-}
-
 QStringList gsaUserPropsForScheduling() {
     return {
         QStringLiteral("org.fc16.gsa:activado"),
@@ -2142,99 +2129,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     QAction* aUnloadKey = mEncryption->addAction(QStringLiteral("Unload key"));
     QAction* aChangeKey = mEncryption->addAction(QStringLiteral("Change key"));
     menu.addSeparator();
-    QMenu* mSelectSnapshot = menu.addMenu(
-        m_mainWindow->trk(QStringLiteral("t_ctx_sel_snap001"),
-                          QStringLiteral("Seleccionar snapshot"),
-                          QStringLiteral("Select snapshot"),
-                          QStringLiteral("选择快照")));
-    QMap<QAction*, QString> snapshotActions;
-    const QString itemDatasetPath = item->data(0, Qt::UserRole).toString().trimmed();
-    {
-        const QStringList snaps = item->data(1, Qt::UserRole + 1).toStringList();
-        const QString currentSnap = item->data(1, Qt::UserRole).toString().trimmed();
-        auto addSnapshotAction = [&](QMenu* targetMenu, const QString& snapName) {
-            if (!targetMenu) {
-                return;
-            }
-            QAction* sa = targetMenu->addAction(snapName);
-            sa->setCheckable(true);
-            sa->setChecked(snapName == currentSnap);
-            snapshotActions.insert(sa, snapName);
-        };
-        if (!snaps.isEmpty()) {
-            QAction* noneAct = mSelectSnapshot->addAction(QStringLiteral("(ninguno)"));
-            noneAct->setCheckable(true);
-            noneAct->setChecked(currentSnap.isEmpty());
-            snapshotActions.insert(noneAct, QString());
-            mSelectSnapshot->addSeparator();
-        }
-        QStringList manualSnapshots;
-        QMap<QString, QStringList> gsaSnapshotsByClass;
-        for (const QString& s : snaps) {
-            const QString snapName = s.trimmed();
-            if (snapName.isEmpty()) {
-                continue;
-            }
-            const QString klass = gsaSnapshotClass(snapName);
-            if (klass.isEmpty()) {
-                manualSnapshots.push_back(snapName);
-            } else {
-                gsaSnapshotsByClass[klass].push_back(snapName);
-            }
-        }
-        for (const QString& snapName : manualSnapshots) {
-            addSnapshotAction(mSelectSnapshot, snapName);
-        }
-        auto addGsaGroup = [&](const QString& klass,
-                               const QString& es,
-                               const QString& en,
-                               const QString& zh) {
-            const QStringList grouped = gsaSnapshotsByClass.value(klass);
-            if (grouped.isEmpty()) {
-                return;
-            }
-            QMenu* sub = mSelectSnapshot->addMenu(m_mainWindow->trk(
-                QStringLiteral("t_ctx_snap_group_%1").arg(klass), es, en, zh));
-            for (const QString& snapName : grouped) {
-                addSnapshotAction(sub, snapName);
-            }
-        };
-        addGsaGroup(QStringLiteral("hourly"),
-                    QStringLiteral("Horarios"),
-                    QStringLiteral("Hourly"),
-                    QStringLiteral("每小时"));
-        addGsaGroup(QStringLiteral("daily"),
-                    QStringLiteral("Diarios"),
-                    QStringLiteral("Daily"),
-                    QStringLiteral("每日"));
-        addGsaGroup(QStringLiteral("weekly"),
-                    QStringLiteral("Semanales"),
-                    QStringLiteral("Weekly"),
-                    QStringLiteral("每周"));
-        addGsaGroup(QStringLiteral("monthly"),
-                    QStringLiteral("Mensuales"),
-                    QStringLiteral("Monthly"),
-                    QStringLiteral("每月"));
-        addGsaGroup(QStringLiteral("yearly"),
-                    QStringLiteral("Anuales"),
-                    QStringLiteral("Yearly"),
-                    QStringLiteral("每年"));
-        for (auto it = gsaSnapshotsByClass.cbegin(); it != gsaSnapshotsByClass.cend(); ++it) {
-            const QString klass = it.key();
-            if (klass == QStringLiteral("hourly")
-                || klass == QStringLiteral("daily")
-                || klass == QStringLiteral("weekly")
-                || klass == QStringLiteral("monthly")
-                || klass == QStringLiteral("yearly")) {
-                continue;
-            }
-            QMenu* sub = mSelectSnapshot->addMenu(klass);
-            for (const QString& snapName : it.value()) {
-                addSnapshotAction(sub, snapName);
-            }
-        }
-    }
-    mSelectSnapshot->setEnabled(!m_mainWindow->actionsLocked() && !snapshotActions.isEmpty());
     QAction* aScheduleSnapshots = menu.addAction(
         m_mainWindow->trk(QStringLiteral("t_ctx_schedule_auto_snaps_001"),
                           QStringLiteral("Programar snapshots automáticos"),
@@ -2464,49 +2358,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 m_mainWindow->destroyPoolFromRow(poolRow);
                 return;
             }
-        }
-        if (snapshotActions.contains(picked)) {
-            const QString snapName = snapshotActions.value(picked);
-            QTreeWidgetItem* targetItem = item;
-            if (!itemDatasetPath.isEmpty()) {
-                auto findInTree = [](QTreeWidget* tw, const QString& ds) -> QTreeWidgetItem* {
-                    if (!tw || ds.isEmpty()) {
-                        return nullptr;
-                    }
-                    std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* n) -> QTreeWidgetItem* {
-                        if (!n) {
-                            return nullptr;
-                        }
-                        if (n->data(0, Qt::UserRole).toString().trimmed() == ds) {
-                            return n;
-                        }
-                        for (int i = 0; i < n->childCount(); ++i) {
-                            if (QTreeWidgetItem* f = rec(n->child(i))) {
-                                return f;
-                            }
-                        }
-                        return nullptr;
-                    };
-                    for (int i = 0; i < tw->topLevelItemCount(); ++i) {
-                        if (QTreeWidgetItem* f = rec(tw->topLevelItem(i))) {
-                            return f;
-                        }
-                    }
-                    return nullptr;
-                };
-                if (QTreeWidgetItem* found = findInTree(tree, itemDatasetPath)) {
-                    targetItem = found;
-                }
-            }
-            if (!targetItem) {
-                return;
-            }
-            m_mainWindow->onSnapshotComboChanged(
-                tree,
-                targetItem,
-                MainWindow::DatasetTreeContext::ConnectionContent,
-                snapName.isEmpty() ? QStringLiteral("(ninguno)") : snapName);
-            return;
         }
         if (picked == inlineActions.manage) {
             manageInlinePropsVisualization(tree, item, false);
