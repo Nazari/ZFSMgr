@@ -72,8 +72,6 @@ void bindRequiredLineEditLabel(QLineEdit* edit, QLabel* label) {
 
 constexpr int kRoleDevicePath = Qt::UserRole;
 constexpr int kRoleSelectable = Qt::UserRole + 1;
-constexpr int kRoleMounted = Qt::UserRole + 2;
-constexpr int kRoleMountpoint = Qt::UserRole + 3;
 constexpr int kRoleDevType = Qt::UserRole + 4;
 constexpr int kRoleNodeKind = Qt::UserRole + 5;
 constexpr int kRoleVdevPrefix = Qt::UserRole + 6;
@@ -283,12 +281,6 @@ QString deviceTreeParentPath(const QString& rawPath) {
     return QString();
 }
 
-QString mountedTextForDevice(const QString& mountpoint, bool mounted) {
-    if (mounted || (!mountpoint.isEmpty() && mountpoint != QStringLiteral("-"))) {
-        return QStringLiteral("yes");
-    }
-    return QStringLiteral("no");
-}
 } // namespace
 
 void MainWindow::createPoolForSelectedConnection() {
@@ -335,7 +327,6 @@ void MainWindow::createPoolForSelectedConnection() {
         bool zfsSignature{false};
         bool synthesized{false};
         bool inPool{false};
-        bool mounted{false};
     };
 
     auto runRemote = [this, &p](const QString& cmd, int timeoutMs, QString& outText) -> bool {
@@ -420,8 +411,9 @@ void MainWindow::createPoolForSelectedConnection() {
         devCmd = QStringLiteral(
             "if [ \"$(uname -s 2>/dev/null)\" = \"Darwin\" ]; then "
             "  { "
-            "    if [ -d /private/var/run/disk/by-id ]; then "
-            "      for id in /private/var/run/disk/by-id/*; do "
+            "    for iddir in /var/run/disk/by-id /private/var/run/disk/by-id; do "
+            "      [ -d \"$iddir\" ] || continue; "
+            "      for id in \"$iddir\"/*; do "
             "        [ -e \"$id\" ] || continue; "
             "        real=\"$(perl -MCwd=realpath -e 'print realpath($ARGV[0])' \"$id\" 2>/dev/null)\"; "
             "        [ -n \"$real\" ] || continue; "
@@ -441,7 +433,7 @@ void MainWindow::createPoolForSelectedConnection() {
             "        [ -n \"$size\" ] || size='-'; "
             "        printf '%s\\t%s\\t%s\\t%s\\t%s\\tpart\\n' \"$id\" \"$size\" \"$mnt\" \"$real\" \"$ptype\"; "
             "      done; "
-            "    fi; "
+            "    done; "
             "    diskutil list | awk '"
             "      /^\\/dev\\/disk[0-9]+/ { "
             "        current=$1; sub(/:$/, \"\", current); "
@@ -578,10 +570,18 @@ void MainWindow::createPoolForSelectedConnection() {
             DeviceEntry e;
             e.resolvedPath = resolved.isEmpty() ? path : resolved;
             e.path = path;
-            if (path.startsWith(QStringLiteral("/private/var/run/disk/by-id/"))) {
+            if (path.startsWith(QStringLiteral("/var/run/disk/by-id/"))
+                || path.startsWith(QStringLiteral("/private/var/run/disk/by-id/"))
+                || path.startsWith(QStringLiteral("/dev/disk/by-id/"))
+                || path.startsWith(QStringLiteral("/dev/diskid/"))
+                || path.startsWith(QStringLiteral("/dev/gptid/"))) {
                 e.byIdAlias = QFileInfo(path).fileName();
             }
-            if (e.path.startsWith(QStringLiteral("/private/var/run/disk/by-id/"))
+            if ((e.path.startsWith(QStringLiteral("/var/run/disk/by-id/"))
+                 || e.path.startsWith(QStringLiteral("/private/var/run/disk/by-id/"))
+                 || e.path.startsWith(QStringLiteral("/dev/disk/by-id/"))
+                 || e.path.startsWith(QStringLiteral("/dev/diskid/"))
+                 || e.path.startsWith(QStringLiteral("/dev/gptid/")))
                 && !e.resolvedPath.isEmpty()) {
                 e.path = e.resolvedPath;
             }
@@ -623,6 +623,53 @@ void MainWindow::createPoolForSelectedConnection() {
                 dedupeKeys.insert(dedupeKey);
             }
             devicesByPath[path] = e;
+        }
+    }
+    QMap<QString, QSet<QString>> byIdAliasesByPath;
+    for (auto it = devicesByPath.cbegin(); it != devicesByPath.cend(); ++it) {
+        QSet<QString> aliases;
+        const QString byId = it.value().byIdAlias.trimmed();
+        if (!byId.isEmpty()) {
+            aliases.insert(byId);
+        }
+        if (!aliases.isEmpty()) {
+            byIdAliasesByPath[it.key()] = aliases;
+        }
+    }
+    if (!isWindowsConnection(p)) {
+        QString byIdOut;
+        const QString byIdCmd = QStringLiteral(
+            "for d in /var/run/disk/by-id /private/var/run/disk/by-id /dev/disk/by-id /dev/diskid /dev/gptid; do "
+            "  [ -d \"$d\" ] || continue; "
+            "  for id in \"$d\"/*; do "
+            "    [ -e \"$id\" ] || continue; "
+            "    real=\"$(perl -MCwd=realpath -e 'print realpath($ARGV[0])' \"$id\" 2>/dev/null)\"; "
+            "    [ -n \"$real\" ] || continue; "
+            "    printf '%s\\t%s\\t%s\\n' \"$id\" \"$real\" \"$(basename \"$id\")\"; "
+            "  done; "
+            "done");
+        if (runRemote(byIdCmd, 15000, byIdOut)) {
+            const QStringList lines = byIdOut.split('\n', Qt::SkipEmptyParts);
+            for (const QString& line : lines) {
+                const QStringList cols = line.split('\t');
+                const QString aliasPath = cols.value(0).trimmed();
+                const QString realPath = cols.value(1).trimmed();
+                const QString aliasName = cols.value(2).trimmed();
+                if (realPath.isEmpty()) {
+                    continue;
+                }
+                for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
+                    if (it.value().path == realPath || it.value().resolvedPath == realPath) {
+                        auto& aliases = byIdAliasesByPath[it.key()];
+                        if (!aliasPath.isEmpty()) {
+                            aliases.insert(aliasPath);
+                        }
+                        if (!aliasName.isEmpty()) {
+                            aliases.insert(aliasName);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -685,30 +732,67 @@ void MainWindow::createPoolForSelectedConnection() {
         return partNo.isEmpty() ? QStringLiteral("physicaldrive%1").arg(d)
                                 : QStringLiteral("physicaldrive%1/partition%2").arg(d, partNo);
     };
-    auto markDevicesInPoolByTokens = [&devicesByPath, &normalizeWinPhysPart](const QSet<QString>& usedTokens) {
+    auto markDevicesInPoolByTokens = [&devicesByPath, &byIdAliasesByPath, &normalizeWinPhysPart](const QSet<QString>& usedTokens) {
+        auto canonicalUnixDev = [](QString s) -> QString {
+            s = s.trimmed().toLower();
+            if (s.startsWith(QStringLiteral("/dev/rdisk"))) {
+                s.replace(0, QStringLiteral("/dev/r").size(), QStringLiteral("/dev/"));
+            }
+            return s;
+        };
+        auto canonicalBase = [](const QString& pathOrToken) -> QString {
+            QString b = QFileInfo(pathOrToken.trimmed()).fileName().toLower();
+            if (b.startsWith(QStringLiteral("rdisk"))) {
+                b.remove(0, 1); // rdiskN -> diskN
+            }
+            return b;
+        };
         if (usedTokens.isEmpty()) {
             return;
         }
         for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
             const QString pth = it.value().path.trimmed();
             const QString real = it.value().resolvedPath.trimmed();
-            const QString alias = it.value().byIdAlias.trimmed();
             const QString pthBase = QFileInfo(pth).fileName();
             const QString realBase = QFileInfo(real).fileName();
             const QString pthLower = pth.toLower();
             const QString realLower = real.toLower();
+            const QString pthCanon = canonicalUnixDev(pth);
+            const QString realCanon = canonicalUnixDev(real);
+            const QString pthBaseCanon = canonicalBase(pth);
+            const QString realBaseCanon = canonicalBase(real);
             const QString pthNorm = normalizeWinPhysPart(pthLower);
             const QString realNorm = normalizeWinPhysPart(realLower);
+            QSet<QString> aliases = byIdAliasesByPath.value(it.key());
+            const QString alias = it.value().byIdAlias.trimmed();
+            if (!alias.isEmpty()) {
+                aliases.insert(alias);
+            }
             for (const QString& tkRaw : usedTokens) {
                 const QString tk = tkRaw.trimmed();
                 if (tk.isEmpty()) {
                     continue;
                 }
                 const QString tkLower = tk.toLower();
+                const QString tkCanon = canonicalUnixDev(tk);
+                const QString tkBaseCanon = canonicalBase(tk);
                 const QString tkNorm = normalizeWinPhysPart(tkLower);
+                bool matchesAlias = false;
+                for (const QString& a : aliases) {
+                    if (a.compare(tk, Qt::CaseInsensitive) == 0
+                        || a.toLower().contains(tkLower)
+                        || tkLower.contains(a.toLower())) {
+                        matchesAlias = true;
+                        break;
+                    }
+                }
                 if (tk == pth || tk == real || tk == alias
                     || tk == pthBase || tk == realBase
+                    || tkCanon == pthCanon || tkCanon == realCanon
+                    || (!tkBaseCanon.isEmpty() && (tkBaseCanon == pthBaseCanon || tkBaseCanon == realBaseCanon))
+                    || matchesAlias
                     || pthLower.contains(tkLower) || realLower.contains(tkLower)
+                    || pthCanon.contains(tkCanon) || realCanon.contains(tkCanon)
                     || (!tkNorm.isEmpty() && (tkNorm == pthNorm || tkNorm == realNorm))) {
                     it.value().inPool = true;
                     break;
@@ -751,9 +835,18 @@ void MainWindow::createPoolForSelectedConnection() {
         }
     };
 
+    const QString zpoolLocateScript = QStringLiteral(
+        "PATH=\"/usr/local/zfs/bin:/usr/local/bin:/opt/homebrew/bin:/usr/sbin:/sbin:/usr/bin:$PATH\"; "
+        "ZPOOL=\"$(command -v zpool 2>/dev/null || true)\"; "
+        "if [ -z \"$ZPOOL\" ]; then "
+        "  for c in /usr/local/zfs/bin/zpool /usr/local/bin/zpool /opt/homebrew/bin/zpool /usr/sbin/zpool /sbin/zpool /usr/bin/zpool; do "
+        "    [ -x \"$c\" ] && ZPOOL=\"$c\" && break; "
+        "  done; "
+        "fi; "
+        "[ -n \"$ZPOOL\" ] || exit 0; ");
     out.clear();
-    const QString inPoolCmd = withSudo(p, QStringLiteral(
-        "(zpool status -LP 2>/dev/null || zpool status -P 2>/dev/null || zpool status -L 2>/dev/null || zpool status 2>/dev/null)"));
+    const QString inPoolCmd = withSudo(p, zpoolLocateScript + QStringLiteral(
+        "($ZPOOL status -LP 2>/dev/null || $ZPOOL status -P 2>/dev/null || $ZPOOL status -L 2>/dev/null || $ZPOOL status)"));
     if (runRemote(inPoolCmd, 25000, out)) {
         markDevicesInPoolByTokens(collectPoolTokens(out));
         if (isWindowsConnection(p)) {
@@ -761,7 +854,7 @@ void MainWindow::createPoolForSelectedConnection() {
         }
     }
     QString outListV;
-    const QString listVCmd = withSudo(p, QStringLiteral("(zpool list -v -P 2>/dev/null || zpool list -v 2>/dev/null)"));
+    const QString listVCmd = withSudo(p, zpoolLocateScript + QStringLiteral("($ZPOOL list -v -P 2>/dev/null || $ZPOOL list -v)"));
     if (runRemote(listVCmd, 25000, outListV)) {
         markDevicesInPoolByTokens(collectPoolTokens(outListV));
         if (isWindowsConnection(p)) {
@@ -792,7 +885,7 @@ void MainWindow::createPoolForSelectedConnection() {
     // Also probe importable (not imported) pools and mark their devices as in-pool.
     out.clear();
     QString outImp;
-    const QString importProbeCmd = withSudo(p, QStringLiteral("(zpool import 2>/dev/null; zpool import -s 2>/dev/null)"));
+    const QString importProbeCmd = withSudo(p, zpoolLocateScript + QStringLiteral("($ZPOOL import; $ZPOOL import -s)"));
     if (runRemote(importProbeCmd, 25000, outImp)) {
         markDevicesInPoolByTokens(collectPoolTokens(outImp));
         if (isWindowsConnection(p)) {
@@ -806,41 +899,6 @@ void MainWindow::createPoolForSelectedConnection() {
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("%1: no device marked IN_POOL while probing zpool output in pool-create dialog")
                        .arg(p.name));
-        }
-    }
-
-    out.clear();
-    QString mountedCmd;
-    if (isWindowsConnection(p)) {
-        mountedCmd = QStringLiteral(
-            "$ErrorActionPreference='SilentlyContinue'; "
-            "Get-CimInstance Win32_LogicalDisk | "
-            "Where-Object { $_.DriveType -eq 3 } | "
-            "ForEach-Object { Write-Output ($_.DeviceID + \"`t\" + $_.DeviceID + \"\\\\\") }");
-    } else {
-        mountedCmd = QStringLiteral("mount | awk '{print $1\"\\t\"$3}'");
-    }
-    if (runRemote(mountedCmd, 20000, out)) {
-        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-        for (const QString& line : lines) {
-            const QStringList cols = line.split('\t');
-            if (cols.isEmpty()) {
-                continue;
-            }
-            const QString dev = cols.value(0).trimmed();
-            const QString mp = cols.value(1).trimmed();
-            if (dev.isEmpty()) {
-                continue;
-            }
-            for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
-                const QString real = it.value().resolvedPath.isEmpty() ? it.value().path : it.value().resolvedPath;
-                if (it.value().path == dev || real == dev) {
-                    it.value().mounted = true;
-                    if (!mp.isEmpty()) {
-                        it.value().mountpoint = mp;
-                    }
-                }
-            }
         }
     }
 
@@ -887,7 +945,6 @@ void MainWindow::createPoolForSelectedConnection() {
             root.zfsSignature = e.zfsSignature;
             root.synthesized = macSynthesizedRootPaths.contains(rootPath);
             root.inPool = e.inPool;
-            root.mounted = false;
             synthesizedRoots.insert(rootPath, root);
         }
         for (auto it = synthesizedRoots.cbegin(); it != synthesizedRoots.cend(); ++it) {
@@ -895,11 +952,21 @@ void MainWindow::createPoolForSelectedConnection() {
         }
     }
     for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
-        const QString rootPath = it.value().resolvedPath.isEmpty() ? it.value().path : it.value().resolvedPath;
-        if (it.value().devType == QStringLiteral("disk") || isRootDevicePath(rootPath)) {
-            it.value().synthesized = macSynthesizedRootPaths.contains(it.value().path)
-                                     || macSynthesizedRootPaths.contains(rootPath);
+        QString probe = it.value().resolvedPath.isEmpty() ? it.value().path : it.value().resolvedPath;
+        if (probe.isEmpty()) {
+            probe = it.value().path;
         }
+        QString root = probe;
+        for (;;) {
+            const QString parent = deviceTreeParentPath(root);
+            if (parent.isEmpty()) {
+                break;
+            }
+            root = parent;
+        }
+        it.value().synthesized = macSynthesizedRootPaths.contains(it.value().path)
+                                 || macSynthesizedRootPaths.contains(probe)
+                                 || macSynthesizedRootPaths.contains(root);
     }
     {
         bool changed = true;
@@ -923,7 +990,6 @@ void MainWindow::createPoolForSelectedConnection() {
             }
         }
     }
-
     QDialog dlg(this);
     const QFont baseUiFont = QApplication::font();
     dlg.setFont(baseUiFont);
@@ -1198,12 +1264,11 @@ void MainWindow::createPoolForSelectedConnection() {
     auto* devicesLayout = new QVBoxLayout(devicesBox);
     DeviceDragTreeWidget* devicesTree = new DeviceDragTreeWidget(devicesBox);
     devicesTree->setFont(baseUiFont);
-    devicesTree->setColumnCount(5);
+    devicesTree->setColumnCount(4);
     devicesTree->setHeaderLabels({
         trk(QStringLiteral("t_poolcrt_auto017"), QStringLiteral("Device"), QStringLiteral("Device"), QStringLiteral("设备")),
         trk(QStringLiteral("t_poolcrt_auto018"), QStringLiteral("Tamaño"), QStringLiteral("Size"), QStringLiteral("大小")),
         trk(QStringLiteral("t_poolcrt_auto034"), QStringLiteral("Tipo partición"), QStringLiteral("Partition type"), QStringLiteral("分区类型")),
-        trk(QStringLiteral("t_poolcrt_auto035"), QStringLiteral("Montada"), QStringLiteral("Mounted"), QStringLiteral("已挂载")),
         trk(QStringLiteral("t_poolcrt_auto036"), QStringLiteral("En pool"), QStringLiteral("In pool"), QStringLiteral("在池中")),
     });
     for (int c = 0; c < devicesTree->columnCount(); ++c) {
@@ -1220,7 +1285,6 @@ void MainWindow::createPoolForSelectedConnection() {
     devicesTree->setDropIndicatorShown(false);
     devicesTree->setDragDropMode(QAbstractItemView::NoDragDrop);
     const QColor stRed("#ffcccc");
-    const QColor stYellow("#fff5bf");
     const QColor stGreen("#d7f7d7");
 
     struct DeviceRenderRow {
@@ -1228,12 +1292,11 @@ void MainWindow::createPoolForSelectedConnection() {
         QString stateText;
         QString detailText;
         QColor bgColor;
-        int colorRank{2}; // 0=green, 1=yellow, 2=red
+        int colorRank{1}; // 0=green, 1=red
         bool selectable{true};
     };
     QVector<DeviceRenderRow> renderRows;
     renderRows.reserve(devicesByPath.size());
-    QSet<QString> yellowDevicePaths;
     QMap<QString, DeviceRenderRow> renderRowsByPath;
     QMap<QString, QStringList> childPathsByRoot;
     QStringList paths = devicesByPath.keys();
@@ -1331,6 +1394,8 @@ void MainWindow::createPoolForSelectedConnection() {
         const bool macImportedPoolVirtualDisk =
             isMacConn && isDiskRoot
             && importedPoolNames.contains(e.fsType.trimmed().toLower());
+        const bool macSynthesizedDevice =
+            isMacConn && e.synthesized;
         const bool macApfsRootBlocked =
             isMacConn && isDiskRoot
             && (isMacDisk0Root || e.synthesized || macRootHasApfsChildren || isApfsLikeFsType(e.fsType));
@@ -1340,13 +1405,16 @@ void MainWindow::createPoolForSelectedConnection() {
             rr.bgColor = stGreen;
             rr.colorRank = 0;
             rr.selectable = true;
-        } else if (protectedMount || e.inPool || macApfsRootBlocked || macImportedPoolVirtualDisk) {
+        } else if (protectedMount || e.inPool || macApfsRootBlocked || macImportedPoolVirtualDisk || macSynthesizedDevice) {
             rr.stateText = trk(QStringLiteral("t_poolcrt_auto022"), QStringLiteral("EN_POOL"), QStringLiteral("IN_POOL"), QStringLiteral("在池中"));
             if (protectedMount) {
                 rr.stateText = trk(QStringLiteral("t_poolcrt_auto023"), QStringLiteral("SISTEMA"), QStringLiteral("SYSTEM"), QStringLiteral("系统"));
                 rr.detailText = trk(QStringLiteral("t_poolcrt_auto024"), QStringLiteral("Dispositivo de sistema (/ /boot /boot/efi o SWAP)"),
                                     QStringLiteral("System device (/ /boot /boot/efi or SWAP)"),
                                     QStringLiteral("系统设备（/ /boot /boot/efi 或 SWAP）"));
+            } else if (macSynthesizedDevice && !isDiskRoot) {
+                rr.stateText = QStringLiteral("POOL");
+                rr.detailText = QStringLiteral("Partición de disco sintetizado por ZFS/macOS");
             } else if (macImportedPoolVirtualDisk) {
                 rr.stateText = QStringLiteral("POOL");
                 rr.detailText = QStringLiteral("Disco virtual sintetizado por ZFS para un pool ya importado");
@@ -1366,12 +1434,6 @@ void MainWindow::createPoolForSelectedConnection() {
             rr.bgColor = stRed;
             rr.colorRank = 2;
             rr.selectable = false;
-        } else if (e.mounted || (!e.mountpoint.isEmpty() && e.mountpoint != QStringLiteral("-"))) {
-            rr.stateText = trk(QStringLiteral("t_poolcrt_auto027"), QStringLiteral("MONTADO"), QStringLiteral("MOUNTED"), QStringLiteral("已挂载"));
-            rr.detailText = e.mountpoint;
-            rr.bgColor = stYellow;
-            rr.colorRank = 1;
-            yellowDevicePaths.insert(e.path);
         } else {
             rr.stateText = trk(QStringLiteral("t_poolcrt_auto028"), QStringLiteral("LIBRE"), QStringLiteral("FREE"), QStringLiteral("空闲"));
             if (e.zfsSignature) {
@@ -1393,7 +1455,7 @@ void MainWindow::createPoolForSelectedConnection() {
     }
     std::sort(renderRows.begin(), renderRows.end(), [](const DeviceRenderRow& a, const DeviceRenderRow& b) {
         if (a.colorRank != b.colorRank) {
-            return a.colorRank < b.colorRank; // green, yellow, red
+            return a.colorRank < b.colorRank; // green, red
         }
         return a.entry.path < b.entry.path;
     });
@@ -1404,12 +1466,10 @@ void MainWindow::createPoolForSelectedConnection() {
         item->setText(0, e.path);
         item->setText(1, e.size);
         item->setText(2, e.fsType);
-        item->setText(4, e.inPool ? QStringLiteral("Sí") : QStringLiteral("No"));
+        item->setText(3, e.inPool ? QStringLiteral("Sí") : QStringLiteral("No"));
         item->setData(0, kRoleDevicePath, e.path);
         item->setData(0, kRoleSelectable, rr.selectable);
         item->setData(0, kRoleIntrinsicSelectable, rr.selectable);
-        item->setData(0, kRoleMounted, e.mounted || (!e.mountpoint.isEmpty() && e.mountpoint != QStringLiteral("-")));
-        item->setData(0, kRoleMountpoint, e.mountpoint);
         item->setData(0, kRoleDevType, e.devType);
         Qt::ItemFlags flags = item->flags() | Qt::ItemIsSelectable | Qt::ItemIsEnabled;
         if (rr.selectable) {
@@ -1426,26 +1486,6 @@ void MainWindow::createPoolForSelectedConnection() {
             item->setBackground(c, rr.bgColor);
         }
         return item;
-    };
-
-    auto updateMountedWidget = [&](QTreeWidgetItem* item) {
-        if (!item) {
-            return;
-        }
-        auto* combo = qobject_cast<QComboBox*>(devicesTree->itemWidget(item, 3));
-        if (!combo) {
-            combo = new QComboBox(devicesTree->viewport());
-            combo->addItem(QStringLiteral("No"));
-            combo->addItem(QStringLiteral("Sí"));
-            combo->setFocusPolicy(Qt::NoFocus);
-            devicesTree->setItemWidget(item, 3, combo);
-        }
-        combo->setProperty("zfsmgr_device_path", item->data(0, kRoleDevicePath));
-        const bool mounted = item->data(0, kRoleMounted).toBool();
-        QSignalBlocker blocker(combo);
-        combo->setCurrentText(mounted ? QStringLiteral("Sí") : QStringLiteral("No"));
-        const QString devType = item->data(0, kRoleDevType).toString();
-        combo->setEnabled(devType != QStringLiteral("disk") || isMacConn);
     };
 
     auto applyRowColor = [&](QTreeWidgetItem* item, const QColor& color) {
@@ -1482,7 +1522,6 @@ void MainWindow::createPoolForSelectedConnection() {
     for (const DeviceRenderRow& rr : rootRows) {
         auto* item = createDeviceTreeItem(rr);
         devicesTree->addTopLevelItem(item);
-        updateMountedWidget(item);
         rootItemsByPath.insert(rr.entry.path, item);
         if (!rr.entry.resolvedPath.isEmpty()) {
             rootItemsByPath.insert(rr.entry.resolvedPath, item);
@@ -1509,14 +1548,12 @@ void MainWindow::createPoolForSelectedConnection() {
         }
         auto* childItem = createDeviceTreeItem(rr);
         parentItem->addChild(childItem);
-        updateMountedWidget(childItem);
     }
     devicesTree->expandAll();
     devicesTree->setColumnWidth(0, 360);
     devicesTree->resizeColumnToContents(1);
     devicesTree->setColumnWidth(2, 180);
     devicesTree->setColumnWidth(3, 90);
-    devicesTree->setColumnWidth(4, 90);
     devicesLayout->addWidget(devicesTree, 1);
     splitter->addWidget(leftPane);
     splitter->addWidget(devicesBox);
@@ -1528,122 +1565,6 @@ void MainWindow::createPoolForSelectedConnection() {
     poolCmdPreview->setWordWrap(true);
     poolCmdPreview->setTextInteractionFlags(Qt::TextSelectableByMouse);
     lay->addWidget(poolCmdPreview, 0);
-
-    auto handleMountedChoice = [&](QTreeWidgetItem* item, QComboBox* combo) {
-        if (!item || !combo) {
-            return;
-        }
-        const bool mounted = item->data(0, kRoleMounted).toBool();
-        const QString chosen = combo->currentText().trimmed();
-        if (!mounted && chosen == QStringLiteral("Sí")) {
-            QSignalBlocker blocker(combo);
-            combo->setCurrentText(QStringLiteral("No"));
-            QMessageBox::information(&dlg, QStringLiteral("ZFSMgr"),
-                                     QStringLiteral("Desde aquí solo se permite desmontar."));
-            return;
-        }
-        if (!mounted || chosen != QStringLiteral("No")) {
-            return;
-        }
-
-        const QString path = item->data(0, kRoleDevicePath).toString().trimmed();
-        const QString devType = item->data(0, kRoleDevType).toString().trimmed();
-        QString unmountCmd;
-        if (isMacConn) {
-            unmountCmd = (devType == QStringLiteral("disk"))
-                             ? QStringLiteral("diskutil unmountDisk %1").arg(shSingleQuote(path))
-                             : QStringLiteral("diskutil unmount %1").arg(shSingleQuote(path));
-        } else if (!isWindowsConnection(p)) {
-            unmountCmd = QStringLiteral("umount %1").arg(shSingleQuote(path));
-        } else {
-            QSignalBlocker blocker(combo);
-            combo->setCurrentText(QStringLiteral("Sí"));
-            return;
-        }
-
-        QString cmdOut;
-        QString cmdErr;
-        int rc = -1;
-        const QString fullCmd = withSudo(p, unmountCmd);
-        if (!runSsh(p, fullCmd, 30000, cmdOut, cmdErr, rc) || rc != 0) {
-            QSignalBlocker blocker(combo);
-            combo->setCurrentText(QStringLiteral("Sí"));
-            QMessageBox::warning(
-                &dlg, QStringLiteral("ZFSMgr"),
-                QStringLiteral("No se pudo desmontar %1:\n%2")
-                    .arg(path, cmdErr.isEmpty() ? QStringLiteral("exit %1").arg(rc) : cmdErr));
-            return;
-        }
-
-        item->setData(0, kRoleMounted, false);
-        item->setData(0, kRoleMountpoint, QStringLiteral("-"));
-        yellowDevicePaths.remove(path);
-        if (auto it = devicesByPath.find(path); it != devicesByPath.end()) {
-            it->mounted = false;
-            it->mountpoint = QStringLiteral("-");
-        }
-        const bool selectable = item->data(0, kRoleSelectable).toBool();
-        const bool inPool = item->text(4) == QStringLiteral("Sí");
-        applyRowColor(item, (selectable && !inPool) ? stGreen : stRed);
-        item->setToolTip(0, QStringLiteral("Disponible | %1").arg(path));
-        item->setToolTip(2, item->toolTip(2));
-        QSignalBlocker blocker(combo);
-        combo->setCurrentText(QStringLiteral("No"));
-    };
-
-    auto findDeviceItemByPath = [&](const QString& wantedPath) -> QTreeWidgetItem* {
-        if (wantedPath.trimmed().isEmpty()) {
-            return nullptr;
-        }
-        std::function<QTreeWidgetItem*(QTreeWidgetItem*)> visit = [&](QTreeWidgetItem* node) -> QTreeWidgetItem* {
-            if (!node) {
-                return nullptr;
-            }
-            if (node->data(0, kRoleDevicePath).toString().trimmed() == wantedPath) {
-                return node;
-            }
-            for (int i = 0; i < node->childCount(); ++i) {
-                if (QTreeWidgetItem* found = visit(node->child(i))) {
-                    return found;
-                }
-            }
-            return nullptr;
-        };
-        for (int i = 0; i < devicesTree->topLevelItemCount(); ++i) {
-            if (QTreeWidgetItem* found = visit(devicesTree->topLevelItem(i))) {
-                return found;
-            }
-        }
-        return nullptr;
-    };
-
-    std::function<void(QTreeWidgetItem*)> bindMountedWidgets = [&](QTreeWidgetItem* item) {
-        if (!item) {
-            return;
-        }
-        if (auto* combo = qobject_cast<QComboBox*>(devicesTree->itemWidget(item, 3))) {
-            QObject::connect(combo, &QComboBox::currentTextChanged, &dlg, [&, combo](const QString&) {
-                if (!devicesTree) {
-                    return;
-                }
-                const QString devicePath = combo->property("zfsmgr_device_path").toString().trimmed();
-                if (devicePath.isEmpty()) {
-                    return;
-                }
-                QTreeWidgetItem* currentItem = findDeviceItemByPath(devicePath);
-                if (!currentItem) {
-                    return;
-                }
-                handleMountedChoice(currentItem, combo);
-            });
-        }
-        for (int i = 0; i < item->childCount(); ++i) {
-            bindMountedWidgets(item->child(i));
-        }
-    };
-    for (int i = 0; i < devicesTree->topLevelItemCount(); ++i) {
-        bindMountedWidgets(devicesTree->topLevelItem(i));
-    }
 
     bool syncDeviceChecks = false;
     connect(devicesTree, &QTreeWidget::itemChanged, &dlg, [&](QTreeWidgetItem* item, int column) {
@@ -1934,9 +1855,8 @@ void MainWindow::createPoolForSelectedConnection() {
                     item->setBackground(c, QColor("#e0e0e0"));
                 }
             } else if (intrinsicSelectable) {
-                const bool mounted = item->data(0, kRoleMounted).toBool();
-                const bool inPool = item->text(4) == QStringLiteral("Sí");
-                applyRowColor(item, inPool ? stRed : (mounted ? stYellow : stGreen));
+                const bool inPool = item->text(3) == QStringLiteral("Sí");
+                applyRowColor(item, inPool ? stRed : stGreen);
             }
             for (int i = 0; i < item->childCount(); ++i) {
                 visit(item->child(i));
@@ -2456,21 +2376,6 @@ void MainWindow::createPoolForSelectedConnection() {
         }
         const QString createCmd = parts.join(' ');
         QString cmd = createCmd;
-        if (isMacConn) {
-            QStringList selectedYellow;
-            for (const QString& d : selectedDevices) {
-                if (yellowDevicePaths.contains(d)) {
-                    selectedYellow << d;
-                }
-            }
-            if (!selectedYellow.isEmpty()) {
-                QStringList pre;
-                for (const QString& d : selectedYellow) {
-                    pre << QStringLiteral("diskutil unmount %1").arg(shSingleQuote(d));
-                }
-                cmd = QStringLiteral("set -e; %1; %2").arg(pre.join(QStringLiteral("; ")), createCmd);
-            }
-        }
         ConnectionProfile execProfile = p;
         if (isLocalConnection(execProfile) && !isWindowsConnection(execProfile)) {
             execProfile.useSudo = true;
