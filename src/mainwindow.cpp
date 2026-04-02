@@ -2199,10 +2199,10 @@ QStringList MainWindow::poolContextMenuLabelsForTest(const QString& poolName, bo
         zfsmgr::uilogic::buildPoolRootMenuState(poolAction, QStringLiteral("ONLINE"), true);
     Q_UNUSED(menuState);
     return {
-        trk(QStringLiteral("t_refresh_btn001"),
-            QStringLiteral("Actualizar"),
-            QStringLiteral("Refresh"),
-            QStringLiteral("刷新")),
+        trk(QStringLiteral("t_pool_refresh_status001"),
+            QStringLiteral("Actualizar estado"),
+            QStringLiteral("Refresh status"),
+            QStringLiteral("刷新状态")),
         trk(QStringLiteral("t_import_btn001"),
             QStringLiteral("Importar"),
             QStringLiteral("Import"),
@@ -2220,8 +2220,8 @@ QStringList MainWindow::poolContextMenuLabelsForTest(const QString& poolName, bo
         QStringLiteral("Reguid"),
         QStringLiteral("Trim"),
         QStringLiteral("Initialize"),
+        QStringLiteral("Clear"),
         QStringLiteral("Destroy"),
-        QStringLiteral("Mostrar Información del Pool"),
         QStringLiteral("Mostrar Datasets programados"),
     };
 }

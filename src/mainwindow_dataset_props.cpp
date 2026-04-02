@@ -1414,11 +1414,13 @@ void MainWindow::applyDatasetPropertyChanges() {
         };
         saveCurrentConnContentDraft();
 
-        QString gsaValidationError;
-        if (!validatePendingGsaDrafts(&gsaValidationError)) {
-            QMessageBox::warning(this, QStringLiteral("ZFSMgr"), gsaValidationError);
-            updateApplyPropsButtonState();
-            return;
+        if (hasPendingConnContentDrafts) {
+            QString gsaValidationError;
+            if (!validatePendingGsaDrafts(&gsaValidationError)) {
+                QMessageBox::warning(this, QStringLiteral("ZFSMgr"), gsaValidationError);
+                updateApplyPropsButtonState();
+                return;
+            }
         }
 
         struct TransientBusyGuard {
@@ -1982,6 +1984,15 @@ void MainWindow::applyDatasetPropertyChanges() {
                 continue;
             }
             if (!runLocalCommand(draft.displayLabel, draft.command, draft.timeoutMs, false, draft.streamProgress)) {
+                QMessageBox::warning(
+                    this,
+                    QStringLiteral("ZFSMgr"),
+                    trk(QStringLiteral("t_pending_shell_failed_001"),
+                        QStringLiteral("Error ejecutando cambio pendiente:\n%1\n\nRevisa el log para más detalles."),
+                        QStringLiteral("Error executing pending change:\n%1\n\nCheck logs for more details."),
+                        QStringLiteral("执行待处理更改时出错：\n%1\n\n请查看日志了解更多详情。"))
+                        .arg(draft.displayLabel.trimmed().isEmpty() ? draft.command.trimmed()
+                                                                     : draft.displayLabel.trimmed()));
                 updateApplyPropsButtonState();
                 return;
             }

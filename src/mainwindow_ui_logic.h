@@ -16,6 +16,7 @@ struct PoolRootMenuState {
     bool canReguid{false};
     bool canTrim{false};
     bool canInitialize{false};
+    bool canClear{false};
     bool canDestroy{false};
 };
 

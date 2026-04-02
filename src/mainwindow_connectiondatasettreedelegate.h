@@ -46,14 +46,13 @@ private:
         QAction* reguid{nullptr};
         QAction* trim{nullptr};
         QAction* initialize{nullptr};
+        QAction* clear{nullptr};
         QAction* destroy{nullptr};
-        QAction* showPoolInfo{nullptr};
         QAction* showAutoGsa{nullptr};
     };
 
     struct InlineVisibilityMenuActions {
         QAction* manage{nullptr};
-        QAction* showPoolInfo{nullptr};
         QAction* showInlineProps{nullptr};
         QAction* showInlinePerms{nullptr};
         QAction* showInlineGsa{nullptr};

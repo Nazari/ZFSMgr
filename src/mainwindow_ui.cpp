@@ -868,10 +868,8 @@ bool MainWindow::showInlinePermissionsNodesForTree(const QTreeWidget* tree) cons
 }
 
 bool MainWindow::showPoolInfoNodeForTree(const QTreeWidget* tree) const {
-    if (tree == m_connContentTree && m_topDatasetPane) {
-        return m_topDatasetPane->visualOptions().showPoolInfo;
-    }
-    return m_showPoolInfoNodeTop;
+    Q_UNUSED(tree);
+    return true;
 }
 
 bool MainWindow::showInlineGsaNodeForTree(const QTreeWidget* tree) const {
@@ -896,12 +894,7 @@ void MainWindow::setShowInlineGsaNodeForTree(QTreeWidget* tree, bool visible) {
 
 void MainWindow::setShowPoolInfoNodeForTree(const QTreeWidget* tree, bool visible) {
     Q_UNUSED(tree);
-    m_showPoolInfoNodeTop = visible;
-    if (m_topDatasetPane) {
-        auto options = m_topDatasetPane->visualOptions();
-        options.showPoolInfo = visible;
-        m_topDatasetPane->setVisualOptions(options);
-    }
+    Q_UNUSED(visible);
 }
 
 void MainWindow::buildUi() {
@@ -1037,13 +1030,10 @@ void MainWindow::buildUi() {
                    && !owner->data(0, kIsPoolRootRole).toBool()) {
                 owner = owner->parent();
             }
-            const bool poolMode = owner && owner->data(0, kIsPoolRootRole).toBool();
             const QString token = connContentTokenForTree(tree);
-            if (poolMode) {
-                syncConnContentPoolColumnsFor(tree, token);
-            } else {
-                syncConnContentPropertyColumnsFor(tree, token);
-            }
+            Q_UNUSED(owner);
+            syncConnContentPropertyColumnsFor(tree, token);
+            syncConnContentPoolColumnsFor(tree, token);
             restoreTopTreeStateForConnection(connIdx);
         };
         refreshOneConnContentTree(m_connContentTree);

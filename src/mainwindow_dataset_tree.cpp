@@ -2154,8 +2154,6 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
         m_syncingConnContentColumns = false;
         return;
     }
-    const bool showPoolInfo = showPoolInfoNodeForTree(tree);
-
     auto filterPropsByWanted = [](const QStringList& available, const QStringList& wanted) {
         QStringList filtered;
         for (const QString& desired : wanted) {
@@ -2421,63 +2419,58 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
             }
         }
         QTreeWidgetItem* infoNode = blockForKey(QString::fromLatin1(kPoolBlockInfoKey));
-        if (showPoolInfo) {
-            if (!infoNode) {
-                infoNode = new QTreeWidgetItem();
-                infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
-                infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);
-                infoNode->setExpanded(true);
-                root->insertChild(0, infoNode);
-            }
-            infoNode->setText(0, QStringLiteral("Pool Information"));
+        if (!infoNode) {
+            infoNode = new QTreeWidgetItem();
+            infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
+            infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);
+            infoNode->setExpanded(true);
+            root->insertChild(0, infoNode);
+        }
+        infoNode->setText(0, QStringLiteral("Pool Information"));
 
+        addSectionRows(infoNode,
+                       trk(QStringLiteral("t_pool_props_section_001"),
+                           QStringLiteral("Propiedades del pool"),
+                           QStringLiteral("Pool properties"),
+                           QStringLiteral("存储池属性")),
+                       mainProps,
+                       &values,
+                       false,
+                       true,
+                       true);
+        for (const InlinePropGroupConfig& cfg : m_poolInlinePropGroups) {
+            if (cfg.name.trimmed().isEmpty()
+                || cfg.name.trimmed().compare(QStringLiteral("__all__"), Qt::CaseInsensitive) == 0) {
+                continue;
+            }
             addSectionRows(infoNode,
-                           trk(QStringLiteral("t_pool_props_section_001"),
-                               QStringLiteral("Propiedades del pool"),
-                               QStringLiteral("Pool properties"),
-                               QStringLiteral("存储池属性")),
-                           mainProps,
+                           cfg.name,
+                           filterPropsByWanted(props, cfg.props),
                            &values,
                            false,
                            true,
-                           true);
-            for (const InlinePropGroupConfig& cfg : m_poolInlinePropGroups) {
-                if (cfg.name.trimmed().isEmpty()
-                    || cfg.name.trimmed().compare(QStringLiteral("__all__"), Qt::CaseInsensitive) == 0) {
-                    continue;
-                }
-                addSectionRows(infoNode,
-                               cfg.name,
-                               filterPropsByWanted(props, cfg.props),
-                               &values,
-                               false,
-                               true,
-                               false);
-            }
-            addSectionRows(infoNode,
-                           trk(QStringLiteral("t_pool_caps_on001"),
-                               QStringLiteral("Capacidades activas"),
-                               QStringLiteral("Enabled features"),
-                               QStringLiteral("已启用能力")),
-                           featureEnabled,
-                           nullptr,
-                           true,
-                           true,
                            false);
-            addSectionRows(infoNode,
-                           trk(QStringLiteral("t_pool_caps_off01"),
-                               QStringLiteral("Capacidades deshabilitadas"),
-                               QStringLiteral("Disabled features"),
-                               QStringLiteral("已禁用能力")),
-                           featureDisabled,
-                           nullptr,
-                           true,
-                           true,
-                           true);
-        } else if (infoNode) {
-            delete root->takeChild(root->indexOfChild(infoNode));
-            infoNode = nullptr;
         }
+        addSectionRows(infoNode,
+                       trk(QStringLiteral("t_pool_caps_on001"),
+                           QStringLiteral("Capacidades activas"),
+                           QStringLiteral("Enabled features"),
+                           QStringLiteral("已启用能力")),
+                       featureEnabled,
+                       nullptr,
+                       true,
+                       true,
+                       false);
+        addSectionRows(infoNode,
+                       trk(QStringLiteral("t_pool_caps_off01"),
+                           QStringLiteral("Capacidades deshabilitadas"),
+                           QStringLiteral("Disabled features"),
+                           QStringLiteral("已禁用能力")),
+                       featureDisabled,
+                       nullptr,
+                       true,
+                       true,
+                       true);
         QStringList autoSnapshotDatasets;
         for (auto it = autoSnapshotPropsByDatasetForPool.cbegin(); it != autoSnapshotPropsByDatasetForPool.cend(); ++it) {
             const QString enabledKey = findCaseInsensitiveMapKey(it.value(), QStringLiteral("org.fc16.gsa:activado"));
@@ -3505,17 +3498,19 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
     detectedLine->setText(0, listOrNone(st.detectedUnixCommands));
     detectedNode->setExpanded(infoChildExpandedByTitle.value(detectedNode->text(0).trimmed(), false));
 
-    auto* missingNode = new QTreeWidgetItem(infoNode);
-    missingNode->setFlags(missingNode->flags() & ~Qt::ItemIsUserCheckable);
-    missingNode->setData(0, kConnContentNodeRole, true);
-    missingNode->setData(0, kConnIdxRole, connIdx);
-    missingNode->setText(0, QStringLiteral("Comandos no detectados"));
-    auto* missingLine = new QTreeWidgetItem(missingNode);
-    missingLine->setFlags(missingLine->flags() & ~Qt::ItemIsUserCheckable);
-    missingLine->setData(0, kConnContentNodeRole, true);
-    missingLine->setData(0, kConnIdxRole, connIdx);
-    missingLine->setText(0, listOrNone(st.missingUnixCommands));
-    missingNode->setExpanded(infoChildExpandedByTitle.value(missingNode->text(0).trimmed(), false));
+    if (!st.missingUnixCommands.isEmpty()) {
+        auto* missingNode = new QTreeWidgetItem(infoNode);
+        missingNode->setFlags(missingNode->flags() & ~Qt::ItemIsUserCheckable);
+        missingNode->setData(0, kConnContentNodeRole, true);
+        missingNode->setData(0, kConnIdxRole, connIdx);
+        missingNode->setText(0, QStringLiteral("Comandos no detectados"));
+        auto* missingLine = new QTreeWidgetItem(missingNode);
+        missingLine->setFlags(missingLine->flags() & ~Qt::ItemIsUserCheckable);
+        missingLine->setData(0, kConnContentNodeRole, true);
+        missingLine->setData(0, kConnIdxRole, connIdx);
+        missingLine->setText(0, st.missingUnixCommands.join(QStringLiteral(", ")));
+        missingNode->setExpanded(infoChildExpandedByTitle.value(missingNode->text(0).trimmed(), false));
+    }
 
     QVector<QPair<QString, QString>> nonImportablePools;
     for (const PoolImportable& pool : st.importablePools) {
@@ -3665,7 +3660,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         poolRoot->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
         const QString tooltipHtml = cachedPoolStatusTooltipHtml(connIdx, poolName);
         poolRoot->setToolTip(0, tooltipHtml.isEmpty() ? poolRoot->text(0) : tooltipHtml);
-        if (poolImported && showPoolInfoNodeForTree(tree)) {
+        if (poolImported) {
             auto* infoNode = new QTreeWidgetItem(poolRoot);
             infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
             infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);
@@ -3782,7 +3777,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         poolRoot->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
         const QString tooltipHtml = cachedPoolStatusTooltipHtml(connIdx, poolName);
         poolRoot->setToolTip(0, tooltipHtml.isEmpty() ? poolRoot->text(0) : tooltipHtml);
-        if (poolImported && showPoolInfoNodeForTree(tree)) {
+        if (poolImported) {
             auto* infoNode = new QTreeWidgetItem(poolRoot);
             infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
             infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);

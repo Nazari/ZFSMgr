@@ -200,12 +200,8 @@ void MainWindow::loadUiSettings() {
         ini.value(QStringLiteral("show_inline_gsa_node_top"), legacyShowInlineGsaNode).toBool();
     m_showInlineGsaNodeBottom =
         ini.value(QStringLiteral("show_inline_gsa_node_bottom"), legacyShowInlineGsaNode).toBool();
-    const bool legacyShowPoolInfoNode =
-        ini.value(QStringLiteral("show_pool_info_node"), true).toBool();
-    m_showPoolInfoNodeTop =
-        ini.value(QStringLiteral("show_pool_info_node_top"), legacyShowPoolInfoNode).toBool();
-    m_showPoolInfoNodeBottom =
-        ini.value(QStringLiteral("show_pool_info_node_bottom"), legacyShowPoolInfoNode).toBool();
+    m_showPoolInfoNodeTop = true;
+    m_showPoolInfoNodeBottom = true;
     m_connPropColumnsSetting = ini.value(QStringLiteral("conn_prop_columns"), 4).toInt();
     m_persistedTopDetailConnectionKey =
         ini.value(QStringLiteral("top_detail_connection")).toString().trimmed().toLower();
@@ -274,13 +270,9 @@ void MainWindow::saveUiSettings() const {
     const bool showInlineGsaNodeTop =
         m_topDatasetPane ? m_topDatasetPane->visualOptions().showInlineGsa
                          : m_showInlineGsaNodeTop;
-    const bool showPoolInfoNodeTop =
-        m_topDatasetPane ? m_topDatasetPane->visualOptions().showPoolInfo
-                         : m_showPoolInfoNodeTop;
     ini.setValue(QStringLiteral("show_inline_property_nodes_top"), showInlinePropertyNodesTop);
     ini.setValue(QStringLiteral("show_inline_permissions_nodes_top"), showInlinePermissionsNodesTop);
     ini.setValue(QStringLiteral("show_inline_gsa_node_top"), showInlineGsaNodeTop);
-    ini.setValue(QStringLiteral("show_pool_info_node_top"), showPoolInfoNodeTop);
     ini.setValue(QStringLiteral("conn_prop_columns"), qBound(4, m_connPropColumnsSetting, 16));
     ini.setValue(QStringLiteral("top_detail_connection"),
                  connPersistKeyFromProfiles(m_profiles, m_topDetailConnIdx));

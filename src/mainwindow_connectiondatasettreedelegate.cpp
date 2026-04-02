@@ -481,11 +481,12 @@ MainWindowConnectionDatasetTreeDelegate::buildPoolRootMenu(QMenu& menu, QTreeWid
     if (!m_mainWindow) {
         return actions;
     }
+    Q_UNUSED(tree);
     actions.update = menu.addAction(
-        m_mainWindow->trk(QStringLiteral("t_refresh_btn001"),
-                          QStringLiteral("Actualizar"),
-                          QStringLiteral("Refresh"),
-                          QStringLiteral("刷新")));
+        m_mainWindow->trk(QStringLiteral("t_pool_refresh_status001"),
+                          QStringLiteral("Actualizar estado"),
+                          QStringLiteral("Refresh status"),
+                          QStringLiteral("刷新状态")));
     actions.importPool = menu.addAction(
         m_mainWindow->trk(QStringLiteral("t_import_btn001"),
                           QStringLiteral("Importar"),
@@ -507,10 +508,8 @@ MainWindowConnectionDatasetTreeDelegate::buildPoolRootMenu(QMenu& menu, QTreeWid
     actions.reguid = management->addAction(QStringLiteral("Reguid"));
     actions.trim = management->addAction(QStringLiteral("Trim"));
     actions.initialize = management->addAction(QStringLiteral("Initialize"));
+    actions.clear = management->addAction(QStringLiteral("Clear"));
     actions.destroy = management->addAction(QStringLiteral("Destroy"));
-    actions.showPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del Pool"));
-    actions.showPoolInfo->setCheckable(true);
-    actions.showPoolInfo->setChecked(m_mainWindow->showPoolInfoNodeForTree(tree));
     return actions;
 }
 
@@ -529,11 +528,8 @@ MainWindowConnectionDatasetTreeDelegate::buildInlineVisibilityMenu(QMenu& menu,
             m_mainWindow->trk(QStringLiteral("t_manage_props_vis001"),
                               QStringLiteral("Gestionar visualización de propiedades")));
     }
-    if (includePoolInfo) {
-        actions.showPoolInfo = menu.addAction(QStringLiteral("Mostrar Información del Pool"));
-        actions.showPoolInfo->setCheckable(true);
-        actions.showPoolInfo->setChecked(m_mainWindow->showPoolInfoNodeForTree(tree));
-    }
+    Q_UNUSED(includePoolInfo);
+    Q_UNUSED(tree);
     Q_UNUSED(includeAutoGsa);
     return actions;
 }
@@ -678,15 +674,11 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
         alignDetailContextToToken(tree, token);
         m_mainWindow->saveConnContentTreeStateFor(tree, token);
         rebuildInlineConnTree(tree, token);
-        if (m_mainWindow->showPoolInfoNodeForTree(tree)) {
-            m_mainWindow->syncConnContentPoolColumnsFor(tree, token);
-        }
+        m_mainWindow->syncConnContentPoolColumnsFor(tree, token);
         rehydrateExpandedDatasetNodes(tree, token);
         m_mainWindow->restoreConnContentTreeStateFor(tree, token);
         refreshInlinePropsVisualBottom(tree, token);
-        if (m_mainWindow->showPoolInfoNodeForTree(tree)) {
-            m_mainWindow->syncConnContentPoolColumnsFor(tree, token);
-        }
+        m_mainWindow->syncConnContentPoolColumnsFor(tree, token);
         rehydrateExpandedDatasetNodes(tree, token);
         m_mainWindow->restoreConnContentTreeStateFor(tree, token);
         rematerializeVisiblePropertyNodes(tree, token);
@@ -2099,6 +2091,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         poolActions.reguid->setEnabled(poolMenuState.canReguid);
         poolActions.trim->setEnabled(poolMenuState.canTrim);
         poolActions.initialize->setEnabled(poolMenuState.canInitialize);
+        poolActions.clear->setEnabled(poolMenuState.canClear);
         poolActions.destroy->setEnabled(poolMenuState.canDestroy);
     }
 
@@ -2113,10 +2106,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         QAction* picked = menu.exec(tree->viewport()->mapToGlobal(pos));
         if (picked == inlineActions.manage) {
             manageInlinePropsVisualization(tree, item, true);
-        } else if (picked == inlineActions.showPoolInfo) {
-            focusContextItemForInlineVisibility(tree, item);
-            m_mainWindow->setShowPoolInfoNodeForTree(tree, inlineActions.showPoolInfo->isChecked());
-            applyInlineSectionVisibility(tree, menuToken);
         }
         return;
     }
@@ -2424,7 +2413,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         }
         if (isPoolRoot) {
             if (picked == poolActions.update && poolMenuState.canRefresh) {
-                m_mainWindow->refreshSelectedPoolDetails(true, true);
+                m_mainWindow->refreshPoolStatusNow(connIdx, poolName);
                 return;
             }
             if (picked == poolActions.importPool && poolMenuState.canImport && poolRow >= 0) {
@@ -2467,13 +2456,12 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 m_mainWindow->initializePoolFromRow(poolRow);
                 return;
             }
-            if (picked == poolActions.destroy && poolMenuState.canDestroy && poolRow >= 0) {
-                m_mainWindow->destroyPoolFromRow(poolRow);
+            if (picked == poolActions.clear && poolMenuState.canClear && poolRow >= 0) {
+                m_mainWindow->clearPoolFromRow(poolRow);
                 return;
             }
-            if (picked == poolActions.showPoolInfo) {
-                m_mainWindow->setShowPoolInfoNodeForTree(tree, poolActions.showPoolInfo->isChecked());
-                applyInlineSectionVisibility(tree, menuToken);
+            if (picked == poolActions.destroy && poolMenuState.canDestroy && poolRow >= 0) {
+                m_mainWindow->destroyPoolFromRow(poolRow);
                 return;
             }
         }

@@ -5,6 +5,7 @@
 #include <QBrush>
 #include <QApplication>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QColor>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -14,6 +15,7 @@
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPlainTextEdit>
@@ -36,6 +38,18 @@ constexpr int kIsPoolRootRole = Qt::UserRole + 12;
 QString importTargetForPoolEntry(const QString& poolGuid, const QString& poolName) {
     const QString guid = poolGuid.trimmed();
     return guid.isEmpty() ? poolName.trimmed() : guid;
+}
+
+QStringList csvArgs(const QString& raw) {
+    QStringList out;
+    const QStringList parts = raw.split(QLatin1Char(','), Qt::SkipEmptyParts);
+    for (const QString& part : parts) {
+        const QString t = part.trimmed();
+        if (!t.isEmpty()) {
+            out.push_back(t);
+        }
+    }
+    return out;
 }
 
 int selectedConnectionIndexFromTable(const QTableWidget* table) {
@@ -188,6 +202,69 @@ int MainWindow::selectedPoolRowFromTabs() const {
     return -1;
 }
 
+void MainWindow::refreshPoolStatusNow(int connIdx, const QString& poolName) {
+    const QString trimmedPool = poolName.trimmed();
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty()) {
+        return;
+    }
+
+    beginTransientUiBusy(trk(QStringLiteral("t_pool_refresh_status_busy001"),
+                             QStringLiteral("Actualizando estado del pool..."),
+                             QStringLiteral("Refreshing pool status..."),
+                             QStringLiteral("正在刷新池状态...")));
+    struct BusyGuard final {
+        MainWindow* self{nullptr};
+        ~BusyGuard() {
+            if (self) {
+                self->endTransientUiBusy();
+            }
+        }
+    } busyGuard{this};
+
+    const ConnectionProfile profile = m_profiles[connIdx];
+    QString out;
+    QString err;
+    int rc = -1;
+    const QString cmd = withSudo(
+        profile,
+        mwhelpers::withUnixSearchPathCommand(
+            QStringLiteral("zpool status -v %1").arg(shSingleQuote(trimmedPool))));
+    if (!runSsh(profile, cmd, 20000, out, err, rc) || rc != 0) {
+        const QString errText = err.trimmed().isEmpty() ? oneLine(out).trimmed() : err.trimmed();
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("No se pudo refrescar estado de pool %1 en %2: %3")
+                   .arg(trimmedPool, profile.name, errText));
+        QMessageBox::warning(this,
+                             trk(QStringLiteral("t_pool_refresh_status_fail_t1"),
+                                 QStringLiteral("Refresh status"),
+                                 QStringLiteral("Refresh status"),
+                                 QStringLiteral("刷新状态")),
+                             trk(QStringLiteral("t_pool_refresh_status_fail_q1"),
+                                 QStringLiteral("No se pudo obtener el estado del pool %1.\n%2"),
+                                 QStringLiteral("Could not get status for pool %1.\n%2"),
+                                 QStringLiteral("无法获取池 %1 的状态。\n%2"))
+                                 .arg(trimmedPool, errText));
+        return;
+    }
+
+    PoolDetailsCacheEntry entry = m_poolDetailsCache.value(poolDetailsCacheKey(connIdx, trimmedPool));
+    entry.loaded = true;
+    entry.statusText = out.trimmed();
+    m_poolDetailsCache.insert(poolDetailsCacheKey(connIdx, trimmedPool), entry);
+    if (connIdx >= 0 && connIdx < m_states.size()) {
+        m_states[connIdx].poolStatusByName.insert(trimmedPool, entry.statusText);
+    }
+    rebuildConnInfoFor(connIdx);
+    applyPoolRootTooltipToVisibleTrees(connIdx, trimmedPool, entry.statusText);
+    const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
+    if (m_connContentTree) {
+        syncConnContentPoolColumnsFor(m_connContentTree, token);
+    }
+    if (m_bottomConnContentTree && m_bottomConnContentTree != m_connContentTree) {
+        syncConnContentPoolColumnsFor(m_bottomConnContentTree, token);
+    }
+}
+
 void MainWindow::exportPoolFromRow(int row) {
     if (actionsLocked()) {
         return;
@@ -209,17 +286,61 @@ void MainWindow::exportPoolFromRow(int row) {
     if (idx < 0) {
         return;
     }
-    const auto confirm = QMessageBox::question(
-        this,
-        trk(QStringLiteral("t_export_pool_t1"), QStringLiteral("Exportar pool"), QStringLiteral("Export pool"), QStringLiteral("导出池")),
-        trk(QStringLiteral("t_export_pool_q1"), QStringLiteral("¿Exportar pool %1 en %2?"),
-            QStringLiteral("Export pool %1 on %2?"),
-            QStringLiteral("在 %2 上导出池 %1？")).arg(poolName, connName),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm != QMessageBox::Yes) {
+    QDialog dlg(this);
+    dlg.setModal(true);
+    dlg.setWindowTitle(
+        trk(QStringLiteral("t_pool_export_dlg_t1"),
+            QStringLiteral("Exportar pool: %1::%2"),
+            QStringLiteral("Export pool: %1::%2"))
+            .arg(connName, poolName));
+    auto* lay = new QVBoxLayout(&dlg);
+    auto* form = new QFormLayout();
+    QCheckBox* allPoolsCb = new QCheckBox(trk(QStringLiteral("t_pool_export_all_001"),
+                                              QStringLiteral("Exportar todos los pools (-a)"),
+                                              QStringLiteral("Export all pools (-a)")),
+                                          &dlg);
+    QCheckBox* forceCb = new QCheckBox(trk(QStringLiteral("t_pool_export_force_001"),
+                                           QStringLiteral("Forzar desmontaje (-f)"),
+                                           QStringLiteral("Force unmount (-f)")),
+                                       &dlg);
+    QLineEdit* poolsEd = new QLineEdit(&dlg);
+    poolsEd->setPlaceholderText(trk(QStringLiteral("t_pool_export_pools_ph_001"),
+                                    QStringLiteral("pool2, pool3, ... (opcional)"),
+                                    QStringLiteral("pool2, pool3, ... (optional)")));
+    QLineEdit* extraEd = new QLineEdit(&dlg);
+    allPoolsCb->setToolTip(trk(QStringLiteral("t_pool_export_all_tt_001"),
+                               QStringLiteral("Si se marca, ejecuta export global y no usa el pool seleccionado."),
+                               QStringLiteral("If checked, performs global export and ignores selected pool.")));
+    forceCb->setToolTip(trk(QStringLiteral("t_pool_export_force_tt_001"),
+                            QStringLiteral("Fuerza el desmontaje de datasets ocupados durante la exportación."),
+                            QStringLiteral("Force unmount of busy datasets while exporting.")));
+    auto* poolsLbl = new QLabel(trk(QStringLiteral("t_pool_export_pools_lbl_001"),
+                                    QStringLiteral("Pools adicionales"),
+                                    QStringLiteral("Additional pools")), &dlg);
+    poolsLbl->setToolTip(trk(QStringLiteral("t_pool_export_pools_tt_001"),
+                             QStringLiteral("Lista opcional (coma-separada) de pools extra a exportar."),
+                             QStringLiteral("Optional comma-separated list of extra pools to export.")));
+    poolsEd->setToolTip(poolsLbl->toolTip());
+    auto* extraLbl = new QLabel(trk(QStringLiteral("t_pool_param_extra_001"),
+                                    QStringLiteral("Args extra"),
+                                    QStringLiteral("Extra args")), &dlg);
+    extraLbl->setToolTip(trk(QStringLiteral("t_pool_param_extra_tt_001"),
+                             QStringLiteral("Argumentos adicionales avanzados que se añadirán al comando."),
+                             QStringLiteral("Advanced extra arguments appended to the command.")));
+    extraEd->setToolTip(extraLbl->toolTip());
+    form->addRow(QString(), allPoolsCb);
+    form->addRow(QString(), forceCb);
+    form->addRow(poolsLbl, poolsEd);
+    form->addRow(extraLbl, extraEd);
+    lay->addLayout(form);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(bb);
+    if (dlg.exec() != QDialog::Accepted) {
         return;
     }
+
     ConnectionProfile p = m_profiles[idx];
     if (isLocalConnection(p) && !isWindowsConnection(p)) {
         p.useSudo = true;
@@ -228,34 +349,53 @@ void MainWindow::exportPoolFromRow(int row) {
             return;
         }
     }
-    const QString cmd = withSudo(p, QStringLiteral("zpool export %1").arg(shSingleQuote(poolName)));
+    QStringList parts;
+    parts << QStringLiteral("zpool export");
+    if (allPoolsCb->isChecked()) {
+        parts << QStringLiteral("-a");
+    }
+    if (forceCb->isChecked()) {
+        parts << QStringLiteral("-f");
+    }
+    if (!extraEd->text().trimmed().isEmpty()) {
+        parts << extraEd->text().trimmed();
+    }
+    if (!allPoolsCb->isChecked()) {
+        parts << shSingleQuote(poolName);
+    }
+    for (const QString& extraPool : csvArgs(poolsEd->text())) {
+        parts << shSingleQuote(extraPool);
+    }
+    QString rawCmd = parts.join(' ');
+    if (!isWindowsConnection(p)) {
+        rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
+    }
+    const QString cmd = withSudo(p, rawCmd);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
     if (!confirmActionExecution(QStringLiteral("Exportar"), {preview})) {
         return;
     }
-    DatasetSelectionContext refreshCtx;
-    refreshCtx.valid = true;
-    refreshCtx.connIdx = idx;
-    refreshCtx.poolName = poolName;
-    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
     QString errorText;
-    if (!queuePendingShellAction(PendingShellActionDraft{
-            scopeLabel,
-            QStringLiteral("Exportar pool %1").arg(poolName),
-            sshExecFromLocal(p, cmd),
-            45000,
-            false,
-            {},
-            refreshCtx,
-            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+    if (!executePoolCommand(idx,
+                            poolName,
+                            QStringLiteral("Export"),
+                            cmd,
+                            45000,
+                            &errorText,
+                            true,
+                            false)) {
+        QMessageBox::critical(this,
+                              trk(QStringLiteral("t_export_pool_t1"),
+                                  QStringLiteral("Exportar pool"),
+                                  QStringLiteral("Export pool")),
+                              trk(QStringLiteral("t_pool_export_e1"),
+                                  QStringLiteral("No se pudo exportar el pool:\n%1"),
+                                  QStringLiteral("Could not export pool:\n%1"))
+                                  .arg(errorText));
         return;
     }
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("Cambio pendiente añadido: %1  Exportar pool %2").arg(scopeLabel, poolName));
-    updateApplyPropsButtonState();
 }
 
 void MainWindow::importPoolFromRow(int row) {
@@ -461,34 +601,36 @@ void MainWindow::importPoolFromRow(int row) {
             return;
         }
     }
-    const QString cmd = withSudo(p, parts.join(' '));
+    QString rawCmd = parts.join(' ');
+    if (!isWindowsConnection(p)) {
+        rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
+    }
+    const QString cmd = withSudo(p, rawCmd);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
     if (!confirmActionExecution(QStringLiteral("Importar"), {preview})) {
         return;
     }
-    DatasetSelectionContext refreshCtx;
-    refreshCtx.valid = true;
-    refreshCtx.connIdx = idx;
-    refreshCtx.poolName = poolName;
-    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
     QString errorText;
-    if (!queuePendingShellAction(PendingShellActionDraft{
-            scopeLabel,
-            QStringLiteral("Importar pool %1").arg(poolName),
-            sshExecFromLocal(p, cmd),
-            45000,
-            false,
-            {},
-            refreshCtx,
-            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+    if (!executePoolCommand(idx,
+                            poolName,
+                            QStringLiteral("Import"),
+                            cmd,
+                            45000,
+                            &errorText,
+                            true,
+                            false)) {
+        QMessageBox::critical(this,
+                              trk(QStringLiteral("t_import_btn001"),
+                                  QStringLiteral("Importar"),
+                                  QStringLiteral("Import")),
+                              trk(QStringLiteral("t_pool_import_e1"),
+                                  QStringLiteral("No se pudo importar el pool:\n%1"),
+                                  QStringLiteral("Could not import pool:\n%1"))
+                                  .arg(errorText));
         return;
     }
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("Cambio pendiente añadido: %1  Importar pool %2").arg(scopeLabel, poolName));
-    updateApplyPropsButtonState();
 }
 
 void MainWindow::importPoolRenamingFromRow(int row) {
@@ -711,35 +853,36 @@ void MainWindow::importPoolRenamingFromRow(int row) {
             return;
         }
     }
-    const QString cmd = withSudo(p, parts.join(' '));
+    QString rawCmd = parts.join(' ');
+    if (!isWindowsConnection(p)) {
+        rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
+    }
+    const QString cmd = withSudo(p, rawCmd);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
     if (!confirmActionExecution(QStringLiteral("Importar renombrando"), {preview})) {
         return;
     }
-    DatasetSelectionContext refreshCtx;
-    refreshCtx.valid = true;
-    refreshCtx.connIdx = idx;
-    refreshCtx.poolName = newNameEd->text().trimmed();
-    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
     QString errorText;
-    if (!queuePendingShellAction(PendingShellActionDraft{
-            scopeLabel,
-            QStringLiteral("Importar pool %1 renombrando a %2").arg(poolName, refreshCtx.poolName),
-            sshExecFromLocal(p, cmd),
-            45000,
-            false,
-            {},
-            refreshCtx,
-            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+    if (!executePoolCommand(idx,
+                            poolName,
+                            QStringLiteral("Import (rename)"),
+                            cmd,
+                            45000,
+                            &errorText,
+                            true,
+                            false)) {
+        QMessageBox::critical(this,
+                              trk(QStringLiteral("t_import_btn001"),
+                                  QStringLiteral("Importar"),
+                                  QStringLiteral("Import")),
+                              trk(QStringLiteral("t_pool_import_rename_e1"),
+                                  QStringLiteral("No se pudo importar/renombrar el pool:\n%1"),
+                                  QStringLiteral("Could not import/rename pool:\n%1"))
+                                  .arg(errorText));
         return;
     }
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("Cambio pendiente añadido: %1  Importar pool %2 renombrando a %3")
-               .arg(scopeLabel, poolName, refreshCtx.poolName));
-    updateApplyPropsButtonState();
 }
 
 void MainWindow::scrubPoolFromRow(int row) {
@@ -767,13 +910,61 @@ void MainWindow::scrubPoolFromRow(int row) {
     if (idx < 0) {
         return;
     }
-    const auto confirm = QMessageBox::question(
-        this,
-        QStringLiteral("Scrub pool"),
-        QStringLiteral("¿Iniciar scrub en pool %1 de %2?").arg(poolName, connName),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm != QMessageBox::Yes) {
+    QDialog dlg(this);
+    dlg.setModal(true);
+    dlg.setWindowTitle(
+        trk(QStringLiteral("t_pool_scrub_dlg_t1"),
+            QStringLiteral("Scrub pool: %1::%2"),
+            QStringLiteral("Scrub pool: %1::%2")).arg(connName, poolName));
+    auto* lay = new QVBoxLayout(&dlg);
+    auto* form = new QFormLayout();
+    QComboBox* modeCombo = new QComboBox(&dlg);
+    modeCombo->addItem(trk(QStringLiteral("t_pool_scrub_mode_start_001"),
+                           QStringLiteral("Iniciar/Reanudar"),
+                           QStringLiteral("Start/Resume")), QString());
+    modeCombo->addItem(trk(QStringLiteral("t_pool_scrub_mode_pause_001"),
+                           QStringLiteral("Pausar (-p)"),
+                           QStringLiteral("Pause (-p)")), QStringLiteral("-p"));
+    modeCombo->addItem(trk(QStringLiteral("t_pool_scrub_mode_stop_001"),
+                           QStringLiteral("Detener (-s)"),
+                           QStringLiteral("Stop (-s)")), QStringLiteral("-s"));
+    QCheckBox* waitCb = new QCheckBox(trk(QStringLiteral("t_pool_scrub_wait_001"),
+                                          QStringLiteral("Esperar a fin (-w)"),
+                                          QStringLiteral("Wait for completion (-w)")), &dlg);
+    QCheckBox* errorOnlyCb = new QCheckBox(trk(QStringLiteral("t_pool_scrub_erroronly_001"),
+                                               QStringLiteral("Solo bloques con error (-e, si soportado)"),
+                                               QStringLiteral("Only error blocks (-e, if supported)")), &dlg);
+    QLineEdit* extraEd = new QLineEdit(&dlg);
+    auto* modeLbl = new QLabel(trk(QStringLiteral("t_pool_param_mode_001"),
+                                   QStringLiteral("Modo"),
+                                   QStringLiteral("Mode")), &dlg);
+    modeLbl->setToolTip(trk(QStringLiteral("t_pool_scrub_mode_tt_001"),
+                            QStringLiteral("Selecciona si se inicia/reanuda, pausa o detiene el scrub."),
+                            QStringLiteral("Select whether to start/resume, pause, or stop the scrub.")));
+    modeCombo->setToolTip(modeLbl->toolTip());
+    waitCb->setToolTip(trk(QStringLiteral("t_pool_scrub_wait_tt_001"),
+                           QStringLiteral("Bloquea la orden hasta que termine el scrub."),
+                           QStringLiteral("Block until scrub completes.")));
+    errorOnlyCb->setToolTip(trk(QStringLiteral("t_pool_scrub_erroronly_tt_001"),
+                                QStringLiteral("Scrub solo sobre bloques con errores conocidos (si la versión lo soporta)."),
+                                QStringLiteral("Scrub only known error blocks (if supported).")));
+    auto* extraLbl = new QLabel(trk(QStringLiteral("t_pool_param_extra_001"),
+                                    QStringLiteral("Args extra"),
+                                    QStringLiteral("Extra args")), &dlg);
+    extraLbl->setToolTip(trk(QStringLiteral("t_pool_param_extra_tt_001"),
+                             QStringLiteral("Argumentos adicionales avanzados que se añadirán al comando."),
+                             QStringLiteral("Advanced extra arguments appended to the command.")));
+    extraEd->setToolTip(extraLbl->toolTip());
+    form->addRow(modeLbl, modeCombo);
+    form->addRow(QString(), waitCb);
+    form->addRow(QString(), errorOnlyCb);
+    form->addRow(extraLbl, extraEd);
+    lay->addLayout(form);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(bb);
+    if (dlg.exec() != QDialog::Accepted) {
         return;
     }
 
@@ -785,34 +976,51 @@ void MainWindow::scrubPoolFromRow(int row) {
             return;
         }
     }
-    const QString cmd = withSudo(p, QStringLiteral("zpool scrub %1").arg(shSingleQuote(poolName)));
+    QStringList parts;
+    parts << QStringLiteral("zpool scrub");
+    const QString modeFlag = modeCombo->currentData().toString().trimmed();
+    if (!modeFlag.isEmpty()) {
+        parts << modeFlag;
+    }
+    if (waitCb->isChecked()) {
+        parts << QStringLiteral("-w");
+    }
+    if (errorOnlyCb->isChecked()) {
+        parts << QStringLiteral("-e");
+    }
+    if (!extraEd->text().trimmed().isEmpty()) {
+        parts << extraEd->text().trimmed();
+    }
+    parts << shSingleQuote(poolName);
+    QString rawCmd = parts.join(' ');
+    if (!isWindowsConnection(p)) {
+        rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
+    }
+    const QString cmd = withSudo(p, rawCmd);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
     if (!confirmActionExecution(QStringLiteral("Scrub"), {preview})) {
         return;
     }
-    DatasetSelectionContext refreshCtx;
-    refreshCtx.valid = true;
-    refreshCtx.connIdx = idx;
-    refreshCtx.poolName = poolName;
-    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
     QString errorText;
-    if (!queuePendingShellAction(PendingShellActionDraft{
-            scopeLabel,
-            QStringLiteral("Scrub pool %1").arg(poolName),
-            sshExecFromLocal(p, cmd),
-            45000,
-            false,
-            {},
-            refreshCtx,
-            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+    if (!executePoolCommand(idx,
+                            poolName,
+                            QStringLiteral("Scrub"),
+                            cmd,
+                            45000,
+                            &errorText,
+                            true,
+                            true)) {
+        QMessageBox::critical(this,
+                              trk(QStringLiteral("t_pool_scrub_t1"),
+                                  QStringLiteral("Scrub pool")),
+                              trk(QStringLiteral("t_pool_scrub_e1"),
+                                  QStringLiteral("No se pudo iniciar scrub:\n%1"))
+                                  .arg(errorText));
         return;
     }
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("Cambio pendiente añadido: %1  Scrub pool %2").arg(scopeLabel, poolName));
-    updateApplyPropsButtonState();
+    refreshPoolStatusNow(idx, poolName);
 }
 
 void MainWindow::upgradePoolFromRow(int row) {
@@ -841,13 +1049,48 @@ void MainWindow::upgradePoolFromRow(int row) {
         return;
     }
 
-    const auto confirm = QMessageBox::question(
-        this,
-        QStringLiteral("Upgrade pool"),
-        QStringLiteral("¿Ejecutar zpool upgrade en %1 de %2?").arg(poolName, connName),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm != QMessageBox::Yes) {
+    QDialog dlg(this);
+    dlg.setModal(true);
+    dlg.setWindowTitle(
+        trk(QStringLiteral("t_pool_upgrade_dlg_t1"),
+            QStringLiteral("Upgrade pool: %1::%2"),
+            QStringLiteral("Upgrade pool: %1::%2")).arg(connName, poolName));
+    auto* lay = new QVBoxLayout(&dlg);
+    auto* form = new QFormLayout();
+    QCheckBox* listVersionsCb = new QCheckBox(trk(QStringLiteral("t_pool_upgrade_listver_001"),
+                                                  QStringLiteral("Listar versiones soportadas (-v)"),
+                                                  QStringLiteral("List supported versions (-v)")), &dlg);
+    QLineEdit* versionEd = new QLineEdit(&dlg);
+    versionEd->setPlaceholderText(trk(QStringLiteral("t_pool_upgrade_version_ph_001"),
+                                      QStringLiteral("ej: 5000  (usa -V)"),
+                                      QStringLiteral("e.g. 5000 (uses -V)")));
+    QLineEdit* extraEd = new QLineEdit(&dlg);
+    listVersionsCb->setToolTip(trk(QStringLiteral("t_pool_upgrade_listver_tt_001"),
+                                   QStringLiteral("Muestra versiones/flags de feature soportadas sin modificar el pool."),
+                                   QStringLiteral("Show supported versions/features without modifying the pool.")));
+    auto* versionLbl = new QLabel(trk(QStringLiteral("t_pool_upgrade_version_lbl_001"),
+                                      QStringLiteral("Versión objetivo"),
+                                      QStringLiteral("Target version")), &dlg);
+    versionLbl->setToolTip(trk(QStringLiteral("t_pool_upgrade_version_tt_001"),
+                               QStringLiteral("Versión a aplicar con -V. Déjalo vacío para upgrade por defecto."),
+                               QStringLiteral("Version to apply with -V. Leave empty for default upgrade.")));
+    versionEd->setToolTip(versionLbl->toolTip());
+    auto* extraLbl = new QLabel(trk(QStringLiteral("t_pool_param_extra_001"),
+                                    QStringLiteral("Args extra"),
+                                    QStringLiteral("Extra args")), &dlg);
+    extraLbl->setToolTip(trk(QStringLiteral("t_pool_param_extra_tt_001"),
+                             QStringLiteral("Argumentos adicionales avanzados que se añadirán al comando."),
+                             QStringLiteral("Advanced extra arguments appended to the command.")));
+    extraEd->setToolTip(extraLbl->toolTip());
+    form->addRow(QString(), listVersionsCb);
+    form->addRow(versionLbl, versionEd);
+    form->addRow(extraLbl, extraEd);
+    lay->addLayout(form);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(bb);
+    if (dlg.exec() != QDialog::Accepted) {
         return;
     }
 
@@ -859,34 +1102,50 @@ void MainWindow::upgradePoolFromRow(int row) {
             return;
         }
     }
-    const QString cmd = withSudo(p, QStringLiteral("zpool upgrade %1").arg(shSingleQuote(poolName)));
+    QStringList parts;
+    parts << QStringLiteral("zpool upgrade");
+    if (listVersionsCb->isChecked()) {
+        parts << QStringLiteral("-v");
+    } else {
+        if (!versionEd->text().trimmed().isEmpty()) {
+            parts << QStringLiteral("-V") << shSingleQuote(versionEd->text().trimmed());
+        }
+        parts << shSingleQuote(poolName);
+    }
+    if (!extraEd->text().trimmed().isEmpty()) {
+        parts << extraEd->text().trimmed();
+    }
+    QString rawCmd = parts.join(' ');
+    if (!isWindowsConnection(p)) {
+        rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
+    }
+    const QString cmd = withSudo(p, rawCmd);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
     if (!confirmActionExecution(QStringLiteral("Upgrade"), {preview})) {
         return;
     }
-    DatasetSelectionContext refreshCtx;
-    refreshCtx.valid = true;
-    refreshCtx.connIdx = idx;
-    refreshCtx.poolName = poolName;
-    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
     QString errorText;
-    if (!queuePendingShellAction(PendingShellActionDraft{
-            scopeLabel,
-            QStringLiteral("Upgrade pool %1").arg(poolName),
-            sshExecFromLocal(p, cmd),
-            45000,
-            false,
-            {},
-            refreshCtx,
-            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+    if (!executePoolCommand(idx,
+                            poolName,
+                            QStringLiteral("Upgrade"),
+                            cmd,
+                            45000,
+                            &errorText,
+                            true,
+                            true)) {
+        QMessageBox::critical(this,
+                              trk(QStringLiteral("t_pool_upgrade_t1"),
+                                  QStringLiteral("Upgrade pool")),
+                              trk(QStringLiteral("t_pool_upgrade_e1"),
+                                  QStringLiteral("No se pudo ejecutar upgrade:\n%1"))
+                                  .arg(errorText));
         return;
     }
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("Cambio pendiente añadido: %1  Upgrade pool %2").arg(scopeLabel, poolName));
-    updateApplyPropsButtonState();
+    if (!listVersionsCb->isChecked()) {
+        refreshPoolStatusNow(idx, poolName);
+    }
 }
 
 void MainWindow::reguidPoolFromRow(int row) {
@@ -915,13 +1174,39 @@ void MainWindow::reguidPoolFromRow(int row) {
         return;
     }
 
-    const auto confirm = QMessageBox::question(
-        this,
-        QStringLiteral("Reguid pool"),
-        QStringLiteral("¿Ejecutar zpool reguid en %1 de %2?").arg(poolName, connName),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm != QMessageBox::Yes) {
+    QDialog dlg(this);
+    dlg.setModal(true);
+    dlg.setWindowTitle(
+        trk(QStringLiteral("t_pool_reguid_dlg_t1"),
+            QStringLiteral("Reguid pool: %1::%2"),
+            QStringLiteral("Reguid pool: %1::%2")).arg(connName, poolName));
+    auto* lay = new QVBoxLayout(&dlg);
+    auto* form = new QFormLayout();
+    QLineEdit* guidEd = new QLineEdit(&dlg);
+    guidEd->setPlaceholderText(trk(QStringLiteral("t_pool_reguid_guid_ph_001"),
+                                   QStringLiteral("GUID hex opcional para -g"),
+                                   QStringLiteral("Optional hex GUID for -g")));
+    QLineEdit* extraEd = new QLineEdit(&dlg);
+    auto* guidLbl = new QLabel(QStringLiteral("GUID"), &dlg);
+    guidLbl->setToolTip(trk(QStringLiteral("t_pool_reguid_guid_tt_001"),
+                            QStringLiteral("GUID opcional a asignar al pool (si la versión lo soporta)."),
+                            QStringLiteral("Optional GUID to assign to the pool (if supported).")));
+    guidEd->setToolTip(guidLbl->toolTip());
+    auto* extraLbl = new QLabel(trk(QStringLiteral("t_pool_param_extra_001"),
+                                    QStringLiteral("Args extra"),
+                                    QStringLiteral("Extra args")), &dlg);
+    extraLbl->setToolTip(trk(QStringLiteral("t_pool_param_extra_tt_001"),
+                             QStringLiteral("Argumentos adicionales avanzados que se añadirán al comando."),
+                             QStringLiteral("Advanced extra arguments appended to the command.")));
+    extraEd->setToolTip(extraLbl->toolTip());
+    form->addRow(guidLbl, guidEd);
+    form->addRow(extraLbl, extraEd);
+    lay->addLayout(form);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(bb);
+    if (dlg.exec() != QDialog::Accepted) {
         return;
     }
 
@@ -933,34 +1218,168 @@ void MainWindow::reguidPoolFromRow(int row) {
             return;
         }
     }
-    const QString cmd = withSudo(p, QStringLiteral("zpool reguid %1").arg(shSingleQuote(poolName)));
+    QStringList parts;
+    parts << QStringLiteral("zpool reguid");
+    if (!guidEd->text().trimmed().isEmpty()) {
+        parts << QStringLiteral("-g") << shSingleQuote(guidEd->text().trimmed());
+    }
+    if (!extraEd->text().trimmed().isEmpty()) {
+        parts << extraEd->text().trimmed();
+    }
+    parts << shSingleQuote(poolName);
+    QString rawCmd = parts.join(' ');
+    if (!isWindowsConnection(p)) {
+        rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
+    }
+    const QString cmd = withSudo(p, rawCmd);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
     if (!confirmActionExecution(QStringLiteral("Reguid"), {preview})) {
         return;
     }
-    DatasetSelectionContext refreshCtx;
-    refreshCtx.valid = true;
-    refreshCtx.connIdx = idx;
-    refreshCtx.poolName = poolName;
-    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
     QString errorText;
-    if (!queuePendingShellAction(PendingShellActionDraft{
-            scopeLabel,
-            QStringLiteral("Reguid pool %1").arg(poolName),
-            sshExecFromLocal(p, cmd),
-            45000,
-            false,
-            {},
-            refreshCtx,
-            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+    if (!executePoolCommand(idx,
+                            poolName,
+                            QStringLiteral("Reguid"),
+                            cmd,
+                            45000,
+                            &errorText,
+                            true,
+                            true)) {
+        QMessageBox::critical(this,
+                              trk(QStringLiteral("t_pool_reguid_t1"),
+                                  QStringLiteral("Reguid pool")),
+                              trk(QStringLiteral("t_pool_reguid_e1"),
+                                  QStringLiteral("No se pudo ejecutar reguid:\n%1"))
+                                  .arg(errorText));
         return;
     }
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("Cambio pendiente añadido: %1  Reguid pool %2").arg(scopeLabel, poolName));
-    updateApplyPropsButtonState();
+    refreshPoolStatusNow(idx, poolName);
+}
+
+void MainWindow::clearPoolFromRow(int row) {
+    if (actionsLocked()) {
+        return;
+    }
+    if (row < 0 || row >= m_poolListEntries.size()) {
+        return;
+    }
+    const auto& pe = m_poolListEntries[row];
+    const QString connName = pe.connection;
+    const QString poolName = pe.pool;
+    const QString poolState = pe.state.trimmed().toUpper();
+    const QString action = pe.action;
+    if (poolName.isEmpty() || poolName == QStringLiteral("Sin pools")) {
+        return;
+    }
+    if (poolState != QStringLiteral("ONLINE")) {
+        return;
+    }
+    if (action.compare(QStringLiteral("Exportar"), Qt::CaseInsensitive) != 0) {
+        return;
+    }
+    const int idx = findConnectionIndexByName(connName);
+    if (idx < 0) {
+        return;
+    }
+
+    QDialog dlg(this);
+    dlg.setModal(true);
+    dlg.setWindowTitle(
+        trk(QStringLiteral("t_pool_clear_dlg_t1"),
+            QStringLiteral("Clear pool: %1::%2"),
+            QStringLiteral("Clear pool: %1::%2")).arg(connName, poolName));
+    auto* lay = new QVBoxLayout(&dlg);
+    auto* form = new QFormLayout();
+    QLineEdit* devicesEd = new QLineEdit(&dlg);
+    devicesEd->setPlaceholderText(trk(QStringLiteral("t_pool_devices_ph_001"),
+                                      QStringLiteral("device1, device2, ..."),
+                                      QStringLiteral("device1, device2, ...")));
+    QCheckBox* powerCb = new QCheckBox(trk(QStringLiteral("t_pool_clear_power_001"),
+                                           QStringLiteral("Power clear (--power, si soportado)"),
+                                           QStringLiteral("Power clear (--power, if supported)")), &dlg);
+    QLineEdit* extraEd = new QLineEdit(&dlg);
+    auto* devicesLbl = new QLabel(trk(QStringLiteral("t_pool_devices_lbl_001"),
+                                      QStringLiteral("Dispositivos"),
+                                      QStringLiteral("Devices")), &dlg);
+    devicesLbl->setToolTip(trk(QStringLiteral("t_pool_clear_devices_tt_001"),
+                               QStringLiteral("Lista opcional de dispositivos separados por comas para limpiar solo esos errores."),
+                               QStringLiteral("Optional comma-separated device list to clear only those errors.")));
+    devicesEd->setToolTip(devicesLbl->toolTip());
+    powerCb->setToolTip(trk(QStringLiteral("t_pool_clear_power_tt_001"),
+                            QStringLiteral("Solicita limpieza de estado de energía en dispositivos que lo soporten."),
+                            QStringLiteral("Request power-state clear on devices that support it.")));
+    auto* extraLbl = new QLabel(trk(QStringLiteral("t_pool_param_extra_001"),
+                                    QStringLiteral("Args extra"),
+                                    QStringLiteral("Extra args")), &dlg);
+    extraLbl->setToolTip(trk(QStringLiteral("t_pool_param_extra_tt_001"),
+                             QStringLiteral("Argumentos adicionales avanzados que se añadirán al comando."),
+                             QStringLiteral("Advanced extra arguments appended to the command.")));
+    extraEd->setToolTip(extraLbl->toolTip());
+    form->addRow(devicesLbl, devicesEd);
+    form->addRow(QString(), powerCb);
+    form->addRow(extraLbl, extraEd);
+    lay->addLayout(form);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(bb);
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    ConnectionProfile p = m_profiles[idx];
+    if (isLocalConnection(p) && !isWindowsConnection(p)) {
+        p.useSudo = true;
+        if (!ensureLocalSudoCredentials(p)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Clear cancelada: faltan credenciales sudo locales"));
+            return;
+        }
+    }
+    QStringList parts;
+    parts << QStringLiteral("zpool clear");
+    if (powerCb->isChecked()) {
+        parts << QStringLiteral("--power");
+    }
+    if (!extraEd->text().trimmed().isEmpty()) {
+        parts << extraEd->text().trimmed();
+    }
+    parts << shSingleQuote(poolName);
+    for (const QString& dev : csvArgs(devicesEd->text())) {
+        parts << shSingleQuote(dev);
+    }
+    QString rawCmd = parts.join(' ');
+    if (!isWindowsConnection(p)) {
+        rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
+    }
+    const QString cmd = withSudo(p, rawCmd);
+    const QString preview = QStringLiteral("[%1]\n%2")
+                                .arg(sshUserHostPort(p))
+                                .arg(buildSshPreviewCommand(p, cmd));
+    if (!confirmActionExecution(QStringLiteral("Clear"), {preview})) {
+        return;
+    }
+    QString errorText;
+    if (!executePoolCommand(idx,
+                            poolName,
+                            QStringLiteral("Clear"),
+                            cmd,
+                            45000,
+                            &errorText,
+                            true,
+                            true)) {
+        QMessageBox::critical(this,
+                              trk(QStringLiteral("t_pool_clear_t1"),
+                                  QStringLiteral("Clear pool"),
+                                  QStringLiteral("Clear pool")),
+                              trk(QStringLiteral("t_pool_clear_e1"),
+                                  QStringLiteral("No se pudo ejecutar clear:\n%1"),
+                                  QStringLiteral("Could not execute clear:\n%1"))
+                                  .arg(errorText));
+        return;
+    }
+    refreshPoolStatusNow(idx, poolName);
 }
 
 void MainWindow::destroyPoolFromRow(int row) {
@@ -986,8 +1405,12 @@ void MainWindow::destroyPoolFromRow(int row) {
     }
     const auto confirm = QMessageBox::warning(
         this,
-        QStringLiteral("Destroy pool"),
-        QStringLiteral("ATENCIÓN: se va a destruir el pool %1 en %2.\n¿Desea continuar?")
+        trk(QStringLiteral("t_pool_destroy_t1"),
+            QStringLiteral("Destroy pool"),
+            QStringLiteral("Destroy pool")),
+        trk(QStringLiteral("t_pool_destroy_warn_001"),
+            QStringLiteral("ATENCIÓN: se va a destruir el pool %1 en %2.\n¿Desea continuar?"),
+            QStringLiteral("WARNING: pool %1 on %2 will be destroyed.\nDo you want to continue?"))
             .arg(poolName, connName),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No);
@@ -998,8 +1421,12 @@ void MainWindow::destroyPoolFromRow(int row) {
     bool okText = false;
     const QString typed = QInputDialog::getText(
         this,
-        QStringLiteral("Confirmación obligatoria"),
-        QStringLiteral("Para confirmar, escriba exactamente:\n%1").arg(expectedPhrase),
+        trk(QStringLiteral("t_pool_destroy_confirm_t1"),
+            QStringLiteral("Confirmación obligatoria"),
+            QStringLiteral("Mandatory confirmation")),
+        trk(QStringLiteral("t_pool_destroy_confirm_q1"),
+            QStringLiteral("Para confirmar, escriba exactamente:\n%1"),
+            QStringLiteral("To confirm, type exactly:\n%1")).arg(expectedPhrase),
         QLineEdit::Normal,
         QString(),
         &okText);
@@ -1009,8 +1436,45 @@ void MainWindow::destroyPoolFromRow(int row) {
     if (typed.trimmed() != expectedPhrase) {
         QMessageBox::warning(
             this,
-            QStringLiteral("Destroy pool"),
-            QStringLiteral("Texto de confirmación incorrecto.\nOperación cancelada."));
+            trk(QStringLiteral("t_pool_destroy_t1"),
+                QStringLiteral("Destroy pool"),
+                QStringLiteral("Destroy pool")),
+            trk(QStringLiteral("t_pool_destroy_confirm_bad_001"),
+                QStringLiteral("Texto de confirmación incorrecto.\nOperación cancelada."),
+                QStringLiteral("Confirmation text is incorrect.\nOperation canceled.")));
+        return;
+    }
+
+    QDialog dlg(this);
+    dlg.setModal(true);
+    dlg.setWindowTitle(
+        trk(QStringLiteral("t_pool_destroy_dlg_t1"),
+            QStringLiteral("Destroy pool: %1::%2"),
+            QStringLiteral("Destroy pool: %1::%2")).arg(connName, poolName));
+    auto* lay = new QVBoxLayout(&dlg);
+    auto* form = new QFormLayout();
+    QCheckBox* forceCb = new QCheckBox(trk(QStringLiteral("t_pool_destroy_force_001"),
+                                           QStringLiteral("Forzar desmontaje/dispositivos ocupados (-f)"),
+                                           QStringLiteral("Force unmount/busy devices (-f)")), &dlg);
+    QLineEdit* extraEd = new QLineEdit(&dlg);
+    forceCb->setToolTip(trk(QStringLiteral("t_pool_destroy_force_tt_001"),
+                            QStringLiteral("Fuerza destroy si hay dispositivos ocupados o bloqueos de desmontaje."),
+                            QStringLiteral("Force destroy when devices are busy or unmount is blocked.")));
+    auto* extraLbl = new QLabel(trk(QStringLiteral("t_pool_param_extra_001"),
+                                    QStringLiteral("Args extra"),
+                                    QStringLiteral("Extra args")), &dlg);
+    extraLbl->setToolTip(trk(QStringLiteral("t_pool_param_extra_tt_001"),
+                             QStringLiteral("Argumentos adicionales avanzados que se añadirán al comando."),
+                             QStringLiteral("Advanced extra arguments appended to the command.")));
+    extraEd->setToolTip(extraLbl->toolTip());
+    form->addRow(QString(), forceCb);
+    form->addRow(extraLbl, extraEd);
+    lay->addLayout(form);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(bb);
+    if (dlg.exec() != QDialog::Accepted) {
         return;
     }
 
@@ -1022,34 +1486,43 @@ void MainWindow::destroyPoolFromRow(int row) {
             return;
         }
     }
-    const QString cmd = withSudo(p, QStringLiteral("zpool destroy %1").arg(shSingleQuote(poolName)));
+    QStringList parts;
+    parts << QStringLiteral("zpool destroy");
+    if (forceCb->isChecked()) {
+        parts << QStringLiteral("-f");
+    }
+    if (!extraEd->text().trimmed().isEmpty()) {
+        parts << extraEd->text().trimmed();
+    }
+    parts << shSingleQuote(poolName);
+    QString rawCmd = parts.join(' ');
+    if (!isWindowsConnection(p)) {
+        rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
+    }
+    const QString cmd = withSudo(p, rawCmd);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
     if (!confirmActionExecution(QStringLiteral("Destroy"), {preview})) {
         return;
     }
-    DatasetSelectionContext refreshCtx;
-    refreshCtx.valid = true;
-    refreshCtx.connIdx = idx;
-    refreshCtx.poolName = poolName;
-    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
     QString errorText;
-    if (!queuePendingShellAction(PendingShellActionDraft{
-            scopeLabel,
-            QStringLiteral("Destroy pool %1").arg(poolName),
-            sshExecFromLocal(p, cmd),
-            60000,
-            false,
-            {},
-            refreshCtx,
-            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+    if (!executePoolCommand(idx,
+                            poolName,
+                            QStringLiteral("Destroy"),
+                            cmd,
+                            60000,
+                            &errorText,
+                            true,
+                            true)) {
+        QMessageBox::critical(this,
+                              trk(QStringLiteral("t_pool_destroy_t1"),
+                                  QStringLiteral("Destroy pool")),
+                              trk(QStringLiteral("t_pool_destroy_e1"),
+                                  QStringLiteral("No se pudo destruir el pool:\n%1"))
+                                  .arg(errorText));
         return;
     }
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("Cambio pendiente añadido: %1  Destroy pool %2").arg(scopeLabel, poolName));
-    updateApplyPropsButtonState();
 }
 
 void MainWindow::syncPoolFromRow(int row) {
@@ -1074,6 +1547,51 @@ void MainWindow::syncPoolFromRow(int row) {
         return;
     }
 
+    QDialog dlg(this);
+    dlg.setModal(true);
+    dlg.setWindowTitle(
+        trk(QStringLiteral("t_pool_sync_dlg_t1"),
+            QStringLiteral("Sync pool: %1::%2"),
+            QStringLiteral("Sync pool: %1::%2")).arg(connName, poolName));
+    auto* lay = new QVBoxLayout(&dlg);
+    auto* form = new QFormLayout();
+    QCheckBox* allPoolsCb = new QCheckBox(trk(QStringLiteral("t_pool_sync_all_001"),
+                                              QStringLiteral("Sincronizar todos los pools (sin argumento pool)"),
+                                              QStringLiteral("Sync all pools (no pool argument)")), &dlg);
+    QLineEdit* poolsEd = new QLineEdit(&dlg);
+    poolsEd->setPlaceholderText(trk(QStringLiteral("t_pool_sync_pools_ph_001"),
+                                    QStringLiteral("pool2, pool3, ... (opcional)"),
+                                    QStringLiteral("pool2, pool3, ... (optional)")));
+    QLineEdit* extraEd = new QLineEdit(&dlg);
+    allPoolsCb->setToolTip(trk(QStringLiteral("t_pool_sync_all_tt_001"),
+                               QStringLiteral("Si se marca, no se pasa el pool actual y se sincronizan todos."),
+                               QStringLiteral("If checked, no current pool is passed and all pools are synced.")));
+    auto* poolsLbl = new QLabel(trk(QStringLiteral("t_pool_sync_pools_lbl_001"),
+                                    QStringLiteral("Pools adicionales"),
+                                    QStringLiteral("Additional pools")), &dlg);
+    poolsLbl->setToolTip(trk(QStringLiteral("t_pool_sync_pools_tt_001"),
+                             QStringLiteral("Lista opcional (separada por comas) de pools extra a sincronizar."),
+                             QStringLiteral("Optional comma-separated list of extra pools to sync.")));
+    poolsEd->setToolTip(poolsLbl->toolTip());
+    auto* extraLbl = new QLabel(trk(QStringLiteral("t_pool_param_extra_001"),
+                                    QStringLiteral("Args extra"),
+                                    QStringLiteral("Extra args")), &dlg);
+    extraLbl->setToolTip(trk(QStringLiteral("t_pool_param_extra_tt_001"),
+                             QStringLiteral("Argumentos adicionales avanzados que se añadirán al comando."),
+                             QStringLiteral("Advanced extra arguments appended to the command.")));
+    extraEd->setToolTip(extraLbl->toolTip());
+    form->addRow(QString(), allPoolsCb);
+    form->addRow(poolsLbl, poolsEd);
+    form->addRow(extraLbl, extraEd);
+    lay->addLayout(form);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(bb);
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+
     ConnectionProfile p = m_profiles[idx];
     if (isLocalConnection(p) && !isWindowsConnection(p)) {
         p.useSudo = true;
@@ -1082,34 +1600,50 @@ void MainWindow::syncPoolFromRow(int row) {
             return;
         }
     }
-    const QString cmd = withSudo(p, QStringLiteral("zpool sync %1").arg(shSingleQuote(poolName)));
+    QStringList parts;
+    parts << QStringLiteral("zpool sync");
+    if (!allPoolsCb->isChecked()) {
+        parts << shSingleQuote(poolName);
+    }
+    for (const QString& extraPool : csvArgs(poolsEd->text())) {
+        parts << shSingleQuote(extraPool);
+    }
+    if (!extraEd->text().trimmed().isEmpty()) {
+        parts << extraEd->text().trimmed();
+    }
+    QString rawCmd = parts.join(' ');
+    if (!isWindowsConnection(p)) {
+        rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
+    }
+    const QString cmd = withSudo(p, rawCmd);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
     if (!confirmActionExecution(QStringLiteral("Sync"), {preview})) {
         return;
     }
-    DatasetSelectionContext refreshCtx;
-    refreshCtx.valid = true;
-    refreshCtx.connIdx = idx;
-    refreshCtx.poolName = poolName;
-    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
     QString errorText;
-    if (!queuePendingShellAction(PendingShellActionDraft{
-            scopeLabel,
-            QStringLiteral("Sync pool %1").arg(poolName),
-            sshExecFromLocal(p, cmd),
-            45000,
-            false,
-            {},
-            refreshCtx,
-            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+    if (!executePoolCommand(idx,
+                            poolName,
+                            QStringLiteral("Sync"),
+                            cmd,
+                            45000,
+                            &errorText,
+                            true,
+                            true)) {
+        QMessageBox::critical(this,
+                              trk(QStringLiteral("t_pool_sync_t1"),
+                                  QStringLiteral("Sync pool"),
+                                  QStringLiteral("Sync pool")),
+                              trk(QStringLiteral("t_pool_sync_e1"),
+                                  QStringLiteral("No se pudo ejecutar sync:\n%1"),
+                                  QStringLiteral("Could not execute sync:\n%1"))
+                                  .arg(errorText));
         return;
     }
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("Cambio pendiente añadido: %1  Sync pool %2").arg(scopeLabel, poolName));
-    updateApplyPropsButtonState();
+    if (!allPoolsCb->isChecked()) {
+        refreshPoolStatusNow(idx, poolName);
+    }
 }
 
 void MainWindow::trimPoolFromRow(int row) {
@@ -1138,6 +1672,86 @@ void MainWindow::trimPoolFromRow(int row) {
         return;
     }
 
+    QDialog dlg(this);
+    dlg.setModal(true);
+    dlg.setWindowTitle(
+        trk(QStringLiteral("t_pool_trim_dlg_t1"),
+            QStringLiteral("Trim pool: %1::%2"),
+            QStringLiteral("Trim pool: %1::%2")).arg(connName, poolName));
+    auto* lay = new QVBoxLayout(&dlg);
+    auto* form = new QFormLayout();
+    QComboBox* modeCombo = new QComboBox(&dlg);
+    modeCombo->addItem(trk(QStringLiteral("t_pool_trim_mode_start_001"),
+                           QStringLiteral("Iniciar"),
+                           QStringLiteral("Start")), QString());
+    modeCombo->addItem(trk(QStringLiteral("t_pool_trim_mode_cancel_001"),
+                           QStringLiteral("Cancelar (-c)"),
+                           QStringLiteral("Cancel (-c)")), QStringLiteral("-c"));
+    modeCombo->addItem(trk(QStringLiteral("t_pool_trim_mode_pause_001"),
+                           QStringLiteral("Pausar (-s)"),
+                           QStringLiteral("Suspend (-s)")), QStringLiteral("-s"));
+    QCheckBox* waitCb = new QCheckBox(trk(QStringLiteral("t_pool_trim_wait_001"),
+                                          QStringLiteral("Esperar a fin (-w)"),
+                                          QStringLiteral("Wait for completion (-w)")), &dlg);
+    QCheckBox* secureCb = new QCheckBox(trk(QStringLiteral("t_pool_trim_secure_001"),
+                                            QStringLiteral("Secure trim (-d)"),
+                                            QStringLiteral("Secure trim (-d)")), &dlg);
+    QLineEdit* rateEd = new QLineEdit(&dlg);
+    rateEd->setPlaceholderText(trk(QStringLiteral("t_pool_trim_rate_ph_001"),
+                                   QStringLiteral("Rate para -r (ej: 1G)"),
+                                   QStringLiteral("Rate for -r (e.g. 1G)")));
+    QLineEdit* devicesEd = new QLineEdit(&dlg);
+    devicesEd->setPlaceholderText(trk(QStringLiteral("t_pool_devices_ph_001"),
+                                      QStringLiteral("device1, device2, ..."),
+                                      QStringLiteral("device1, device2, ...")));
+    QLineEdit* extraEd = new QLineEdit(&dlg);
+    auto* modeLbl = new QLabel(trk(QStringLiteral("t_pool_param_mode_001"),
+                                   QStringLiteral("Modo"),
+                                   QStringLiteral("Mode")), &dlg);
+    modeLbl->setToolTip(trk(QStringLiteral("t_pool_trim_mode_tt_001"),
+                            QStringLiteral("Acción sobre el trim: iniciar, cancelar o pausar."),
+                            QStringLiteral("Trim action: start, cancel, or suspend.")));
+    modeCombo->setToolTip(modeLbl->toolTip());
+    waitCb->setToolTip(trk(QStringLiteral("t_pool_trim_wait_tt_001"),
+                           QStringLiteral("Bloquea la orden hasta finalizar el trim."),
+                           QStringLiteral("Block until trim completes.")));
+    secureCb->setToolTip(trk(QStringLiteral("t_pool_trim_secure_tt_001"),
+                             QStringLiteral("Solicita secure trim si está soportado."),
+                             QStringLiteral("Request secure trim if supported.")));
+    auto* rateLbl = new QLabel(QStringLiteral("Rate"), &dlg);
+    rateLbl->setToolTip(trk(QStringLiteral("t_pool_trim_rate_tt_001"),
+                            QStringLiteral("Límite de velocidad para trim (-r)."),
+                            QStringLiteral("Rate limit for trim (-r).")));
+    rateEd->setToolTip(rateLbl->toolTip());
+    auto* devicesLbl = new QLabel(trk(QStringLiteral("t_pool_devices_lbl_001"),
+                                      QStringLiteral("Dispositivos"),
+                                      QStringLiteral("Devices")), &dlg);
+    devicesLbl->setToolTip(trk(QStringLiteral("t_pool_trim_devices_tt_001"),
+                               QStringLiteral("Dispositivos opcionales (coma-separados) para aplicar trim selectivo."),
+                               QStringLiteral("Optional comma-separated devices for selective trim.")));
+    devicesEd->setToolTip(devicesLbl->toolTip());
+    auto* extraLbl = new QLabel(trk(QStringLiteral("t_pool_param_extra_001"),
+                                    QStringLiteral("Args extra"),
+                                    QStringLiteral("Extra args")), &dlg);
+    extraLbl->setToolTip(trk(QStringLiteral("t_pool_param_extra_tt_001"),
+                             QStringLiteral("Argumentos adicionales avanzados que se añadirán al comando."),
+                             QStringLiteral("Advanced extra arguments appended to the command.")));
+    extraEd->setToolTip(extraLbl->toolTip());
+    form->addRow(modeLbl, modeCombo);
+    form->addRow(QString(), waitCb);
+    form->addRow(QString(), secureCb);
+    form->addRow(rateLbl, rateEd);
+    form->addRow(devicesLbl, devicesEd);
+    form->addRow(extraLbl, extraEd);
+    lay->addLayout(form);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(bb);
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+
     ConnectionProfile p = m_profiles[idx];
     if (isLocalConnection(p) && !isWindowsConnection(p)) {
         p.useSudo = true;
@@ -1146,34 +1760,59 @@ void MainWindow::trimPoolFromRow(int row) {
             return;
         }
     }
-    const QString cmd = withSudo(p, QStringLiteral("zpool trim %1").arg(shSingleQuote(poolName)));
+    QStringList parts;
+    parts << QStringLiteral("zpool trim");
+    const QString modeFlag = modeCombo->currentData().toString().trimmed();
+    if (!modeFlag.isEmpty()) {
+        parts << modeFlag;
+    }
+    if (waitCb->isChecked()) {
+        parts << QStringLiteral("-w");
+    }
+    if (secureCb->isChecked()) {
+        parts << QStringLiteral("-d");
+    }
+    if (!rateEd->text().trimmed().isEmpty()) {
+        parts << QStringLiteral("-r") << shSingleQuote(rateEd->text().trimmed());
+    }
+    if (!extraEd->text().trimmed().isEmpty()) {
+        parts << extraEd->text().trimmed();
+    }
+    parts << shSingleQuote(poolName);
+    for (const QString& dev : csvArgs(devicesEd->text())) {
+        parts << shSingleQuote(dev);
+    }
+    QString rawCmd = parts.join(' ');
+    if (!isWindowsConnection(p)) {
+        rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
+    }
+    const QString cmd = withSudo(p, rawCmd);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
     if (!confirmActionExecution(QStringLiteral("Trim"), {preview})) {
         return;
     }
-    DatasetSelectionContext refreshCtx;
-    refreshCtx.valid = true;
-    refreshCtx.connIdx = idx;
-    refreshCtx.poolName = poolName;
-    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
     QString errorText;
-    if (!queuePendingShellAction(PendingShellActionDraft{
-            scopeLabel,
-            QStringLiteral("Trim pool %1").arg(poolName),
-            sshExecFromLocal(p, cmd),
-            45000,
-            false,
-            {},
-            refreshCtx,
-            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+    if (!executePoolCommand(idx,
+                            poolName,
+                            QStringLiteral("Trim"),
+                            cmd,
+                            45000,
+                            &errorText,
+                            true,
+                            true)) {
+        QMessageBox::critical(this,
+                              trk(QStringLiteral("t_pool_trim_t1"),
+                                  QStringLiteral("Trim pool"),
+                                  QStringLiteral("Trim pool")),
+                              trk(QStringLiteral("t_pool_trim_e1"),
+                                  QStringLiteral("No se pudo ejecutar trim:\n%1"),
+                                  QStringLiteral("Could not execute trim:\n%1"))
+                                  .arg(errorText));
         return;
     }
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("Cambio pendiente añadido: %1  Trim pool %2").arg(scopeLabel, poolName));
-    updateApplyPropsButtonState();
+    refreshPoolStatusNow(idx, poolName);
 }
 
 void MainWindow::initializePoolFromRow(int row) {
@@ -1202,6 +1841,72 @@ void MainWindow::initializePoolFromRow(int row) {
         return;
     }
 
+    QDialog dlg(this);
+    dlg.setModal(true);
+    dlg.setWindowTitle(
+        trk(QStringLiteral("t_pool_init_dlg_t1"),
+            QStringLiteral("Initialize pool: %1::%2"),
+            QStringLiteral("Initialize pool: %1::%2")).arg(connName, poolName));
+    auto* lay = new QVBoxLayout(&dlg);
+    auto* form = new QFormLayout();
+    QComboBox* modeCombo = new QComboBox(&dlg);
+    modeCombo->addItem(trk(QStringLiteral("t_pool_init_mode_start_001"),
+                           QStringLiteral("Iniciar"),
+                           QStringLiteral("Start")), QString());
+    modeCombo->addItem(trk(QStringLiteral("t_pool_init_mode_cancel_001"),
+                           QStringLiteral("Cancelar (-c)"),
+                           QStringLiteral("Cancel (-c)")), QStringLiteral("-c"));
+    modeCombo->addItem(trk(QStringLiteral("t_pool_init_mode_pause_001"),
+                           QStringLiteral("Pausar (-s)"),
+                           QStringLiteral("Suspend (-s)")), QStringLiteral("-s"));
+    modeCombo->addItem(trk(QStringLiteral("t_pool_init_mode_uninit_001"),
+                           QStringLiteral("Deshacer init (-u, si soportado)"),
+                           QStringLiteral("Undo init (-u, if supported)")), QStringLiteral("-u"));
+    QCheckBox* waitCb = new QCheckBox(trk(QStringLiteral("t_pool_init_wait_001"),
+                                          QStringLiteral("Esperar a fin (-w, si soportado)"),
+                                          QStringLiteral("Wait for completion (-w, if supported)")), &dlg);
+    QLineEdit* devicesEd = new QLineEdit(&dlg);
+    devicesEd->setPlaceholderText(trk(QStringLiteral("t_pool_devices_ph_001"),
+                                      QStringLiteral("device1, device2, ..."),
+                                      QStringLiteral("device1, device2, ...")));
+    QLineEdit* extraEd = new QLineEdit(&dlg);
+    auto* modeLbl = new QLabel(trk(QStringLiteral("t_pool_param_mode_001"),
+                                   QStringLiteral("Modo"),
+                                   QStringLiteral("Mode")), &dlg);
+    modeLbl->setToolTip(trk(QStringLiteral("t_pool_init_mode_tt_001"),
+                            QStringLiteral("Acción sobre initialize: iniciar, cancelar, pausar o deshacer."),
+                            QStringLiteral("Initialize action: start, cancel, suspend, or undo.")));
+    modeCombo->setToolTip(modeLbl->toolTip());
+    waitCb->setToolTip(trk(QStringLiteral("t_pool_init_wait_tt_001"),
+                           QStringLiteral("Bloquea la orden hasta finalizar initialize (si soportado)."),
+                           QStringLiteral("Block until initialize completes (if supported).")));
+    auto* devicesLbl = new QLabel(trk(QStringLiteral("t_pool_devices_lbl_001"),
+                                      QStringLiteral("Dispositivos"),
+                                      QStringLiteral("Devices")), &dlg);
+    devicesLbl->setToolTip(trk(QStringLiteral("t_pool_init_devices_tt_001"),
+                               QStringLiteral("Dispositivos opcionales (coma-separados) para initialize selectivo."),
+                               QStringLiteral("Optional comma-separated devices for selective initialize.")));
+    devicesEd->setToolTip(devicesLbl->toolTip());
+    auto* extraLbl = new QLabel(trk(QStringLiteral("t_pool_param_extra_001"),
+                                    QStringLiteral("Args extra"),
+                                    QStringLiteral("Extra args")), &dlg);
+    extraLbl->setToolTip(trk(QStringLiteral("t_pool_param_extra_tt_001"),
+                             QStringLiteral("Argumentos adicionales avanzados que se añadirán al comando."),
+                             QStringLiteral("Advanced extra arguments appended to the command.")));
+    extraEd->setToolTip(extraLbl->toolTip());
+    form->addRow(modeLbl, modeCombo);
+    form->addRow(QString(), waitCb);
+    form->addRow(devicesLbl, devicesEd);
+    form->addRow(extraLbl, extraEd);
+    lay->addLayout(form);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(bb);
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+
     ConnectionProfile p = m_profiles[idx];
     if (isLocalConnection(p) && !isWindowsConnection(p)) {
         p.useSudo = true;
@@ -1210,34 +1915,53 @@ void MainWindow::initializePoolFromRow(int row) {
             return;
         }
     }
-    const QString cmd = withSudo(p, QStringLiteral("zpool initialize %1").arg(shSingleQuote(poolName)));
+    QStringList parts;
+    parts << QStringLiteral("zpool initialize");
+    const QString modeFlag = modeCombo->currentData().toString().trimmed();
+    if (!modeFlag.isEmpty()) {
+        parts << modeFlag;
+    }
+    if (waitCb->isChecked()) {
+        parts << QStringLiteral("-w");
+    }
+    if (!extraEd->text().trimmed().isEmpty()) {
+        parts << extraEd->text().trimmed();
+    }
+    parts << shSingleQuote(poolName);
+    for (const QString& dev : csvArgs(devicesEd->text())) {
+        parts << shSingleQuote(dev);
+    }
+    QString rawCmd = parts.join(' ');
+    if (!isWindowsConnection(p)) {
+        rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
+    }
+    const QString cmd = withSudo(p, rawCmd);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(sshUserHostPort(p))
                                 .arg(buildSshPreviewCommand(p, cmd));
     if (!confirmActionExecution(QStringLiteral("Initialize"), {preview})) {
         return;
     }
-    DatasetSelectionContext refreshCtx;
-    refreshCtx.valid = true;
-    refreshCtx.connIdx = idx;
-    refreshCtx.poolName = poolName;
-    const QString scopeLabel = QStringLiteral("%1::%2").arg(connName, poolName);
     QString errorText;
-    if (!queuePendingShellAction(PendingShellActionDraft{
-            scopeLabel,
-            QStringLiteral("Initialize pool %1").arg(poolName),
-            sshExecFromLocal(p, cmd),
-            45000,
-            false,
-            {},
-            refreshCtx,
-            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+    if (!executePoolCommand(idx,
+                            poolName,
+                            QStringLiteral("Initialize"),
+                            cmd,
+                            45000,
+                            &errorText,
+                            true,
+                            true)) {
+        QMessageBox::critical(this,
+                              trk(QStringLiteral("t_pool_init_t1"),
+                                  QStringLiteral("Initialize pool"),
+                                  QStringLiteral("Initialize pool")),
+                              trk(QStringLiteral("t_pool_init_e1"),
+                                  QStringLiteral("No se pudo ejecutar initialize:\n%1"),
+                                  QStringLiteral("Could not execute initialize:\n%1"))
+                                  .arg(errorText));
         return;
     }
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("Cambio pendiente añadido: %1  Initialize pool %2").arg(scopeLabel, poolName));
-    updateApplyPropsButtonState();
+    refreshPoolStatusNow(idx, poolName);
 }
 
 void MainWindow::showPoolHistoryFromRow(int row) {
@@ -1259,7 +1983,11 @@ void MainWindow::showPoolHistoryFromRow(int row) {
     }
 
     const ConnectionProfile& p = m_profiles[idx];
-    const QString cmd = withSudo(p, QStringLiteral("zpool history %1").arg(shSingleQuote(poolName)));
+    QString rawCmd = QStringLiteral("zpool history %1").arg(shSingleQuote(poolName));
+    if (!isWindowsConnection(p)) {
+        rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
+    }
+    const QString cmd = withSudo(p, rawCmd);
     QString out;
     QString detail;
     if (!fetchPoolCommandOutput(idx, poolName, QStringLiteral("Historial"), cmd, &out, &detail, 45000)) {

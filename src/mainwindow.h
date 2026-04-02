@@ -811,10 +811,12 @@ private:
     void syncPoolFromRow(int row);
     void trimPoolFromRow(int row);
     void initializePoolFromRow(int row);
+    void clearPoolFromRow(int row);
     void destroyPoolFromRow(int row);
     void showPoolHistoryFromRow(int row);
     void createPoolForSelectedConnection();
     void refreshSelectedPoolDetails(bool forceRefresh = false, bool allowRemoteLoadIfMissing = true);
+    void refreshPoolStatusNow(int connIdx, const QString& poolName);
     int findPoolRow(const QString& connection, const QString& pool) const;
     int selectedPoolRowFromTabs() const;
     int selectedConnectionIndexForPoolManagement() const;
