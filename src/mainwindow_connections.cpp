@@ -39,6 +39,7 @@
 namespace {
 constexpr int kConnIdxRole = Qt::UserRole + 10;
 constexpr int kIsConnectionRootRole = Qt::UserRole + 36;
+constexpr int kConnRootSectionRole = Qt::UserRole + 37;
 constexpr int kConnPropKeyRole = Qt::UserRole + 14;
 constexpr int kPoolNameRole = Qt::UserRole + 11;
 constexpr int kIsPoolRootRole = Qt::UserRole + 12;
@@ -2838,6 +2839,19 @@ void MainWindow::populateConnectionPoolsIntoTree(QTreeWidget* tree,
         ensureConnectionRootAuxNodes(tree, connRoot, connIdx);
         connRoot->setExpanded(true);
         if (isConnectionDisconnected(connIdx)) {
+            // En desconectado no se deben mostrar los bloques auxiliares
+            // "Properties" e "Info" bajo la conexión raíz.
+            for (int c = connRoot->childCount() - 1; c >= 0; --c) {
+                QTreeWidgetItem* child = connRoot->child(c);
+                if (!child) {
+                    continue;
+                }
+                const QString sectionId = child->data(0, kConnRootSectionRole).toString();
+                if (sectionId == QStringLiteral("connection_properties")
+                    || sectionId == QStringLiteral("connection_info")) {
+                    delete connRoot->takeChild(c);
+                }
+            }
             return;
         }
     }
