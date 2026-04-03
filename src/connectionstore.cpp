@@ -113,11 +113,12 @@ bool ConnectionStore::validateMasterPassword(QString& error) const {
     if (!migrateLegacyConnectionsToPerFile(error)) {
         return false;
     }
-    const QStringList connFiles = connectionIniPaths();
+    QSettings ini(iniPath(), QSettings::IniFormat);
+    const QStringList groups = connectionGroups(ini);
     bool hasEncrypted = false;
-    for (const QString& path : connFiles) {
-        const ConnectionProfile p = loadProfileFromIni(path);
-        const QString connName = p.name.trimmed().isEmpty() ? QFileInfo(path).baseName() : p.name;
+    for (const QString& group : groups) {
+        const ConnectionProfile p = loadProfileFromGroup(ini, group);
+        const QString connName = p.name.trimmed().isEmpty() ? p.id : p.name;
         const QString username = p.username;
         const QString password = p.password;
 
@@ -208,63 +209,12 @@ void ConnectionStore::ensureAppDefaults() const {
     }
 }
 
-QString ConnectionStore::sanitizedConnFileId(const QString& id) {
-    QString clean = id.trimmed().toLower();
+QString ConnectionStore::connectionGroupNameForId(const QString& id) {
+    QString clean = id.trimmed();
     if (clean.isEmpty()) {
         clean = QStringLiteral("connection");
     }
-    clean.replace(QRegularExpression(QStringLiteral("[^a-z0-9_-]+")), QStringLiteral("_"));
-    clean.replace(QRegularExpression(QStringLiteral("_+")), QStringLiteral("_"));
-    clean.remove(QRegularExpression(QStringLiteral("^_+|_+$")));
-    if (clean.isEmpty()) {
-        clean = QStringLiteral("connection");
-    }
-    return clean.left(64);
-}
-
-QString ConnectionStore::connectionIniPathForId(const QString& id) const {
-    if (id.trimmed().compare(QStringLiteral("local"), Qt::CaseInsensitive) == 0) {
-        return QDir(configDir()).filePath(QStringLiteral("connLocal.ini"));
-    }
-    const QString safe = sanitizedConnFileId(id);
-    return QDir(configDir()).filePath(QStringLiteral("conn_%1.ini").arg(safe));
-}
-
-QString ConnectionStore::connectionIniPathForProfile(const ConnectionProfile& profile, const QString& currentPath) const {
-    const QString dirPath = configDir();
-    const QDir dir(dirPath);
-    const bool isLocal = profile.id.trimmed().compare(QStringLiteral("local"), Qt::CaseInsensitive) == 0
-        || profile.connType.trimmed().compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0;
-    if (isLocal) {
-        return dir.filePath(QStringLiteral("connLocal.ini"));
-    }
-    const QString baseName = sanitizedConnFileId(profile.name.trimmed().isEmpty() ? profile.id : profile.name);
-    QString candidate = dir.filePath(QStringLiteral("conn_%1.ini").arg(baseName));
-    const QString currentNorm = QFileInfo(currentPath).absoluteFilePath();
-    const QString candidateNorm = QFileInfo(candidate).absoluteFilePath();
-    if (candidateNorm == currentNorm) {
-        return candidate;
-    }
-    if (!QFileInfo::exists(candidate)) {
-        return candidate;
-    }
-
-    const QString idSuffix = sanitizedConnFileId(profile.id);
-    candidate = dir.filePath(QStringLiteral("conn_%1_%2.ini").arg(baseName, idSuffix));
-    const QString candidateWithIdNorm = QFileInfo(candidate).absoluteFilePath();
-    if (candidateWithIdNorm == currentNorm || !QFileInfo::exists(candidate)) {
-        return candidate;
-    }
-
-    for (int i = 2; i < 1000; ++i) {
-        const QString probe =
-            dir.filePath(QStringLiteral("conn_%1_%2_%3.ini").arg(baseName, idSuffix).arg(i));
-        const QString probeNorm = QFileInfo(probe).absoluteFilePath();
-        if (probeNorm == currentNorm || !QFileInfo::exists(probe)) {
-            return probe;
-        }
-    }
-    return connectionIniPathForId(profile.id);
+    return QStringLiteral("connection:%1").arg(clean);
 }
 
 QStringList ConnectionStore::connectionIniPaths() const {
@@ -276,6 +226,17 @@ QStringList ConnectionStore::connectionIniPaths() const {
         paths.push_back(dir.filePath(f));
     }
     return paths;
+}
+
+QStringList ConnectionStore::connectionGroups(QSettings& ini) {
+    QStringList groupsOut;
+    const QStringList groups = ini.childGroups();
+    for (const QString& group : groups) {
+        if (isConnectionGroupName(group)) {
+            groupsOut.push_back(group);
+        }
+    }
+    return groupsOut;
 }
 
 ConnectionProfile ConnectionStore::loadProfileFromIni(const QString& path) {
@@ -308,90 +269,104 @@ ConnectionProfile ConnectionStore::loadProfileFromIni(const QString& path) {
     return p;
 }
 
-bool ConnectionStore::saveProfileToIni(const QString& path, const ConnectionProfile& profile, QString& error) {
-    error.clear();
-    QSettings ini(path, QSettings::IniFormat);
-    ini.clear();
-    ini.setValue(QStringLiteral("id"), profile.id.trimmed());
-    ini.setValue(QStringLiteral("name"), profile.name.trimmed());
+ConnectionProfile ConnectionStore::loadProfileFromGroup(QSettings& ini, const QString& groupName) {
+    ConnectionProfile p;
+    ini.beginGroup(groupName);
+    p.id = ini.value(QStringLiteral("id")).toString().trimmed();
+    p.name = ini.value(QStringLiteral("name")).toString();
+    const QString rawMachineUid = ini.value(QStringLiteral("machine_uid")).toString();
+    p.machineUid = rawMachineUid;
+    p.connType = ini.value(QStringLiteral("conn_type")).toString();
+    p.osType = ini.value(QStringLiteral("os_type")).toString();
+    p.host = ini.value(QStringLiteral("host")).toString();
+    p.port = ini.value(QStringLiteral("port"), 22).toInt();
+    p.sshAddressFamily =
+        ini.value(QStringLiteral("ssh_address_family"), QStringLiteral("auto")).toString().trimmed().toLower();
+    p.username = ini.value(QStringLiteral("username")).toString();
+    p.password = ini.value(QStringLiteral("password")).toString();
+    p.keyPath = ini.value(QStringLiteral("key_path")).toString();
+    p.useSudo = ini.value(QStringLiteral("use_sudo"), false).toBool();
+    ini.endGroup();
+    if (p.id.isEmpty()) {
+        p.id = defaultIdFromGroup(groupName);
+    }
+    p.machineUid = normalizeMachineUidForStorage(p, p.machineUid);
+    if (shouldForceLocalSudo(p)) {
+        p.useSudo = true;
+    }
+    return p;
+}
+
+void ConnectionStore::saveProfileToGroup(QSettings& ini, const QString& groupName, const ConnectionProfile& profile) {
     ConnectionProfile normalized = profile;
     normalized.machineUid = normalizeMachineUidForStorage(normalized, normalized.machineUid);
+    if (shouldForceLocalSudo(normalized)) {
+        normalized.useSudo = true;
+    }
+    const QString sshFamily = normalized.sshAddressFamily.trimmed().toLower();
+    ini.beginGroup(groupName);
+    ini.remove(QStringLiteral(""));
+    ini.setValue(QStringLiteral("id"), normalized.id.trimmed());
+    ini.setValue(QStringLiteral("name"), normalized.name.trimmed());
     ini.setValue(QStringLiteral("machine_uid"), normalized.machineUid);
     ini.setValue(QStringLiteral("conn_type"),
-                 profile.connType.trimmed().isEmpty() ? QStringLiteral("SSH") : profile.connType.trimmed());
+                 normalized.connType.trimmed().isEmpty() ? QStringLiteral("SSH")
+                                                         : normalized.connType.trimmed());
     ini.setValue(QStringLiteral("os_type"),
-                 profile.osType.trimmed().isEmpty() ? QStringLiteral("Linux") : profile.osType.trimmed());
-    ini.setValue(QStringLiteral("host"), profile.host.trimmed());
-    ini.setValue(QStringLiteral("port"), ensurePort(profile.connType, profile.port));
-    const QString sshFamily = profile.sshAddressFamily.trimmed().toLower();
+                 normalized.osType.trimmed().isEmpty() ? QStringLiteral("Linux")
+                                                       : normalized.osType.trimmed());
+    ini.setValue(QStringLiteral("host"), normalized.host.trimmed());
+    ini.setValue(QStringLiteral("port"), ensurePort(normalized.connType, normalized.port));
     ini.setValue(QStringLiteral("ssh_address_family"),
                  (sshFamily == QStringLiteral("ipv4") || sshFamily == QStringLiteral("ipv6"))
                      ? sshFamily
                      : QStringLiteral("auto"));
-    ini.setValue(QStringLiteral("username"), profile.username);
-    ini.setValue(QStringLiteral("password"), profile.password);
-    ini.setValue(QStringLiteral("key_path"), profile.keyPath.trimmed());
-    if (shouldForceLocalSudo(normalized)) {
-        normalized.useSudo = true;
-    }
+    ini.setValue(QStringLiteral("username"), normalized.username);
+    ini.setValue(QStringLiteral("password"), normalized.password);
+    ini.setValue(QStringLiteral("key_path"), normalized.keyPath.trimmed());
     ini.setValue(QStringLiteral("use_sudo"), normalized.useSudo);
-    ini.sync();
-    if (ini.status() != QSettings::NoError) {
-        error = QStringLiteral("Error saving INI");
-        return false;
-    }
-    return true;
+    ini.endGroup();
 }
 
 bool ConnectionStore::migrateLegacyConnectionsToPerFile(QString& error) const {
     error.clear();
     QSettings ini(iniPath(), QSettings::IniFormat);
-    const QStringList groups = ini.childGroups();
-    bool hadLegacy = false;
+    bool changed = false;
+    const QStringList groups = connectionGroups(ini);
     for (const QString& group : groups) {
-        if (!isConnectionGroupName(group)) {
+        const ConnectionProfile p = loadProfileFromGroup(ini, group);
+        const QString normalizedGroup = connectionGroupNameForId(p.id.isEmpty() ? defaultIdFromGroup(group) : p.id);
+        if (group.compare(normalizedGroup, Qt::CaseInsensitive) == 0) {
             continue;
         }
-        hadLegacy = true;
-        ini.beginGroup(group);
-        ConnectionProfile p;
-        p.id = ini.value(QStringLiteral("id"), defaultIdFromGroup(group)).toString().trimmed();
-        p.name = ini.value(QStringLiteral("name")).toString();
-        p.machineUid = ini.value(QStringLiteral("machine_uid")).toString();
-        p.connType = ini.value(QStringLiteral("conn_type")).toString();
-        p.osType = ini.value(QStringLiteral("os_type")).toString();
-        p.host = ini.value(QStringLiteral("host")).toString();
-        p.port = ini.value(QStringLiteral("port"), 22).toInt();
-        p.sshAddressFamily = ini.value(QStringLiteral("ssh_address_family"), QStringLiteral("auto")).toString().trimmed().toLower();
-        p.username = ini.value(QStringLiteral("username")).toString();
-        p.password = ini.value(QStringLiteral("password")).toString();
-        p.keyPath = ini.value(QStringLiteral("key_path")).toString();
-        p.useSudo = ini.value(QStringLiteral("use_sudo"), false).toBool();
-        ini.endGroup();
-        if (p.id.isEmpty()) {
-            p.id = defaultIdFromGroup(group);
-        }
-        if (shouldForceLocalSudo(p)) {
-            p.useSudo = true;
-        }
-        const QString filePath = connectionIniPathForProfile(p);
-        QString saveErr;
-        if (!saveProfileToIni(filePath, p, saveErr)) {
-            error = trk(QStringLiteral("t_cstore_auto011"), QStringLiteral("Error guardando INI"),
-                        QStringLiteral("Error saving INI"), QStringLiteral("保存 INI 出错"));
-            return false;
-        }
+        saveProfileToGroup(ini, normalizedGroup, p);
         ini.beginGroup(group);
         ini.remove(QStringLiteral(""));
         ini.endGroup();
+        changed = true;
     }
-    if (hadLegacy) {
+
+    const QStringList connFiles = connectionIniPaths();
+    for (const QString& path : connFiles) {
+        ConnectionProfile p = loadProfileFromIni(path);
+        if (p.id.trimmed().isEmpty()) {
+            p.id = QFileInfo(path).completeBaseName();
+        }
+        const QString groupName = connectionGroupNameForId(p.id);
+        saveProfileToGroup(ini, groupName, p);
+        changed = true;
+    }
+
+    if (changed) {
         ini.sync();
         if (ini.status() != QSettings::NoError) {
             error = trk(QStringLiteral("t_cstore_auto011"), QStringLiteral("Error guardando INI"),
                         QStringLiteral("Error saving INI"), QStringLiteral("保存 INI 出错"));
             return false;
         }
+    }
+    for (const QString& path : connFiles) {
+        QFile::remove(path);
     }
     return true;
 }
@@ -404,13 +379,11 @@ LoadResult ConnectionStore::loadConnections() const {
             result.warnings.push_back(migrationError);
         }
     }
-    const QStringList connFiles = connectionIniPaths();
-    for (const QString& path : connFiles) {
-        ConnectionProfile p = loadProfileFromIni(path);
+    QSettings ini(iniPath(), QSettings::IniFormat);
+    const QStringList groups = connectionGroups(ini);
+    for (const QString& group : groups) {
+        ConnectionProfile p = loadProfileFromGroup(ini, group);
         p.port = ensurePort(p.connType, p.port);
-        if (p.id.trimmed().isEmpty()) {
-            p.id = QFileInfo(path).completeBaseName();
-        }
 
         if (SecretCipher::isEncrypted(p.username)) {
             QString dec;
@@ -520,15 +493,16 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
         id.replace('/', '_');
     }
 
-    const QStringList connFiles = connectionIniPaths();
+    QSettings ini(iniPath(), QSettings::IniFormat);
+    const QStringList groups = connectionGroups(ini);
     const QString targetName = profile.name.trimmed();
-    QString existingPathForId;
-    for (const QString& path : connFiles) {
-        const ConnectionProfile existing = loadProfileFromIni(path);
+    QString existingGroupForId;
+    for (const QString& group : groups) {
+        const ConnectionProfile existing = loadProfileFromGroup(ini, group);
         const QString existingId = existing.id.trimmed();
         const QString existingName = existing.name.trimmed();
         if (existingId.compare(id, Qt::CaseInsensitive) == 0) {
-            existingPathForId = path;
+            existingGroupForId = group;
             continue;
         }
         if (!existingName.isEmpty() && existingName.compare(targetName, Qt::CaseInsensitive) == 0) {
@@ -562,19 +536,19 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
         storedPassword = encrypted;
     }
     toSave.password = storedPassword;
-    const QString path = connectionIniPathForProfile(toSave, existingPathForId);
-    if (!saveProfileToIni(path, toSave, error)) {
+    const QString targetGroup = connectionGroupNameForId(toSave.id);
+    saveProfileToGroup(ini, targetGroup, toSave);
+    if (!existingGroupForId.isEmpty() && existingGroupForId.compare(targetGroup, Qt::CaseInsensitive) != 0) {
+        ini.beginGroup(existingGroupForId);
+        ini.remove(QStringLiteral(""));
+        ini.endGroup();
+    }
+    ini.sync();
+    if (ini.status() != QSettings::NoError) {
         error = trk(QStringLiteral("t_cstore_auto011"), QStringLiteral("Error guardando INI"),
                     QStringLiteral("Error saving INI"),
                     QStringLiteral("保存 INI 出错"));
         return false;
-    }
-    if (!existingPathForId.trimmed().isEmpty()) {
-        const QString existingNorm = QFileInfo(existingPathForId).absoluteFilePath();
-        const QString newNorm = QFileInfo(path).absoluteFilePath();
-        if (existingNorm != newNorm) {
-            QFile::remove(existingPathForId);
-        }
     }
     return true;
 }
@@ -593,22 +567,24 @@ bool ConnectionStore::deleteConnectionById(const QString& id, QString& error) {
                     QStringLiteral("ID 为空"));
         return false;
     }
-    const QStringList connFiles = connectionIniPaths();
-    bool removedAny = false;
-    for (const QString& path : connFiles) {
-        const ConnectionProfile p = loadProfileFromIni(path);
+    QSettings ini(iniPath(), QSettings::IniFormat);
+    const QStringList groups = connectionGroups(ini);
+    for (const QString& group : groups) {
+        const ConnectionProfile p = loadProfileFromGroup(ini, group);
         if (p.id.trimmed().compare(clean, Qt::CaseInsensitive) != 0) {
             continue;
         }
-        if (!QFile::remove(path)) {
-            error = trk(QStringLiteral("t_cstore_auto013"), QStringLiteral("Error borrando en INI"),
-                        QStringLiteral("Error deleting from INI"),
-                        QStringLiteral("删除 INI 项时出错"));
-            return false;
-        }
-        removedAny = true;
+        ini.beginGroup(group);
+        ini.remove(QStringLiteral(""));
+        ini.endGroup();
     }
-    Q_UNUSED(removedAny);
+    ini.sync();
+    if (ini.status() != QSettings::NoError) {
+        error = trk(QStringLiteral("t_cstore_auto013"), QStringLiteral("Error borrando en INI"),
+                    QStringLiteral("Error deleting from INI"),
+                    QStringLiteral("删除 INI 项时出错"));
+        return false;
+    }
     return true;
 }
 
@@ -626,24 +602,28 @@ bool ConnectionStore::encryptStoredPasswords(QString& error) {
         return false;
     }
 
-    for (const QString& path : connectionIniPaths()) {
-        ConnectionProfile p = loadProfileFromIni(path);
+    QSettings ini(iniPath(), QSettings::IniFormat);
+    const QStringList groups = connectionGroups(ini);
+    for (const QString& group : groups) {
+        ConnectionProfile p = loadProfileFromGroup(ini, group);
         const QString current = p.password;
         if (!current.isEmpty() && !SecretCipher::isEncrypted(current)) {
             QString encErr;
             QString encrypted;
             if (!SecretCipher::encryptEncv1(current, m_masterPassword, encrypted, encErr)) {
-                error = QStringLiteral("%1: %2").arg(path, encErr);
+                error = QStringLiteral("%1: %2").arg(p.name.isEmpty() ? p.id : p.name, encErr);
                 return false;
             }
             p.password = encrypted;
-            if (!saveProfileToIni(path, p, error)) {
-                error = trk(QStringLiteral("t_cstore_auto015"), QStringLiteral("Error guardando INI"),
-                            QStringLiteral("Error saving INI"),
-                            QStringLiteral("保存 INI 出错"));
-                return false;
-            }
+            saveProfileToGroup(ini, group, p);
         }
+    }
+    ini.sync();
+    if (ini.status() != QSettings::NoError) {
+        error = trk(QStringLiteral("t_cstore_auto015"), QStringLiteral("Error guardando INI"),
+                    QStringLiteral("Error saving INI"),
+                    QStringLiteral("保存 INI 出错"));
+        return false;
     }
     return true;
 }
@@ -661,14 +641,16 @@ bool ConnectionStore::rotateMasterPassword(const QString& oldMasterPassword, con
                     QStringLiteral("新主密码为空"));
         return false;
     }
-    for (const QString& path : connectionIniPaths()) {
-        ConnectionProfile p = loadProfileFromIni(path);
+    QSettings ini(iniPath(), QSettings::IniFormat);
+    const QStringList groups = connectionGroups(ini);
+    for (const QString& group : groups) {
+        ConnectionProfile p = loadProfileFromGroup(ini, group);
         const QString current = p.password;
         QString plain = current;
         if (!current.isEmpty() && SecretCipher::isEncrypted(current)) {
             QString decErr;
             if (!SecretCipher::decryptEncv1(current, oldMasterPassword, plain, decErr)) {
-                error = QStringLiteral("%1: %2").arg(path, decErr);
+                error = QStringLiteral("%1: %2").arg(p.name.isEmpty() ? p.id : p.name, decErr);
                 return false;
             }
         }
@@ -676,17 +658,19 @@ bool ConnectionStore::rotateMasterPassword(const QString& oldMasterPassword, con
             QString encErr;
             QString encrypted;
             if (!SecretCipher::encryptEncv1(plain, newMasterPassword, encrypted, encErr)) {
-                error = QStringLiteral("%1: %2").arg(path, encErr);
+                error = QStringLiteral("%1: %2").arg(p.name.isEmpty() ? p.id : p.name, encErr);
                 return false;
             }
             p.password = encrypted;
-            if (!saveProfileToIni(path, p, error)) {
-                error = trk(QStringLiteral("t_cstore_auto017"), QStringLiteral("Error guardando INI"),
-                            QStringLiteral("Error saving INI"),
-                            QStringLiteral("保存 INI 出错"));
-                return false;
-            }
+            saveProfileToGroup(ini, group, p);
         }
+    }
+    ini.sync();
+    if (ini.status() != QSettings::NoError) {
+        error = trk(QStringLiteral("t_cstore_auto017"), QStringLiteral("Error guardando INI"),
+                    QStringLiteral("Error saving INI"),
+                    QStringLiteral("保存 INI 出错"));
+        return false;
     }
     m_masterPassword = newMasterPassword;
     return true;

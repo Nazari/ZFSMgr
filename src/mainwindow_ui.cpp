@@ -1199,12 +1199,7 @@ void MainWindow::buildUi() {
     auto* selectionRowLayout = new QHBoxLayout(selectionRow);
     selectionRowLayout->setContentsMargins(2, 2, 2, 2);
     selectionRowLayout->setSpacing(6);
-    auto* connActionRightBox = new QWidget(m_connActionsBox);
-    connActionRightBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    auto* connActionRightLayout = new QHBoxLayout(connActionRightBox);
-    connActionRightLayout->setContentsMargins(2, 2, 2, 2);
-    connActionRightLayout->setSpacing(6);
-    auto* actionButtonsBox = new QWidget(connActionRightBox);
+    auto* actionButtonsBox = new QWidget(m_connActionsBox);
     auto* actionButtonsLayout = new QVBoxLayout(actionButtonsBox);
     actionButtonsLayout->setContentsMargins(0, 0, 0, 0);
     actionButtonsLayout->setSpacing(6);
@@ -1213,7 +1208,7 @@ void MainWindow::buildUi() {
             QStringLiteral("Origen:(vacío)"),
             QStringLiteral("Source:(empty)"),
             QStringLiteral("源：（空）")),
-        connActionRightBox);
+        m_connActionsBox);
     m_connOriginSelectionLabel->setWordWrap(true);
     m_connOriginSelectionLabel->setMinimumHeight(18);
     m_connOriginSelectionLabel->setFont(baseUiFont);
@@ -1223,46 +1218,46 @@ void MainWindow::buildUi() {
             QStringLiteral("Aplicar cambios"),
             QStringLiteral("Apply changes"),
             QStringLiteral("应用更改")),
-        connActionRightBox);
+        m_connActionsBox);
     m_btnDiscardPendingChanges = new QPushButton(
         trk(QStringLiteral("t_discard_changes_001"),
             QStringLiteral("Deshacer cambios"),
             QStringLiteral("Discard changes"),
             QStringLiteral("撤销更改")),
-        connActionRightBox);
+        m_connActionsBox);
     m_btnApplyConnContentProps->setAttribute(Qt::WA_AlwaysShowToolTips, true);
     m_btnConnCopy = new QPushButton(
         trk(QStringLiteral("t_copy_001"),
             QStringLiteral("Copiar"),
             QStringLiteral("Copy"),
             QStringLiteral("复制")),
-        connActionRightBox);
+        m_connActionsBox);
     m_btnConnCopy->setObjectName(QStringLiteral("connCopyButton"));
     m_btnConnClone = new QPushButton(
         trk(QStringLiteral("t_clone_btn_001"),
             QStringLiteral("Clonar"),
             QStringLiteral("Clone"),
             QStringLiteral("克隆")),
-        connActionRightBox);
+        m_connActionsBox);
     m_btnConnClone->setObjectName(QStringLiteral("connCloneButton"));
     m_btnConnMove = new QPushButton(
         trk(QStringLiteral("t_move_btn_001"),
             QStringLiteral("Mover"),
             QStringLiteral("Move"),
             QStringLiteral("移动")),
-        connActionRightBox);
+        m_connActionsBox);
     m_btnConnMove->setObjectName(QStringLiteral("connMoveButton"));
     m_btnConnDiff = new QPushButton(
         trk(QStringLiteral("t_diff_btn_001"),
             QStringLiteral("Diff")),
-        connActionRightBox);
+        m_connActionsBox);
     m_btnConnDiff->setObjectName(QStringLiteral("connDiffButton"));
     m_btnConnLevel = new QPushButton(
         trk(QStringLiteral("t_level_btn_001"),
             QStringLiteral("Nivelar"),
             QStringLiteral("Level"),
             QStringLiteral("同步快照")),
-        connActionRightBox);
+        m_connActionsBox);
     m_btnConnLevel->setObjectName(QStringLiteral("connLevelButton"));
     m_btnApplyConnContentProps->setFont(baseUiFont);
     m_btnDiscardPendingChanges->setFont(baseUiFont);
@@ -1276,7 +1271,7 @@ void MainWindow::buildUi() {
             QStringLiteral("Sincronizar"),
             QStringLiteral("Sync"),
             QStringLiteral("同步文件")),
-        connActionRightBox);
+        m_connActionsBox);
     m_btnConnSync->setObjectName(QStringLiteral("connSyncButton"));
     m_btnConnSync->setFont(baseUiFont);
     m_btnConnCopy->setToolTip(
@@ -1360,7 +1355,7 @@ void MainWindow::buildUi() {
             QStringLiteral("Cambios pendientes"),
             QStringLiteral("Pending changes"),
             QStringLiteral("待处理更改")),
-        m_connActionsBox);
+        connectionsTab);
     auto* pendingChangesLayout = new QVBoxLayout(pendingChangesBox);
     pendingChangesLayout->setContentsMargins(6, 6, 6, 6);
     pendingChangesLayout->setSpacing(4);
@@ -1383,7 +1378,7 @@ void MainWindow::buildUi() {
     m_pendingChangesView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_pendingChangesView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_pendingChangesView->setMinimumHeight(0);
-    m_pendingChangesView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::MinimumExpanding);
+    m_pendingChangesView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
     connect(m_pendingChangesView, &QPlainTextEdit::cursorPositionChanged, this, [this]() {
         activatePendingChangeAtCursor();
     });
@@ -1410,21 +1405,26 @@ void MainWindow::buildUi() {
     });
     pendingChangesBody->addWidget(m_pendingChangesView, 1);
     pendingChangesLayout->addLayout(pendingChangesBody, 1);
-    pendingChangesBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::MinimumExpanding);
+    pendingChangesBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     pendingChangesBox->setMinimumHeight(0);
     pendingChangesBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    connActionRightLayout->addWidget(actionButtonsBox, 0);
-    connActionRightLayout->addWidget(pendingChangesBox, 1);
-    connActionRightLayout->setStretch(0, 0);
-    connActionRightLayout->setStretch(1, 1);
-    connActionsLayout->addWidget(connActionRightBox, 1);
+    connActionsLayout->addWidget(actionButtonsBox, 0, Qt::AlignTop);
+    connActionsLayout->addStretch(1);
+    auto* actionsPendingRow = new QWidget(connectionsTab);
+    auto* actionsPendingRowLayout = new QHBoxLayout(actionsPendingRow);
+    actionsPendingRowLayout->setContentsMargins(0, 0, 0, 0);
+    actionsPendingRowLayout->setSpacing(6);
+    actionsPendingRowLayout->addWidget(m_connActionsBox, 0, Qt::AlignTop);
+    actionsPendingRowLayout->addWidget(pendingChangesBox, 1);
+    actionsPendingRowLayout->setStretch(0, 0);
+    actionsPendingRowLayout->setStretch(1, 1);
     connLayout->addWidget(selectionRow, 0);
-    connLayout->addWidget(m_connActionsBox, 1);
+    connLayout->addWidget(actionsPendingRow, 1);
     connectionsTab->setLayout(connLayout);
 
     // Legacy left "Datasets" tab removed from UI.
     // Legacy "advanced" layer removed from visible UI.
-    const int actionsBoxHeight = actionButtonsMinHeight + 12;
+    const int actionsBoxHeight = qMax(actionButtonsMinHeight + 12, m_connActionsBox->minimumSizeHint().height());
     if (m_poolMgmtBox) {
         m_poolMgmtBox->setFixedHeight(actionsBoxHeight);
     }
@@ -1432,6 +1432,7 @@ void MainWindow::buildUi() {
         m_connActionsBox->setMinimumHeight(actionsBoxHeight);
         m_connActionsBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     }
+    pendingChangesBox->setMinimumHeight(actionsBoxHeight);
     m_btnAdvancedBreakdown = nullptr;
     m_btnAdvancedAssemble = nullptr;
     m_btnAdvancedFromDir = nullptr;
@@ -1977,13 +1978,78 @@ void MainWindow::buildUi() {
     }
     if (m_bottomInfoSplit && !m_bottomInfoSplitState.isEmpty()) {
         m_bottomInfoSplit->restoreState(m_bottomInfoSplitState);
-        const QList<int> bottomInfoSizes = m_bottomInfoSplit->sizes();
-        if (bottomInfoSizes.size() >= 2 && bottomInfoSizes.at(1) > 0) {
-            topBottomPane->setMinimumHeight(bottomInfoSizes.at(1));
-        }
     }
     if (m_verticalMainSplit && !m_verticalMainSplitState.isEmpty()) {
         m_verticalMainSplit->restoreState(m_verticalMainSplitState);
+    }
+    int minChangesHeight = topBottomPane->sizeHint().height();
+    if (m_bottomInfoSplit) {
+        const QList<int> bottomInfoSizes = m_bottomInfoSplit->sizes();
+        if (bottomInfoSizes.size() >= 2 && bottomInfoSizes.at(1) > 0) {
+            minChangesHeight = qMax(minChangesHeight, bottomInfoSizes.at(1));
+        }
+    }
+    const int targetActionsHeight = qMax(actionsBoxHeight,
+                                         m_connActionsBox ? m_connActionsBox->minimumSizeHint().height() : 0);
+    const int targetChangesMin =
+        selectionRow->sizeHint().height() + targetActionsHeight + connLayout->spacing();
+    minChangesHeight = qMax(1, qMax(minChangesHeight, targetChangesMin));
+    topBottomPane->setMinimumHeight(minChangesHeight);
+
+    int minLogsHeight = bottomTabsPane->sizeHint().height();
+    if (m_verticalMainSplit) {
+        const QList<int> mainSizes = m_verticalMainSplit->sizes();
+        if (mainSizes.size() >= 2 && mainSizes.at(1) > 0) {
+            minLogsHeight = qMax(minLogsHeight, mainSizes.at(1));
+        }
+    }
+    minLogsHeight = qMax(1, minLogsHeight / 2);
+
+    if (m_bottomInfoSplit) {
+        connect(m_bottomInfoSplit, &QSplitter::splitterMoved, this, [this, minChangesHeight](int, int) {
+            if (!m_bottomInfoSplit || m_bottomInfoSplit->property("_enforcingMinChanges").toBool()) {
+                return;
+            }
+            const QList<int> sizes = m_bottomInfoSplit->sizes();
+            if (sizes.size() < 2) {
+                return;
+            }
+            const int upper = sizes.at(0);
+            const int lower = sizes.at(1);
+            if (lower >= minChangesHeight) {
+                return;
+            }
+            const int total = upper + lower;
+            if (total <= minChangesHeight) {
+                return;
+            }
+            m_bottomInfoSplit->setProperty("_enforcingMinChanges", true);
+            m_bottomInfoSplit->setSizes({total - minChangesHeight, minChangesHeight});
+            m_bottomInfoSplit->setProperty("_enforcingMinChanges", false);
+        });
+    }
+    if (m_verticalMainSplit) {
+        connect(m_verticalMainSplit, &QSplitter::splitterMoved, this, [this, minLogsHeight](int, int) {
+            if (!m_verticalMainSplit || m_verticalMainSplit->property("_enforcingMinLogs").toBool()) {
+                return;
+            }
+            const QList<int> sizes = m_verticalMainSplit->sizes();
+            if (sizes.size() < 2) {
+                return;
+            }
+            const int upper = sizes.at(0);
+            const int lower = sizes.at(1);
+            if (lower == 0 || lower >= minLogsHeight) {
+                return;
+            }
+            const int total = upper + lower;
+            if (total <= minLogsHeight) {
+                return;
+            }
+            m_verticalMainSplit->setProperty("_enforcingMinLogs", true);
+            m_verticalMainSplit->setSizes({total - minLogsHeight, minLogsHeight});
+            m_verticalMainSplit->setProperty("_enforcingMinLogs", false);
+        });
     }
 
     auto connTokenFromTreeSelectionBottom = [this](QTreeWidget* tree) -> QString {

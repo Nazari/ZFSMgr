@@ -4,6 +4,8 @@
 #include <QStringList>
 #include <QVector>
 
+class QSettings;
+
 struct ConnectionProfile {
     QString id;
     QString name;
@@ -47,11 +49,11 @@ private:
                 const QString& en = QString(),
                 const QString& zh = QString()) const;
     bool migrateLegacyConnectionsToPerFile(QString& error) const;
-    QString connectionIniPathForId(const QString& id) const;
-    QString connectionIniPathForProfile(const ConnectionProfile& profile, const QString& currentPath = QString()) const;
-    static QString sanitizedConnFileId(const QString& id);
+    static QString connectionGroupNameForId(const QString& id);
+    static QStringList connectionGroups(QSettings& ini);
+    static ConnectionProfile loadProfileFromGroup(QSettings& ini, const QString& groupName);
+    static void saveProfileToGroup(QSettings& ini, const QString& groupName, const ConnectionProfile& profile);
     static ConnectionProfile loadProfileFromIni(const QString& path);
-    static bool saveProfileToIni(const QString& path, const ConnectionProfile& profile, QString& error);
     QString m_appName;
     QString m_masterPassword;
     QString m_language{QStringLiteral("es")};

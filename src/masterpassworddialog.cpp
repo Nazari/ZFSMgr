@@ -455,9 +455,9 @@ void MasterPasswordDialog::retranslateUi() {
         } else if (m_requestLocalSudoCredentials) {
             m_creationInfoLabel->setText(trk(lang,
                                              QStringLiteral("t_local_sudo_boot_002"),
-                                             QStringLiteral("No existe connLocal.ini.\nIntroduzca usuario y password local con sudo."),
-                                             QStringLiteral("connLocal.ini does not exist.\nEnter the local sudo user and password."),
-                                             QStringLiteral("connLocal.ini 不存在。\n请输入本地 sudo 用户和密码。")));
+                                             QStringLiteral("Faltan credenciales locales con sudo en config.ini.\nIntroduzca usuario y password local."),
+                                             QStringLiteral("Local sudo credentials are missing in config.ini.\nEnter the local user and password."),
+                                             QStringLiteral("config.ini 中缺少本地 sudo 凭据。\n请输入本地用户和密码。")));
             m_creationInfoLabel->show();
         } else {
             m_creationInfoLabel->hide();

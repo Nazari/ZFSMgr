@@ -205,9 +205,21 @@ int main(int argc, char* argv[]) {
     bool requireLocalSudoAtStartup = false;
     {
         const bool hasConfig = QFileInfo::exists(store.iniPath());
-        const QDir cfgDir(store.configDir());
         firstRunCreateIni = !hasConfig;
-        requireLocalSudoAtStartup = !QFileInfo::exists(cfgDir.filePath(QStringLiteral("connLocal.ini")));
+        LoadResult lr = store.loadConnections();
+        bool hasLocalConnWithCreds = false;
+        for (const ConnectionProfile& cp : lr.profiles) {
+            const bool isLocal = cp.id.trimmed().compare(QStringLiteral("local"), Qt::CaseInsensitive) == 0
+                || cp.connType.trimmed().compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0;
+            if (!isLocal) {
+                continue;
+            }
+            if (!cp.username.trimmed().isEmpty() && !cp.password.trimmed().isEmpty()) {
+                hasLocalConnWithCreds = true;
+                break;
+            }
+        }
+        requireLocalSudoAtStartup = !hasLocalConnWithCreds;
     }
     while (true) {
         MasterPasswordDialog dlg;
@@ -304,9 +316,9 @@ int main(int argc, char* argv[]) {
                     QStringLiteral("ZFSMgr"),
                     trk(language,
                         QStringLiteral("t_local_conn_create_err001"),
-                        QStringLiteral("No se pudo crear connLocal.ini.\n%1"),
-                        QStringLiteral("Could not create connLocal.ini.\n%1"),
-                        QStringLiteral("无法创建 connLocal.ini。\n%1")).arg(localErr));
+                        QStringLiteral("No se pudo crear la conexión Local en config.ini.\n%1"),
+                        QStringLiteral("Could not create Local connection in config.ini.\n%1"),
+                        QStringLiteral("无法在 config.ini 中创建本地连接。\n%1")).arg(localErr));
                 return false;
             }
             requireLocalSudoAtStartup = false;
