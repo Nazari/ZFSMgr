@@ -6,6 +6,7 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QFormLayout>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -14,6 +15,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSizePolicy>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -650,49 +652,108 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const Datase
         return;
     }
     const QString target = ctx.snapshotName.isEmpty() ? ctx.datasetName : (ctx.datasetName + QStringLiteral("@") + ctx.snapshotName);
-    const auto askRec = QMessageBox::question(
-        this,
-        trk(QStringLiteral("t_recursive_del01"),
-            QStringLiteral("Borrado recursivo"),
-            QStringLiteral("Recursive deletion"),
-            QStringLiteral("递归删除")),
-        ctx.snapshotName.isEmpty()
-            ? trk(QStringLiteral("t_recursive_q_ds1"),
-                  QStringLiteral("¿Borrar recursivamente datasets/snapshots hijos?"),
-                  QStringLiteral("Delete child datasets/snapshots recursively?"),
-                  QStringLiteral("是否递归删除子数据集/快照？"))
-            : trk(QStringLiteral("t_recursive_q_sn1"),
-                  QStringLiteral("¿Borrar recursivamente este snapshot en hijos descendientes?"),
-                  QStringLiteral("Delete this snapshot recursively on descendant children?"),
-                  QStringLiteral("是否在后代子项上递归删除此快照？")),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    const bool recursive = (askRec == QMessageBox::Yes);
-    const auto confirm = QMessageBox::question(
-        this,
-        trk(QStringLiteral("t_confirm_del_001"),
-            QStringLiteral("Confirmar borrado"),
-            QStringLiteral("Confirm deletion"),
-            QStringLiteral("确认删除")),
-        trk(QStringLiteral("t_confirm_del_msg1"),
-            QStringLiteral("Se añadirá a cambios pendientes el borrado%2 de:\n%1\n¿Continuar?"),
-            QStringLiteral("A%2 delete for the following will be added to pending changes:\n%1\nContinue?"),
-            QStringLiteral("将把以下对象的%2删除加入待处理更改：\n%1\n是否继续？"))
-            .arg(target,
-                 recursive
-                     ? trk(QStringLiteral("t_recursive_suffix_001"),
-                           QStringLiteral(" recursivo"),
-                           QStringLiteral(" recursive"),
-                           QStringLiteral(" 递归"))
-                     : QString()),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm != QMessageBox::Yes) {
+    QDialog dlg(this);
+    dlg.setWindowTitle(trk(QStringLiteral("t_delete_params_title_001"),
+                           QStringLiteral("Borrar dataset/snapshot"),
+                           QStringLiteral("Delete dataset/snapshot"),
+                           QStringLiteral("删除数据集/快照")));
+    dlg.setModal(true);
+    dlg.setMinimumWidth(760);
+    auto* vbox = new QVBoxLayout(&dlg);
+    vbox->setSpacing(10);
+    vbox->setContentsMargins(12, 12, 12, 12);
+    auto* intro = new QLabel(
+        trk(QStringLiteral("t_delete_params_intro_001"),
+            QStringLiteral("Configure los parámetros de borrado para:\n%1"),
+            QStringLiteral("Configure delete parameters for:\n%1"),
+            QStringLiteral("为以下对象配置删除参数：\n%1"))
+            .arg(target),
+        &dlg);
+    intro->setWordWrap(true);
+    intro->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    intro->setMinimumWidth(680);
+    vbox->addWidget(intro);
+
+    auto* form = new QFormLayout();
+    form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+    form->setLabelAlignment(Qt::AlignTop | Qt::AlignLeft);
+    form->setFormAlignment(Qt::AlignTop | Qt::AlignLeft);
+    form->setVerticalSpacing(10);
+    form->setHorizontalSpacing(12);
+    form->setContentsMargins(0, 4, 0, 4);
+
+    auto tuneDescLabel = [](QLabel* lbl) {
+        if (!lbl) {
+            return;
+        }
+        lbl->setWordWrap(true);
+        lbl->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        lbl->setMinimumWidth(620);
+    };
+
+    QCheckBox* recursiveCb = new QCheckBox(QStringLiteral("-r"), &dlg);
+    auto* recursiveLbl = new QLabel(
+        trk(QStringLiteral("t_delete_params_r_desc_001"),
+            QStringLiteral("Borra recursivamente datasets/snapshots descendientes."),
+            QStringLiteral("Delete descendant datasets/snapshots recursively."),
+            QStringLiteral("递归删除后代数据集/快照。")),
+        &dlg);
+    tuneDescLabel(recursiveLbl);
+    recursiveCb->setToolTip(recursiveLbl->text());
+    form->addRow(recursiveCb, recursiveLbl);
+
+    QCheckBox* recursiveDestroyCb = new QCheckBox(QStringLiteral("-R"), &dlg);
+    auto* recursiveDestroyLbl = new QLabel(
+        trk(QStringLiteral("t_delete_params_R_desc_001"),
+            QStringLiteral("Como -r, y además destruye clones/dependencias de snapshots."),
+            QStringLiteral("Like -r, and also destroys snapshot clones/dependencies."),
+            QStringLiteral("与 -r 类似，并额外销毁快照克隆/依赖。")),
+        &dlg);
+    tuneDescLabel(recursiveDestroyLbl);
+    recursiveDestroyCb->setToolTip(recursiveDestroyLbl->text());
+    form->addRow(recursiveDestroyCb, recursiveDestroyLbl);
+
+    QCheckBox* forceCb = new QCheckBox(QStringLiteral("-f"), &dlg);
+    auto* forceLbl = new QLabel(
+        trk(QStringLiteral("t_delete_params_f_desc_001"),
+            QStringLiteral("Fuerza el desmontaje previo si el filesystem está montado."),
+            QStringLiteral("Force unmount first if the filesystem is mounted."),
+            QStringLiteral("如果文件系统已挂载，则先强制卸载。")),
+        &dlg);
+    tuneDescLabel(forceLbl);
+    forceCb->setToolTip(forceLbl->text());
+    form->addRow(forceCb, forceLbl);
+
+    QObject::connect(recursiveDestroyCb, &QCheckBox::toggled, &dlg, [recursiveCb](bool on) {
+        if (on) {
+            recursiveCb->setChecked(true);
+        }
+    });
+
+    vbox->addLayout(form);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    QObject::connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    QObject::connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    vbox->addWidget(bb);
+    dlg.resize(820, dlg.sizeHint().height());
+    if (dlg.exec() != QDialog::Accepted) {
         return;
     }
-    QString cmd;
-    cmd = recursive ? QStringLiteral("zfs destroy -r %1").arg(shSingleQuote(target))
-                    : QStringLiteral("zfs destroy %1").arg(shSingleQuote(target));
+    QStringList flags;
+    if (forceCb->isChecked()) {
+        flags.push_back(QStringLiteral("-f"));
+    }
+    if (recursiveDestroyCb->isChecked()) {
+        flags.push_back(QStringLiteral("-R"));
+    } else if (recursiveCb->isChecked()) {
+        flags.push_back(QStringLiteral("-r"));
+    }
+    const bool recursive = recursiveCb->isChecked() || recursiveDestroyCb->isChecked();
+    const QString cmd = flags.isEmpty()
+                            ? QStringLiteral("zfs destroy %1").arg(shSingleQuote(target))
+                            : QStringLiteral("zfs destroy %1 %2")
+                                  .arg(flags.join(QLatin1Char(' ')),
+                                       shSingleQuote(target));
     ConnectionProfile cp = m_profiles[ctx.connIdx];
     if (isLocalConnection(cp) && !isWindowsConnection(cp)) {
         cp.useSudo = true;

@@ -2474,19 +2474,76 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 return;
             }
             const QString snapObj = QStringLiteral("%1@%2").arg(actx.datasetName, actx.snapshotName);
-            const auto confirm = QMessageBox::question(
-                m_mainWindow,
-                QStringLiteral("Rollback"),
-                QStringLiteral("¿Confirmar rollback de snapshot?\n%1").arg(snapObj),
-                QMessageBox::Yes | QMessageBox::No,
-                QMessageBox::No);
-            if (confirm != QMessageBox::Yes) {
+            QDialog dlg(m_mainWindow);
+            dlg.setWindowTitle(QStringLiteral("Rollback"));
+            dlg.setModal(true);
+            auto* vbox = new QVBoxLayout(&dlg);
+            auto* intro = new QLabel(
+                QStringLiteral("Configure los parámetros para rollback del snapshot:\n%1")
+                    .arg(snapObj),
+                &dlg);
+            intro->setWordWrap(true);
+            vbox->addWidget(intro);
+
+            auto* optsForm = new QFormLayout();
+            optsForm->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+
+            QCheckBox* rollbackRecursiveCb = new QCheckBox(QStringLiteral("-r"), &dlg);
+            auto* rollbackRecursiveDesc = new QLabel(
+                QStringLiteral("Elimina snapshots más recientes del dataset para permitir el rollback."),
+                &dlg);
+            rollbackRecursiveDesc->setWordWrap(true);
+            rollbackRecursiveCb->setToolTip(rollbackRecursiveDesc->text());
+            optsForm->addRow(rollbackRecursiveCb, rollbackRecursiveDesc);
+
+            QCheckBox* rollbackRecursiveDestroyCb = new QCheckBox(QStringLiteral("-R"), &dlg);
+            auto* rollbackRecursiveDestroyDesc = new QLabel(
+                QStringLiteral("Como -r, y además elimina clones y dependencias de esos snapshots."),
+                &dlg);
+            rollbackRecursiveDestroyDesc->setWordWrap(true);
+            rollbackRecursiveDestroyCb->setToolTip(rollbackRecursiveDestroyDesc->text());
+            optsForm->addRow(rollbackRecursiveDestroyCb, rollbackRecursiveDestroyDesc);
+
+            QCheckBox* rollbackForceCb = new QCheckBox(QStringLiteral("-f"), &dlg);
+            auto* rollbackForceDesc = new QLabel(
+                QStringLiteral("Fuerza el desmontaje del filesystem si es necesario antes del rollback."),
+                &dlg);
+            rollbackForceDesc->setWordWrap(true);
+            rollbackForceCb->setToolTip(rollbackForceDesc->text());
+            optsForm->addRow(rollbackForceCb, rollbackForceDesc);
+
+            QObject::connect(rollbackRecursiveDestroyCb, &QCheckBox::toggled, &dlg,
+                             [rollbackRecursiveCb](bool on) {
+                                 if (on) {
+                                     rollbackRecursiveCb->setChecked(true);
+                                 }
+                             });
+
+            vbox->addLayout(optsForm);
+
+            auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+            QObject::connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+            QObject::connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+            vbox->addWidget(bb);
+            if (dlg.exec() != QDialog::Accepted) {
                 return;
             }
             m_mainWindow->logUiAction(QStringLiteral("Rollback snapshot (menú Contenido)"));
             QString q = snapObj;
             q.replace('\'', "'\"'\"'");
-            const QString cmd = QStringLiteral("zfs rollback '%1'").arg(q);
+            QStringList rollbackFlags;
+            if (rollbackForceCb->isChecked()) {
+                rollbackFlags.push_back(QStringLiteral("-f"));
+            }
+            if (rollbackRecursiveDestroyCb->isChecked()) {
+                rollbackFlags.push_back(QStringLiteral("-R"));
+            } else if (rollbackRecursiveCb->isChecked()) {
+                rollbackFlags.push_back(QStringLiteral("-r"));
+            }
+            const QString cmd = rollbackFlags.isEmpty()
+                                    ? QStringLiteral("zfs rollback '%1'").arg(q)
+                                    : QStringLiteral("zfs rollback %1 '%2'")
+                                          .arg(rollbackFlags.join(QLatin1Char(' ')), q);
             MainWindow::DatasetSelectionContext mwActx;
             mwActx.valid = actx.valid;
             mwActx.connIdx = actx.connIdx;
