@@ -146,6 +146,7 @@ private:
         bool helperInstallSupported{false};
         QVector<PoolImported> importedPools;
         QVector<PoolImportable> importablePools;
+        QMap<QString, QString> poolGuidByName;
         QVector<QPair<QString, QString>> mountedDatasets; // dataset, mountpoint
         QMap<QString, QString> poolStatusByName;
         QString gsaScheduler;
@@ -161,6 +162,7 @@ private:
 
     struct DatasetRecord {
         QString name;
+        QString guid;
         QString used;
         QString compressRatio;
         QString encryption;
@@ -176,6 +178,7 @@ private:
         bool autoSnapshotPropsLoaded{false};
         QVector<DatasetRecord> datasets;
         QMap<QString, QStringList> snapshotsByDataset;
+        QMap<QString, QString> objectGuidByName;
         QMap<QString, DatasetRecord> recordByName;
         QMap<QString, QString> driveletterByDataset;
         QMap<QString, QMap<QString, QString>> autoSnapshotPropsByDataset;
@@ -191,12 +194,14 @@ private:
 
     struct ConnContentTreeState {
         QStringList expandedDatasets;
+        QStringList expandedNodePaths;
         bool poolRootExpanded{true};
         bool infoExpanded{false};
         QMap<QString, bool> poolRootExpandedByPool;
         QMap<QString, bool> infoExpandedByPool;
         QString selectedDataset;
         QString selectedSnapshot;
+        QString selectedNodePath;
         QMap<QString, QString> snapshotByDataset;
         QMap<QString, QStringList> expandedChildPathsByDataset;
         QByteArray headerState;
@@ -547,6 +552,8 @@ private:
     void saveConnContentTreeState(QTreeWidget* tree, const QString& token);
     void saveConnContentTreeStateFor(QTreeWidget* tree, const QString& token);
     void saveConnContentTreeState(const QString& token);
+    void setConnContentTreeStateWriteLocked(bool locked);
+    bool connContentTreeStateWriteLocked() const;
     void restoreConnContentTreeState(QTreeWidget* tree, const QString& token);
     void restoreConnContentTreeStateFor(QTreeWidget* tree, const QString& token);
     void restoreConnContentTreeState(const QString& token);
@@ -964,14 +971,13 @@ private:
     QString m_connContentToken;
     QMap<QString, QMap<QString, QString>> m_connContentPropValuesByObject;
     QMap<QString, ConnContentTreeState> m_connContentTreeStateByToken;
+    bool m_connContentTreeStateWriteLocked{false};
     QSet<QString> m_disconnectedConnectionKeys;
     QByteArray m_mainWindowGeometryState;
     QByteArray m_topMainSplitState;
     QByteArray m_rightMainSplitState;
     QByteArray m_verticalMainSplitState;
     QByteArray m_bottomInfoSplitState;
-    QMap<int, QSet<QString>> m_savedTopExpandedKeysByConn;
-    QMap<int, QString> m_savedTopSelectedKeyByConn;
     QMap<int, QSet<QString>> m_savedBottomExpandedKeysByConn;
     QMap<int, QString> m_savedBottomSelectedKeyByConn;
     int m_forceRestoreTopStateConnIdx{-1};
@@ -1058,7 +1064,7 @@ private:
     QVector<InlinePropGroupConfig> m_datasetInlinePropGroups;
     QStringList m_poolInlinePropsOrder;
     QVector<InlinePropGroupConfig> m_poolInlinePropGroups;
-    QStringList m_snapshotInlinePropsOrder;
+    QStringList m_snapshotInlineVisibleProps;
     QVector<InlinePropGroupConfig> m_snapshotInlinePropGroups;
     QString m_appLogPath;
     bool m_compactPrevValid{false};

@@ -19,8 +19,8 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QScopedValueRollback>
 #include <QTableWidget>
-#include <QTimer>
 #include <QVBoxLayout>
 #include <functional>
 
@@ -114,6 +114,32 @@ bool isMainPropertiesNodeLabel(const QString& text) {
            || trimmed == QStringLiteral("Snapshot properties");
 }
 
+QString debugConnTreeNodePath(QTreeWidgetItem* item) {
+    if (!item) {
+        return QStringLiteral("<null>");
+    }
+    QStringList parts;
+    for (QTreeWidgetItem* p = item; p; p = p->parent()) {
+        const QString text = p->text(0).trimmed();
+        const QString ds = p->data(0, Qt::UserRole).toString().trimmed();
+        const QString snap = p->data(1, Qt::UserRole).toString().trimmed();
+        const bool isGroup = p->data(0, kConnPropGroupNodeRole).toBool();
+        const QString groupName = p->data(0, kConnPropGroupNameRole).toString().trimmed();
+        QString part = text.isEmpty() ? QStringLiteral("<empty>") : text;
+        if (!ds.isEmpty()) {
+            part += QStringLiteral("{ds=%1}").arg(ds);
+        }
+        if (!snap.isEmpty()) {
+            part += QStringLiteral("{snap=%1}").arg(snap);
+        }
+        if (isGroup) {
+            part += QStringLiteral("{group=%1}").arg(groupName.isEmpty() ? QStringLiteral("<main>") : groupName);
+        }
+        parts.prepend(part);
+    }
+    return parts.join(QStringLiteral(" / "));
+}
+
 int connectionTableRowForIndex(QTableWidget* table, int connIdx) {
     if (!table || connIdx < 0) {
         return -1;
@@ -146,6 +172,7 @@ void logContextMenuPerf(MainWindow* mw,
     }
     mw->debugTrace(msg);
 }
+
 }
 
 MainWindowConnectionDatasetTreeDelegate::MainWindowConnectionDatasetTreeDelegate(MainWindow* mainWindow,
@@ -298,6 +325,17 @@ void MainWindowConnectionDatasetTreeDelegate::rehydrateExpandedDatasetNodes(QTre
     }
     const MainWindow::ConnContentTreeState& st = it.value();
     const QSignalBlocker blocker(tree);
+    auto pathHasSegmentPrefix = [](const QString& path, const QString& prefix) {
+        const QString p = path.trimmed();
+        if (p.isEmpty()) {
+            return false;
+        }
+        if (p.startsWith(prefix)) {
+            return true;
+        }
+        const QString needle = QStringLiteral("/%1").arg(prefix);
+        return p.contains(needle);
+    };
     auto applyStoredSnapshotToItem = [tree, &st](QTreeWidgetItem* item) {
         if (!item) {
             return;
@@ -355,11 +393,13 @@ void MainWindowConnectionDatasetTreeDelegate::rehydrateExpandedDatasetNodes(QTre
         bool needsProps = false;
         bool needsPerms = false;
         for (const QString& path : paths) {
-            if (path.startsWith(QStringLiteral("group|")) || path.startsWith(QStringLiteral("gsa|"))
-                || path.startsWith(QStringLiteral("holds|")) || path.startsWith(QStringLiteral("hold|"))) {
+            if (pathHasSegmentPrefix(path, QStringLiteral("group|"))
+                || pathHasSegmentPrefix(path, QStringLiteral("gsa|"))
+                || pathHasSegmentPrefix(path, QStringLiteral("holds|"))
+                || pathHasSegmentPrefix(path, QStringLiteral("hold|"))) {
                 needsProps = true;
             }
-            if (path.startsWith(QStringLiteral("perm|"))) {
+            if (pathHasSegmentPrefix(path, QStringLiteral("perm|"))) {
                 needsPerms = true;
             }
         }
@@ -526,6 +566,12 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
     if (!m_mainWindow) {
         return;
     }
+    ++m_selectionRefreshEpoch;
+    m_mainWindow->appLog(QStringLiteral("DEBUG"),
+                         QStringLiteral("inline.visibility begin epoch=%1 token=%2")
+                             .arg(QString::number(m_selectionRefreshEpoch),
+                                  preferredToken.trimmed()));
+    QScopedValueRollback<bool> suppressSelectionGuard(m_suppressSelectionRefresh, true);
     auto connTokenFromTreeSelectionBottom = [this](QTreeWidget* tree) -> QString {
         if (!tree) {
             return QString();
@@ -615,6 +661,8 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
         if (!tree) {
             return;
         }
+        const QString scopedToken =
+            visualStateTokenForTree(tree, token) + QStringLiteral("|top");
         auto rematerializeVisiblePropertyNodes = [this](QTreeWidget* targetTree, const QString& targetToken) {
             if (!m_mainWindow || !targetTree || targetToken.trimmed().isEmpty()) {
                 return;
@@ -660,21 +708,32 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
         };
         alignDetailContextToToken(tree, token);
         m_mainWindow->saveConnContentTreeStateFor(tree, token);
+        const auto stateItSaved = m_mainWindow->m_connContentTreeStateByToken.constFind(scopedToken);
+        const MainWindow::ConnContentTreeState preservedState =
+            (stateItSaved != m_mainWindow->m_connContentTreeStateByToken.cend())
+                ? stateItSaved.value()
+                : MainWindow::ConnContentTreeState{};
+        QScopedValueRollback<bool> freezeStateWrites(m_mainWindow->m_connContentTreeStateWriteLocked, true);
         rebuildInlineConnTree(tree, token);
         m_mainWindow->syncConnContentPoolColumnsFor(tree, token);
         rehydrateExpandedDatasetNodes(tree, token);
-        m_mainWindow->restoreConnContentTreeStateFor(tree, token);
         refreshInlinePropsVisualBottom(tree, token);
         m_mainWindow->syncConnContentPoolColumnsFor(tree, token);
         rehydrateExpandedDatasetNodes(tree, token);
-        m_mainWindow->restoreConnContentTreeStateFor(tree, token);
         rematerializeVisiblePropertyNodes(tree, token);
+        if (!preservedState.selectedNodePath.trimmed().isEmpty() || !preservedState.expandedNodePaths.isEmpty()) {
+            m_mainWindow->m_connContentTreeStateByToken.insert(scopedToken, preservedState);
+        }
+        m_mainWindow->restoreConnContentTreeStateFor(tree, token);
     };
 
     m_mainWindow->saveUiSettings();
     const bool onlyPreferredTree = (preferredTree && !preferredToken.trimmed().isEmpty());
     if (onlyPreferredTree) {
         refreshExplicitTreeFromToken(preferredTree, preferredToken.trimmed());
+        m_mainWindow->appLog(QStringLiteral("DEBUG"),
+                             QStringLiteral("inline.visibility end epoch=%1 mode=preferred")
+                                 .arg(QString::number(m_selectionRefreshEpoch)));
         return;
     }
 
@@ -687,6 +746,9 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
             refreshExplicitTreeFromToken(m_mainWindow->m_connContentTree, token);
         }
     }
+    m_mainWindow->appLog(QStringLiteral("DEBUG"),
+                         QStringLiteral("inline.visibility end epoch=%1 mode=default")
+                             .arg(QString::number(m_selectionRefreshEpoch)));
 }
 
 void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTreeWidget* tree,
@@ -766,7 +828,6 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
     QStringList currentVisible;
     QVector<MainWindow::InlinePropGroupConfig> currentGroups;
     ManagePropsScope scope = poolContext ? ManagePropsScope::Pool : ManagePropsScope::Dataset;
-    const QString fixedSnapshotProp = QStringLiteral("snapshot");
     if (poolContext) {
         currentGroups = m_mainWindow->m_poolInlinePropGroups;
         const QString cacheKey = m_mainWindow->poolDetailsCacheKey(connIdx, poolName);
@@ -829,7 +890,7 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
         allProps = normalizeList(allProps);
         currentVisible = displayedPropsFromNode(owner);
         const QStringList& savedOrder =
-            (scope == ManagePropsScope::Snapshot) ? m_mainWindow->m_snapshotInlinePropsOrder
+            (scope == ManagePropsScope::Snapshot) ? m_mainWindow->m_snapshotInlineVisibleProps
                                                   : m_mainWindow->m_datasetInlinePropsOrder;
         if (!savedOrder.isEmpty()) {
             currentVisible.clear();
@@ -845,9 +906,6 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
         if (allProps.isEmpty()) {
             allProps = currentVisible;
         }
-        if (scope == ManagePropsScope::Snapshot && !allProps.contains(fixedSnapshotProp, Qt::CaseInsensitive)) {
-            allProps.prepend(fixedSnapshotProp);
-        }
     }
     allProps = normalizeList(allProps);
     currentVisible = normalizeList(currentVisible);
@@ -862,9 +920,6 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
     }
     QStringList selection = currentVisible;
     QVector<MainWindow::InlinePropGroupConfig> editedGroups = currentGroups;
-    if (scope == ManagePropsScope::Snapshot && !selection.contains(fixedSnapshotProp, Qt::CaseInsensitive)) {
-        selection.prepend(fixedSnapshotProp);
-    }
     if (!m_mainWindow->editInlinePropertiesDialog(
             m_mainWindow->trk(QStringLiteral("t_visible_props_title_001"),
                               QStringLiteral("Propiedades visibles"),
@@ -881,11 +936,6 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
         return;
     }
     selection = normalizeList(selection);
-    if (scope == ManagePropsScope::Snapshot) {
-        selection.removeAll(QStringLiteral("snapshot"));
-        selection.prepend(fixedSnapshotProp);
-    }
-
     switch (scope) {
     case ManagePropsScope::Pool:
         m_mainWindow->m_poolInlinePropsOrder = selection;
@@ -896,11 +946,12 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
         m_mainWindow->m_datasetInlinePropGroups = editedGroups;
         break;
     case ManagePropsScope::Snapshot:
-        m_mainWindow->m_snapshotInlinePropsOrder = selection;
+        m_mainWindow->m_snapshotInlineVisibleProps = selection;
         m_mainWindow->m_snapshotInlinePropGroups = editedGroups;
         break;
     }
 
+    focusContextItemForInlineVisibility(tree, rawItem);
     applyInlineSectionVisibility(tree, token);
 }
 
@@ -912,6 +963,25 @@ void MainWindowConnectionDatasetTreeDelegate::focusContextItemForInlineVisibilit
     QTreeWidgetItem* item = rawItem;
     if (item->data(0, kConnPropRowRole).toBool() && item->parent()) {
         item = item->parent();
+    }
+    QTreeWidgetItem* focusItem = item;
+    const bool itemIsMainPropsNode =
+        item->data(0, kConnPropGroupNodeRole).toBool()
+        && item->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
+        && isMainPropertiesNodeLabel(item->text(0));
+    if (!itemIsMainPropsNode) {
+        QTreeWidgetItem* probe = item;
+        while (probe) {
+            const bool probeIsMainPropsNode =
+                probe->data(0, kConnPropGroupNodeRole).toBool()
+                && probe->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
+                && isMainPropertiesNodeLabel(probe->text(0));
+            if (probeIsMainPropsNode) {
+                focusItem = probe;
+                break;
+            }
+            probe = probe->parent();
+        }
     }
     QTreeWidgetItem* owner = item;
     while (owner && owner->data(0, Qt::UserRole).toString().isEmpty()
@@ -925,7 +995,8 @@ void MainWindowConnectionDatasetTreeDelegate::focusContextItemForInlineVisibilit
         p->setExpanded(true);
     }
     owner->setExpanded(true);
-    tree->setCurrentItem(owner);
+    ++m_selectionRefreshEpoch;
+    tree->setCurrentItem(focusItem ? focusItem : owner);
 }
 
 bool MainWindowConnectionDatasetTreeDelegate::executeDatasetActionWithStdin(
@@ -1168,29 +1239,19 @@ void MainWindowConnectionDatasetTreeDelegate::itemClicked(QTreeWidget* tree, QTr
     const bool isPoolInfoNode =
         item->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey);
     if (isPoolInfoNode) {
-        QTimer::singleShot(0, m_mainWindow, [this, tree, item]() {
-            if (!m_mainWindow || m_mainWindow->m_closing || !tree || !item) {
-                return;
-            }
-            QTreeWidgetItem* owner = ownerItemForNode(item->parent());
-            if (!owner) {
-                return;
-            }
-            const QString token = tokenForOwnerItem(owner);
-            if (token.isEmpty()) {
-                return;
-            }
-            if (m_mainWindow->m_closing) {
-                return;
-            }
-            m_mainWindow->syncConnContentPoolColumnsFor(tree, token);
-            item->setExpanded(true);
-            QTimer::singleShot(0, tree, [item]() {
-                if (item) {
-                    item->setExpanded(true);
-                }
-            });
-        });
+        if (!m_mainWindow || m_mainWindow->m_closing || !tree || !item) {
+            return;
+        }
+        QTreeWidgetItem* owner = ownerItemForNode(item->parent());
+        if (!owner) {
+            return;
+        }
+        const QString token = tokenForOwnerItem(owner);
+        if (token.isEmpty()) {
+            return;
+        }
+        m_mainWindow->syncConnContentPoolColumnsFor(tree, token);
+        item->setExpanded(true);
         return;
     }
     const bool isLazyPropsNode =
@@ -1198,31 +1259,21 @@ void MainWindowConnectionDatasetTreeDelegate::itemClicked(QTreeWidget* tree, QTr
         && item->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
         && isMainPropertiesNodeLabel(item->text(0));
     if (isLazyPropsNode) {
-        QTimer::singleShot(0, m_mainWindow, [this, tree, item]() {
-            if (!m_mainWindow || m_mainWindow->m_closing || !tree || !item) {
-                return;
-            }
-            QTreeWidgetItem* owner = ownerItemForNode(item->parent());
-            if (!owner) {
-                return;
-            }
-            const QString token = tokenForOwnerItem(owner);
-            if (token.isEmpty()) {
-                return;
-            }
-            if (m_mainWindow->m_closing) {
-                return;
-            }
-            if (item->childCount() == 0) {
-                m_mainWindow->refreshConnContentPropertiesFor(tree);
-            }
-            item->setExpanded(true);
-            QTimer::singleShot(0, tree, [item]() {
-                if (item) {
-                    item->setExpanded(true);
-                }
-            });
-        });
+        if (!m_mainWindow || m_mainWindow->m_closing || !tree || !item) {
+            return;
+        }
+        QTreeWidgetItem* owner = ownerItemForNode(item->parent());
+        if (!owner) {
+            return;
+        }
+        const QString token = tokenForOwnerItem(owner);
+        if (token.isEmpty()) {
+            return;
+        }
+        if (item->childCount() == 0) {
+            m_mainWindow->refreshConnContentPropertiesFor(tree);
+        }
+        item->setExpanded(true);
         return;
     }
     if (!item->data(0, kConnPermissionsNodeRole).toBool()
@@ -1234,23 +1285,21 @@ void MainWindowConnectionDatasetTreeDelegate::itemClicked(QTreeWidget* tree, QTr
         return;
     }
     const bool wasEmpty = (item->childCount() == 0);
-    QTimer::singleShot(0, m_mainWindow, [this, tree, owner, item, wasEmpty]() {
-        if (!m_mainWindow || m_mainWindow->m_closing || !tree || !owner || !item) {
-            return;
-        }
-        if (wasEmpty && item->childCount() == 0) {
-            m_mainWindow->populateDatasetPermissionsNode(tree, owner, false);
-        }
-        if (wasEmpty) {
-            item->setExpanded(true);
-        } else {
-            item->setExpanded(!item->isExpanded());
-        }
-    });
+    if (!m_mainWindow || m_mainWindow->m_closing || !tree || !owner || !item) {
+        return;
+    }
+    if (wasEmpty && item->childCount() == 0) {
+        m_mainWindow->populateDatasetPermissionsNode(tree, owner, false);
+    }
+    if (wasEmpty) {
+        item->setExpanded(true);
+    } else {
+        item->setExpanded(!item->isExpanded());
+    }
 }
 
 void MainWindowConnectionDatasetTreeDelegate::selectionChanged(QTreeWidget* tree, bool isBottom) {
-    if (!m_mainWindow || !tree || m_mainWindow->m_syncingConnContentColumns) {
+    if (!m_mainWindow || !tree || m_mainWindow->m_syncingConnContentColumns || m_suppressSelectionRefresh) {
         return;
     }
     Q_UNUSED(isBottom);
@@ -1320,22 +1369,21 @@ void MainWindowConnectionDatasetTreeDelegate::selectionChanged(QTreeWidget* tree
                 sel->setExpanded(true);
             }
         } else {
-            QPointer<QTreeWidget> safeTree(tree);
-            QPointer<QObject> context(tree);
-            QTreeWidgetItem* selectedNode = sel;
-            QTimer::singleShot(0, context, [this, safeTree, token, isBottom, selectedNode, isLazyPropsNode]() {
-                if (!m_mainWindow || !safeTree) {
-                    return;
-                }
-                if (m_mainWindow->m_rebuildingTopConnContentTree) {
-                    return;
-                }
-                m_mainWindow->refreshConnContentPropertiesFor(safeTree);
-                if (!m_contextMenuInProgress && isLazyPropsNode && selectedNode) {
-                    selectedNode->setExpanded(true);
-                }
-                m_mainWindow->syncConnContentPropertyColumnsFor(safeTree, token);
-            });
+            const quint64 scheduledEpoch = m_selectionRefreshEpoch;
+            if (scheduledEpoch != m_selectionRefreshEpoch) {
+                return;
+            }
+            if (m_suppressSelectionRefresh) {
+                return;
+            }
+            if (m_mainWindow->m_rebuildingTopConnContentTree) {
+                return;
+            }
+            m_mainWindow->refreshConnContentPropertiesFor(tree);
+            if (!m_contextMenuInProgress && isLazyPropsNode && sel) {
+                sel->setExpanded(true);
+            }
+            m_mainWindow->syncConnContentPropertyColumnsFor(tree, token);
         }
     }
     m_mainWindow->updateConnectionDetailTitlesForCurrentSelection();
@@ -1363,6 +1411,11 @@ void MainWindowConnectionDatasetTreeDelegate::itemExpanded(QTreeWidget* tree, QT
     if (!m_mainWindow || !tree || !item) {
         return;
     }
+    if (item->data(0, kConnPropGroupNodeRole).toBool() || item->data(0, kConnPermissionsNodeRole).toBool()) {
+        m_mainWindow->appLog(QStringLiteral("DEBUG"),
+                             QStringLiteral("tree.itemExpanded path=%1")
+                                 .arg(debugConnTreeNodePath(item)));
+    }
     m_mainWindow->resizeTreeColumnsToVisibleContent(tree);
     if (!item->data(0, kConnPermissionsNodeRole).toBool()) {
         return;
@@ -1379,6 +1432,11 @@ void MainWindowConnectionDatasetTreeDelegate::itemExpanded(QTreeWidget* tree, QT
 void MainWindowConnectionDatasetTreeDelegate::itemCollapsed(QTreeWidget* tree, QTreeWidgetItem* item) {
     if (!m_mainWindow || !tree || !item) {
         return;
+    }
+    if (item->data(0, kConnPropGroupNodeRole).toBool() || item->data(0, kConnPermissionsNodeRole).toBool()) {
+        m_mainWindow->appLog(QStringLiteral("DEBUG"),
+                             QStringLiteral("tree.itemCollapsed path=%1")
+                                 .arg(debugConnTreeNodePath(item)));
     }
     m_mainWindow->resizeTreeColumnsToVisibleContent(tree);
 }

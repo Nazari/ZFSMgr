@@ -10,7 +10,6 @@
 #include <QScrollBar>
 #include <QStyle>
 #include <QStyleFactory>
-#include <QTimer>
 #include <QVBoxLayout>
 
 namespace {
@@ -145,31 +144,12 @@ void ConnectionDatasetTreePane::restoreVisualState(const VisualState& state) {
     if (QHeaderView* header = m_tree->header(); header && !state.headerState.isEmpty()) {
         header->restoreState(state.headerState);
     }
-    QPointer<QTreeWidget> safeTree(m_tree);
-    const int vscroll = state.verticalScroll;
-    const int hscroll = state.horizontalScroll;
-    QTimer::singleShot(0, m_tree, [safeTree, vscroll, hscroll]() {
-        if (!safeTree) {
-            return;
-        }
-        if (QScrollBar* scroll = safeTree->verticalScrollBar()) {
-            scroll->setValue(vscroll);
-        }
-        if (QScrollBar* scroll = safeTree->horizontalScrollBar()) {
-            scroll->setValue(hscroll);
-        }
-    });
-    QTimer::singleShot(40, m_tree, [safeTree, vscroll, hscroll]() {
-        if (!safeTree) {
-            return;
-        }
-        if (QScrollBar* scroll = safeTree->verticalScrollBar()) {
-            scroll->setValue(vscroll);
-        }
-        if (QScrollBar* scroll = safeTree->horizontalScrollBar()) {
-            scroll->setValue(hscroll);
-        }
-    });
+    if (QScrollBar* scroll = m_tree->verticalScrollBar()) {
+        scroll->setValue(state.verticalScroll);
+    }
+    if (QScrollBar* scroll = m_tree->horizontalScrollBar()) {
+        scroll->setValue(state.horizontalScroll);
+    }
 }
 
 void ConnectionDatasetTreePane::configureTree() {

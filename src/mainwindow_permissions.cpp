@@ -11,7 +11,6 @@
 #include <QScrollBar>
 #include <QSignalBlocker>
 #include <QSet>
-#include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QWidget>

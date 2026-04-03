@@ -12,7 +12,6 @@
 #include <QPixmap>
 #include <QPushButton>
 #include <QSignalBlocker>
-#include <QTimer>
 #include <QVBoxLayout>
 #include <QIcon>
 #include <QProcessEnvironment>
@@ -162,10 +161,8 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
     }
     const QSize lockedSize = sizeHint().expandedTo(QSize(336, 340));
     setFixedSize(lockedSize);
-    QTimer::singleShot(0, this, [this]() {
-        m_passwordEdit->setFocus(Qt::OtherFocusReason);
-        m_passwordEdit->selectAll();
-    });
+    m_passwordEdit->setFocus(Qt::OtherFocusReason);
+    m_passwordEdit->selectAll();
 }
 
 QString MasterPasswordDialog::password() const {
@@ -228,12 +225,10 @@ void MasterPasswordDialog::setSelectedLanguage(const QString& langCode) {
 void MasterPasswordDialog::setFirstRunCreationMode(bool enabled) {
     m_firstRunCreationMode = enabled;
     retranslateUi();
-    QTimer::singleShot(0, this, [this]() {
-        if (m_passwordEdit) {
-            m_passwordEdit->setFocus(Qt::OtherFocusReason);
-            m_passwordEdit->selectAll();
-        }
-    });
+    if (m_passwordEdit) {
+        m_passwordEdit->setFocus(Qt::OtherFocusReason);
+        m_passwordEdit->selectAll();
+    }
 }
 
 void MasterPasswordDialog::openChangePasswordDialog() {

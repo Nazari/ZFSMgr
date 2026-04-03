@@ -745,9 +745,20 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         } else {
             const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(out).toUtf8());
             const QJsonObject pools = doc.object().value(QStringLiteral("pools")).toObject();
-            for (const QString& poolName : pools.keys()) {
+            for (auto it = pools.constBegin(); it != pools.constEnd(); ++it) {
+                const QString poolName = it.key();
                 if (poolName.trimmed().isEmpty()) {
                     continue;
+                }
+                const QJsonObject poolObj = it.value().toObject();
+                QString poolGuid = poolObj.value(QStringLiteral("pool_guid")).toString().trimmed();
+                if (poolGuid.isEmpty()) {
+                    const QJsonObject props = poolObj.value(QStringLiteral("properties")).toObject();
+                    poolGuid = props.value(QStringLiteral("guid")).toObject()
+                                   .value(QStringLiteral("value")).toString().trimmed();
+                }
+                if (!poolGuid.isEmpty() && poolGuid != QStringLiteral("-")) {
+                    state.poolGuidByName.insert(poolName.trimmed(), poolGuid);
                 }
                 state.importedPools.push_back(PoolImported{p.name, poolName, QStringLiteral("Exportar")});
             }
@@ -760,6 +771,21 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         const QString poolName = pool.pool.trimmed();
         if (poolName.isEmpty()) {
             continue;
+        }
+        if (state.poolGuidByName.value(poolName).trimmed().isEmpty()) {
+            QString gout;
+            QString gerr;
+            int grc = -1;
+            const QString guidCmd = withSudo(
+                p,
+                mwhelpers::withUnixSearchPathCommand(
+                    QStringLiteral("zpool get -H -o value guid %1").arg(mwhelpers::shSingleQuote(poolName))));
+            if (runSsh(p, guidCmd, 12000, gout, gerr, grc) && grc == 0) {
+                const QString guid = gout.section('\n', 0, 0).trimmed();
+                if (!guid.isEmpty() && guid != QStringLiteral("-")) {
+                    state.poolGuidByName.insert(poolName, guid);
+                }
+            }
         }
         out.clear();
         err.clear();

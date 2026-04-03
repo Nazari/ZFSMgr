@@ -7,7 +7,6 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QTableWidget>
-#include <QTimer>
 #include <QTreeWidget>
 
 #include <QtConcurrent/QtConcurrent>
@@ -142,9 +141,7 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
             break;
         }
         ensureStartupLocalSudoConnection();
-        QTimer::singleShot(0, this, [this]() {
-            refreshAllConnections();
-        });
+        refreshAllConnections();
     }
     rebuildConnInfoModel();
 }
@@ -198,6 +195,7 @@ void MainWindow::configurePoolDatasetsForTest(int connIdx,
     for (const UiTestDatasetSeed& seed : datasets) {
         DatasetRecord record;
         record.name = seed.name.trimmed();
+        record.guid.clear();
         record.mountpoint = seed.mountpoint.trimmed();
         record.canmount = seed.canmount.trimmed();
         record.mounted = seed.mounted.trimmed();
@@ -206,6 +204,7 @@ void MainWindow::configurePoolDatasetsForTest(int connIdx,
         }
         cache.datasets.push_back(record);
         cache.recordByName.insert(record.name, record);
+        cache.objectGuidByName.insert(record.name, QString());
         cache.snapshotsByDataset.insert(record.name, seed.snapshots);
     }
     m_poolDatasetCache.insert(datasetCacheKey(connIdx, poolName), cache);
@@ -283,9 +282,9 @@ QString MainWindow::connStableIdForIndex(int connIdx) const {
     if (!id.isEmpty()) {
         return id;
     }
-    const QString name = profile.name.trimmed();
-    if (!name.isEmpty()) {
-        return name;
+    const QString machineUid = profile.machineUid.trimmed();
+    if (!machineUid.isEmpty()) {
+        return QStringLiteral("%1#%2").arg(machineUid, QString::number(connIdx));
     }
     return QStringLiteral("conn-%1").arg(connIdx);
 }
@@ -350,6 +349,14 @@ void MainWindow::rebuildPoolInfoFromCache(PoolInfo& poolInfo,
         dsInfo.runtime.properties.insert(QStringLiteral("mounted"), record.mounted);
         dsInfo.runtime.properties.insert(QStringLiteral("mountpoint"), record.mountpoint);
         dsInfo.runtime.properties.insert(QStringLiteral("canmount"), record.canmount);
+        if (!record.guid.trimmed().isEmpty()) {
+            dsInfo.runtime.properties.insert(QStringLiteral("guid"), record.guid.trimmed());
+        } else {
+            const QString guidFromCache = cache.objectGuidByName.value(fullName).trimmed();
+            if (!guidFromCache.isEmpty()) {
+                dsInfo.runtime.properties.insert(QStringLiteral("guid"), guidFromCache);
+            }
+        }
         dsInfo.capabilities.canDestroy = true;
         dsInfo.capabilities.canRename = true;
         dsInfo.capabilities.canManagePermissions = true;
@@ -379,6 +386,10 @@ void MainWindow::rebuildPoolInfoFromCache(PoolInfo& poolInfo,
             datasetInfo.kind = DSKind::Filesystem;
             datasetInfo.parentFullName = canonicalDatasetParentName(datasetName);
             datasetInfo.runtime.datasetType = QStringLiteral("filesystem");
+            const QString datasetGuidFromCache = cache.objectGuidByName.value(datasetName).trimmed();
+            if (!datasetGuidFromCache.isEmpty() && datasetGuidFromCache != QStringLiteral("-")) {
+                datasetInfo.runtime.properties.insert(QStringLiteral("guid"), datasetGuidFromCache);
+            }
             datasetInfo.editSession.target = datasetInfo.key;
             if (datasetInfo.parentFullName.isEmpty()) {
                 rootObjects.insert(datasetName);
@@ -401,6 +412,10 @@ void MainWindow::rebuildPoolInfoFromCache(PoolInfo& poolInfo,
             snapInfo.runtime.datasetType = QStringLiteral("snapshot");
             snapInfo.runtime.propertiesState = LoadState::Loaded;
             snapInfo.runtime.loadedAt = QDateTime::currentDateTimeUtc();
+            const QString snapGuid = cache.objectGuidByName.value(fullSnapshotName).trimmed();
+            if (!snapGuid.isEmpty()) {
+                snapInfo.runtime.properties.insert(QStringLiteral("guid"), snapGuid);
+            }
             snapInfo.editSession.target = snapInfo.key;
             if (!datasetInfo.childFullNames.contains(fullSnapshotName)) {
                 datasetInfo.childFullNames.push_back(fullSnapshotName);
@@ -481,7 +496,8 @@ void MainWindow::rebuildConnInfoFor(int connIdx) {
     };
 
     for (const PoolImported& pool : state.importedPools) {
-        PoolInfo& poolInfo = ensurePool(pool.pool, QString());
+        const QString poolGuid = state.poolGuidByName.value(pool.pool.trimmed()).trimmed();
+        PoolInfo& poolInfo = ensurePool(pool.pool, poolGuid);
         poolInfo.runtime.imported = true;
         poolInfo.runtime.importAction = pool.action;
         poolInfo.runtime.poolStatusText = state.poolStatusByName.value(pool.pool.trimmed());

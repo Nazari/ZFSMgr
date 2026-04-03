@@ -101,4 +101,6 @@ private:
 
     MainWindow* m_mainWindow{nullptr};
     bool m_contextMenuInProgress{false};
+    bool m_suppressSelectionRefresh{false};
+    quint64 m_selectionRefreshEpoch{0};
 };

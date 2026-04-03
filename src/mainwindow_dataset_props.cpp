@@ -1016,13 +1016,6 @@ void MainWindow::refreshDatasetProperties(const QString& side, QTreeWidget* conn
                 }
             }
         }
-        valuesByProp[QStringLiteral("snapshot")] =
-            snapshot.trimmed().isEmpty()
-                ? trk(QStringLiteral("t_none_paren_001"),
-                      QStringLiteral("(ninguno)"),
-                      QStringLiteral("(none)"),
-                      QStringLiteral("（无）"))
-                : snapshot.trimmed();
         for (const PropRow& row : rows) {
             const QString prop = row.prop.trimmed();
             if (prop.isEmpty()) {
