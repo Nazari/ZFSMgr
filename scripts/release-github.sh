@@ -12,6 +12,18 @@ SKIP_BUILD=0
 ONLY_RELEASE=0
 BUILD_PLATFORMS_OVERRIDE=""
 
+preferred_downloads_dir() {
+  if [[ -d "${HOME}/Descargas" ]]; then
+    printf '%s\n' "${HOME}/Descargas"
+    return 0
+  fi
+  if [[ -d "${HOME}/Downloads" ]]; then
+    printf '%s\n' "${HOME}/Downloads"
+    return 0
+  fi
+  printf '%s\n' "${HOME}"
+}
+
 log() {
   printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
 }
@@ -41,6 +53,14 @@ Variables opcionales:
   MAC_REMOTE     host macOS remoto para buildall.sh si local no es macOS
   WINDOWS_REMOTE host Windows remoto para buildall.sh
   RELEASE_LOG_DIR directorio donde guardar logs por fase
+
+Artefactos publicados:
+  - Windows .exe
+  - Linux .AppImage
+  - Linux .deb
+  - macOS .dmg
+  - FreeBSD .tar.gz/.tar.bz2 si se encuentra en el directorio de artefactos
+    o en ~/Descargas/z (fallback de --sftpfc16)
 USAGE
 }
 
@@ -96,6 +116,7 @@ MAC_ARTIFACT=""
 WIN_ARTIFACT=""
 LINUX_APPIMAGE=""
 LINUX_DEB=""
+FREEBSD_PKG=""
 
 if [[ "${ONLY_RELEASE}" -eq 1 ]]; then
   RESUME=1
@@ -175,7 +196,8 @@ write_state() {
     "mac_dmg": "$(json_escape "${MAC_ARTIFACT}")",
     "windows_exe": "$(json_escape "${WIN_ARTIFACT}")",
     "linux_appimage": "$(json_escape "${LINUX_APPIMAGE}")",
-    "linux_deb": "$(json_escape "${LINUX_DEB}")"
+    "linux_deb": "$(json_escape "${LINUX_DEB}")",
+    "freebsd_pkg": "$(json_escape "${FREEBSD_PKG}")"
   }
 }
 EOF
@@ -277,9 +299,14 @@ MAC_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERS
 WIN_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-Setup-${VERSION}*.exe" | head -n1)"
 LINUX_APPIMAGE="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}-*.AppImage" | head -n1)"
 LINUX_DEB="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "zfsmgr_${VERSION}_*.deb" | head -n1)"
+FREEBSD_PKG="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f \( -name "*${VERSION}*.tar.gz" -o -name "*${VERSION}*.tar.bz2" \) | head -n1)"
+if [[ -z "${FREEBSD_PKG}" ]]; then
+  SFTP_FALLBACK_DIR="${OUTPUT_DIR:-$(preferred_downloads_dir)/z}"
+  FREEBSD_PKG="$(find "${SFTP_FALLBACK_DIR}" -maxdepth 1 -type f \( -name "*${VERSION}*.tar.gz" -o -name "*${VERSION}*.tar.bz2" \) | head -n1)"
+fi
 
 HAS_ALL_ARTIFACTS=0
-if [[ -n "${MAC_ARTIFACT}" && -f "${MAC_ARTIFACT}" && -n "${WIN_ARTIFACT}" && -f "${WIN_ARTIFACT}" && -n "${LINUX_APPIMAGE}" && -f "${LINUX_APPIMAGE}" && -n "${LINUX_DEB}" && -f "${LINUX_DEB}" ]]; then
+if [[ -n "${MAC_ARTIFACT}" && -f "${MAC_ARTIFACT}" && -n "${WIN_ARTIFACT}" && -f "${WIN_ARTIFACT}" && -n "${LINUX_APPIMAGE}" && -f "${LINUX_APPIMAGE}" && -n "${LINUX_DEB}" && -f "${LINUX_DEB}" && -n "${FREEBSD_PKG}" && -f "${FREEBSD_PKG}" ]]; then
   HAS_ALL_ARTIFACTS=1
 fi
 
@@ -300,12 +327,18 @@ else
   WIN_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-Setup-${VERSION}*.exe" | head -n1)"
   LINUX_APPIMAGE="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}-*.AppImage" | head -n1)"
   LINUX_DEB="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "zfsmgr_${VERSION}_*.deb" | head -n1)"
+  FREEBSD_PKG="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f \( -name "*${VERSION}*.tar.gz" -o -name "*${VERSION}*.tar.bz2" \) | head -n1)"
+  if [[ -z "${FREEBSD_PKG}" ]]; then
+    SFTP_FALLBACK_DIR="${OUTPUT_DIR:-$(preferred_downloads_dir)/z}"
+    FREEBSD_PKG="$(find "${SFTP_FALLBACK_DIR}" -maxdepth 1 -type f \( -name "*${VERSION}*.tar.gz" -o -name "*${VERSION}*.tar.bz2" \) | head -n1)"
+  fi
 fi
 
 [[ -n "${MAC_ARTIFACT}" && -f "${MAC_ARTIFACT}" ]] || fail "No se encontró el artefacto macOS (.dmg)"
 [[ -n "${WIN_ARTIFACT}" && -f "${WIN_ARTIFACT}" ]] || fail "No se encontró el artefacto Windows (.exe)"
 [[ -n "${LINUX_APPIMAGE}" && -f "${LINUX_APPIMAGE}" ]] || fail "No se encontró el artefacto Linux (.AppImage)"
 [[ -n "${LINUX_DEB}" && -f "${LINUX_DEB}" ]] || fail "No se encontró el artefacto Linux (.deb)"
+[[ -n "${FREEBSD_PKG}" && -f "${FREEBSD_PKG}" ]] || fail "No se encontró el artefacto FreeBSD (.tar.gz/.tar.bz2)"
 write_state "artifacts" "completed" "artefactos disponibles"
 
 if [[ "${LOCAL_TAG_EXISTS}" -eq 1 ]]; then
@@ -332,6 +365,7 @@ run_logged github-release gh release create "${TAG}" \
   "${LINUX_APPIMAGE}" \
   "${LINUX_DEB}" \
   "${MAC_ARTIFACT}" \
+  "${FREEBSD_PKG}" \
   --title "${TAG}" \
   --verify-tag \
   --generate-notes
