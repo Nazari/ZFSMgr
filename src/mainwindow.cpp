@@ -1998,7 +1998,6 @@ void MainWindow::rebuildConnContentTreeForTest(const QString& datasetToSelect, b
     if (!okConn || connIdx < 0 || poolName.isEmpty()) {
         return;
     }
-    saveConnContentTreeState(tree, token);
     populateDatasetTree(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, true);
     if (!datasetToSelect.trimmed().isEmpty()) {
         selectDatasetForTest(datasetToSelect, bottom);

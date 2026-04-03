@@ -44,6 +44,7 @@ constexpr int kConnPermissionsTargetNameRole = Qt::UserRole + 29;
 constexpr int kConnPermissionsEntryNameRole = Qt::UserRole + 30;
 constexpr int kConnPoolAutoSnapshotsNodeRole = Qt::UserRole + 34;
 constexpr int kConnPoolAutoSnapshotsDatasetRole = Qt::UserRole + 35;
+constexpr int kConnSnapshotItemRole = Qt::UserRole + 43;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 
 QString datasetLeafNameUi(const QString& datasetName) {
@@ -615,7 +616,6 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
             return;
         }
         if (tree == m_mainWindow->m_connContentTree) {
-            m_mainWindow->saveConnContentTreeStateFor(tree, token);
             m_mainWindow->rebuildConnectionEntityTabs();
             return;
         }
@@ -707,7 +707,6 @@ void MainWindowConnectionDatasetTreeDelegate::applyInlineSectionVisibility(QTree
             }
         };
         alignDetailContextToToken(tree, token);
-        m_mainWindow->saveConnContentTreeStateFor(tree, token);
         const auto stateItSaved = m_mainWindow->m_connContentTreeStateByToken.constFind(scopedToken);
         const MainWindow::ConnContentTreeState preservedState =
             (stateItSaved != m_mainWindow->m_connContentTreeStateByToken.cend())
@@ -824,6 +823,13 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
         Dataset,
         Snapshot,
     };
+    QTreeWidgetItem* snapshotContextNode = nullptr;
+    for (QTreeWidgetItem* p = item; p; p = p->parent()) {
+        if (p->data(0, kConnSnapshotItemRole).toBool()) {
+            snapshotContextNode = p;
+            break;
+        }
+    }
     QStringList allProps;
     QStringList currentVisible;
     QVector<MainWindow::InlinePropGroupConfig> currentGroups;
@@ -862,11 +868,17 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
             }
         }
     } else {
-        const QString ds = owner->data(0, Qt::UserRole).toString().trimmed();
+        QTreeWidgetItem* contextNode = owner;
+        if (snapshotContextNode) {
+            contextNode = snapshotContextNode;
+        }
+        const QString ds = contextNode->data(0, Qt::UserRole).toString().trimmed();
         if (ds.isEmpty()) {
             return;
         }
-        const QString snap = owner->data(1, Qt::UserRole).toString().trimmed();
+        const QString snap = snapshotContextNode
+                                 ? snapshotContextNode->data(1, Qt::UserRole).toString().trimmed()
+                                 : QString();
         if (!snap.isEmpty()) {
             scope = ManagePropsScope::Snapshot;
             currentGroups = m_mainWindow->m_snapshotInlinePropGroups;
@@ -888,7 +900,7 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
             }
         }
         allProps = normalizeList(allProps);
-        currentVisible = displayedPropsFromNode(owner);
+        currentVisible = displayedPropsFromNode(contextNode);
         const QStringList& savedOrder =
             (scope == ManagePropsScope::Snapshot) ? m_mainWindow->m_snapshotInlineVisibleProps
                                                   : m_mainWindow->m_datasetInlinePropsOrder;
@@ -1416,6 +1428,12 @@ void MainWindowConnectionDatasetTreeDelegate::itemExpanded(QTreeWidget* tree, QT
                              QStringLiteral("tree.itemExpanded path=%1")
                                  .arg(debugConnTreeNodePath(item)));
     }
+    if (QTreeWidgetItem* owner = ownerItemForNode(item)) {
+        const QString token = tokenForOwnerItem(owner);
+        if (!token.isEmpty()) {
+            m_mainWindow->saveConnContentTreeStateFor(tree, token);
+        }
+    }
     m_mainWindow->resizeTreeColumnsToVisibleContent(tree);
     if (!item->data(0, kConnPermissionsNodeRole).toBool()) {
         return;
@@ -1437,6 +1455,12 @@ void MainWindowConnectionDatasetTreeDelegate::itemCollapsed(QTreeWidget* tree, Q
         m_mainWindow->appLog(QStringLiteral("DEBUG"),
                              QStringLiteral("tree.itemCollapsed path=%1")
                                  .arg(debugConnTreeNodePath(item)));
+    }
+    if (QTreeWidgetItem* owner = ownerItemForNode(item)) {
+        const QString token = tokenForOwnerItem(owner);
+        if (!token.isEmpty()) {
+            m_mainWindow->saveConnContentTreeStateFor(tree, token);
+        }
     }
     m_mainWindow->resizeTreeColumnsToVisibleContent(tree);
 }
@@ -1767,13 +1791,11 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
         return true;
     }
     auto rebuildPermissionsNodeWithState = [&]() {
-        m_mainWindow->saveConnContentTreeStateFor(tree, token);
         refreshPermissionsOwnerNode(tree, owner, false);
         rehydrateExpandedDatasetNodes(tree, token);
         m_mainWindow->restoreConnContentTreeStateFor(tree, token);
     };
     auto refreshPermissionsNodeWithState = [&]() {
-        m_mainWindow->saveConnContentTreeStateFor(tree, token);
         refreshPermissionsOwnerNode(tree, owner, true);
         rehydrateExpandedDatasetNodes(tree, token);
         m_mainWindow->restoreConnContentTreeStateFor(tree, token);

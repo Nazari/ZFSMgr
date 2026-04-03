@@ -2109,10 +2109,6 @@ void MainWindow::applyConnectionDisplayMode(int connIdx, const QString& modeRaw)
     const int prevTop = m_topDetailConnIdx;
     if (prevTop >= 0 && prevTop != connIdx) {
         saveTopTreeStateForConnection(prevTop);
-        const QString topTreeToken = connContentTokenForTree(m_connContentTree);
-        if (!topTreeToken.isEmpty()) {
-            saveConnContentTreeState(m_connContentTree, topTreeToken);
-        }
     }
     m_topDetailConnIdx = connIdx;
     m_forceRestoreTopStateConnIdx = connIdx;
@@ -2384,9 +2380,6 @@ void MainWindow::rebuildConnContentDetailTree(QTreeWidget* tree,
     QScopedValueRollback<bool> rebuildingGuard(rebuildingFlag, true);
     const QSignalBlocker blockTree(tree);
     const QString savedStateToken = connContentStateTokenForTree(tree);
-    if (!savedStateToken.isEmpty()) {
-        saveConnContentTreeStateFor(tree, savedStateToken);
-    }
     if (clearPendingState) {
         clearPendingState();
     }
@@ -2467,13 +2460,6 @@ void MainWindow::updateSecondaryConnectionDetail() {
 
 void MainWindow::saveTopTreeStateForConnection(int connIdx) {
     Q_UNUSED(connIdx);
-    if (!m_connContentTree) {
-        return;
-    }
-    const QString token = connContentTokenForTree(m_connContentTree);
-    if (!token.isEmpty()) {
-        saveConnContentTreeStateFor(m_connContentTree, token);
-    }
 }
 
 void MainWindow::saveBottomTreeStateForConnection(int connIdx) {
@@ -2695,12 +2681,6 @@ void MainWindow::refreshConnectionNodeDetails() {
 
     int connIdx = m_topDetailConnIdx;
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
-        if (m_connContentTree) {
-            const QString token = connContentTokenForTree(m_connContentTree);
-            if (!token.isEmpty()) {
-                saveConnContentTreeState(m_connContentTree, token);
-            }
-        }
         setConnectionActionButtonsVisible(false);
         setPoolActionButtonsVisible(false);
         if (m_connPropsStack && m_connContentPage) {
@@ -2771,10 +2751,6 @@ void MainWindow::updatePoolManagementBoxTitle() {
 void MainWindow::refreshConnectionByIndex(int idx) {
     if (idx < 0 || idx >= m_profiles.size() || isConnectionDisconnected(idx)) {
         return;
-    }
-    const QString topTreeToken = connContentTokenForTree(m_connContentTree);
-    if (!topTreeToken.isEmpty() && m_connContentTree) {
-        saveConnContentTreeState(m_connContentTree, topTreeToken);
     }
     // Al refrescar una conexión, invalidar toda la caché asociada a todos sus pools.
     {

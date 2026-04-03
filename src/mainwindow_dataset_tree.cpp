@@ -1468,7 +1468,6 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
         m_syncingConnContentColumns = false;
         return;
     }
-    clearPropRowsRec(clearPropRowsRec, sel);
     const QString obj = snap.isEmpty() ? ds : QStringLiteral("%1@%2").arg(ds, snap);
     const int itemConnIdx = sel->data(0, kConnIdxRole).toInt();
     const QString itemPool = sel->data(0, kPoolNameRole).toString();
@@ -1496,6 +1495,9 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
         }
         updateConnContentPropertyValues(draftToken, obj, displayValues);
     }
+    // Solo limpiar nodos existentes cuando ya tenemos valores para reconstruirlos,
+    // evitando dejar "Properties" vacío por retornos tempranos.
+    clearPropRowsRec(clearPropRowsRec, sel);
     const DatasetPropsDraft objectDraftValue =
         propertyDraftForObject(QStringLiteral("conncontent"), draftToken, obj);
     const DatasetPropsDraft* objectDraft = objectDraftValue.dirty ? &objectDraftValue : nullptr;
@@ -3288,9 +3290,6 @@ void MainWindow::rebuildConnContentTreeFor(QTreeWidget* tree,
         }
         return tree->topLevelItemCount() == 0;
     };
-    if (treeMatchesToken()) {
-        saveConnContentTreeStateFor(tree, token);
-    }
     populateDatasetTree(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, true);
     if (restoreState) {
         restoreConnContentTreeStateFor(tree, token);

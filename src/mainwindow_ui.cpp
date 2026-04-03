@@ -2029,12 +2029,10 @@ void MainWindow::buildUi() {
             return;
         }
         if (tree == m_connContentTree) {
-            saveConnContentTreeStateFor(tree, token);
             rebuildConnectionEntityTabs();
             return;
         }
         if (tree == m_bottomConnContentTree) {
-            saveConnContentTreeStateFor(tree, token);
             updateSecondaryConnectionDetail();
             return;
         }

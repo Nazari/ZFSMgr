@@ -792,7 +792,6 @@ void MainWindow::reloadDatasetSide(const QString& side) {
             if (token.isEmpty()) {
                 return false;
             }
-            saveConnContentTreeState(tree, token);
             const int sep = token.indexOf(QStringLiteral("::"));
             if (sep <= 0) {
                 return false;

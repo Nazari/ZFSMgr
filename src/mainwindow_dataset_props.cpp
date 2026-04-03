@@ -1666,9 +1666,6 @@ void MainWindow::applyDatasetPropertyChanges() {
                     continue;
                 }
                 const QString token = connContentTokenForTree(tree).trimmed();
-                if (!token.isEmpty()) {
-                    saveConnContentTreeStateFor(tree, token);
-                }
                 populateDatasetPermissionsNode(tree, ownerNode, false);
                 if (!token.isEmpty()) {
                     syncConnContentPropertyColumnsFor(tree, token);
@@ -1843,11 +1840,6 @@ void MainWindow::applyDatasetPropertyChanges() {
             ctx.connIdx = connIdx;
             ctx.poolName = poolName;
             ctx.datasetName = datasetName;
-            const QString tokenForTree = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
-            if (QTreeWidgetItem* ownerNode = findDatasetItemByIdentityLocal(m_connContentTree, connIdx, poolName, datasetName)) {
-                saveConnContentTreeStateFor(m_connContentTree, tokenForTree);
-                Q_UNUSED(ownerNode);
-            }
             const QString cmd = QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
             if (!executeDatasetAction(QStringLiteral("conncontent"),
                                       QStringLiteral("Aplicar permisos"),
