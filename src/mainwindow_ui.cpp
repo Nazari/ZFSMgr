@@ -53,7 +53,6 @@
 #include <QTableWidget>
 #include <QTextEdit>
 #include <QTextBlock>
-#include <QTimer>
 #include <QToolTip>
 #include <QTreeWidget>
 #include <QVBoxLayout>
@@ -295,16 +294,9 @@ public:
         }
 
         const auto toggleDeferred = [&]() {
-            const QPersistentModelIndex pidx(index);
-            QPointer<QAbstractItemModel> modelPtr(model);
-            QTimer::singleShot(0, [pidx, modelPtr]() {
-                if (!modelPtr || !pidx.isValid()) {
-                    return;
-                }
-                const Qt::CheckState cur = static_cast<Qt::CheckState>(pidx.data(Qt::CheckStateRole).toInt());
-                const Qt::CheckState next = (cur == Qt::Checked) ? Qt::Unchecked : Qt::Checked;
-                modelPtr->setData(pidx, next, Qt::CheckStateRole);
-            });
+            const Qt::CheckState cur = static_cast<Qt::CheckState>(index.data(Qt::CheckStateRole).toInt());
+            const Qt::CheckState next = (cur == Qt::Checked) ? Qt::Unchecked : Qt::Checked;
+            model->setData(index, next, Qt::CheckStateRole);
             return true;
         };
 
@@ -470,16 +462,9 @@ public:
         }
 
         const auto toggleDeferred = [&]() {
-            const QPersistentModelIndex pidx(index);
-            QPointer<QAbstractItemModel> modelPtr(model);
-            QTimer::singleShot(0, [pidx, modelPtr]() {
-                if (!modelPtr || !pidx.isValid()) {
-                    return;
-                }
-                const Qt::CheckState cur = static_cast<Qt::CheckState>(pidx.data(Qt::CheckStateRole).toInt());
-                const Qt::CheckState next = (cur == Qt::Checked) ? Qt::Unchecked : Qt::Checked;
-                modelPtr->setData(pidx, next, Qt::CheckStateRole);
-            });
+            const Qt::CheckState cur = static_cast<Qt::CheckState>(index.data(Qt::CheckStateRole).toInt());
+            const Qt::CheckState next = (cur == Qt::Checked) ? Qt::Unchecked : Qt::Checked;
+            model->setData(index, next, Qt::CheckStateRole);
             return true;
         };
 
@@ -1981,27 +1966,25 @@ void MainWindow::buildUi() {
     root->addWidget(m_verticalMainSplit, 1);
 
     setCentralWidget(central);
-    QTimer::singleShot(0, this, [this, topBottomPane]() {
-        if (!m_mainWindowGeometryState.isEmpty()) {
-            restoreGeometry(m_mainWindowGeometryState);
+    if (!m_mainWindowGeometryState.isEmpty()) {
+        restoreGeometry(m_mainWindowGeometryState);
+    }
+    if (m_topMainSplit && !m_topMainSplitState.isEmpty()) {
+        m_topMainSplit->restoreState(m_topMainSplitState);
+    }
+    if (m_rightMainSplit && !m_rightMainSplitState.isEmpty()) {
+        m_rightMainSplit->restoreState(m_rightMainSplitState);
+    }
+    if (m_bottomInfoSplit && !m_bottomInfoSplitState.isEmpty()) {
+        m_bottomInfoSplit->restoreState(m_bottomInfoSplitState);
+        const QList<int> bottomInfoSizes = m_bottomInfoSplit->sizes();
+        if (bottomInfoSizes.size() >= 2 && bottomInfoSizes.at(1) > 0) {
+            topBottomPane->setMinimumHeight(bottomInfoSizes.at(1));
         }
-        if (m_topMainSplit && !m_topMainSplitState.isEmpty()) {
-            m_topMainSplit->restoreState(m_topMainSplitState);
-        }
-        if (m_rightMainSplit && !m_rightMainSplitState.isEmpty()) {
-            m_rightMainSplit->restoreState(m_rightMainSplitState);
-        }
-        if (m_bottomInfoSplit && !m_bottomInfoSplitState.isEmpty()) {
-            m_bottomInfoSplit->restoreState(m_bottomInfoSplitState);
-            const QList<int> bottomInfoSizes = m_bottomInfoSplit->sizes();
-            if (bottomInfoSizes.size() >= 2 && bottomInfoSizes.at(1) > 0) {
-                topBottomPane->setMinimumHeight(bottomInfoSizes.at(1));
-            }
-        }
-        if (m_verticalMainSplit && !m_verticalMainSplitState.isEmpty()) {
-            m_verticalMainSplit->restoreState(m_verticalMainSplitState);
-        }
-    });
+    }
+    if (m_verticalMainSplit && !m_verticalMainSplitState.isEmpty()) {
+        m_verticalMainSplit->restoreState(m_verticalMainSplitState);
+    }
 
     auto connTokenFromTreeSelectionBottom = [this](QTreeWidget* tree) -> QString {
         if (!tree) {
@@ -2046,12 +2029,10 @@ void MainWindow::buildUi() {
             return;
         }
         if (tree == m_connContentTree) {
-            saveConnContentTreeStateFor(tree, token);
             rebuildConnectionEntityTabs();
             return;
         }
         if (tree == m_bottomConnContentTree) {
-            saveConnContentTreeStateFor(tree, token);
             updateSecondaryConnectionDetail();
             return;
         }
@@ -2469,18 +2450,12 @@ void MainWindow::buildUi() {
                             datasetName,
                             refreshedOwner->isExpanded() ? QStringLiteral("1") : QStringLiteral("0")));
             restoreConnContentTreeState(tree, token);
-            QPointer<QTreeWidget> safeTree(tree);
-            QTimer::singleShot(0, this, [this, safeTree, connIdx, poolName, datasetName, token]() {
-                if (!safeTree) {
-                    return;
-                }
-                QTreeWidgetItem* ownerNode =
-                    findConnContentDatasetItemFor(safeTree, connIdx, poolName, datasetName);
-                if (ownerNode) {
-                    populateDatasetPermissionsNode(safeTree, ownerNode, false);
-                    restoreConnContentTreeState(safeTree, token);
-                }
-            });
+            QTreeWidgetItem* ownerNode =
+                findConnContentDatasetItemFor(tree, connIdx, poolName, datasetName);
+            if (ownerNode) {
+                populateDatasetPermissionsNode(tree, ownerNode, false);
+                restoreConnContentTreeState(tree, token);
+            }
         }
         return true;
     };

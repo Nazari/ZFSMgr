@@ -12,7 +12,6 @@
 #include <QProcessEnvironment>
 #include <QSet>
 #include <QSysInfo>
-#include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 
@@ -519,14 +518,12 @@ bool MainWindow::executeDatasetAction(const QString& side,
         return true;
     }
     if (needsDeferredRefresh) {
-        QTimer::singleShot(0, this, [this, side, ctx]() {
-            if (side == QStringLiteral("conncontent")) {
-                reloadConnContentPool(ctx.connIdx, ctx.poolName);
-            } else {
-                reloadDatasetSide(side);
-            }
-            setActionsLocked(false);
-        });
+        if (side == QStringLiteral("conncontent")) {
+            reloadConnContentPool(ctx.connIdx, ctx.poolName);
+        } else {
+            reloadDatasetSide(side);
+        }
+        setActionsLocked(false);
         return true;
     }
     if (side == QStringLiteral("conncontent")) {
@@ -795,7 +792,6 @@ void MainWindow::reloadDatasetSide(const QString& side) {
             if (token.isEmpty()) {
                 return false;
             }
-            saveConnContentTreeState(tree, token);
             const int sep = token.indexOf(QStringLiteral("::"));
             if (sep <= 0) {
                 return false;

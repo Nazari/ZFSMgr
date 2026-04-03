@@ -213,12 +213,23 @@ void MainWindow::loadUiSettings() {
     m_poolInlinePropsOrder = ini.value(QStringLiteral("pool_inline_props_order")).toStringList();
     m_poolInlinePropGroups =
         decodeInlinePropGroups(ini.value(QStringLiteral("pool_inline_prop_groups")).toString());
-    m_snapshotInlinePropsOrder = ini.value(QStringLiteral("snapshot_inline_props_order")).toStringList();
+    m_snapshotInlineVisibleProps = ini.value(QStringLiteral("snapshot_inline_visible_props")).toStringList();
     m_snapshotInlinePropGroups =
         decodeInlinePropGroups(ini.value(QStringLiteral("snapshot_inline_prop_groups")).toString());
     m_datasetInlinePropsOrder = normalizePropsOrderList(m_datasetInlinePropsOrder);
     m_poolInlinePropsOrder = normalizePropsOrderList(m_poolInlinePropsOrder);
-    m_snapshotInlinePropsOrder = normalizePropsOrderList(m_snapshotInlinePropsOrder);
+    m_snapshotInlineVisibleProps = normalizePropsOrderList(m_snapshotInlineVisibleProps);
+    if (m_snapshotInlineVisibleProps.isEmpty()) {
+        // Migración legacy desde snapshot_inline_props_order (retirado).
+        QStringList legacy = ini.value(QStringLiteral("snapshot_inline_props_order")).toStringList();
+        legacy = normalizePropsOrderList(legacy);
+        for (int i = legacy.size() - 1; i >= 0; --i) {
+            if (legacy.at(i).trimmed().compare(QStringLiteral("snapshot"), Qt::CaseInsensitive) == 0) {
+                legacy.removeAt(i);
+            }
+        }
+        m_snapshotInlineVisibleProps = legacy;
+    }
     m_disconnectedConnectionKeys.clear();
     {
         const QStringList raw = ini.value(QStringLiteral("disconnected_connections")).toStringList();
@@ -244,6 +255,8 @@ void MainWindow::loadUiSettings() {
         m_logMaxSizeMb = 1024;
     }
     m_connPropColumnsSetting = qBound(4, m_connPropColumnsSetting, 16);
+    // Retirado: ya no se usa ni se lee orden de propiedades inline para snapshots.
+    ini.remove(QStringLiteral("snapshot_inline_props_order"));
     ini.endGroup();
 }
 
@@ -280,8 +293,10 @@ void MainWindow::saveUiSettings() const {
     ini.setValue(QStringLiteral("dataset_inline_prop_groups"), encodeInlinePropGroups(m_datasetInlinePropGroups));
     ini.setValue(QStringLiteral("pool_inline_props_order"), m_poolInlinePropsOrder);
     ini.setValue(QStringLiteral("pool_inline_prop_groups"), encodeInlinePropGroups(m_poolInlinePropGroups));
-    ini.setValue(QStringLiteral("snapshot_inline_props_order"), m_snapshotInlinePropsOrder);
+    ini.setValue(QStringLiteral("snapshot_inline_visible_props"), m_snapshotInlineVisibleProps);
     ini.setValue(QStringLiteral("snapshot_inline_prop_groups"), encodeInlinePropGroups(m_snapshotInlinePropGroups));
+    // Retirado: ya no se persiste orden específico de propiedades para snapshots.
+    ini.remove(QStringLiteral("snapshot_inline_props_order"));
     QStringList disconnected = QStringList(m_disconnectedConnectionKeys.begin(), m_disconnectedConnectionKeys.end());
     disconnected.sort(Qt::CaseInsensitive);
     ini.setValue(QStringLiteral("disconnected_connections"), disconnected);

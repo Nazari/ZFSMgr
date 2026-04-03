@@ -1016,13 +1016,6 @@ void MainWindow::refreshDatasetProperties(const QString& side, QTreeWidget* conn
                 }
             }
         }
-        valuesByProp[QStringLiteral("snapshot")] =
-            snapshot.trimmed().isEmpty()
-                ? trk(QStringLiteral("t_none_paren_001"),
-                      QStringLiteral("(ninguno)"),
-                      QStringLiteral("(none)"),
-                      QStringLiteral("（无）"))
-                : snapshot.trimmed();
         for (const PropRow& row : rows) {
             const QString prop = row.prop.trimmed();
             if (prop.isEmpty()) {
@@ -1673,9 +1666,6 @@ void MainWindow::applyDatasetPropertyChanges() {
                     continue;
                 }
                 const QString token = connContentTokenForTree(tree).trimmed();
-                if (!token.isEmpty()) {
-                    saveConnContentTreeStateFor(tree, token);
-                }
                 populateDatasetPermissionsNode(tree, ownerNode, false);
                 if (!token.isEmpty()) {
                     syncConnContentPropertyColumnsFor(tree, token);
@@ -1850,11 +1840,6 @@ void MainWindow::applyDatasetPropertyChanges() {
             ctx.connIdx = connIdx;
             ctx.poolName = poolName;
             ctx.datasetName = datasetName;
-            const QString tokenForTree = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
-            if (QTreeWidgetItem* ownerNode = findDatasetItemByIdentityLocal(m_connContentTree, connIdx, poolName, datasetName)) {
-                saveConnContentTreeStateFor(m_connContentTree, tokenForTree);
-                Q_UNUSED(ownerNode);
-            }
             const QString cmd = QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
             if (!executeDatasetAction(QStringLiteral("conncontent"),
                                       QStringLiteral("Aplicar permisos"),
