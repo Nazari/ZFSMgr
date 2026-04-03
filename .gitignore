@@ -21,3 +21,4 @@ scripts/recopila.sh
 buildall-logs/
 prompts/260401-01.txt
 claude.mmela
+prompts/nodos-id.txt

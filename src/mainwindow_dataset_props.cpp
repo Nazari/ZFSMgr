@@ -1553,6 +1553,7 @@ void MainWindow::applyDatasetPropertyChanges() {
                                                     }
                                                     syncConnContentPropertyColumnsFor(tree, token);
                                                     syncConnContentPoolColumnsFor(tree, token);
+                                                    restoreConnContentTreeStateFor(tree, token);
                                                     const DatasetSelectionContext selected = currentConnContentSelection(tree);
                                                     const QString selectedObjectName =
                                                         selected.snapshotName.trimmed().isEmpty()
