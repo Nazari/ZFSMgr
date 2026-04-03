@@ -2875,25 +2875,51 @@ void MainWindow::populateConnectionPoolsIntoTree(QTreeWidget* tree,
         seenPools.insert(poolKey);
         addPoolTree(connIdx, poolName, false);
     }
-    for (int i = tree->topLevelItemCount() - 1; i >= 0; --i) {
-        QTreeWidgetItem* item = tree->topLevelItem(i);
-        if (!item || !item->data(0, kIsPoolRootRole).toBool()) {
-            continue;
-        }
-        const QString poolKey = item->data(0, kPoolNameRole).toString().trimmed().toLower();
-        bool seenEarlier = false;
-        for (int j = 0; j < i; ++j) {
-            QTreeWidgetItem* prev = tree->topLevelItem(j);
-            if (!prev || !prev->data(0, kIsPoolRootRole).toBool()) {
+    if (unifiedTree) {
+        // En árbol unificado, los pools cuelgan de cada conexión raíz.
+        // Hay que deduplicar dentro de cada conexión (mismo connIdx + poolName).
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* connRoot = tree->topLevelItem(i);
+            if (!connRoot || !connRoot->data(0, kIsConnectionRootRole).toBool()) {
                 continue;
             }
-            if (prev->data(0, kPoolNameRole).toString().trimmed().toLower() == poolKey) {
-                seenEarlier = true;
-                break;
+            QSet<QString> seenPoolKeys;
+            for (int c = connRoot->childCount() - 1; c >= 0; --c) {
+                QTreeWidgetItem* child = connRoot->child(c);
+                if (!child || !child->data(0, kIsPoolRootRole).toBool()) {
+                    continue;
+                }
+                const int childConnIdx = child->data(0, kConnIdxRole).toInt();
+                const QString poolKey = child->data(0, kPoolNameRole).toString().trimmed().toLower();
+                const QString dedupeKey = QStringLiteral("%1::%2").arg(childConnIdx).arg(poolKey);
+                if (poolKey.isEmpty() || !seenPoolKeys.contains(dedupeKey)) {
+                    seenPoolKeys.insert(dedupeKey);
+                    continue;
+                }
+                delete connRoot->takeChild(c);
             }
         }
-        if (seenEarlier) {
-            delete tree->takeTopLevelItem(i);
+    } else {
+        for (int i = tree->topLevelItemCount() - 1; i >= 0; --i) {
+            QTreeWidgetItem* item = tree->topLevelItem(i);
+            if (!item || !item->data(0, kIsPoolRootRole).toBool()) {
+                continue;
+            }
+            const QString poolKey = item->data(0, kPoolNameRole).toString().trimmed().toLower();
+            bool seenEarlier = false;
+            for (int j = 0; j < i; ++j) {
+                QTreeWidgetItem* prev = tree->topLevelItem(j);
+                if (!prev || !prev->data(0, kIsPoolRootRole).toBool()) {
+                    continue;
+                }
+                if (prev->data(0, kPoolNameRole).toString().trimmed().toLower() == poolKey) {
+                    seenEarlier = true;
+                    break;
+                }
+            }
+            if (seenEarlier) {
+                delete tree->takeTopLevelItem(i);
+            }
         }
     }
     tree->expandToDepth(0);
