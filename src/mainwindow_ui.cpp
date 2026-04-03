@@ -26,8 +26,11 @@
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QLabel>
+#include <QCoreApplication>
 #include <QListView>
 #include <QListWidget>
+#include <QPixmap>
+#include <QTimer>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -661,12 +664,131 @@ private:
 };
 }
 
+static QPixmap makePendingStatusPixmap(MainWindow::PendingItemStatus status, int frame) {
+    constexpr int sz = 14;
+    QPixmap px(sz, sz);
+    px.fill(Qt::transparent);
+    QPainter p(&px);
+    p.setRenderHint(QPainter::Antialiasing);
+    switch (status) {
+    case MainWindow::PendingItemStatus::Pending: {
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(160, 160, 160));
+        p.drawEllipse(QRectF(3.0, 3.0, 8.0, 8.0));
+        break;
+    }
+    case MainWindow::PendingItemStatus::Running: {
+        const qreal start = static_cast<qreal>((frame % 8) * 45) * 16.0;
+        p.setPen(QPen(QColor(50, 130, 220), 2.5, Qt::SolidLine, Qt::RoundCap));
+        p.setBrush(Qt::NoBrush);
+        p.drawArc(QRectF(2.0, 2.0, 10.0, 10.0), static_cast<int>(start), 270 * 16);
+        break;
+    }
+    case MainWindow::PendingItemStatus::Success: {
+        p.setPen(QPen(QColor(40, 160, 40), 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p.setBrush(Qt::NoBrush);
+        QPolygonF check;
+        check << QPointF(2.0, 7.0) << QPointF(5.0, 11.0) << QPointF(12.0, 3.0);
+        p.drawPolyline(check);
+        break;
+    }
+    case MainWindow::PendingItemStatus::Failed: {
+        p.setPen(QPen(QColor(200, 50, 50), 2.0, Qt::SolidLine, Qt::RoundCap));
+        p.drawLine(QPointF(3.0, 3.0), QPointF(11.0, 11.0));
+        p.drawLine(QPointF(11.0, 3.0), QPointF(3.0, 11.0));
+        break;
+    }
+    }
+    return px;
+}
+
+void MainWindow::updatePendingChangesList() {
+    if (!m_pendingChangesList) {
+        return;
+    }
+    const QStringList currentLines = pendingConnContentApplyDisplayLines();
+    const QSet<QString> currentSet(currentLines.cbegin(), currentLines.cend());
+
+    // Append newly-appearing items to the end of the persistent ordered list
+    for (const QString& line : currentLines) {
+        if (!m_pendingOrderedDisplayLines.contains(line)) {
+            m_pendingOrderedDisplayLines.append(line);
+        }
+    }
+
+    const QSignalBlocker blocker(m_pendingChangesList);
+    m_pendingChangesList->clear();
+
+    if (m_pendingOrderedDisplayLines.isEmpty()) {
+        auto* item = new QListWidgetItem(m_pendingChangesList);
+        item->setText(trk(QStringLiteral("t_apply_changes_tt_001"),
+                          QStringLiteral("Sin cambios pendientes."),
+                          QStringLiteral("No pending changes."),
+                          QStringLiteral("没有待应用的更改。")));
+        item->setFlags(Qt::NoItemFlags);
+        item->setForeground(QColor(160, 160, 160));
+        return;
+    }
+
+    for (const QString& line : m_pendingOrderedDisplayLines) {
+        PendingItemStatus status;
+        if (currentSet.contains(line)) {
+            status = m_pendingItemStatus.value(line, PendingItemStatus::Pending);
+        } else {
+            // Item no longer in model: show recorded result (Success/Failed)
+            status = m_pendingItemStatus.value(line, PendingItemStatus::Success);
+        }
+        auto* item = new QListWidgetItem(m_pendingChangesList);
+        item->setText(line);
+        item->setIcon(QIcon(makePendingStatusPixmap(status, m_pendingSpinnerFrame)));
+    }
+}
+
+void MainWindow::startPendingApplyAnimation() {
+    m_pendingApplyInProgress = true;
+    const QStringList lines = pendingConnContentApplyDisplayLines();
+    for (const QString& line : lines) {
+        m_pendingItemStatus[line] = PendingItemStatus::Running;
+    }
+    if (!m_pendingSpinnerTimer) {
+        m_pendingSpinnerTimer = new QTimer(this);
+        m_pendingSpinnerTimer->setInterval(100);
+        connect(m_pendingSpinnerTimer, &QTimer::timeout, this, [this]() {
+            ++m_pendingSpinnerFrame;
+            updatePendingChangesList();
+        });
+    }
+    m_pendingSpinnerFrame = 0;
+    m_pendingSpinnerTimer->start();
+    updatePendingChangesList();
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 30);
+}
+
+void MainWindow::finishPendingApplyAnimation() {
+    if (!m_pendingApplyInProgress) {
+        return;
+    }
+    m_pendingApplyInProgress = false;
+    if (m_pendingSpinnerTimer) {
+        m_pendingSpinnerTimer->stop();
+    }
+    const QStringList remainingLines = pendingConnContentApplyDisplayLines();
+    const QSet<QString> remaining(remainingLines.cbegin(), remainingLines.cend());
+    for (auto it = m_pendingItemStatus.begin(); it != m_pendingItemStatus.end(); ++it) {
+        if (it.value() != PendingItemStatus::Running) {
+            continue;
+        }
+        it.value() = remaining.contains(it.key()) ? PendingItemStatus::Failed : PendingItemStatus::Success;
+    }
+}
+
 void MainWindow::activatePendingChangeAtCursor() {
-    if (!m_pendingChangesView || !m_pendingChangesView->hasFocus() || m_pendingChangeActivationInProgress) {
+    if (!m_pendingChangesList || !m_pendingChangesList->hasFocus() || m_pendingChangeActivationInProgress) {
         return;
     }
     const QScopedValueRollback<bool> guard(m_pendingChangeActivationInProgress, true);
-    const QString line = m_pendingChangesView->textCursor().block().text().trimmed();
+    QListWidgetItem* current = m_pendingChangesList->currentItem();
+    const QString line = current ? current->text().trimmed() : QString();
     if (line.isEmpty()) {
         return;
     }
@@ -1372,38 +1494,48 @@ void MainWindow::buildUi() {
     pendingButtonsCol->addWidget(m_btnDiscardPendingChanges, 0, Qt::AlignLeft | Qt::AlignTop);
     pendingButtonsCol->addStretch(1);
     pendingChangesBody->addLayout(pendingButtonsCol, 0);
-    m_pendingChangesView = new QPlainTextEdit(pendingChangesBox);
-    m_pendingChangesView->setReadOnly(true);
-    m_pendingChangesView->setLineWrapMode(QPlainTextEdit::WidgetWidth);
-    m_pendingChangesView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    m_pendingChangesView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    m_pendingChangesView->setMinimumHeight(0);
-    m_pendingChangesView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
-    connect(m_pendingChangesView, &QPlainTextEdit::cursorPositionChanged, this, [this]() {
+    m_pendingChangesList = new QListWidget(pendingChangesBox);
+    m_pendingChangesList->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_pendingChangesList->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_pendingChangesList->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_pendingChangesList->setMinimumHeight(0);
+    m_pendingChangesList->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
+    m_pendingChangesList->setIconSize(QSize(14, 14));
+    m_pendingChangesList->setSpacing(1);
+    connect(m_pendingChangesList, &QListWidget::currentItemChanged, this, [this]() {
         activatePendingChangeAtCursor();
     });
-    m_pendingChangesView->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_pendingChangesView, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
-        if (!m_pendingChangesView) {
+    m_pendingChangesList->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_pendingChangesList, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        if (!m_pendingChangesList) {
             return;
         }
-        QTextCursor cursor = m_pendingChangesView->cursorForPosition(pos);
-        m_pendingChangesView->setTextCursor(cursor);
-        const QString line = cursor.block().text().trimmed();
+        QListWidgetItem* item = m_pendingChangesList->itemAt(pos);
+        if (!item) {
+            return;
+        }
+        const QString line = item->text().trimmed();
         if (line.isEmpty()) {
             return;
         }
-        QMenu menu(m_pendingChangesView);
-        QAction* aExecute = menu.addAction(QStringLiteral("Ejecutar"));
-        QAction* aDelete = menu.addAction(QStringLiteral("Eliminar"));
-        QAction* picked = menu.exec(m_pendingChangesView->viewport()->mapToGlobal(pos));
-        if (picked == aExecute) {
+        PendingChange change;
+        if (!findPendingChangeByDisplayLine(line, &change)) {
+            return;
+        }
+        QMenu menu(m_pendingChangesList);
+        QAction* aExecute = change.executableIndividually ? menu.addAction(QStringLiteral("Ejecutar")) : nullptr;
+        QAction* aDelete = change.removableIndividually ? menu.addAction(QStringLiteral("Eliminar")) : nullptr;
+        if (!aExecute && !aDelete) {
+            return;
+        }
+        QAction* picked = menu.exec(m_pendingChangesList->viewport()->mapToGlobal(pos));
+        if (aExecute && picked == aExecute) {
             executePendingQueuedChangeLine(line);
-        } else if (picked == aDelete) {
+        } else if (aDelete && picked == aDelete) {
             removePendingQueuedChangeLine(line);
         }
     });
-    pendingChangesBody->addWidget(m_pendingChangesView, 1);
+    pendingChangesBody->addWidget(m_pendingChangesList, 1);
     pendingChangesLayout->addLayout(pendingChangesBody, 1);
     pendingChangesBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     pendingChangesBox->setMinimumHeight(0);

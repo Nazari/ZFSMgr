@@ -1427,6 +1427,7 @@ void MainWindow::applyDatasetPropertyChanges() {
         };
         beginTransientUiBusy(QStringLiteral("Aplicando cambios y refrescando conexiones..."));
         TransientBusyGuard busyGuard{this, true};
+        startPendingApplyAnimation();
         QSet<int> connectionsToRefresh;
         for (const PendingDraft& item : pendingPropertyDrafts) {
             QMap<QString, QString> originalValues;
@@ -1965,6 +1966,7 @@ void MainWindow::applyDatasetPropertyChanges() {
             setActionsLocked(false);
         }
 
+        m_pendingApplyFinishSuppressed = true;
         for (const PendingShellActionDraft& draft : pendingShellActions) {
             if (draft.command.trimmed().isEmpty()) {
                 continue;
@@ -1979,6 +1981,7 @@ void MainWindow::applyDatasetPropertyChanges() {
                         QStringLiteral("执行待处理更改时出错：\n%1\n\n请查看日志了解更多详情。"))
                         .arg(draft.displayLabel.trimmed().isEmpty() ? draft.command.trimmed()
                                                                      : draft.displayLabel.trimmed()));
+                m_pendingApplyFinishSuppressed = false;
                 updateApplyPropsButtonState();
                 return;
             }
@@ -1993,6 +1996,7 @@ void MainWindow::applyDatasetPropertyChanges() {
             }
             refreshPendingShellActionDraft(draft);
         }
+        m_pendingApplyFinishSuppressed = false;
 
         for (int connIdx : std::as_const(connectionsToRefresh)) {
             if (connIdx < 0 || connIdx >= m_profiles.size()) {
@@ -2298,6 +2302,8 @@ void MainWindow::clearAllPendingChanges() {
         }
     }
     m_pendingChangesModel.clear();
+    m_pendingOrderedDisplayLines.clear();
+    m_pendingItemStatus.clear();
     m_propsDirty = false;
     if (m_connContentTree) {
         auto refreshVisiblePermissionNodes = [this](QTreeWidget* tree) {
@@ -2361,6 +2367,8 @@ bool MainWindow::removePendingQueuedChangeLine(const QString& line) {
                 && draft.shellDraft.displayLabel.trimmed() == change.shellDraft.displayLabel.trimmed()
                 && draft.shellDraft.command.trimmed() == change.shellDraft.command.trimmed()) {
                 m_pendingChangesModel.removeAt(i);
+                m_pendingOrderedDisplayLines.removeAll(line);
+                m_pendingItemStatus.remove(line);
                 updateApplyPropsButtonState();
                 return true;
             }
@@ -2376,6 +2384,8 @@ bool MainWindow::removePendingQueuedChangeLine(const QString& line) {
                 && draft.renameDraft.sourceName.trimmed() == change.renameDraft.sourceName.trimmed()
                 && draft.renameDraft.targetName.trimmed() == change.renameDraft.targetName.trimmed()) {
                 m_pendingChangesModel.removeAt(i);
+                m_pendingOrderedDisplayLines.removeAll(line);
+                m_pendingItemStatus.remove(line);
                 updateApplyPropsButtonState();
                 return true;
             }
@@ -3015,17 +3025,10 @@ void MainWindow::refreshPendingShellActionDraft(const PendingShellActionDraft& d
 
 void MainWindow::updateApplyPropsButtonState() {
     const QStringList pendingCommands = pendingConnContentApplyCommands();
-    const QStringList pendingDisplayLines = pendingConnContentApplyDisplayLines();
-    if (m_pendingChangesView) {
-        const QSignalBlocker blocker(m_pendingChangesView);
-        m_pendingChangesView->setPlainText(
-            pendingDisplayLines.isEmpty()
-                ? trk(QStringLiteral("t_apply_changes_tt_001"),
-                      QStringLiteral("Sin cambios pendientes."),
-                      QStringLiteral("No pending changes."),
-                      QStringLiteral("没有待应用的更改。"))
-                : pendingDisplayLines.join(QLatin1Char('\n')));
+    if (m_pendingApplyInProgress && !m_pendingApplyFinishSuppressed) {
+        finishPendingApplyAnimation();
     }
+    updatePendingChangesList();
     if (m_btnApplyConnContentProps) {
         m_btnApplyConnContentProps->setToolTip(QString());
         if (m_propsSide == QStringLiteral("conncontent")) {

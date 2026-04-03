@@ -17,6 +17,7 @@
 #include <QVector>
 #include <functional>
 
+class QTimer;
 class QComboBox;
 class QColor;
 class QGroupBox;
@@ -49,6 +50,7 @@ public:
         ConnectionContent,
         ConnectionContentMulti,
     };
+    enum class PendingItemStatus { Pending, Running, Success, Failed };
     struct InlinePropGroupConfig {
         QString name;
         QStringList props;
@@ -631,6 +633,9 @@ private:
     QStringList pendingConnContentApplyDisplayLines() const;
     void activatePendingChangeAtCursor();
     bool focusPendingChangeLine(const QString& line);
+    void updatePendingChangesList();
+    void startPendingApplyAnimation();
+    void finishPendingApplyAnimation();
     QString poolDetailsCacheKey(int connIdx, const QString& poolName) const;
     bool ensureDatasetsLoaded(int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing = true);
     bool ensureDatasetPermissionsLoaded(int connIdx, const QString& poolName, const QString& datasetName);
@@ -1017,7 +1022,13 @@ private:
     QTextEdit* m_lastDetailText{nullptr};
     QTabWidget* m_logsTabs{nullptr};
     QPlainTextEdit* m_logView{nullptr};
-    QPlainTextEdit* m_pendingChangesView{nullptr};
+    QListWidget* m_pendingChangesList{nullptr};
+    QMap<QString, PendingItemStatus> m_pendingItemStatus;
+    QStringList m_pendingOrderedDisplayLines;
+    QTimer* m_pendingSpinnerTimer{nullptr};
+    int m_pendingSpinnerFrame{0};
+    bool m_pendingApplyInProgress{false};
+    bool m_pendingApplyFinishSuppressed{false};
     QMap<QString, QPointer<QPlainTextEdit>> m_connectionLogViews;
     QMap<QString, QPointer<QPlainTextEdit>> m_connectionGsaLogViews;
     QMap<QString, QPointer<QWidget>> m_connectionLogTabs;

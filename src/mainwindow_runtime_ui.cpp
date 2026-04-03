@@ -4,6 +4,7 @@
 #include <QCoreApplication>
 #include <QCloseEvent>
 #include <QMessageBox>
+#include <QListWidget>
 #include <QPlainTextEdit>
 #include <QProcess>
 #include <QPushButton>
@@ -28,7 +29,7 @@ MainWindow::~MainWindow() {
 
     quiesceObject(m_connContentTree);
     quiesceObject(m_connContentPropsTable);
-    quiesceObject(m_pendingChangesView);
+    quiesceObject(m_pendingChangesList);
     quiesceObject(m_logsTabs);
 }
 
