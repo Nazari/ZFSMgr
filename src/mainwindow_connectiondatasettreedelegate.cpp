@@ -1311,7 +1311,8 @@ void MainWindowConnectionDatasetTreeDelegate::itemClicked(QTreeWidget* tree, QTr
 }
 
 void MainWindowConnectionDatasetTreeDelegate::selectionChanged(QTreeWidget* tree, bool isBottom) {
-    if (!m_mainWindow || !tree || m_mainWindow->m_syncingConnContentColumns || m_suppressSelectionRefresh) {
+    if (!m_mainWindow || !tree || m_mainWindow->m_syncingConnContentColumns || m_suppressSelectionRefresh
+        || m_contextMenuInProgress) {
         return;
     }
     Q_UNUSED(isBottom);

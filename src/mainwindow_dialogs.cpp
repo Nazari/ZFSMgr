@@ -62,6 +62,27 @@ private:
     QPointer<QCheckBox> m_checkbox;
 };
 
+class RelayoutOnResizeEventFilter final : public QObject {
+public:
+    explicit RelayoutOnResizeEventFilter(std::function<void()> fn, QObject* parent = nullptr)
+        : QObject(parent)
+        , m_fn(std::move(fn)) {}
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        Q_UNUSED(watched);
+        if (event && (event->type() == QEvent::Resize || event->type() == QEvent::Show)) {
+            if (m_fn) {
+                m_fn();
+            }
+        }
+        return QObject::eventFilter(watched, event);
+    }
+
+private:
+    std::function<void()> m_fn;
+};
+
 class MultiMoveListWidget final : public QListWidget {
 public:
     explicit MultiMoveListWidget(QWidget* parent = nullptr)
@@ -493,9 +514,10 @@ bool MainWindow::selectItemsDialog(const QString& title,
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     auto* content = new QWidget(scroll);
     auto* grid = new QGridLayout(content);
-    grid->setContentsMargins(4, 4, 4, 4);
-    grid->setHorizontalSpacing(10);
-    grid->setVerticalSpacing(8);
+    grid->setContentsMargins(2, 2, 2, 2);
+    grid->setHorizontalSpacing(4);
+    grid->setVerticalSpacing(4);
+    grid->setAlignment(Qt::AlignTop | Qt::AlignLeft);
     content->setLayout(grid);
     scroll->setWidget(content);
 
@@ -504,19 +526,22 @@ bool MainWindow::selectItemsDialog(const QString& title,
     for (const QString& item : items) {
         maxTextWidth = qMax(maxTextWidth, fm.horizontalAdvance(item));
     }
-    const int columns = 5;
-    const int cellWidth = qBound(92, maxTextWidth + 24, 220);
+    const int maxCellWidth = qBound(86, maxTextWidth + 20, 180);
     QVector<QCheckBox*> checkboxes;
     checkboxes.reserve(items.size());
+    QVector<QWidget*> cards;
+    cards.reserve(items.size());
+    QVector<QLabel*> labels;
+    labels.reserve(items.size());
     for (int i = 0; i < items.size(); ++i) {
         const QString& item = items.at(i);
         auto* card = new QWidget(content);
-        card->setFixedWidth(cellWidth);
+        card->setFixedWidth(maxCellWidth);
         card->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         card->setStyleSheet(QStringLiteral(
             "QWidget {"
             " border: 1px solid #b9c9d6;"
-            " border-radius: 6px;"
+            " border-radius: 4px;"
             " background: #f4f8fb;"
             " color: #132531;"
             "}"
@@ -540,12 +565,12 @@ bool MainWindow::selectItemsDialog(const QString& title,
         ));
         auto* cardLayout = new QVBoxLayout(card);
         cardLayout->setSizeConstraint(QLayout::SetFixedSize);
-        cardLayout->setContentsMargins(8, 6, 8, 6);
-        cardLayout->setSpacing(6);
+        cardLayout->setContentsMargins(6, 4, 6, 4);
+        cardLayout->setSpacing(3);
         auto* label = new QLabel(item, card);
         label->setWordWrap(true);
-        label->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
-        label->setFixedWidth(cellWidth - 16);
+        label->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+        label->setFixedWidth(maxCellWidth - 12);
         auto* cb = new QCheckBox(QString(), card);
         cb->setChecked(initialSelected.contains(item, Qt::CaseInsensitive));
         cb->setProperty("itemText", item);
@@ -553,13 +578,48 @@ bool MainWindow::selectItemsDialog(const QString& title,
         card->installEventFilter(toggleFilter);
         label->installEventFilter(toggleFilter);
         cardLayout->addWidget(label);
-        cardLayout->addWidget(cb, 0, Qt::AlignHCenter);
-        grid->addWidget(card, i / columns, i % columns);
+        cardLayout->addWidget(cb, 0, Qt::AlignLeft);
+        grid->addWidget(card, i, 0);
         checkboxes.push_back(cb);
+        cards.push_back(card);
+        labels.push_back(label);
     }
-    for (int col = 0; col < columns; ++col) {
-        grid->setColumnStretch(col, 1);
-    }
+    auto relayoutCards = [grid, scroll, cards, labels, maxCellWidth]() {
+        if (!grid || !scroll) {
+            return;
+        }
+        const QMargins margins = grid->contentsMargins();
+        const int spacing = qMax(0, grid->horizontalSpacing());
+        const int viewportWidth = qMax(1, scroll->viewport()->width());
+        const int available = qMax(1, viewportWidth - margins.left() - margins.right());
+        const int cardWidth = qBound(86, qMin(maxCellWidth, available), maxCellWidth);
+        const int columns = qMax(1, (available + spacing) / (cardWidth + spacing));
+
+        for (int i = 0; i < cards.size(); ++i) {
+            if (QWidget* card = cards.at(i)) {
+                card->setFixedWidth(cardWidth);
+            }
+            if (QLabel* lbl = labels.at(i)) {
+                lbl->setFixedWidth(cardWidth - 12);
+            }
+            if (QWidget* card = cards.at(i)) {
+                grid->addWidget(card, i / columns, i % columns);
+            }
+        }
+        for (int col = 0; col < 32; ++col) {
+            grid->setColumnStretch(col, 0);
+        }
+        for (int row = 0; row < 512; ++row) {
+            grid->setRowStretch(row, 0);
+        }
+        grid->setColumnStretch(columns, 1);
+        grid->setRowStretch((cards.size() / columns) + 1, 1);
+        grid->invalidate();
+    };
+    relayoutCards();
+    auto* relayoutFilter = new RelayoutOnResizeEventFilter(relayoutCards, &dlg);
+    scroll->viewport()->installEventFilter(relayoutFilter);
+    scroll->installEventFilter(relayoutFilter);
     root->addWidget(scroll, 1);
 
     QHBoxLayout* tools = new QHBoxLayout();
