@@ -12,6 +12,7 @@
 #include <QMainWindow>
 #include <QDateTime>
 #include <QMap>
+#include <QMutex>
 #include <QPointer>
 #include <QSet>
 #include <QVector>
@@ -1062,6 +1063,7 @@ private:
     QMap<QString, ConnCompactState> m_connGsaCompactState;
     QSet<QString> m_sshDisableMultiplexKeys;
     QSet<QString> m_loggedSshResolutionKeys;
+    mutable QMutex m_sshRuntimeSetsMutex;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
     QMap<QString, DatasetPermissionsCacheEntry> m_datasetPermissionsCache;
     QMap<QString, PoolDetailsCacheEntry> m_poolDetailsCache;

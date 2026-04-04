@@ -16,6 +16,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonDocument>
+#include <QMutexLocker>
 
 #include <algorithm>
 #include <cstring>
@@ -577,8 +578,15 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
     if ((!hostLower.isEmpty() && hostLower.endsWith(QStringLiteral(".local")))
         || (familyLower == QStringLiteral("ipv4"))
         || (familyLower == QStringLiteral("ipv6"))) {
-        if (!m_loggedSshResolutionKeys.contains(sshResolutionKey)) {
-            m_loggedSshResolutionKeys.insert(sshResolutionKey);
+        bool shouldLogResolution = false;
+        {
+            QMutexLocker lock(&m_sshRuntimeSetsMutex);
+            if (!m_loggedSshResolutionKeys.contains(sshResolutionKey)) {
+                m_loggedSshResolutionKeys.insert(sshResolutionKey);
+                shouldLogResolution = true;
+            }
+        }
+        if (shouldLogResolution) {
             const QHostInfo resolved = QHostInfo::fromName(p.host);
             if (resolved.error() != QHostInfo::NoError) {
                 const QString msg = QStringLiteral("Resolucion SSH %1 (%2): %3")
@@ -602,10 +610,17 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         }
     }
 
-    const bool allowMultiplexing = !m_sshDisableMultiplexKeys.contains(sshConnKey);
+    bool allowMultiplexing = true;
+    {
+        QMutexLocker lock(&m_sshRuntimeSetsMutex);
+        allowMultiplexing = !m_sshDisableMultiplexKeys.contains(sshConnKey);
+    }
     bool startedOk = runSshAttempt(allowMultiplexing, out, err, rc);
     if (allowMultiplexing && startedOk && rc != 0 && shouldRetrySshWithoutMultiplexing(err)) {
-        m_sshDisableMultiplexKeys.insert(sshConnKey);
+        {
+            QMutexLocker lock(&m_sshRuntimeSetsMutex);
+            m_sshDisableMultiplexKeys.insert(sshConnKey);
+        }
         const QString retryMsg = QStringLiteral("SSH multiplexado falló; reintentando sin ControlMaster/ControlPath.");
         appLog(QStringLiteral("WARN"), QStringLiteral("%1: %2").arg(p.name, retryMsg));
         appendConnectionLog(p.id, retryMsg);
