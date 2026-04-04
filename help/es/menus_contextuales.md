@@ -8,9 +8,20 @@ ZFSMgr usa menús contextuales sobre el árbol unificado.
 
 - El menú que antes colgaba de la tabla de conexiones ahora cuelga del nodo raíz de conexión.
 - Orden actual en conexiones:
-  - `Nueva conexión`
+  - `Conectar`
+  - `Desconectar`
+  - `Refrescar`
   - separador
-  - resto de acciones en el orden existente (`Refrescar`, `Editar`, `Borrar`, `Nuevo pool`, `GSA`, etc.)
+  - `Nueva conexión`
+  - `Editar`
+  - `Borrar`
+  - separador
+  - `GSA`
+  - separador
+  - `Nuevo pool`
+  - separador
+  - `Instalar MSYS2`
+  - `Instalar comandos auxiliares`
 
 ## Sobre el nodo raíz del pool fusionado
 

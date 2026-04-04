@@ -8,9 +8,20 @@ ZFSMgr uses context menus on the unified tree.
 
 - The menu that used to belong to the connections table now belongs to the connection root node.
 - Current order on connection nodes:
-  - `New connection`
+  - `Connect`
+  - `Disconnect`
+  - `Refresh`
   - separator
-  - remaining actions in existing order (`Refresh`, `Edit`, `Delete`, `New pool`, `GSA`, etc.)
+  - `New connection`
+  - `Edit`
+  - `Delete`
+  - separator
+  - `GSA`
+  - separator
+  - `New pool`
+  - separator
+  - `Install MSYS2`
+  - `Install helper commands`
 
 ## On the merged pool root
 

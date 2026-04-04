@@ -1949,12 +1949,6 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos)
             canUninstallGsa);
 
     QMenu menu(this);
-    QAction* aNewConn = menu.addAction(
-        trk(QStringLiteral("t_new_conn_ctx001"),
-            QStringLiteral("Nueva Conexión"),
-            QStringLiteral("New Connection"),
-            QStringLiteral("新建连接")));
-    menu.addSeparator();
     QAction* aConnect = menu.addAction(
         trk(QStringLiteral("t_connect_ctx_001"),
             QStringLiteral("Conectar"),
@@ -1965,31 +1959,28 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos)
             QStringLiteral("Desconectar"),
             QStringLiteral("Disconnect"),
             QStringLiteral("断开连接")));
-    QAction* aInstallMsys = menu.addAction(
-        trk(QStringLiteral("t_install_msys_ctx001"),
-            QStringLiteral("Instalar MSYS2"),
-            QStringLiteral("Install MSYS2"),
-            QStringLiteral("安装 MSYS2")));
-    QAction* aInstallHelpers = menu.addAction(
-        trk(QStringLiteral("t_install_helpers_ctx001"),
-            QStringLiteral("Instalar comandos auxiliares"),
-            QStringLiteral("Install helper commands"),
-            QStringLiteral("安装辅助命令")));
-    QMenu* refreshMenu = menu.addMenu(
+    QAction* aRefresh = menu.addAction(
         trk(QStringLiteral("t_refresh_conn_ctx001"),
             QStringLiteral("Refrescar"),
             QStringLiteral("Refresh"),
             QStringLiteral("刷新")));
-    QAction* aRefresh = refreshMenu->addAction(
-        trk(QStringLiteral("t_refresh_this_conn_001"),
-            QStringLiteral("Esta conexión"),
-            QStringLiteral("This connection"),
-            QStringLiteral("此连接")));
-    QAction* aRefreshAll = refreshMenu->addAction(
-        trk(QStringLiteral("t_refresh_all_001"),
-            QStringLiteral("Todas las conexiones"),
-            QStringLiteral("All connections"),
-            QStringLiteral("所有连接")));
+    menu.addSeparator();
+    QAction* aNewConn = menu.addAction(
+        trk(QStringLiteral("t_new_conn_ctx001"),
+            QStringLiteral("Nueva Conexión"),
+            QStringLiteral("New Connection"),
+            QStringLiteral("新建连接")));
+    QAction* aEdit = menu.addAction(
+        trk(QStringLiteral("t_edit_conn_ctx001"),
+            QStringLiteral("Editar"),
+            QStringLiteral("Edit"),
+            QStringLiteral("编辑")));
+    QAction* aDelete = menu.addAction(
+        trk(QStringLiteral("t_del_conn_ctx001"),
+            QStringLiteral("Borrar"),
+            QStringLiteral("Delete"),
+            QStringLiteral("删除")));
+    menu.addSeparator();
     QMenu* gsaMenu = menu.addMenu(QStringLiteral("GSA"));
     QAction* aManageGsa = gsaMenu->addAction(hasConn ? gsaMenuLabelForConnection(connIdx)
                                                      : trk(QStringLiteral("t_gsa_install_001"),
@@ -2001,21 +1992,23 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos)
             QStringLiteral("Desinstalar el GSA"),
             QStringLiteral("Uninstall GSA"),
             QStringLiteral("卸载 GSA")));
-    QAction* aEdit = menu.addAction(
-        trk(QStringLiteral("t_edit_conn_ctx001"),
-            QStringLiteral("Editar"),
-            QStringLiteral("Edit"),
-            QStringLiteral("编辑")));
-    QAction* aDelete = menu.addAction(
-        trk(QStringLiteral("t_del_conn_ctx001"),
-            QStringLiteral("Borrar"),
-            QStringLiteral("Delete"),
-            QStringLiteral("删除")));
+    menu.addSeparator();
     QAction* aNewPool = menu.addAction(
         trk(QStringLiteral("t_new_pool_ctx_001"),
             QStringLiteral("Nuevo Pool"),
             QStringLiteral("New Pool"),
             QStringLiteral("新建存储池")));
+    menu.addSeparator();
+    QAction* aInstallMsys = menu.addAction(
+        trk(QStringLiteral("t_install_msys_ctx001"),
+            QStringLiteral("Instalar MSYS2"),
+            QStringLiteral("Install MSYS2"),
+            QStringLiteral("安装 MSYS2")));
+    QAction* aInstallHelpers = menu.addAction(
+        trk(QStringLiteral("t_install_helpers_ctx001"),
+            QStringLiteral("Instalar comandos auxiliares"),
+            QStringLiteral("Install helper commands"),
+            QStringLiteral("安装辅助命令")));
     aConnect->setEnabled(menuState.canConnect);
     aDisconnect->setEnabled(menuState.canDisconnect);
     aInstallMsys->setEnabled(menuState.canInstallMsys);
@@ -2028,7 +2021,6 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos)
     aUninstallGsa->setEnabled(menuState.canUninstallGsa);
     gsaMenu->setEnabled(menuState.gsaSubmenuEnabled);
     aRefresh->setEnabled(menuState.canRefreshThis);
-    aRefreshAll->setEnabled(menuState.canRefreshAll);
     aEdit->setEnabled(menuState.canEditDelete);
     aDelete->setEnabled(menuState.canEditDelete);
     aNewConn->setEnabled(menuState.canNewConnection);
@@ -2078,9 +2070,6 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos)
     } else if (chosen == aUninstallGsa && hasConn) {
         logUiAction(QStringLiteral("Desinstalar GSA (menú conexiones)"));
         uninstallGsaForConnection(connIdx);
-    } else if (chosen == aRefreshAll) {
-        logUiAction(QStringLiteral("Refrescar todas las conexiones (menú conexiones)"));
-        refreshAllConnections();
     } else if (chosen == aNewConn) {
         logUiAction(QStringLiteral("Nueva conexión (menú conexiones)"));
         createConnection();

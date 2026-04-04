@@ -8,9 +8,20 @@ ZFSMgr 在统一树上使用上下文菜单。
 
 - 原来属于连接表的菜单现在挂在连接根节点上。
 - 当前顺序：
-  - `New connection`
+  - `Connect`
+  - `Disconnect`
+  - `Refresh`
   - 分隔线
-  - 其余动作保持现有顺序（`Refresh`、`Edit`、`Delete`、`New pool`、`GSA` 等）
+  - `New connection`
+  - `Edit`
+  - `Delete`
+  - 分隔线
+  - `GSA`
+  - 分隔线
+  - `New pool`
+  - 分隔线
+  - `Install MSYS2`
+  - `Install helper commands`
 
 ## 在合并后的池根节点上
 
