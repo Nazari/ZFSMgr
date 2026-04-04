@@ -144,11 +144,11 @@ upload_to_sftp() {
   path="${parsed#*|}"
   echo "Subiendo artefacto a ${remote}:${path}"
   if [[ "${path}" == /* ]]; then
-    ssh -o BatchMode=yes "${remote}" "mkdir -p '${path}'"
-    scp "${artifact}" "${remote}:${path}/"
+    ssh -o BatchMode=yes "${remote}" "mkdir -p '${path}'" </dev/null
+    scp "${artifact}" "${remote}:${path}/" </dev/null
   else
-    ssh -o BatchMode=yes "${remote}" "mkdir -p \"\$HOME/${path}\""
-    scp "${artifact}" "${remote}:~/${path}/"
+    ssh -o BatchMode=yes "${remote}" "mkdir -p \"\$HOME/${path}\"" </dev/null
+    scp "${artifact}" "${remote}:~/${path}/" </dev/null
   fi
 }
 
