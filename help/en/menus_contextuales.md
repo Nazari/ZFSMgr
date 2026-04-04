@@ -40,26 +40,36 @@ ZFSMgr uses context menus on the unified tree.
 
 ## On datasets and snapshots
 
-- Typical actions:
-  - `Manage visible properties`
-  - `Create dataset/snapshot/vol`
+- On filesystem datasets (and on the merged pool node):
+  - `Manage properties`
+  - `Dataset`
+  - `Actions`
+  - `Select as source`
+  - `Select as destination`
+- `Dataset` submenu:
+  - `Create`
   - `Rename`
   - `Delete`
-  - `Encryption`
-  - `Schedule automatic snapshots` (only on filesystem datasets with no active GSA in ancestors)
-  - `Rollback`
-  - `New Hold`
-  - `Release`
+  - `Encryption key` (`Load key`, `Unload key`, `Change key`)
+  - `Schedule snapshots`
+  - `Permissions` (`New set`, `New delegation`)
+- `Actions` submenu:
   - `Break down`
   - `Assemble`
   - `From Dir`
   - `To Dir`
+- On snapshots:
+  - `Manage properties`
+  - `Delete snapshot`
+  - `Rollback`
+  - `New Hold`
   - `Select as source`
-  - `Select as destination`
+- On hold nodes:
+  - `Release`
 
 ## Rules
 
 - Destructive actions ask for confirmation.
 - Several actions are deferred and accumulate in `Pending changes`.
 - `Select as source` and `Select as destination` update the `Source/Target` line in `Actions`.
-- `Manage visible properties` applies to properties nodes (`Dataset properties`, `Snapshot properties`, `Pool Information`).
+- There is no context menu on `Dataset properties`, `Snapshot properties`, or the `@` node.

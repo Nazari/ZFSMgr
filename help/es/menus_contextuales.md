@@ -40,26 +40,36 @@ ZFSMgr usa menús contextuales sobre el árbol unificado.
 
 ## Sobre datasets y snapshots
 
-- Acciones típicas:
-  - `Gestionar visualización de propiedades`
-  - `Crear dataset/snapshot/vol`
+- En dataset filesystem (y en nodo pool fusionado):
+  - `Gestionar propiedades`
+  - `Dataset`
+  - `Acciones`
+  - `Seleccionar como origen`
+  - `Seleccionar como destino`
+- Submenú `Dataset`:
+  - `Crear`
   - `Renombrar`
   - `Borrar`
-  - `Encriptación`
-  - `Programar snapshots automáticos` (solo dataset filesystem sin GSA activo en ancestros)
-  - `Rollback`
-  - `Nuevo Hold`
-  - `Release`
+  - `Clave de Encriptación` (`Cargar Clave`, `Descargar Clave`, `Cambiar Clave`)
+  - `Programar snapshots`
+  - `Permisos` (`Nuevo Set`, `Nueva Delegación`)
+- Submenú `Acciones`:
   - `Desglosar`
   - `Ensamblar`
   - `Desde Dir`
-  - `Hacia Dir`
+  - `Hasta Dir`
+- En snapshots:
+  - `Gestionar propiedades`
+  - `Borrar snapshot`
+  - `Rollback`
+  - `Nuevo Hold`
   - `Seleccionar como origen`
-  - `Seleccionar como destino`
+- En holds:
+  - `Release`
 
 ## Reglas
 
 - Las acciones destructivas piden confirmación.
 - Varias acciones trabajan en modo diferido y se acumulan en `Pending changes`.
 - `Seleccionar como origen` y `Seleccionar como destino` actualizan la línea `Source/Target` de la caja `Acciones`.
-- `Gestionar visualización de propiedades` aplica a nodos de propiedades (`Dataset properties`, `Snapshot properties`, `Pool Information`).
+- No hay menú contextual en nodos `Dataset properties`, `Snapshot properties` ni en el nodo `@`.

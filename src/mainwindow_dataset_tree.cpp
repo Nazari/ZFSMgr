@@ -599,6 +599,14 @@ QString connContentChildStableId(QTreeWidgetItem* node) {
     if (node->data(0, kConnSnapshotItemRole).toBool()) {
         return QStringLiteral("snapshot|%1").arg(node->data(1, Qt::UserRole).toString().trimmed());
     }
+    const QString ds = node->data(0, Qt::UserRole).toString().trimmed();
+    if (!ds.isEmpty()) {
+        const QString dsGuid = node->data(0, kConnDatasetGuidRole).toString().trimmed();
+        if (!dsGuid.isEmpty()) {
+            return QStringLiteral("ds:%1").arg(dsGuid);
+        }
+        return QString();
+    }
     return QStringLiteral("text|%1").arg(node->text(0).trimmed());
 }
 
@@ -4215,26 +4223,46 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
     detectedNode->setData(0, kConnContentNodeRole, true);
     detectedNode->setData(0, kConnIdxRole, connIdx);
     detectedNode->setText(0, QStringLiteral("Comandos detectados"));
-    auto* detectedLine = new QTreeWidgetItem(detectedNode);
-    detectedLine->setFlags(detectedLine->flags() & ~Qt::ItemIsUserCheckable);
-    detectedLine->setData(0, kConnContentNodeRole, true);
-    detectedLine->setData(0, kConnIdxRole, connIdx);
-    detectedLine->setText(0, listOrNone(st.detectedUnixCommands));
+    QVector<QPair<QString, QString>> detectedProps;
+    if (st.detectedUnixCommands.isEmpty()) {
+        detectedProps.push_back({QStringLiteral("Comandos"), QStringLiteral("(ninguno)")});
+    } else {
+        for (const QString& cmd : st.detectedUnixCommands) {
+            const QString trimmed = cmd.trimmed();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            detectedProps.push_back({trimmed, QStringLiteral("sí")});
+        }
+        if (detectedProps.isEmpty()) {
+            detectedProps.push_back({QStringLiteral("Comandos"), QStringLiteral("(ninguno)")});
+        }
+    }
+    appendReadOnlyInlineProps(detectedNode, detectedProps);
     detectedNode->setExpanded(infoChildExpandedByTitle.value(detectedNode->text(0).trimmed(), false));
 
-    if (!st.missingUnixCommands.isEmpty()) {
-        auto* missingNode = new QTreeWidgetItem(infoNode);
-        missingNode->setFlags(missingNode->flags() & ~Qt::ItemIsUserCheckable);
-        missingNode->setData(0, kConnContentNodeRole, true);
-        missingNode->setData(0, kConnIdxRole, connIdx);
-        missingNode->setText(0, QStringLiteral("Comandos no detectados"));
-        auto* missingLine = new QTreeWidgetItem(missingNode);
-        missingLine->setFlags(missingLine->flags() & ~Qt::ItemIsUserCheckable);
-        missingLine->setData(0, kConnContentNodeRole, true);
-        missingLine->setData(0, kConnIdxRole, connIdx);
-        missingLine->setText(0, st.missingUnixCommands.join(QStringLiteral(", ")));
-        missingNode->setExpanded(infoChildExpandedByTitle.value(missingNode->text(0).trimmed(), false));
+    auto* missingNode = new QTreeWidgetItem(infoNode);
+    missingNode->setFlags(missingNode->flags() & ~Qt::ItemIsUserCheckable);
+    missingNode->setData(0, kConnContentNodeRole, true);
+    missingNode->setData(0, kConnIdxRole, connIdx);
+    missingNode->setText(0, QStringLiteral("Comandos no detectados"));
+    QVector<QPair<QString, QString>> missingProps;
+    if (st.missingUnixCommands.isEmpty()) {
+        missingProps.push_back({QStringLiteral("Comandos"), QStringLiteral("(ninguno)")});
+    } else {
+        for (const QString& cmd : st.missingUnixCommands) {
+            const QString trimmed = cmd.trimmed();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            missingProps.push_back({trimmed, QStringLiteral("no")});
+        }
+        if (missingProps.isEmpty()) {
+            missingProps.push_back({QStringLiteral("Comandos"), QStringLiteral("(ninguno)")});
+        }
     }
+    appendReadOnlyInlineProps(missingNode, missingProps);
+    missingNode->setExpanded(infoChildExpandedByTitle.value(missingNode->text(0).trimmed(), false));
 
     QVector<QPair<QString, QString>> nonImportablePools;
     for (const PoolImportable& pool : st.importablePools) {

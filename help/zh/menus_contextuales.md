@@ -40,26 +40,36 @@ ZFSMgr 在统一树上使用上下文菜单。
 
 ## 在数据集和快照上
 
-- 常见操作包括：
-  - `Manage visible properties`
-  - `Create dataset/snapshot/vol`
+- 在 filesystem 数据集（以及合并池节点）上：
+  - `Manage properties`
+  - `Dataset`
+  - `Actions`
+  - `Select as source`
+  - `Select as destination`
+- `Dataset` 子菜单：
+  - `Create`
   - `Rename`
   - `Delete`
-  - `Encryption`
-  - `Schedule automatic snapshots`（仅 filesystem 数据集，且祖先中无激活 GSA）
-  - `Rollback`
-  - `New Hold`
-  - `Release`
+  - `Encryption key`（`Load key`、`Unload key`、`Change key`）
+  - `Schedule snapshots`
+  - `Permissions`（`New set`、`New delegation`）
+- `Actions` 子菜单：
   - `Break down`
   - `Assemble`
   - `From Dir`
   - `To Dir`
+- 在 snapshot 上：
+  - `Manage properties`
+  - `Delete snapshot`
+  - `Rollback`
+  - `New Hold`
   - `Select as source`
-  - `Select as destination`
+- 在 hold 节点上：
+  - `Release`
 
 ## 规则
 
 - 破坏性操作会要求确认。
 - 多个操作使用延迟模式并累积到 `Pending changes`。
 - `Select as source` / `Select as destination` 会更新 `Actions` 里的 `Source/Target` 行。
-- `Manage visible properties` 适用于属性节点（`Dataset properties`、`Snapshot properties`、`Pool Information`）。
+- `Dataset properties`、`Snapshot properties` 和 `@` 节点没有上下文菜单。
