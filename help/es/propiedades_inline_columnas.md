@@ -4,11 +4,13 @@ ZFSMgr muestra propiedades de dataset y pool directamente dentro del árbol unif
 
 ## Dónde aparecen
 
-- En datasets y snapshots, bajo `Dataset properties`.
+- En datasets, bajo `Dataset properties`.
+- En snapshots, bajo `Snapshot properties`.
 - En datasets no snapshot, también puede aparecer `Permisos`.
 - En el nodo dual pool/dataset raíz, puede aparecer `Pool Information`.
-- En datasets filesystem, puede aparecer `Programar snapshots`.
+- En datasets filesystem, los snapshots cuelgan del nodo `@`.
 - En pools con datasets GSA activos, puede aparecer `Datasets programados`.
+- En conexiones, bajo `Propiedades de conexión`.
 
 ## Visualización
 
@@ -23,7 +25,9 @@ ZFSMgr muestra propiedades de dataset y pool directamente dentro del árbol unif
 Con clic derecho sobre:
 
 - `Dataset properties`
+- `Snapshot properties`
 - `Pool Information`
+- `Propiedades de conexión`
 
 puede abrir `Gestionar visualización de propiedades`.
 
@@ -40,22 +44,7 @@ Los grupos son independientes por:
 - pool
 - dataset
 - snapshot
-
-## Visibilidad de nodos inline
-
-Desde el menú contextual del árbol puede activar o desactivar:
-
-- `Mostrar propiedades en línea`
-- `Mostrar Permisos en línea`
-- `Mostrar Información del Pool`
-- `Mostrar Datasets programados`
-
-Efectos:
-
-- si desactiva `Mostrar propiedades en línea`, desaparece `Dataset properties`
-- si desactiva `Mostrar Permisos en línea`, desaparece `Permisos`
-- si desactiva `Mostrar Información del Pool`, desaparece `Pool Information`
-- si desactiva `Mostrar Datasets programados`, desaparece `Datasets programados`
+- conexión
 
 ## Edición inline
 

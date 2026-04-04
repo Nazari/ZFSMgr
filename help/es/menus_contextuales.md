@@ -7,13 +7,10 @@ ZFSMgr usa menús contextuales sobre el árbol unificado.
 ![Menú contextual de conexiones](qrc:/help/img/auto/connection-context-menu.png)
 
 - El menú que antes colgaba de la tabla de conexiones ahora cuelga del nodo raíz de conexión.
-- Incluye acciones como:
+- Orden actual en conexiones:
   - `Nueva conexión`
-  - `Refrescar`
-  - `Editar`
-  - `Borrar`
-  - `Nuevo pool`
-  - acciones GSA y refresco
+  - separador
+  - resto de acciones en el orden existente (`Refrescar`, `Editar`, `Borrar`, `Nuevo pool`, `GSA`, etc.)
 
 ## Sobre el nodo raíz del pool fusionado
 
@@ -21,27 +18,24 @@ ZFSMgr usa menús contextuales sobre el árbol unificado.
 
 - El primer submenú es `Pool`.
 - Dentro de `Pool` aparecen las acciones de pool:
-  - `Actualizar`
+  - `Refresh status`
   - `Importar`
   - `Importar renombrando`
   - `Exportar`
   - `Historial`
   - `Gestión`
-  - `Mostrar Información del Pool`
-  - `Mostrar Datasets programados`
+- `Gestión` ejecuta acciones inmediatas (`sync`, `scrub`, `upgrade`, `reguid`, `trim`, `initialize`, `clear`, `destroy`) con diálogo de parámetros cuando aplica.
 - Después del submenú `Pool` siguen las acciones normales de dataset sobre ese mismo nodo dual.
 
 ## Sobre datasets y snapshots
 
 - Acciones típicas:
   - `Gestionar visualización de propiedades`
-  - `Mostrar propiedades en línea`
-  - `Mostrar Permisos en línea`
   - `Crear dataset/snapshot/vol`
   - `Renombrar`
   - `Borrar`
   - `Encriptación`
-  - `Seleccionar snapshot`
+  - `Programar snapshots automáticos` (solo dataset filesystem sin GSA activo en ancestros)
   - `Rollback`
   - `Nuevo Hold`
   - `Release`
@@ -56,5 +50,5 @@ ZFSMgr usa menús contextuales sobre el árbol unificado.
 
 - Las acciones destructivas piden confirmación.
 - Varias acciones trabajan en modo diferido y se acumulan en `Pending changes`.
-- `Seleccionar como origen` y `Seleccionar como destino` rellenan la caja `Selected datasets`.
-- `Gestionar visualización de propiedades` aplica a `Dataset properties` y `Pool Information`.
+- `Seleccionar como origen` y `Seleccionar como destino` actualizan la línea `Source/Target` de la caja `Acciones`.
+- `Gestionar visualización de propiedades` aplica a nodos de propiedades (`Dataset properties`, `Snapshot properties`, `Pool Information`).

@@ -101,6 +101,15 @@ QTreeWidgetItem* findItemByLabel(QTreeWidgetItem* parent, const QString& label) 
     return nullptr;
 }
 
+QTreeWidgetItem* findItemByLabels(QTreeWidgetItem* parent, const QStringList& labels) {
+    for (const QString& label : labels) {
+        if (QTreeWidgetItem* found = findItemByLabel(parent, label)) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
 QRect subtreeRect(QTreeWidget* tree, QTreeWidgetItem* item) {
     QRect rect;
     if (!tree || !item) {
@@ -253,7 +262,6 @@ int main(int argc, char** argv) {
     }
 
     window.selectDatasetForTest(QStringLiteral("tank1/user"), false);
-    window.setDatasetChildExpandedForTest(QStringLiteral("tank1/user"), QStringLiteral("Programar snapshots"), true, false);
     mainTree->expandAll();
     app.processEvents();
     app.processEvents();
@@ -271,37 +279,33 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (QTreeWidgetItem* datasetItem = findItemByDatasetName(mainTree, QStringLiteral("tank1/user"))) {
-        if (QTreeWidgetItem* gsaNode = findItemByLabel(datasetItem, QStringLiteral("Programar snapshots"))) {
-            const QPixmap pix = grabTreeViewportRect(mainTree, subtreeRect(mainTree, gsaNode));
+    QTreeWidgetItem* connectionRoot = mainTree->topLevelItemCount() > 0 ? mainTree->topLevelItem(0) : nullptr;
+    QTreeWidgetItem* poolRoot = connectionRoot && connectionRoot->childCount() > 0 ? connectionRoot->child(0) : nullptr;
+    if (poolRoot) {
+        poolRoot->setExpanded(true);
+        if (QTreeWidgetItem* autoNode = findItemByLabels(poolRoot,
+                                                        {QStringLiteral("Datasets programados"),
+                                                         QStringLiteral("Scheduled datasets")})) {
+            autoNode->setExpanded(true);
+            app.processEvents();
+            const QPixmap pix = grabTreeViewportRect(mainTree, subtreeRect(mainTree, autoNode));
             if (!savePixmap(pix, outputPath(outDir, QStringLiteral("schedule-snapshots-node.png")), &error)) {
-                fprintf(stderr, "%s\n", error.toLocal8Bit().constData());
-                return 1;
-            }
-        }
-        if (QTreeWidgetItem* permsNode = findItemByLabel(datasetItem, QStringLiteral("Permisos"))) {
-            const QPixmap pix = grabTreeViewportRect(mainTree, subtreeRect(mainTree, permsNode));
-            if (!savePixmap(pix, outputPath(outDir, QStringLiteral("permissions-node.png")), &error)) {
                 fprintf(stderr, "%s\n", error.toLocal8Bit().constData());
                 return 1;
             }
         }
     }
 
-    QTreeWidgetItem* connectionRoot = mainTree->topLevelItemCount() > 0 ? mainTree->topLevelItem(0) : nullptr;
-    QTreeWidgetItem* poolRoot = connectionRoot && connectionRoot->childCount() > 0 ? connectionRoot->child(0) : nullptr;
-    if (poolRoot) {
-        poolRoot->setExpanded(true);
-        if (QTreeWidgetItem* infoNode = findItemByLabel(poolRoot, QStringLiteral("Pool Information"))) {
-            infoNode->setExpanded(true);
-            if (QTreeWidgetItem* autoNode = findItemByLabel(poolRoot, QStringLiteral("Datasets programados"))) {
-                autoNode->setExpanded(true);
-                app.processEvents();
-                const QPixmap pix = grabTreeViewportRect(mainTree, subtreeRect(mainTree, autoNode));
-                if (!savePixmap(pix, outputPath(outDir, QStringLiteral("automatic-snapshots-node.png")), &error)) {
-                    fprintf(stderr, "%s\n", error.toLocal8Bit().constData());
-                    return 1;
-                }
+    if (QTreeWidgetItem* datasetItem = findItemByDatasetName(mainTree, QStringLiteral("tank1/user"))) {
+        if (QTreeWidgetItem* permsNode = findItemByLabels(datasetItem,
+                                                          {QStringLiteral("Permisos"),
+                                                           QStringLiteral("Permissions")})) {
+            permsNode->setExpanded(true);
+            app.processEvents();
+            const QPixmap pix = grabTreeViewportRect(mainTree, subtreeRect(mainTree, permsNode));
+            if (!savePixmap(pix, outputPath(outDir, QStringLiteral("permissions-node.png")), &error)) {
+                fprintf(stderr, "%s\n", error.toLocal8Bit().constData());
+                return 1;
             }
         }
     }
