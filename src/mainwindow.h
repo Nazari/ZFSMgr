@@ -729,6 +729,10 @@ private:
     void invalidatePoolDatasetListingCache(int connIdx, const QString& poolName);
     void invalidateDatasetCacheForPool(int connIdx, const QString& poolName);
     void invalidatePoolDetailsCacheForConnection(int connIdx);
+    bool shouldRefreshSizePropsForCommand(const QString& actionLabel, const QString& command) const;
+    bool refreshDatasetAndPoolSizeProperties(int connIdx,
+                                             const QString& poolName,
+                                             const QString& datasetName);
     void reloadConnContentPool(int connIdx, const QString& poolName);
     void reloadDatasetSide(const QString& side);
     void refreshPendingShellActionDraft(const PendingShellActionDraft& draft);

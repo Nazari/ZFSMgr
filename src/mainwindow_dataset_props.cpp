@@ -2980,7 +2980,8 @@ bool MainWindow::executePendingChange(const PendingChange& change) {
 
 void MainWindow::refreshPendingShellActionDraft(const PendingShellActionDraft& draft) {
     auto refreshCtx = [this](const DatasetSelectionContext& ctx,
-                             bool invalidatePoolListing) {
+                             bool invalidatePoolListing,
+                             const PendingShellActionDraft& shellDraft) {
         if (!ctx.valid || ctx.connIdx < 0 || ctx.poolName.trimmed().isEmpty()) {
             return;
         }
@@ -2993,6 +2994,11 @@ void MainWindow::refreshPendingShellActionDraft(const PendingShellActionDraft& d
                                                 true);
         } else {
             invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
+        }
+
+        if (shouldRefreshSizePropsForCommand(shellDraft.displayLabel, shellDraft.command)
+            && !ctx.datasetName.trimmed().isEmpty()) {
+            refreshDatasetAndPoolSizeProperties(ctx.connIdx, ctx.poolName, ctx.datasetName);
         }
 
         bool refreshed = false;
@@ -3009,15 +3015,15 @@ void MainWindow::refreshPendingShellActionDraft(const PendingShellActionDraft& d
     case PendingShellActionDraft::RefreshScope::None:
         break;
     case PendingShellActionDraft::RefreshScope::TargetOnly:
-        refreshCtx(draft.refreshTarget, true);
+        refreshCtx(draft.refreshTarget, true, draft);
         break;
     case PendingShellActionDraft::RefreshScope::SourceAndTarget:
-        refreshCtx(draft.refreshTarget, true);
+        refreshCtx(draft.refreshTarget, true, draft);
         if (!draft.refreshSource.valid
             || draft.refreshSource.connIdx != draft.refreshTarget.connIdx
             || draft.refreshSource.poolName.trimmed() != draft.refreshTarget.poolName.trimmed()
             || draft.refreshSource.datasetName.trimmed() != draft.refreshTarget.datasetName.trimmed()) {
-            refreshCtx(draft.refreshSource, false);
+            refreshCtx(draft.refreshSource, false, draft);
         }
         break;
     }

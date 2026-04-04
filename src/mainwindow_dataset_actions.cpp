@@ -6,6 +6,8 @@
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QInputDialog>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QProcess>
@@ -75,6 +77,41 @@ QString currentLocalMachineUidFallback() {
     }
 #endif
     return QString::fromLatin1(QSysInfo::machineUniqueId().toHex()).trimmed();
+}
+
+QStringList datasetSizePropertyNames() {
+    return {
+        QStringLiteral("used"),
+        QStringLiteral("available"),
+        QStringLiteral("referenced"),
+        QStringLiteral("logicalused"),
+        QStringLiteral("logicalreferenced"),
+        QStringLiteral("written"),
+        QStringLiteral("quota"),
+        QStringLiteral("refquota"),
+        QStringLiteral("reservation"),
+        QStringLiteral("refreservation"),
+        QStringLiteral("volsize"),
+    };
+}
+
+QStringList poolSizePropertyNames() {
+    return {
+        QStringLiteral("size"),
+        QStringLiteral("alloc"),
+        QStringLiteral("free"),
+        QStringLiteral("cap"),
+        QStringLiteral("fragmentation"),
+    };
+}
+
+bool containsAnyToken(const QString& haystackLower, const QStringList& needles) {
+    for (const QString& token : needles) {
+        if (haystackLower.contains(token)) {
+            return true;
+        }
+    }
+    return false;
 }
 } // namespace
 
@@ -523,6 +560,9 @@ bool MainWindow::executeDatasetAction(const QString& side,
         } else {
             reloadDatasetSide(side);
         }
+        if (shouldRefreshSizePropsForCommand(actionName, cmd)) {
+            refreshDatasetAndPoolSizeProperties(ctx.connIdx, ctx.poolName, ctx.datasetName);
+        }
         setActionsLocked(false);
         return true;
     }
@@ -531,8 +571,178 @@ bool MainWindow::executeDatasetAction(const QString& side,
     } else {
         reloadDatasetSide(side);
     }
+    if (shouldRefreshSizePropsForCommand(actionName, cmd)) {
+        refreshDatasetAndPoolSizeProperties(ctx.connIdx, ctx.poolName, ctx.datasetName);
+    }
     setActionsLocked(false);
     return true;
+}
+
+bool MainWindow::shouldRefreshSizePropsForCommand(const QString& actionLabel, const QString& command) const {
+    const QString label = actionLabel.trimmed().toLower();
+    const QString cmd = command.trimmed().toLower();
+    if (label.isEmpty() && cmd.isEmpty()) {
+        return false;
+    }
+
+    if (containsAnyToken(label,
+                         {QStringLiteral("copiar"),
+                          QStringLiteral("copy"),
+                          QStringLiteral("clonar"),
+                          QStringLiteral("clone"),
+                          QStringLiteral("rollback"),
+                          QStringLiteral("borrar"),
+                          QStringLiteral("destroy"),
+                          QStringLiteral("desglosar"),
+                          QStringLiteral("ensamblar"),
+                          QStringLiteral("desde dir"),
+                          QStringLiteral("hacia dir"),
+                          QStringLiteral("from dir"),
+                          QStringLiteral("to dir"),
+                          QStringLiteral("sync"),
+                          QStringLiteral("sincron"),
+                          QStringLiteral("aplicar propiedades")})) {
+        return true;
+    }
+
+    if (containsAnyToken(cmd,
+                         {QStringLiteral("zfs recv"),
+                          QStringLiteral("zfs receive"),
+                          QStringLiteral("zfs clone"),
+                          QStringLiteral("zfs rollback"),
+                          QStringLiteral("zfs destroy"),
+                          QStringLiteral("zfs create"),
+                          QStringLiteral("rsync "),
+                          QStringLiteral("tar --"),
+                          QStringLiteral("zfs set quota="),
+                          QStringLiteral("zfs set refquota="),
+                          QStringLiteral("zfs set reservation="),
+                          QStringLiteral("zfs set refreservation="),
+                          QStringLiteral("zfs set volsize=")})) {
+        return true;
+    }
+    return false;
+}
+
+bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
+                                                     const QString& poolName,
+                                                     const QString& datasetName) {
+    const QString trimmedPool = poolName.trimmed();
+    const QString trimmedDataset = datasetName.trimmed();
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty() || trimmedDataset.isEmpty()) {
+        return false;
+    }
+
+    bool refreshedSomething = false;
+    const QStringList dsProps = datasetSizePropertyNames();
+    if (ensureDatasetPropertySubsetLoaded(connIdx, trimmedPool, trimmedDataset, dsProps)) {
+        const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
+        const QString key = QStringLiteral("%1|%2").arg(token, trimmedDataset);
+        QMap<QString, QString> mergedValues = m_connContentPropValuesByObject.value(key);
+        const QMap<QString, QString> sizeValues =
+            datasetPropertyValuesForNames(connIdx, trimmedPool, trimmedDataset, dsProps);
+        for (auto it = sizeValues.cbegin(); it != sizeValues.cend(); ++it) {
+            mergedValues.insert(it.key(), it.value());
+        }
+        if (!mergedValues.isEmpty()) {
+            updateConnContentPropertyValues(token, trimmedDataset, mergedValues);
+        }
+        if (m_connContentTree && m_topDetailConnIdx == connIdx) {
+            syncConnContentPropertyColumnsFor(m_connContentTree, token);
+            if (m_bottomConnContentTree && m_bottomConnContentTree != m_connContentTree) {
+                syncConnContentPropertyColumnsFor(m_bottomConnContentTree, token);
+            }
+        }
+        refreshedSomething = true;
+    }
+
+    const ConnectionProfile profile = m_profiles.at(connIdx);
+    QString out;
+    QString err;
+    int rc = -1;
+    const QStringList poolProps = poolSizePropertyNames();
+    const QString propsCsv = poolProps.join(QLatin1Char(','));
+    const bool poolWin = isWindowsConnection(connIdx);
+    const QString poolCmd = withSudo(
+        profile,
+        mwhelpers::withUnixSearchPathCommand(
+            poolWin
+                ? QStringLiteral("zpool get -H -o property,value,source %1 %2")
+                      .arg(propsCsv, shSingleQuote(trimmedPool))
+                : QStringLiteral("zpool get -j %1 %2")
+                      .arg(propsCsv, shSingleQuote(trimmedPool))));
+    if (runSsh(profile, poolCmd, 15000, out, err, rc) && rc == 0) {
+        const QString cacheKey = poolDetailsCacheKey(connIdx, trimmedPool);
+        PoolDetailsCacheEntry entry = m_poolDetailsCache.value(cacheKey);
+        QMap<QString, QStringList> rowsByProp;
+        for (const QStringList& row : std::as_const(entry.propsRows)) {
+            if (row.size() >= 2) {
+                rowsByProp.insert(row.value(0).trimmed().toLower(), row);
+            }
+        }
+
+        if (poolWin) {
+            const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
+            for (const QString& line : lines) {
+                const QStringList parts = line.split('\t');
+                if (parts.size() < 3) {
+                    continue;
+                }
+                const QString prop = parts.value(0).trimmed();
+                if (prop.isEmpty()) {
+                    continue;
+                }
+                rowsByProp.insert(prop.toLower(),
+                                  QStringList{prop, parts.value(1).trimmed(), parts.value(2).trimmed()});
+            }
+        } else {
+            const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(out).toUtf8());
+            const QJsonObject poolObj = doc.object().value(QStringLiteral("pools")).toObject().value(trimmedPool).toObject();
+            const QJsonObject properties = poolObj.value(QStringLiteral("properties")).toObject();
+            for (auto it = properties.constBegin(); it != properties.constEnd(); ++it) {
+                const QJsonObject propObj = it.value().toObject();
+                const QString value = propObj.value(QStringLiteral("value")).toString().trimmed();
+                const QString source = propObj.value(QStringLiteral("source")).toObject().value(QStringLiteral("type")).toString().trimmed();
+                rowsByProp.insert(it.key().trimmed().toLower(), QStringList{it.key(), value, source});
+            }
+        }
+
+        QVector<QStringList> mergedRows;
+        mergedRows.reserve(rowsByProp.size());
+        for (auto it = rowsByProp.cbegin(); it != rowsByProp.cend(); ++it) {
+            mergedRows.push_back(it.value());
+        }
+        entry.loaded = true;
+        entry.propsRows = mergedRows;
+        m_poolDetailsCache.insert(cacheKey, entry);
+
+        if (PoolInfo* poolInfo = findPoolInfo(connIdx, trimmedPool)) {
+            poolInfo->runtime.detailsState = LoadState::Loaded;
+            poolInfo->runtime.loadedAt = QDateTime::currentDateTimeUtc();
+            poolInfo->runtime.zpoolPropertyRows = mergedRows;
+            poolInfo->runtime.zpoolProperties.clear();
+            for (const QStringList& row : std::as_const(mergedRows)) {
+                if (row.size() >= 2) {
+                    poolInfo->runtime.zpoolProperties.insert(row.value(0).trimmed(), row.value(1));
+                }
+            }
+        }
+        rebuildConnInfoFor(connIdx);
+        const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
+        if (m_connContentTree && m_topDetailConnIdx == connIdx) {
+            syncConnContentPoolColumnsFor(m_connContentTree, token);
+            if (m_bottomConnContentTree && m_bottomConnContentTree != m_connContentTree) {
+                syncConnContentPoolColumnsFor(m_bottomConnContentTree, token);
+            }
+        }
+        refreshedSomething = true;
+    } else {
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("No se pudieron refrescar propiedades de tamaño del pool %1::%2: %3")
+                   .arg(m_profiles.at(connIdx).name, trimmedPool, oneLine(err.isEmpty() ? out : err)));
+    }
+
+    return refreshedSomething;
 }
 
 bool MainWindow::executePendingDatasetRenameDraft(const PendingDatasetRenameDraft& draft,
