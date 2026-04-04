@@ -19,11 +19,7 @@ scripts/recopila.sh
 
 .release-artifacts/
 buildall-logs/
-prompts/260401-01.txt
+prompts/
 claude.mmela
 cclaude.linux
 .codex
-prompts/nodos-id.txt
-prompts/InmediatasVSPending.txt
-prompts/Mejoras.txt
-prompts/zfslib_coreVSssh.txt
