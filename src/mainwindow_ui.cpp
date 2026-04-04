@@ -89,6 +89,7 @@ constexpr int kConnPermissionsPendingRole = Qt::UserRole + 31;
 constexpr int kConnInlineCellUsedRole = Qt::UserRole + 32;
 constexpr int kConnPoolAutoSnapshotsNodeRole = Qt::UserRole + 34;
 constexpr int kConnPoolAutoSnapshotsDatasetRole = Qt::UserRole + 35;
+constexpr int kIsSplitRootRole = Qt::UserRole + 50;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 
 QString pendingChangeLastQuotedArg(const QString& text) {
@@ -779,6 +780,114 @@ void MainWindow::finishPendingApplyAnimation() {
             continue;
         }
         it.value() = remaining.contains(it.key()) ? PendingItemStatus::Failed : PendingItemStatus::Success;
+    }
+}
+
+void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, int connIdx,
+                                          const QString& poolName, const QString& rootDataset) {
+    if (!m_connContentPage || connIdx < 0 || connIdx >= m_profiles.size()
+        || poolName.trimmed().isEmpty()) {
+        return;
+    }
+    const ConnectionProfile& p = m_profiles.at(connIdx);
+    const QString connName = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
+    const QString trimmedRoot = rootDataset.trimmed();
+    const QString trimmedPool = poolName.trimmed();
+    const QString displayRoot =
+        (trimmedRoot.compare(trimmedPool, Qt::CaseInsensitive) == 0)
+            ? QStringLiteral("%1::%2").arg(connName, trimmedPool)
+            : QStringLiteral("%1::%2").arg(connName, trimmedRoot);
+
+    auto* delegate = new MainWindowConnectionDatasetTreeDelegate(this, this);
+    ConnectionDatasetTreeWidget::Config config;
+    config.treeName = QStringLiteral("splitDatasetTree_%1").arg(m_splitTrees.size());
+    config.primaryColumnTitle = m_topDatasetTreeWidget
+        ? m_topDatasetTreeWidget->config().primaryColumnTitle
+        : QStringLiteral("Dataset");
+    config.role = ConnectionDatasetTreePane::Role::Top;
+    config.visualOptions = m_topDatasetTreeWidget
+        ? m_topDatasetTreeWidget->visualOptions()
+        : ConnectionDatasetTreePane::VisualOptions{};
+    config.groupPoolsByConnectionRoots = false;
+    auto* splitWidget = new ConnectionDatasetTreeWidget(config, delegate, m_connContentPage);
+    auto* splitTree = splitWidget->tree();
+    if (splitTree) {
+        splitTree->setItemDelegate(new ConnContentPropBorderDelegate(splitTree));
+        appendSplitDatasetTree(splitTree, connIdx, trimmedPool, trimmedRoot, displayRoot);
+    }
+
+    // Insert into layout via splitter
+    auto* layout = qobject_cast<QVBoxLayout*>(m_connContentPage->layout());
+    if (layout && !m_connContentTreeSplitter) {
+        const int idx = layout->indexOf(m_topDatasetTreeWidget);
+        const int stretch = (idx >= 0) ? 1 : 0;
+        if (idx >= 0) {
+            layout->removeWidget(m_topDatasetTreeWidget);
+        }
+        m_connContentTreeSplitter = new QSplitter(orientation, m_connContentPage);
+        if (m_topDatasetTreeWidget) {
+            m_connContentTreeSplitter->addWidget(m_topDatasetTreeWidget);
+        }
+        layout->insertWidget(qMax(0, idx), m_connContentTreeSplitter, stretch);
+    }
+    if (m_connContentTreeSplitter) {
+        m_connContentTreeSplitter->addWidget(splitWidget);
+    }
+
+    SplitTreeEntry entry;
+    entry.connIdx = connIdx;
+    entry.poolName = trimmedPool;
+    entry.rootDataset = trimmedRoot;
+    entry.displayRoot = displayRoot;
+    entry.treeWidget = splitWidget;
+    entry.delegate = delegate;
+    m_splitTrees.push_back(entry);
+}
+
+void MainWindow::closeSplitTree(QTreeWidget* tree) {
+    if (!tree) {
+        return;
+    }
+    for (int i = 0; i < m_splitTrees.size(); ++i) {
+        const SplitTreeEntry& entry = m_splitTrees.at(i);
+        if (entry.treeWidget && entry.treeWidget->tree() == tree) {
+            ConnectionDatasetTreeWidget* widget = entry.treeWidget;
+            m_splitTrees.removeAt(i);
+            // Remove from splitter
+            if (widget) {
+                widget->setParent(nullptr);
+                widget->deleteLater();
+            }
+            // If no more split trees, remove the splitter and put main tree back
+            if (m_splitTrees.isEmpty() && m_connContentTreeSplitter) {
+                auto* layout = qobject_cast<QVBoxLayout*>(m_connContentPage ? m_connContentPage->layout() : nullptr);
+                if (layout) {
+                    const int idx = layout->indexOf(m_connContentTreeSplitter);
+                    layout->removeWidget(m_connContentTreeSplitter);
+                    if (m_topDatasetTreeWidget) {
+                        m_topDatasetTreeWidget->setParent(m_connContentPage);
+                        layout->insertWidget(qMax(0, idx), m_topDatasetTreeWidget, 1);
+                    }
+                }
+                m_connContentTreeSplitter->deleteLater();
+                m_connContentTreeSplitter = nullptr;
+            }
+            return;
+        }
+    }
+}
+
+void MainWindow::rebuildAllSplitTrees() {
+    for (const SplitTreeEntry& entry : std::as_const(m_splitTrees)) {
+        if (!entry.treeWidget) {
+            continue;
+        }
+        QTreeWidget* t = entry.treeWidget->tree();
+        if (!t) {
+            continue;
+        }
+        t->clear();
+        appendSplitDatasetTree(t, entry.connIdx, entry.poolName, entry.rootDataset, entry.displayRoot);
     }
 }
 

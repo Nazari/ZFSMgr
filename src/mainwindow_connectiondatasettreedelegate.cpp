@@ -47,6 +47,7 @@ constexpr int kConnPoolAutoSnapshotsNodeRole = Qt::UserRole + 34;
 constexpr int kConnPoolAutoSnapshotsDatasetRole = Qt::UserRole + 35;
 constexpr int kConnSnapshotItemRole = Qt::UserRole + 43;
 constexpr int kConnSnapshotsNodeRole = Qt::UserRole + 41;
+constexpr int kIsSplitRootRole = Qt::UserRole + 50;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 
 QString datasetLeafNameUi(const QString& datasetName) {
@@ -1998,6 +1999,10 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         return;
     }
 
+    QAction* aSplitVertical = nullptr;
+    QAction* aSplitHorizontal = nullptr;
+    QAction* aCloseSplit = nullptr;
+
     int poolRow = -1;
     QString poolAction;
     zfsmgr::uilogic::PoolRootMenuState poolMenuState;
@@ -2027,6 +2032,13 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         poolActions.initialize->setEnabled(poolMenuState.canInitialize);
         poolActions.clear->setEnabled(poolMenuState.canClear);
         poolActions.destroy->setEnabled(poolMenuState.canDestroy);
+        QMenu* splitMenu = menu.addMenu(QStringLiteral("Split and root"));
+        aSplitVertical = splitMenu->addAction(QStringLiteral("Vertical"));
+        aSplitHorizontal = splitMenu->addAction(QStringLiteral("Horizontal"));
+    }
+
+    if (item->data(0, kIsSplitRootRole).toBool()) {
+        aCloseSplit = menu.addAction(QStringLiteral("Close"));
     }
 
     if (item->data(0, kConnSnapshotsNodeRole).toBool()) {
@@ -2175,6 +2187,11 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                                   QStringLiteral("Seleccionar como destino"),
                                   QStringLiteral("Select as destination"),
                                   QStringLiteral("设为目标")));
+            if (!item->data(0, kIsSplitRootRole).toBool()) {
+                QMenu* splitMenu = menu.addMenu(QStringLiteral("Split and root"));
+                aSplitVertical = splitMenu->addAction(QStringLiteral("Vertical"));
+                aSplitHorizontal = splitMenu->addAction(QStringLiteral("Horizontal"));
+            }
         }
     }
 
@@ -2882,6 +2899,21 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             mwCtx.datasetName = ctx.datasetName;
             mwCtx.snapshotName = ctx.snapshotName;
             m_mainWindow->actionAdvancedToDir(mwCtx);
+            return;
+        }
+        if (picked == aSplitVertical || picked == aSplitHorizontal) {
+            const Qt::Orientation orient =
+                (picked == aSplitVertical) ? Qt::Vertical : Qt::Horizontal;
+            const int ci = ctx.valid ? ctx.connIdx : connIdx;
+            const QString pn = ctx.valid ? ctx.poolName : poolName;
+            const QString ds = ctx.valid && !ctx.datasetName.trimmed().isEmpty()
+                                   ? ctx.datasetName.trimmed()
+                                   : pn.trimmed();
+            m_mainWindow->splitAndRootConnContent(orient, ci, pn, ds);
+            return;
+        }
+        if (picked == aCloseSplit) {
+            m_mainWindow->closeSplitTree(tree);
             return;
         }
 }

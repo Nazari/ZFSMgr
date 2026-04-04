@@ -2476,6 +2476,7 @@ void MainWindow::rebuildConnectionEntityTabs() {
                                  m_rebuildingTopConnContentTree,
                                  &m_forceRestoreTopStateConnIdx,
                                  [this](int connIdx) { saveTopTreeStateForConnection(connIdx); });
+    rebuildAllSplitTrees();
 }
 
 void MainWindow::populateConnectionPoolsIntoTree(QTreeWidget* tree,

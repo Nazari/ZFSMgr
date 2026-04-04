@@ -636,6 +636,12 @@ private:
     void updatePendingChangesList();
     void startPendingApplyAnimation();
     void finishPendingApplyAnimation();
+    void splitAndRootConnContent(Qt::Orientation orientation, int connIdx,
+                                  const QString& poolName, const QString& rootDataset);
+    void closeSplitTree(QTreeWidget* tree);
+    void rebuildAllSplitTrees();
+    void appendSplitDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName,
+                                 const QString& rootDataset, const QString& displayRoot);
     QString poolDetailsCacheKey(int connIdx, const QString& poolName) const;
     bool ensureDatasetsLoaded(int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing = true);
     bool ensureDatasetPermissionsLoaded(int connIdx, const QString& poolName, const QString& datasetName);
@@ -1033,6 +1039,16 @@ private:
     int m_pendingSpinnerFrame{0};
     bool m_pendingApplyInProgress{false};
     bool m_pendingApplyFinishSuppressed{false};
+    struct SplitTreeEntry {
+        int connIdx{-1};
+        QString poolName;
+        QString rootDataset;
+        QString displayRoot;
+        ConnectionDatasetTreeWidget* treeWidget{nullptr};
+        MainWindowConnectionDatasetTreeDelegate* delegate{nullptr};
+    };
+    QList<SplitTreeEntry> m_splitTrees;
+    QSplitter* m_connContentTreeSplitter{nullptr};
     QMap<QString, QPointer<QPlainTextEdit>> m_connectionLogViews;
     QMap<QString, QPointer<QPlainTextEdit>> m_connectionGsaLogViews;
     QMap<QString, QPointer<QWidget>> m_connectionLogTabs;
