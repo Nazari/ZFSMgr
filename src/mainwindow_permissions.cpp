@@ -30,6 +30,8 @@ constexpr int kConnPermissionsEntryNameRole = Qt::UserRole + 30;
 constexpr int kConnPermissionsPendingRole = Qt::UserRole + 31;
 constexpr int kConnPropRowRole = Qt::UserRole + 13;
 constexpr int kConnPropRowKindRole = Qt::UserRole + 16;
+constexpr int kConnPropGroupNodeRole = Qt::UserRole + 17;
+constexpr int kConnPropGroupNameRole = Qt::UserRole + 18;
 constexpr int kConnInlineCellUsedRole = Qt::UserRole + 32;
 
 enum class PermissionsSection {
@@ -719,17 +721,28 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
         return;
     }
 
+    QTreeWidgetItem* propsNode = nullptr;
     QTreeWidgetItem* permissionsNode = nullptr;
     for (int i = 0; i < datasetItem->childCount(); ++i) {
         QTreeWidgetItem* child = datasetItem->child(i);
+        if (child && child->data(0, kConnPropGroupNodeRole).toBool()
+            && child->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()) {
+            propsNode = child;
+        }
         if (child && child->data(0, kConnPermissionsNodeRole).toBool()
             && child->data(0, kConnPermissionsKindRole).toString() == QStringLiteral("root")) {
             permissionsNode = child;
-            break;
         }
     }
-    if (!permissionsNode) {
-        return;
+    if (propsNode) {
+        for (int i = propsNode->childCount() - 1; i >= 0; --i) {
+            QTreeWidgetItem* child = propsNode->child(i);
+            if (child
+                && child->data(0, kConnPermissionsNodeRole).toBool()
+                && child->data(0, kConnPermissionsKindRole).toString() == QStringLiteral("create_root")) {
+                delete propsNode->takeChild(i);
+            }
+        }
     }
 
     updateStatus(QStringLiteral("Leyendo permisos de %1").arg(datasetName));
@@ -739,18 +752,25 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
         rebuildConnInfoFor(connIdx);
     }
 
-    const bool rootExpanded = permissionsNode->isExpanded();
-    const QSet<QString> expandedPaths = collectExpandedPermissionPaths(permissionsNode);
-
-    while (permissionsNode->childCount() > 0) {
-        delete permissionsNode->takeChild(0);
+    bool rootExpanded = false;
+    QSet<QString> expandedPaths;
+    if (permissionsNode) {
+        rootExpanded = permissionsNode->isExpanded();
+        expandedPaths = collectExpandedPermissionPaths(permissionsNode);
+        while (permissionsNode->childCount() > 0) {
+            delete permissionsNode->takeChild(0);
+        }
     }
 
     if (isWindowsConnection(connIdx)) {
-        permissionsNode->setHidden(true);
+        if (permissionsNode) {
+            permissionsNode->setHidden(true);
+        }
         return;
     }
-    permissionsNode->setHidden(false);
+    if (permissionsNode) {
+        permissionsNode->setHidden(false);
+    }
 
     const DatasetPermissionsCacheEntry* entryPtr =
         ensureDatasetPermissionsEntryLoaded(connIdx, poolName, datasetName);
@@ -766,7 +786,7 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
     QVector<DatasetPermissionGrant> allGrants = entry.localGrants;
     allGrants += entry.descendantGrants;
     allGrants += entry.localDescendantGrants;
-    if (!allGrants.isEmpty()) {
+    if (permissionsNode && !allGrants.isEmpty()) {
         auto* grantsNode = ensurePermissionsSectionNode(
             permissionsNode,
             trk(QStringLiteral("t_perm_grants_root_001"),
@@ -920,11 +940,13 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
             }
         }
     }
+    QTreeWidgetItem* createOwnerNode = propsNode ? propsNode : permissionsNode;
+    if (createOwnerNode) {
     auto* createNode = ensurePermissionsSectionNode(
-        permissionsNode,
+        createOwnerNode,
         trk(QStringLiteral("t_perm_new_children_root_001"),
-            QStringLiteral("Permisos por defecto para nuevos hijos"),
-            QStringLiteral("Default permissions for new children"),
+            QStringLiteral("Permisos por defecto"),
+            QStringLiteral("Default permissions"),
             QStringLiteral("新子数据集默认权限")),
         QStringLiteral("create_root"),
         entry.createPermissions.size(),
@@ -1039,7 +1061,9 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
         }
     }
 
-    if (!entry.permissionSets.isEmpty()) {
+    }
+
+    if (permissionsNode && !entry.permissionSets.isEmpty()) {
         auto* setsNode = ensurePermissionsSectionNode(
             permissionsNode,
             trk(QStringLiteral("t_perm_sets_root_001"),
@@ -1250,6 +1274,8 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
         }
     }
 
-    permissionsNode->setExpanded(rootExpanded);
-    restoreExpandedPermissionPaths(permissionsNode, expandedPaths);
+    if (permissionsNode) {
+        permissionsNode->setExpanded(rootExpanded);
+        restoreExpandedPermissionPaths(permissionsNode, expandedPaths);
+    }
 }

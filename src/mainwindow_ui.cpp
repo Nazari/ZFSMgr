@@ -1142,6 +1142,8 @@ void MainWindow::buildUi() {
             syncConnContentPropertyColumnsFor(tree, token);
             syncConnContentPoolColumnsFor(tree, token);
             restoreTopTreeStateForConnection(connIdx);
+            // Tras cambiar el número de columnas, reajustar anchos como "Ajustar tamaño de todas las columnas".
+            resizeTreeColumnsToVisibleContent(tree);
         };
         refreshOneConnContentTree(m_connContentTree);
     };

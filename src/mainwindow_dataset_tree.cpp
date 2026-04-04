@@ -1417,6 +1417,9 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
                 delete n->takeChild(i);
                 continue;
             }
+            if (c->data(0, kConnPermissionsNodeRole).toBool()) {
+                continue;
+            }
             if (c->data(0, kConnPropGroupNodeRole).toBool()) {
                 const bool isMainPropsNode =
                     c->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
@@ -2345,6 +2348,9 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
                             propsNode->isExpanded() ? QStringLiteral("1") : QStringLiteral("0"),
                             QString::number(propsNode->childCount())));
         }
+    }
+    if (!objectIsSnapshot) {
+        populateDatasetPermissionsNode(tree, sel, false);
     }
     const QString activeTreeToken = connContentTokenForTree(tree);
     if (!activeTreeToken.trimmed().isEmpty()) {
@@ -4582,18 +4588,24 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         propsNode->setData(0, kConnIdxRole, connIdx);
         propsNode->setData(0, kPoolNameRole, poolName);
         propsNode->setFlags(propsNode->flags() & ~Qt::ItemIsUserCheckable);
-        auto* permissionsNode = new QTreeWidgetItem(item);
-        permissionsNode->setText(0, trk(QStringLiteral("t_permissions_node_001"),
-                                        QStringLiteral("Permisos"),
-                                        QStringLiteral("Permissions"),
-                                        QStringLiteral("权限")));
-        permissionsNode->setIcon(0, treeStandardIcon(QStyle::SP_DialogYesButton));
-        permissionsNode->setData(0, kConnPermissionsNodeRole, true);
-        permissionsNode->setData(0, kConnPermissionsKindRole, QStringLiteral("root"));
-        permissionsNode->setData(0, kConnIdxRole, connIdx);
-        permissionsNode->setData(0, kPoolNameRole, poolName);
-        permissionsNode->setFlags(permissionsNode->flags() & ~Qt::ItemIsUserCheckable);
-        permissionsNode->setExpanded(false);
+        const auto& perms = dsInfo.permissionsCache;
+        const bool hasPermissionGrants =
+            !perms.localGrants.isEmpty() || !perms.descendantGrants.isEmpty() || !perms.localDescendantGrants.isEmpty();
+        const bool hasPermissionSets = !perms.permissionSets.isEmpty();
+        if (hasPermissionGrants || hasPermissionSets) {
+            auto* permissionsNode = new QTreeWidgetItem(item);
+            permissionsNode->setText(0, trk(QStringLiteral("t_permissions_node_001"),
+                                            QStringLiteral("Permisos"),
+                                            QStringLiteral("Permissions"),
+                                            QStringLiteral("权限")));
+            permissionsNode->setIcon(0, treeStandardIcon(QStyle::SP_DialogYesButton));
+            permissionsNode->setData(0, kConnPermissionsNodeRole, true);
+            permissionsNode->setData(0, kConnPermissionsKindRole, QStringLiteral("root"));
+            permissionsNode->setData(0, kConnIdxRole, connIdx);
+            permissionsNode->setData(0, kPoolNameRole, poolName);
+            permissionsNode->setFlags(permissionsNode->flags() & ~Qt::ItemIsUserCheckable);
+            permissionsNode->setExpanded(false);
+        }
         if (!snaps.isEmpty()) {
             auto* snapshotsNode = new QTreeWidgetItem(item);
             snapshotsNode->setText(0, QStringLiteral("@"));
