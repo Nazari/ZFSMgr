@@ -2123,7 +2123,8 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         m_mainWindow->showConnectionContextMenu(connIdx, tree->viewport()->mapToGlobal(pos));
         return;
     }
-    if (item->parent() && item->parent()->data(0, kIsConnectionRootRole).toBool()) {
+    if (item->parent() && item->parent()->data(0, kIsConnectionRootRole).toBool()
+        && !item->data(0, kIsPoolRootRole).toBool()) {
         logContextMenuPerf(m_mainWindow,
                            QStringLiteral("general.skip"),
                            QStringLiteral("connection child ignored"),
