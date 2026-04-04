@@ -24,3 +24,6 @@ claude.mmela
 cclaude.linux
 .codex
 prompts/nodos-id.txt
+prompts/InmediatasVSPending.txt
+prompts/Mejoras.txt
+prompts/zfslib_coreVSssh.txt
