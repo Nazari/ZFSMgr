@@ -7,13 +7,10 @@ ZFSMgr uses context menus on the unified tree.
 ![Connection context menu](qrc:/help/img/auto/connection-context-menu.png)
 
 - The menu that used to belong to the connections table now belongs to the connection root node.
-- It includes actions such as:
+- Current order on connection nodes:
   - `New connection`
-  - `Refresh`
-  - `Edit`
-  - `Delete`
-  - `New pool`
-  - GSA and refresh actions
+  - separator
+  - remaining actions in existing order (`Refresh`, `Edit`, `Delete`, `New pool`, `GSA`, etc.)
 
 ## On the merged pool root
 
@@ -21,27 +18,24 @@ ZFSMgr uses context menus on the unified tree.
 
 - The first submenu is `Pool`.
 - Inside `Pool` you get the pool actions:
-  - `Refresh`
+  - `Refresh status`
   - `Import`
   - `Import with rename`
   - `Export`
   - `History`
   - `Management`
-  - `Show Pool Information`
-  - `Show Scheduled Datasets`
+- `Management` runs immediate actions (`sync`, `scrub`, `upgrade`, `reguid`, `trim`, `initialize`, `clear`, `destroy`) with a parameter dialog when applicable.
 - After the `Pool` submenu, the normal dataset actions continue for that same merged node.
 
 ## On datasets and snapshots
 
 - Typical actions:
   - `Manage visible properties`
-  - `Show inline properties`
-  - `Show inline permissions`
   - `Create dataset/snapshot/vol`
   - `Rename`
   - `Delete`
   - `Encryption`
-  - `Select snapshot`
+  - `Schedule automatic snapshots` (only on filesystem datasets with no active GSA in ancestors)
   - `Rollback`
   - `New Hold`
   - `Release`
@@ -56,5 +50,5 @@ ZFSMgr uses context menus on the unified tree.
 
 - Destructive actions ask for confirmation.
 - Several actions are deferred and accumulate in `Pending changes`.
-- `Select as source` and `Select as destination` fill the `Selected datasets` box.
-- `Manage visible properties` applies to both `Dataset properties` and `Pool Information`.
+- `Select as source` and `Select as destination` update the `Source/Target` line in `Actions`.
+- `Manage visible properties` applies to properties nodes (`Dataset properties`, `Snapshot properties`, `Pool Information`).

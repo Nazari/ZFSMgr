@@ -4,11 +4,13 @@ ZFSMgr shows dataset and pool properties directly inside the unified tree.
 
 ## Where they appear
 
-- On datasets and snapshots, under `Dataset properties`.
+- On datasets, under `Dataset properties`.
+- On snapshots, under `Snapshot properties`.
 - On non-snapshot datasets, `Permissions` may also appear.
 - On the merged pool/root-dataset node, `Pool Information` may appear.
-- On filesystem datasets, `Schedule snapshots` may appear.
-- On pools with active GSA datasets, `Datasets programados` may appear.
+- On filesystem datasets, snapshots hang under the `@` node.
+- On pools with active GSA datasets, `Scheduled datasets` may appear.
+- On connections, under `Connection properties`.
 
 ## Visual layout
 
@@ -23,7 +25,9 @@ ZFSMgr shows dataset and pool properties directly inside the unified tree.
 Right click on:
 
 - `Dataset properties`
+- `Snapshot properties`
 - `Pool Information`
+- `Connection properties`
 
 to open `Manage visible properties`.
 
@@ -40,22 +44,7 @@ Groups are independent for:
 - pool
 - dataset
 - snapshot
-
-## Inline node visibility
-
-From the tree context menu you can toggle:
-
-- `Show inline properties`
-- `Show inline permissions`
-- `Show Pool Information`
-- `Show Scheduled Datasets`
-
-Effects:
-
-- disabling `Show inline properties` hides `Dataset properties`
-- disabling `Show inline permissions` hides `Permissions`
-- disabling `Show Pool Information` hides `Pool Information`
-- disabling `Show Scheduled Datasets` hides `Datasets programados`
+- connection
 
 ## Inline editing
 

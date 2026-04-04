@@ -9,33 +9,31 @@ ZFSMgr uses a per-user configuration directory per OS:
 ## File layout
 
 - `config.ini`: global app configuration.
-- `conn*.ini`: one file per connection (for example `conn_fc16.ini`, `conn_surface_psrp.ini`).
 
 Real example:
 
 ```text
 ~/.config/ZFSMgr/
   config.ini
-  conn_fc16.ini
-  conn_surface_psrp.ini
-  conn_mbp_local.ini
 ```
 
-## What is stored where
+## What is stored in `config.ini`
 
-- `config.ini`:
-  - UI language
-  - global log options
-  - default values (for example `[ZPoolCreationDefaults]`)
-- `conn*.ini`:
-  - full definition of one specific connection (host, port, user, key, etc.)
+- UI language
+- global log options
+- property columns count (`conn_prop_columns`)
+- selected source/target connection+dataset
+- splitter state and window geometry
+- unified-tree column widths
+- inline properties order and groups
+- default values (for example `[ZPoolCreationDefaults]`)
+- full connection definitions in `connection:<id>` groups
 
 ## Startup loading
 
 On startup, ZFSMgr:
 
 1. Reads `config.ini`.
-2. Scans the config directory for all `conn*.ini` files.
-3. Loads every connection file found.
+2. Loads connections from `connection:<id>` groups.
 
-If legacy format is detected (connections embedded in `config.ini`), ZFSMgr auto-migrates to `conn*.ini` files.
+If old `conn*.ini` files exist, ZFSMgr auto-migrates them into `config.ini` and then deletes them.

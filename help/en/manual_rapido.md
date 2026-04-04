@@ -6,50 +6,50 @@ ZFSMgr manages connections and ZFS actions from a unified tree.
 
 ![Main window](qrc:/help/img/auto/main-window.png)
 
-- Left column:
-- `Selected datasets`: shows the dataset marked as `Source` and the one marked as `Target`.
-- `Status and progress`: current status, loading and progress.
-- Right column:
-- one unified tree with:
-  - connections as root nodes
-  - pools under each connection
-  - datasets and snapshots under each pool
-- Below the tree:
-  - `Pending changes`
-- Bottom area:
-  - logs
+- Top area: a single unified tree spanning the full width.
+- Middle area:
+  - `Status` and `Progress` row
+  - `Actions` box (includes `Source` and `Target` in one line)
+  - `Pending changes` box to the right of `Actions`
+- Bottom area: log tabs (`Settings`, `Combined log`, `Terminal`, `GSA`).
 
 ## Unified tree
+
+- Tree reference:
+
+![Unified tree](qrc:/help/img/auto/top-tree.png)
 
 - Connections are always visible as root nodes, even when disconnected.
 - If a connection is disconnected:
   - the connection root stays visible
-  - its pools disappear from the tree
-- Connection row colors and tooltips keep the same meaning the old table had.
+  - it shows no children (including auxiliary nodes)
+- Connection name shows active mode:
+  - `(libzfs_core)` when remote daemon is active
+  - `(ssh)` in fallback mode
 - If a connection needs GSA attention, its name shows `(*)`.
-- Pools are no longer shown as `Connection::Pool`; the visible pool text is just the pool name.
+- `Connection` and `Pool` nodes are shown in bold with a type prefix.
 - The pool root is merged with the pool root dataset:
-  - it keeps the pool icon and pool tooltip
+  - it keeps the pool icon
   - it also acts as the root dataset
-  - its real children hang directly from it
+  - avoids duplicated `pool/pool`
 - Imported pools may show:
   - `Pool Information`
-  - `Datasets programados`
+  - `Scheduled datasets`
 
 ## Inline nodes
 
-- Datasets and snapshots may show `Dataset properties`.
+- Datasets show `Dataset properties`.
+- Snapshots show `Snapshot properties`.
 - Non-snapshot datasets may also show `Permissions`.
-- Filesystem datasets may show `Schedule snapshots`.
-
-- `Schedule snapshots` view:
-
-![Schedule snapshots node](qrc:/help/img/auto/schedule-snapshots-node.png)
+- Datasets with snapshots show an `@` node grouping manual and GSA snapshots.
+- Connections show auxiliary nodes:
+  - `Connection properties` (inline, with edit permissions by connection type)
+  - `Info` (status, detected/missing commands, and `GSA` block)
 
 - Inline properties can be edited directly in the tree.
 - If a property supports inheritance, it shows `Inh.` and stays in draft mode until changes are applied.
 - `Permissions` also works in draft mode.
-- `Schedule snapshots` uses `org.fc16.gsa:*` properties.
+- `Scheduled datasets` uses `org.fc16.gsa:*` properties.
 
 ## Source and target selection
 
@@ -58,7 +58,7 @@ ZFSMgr manages connections and ZFS actions from a unified tree.
   - right click a dataset
   - `Select as source`
   - `Select as destination`
-- The `Selected datasets` box reflects that logical selection.
+- The `Source/Target` line in the `Actions` box reflects that logical selection.
 - The current visual selection in the tree and the logical `Source/Target` selections are independent.
 
 ## Context menus
@@ -69,7 +69,7 @@ ZFSMgr manages connections and ZFS actions from a unified tree.
   - a `Pool` submenu appears first
   - then the dataset actions follow
 - The `Pool` submenu contains:
-  - `Refresh`
+  - `Refresh status`
   - `Import`
   - `Import with rename`
   - `Export`
@@ -81,15 +81,14 @@ ZFSMgr manages connections and ZFS actions from a unified tree.
     - `Reguid`
     - `Trim`
     - `Initialize`
+    - `Clear`
     - `Destroy`
-  - `Show Pool Information`
-  - `Show Scheduled Datasets`
 - Dataset/snapshot actions still include:
   - `Create dataset/snapshot/vol`
   - `Rename`
   - `Delete`
   - `Encryption`
-  - `Select snapshot`
+  - `Schedule automatic snapshots`
   - `Rollback`
   - `New Hold`
   - `Release`
@@ -106,15 +105,20 @@ ZFSMgr manages connections and ZFS actions from a unified tree.
 - Typical deferred actions:
   - property changes
   - permissions
-  - `Rename`
-  - `Move`
+  - `Rename`, `Move`, `Rollback`, `Hold`, `Release`
+  - `Copy`, `Level`, `Sync`
   - deferred dataset/snapshot deletion
 
 ## Connectivity and logs
 
-- `Check connectivity` is no longer a floating button.
-- It now lives in the main application menu.
-- `Combined log` still shows application and connection output.
+- `Check connectivity` is in the main app menu (not under `Logs`).
+- The `Logs` top menu was removed.
+- The `Settings` tab now contains:
+  - log level
+  - number of lines
+  - max rotating log size
+  - confirmation before actions
+  - clear/copy logs
 
 ## Pool creation
 
@@ -136,4 +140,4 @@ ZFSMgr manages connections and ZFS actions from a unified tree.
 
 - The tree keeps expansion, selection and selected snapshots.
 - Changing property columns preserves open nodes.
-- Clicking an empty `Dataset properties` node materializes its children and keeps it open.
+- Clicking an empty properties node materializes its children and keeps it open.

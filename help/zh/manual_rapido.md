@@ -1,48 +1,55 @@
 # 快速手册
 
-ZFSMgr 现在通过一个统一树管理连接和 ZFS 操作。
+ZFSMgr 通过统一树管理连接和 ZFS 操作。
 
 ## 总览
 
 ![主窗口](qrc:/help/img/auto/main-window.png)
 
-- 左侧：
-- `Selected datasets`：显示当前标记为 `Source` 和 `Target` 的数据集。
-- `Status and progress`：显示当前状态、加载和进度。
-- 右侧：
-- 一个统一树，结构为：
-  - 连接
-  - 连接下的池
-  - 池下的数据集和快照
-- 树下方：
-  - `Pending changes`
-- 底部区域：
-  - 日志
+- 上半区：一个占满宽度的统一树。
+- 中间区域：
+  - `Status` 与 `Progress` 一行
+  - `Actions` 框（同一行显示 `Source` 与 `Target`）
+  - `Pending changes` 在 `Actions` 右侧
+- 底部区域：日志分页（`Settings`、`Combined log`、`Terminal`、`GSA`）。
 
 ## 统一树
+
+- 树参考图：
+
+![统一树](qrc:/help/img/auto/top-tree.png)
 
 - 连接始终显示为根节点，即使已断开。
 - 如果连接断开：
   - 连接节点仍然可见
-  - 该连接下的池会从树中消失
-- 连接节点保留原来连接表中的颜色和 tooltip 语义。
+  - 不显示任何子节点（包括辅助节点）
+- 连接名会显示当前模式：
+  - 远端 daemon 可用时显示 `(libzfs_core)`
+  - 回退时显示 `(ssh)`
 - 如果连接需要 GSA 注意，名称会显示 `(*)`。
-- 池不再显示为 `Connection::Pool`，可见文本只显示池名。
+- `Connection` 与 `Pool` 节点使用粗体并带类型前缀。
 - 池根节点与池根数据集合并：
-  - 保留池图标和池 tooltip
+  - 保留池图标
   - 也作为根数据集使用
-  - 其真实子节点直接挂在其下
+  - 避免出现重复的 `pool/pool`
 - 已导入的池可以显示：
   - `Pool Information`
-  - `Datasets programados`
+  - `Scheduled datasets`
 
 ## 内联节点
 
-- 数据集和快照可以显示 `Dataset properties`。
+- 数据集显示 `Dataset properties`。
+- 快照显示 `Snapshot properties`。
 - 非快照数据集还可以显示 `Permissions`。
-- filesystem 数据集可以显示 `Schedule snapshots`。
+- 有快照的数据集会显示 `@` 节点，用于分组手动/GSA 快照。
+- 连接节点下可显示辅助节点：
+  - `Connection properties`（内联显示，按连接类型控制可编辑字段）
+  - `Info`（状态、已检测/未检测命令，以及 `GSA` 分组）
 
-![计划快照节点](qrc:/help/img/auto/schedule-snapshots-node.png)
+- 内联属性可直接在树中编辑。
+- 若属性支持继承，会显示 `Inh.`，并在应用前保持草稿状态。
+- `Permissions` 也使用草稿模式。
+- `Scheduled datasets` 使用 `org.fc16.gsa:*` 属性。
 
 ## Source / Target 选择
 
@@ -50,36 +57,67 @@ ZFSMgr 现在通过一个统一树管理连接和 ZFS 操作。
 - 现在通过数据集右键菜单选择：
   - `Select as source`
   - `Select as destination`
-- `Selected datasets` 区域反映这个逻辑选择。
+- `Actions` 中的 `Source/Target` 行反映该逻辑选择。
+- 树中的当前视觉选中与逻辑 `Source/Target` 选择彼此独立。
 
 ## 上下文菜单
 
 - 在连接根节点上：
-  - 可打开原来的连接菜单
+  - 可打开原连接上下文菜单
 - 在合并后的池根节点上：
   - 首先出现 `Pool` 子菜单
-  - 之后是数据集菜单项
+  - 然后是数据集操作菜单项
 - `Pool` 子菜单包含：
-  - `Refresh`
+  - `Refresh status`
   - `Import`
   - `Import with rename`
   - `Export`
   - `History`
-  - `Management`
-  - `Show Pool Information`
-  - `Show Scheduled Datasets`
+  - `Management`：
+    - `Sync`
+    - `Scrub`
+    - `Upgrade`
+    - `Reguid`
+    - `Trim`
+    - `Initialize`
+    - `Clear`
+    - `Destroy`
+- 数据集/快照常见菜单项：
+  - `Create dataset/snapshot/vol`
+  - `Rename`
+  - `Delete`
+  - `Encryption`
+  - `Schedule automatic snapshots`
+  - `Rollback`
+  - `New Hold`
+  - `Release`
+  - `Break down`
+  - `Assemble`
+  - `From Dir`
+  - `To Dir`
 
 ## 待执行变更
 
 - `Pending changes` 显示可读描述，而不是原始命令。
 - 变更按加入顺序累积。
 - 点击某一行时，ZFSMgr 会尝试定位到相关对象和相关区段。
+- 常见延迟执行操作：
+  - 属性修改
+  - 权限修改
+  - `Rename`、`Move`、`Rollback`、`Hold`、`Release`
+  - `Copy`、`Level`、`Sync`
+  - 数据集/快照删除
 
 ## 连通性和日志
 
-- `Check connectivity` 不再是浮动按钮。
-- 它现在位于主应用菜单中。
-- `Combined log` 仍然显示应用和连接输出。
+- `Check connectivity` 位于主菜单（不在 `Logs` 下）。
+- 顶部 `Logs` 菜单已移除。
+- `Settings` 标签页集中以下选项：
+  - 日志级别
+  - 行数
+  - 最大轮转日志大小
+  - 执行动作前确认
+  - 清空/复制日志
 
 ## 创建池
 
@@ -93,4 +131,4 @@ ZFSMgr 现在通过一个统一树管理连接和 ZFS 操作。
 
 - 树会保留展开状态、当前选择和所选快照。
 - 修改属性列数时，已打开节点会保持展开。
-- 点击空的 `Dataset properties` 节点时，会即时生成其子节点并保持展开。
+- 点击空属性节点时，会即时生成其子节点并保持展开。

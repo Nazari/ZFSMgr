@@ -7,6 +7,10 @@ ZFSMgr 在统一树上使用上下文菜单。
 ![连接菜单](qrc:/help/img/auto/connection-context-menu.png)
 
 - 原来属于连接表的菜单现在挂在连接根节点上。
+- 当前顺序：
+  - `New connection`
+  - 分隔线
+  - 其余动作保持现有顺序（`Refresh`、`Edit`、`Delete`、`New pool`、`GSA` 等）
 
 ## 在合并后的池根节点上
 
@@ -14,27 +18,24 @@ ZFSMgr 在统一树上使用上下文菜单。
 
 - 第一个子菜单是 `Pool`。
 - `Pool` 中包含池操作：
-  - `Refresh`
+  - `Refresh status`
   - `Import`
   - `Import with rename`
   - `Export`
   - `History`
   - `Management`
-  - `Show Pool Information`
-  - `Show Scheduled Datasets`
+- `Management` 中的动作（`sync`、`scrub`、`upgrade`、`reguid`、`trim`、`initialize`、`clear`、`destroy`）为即时执行；有参数时会先弹出参数窗口。
 - 在 `Pool` 子菜单之后，是该合并节点的普通数据集菜单项。
 
 ## 在数据集和快照上
 
 - 常见操作包括：
   - `Manage visible properties`
-  - `Show inline properties`
-  - `Show inline permissions`
   - `Create dataset/snapshot/vol`
   - `Rename`
   - `Delete`
   - `Encryption`
-  - `Select snapshot`
+  - `Schedule automatic snapshots`（仅 filesystem 数据集，且祖先中无激活 GSA）
   - `Rollback`
   - `New Hold`
   - `Release`
@@ -44,3 +45,10 @@ ZFSMgr 在统一树上使用上下文菜单。
   - `To Dir`
   - `Select as source`
   - `Select as destination`
+
+## 规则
+
+- 破坏性操作会要求确认。
+- 多个操作使用延迟模式并累积到 `Pending changes`。
+- `Select as source` / `Select as destination` 会更新 `Actions` 里的 `Source/Target` 行。
+- `Manage visible properties` 适用于属性节点（`Dataset properties`、`Snapshot properties`、`Pool Information`）。
