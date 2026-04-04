@@ -783,6 +783,82 @@ void MainWindow::finishPendingApplyAnimation() {
     }
 }
 
+void MainWindow::installConnContentTreeHeaderContextMenu(QTreeWidget* tree) {
+    if (!tree || !tree->header()) {
+        return;
+    }
+    QHeaderView* header = tree->header();
+    header->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(header, &QWidget::customContextMenuRequested, this, [this, tree, header](const QPoint& pos) {
+        if (!tree || !header) {
+            return;
+        }
+        const int logicalIndex = header->logicalIndexAt(pos);
+        if (logicalIndex < 0) {
+            return;
+        }
+        QMenu menu(this);
+        QAction* aResizeThis = menu.addAction(
+            trk(QStringLiteral("t_ctx_resize_col_001"),
+                QStringLiteral("Ajustar tamaño de esta columna")));
+        QAction* aResizeAll = menu.addAction(
+            trk(QStringLiteral("t_ctx_resize_allcol_001"),
+                QStringLiteral("Ajustar tamaño de todas las columnas")));
+        menu.addSeparator();
+        QMenu* propColsMenu = menu.addMenu(
+            trk(QStringLiteral("t_prop_cols_menu001"),
+                QStringLiteral("Columnas de propiedades")));
+        auto* propColsGroup = new QActionGroup(&menu);
+        propColsGroup->setExclusive(true);
+        for (int cols = 4; cols <= 16; cols += 2) {
+            QAction* act = propColsMenu->addAction(QString::number(cols));
+            act->setCheckable(true);
+            act->setData(cols);
+            if (cols == qBound(4, m_connPropColumnsSetting, 16)) {
+                act->setChecked(true);
+            }
+            propColsGroup->addAction(act);
+        }
+        QAction* picked = menu.exec(header->mapToGlobal(pos));
+        if (!picked) {
+            return;
+        }
+        auto resizeOne = [tree](int col) {
+            if (!tree || col < 0 || col >= tree->columnCount() || tree->isColumnHidden(col)) {
+                return;
+            }
+            tree->resizeColumnToContents(col);
+        };
+        if (picked == aResizeThis) {
+            resizeOne(logicalIndex);
+        } else if (picked == aResizeAll) {
+            for (int col = 0; col < tree->columnCount(); ++col) {
+                resizeOne(col);
+            }
+        } else if (propColsGroup->actions().contains(picked)) {
+            bool ok = false;
+            const int cols = picked->data().toInt(&ok);
+            if (!ok) {
+                return;
+            }
+            int bounded = qBound(4, cols, 16);
+            if ((bounded % 2) != 0) ++bounded;
+            if (bounded == m_connPropColumnsSetting) return;
+            m_connPropColumnsSetting = bounded;
+            saveUiSettings();
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("Columnas de propiedades: %1").arg(m_connPropColumnsSetting));
+            const QString token = connContentTokenForTree(m_connContentTree);
+            if (m_connContentTree) {
+                syncConnContentPropertyColumnsFor(m_connContentTree, token);
+                syncConnContentPoolColumnsFor(m_connContentTree, token);
+                resizeTreeColumnsToVisibleContent(m_connContentTree);
+            }
+            rebuildAllSplitTrees();
+        }
+    });
+}
+
 void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, int connIdx,
                                           const QString& poolName, const QString& rootDataset) {
     if (!m_connContentPage || connIdx < 0 || connIdx >= m_profiles.size()
@@ -813,6 +889,7 @@ void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, int connId
     auto* splitTree = splitWidget->tree();
     if (splitTree) {
         splitTree->setItemDelegate(new ConnContentPropBorderDelegate(splitTree));
+        installConnContentTreeHeaderContextMenu(splitTree);
         appendSplitDatasetTree(splitTree, connIdx, trimmedPool, trimmedRoot, displayRoot);
     }
 
@@ -1900,7 +1977,7 @@ void MainWindow::buildUi() {
             }
         });
     };
-    installTreeHeaderContextMenu(m_connContentTree);
+    installConnContentTreeHeaderContextMenu(m_connContentTree);
 
     m_logsTabs = new QTabWidget(central);
     m_logsTabs->setObjectName(QStringLiteral("zfsmgrLogTabs"));

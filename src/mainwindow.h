@@ -642,6 +642,7 @@ private:
     void rebuildAllSplitTrees();
     void appendSplitDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName,
                                  const QString& rootDataset, const QString& displayRoot);
+    void installConnContentTreeHeaderContextMenu(QTreeWidget* tree);
     QString poolDetailsCacheKey(int connIdx, const QString& poolName) const;
     bool ensureDatasetsLoaded(int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing = true);
     bool ensureDatasetPermissionsLoaded(int connIdx, const QString& poolName, const QString& datasetName);
