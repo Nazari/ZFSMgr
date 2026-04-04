@@ -60,9 +60,13 @@ Artefactos publicados:
   - Windows .exe
   - Linux .AppImage
   - Linux .deb
-  - macOS .dmg
-  - FreeBSD .tar.gz/.tar.bz2 si se encuentra en el directorio de artefactos
-    o en ~/Descargas/z (fallback de --sftpfc16)
+  - macOS .dmg (uno o varios, según arquitectura)
+  - FreeBSD .tar.gz/.tar.bz2
+
+Resolución de artefactos:
+  Primero se buscan en ARTIFACTS_DIR/.release-artifacts y, si no están ahí,
+  en ~/Descargas/z o ~/Downloads/z, que es donde buildall.sh deja los ficheros
+  al usar --sftpfc16.
 USAGE
 }
 
@@ -120,7 +124,8 @@ LOG_DIR="${RELEASE_LOG_DIR:-${ARTIFACTS_ROOT}/logs/${VERSION}}"
 STATE_FILE="${ARTIFACTS_ROOT}/state/${VERSION}/release-state.json"
 ARTIFACTS_DIR="${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}"
 BUILDALL_PLATFORM_LOG_DIR="${LOG_DIR}/buildall-platforms"
-MAC_ARTIFACT=""
+MAC_ARTIFACTS=()
+MAC_ARTIFACTS_JSON=""
 WIN_ARTIFACT=""
 LINUX_APPIMAGE=""
 LINUX_DEB=""
@@ -175,6 +180,88 @@ json_escape() {
   printf '%s' "${s}"
 }
 
+join_by() {
+  local sep="$1"
+  shift || true
+  local out=""
+  local first=1
+  local item
+  for item in "$@"; do
+    if [[ ${first} -eq 1 ]]; then
+      out="${item}"
+      first=0
+    else
+      out="${out}${sep}${item}"
+    fi
+  done
+  printf '%s' "${out}"
+}
+
+downloads_artifacts_dir() {
+  printf '%s/z\n' "$(preferred_downloads_dir)"
+}
+
+find_one_release_artifact() {
+  local dir1="$1"
+  local dir2="$2"
+  local dir3="$3"
+  shift 3
+  local dir pattern found=""
+  for dir in "${dir1}" "${dir2}" "${dir3}"; do
+    [[ -n "${dir}" && -d "${dir}" ]] || continue
+    for pattern in "$@"; do
+      found="$(find "${dir}" -maxdepth 1 -type f -name "${pattern}" | sort -V | tail -n1)"
+      if [[ -n "${found}" ]]; then
+        printf '%s\n' "${found}"
+        return 0
+      fi
+    done
+  done
+  return 1
+}
+
+find_many_release_artifacts() {
+  local dir1="$1"
+  local dir2="$2"
+  local dir3="$3"
+  shift 3
+  local dir pattern
+  local -a found=()
+  for dir in "${dir1}" "${dir2}" "${dir3}"; do
+    [[ -n "${dir}" && -d "${dir}" ]] || continue
+    while IFS= read -r path; do
+      [[ -n "${path}" ]] || continue
+      found+=("${path}")
+    done < <(
+      for pattern in "$@"; do
+        find "${dir}" -maxdepth 1 -type f -name "${pattern}"
+      done | sort -u
+    )
+    if [[ ${#found[@]} -gt 0 ]]; then
+      printf '%s\n' "${found[@]}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+resolve_release_artifacts() {
+  local artifacts_dir="$1"
+  local fallback_dir="$2"
+  local linux_build_dir="${PROJECT_ROOT}/build-linux"
+  local freebsd_build_dir="${PROJECT_ROOT}/build-freebsd"
+  MAC_ARTIFACTS=()
+  while IFS= read -r path; do
+    [[ -n "${path}" ]] || continue
+    MAC_ARTIFACTS+=("${path}")
+  done < <(find_many_release_artifacts "${artifacts_dir}" "${fallback_dir}" "" "ZFSMgr-${VERSION}_*.dmg" "ZFSMgr-${VERSION}.dmg" || true)
+  MAC_ARTIFACTS_JSON="$(join_by ";" "${MAC_ARTIFACTS[@]}")"
+  WIN_ARTIFACT="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "" "ZFSMgr-Setup-${VERSION}*.exe" || true)"
+  LINUX_APPIMAGE="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${linux_build_dir}" "ZFSMgr-${VERSION}-*.AppImage" || true)"
+  LINUX_DEB="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${linux_build_dir}" "zfsmgr_${VERSION}_*.deb" || true)"
+  FREEBSD_PKG="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${freebsd_build_dir}" "*${VERSION}*-FreeBSD.tar.gz" "*${VERSION}*-FreeBSD.tar.bz2" "*${VERSION}*.tar.gz" "*${VERSION}*.tar.bz2" || true)"
+}
+
 write_state() {
   local phase="$1"
   local status="$2"
@@ -201,7 +288,7 @@ write_state() {
   "artifacts_dir": "$(json_escape "${ARTIFACTS_DIR}")",
   "buildall_platform_log_dir": "$(json_escape "${BUILDALL_PLATFORM_LOG_DIR}")",
   "artifacts": {
-    "mac_dmg": "$(json_escape "${MAC_ARTIFACT}")",
+    "mac_dmg": "$(json_escape "${MAC_ARTIFACTS_JSON}")",
     "windows_exe": "$(json_escape "${WIN_ARTIFACT}")",
     "linux_appimage": "$(json_escape "${LINUX_APPIMAGE}")",
     "linux_deb": "$(json_escape "${LINUX_DEB}")",
@@ -303,19 +390,11 @@ write_state "git-push" "completed" "commit publicado"
 ARTIFACTS_DIR="${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}"
 mkdir -p "${ARTIFACTS_DIR}"
 mkdir -p "${LOG_DIR}"
-
-MAC_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}.dmg" | head -n1)"
-WIN_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-Setup-${VERSION}*.exe" | head -n1)"
-LINUX_APPIMAGE="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}-*.AppImage" | head -n1)"
-LINUX_DEB="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "zfsmgr_${VERSION}_*.deb" | head -n1)"
-FREEBSD_PKG="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f \( -name "*${VERSION}*.tar.gz" -o -name "*${VERSION}*.tar.bz2" \) | head -n1)"
-if [[ -z "${FREEBSD_PKG}" ]]; then
-  SFTP_FALLBACK_DIR="${OUTPUT_DIR:-$(preferred_downloads_dir)/z}"
-  FREEBSD_PKG="$(find "${SFTP_FALLBACK_DIR}" -maxdepth 1 -type f \( -name "*${VERSION}*.tar.gz" -o -name "*${VERSION}*.tar.bz2" \) | head -n1)"
-fi
+SFTP_FALLBACK_DIR="$(downloads_artifacts_dir)"
+resolve_release_artifacts "${ARTIFACTS_DIR}" "${SFTP_FALLBACK_DIR}"
 
 HAS_ALL_ARTIFACTS=0
-if [[ -n "${MAC_ARTIFACT}" && -f "${MAC_ARTIFACT}" && -n "${WIN_ARTIFACT}" && -f "${WIN_ARTIFACT}" && -n "${LINUX_APPIMAGE}" && -f "${LINUX_APPIMAGE}" && -n "${LINUX_DEB}" && -f "${LINUX_DEB}" && -n "${FREEBSD_PKG}" && -f "${FREEBSD_PKG}" ]]; then
+if [[ ${#MAC_ARTIFACTS[@]} -gt 0 && -n "${WIN_ARTIFACT}" && -f "${WIN_ARTIFACT}" && -n "${LINUX_APPIMAGE}" && -f "${LINUX_APPIMAGE}" && -n "${LINUX_DEB}" && -f "${LINUX_DEB}" && -n "${FREEBSD_PKG}" && -f "${FREEBSD_PKG}" ]]; then
   HAS_ALL_ARTIFACTS=1
 fi
 
@@ -343,22 +422,22 @@ else
     BUILDALL_CMD+=("--password" "${BUILDALL_PASSWORD}")
   fi
   run_logged buildall "${BUILDALL_CMD[@]}"
-  MAC_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}.dmg" | head -n1)"
-  WIN_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-Setup-${VERSION}*.exe" | head -n1)"
-  LINUX_APPIMAGE="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}-*.AppImage" | head -n1)"
-  LINUX_DEB="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "zfsmgr_${VERSION}_*.deb" | head -n1)"
-  FREEBSD_PKG="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f \( -name "*${VERSION}*.tar.gz" -o -name "*${VERSION}*.tar.bz2" \) | head -n1)"
-  if [[ -z "${FREEBSD_PKG}" ]]; then
-    SFTP_FALLBACK_DIR="${OUTPUT_DIR:-$(preferred_downloads_dir)/z}"
-    FREEBSD_PKG="$(find "${SFTP_FALLBACK_DIR}" -maxdepth 1 -type f \( -name "*${VERSION}*.tar.gz" -o -name "*${VERSION}*.tar.bz2" \) | head -n1)"
-  fi
+  resolve_release_artifacts "${ARTIFACTS_DIR}" "${SFTP_FALLBACK_DIR}"
 fi
 
-[[ -n "${MAC_ARTIFACT}" && -f "${MAC_ARTIFACT}" ]] || fail "No se encontró el artefacto macOS (.dmg)"
+[[ ${#MAC_ARTIFACTS[@]} -gt 0 ]] || fail "No se encontró ningún artefacto macOS (.dmg)"
 [[ -n "${WIN_ARTIFACT}" && -f "${WIN_ARTIFACT}" ]] || fail "No se encontró el artefacto Windows (.exe)"
 [[ -n "${LINUX_APPIMAGE}" && -f "${LINUX_APPIMAGE}" ]] || fail "No se encontró el artefacto Linux (.AppImage)"
 [[ -n "${LINUX_DEB}" && -f "${LINUX_DEB}" ]] || fail "No se encontró el artefacto Linux (.deb)"
 [[ -n "${FREEBSD_PKG}" && -f "${FREEBSD_PKG}" ]] || fail "No se encontró el artefacto FreeBSD (.tar.gz/.tar.bz2)"
+log "Artefactos resueltos:"
+for _mac in "${MAC_ARTIFACTS[@]}"; do
+  log "  macOS: ${_mac}"
+done
+log "  Windows: ${WIN_ARTIFACT}"
+log "  Linux AppImage: ${LINUX_APPIMAGE}"
+log "  Linux DEB: ${LINUX_DEB}"
+log "  FreeBSD: ${FREEBSD_PKG}"
 write_state "artifacts" "completed" "artefactos disponibles"
 
 if [[ "${LOCAL_TAG_EXISTS}" -eq 1 ]]; then
@@ -380,15 +459,19 @@ else
 fi
 
 log "Creando release ${TAG} en GitHub"
-run_logged github-release gh release create "${TAG}" \
-  "${WIN_ARTIFACT}" \
-  "${LINUX_APPIMAGE}" \
-  "${LINUX_DEB}" \
-  "${MAC_ARTIFACT}" \
-  "${FREEBSD_PKG}" \
-  --title "${TAG}" \
-  --verify-tag \
+GH_RELEASE_CMD=(gh release create "${TAG}"
+  "${WIN_ARTIFACT}"
+  "${LINUX_APPIMAGE}"
+  "${LINUX_DEB}"
+  "${FREEBSD_PKG}"
+  --title "${TAG}"
+  --verify-tag
   --generate-notes
+)
+for _mac in "${MAC_ARTIFACTS[@]}"; do
+  GH_RELEASE_CMD+=("${_mac}")
+done
+run_logged github-release "${GH_RELEASE_CMD[@]}"
 
 log "Release creada correctamente"
 write_state "github-release" "completed" "release creada correctamente"
@@ -400,4 +483,7 @@ printf '  %s\n' "${BUILDALL_PLATFORM_LOG_DIR}/macos-local.log" "${BUILDALL_PLATF
 printf 'Estado:\n'
 printf '  %s\n' "${STATE_FILE}"
 printf 'Artefactos:\n'
-printf '  %s\n' "${WIN_ARTIFACT}" "${LINUX_APPIMAGE}" "${LINUX_DEB}" "${MAC_ARTIFACT}"
+for _mac in "${MAC_ARTIFACTS[@]}"; do
+  printf '  %s\n' "${_mac}"
+done
+printf '  %s\n' "${WIN_ARTIFACT}" "${LINUX_APPIMAGE}" "${LINUX_DEB}" "${FREEBSD_PKG}"
