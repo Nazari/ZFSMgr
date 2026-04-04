@@ -2102,11 +2102,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
 
     QMenu menu(m_mainWindow);
     const bool isConnectionRoot = item->data(0, kIsConnectionRootRole).toBool();
-    const bool isConnectionAuxChild =
-        item->parent()
-        && item->parent()->data(0, kIsConnectionRootRole).toBool()
-        && item->data(0, Qt::UserRole).toString().trimmed().isEmpty()
-        && !item->data(0, kIsPoolRootRole).toBool();
     const bool isPoolRoot = item->data(0, kIsPoolRootRole).toBool();
     const QString menuToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
     auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
@@ -2119,16 +2114,21 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     };
     const bool isPoolInfoContext = isInfoNodeOrInside(item);
 
-    if (isConnectionRoot || isConnectionAuxChild) {
-        if (!isConnectionRoot && item->parent()) {
-            connIdx = item->parent()->data(0, kConnIdxRole).toInt();
-        }
+    if (isConnectionRoot) {
         logContextMenuPerf(m_mainWindow,
                            QStringLiteral("general.redirect"),
                            QStringLiteral("connection root connIdx=%1").arg(connIdx),
                            timer.elapsed());
         endBusy();
         m_mainWindow->showConnectionContextMenu(connIdx, tree->viewport()->mapToGlobal(pos));
+        return;
+    }
+    if (item->parent() && item->parent()->data(0, kIsConnectionRootRole).toBool()) {
+        logContextMenuPerf(m_mainWindow,
+                           QStringLiteral("general.skip"),
+                           QStringLiteral("connection child ignored"),
+                           timer.elapsed());
+        endBusy();
         return;
     }
 
