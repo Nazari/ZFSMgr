@@ -6,7 +6,7 @@ Condiciones:
 
 - Origen: dataset seleccionado.
 - Destino: dataset seleccionado.
-- Origen y destino deben ser distintos.
+- Origen y destino deben ser distintos, y ambos deben estar montados.
 - Origen y destino deben usar OpenZFS `2.3.3` o superior.
 
 Comportamiento:
