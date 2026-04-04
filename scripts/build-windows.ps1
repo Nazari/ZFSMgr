@@ -15,6 +15,7 @@ $DownloadsDir = if ($env:DOWNLOADS_DIR) { $env:DOWNLOADS_DIR } else { Join-Path 
 $UploadSftp = $false
 $SelectedCmakeGenerator = $null
 $SelectedCmakeGeneratorExtra = @()
+$InstallMissingDeps = $false
 
 function Show-Usage {
   @"
@@ -26,6 +27,7 @@ Opciones:
   --no-inno, --no-installer No genera instalador
   --inno-script <ruta>      Usa un script .iss concreto
   --inno-output <dir>       Directorio de salida para el instalador
+  --install-deps            Instala dependencias MSYS2 faltantes (OpenSSL/libssh) si pacman está disponible
   --sftpfc16                Sube el instalador .exe (con --inno) al destino SFTP configurado
   -h, --help                Muestra esta ayuda
 
@@ -53,6 +55,10 @@ for ($i = 0; $i -lt $args.Count; $i++) {
     }
     '^(--sftpfc16|-sftpfc16)$' {
       $UploadSftp = $true
+      continue
+    }
+    '^(--install-deps|-install-deps)$' {
+      $InstallMissingDeps = $true
       continue
     }
     '^(--no-inno|-no-inno|--no-installer|-no-installer)$' {
@@ -288,6 +294,51 @@ function Get-Msys2RootPrefixes {
   return $prefixes | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
 }
 
+function Get-Msys2PacmanExe {
+  $candidates = @(
+    "C:\msys64\usr\bin\pacman.exe"
+  )
+  foreach ($candidate in $candidates) {
+    if (Test-Path $candidate) {
+      return $candidate
+    }
+  }
+  $cmd = Get-Command "pacman.exe" -ErrorAction SilentlyContinue
+  if ($cmd) {
+    return $cmd.Source
+  }
+  return $null
+}
+
+function Get-Msys2PackagePrefixForQtKit([string]$qtDir) {
+  if ([string]::IsNullOrWhiteSpace($qtDir)) {
+    return "mingw-w64-x86_64"
+  }
+  $normalized = $qtDir.ToLowerInvariant()
+  if ($normalized -like "*\ucrt64\*" -or $normalized -like "*ucrt*") {
+    return "mingw-w64-ucrt-x86_64"
+  }
+  if ($normalized -like "*\clang64\*" -or $normalized -like "*clang64*") {
+    return "mingw-w64-clang-x86_64"
+  }
+  return "mingw-w64-x86_64"
+}
+
+function Ensure-Msys2Packages([string[]]$packages) {
+  $pacman = Get-Msys2PacmanExe
+  if (-not $pacman) {
+    throw "Faltan dependencias MSYS2 y no se encontró pacman.exe para instalarlas automáticamente."
+  }
+  if (-not $packages -or $packages.Count -eq 0) {
+    return
+  }
+  Write-Host "Instalando dependencias MSYS2: $($packages -join ', ')"
+  & $pacman -S --needed --noconfirm @packages
+  if ($LASTEXITCODE -ne 0) {
+    throw "pacman falló al instalar dependencias MSYS2 (exit $LASTEXITCODE)."
+  }
+}
+
 function Prepend-CmakePrefixPath([string]$prefix) {
   if ([string]::IsNullOrWhiteSpace($prefix) -or -not (Test-Path $prefix)) {
     return
@@ -365,6 +416,26 @@ function Test-OpenSslHeaderPresent([string]$root) {
   }
   $inc = Join-Path $root "include\openssl\ssl.h"
   return (Test-Path $inc)
+}
+
+function Get-OpenSslInstallHint([string]$qtDir) {
+  $prefix = Get-Msys2PackagePrefixForQtKit $qtDir
+  $pkg = "$prefix-openssl"
+  $pacman = Get-Msys2PacmanExe
+  if ($pacman) {
+    return "$pacman -S --needed $pkg"
+  }
+  return "Instala '$pkg' en MSYS2 y vuelve a ejecutar el script."
+}
+
+function Get-LibsshInstallHint([string]$qtDir) {
+  $prefix = Get-Msys2PackagePrefixForQtKit $qtDir
+  $pkg = "$prefix-libssh"
+  $pacman = Get-Msys2PacmanExe
+  if ($pacman) {
+    return "$pacman -S --needed $pkg"
+  }
+  return "Instala '$pkg' en MSYS2 y vuelve a ejecutar el script."
 }
 
 function Copy-OpenSslRuntimeDlls([string]$root, [string]$destDir) {
@@ -760,13 +831,15 @@ if ($env:Qt6_DIR) {
   }
 }
 
-# Agregar prefijos de libssh para CMake cuando sea posible.
+# libssh no forma parte de las dependencias obligatorias de CMake en Windows.
+# Si existe, se conserva para posibles usos auxiliares; si no existe, el build debe continuar.
 $libsshDirValid = $false
 $existingLibsshDir = $null
 if ($env:libssh_DIR) {
   $existingLibsshDir = $env:libssh_DIR
   if (Test-Path $existingLibsshDir) {
     $libsshDirValid = $true
+    Write-Host "Usando libssh_DIR preexistente: $existingLibsshDir"
   } else {
     Write-Host "Aviso: libssh_DIR definido en '$existingLibsshDir' no existe."
   }
@@ -775,22 +848,15 @@ if ($env:libssh_DIR) {
 if (-not $libsshDirValid) {
   $libsshRoot = Find-LibsshRoot
   if ($libsshRoot) {
-    Prepend-CmakePrefixPath $libsshRoot
     $libsshCmakeDir = Join-Path $libsshRoot "lib\cmake\libssh"
     if (Test-Path $libsshCmakeDir) {
       $env:libssh_DIR = $libsshCmakeDir
       if (-not $env:LIBSSH_ROOT) {
         $env:LIBSSH_ROOT = $libsshRoot
       }
-      Write-Host "libssh detectado en: $libsshRoot"
-    } else {
-      Write-Host "Aviso: libssh encontrado en $libsshRoot pero no se localizó '$libsshCmakeDir'."
+      Write-Host "libssh detectado opcionalmente en: $libsshRoot"
     }
-  } else {
-    Write-Host "Aviso: no se encontró libssh. Instala 'mingw-w64-x86_64-libssh' en MSYS2 o define LIBSSH_ROOT/libssh_DIR."
   }
-} else {
-  Write-Host "Usando libssh_DIR preexistente: $existingLibsshDir"
 }
 
 # Si el usuario ya pasÃ³ -G/--generator, no forzamos uno.
@@ -816,6 +882,7 @@ if ($hasGenerator) {
   $isMsvcQt = ($qtKit -like "*msvc*")
 
   if ($isMingwQt) {
+    $msys2PkgPrefix = Get-Msys2PackagePrefixForQtKit $env:Qt6_DIR
     $qtKitDir = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $env:Qt6_DIR))
     $qtVersionDir = Split-Path -Parent $qtKitDir
     $qtBaseDir = Split-Path -Parent $qtVersionDir
@@ -846,27 +913,34 @@ if ($hasGenerator) {
     }
 
     $opensslRoot = Find-OpenSslRoot
+    if ((-not $opensslRoot) -and $InstallMissingDeps) {
+      Ensure-Msys2Packages @("$msys2PkgPrefix-openssl")
+      $opensslRoot = Find-OpenSslRoot
+    }
     if ($opensslRoot) {
       $hasHeader = Test-OpenSslHeaderPresent $opensslRoot
       $isMingwOpenSsl = Test-OpenSslMingwCompatible $opensslRoot
       if (-not $hasHeader -or -not $isMingwOpenSsl) {
-        throw "OpenSSL detectado en '$opensslRoot' pero no parece un prefijo MinGW valido (esperado: include\openssl\ssl.h y lib\libcrypto.a o lib\libcrypto.dll.a). En MSYS2 instala mingw-w64-x86_64-openssl (o equivalente ucrt/clang), no el paquete base 'openssl'. Tambien puedes fijar OPENSSL_ROOT_DIR al prefijo correcto."
+        throw "OpenSSL detectado en '$opensslRoot' pero no parece un prefijo MinGW valido (esperado: include\openssl\ssl.h y lib\libcrypto.a o lib\libcrypto.dll.a). $(Get-OpenSslInstallHint $env:Qt6_DIR). También puedes fijar OPENSSL_ROOT_DIR al prefijo correcto."
       }
       $NativeArgs += @("-DOPENSSL_ROOT_DIR=$opensslRoot")
       Write-Host "OpenSSL detectado en: $opensslRoot"
     } else {
-      throw "No se encontrÃ³ OpenSSL para MinGW. Instala el paquete de toolchain correcto en MSYS2 (por ejemplo mingw-w64-x86_64-openssl en C:\msys64\mingw64) o define OPENSSL_ROOT_DIR al prefijo que contiene include\openssl\ssl.h y lib\libcrypto*.a."
+      throw "No se encontró OpenSSL para el toolchain Qt detectado. $(Get-OpenSslInstallHint $env:Qt6_DIR) o define OPENSSL_ROOT_DIR al prefijo que contiene include\openssl\ssl.h y lib\libcrypto*.a."
     }
 
     $libsshRoot = Find-LibsshRoot
+    if ((-not $libsshRoot) -and $InstallMissingDeps) {
+      Ensure-Msys2Packages @("$msys2PkgPrefix-libssh")
+      $libsshRoot = Find-LibsshRoot
+    }
     if ($libsshRoot) {
-      if (-not (Test-LibsshMingwCompatible $libsshRoot)) {
-        throw "libssh detectado en '$libsshRoot' pero no parece un prefijo MinGW valido (esperado: lib\cmake\libssh\libsshConfig.cmake, include\libssh\libssh.h y lib\libssh.a o lib\libssh.dll.a). En MSYS2 instala mingw-w64-x86_64-libssh (o equivalente ucrt/clang) y evita mezclar binarios MSVC con Qt MinGW."
+      if (Test-LibsshMingwCompatible $libsshRoot) {
+        $NativeArgs += @("-Dlibssh_DIR=$(Join-Path $libsshRoot 'lib\cmake\libssh')")
+        Write-Host "libssh MinGW detectado opcionalmente en: $libsshRoot"
+      } else {
+        Write-Host "Aviso: se omitirá libssh porque '$libsshRoot' no parece compatible con MinGW. $(Get-LibsshInstallHint $env:Qt6_DIR)"
       }
-      $NativeArgs += @("-Dlibssh_DIR=$(Join-Path $libsshRoot 'lib\cmake\libssh')")
-      Write-Host "libssh detectado en: $libsshRoot"
-    } else {
-      throw "No se encontrÃ³ libssh para MinGW. Instala el paquete de toolchain correcto en MSYS2 (por ejemplo mingw-w64-x86_64-libssh en C:\msys64\mingw64) o define libssh_DIR al directorio que contiene libsshConfig.cmake."
     }
   }
 
