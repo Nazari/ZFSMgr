@@ -3075,6 +3075,9 @@ void MainWindow::saveConnContentTreeState(QTreeWidget* tree, const QString& toke
     if (m_connContentTreeStateWriteLocked || token.isEmpty() || !tree) {
         return;
     }
+    if (tree->property("zfsmgr.isSplitTree").toBool()) {
+        return;
+    }
     const QString normalizedToken = normalizedConnContentStateToken(tree, token);
     const QString scopedToken =
         normalizedToken + QStringLiteral("|top");
@@ -4074,7 +4077,7 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
             });
         }
     }
-    propsNode->setExpanded(hadPropsNode ? propsNodeWasExpanded : true);
+    propsNode->setExpanded(hadPropsNode ? propsNodeWasExpanded : false);
 
     const bool hadInfoNode = (findSection(QStringLiteral("connection_info")) != nullptr);
     QTreeWidgetItem* infoNode =
@@ -4610,7 +4613,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         const QString effectiveMp = effectiveMountPath(connIdx, poolName, fullName, mountpoint, mounted);
         item->setText(3, effectiveMp.isEmpty() ? mountpoint : effectiveMp);
         auto* propsNode = new QTreeWidgetItem(item);
-        propsNode->setText(0, QStringLiteral("Properties"));
+        propsNode->setText(0, QStringLiteral("Dataset properties"));
         propsNode->setIcon(0, treeStandardIcon(QStyle::SP_FileDialogDetailedView));
         propsNode->setData(0, kConnPropGroupNodeRole, true);
         propsNode->setData(0, kConnPropGroupNameRole, QString());
@@ -4954,7 +4957,7 @@ void MainWindow::appendSplitDatasetTree(QTreeWidget* tree, int connIdx,
         item->setText(3, effectiveMountPath(connIdx, poolName, fullName, mountpoint, mounted));
 
         auto* propsNode = new QTreeWidgetItem(item);
-        propsNode->setText(0, QStringLiteral("Properties"));
+        propsNode->setText(0, QStringLiteral("Dataset properties"));
         propsNode->setIcon(0, treeStandardIcon(QStyle::SP_FileDialogDetailedView));
         propsNode->setData(0, kConnPropGroupNodeRole, true);
         propsNode->setData(0, kConnPropGroupNameRole, QString());
@@ -5081,6 +5084,24 @@ void MainWindow::appendSplitDatasetTree(QTreeWidget* tree, int connIdx,
     if (isPoolRoot) {
         rootItem->setData(0, kIsPoolRootRole, true);
         rootItem->setIcon(0, treeStandardIcon(QStyle::SP_DriveHDIcon));
+        const bool poolImported = [&]() -> bool {
+            if (connIdx < 0 || connIdx >= m_states.size()) {
+                return false;
+            }
+            for (const PoolImported& p : m_states[connIdx].importedPools) {
+                if (p.pool.trimmed() == trimmedPool) {
+                    return true;
+                }
+            }
+            return false;
+        }();
+        if (poolImported) {
+            auto* infoNode = new QTreeWidgetItem(rootItem);
+            infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
+            infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);
+            infoNode->setText(0, QStringLiteral("Pool Information"));
+            infoNode->setIcon(0, treeStandardIcon(QStyle::SP_MessageBoxInformation));
+        }
         for (const QString& rootName : poolInfo->rootObjectNames) {
             const auto it = poolInfo->objectsByFullName.constFind(rootName);
             if (it == poolInfo->objectsByFullName.cend() || it->kind == DSKind::Snapshot) {

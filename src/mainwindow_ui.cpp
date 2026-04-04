@@ -897,6 +897,7 @@ void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, int connId
     auto* splitWidget = new ConnectionDatasetTreeWidget(config, delegate, m_connContentPage);
     auto* splitTree = splitWidget->tree();
     if (splitTree) {
+        splitTree->setProperty("zfsmgr.isSplitTree", true);
         splitTree->setItemDelegate(new ConnContentPropBorderDelegate(splitTree));
         installConnContentTreeHeaderContextMenu(splitTree);
         appendSplitDatasetTree(splitTree, connIdx, trimmedPool, trimmedRoot, displayRoot);
