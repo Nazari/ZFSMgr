@@ -11,6 +11,7 @@ RESUME=0
 SKIP_BUILD=0
 ONLY_RELEASE=0
 BUILD_PLATFORMS_OVERRIDE=""
+BUILDALL_PASSWORD=""
 
 preferred_downloads_dir() {
   if [[ -d "${HOME}/Descargas" ]]; then
@@ -40,7 +41,7 @@ require_cmd() {
 usage() {
   cat <<'USAGE'
 Uso:
-  release-github.sh [--dry-run] [--resume] [--skip-build] [--only-release] [--platforms mac,linux,windows] <version>
+  release-github.sh [--dry-run] [--resume] [--skip-build] [--only-release] [--platforms mac,linux,windows] [--password <keychain-password>] <version>
 
 Ejemplo:
   release-github.sh 0.10.1rc1
@@ -53,6 +54,7 @@ Variables opcionales:
   MAC_REMOTE     host macOS remoto para buildall.sh si local no es macOS
   WINDOWS_REMOTE host Windows remoto para buildall.sh
   RELEASE_LOG_DIR directorio donde guardar logs por fase
+  --password, -p Password del login keychain a reenviar a buildall.sh para firmar en macOS
 
 Artefactos publicados:
   - Windows .exe
@@ -86,6 +88,12 @@ while [[ $# -gt 0 ]]; do
       shift
       [[ $# -gt 0 ]] || fail "--platforms requiere una lista separada por comas"
       BUILD_PLATFORMS_OVERRIDE="$1"
+      shift
+      ;;
+    --password|-p)
+      shift
+      [[ $# -gt 0 ]] || fail "--password requiere un valor"
+      BUILDALL_PASSWORD="$1"
       shift
       ;;
     -h|--help)
@@ -232,6 +240,7 @@ Dry run de release GitHub
   skip build: ${SKIP_BUILD}
   only release: ${ONLY_RELEASE}
   plataformas build: ${BUILD_PLATFORMS_OVERRIDE:-mac,linux,windows}
+  password buildall: $([[ -n "${BUILDALL_PASSWORD}" ]] && printf 'sí' || printf 'no')
   remoto git: ${GIT_REMOTE}
   tag: ${TAG}
   directorio de artefactos: ${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}
@@ -322,7 +331,18 @@ else
   fi
   mkdir -p "${ARTIFACTS_DIR}"
   log "Ejecutando buildall.sh con artefactos en ${ARTIFACTS_DIR}"
-  run_logged buildall env OUTPUT_DIR="${ARTIFACTS_DIR}" BUILDALL_LOG_DIR="${BUILDALL_PLATFORM_LOG_DIR}" BUILD_GIT_REMOTE="${GIT_REMOTE}" BUILD_GIT_REF="${BUILD_REF}" BUILD_PLATFORMS="${BUILD_PLATFORMS_OVERRIDE:-mac,linux,windows}" "${SCRIPT_DIR}/buildall.sh"
+  BUILDALL_CMD=(env
+    OUTPUT_DIR="${ARTIFACTS_DIR}"
+    BUILDALL_LOG_DIR="${BUILDALL_PLATFORM_LOG_DIR}"
+    BUILD_GIT_REMOTE="${GIT_REMOTE}"
+    BUILD_GIT_REF="${BUILD_REF}"
+    BUILD_PLATFORMS="${BUILD_PLATFORMS_OVERRIDE:-mac,linux,windows}"
+    "${SCRIPT_DIR}/buildall.sh"
+  )
+  if [[ -n "${BUILDALL_PASSWORD}" ]]; then
+    BUILDALL_CMD+=("--password" "${BUILDALL_PASSWORD}")
+  fi
+  run_logged buildall "${BUILDALL_CMD[@]}"
   MAC_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}.dmg" | head -n1)"
   WIN_ARTIFACT="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-Setup-${VERSION}*.exe" | head -n1)"
   LINUX_APPIMAGE="$(find "${ARTIFACTS_DIR}" -maxdepth 1 -type f -name "ZFSMgr-${VERSION}-*.AppImage" | head -n1)"
