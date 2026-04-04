@@ -2032,9 +2032,11 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         poolActions.initialize->setEnabled(poolMenuState.canInitialize);
         poolActions.clear->setEnabled(poolMenuState.canClear);
         poolActions.destroy->setEnabled(poolMenuState.canDestroy);
-        QMenu* splitMenu = menu.addMenu(QStringLiteral("Split and root"));
-        aSplitVertical = splitMenu->addAction(QStringLiteral("Vertical"));
-        aSplitHorizontal = splitMenu->addAction(QStringLiteral("Horizontal"));
+        if (!item->data(0, kIsSplitRootRole).toBool()) {
+            QMenu* splitMenu = menu.addMenu(QStringLiteral("Split and root"));
+            aSplitVertical = splitMenu->addAction(QStringLiteral("Vertical"));
+            aSplitHorizontal = splitMenu->addAction(QStringLiteral("Horizontal"));
+        }
     }
 
     if (item->data(0, kIsSplitRootRole).toBool()) {
@@ -2187,7 +2189,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                                   QStringLiteral("Seleccionar como destino"),
                                   QStringLiteral("Select as destination"),
                                   QStringLiteral("设为目标")));
-            if (!item->data(0, kIsSplitRootRole).toBool()) {
+            if (!item->data(0, kIsSplitRootRole).toBool() && !isPoolRoot) {
                 QMenu* splitMenu = menu.addMenu(QStringLiteral("Split and root"));
                 aSplitVertical = splitMenu->addAction(QStringLiteral("Vertical"));
                 aSplitHorizontal = splitMenu->addAction(QStringLiteral("Horizontal"));

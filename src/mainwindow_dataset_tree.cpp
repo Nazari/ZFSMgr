@@ -1332,7 +1332,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
     if (!tree) {
         return;
     }
-    const int propCols = qBound(4, m_connPropColumnsSetting, 16);
+    const int propCols = propColumnCountForTree(tree);
     if (m_syncingConnContentColumns) {
         return;
     }
@@ -2442,7 +2442,7 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
             tree->setSortingEnabled(sortingWasEnabled);
         }
     });
-    const int propCols = qBound(4, m_connPropColumnsSetting, 16);
+    const int propCols = propColumnCountForTree(tree);
     QStringList headers;
     headers << (treeGroupsPoolsByConnectionRoots(tree)
                     ? trk(QStringLiteral("t_unified_pool_col001"),
@@ -5079,6 +5079,7 @@ void MainWindow::appendSplitDatasetTree(QTreeWidget* tree, int connIdx,
 
     const bool isPoolRoot = (trimmedRoot.compare(trimmedPool, Qt::CaseInsensitive) == 0);
     if (isPoolRoot) {
+        rootItem->setData(0, kIsPoolRootRole, true);
         rootItem->setIcon(0, treeStandardIcon(QStyle::SP_DriveHDIcon));
         for (const QString& rootName : poolInfo->rootObjectNames) {
             const auto it = poolInfo->objectsByFullName.constFind(rootName);

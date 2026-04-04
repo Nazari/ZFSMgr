@@ -783,6 +783,14 @@ void MainWindow::finishPendingApplyAnimation() {
     }
 }
 
+int MainWindow::propColumnCountForTree(const QTreeWidget* tree) const {
+    if (!tree) {
+        return qBound(4, m_connPropColumnsSetting, 16);
+    }
+    const QVariant prop = tree->property("propColumnsSetting");
+    return prop.isValid() ? qBound(4, prop.toInt(), 16) : qBound(4, m_connPropColumnsSetting, 16);
+}
+
 void MainWindow::installConnContentTreeHeaderContextMenu(QTreeWidget* tree) {
     if (!tree || !tree->header()) {
         return;
@@ -810,11 +818,12 @@ void MainWindow::installConnContentTreeHeaderContextMenu(QTreeWidget* tree) {
                 QStringLiteral("Columnas de propiedades")));
         auto* propColsGroup = new QActionGroup(&menu);
         propColsGroup->setExclusive(true);
+        const int currentCols = propColumnCountForTree(tree);
         for (int cols = 4; cols <= 16; cols += 2) {
             QAction* act = propColsMenu->addAction(QString::number(cols));
             act->setCheckable(true);
             act->setData(cols);
-            if (cols == qBound(4, m_connPropColumnsSetting, 16)) {
+            if (cols == currentCols) {
                 act->setChecked(true);
             }
             propColsGroup->addAction(act);
@@ -843,18 +852,18 @@ void MainWindow::installConnContentTreeHeaderContextMenu(QTreeWidget* tree) {
             }
             int bounded = qBound(4, cols, 16);
             if ((bounded % 2) != 0) ++bounded;
-            if (bounded == m_connPropColumnsSetting) return;
-            m_connPropColumnsSetting = bounded;
-            saveUiSettings();
-            appLog(QStringLiteral("INFO"),
-                   QStringLiteral("Columnas de propiedades: %1").arg(m_connPropColumnsSetting));
-            const QString token = connContentTokenForTree(m_connContentTree);
-            if (m_connContentTree) {
-                syncConnContentPropertyColumnsFor(m_connContentTree, token);
-                syncConnContentPoolColumnsFor(m_connContentTree, token);
-                resizeTreeColumnsToVisibleContent(m_connContentTree);
+            if (bounded == currentCols) return;
+            tree->setProperty("propColumnsSetting", bounded);
+            if (tree == m_connContentTree) {
+                m_connPropColumnsSetting = bounded;
+                saveUiSettings();
             }
-            rebuildAllSplitTrees();
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("Columnas de propiedades: %1").arg(bounded));
+            const QString token = connContentTokenForTree(tree);
+            syncConnContentPropertyColumnsFor(tree, token);
+            syncConnContentPoolColumnsFor(tree, token);
+            resizeTreeColumnsToVisibleContent(tree);
         }
     });
 }
@@ -908,6 +917,7 @@ void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, int connId
         layout->insertWidget(qMax(0, idx), m_connContentTreeSplitter, stretch);
     }
     if (m_connContentTreeSplitter) {
+        m_connContentTreeSplitter->setOrientation(orientation);
         m_connContentTreeSplitter->addWidget(splitWidget);
     }
 

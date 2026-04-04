@@ -572,6 +572,7 @@ private:
     void syncConnectionDisplaySelectors();
     void applyConnectionDisplayMode(int connIdx, const QString& mode);
     void resizeTreeColumnsToVisibleContent(QTreeWidget* tree);
+    int propColumnCountForTree(const QTreeWidget* tree) const;
     void syncConnContentPropertyColumns(QTreeWidget* tree);
     void syncConnContentPropertyColumnsFor(QTreeWidget* tree, const QString& token);
     void syncConnContentPropertyColumns();
