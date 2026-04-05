@@ -4866,293 +4866,69 @@ void MainWindow::appendSplitDatasetTree(QTreeWidget* tree, int connIdx,
     if (!tree || connIdx < 0 || connIdx >= m_profiles.size() || poolName.trimmed().isEmpty()) {
         return;
     }
-    PoolInfo* poolInfo = findPoolInfo(connIdx, poolName);
-    if (!poolInfo) {
-        return;
-    }
+
     const QString trimmedRoot = rootDataset.trimmed();
     const QString trimmedPool = poolName.trimmed();
-    const bool showAutoSnaps = showAutomaticSnapshots();
-    const QString stableId = connStableIdForIndex(connIdx);
-    const QString poolGuid = poolInfo->key.poolGuid.trimmed();
-
-    auto objectGuidFromCache = [this, connIdx, &poolName](const QString& name) -> QString {
-        const QVector<DatasetPropCacheRow> rows =
-            datasetPropertyRowsFromModelOrCache(connIdx, poolName, name);
-        for (const DatasetPropCacheRow& r : rows) {
-            if (r.prop.trimmed().compare(QStringLiteral("guid"), Qt::CaseInsensitive) == 0) {
-                return r.value.trimmed();
-            }
-        }
-        return QString();
-    };
-
-    auto addSnapshotItem = [&](QTreeWidgetItem* parent, const QString& snapName,
-                                const QString& datasetFullName, const QString& datasetGuid) {
-        if (!parent || snapName.trimmed().isEmpty()) {
-            return;
-        }
-        auto* snapItem = new QTreeWidgetItem(parent);
-        snapItem->setText(0, snapName);
-        snapItem->setIcon(0, treeStandardIcon(QStyle::SP_FileIcon));
-        snapItem->setData(0, Qt::UserRole, datasetFullName);
-        snapItem->setData(1, Qt::UserRole, snapName);
-        snapItem->setData(0, kConnSnapshotItemRole, true);
-        snapItem->setData(0, kConnIdxRole, connIdx);
-        snapItem->setData(0, kPoolNameRole, poolName);
-        snapItem->setData(0, kConnConnectionStableIdRole, stableId);
-        snapItem->setData(0, kConnPoolGuidRole, poolGuid);
-        snapItem->setData(0, kConnDatasetGuidRole, datasetGuid);
-        const QString fullSnap = QStringLiteral("%1@%2").arg(datasetFullName, snapName.trimmed());
-        QString snapGuid;
-        const auto itSnap = poolInfo->objectsByFullName.constFind(fullSnap);
-        if (itSnap != poolInfo->objectsByFullName.cend()) {
-            snapGuid = itSnap->runtime.properties.value(QStringLiteral("guid")).trimmed();
-        }
-        if (snapGuid.isEmpty()) {
-            snapGuid = objectGuidFromCache(fullSnap);
-        }
-        snapItem->setData(0, kConnSnapshotGuidRole, snapGuid);
-        snapItem->setFlags(snapItem->flags() & ~Qt::ItemIsUserCheckable);
-    };
-
-    std::function<QTreeWidgetItem*(const DSInfo&)> buildItem;
-    buildItem = [&](const DSInfo& dsInfo) -> QTreeWidgetItem* {
-        const QString fullName = dsInfo.key.fullName.trimmed();
-        const QString displayName = fullName.contains('/') ? fullName.section('/', -1, -1) : fullName;
-        auto* item = new QTreeWidgetItem();
-        item->setText(0, QStringLiteral("Dataset %1").arg(displayName));
-        item->setIcon(0, treeStandardIcon(QStyle::SP_DirIcon));
-        {
-            QFont f = item->font(0);
-            f.setBold(true);
-            item->setFont(0, f);
-        }
-        QStringList snaps = dsInfo.runtime.directSnapshots;
-        if (!showAutoSnaps) {
-            QStringList filtered;
-            for (const QString& s : snaps) {
-                if (!isAutomaticGsaSnapshotName(s)) {
-                    filtered.push_back(s);
-                }
-            }
-            snaps = filtered;
-        }
-        item->setData(0, Qt::UserRole, fullName);
-        item->setData(0, kConnIdxRole, connIdx);
-        item->setData(0, kPoolNameRole, poolName);
-        item->setData(0, kConnConnectionStableIdRole, stableId);
-        item->setData(0, kConnPoolGuidRole, poolGuid);
-        QString dsGuid = dsInfo.runtime.properties.value(QStringLiteral("guid")).trimmed();
-        if (dsGuid.isEmpty()) {
-            dsGuid = objectGuidFromCache(fullName);
-        }
-        item->setData(0, kConnDatasetGuidRole, dsGuid);
-        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-        const QString mounted = dsInfo.runtime.properties.value(QStringLiteral("mounted")).trimmed().toLower();
-        const bool isMounted = (mounted == QStringLiteral("yes") || mounted == QStringLiteral("on")
-                                || mounted == QStringLiteral("true") || mounted == QStringLiteral("1"));
-        item->setCheckState(2, isMounted ? Qt::Checked : Qt::Unchecked);
-        const QString mountpoint = dsInfo.runtime.properties.value(QStringLiteral("mountpoint")).trimmed();
-        item->setText(3, effectiveMountPath(connIdx, poolName, fullName, mountpoint, mounted));
-
-        auto* propsNode = new QTreeWidgetItem(item);
-        propsNode->setText(0, QStringLiteral("Dataset properties"));
-        propsNode->setIcon(0, treeStandardIcon(QStyle::SP_FileDialogDetailedView));
-        propsNode->setData(0, kConnPropGroupNodeRole, true);
-        propsNode->setData(0, kConnPropGroupNameRole, QString());
-        propsNode->setData(0, kConnIdxRole, connIdx);
-        propsNode->setData(0, kPoolNameRole, poolName);
-        propsNode->setFlags(propsNode->flags() & ~Qt::ItemIsUserCheckable);
-
-        const auto& perms = dsInfo.permissionsCache;
-        if (!perms.localGrants.isEmpty() || !perms.descendantGrants.isEmpty()
-            || !perms.localDescendantGrants.isEmpty() || !perms.permissionSets.isEmpty()) {
-            auto* permNode = new QTreeWidgetItem(item);
-            permNode->setText(0, trk(QStringLiteral("t_permissions_node_001"),
-                                     QStringLiteral("Permisos"), QStringLiteral("Permissions"),
-                                     QStringLiteral("权限")));
-            permNode->setIcon(0, treeStandardIcon(QStyle::SP_DialogYesButton));
-            permNode->setData(0, kConnPermissionsNodeRole, true);
-            permNode->setData(0, kConnPermissionsKindRole, QStringLiteral("root"));
-            permNode->setData(0, kConnIdxRole, connIdx);
-            permNode->setData(0, kPoolNameRole, poolName);
-            permNode->setFlags(permNode->flags() & ~Qt::ItemIsUserCheckable);
-        }
-
-        if (!snaps.isEmpty()) {
-            auto* snapsNode = new QTreeWidgetItem(item);
-            snapsNode->setText(0, QStringLiteral("@"));
-            snapsNode->setIcon(0, snapshotsNodeIcon());
-            snapsNode->setData(0, kConnContentNodeRole, true);
-            snapsNode->setData(0, kConnSnapshotsNodeRole, true);
-            snapsNode->setData(0, kConnIdxRole, connIdx);
-            snapsNode->setData(0, kPoolNameRole, poolName);
-            snapsNode->setData(0, kConnConnectionStableIdRole, stableId);
-            snapsNode->setData(0, kConnPoolGuidRole, poolGuid);
-            snapsNode->setFlags(snapsNode->flags() & ~Qt::ItemIsUserCheckable);
-
-            QStringList manualSnaps;
-            QMap<QString, QStringList> gsaByClass;
-            for (const QString& s : snaps) {
-                const QString sn = s.trimmed();
-                if (sn.isEmpty()) continue;
-                const QString klass = gsaSnapshotClassTree(sn);
-                if (klass.isEmpty()) manualSnaps.push_back(sn);
-                else gsaByClass[klass].push_back(sn);
-            }
-            for (const QString& sn : manualSnaps) {
-                addSnapshotItem(snapsNode, sn, fullName, dsGuid);
-            }
-            auto addGsaGroup = [&](const QString& klass, const QString& label) {
-                const QStringList grouped = gsaByClass.value(klass);
-                if (grouped.isEmpty()) return;
-                auto* groupNode = new QTreeWidgetItem(snapsNode);
-                groupNode->setText(0, label);
-                groupNode->setIcon(0, treeStandardIcon(QStyle::SP_DirIcon));
-                groupNode->setData(0, kConnContentNodeRole, true);
-                groupNode->setData(0, kConnSnapshotGroupNodeRole, true);
-                groupNode->setData(0, kConnSnapshotGroupIdRole, klass);
-                groupNode->setData(0, kConnIdxRole, connIdx);
-                groupNode->setData(0, kPoolNameRole, poolName);
-                groupNode->setData(0, kConnConnectionStableIdRole, stableId);
-                groupNode->setData(0, kConnPoolGuidRole, poolGuid);
-                groupNode->setFlags(groupNode->flags() & ~Qt::ItemIsUserCheckable);
-                for (const QString& sn : grouped) addSnapshotItem(groupNode, sn, fullName, dsGuid);
-            };
-            addGsaGroup(QStringLiteral("hourly"),
-                        trk(QStringLiteral("t_ctx_snap_group_hourly"), QStringLiteral("Horarios"),
-                            QStringLiteral("Hourly"), QStringLiteral("每小时")));
-            addGsaGroup(QStringLiteral("daily"),
-                        trk(QStringLiteral("t_ctx_snap_group_daily"), QStringLiteral("Diarios"),
-                            QStringLiteral("Daily"), QStringLiteral("每日")));
-            addGsaGroup(QStringLiteral("weekly"),
-                        trk(QStringLiteral("t_ctx_snap_group_weekly"), QStringLiteral("Semanales"),
-                            QStringLiteral("Weekly"), QStringLiteral("每周")));
-            addGsaGroup(QStringLiteral("monthly"),
-                        trk(QStringLiteral("t_ctx_snap_group_monthly"), QStringLiteral("Mensuales"),
-                            QStringLiteral("Monthly"), QStringLiteral("每月")));
-            addGsaGroup(QStringLiteral("yearly"),
-                        trk(QStringLiteral("t_ctx_snap_group_yearly"), QStringLiteral("Anuales"),
-                            QStringLiteral("Yearly"), QStringLiteral("每年")));
-            for (auto it = gsaByClass.cbegin(); it != gsaByClass.cend(); ++it) {
-                const QString klass = it.key();
-                if (klass == QStringLiteral("hourly") || klass == QStringLiteral("daily")
-                    || klass == QStringLiteral("weekly") || klass == QStringLiteral("monthly")
-                    || klass == QStringLiteral("yearly")) {
-                    continue;
-                }
-                auto* groupNode = new QTreeWidgetItem(snapsNode);
-                groupNode->setText(0, klass);
-                groupNode->setIcon(0, treeStandardIcon(QStyle::SP_DirIcon));
-                groupNode->setData(0, kConnContentNodeRole, true);
-                groupNode->setData(0, kConnSnapshotGroupNodeRole, true);
-                groupNode->setData(0, kConnSnapshotGroupIdRole, klass);
-                groupNode->setData(0, kConnIdxRole, connIdx);
-                groupNode->setData(0, kPoolNameRole, poolName);
-                groupNode->setFlags(groupNode->flags() & ~Qt::ItemIsUserCheckable);
-                for (const QString& sn : it.value()) addSnapshotItem(groupNode, sn, fullName, dsGuid);
-            }
-        }
-
-        for (const QString& childName : dsInfo.childFullNames) {
-            const auto it = poolInfo->objectsByFullName.constFind(childName);
-            if (it == poolInfo->objectsByFullName.cend() || it->kind == DSKind::Snapshot) {
-                continue;
-            }
-            item->addChild(buildItem(it.value()));
-        }
-        return item;
-    };
-
-    // Create the synthetic root item
-    auto* rootItem = new QTreeWidgetItem();
-    rootItem->setText(0, displayRoot);
-    rootItem->setData(0, kIsSplitRootRole, true);
-    rootItem->setData(0, kConnIdxRole, connIdx);
-    rootItem->setData(0, kPoolNameRole, poolName);
-    rootItem->setData(0, kConnConnectionStableIdRole, stableId);
-    rootItem->setData(0, kConnPoolGuidRole, poolGuid);
-    rootItem->setFlags(rootItem->flags() & ~Qt::ItemIsUserCheckable);
-    {
-        QFont f = rootItem->font(0);
-        f.setBold(true);
-        rootItem->setFont(0, f);
-    }
-
     const bool isPoolRoot = (trimmedRoot.compare(trimmedPool, Qt::CaseInsensitive) == 0);
+
+    // Build using the same code path as the main tree so node structure is identical
+    const DatasetTreeRenderOptions opts =
+        datasetTreeRenderOptionsForTree(tree, DatasetTreeContext::ConnectionContent);
+    appendDatasetTreeForPool(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, opts,
+                             false);
+
     if (isPoolRoot) {
-        rootItem->setData(0, kIsPoolRootRole, true);
-        rootItem->setIcon(0, treeStandardIcon(QStyle::SP_DriveHDIcon));
-        const bool poolImported = [&]() -> bool {
-            if (connIdx < 0 || connIdx >= m_states.size()) {
-                return false;
-            }
-            for (const PoolImported& p : m_states[connIdx].importedPools) {
-                if (p.pool.trimmed() == trimmedPool) {
-                    return true;
-                }
-            }
-            return false;
-        }();
-        if (poolImported) {
-            auto* infoNode = new QTreeWidgetItem(rootItem);
-            infoNode->setData(0, kConnPropKeyRole, QString::fromLatin1(kPoolBlockInfoKey));
-            infoNode->setFlags(infoNode->flags() & ~Qt::ItemIsUserCheckable);
-            infoNode->setText(0, QStringLiteral("Pool Information"));
-            infoNode->setIcon(0, treeStandardIcon(QStyle::SP_MessageBoxInformation));
-        }
-        for (const QString& rootName : poolInfo->rootObjectNames) {
-            const auto it = poolInfo->objectsByFullName.constFind(rootName);
-            if (it == poolInfo->objectsByFullName.cend() || it->kind == DSKind::Snapshot) {
-                continue;
-            }
-            if (it->key.fullName.trimmed().compare(trimmedPool, Qt::CaseInsensitive) == 0) {
-                // Merge root dataset data into rootItem
-                rootItem->setFlags(rootItem->flags() | Qt::ItemIsUserCheckable);
-                rootItem->setData(0, Qt::UserRole, it->key.fullName.trimmed());
-                const QString dsGuid = it->runtime.properties.value(QStringLiteral("guid")).trimmed();
-                rootItem->setData(0, kConnDatasetGuidRole,
-                                  dsGuid.isEmpty() ? objectGuidFromCache(it->key.fullName.trimmed()) : dsGuid);
-                const QString mounted = it->runtime.properties.value(QStringLiteral("mounted")).trimmed().toLower();
-                rootItem->setCheckState(2, (mounted == QStringLiteral("yes") || mounted == QStringLiteral("on"))
-                                             ? Qt::Checked : Qt::Unchecked);
-                QTreeWidgetItem* tmp = buildItem(it.value());
-                while (tmp->childCount() > 0) {
-                    rootItem->addChild(tmp->takeChild(0));
-                }
-                delete tmp;
-            } else {
-                rootItem->addChild(buildItem(it.value()));
+        // Find the pool root item and mark/rename it as split root
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* item = tree->topLevelItem(i);
+            if (item->data(0, kIsPoolRootRole).toBool()) {
+                item->setData(0, kIsSplitRootRole, true);
+                item->setText(0, displayRoot);
+                break;
             }
         }
     } else {
-        rootItem->setIcon(0, treeStandardIcon(QStyle::SP_DirIcon));
-        const auto it = poolInfo->objectsByFullName.constFind(trimmedRoot);
-        if (it != poolInfo->objectsByFullName.cend() && it->kind != DSKind::Snapshot) {
-            const DSInfo& dsInfo = it.value();
-            rootItem->setFlags(rootItem->flags() | Qt::ItemIsUserCheckable);
-            rootItem->setData(0, Qt::UserRole, trimmedRoot);
-            const QString dsGuid = dsInfo.runtime.properties.value(QStringLiteral("guid")).trimmed();
-            rootItem->setData(0, kConnDatasetGuidRole,
-                              dsGuid.isEmpty() ? objectGuidFromCache(trimmedRoot) : dsGuid);
-            const QString mounted = dsInfo.runtime.properties.value(QStringLiteral("mounted")).trimmed().toLower();
-            rootItem->setCheckState(2, (mounted == QStringLiteral("yes") || mounted == QStringLiteral("on"))
-                                         ? Qt::Checked : Qt::Unchecked);
-            const QString mountpoint = dsInfo.runtime.properties.value(QStringLiteral("mountpoint")).trimmed();
-            rootItem->setText(3, effectiveMountPath(connIdx, poolName, trimmedRoot, mountpoint, mounted));
-            for (const QString& childName : dsInfo.childFullNames) {
-                const auto childIt = poolInfo->objectsByFullName.constFind(childName);
-                if (childIt == poolInfo->objectsByFullName.cend() || childIt->kind == DSKind::Snapshot) {
-                    continue;
+        // Dataset-rooted: find the matching dataset item and promote it to top level
+        std::function<QTreeWidgetItem*(QTreeWidgetItem*)> findDataset;
+        findDataset = [&](QTreeWidgetItem* parent) -> QTreeWidgetItem* {
+            for (int i = 0; i < parent->childCount(); ++i) {
+                QTreeWidgetItem* child = parent->child(i);
+                if (child->data(0, Qt::UserRole).toString().trimmed().compare(
+                        trimmedRoot, Qt::CaseInsensitive) == 0) {
+                    return child;
                 }
-                rootItem->addChild(buildItem(childIt.value()));
+                if (QTreeWidgetItem* found = findDataset(child)) {
+                    return found;
+                }
+            }
+            return nullptr;
+        };
+
+        QTreeWidgetItem* datasetItem = nullptr;
+        for (int i = 0; i < tree->topLevelItemCount() && !datasetItem; ++i) {
+            QTreeWidgetItem* top = tree->topLevelItem(i);
+            if (top->data(0, Qt::UserRole).toString().trimmed().compare(
+                    trimmedRoot, Qt::CaseInsensitive) == 0) {
+                datasetItem = top;
+            } else {
+                datasetItem = findDataset(top);
             }
         }
-    }
 
-    tree->addTopLevelItem(rootItem);
-    rootItem->setExpanded(true);
+        if (datasetItem) {
+            // Detach from parent before clearing the tree
+            if (QTreeWidgetItem* parent = datasetItem->parent()) {
+                parent->takeChild(parent->indexOfChild(datasetItem));
+            } else {
+                tree->takeTopLevelItem(tree->indexOfTopLevelItem(datasetItem));
+            }
+            datasetItem->setData(0, kIsSplitRootRole, true);
+            datasetItem->setText(0, displayRoot);
+            tree->clear();
+            tree->addTopLevelItem(datasetItem);
+            datasetItem->setExpanded(true);
+        }
+    }
 }
 
 void MainWindow::attachDatasetTreeSnapshotCombos(QTreeWidget* tree, DatasetTreeContext side) {
