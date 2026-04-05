@@ -394,15 +394,54 @@ target_dataset_has_snapshots() {
   fi
 }
 
-target_has_snapshot_name() {
+snapshot_guid_local() {
+  snap_full="$1"
+  [ -n "$snap_full" ] || return 1
+  zfs get -H -o value guid "$snap_full" 2>/dev/null | head -n 1 | tr -d '\r'
+}
+
+target_snapshot_guid() {
   target_snap_ds="$1"
   target_snap_name="$2"
   [ -n "$target_snap_name" ] || return 1
+  target_full="${target_snap_ds}@${target_snap_name}"
   if [ "$TARGET_MODE" = "local" ]; then
-    zfs list -H -t snapshot -o name "${target_snap_ds}@${target_snap_name}" >/dev/null 2>&1
+    snapshot_guid_local "$target_full"
   else
-    run_via_target_ssh "zfs list -H -t snapshot -o name $(shq "${target_snap_ds}@${target_snap_name}") >/dev/null 2>&1"
+    run_via_target_ssh "zfs get -H -o value guid $(shq "$target_full") 2>/dev/null | head -n 1 | tr -d '\r'"
   fi
+}
+
+target_has_snapshot_guid() {
+  target_guid_ds="$1"
+  wanted_guid="$2"
+  [ -n "$wanted_guid" ] || return 1
+  list_target_snapshots "$target_guid_ds" | while IFS= read -r snap_full; do
+    [ -n "$snap_full" ] || continue
+    snap_name="${snap_full#${target_guid_ds}@}"
+    snap_guid="$(target_snapshot_guid "$target_guid_ds" "$snap_name" | tr -d '\r')"
+    [ -n "$snap_guid" ] || continue
+    if [ "$snap_guid" = "$wanted_guid" ]; then
+      printf '1\n'
+      break
+    fi
+  done | grep -q '^1$'
+}
+
+source_snapshot_name_by_guid() {
+  source_guid_ds="$1"
+  wanted_guid="$2"
+  [ -n "$wanted_guid" ] || return 1
+  zfs list -H -t snapshot -o name -s creation -d 1 "$source_guid_ds" 2>/dev/null | while IFS= read -r snap_full; do
+    [ -n "$snap_full" ] || continue
+    snap_name="${snap_full#${source_guid_ds}@}"
+    snap_guid="$(snapshot_guid_local "$snap_full" | tr -d '\r')"
+    [ -n "$snap_guid" ] || continue
+    if [ "$snap_guid" = "$wanted_guid" ]; then
+      printf '%s\n' "$snap_name"
+      break
+    fi
+  done
 }
 
 due_classes() {
@@ -499,15 +538,22 @@ level_snapshot() {
     target_exists='1'
   fi
   base_snap=''
+  base_snap_guid=''
+  source_base_snap=''
   recv_opts='-u'
   send_opts='-wLec'
   if bool_on "$recursive"; then
     recv_opts='-u -s'
     send_opts='-wLecR'
   fi
+  current_snap_guid="$(snapshot_guid_local "${src_ds}@${snap_name}" | tr -d '\r')"
+  if [ -z "$current_snap_guid" ]; then
+    log "GSA level skip for $src_ds: no se pudo obtener guid de snapshot origen ${src_ds}@${snap_name}"
+    return 0
+  fi
   if [ "$target_exists" = "1" ] && target_dataset_has_snapshots "$dst_dataset"; then
-    if target_has_snapshot_name "$dst_dataset" "$snap_name"; then
-      log "GSA level skip for $src_ds: destination snapshot $dst_dataset@$snap_name already exists"
+    if target_has_snapshot_guid "$dst_dataset" "$current_snap_guid"; then
+      log "GSA level skip for $src_ds: destination already has snapshot guid=$current_snap_guid"
       return 0
     fi
     base_snap="$(latest_target_snapshot "$dst_dataset")"
@@ -522,8 +568,14 @@ level_snapshot() {
         return 1
         ;;
     esac
-    if ! source_has_snapshot "$src_ds" "$base_snap"; then
-      log "GSA level skip for $src_ds: latest destination snapshot $dst_dataset@$base_snap does not exist in source"
+    base_snap_guid="$(target_snapshot_guid "$dst_dataset" "$base_snap" | tr -d '\r')"
+    if [ -z "$base_snap_guid" ]; then
+      log "GSA level skip for $src_ds: no se pudo obtener guid del último snapshot destino ($dst_dataset@$base_snap)"
+      return 0
+    fi
+    source_base_snap="$(source_snapshot_name_by_guid "$src_ds" "$base_snap_guid" | head -n 1 | tr -d '\r')"
+    if [ -z "$source_base_snap" ]; then
+      log "GSA level skip for $src_ds: latest destination snapshot guid=$base_snap_guid does not exist in source"
       return 0
     fi
     recv_opts='-u -F'
@@ -533,8 +585,8 @@ level_snapshot() {
   fi
   recv_cmd="$(build_target_recv_command "$dst_dataset" "$recv_opts")"
   if [ "$TARGET_MODE" = "local" ]; then
-    if [ -n "$base_snap" ]; then
-      zfs send ${send_opts} -i "@${base_snap}" "${src_ds}@${snap_name}" | sh -lc "$recv_cmd"
+    if [ -n "$source_base_snap" ]; then
+      zfs send ${send_opts} -i "@${source_base_snap}" "${src_ds}@${snap_name}" | sh -lc "$recv_cmd"
     else
       zfs send ${send_opts} "${src_ds}@${snap_name}" | sh -lc "$recv_cmd"
     fi
@@ -543,8 +595,8 @@ level_snapshot() {
       log "GSA level skip for $src_ds: SSH no disponible hacia $dst_conn"
       return 0
     fi
-    if [ -n "$base_snap" ]; then
-      zfs send ${send_opts} -i "@${base_snap}" "${src_ds}@${snap_name}" | run_via_target_ssh "$recv_cmd"
+    if [ -n "$source_base_snap" ]; then
+      zfs send ${send_opts} -i "@${source_base_snap}" "${src_ds}@${snap_name}" | run_via_target_ssh "$recv_cmd"
     else
       zfs send ${send_opts} "${src_ds}@${snap_name}" | run_via_target_ssh "$recv_cmd"
     fi
@@ -770,24 +822,44 @@ function Get-LatestTargetSnapshot([string]$DstDataset) {
   return $snaps[-1]
 }
 
-function Test-SourceHasSnapshot([string]$SrcDataset, [string]$SnapName) {
-  if ([string]::IsNullOrWhiteSpace($SnapName)) { return $false }
+function Get-SnapshotGuid([string]$SnapshotFullName) {
+  if ([string]::IsNullOrWhiteSpace($SnapshotFullName)) { return '' }
   try {
-    & zfs list -H -t snapshot -o name "$SrcDataset@$SnapName" | Out-Null
-    return $true
+    return ((& zfs get -H -o value guid $SnapshotFullName 2>$null) | Select-Object -First 1).Trim()
   } catch {
-    return $false
+    return ''
   }
 }
 
-function Test-TargetHasSnapshotName([string]$DstDataset, [string]$SnapName) {
-  if ([string]::IsNullOrWhiteSpace($SnapName)) { return $false }
-  try {
-    & zfs list -H -t snapshot -o name "$DstDataset@$SnapName" | Out-Null
-    return $true
-  } catch {
-    return $false
+function Get-TargetSnapshotGuid([string]$DstDataset, [string]$SnapName) {
+  if ([string]::IsNullOrWhiteSpace($DstDataset) -or [string]::IsNullOrWhiteSpace($SnapName)) { return '' }
+  return Get-SnapshotGuid "$DstDataset@$SnapName"
+}
+
+function Test-TargetHasSnapshotGuid([string]$DstDataset, [string]$Guid) {
+  if ([string]::IsNullOrWhiteSpace($DstDataset) -or [string]::IsNullOrWhiteSpace($Guid)) { return $false }
+  $snaps = @((& zfs list -H -t snapshot -o name -s creation -d 1 $DstDataset 2>$null) |
+    Where-Object { $_ -like "$DstDataset@*" })
+  foreach ($snapFull in $snaps) {
+    $g = Get-SnapshotGuid $snapFull
+    if ([string]::IsNullOrWhiteSpace($g)) { continue }
+    if ($g -eq $Guid) { return $true }
   }
+  return $false
+}
+
+function Find-SourceSnapshotNameByGuid([string]$SrcDataset, [string]$Guid) {
+  if ([string]::IsNullOrWhiteSpace($SrcDataset) -or [string]::IsNullOrWhiteSpace($Guid)) { return $null }
+  $snaps = @((& zfs list -H -t snapshot -o name -s creation -d 1 $SrcDataset 2>$null) |
+    Where-Object { $_ -like "$SrcDataset@*" })
+  foreach ($snapFull in $snaps) {
+    $g = Get-SnapshotGuid $snapFull
+    if ([string]::IsNullOrWhiteSpace($g)) { continue }
+    if ($g -eq $Guid) {
+      return $snapFull.Substring($SrcDataset.Length + 1)
+    }
+  }
+  return $null
 }
 
 function Invoke-GsaLevel([string]$SrcDataset, [bool]$Recursive, [string]$SnapName, [string]$DestSpec, [bool]$LevelOn) {
@@ -803,8 +875,15 @@ function Invoke-GsaLevel([string]$SrcDataset, [bool]$Recursive, [string]$SnapNam
     $targetExists = $false
   }
   $baseSnap = $null
+  $baseSnapGuid = $null
+  $sourceBaseSnap = $null
   $recvOpts = if ($Recursive) { "-u -s" } else { "-u" }
   $sendOpts = if ($Recursive) { "-wLecR" } else { "-wLec" }
+  $currentSnapGuid = Get-SnapshotGuid "$SrcDataset@$SnapName"
+  if ([string]::IsNullOrWhiteSpace($currentSnapGuid)) {
+    Write-GsaLog ("GSA level skip for " + $SrcDataset + ": no se pudo obtener guid de snapshot origen " + $SrcDataset + "@" + $SnapName)
+    return
+  }
   if ($targetExists) {
     $dstHasSnapshots = $false
     try {
@@ -813,8 +892,8 @@ function Invoke-GsaLevel([string]$SrcDataset, [bool]$Recursive, [string]$SnapNam
       $dstHasSnapshots = $false
     }
     if ($dstHasSnapshots) {
-      if (Test-TargetHasSnapshotName $DstDataset $SnapName) {
-        Write-GsaLog ("GSA level skip for " + $SrcDataset + ": destination snapshot " + $DstDataset + "@" + $SnapName + " already exists")
+      if (Test-TargetHasSnapshotGuid $DstDataset $currentSnapGuid) {
+        Write-GsaLog ("GSA level skip for " + $SrcDataset + ": destination already has snapshot guid=" + $currentSnapGuid)
         return
       }
       $baseSnap = Get-LatestTargetSnapshot $DstDataset
@@ -826,16 +905,22 @@ function Invoke-GsaLevel([string]$SrcDataset, [bool]$Recursive, [string]$SnapNam
         Write-GsaLog ("GSA level error for " + $SrcDataset + ": Destino tiene snapshots manuales (" + $DstDataset + "@" + $baseSnap + ")")
         throw "Destino tiene snapshots manuales"
       }
-      if (-not (Test-SourceHasSnapshot $SrcDataset $baseSnap)) {
-        Write-GsaLog ("GSA level skip for " + $SrcDataset + ": latest destination snapshot " + $DstDataset + "@" + $baseSnap + " does not exist in source")
+      $baseSnapGuid = Get-TargetSnapshotGuid $DstDataset $baseSnap
+      if ([string]::IsNullOrWhiteSpace($baseSnapGuid)) {
+        Write-GsaLog ("GSA level skip for " + $SrcDataset + ": no se pudo obtener guid del último snapshot destino (" + $DstDataset + "@" + $baseSnap + ")")
+        return
+      }
+      $sourceBaseSnap = Find-SourceSnapshotNameByGuid $SrcDataset $baseSnapGuid
+      if ([string]::IsNullOrWhiteSpace($sourceBaseSnap)) {
+        Write-GsaLog ("GSA level skip for " + $SrcDataset + ": latest destination snapshot guid=" + $baseSnapGuid + " does not exist in source")
         return
       }
       $recvOpts = if ($Recursive) { "-u -s -F" } else { "-u -F" }
     }
   }
   $recvCmd = "zfs recv $recvOpts '$DstDataset'"
-  if ($baseSnap) {
-    & powershell -NoProfile -Command "& zfs send $sendOpts -i '@$baseSnap' '$SrcDataset@$SnapName' | $recvCmd" | Out-Null
+  if ($sourceBaseSnap) {
+    & powershell -NoProfile -Command "& zfs send $sendOpts -i '@$sourceBaseSnap' '$SrcDataset@$SnapName' | $recvCmd" | Out-Null
   } else {
     & powershell -NoProfile -Command "& zfs send $sendOpts '$SrcDataset@$SnapName' | $recvCmd" | Out-Null
   }
