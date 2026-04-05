@@ -738,6 +738,55 @@ void MainWindow::actionLevelSnapshot() {
     }
     const QStringList srcSnaps = datasetSnapshotsFromModel(src.connIdx, src.poolName, src.datasetName);
     const QStringList dstSnaps = datasetSnapshotsFromModel(dst.connIdx, dst.poolName, dst.datasetName);
+    const QString srcCacheKey = datasetCacheKey(src.connIdx, src.poolName);
+    const QString dstCacheKey = datasetCacheKey(dst.connIdx, dst.poolName);
+    const auto srcCacheIt = m_poolDatasetCache.constFind(srcCacheKey);
+    const auto dstCacheIt = m_poolDatasetCache.constFind(dstCacheKey);
+    if (srcCacheIt == m_poolDatasetCache.constEnd() || dstCacheIt == m_poolDatasetCache.constEnd()
+        || !srcCacheIt->loaded || !dstCacheIt->loaded) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             trk(QStringLiteral("t_level_load_sn01"),
+                                 QStringLiteral("No se pudieron cargar snapshots para Nivelar."),
+                                 QStringLiteral("Could not load snapshots for Level."),
+                                 QStringLiteral("无法加载用于同步快照的快照列表。")));
+        return;
+    }
+
+    auto snapshotGuidFor = [this](int connIdx,
+                                  const QString& poolName,
+                                  const PoolDatasetCache& cache,
+                                  const QString& datasetName,
+                                  const QString& snapName) {
+        const QString key = QStringLiteral("%1@%2").arg(datasetName.trimmed(), snapName.trimmed());
+        QString guid = cache.objectGuidByName.value(key).trimmed();
+        if (!guid.isEmpty() && guid != QStringLiteral("-")) {
+            return guid;
+        }
+        QString loaded;
+        if (ensureObjectGuidLoaded(connIdx, poolName, key, &loaded)) {
+            return loaded.trimmed();
+        }
+        return QString();
+    };
+    auto findSnapshotNameByGuid = [&](const PoolDatasetCache& cache,
+                                      int connIdx,
+                                      const QString& poolName,
+                                      const QString& datasetName,
+                                      const QStringList& orderedSnaps,
+                                      const QString& guid) -> QString {
+        const QString g = guid.trimmed();
+        if (g.isEmpty()) {
+            return QString();
+        }
+        for (const QString& snapName : orderedSnaps) {
+            const QString snapGuid = snapshotGuidFor(connIdx, poolName, cache, datasetName, snapName);
+            if (!snapGuid.isEmpty() && snapGuid == g) {
+                return snapName;
+            }
+        }
+        return QString();
+    };
+
     if (srcSnaps.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_level_no_src01"),
@@ -765,40 +814,67 @@ void MainWindow::actionLevelSnapshot() {
                                  QStringLiteral("目标快照（%1）在源端不存在。").arg(targetSnapName)));
         return;
     }
+    const QString targetGuid = snapshotGuidFor(src.connIdx, src.poolName, *srcCacheIt, src.datasetName, targetSnapName);
+    if (targetGuid.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             trk(QStringLiteral("t_level_guid_missing_target_001"),
+                                 QStringLiteral("No se pudo obtener el GUID del snapshot objetivo (%1).\nNo se permite comparar por nombre.")
+                                     .arg(targetSnapName),
+                                 QStringLiteral("Could not resolve GUID for target snapshot (%1).\nName-based comparison is not allowed.")
+                                     .arg(targetSnapName),
+                                 QStringLiteral("无法获取目标快照（%1）的 GUID。\n不允许按名称比较。")
+                                     .arg(targetSnapName)));
+        return;
+    }
 
     const QString dstLatestSnap = dstSnaps.first();
-    const int baseIdxInSrc = srcSnaps.indexOf(dstLatestSnap);
-    if (baseIdxInSrc < 0) {
+    const QString dstLatestGuid = snapshotGuidFor(dst.connIdx, dst.poolName, *dstCacheIt, dst.datasetName, dstLatestSnap);
+    if (dstLatestGuid.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                             trk(QStringLiteral("t_level_guid_missing_dst_latest_001"),
+                                 QStringLiteral("No se pudo obtener el GUID del snapshot más reciente en destino (%1).\nNo se permite comparar por nombre.")
+                                     .arg(dstLatestSnap),
+                                 QStringLiteral("Could not resolve GUID for target latest snapshot (%1).\nName-based comparison is not allowed.")
+                                     .arg(dstLatestSnap),
+                                 QStringLiteral("无法获取目标端最新快照（%1）的 GUID。\n不允许按名称比较。")
+                                     .arg(dstLatestSnap)));
+        return;
+    }
+
+    const QString srcBaseSnapByGuid =
+        findSnapshotNameByGuid(*srcCacheIt, src.connIdx, src.poolName, src.datasetName, srcSnaps, dstLatestGuid);
+    const int baseIdxInSrc = srcSnaps.indexOf(srcBaseSnapByGuid);
+    if (baseIdxInSrc < 0 || srcBaseSnapByGuid.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_level_dst_abs01"),
-                                 QStringLiteral("El snapshot más reciente de destino (%1) no existe en origen.\nNo se puede nivelar con diferencial.")
-                                     .arg(dstLatestSnap),
-                                 QStringLiteral("Target latest snapshot (%1) does not exist in source.\nCannot level with differential send.")
-                                     .arg(dstLatestSnap),
-                                 QStringLiteral("目标最新快照（%1）在源端不存在，无法执行增量同步。")
-                                     .arg(dstLatestSnap)));
+                                 QStringLiteral("El snapshot más reciente de destino (guid=%1) no existe en origen.\nNo se puede nivelar con diferencial.")
+                                     .arg(dstLatestGuid),
+                                 QStringLiteral("Target latest snapshot (guid=%1) does not exist in source.\nCannot level with differential send.")
+                                     .arg(dstLatestGuid),
+                                 QStringLiteral("目标最新快照（guid=%1）在源端不存在，无法执行增量同步。")
+                                     .arg(dstLatestGuid)));
         return;
     }
     if (baseIdxInSrc < targetIdxInSrc) {
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_level_dst_new01"),
-                                 QStringLiteral("Destino tiene un snapshot más moderno (%1) que el snapshot objetivo (%2).\nNivelar cancelado.")
-                                     .arg(dstLatestSnap, targetSnapName),
-                                 QStringLiteral("Target has a newer snapshot (%1) than target snapshot to send (%2).\nLevel canceled.")
-                                     .arg(dstLatestSnap, targetSnapName),
-                                 QStringLiteral("目标端存在比要发送目标快照（%2）更“新”的快照（%1），已取消同步。")
-                                     .arg(dstLatestSnap, targetSnapName)));
+                                 QStringLiteral("Destino tiene un snapshot más moderno (guid=%1) que el snapshot objetivo (guid=%2).\nNivelar cancelado.")
+                                     .arg(dstLatestGuid, targetGuid),
+                                 QStringLiteral("Target has a newer snapshot (guid=%1) than target snapshot to send (guid=%2).\nLevel canceled.")
+                                     .arg(dstLatestGuid, targetGuid),
+                                 QStringLiteral("目标端存在比要发送目标快照（guid=%2）更“新”的快照（guid=%1），已取消同步。")
+                                     .arg(dstLatestGuid, targetGuid)));
         return;
     }
     if (baseIdxInSrc == targetIdxInSrc) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_level_already01"),
-                                     QStringLiteral("Destino ya está nivelado en el snapshot objetivo (%1).")
-                                         .arg(targetSnapName),
-                                     QStringLiteral("Target is already leveled at target snapshot (%1).")
-                                         .arg(targetSnapName),
-                                     QStringLiteral("目标已处于目标快照（%1），无需同步。")
-                                         .arg(targetSnapName)));
+                                     QStringLiteral("Destino ya está nivelado en el snapshot objetivo (guid=%1).")
+                                         .arg(targetGuid),
+                                     QStringLiteral("Target is already leveled at target snapshot (guid=%1).")
+                                         .arg(targetGuid),
+                                     QStringLiteral("目标已处于目标快照（guid=%1），无需同步。")
+                                         .arg(targetGuid)));
         return;
     }
 
@@ -819,7 +895,7 @@ void MainWindow::actionLevelSnapshot() {
         }
     }
     const bool sameConnection = (src.connIdx == dst.connIdx);
-    const QString fromSnap = src.datasetName + QStringLiteral("@") + dstLatestSnap;
+    const QString fromSnap = src.datasetName + QStringLiteral("@") + srcBaseSnapByGuid;
     const QString srcSnap = src.datasetName + QStringLiteral("@") + targetSnapName;
     const QString sendRawCmd = QStringLiteral("zfs send -wLecR -I %1 %2").arg(shSingleQuote(fromSnap), shSingleQuote(srcSnap));
     QString sendCmd = withSudo(sp, sendRawCmd);

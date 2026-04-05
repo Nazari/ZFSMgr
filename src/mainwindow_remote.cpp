@@ -838,6 +838,58 @@ bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const Q
     return true;
 }
 
+bool MainWindow::ensureObjectGuidLoaded(int connIdx,
+                                        const QString& poolName,
+                                        const QString& objectName,
+                                        QString* guidOut) {
+    if (guidOut) {
+        guidOut->clear();
+    }
+    const QString trimmedPool = poolName.trimmed();
+    const QString trimmedObject = objectName.trimmed();
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty() || trimmedObject.isEmpty()) {
+        return false;
+    }
+    if (!ensureDatasetsLoaded(connIdx, trimmedPool, true)) {
+        return false;
+    }
+    const QString key = datasetCacheKey(connIdx, trimmedPool);
+    auto cacheIt = m_poolDatasetCache.find(key);
+    if (cacheIt == m_poolDatasetCache.end()) {
+        return false;
+    }
+    QString guid = cacheIt->objectGuidByName.value(trimmedObject).trimmed();
+    if (guid.isEmpty() || guid == QStringLiteral("-")) {
+        const ConnectionProfile& p = m_profiles[connIdx];
+        QString out;
+        QString err;
+        int rc = -1;
+        QString guidCmd = QStringLiteral("zfs get -H -o value guid %1").arg(shSingleQuote(trimmedObject));
+        if (!isWindowsConnection(connIdx)) {
+            guidCmd = mwhelpers::withUnixSearchPathCommand(guidCmd);
+        }
+        guidCmd = withSudo(p, guidCmd);
+        if (!runSsh(p, guidCmd, 15000, out, err, rc) || rc != 0) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("No se pudo cargar GUID de objeto %1::%2/%3 -> %4")
+                       .arg(p.name, trimmedPool, trimmedObject, oneLine(err.isEmpty() ? out : err)));
+            return false;
+        }
+        guid = out.section('\n', 0, 0).trimmed();
+        if (guid.isEmpty() || guid == QStringLiteral("-")) {
+            return false;
+        }
+        cacheIt->objectGuidByName.insert(trimmedObject, guid);
+        if (DSInfo* dsInfo = findDsInfo(connIdx, trimmedPool, trimmedObject)) {
+            dsInfo->runtime.properties.insert(QStringLiteral("guid"), guid);
+        }
+    }
+    if (guidOut) {
+        *guidOut = guid;
+    }
+    return !guid.isEmpty() && guid != QStringLiteral("-");
+}
+
 QString MainWindow::effectiveMountPath(int connIdx,
                                        const QString& poolName,
                                        const QString& datasetName,

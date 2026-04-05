@@ -909,6 +909,7 @@ private:
     QStringList datasetSnapshotsFromModel(int connIdx, const QString& poolName, const QString& datasetName) const;
     bool datasetMountedFromModel(int connIdx, const QString& poolName, const QString& datasetName, QString* mountedValueOut = nullptr) const;
     bool datasetExistsInModel(int connIdx, const QString& poolName, const QString& datasetName) const;
+    bool ensureObjectGuidLoaded(int connIdx, const QString& poolName, const QString& objectName, QString* guidOut = nullptr);
     QVector<DatasetPropCacheRow> datasetPropertyRowsFromModelOrCache(int connIdx, const QString& poolName, const QString& objectName) const;
     QVector<DatasetPropCacheRow> datasetPropertyRowsForNames(int connIdx,
                                                              const QString& poolName,
