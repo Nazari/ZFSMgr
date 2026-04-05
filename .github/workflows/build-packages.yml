@@ -77,3 +77,29 @@ jobs:
             build-windows/help/**
             build-windows/i18n/**
           if-no-files-found: warn
+
+  build-freebsd:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build (FreeBSD)
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: |
+            pkg install -y cmake qt6-base qt6-tools qt6-linguisttools openssl git
+          run: |
+            chmod +x ./scripts/build-freebsd.sh
+            ./scripts/build-freebsd.sh
+
+      - name: Upload FreeBSD artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: zfsmgr-freebsd
+          path: |
+            build-freebsd/zfsmgr_qt
+            build-freebsd/help/**
+            build-freebsd/i18n/**
+          if-no-files-found: warn

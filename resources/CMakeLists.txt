@@ -96,6 +96,11 @@ target_link_libraries(zfsmgr_qt PRIVATE zfsmgr_core)
 if(WIN32)
     target_sources(zfsmgr_qt PRIVATE appicon.rc)
     set_target_properties(zfsmgr_qt PROPERTIES WIN32_EXECUTABLE TRUE)
+    if(MSVC)
+        # appicon.rc already embeds app.manifest; disable linker auto-manifest
+        # to avoid CVT1100 duplicate MANIFEST in GitHub Actions (MSVC).
+        target_link_options(zfsmgr_qt PRIVATE "/MANIFEST:NO")
+    endif()
 endif()
 
 if(APPLE)
