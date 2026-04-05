@@ -895,17 +895,26 @@ QString MainWindow::effectiveMountPath(int connIdx,
                                        const QString& datasetName,
                                        const QString& mountpointHint,
                                        const QString& mountedValue) {
+    auto normalizePath = [](const QString& raw) {
+        const QString trimmed = raw.trimmed();
+        if (trimmed.isEmpty()) {
+            return trimmed;
+        }
+        // Keep remote shell paths stable across platforms/filesystems that are
+        // sensitive to Unicode normalization (for example NFC vs NFD on Linux).
+        return trimmed.normalized(QString::NormalizationForm_C);
+    };
     if (!isWindowsConnection(connIdx)) {
-        return mountpointHint.trimmed();
+        return normalizePath(mountpointHint);
     }
     if (!isMountedValueTrue(mountedValue)) {
-        return mountpointHint.trimmed();
+        return normalizePath(mountpointHint);
     }
     if (poolName.isEmpty() || datasetName.isEmpty()) {
-        return mountpointHint.trimmed();
+        return normalizePath(mountpointHint);
     }
     if (!(datasetName == poolName || datasetName.startsWith(poolName + QStringLiteral("/")))) {
-        return mountpointHint.trimmed();
+        return normalizePath(mountpointHint);
     }
 
     QString anchor = datasetName;
@@ -935,14 +944,14 @@ QString MainWindow::effectiveMountPath(int connIdx,
     }
     QString base = QStringLiteral("%1:\\").arg(drive);
     if (datasetName == anchor) {
-        return base;
+        return normalizePath(base);
     }
     QString rel = datasetName.mid(anchor.size());
     if (rel.startsWith('/')) {
         rel.remove(0, 1);
     }
     rel.replace('/', '\\');
-    return rel.isEmpty() ? base : (base + rel);
+    return normalizePath(rel.isEmpty() ? base : (base + rel));
 }
 
 QString MainWindow::datasetCacheKey(int connIdx, const QString& poolName) const {

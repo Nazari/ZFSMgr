@@ -3,15 +3,22 @@
 
 #include <QCheckBox>
 #include <QColor>
+#include <QCoreApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QElapsedTimer>
+#include <QEventLoop>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QHeaderView>
+#include <QHBoxLayout>
+#include <QApplication>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPalette>
 #include <QPlainTextEdit>
+#include <QProcess>
+#include <QPushButton>
 #include <QRegularExpression>
 #include <QTreeWidget>
 #include <QVBoxLayout>
@@ -1014,17 +1021,26 @@ void MainWindow::actionSyncDatasets() {
     const bool dstCanmountOff = (dstCanmount.trimmed().toLower() == QStringLiteral("off"));
 
     const QString srcSsh = buildSshTargetPrefix(sp);
-
-    const QString rsyncOptsProbe = QStringLiteral(
-        "RSYNC_PROGRESS='--info=progress2'; "
-        "rsync --help 2>/dev/null | grep -q -- '--info' || RSYNC_PROGRESS='--progress'; "
-        "RSYNC_OPTS='-aHWS --delete'; "
-        "rsync -A --version >/dev/null 2>&1 && RSYNC_OPTS=\"$RSYNC_OPTS -A\"; "
-        "if rsync -X --version >/dev/null 2>&1; then "
-        "  RSYNC_OPTS=\"$RSYNC_OPTS -X\"; "
-        "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then "
-        "  RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; "
-        "fi");
+    auto buildRsyncOptsProbe = [](bool includeDelete, bool dryRun) {
+        QString opts = QStringLiteral("-aHWS");
+        if (includeDelete) {
+            opts += QStringLiteral(" --delete");
+        }
+        if (dryRun) {
+            opts += QStringLiteral(" --dry-run");
+        }
+        return QStringLiteral(
+            "RSYNC_PROGRESS='--info=progress2'; "
+            "rsync --help 2>/dev/null | grep -q -- '--info' || RSYNC_PROGRESS='--progress'; "
+            "RSYNC_OPTS='%1'; "
+            "rsync -A --version >/dev/null 2>&1 && RSYNC_OPTS=\"$RSYNC_OPTS -A\"; "
+            "if rsync -X --version >/dev/null 2>&1; then "
+            "  RSYNC_OPTS=\"$RSYNC_OPTS -X\"; "
+            "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then "
+            "  RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; "
+            "fi")
+            .arg(opts);
+    };
     const QString dstSsh = buildSshTargetPrefix(dp);
     const QString srcEffectiveMp = effectiveMountPath(src.connIdx, src.poolName, src.datasetName, srcMp, srcMounted);
     const QString dstEffectiveMp = effectiveMountPath(dst.connIdx, dst.poolName, dst.datasetName, dstMp, dstMounted);
@@ -1080,6 +1096,211 @@ void MainWindow::actionSyncDatasets() {
         updateApplyPropsButtonState();
         return true;
     };
+    auto showSyncOptionsDialog = [&](bool deleteSupported,
+                                     const std::function<QString(bool, bool)>& buildCommand,
+                                     bool* deleteOut) -> bool {
+        if (!deleteOut) {
+            return false;
+        }
+        *deleteOut = deleteSupported;
+        QDialog dlg(this);
+        dlg.setModal(true);
+        dlg.resize(900, 560);
+        dlg.setWindowTitle(trk(QStringLiteral("t_sync_opts_title_001"),
+                               QStringLiteral("Opciones de sincronización"),
+                               QStringLiteral("Synchronization options"),
+                               QStringLiteral("同步选项")));
+        auto* root = new QVBoxLayout(&dlg);
+        auto* form = new QFormLayout();
+        auto* srcEd = new QLineEdit(QStringLiteral("%1::%2")
+                                        .arg((src.connIdx >= 0 && src.connIdx < m_profiles.size())
+                                                 ? m_profiles[src.connIdx].name
+                                                 : QStringLiteral("?"),
+                                             src.datasetName),
+                                    &dlg);
+        srcEd->setReadOnly(true);
+        auto* dstEd = new QLineEdit(QStringLiteral("%1::%2")
+                                        .arg((dst.connIdx >= 0 && dst.connIdx < m_profiles.size())
+                                                 ? m_profiles[dst.connIdx].name
+                                                 : QStringLiteral("?"),
+                                             dst.datasetName),
+                                    &dlg);
+        dstEd->setReadOnly(true);
+        auto* deleteCb = new QCheckBox(QStringLiteral("--delete"), &dlg);
+        deleteCb->setChecked(deleteSupported);
+        deleteCb->setEnabled(deleteSupported);
+        if (!deleteSupported) {
+            deleteCb->setToolTip(trk(QStringLiteral("t_sync_delete_disabled_tar_001"),
+                                     QStringLiteral("No disponible con modo tar."),
+                                     QStringLiteral("Not available with tar mode."),
+                                     QStringLiteral("tar 模式下不可用。")));
+        }
+        form->addRow(trk(QStringLiteral("t_origin_001"), QStringLiteral("Origen"), QStringLiteral("Source"), QStringLiteral("源")), srcEd);
+        form->addRow(trk(QStringLiteral("t_dest_001"), QStringLiteral("Destino"), QStringLiteral("Target"), QStringLiteral("目标")), dstEd);
+        form->addRow(trk(QStringLiteral("t_sync_opts_params_001"),
+                         QStringLiteral("Parámetros"),
+                         QStringLiteral("Parameters"),
+                         QStringLiteral("参数")),
+                     deleteCb);
+        root->addLayout(form);
+
+        auto* checkRow = new QHBoxLayout();
+        auto* checkBtn = new QPushButton(trk(QStringLiteral("t_sync_check_001"),
+                                             QStringLiteral("Check"),
+                                             QStringLiteral("Check"),
+                                             QStringLiteral("检查")),
+                                         &dlg);
+        auto* cancelCheckBtn = new QPushButton(
+            trk(QStringLiteral("t_sync_cancel_check_001"),
+                QStringLiteral("Cancel check"),
+                QStringLiteral("Cancel check"),
+                QStringLiteral("取消检查")),
+            &dlg);
+        cancelCheckBtn->setEnabled(false);
+        checkRow->addWidget(checkBtn);
+        checkRow->addWidget(cancelCheckBtn);
+        checkRow->addStretch(1);
+        root->addLayout(checkRow);
+
+        auto* outBox = new QPlainTextEdit(&dlg);
+        outBox->setReadOnly(true);
+        outBox->setPlaceholderText(trk(QStringLiteral("t_sync_check_output_ph_001"),
+                                       QStringLiteral("Salida de dry-run..."),
+                                       QStringLiteral("Dry-run output..."),
+                                       QStringLiteral("dry-run 输出...")));
+        root->addWidget(outBox, 1);
+
+        bool checkRunning = false;
+        bool cancelRequested = false;
+        QObject::connect(cancelCheckBtn, &QPushButton::clicked, &dlg, [&]() {
+            cancelRequested = true;
+        });
+        QObject::connect(checkBtn, &QPushButton::clicked, &dlg, [&]() {
+            if (checkRunning) {
+                return;
+            }
+            const QString cmd = buildCommand(deleteCb->isChecked(), true);
+            if (cmd.trimmed().isEmpty()) {
+                outBox->setPlainText(
+                    trk(QStringLiteral("t_sync_dryrun_na_001"),
+                        QStringLiteral("Dry-run no disponible para este modo de sincronización."),
+                        QStringLiteral("Dry-run is not available for this synchronization mode."),
+                        QStringLiteral("此同步模式不支持 dry-run。")));
+                return;
+            }
+            checkRunning = true;
+            cancelRequested = false;
+            checkBtn->setEnabled(false);
+            cancelCheckBtn->setEnabled(true);
+            deleteCb->setEnabled(false);
+            outBox->setPlainText(trk(QStringLiteral("t_sync_dryrun_running_001"),
+                                     QStringLiteral("Ejecutando dry-run..."),
+                                     QStringLiteral("Running dry-run..."),
+                                     QStringLiteral("正在执行 dry-run...")));
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            QApplication::setOverrideCursor(Qt::WaitCursor);
+
+            QString out;
+            QString err;
+            int rc = -1;
+            bool started = false;
+            bool timedOut = false;
+            bool cancelled = false;
+            QProcess proc;
+            proc.start(QStringLiteral("sh"), QStringList{QStringLiteral("-c"), cmd});
+            started = proc.waitForStarted(4000);
+            if (!started) {
+                err = QStringLiteral("Could not start local shell.");
+            } else {
+                QElapsedTimer timer;
+                timer.start();
+                while (proc.state() != QProcess::NotRunning) {
+                    proc.waitForReadyRead(120);
+                    out += QString::fromUtf8(proc.readAllStandardOutput());
+                    err += QString::fromUtf8(proc.readAllStandardError());
+                    QString live;
+                    live += QStringLiteral("$ %1\n\n").arg(maskSecrets(cmd));
+                    live += trk(QStringLiteral("t_sync_dryrun_running_002"),
+                                QStringLiteral("Ejecutando dry-run..."),
+                                QStringLiteral("Running dry-run..."),
+                                QStringLiteral("正在执行 dry-run..."));
+                    if (!out.trimmed().isEmpty()) {
+                        live += QStringLiteral("\n\nstdout:\n") + maskSecrets(out.trimmed());
+                    }
+                    if (!err.trimmed().isEmpty()) {
+                        live += QStringLiteral("\n\nstderr:\n") + maskSecrets(err.trimmed());
+                    }
+                    outBox->setPlainText(live);
+                    outBox->moveCursor(QTextCursor::End);
+                    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                    if (cancelRequested) {
+                        cancelled = true;
+                        proc.kill();
+                        proc.waitForFinished(1000);
+                        break;
+                    }
+                    if (timer.elapsed() > 120000) {
+                        timedOut = true;
+                        proc.kill();
+                        proc.waitForFinished(1000);
+                        break;
+                    }
+                }
+                out += QString::fromUtf8(proc.readAllStandardOutput());
+                err += QString::fromUtf8(proc.readAllStandardError());
+                rc = proc.exitCode();
+            }
+            QApplication::restoreOverrideCursor();
+            checkRunning = false;
+            checkBtn->setEnabled(true);
+            cancelCheckBtn->setEnabled(false);
+            deleteCb->setEnabled(deleteSupported);
+
+            QString rendered;
+            rendered += QStringLiteral("$ %1\n\n").arg(maskSecrets(cmd));
+            if (!started) {
+                rendered += trk(QStringLiteral("t_sync_dryrun_start_fail_001"),
+                                QStringLiteral("No se pudo ejecutar dry-run."),
+                                QStringLiteral("Could not execute dry-run."),
+                                QStringLiteral("无法执行 dry-run。"));
+                if (!err.trimmed().isEmpty()) {
+                    rendered += QStringLiteral("\n\nstderr:\n") + maskSecrets(err.trimmed());
+                }
+                outBox->setPlainText(rendered);
+                return;
+            }
+            if (cancelled) {
+                rendered += trk(QStringLiteral("t_sync_dryrun_cancelled_001"),
+                                QStringLiteral("Dry-run cancelado por el usuario."),
+                                QStringLiteral("Dry-run cancelled by user."),
+                                QStringLiteral("dry-run 已由用户取消。"));
+            } else if (timedOut) {
+                rendered += trk(QStringLiteral("t_sync_dryrun_timeout_001"),
+                                QStringLiteral("Dry-run cancelado por timeout."),
+                                QStringLiteral("Dry-run cancelled due to timeout."),
+                                QStringLiteral("dry-run 因超时而取消。"));
+            } else {
+                rendered += QStringLiteral("exit=%1").arg(rc);
+            }
+            if (!out.trimmed().isEmpty()) {
+                rendered += QStringLiteral("\n\nstdout:\n") + maskSecrets(out.trimmed());
+            }
+            if (!err.trimmed().isEmpty()) {
+                rendered += QStringLiteral("\n\nstderr:\n") + maskSecrets(err.trimmed());
+            }
+            outBox->setPlainText(rendered);
+        });
+
+        auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+        QObject::connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+        QObject::connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+        root->addWidget(bb);
+        if (dlg.exec() != QDialog::Accepted) {
+            return false;
+        }
+        *deleteOut = deleteCb->isChecked();
+        return true;
+    };
 
     if (srcRootMounted && dstRootMounted) {
         if (!isUsableMountPath(src.connIdx, srcEffectiveMp) || !isUsableMountPath(dst.connIdx, dstEffectiveMp)) {
@@ -1094,21 +1315,24 @@ void MainWindow::actionSyncDatasets() {
         }
         if (isWindowsConnection(sp) || isWindowsConnection(dp)) {
             const mwhelpers::StreamCodec codec = chooseCodec();
-            const QString srcTarCmd = buildTarSourceCommand(isWindowsConnection(sp), srcEffectiveMp, codec);
-            const QString dstTarCmd = buildTarDestinationCommand(isWindowsConnection(dp), dstEffectiveMp, codec);
-            QString command;
-            if (sameConnection) {
-                appLog(QStringLiteral("INFO"),
-                       trk(QStringLiteral("t_sincroniza_aed9fc"),
-                           QStringLiteral("Sincronizar: modo local remoto (tar, misma conexión)"),
-                           QStringLiteral("Sync: remote-local mode (tar, same connection)"),
-                           QStringLiteral("同步：远端本地模式（tar，同一连接）")));
-                const QString remotePipe = buildPipedTransferCommand(srcTarCmd, dstTarCmd);
-                command = sshExecFromLocal(sp, remotePipe);
-            } else {
-                command = buildPipedTransferCommand(sshExecFromLocal(sp, srcTarCmd),
-                                                    sshExecFromLocal(dp, dstTarCmd));
+            auto buildTarSyncCommand = [&](bool /*useDelete*/, bool dryRun) -> QString {
+                if (dryRun) {
+                    return QString();
+                }
+                const QString srcTarCmd = buildTarSourceCommand(isWindowsConnection(sp), srcEffectiveMp, codec);
+                const QString dstTarCmd = buildTarDestinationCommand(isWindowsConnection(dp), dstEffectiveMp, codec);
+                if (sameConnection) {
+                    const QString remotePipe = buildPipedTransferCommand(srcTarCmd, dstTarCmd);
+                    return sshExecFromLocal(sp, remotePipe);
+                }
+                return buildPipedTransferCommand(sshExecFromLocal(sp, srcTarCmd),
+                                                 sshExecFromLocal(dp, dstTarCmd));
+            };
+            bool useDelete = false;
+            if (!showSyncOptionsDialog(false, buildTarSyncCommand, &useDelete)) {
+                return;
             }
+            const QString command = buildTarSyncCommand(false, false);
             appLog(QStringLiteral("WARN"),
                    trk(QStringLiteral("t_sincroniza_6ccd2e"),
                        QStringLiteral("Sincronizar en Windows usa fallback tar/ssh (codec=%1, sin --delete)."),
@@ -1117,31 +1341,51 @@ void MainWindow::actionSyncDatasets() {
             queueSyncCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command);
             return;
         }
-        QString command;
+        auto buildRsyncSyncCommand = [&](bool useDelete, bool dryRun) -> QString {
+            const QString rsyncOptsProbe = buildRsyncOptsProbe(useDelete, dryRun);
+            const QString srcMpCmd = mwhelpers::withUnixSearchPathCommand(
+                QStringLiteral("zfs get -H -o value mountpoint %1")
+                    .arg(shSingleQuote(src.datasetName)));
+            const QString dstMpCmd = mwhelpers::withUnixSearchPathCommand(
+                QStringLiteral("zfs get -H -o value mountpoint %1")
+                    .arg(shSingleQuote(dst.datasetName)));
+            if (sameConnection) {
+                QString remoteRsync =
+                    QStringLiteral("%1; SRC_MP=$(%2); DST_MP=$(%3); rsync $RSYNC_OPTS $RSYNC_PROGRESS \"$SRC_MP\"/ \"$DST_MP\"/")
+                        .arg(rsyncOptsProbe,
+                             srcMpCmd,
+                             dstMpCmd);
+                remoteRsync = withSudo(sp, remoteRsync);
+                return srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
+            }
+            const QString dstRemoteMpCmd = withSudo(dp, dstMpCmd);
+            const QString dstRemoteProbe =
+                QStringLiteral("%1 %2 %3")
+                    .arg(sshBaseCommand(dp),
+                         shSingleQuote(sshUserHost(dp)),
+                         shSingleQuote(dstRemoteMpCmd));
+            QString remoteRsync =
+                QStringLiteral("%1; SRC_MP=$(%2); DST_MP=$(%3); rsync $RSYNC_OPTS $RSYNC_PROGRESS -e %4 \"$SRC_MP\"/ %5:\"$DST_MP\"/")
+                    .arg(rsyncOptsProbe,
+                         srcMpCmd,
+                         dstRemoteProbe,
+                         shSingleQuote(sshBaseCommand(dp)),
+                         shSingleQuote(sshUserHost(dp)));
+            remoteRsync = withSudo(sp, remoteRsync);
+            return srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
+        };
+        bool useDelete = true;
+        if (!showSyncOptionsDialog(true, buildRsyncSyncCommand, &useDelete)) {
+            return;
+        }
         if (sameConnection) {
             appLog(QStringLiteral("INFO"),
                    trk(QStringLiteral("t_sincroniza_d0a688"),
                        QStringLiteral("Sincronizar: modo local remoto (rsync, misma conexión)"),
                        QStringLiteral("Sync: remote-local mode (rsync, same connection)"),
                        QStringLiteral("同步：远端本地模式（rsync，同一连接）")));
-            QString remoteRsync =
-                QStringLiteral("%1; rsync $RSYNC_OPTS $RSYNC_PROGRESS %2/ %3/")
-                    .arg(rsyncOptsProbe,
-                         shSingleQuote(srcEffectiveMp),
-                         shSingleQuote(dstEffectiveMp));
-            remoteRsync = withSudo(sp, remoteRsync);
-            command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
-        } else {
-            QString remoteRsync =
-                QStringLiteral("%1; rsync $RSYNC_OPTS $RSYNC_PROGRESS -e %2 %3/ %4:%5/")
-                    .arg(rsyncOptsProbe,
-                         shSingleQuote(sshBaseCommand(dp)),
-                         shSingleQuote(srcEffectiveMp),
-                         shSingleQuote(sshUserHost(dp)),
-                         shSingleQuote(dstEffectiveMp));
-            remoteRsync = withSudo(sp, remoteRsync);
-            command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
         }
+        const QString command = buildRsyncSyncCommand(useDelete, false);
         queueSyncCommand(QStringLiteral("Sincronizar %1 -> %2").arg(src.datasetName, dst.datasetName), command);
         return;
     }
@@ -1151,19 +1395,29 @@ void MainWindow::actionSyncDatasets() {
     if ((!srcRootMounted && !srcCanmountOff) || (!dstRootMounted && !dstCanmountOff)) {
         if (!isWindowsConnection(sp) && !isWindowsConnection(dp) && canTempMountSrc && canTempMountDst) {
             const mwhelpers::StreamCodec codec = chooseCodec();
-            const QString srcScript = buildUnixTemporaryTarSourceScript(src.datasetName, codec);
-            const QString dstScript = buildUnixTemporaryTarDestinationScript(dst.datasetName, codec);
-            QString command;
+            auto buildTempTarCommand = [&](bool /*useDelete*/, bool dryRun) -> QString {
+                if (dryRun) {
+                    return QString();
+                }
+                const QString srcScript = buildUnixTemporaryTarSourceScript(src.datasetName, codec);
+                const QString dstScript = buildUnixTemporaryTarDestinationScript(dst.datasetName, codec);
+                if (sameConnection) {
+                    const QString remotePipe =
+                        buildPipedTransferCommand(withSudo(sp, srcScript), withSudoStreamInput(dp, dstScript));
+                    return sshExecFromLocal(sp, remotePipe);
+                }
+                return buildPipedTransferCommand(sshExecFromLocal(sp, withSudo(sp, srcScript)),
+                                                 sshExecFromLocal(dp, withSudoStreamInput(dp, dstScript)));
+            };
+            bool useDelete = false;
+            if (!showSyncOptionsDialog(false, buildTempTarCommand, &useDelete)) {
+                return;
+            }
+            QString command = buildTempTarCommand(false, false);
             if (sameConnection) {
                 appLog(QStringLiteral("INFO"),
                        QStringLiteral("Sincronizar: usando montaje temporal alternativo (%1)")
                            .arg(streamCodecName(codec)));
-                const QString remotePipe =
-                    buildPipedTransferCommand(withSudo(sp, srcScript), withSudoStreamInput(dp, dstScript));
-                command = sshExecFromLocal(sp, remotePipe);
-            } else {
-                command = buildPipedTransferCommand(sshExecFromLocal(sp, withSudo(sp, srcScript)),
-                                                    sshExecFromLocal(dp, withSudoStreamInput(dp, dstScript)));
             }
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("Sincronizar: fallback tar/ssh con montajes temporales alternativos (codec=%1, sin --delete)")
@@ -1273,19 +1527,29 @@ void MainWindow::actionSyncDatasets() {
     QStringList rsyncCommands;
     if (isWindowsConnection(sp) || isWindowsConnection(dp)) {
         const mwhelpers::StreamCodec codec = chooseCodec();
-        QStringList tarPipelines;
-        tarPipelines.reserve(syncPairs.size());
-        for (const auto& pair : syncPairs) {
-            const QString srcTarCmd = buildTarSourceCommand(isWindowsConnection(sp), pair.first, codec);
-            const QString dstTarCmd = buildTarDestinationCommand(isWindowsConnection(dp), pair.second, codec);
-            if (sameConnection) {
-                tarPipelines << sshExecFromLocal(sp, buildPipedTransferCommand(srcTarCmd, dstTarCmd));
-            } else {
-                tarPipelines << buildPipedTransferCommand(sshExecFromLocal(sp, srcTarCmd),
-                                                          sshExecFromLocal(dp, dstTarCmd));
+        auto buildSubdatasetTarCommand = [&](bool /*useDelete*/, bool dryRun) -> QString {
+            if (dryRun) {
+                return QString();
             }
+            QStringList tarPipelines;
+            tarPipelines.reserve(syncPairs.size());
+            for (const auto& pair : syncPairs) {
+                const QString srcTarCmd = buildTarSourceCommand(isWindowsConnection(sp), pair.first, codec);
+                const QString dstTarCmd = buildTarDestinationCommand(isWindowsConnection(dp), pair.second, codec);
+                if (sameConnection) {
+                    tarPipelines << sshExecFromLocal(sp, buildPipedTransferCommand(srcTarCmd, dstTarCmd));
+                } else {
+                    tarPipelines << buildPipedTransferCommand(sshExecFromLocal(sp, srcTarCmd),
+                                                              sshExecFromLocal(dp, dstTarCmd));
+                }
+            }
+            return tarPipelines.join(QStringLiteral(" && "));
+        };
+        bool useDelete = false;
+        if (!showSyncOptionsDialog(false, buildSubdatasetTarCommand, &useDelete)) {
+            return;
         }
-        const QString command = tarPipelines.join(QStringLiteral(" && "));
+        const QString command = buildSubdatasetTarCommand(false, false);
         appLog(QStringLiteral("WARN"),
                trk(QStringLiteral("t_sincroniza_86c64e"),
                    QStringLiteral("Sincronizar subdatasets en Windows usa fallback tar/ssh (codec=%1, sin --delete)."),
@@ -1296,23 +1560,31 @@ void MainWindow::actionSyncDatasets() {
                              .arg(syncPairs.size()),
                          command);
     } else {
-        rsyncCommands.reserve(syncPairs.size());
-        for (const auto& pair : syncPairs) {
-            if (sameConnection) {
-                rsyncCommands << QStringLiteral("rsync $RSYNC_OPTS $RSYNC_PROGRESS %1/ %2/")
-                                     .arg(shSingleQuote(pair.first), shSingleQuote(pair.second));
-            } else {
-                rsyncCommands << QStringLiteral("rsync $RSYNC_OPTS $RSYNC_PROGRESS -e %1 %2/ %3:%4/")
-                                     .arg(shSingleQuote(sshTransport),
-                                          shSingleQuote(pair.first),
-                                          shSingleQuote(sshUserHost(dp)),
-                                          shSingleQuote(pair.second));
+        auto buildSubdatasetRsyncCommand = [&](bool useDelete, bool dryRun) -> QString {
+            QStringList cmds;
+            cmds.reserve(syncPairs.size());
+            for (const auto& pair : syncPairs) {
+                if (sameConnection) {
+                    cmds << QStringLiteral("rsync $RSYNC_OPTS $RSYNC_PROGRESS %1/ %2/")
+                                .arg(shSingleQuote(pair.first), shSingleQuote(pair.second));
+                } else {
+                    cmds << QStringLiteral("rsync $RSYNC_OPTS $RSYNC_PROGRESS -e %1 %2/ %3:%4/")
+                                .arg(shSingleQuote(sshTransport),
+                                     shSingleQuote(pair.first),
+                                     shSingleQuote(sshUserHost(dp)),
+                                     shSingleQuote(pair.second));
+                }
             }
+            QString remoteRsync = QStringLiteral("set -e; %1; %2")
+                                      .arg(buildRsyncOptsProbe(useDelete, dryRun), cmds.join(QStringLiteral(" && ")));
+            remoteRsync = withSudo(sp, remoteRsync);
+            return srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
+        };
+        bool useDelete = true;
+        if (!showSyncOptionsDialog(true, buildSubdatasetRsyncCommand, &useDelete)) {
+            return;
         }
-        QString remoteRsync = QStringLiteral("set -e; %1; %2")
-                                  .arg(rsyncOptsProbe, rsyncCommands.join(QStringLiteral(" && ")));
-        remoteRsync = withSudo(sp, remoteRsync);
-        const QString command = srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
+        const QString command = buildSubdatasetRsyncCommand(useDelete, false);
         queueSyncCommand(QStringLiteral("Sincronizar subdatasets %1 -> %2 (%3)")
                              .arg(src.datasetName, dst.datasetName)
                              .arg(syncPairs.size()),

@@ -253,6 +253,61 @@ void MainWindow::updateConnectionActionsState() {
     if (m_btnConnDiff) m_btnConnDiff->setEnabled(!actionsLocked() && diffEnabled);
     if (m_btnConnLevel) m_btnConnLevel->setEnabled(!actionsLocked() && st.levelEnabled && transferVersionAllowed);
     if (m_btnConnSync) m_btnConnSync->setEnabled(!actionsLocked() && st.syncEnabled && transferVersionAllowed);
+    if (m_btnConnSync) {
+        const QString baseSyncTooltip =
+            trk(QStringLiteral("t_tt_sync_001"),
+                QStringLiteral("Sincroniza contenido de dataset Origen a Destino con rsync.\n"
+                               "Requiere: dataset seleccionado (no snapshot) en Origen y Destino.\n"
+                               "Si no están montados, en Linux, macOS y FreeBSD puede usarse un montaje temporal."),
+                QStringLiteral("Synchronize Source dataset content to Target with rsync.\n"
+                               "Requires: dataset selected (not snapshot) in Source and Target.\n"
+                               "If datasets are not mounted, Linux/macOS/FreeBSD may use temporary alternate mount."),
+                QStringLiteral("使用 rsync 将源数据集内容同步到目标。\n"
+                               "要求：源和目标都选择数据集（不是快照）。\n"
+                               "若未挂载，在 Linux/macOS/FreeBSD 可使用临时替代挂载。"));
+        QString syncDisabledReason;
+        const bool hasBothSelections = m_connActionOrigin.valid && m_connActionDest.valid
+                                       && !m_connActionOrigin.datasetName.trimmed().isEmpty()
+                                       && !m_connActionDest.datasetName.trimmed().isEmpty();
+        if (hasBothSelections) {
+            if (!transferVersionAllowed) {
+                syncDisabledReason = versionTransferReason.trimmed();
+            } else if (m_connActionOrigin.snapshotName.trimmed().size() > 0
+                       || m_connActionDest.snapshotName.trimmed().size() > 0) {
+                syncDisabledReason =
+                    trk(QStringLiteral("t_sync_disable_reason_snapshot_001"),
+                        QStringLiteral("Sync requiere datasets en Origen y Destino (sin snapshot)."),
+                        QStringLiteral("Sync requires datasets in Source and Target (no snapshot selected)."),
+                        QStringLiteral("Sync 要求源和目标都选择数据集（不能选择快照）。"));
+            } else if (m_connActionOrigin.connIdx == m_connActionDest.connIdx
+                       && m_connActionOrigin.poolName.trimmed() == m_connActionDest.poolName.trimmed()
+                       && m_connActionOrigin.datasetName.trimmed() == m_connActionDest.datasetName.trimmed()) {
+                syncDisabledReason =
+                    trk(QStringLiteral("t_sync_disable_reason_same_001"),
+                        QStringLiteral("Sync requiere Origen y Destino diferentes."),
+                        QStringLiteral("Sync requires Source and Target to be different."),
+                        QStringLiteral("Sync 要求源和目标必须不同。"));
+            } else if (!datasetMountedForCtx(m_connActionOrigin, m_connContentTree)
+                       || !datasetMountedForCtx(m_connActionDest, m_connContentTree)) {
+                syncDisabledReason =
+                    trk(QStringLiteral("t_sync_disable_reason_mounted_001"),
+                        QStringLiteral("Sync inmediato requiere ambos datasets montados (si no, se usará fallback según plataforma al ejecutar)."),
+                        QStringLiteral("Immediate Sync requires both datasets mounted (otherwise platform fallback will be used at execution time)."),
+                        QStringLiteral("立即 Sync 要求两个数据集都已挂载（否则执行时会按平台使用回退方案）。"));
+            }
+        }
+        if (!syncDisabledReason.trimmed().isEmpty() && hasBothSelections && !st.syncEnabled) {
+            m_btnConnSync->setToolTip(baseSyncTooltip
+                                      + QStringLiteral("\n\n")
+                                      + trk(QStringLiteral("t_sync_disabled_prefix_001"),
+                                            QStringLiteral("No disponible ahora: %1"),
+                                            QStringLiteral("Currently unavailable: %1"),
+                                            QStringLiteral("当前不可用：%1"))
+                                            .arg(syncDisabledReason.trimmed()));
+        } else {
+            m_btnConnSync->setToolTip(baseSyncTooltip);
+        }
+    }
 
     const bool hasConnSel = dctx.valid && !dctx.datasetName.isEmpty();
     const bool hasConnSnap = hasConnSel && !dctx.snapshotName.isEmpty();

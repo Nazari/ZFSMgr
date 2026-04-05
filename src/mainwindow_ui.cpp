@@ -710,8 +710,17 @@ void MainWindow::updatePendingChangesList() {
     const QStringList currentLines = pendingConnContentApplyDisplayLines();
     const QSet<QString> currentSet(currentLines.cbegin(), currentLines.cend());
 
-    // Append newly-appearing items to the end of the persistent ordered list
+    // Append newly-appearing items to the end of the persistent ordered list.
+    // If a line had a terminal status (success/failed) and appears again as pending,
+    // treat it as a new queue item instead of reusing previous visual state/order.
     for (const QString& line : currentLines) {
+        const PendingItemStatus prevStatus = m_pendingItemStatus.value(line, PendingItemStatus::Pending);
+        const bool wasTerminal = (prevStatus == PendingItemStatus::Success
+                                  || prevStatus == PendingItemStatus::Failed);
+        if (wasTerminal) {
+            m_pendingOrderedDisplayLines.removeAll(line);
+            m_pendingItemStatus.remove(line);
+        }
         if (!m_pendingOrderedDisplayLines.contains(line)) {
             m_pendingOrderedDisplayLines.append(line);
         }
@@ -1809,12 +1818,12 @@ void MainWindow::buildUi() {
             return;
         }
         PendingChange change;
-        if (!findPendingChangeByDisplayLine(line, &change)) {
-            return;
-        }
+        const bool hasPendingChange = findPendingChangeByDisplayLine(line, &change);
         QMenu menu(m_pendingChangesList);
-        QAction* aExecute = change.executableIndividually ? menu.addAction(QStringLiteral("Ejecutar")) : nullptr;
-        QAction* aDelete = change.removableIndividually ? menu.addAction(QStringLiteral("Eliminar")) : nullptr;
+        QAction* aExecute = (hasPendingChange && change.executableIndividually)
+                                ? menu.addAction(QStringLiteral("Ejecutar"))
+                                : nullptr;
+        QAction* aDelete = menu.addAction(QStringLiteral("Eliminar"));
         if (!aExecute && !aDelete) {
             return;
         }
@@ -1822,7 +1831,11 @@ void MainWindow::buildUi() {
         if (aExecute && picked == aExecute) {
             executePendingQueuedChangeLine(line);
         } else if (aDelete && picked == aDelete) {
-            removePendingQueuedChangeLine(line);
+            if (!removePendingQueuedChangeLine(line)) {
+                m_pendingOrderedDisplayLines.removeAll(line);
+                m_pendingItemStatus.remove(line);
+                updatePendingChangesList();
+            }
         }
     });
     pendingChangesBody->addWidget(m_pendingChangesList, 1);
