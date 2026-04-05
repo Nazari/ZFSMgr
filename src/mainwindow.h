@@ -507,7 +507,7 @@ private:
     QString connectionStateColorReason(int connIdx) const;
     QString connectionStateTooltipHtml(int connIdx) const;
     void openConnectivityMatrixDialog();
-    void showConnectionContextMenu(int connIdx, const QPoint& globalPos);
+    void showConnectionContextMenu(int connIdx, const QPoint& globalPos, QTreeWidget* sourceTree = nullptr);
     void onConnectionSelectionChanged();
     void updateSecondaryConnectionDetail();
     void rebuildConnectionEntityTabs();
@@ -638,13 +638,14 @@ private:
     void updatePendingChangesList();
     void startPendingApplyAnimation();
     void finishPendingApplyAnimation();
-    void splitAndRootConnContent(Qt::Orientation orientation, int connIdx,
+    void splitAndRootConnContent(Qt::Orientation orientation, bool insertBefore, int connIdx,
                                   const QString& poolName, const QString& rootDataset,
                                   QTreeWidget* sourceTree = nullptr);
     void closeSplitTree(QTreeWidget* tree);
     void rebuildAllSplitTrees();
     void appendSplitDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName,
                                  const QString& rootDataset, const QString& displayRoot);
+    void appendSplitDatasetTreeForConnection(QTreeWidget* tree, int connIdx);
     void installConnContentTreeHeaderContextMenu(QTreeWidget* tree);
     QString poolDetailsCacheKey(int connIdx, const QString& poolName) const;
     bool ensureDatasetsLoaded(int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing = true);

@@ -634,6 +634,11 @@ QString normalizedConnContentStateToken(QTreeWidget* tree, const QString& token)
     if (!tree) {
         return token.trimmed();
     }
+    // Split trees keep their pool-specific token as-is so their state is stored
+    // under a distinct key and does not collide with the main tree's "conn:X" key.
+    if (tree->property("zfsmgr.isSplitTree").toBool()) {
+        return token.trimmed();
+    }
     const QString trimmed = token.trimmed();
     const int sep = trimmed.indexOf(QStringLiteral("::"));
     if (sep <= 0) {
@@ -3081,9 +3086,6 @@ void MainWindow::saveConnContentTreeState(QTreeWidget* tree, const QString& toke
     if (m_connContentTreeStateWriteLocked || token.isEmpty() || !tree) {
         return;
     }
-    if (tree->property("zfsmgr.isSplitTree").toBool()) {
-        return;
-    }
     const QString normalizedToken = normalizedConnContentStateToken(tree, token);
     const QString scopedToken =
         normalizedToken + QStringLiteral("|top");
@@ -4934,6 +4936,48 @@ void MainWindow::appendSplitDatasetTree(QTreeWidget* tree, int connIdx,
             tree->addTopLevelItem(datasetItem);
             datasetItem->setExpanded(true);
         }
+    }
+}
+
+void MainWindow::appendSplitDatasetTreeForConnection(QTreeWidget* tree, int connIdx) {
+    if (!tree || connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
+        return;
+    }
+    const ConnectionRuntimeState& st = m_states[connIdx];
+    // Use ConnectionContent for full interactivity (same as the main tree).
+    // The tree must have groupPoolsByConnectionRoots = true so that each call to
+    // appendDatasetTreeForPool creates/reuses the connection root item and hangs
+    // the pool roots under it — giving the new panel the same layout as the original.
+    const DatasetTreeRenderOptions opts =
+        datasetTreeRenderOptionsForTree(tree, DatasetTreeContext::ConnectionContent);
+
+    QSet<QString> seenPools;
+    for (const PoolImported& pool : st.importedPools) {
+        const QString poolName = pool.pool.trimmed();
+        const QString poolKey = poolName.toLower();
+        if (poolName.isEmpty() || seenPools.contains(poolKey)) {
+            continue;
+        }
+        seenPools.insert(poolKey);
+        appendDatasetTreeForPool(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, opts, false);
+    }
+    for (const PoolImportable& pool : st.importablePools) {
+        const QString poolName = pool.pool.trimmed();
+        const QString poolKey = poolName.toLower();
+        if (poolName.isEmpty() || seenPools.contains(poolKey)) {
+            continue;
+        }
+        const QString stateUp = pool.state.trimmed().toUpper();
+        if (stateUp != QStringLiteral("ONLINE") || pool.action.trimmed().isEmpty()) {
+            continue;
+        }
+        seenPools.insert(poolKey);
+        appendDatasetTreeForPool(tree, connIdx, poolName, DatasetTreeContext::ConnectionContent, opts, false);
+    }
+
+    // Mark the connection root item as split root so the "Close" action appears on it.
+    if (QTreeWidgetItem* connRoot = findConnectionRootItem(tree, connIdx)) {
+        connRoot->setData(0, kIsSplitRootRole, true);
     }
 }
 

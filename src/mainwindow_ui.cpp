@@ -877,21 +877,25 @@ void MainWindow::installConnContentTreeHeaderContextMenu(QTreeWidget* tree) {
     });
 }
 
-void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, int connIdx,
-                                          const QString& poolName, const QString& rootDataset,
-                                          QTreeWidget* sourceTree) {
-    if (!m_connContentPage || connIdx < 0 || connIdx >= m_profiles.size()
-        || poolName.trimmed().isEmpty()) {
+void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, bool insertBefore,
+                                          int connIdx, const QString& poolName,
+                                          const QString& rootDataset, QTreeWidget* sourceTree) {
+    if (!m_connContentPage || connIdx < 0 || connIdx >= m_profiles.size()) {
+        return;
+    }
+    const bool isConnectionLevel = poolName.trimmed().isEmpty();
+    if (!isConnectionLevel && rootDataset.trimmed().isEmpty()) {
         return;
     }
     const ConnectionProfile& p = m_profiles.at(connIdx);
     const QString connName = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
     const QString trimmedRoot = rootDataset.trimmed();
     const QString trimmedPool = poolName.trimmed();
-    const QString displayRoot =
-        (trimmedRoot.compare(trimmedPool, Qt::CaseInsensitive) == 0)
-            ? QStringLiteral("%1::%2").arg(connName, trimmedPool)
-            : QStringLiteral("%1::%2").arg(connName, trimmedRoot);
+    const QString displayRoot = isConnectionLevel
+        ? connName
+        : ((trimmedRoot.compare(trimmedPool, Qt::CaseInsensitive) == 0)
+               ? QStringLiteral("%1::%2").arg(connName, trimmedPool)
+               : QStringLiteral("%1::%2").arg(connName, trimmedRoot));
 
     auto* delegate = new MainWindowConnectionDatasetTreeDelegate(this, this);
     ConnectionDatasetTreeWidget::Config config;
@@ -903,14 +907,18 @@ void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, int connId
     config.visualOptions = m_topDatasetTreeWidget
         ? m_topDatasetTreeWidget->visualOptions()
         : ConnectionDatasetTreePane::VisualOptions{};
-    config.groupPoolsByConnectionRoots = false;
+    config.groupPoolsByConnectionRoots = isConnectionLevel;
     auto* splitWidget = new ConnectionDatasetTreeWidget(config, delegate, nullptr);
     auto* splitTree = splitWidget->tree();
     if (splitTree) {
         splitTree->setProperty("zfsmgr.isSplitTree", true);
         splitTree->setItemDelegate(new ConnContentPropBorderDelegate(splitTree));
         installConnContentTreeHeaderContextMenu(splitTree);
-        appendSplitDatasetTree(splitTree, connIdx, trimmedPool, trimmedRoot, displayRoot);
+        if (isConnectionLevel) {
+            appendSplitDatasetTreeForConnection(splitTree, connIdx);
+        } else {
+            appendSplitDatasetTree(splitTree, connIdx, trimmedPool, trimmedRoot, displayRoot);
+        }
     }
 
     // Find the widget that was right-clicked (the panel to split)
@@ -931,8 +939,9 @@ void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, int connId
         sourceWidget = m_topDatasetTreeWidget;
     }
 
-    // Replace sourceWidget's position with a new splitter containing
-    // [sourceWidget (left/top), splitWidget (right/bottom)]
+    // Replace sourceWidget's position with a new splitter.
+    // insertBefore=false: [sourceWidget, splitWidget] (Right/Below)
+    // insertBefore=true:  [splitWidget, sourceWidget] (Left/Above)
     auto* newSplitter = new QSplitter(orientation, nullptr);
     QSplitter* parentSplitter = qobject_cast<QSplitter*>(sourceWidget->parentWidget());
 
@@ -942,8 +951,13 @@ void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, int connId
         const QList<int> parentSizes = parentSplitter->sizes();
         const int idx = parentSplitter->indexOf(sourceWidget);
         parentSplitter->insertWidget(idx, newSplitter);
-        newSplitter->addWidget(sourceWidget);
-        newSplitter->addWidget(splitWidget);
+        if (insertBefore) {
+            newSplitter->addWidget(splitWidget);
+            newSplitter->addWidget(sourceWidget);
+        } else {
+            newSplitter->addWidget(sourceWidget);
+            newSplitter->addWidget(splitWidget);
+        }
         parentSplitter->setSizes(parentSizes);
     } else {
         // sourceWidget is directly in the layout
@@ -956,8 +970,13 @@ void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, int connId
             }
             newSplitter->setParent(m_connContentPage);
             layout->insertWidget(qMax(0, idx), newSplitter, stretch);
-            newSplitter->addWidget(sourceWidget);
-            newSplitter->addWidget(splitWidget);
+            if (insertBefore) {
+                newSplitter->addWidget(splitWidget);
+                newSplitter->addWidget(sourceWidget);
+            } else {
+                newSplitter->addWidget(sourceWidget);
+                newSplitter->addWidget(splitWidget);
+            }
             if (!m_connContentTreeSplitter) {
                 m_connContentTreeSplitter = newSplitter;
             }
@@ -981,7 +1000,7 @@ void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, int connId
 
     SplitTreeEntry entry;
     entry.connIdx = connIdx;
-    entry.poolName = trimmedPool;
+    entry.poolName = trimmedPool;  // empty for connection-level splits
     entry.rootDataset = trimmedRoot;
     entry.displayRoot = displayRoot;
     entry.treeWidget = splitWidget;
@@ -1071,7 +1090,11 @@ void MainWindow::rebuildAllSplitTrees() {
             continue;
         }
         t->clear();
-        appendSplitDatasetTree(t, entry.connIdx, entry.poolName, entry.rootDataset, entry.displayRoot);
+        if (entry.poolName.trimmed().isEmpty()) {
+            appendSplitDatasetTreeForConnection(t, entry.connIdx);
+        } else {
+            appendSplitDatasetTree(t, entry.connIdx, entry.poolName, entry.rootDataset, entry.displayRoot);
+        }
     }
 }
 

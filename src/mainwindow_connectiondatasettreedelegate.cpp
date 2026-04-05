@@ -1986,7 +1986,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                            QStringLiteral("connection root connIdx=%1").arg(connIdx),
                            timer.elapsed());
         endBusy();
-        m_mainWindow->showConnectionContextMenu(connIdx, tree->viewport()->mapToGlobal(pos));
+        m_mainWindow->showConnectionContextMenu(connIdx, tree->viewport()->mapToGlobal(pos), tree);
         return;
     }
     if (item->parent() && item->parent()->data(0, kIsConnectionRootRole).toBool()
@@ -2001,6 +2001,8 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
 
     QAction* aSplitVertical = nullptr;
     QAction* aSplitHorizontal = nullptr;
+    QAction* aSplitLeft = nullptr;
+    QAction* aSplitAbove = nullptr;
     QAction* aCloseSplit = nullptr;
 
     int poolRow = -1;
@@ -2039,11 +2041,21 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                                   QStringLiteral("Derecha"),
                                   QStringLiteral("Right"),
                                   QStringLiteral("向右")));
+            aSplitLeft = splitMenu->addAction(
+                m_mainWindow->trk(QStringLiteral("t_split_left_001"),
+                                  QStringLiteral("Izquierda"),
+                                  QStringLiteral("Left"),
+                                  QStringLiteral("向左")));
             aSplitVertical = splitMenu->addAction(
                 m_mainWindow->trk(QStringLiteral("t_split_below_001"),
                                   QStringLiteral("Abajo"),
                                   QStringLiteral("Below"),
                                   QStringLiteral("向下")));
+            aSplitAbove = splitMenu->addAction(
+                m_mainWindow->trk(QStringLiteral("t_split_above_001"),
+                                  QStringLiteral("Arriba"),
+                                  QStringLiteral("Above"),
+                                  QStringLiteral("向上")));
         }
     }
 
@@ -2204,11 +2216,21 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                                       QStringLiteral("Derecha"),
                                       QStringLiteral("Right"),
                                       QStringLiteral("向右")));
+                aSplitLeft = splitMenu->addAction(
+                    m_mainWindow->trk(QStringLiteral("t_split_left_001"),
+                                      QStringLiteral("Izquierda"),
+                                      QStringLiteral("Left"),
+                                      QStringLiteral("向左")));
                 aSplitVertical = splitMenu->addAction(
                     m_mainWindow->trk(QStringLiteral("t_split_below_001"),
                                       QStringLiteral("Abajo"),
                                       QStringLiteral("Below"),
                                       QStringLiteral("向下")));
+                aSplitAbove = splitMenu->addAction(
+                    m_mainWindow->trk(QStringLiteral("t_split_above_001"),
+                                      QStringLiteral("Arriba"),
+                                      QStringLiteral("Above"),
+                                      QStringLiteral("向上")));
             }
         }
     }
@@ -2919,17 +2941,21 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             m_mainWindow->actionAdvancedToDir(mwCtx);
             return;
         }
-        if (picked == aSplitVertical || picked == aSplitHorizontal) {
-            // aSplitHorizontal = "Derecha" → new tree on the right → Qt::Horizontal
-            // aSplitVertical   = "Abajo"   → new tree below       → Qt::Vertical
+        if (picked == aSplitVertical || picked == aSplitHorizontal
+            || picked == aSplitLeft || picked == aSplitAbove) {
+            // aSplitHorizontal = "Derecha"    → new tree on the right → Qt::Horizontal
+            // aSplitLeft       = "Izquierda"  → new tree on the left  → Qt::Horizontal (insertBefore)
+            // aSplitVertical   = "Abajo"      → new tree below        → Qt::Vertical
+            // aSplitAbove      = "Arriba"     → new tree above        → Qt::Vertical   (insertBefore)
             const Qt::Orientation orient =
-                (picked == aSplitHorizontal) ? Qt::Horizontal : Qt::Vertical;
+                (picked == aSplitHorizontal || picked == aSplitLeft) ? Qt::Horizontal : Qt::Vertical;
+            const bool insertBefore = (picked == aSplitLeft || picked == aSplitAbove);
             const int ci = ctx.valid ? ctx.connIdx : connIdx;
             const QString pn = ctx.valid ? ctx.poolName : poolName;
             const QString ds = ctx.valid && !ctx.datasetName.trimmed().isEmpty()
                                    ? ctx.datasetName.trimmed()
                                    : pn.trimmed();
-            m_mainWindow->splitAndRootConnContent(orient, ci, pn, ds, tree);
+            m_mainWindow->splitAndRootConnContent(orient, insertBefore, ci, pn, ds, tree);
             return;
         }
         if (picked == aCloseSplit) {
