@@ -639,7 +639,8 @@ private:
     void startPendingApplyAnimation();
     void finishPendingApplyAnimation();
     void splitAndRootConnContent(Qt::Orientation orientation, int connIdx,
-                                  const QString& poolName, const QString& rootDataset);
+                                  const QString& poolName, const QString& rootDataset,
+                                  QTreeWidget* sourceTree = nullptr);
     void closeSplitTree(QTreeWidget* tree);
     void rebuildAllSplitTrees();
     void appendSplitDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName,

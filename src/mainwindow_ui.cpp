@@ -869,7 +869,8 @@ void MainWindow::installConnContentTreeHeaderContextMenu(QTreeWidget* tree) {
 }
 
 void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, int connIdx,
-                                          const QString& poolName, const QString& rootDataset) {
+                                          const QString& poolName, const QString& rootDataset,
+                                          QTreeWidget* sourceTree) {
     if (!m_connContentPage || connIdx < 0 || connIdx >= m_profiles.size()
         || poolName.trimmed().isEmpty()) {
         return;
@@ -894,7 +895,7 @@ void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, int connId
         ? m_topDatasetTreeWidget->visualOptions()
         : ConnectionDatasetTreePane::VisualOptions{};
     config.groupPoolsByConnectionRoots = false;
-    auto* splitWidget = new ConnectionDatasetTreeWidget(config, delegate, m_connContentPage);
+    auto* splitWidget = new ConnectionDatasetTreeWidget(config, delegate, nullptr);
     auto* splitTree = splitWidget->tree();
     if (splitTree) {
         splitTree->setProperty("zfsmgr.isSplitTree", true);
@@ -903,23 +904,52 @@ void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, int connId
         appendSplitDatasetTree(splitTree, connIdx, trimmedPool, trimmedRoot, displayRoot);
     }
 
-    // Insert into layout via splitter
-    auto* layout = qobject_cast<QVBoxLayout*>(m_connContentPage->layout());
-    if (layout && !m_connContentTreeSplitter) {
-        const int idx = layout->indexOf(m_topDatasetTreeWidget);
-        const int stretch = (idx >= 0) ? 1 : 0;
-        if (idx >= 0) {
-            layout->removeWidget(m_topDatasetTreeWidget);
+    // Find the widget that was right-clicked (the panel to split)
+    QWidget* sourceWidget = nullptr;
+    if (sourceTree) {
+        if (m_topDatasetTreeWidget && m_topDatasetTreeWidget->tree() == sourceTree) {
+            sourceWidget = m_topDatasetTreeWidget;
+        } else {
+            for (const SplitTreeEntry& entry : std::as_const(m_splitTrees)) {
+                if (entry.treeWidget && entry.treeWidget->tree() == sourceTree) {
+                    sourceWidget = entry.treeWidget;
+                    break;
+                }
+            }
         }
-        m_connContentTreeSplitter = new QSplitter(orientation, m_connContentPage);
-        if (m_topDatasetTreeWidget) {
-            m_connContentTreeSplitter->addWidget(m_topDatasetTreeWidget);
-        }
-        layout->insertWidget(qMax(0, idx), m_connContentTreeSplitter, stretch);
     }
-    if (m_connContentTreeSplitter) {
-        m_connContentTreeSplitter->setOrientation(orientation);
-        m_connContentTreeSplitter->addWidget(splitWidget);
+    if (!sourceWidget) {
+        sourceWidget = m_topDatasetTreeWidget;
+    }
+
+    // Replace sourceWidget's position with a new splitter containing
+    // [sourceWidget (left/top), splitWidget (right/bottom)]
+    auto* newSplitter = new QSplitter(orientation, nullptr);
+    QSplitter* parentSplitter = qobject_cast<QSplitter*>(sourceWidget->parentWidget());
+
+    if (parentSplitter) {
+        // sourceWidget is inside another splitter — insert newSplitter at the same slot
+        const int idx = parentSplitter->indexOf(sourceWidget);
+        parentSplitter->insertWidget(idx, newSplitter);
+        newSplitter->addWidget(sourceWidget);
+        newSplitter->addWidget(splitWidget);
+    } else {
+        // sourceWidget is directly in the layout
+        auto* layout = qobject_cast<QVBoxLayout*>(m_connContentPage->layout());
+        if (layout) {
+            const int idx = layout->indexOf(sourceWidget);
+            const int stretch = (idx >= 0) ? 1 : 0;
+            if (idx >= 0) {
+                layout->removeWidget(sourceWidget);
+            }
+            newSplitter->setParent(m_connContentPage);
+            layout->insertWidget(qMax(0, idx), newSplitter, stretch);
+            newSplitter->addWidget(sourceWidget);
+            newSplitter->addWidget(splitWidget);
+            if (!m_connContentTreeSplitter) {
+                m_connContentTreeSplitter = newSplitter;
+            }
+        }
     }
 
     SplitTreeEntry entry;
@@ -941,24 +971,63 @@ void MainWindow::closeSplitTree(QTreeWidget* tree) {
         if (entry.treeWidget && entry.treeWidget->tree() == tree) {
             ConnectionDatasetTreeWidget* widget = entry.treeWidget;
             m_splitTrees.removeAt(i);
-            // Remove from splitter
+
             if (widget) {
+                QSplitter* parentSplitter = qobject_cast<QSplitter*>(widget->parentWidget());
                 widget->setParent(nullptr);
-                widget->deleteLater();
-            }
-            // If no more split trees, remove the splitter and put main tree back
-            if (m_splitTrees.isEmpty() && m_connContentTreeSplitter) {
-                auto* layout = qobject_cast<QVBoxLayout*>(m_connContentPage ? m_connContentPage->layout() : nullptr);
-                if (layout) {
-                    const int idx = layout->indexOf(m_connContentTreeSplitter);
-                    layout->removeWidget(m_connContentTreeSplitter);
-                    if (m_topDatasetTreeWidget) {
-                        m_topDatasetTreeWidget->setParent(m_connContentPage);
-                        layout->insertWidget(qMax(0, idx), m_topDatasetTreeWidget, 1);
+
+                // If the parent splitter now has a single child, unwrap it
+                if (parentSplitter && parentSplitter->count() == 1) {
+                    QWidget* remaining = parentSplitter->widget(0);
+                    QSplitter* grandSplitter =
+                        qobject_cast<QSplitter*>(parentSplitter->parentWidget());
+
+                    if (grandSplitter) {
+                        // Replace slot in grandparent splitter
+                        const int idx = grandSplitter->indexOf(parentSplitter);
+                        grandSplitter->insertWidget(idx, remaining);
+                    } else {
+                        // Parent is directly in the layout
+                        auto* layout = qobject_cast<QVBoxLayout*>(
+                            m_connContentPage ? m_connContentPage->layout() : nullptr);
+                        if (layout) {
+                            const int idx = layout->indexOf(parentSplitter);
+                            layout->removeWidget(parentSplitter);
+                            remaining->setParent(m_connContentPage);
+                            layout->insertWidget(qMax(0, idx), remaining, 1);
+                        }
+                    }
+                    if (m_connContentTreeSplitter == parentSplitter) {
+                        m_connContentTreeSplitter =
+                            qobject_cast<QSplitter*>(remaining);
+                    }
+                    parentSplitter->deleteLater();
+                }
+
+                // If no split trees remain, put main tree back directly in layout
+                if (m_splitTrees.isEmpty() && m_topDatasetTreeWidget) {
+                    QSplitter* rootSplitter =
+                        qobject_cast<QSplitter*>(m_topDatasetTreeWidget->parentWidget());
+                    if (rootSplitter) {
+                        auto* layout = qobject_cast<QVBoxLayout*>(
+                            m_connContentPage ? m_connContentPage->layout() : nullptr);
+                        if (layout) {
+                            // Walk up to find the splitter directly in the layout
+                            QWidget* topLevel = rootSplitter;
+                            while (qobject_cast<QSplitter*>(topLevel->parentWidget())) {
+                                topLevel = topLevel->parentWidget();
+                            }
+                            const int idx = layout->indexOf(topLevel);
+                            layout->removeWidget(topLevel);
+                            m_topDatasetTreeWidget->setParent(m_connContentPage);
+                            layout->insertWidget(qMax(0, idx), m_topDatasetTreeWidget, 1);
+                            topLevel->deleteLater();
+                        }
+                        m_connContentTreeSplitter = nullptr;
                     }
                 }
-                m_connContentTreeSplitter->deleteLater();
-                m_connContentTreeSplitter = nullptr;
+
+                widget->deleteLater();
             }
             return;
         }

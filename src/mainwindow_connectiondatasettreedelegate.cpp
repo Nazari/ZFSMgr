@@ -2034,8 +2034,16 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         poolActions.destroy->setEnabled(poolMenuState.canDestroy);
         if (!item->data(0, kIsSplitRootRole).toBool()) {
             QMenu* splitMenu = menu.addMenu(QStringLiteral("Split and root"));
-            aSplitVertical = splitMenu->addAction(QStringLiteral("Vertical"));
-            aSplitHorizontal = splitMenu->addAction(QStringLiteral("Horizontal"));
+            aSplitHorizontal = splitMenu->addAction(
+                m_mainWindow->trk(QStringLiteral("t_split_right_001"),
+                                  QStringLiteral("Derecha"),
+                                  QStringLiteral("Right"),
+                                  QStringLiteral("向右")));
+            aSplitVertical = splitMenu->addAction(
+                m_mainWindow->trk(QStringLiteral("t_split_below_001"),
+                                  QStringLiteral("Abajo"),
+                                  QStringLiteral("Below"),
+                                  QStringLiteral("向下")));
         }
     }
 
@@ -2191,8 +2199,16 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                                   QStringLiteral("设为目标")));
             if (!item->data(0, kIsSplitRootRole).toBool() && !isPoolRoot) {
                 QMenu* splitMenu = menu.addMenu(QStringLiteral("Split and root"));
-                aSplitVertical = splitMenu->addAction(QStringLiteral("Vertical"));
-                aSplitHorizontal = splitMenu->addAction(QStringLiteral("Horizontal"));
+                aSplitHorizontal = splitMenu->addAction(
+                    m_mainWindow->trk(QStringLiteral("t_split_right_001"),
+                                      QStringLiteral("Derecha"),
+                                      QStringLiteral("Right"),
+                                      QStringLiteral("向右")));
+                aSplitVertical = splitMenu->addAction(
+                    m_mainWindow->trk(QStringLiteral("t_split_below_001"),
+                                      QStringLiteral("Abajo"),
+                                      QStringLiteral("Below"),
+                                      QStringLiteral("向下")));
             }
         }
     }
@@ -2904,14 +2920,16 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             return;
         }
         if (picked == aSplitVertical || picked == aSplitHorizontal) {
+            // aSplitHorizontal = "Derecha" → new tree on the right → Qt::Horizontal
+            // aSplitVertical   = "Abajo"   → new tree below       → Qt::Vertical
             const Qt::Orientation orient =
-                (picked == aSplitVertical) ? Qt::Vertical : Qt::Horizontal;
+                (picked == aSplitHorizontal) ? Qt::Horizontal : Qt::Vertical;
             const int ci = ctx.valid ? ctx.connIdx : connIdx;
             const QString pn = ctx.valid ? ctx.poolName : poolName;
             const QString ds = ctx.valid && !ctx.datasetName.trimmed().isEmpty()
                                    ? ctx.datasetName.trimmed()
                                    : pn.trimmed();
-            m_mainWindow->splitAndRootConnContent(orient, ci, pn, ds);
+            m_mainWindow->splitAndRootConnContent(orient, ci, pn, ds, tree);
             return;
         }
         if (picked == aCloseSplit) {
