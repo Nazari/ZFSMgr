@@ -1442,6 +1442,12 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
                 }
                 continue;
             }
+            // Do not recurse into child dataset or snapshot items — their prop
+            // rows remain valid with the existing column data and will be fully
+            // rebuilt the next time those items are selected.
+            if (!c->data(0, Qt::UserRole).toString().isEmpty()) {
+                continue;
+            }
             self(self, c);
         }
         for (int col = 4; col < tree->columnCount(); ++col) {
