@@ -928,11 +928,14 @@ void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, int connId
     QSplitter* parentSplitter = qobject_cast<QSplitter*>(sourceWidget->parentWidget());
 
     if (parentSplitter) {
-        // sourceWidget is inside another splitter — insert newSplitter at the same slot
+        // sourceWidget is inside another splitter — insert newSplitter at the same slot.
+        // Save parent sizes first so inserting the inner splitter doesn't disturb sibling panels.
+        const QList<int> parentSizes = parentSplitter->sizes();
         const int idx = parentSplitter->indexOf(sourceWidget);
         parentSplitter->insertWidget(idx, newSplitter);
         newSplitter->addWidget(sourceWidget);
         newSplitter->addWidget(splitWidget);
+        parentSplitter->setSizes(parentSizes);
     } else {
         // sourceWidget is directly in the layout
         auto* layout = qobject_cast<QVBoxLayout*>(m_connContentPage->layout());
@@ -951,6 +954,21 @@ void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, int connId
             }
         }
     }
+
+    // Split the available space equally between source and new panel.
+    QPointer<QSplitter> splitterPtr(newSplitter);
+    QTimer::singleShot(0, this, [splitterPtr]() {
+        if (!splitterPtr || splitterPtr->count() != 2) {
+            return;
+        }
+        const int total = (splitterPtr->orientation() == Qt::Horizontal)
+                              ? splitterPtr->width()
+                              : splitterPtr->height();
+        if (total > 0) {
+            const int half = total / 2;
+            splitterPtr->setSizes({half, half});
+        }
+    });
 
     SplitTreeEntry entry;
     entry.connIdx = connIdx;
@@ -1687,7 +1705,11 @@ void MainWindow::buildUi() {
     m_btnConnDiff->setToolTip(
         trk(QStringLiteral("t_tt_diff_001"),
             QStringLiteral("Compara un snapshot de Origen con su dataset padre actual o con otro snapshot del mismo dataset,\n"
-                           "si ambos están en la misma conexión y el mismo pool.")));
+                           "si ambos están en la misma conexión y el mismo pool."),
+            QStringLiteral("Compares a Source snapshot against its current parent dataset or another snapshot from the same dataset,\n"
+                           "when both are in the same connection and the same pool."),
+            QStringLiteral("比较源端快照与其当前父数据集，或与同一数据集中的另一个快照，\n"
+                           "前提是两者位于同一连接和同一存储池。")));
     m_btnConnLevel->setToolTip(
         trk(QStringLiteral("t_tt_level_001"),
             QStringLiteral("Genera/aplica envío diferencial para igualar Origen->Destino.\n"
