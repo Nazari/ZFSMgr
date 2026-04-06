@@ -1,6 +1,6 @@
 # ZFSMgr: OpenZFS GUI Manager for Local and Remote Systems
 
-**ZFSMgr** is a **full OpenZFS GUI manager** built with **C++17 + Qt6** for **Linux, macOS, and Windows**.
+**ZFSMgr** is a **full OpenZFS GUI manager** built with **C++17 + Qt6** for **Linux, FeeBSD, macOS, and Windows**.
 
 If you are looking for a **ZFS GUI manager**, **OpenZFS GUI**, **remote ZFS manager**, or a **desktop ZFS administration tool**, ZFSMgr is designed to cover the whole workflow from one interface:
 
