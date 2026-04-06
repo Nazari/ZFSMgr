@@ -1197,7 +1197,14 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     QProcess proc;
     m_cancelActionRequested = false;
     m_activeLocalProcess = &proc;
+#ifdef Q_OS_WIN
+    ConnectionProfile localWinProfile;
+    localWinProfile.connType = QStringLiteral("LOCAL");
+    localWinProfile.osType = QStringLiteral("Windows");
+    proc.start(QStringLiteral("cmd.exe"), QStringList{QStringLiteral("/C"), wrapRemoteCommand(localWinProfile, command)});
+#else
     proc.start(QStringLiteral("sh"), QStringList{QStringLiteral("-c"), command});
+#endif
     if (!proc.waitForStarted(4000)) {
         appLog(QStringLiteral("NORMAL"),
                trk(QStringLiteral("t_no_se_pudo_874fae"),
