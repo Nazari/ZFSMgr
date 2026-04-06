@@ -1806,13 +1806,23 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
     };
 
     const QString kind = permNode->data(0, kConnPermissionsKindRole).toString();
-    if (kind != QStringLiteral("root")) {
-        return true;
-    }
     QMenu permMenu(m_mainWindow);
     QAction* aNewGrant = permMenu.addAction(QStringLiteral("Nueva Delegación"));
     QAction* aNewSet = permMenu.addAction(QStringLiteral("Nuevo Set"));
     QAction* aRefreshPerms = permMenu.addAction(QStringLiteral("Refrescar permisos"));
+    QAction* aEditGrant = nullptr;
+    QAction* aDeleteGrant = nullptr;
+    QAction* aRenameSet = nullptr;
+    QAction* aDeleteSet = nullptr;
+    if (kind == QStringLiteral("grant") || kind == QStringLiteral("grant_perm")) {
+        permMenu.addSeparator();
+        aEditGrant = permMenu.addAction(QStringLiteral("Editar delegación"));
+        aDeleteGrant = permMenu.addAction(QStringLiteral("Eliminar delegación"));
+    } else if (kind == QStringLiteral("set") || kind == QStringLiteral("set_perm")) {
+        permMenu.addSeparator();
+        aRenameSet = permMenu.addAction(QStringLiteral("Renombrar conjunto de permisos"));
+        aDeleteSet = permMenu.addAction(QStringLiteral("Eliminar set"));
+    }
     m_mainWindow->endUiBusy();
     QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 25);
     logContextMenuPerf(m_mainWindow,
@@ -1939,6 +1949,132 @@ bool MainWindowConnectionDatasetTreeDelegate::handlePermissionsMenu(QTreeWidget*
                 rebuildPermissionsNodeWithState();
                 m_mainWindow->updateApplyPropsButtonState();
             }
+        }
+        return true;
+    }
+    if (picked == aEditGrant) {
+        QTreeWidgetItem* grantNode = permNode;
+        if (kind == QStringLiteral("grant_perm") && permNode->parent()) {
+            grantNode = permNode->parent();
+        }
+        QString targetType = grantNode->data(0, kConnPermissionsTargetTypeRole).toString();
+        QString targetName = grantNode->data(0, kConnPermissionsTargetNameRole).toString();
+        QString scope = grantNode->data(0, kConnPermissionsScopeRole).toString();
+        QStringList tokens = permissionTokensFromNode(grantNode);
+        QString newTargetType;
+        QString newTargetName;
+        QString newScope;
+        QStringList newTokens;
+        if (!promptPermissionGrant(mwCtx,
+                                   QStringLiteral("Editar delegación"),
+                                   targetType,
+                                   targetName,
+                                   scope,
+                                   tokens,
+                                   false,
+                                   newTargetType,
+                                   newTargetName,
+                                   newScope,
+                                   newTokens)) {
+            return true;
+        }
+        auto* entry = m_mainWindow->datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
+        if (entry) {
+            auto updateGrant = [&](QVector<MainWindow::DatasetPermissionGrant>& grants) {
+                for (MainWindow::DatasetPermissionGrant& g : grants) {
+                    if (g.scope == scope && g.targetType == targetType && g.targetName == targetName) {
+                        g.scope = newScope;
+                        g.targetType = newTargetType;
+                        g.targetName = newTargetName;
+                        entry->dirty = true;
+                        return true;
+                    }
+                }
+                return false;
+            };
+            if (updateGrant(entry->localGrants) || updateGrant(entry->descendantGrants)
+                || updateGrant(entry->localDescendantGrants)) {
+                m_mainWindow->mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
+                rebuildPermissionsNodeWithState();
+                m_mainWindow->updateApplyPropsButtonState();
+            }
+        }
+        return true;
+    }
+    if (picked == aDeleteGrant) {
+        auto* entry = m_mainWindow->datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
+        if (entry) {
+            auto removeGrant = [&](QVector<MainWindow::DatasetPermissionGrant>& grants) {
+                for (int i = grants.size() - 1; i >= 0; --i) {
+                    const MainWindow::DatasetPermissionGrant& g = grants.at(i);
+                    if (g.scope == permNode->data(0, kConnPermissionsScopeRole).toString()
+                        && g.targetType == permNode->data(0, kConnPermissionsTargetTypeRole).toString()
+                        && g.targetName == permNode->data(0, kConnPermissionsTargetNameRole).toString()) {
+                        grants.removeAt(i);
+                        entry->dirty = true;
+                    }
+                }
+            };
+            removeGrant(entry->localGrants);
+            removeGrant(entry->descendantGrants);
+            removeGrant(entry->localDescendantGrants);
+            m_mainWindow->mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
+            rebuildPermissionsNodeWithState();
+            m_mainWindow->updateApplyPropsButtonState();
+        }
+        return true;
+    }
+    if (picked == aRenameSet) {
+        QTreeWidgetItem* setNode = permNode;
+        if (kind == QStringLiteral("set_perm") && permNode->parent()) {
+            setNode = permNode->parent();
+        }
+        const QString oldSetName = setNode->data(0, kConnPermissionsEntryNameRole).toString().trimmed();
+        bool ok = false;
+        QString newSetName = QInputDialog::getText(
+            m_mainWindow,
+            QStringLiteral("Renombrar conjunto de permisos"),
+            QStringLiteral("Nuevo nombre"),
+            QLineEdit::Normal,
+            oldSetName,
+            &ok).trimmed();
+        if (!ok || newSetName.isEmpty()) {
+            return true;
+        }
+        if (!newSetName.startsWith(QLatin1Char('@'))) {
+            newSetName.prepend(QLatin1Char('@'));
+        }
+        auto* entry = m_mainWindow->datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
+        if (entry) {
+            for (MainWindow::DatasetPermissionSet& s : entry->permissionSets) {
+                if (s.name.compare(oldSetName, Qt::CaseInsensitive) == 0) {
+                    s.name = newSetName;
+                    entry->dirty = true;
+                    break;
+                }
+            }
+            m_mainWindow->mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
+            rebuildPermissionsNodeWithState();
+            m_mainWindow->updateApplyPropsButtonState();
+        }
+        return true;
+    }
+    if (picked == aDeleteSet) {
+        QString setName = permNode->data(0, kConnPermissionsEntryNameRole).toString().trimmed();
+        if (kind == QStringLiteral("set_perm") && permNode->parent()) {
+            setName = permNode->parent()->data(0, kConnPermissionsEntryNameRole).toString().trimmed();
+        }
+        auto* entry = m_mainWindow->datasetPermissionsEntryMutable(ctx.connIdx, ctx.poolName, ctx.datasetName);
+        if (entry) {
+            for (int i = entry->permissionSets.size() - 1; i >= 0; --i) {
+                if (entry->permissionSets.at(i).name.compare(setName, Qt::CaseInsensitive) == 0) {
+                    entry->permissionSets.removeAt(i);
+                    entry->dirty = true;
+                }
+            }
+            m_mainWindow->mirrorDatasetPermissionsEntryToModel(ctx.connIdx, ctx.poolName, ctx.datasetName);
+            rebuildPermissionsNodeWithState();
+            m_mainWindow->updateApplyPropsButtonState();
         }
         return true;
     }
@@ -2074,11 +2210,17 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     if (item->data(0, kConnPropGroupNodeRole).toBool()
         && item->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
         && !item->data(0, kConnSnapshotHoldsNodeRole).toBool()) {
+        const InlineVisibilityMenuActions inlineActions =
+            buildInlineVisibilityMenu(menu, tree, true, false, false);
         logContextMenuPerf(m_mainWindow,
-                           QStringLiteral("general.skip"),
-                           QStringLiteral("dataset/snapshot properties without context menu"),
+                           QStringLiteral("general.properties.exec"),
+                           QStringLiteral("dataset/snapshot properties context"),
                            timer.elapsed());
         endBusy();
+        QAction* picked = menu.exec(tree->viewport()->mapToGlobal(pos));
+        if (picked == inlineActions.manage) {
+            manageInlinePropsVisualization(tree, item, false);
+        }
         return;
     }
 
@@ -2145,6 +2287,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     QAction* aAssemble = nullptr;
     QAction* aFromDir = nullptr;
     QAction* aToDir = nullptr;
+    QAction* aMount = nullptr;
     QAction* aSelectOrigin = nullptr;
     QAction* aSelectDestination = nullptr;
     QAction* aPermNewSet = nullptr;
@@ -2198,6 +2341,7 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             aFromDir = actionsMenu->addAction(
                 m_mainWindow->trk(QStringLiteral("t_from_dir_btn1"), QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")));
             aToDir = actionsMenu->addAction(QStringLiteral("Hasta Dir"));
+            aMount = actionsMenu->addAction(QStringLiteral("Mount"));
 
             aSelectOrigin = menu.addAction(
                 m_mainWindow->trk(QStringLiteral("t_ctx_select_as_origin_001"),
@@ -2304,6 +2448,26 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     const QString keyStatus = datasetPropFromModel(ctx, QStringLiteral("keystatus")).toLower();
     const QString keyLocation = datasetPropFromModel(ctx, QStringLiteral("keylocation")).toLower();
     const QString keyFormat = datasetPropFromModel(ctx, QStringLiteral("keyformat")).toLower();
+    const QString mountedRaw = datasetPropFromModel(ctx, QStringLiteral("mounted")).trimmed().toLower();
+    const QString canmountRaw = datasetPropFromModel(ctx, QStringLiteral("canmount")).trimmed().toLower();
+    const QString mountpointRaw = datasetPropFromModel(ctx, QStringLiteral("mountpoint")).trimmed();
+    auto isValidMountpointForMenu = [this](const QString& mountpoint, int cidx) -> bool {
+        const QString mp = mountpoint.trimmed();
+        if (mp.isEmpty()) {
+            return false;
+        }
+        const QString mpl = mp.toLower();
+        if (mpl == QStringLiteral("-") || mpl == QStringLiteral("none")) {
+            return false;
+        }
+        if (m_mainWindow->isWindowsConnection(m_mainWindow->m_profiles.value(cidx))) {
+            return mp.contains(QLatin1Char(':')) || mp.startsWith(QStringLiteral("\\\\"));
+        }
+        if (mpl == QStringLiteral("legacy")) {
+            return true;
+        }
+        return mp.startsWith(QLatin1Char('/'));
+    };
     const bool isEncryptionRoot =
             hasConnSel && !hasConnSnap
             && !encryptionRoot.isEmpty()
@@ -2356,6 +2520,15 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         }
         if (aToDir) {
             aToDir->setEnabled(!m_mainWindow->actionsLocked() && m_mainWindow->connDirectoryDatasetActionAllowed(mwSelCtx));
+        }
+        if (aMount) {
+            const bool mountAllowedByProps =
+                !canmountRaw.isEmpty()
+                && canmountRaw != QStringLiteral("off")
+                && isValidMountpointForMenu(mountpointRaw, ctx.connIdx);
+            const bool alreadyMounted = mwhelpers::isMountedValueTrue(mountedRaw);
+            aMount->setEnabled(!m_mainWindow->actionsLocked() && hasConnSel && !hasConnSnap
+                               && mountAllowedByProps && !alreadyMounted);
         }
         if (aSelectOrigin) {
             aSelectOrigin->setEnabled(hasConnSel);
@@ -2939,6 +3112,48 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             mwCtx.datasetName = ctx.datasetName;
             mwCtx.snapshotName = ctx.snapshotName;
             m_mainWindow->actionAdvancedToDir(mwCtx);
+            return;
+        }
+        if (picked == aMount) {
+            const SelectionSnapshot actx = selectionForMenuContext();
+            if (!actx.valid || actx.datasetName.trimmed().isEmpty() || !actx.snapshotName.trimmed().isEmpty()) {
+                return;
+            }
+            QString q = actx.datasetName.trimmed();
+            q.replace('\'', "'\"'\"'");
+            const QString cmd = QStringLiteral("zfs mount '%1'").arg(q);
+            ConnectionProfile cp = m_mainWindow->m_profiles[actx.connIdx];
+            if (m_mainWindow->isLocalConnection(cp) && !m_mainWindow->isWindowsConnection(cp)) {
+                cp.useSudo = true;
+                if (!m_mainWindow->ensureLocalSudoCredentials(cp)) {
+                    m_mainWindow->appLog(QStringLiteral("INFO"), QStringLiteral("Mount cancelado: faltan credenciales sudo locales"));
+                    return;
+                }
+            }
+            const QString fullCmd = m_mainWindow->sshExecFromLocal(cp, m_mainWindow->withSudo(cp, cmd));
+            MainWindow::DatasetSelectionContext refreshTarget;
+            refreshTarget.valid = true;
+            refreshTarget.connIdx = actx.connIdx;
+            refreshTarget.poolName = actx.poolName;
+            refreshTarget.datasetName = actx.datasetName;
+            const QString connLabel = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
+            QString errorText;
+            if (!m_mainWindow->queuePendingShellAction(MainWindow::PendingShellActionDraft{
+                    QStringLiteral("%1::%2").arg(connLabel, actx.poolName),
+                    QStringLiteral("Mount dataset %1").arg(actx.datasetName),
+                    fullCmd,
+                    90000,
+                    false,
+                    {},
+                    refreshTarget,
+                    MainWindow::PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+                QMessageBox::warning(m_mainWindow, QStringLiteral("ZFSMgr"), errorText);
+                return;
+            }
+            m_mainWindow->appLog(QStringLiteral("NORMAL"),
+                                 QStringLiteral("Cambio pendiente añadido: %1::%2  Mount dataset %3")
+                                     .arg(connLabel, actx.poolName, actx.datasetName));
+            m_mainWindow->updateApplyPropsButtonState();
             return;
         }
         if (picked == aSplitVertical || picked == aSplitHorizontal

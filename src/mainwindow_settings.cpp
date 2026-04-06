@@ -245,6 +245,7 @@ void MainWindow::loadUiSettings() {
     m_rightMainSplitState = ini.value(QStringLiteral("right_main_splitter")).toByteArray();
     m_verticalMainSplitState = ini.value(QStringLiteral("vertical_main_splitter")).toByteArray();
     m_bottomInfoSplitState = ini.value(QStringLiteral("bottom_info_splitter")).toByteArray();
+    m_splitTreeLayoutState = ini.value(QStringLiteral("split_tree_layout")).toString();
     if (m_logMaxLinesSetting != 100 && m_logMaxLinesSetting != 200
         && m_logMaxLinesSetting != 500 && m_logMaxLinesSetting != 1000) {
         m_logMaxLinesSetting = 500;
@@ -309,6 +310,7 @@ void MainWindow::saveUiSettings() const {
                  m_verticalMainSplit ? m_verticalMainSplit->saveState() : QByteArray());
     ini.setValue(QStringLiteral("bottom_info_splitter"),
                  m_bottomInfoSplit ? m_bottomInfoSplit->saveState() : QByteArray());
+    ini.setValue(QStringLiteral("split_tree_layout"), serializeSplitTreeLayoutState());
     ini.endGroup();
     // Remove legacy duplicated key.
     ini.beginGroup(QStringLiteral("ui"));

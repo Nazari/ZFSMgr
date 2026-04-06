@@ -158,7 +158,8 @@ ParsedPermissionsEntry parsePermissionsOutput(const QString& out) {
             section = PermissionsSection::Create;
             continue;
         }
-        if (lower.contains(QStringLiteral("permission sets:"))) {
+        if ((lower.contains(QStringLiteral("permission set")) && lower.contains(QLatin1Char(':')))
+            || lower.contains(QStringLiteral("permission sets:"))) {
             section = PermissionsSection::Sets;
             continue;
         }
@@ -178,11 +179,24 @@ ParsedPermissionsEntry parsePermissionsOutput(const QString& out) {
                 continue;
             }
             ParsedPermissionSet set;
-            set.name = parts.first().trimmed();
-            if (!set.name.startsWith(QLatin1Char('@'))) {
+            int skipCount = 1;
+            const QString first = parts.first().trimmed();
+            if (first.compare(QStringLiteral("set"), Qt::CaseInsensitive) == 0 && parts.size() >= 2) {
+                set.name = parts.at(1).trimmed();
+                skipCount = 2;
+            } else {
+                set.name = first;
+            }
+            if (set.name.endsWith(QLatin1Char(':'))) {
+                set.name.chop(1);
+            }
+            if (set.name.isEmpty()) {
                 continue;
             }
-            set.permissions = splitPermissionTokens(remainingAfterTokens(parts, 1));
+            if (!set.name.startsWith(QLatin1Char('@'))) {
+                set.name.prepend(QLatin1Char('@'));
+            }
+            set.permissions = splitPermissionTokens(remainingAfterTokens(parts, skipCount));
             entry.permissionSets.push_back(set);
             continue;
         }

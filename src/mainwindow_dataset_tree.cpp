@@ -4559,6 +4559,28 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
     if (!ensurePoolAndObjectGuids()) {
         return;
     }
+    // Requisito funcional: antes de pintar datasets en el árbol, cargar permisos
+    // dataset por dataset (zfs allow no ofrece listado global de todo el pool).
+    if (!isWindowsConnection(connIdx)) {
+        QStringList permissionObjectsToPreload;
+        permissionObjectsToPreload.reserve(poolInfo->objectsByFullName.size());
+        for (auto it = poolInfo->objectsByFullName.cbegin(); it != poolInfo->objectsByFullName.cend(); ++it) {
+            if (it->kind == DSKind::Snapshot) {
+                continue;
+            }
+            const QString objectName = it.key().trimmed();
+            if (!objectName.isEmpty()) {
+                permissionObjectsToPreload.push_back(objectName);
+            }
+        }
+        for (const QString& objectName : permissionObjectsToPreload) {
+            ensureDatasetPermissionsLoaded(connIdx, poolName, objectName);
+        }
+        poolInfo = findPoolInfo(connIdx, poolName);
+        if (!poolInfo) {
+            return;
+        }
+    }
     auto objectGuidFromCache = [this, connIdx, &poolName](const QString& objectName) -> QString {
         const QVector<DatasetPropCacheRow> rows =
             datasetPropertyRowsFromModelOrCache(connIdx, poolName, objectName);
@@ -4628,7 +4650,12 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         propsNode->setData(0, kConnIdxRole, connIdx);
         propsNode->setData(0, kPoolNameRole, poolName);
         propsNode->setFlags(propsNode->flags() & ~Qt::ItemIsUserCheckable);
-        const auto& perms = dsInfo.permissionsCache;
+        DatasetPermissionsCacheEntry perms = dsInfo.permissionsCache;
+        if (const DatasetPermissionsCacheEntry* cachedPerms =
+                datasetPermissionsEntry(connIdx, poolName, fullName);
+            cachedPerms && cachedPerms->loaded) {
+            perms = *cachedPerms;
+        }
         const bool hasPermissionGrants =
             !perms.localGrants.isEmpty() || !perms.descendantGrants.isEmpty() || !perms.localDescendantGrants.isEmpty();
         const bool hasPermissionSets = !perms.permissionSets.isEmpty();

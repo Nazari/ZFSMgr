@@ -643,6 +643,8 @@ private:
                                   QTreeWidget* sourceTree = nullptr);
     void closeSplitTree(QTreeWidget* tree);
     void rebuildAllSplitTrees();
+    QString serializeSplitTreeLayoutState() const;
+    void restoreSplitTreeLayoutFromState(const QString& state);
     void appendSplitDatasetTree(QTreeWidget* tree, int connIdx, const QString& poolName,
                                  const QString& rootDataset, const QString& displayRoot);
     void appendSplitDatasetTreeForConnection(QTreeWidget* tree, int connIdx);
@@ -871,7 +873,8 @@ private:
                            const QString& intro,
                            const QStringList& items,
                            QStringList& selected,
-                           const QString& detail = QString());
+                           const QString& detail = QString(),
+                           const QMap<QString, QString>& invalidItems = {});
     bool editInlinePropertiesDialog(const QString& title,
                                     const QString& intro,
                                     const QStringList& items,
@@ -1001,6 +1004,7 @@ private:
     QByteArray m_rightMainSplitState;
     QByteArray m_verticalMainSplitState;
     QByteArray m_bottomInfoSplitState;
+    QString m_splitTreeLayoutState;
     QMap<int, QSet<QString>> m_savedBottomExpandedKeysByConn;
     QMap<int, QString> m_savedBottomSelectedKeyByConn;
     int m_forceRestoreTopStateConnIdx{-1};

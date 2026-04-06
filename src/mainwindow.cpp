@@ -130,6 +130,7 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
     buildUi();
     if (!zfsmgrTestModeEnabled()) {
         loadConnections();
+        restoreSplitTreeLayoutFromState(m_splitTreeLayoutState);
         for (const ConnectionProfile& p : std::as_const(m_profiles)) {
             if (!isLocalConnection(p) || p.username.trimmed().isEmpty() || p.password.isEmpty()) {
                 continue;

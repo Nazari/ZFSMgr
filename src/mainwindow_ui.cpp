@@ -23,6 +23,9 @@
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QLabel>
@@ -1006,6 +1009,7 @@ void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, bool inser
     entry.treeWidget = splitWidget;
     entry.delegate = delegate;
     m_splitTrees.push_back(entry);
+    saveUiSettings();
 }
 
 void MainWindow::closeSplitTree(QTreeWidget* tree) {
@@ -1075,6 +1079,7 @@ void MainWindow::closeSplitTree(QTreeWidget* tree) {
 
                 widget->deleteLater();
             }
+            saveUiSettings();
             return;
         }
     }
@@ -1096,6 +1101,247 @@ void MainWindow::rebuildAllSplitTrees() {
             appendSplitDatasetTree(t, entry.connIdx, entry.poolName, entry.rootDataset, entry.displayRoot);
         }
     }
+}
+
+QString MainWindow::serializeSplitTreeLayoutState() const {
+    if (!m_connContentPage || !m_topDatasetTreeWidget) {
+        return QString();
+    }
+    auto findSplitEntryForWidget = [this](const ConnectionDatasetTreeWidget* widget) -> const SplitTreeEntry* {
+        if (!widget) {
+            return nullptr;
+        }
+        for (const SplitTreeEntry& e : m_splitTrees) {
+            if (e.treeWidget == widget) {
+                return &e;
+            }
+        }
+        return nullptr;
+    };
+    std::function<QJsonObject(QWidget*)> encodeNode = [&](QWidget* widget) -> QJsonObject {
+        QJsonObject out;
+        if (!widget) {
+            return out;
+        }
+        if (widget == m_topDatasetTreeWidget) {
+            out.insert(QStringLiteral("kind"), QStringLiteral("main"));
+            return out;
+        }
+        if (auto* splitter = qobject_cast<QSplitter*>(widget)) {
+            out.insert(QStringLiteral("kind"), QStringLiteral("split"));
+            out.insert(QStringLiteral("orientation"),
+                       splitter->orientation() == Qt::Horizontal ? QStringLiteral("h")
+                                                                 : QStringLiteral("v"));
+            QJsonArray sizes;
+            for (int s : splitter->sizes()) {
+                sizes.push_back(s);
+            }
+            out.insert(QStringLiteral("sizes"), sizes);
+            QJsonArray children;
+            for (int i = 0; i < splitter->count(); ++i) {
+                if (QWidget* child = splitter->widget(i)) {
+                    children.push_back(encodeNode(child));
+                }
+            }
+            out.insert(QStringLiteral("children"), children);
+            return out;
+        }
+        if (auto* splitWidget = qobject_cast<ConnectionDatasetTreeWidget*>(widget)) {
+            const SplitTreeEntry* entry = findSplitEntryForWidget(splitWidget);
+            if (!entry) {
+                return out;
+            }
+            out.insert(QStringLiteral("kind"), QStringLiteral("splitTree"));
+            out.insert(QStringLiteral("conn"), connectionPersistKey(entry->connIdx));
+            out.insert(QStringLiteral("pool"), entry->poolName.trimmed());
+            out.insert(QStringLiteral("dataset"), entry->rootDataset.trimmed());
+            return out;
+        }
+        return out;
+    };
+
+    auto* layout = qobject_cast<QVBoxLayout*>(m_connContentPage->layout());
+    if (!layout || layout->count() <= 0) {
+        return QString();
+    }
+    QWidget* rootWidget = nullptr;
+    for (int i = 0; i < layout->count(); ++i) {
+        if (QLayoutItem* item = layout->itemAt(i)) {
+            if (QWidget* w = item->widget()) {
+                rootWidget = w;
+                break;
+            }
+        }
+    }
+    if (!rootWidget) {
+        return QString();
+    }
+    const QJsonObject root = encodeNode(rootWidget);
+    if (root.isEmpty()) {
+        return QString();
+    }
+    QJsonObject doc;
+    doc.insert(QStringLiteral("version"), 1);
+    doc.insert(QStringLiteral("root"), root);
+    return QString::fromUtf8(QJsonDocument(doc).toJson(QJsonDocument::Compact));
+}
+
+void MainWindow::restoreSplitTreeLayoutFromState(const QString& state) {
+    if (!m_connContentPage || !m_topDatasetTreeWidget || state.trimmed().isEmpty()) {
+        return;
+    }
+    QJsonParseError parseErr{};
+    const QJsonDocument doc = QJsonDocument::fromJson(state.toUtf8(), &parseErr);
+    if (parseErr.error != QJsonParseError::NoError || !doc.isObject()) {
+        return;
+    }
+    const QJsonObject rootObj = doc.object().value(QStringLiteral("root")).toObject();
+    if (rootObj.isEmpty()) {
+        return;
+    }
+
+    auto connIdxByPersistKey = [this](const QString& key) -> int {
+        const QString wanted = key.trimmed().toLower();
+        if (wanted.isEmpty()) {
+            return -1;
+        }
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            const QString k = connectionPersistKey(i).trimmed().toLower();
+            if (!k.isEmpty() && k == wanted) {
+                return i;
+            }
+        }
+        return -1;
+    };
+
+    auto* layout = qobject_cast<QVBoxLayout*>(m_connContentPage->layout());
+    if (!layout) {
+        return;
+    }
+
+    for (const SplitTreeEntry& e : std::as_const(m_splitTrees)) {
+        if (e.treeWidget) {
+            e.treeWidget->setParent(nullptr);
+            e.treeWidget->deleteLater();
+        }
+    }
+    m_splitTrees.clear();
+    m_connContentTreeSplitter = nullptr;
+
+    QWidget* existingRoot = nullptr;
+    for (int i = 0; i < layout->count(); ++i) {
+        if (QLayoutItem* item = layout->itemAt(i)) {
+            if (QWidget* w = item->widget()) {
+                existingRoot = w;
+                break;
+            }
+        }
+    }
+    if (existingRoot && existingRoot != m_topDatasetTreeWidget) {
+        layout->removeWidget(existingRoot);
+        existingRoot->deleteLater();
+    }
+    if (m_topDatasetTreeWidget->parentWidget() != m_connContentPage) {
+        m_topDatasetTreeWidget->setParent(m_connContentPage);
+    }
+    if (layout->indexOf(m_topDatasetTreeWidget) < 0) {
+        layout->insertWidget(0, m_topDatasetTreeWidget, 1);
+    }
+
+    std::function<QWidget*(const QJsonObject&)> buildNode = [&](const QJsonObject& node) -> QWidget* {
+        const QString kind = node.value(QStringLiteral("kind")).toString().trimmed();
+        if (kind == QStringLiteral("main")) {
+            return m_topDatasetTreeWidget;
+        }
+        if (kind == QStringLiteral("splitTree")) {
+            const int connIdx = connIdxByPersistKey(node.value(QStringLiteral("conn")).toString());
+            const QString pool = node.value(QStringLiteral("pool")).toString().trimmed();
+            const QString dataset = node.value(QStringLiteral("dataset")).toString().trimmed();
+            if (connIdx < 0 || connIdx >= m_profiles.size()) {
+                return nullptr;
+            }
+            const ConnectionProfile& p = m_profiles.at(connIdx);
+            const QString connName = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
+            const bool isConnectionLevel = pool.isEmpty();
+            const QString displayRoot = isConnectionLevel
+                ? connName
+                : ((dataset.compare(pool, Qt::CaseInsensitive) == 0)
+                       ? QStringLiteral("%1::%2").arg(connName, pool)
+                       : QStringLiteral("%1::%2").arg(connName, dataset));
+
+            auto* delegate = new MainWindowConnectionDatasetTreeDelegate(this, this);
+            ConnectionDatasetTreeWidget::Config config;
+            config.treeName = QStringLiteral("splitDatasetTree_%1").arg(m_splitTrees.size());
+            config.primaryColumnTitle = m_topDatasetTreeWidget
+                ? m_topDatasetTreeWidget->config().primaryColumnTitle
+                : QStringLiteral("Dataset");
+            config.role = ConnectionDatasetTreePane::Role::Top;
+            config.visualOptions = m_topDatasetTreeWidget
+                ? m_topDatasetTreeWidget->visualOptions()
+                : ConnectionDatasetTreePane::VisualOptions{};
+            config.groupPoolsByConnectionRoots = isConnectionLevel;
+            auto* splitWidget = new ConnectionDatasetTreeWidget(config, delegate, nullptr);
+            if (QTreeWidget* splitTree = splitWidget->tree()) {
+                splitTree->setProperty("zfsmgr.isSplitTree", true);
+                splitTree->setItemDelegate(new ConnContentPropBorderDelegate(splitTree));
+                installConnContentTreeHeaderContextMenu(splitTree);
+                if (isConnectionLevel) {
+                    appendSplitDatasetTreeForConnection(splitTree, connIdx);
+                } else {
+                    appendSplitDatasetTree(splitTree, connIdx, pool, dataset, displayRoot);
+                }
+            }
+            SplitTreeEntry entry;
+            entry.connIdx = connIdx;
+            entry.poolName = pool;
+            entry.rootDataset = dataset;
+            entry.displayRoot = displayRoot;
+            entry.treeWidget = splitWidget;
+            entry.delegate = delegate;
+            m_splitTrees.push_back(entry);
+            return splitWidget;
+        }
+        if (kind == QStringLiteral("split")) {
+            auto* splitter = new QSplitter(
+                node.value(QStringLiteral("orientation")).toString() == QStringLiteral("h")
+                    ? Qt::Horizontal
+                    : Qt::Vertical,
+                nullptr);
+            const QJsonArray children = node.value(QStringLiteral("children")).toArray();
+            for (const QJsonValue& childVal : children) {
+                if (!childVal.isObject()) {
+                    continue;
+                }
+                QWidget* childWidget = buildNode(childVal.toObject());
+                if (childWidget) {
+                    splitter->addWidget(childWidget);
+                }
+            }
+            const QJsonArray sizesArr = node.value(QStringLiteral("sizes")).toArray();
+            if (sizesArr.size() == splitter->count()) {
+                QList<int> sizes;
+                sizes.reserve(sizesArr.size());
+                for (const QJsonValue& v : sizesArr) {
+                    sizes.push_back(v.toInt());
+                }
+                splitter->setSizes(sizes);
+            }
+            return splitter;
+        }
+        return nullptr;
+    };
+
+    QWidget* rebuiltRoot = buildNode(rootObj);
+    if (!rebuiltRoot || rebuiltRoot == m_topDatasetTreeWidget) {
+        m_connContentTreeSplitter = nullptr;
+        return;
+    }
+    if (layout->indexOf(m_topDatasetTreeWidget) >= 0) {
+        layout->removeWidget(m_topDatasetTreeWidget);
+    }
+    rebuiltRoot->setParent(m_connContentPage);
+    layout->insertWidget(0, rebuiltRoot, 1);
+    m_connContentTreeSplitter = qobject_cast<QSplitter*>(rebuiltRoot);
 }
 
 void MainWindow::activatePendingChangeAtCursor() {

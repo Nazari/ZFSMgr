@@ -324,6 +324,41 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
     }
     stopBusy();
     QStringList selectedDirs;
+    QMap<QString, QString> invalidDirReasons;
+    auto invalidDatasetComponentReason = [](const QString& name) -> QString {
+        const QString n = name.trimmed();
+        if (n.isEmpty()) {
+            return QStringLiteral("empty");
+        }
+        if (n == QStringLiteral(".") || n == QStringLiteral("..")) {
+            return QStringLiteral("reserved name");
+        }
+        for (const QChar c : n) {
+            const ushort uc = c.unicode();
+            if (uc < 0x20 || uc == 0x7F) {
+                return QStringLiteral("control character");
+            }
+        }
+        if (n.contains(QLatin1Char('/'))) {
+            return QStringLiteral("contains '/'");
+        }
+        if (n.contains(QLatin1Char('@'))) {
+            return QStringLiteral("contains '@'");
+        }
+        if (n.contains(QLatin1Char('#'))) {
+            return QStringLiteral("contains '#'");
+        }
+        if (n.contains(QLatin1Char(','))) {
+            return QStringLiteral("contains ','");
+        }
+        return QString();
+    };
+    for (const QString& dir : dirs) {
+        const QString reason = invalidDatasetComponentReason(dir);
+        if (!reason.isEmpty()) {
+            invalidDirReasons.insert(dir, reason);
+        }
+    }
     if (!selectItemsDialog(
             trk(QStringLiteral("t_adv_break_tit1"), QStringLiteral("Desglosar: seleccionar directorios"),
                 QStringLiteral("Break down: select directories"),
@@ -336,7 +371,8 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
             trk(QStringLiteral("t_adv_break_mp001"),
                 QStringLiteral("Mountpoint usado para explorar directorios: %1").arg(resolvedMp),
                 QStringLiteral("Mountpoint used to scan directories: %1").arg(resolvedMp),
-                QStringLiteral("用于扫描目录的挂载点：%1").arg(resolvedMp)))) {
+                QStringLiteral("用于扫描目录的挂载点：%1").arg(resolvedMp)),
+            invalidDirReasons)) {
         appLog(QStringLiteral("INFO"),
                trk(QStringLiteral("t_adv_break_can1"), QStringLiteral("Desglosar cancelado o sin selección."),
                    QStringLiteral("Break down canceled or no selection."),

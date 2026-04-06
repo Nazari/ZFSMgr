@@ -484,7 +484,8 @@ bool MainWindow::selectItemsDialog(const QString& title,
                                    const QString& intro,
                                    const QStringList& items,
                                    QStringList& selected,
-                                   const QString& detail) {
+                                   const QString& detail,
+                                   const QMap<QString, QString>& invalidItems) {
     if (items.isEmpty()) {
         return false;
     }
@@ -527,6 +528,10 @@ bool MainWindow::selectItemsDialog(const QString& title,
         maxTextWidth = qMax(maxTextWidth, fm.horizontalAdvance(item));
     }
     const int maxCellWidth = qBound(86, maxTextWidth + 20, 180);
+    QMap<QString, QString> invalidByLower;
+    for (auto it = invalidItems.cbegin(); it != invalidItems.cend(); ++it) {
+        invalidByLower.insert(it.key().trimmed().toLower(), it.value().trimmed());
+    }
     QVector<QCheckBox*> checkboxes;
     checkboxes.reserve(items.size());
     QVector<QWidget*> cards;
@@ -572,8 +577,45 @@ bool MainWindow::selectItemsDialog(const QString& title,
         label->setAlignment(Qt::AlignLeft | Qt::AlignTop);
         label->setFixedWidth(maxCellWidth - 12);
         auto* cb = new QCheckBox(QString(), card);
-        cb->setChecked(initialSelected.contains(item, Qt::CaseInsensitive));
+        const QString invalidReason = invalidByLower.value(item.trimmed().toLower());
+        const bool isInvalid = !invalidReason.isEmpty();
+        cb->setChecked(!isInvalid && initialSelected.contains(item, Qt::CaseInsensitive));
+        cb->setEnabled(!isInvalid);
         cb->setProperty("itemText", item);
+        if (isInvalid) {
+            const QString tip = trk(QStringLiteral("t_invalid_dataset_name_001"),
+                                    QStringLiteral("Nombre de dataset no válido: %1").arg(invalidReason),
+                                    QStringLiteral("Invalid dataset name: %1").arg(invalidReason),
+                                    QStringLiteral("无效的数据集名称：%1").arg(invalidReason));
+            cb->setToolTip(tip);
+            label->setToolTip(tip);
+            card->setToolTip(tip);
+            card->setStyleSheet(QStringLiteral(
+                "QWidget {"
+                " border: 1px solid #d97878;"
+                " border-radius: 4px;"
+                " background: #fff1f1;"
+                " color: #6a1d1d;"
+                "}"
+                "QWidget:hover {"
+                " background: #ffe6e6;"
+                "}"
+                "QLabel {"
+                " border: 0;"
+                " background: transparent;"
+                " color: #8b2020;"
+                " font-weight: 600;"
+                " padding: 0;"
+                "}"
+                "QCheckBox {"
+                " border: 0;"
+                " background: transparent;"
+                " color: #8b2020;"
+                " padding: 0;"
+                " spacing: 8px;"
+                "}"
+            ));
+        }
         auto* toggleFilter = new ToggleCheckEventFilter(cb, card);
         card->installEventFilter(toggleFilter);
         label->installEventFilter(toggleFilter);
@@ -640,7 +682,7 @@ bool MainWindow::selectItemsDialog(const QString& title,
 
     QObject::connect(allBtn, &QPushButton::clicked, &dlg, [checkboxes]() {
         for (QCheckBox* cb : checkboxes) {
-            if (cb) {
+            if (cb && cb->isEnabled()) {
                 cb->setChecked(true);
             }
         }
