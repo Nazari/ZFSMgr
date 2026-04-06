@@ -16,6 +16,9 @@
 
 namespace {
 using mwhelpers::isMountedValueTrue;
+constexpr int kConnIdxRole = Qt::UserRole + 10;
+constexpr int kPoolNameRole = Qt::UserRole + 11;
+constexpr int kIsPoolRootRole = Qt::UserRole + 12;
 
 QString datasetLeafNameStateUi(const QString& datasetName) {
     const QString trimmed = datasetName.trimmed();
@@ -24,20 +27,77 @@ QString datasetLeafNameStateUi(const QString& datasetName) {
 }
 } // namespace
 
+MainWindow::DatasetSelectionContext MainWindow::normalizeDatasetSelectionContext(
+    const DatasetSelectionContext& rawCtx,
+    const QTreeWidget* treeHint) const {
+    DatasetSelectionContext ctx = rawCtx;
+    ctx.poolName = ctx.poolName.trimmed();
+    ctx.datasetName = ctx.datasetName.trimmed();
+    ctx.snapshotName = ctx.snapshotName.trimmed();
+    if (!ctx.valid) {
+        return ctx;
+    }
+    if (ctx.datasetName.isEmpty() && treeHint) {
+        QTreeWidgetItem* item = treeHint->currentItem();
+        if (!item) {
+            const QList<QTreeWidgetItem*> selected = treeHint->selectedItems();
+            if (!selected.isEmpty()) {
+                item = selected.first();
+            }
+        }
+        while (item && item->data(0, Qt::UserRole).toString().trimmed().isEmpty() && item->parent()) {
+            item = item->parent();
+        }
+        if (item) {
+            const int itemConnIdx = item->data(0, kConnIdxRole).toInt();
+            const QString itemPool = item->data(0, kPoolNameRole).toString().trimmed();
+            QString itemDataset = item->data(0, Qt::UserRole).toString().trimmed();
+            if (itemDataset.isEmpty() && item->data(0, kIsPoolRootRole).toBool()) {
+                itemDataset = itemPool;
+            }
+            if (itemConnIdx == ctx.connIdx
+                && !itemPool.isEmpty()
+                && itemPool.compare(ctx.poolName, Qt::CaseInsensitive) == 0
+                && !itemDataset.isEmpty()) {
+                ctx.datasetName = itemDataset;
+                if (ctx.snapshotName.isEmpty()) {
+                    ctx.snapshotName = item->data(1, Qt::UserRole).toString().trimmed();
+                }
+            }
+        }
+    }
+    if (ctx.datasetName.isEmpty()
+        && ctx.connIdx >= 0
+        && !ctx.poolName.isEmpty()
+        && findDsInfo(ctx.connIdx, ctx.poolName, ctx.poolName)) {
+        ctx.datasetName = ctx.poolName;
+    }
+    if (ctx.datasetName.isEmpty()) {
+        ctx.snapshotName.clear();
+    }
+    return ctx;
+}
+
 void MainWindow::setConnectionOriginSelection(const DatasetSelectionContext& ctx) {
-    if (!ctx.valid || ctx.datasetName.isEmpty()) {
+    const DatasetSelectionContext normalized = normalizeDatasetSelectionContext(
+        ctx,
+        m_topDatasetTreeWidget ? m_topDatasetTreeWidget->tree() : nullptr);
+    if (!normalized.valid || normalized.datasetName.isEmpty()) {
         m_connActionOrigin = DatasetSelectionContext{};
     } else {
-        m_connActionOrigin = ctx;
+        m_connActionOrigin = normalized;
     }
     updateConnectionActionsState();
 }
 
 void MainWindow::setConnectionDestinationSelection(const DatasetSelectionContext& ctx) {
-    if (!ctx.valid || ctx.datasetName.isEmpty()) {
+    const DatasetSelectionContext normalized = normalizeDatasetSelectionContext(
+        ctx,
+        m_bottomDatasetTreeWidget ? m_bottomDatasetTreeWidget->tree() : nullptr);
+    if (!normalized.valid || normalized.datasetName.isEmpty()) {
         m_connActionDest = DatasetSelectionContext{};
     } else {
-        m_connActionDest = ctx;
+        m_connActionDest = normalized;
     }
     updateConnectionActionsState();
 }

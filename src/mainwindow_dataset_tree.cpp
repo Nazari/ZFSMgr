@@ -5438,6 +5438,38 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
 }
 
 void MainWindow::setSelectedDataset(const QString& side, const QString& datasetName, const QString& snapshotName) {
+    auto fillCtxFromSideTree = [&](DatasetSelectionContext& ctx, const QTreeWidget* tree) {
+        if (!tree || ctx.valid) {
+            return;
+        }
+        QTreeWidgetItem* item = tree->currentItem();
+        if (!item) {
+            const QList<QTreeWidgetItem*> selected = tree->selectedItems();
+            if (!selected.isEmpty()) {
+                item = selected.first();
+            }
+        }
+        while (item && item->data(0, Qt::UserRole).toString().trimmed().isEmpty() && item->parent()) {
+            item = item->parent();
+        }
+        if (!item) {
+            return;
+        }
+        QString itemDataset = item->data(0, Qt::UserRole).toString().trimmed();
+        const QString itemPool = item->data(0, kPoolNameRole).toString().trimmed();
+        if (itemDataset.isEmpty() && item->data(0, kIsPoolRootRole).toBool()) {
+            itemDataset = itemPool;
+        }
+        const int itemConnIdx = item->data(0, kConnIdxRole).toInt();
+        if (itemConnIdx < 0 || itemPool.isEmpty() || itemDataset.isEmpty()) {
+            return;
+        }
+        ctx.valid = true;
+        ctx.connIdx = itemConnIdx;
+        ctx.poolName = itemPool;
+        ctx.datasetName = itemDataset;
+        ctx.snapshotName = item->data(1, Qt::UserRole).toString().trimmed();
+    };
     if (side == QStringLiteral("origin")) {
         DatasetSelectionContext ctx;
         if (!datasetName.isEmpty() && m_connActionOrigin.valid) {
@@ -5450,6 +5482,10 @@ void MainWindow::setSelectedDataset(const QString& side, const QString& datasetN
             ctx.datasetName = datasetName;
             ctx.snapshotName = snapshotName;
         }
+        fillCtxFromSideTree(ctx, m_topDatasetTreeWidget ? m_topDatasetTreeWidget->tree() : nullptr);
+        ctx = normalizeDatasetSelectionContext(
+            ctx,
+            m_topDatasetTreeWidget ? m_topDatasetTreeWidget->tree() : nullptr);
         setConnectionOriginSelection(ctx);
         refreshDatasetProperties(QStringLiteral("origin"));
         return;
@@ -5465,6 +5501,10 @@ void MainWindow::setSelectedDataset(const QString& side, const QString& datasetN
         ctx.datasetName = datasetName;
         ctx.snapshotName = snapshotName;
     }
+    fillCtxFromSideTree(ctx, m_bottomDatasetTreeWidget ? m_bottomDatasetTreeWidget->tree() : nullptr);
+    ctx = normalizeDatasetSelectionContext(
+        ctx,
+        m_bottomDatasetTreeWidget ? m_bottomDatasetTreeWidget->tree() : nullptr);
     setConnectionDestinationSelection(ctx);
     refreshDatasetProperties(QStringLiteral("dest"));
 }

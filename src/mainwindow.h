@@ -683,6 +683,8 @@ private:
     void setSelectedDataset(const QString& side, const QString& datasetName, const QString& snapshotName);
     DatasetSelectionContext currentDatasetSelection(const QString& side) const;
     DatasetSelectionContext currentConnContentSelection(const QTreeWidget* tree) const;
+    DatasetSelectionContext normalizeDatasetSelectionContext(const DatasetSelectionContext& ctx,
+                                                            const QTreeWidget* treeHint = nullptr) const;
     bool executeDatasetAction(const QString& side,
                               const QString& actionName,
                               const DatasetSelectionContext& ctx,
