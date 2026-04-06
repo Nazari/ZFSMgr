@@ -829,10 +829,10 @@ bool MainWindow::ensureDatasetPermissionsLoadedBatch(int connIdx,
     const QString batchScript = QStringLiteral(
                                     "set +e; "
                                     "for ds in %1; do "
-                                    "  printf '__ZFSMGR_ALLOW_BEGIN__ %%s\\n' \"$ds\"; "
+                                    "  printf '__ZFSMGR_ALLOW_BEGIN__ %s\\n' \"$ds\"; "
                                     "  zfs allow \"$ds\" 2>&1; "
-                                    "  printf '__ZFSMGR_ALLOW_RC__ %%s %%s\\n' \"$ds\" \"$?\"; "
-                                    "  printf '__ZFSMGR_ALLOW_END__ %%s\\n' \"$ds\"; "
+                                    "  printf '__ZFSMGR_ALLOW_RC__ %s %s\\n' \"$ds\" \"$?\"; "
+                                    "  printf '__ZFSMGR_ALLOW_END__ %s\\n' \"$ds\"; "
                                     "done")
                                     .arg(quoted.join(QLatin1Char(' ')));
 
