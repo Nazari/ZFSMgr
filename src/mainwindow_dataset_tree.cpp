@@ -254,6 +254,29 @@ QTreeWidgetItem* findSnapshotItemInDatasetNode(QTreeWidgetItem* datasetNode, con
     return rec(datasetNode);
 }
 
+QTreeWidgetItem* findSnapshotItemInDatasetNodeByGuid(QTreeWidgetItem* datasetNode, const QString& snapshotGuid) {
+    if (!datasetNode || snapshotGuid.trimmed().isEmpty()) {
+        return nullptr;
+    }
+    const QString wanted = snapshotGuid.trimmed();
+    std::function<QTreeWidgetItem*(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* n) -> QTreeWidgetItem* {
+        if (!n) {
+            return nullptr;
+        }
+        if (n->data(0, kConnSnapshotItemRole).toBool()
+            && n->data(0, kConnSnapshotGuidRole).toString().trimmed() == wanted) {
+            return n;
+        }
+        for (int i = 0; i < n->childCount(); ++i) {
+            if (QTreeWidgetItem* found = rec(n->child(i))) {
+                return found;
+            }
+        }
+        return nullptr;
+    };
+    return rec(datasetNode);
+}
+
 bool gsaBoolOn(const QString& value) {
     const QString normalized = value.trimmed().toLower();
     return normalized == QStringLiteral("on")
@@ -284,7 +307,13 @@ QString findCaseInsensitiveMapKey(const QMap<QString, bool>& map, const QString&
 }
 
 bool isMainPropertiesNodeLabel(const QString& text) {
-    const QString trimmed = text.trimmed();
+    QString trimmed = text.trimmed();
+    // En modo debug el texto visible se decora como "Label (unique-id)".
+    // Para comparaciones semánticas del nodo hay que ignorar ese sufijo.
+    const int openPos = trimmed.lastIndexOf(QStringLiteral(" ("));
+    if (openPos > 0 && trimmed.endsWith(QLatin1Char(')'))) {
+        trimmed = trimmed.left(openPos).trimmed();
+    }
     return trimmed == QStringLiteral("Properties")
            || trimmed == QStringLiteral("Dataset properties")
            || trimmed == QStringLiteral("Snapshot properties");
@@ -558,6 +587,10 @@ QString connContentChildStableId(QTreeWidgetItem* node) {
     if (!node) {
         return QString();
     }
+    const QString explicitPart = node->data(0, kConnStatePartRole).toString().trimmed();
+    if (!explicitPart.isEmpty()) {
+        return explicitPart;
+    }
     if (node->data(0, kConnPermissionsNodeRole).toBool()) {
         const QString kind = node->data(0, kConnPermissionsKindRole).toString();
         const QString entry = node->data(0, kConnPermissionsEntryNameRole).toString().trimmed();
@@ -578,32 +611,33 @@ QString connContentChildStableId(QTreeWidgetItem* node) {
     }
     if (node->data(0, kConnPropGroupNodeRole).toBool()) {
         const QString groupName = node->data(0, kConnPropGroupNameRole).toString().trimmed();
-        const QString propKey = node->data(0, kConnPropKeyRole).toString().trimmed();
-        if (groupName.isEmpty() && propKey.isEmpty()) {
-            return QStringLiteral("group||mainprops");
+        if (groupName.isEmpty()) {
+            const bool isSnapshotProps = node->parent()
+                                         && node->parent()->data(0, kConnSnapshotItemRole).toBool();
+            return isSnapshotProps ? QStringLiteral("syn:snap_prop")
+                                   : QStringLiteral("syn:ds_prop");
         }
-        return QStringLiteral("group|%1|%2|%3")
-            .arg(groupName,
-                 propKey,
-                 node->text(0).trimmed());
+        return QStringLiteral("syn:prop_group:%1").arg(groupName.toLower());
     }
     if (node->data(0, kConnSnapshotHoldsNodeRole).toBool()) {
-        return QStringLiteral("holds|%1").arg(node->text(0).trimmed());
+        return QStringLiteral("syn:snapshot_holds");
     }
     if (node->data(0, kConnSnapshotHoldItemRole).toBool()) {
         return QStringLiteral("hold|%1").arg(node->data(0, kConnSnapshotHoldTagRole).toString().trimmed());
     }
     if (node->data(0, kConnGsaNodeRole).toBool()) {
-        return QStringLiteral("gsa|%1").arg(node->text(0).trimmed());
+        return QStringLiteral("syn:gsa");
     }
     if (node->data(0, kConnSnapshotsNodeRole).toBool()) {
-        return QStringLiteral("snaproot|@");
+        return QStringLiteral("syn:snapshots_root");
     }
     if (node->data(0, kConnSnapshotGroupNodeRole).toBool()) {
-        return QStringLiteral("snapgroup|%1").arg(node->text(0).trimmed());
+        const QString groupId = node->data(0, kConnSnapshotGroupIdRole).toString().trimmed().toLower();
+        return groupId.isEmpty() ? QString() : QStringLiteral("syn:snapshot_group:%1").arg(groupId);
     }
     if (node->data(0, kConnSnapshotItemRole).toBool()) {
-        return QStringLiteral("snapshot|%1").arg(node->data(1, Qt::UserRole).toString().trimmed());
+        const QString snapGuid = node->data(0, kConnSnapshotGuidRole).toString().trimmed();
+        return snapGuid.isEmpty() ? QString() : QStringLiteral("snap:%1").arg(snapGuid);
     }
     const QString ds = node->data(0, Qt::UserRole).toString().trimmed();
     if (!ds.isEmpty()) {
@@ -613,15 +647,27 @@ QString connContentChildStableId(QTreeWidgetItem* node) {
         }
         return QString();
     }
-    return QStringLiteral("text|%1").arg(node->text(0).trimmed());
+    if (QTreeWidgetItem* parent = node->parent()) {
+        return QStringLiteral("idx:%1").arg(parent->indexOfChild(node));
+    }
+    return QStringLiteral("idx:0");
 }
 
 QString normalizeConnContentChildPathForCompat(const QString& path) {
     QString normalized = path.trimmed();
+    normalized.replace(QStringLiteral("group||mainprops"), QStringLiteral("syn:ds_prop"));
     normalized.replace(QStringLiteral("group|||Propiedades"), QStringLiteral("group||mainprops"));
     normalized.replace(QStringLiteral("group|||Properties"), QStringLiteral("group||mainprops"));
     normalized.replace(QStringLiteral("group|||Dataset properties"), QStringLiteral("group||mainprops"));
     normalized.replace(QStringLiteral("group|||Snapshot properties"), QStringLiteral("group||mainprops"));
+    normalized.replace(QStringLiteral("group|||Propiedades"), QStringLiteral("syn:ds_prop"));
+    normalized.replace(QStringLiteral("group|||Properties"), QStringLiteral("syn:ds_prop"));
+    normalized.replace(QStringLiteral("group|||Dataset properties"), QStringLiteral("syn:ds_prop"));
+    normalized.replace(QStringLiteral("group|||Snapshot properties"), QStringLiteral("syn:snap_prop"));
+    normalized.replace(QStringLiteral("snaproot|@"), QStringLiteral("syn:snapshots_root"));
+    normalized.replace(QStringLiteral("holds|Holds"), QStringLiteral("syn:snapshot_holds"));
+    normalized.replace(QStringLiteral("holds|Retenciones"), QStringLiteral("syn:snapshot_holds"));
+    normalized.replace(QStringLiteral("holds|保持"), QStringLiteral("syn:snapshot_holds"));
     if (normalized.startsWith(QStringLiteral("perm|"))) {
         const QStringList parts = normalized.split(QLatin1Char('|'));
         if (parts.size() == 4
@@ -1442,7 +1488,9 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
             if (c->data(0, kConnPropGroupNodeRole).toBool()) {
                 const bool isMainPropsNode =
                     c->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
-                    && isMainPropertiesNodeLabel(c->text(0));
+                    && (c->data(0, kConnStatePartRole).toString().trimmed() == QStringLiteral("syn:ds_prop")
+                        || c->data(0, kConnStatePartRole).toString().trimmed() == QStringLiteral("syn:snap_prop")
+                        || c->data(0, kConnStatePartRole).toString().trimmed().isEmpty());
                 const bool isGsaNode = c->data(0, kConnGsaNodeRole).toBool()
                                        || c->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kGsaBlockInfoKey);
                 if (isMainPropsNode || isGsaNode) {
@@ -1499,6 +1547,14 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
     const QString obj = snap.isEmpty() ? ds : QStringLiteral("%1@%2").arg(ds, snap);
     const int itemConnIdx = sel->data(0, kConnIdxRole).toInt();
     const QString itemPool = sel->data(0, kPoolNameRole).toString();
+    appLog(QStringLiteral("DEBUG"),
+           QStringLiteral("props.repaint begin conn=%1 pool=%2 ds=%3 snap=%4 obj=%5 snapshotNode=%6")
+               .arg(QString::number(itemConnIdx),
+                    itemPool,
+                    ds,
+                    snap,
+                    obj,
+                    objectIsSnapshot ? QStringLiteral("1") : QStringLiteral("0")));
     // Asegura que el objeto seleccionado (dataset o snapshot) tenga propiedades
     // disponibles para el render inline del nodo de propiedades.
     ensureDatasetAllPropertiesLoaded(itemConnIdx, itemPool, obj);
@@ -1518,6 +1574,9 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
             }
         }
         if (displayValues.isEmpty()) {
+            appLog(QStringLiteral("DEBUG"),
+                   QStringLiteral("props.repaint abort-empty-display conn=%1 pool=%2 obj=%3")
+                       .arg(QString::number(itemConnIdx), itemPool, obj));
             m_syncingConnContentColumns = false;
             return;
         }
@@ -1580,6 +1639,14 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
     };
     const QVector<DatasetPropCacheRow> objectRows =
         datasetPropertyRowsFromModelOrCache(itemConnIdx, itemPool, obj);
+    appLog(QStringLiteral("DEBUG"),
+           QStringLiteral("props.repaint objectRows conn=%1 pool=%2 obj=%3 rows=%4")
+               .arg(QString::number(itemConnIdx), itemPool, obj, QString::number(objectRows.size())));
+    if (objectRows.isEmpty()) {
+        appLog(QStringLiteral("DEBUG"),
+               QStringLiteral("props.repaint objectRows-empty conn=%1 pool=%2 obj=%3")
+                   .arg(QString::number(itemConnIdx), itemPool, obj));
+    }
     QStringList props;
     if (objectIsSnapshot) {
         for (const DatasetPropCacheRow& row : objectRows) {
@@ -1629,10 +1696,25 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
         // Si el filtro configurado no cruza con propiedades reales, usar todas
         // para no dejar el bloque vacío.
         if (mainProps.isEmpty()) {
+            appLog(QStringLiteral("DEBUG"),
+                   QStringLiteral("props.repaint no-intersection-visible conn=%1 pool=%2 obj=%3 visible=%4 available=%5")
+                       .arg(QString::number(itemConnIdx),
+                            itemPool,
+                            obj,
+                            savedOrder->join(QStringLiteral(",")),
+                            props.join(QStringLiteral(","))));
             mainProps = props;
         }
     }
     mainProps = normalizePropsList(mainProps);
+    appLog(QStringLiteral("DEBUG"),
+           QStringLiteral("props.repaint lists conn=%1 pool=%2 obj=%3 props=%4 mainProps=%5 groups=%6")
+               .arg(QString::number(itemConnIdx),
+                    itemPool,
+                    obj,
+                    QString::number(props.size()),
+                    QString::number(mainProps.size()),
+                    QString::number(savedGroups ? savedGroups->size() : 0)));
     auto enumValues = connContentEnumValues();
     enumValues.insert(QStringLiteral("org.fc16.gsa:activado"), QStringList{QStringLiteral("off"), QStringLiteral("on")});
     enumValues.insert(QStringLiteral("org.fc16.gsa:recursivo"), QStringList{QStringLiteral("off"), QStringLiteral("on")});
@@ -2176,6 +2258,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
         holdsNode->setIcon(0, treeStandardIcon(QStyle::SP_FileDialogContentsView));
         holdsNode->setData(0, kConnPropGroupNodeRole, true);
         holdsNode->setData(0, kConnSnapshotHoldsNodeRole, true);
+        holdsNode->setData(0, kConnStatePartRole, QStringLiteral("syn:snapshot_holds"));
         holdsNode->setData(0, kConnIdxRole, itemConnIdx);
         holdsNode->setData(0, kPoolNameRole, itemPool);
         holdsNode->setExpanded(false);
@@ -2227,7 +2310,9 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
             continue;
         }
         if (child->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
-            && isMainPropertiesNodeLabel(child->text(0))) {
+            && (child->data(0, kConnStatePartRole).toString().trimmed() == QStringLiteral("syn:ds_prop")
+                || child->data(0, kConnStatePartRole).toString().trimmed() == QStringLiteral("syn:snap_prop")
+                || child->data(0, kConnStatePartRole).toString().trimmed().isEmpty())) {
             if (!propsNode) {
                 propsNode = child;
                 propsNodeWasExpanded = child->isExpanded();
@@ -2257,8 +2342,12 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
                                                : QStringLiteral("Dataset properties"));
         propsNode->setData(0, kConnPropGroupNodeRole, true);
         propsNode->setData(0, kConnPropGroupNameRole, QString());
+        propsNode->setData(0, kConnStatePartRole, QStringLiteral("syn:ds_prop"));
         propsNode->setData(0, kConnIdxRole, itemConnIdx);
         propsNode->setData(0, kPoolNameRole, itemPool);
+        propsNode->setData(0, kConnStatePartRole,
+                           objectIsSnapshot ? QStringLiteral("syn:snap_prop")
+                                            : QStringLiteral("syn:ds_prop"));
         sel->insertChild(insertAt++, propsNode);
     }
     const QString debugObjectName =
@@ -2283,6 +2372,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
         const ConnContentTreeState& st = stateIt.value();
         const QString ds = sel->data(0, Qt::UserRole).toString().trimmed();
         const QString snap = sel->data(1, Qt::UserRole).toString().trimmed();
+        const QString snapGuid = sel->data(0, kConnSnapshotGuidRole).toString().trimmed();
         if (ds.isEmpty()) {
             return false;
         }
@@ -2291,12 +2381,18 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
             return false;
         }
         for (const QString& p : childIt.value()) {
-            if (!p.contains(QStringLiteral("group||mainprops"))) {
+            const bool hasDsPropsMarker = p.contains(QStringLiteral("syn:ds_prop"));
+            const bool hasSnapPropsMarker = p.contains(QStringLiteral("syn:snap_prop"));
+            if (!(hasDsPropsMarker || hasSnapPropsMarker)) {
                 continue;
             }
-            const bool pathTargetsSnapshot = p.contains(QStringLiteral("snapshot|"));
+            const bool pathTargetsSnapshot = p.contains(QStringLiteral("snap:"));
             if (objectIsSnapshot) {
-                if (!p.contains(QStringLiteral("snapshot|%1").arg(snap))) {
+                if (!snapGuid.isEmpty()) {
+                    if (!p.contains(QStringLiteral("snap:%1").arg(snapGuid))) {
+                        continue;
+                    }
+                } else {
                     continue;
                 }
             } else {
@@ -2319,6 +2415,9 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
     if (propsNode) {
         propsNode->setText(0, objectIsSnapshot ? QStringLiteral("Snapshot properties")
                                                : QStringLiteral("Dataset properties"));
+        propsNode->setData(0, kConnStatePartRole,
+                           objectIsSnapshot ? QStringLiteral("syn:snap_prop")
+                                            : QStringLiteral("syn:ds_prop"));
         shouldExpandPropsNode = propsNodeWasExpanded
                                 || tree->currentItem() == propsNode
                                 || stateWantsMainPropsExpanded();
@@ -2332,12 +2431,22 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
                             sel->data(1, Qt::UserRole).toString().trimmed()));
         }
         clearNodeChildrenAndCells(propsNode);
+        appLog(QStringLiteral("DEBUG"),
+               QStringLiteral("props.repaint cleared-main-node conn=%1 pool=%2 obj=%3 wasExpanded=%4")
+                   .arg(QString::number(itemConnIdx),
+                        itemPool,
+                        obj,
+                        propsNodeWasExpanded ? QStringLiteral("1") : QStringLiteral("0")));
         if (!mainProps.isEmpty()) {
             appendPropRows(propsNode,
                            QString(),
                            mainProps,
                            false,
                            -1);
+        } else {
+            appLog(QStringLiteral("DEBUG"),
+                   QStringLiteral("props.repaint mainProps-empty conn=%1 pool=%2 obj=%3")
+                       .arg(QString::number(itemConnIdx), itemPool, obj));
         }
         for (const InlinePropGroupConfig& cfg : *savedGroups) {
             QStringList wantedProps = cfg.props;
@@ -2349,6 +2458,8 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
             groupNode->setText(0, cfg.name);
             groupNode->setData(0, kConnPropGroupNodeRole, true);
             groupNode->setData(0, kConnPropGroupNameRole, cfg.name);
+            groupNode->setData(0, kConnStatePartRole,
+                               QStringLiteral("syn:prop_group:%1").arg(cfg.name.trimmed().toLower()));
             groupNode->setData(0, kConnIdxRole, itemConnIdx);
             groupNode->setData(0, kPoolNameRole, itemPool);
             propsNode->addChild(groupNode);
@@ -2360,6 +2471,12 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
                     : (shouldExpandPropsNode && mainProps.isEmpty());
             groupNode->setExpanded(expandGroup);
         }
+        appLog(QStringLiteral("DEBUG"),
+               QStringLiteral("props.repaint end-main-node conn=%1 pool=%2 obj=%3 childCount=%4")
+                   .arg(QString::number(itemConnIdx),
+                        itemPool,
+                        obj,
+                        QString::number(propsNode->childCount())));
     }
     Q_UNUSED(objectDraft);
     Q_UNUSED(recursiveGsaAncestor);
@@ -2432,6 +2549,9 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
     sel->setExpanded(true);
     resizeTreeColumnsToVisibleContent(tree);
     applyDebugNodeIdsToTree(tree);
+    appLog(QStringLiteral("DEBUG"),
+           QStringLiteral("props.repaint end conn=%1 pool=%2 obj=%3")
+               .arg(QString::number(itemConnIdx), itemPool, obj));
     m_syncingConnContentColumns = false;
 }
 
@@ -2666,6 +2786,16 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
     };
     auto clearDatasetNodeRec = [&](auto&& self, QTreeWidgetItem* n) -> void {
         if (!n) {
+            return;
+        }
+        // El refresco de columnas/estado de pool no debe vaciar subárboles de
+        // dataset/snapshot. Esos se repintan por su propio flujo y aquí solo
+        // deben mantenerse intactos.
+        if (!n->data(0, Qt::UserRole).toString().trimmed().isEmpty()
+            || n->data(0, kConnSnapshotItemRole).toBool()
+            || n->data(0, kConnSnapshotsNodeRole).toBool()
+            || n->data(0, kConnPropGroupNodeRole).toBool()
+            || n->data(0, kConnPermissionsNodeRole).toBool()) {
             return;
         }
         for (int i = n->childCount() - 1; i >= 0; --i) {
@@ -3443,7 +3573,8 @@ void MainWindow::restoreConnContentTreeState(QTreeWidget* tree, const QString& t
                 const bool isMainPropsNode =
                     child->data(0, kConnPropGroupNodeRole).toBool()
                     && child->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
-                    && isMainPropertiesNodeLabel(child->text(0));
+                    && (child->data(0, kConnStatePartRole).toString().trimmed() == QStringLiteral("syn:snap_prop")
+                        || child->data(0, kConnStatePartRole).toString().trimmed().isEmpty());
                 if (isMainPropsNode) {
                     propsNode = child;
                     break;
@@ -3600,22 +3731,25 @@ void MainWindow::restoreConnContentTreeState(QTreeWidget* tree, const QString& t
             continue;
         }
         bool needsDatasetMainPropsMaterialization = false;
-        QSet<QString> snapshotNamesToMaterialize;
+        QSet<QString> snapshotGuidsToMaterialize;
         for (const QString& childPath : childIt.value()) {
-            if (!childPath.contains(QStringLiteral("group||mainprops"))) {
+            const bool hasDsPropsMarker = childPath.contains(QStringLiteral("syn:ds_prop"));
+            const bool hasSnapPropsMarker = childPath.contains(QStringLiteral("syn:snap_prop"));
+            if (!(hasDsPropsMarker || hasSnapPropsMarker)) {
                 continue;
             }
-            const bool pathTargetsSnapshot = childPath.contains(QStringLiteral("snapshot|"));
+            const bool pathTargetsSnapshot = childPath.contains(QStringLiteral("snap:"));
             if (!pathTargetsSnapshot) {
                 needsDatasetMainPropsMaterialization = true;
                 continue;
             }
-            const QRegularExpression re(QStringLiteral("(?:^|/)snapshot\\|([^/]+)"));
-            const QRegularExpressionMatch match = re.match(childPath);
-            if (match.hasMatch()) {
-                const QString snapName = match.captured(1).trimmed();
-                if (!snapName.isEmpty()) {
-                    snapshotNamesToMaterialize.insert(snapName);
+            const QRegularExpression reGuid(QStringLiteral("(?:^|/)snap:([^/]+)"));
+            const QRegularExpressionMatch matchGuid = reGuid.match(childPath);
+            if (matchGuid.hasMatch()) {
+                const QString snapGuid = matchGuid.captured(1).trimmed();
+                if (!snapGuid.isEmpty()) {
+                    snapshotGuidsToMaterialize.insert(snapGuid);
+                    continue;
                 }
             }
         }
@@ -3628,8 +3762,8 @@ void MainWindow::restoreConnContentTreeState(QTreeWidget* tree, const QString& t
             refreshConnContentPropertiesFor(tree);
             syncConnContentPropertyColumnsFor(tree, token);
         }
-        for (const QString& snapName : snapshotNamesToMaterialize) {
-            QTreeWidgetItem* snapItem = findSnapshotItemInDatasetNode(item, snapName);
+        for (const QString& snapGuid : snapshotGuidsToMaterialize) {
+            QTreeWidgetItem* snapItem = findSnapshotItemInDatasetNodeByGuid(item, snapGuid);
             if (!snapItem) {
                 continue;
             }
@@ -3713,7 +3847,8 @@ void MainWindow::restoreConnContentTreeState(QTreeWidget* tree, const QString& t
                         const bool isMainPropsNode =
                             child->data(0, kConnPropGroupNodeRole).toBool()
                             && child->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
-                            && isMainPropertiesNodeLabel(child->text(0));
+                            && (child->data(0, kConnStatePartRole).toString().trimmed() == QStringLiteral("syn:snap_prop")
+                                || child->data(0, kConnStatePartRole).toString().trimmed().isEmpty());
                         if (!isMainPropsNode) {
                             continue;
                         }
@@ -4149,14 +4284,17 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
                       QStringLiteral("Info"),
                       QStyle::SP_MessageBoxInformation);
     const bool infoNodeWasExpanded = infoNode ? infoNode->isExpanded() : false;
-    QMap<QString, bool> infoChildExpandedByTitle;
+    QMap<QString, bool> infoChildExpandedById;
     if (infoNode) {
         for (int i = 0; i < infoNode->childCount(); ++i) {
             QTreeWidgetItem* child = infoNode->child(i);
             if (!child) {
                 continue;
             }
-            infoChildExpandedByTitle.insert(child->text(0).trimmed(), child->isExpanded());
+            const QString childId = child->data(0, kConnStatePartRole).toString().trimmed();
+            if (!childId.isEmpty()) {
+                infoChildExpandedById.insert(childId, child->isExpanded());
+            }
         }
     }
     while (infoNode->childCount() > 0) {
@@ -4264,6 +4402,7 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
     gsaNode->setFlags(gsaNode->flags() & ~Qt::ItemIsUserCheckable);
     gsaNode->setData(0, kConnContentNodeRole, true);
     gsaNode->setData(0, kConnIdxRole, connIdx);
+    gsaNode->setData(0, kConnStatePartRole, QStringLiteral("syn:gsa"));
     gsaNode->setText(0, QStringLiteral("GSA"));
     gsaNode->setIcon(0, treeStandardIcon(QStyle::SP_BrowserReload));
     const QString gsaStatus = !st.gsaInstalled ? QStringLiteral("no instalado")
@@ -4284,12 +4423,13 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
                             st.gsaAttentionReasons.join(QStringLiteral(", "))});
     }
     appendReadOnlyInlineProps(gsaNode, gsaProps);
-    gsaNode->setExpanded(infoChildExpandedByTitle.value(gsaNode->text(0).trimmed(), false));
+    gsaNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:gsa"), false));
 
     auto* detectedNode = new QTreeWidgetItem(infoNode);
     detectedNode->setFlags(detectedNode->flags() & ~Qt::ItemIsUserCheckable);
     detectedNode->setData(0, kConnContentNodeRole, true);
     detectedNode->setData(0, kConnIdxRole, connIdx);
+    detectedNode->setData(0, kConnStatePartRole, QStringLiteral("syn:detected_commands"));
     detectedNode->setText(0, QStringLiteral("Comandos detectados"));
     QVector<QPair<QString, QString>> detectedProps;
     if (st.detectedUnixCommands.isEmpty()) {
@@ -4307,12 +4447,13 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
         }
     }
     appendReadOnlyInlineProps(detectedNode, detectedProps);
-    detectedNode->setExpanded(infoChildExpandedByTitle.value(detectedNode->text(0).trimmed(), false));
+    detectedNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:detected_commands"), false));
 
     auto* missingNode = new QTreeWidgetItem(infoNode);
     missingNode->setFlags(missingNode->flags() & ~Qt::ItemIsUserCheckable);
     missingNode->setData(0, kConnContentNodeRole, true);
     missingNode->setData(0, kConnIdxRole, connIdx);
+    missingNode->setData(0, kConnStatePartRole, QStringLiteral("syn:missing_commands"));
     missingNode->setText(0, QStringLiteral("Comandos no detectados"));
     QVector<QPair<QString, QString>> missingProps;
     if (st.missingUnixCommands.isEmpty()) {
@@ -4330,7 +4471,7 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
         }
     }
     appendReadOnlyInlineProps(missingNode, missingProps);
-    missingNode->setExpanded(infoChildExpandedByTitle.value(missingNode->text(0).trimmed(), false));
+    missingNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:missing_commands"), false));
 
     QVector<QPair<QString, QString>> nonImportablePools;
     for (const PoolImportable& pool : st.importablePools) {
@@ -4350,13 +4491,16 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
         poolsNode->setFlags(poolsNode->flags() & ~Qt::ItemIsUserCheckable);
         poolsNode->setData(0, kConnContentNodeRole, true);
         poolsNode->setData(0, kConnIdxRole, connIdx);
+        poolsNode->setData(0, kConnStatePartRole, QStringLiteral("syn:non_importable_pools"));
         poolsNode->setText(0, QStringLiteral("Pools no importables"));
-        poolsNode->setExpanded(infoChildExpandedByTitle.value(poolsNode->text(0).trimmed(), true));
+        poolsNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:non_importable_pools"), true));
         for (const auto& pool : nonImportablePools) {
             auto* poolItem = new QTreeWidgetItem(poolsNode);
             poolItem->setFlags(poolItem->flags() & ~Qt::ItemIsUserCheckable);
             poolItem->setData(0, kConnContentNodeRole, true);
             poolItem->setData(0, kConnIdxRole, connIdx);
+            poolItem->setData(0, kConnStatePartRole,
+                              QStringLiteral("syn:non_importable_pool:%1").arg(pool.first.trimmed().toLower()));
             poolItem->setText(0, pool.first);
             const QString reason = pool.second.trimmed().isEmpty() ? QStringLiteral("-") : pool.second.trimmed();
             poolItem->setToolTip(0, QStringLiteral("Motivo: %1").arg(reason));
@@ -4726,6 +4870,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             permissionsNode->setIcon(0, treeStandardIcon(QStyle::SP_DialogYesButton));
             permissionsNode->setData(0, kConnPermissionsNodeRole, true);
             permissionsNode->setData(0, kConnPermissionsKindRole, QStringLiteral("root"));
+            permissionsNode->setData(0, kConnStatePartRole, QStringLiteral("perm:root"));
             permissionsNode->setData(0, kConnIdxRole, connIdx);
             permissionsNode->setData(0, kPoolNameRole, poolName);
             permissionsNode->setFlags(permissionsNode->flags() & ~Qt::ItemIsUserCheckable);
@@ -4737,6 +4882,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             snapshotsNode->setIcon(0, snapshotsNodeIcon());
             snapshotsNode->setData(0, kConnContentNodeRole, true);
             snapshotsNode->setData(0, kConnSnapshotsNodeRole, true);
+            snapshotsNode->setData(0, kConnStatePartRole, QStringLiteral("syn:snapshots_root"));
             snapshotsNode->setData(0, kConnIdxRole, connIdx);
             snapshotsNode->setData(0, kPoolNameRole, poolName);
             snapshotsNode->setData(0, kConnConnectionStableIdRole, connStableIdForIndex(connIdx));
@@ -4769,6 +4915,9 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                     snapshotGuid = objectGuidFromCache(fullSnapshotName);
                 }
                 snapItem->setData(0, kConnSnapshotGuidRole, snapshotGuid);
+                if (!snapshotGuid.isEmpty()) {
+                    snapItem->setData(0, kConnStatePartRole, QStringLiteral("snap:%1").arg(snapshotGuid));
+                }
                 if (snapshotGuid.isEmpty()) {
                     appLog(QStringLiteral("WARN"),
                            QStringLiteral("GUID fallback: snapshot node without GUID conn=%1 pool=%2 snap=%3")
@@ -4805,6 +4954,8 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                 groupNode->setData(0, kConnContentNodeRole, true);
                 groupNode->setData(0, kConnSnapshotGroupNodeRole, true);
                 groupNode->setData(0, kConnSnapshotGroupIdRole, klass);
+                groupNode->setData(0, kConnStatePartRole,
+                                   QStringLiteral("syn:snapshot_group:%1").arg(klass.trimmed().toLower()));
                 groupNode->setData(0, kConnIdxRole, connIdx);
                 groupNode->setData(0, kPoolNameRole, poolName);
                 groupNode->setData(0, kConnConnectionStableIdRole, connStableIdForIndex(connIdx));

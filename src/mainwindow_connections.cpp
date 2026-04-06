@@ -2556,6 +2556,7 @@ void MainWindow::rebuildConnContentDetailTree(QTreeWidget* tree,
             }
         }
     }
+    applyDebugNodeIdsToTree(tree);
     if (saveTreeState) {
         saveTreeState(connIdx);
     }

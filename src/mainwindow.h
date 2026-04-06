@@ -557,6 +557,7 @@ private:
     void saveConnContentTreeState(const QString& token);
     void setConnContentTreeStateWriteLocked(bool locked);
     bool connContentTreeStateWriteLocked() const;
+    void applyDebugNodeIdsToTree(QTreeWidget* tree);
     void restoreConnContentTreeState(QTreeWidget* tree, const QString& token);
     void restoreConnContentTreeStateFor(QTreeWidget* tree, const QString& token);
     void restoreConnContentTreeState(const QString& token);

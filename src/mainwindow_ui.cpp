@@ -92,6 +92,7 @@ constexpr int kConnPermissionsPendingRole = Qt::UserRole + 31;
 constexpr int kConnInlineCellUsedRole = Qt::UserRole + 32;
 constexpr int kConnPoolAutoSnapshotsNodeRole = Qt::UserRole + 34;
 constexpr int kConnPoolAutoSnapshotsDatasetRole = Qt::UserRole + 35;
+constexpr int kConnStatePartRole = Qt::UserRole + 44;
 constexpr int kIsSplitRootRole = Qt::UserRole + 50;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 
@@ -1499,13 +1500,11 @@ bool MainWindow::focusPendingChangeLine(const QString& line) {
 
     QString propName = change.propertyName.trimmed();
 
-    if (QTreeWidgetItem* propsNode = findChild(datasetItem, [this](QTreeWidgetItem* child) {
+    if (QTreeWidgetItem* propsNode = findChild(datasetItem, [](QTreeWidgetItem* child) {
             return child->data(0, kConnPropGroupNodeRole).toBool()
                    && child->data(0, kConnPropGroupNameRole).toString().trimmed().isEmpty()
-                   && child->text(0).trimmed() == trk(QStringLiteral("t_props_lbl_001"),
-                                                      QStringLiteral("Propiedades"),
-                                                      QStringLiteral("Properties"),
-                                                      QStringLiteral("属性"));
+                   && (child->data(0, kConnStatePartRole).toString().trimmed() == QStringLiteral("syn:ds_prop")
+                       || child->data(0, kConnStatePartRole).toString().trimmed() == QStringLiteral("syn:snap_prop"));
         })) {
         propsNode->setExpanded(true);
         if (!propName.isEmpty()) {
@@ -2400,6 +2399,21 @@ void MainWindow::buildUi() {
             || level == QStringLiteral("debug")) {
             m_logLevelSetting = level;
             saveUiSettings();
+            if (m_connContentTree) {
+                applyDebugNodeIdsToTree(m_connContentTree);
+            }
+            const auto panes = findChildren<ConnectionDatasetTreePane*>();
+            for (ConnectionDatasetTreePane* pane : panes) {
+                if (!pane) {
+                    continue;
+                }
+                if (QTreeWidget* tree = pane->tree()) {
+                    if (tree == m_connContentTree) {
+                        continue;
+                    }
+                    applyDebugNodeIdsToTree(tree);
+                }
+            }
         }
     });
 
@@ -3071,7 +3085,10 @@ void MainWindow::buildUi() {
             if ((child->flags() & Qt::ItemIsUserCheckable) && child->checkState(0) != Qt::Checked) {
                 continue;
             }
-            const QString token = child->text(0).trimmed();
+            QString token = child->data(0, kConnPermissionsEntryNameRole).toString().trimmed();
+            if (token.isEmpty()) {
+                token = child->data(0, kConnStatePartRole).toString().trimmed();
+            }
             if (!token.isEmpty() && !tokens.contains(token, Qt::CaseInsensitive)) {
                 tokens.push_back(token);
             }
@@ -3106,24 +3123,33 @@ void MainWindow::buildUi() {
             if (!node) {
                 return QString();
             }
+            const QString explicitPart = node->data(0, kConnStatePartRole).toString().trimmed();
+            if (!explicitPart.isEmpty()) {
+                return explicitPart;
+            }
             if (node->data(0, kConnPermissionsNodeRole).toBool()) {
-                return QStringLiteral("perm|%1|%2|%3")
-                    .arg(node->data(0, kConnPermissionsKindRole).toString(),
-                         node->data(0, kConnPermissionsEntryNameRole).toString().trimmed(),
-                         node->text(0).trimmed());
+                const QString kind = node->data(0, kConnPermissionsKindRole).toString();
+                if (!kind.isEmpty()) {
+                    const QString entry = node->data(0, kConnPermissionsEntryNameRole).toString().trimmed();
+                    return entry.isEmpty() ? QStringLiteral("perm|%1").arg(kind)
+                                           : QStringLiteral("perm|%1|%2").arg(kind, entry);
+                }
             }
             if (node->data(0, kConnPropGroupNodeRole).toBool()) {
-                return QStringLiteral("group|%1|%2")
-                    .arg(node->data(0, kConnPropGroupNameRole).toString().trimmed(),
-                         node->text(0).trimmed());
+                const QString groupName = node->data(0, kConnPropGroupNameRole).toString().trimmed();
+                return groupName.isEmpty() ? QStringLiteral("syn:ds_prop")
+                                           : QStringLiteral("syn:prop_group:%1").arg(groupName.toLower());
             }
             if (node->data(0, kConnSnapshotHoldsNodeRole).toBool()) {
-                return QStringLiteral("holds|%1").arg(node->text(0).trimmed());
+                return QStringLiteral("syn:snapshot_holds");
             }
             if (node->data(0, kConnSnapshotHoldItemRole).toBool()) {
                 return QStringLiteral("hold|%1").arg(node->data(0, kConnSnapshotHoldTagRole).toString().trimmed());
             }
-            return QStringLiteral("text|%1").arg(node->text(0).trimmed());
+            if (QTreeWidgetItem* parent = node->parent()) {
+                return QStringLiteral("idx:%1").arg(parent->indexOfChild(node));
+            }
+            return QStringLiteral("idx:0");
         };
         auto collectExpandedPaths = [&](QTreeWidgetItem* datasetNode) {
             QStringList paths;

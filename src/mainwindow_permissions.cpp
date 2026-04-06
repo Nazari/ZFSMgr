@@ -33,6 +33,7 @@ constexpr int kConnPropRowKindRole = Qt::UserRole + 16;
 constexpr int kConnPropGroupNodeRole = Qt::UserRole + 17;
 constexpr int kConnPropGroupNameRole = Qt::UserRole + 18;
 constexpr int kConnInlineCellUsedRole = Qt::UserRole + 32;
+constexpr int kConnStatePartRole = Qt::UserRole + 44;
 
 enum class PermissionsSection {
     None,
@@ -282,6 +283,7 @@ QTreeWidgetItem* ensurePermissionsSectionNode(QTreeWidgetItem* parent,
     node->setText(0, QStringLiteral("%1 (%2)").arg(title).arg(count));
     node->setData(0, kConnPermissionsNodeRole, true);
     node->setData(0, kConnPermissionsKindRole, kind);
+    node->setData(0, kConnStatePartRole, QStringLiteral("perm:%1").arg(kind));
     node->setData(0, kConnIdxRole, connIdx);
     node->setData(0, kPoolNameRole, poolName);
     node->setExpanded(false);
@@ -327,6 +329,10 @@ QString permissionNodeStableId(QTreeWidgetItem* node) {
     if (!node) {
         return QString();
     }
+    const QString explicitPart = node->data(0, kConnStatePartRole).toString().trimmed();
+    if (!explicitPart.isEmpty()) {
+        return explicitPart;
+    }
     const QString kind = node->data(0, kConnPermissionsKindRole).toString();
     if (kind == QStringLiteral("grant") || kind == QStringLiteral("grant_perm")) {
         return QStringLiteral("%1|%2|%3|%4")
@@ -340,7 +346,13 @@ QString permissionNodeStableId(QTreeWidgetItem* node) {
         return QStringLiteral("%1|%2")
             .arg(kind, node->data(0, kConnPermissionsEntryNameRole).toString());
     }
-    return kind;
+    if (!kind.isEmpty()) {
+        return QStringLiteral("perm:%1").arg(kind);
+    }
+    if (QTreeWidgetItem* parent = node->parent()) {
+        return QStringLiteral("idx:%1").arg(parent->indexOfChild(node));
+    }
+    return QStringLiteral("idx:0");
 }
 
 QString permissionPath(QTreeWidgetItem* root, QTreeWidgetItem* node) {
@@ -1060,6 +1072,9 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
             targetNode->setText(0, QStringLiteral("%1 Ámbito %2").arg(who, grantScopeLabel(grant.scope)));
             targetNode->setData(0, kConnPermissionsNodeRole, true);
             targetNode->setData(0, kConnPermissionsKindRole, QStringLiteral("grant"));
+            targetNode->setData(0, kConnStatePartRole,
+                                QStringLiteral("perm:grant:%1:%2:%3")
+                                    .arg(grant.scope, grant.targetType, grant.targetName));
             targetNode->setData(0, kConnPermissionsScopeRole, grant.scope);
             targetNode->setData(0, kConnPermissionsTargetTypeRole, grant.targetType);
             targetNode->setData(0, kConnPermissionsTargetNameRole, grant.targetName);
@@ -1332,6 +1347,7 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
             setNode->setData(0, kConnPermissionsNodeRole, true);
             setNode->setData(0, kConnPermissionsKindRole, QStringLiteral("set"));
             setNode->setData(0, kConnPermissionsEntryNameRole, set.name);
+            setNode->setData(0, kConnStatePartRole, QStringLiteral("perm:set:%1").arg(set.name.trimmed()));
             setNode->setData(0, kConnIdxRole, connIdx);
             setNode->setData(0, kPoolNameRole, poolName);
             setNode->setExpanded(false);
@@ -1380,13 +1396,20 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
                         if (!node) {
                             return QString();
                         }
-                        if (node->data(0, kConnPermissionsNodeRole).toBool()) {
-                            return QStringLiteral("perm|%1|%2|%3")
-                                .arg(node->data(0, kConnPermissionsKindRole).toString(),
-                                     node->data(0, kConnPermissionsEntryNameRole).toString().trimmed(),
-                                     node->text(0).trimmed());
+                        const QString explicitPart = node->data(0, kConnStatePartRole).toString().trimmed();
+                        if (!explicitPart.isEmpty()) {
+                            return explicitPart;
                         }
-                        return QStringLiteral("text|%1").arg(node->text(0).trimmed());
+                        if (node->data(0, kConnPermissionsNodeRole).toBool()) {
+                            const QString kind = node->data(0, kConnPermissionsKindRole).toString();
+                            const QString entry = node->data(0, kConnPermissionsEntryNameRole).toString().trimmed();
+                            return entry.isEmpty() ? QStringLiteral("perm:%1").arg(kind)
+                                                   : QStringLiteral("perm:%1:%2").arg(kind, entry);
+                        }
+                        if (QTreeWidgetItem* parent = node->parent()) {
+                            return QStringLiteral("idx:%1").arg(parent->indexOfChild(node));
+                        }
+                        return QStringLiteral("idx:0");
                     };
                     auto collectExpandedPaths = [&](QTreeWidgetItem* datasetNode) {
                         QStringList paths;
@@ -1530,4 +1553,5 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
         permissionsNode->setExpanded(rootExpanded);
         restoreExpandedPermissionPaths(permissionsNode, expandedPaths);
     }
+    applyDebugNodeIdsToTree(tree);
 }
