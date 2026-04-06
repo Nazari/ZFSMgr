@@ -935,6 +935,18 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
     }
     QStringList selection = currentVisible;
     QVector<MainWindow::InlinePropGroupConfig> editedGroups = currentGroups;
+
+    // Capture a live snapshot of the current tree state before opening the modal
+    // dialog.  Background SSH/timer events can fire during the dialog, causing
+    // rebuildConnectionEntityTabs() to collapse "Dataset properties" and overwrite
+    // the saved state.  Saving now guarantees that refreshExplicitTreeFromToken()
+    // sees the actual expanded nodes the user had visible when they right-clicked.
+    m_mainWindow->saveConnContentTreeStateFor(tree, token);
+    const QString scopedStateToken =
+        visualStateTokenForTree(tree, token) + QStringLiteral("|top");
+    const MainWindow::ConnContentTreeState preDialogState =
+        m_mainWindow->m_connContentTreeStateByToken.value(scopedStateToken);
+
     if (!m_mainWindow->editInlinePropertiesDialog(
             m_mainWindow->trk(QStringLiteral("t_visible_props_title_001"),
                               QStringLiteral("Propiedades visibles"),
@@ -949,6 +961,13 @@ void MainWindowConnectionDatasetTreeDelegate::manageInlinePropsVisualization(QTr
                                                   editedGroups,
                                                   clickedGroupName)) {
         return;
+    }
+    // Re-insert the pre-dialog state so that any background rebuild that ran
+    // during the dialog cannot cause refreshExplicitTreeFromToken() to miss
+    // expanded "Dataset properties" nodes.
+    if (!preDialogState.expandedNodePaths.isEmpty()
+        || !preDialogState.expandedChildPathsByDataset.isEmpty()) {
+        m_mainWindow->m_connContentTreeStateByToken.insert(scopedStateToken, preDialogState);
     }
     selection = normalizeList(selection);
     switch (scope) {

@@ -71,6 +71,8 @@ constexpr int kConnDatasetGuidRole = Qt::UserRole + 47;
 constexpr int kConnSnapshotGuidRole = Qt::UserRole + 48;
 constexpr int kConnSnapshotGroupIdRole = Qt::UserRole + 49;
 constexpr int kIsSplitRootRole = Qt::UserRole + 50;
+constexpr int kConnDebugBaseTextRole = Qt::UserRole + 51;
+constexpr int kConnDebugLastIdRole = Qt::UserRole + 52;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 constexpr char kGsaBlockInfoKey[] = "__gsa_block_info__";
 
@@ -445,7 +447,10 @@ QString connContentNodeLocalStableId(QTreeWidgetItem* node) {
     if (node->data(0, kConnPropGroupNodeRole).toBool()) {
         const QString groupName = node->data(0, kConnPropGroupNameRole).toString().trimmed();
         if (groupName.isEmpty()) {
-            return QStringLiteral("syn:main_properties");
+            const bool isSnapshotProps = node->parent()
+                                         && node->parent()->data(0, kConnSnapshotItemRole).toBool();
+            return isSnapshotProps ? QStringLiteral("syn:snap_prop")
+                                   : QStringLiteral("syn:ds_prop");
         }
         return QStringLiteral("syn:prop_group:%1").arg(groupName.toLower());
     }
@@ -2302,7 +2307,8 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
             return true;
         }
         if (!st.selectedNodePath.trimmed().isEmpty()
-            && st.selectedNodePath.trimmed().endsWith(QStringLiteral(";syn:main_properties"))) {
+            && (st.selectedNodePath.trimmed().endsWith(QStringLiteral(";syn:snap_prop"))
+                || st.selectedNodePath.trimmed().endsWith(QStringLiteral(";syn:main_properties")))) {
             if (st.selectedDataset.trimmed() == ds
                 && (snap.isEmpty() || st.selectedSnapshot.trimmed() == snap)) {
                 return true;
@@ -2425,6 +2431,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
     rebuildInlineEditorTabOrder(tree);
     sel->setExpanded(true);
     resizeTreeColumnsToVisibleContent(tree);
+    applyDebugNodeIdsToTree(tree);
     m_syncingConnContentColumns = false;
 }
 
@@ -3071,6 +3078,7 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
         }
     }
     resizeTreeColumnsToVisibleContent(tree);
+    applyDebugNodeIdsToTree(tree);
     m_syncingConnContentColumns = false;
 }
 
@@ -3279,6 +3287,51 @@ bool MainWindow::connContentTreeStateWriteLocked() const {
     return m_connContentTreeStateWriteLocked;
 }
 
+void MainWindow::applyDebugNodeIdsToTree(QTreeWidget* tree) {
+    if (!tree) {
+        return;
+    }
+    const bool debugMode = m_logLevelSetting.trimmed().compare(QStringLiteral("debug"), Qt::CaseInsensitive) == 0;
+    std::function<void(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* node) {
+        if (!node) {
+            return;
+        }
+        QString currentText = node->text(0);
+        const QString lastId = node->data(0, kConnDebugLastIdRole).toString().trimmed();
+        if (!lastId.isEmpty()) {
+            const QString suffix = QStringLiteral(" (%1)").arg(lastId);
+            if (currentText.endsWith(suffix)) {
+                currentText.chop(suffix.size());
+            }
+        }
+        node->setData(0, kConnDebugBaseTextRole, currentText);
+
+        if (debugMode) {
+            QString nodeId = connContentNodeStablePath(node).trimmed();
+            if (nodeId.isEmpty()) {
+                nodeId = connContentNodeTemporaryPath(node).trimmed();
+            }
+            if (!nodeId.isEmpty()) {
+                node->setText(0, QStringLiteral("%1 (%2)").arg(currentText, nodeId));
+                node->setData(0, kConnDebugLastIdRole, nodeId);
+            } else {
+                node->setText(0, currentText);
+                node->setData(0, kConnDebugLastIdRole, QString());
+            }
+        } else {
+            node->setText(0, currentText);
+            node->setData(0, kConnDebugLastIdRole, QString());
+        }
+
+        for (int i = 0; i < node->childCount(); ++i) {
+            rec(node->child(i));
+        }
+    };
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        rec(tree->topLevelItem(i));
+    }
+}
+
 void MainWindow::saveConnContentTreeStateFor(QTreeWidget* tree, const QString& token) {
     saveConnContentTreeState(tree, token);
 }
@@ -3289,6 +3342,7 @@ void MainWindow::saveConnContentTreeState(const QString& token) {
 
 void MainWindow::restoreConnContentTreeStateFor(QTreeWidget* tree, const QString& token) {
     restoreConnContentTreeState(tree, token);
+    applyDebugNodeIdsToTree(tree);
 }
 
 void MainWindow::rebuildConnContentTreeFor(QTreeWidget* tree,
@@ -3636,7 +3690,9 @@ void MainWindow::restoreConnContentTreeState(QTreeWidget* tree, const QString& t
         QTreeWidgetItem* fallbackSelectedNode = nullptr;
         const QString wantedSelectedPath = st.selectedNodePath.trimmed();
         const bool wantsMainSnapshotProps =
-            wantedSelectedPath.endsWith(QStringLiteral(";syn:main_properties"))
+            wantedSelectedPath.endsWith(QStringLiteral(";syn:snap_prop"))
+            || wantedSelectedPath == QStringLiteral("syn:snap_prop")
+            || wantedSelectedPath.endsWith(QStringLiteral(";syn:main_properties"))
             || wantedSelectedPath == QStringLiteral("syn:main_properties");
         if (wantsMainSnapshotProps
             && !st.selectedDataset.trimmed().isEmpty()
@@ -5034,6 +5090,8 @@ void MainWindow::populateDatasetTree(QTreeWidget* tree, int connIdx, const QStri
         restoreConnContentTreeState(tree, token);
     }
 
+    applyDebugNodeIdsToTree(tree);
+
     m_loadingDatasetTrees = false;
     endUiBusy();
 }
@@ -5210,6 +5268,7 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
                 connRoot->setText(0, QStringLiteral("%1 %2").arg(connPrefix, connName));
                 connRoot->setToolTip(0, QString());
                 ensureConnectionRootAuxNodes(tree, connRoot, connIdx);
+                applyDebugNodeIdsToTree(tree);
             }
             updateConnectionDetailTitlesForCurrentSelection();
             updateConnectionActionsState();
