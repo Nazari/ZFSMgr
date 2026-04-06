@@ -2379,6 +2379,15 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
         }
     }
     m_states[targetIdx] = state;
+    {
+        const QString accountKey = connectionAccountCacheKey(targetIdx);
+        if (!accountKey.isEmpty()) {
+            m_connSystemUsersCacheByKey.remove(accountKey);
+            m_connSystemGroupsCacheByKey.remove(accountKey);
+            m_connSystemUsersLoadedKeys.remove(accountKey);
+            m_connSystemGroupsLoadedKeys.remove(accountKey);
+        }
+    }
     invalidatePoolDetailsCacheForConnection(targetIdx);
     invalidatePoolAutoSnapshotInfoForConnection(targetIdx);
     cachePoolStatusTextsForConnection(targetIdx, state);

@@ -4573,8 +4573,10 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                 permissionObjectsToPreload.push_back(objectName);
             }
         }
-        for (const QString& objectName : permissionObjectsToPreload) {
-            ensureDatasetPermissionsLoaded(connIdx, poolName, objectName);
+        if (!ensureDatasetPermissionsLoadedBatch(connIdx, poolName, permissionObjectsToPreload)) {
+            for (const QString& objectName : permissionObjectsToPreload) {
+                ensureDatasetPermissionsLoaded(connIdx, poolName, objectName);
+            }
         }
         poolInfo = findPoolInfo(connIdx, poolName);
         if (!poolInfo) {

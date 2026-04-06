@@ -458,6 +458,21 @@ QString MainWindow::datasetPermissionsCacheKey(int connIdx, const QString& poolN
         .arg(poolName.trimmed().toLower(), datasetName.trimmed().toLower());
 }
 
+QString MainWindow::connectionAccountCacheKey(int connIdx) const {
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return QString();
+    }
+    const ConnectionProfile& p = m_profiles[connIdx];
+    QString key = p.id.trimmed().toLower();
+    if (key.isEmpty()) {
+        key = p.name.trimmed().toLower();
+    }
+    if (key.isEmpty()) {
+        key = QStringLiteral("idx:%1").arg(connIdx);
+    }
+    return key;
+}
+
 QStringList MainWindow::availableDelegablePermissions(const QString& datasetName,
                                                       int connIdx,
                                                       const QString& poolName,
@@ -700,8 +715,21 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
         names.sort(Qt::CaseInsensitive);
         return names;
     };
-    entry.systemUsers = queryAccounts(QStringLiteral("user"));
-    entry.systemGroups = queryAccounts(QStringLiteral("group"));
+    const QString accountKey = connectionAccountCacheKey(connIdx);
+    if (!accountKey.isEmpty() && !m_connSystemUsersLoadedKeys.contains(accountKey)) {
+        m_connSystemUsersCacheByKey.insert(accountKey, queryAccounts(QStringLiteral("user")));
+        m_connSystemUsersLoadedKeys.insert(accountKey);
+    }
+    if (!accountKey.isEmpty() && !m_connSystemGroupsLoadedKeys.contains(accountKey)) {
+        m_connSystemGroupsCacheByKey.insert(accountKey, queryAccounts(QStringLiteral("group")));
+        m_connSystemGroupsLoadedKeys.insert(accountKey);
+    }
+    entry.systemUsers = accountKey.isEmpty()
+        ? queryAccounts(QStringLiteral("user"))
+        : m_connSystemUsersCacheByKey.value(accountKey);
+    entry.systemGroups = accountKey.isEmpty()
+        ? queryAccounts(QStringLiteral("group"))
+        : m_connSystemGroupsCacheByKey.value(accountKey);
     if (auto* mutableEntry = datasetPermissionsEntryMutable(connIdx, poolName, datasetName)) {
         *mutableEntry = entry;
         mirrorDatasetPermissionsEntryToModel(connIdx, poolName, datasetName);
@@ -711,6 +739,216 @@ bool MainWindow::ensureDatasetPermissionsLoaded(int connIdx, const QString& pool
     }
     rebuildConnInfoFor(connIdx);
     return true;
+}
+
+bool MainWindow::ensureDatasetPermissionsLoadedBatch(int connIdx,
+                                                     const QString& poolName,
+                                                     const QStringList& datasetNames) {
+    if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.trimmed().isEmpty()) {
+        return false;
+    }
+    const ConnectionProfile& p = m_profiles[connIdx];
+    if (isWindowsConnection(p)) {
+        return false;
+    }
+
+    QStringList requested;
+    QSet<QString> seen;
+    for (const QString& raw : datasetNames) {
+        const QString ds = raw.trimmed();
+        const QString k = ds.toLower();
+        if (ds.isEmpty() || seen.contains(k)) {
+            continue;
+        }
+        if (const DSInfo* dsInfo = findDsInfo(connIdx, poolName, ds);
+            dsInfo && dsInfo->runtime.permissionsState == LoadState::Loaded && dsInfo->permissionsCache.loaded) {
+            continue;
+        }
+        if (const DatasetPermissionsCacheEntry* cached = datasetPermissionsEntry(connIdx, poolName, ds);
+            cached && cached->loaded) {
+            continue;
+        }
+        seen.insert(k);
+        requested.push_back(ds);
+    }
+    if (requested.isEmpty()) {
+        return true;
+    }
+
+    const QString osLine = (connIdx >= 0 && connIdx < m_states.size()) ? m_states[connIdx].osLine : QString();
+    auto queryAccounts = [this, connIdx, &p, &osLine](const QString& kind) {
+        QString listOut;
+        QString listDetail;
+        const QString listCmd = accountListCommand(kind, p, osLine);
+        if (!fetchConnectionCommandOutput(connIdx,
+                                          QStringLiteral("Enumerar cuentas"),
+                                          listCmd,
+                                          &listOut,
+                                          &listDetail,
+                                          15000)) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("No se pudo enumerar %1 remotos: %2")
+                       .arg(kind, oneLine(listDetail)));
+            return QStringList{};
+        }
+        QStringList names;
+        QSet<QString> seenNames;
+        for (const QString& line : listOut.split('\n', Qt::SkipEmptyParts)) {
+            const QString t = line.trimmed();
+            const QString k = t.toLower();
+            if (t.isEmpty() || seenNames.contains(k)) {
+                continue;
+            }
+            seenNames.insert(k);
+            names.push_back(t);
+        }
+        names.sort(Qt::CaseInsensitive);
+        return names;
+    };
+    const QString accountKey = connectionAccountCacheKey(connIdx);
+    if (!accountKey.isEmpty() && !m_connSystemUsersLoadedKeys.contains(accountKey)) {
+        m_connSystemUsersCacheByKey.insert(accountKey, queryAccounts(QStringLiteral("user")));
+        m_connSystemUsersLoadedKeys.insert(accountKey);
+    }
+    if (!accountKey.isEmpty() && !m_connSystemGroupsLoadedKeys.contains(accountKey)) {
+        m_connSystemGroupsCacheByKey.insert(accountKey, queryAccounts(QStringLiteral("group")));
+        m_connSystemGroupsLoadedKeys.insert(accountKey);
+    }
+    const QStringList systemUsers = accountKey.isEmpty()
+        ? queryAccounts(QStringLiteral("user"))
+        : m_connSystemUsersCacheByKey.value(accountKey);
+    const QStringList systemGroups = accountKey.isEmpty()
+        ? queryAccounts(QStringLiteral("group"))
+        : m_connSystemGroupsCacheByKey.value(accountKey);
+
+    QStringList quoted;
+    quoted.reserve(requested.size());
+    for (const QString& ds : requested) {
+        quoted.push_back(shSingleQuote(ds));
+    }
+    const QString batchScript = QStringLiteral(
+                                    "set +e; "
+                                    "for ds in %1; do "
+                                    "  printf '__ZFSMGR_ALLOW_BEGIN__ %%s\\n' \"$ds\"; "
+                                    "  zfs allow \"$ds\" 2>&1; "
+                                    "  printf '__ZFSMGR_ALLOW_RC__ %%s %%s\\n' \"$ds\" \"$?\"; "
+                                    "  printf '__ZFSMGR_ALLOW_END__ %%s\\n' \"$ds\"; "
+                                    "done")
+                                    .arg(quoted.join(QLatin1Char(' ')));
+
+    QString out;
+    QString detail;
+    if (!fetchConnectionCommandOutput(connIdx,
+                                      QStringLiteral("Leer permisos (batch)"),
+                                      withSudo(p, mwhelpers::withUnixSearchPathCommand(batchScript)),
+                                      &out,
+                                      &detail,
+                                      120000)) {
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("No se pudieron cargar permisos batch para pool %1: %2")
+                   .arg(poolName, oneLine(detail)));
+        return false;
+    }
+
+    QMap<QString, QStringList> linesByDataset;
+    QMap<QString, int> rcByDataset;
+    QString currentDs;
+    for (const QString& rawLine : out.split('\n')) {
+        const QString line = rawLine;
+        if (line.startsWith(QStringLiteral("__ZFSMGR_ALLOW_BEGIN__ "))) {
+            currentDs = line.mid(QStringLiteral("__ZFSMGR_ALLOW_BEGIN__ ").size()).trimmed();
+            continue;
+        }
+        if (line.startsWith(QStringLiteral("__ZFSMGR_ALLOW_RC__ "))) {
+            const QString payload = line.mid(QStringLiteral("__ZFSMGR_ALLOW_RC__ ").size()).trimmed();
+            const int sep = payload.lastIndexOf(QLatin1Char(' '));
+            if (sep > 0) {
+                const QString ds = payload.left(sep).trimmed();
+                bool okRc = false;
+                const int rc = payload.mid(sep + 1).trimmed().toInt(&okRc);
+                if (okRc && !ds.isEmpty()) {
+                    rcByDataset.insert(ds, rc);
+                }
+            }
+            continue;
+        }
+        if (line.startsWith(QStringLiteral("__ZFSMGR_ALLOW_END__ "))) {
+            currentDs.clear();
+            continue;
+        }
+        if (!currentDs.isEmpty()) {
+            linesByDataset[currentDs].push_back(rawLine);
+        }
+    }
+
+    bool anyLoaded = false;
+    for (const QString& datasetName : requested) {
+        if (rcByDataset.value(datasetName, -1) != 0) {
+            continue;
+        }
+        const QString block = linesByDataset.value(datasetName).join(QLatin1Char('\n'));
+        const QString filteredOut = extractPermissionsOutputForDataset(block, datasetName);
+        const ParsedPermissionsEntry parsed = parsePermissionsOutput(filteredOut);
+        DatasetPermissionsCacheEntry entry;
+        entry.loaded = true;
+        for (const ParsedPermissionGrant& grant : parsed.localGrants) {
+            DatasetPermissionGrant g;
+            g.scope = grant.scope;
+            g.targetType = grant.targetType;
+            g.targetName = grant.targetName;
+            g.permissions = grant.permissions;
+            entry.localGrants.push_back(g);
+            entry.originalLocalGrants.push_back(g);
+        }
+        for (const ParsedPermissionGrant& grant : parsed.descendantGrants) {
+            DatasetPermissionGrant g;
+            g.scope = grant.scope;
+            g.targetType = grant.targetType;
+            g.targetName = grant.targetName;
+            g.permissions = grant.permissions;
+            entry.descendantGrants.push_back(g);
+            entry.originalDescendantGrants.push_back(g);
+        }
+        for (const ParsedPermissionGrant& grant : parsed.localDescendantGrants) {
+            DatasetPermissionGrant g;
+            g.scope = grant.scope;
+            g.targetType = grant.targetType;
+            g.targetName = grant.targetName;
+            g.permissions = grant.permissions;
+            entry.localDescendantGrants.push_back(g);
+            entry.originalLocalDescendantGrants.push_back(g);
+        }
+        entry.createPermissions = parsed.createPermissions;
+        entry.originalCreatePermissions = parsed.createPermissions;
+        QSet<QString> seenSetNames;
+        for (const ParsedPermissionSet& set : parsed.permissionSets) {
+            const QString setKey = set.name.trimmed().toLower();
+            if (setKey.isEmpty() || seenSetNames.contains(setKey)) {
+                continue;
+            }
+            seenSetNames.insert(setKey);
+            DatasetPermissionSet ps;
+            ps.name = set.name;
+            ps.permissions = set.permissions;
+            entry.permissionSets.push_back(ps);
+            entry.originalPermissionSets.push_back(ps);
+        }
+        entry.systemUsers = systemUsers;
+        entry.systemGroups = systemGroups;
+
+        if (auto* mutableEntry = datasetPermissionsEntryMutable(connIdx, poolName, datasetName)) {
+            *mutableEntry = entry;
+            mirrorDatasetPermissionsEntryToModel(connIdx, poolName, datasetName);
+        } else {
+            m_datasetPermissionsCache.insert(datasetPermissionsCacheKey(connIdx, poolName, datasetName), entry);
+            mirrorDatasetPermissionsEntryToModel(connIdx, poolName, datasetName);
+        }
+        anyLoaded = true;
+    }
+    if (anyLoaded) {
+        rebuildConnInfoFor(connIdx);
+    }
+    return anyLoaded;
 }
 
 void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetItem* datasetItem, bool forceReload) {

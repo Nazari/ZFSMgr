@@ -627,6 +627,7 @@ private:
     QString effectiveMountPath(int connIdx, const QString& poolName, const QString& datasetName, const QString& mountpointHint, const QString& mountedValue);
     QString datasetCacheKey(int connIdx, const QString& poolName) const;
     QString datasetPermissionsCacheKey(int connIdx, const QString& poolName, const QString& datasetName) const;
+    QString connectionAccountCacheKey(int connIdx) const;
     QString pendingDatasetRenameCommand(const PendingDatasetRenameDraft& draft) const;
     bool queuePendingDatasetRename(const PendingDatasetRenameDraft& draft, QString* errorOut = nullptr);
     QVector<PendingChange> pendingChanges() const;
@@ -652,6 +653,7 @@ private:
     QString poolDetailsCacheKey(int connIdx, const QString& poolName) const;
     bool ensureDatasetsLoaded(int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing = true);
     bool ensureDatasetPermissionsLoaded(int connIdx, const QString& poolName, const QString& datasetName);
+    bool ensureDatasetPermissionsLoadedBatch(int connIdx, const QString& poolName, const QStringList& datasetNames);
     bool ensurePoolDetailsLoaded(int connIdx, const QString& poolName);
     const PoolDetailsCacheEntry* poolDetailsEntry(int connIdx, const QString& poolName) const;
     void schedulePoolDetailsLoad(int connIdx, const QString& poolName);
@@ -1076,6 +1078,10 @@ private:
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
     QMap<QString, DatasetPermissionsCacheEntry> m_datasetPermissionsCache;
     QMap<QString, PoolDetailsCacheEntry> m_poolDetailsCache;
+    QMap<QString, QStringList> m_connSystemUsersCacheByKey;
+    QMap<QString, QStringList> m_connSystemGroupsCacheByKey;
+    QSet<QString> m_connSystemUsersLoadedKeys;
+    QSet<QString> m_connSystemGroupsLoadedKeys;
     QString m_propsSide;
     QString m_propsDataset;
     QString m_propsToken;
