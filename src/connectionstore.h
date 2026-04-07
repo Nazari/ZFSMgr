@@ -2,6 +2,7 @@
 
 #include <QString>
 #include <QStringList>
+#include <QJsonObject>
 #include <QVector>
 
 class QSettings;
@@ -34,7 +35,10 @@ public:
     void setLanguage(const QString& language);
     bool validateMasterPassword(QString& error) const;
     QString configDir() const;
-    QString iniPath() const;
+    QString configPath() const;
+    QString iniPath() const; // legacy alias
+    QJsonObject loadConfigJson(QString* error = nullptr) const;
+    bool saveConfigJson(const QJsonObject& root, QString* error = nullptr) const;
     void ensureAppDefaults() const;
     QStringList connectionIniPaths() const;
     LoadResult loadConnections() const;

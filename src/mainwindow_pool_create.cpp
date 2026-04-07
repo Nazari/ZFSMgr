@@ -13,6 +13,7 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QMouseEvent>
+#include <QFile>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QGridLayout>
@@ -28,10 +29,11 @@
 #include <QMimeData>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <QSet>
 #include <QSignalBlocker>
-#include <QSettings>
 #include <QSplitter>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -162,36 +164,62 @@ struct ZPoolCreationDefaults {
                        "mountpoint=none")};
 };
 
-ZPoolCreationDefaults loadZPoolCreationDefaults(const QString& iniPath) {
+ZPoolCreationDefaults loadZPoolCreationDefaults(const QString& configPath) {
     ZPoolCreationDefaults d;
-    if (iniPath.trimmed().isEmpty()) {
+    if (configPath.trimmed().isEmpty()) {
         return d;
     }
-    QSettings ini(iniPath, QSettings::IniFormat);
-    ini.beginGroup(QStringLiteral("ZPoolCreationDefaults"));
+    QFile f(configPath);
+    if (!f.open(QIODevice::ReadOnly)) {
+        return d;
+    }
+    QJsonParseError parseErr;
+    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &parseErr);
+    if (parseErr.error != QJsonParseError::NoError || !doc.isObject()) {
+        return d;
+    }
+    const QJsonObject obj = doc.object().value(QStringLiteral("ZPoolCreationDefaults")).toObject();
     bool touched = false;
-    auto ensure = [&](const QString& key, const QVariant& value) {
-        if (!ini.contains(key)) {
-            ini.setValue(key, value);
+    auto ensure = [&](const QString& key) {
+        if (!obj.contains(key)) {
             touched = true;
         }
     };
-    ensure(QStringLiteral("force"), d.force);
-    ensure(QStringLiteral("altroot"), d.altroot);
-    ensure(QStringLiteral("ashift"), d.ashift);
-    ensure(QStringLiteral("autotrim"), d.autotrim);
-    ensure(QStringLiteral("compatibility"), d.compatibility);
-    ensure(QStringLiteral("fs_properties"), d.fsProps);
+    ensure(QStringLiteral("force"));
+    ensure(QStringLiteral("altroot"));
+    ensure(QStringLiteral("ashift"));
+    ensure(QStringLiteral("autotrim"));
+    ensure(QStringLiteral("compatibility"));
+    ensure(QStringLiteral("fs_properties"));
 
-    d.force = ini.value(QStringLiteral("force"), d.force).toBool();
-    d.altroot = ini.value(QStringLiteral("altroot"), d.altroot).toString().trimmed();
-    d.ashift = ini.value(QStringLiteral("ashift"), d.ashift).toString().trimmed();
-    d.autotrim = ini.value(QStringLiteral("autotrim"), d.autotrim).toString().trimmed();
-    d.compatibility = ini.value(QStringLiteral("compatibility"), d.compatibility).toString().trimmed();
-    d.fsProps = ini.value(QStringLiteral("fs_properties"), d.fsProps).toString().trimmed();
-    ini.endGroup();
+    d.force = obj.value(QStringLiteral("force")).toBool(d.force);
+    d.altroot = obj.value(QStringLiteral("altroot")).toString(d.altroot).trimmed();
+    d.ashift = obj.value(QStringLiteral("ashift")).toString(d.ashift).trimmed();
+    d.autotrim = obj.value(QStringLiteral("autotrim")).toString(d.autotrim).trimmed();
+    d.compatibility = obj.value(QStringLiteral("compatibility")).toString(d.compatibility).trimmed();
+    d.fsProps = obj.value(QStringLiteral("fs_properties")).toString(d.fsProps).trimmed();
     if (touched) {
-        ini.sync();
+        QFile wf(configPath);
+        if (wf.open(QIODevice::ReadOnly)) {
+            QJsonParseError pe;
+            const QJsonDocument ddoc = QJsonDocument::fromJson(wf.readAll(), &pe);
+            wf.close();
+            if (pe.error == QJsonParseError::NoError && ddoc.isObject()) {
+                QJsonObject root = ddoc.object();
+                QJsonObject out = root.value(QStringLiteral("ZPoolCreationDefaults")).toObject();
+                if (!out.contains(QStringLiteral("force"))) out.insert(QStringLiteral("force"), d.force);
+                if (!out.contains(QStringLiteral("altroot"))) out.insert(QStringLiteral("altroot"), d.altroot);
+                if (!out.contains(QStringLiteral("ashift"))) out.insert(QStringLiteral("ashift"), d.ashift);
+                if (!out.contains(QStringLiteral("autotrim"))) out.insert(QStringLiteral("autotrim"), d.autotrim);
+                if (!out.contains(QStringLiteral("compatibility"))) out.insert(QStringLiteral("compatibility"), d.compatibility);
+                if (!out.contains(QStringLiteral("fs_properties"))) out.insert(QStringLiteral("fs_properties"), d.fsProps);
+                root.insert(QStringLiteral("ZPoolCreationDefaults"), out);
+                if (wf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                    wf.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+                    wf.close();
+                }
+            }
+        }
     }
     return d;
 }

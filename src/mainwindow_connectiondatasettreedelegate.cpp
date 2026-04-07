@@ -1455,6 +1455,12 @@ void MainWindowConnectionDatasetTreeDelegate::itemExpanded(QTreeWidget* tree, QT
         const QString token = tokenForOwnerItem(owner);
         if (!token.isEmpty()) {
             m_mainWindow->saveConnContentTreeStateFor(tree, token);
+            const bool expandedPoolContext =
+                item->data(0, kIsPoolRootRole).toBool()
+                || item->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey);
+            if (expandedPoolContext) {
+                m_mainWindow->syncConnContentPoolColumnsFor(tree, token);
+            }
         }
     }
     m_mainWindow->resizeTreeColumnsToVisibleContent(tree);

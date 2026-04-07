@@ -2650,6 +2650,13 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
         if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty() || datasetName.isEmpty()) {
             continue;
         }
+        QStringList permissionSubcommands;
+        auto appendPermissionSubcommand = [&permissionSubcommands](const QString& cmd) {
+            const QString t = cmd.trimmed();
+            if (!t.isEmpty()) {
+                permissionSubcommands.push_back(t);
+            }
+        };
         auto appendGrantCommands = [&](const QVector<DatasetPermissionGrant>& original,
                                        const QVector<DatasetPermissionGrant>& current) {
             QMap<QString, DatasetPermissionGrant> origMap;
@@ -2678,39 +2685,17 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
                 const QStringList beforeTokens = normalizeTokens(before.permissions);
                 const QStringList afterTokens = normalizeTokens(after.permissions);
                 if (had && (!has || afterTokens.isEmpty())) {
-                    PendingChange change;
-                    change.kind = PendingChange::Kind::Permission;
-                    change.objectName = datasetName;
-                    change.focusPermissionsNode = true;
-                    appendPending(change,
-                                  connIdx,
-                                  poolName,
-                                  QStringLiteral("zfs unallow %1%2")
-                                      .arg(beforeFlags, shSingleQuote(datasetName)),
-                                  QStringLiteral("Eliminar permisos %1 de %2 en %3")
-                                      .arg(permissionScopeText(before.scope),
-                                           permissionTargetText(before),
-                                           datasetName));
+                    appendPermissionSubcommand(QStringLiteral("zfs unallow %1%2")
+                                                   .arg(beforeFlags, shSingleQuote(datasetName)));
                     continue;
                 }
                 if (!had && has) {
                     if (!afterTokens.isEmpty()) {
-                        PendingChange change;
-                        change.kind = PendingChange::Kind::Permission;
-                        change.objectName = datasetName;
-                        change.focusPermissionsNode = true;
-                        appendPending(change,
-                                      connIdx,
-                                      poolName,
-                                      QStringLiteral("zfs allow %1%2%3 %4")
-                                          .arg(afterFlags,
-                                               afterTokens.join(','),
-                                               QString(),
-                                               shSingleQuote(datasetName)),
-                                      QStringLiteral("Conceder permisos %1 a %2 en %3")
-                                          .arg(afterTokens.join(','),
-                                               permissionTargetText(after),
-                                               datasetName));
+                        appendPermissionSubcommand(QStringLiteral("zfs allow %1%2%3 %4")
+                                                       .arg(afterFlags,
+                                                            afterTokens.join(','),
+                                                            QString(),
+                                                            shSingleQuote(datasetName)));
                     }
                     continue;
                 }
@@ -2724,18 +2709,7 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
                                         QString(),
                                         shSingleQuote(datasetName));
                     }
-                    PendingChange change;
-                    change.kind = PendingChange::Kind::Permission;
-                    change.objectName = datasetName;
-                    change.focusPermissionsNode = true;
-                    appendPending(change,
-                                  connIdx,
-                                  poolName,
-                                  cmd,
-                                  QStringLiteral("Actualizar permisos de %2 en %3 a %1")
-                                      .arg(afterTokens.join(','),
-                                           permissionTargetText(after),
-                                           datasetName));
+                    appendPermissionSubcommand(cmd);
                 }
             }
         };
@@ -2752,16 +2726,7 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
                            .arg(currentCreate.join(','),
                                 shSingleQuote(datasetName));
             }
-            PendingChange change;
-            change.kind = PendingChange::Kind::Permission;
-            change.objectName = datasetName;
-            change.focusPermissionsNode = true;
-            appendPending(change,
-                          connIdx,
-                          poolName,
-                          cmd,
-                          QStringLiteral("Actualizar permisos de creación en %1 a %2")
-                              .arg(datasetName, currentCreate.join(',')));
+            appendPermissionSubcommand(cmd);
         }
 
         QMap<QString, DatasetPermissionSet> origSets;
@@ -2788,32 +2753,16 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
             const QStringList beforeTokens = normalizeTokens(before.permissions);
             const QStringList afterTokens = normalizeTokens(after.permissions);
             if (had && !has) {
-                PendingChange change;
-                change.kind = PendingChange::Kind::Permission;
-                change.objectName = datasetName;
-                change.focusPermissionsNode = true;
-                appendPending(change,
-                              connIdx,
-                              poolName,
-                              QStringLiteral("zfs unallow -s %1 %2")
-                                  .arg(before.name, shSingleQuote(datasetName)),
-                              QStringLiteral("Eliminar conjunto %1 en %2").arg(before.name, datasetName));
+                appendPermissionSubcommand(QStringLiteral("zfs unallow -s %1 %2")
+                                               .arg(before.name, shSingleQuote(datasetName)));
                 continue;
             }
             if (!had && has) {
                 if (!afterTokens.isEmpty()) {
-                    PendingChange change;
-                    change.kind = PendingChange::Kind::Permission;
-                    change.objectName = datasetName;
-                    change.focusPermissionsNode = true;
-                    appendPending(change,
-                                  connIdx,
-                                  poolName,
-                                  QStringLiteral("zfs allow -s %1 %2 %3")
-                                      .arg(after.name,
-                                           afterTokens.join(','),
-                                           shSingleQuote(datasetName)),
-                                  QStringLiteral("Crear conjunto %1 (%2) en %3").arg(after.name, afterTokens.join(','), datasetName));
+                    appendPermissionSubcommand(QStringLiteral("zfs allow -s %1 %2 %3")
+                                                   .arg(after.name,
+                                                        afterTokens.join(','),
+                                                        shSingleQuote(datasetName)));
                 }
                 continue;
             }
@@ -2826,16 +2775,22 @@ QVector<MainWindow::PendingChange> MainWindow::pendingChanges() const {
                                     afterTokens.join(','),
                                     shSingleQuote(datasetName));
                 }
-                PendingChange change;
-                change.kind = PendingChange::Kind::Permission;
-                change.objectName = datasetName;
-                change.focusPermissionsNode = true;
-                appendPending(change,
-                              connIdx,
-                              poolName,
-                              cmd,
-                              QStringLiteral("Actualizar conjunto %1 (%2) en %3").arg(after.name, afterTokens.join(','), datasetName));
+                appendPermissionSubcommand(cmd);
             }
+        }
+        if (!permissionSubcommands.isEmpty()) {
+            PendingChange change;
+            change.kind = PendingChange::Kind::Permission;
+            change.objectName = datasetName;
+            change.focusPermissionsNode = true;
+            change.stableId = QStringLiteral("permission|%1|%2|%3")
+                                  .arg(connIdx)
+                                  .arg(poolName.trimmed(), datasetName.trimmed());
+            appendPending(change,
+                          connIdx,
+                          poolName,
+                          permissionSubcommands.join(QStringLiteral(" && ")),
+                          QStringLiteral("Actualizar permisos en %1").arg(datasetName));
         }
     }
     for (const PendingChange& pending : m_pendingChangesModel) {

@@ -161,7 +161,7 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
         profile.password = candidate.password;
         m_localSudoUsername = candidate.username;
         m_localSudoPassword = candidate.password;
-        appLog(QStringLiteral("INFO"), QStringLiteral("Credenciales sudo locales tomadas de config.ini (Local)"));
+        appLog(QStringLiteral("INFO"), QStringLiteral("Credenciales sudo locales tomadas de config.json (Local)"));
         return true;
     }
 
@@ -194,11 +194,11 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
             this,
             QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_local_sudo_cfg1"),
-                QStringLiteral("Hay una conexión redirigida a Local en config.ini, pero no tiene usuario/password.\n"
+                QStringLiteral("Hay una conexión redirigida a Local en config.json, pero no tiene usuario/password.\n"
                                "Edite esa conexión o complete sus credenciales."),
-                QStringLiteral("There is a connection redirected to Local in config.ini, but it has no user/password.\n"
+                QStringLiteral("There is a connection redirected to Local in config.json, but it has no user/password.\n"
                                "Edit that connection or complete its credentials."),
-                QStringLiteral("config.ini 中存在重定向到本机的连接，但缺少用户/密码。\n"
+                QStringLiteral("config.json 中存在重定向到本机的连接，但缺少用户/密码。\n"
                                "请编辑该连接并补全凭据。")));
         appLog(QStringLiteral("WARN"), QStringLiteral("Credenciales sudo locales no disponibles: redirección configurada sin credenciales"));
         return false;
@@ -296,10 +296,10 @@ bool MainWindow::ensureLocalSudoCredentials(ConnectionProfile& profile) {
     QString storeErr;
     if (!m_store.upsertConnection(localCfg, storeErr)) {
         appLog(QStringLiteral("WARN"),
-               QStringLiteral("No se pudieron persistir credenciales sudo locales en config.ini: %1").arg(oneLine(storeErr)));
+               QStringLiteral("No se pudieron persistir credenciales sudo locales en config.json: %1").arg(oneLine(storeErr)));
     } else {
         appLog(QStringLiteral("INFO"),
-               QStringLiteral("Credenciales sudo locales persistidas en config.ini para machine_uid=%1")
+               QStringLiteral("Credenciales sudo locales persistidas en config.json para machine_uid=%1")
                    .arg(localUid.isEmpty() ? QStringLiteral("-") : localUid));
         bool updated = false;
         for (ConnectionProfile& p : m_profiles) {

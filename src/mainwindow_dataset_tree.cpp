@@ -319,6 +319,90 @@ bool isMainPropertiesNodeLabel(const QString& text) {
            || trimmed == QStringLiteral("Snapshot properties");
 }
 
+QString stripDebugNodeIdSuffix(QString text) {
+    text = text.trimmed();
+    const int openPos = text.lastIndexOf(QStringLiteral(" ("));
+    if (openPos > 0 && text.endsWith(QLatin1Char(')'))) {
+        text = text.left(openPos).trimmed();
+    }
+    return text;
+}
+
+QString treePathSegmentForNode(QTreeWidgetItem* node) {
+    if (!node) {
+        return QString();
+    }
+    if (node->data(0, kConnSnapshotItemRole).toBool()) {
+        const QString snap = node->data(1, Qt::UserRole).toString().trimmed();
+        return snap.isEmpty() ? QString() : QStringLiteral("@%1").arg(snap);
+    }
+    if (node->data(0, kConnSnapshotsNodeRole).toBool()) {
+        return QStringLiteral("@");
+    }
+    const QString ds = node->data(0, Qt::UserRole).toString().trimmed();
+    if (!ds.isEmpty()) {
+        return ds.contains(QLatin1Char('/')) ? ds.section('/', -1) : ds;
+    }
+    const QString syn = node->data(0, kConnStatePartRole).toString().trimmed();
+    if (!syn.isEmpty()) {
+        return syn;
+    }
+    return stripDebugNodeIdSuffix(node->text(0));
+}
+
+QString selectedTreePathHeader(QTreeWidget* tree, const QVector<ConnectionProfile>& profiles) {
+    if (!tree) {
+        return QString();
+    }
+    QTreeWidgetItem* cur = tree->currentItem();
+    if (!cur) {
+        const auto selected = tree->selectedItems();
+        if (!selected.isEmpty()) {
+            cur = selected.first();
+        }
+    }
+    if (!cur) {
+        return QString();
+    }
+    int connIdx = cur->data(0, kConnIdxRole).toInt();
+    QString poolName = cur->data(0, kPoolNameRole).toString().trimmed();
+    for (QTreeWidgetItem* p = cur->parent(); p; p = p->parent()) {
+        if (connIdx < 0) {
+            connIdx = p->data(0, kConnIdxRole).toInt();
+        }
+        if (poolName.isEmpty()) {
+            poolName = p->data(0, kPoolNameRole).toString().trimmed();
+        }
+    }
+    QString connName;
+    if (connIdx >= 0 && connIdx < profiles.size()) {
+        connName = profiles[connIdx].name.trimmed().isEmpty()
+                       ? profiles[connIdx].id.trimmed()
+                       : profiles[connIdx].name.trimmed();
+    }
+    if (connName.isEmpty() || poolName.isEmpty()) {
+        return QString();
+    }
+    QStringList segments;
+    for (QTreeWidgetItem* n = cur; n; n = n->parent()) {
+        if (n->data(0, kIsPoolRootRole).toBool()) {
+            break;
+        }
+        if (n->data(0, kIsConnectionRootRole).toBool()) {
+            continue;
+        }
+        const QString seg = treePathSegmentForNode(n);
+        if (!seg.isEmpty()) {
+            segments.prepend(seg);
+        }
+    }
+    QString path = QStringLiteral("%1::%2").arg(connName, poolName);
+    if (!segments.isEmpty()) {
+        path += QStringLiteral("/") + segments.join(QStringLiteral("/"));
+    }
+    return path;
+}
+
 QString escapeConnStatePart(QString value) {
     value.replace(QStringLiteral("\\"), QStringLiteral("\\\\"));
     value.replace(QStringLiteral(";"), QStringLiteral("\\;"));
@@ -1412,6 +1496,10 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
     for (int i = 0; i < propCols; ++i) {
         headers << QStringLiteral("C%1").arg(i + 1);
     }
+    const QString selectedPathHeader = selectedTreePathHeader(tree, m_profiles);
+    if (!selectedPathHeader.isEmpty()) {
+        headers[0] = selectedPathHeader;
+    }
     tree->setColumnCount(headers.size());
     tree->setHeaderLabels(headers);
     if (QTreeWidgetItem* hh = tree->headerItem()) {
@@ -2130,10 +2218,13 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
                     lay->addWidget(inheritCombo, 0);
                     tree->setItemWidget(rowValues, col, cell);
                     QObject::connect(inheritCombo, &QComboBox::currentTextChanged, tree,
-                                     [this, valueEditor, prop, inheritCombo, draftToken, obj, applyInheritedVisualState](const QString& txt) {
+                                     [this, tree, rowValues, col, valueEditor, prop, inheritCombo, draftToken, obj, applyInheritedVisualState](const QString& txt) {
                         const bool inheritOn = (txt.trimmed().compare(QStringLiteral("on"), Qt::CaseInsensitive) == 0);
                         applyInheritedVisualState(valueEditor, inheritOn);
                         updateConnContentDraftInherit(draftToken, obj, prop, inheritOn);
+                        if (tree && rowValues) {
+                            onDatasetTreeItemChanged(tree, rowValues, col, DatasetTreeContext::ConnectionContent);
+                        }
                         if (!m_connContentPropsTable
                             || m_propsToken.trimmed() != draftToken.trimmed()
                             || m_propsDataset.trimmed() != obj) {
@@ -2597,6 +2688,10 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
     for (int i = 0; i < propCols; ++i) {
         headers << QStringLiteral("C%1").arg(i + 1);
     }
+    const QString selectedPathHeader = selectedTreePathHeader(tree, m_profiles);
+    if (!selectedPathHeader.isEmpty()) {
+        headers[0] = selectedPathHeader;
+    }
     tree->setColumnCount(headers.size());
     tree->setHeaderLabels(headers);
     if (QTreeWidgetItem* hh = tree->headerItem()) {
@@ -2903,6 +2998,187 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
             }
             continue;
         }
+        // Keep Scheduled datasets independent from Pool Information loading.
+        // Pool details may still be loading, but GSA schedule data can already
+        // be available (or become available asynchronously).
+        QMap<QString, QMap<QString, QString>> preAutoSnapshotPropsByDatasetForPool;
+        ensurePoolAutoSnapshotInfoLoaded(connIdx, poolName);
+        preAutoSnapshotPropsByDatasetForPool = poolAutoSnapshotPropsByDataset(connIdx, poolName);
+        for (const PendingPropertyDraftEntry& item : pendingConnContentPropertyDraftsFromModel()) {
+            if (item.connIdx != connIdx || item.poolName != poolName) {
+                continue;
+            }
+            const QString datasetName = item.objectName.trimmed();
+            if (datasetName.isEmpty() || datasetName.contains(QLatin1Char('@'))) {
+                continue;
+            }
+            for (auto vit = item.draft.valuesByProp.cbegin(); vit != item.draft.valuesByProp.cend(); ++vit) {
+                if (vit.key().trimmed().startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+                    preAutoSnapshotPropsByDatasetForPool[datasetName].insert(vit.key().trimmed(), vit.value());
+                }
+            }
+            for (auto iit = item.draft.inheritByProp.cbegin(); iit != item.draft.inheritByProp.cend(); ++iit) {
+                if (iit.value() && iit.key().trimmed().startsWith(QStringLiteral("org.fc16.gsa:"), Qt::CaseInsensitive)) {
+                    preAutoSnapshotPropsByDatasetForPool[datasetName].remove(iit.key().trimmed());
+                }
+            }
+        }
+        QStringList preAutoSnapshotDatasets;
+        for (auto it = preAutoSnapshotPropsByDatasetForPool.cbegin(); it != preAutoSnapshotPropsByDatasetForPool.cend(); ++it) {
+            const QString enabledKey = findCaseInsensitiveMapKey(it.value(), QStringLiteral("org.fc16.gsa:activado"));
+            if (!enabledKey.isEmpty() && gsaBoolOn(it.value().value(enabledKey))) {
+                preAutoSnapshotDatasets.push_back(it.key());
+            }
+        }
+        std::sort(preAutoSnapshotDatasets.begin(), preAutoSnapshotDatasets.end(), [](const QString& a, const QString& b) {
+            return QString::compare(a, b, Qt::CaseInsensitive) < 0;
+        });
+        QTreeWidgetItem* preAutoSnapsNode = nullptr;
+        for (int i = 0; i < root->childCount(); ++i) {
+            QTreeWidgetItem* child = root->child(i);
+            if (child && child->data(0, kConnPoolAutoSnapshotsNodeRole).toBool()) {
+                preAutoSnapsNode = child;
+                break;
+            }
+        }
+        if (!showAutomaticSnapshots() || preAutoSnapshotDatasets.isEmpty()) {
+            if (preAutoSnapsNode) {
+                delete root->takeChild(root->indexOfChild(preAutoSnapsNode));
+            }
+        } else {
+            const bool preAutoSnapsNodeCreated = (preAutoSnapsNode == nullptr);
+            if (!preAutoSnapsNode) {
+                preAutoSnapsNode = new QTreeWidgetItem();
+                preAutoSnapsNode->setData(0, kConnPoolAutoSnapshotsNodeRole, true);
+                preAutoSnapsNode->setData(0, kConnStatePartRole, QStringLiteral("syn:scheduled_datasets_root"));
+                preAutoSnapsNode->setFlags(preAutoSnapsNode->flags() & ~Qt::ItemIsUserCheckable);
+                preAutoSnapsNode->setIcon(0, treeStandardIcon(QStyle::SP_BrowserReload));
+                preAutoSnapsNode->setData(0, kConnIdxRole, connIdx);
+                preAutoSnapsNode->setData(0, kPoolNameRole, poolName);
+                preAutoSnapsNode->setData(0, kConnConnectionStableIdRole, root->data(0, kConnConnectionStableIdRole));
+                preAutoSnapsNode->setData(0, kConnPoolGuidRole, root->data(0, kConnPoolGuidRole));
+                int insertIndex = root->childCount();
+                for (int i = 0; i < root->childCount(); ++i) {
+                    QTreeWidgetItem* child = root->child(i);
+                    if (child && child->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
+                        insertIndex = i + 1;
+                        break;
+                    }
+                }
+                root->insertChild(insertIndex, preAutoSnapsNode);
+            } else {
+                while (preAutoSnapsNode->childCount() > 0) {
+                    delete preAutoSnapsNode->takeChild(0);
+                }
+                preAutoSnapsNode->setData(0, kConnConnectionStableIdRole, root->data(0, kConnConnectionStableIdRole));
+                preAutoSnapsNode->setData(0, kConnPoolGuidRole, root->data(0, kConnPoolGuidRole));
+            }
+            preAutoSnapsNode->setText(0, trk(QStringLiteral("t_pool_auto_datasets_001"),
+                                             QStringLiteral("Datasets programados"),
+                                             QStringLiteral("Scheduled datasets"),
+                                             QStringLiteral("已计划数据集")));
+            if (preAutoSnapsNodeCreated) {
+                preAutoSnapsNode->setExpanded(false);
+            }
+            for (const QString& datasetName : preAutoSnapshotDatasets) {
+                auto* dsItem = new QTreeWidgetItem(preAutoSnapsNode);
+                dsItem->setText(0, datasetName);
+                dsItem->setToolTip(0, datasetName);
+                dsItem->setData(0, kConnPoolAutoSnapshotsDatasetRole, datasetName);
+                dsItem->setData(0, kConnIdxRole, connIdx);
+                dsItem->setData(0, kPoolNameRole, poolName);
+                dsItem->setData(0, kConnConnectionStableIdRole, root->data(0, kConnConnectionStableIdRole));
+                dsItem->setData(0, kConnPoolGuidRole, root->data(0, kConnPoolGuidRole));
+                dsItem->setData(0, Qt::UserRole, datasetName);
+                dsItem->setData(1, Qt::UserRole, QString());
+                if (const DSInfo* dsInfo = findDsInfo(connIdx, poolName, datasetName)) {
+                    const QString dsGuid = dsInfo->runtime.properties.value(QStringLiteral("guid")).trimmed();
+                    if (!dsGuid.isEmpty()) {
+                        dsItem->setData(0, kConnDatasetGuidRole, dsGuid);
+                    }
+                }
+                dsItem->setFlags(dsItem->flags() & ~Qt::ItemIsUserCheckable);
+                const auto propsMap = preAutoSnapshotPropsByDatasetForPool.value(datasetName);
+                QStringList propNames;
+                for (const QString& wantedProp : gsaUserProps()) {
+                    const QString existingKey = findCaseInsensitiveMapKey(propsMap, wantedProp);
+                    propNames.push_back(existingKey.isEmpty() ? wantedProp : existingKey);
+                }
+                for (int base = 0; base < propNames.size(); base += propCols) {
+                    auto* rowNames = new QTreeWidgetItem(dsItem);
+                    rowNames->setData(0, kConnPropRowRole, true);
+                    rowNames->setData(0, kConnPropRowKindRole, 1);
+                    rowNames->setFlags(rowNames->flags() & ~Qt::ItemIsUserCheckable);
+                    auto* rowValues = new QTreeWidgetItem(dsItem);
+                    rowValues->setData(0, kConnPropRowRole, true);
+                    rowValues->setData(0, kConnPropRowKindRole, 2);
+                    rowValues->setFlags((rowValues->flags() | Qt::ItemIsEditable) & ~Qt::ItemIsUserCheckable);
+                    for (int off = 0; off < propCols; ++off) {
+                        const int idx = base + off;
+                        if (idx >= propNames.size()) {
+                            break;
+                        }
+                        const QString& propName = propNames.at(idx);
+                        const int col = 4 + off;
+                        rowNames->setData(col, kConnInlineCellUsedRole, true);
+                        rowValues->setData(col, kConnInlineCellUsedRole, true);
+                        rowNames->setBackground(col, QBrush(nameRowBg));
+                        rowNames->setText(col, gsaUserPropertyLabel(propName));
+                        rowNames->setTextAlignment(col, Qt::AlignCenter);
+                        rowNames->setData(col, kConnPropKeyRole, propName);
+                        rowNames->setToolTip(col, propName);
+                        const QString value = propsMap.contains(propName)
+                                                  ? propsMap.value(propName)
+                                                  : gsaUserPropertyDefaultValue(propName);
+                        rowValues->setText(col, value);
+                        rowValues->setTextAlignment(col, Qt::AlignCenter);
+                        rowValues->setData(col, kConnPropKeyRole, propName);
+                        rowValues->setData(col, kConnPropEditableRole, true);
+                        rowValues->setToolTip(col, value);
+                        const QString propLower = propName.trimmed().toLower();
+                        const bool boolProp =
+                            (propLower == QStringLiteral("org.fc16.gsa:activado")
+                             || propLower == QStringLiteral("org.fc16.gsa:recursivo")
+                             || propLower == QStringLiteral("org.fc16.gsa:nivelar"));
+                        if (boolProp) {
+                            auto* combo = new TreeScrollComboBox(tree, tree);
+                            combo->setMinimumHeight(22);
+                            combo->setMaximumHeight(22);
+                            combo->setFont(tree->font());
+                            combo->setStyleSheet(QStringLiteral("QComboBox{padding:0 5px; margin:0px;}"));
+                            combo->addItem(QStringLiteral("off"));
+                            combo->addItem(QStringLiteral("on"));
+                            combo->setCurrentText(value.trimmed().toLower() == QStringLiteral("on")
+                                                      ? QStringLiteral("on")
+                                                      : QStringLiteral("off"));
+                            tree->setItemWidget(rowValues, col, wrapInlineCellEditor(combo, tree));
+                            QObject::connect(combo, &QComboBox::currentTextChanged, tree, [this, tree, rowValues, col](const QString& txt) {
+                                if (!rowValues) {
+                                    return;
+                                }
+                                rowValues->setText(col, txt);
+                                onDatasetTreeItemChanged(tree, rowValues, col, DatasetTreeContext::ConnectionContent);
+                            });
+                        } else {
+                            auto* edit = new QLineEdit(tree);
+                            edit->setText(value);
+                            edit->setMinimumHeight(22);
+                            edit->setMaximumHeight(22);
+                            edit->setFont(tree->font());
+                            edit->setStyleSheet(QStringLiteral("QLineEdit{padding:0 5px; margin:0px;}"));
+                            tree->setItemWidget(rowValues, col, wrapInlineCellEditor(edit, tree));
+                            QObject::connect(edit, &QLineEdit::editingFinished, tree, [this, tree, rowValues, col, edit]() {
+                                if (!rowValues || !edit) {
+                                    return;
+                                }
+                                rowValues->setText(col, edit->text());
+                                onDatasetTreeItemChanged(tree, rowValues, col, DatasetTreeContext::ConnectionContent);
+                            });
+                        }
+                    }
+                }
+            }
+        }
         if (!ensurePoolDetailsLoaded(connIdx, poolName)) {
             continue;
         }
@@ -3082,6 +3358,7 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
                 delete root->takeChild(root->indexOfChild(autoSnapsNode));
             }
         } else {
+            const bool autoSnapsNodeCreated = (autoSnapsNode == nullptr);
             if (!autoSnapsNode) {
                 autoSnapsNode = new QTreeWidgetItem();
                 autoSnapsNode->setData(0, kConnPoolAutoSnapshotsNodeRole, true);
@@ -3105,7 +3382,9 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
                                           QStringLiteral("Datasets programados"),
                                           QStringLiteral("Scheduled datasets"),
                                           QStringLiteral("已计划数据集")));
-            autoSnapsNode->setExpanded(false);
+            if (autoSnapsNodeCreated) {
+                autoSnapsNode->setExpanded(false);
+            }
             for (const QString& datasetName : autoSnapshotDatasets) {
                 auto* dsItem = new QTreeWidgetItem(autoSnapsNode);
                 dsItem->setText(0, datasetName);

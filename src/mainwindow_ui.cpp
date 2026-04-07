@@ -729,6 +729,21 @@ void MainWindow::updatePendingChangesList() {
             m_pendingOrderedDisplayLines.append(line);
         }
     }
+    // Drop stale terminal-history rows that are no longer pending.
+    // This keeps the list aligned with the real pending model and avoids
+    // showing old "green tick" rows when an action is reverted to no-op.
+    for (int i = m_pendingOrderedDisplayLines.size() - 1; i >= 0; --i) {
+        const QString line = m_pendingOrderedDisplayLines.at(i);
+        if (currentSet.contains(line)) {
+            continue;
+        }
+        const PendingItemStatus status = m_pendingItemStatus.value(line, PendingItemStatus::Pending);
+        if (status == PendingItemStatus::Running) {
+            continue;
+        }
+        m_pendingOrderedDisplayLines.removeAt(i);
+        m_pendingItemStatus.remove(line);
+    }
 
     const QSignalBlocker blocker(m_pendingChangesList);
     m_pendingChangesList->clear();

@@ -13,7 +13,7 @@
 #include <QPainterPath>
 #include <QProxyStyle>
 #include <QProcess>
-#include <QSettings>
+#include <QJsonObject>
 #include <QDir>
 #include <QStyleFactory>
 #include <QStyleOption>
@@ -181,16 +181,14 @@ int main(int argc, char* argv[]) {
     QString language = QStringLiteral("es");
     ConnectionStore store(QStringLiteral("ZFSMgr"));
     {
-        QSettings ini(store.iniPath(), QSettings::IniFormat);
+        const QJsonObject root = store.loadConfigJson();
+        const QJsonObject appObj = root.value(QStringLiteral("app")).toObject();
+        const QJsonObject uiObj = root.value(QStringLiteral("ui")).toObject();
         auto validLang = [](const QString& v) -> bool {
             return v == QStringLiteral("es") || v == QStringLiteral("en") || v == QStringLiteral("zh");
         };
-        ini.beginGroup(QStringLiteral("app"));
-        const QString appLang = ini.value(QStringLiteral("language"), QString()).toString().trimmed().toLower();
-        ini.endGroup();
-        ini.beginGroup(QStringLiteral("ui"));
-        const QString uiLang = ini.value(QStringLiteral("language"), QString()).toString().trimmed().toLower();
-        ini.endGroup();
+        const QString appLang = appObj.value(QStringLiteral("language")).toString().trimmed().toLower();
+        const QString uiLang = uiObj.value(QStringLiteral("language")).toString().trimmed().toLower();
         if (validLang(appLang)) {
             language = appLang;
         } else if (validLang(uiLang)) {
@@ -204,7 +202,7 @@ int main(int argc, char* argv[]) {
     bool firstRunCreateIni = false;
     bool requireLocalSudoAtStartup = false;
     {
-        const bool hasConfig = QFileInfo::exists(store.iniPath());
+        const bool hasConfig = QFileInfo::exists(store.configPath());
         firstRunCreateIni = !hasConfig;
         LoadResult lr = store.loadConnections();
         bool hasLocalConnWithCreds = false;
@@ -234,12 +232,12 @@ int main(int argc, char* argv[]) {
 
         if (dlg.resetIniRequested()) {
             QString removeErr;
-            if (QFileInfo::exists(store.iniPath()) && !QFile::remove(store.iniPath())) {
+            if (QFileInfo::exists(store.configPath()) && !QFile::remove(store.configPath())) {
                 removeErr = trk(language,
                                 QStringLiteral("t_reset_ini_err001"),
-                                QStringLiteral("No se pudo borrar config.ini."),
-                                QStringLiteral("Could not delete config.ini."),
-                                QStringLiteral("无法删除 config.ini。"));
+                                QStringLiteral("No se pudo borrar config.json."),
+                                QStringLiteral("Could not delete config.json."),
+                                QStringLiteral("无法删除 config.json。"));
             }
             const QDir cfgDir(store.configDir());
             const QStringList connFiles = cfgDir.entryList({QStringLiteral("conn*.ini")}, QDir::Files);
@@ -264,14 +262,15 @@ int main(int argc, char* argv[]) {
         }
 
         {
-            QSettings ini(store.iniPath(), QSettings::IniFormat);
-            ini.beginGroup(QStringLiteral("app"));
-            ini.setValue(QStringLiteral("language"), language);
-            ini.endGroup();
-            ini.beginGroup(QStringLiteral("ui"));
-            ini.setValue(QStringLiteral("language"), language);
-            ini.endGroup();
-            ini.sync();
+            QString jsonErr;
+            QJsonObject root = store.loadConfigJson(&jsonErr);
+            QJsonObject appObj = root.value(QStringLiteral("app")).toObject();
+            appObj.insert(QStringLiteral("language"), language);
+            root.insert(QStringLiteral("app"), appObj);
+            QJsonObject uiObj = root.value(QStringLiteral("ui")).toObject();
+            uiObj.insert(QStringLiteral("language"), language);
+            root.insert(QStringLiteral("ui"), uiObj);
+            store.saveConfigJson(root, &jsonErr);
         }
         store.ensureAppDefaults();
         auto ensureLocalConnAtStartup = [&](const QString& localUser, const QString& localPassword) -> bool {
@@ -316,9 +315,9 @@ int main(int argc, char* argv[]) {
                     QStringLiteral("ZFSMgr"),
                     trk(language,
                         QStringLiteral("t_local_conn_create_err001"),
-                        QStringLiteral("No se pudo crear la conexión Local en config.ini.\n%1"),
-                        QStringLiteral("Could not create Local connection in config.ini.\n%1"),
-                        QStringLiteral("无法在 config.ini 中创建本地连接。\n%1")).arg(localErr));
+                        QStringLiteral("No se pudo crear la conexión Local en config.json.\n%1"),
+                        QStringLiteral("Could not create Local connection in config.json.\n%1"),
+                        QStringLiteral("无法在 config.json 中创建本地连接。\n%1")).arg(localErr));
                 return false;
             }
             requireLocalSudoAtStartup = false;

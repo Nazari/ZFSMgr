@@ -139,9 +139,9 @@ MasterPasswordDialog::MasterPasswordDialog(QWidget* parent)
             QStringLiteral("ZFSMgr"),
             trk(m_lang,
                 QStringLiteral("t_reset_ini_q_001"),
-                QStringLiteral("Esto borrará config.ini y todas las conexiones guardadas.\n¿Desea continuar?"),
-                QStringLiteral("This will delete config.ini and all saved connections.\nDo you want to continue?"),
-                QStringLiteral("这将删除 config.ini 及所有已保存连接。\n是否继续？")),
+                QStringLiteral("Esto borrará config.json y todas las conexiones guardadas.\n¿Desea continuar?"),
+                QStringLiteral("This will delete config.json and all saved connections.\nDo you want to continue?"),
+                QStringLiteral("这将删除 config.json 及所有已保存连接。\n是否继续？")),
             QMessageBox::Yes | QMessageBox::No,
             QMessageBox::No);
         if (ans != QMessageBox::Yes) {
@@ -440,9 +440,9 @@ void MasterPasswordDialog::retranslateUi() {
         if (m_firstRunCreationMode) {
             QString info = trk(lang,
                                QStringLiteral("t_create_ini_001"),
-                               QStringLiteral("No existe config.ini. Se va a crear ahora.\nIntroduzca y confirme el password maestro."),
-                               QStringLiteral("config.ini does not exist. It will be created now.\nEnter and confirm the master password."),
-                               QStringLiteral("config.ini 不存在，将立即创建。\n请输入并确认主密码。"));
+                               QStringLiteral("No existe config.json. Se va a crear ahora.\nIntroduzca y confirme el password maestro."),
+                               QStringLiteral("config.json does not exist. It will be created now.\nEnter and confirm the master password."),
+                               QStringLiteral("config.json 不存在，将立即创建。\n请输入并确认主密码。"));
             if (m_requestLocalSudoCredentials) {
                 info += QStringLiteral("\n\n") + trk(lang,
                                                      QStringLiteral("t_local_sudo_boot_001"),
@@ -455,9 +455,9 @@ void MasterPasswordDialog::retranslateUi() {
         } else if (m_requestLocalSudoCredentials) {
             m_creationInfoLabel->setText(trk(lang,
                                              QStringLiteral("t_local_sudo_boot_002"),
-                                             QStringLiteral("Faltan credenciales locales con sudo en config.ini.\nIntroduzca usuario y password local."),
-                                             QStringLiteral("Local sudo credentials are missing in config.ini.\nEnter the local user and password."),
-                                             QStringLiteral("config.ini 中缺少本地 sudo 凭据。\n请输入本地用户和密码。")));
+                                             QStringLiteral("Faltan credenciales locales con sudo en config.json.\nIntroduzca usuario y password local."),
+                                             QStringLiteral("Local sudo credentials are missing in config.json.\nEnter the local user and password."),
+                                             QStringLiteral("config.json 中缺少本地 sudo 凭据。\n请输入本地用户和密码。")));
             m_creationInfoLabel->show();
         } else {
             m_creationInfoLabel->hide();

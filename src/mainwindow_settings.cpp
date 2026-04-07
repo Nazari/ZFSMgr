@@ -7,7 +7,6 @@
 #include <QJsonObject>
 #include <QMenuBar>
 #include <QPlainTextEdit>
-#include <QSettings>
 #include <QSplitter>
 #include <QTableWidgetItem>
 #include <QTextEdit>
@@ -60,27 +59,6 @@ QString connPersistKeyFromProfiles(const QVector<ConnectionProfile>& profiles, i
         return id.toLower();
     }
     return profiles[connIdx].name.trimmed().toLower();
-}
-
-void removeLegacyColumnWidthPersistence(QSettings& ini) {
-    const QStringList keys = ini.allKeys();
-    for (const QString& keyRaw : keys) {
-        const QString key = keyRaw.trimmed().toLower();
-        // Purga de persistencia legacy de anchos/estado de columnas.
-        if (!key.contains(QStringLiteral("conncontent"))
-            && !key.contains(QStringLiteral("dataset_tree"))
-            && !key.contains(QStringLiteral("tree_columns"))
-            && !key.contains(QStringLiteral("table_columns"))) {
-            continue;
-        }
-        if (key.contains(QStringLiteral("column"))
-            || key.contains(QStringLiteral("colwidth"))
-            || key.contains(QStringLiteral("width"))
-            || key.contains(QStringLiteral("header_state"))
-            || key.contains(QStringLiteral("headerstate"))) {
-            ini.remove(keyRaw);
-        }
-    }
 }
 
 QStringList normalizePropsOrderList(QStringList in) {
@@ -149,6 +127,29 @@ QString encodeInlinePropGroups(const QVector<MainWindow::InlinePropGroupConfig>&
     return QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact));
 }
 
+QStringList jsonStringList(const QJsonObject& obj, const QString& key) {
+    QStringList out;
+    const QJsonValue v = obj.value(key);
+    if (v.isArray()) {
+        for (const QJsonValue& item : v.toArray()) {
+            out.push_back(item.toString());
+        }
+    }
+    return out;
+}
+
+QJsonArray toJsonArray(const QStringList& list) {
+    QJsonArray out;
+    for (const QString& s : list) {
+        out.push_back(s);
+    }
+    return out;
+}
+
+QByteArray decodeBase64State(const QJsonObject& obj, const QString& key) {
+    return QByteArray::fromBase64(obj.value(key).toString().toUtf8());
+}
+
 }
 
 QString MainWindow::trk(const QString& key, const QString& es, const QString& en, const QString& zh) const {
@@ -156,72 +157,65 @@ QString MainWindow::trk(const QString& key, const QString& es, const QString& en
 }
 
 void MainWindow::loadUiSettings() {
-    QSettings ini(m_store.iniPath(), QSettings::IniFormat);
-    removeLegacyColumnWidthPersistence(ini);
-    // Legacy support: [ui]language (migrated to [app]language)
-    ini.beginGroup(QStringLiteral("ui"));
-    const QString langUi = ini.value(QStringLiteral("language"), QString()).toString().trimmed().toLower();
-    ini.endGroup();
-    ini.beginGroup(QStringLiteral("app"));
-    QString lang = ini.value(QStringLiteral("language"), QString()).toString().trimmed().toLower();
+    const QJsonObject root = m_store.loadConfigJson();
+    const QJsonObject uiObj = root.value(QStringLiteral("ui")).toObject();
+    QJsonObject appObj = root.value(QStringLiteral("app")).toObject();
+    const QString langUi = uiObj.value(QStringLiteral("language")).toString().trimmed().toLower();
+    QString lang = appObj.value(QStringLiteral("language")).toString().trimmed().toLower();
     if (lang.isEmpty() && !langUi.isEmpty()) {
-        // One-time migration path from legacy key.
         lang = langUi;
-        ini.setValue(QStringLiteral("language"), lang);
+        appObj.insert(QStringLiteral("language"), lang);
     }
     if (!lang.isEmpty()) {
         m_language = lang;
     }
-    m_actionConfirmEnabled = ini.value(QStringLiteral("confirm_actions"), true).toBool();
-    m_logMaxSizeMb = ini.value(QStringLiteral("log_max_mb"), 10).toInt();
-    m_logLevelSetting = ini.value(QStringLiteral("log_level"), QStringLiteral("normal")).toString().trimmed().toLower();
+    m_actionConfirmEnabled = appObj.value(QStringLiteral("confirm_actions")).toBool(true);
+    m_logMaxSizeMb = appObj.value(QStringLiteral("log_max_mb")).toInt(10);
+    m_logLevelSetting = appObj.value(QStringLiteral("log_level")).toString(QStringLiteral("normal")).trimmed().toLower();
     if (m_logLevelSetting != QStringLiteral("normal")
         && m_logLevelSetting != QStringLiteral("info")
         && m_logLevelSetting != QStringLiteral("debug")) {
         m_logLevelSetting = QStringLiteral("normal");
     }
-    m_logMaxLinesSetting = ini.value(QStringLiteral("log_max_lines"), 500).toInt();
-    m_showInlineDatasetProps = ini.value(QStringLiteral("show_inline_dataset_props"), true).toBool();
-    const bool legacyShowInlinePropertyNodes =
-        ini.value(QStringLiteral("show_inline_property_nodes"), true).toBool();
-    const bool legacyShowInlinePermissionsNodes =
-        ini.value(QStringLiteral("show_inline_permissions_nodes"), true).toBool();
-    const bool legacyShowInlineGsaNode =
-        ini.value(QStringLiteral("show_inline_gsa_node"), true).toBool();
+    m_logMaxLinesSetting = appObj.value(QStringLiteral("log_max_lines")).toInt(500);
+    m_showInlineDatasetProps = appObj.value(QStringLiteral("show_inline_dataset_props")).toBool(true);
+    const bool legacyShowInlinePropertyNodes = appObj.value(QStringLiteral("show_inline_property_nodes")).toBool(true);
+    const bool legacyShowInlinePermissionsNodes = appObj.value(QStringLiteral("show_inline_permissions_nodes")).toBool(true);
+    const bool legacyShowInlineGsaNode = appObj.value(QStringLiteral("show_inline_gsa_node")).toBool(true);
     m_showInlinePropertyNodesTop =
-        ini.value(QStringLiteral("show_inline_property_nodes_top"), legacyShowInlinePropertyNodes).toBool();
+        appObj.value(QStringLiteral("show_inline_property_nodes_top")).toBool(legacyShowInlinePropertyNodes);
     m_showInlinePropertyNodesBottom =
-        ini.value(QStringLiteral("show_inline_property_nodes_bottom"), legacyShowInlinePropertyNodes).toBool();
+        appObj.value(QStringLiteral("show_inline_property_nodes_bottom")).toBool(legacyShowInlinePropertyNodes);
     m_showInlinePermissionsNodesTop =
-        ini.value(QStringLiteral("show_inline_permissions_nodes_top"), legacyShowInlinePermissionsNodes).toBool();
+        appObj.value(QStringLiteral("show_inline_permissions_nodes_top")).toBool(legacyShowInlinePermissionsNodes);
     m_showInlinePermissionsNodesBottom =
-        ini.value(QStringLiteral("show_inline_permissions_nodes_bottom"), legacyShowInlinePermissionsNodes).toBool();
+        appObj.value(QStringLiteral("show_inline_permissions_nodes_bottom")).toBool(legacyShowInlinePermissionsNodes);
     m_showInlineGsaNodeTop =
-        ini.value(QStringLiteral("show_inline_gsa_node_top"), legacyShowInlineGsaNode).toBool();
+        appObj.value(QStringLiteral("show_inline_gsa_node_top")).toBool(legacyShowInlineGsaNode);
     m_showInlineGsaNodeBottom =
-        ini.value(QStringLiteral("show_inline_gsa_node_bottom"), legacyShowInlineGsaNode).toBool();
+        appObj.value(QStringLiteral("show_inline_gsa_node_bottom")).toBool(legacyShowInlineGsaNode);
     m_showPoolInfoNodeTop = true;
     m_showPoolInfoNodeBottom = true;
-    m_connPropColumnsSetting = ini.value(QStringLiteral("conn_prop_columns"), 4).toInt();
+    m_connPropColumnsSetting = appObj.value(QStringLiteral("conn_prop_columns")).toInt(4);
     m_persistedTopDetailConnectionKey =
-        ini.value(QStringLiteral("top_detail_connection")).toString().trimmed().toLower();
+        appObj.value(QStringLiteral("top_detail_connection")).toString().trimmed().toLower();
     m_persistedBottomDetailConnectionKey =
-        ini.value(QStringLiteral("bottom_detail_connection")).toString().trimmed().toLower();
-    m_datasetInlinePropsOrder = ini.value(QStringLiteral("dataset_inline_props_order")).toStringList();
+        appObj.value(QStringLiteral("bottom_detail_connection")).toString().trimmed().toLower();
+    m_datasetInlinePropsOrder = jsonStringList(appObj, QStringLiteral("dataset_inline_props_order"));
     m_datasetInlinePropGroups =
-        decodeInlinePropGroups(ini.value(QStringLiteral("dataset_inline_prop_groups")).toString());
-    m_poolInlinePropsOrder = ini.value(QStringLiteral("pool_inline_props_order")).toStringList();
+        decodeInlinePropGroups(appObj.value(QStringLiteral("dataset_inline_prop_groups")).toString());
+    m_poolInlinePropsOrder = jsonStringList(appObj, QStringLiteral("pool_inline_props_order"));
     m_poolInlinePropGroups =
-        decodeInlinePropGroups(ini.value(QStringLiteral("pool_inline_prop_groups")).toString());
-    m_snapshotInlineVisibleProps = ini.value(QStringLiteral("snapshot_inline_visible_props")).toStringList();
+        decodeInlinePropGroups(appObj.value(QStringLiteral("pool_inline_prop_groups")).toString());
+    m_snapshotInlineVisibleProps = jsonStringList(appObj, QStringLiteral("snapshot_inline_visible_props"));
     m_snapshotInlinePropGroups =
-        decodeInlinePropGroups(ini.value(QStringLiteral("snapshot_inline_prop_groups")).toString());
+        decodeInlinePropGroups(appObj.value(QStringLiteral("snapshot_inline_prop_groups")).toString());
     m_datasetInlinePropsOrder = normalizePropsOrderList(m_datasetInlinePropsOrder);
     m_poolInlinePropsOrder = normalizePropsOrderList(m_poolInlinePropsOrder);
     m_snapshotInlineVisibleProps = normalizePropsOrderList(m_snapshotInlineVisibleProps);
     if (m_snapshotInlineVisibleProps.isEmpty()) {
         // Migración legacy desde snapshot_inline_props_order (retirado).
-        QStringList legacy = ini.value(QStringLiteral("snapshot_inline_props_order")).toStringList();
+        QStringList legacy = jsonStringList(appObj, QStringLiteral("snapshot_inline_props_order"));
         legacy = normalizePropsOrderList(legacy);
         for (int i = legacy.size() - 1; i >= 0; --i) {
             if (legacy.at(i).trimmed().compare(QStringLiteral("snapshot"), Qt::CaseInsensitive) == 0) {
@@ -232,7 +226,7 @@ void MainWindow::loadUiSettings() {
     }
     m_disconnectedConnectionKeys.clear();
     {
-        const QStringList raw = ini.value(QStringLiteral("disconnected_connections")).toStringList();
+        const QStringList raw = jsonStringList(appObj, QStringLiteral("disconnected_connections"));
         for (const QString& k : raw) {
             const QString norm = k.trimmed().toLower();
             if (!norm.isEmpty()) {
@@ -240,12 +234,12 @@ void MainWindow::loadUiSettings() {
             }
         }
     }
-    m_mainWindowGeometryState = ini.value(QStringLiteral("main_window_geometry")).toByteArray();
-    m_topMainSplitState = ini.value(QStringLiteral("top_main_splitter")).toByteArray();
-    m_rightMainSplitState = ini.value(QStringLiteral("right_main_splitter")).toByteArray();
-    m_verticalMainSplitState = ini.value(QStringLiteral("vertical_main_splitter")).toByteArray();
-    m_bottomInfoSplitState = ini.value(QStringLiteral("bottom_info_splitter")).toByteArray();
-    m_splitTreeLayoutState = ini.value(QStringLiteral("split_tree_layout")).toString();
+    m_mainWindowGeometryState = decodeBase64State(appObj, QStringLiteral("main_window_geometry"));
+    m_topMainSplitState = decodeBase64State(appObj, QStringLiteral("top_main_splitter"));
+    m_rightMainSplitState = decodeBase64State(appObj, QStringLiteral("right_main_splitter"));
+    m_verticalMainSplitState = decodeBase64State(appObj, QStringLiteral("vertical_main_splitter"));
+    m_bottomInfoSplitState = decodeBase64State(appObj, QStringLiteral("bottom_info_splitter"));
+    m_splitTreeLayoutState = appObj.value(QStringLiteral("split_tree_layout")).toString();
     if (m_logMaxLinesSetting != 100 && m_logMaxLinesSetting != 200
         && m_logMaxLinesSetting != 500 && m_logMaxLinesSetting != 1000) {
         m_logMaxLinesSetting = 500;
@@ -256,25 +250,23 @@ void MainWindow::loadUiSettings() {
         m_logMaxSizeMb = 1024;
     }
     m_connPropColumnsSetting = qBound(4, m_connPropColumnsSetting, 16);
-    // Retirado: ya no se usa ni se lee orden de propiedades inline para snapshots.
-    ini.remove(QStringLiteral("snapshot_inline_props_order"));
-    ini.endGroup();
 }
 
 void MainWindow::saveUiSettings() const {
-    QSettings ini(m_store.iniPath(), QSettings::IniFormat);
-    ini.beginGroup(QStringLiteral("app"));
-    ini.setValue(QStringLiteral("language"), m_language);
-    ini.setValue(QStringLiteral("confirm_actions"), m_actionConfirmEnabled);
-    ini.setValue(QStringLiteral("log_max_mb"), m_logMaxSizeMb);
+    QString jsonErr;
+    QJsonObject root = m_store.loadConfigJson(&jsonErr);
+    QJsonObject appObj = root.value(QStringLiteral("app")).toObject();
+    appObj.insert(QStringLiteral("language"), m_language);
+    appObj.insert(QStringLiteral("confirm_actions"), m_actionConfirmEnabled);
+    appObj.insert(QStringLiteral("log_max_mb"), m_logMaxSizeMb);
     const QString level = m_logLevelSetting.trimmed().toLower();
-    ini.setValue(QStringLiteral("log_level"), level.isEmpty() ? QStringLiteral("normal") : level);
+    appObj.insert(QStringLiteral("log_level"), level.isEmpty() ? QStringLiteral("normal") : level);
     int lines = m_logMaxLinesSetting;
     if (lines != 100 && lines != 200 && lines != 500 && lines != 1000) {
         lines = 500;
     }
-    ini.setValue(QStringLiteral("log_max_lines"), lines);
-    ini.setValue(QStringLiteral("show_inline_dataset_props"), m_showInlineDatasetProps);
+    appObj.insert(QStringLiteral("log_max_lines"), lines);
+    appObj.insert(QStringLiteral("show_inline_dataset_props"), m_showInlineDatasetProps);
     const bool showInlinePropertyNodesTop =
         m_topDatasetPane ? m_topDatasetPane->visualOptions().showInlineProperties
                          : m_showInlinePropertyNodesTop;
@@ -284,40 +276,37 @@ void MainWindow::saveUiSettings() const {
     const bool showInlineGsaNodeTop =
         m_topDatasetPane ? m_topDatasetPane->visualOptions().showInlineGsa
                          : m_showInlineGsaNodeTop;
-    ini.setValue(QStringLiteral("show_inline_property_nodes_top"), showInlinePropertyNodesTop);
-    ini.setValue(QStringLiteral("show_inline_permissions_nodes_top"), showInlinePermissionsNodesTop);
-    ini.setValue(QStringLiteral("show_inline_gsa_node_top"), showInlineGsaNodeTop);
-    ini.setValue(QStringLiteral("conn_prop_columns"), qBound(4, m_connPropColumnsSetting, 16));
-    ini.setValue(QStringLiteral("top_detail_connection"),
-                 connPersistKeyFromProfiles(m_profiles, m_topDetailConnIdx));
-    ini.setValue(QStringLiteral("dataset_inline_props_order"), m_datasetInlinePropsOrder);
-    ini.setValue(QStringLiteral("dataset_inline_prop_groups"), encodeInlinePropGroups(m_datasetInlinePropGroups));
-    ini.setValue(QStringLiteral("pool_inline_props_order"), m_poolInlinePropsOrder);
-    ini.setValue(QStringLiteral("pool_inline_prop_groups"), encodeInlinePropGroups(m_poolInlinePropGroups));
-    ini.setValue(QStringLiteral("snapshot_inline_visible_props"), m_snapshotInlineVisibleProps);
-    ini.setValue(QStringLiteral("snapshot_inline_prop_groups"), encodeInlinePropGroups(m_snapshotInlinePropGroups));
-    // Retirado: ya no se persiste orden específico de propiedades para snapshots.
-    ini.remove(QStringLiteral("snapshot_inline_props_order"));
+    appObj.insert(QStringLiteral("show_inline_property_nodes_top"), showInlinePropertyNodesTop);
+    appObj.insert(QStringLiteral("show_inline_permissions_nodes_top"), showInlinePermissionsNodesTop);
+    appObj.insert(QStringLiteral("show_inline_gsa_node_top"), showInlineGsaNodeTop);
+    appObj.insert(QStringLiteral("conn_prop_columns"), qBound(4, m_connPropColumnsSetting, 16));
+    appObj.insert(QStringLiteral("top_detail_connection"),
+                  connPersistKeyFromProfiles(m_profiles, m_topDetailConnIdx));
+    appObj.insert(QStringLiteral("dataset_inline_props_order"), toJsonArray(m_datasetInlinePropsOrder));
+    appObj.insert(QStringLiteral("dataset_inline_prop_groups"), encodeInlinePropGroups(m_datasetInlinePropGroups));
+    appObj.insert(QStringLiteral("pool_inline_props_order"), toJsonArray(m_poolInlinePropsOrder));
+    appObj.insert(QStringLiteral("pool_inline_prop_groups"), encodeInlinePropGroups(m_poolInlinePropGroups));
+    appObj.insert(QStringLiteral("snapshot_inline_visible_props"), toJsonArray(m_snapshotInlineVisibleProps));
+    appObj.insert(QStringLiteral("snapshot_inline_prop_groups"), encodeInlinePropGroups(m_snapshotInlinePropGroups));
+    appObj.remove(QStringLiteral("snapshot_inline_props_order"));
     QStringList disconnected = QStringList(m_disconnectedConnectionKeys.begin(), m_disconnectedConnectionKeys.end());
     disconnected.sort(Qt::CaseInsensitive);
-    ini.setValue(QStringLiteral("disconnected_connections"), disconnected);
-    ini.setValue(QStringLiteral("main_window_geometry"), saveGeometry());
-    ini.setValue(QStringLiteral("top_main_splitter"),
-                 m_topMainSplit ? m_topMainSplit->saveState() : QByteArray());
-    ini.setValue(QStringLiteral("right_main_splitter"),
-                 m_rightMainSplit ? m_rightMainSplit->saveState() : QByteArray());
-    ini.setValue(QStringLiteral("vertical_main_splitter"),
-                 m_verticalMainSplit ? m_verticalMainSplit->saveState() : QByteArray());
-    ini.setValue(QStringLiteral("bottom_info_splitter"),
-                 m_bottomInfoSplit ? m_bottomInfoSplit->saveState() : QByteArray());
-    ini.setValue(QStringLiteral("split_tree_layout"), serializeSplitTreeLayoutState());
-    ini.endGroup();
-    // Remove legacy duplicated key.
-    ini.beginGroup(QStringLiteral("ui"));
-    ini.remove(QStringLiteral("language"));
-    ini.endGroup();
-    removeLegacyColumnWidthPersistence(ini);
-    ini.sync();
+    appObj.insert(QStringLiteral("disconnected_connections"), toJsonArray(disconnected));
+    appObj.insert(QStringLiteral("main_window_geometry"), QString::fromLatin1(saveGeometry().toBase64()));
+    appObj.insert(QStringLiteral("top_main_splitter"),
+                  QString::fromLatin1((m_topMainSplit ? m_topMainSplit->saveState() : QByteArray()).toBase64()));
+    appObj.insert(QStringLiteral("right_main_splitter"),
+                  QString::fromLatin1((m_rightMainSplit ? m_rightMainSplit->saveState() : QByteArray()).toBase64()));
+    appObj.insert(QStringLiteral("vertical_main_splitter"),
+                  QString::fromLatin1((m_verticalMainSplit ? m_verticalMainSplit->saveState() : QByteArray()).toBase64()));
+    appObj.insert(QStringLiteral("bottom_info_splitter"),
+                  QString::fromLatin1((m_bottomInfoSplit ? m_bottomInfoSplit->saveState() : QByteArray()).toBase64()));
+    appObj.insert(QStringLiteral("split_tree_layout"), serializeSplitTreeLayoutState());
+    root.insert(QStringLiteral("app"), appObj);
+    QJsonObject uiObj = root.value(QStringLiteral("ui")).toObject();
+    uiObj.remove(QStringLiteral("language"));
+    root.insert(QStringLiteral("ui"), uiObj);
+    m_store.saveConfigJson(root, &jsonErr);
 }
 
 void MainWindow::applyLanguageLive() {

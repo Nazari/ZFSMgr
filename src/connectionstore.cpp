@@ -5,8 +5,12 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QProcessEnvironment>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QMetaType>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QSysInfo>
@@ -83,6 +87,118 @@ QString normalizeMachineUidForStorage(const ConnectionProfile& p, QString raw) {
     }
     return raw;
 }
+
+QJsonValue jsonValueFromVariant(const QVariant& v) {
+    if (!v.isValid()) {
+        return QJsonValue();
+    }
+    if (v.metaType().id() == QMetaType::QByteArray) {
+        return QString::fromLatin1(v.toByteArray().toBase64());
+    }
+    if (v.metaType().id() == QMetaType::QStringList) {
+        QJsonArray arr;
+        const QStringList sl = v.toStringList();
+        for (const QString& s : sl) {
+            arr.push_back(s);
+        }
+        return arr;
+    }
+    return QJsonValue::fromVariant(v);
+}
+
+QJsonObject connectionToJson(const ConnectionProfile& inProfile) {
+    ConnectionProfile p = inProfile;
+    p.machineUid = normalizeMachineUidForStorage(p, p.machineUid);
+    if (shouldForceLocalSudo(p)) {
+        p.useSudo = true;
+    }
+    const QString sshFamily = p.sshAddressFamily.trimmed().toLower();
+    QJsonObject obj;
+    obj.insert(QStringLiteral("id"), p.id.trimmed());
+    obj.insert(QStringLiteral("name"), p.name.trimmed());
+    obj.insert(QStringLiteral("machine_uid"), p.machineUid);
+    obj.insert(QStringLiteral("conn_type"),
+               p.connType.trimmed().isEmpty() ? QStringLiteral("SSH")
+                                              : p.connType.trimmed());
+    obj.insert(QStringLiteral("os_type"),
+               p.osType.trimmed().isEmpty() ? QStringLiteral("Linux")
+                                            : p.osType.trimmed());
+    obj.insert(QStringLiteral("host"), p.host.trimmed());
+    obj.insert(QStringLiteral("port"), ensurePort(p.connType, p.port));
+    obj.insert(QStringLiteral("ssh_address_family"),
+               (sshFamily == QStringLiteral("ipv4") || sshFamily == QStringLiteral("ipv6"))
+                   ? sshFamily
+                   : QStringLiteral("auto"));
+    obj.insert(QStringLiteral("username"), p.username);
+    obj.insert(QStringLiteral("password"), p.password);
+    obj.insert(QStringLiteral("key_path"), p.keyPath.trimmed());
+    obj.insert(QStringLiteral("use_sudo"), p.useSudo);
+    return obj;
+}
+
+ConnectionProfile connectionFromJson(const QJsonObject& obj) {
+    ConnectionProfile p;
+    p.id = obj.value(QStringLiteral("id")).toString().trimmed();
+    p.name = obj.value(QStringLiteral("name")).toString();
+    const QString rawMachineUid = obj.value(QStringLiteral("machine_uid")).toString();
+    p.machineUid = rawMachineUid;
+    p.connType = obj.value(QStringLiteral("conn_type")).toString();
+    p.osType = obj.value(QStringLiteral("os_type")).toString();
+    p.host = obj.value(QStringLiteral("host")).toString();
+    p.port = obj.value(QStringLiteral("port")).toInt(22);
+    p.sshAddressFamily =
+        obj.value(QStringLiteral("ssh_address_family")).toString(QStringLiteral("auto")).trimmed().toLower();
+    p.username = obj.value(QStringLiteral("username")).toString();
+    p.password = obj.value(QStringLiteral("password")).toString();
+    p.keyPath = obj.value(QStringLiteral("key_path")).toString();
+    p.useSudo = obj.value(QStringLiteral("use_sudo")).toBool(false);
+    p.machineUid = normalizeMachineUidForStorage(p, p.machineUid);
+    if (shouldForceLocalSudo(p)) {
+        p.useSudo = true;
+    }
+    return p;
+}
+
+int indexOfConnectionById(const QJsonArray& connections, const QString& id) {
+    const QString target = id.trimmed();
+    if (target.isEmpty()) {
+        return -1;
+    }
+    for (int i = 0; i < connections.size(); ++i) {
+        const QJsonObject obj = connections.at(i).toObject();
+        if (obj.value(QStringLiteral("id")).toString().trimmed().compare(target, Qt::CaseInsensitive) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+bool upsertConnectionJson(QJsonArray& connections, const ConnectionProfile& p) {
+    if (p.id.trimmed().isEmpty()) {
+        return false;
+    }
+    const int idx = indexOfConnectionById(connections, p.id);
+    const QJsonObject obj = connectionToJson(p);
+    if (idx >= 0) {
+        connections[idx] = obj;
+    } else {
+        connections.push_back(obj);
+    }
+    return true;
+}
+
+QJsonObject readJsonRootNoMigration(const QString& path) {
+    QFile file(path);
+    if (!file.exists() || !file.open(QIODevice::ReadOnly)) {
+        return QJsonObject();
+    }
+    QJsonParseError parseErr;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseErr);
+    if (parseErr.error != QJsonParseError::NoError || !doc.isObject()) {
+        return QJsonObject();
+    }
+    return doc.object();
+}
 } // namespace
 
 ConnectionStore::ConnectionStore(const QString& appName)
@@ -108,19 +224,103 @@ QString ConnectionStore::trk(const QString& key,
     return I18nManager::instance().translateKey(m_language, key, es, en, zh);
 }
 
-bool ConnectionStore::validateMasterPassword(QString& error) const {
-    error.clear();
-    if (!migrateLegacyConnectionsToPerFile(error)) {
+QString ConnectionStore::configDir() const {
+    QString base = QDir::homePath() + "/.config/" + m_appName;
+    QDir dir(base);
+    if (!dir.exists()) {
+        dir.mkpath(".");
+    }
+    return dir.absolutePath();
+}
+
+QString ConnectionStore::configPath() const {
+    return configDir() + QStringLiteral("/config.json");
+}
+
+QString ConnectionStore::iniPath() const {
+    return configPath();
+}
+
+QJsonObject ConnectionStore::loadConfigJson(QString* error) const {
+    if (error) {
+        error->clear();
+    }
+    QFile file(configPath());
+    if (!file.exists()) {
+        QString migrateErr;
+        migrateLegacyConnectionsToPerFile(migrateErr);
+        file.setFileName(configPath());
+    }
+    if (!file.exists()) {
+        return QJsonObject();
+    }
+    if (!file.open(QIODevice::ReadOnly)) {
+        if (error) {
+            *error = trk(QStringLiteral("t_cfg_json_read_open_err"),
+                         QStringLiteral("No se pudo abrir config.json"),
+                         QStringLiteral("Could not open config.json"),
+                         QStringLiteral("无法打开 config.json"));
+        }
+        return QJsonObject();
+    }
+    QJsonParseError parseErr;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseErr);
+    if (parseErr.error != QJsonParseError::NoError || !doc.isObject()) {
+        if (error) {
+            *error = trk(QStringLiteral("t_cfg_json_parse_err"),
+                         QStringLiteral("config.json no es válido"),
+                         QStringLiteral("config.json is invalid"),
+                         QStringLiteral("config.json 无效"));
+        }
+        return QJsonObject();
+    }
+    return doc.object();
+}
+
+bool ConnectionStore::saveConfigJson(const QJsonObject& root, QString* error) const {
+    if (error) {
+        error->clear();
+    }
+    QDir dir(configDir());
+    if (!dir.exists() && !dir.mkpath(QStringLiteral("."))) {
+        if (error) {
+            *error = trk(QStringLiteral("t_cfg_json_dir_err"),
+                         QStringLiteral("No se pudo crear el directorio de configuración"),
+                         QStringLiteral("Could not create configuration directory"),
+                         QStringLiteral("无法创建配置目录"));
+        }
         return false;
     }
-    QSettings ini(iniPath(), QSettings::IniFormat);
-    const QStringList groups = connectionGroups(ini);
+    QFile file(configPath());
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (error) {
+            *error = trk(QStringLiteral("t_cfg_json_write_open_err"),
+                         QStringLiteral("No se pudo escribir config.json"),
+                         QStringLiteral("Could not write config.json"),
+                         QStringLiteral("无法写入 config.json"));
+        }
+        return false;
+    }
+    file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    file.close();
+    return true;
+}
+
+bool ConnectionStore::validateMasterPassword(QString& error) const {
+    error.clear();
+    QString migrationError;
+    if (!migrateLegacyConnectionsToPerFile(migrationError)) {
+        return false;
+    }
+    const QJsonObject root = loadConfigJson(&error);
+    if (!error.isEmpty()) {
+        return false;
+    }
+    const QJsonArray connections = root.value(QStringLiteral("connections")).toArray();
     bool hasEncrypted = false;
-    for (const QString& group : groups) {
-        const ConnectionProfile p = loadProfileFromGroup(ini, group);
+    for (const QJsonValue& v : connections) {
+        const ConnectionProfile p = connectionFromJson(v.toObject());
         const QString connName = p.name.trimmed().isEmpty() ? p.id : p.name;
-        const QString username = p.username;
-        const QString password = p.password;
 
         auto checkOne = [&](const QString& value, const QString& fieldName) -> bool {
             if (!SecretCipher::isEncrypted(value)) {
@@ -139,10 +339,10 @@ bool ConnectionStore::validateMasterPassword(QString& error) const {
             return true;
         };
 
-        if (!checkOne(username, QStringLiteral("usuario"))) {
+        if (!checkOne(p.username, QStringLiteral("usuario"))) {
             return false;
         }
-        if (!checkOne(password, QStringLiteral("password"))) {
+        if (!checkOne(p.password, QStringLiteral("password"))) {
             return false;
         }
     }
@@ -156,45 +356,23 @@ bool ConnectionStore::validateMasterPassword(QString& error) const {
     return true;
 }
 
-QString ConnectionStore::configDir() const {
-    QString base = QDir::homePath() + "/.config/" + m_appName;
-    QDir dir(base);
-    if (!dir.exists()) {
-        dir.mkpath(".");
-    }
-    return dir.absolutePath();
-}
-
-QString ConnectionStore::iniPath() const {
-    const QString dir = configDir();
-    const QString newPath = dir + "/config.ini";
-    const QString oldPath = dir + "/connections.ini";
-    if (!QFile::exists(newPath) && QFile::exists(oldPath)) {
-        if (!QFile::rename(oldPath, newPath)) {
-            QFile::copy(oldPath, newPath);
-        }
-    }
-    return newPath;
-}
-
 void ConnectionStore::ensureAppDefaults() const {
-    QSettings ini(iniPath(), QSettings::IniFormat);
+    QString loadErr;
+    QJsonObject root = loadConfigJson(&loadErr);
+    QJsonObject zdefs = root.value(QStringLiteral("ZPoolCreationDefaults")).toObject();
     bool touched = false;
-    auto ensure = [&](const QString& group, const QString& key, const QVariant& value) {
-        ini.beginGroup(group);
-        if (!ini.contains(key)) {
-            ini.setValue(key, value);
+    auto ensure = [&](const QString& key, const QJsonValue& value) {
+        if (!zdefs.contains(key)) {
+            zdefs.insert(key, value);
             touched = true;
         }
-        ini.endGroup();
     };
-
-    ensure(QStringLiteral("ZPoolCreationDefaults"), QStringLiteral("force"), true);
-    ensure(QStringLiteral("ZPoolCreationDefaults"), QStringLiteral("altroot"), QString());
-    ensure(QStringLiteral("ZPoolCreationDefaults"), QStringLiteral("ashift"), QStringLiteral("12"));
-    ensure(QStringLiteral("ZPoolCreationDefaults"), QStringLiteral("autotrim"), QStringLiteral("on"));
-    ensure(QStringLiteral("ZPoolCreationDefaults"), QStringLiteral("compatibility"), QStringLiteral("openzfs-2.4-linux"));
-    ensure(QStringLiteral("ZPoolCreationDefaults"), QStringLiteral("fs_properties"),
+    ensure(QStringLiteral("force"), true);
+    ensure(QStringLiteral("altroot"), QString());
+    ensure(QStringLiteral("ashift"), QStringLiteral("12"));
+    ensure(QStringLiteral("autotrim"), QStringLiteral("on"));
+    ensure(QStringLiteral("compatibility"), QStringLiteral("openzfs-2.4-linux"));
+    ensure(QStringLiteral("fs_properties"),
            QStringLiteral("acltype=posixacl,"
                           "xattr=sa,"
                           "dnodesize=auto,"
@@ -203,9 +381,10 @@ void ConnectionStore::ensureAppDefaults() const {
                           "relatime=on,"
                           "canmount=noauto,"
                           "mountpoint=none"));
-
     if (touched) {
-        ini.sync();
+        root.insert(QStringLiteral("ZPoolCreationDefaults"), zdefs);
+        QString saveErr;
+        saveConfigJson(root, &saveErr);
     }
 }
 
@@ -259,10 +438,6 @@ ConnectionProfile ConnectionStore::loadProfileFromIni(const QString& path) {
         p.id = QFileInfo(path).completeBaseName();
     }
     p.machineUid = normalizeMachineUidForStorage(p, p.machineUid);
-    if (p.machineUid != rawMachineUid) {
-        ini.setValue(QStringLiteral("machine_uid"), p.machineUid);
-        ini.sync();
-    }
     if (shouldForceLocalSudo(p)) {
         p.useSudo = true;
     }
@@ -330,41 +505,80 @@ void ConnectionStore::saveProfileToGroup(QSettings& ini, const QString& groupNam
 
 bool ConnectionStore::migrateLegacyConnectionsToPerFile(QString& error) const {
     error.clear();
-    QSettings ini(iniPath(), QSettings::IniFormat);
-    bool changed = false;
-    const QStringList groups = connectionGroups(ini);
-    for (const QString& group : groups) {
-        const ConnectionProfile p = loadProfileFromGroup(ini, group);
-        const QString normalizedGroup = connectionGroupNameForId(p.id.isEmpty() ? defaultIdFromGroup(group) : p.id);
-        if (group.compare(normalizedGroup, Qt::CaseInsensitive) == 0) {
-            continue;
-        }
-        saveProfileToGroup(ini, normalizedGroup, p);
-        ini.beginGroup(group);
-        ini.remove(QStringLiteral(""));
-        ini.endGroup();
-        changed = true;
+    const QString jsonPath = configPath();
+    const QString cfgDir = configDir();
+    const QString legacyConfigPath = cfgDir + QStringLiteral("/config.ini");
+    const QString legacyConnectionsPath = cfgDir + QStringLiteral("/connections.ini");
+    const QStringList connFiles = connectionIniPaths();
+    const bool hasLegacy = QFile::exists(legacyConfigPath)
+                           || QFile::exists(legacyConnectionsPath)
+                           || !connFiles.isEmpty();
+    if (!hasLegacy) {
+        return true;
     }
 
-    const QStringList connFiles = connectionIniPaths();
+    QJsonObject root = readJsonRootNoMigration(jsonPath);
+    QJsonArray connections = root.value(QStringLiteral("connections")).toArray();
+    bool changed = false;
+
+    auto mergeFromIni = [&](const QString& path) {
+        if (!QFile::exists(path)) {
+            return;
+        }
+        QSettings ini(path, QSettings::IniFormat);
+        for (const QString& group : connectionGroups(ini)) {
+            ConnectionProfile p = loadProfileFromGroup(ini, group);
+            if (p.id.trimmed().isEmpty()) {
+                p.id = defaultIdFromGroup(group);
+            }
+            if (upsertConnectionJson(connections, p)) {
+                changed = true;
+            }
+        }
+        auto copyGroup = [&](const QString& groupName) {
+            ini.beginGroup(groupName);
+            const QStringList keys = ini.childKeys();
+            if (keys.isEmpty()) {
+                ini.endGroup();
+                return;
+            }
+            QJsonObject groupObj = root.value(groupName).toObject();
+            for (const QString& key : keys) {
+                groupObj.insert(key, jsonValueFromVariant(ini.value(key)));
+            }
+            ini.endGroup();
+            root.insert(groupName, groupObj);
+            changed = true;
+        };
+        copyGroup(QStringLiteral("app"));
+        copyGroup(QStringLiteral("ui"));
+        copyGroup(QStringLiteral("ZPoolCreationDefaults"));
+    };
+
+    mergeFromIni(legacyConfigPath);
+    mergeFromIni(legacyConnectionsPath);
+
     for (const QString& path : connFiles) {
         ConnectionProfile p = loadProfileFromIni(path);
         if (p.id.trimmed().isEmpty()) {
             p.id = QFileInfo(path).completeBaseName();
         }
-        const QString groupName = connectionGroupNameForId(p.id);
-        saveProfileToGroup(ini, groupName, p);
-        changed = true;
+        if (upsertConnectionJson(connections, p)) {
+            changed = true;
+        }
     }
 
-    if (changed) {
-        ini.sync();
-        if (ini.status() != QSettings::NoError) {
-            error = trk(QStringLiteral("t_cstore_auto011"), QStringLiteral("Error guardando INI"),
-                        QStringLiteral("Error saving INI"), QStringLiteral("保存 INI 出错"));
+    if (changed || !QFile::exists(jsonPath)) {
+        root.insert(QStringLiteral("connections"), connections);
+        QString saveErr;
+        if (!saveConfigJson(root, &saveErr)) {
+            error = saveErr;
             return false;
         }
     }
+
+    QFile::remove(legacyConfigPath);
+    QFile::remove(legacyConnectionsPath);
     for (const QString& path : connFiles) {
         QFile::remove(path);
     }
@@ -379,10 +593,14 @@ LoadResult ConnectionStore::loadConnections() const {
             result.warnings.push_back(migrationError);
         }
     }
-    QSettings ini(iniPath(), QSettings::IniFormat);
-    const QStringList groups = connectionGroups(ini);
-    for (const QString& group : groups) {
-        ConnectionProfile p = loadProfileFromGroup(ini, group);
+    QString loadErr;
+    const QJsonObject root = loadConfigJson(&loadErr);
+    if (!loadErr.isEmpty()) {
+        result.warnings.push_back(loadErr);
+    }
+    const QJsonArray connections = root.value(QStringLiteral("connections")).toArray();
+    for (const QJsonValue& v : connections) {
+        ConnectionProfile p = connectionFromJson(v.toObject());
         p.port = ensurePort(p.connType, p.port);
 
         if (SecretCipher::isEncrypted(p.username)) {
@@ -493,16 +711,20 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
         id.replace('/', '_');
     }
 
-    QSettings ini(iniPath(), QSettings::IniFormat);
-    const QStringList groups = connectionGroups(ini);
+    QString loadErr;
+    QJsonObject root = loadConfigJson(&loadErr);
+    if (!loadErr.isEmpty()) {
+        error = loadErr;
+        return false;
+    }
+    QJsonArray connections = root.value(QStringLiteral("connections")).toArray();
+
     const QString targetName = profile.name.trimmed();
-    QString existingGroupForId;
-    for (const QString& group : groups) {
-        const ConnectionProfile existing = loadProfileFromGroup(ini, group);
+    for (int i = 0; i < connections.size(); ++i) {
+        const ConnectionProfile existing = connectionFromJson(connections.at(i).toObject());
         const QString existingId = existing.id.trimmed();
         const QString existingName = existing.name.trimmed();
         if (existingId.compare(id, Qt::CaseInsensitive) == 0) {
-            existingGroupForId = group;
             continue;
         }
         if (!existingName.isEmpty() && existingName.compare(targetName, Qt::CaseInsensitive) == 0) {
@@ -536,21 +758,15 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
         storedPassword = encrypted;
     }
     toSave.password = storedPassword;
-    const QString targetGroup = connectionGroupNameForId(toSave.id);
-    saveProfileToGroup(ini, targetGroup, toSave);
-    if (!existingGroupForId.isEmpty() && existingGroupForId.compare(targetGroup, Qt::CaseInsensitive) != 0) {
-        ini.beginGroup(existingGroupForId);
-        ini.remove(QStringLiteral(""));
-        ini.endGroup();
-    }
-    ini.sync();
-    if (ini.status() != QSettings::NoError) {
-        error = trk(QStringLiteral("t_cstore_auto011"), QStringLiteral("Error guardando INI"),
-                    QStringLiteral("Error saving INI"),
-                    QStringLiteral("保存 INI 出错"));
+    if (!upsertConnectionJson(connections, toSave)) {
+        error = trk(QStringLiteral("t_cstore_json_upsert_err"),
+                    QStringLiteral("No se pudo guardar la conexión"),
+                    QStringLiteral("Could not save connection"),
+                    QStringLiteral("无法保存连接"));
         return false;
     }
-    return true;
+    root.insert(QStringLiteral("connections"), connections);
+    return saveConfigJson(root, &error);
 }
 
 bool ConnectionStore::deleteConnectionById(const QString& id, QString& error) {
@@ -567,25 +783,21 @@ bool ConnectionStore::deleteConnectionById(const QString& id, QString& error) {
                     QStringLiteral("ID 为空"));
         return false;
     }
-    QSettings ini(iniPath(), QSettings::IniFormat);
-    const QStringList groups = connectionGroups(ini);
-    for (const QString& group : groups) {
-        const ConnectionProfile p = loadProfileFromGroup(ini, group);
-        if (p.id.trimmed().compare(clean, Qt::CaseInsensitive) != 0) {
-            continue;
-        }
-        ini.beginGroup(group);
-        ini.remove(QStringLiteral(""));
-        ini.endGroup();
-    }
-    ini.sync();
-    if (ini.status() != QSettings::NoError) {
-        error = trk(QStringLiteral("t_cstore_auto013"), QStringLiteral("Error borrando en INI"),
-                    QStringLiteral("Error deleting from INI"),
-                    QStringLiteral("删除 INI 项时出错"));
+    QString loadErr;
+    QJsonObject root = loadConfigJson(&loadErr);
+    if (!loadErr.isEmpty()) {
+        error = loadErr;
         return false;
     }
-    return true;
+    QJsonArray connections = root.value(QStringLiteral("connections")).toArray();
+    for (int i = connections.size() - 1; i >= 0; --i) {
+        const ConnectionProfile p = connectionFromJson(connections.at(i).toObject());
+        if (p.id.trimmed().compare(clean, Qt::CaseInsensitive) == 0) {
+            connections.removeAt(i);
+        }
+    }
+    root.insert(QStringLiteral("connections"), connections);
+    return saveConfigJson(root, &error);
 }
 
 bool ConnectionStore::encryptStoredPasswords(QString& error) {
@@ -601,11 +813,15 @@ bool ConnectionStore::encryptStoredPasswords(QString& error) {
                     QStringLiteral("需要主密码"));
         return false;
     }
-
-    QSettings ini(iniPath(), QSettings::IniFormat);
-    const QStringList groups = connectionGroups(ini);
-    for (const QString& group : groups) {
-        ConnectionProfile p = loadProfileFromGroup(ini, group);
+    QString loadErr;
+    QJsonObject root = loadConfigJson(&loadErr);
+    if (!loadErr.isEmpty()) {
+        error = loadErr;
+        return false;
+    }
+    QJsonArray connections = root.value(QStringLiteral("connections")).toArray();
+    for (int i = 0; i < connections.size(); ++i) {
+        ConnectionProfile p = connectionFromJson(connections.at(i).toObject());
         const QString current = p.password;
         if (!current.isEmpty() && !SecretCipher::isEncrypted(current)) {
             QString encErr;
@@ -615,17 +831,11 @@ bool ConnectionStore::encryptStoredPasswords(QString& error) {
                 return false;
             }
             p.password = encrypted;
-            saveProfileToGroup(ini, group, p);
+            connections[i] = connectionToJson(p);
         }
     }
-    ini.sync();
-    if (ini.status() != QSettings::NoError) {
-        error = trk(QStringLiteral("t_cstore_auto015"), QStringLiteral("Error guardando INI"),
-                    QStringLiteral("Error saving INI"),
-                    QStringLiteral("保存 INI 出错"));
-        return false;
-    }
-    return true;
+    root.insert(QStringLiteral("connections"), connections);
+    return saveConfigJson(root, &error);
 }
 
 bool ConnectionStore::rotateMasterPassword(const QString& oldMasterPassword, const QString& newMasterPassword, QString& error) {
@@ -641,10 +851,15 @@ bool ConnectionStore::rotateMasterPassword(const QString& oldMasterPassword, con
                     QStringLiteral("新主密码为空"));
         return false;
     }
-    QSettings ini(iniPath(), QSettings::IniFormat);
-    const QStringList groups = connectionGroups(ini);
-    for (const QString& group : groups) {
-        ConnectionProfile p = loadProfileFromGroup(ini, group);
+    QString loadErr;
+    QJsonObject root = loadConfigJson(&loadErr);
+    if (!loadErr.isEmpty()) {
+        error = loadErr;
+        return false;
+    }
+    QJsonArray connections = root.value(QStringLiteral("connections")).toArray();
+    for (int i = 0; i < connections.size(); ++i) {
+        ConnectionProfile p = connectionFromJson(connections.at(i).toObject());
         const QString current = p.password;
         QString plain = current;
         if (!current.isEmpty() && SecretCipher::isEncrypted(current)) {
@@ -662,14 +877,11 @@ bool ConnectionStore::rotateMasterPassword(const QString& oldMasterPassword, con
                 return false;
             }
             p.password = encrypted;
-            saveProfileToGroup(ini, group, p);
+            connections[i] = connectionToJson(p);
         }
     }
-    ini.sync();
-    if (ini.status() != QSettings::NoError) {
-        error = trk(QStringLiteral("t_cstore_auto017"), QStringLiteral("Error guardando INI"),
-                    QStringLiteral("Error saving INI"),
-                    QStringLiteral("保存 INI 出错"));
+    root.insert(QStringLiteral("connections"), connections);
+    if (!saveConfigJson(root, &error)) {
         return false;
     }
     m_masterPassword = newMasterPassword;
