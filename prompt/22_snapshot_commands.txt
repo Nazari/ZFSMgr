@@ -1,0 +1,15 @@
+Comando: acciones sobre snapshot/hold
+PATH remoto usado:
+- wrapper PATH Unix + sudo wrapper.
+Argumentos:
+- Hold: zfs hold <tag> <dataset@snapshot>
+- Release: zfs release <tag> <dataset@snapshot>
+- Rollback: zfs rollback [-f|-r|-R] <dataset@snapshot>
+Evento detonador:
+- Menu contextual sobre snapshot y hold.
+- Se encolan en Pending changes (ejecucion posterior).
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_connectiondatasettreedelegate.cpp:1147
+- /Users/linarese/work/ZFSMgr/src/mainwindow_connectiondatasettreedelegate.cpp:1232
+- /Users/linarese/work/ZFSMgr/src/mainwindow_connectiondatasettreedelegate.cpp:2747
+

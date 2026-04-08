@@ -1,0 +1,17 @@
+Comando: detectar/instalar MSYS2 en Windows
+PATH remoto usado:
+- PowerShell native (sin wrapper PATH Unix).
+Argumentos:
+- Detect:
+  - script PowerShell con roots MSYS/MinGW
+  - deteccion bash + OK/KO de tar gzip zstd rsync grep sed gawk
+- Install:
+  - winget install MSYS2.MSYS2 (si disponible)
+  - fallback Invoke-WebRequest instalador MSYS2
+  - pacman -Sy --needed tar gzip zstd rsync grep sed gawk
+Evento detonador:
+- Menu conexion: "Install MSYS2".
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_connections.cpp:3227
+- /Users/linarese/work/ZFSMgr/src/mainwindow_connections.cpp:3292
+

@@ -1,0 +1,16 @@
+Comando: instalacion/actualizacion/desinstalacion GSA
+PATH remoto usado:
+- Unix: sudo wrapper + shell script inline.
+- Windows: PowerShell native.
+Argumentos:
+- Instalacion Linux: crear script/config/service/timer y systemctl enable --now zfsmgr-gsa.timer
+- Instalacion macOS: crear script/config/plist y launchctl bootstrap/enable
+- Instalacion FreeBSD: crear script/config y entradas crontab
+- Desinstalacion equivalente por plataforma (systemctl/launchctl/crontab + rm).
+Evento detonador:
+- Menu conexion: instalar/actualizar GSA o desinstalar GSA.
+- Refresco automatico GSA tras cambios de conexiones.
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_connections.cpp:4044
+- /Users/linarese/work/ZFSMgr/src/mainwindow_connections.cpp:4210
+

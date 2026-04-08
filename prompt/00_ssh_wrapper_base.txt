@@ -1,0 +1,16 @@
+Comando: ssh transporte base
+PATH remoto usado: N/A (comando local ssh)
+Argumentos:
+- -o BatchMode=yes
+- -o LogLevel=ERROR
+- -o StrictHostKeyChecking=no
+- -o UserKnownHostsFile=/dev/null
+- -o ControlMaster=auto -o ControlPersist=yes -o ControlPath=<tmp>
+- -p <port> -i <key> (si aplica)
+- <user>@<host> '<remote_cmd>'
+Evento detonador:
+- Cualquier runSsh()/sshExecFromLocal() contra conexion SSH.
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_helpers.cpp:626
+- /Users/linarese/work/ZFSMgr/src/mainwindow_remote.cpp:807
+

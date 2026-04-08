@@ -1,0 +1,27 @@
+Comando: gestion de dataset/snapshot (create/rename/delete/mount/key)
+PATH remoto usado:
+- wrapper PATH Unix + sudo wrapper.
+Argumentos y plantillas:
+- Crear dataset/volumen/snapshot:
+  - zfs create [flags] [props] <dataset>
+  - zfs snapshot [flags] [props] <dataset@snap>
+- Renombrar: zfs rename <old> <new>
+- Borrar: zfs destroy [-f|-r|-R] <dataset|dataset@snap>
+- Montar/desmontar:
+  - zfs mount <dataset>
+  - zfs umount <dataset> / zfs unmount <dataset> (Windows)
+  - recursive umount script
+- Claves:
+  - zfs load-key <dataset>
+  - zfs unload-key <dataset>
+  - zfs change-key -o keylocation=prompt [-o keyformat=passphrase] <dataset>
+Evento detonador:
+- Menu contextual de Dataset/Snapshot y dialogos de gestion.
+- Aplicar pending changes de propiedades/permisos.
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_dataset_manage.cpp:63
+- /Users/linarese/work/ZFSMgr/src/mainwindow_dataset_manage.cpp:752
+- /Users/linarese/work/ZFSMgr/src/mainwindow_dataset_props.cpp:695
+- /Users/linarese/work/ZFSMgr/src/mainwindow_dataset_props.cpp:2589
+- /Users/linarese/work/ZFSMgr/src/mainwindow_connectiondatasettreedelegate.cpp:3042
+

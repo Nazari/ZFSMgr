@@ -1,0 +1,15 @@
+Comando: inventario datasets montados
+PATH remoto usado:
+- wrapper PATH Unix + sudo wrapper.
+Argumentos:
+- Unix preferente: zfs mount -j
+- Unix fallback: zfs mount
+- Windows: zfs mount
+Evento detonador:
+- Refresh de conexion.
+- Comprobaciones previas de acciones dependientes de montaje.
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_refresh.cpp:841
+- /Users/linarese/work/ZFSMgr/src/mainwindow_refresh.cpp:856
+- /Users/linarese/work/ZFSMgr/src/mainwindow_dataset_actions.cpp:1260
+

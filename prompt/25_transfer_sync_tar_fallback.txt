@@ -1,0 +1,20 @@
+Comando: sync/copy fallback tar
+PATH remoto usado:
+- wrapper PATH Unix + sudo wrapper.
+Argumentos y scripts:
+- Fuente tar:
+  - tar --acls --xattrs -cpf - -C "<mp>" . [| zstd|gzip]
+- Destino tar:
+  - [zstd|gzip -d] | tar --acls --xattrs -xpf - -C "<mp>"
+- Scripts con montaje temporal alternativo:
+  - mount_alt_zfs / umount_alt_zfs
+  - cambia mountpoint a tmp, monta, opera, restaura mountpoint original.
+Evento detonador:
+- Copy/Sync cuando hay Windows, no hay rsync o requiere fallback.
+- Sync con datasets no montados (montaje temporal alternativo).
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_transfer.cpp:46
+- /Users/linarese/work/ZFSMgr/src/mainwindow_transfer.cpp:63
+- /Users/linarese/work/ZFSMgr/src/mainwindow_transfer.cpp:80
+- /Users/linarese/work/ZFSMgr/src/mainwindow_transfer.cpp:1402
+

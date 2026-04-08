@@ -1,0 +1,12 @@
+Comando: lectura de log GSA remoto
+PATH remoto usado:
+- Unix: sudo wrapper (cat directo de fichero).
+- Windows: PowerShell Get-Content.
+Argumentos:
+- Unix: f=<config_dir>/GSA.log; if [ -f "$f" ]; then cat "$f"; fi
+- Windows: if (Test-Path <config_dir>\GSA.log) { Get-Content -Raw }
+Evento detonador:
+- Refresco del tab/log GSA por conexion.
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_logging.cpp:708
+

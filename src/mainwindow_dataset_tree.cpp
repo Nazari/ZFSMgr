@@ -4940,6 +4940,10 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             return false;
         }
         ConnectionProfile p = m_profiles[connIdx];
+        const bool remoteUnix = !isLocalConnection(p) && !isWindowsConnection(p);
+        if (remoteUnix) {
+            (void)ensureRemoteScriptsUpToDate(p);
+        }
         bool changed = false;
         if (poolInfo->key.poolGuid.trimmed().isEmpty()) {
             QString out;
@@ -4947,10 +4951,9 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             int rc = -1;
             const QString cmd = withSudo(
                 p,
-                mwhelpers::withUnixSearchPathCommand(
-                    QStringLiteral("zpool get -H -o value guid %1")
-                        .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            if (runSsh(p, cmd, 12000, out, err, rc) && rc == 0) {
+                remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-guid"), {trimmedPool}));
+            (void)runSsh(p, cmd, 12000, out, err, rc);
+            if (rc == 0) {
                 const QString guid = out.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
                     if (connIdx >= 0 && connIdx < m_states.size()) {
@@ -4980,10 +4983,9 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             int rc = -1;
             const QString cmd = withSudo(
                 p,
-                mwhelpers::withUnixSearchPathCommand(
-                    QStringLiteral("zfs get -H -o name,value guid -r %1")
-                        .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            if (runSsh(p, cmd, 25000, out, err, rc) && rc == 0) {
+                remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-guid-map"), {trimmedPool}));
+            (void)runSsh(p, cmd, 25000, out, err, rc);
+            if (rc == 0) {
                 const QString cacheKey = datasetCacheKey(connIdx, trimmedPool);
                 PoolDatasetCache* cache = nullptr;
                 auto cacheIt = m_poolDatasetCache.find(cacheKey);

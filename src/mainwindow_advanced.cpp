@@ -145,26 +145,33 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                     QStringLiteral("拆分要求数据集已挂载，或系统支持临时替代挂载。")));
             return;
         }
-        const QString listScript =
-            QStringLiteral("set -e; DATASET=%1; ZFSMGR_PASS_READ=0; ZFSMGR_KEY_PASS=''; %2"
-                           "TMP_ROOT=''; "
-                           "cleanup(){ "
-                           "if [ -n \"$TMP_ROOT\" ]; then umount_alt_zfs \"$DATASET\" \"$TMP_ROOT\" >/dev/null 2>&1 || true; fi; "
-                           "if [ -n \"$TMP_ROOT\" ]; then rmdir \"$TMP_ROOT\" >/dev/null 2>&1 || true; fi; "
-                           "}; "
-                           "trap cleanup EXIT INT TERM; "
-                           "MP=$(resolve_mp \"$DATASET\"); "
-                           "if [ -z \"$MP\" ]; then "
-                           "  load_key_if_needed \"$DATASET\"; "
-                           "  TMP_ROOT=$(mktemp -d /tmp/zfsmgr-break-root-XXXXXX); "
-                           "  mount_alt_zfs \"$DATASET\" \"$TMP_ROOT\"; "
-                           "  MP=$(resolve_mp \"$DATASET\"); "
-                           "fi; "
-                           "[ -n \"$MP\" ] || exit 0; "
-                           "[ -d \"$MP\" ] || exit 0; "
-                           "printf '__MP__=%s\\n' \"$MP\"; "
-                           "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); [ -n \"$bn\" ] && printf '%s\\n' \"$bn\"; done | sort -u")
-                .arg(shSingleQuote(ds), unixAlternateMountHelpersScript());
+        QString listScript;
+        QString remoteListScriptCmd;
+        if (!isLocalConnection(p)) {
+            (void)ensureRemoteScriptsUpToDate(p);
+            remoteListScriptCmd = remoteScriptCommand(p, QStringLiteral("zfsmgr-advanced-breakdown-list"), {ds});
+        } else {
+            listScript =
+                QStringLiteral("set -e; DATASET=%1; ZFSMGR_PASS_READ=0; ZFSMGR_KEY_PASS=''; %2"
+                               "TMP_ROOT=''; "
+                               "cleanup(){ "
+                               "if [ -n \"$TMP_ROOT\" ]; then umount_alt_zfs \"$DATASET\" \"$TMP_ROOT\" >/dev/null 2>&1 || true; fi; "
+                               "if [ -n \"$TMP_ROOT\" ]; then rmdir \"$TMP_ROOT\" >/dev/null 2>&1 || true; fi; "
+                               "}; "
+                               "trap cleanup EXIT INT TERM; "
+                               "MP=$(resolve_mp \"$DATASET\"); "
+                               "if [ -z \"$MP\" ]; then "
+                               "  load_key_if_needed \"$DATASET\"; "
+                               "  TMP_ROOT=$(mktemp -d /tmp/zfsmgr-break-root-XXXXXX); "
+                               "  mount_alt_zfs \"$DATASET\" \"$TMP_ROOT\"; "
+                               "  MP=$(resolve_mp \"$DATASET\"); "
+                               "fi; "
+                               "[ -n \"$MP\" ] || exit 0; "
+                               "[ -d \"$MP\" ] || exit 0; "
+                               "printf '__MP__=%s\\n' \"$MP\"; "
+                               "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); [ -n \"$bn\" ] && printf '%s\\n' \"$bn\"; done | sort -u")
+                    .arg(shSingleQuote(ds), unixAlternateMountHelpersScript());
+        }
         QString keyLocation;
         getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("keylocation"), keyLocation);
         keyLocation = keyLocation.trimmed().toLower();
@@ -189,8 +196,14 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
             mountStdinPayload = (passphrase + QStringLiteral("\n")).toUtf8();
         }
         const QString effectiveListCmd = mountStdinPayload.isEmpty()
-            ? withSudo(p, mwhelpers::withUnixSearchPathCommand(listScript))
-            : withSudoStreamInput(p, mwhelpers::withUnixSearchPathCommand(listScript));
+            ? withSudo(p,
+                       remoteListScriptCmd.isEmpty()
+                           ? mwhelpers::withUnixSearchPathCommand(listScript)
+                           : remoteListScriptCmd)
+            : withSudoStreamInput(p,
+                                  remoteListScriptCmd.isEmpty()
+                                      ? mwhelpers::withUnixSearchPathCommand(listScript)
+                                      : remoteListScriptCmd);
         if (!runSsh(p,
                     effectiveListCmd,
                     25000,
@@ -227,10 +240,16 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
     int dsListRc = -1;
     QStringList datasetsDetected;
     QSet<QString> childDatasetNames;
-    const QString dsListCmd = withSudo(
-        p,
-        QStringLiteral("zfs list -H -o name -r %1")
-            .arg(shSingleQuote(ds)));
+    QString dsListCmd;
+    if (!isWindowsConnection(p) && !isLocalConnection(p)) {
+        (void)ensureRemoteScriptsUpToDate(p);
+        dsListCmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-list-children"), {ds}));
+    } else {
+        dsListCmd = withSudo(
+            p,
+            QStringLiteral("zfs list -H -o name -r %1")
+                .arg(shSingleQuote(ds)));
+    }
     if (runSsh(p, dsListCmd, 25000, dsListOut, dsListErr, dsListRc) && dsListRc == 0) {
         datasetsDetected = dsListOut.split('\n', Qt::SkipEmptyParts);
         for (QString& n : datasetsDetected) {
@@ -436,6 +455,18 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                   .arg(dsPs, selectedPs.join(QStringLiteral(",")));
         allowWindowsScript = true;
     } else {
+        if (!isLocalConnection(p)) {
+            (void)ensureRemoteScriptsUpToDate(p);
+            QStringList args;
+            args.reserve(1 + selectedDirs.size());
+            args.push_back(ds);
+            for (const QString& d : selectedDirs) {
+                args.push_back(d);
+            }
+            cmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-advanced-breakdown"), args));
+            executeDatasetAction(QStringLiteral("conncontent"), QStringLiteral("Desglosar"), ctx, cmd, 0, allowWindowsScript);
+            return;
+        }
         QStringList selectedQuoted;
         selectedQuoted.reserve(selectedDirs.size());
         for (const QString& d : selectedDirs) {
@@ -542,10 +573,16 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
     QString listOut;
     QString listErr;
     int listRc = -1;
-    const QString listCmd = withSudo(
-        p,
-        QStringLiteral("zfs list -H -o name -r %1")
-            .arg(shSingleQuote(ds)));
+    QString listCmd;
+    if (!isWindowsConnection(p) && !isLocalConnection(p)) {
+        (void)ensureRemoteScriptsUpToDate(p);
+        listCmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-list-children"), {ds}));
+    } else {
+        listCmd = withSudo(
+            p,
+            QStringLiteral("zfs list -H -o name -r %1")
+                .arg(shSingleQuote(ds)));
+    }
     if (!runSsh(p, listCmd, 25000, listOut, listErr, listRc) || listRc != 0) {
         stopBusy();
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
@@ -640,6 +677,24 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
                   .arg(dsPs, selectedPs.join(QStringLiteral(",")));
         allowWindowsScript = true;
     } else {
+        if (!isLocalConnection(p)) {
+            (void)ensureRemoteScriptsUpToDate(p);
+            QStringList args;
+            args.reserve(1 + selectedChildren.size());
+            args.push_back(ds);
+            for (const QString& child : selectedChildren) {
+                args.push_back(child);
+            }
+            cmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-advanced-assemble"), args));
+            executeDatasetAction(QStringLiteral("origin"),
+                                 QStringLiteral("Ensamblar"),
+                                 ctx,
+                                 cmd,
+                                 0,
+                                 allowWindowsScript,
+                                 mountStdinPayload);
+            return;
+        }
         QStringList promptKeyDatasets;
         auto appendPromptDatasetIfNeeded = [&](const QString& datasetName) {
             QString keyLocation;

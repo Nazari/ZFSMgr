@@ -737,6 +737,833 @@ bool MainWindow::supportsAlternateDatasetMount(int connIdx) const {
            || os.contains(QStringLiteral("os x"));
 }
 
+QString MainWindow::remoteScriptsVersionTag() const {
+    return QStringLiteral(ZFSMGR_APP_VERSION) + QStringLiteral(".remote-scripts.10");
+}
+
+QString MainWindow::remoteScriptsBasePath(const ConnectionProfile& p) const {
+    const QString user = p.username.trimmed();
+    if (user.isEmpty()) {
+        return QStringLiteral("$HOME/.config/ZFSMgr/bin");
+    }
+    return QStringLiteral("~%1/.config/ZFSMgr/bin").arg(user);
+}
+
+QString MainWindow::remoteScriptsVersionFilePath(const ConnectionProfile& p) const {
+    return QStringLiteral("%1/.zfsmgr_remote_scripts_version").arg(remoteScriptsBasePath(p));
+}
+
+QMap<QString, QString> MainWindow::remoteScriptPayloads() const {
+    QMap<QString, QString> scripts;
+    scripts.insert(
+        QStringLiteral("zfsmgr-rsync-opts"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+DELETE=0
+DRYRUN=0
+for arg in "$@"; do
+  case "$arg" in
+    --delete) DELETE=1 ;;
+    --dry-run) DRYRUN=1 ;;
+  esac
+done
+OPTS="-aHWS"
+[ "$DELETE" -eq 1 ] && OPTS="$OPTS --delete"
+[ "$DRYRUN" -eq 1 ] && OPTS="$OPTS --dry-run"
+PROGRESS="--info=progress2"
+if ! rsync --help 2>/dev/null | grep -q -- '--info'; then
+  PROGRESS="--progress"
+fi
+if rsync -A --version >/dev/null 2>&1; then
+  OPTS="$OPTS -A"
+fi
+if rsync -X --version >/dev/null 2>&1; then
+  OPTS="$OPTS -X"
+elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then
+  OPTS="$OPTS --extended-attributes"
+fi
+printf 'RSYNC_OPTS=%s\n' "$OPTS"
+printf 'RSYNC_PROGRESS=%s\n' "$PROGRESS"
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zpool-guid"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+pool="${1:-}"
+[ -n "$pool" ] || exit 2
+zpool get -H -o value guid "$pool"
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zpool-list-json"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+zpool list -j
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zpool-import-probe"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+zpool import
+zpool import -s
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zfs-guid-map"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+pool="${1:-}"
+[ -n "$pool" ] || exit 2
+zfs get -H -o name,value guid -r "$pool"
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zfs-mount-list"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+if zfs mount -j >/dev/null 2>&1; then
+  zfs mount -j
+else
+  zfs mount
+fi
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zpool-status"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+pool="${1:-}"
+[ -n "$pool" ] || exit 2
+zpool status -v "$pool"
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zfs-list-all"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+pool="${1:-}"
+[ -n "$pool" ] || exit 2
+if zfs get -j -p -r -t filesystem,volume,snapshot type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount "$pool" >/dev/null 2>&1; then
+  zfs get -j -p -r -t filesystem,volume,snapshot type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount "$pool"
+else
+  zfs list -H -p -t filesystem,volume,snapshot -o name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount -r "$pool"
+fi
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zfs-mountpoint"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+ds="${1:-}"
+[ -n "$ds" ] || exit 2
+zfs get -H -o value mountpoint "$ds"
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zfs-get-type"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+obj="${1:-}"
+[ -n "$obj" ] || exit 2
+zfs get -H -o value type "$obj"
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zfs-get-guid"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+obj="${1:-}"
+[ -n "$obj" ] || exit 2
+zfs get -H -o value guid "$obj"
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zfs-get-prop"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+prop="${1:-}"
+obj="${2:-}"
+[ -n "$prop" ] || exit 2
+[ -n "$obj" ] || exit 2
+zfs get -H -o value "$prop" "$obj"
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zfs-get-all-json"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+obj="${1:-}"
+[ -n "$obj" ] || exit 2
+zfs get -j all "$obj"
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zfs-get-json"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+props="${1:-}"
+obj="${2:-}"
+[ -n "$props" ] || exit 2
+[ -n "$obj" ] || exit 2
+zfs get -j "$props" "$obj"
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zpool-get-all-json"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+pool="${1:-}"
+[ -n "$pool" ] || exit 2
+zpool get -j all "$pool"
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zfs-get-gsa-json-recursive"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+pool="${1:-}"
+[ -n "$pool" ] || exit 2
+zfs get -j -r org.fc16.gsa:activado,org.fc16.gsa:nivelar,org.fc16.gsa:destino "$pool"
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zfs-get-gsa-raw-recursive"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+pool="${1:-}"
+[ -n "$pool" ] || exit 2
+zfs get -H -o name,property,value,source -r \
+  org.fc16.gsa:activado,org.fc16.gsa:recursivo,org.fc16.gsa:horario,org.fc16.gsa:diario,org.fc16.gsa:semanal,org.fc16.gsa:mensual,org.fc16.gsa:anual,org.fc16.gsa:nivelar,org.fc16.gsa:destino \
+  "$pool"
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zfs-version"),
+        QString::fromLatin1(R"ZFSMGR(#!/bin/sh
+set +e
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+for c in "zfs version" "zfs --version" "zpool --version"; do
+  out="$(sh -c "$c" 2>&1)"
+  rc=$?
+  if [ $rc -eq 0 ] && [ -n "$out" ]; then
+    printf '%s\n' "$out"
+    exit 0
+  fi
+done
+exit 1
+)ZFSMGR"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-gsa-status"),
+        QString::fromLatin1(R"ZFSMGR(#!/bin/sh
+set +e
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+scheduler=''
+installed=0
+active=0
+version=''
+detail=''
+guid_compare='0'
+if [ "$(uname -s 2>/dev/null)" = 'Darwin' ]; then
+  scheduler='launchd'
+  script='/usr/local/libexec/zfsmgr-gsa.sh'
+  plist='/Library/LaunchDaemons/org.zfsmgr.gsa.plist'
+  [ -f "$script" ] && [ -f "$plist" ] && installed=1
+  if [ "$installed" -eq 1 ]; then
+    version="$(sed -n 's/^# ZFSMgr GSA Version: //p' "$script" | head -n1)"
+    grep -q '^target_has_snapshot_guid()' "$script" >/dev/null 2>&1 && grep -q '^source_snapshot_name_by_guid()' "$script" >/dev/null 2>&1 && guid_compare='1'
+    launchctl print system/org.zfsmgr.gsa >/dev/null 2>&1 && active=1
+  fi
+elif [ "$(uname -s 2>/dev/null)" = 'FreeBSD' ]; then
+  scheduler='cron'
+  script='/usr/local/libexec/zfsmgr-gsa.sh'
+  conf='/etc/zfsmgr/gsa.conf'
+  [ -f "$script" ] && [ -f "$conf" ] && installed=1
+  if [ "$installed" -eq 1 ]; then
+    version="$(sed -n 's/^# ZFSMgr GSA Version: //p' "$script" | head -n1)"
+    grep -q '^target_has_snapshot_guid()' "$script" >/dev/null 2>&1 && grep -q '^source_snapshot_name_by_guid()' "$script" >/dev/null 2>&1 && guid_compare='1'
+    if crontab -l 2>/dev/null | grep -F '/usr/local/libexec/zfsmgr-gsa.sh' >/dev/null 2>&1; then active=1; fi
+  fi
+elif command -v systemctl >/dev/null 2>&1; then
+  scheduler='systemd'
+  script='/usr/local/libexec/zfsmgr-gsa.sh'
+  service='/etc/systemd/system/zfsmgr-gsa.service'
+  timer='/etc/systemd/system/zfsmgr-gsa.timer'
+  [ -f "$script" ] && [ -f "$service" ] && [ -f "$timer" ] && installed=1
+  if [ "$installed" -eq 1 ]; then
+    version="$(sed -n 's/^# ZFSMgr GSA Version: //p' "$script" | head -n1)"
+    grep -q '^target_has_snapshot_guid()' "$script" >/dev/null 2>&1 && grep -q '^source_snapshot_name_by_guid()' "$script" >/dev/null 2>&1 && guid_compare='1'
+    systemctl is-enabled zfsmgr-gsa.timer >/dev/null 2>&1 && systemctl is-active zfsmgr-gsa.timer >/dev/null 2>&1 && active=1
+  fi
+else
+  detail='No native scheduler detected'
+fi
+printf 'SCHEDULER=%s\nINSTALLED=%s\nACTIVE=%s\nVERSION=%s\nDETAIL=%s\nGUID_COMPARE=%s\n' "$scheduler" "$installed" "$active" "$version" "$detail" "$guid_compare"
+)ZFSMGR"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-gsa-connections-cat"),
+        QString::fromLatin1(R"ZFSMGR(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+f='/etc/zfsmgr/gsa-connections.conf'
+if [ -f "$f" ]; then
+  cat "$f"
+fi
+)ZFSMGR"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-gsa-log-cat"),
+        QString::fromLatin1(R"ZFSMGR(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+f="${1:-$HOME/.config/ZFSMgr/GSA.log}"
+if [ -f "$f" ]; then
+  cat "$f"
+fi
+)ZFSMGR"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zfs-allow-batch"),
+        QString::fromLatin1(R"(#!/bin/sh
+set +e
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+for ds in "$@"; do
+  printf '__ZFSMGR_ALLOW_BEGIN__ %s\n' "$ds"
+  zfs allow "$ds" 2>&1
+  printf '__ZFSMGR_ALLOW_RC__ %s %s\n' "$ds" "$?"
+  printf '__ZFSMGR_ALLOW_END__ %s\n' "$ds"
+done
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zfs-list-children"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+ds="${1:-}"
+[ -n "$ds" ] || exit 2
+zfs list -H -o name -r "$ds"
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-advanced-breakdown-list"),
+        QString::fromLatin1(R"ZFSMGR(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+DATASET="${1:-}"
+[ -n "$DATASET" ] || exit 2
+saved_prop='org.fc16.zfsmgr:savedmountpoint'
+ZFSMGR_PASS_READ=0
+ZFSMGR_KEY_PASS=''
+mount_alt_zfs(){ ds="$1"; mp="$2"; current_mp=$(zfs get -H -o value mountpoint "$ds" 2>/dev/null || true); zfs set "$saved_prop=$current_mp" "$ds"; zfs set mountpoint="$mp" "$ds"; zfs mount "$ds"; }
+umount_alt_zfs(){ ds="$1"; mp="$2"; zfs unmount "$ds" >/dev/null 2>&1 || zfs unmount "$mp" >/dev/null 2>&1 || true; saved_mp=$(zfs get -H -o value "$saved_prop" "$ds" 2>/dev/null || true); if [ -n "$saved_mp" ] && [ "$saved_mp" != "-" ]; then zfs set mountpoint="$saved_mp" "$ds" >/dev/null 2>&1 || true; fi; zfs inherit "$saved_prop" "$ds" >/dev/null 2>&1 || true; }
+resolve_mp(){ ds="$1"; zfs mount 2>/dev/null | awk -v d="$ds" '$1==d{print $2; exit}'; }
+load_key_if_needed(){ ds="$1"; ks=$(zfs get -H -o value keystatus "$ds" 2>/dev/null || true); [ "$ks" = "available" ] && return 0; kl=$(zfs get -H -o value keylocation "$ds" 2>/dev/null || true); if [ "$kl" = "prompt" ]; then if [ "$ZFSMGR_PASS_READ" != "1" ]; then IFS= read -r ZFSMGR_KEY_PASS || return 1; ZFSMGR_PASS_READ=1; fi; printf '%s\n' "$ZFSMGR_KEY_PASS" | zfs load-key "$ds" >/dev/null; else zfs load-key "$ds" >/dev/null 2>&1 || true; fi; }
+TMP_ROOT=''
+cleanup(){
+  if [ -n "$TMP_ROOT" ]; then umount_alt_zfs "$DATASET" "$TMP_ROOT" >/dev/null 2>&1 || true; fi
+  if [ -n "$TMP_ROOT" ]; then rmdir "$TMP_ROOT" >/dev/null 2>&1 || true; fi
+}
+trap cleanup EXIT INT TERM
+MP="$(resolve_mp "$DATASET")"
+if [ -z "$MP" ]; then
+  load_key_if_needed "$DATASET"
+  TMP_ROOT="$(mktemp -d /tmp/zfsmgr-break-root-XXXXXX)"
+  mount_alt_zfs "$DATASET" "$TMP_ROOT"
+  MP="$(resolve_mp "$DATASET")"
+fi
+[ -n "$MP" ] || exit 0
+[ -d "$MP" ] || exit 0
+printf '__MP__=%s\n' "$MP"
+for d in "$MP"/.[!.]* "$MP"/..?* "$MP"/*; do
+  [ -d "$d" ] || continue
+  bn="$(basename "$d")"
+  [ -n "$bn" ] && printf '%s\n' "$bn"
+done | sort -u
+)ZFSMGR"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-advanced-breakdown"),
+        QString::fromLatin1(R"ZFSMGR(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+DATASET="${1:-}"
+[ -n "$DATASET" ] || exit 2
+shift || true
+saved_prop='org.fc16.zfsmgr:savedmountpoint'
+ZFSMGR_PASS_READ=0
+ZFSMGR_KEY_PASS=''
+mount_alt_zfs(){ ds="$1"; mp="$2"; current_mp=$(zfs get -H -o value mountpoint "$ds" 2>/dev/null || true); zfs set "$saved_prop=$current_mp" "$ds"; zfs set mountpoint="$mp" "$ds"; zfs mount "$ds"; }
+umount_alt_zfs(){ ds="$1"; mp="$2"; zfs unmount "$ds" >/dev/null 2>&1 || zfs unmount "$mp" >/dev/null 2>&1 || true; saved_mp=$(zfs get -H -o value "$saved_prop" "$ds" 2>/dev/null || true); if [ -n "$saved_mp" ] && [ "$saved_mp" != "-" ]; then zfs set mountpoint="$saved_mp" "$ds" >/dev/null 2>&1 || true; fi; zfs inherit "$saved_prop" "$ds" >/dev/null 2>&1 || true; }
+resolve_mp(){ ds="$1"; zfs mount 2>/dev/null | awk -v d="$ds" '$1==d{print $2; exit}'; }
+load_key_if_needed(){ ds="$1"; ks=$(zfs get -H -o value keystatus "$ds" 2>/dev/null || true); [ "$ks" = "available" ] && return 0; kl=$(zfs get -H -o value keylocation "$ds" 2>/dev/null || true); if [ "$kl" = "prompt" ]; then if [ "$ZFSMGR_PASS_READ" != "1" ]; then IFS= read -r ZFSMGR_KEY_PASS || return 1; ZFSMGR_PASS_READ=1; fi; printf '%s\n' "$ZFSMGR_KEY_PASS" | zfs load-key "$ds" >/dev/null; else zfs load-key "$ds" >/dev/null 2>&1 || true; fi; }
+RSYNC_OPTS='-aHWS'
+if rsync -A --version >/dev/null 2>&1; then RSYNC_OPTS="$RSYNC_OPTS -A"; fi
+if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS="$RSYNC_OPTS -X"; elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS="$RSYNC_OPTS --extended-attributes"; fi
+TMP_ROOT=''
+cleanup(){ if [ -n "$TMP_ROOT" ]; then umount_alt_zfs "$DATASET" "$TMP_ROOT" >/dev/null 2>&1 || true; rmdir "$TMP_ROOT" >/dev/null 2>&1 || true; fi; }
+trap cleanup EXIT INT TERM
+MP="$(resolve_mp "$DATASET")"
+if [ -z "$MP" ]; then
+  load_key_if_needed "$DATASET"
+  TMP_ROOT="$(mktemp -d /tmp/zfsmgr-break-root-XXXXXX)"
+  mount_alt_zfs "$DATASET" "$TMP_ROOT"
+  MP="$TMP_ROOT"
+fi
+[ -n "$MP" ] || { echo "mountpoint=none"; exit 2; }
+for bn in "$@"; do
+  d="$MP/$bn"
+  [ -d "$d" ] || continue
+  echo "[BREAKDOWN] start $bn"
+  child="$DATASET/$bn"
+  zfs list -H -o name "$child" >/dev/null 2>&1 && { echo "child_exists=$child"; continue; }
+  FINAL_MP="$MP/$bn"
+  TMP_CHILD_MP="$(mktemp -d /tmp/zfsmgr-breakdown-child-XXXXXX)"
+  zfs create -o mountpoint="$TMP_CHILD_MP" "$child"
+  zfs mount "$child" >/dev/null 2>&1 || true
+  try=0
+  PENDING=1
+  while :; do
+    rsync $RSYNC_OPTS "$d"/ "$TMP_CHILD_MP"/
+    PENDING="$(rsync -rni --ignore-existing "$d"/ "$TMP_CHILD_MP"/ | awk 'length($0)>11{c=substr($0,1,11); if(substr(c,1,1)==">" && substr(c,2,1)=="f") n++} END{print n+0}')"
+    [ "$PENDING" = "0" ] && break
+    try=$((try+1))
+    [ "$try" -lt 5 ] || break
+  done
+  [ "$PENDING" = "0" ] || { echo "verify_failed=$child pending=$PENDING"; exit 42; }
+  rm -rf "$d"
+  zfs set mountpoint="$FINAL_MP" "$child"
+  zfs mount "$child" >/dev/null 2>&1 || true
+  rmdir "$TMP_CHILD_MP" >/dev/null 2>&1 || true
+  echo "[BREAKDOWN] ok $bn -> $child"
+done
+)ZFSMGR"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-advanced-assemble"),
+        QString::fromLatin1(R"ZFSMGR(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+DATASET="${1:-}"
+[ -n "$DATASET" ] || exit 2
+shift || true
+saved_prop='org.fc16.zfsmgr:savedmountpoint'
+ZFSMGR_PASS_READ=0
+ZFSMGR_KEY_PASS=''
+mount_alt_zfs(){ ds="$1"; mp="$2"; current_mp=$(zfs get -H -o value mountpoint "$ds" 2>/dev/null || true); zfs set "$saved_prop=$current_mp" "$ds"; zfs set mountpoint="$mp" "$ds"; zfs mount "$ds"; }
+umount_alt_zfs(){ ds="$1"; mp="$2"; zfs unmount "$ds" >/dev/null 2>&1 || zfs unmount "$mp" >/dev/null 2>&1 || true; saved_mp=$(zfs get -H -o value "$saved_prop" "$ds" 2>/dev/null || true); if [ -n "$saved_mp" ] && [ "$saved_mp" != "-" ]; then zfs set mountpoint="$saved_mp" "$ds" >/dev/null 2>&1 || true; fi; zfs inherit "$saved_prop" "$ds" >/dev/null 2>&1 || true; }
+resolve_mp(){ ds="$1"; zfs mount 2>/dev/null | awk -v d="$ds" '$1==d{print $2; exit}'; }
+load_key_if_needed(){ ds="$1"; ks=$(zfs get -H -o value keystatus "$ds" 2>/dev/null || true); [ "$ks" = "available" ] && return 0; kl=$(zfs get -H -o value keylocation "$ds" 2>/dev/null || true); if [ "$kl" = "prompt" ]; then if [ "$ZFSMGR_PASS_READ" != "1" ]; then IFS= read -r ZFSMGR_KEY_PASS || return 1; ZFSMGR_PASS_READ=1; fi; printf '%s\n' "$ZFSMGR_KEY_PASS" | zfs load-key "$ds" >/dev/null; else zfs load-key "$ds" >/dev/null 2>&1 || true; fi; }
+RSYNC_OPTS='-aHWS'
+if rsync -A --version >/dev/null 2>&1; then RSYNC_OPTS="$RSYNC_OPTS -A"; fi
+if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS="$RSYNC_OPTS -X"; elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS="$RSYNC_OPTS --extended-attributes"; fi
+TMP_PARENT=''
+cleanup(){ if [ -n "$TMP_PARENT" ]; then umount_alt_zfs "$DATASET" "$TMP_PARENT" >/dev/null 2>&1 || true; rmdir "$TMP_PARENT" >/dev/null 2>&1 || true; fi; }
+trap cleanup EXIT INT TERM
+MP="$(resolve_mp "$DATASET")"
+if [ -z "$MP" ]; then
+  load_key_if_needed "$DATASET"
+  TMP_PARENT="$(mktemp -d /tmp/zfsmgr-assemble-parent-XXXXXX)"
+  mount_alt_zfs "$DATASET" "$TMP_PARENT"
+  MP="$TMP_PARENT"
+fi
+[ -n "$MP" ] || { echo "mountpoint=none"; exit 2; }
+for child in "$@"; do
+  bn="${child##*/}"
+  echo "[ASSEMBLE] start $child"
+  CMP="$(resolve_mp "$child")"
+  CHILD_TMP=''
+  if [ -z "$CMP" ]; then
+    load_key_if_needed "$child"
+    CHILD_TMP="$(mktemp -d /tmp/zfsmgr-assemble-child-XXXXXX)"
+    mount_alt_zfs "$child" "$CHILD_TMP"
+    CMP="$CHILD_TMP"
+  fi
+  TMP="$(mktemp -d /tmp/zfsmgr-assemble-XXXXXX)"
+  rsync $RSYNC_OPTS "$CMP"/ "$TMP"/
+  if [ -n "$CHILD_TMP" ]; then umount_alt_zfs "$child" "$CHILD_TMP" >/dev/null 2>&1 || true; rmdir "$CHILD_TMP" >/dev/null 2>&1 || true; fi
+  zfs destroy -r "$child"
+  mkdir -p "$MP/$bn"
+  rsync $RSYNC_OPTS "$TMP"/ "$MP/$bn"/
+  rm -rf "$TMP"
+  echo "[ASSEMBLE] ok $child -> $MP/$bn"
+done
+)ZFSMGR"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-advanced-fromdir"),
+        QString::fromLatin1(R"ZFSMGR(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+DATASET="${1:-}"
+SRC_DIR="${2:-}"
+CREATE_CMD="${3:-}"
+DELETE_SRC="${4:-0}"
+[ -n "$DATASET" ] || exit 2
+[ -n "$SRC_DIR" ] || exit 2
+[ -n "$CREATE_CMD" ] || exit 2
+RSYNC_OPTS='-aHWS'
+if rsync -A --version >/dev/null 2>&1; then RSYNC_OPTS="$RSYNC_OPTS -A"; fi
+if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS="$RSYNC_OPTS -X"; elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS="$RSYNC_OPTS --extended-attributes"; fi
+TMP_MP="$(mktemp -d /tmp/zfsmgr-fromdir-mp-XXXXXX)"
+BACKUP_DIR=''
+cleanup(){
+  rc=$?
+  if [ $rc -ne 0 ]; then
+    if [ -n "$BACKUP_DIR" ] && [ ! -e "$SRC_DIR" ] && [ -d "$BACKUP_DIR" ]; then mv "$BACKUP_DIR" "$SRC_DIR" || true; fi
+  fi
+  rmdir "$TMP_MP" >/dev/null 2>&1 || true
+  exit $rc
+}
+trap cleanup EXIT INT TERM
+[ -d "$SRC_DIR" ] || { echo 'source directory does not exist'; exit 2; }
+if zfs mount 2>/dev/null | awk '{print $2}' | grep -Fx "$SRC_DIR" >/dev/null 2>&1; then
+  echo 'mountpoint already in use'; exit 3
+fi
+sh -c "$CREATE_CMD"
+zfs set canmount=on "$DATASET" >/dev/null 2>&1 || true
+zfs set mountpoint="$TMP_MP" "$DATASET"
+zfs mount "$DATASET" >/dev/null 2>&1 || true
+normp(){ p="$1"; [ -z "$p" ] && return; [ -d "$p" ] && (cd "$p" 2>/dev/null && pwd -P) || printf '%s' "$p"; }
+ACTIVE_MP="$(zfs mount 2>/dev/null | awk -v d="$DATASET" '$1==d{print $2;exit}')"
+N_ACTIVE="$(normp "$ACTIVE_MP")"; N_TMP="$(normp "$TMP_MP")"
+[ "$N_ACTIVE" = "$N_TMP" ] || { echo 'could not mount dataset on temporary mountpoint'; exit 4; }
+rsync $RSYNC_OPTS "$SRC_DIR"/ "$TMP_MP"/
+if [ "$DELETE_SRC" = "1" ]; then
+  BACKUP_DIR="$SRC_DIR.zfsmgr-bak-$$"
+  i=0
+  while [ -e "$BACKUP_DIR" ]; do i=$((i+1)); BACKUP_DIR="$SRC_DIR.zfsmgr-bak-$$-$i"; done
+  mv "$SRC_DIR" "$BACKUP_DIR"
+  mkdir -p "$SRC_DIR"
+  zfs umount "$DATASET" >/dev/null 2>&1 || true
+  zfs set mountpoint="$SRC_DIR" "$DATASET"
+  zfs mount "$DATASET" >/dev/null 2>&1 || true
+  FINAL_MP="$(zfs mount 2>/dev/null | awk -v d="$DATASET" '$1==d{print $2;exit}')"
+  N_FINAL="$(normp "$FINAL_MP")"; N_SRC="$(normp "$SRC_DIR")"
+  if [ "$N_FINAL" != "$N_SRC" ]; then
+    zfs set mountpoint="$TMP_MP" "$DATASET" >/dev/null 2>&1 || true
+    zfs mount "$DATASET" >/dev/null 2>&1 || true
+    rm -rf "$SRC_DIR"
+    mv "$BACKUP_DIR" "$SRC_DIR"
+    echo 'failed to switch mountpoint to destination directory'
+    exit 5
+  fi
+  rm -rf "$BACKUP_DIR"
+  BACKUP_DIR=''
+else
+  zfs umount "$DATASET" >/dev/null 2>&1 || true
+  zfs set mountpoint="$SRC_DIR" "$DATASET" >/dev/null 2>&1 || true
+  zfs set canmount=off "$DATASET" >/dev/null 2>&1 || true
+  echo "[FROMDIR] source preserved at $SRC_DIR; dataset left unmounted (canmount=off)"
+fi
+BACKUP_DIR=''
+trap - EXIT INT TERM
+rmdir "$TMP_MP" >/dev/null 2>&1 || true
+)ZFSMGR"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-advanced-todir"),
+        QString::fromLatin1(R"ZFSMGR(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+DATASET="${1:-}"
+DST_DIR="${2:-}"
+DELETE_SRC="${3:-0}"
+[ -n "$DATASET" ] || exit 2
+[ -n "$DST_DIR" ] || exit 2
+RSYNC_OPTS='-aHWS'
+if rsync -A --version >/dev/null 2>&1; then RSYNC_OPTS="$RSYNC_OPTS -A"; fi
+if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS="$RSYNC_OPTS -X"; elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS="$RSYNC_OPTS --extended-attributes"; fi
+TMP_MP="$(mktemp -d /tmp/zfsmgr-todir-mp-XXXXXX)"
+TMP_OUT="$(mktemp -d /tmp/zfsmgr-todir-out-XXXXXX)"
+BACKUP_DIR=''
+RESTORE_NEEDED=0
+OLD_MP="$(zfs get -H -o value mountpoint "$DATASET" 2>/dev/null || true)"
+OLD_MOUNTED="$(zfs get -H -o value mounted "$DATASET" 2>/dev/null || true)"
+cleanup(){
+  rc=$?
+  if [ $rc -ne 0 ]; then
+    if [ "$RESTORE_NEEDED" = "1" ] && [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ]; then
+      rm -rf "$DST_DIR" >/dev/null 2>&1 || true
+      mv "$BACKUP_DIR" "$DST_DIR" >/dev/null 2>&1 || true
+    fi
+    if zfs list -H -o name "$DATASET" >/dev/null 2>&1; then
+      zfs set mountpoint="$OLD_MP" "$DATASET" >/dev/null 2>&1 || true
+      if [ "$OLD_MOUNTED" = "yes" ] || [ "$OLD_MOUNTED" = "on" ]; then zfs mount "$DATASET" >/dev/null 2>&1 || true; fi
+    fi
+  fi
+  rm -rf "$TMP_MP" >/dev/null 2>&1 || true
+  rm -rf "$TMP_OUT" >/dev/null 2>&1 || true
+  exit $rc
+}
+trap cleanup EXIT INT TERM
+if zfs mount 2>/dev/null | awk '{print $2}' | grep -Fx "$DST_DIR" >/dev/null 2>&1; then
+  echo 'destination directory is already a zfs mountpoint'; exit 2
+fi
+zfs set canmount=on "$DATASET" >/dev/null 2>&1 || true
+zfs set mountpoint="$TMP_MP" "$DATASET"
+zfs mount "$DATASET" >/dev/null 2>&1 || true
+normp(){ p="$1"; [ -z "$p" ] && return; [ -d "$p" ] && (cd "$p" 2>/dev/null && pwd -P) || printf '%s' "$p"; }
+ACTIVE_MP="$(zfs mount 2>/dev/null | awk -v d="$DATASET" '$1==d{print $2;exit}')"
+N_ACTIVE="$(normp "$ACTIVE_MP")"; N_TMP="$(normp "$TMP_MP")"
+[ "$N_ACTIVE" = "$N_TMP" ] || { echo 'could not mount dataset on temporary mountpoint'; exit 3; }
+rsync $RSYNC_OPTS "$TMP_MP"/ "$TMP_OUT"/
+if [ -e "$DST_DIR" ]; then
+  BACKUP_DIR="$DST_DIR.zfsmgr-bak-$$"
+  i=0; while [ -e "$BACKUP_DIR" ]; do i=$((i+1)); BACKUP_DIR="$DST_DIR.zfsmgr-bak-$$-$i"; done
+  mv "$DST_DIR" "$BACKUP_DIR"
+  RESTORE_NEEDED=1
+else
+  mkdir -p "$(dirname "$DST_DIR")"
+fi
+mv "$TMP_OUT" "$DST_DIR"
+zfs umount "$DATASET" >/dev/null 2>&1 || true
+if [ "$DELETE_SRC" = "1" ]; then
+  zfs destroy -r "$DATASET"
+else
+  zfs set mountpoint="$OLD_MP" "$DATASET" >/dev/null 2>&1 || true
+  zfs umount "$DATASET" >/dev/null 2>&1 || true
+  zfs set canmount=off "$DATASET" >/dev/null 2>&1 || true
+  echo "[TODIR] dataset preserved unmounted (canmount=off)"
+fi
+if [ -n "$BACKUP_DIR" ]; then rm -rf "$BACKUP_DIR"; fi
+RESTORE_NEEDED=0
+trap - EXIT INT TERM
+rm -rf "$TMP_MP" >/dev/null 2>&1 || true
+)ZFSMGR"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-sync-temp-tar-source"),
+        QString::fromLatin1(R"ZFSMGR(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+DATASET="${1:-}"
+CODEC="${2:-none}"
+[ -n "$DATASET" ] || exit 2
+saved_prop='org.fc16.zfsmgr:savedmountpoint'
+mount_alt_zfs(){ ds="$1"; mp="$2"; current_mp=$(zfs get -H -o value mountpoint "$ds" 2>/dev/null || true); zfs set "$saved_prop=$current_mp" "$ds"; zfs set mountpoint="$mp" "$ds"; zfs mount "$ds"; }
+umount_alt_zfs(){ ds="$1"; mp="$2"; zfs unmount "$ds" >/dev/null 2>&1 || zfs unmount "$mp" >/dev/null 2>&1 || true; saved_mp=$(zfs get -H -o value "$saved_prop" "$ds" 2>/dev/null || true); if [ -n "$saved_mp" ] && [ "$saved_mp" != "-" ]; then zfs set mountpoint="$saved_mp" "$ds" >/dev/null 2>&1 || true; fi; zfs inherit "$saved_prop" "$ds" >/dev/null 2>&1 || true; }
+resolve_mp(){ ds="$1"; zfs mount 2>/dev/null | awk -v d="$ds" '$1==d{print $2; exit}'; }
+TMP_MP=''
+cleanup(){ if [ -n "$TMP_MP" ]; then umount_alt_zfs "$DATASET" "$TMP_MP" >/dev/null 2>&1 || true; rmdir "$TMP_MP" >/dev/null 2>&1 || true; fi; }
+trap cleanup EXIT INT TERM
+MP="$(resolve_mp "$DATASET")"
+if [ -z "$MP" ]; then TMP_MP="$(mktemp -d /tmp/zfsmgr-sync-src-XXXXXX)"; mount_alt_zfs "$DATASET" "$TMP_MP"; MP="$TMP_MP"; fi
+[ -n "$MP" ] && [ -d "$MP" ] || exit 41
+case "$CODEC" in
+  zstd) tar --acls --xattrs -cpf - -C "$MP" . | zstd -1 -T0 -q -c ;;
+  gzip) tar --acls --xattrs -cpf - -C "$MP" . | gzip -1 -c ;;
+  *) tar --acls --xattrs -cpf - -C "$MP" . ;;
+esac
+)ZFSMGR"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-sync-temp-tar-dest"),
+        QString::fromLatin1(R"ZFSMGR(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+DATASET="${1:-}"
+CODEC="${2:-none}"
+[ -n "$DATASET" ] || exit 2
+saved_prop='org.fc16.zfsmgr:savedmountpoint'
+mount_alt_zfs(){ ds="$1"; mp="$2"; current_mp=$(zfs get -H -o value mountpoint "$ds" 2>/dev/null || true); zfs set "$saved_prop=$current_mp" "$ds"; zfs set mountpoint="$mp" "$ds"; zfs mount "$ds"; }
+umount_alt_zfs(){ ds="$1"; mp="$2"; zfs unmount "$ds" >/dev/null 2>&1 || zfs unmount "$mp" >/dev/null 2>&1 || true; saved_mp=$(zfs get -H -o value "$saved_prop" "$ds" 2>/dev/null || true); if [ -n "$saved_mp" ] && [ "$saved_mp" != "-" ]; then zfs set mountpoint="$saved_mp" "$ds" >/dev/null 2>&1 || true; fi; zfs inherit "$saved_prop" "$ds" >/dev/null 2>&1 || true; }
+resolve_mp(){ ds="$1"; zfs mount 2>/dev/null | awk -v d="$ds" '$1==d{print $2; exit}'; }
+TMP_MP=''
+cleanup(){ if [ -n "$TMP_MP" ]; then umount_alt_zfs "$DATASET" "$TMP_MP" >/dev/null 2>&1 || true; rmdir "$TMP_MP" >/dev/null 2>&1 || true; fi; }
+trap cleanup EXIT INT TERM
+MP="$(resolve_mp "$DATASET")"
+if [ -z "$MP" ]; then TMP_MP="$(mktemp -d /tmp/zfsmgr-sync-dst-XXXXXX)"; mount_alt_zfs "$DATASET" "$TMP_MP"; MP="$TMP_MP"; fi
+mkdir -p "$MP"
+case "$CODEC" in
+  zstd) zstd -d -q -c - | tar --acls --xattrs -xpf - -C "$MP" ;;
+  gzip) gzip -d -c - | tar --acls --xattrs -xpf - -C "$MP" ;;
+  *) tar --acls --xattrs -xpf - -C "$MP" ;;
+esac
+)ZFSMGR"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-copy-fallback-source"),
+        QString::fromLatin1(R"ZFSMGR(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+DATASET="${1:-}"
+SNAP="${2:-}"
+[ -n "$DATASET" ] || exit 2
+[ -n "$SNAP" ] || exit 2
+WAS_MOUNTED="$(zfs get -H -o value mounted "$DATASET" 2>/dev/null || true)"
+[ -n "$WAS_MOUNTED" ] || WAS_MOUNTED=no
+MP="$(zfs mount 2>/dev/null | grep -E "^$DATASET[[:space:]]" | head -n1 | cut -d" " -f2-)"
+if [ -z "$MP" ]; then if ! zfs mount "$DATASET" >/dev/null 2>&1; then :; fi; MP="$(zfs mount 2>/dev/null | grep -E "^$DATASET[[:space:]]" | head -n1 | cut -d" " -f2-)"; fi
+[ -n "$MP" ] && [ -d "$MP" ] || { echo "[COPY][ERROR] cannot mount source dataset: $DATASET"; exit 41; }
+SRC="$MP/.zfs/snapshot/$SNAP"
+[ -d "$SRC" ] || { echo "[COPY][ERROR] snapshot path unavailable: $SRC"; exit 42; }
+tar --acls --xattrs -cpf - -C "$SRC" .; RC=$?
+if [ "$WAS_MOUNTED" != "yes" ]; then if ! zfs unmount "$DATASET" >/dev/null 2>&1; then :; fi; fi
+exit $RC
+)ZFSMGR"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-copy-fallback-dest"),
+        QString::fromLatin1(R"ZFSMGR(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+DATASET="${1:-}"
+[ -n "$DATASET" ] || exit 2
+if ! zfs list -H -o name "$DATASET" >/dev/null 2>&1; then zfs create -u "$DATASET"; fi
+WAS_MOUNTED="$(zfs get -H -o value mounted "$DATASET" 2>/dev/null || true)"
+[ -n "$WAS_MOUNTED" ] || WAS_MOUNTED=no
+MP="$(zfs mount 2>/dev/null | grep -E "^$DATASET[[:space:]]" | head -n1 | cut -d" " -f2-)"
+if [ -z "$MP" ]; then if ! zfs mount "$DATASET" >/dev/null 2>&1; then :; fi; MP="$(zfs mount 2>/dev/null | grep -E "^$DATASET[[:space:]]" | head -n1 | cut -d" " -f2-)"; fi
+[ -n "$MP" ] && [ -d "$MP" ] || { echo "[COPY][ERROR] cannot mount destination dataset: $DATASET"; exit 43; }
+mkdir -p "$MP"; tar --acls --xattrs -xpf - -C "$MP"; RC=$?
+if [ "$WAS_MOUNTED" != "yes" ]; then if ! zfs unmount "$DATASET" >/dev/null 2>&1; then :; fi; fi
+exit $RC
+)ZFSMGR"));
+    return scripts;
+}
+
+QString MainWindow::remoteScriptCommand(const ConnectionProfile& p,
+                                        const QString& scriptName,
+                                        const QStringList& args) const {
+    QString cmd = QStringLiteral("%1/%2")
+                      .arg(remoteScriptsBasePath(p), scriptName.trimmed());
+    for (const QString& arg : args) {
+        cmd += QStringLiteral(" ") + shSingleQuote(arg);
+    }
+    return cmd;
+}
+
+QString MainWindow::buildRemoteScriptsInstallCommand(const QMap<QString, QString>& payloads,
+                                                     const QString& versionTag) const {
+    QString cmd;
+    cmd += QStringLiteral("set -e; ");
+    cmd += QStringLiteral("BASE=\"$HOME/.config/ZFSMgr/bin\"; ");
+    cmd += QStringLiteral("mkdir -p \"$BASE\"; ");
+    cmd += QStringLiteral("umask 077; ");
+    int idx = 0;
+    for (auto it = payloads.constBegin(); it != payloads.constEnd(); ++it, ++idx) {
+        const QString delim = QStringLiteral("__ZFSMGR_SCRIPT_%1__").arg(idx);
+        cmd += QStringLiteral("cat > \"$BASE/%1\" <<'%2'\n%3\n%2\n")
+                   .arg(it.key(), delim, it.value());
+        cmd += QStringLiteral("chmod 700 \"$BASE/%1\"; ").arg(it.key());
+    }
+    cmd += QStringLiteral("printf '%s\\n' %1 > \"$BASE/.zfsmgr_remote_scripts_version\"; ")
+               .arg(shSingleQuote(versionTag));
+    cmd += QStringLiteral("chmod 600 \"$BASE/.zfsmgr_remote_scripts_version\"; ");
+    return cmd;
+}
+
+bool MainWindow::ensureRemoteScriptsUpToDate(const ConnectionProfile& p) {
+    if (isLocalConnection(p) || isWindowsConnection(p)) {
+        return true;
+    }
+    const QString versionTag = remoteScriptsVersionTag();
+
+    QString out;
+    QString err;
+    int rc = -1;
+    const QString checkCmd = QStringLiteral("f=%1; if [ -f \"$f\" ]; then cat \"$f\"; fi")
+                                 .arg(remoteScriptsVersionFilePath(p));
+    if (!runSsh(p, checkCmd, 8000, out, err, rc) || rc != 0) {
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("%1: no se pudo verificar scripts remotos (%2)")
+                   .arg(p.name, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+        return false;
+    }
+    if (out.section('\n', 0, 0).trimmed() == versionTag) {
+        return true;
+    }
+
+    const QString baseExpr = remoteScriptsBasePath(p);
+    const QString prepCmd = QStringLiteral(
+                                "set -e; BASE=%1; case \"$BASE\" in ~*) eval \"BASE=$BASE\";; esac; "
+                                "[ -n \"$BASE\" ] || exit 2; mkdir -p \"$BASE\"; umask 077;")
+                                .arg(baseExpr);
+    out.clear();
+    err.clear();
+    rc = -1;
+    if (!runSsh(p, prepCmd, 12000, out, err, rc) || rc != 0) {
+        const QString sudoPrep = withSudo(
+            p,
+            QStringLiteral("set -e; BASE=%1; case \"$BASE\" in ~*) eval \"BASE=$BASE\";; esac; "
+                           "[ -n \"$BASE\" ] || exit 2; mkdir -p \"$BASE\"; "
+                           "chown -R %2:%2 \"$BASE\" >/dev/null 2>&1 || true; "
+                           "chmod 700 \"$BASE\"; umask 077;")
+                .arg(baseExpr, shSingleQuote(p.username.trimmed())));
+        out.clear();
+        err.clear();
+        rc = -1;
+        if (!runSsh(p, sudoPrep, 12000, out, err, rc) || rc != 0) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("%1: no se pudo preparar directorio de scripts remotos (%2)")
+                       .arg(p.name, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+            return false;
+        }
+    }
+
+    const QMap<QString, QString> payloads = remoteScriptPayloads();
+    int idx = 0;
+    for (auto it = payloads.constBegin(); it != payloads.constEnd(); ++it, ++idx) {
+        const QString delim = QStringLiteral("__ZFSMGR_SCRIPT_CHUNK_%1__").arg(idx);
+        const QString perScriptCmd = QStringLiteral(
+            "set -e; BASE=%1; case \"$BASE\" in ~*) eval \"BASE=$BASE\";; esac; "
+            "[ -n \"$BASE\" ] || exit 2; "
+            "cat > \"$BASE/%2\" <<'%3'\n%4\n%3\n"
+            "chmod 700 \"$BASE/%2\";")
+                                         .arg(baseExpr, it.key(), delim, it.value());
+        out.clear();
+        err.clear();
+        rc = -1;
+        if (!runSsh(p, perScriptCmd, 12000, out, err, rc) || rc != 0) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("%1: no se pudo instalar script remoto %2 (%3)")
+                       .arg(p.name, it.key(), oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+            return false;
+        }
+    }
+
+    const QString versionCmd = QStringLiteral(
+                                   "set -e; BASE=%1; case \"$BASE\" in ~*) eval \"BASE=$BASE\";; esac; "
+                                   "printf '%s\\n' %2 > \"$BASE/.zfsmgr_remote_scripts_version\"; "
+                                   "chmod 600 \"$BASE/.zfsmgr_remote_scripts_version\";")
+                                   .arg(baseExpr, shSingleQuote(versionTag));
+    out.clear();
+    err.clear();
+    rc = -1;
+    if (!runSsh(p, versionCmd, 12000, out, err, rc) || rc != 0) {
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("%1: scripts remotos copiados pero no se pudo escribir versión (%2)")
+                   .arg(p.name, oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err)));
+        return false;
+    }
+    appLog(QStringLiteral("INFO"),
+           QStringLiteral("%1: scripts remotos instalados/actualizados (%2)")
+               .arg(p.name, versionTag));
+    return true;
+}
+
 QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p,
                                       const QString& remoteCmd,
                                       MainWindow::WindowsCommandMode windowsMode) const {
@@ -822,9 +1649,11 @@ bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const Q
         return false;
     }
     const ConnectionProfile& p = m_profiles[connIdx];
-    QString cmd =
-        QStringLiteral("zfs get -H -o value %1 %2").arg(shSingleQuote(prop), shSingleQuote(dataset));
-    if (!isWindowsConnection(p)) {
+    const bool useRemoteScript = !isWindowsConnection(p) && !isLocalConnection(p);
+    QString cmd = useRemoteScript
+        ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-get-prop"), {prop, dataset})
+        : QStringLiteral("zfs get -H -o value %1 %2").arg(shSingleQuote(prop), shSingleQuote(dataset));
+    if (!isWindowsConnection(p) && !useRemoteScript) {
         cmd = mwhelpers::withUnixSearchPathCommand(cmd);
     }
     cmd = withSudo(p, cmd);
@@ -864,8 +1693,11 @@ bool MainWindow::ensureObjectGuidLoaded(int connIdx,
         QString out;
         QString err;
         int rc = -1;
-        QString guidCmd = QStringLiteral("zfs get -H -o value guid %1").arg(shSingleQuote(trimmedObject));
-        if (!isWindowsConnection(connIdx)) {
+        const bool useRemoteScript = !isWindowsConnection(p) && !isLocalConnection(p);
+        QString guidCmd = useRemoteScript
+            ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-get-guid"), {trimmedObject})
+            : QStringLiteral("zfs get -H -o value guid %1").arg(shSingleQuote(trimmedObject));
+        if (!isWindowsConnection(connIdx) && !useRemoteScript) {
             guidCmd = mwhelpers::withUnixSearchPathCommand(guidCmd);
         }
         guidCmd = withSudo(p, guidCmd);
@@ -978,11 +1810,14 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
             QString gOut;
             QString gErr;
             int gRc = -1;
+            const bool useRemoteScript = !isLocalConnection(p) && !isWindowsConnection(p);
             const QString guidCmd = withSudo(
                 p,
-                mwhelpers::withUnixSearchPathCommand(
-                    QStringLiteral("zpool get -H -o value guid %1")
-                        .arg(shSingleQuote(trimmedPool))));
+                useRemoteScript
+                    ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-guid"), {trimmedPool})
+                    : mwhelpers::withUnixSearchPathCommand(
+                          QStringLiteral("zpool get -H -o value guid %1")
+                              .arg(shSingleQuote(trimmedPool))));
             if (runSsh(p, guidCmd, 12000, gOut, gErr, gRc) && gRc == 0) {
                 const QString guid = gOut.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
@@ -1023,10 +1858,12 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
     appLog(QStringLiteral("INFO"), QStringLiteral("Loading datasets %1::%2").arg(p.name, poolName));
 
     if (!isWin) {
-        QString jsonCmd = mwhelpers::withUnixSearchPathCommand(
-            QStringLiteral("zfs get -j -p -r -t filesystem,volume,snapshot "
-                           "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount %1")
-                .arg(shSingleQuote(poolName)));
+        const bool useRemoteScript = !isLocalConnection(p);
+        QString jsonCmd = useRemoteScript
+            ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-list-all"), {poolName})
+            : mwhelpers::withUnixSearchPathCommand(
+                  QStringLiteral("zfs get -j -p -r -t filesystem,volume,snapshot type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount %1")
+                      .arg(shSingleQuote(poolName)));
         jsonCmd = withSudo(p, jsonCmd);
         if (runSsh(p, jsonCmd, 35000, out, err, rc) && rc == 0) {
             const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(out).toUtf8());
@@ -1074,7 +1911,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
         }
     }
 
-    if (!loadedFromJson) {
+    if (!loadedFromJson && !(!isWin && !isLocalConnection(p))) {
         QString cmd = QStringLiteral(
             "zfs list -H -p -t filesystem,volume,snapshot "
             "-o name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount -r %1")

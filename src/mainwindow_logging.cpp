@@ -150,6 +150,38 @@ CompactLogParts parseGsaLogParts(const QString& line, const QString& connName) {
     return out;
 }
 
+bool parseLeadingLogDateTime(const QString& line, QDateTime* outDt) {
+    if (!outDt) {
+        return false;
+    }
+    static const QRegularExpression tsRx(
+        QStringLiteral("^(\\d{4}-\\d{2}-\\d{2})\\s+(\\d{2}:\\d{2}:\\d{2})\\b"));
+    const QRegularExpressionMatch m = tsRx.match(line.trimmed());
+    if (!m.hasMatch()) {
+        return false;
+    }
+    const QDateTime dt = QDateTime::fromString(
+        m.captured(1).trimmed() + QStringLiteral(" ") + m.captured(2).trimmed(),
+        QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    if (!dt.isValid()) {
+        return false;
+    }
+    *outDt = dt;
+    return true;
+}
+
+int countLogDateTimeStamps(const QString& line) {
+    static const QRegularExpression tsRx(
+        QStringLiteral("\\b\\d{4}-\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}:\\d{2}\\b"));
+    int count = 0;
+    auto it = tsRx.globalMatch(line);
+    while (it.hasNext()) {
+        it.next();
+        ++count;
+    }
+    return count;
+}
+
 bool looksLikeGsaRuntimeLine(const QString& line) {
     const QString s = line.trimmed();
     if (s.isEmpty()) {
@@ -705,18 +737,25 @@ void MainWindow::refreshConnectionGsaLogAsync(int idx) {
     }
 
     const bool isWindows = isWindowsConnection(profile);
+    const bool useRemoteScripts = !isWindows && !isLocalConnection(profile);
+    const QString gsaLogPath = QDir::cleanPath(configDir + QStringLiteral("/GSA.log"));
     const QString remoteCmd = isWindows
         ? QStringLiteral(
               "$f='%1\\GSA.log'; "
               "if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f -Raw }")
               .arg(configDir)
-        : withSudo(profile,
-                   QStringLiteral("f=%1; if [ -f \"$f\" ]; then cat \"$f\"; fi")
-                       .arg(mwhelpers::shSingleQuote(QDir::cleanPath(configDir + QStringLiteral("/GSA.log")))));
+        : (useRemoteScripts
+               ? withSudo(profile, remoteScriptCommand(profile, QStringLiteral("zfsmgr-gsa-log-cat"), {gsaLogPath}))
+               : withSudo(profile,
+                          QStringLiteral("f=%1; if [ -f \"$f\" ]; then cat \"$f\"; fi")
+                              .arg(mwhelpers::shSingleQuote(gsaLogPath))));
     const WindowsCommandMode mode = isWindows ? WindowsCommandMode::PowerShellNative
                                               : WindowsCommandMode::Auto;
 
-    (void)QtConcurrent::run([this, connId, profile, remoteCmd, mode, state]() {
+    (void)QtConcurrent::run([this, connId, profile, remoteCmd, mode, state, useRemoteScripts]() {
+        if (useRemoteScripts) {
+            (void)ensureRemoteScriptsUpToDate(profile);
+        }
         QString out;
         QString err;
         int rc = -1;
@@ -741,10 +780,36 @@ void MainWindow::refreshConnectionGsaLogAsync(int idx) {
                 view->clear();
                 ConnCompactState st;
                 const QStringList lines = maskSecrets(text).split('\n');
-                for (const QString& rawLine : lines) {
+                int startIdx = 0;
+                QDateTime startTs;
+                for (int i = 0; i < lines.size(); ++i) {
+                    const QString t = lines.at(i).trimmed();
+                    if (!t.contains(QStringLiteral(" GSA start version "))) {
+                        continue;
+                    }
+                    QDateTime dt;
+                    if (!parseLeadingLogDateTime(t, &dt)) {
+                        continue;
+                    }
+                    if (!startTs.isValid() || dt >= startTs) {
+                        startTs = dt;
+                        startIdx = i;
+                    }
+                }
+                for (int i = startIdx; i < lines.size(); ++i) {
+                    const QString rawLine = lines.at(i);
                     const QString trimmed = rawLine.trimmed();
                     if (trimmed.isEmpty()) {
                         continue;
+                    }
+                    if (countLogDateTimeStamps(trimmed) > 1) {
+                        continue;
+                    }
+                    if (startTs.isValid()) {
+                        QDateTime lineTs;
+                        if (parseLeadingLogDateTime(trimmed, &lineTs) && lineTs < startTs) {
+                            continue;
+                        }
                     }
                     const CompactLogParts p = parseGsaLogParts(trimmed, connName);
                     QStringList changed;

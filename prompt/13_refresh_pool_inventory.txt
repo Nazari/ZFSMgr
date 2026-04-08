@@ -1,0 +1,20 @@
+Comando: inventario de pools importados
+PATH remoto usado:
+- wrapper PATH Unix + sudo wrapper.
+Argumentos:
+- Unix: zpool list -j
+- Windows: zpool list -H -p -o name,size,alloc,free,cap,dedupratio
+- Propiedades pool:
+  - Unix: zpool get -j all <pool>
+  - Windows: zpool get -H -o property,value,source all <pool>
+- GUID fallback: zpool get -H -o value guid <pool>
+- Estado pool: zpool status -v <pool>
+Evento detonador:
+- Refresh de conexion.
+- Refresh status pool/manual.
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_refresh.cpp:729
+- /Users/linarese/work/ZFSMgr/src/mainwindow.cpp:1229
+- /Users/linarese/work/ZFSMgr/src/mainwindow_refresh.cpp:779
+- /Users/linarese/work/ZFSMgr/src/mainwindow_refresh.cpp:793
+- /Users/linarese/work/ZFSMgr/src/mainwindow_pools.cpp:205

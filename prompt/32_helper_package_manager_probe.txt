@@ -1,0 +1,12 @@
+Comando: deteccion gestor de paquetes remoto
+PATH remoto usado:
+- Comando directo.
+- brew probe anade PATH /opt/homebrew/... /usr/local/...
+Argumentos:
+- command -v apt-get|pacman|zypper|pkg >/dev/null 2>&1
+- brew: PATH ajustado + command -v brew
+Evento detonador:
+- Refresh de conexion para habilitar "Install helper commands".
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_refresh.cpp:264
+

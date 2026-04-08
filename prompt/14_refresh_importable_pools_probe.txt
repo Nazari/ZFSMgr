@@ -1,0 +1,11 @@
+Comando: deteccion pools importables
+PATH remoto usado:
+- wrapper PATH Unix + sudo wrapper.
+Argumentos:
+- zpool import
+- zpool import -s
+Evento detonador:
+- Refresh de conexion para construir lista "Importable".
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_refresh.cpp:805
+

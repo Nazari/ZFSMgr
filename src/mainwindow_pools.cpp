@@ -227,9 +227,23 @@ void MainWindow::refreshPoolStatusNow(int connIdx, const QString& poolName) {
     int rc = -1;
     const QString cmd = withSudo(
         profile,
-        mwhelpers::withUnixSearchPathCommand(
-            QStringLiteral("zpool status -v %1").arg(shSingleQuote(trimmedPool))));
-    if (!runSsh(profile, cmd, 20000, out, err, rc) || rc != 0) {
+        (isWindowsConnection(profile) || isLocalConnection(profile))
+            ? mwhelpers::withUnixSearchPathCommand(
+                  QStringLiteral("zpool status -v %1").arg(shSingleQuote(trimmedPool)))
+            : remoteScriptCommand(profile, QStringLiteral("zfsmgr-zpool-status"), {trimmedPool}));
+    if ((!runSsh(profile, cmd, 20000, out, err, rc) || rc != 0)
+        && !isWindowsConnection(profile)
+        && isLocalConnection(profile)) {
+        const QString fallbackCmd = withSudo(
+            profile,
+            mwhelpers::withUnixSearchPathCommand(
+                QStringLiteral("zpool status -v %1").arg(shSingleQuote(trimmedPool))));
+        out.clear();
+        err.clear();
+        rc = -1;
+        (void)runSsh(profile, fallbackCmd, 20000, out, err, rc);
+    }
+    if (rc != 0) {
         const QString errText = err.trimmed().isEmpty() ? oneLine(out).trimmed() : err.trimmed();
         appLog(QStringLiteral("WARN"),
                QStringLiteral("No se pudo refrescar estado de pool %1 en %2: %3")

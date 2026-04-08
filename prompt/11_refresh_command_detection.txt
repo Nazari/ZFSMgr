@@ -1,0 +1,14 @@
+Comando: deteccion de comandos disponibles
+PATH remoto usado:
+- Unix: wrapper PATH Unix.
+- Windows: where.exe y script PowerShell con rutas OpenZFS/MSYS.
+Argumentos:
+- where.exe zfs / where.exe zpool (Windows)
+- command -v <cmd> (Unix)
+- Script PowerShell que marca OK/KO para comandos requeridos.
+Evento detonador:
+- Refresh de conexion para "Comandos detectados/no detectados".
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_refresh.cpp:391
+- /Users/linarese/work/ZFSMgr/src/mainwindow_refresh.cpp:497
+

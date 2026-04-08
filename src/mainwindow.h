@@ -618,6 +618,16 @@ private:
     bool isWindowsConnection(const ConnectionProfile& p) const;
     bool isWindowsConnection(int connIdx) const;
     bool supportsAlternateDatasetMount(int connIdx) const;
+    bool ensureRemoteScriptsUpToDate(const ConnectionProfile& p);
+    QString remoteScriptsVersionTag() const;
+    QString remoteScriptsBasePath(const ConnectionProfile& p) const;
+    QString remoteScriptsVersionFilePath(const ConnectionProfile& p) const;
+    QMap<QString, QString> remoteScriptPayloads() const;
+    QString remoteScriptCommand(const ConnectionProfile& p,
+                                const QString& scriptName,
+                                const QStringList& args = {}) const;
+    QString buildRemoteScriptsInstallCommand(const QMap<QString, QString>& payloads,
+                                             const QString& versionTag) const;
     QString wrapRemoteCommand(const ConnectionProfile& p,
                               const QString& remoteCmd,
                               WindowsCommandMode windowsMode = WindowsCommandMode::Auto) const;

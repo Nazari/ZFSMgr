@@ -663,14 +663,17 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
     const QStringList poolProps = poolSizePropertyNames();
     const QString propsCsv = poolProps.join(QLatin1Char(','));
     const bool poolWin = isWindowsConnection(connIdx);
+    const bool useRemoteScript = !poolWin && !isLocalConnection(profile);
     const QString poolCmd = withSudo(
         profile,
-        mwhelpers::withUnixSearchPathCommand(
-            poolWin
-                ? QStringLiteral("zpool get -H -o property,value,source %1 %2")
-                      .arg(propsCsv, shSingleQuote(trimmedPool))
-                : QStringLiteral("zpool get -j %1 %2")
-                      .arg(propsCsv, shSingleQuote(trimmedPool))));
+        useRemoteScript
+            ? remoteScriptCommand(profile, QStringLiteral("zfsmgr-zpool-get-all-json"), {trimmedPool})
+            : mwhelpers::withUnixSearchPathCommand(
+                  poolWin
+                      ? QStringLiteral("zpool get -H -o property,value,source %1 %2")
+                            .arg(propsCsv, shSingleQuote(trimmedPool))
+                      : QStringLiteral("zpool get -j %1 %2")
+                            .arg(propsCsv, shSingleQuote(trimmedPool))));
     if (runSsh(profile, poolCmd, 15000, out, err, rc) && rc == 0) {
         const QString cacheKey = poolDetailsCacheKey(connIdx, trimmedPool);
         PoolDetailsCacheEntry entry = m_poolDetailsCache.value(cacheKey);
@@ -1257,18 +1260,21 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
     QString mountedErr;
     int mountedRc = -1;
     const bool isWinConn = isWindowsConnection(p);
+    const bool useRemoteScript = !isWinConn && !isLocalConnection(p);
     const QString mountedCmd = withSudo(
         p,
-        mwhelpers::withUnixSearchPathCommand(
-            isWinConn ? QStringLiteral("zfs mount")
-                      : QStringLiteral("zfs mount -j")));
+        useRemoteScript
+            ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-mount-list"))
+            : mwhelpers::withUnixSearchPathCommand(
+                  isWinConn ? QStringLiteral("zfs mount")
+                            : QStringLiteral("zfs mount -j")));
     QVector<QPair<QString, QString>> mountedRows;
     if (runSsh(p, mountedCmd, 20000, mountedOut, mountedErr, mountedRc) && mountedRc == 0) {
         mountedRows = isWinConn
             ? mwhelpers::parseZfsMountOutput(mountedOut)
             : mwhelpers::parseZfsMountJsonOutput(mountedOut);
     }
-    if (!isWinConn && mountedRows.isEmpty()) {
+    if (!isWinConn && mountedRows.isEmpty() && !useRemoteScript) {
         QString fallbackOut;
         QString fallbackErr;
         int fallbackRc = -1;

@@ -428,6 +428,15 @@ target_has_snapshot_guid() {
   done | grep -q '^1$'
 }
 
+# Compatibilidad retroactiva con versiones antiguas del script que
+# invocaban target_has_snapshot_name(ds, snap_name) durante la nivelación.
+target_has_snapshot_name() {
+  target_name_ds="$1"
+  target_name_snap="$2"
+  [ -n "$target_name_snap" ] || return 1
+  list_target_snapshots "$target_name_ds" | grep -qx "${target_name_ds}@${target_name_snap}"
+}
+
 source_snapshot_name_by_guid() {
   source_guid_ds="$1"
   wanted_guid="$2"
@@ -2423,6 +2432,25 @@ void MainWindow::onAsyncRefreshDone(int generation) {
     }
     refreshConnectionNodeDetails();
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Refresco paralelo finalizado"));
+
+    // Si el estado detecta GSA desactualizado o desalineado, actualizar
+    // automáticamente sin requerir acción manual desde menú contextual.
+    for (int i = 0; i < m_profiles.size() && i < m_states.size(); ++i) {
+        if (isConnectionDisconnected(i)) {
+            continue;
+        }
+        const ConnectionRuntimeState& st = m_states[i];
+        if (!st.gsaInstalled || !st.gsaNeedsAttention) {
+            continue;
+        }
+        const QString connName = m_profiles[i].name.trimmed().isEmpty()
+                                     ? m_profiles[i].id.trimmed()
+                                     : m_profiles[i].name.trimmed();
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("GSA requiere actualización en \"%1\": actualización automática").arg(connName));
+        (void)installOrUpdateGsaForConnectionInternal(i, false);
+    }
+
     m_refreshInProgress = false;
     updateBusyCursor();
     updateStatus(QString());
@@ -3569,12 +3597,6 @@ QString MainWindow::gsaMenuLabelForConnection(int connIdx) const {
                    QStringLiteral("Install snapshot manager"),
                    QStringLiteral("安装快照管理器"));
     }
-    if (st.gsaNeedsAttention || st.gsaVersion.trimmed() != gsaScriptVersion().trimmed()) {
-        return trk(QStringLiteral("t_gsa_update_001"),
-                   QStringLiteral("Actualizar versión del Gestor de snapshots"),
-                   QStringLiteral("Update snapshot manager version"),
-                   QStringLiteral("更新快照管理器版本"));
-    }
     if (!st.gsaActive) {
         return trk(QStringLiteral("t_gsa_enable_001"),
                    QStringLiteral("Activar GSA"),
@@ -3912,7 +3934,14 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
         QString payload = gsaWindowsScriptPayload(selfConnName);
         payload.replace(QStringLiteral("__CONFIG_DIR__"), windowsConfigDirForProfile(p));
         const QString taskName = QString::fromLatin1(kGsaTaskName);
+        const QString configDir = windowsConfigDirForProfile(p);
         remoteCmd = QStringLiteral(
+            "$cfg='%3'; "
+            "New-Item -ItemType Directory -Force -Path $cfg | Out-Null; "
+            "$log=Join-Path $cfg 'GSA.log'; "
+            "if (Test-Path -LiteralPath ($log + '.1')) { Remove-Item -Force -LiteralPath ($log + '.1') -ErrorAction SilentlyContinue }; "
+            "if (Test-Path -LiteralPath $log) { Move-Item -Force -LiteralPath $log -Destination ($log + '.1') -ErrorAction SilentlyContinue }; "
+            "New-Item -ItemType File -Force -Path $log | Out-Null; "
             "$dir='C:\\ProgramData\\ZFSMgr'; "
             "New-Item -ItemType Directory -Force -Path $dir | Out-Null; "
             "$script=Join-Path $dir 'gsa.ps1'; "
@@ -3920,7 +3949,7 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
             "$taskCmd='powershell -NoProfile -ExecutionPolicy Bypass -File \"' + $script + '\"'; "
             "schtasks /Create /F /TN '%2' /SC HOURLY /MO 1 /RU SYSTEM /TR $taskCmd | Out-Null; "
             "schtasks /Change /TN '%2' /ENABLE | Out-Null")
-                        .arg(payload, taskName);
+                        .arg(payload, taskName, configDir);
     } else {
         const QString osHint = (p.osType + QStringLiteral(" ")
                                 + ((idx < m_states.size()) ? m_states[idx].osLine : QString())
@@ -3934,6 +3963,14 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
         const bool isFreeBsd = osHint.contains(QStringLiteral("freebsd"))
                                || osHint.contains(QStringLiteral("cron"));
         const QString runtimeConfigDir = unixConfigDirForProfile(p, isMac, isFreeBsd);
+        const QString runtimeLogPath = QDir::cleanPath(runtimeConfigDir + QStringLiteral("/GSA.log"));
+        const QString rotateLogPrefix = QStringLiteral(
+            "mkdir -p %1; "
+            "if [ -f %2 ]; then rm -f %3; mv -f %2 %3; fi; "
+            ": > %2; chmod 600 %2; ")
+                .arg(mwhelpers::shSingleQuote(runtimeConfigDir),
+                     mwhelpers::shSingleQuote(runtimeLogPath),
+                     mwhelpers::shSingleQuote(runtimeLogPath + QStringLiteral(".1")));
         const QString scriptPayload = gsaUnixScriptPayload();
         const QString mainConfigPayload = gsaUnixMainConfigPayload(selfConnName, runtimeConfigDir);
         const QString connectionsPayload = buildUnixConnectionsPayload(requiredDestinationConnNames);
@@ -4072,6 +4109,7 @@ WantedBy=timers.target
                                  knownHostsPayload,
                                  runtimeConfigDir);
         }
+        remoteCmd = rotateLogPrefix + remoteCmd;
         remoteCmd = withSudo(p, remoteCmd);
     }
 

@@ -833,26 +833,37 @@ bool MainWindow::ensureDatasetPermissionsLoadedBatch(int connIdx,
         ? queryAccounts(QStringLiteral("group"))
         : m_connSystemGroupsCacheByKey.value(accountKey);
 
-    QStringList quoted;
-    quoted.reserve(requested.size());
-    for (const QString& ds : requested) {
-        quoted.push_back(shSingleQuote(ds));
+    QString batchCommand;
+    if (!isLocalConnection(p)) {
+        (void)ensureRemoteScriptsUpToDate(p);
+        const QString remoteCmd = remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-allow-batch"), requested);
+        if (!remoteCmd.isEmpty()) {
+            batchCommand = withSudo(p, remoteCmd);
+        }
     }
-    const QString batchScript = QStringLiteral(
-                                    "set +e; "
-                                    "for ds in %1; do "
-                                    "  printf '__ZFSMGR_ALLOW_BEGIN__ %s\\n' \"$ds\"; "
-                                    "  zfs allow \"$ds\" 2>&1; "
-                                    "  printf '__ZFSMGR_ALLOW_RC__ %s %s\\n' \"$ds\" \"$?\"; "
-                                    "  printf '__ZFSMGR_ALLOW_END__ %s\\n' \"$ds\"; "
-                                    "done")
-                                    .arg(quoted.join(QLatin1Char(' ')));
+    if (batchCommand.isEmpty()) {
+        QStringList quoted;
+        quoted.reserve(requested.size());
+        for (const QString& ds : requested) {
+            quoted.push_back(shSingleQuote(ds));
+        }
+        const QString batchScript = QStringLiteral(
+                                        "set +e; "
+                                        "for ds in %1; do "
+                                        "  printf '__ZFSMGR_ALLOW_BEGIN__ %s\\n' \"$ds\"; "
+                                        "  zfs allow \"$ds\" 2>&1; "
+                                        "  printf '__ZFSMGR_ALLOW_RC__ %s %s\\n' \"$ds\" \"$?\"; "
+                                        "  printf '__ZFSMGR_ALLOW_END__ %s\\n' \"$ds\"; "
+                                        "done")
+                                        .arg(quoted.join(QLatin1Char(' ')));
+        batchCommand = withSudo(p, mwhelpers::withUnixSearchPathCommand(batchScript));
+    }
 
     QString out;
     QString detail;
     if (!fetchConnectionCommandOutput(connIdx,
                                       QStringLiteral("Leer permisos (batch)"),
-                                      withSudo(p, mwhelpers::withUnixSearchPathCommand(batchScript)),
+                                      batchCommand,
                                       &out,
                                       &detail,
                                       120000)) {

@@ -246,7 +246,7 @@ void MainWindow::actionCopySnapshot() {
             if (!(isWindowsConnection(sp) || isWindowsConnection(dp))) {
                 return false;
             }
-            const QString srcScript = QStringLiteral(
+            QString srcScript = QStringLiteral(
                 "set -e; DATASET=%1; SNAP=%2; "
                 "WAS_MOUNTED=\"$(zfs get -H -o value mounted \"$DATASET\" 2>/dev/null)\"; "
                 "[ -n \"$WAS_MOUNTED\" ] || WAS_MOUNTED=no; "
@@ -261,7 +261,7 @@ void MainWindow::actionCopySnapshot() {
                 "exit $RC")
                                           .arg(shSingleQuote(src.datasetName), shSingleQuote(src.snapshotName));
 
-            const QString dstScript = QStringLiteral(
+            QString dstScript = QStringLiteral(
                 "set -e; DATASET=%1; "
                 "if ! zfs list -H -o name \"$DATASET\" >/dev/null 2>&1; then zfs create -u \"$DATASET\"; fi; "
                 "WAS_MOUNTED=\"$(zfs get -H -o value mounted \"$DATASET\" 2>/dev/null)\"; "
@@ -274,6 +274,20 @@ void MainWindow::actionCopySnapshot() {
                 "if [ \"$WAS_MOUNTED\" != \"yes\" ]; then if ! zfs unmount \"$DATASET\" >/dev/null 2>&1; then :; fi; fi; "
                 "exit $RC")
                                           .arg(shSingleQuote(recvTarget));
+            if (!isWindowsConnection(sp) && !isLocalConnection(sp)) {
+                (void)ensureRemoteScriptsUpToDate(sp);
+                srcScript = remoteScriptCommand(
+                    sp,
+                    QStringLiteral("zfsmgr-copy-fallback-source"),
+                    {src.datasetName, src.snapshotName});
+            }
+            if (!isWindowsConnection(dp) && !isLocalConnection(dp)) {
+                (void)ensureRemoteScriptsUpToDate(dp);
+                dstScript = remoteScriptCommand(
+                    dp,
+                    QStringLiteral("zfsmgr-copy-fallback-dest"),
+                    {recvTarget});
+            }
             if (directRemoteToRemote) {
                 pendingCommand = sshExecFromLocal(
                     sp,
@@ -992,8 +1006,8 @@ void MainWindow::actionSyncDatasets() {
         appLog(QStringLiteral("WARN"), transferVersionReason);
         return;
     }
-    const ConnectionProfile& sp = m_profiles[src.connIdx];
-    const ConnectionProfile& dp = m_profiles[dst.connIdx];
+    ConnectionProfile sp = m_profiles[src.connIdx];
+    ConnectionProfile dp = m_profiles[dst.connIdx];
     const bool sameConnection = (src.connIdx == dst.connIdx);
 
     QString srcMp;
@@ -1021,7 +1035,7 @@ void MainWindow::actionSyncDatasets() {
     const bool dstCanmountOff = (dstCanmount.trimmed().toLower() == QStringLiteral("off"));
 
     const QString srcSsh = buildSshTargetPrefix(sp);
-    auto buildRsyncOptsProbe = [](bool includeDelete, bool dryRun) {
+    auto buildRsyncOptsProbeInline = [](bool includeDelete, bool dryRun) {
         QString opts = QStringLiteral("-aHWS");
         if (includeDelete) {
             opts += QStringLiteral(" --delete");
@@ -1040,6 +1054,27 @@ void MainWindow::actionSyncDatasets() {
             "  RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; "
             "fi")
             .arg(opts);
+    };
+    auto buildRsyncOptsProbe = [&](int connIdx,
+                                   ConnectionProfile& profile,
+                                   bool includeDelete,
+                                   bool dryRun) {
+        const bool remoteUnix = !isWindowsConnection(connIdx) && !isLocalConnection(profile);
+        if (!remoteUnix) {
+            return buildRsyncOptsProbeInline(includeDelete, dryRun);
+        }
+        (void)ensureRemoteScriptsUpToDate(profile);
+        QStringList args;
+        if (includeDelete) {
+            args << QStringLiteral("--delete");
+        }
+        if (dryRun) {
+            args << QStringLiteral("--dry-run");
+        }
+        const QString scriptCmd = remoteScriptCommand(profile, QStringLiteral("zfsmgr-rsync-opts"), args);
+        return QStringLiteral("if %1 >/dev/null 2>&1; then eval \"$(%1)\"; else %2; fi")
+            .arg(scriptCmd,
+                 buildRsyncOptsProbeInline(includeDelete, dryRun));
     };
     const QString dstSsh = buildSshTargetPrefix(dp);
     const QString srcEffectiveMp = effectiveMountPath(src.connIdx, src.poolName, src.datasetName, srcMp, srcMounted);
@@ -1342,13 +1377,25 @@ void MainWindow::actionSyncDatasets() {
             return;
         }
         auto buildRsyncSyncCommand = [&](bool useDelete, bool dryRun) -> QString {
-            const QString rsyncOptsProbe = buildRsyncOptsProbe(useDelete, dryRun);
-            const QString srcMpCmd = mwhelpers::withUnixSearchPathCommand(
-                QStringLiteral("zfs get -H -o value mountpoint %1")
-                    .arg(shSingleQuote(src.datasetName)));
-            const QString dstMpCmd = mwhelpers::withUnixSearchPathCommand(
-                QStringLiteral("zfs get -H -o value mountpoint %1")
-                    .arg(shSingleQuote(dst.datasetName)));
+            const QString rsyncOptsProbe = buildRsyncOptsProbe(src.connIdx, sp, useDelete, dryRun);
+            QString srcMpCmd;
+            if (!isWindowsConnection(src.connIdx) && !isLocalConnection(sp)) {
+                (void)ensureRemoteScriptsUpToDate(sp);
+                srcMpCmd = remoteScriptCommand(sp, QStringLiteral("zfsmgr-zfs-mountpoint"), {src.datasetName});
+            } else {
+                srcMpCmd = mwhelpers::withUnixSearchPathCommand(
+                    QStringLiteral("zfs get -H -o value mountpoint %1")
+                        .arg(shSingleQuote(src.datasetName)));
+            }
+            QString dstMpCmd;
+            if (!isWindowsConnection(dst.connIdx) && !isLocalConnection(dp)) {
+                (void)ensureRemoteScriptsUpToDate(dp);
+                dstMpCmd = remoteScriptCommand(dp, QStringLiteral("zfsmgr-zfs-mountpoint"), {dst.datasetName});
+            } else {
+                dstMpCmd = mwhelpers::withUnixSearchPathCommand(
+                    QStringLiteral("zfs get -H -o value mountpoint %1")
+                        .arg(shSingleQuote(dst.datasetName)));
+            }
             if (sameConnection) {
                 QString remoteRsync =
                     QStringLiteral("%1; SRC_MP=$(%2); DST_MP=$(%3); rsync $RSYNC_OPTS $RSYNC_PROGRESS \"$SRC_MP\"/ \"$DST_MP\"/")
@@ -1395,12 +1442,41 @@ void MainWindow::actionSyncDatasets() {
     if ((!srcRootMounted && !srcCanmountOff) || (!dstRootMounted && !dstCanmountOff)) {
         if (!isWindowsConnection(sp) && !isWindowsConnection(dp) && canTempMountSrc && canTempMountDst) {
             const mwhelpers::StreamCodec codec = chooseCodec();
+            auto codecArg = [&](mwhelpers::StreamCodec c) -> QString {
+                if (c == mwhelpers::StreamCodec::Zstd) {
+                    return QStringLiteral("zstd");
+                }
+                if (c == mwhelpers::StreamCodec::Gzip) {
+                    return QStringLiteral("gzip");
+                }
+                return QStringLiteral("none");
+            };
             auto buildTempTarCommand = [&](bool /*useDelete*/, bool dryRun) -> QString {
                 if (dryRun) {
                     return QString();
                 }
-                const QString srcScript = buildUnixTemporaryTarSourceScript(src.datasetName, codec);
-                const QString dstScript = buildUnixTemporaryTarDestinationScript(dst.datasetName, codec);
+                QString srcScript;
+                QString dstScript;
+                const bool srcRemoteUnix = !isWindowsConnection(sp) && !isLocalConnection(sp);
+                const bool dstRemoteUnix = !isWindowsConnection(dp) && !isLocalConnection(dp);
+                if (srcRemoteUnix) {
+                    (void)ensureRemoteScriptsUpToDate(sp);
+                    srcScript = remoteScriptCommand(
+                        sp,
+                        QStringLiteral("zfsmgr-sync-temp-tar-source"),
+                        {src.datasetName, codecArg(codec)});
+                } else {
+                    srcScript = buildUnixTemporaryTarSourceScript(src.datasetName, codec);
+                }
+                if (dstRemoteUnix) {
+                    (void)ensureRemoteScriptsUpToDate(dp);
+                    dstScript = remoteScriptCommand(
+                        dp,
+                        QStringLiteral("zfsmgr-sync-temp-tar-dest"),
+                        {dst.datasetName, codecArg(codec)});
+                } else {
+                    dstScript = buildUnixTemporaryTarDestinationScript(dst.datasetName, codec);
+                }
                 if (sameConnection) {
                     const QString remotePipe =
                         buildPipedTransferCommand(withSudo(sp, srcScript), withSudoStreamInput(dp, dstScript));
@@ -1576,7 +1652,8 @@ void MainWindow::actionSyncDatasets() {
                 }
             }
             QString remoteRsync = QStringLiteral("set -e; %1; %2")
-                                      .arg(buildRsyncOptsProbe(useDelete, dryRun), cmds.join(QStringLiteral(" && ")));
+                                      .arg(buildRsyncOptsProbe(src.connIdx, sp, useDelete, dryRun),
+                                           cmds.join(QStringLiteral(" && ")));
             remoteRsync = withSudo(sp, remoteRsync);
             return srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
         };

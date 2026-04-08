@@ -1,0 +1,23 @@
+Comando: scripts avanzados (Break down / Assemble / From dir / To dir)
+PATH remoto usado:
+- wrapper PATH Unix + sudo wrapper (o PowerShell en Windows).
+Argumentos y acciones:
+- Listado de hijos:
+  - zfs list -H -o name -r <dataset>
+- Montaje/clave temporal:
+  - zfs get mountpoint/keystatus/keylocation
+  - zfs load-key, zfs mount, zfs unmount
+- Desglosar:
+  - zfs create, rsync, zfs set mountpoint, zfs mount
+- Ensamblar:
+  - rsync, zfs destroy -r
+- Importar/exportar desde directorio:
+  - zfs set canmount/mountpoint, zfs mount, rsync, zfs destroy -r (segun flujo)
+Evento detonador:
+- Acciones menu "Desglosar", "Ensamblar", "Desde Dir", "Hasta Dir".
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_advanced.cpp:16
+- /Users/linarese/work/ZFSMgr/src/mainwindow_advanced.cpp:448
+- /Users/linarese/work/ZFSMgr/src/mainwindow_advanced_dir.cpp:551
+- /Users/linarese/work/ZFSMgr/src/mainwindow_advanced_dir.cpp:783
+

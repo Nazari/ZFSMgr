@@ -1,0 +1,10 @@
+Comando: wrapper PATH Unix
+PATH remoto usado:
+- $PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin
+Argumentos:
+- Recibe comando base y lo ejecuta tras export PATH.
+Evento detonador:
+- Casi todos los comandos zfs/zpool/rsync/tar en Linux/macOS/FreeBSD.
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_helpers.cpp:720
+

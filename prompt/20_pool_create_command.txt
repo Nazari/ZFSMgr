@@ -1,0 +1,13 @@
+Comando: creacion de pool
+PATH remoto usado:
+- wrapper PATH Unix + sudo wrapper.
+Argumentos:
+- zpool create [flags -f -n -m -R]
+- -o <pool_prop=value> (ashift/autotrim/autoexpand/compatibility/bootfs/extra)
+- -O <fs_prop=value> (canmount/mountpoint/relatime/compression/normalization/acltype/xattr/dnodesize/extra)
+- <pool_name> <vdev spec...>
+Evento detonador:
+- Dialogo "Crear pool", boton Aceptar.
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_pool_create.cpp:2333
+

@@ -538,11 +538,29 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     }
 
     const bool isWin = isWindowsConnection(ctx.connIdx);
+    const ConnectionProfile& profile = m_profiles[ctx.connIdx];
     const bool deleteSourceDir = deleteSourceDirChk->isChecked();
     const QString createCmd = buildZfsCreateCmd(opt);
     QString cmd;
     bool allowWindowsScript = false;
     if (!isWin) {
+        if (!isLocalConnection(profile)) {
+            (void)ensureRemoteScriptsUpToDate(profile);
+            QStringList args;
+            args.reserve(4);
+            args.push_back(opt.datasetPath);
+            args.push_back(selectedMountDir);
+            args.push_back(createCmd);
+            args.push_back(deleteSourceDir ? QStringLiteral("1") : QStringLiteral("0"));
+            cmd = withSudo(profile, remoteScriptCommand(profile, QStringLiteral("zfsmgr-advanced-fromdir"), args));
+            executeDatasetAction(QStringLiteral("conncontent"),
+                                 trk(QStringLiteral("t_advdir_auto024"), QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")),
+                                 ctx,
+                                 cmd,
+                                 90000,
+                                 allowWindowsScript);
+            return;
+        }
         cmd = QStringLiteral(
                   "set -e; "
                   "DATASET=%1; "
@@ -772,9 +790,26 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
     const bool deleteSourceDataset = deleteSourceDatasetChk->isChecked();
 
     const bool isWin = isWindowsConnection(ctx.connIdx);
+    const ConnectionProfile& profile = m_profiles[ctx.connIdx];
     QString cmd;
     bool allowWindowsScript = false;
     if (!isWin) {
+        if (!isLocalConnection(profile)) {
+            (void)ensureRemoteScriptsUpToDate(profile);
+            QStringList args;
+            args.reserve(3);
+            args.push_back(ds);
+            args.push_back(localDir);
+            args.push_back(deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0"));
+            cmd = withSudo(profile, remoteScriptCommand(profile, QStringLiteral("zfsmgr-advanced-todir"), args));
+            executeDatasetAction(QStringLiteral("conncontent"),
+                                 trk(QStringLiteral("t_advdir_auto035"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")),
+                                 ctx,
+                                 cmd,
+                                 0,
+                                 allowWindowsScript);
+            return;
+        }
         cmd = QStringLiteral(
                   "set -e; "
                   "DATASET=%1; "

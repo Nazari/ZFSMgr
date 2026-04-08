@@ -1,0 +1,17 @@
+Comando: wrapper remoto Windows (PowerShell/UnixShell)
+PATH remoto usado:
+- C:\\Program Files\\OpenZFS On Windows\\bin
+- C:\\Program Files\\OpenZFS On Windows
+- C:\\msys64\\usr\\bin
+- C:\\msys64\\mingw64\\bin
+- C:\\msys64\\mingw32\\bin
+- C:\\MinGW\\bin
+- C:\\mingw64\\bin
+Argumentos:
+- Ejecuta script via powershell -EncodedCommand.
+- Para zfs send/recv fuerza shell Unix (bash/sh) si existe.
+Evento detonador:
+- Cualquier runSsh() en conexion Windows.
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_remote.cpp:740
+

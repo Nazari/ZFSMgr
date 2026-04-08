@@ -336,6 +336,10 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         return state;
     }
 
+    if (!localMode && !isWindowsConnection(profile)) {
+        (void)ensureRemoteScriptsUpToDate(profile);
+    }
+
     QString out;
     QString err;
     int rc = -1;
@@ -451,16 +455,21 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             }
         }
     } else {
-        const QStringList zfsVersionCandidates = {
-            QStringLiteral("zfs version"),
-            QStringLiteral("zfs --version"),
-            QStringLiteral("zpool --version"),
-        };
+        const bool useRemoteScriptsConn = !isLocalConnection(p);
+        const QStringList zfsVersionCandidates = useRemoteScriptsConn
+            ? QStringList{remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-version"))}
+            : QStringList{
+                  QStringLiteral("zfs version"),
+                  QStringLiteral("zfs --version"),
+                  QStringLiteral("zpool --version"),
+              };
         for (const QString& cand : zfsVersionCandidates) {
             out.clear();
             err.clear();
             rc = -1;
-            const QString zfsVersionCmd = withSudo(p, mwhelpers::withUnixSearchPathCommand(cand));
+            const QString zfsVersionCmd = withSudo(
+                p,
+                useRemoteScriptsConn ? cand : mwhelpers::withUnixSearchPathCommand(cand));
             if (!runSsh(p, zfsVersionCmd, 12000, out, err, rc, {}, {}, {},
                         MainWindow::WindowsCommandMode::Auto)) {
                 continue;
@@ -641,13 +650,17 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         }
     }
 
+    const bool isWinConn = isWindowsConnection(p);
+    const bool useRemoteScripts = !isWinConn && !isLocalConnection(p);
+
+    bool gsaSupportsGuidSnapshotCompare = true;
     {
         QString gsaOut;
         QString gsaErr;
         int gsaRc = -1;
         QString gsaProbeCmd;
         WindowsCommandMode gsaWinMode = WindowsCommandMode::Auto;
-        if (isWindowsConnection(p)) {
+        if (isWinConn) {
             gsaWinMode = winPsMode;
             gsaProbeCmd = QStringLiteral(
                 "$taskName='ZFSMgr-GSA'; "
@@ -666,43 +679,52 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 "Write-Output ('ACTIVE=' + ($(if($active){'1'}else{'0'}))); "
                 "Write-Output ('VERSION=' + $ver); "
                 "Write-Output ('DETAIL=' + $detail)");
+        } else if (useRemoteScripts) {
+            gsaProbeCmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-gsa-status")));
         } else {
-            gsaProbeCmd = QStringLiteral(
-                "set +e; "
-                "scheduler=''; installed=0; active=0; version=''; detail=''; "
-                "if [ \"$(uname -s 2>/dev/null)\" = 'Darwin' ]; then "
-                "  scheduler='launchd'; "
-                "  script='/usr/local/libexec/zfsmgr-gsa.sh'; "
-                "  plist='/Library/LaunchDaemons/org.zfsmgr.gsa.plist'; "
-                "  [ -f \"$script\" ] && [ -f \"$plist\" ] && installed=1; "
-                "  if [ \"$installed\" -eq 1 ]; then "
-                "    version=$(sed -n 's/^# ZFSMgr GSA Version: //p' \"$script\" | head -n1); "
-                "    launchctl print system/org.zfsmgr.gsa >/dev/null 2>&1 && active=1; "
-                "  fi; "
-                "elif [ \"$(uname -s 2>/dev/null)\" = 'FreeBSD' ]; then "
-                "  scheduler='cron'; "
-                "  script='/usr/local/libexec/zfsmgr-gsa.sh'; "
-                "  conf='/etc/zfsmgr/gsa.conf'; "
-                "  [ -f \"$script\" ] && [ -f \"$conf\" ] && installed=1; "
-                "  if [ \"$installed\" -eq 1 ]; then "
-                "    version=$(sed -n 's/^# ZFSMgr GSA Version: //p' \"$script\" | head -n1); "
-                "    if crontab -l 2>/dev/null | grep -F '/usr/local/libexec/zfsmgr-gsa.sh' >/dev/null 2>&1; then active=1; fi; "
-                "  fi; "
-                "elif command -v systemctl >/dev/null 2>&1; then "
-                "  scheduler='systemd'; "
-                "  script='/usr/local/libexec/zfsmgr-gsa.sh'; "
-                "  service='/etc/systemd/system/zfsmgr-gsa.service'; "
-                "  timer='/etc/systemd/system/zfsmgr-gsa.timer'; "
-                "  [ -f \"$script\" ] && [ -f \"$service\" ] && [ -f \"$timer\" ] && installed=1; "
-                "  if [ \"$installed\" -eq 1 ]; then "
-                "    version=$(sed -n 's/^# ZFSMgr GSA Version: //p' \"$script\" | head -n1); "
-                "    systemctl is-enabled zfsmgr-gsa.timer >/dev/null 2>&1 && systemctl is-active zfsmgr-gsa.timer >/dev/null 2>&1 && active=1; "
-                "  fi; "
-                "else "
-                "  detail='No native scheduler detected'; "
-                "fi; "
-                "printf 'SCHEDULER=%s\\nINSTALLED=%s\\nACTIVE=%s\\nVERSION=%s\\nDETAIL=%s\\n' \"$scheduler\" \"$installed\" \"$active\" \"$version\" \"$detail\"");
-            gsaProbeCmd = withSudo(p, gsaProbeCmd);
+            gsaProbeCmd = withSudo(
+                p,
+                QStringLiteral(
+                    "set +e; "
+                    "scheduler=''; installed=0; active=0; version=''; detail=''; guid_compare='0'; "
+                    "if [ \"$(uname -s 2>/dev/null)\" = 'Darwin' ]; then "
+                    "  scheduler='launchd'; "
+                    "  script='/usr/local/libexec/zfsmgr-gsa.sh'; "
+                    "  plist='/Library/LaunchDaemons/org.zfsmgr.gsa.plist'; "
+                    "  [ -f \"$script\" ] && [ -f \"$plist\" ] && installed=1; "
+                    "  if [ \"$installed\" -eq 1 ]; then "
+                    "    version=$(sed -n 's/^# ZFSMgr GSA Version: //p' \"$script\" | head -n1); "
+                    "    grep -q '^target_has_snapshot_guid()' \"$script\" >/dev/null 2>&1 && "
+                    "grep -q '^source_snapshot_name_by_guid()' \"$script\" >/dev/null 2>&1 && guid_compare='1'; "
+                    "    launchctl print system/org.zfsmgr.gsa >/dev/null 2>&1 && active=1; "
+                    "  fi; "
+                    "elif [ \"$(uname -s 2>/dev/null)\" = 'FreeBSD' ]; then "
+                    "  scheduler='cron'; "
+                    "  script='/usr/local/libexec/zfsmgr-gsa.sh'; "
+                    "  conf='/etc/zfsmgr/gsa.conf'; "
+                    "  [ -f \"$script\" ] && [ -f \"$conf\" ] && installed=1; "
+                    "  if [ \"$installed\" -eq 1 ]; then "
+                    "    version=$(sed -n 's/^# ZFSMgr GSA Version: //p' \"$script\" | head -n1); "
+                    "    grep -q '^target_has_snapshot_guid()' \"$script\" >/dev/null 2>&1 && "
+                    "grep -q '^source_snapshot_name_by_guid()' \"$script\" >/dev/null 2>&1 && guid_compare='1'; "
+                    "    if crontab -l 2>/dev/null | grep -F '/usr/local/libexec/zfsmgr-gsa.sh' >/dev/null 2>&1; then active=1; fi; "
+                    "  fi; "
+                    "elif command -v systemctl >/dev/null 2>&1; then "
+                    "  scheduler='systemd'; "
+                    "  script='/usr/local/libexec/zfsmgr-gsa.sh'; "
+                    "  service='/etc/systemd/system/zfsmgr-gsa.service'; "
+                    "  timer='/etc/systemd/system/zfsmgr-gsa.timer'; "
+                    "  [ -f \"$script\" ] && [ -f \"$service\" ] && [ -f \"$timer\" ] && installed=1; "
+                    "  if [ \"$installed\" -eq 1 ]; then "
+                    "    version=$(sed -n 's/^# ZFSMgr GSA Version: //p' \"$script\" | head -n1); "
+                    "    grep -q '^target_has_snapshot_guid()' \"$script\" >/dev/null 2>&1 && "
+                    "grep -q '^source_snapshot_name_by_guid()' \"$script\" >/dev/null 2>&1 && guid_compare='1'; "
+                    "    systemctl is-enabled zfsmgr-gsa.timer >/dev/null 2>&1 && systemctl is-active zfsmgr-gsa.timer >/dev/null 2>&1 && active=1; "
+                    "  fi; "
+                    "else "
+                    "  detail='No native scheduler detected'; "
+                    "fi; "
+                    "printf 'SCHEDULER=%s\\nINSTALLED=%s\\nACTIVE=%s\\nVERSION=%s\\nDETAIL=%s\\nGUID_COMPARE=%s\\n' \"$scheduler\" \"$installed\" \"$active\" \"$version\" \"$detail\" \"$guid_compare\""));
         }
         if (runSsh(p, gsaProbeCmd, 15000, gsaOut, gsaErr, gsaRc, {}, {}, {}, gsaWinMode)) {
             const QMap<QString, QString> kv = parseKeyValueOutput(gsaOut + QStringLiteral("\n") + gsaErr);
@@ -711,26 +733,32 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             state.gsaDetail = kv.value(QStringLiteral("DETAIL")).trimmed();
             state.gsaInstalled = (kv.value(QStringLiteral("INSTALLED")).trimmed() == QStringLiteral("1"));
             state.gsaActive = (kv.value(QStringLiteral("ACTIVE")).trimmed() == QStringLiteral("1"));
+            if (!isWinConn && state.gsaInstalled) {
+                gsaSupportsGuidSnapshotCompare = (kv.value(QStringLiteral("GUID_COMPARE")).trimmed() == QStringLiteral("1"));
+            }
         }
     }
-    if (state.gsaInstalled && !isWindowsConnection(p)) {
+    if (state.gsaInstalled && !isWinConn) {
         QString mapOut;
         QString mapErr;
         int mapRc = -1;
-        const QString cmd = withSudo(
-            p,
-            QStringLiteral("if [ -f /etc/zfsmgr/gsa-connections.conf ]; then cat /etc/zfsmgr/gsa-connections.conf; fi"));
+        const QString cmd =
+            useRemoteScripts
+                ? withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-gsa-connections-cat")))
+                : withSudo(
+                      p,
+                      QStringLiteral("if [ -f /etc/zfsmgr/gsa-connections.conf ]; then cat /etc/zfsmgr/gsa-connections.conf; fi"));
         if (runSsh(p, cmd, 12000, mapOut, mapErr, mapRc) && mapRc == 0) {
             state.gsaKnownConnections = parseGsaKnownConnections(mapOut);
         }
     }
-
-    const bool isWinConn = isWindowsConnection(p);
     const QString zpoolListCmd = withSudo(
-        p, mwhelpers::withUnixSearchPathCommand(
-            isWinConn
-                ? QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio")
-                : QStringLiteral("zpool list -j")));
+        p, useRemoteScripts
+               ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-list-json"))
+               : mwhelpers::withUnixSearchPathCommand(
+                     isWinConn
+                         ? QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio")
+                         : QStringLiteral("zpool list -j")));
     out.clear(); err.clear(); rc = -1;
     if (runSsh(p, zpoolListCmd, 18000, out, err, rc) && rc == 0) {
         if (isWinConn) {
@@ -778,8 +806,10 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             int grc = -1;
             const QString guidCmd = withSudo(
                 p,
-                mwhelpers::withUnixSearchPathCommand(
-                    QStringLiteral("zpool get -H -o value guid %1").arg(mwhelpers::shSingleQuote(poolName))));
+                useRemoteScripts
+                    ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-guid"), {poolName})
+                    : mwhelpers::withUnixSearchPathCommand(
+                          QStringLiteral("zpool get -H -o value guid %1").arg(mwhelpers::shSingleQuote(poolName))));
             if (runSsh(p, guidCmd, 12000, gout, gerr, grc) && grc == 0) {
                 const QString guid = gout.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
@@ -792,8 +822,10 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         rc = -1;
         const QString stCmd = withSudo(
             p,
-            mwhelpers::withUnixSearchPathCommand(
-                QStringLiteral("zpool status -v %1").arg(mwhelpers::shSingleQuote(poolName))));
+            useRemoteScripts
+                ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-status"), {poolName})
+                : mwhelpers::withUnixSearchPathCommand(
+                      QStringLiteral("zpool status -v %1").arg(mwhelpers::shSingleQuote(poolName))));
         if (runSsh(p, stCmd, 20000, out, err, rc) && rc == 0) {
             state.poolStatusByName.insert(poolName, out.trimmed());
         } else {
@@ -802,36 +834,31 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         }
     }
 
-    const QStringList importProbeArgs = {
-        QStringLiteral("zpool import"),
-        QStringLiteral("zpool import -s"),
-    };
-    for (const QString& probe : importProbeArgs) {
+    {
         out.clear();
         err.clear();
         rc = -1;
-        const QString cmd = withSudo(p, mwhelpers::withUnixSearchPathCommand(probe));
-        if (!runSsh(p, cmd, 18000, out, err, rc)) {
-            continue;
-        }
-        const QString merged = out + QStringLiteral("\n") + err;
-        const QVector<mwhelpers::ImportablePoolInfo> parsed = mwhelpers::parseZpoolImportOutput(merged);
-        if (!parsed.isEmpty()) {
-            state.importablePools.clear();
-            for (const auto& row : parsed) {
-                state.importablePools.push_back(PoolImportable{
-                    p.name,
-                    row.pool,
-                    row.guid,
-                    row.state,
-                    row.reason,
-                    QStringLiteral("Importar"),
-                });
+        const QString cmd = withSudo(
+            p,
+            useRemoteScripts
+                ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-import-probe"))
+                : mwhelpers::withUnixSearchPathCommand(QStringLiteral("zpool import; zpool import -s")));
+        if (runSsh(p, cmd, 18000, out, err, rc)) {
+            const QString merged = out + QStringLiteral("\n") + err;
+            const QVector<mwhelpers::ImportablePoolInfo> parsed = mwhelpers::parseZpoolImportOutput(merged);
+            if (!parsed.isEmpty()) {
+                state.importablePools.clear();
+                for (const auto& row : parsed) {
+                    state.importablePools.push_back(PoolImportable{
+                        p.name,
+                        row.pool,
+                        row.guid,
+                        row.state,
+                        row.reason,
+                        QStringLiteral("Importar"),
+                    });
+                }
             }
-            break;
-        }
-        if (!err.isEmpty()) {
-            appLog(QStringLiteral("INFO"), QStringLiteral("%1: %2 -> %3").arg(p.name, probe, oneLine(err)));
         }
     }
 
@@ -840,16 +867,16 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     rc = -1;
     const QString mountedCmd = withSudo(
         p,
-        mwhelpers::withUnixSearchPathCommand(
-            isWinConn ? QStringLiteral("zfs mount")
-                      : QStringLiteral("zfs mount -j")));
+        (!isWinConn && !isLocalConnection(p))
+            ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-mount-list"))
+            : mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs mount")));
     QVector<QPair<QString, QString>> mountedRows;
     if (runSsh(p, mountedCmd, 18000, out, err, rc) && rc == 0) {
         mountedRows = isWinConn
             ? mwhelpers::parseZfsMountOutput(out)
             : mwhelpers::parseZfsMountJsonOutput(out);
     }
-    if (!isWinConn && mountedRows.isEmpty()) {
+    if (!isWinConn && mountedRows.isEmpty() && !useRemoteScripts) {
         QString fbOut;
         QString fbErr;
         int fbRc = -1;
@@ -869,12 +896,15 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     } else if (!err.isEmpty()) {
         appLog(QStringLiteral("INFO"), QStringLiteral("%1: zfs mount -> %2").arg(p.name, oneLine(err)));
     }
-
     if (state.gsaInstalled) {
         const QString expectedGsaVersion = refreshGsaScriptVersion().trimmed();
         if (state.gsaVersion.trimmed() != expectedGsaVersion) {
             state.gsaNeedsAttention = true;
             state.gsaAttentionReasons.push_back(QStringLiteral("versión GSA antigua"));
+        }
+        if (!isWindowsConnection(p) && !gsaSupportsGuidSnapshotCompare) {
+            state.gsaNeedsAttention = true;
+            state.gsaAttentionReasons.push_back(QStringLiteral("script GSA sin comparación por GUID"));
         }
         if (!isWindowsConnection(p)) {
             const auto boolOnString = [](const QString& raw) {
@@ -896,8 +926,10 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 const QString gsaProps = QStringLiteral("org.fc16.gsa:activado,org.fc16.gsa:nivelar,org.fc16.gsa:destino");
                 const QString gcmd = withSudo(
                     p,
-                    QStringLiteral("zfs get -j -r %1 %2")
-                        .arg(gsaProps, mwhelpers::shSingleQuote(poolName)));
+                    useRemoteScripts
+                        ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-get-gsa-json-recursive"), {poolName})
+                        : QStringLiteral("zfs get -j -r %1 %2")
+                              .arg(gsaProps, mwhelpers::shSingleQuote(poolName)));
                 if (!runSsh(p, gcmd, 20000, gout, gerr, grc) || grc != 0) {
                     continue;
                 }
