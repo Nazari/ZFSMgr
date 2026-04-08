@@ -5010,7 +5010,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             return false;
         }
         ConnectionProfile p = m_profiles[connIdx];
-        const bool remoteUnix = !isLocalConnection(p) && !isWindowsConnection(p);
+        const bool remoteUnix = !isWindowsConnection(p);
         if (remoteUnix) {
             (void)ensureRemoteScriptsUpToDate(p);
         }

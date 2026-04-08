@@ -834,7 +834,7 @@ bool MainWindow::ensureDatasetPermissionsLoadedBatch(int connIdx,
         : m_connSystemGroupsCacheByKey.value(accountKey);
 
     QString batchCommand;
-    if (!isLocalConnection(p)) {
+    if (!isWindowsConnection(p)) {
         (void)ensureRemoteScriptsUpToDate(p);
         const QString remoteCmd = remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-allow-batch"), requested);
         if (!remoteCmd.isEmpty()) {

@@ -1492,7 +1492,7 @@ QString MainWindow::buildRemoteScriptsInstallCommand(const QMap<QString, QString
 }
 
 bool MainWindow::ensureRemoteScriptsUpToDate(const ConnectionProfile& p) {
-    if (isLocalConnection(p) || isWindowsConnection(p)) {
+    if (isWindowsConnection(p)) {
         return true;
     }
     const QString versionTag = remoteScriptsVersionTag();
@@ -1665,7 +1665,7 @@ bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const Q
         return false;
     }
     const ConnectionProfile& p = m_profiles[connIdx];
-    const bool useRemoteScript = !isWindowsConnection(p) && !isLocalConnection(p);
+    const bool useRemoteScript = !isWindowsConnection(p);
     QString cmd = useRemoteScript
         ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-get-prop"), {prop, dataset})
         : QStringLiteral("zfs get -H -o value %1 %2").arg(shSingleQuote(prop), shSingleQuote(dataset));
@@ -1709,7 +1709,7 @@ bool MainWindow::ensureObjectGuidLoaded(int connIdx,
         QString out;
         QString err;
         int rc = -1;
-        const bool useRemoteScript = !isWindowsConnection(p) && !isLocalConnection(p);
+        const bool useRemoteScript = !isWindowsConnection(p);
         QString guidCmd = useRemoteScript
             ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-get-guid"), {trimmedObject})
             : QStringLiteral("zfs get -H -o value guid %1").arg(shSingleQuote(trimmedObject));
@@ -1826,7 +1826,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
             QString gOut;
             QString gErr;
             int gRc = -1;
-            const bool useRemoteScript = !isLocalConnection(p) && !isWindowsConnection(p);
+            const bool useRemoteScript = !isWindowsConnection(p);
             const QString guidCmd = withSudo(
                 p,
                 useRemoteScript
@@ -1874,7 +1874,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
     appLog(QStringLiteral("INFO"), QStringLiteral("Loading datasets %1::%2").arg(p.name, poolName));
 
     if (!isWin) {
-        const bool useRemoteScript = !isLocalConnection(p);
+        const bool useRemoteScript = !isWindowsConnection(p);
         QString jsonCmd = useRemoteScript
             ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-list-all"), {poolName})
             : mwhelpers::withUnixSearchPathCommand(

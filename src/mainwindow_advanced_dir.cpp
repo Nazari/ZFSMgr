@@ -544,7 +544,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     QString cmd;
     bool allowWindowsScript = false;
     if (!isWin) {
-        if (!isLocalConnection(profile)) {
+        if (!isWindowsConnection(profile)) {
             (void)ensureRemoteScriptsUpToDate(profile);
             QStringList args;
             args.reserve(4);
@@ -794,7 +794,7 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
     QString cmd;
     bool allowWindowsScript = false;
     if (!isWin) {
-        if (!isLocalConnection(profile)) {
+        if (!isWindowsConnection(profile)) {
             (void)ensureRemoteScriptsUpToDate(profile);
             QStringList args;
             args.reserve(3);

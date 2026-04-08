@@ -703,7 +703,7 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
     }
 
     const ConnectionProfile& p = m_profiles[connIdx];
-    const bool useRemoteScript = !isWindowsConnection(connIdx) && !isLocalConnection(connIdx);
+    const bool useRemoteScript = !isWindowsConnection(connIdx);
     QString datasetType = trimmedObject.contains(QLatin1Char('@')) ? QStringLiteral("snapshot") : QStringLiteral("filesystem");
     if (dsInfo && !dsInfo->runtime.datasetType.trimmed().isEmpty()) {
         datasetType = dsInfo->runtime.datasetType.trimmed();
@@ -845,7 +845,7 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
     for (const QString& propName : wantedProps) {
         quotedProps.push_back(mwhelpers::shSingleQuote(propName.trimmed()));
     }
-    const bool useRemoteScript = !subWin && !isLocalConnection(connIdx);
+    const bool useRemoteScript = !subWin;
     QString propsCmd;
     if (subWin) {
         propsCmd = withSudo(
@@ -1237,7 +1237,7 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
             QString err;
             int rc = -1;
             const bool poolWin = isWindowsConnection(connIdx);
-            const bool useRemoteScript = !poolWin && !isLocalConnection(profile);
+            const bool useRemoteScript = !poolWin;
             const QString propsCmd = withSudo(
                 profile,
                 (useRemoteScript && !poolWin)
@@ -1424,7 +1424,7 @@ void MainWindow::schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& po
         for (const QString& prop : gsaProps) {
             propArgs << mwhelpers::shSingleQuote(prop);
         }
-        const bool useRemoteScript = !isWindowsConnection(profile) && !isLocalConnection(profile);
+        const bool useRemoteScript = !isWindowsConnection(profile);
         const QString cmd =
             withSudo(profile,
                      useRemoteScript

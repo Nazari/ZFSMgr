@@ -147,7 +147,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
         }
         QString listScript;
         QString remoteListScriptCmd;
-        if (!isLocalConnection(p)) {
+        if (!isWindowsConnection(p)) {
             (void)ensureRemoteScriptsUpToDate(p);
             remoteListScriptCmd = remoteScriptCommand(p, QStringLiteral("zfsmgr-advanced-breakdown-list"), {ds});
         } else {
@@ -241,7 +241,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
     QStringList datasetsDetected;
     QSet<QString> childDatasetNames;
     QString dsListCmd;
-    if (!isWindowsConnection(p) && !isLocalConnection(p)) {
+    if (!isWindowsConnection(p)) {
         (void)ensureRemoteScriptsUpToDate(p);
         dsListCmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-list-children"), {ds}));
     } else {
@@ -455,7 +455,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                   .arg(dsPs, selectedPs.join(QStringLiteral(",")));
         allowWindowsScript = true;
     } else {
-        if (!isLocalConnection(p)) {
+        if (!isWindowsConnection(p)) {
             (void)ensureRemoteScriptsUpToDate(p);
             QStringList args;
             args.reserve(1 + selectedDirs.size());
@@ -574,7 +574,7 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
     QString listErr;
     int listRc = -1;
     QString listCmd;
-    if (!isWindowsConnection(p) && !isLocalConnection(p)) {
+    if (!isWindowsConnection(p)) {
         (void)ensureRemoteScriptsUpToDate(p);
         listCmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-list-children"), {ds}));
     } else {
@@ -677,7 +677,7 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
                   .arg(dsPs, selectedPs.join(QStringLiteral(",")));
         allowWindowsScript = true;
     } else {
-        if (!isLocalConnection(p)) {
+        if (!isWindowsConnection(p)) {
             (void)ensureRemoteScriptsUpToDate(p);
             QStringList args;
             args.reserve(1 + selectedChildren.size());

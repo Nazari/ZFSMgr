@@ -336,7 +336,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         return state;
     }
 
-    if (!localMode && !isWindowsConnection(profile)) {
+    if (!isWindowsConnection(profile)) {
         (void)ensureRemoteScriptsUpToDate(profile);
     }
 
@@ -455,7 +455,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             }
         }
     } else {
-        const bool useRemoteScriptsConn = !isLocalConnection(p);
+        const bool useRemoteScriptsConn = !isWindowsConnection(p);
         const QStringList zfsVersionCandidates = useRemoteScriptsConn
             ? QStringList{remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-version"))}
             : QStringList{
@@ -651,7 +651,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     }
 
     const bool isWinConn = isWindowsConnection(p);
-    const bool useRemoteScripts = !isWinConn && !isLocalConnection(p);
+    const bool useRemoteScripts = !isWinConn;
 
     bool gsaSupportsGuidSnapshotCompare = true;
     {
@@ -867,7 +867,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     rc = -1;
     const QString mountedCmd = withSudo(
         p,
-        (!isWinConn && !isLocalConnection(p))
+        (!isWinConn)
             ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-mount-list"))
             : mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs mount")));
     QVector<QPair<QString, QString>> mountedRows;

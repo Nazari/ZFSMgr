@@ -663,7 +663,7 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
     const QStringList poolProps = poolSizePropertyNames();
     const QString propsCsv = poolProps.join(QLatin1Char(','));
     const bool poolWin = isWindowsConnection(connIdx);
-    const bool useRemoteScript = !poolWin && !isLocalConnection(profile);
+    const bool useRemoteScript = !poolWin;
     const QString poolCmd = withSudo(
         profile,
         useRemoteScript
@@ -1260,7 +1260,7 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
     QString mountedErr;
     int mountedRc = -1;
     const bool isWinConn = isWindowsConnection(p);
-    const bool useRemoteScript = !isWinConn && !isLocalConnection(p);
+    const bool useRemoteScript = !isWinConn;
     const QString mountedCmd = withSudo(
         p,
         useRemoteScript

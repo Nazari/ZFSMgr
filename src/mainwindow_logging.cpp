@@ -737,7 +737,7 @@ void MainWindow::refreshConnectionGsaLogAsync(int idx) {
     }
 
     const bool isWindows = isWindowsConnection(profile);
-    const bool useRemoteScripts = !isWindows && !isLocalConnection(profile);
+    const bool useRemoteScripts = !isWindows;
     const QString gsaLogPath = QDir::cleanPath(configDir + QStringLiteral("/GSA.log"));
     const QString remoteCmd = isWindows
         ? QStringLiteral(
