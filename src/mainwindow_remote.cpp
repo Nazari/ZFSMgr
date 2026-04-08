@@ -738,7 +738,7 @@ bool MainWindow::supportsAlternateDatasetMount(int connIdx) const {
 }
 
 QString MainWindow::remoteScriptsVersionTag() const {
-    return QStringLiteral(ZFSMGR_APP_VERSION) + QStringLiteral(".remote-scripts.10");
+    return QStringLiteral(ZFSMGR_APP_VERSION) + QStringLiteral(".remote-scripts.11");
 }
 
 QString MainWindow::remoteScriptsBasePath(const ConnectionProfile& p) const {
@@ -854,7 +854,11 @@ PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:
 export PATH
 pool="${1:-}"
 [ -n "$pool" ] || exit 2
-if zfs get -j -p -r -t filesystem,volume,snapshot type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount "$pool" >/dev/null 2>&1; then
+if LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j -p -r -t filesystem,volume,snapshot type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount "$pool" >/dev/null 2>&1; then
+  LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j -p -r -t filesystem,volume,snapshot type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount "$pool"
+elif LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j -p -r -t filesystem,volume,snapshot type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount "$pool" >/dev/null 2>&1; then
+  LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j -p -r -t filesystem,volume,snapshot type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount "$pool"
+elif zfs get -j -p -r -t filesystem,volume,snapshot type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount "$pool" >/dev/null 2>&1; then
   zfs get -j -p -r -t filesystem,volume,snapshot type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount "$pool"
 else
   zfs list -H -p -t filesystem,volume,snapshot -o name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount -r "$pool"
@@ -910,7 +914,13 @@ PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:
 export PATH
 obj="${1:-}"
 [ -n "$obj" ] || exit 2
-zfs get -j all "$obj"
+if LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j all "$obj" >/dev/null 2>&1; then
+  LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j all "$obj"
+elif LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j all "$obj" >/dev/null 2>&1; then
+  LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j all "$obj"
+else
+  zfs get -j all "$obj"
+fi
 )"));
     scripts.insert(
         QStringLiteral("zfsmgr-zfs-get-json"),
@@ -922,7 +932,13 @@ props="${1:-}"
 obj="${2:-}"
 [ -n "$props" ] || exit 2
 [ -n "$obj" ] || exit 2
-zfs get -j "$props" "$obj"
+if LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j "$props" "$obj" >/dev/null 2>&1; then
+  LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j "$props" "$obj"
+elif LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j "$props" "$obj" >/dev/null 2>&1; then
+  LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j "$props" "$obj"
+else
+  zfs get -j "$props" "$obj"
+fi
 )"));
     scripts.insert(
         QStringLiteral("zfsmgr-zpool-get-all-json"),
@@ -1866,7 +1882,24 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
                       .arg(shSingleQuote(poolName)));
         jsonCmd = withSudo(p, jsonCmd);
         if (runSsh(p, jsonCmd, 35000, out, err, rc) && rc == 0) {
-            const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(out).toUtf8());
+            QString jsonPayload = mwhelpers::stripToJson(out);
+            QJsonParseError parseErr{};
+            QJsonDocument doc = QJsonDocument::fromJson(jsonPayload.toUtf8(), &parseErr);
+            if (parseErr.error != QJsonParseError::NoError) {
+                const int lastBrace = jsonPayload.lastIndexOf(QLatin1Char('}'));
+                if (lastBrace > 0) {
+                    jsonPayload = jsonPayload.left(lastBrace + 1);
+                    parseErr = QJsonParseError{};
+                    doc = QJsonDocument::fromJson(jsonPayload.toUtf8(), &parseErr);
+                }
+            }
+            if (parseErr.error != QJsonParseError::NoError) {
+                appLog(QStringLiteral("WARN"),
+                       QStringLiteral("Invalid JSON from zfsmgr-zfs-list-all %1::%2 (%3)")
+                           .arg(p.name,
+                                poolName,
+                                parseErr.errorString()));
+            }
             const QJsonObject datasets = doc.object().value(QStringLiteral("datasets")).toObject();
             if (!datasets.isEmpty()) {
                 loadedFromJson = true;
@@ -1911,7 +1944,7 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
         }
     }
 
-    if (!loadedFromJson && !(!isWin && !isLocalConnection(p))) {
+    if (!loadedFromJson) {
         QString cmd = QStringLiteral(
             "zfs list -H -p -t filesystem,volume,snapshot "
             "-o name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount -r %1")

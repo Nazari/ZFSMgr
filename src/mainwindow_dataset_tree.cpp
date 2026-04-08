@@ -2755,9 +2755,21 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
             return roots;
         }
         forEachPoolRootItem(tree, [&](QTreeWidgetItem* n) {
-            roots.push_back(PoolRootRef{
-                n->data(0, kConnIdxRole).toInt(),
-                n->data(0, kPoolNameRole).toString().trimmed()});
+            const int connIdx = n->data(0, kConnIdxRole).toInt();
+            const QString poolName = n->data(0, kPoolNameRole).toString().trimmed();
+            if (connIdx < 0 || poolName.isEmpty()) {
+                return;
+            }
+            if (wantedConnIdx >= 0 && !wantedPoolName.isEmpty()) {
+                if (connIdx != wantedConnIdx || poolName.compare(wantedPoolName, Qt::CaseInsensitive) != 0) {
+                    return;
+                }
+            } else if (wantedConnIdx >= 0) {
+                if (connIdx != wantedConnIdx) {
+                    return;
+                }
+            }
+            roots.push_back(PoolRootRef{connIdx, poolName});
         });
         if (wantedConnIdx >= 0 && !wantedPoolName.isEmpty()) {
             std::stable_sort(roots.begin(), roots.end(), [&](const PoolRootRef& a, const PoolRootRef& b) {
@@ -3504,6 +3516,17 @@ void MainWindow::saveConnContentTreeState(QTreeWidget* tree, const QString& toke
         return;
     }
     const QString normalizedToken = normalizedConnContentStateToken(tree, token);
+    int scopedConnIdx = -1;
+    if (normalizedToken.startsWith(QStringLiteral("conn:"))) {
+        bool okScoped = false;
+        const QString rawConn = normalizedToken.mid(QStringLiteral("conn:").size());
+        const int pipePos = rawConn.indexOf(QLatin1Char('|'));
+        const QString connPart = (pipePos >= 0 ? rawConn.left(pipePos) : rawConn).trimmed();
+        const int parsed = connPart.toInt(&okScoped);
+        if (okScoped && parsed >= 0) {
+            scopedConnIdx = parsed;
+        }
+    }
     const QString scopedToken =
         normalizedToken + QStringLiteral("|top");
     ConnContentTreeState st;
@@ -3560,7 +3583,15 @@ void MainWindow::saveConnContentTreeState(QTreeWidget* tree, const QString& toke
             rec(n->child(i));
         }
     };
-    forEachPoolRootItem(tree, [&](QTreeWidgetItem* n) { rec(n); });
+    forEachPoolRootItem(tree, [&](QTreeWidgetItem* n) {
+        if (!n) {
+            return;
+        }
+        if (scopedConnIdx >= 0 && n->data(0, kConnIdxRole).toInt() != scopedConnIdx) {
+            return;
+        }
+        rec(n);
+    });
     {
         QSet<QString> seenExpandedNodePaths;
         std::function<void(QTreeWidgetItem*)> recExpanded = [&](QTreeWidgetItem* n) {
@@ -3596,8 +3627,14 @@ void MainWindow::saveConnContentTreeState(QTreeWidget* tree, const QString& toke
                 recExpanded(n->child(i));
             }
         };
-        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-            recExpanded(tree->topLevelItem(i));
+        if (scopedConnIdx >= 0) {
+            if (QTreeWidgetItem* connRoot = findConnectionRootItem(tree, scopedConnIdx)) {
+                recExpanded(connRoot);
+            }
+        } else {
+            for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+                recExpanded(tree->topLevelItem(i));
+            }
         }
     }
     QTreeWidgetItem* selectedItem = tree->currentItem();
@@ -3605,6 +3642,16 @@ void MainWindow::saveConnContentTreeState(QTreeWidget* tree, const QString& toke
         const auto selected = tree->selectedItems();
         if (!selected.isEmpty()) {
             selectedItem = selected.first();
+        }
+    }
+    if (selectedItem && scopedConnIdx >= 0) {
+        QTreeWidgetItem* selOwner = selectedItem;
+        while (selOwner && !selOwner->data(0, kIsConnectionRootRole).toBool()
+               && !selOwner->data(0, kIsPoolRootRole).toBool()) {
+            selOwner = selOwner->parent();
+        }
+        if (!selOwner || selOwner->data(0, kConnIdxRole).toInt() != scopedConnIdx) {
+            selectedItem = nullptr;
         }
     }
     if (selectedItem) {
@@ -3797,6 +3844,17 @@ void MainWindow::restoreConnContentTreeState(QTreeWidget* tree, const QString& t
         return;
     }
     const QString normalizedToken = normalizedConnContentStateToken(tree, token);
+    int scopedConnIdx = -1;
+    if (normalizedToken.startsWith(QStringLiteral("conn:"))) {
+        bool okScoped = false;
+        const QString rawConn = normalizedToken.mid(QStringLiteral("conn:").size());
+        const int pipePos = rawConn.indexOf(QLatin1Char('|'));
+        const QString connPart = (pipePos >= 0 ? rawConn.left(pipePos) : rawConn).trimmed();
+        const int parsed = connPart.toInt(&okScoped);
+        if (okScoped && parsed >= 0) {
+            scopedConnIdx = parsed;
+        }
+    }
     const QString scopedToken =
         normalizedToken + QStringLiteral("|top");
     const auto it = m_connContentTreeStateByToken.constFind(scopedToken);
@@ -3937,11 +3995,23 @@ void MainWindow::restoreConnContentTreeState(QTreeWidget* tree, const QString& t
             applyExpand(n->child(i));
         }
     };
-    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
-        applyExpand(tree->topLevelItem(i));
+    if (scopedConnIdx >= 0) {
+        if (QTreeWidgetItem* connRoot = findConnectionRootItem(tree, scopedConnIdx)) {
+            applyExpand(connRoot);
+        }
+    } else {
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            applyExpand(tree->topLevelItem(i));
+        }
     }
     logSnapshotPhase(QStringLiteral("after-applyExpand"));
     forEachPoolRootItem(tree, [&](QTreeWidgetItem* top) {
+        if (!top) {
+            return;
+        }
+        if (scopedConnIdx >= 0 && top->data(0, kConnIdxRole).toInt() != scopedConnIdx) {
+            return;
+        }
         const QString key = poolStateKey(top);
         const bool poolExpanded = key.isEmpty()
                                       ? st.poolRootExpanded
