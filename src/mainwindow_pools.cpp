@@ -92,6 +92,45 @@ QString MainWindow::cachedPoolStatusTooltipHtml(int connIdx, const QString& pool
     return formatPoolStatusTooltipHtml(it->statusText);
 }
 
+bool MainWindow::isPoolSuspendedByStatusText(const QString& statusText) const {
+    const QString t = statusText.trimmed().toLower();
+    if (t.isEmpty()) {
+        return false;
+    }
+    if (t.contains(QStringLiteral("pool i/o is currently suspended"))) {
+        return true;
+    }
+    if (t.contains(QStringLiteral("state: suspended"))) {
+        return true;
+    }
+    return t.contains(QStringLiteral("suspended"));
+}
+
+bool MainWindow::isPoolSuspended(int connIdx, const QString& poolName) const {
+    const QString trimmedPool = poolName.trimmed();
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty()) {
+        return false;
+    }
+    if (const PoolInfo* poolInfo = findPoolInfo(connIdx, trimmedPool)) {
+        if (isPoolSuspendedByStatusText(poolInfo->runtime.poolStatusText)) {
+            return true;
+        }
+    }
+    if (connIdx >= 0 && connIdx < m_states.size()) {
+        if (isPoolSuspendedByStatusText(m_states[connIdx].poolStatusByName.value(trimmedPool))) {
+            return true;
+        }
+    }
+    const QString cacheKey = poolDetailsCacheKey(connIdx, trimmedPool);
+    if (!cacheKey.isEmpty()) {
+        const auto it = m_poolDetailsCache.constFind(cacheKey);
+        if (it != m_poolDetailsCache.cend() && isPoolSuspendedByStatusText(it->statusText)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void MainWindow::applyPoolRootTooltipForTree(QTreeWidget* tree,
                                              int connIdx,
                                              const QString& poolName,

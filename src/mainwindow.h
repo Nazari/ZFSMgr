@@ -910,6 +910,8 @@ private:
     void setTablePopulationMode(QTableWidget* table, bool populating);
     QString formatPoolStatusTooltipHtml(const QString& statusText) const;
     QString cachedPoolStatusTooltipHtml(int connIdx, const QString& poolName) const;
+    bool isPoolSuspendedByStatusText(const QString& statusText) const;
+    bool isPoolSuspended(int connIdx, const QString& poolName) const;
     void applyPoolRootTooltipForTree(QTreeWidget* tree, int connIdx, const QString& poolName, const QString& statusText) const;
     void applyPoolRootTooltipToVisibleTrees(int connIdx, const QString& poolName, const QString& statusText) const;
     void cachePoolStatusTextsForConnection(int connIdx, const ConnectionRuntimeState& state);

@@ -2130,6 +2130,8 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     QMenu menu(m_mainWindow);
     const bool isConnectionRoot = item->data(0, kIsConnectionRootRole).toBool();
     const bool isPoolRoot = item->data(0, kIsPoolRootRole).toBool();
+    const bool poolSuspendedContext =
+        (connIdx >= 0 && !poolName.isEmpty() && m_mainWindow->isPoolSuspended(connIdx, poolName));
     const QString menuToken = QStringLiteral("%1::%2").arg(connIdx).arg(poolName);
     auto isInfoNodeOrInside = [](QTreeWidgetItem* n) -> bool {
         for (QTreeWidgetItem* p = n; p; p = p->parent()) {
@@ -2195,6 +2197,21 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         poolActions.initialize->setEnabled(poolMenuState.canInitialize);
         poolActions.clear->setEnabled(poolMenuState.canClear);
         poolActions.destroy->setEnabled(poolMenuState.canDestroy);
+        if (poolSuspendedContext) {
+            poolActions.update->setEnabled(false);
+            poolActions.importPool->setEnabled(false);
+            poolActions.importRename->setEnabled(false);
+            poolActions.exportPool->setEnabled(false);
+            poolActions.history->setEnabled(false);
+            poolActions.sync->setEnabled(false);
+            poolActions.scrub->setEnabled(false);
+            poolActions.upgrade->setEnabled(false);
+            poolActions.reguid->setEnabled(false);
+            poolActions.trim->setEnabled(false);
+            poolActions.initialize->setEnabled(false);
+            poolActions.clear->setEnabled(false);
+            poolActions.destroy->setEnabled(false);
+        }
         if (!item->data(0, kIsSplitRootRole).toBool()) {
             QMenu* splitMenu = menu.addMenu(QStringLiteral("Split and root"));
             aSplitHorizontal = splitMenu->addAction(
@@ -2300,6 +2317,9 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     QAction* aCreate = nullptr;
     QAction* aRename = nullptr;
     QAction* aDelete = nullptr;
+    QMenu* datasetMenuRoot = nullptr;
+    QMenu* actionsMenuRoot = nullptr;
+    QMenu* permsMenuRoot = nullptr;
     QMenu* mEncryption = nullptr;
     QAction* aLoadKey = nullptr;
     QAction* aUnloadKey = nullptr;
@@ -2345,28 +2365,28 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                                   QStringLiteral("Select as source"),
                                   QStringLiteral("设为源")));
         } else {
-            QMenu* datasetMenu = menu.addMenu(QStringLiteral("Dataset"));
-            aCreate = datasetMenu->addAction(QStringLiteral("Crear"));
-            aRename = datasetMenu->addAction(QStringLiteral("Renombrar"));
-            aDelete = datasetMenu->addAction(QStringLiteral("Borrar"));
-            mEncryption = datasetMenu->addMenu(QStringLiteral("Clave de Encriptación"));
+            datasetMenuRoot = menu.addMenu(QStringLiteral("Dataset"));
+            aCreate = datasetMenuRoot->addAction(QStringLiteral("Crear"));
+            aRename = datasetMenuRoot->addAction(QStringLiteral("Renombrar"));
+            aDelete = datasetMenuRoot->addAction(QStringLiteral("Borrar"));
+            mEncryption = datasetMenuRoot->addMenu(QStringLiteral("Clave de Encriptación"));
             aLoadKey = mEncryption->addAction(QStringLiteral("Cargar Clave"));
             aUnloadKey = mEncryption->addAction(QStringLiteral("Descargar Clave"));
             aChangeKey = mEncryption->addAction(QStringLiteral("Cambiar Clave"));
-            aScheduleSnapshots = datasetMenu->addAction(QStringLiteral("Programar snapshots"));
-            QMenu* permsMenu = datasetMenu->addMenu(QStringLiteral("Permisos"));
-            aPermNewSet = permsMenu->addAction(QStringLiteral("Nuevo Set"));
-            aPermNewDeleg = permsMenu->addAction(QStringLiteral("Nueva Delegación"));
+            aScheduleSnapshots = datasetMenuRoot->addAction(QStringLiteral("Programar snapshots"));
+            permsMenuRoot = datasetMenuRoot->addMenu(QStringLiteral("Permisos"));
+            aPermNewSet = permsMenuRoot->addAction(QStringLiteral("Nuevo Set"));
+            aPermNewDeleg = permsMenuRoot->addAction(QStringLiteral("Nueva Delegación"));
 
-            QMenu* actionsMenu = menu.addMenu(QStringLiteral("Acciones"));
-            aBreakdown = actionsMenu->addAction(
+            actionsMenuRoot = menu.addMenu(QStringLiteral("Acciones"));
+            aBreakdown = actionsMenuRoot->addAction(
                 m_mainWindow->trk(QStringLiteral("t_breakdown_btn1"), QStringLiteral("Desglosar"), QStringLiteral("Break down"), QStringLiteral("拆分")));
-            aAssemble = actionsMenu->addAction(
+            aAssemble = actionsMenuRoot->addAction(
                 m_mainWindow->trk(QStringLiteral("t_assemble_btn1"), QStringLiteral("Ensamblar"), QStringLiteral("Assemble"), QStringLiteral("组装")));
-            aFromDir = actionsMenu->addAction(
+            aFromDir = actionsMenuRoot->addAction(
                 m_mainWindow->trk(QStringLiteral("t_from_dir_btn1"), QStringLiteral("Desde Dir"), QStringLiteral("From Dir"), QStringLiteral("来自目录")));
-            aToDir = actionsMenu->addAction(QStringLiteral("Hasta Dir"));
-            aMount = actionsMenu->addAction(QStringLiteral("Mount"));
+            aToDir = actionsMenuRoot->addAction(QStringLiteral("Hasta Dir"));
+            aMount = actionsMenuRoot->addAction(QStringLiteral("Mount"));
 
             aSelectOrigin = menu.addAction(
                 m_mainWindow->trk(QStringLiteral("t_ctx_select_as_origin_001"),
@@ -2402,6 +2422,32 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                                       QStringLiteral("向上")));
             }
         }
+    }
+    if (poolSuspendedContext) {
+        if (datasetMenuRoot) datasetMenuRoot->setEnabled(false);
+        if (actionsMenuRoot) actionsMenuRoot->setEnabled(false);
+        if (permsMenuRoot) permsMenuRoot->setEnabled(false);
+        if (mEncryption) mEncryption->setEnabled(false);
+        if (aManageProps) aManageProps->setEnabled(false);
+        if (aCreate) aCreate->setEnabled(false);
+        if (aRename) aRename->setEnabled(false);
+        if (aDelete) aDelete->setEnabled(false);
+        if (aLoadKey) aLoadKey->setEnabled(false);
+        if (aUnloadKey) aUnloadKey->setEnabled(false);
+        if (aChangeKey) aChangeKey->setEnabled(false);
+        if (aScheduleSnapshots) aScheduleSnapshots->setEnabled(false);
+        if (aRollback) aRollback->setEnabled(false);
+        if (aNewHold) aNewHold->setEnabled(false);
+        if (aReleaseHold) aReleaseHold->setEnabled(false);
+        if (aBreakdown) aBreakdown->setEnabled(false);
+        if (aAssemble) aAssemble->setEnabled(false);
+        if (aFromDir) aFromDir->setEnabled(false);
+        if (aToDir) aToDir->setEnabled(false);
+        if (aMount) aMount->setEnabled(false);
+        if (aSelectOrigin) aSelectOrigin->setEnabled(false);
+        if (aSelectDestination) aSelectDestination->setEnabled(false);
+        if (aPermNewSet) aPermNewSet->setEnabled(false);
+        if (aPermNewDeleg) aPermNewDeleg->setEnabled(false);
     }
 
     const bool menuOpenedOnDatasetNode =

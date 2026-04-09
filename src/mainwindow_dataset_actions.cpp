@@ -379,6 +379,19 @@ bool MainWindow::executeDatasetAction(const QString& side,
     if (!ctx.valid) {
         return false;
     }
+    if (isPoolSuspended(ctx.connIdx, ctx.poolName)) {
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("Bloqueada acción %1 en %2::%3 (pool suspended)")
+                   .arg(actionName, m_profiles.value(ctx.connIdx).name, ctx.poolName));
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_pool_suspended_block_001"),
+                QStringLiteral("El pool está en estado suspended. No se permiten operaciones."),
+                QStringLiteral("Pool is suspended. Operations are disabled."),
+                QStringLiteral("存储池处于 suspended 状态，已禁用操作。")));
+        return false;
+    }
     const ConnectionProfile& p = m_profiles[ctx.connIdx];
     if (isWindowsConnection(p) && !allowWindowsScript) {
         const QString c = cmd.toLower();

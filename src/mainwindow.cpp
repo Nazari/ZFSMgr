@@ -1346,7 +1346,17 @@ bool MainWindow::ensurePoolAutoSnapshotInfoLoaded(int connIdx, const QString& po
     if (poolInfo && poolInfo->runtime.schedulesState == LoadState::Loaded) {
         return true;
     }
+    if (poolInfo && poolInfo->runtime.schedulesState == LoadState::Error) {
+        return false;
+    }
     if (isWindowsConnection(connIdx)) {
+        return false;
+    }
+    if (isPoolSuspended(connIdx, trimmedPool)) {
+        if (poolInfo) {
+            poolInfo->runtime.schedulesState = LoadState::Error;
+            poolInfo->runtime.errorText = QStringLiteral("pool suspended");
+        }
         return false;
     }
     if (poolInfo && poolInfo->runtime.schedulesState == LoadState::Loading) {
@@ -1394,6 +1404,13 @@ void MainWindow::preloadPoolAutoSnapshotInfoForConnection(int connIdx) {
 void MainWindow::schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& poolName) {
     const QString trimmedPool = poolName.trimmed();
     if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty() || isWindowsConnection(connIdx)) {
+        return;
+    }
+    if (isPoolSuspended(connIdx, trimmedPool)) {
+        if (PoolInfo* p = findPoolInfo(connIdx, trimmedPool)) {
+            p->runtime.schedulesState = LoadState::Error;
+            p->runtime.errorText = QStringLiteral("pool suspended");
+        }
         return;
     }
     PoolInfo* poolInfo = findPoolInfo(connIdx, trimmedPool);
@@ -1535,6 +1552,16 @@ bool MainWindow::executePoolCommand(int connIdx,
         if (failureDetailOut) {
             *failureDetailOut = QStringLiteral("invalid pool command context");
         }
+        return false;
+    }
+    if (isPoolSuspended(connIdx, trimmedPool)) {
+        const QString detail = QStringLiteral("pool is suspended");
+        if (failureDetailOut) {
+            *failureDetailOut = detail;
+        }
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("Bloqueado %1 sobre %2::%3 (%4)")
+                   .arg(trimmedAction, m_profiles[connIdx].name, trimmedPool, detail));
         return false;
     }
 

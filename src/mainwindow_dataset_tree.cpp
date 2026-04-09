@@ -4882,14 +4882,19 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
     auto poolRootTitle = [&]() -> QString {
         QString connName = (connIdx >= 0 && connIdx < m_profiles.size()) ? m_profiles[connIdx].name : QStringLiteral("?");
         const bool groupedByConnection = treeGroupsPoolsByConnectionRoots(tree);
+        const bool poolSuspended = isPoolSuspended(connIdx, poolName);
         const QString poolPrefix =
             trk(QStringLiteral("t_tree_pool_prefix_001"),
                 QStringLiteral("Pool"),
                 QStringLiteral("Pool"),
                 QStringLiteral("存储池"));
         if (poolImported) {
-            return groupedByConnection ? QStringLiteral("%1 %2").arg(poolPrefix, poolName)
-                                       : QStringLiteral("%1 %2::%3").arg(poolPrefix, connName, poolName);
+            QString title = groupedByConnection ? QStringLiteral("%1 %2").arg(poolPrefix, poolName)
+                                                : QStringLiteral("%1 %2::%3").arg(poolPrefix, connName, poolName);
+            if (poolSuspended) {
+                title += QStringLiteral(" (Suspended)");
+            }
+            return title;
         }
         const QString stateText = trk(QStringLiteral("t_pool_impable_001"),
                                       QStringLiteral("Importable"),
