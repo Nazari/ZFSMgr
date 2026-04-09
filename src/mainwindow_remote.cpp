@@ -738,7 +738,7 @@ bool MainWindow::supportsAlternateDatasetMount(int connIdx) const {
 }
 
 QString MainWindow::remoteScriptsVersionTag() const {
-    return QStringLiteral(ZFSMGR_APP_VERSION) + QStringLiteral(".remote-scripts.11");
+    return QStringLiteral(ZFSMGR_APP_VERSION) + QStringLiteral(".remote-scripts.12");
 }
 
 QString MainWindow::remoteScriptsBasePath(const ConnectionProfile& p) const {
@@ -1114,6 +1114,7 @@ fi
 printf '__MP__=%s\n' "$MP"
 for d in "$MP"/.[!.]* "$MP"/..?* "$MP"/*; do
   [ -d "$d" ] || continue
+  [ -L "$d" ] && continue
   bn="$(basename "$d")"
   [ -n "$bn" ] && printf '%s\n' "$bn"
 done | sort -u
@@ -1151,6 +1152,7 @@ fi
 for bn in "$@"; do
   d="$MP/$bn"
   [ -d "$d" ] || continue
+  [ -L "$d" ] && { echo "[BREAKDOWN] skip link $bn"; continue; }
   echo "[BREAKDOWN] start $bn"
   child="$DATASET/$bn"
   zfs list -H -o name "$child" >/dev/null 2>&1 && { echo "child_exists=$child"; continue; }

@@ -169,7 +169,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                                "[ -n \"$MP\" ] || exit 0; "
                                "[ -d \"$MP\" ] || exit 0; "
                                "printf '__MP__=%s\\n' \"$MP\"; "
-                               "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); [ -n \"$bn\" ] && printf '%s\\n' \"$bn\"; done | sort -u")
+                               "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; [ -L \"$d\" ] && continue; bn=$(basename \"$d\"); [ -n \"$bn\" ] && printf '%s\\n' \"$bn\"; done | sort -u")
                     .arg(shSingleQuote(ds), unixAlternateMountHelpersScript());
         }
         QString keyLocation;
@@ -437,6 +437,8 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                   "if ([string]::IsNullOrWhiteSpace($mp) -or -not (Test-Path -LiteralPath $mp)) { throw 'mountpoint=none' }; "
                   "foreach($bn in $selected){ "
                   "  $src=Join-Path $mp $bn; if (-not (Test-Path -LiteralPath $src -PathType Container)) { continue }; "
+                  "  $srcItem=Get-Item -LiteralPath $src -Force -ErrorAction SilentlyContinue; "
+                  "  if ($srcItem -and ($srcItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }; "
                   "  Write-Output ('[BREAKDOWN] start ' + $bn); "
                   "  $child=\"$ds/$bn\"; "
                   "  zfs list -H -o name $child 2>$null | Out-Null; if ($LASTEXITCODE -ne 0) { zfs create $child | Out-Null; if($LASTEXITCODE -ne 0){ throw \"zfs create failed for $child\" } }; "
@@ -488,7 +490,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                            "if [ -z \"$MP\" ]; then TMP_ROOT=$(mktemp -d /tmp/zfsmgr-break-root-XXXXXX); mount_alt_zfs \"$DATASET\" \"$TMP_ROOT\"; MP=\"$TMP_ROOT\"; fi; "
                            "[ -n \"$MP\" ] || { echo \"mountpoint=none\"; exit 2; }; "
                            "SELECTED_DIRS=(%2); is_selected_dir(){ for s in \"${SELECTED_DIRS[@]}\"; do [ \"$s\" = \"$1\" ] && return 0; done; return 1; }; "
-                           "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); is_selected_dir \"$bn\" || continue; "
+                           "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; [ -L \"$d\" ] && continue; bn=$(basename \"$d\"); is_selected_dir \"$bn\" || continue; "
                            "echo \"[BREAKDOWN] start $bn\"; "
                            "child=\"$DATASET/$bn\"; "
                            "zfs list -H -o name \"$child\" >/dev/null 2>&1 && { echo \"child_exists=$child\"; continue; }; "
@@ -686,7 +688,7 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
                 args.push_back(child);
             }
             cmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-advanced-assemble"), args));
-            executeDatasetAction(QStringLiteral("origin"),
+            executeDatasetAction(QStringLiteral("conncontent"),
                                  QStringLiteral("Ensamblar"),
                                  ctx,
                                  cmd,
@@ -764,7 +766,7 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
                            "done")
                 .arg(shSingleQuote(ds), selectedList, unixAlternateMountHelpersScript());
     }
-    executeDatasetAction(QStringLiteral("origin"),
+    executeDatasetAction(QStringLiteral("conncontent"),
                          QStringLiteral("Ensamblar"),
                          ctx,
                          cmd,

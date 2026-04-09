@@ -520,6 +520,11 @@ bool MainWindow::executeDatasetAction(const QString& side,
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("%1 finalizado").arg(actionName));
     updateStatus(QStringLiteral("%1 finalizado %2::%3").arg(actionName, p.name, ctx.datasetName));
+    const bool subtreeTopologyAction = (isBreakdownAction || isAssembleAction);
+    if (subtreeTopologyAction) {
+        invalidateDatasetSubtreeCacheEntries(ctx.connIdx, ctx.poolName, ctx.datasetName, true);
+        invalidatePoolDatasetListingCache(ctx.connIdx, ctx.poolName);
+    }
     if (invalidatePoolCache) {
         invalidateDatasetCacheForPool(ctx.connIdx, ctx.poolName);
     }
