@@ -132,10 +132,22 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             if (!chunk.isEmpty()) {
                 buf += chunk;
             }
-            int nl = -1;
-            while ((nl = buf.indexOf('\n')) >= 0) {
-                QString line = buf.left(nl);
-                buf.remove(0, nl + 1);
+            while (true) {
+                const int nl = buf.indexOf('\n');
+                const int cr = buf.indexOf('\r');
+                int sep = -1;
+                if (nl >= 0 && cr >= 0) {
+                    sep = qMin(nl, cr);
+                } else if (nl >= 0) {
+                    sep = nl;
+                } else if (cr >= 0) {
+                    sep = cr;
+                }
+                if (sep < 0) {
+                    break;
+                }
+                QString line = buf.left(sep);
+                buf.remove(0, sep + 1);
                 line = line.trimmed();
                 if (line.isEmpty()) {
                     continue;
@@ -299,10 +311,22 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             if (!chunk.isEmpty()) {
                 buf += chunk;
             }
-            int nl = -1;
-            while ((nl = buf.indexOf('\n')) >= 0) {
-                QString line = buf.left(nl);
-                buf.remove(0, nl + 1);
+            while (true) {
+                const int nl = buf.indexOf('\n');
+                const int cr = buf.indexOf('\r');
+                int sep = -1;
+                if (nl >= 0 && cr >= 0) {
+                    sep = qMin(nl, cr);
+                } else if (nl >= 0) {
+                    sep = nl;
+                } else if (cr >= 0) {
+                    sep = cr;
+                }
+                if (sep < 0) {
+                    break;
+                }
+                QString line = buf.left(sep);
+                buf.remove(0, sep + 1);
                 line = line.trimmed();
                 if (line.isEmpty()) {
                     continue;
@@ -486,10 +510,22 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             if (!chunk.isEmpty()) {
                 buf += chunk;
             }
-            int nl = -1;
-            while ((nl = buf.indexOf('\n')) >= 0) {
-                QString line = buf.left(nl);
-                buf.remove(0, nl + 1);
+            while (true) {
+                const int nl = buf.indexOf('\n');
+                const int cr = buf.indexOf('\r');
+                int sep = -1;
+                if (nl >= 0 && cr >= 0) {
+                    sep = qMin(nl, cr);
+                } else if (nl >= 0) {
+                    sep = nl;
+                } else if (cr >= 0) {
+                    sep = cr;
+                }
+                if (sep < 0) {
+                    break;
+                }
+                QString line = buf.left(sep);
+                buf.remove(0, sep + 1);
                 line = line.trimmed();
                 if (line.isEmpty()) {
                     continue;
@@ -1142,6 +1178,8 @@ umount_alt_zfs(){ ds="$1"; mp="$2"; zfs unmount "$ds" >/dev/null 2>&1 || zfs unm
 resolve_mp(){ ds="$1"; zfs mount 2>/dev/null | awk -v d="$ds" '$1==d{print $2; exit}'; }
 load_key_if_needed(){ ds="$1"; ks=$(zfs get -H -o value keystatus "$ds" 2>/dev/null || true); [ "$ks" = "available" ] && return 0; kl=$(zfs get -H -o value keylocation "$ds" 2>/dev/null || true); if [ "$kl" = "prompt" ]; then if [ "$ZFSMGR_PASS_READ" != "1" ]; then IFS= read -r ZFSMGR_KEY_PASS || return 1; ZFSMGR_PASS_READ=1; fi; printf '%s\n' "$ZFSMGR_KEY_PASS" | zfs load-key "$ds" >/dev/null; else zfs load-key "$ds" >/dev/null 2>&1 || true; fi; }
 RSYNC_OPTS='-aHWS'
+RSYNC_PROGRESS='--info=progress2'
+if ! rsync --help 2>/dev/null | grep -q -- '--info'; then RSYNC_PROGRESS='--progress'; fi
 if rsync -A --version >/dev/null 2>&1; then RSYNC_OPTS="$RSYNC_OPTS -A"; fi
 if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS="$RSYNC_OPTS -X"; elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS="$RSYNC_OPTS --extended-attributes"; fi
 TMP_ROOT=''
@@ -1169,7 +1207,7 @@ for bn in "$@"; do
   try=0
   PENDING=1
   while :; do
-    rsync $RSYNC_OPTS "$d"/ "$TMP_CHILD_MP"/
+    rsync $RSYNC_OPTS $RSYNC_PROGRESS "$d"/ "$TMP_CHILD_MP"/
     PENDING="$(rsync -rni --ignore-existing "$d"/ "$TMP_CHILD_MP"/ | awk 'length($0)>11{c=substr($0,1,11); if(substr(c,1,1)==">" && substr(c,2,1)=="f") n++} END{print n+0}')"
     [ "$PENDING" = "0" ] && break
     try=$((try+1))
@@ -1200,6 +1238,8 @@ umount_alt_zfs(){ ds="$1"; mp="$2"; zfs unmount "$ds" >/dev/null 2>&1 || zfs unm
 resolve_mp(){ ds="$1"; zfs mount 2>/dev/null | awk -v d="$ds" '$1==d{print $2; exit}'; }
 load_key_if_needed(){ ds="$1"; ks=$(zfs get -H -o value keystatus "$ds" 2>/dev/null || true); [ "$ks" = "available" ] && return 0; kl=$(zfs get -H -o value keylocation "$ds" 2>/dev/null || true); if [ "$kl" = "prompt" ]; then if [ "$ZFSMGR_PASS_READ" != "1" ]; then IFS= read -r ZFSMGR_KEY_PASS || return 1; ZFSMGR_PASS_READ=1; fi; printf '%s\n' "$ZFSMGR_KEY_PASS" | zfs load-key "$ds" >/dev/null; else zfs load-key "$ds" >/dev/null 2>&1 || true; fi; }
 RSYNC_OPTS='-aHWS'
+RSYNC_PROGRESS='--info=progress2'
+if ! rsync --help 2>/dev/null | grep -q -- '--info'; then RSYNC_PROGRESS='--progress'; fi
 if rsync -A --version >/dev/null 2>&1; then RSYNC_OPTS="$RSYNC_OPTS -A"; fi
 if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS="$RSYNC_OPTS -X"; elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS="$RSYNC_OPTS --extended-attributes"; fi
 TMP_PARENT=''
@@ -1225,11 +1265,11 @@ for child in "$@"; do
     CMP="$CHILD_TMP"
   fi
   TMP="$(mktemp -d /tmp/zfsmgr-assemble-XXXXXX)"
-  rsync $RSYNC_OPTS "$CMP"/ "$TMP"/
+  rsync $RSYNC_OPTS $RSYNC_PROGRESS "$CMP"/ "$TMP"/
   if [ -n "$CHILD_TMP" ]; then umount_alt_zfs "$child" "$CHILD_TMP" >/dev/null 2>&1 || true; rmdir "$CHILD_TMP" >/dev/null 2>&1 || true; fi
   zfs destroy -r "$child"
   mkdir -p "$MP/$bn"
-  rsync $RSYNC_OPTS "$TMP"/ "$MP/$bn"/
+  rsync $RSYNC_OPTS $RSYNC_PROGRESS "$TMP"/ "$MP/$bn"/
   rm -rf "$TMP"
   echo "[ASSEMBLE] ok $child -> $MP/$bn"
 done
@@ -1248,6 +1288,8 @@ DELETE_SRC="${4:-0}"
 [ -n "$SRC_DIR" ] || exit 2
 [ -n "$CREATE_CMD" ] || exit 2
 RSYNC_OPTS='-aHWS'
+RSYNC_PROGRESS='--info=progress2'
+if ! rsync --help 2>/dev/null | grep -q -- '--info'; then RSYNC_PROGRESS='--progress'; fi
 if rsync -A --version >/dev/null 2>&1; then RSYNC_OPTS="$RSYNC_OPTS -A"; fi
 if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS="$RSYNC_OPTS -X"; elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS="$RSYNC_OPTS --extended-attributes"; fi
 TMP_MP="$(mktemp -d /tmp/zfsmgr-fromdir-mp-XXXXXX)"
@@ -1273,7 +1315,9 @@ normp(){ p="$1"; [ -z "$p" ] && return; [ -d "$p" ] && (cd "$p" 2>/dev/null && p
 ACTIVE_MP="$(zfs mount 2>/dev/null | awk -v d="$DATASET" '$1==d{print $2;exit}')"
 N_ACTIVE="$(normp "$ACTIVE_MP")"; N_TMP="$(normp "$TMP_MP")"
 [ "$N_ACTIVE" = "$N_TMP" ] || { echo 'could not mount dataset on temporary mountpoint'; exit 4; }
-rsync $RSYNC_OPTS "$SRC_DIR"/ "$TMP_MP"/
+echo "[FROMDIR] rsync start"
+rsync $RSYNC_OPTS $RSYNC_PROGRESS "$SRC_DIR"/ "$TMP_MP"/
+echo "[FROMDIR] rsync done"
 if [ "$DELETE_SRC" = "1" ]; then
   BACKUP_DIR="$SRC_DIR.zfsmgr-bak-$$"
   i=0
@@ -1317,6 +1361,8 @@ DELETE_SRC="${3:-0}"
 [ -n "$DATASET" ] || exit 2
 [ -n "$DST_DIR" ] || exit 2
 RSYNC_OPTS='-aHWS'
+RSYNC_PROGRESS='--info=progress2'
+if ! rsync --help 2>/dev/null | grep -q -- '--info'; then RSYNC_PROGRESS='--progress'; fi
 if rsync -A --version >/dev/null 2>&1; then RSYNC_OPTS="$RSYNC_OPTS -A"; fi
 if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS="$RSYNC_OPTS -X"; elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS="$RSYNC_OPTS --extended-attributes"; fi
 TMP_MP="$(mktemp -d /tmp/zfsmgr-todir-mp-XXXXXX)"
@@ -1352,7 +1398,9 @@ normp(){ p="$1"; [ -z "$p" ] && return; [ -d "$p" ] && (cd "$p" 2>/dev/null && p
 ACTIVE_MP="$(zfs mount 2>/dev/null | awk -v d="$DATASET" '$1==d{print $2;exit}')"
 N_ACTIVE="$(normp "$ACTIVE_MP")"; N_TMP="$(normp "$TMP_MP")"
 [ "$N_ACTIVE" = "$N_TMP" ] || { echo 'could not mount dataset on temporary mountpoint'; exit 3; }
-rsync $RSYNC_OPTS "$TMP_MP"/ "$TMP_OUT"/
+echo "[TODIR] rsync start"
+rsync $RSYNC_OPTS $RSYNC_PROGRESS "$TMP_MP"/ "$TMP_OUT"/
+echo "[TODIR] rsync done"
 if [ -e "$DST_DIR" ]; then
   BACKUP_DIR="$DST_DIR.zfsmgr-bak-$$"
   i=0; while [ -e "$BACKUP_DIR" ]; do i=$((i+1)); BACKUP_DIR="$DST_DIR.zfsmgr-bak-$$-$i"; done

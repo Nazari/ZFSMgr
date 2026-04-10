@@ -508,8 +508,10 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
         }
         const QString selectedList = selectedQuoted.join(' ');
         cmd =
-            QStringLiteral("set -e; DATASET=%1; %3"
+                           QStringLiteral("set -e; DATASET=%1; %3"
                            "RSYNC_OPTS='-aHWS'; "
+                           "RSYNC_PROGRESS='--info=progress2'; "
+                           "rsync --help 2>/dev/null | grep -q -- '--info' || RSYNC_PROGRESS='--progress'; "
                            "rsync -A --version >/dev/null 2>&1 && RSYNC_OPTS=\"$RSYNC_OPTS -A\"; "
                            "if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS=\"$RSYNC_OPTS -X\"; "
                            "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; fi; "
@@ -532,7 +534,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                            "zfs mount \"$child\" >/dev/null 2>&1 || true; "
                            "try=0; "
                            "while :; do "
-                           "  rsync $RSYNC_OPTS \"$d\"/ \"$TMP_CHILD_MP\"/; "
+                           "  rsync $RSYNC_OPTS $RSYNC_PROGRESS \"$d\"/ \"$TMP_CHILD_MP\"/; "
                            "  PENDING=$(rsync -rni --ignore-existing \"$d\"/ \"$TMP_CHILD_MP\"/ | awk 'length($0)>11{c=substr($0,1,11); if(substr(c,1,1)==\">\" && substr(c,2,1)==\"f\") n++} END{print n+0}'); "
                            "  [ \"$PENDING\" = \"0\" ] && break; "
                            "  try=$((try+1)); "
@@ -800,8 +802,10 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
         }
         const QString selectedList = selectedQuoted.join(' ');
         cmd =
-            QStringLiteral("set -e; DATASET=%1; %3"
+                           QStringLiteral("set -e; DATASET=%1; %3"
                            "RSYNC_OPTS='-aHWS'; "
+                           "RSYNC_PROGRESS='--info=progress2'; "
+                           "rsync --help 2>/dev/null | grep -q -- '--info' || RSYNC_PROGRESS='--progress'; "
                            "rsync -A --version >/dev/null 2>&1 && RSYNC_OPTS=\"$RSYNC_OPTS -A\"; "
                            "if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS=\"$RSYNC_OPTS -X\"; "
                            "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; fi; "
@@ -818,11 +822,11 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
                            "CHILD_TMP=''; "
                            "if [ -z \"$CMP\" ]; then load_key_if_needed \"$child\"; CHILD_TMP=$(mktemp -d /tmp/zfsmgr-assemble-child-XXXXXX); mount_alt_zfs \"$child\" \"$CHILD_TMP\"; CMP=\"$CHILD_TMP\"; fi; "
                            "TMP=$(mktemp -d /tmp/zfsmgr-assemble-XXXXXX); "
-                           "rsync $RSYNC_OPTS \"$CMP\"/ \"$TMP\"/; "
+                           "rsync $RSYNC_OPTS $RSYNC_PROGRESS \"$CMP\"/ \"$TMP\"/; "
                            "if [ -n \"$CHILD_TMP\" ]; then umount_alt_zfs \"$child\" \"$CHILD_TMP\" >/dev/null 2>&1 || true; rmdir \"$CHILD_TMP\" >/dev/null 2>&1 || true; fi; "
                            "zfs destroy -r \"$child\"; "
                            "mkdir -p \"$MP/$bn\"; "
-                           "rsync $RSYNC_OPTS \"$TMP\"/ \"$MP/$bn\"/; "
+                           "rsync $RSYNC_OPTS $RSYNC_PROGRESS \"$TMP\"/ \"$MP/$bn\"/; "
                            "rm -rf \"$TMP\"; "
                            "echo \"[ASSEMBLE] ok $child -> $MP/$bn\"; "
                            "done")

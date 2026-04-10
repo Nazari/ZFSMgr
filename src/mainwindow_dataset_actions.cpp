@@ -442,30 +442,48 @@ bool MainWindow::executeDatasetAction(const QString& side,
     int rc = -1;
     const bool isBreakdownAction = (actionName == QStringLiteral("Desglosar"));
     const bool isAssembleAction = (actionName == QStringLiteral("Ensamblar"));
+    const bool isFromDirAction = (actionName == QStringLiteral("Desde Dir"));
+    const bool isToDirAction = (actionName == QStringLiteral("Hacia Dir")
+                                || actionName == QStringLiteral("Hasta Dir"));
     const bool isDeleteAllSnapsAction = (actionName == QStringLiteral("Borrar todos los snapshots"));
     bool loggedProgressRealtime = false;
     auto progressLogger = [this, &loggedProgressRealtime](const QString& rawLine) {
         const QString ln = rawLine.trimmed();
+        const bool isRsyncProgress =
+            ln.contains(QStringLiteral("to-chk="), Qt::CaseInsensitive)
+            || ln.contains(QStringLiteral("xfr#"), Qt::CaseInsensitive)
+            || (ln.contains(QLatin1Char('%')) && ln.contains(QStringLiteral("/s"), Qt::CaseInsensitive));
         if (ln.contains(QStringLiteral("[BREAKDOWN]"), Qt::CaseInsensitive)
             || ln.contains(QStringLiteral("[ASSEMBLE]"), Qt::CaseInsensitive)
-            || ln.contains(QStringLiteral("[DELALLSNAP]"), Qt::CaseInsensitive)) {
+            || ln.contains(QStringLiteral("[DELALLSNAP]"), Qt::CaseInsensitive)
+            || ln.contains(QStringLiteral("[FROMDIR]"), Qt::CaseInsensitive)
+            || ln.contains(QStringLiteral("[TODIR]"), Qt::CaseInsensitive)
+            || isRsyncProgress) {
             loggedProgressRealtime = true;
             appLog(QStringLiteral("NORMAL"), ln);
         }
     };
-    const bool withRealtimeProgress = (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction);
+    const bool withRealtimeProgress =
+        (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction || isFromDirAction || isToDirAction);
     const bool ok = withRealtimeProgress
                         ? runSsh(p, remoteCmd, timeoutMs, out, err, rc, progressLogger, progressLogger, {}, WindowsCommandMode::Auto, stdinPayload)
                         : runSsh(p, remoteCmd, timeoutMs, out, err, rc, {}, {}, {}, WindowsCommandMode::Auto, stdinPayload);
     if (!ok || rc != 0) {
-        if (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction) {
+        if (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction || isFromDirAction || isToDirAction) {
             if (!loggedProgressRealtime) {
                 const QStringList progressLines = out.split('\n', Qt::SkipEmptyParts);
                 for (const QString& lnRaw : progressLines) {
                     const QString ln = lnRaw.trimmed();
+                    const bool isRsyncProgress =
+                        ln.contains(QStringLiteral("to-chk="), Qt::CaseInsensitive)
+                        || ln.contains(QStringLiteral("xfr#"), Qt::CaseInsensitive)
+                        || (ln.contains(QLatin1Char('%')) && ln.contains(QStringLiteral("/s"), Qt::CaseInsensitive));
                     if (ln.contains(QStringLiteral("[BREAKDOWN]"), Qt::CaseInsensitive)
                         || ln.contains(QStringLiteral("[ASSEMBLE]"), Qt::CaseInsensitive)
-                        || ln.contains(QStringLiteral("[DELALLSNAP]"), Qt::CaseInsensitive)) {
+                        || ln.contains(QStringLiteral("[DELALLSNAP]"), Qt::CaseInsensitive)
+                        || ln.contains(QStringLiteral("[FROMDIR]"), Qt::CaseInsensitive)
+                        || ln.contains(QStringLiteral("[TODIR]"), Qt::CaseInsensitive)
+                        || isRsyncProgress) {
                         appLog(QStringLiteral("NORMAL"), ln);
                     }
                 }
@@ -497,15 +515,22 @@ bool MainWindow::executeDatasetAction(const QString& side,
         return false;
     }
     if (!out.trimmed().isEmpty()) {
-        if (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction) {
+        if (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction || isFromDirAction || isToDirAction) {
             bool loggedProgress = loggedProgressRealtime;
             if (!loggedProgressRealtime) {
                 const QStringList progressLines = out.split('\n', Qt::SkipEmptyParts);
                 for (const QString& lnRaw : progressLines) {
                     const QString ln = lnRaw.trimmed();
+                    const bool isRsyncProgress =
+                        ln.contains(QStringLiteral("to-chk="), Qt::CaseInsensitive)
+                        || ln.contains(QStringLiteral("xfr#"), Qt::CaseInsensitive)
+                        || (ln.contains(QLatin1Char('%')) && ln.contains(QStringLiteral("/s"), Qt::CaseInsensitive));
                     if (ln.contains(QStringLiteral("[BREAKDOWN]"), Qt::CaseInsensitive)
                         || ln.contains(QStringLiteral("[ASSEMBLE]"), Qt::CaseInsensitive)
-                        || ln.contains(QStringLiteral("[DELALLSNAP]"), Qt::CaseInsensitive)) {
+                        || ln.contains(QStringLiteral("[DELALLSNAP]"), Qt::CaseInsensitive)
+                        || ln.contains(QStringLiteral("[FROMDIR]"), Qt::CaseInsensitive)
+                        || ln.contains(QStringLiteral("[TODIR]"), Qt::CaseInsensitive)
+                        || isRsyncProgress) {
                         appLog(QStringLiteral("NORMAL"), ln);
                         loggedProgress = true;
                     }
