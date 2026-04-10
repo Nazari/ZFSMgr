@@ -777,7 +777,7 @@ void MainWindow::startPendingApplyAnimation() {
     m_pendingApplyInProgress = true;
     const QStringList lines = pendingConnContentApplyDisplayLines();
     for (const QString& line : lines) {
-        m_pendingItemStatus[line] = PendingItemStatus::Running;
+        m_pendingItemStatus[line] = PendingItemStatus::Pending;
     }
     if (!m_pendingSpinnerTimer) {
         m_pendingSpinnerTimer = new QTimer(this);
