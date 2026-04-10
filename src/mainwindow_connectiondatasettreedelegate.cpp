@@ -1513,6 +1513,10 @@ void MainWindowConnectionDatasetTreeDelegate::beforeContextMenu(QTreeWidget* tre
 void MainWindowConnectionDatasetTreeDelegate::afterContextMenu(QTreeWidget* tree) {
     Q_UNUSED(tree);
     m_contextMenuInProgress = false;
+    if (m_mainWindow) {
+        m_mainWindow->endUiBusy();
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 10);
+    }
 }
 
 bool MainWindowConnectionDatasetTreeDelegate::handleAutoSnapshotsMenu(QTreeWidget* tree,
