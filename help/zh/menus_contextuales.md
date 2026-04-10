@@ -20,6 +20,8 @@ ZFSMgr 在统一树上使用上下文菜单。
   - 分隔线
   - `New pool`
   - 分隔线
+  - `Split and root`（子菜单：`向右`、`向左`、`向下`、`向上`）
+  - 分隔线
   - `Install MSYS2`
   - `Install helper commands`
 
@@ -44,6 +46,7 @@ ZFSMgr 在统一树上使用上下文菜单。
   - `Manage properties`
   - `Dataset`
   - `Actions`
+  - `Split and root`（子菜单：`向右`、`向左`、`向下`、`向上`）
   - `Select as source`
   - `Select as destination`
 - `Dataset` 子菜单：
@@ -67,9 +70,15 @@ ZFSMgr 在统一树上使用上下文菜单。
 - 在 hold 节点上：
   - `Release`
 
+## 在分屏面板的根节点上
+
+- 如果该节点是分屏面板的根节点，会额外显示：
+  - `Close`：关闭该面板并释放分隔器中的空间。
+
 ## 规则
 
 - 破坏性操作会要求确认。
 - 多个操作使用延迟模式并累积到 `Pending changes`。
 - `Select as source` / `Select as destination` 会更新 `Actions` 里的 `Source/Target` 行。
 - `Dataset properties`、`Snapshot properties` 和 `@` 节点没有上下文菜单。
+- 已挂起（suspended）的池，上下文菜单中大多数操作处于禁用状态。

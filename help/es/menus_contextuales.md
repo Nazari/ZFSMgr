@@ -20,6 +20,8 @@ ZFSMgr usa menús contextuales sobre el árbol unificado.
   - separador
   - `Nuevo pool`
   - separador
+  - `Split and root` (submenú: `Derecha`, `Izquierda`, `Abajo`, `Arriba`)
+  - separador
   - `Instalar MSYS2`
   - `Instalar comandos auxiliares`
 
@@ -44,6 +46,7 @@ ZFSMgr usa menús contextuales sobre el árbol unificado.
   - `Gestionar propiedades`
   - `Dataset`
   - `Acciones`
+  - `Split and root` (submenú: `Derecha`, `Izquierda`, `Abajo`, `Arriba`)
   - `Seleccionar como origen`
   - `Seleccionar como destino`
 - Submenú `Dataset`:
@@ -67,9 +70,15 @@ ZFSMgr usa menús contextuales sobre el árbol unificado.
 - En holds:
   - `Release`
 
+## Sobre el nodo raíz de un panel dividido
+
+- Si el nodo es la raíz de un panel dividido (split), aparece la opción:
+  - `Close`: cierra ese panel y libera el espacio en el divisor.
+
 ## Reglas
 
 - Las acciones destructivas piden confirmación.
 - Varias acciones trabajan en modo diferido y se acumulan en `Pending changes`.
 - `Seleccionar como origen` y `Seleccionar como destino` actualizan la línea `Source/Target` de la caja `Acciones`.
 - No hay menú contextual en nodos `Dataset properties`, `Snapshot properties` ni en el nodo `@`.
+- En pools suspendidos, la mayoría de las acciones del menú contextual aparecen deshabilitadas.

@@ -20,6 +20,8 @@ ZFSMgr uses context menus on the unified tree.
   - separator
   - `New pool`
   - separator
+  - `Split and root` (submenu: `Right`, `Left`, `Below`, `Above`)
+  - separator
   - `Install MSYS2`
   - `Install helper commands`
 
@@ -44,6 +46,7 @@ ZFSMgr uses context menus on the unified tree.
   - `Manage properties`
   - `Dataset`
   - `Actions`
+  - `Split and root` (submenu: `Right`, `Left`, `Below`, `Above`)
   - `Select as source`
   - `Select as destination`
 - `Dataset` submenu:
@@ -67,9 +70,15 @@ ZFSMgr uses context menus on the unified tree.
 - On hold nodes:
   - `Release`
 
+## On the root node of a split panel
+
+- If the node is the root of a split panel, an additional option appears:
+  - `Close`: closes that panel and releases its space in the splitter.
+
 ## Rules
 
 - Destructive actions ask for confirmation.
 - Several actions are deferred and accumulate in `Pending changes`.
 - `Select as source` and `Select as destination` update the `Source/Target` line in `Actions`.
 - There is no context menu on `Dataset properties`, `Snapshot properties`, or the `@` node.
+- On suspended pools, most context menu actions are disabled.

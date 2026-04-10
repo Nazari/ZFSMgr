@@ -35,6 +35,7 @@ ZFSMgr gestiona conexiones y acciones ZFS desde un árbol unificado.
 - En pools importados puede aparecer:
   - `Pool Information`
   - `Datasets programados`
+- Un pool en estado suspendido muestra `(Suspended)` junto a su nombre y bloquea la mayoría de sus operaciones.
 
 ## Nodos inline
 
@@ -135,6 +136,16 @@ ZFSMgr gestiona conexiones y acciones ZFS desde un árbol unificado.
 - `Crear dataset` se abre desde el menú contextual del árbol.
 - Si el dataset es cifrado con `keylocation=prompt`, ZFSMgr pide passphrase.
 - Si falla, el diálogo permanece abierto con los datos introducidos.
+
+## Paneles divididos (Split and root)
+
+- El menú contextual de cualquier nodo de conexión, pool o dataset incluye `Split and root`.
+- Al elegir una dirección (`Derecha`, `Izquierda`, `Abajo`, `Arriba`), se abre un nuevo panel de árbol junto al existente mediante un divisor.
+- El nodo raíz del panel muestra la ruta completa (p. ej. `mbp::tank1/ds1/sub`).
+- Los paneles divididos tienen plena funcionalidad: mismos menús contextuales, propiedades inline y columnas configurables.
+- Los paneles pueden anidarse; cada uno tiene su propio menú de cabecera de columnas.
+- Para cerrar un panel dividido: clic derecho sobre su nodo raíz → `Close`.
+- La disposición de paneles se conserva entre sesiones.
 
 ## Navegación
 
