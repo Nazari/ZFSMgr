@@ -2712,8 +2712,17 @@ void MainWindow::buildUi() {
     if (m_bottomInfoSplit && !m_bottomInfoSplitState.isEmpty()) {
         m_bottomInfoSplit->restoreState(m_bottomInfoSplitState);
     }
+    if (m_bottomInfoSplit) {
+        // Older saved states can carry an obsolete horizontal orientation.
+        // Keep this splitter vertical so the actions/pending strip stays
+        // between dataset tree and logs on every platform.
+        m_bottomInfoSplit->setOrientation(Qt::Vertical);
+    }
     if (m_verticalMainSplit && !m_verticalMainSplitState.isEmpty()) {
         m_verticalMainSplit->restoreState(m_verticalMainSplitState);
+    }
+    if (m_verticalMainSplit) {
+        m_verticalMainSplit->setOrientation(Qt::Vertical);
     }
     int minChangesHeight = topBottomPane->sizeHint().height();
     if (m_bottomInfoSplit) {
