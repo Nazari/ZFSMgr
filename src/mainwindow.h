@@ -888,6 +888,12 @@ private:
                            QStringList& selected,
                            const QString& detail = QString(),
                            const QMap<QString, QString>& invalidItems = {});
+    bool selectTreeItemsDialog(const QString& title,
+                               const QString& intro,
+                               const QStringList& items,
+                               QStringList& selected,
+                               const QString& detail = QString(),
+                               const QMap<QString, QString>& invalidItems = {});
     bool editInlinePropertiesDialog(const QString& title,
                                     const QString& intro,
                                     const QStringList& items,

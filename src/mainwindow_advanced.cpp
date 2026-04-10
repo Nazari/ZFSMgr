@@ -18,7 +18,7 @@ QString unixAlternateMountHelpersScript() {
         "current_mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
         "zfs set \"$saved_prop=$current_mp\" \"$ds\"; "
         "zfs set mountpoint=\"$mp\" \"$ds\"; "
-        "zfs mount \"$ds\"; }; "
+        "zfs mount \"$ds\" >/dev/null 2>&1 || true; }; "
         "umount_alt_zfs(){ ds=\"$1\"; mp=\"$2\"; "
         "saved_prop='org.fc16.zfsmgr:savedmountpoint'; "
         "zfs unmount \"$ds\" >/dev/null 2>&1 || zfs unmount \"$mp\" >/dev/null 2>&1 || true; "
@@ -115,7 +115,17 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                                     "$mp=Resolve-Mp $ds; "
                                     "if (-not [string]::IsNullOrWhiteSpace($mp)) { Write-Output ('__MP__=' + $mp) }; "
                                     "if ([string]::IsNullOrWhiteSpace($mp) -or -not (Test-Path -LiteralPath $mp)) { exit 0 }; "
-                                    "Get-ChildItem -LiteralPath $mp -Directory -Force | Select-Object -ExpandProperty Name | Sort-Object -Unique")
+                                    "$base=[System.IO.Path]::GetFullPath($mp).TrimEnd('\\\\'); "
+                                    "Get-ChildItem -LiteralPath $mp -Directory -Recurse -Force | "
+                                    "Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } | "
+                                    "ForEach-Object { "
+                                    "  $full=[System.IO.Path]::GetFullPath($_.FullName).TrimEnd('\\\\'); "
+                                    "  if (-not $full.StartsWith($base,[System.StringComparison]::OrdinalIgnoreCase)) { return }; "
+                                    "  $rel=$full.Substring($base.Length).TrimStart('\\\\'); "
+                                    "  if ([string]::IsNullOrWhiteSpace($rel)) { return }; "
+                                    "  if ($rel.StartsWith('.zfs\\\\',[System.StringComparison]::OrdinalIgnoreCase) -or $rel.Equals('.zfs',[System.StringComparison]::OrdinalIgnoreCase)) { return }; "
+                                    "  Write-Output ($rel -replace '\\\\','/') "
+                                    "} | Sort-Object -Unique")
                                     .arg(dsPs);
         if (!runSsh(p, withSudo(p, listCmd), 25000, listOut, listErr, listRc) || listRc != 0) {
             stopBusy();
@@ -169,7 +179,12 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                                "[ -n \"$MP\" ] || exit 0; "
                                "[ -d \"$MP\" ] || exit 0; "
                                "printf '__MP__=%s\\n' \"$MP\"; "
-                               "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; [ -L \"$d\" ] && continue; bn=$(basename \"$d\"); [ -n \"$bn\" ] && printf '%s\\n' \"$bn\"; done | sort -u")
+                               "find \"$MP\" -mindepth 1 -type d -print 2>/dev/null | while IFS= read -r d; do "
+                               "  rel=\"$d\"; case \"$rel\" in \"$MP\"/*) rel=${rel#\"$MP\"/} ;; *) rel='' ;; esac; "
+                               "  [ -n \"$rel\" ] || continue; "
+                               "  case \"$rel\" in .zfs|.zfs/*) continue ;; esac; "
+                               "  printf '%s\\n' \"$rel\"; "
+                               "done | sort -u")
                     .arg(shSingleQuote(ds), unixAlternateMountHelpersScript());
         }
         QString keyLocation;
@@ -239,7 +254,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
     QString dsListErr;
     int dsListRc = -1;
     QStringList datasetsDetected;
-    QSet<QString> childDatasetNames;
+    QSet<QString> childDatasetPathsLower;
     QString dsListCmd;
     if (!isWindowsConnection(p)) {
         (void)ensureRemoteScriptsUpToDate(p);
@@ -261,16 +276,26 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
             if (!datasetName.startsWith(prefix)) {
                 continue;
             }
-            const QString childPath = datasetName.mid(prefix.size());
-            const QString childName = childPath.section('/', 0, 0).trimmed();
-            if (!childName.isEmpty()) {
-                childDatasetNames.insert(childName);
+            const QString childPath = datasetName.mid(prefix.size()).trimmed();
+            if (!childPath.isEmpty()) {
+                childDatasetPathsLower.insert(childPath.toLower());
             }
         }
     }
-    if (!childDatasetNames.isEmpty()) {
+    if (!childDatasetPathsLower.isEmpty()) {
         dirs.erase(std::remove_if(dirs.begin(), dirs.end(),
-                                  [&](const QString& d) { return childDatasetNames.contains(d); }),
+                                  [&](const QString& d) {
+                                      const QString path = d.trimmed().toLower();
+                                      if (path.isEmpty()) {
+                                          return true;
+                                      }
+                                      for (const QString& dsPath : childDatasetPathsLower) {
+                                          if (path == dsPath || path.startsWith(dsPath + QStringLiteral("/"))) {
+                                              return true;
+                                          }
+                                      }
+                                      return false;
+                                  }),
                    dirs.end());
     }
     QStringList mountedDescMountpoints;
@@ -344,41 +369,48 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
     stopBusy();
     QStringList selectedDirs;
     QMap<QString, QString> invalidDirReasons;
-    auto invalidDatasetComponentReason = [](const QString& name) -> QString {
-        const QString n = name.trimmed();
-        if (n.isEmpty()) {
+    auto invalidDatasetPathReason = [](const QString& path) -> QString {
+        const QString p = path.trimmed();
+        if (p.isEmpty()) {
             return QStringLiteral("empty");
         }
-        if (n == QStringLiteral(".") || n == QStringLiteral("..")) {
-            return QStringLiteral("reserved name");
+        const QStringList parts = p.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+        if (parts.isEmpty()) {
+            return QStringLiteral("empty");
         }
-        for (const QChar c : n) {
-            const ushort uc = c.unicode();
-            if (uc < 0x20 || uc == 0x7F) {
-                return QStringLiteral("control character");
+        for (const QString& rawPart : parts) {
+            const QString n = rawPart.trimmed();
+            if (n.isEmpty()) {
+                return QStringLiteral("empty path component");
             }
-        }
-        if (n.contains(QLatin1Char('/'))) {
-            return QStringLiteral("contains '/'");
-        }
-        if (n.contains(QLatin1Char('@'))) {
-            return QStringLiteral("contains '@'");
-        }
-        if (n.contains(QLatin1Char('#'))) {
-            return QStringLiteral("contains '#'");
-        }
-        if (n.contains(QLatin1Char(','))) {
-            return QStringLiteral("contains ','");
+            if (n == QStringLiteral(".") || n == QStringLiteral("..")) {
+                return QStringLiteral("reserved name");
+            }
+            for (const QChar c : n) {
+                const ushort uc = c.unicode();
+                if (uc < 0x20 || uc == 0x7F) {
+                    return QStringLiteral("control character");
+                }
+            }
+            if (n.contains(QLatin1Char('@'))) {
+                return QStringLiteral("contains '@'");
+            }
+            if (n.contains(QLatin1Char('#'))) {
+                return QStringLiteral("contains '#'");
+            }
+            if (n.contains(QLatin1Char(','))) {
+                return QStringLiteral("contains ','");
+            }
         }
         return QString();
     };
     for (const QString& dir : dirs) {
-        const QString reason = invalidDatasetComponentReason(dir);
+        const QString reason = invalidDatasetPathReason(dir);
         if (!reason.isEmpty()) {
             invalidDirReasons.insert(dir, reason);
         }
     }
-    if (!selectItemsDialog(
+    if (!selectTreeItemsDialog(
             trk(QStringLiteral("t_adv_break_tit1"), QStringLiteral("Desglosar: seleccionar directorios"),
                 QStringLiteral("Break down: select directories"),
                 QStringLiteral("拆分：选择目录")),
@@ -441,7 +473,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                   "  if ($srcItem -and ($srcItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }; "
                   "  Write-Output ('[BREAKDOWN] start ' + $bn); "
                   "  $child=\"$ds/$bn\"; "
-                  "  zfs list -H -o name $child 2>$null | Out-Null; if ($LASTEXITCODE -ne 0) { zfs create $child | Out-Null; if($LASTEXITCODE -ne 0){ throw \"zfs create failed for $child\" } }; "
+                  "  zfs list -H -o name $child 2>$null | Out-Null; if ($LASTEXITCODE -ne 0) { zfs create -p $child | Out-Null; if($LASTEXITCODE -ne 0){ throw \"zfs create failed for $child\" } }; "
                   "  zfs mount $child 2>$null | Out-Null; "
                   "  $cmp=Resolve-Mp $child; if ([string]::IsNullOrWhiteSpace($cmp)) { throw \"cannot resolve mountpoint for $child\" }; "
                   "  if (-not (Test-Path -LiteralPath $cmp)) { New-Item -ItemType Directory -Force -Path $cmp | Out-Null }; "
@@ -496,7 +528,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                            "zfs list -H -o name \"$child\" >/dev/null 2>&1 && { echo \"child_exists=$child\"; continue; }; "
                            "FINAL_MP=\"$MP/$bn\"; "
                            "TMP_CHILD_MP=$(mktemp -d /tmp/zfsmgr-breakdown-child-XXXXXX); "
-                           "zfs create -o mountpoint=\"$TMP_CHILD_MP\" \"$child\"; "
+                           "zfs create -p -o mountpoint=\"$TMP_CHILD_MP\" \"$child\"; "
                            "zfs mount \"$child\" >/dev/null 2>&1 || true; "
                            "try=0; "
                            "while :; do "
@@ -608,16 +640,46 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
         return;
     }
     stopBusy();
-    QStringList selectedChildren;
-    if (!selectItemsDialog(
+    QStringList childPaths;
+    childPaths.reserve(children.size());
+    QMap<QString, QString> childPathToDataset;
+    const QString childPrefix = ds + QStringLiteral("/");
+    for (const QString& childDataset : children) {
+        if (!childDataset.startsWith(childPrefix)) {
+            continue;
+        }
+        const QString rel = childDataset.mid(childPrefix.size()).trimmed();
+        if (rel.isEmpty()) {
+            continue;
+        }
+        childPaths.push_back(rel);
+        childPathToDataset.insert(rel, childDataset);
+    }
+    QStringList selectedChildPaths;
+    if (!selectTreeItemsDialog(
             trk(QStringLiteral("t_adv_ass_tit001"), QStringLiteral("Ensamblar: seleccionar subdatasets"),
                 QStringLiteral("Assemble: select child datasets"),
                 QStringLiteral("组装：选择子数据集")),
             trk(QStringLiteral("t_adv_ass_msg001"), QStringLiteral("Seleccione los subdatasets que desea ensamblar en el dataset padre."),
                 QStringLiteral("Select child datasets to assemble into parent dataset."),
                 QStringLiteral("请选择要组装回父数据集的子数据集。")),
-            children,
-            selectedChildren)) {
+            childPaths,
+            selectedChildPaths)) {
+        appLog(QStringLiteral("INFO"),
+               trk(QStringLiteral("t_adv_ass_can001"), QStringLiteral("Ensamblar cancelado o sin selección."),
+                   QStringLiteral("Assemble canceled or no selection."),
+                   QStringLiteral("组装已取消或无选择。")));
+        return;
+    }
+    QStringList selectedChildren;
+    selectedChildren.reserve(selectedChildPaths.size());
+    for (const QString& rel : selectedChildPaths) {
+        const QString full = childPathToDataset.value(rel).trimmed();
+        if (!full.isEmpty()) {
+            selectedChildren.push_back(full);
+        }
+    }
+    if (selectedChildren.isEmpty()) {
         appLog(QStringLiteral("INFO"),
                trk(QStringLiteral("t_adv_ass_can001"), QStringLiteral("Ensamblar cancelado o sin selección."),
                    QStringLiteral("Assemble canceled or no selection."),

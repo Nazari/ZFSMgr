@@ -24,6 +24,7 @@
 #include <QRegularExpression>
 #include <QScrollArea>
 #include <QTabWidget>
+#include <QTreeWidget>
 #include <QVBoxLayout>
 
 namespace {
@@ -718,6 +719,225 @@ bool MainWindow::selectItemsDialog(const QString& title,
         if (cb && cb->isChecked()) {
             selected.push_back(cb->property("itemText").toString());
         }
+    }
+    return true;
+}
+
+bool MainWindow::selectTreeItemsDialog(const QString& title,
+                                       const QString& intro,
+                                       const QStringList& items,
+                                       QStringList& selected,
+                                       const QString& detail,
+                                       const QMap<QString, QString>& invalidItems) {
+    if (items.isEmpty()) {
+        return false;
+    }
+
+    QStringList normalizedItems;
+    QSet<QString> seenItems;
+    for (const QString& raw : items) {
+        const QString trimmed = raw.trimmed();
+        const QString key = trimmed.toLower();
+        if (trimmed.isEmpty() || seenItems.contains(key)) {
+            continue;
+        }
+        seenItems.insert(key);
+        normalizedItems.push_back(trimmed);
+    }
+    if (normalizedItems.isEmpty()) {
+        return false;
+    }
+
+    QSet<QString> initiallySelected;
+    for (const QString& raw : selected) {
+        const QString trimmed = raw.trimmed();
+        if (!trimmed.isEmpty()) {
+            initiallySelected.insert(trimmed.toLower());
+        }
+    }
+
+    QMap<QString, QString> invalidByLower;
+    for (auto it = invalidItems.cbegin(); it != invalidItems.cend(); ++it) {
+        invalidByLower.insert(it.key().trimmed().toLower(), it.value().trimmed());
+    }
+
+    QDialog dlg(this);
+    dlg.setModal(true);
+    dlg.resize(760, 560);
+    dlg.setWindowTitle(title);
+    auto* root = new QVBoxLayout(&dlg);
+
+    auto* introLbl = new QLabel(intro, &dlg);
+    introLbl->setWordWrap(true);
+    root->addWidget(introLbl);
+
+    if (!detail.trimmed().isEmpty()) {
+        auto* detailLbl = new QLabel(detail, &dlg);
+        detailLbl->setWordWrap(true);
+        detailLbl->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        detailLbl->setStyleSheet(QStringLiteral("QLabel { color: #4b6170; }"));
+        root->addWidget(detailLbl);
+    }
+
+    auto* tree = new QTreeWidget(&dlg);
+    tree->setHeaderHidden(true);
+    tree->setRootIsDecorated(true);
+    tree->setUniformRowHeights(false);
+    tree->setSelectionMode(QAbstractItemView::NoSelection);
+    root->addWidget(tree, 1);
+
+    constexpr int fullPathRole = Qt::UserRole + 1;
+    QMap<QString, QTreeWidgetItem*> byPath;
+    QSet<QString> validItemKeys;
+    validItemKeys.reserve(normalizedItems.size());
+    for (const QString& path : normalizedItems) {
+        validItemKeys.insert(path.toLower());
+    }
+
+    auto ensureNode = [&](const QString& fullPath) -> QTreeWidgetItem* {
+        QStringList parts = fullPath.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+        if (parts.isEmpty()) {
+            return nullptr;
+        }
+        QString cumulative;
+        QTreeWidgetItem* parent = nullptr;
+        QTreeWidgetItem* node = nullptr;
+        for (const QString& rawPart : parts) {
+            const QString part = rawPart.trimmed();
+            if (part.isEmpty()) {
+                continue;
+            }
+            cumulative = cumulative.isEmpty() ? part : cumulative + QStringLiteral("/") + part;
+            node = byPath.value(cumulative, nullptr);
+            if (!node) {
+                node = new QTreeWidgetItem();
+                node->setText(0, part);
+                node->setData(0, fullPathRole, cumulative);
+                node->setFlags((node->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsAutoTristate)
+                               & ~Qt::ItemIsSelectable);
+                node->setCheckState(0, Qt::Unchecked);
+                if (parent) {
+                    parent->addChild(node);
+                } else {
+                    tree->addTopLevelItem(node);
+                }
+                byPath.insert(cumulative, node);
+            }
+            parent = node;
+        }
+        return node;
+    };
+
+    for (const QString& path : normalizedItems) {
+        QTreeWidgetItem* node = ensureNode(path);
+        if (!node) {
+            continue;
+        }
+        const QString key = path.toLower();
+        const QString invalidReason = invalidByLower.value(key);
+        if (!invalidReason.isEmpty()) {
+            const QString tip = trk(QStringLiteral("t_invalid_dataset_name_001"),
+                                    QStringLiteral("Nombre de dataset no válido: %1").arg(invalidReason),
+                                    QStringLiteral("Invalid dataset name: %1").arg(invalidReason),
+                                    QStringLiteral("无效的数据集名称：%1").arg(invalidReason));
+            node->setDisabled(true);
+            node->setToolTip(0, tip);
+            node->setForeground(0, QBrush(QColor(QStringLiteral("#8b2020"))));
+            node->setBackground(0, QBrush(QColor(QStringLiteral("#fff1f1"))));
+            node->setCheckState(0, Qt::Unchecked);
+            continue;
+        }
+        node->setCheckState(0, initiallySelected.contains(key) ? Qt::Checked : Qt::Unchecked);
+    }
+
+    tree->expandAll();
+
+    auto allNodes = [tree]() {
+        QList<QTreeWidgetItem*> nodes;
+        std::function<void(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* item) {
+            if (!item) {
+                return;
+            }
+            nodes.push_back(item);
+            for (int i = 0; i < item->childCount(); ++i) {
+                rec(item->child(i));
+            }
+        };
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            rec(tree->topLevelItem(i));
+        }
+        return nodes;
+    };
+
+    auto* tools = new QHBoxLayout();
+    auto* allBtn = new QPushButton(trk(QStringLiteral("t_sel_all_001"),
+                                       QStringLiteral("Seleccionar todo"),
+                                       QStringLiteral("Select all"),
+                                       QStringLiteral("全选")),
+                                   &dlg);
+    auto* noneBtn = new QPushButton(trk(QStringLiteral("t_sel_none_001"),
+                                        QStringLiteral("Deseleccionar todo"),
+                                        QStringLiteral("Clear all"),
+                                        QStringLiteral("全不选")),
+                                    &dlg);
+    tools->addWidget(allBtn);
+    tools->addWidget(noneBtn);
+    tools->addStretch(1);
+    root->addLayout(tools);
+
+    QObject::connect(allBtn, &QPushButton::clicked, &dlg, [allNodes, validItemKeys]() {
+        const QList<QTreeWidgetItem*> nodes = allNodes();
+        for (QTreeWidgetItem* item : nodes) {
+            if (!item || item->isDisabled()) {
+                continue;
+            }
+            const QString key = item->data(0, fullPathRole).toString().trimmed().toLower();
+            if (!validItemKeys.contains(key)) {
+                continue;
+            }
+            item->setCheckState(0, Qt::Checked);
+        }
+    });
+    QObject::connect(noneBtn, &QPushButton::clicked, &dlg, [allNodes]() {
+        const QList<QTreeWidgetItem*> nodes = allNodes();
+        for (QTreeWidgetItem* item : nodes) {
+            if (!item) {
+                continue;
+            }
+            item->setCheckState(0, Qt::Unchecked);
+        }
+    });
+
+    auto* box = new QDialogButtonBox(&dlg);
+    auto* cancelBtn = box->addButton(trk(QStringLiteral("t_cancelar_c111e0"),
+                                         QStringLiteral("Cancelar"),
+                                         QStringLiteral("Cancel"),
+                                         QStringLiteral("取消")),
+                                     QDialogButtonBox::RejectRole);
+    auto* okBtn = box->addButton(trk(QStringLiteral("t_aceptar_8f9f73"),
+                                     QStringLiteral("Aceptar"),
+                                     QStringLiteral("Accept"),
+                                     QStringLiteral("确认")),
+                                 QDialogButtonBox::AcceptRole);
+    root->addWidget(box);
+    QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
+    QObject::connect(okBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+
+    if (dlg.exec() != QDialog::Accepted) {
+        return false;
+    }
+
+    selected.clear();
+    const QList<QTreeWidgetItem*> nodes = allNodes();
+    for (QTreeWidgetItem* item : nodes) {
+        if (!item || item->isDisabled() || item->checkState(0) != Qt::Checked) {
+            continue;
+        }
+        const QString fullPath = item->data(0, fullPathRole).toString().trimmed();
+        if (fullPath.isEmpty() || !validItemKeys.contains(fullPath.toLower())) {
+            continue;
+        }
+        selected.push_back(fullPath);
     }
     return true;
 }

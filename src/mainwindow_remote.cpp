@@ -738,7 +738,7 @@ bool MainWindow::supportsAlternateDatasetMount(int connIdx) const {
 }
 
 QString MainWindow::remoteScriptsVersionTag() const {
-    return QStringLiteral(ZFSMGR_APP_VERSION) + QStringLiteral(".remote-scripts.12");
+    return QStringLiteral(ZFSMGR_APP_VERSION) + QStringLiteral(".remote-scripts.13");
 }
 
 QString MainWindow::remoteScriptsBasePath(const ConnectionProfile& p) const {
@@ -1092,7 +1092,7 @@ DATASET="${1:-}"
 saved_prop='org.fc16.zfsmgr:savedmountpoint'
 ZFSMGR_PASS_READ=0
 ZFSMGR_KEY_PASS=''
-mount_alt_zfs(){ ds="$1"; mp="$2"; current_mp=$(zfs get -H -o value mountpoint "$ds" 2>/dev/null || true); zfs set "$saved_prop=$current_mp" "$ds"; zfs set mountpoint="$mp" "$ds"; zfs mount "$ds"; }
+mount_alt_zfs(){ ds="$1"; mp="$2"; current_mp=$(zfs get -H -o value mountpoint "$ds" 2>/dev/null || true); zfs set "$saved_prop=$current_mp" "$ds"; zfs set mountpoint="$mp" "$ds"; zfs mount "$ds" >/dev/null 2>&1 || true; }
 umount_alt_zfs(){ ds="$1"; mp="$2"; zfs unmount "$ds" >/dev/null 2>&1 || zfs unmount "$mp" >/dev/null 2>&1 || true; saved_mp=$(zfs get -H -o value "$saved_prop" "$ds" 2>/dev/null || true); if [ -n "$saved_mp" ] && [ "$saved_mp" != "-" ]; then zfs set mountpoint="$saved_mp" "$ds" >/dev/null 2>&1 || true; fi; zfs inherit "$saved_prop" "$ds" >/dev/null 2>&1 || true; }
 resolve_mp(){ ds="$1"; zfs mount 2>/dev/null | awk -v d="$ds" '$1==d{print $2; exit}'; }
 load_key_if_needed(){ ds="$1"; ks=$(zfs get -H -o value keystatus "$ds" 2>/dev/null || true); [ "$ks" = "available" ] && return 0; kl=$(zfs get -H -o value keylocation "$ds" 2>/dev/null || true); if [ "$kl" = "prompt" ]; then if [ "$ZFSMGR_PASS_READ" != "1" ]; then IFS= read -r ZFSMGR_KEY_PASS || return 1; ZFSMGR_PASS_READ=1; fi; printf '%s\n' "$ZFSMGR_KEY_PASS" | zfs load-key "$ds" >/dev/null; else zfs load-key "$ds" >/dev/null 2>&1 || true; fi; }
@@ -1112,11 +1112,17 @@ fi
 [ -n "$MP" ] || exit 0
 [ -d "$MP" ] || exit 0
 printf '__MP__=%s\n' "$MP"
-for d in "$MP"/.[!.]* "$MP"/..?* "$MP"/*; do
-  [ -d "$d" ] || continue
-  [ -L "$d" ] && continue
-  bn="$(basename "$d")"
-  [ -n "$bn" ] && printf '%s\n' "$bn"
+find "$MP" -mindepth 1 -type d -print 2>/dev/null | while IFS= read -r d; do
+  rel="$d"
+  case "$rel" in
+    "$MP"/*) rel=${rel#"$MP"/} ;;
+    *) rel='' ;;
+  esac
+  [ -n "$rel" ] || continue
+  case "$rel" in
+    .zfs|.zfs/*) continue ;;
+  esac
+  printf '%s\n' "$rel"
 done | sort -u
 )ZFSMGR"));
     scripts.insert(
@@ -1131,7 +1137,7 @@ shift || true
 saved_prop='org.fc16.zfsmgr:savedmountpoint'
 ZFSMGR_PASS_READ=0
 ZFSMGR_KEY_PASS=''
-mount_alt_zfs(){ ds="$1"; mp="$2"; current_mp=$(zfs get -H -o value mountpoint "$ds" 2>/dev/null || true); zfs set "$saved_prop=$current_mp" "$ds"; zfs set mountpoint="$mp" "$ds"; zfs mount "$ds"; }
+mount_alt_zfs(){ ds="$1"; mp="$2"; current_mp=$(zfs get -H -o value mountpoint "$ds" 2>/dev/null || true); zfs set "$saved_prop=$current_mp" "$ds"; zfs set mountpoint="$mp" "$ds"; zfs mount "$ds" >/dev/null 2>&1 || true; }
 umount_alt_zfs(){ ds="$1"; mp="$2"; zfs unmount "$ds" >/dev/null 2>&1 || zfs unmount "$mp" >/dev/null 2>&1 || true; saved_mp=$(zfs get -H -o value "$saved_prop" "$ds" 2>/dev/null || true); if [ -n "$saved_mp" ] && [ "$saved_mp" != "-" ]; then zfs set mountpoint="$saved_mp" "$ds" >/dev/null 2>&1 || true; fi; zfs inherit "$saved_prop" "$ds" >/dev/null 2>&1 || true; }
 resolve_mp(){ ds="$1"; zfs mount 2>/dev/null | awk -v d="$ds" '$1==d{print $2; exit}'; }
 load_key_if_needed(){ ds="$1"; ks=$(zfs get -H -o value keystatus "$ds" 2>/dev/null || true); [ "$ks" = "available" ] && return 0; kl=$(zfs get -H -o value keylocation "$ds" 2>/dev/null || true); if [ "$kl" = "prompt" ]; then if [ "$ZFSMGR_PASS_READ" != "1" ]; then IFS= read -r ZFSMGR_KEY_PASS || return 1; ZFSMGR_PASS_READ=1; fi; printf '%s\n' "$ZFSMGR_KEY_PASS" | zfs load-key "$ds" >/dev/null; else zfs load-key "$ds" >/dev/null 2>&1 || true; fi; }
@@ -1158,7 +1164,7 @@ for bn in "$@"; do
   zfs list -H -o name "$child" >/dev/null 2>&1 && { echo "child_exists=$child"; continue; }
   FINAL_MP="$MP/$bn"
   TMP_CHILD_MP="$(mktemp -d /tmp/zfsmgr-breakdown-child-XXXXXX)"
-  zfs create -o mountpoint="$TMP_CHILD_MP" "$child"
+  zfs create -p -o mountpoint="$TMP_CHILD_MP" "$child"
   zfs mount "$child" >/dev/null 2>&1 || true
   try=0
   PENDING=1
@@ -1189,7 +1195,7 @@ shift || true
 saved_prop='org.fc16.zfsmgr:savedmountpoint'
 ZFSMGR_PASS_READ=0
 ZFSMGR_KEY_PASS=''
-mount_alt_zfs(){ ds="$1"; mp="$2"; current_mp=$(zfs get -H -o value mountpoint "$ds" 2>/dev/null || true); zfs set "$saved_prop=$current_mp" "$ds"; zfs set mountpoint="$mp" "$ds"; zfs mount "$ds"; }
+mount_alt_zfs(){ ds="$1"; mp="$2"; current_mp=$(zfs get -H -o value mountpoint "$ds" 2>/dev/null || true); zfs set "$saved_prop=$current_mp" "$ds"; zfs set mountpoint="$mp" "$ds"; zfs mount "$ds" >/dev/null 2>&1 || true; }
 umount_alt_zfs(){ ds="$1"; mp="$2"; zfs unmount "$ds" >/dev/null 2>&1 || zfs unmount "$mp" >/dev/null 2>&1 || true; saved_mp=$(zfs get -H -o value "$saved_prop" "$ds" 2>/dev/null || true); if [ -n "$saved_mp" ] && [ "$saved_mp" != "-" ]; then zfs set mountpoint="$saved_mp" "$ds" >/dev/null 2>&1 || true; fi; zfs inherit "$saved_prop" "$ds" >/dev/null 2>&1 || true; }
 resolve_mp(){ ds="$1"; zfs mount 2>/dev/null | awk -v d="$ds" '$1==d{print $2; exit}'; }
 load_key_if_needed(){ ds="$1"; ks=$(zfs get -H -o value keystatus "$ds" 2>/dev/null || true); [ "$ks" = "available" ] && return 0; kl=$(zfs get -H -o value keylocation "$ds" 2>/dev/null || true); if [ "$kl" = "prompt" ]; then if [ "$ZFSMGR_PASS_READ" != "1" ]; then IFS= read -r ZFSMGR_KEY_PASS || return 1; ZFSMGR_PASS_READ=1; fi; printf '%s\n' "$ZFSMGR_KEY_PASS" | zfs load-key "$ds" >/dev/null; else zfs load-key "$ds" >/dev/null 2>&1 || true; fi; }
@@ -1380,7 +1386,7 @@ DATASET="${1:-}"
 CODEC="${2:-none}"
 [ -n "$DATASET" ] || exit 2
 saved_prop='org.fc16.zfsmgr:savedmountpoint'
-mount_alt_zfs(){ ds="$1"; mp="$2"; current_mp=$(zfs get -H -o value mountpoint "$ds" 2>/dev/null || true); zfs set "$saved_prop=$current_mp" "$ds"; zfs set mountpoint="$mp" "$ds"; zfs mount "$ds"; }
+mount_alt_zfs(){ ds="$1"; mp="$2"; current_mp=$(zfs get -H -o value mountpoint "$ds" 2>/dev/null || true); zfs set "$saved_prop=$current_mp" "$ds"; zfs set mountpoint="$mp" "$ds"; zfs mount "$ds" >/dev/null 2>&1 || true; }
 umount_alt_zfs(){ ds="$1"; mp="$2"; zfs unmount "$ds" >/dev/null 2>&1 || zfs unmount "$mp" >/dev/null 2>&1 || true; saved_mp=$(zfs get -H -o value "$saved_prop" "$ds" 2>/dev/null || true); if [ -n "$saved_mp" ] && [ "$saved_mp" != "-" ]; then zfs set mountpoint="$saved_mp" "$ds" >/dev/null 2>&1 || true; fi; zfs inherit "$saved_prop" "$ds" >/dev/null 2>&1 || true; }
 resolve_mp(){ ds="$1"; zfs mount 2>/dev/null | awk -v d="$ds" '$1==d{print $2; exit}'; }
 TMP_MP=''
@@ -1405,7 +1411,7 @@ DATASET="${1:-}"
 CODEC="${2:-none}"
 [ -n "$DATASET" ] || exit 2
 saved_prop='org.fc16.zfsmgr:savedmountpoint'
-mount_alt_zfs(){ ds="$1"; mp="$2"; current_mp=$(zfs get -H -o value mountpoint "$ds" 2>/dev/null || true); zfs set "$saved_prop=$current_mp" "$ds"; zfs set mountpoint="$mp" "$ds"; zfs mount "$ds"; }
+mount_alt_zfs(){ ds="$1"; mp="$2"; current_mp=$(zfs get -H -o value mountpoint "$ds" 2>/dev/null || true); zfs set "$saved_prop=$current_mp" "$ds"; zfs set mountpoint="$mp" "$ds"; zfs mount "$ds" >/dev/null 2>&1 || true; }
 umount_alt_zfs(){ ds="$1"; mp="$2"; zfs unmount "$ds" >/dev/null 2>&1 || zfs unmount "$mp" >/dev/null 2>&1 || true; saved_mp=$(zfs get -H -o value "$saved_prop" "$ds" 2>/dev/null || true); if [ -n "$saved_mp" ] && [ "$saved_mp" != "-" ]; then zfs set mountpoint="$saved_mp" "$ds" >/dev/null 2>&1 || true; fi; zfs inherit "$saved_prop" "$ds" >/dev/null 2>&1 || true; }
 resolve_mp(){ ds="$1"; zfs mount 2>/dev/null | awk -v d="$ds" '$1==d{print $2; exit}'; }
 TMP_MP=''
