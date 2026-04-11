@@ -732,7 +732,8 @@ private:
                                   const QString& remoteCmd,
                                   int timeoutMs,
                                   QString* failureDetailOut = nullptr,
-                                  WindowsCommandMode windowsMode = WindowsCommandMode::Auto);
+                                  WindowsCommandMode windowsMode = WindowsCommandMode::Auto,
+                                  const QByteArray& stdinPayload = QByteArray());
     bool fetchConnectionCommandOutput(int connIdx,
                                       const QString& actionName,
                                       const QString& remoteCmd,

@@ -1640,7 +1640,8 @@ bool MainWindow::executeConnectionCommand(int connIdx,
                                           const QString& remoteCmd,
                                           int timeoutMs,
                                           QString* failureDetailOut,
-                                          WindowsCommandMode windowsMode) {
+                                          WindowsCommandMode windowsMode,
+                                          const QByteArray& stdinPayload) {
     if (connIdx < 0 || connIdx >= m_profiles.size() || actionName.trimmed().isEmpty()) {
         if (failureDetailOut) {
             *failureDetailOut = QStringLiteral("invalid connection command context");
@@ -1651,8 +1652,8 @@ bool MainWindow::executeConnectionCommand(int connIdx,
     QString out;
     QString err;
     int rc = -1;
-    const bool ok = runSsh(p, remoteCmd, timeoutMs, out, err, rc, {}, {}, {}, windowsMode) && rc == 0;
-    if (!ok && failureDetailOut) {
+    const bool ok = runSsh(p, remoteCmd, timeoutMs, out, err, rc, {}, {}, {}, windowsMode, stdinPayload) && rc == 0;
+    if (!ok) {
         QStringList parts;
         if (!err.trimmed().isEmpty()) {
             parts << err.trimmed();
@@ -1660,7 +1661,16 @@ bool MainWindow::executeConnectionCommand(int connIdx,
         if (!out.trimmed().isEmpty()) {
             parts << out.trimmed();
         }
-        *failureDetailOut = parts.isEmpty() ? QStringLiteral("exit %1").arg(rc) : parts.join(QStringLiteral("\n\n"));
+        const QString detail = parts.isEmpty() ? QStringLiteral("exit %1").arg(rc) : parts.join(QStringLiteral("\n\n"));
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("Fallo comando conexión [%1] en \"%2\" (rc=%3): %4")
+                   .arg(actionName.trimmed().isEmpty() ? QStringLiteral("?") : actionName.trimmed(),
+                        p.name,
+                        QString::number(rc),
+                        mwhelpers::oneLine(detail)));
+        if (failureDetailOut) {
+            *failureDetailOut = detail;
+        }
     }
     return ok;
 }

@@ -752,93 +752,89 @@ void MainWindow::refreshConnectionGsaLogAsync(int idx) {
     const WindowsCommandMode mode = isWindows ? WindowsCommandMode::PowerShellNative
                                               : WindowsCommandMode::Auto;
 
-    (void)QtConcurrent::run([this, connId, profile, remoteCmd, mode, state, useRemoteScripts]() {
-        if (useRemoteScripts) {
-            (void)ensureRemoteScriptsUpToDate(profile);
-        }
-        QString out;
-        QString err;
-        int rc = -1;
-        const bool ok = runSsh(profile, remoteCmd, 15000, out, err, rc, {}, {}, {}, mode) && rc == 0;
-        QString text;
-        if (!state.gsaKnownConnections.isEmpty()) {
-            text += QStringLiteral("Conexiones dadas de alta en GSA: %1\n\n")
-                        .arg(state.gsaKnownConnections.join(QStringLiteral(", ")));
-        }
-        if (ok) {
-            text += out;
-        }
-        QMetaObject::invokeMethod(this, [this, connId, text]() {
-            if (QPlainTextEdit* view = m_connectionGsaLogViews.value(connId, nullptr)) {
-                QString connName = connId;
-                for (const auto& p : m_profiles) {
-                    if (p.id == connId) {
-                        connName = p.name.trimmed().isEmpty() ? p.id : p.name;
-                        break;
-                    }
-                }
-                view->clear();
-                ConnCompactState st;
-                const QStringList lines = maskSecrets(text).split('\n');
-                int startIdx = 0;
-                QDateTime startTs;
-                for (int i = 0; i < lines.size(); ++i) {
-                    const QString t = lines.at(i).trimmed();
-                    if (!t.contains(QStringLiteral(" GSA start version "))) {
-                        continue;
-                    }
-                    QDateTime dt;
-                    if (!parseLeadingLogDateTime(t, &dt)) {
-                        continue;
-                    }
-                    if (!startTs.isValid() || dt >= startTs) {
-                        startTs = dt;
-                        startIdx = i;
-                    }
-                }
-                for (int i = startIdx; i < lines.size(); ++i) {
-                    const QString rawLine = lines.at(i);
-                    const QString trimmed = rawLine.trimmed();
-                    if (trimmed.isEmpty()) {
-                        continue;
-                    }
-                    if (countLogDateTimeStamps(trimmed) > 1) {
-                        continue;
-                    }
-                    if (startTs.isValid()) {
-                        QDateTime lineTs;
-                        if (parseLeadingLogDateTime(trimmed, &lineTs) && lineTs < startTs) {
-                            continue;
-                        }
-                    }
-                    const CompactLogParts p = parseGsaLogParts(trimmed, connName);
-                    QStringList changed;
-                    if (!st.valid || p.date != st.date) {
-                        changed << p.date;
-                    }
-                    if (!st.valid || p.time != st.time) {
-                        changed << p.time;
-                    }
-                    if (!st.valid || p.conn != st.conn) {
-                        changed << QStringLiteral("ssh=%1").arg(p.conn);
-                    }
-                    if (!st.valid || p.level != st.level) {
-                        changed << QStringLiteral("lvl=%1").arg(p.level);
-                    }
-                    const QString head = changed.isEmpty() ? QStringLiteral("...") : changed.join(' ');
-                    view->appendPlainText(QStringLiteral("%1 | %2").arg(head, p.msg));
-                    st.valid = true;
-                    st.date = p.date;
-                    st.time = p.time;
-                    st.conn = p.conn;
-                    st.level = p.level;
-                }
-                m_connGsaCompactState[connId] = st;
-                trimLogWidget(view);
-                scrollLogViewToLatest(view);
+    if (useRemoteScripts) {
+        (void)ensureRemoteScriptsUpToDate(profile);
+    }
+    QString out;
+    QString err;
+    int rc = -1;
+    const bool ok = runSsh(profile, remoteCmd, 15000, out, err, rc, {}, {}, {}, mode) && rc == 0;
+    QString text;
+    if (!state.gsaKnownConnections.isEmpty()) {
+        text += QStringLiteral("Conexiones dadas de alta en GSA: %1\n\n")
+                    .arg(state.gsaKnownConnections.join(QStringLiteral(", ")));
+    }
+    if (ok) {
+        text += out;
+    }
+    if (QPlainTextEdit* view = m_connectionGsaLogViews.value(connId, nullptr)) {
+        QString connName = connId;
+        for (const auto& p : m_profiles) {
+            if (p.id == connId) {
+                connName = p.name.trimmed().isEmpty() ? p.id : p.name;
+                break;
             }
-        }, Qt::QueuedConnection);
-    });
+        }
+        view->clear();
+        ConnCompactState st;
+        const QStringList lines = maskSecrets(text).split('\n');
+        int startIdx = 0;
+        QDateTime startTs;
+        for (int i = 0; i < lines.size(); ++i) {
+            const QString t = lines.at(i).trimmed();
+            if (!t.contains(QStringLiteral(" GSA start version "))) {
+                continue;
+            }
+            QDateTime dt;
+            if (!parseLeadingLogDateTime(t, &dt)) {
+                continue;
+            }
+            if (!startTs.isValid() || dt >= startTs) {
+                startTs = dt;
+                startIdx = i;
+            }
+        }
+        for (int i = startIdx; i < lines.size(); ++i) {
+            const QString rawLine = lines.at(i);
+            const QString trimmed = rawLine.trimmed();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            if (countLogDateTimeStamps(trimmed) > 1) {
+                continue;
+            }
+            if (startTs.isValid()) {
+                QDateTime lineTs;
+                if (parseLeadingLogDateTime(trimmed, &lineTs) && lineTs < startTs) {
+                    continue;
+                }
+            }
+            const CompactLogParts p = parseGsaLogParts(trimmed, connName);
+            QStringList changed;
+            if (!st.valid || p.date != st.date) {
+                changed << p.date;
+            }
+            if (!st.valid || p.time != st.time) {
+                changed << p.time;
+            }
+            if (!st.valid || p.conn != st.conn) {
+                changed << QStringLiteral("ssh=%1").arg(p.conn);
+            }
+            if (!st.valid || p.level != st.level) {
+                changed << QStringLiteral("lvl=%1").arg(p.level);
+            }
+            const QString head = changed.isEmpty() ? QStringLiteral("...") : changed.join(' ');
+            view->appendPlainText(QStringLiteral("%1 | %2").arg(head, p.msg));
+            st.valid = true;
+            st.date = p.date;
+            st.time = p.time;
+            st.conn = p.conn;
+            st.level = p.level;
+        }
+        m_connGsaCompactState[connId] = st;
+        trimLogWidget(view);
+        scrollLogViewToLatest(view);
+    }
 }
 
 void MainWindow::appendConnectionLog(const QString& connId, const QString& line) {

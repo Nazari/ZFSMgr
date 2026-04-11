@@ -396,17 +396,31 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         auto logWhere = [&](const QString& exeName) {
             QString wOut, wErr;
             int wRc = -1;
-            const QString whereCmd = QStringLiteral("where.exe %1").arg(exeName);
-            if (runSsh(p, whereCmd, 12000, wOut, wErr, wRc, {}, {}, {}, winPsMode) && wRc == 0) {
-                const QStringList lines = wOut.split('\n', Qt::SkipEmptyParts);
-                const QString firstPath = lines.isEmpty() ? QStringLiteral("(sin salida)") : lines.first().trimmed();
+            const QString whereCmd = QStringLiteral(
+                "$cmd='%1.exe'; "
+                "$gc=Get-Command $cmd -ErrorAction SilentlyContinue | Select-Object -First 1; "
+                "if($gc -and $gc.Source){ Write-Output $gc.Source; exit 0 }; "
+                "try { "
+                "  $w = (& where.exe %1 2>$null | Select-Object -First 1); "
+                "  if(-not [string]::IsNullOrWhiteSpace($w)){ Write-Output $w } "
+                "} catch {}; "
+                "exit 0").arg(exeName);
+            const bool ran = runSsh(p, whereCmd, 12000, wOut, wErr, wRc, {}, {}, {}, winPsMode);
+            if (!ran) {
+                const QString reason = oneLine(wErr.isEmpty() ? QStringLiteral("probe failed") : wErr);
                 appLog(QStringLiteral("INFO"),
-                       QStringLiteral("%1: where %2 -> %3").arg(p.name, exeName, oneLine(firstPath)));
-            } else {
-                const QString reason = oneLine(wErr.isEmpty() ? QStringLiteral("not found (rc=%1)").arg(wRc) : wErr);
-                appLog(QStringLiteral("WARN"),
                        QStringLiteral("%1: where %2 -> %3").arg(p.name, exeName, reason));
+                return;
             }
+            const QStringList lines = wOut.split('\n', Qt::SkipEmptyParts);
+            const QString firstPath = lines.isEmpty() ? QString() : lines.first().trimmed();
+            if (firstPath.isEmpty()) {
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("%1: where %2 -> not found").arg(p.name, exeName));
+                return;
+            }
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("%1: where %2 -> %3").arg(p.name, exeName, oneLine(firstPath)));
         };
         logWhere(QStringLiteral("zfs"));
         logWhere(QStringLiteral("zpool"));

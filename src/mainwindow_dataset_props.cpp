@@ -11,6 +11,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QScopedValueRollback>
 #include <QSet>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -753,6 +754,11 @@ void MainWindow::refreshDatasetProperties(const QString& side) {
 }
 
 void MainWindow::refreshDatasetProperties(const QString& side, QTreeWidget* connContentTree) {
+    static thread_local bool s_refreshDatasetPropertiesInProgress = false;
+    if (s_refreshDatasetPropertiesInProgress) {
+        return;
+    }
+    QScopedValueRollback<bool> refreshGuard(s_refreshDatasetPropertiesInProgress, true);
     beginTransientUiBusy(QStringLiteral("Leyendo propiedades..."));
     auto gsaPropsForView = []() {
         return QStringList{

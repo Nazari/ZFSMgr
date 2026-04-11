@@ -1346,11 +1346,95 @@ void MainWindow::resizeTreeColumnsToVisibleContent(QTreeWidget* tree) {
     if (!tree || !tree->headerItem()) {
         return;
     }
-    for (int col = 0; col < tree->columnCount(); ++col) {
+    const int colCount = tree->columnCount();
+    if (colCount <= 0) {
+        return;
+    }
+    constexpr int kMinWidthCol0 = 180;
+    constexpr int kMinWidthOther = 72;
+    constexpr int kMinWidthProp = 88;
+    constexpr int kMaxWidthProp = 240;
+    constexpr int kTreeDecorPadding = 28;
+    constexpr int kCellPadding = 18;
+
+    QVector<int> widths(colCount, 0);
+    const QFontMetrics fm(tree->font());
+    for (int col = 0; col < colCount; ++col) {
         if (tree->isColumnHidden(col)) {
             continue;
         }
-        tree->resizeColumnToContents(col);
+        const QString headerText = tree->headerItem()->text(col);
+        widths[col] = qMax(widths[col], fm.horizontalAdvance(headerText) + kCellPadding);
+    }
+
+    std::function<void(QTreeWidgetItem*, int)> measureVisible;
+    measureVisible = [&](QTreeWidgetItem* item, int depth) {
+        if (!item) {
+            return;
+        }
+        for (int col = 0; col < colCount; ++col) {
+            if (tree->isColumnHidden(col)) {
+                continue;
+            }
+            QWidget* cellWidget = tree->itemWidget(item, col);
+            const QString text = item->text(col);
+            const bool inlineUsed = item->data(col, kConnInlineCellUsedRole).toBool();
+            const bool considerCell = (col == 0) || inlineUsed || !text.trimmed().isEmpty() || (cellWidget != nullptr);
+            if (!considerCell) {
+                continue;
+            }
+
+            int candidate = 0;
+            if (!text.isEmpty()) {
+                candidate = qMax(candidate, fm.horizontalAdvance(text));
+            }
+            if (cellWidget) {
+                QSize hint = cellWidget->sizeHint();
+                if (!hint.isValid() || hint.width() <= 0) {
+                    hint = cellWidget->minimumSizeHint();
+                }
+                if (hint.width() > 0) {
+                    candidate = qMax(candidate, hint.width());
+                }
+            }
+
+            if (col == 0) {
+                candidate += depth * tree->indentation();
+                if (!item->icon(0).isNull()) {
+                    candidate += tree->iconSize().width() + 6;
+                }
+                candidate += kTreeDecorPadding;
+            } else {
+                candidate += kCellPadding;
+            }
+            widths[col] = qMax(widths[col], candidate);
+        }
+
+        if (!item->isExpanded()) {
+            return;
+        }
+        for (int i = 0; i < item->childCount(); ++i) {
+            measureVisible(item->child(i), depth + 1);
+        }
+    };
+
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        measureVisible(tree->topLevelItem(i), 0);
+    }
+
+    for (int col = 0; col < colCount; ++col) {
+        if (tree->isColumnHidden(col)) {
+            continue;
+        }
+        int width = widths[col];
+        if (col == 0) {
+            width = qMax(width, kMinWidthCol0);
+        } else if (col >= 4) {
+            width = qBound(kMinWidthProp, width, kMaxWidthProp);
+        } else {
+            width = qMax(width, kMinWidthOther);
+        }
+        tree->setColumnWidth(col, width);
     }
 }
 
@@ -2798,7 +2882,7 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
         }
         return filtered;
     };
-    const QColor nameRowBg(232, 240, 250);
+    const QColor nameRowBg = tree->palette().color(QPalette::Base);
     auto addSectionRows = [&](QTreeWidgetItem* parent,
                               const QString& title,
                               const QStringList& names,

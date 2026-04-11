@@ -3928,6 +3928,7 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
     }
 
     QString remoteCmd;
+    QByteArray remoteStdinPayload;
     WindowsCommandMode winMode = WindowsCommandMode::Auto;
     if (isWindowsConnection(idx)) {
         winMode = WindowsCommandMode::PowerShellNative;
@@ -3935,7 +3936,7 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
         payload.replace(QStringLiteral("__CONFIG_DIR__"), windowsConfigDirForProfile(p));
         const QString taskName = QString::fromLatin1(kGsaTaskName);
         const QString configDir = windowsConfigDirForProfile(p);
-        remoteCmd = QStringLiteral(
+        const QString installScript = QStringLiteral(
             "$cfg='%3'; "
             "New-Item -ItemType Directory -Force -Path $cfg | Out-Null; "
             "$log=Join-Path $cfg 'GSA.log'; "
@@ -3947,9 +3948,16 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
             "$script=Join-Path $dir 'gsa.ps1'; "
             "@'\n%1\n'@ | Set-Content -LiteralPath $script -Encoding UTF8; "
             "$taskCmd='powershell -NoProfile -ExecutionPolicy Bypass -File \"' + $script + '\"'; "
-            "schtasks /Create /F /TN '%2' /SC HOURLY /MO 1 /RU SYSTEM /TR $taskCmd | Out-Null; "
-            "schtasks /Change /TN '%2' /ENABLE | Out-Null")
+            "$createOut = & schtasks /Create /F /TN '%2' /SC HOURLY /MO 1 /RU SYSTEM /TR $taskCmd 2>&1; "
+            "if($LASTEXITCODE -ne 0){ throw ('schtasks create failed: ' + (($createOut | Out-String).Trim())) }; "
+            "$enableOut = & schtasks /Change /TN '%2' /ENABLE 2>&1; "
+            "if($LASTEXITCODE -ne 0){ throw ('schtasks enable failed: ' + (($enableOut | Out-String).Trim())) }")
                         .arg(payload, taskName, configDir);
+        remoteCmd = QStringLiteral(
+            "$script=[Console]::In.ReadToEnd(); "
+            "Invoke-Expression $script; "
+            "exit $LASTEXITCODE");
+        remoteStdinPayload = installScript.toUtf8();
     } else {
         const QString osHint = (p.osType + QStringLiteral(" ")
                                 + ((idx < m_states.size()) ? m_states[idx].osLine : QString())
@@ -4020,43 +4028,47 @@ bool MainWindow::installOrUpdateGsaForConnectionInternal(int idx, bool interacti
                                  QString::fromLatin1(kGsaUnixKnownHostsPath),
                                  knownHostsPayload);
         } else if (isFreeBsd) {
-            remoteCmd = QStringLiteral(
-                "if ! command -v crontab >/dev/null 2>&1; then echo 'cron not available' >&2; exit 1; fi; "
-                "mkdir -p /usr/local/libexec %7 %14; "
-                "cat > %1 <<'EOF_GSA'\n%2\nEOF_GSA\n"
-                "cat > %8 <<'EOF_GSA_CONF'\n%9\nEOF_GSA_CONF\n"
-                "cat > %10 <<'EOF_GSA_CONN'\n%11\nEOF_GSA_CONN\n"
-                "cat > %12 <<'EOF_GSA_KNOWN'\n%13\nEOF_GSA_KNOWN\n"
-                "chmod 700 %1; "
-                "chmod 600 %8 %10 %12; "
-                "chmod 700 %7 %14; "
-                "chown root:wheel %1 %8 %10 %12; "
-                "chown root:wheel %7 %14; "
-                "tmp=$(mktemp); "
-                "{ crontab -l 2>/dev/null || true; } | "
-                "awk -v begin=%3 -v end=%4 'BEGIN { skip=0 } "
-                "$0==begin { skip=1; next } "
-                "$0==end { skip=0; next } "
-                "skip==0 { print }' > \"$tmp\"; "
-                "printf '%s\n' %3 >> \"$tmp\"; "
-                "printf '%s\n' '0 * * * * /usr/local/libexec/zfsmgr-gsa.sh' >> \"$tmp\"; "
-                "printf '%s\n' %4 >> \"$tmp\"; "
-                "crontab \"$tmp\"; "
-                "rm -f \"$tmp\"")
-                            .arg(QString::fromLatin1(kGsaUnixScriptPath),
-                                 scriptPayload,
-                                 mwhelpers::shSingleQuote(QString::fromLatin1(kGsaFreeBsdCronMarkerBegin)),
-                                 mwhelpers::shSingleQuote(QString::fromLatin1(kGsaFreeBsdCronMarkerEnd)),
-                                 QString(),
-                                 QString(),
-                                 QString::fromLatin1(kGsaUnixConfigDirPath),
-                                 QString::fromLatin1(kGsaUnixConfigPath),
-                                 mainConfigPayload,
-                                 QString::fromLatin1(kGsaUnixConnectionsPath),
-                                 connectionsPayload,
-                                 QString::fromLatin1(kGsaUnixKnownHostsPath),
-                                 knownHostsPayload,
-                                 runtimeConfigDir);
+            const QString scriptPath = QString::fromLatin1(kGsaUnixScriptPath);
+            const QString configDirPath = QString::fromLatin1(kGsaUnixConfigDirPath);
+            const QString configPath = QString::fromLatin1(kGsaUnixConfigPath);
+            const QString connectionsPath = QString::fromLatin1(kGsaUnixConnectionsPath);
+            const QString knownHostsPath = QString::fromLatin1(kGsaUnixKnownHostsPath);
+            const QString cronMarkerBegin = mwhelpers::shSingleQuote(QString::fromLatin1(kGsaFreeBsdCronMarkerBegin));
+            const QString cronMarkerEnd = mwhelpers::shSingleQuote(QString::fromLatin1(kGsaFreeBsdCronMarkerEnd));
+            remoteCmd =
+                QStringLiteral("if ! command -v crontab >/dev/null 2>&1; then echo 'cron not available' >&2; exit 1; fi; ")
+                + QStringLiteral("mkdir -p /usr/local/libexec %1 %2; ")
+                      .arg(configDirPath, runtimeConfigDir)
+                + QStringLiteral("cat > %1 <<'EOF_GSA'\n").arg(scriptPath)
+                + scriptPayload
+                + QStringLiteral("\nEOF_GSA\n")
+                + QStringLiteral("cat > %1 <<'EOF_GSA_CONF'\n").arg(configPath)
+                + mainConfigPayload
+                + QStringLiteral("\nEOF_GSA_CONF\n")
+                + QStringLiteral("cat > %1 <<'EOF_GSA_CONN'\n").arg(connectionsPath)
+                + connectionsPayload
+                + QStringLiteral("\nEOF_GSA_CONN\n")
+                + QStringLiteral("cat > %1 <<'EOF_GSA_KNOWN'\n").arg(knownHostsPath)
+                + knownHostsPayload
+                + QStringLiteral("\nEOF_GSA_KNOWN\n")
+                + QStringLiteral("chmod 700 %1; ").arg(scriptPath)
+                + QStringLiteral("chmod 600 %1 %2 %3; ").arg(configPath, connectionsPath, knownHostsPath)
+                + QStringLiteral("chmod 700 %1 %2; ").arg(configDirPath, runtimeConfigDir)
+                + QStringLiteral("chown root:wheel %1 %2 %3 %4; ")
+                      .arg(scriptPath, configPath, connectionsPath, knownHostsPath)
+                + QStringLiteral("chown root:wheel %1 %2; ").arg(configDirPath, runtimeConfigDir)
+                + QStringLiteral("tmp=$(mktemp); ")
+                + QStringLiteral("{ crontab -l 2>/dev/null || true; } | ")
+                + QStringLiteral("awk -v begin=%1 -v end=%2 'BEGIN { skip=0 } ")
+                      .arg(cronMarkerBegin, cronMarkerEnd)
+                + QStringLiteral("$0==begin { skip=1; next } ")
+                + QStringLiteral("$0==end { skip=0; next } ")
+                + QStringLiteral("skip==0 { print }' > \"$tmp\"; ")
+                + QStringLiteral("printf '%s\\n' %1 >> \"$tmp\"; ").arg(cronMarkerBegin)
+                + QStringLiteral("printf '%s\\n' '0 * * * * /usr/local/libexec/zfsmgr-gsa.sh' >> \"$tmp\"; ")
+                + QStringLiteral("printf '%s\\n' %1 >> \"$tmp\"; ").arg(cronMarkerEnd)
+                + QStringLiteral("crontab \"$tmp\"; ")
+                + QStringLiteral("rm -f \"$tmp\"");
         } else {
             const QString servicePayload = QString::fromUtf8(R"([Unit]
 Description=ZFSMgr automatic snapshot manager
@@ -4117,7 +4129,7 @@ WantedBy=timers.target
     updateStatus(actionLabel + QStringLiteral("..."));
     QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
     QString detail;
-    const bool ok = executeConnectionCommand(idx, actionLabel, remoteCmd, 240000, &detail, winMode);
+    const bool ok = executeConnectionCommand(idx, actionLabel, remoteCmd, 240000, &detail, winMode, remoteStdinPayload);
     endUiBusy();
     if (!ok) {
         if (interactive) {
