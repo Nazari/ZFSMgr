@@ -47,6 +47,27 @@ Legal references:
 - **Current beta line**: check the latest published release here:
   https://github.com/Nazari/ZFSMgr/releases
 
+## Cross-compiling from Linux
+
+There is now a Linux cross-compiling base for:
+
+- Windows
+- FreeBSD
+- macOS (with osxcross)
+
+Entry point:
+
+```bash
+./scripts/provision-cross-targets.sh --windows --freebsd
+./scripts/build-cross.sh --target windows --doctor
+./scripts/build-cross.sh --target freebsd --doctor
+./scripts/build-cross.sh --target macos --doctor
+```
+
+Documentation:
+
+- `docs/cross-compiling-linux.md`
+
 ## Why ZFSMgr
 
 ZFSMgr is designed for users who want a real **GUI for ZFS administration** without giving up low-level OpenZFS functionality.

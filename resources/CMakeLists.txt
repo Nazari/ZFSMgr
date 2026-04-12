@@ -79,6 +79,11 @@ qt_add_library(zfsmgr_core STATIC ${ZFSMGR_CORE_SOURCES})
 
 target_link_libraries(zfsmgr_core PUBLIC Qt6::Widgets Qt6::Core Qt6::Gui Qt6::Concurrent Qt6::Network OpenSSL::Crypto)
 
+if(WIN32)
+    # OpenSSL static builds on MinGW may require explicit Win32 system libs.
+    target_link_libraries(zfsmgr_core PUBLIC ws2_32 crypt32 iphlpapi ncrypt bcrypt)
+endif()
+
 target_include_directories(zfsmgr_core PUBLIC ../src)
 
 target_compile_definitions(zfsmgr_core PUBLIC
