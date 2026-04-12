@@ -2889,7 +2889,8 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
                               const QMap<QString, QString>* valuesByName,
                               bool namesOnly,
                               bool collapsible = false,
-                              bool expanded = true) {
+                              bool expanded = true,
+                              const QMap<QString, QColor>* valueColorByName = nullptr) {
         if (!parent) {
             return;
         }
@@ -2947,6 +2948,9 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
                 rowValues->setText(col, valuesByName ? valuesByName->value(name) : QString());
                 rowValues->setTextAlignment(col, Qt::AlignCenter);
                 rowValues->setData(col, kConnPropKeyRole, name);
+                if (valueColorByName && valueColorByName->contains(name)) {
+                    rowValues->setForeground(col, QBrush(valueColorByName->value(name)));
+                }
             }
         }
     };
@@ -3411,26 +3415,42 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
                            true,
                            false);
         }
+        QStringList capabilityNames;
+        QMap<QString, QString> capabilityStates;
+        QMap<QString, QColor> capabilityColors;
+        for (const QString& cap : featureEnabled) {
+            const QString trimmed = cap.trimmed();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            capabilityNames.push_back(trimmed);
+            capabilityStates.insert(trimmed, QStringLiteral("activa"));
+            capabilityColors.insert(trimmed, QColor(QStringLiteral("#1b8f3a")));
+        }
+        for (const QString& cap : featureDisabled) {
+            const QString trimmed = cap.trimmed();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            capabilityNames.push_back(trimmed);
+            capabilityStates.insert(trimmed, QStringLiteral("no activa"));
+            capabilityColors.insert(trimmed, QColor(QStringLiteral("#b00020")));
+        }
+        if (capabilityNames.isEmpty()) {
+            capabilityNames.push_back(QStringLiteral("Capacidades"));
+            capabilityStates.insert(QStringLiteral("Capacidades"), QStringLiteral("(ninguna)"));
+        }
         addSectionRows(infoNode,
-                       trk(QStringLiteral("t_pool_caps_on001"),
-                           QStringLiteral("Capacidades activas"),
-                           QStringLiteral("Enabled features"),
-                           QStringLiteral("已启用能力")),
-                       featureEnabled,
-                       nullptr,
+                       trk(QStringLiteral("t_pool_caps_merged_001"),
+                           QStringLiteral("Capacidades"),
+                           QStringLiteral("Features"),
+                           QStringLiteral("能力")),
+                       capabilityNames,
+                       &capabilityStates,
+                       false,
                        true,
-                       true,
-                       false);
-        addSectionRows(infoNode,
-                       trk(QStringLiteral("t_pool_caps_off01"),
-                           QStringLiteral("Capacidades deshabilitadas"),
-                           QStringLiteral("Disabled features"),
-                           QStringLiteral("已禁用能力")),
-                       featureDisabled,
-                       nullptr,
-                       true,
-                       true,
-                       true);
+                       false,
+                       &capabilityColors);
         QStringList autoSnapshotDatasets;
         for (auto it = autoSnapshotPropsByDatasetForPool.cbegin(); it != autoSnapshotPropsByDatasetForPool.cend(); ++it) {
             const QString enabledKey = findCaseInsensitiveMapKey(it.value(), QStringLiteral("org.fc16.gsa:activado"));
@@ -4858,53 +4878,109 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
     appendReadOnlyInlineProps(gsaNode, gsaProps);
     gsaNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:gsa"), false));
 
-    auto* detectedNode = new QTreeWidgetItem(infoNode);
-    detectedNode->setFlags(detectedNode->flags() & ~Qt::ItemIsUserCheckable);
-    detectedNode->setData(0, kConnContentNodeRole, true);
-    detectedNode->setData(0, kConnIdxRole, connIdx);
-    detectedNode->setData(0, kConnStatePartRole, QStringLiteral("syn:detected_commands"));
-    detectedNode->setText(0, QStringLiteral("Comandos detectados"));
-    QVector<QPair<QString, QString>> detectedProps;
-    if (st.detectedUnixCommands.isEmpty()) {
-        detectedProps.push_back({QStringLiteral("Comandos"), QStringLiteral("(ninguno)")});
-    } else {
-        for (const QString& cmd : st.detectedUnixCommands) {
-            const QString trimmed = cmd.trimmed();
-            if (trimmed.isEmpty()) {
-                continue;
-            }
-            detectedProps.push_back({trimmed, QStringLiteral("sí")});
+    auto* commandsNode = new QTreeWidgetItem(infoNode);
+    commandsNode->setFlags(commandsNode->flags() & ~Qt::ItemIsUserCheckable);
+    commandsNode->setData(0, kConnContentNodeRole, true);
+    commandsNode->setData(0, kConnIdxRole, connIdx);
+    commandsNode->setData(0, kConnStatePartRole, QStringLiteral("syn:commands"));
+    commandsNode->setText(0, QStringLiteral("Comandos"));
+    auto appendCommandRows = [&](QTreeWidgetItem* parent,
+                                 const QVector<QPair<QString, bool>>& entries) {
+        if (!parent || entries.isEmpty()) {
+            return;
         }
-        if (detectedProps.isEmpty()) {
-            detectedProps.push_back({QStringLiteral("Comandos"), QStringLiteral("(ninguno)")});
+        for (int base = 0; base < entries.size(); base += propCols) {
+            auto* rowNames = new QTreeWidgetItem(parent);
+            rowNames->setData(0, kConnRootInlineFieldRole, true);
+            rowNames->setData(0, kConnPropRowKindRole, 1);
+            rowNames->setData(0, kConnIdxRole, connIdx);
+            rowNames->setFlags(rowNames->flags() & ~Qt::ItemIsUserCheckable);
+            rowNames->setText(0, QString());
+            auto* rowValues = new QTreeWidgetItem(parent);
+            rowValues->setData(0, kConnRootInlineFieldRole, true);
+            rowValues->setData(0, kConnPropRowKindRole, 2);
+            rowValues->setData(0, kConnIdxRole, connIdx);
+            rowValues->setFlags((rowValues->flags() & ~Qt::ItemIsEditable) & ~Qt::ItemIsUserCheckable);
+            rowValues->setText(0, QString());
+            rowValues->setSizeHint(0, QSize(0, 33));
+            for (int off = 0; off < propCols; ++off) {
+                const int idx = base + off;
+                if (idx >= entries.size()) {
+                    break;
+                }
+                const int col = 4 + off;
+                if (col >= tree->columnCount()) {
+                    break;
+                }
+                const QString cmd = entries.at(idx).first;
+                const bool detected = entries.at(idx).second;
+                rowNames->setData(col, kConnInlineCellUsedRole, true);
+                rowValues->setData(col, kConnInlineCellUsedRole, true);
+                tree->setItemWidget(rowNames, col, new InlinePropNameWidget(cmd, false, tree));
+                rowNames->setTextAlignment(col, Qt::AlignCenter);
+                const QString valueText = detected ? QStringLiteral("sí") : QStringLiteral("no");
+                rowValues->setText(col, valueText);
+                rowValues->setTextAlignment(col, Qt::AlignCenter);
+                const QString valueColor = detected ? QStringLiteral("#1b8f3a")
+                                                    : QStringLiteral("#b00020");
+                auto* edit = new QLineEdit(tree);
+                edit->setText(valueText);
+                edit->setReadOnly(true);
+                edit->setMinimumHeight(22);
+                edit->setMaximumHeight(22);
+                edit->setFont(tree->font());
+                edit->setStyleSheet(QStringLiteral("QLineEdit{padding:0 5px; margin:0px; background:#f3f5f7; color:%1;}").arg(valueColor));
+                tree->setItemWidget(rowValues, col, wrapInlineCellEditor(edit, tree));
+            }
+        }
+    };
+    QVector<QPair<QString, bool>> commandEntries;
+    for (const QString& cmd : st.detectedUnixCommands) {
+        const QString trimmed = cmd.trimmed();
+        if (!trimmed.isEmpty()) {
+            commandEntries.push_back({trimmed, true});
         }
     }
-    appendReadOnlyInlineProps(detectedNode, detectedProps);
-    detectedNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:detected_commands"), false));
-
-    auto* missingNode = new QTreeWidgetItem(infoNode);
-    missingNode->setFlags(missingNode->flags() & ~Qt::ItemIsUserCheckable);
-    missingNode->setData(0, kConnContentNodeRole, true);
-    missingNode->setData(0, kConnIdxRole, connIdx);
-    missingNode->setData(0, kConnStatePartRole, QStringLiteral("syn:missing_commands"));
-    missingNode->setText(0, QStringLiteral("Comandos no detectados"));
-    QVector<QPair<QString, QString>> missingProps;
-    if (st.missingUnixCommands.isEmpty()) {
-        missingProps.push_back({QStringLiteral("Comandos"), QStringLiteral("(ninguno)")});
-    } else {
-        for (const QString& cmd : st.missingUnixCommands) {
-            const QString trimmed = cmd.trimmed();
-            if (trimmed.isEmpty()) {
-                continue;
-            }
-            missingProps.push_back({trimmed, QStringLiteral("no")});
-        }
-        if (missingProps.isEmpty()) {
-            missingProps.push_back({QStringLiteral("Comandos"), QStringLiteral("(ninguno)")});
+    for (const QString& cmd : st.missingUnixCommands) {
+        const QString trimmed = cmd.trimmed();
+        if (!trimmed.isEmpty()) {
+            commandEntries.push_back({trimmed, false});
         }
     }
-    appendReadOnlyInlineProps(missingNode, missingProps);
-    missingNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:missing_commands"), false));
+    if (commandEntries.isEmpty()) {
+        commandEntries.push_back({QStringLiteral("Comandos"), true});
+    }
+    appendCommandRows(commandsNode, commandEntries);
+    if (st.detectedUnixCommands.isEmpty() && st.missingUnixCommands.isEmpty()) {
+        for (int i = 0; i < commandsNode->childCount(); ++i) {
+            QTreeWidgetItem* child = commandsNode->child(i);
+            if (!child) {
+                continue;
+            }
+            if (child->data(0, kConnPropRowKindRole).toInt() == 2) {
+                for (int col = 4; col < tree->columnCount(); ++col) {
+                    if (!child->data(col, kConnInlineCellUsedRole).toBool()) {
+                        continue;
+                    }
+                    child->setText(col, QStringLiteral("(ninguno)"));
+                    child->setForeground(col, QBrush());
+                    auto* edit = new QLineEdit(tree);
+                    edit->setText(QStringLiteral("(ninguno)"));
+                    edit->setReadOnly(true);
+                    edit->setMinimumHeight(22);
+                    edit->setMaximumHeight(22);
+                    edit->setFont(tree->font());
+                    edit->setStyleSheet(QStringLiteral("QLineEdit{padding:0 5px; margin:0px; background:#f3f5f7; color:#5f6b76;}"));
+                    tree->setItemWidget(child, col, wrapInlineCellEditor(edit, tree));
+                }
+                break;
+            }
+        }
+    }
+    const bool expandedLegacyDetected = infoChildExpandedById.value(QStringLiteral("syn:detected_commands"), false);
+    const bool expandedLegacyMissing = infoChildExpandedById.value(QStringLiteral("syn:missing_commands"), false);
+    commandsNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:commands"),
+                                                          expandedLegacyDetected || expandedLegacyMissing));
 
     QVector<QPair<QString, QString>> nonImportablePools;
     for (const PoolImportable& pool : st.importablePools) {
