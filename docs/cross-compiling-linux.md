@@ -50,6 +50,32 @@ Build:
 ./scripts/build-cross.sh --target macos
 ```
 
+Build local multiplaforma (fc16):
+
+```bash
+./scripts/buildall-cross.sh --platforms linux,windows,freebsd,macos --macos-arches amd64,arm64
+```
+
+Esto deja artefactos en `builds/artifacts/<timestamp>/`.
+
+Instalador de Windows (Inno) en Linux:
+
+```bash
+./scripts/buildall-cross.sh --platforms windows --windows-installer 1
+```
+
+Artefactos esperados para Windows:
+- `ZFSMgr-<version>-windows.exe`
+- `ZFSMgr-Setup-<version>.exe`
+
+Dependencias host recomendadas para Inno por Wine (Ubuntu/Debian):
+
+```bash
+sudo dpkg --add-architecture i386
+sudo apt-get update
+sudo apt-get install -y wine64 wine32:i386 winbind xvfb cabextract
+```
+
 ## Variables de entorno
 
 ### Windows
@@ -68,7 +94,7 @@ Autodetecciones implementadas:
 Comando validado:
 
 ```bash
-./scripts/build-cross.sh --target windows --build-dir build-cross-windows --jobs 8
+./scripts/build-cross.sh --target windows --build-dir builds/cross-windows --jobs 8
 ```
 
 ### FreeBSD
@@ -84,17 +110,27 @@ Autodetección implementada:
 
 ### macOS
 
-- `OSXCROSS_TARGET`: default `x86_64-apple-darwin23`.
+- `OSXCROSS_TARGET`: autodetectado desde `/opt/osxcross/target/bin` (preferencia `x86_64-apple-darwin*`).
 - `OSX_SYSROOT`: SDK macOS.
 - `QT6_MACOS_PREFIX`: prefijo Qt6 target macOS.
+- `QT_HOST_PATH`: Qt host Linux para `moc/uic/rcc` (autodetectado desde `~/Qt/*/gcc_64` y prioriza la misma versión que target).
+- `OPENSSL_ROOT_DIR`: prefijo OpenSSL target macOS (autodetecta `~/opt/openssl-macos-x86_64`).
 - `OSXCROSS_CC` / `OSXCROSS_CXX` (opcionales).
+
+Autodetección implementada:
+- Añade `/opt/osxcross/target/bin` al `PATH` en `--doctor`.
+- `QT6_MACOS_PREFIX` desde `~/Qt/*/{macos,clang_64}`.
+- `QT_HOST_PATH` y `QT_HOST_PATH_CMAKE_DIR` desde `~/Qt/*/gcc_64`.
+- Fuerza herramientas host Qt (`moc/uic/rcc`) y `Qt6CoreTools_DIR`/`Qt6WidgetsTools_DIR` al kit Linux.
+- `CMAKE_OSX_DEPLOYMENT_TARGET=10.15` por defecto (si no defines `MACOSX_DEPLOYMENT_TARGET`).
+- OpenSSL target macOS vía `OPENSSL_ROOT_DIR` + include/lib explícitos.
 
 ## Directorios de build
 
 Por defecto:
 
-- `build-cross-windows`
-- `build-cross-freebsd`
-- `build-cross-macos`
+- `builds/cross-windows`
+- `builds/cross-freebsd`
+- `builds/cross-macos`
 
 Puedes cambiarlo con `--build-dir`.
