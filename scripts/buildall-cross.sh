@@ -85,6 +85,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 mkdir -p "${OUTPUT_DIR}" "${LOG_DIR}"
+OUTPUT_DIR="$(cd "${OUTPUT_DIR}" && pwd)"
+LOG_DIR="$(cd "${LOG_DIR}" && pwd)"
 
 version_from_cmake() {
   sed -nE 's/^[[:space:]]*set\([[:space:]]*ZFSMGR_APP_VERSION_STRING[[:space:]]*"([^"]+)".*/\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1
@@ -155,18 +157,18 @@ ensure_macos_openssl() {
   local work="/tmp/openssl-macos-${arch}-build"
   mkdir -p "${work}" "$(dirname "${openssl_prefix}")"
   rm -rf "${work:?}"/*
-  curl -fL -o "${work}/openssl.tar.gz" "https://www.openssl.org/source/openssl-3.3.1.tar.gz"
-  tar -xf "${work}/openssl.tar.gz" -C "${work}"
+  curl -fL -o "${work}/openssl.tar.gz" "https://www.openssl.org/source/openssl-3.3.1.tar.gz" >&2
+  tar -xf "${work}/openssl.tar.gz" -C "${work}" >&2
   (
     cd "${work}/openssl-3.3.1"
-    PATH="/opt/osxcross/target/bin:${PATH}" \
-    SDKROOT="${sdk}" \
-    CFLAGS="-isysroot ${sdk} -mmacosx-version-min=10.15" \
-    LDFLAGS="-isysroot ${sdk} -mmacosx-version-min=10.15" \
-    ./Configure "${openssl_target}" --cross-compile-prefix="${osxcross_target}-" --prefix="${openssl_prefix}" --libdir=lib no-tests no-shared
-    make -j"${JOBS}"
-    make install_sw
-  )
+    export PATH="/opt/osxcross/target/bin:${PATH}"
+    export SDKROOT="${sdk}"
+    export CFLAGS="-isysroot ${sdk} -mmacosx-version-min=10.15"
+    export LDFLAGS="-isysroot ${sdk} -mmacosx-version-min=10.15"
+    ./Configure "${openssl_target}" --cross-compile-prefix="${osxcross_target}-" --prefix="${openssl_prefix}" --libdir=lib no-tests no-shared >&2
+    make -j"${JOBS}" >&2
+    make install_sw >&2
+  ) >&2
   printf '%s\n' "${openssl_prefix}"
 }
 
