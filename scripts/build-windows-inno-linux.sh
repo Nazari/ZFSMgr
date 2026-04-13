@@ -15,6 +15,8 @@ INNO_ISCC="${INNO_ISCC:-}"
 APP_NAME="ZFSMgr"
 APP_EXE="zfsmgr_qt.exe"
 APP_VERSION=""
+QT6_PREFIX="${QT6_WINDOWS_PREFIX:-}"
+MINGW_TRIPLE="${CROSS_TRIPLE_WINDOWS:-x86_64-w64-mingw32}"
 
 usage() {
   cat <<'EOF'
@@ -26,12 +28,17 @@ Opciones:
   --output-dir <dir>    Directorio de salida del instalador (default: builds/windows-installer)
   --version <v>         Versión del instalador (si no, se lee de CMakeLists)
   --exe <name.exe>      Ejecutable principal (default: zfsmgr_qt.exe)
+  --qt-prefix <dir>     Prefijo Qt6 para Windows (bin/Qt6*.dll y plugins/). Por defecto
+                        se usa QT6_WINDOWS_PREFIX del entorno.
+  --mingw-triple <t>    Triple MinGW para localizar DLLs de runtime (default: x86_64-w64-mingw32)
   --wineprefix <dir>    WINEPREFIX para Inno Setup (default: ~/.wine-zfsmgr-inno)
   --inno-iscc <path>    Ruta a ISCC.exe o iscc nativo
   -h, --help            Muestra esta ayuda
 
 Descripción:
   Genera un instalador Inno Setup (.exe) en Linux usando Wine.
+  Incluye automáticamente Qt6 DLLs y plugins desde --qt-prefix, y las
+  DLLs de runtime MinGW (libstdc++, libgcc, libwinpthread).
 EOF
 }
 
@@ -41,6 +48,8 @@ while [[ $# -gt 0 ]]; do
     --output-dir) shift; OUTPUT_DIR="${1:-}"; shift ;;
     --version) shift; APP_VERSION="${1:-}"; shift ;;
     --exe) shift; APP_EXE="${1:-}"; shift ;;
+    --qt-prefix) shift; QT6_PREFIX="${1:-}"; shift ;;
+    --mingw-triple) shift; MINGW_TRIPLE="${1:-}"; shift ;;
     --wineprefix) shift; WINEPREFIX="${1:-}"; shift ;;
     --inno-iscc) shift; INNO_ISCC="${1:-}"; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -111,6 +120,76 @@ ensure_inno() {
   printf '%s\n' "${iscc_path}"
 }
 
+copy_qt6_dlls() {
+  local dest="$1"
+  if [[ -z "${QT6_PREFIX}" ]]; then
+    echo "[payload] QT6_PREFIX no definido; se omiten Qt6 DLLs (establece QT6_WINDOWS_PREFIX o usa --qt-prefix)" >&2
+    return 0
+  fi
+  local qt_bin="${QT6_PREFIX}/bin"
+  if [[ ! -d "${qt_bin}" ]]; then
+    echo "[payload] Directorio bin de Qt6 no encontrado: ${qt_bin}" >&2
+    return 0
+  fi
+  local count=0
+  while IFS= read -r -d '' dll; do
+    cp -f "${dll}" "${dest}/"
+    (( count++ )) || true
+  done < <(find "${qt_bin}" -maxdepth 1 -type f -name 'Qt6*.dll' -print0)
+  echo "[payload] Copiadas ${count} Qt6 DLLs desde ${qt_bin}"
+
+  # Plugin directories
+  local qt_plugins="${QT6_PREFIX}/plugins"
+  local plugin_dirs=(platforms styles imageformats iconengines tls bearer networkinformation)
+  local d
+  for d in "${plugin_dirs[@]}"; do
+    if [[ -d "${qt_plugins}/${d}" ]]; then
+      cp -a "${qt_plugins}/${d}" "${dest}/"
+      echo "[payload] Plugin dir copiado: ${d}"
+    fi
+  done
+}
+
+find_mingw_runtime_dll() {
+  local name="$1"
+  # Try compiler's own search path first
+  local found
+  found="$(${MINGW_TRIPLE}-gcc --print-file-name="${name}" 2>/dev/null || true)"
+  if [[ -n "${found}" && "${found}" != "${name}" && -f "${found}" ]]; then
+    printf '%s\n' "${found}"
+    return 0
+  fi
+  # Common MinGW locations on Debian/Ubuntu
+  local search_dirs=(
+    "/usr/${MINGW_TRIPLE}/bin"
+    "/usr/${MINGW_TRIPLE}/lib"
+  )
+  local d
+  for d in "${search_dirs[@]}"; do
+    [[ -f "${d}/${name}" ]] && { printf '%s\n' "${d}/${name}"; return 0; }
+  done
+  # GCC lib dirs
+  while IFS= read -r -d '' candidate; do
+    [[ -f "${candidate}/${name}" ]] && { printf '%s\n' "${candidate}/${name}"; return 0; }
+  done < <(find /usr/lib/gcc/"${MINGW_TRIPLE}" -maxdepth 1 -type d -print0 2>/dev/null)
+  return 1
+}
+
+copy_mingw_runtime() {
+  local dest="$1"
+  local runtime_dlls=(libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll)
+  local name found
+  for name in "${runtime_dlls[@]}"; do
+    found="$(find_mingw_runtime_dll "${name}" || true)"
+    if [[ -n "${found}" ]]; then
+      cp -f "${found}" "${dest}/"
+      echo "[payload] Runtime MinGW copiado: ${name}"
+    else
+      echo "[payload] Advertencia: no se encontró ${name} para MinGW triple '${MINGW_TRIPLE}'" >&2
+    fi
+  done
+}
+
 prepare_payload() {
   PAYLOAD_DIR="${OUTPUT_DIR}/payload"
   rm -rf "${PAYLOAD_DIR}"
@@ -118,8 +197,11 @@ prepare_payload() {
   [[ -f "${INPUT_DIR}/${APP_EXE}" ]] || { echo "No existe ${INPUT_DIR}/${APP_EXE}" >&2; exit 1; }
 
   cp -f "${INPUT_DIR}/${APP_EXE}" "${PAYLOAD_DIR}/"
+
+  # DLLs ya presentes en el directorio de build (p.ej. OpenSSL u otras dependencias precopiadas)
   find "${INPUT_DIR}" -maxdepth 1 -type f -name '*.dll' -exec cp -f {} "${PAYLOAD_DIR}/" \;
 
+  # Plugin dirs ya presentes en el directorio de build
   local dirs=(platforms styles imageformats iconengines tls bearer networkinformation plugins)
   local d
   for d in "${dirs[@]}"; do
@@ -131,6 +213,13 @@ prepare_payload() {
   if [[ -f "${INPUT_DIR}/qt.conf" ]]; then
     cp -f "${INPUT_DIR}/qt.conf" "${PAYLOAD_DIR}/"
   fi
+
+  # Copiar Qt6 DLLs y plugins desde el prefijo de Qt para Windows
+  copy_qt6_dlls "${PAYLOAD_DIR}"
+
+  # Copiar DLLs de runtime MinGW
+  copy_mingw_runtime "${PAYLOAD_DIR}"
+
   return 0
 }
 

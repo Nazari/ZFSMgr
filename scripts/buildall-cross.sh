@@ -183,16 +183,25 @@ if has_platform "linux"; then
 fi
 
 if has_platform "windows"; then
+  # Autodetect QT6_WINDOWS_PREFIX if not set, so it can be passed to the Inno step
+  if [[ -z "${QT6_WINDOWS_PREFIX:-}" ]]; then
+    _qt_win_guess="$(autodetect_path_glob "${HOME}/Qt/*/mingw_64")"
+    [[ -n "${_qt_win_guess}" ]] && QT6_WINDOWS_PREFIX="${_qt_win_guess}" && export QT6_WINDOWS_PREFIX
+  fi
+
   run_phase windows-local "${SCRIPT_DIR}/build-cross.sh" --target windows --jobs "${JOBS}"
   win_exe="${PROJECT_ROOT}/builds/cross-windows/zfsmgr_qt.exe"
   [[ -f "${win_exe}" ]] || { echo "No se encontró zfsmgr_qt.exe de Windows cross" >&2; exit 1; }
   cp -f "${win_exe}" "${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-windows.exe"
   if [[ "${WINDOWS_INSTALLER}" == "1" ]]; then
+    _inno_extra_args=()
+    [[ -n "${QT6_WINDOWS_PREFIX:-}" ]] && _inno_extra_args+=(--qt-prefix "${QT6_WINDOWS_PREFIX}")
     run_phase windows-installer-local "${SCRIPT_DIR}/build-windows-inno-linux.sh" \
       --input-dir "${PROJECT_ROOT}/builds/cross-windows" \
       --output-dir "${PROJECT_ROOT}/builds/windows-installer" \
       --version "${APP_VERSION}" \
-      --exe "zfsmgr_qt.exe"
+      --exe "zfsmgr_qt.exe" \
+      "${_inno_extra_args[@]}"
     win_setup="$(find "${PROJECT_ROOT}/builds/windows-installer" -maxdepth 1 -type f -name "ZFSMgr-Setup-${APP_VERSION}*.exe" | sort -V | tail -n1 || true)"
     [[ -n "${win_setup}" ]] || { echo "No se encontró instalador Inno generado" >&2; exit 1; }
     cp -f "${win_setup}" "${OUTPUT_DIR}/"
