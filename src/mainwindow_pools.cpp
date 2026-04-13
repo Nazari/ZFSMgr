@@ -665,6 +665,11 @@ void MainWindow::importPoolFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Importar"), {preview})) {
         return;
     }
+    beginTransientUiBusy(
+        trk(QStringLiteral("t_pool_import_busy_001"),
+            QStringLiteral("Importando pool..."),
+            QStringLiteral("Importing pool..."),
+            QStringLiteral("正在导入存储池...")));
     QString errorText;
     if (!executePoolCommand(idx,
                             poolName,
@@ -674,6 +679,7 @@ void MainWindow::importPoolFromRow(int row) {
                             &errorText,
                             true,
                             false)) {
+        endTransientUiBusy();
         QMessageBox::critical(this,
                               trk(QStringLiteral("t_import_btn001"),
                                   QStringLiteral("Importar"),
@@ -684,6 +690,7 @@ void MainWindow::importPoolFromRow(int row) {
                                   .arg(errorText));
         return;
     }
+    endTransientUiBusy();
 }
 
 void MainWindow::importPoolRenamingFromRow(int row) {
@@ -917,6 +924,11 @@ void MainWindow::importPoolRenamingFromRow(int row) {
     if (!confirmActionExecution(QStringLiteral("Importar renombrando"), {preview})) {
         return;
     }
+    beginTransientUiBusy(
+        trk(QStringLiteral("t_pool_import_busy_001"),
+            QStringLiteral("Importando pool..."),
+            QStringLiteral("Importing pool..."),
+            QStringLiteral("正在导入存储池...")));
     QString errorText;
     if (!executePoolCommand(idx,
                             poolName,
@@ -926,6 +938,7 @@ void MainWindow::importPoolRenamingFromRow(int row) {
                             &errorText,
                             true,
                             false)) {
+        endTransientUiBusy();
         QMessageBox::critical(this,
                               trk(QStringLiteral("t_import_btn001"),
                                   QStringLiteral("Importar"),
@@ -936,6 +949,7 @@ void MainWindow::importPoolRenamingFromRow(int row) {
                                   .arg(errorText));
         return;
     }
+    endTransientUiBusy();
 }
 
 void MainWindow::scrubPoolFromRow(int row) {

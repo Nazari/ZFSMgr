@@ -1022,17 +1022,146 @@ void MainWindow::invalidateDatasetCacheForPool(int connIdx, const QString& poolN
 }
 
 void MainWindow::reloadConnContentPool(int connIdx, const QString& poolName) {
-    if (connIdx < 0 || connIdx >= m_profiles.size() || poolName.trimmed().isEmpty()) {
+    const QString trimmedPool = poolName.trimmed();
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty()) {
         return;
     }
+
+    constexpr int kConnIdxRoleLocal = Qt::UserRole + 10;
+    constexpr int kPoolNameRoleLocal = Qt::UserRole + 11;
+    constexpr int kIsPoolRootRoleLocal = Qt::UserRole + 12;
+    const QString targetToken = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
+
+    auto tokenMatchesTarget = [&](QTreeWidget* tree) -> bool {
+        if (!tree) {
+            return false;
+        }
+        const QString token = connContentTokenForTree(tree).trimmed();
+        if (token.isEmpty()) {
+            return false;
+        }
+        const int sep = token.indexOf(QStringLiteral("::"));
+        if (sep <= 0) {
+            return false;
+        }
+        bool okConn = false;
+        const int tokenConnIdx = token.left(sep).toInt(&okConn);
+        const QString tokenPool = token.mid(sep + 2).trimmed();
+        return okConn && tokenConnIdx == connIdx
+               && tokenPool.compare(trimmedPool, Qt::CaseInsensitive) == 0;
+    };
+
+    auto treeHasTargetPool = [&](QTreeWidget* tree) -> bool {
+        if (!tree) {
+            return false;
+        }
+        std::function<bool(QTreeWidgetItem*)> recHasPool = [&](QTreeWidgetItem* node) -> bool {
+            if (!node) {
+                return false;
+            }
+            if (node->data(0, kIsPoolRootRoleLocal).toBool()
+                && node->data(0, kConnIdxRoleLocal).toInt() == connIdx
+                && node->data(0, kPoolNameRoleLocal).toString().trimmed().compare(
+                       trimmedPool, Qt::CaseInsensitive) == 0) {
+                return true;
+            }
+            for (int i = 0; i < node->childCount(); ++i) {
+                if (recHasPool(node->child(i))) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+            if (recHasPool(tree->topLevelItem(i))) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    auto removeTargetPoolRoots = [&](QTreeWidget* tree) {
+        if (!tree) {
+            return;
+        }
+        std::function<void(QTreeWidgetItem*)> recPurge = [&](QTreeWidgetItem* parent) {
+            if (!parent) {
+                return;
+            }
+            for (int i = parent->childCount() - 1; i >= 0; --i) {
+                QTreeWidgetItem* child = parent->child(i);
+                if (!child) {
+                    continue;
+                }
+                if (child->data(0, kIsPoolRootRoleLocal).toBool()
+                    && child->data(0, kConnIdxRoleLocal).toInt() == connIdx
+                    && child->data(0, kPoolNameRoleLocal).toString().trimmed().compare(
+                           trimmedPool, Qt::CaseInsensitive) == 0) {
+                    delete parent->takeChild(i);
+                    continue;
+                }
+                recPurge(child);
+            }
+        };
+        for (int i = tree->topLevelItemCount() - 1; i >= 0; --i) {
+            QTreeWidgetItem* top = tree->topLevelItem(i);
+            if (!top) {
+                continue;
+            }
+            if (top->data(0, kIsPoolRootRoleLocal).toBool()
+                && top->data(0, kConnIdxRoleLocal).toInt() == connIdx
+                && top->data(0, kPoolNameRoleLocal).toString().trimmed().compare(
+                       trimmedPool, Qt::CaseInsensitive) == 0) {
+                delete tree->takeTopLevelItem(i);
+                continue;
+            }
+            recPurge(top);
+        }
+    };
+
+    auto refreshTargetPoolInTree = [&](QTreeWidget* tree) -> bool {
+        if (!tree || !(tokenMatchesTarget(tree) || treeHasTargetPool(tree))) {
+            return false;
+        }
+        const QString stateToken = connContentTokenForTree(tree).trimmed();
+        if (!stateToken.isEmpty()) {
+            saveConnContentTreeStateFor(tree, stateToken);
+        }
+        removeTargetPoolRoots(tree);
+        const bool groupedByConnectionRoots =
+            tree->property("zfsmgr.groupPoolsByConnectionRoots").toBool();
+        const DatasetTreeContext ctx = groupedByConnectionRoots
+                                           ? DatasetTreeContext::ConnectionContentMulti
+                                           : DatasetTreeContext::ConnectionContent;
+        const DatasetTreeRenderOptions opts = datasetTreeRenderOptionsForTree(tree, ctx);
+        appendDatasetTreeForPool(tree, connIdx, trimmedPool, ctx, opts, true);
+        if (groupedByConnectionRoots) {
+            tree->expandToDepth(0);
+        }
+        syncConnContentPoolColumnsFor(tree, targetToken);
+        if (!stateToken.isEmpty()) {
+            restoreConnContentTreeStateFor(tree, stateToken);
+        }
+        return true;
+    };
+
+    beginUiBusy();
     bool refreshed = false;
-    if (m_connContentTree && m_topDetailConnIdx == connIdx) {
-        rebuildConnectionEntityTabs();
-        refreshed = true;
+    refreshed = refreshTargetPoolInTree(m_connContentTree) || refreshed;
+    if (m_bottomConnContentTree && m_bottomConnContentTree != m_connContentTree) {
+        refreshed = refreshTargetPoolInTree(m_bottomConnContentTree) || refreshed;
+    }
+    for (const SplitTreeEntry& entry : std::as_const(m_splitTrees)) {
+        QTreeWidget* tree = entry.treeWidget ? entry.treeWidget->tree() : nullptr;
+        if (!tree || tree == m_connContentTree || tree == m_bottomConnContentTree) {
+            continue;
+        }
+        refreshed = refreshTargetPoolInTree(tree) || refreshed;
     }
     if (!refreshed) {
         refreshConnectionByIndex(connIdx);
     }
+    endUiBusy();
 }
 
 void MainWindow::reloadDatasetSide(const QString& side) {
