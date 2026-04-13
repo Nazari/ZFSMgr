@@ -39,7 +39,7 @@ mkdir -p "${OUTPUT_DIR}"
 echo "[2/3] Generando capturas en ${OUTPUT_DIR}"
 QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}" \
 ZFSMGR_TEST_MODE=1 \
-"${PROJECT_ROOT}/build-linux/zfsmgr_ui_doc_capture" "${OUTPUT_DIR}"
+"${PROJECT_ROOT}/builds/linux/zfsmgr_ui_doc_capture" "${OUTPUT_DIR}"
 
 echo "[3/3] Capturas generadas:"
 find "${OUTPUT_DIR}" -maxdepth 1 -type f -name '*.png' -printf '%f\n' | sort

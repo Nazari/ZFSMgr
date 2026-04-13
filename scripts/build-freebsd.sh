@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-BUILD_DIR="${PROJECT_ROOT}/build-freebsd"
+BUILD_DIR="${ZFSMGR_BUILD_DIR:-${PROJECT_ROOT}/builds/freebsd}"
 SOURCE_DIR="${PROJECT_ROOT}/resources"
 SFTP_TARGET="${ZFSMGR_SFTP_TARGET:-sftp://linarese@fc16:Descargas/z}"
 ARCH="$(uname -m)"

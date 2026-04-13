@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent $ScriptDir
-$BuildDir = Join-Path $ProjectRoot "build-windows"
+$BuildDir = if ($env:ZFSMGR_BUILD_DIR) { $env:ZFSMGR_BUILD_DIR } else { Join-Path $ProjectRoot "builds/windows" }
 $SourceDir = Join-Path $ProjectRoot "resources"
 $NativeArgs = @()
 $GenerateInnoInstaller = $false

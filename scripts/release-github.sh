@@ -11,19 +11,6 @@ RESUME=0
 SKIP_BUILD=0
 ONLY_RELEASE=0
 BUILD_PLATFORMS_OVERRIDE=""
-BUILDALL_PASSWORD=""
-
-preferred_downloads_dir() {
-  if [[ -d "${HOME}/Descargas" ]]; then
-    printf '%s\n' "${HOME}/Descargas"
-    return 0
-  fi
-  if [[ -d "${HOME}/Downloads" ]]; then
-    printf '%s\n' "${HOME}/Downloads"
-    return 0
-  fi
-  printf '%s\n' "${HOME}"
-}
 
 log() {
   printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
@@ -41,7 +28,7 @@ require_cmd() {
 usage() {
   cat <<'USAGE'
 Uso:
-  release-github.sh [--dry-run] [--resume] [--skip-build] [--only-release] [--platforms mac,linux,windows] [--password <keychain-password>] <version>
+  release-github.sh [--dry-run] [--resume] [--skip-build] [--only-release] [--platforms linux,windows,freebsd,macos] <version>
 
 Ejemplo:
   release-github.sh 0.10.1rc1
@@ -49,24 +36,18 @@ Ejemplo:
 Variables opcionales:
   GIT_REMOTE     remoto git para push y tag. Por defecto: github
   ARTIFACTS_DIR  directorio base temporal de artefactos. Por defecto: .release-artifacts
-  OUTPUT_DIR     si se define, se pasa a buildall.sh tal cual
-  LINUX_REMOTE   host Linux remoto para buildall.sh
-  MAC_REMOTE     host macOS remoto para buildall.sh si local no es macOS
-  WINDOWS_REMOTE host Windows remoto para buildall.sh
+  OUTPUT_DIR     si se define, se usa como directorio local de artefactos
   RELEASE_LOG_DIR directorio donde guardar logs por fase
-  --password, -p Password del login keychain a reenviar a buildall.sh para firmar en macOS
 
 Artefactos publicados:
   - Windows .exe
   - Linux .AppImage
   - Linux .deb
-  - macOS .dmg (uno o varios, según arquitectura)
+  - macOS .dmg o .app.zip
   - FreeBSD .tar.gz/.tar.bz2
 
 Resolución de artefactos:
-  Primero se buscan en ARTIFACTS_DIR/.release-artifacts y, si no están ahí,
-  en ~/Descargas/z o ~/Downloads/z, que es donde buildall.sh deja los ficheros
-  al usar --sftpfc16.
+  Primero se buscan en ARTIFACTS_DIR y, si no están ahí, en builds/ locales.
 USAGE
 }
 
@@ -92,12 +73,6 @@ while [[ $# -gt 0 ]]; do
       shift
       [[ $# -gt 0 ]] || fail "--platforms requiere una lista separada por comas"
       BUILD_PLATFORMS_OVERRIDE="$1"
-      shift
-      ;;
-    --password|-p)
-      shift
-      [[ $# -gt 0 ]] || fail "--password requiere un valor"
-      BUILDALL_PASSWORD="$1"
       shift
       ;;
     -h|--help)
@@ -197,10 +172,6 @@ join_by() {
   printf '%s' "${out}"
 }
 
-downloads_artifacts_dir() {
-  printf '%s/z\n' "$(preferred_downloads_dir)"
-}
-
 find_one_release_artifact() {
   local dir1="$1"
   local dir2="$2"
@@ -248,18 +219,28 @@ find_many_release_artifacts() {
 resolve_release_artifacts() {
   local artifacts_dir="$1"
   local fallback_dir="$2"
-  local linux_build_dir="${PROJECT_ROOT}/build-linux"
-  local freebsd_build_dir="${PROJECT_ROOT}/build-freebsd"
+  local linux_build_dir="${PROJECT_ROOT}/builds/linux"
+  local freebsd_build_dir="${PROJECT_ROOT}/builds/freebsd"
+  local cross_freebsd_build_dir="${PROJECT_ROOT}/builds/cross-freebsd"
+  local cross_macos_build_dir="${PROJECT_ROOT}/builds/cross-macos"
+  local windows_build_dir="${PROJECT_ROOT}/builds/windows"
+  local cross_windows_build_dir="${PROJECT_ROOT}/builds/cross-windows"
   MAC_ARTIFACTS=()
   while IFS= read -r path; do
     [[ -n "${path}" ]] || continue
     MAC_ARTIFACTS+=("${path}")
-  done < <(find_many_release_artifacts "${artifacts_dir}" "${fallback_dir}" "" "ZFSMgr-${VERSION}_*.dmg" "ZFSMgr-${VERSION}.dmg" || true)
+  done < <(find_many_release_artifacts "${artifacts_dir}" "${fallback_dir}" "${cross_macos_build_dir}" "ZFSMgr-${VERSION}_*.dmg" "ZFSMgr-${VERSION}.dmg" "ZFSMgr-${VERSION}.app.zip" "ZFSMgr-${VERSION}-macos-*.app.zip" || true)
   MAC_ARTIFACTS_JSON="$(join_by ";" "${MAC_ARTIFACTS[@]}")"
-  WIN_ARTIFACT="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "" "ZFSMgr-Setup-${VERSION}*.exe" || true)"
+  WIN_ARTIFACT="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${cross_windows_build_dir}" "ZFSMgr-Setup-${VERSION}*.exe" "ZFSMgr-${VERSION}-windows.exe" "zfsmgr_qt.exe" || true)"
+  if [[ -z "${WIN_ARTIFACT}" || ! -f "${WIN_ARTIFACT}" ]]; then
+    WIN_ARTIFACT="$(find_one_release_artifact "${windows_build_dir}" "" "" "ZFSMgr-Setup-${VERSION}*.exe" || true)"
+  fi
   LINUX_APPIMAGE="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${linux_build_dir}" "ZFSMgr-${VERSION}-*.AppImage" || true)"
   LINUX_DEB="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${linux_build_dir}" "zfsmgr_${VERSION}_*.deb" || true)"
-  FREEBSD_PKG="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${freebsd_build_dir}" "*${VERSION}*-FreeBSD.tar.gz" "*${VERSION}*-FreeBSD.tar.bz2" "*${VERSION}*.tar.gz" "*${VERSION}*.tar.bz2" || true)"
+  FREEBSD_PKG="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${cross_freebsd_build_dir}" "*${VERSION}*-FreeBSD.tar.gz" "*${VERSION}*-FreeBSD.tar.bz2" "*${VERSION}*.tar.gz" "*${VERSION}*.tar.bz2" || true)"
+  if [[ -z "${FREEBSD_PKG}" || ! -f "${FREEBSD_PKG}" ]]; then
+    FREEBSD_PKG="$(find_one_release_artifact "${freebsd_build_dir}" "" "" "*${VERSION}*-FreeBSD.tar.gz" "*${VERSION}*-FreeBSD.tar.bz2" "*${VERSION}*.tar.gz" "*${VERSION}*.tar.bz2" || true)"
+  fi
 }
 
 write_state() {
@@ -279,7 +260,7 @@ write_state() {
   "dry_run": ${DRY_RUN},
   "skip_build": ${SKIP_BUILD},
   "only_release": ${ONLY_RELEASE},
-  "build_platforms": "$(json_escape "${BUILD_PLATFORMS_OVERRIDE:-mac,linux,windows}")",
+  "build_platforms": "$(json_escape "${BUILD_PLATFORMS_OVERRIDE:-linux,windows,freebsd,macos}")",
   "git_remote": "$(json_escape "${GIT_REMOTE}")",
   "local_tag_exists": ${LOCAL_TAG_EXISTS},
   "remote_tag_exists": ${REMOTE_TAG_EXISTS},
@@ -326,8 +307,7 @@ Dry run de release GitHub
   modo resume: ${RESUME}
   skip build: ${SKIP_BUILD}
   only release: ${ONLY_RELEASE}
-  plataformas build: ${BUILD_PLATFORMS_OVERRIDE:-mac,linux,windows}
-  password buildall: $([[ -n "${BUILDALL_PASSWORD}" ]] && printf 'sí' || printf 'no')
+  plataformas build: ${BUILD_PLATFORMS_OVERRIDE:-linux,windows,freebsd,macos}
   remoto git: ${GIT_REMOTE}
   tag: ${TAG}
   directorio de artefactos: ${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}
@@ -342,7 +322,7 @@ Fases previstas:
   1. Actualizar resources/CMakeLists.txt a ${VERSION}
   2. Crear commit \"Release ${VERSION}\" si hay cambios
   3. Hacer push a ${GIT_REMOTE}
-  4. Ejecutar scripts/buildall.sh, reutilizar artefactos o saltar build
+  4. Ejecutar scripts/buildall-cross.sh, reutilizar artefactos o saltar build
   5. Crear y subir tag ${TAG} o reutilizarlo si ya existe en resume
   6. Crear release ${TAG} en GitHub y subir artefactos
 EOF
@@ -384,14 +364,13 @@ write_state "commit" "completed" "commit de release preparado"
 log "Publicando commit de release en ${GIT_REMOTE}"
 run_logged git-push git push "${GIT_REMOTE}" HEAD
 BUILD_REF="$(git rev-parse HEAD)"
-log "Commit exacto de release para builders remotos: ${BUILD_REF}"
+log "Commit exacto de release: ${BUILD_REF}"
 write_state "git-push" "completed" "commit publicado"
 
 ARTIFACTS_DIR="${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}"
 mkdir -p "${ARTIFACTS_DIR}"
 mkdir -p "${LOG_DIR}"
-SFTP_FALLBACK_DIR="$(downloads_artifacts_dir)"
-resolve_release_artifacts "${ARTIFACTS_DIR}" "${SFTP_FALLBACK_DIR}"
+resolve_release_artifacts "${ARTIFACTS_DIR}" ""
 
 HAS_ALL_ARTIFACTS=0
 if [[ ${#MAC_ARTIFACTS[@]} -gt 0 && -n "${WIN_ARTIFACT}" && -f "${WIN_ARTIFACT}" && -n "${LINUX_APPIMAGE}" && -f "${LINUX_APPIMAGE}" && -n "${LINUX_DEB}" && -f "${LINUX_DEB}" && -n "${FREEBSD_PKG}" && -f "${FREEBSD_PKG}" ]]; then
@@ -399,7 +378,7 @@ if [[ ${#MAC_ARTIFACTS[@]} -gt 0 && -n "${WIN_ARTIFACT}" && -f "${WIN_ARTIFACT}"
 fi
 
 if [[ "${SKIP_BUILD}" -eq 1 ]]; then
-  log "Modo skip-build: no se ejecuta buildall.sh"
+  log "Modo skip-build: no se ejecuta buildall-cross.sh"
   write_state "buildall" "skipped" "build omitido por opción"
 elif [[ "${RESUME}" -eq 1 && "${HAS_ALL_ARTIFACTS}" -eq 1 ]]; then
   log "Modo resume: se reutilizan los artefactos ya existentes en ${ARTIFACTS_DIR}"
@@ -409,23 +388,18 @@ else
     rm -rf "${ARTIFACTS_DIR}"
   fi
   mkdir -p "${ARTIFACTS_DIR}"
-  log "Ejecutando buildall.sh con artefactos en ${ARTIFACTS_DIR}"
+  log "Ejecutando buildall-cross.sh con artefactos en ${ARTIFACTS_DIR}"
   BUILDALL_CMD=(env
     OUTPUT_DIR="${ARTIFACTS_DIR}"
     BUILDALL_LOG_DIR="${BUILDALL_PLATFORM_LOG_DIR}"
-    BUILD_GIT_REMOTE="${GIT_REMOTE}"
-    BUILD_GIT_REF="${BUILD_REF}"
-    BUILD_PLATFORMS="${BUILD_PLATFORMS_OVERRIDE:-mac,linux,windows}"
-    "${SCRIPT_DIR}/buildall.sh"
+    BUILD_PLATFORMS="${BUILD_PLATFORMS_OVERRIDE:-linux,windows,freebsd,macos}"
+    "${SCRIPT_DIR}/buildall-cross.sh"
   )
-  if [[ -n "${BUILDALL_PASSWORD}" ]]; then
-    BUILDALL_CMD+=("--password" "${BUILDALL_PASSWORD}")
-  fi
   run_logged buildall "${BUILDALL_CMD[@]}"
-  resolve_release_artifacts "${ARTIFACTS_DIR}" "${SFTP_FALLBACK_DIR}"
+  resolve_release_artifacts "${ARTIFACTS_DIR}" ""
 fi
 
-[[ ${#MAC_ARTIFACTS[@]} -gt 0 ]] || fail "No se encontró ningún artefacto macOS (.dmg)"
+[[ ${#MAC_ARTIFACTS[@]} -gt 0 ]] || fail "No se encontró ningún artefacto macOS (.dmg/.app.zip)"
 [[ -n "${WIN_ARTIFACT}" && -f "${WIN_ARTIFACT}" ]] || fail "No se encontró el artefacto Windows (.exe)"
 [[ -n "${LINUX_APPIMAGE}" && -f "${LINUX_APPIMAGE}" ]] || fail "No se encontró el artefacto Linux (.AppImage)"
 [[ -n "${LINUX_DEB}" && -f "${LINUX_DEB}" ]] || fail "No se encontró el artefacto Linux (.deb)"
@@ -479,7 +453,7 @@ printf 'Tag: %s\n' "${TAG}"
 printf 'Logs:\n'
 printf '  %s\n' "${LOG_DIR}/git-push.log" "${LOG_DIR}/buildall.log" "${LOG_DIR}/git-push-tag.log" "${LOG_DIR}/github-release.log"
 printf 'Logs buildall por plataforma:\n'
-printf '  %s\n' "${BUILDALL_PLATFORM_LOG_DIR}/macos-local.log" "${BUILDALL_PLATFORM_LOG_DIR}/macos-remote.log" "${BUILDALL_PLATFORM_LOG_DIR}/linux-remote.log" "${BUILDALL_PLATFORM_LOG_DIR}/windows-remote.log"
+printf '  %s\n' "${BUILDALL_PLATFORM_LOG_DIR}/linux-local.log" "${BUILDALL_PLATFORM_LOG_DIR}/windows-local.log" "${BUILDALL_PLATFORM_LOG_DIR}/freebsd-local.log" "${BUILDALL_PLATFORM_LOG_DIR}/macos-local.log"
 printf 'Estado:\n'
 printf '  %s\n' "${STATE_FILE}"
 printf 'Artefactos:\n'

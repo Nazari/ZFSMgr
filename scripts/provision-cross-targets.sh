@@ -14,6 +14,7 @@ QT_VERSION="6.8.3"
 QT_ROOT="${HOME}/Qt"
 OPENSSL_VERSION="3.3.1"
 OPENSSL_PREFIX="${HOME}/opt/openssl-mingw64"
+OPENSSL_MACOS_PREFIX="${HOME}/opt/openssl-macos-x86_64"
 
 FREEBSD_RELEASE="13.5-RELEASE"
 FREEBSD_ARCH="amd64"
@@ -37,6 +38,7 @@ Opciones:
   --qt-root <dir>            Prefijo instalación Qt (default: ${QT_ROOT})
   --openssl-version <v>      Versión OpenSSL MinGW (default: ${OPENSSL_VERSION})
   --openssl-prefix <dir>     Prefijo OpenSSL MinGW (default: ${OPENSSL_PREFIX})
+  --openssl-macos-prefix <d> Prefijo OpenSSL target macOS (default: ${OPENSSL_MACOS_PREFIX})
   --freebsd-release <rel>    Release FreeBSD para sysroot (default: ${FREEBSD_RELEASE})
   --freebsd-arch <arch>      Arquitectura FreeBSD (default: ${FREEBSD_ARCH})
   --freebsd-sysroot-base <d> Base de sysroots (default: ${FREEBSD_SYSROOT_BASE})
@@ -58,6 +60,8 @@ Salida esperada:
 - macOS:
   PATH=<osxcross-root>/target/bin:\$PATH
   OSX_SYSROOT=<osxcross-root>/target/SDK/MacOSX*.sdk
+  QT6_MACOS_PREFIX=<qt-root>/<version>/clang_64
+  OPENSSL_ROOT_DIR=<openssl-macos-prefix>
 USAGE
 }
 
@@ -267,6 +271,10 @@ setup_osxcross() {
   need_cmd git
   need_cmd clang
   need_cmd cmake
+  need_cmd python3
+  need_cmd curl
+  need_cmd make
+  need_cmd perl
 
   if [[ -z "${MACOS_SDK_PATH}" ]]; then
     echo "[macos] falta --macos-sdk <file|dir>; omitiendo osxcross." >&2
@@ -296,12 +304,34 @@ setup_osxcross() {
 
   run_cmd "cd '${OSXCROSS_ROOT}' && UNATTENDED=1 ./build.sh"
 
+  local aqt
+  aqt="$(ensure_aqt)"
+  local qt_macos="${QT_ROOT}/${QT_VERSION}/clang_64"
+  if [[ ${FORCE} -eq 1 || ! -f "${qt_macos}/lib/cmake/Qt6/Qt6Config.cmake" ]]; then
+    run_cmd "mkdir -p '${QT_ROOT}'"
+    run_cmd "'${aqt}' install-qt -O '${QT_ROOT}' mac desktop '${QT_VERSION}' clang_64"
+  fi
+
+  local sdk_guess="\$(ls -d '${OSXCROSS_ROOT}'/target/SDK/MacOSX*.sdk | sort -V | tail -n1)"
+  local osxcross_target="\$(ls -1 '${OSXCROSS_ROOT}'/target/bin/*-apple-darwin*-clang | sed -E 's|.*/([^/]+)-clang|\\1|' | rg '^x86_64-apple-darwin' | sort -V | tail -n1)"
+  if [[ ${FORCE} -eq 1 || ! -f "${OPENSSL_MACOS_PREFIX}/lib/libcrypto.a" ]]; then
+    local work="/tmp/openssl-macos-build"
+    run_cmd "rm -rf '${work}'"
+    run_cmd "mkdir -p '${work}' '$(dirname "${OPENSSL_MACOS_PREFIX}")'"
+    run_cmd "curl -fL -o '${work}/openssl.tar.gz' 'https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz'"
+    run_cmd "tar -xf '${work}/openssl.tar.gz' -C '${work}'"
+    run_cmd "cd '${work}/openssl-${OPENSSL_VERSION}' && PATH='${OSXCROSS_ROOT}/target/bin':\$PATH SDKROOT='${sdk_guess}' CFLAGS='-isysroot ${sdk_guess} -mmacosx-version-min=10.15' LDFLAGS='-isysroot ${sdk_guess} -mmacosx-version-min=10.15' ./Configure darwin64-x86_64-cc --cross-compile-prefix='${osxcross_target}-' --prefix='${OPENSSL_MACOS_PREFIX}' --libdir=lib no-tests no-shared"
+    run_cmd "cd '${work}/openssl-${OPENSSL_VERSION}' && make -j'$(nproc 2>/dev/null || echo 4)'"
+    run_cmd "cd '${work}/openssl-${OPENSSL_VERSION}' && make install_sw"
+  fi
+
   echo
   echo "[macos] listo (si build.sh completó):"
   echo "  export PATH='${OSXCROSS_ROOT}/target/bin:\$PATH'"
-  echo "  export OSXCROSS_TARGET='x86_64-apple-darwin23'"
+  echo "  export OSXCROSS_TARGET='\$(ls -1 ${OSXCROSS_ROOT}/target/bin/*-apple-darwin*-clang | sed -E \"s|.*/([^/]+)-clang|\\1|\" | rg \"^x86_64-apple-darwin\" | sort -V | tail -n1)'"
   echo "  export OSX_SYSROOT='\$(ls -d ${OSXCROSS_ROOT}/target/SDK/MacOSX*.sdk | sort -V | tail -n1)'"
-  echo "  # pendiente: export QT6_MACOS_PREFIX=<qt6-target-macos>"
+  echo "  export QT6_MACOS_PREFIX='${qt_macos}'"
+  echo "  export OPENSSL_ROOT_DIR='${OPENSSL_MACOS_PREFIX}'"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -314,6 +344,7 @@ while [[ $# -gt 0 ]]; do
     --qt-root) shift; QT_ROOT="${1:-}"; shift ;;
     --openssl-version) shift; OPENSSL_VERSION="${1:-}"; shift ;;
     --openssl-prefix) shift; OPENSSL_PREFIX="${1:-}"; shift ;;
+    --openssl-macos-prefix) shift; OPENSSL_MACOS_PREFIX="${1:-}"; shift ;;
     --freebsd-release) shift; FREEBSD_RELEASE="${1:-}"; shift ;;
     --freebsd-arch) shift; FREEBSD_ARCH="${1:-}"; shift ;;
     --freebsd-sysroot-base) shift; FREEBSD_SYSROOT_BASE="${1:-}"; shift ;;

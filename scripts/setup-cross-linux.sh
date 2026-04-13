@@ -90,9 +90,11 @@ if [[ ${DO_MACOS} -eq 1 ]]; then
 1) Clona e instala osxcross en una ruta local, por ejemplo: /opt/osxcross
 2) Proporciona un SDK de macOS válido (Xcode/Mac)
 3) Exporta variables:
-   export OSXCROSS_TARGET=x86_64-apple-darwin23
-   export OSX_SYSROOT=/opt/osxcross/target/SDK/MacOSX*.sdk
+   export OSXCROSS_TARGET=<tripleta detectada en /opt/osxcross/target/bin>
+   export OSX_SYSROOT=<sdk en /opt/osxcross/target/SDK/MacOSX*.sdk>
    export PATH=/opt/osxcross/target/bin:$PATH
+
+   # build-cross.sh puede autodetectar OSXCROSS_TARGET y OSX_SYSROOT.
 
 MAC_NOTE
 fi

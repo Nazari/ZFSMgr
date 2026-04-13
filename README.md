@@ -368,7 +368,7 @@ Persistent configuration includes, among other things:
 ./scripts/build-linux.sh
 ```
 
-Expected binary: `build-linux/zfsmgr_qt`
+Expected binary: `builds/linux/zfsmgr_qt`
 
 ### Linux AppImage (portable)
 
@@ -403,7 +403,7 @@ The script builds the binary and can also generate an unsigned `.app` bundle.
 .\scripts\build-windows.ps1
 ```
 
-The script auto-detects toolchain/Qt and builds under `build-windows`.
+The script auto-detects toolchain/Qt and builds under `builds/windows`.
 
 Installer generation is now explicit:
 
