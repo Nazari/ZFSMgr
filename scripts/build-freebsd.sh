@@ -17,7 +17,7 @@ Uso:
   build-freebsd.sh [opciones] [-- <args extra de CMake>]
 
 Opciones:
-  --pkg        Genera también el paquete .tar.gz mediante CPack
+  --pkg        Genera también paquete nativo para pkg add (.pkg/.tgz) y alias .tar.gz
   --sftpfc16   Sube los artefactos finales al destino SFTP configurado
   -h, --help   Muestra esta ayuda
 
@@ -152,7 +152,8 @@ upload_pkg_artifacts() {
   while IFS= read -r -d '' pkg_file; do
     upload_to_sftp "${pkg_file}"
     found=1
-  done < <(find "${BUILD_DIR}" -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.tar.bz2' \) -print0)
+  done < <(find "${BUILD_DIR}" -maxdepth 1 -type f \
+    \( -name '*.pkg' -o -name '*.tgz' -o -name '*.txz' -o -name '*.tbz' -o -name '*.tar.gz' -o -name '*.tar.bz2' \) -print0)
   if [[ ${found} -eq 0 ]]; then
     echo "Error: no se encontró ningún paquete para subir." >&2
     exit 1
@@ -194,11 +195,53 @@ ensure_build_dir_source_match
 cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
 cmake --build "${BUILD_DIR}" -j"${NCPU}"
 
-echo "Building package (TGZ)..."
-# Sobreescribir el generador DEB (definido en CMakeLists para UNIX) con TGZ
-cpack --config "${BUILD_DIR}/CPackConfig.cmake" -G TGZ -B "${BUILD_DIR}"
-echo "Paquete generado:"
-ls -lh "${BUILD_DIR}"/*.tar.gz 2>/dev/null || ls -lh "${BUILD_DIR}"/*.tar.bz2 2>/dev/null || true
+echo "Building native FreeBSD package (pkg add)..."
+if ! command -v pkg >/dev/null 2>&1; then
+  echo "Error: 'pkg' no está disponible. Instálalo y reintenta (--pkg requiere pkg)." >&2
+  exit 1
+fi
+
+PKG_STAGE_DIR="${BUILD_DIR}/_pkgstage"
+PKG_META_DIR="${BUILD_DIR}/_pkgmeta"
+rm -rf "${PKG_STAGE_DIR}" "${PKG_META_DIR}"
+mkdir -p "${PKG_STAGE_DIR}" "${PKG_META_DIR}"
+
+# Instalar en staging con prefijo /usr/local para empaquetado pkg.
+DESTDIR="${PKG_STAGE_DIR}" cmake --install "${BUILD_DIR}" --prefix /usr/local
+
+ABI="$(pkg config ABI 2>/dev/null || true)"
+if [[ -z "${ABI}" ]]; then
+  ABI="FreeBSD:$(uname -r | cut -d. -f1):${ARCH}"
+fi
+cat > "${PKG_META_DIR}/+MANIFEST" <<EOF
+name: zfsmgr
+version: "${APP_VERSION}"
+origin: sysutils/zfsmgr
+comment: "Cross-platform OpenZFS GUI manager"
+maintainer: "linarese@localdomain"
+www: "https://github.com/Nazari/ZFSMgr"
+prefix: "/usr/local"
+abi: "${ABI}"
+desc: <<EOD
+ZFSMgr is a cross-platform GUI manager for OpenZFS.
+EOD
+EOF
+
+pkg create -f tgz -m "${PKG_META_DIR}" -r "${PKG_STAGE_DIR}" -o "${BUILD_DIR}"
+
+latest_pkg="$(find "${BUILD_DIR}" -maxdepth 1 -type f \( -name '*.pkg' -o -name '*.tgz' -o -name '*.txz' -o -name '*.tbz' \) \
+  -exec ls -1t {} + | head -n1 || true)"
+if [[ -z "${latest_pkg}" ]]; then
+  echo "Error: pkg create no generó ningún artefacto." >&2
+  exit 1
+fi
+
+# Alias de compatibilidad (pipeline de release actual espera .tar.gz).
+compat_pkg="${BUILD_DIR}/ZFSMgr-${APP_VERSION}-FreeBSD.tar.gz"
+cp -f "${latest_pkg}" "${compat_pkg}"
+
+echo "Paquetes generados:"
+ls -lh "${latest_pkg}" "${compat_pkg}"
 
 if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
   upload_pkg_artifacts
