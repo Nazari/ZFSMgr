@@ -17,7 +17,7 @@ Uso:
   build-freebsd.sh [opciones] [-- <args extra de CMake>]
 
 Opciones:
-  --pkg        Genera también paquete nativo para pkg add (.pkg/.tgz) y alias .tar.gz
+  --pkg        Genera también paquete nativo para pkg add (.pkg)
   --sftpfc16   Sube los artefactos finales al destino SFTP configurado
   -h, --help   Muestra esta ayuda
 
@@ -203,11 +203,16 @@ fi
 
 PKG_STAGE_DIR="${BUILD_DIR}/_pkgstage"
 PKG_META_DIR="${BUILD_DIR}/_pkgmeta"
+PKG_PLIST="${PKG_META_DIR}/plist"
 rm -rf "${PKG_STAGE_DIR}" "${PKG_META_DIR}"
 mkdir -p "${PKG_STAGE_DIR}" "${PKG_META_DIR}"
 
 # Instalar en staging con prefijo /usr/local para empaquetado pkg.
 DESTDIR="${PKG_STAGE_DIR}" cmake --install "${BUILD_DIR}" --prefix /usr/local
+if [[ ! -x "${PKG_STAGE_DIR}/usr/local/bin/zfsmgr_qt" ]]; then
+  echo "Error: staging incompleto, no existe ${PKG_STAGE_DIR}/usr/local/bin/zfsmgr_qt" >&2
+  exit 1
+fi
 
 ABI="$(pkg config ABI 2>/dev/null || true)"
 if [[ -z "${ABI}" ]]; then
@@ -227,21 +232,34 @@ ZFSMgr is a cross-platform GUI manager for OpenZFS.
 EOD
 EOF
 
-pkg create -f tgz -m "${PKG_META_DIR}" -r "${PKG_STAGE_DIR}" -o "${BUILD_DIR}"
+(
+  cd "${PKG_STAGE_DIR}"
+  find . \( -type f -o -type l \) | sed -e 's#^\./#/#' | sort > "${PKG_PLIST}"
+)
+if [[ ! -s "${PKG_PLIST}" ]]; then
+  echo "Error: plist vacío, no hay archivos para empaquetar en ${PKG_STAGE_DIR}" >&2
+  exit 1
+fi
 
-latest_pkg="$(find "${BUILD_DIR}" -maxdepth 1 -type f \( -name '*.pkg' -o -name '*.tgz' -o -name '*.txz' -o -name '*.tbz' \) \
+pkg_stamp="$(mktemp "${BUILD_DIR}/.pkg-create-stamp.XXXXXX")"
+touch "${pkg_stamp}"
+pkg create -f tgz -m "${PKG_META_DIR}" -r "${PKG_STAGE_DIR}" -p "${PKG_PLIST}" -o "${BUILD_DIR}"
+
+latest_pkg="$(find "${BUILD_DIR}" -maxdepth 1 -type f -newer "${pkg_stamp}" \
+  \( -name '*.pkg' -o -name '*.tgz' -o -name '*.txz' -o -name '*.tbz' \) \
   -exec ls -1t {} + | head -n1 || true)"
+rm -f "${pkg_stamp}"
 if [[ -z "${latest_pkg}" ]]; then
   echo "Error: pkg create no generó ningún artefacto." >&2
   exit 1
 fi
 
-# Alias de compatibilidad (pipeline de release actual espera .tar.gz).
-compat_pkg="${BUILD_DIR}/ZFSMgr-${APP_VERSION}-FreeBSD.tar.gz"
-cp -f "${latest_pkg}" "${compat_pkg}"
+# Nombre estable para releases.
+release_pkg="${BUILD_DIR}/ZFSMgr-${APP_VERSION}-FreeBSD.pkg"
+cp -f "${latest_pkg}" "${release_pkg}"
 
 echo "Paquetes generados:"
-ls -lh "${latest_pkg}" "${compat_pkg}"
+ls -lh "${latest_pkg}" "${release_pkg}"
 
 if [[ "${UPLOAD_SFTP}" -eq 1 ]]; then
   upload_pkg_artifacts

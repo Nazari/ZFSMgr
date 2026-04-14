@@ -44,7 +44,7 @@ Artefactos publicados:
   - Linux .AppImage
   - Linux .deb
   - macOS .dmg o .app.zip
-  - FreeBSD .tar.gz/.tar.bz2
+  - FreeBSD .pkg
 
 Resolución de artefactos:
   Primero se buscan en ARTIFACTS_DIR y, si no están ahí, en builds/ locales.
@@ -237,9 +237,9 @@ resolve_release_artifacts() {
   fi
   LINUX_APPIMAGE="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${linux_build_dir}" "ZFSMgr-${VERSION}-*.AppImage" || true)"
   LINUX_DEB="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${linux_build_dir}" "zfsmgr_${VERSION}_*.deb" || true)"
-  FREEBSD_PKG="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${cross_freebsd_build_dir}" "*${VERSION}*-FreeBSD.tar.gz" "*${VERSION}*-FreeBSD.tar.bz2" "*${VERSION}*.tar.gz" "*${VERSION}*.tar.bz2" || true)"
+  FREEBSD_PKG="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${cross_freebsd_build_dir}" "*${VERSION}*-FreeBSD.pkg" "*${VERSION}*.pkg" || true)"
   if [[ -z "${FREEBSD_PKG}" || ! -f "${FREEBSD_PKG}" ]]; then
-    FREEBSD_PKG="$(find_one_release_artifact "${freebsd_build_dir}" "" "" "*${VERSION}*-FreeBSD.tar.gz" "*${VERSION}*-FreeBSD.tar.bz2" "*${VERSION}*.tar.gz" "*${VERSION}*.tar.bz2" || true)"
+    FREEBSD_PKG="$(find_one_release_artifact "${freebsd_build_dir}" "" "" "*${VERSION}*-FreeBSD.pkg" "*${VERSION}*.pkg" || true)"
   fi
 }
 
@@ -403,7 +403,7 @@ fi
 [[ -n "${WIN_ARTIFACT}" && -f "${WIN_ARTIFACT}" ]] || fail "No se encontró el artefacto Windows (.exe)"
 [[ -n "${LINUX_APPIMAGE}" && -f "${LINUX_APPIMAGE}" ]] || fail "No se encontró el artefacto Linux (.AppImage)"
 [[ -n "${LINUX_DEB}" && -f "${LINUX_DEB}" ]] || fail "No se encontró el artefacto Linux (.deb)"
-[[ -n "${FREEBSD_PKG}" && -f "${FREEBSD_PKG}" ]] || fail "No se encontró el artefacto FreeBSD (.tar.gz/.tar.bz2)"
+[[ -n "${FREEBSD_PKG}" && -f "${FREEBSD_PKG}" ]] || fail "No se encontró el artefacto FreeBSD (.pkg)"
 log "Artefactos resueltos:"
 for _mac in "${MAC_ARTIFACTS[@]}"; do
   log "  macOS: ${_mac}"
