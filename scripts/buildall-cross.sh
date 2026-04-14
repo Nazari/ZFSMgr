@@ -21,7 +21,7 @@ Descripción:
   Ejecuta builds locales en fc16 y deja artefactos en OUTPUT_DIR.
   - Linux nativo: .AppImage + .deb
   - Windows cross: zfsmgr_qt.exe (+ instalador Inno opcional en Linux)
-  - FreeBSD cross: paquete .tar.gz con zfsmgr_qt
+  - FreeBSD cross: artefacto .pkg con zfsmgr_qt
   - macOS cross: .app.zip (una por arquitectura en MACOS_ARCHES)
 
 Variables opcionales:
@@ -224,7 +224,7 @@ if has_platform "freebsd"; then
   run_phase freebsd-local "${SCRIPT_DIR}/build-cross.sh" --target freebsd --jobs "${JOBS}"
   fbsd_exe="${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_qt"
   [[ -f "${fbsd_exe}" ]] || { echo "No se encontró zfsmgr_qt de FreeBSD cross" >&2; exit 1; }
-  fbsd_pkg="${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-FreeBSD.tar.gz"
+  fbsd_pkg="${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-FreeBSD.pkg"
   tar -C "${PROJECT_ROOT}/builds/cross-freebsd" -czf "${fbsd_pkg}" zfsmgr_qt
 fi
 
