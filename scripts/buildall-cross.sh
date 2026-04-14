@@ -113,6 +113,18 @@ has_platform() {
   [[ ",${PLATFORMS}," == *",${needle},"* ]]
 }
 
+autodetect_path_glob() {
+  local glob_pattern="$1"
+  local found=""
+  shopt -s nullglob
+  local candidates=(${glob_pattern})
+  shopt -u nullglob
+  if [[ ${#candidates[@]} -gt 0 ]]; then
+    found="$(printf '%s\n' "${candidates[@]}" | sort -V | tail -n1)"
+  fi
+  echo "${found}"
+}
+
 find_osxcross_target() {
   local arch="$1"
   local pattern=""
