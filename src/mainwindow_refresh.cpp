@@ -320,10 +320,15 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         }
         return currentOsLine.trimmed();
     };
+    QMap<QString, bool> packageManagerAvailabilityCache;
     auto detectPackageManagerAvailability = [&](const QString& packageManagerId) -> bool {
         const QString pm = packageManagerId.trimmed().toLower();
         if (pm.isEmpty()) {
             return false;
+        }
+        const auto pmIt = packageManagerAvailabilityCache.constFind(pm);
+        if (pmIt != packageManagerAvailabilityCache.cend()) {
+            return pmIt.value();
         }
         if (pm == QStringLiteral("msys2")) {
             return true;
@@ -346,7 +351,9 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         QString probeOut;
         QString probeErr;
         int probeRc = -1;
-        return runSsh(profile, cmd, 8000, probeOut, probeErr, probeRc, {}, {}, {}, winPsMode) && probeRc == 0;
+        const bool available = runSsh(profile, cmd, 8000, probeOut, probeErr, probeRc, {}, {}, {}, winPsMode) && probeRc == 0;
+        packageManagerAvailabilityCache.insert(pm, available);
+        return available;
     };
     if (localMode) {
         state.connectionMethod = QStringLiteral("LOCAL/CLI");
@@ -395,6 +402,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         return state;
     }
 
+    const bool isWinConn = isWindowsConnection(p);
+    const bool useRemoteScripts = !isWinConn;
     if (!isWindowsConnection(profile)) {
         (void)ensureRemoteScriptsUpToDate(profile);
     }
@@ -402,28 +411,75 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     QString out;
     QString err;
     int rc = -1;
+    bool unixBasicsLoaded = false;
+    if (!isWinConn) {
+        QString bOut;
+        QString bErr;
+        int bRc = -1;
+        const QString basicsCmd = withSudo(
+            p,
+            useRemoteScripts
+                ? remoteScriptCommand(p, QStringLiteral("zfsmgr-refresh-basics"))
+                : mwhelpers::withUnixSearchPathCommand(QStringLiteral("uname -a")));
+        if (runSsh(p, basicsCmd, 15000, bOut, bErr, bRc, {}, {}, {}, MainWindow::WindowsCommandMode::Auto)
+            && bRc == 0) {
+            const QMap<QString, QString> kv = parseKeyValueOutput(bOut + QStringLiteral("\n") + bErr);
+            const QString osLine = kv.value(QStringLiteral("OS_LINE")).trimmed();
+            if (!osLine.isEmpty()) {
+                state.status = QStringLiteral("OK");
+                state.detail = osLine;
+                state.osLine = osLine;
+                unixBasicsLoaded = true;
+            }
+            const QString machineRaw = kv.value(QStringLiteral("MACHINE_UUID")).trimmed();
+            if (!machineRaw.isEmpty()) {
+                state.machineUuid = extractMachineUuid(machineRaw);
+            }
+            const QString zfsRaw = kv.value(QStringLiteral("ZFS_VERSION_RAW")).trimmed();
+            if (!zfsRaw.isEmpty()) {
+                const QString parsed = mwhelpers::parseOpenZfsVersionText(zfsRaw);
+                if (!parsed.isEmpty()) {
+                    state.zfsVersion = parsed;
+                    state.zfsVersionFull = oneLine(zfsRaw);
+                } else {
+                    const QRegularExpression simpleVerRx(QStringLiteral("\\b(\\d+\\.\\d+(?:\\.\\d+)?)\\b"));
+                    const QRegularExpressionMatch m = simpleVerRx.match(zfsRaw);
+                    if (m.hasMatch()) {
+                        const QString ver = m.captured(1);
+                        const int major = ver.section('.', 0, 0).toInt();
+                        if (major <= 10) {
+                            state.zfsVersion = ver;
+                            state.zfsVersionFull = oneLine(zfsRaw);
+                        }
+                    }
+                }
+            }
+        }
+    }
     const QString osProbeCmd = isWindowsConnection(p)
                                    ? QStringLiteral("[System.Environment]::OSVersion.VersionString")
                                    : QStringLiteral("uname -a");
-    if (!runSsh(profile, osProbeCmd, 12000, out, err, rc, {}, {}, {},
-                isWindowsConnection(profile) ? winPsMode : MainWindow::WindowsCommandMode::Auto) || rc != 0) {
-        state.status = QStringLiteral("ERROR");
-        state.detail = oneLine(err.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : err);
-        appLog(QStringLiteral("NORMAL"),
-               trk(QStringLiteral("t_fin_refres_5a87d4"),
-                   QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
-                   QStringLiteral("Refresh end: %1 -> ERROR (%2)"),
-                   QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(profile.name, state.detail));
-        return state;
+    if (!unixBasicsLoaded) {
+        if (!runSsh(profile, osProbeCmd, 12000, out, err, rc, {}, {}, {},
+                    isWindowsConnection(profile) ? winPsMode : MainWindow::WindowsCommandMode::Auto) || rc != 0) {
+            state.status = QStringLiteral("ERROR");
+            state.detail = oneLine(err.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : err);
+            appLog(QStringLiteral("NORMAL"),
+                   trk(QStringLiteral("t_fin_refres_5a87d4"),
+                       QStringLiteral("Fin refresh: %1 -> ERROR (%2)"),
+                       QStringLiteral("Refresh end: %1 -> ERROR (%2)"),
+                       QStringLiteral("刷新结束：%1 -> ERROR (%2)")).arg(profile.name, state.detail));
+            return state;
+        }
+        state.status = QStringLiteral("OK");
+        state.detail = oneLine(out);
+        state.osLine = oneLine(out);
+        state.osLine = refineOsLineForRefresh(state.osLine);
+        state.zfsVersion.clear();
+        state.machineUuid.clear();
     }
-    state.status = QStringLiteral("OK");
-    state.detail = oneLine(out);
-    state.osLine = oneLine(out);
-    state.osLine = refineOsLineForRefresh(state.osLine);
-    state.zfsVersion.clear();
-    state.machineUuid.clear();
 
-    {
+    if (!unixBasicsLoaded || isWindowsConnection(p)) {
         QString uOut;
         QString uErr;
         int uRc = -1;
@@ -527,7 +583,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 }
             }
         }
-    } else {
+    } else if (!unixBasicsLoaded || state.zfsVersion.trimmed().isEmpty()) {
         const bool useRemoteScriptsConn = !isWindowsConnection(p);
         const QStringList zfsVersionCandidates = useRemoteScriptsConn
             ? QStringList{remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-version"))}
@@ -656,6 +712,9 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 "    done; "
                 "  fi; "
                 "  if [ \"$found\" -eq 1 ]; then echo \"OK:$c\"; else echo \"KO:$c\"; fi; "
+                "done; "
+                "for pm in apt-get pacman zypper brew pkg; do "
+                "  if command -v \"$pm\" >/dev/null 2>&1; then echo \"PM:$pm:1\"; else echo \"PM:$pm:0\"; fi; "
                 "done")
                     .arg(wanted.join(' '));
             if (runSsh(p, checkCmd, 12000, dout, derr, drc) && drc == 0) {
@@ -666,6 +725,15 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                         detected << line.mid(3).trimmed();
                     } else if (line.startsWith(QStringLiteral("KO:"))) {
                         missing << line.mid(3).trimmed();
+                    } else if (line.startsWith(QStringLiteral("PM:"))) {
+                        const QStringList parts = line.split(':');
+                        if (parts.size() >= 3) {
+                            QString pm = parts.value(1).trimmed().toLower();
+                            if (pm == QStringLiteral("apt-get")) {
+                                pm = QStringLiteral("apt");
+                            }
+                            packageManagerAvailabilityCache.insert(pm, parts.value(2).trimmed() == QStringLiteral("1"));
+                        }
                     }
                 }
             } else if (!derr.trimmed().isEmpty()) {
@@ -722,9 +790,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             }
         }
     }
-
-    const bool isWinConn = isWindowsConnection(p);
-    const bool useRemoteScripts = !isWinConn;
 
     bool gsaSupportsGuidSnapshotCompare = true;
     {
