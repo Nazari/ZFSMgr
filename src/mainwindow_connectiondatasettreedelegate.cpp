@@ -31,6 +31,7 @@ constexpr int kConnPropRowKindRole = Qt::UserRole + 16;
 constexpr int kConnPropKeyRole = Qt::UserRole + 14;
 constexpr int kConnPropGroupNodeRole = Qt::UserRole + 17;
 constexpr int kConnPropGroupNameRole = Qt::UserRole + 18;
+constexpr int kConnContentNodeRole = Qt::UserRole + 19;
 constexpr int kConnIdxRole = Qt::UserRole + 10;
 constexpr int kPoolNameRole = Qt::UserRole + 11;
 constexpr int kIsConnectionRootRole = Qt::UserRole + 36;
@@ -1266,8 +1267,29 @@ void MainWindowConnectionDatasetTreeDelegate::itemClicked(QTreeWidget* tree, QTr
     if (m_contextMenuInProgress) {
         return;
     }
+    auto saveTreeStateAndResize = [this, tree, item]() {
+        if (!m_mainWindow || !tree || !item) {
+            return;
+        }
+        QString token = tokenForNode(item);
+        if (token.isEmpty()) {
+            token = m_mainWindow->connContentTokenForTree(tree).trimmed();
+        }
+        if (!token.isEmpty()) {
+            m_mainWindow->saveConnContentTreeStateFor(tree, token);
+        }
+        m_mainWindow->resizeTreeColumnsToVisibleContent(tree);
+    };
+    auto toggleByClick = [item, &saveTreeStateAndResize]() {
+        if (!item || item->childCount() <= 0) {
+            return;
+        }
+        item->setExpanded(!item->isExpanded());
+        saveTreeStateAndResize();
+    };
     if (item->data(0, kIsConnectionRootRole).toBool()) {
         m_mainWindow->updatePoolManagementBoxTitle();
+        toggleByClick();
         return;
     }
     const bool isPoolInfoNode =
@@ -1285,7 +1307,27 @@ void MainWindowConnectionDatasetTreeDelegate::itemClicked(QTreeWidget* tree, QTr
             return;
         }
         m_mainWindow->syncConnContentPoolColumnsFor(tree, token);
-        item->setExpanded(true);
+        toggleByClick();
+        return;
+    }
+    const bool isPoolInfoSectionRow =
+        item->data(0, kConnContentNodeRole).toBool()
+        && item->data(0, kConnPropRowRole).toBool()
+        && item->data(0, kConnPropRowKindRole).toInt() == 0
+        && isPoolInfoNodeOrInside(item);
+    if (isPoolInfoSectionRow) {
+        if (!m_mainWindow || m_mainWindow->m_closing || !tree || !item) {
+            return;
+        }
+        QTreeWidgetItem* owner = ownerItemForNode(item->parent());
+        if (!owner) {
+            return;
+        }
+        const QString token = tokenForOwnerItem(owner);
+        if (token.isEmpty()) {
+            return;
+        }
+        toggleByClick();
         return;
     }
     const bool isLazyPropsNode =
@@ -1304,32 +1346,41 @@ void MainWindowConnectionDatasetTreeDelegate::itemClicked(QTreeWidget* tree, QTr
         if (token.isEmpty()) {
             return;
         }
+        const bool hadChildren = (item->childCount() > 0);
         if (item->childCount() == 0) {
             m_mainWindow->refreshConnContentPropertiesFor(tree);
         }
-        item->setExpanded(true);
+        if (!hadChildren) {
+            item->setExpanded(true);
+            saveTreeStateAndResize();
+        } else if (item->childCount() > 0) {
+            toggleByClick();
+        }
         return;
     }
-    if (!item->data(0, kConnPermissionsNodeRole).toBool()
-        || item->data(0, kConnPermissionsKindRole).toString() != QStringLiteral("root")) {
+    if (item->data(0, kConnPermissionsNodeRole).toBool()
+        && item->data(0, kConnPermissionsKindRole).toString() == QStringLiteral("root")) {
+        QTreeWidgetItem* owner = item->parent();
+        if (!owner) {
+            return;
+        }
+        const bool wasEmpty = (item->childCount() == 0);
+        if (!m_mainWindow || m_mainWindow->m_closing || !tree || !owner || !item) {
+            return;
+        }
+        if (wasEmpty && item->childCount() == 0) {
+            m_mainWindow->populateDatasetPermissionsNode(tree, owner, false);
+        }
+        if (wasEmpty) {
+            item->setExpanded(true);
+            saveTreeStateAndResize();
+        } else {
+            toggleByClick();
+        }
         return;
     }
-    QTreeWidgetItem* owner = item->parent();
-    if (!owner) {
-        return;
-    }
-    const bool wasEmpty = (item->childCount() == 0);
-    if (!m_mainWindow || m_mainWindow->m_closing || !tree || !owner || !item) {
-        return;
-    }
-    if (wasEmpty && item->childCount() == 0) {
-        m_mainWindow->populateDatasetPermissionsNode(tree, owner, false);
-    }
-    if (wasEmpty) {
-        item->setExpanded(true);
-    } else {
-        item->setExpanded(!item->isExpanded());
-    }
+    // Regla general: cualquier nodo contenedor debe abrir/cerrar por clic en su texto.
+    toggleByClick();
 }
 
 void MainWindowConnectionDatasetTreeDelegate::selectionChanged(QTreeWidget* tree, bool isBottom) {
@@ -1391,18 +1442,17 @@ void MainWindowConnectionDatasetTreeDelegate::selectionChanged(QTreeWidget* tree
         return;
     }
     if (isPoolContext) {
-        if (sel && sel->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
-            if (!m_contextMenuInProgress) {
-                sel->setExpanded(true);
-            }
+        const bool isPoolRoot = sel && sel->data(0, kIsPoolRootRole).toBool();
+        const bool isPoolInfoRoot =
+            sel && sel->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey);
+        // Evitar reconstrucciones al navegar por filas internas de Pool Information,
+        // porque machacan el estado expandido/colapsado recién aplicado por click.
+        if (isPoolRoot || isPoolInfoRoot) {
+            m_mainWindow->syncConnContentPoolColumnsFor(tree, token);
         }
-        m_mainWindow->syncConnContentPoolColumnsFor(tree, token);
     } else {
         if (isLazyPermissionsNode) {
             m_mainWindow->populateDatasetPermissionsNode(tree, owner, false);
-            if (sel && !m_contextMenuInProgress) {
-                sel->setExpanded(true);
-            }
         } else {
             const quint64 scheduledEpoch = m_selectionRefreshEpoch;
             if (scheduledEpoch != m_selectionRefreshEpoch) {
@@ -1415,9 +1465,6 @@ void MainWindowConnectionDatasetTreeDelegate::selectionChanged(QTreeWidget* tree
                 return;
             }
             m_mainWindow->refreshConnContentPropertiesFor(tree);
-            if (!m_contextMenuInProgress && isLazyPropsNode && sel) {
-                sel->setExpanded(true);
-            }
             m_mainWindow->syncConnContentPropertyColumnsFor(tree, token);
         }
     }
