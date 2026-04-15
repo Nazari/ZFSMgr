@@ -4,10 +4,12 @@
 
 #include <algorithm>
 #include <QElapsedTimer>
+#include <QFuture>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
+#include <QtConcurrent/QtConcurrent>
 
 namespace {
 using mwhelpers::oneLine;
@@ -843,16 +845,25 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     }
     cutPhase(QStringLiteral("helper_plan"));
 
-    bool gsaSupportsGuidSnapshotCompare = true;
-    {
-        QString gsaOut;
-        QString gsaErr;
-        int gsaRc = -1;
-        QString gsaProbeCmd;
-        WindowsCommandMode gsaWinMode = WindowsCommandMode::Auto;
-        if (isWinConn) {
-            gsaWinMode = winPsMode;
-            gsaProbeCmd = QStringLiteral(
+    struct AsyncSshResult {
+        bool ran{false};
+        QString out;
+        QString err;
+        int rc{-1};
+    };
+    auto runAsyncCommand = [this, p](const QString& cmd, int timeoutMs, WindowsCommandMode mode) -> QFuture<AsyncSshResult> {
+        return QtConcurrent::run([this, p, cmd, timeoutMs, mode]() -> AsyncSshResult {
+            AsyncSshResult r;
+            r.ran = runSsh(p, cmd, timeoutMs, r.out, r.err, r.rc, {}, {}, {}, mode);
+            return r;
+        });
+    };
+
+    QString gsaProbeCmd;
+    WindowsCommandMode gsaWinMode = WindowsCommandMode::Auto;
+    if (isWinConn) {
+        gsaWinMode = winPsMode;
+        gsaProbeCmd = QStringLiteral(
                 "$taskName='ZFSMgr-GSA'; "
                 "$scriptPath='C:\\ProgramData\\ZFSMgr\\gsa.ps1'; "
                 "$scheduler='taskschd'; "
@@ -869,10 +880,10 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 "Write-Output ('ACTIVE=' + ($(if($active){'1'}else{'0'}))); "
                 "Write-Output ('VERSION=' + $ver); "
                 "Write-Output ('DETAIL=' + $detail)");
-        } else if (useRemoteScripts) {
-            gsaProbeCmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-gsa-status")));
-        } else {
-            gsaProbeCmd = withSudo(
+    } else if (useRemoteScripts) {
+        gsaProbeCmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-gsa-status")));
+    } else {
+        gsaProbeCmd = withSudo(
                 p,
                 QStringLiteral(
                     "set +e; "
@@ -915,35 +926,21 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     "  detail='No native scheduler detected'; "
                     "fi; "
                     "printf 'SCHEDULER=%s\\nINSTALLED=%s\\nACTIVE=%s\\nVERSION=%s\\nDETAIL=%s\\nGUID_COMPARE=%s\\n' \"$scheduler\" \"$installed\" \"$active\" \"$version\" \"$detail\" \"$guid_compare\""));
-        }
-        if (runSsh(p, gsaProbeCmd, 15000, gsaOut, gsaErr, gsaRc, {}, {}, {}, gsaWinMode)) {
-            const QMap<QString, QString> kv = parseKeyValueOutput(gsaOut + QStringLiteral("\n") + gsaErr);
-            state.gsaScheduler = kv.value(QStringLiteral("SCHEDULER")).trimmed();
-            state.gsaVersion = kv.value(QStringLiteral("VERSION")).trimmed();
-            state.gsaDetail = kv.value(QStringLiteral("DETAIL")).trimmed();
-            state.gsaInstalled = (kv.value(QStringLiteral("INSTALLED")).trimmed() == QStringLiteral("1"));
-            state.gsaActive = (kv.value(QStringLiteral("ACTIVE")).trimmed() == QStringLiteral("1"));
-            if (!isWinConn && state.gsaInstalled) {
-                gsaSupportsGuidSnapshotCompare = (kv.value(QStringLiteral("GUID_COMPARE")).trimmed() == QStringLiteral("1"));
-            }
-        }
     }
-    cutPhase(QStringLiteral("gsa_probe"));
-    if (state.gsaInstalled && !isWinConn) {
-        QString mapOut;
-        QString mapErr;
-        int mapRc = -1;
-        const QString cmd =
-            useRemoteScripts
-                ? withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-gsa-connections-cat")))
-                : withSudo(
-                      p,
-                      QStringLiteral("if [ -f /etc/zfsmgr/gsa-connections.conf ]; then cat /etc/zfsmgr/gsa-connections.conf; fi"));
-        if (runSsh(p, cmd, 12000, mapOut, mapErr, mapRc) && mapRc == 0) {
-            state.gsaKnownConnections = parseGsaKnownConnections(mapOut);
-        }
-    }
-    cutPhase(QStringLiteral("gsa_connections"));
+    const QString importProbeCmd = withSudo(
+        p,
+        useRemoteScripts
+            ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-import-probe"))
+            : mwhelpers::withUnixSearchPathCommand(QStringLiteral("zpool import; zpool import -s")));
+    const QString mountedCmd = withSudo(
+        p,
+        (!isWinConn)
+            ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-mount-list"))
+            : mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs mount")));
+    QFuture<AsyncSshResult> gsaFuture = runAsyncCommand(gsaProbeCmd, 15000, gsaWinMode);
+    QFuture<AsyncSshResult> importFuture = runAsyncCommand(importProbeCmd, 18000, WindowsCommandMode::Auto);
+    QFuture<AsyncSshResult> mountsFuture = runAsyncCommand(mountedCmd, 18000, WindowsCommandMode::Auto);
+
     const QString zpoolListCmd = withSudo(
         p, useRemoteScripts
                ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-list-json"))
@@ -1083,17 +1080,42 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     }
     cutPhase(QStringLiteral("pool_details"));
 
+    bool gsaSupportsGuidSnapshotCompare = true;
     {
-        out.clear();
-        err.clear();
-        rc = -1;
-        const QString cmd = withSudo(
-            p,
+        const AsyncSshResult gsaRes = gsaFuture.result();
+        if (gsaRes.ran) {
+            const QMap<QString, QString> kv = parseKeyValueOutput(gsaRes.out + QStringLiteral("\n") + gsaRes.err);
+            state.gsaScheduler = kv.value(QStringLiteral("SCHEDULER")).trimmed();
+            state.gsaVersion = kv.value(QStringLiteral("VERSION")).trimmed();
+            state.gsaDetail = kv.value(QStringLiteral("DETAIL")).trimmed();
+            state.gsaInstalled = (kv.value(QStringLiteral("INSTALLED")).trimmed() == QStringLiteral("1"));
+            state.gsaActive = (kv.value(QStringLiteral("ACTIVE")).trimmed() == QStringLiteral("1"));
+            if (!isWinConn && state.gsaInstalled) {
+                gsaSupportsGuidSnapshotCompare = (kv.value(QStringLiteral("GUID_COMPARE")).trimmed() == QStringLiteral("1"));
+            }
+        }
+    }
+    cutPhase(QStringLiteral("gsa_probe"));
+    if (state.gsaInstalled && !isWinConn) {
+        QString mapOut;
+        QString mapErr;
+        int mapRc = -1;
+        const QString cmd =
             useRemoteScripts
-                ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-import-probe"))
-                : mwhelpers::withUnixSearchPathCommand(QStringLiteral("zpool import; zpool import -s")));
-        if (runSsh(p, cmd, 18000, out, err, rc)) {
-            const QString merged = out + QStringLiteral("\n") + err;
+                ? withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-gsa-connections-cat")))
+                : withSudo(
+                      p,
+                      QStringLiteral("if [ -f /etc/zfsmgr/gsa-connections.conf ]; then cat /etc/zfsmgr/gsa-connections.conf; fi"));
+        if (runSsh(p, cmd, 12000, mapOut, mapErr, mapRc) && mapRc == 0) {
+            state.gsaKnownConnections = parseGsaKnownConnections(mapOut);
+        }
+    }
+    cutPhase(QStringLiteral("gsa_connections"));
+
+    {
+        const AsyncSshResult importRes = importFuture.result();
+        if (importRes.ran) {
+            const QString merged = importRes.out + QStringLiteral("\n") + importRes.err;
             const QVector<mwhelpers::ImportablePoolInfo> parsed = mwhelpers::parseZpoolImportOutput(merged);
             if (!parsed.isEmpty()) {
                 state.importablePools.clear();
@@ -1112,19 +1134,12 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     }
     cutPhase(QStringLiteral("import_probe"));
 
-    out.clear();
-    err.clear();
-    rc = -1;
-    const QString mountedCmd = withSudo(
-        p,
-        (!isWinConn)
-            ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-mount-list"))
-            : mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs mount")));
     QVector<QPair<QString, QString>> mountedRows;
-    if (runSsh(p, mountedCmd, 18000, out, err, rc) && rc == 0) {
+    const AsyncSshResult mountsRes = mountsFuture.result();
+    if (mountsRes.ran && mountsRes.rc == 0) {
         mountedRows = isWinConn
-            ? mwhelpers::parseZfsMountOutput(out)
-            : mwhelpers::parseZfsMountJsonOutput(out);
+            ? mwhelpers::parseZfsMountOutput(mountsRes.out)
+            : mwhelpers::parseZfsMountJsonOutput(mountsRes.out);
     }
     if (!isWinConn && mountedRows.isEmpty() && !useRemoteScripts) {
         QString fbOut;
@@ -1143,8 +1158,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 state.mountedDatasets.push_back(qMakePair(ds, mp));
             }
         }
-    } else if (!err.isEmpty()) {
-        appLog(QStringLiteral("INFO"), QStringLiteral("%1: zfs mount -> %2").arg(p.name, oneLine(err)));
+    } else if (!mountsRes.err.isEmpty()) {
+        appLog(QStringLiteral("INFO"), QStringLiteral("%1: zfs mount -> %2").arg(p.name, oneLine(mountsRes.err)));
     }
     cutPhase(QStringLiteral("mounts"));
     if (state.gsaInstalled) {
