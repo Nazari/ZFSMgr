@@ -1074,13 +1074,30 @@ void MainWindow::populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetIt
             poolName);
         for (const DatasetPermissionGrant& grant : allGrants) {
             auto* targetNode = new QTreeWidgetItem(grantsNode);
-            QString who = QStringLiteral("Everyone");
+            QString who = trk(QStringLiteral("t_everyone_001"),
+                              QStringLiteral("Everyone"),
+                              QStringLiteral("Everyone"),
+                              QStringLiteral("所有人"));
             if (grant.targetType == QStringLiteral("user")) {
-                who = QStringLiteral("Usuario %1").arg(grant.targetName);
+                who = trk(QStringLiteral("t_user_with_name_001"),
+                          QStringLiteral("Usuario %1"),
+                          QStringLiteral("User %1"),
+                          QStringLiteral("用户 %1"))
+                          .arg(grant.targetName);
             } else if (grant.targetType == QStringLiteral("group")) {
-                who = QStringLiteral("Grupo %1").arg(grant.targetName);
+                who = trk(QStringLiteral("t_group_with_name_001"),
+                          QStringLiteral("Grupo %1"),
+                          QStringLiteral("Group %1"),
+                          QStringLiteral("组 %1"))
+                          .arg(grant.targetName);
             }
-            targetNode->setText(0, QStringLiteral("%1 Ámbito %2").arg(who, grantScopeLabel(grant.scope)));
+            targetNode->setText(
+                0,
+                trk(QStringLiteral("t_perm_scope_row_001"),
+                    QStringLiteral("%1 Ámbito %2"),
+                    QStringLiteral("%1 Scope %2"),
+                    QStringLiteral("%1 范围 %2"))
+                    .arg(who, grantScopeLabel(grant.scope)));
             targetNode->setData(0, kConnPermissionsNodeRole, true);
             targetNode->setData(0, kConnPermissionsKindRole, QStringLiteral("grant"));
             targetNode->setData(0, kConnStatePartRole,
