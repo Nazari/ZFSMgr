@@ -14,14 +14,8 @@
 #include <QVBoxLayout>
 
 namespace {
-QString defaultPrimaryTitle(ConnectionDatasetTreePane::Role role) {
-    if (role == ConnectionDatasetTreePane::Role::Bottom) {
-        return QStringLiteral("Destino:");
-    }
-    if (role == ConnectionDatasetTreePane::Role::Unified) {
-        return QStringLiteral("Conexiones:");
-    }
-    return QStringLiteral("Origen:");
+QString blankPrimaryTitle() {
+    return QString();
 }
 }
 
@@ -109,7 +103,8 @@ QTreeWidget* ConnectionDatasetTreePane::tree() const {
 }
 
 void ConnectionDatasetTreePane::setPrimaryColumnTitle(const QString& title) {
-    if (!m_tree || title.trimmed().isEmpty()) {
+    Q_UNUSED(title);
+    if (!m_tree) {
         return;
     }
     QStringList headers;
@@ -119,9 +114,9 @@ void ConnectionDatasetTreePane::setPrimaryColumnTitle(const QString& title) {
     }
     if (headers.isEmpty()) {
         updateHeaders();
-        headers = {title, QStringLiteral("Snapshot"), QStringLiteral("Montado"), QStringLiteral("Mountpoint")};
+        headers = {blankPrimaryTitle(), QStringLiteral("Snapshot"), QStringLiteral("Montado"), QStringLiteral("Mountpoint")};
     } else {
-        headers[0] = title;
+        headers[0] = blankPrimaryTitle();
     }
     m_tree->setHeaderLabels(headers);
 }
@@ -215,7 +210,7 @@ void ConnectionDatasetTreePane::updateHeaders() {
     if (!m_tree) {
         return;
     }
-    m_tree->setHeaderLabels({defaultPrimaryTitle(m_role) + QStringLiteral("Dataset"),
+    m_tree->setHeaderLabels({blankPrimaryTitle(),
                              QStringLiteral("Snapshot"),
                              QStringLiteral("Montado"),
                              QStringLiteral("Mountpoint")});
