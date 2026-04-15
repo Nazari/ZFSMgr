@@ -3,6 +3,7 @@
 #include "helperinstallcatalog.h"
 
 #include <algorithm>
+#include <QElapsedTimer>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -250,6 +251,15 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                QStringLiteral("Inicio refresh: %1 [%2]"),
                QStringLiteral("Refresh start: %1 [%2]"),
                QStringLiteral("开始刷新：%1 [%2]")).arg(profile.name, profile.connType));
+    QElapsedTimer refreshTimer;
+    refreshTimer.start();
+    qint64 phaseCheckpointMs = 0;
+    QMap<QString, qint64> phaseDurMs;
+    auto cutPhase = [&](const QString& phaseName) {
+        const qint64 now = refreshTimer.elapsed();
+        phaseDurMs.insert(phaseName, qMax<qint64>(0, now - phaseCheckpointMs));
+        phaseCheckpointMs = now;
+    };
 
     const MainWindow::WindowsCommandMode winPsMode = MainWindow::WindowsCommandMode::PowerShellNative;
     const bool localMode = isLocalConnection(profile);
@@ -404,6 +414,24 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
 
     const bool isWinConn = isWindowsConnection(p);
     const bool useRemoteScripts = !isWinConn;
+    const QString refreshCacheKey = p.id.trimmed().isEmpty()
+                                        ? p.name.trimmed().toLower()
+                                        : p.id.trimmed();
+    const QDateTime nowUtc = QDateTime::currentDateTimeUtc();
+    constexpr qint64 kRefreshCacheTtlMs = 8000;
+    RefreshRuntimeCacheEntry cachedRuntime;
+    bool hasFreshRuntimeCache = false;
+    if (!refreshCacheKey.isEmpty()) {
+        const auto it = m_refreshRuntimeCacheByConnId.constFind(refreshCacheKey);
+        if (it != m_refreshRuntimeCacheByConnId.cend()
+            && it->loadedAt.isValid()
+            && it->loadedAt.msecsTo(nowUtc) <= kRefreshCacheTtlMs) {
+            cachedRuntime = it.value();
+            hasFreshRuntimeCache = true;
+        }
+    }
+    QMap<QString, QMap<QString, QString>> gsaPropsForCache =
+        hasFreshRuntimeCache ? cachedRuntime.gsaPropsByDataset : QMap<QString, QMap<QString, QString>>{};
     if (!isWindowsConnection(profile)) {
         (void)ensureRemoteScriptsUpToDate(profile);
     }
@@ -631,6 +659,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     } else if (state.zfsVersionFull.trimmed().isEmpty()) {
         state.zfsVersionFull = QStringLiteral("OpenZFS %1").arg(state.zfsVersion);
     }
+    cutPhase(QStringLiteral("basics"));
 
     // Detección de comandos disponibles para mostrar en detalle de conexión.
     {
@@ -752,6 +781,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             state.commandsLayer.clear();
         }
     }
+    cutPhase(QStringLiteral("commands"));
 
     {
         const helperinstall::PlatformInfo helperPlatform = helperinstall::detectPlatform(profile, state.osLine);
@@ -790,6 +820,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             }
         }
     }
+    cutPhase(QStringLiteral("helper_plan"));
 
     bool gsaSupportsGuidSnapshotCompare = true;
     {
@@ -876,6 +907,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             }
         }
     }
+    cutPhase(QStringLiteral("gsa_probe"));
     if (state.gsaInstalled && !isWinConn) {
         QString mapOut;
         QString mapErr;
@@ -890,6 +922,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             state.gsaKnownConnections = parseGsaKnownConnections(mapOut);
         }
     }
+    cutPhase(QStringLiteral("gsa_connections"));
     const QString zpoolListCmd = withSudo(
         p, useRemoteScripts
                ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-list-json"))
@@ -932,7 +965,20 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     } else if (!err.isEmpty()) {
         appLog(QStringLiteral("INFO"), QStringLiteral("%1: zpool list -> %2").arg(p.name, oneLine(err)));
     }
+    cutPhase(QStringLiteral("zpool_list"));
 
+    if (!isWinConn && hasFreshRuntimeCache) {
+        for (auto it = cachedRuntime.poolGuidByName.cbegin(); it != cachedRuntime.poolGuidByName.cend(); ++it) {
+            if (!it.key().trimmed().isEmpty() && !it.value().trimmed().isEmpty()) {
+                state.poolGuidByName.insert(it.key(), it.value());
+            }
+        }
+        for (auto it = cachedRuntime.poolStatusByName.cbegin(); it != cachedRuntime.poolStatusByName.cend(); ++it) {
+            if (!it.key().trimmed().isEmpty() && !it.value().trimmed().isEmpty()) {
+                state.poolStatusByName.insert(it.key(), it.value());
+            }
+        }
+    }
     if (!isWinConn) {
         QString bout;
         QString berr;
@@ -952,20 +998,22 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                           "zpool status -v \"$pool\" 2>&1 || true; "
                           "printf '__ZFSMGR_STATUS_END__\\n'; "
                           "done")));
-        if (runSsh(p, batchCmd, 45000, bout, berr, brc) && brc == 0) {
-            const QMap<QString, PoolGuidStatusEntry> parsed =
-                parsePoolGuidStatusBatch(bout + QStringLiteral("\n") + berr);
-            for (auto it = parsed.cbegin(); it != parsed.cend(); ++it) {
-                const QString poolName = it.key().trimmed();
-                if (poolName.isEmpty()) {
-                    continue;
-                }
-                const QString guid = it.value().guid.trimmed();
-                if (!guid.isEmpty() && guid != QStringLiteral("-")) {
-                    state.poolGuidByName.insert(poolName, guid);
-                }
-                if (!it.value().status.trimmed().isEmpty()) {
-                    state.poolStatusByName.insert(poolName, it.value().status.trimmed());
+        if (state.poolStatusByName.isEmpty() || state.poolGuidByName.isEmpty()) {
+            if (runSsh(p, batchCmd, 45000, bout, berr, brc) && brc == 0) {
+                const QMap<QString, PoolGuidStatusEntry> parsed =
+                    parsePoolGuidStatusBatch(bout + QStringLiteral("\n") + berr);
+                for (auto it = parsed.cbegin(); it != parsed.cend(); ++it) {
+                    const QString poolName = it.key().trimmed();
+                    if (poolName.isEmpty()) {
+                        continue;
+                    }
+                    const QString guid = it.value().guid.trimmed();
+                    if (!guid.isEmpty() && guid != QStringLiteral("-")) {
+                        state.poolGuidByName.insert(poolName, guid);
+                    }
+                    if (!it.value().status.trimmed().isEmpty()) {
+                        state.poolStatusByName.insert(poolName, it.value().status.trimmed());
+                    }
                 }
             }
         }
@@ -1012,6 +1060,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             state.poolStatusByName.insert(poolName, fallback);
         }
     }
+    cutPhase(QStringLiteral("pool_details"));
 
     {
         out.clear();
@@ -1040,6 +1089,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             }
         }
     }
+    cutPhase(QStringLiteral("import_probe"));
 
     out.clear();
     err.clear();
@@ -1075,6 +1125,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     } else if (!err.isEmpty()) {
         appLog(QStringLiteral("INFO"), QStringLiteral("%1: zfs mount -> %2").arg(p.name, oneLine(err)));
     }
+    cutPhase(QStringLiteral("mounts"));
     if (state.gsaInstalled) {
         const QString expectedGsaVersion = refreshGsaScriptVersion().trimmed();
         if (state.gsaVersion.trimmed() != expectedGsaVersion) {
@@ -1094,7 +1145,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                        || v == QStringLiteral("1");
             };
             QSet<QString> requiredConnections;
-            QMap<QString, QMap<QString, QString>> propsByDataset;
+            QMap<QString, QMap<QString, QString>> propsByDataset = gsaPropsForCache;
             QString gout;
             QString gerr;
             int grc = -1;
@@ -1111,25 +1162,27 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                               "zfs get -H -o name,property,value -r \"$props\" \"$pool\" 2>/dev/null || true; "
                               "done")
                               .arg(mwhelpers::shSingleQuote(gsaProps))));
-            if (runSsh(p, gcmd, 30000, gout, gerr, grc) && grc == 0) {
-                const QString merged = gout + QStringLiteral("\n") + gerr;
-                const QStringList lines = merged.split('\n', Qt::SkipEmptyParts);
-                for (const QString& raw : lines) {
-                    const QString line = raw.trimmed();
-                    if (line.isEmpty() || line.startsWith(QStringLiteral("cannot ")) || line.startsWith(QStringLiteral("zfs:"))) {
-                        continue;
+            if (propsByDataset.isEmpty()) {
+                if (runSsh(p, gcmd, 30000, gout, gerr, grc) && grc == 0) {
+                    const QString merged = gout + QStringLiteral("\n") + gerr;
+                    const QStringList lines = merged.split('\n', Qt::SkipEmptyParts);
+                    for (const QString& raw : lines) {
+                        const QString line = raw.trimmed();
+                        if (line.isEmpty() || line.startsWith(QStringLiteral("cannot ")) || line.startsWith(QStringLiteral("zfs:"))) {
+                            continue;
+                        }
+                        const QStringList cols = raw.split('\t');
+                        if (cols.size() < 3) {
+                            continue;
+                        }
+                        const QString datasetName = cols.value(0).trimmed();
+                        const QString propName = cols.value(1).trimmed();
+                        const QString propValue = cols.value(2).trimmed();
+                        if (datasetName.isEmpty() || datasetName.contains(QLatin1Char('@')) || propName.isEmpty()) {
+                            continue;
+                        }
+                        propsByDataset[datasetName].insert(propName, propValue);
                     }
-                    const QStringList cols = raw.split('\t');
-                    if (cols.size() < 3) {
-                        continue;
-                    }
-                    const QString datasetName = cols.value(0).trimmed();
-                    const QString propName = cols.value(1).trimmed();
-                    const QString propValue = cols.value(2).trimmed();
-                    if (datasetName.isEmpty() || datasetName.contains(QLatin1Char('@')) || propName.isEmpty()) {
-                        continue;
-                    }
-                    propsByDataset[datasetName].insert(propName, propValue);
                 }
             }
             for (auto dsIt = propsByDataset.cbegin(); dsIt != propsByDataset.cend(); ++dsIt) {
@@ -1146,6 +1199,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     requiredConnections.insert(destConnName);
                 }
             }
+            gsaPropsForCache = propsByDataset;
             state.gsaRequiredConnections = QStringList(requiredConnections.begin(), requiredConnections.end());
             std::sort(state.gsaRequiredConnections.begin(), state.gsaRequiredConnections.end(),
                       [](const QString& a, const QString& b) { return a.compare(b, Qt::CaseInsensitive) < 0; });
@@ -1155,11 +1209,45 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             }
         }
     }
+    cutPhase(QStringLiteral("gsa_eval"));
+    appLog(
+        QStringLiteral("INFO"),
+        QStringLiteral(
+            "%1: refresh timings ms total=%2 basics=%3 commands=%4 helper=%5 gsa_probe=%6 gsa_conn=%7 zpool_list=%8 pool_details=%9 import=%10 mounts=%11 gsa_eval=%12")
+            .arg(p.name)
+            .arg(refreshTimer.elapsed())
+            .arg(phaseDurMs.value(QStringLiteral("basics"), -1))
+            .arg(phaseDurMs.value(QStringLiteral("commands"), -1))
+            .arg(phaseDurMs.value(QStringLiteral("helper_plan"), -1))
+            .arg(phaseDurMs.value(QStringLiteral("gsa_probe"), -1))
+            .arg(phaseDurMs.value(QStringLiteral("gsa_connections"), -1))
+            .arg(phaseDurMs.value(QStringLiteral("zpool_list"), -1))
+            .arg(phaseDurMs.value(QStringLiteral("pool_details"), -1))
+            .arg(phaseDurMs.value(QStringLiteral("import_probe"), -1))
+            .arg(phaseDurMs.value(QStringLiteral("mounts"), -1))
+            .arg(phaseDurMs.value(QStringLiteral("gsa_eval"), -1)));
 
     appLog(QStringLiteral("NORMAL"),
            trk(QStringLiteral("t_fin_refres_6eead9"),
                QStringLiteral("Fin refresh: %1 -> OK (%2)"),
                QStringLiteral("Refresh end: %1 -> OK (%2)"),
                QStringLiteral("刷新结束：%1 -> OK (%2)")).arg(p.name, state.detail));
+    if (!refreshCacheKey.isEmpty() && !isWinConn) {
+        RefreshRuntimeCacheEntry fresh;
+        fresh.loadedAt = QDateTime::currentDateTimeUtc();
+        fresh.poolStatusByName = state.poolStatusByName;
+        fresh.poolGuidByName = state.poolGuidByName;
+        fresh.gsaPropsByDataset = gsaPropsForCache;
+        m_refreshRuntimeCacheByConnId.insert(refreshCacheKey, fresh);
+        constexpr qint64 kRefreshCacheMaxAgeMs = 60000;
+        auto it = m_refreshRuntimeCacheByConnId.begin();
+        while (it != m_refreshRuntimeCacheByConnId.end()) {
+            if (!it->loadedAt.isValid() || it->loadedAt.msecsTo(fresh.loadedAt) > kRefreshCacheMaxAgeMs) {
+                it = m_refreshRuntimeCacheByConnId.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
     return state;
 }

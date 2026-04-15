@@ -293,6 +293,12 @@ private:
         QString datasetName;
         DatasetPermissionsCacheEntry entry;
     };
+    struct RefreshRuntimeCacheEntry {
+        QDateTime loadedAt;
+        QMap<QString, QString> poolStatusByName;
+        QMap<QString, QString> poolGuidByName;
+        QMap<QString, QMap<QString, QString>> gsaPropsByDataset;
+    };
     struct PendingChange {
         enum class Kind {
             Property,
@@ -1102,6 +1108,7 @@ private:
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
     QMap<QString, DatasetPermissionsCacheEntry> m_datasetPermissionsCache;
     QMap<QString, PoolDetailsCacheEntry> m_poolDetailsCache;
+    QMap<QString, RefreshRuntimeCacheEntry> m_refreshRuntimeCacheByConnId;
     QMap<QString, QStringList> m_connSystemUsersCacheByKey;
     QMap<QString, QStringList> m_connSystemGroupsCacheByKey;
     QSet<QString> m_connSystemUsersLoadedKeys;

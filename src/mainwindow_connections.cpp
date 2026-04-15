@@ -27,6 +27,7 @@
 #include <QTabBar>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QTimer>
 #include <QStackedWidget>
 #include <QSplitter>
 #include <QVBoxLayout>
@@ -2296,16 +2297,55 @@ void MainWindow::refreshAllConnections() {
         return;
     }
 
+    auto launchRefreshForIndex = [this, generation](int idx) {
+        if (idx < 0 || idx >= m_profiles.size() || isConnectionDisconnected(idx)) {
+            return;
+        }
+        const ConnectionProfile profile = m_profiles[idx];
+        (void)QtConcurrent::run([this, generation, idx, profile]() {
+            const ConnectionRuntimeState state = refreshConnection(profile);
+            QMetaObject::invokeMethod(this, [this, generation, idx, state, profile]() {
+                onAsyncRefreshResult(generation, idx, profile.id, state);
+            }, Qt::QueuedConnection);
+        });
+    };
+
+    QVector<int> launchOrder;
+    auto appendUnique = [&launchOrder](int idx) {
+        if (idx < 0 || launchOrder.contains(idx)) {
+            return;
+        }
+        launchOrder.push_back(idx);
+    };
+    appendUnique(currentConnectionIndexFromUi());
+    appendUnique(m_topDetailConnIdx);
     for (int i = 0; i < m_profiles.size(); ++i) {
-        if (isConnectionDisconnected(i)) {
+        if (!isConnectionDisconnected(i)) {
+            appendUnique(i);
+        }
+    }
+
+    QVector<int> deferred;
+    int immediateBudget = 2;
+    for (int idx : std::as_const(launchOrder)) {
+        if (isConnectionDisconnected(idx)) {
             continue;
         }
-        const ConnectionProfile profile = m_profiles[i];
-        (void)QtConcurrent::run([this, generation, i, profile]() {
-            const ConnectionRuntimeState state = refreshConnection(profile);
-            QMetaObject::invokeMethod(this, [this, generation, i, state, profile]() {
-                onAsyncRefreshResult(generation, i, profile.id, state);
-            }, Qt::QueuedConnection);
+        if (immediateBudget > 0) {
+            launchRefreshForIndex(idx);
+            --immediateBudget;
+        } else {
+            deferred.push_back(idx);
+        }
+    }
+    if (!deferred.isEmpty()) {
+        QTimer::singleShot(80, this, [this, generation, deferred, launchRefreshForIndex]() {
+            if (generation != m_refreshGeneration) {
+                return;
+            }
+            for (int idx : deferred) {
+                launchRefreshForIndex(idx);
+            }
         });
     }
 }
