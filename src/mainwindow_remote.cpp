@@ -883,6 +883,22 @@ pool="${1:-}"
 zpool status -v "$pool"
 )"));
     scripts.insert(
+        QStringLiteral("zfsmgr-zpool-guid-status-all"),
+        QString::fromLatin1(R"ZFSMGR(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+zpool list -H -o name 2>/dev/null | while IFS= read -r pool; do
+  [ -n "$pool" ] || continue
+  guid="$(zpool get -H -o value guid "$pool" 2>/dev/null | head -n1 || true)"
+  printf '__ZFSMGR_POOL__:%s\n' "$pool"
+  printf '__ZFSMGR_GUID__:%s\n' "$guid"
+  printf '__ZFSMGR_STATUS_BEGIN__\n'
+  zpool status -v "$pool" 2>&1 || true
+  printf '__ZFSMGR_STATUS_END__\n'
+done
+)ZFSMGR"));
+    scripts.insert(
         QStringLiteral("zfsmgr-zfs-list-all"),
         QString::fromLatin1(R"(#!/bin/sh
 set -eu
@@ -995,6 +1011,18 @@ export PATH
 pool="${1:-}"
 [ -n "$pool" ] || exit 2
 zfs get -j -r org.fc16.gsa:activado,org.fc16.gsa:nivelar,org.fc16.gsa:destino "$pool"
+)"));
+    scripts.insert(
+        QStringLiteral("zfsmgr-zfs-get-gsa-raw-all-pools"),
+        QString::fromLatin1(R"(#!/bin/sh
+set -eu
+PATH="$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin"
+export PATH
+props='org.fc16.gsa:activado,org.fc16.gsa:nivelar,org.fc16.gsa:destino'
+zpool list -H -o name 2>/dev/null | while IFS= read -r pool; do
+  [ -n "$pool" ] || continue
+  zfs get -H -o name,property,value -r "$props" "$pool" 2>/dev/null || true
+done
 )"));
     scripts.insert(
         QStringLiteral("zfsmgr-zfs-get-gsa-raw-recursive"),

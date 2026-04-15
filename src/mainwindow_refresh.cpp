@@ -164,6 +164,65 @@ int refreshCompareAppVersions(const QString& a, const QString& b) {
     return 0;
 }
 
+struct PoolGuidStatusEntry {
+    QString guid;
+    QString status;
+};
+
+QMap<QString, PoolGuidStatusEntry> parsePoolGuidStatusBatch(const QString& text) {
+    QMap<QString, PoolGuidStatusEntry> out;
+    QString currentPool;
+    QString currentGuid;
+    QStringList statusLines;
+    bool collectingStatus = false;
+
+    auto flushCurrent = [&]() {
+        const QString pool = currentPool.trimmed();
+        if (pool.isEmpty()) {
+            currentPool.clear();
+            currentGuid.clear();
+            statusLines.clear();
+            collectingStatus = false;
+            return;
+        }
+        PoolGuidStatusEntry entry;
+        entry.guid = currentGuid.trimmed();
+        entry.status = statusLines.join('\n').trimmed();
+        out.insert(pool, entry);
+        currentPool.clear();
+        currentGuid.clear();
+        statusLines.clear();
+        collectingStatus = false;
+    };
+
+    const QStringList lines = text.split('\n');
+    for (const QString& rawLine : lines) {
+        const QString line = rawLine;
+        if (line.startsWith(QStringLiteral("__ZFSMGR_POOL__:"))) {
+            flushCurrent();
+            currentPool = line.mid(QStringLiteral("__ZFSMGR_POOL__:").size()).trimmed();
+            continue;
+        }
+        if (line.startsWith(QStringLiteral("__ZFSMGR_GUID__:"))) {
+            currentGuid = line.mid(QStringLiteral("__ZFSMGR_GUID__:").size()).trimmed();
+            continue;
+        }
+        if (line == QStringLiteral("__ZFSMGR_STATUS_BEGIN__")) {
+            collectingStatus = true;
+            continue;
+        }
+        if (line == QStringLiteral("__ZFSMGR_STATUS_END__")) {
+            collectingStatus = false;
+            continue;
+        }
+        if (collectingStatus) {
+            statusLines.push_back(rawLine);
+        }
+    }
+    flushCurrent();
+    return out;
+}
+
 QString refreshGsaScriptVersion() {
     return QStringLiteral(ZFSMGR_APP_VERSION) + QStringLiteral(".") + QStringLiteral(ZFSMGR_GSA_VERSION_SUFFIX);
 }
@@ -809,6 +868,44 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         appLog(QStringLiteral("INFO"), QStringLiteral("%1: zpool list -> %2").arg(p.name, oneLine(err)));
     }
 
+    if (!isWinConn) {
+        QString bout;
+        QString berr;
+        int brc = -1;
+        const QString batchCmd = withSudo(
+            p,
+            useRemoteScripts
+                ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-guid-status-all"))
+                : mwhelpers::withUnixSearchPathCommand(
+                      QStringLiteral(
+                          "zpool list -H -o name 2>/dev/null | while IFS= read -r pool; do "
+                          "[ -n \"$pool\" ] || continue; "
+                          "guid=$(zpool get -H -o value guid \"$pool\" 2>/dev/null | head -n1 || true); "
+                          "printf '__ZFSMGR_POOL__:%s\\n' \"$pool\"; "
+                          "printf '__ZFSMGR_GUID__:%s\\n' \"$guid\"; "
+                          "printf '__ZFSMGR_STATUS_BEGIN__\\n'; "
+                          "zpool status -v \"$pool\" 2>&1 || true; "
+                          "printf '__ZFSMGR_STATUS_END__\\n'; "
+                          "done")));
+        if (runSsh(p, batchCmd, 45000, bout, berr, brc) && brc == 0) {
+            const QMap<QString, PoolGuidStatusEntry> parsed =
+                parsePoolGuidStatusBatch(bout + QStringLiteral("\n") + berr);
+            for (auto it = parsed.cbegin(); it != parsed.cend(); ++it) {
+                const QString poolName = it.key().trimmed();
+                if (poolName.isEmpty()) {
+                    continue;
+                }
+                const QString guid = it.value().guid.trimmed();
+                if (!guid.isEmpty() && guid != QStringLiteral("-")) {
+                    state.poolGuidByName.insert(poolName, guid);
+                }
+                if (!it.value().status.trimmed().isEmpty()) {
+                    state.poolStatusByName.insert(poolName, it.value().status.trimmed());
+                }
+            }
+        }
+    }
+
     for (const PoolImported& pool : state.importedPools) {
         const QString poolName = pool.pool.trimmed();
         if (poolName.isEmpty()) {
@@ -830,6 +927,9 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     state.poolGuidByName.insert(poolName, guid);
                 }
             }
+        }
+        if (state.poolStatusByName.contains(poolName) && !state.poolStatusByName.value(poolName).trimmed().isEmpty()) {
+            continue;
         }
         out.clear();
         err.clear();
@@ -929,55 +1029,56 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                        || v == QStringLiteral("1");
             };
             QSet<QString> requiredConnections;
-            for (const PoolImported& pool : state.importedPools) {
-                const QString poolName = pool.pool.trimmed();
-                if (poolName.isEmpty()) {
-                    continue;
-                }
-                QString gout;
-                QString gerr;
-                int grc = -1;
-                const QString gsaProps = QStringLiteral("org.fc16.gsa:activado,org.fc16.gsa:nivelar,org.fc16.gsa:destino");
-                const QString gcmd = withSudo(
-                    p,
-                    useRemoteScripts
-                        ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-get-gsa-json-recursive"), {poolName})
-                        : QStringLiteral("zfs get -j -r %1 %2")
-                              .arg(gsaProps, mwhelpers::shSingleQuote(poolName)));
-                if (!runSsh(p, gcmd, 20000, gout, gerr, grc) || grc != 0) {
-                    continue;
-                }
-                QMap<QString, QMap<QString, QString>> propsByDataset;
-                {
-                    const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(gout).toUtf8());
-                    const QJsonObject datasets = doc.object().value(QStringLiteral("datasets")).toObject();
-                    for (auto dsIt = datasets.constBegin(); dsIt != datasets.constEnd(); ++dsIt) {
-                        const QString datasetName = dsIt.key();
-                        if (datasetName.isEmpty() || datasetName.contains(QLatin1Char('@'))) {
-                            continue;
-                        }
-                        const QJsonObject props = dsIt.value().toObject()
-                                                      .value(QStringLiteral("properties")).toObject();
-                        for (auto pIt = props.constBegin(); pIt != props.constEnd(); ++pIt) {
-                            const QString val = pIt.value().toObject()
-                                                    .value(QStringLiteral("value")).toString().trimmed();
-                            propsByDataset[datasetName].insert(pIt.key(), val);
-                        }
-                    }
-                }
-                for (auto dsIt = propsByDataset.cbegin(); dsIt != propsByDataset.cend(); ++dsIt) {
-                    const QMap<QString, QString>& props = dsIt.value();
-                    if (!boolOnString(props.value(QStringLiteral("org.fc16.gsa:activado")))) {
+            QMap<QString, QMap<QString, QString>> propsByDataset;
+            QString gout;
+            QString gerr;
+            int grc = -1;
+            const QString gsaProps = QStringLiteral("org.fc16.gsa:activado,org.fc16.gsa:nivelar,org.fc16.gsa:destino");
+            const QString gcmd = withSudo(
+                p,
+                useRemoteScripts
+                    ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-get-gsa-raw-all-pools"))
+                    : mwhelpers::withUnixSearchPathCommand(
+                          QStringLiteral(
+                              "props=%1; "
+                              "zpool list -H -o name 2>/dev/null | while IFS= read -r pool; do "
+                              "[ -n \"$pool\" ] || continue; "
+                              "zfs get -H -o name,property,value -r \"$props\" \"$pool\" 2>/dev/null || true; "
+                              "done")
+                              .arg(mwhelpers::shSingleQuote(gsaProps))));
+            if (runSsh(p, gcmd, 30000, gout, gerr, grc) && grc == 0) {
+                const QString merged = gout + QStringLiteral("\n") + gerr;
+                const QStringList lines = merged.split('\n', Qt::SkipEmptyParts);
+                for (const QString& raw : lines) {
+                    const QString line = raw.trimmed();
+                    if (line.isEmpty() || line.startsWith(QStringLiteral("cannot ")) || line.startsWith(QStringLiteral("zfs:"))) {
                         continue;
                     }
-                    if (!boolOnString(props.value(QStringLiteral("org.fc16.gsa:nivelar")))) {
+                    const QStringList cols = raw.split('\t');
+                    if (cols.size() < 3) {
                         continue;
                     }
-                    const QString dest = props.value(QStringLiteral("org.fc16.gsa:destino")).trimmed();
-                    const QString destConnName = dest.section(QStringLiteral("::"), 0, 0).trimmed();
-                    if (!destConnName.isEmpty()) {
-                        requiredConnections.insert(destConnName);
+                    const QString datasetName = cols.value(0).trimmed();
+                    const QString propName = cols.value(1).trimmed();
+                    const QString propValue = cols.value(2).trimmed();
+                    if (datasetName.isEmpty() || datasetName.contains(QLatin1Char('@')) || propName.isEmpty()) {
+                        continue;
                     }
+                    propsByDataset[datasetName].insert(propName, propValue);
+                }
+            }
+            for (auto dsIt = propsByDataset.cbegin(); dsIt != propsByDataset.cend(); ++dsIt) {
+                const QMap<QString, QString>& props = dsIt.value();
+                if (!boolOnString(props.value(QStringLiteral("org.fc16.gsa:activado")))) {
+                    continue;
+                }
+                if (!boolOnString(props.value(QStringLiteral("org.fc16.gsa:nivelar")))) {
+                    continue;
+                }
+                const QString dest = props.value(QStringLiteral("org.fc16.gsa:destino")).trimmed();
+                const QString destConnName = dest.section(QStringLiteral("::"), 0, 0).trimmed();
+                if (!destConnName.isEmpty()) {
+                    requiredConnections.insert(destConnName);
                 }
             }
             state.gsaRequiredConnections = QStringList(requiredConnections.begin(), requiredConnections.end());
