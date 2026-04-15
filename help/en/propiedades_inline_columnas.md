@@ -8,9 +8,14 @@ ZFSMgr shows dataset and pool properties directly inside the unified tree.
 - On snapshots, under `Snapshot properties`.
 - On non-snapshot datasets, `Permissions` may also appear.
 - On the merged pool/root-dataset node, `Pool Information` may appear.
+  - It may include `Devices` (pool vdev/disk hierarchy).
 - On filesystem datasets, snapshots hang under the `@` node.
 - On pools with active GSA datasets, `Scheduled datasets` may appear.
 - On connections, under `Connection properties`.
+- On connections, `Info` is grouped into:
+  - `General`
+  - `GSA`
+  - `Commands`
 
 ## Visual layout
 

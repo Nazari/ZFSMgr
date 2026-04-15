@@ -5090,7 +5090,18 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
         infoProps.push_back({QStringLiteral("Comandos PowerShell usados"),
                              st.powershellFallbackCommands.join(QStringLiteral(", "))});
     }
-    appendReadOnlyInlineProps(infoNode, infoProps);
+    auto* generalNode = new QTreeWidgetItem(infoNode);
+    generalNode->setFlags(generalNode->flags() & ~Qt::ItemIsUserCheckable);
+    generalNode->setData(0, kConnContentNodeRole, true);
+    generalNode->setData(0, kConnIdxRole, connIdx);
+    generalNode->setData(0, kConnStatePartRole, QStringLiteral("syn:general"));
+    generalNode->setText(0, trk(QStringLiteral("t_conn_general_001"),
+                                QStringLiteral("General"),
+                                QStringLiteral("General"),
+                                QStringLiteral("常规")));
+    generalNode->setIcon(0, treeStandardIcon(QStyle::SP_FileDialogDetailedView));
+    appendReadOnlyInlineProps(generalNode, infoProps);
+    generalNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:general"), true));
 
     auto* gsaNode = new QTreeWidgetItem(infoNode);
     gsaNode->setFlags(gsaNode->flags() & ~Qt::ItemIsUserCheckable);

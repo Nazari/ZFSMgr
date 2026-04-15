@@ -184,7 +184,12 @@ It gives you:
 - Main inline nodes currently include:
   - `Dataset properties`
   - `Pool Information`
+    - includes `Devices` (pool vdev/disk hierarchy from `zpool status -P`)
   - `Datasets programados`
+  - `Info`
+    - `General`
+    - `GSA`
+    - `Commands`
 - Reorder visible properties by drag and drop.
 - Persist visible properties and order in configuration.
 - Inline editing of property values.

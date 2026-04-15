@@ -34,6 +34,7 @@ ZFSMgr manages connections and ZFS actions from a unified tree.
   - avoids duplicated `pool/pool`
 - Imported pools may show:
   - `Pool Information`
+    - includes `Devices` (vdev/disk hierarchy from `zpool status -P`)
   - `Scheduled datasets`
 - A pool in suspended state shows `(Suspended)` next to its name and blocks most of its operations.
 
@@ -45,7 +46,10 @@ ZFSMgr manages connections and ZFS actions from a unified tree.
 - Datasets with snapshots show an `@` node grouping manual and GSA snapshots.
 - Connections show auxiliary nodes:
   - `Connection properties` (inline, with edit permissions by connection type)
-  - `Info` (status, detected/missing commands, and `GSA` block)
+  - `Info`
+    - `General` (status and connection metadata)
+    - `GSA`
+    - `Commands`
 
 - Inline properties can be edited directly in the tree.
 - If a property supports inheritance, it shows `Inh.` and stays in draft mode until changes are applied.

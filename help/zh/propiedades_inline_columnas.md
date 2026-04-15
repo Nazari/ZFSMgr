@@ -8,9 +8,14 @@ ZFSMgr 会在统一树中直接显示数据集和池属性。
 - 快照下显示 `Snapshot properties`。
 - 非快照数据集还可以显示 `Permissions`。
 - 合并后的池根节点可以显示 `Pool Information`。
+  - 其中可包含 `Devices`（池的 vdev/磁盘层级）。
 - filesystem 数据集的快照位于 `@` 节点下。
 - 含有活动 GSA 数据集的池可显示 `Scheduled datasets`。
 - 连接节点下可显示 `Connection properties`。
+- 连接节点下的 `Info` 分组为：
+  - `General`
+  - `GSA`
+  - `Commands`
 
 ## 显示
 

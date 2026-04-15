@@ -8,9 +8,14 @@ ZFSMgr muestra propiedades de dataset y pool directamente dentro del árbol unif
 - En snapshots, bajo `Snapshot properties`.
 - En datasets no snapshot, también puede aparecer `Permisos`.
 - En el nodo dual pool/dataset raíz, puede aparecer `Pool Information`.
+  - Dentro puede aparecer `Dispositivos` (árbol de vdev/discos del pool).
 - En datasets filesystem, los snapshots cuelgan del nodo `@`.
 - En pools con datasets GSA activos, puede aparecer `Datasets programados`.
 - En conexiones, bajo `Propiedades de conexión`.
+- En conexiones, `Info` agrupa:
+  - `General`
+  - `GSA`
+  - `Commands`
 
 ## Visualización
 

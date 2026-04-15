@@ -34,6 +34,7 @@ ZFSMgr 通过统一树管理连接和 ZFS 操作。
   - 避免出现重复的 `pool/pool`
 - 已导入的池可以显示：
   - `Pool Information`
+    - 其中包含 `Devices`（按 `zpool status -P` 生成的 vdev/磁盘层级）
   - `Scheduled datasets`
 - 处于挂起（suspended）状态的池，名称旁会显示 `(Suspended)`，大部分操作被禁用。
 
@@ -45,7 +46,10 @@ ZFSMgr 通过统一树管理连接和 ZFS 操作。
 - 有快照的数据集会显示 `@` 节点，用于分组手动/GSA 快照。
 - 连接节点下可显示辅助节点：
   - `Connection properties`（内联显示，按连接类型控制可编辑字段）
-  - `Info`（状态、已检测/未检测命令，以及 `GSA` 分组）
+  - `Info`
+    - `General`（状态与连接元数据）
+    - `GSA`
+    - `Commands`
 
 - 内联属性可直接在树中编辑。
 - 若属性支持继承，会显示 `Inh.`，并在应用前保持草稿状态。
