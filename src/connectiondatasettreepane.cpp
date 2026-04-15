@@ -10,6 +10,7 @@
 #include <QScrollBar>
 #include <QStyle>
 #include <QStyleFactory>
+#include <QTimer>
 #include <QVBoxLayout>
 
 namespace {
@@ -41,6 +42,19 @@ ConnectionDatasetTreePane::ConnectionDatasetTreePane(Role role, QWidget* parent)
     connect(m_tree, &QTreeWidget::itemExpanded, this, &ConnectionDatasetTreePane::itemExpanded);
     connect(m_tree, &QTreeWidget::itemCollapsed, this, &ConnectionDatasetTreePane::itemCollapsed);
     connect(m_tree, &QTreeWidget::itemSelectionChanged, this, &ConnectionDatasetTreePane::selectionChanged);
+    connect(m_tree, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem*) {
+        QPointer<QTreeWidget> tree = m_tree;
+        QTimer::singleShot(0, this, [tree]() {
+            if (!tree) {
+                return;
+            }
+            for (int col = 0; col < tree->columnCount(); ++col) {
+                if (!tree->isColumnHidden(col)) {
+                    tree->resizeColumnToContents(col);
+                }
+            }
+        });
+    });
     connect(m_tree, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
         m_contextMenuGestureActive = false;
         Q_EMIT contextMenuRequested(pos, m_tree ? m_tree->itemAt(pos) : nullptr);

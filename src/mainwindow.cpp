@@ -1381,6 +1381,9 @@ void MainWindow::invalidatePoolAutoSnapshotInfoForConnection(int connIdx) {
             ++it;
         }
     }
+    m_poolAutoSnapshotPendingLoadsByConn.remove(connIdx);
+    m_poolAutoSnapshotDirtyPoolsByConn.remove(connIdx);
+    m_poolAutoSnapshotUiDeferByConn.remove(connIdx);
 }
 
 void MainWindow::preloadPoolAutoSnapshotInfoForConnection(int connIdx) {
@@ -1392,35 +1395,41 @@ void MainWindow::preloadPoolAutoSnapshotInfoForConnection(int connIdx) {
     if (!state.gsaInstalled) {
         return;
     }
+    int startedLoads = 0;
     for (const PoolImported& pool : state.importedPools) {
         const QString trimmedPool = pool.pool.trimmed();
         if (trimmedPool.isEmpty()) {
             continue;
         }
-        schedulePoolAutoSnapshotInfoLoad(connIdx, trimmedPool);
+        if (schedulePoolAutoSnapshotInfoLoad(connIdx, trimmedPool)) {
+            ++startedLoads;
+        }
+    }
+    if (startedLoads > 0) {
+        m_poolAutoSnapshotUiDeferByConn.insert(connIdx);
     }
 }
 
-void MainWindow::schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& poolName) {
+bool MainWindow::schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& poolName) {
     const QString trimmedPool = poolName.trimmed();
     if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty() || isWindowsConnection(connIdx)) {
-        return;
+        return false;
     }
     if (isPoolSuspended(connIdx, trimmedPool)) {
         if (PoolInfo* p = findPoolInfo(connIdx, trimmedPool)) {
             p->runtime.schedulesState = LoadState::Error;
             p->runtime.errorText = QStringLiteral("pool suspended");
         }
-        return;
+        return false;
     }
     PoolInfo* poolInfo = findPoolInfo(connIdx, trimmedPool);
     if (poolInfo && (poolInfo->runtime.schedulesState == LoadState::Loaded
                      || poolInfo->runtime.schedulesState == LoadState::Loading)) {
-        return;
+        return false;
     }
     const QString key = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
     if (m_poolAutoSnapshotLoadsInFlight.contains(key)) {
-        return;
+        return false;
     }
     if (!poolInfo) {
         rebuildConnInfoFor(connIdx);
@@ -1431,6 +1440,8 @@ void MainWindow::schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& po
         poolInfo->runtime.errorText.clear();
     }
     m_poolAutoSnapshotLoadsInFlight.insert(key);
+    m_poolAutoSnapshotPendingLoadsByConn[connIdx] =
+        m_poolAutoSnapshotPendingLoadsByConn.value(connIdx, 0) + 1;
     const ConnectionProfile profile = m_profiles[connIdx];
     (void)QtConcurrent::run([this, profile, connIdx, trimmedPool]() {
         PoolAutoSnapshotLoadResult result;
@@ -1499,6 +1510,7 @@ void MainWindow::schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& po
                                                 result.loaded);
         }, Qt::QueuedConnection);
     });
+    return true;
 }
 
 void MainWindow::applyPoolAutoSnapshotInfoLoadResult(
@@ -1510,6 +1522,16 @@ void MainWindow::applyPoolAutoSnapshotInfoLoadResult(
     const QString trimmedPool = poolName.trimmed();
     const QString key = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
     m_poolAutoSnapshotLoadsInFlight.remove(key);
+    int pendingLoads = m_poolAutoSnapshotPendingLoadsByConn.value(connIdx, 0);
+    if (pendingLoads > 0) {
+        --pendingLoads;
+    }
+    if (pendingLoads <= 0) {
+        m_poolAutoSnapshotPendingLoadsByConn.remove(connIdx);
+        pendingLoads = 0;
+    } else {
+        m_poolAutoSnapshotPendingLoadsByConn[connIdx] = pendingLoads;
+    }
     if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty()) {
         return;
     }
@@ -1529,12 +1551,30 @@ void MainWindow::applyPoolAutoSnapshotInfoLoadResult(
         poolInfo->runtime.schedulesState = LoadState::Error;
         poolInfo->runtime.errorText = errorText.trimmed();
     }
-    const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool);
-    if (m_connContentTree) {
-        syncConnContentPoolColumnsFor(m_connContentTree, token);
+    const bool deferUi = m_poolAutoSnapshotUiDeferByConn.contains(connIdx);
+    if (deferUi) {
+        m_poolAutoSnapshotDirtyPoolsByConn[connIdx].insert(trimmedPool);
+        if (pendingLoads > 0) {
+            return;
+        }
     }
-    if (m_bottomConnContentTree && m_bottomConnContentTree != m_connContentTree) {
-        syncConnContentPoolColumnsFor(m_bottomConnContentTree, token);
+
+    QSet<QString> poolsToSync;
+    if (deferUi) {
+        poolsToSync = m_poolAutoSnapshotDirtyPoolsByConn.value(connIdx);
+        m_poolAutoSnapshotDirtyPoolsByConn.remove(connIdx);
+        m_poolAutoSnapshotUiDeferByConn.remove(connIdx);
+    } else {
+        poolsToSync.insert(trimmedPool);
+    }
+    for (const QString& pool : poolsToSync) {
+        const QString token = QStringLiteral("%1::%2").arg(connIdx).arg(pool);
+        if (m_connContentTree) {
+            syncConnContentPoolColumnsFor(m_connContentTree, token);
+        }
+        if (m_bottomConnContentTree && m_bottomConnContentTree != m_connContentTree) {
+            syncConnContentPoolColumnsFor(m_bottomConnContentTree, token);
+        }
     }
 }
 

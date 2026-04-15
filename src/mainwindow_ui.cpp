@@ -2569,7 +2569,6 @@ void MainWindow::buildUi() {
     logLayout->setSpacing(4);
 
     QFont combinedLogFont = baseUiFont;
-    combinedLogFont.setPointSize(qMax(6, baseUiFont.pointSize() - 2));
 
     auto* stateProgressRow = new QWidget(topArea);
     auto* stateProgressLayout = new QHBoxLayout(stateProgressRow);

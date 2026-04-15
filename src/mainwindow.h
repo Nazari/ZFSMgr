@@ -677,7 +677,7 @@ private:
     QMap<QString, QMap<QString, QString>> poolAutoSnapshotPropsByDataset(int connIdx, const QString& poolName) const;
     void invalidatePoolAutoSnapshotInfoForConnection(int connIdx);
     void preloadPoolAutoSnapshotInfoForConnection(int connIdx);
-    void schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& poolName);
+    bool schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& poolName);
     void applyPoolAutoSnapshotInfoLoadResult(int connIdx,
                                              const QString& poolName,
                                              bool ok,
@@ -1167,4 +1167,7 @@ private:
     bool m_syncingConnContentColumns{false};
     QSet<QString> m_poolDetailsLoadsInFlight;
     QSet<QString> m_poolAutoSnapshotLoadsInFlight;
+    QMap<int, int> m_poolAutoSnapshotPendingLoadsByConn;
+    QMap<int, QSet<QString>> m_poolAutoSnapshotDirtyPoolsByConn;
+    QSet<int> m_poolAutoSnapshotUiDeferByConn;
 };
