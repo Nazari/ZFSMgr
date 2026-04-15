@@ -252,6 +252,7 @@ private:
         bool loaded{false};
         QVector<QStringList> propsRows; // property,value,source
         QString statusText;
+        QString statusPText;
     };
     struct DatasetPropCacheRow {
         QString prop;

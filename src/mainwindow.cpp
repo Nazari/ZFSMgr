@@ -1295,6 +1295,23 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
                     errorText = statusErr;
                 }
             }
+
+            out.clear();
+            err.clear();
+            rc = -1;
+            const QString stPCmd = withSudo(
+                profile,
+                poolWin
+                    ? QStringLiteral("zpool status -P %1")
+                          .arg(mwhelpers::shSingleQuote(trimmedPool))
+                    : mwhelpers::withUnixSearchPathCommand(
+                          QStringLiteral("zpool status -P %1")
+                              .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            if (runSsh(profile, stPCmd, 20000, out, err, rc) && rc == 0) {
+                fresh.statusPText = out.trimmed();
+            } else {
+                fresh.statusPText.clear();
+            }
         }
         fresh.loaded = true;
         const bool ok = errorText.isEmpty() || !fresh.propsRows.isEmpty() || !fresh.statusText.trimmed().isEmpty();
