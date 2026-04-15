@@ -1716,7 +1716,7 @@ void MainWindow::buildUi() {
             const QString token = connContentTokenForTree(tree);
             Q_UNUSED(owner);
             syncConnContentPropertyColumnsFor(tree, token);
-            syncConnContentPoolColumnsFor(tree, token);
+            syncConnContentPoolColumnsFor(tree, QString());
             restoreTopTreeStateForConnection(connIdx);
             // Tras cambiar el número de columnas, reajustar anchos como "Ajustar tamaño de todas las columnas".
             resizeTreeColumnsToVisibleContent(tree);
@@ -2572,11 +2572,11 @@ void MainWindow::buildUi() {
 
     auto* stateProgressRow = new QWidget(topArea);
     auto* stateProgressLayout = new QHBoxLayout(stateProgressRow);
-    stateProgressLayout->setContentsMargins(0, 0, 0, 0);
+    stateProgressLayout->setContentsMargins(0, 3, 0, 0);
     stateProgressLayout->setSpacing(4);
     auto* statusWrap = new QWidget(stateProgressRow);
     auto* statusLayout = new QHBoxLayout(statusWrap);
-    statusLayout->setContentsMargins(0, 0, 0, 0);
+    statusLayout->setContentsMargins(0, 1, 0, 0);
     statusLayout->setSpacing(6);
     auto* statusLabel = new QLabel(trk(QStringLiteral("t_status_col_001"),
                                        QStringLiteral("Estado"),
@@ -2602,7 +2602,7 @@ void MainWindow::buildUi() {
 
     auto* detailWrap = new QWidget(stateProgressRow);
     auto* detailLayout = new QHBoxLayout(detailWrap);
-    detailLayout->setContentsMargins(0, 0, 0, 0);
+    detailLayout->setContentsMargins(0, 1, 0, 0);
     detailLayout->setSpacing(6);
     auto* detailLabel = new QLabel(trk(QStringLiteral("t_detail_lbl001"),
                                        QStringLiteral("Progreso"),
