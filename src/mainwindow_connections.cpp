@@ -2402,11 +2402,14 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
     cachePoolStatusTextsForConnection(targetIdx, state);
     rebuildConnInfoFor(targetIdx);
     preloadPoolAutoSnapshotInfoForConnection(targetIdx);
-    rebuildConnectionsTable();
-    if (selectedIdx >= 0) {
-        setCurrentConnectionInUi(selectedIdx);
+    const bool bulkRefresh = (m_refreshTotal > 1);
+    if (!bulkRefresh) {
+        rebuildConnectionsTable();
+        if (selectedIdx >= 0) {
+            setCurrentConnectionInUi(selectedIdx);
+        }
+        populateAllPoolsTables();
     }
-    populateAllPoolsTables();
     if (m_refreshPending > 0) {
         --m_refreshPending;
     }
@@ -2422,6 +2425,13 @@ void MainWindow::onAsyncRefreshDone(int generation) {
     if (!m_initialRefreshCompleted) {
         m_initialRefreshCompleted = true;
     }
+    const int selectedIdx = currentConnectionIndexFromUi();
+    rebuildConnectionsTable();
+    if (selectedIdx >= 0) {
+        setCurrentConnectionInUi(selectedIdx);
+    }
+    populateAllPoolsTables();
+
     if (currentConnectionIndexFromUi() < 0) {
         for (int i = 0; i < m_profiles.size(); ++i) {
             if (!isConnectionDisconnected(i)) {

@@ -763,6 +763,9 @@ private:
     bool refreshDatasetAndPoolSizeProperties(int connIdx,
                                              const QString& poolName,
                                              const QString& datasetName);
+    void scheduleReloadFlush();
+    void flushPendingReloads();
+    void reloadConnContentPoolNow(int connIdx, const QString& poolName);
     void reloadConnContentPool(int connIdx, const QString& poolName);
     void reloadDatasetSide(const QString& side);
     void refreshPendingShellActionDraft(const PendingShellActionDraft& draft);
@@ -1171,4 +1174,7 @@ private:
     QMap<int, int> m_poolAutoSnapshotPendingLoadsByConn;
     QMap<int, QSet<QString>> m_poolAutoSnapshotDirtyPoolsByConn;
     QSet<int> m_poolAutoSnapshotUiDeferByConn;
+    QSet<QString> m_pendingConnContentPoolReloadKeys;
+    QSet<int> m_pendingConnectionRefreshIndices;
+    bool m_reloadFlushScheduled{false};
 };

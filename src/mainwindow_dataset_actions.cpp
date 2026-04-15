@@ -14,6 +14,7 @@
 #include <QProcessEnvironment>
 #include <QSet>
 #include <QSysInfo>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 
@@ -1021,7 +1022,50 @@ void MainWindow::invalidateDatasetCacheForPool(int connIdx, const QString& poolN
     rebuildConnInfoFor(connIdx);
 }
 
-void MainWindow::reloadConnContentPool(int connIdx, const QString& poolName) {
+void MainWindow::scheduleReloadFlush() {
+    if (m_reloadFlushScheduled) {
+        return;
+    }
+    m_reloadFlushScheduled = true;
+    QTimer::singleShot(40, this, [this]() {
+        flushPendingReloads();
+    });
+}
+
+void MainWindow::flushPendingReloads() {
+    m_reloadFlushScheduled = false;
+    if (m_pendingConnContentPoolReloadKeys.isEmpty() && m_pendingConnectionRefreshIndices.isEmpty()) {
+        return;
+    }
+
+    const QSet<QString> poolKeys = m_pendingConnContentPoolReloadKeys;
+    const QSet<int> refreshIdxs = m_pendingConnectionRefreshIndices;
+    m_pendingConnContentPoolReloadKeys.clear();
+    m_pendingConnectionRefreshIndices.clear();
+
+    for (const QString& key : poolKeys) {
+        const int sep = key.indexOf(QStringLiteral("::"));
+        if (sep <= 0) {
+            continue;
+        }
+        bool ok = false;
+        const int connIdx = key.left(sep).toInt(&ok);
+        const QString poolName = key.mid(sep + 2).trimmed();
+        if (!ok || poolName.isEmpty()) {
+            continue;
+        }
+        reloadConnContentPoolNow(connIdx, poolName);
+    }
+
+    for (int connIdx : refreshIdxs) {
+        if (connIdx < 0 || connIdx >= m_profiles.size()) {
+            continue;
+        }
+        refreshConnectionByIndex(connIdx);
+    }
+}
+
+void MainWindow::reloadConnContentPoolNow(int connIdx, const QString& poolName) {
     const QString trimmedPool = poolName.trimmed();
     if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty()) {
         return;
@@ -1164,11 +1208,21 @@ void MainWindow::reloadConnContentPool(int connIdx, const QString& poolName) {
     endUiBusy();
 }
 
+void MainWindow::reloadConnContentPool(int connIdx, const QString& poolName) {
+    const QString trimmedPool = poolName.trimmed();
+    if (connIdx < 0 || connIdx >= m_profiles.size() || trimmedPool.isEmpty()) {
+        return;
+    }
+    m_pendingConnContentPoolReloadKeys.insert(QStringLiteral("%1::%2").arg(connIdx).arg(trimmedPool));
+    scheduleReloadFlush();
+}
+
 void MainWindow::reloadDatasetSide(const QString& side) {
     if (side == QStringLiteral("origin") || side == QStringLiteral("dest")) {
         const DatasetSelectionContext ctx = currentDatasetSelection(side);
         if (ctx.valid && ctx.connIdx >= 0 && ctx.connIdx < m_profiles.size()) {
-            refreshConnectionByIndex(ctx.connIdx);
+            m_pendingConnectionRefreshIndices.insert(ctx.connIdx);
+            scheduleReloadFlush();
         }
         return;
     } else if (side == QStringLiteral("conncontent")) {
@@ -1187,7 +1241,8 @@ void MainWindow::reloadDatasetSide(const QString& side) {
             if (!ok || connIdx < 0 || connIdx >= m_profiles.size() || poolName.isEmpty()) {
                 return false;
             }
-            reloadConnContentPool(connIdx, poolName);
+            m_pendingConnContentPoolReloadKeys.insert(QStringLiteral("%1::%2").arg(connIdx).arg(poolName));
+            scheduleReloadFlush();
             return true;
         };
         const bool reloadedTop = reloadTree(m_connContentTree);
