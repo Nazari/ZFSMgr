@@ -298,6 +298,12 @@ private:
         QMap<QString, QString> poolStatusByName;
         QMap<QString, QString> poolGuidByName;
         QMap<QString, QMap<QString, QString>> gsaPropsByDataset;
+        bool commandsProbeLoaded{false};
+        QStringList detectedUnixCommands;
+        QStringList missingUnixCommands;
+        bool unixFromMsysOrMingw{false};
+        QString commandsLayer;
+        QMap<QString, bool> packageManagerAvailabilityById;
     };
     struct PendingChange {
         enum class Kind {

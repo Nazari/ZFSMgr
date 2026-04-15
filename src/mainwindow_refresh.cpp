@@ -419,19 +419,31 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                                         : p.id.trimmed();
     const QDateTime nowUtc = QDateTime::currentDateTimeUtc();
     constexpr qint64 kRefreshCacheTtlMs = 8000;
+    constexpr qint64 kCommandProbeCacheTtlMs = 30000;
     RefreshRuntimeCacheEntry cachedRuntime;
+    bool hasCachedRuntime = false;
     bool hasFreshRuntimeCache = false;
+    bool hasFreshCommandProbeCache = false;
     if (!refreshCacheKey.isEmpty()) {
         const auto it = m_refreshRuntimeCacheByConnId.constFind(refreshCacheKey);
-        if (it != m_refreshRuntimeCacheByConnId.cend()
-            && it->loadedAt.isValid()
-            && it->loadedAt.msecsTo(nowUtc) <= kRefreshCacheTtlMs) {
+        if (it != m_refreshRuntimeCacheByConnId.cend() && it->loadedAt.isValid()) {
             cachedRuntime = it.value();
-            hasFreshRuntimeCache = true;
+            hasCachedRuntime = true;
+            const qint64 ageMs = it->loadedAt.msecsTo(nowUtc);
+            hasFreshRuntimeCache = ageMs <= kRefreshCacheTtlMs;
+            hasFreshCommandProbeCache =
+                cachedRuntime.commandsProbeLoaded && ageMs <= kCommandProbeCacheTtlMs;
         }
     }
     QMap<QString, QMap<QString, QString>> gsaPropsForCache =
         hasFreshRuntimeCache ? cachedRuntime.gsaPropsByDataset : QMap<QString, QMap<QString, QString>>{};
+    if (hasCachedRuntime && !cachedRuntime.packageManagerAvailabilityById.isEmpty()) {
+        for (auto it = cachedRuntime.packageManagerAvailabilityById.cbegin();
+             it != cachedRuntime.packageManagerAvailabilityById.cend();
+             ++it) {
+            packageManagerAvailabilityCache.insert(it.key(), it.value());
+        }
+    }
     if (!isWindowsConnection(profile)) {
         (void)ensureRemoteScriptsUpToDate(profile);
     }
@@ -664,9 +676,17 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     // Detección de comandos disponibles para mostrar en detalle de conexión.
     {
         const QStringList wanted = zfsmgrUnixCommandSet();
-        QStringList detected;
-        QStringList missing;
-        if (isWindowsConnection(p)) {
+        if (hasFreshCommandProbeCache) {
+            state.detectedUnixCommands = cachedRuntime.detectedUnixCommands;
+            state.missingUnixCommands = cachedRuntime.missingUnixCommands;
+            state.unixFromMsysOrMingw = cachedRuntime.unixFromMsysOrMingw;
+            if (!cachedRuntime.commandsLayer.trimmed().isEmpty()) {
+                state.commandsLayer = cachedRuntime.commandsLayer.trimmed();
+            }
+        } else {
+            QStringList detected;
+            QStringList missing;
+            if (isWindowsConnection(p)) {
             QString dout, derr;
             int drc = -1;
             const QString roots = QStringLiteral(
@@ -724,7 +744,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     state.commandsLayer = QStringLiteral("Powershell");
                 }
             }
-        } else {
+            } else {
             QString dout, derr;
             int drc = -1;
             const QString checkCmd = QStringLiteral(
@@ -779,6 +799,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             state.missingUnixCommands = missing;
             state.unixFromMsysOrMingw = false;
             state.commandsLayer.clear();
+            }
         }
     }
     cutPhase(QStringLiteral("commands"));
@@ -1238,6 +1259,12 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         fresh.poolStatusByName = state.poolStatusByName;
         fresh.poolGuidByName = state.poolGuidByName;
         fresh.gsaPropsByDataset = gsaPropsForCache;
+        fresh.commandsProbeLoaded = true;
+        fresh.detectedUnixCommands = state.detectedUnixCommands;
+        fresh.missingUnixCommands = state.missingUnixCommands;
+        fresh.unixFromMsysOrMingw = state.unixFromMsysOrMingw;
+        fresh.commandsLayer = state.commandsLayer;
+        fresh.packageManagerAvailabilityById = packageManagerAvailabilityCache;
         m_refreshRuntimeCacheByConnId.insert(refreshCacheKey, fresh);
         constexpr qint64 kRefreshCacheMaxAgeMs = 60000;
         auto it = m_refreshRuntimeCacheByConnId.begin();
