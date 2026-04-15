@@ -57,6 +57,20 @@ QString normalizeHostTokenForLogs(QString host) {
     return host;
 }
 
+QString localizeLegacyAppLogMessage(const QString& language, QString msg) {
+    if (language.trimmed().toLower() != QStringLiteral("en")) {
+        return msg;
+    }
+    msg.replace(QStringLiteral("cancelada: faltan credenciales sudo locales"),
+                QStringLiteral("cancelled: missing local sudo credentials"));
+    msg.replace(QStringLiteral("cancelado: faltan credenciales sudo locales"),
+                QStringLiteral("cancelled: missing local sudo credentials"));
+    msg.replace(QStringLiteral("Cambio pendiente añadido:"), QStringLiteral("Pending change added:"));
+    msg.replace(QStringLiteral("Idioma cambiado a"), QStringLiteral("Language changed to"));
+    msg.replace(QStringLiteral("Motivo:"), QStringLiteral("Reason:"));
+    return msg;
+}
+
 bool isLocalHostForLogs(const QString& host) {
     const QString h = normalizeHostTokenForLogs(host);
     if (h.isEmpty()) {
@@ -439,7 +453,8 @@ void MainWindow::appLog(const QString& level, const QString& msg) {
         }, Qt::QueuedConnection);
         return;
     }
-    const QString line = QStringLiteral("[%1] [%2] %3").arg(tsNowForLog(), level, maskSecrets(msg));
+    const QString normalizedMsg = localizeLegacyAppLogMessage(m_language, msg);
+    const QString line = QStringLiteral("[%1] [%2] %3").arg(tsNowForLog(), level, maskSecrets(normalizedMsg));
     const QString current = m_logLevelSetting.isEmpty() ? QStringLiteral("normal")
                                                          : m_logLevelSetting.toLower();
     auto rank = [](const QString& l) -> int {
