@@ -61,6 +61,7 @@ struct AgentRuntimeConfig {
     std::string tlsKey{kDefaultTlsKeyPath};
     std::string tlsClientCert{kDefaultTlsClientCertPath};
     int cacheTtlFastMs{2000};
+    int cacheMaxEntries{512};
 };
 
 std::string trim(const std::string& s) {
@@ -149,6 +150,14 @@ AgentRuntimeConfig loadRuntimeConfig() {
                 const int parsed = std::stoi(value);
                 if (parsed >= 0 && parsed <= 600000) {
                     cfg.cacheTtlFastMs = parsed;
+                }
+            } catch (...) {
+            }
+        } else if (key == "CACHE_MAX_ENTRIES" && !value.empty()) {
+            try {
+                const int parsed = std::stoi(value);
+                if (parsed >= 0 && parsed <= 100000) {
+                    cfg.cacheMaxEntries = parsed;
                 }
             } catch (...) {
             }
@@ -1357,7 +1366,7 @@ int runServeLoop() {
                 hs << "API=" << kApiVersion << "\n";
                 hs << "SERVER=1\n";
                 hs << "CACHE_ENTRIES=" << cacheEntries << "\n";
-                hs << "CACHE_MAX_ENTRIES=-\n";
+                hs << "CACHE_MAX_ENTRIES=" << cfg.cacheMaxEntries << "\n";
                 hs << "CACHE_INVALIDATIONS=" << cacheInvalidations.load() << "\n";
                 hs << "POOL_INVALIDATIONS=" << poolInvalidations.load() << "\n";
                 hs << "RPC_FAILURES=" << rpcFailures.load() << "\n";
@@ -1497,6 +1506,18 @@ int runServeLoop() {
                     exec = executeAgentCommandCapture(cmd, rpcArgs, "zfsmgr-agent");
                     if (exec.rc == 0) {
                         std::lock_guard<std::mutex> lock(runtimeMutex);
+                        if (cfg.cacheMaxEntries > 0
+                            && static_cast<int>(rpcCache.size()) >= cfg.cacheMaxEntries) {
+                            auto victim = rpcCache.begin();
+                            for (auto it = rpcCache.begin(); it != rpcCache.end(); ++it) {
+                                if (it->second.ts < victim->second.ts) {
+                                    victim = it;
+                                }
+                            }
+                            if (victim != rpcCache.end()) {
+                                rpcCache.erase(victim);
+                            }
+                        }
                         rpcCache[cacheKey] = CacheEntry{exec, now, cmd, rpcArgs, dumpClassForCommand(cmd)};
                     }
                 }
