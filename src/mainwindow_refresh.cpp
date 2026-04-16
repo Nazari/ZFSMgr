@@ -462,7 +462,11 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         const QString basicsCmd = withSudo(
             p,
             useRemoteScripts
-                ? remoteScriptCommand(p, QStringLiteral("zfsmgr-refresh-basics"))
+                ? mwhelpers::withUnixSearchPathCommand(
+                      QStringLiteral("if [ -x /usr/local/libexec/zfsmgr-agent ]; then "
+                                     "/usr/local/libexec/zfsmgr-agent --dump-refresh-basics; "
+                                     "else %1; fi")
+                          .arg(remoteScriptCommand(p, QStringLiteral("zfsmgr-refresh-basics"))))
                 : mwhelpers::withUnixSearchPathCommand(QStringLiteral("uname -a")));
         if (runSsh(p, basicsCmd, 15000, bOut, bErr, bRc, {}, {}, {}, MainWindow::WindowsCommandMode::Auto)
             && bRc == 0) {
@@ -629,7 +633,12 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     } else if (!unixBasicsLoaded || state.zfsVersion.trimmed().isEmpty()) {
         const bool useRemoteScriptsConn = !isWindowsConnection(p);
         const QStringList zfsVersionCandidates = useRemoteScriptsConn
-            ? QStringList{remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-version"))}
+            ? QStringList{
+                  mwhelpers::withUnixSearchPathCommand(
+                      QStringLiteral("if [ -x /usr/local/libexec/zfsmgr-agent ]; then "
+                                     "/usr/local/libexec/zfsmgr-agent --dump-zfs-version; "
+                                     "else false; fi")),
+                  remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-version"))}
             : QStringList{
                   QStringLiteral("zfs version"),
                   QStringLiteral("zfs --version"),

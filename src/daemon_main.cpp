@@ -57,6 +57,77 @@ int main(int argc, char* argv[]) {
         }
         return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
     }
+    if (args.contains(QStringLiteral("--dump-refresh-basics"))) {
+        QProcess p;
+        p.setProgram(QStringLiteral("sh"));
+        p.setArguments({QStringLiteral("-lc"),
+                        QStringLiteral(
+                            "set +e; "
+                            "PATH=\"$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin\"; "
+                            "one_line(){ printf '%s' \"$1\" | tr '\\r\\n' ' ' | sed 's/[[:space:]]\\+/ /g; s/^ //; s/ $//'; }; "
+                            "os_line=\"$(uname -a 2>/dev/null || true)\"; "
+                            "uname_s=\"$(uname -s 2>/dev/null || true)\"; "
+                            "if [ \"$uname_s\" = \"Linux\" ]; then "
+                            "  refined=\"$(sh -lc '. /etc/os-release 2>/dev/null; printf \\\"%s %s\\\" \\\"$NAME\\\" \\\"$VERSION_ID\\\"' 2>/dev/null)\"; "
+                            "  [ -n \"$refined\" ] && os_line=\"$refined\" || os_line='Linux'; "
+                            "elif [ \"$uname_s\" = \"Darwin\" ]; then "
+                            "  refined=\"$(sw_vers -productName 2>/dev/null) $(sw_vers -productVersion 2>/dev/null)\"; "
+                            "  refined=\"$(one_line \"$refined\")\"; [ -n \"$refined\" ] && os_line=\"$refined\" || os_line='macOS'; "
+                            "elif [ \"$uname_s\" = \"FreeBSD\" ]; then "
+                            "  refined=\"$(freebsd-version -k 2>/dev/null || freebsd-version 2>/dev/null || uname -r 2>/dev/null)\"; "
+                            "  refined=\"$(one_line \"$refined\")\"; [ -n \"$refined\" ] && os_line=\"FreeBSD $refined\" || os_line='FreeBSD'; "
+                            "fi; "
+                            "machine_uuid=''; "
+                            "for c in \"cat /etc/machine-id 2>/dev/null\" "
+                            "         \"cat /var/lib/dbus/machine-id 2>/dev/null\" "
+                            "         \"ioreg -rd1 -c IOPlatformExpertDevice 2>/dev/null | awk -F\\\\\\\" '/IOPlatformUUID/{print $(NF-1); exit}'\"; do "
+                            "  out=\"$(sh -lc \"$c\" 2>/dev/null | head -n1 | tr -d '\\r')\"; "
+                            "  if [ -n \"$out\" ]; then machine_uuid=\"$out\"; break; fi; "
+                            "done; "
+                            "zfs_raw=''; "
+                            "for c in \"zfs version\" \"zfs --version\" \"zpool --version\"; do "
+                            "  out=\"$(sh -lc \"$c\" 2>&1)\"; rc=$?; "
+                            "  if [ $rc -eq 0 ] && [ -n \"$out\" ]; then zfs_raw=\"$(one_line \"$out\")\"; break; fi; "
+                            "done; "
+                            "printf 'OS_LINE=%s\\n' \"$(one_line \"$os_line\")\"; "
+                            "printf 'MACHINE_UUID=%s\\n' \"$(one_line \"$machine_uuid\")\"; "
+                            "printf 'ZFS_VERSION_RAW=%s\\n' \"$(one_line \"$zfs_raw\")\"")});
+        p.start();
+        if (!p.waitForFinished(20000)) {
+            QTextStream(stderr) << "agent timeout running refresh basics\n";
+            return 124;
+        }
+        QTextStream(stdout) << QString::fromUtf8(p.readAllStandardOutput());
+        const QByteArray err = p.readAllStandardError();
+        if (!err.isEmpty()) {
+            QTextStream(stderr) << QString::fromUtf8(err);
+        }
+        return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
+    }
+    if (args.contains(QStringLiteral("--dump-zfs-version"))) {
+        QProcess p;
+        p.setProgram(QStringLiteral("sh"));
+        p.setArguments({QStringLiteral("-lc"),
+                        QStringLiteral(
+                            "set +e; "
+                            "PATH=\"$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin\"; "
+                            "for c in \"zfs version\" \"zfs --version\" \"zpool --version\"; do "
+                            "  out=\"$(sh -lc \"$c\" 2>&1)\"; rc=$?; "
+                            "  if [ $rc -eq 0 ] && [ -n \"$out\" ]; then printf '%s\\n' \"$out\"; exit 0; fi; "
+                            "done; "
+                            "exit 1")});
+        p.start();
+        if (!p.waitForFinished(15000)) {
+            QTextStream(stderr) << "agent timeout running zfs version\n";
+            return 124;
+        }
+        QTextStream(stdout) << QString::fromUtf8(p.readAllStandardOutput());
+        const QByteArray err = p.readAllStandardError();
+        if (!err.isEmpty()) {
+            QTextStream(stderr) << QString::fromUtf8(err);
+        }
+        return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
+    }
     if (args.contains(QStringLiteral("--dump-zfs-mount"))) {
         QProcess p;
         p.setProgram(QStringLiteral("zfs"));
