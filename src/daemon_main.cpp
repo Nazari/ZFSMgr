@@ -1142,6 +1142,24 @@ std::string makeRpcCacheKey(const std::string& cmd, const std::vector<std::strin
     return key;
 }
 
+std::string dumpClassForCommand(const std::string& cmd) {
+    if (cmd == "--dump-zfs-get-gsa-raw-all-pools"
+        || cmd == "--dump-zfs-get-gsa-raw-recursive"
+        || cmd == "--dump-gsa-connections-conf") {
+        return "gsa";
+    }
+    if (startsWith(cmd, "--dump-zfs-")) {
+        return "zfs";
+    }
+    if (startsWith(cmd, "--dump-zpool-")) {
+        return "zpool";
+    }
+    if (cmd == "--dump-refresh-basics") {
+        return "system";
+    }
+    return "other";
+}
+
 int runServeLoop() {
 #ifndef _WIN32
     const AgentRuntimeConfig cfg = loadRuntimeConfig();
@@ -1201,6 +1219,7 @@ int runServeLoop() {
         std::chrono::steady_clock::time_point ts;
         std::string cmd;
         std::vector<std::string> args;
+        std::string dumpClass;
     };
     std::unordered_map<std::string, CacheEntry> rpcCache;
     std::mutex runtimeMutex;
@@ -1353,13 +1372,19 @@ int runServeLoop() {
             } else {
             const bool dumpCmd = isDumpCommand(cmd);
             const bool mutateCmd = isMutateCommand(cmd);
-            const auto collectMutationHints = [&](const std::string& mutateCmdName,
-                                                  const std::vector<std::string>& mutateArgs) {
+            struct InvalidationProfile {
                 std::vector<std::string> hints;
+                std::set<std::string> dumpClasses;
+            };
+            const auto collectInvalidationProfile = [&](const std::string& mutateCmdName,
+                                                        const std::vector<std::string>& mutateArgs) {
+                InvalidationProfile p;
                 if ((mutateCmdName == "--mutate-zfs-snapshot"
                      || mutateCmdName == "--mutate-zfs-destroy"
                      || mutateCmdName == "--mutate-zfs-rollback")
                     && !mutateArgs.empty()) {
+                    p.dumpClasses.insert("zfs");
+                    p.dumpClasses.insert("zpool");
                     std::string target = mutateArgs[0];
                     const std::size_t atPos = target.find('@');
                     if (atPos != std::string::npos) {
@@ -1367,22 +1392,24 @@ int runServeLoop() {
                     }
                     target = trim(target);
                     if (!target.empty()) {
-                        hints.push_back(target);
+                        p.hints.push_back(target);
                         const std::size_t slashPos = target.find('/');
                         if (slashPos != std::string::npos) {
                             const std::string pool = trim(target.substr(0, slashPos));
                             if (!pool.empty()) {
-                                hints.push_back(pool);
+                                p.hints.push_back(pool);
                             }
                         } else {
-                            hints.push_back(target);
+                            p.hints.push_back(target);
                         }
+                    } else {
+                        p.hints.push_back("*");
                     }
-                } else {
-                    // Para mutaciones genéricas preferimos limpieza global segura.
-                    hints.push_back("*");
+                    return p;
                 }
-                return hints;
+                // Para mutaciones genéricas preferimos limpieza global segura.
+                p.hints.push_back("*");
+                return p;
             };
             const auto cacheEntryMatchesHint = [&](const CacheEntry& entry,
                                                    const std::string& hintRaw) {
@@ -1408,11 +1435,11 @@ int runServeLoop() {
                 }
                 return false;
             };
-            const auto invalidateCacheByHints = [&](const std::vector<std::string>& hints) {
-                if (hints.empty()) {
+            const auto invalidateCacheByProfile = [&](const InvalidationProfile& profile) {
+                if (profile.hints.empty()) {
                     return;
                 }
-                const bool wipeAll = std::find(hints.begin(), hints.end(), std::string("*")) != hints.end();
+                const bool wipeAll = std::find(profile.hints.begin(), profile.hints.end(), std::string("*")) != profile.hints.end();
                 std::lock_guard<std::mutex> lock(runtimeMutex);
                 if (wipeAll) {
                     if (!rpcCache.empty()) {
@@ -1424,8 +1451,12 @@ int runServeLoop() {
                 bool anyDropped = false;
                 bool anyPoolHint = false;
                 for (auto it = rpcCache.begin(); it != rpcCache.end();) {
+                    if (!profile.dumpClasses.empty() && profile.dumpClasses.count(it->second.dumpClass) == 0) {
+                        ++it;
+                        continue;
+                    }
                     bool drop = false;
-                    for (const std::string& h : hints) {
+                    for (const std::string& h : profile.hints) {
                         if (h.find('/') == std::string::npos && h != "*") {
                             anyPoolHint = true;
                         }
@@ -1466,14 +1497,14 @@ int runServeLoop() {
                     exec = executeAgentCommandCapture(cmd, rpcArgs, "zfsmgr-agent");
                     if (exec.rc == 0) {
                         std::lock_guard<std::mutex> lock(runtimeMutex);
-                        rpcCache[cacheKey] = CacheEntry{exec, now, cmd, rpcArgs};
+                        rpcCache[cacheKey] = CacheEntry{exec, now, cmd, rpcArgs, dumpClassForCommand(cmd)};
                     }
                 }
             } else {
                 exec = executeAgentCommandCapture(cmd, rpcArgs, "zfsmgr-agent");
             }
             if (mutateCmd && exec.rc == 0) {
-                invalidateCacheByHints(collectMutationHints(cmd, rpcArgs));
+                invalidateCacheByProfile(collectInvalidationProfile(cmd, rpcArgs));
             }
             if (exec.rc != 0) {
                 rpcFailures.fetch_add(1);
