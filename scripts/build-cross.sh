@@ -174,6 +174,112 @@ autodetect_osxcross_target() {
   echo "${found}"
 }
 
+find_cross_tool() {
+  local suffix="$1"
+  if [[ -n "${OSXCROSS_TARGET:-}" ]]; then
+    if command -v "${OSXCROSS_TARGET}-${suffix}" >/dev/null 2>&1; then
+      command -v "${OSXCROSS_TARGET}-${suffix}"
+      return 0
+    fi
+    if [[ -x "/opt/osxcross/target/bin/${OSXCROSS_TARGET}-${suffix}" ]]; then
+      echo "/opt/osxcross/target/bin/${OSXCROSS_TARGET}-${suffix}"
+      return 0
+    fi
+  fi
+  local guess
+  guess="$(ls /opt/osxcross/target/bin/*-"${suffix}" 2>/dev/null | sort -V | tail -n1 || true)"
+  if [[ -n "${guess}" ]]; then
+    echo "${guess}"
+    return 0
+  fi
+  return 1
+}
+
+ensure_macos_bundle_runtime_cross() {
+  local app_bundle="$1"
+  local qt_prefix="$2"
+  [[ -d "${app_bundle}" ]] || return 0
+  [[ -d "${qt_prefix}" ]] || { echo "Falta QT6_MACOS_PREFIX para deploy runtime: ${qt_prefix}" >&2; return 1; }
+  local otool_bin install_name_tool_bin
+  otool_bin="$(find_cross_tool otool)" || { echo "No se encontró otool de osxcross" >&2; return 1; }
+  install_name_tool_bin="$(find_cross_tool install_name_tool)" || { echo "No se encontró install_name_tool de osxcross" >&2; return 1; }
+
+  local frameworks_dst="${app_bundle}/Contents/Frameworks"
+  local plugins_dst="${app_bundle}/Contents/PlugIns"
+  local resources_dst="${app_bundle}/Contents/Resources"
+  mkdir -p "${frameworks_dst}" "${plugins_dst}" "${resources_dst}"
+
+  local main_bin
+  main_bin="$(find "${app_bundle}/Contents/MacOS" -maxdepth 1 -type f -perm -111 | head -n1 || true)"
+  [[ -n "${main_bin}" ]] || { echo "No se encontró binario principal en ${app_bundle}/Contents/MacOS" >&2; return 1; }
+
+  copy_framework_by_name() {
+    local framework_name="$1"
+    local src="${qt_prefix}/lib/${framework_name}.framework"
+    local dst="${frameworks_dst}/${framework_name}.framework"
+    [[ -d "${src}" ]] || return 1
+    [[ -d "${dst}" ]] || cp -R "${src}" "${dst}"
+    return 0
+  }
+
+  add_rpath_if_missing() {
+    local bin="$1"
+    local rpath="$2"
+    "${install_name_tool_bin}" -add_rpath "${rpath}" "${bin}" >/dev/null 2>&1 || true
+  }
+
+  # Copiar plugins Qt básicos necesarios para arranque GUI.
+  local plugin_roots=("${qt_prefix}/plugins" "${qt_prefix}/share/qt/plugins")
+  local plugin_dirs=(platforms styles imageformats iconengines networkinformation tls)
+  local plugin_root plugin_dir src_dir
+  for plugin_dir in "${plugin_dirs[@]}"; do
+    src_dir=""
+    for plugin_root in "${plugin_roots[@]}"; do
+      if [[ -d "${plugin_root}/${plugin_dir}" ]]; then
+        src_dir="${plugin_root}/${plugin_dir}"
+        break
+      fi
+    done
+    [[ -n "${src_dir}" ]] || continue
+    mkdir -p "${plugins_dst}/${plugin_dir}"
+    cp -R "${src_dir}/." "${plugins_dst}/${plugin_dir}/"
+  done
+
+  # Resolver dependencias de frameworks Qt via @rpath y copiarlas al bundle.
+  local -a queue=("${main_bin}")
+  local -A seen=()
+  local current line dep framework_name framework_bin framework_bin_path
+  while [[ ${#queue[@]} -gt 0 ]]; do
+    current="${queue[0]}"
+    queue=("${queue[@]:1}")
+    [[ -n "${seen["${current}"]+x}" ]] && continue
+    seen["${current}"]=1
+    while IFS= read -r line; do
+      dep="$(echo "${line}" | sed 's/^[[:space:]]*//; s/ (.*$//')"
+      [[ -n "${dep}" ]] || continue
+      if [[ "${dep}" =~ (^@rpath/|${qt_prefix//\//\\/}/lib/)(Qt[^/]+)\.framework/Versions/[^/]+/(Qt[^/]+)$ ]]; then
+        framework_name="${BASH_REMATCH[2]}"
+        framework_bin="${BASH_REMATCH[3]}"
+        if copy_framework_by_name "${framework_name}"; then
+          framework_bin_path="${frameworks_dst}/${framework_name}.framework/Versions/A/${framework_bin}"
+          [[ -f "${framework_bin_path}" ]] && queue+=("${framework_bin_path}")
+        fi
+      fi
+    done < <("${otool_bin}" -L "${current}" | tail -n +2)
+  done
+
+  # Ajustar rpath del binario principal, frameworks y plugins al bundle local.
+  add_rpath_if_missing "${main_bin}" "@executable_path/../Frameworks"
+  while IFS= read -r current; do
+    add_rpath_if_missing "${current}" "@executable_path/../Frameworks"
+  done < <(find "${frameworks_dst}" "${plugins_dst}" -type f \( -name "*.dylib" -o -perm -111 \) 2>/dev/null)
+
+  cat > "${resources_dst}/qt.conf" <<'EOF'
+[Paths]
+Plugins = PlugIns
+EOF
+}
+
 autodetect_matching_qt_host_prefix() {
   local qt_target_prefix="$1"
   local target_parent=""
@@ -455,6 +561,14 @@ fi
 
 if [[ "${DO_BUILD}" -eq 1 ]]; then
   cmake --build "${BUILD_DIR}" -j"${JOBS}"
+  if [[ "${TARGET}" == "macos" ]]; then
+    app_bundle="$(find "${BUILD_DIR}" -maxdepth 1 -type d -name "ZFSMgr-*.app" | sort -V | tail -n1 || true)"
+    if [[ -n "${app_bundle}" ]]; then
+      ensure_macos_bundle_runtime_cross "${app_bundle}" "${QT6_MACOS_PREFIX:-}"
+    else
+      echo "Aviso: no se encontró bundle .app para deploy runtime macOS en ${BUILD_DIR}" >&2
+    fi
+  fi
 fi
 
 echo "Cross build finalizado: ${TARGET} -> ${BUILD_DIR}"
