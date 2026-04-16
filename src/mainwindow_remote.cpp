@@ -1158,7 +1158,20 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                     allowRpcAttempt = false;
                 }
             }
-            if (allowRpcAttempt && tryRunRemoteAgentRpcViaTunnel(p, agentArgs, timeoutMs, out, err, rc)) {
+            bool rpcAttemptOk = false;
+            if (allowRpcAttempt) {
+                if (QThread::currentThread() == thread()) {
+                    rpcAttemptOk = tryRunRemoteAgentRpcViaTunnel(p, agentArgs, timeoutMs, out, err, rc);
+                } else {
+                    QMetaObject::invokeMethod(
+                        this,
+                        [this, &p, &agentArgs, timeoutMs, &out, &err, &rc, &rpcAttemptOk]() {
+                            rpcAttemptOk = tryRunRemoteAgentRpcViaTunnel(p, agentArgs, timeoutMs, out, err, rc);
+                        },
+                        Qt::BlockingQueuedConnection);
+                }
+            }
+            if (rpcAttemptOk) {
                 {
                     QMutexLocker lock(&m_sshRuntimeSetsMutex);
                     m_daemonRpcRetryAfterByConnKey.remove(rpcConnKey);
@@ -1191,8 +1204,9 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 return true;
             } else if (allowRpcAttempt) {
                 QMutexLocker lock(&m_sshRuntimeSetsMutex);
+                constexpr int kDaemonRpcRetryBackoffSec = 180;
                 m_daemonRpcRetryAfterByConnKey.insert(
-                    rpcConnKey, QDateTime::currentDateTimeUtc().addSecs(20));
+                    rpcConnKey, QDateTime::currentDateTimeUtc().addSecs(kDaemonRpcRetryBackoffSec));
             }
         }
     }

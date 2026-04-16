@@ -125,6 +125,9 @@ target_compile_definitions(zfsmgr_agent PRIVATE
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
     ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
 )
+if(NOT WIN32)
+    target_link_libraries(zfsmgr_agent PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+endif()
 
 if(WIN32)
     target_sources(zfsmgr_qt PRIVATE appicon.rc)
