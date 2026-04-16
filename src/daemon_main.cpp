@@ -876,14 +876,16 @@ private:
                         result.rc = 2;
                         result.err = QStringLiteral("unsupported command: %1").arg(cmd);
                     }
-                    if (m_cache.size() >= m_cfg.cacheMaxEntries) {
-                        invalidateCache(QStringLiteral("cache_max_entries"));
+                    if (result.rc == 0) {
+                        if (m_cache.size() >= m_cfg.cacheMaxEntries) {
+                            invalidateCache(QStringLiteral("cache_max_entries"));
+                        }
+                        CacheEntry entry;
+                        entry.result = result;
+                        const int ttl = isSlowCommand(cmd) ? m_cfg.cacheTtlSlowMs : m_cfg.cacheTtlFastMs;
+                        entry.expiresAtUtc = now.addMSecs(ttl);
+                        m_cache.insert(key, entry);
                     }
-                    CacheEntry entry;
-                    entry.result = result;
-                    const int ttl = isSlowCommand(cmd) ? m_cfg.cacheTtlSlowMs : m_cfg.cacheTtlFastMs;
-                    entry.expiresAtUtc = now.addMSecs(ttl);
-                    m_cache.insert(key, entry);
                 }
             }
 
