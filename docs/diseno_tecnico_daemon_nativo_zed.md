@@ -215,14 +215,20 @@ Implementado actualmente:
   - API JSON line-based interna
 - `health` endurecido:
   - `--health` falla si no hay daemon residente alcanzable (`STATUS=DOWN`, `rc!=0`)
-  - con daemon activo devuelve métricas de runtime (`SERVER=1`, `RPC_COMMANDS`, `CACHE_ENTRIES`, `CACHE_MAX_ENTRIES`, `CACHE_INVALIDATIONS`, `RPC_FAILURES`, `ZED_ACTIVE`, `ZED_RESTARTS`, `ZED_LAST_EVENT_UTC`)
+  - con daemon activo devuelve métricas de runtime (`SERVER=1`, `RPC_COMMANDS`, `CACHE_ENTRIES`, `CACHE_MAX_ENTRIES`, `CACHE_INVALIDATIONS`, `RECONCILE_PRUNED`, `RPC_FAILURES`, `ZED_ACTIVE`, `ZED_RESTARTS`, `ZED_LAST_EVENT_UTC`)
 - modo cliente transparente:
   - las invocaciones `--dump-*` intentan primero hablar con el daemon residente
   - si falla TLS/socket, hacen fallback automático a ejecución directa local
+- fast-path en GUI para conexión local:
+  - `runSsh` intercepta llamadas a `/usr/local/libexec/zfsmgr-agent --dump-*|--health`
+  - se conecta por mTLS al daemon residente sin lanzar proceso shell cuando está disponible
+  - mantiene fallback automático al camino clásico si el daemon local no responde
 - caché en memoria en daemon residente (TTL rápido/lento configurable)
 - tamaño de caché acotado (`CACHE_MAX_ENTRIES`) con purga controlada al superar el límite
 - invalidación reactiva de caché por eventos (`zpool events -f`)
-- reconciliación periódica de seguridad (timer) que invalida caché aunque no lleguen eventos
+- reconciliación periódica selectiva:
+  - el timer poda solo entradas expiradas de caché (sin vaciado global)
+  - reduce churn y evita invalidaciones completas innecesarias
 - optimización del servidor residente:
   - la mayoría de lecturas `--dump-*` se ejecutan in-process en el daemon sin auto-spawn del binario
   - reducción de dependencia de `sh -lc` en lecturas clave (import probe, GSA scan, refresh basics, version, get/list JSON, batch guid/status)
@@ -234,7 +240,7 @@ Implementado actualmente:
 
 Pendiente de esta fase:
 
-- reemplazar fallback por RPC tipado completo (sin spawn interno por petición)
+- extender el cliente RPC directo en GUI para conexiones remotas (sin invocar binario remoto por SSH en lecturas)
 
 ## Riesgos clave
 

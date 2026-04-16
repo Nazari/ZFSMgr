@@ -866,6 +866,7 @@ private:
                       << QStringLiteral("CACHE_ENTRIES=%1").arg(m_cache.size())
                       << QStringLiteral("CACHE_MAX_ENTRIES=%1").arg(m_cfg.cacheMaxEntries)
                       << QStringLiteral("CACHE_INVALIDATIONS=%1").arg(m_cacheInvalidations)
+                      << QStringLiteral("RECONCILE_PRUNED=%1").arg(m_reconcilePruned)
                       << QStringLiteral("RPC_FAILURES=%1").arg(m_rpcFailures)
                       << QStringLiteral("ZED_ACTIVE=%1").arg((m_zedProc && m_zedProc->state() != QProcess::NotRunning) ? 1 : 0)
                       << QStringLiteral("ZED_RESTARTS=%1").arg(m_zedRestartCount)
@@ -929,6 +930,7 @@ private:
     QDateTime m_lastZedEventUtc;
     QDateTime m_lastReconcileUtc;
     quint64 m_cacheInvalidations{0};
+    quint64 m_reconcilePruned{0};
     quint64 m_zedRestartCount{0};
     quint64 m_rpcFailures{0};
 
@@ -945,7 +947,19 @@ private:
         m_reconcileTimer->setInterval(m_cfg.reconcileIntervalMs);
         QObject::connect(m_reconcileTimer, &QTimer::timeout, this, [this]() {
             m_lastReconcileUtc = QDateTime::currentDateTimeUtc();
-            invalidateCache(QStringLiteral("reconcile"));
+            const QDateTime now = QDateTime::currentDateTimeUtc();
+            int removed = 0;
+            for (auto it = m_cache.begin(); it != m_cache.end();) {
+                if (it->expiresAtUtc <= now) {
+                    it = m_cache.erase(it);
+                    ++removed;
+                } else {
+                    ++it;
+                }
+            }
+            if (removed > 0) {
+                m_reconcilePruned += static_cast<quint64>(removed);
+            }
         });
         m_reconcileTimer->start();
     }

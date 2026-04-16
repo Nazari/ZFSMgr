@@ -7,9 +7,14 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QFile>
 #include <QHostAddress>
 #include <QHostInfo>
 #include <QProcess>
+#include <QSslCertificate>
+#include <QSslConfiguration>
+#include <QSslKey>
+#include <QSslSocket>
 #include <QRegularExpression>
 #include <QSet>
 #include <QStandardPaths>
@@ -23,6 +28,202 @@
 #include <cstring>
 
 namespace {
+constexpr const char* kDefaultAgentConfigPath = "/etc/zfsmgr/agent.conf";
+constexpr const char* kDefaultAgentTlsCertPath = "/etc/zfsmgr/tls/server.crt";
+constexpr const char* kDefaultAgentTlsClientCertPath = "/etc/zfsmgr/tls/client.crt";
+constexpr const char* kDefaultAgentTlsClientKeyPath = "/etc/zfsmgr/tls/client.key";
+
+struct LocalAgentConfig {
+    QString bindAddress{QStringLiteral("127.0.0.1")};
+    quint16 port{47653};
+    QString tlsCertPath{QString::fromLatin1(kDefaultAgentTlsCertPath)};
+    QString tlsClientCertPath{QString::fromLatin1(kDefaultAgentTlsClientCertPath)};
+    QString tlsClientKeyPath{QString::fromLatin1(kDefaultAgentTlsClientKeyPath)};
+};
+
+QString stripConfigQuotes(QString v) {
+    v = v.trimmed();
+    if (v.size() >= 2) {
+        const QChar first = v.front();
+        const QChar last = v.back();
+        if ((first == QLatin1Char('\'') && last == QLatin1Char('\''))
+            || (first == QLatin1Char('"') && last == QLatin1Char('"'))) {
+            return v.mid(1, v.size() - 2);
+        }
+    }
+    return v;
+}
+
+int parseConfigInt(QString v, int fallback) {
+    bool ok = false;
+    const int parsed = stripConfigQuotes(v).trimmed().toInt(&ok);
+    return ok ? parsed : fallback;
+}
+
+LocalAgentConfig loadLocalAgentConfig() {
+    LocalAgentConfig cfg;
+    QFile f(QString::fromLatin1(kDefaultAgentConfigPath));
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return cfg;
+    }
+    const QStringList lines = QString::fromUtf8(f.readAll()).split('\n');
+    for (const QString& raw : lines) {
+        const QString line = raw.trimmed();
+        if (line.isEmpty() || line.startsWith(QLatin1Char('#'))) {
+            continue;
+        }
+        const int eq = line.indexOf(QLatin1Char('='));
+        if (eq <= 0) {
+            continue;
+        }
+        const QString key = line.left(eq).trimmed().toUpper();
+        const QString value = line.mid(eq + 1).trimmed();
+        if (key == QStringLiteral("AGENT_BIND") || key == QStringLiteral("BIND")) {
+            cfg.bindAddress = stripConfigQuotes(value);
+        } else if (key == QStringLiteral("AGENT_PORT") || key == QStringLiteral("PORT")) {
+            const int parsedPort = parseConfigInt(value, cfg.port);
+            if (parsedPort > 0 && parsedPort <= 65535) {
+                cfg.port = static_cast<quint16>(parsedPort);
+            }
+        } else if (key == QStringLiteral("TLS_CERT")) {
+            cfg.tlsCertPath = stripConfigQuotes(value);
+        } else if (key == QStringLiteral("TLS_CLIENT_CERT")) {
+            cfg.tlsClientCertPath = stripConfigQuotes(value);
+        } else if (key == QStringLiteral("TLS_CLIENT_KEY")) {
+            cfg.tlsClientKeyPath = stripConfigQuotes(value);
+        }
+    }
+    return cfg;
+}
+
+bool extractLocalAgentArgs(const QString& remoteCmd, QStringList& argsOut) {
+    argsOut.clear();
+    const QString marker = QStringLiteral("/usr/local/libexec/zfsmgr-agent");
+    const int pos = remoteCmd.lastIndexOf(marker);
+    if (pos < 0) {
+        return false;
+    }
+    QString tail = remoteCmd.mid(pos + marker.size()).trimmed();
+    if (tail.isEmpty()) {
+        return false;
+    }
+    const int sep = tail.indexOf(QRegularExpression(QStringLiteral("[;&|]")));
+    if (sep >= 0) {
+        tail = tail.left(sep).trimmed();
+    }
+    if (tail.isEmpty()) {
+        return false;
+    }
+    const QStringList parsed = QProcess::splitCommand(tail);
+    if (parsed.isEmpty()) {
+        return false;
+    }
+    const QString cmd = parsed.first().trimmed();
+    if (!(cmd == QStringLiteral("--health") || cmd.startsWith(QStringLiteral("--dump-")))) {
+        return false;
+    }
+    argsOut = parsed;
+    return true;
+}
+
+bool tryRunLocalAgentRpc(const QStringList& agentArgs,
+                         int timeoutMs,
+                         QString& out,
+                         QString& err,
+                         int& rc) {
+    out.clear();
+    err.clear();
+    rc = -1;
+    if (agentArgs.isEmpty()) {
+        return false;
+    }
+    const QString cmd = agentArgs.first();
+    const QStringList params = agentArgs.mid(1);
+    const LocalAgentConfig cfg = loadLocalAgentConfig();
+
+    QFile caFile(cfg.tlsCertPath);
+    QFile clientCertFile(cfg.tlsClientCertPath);
+    QFile clientKeyFile(cfg.tlsClientKeyPath);
+    QList<QSslCertificate> caCerts;
+    QList<QSslCertificate> clientCerts;
+    QSslKey clientKey;
+    if (caFile.open(QIODevice::ReadOnly)) {
+        caCerts = QSslCertificate::fromData(caFile.readAll(), QSsl::Pem);
+    }
+    if (clientCertFile.open(QIODevice::ReadOnly)) {
+        clientCerts = QSslCertificate::fromData(clientCertFile.readAll(), QSsl::Pem);
+    }
+    if (clientKeyFile.open(QIODevice::ReadOnly)) {
+        const QByteArray keyPem = clientKeyFile.readAll();
+        clientKey = QSslKey(keyPem, QSsl::Rsa, QSsl::Pem);
+        if (clientKey.isNull()) {
+            clientKey = QSslKey(keyPem, QSsl::Ec, QSsl::Pem);
+        }
+    }
+    if (caCerts.isEmpty() || clientCerts.isEmpty() || clientKey.isNull()) {
+        return false;
+    }
+
+    const QHostAddress bindAddr(cfg.bindAddress);
+    const bool bindIsAny = (bindAddr == QHostAddress::Any
+                            || bindAddr == QHostAddress::AnyIPv6
+                            || bindAddr == QHostAddress::AnyIPv4);
+    const QString host = (bindAddr.isNull() || bindIsAny) ? QStringLiteral("127.0.0.1")
+                                                           : bindAddr.toString();
+    const QStringList peerNames = {QStringLiteral("zfsmgr-agent-server"), QStringLiteral("zfsmgr-agent")};
+    const int connectTimeout = qBound(400, timeoutMs > 0 ? timeoutMs / 5 : 1200, 2500);
+    const int ioTimeout = qBound(800, timeoutMs > 0 ? timeoutMs : 30000, 70000);
+    for (const QString& peerName : peerNames) {
+        QSslSocket sock;
+        sock.setProtocol(QSsl::TlsV1_2OrLater);
+        QSslConfiguration conf = sock.sslConfiguration();
+        conf.setCaCertificates(caCerts);
+        conf.setLocalCertificate(clientCerts.first());
+        conf.setPrivateKey(clientKey);
+        conf.setProtocol(QSsl::TlsV1_2OrLater);
+        conf.setPeerVerifyMode(QSslSocket::VerifyPeer);
+        sock.setSslConfiguration(conf);
+
+        sock.connectToHostEncrypted(host, cfg.port, peerName);
+        if (!sock.waitForEncrypted(connectTimeout)) {
+            continue;
+        }
+
+        QJsonObject req;
+        req.insert(QStringLiteral("cmd"), cmd);
+        QJsonArray args;
+        for (const QString& p : params) {
+            args.push_back(p);
+        }
+        req.insert(QStringLiteral("args"), args);
+        const QByteArray payload = QJsonDocument(req).toJson(QJsonDocument::Compact) + '\n';
+        if (sock.write(payload) < 0 || !sock.waitForBytesWritten(connectTimeout)) {
+            continue;
+        }
+
+        QByteArray line;
+        QElapsedTimer timer;
+        timer.start();
+        while (timer.elapsed() < ioTimeout) {
+            if (!sock.waitForReadyRead(300)) {
+                continue;
+            }
+            line.append(sock.readAll());
+            const int nl = line.indexOf('\n');
+            if (nl < 0) {
+                continue;
+            }
+            const QByteArray one = line.left(nl).trimmed();
+            const QJsonObject resp = QJsonDocument::fromJson(one).object();
+            rc = resp.value(QStringLiteral("rc")).toInt(1);
+            out = resp.value(QStringLiteral("stdout")).toString();
+            err = resp.value(QStringLiteral("stderr")).toString();
+            return true;
+        }
+    }
+    return false;
+}
+
 QString sanitizeWindowsCliXml(const QString& raw) {
     QString s = raw;
     if (s.isEmpty()) {
@@ -104,6 +305,34 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         const QString cmdLine = QStringLiteral("[local] $ %1").arg(localCmd);
         appLog(QStringLiteral("INFO"), cmdLine);
         appendConnectionLog(p.id, cmdLine);
+
+        QStringList localAgentArgs;
+        if (extractLocalAgentArgs(localCmd, localAgentArgs)) {
+            if (tryRunLocalAgentRpc(localAgentArgs, timeoutMs, out, err, rc)) {
+                const auto emitLines = [&](const QString& text, const std::function<void(const QString&)>& cb) {
+                    const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
+                    for (const QString& rawLine : lines) {
+                        const QString line = rawLine.trimmed();
+                        if (line.isEmpty()) {
+                            continue;
+                        }
+                        if (cb) {
+                            cb(line);
+                        }
+                        appendConnectionLog(p.id, line);
+                    }
+                };
+                emitLines(out, onStdoutLine);
+                emitLines(err, onStderrLine);
+                if (!out.trimmed().isEmpty()) {
+                    appendConnectionLog(p.id, oneLine(out));
+                }
+                if (!err.trimmed().isEmpty()) {
+                    appendConnectionLog(p.id, oneLine(err));
+                }
+                return true;
+            }
+        }
 
         QProcess proc;
         QString program;
