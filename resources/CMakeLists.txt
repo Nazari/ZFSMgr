@@ -74,6 +74,8 @@ set(ZFSMGR_CORE_SOURCES
     ../src/secretcipher.h
     ../src/agentversion.cpp
     ../src/agentversion.h
+    ../src/daemonpayload.cpp
+    ../src/daemonpayload.h
     resources.qrc
 )
 
@@ -100,6 +102,17 @@ qt_add_executable(zfsmgr_qt
 
 target_link_libraries(zfsmgr_qt PRIVATE zfsmgr_core)
 
+qt_add_executable(zfsmgr_agent
+    ../src/daemon_main.cpp
+    ../src/agentversion.cpp
+)
+target_link_libraries(zfsmgr_agent PRIVATE Qt6::Core)
+target_compile_definitions(zfsmgr_agent PRIVATE
+    QT_NO_KEYWORDS
+    ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
+    ZFSMGR_GSA_VERSION_SUFFIX="${ZFSMGR_GSA_VERSION_SUFFIX}"
+)
+
 if(WIN32)
     target_sources(zfsmgr_qt PRIVATE appicon.rc)
     set_target_properties(zfsmgr_qt PROPERTIES WIN32_EXECUTABLE TRUE)
@@ -125,6 +138,10 @@ endif()
 
 install(TARGETS zfsmgr_qt
     BUNDLE DESTINATION .
+    RUNTIME DESTINATION bin
+)
+
+install(TARGETS zfsmgr_agent
     RUNTIME DESTINATION bin
 )
 

@@ -1047,15 +1047,52 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     QFuture<AsyncSshResult> importFuture = runAsyncCommand(importProbeCmd, 18000, WindowsCommandMode::Auto);
     QFuture<AsyncSshResult> mountsFuture = runAsyncCommand(mountedCmd, 18000, WindowsCommandMode::Auto);
 
-    const QString zpoolListCmd = withSudo(
+    {
+        const AsyncSshResult agentRes = agentFuture.result();
+        if (agentRes.ran) {
+            const QMap<QString, QString> kv = parseKeyValueOutput(agentRes.out + QStringLiteral("\n") + agentRes.err);
+            state.daemonScheduler = kv.value(QStringLiteral("SCHEDULER")).trimmed();
+            state.daemonVersion = kv.value(QStringLiteral("VERSION")).trimmed();
+            state.daemonApiVersion = kv.value(QStringLiteral("API")).trimmed();
+            state.daemonDetail = kv.value(QStringLiteral("DETAIL")).trimmed();
+            state.daemonInstalled = (kv.value(QStringLiteral("INSTALLED")).trimmed() == QStringLiteral("1"));
+            state.daemonActive = (kv.value(QStringLiteral("ACTIVE")).trimmed() == QStringLiteral("1"));
+        }
+    }
+    cutPhase(QStringLiteral("agent_probe"));
+
+    const QString zpoolListCmdClassic = withSudo(
         p, useRemoteScripts
                ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-list-json"))
                : mwhelpers::withUnixSearchPathCommand(
                      isWinConn
                          ? QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio")
                          : QStringLiteral("zpool list -j")));
+    const bool daemonReadApiOk =
+        !isWinConn
+        && state.daemonInstalled
+        && state.daemonActive
+        && state.daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    const QString zpoolListCmdDaemon = withSudo(
+        p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-list")));
     out.clear(); err.clear(); rc = -1;
-    if (runSsh(p, zpoolListCmd, 18000, out, err, rc) && rc == 0) {
+    bool zpoolListOk = false;
+    bool zpoolListViaDaemon = false;
+    if (daemonReadApiOk) {
+        zpoolListOk = runSsh(p, zpoolListCmdDaemon, 18000, out, err, rc) && rc == 0;
+        zpoolListViaDaemon = zpoolListOk;
+        if (!zpoolListOk) {
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("%1: daemon zpool list fallback -> %2").arg(p.name, oneLine(err)));
+            out.clear();
+            err.clear();
+            rc = -1;
+        }
+    }
+    if (!zpoolListOk) {
+        zpoolListOk = runSsh(p, zpoolListCmdClassic, 18000, out, err, rc) && rc == 0;
+    }
+    if (zpoolListOk) {
         if (isWinConn) {
             const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
             for (const QString& line : lines) {
@@ -1202,19 +1239,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         }
     }
     cutPhase(QStringLiteral("gsa_probe"));
-    {
-        const AsyncSshResult agentRes = agentFuture.result();
-        if (agentRes.ran) {
-            const QMap<QString, QString> kv = parseKeyValueOutput(agentRes.out + QStringLiteral("\n") + agentRes.err);
-            state.daemonScheduler = kv.value(QStringLiteral("SCHEDULER")).trimmed();
-            state.daemonVersion = kv.value(QStringLiteral("VERSION")).trimmed();
-            state.daemonApiVersion = kv.value(QStringLiteral("API")).trimmed();
-            state.daemonDetail = kv.value(QStringLiteral("DETAIL")).trimmed();
-            state.daemonInstalled = (kv.value(QStringLiteral("INSTALLED")).trimmed() == QStringLiteral("1"));
-            state.daemonActive = (kv.value(QStringLiteral("ACTIVE")).trimmed() == QStringLiteral("1"));
-        }
-    }
-    cutPhase(QStringLiteral("agent_probe"));
     if (state.gsaInstalled && !isWinConn) {
         QString mapOut;
         QString mapErr;
@@ -1382,7 +1406,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     appLog(
         QStringLiteral("INFO"),
         QStringLiteral(
-            "%1: refresh timings ms total=%2 basics=%3 commands=%4 helper=%5 gsa_probe=%6 agent_probe=%7 gsa_conn=%8 zpool_list=%9 pool_details=%10 import=%11 mounts=%12 gsa_eval=%13")
+            "%1: refresh timings ms total=%2 basics=%3 commands=%4 helper=%5 gsa_probe=%6 agent_probe=%7 gsa_conn=%8 zpool_list=%9 pool_details=%10 import=%11 mounts=%12 gsa_eval=%13 zpool_via=%14")
             .arg(p.name)
             .arg(refreshTimer.elapsed())
             .arg(phaseDurMs.value(QStringLiteral("basics"), -1))
@@ -1395,7 +1419,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             .arg(phaseDurMs.value(QStringLiteral("pool_details"), -1))
             .arg(phaseDurMs.value(QStringLiteral("import_probe"), -1))
             .arg(phaseDurMs.value(QStringLiteral("mounts"), -1))
-            .arg(phaseDurMs.value(QStringLiteral("gsa_eval"), -1)));
+            .arg(phaseDurMs.value(QStringLiteral("gsa_eval"), -1))
+            .arg(zpoolListViaDaemon ? QStringLiteral("daemon") : QStringLiteral("ssh")));
 
     appLog(QStringLiteral("NORMAL"),
            trk(QStringLiteral("t_fin_refres_6eead9"),

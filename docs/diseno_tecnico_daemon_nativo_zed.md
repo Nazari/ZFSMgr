@@ -194,6 +194,27 @@ Fase 5
 Fase 6
 - Windows port (servicio + estrategia de eventos alternativa).
 
+## Estado de implementación (rama `daemonize`)
+
+Implementado actualmente:
+
+- detección de daemon por conexión en `refresh`:
+  - instalado/activo/version/api/scheduler/detail
+- señalización de atención en UI (`(*)`) cuando daemon requiere acción
+- nodo `Daemon` bajo `Info` con estado y razones de atención
+- menú contextual de conexión:
+  - instalar/actualizar daemon
+  - desinstalar daemon
+- bootstrap inicial automático (con confirmación) al conectar cuando falta daemon
+- bootstrap Unix con material TLS local:
+  - creación de `server.crt` y `server.key` en `/etc/zfsmgr/tls` si no existen
+
+Pendiente de esta fase:
+
+- daemon binario real (no stub) con API TLS/mTLS
+- canal de lecturas de ZFSMgr vía daemon (con fallback SSH)
+- ingesta real de eventos `zed` + reconciliación
+
 ## Riesgos clave
 
 - divergencia silenciosa de caché si se confía solo en eventos,

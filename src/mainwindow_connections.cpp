@@ -2,6 +2,7 @@
 #include "mainwindow_helpers.h"
 #include "mainwindow_ui_logic.h"
 #include "agentversion.h"
+#include "daemonpayload.h"
 
 #include <QApplication>
 #include <QComboBox>
@@ -10,6 +11,7 @@
 #include <QDialogButtonBox>
 #include <QCheckBox>
 #include <QEventLoop>
+#include <QDir>
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QEvent>
@@ -25,6 +27,7 @@
 #include <QSet>
 #include <QSignalBlocker>
 #include <QSysInfo>
+#include <QFileInfo>
 #include <QTabBar>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -58,14 +61,6 @@ constexpr const char* kGsaLinuxServicePath = "/etc/systemd/system/zfsmgr-gsa.ser
 constexpr const char* kGsaLinuxTimerPath = "/etc/systemd/system/zfsmgr-gsa.timer";
 constexpr const char* kGsaFreeBsdCronMarkerBegin = "# BEGIN ZFSMgr GSA";
 constexpr const char* kGsaFreeBsdCronMarkerEnd = "# END ZFSMgr GSA";
-constexpr const char* kAgentUnixBinPath = "/usr/local/libexec/zfsmgr-agent";
-constexpr const char* kAgentUnixConfigPath = "/etc/zfsmgr/agent.conf";
-constexpr const char* kAgentMacPlistPath = "/Library/LaunchDaemons/org.zfsmgr.agent.plist";
-constexpr const char* kAgentLinuxServicePath = "/etc/systemd/system/zfsmgr-agent.service";
-constexpr const char* kAgentFreeBsdRcPath = "/usr/local/etc/rc.d/zfsmgr_agent";
-constexpr const char* kAgentWindowsDirPath = "C:\\ProgramData\\ZFSMgr\\agent";
-constexpr const char* kAgentWindowsScriptPath = "C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.ps1";
-constexpr const char* kAgentWindowsTaskName = "ZFSMgr-Agent";
 QString connContentStateTokenForTree(QTreeWidget* tree) {
     if (!tree) {
         return QString();
@@ -3828,16 +3823,7 @@ bool MainWindow::installOrUpdateDaemonForConnection(int idx) {
 
     if (isWindowsConnection(idx)) {
         winMode = WindowsCommandMode::PowerShellNative;
-        const QString psScript = QString::fromUtf8(
-            "# ZFSMgr Agent Version: __VERSION__\n"
-            "# ZFSMgr Agent API: __API__\n"
-            "param([string]$Mode='serve')\n"
-            "if ($Mode -eq 'version') { Write-Output '__VERSION__'; exit 0 }\n"
-            "if ($Mode -eq 'api') { Write-Output '__API__'; exit 0 }\n"
-            "while ($true) { Start-Sleep -Seconds 3600 }\n");
-        QString payload = psScript;
-        payload.replace(QStringLiteral("__VERSION__"), daemonVersion);
-        payload.replace(QStringLiteral("__API__"), apiVersion);
+        const QString payload = daemonpayload::windowsStubScript(daemonVersion, apiVersion);
         remoteCmd = QStringLiteral(
             "$dir='%1'; $script='%2'; "
             "New-Item -ItemType Directory -Force -Path $dir | Out-Null; "
@@ -3847,10 +3833,10 @@ bool MainWindow::installOrUpdateDaemonForConnection(int idx) {
             "$action = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"' + $script + '\"'; "
             "schtasks /Create /SC ONSTART /RL HIGHEST /RU SYSTEM /TN $taskName /TR $action /F >$null; "
             "schtasks /Run /TN $taskName >$null 2>&1 || $true")
-                        .arg(QString::fromLatin1(kAgentWindowsDirPath),
-                             QString::fromLatin1(kAgentWindowsScriptPath),
+                        .arg(daemonpayload::windowsDirPath(),
+                             daemonpayload::windowsScriptPath(),
                              payload,
-                             QString::fromLatin1(kAgentWindowsTaskName));
+                             daemonpayload::windowsTaskName());
     } else {
         const QString osHint = (p.osType + QStringLiteral(" ")
                                 + ((idx < m_states.size()) ? m_states[idx].osLine : QString()))
@@ -3858,116 +3844,92 @@ bool MainWindow::installOrUpdateDaemonForConnection(int idx) {
                                    .toLower();
         const bool isMac = osHint.contains(QStringLiteral("darwin"));
         const bool isFreeBsd = osHint.contains(QStringLiteral("freebsd"));
-        QString daemonScript = QString::fromUtf8(
-            "#!/bin/sh\n"
-            "# ZFSMgr Agent Version: __VERSION__\n"
-            "# ZFSMgr Agent API: __API__\n"
-            "set -eu\n"
-            "case \"${1:-serve}\" in\n"
-            "  --version|version) printf '%s\\n' '__VERSION__'; exit 0 ;;\n"
-            "  --api-version|api) printf '%s\\n' '__API__'; exit 0 ;;\n"
-            "  --serve|serve) while :; do sleep 3600; done ;;\n"
-            "  *) printf 'usage: %s [--version|--api-version|--serve]\\n' \"$0\" >&2; exit 2 ;;\n"
-            "esac\n");
-        daemonScript.replace(QStringLiteral("__VERSION__"), daemonVersion);
-        daemonScript.replace(QStringLiteral("__API__"), apiVersion);
-        const QString configPayload = QStringLiteral("VERSION=%1\nAPI=%2\n")
-                                          .arg(mwhelpers::shSingleQuote(daemonVersion),
-                                               mwhelpers::shSingleQuote(apiVersion));
+        const QString daemonScript = daemonpayload::unixStubScript(daemonVersion, apiVersion);
+        const QString configPayload = daemonpayload::simpleConfigPayload(daemonVersion, apiVersion);
+        const QString tlsBootstrap = daemonpayload::tlsBootstrapShellCommand();
+        QString deployBinCmd;
+        const QString localAgentPath = QDir::cleanPath(QCoreApplication::applicationDirPath() + QStringLiteral("/zfsmgr_agent"));
+        const bool canDeployNativeLocalBinary =
+            isLocalConnection(idx) && QFileInfo::exists(localAgentPath) && QFileInfo(localAgentPath).isExecutable();
+        if (canDeployNativeLocalBinary) {
+            deployBinCmd = QStringLiteral("install -m 700 %1 %2;")
+                               .arg(mwhelpers::shSingleQuote(localAgentPath), mwhelpers::shSingleQuote(daemonpayload::unixBinPath()));
+        } else {
+            deployBinCmd = QStringLiteral("cat > %1 <<'EOF_AGENT'\n%2\nEOF_AGENT\nchmod 700 %1;")
+                               .arg(daemonpayload::unixBinPath(), daemonScript);
+        }
         if (isMac) {
-            const QString plistPayload = QString::fromUtf8(
-                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
-                "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
-                "<plist version=\"1.0\">\n"
-                "<dict>\n"
-                "  <key>Label</key><string>org.zfsmgr.agent</string>\n"
-                "  <key>ProgramArguments</key>\n"
-                "  <array>\n"
-                "    <string>/usr/local/libexec/zfsmgr-agent</string>\n"
-                "    <string>--serve</string>\n"
-                "  </array>\n"
-                "  <key>RunAtLoad</key><true/>\n"
-                "  <key>KeepAlive</key><true/>\n"
-                "</dict>\n"
-                "</plist>\n");
+            const QString plistPayload = daemonpayload::macLaunchdPlist();
             remoteCmd = QStringLiteral(
                 "mkdir -p /usr/local/libexec /etc/zfsmgr; "
-                "cat > %1 <<'EOF_AGENT'\n%2\nEOF_AGENT\n"
+                "%1 "
                 "cat > %3 <<'EOF_AGENT_CONF'\n%4\nEOF_AGENT_CONF\n"
                 "cat > %5 <<'EOF_AGENT_PLIST'\n%6\nEOF_AGENT_PLIST\n"
-                "chmod 700 %1; chmod 600 %3; chmod 644 %5; "
-                "chown root:wheel %1 %3 %5; "
+                "%7; "
+                "chmod 600 %3; chmod 644 %5; "
+                "chown root:wheel %2 %3 %5; "
+                "chown root:wheel %8 %9 %10; "
                 "launchctl bootout system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
                 "launchctl bootstrap system %5; "
                 "launchctl enable system/org.zfsmgr.agent; "
                 "launchctl kickstart -k system/org.zfsmgr.agent >/dev/null 2>&1 || true")
-                            .arg(QString::fromLatin1(kAgentUnixBinPath),
-                                 daemonScript,
-                                 QString::fromLatin1(kAgentUnixConfigPath),
+                            .arg(deployBinCmd,
+                                 daemonpayload::unixBinPath(),
+                                 daemonpayload::unixConfigPath(),
                                  configPayload,
-                                 QString::fromLatin1(kAgentMacPlistPath),
-                                 plistPayload);
+                                 daemonpayload::macPlistPath(),
+                                 plistPayload,
+                                 tlsBootstrap,
+                                 daemonpayload::tlsDirPath(),
+                                 daemonpayload::tlsServerCertPath(),
+                                 daemonpayload::tlsServerKeyPath());
         } else if (isFreeBsd) {
-            const QString rcPayload = QString::fromUtf8(
-                "#!/bin/sh\n"
-                "# PROVIDE: zfsmgr_agent\n"
-                "# REQUIRE: LOGIN\n"
-                "# KEYWORD: shutdown\n"
-                ". /etc/rc.subr\n"
-                "name=\"zfsmgr_agent\"\n"
-                "rcvar=zfsmgr_agent_enable\n"
-                "pidfile=\"/var/run/${name}.pid\"\n"
-                "command=\"/usr/sbin/daemon\"\n"
-                "command_args=\"-P ${pidfile} /usr/local/libexec/zfsmgr-agent --serve\"\n"
-                "load_rc_config $name\n"
-                ": ${zfsmgr_agent_enable:=YES}\n"
-                "run_rc_command \"$1\"\n");
+            const QString rcPayload = daemonpayload::freeBsdRcScript();
             remoteCmd = QStringLiteral(
                 "mkdir -p /usr/local/libexec /etc/zfsmgr /usr/local/etc/rc.d; "
-                "cat > %1 <<'EOF_AGENT'\n%2\nEOF_AGENT\n"
+                "%1 "
                 "cat > %3 <<'EOF_AGENT_CONF'\n%4\nEOF_AGENT_CONF\n"
                 "cat > %5 <<'EOF_AGENT_RC'\n%6\nEOF_AGENT_RC\n"
-                "chmod 700 %1 %5; chmod 600 %3; "
-                "chown root:wheel %1 %3 %5; "
+                "%7; "
+                "chmod 700 %5; chmod 600 %3; "
+                "chown root:wheel %2 %3 %5; "
+                "chown root:wheel %8 %9 %10; "
                 "service zfsmgr_agent stop >/dev/null 2>&1 || true; "
                 "service zfsmgr_agent start")
-                            .arg(QString::fromLatin1(kAgentUnixBinPath),
-                                 daemonScript,
-                                 QString::fromLatin1(kAgentUnixConfigPath),
+                            .arg(deployBinCmd,
+                                 daemonpayload::unixBinPath(),
+                                 daemonpayload::unixConfigPath(),
                                  configPayload,
-                                 QString::fromLatin1(kAgentFreeBsdRcPath),
-                                 rcPayload);
+                                 daemonpayload::freeBsdRcPath(),
+                                 rcPayload,
+                                 tlsBootstrap,
+                                 daemonpayload::tlsDirPath(),
+                                 daemonpayload::tlsServerCertPath(),
+                                 daemonpayload::tlsServerKeyPath());
         } else {
-            const QString servicePayload = QString::fromUtf8(
-                "[Unit]\n"
-                "Description=ZFSMgr native daemon\n"
-                "After=network.target\n"
-                "\n"
-                "[Service]\n"
-                "Type=simple\n"
-                "ExecStart=/usr/local/libexec/zfsmgr-agent --serve\n"
-                "Restart=always\n"
-                "RestartSec=5\n"
-                "\n"
-                "[Install]\n"
-                "WantedBy=multi-user.target\n");
+            const QString servicePayload = daemonpayload::linuxSystemdService();
             remoteCmd = QStringLiteral(
                 "if ! command -v systemctl >/dev/null 2>&1; then echo 'systemd not available' >&2; exit 1; fi; "
                 "mkdir -p /usr/local/libexec /etc/zfsmgr; "
-                "cat > %1 <<'EOF_AGENT'\n%2\nEOF_AGENT\n"
+                "%1 "
                 "cat > %3 <<'EOF_AGENT_CONF'\n%4\nEOF_AGENT_CONF\n"
                 "cat > %5 <<'EOF_AGENT_SERVICE'\n%6\nEOF_AGENT_SERVICE\n"
-                "chmod 700 %1; chmod 600 %3; chmod 644 %5; "
-                "chown root:root %1 %3 %5; "
+                "%7; "
+                "chmod 600 %3; chmod 644 %5; "
+                "chown root:root %2 %3 %5; "
+                "chown root:root %8 %9 %10; "
                 "systemctl daemon-reload; "
                 "systemctl enable --now zfsmgr-agent.service")
-                            .arg(QString::fromLatin1(kAgentUnixBinPath),
-                                 daemonScript,
-                                 QString::fromLatin1(kAgentUnixConfigPath),
+                            .arg(deployBinCmd,
+                                 daemonpayload::unixBinPath(),
+                                 daemonpayload::unixConfigPath(),
                                  configPayload,
-                                 QString::fromLatin1(kAgentLinuxServicePath),
-                                 servicePayload);
+                                 daemonpayload::linuxServicePath(),
+                                 servicePayload,
+                                 tlsBootstrap,
+                                 daemonpayload::tlsDirPath(),
+                                 daemonpayload::tlsServerCertPath(),
+                                 daemonpayload::tlsServerKeyPath());
         }
         remoteCmd = withSudo(p, remoteCmd);
     }
@@ -4041,8 +4003,8 @@ bool MainWindow::uninstallDaemonForConnection(int idx) {
             "$taskName='%1'; $dir='%2'; "
             "schtasks /Delete /F /TN $taskName >$null 2>&1; "
             "if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Force -Recurse -ErrorAction SilentlyContinue }")
-                        .arg(QString::fromLatin1(kAgentWindowsTaskName),
-                             QString::fromLatin1(kAgentWindowsDirPath));
+                        .arg(daemonpayload::windowsTaskName(),
+                             daemonpayload::windowsDirPath());
     } else {
         const QString osHint = (p.osType + QStringLiteral(" ")
                                 + ((idx < m_states.size()) ? m_states[idx].osLine : QString()))
@@ -4054,27 +4016,39 @@ bool MainWindow::uninstallDaemonForConnection(int idx) {
             remoteCmd = QStringLiteral(
                 "launchctl bootout system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
                 "launchctl disable system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
-                "rm -f %1 %2 %3")
-                            .arg(QString::fromLatin1(kAgentMacPlistPath),
-                                 QString::fromLatin1(kAgentUnixBinPath),
-                                 QString::fromLatin1(kAgentUnixConfigPath));
+                "rm -f %1 %2 %3 %4 %5; "
+                "rmdir %6 >/dev/null 2>&1 || true")
+                            .arg(daemonpayload::macPlistPath(),
+                                 daemonpayload::unixBinPath(),
+                                 daemonpayload::unixConfigPath(),
+                                 daemonpayload::tlsServerCertPath(),
+                                 daemonpayload::tlsServerKeyPath(),
+                                 daemonpayload::tlsDirPath());
         } else if (isFreeBsd) {
             remoteCmd = QStringLiteral(
                 "service zfsmgr_agent stop >/dev/null 2>&1 || true; "
-                "rm -f %1 %2 %3")
-                            .arg(QString::fromLatin1(kAgentFreeBsdRcPath),
-                                 QString::fromLatin1(kAgentUnixBinPath),
-                                 QString::fromLatin1(kAgentUnixConfigPath));
+                "rm -f %1 %2 %3 %4 %5; "
+                "rmdir %6 >/dev/null 2>&1 || true")
+                            .arg(daemonpayload::freeBsdRcPath(),
+                                 daemonpayload::unixBinPath(),
+                                 daemonpayload::unixConfigPath(),
+                                 daemonpayload::tlsServerCertPath(),
+                                 daemonpayload::tlsServerKeyPath(),
+                                 daemonpayload::tlsDirPath());
         } else {
             remoteCmd = QStringLiteral(
                 "if command -v systemctl >/dev/null 2>&1; then "
                 "  systemctl disable --now zfsmgr-agent.service >/dev/null 2>&1 || true; "
                 "  systemctl daemon-reload >/dev/null 2>&1 || true; "
                 "fi; "
-                "rm -f %1 %2 %3")
-                            .arg(QString::fromLatin1(kAgentLinuxServicePath),
-                                 QString::fromLatin1(kAgentUnixBinPath),
-                                 QString::fromLatin1(kAgentUnixConfigPath));
+                "rm -f %1 %2 %3 %4 %5; "
+                "rmdir %6 >/dev/null 2>&1 || true")
+                            .arg(daemonpayload::linuxServicePath(),
+                                 daemonpayload::unixBinPath(),
+                                 daemonpayload::unixConfigPath(),
+                                 daemonpayload::tlsServerCertPath(),
+                                 daemonpayload::tlsServerKeyPath(),
+                                 daemonpayload::tlsDirPath());
         }
         remoteCmd = withSudo(p, remoteCmd);
     }
