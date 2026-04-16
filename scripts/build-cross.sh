@@ -174,6 +174,35 @@ autodetect_osxcross_target() {
   echo "${found}"
 }
 
+macos_arch_from_target() {
+  local target="${1:-}"
+  case "${target}" in
+    arm64-*|aarch64-*) echo "arm64" ;;
+    x86_64-*) echo "x86_64" ;;
+    *) echo "" ;;
+  esac
+}
+
+autodetect_macos_openssl_prefix() {
+  local arch=""
+  arch="$(macos_arch_from_target "${OSXCROSS_TARGET:-}")"
+  local arm_prefix="${HOME}/opt/openssl-macos-arm64"
+  local x86_prefix="${HOME}/opt/openssl-macos-x86_64"
+
+  if [[ "${arch}" == "arm64" ]]; then
+    [[ -f "${arm_prefix}/include/openssl/evp.h" ]] && { echo "${arm_prefix}"; return 0; }
+    [[ -f "${x86_prefix}/include/openssl/evp.h" ]] && { echo "${x86_prefix}"; return 0; }
+  elif [[ "${arch}" == "x86_64" ]]; then
+    [[ -f "${x86_prefix}/include/openssl/evp.h" ]] && { echo "${x86_prefix}"; return 0; }
+    [[ -f "${arm_prefix}/include/openssl/evp.h" ]] && { echo "${arm_prefix}"; return 0; }
+  else
+    [[ -f "${x86_prefix}/include/openssl/evp.h" ]] && { echo "${x86_prefix}"; return 0; }
+    [[ -f "${arm_prefix}/include/openssl/evp.h" ]] && { echo "${arm_prefix}"; return 0; }
+  fi
+
+  echo ""
+}
+
 find_cross_tool() {
   local suffix="$1"
   if [[ -n "${OSXCROSS_TARGET:-}" ]]; then
@@ -200,9 +229,8 @@ ensure_macos_bundle_runtime_cross() {
   local qt_prefix="$2"
   [[ -d "${app_bundle}" ]] || return 0
   [[ -d "${qt_prefix}" ]] || { echo "Falta QT6_MACOS_PREFIX para deploy runtime: ${qt_prefix}" >&2; return 1; }
-  local otool_bin install_name_tool_bin
+  local otool_bin
   otool_bin="$(find_cross_tool otool)" || { echo "No se encontró otool de osxcross" >&2; return 1; }
-  install_name_tool_bin="$(find_cross_tool install_name_tool)" || { echo "No se encontró install_name_tool de osxcross" >&2; return 1; }
 
   local frameworks_dst="${app_bundle}/Contents/Frameworks"
   local plugins_dst="${app_bundle}/Contents/PlugIns"
@@ -220,12 +248,6 @@ ensure_macos_bundle_runtime_cross() {
     [[ -d "${src}" ]] || return 1
     [[ -d "${dst}" ]] || cp -R "${src}" "${dst}"
     return 0
-  }
-
-  add_rpath_if_missing() {
-    local bin="$1"
-    local rpath="$2"
-    "${install_name_tool_bin}" -add_rpath "${rpath}" "${bin}" >/dev/null 2>&1 || true
   }
 
   # Copiar plugins Qt básicos necesarios para arranque GUI.
@@ -267,12 +289,6 @@ ensure_macos_bundle_runtime_cross() {
       fi
     done < <("${otool_bin}" -L "${current}" | tail -n +2)
   done
-
-  # Ajustar rpath del binario principal, frameworks y plugins al bundle local.
-  add_rpath_if_missing "${main_bin}" "@executable_path/../Frameworks"
-  while IFS= read -r current; do
-    add_rpath_if_missing "${current}" "@executable_path/../Frameworks"
-  done < <(find "${frameworks_dst}" "${plugins_dst}" -type f \( -name "*.dylib" -o -perm -111 \) 2>/dev/null)
 
   cat > "${resources_dst}/qt.conf" <<'EOF'
 [Paths]
@@ -406,11 +422,7 @@ doctor_macos() {
     echo "QT_HOST_PATH_CMAKE_DIR autodetectado: ${QT_HOST_PATH_CMAKE_DIR}"
   fi
   if [[ -z "${OPENSSL_ROOT_DIR:-}" ]]; then
-    if [[ -f "${HOME}/opt/openssl-macos-x86_64/include/openssl/evp.h" ]]; then
-      OPENSSL_ROOT_DIR="${HOME}/opt/openssl-macos-x86_64"
-    elif [[ -f "${HOME}/opt/openssl-macos-arm64/include/openssl/evp.h" ]]; then
-      OPENSSL_ROOT_DIR="${HOME}/opt/openssl-macos-arm64"
-    fi
+    OPENSSL_ROOT_DIR="$(autodetect_macos_openssl_prefix)"
     if [[ -n "${OPENSSL_ROOT_DIR:-}" ]]; then
       export OPENSSL_ROOT_DIR
       echo "OPENSSL_ROOT_DIR autodetectado: ${OPENSSL_ROOT_DIR}"
@@ -505,13 +517,8 @@ if [[ "${DO_CONFIGURE}" -eq 1 ]]; then
       export MACOSX_DEPLOYMENT_TARGET
     fi
     if [[ -z "${OPENSSL_ROOT_DIR:-}" ]]; then
-      if [[ -f "${HOME}/opt/openssl-macos-x86_64/include/openssl/evp.h" ]]; then
-        OPENSSL_ROOT_DIR="${HOME}/opt/openssl-macos-x86_64"
-        export OPENSSL_ROOT_DIR
-      elif [[ -f "${HOME}/opt/openssl-macos-arm64/include/openssl/evp.h" ]]; then
-        OPENSSL_ROOT_DIR="${HOME}/opt/openssl-macos-arm64"
-        export OPENSSL_ROOT_DIR
-      fi
+      OPENSSL_ROOT_DIR="$(autodetect_macos_openssl_prefix)"
+      [[ -n "${OPENSSL_ROOT_DIR:-}" ]] && export OPENSSL_ROOT_DIR
     fi
     if [[ -z "${QT_HOST_PATH:-}" ]]; then
       if [[ -n "${QT6_MACOS_PREFIX:-}" ]]; then
@@ -548,6 +555,9 @@ if [[ "${DO_CONFIGURE}" -eq 1 ]]; then
       [[ -d "${OPENSSL_ROOT_DIR}/lib/pkgconfig" ]] && target_extra_args+=("-DPKG_CONFIG_USE_CMAKE_PREFIX_PATH=TRUE")
     fi
     target_extra_args+=("-DCMAKE_OSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET}")
+    target_extra_args+=("-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON")
+    target_extra_args+=("-DCMAKE_INSTALL_RPATH=@executable_path/../Frameworks")
+    target_extra_args+=("-DCMAKE_BUILD_RPATH=@executable_path/../Frameworks")
     target_extra_args+=("-DCMAKE_DISABLE_FIND_PACKAGE_WrapVulkanHeaders=TRUE")
   fi
   cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" \
