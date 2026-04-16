@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "agentversion.h"
 #include "mainwindow_helpers.h"
 
 #include <QComboBox>
@@ -708,7 +709,14 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
     const QString propsCsv = poolProps.join(QLatin1Char(','));
     const bool poolWin = isWindowsConnection(connIdx);
     const bool useRemoteScript = !poolWin;
-    const QString poolCmd = withSudo(
+    const bool daemonReadApiOk =
+        !poolWin
+        && connIdx >= 0
+        && connIdx < m_states.size()
+        && m_states[connIdx].daemonInstalled
+        && m_states[connIdx].daemonActive
+        && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    const QString poolCmdClassic = withSudo(
         profile,
         useRemoteScript
             ? remoteScriptCommand(profile, QStringLiteral("zfsmgr-zpool-get-all-json"), {trimmedPool})
@@ -718,7 +726,21 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
                             .arg(propsCsv, shSingleQuote(trimmedPool))
                       : QStringLiteral("zpool get -j %1 %2")
                             .arg(propsCsv, shSingleQuote(trimmedPool))));
-    if (runSsh(profile, poolCmd, 15000, out, err, rc) && rc == 0) {
+    const QString poolCmdDaemon = withSudo(
+        profile, mwhelpers::withUnixSearchPathCommand(
+                     QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-get-all %1")
+                         .arg(shSingleQuote(trimmedPool))));
+    bool poolPropsOk = runSsh(profile, (daemonReadApiOk ? poolCmdDaemon : poolCmdClassic), 15000, out, err, rc) && rc == 0;
+    if (!poolPropsOk && daemonReadApiOk) {
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("daemon zpool-get-all fallback %1::%2 -> %3")
+                   .arg(profile.name, trimmedPool, oneLine(err.isEmpty() ? out : err)));
+        out.clear();
+        err.clear();
+        rc = -1;
+        poolPropsOk = runSsh(profile, poolCmdClassic, 15000, out, err, rc) && rc == 0;
+    }
+    if (poolPropsOk) {
         const QString cacheKey = poolDetailsCacheKey(connIdx, trimmedPool);
         PoolDetailsCacheEntry entry = m_poolDetailsCache.value(cacheKey);
         QMap<QString, QStringList> rowsByProp;
