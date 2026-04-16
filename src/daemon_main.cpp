@@ -1023,7 +1023,6 @@ bool tryForwardToResidentDaemon(const AgentConfig& cfg,
 int main(int argc, char* argv[]) {
     QCoreApplication app(argc, argv);
     const QStringList args = app.arguments();
-    const bool directMode = args.contains(QStringLiteral("--direct"));
     const AgentConfig cfg = loadAgentConfig(QString::fromLatin1(kDefaultConfigPath));
 
     if (args.contains(QStringLiteral("--version")) || args.contains(QStringLiteral("version"))) {
@@ -1052,11 +1051,7 @@ int main(int argc, char* argv[]) {
     QString parsedCmd;
     QStringList parsedParams;
     const bool hasRemoteCmd = parseRemoteCommand(args, parsedCmd, parsedParams);
-    if (directMode && !hasRemoteCmd) {
-        QTextStream(stderr) << "unknown or malformed --direct command\n";
-        return 2;
-    }
-    if (hasRemoteCmd && !directMode) {
+    if (hasRemoteCmd) {
         ExecResult proxied;
         if (tryForwardToResidentDaemon(cfg, parsedCmd, parsedParams, proxied)) {
             if (!proxied.out.isEmpty()) {
@@ -1097,10 +1092,6 @@ int main(int argc, char* argv[]) {
                 QTextStream(stderr) << local.err;
             }
             return local.rc;
-        }
-        if (directMode) {
-            QTextStream(stderr) << "unsupported --direct command\n";
-            return 2;
         }
         QTextStream(stderr) << "unsupported remote command\n";
         return 2;

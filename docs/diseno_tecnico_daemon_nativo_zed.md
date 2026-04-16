@@ -230,6 +230,7 @@ Implementado actualmente:
 - limpieza de rutas duplicadas:
   - eliminado bloque legacy local de `--dump-*`; las lecturas pasan por un único camino (proxy TLS + fast-path tipado)
   - eliminado fallback interno por auto-spawn del propio binario en servidor; comandos no soportados fallan explícitamente
+  - eliminado modo interno `--direct`; el flujo queda simplificado a `proxy residente` o `ejecución tipada local`
 
 Pendiente de esta fase:
 
