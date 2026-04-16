@@ -358,13 +358,11 @@ ExecResult runRefreshBasicsTyped() {
                 if (!line.contains(QStringLiteral("IOPlatformUUID"))) {
                     continue;
                 }
-                const int first = line.indexOf(QLatin1Char('\"'));
-                const int last = line.lastIndexOf(QLatin1Char('\"'));
-                if (first >= 0 && last > first) {
-                    machineUuid = line.mid(first + 1, last - first - 1).trimmed();
-                    if (!machineUuid.isEmpty()) {
-                        break;
-                    }
+                const QRegularExpression rx(QStringLiteral("\"IOPlatformUUID\"\\s*=\\s*\"([^\"]+)\""));
+                const QRegularExpressionMatch m = rx.match(line);
+                if (m.hasMatch()) {
+                    machineUuid = m.captured(1).trimmed();
+                    break;
                 }
             }
         }
