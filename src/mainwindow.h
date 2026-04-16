@@ -640,6 +640,7 @@ private:
                                        QString& out,
                                        QString& err,
                                        int& rc);
+    void closeAllRemoteDaemonRpcTunnels();
     void closeAllSshControlMasters();
     QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
     QString withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const;
@@ -1129,6 +1130,14 @@ private:
     QSet<QString> m_loggedSshResolutionKeys;
     QSet<QString> m_daemonBootstrapPromptedConnIds;
     QMap<QString, QDateTime> m_daemonRpcRetryAfterByConnKey;
+    struct RemoteRpcTunnelState {
+        QPointer<QProcess> process;
+        quint16 localPort{0};
+        quint16 remotePort{0};
+        QDateTime startedAtUtc;
+        QDateTime lastUsedUtc;
+    };
+    QMap<QString, RemoteRpcTunnelState> m_remoteDaemonRpcTunnelsByConnKey;
     mutable QMutex m_sshRuntimeSetsMutex;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
     QMap<QString, DatasetPermissionsCacheEntry> m_datasetPermissionsCache;

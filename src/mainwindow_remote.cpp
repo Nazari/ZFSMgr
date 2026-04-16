@@ -507,26 +507,75 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
         return false;
     }
 
-    const auto attempt = [&](bool forceRefreshTls) -> bool {
-        QByteArray serverCertPem;
-        QByteArray clientCertPem;
-        QByteArray clientKeyPem;
-        quint16 daemonPort = 47653;
-        if (!fetchRemoteDaemonTlsMaterial(p, serverCertPem, clientCertPem, clientKeyPem, daemonPort, forceRefreshTls)) {
-            return false;
+    const QString rpcConnKey = remoteDaemonTlsCacheKey(p);
+    const auto closeTunnelForKey = [&](const QString& key) {
+        QPointer<QProcess> proc;
+        {
+            QMutexLocker lock(&m_sshRuntimeSetsMutex);
+            const auto it = m_remoteDaemonRpcTunnelsByConnKey.find(key);
+            if (it == m_remoteDaemonRpcTunnelsByConnKey.end()) {
+                return;
+            }
+            proc = it->process;
+            m_remoteDaemonRpcTunnelsByConnKey.erase(it);
         }
+        if (proc && proc->state() != QProcess::NotRunning) {
+            proc->terminate();
+            if (!proc->waitForFinished(700)) {
+                proc->kill();
+                proc->waitForFinished(700);
+            }
+        }
+        if (proc) {
+            proc->deleteLater();
+        }
+    };
+    const auto pruneIdleTunnels = [&]() {
+        const QDateTime now = QDateTime::currentDateTimeUtc();
+        QStringList staleKeys;
+        {
+            QMutexLocker lock(&m_sshRuntimeSetsMutex);
+            for (auto it = m_remoteDaemonRpcTunnelsByConnKey.cbegin();
+                 it != m_remoteDaemonRpcTunnelsByConnKey.cend(); ++it) {
+                const bool running = it.value().process && it.value().process->state() != QProcess::NotRunning;
+                const bool tooIdle = it.value().lastUsedUtc.isValid() && it.value().lastUsedUtc.secsTo(now) > 60;
+                if (!running || tooIdle) {
+                    staleKeys.push_back(it.key());
+                }
+            }
+        }
+        for (const QString& key : staleKeys) {
+            closeTunnelForKey(key);
+        }
+    };
+    pruneIdleTunnels();
 
-        const QList<QSslCertificate> caCerts = QSslCertificate::fromData(serverCertPem, QSsl::Pem);
-        const QList<QSslCertificate> clientCerts = QSslCertificate::fromData(clientCertPem, QSsl::Pem);
-        if (caCerts.isEmpty() || clientCerts.isEmpty()) {
-            return false;
+    const auto ensureTunnel = [&](const QString& key,
+                                  quint16 remotePort,
+                                  quint16& localPortOut,
+                                  QPointer<QProcess>& processOut) -> bool {
+        localPortOut = 0;
+        processOut = nullptr;
+        const QDateTime now = QDateTime::currentDateTimeUtc();
+        bool needsRecreate = false;
+        {
+            QMutexLocker lock(&m_sshRuntimeSetsMutex);
+            const auto it = m_remoteDaemonRpcTunnelsByConnKey.find(key);
+            if (it != m_remoteDaemonRpcTunnelsByConnKey.end()) {
+                const bool running = it->process && it->process->state() != QProcess::NotRunning;
+                const bool remoteMatches = (it->remotePort == remotePort);
+                const bool tooIdle = it->lastUsedUtc.isValid() && it->lastUsedUtc.secsTo(now) > 45;
+                if (running && remoteMatches && !tooIdle) {
+                    it->lastUsedUtc = now;
+                    localPortOut = it->localPort;
+                    processOut = it->process;
+                    return (localPortOut > 0 && processOut);
+                }
+                needsRecreate = true;
+            }
         }
-        QSslKey clientKey(clientKeyPem, QSsl::Rsa, QSsl::Pem);
-        if (clientKey.isNull()) {
-            clientKey = QSslKey(clientKeyPem, QSsl::Ec, QSsl::Pem);
-        }
-        if (clientKey.isNull()) {
-            return false;
+        if (needsRecreate) {
+            closeTunnelForKey(key);
         }
 
         QTcpServer portProbe;
@@ -570,28 +619,76 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
         if (!p.keyPath.isEmpty()) {
             tunnelArgs << "-i" << p.keyPath;
         }
-        tunnelArgs << "-L" << QStringLiteral("%1:127.0.0.1:%2").arg(localPort).arg(daemonPort);
+        tunnelArgs << "-L" << QStringLiteral("%1:127.0.0.1:%2").arg(localPort).arg(remotePort);
         tunnelArgs << "-N" << sshUserHost(p);
 
-        QProcess tunnel;
-        tunnel.start(tunnelProgram, tunnelArgs);
-        if (!tunnel.waitForStarted(5000)) {
+        QProcess* proc = new QProcess(this);
+        proc->start(tunnelProgram, tunnelArgs);
+        if (!proc->waitForStarted(5000)) {
+            proc->deleteLater();
             return false;
         }
         QThread::msleep(180);
-        if (tunnel.state() == QProcess::NotRunning) {
+        if (proc->state() == QProcess::NotRunning) {
+            proc->deleteLater();
             return false;
         }
 
-        auto stopTunnel = [&]() {
-            if (tunnel.state() != QProcess::NotRunning) {
-                tunnel.terminate();
-                if (!tunnel.waitForFinished(700)) {
-                    tunnel.kill();
-                    tunnel.waitForFinished(700);
+        QObject::connect(
+            proc,
+            qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
+            this,
+            [this, key, proc](int, QProcess::ExitStatus) {
+                QMutexLocker lock(&m_sshRuntimeSetsMutex);
+                auto it = m_remoteDaemonRpcTunnelsByConnKey.find(key);
+                if (it != m_remoteDaemonRpcTunnelsByConnKey.end() && it->process == proc) {
+                    m_remoteDaemonRpcTunnelsByConnKey.erase(it);
                 }
-            }
-        };
+                proc->deleteLater();
+            });
+
+        {
+            QMutexLocker lock(&m_sshRuntimeSetsMutex);
+            RemoteRpcTunnelState st;
+            st.process = proc;
+            st.localPort = localPort;
+            st.remotePort = remotePort;
+            st.startedAtUtc = now;
+            st.lastUsedUtc = now;
+            m_remoteDaemonRpcTunnelsByConnKey.insert(key, st);
+        }
+
+        localPortOut = localPort;
+        processOut = proc;
+        return true;
+    };
+
+    const auto attempt = [&](bool forceRefreshTls) -> bool {
+        QByteArray serverCertPem;
+        QByteArray clientCertPem;
+        QByteArray clientKeyPem;
+        quint16 daemonPort = 47653;
+        if (!fetchRemoteDaemonTlsMaterial(p, serverCertPem, clientCertPem, clientKeyPem, daemonPort, forceRefreshTls)) {
+            return false;
+        }
+
+        const QList<QSslCertificate> caCerts = QSslCertificate::fromData(serverCertPem, QSsl::Pem);
+        const QList<QSslCertificate> clientCerts = QSslCertificate::fromData(clientCertPem, QSsl::Pem);
+        if (caCerts.isEmpty() || clientCerts.isEmpty()) {
+            return false;
+        }
+        QSslKey clientKey(clientKeyPem, QSsl::Rsa, QSsl::Pem);
+        if (clientKey.isNull()) {
+            clientKey = QSslKey(clientKeyPem, QSsl::Ec, QSsl::Pem);
+        }
+        if (clientKey.isNull()) {
+            return false;
+        }
+        quint16 localPort = 0;
+        QPointer<QProcess> tunnelProc;
+        if (!ensureTunnel(rpcConnKey, daemonPort, localPort, tunnelProc) || localPort == 0 || !tunnelProc) {
+            return false;
+        }
 
         const int connectTimeout = qBound(600, timeoutMs > 0 ? timeoutMs / 5 : 1200, 3500);
         const int ioTimeout = qBound(1000, timeoutMs > 0 ? timeoutMs : 30000, 70000);
@@ -632,7 +729,7 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
             timer.start();
             while (timer.elapsed() < ioTimeout) {
                 if (!sock.waitForReadyRead(300)) {
-                    if (tunnel.state() == QProcess::NotRunning) {
+                    if (!tunnelProc || tunnelProc->state() == QProcess::NotRunning) {
                         break;
                     }
                     continue;
@@ -647,11 +744,17 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                 rc = resp.value(QStringLiteral("rc")).toInt(1);
                 out = resp.value(QStringLiteral("stdout")).toString();
                 err = resp.value(QStringLiteral("stderr")).toString();
-                stopTunnel();
+                {
+                    QMutexLocker lock(&m_sshRuntimeSetsMutex);
+                    auto it = m_remoteDaemonRpcTunnelsByConnKey.find(rpcConnKey);
+                    if (it != m_remoteDaemonRpcTunnelsByConnKey.end()) {
+                        it->lastUsedUtc = QDateTime::currentDateTimeUtc();
+                    }
+                }
                 return true;
             }
         }
-        stopTunnel();
+        closeTunnelForKey(rpcConnKey);
         return false;
     };
 
@@ -1383,6 +1486,33 @@ void MainWindow::closeAllSshControlMasters() {
         QProcess proc;
         proc.start(QStringLiteral("ssh"), args);
         proc.waitForFinished(1500);
+    }
+}
+
+void MainWindow::closeAllRemoteDaemonRpcTunnels() {
+    QVector<QPointer<QProcess>> procs;
+    {
+        QMutexLocker lock(&m_sshRuntimeSetsMutex);
+        for (auto it = m_remoteDaemonRpcTunnelsByConnKey.cbegin();
+             it != m_remoteDaemonRpcTunnelsByConnKey.cend(); ++it) {
+            if (it.value().process) {
+                procs.push_back(it.value().process);
+            }
+        }
+        m_remoteDaemonRpcTunnelsByConnKey.clear();
+    }
+    for (const QPointer<QProcess>& proc : procs) {
+        if (!proc) {
+            continue;
+        }
+        if (proc->state() != QProcess::NotRunning) {
+            proc->terminate();
+            if (!proc->waitForFinished(700)) {
+                proc->kill();
+                proc->waitForFinished(700);
+            }
+        }
+        proc->deleteLater();
     }
 }
 

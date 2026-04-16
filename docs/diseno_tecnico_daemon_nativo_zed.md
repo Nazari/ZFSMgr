@@ -223,6 +223,10 @@ Implementado actualmente:
   - `runSsh` intercepta llamadas a `/usr/local/libexec/zfsmgr-agent --dump-*|--health`
   - se conecta por mTLS al daemon residente sin lanzar proceso shell cuando está disponible
   - mantiene fallback automático al camino clásico si el daemon local no responde
+- fast-path en GUI para conexión SSH remota:
+  - usa RPC mTLS al daemon remoto mediante túnel SSH local (`-L`)
+  - reutiliza túneles por conexión con caducidad por inactividad para reducir coste por comando
+  - aplica cooldown corto tras fallos de RPC para evitar reintentos costosos en bucle
 - caché en memoria en daemon residente (TTL rápido/lento configurable)
 - tamaño de caché acotado (`CACHE_MAX_ENTRIES`) con purga controlada al superar el límite
 - invalidación reactiva de caché por eventos (`zpool events -f`)
