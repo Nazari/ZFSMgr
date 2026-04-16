@@ -244,6 +244,30 @@ ExecResult runProcessSync(const QString& program, const QStringList& args, int t
     return r;
 }
 
+ExecResult runProcessSyncWithEnv(const QString& program,
+                                 const QStringList& args,
+                                 const QProcessEnvironment& env,
+                                 int timeoutMs,
+                                 const QString& timeoutMsg) {
+    ExecResult r;
+    QProcess p;
+    p.setProcessEnvironment(env);
+    p.setProgram(program);
+    p.setArguments(args);
+    p.start();
+    if (!p.waitForFinished(timeoutMs)) {
+        p.kill();
+        p.waitForFinished(2000);
+        r.rc = 124;
+        r.err = timeoutMsg;
+        return r;
+    }
+    r.out = QString::fromUtf8(p.readAllStandardOutput());
+    r.err = QString::fromUtf8(p.readAllStandardError());
+    r.rc = (p.exitStatus() == QProcess::NormalExit) ? p.exitCode() : 125;
+    return r;
+}
+
 QString oneLineCompact(const QString& s) {
     QString out = s;
     out.replace(QLatin1Char('\r'), QLatin1Char(' '));
@@ -448,8 +472,8 @@ ExecResult runFastPathCommand(const QString& cmd, const QStringList& params, boo
                               QStringLiteral("agent timeout running zpool status -v"));
     }
     if (cmd == QStringLiteral("--dump-zpool-status-p") && params.size() >= 1) {
-        return runProcessSync(QStringLiteral("sh"),
-                              {QStringLiteral("-lc"), QStringLiteral("zpool status -P \"$1\""), QStringLiteral("--"), params.at(0)},
+        return runProcessSync(QStringLiteral("zpool"),
+                              {QStringLiteral("status"), QStringLiteral("-P"), params.at(0)},
                               20000,
                               QStringLiteral("agent timeout running zpool status -P"));
     }
@@ -475,31 +499,42 @@ ExecResult runFastPathCommand(const QString& cmd, const QStringList& params, boo
         return out;
     }
     if (cmd == QStringLiteral("--dump-zfs-list-all") && params.size() >= 1) {
+        const QString pool = params.at(0);
+        const QStringList getArgs = {
+            QStringLiteral("get"), QStringLiteral("-j"), QStringLiteral("-p"), QStringLiteral("-r"),
+            QStringLiteral("-t"), QStringLiteral("filesystem,volume,snapshot"),
+            QStringLiteral("type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount"),
+            pool};
+        QProcessEnvironment base = QProcessEnvironment::systemEnvironment();
+        QProcessEnvironment envC = base;
+        envC.insert(QStringLiteral("LC_ALL"), QStringLiteral("C.UTF-8"));
+        envC.insert(QStringLiteral("LANG"), QStringLiteral("C.UTF-8"));
+        ExecResult e = runProcessSyncWithEnv(
+            QStringLiteral("zfs"), getArgs, envC, 45000, QStringLiteral("agent timeout running zfs get -j list-all"));
+        if (e.rc == 0 && !e.out.trimmed().isEmpty()) {
+            return e;
+        }
+        QProcessEnvironment envEn = base;
+        envEn.insert(QStringLiteral("LC_ALL"), QStringLiteral("en_US.UTF-8"));
+        envEn.insert(QStringLiteral("LANG"), QStringLiteral("en_US.UTF-8"));
+        e = runProcessSyncWithEnv(
+            QStringLiteral("zfs"), getArgs, envEn, 45000, QStringLiteral("agent timeout running zfs get -j list-all"));
+        if (e.rc == 0 && !e.out.trimmed().isEmpty()) {
+            return e;
+        }
+        e = runProcessSync(
+            QStringLiteral("zfs"), getArgs, 45000, QStringLiteral("agent timeout running zfs get -j list-all"));
+        if (e.rc == 0 && !e.out.trimmed().isEmpty()) {
+            return e;
+        }
         return runProcessSync(
-            QStringLiteral("sh"),
-            {QStringLiteral("-lc"),
-             QStringLiteral(
-                 "pool=$1; "
-                 "if LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j -p -r -t filesystem,volume,snapshot "
-                 "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount \"$pool\" >/dev/null 2>&1; then "
-                 "  LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j -p -r -t filesystem,volume,snapshot "
-                 "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount \"$pool\"; "
-                 "elif LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j -p -r -t filesystem,volume,snapshot "
-                 "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount \"$pool\" >/dev/null 2>&1; then "
-                 "  LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j -p -r -t filesystem,volume,snapshot "
-                 "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount \"$pool\"; "
-                 "elif zfs get -j -p -r -t filesystem,volume,snapshot "
-                 "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount \"$pool\" >/dev/null 2>&1; then "
-                 "  zfs get -j -p -r -t filesystem,volume,snapshot "
-                 "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount \"$pool\"; "
-                 "else "
-                 "  zfs list -H -p -t filesystem,volume,snapshot "
-                 "-o name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount -r \"$pool\"; "
-                 "fi"),
-             QStringLiteral("--"),
-             params.at(0)},
+            QStringLiteral("zfs"),
+            {QStringLiteral("list"), QStringLiteral("-H"), QStringLiteral("-p"), QStringLiteral("-t"),
+             QStringLiteral("filesystem,volume,snapshot"), QStringLiteral("-o"),
+             QStringLiteral("name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount"),
+             QStringLiteral("-r"), pool},
             45000,
-            QStringLiteral("agent timeout running zfs list all"));
+            QStringLiteral("agent timeout running zfs list fallback"));
     }
     if (cmd == QStringLiteral("--dump-zfs-guid-map") && params.size() >= 1) {
         return runProcessSync(QStringLiteral("zfs"),
@@ -516,39 +551,51 @@ ExecResult runFastPathCommand(const QString& cmd, const QStringList& params, boo
                               QStringLiteral("agent timeout running zfs get prop"));
     }
     if (cmd == QStringLiteral("--dump-zfs-get-all") && params.size() >= 1) {
-        return runProcessSync(QStringLiteral("sh"),
-                              {QStringLiteral("-lc"),
-                               QStringLiteral(
-                                   "obj=$1; "
-                                   "if LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j all \"$obj\" >/dev/null 2>&1; then "
-                                   "  LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j all \"$obj\"; "
-                                   "elif LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j all \"$obj\" >/dev/null 2>&1; then "
-                                   "  LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j all \"$obj\"; "
-                                   "else "
-                                   "  zfs get -j all \"$obj\"; "
-                                   "fi"),
-                               QStringLiteral("--"),
-                               params.at(0)},
-                              20000,
-                              QStringLiteral("agent timeout running zfs get all -j"));
+        const QString obj = params.at(0);
+        const QStringList args = {QStringLiteral("get"), QStringLiteral("-j"), QStringLiteral("all"), obj};
+        QProcessEnvironment base = QProcessEnvironment::systemEnvironment();
+        QProcessEnvironment envC = base;
+        envC.insert(QStringLiteral("LC_ALL"), QStringLiteral("C.UTF-8"));
+        envC.insert(QStringLiteral("LANG"), QStringLiteral("C.UTF-8"));
+        ExecResult e = runProcessSyncWithEnv(
+            QStringLiteral("zfs"), args, envC, 20000, QStringLiteral("agent timeout running zfs get all -j"));
+        if (e.rc == 0 && !e.out.trimmed().isEmpty()) {
+            return e;
+        }
+        QProcessEnvironment envEn = base;
+        envEn.insert(QStringLiteral("LC_ALL"), QStringLiteral("en_US.UTF-8"));
+        envEn.insert(QStringLiteral("LANG"), QStringLiteral("en_US.UTF-8"));
+        e = runProcessSyncWithEnv(
+            QStringLiteral("zfs"), args, envEn, 20000, QStringLiteral("agent timeout running zfs get all -j"));
+        if (e.rc == 0 && !e.out.trimmed().isEmpty()) {
+            return e;
+        }
+        return runProcessSync(
+            QStringLiteral("zfs"), args, 20000, QStringLiteral("agent timeout running zfs get all -j"));
     }
     if (cmd == QStringLiteral("--dump-zfs-get-json") && params.size() >= 2) {
-        return runProcessSync(QStringLiteral("sh"),
-                              {QStringLiteral("-lc"),
-                               QStringLiteral(
-                                   "props=$1; obj=$2; "
-                                   "if LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j \"$props\" \"$obj\" >/dev/null 2>&1; then "
-                                   "  LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j \"$props\" \"$obj\"; "
-                                   "elif LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j \"$props\" \"$obj\" >/dev/null 2>&1; then "
-                                   "  LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j \"$props\" \"$obj\"; "
-                                   "else "
-                                   "  zfs get -j \"$props\" \"$obj\"; "
-                                   "fi"),
-                               QStringLiteral("--"),
-                               params.at(0),
-                               params.at(1)},
-                              20000,
-                              QStringLiteral("agent timeout running zfs get -j subset"));
+        const QString props = params.at(0);
+        const QString obj = params.at(1);
+        const QStringList args = {QStringLiteral("get"), QStringLiteral("-j"), props, obj};
+        QProcessEnvironment base = QProcessEnvironment::systemEnvironment();
+        QProcessEnvironment envC = base;
+        envC.insert(QStringLiteral("LC_ALL"), QStringLiteral("C.UTF-8"));
+        envC.insert(QStringLiteral("LANG"), QStringLiteral("C.UTF-8"));
+        ExecResult e = runProcessSyncWithEnv(
+            QStringLiteral("zfs"), args, envC, 20000, QStringLiteral("agent timeout running zfs get -j subset"));
+        if (e.rc == 0 && !e.out.trimmed().isEmpty()) {
+            return e;
+        }
+        QProcessEnvironment envEn = base;
+        envEn.insert(QStringLiteral("LC_ALL"), QStringLiteral("en_US.UTF-8"));
+        envEn.insert(QStringLiteral("LANG"), QStringLiteral("en_US.UTF-8"));
+        e = runProcessSyncWithEnv(
+            QStringLiteral("zfs"), args, envEn, 20000, QStringLiteral("agent timeout running zfs get -j subset"));
+        if (e.rc == 0 && !e.out.trimmed().isEmpty()) {
+            return e;
+        }
+        return runProcessSync(
+            QStringLiteral("zfs"), args, 20000, QStringLiteral("agent timeout running zfs get -j subset"));
     }
     if (cmd == QStringLiteral("--dump-zfs-get-gsa-raw-all-pools")) {
         ExecResult pools = runProcessSync(QStringLiteral("zpool"),
