@@ -24,6 +24,8 @@ namespace {
 constexpr const char* kDefaultConfigPath = "/etc/zfsmgr/agent.conf";
 constexpr const char* kDefaultTlsCertPath = "/etc/zfsmgr/tls/server.crt";
 constexpr const char* kDefaultTlsKeyPath = "/etc/zfsmgr/tls/server.key";
+constexpr const char* kDefaultTlsClientCertPath = "/etc/zfsmgr/tls/client.crt";
+constexpr const char* kDefaultTlsClientKeyPath = "/etc/zfsmgr/tls/client.key";
 constexpr const char* kHeartbeatPath = "/tmp/zfsmgr-agent-heartbeat.log";
 
 struct AgentConfig {
@@ -31,6 +33,8 @@ struct AgentConfig {
     quint16 port{47653};
     QString tlsCertPath{QString::fromLatin1(kDefaultTlsCertPath)};
     QString tlsKeyPath{QString::fromLatin1(kDefaultTlsKeyPath)};
+    QString tlsClientCertPath{QString::fromLatin1(kDefaultTlsClientCertPath)};
+    QString tlsClientKeyPath{QString::fromLatin1(kDefaultTlsClientKeyPath)};
     int cacheTtlFastMs{2000};
     int cacheTtlSlowMs{8000};
     bool zedEventsEnabled{true};
@@ -111,6 +115,10 @@ AgentConfig loadAgentConfig(const QString& path) {
             cfg.tlsCertPath = stripQuotes(value);
         } else if (key == QStringLiteral("TLS_KEY")) {
             cfg.tlsKeyPath = stripQuotes(value);
+        } else if (key == QStringLiteral("TLS_CLIENT_CERT")) {
+            cfg.tlsClientCertPath = stripQuotes(value);
+        } else if (key == QStringLiteral("TLS_CLIENT_KEY")) {
+            cfg.tlsClientKeyPath = stripQuotes(value);
         } else if (key == QStringLiteral("AGENT_BIND") || key == QStringLiteral("BIND")) {
             cfg.bindAddress = stripQuotes(value);
         } else if (key == QStringLiteral("AGENT_PORT") || key == QStringLiteral("PORT")) {
@@ -244,22 +252,33 @@ private:
     bool loadTls(QString* errOut) {
         QFile certFile(m_cfg.tlsCertPath);
         QFile keyFile(m_cfg.tlsKeyPath);
-        if (!certFile.open(QIODevice::ReadOnly) || !keyFile.open(QIODevice::ReadOnly)) {
+        QFile clientCertFile(m_cfg.tlsClientCertPath);
+        if (!certFile.open(QIODevice::ReadOnly) || !keyFile.open(QIODevice::ReadOnly)
+            || !clientCertFile.open(QIODevice::ReadOnly)) {
             if (errOut) {
-                *errOut = QStringLiteral("TLS files not readable (%1, %2)")
-                              .arg(m_cfg.tlsCertPath, m_cfg.tlsKeyPath);
+                *errOut = QStringLiteral("TLS files not readable (%1, %2, %3)")
+                              .arg(m_cfg.tlsCertPath, m_cfg.tlsKeyPath, m_cfg.tlsClientCertPath);
             }
             return false;
         }
         const QByteArray certPem = certFile.readAll();
         const QByteArray keyPem = keyFile.readAll();
+        const QByteArray clientCertPem = clientCertFile.readAll();
         certFile.close();
         keyFile.close();
+        clientCertFile.close();
 
         const QList<QSslCertificate> certs = QSslCertificate::fromData(certPem, QSsl::Pem);
+        const QList<QSslCertificate> clientCerts = QSslCertificate::fromData(clientCertPem, QSsl::Pem);
         if (certs.isEmpty()) {
             if (errOut) {
                 *errOut = QStringLiteral("Invalid TLS certificate");
+            }
+            return false;
+        }
+        if (clientCerts.isEmpty()) {
+            if (errOut) {
+                *errOut = QStringLiteral("Invalid TLS client certificate");
             }
             return false;
         }
@@ -275,6 +294,7 @@ private:
         }
         m_serverCert = certs.first();
         m_serverKey = key;
+        m_clientCaCerts = clientCerts;
         return true;
     }
 
@@ -321,11 +341,12 @@ private:
                 continue;
             }
             tcp->deleteLater();
-            ssl->setPeerVerifyMode(QSslSocket::VerifyNone);
+            ssl->setPeerVerifyMode(QSslSocket::VerifyPeer);
             QSslConfiguration conf = ssl->sslConfiguration();
             conf.setLocalCertificate(m_serverCert);
             conf.setPrivateKey(m_serverKey);
-            conf.setPeerVerifyMode(QSslSocket::VerifyNone);
+            conf.setCaCertificates(m_clientCaCerts);
+            conf.setPeerVerifyMode(QSslSocket::VerifyPeer);
             conf.setProtocol(QSsl::TlsV1_2OrLater);
             ssl->setSslConfiguration(conf);
             ssl->setProperty("buffer", QByteArray());
@@ -401,6 +422,7 @@ private:
     QTcpServer* m_server{nullptr};
     QSslCertificate m_serverCert;
     QSslKey m_serverKey;
+    QList<QSslCertificate> m_clientCaCerts;
     QProcess* m_zedProc{nullptr};
     QHash<QString, CacheEntry> m_cache;
 };
@@ -411,17 +433,33 @@ bool tryForwardToResidentDaemon(const AgentConfig& cfg,
                                 ExecResult& resultOut) {
     QSslSocket sock;
     sock.setProtocol(QSsl::TlsV1_2OrLater);
-    QFile certFile(cfg.tlsCertPath);
+    QFile caFile(cfg.tlsCertPath);
+    QFile clientCertFile(cfg.tlsClientCertPath);
+    QFile clientKeyFile(cfg.tlsClientKeyPath);
     QList<QSslCertificate> caCerts;
-    if (certFile.open(QIODevice::ReadOnly)) {
-        caCerts = QSslCertificate::fromData(certFile.readAll(), QSsl::Pem);
+    QList<QSslCertificate> clientCerts;
+    QSslKey clientKey;
+    if (caFile.open(QIODevice::ReadOnly)) {
+        caCerts = QSslCertificate::fromData(caFile.readAll(), QSsl::Pem);
     }
-    if (caCerts.isEmpty()) {
+    if (clientCertFile.open(QIODevice::ReadOnly)) {
+        clientCerts = QSslCertificate::fromData(clientCertFile.readAll(), QSsl::Pem);
+    }
+    if (clientKeyFile.open(QIODevice::ReadOnly)) {
+        const QByteArray keyPem = clientKeyFile.readAll();
+        clientKey = QSslKey(keyPem, QSsl::Rsa, QSsl::Pem);
+        if (clientKey.isNull()) {
+            clientKey = QSslKey(keyPem, QSsl::Ec, QSsl::Pem);
+        }
+    }
+    if (caCerts.isEmpty() || clientCerts.isEmpty() || clientKey.isNull()) {
         return false;
     }
 
     QSslConfiguration conf = sock.sslConfiguration();
     conf.setCaCertificates(caCerts);
+    conf.setLocalCertificate(clientCerts.first());
+    conf.setPrivateKey(clientKey);
     conf.setProtocol(QSsl::TlsV1_2OrLater);
     conf.setPeerVerifyMode(QSslSocket::VerifyPeer);
     sock.setSslConfiguration(conf);

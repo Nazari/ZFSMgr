@@ -211,6 +211,7 @@ Implementado actualmente:
 - `zfsmgr-agent --serve` operativo como daemon residente TLS:
   - escucha TCP local (`127.0.0.1:47653` por defecto; configurable en `agent.conf`)
   - cifrado TLS con `server.crt/server.key`
+  - mTLS local con certificado cliente dedicado (`client.crt/client.key`) y validación mutua
   - API JSON line-based interna
 - modo cliente transparente:
   - las invocaciones `--dump-*` intentan primero hablar con el daemon residente
@@ -220,7 +221,6 @@ Implementado actualmente:
 
 Pendiente de esta fase:
 
-- endurecimiento a mTLS completo (cert cliente dedicado y validación mutua estricta)
 - reemplazar fallback por RPC tipado completo (sin spawn interno por petición)
 - reconciliación periódica de seguridad tras reinicio/corte de eventos
 

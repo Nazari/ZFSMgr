@@ -3868,7 +3868,7 @@ bool MainWindow::installOrUpdateDaemonForConnection(int idx) {
                 "%7; "
                 "chmod 600 %3; chmod 644 %5; "
                 "chown root:wheel %2 %3 %5; "
-                "chown root:wheel %8 %9 %10; "
+                "chown root:wheel %8 %9 %10 %11 %12; "
                 "launchctl bootout system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
                 "launchctl bootstrap system %5; "
                 "launchctl enable system/org.zfsmgr.agent; "
@@ -3882,7 +3882,9 @@ bool MainWindow::installOrUpdateDaemonForConnection(int idx) {
                                  tlsBootstrap,
                                  daemonpayload::tlsDirPath(),
                                  daemonpayload::tlsServerCertPath(),
-                                 daemonpayload::tlsServerKeyPath());
+                                 daemonpayload::tlsServerKeyPath(),
+                                 daemonpayload::tlsClientCertPath(),
+                                 daemonpayload::tlsClientKeyPath());
         } else if (isFreeBsd) {
             const QString rcPayload = daemonpayload::freeBsdRcScript();
             remoteCmd = QStringLiteral(
@@ -3893,7 +3895,7 @@ bool MainWindow::installOrUpdateDaemonForConnection(int idx) {
                 "%7; "
                 "chmod 700 %5; chmod 600 %3; "
                 "chown root:wheel %2 %3 %5; "
-                "chown root:wheel %8 %9 %10; "
+                "chown root:wheel %8 %9 %10 %11 %12; "
                 "service zfsmgr_agent stop >/dev/null 2>&1 || true; "
                 "service zfsmgr_agent start")
                             .arg(deployBinCmd,
@@ -3905,7 +3907,9 @@ bool MainWindow::installOrUpdateDaemonForConnection(int idx) {
                                  tlsBootstrap,
                                  daemonpayload::tlsDirPath(),
                                  daemonpayload::tlsServerCertPath(),
-                                 daemonpayload::tlsServerKeyPath());
+                                 daemonpayload::tlsServerKeyPath(),
+                                 daemonpayload::tlsClientCertPath(),
+                                 daemonpayload::tlsClientKeyPath());
         } else {
             const QString servicePayload = daemonpayload::linuxSystemdService();
             remoteCmd = QStringLiteral(
@@ -3917,7 +3921,7 @@ bool MainWindow::installOrUpdateDaemonForConnection(int idx) {
                 "%7; "
                 "chmod 600 %3; chmod 644 %5; "
                 "chown root:root %2 %3 %5; "
-                "chown root:root %8 %9 %10; "
+                "chown root:root %8 %9 %10 %11 %12; "
                 "systemctl daemon-reload; "
                 "systemctl enable --now zfsmgr-agent.service")
                             .arg(deployBinCmd,
@@ -3929,7 +3933,9 @@ bool MainWindow::installOrUpdateDaemonForConnection(int idx) {
                                  tlsBootstrap,
                                  daemonpayload::tlsDirPath(),
                                  daemonpayload::tlsServerCertPath(),
-                                 daemonpayload::tlsServerKeyPath());
+                                 daemonpayload::tlsServerKeyPath(),
+                                 daemonpayload::tlsClientCertPath(),
+                                 daemonpayload::tlsClientKeyPath());
         }
         remoteCmd = withSudo(p, remoteCmd);
     }
@@ -4016,24 +4022,28 @@ bool MainWindow::uninstallDaemonForConnection(int idx) {
             remoteCmd = QStringLiteral(
                 "launchctl bootout system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
                 "launchctl disable system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
-                "rm -f %1 %2 %3 %4 %5; "
-                "rmdir %6 >/dev/null 2>&1 || true")
+                "rm -f %1 %2 %3 %4 %5 %6 %7; "
+                "rmdir %8 >/dev/null 2>&1 || true")
                             .arg(daemonpayload::macPlistPath(),
                                  daemonpayload::unixBinPath(),
                                  daemonpayload::unixConfigPath(),
                                  daemonpayload::tlsServerCertPath(),
                                  daemonpayload::tlsServerKeyPath(),
+                                 daemonpayload::tlsClientCertPath(),
+                                 daemonpayload::tlsClientKeyPath(),
                                  daemonpayload::tlsDirPath());
         } else if (isFreeBsd) {
             remoteCmd = QStringLiteral(
                 "service zfsmgr_agent stop >/dev/null 2>&1 || true; "
-                "rm -f %1 %2 %3 %4 %5; "
-                "rmdir %6 >/dev/null 2>&1 || true")
+                "rm -f %1 %2 %3 %4 %5 %6 %7; "
+                "rmdir %8 >/dev/null 2>&1 || true")
                             .arg(daemonpayload::freeBsdRcPath(),
                                  daemonpayload::unixBinPath(),
                                  daemonpayload::unixConfigPath(),
                                  daemonpayload::tlsServerCertPath(),
                                  daemonpayload::tlsServerKeyPath(),
+                                 daemonpayload::tlsClientCertPath(),
+                                 daemonpayload::tlsClientKeyPath(),
                                  daemonpayload::tlsDirPath());
         } else {
             remoteCmd = QStringLiteral(
@@ -4041,13 +4051,15 @@ bool MainWindow::uninstallDaemonForConnection(int idx) {
                 "  systemctl disable --now zfsmgr-agent.service >/dev/null 2>&1 || true; "
                 "  systemctl daemon-reload >/dev/null 2>&1 || true; "
                 "fi; "
-                "rm -f %1 %2 %3 %4 %5; "
-                "rmdir %6 >/dev/null 2>&1 || true")
+                "rm -f %1 %2 %3 %4 %5 %6 %7; "
+                "rmdir %8 >/dev/null 2>&1 || true")
                             .arg(daemonpayload::linuxServicePath(),
                                  daemonpayload::unixBinPath(),
                                  daemonpayload::unixConfigPath(),
                                  daemonpayload::tlsServerCertPath(),
                                  daemonpayload::tlsServerKeyPath(),
+                                 daemonpayload::tlsClientCertPath(),
+                                 daemonpayload::tlsClientKeyPath(),
                                  daemonpayload::tlsDirPath());
         }
         remoteCmd = withSudo(p, remoteCmd);

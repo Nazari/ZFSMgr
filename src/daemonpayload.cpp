@@ -14,6 +14,8 @@ QString windowsTaskName() { return QStringLiteral("ZFSMgr-Agent"); }
 QString tlsDirPath() { return QStringLiteral("/etc/zfsmgr/tls"); }
 QString tlsServerCertPath() { return QStringLiteral("/etc/zfsmgr/tls/server.crt"); }
 QString tlsServerKeyPath() { return QStringLiteral("/etc/zfsmgr/tls/server.key"); }
+QString tlsClientCertPath() { return QStringLiteral("/etc/zfsmgr/tls/client.crt"); }
+QString tlsClientKeyPath() { return QStringLiteral("/etc/zfsmgr/tls/client.key"); }
 
 QString unixStubScript(const QString& version, const QString& apiVersion) {
     QString daemonScript = QString::fromUtf8(
@@ -118,7 +120,10 @@ QString simpleConfigPayload(const QString& version, const QString& apiVersion) {
              mwhelpers::shSingleQuote(QStringLiteral("1")),
              mwhelpers::shSingleQuote(tlsDirPath()),
              mwhelpers::shSingleQuote(tlsServerCertPath()),
-             mwhelpers::shSingleQuote(tlsServerKeyPath()));
+             mwhelpers::shSingleQuote(tlsServerKeyPath()))
+        + QStringLiteral("TLS_CLIENT_CERT=%1\nTLS_CLIENT_KEY=%2\n")
+              .arg(mwhelpers::shSingleQuote(tlsClientCertPath()),
+                   mwhelpers::shSingleQuote(tlsClientKeyPath()));
 }
 
 QString tlsBootstrapShellCommand() {
@@ -127,13 +132,24 @@ QString tlsBootstrapShellCommand() {
         "if [ ! -s %2 ] || [ ! -s %3 ]; then "
         "  if command -v openssl >/dev/null 2>&1; then "
         "    openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 3650 "
-        "      -subj '/CN=zfsmgr-agent' "
+        "      -subj '/CN=zfsmgr-agent-server' "
         "      -keyout %3 -out %2 >/dev/null 2>&1 || true; "
         "  fi; "
         "fi; "
-        "touch %2 %3; "
-        "chmod 600 %2 %3")
-        .arg(tlsDirPath(), tlsServerCertPath(), tlsServerKeyPath());
+        "if [ ! -s %4 ] || [ ! -s %5 ]; then "
+        "  if command -v openssl >/dev/null 2>&1; then "
+        "    openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 3650 "
+        "      -subj '/CN=zfsmgr-agent-client' "
+        "      -keyout %5 -out %4 >/dev/null 2>&1 || true; "
+        "  fi; "
+        "fi; "
+        "touch %2 %3 %4 %5; "
+        "chmod 600 %2 %3 %4 %5")
+        .arg(tlsDirPath(),
+             tlsServerCertPath(),
+             tlsServerKeyPath(),
+             tlsClientCertPath(),
+             tlsClientKeyPath());
 }
 
 } // namespace daemonpayload
