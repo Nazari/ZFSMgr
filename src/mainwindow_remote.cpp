@@ -1797,18 +1797,39 @@ bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const Q
         return false;
     }
     const ConnectionProfile& p = m_profiles[connIdx];
+    const bool daemonReadApiOk =
+        !isWindowsConnection(p)
+        && connIdx >= 0
+        && connIdx < m_states.size()
+        && m_states[connIdx].daemonInstalled
+        && m_states[connIdx].daemonActive
+        && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     const bool useRemoteScript = !isWindowsConnection(p);
-    QString cmd = useRemoteScript
+    QString cmdClassic = useRemoteScript
         ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-get-prop"), {prop, dataset})
         : QStringLiteral("zfs get -H -o value %1 %2").arg(shSingleQuote(prop), shSingleQuote(dataset));
     if (!isWindowsConnection(p) && !useRemoteScript) {
-        cmd = mwhelpers::withUnixSearchPathCommand(cmd);
+        cmdClassic = mwhelpers::withUnixSearchPathCommand(cmdClassic);
     }
-    cmd = withSudo(p, cmd);
+    const QString cmdDaemon = withSudo(
+        p, mwhelpers::withUnixSearchPathCommand(
+               QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-prop %1 %2")
+                   .arg(shSingleQuote(prop), shSingleQuote(dataset))));
+    const QString cmd = daemonReadApiOk ? cmdDaemon : withSudo(p, cmdClassic);
     QString out;
     QString err;
     int rc = -1;
-    if (!runSsh(p, cmd, 15000, out, err, rc) || rc != 0) {
+    bool ok = runSsh(p, cmd, 15000, out, err, rc) && rc == 0;
+    if (!ok && daemonReadApiOk) {
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("daemon zfs-get-prop fallback %1::%2[%3] -> %4")
+                   .arg(p.name, dataset, prop, oneLine(err.isEmpty() ? out : err)));
+        out.clear();
+        err.clear();
+        rc = -1;
+        ok = runSsh(p, withSudo(p, cmdClassic), 15000, out, err, rc) && rc == 0;
+    }
+    if (!ok) {
         return false;
     }
     valueOut = out.trimmed();
@@ -1842,14 +1863,35 @@ bool MainWindow::ensureObjectGuidLoaded(int connIdx,
         QString err;
         int rc = -1;
         const bool useRemoteScript = !isWindowsConnection(p);
-        QString guidCmd = useRemoteScript
+        const bool daemonReadApiOk =
+            !isWindowsConnection(p)
+            && connIdx >= 0
+            && connIdx < m_states.size()
+            && m_states[connIdx].daemonInstalled
+            && m_states[connIdx].daemonActive
+            && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+        QString guidCmdClassic = useRemoteScript
             ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-get-guid"), {trimmedObject})
             : QStringLiteral("zfs get -H -o value guid %1").arg(shSingleQuote(trimmedObject));
         if (!isWindowsConnection(connIdx) && !useRemoteScript) {
-            guidCmd = mwhelpers::withUnixSearchPathCommand(guidCmd);
+            guidCmdClassic = mwhelpers::withUnixSearchPathCommand(guidCmdClassic);
         }
-        guidCmd = withSudo(p, guidCmd);
-        if (!runSsh(p, guidCmd, 15000, out, err, rc) || rc != 0) {
+        const QString guidCmdDaemon = withSudo(
+            p, mwhelpers::withUnixSearchPathCommand(
+                   QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-prop guid %1")
+                       .arg(shSingleQuote(trimmedObject))));
+        const QString guidCmd = daemonReadApiOk ? guidCmdDaemon : withSudo(p, guidCmdClassic);
+        bool ok = runSsh(p, guidCmd, 15000, out, err, rc) && rc == 0;
+        if (!ok && daemonReadApiOk) {
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("daemon zfs-get-guid fallback %1::%2/%3 -> %4")
+                       .arg(p.name, trimmedPool, trimmedObject, oneLine(err.isEmpty() ? out : err)));
+            out.clear();
+            err.clear();
+            rc = -1;
+            ok = runSsh(p, withSudo(p, guidCmdClassic), 15000, out, err, rc) && rc == 0;
+        }
+        if (!ok) {
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("No se pudo cargar GUID de objeto %1::%2/%3 -> %4")
                        .arg(p.name, trimmedPool, trimmedObject, oneLine(err.isEmpty() ? out : err)));

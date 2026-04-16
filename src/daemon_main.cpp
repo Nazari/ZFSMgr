@@ -233,6 +233,31 @@ int main(int argc, char* argv[]) {
             return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
         }
     }
+    {
+        const int i = args.indexOf(QStringLiteral("--dump-zfs-get-prop"));
+        if (i >= 0 && i + 2 < args.size()) {
+            const QString prop = args.at(i + 1).trimmed();
+            const QString obj = args.at(i + 2).trimmed();
+            if (prop.isEmpty() || obj.isEmpty()) {
+                QTextStream(stderr) << "missing args for --dump-zfs-get-prop <prop> <obj>\n";
+                return 2;
+            }
+            QProcess p;
+            p.setProgram(QStringLiteral("zfs"));
+            p.setArguments({QStringLiteral("get"), QStringLiteral("-H"), QStringLiteral("-o"), QStringLiteral("value"), prop, obj});
+            p.start();
+            if (!p.waitForFinished(15000)) {
+                QTextStream(stderr) << "agent timeout running zfs get prop\n";
+                return 124;
+            }
+            QTextStream(stdout) << QString::fromUtf8(p.readAllStandardOutput());
+            const QByteArray err = p.readAllStandardError();
+            if (!err.isEmpty()) {
+                QTextStream(stderr) << QString::fromUtf8(err);
+            }
+            return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
+        }
+    }
 
     QTimer timer;
     QObject::connect(&timer, &QTimer::timeout, []() { writeHeartbeat(); });
