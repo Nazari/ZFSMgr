@@ -205,29 +205,6 @@ QString cacheKeyFor(const QString& cmd, const QStringList& params) {
     return cmd + QStringLiteral("\x1F") + params.join(QStringLiteral("\x1F"));
 }
 
-ExecResult runDirectViaChild(const QString& cmd, const QStringList& params) {
-    ExecResult r;
-    QProcess p;
-    p.setProgram(QCoreApplication::applicationFilePath());
-    QStringList childArgs;
-    childArgs << QStringLiteral("--direct") << cmd;
-    childArgs << params;
-    p.setArguments(childArgs);
-    p.start();
-    const int timeoutMs = isSlowCommand(cmd) ? 65000 : 25000;
-    if (!p.waitForFinished(timeoutMs)) {
-        p.kill();
-        p.waitForFinished(2000);
-        r.rc = 124;
-        r.err = QStringLiteral("agent server timeout executing %1").arg(cmd);
-        return r;
-    }
-    r.out = QString::fromUtf8(p.readAllStandardOutput());
-    r.err = QString::fromUtf8(p.readAllStandardError());
-    r.rc = (p.exitStatus() == QProcess::NormalExit) ? p.exitCode() : 125;
-    return r;
-}
-
 ExecResult runProcessSync(const QString& program, const QStringList& args, int timeoutMs, const QString& timeoutMsg) {
     ExecResult r;
     QProcess p;
@@ -896,7 +873,8 @@ private:
                     bool handled = false;
                     result = runFastPathCommand(cmd, params, &handled);
                     if (!handled) {
-                        result = runDirectViaChild(cmd, params);
+                        result.rc = 2;
+                        result.err = QStringLiteral("unsupported command: %1").arg(cmd);
                     }
                     if (m_cache.size() >= m_cfg.cacheMaxEntries) {
                         invalidateCache(QStringLiteral("cache_max_entries"));

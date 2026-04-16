@@ -229,6 +229,7 @@ Implementado actualmente:
   - watcher de eventos ZED lanzado de forma tipada (`zpool events -f`) sin shell wrapper
 - limpieza de rutas duplicadas:
   - eliminado bloque legacy local de `--dump-*`; las lecturas pasan por un único camino (proxy TLS + fast-path tipado)
+  - eliminado fallback interno por auto-spawn del propio binario en servidor; comandos no soportados fallan explícitamente
 
 Pendiente de esta fase:
 
