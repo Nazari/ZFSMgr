@@ -1510,15 +1510,36 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
     int mountedRc = -1;
     const bool isWinConn = isWindowsConnection(p);
     const bool useRemoteScript = !isWinConn;
-    const QString mountedCmd = withSudo(
+    const bool daemonReadApiOk =
+        !isWinConn
+        && ctx.connIdx >= 0
+        && ctx.connIdx < m_states.size()
+        && m_states[ctx.connIdx].daemonInstalled
+        && m_states[ctx.connIdx].daemonActive
+        && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    const QString mountedCmdClassic = withSudo(
         p,
         useRemoteScript
             ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-mount-list"))
             : mwhelpers::withUnixSearchPathCommand(
                   isWinConn ? QStringLiteral("zfs mount")
                             : QStringLiteral("zfs mount -j")));
+    const QString mountedCmdDaemon = withSudo(
+        p, mwhelpers::withUnixSearchPathCommand(
+               QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-mount")));
     QVector<QPair<QString, QString>> mountedRows;
-    if (runSsh(p, mountedCmd, 20000, mountedOut, mountedErr, mountedRc) && mountedRc == 0) {
+    bool mountListOk = runSsh(p, (daemonReadApiOk ? mountedCmdDaemon : mountedCmdClassic), 20000, mountedOut, mountedErr, mountedRc)
+                       && mountedRc == 0;
+    if (!mountListOk && daemonReadApiOk) {
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("daemon zfs-mount fallback %1 -> %2")
+                   .arg(p.name, oneLine(mountedErr.isEmpty() ? mountedOut : mountedErr)));
+        mountedOut.clear();
+        mountedErr.clear();
+        mountedRc = -1;
+        mountListOk = runSsh(p, mountedCmdClassic, 20000, mountedOut, mountedErr, mountedRc) && mountedRc == 0;
+    }
+    if (mountListOk) {
         mountedRows = isWinConn
             ? mwhelpers::parseZfsMountOutput(mountedOut)
             : mwhelpers::parseZfsMountJsonOutput(mountedOut);
