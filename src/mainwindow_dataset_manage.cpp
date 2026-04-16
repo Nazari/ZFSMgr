@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
+#include "agentversion.h"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -743,10 +744,14 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const Datase
     if (forceCb->isChecked()) {
         flags.push_back(QStringLiteral("-f"));
     }
+    const bool force = forceCb->isChecked();
+    QString recursiveMode = QStringLiteral("none");
     if (recursiveDestroyCb->isChecked()) {
         flags.push_back(QStringLiteral("-R"));
+        recursiveMode = QStringLiteral("R");
     } else if (recursiveCb->isChecked()) {
         flags.push_back(QStringLiteral("-r"));
+        recursiveMode = QStringLiteral("r");
     }
     const bool recursive = recursiveCb->isChecked() || recursiveDestroyCb->isChecked();
     const QString cmd = flags.isEmpty()
@@ -762,7 +767,21 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const Datase
             return;
         }
     }
-    const QString fullCmd = sshExecFromLocal(cp, withSudo(cp, cmd));
+    const bool daemonMutateApiOk =
+        !isWindowsConnection(cp)
+        && ctx.connIdx >= 0
+        && ctx.connIdx < m_states.size()
+        && m_states[ctx.connIdx].daemonInstalled
+        && m_states[ctx.connIdx].daemonActive
+        && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    QString queueCmd = cmd;
+    if (daemonMutateApiOk && target.contains(QLatin1Char('@'))) {
+        queueCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-destroy %1 %2 %3")
+                       .arg(shSingleQuote(target),
+                            force ? QStringLiteral("1") : QStringLiteral("0"),
+                            shSingleQuote(recursiveMode));
+    }
+    const QString fullCmd = sshExecFromLocal(cp, withSudo(cp, mwhelpers::withUnixSearchPathCommand(queueCmd)));
     auto connPoolLabel = [this](const DatasetSelectionContext& selCtx) {
         if (!selCtx.valid || selCtx.connIdx < 0 || selCtx.connIdx >= m_profiles.size() || selCtx.poolName.trimmed().isEmpty()) {
             return QString();

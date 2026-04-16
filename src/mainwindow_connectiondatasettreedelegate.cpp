@@ -1,5 +1,6 @@
 #include "mainwindow_connectiondatasettreedelegate.h"
 
+#include "agentversion.h"
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
 #include "mainwindow_ui_logic.h"
@@ -14,6 +15,8 @@
 #include <QEventLoop>
 #include <QFormLayout>
 #include <QInputDialog>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -1154,7 +1157,26 @@ void MainWindowConnectionDatasetTreeDelegate::createSnapshotHold(QTreeWidget* tr
             return;
         }
     }
-    const QString fullCmd = m_mainWindow->sshExecFromLocal(cp, m_mainWindow->withSudo(cp, cmd));
+    const bool daemonMutateApiOk =
+        !m_mainWindow->isWindowsConnection(cp)
+        && connIdx >= 0
+        && connIdx < m_mainWindow->m_states.size()
+        && m_mainWindow->m_states[connIdx].daemonInstalled
+        && m_mainWindow->m_states[connIdx].daemonActive
+        && m_mainWindow->m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    QString queueCmd = cmd;
+    if (daemonMutateApiOk) {
+        QJsonArray arr;
+        arr.push_back(QStringLiteral("hold"));
+        arr.push_back(holdName);
+        arr.push_back(objectName);
+        const QString payloadB64 = QString::fromUtf8(
+            QJsonDocument(arr).toJson(QJsonDocument::Compact).toBase64());
+        queueCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-generic %1")
+                       .arg(mwhelpers::shSingleQuote(payloadB64));
+    }
+    const QString fullCmd = m_mainWindow->sshExecFromLocal(
+        cp, m_mainWindow->withSudo(cp, mwhelpers::withUnixSearchPathCommand(queueCmd)));
     const QString connLabel = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
     QString errorText;
     if (!m_mainWindow->queuePendingShellAction(MainWindow::PendingShellActionDraft{
@@ -1239,7 +1261,26 @@ void MainWindowConnectionDatasetTreeDelegate::releaseSnapshotHold(QTreeWidget* t
             return;
         }
     }
-    const QString fullCmd = m_mainWindow->sshExecFromLocal(cp, m_mainWindow->withSudo(cp, cmd));
+    const bool daemonMutateApiOk =
+        !m_mainWindow->isWindowsConnection(cp)
+        && connIdx >= 0
+        && connIdx < m_mainWindow->m_states.size()
+        && m_mainWindow->m_states[connIdx].daemonInstalled
+        && m_mainWindow->m_states[connIdx].daemonActive
+        && m_mainWindow->m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    QString queueCmd = cmd;
+    if (daemonMutateApiOk) {
+        QJsonArray arr;
+        arr.push_back(QStringLiteral("release"));
+        arr.push_back(holdName);
+        arr.push_back(objectName);
+        const QString payloadB64 = QString::fromUtf8(
+            QJsonDocument(arr).toJson(QJsonDocument::Compact).toBase64());
+        queueCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-generic %1")
+                       .arg(mwhelpers::shSingleQuote(payloadB64));
+    }
+    const QString fullCmd = m_mainWindow->sshExecFromLocal(
+        cp, m_mainWindow->withSudo(cp, mwhelpers::withUnixSearchPathCommand(queueCmd)));
     const QString connLabel = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
     QString errorText;
     if (!m_mainWindow->queuePendingShellAction(MainWindow::PendingShellActionDraft{
@@ -2833,13 +2874,17 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             QString q = snapObj;
             q.replace('\'', "'\"'\"'");
             QStringList rollbackFlags;
+            const bool rollbackForce = rollbackForceCb->isChecked();
+            QString rollbackRecursiveMode = QStringLiteral("none");
             if (rollbackForceCb->isChecked()) {
                 rollbackFlags.push_back(QStringLiteral("-f"));
             }
             if (rollbackRecursiveDestroyCb->isChecked()) {
                 rollbackFlags.push_back(QStringLiteral("-R"));
+                rollbackRecursiveMode = QStringLiteral("R");
             } else if (rollbackRecursiveCb->isChecked()) {
                 rollbackFlags.push_back(QStringLiteral("-r"));
+                rollbackRecursiveMode = QStringLiteral("r");
             }
             const QString cmd = rollbackFlags.isEmpty()
                                     ? QStringLiteral("zfs rollback '%1'").arg(q)
@@ -2859,7 +2904,22 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                     return;
                 }
             }
-            const QString fullCmd = m_mainWindow->sshExecFromLocal(cp, m_mainWindow->withSudo(cp, cmd));
+            const bool daemonMutateApiOk =
+                !m_mainWindow->isWindowsConnection(cp)
+                && actx.connIdx >= 0
+                && actx.connIdx < m_mainWindow->m_states.size()
+                && m_mainWindow->m_states[actx.connIdx].daemonInstalled
+                && m_mainWindow->m_states[actx.connIdx].daemonActive
+                && m_mainWindow->m_states[actx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+            QString queueCmd = cmd;
+            if (daemonMutateApiOk) {
+                queueCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-rollback %1 %2 %3")
+                               .arg(mwhelpers::shSingleQuote(snapObj),
+                                    rollbackForce ? QStringLiteral("1") : QStringLiteral("0"),
+                                    mwhelpers::shSingleQuote(rollbackRecursiveMode));
+            }
+            const QString fullCmd = m_mainWindow->sshExecFromLocal(
+                cp, m_mainWindow->withSudo(cp, mwhelpers::withUnixSearchPathCommand(queueCmd)));
             MainWindow::DatasetSelectionContext refreshTarget = mwActx;
             refreshTarget.snapshotName.clear();
             const QString connLabel = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
