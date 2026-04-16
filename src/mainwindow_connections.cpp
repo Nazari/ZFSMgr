@@ -3860,8 +3860,24 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                                 + ((idx < m_states.size()) ? m_states[idx].osLine : QString()))
                                    .trimmed()
                                    .toLower();
-        const bool isMac = osHint.contains(QStringLiteral("darwin"));
-        const bool isFreeBsd = osHint.contains(QStringLiteral("freebsd"));
+        bool isMac = osHint.contains(QStringLiteral("darwin"))
+                     || osHint.contains(QStringLiteral("macos"))
+                     || osHint.contains(QStringLiteral("launchd"));
+        bool isFreeBsd = osHint.contains(QStringLiteral("freebsd"))
+                         || osHint.contains(QStringLiteral("rc.d"));
+        if (!isMac && !isFreeBsd) {
+            QString osOut;
+            QString osErr;
+            int osRc = -1;
+            if (runSsh(p, QStringLiteral("uname -s"), 8000, osOut, osErr, osRc) && osRc == 0) {
+                const QString unameS = osOut.trimmed().toLower();
+                if (unameS.contains(QStringLiteral("darwin"))) {
+                    isMac = true;
+                } else if (unameS.contains(QStringLiteral("freebsd"))) {
+                    isFreeBsd = true;
+                }
+            }
+        }
         const QString daemonScript = daemonpayload::unixStubScript(daemonVersion, apiVersion);
         const QString configPayload = daemonpayload::simpleConfigPayload(daemonVersion, apiVersion);
         const QString tlsBootstrap = daemonpayload::tlsBootstrapShellCommand();
@@ -4041,8 +4057,24 @@ bool MainWindow::uninstallDaemonForConnection(int idx) {
                                 + ((idx < m_states.size()) ? m_states[idx].osLine : QString()))
                                    .trimmed()
                                    .toLower();
-        const bool isMac = osHint.contains(QStringLiteral("darwin"));
-        const bool isFreeBsd = osHint.contains(QStringLiteral("freebsd"));
+        bool isMac = osHint.contains(QStringLiteral("darwin"))
+                     || osHint.contains(QStringLiteral("macos"))
+                     || osHint.contains(QStringLiteral("launchd"));
+        bool isFreeBsd = osHint.contains(QStringLiteral("freebsd"))
+                         || osHint.contains(QStringLiteral("rc.d"));
+        if (!isMac && !isFreeBsd) {
+            QString osOut;
+            QString osErr;
+            int osRc = -1;
+            if (runSsh(p, QStringLiteral("uname -s"), 8000, osOut, osErr, osRc) && osRc == 0) {
+                const QString unameS = osOut.trimmed().toLower();
+                if (unameS.contains(QStringLiteral("darwin"))) {
+                    isMac = true;
+                } else if (unameS.contains(QStringLiteral("freebsd"))) {
+                    isFreeBsd = true;
+                }
+            }
+        }
         if (isMac) {
             remoteCmd = QStringLiteral(
                 "launchctl bootout system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
