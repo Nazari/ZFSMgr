@@ -1420,7 +1420,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             QString gerr;
             int grc = -1;
             const QString gsaProps = QStringLiteral("org.fc16.gsa:activado,org.fc16.gsa:nivelar,org.fc16.gsa:destino");
-            const QString gcmd = withSudo(
+            const QString gcmdClassic = withSudo(
                 p,
                 useRemoteScripts
                     ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-get-gsa-raw-all-pools"))
@@ -1432,8 +1432,21 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                               "zfs get -H -o name,property,value -r \"$props\" \"$pool\" 2>/dev/null || true; "
                               "done")
                               .arg(mwhelpers::shSingleQuote(gsaProps))));
+            const QString gcmdDaemon = withSudo(
+                p, mwhelpers::withUnixSearchPathCommand(
+                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-gsa-raw-all-pools")));
             if (propsByDataset.isEmpty()) {
-                if (runSsh(p, gcmd, 30000, gout, gerr, grc) && grc == 0) {
+                bool gsaPropsOk = runSsh(p, (daemonReadApiOk ? gcmdDaemon : gcmdClassic), 30000, gout, gerr, grc) && grc == 0;
+                if (!gsaPropsOk && daemonReadApiOk) {
+                    appLog(QStringLiteral("INFO"),
+                           QStringLiteral("%1: daemon gsa raw scan fallback -> %2")
+                               .arg(p.name, oneLine(gerr.isEmpty() ? gout : gerr)));
+                    gout.clear();
+                    gerr.clear();
+                    grc = -1;
+                    gsaPropsOk = runSsh(p, gcmdClassic, 30000, gout, gerr, grc) && grc == 0;
+                }
+                if (gsaPropsOk) {
                     const QString merged = gout + QStringLiteral("\n") + gerr;
                     const QStringList lines = merged.split('\n', Qt::SkipEmptyParts);
                     for (const QString& raw : lines) {

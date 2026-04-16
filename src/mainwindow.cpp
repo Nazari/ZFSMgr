@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
 #include "mainwindow_ui_logic.h"
+#include "agentversion.h"
 
 #include <algorithm>
 #include <QComboBox>
@@ -703,6 +704,13 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
     }
 
     const ConnectionProfile& p = m_profiles[connIdx];
+    const bool daemonReadApiOk =
+        !isWindowsConnection(connIdx)
+        && connIdx >= 0
+        && connIdx < m_states.size()
+        && m_states[connIdx].daemonInstalled
+        && m_states[connIdx].daemonActive
+        && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     const bool useRemoteScript = !isWindowsConnection(connIdx);
     QString datasetType = trimmedObject.contains(QLatin1Char('@')) ? QStringLiteral("snapshot") : QStringLiteral("filesystem");
     if (dsInfo && !dsInfo->runtime.datasetType.trimmed().isEmpty()) {
@@ -730,7 +738,7 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
     QString err;
     int rc = -1;
     const bool dsWin = isWindowsConnection(connIdx);
-    const QString propsCmd = withSudo(
+    const QString propsCmdClassic = withSudo(
         p,
         (useRemoteScript && !dsWin)
             ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-get-all-json"), {trimmedObject})
@@ -738,7 +746,21 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
                   dsWin
                       ? QStringLiteral("zfs get -H -o property,value,source all %1").arg(mwhelpers::shSingleQuote(trimmedObject))
                       : QStringLiteral("zfs get -j all %1").arg(mwhelpers::shSingleQuote(trimmedObject))));
-    if (!runSsh(p, propsCmd, 20000, out, err, rc) || rc != 0) {
+    const QString propsCmdDaemon = withSudo(
+        p, mwhelpers::withUnixSearchPathCommand(
+               QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-all %1")
+                   .arg(mwhelpers::shSingleQuote(trimmedObject))));
+    bool propsOk = runSsh(p, (daemonReadApiOk ? propsCmdDaemon : propsCmdClassic), 20000, out, err, rc) && rc == 0;
+    if (!propsOk && daemonReadApiOk) {
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("daemon zfs-get-all fallback %1::%2/%3 -> %4")
+                   .arg(p.name, trimmedPool, trimmedObject, mwhelpers::oneLine(err.isEmpty() ? out : err)));
+        out.clear();
+        err.clear();
+        rc = -1;
+        propsOk = runSsh(p, propsCmdClassic, 20000, out, err, rc) && rc == 0;
+    }
+    if (!propsOk) {
         if (dsInfo) {
             dsInfo->runtime.propertiesState = LoadState::Error;
             dsInfo->runtime.errorText = err.trimmed();
@@ -832,6 +854,13 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
     }
 
     const ConnectionProfile& p = m_profiles[connIdx];
+    const bool daemonReadApiOk =
+        !isWindowsConnection(connIdx)
+        && connIdx >= 0
+        && connIdx < m_states.size()
+        && m_states[connIdx].daemonInstalled
+        && m_states[connIdx].daemonActive
+        && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     QString datasetType = dsInfo->runtime.datasetType.trimmed();
     if (datasetType.isEmpty()) {
         datasetType = trimmedObject.contains(QLatin1Char('@')) ? QStringLiteral("snapshot")
@@ -846,28 +875,43 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
         quotedProps.push_back(mwhelpers::shSingleQuote(propName.trimmed()));
     }
     const bool useRemoteScript = !subWin;
-    QString propsCmd;
+    QString propsCmdClassic;
     if (subWin) {
-        propsCmd = withSudo(
+        propsCmdClassic = withSudo(
             p,
             mwhelpers::withUnixSearchPathCommand(
                 QStringLiteral("zfs get -H -o property,value,source %1 %2")
                     .arg(quotedProps.join(QLatin1Char(',')),
                          mwhelpers::shSingleQuote(trimmedObject))));
     } else if (useRemoteScript) {
-        propsCmd = withSudo(
+        propsCmdClassic = withSudo(
             p,
             remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-get-json"),
                                 {wantedProps.join(QLatin1Char(',')), trimmedObject}));
     } else {
-        propsCmd = withSudo(
+        propsCmdClassic = withSudo(
             p,
             mwhelpers::withUnixSearchPathCommand(
                 QStringLiteral("zfs get -j %1 %2")
                     .arg(wantedProps.join(QLatin1Char(',')),
                          mwhelpers::shSingleQuote(trimmedObject))));
     }
-    if (!runSsh(p, propsCmd, 20000, out, err, rc) || rc != 0) {
+    const QString propsCmdDaemon = withSudo(
+        p, mwhelpers::withUnixSearchPathCommand(
+               QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-json %1 %2")
+                   .arg(mwhelpers::shSingleQuote(wantedProps.join(QLatin1Char(','))),
+                        mwhelpers::shSingleQuote(trimmedObject))));
+    bool propsOk = runSsh(p, (daemonReadApiOk ? propsCmdDaemon : propsCmdClassic), 20000, out, err, rc) && rc == 0;
+    if (!propsOk && daemonReadApiOk) {
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("daemon zfs-get-json fallback %1::%2/%3 -> %4")
+                   .arg(p.name, trimmedPool, trimmedObject, mwhelpers::oneLine(err.isEmpty() ? out : err)));
+        out.clear();
+        err.clear();
+        rc = -1;
+        propsOk = runSsh(p, propsCmdClassic, 20000, out, err, rc) && rc == 0;
+    }
+    if (!propsOk) {
         dsInfo->runtime.propertiesState = LoadState::Error;
         dsInfo->runtime.errorText = err.trimmed();
         return false;

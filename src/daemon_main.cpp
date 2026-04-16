@@ -258,6 +258,100 @@ int main(int argc, char* argv[]) {
             return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
         }
     }
+    {
+        const int i = args.indexOf(QStringLiteral("--dump-zfs-get-all"));
+        if (i >= 0 && i + 1 < args.size()) {
+            const QString obj = args.at(i + 1).trimmed();
+            if (obj.isEmpty()) {
+                QTextStream(stderr) << "missing object for --dump-zfs-get-all\n";
+                return 2;
+            }
+            QProcess p;
+            p.setProgram(QStringLiteral("sh"));
+            p.setArguments({QStringLiteral("-lc"),
+                            QStringLiteral(
+                                "obj=$1; "
+                                "if LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j all \"$obj\" >/dev/null 2>&1; then "
+                                "  LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j all \"$obj\"; "
+                                "elif LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j all \"$obj\" >/dev/null 2>&1; then "
+                                "  LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j all \"$obj\"; "
+                                "else "
+                                "  zfs get -j all \"$obj\"; "
+                                "fi"),
+                            QStringLiteral("--"),
+                            obj});
+            p.start();
+            if (!p.waitForFinished(20000)) {
+                QTextStream(stderr) << "agent timeout running zfs get all -j\n";
+                return 124;
+            }
+            QTextStream(stdout) << QString::fromUtf8(p.readAllStandardOutput());
+            const QByteArray err = p.readAllStandardError();
+            if (!err.isEmpty()) {
+                QTextStream(stderr) << QString::fromUtf8(err);
+            }
+            return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
+        }
+    }
+    {
+        const int i = args.indexOf(QStringLiteral("--dump-zfs-get-json"));
+        if (i >= 0 && i + 2 < args.size()) {
+            const QString props = args.at(i + 1).trimmed();
+            const QString obj = args.at(i + 2).trimmed();
+            if (props.isEmpty() || obj.isEmpty()) {
+                QTextStream(stderr) << "missing args for --dump-zfs-get-json <props> <obj>\n";
+                return 2;
+            }
+            QProcess p;
+            p.setProgram(QStringLiteral("sh"));
+            p.setArguments({QStringLiteral("-lc"),
+                            QStringLiteral(
+                                "props=$1; obj=$2; "
+                                "if LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j \"$props\" \"$obj\" >/dev/null 2>&1; then "
+                                "  LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j \"$props\" \"$obj\"; "
+                                "elif LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j \"$props\" \"$obj\" >/dev/null 2>&1; then "
+                                "  LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j \"$props\" \"$obj\"; "
+                                "else "
+                                "  zfs get -j \"$props\" \"$obj\"; "
+                                "fi"),
+                            QStringLiteral("--"),
+                            props,
+                            obj});
+            p.start();
+            if (!p.waitForFinished(20000)) {
+                QTextStream(stderr) << "agent timeout running zfs get -j subset\n";
+                return 124;
+            }
+            QTextStream(stdout) << QString::fromUtf8(p.readAllStandardOutput());
+            const QByteArray err = p.readAllStandardError();
+            if (!err.isEmpty()) {
+                QTextStream(stderr) << QString::fromUtf8(err);
+            }
+            return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
+        }
+    }
+    if (args.contains(QStringLiteral("--dump-zfs-get-gsa-raw-all-pools"))) {
+        QProcess p;
+        p.setProgram(QStringLiteral("sh"));
+        p.setArguments({QStringLiteral("-lc"),
+                        QStringLiteral(
+                            "props='org.fc16.gsa:activado,org.fc16.gsa:nivelar,org.fc16.gsa:destino'; "
+                            "zpool list -H -o name 2>/dev/null | while IFS= read -r pool; do "
+                            "  [ -n \"$pool\" ] || continue; "
+                            "  zfs get -H -o name,property,value -r \"$props\" \"$pool\" 2>/dev/null || true; "
+                            "done")});
+        p.start();
+        if (!p.waitForFinished(30000)) {
+            QTextStream(stderr) << "agent timeout running gsa raw scan\n";
+            return 124;
+        }
+        QTextStream(stdout) << QString::fromUtf8(p.readAllStandardOutput());
+        const QByteArray err = p.readAllStandardError();
+        if (!err.isEmpty()) {
+            QTextStream(stderr) << QString::fromUtf8(err);
+        }
+        return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
+    }
 
     QTimer timer;
     QObject::connect(&timer, &QTimer::timeout, []() { writeHeartbeat(); });
