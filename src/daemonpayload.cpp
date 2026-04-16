@@ -107,16 +107,18 @@ QString simpleConfigPayload(const QString& version, const QString& apiVersion) {
                "AGENT_PORT=%4\n"
                "CACHE_TTL_FAST_MS=%5\n"
                "CACHE_TTL_SLOW_MS=%6\n"
-               "ZED_EVENTS_ENABLED=%7\n"
-               "TLS_DIR=%8\n"
-               "TLS_CERT=%9\n"
-               "TLS_KEY=%10\n")
+               "RECONCILE_INTERVAL_MS=%7\n"
+               "ZED_EVENTS_ENABLED=%8\n"
+               "TLS_DIR=%9\n"
+               "TLS_CERT=%10\n"
+               "TLS_KEY=%11\n")
         .arg(mwhelpers::shSingleQuote(version.trimmed()),
              mwhelpers::shSingleQuote(apiVersion.trimmed()),
              mwhelpers::shSingleQuote(QStringLiteral("127.0.0.1")),
              mwhelpers::shSingleQuote(QStringLiteral("47653")),
              mwhelpers::shSingleQuote(QStringLiteral("2000")),
              mwhelpers::shSingleQuote(QStringLiteral("8000")),
+             mwhelpers::shSingleQuote(QStringLiteral("60000")),
              mwhelpers::shSingleQuote(QStringLiteral("1")),
              mwhelpers::shSingleQuote(tlsDirPath()),
              mwhelpers::shSingleQuote(tlsServerCertPath()),

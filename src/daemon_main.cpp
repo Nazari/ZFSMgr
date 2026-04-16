@@ -37,6 +37,7 @@ struct AgentConfig {
     QString tlsClientKeyPath{QString::fromLatin1(kDefaultTlsClientKeyPath)};
     int cacheTtlFastMs{2000};
     int cacheTtlSlowMs{8000};
+    int reconcileIntervalMs{60000};
     bool zedEventsEnabled{true};
 };
 
@@ -130,6 +131,8 @@ AgentConfig loadAgentConfig(const QString& path) {
             cfg.cacheTtlFastMs = qMax(100, parseIntValue(value, cfg.cacheTtlFastMs));
         } else if (key == QStringLiteral("CACHE_TTL_SLOW_MS")) {
             cfg.cacheTtlSlowMs = qMax(100, parseIntValue(value, cfg.cacheTtlSlowMs));
+        } else if (key == QStringLiteral("RECONCILE_INTERVAL_MS")) {
+            cfg.reconcileIntervalMs = qMax(1000, parseIntValue(value, cfg.reconcileIntervalMs));
         } else if (key == QStringLiteral("ZED_EVENTS") || key == QStringLiteral("ZED_EVENTS_ENABLED")) {
             cfg.zedEventsEnabled = parseBoolValue(value, cfg.zedEventsEnabled);
         }
@@ -341,6 +344,7 @@ public:
         if (m_cfg.zedEventsEnabled) {
             startZedWatcher();
         }
+        startReconcileTimer();
         return true;
     }
 
@@ -401,7 +405,7 @@ private:
         QObject::connect(m_zedProc, &QProcess::readyReadStandardOutput, this, [this]() {
             const QString out = QString::fromUtf8(m_zedProc->readAllStandardOutput());
             if (!out.trimmed().isEmpty()) {
-                m_cache.clear();
+                invalidateCache(QStringLiteral("zed_event"));
                 m_lastZedEventUtc = QDateTime::currentDateTimeUtc();
             }
         });
@@ -489,9 +493,14 @@ private:
                       << QStringLiteral("API=%1").arg(agentversion::expectedApiVersion())
                       << QStringLiteral("SERVER=1")
                       << QStringLiteral("CACHE_ENTRIES=%1").arg(m_cache.size())
+                      << QStringLiteral("CACHE_INVALIDATIONS=%1").arg(m_cacheInvalidations)
                       << QStringLiteral("ZED_ACTIVE=%1").arg((m_zedProc && m_zedProc->state() != QProcess::NotRunning) ? 1 : 0)
                       << QStringLiteral("ZED_LAST_EVENT_UTC=%1").arg(m_lastZedEventUtc.isValid()
                                                                         ? m_lastZedEventUtc.toString(Qt::ISODate)
+                                                                        : QString())
+                      << QStringLiteral("RECONCILE_INTERVAL_MS=%1").arg(m_cfg.reconcileIntervalMs)
+                      << QStringLiteral("RECONCILE_LAST_UTC=%1").arg(m_lastReconcileUtc.isValid()
+                                                                        ? m_lastReconcileUtc.toString(Qt::ISODate)
                                                                         : QString());
                 result.out = lines.join(QLatin1Char('\n')) + QLatin1Char('\n');
             } else {
@@ -532,8 +541,29 @@ private:
     QSslKey m_serverKey;
     QList<QSslCertificate> m_clientCaCerts;
     QProcess* m_zedProc{nullptr};
+    QTimer* m_reconcileTimer{nullptr};
     QHash<QString, CacheEntry> m_cache;
     QDateTime m_lastZedEventUtc;
+    QDateTime m_lastReconcileUtc;
+    quint64 m_cacheInvalidations{0};
+
+    void invalidateCache(const QString&) {
+        if (m_cache.isEmpty()) {
+            return;
+        }
+        m_cache.clear();
+        ++m_cacheInvalidations;
+    }
+
+    void startReconcileTimer() {
+        m_reconcileTimer = new QTimer(this);
+        m_reconcileTimer->setInterval(m_cfg.reconcileIntervalMs);
+        QObject::connect(m_reconcileTimer, &QTimer::timeout, this, [this]() {
+            m_lastReconcileUtc = QDateTime::currentDateTimeUtc();
+            invalidateCache(QStringLiteral("reconcile"));
+        });
+        m_reconcileTimer->start();
+    }
 };
 
 bool tryForwardToResidentDaemon(const AgentConfig& cfg,

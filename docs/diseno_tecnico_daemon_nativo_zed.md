@@ -221,13 +221,13 @@ Implementado actualmente:
   - si falla TLS/socket, hacen fallback automático a ejecución directa local
 - caché en memoria en daemon residente (TTL rápido/lento configurable)
 - invalidación reactiva de caché por eventos (`zpool events -f`)
+- reconciliación periódica de seguridad (timer) que invalida caché aunque no lleguen eventos
 - optimización del servidor residente:
   - comandos críticos (`zpool/zfs` más frecuentes) se ejecutan in-process en el daemon sin auto-spawn del binario
 
 Pendiente de esta fase:
 
 - reemplazar fallback por RPC tipado completo (sin spawn interno por petición)
-- reconciliación periódica de seguridad tras reinicio/corte de eventos
 
 ## Riesgos clave
 
