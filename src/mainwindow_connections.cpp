@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
 #include "mainwindow_ui_logic.h"
+#include "agentversion.h"
 
 #include <QApplication>
 #include <QComboBox>
@@ -57,6 +58,14 @@ constexpr const char* kGsaLinuxServicePath = "/etc/systemd/system/zfsmgr-gsa.ser
 constexpr const char* kGsaLinuxTimerPath = "/etc/systemd/system/zfsmgr-gsa.timer";
 constexpr const char* kGsaFreeBsdCronMarkerBegin = "# BEGIN ZFSMgr GSA";
 constexpr const char* kGsaFreeBsdCronMarkerEnd = "# END ZFSMgr GSA";
+constexpr const char* kAgentUnixBinPath = "/usr/local/libexec/zfsmgr-agent";
+constexpr const char* kAgentUnixConfigPath = "/etc/zfsmgr/agent.conf";
+constexpr const char* kAgentMacPlistPath = "/Library/LaunchDaemons/org.zfsmgr.agent.plist";
+constexpr const char* kAgentLinuxServicePath = "/etc/systemd/system/zfsmgr-agent.service";
+constexpr const char* kAgentFreeBsdRcPath = "/usr/local/etc/rc.d/zfsmgr_agent";
+constexpr const char* kAgentWindowsDirPath = "C:\\ProgramData\\ZFSMgr\\agent";
+constexpr const char* kAgentWindowsScriptPath = "C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.ps1";
+constexpr const char* kAgentWindowsTaskName = "ZFSMgr-Agent";
 QString connContentStateTokenForTree(QTreeWidget* tree) {
     if (!tree) {
         return QString();
@@ -1243,6 +1252,22 @@ QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
         lines << QStringLiteral("Atención GSA: %1")
                      .arg(st.gsaAttentionReasons.join(QStringLiteral(", ")));
     }
+    lines << QStringLiteral("Daemon: %1")
+                 .arg(!st.daemonInstalled ? QStringLiteral("no instalado")
+                                          : QStringLiteral("%1 | %2 | %3")
+                                                .arg(st.daemonVersion.trimmed().isEmpty() ? QStringLiteral("-")
+                                                                                           : st.daemonVersion.trimmed(),
+                                                     st.daemonScheduler.trimmed().isEmpty() ? QStringLiteral("-")
+                                                                                            : st.daemonScheduler.trimmed(),
+                                                     st.daemonActive ? QStringLiteral("activo")
+                                                                     : QStringLiteral("inactivo")));
+    lines << QStringLiteral("API daemon: %1")
+                 .arg(st.daemonApiVersion.trimmed().isEmpty() ? QStringLiteral("-")
+                                                              : st.daemonApiVersion.trimmed());
+    if (st.daemonNeedsAttention && !st.daemonAttentionReasons.isEmpty()) {
+        lines << QStringLiteral("Atención daemon: %1")
+                     .arg(st.daemonAttentionReasons.join(QStringLiteral(", ")));
+    }
     lines << QStringLiteral("Comandos detectados: %1")
                  .arg(st.detectedUnixCommands.isEmpty() ? QStringLiteral("(ninguno)")
                                                         : st.detectedUnixCommands.join(QStringLiteral(", ")));
@@ -2031,6 +2056,19 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
         hasConn && !actionsLocked() && !isDisconnected
         && connIdx < m_states.size()
         && m_states[connIdx].gsaInstalled;
+    const bool canManageDaemon =
+        hasConn && !actionsLocked() && !isDisconnected
+        && connIdx < m_states.size()
+        && daemonMenuLabelForConnection(connIdx).compare(
+               trk(QStringLiteral("t_daemon_ok_001"),
+                   QStringLiteral("Daemon actualizado y funcionando"),
+                   QStringLiteral("Daemon updated and running"),
+                   QStringLiteral("守护进程已更新并运行中")),
+               Qt::CaseInsensitive) != 0;
+    const bool canUninstallDaemon =
+        hasConn && !actionsLocked() && !isDisconnected
+        && connIdx < m_states.size()
+        && m_states[connIdx].daemonInstalled;
     const zfsmgr::uilogic::ConnectionContextMenuState menuState =
         zfsmgr::uilogic::buildConnectionContextMenuState(
             hasConn,
@@ -2087,6 +2125,22 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
             QStringLiteral("Desinstalar el GSA"),
             QStringLiteral("Uninstall GSA"),
             QStringLiteral("卸载 GSA")));
+    QMenu* daemonMenu = menu.addMenu(
+        trk(QStringLiteral("t_daemon_menu_001"),
+            QStringLiteral("Daemon"),
+            QStringLiteral("Daemon"),
+            QStringLiteral("守护进程")));
+    QAction* aManageDaemon = daemonMenu->addAction(
+        hasConn ? daemonMenuLabelForConnection(connIdx)
+                : trk(QStringLiteral("t_daemon_install_001"),
+                      QStringLiteral("Instalar daemon"),
+                      QStringLiteral("Install daemon"),
+                      QStringLiteral("安装守护进程")));
+    QAction* aUninstallDaemon = daemonMenu->addAction(
+        trk(QStringLiteral("t_daemon_uninstall_001"),
+            QStringLiteral("Desinstalar daemon"),
+            QStringLiteral("Uninstall daemon"),
+            QStringLiteral("卸载守护进程")));
     menu.addSeparator();
     QAction* aNewPool = menu.addAction(
         trk(QStringLiteral("t_new_pool_ctx_001"),
@@ -2115,6 +2169,9 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
     aManageGsa->setEnabled(menuState.canManageGsa);
     aUninstallGsa->setEnabled(menuState.canUninstallGsa);
     gsaMenu->setEnabled(menuState.gsaSubmenuEnabled);
+    aManageDaemon->setEnabled(canManageDaemon);
+    aUninstallDaemon->setEnabled(canUninstallDaemon);
+    daemonMenu->setEnabled(hasConn && !actionsLocked() && !isDisconnected);
     aRefresh->setEnabled(menuState.canRefreshThis);
     aEdit->setEnabled(menuState.canEditDelete);
     aDelete->setEnabled(menuState.canEditDelete);
@@ -2209,6 +2266,12 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
     } else if (chosen == aUninstallGsa && hasConn) {
         logUiAction(QStringLiteral("Desinstalar GSA (menú conexiones)"));
         uninstallGsaForConnection(connIdx);
+    } else if (chosen == aManageDaemon && hasConn) {
+        logUiAction(QStringLiteral("Gestionar daemon (menú conexiones)"));
+        installOrUpdateDaemonForConnection(connIdx);
+    } else if (chosen == aUninstallDaemon && hasConn) {
+        logUiAction(QStringLiteral("Desinstalar daemon (menú conexiones)"));
+        uninstallDaemonForConnection(connIdx);
     } else if (chosen == aNewConn) {
         logUiAction(QStringLiteral("Nueva conexión (menú conexiones)"));
         createConnection();
@@ -2428,6 +2491,41 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
         }
     }
     m_states[targetIdx] = state;
+    {
+        const QString connKey = m_profiles[targetIdx].id.trimmed().isEmpty()
+                                    ? m_profiles[targetIdx].name.trimmed().toLower()
+                                    : m_profiles[targetIdx].id.trimmed().toLower();
+        if (state.daemonInstalled) {
+            m_daemonBootstrapPromptedConnIds.remove(connKey);
+        } else if (m_refreshTotal <= 1
+                   && !connKey.isEmpty()
+                   && state.status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0
+                   && !isConnectionDisconnected(targetIdx)
+                   && !m_daemonBootstrapPromptedConnIds.contains(connKey)) {
+            m_daemonBootstrapPromptedConnIds.insert(connKey);
+            const QString connName = m_profiles[targetIdx].name.trimmed().isEmpty()
+                                         ? m_profiles[targetIdx].id.trimmed()
+                                         : m_profiles[targetIdx].name.trimmed();
+            const auto ans = QMessageBox::question(
+                this,
+                QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_daemon_autoinstall_prompt_001"),
+                    QStringLiteral("La conexión \"%1\" no tiene daemon nativo activo.\n\n¿Desea instalarlo/actualizarlo ahora?"),
+                    QStringLiteral("Connection \"%1\" has no active native daemon.\n\nDo you want to install/update it now?"),
+                    QStringLiteral("连接 \"%1\" 没有活动的原生守护进程。\n\n是否现在安装/更新？"))
+                    .arg(connName),
+                QMessageBox::Yes | QMessageBox::No,
+                QMessageBox::Yes);
+            if (ans == QMessageBox::Yes) {
+                QTimer::singleShot(0, this, [this, targetIdx]() {
+                    if (targetIdx < 0 || targetIdx >= m_profiles.size()) {
+                        return;
+                    }
+                    installOrUpdateDaemonForConnection(targetIdx);
+                });
+            }
+        }
+    }
     {
         const QString accountKey = connectionAccountCacheKey(targetIdx);
         if (!accountKey.isEmpty()) {
@@ -2726,7 +2824,7 @@ void MainWindow::populateConnectionPoolsIntoTree(QTreeWidget* tree,
         QString connName = m_profiles[connIdx].name.trimmed().isEmpty()
                                ? m_profiles[connIdx].id.trimmed()
                                : m_profiles[connIdx].name.trimmed();
-        if (connIdx < m_states.size() && m_states[connIdx].gsaNeedsAttention) {
+        if (connIdx < m_states.size() && (m_states[connIdx].gsaNeedsAttention || m_states[connIdx].daemonNeedsAttention)) {
             connName += QStringLiteral(" (*)");
         }
         const QString connPrefix =
@@ -3657,6 +3755,358 @@ QString MainWindow::gsaMenuLabelForConnection(int connIdx) const {
                QStringLiteral("GSA actualizado y funcionando"),
                QStringLiteral("GSA updated and running"),
                QStringLiteral("GSA 已更新并运行中"));
+}
+
+QString MainWindow::daemonMenuLabelForConnection(int connIdx) const {
+    if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
+        return trk(QStringLiteral("t_daemon_install_001"),
+                   QStringLiteral("Instalar daemon"),
+                   QStringLiteral("Install daemon"),
+                   QStringLiteral("安装守护进程"));
+    }
+    const ConnectionRuntimeState& st = m_states[connIdx];
+    if (!st.daemonInstalled) {
+        return trk(QStringLiteral("t_daemon_install_001"),
+                   QStringLiteral("Instalar daemon"),
+                   QStringLiteral("Install daemon"),
+                   QStringLiteral("安装守护进程"));
+    }
+    if (st.daemonNeedsAttention) {
+        return trk(QStringLiteral("t_daemon_update_001"),
+                   QStringLiteral("Actualizar daemon"),
+                   QStringLiteral("Update daemon"),
+                   QStringLiteral("更新守护进程"));
+    }
+    if (!st.daemonActive) {
+        return trk(QStringLiteral("t_daemon_enable_001"),
+                   QStringLiteral("Activar daemon"),
+                   QStringLiteral("Enable daemon"),
+                   QStringLiteral("启用守护进程"));
+    }
+    return trk(QStringLiteral("t_daemon_ok_001"),
+               QStringLiteral("Daemon actualizado y funcionando"),
+               QStringLiteral("Daemon updated and running"),
+               QStringLiteral("守护进程已更新并运行中"));
+}
+
+bool MainWindow::installOrUpdateDaemonForConnection(int idx) {
+    if (actionsLocked()) {
+        return false;
+    }
+    if (idx < 0 || idx >= m_profiles.size()) {
+        return false;
+    }
+    if (isConnectionDisconnected(idx)) {
+        QMessageBox::information(this,
+                                 QStringLiteral("ZFSMgr"),
+                                 trk(QStringLiteral("t_daemon_conn_disc_001"),
+                                     QStringLiteral("La conexión está desconectada."),
+                                     QStringLiteral("The connection is disconnected."),
+                                     QStringLiteral("该连接已断开。")));
+        return false;
+    }
+
+    const ConnectionProfile& p = m_profiles[idx];
+    const auto confirm = QMessageBox::question(
+        this,
+        QStringLiteral("ZFSMgr"),
+        trk(QStringLiteral("t_daemon_install_confirm_001"),
+            QStringLiteral("ZFSMgr instalará o actualizará el daemon en \"%1\" y lo arrancará con el scheduler nativo.\n\n¿Continuar?"),
+            QStringLiteral("ZFSMgr will install or update the daemon on \"%1\" and start it with the native scheduler.\n\nContinue?"),
+            QStringLiteral("ZFSMgr 将在 \"%1\" 上安装或更新守护进程，并使用原生调度启动。\n\n是否继续？"))
+            .arg(p.name),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return false;
+    }
+
+    const QString daemonVersion = agentversion::currentVersion().trimmed();
+    const QString apiVersion = agentversion::expectedApiVersion().trimmed();
+    QString remoteCmd;
+    WindowsCommandMode winMode = WindowsCommandMode::Auto;
+
+    if (isWindowsConnection(idx)) {
+        winMode = WindowsCommandMode::PowerShellNative;
+        const QString psScript = QString::fromUtf8(
+            "# ZFSMgr Agent Version: __VERSION__\n"
+            "# ZFSMgr Agent API: __API__\n"
+            "param([string]$Mode='serve')\n"
+            "if ($Mode -eq 'version') { Write-Output '__VERSION__'; exit 0 }\n"
+            "if ($Mode -eq 'api') { Write-Output '__API__'; exit 0 }\n"
+            "while ($true) { Start-Sleep -Seconds 3600 }\n");
+        QString payload = psScript;
+        payload.replace(QStringLiteral("__VERSION__"), daemonVersion);
+        payload.replace(QStringLiteral("__API__"), apiVersion);
+        remoteCmd = QStringLiteral(
+            "$dir='%1'; $script='%2'; "
+            "New-Item -ItemType Directory -Force -Path $dir | Out-Null; "
+            "Set-Content -LiteralPath $script -Value @'\n%3\n'@ -Encoding UTF8; "
+            "$taskName='%4'; "
+            "schtasks /Delete /F /TN $taskName >$null 2>&1; "
+            "$action = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"' + $script + '\"'; "
+            "schtasks /Create /SC ONSTART /RL HIGHEST /RU SYSTEM /TN $taskName /TR $action /F >$null; "
+            "schtasks /Run /TN $taskName >$null 2>&1 || $true")
+                        .arg(QString::fromLatin1(kAgentWindowsDirPath),
+                             QString::fromLatin1(kAgentWindowsScriptPath),
+                             payload,
+                             QString::fromLatin1(kAgentWindowsTaskName));
+    } else {
+        const QString osHint = (p.osType + QStringLiteral(" ")
+                                + ((idx < m_states.size()) ? m_states[idx].osLine : QString()))
+                                   .trimmed()
+                                   .toLower();
+        const bool isMac = osHint.contains(QStringLiteral("darwin"));
+        const bool isFreeBsd = osHint.contains(QStringLiteral("freebsd"));
+        QString daemonScript = QString::fromUtf8(
+            "#!/bin/sh\n"
+            "# ZFSMgr Agent Version: __VERSION__\n"
+            "# ZFSMgr Agent API: __API__\n"
+            "set -eu\n"
+            "case \"${1:-serve}\" in\n"
+            "  --version|version) printf '%s\\n' '__VERSION__'; exit 0 ;;\n"
+            "  --api-version|api) printf '%s\\n' '__API__'; exit 0 ;;\n"
+            "  --serve|serve) while :; do sleep 3600; done ;;\n"
+            "  *) printf 'usage: %s [--version|--api-version|--serve]\\n' \"$0\" >&2; exit 2 ;;\n"
+            "esac\n");
+        daemonScript.replace(QStringLiteral("__VERSION__"), daemonVersion);
+        daemonScript.replace(QStringLiteral("__API__"), apiVersion);
+        const QString configPayload = QStringLiteral("VERSION=%1\nAPI=%2\n")
+                                          .arg(mwhelpers::shSingleQuote(daemonVersion),
+                                               mwhelpers::shSingleQuote(apiVersion));
+        if (isMac) {
+            const QString plistPayload = QString::fromUtf8(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
+                "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+                "<plist version=\"1.0\">\n"
+                "<dict>\n"
+                "  <key>Label</key><string>org.zfsmgr.agent</string>\n"
+                "  <key>ProgramArguments</key>\n"
+                "  <array>\n"
+                "    <string>/usr/local/libexec/zfsmgr-agent</string>\n"
+                "    <string>--serve</string>\n"
+                "  </array>\n"
+                "  <key>RunAtLoad</key><true/>\n"
+                "  <key>KeepAlive</key><true/>\n"
+                "</dict>\n"
+                "</plist>\n");
+            remoteCmd = QStringLiteral(
+                "mkdir -p /usr/local/libexec /etc/zfsmgr; "
+                "cat > %1 <<'EOF_AGENT'\n%2\nEOF_AGENT\n"
+                "cat > %3 <<'EOF_AGENT_CONF'\n%4\nEOF_AGENT_CONF\n"
+                "cat > %5 <<'EOF_AGENT_PLIST'\n%6\nEOF_AGENT_PLIST\n"
+                "chmod 700 %1; chmod 600 %3; chmod 644 %5; "
+                "chown root:wheel %1 %3 %5; "
+                "launchctl bootout system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
+                "launchctl bootstrap system %5; "
+                "launchctl enable system/org.zfsmgr.agent; "
+                "launchctl kickstart -k system/org.zfsmgr.agent >/dev/null 2>&1 || true")
+                            .arg(QString::fromLatin1(kAgentUnixBinPath),
+                                 daemonScript,
+                                 QString::fromLatin1(kAgentUnixConfigPath),
+                                 configPayload,
+                                 QString::fromLatin1(kAgentMacPlistPath),
+                                 plistPayload);
+        } else if (isFreeBsd) {
+            const QString rcPayload = QString::fromUtf8(
+                "#!/bin/sh\n"
+                "# PROVIDE: zfsmgr_agent\n"
+                "# REQUIRE: LOGIN\n"
+                "# KEYWORD: shutdown\n"
+                ". /etc/rc.subr\n"
+                "name=\"zfsmgr_agent\"\n"
+                "rcvar=zfsmgr_agent_enable\n"
+                "pidfile=\"/var/run/${name}.pid\"\n"
+                "command=\"/usr/sbin/daemon\"\n"
+                "command_args=\"-P ${pidfile} /usr/local/libexec/zfsmgr-agent --serve\"\n"
+                "load_rc_config $name\n"
+                ": ${zfsmgr_agent_enable:=YES}\n"
+                "run_rc_command \"$1\"\n");
+            remoteCmd = QStringLiteral(
+                "mkdir -p /usr/local/libexec /etc/zfsmgr /usr/local/etc/rc.d; "
+                "cat > %1 <<'EOF_AGENT'\n%2\nEOF_AGENT\n"
+                "cat > %3 <<'EOF_AGENT_CONF'\n%4\nEOF_AGENT_CONF\n"
+                "cat > %5 <<'EOF_AGENT_RC'\n%6\nEOF_AGENT_RC\n"
+                "chmod 700 %1 %5; chmod 600 %3; "
+                "chown root:wheel %1 %3 %5; "
+                "service zfsmgr_agent stop >/dev/null 2>&1 || true; "
+                "service zfsmgr_agent start")
+                            .arg(QString::fromLatin1(kAgentUnixBinPath),
+                                 daemonScript,
+                                 QString::fromLatin1(kAgentUnixConfigPath),
+                                 configPayload,
+                                 QString::fromLatin1(kAgentFreeBsdRcPath),
+                                 rcPayload);
+        } else {
+            const QString servicePayload = QString::fromUtf8(
+                "[Unit]\n"
+                "Description=ZFSMgr native daemon\n"
+                "After=network.target\n"
+                "\n"
+                "[Service]\n"
+                "Type=simple\n"
+                "ExecStart=/usr/local/libexec/zfsmgr-agent --serve\n"
+                "Restart=always\n"
+                "RestartSec=5\n"
+                "\n"
+                "[Install]\n"
+                "WantedBy=multi-user.target\n");
+            remoteCmd = QStringLiteral(
+                "if ! command -v systemctl >/dev/null 2>&1; then echo 'systemd not available' >&2; exit 1; fi; "
+                "mkdir -p /usr/local/libexec /etc/zfsmgr; "
+                "cat > %1 <<'EOF_AGENT'\n%2\nEOF_AGENT\n"
+                "cat > %3 <<'EOF_AGENT_CONF'\n%4\nEOF_AGENT_CONF\n"
+                "cat > %5 <<'EOF_AGENT_SERVICE'\n%6\nEOF_AGENT_SERVICE\n"
+                "chmod 700 %1; chmod 600 %3; chmod 644 %5; "
+                "chown root:root %1 %3 %5; "
+                "systemctl daemon-reload; "
+                "systemctl enable --now zfsmgr-agent.service")
+                            .arg(QString::fromLatin1(kAgentUnixBinPath),
+                                 daemonScript,
+                                 QString::fromLatin1(kAgentUnixConfigPath),
+                                 configPayload,
+                                 QString::fromLatin1(kAgentLinuxServicePath),
+                                 servicePayload);
+        }
+        remoteCmd = withSudo(p, remoteCmd);
+    }
+
+    beginUiBusy();
+    updateStatus(daemonMenuLabelForConnection(idx) + QStringLiteral("..."));
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
+    QString detail;
+    const bool ok = executeConnectionCommand(idx,
+                                             QStringLiteral("Instalar/Actualizar daemon"),
+                                             remoteCmd,
+                                             180000,
+                                             &detail,
+                                             winMode);
+    endUiBusy();
+    if (!ok) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_daemon_install_fail_001"),
+                QStringLiteral("No se pudo instalar/actualizar el daemon en \"%1\".\n\n%2"),
+                QStringLiteral("Could not install/update daemon on \"%1\".\n\n%2"),
+                QStringLiteral("无法在 \"%1\" 上安装/更新守护进程。\n\n%2"))
+                .arg(p.name, detail.simplified().left(500)));
+        refreshConnectionByIndex(idx);
+        return false;
+    }
+    refreshConnectionByIndex(idx);
+    return true;
+}
+
+bool MainWindow::uninstallDaemonForConnection(int idx) {
+    if (actionsLocked()) {
+        return false;
+    }
+    if (idx < 0 || idx >= m_profiles.size()) {
+        return false;
+    }
+    if (isConnectionDisconnected(idx)) {
+        QMessageBox::information(this,
+                                 QStringLiteral("ZFSMgr"),
+                                 trk(QStringLiteral("t_daemon_conn_disc_001"),
+                                     QStringLiteral("La conexión está desconectada."),
+                                     QStringLiteral("The connection is disconnected."),
+                                     QStringLiteral("该连接已断开。")));
+        return false;
+    }
+    if (idx >= m_states.size() || !m_states[idx].daemonInstalled) {
+        return false;
+    }
+    const ConnectionProfile& p = m_profiles[idx];
+    const auto confirm = QMessageBox::question(
+        this,
+        QStringLiteral("ZFSMgr"),
+        trk(QStringLiteral("t_daemon_uninstall_confirm_001"),
+            QStringLiteral("ZFSMgr desinstalará el daemon de \"%1\" y eliminará su programación nativa.\n\n¿Continuar?"),
+            QStringLiteral("ZFSMgr will uninstall daemon from \"%1\" and remove its native schedule.\n\nContinue?"),
+            QStringLiteral("ZFSMgr 将从 \"%1\" 卸载守护进程并删除其原生调度。\n\n是否继续？"))
+            .arg(p.name),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+    if (confirm != QMessageBox::Yes) {
+        return false;
+    }
+
+    QString remoteCmd;
+    WindowsCommandMode winMode = WindowsCommandMode::Auto;
+    if (isWindowsConnection(idx)) {
+        winMode = WindowsCommandMode::PowerShellNative;
+        remoteCmd = QStringLiteral(
+            "$taskName='%1'; $dir='%2'; "
+            "schtasks /Delete /F /TN $taskName >$null 2>&1; "
+            "if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Force -Recurse -ErrorAction SilentlyContinue }")
+                        .arg(QString::fromLatin1(kAgentWindowsTaskName),
+                             QString::fromLatin1(kAgentWindowsDirPath));
+    } else {
+        const QString osHint = (p.osType + QStringLiteral(" ")
+                                + ((idx < m_states.size()) ? m_states[idx].osLine : QString()))
+                                   .trimmed()
+                                   .toLower();
+        const bool isMac = osHint.contains(QStringLiteral("darwin"));
+        const bool isFreeBsd = osHint.contains(QStringLiteral("freebsd"));
+        if (isMac) {
+            remoteCmd = QStringLiteral(
+                "launchctl bootout system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
+                "launchctl disable system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
+                "rm -f %1 %2 %3")
+                            .arg(QString::fromLatin1(kAgentMacPlistPath),
+                                 QString::fromLatin1(kAgentUnixBinPath),
+                                 QString::fromLatin1(kAgentUnixConfigPath));
+        } else if (isFreeBsd) {
+            remoteCmd = QStringLiteral(
+                "service zfsmgr_agent stop >/dev/null 2>&1 || true; "
+                "rm -f %1 %2 %3")
+                            .arg(QString::fromLatin1(kAgentFreeBsdRcPath),
+                                 QString::fromLatin1(kAgentUnixBinPath),
+                                 QString::fromLatin1(kAgentUnixConfigPath));
+        } else {
+            remoteCmd = QStringLiteral(
+                "if command -v systemctl >/dev/null 2>&1; then "
+                "  systemctl disable --now zfsmgr-agent.service >/dev/null 2>&1 || true; "
+                "  systemctl daemon-reload >/dev/null 2>&1 || true; "
+                "fi; "
+                "rm -f %1 %2 %3")
+                            .arg(QString::fromLatin1(kAgentLinuxServicePath),
+                                 QString::fromLatin1(kAgentUnixBinPath),
+                                 QString::fromLatin1(kAgentUnixConfigPath));
+        }
+        remoteCmd = withSudo(p, remoteCmd);
+    }
+
+    beginUiBusy();
+    updateStatus(trk(QStringLiteral("t_daemon_uninstall_progress_001"),
+                     QStringLiteral("Desinstalando daemon de %1..."),
+                     QStringLiteral("Uninstalling daemon from %1..."),
+                     QStringLiteral("正在从 %1 卸载守护进程...")).arg(p.name));
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
+    QString detail;
+    const bool ok = executeConnectionCommand(idx,
+                                             QStringLiteral("Desinstalar daemon"),
+                                             remoteCmd,
+                                             120000,
+                                             &detail,
+                                             winMode);
+    endUiBusy();
+    if (!ok) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_daemon_uninstall_fail_001"),
+                QStringLiteral("No se pudo desinstalar el daemon de \"%1\".\n\n%2"),
+                QStringLiteral("Could not uninstall daemon from \"%1\".\n\n%2"),
+                QStringLiteral("无法从 \"%1\" 卸载守护进程。\n\n%2"))
+                .arg(p.name, mwhelpers::oneLine(detail)));
+        refreshConnectionByIndex(idx);
+        return false;
+    }
+    refreshConnectionByIndex(idx);
+    return true;
 }
 
 bool MainWindow::installOrUpdateGsaForConnection(int idx) {

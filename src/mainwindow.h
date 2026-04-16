@@ -614,8 +614,11 @@ private:
                                        const QString& prop,
                                        bool inherit);
     QString gsaMenuLabelForConnection(int connIdx) const;
+    QString daemonMenuLabelForConnection(int connIdx) const;
     bool installOrUpdateGsaForConnection(int connIdx);
+    bool installOrUpdateDaemonForConnection(int connIdx);
     bool uninstallGsaForConnection(int connIdx);
+    bool uninstallDaemonForConnection(int connIdx);
     bool validatePendingGsaDrafts(QString* errorOut = nullptr);
     bool showAutomaticSnapshots() const;
 
@@ -1118,6 +1121,7 @@ private:
     QMap<QString, ConnCompactState> m_connGsaCompactState;
     QSet<QString> m_sshDisableMultiplexKeys;
     QSet<QString> m_loggedSshResolutionKeys;
+    QSet<QString> m_daemonBootstrapPromptedConnIds;
     mutable QMutex m_sshRuntimeSetsMutex;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
     QMap<QString, DatasetPermissionsCacheEntry> m_datasetPermissionsCache;
