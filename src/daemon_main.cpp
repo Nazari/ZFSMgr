@@ -306,6 +306,7 @@ private:
             const QString out = QString::fromUtf8(m_zedProc->readAllStandardOutput());
             if (!out.trimmed().isEmpty()) {
                 m_cache.clear();
+                m_lastZedEventUtc = QDateTime::currentDateTimeUtc();
             }
         });
         QObject::connect(m_zedProc, &QProcess::readyReadStandardError, this, [this]() {
@@ -384,6 +385,19 @@ private:
             if (cmd.isEmpty()) {
                 result.rc = 2;
                 result.err = QStringLiteral("invalid request: empty cmd");
+            } else if (cmd == QStringLiteral("--health")) {
+                result.rc = 0;
+                QStringList lines;
+                lines << QStringLiteral("STATUS=OK")
+                      << QStringLiteral("VERSION=%1").arg(agentversion::currentVersion())
+                      << QStringLiteral("API=%1").arg(agentversion::expectedApiVersion())
+                      << QStringLiteral("SERVER=1")
+                      << QStringLiteral("CACHE_ENTRIES=%1").arg(m_cache.size())
+                      << QStringLiteral("ZED_ACTIVE=%1").arg((m_zedProc && m_zedProc->state() != QProcess::NotRunning) ? 1 : 0)
+                      << QStringLiteral("ZED_LAST_EVENT_UTC=%1").arg(m_lastZedEventUtc.isValid()
+                                                                        ? m_lastZedEventUtc.toString(Qt::ISODate)
+                                                                        : QString());
+                result.out = lines.join(QLatin1Char('\n')) + QLatin1Char('\n');
             } else {
                 const QString key = cacheKeyFor(cmd, params);
                 const QDateTime now = QDateTime::currentDateTimeUtc();
@@ -419,6 +433,7 @@ private:
     QList<QSslCertificate> m_clientCaCerts;
     QProcess* m_zedProc{nullptr};
     QHash<QString, CacheEntry> m_cache;
+    QDateTime m_lastZedEventUtc;
 };
 
 bool tryForwardToResidentDaemon(const AgentConfig& cfg,
