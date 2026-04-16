@@ -80,6 +80,9 @@ const QVector<CommandSpec>& supportedCommandSpecs() {
         {"--dump-zfs-get-gsa-raw-all-pools", 0},
         {"--dump-zfs-get-gsa-raw-recursive", 1},
         {"--dump-gsa-connections-conf", 0},
+        {"--mutate-zfs-snapshot", 2},
+        {"--mutate-zfs-destroy", 3},
+        {"--mutate-zfs-rollback", 3},
     };
     return specs;
 }
@@ -212,6 +215,12 @@ bool isSlowCommand(const QString& cmd) {
         || cmd == QStringLiteral("--dump-zfs-list-all")
         || cmd == QStringLiteral("--dump-zfs-get-gsa-raw-all-pools")
         || cmd == QStringLiteral("--dump-zfs-get-gsa-raw-recursive");
+}
+
+bool isMutatingCommand(const QString& cmd) {
+    return cmd == QStringLiteral("--mutate-zfs-snapshot")
+        || cmd == QStringLiteral("--mutate-zfs-destroy")
+        || cmd == QStringLiteral("--mutate-zfs-rollback");
 }
 
 QString cacheKeyFor(const QString& cmd, const QStringList& params) {
@@ -732,6 +741,75 @@ ExecResult runFastPathCommand(const QString& cmd, const QStringList& params, boo
         r.rc = 0;
         return r;
     }
+    if (cmd == QStringLiteral("--mutate-zfs-snapshot") && params.size() >= 2) {
+        const QString target = params.at(0).trimmed();
+        const QString recursiveRaw = params.at(1).trimmed();
+        const bool recursive = (recursiveRaw == QStringLiteral("1")
+                                || recursiveRaw.compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0
+                                || recursiveRaw.compare(QStringLiteral("on"), Qt::CaseInsensitive) == 0);
+        if (target.isEmpty() || !target.contains(QLatin1Char('@'))) {
+            ExecResult bad;
+            bad.rc = 2;
+            bad.err = QStringLiteral("invalid snapshot target");
+            return bad;
+        }
+        QStringList args = {QStringLiteral("snapshot")};
+        if (recursive) {
+            args.push_back(QStringLiteral("-r"));
+        }
+        args.push_back(target);
+        return runProcessSync(QStringLiteral("zfs"), args, 45000, QStringLiteral("agent timeout running zfs snapshot"));
+    }
+    if (cmd == QStringLiteral("--mutate-zfs-destroy") && params.size() >= 3) {
+        const QString target = params.at(0).trimmed();
+        const QString forceRaw = params.at(1).trimmed();
+        const QString recursiveMode = params.at(2).trimmed();
+        const bool force = (forceRaw == QStringLiteral("1")
+                            || forceRaw.compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0
+                            || forceRaw.compare(QStringLiteral("on"), Qt::CaseInsensitive) == 0);
+        if (target.isEmpty() || !target.contains(QLatin1Char('@'))) {
+            ExecResult bad;
+            bad.rc = 2;
+            bad.err = QStringLiteral("invalid snapshot target");
+            return bad;
+        }
+        QStringList args = {QStringLiteral("destroy")};
+        if (force) {
+            args.push_back(QStringLiteral("-f"));
+        }
+        if (recursiveMode == QStringLiteral("R")) {
+            args.push_back(QStringLiteral("-R"));
+        } else if (recursiveMode == QStringLiteral("r")) {
+            args.push_back(QStringLiteral("-r"));
+        }
+        args.push_back(target);
+        return runProcessSync(QStringLiteral("zfs"), args, 45000, QStringLiteral("agent timeout running zfs destroy"));
+    }
+    if (cmd == QStringLiteral("--mutate-zfs-rollback") && params.size() >= 3) {
+        const QString target = params.at(0).trimmed();
+        const QString forceRaw = params.at(1).trimmed();
+        const QString recursiveMode = params.at(2).trimmed();
+        const bool force = (forceRaw == QStringLiteral("1")
+                            || forceRaw.compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0
+                            || forceRaw.compare(QStringLiteral("on"), Qt::CaseInsensitive) == 0);
+        if (target.isEmpty() || !target.contains(QLatin1Char('@'))) {
+            ExecResult bad;
+            bad.rc = 2;
+            bad.err = QStringLiteral("invalid rollback snapshot target");
+            return bad;
+        }
+        QStringList args = {QStringLiteral("rollback")};
+        if (force) {
+            args.push_back(QStringLiteral("-f"));
+        }
+        if (recursiveMode == QStringLiteral("R")) {
+            args.push_back(QStringLiteral("-R"));
+        } else if (recursiveMode == QStringLiteral("r")) {
+            args.push_back(QStringLiteral("-r"));
+        }
+        args.push_back(target);
+        return runProcessSync(QStringLiteral("zfs"), args, 45000, QStringLiteral("agent timeout running zfs rollback"));
+    }
     if (handled) {
         *handled = false;
     }
@@ -936,7 +1014,7 @@ private:
                 const QString key = cacheKeyFor(cmd, params);
                 const QDateTime now = QDateTime::currentDateTimeUtc();
                 const auto it = m_cache.constFind(key);
-                if (it != m_cache.cend() && it->expiresAtUtc > now) {
+                if (!isMutatingCommand(cmd) && it != m_cache.cend() && it->expiresAtUtc > now) {
                     result = it->result;
                 } else {
                     bool handled = false;
@@ -948,7 +1026,7 @@ private:
                     if (result.rc != 0) {
                         ++m_rpcFailures;
                     }
-                    if (result.rc == 0) {
+                    if (result.rc == 0 && !isMutatingCommand(cmd)) {
                         if (m_cache.size() >= m_cfg.cacheMaxEntries) {
                             invalidateCache(QStringLiteral("cache_max_entries"));
                         }
@@ -957,6 +1035,8 @@ private:
                         const int ttl = isSlowCommand(cmd) ? m_cfg.cacheTtlSlowMs : m_cfg.cacheTtlFastMs;
                         entry.expiresAtUtc = now.addMSecs(ttl);
                         m_cache.insert(key, entry);
+                    } else if (result.rc == 0 && isMutatingCommand(cmd)) {
+                        invalidateCache(QStringLiteral("mutation"));
                     }
                 }
             }

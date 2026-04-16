@@ -13,6 +13,7 @@
 #include <QMessageBox>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QRegularExpression>
 #include <QSet>
 #include <QSysInfo>
 #include <QTimer>
@@ -114,6 +115,104 @@ bool containsAnyToken(const QString& haystackLower, const QStringList& needles) 
         }
     }
     return false;
+}
+
+struct DaemonMutationPlan {
+    bool matched{false};
+    QString daemonCmd;
+};
+
+DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd) {
+    DaemonMutationPlan plan;
+    const QStringList parts = QProcess::splitCommand(rawCmd.trimmed());
+    if (parts.size() < 3) {
+        return plan;
+    }
+    if (parts.at(0) != QStringLiteral("zfs")) {
+        return plan;
+    }
+    const QString op = parts.at(1).trimmed().toLower();
+    auto lastTarget = [&]() -> QString {
+        for (int i = parts.size() - 1; i >= 2; --i) {
+            const QString token = parts.at(i).trimmed();
+            if (token.isEmpty() || token.startsWith(QLatin1Char('-'))) {
+                continue;
+            }
+            return token;
+        }
+        return QString();
+    };
+
+    if (op == QStringLiteral("snapshot")) {
+        const QString target = lastTarget().trimmed();
+        if (target.isEmpty() || !target.contains(QLatin1Char('@'))) {
+            return plan;
+        }
+        bool recursive = false;
+        for (int i = 2; i < parts.size(); ++i) {
+            const QString token = parts.at(i).trimmed();
+            if (token == QStringLiteral("-r")) {
+                recursive = true;
+            }
+        }
+        plan.matched = true;
+        plan.daemonCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-snapshot %1 %2")
+                             .arg(shSingleQuote(target),
+                                  recursive ? QStringLiteral("1") : QStringLiteral("0"));
+        return plan;
+    }
+
+    if (op == QStringLiteral("destroy")) {
+        const QString target = lastTarget().trimmed();
+        if (target.isEmpty() || !target.contains(QLatin1Char('@'))) {
+            return plan;
+        }
+        bool force = false;
+        QString recursiveMode = QStringLiteral("none");
+        for (int i = 2; i < parts.size(); ++i) {
+            const QString token = parts.at(i).trimmed();
+            if (token == QStringLiteral("-f")) {
+                force = true;
+            } else if (token == QStringLiteral("-R")) {
+                recursiveMode = QStringLiteral("R");
+            } else if (token == QStringLiteral("-r") && recursiveMode != QStringLiteral("R")) {
+                recursiveMode = QStringLiteral("r");
+            }
+        }
+        plan.matched = true;
+        plan.daemonCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-destroy %1 %2 %3")
+                             .arg(shSingleQuote(target),
+                                  force ? QStringLiteral("1") : QStringLiteral("0"),
+                                  shSingleQuote(recursiveMode));
+        return plan;
+    }
+
+    if (op == QStringLiteral("rollback")) {
+        const QString target = lastTarget().trimmed();
+        if (target.isEmpty() || !target.contains(QLatin1Char('@'))) {
+            return plan;
+        }
+        bool force = false;
+        QString recursiveMode = QStringLiteral("none");
+        for (int i = 2; i < parts.size(); ++i) {
+            const QString token = parts.at(i).trimmed();
+            if (token == QStringLiteral("-f")) {
+                force = true;
+            } else if (token == QStringLiteral("-R")) {
+                recursiveMode = QStringLiteral("R");
+            } else if (token == QStringLiteral("-r") && recursiveMode != QStringLiteral("R")) {
+                recursiveMode = QStringLiteral("r");
+            }
+        }
+        plan.matched = true;
+        plan.daemonCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-rollback %1 %2 %3")
+                             .arg(shSingleQuote(target),
+                                  force ? QStringLiteral("1") : QStringLiteral("0"),
+                                  shSingleQuote(recursiveMode));
+        return plan;
+    }
+
+    return plan;
 }
 } // namespace
 
@@ -425,9 +524,22 @@ bool MainWindow::executeDatasetAction(const QString& side,
         appLog(QStringLiteral("INFO"), QStringLiteral("%1 cancelada: faltan credenciales sudo locales").arg(actionName));
         return false;
     }
+    const bool daemonMutateApiOk =
+        !isWindowsConnection(p)
+        && ctx.connIdx >= 0
+        && ctx.connIdx < m_states.size()
+        && m_states[ctx.connIdx].daemonInstalled
+        && m_states[ctx.connIdx].daemonActive
+        && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     const bool usesStreamInput = !stdinPayload.isEmpty();
-    const QString effectiveCmd =
+    QString effectiveCmd =
         isWindowsConnection(p) ? cmd : mwhelpers::withUnixSearchPathCommand(cmd);
+    if (!usesStreamInput && daemonMutateApiOk) {
+        const DaemonMutationPlan mutatePlan = daemonMutationPlanForCommand(cmd);
+        if (mutatePlan.matched && !mutatePlan.daemonCmd.trimmed().isEmpty()) {
+            effectiveCmd = mwhelpers::withUnixSearchPathCommand(mutatePlan.daemonCmd);
+        }
+    }
     QString remoteCmd = usesStreamInput ? withSudoStreamInput(sudoProfile, effectiveCmd)
                                         : withSudo(sudoProfile, effectiveCmd);
     const QString preview = QStringLiteral("[%1]\n%2")
