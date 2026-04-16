@@ -549,6 +549,13 @@ int main(int argc, char* argv[]) {
             }
             return proxied.rc;
         }
+        if (parsedCmd == QStringLiteral("--health")) {
+            QTextStream(stdout) << "STATUS=DOWN\n";
+            QTextStream(stdout) << "VERSION=" << agentversion::currentVersion() << '\n';
+            QTextStream(stdout) << "API=" << agentversion::expectedApiVersion() << '\n';
+            QTextStream(stderr) << "daemon server is not reachable\n";
+            return 1;
+        }
     }
 
     if (args.contains(QStringLiteral("--health"))) {
