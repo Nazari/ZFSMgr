@@ -496,6 +496,13 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                                                QString& out,
                                                QString& err,
                                                int& rc) {
+    // Este camino mantiene/crea QProcess asociados a estado de MainWindow.
+    // Si se ejecuta desde un worker de QtConcurrent puede crear QObject hijos
+    // con parent en otro hilo (warning/crash de afinidad).
+    if (QThread::currentThread() != thread()) {
+        return false;
+    }
+
     out.clear();
     err.clear();
     rc = -1;

@@ -18,17 +18,185 @@ QString tlsClientCertPath() { return QStringLiteral("/etc/zfsmgr/tls/client.crt"
 QString tlsClientKeyPath() { return QStringLiteral("/etc/zfsmgr/tls/client.key"); }
 
 QString unixStubScript(const QString& version, const QString& apiVersion) {
-    QString daemonScript = QString::fromUtf8(
-        "#!/bin/sh\n"
-        "# ZFSMgr Agent Version: __VERSION__\n"
-        "# ZFSMgr Agent API: __API__\n"
-        "set -eu\n"
-        "case \"${1:-serve}\" in\n"
-        "  --version|version) printf '%s\\n' '__VERSION__'; exit 0 ;;\n"
-        "  --api-version|api) printf '%s\\n' '__API__'; exit 0 ;;\n"
-        "  --serve|serve) while :; do sleep 3600; done ;;\n"
-        "  *) printf 'usage: %s [--version|--api-version|--serve]\\n' \"$0\" >&2; exit 2 ;;\n"
-        "esac\n");
+    QString daemonScript = QString::fromUtf8(R"SH(
+#!/bin/sh
+# ZFSMgr Agent Version: __VERSION__
+# ZFSMgr Agent API: __API__
+set -eu
+
+find_helper() {
+  helper="$1"
+  for d in "/home/${SUDO_USER:-}/.config/ZFSMgr/bin" "/Users/${SUDO_USER:-}/.config/ZFSMgr/bin" "$HOME/.config/ZFSMgr/bin"; do
+    [ -x "$d/$helper" ] && { printf '%s\n' "$d/$helper"; return 0; }
+  done
+  return 1
+}
+
+run_generic_payload() {
+  tool="$1"
+  payload="$2"
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 not available for generic mutation payload" >&2
+    return 127
+  fi
+  python3 - "$tool" "$payload" <<'PY'
+import base64, json, subprocess, sys
+tool = sys.argv[1]
+payload = sys.argv[2]
+allowed_zfs = {
+    "create","destroy","rollback","clone","rename","set","inherit",
+    "mount","unmount","hold","release","load-key","unload-key","change-key","promote"
+}
+allowed_zpool = {
+    "create","destroy","add","remove","attach","detach","replace",
+    "offline","online","clear","export","import","scrub","trim",
+    "initialize","sync","upgrade","reguid","split","checkpoint"
+}
+try:
+    arr = json.loads(base64.b64decode(payload))
+except Exception:
+    print("invalid generic payload", file=sys.stderr)
+    sys.exit(2)
+if not isinstance(arr, list) or not arr or not all(isinstance(v, str) for v in arr):
+    print("invalid generic payload", file=sys.stderr)
+    sys.exit(2)
+op = arr[0].strip().lower()
+if tool == "zfs":
+    if op not in allowed_zfs:
+        print("unsupported zfs mutation op", file=sys.stderr)
+        sys.exit(2)
+elif tool == "zpool":
+    if op not in allowed_zpool:
+        print("unsupported zpool mutation op", file=sys.stderr)
+        sys.exit(2)
+else:
+    print("unsupported mutation tool", file=sys.stderr)
+    sys.exit(2)
+sys.exit(subprocess.call([tool] + arr))
+PY
+}
+
+cmd="${1:---serve}"
+case "$cmd" in
+  --version|version) printf '%s\n' '__VERSION__'; exit 0 ;;
+  --api-version|api) printf '%s\n' '__API__'; exit 0 ;;
+  --serve|serve) while :; do sleep 3600; done ;;
+  --health)
+    printf 'STATUS=OK\nSERVER=1\nCACHE_ENTRIES=0\nCACHE_MAX_ENTRIES=0\nCACHE_INVALIDATIONS=0\nPOOL_INVALIDATIONS=0\nRPC_FAILURES=0\nRPC_COMMANDS=\nZED_ACTIVE=0\n'
+    ;;
+  --dump-refresh-basics)
+    if h="$(find_helper zfsmgr-refresh-basics 2>/dev/null)"; then exec "$h"; fi
+    os_line="$(uname -s 2>/dev/null) $(uname -r 2>/dev/null)"
+    if [ -r /etc/os-release ]; then
+      os_line="$(. /etc/os-release 2>/dev/null; printf '%s %s' "${NAME:-$(uname -s)}" "${VERSION_ID:-}")"
+    fi
+    machine_uuid="$(cat /etc/machine-id 2>/dev/null | head -n1 || true)"
+    [ -z "$machine_uuid" ] && machine_uuid="$(cat /var/lib/dbus/machine-id 2>/dev/null | head -n1 || true)"
+    zraw="$(zfs --version 2>&1 | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g' | sed 's/[[:space:]]$//')"
+    zsem="$(printf '%s\n' "$zraw" | sed -n 's/.*\([0-9][0-9]*\.[0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\).*/\1/p' | head -n1)"
+    printf 'OS_LINE=%s\nMACHINE_UUID=%s\nZFS_VERSION_RAW=%s\nZFS_VERSION_SEMVER=%s\n' "$os_line" "$machine_uuid" "$zraw" "$zsem"
+    ;;
+  --dump-zfs-version)
+    if h="$(find_helper zfsmgr-zfs-version 2>/dev/null)"; then exec "$h"; fi
+    exec zfs --version
+    ;;
+  --dump-zfs-mount)
+    if h="$(find_helper zfsmgr-zfs-mount-list 2>/dev/null)"; then exec "$h"; fi
+    exec zfs mount -H
+    ;;
+  --dump-zpool-list)
+    if h="$(find_helper zfsmgr-zpool-list-json 2>/dev/null)"; then exec "$h"; fi
+    exec zpool list -j
+    ;;
+  --dump-zpool-import-probe)
+    if h="$(find_helper zfsmgr-zpool-import-probe 2>/dev/null)"; then exec "$h"; fi
+    (zpool import || true; zpool import -s || true)
+    ;;
+  --dump-zpool-guid-status-batch)
+    if h="$(find_helper zfsmgr-zpool-guid-status-all 2>/dev/null)"; then exec "$h"; fi
+    zpool list -H -o name 2>/dev/null | while IFS= read -r pool; do
+      [ -z "$pool" ] && continue
+      guid="$(zpool get -H -o value guid "$pool" 2>/dev/null | head -n1 || true)"
+      printf '__ZFSMGR_POOL__:%s\n' "$pool"
+      printf '__ZFSMGR_GUID__:%s\n' "$guid"
+      zpool status -v "$pool" 2>&1 || true
+      printf '__ZFSMGR_END__:%s\n' "$pool"
+    done
+    ;;
+  --dump-zpool-guid)
+    exec zpool get -H -o value guid "$2"
+    ;;
+  --dump-zpool-status)
+    exec zpool status -v "$2"
+    ;;
+  --dump-zpool-status-p)
+    exec zpool status -P "$2"
+    ;;
+  --dump-zpool-get-all)
+    exec zpool get -j all "$2"
+    ;;
+  --dump-zfs-list-all)
+    if h="$(find_helper zfsmgr-zfs-list-all 2>/dev/null)"; then exec "$h" "$2"; fi
+    exec zfs list -H -p -t filesystem,volume,snapshot -o name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount -r "$2"
+    ;;
+  --dump-zfs-guid-map)
+    if h="$(find_helper zfsmgr-zfs-guid-map 2>/dev/null)"; then exec "$h" "$2"; fi
+    exec zfs list -H -o name,guid -r "$2"
+    ;;
+  --dump-zfs-get-prop)
+    exec zfs get -H -o value "$2" "$3"
+    ;;
+  --dump-zfs-get-all)
+    if h="$(find_helper zfsmgr-zfs-get-all-json 2>/dev/null)"; then exec "$h" "$2"; fi
+    exec zfs get -j all "$2"
+    ;;
+  --dump-zfs-get-json)
+    if h="$(find_helper zfsmgr-zfs-get-json 2>/dev/null)"; then exec "$h" "$2" "$3"; fi
+    exec zfs get -j "$2" "$3"
+    ;;
+  --dump-zfs-get-gsa-raw-all-pools)
+    if h="$(find_helper zfsmgr-zfs-get-gsa-raw-all-pools 2>/dev/null)"; then exec "$h"; fi
+    zpool list -H -o name 2>/dev/null | while IFS= read -r pool; do
+      [ -z "$pool" ] && continue
+      zfs get -H -o name,property,value,source -r org.fc16.gsa:activado,org.fc16.gsa:recursivo,org.fc16.gsa:horario,org.fc16.gsa:diario,org.fc16.gsa:semanal,org.fc16.gsa:mensual,org.fc16.gsa:anual,org.fc16.gsa:nivelar,org.fc16.gsa:destino "$pool" 2>/dev/null || true
+    done
+    ;;
+  --dump-zfs-get-gsa-raw-recursive)
+    if h="$(find_helper zfsmgr-zfs-get-gsa-raw-recursive 2>/dev/null)"; then exec "$h" "$2"; fi
+    exec zfs get -H -o name,property,value,source -r org.fc16.gsa:activado,org.fc16.gsa:recursivo,org.fc16.gsa:horario,org.fc16.gsa:diario,org.fc16.gsa:semanal,org.fc16.gsa:mensual,org.fc16.gsa:anual,org.fc16.gsa:nivelar,org.fc16.gsa:destino "$2"
+    ;;
+  --dump-gsa-connections-conf)
+    [ -r /etc/zfsmgr/gsa-connections.conf ] && cat /etc/zfsmgr/gsa-connections.conf || true
+    ;;
+  --mutate-zfs-snapshot)
+    [ "${3:-0}" = "1" ] && exec zfs snapshot -r "$2" || exec zfs snapshot "$2"
+    ;;
+  --mutate-zfs-destroy)
+    force=""; rec=""
+    [ "${3:-0}" = "1" ] && force="-f"
+    [ "${4:-none}" = "R" ] && rec="-R"
+    [ "${4:-none}" = "r" ] && rec="-r"
+    exec zfs destroy $force $rec "$2"
+    ;;
+  --mutate-zfs-rollback)
+    force=""; rec=""
+    [ "${3:-0}" = "1" ] && force="-f"
+    [ "${4:-none}" = "R" ] && rec="-R"
+    [ "${4:-none}" = "r" ] && rec="-r"
+    exec zfs rollback $force $rec "$2"
+    ;;
+  --mutate-zfs-generic)
+    run_generic_payload zfs "$2"
+    ;;
+  --mutate-zpool-generic)
+    run_generic_payload zpool "$2"
+    ;;
+  *)
+    printf 'usage: %s [--version|--api-version|--serve|--health|--dump-*|--mutate-*]\n' "$0" >&2
+    exit 2
+    ;;
+esac
+)SH");
     daemonScript.replace(QStringLiteral("__VERSION__"), version.trimmed());
     daemonScript.replace(QStringLiteral("__API__"), apiVersion.trimmed());
     return daemonScript;

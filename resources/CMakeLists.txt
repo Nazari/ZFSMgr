@@ -11,6 +11,21 @@ string(REGEX REPLACE "[cC]" "3" ZFSMGR_GSA_VERSION_SUFFIX "${ZFSMGR_GSA_VERSION_
 string(REGEX REPLACE "[dD]" "4" ZFSMGR_GSA_VERSION_SUFFIX "${ZFSMGR_GSA_VERSION_SUFFIX}")
 string(REGEX REPLACE "[eE]" "5" ZFSMGR_GSA_VERSION_SUFFIX "${ZFSMGR_GSA_VERSION_SUFFIX}")
 string(REGEX REPLACE "[fF]" "6" ZFSMGR_GSA_VERSION_SUFFIX "${ZFSMGR_GSA_VERSION_SUFFIX}")
+set(ZFSMGR_AGENT_SCHEMA_MARKER [=[linux-service:/etc/systemd/system/zfsmgr-agent.service
+linux-bin:/usr/local/libexec/zfsmgr-agent
+linux-config:/etc/zfsmgr/agent.toml
+linux-state:/var/lib/zfsmgr-agent/state.db
+mac-plist:/Library/LaunchDaemons/org.zfsmgr.agent.plist
+freebsd-rc:/usr/local/etc/rc.d/zfsmgr_agent
+win-service:ZFSMgrAgent
+tls:mtls-required
+api:v1
+]=])
+string(SHA256 ZFSMGR_AGENT_SCHEMA_SHA "${ZFSMGR_AGENT_SCHEMA_MARKER}")
+string(SUBSTRING "${ZFSMGR_AGENT_SCHEMA_SHA}" 0 8 ZFSMGR_AGENT_SCHEMA_HEX)
+math(EXPR ZFSMGR_AGENT_SCHEMA_RAW "0x${ZFSMGR_AGENT_SCHEMA_HEX}")
+math(EXPR ZFSMGR_AGENT_VERSION_SUFFIX "${ZFSMGR_AGENT_SCHEMA_RAW} % 1000000000")
+set(ZFSMGR_AGENT_VERSION_STRING "${ZFSMGR_APP_VERSION_STRING}.${ZFSMGR_AGENT_VERSION_SUFFIX}")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -94,6 +109,7 @@ target_compile_definitions(zfsmgr_core PUBLIC
     QT_NO_KEYWORDS
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
     ZFSMGR_GSA_VERSION_SUFFIX="${ZFSMGR_GSA_VERSION_SUFFIX}"
+    ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
 )
 
 qt_add_executable(zfsmgr_qt
@@ -102,16 +118,12 @@ qt_add_executable(zfsmgr_qt
 
 target_link_libraries(zfsmgr_qt PRIVATE zfsmgr_core)
 
-qt_add_executable(zfsmgr_agent
+add_executable(zfsmgr_agent
     ../src/daemon_main.cpp
-    ../src/agentversion.cpp
 )
-target_link_libraries(zfsmgr_agent PRIVATE Qt6::Core)
-target_link_libraries(zfsmgr_agent PRIVATE Qt6::Network)
 target_compile_definitions(zfsmgr_agent PRIVATE
-    QT_NO_KEYWORDS
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
-    ZFSMGR_GSA_VERSION_SUFFIX="${ZFSMGR_GSA_VERSION_SUFFIX}"
+    ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
 )
 
 if(WIN32)

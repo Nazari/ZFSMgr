@@ -872,6 +872,7 @@ private:
     void setConnectionDisconnected(int idx, bool disconnected);
     void refreshConnectionByIndex(int idx);
     bool installOrUpdateGsaForConnectionInternal(int idx, bool interactive);
+    bool installOrUpdateDaemonForConnectionInternal(int idx, bool interactive);
     void refreshInstalledGsaAfterConnectionChange(const QString& changedConnectionName);
     struct PoolListEntry {
         QString connection;

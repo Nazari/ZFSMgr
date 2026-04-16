@@ -1,1446 +1,864 @@
-#include "agentversion.h"
+#include <algorithm>
+#include <atomic>
+#include <cerrno>
+#include <cctype>
+#include <chrono>
+#include <csignal>
+#include <cstddef>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
+#include <fstream>
+#include <iostream>
+#include <set>
+#include <sstream>
+#include <string>
+#include <thread>
+#include <vector>
 
-#include <QCoreApplication>
-#include <QDateTime>
-#include <QFile>
-#include <QHash>
-#include <QHostAddress>
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QProcess>
-#include <QRegularExpression>
-#include <QSslCertificate>
-#include <QSslConfiguration>
-#include <QSslError>
-#include <QSslKey>
-#include <QSslSocket>
-#include <QTcpServer>
-#include <QTcpSocket>
-#include <QTextStream>
-#include <QTimer>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 namespace {
 
-constexpr const char* kDefaultConfigPath = "/etc/zfsmgr/agent.conf";
-constexpr const char* kDefaultTlsCertPath = "/etc/zfsmgr/tls/server.crt";
-constexpr const char* kDefaultTlsKeyPath = "/etc/zfsmgr/tls/server.key";
-constexpr const char* kDefaultTlsClientCertPath = "/etc/zfsmgr/tls/client.crt";
-constexpr const char* kDefaultTlsClientKeyPath = "/etc/zfsmgr/tls/client.key";
 constexpr const char* kHeartbeatPath = "/tmp/zfsmgr-agent-heartbeat.log";
 
-struct AgentConfig {
-    QString bindAddress{QStringLiteral("127.0.0.1")};
-    quint16 port{47653};
-    QString tlsCertPath{QString::fromLatin1(kDefaultTlsCertPath)};
-    QString tlsKeyPath{QString::fromLatin1(kDefaultTlsKeyPath)};
-    QString tlsClientCertPath{QString::fromLatin1(kDefaultTlsClientCertPath)};
-    QString tlsClientKeyPath{QString::fromLatin1(kDefaultTlsClientKeyPath)};
-    int cacheTtlFastMs{2000};
-    int cacheTtlSlowMs{8000};
-    int cacheMaxEntries{512};
-    int reconcileIntervalMs{60000};
-    bool zedEventsEnabled{true};
-};
+constexpr const char* kApiVersion = "1";
+#ifndef ZFSMGR_AGENT_VERSION_STRING
+#define ZFSMGR_AGENT_VERSION_STRING ZFSMGR_APP_VERSION
+#endif
+
+std::atomic<bool> g_stop{false};
 
 struct ExecResult {
     int rc{1};
-    QString out;
-    QString err;
+    std::string out;
+    std::string err;
 };
 
-struct CacheEntry {
-    ExecResult result;
-    QDateTime expiresAtUtc;
-};
-
-struct CommandSpec {
-    const char* name;
-    int argc;
-};
-
-const QVector<CommandSpec>& supportedCommandSpecs() {
-    static const QVector<CommandSpec> specs = {
-        {"--health", 0},
-        {"--dump-zpool-list", 0},
-        {"--dump-refresh-basics", 0},
-        {"--dump-zfs-version", 0},
-        {"--dump-zfs-mount", 0},
-        {"--dump-zpool-guid-status-batch", 0},
-        {"--dump-zpool-guid", 1},
-        {"--dump-zpool-status", 1},
-        {"--dump-zpool-status-p", 1},
-        {"--dump-zpool-get-all", 1},
-        {"--dump-zpool-import-probe", 0},
-        {"--dump-zfs-list-all", 1},
-        {"--dump-zfs-guid-map", 1},
-        {"--dump-zfs-get-prop", 2},
-        {"--dump-zfs-get-all", 1},
-        {"--dump-zfs-get-json", 2},
-        {"--dump-zfs-get-gsa-raw-all-pools", 0},
-        {"--dump-zfs-get-gsa-raw-recursive", 1},
-        {"--dump-gsa-connections-conf", 0},
-        {"--mutate-zfs-snapshot", 2},
-        {"--mutate-zfs-destroy", 3},
-        {"--mutate-zfs-rollback", 3},
-        {"--mutate-zfs-generic", 1},
-        {"--mutate-zpool-generic", 1},
-    };
-    return specs;
+std::string trim(const std::string& s) {
+    const auto isSpace = [](unsigned char c) { return std::isspace(c) != 0; };
+    std::size_t a = 0;
+    while (a < s.size() && isSpace(static_cast<unsigned char>(s[a]))) {
+        ++a;
+    }
+    std::size_t b = s.size();
+    while (b > a && isSpace(static_cast<unsigned char>(s[b - 1]))) {
+        --b;
+    }
+    return s.substr(a, b - a);
 }
 
-QStringList supportedCommandNames() {
-    QStringList names;
-    for (const CommandSpec& s : supportedCommandSpecs()) {
-        names.push_back(QString::fromLatin1(s.name));
+std::string toLower(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return s;
+}
+
+std::vector<std::string> splitLines(const std::string& s) {
+    std::vector<std::string> lines;
+    std::stringstream ss(s);
+    std::string line;
+    while (std::getline(ss, line)) {
+        lines.push_back(line);
     }
-    return names;
+    if (!s.empty() && s.back() == '\n') {
+        // std::getline descarta última línea vacía; no hace falta conservarla aquí.
+    }
+    return lines;
+}
+
+std::string readFirstLineFile(const char* path) {
+    std::ifstream f(path);
+    if (!f.is_open()) {
+        return {};
+    }
+    std::string line;
+    std::getline(f, line);
+    return trim(line);
+}
+
+std::string compactSpaces(std::string s) {
+    std::string out;
+    out.reserve(s.size());
+    bool prevSpace = false;
+    for (unsigned char c : s) {
+        if (c == '\r' || c == '\n' || std::isspace(c)) {
+            if (!prevSpace) {
+                out.push_back(' ');
+                prevSpace = true;
+            }
+        } else {
+            out.push_back(static_cast<char>(c));
+            prevSpace = false;
+        }
+    }
+    return trim(out);
+}
+
+int decodeWaitStatus(int status) {
+    if (WIFEXITED(status)) {
+        return WEXITSTATUS(status);
+    }
+    if (WIFSIGNALED(status)) {
+        return 128 + WTERMSIG(status);
+    }
+    return 125;
+}
+
+int runExecStreaming(const std::string& program, const std::vector<std::string>& args) {
+    std::vector<char*> argv;
+    argv.reserve(args.size() + 2);
+    argv.push_back(const_cast<char*>(program.c_str()));
+    for (const std::string& a : args) {
+        argv.push_back(const_cast<char*>(a.c_str()));
+    }
+    argv.push_back(nullptr);
+
+    const pid_t pid = fork();
+    if (pid < 0) {
+        std::cerr << "fork failed\n";
+        return 125;
+    }
+    if (pid == 0) {
+        execvp(program.c_str(), argv.data());
+        std::perror("execvp");
+        _exit(127);
+    }
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0) {
+        std::perror("waitpid");
+        return 125;
+    }
+    return decodeWaitStatus(status);
+}
+
+ExecResult runExecCapture(const std::string& program, const std::vector<std::string>& args) {
+    ExecResult r;
+    int outPipe[2] = {-1, -1};
+    int errPipe[2] = {-1, -1};
+    if (pipe(outPipe) != 0 || pipe(errPipe) != 0) {
+        r.rc = 125;
+        r.err = "pipe failed";
+        if (outPipe[0] >= 0) {
+            close(outPipe[0]);
+        }
+        if (outPipe[1] >= 0) {
+            close(outPipe[1]);
+        }
+        if (errPipe[0] >= 0) {
+            close(errPipe[0]);
+        }
+        if (errPipe[1] >= 0) {
+            close(errPipe[1]);
+        }
+        return r;
+    }
+
+    std::vector<char*> argv;
+    argv.reserve(args.size() + 2);
+    argv.push_back(const_cast<char*>(program.c_str()));
+    for (const std::string& a : args) {
+        argv.push_back(const_cast<char*>(a.c_str()));
+    }
+    argv.push_back(nullptr);
+
+    const pid_t pid = fork();
+    if (pid < 0) {
+        r.rc = 125;
+        r.err = "fork failed";
+        close(outPipe[0]);
+        close(outPipe[1]);
+        close(errPipe[0]);
+        close(errPipe[1]);
+        return r;
+    }
+
+    if (pid == 0) {
+        dup2(outPipe[1], STDOUT_FILENO);
+        dup2(errPipe[1], STDERR_FILENO);
+        close(outPipe[0]);
+        close(outPipe[1]);
+        close(errPipe[0]);
+        close(errPipe[1]);
+        execvp(program.c_str(), argv.data());
+        std::perror("execvp");
+        _exit(127);
+    }
+
+    close(outPipe[1]);
+    close(errPipe[1]);
+
+    auto readAllFd = [](int fd) {
+        std::string out;
+        char buf[4096];
+        while (true) {
+            const ssize_t n = read(fd, buf, sizeof(buf));
+            if (n == 0) {
+                break;
+            }
+            if (n < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                break;
+            }
+            out.append(buf, static_cast<std::size_t>(n));
+        }
+        return out;
+    };
+
+    r.out = readAllFd(outPipe[0]);
+    r.err = readAllFd(errPipe[0]);
+    close(outPipe[0]);
+    close(errPipe[0]);
+
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0) {
+        r.rc = 125;
+        r.err += "\nwaitpid failed";
+        return r;
+    }
+    r.rc = decodeWaitStatus(status);
+    return r;
+}
+
+bool startsWith(const std::string& s, const std::string& pref) {
+    return s.size() >= pref.size() && s.compare(0, pref.size(), pref) == 0;
+}
+
+void onSignal(int) {
+    g_stop.store(true);
 }
 
 void writeHeartbeat() {
-    QFile f(QString::fromLatin1(kHeartbeatPath));
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+    std::ofstream f(kHeartbeatPath, std::ios::app);
+    if (!f.is_open()) {
         return;
     }
-    QTextStream ts(&f);
-    ts << QDateTime::currentDateTimeUtc().toString(Qt::ISODate)
-       << " agent alive\n";
+    std::time_t now = std::time(nullptr);
+    std::tm tm{};
+    gmtime_r(&now, &tm);
+    char buf[64];
+    if (std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm) == 0) {
+        return;
+    }
+    f << buf << " agent alive\n";
 }
 
-QString stripQuotes(QString v) {
-    v = v.trimmed();
-    if (v.size() >= 2) {
-        const QChar first = v.front();
-        const QChar last = v.back();
-        if ((first == QLatin1Char('\'') && last == QLatin1Char('\''))
-            || (first == QLatin1Char('"') && last == QLatin1Char('"'))) {
-            return v.mid(1, v.size() - 2);
-        }
-    }
-    return v;
-}
-
-bool parseBoolValue(QString v, bool fallback) {
-    v = stripQuotes(v).trimmed().toLower();
-    if (v == QStringLiteral("1") || v == QStringLiteral("true") || v == QStringLiteral("yes")
-        || v == QStringLiteral("on")) {
-        return true;
-    }
-    if (v == QStringLiteral("0") || v == QStringLiteral("false") || v == QStringLiteral("no")
-        || v == QStringLiteral("off")) {
-        return false;
-    }
-    return fallback;
-}
-
-int parseIntValue(QString v, int fallback) {
-    bool ok = false;
-    const int parsed = stripQuotes(v).trimmed().toInt(&ok);
-    return ok ? parsed : fallback;
-}
-
-AgentConfig loadAgentConfig(const QString& path) {
-    AgentConfig cfg;
-    QFile f(path.trimmed().isEmpty() ? QString::fromLatin1(kDefaultConfigPath) : path.trimmed());
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return cfg;
-    }
-    const QStringList lines = QString::fromUtf8(f.readAll()).split('\n');
-    for (const QString& raw : lines) {
-        const QString line = raw.trimmed();
-        if (line.isEmpty() || line.startsWith(QLatin1Char('#'))) {
-            continue;
-        }
-        const int eq = line.indexOf(QLatin1Char('='));
-        if (eq <= 0) {
-            continue;
-        }
-        const QString key = line.left(eq).trimmed().toUpper();
-        const QString value = line.mid(eq + 1).trimmed();
-        if (key == QStringLiteral("TLS_CERT")) {
-            cfg.tlsCertPath = stripQuotes(value);
-        } else if (key == QStringLiteral("TLS_KEY")) {
-            cfg.tlsKeyPath = stripQuotes(value);
-        } else if (key == QStringLiteral("TLS_CLIENT_CERT")) {
-            cfg.tlsClientCertPath = stripQuotes(value);
-        } else if (key == QStringLiteral("TLS_CLIENT_KEY")) {
-            cfg.tlsClientKeyPath = stripQuotes(value);
-        } else if (key == QStringLiteral("AGENT_BIND") || key == QStringLiteral("BIND")) {
-            cfg.bindAddress = stripQuotes(value);
-        } else if (key == QStringLiteral("AGENT_PORT") || key == QStringLiteral("PORT")) {
-            const int p = parseIntValue(value, cfg.port);
-            if (p > 0 && p <= 65535) {
-                cfg.port = static_cast<quint16>(p);
+std::string detectOsLine() {
+    ExecResult unames = runExecCapture("uname", {"-s"});
+    const std::string unameS = trim(unames.out);
+    if (unameS == "Linux") {
+        std::ifstream f("/etc/os-release");
+        if (f.is_open()) {
+            std::string line;
+            std::string name;
+            std::string ver;
+            while (std::getline(f, line)) {
+                if (startsWith(line, "NAME=")) {
+                    name = line.substr(5);
+                } else if (startsWith(line, "VERSION_ID=")) {
+                    ver = line.substr(11);
+                }
             }
-        } else if (key == QStringLiteral("CACHE_TTL_FAST_MS")) {
-            cfg.cacheTtlFastMs = qMax(100, parseIntValue(value, cfg.cacheTtlFastMs));
-        } else if (key == QStringLiteral("CACHE_TTL_SLOW_MS")) {
-            cfg.cacheTtlSlowMs = qMax(100, parseIntValue(value, cfg.cacheTtlSlowMs));
-        } else if (key == QStringLiteral("CACHE_MAX_ENTRIES")) {
-            cfg.cacheMaxEntries = qMax(32, parseIntValue(value, cfg.cacheMaxEntries));
-        } else if (key == QStringLiteral("RECONCILE_INTERVAL_MS")) {
-            cfg.reconcileIntervalMs = qMax(1000, parseIntValue(value, cfg.reconcileIntervalMs));
-        } else if (key == QStringLiteral("ZED_EVENTS") || key == QStringLiteral("ZED_EVENTS_ENABLED")) {
-            cfg.zedEventsEnabled = parseBoolValue(value, cfg.zedEventsEnabled);
-        }
-    }
-    return cfg;
-}
-
-bool parseRemoteCommand(const QStringList& args, QString& cmd, QStringList& params) {
-    for (int i = 0; i < args.size(); ++i) {
-        const QString a = args.at(i);
-        for (const CommandSpec& spec : supportedCommandSpecs()) {
-            const QString name = QString::fromLatin1(spec.name);
-            if (a != name) {
-                continue;
-            }
-            if (i + spec.argc >= args.size()) {
-                return false;
-            }
-            cmd = name;
-            params.clear();
-            for (int k = 0; k < spec.argc; ++k) {
-                params.push_back(args.at(i + 1 + k));
-            }
-            return true;
-        }
-    }
-    return false;
-}
-
-bool isSlowCommand(const QString& cmd) {
-    return cmd == QStringLiteral("--dump-zpool-status")
-        || cmd == QStringLiteral("--dump-zpool-status-p")
-        || cmd == QStringLiteral("--dump-zpool-guid-status-batch")
-        || cmd == QStringLiteral("--dump-zpool-import-probe")
-        || cmd == QStringLiteral("--dump-zfs-list-all")
-        || cmd == QStringLiteral("--dump-zfs-get-gsa-raw-all-pools")
-        || cmd == QStringLiteral("--dump-zfs-get-gsa-raw-recursive");
-}
-
-bool isMutatingCommand(const QString& cmd) {
-    return cmd == QStringLiteral("--mutate-zfs-snapshot")
-        || cmd == QStringLiteral("--mutate-zfs-destroy")
-        || cmd == QStringLiteral("--mutate-zfs-rollback")
-        || cmd == QStringLiteral("--mutate-zfs-generic")
-        || cmd == QStringLiteral("--mutate-zpool-generic");
-}
-
-bool isAllowedGenericZfsMutationOp(const QString& opRaw) {
-    const QString op = opRaw.trimmed().toLower();
-    static const QSet<QString> allowed = {
-        QStringLiteral("create"),
-        QStringLiteral("destroy"),
-        QStringLiteral("rollback"),
-        QStringLiteral("clone"),
-        QStringLiteral("rename"),
-        QStringLiteral("set"),
-        QStringLiteral("inherit"),
-        QStringLiteral("mount"),
-        QStringLiteral("unmount"),
-        QStringLiteral("hold"),
-        QStringLiteral("release"),
-        QStringLiteral("load-key"),
-        QStringLiteral("unload-key"),
-        QStringLiteral("change-key"),
-        QStringLiteral("promote"),
-    };
-    return allowed.contains(op);
-}
-
-bool isAllowedGenericZpoolMutationOp(const QString& opRaw) {
-    const QString op = opRaw.trimmed().toLower();
-    static const QSet<QString> allowed = {
-        QStringLiteral("create"),
-        QStringLiteral("destroy"),
-        QStringLiteral("add"),
-        QStringLiteral("remove"),
-        QStringLiteral("attach"),
-        QStringLiteral("detach"),
-        QStringLiteral("replace"),
-        QStringLiteral("offline"),
-        QStringLiteral("online"),
-        QStringLiteral("clear"),
-        QStringLiteral("export"),
-        QStringLiteral("import"),
-        QStringLiteral("scrub"),
-        QStringLiteral("trim"),
-        QStringLiteral("initialize"),
-        QStringLiteral("sync"),
-        QStringLiteral("upgrade"),
-        QStringLiteral("reguid"),
-        QStringLiteral("split"),
-        QStringLiteral("checkpoint"),
-    };
-    return allowed.contains(op);
-}
-
-QString cacheKeyFor(const QString& cmd, const QStringList& params) {
-    return cmd + QStringLiteral("\x1F") + params.join(QStringLiteral("\x1F"));
-}
-
-bool parseCacheKey(const QString& key, QString& cmdOut, QStringList& paramsOut) {
-    const QStringList parts = key.split(QStringLiteral("\x1F"));
-    if (parts.isEmpty()) {
-        cmdOut.clear();
-        paramsOut.clear();
-        return false;
-    }
-    cmdOut = parts.first();
-    paramsOut = parts.mid(1);
-    return !cmdOut.trimmed().isEmpty();
-}
-
-QSet<QString> extractPoolsFromEventText(const QString& text) {
-    QSet<QString> pools;
-    const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
-    const QRegularExpression rxPoolEq(QStringLiteral("(?im)\\bpool\\s*=\\s*([A-Za-z0-9_.:-]+)"));
-    const QRegularExpression rxPoolColon(QStringLiteral("(?im)^\\s*pool\\s*:\\s*([A-Za-z0-9_.:-]+)\\s*$"));
-    const QRegularExpression rxDataset(QStringLiteral("(?im)\\b([A-Za-z0-9_.:-]+/[A-Za-z0-9_.:/-]+)\\b"));
-    for (const QString& line : lines) {
-        const QRegularExpressionMatch eq = rxPoolEq.match(line);
-        if (eq.hasMatch()) {
-            pools.insert(eq.captured(1).trimmed());
-        }
-        const QRegularExpressionMatch col = rxPoolColon.match(line);
-        if (col.hasMatch()) {
-            pools.insert(col.captured(1).trimmed());
-        }
-        QRegularExpressionMatchIterator it = rxDataset.globalMatch(line);
-        while (it.hasNext()) {
-            const QRegularExpressionMatch m = it.next();
-            const QString ds = m.captured(1).trimmed();
-            const int slash = ds.indexOf('/');
-            if (slash > 0) {
-                pools.insert(ds.left(slash));
-            }
-        }
-    }
-    QSet<QString> cleaned;
-    for (const QString& p : pools) {
-        const QString key = p.trimmed();
-        if (!key.isEmpty()) {
-            cleaned.insert(key);
-        }
-    }
-    return cleaned;
-}
-
-ExecResult runProcessSync(const QString& program, const QStringList& args, int timeoutMs, const QString& timeoutMsg) {
-    ExecResult r;
-    QProcess p;
-    p.setProgram(program);
-    p.setArguments(args);
-    p.start();
-    if (!p.waitForFinished(timeoutMs)) {
-        p.kill();
-        p.waitForFinished(2000);
-        r.rc = 124;
-        r.err = timeoutMsg;
-        return r;
-    }
-    r.out = QString::fromUtf8(p.readAllStandardOutput());
-    r.err = QString::fromUtf8(p.readAllStandardError());
-    r.rc = (p.exitStatus() == QProcess::NormalExit) ? p.exitCode() : 125;
-    return r;
-}
-
-ExecResult runProcessSyncWithEnv(const QString& program,
-                                 const QStringList& args,
-                                 const QProcessEnvironment& env,
-                                 int timeoutMs,
-                                 const QString& timeoutMsg) {
-    ExecResult r;
-    QProcess p;
-    p.setProcessEnvironment(env);
-    p.setProgram(program);
-    p.setArguments(args);
-    p.start();
-    if (!p.waitForFinished(timeoutMs)) {
-        p.kill();
-        p.waitForFinished(2000);
-        r.rc = 124;
-        r.err = timeoutMsg;
-        return r;
-    }
-    r.out = QString::fromUtf8(p.readAllStandardOutput());
-    r.err = QString::fromUtf8(p.readAllStandardError());
-    r.rc = (p.exitStatus() == QProcess::NormalExit) ? p.exitCode() : 125;
-    return r;
-}
-
-QString oneLineCompact(const QString& s) {
-    QString out = s;
-    out.replace(QLatin1Char('\r'), QLatin1Char(' '));
-    out.replace(QLatin1Char('\n'), QLatin1Char(' '));
-    out = out.simplified();
-    return out;
-}
-
-ExecResult runRefreshBasicsTyped() {
-    ExecResult r;
-    QString osLine;
-    QString machineUuid;
-    QString zfsRaw;
-
-    {
-        const ExecResult uname = runProcessSync(QStringLiteral("uname"),
-                                                {QStringLiteral("-s")},
-                                                8000,
-                                                QStringLiteral("timeout uname -s"));
-        const QString unameS = oneLineCompact(uname.out).trimmed();
-        const ExecResult unameA = runProcessSync(QStringLiteral("uname"),
-                                                 {QStringLiteral("-a")},
-                                                 8000,
-                                                 QStringLiteral("timeout uname -a"));
-        osLine = oneLineCompact(unameA.out).trimmed();
-        if (unameS == QStringLiteral("Linux")) {
-            QFile osr(QStringLiteral("/etc/os-release"));
-            if (osr.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                const QStringList lines = QString::fromUtf8(osr.readAll()).split(QLatin1Char('\n'));
-                QString name;
-                QString ver;
-                for (const QString& raw : lines) {
-                    const QString line = raw.trimmed();
-                    if (line.startsWith(QStringLiteral("NAME="))) {
-                        name = stripQuotes(line.mid(5));
-                    } else if (line.startsWith(QStringLiteral("VERSION_ID="))) {
-                        ver = stripQuotes(line.mid(QStringLiteral("VERSION_ID=").size()));
+            auto stripQuote = [](std::string x) {
+                x = trim(x);
+                if (x.size() >= 2) {
+                    const char a = x.front();
+                    const char b = x.back();
+                    if ((a == '\'' && b == '\'') || (a == '"' && b == '"')) {
+                        x = x.substr(1, x.size() - 2);
                     }
                 }
-                if (!name.isEmpty()) {
-                    osLine = (name + QStringLiteral(" ") + ver).simplified();
-                } else if (osLine.isEmpty()) {
-                    osLine = QStringLiteral("Linux");
-                }
-            } else if (osLine.isEmpty()) {
-                osLine = QStringLiteral("Linux");
-            }
-        } else if (unameS == QStringLiteral("Darwin")) {
-            const ExecResult pn = runProcessSync(QStringLiteral("sw_vers"),
-                                                 {QStringLiteral("-productName")},
-                                                 8000,
-                                                 QStringLiteral("timeout sw_vers -productName"));
-            const ExecResult pv = runProcessSync(QStringLiteral("sw_vers"),
-                                                 {QStringLiteral("-productVersion")},
-                                                 8000,
-                                                 QStringLiteral("timeout sw_vers -productVersion"));
-            const QString mac = (oneLineCompact(pn.out) + QStringLiteral(" ") + oneLineCompact(pv.out)).simplified();
-            if (!mac.isEmpty()) {
-                osLine = mac;
-            } else if (osLine.isEmpty()) {
-                osLine = QStringLiteral("macOS");
-            }
-        } else if (unameS == QStringLiteral("FreeBSD")) {
-            ExecResult fv = runProcessSync(QStringLiteral("freebsd-version"),
-                                           {QStringLiteral("-k")},
-                                           8000,
-                                           QStringLiteral("timeout freebsd-version -k"));
-            if (fv.rc != 0 || oneLineCompact(fv.out).isEmpty()) {
-                fv = runProcessSync(QStringLiteral("freebsd-version"),
-                                    {},
-                                    8000,
-                                    QStringLiteral("timeout freebsd-version"));
-            }
-            QString ver = oneLineCompact(fv.out).trimmed();
-            if (ver.isEmpty()) {
-                const ExecResult ur = runProcessSync(QStringLiteral("uname"),
-                                                     {QStringLiteral("-r")},
-                                                     8000,
-                                                     QStringLiteral("timeout uname -r"));
-                ver = oneLineCompact(ur.out).trimmed();
-            }
-            if (!ver.isEmpty()) {
-                osLine = QStringLiteral("FreeBSD %1").arg(ver);
-            } else if (osLine.isEmpty()) {
-                osLine = QStringLiteral("FreeBSD");
+                return trim(x);
+            };
+            name = stripQuote(name);
+            ver = stripQuote(ver);
+            const std::string combined = trim(name + " " + ver);
+            if (!combined.empty()) {
+                return combined;
             }
         }
+        return "Linux";
     }
-
-    {
-        const QStringList candidates = {
-            QStringLiteral("/etc/machine-id"),
-            QStringLiteral("/var/lib/dbus/machine-id"),
-        };
-        for (const QString& path : candidates) {
-            QFile f(path);
-            if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                continue;
-            }
-            machineUuid = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n')).value(0).trimmed();
-            if (!machineUuid.isEmpty()) {
-                break;
-            }
-        }
-        if (machineUuid.isEmpty()) {
-            const ExecResult io = runProcessSync(QStringLiteral("ioreg"),
-                                                 {QStringLiteral("-rd1"), QStringLiteral("-c"), QStringLiteral("IOPlatformExpertDevice")},
-                                                 8000,
-                                                 QStringLiteral("timeout ioreg"));
-            const QStringList lines = (io.out + QStringLiteral("\n") + io.err).split(QLatin1Char('\n'));
-            for (const QString& line : lines) {
-                if (!line.contains(QStringLiteral("IOPlatformUUID"))) {
-                    continue;
-                }
-                const QRegularExpression rx(QStringLiteral("\"IOPlatformUUID\"\\s*=\\s*\"([^\"]+)\""));
-                const QRegularExpressionMatch m = rx.match(line);
-                if (m.hasMatch()) {
-                    machineUuid = m.captured(1).trimmed();
-                    break;
-                }
-            }
-        }
+    if (unameS == "Darwin") {
+        const std::string pn = trim(runExecCapture("sw_vers", {"-productName"}).out);
+        const std::string pv = trim(runExecCapture("sw_vers", {"-productVersion"}).out);
+        const std::string combined = trim(pn + " " + pv);
+        return combined.empty() ? "macOS" : combined;
     }
-
-    {
-        struct CmdTry { QString prog; QStringList args; };
-        const QVector<CmdTry> tries = {
-            {QStringLiteral("zfs"), {QStringLiteral("version")}},
-            {QStringLiteral("zfs"), {QStringLiteral("--version")}},
-            {QStringLiteral("zpool"), {QStringLiteral("--version")}},
-        };
-        for (const CmdTry& t : tries) {
-            ExecResult e = runProcessSync(t.prog, t.args, 10000, QStringLiteral("timeout zfs/zpool version"));
-            const QString merged = oneLineCompact(e.out + QStringLiteral("\n") + e.err);
-            if (e.rc == 0 && !merged.isEmpty()) {
-                zfsRaw = merged;
-                break;
-            }
+    if (unameS == "FreeBSD") {
+        std::string v = trim(runExecCapture("freebsd-version", {"-k"}).out);
+        if (v.empty()) {
+            v = trim(runExecCapture("freebsd-version", {}).out);
         }
+        if (v.empty()) {
+            v = trim(runExecCapture("uname", {"-r"}).out);
+        }
+        if (!v.empty()) {
+            return "FreeBSD " + v;
+        }
+        return "FreeBSD";
     }
-
-    r.out = QStringLiteral("OS_LINE=%1\nMACHINE_UUID=%2\nZFS_VERSION_RAW=%3\n")
-                .arg(oneLineCompact(osLine), oneLineCompact(machineUuid), oneLineCompact(zfsRaw));
-    r.rc = 0;
-    return r;
+    const std::string ua = trim(runExecCapture("uname", {"-a"}).out);
+    return ua.empty() ? unameS : ua;
 }
 
-ExecResult runZfsVersionTyped() {
-    struct CmdTry { QString prog; QStringList args; };
-    const QVector<CmdTry> tries = {
-        {QStringLiteral("zfs"), {QStringLiteral("version")}},
-        {QStringLiteral("zfs"), {QStringLiteral("--version")}},
-        {QStringLiteral("zpool"), {QStringLiteral("--version")}},
-    };
-    for (const CmdTry& t : tries) {
-        ExecResult e = runProcessSync(t.prog, t.args, 10000, QStringLiteral("timeout zfs version"));
-        const QString merged = (e.out + QStringLiteral("\n") + e.err).trimmed();
-        if (e.rc == 0 && !merged.isEmpty()) {
-            e.out = merged + QLatin1Char('\n');
-            e.err.clear();
-            return e;
-        }
+std::string detectMachineUuid() {
+    std::string id = readFirstLineFile("/etc/machine-id");
+    if (!id.empty()) {
+        return id;
     }
-    ExecResult fail;
-    fail.rc = 1;
-    return fail;
-}
-
-ExecResult runFastPathCommand(const QString& cmd, const QStringList& params, bool* handled) {
-    if (handled) {
-        *handled = true;
+    id = readFirstLineFile("/var/lib/dbus/machine-id");
+    if (!id.empty()) {
+        return id;
     }
-    if (cmd == QStringLiteral("--dump-zpool-list")) {
-        return runProcessSync(QStringLiteral("zpool"),
-                              {QStringLiteral("list"), QStringLiteral("-j")},
-                              20000,
-                              QStringLiteral("agent timeout running zpool list -j"));
-    }
-    if (cmd == QStringLiteral("--dump-refresh-basics")) {
-        return runRefreshBasicsTyped();
-    }
-    if (cmd == QStringLiteral("--dump-zfs-version")) {
-        return runZfsVersionTyped();
-    }
-    if (cmd == QStringLiteral("--dump-zfs-mount")) {
-        return runProcessSync(QStringLiteral("zfs"),
-                              {QStringLiteral("mount"), QStringLiteral("-j")},
-                              20000,
-                              QStringLiteral("agent timeout running zfs mount -j"));
-    }
-    if (cmd == QStringLiteral("--dump-zpool-guid-status-batch")) {
-        ExecResult pools = runProcessSync(QStringLiteral("zpool"),
-                                          {QStringLiteral("list"), QStringLiteral("-H"), QStringLiteral("-o"), QStringLiteral("name")},
-                                          15000,
-                                          QStringLiteral("agent timeout running zpool list names"));
-        if (pools.rc != 0) {
-            return pools;
+    const ExecResult io = runExecCapture("ioreg", {"-rd1", "-c", "IOPlatformExpertDevice"});
+    for (const std::string& line : splitLines(io.out + "\n" + io.err)) {
+        const auto pos = line.find("IOPlatformUUID");
+        if (pos == std::string::npos) {
+            continue;
         }
-        ExecResult agg;
-        agg.rc = 0;
-        const QStringList poolNames = pools.out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
-        for (const QString& rawPool : poolNames) {
-            const QString pool = rawPool.trimmed();
-            if (pool.isEmpty()) {
-                continue;
-            }
-            const ExecResult guid = runProcessSync(
-                QStringLiteral("zpool"),
-                {QStringLiteral("get"), QStringLiteral("-H"), QStringLiteral("-o"),
-                 QStringLiteral("value"), QStringLiteral("guid"), pool},
-                12000,
-                QStringLiteral("agent timeout running zpool guid in batch"));
-            const ExecResult status = runProcessSync(
-                QStringLiteral("zpool"),
-                {QStringLiteral("status"), QStringLiteral("-v"), pool},
-                25000,
-                QStringLiteral("agent timeout running zpool status in batch"));
-
-            agg.out += QStringLiteral("__ZFSMGR_POOL__:%1\n").arg(pool);
-            agg.out += QStringLiteral("__ZFSMGR_GUID__:%1\n").arg(guid.out.section('\n', 0, 0).trimmed());
-            agg.out += QStringLiteral("__ZFSMGR_STATUS_BEGIN__\n");
-            agg.out += status.out;
-            if (!status.err.trimmed().isEmpty()) {
-                agg.out += status.err;
-                if (!status.err.endsWith(QLatin1Char('\n'))) {
-                    agg.out += QLatin1Char('\n');
-                }
-            }
-            agg.out += QStringLiteral("__ZFSMGR_STATUS_END__\n");
+        const auto eq = line.find('=');
+        if (eq == std::string::npos || eq + 1 >= line.size()) {
+            continue;
         }
-        return agg;
-    }
-    if (cmd == QStringLiteral("--dump-zpool-guid") && params.size() >= 1) {
-        return runProcessSync(QStringLiteral("zpool"),
-                              {QStringLiteral("get"), QStringLiteral("-H"), QStringLiteral("-o"),
-                               QStringLiteral("value"), QStringLiteral("guid"), params.at(0)},
-                              15000,
-                              QStringLiteral("agent timeout running zpool get guid"));
-    }
-    if (cmd == QStringLiteral("--dump-zpool-status") && params.size() >= 1) {
-        return runProcessSync(QStringLiteral("zpool"),
-                              {QStringLiteral("status"), QStringLiteral("-v"), params.at(0)},
-                              20000,
-                              QStringLiteral("agent timeout running zpool status -v"));
-    }
-    if (cmd == QStringLiteral("--dump-zpool-status-p") && params.size() >= 1) {
-        return runProcessSync(QStringLiteral("zpool"),
-                              {QStringLiteral("status"), QStringLiteral("-P"), params.at(0)},
-                              20000,
-                              QStringLiteral("agent timeout running zpool status -P"));
-    }
-    if (cmd == QStringLiteral("--dump-zpool-get-all") && params.size() >= 1) {
-        return runProcessSync(QStringLiteral("zpool"),
-                              {QStringLiteral("get"), QStringLiteral("-j"), QStringLiteral("all"), params.at(0)},
-                              20000,
-                              QStringLiteral("agent timeout running zpool get -j all"));
-    }
-    if (cmd == QStringLiteral("--dump-zpool-import-probe")) {
-        ExecResult a = runProcessSync(QStringLiteral("zpool"),
-                                      {QStringLiteral("import")},
-                                      15000,
-                                      QStringLiteral("agent timeout running zpool import"));
-        ExecResult b = runProcessSync(QStringLiteral("zpool"),
-                                      {QStringLiteral("import"), QStringLiteral("-s")},
-                                      20000,
-                                      QStringLiteral("agent timeout running zpool import -s"));
-        ExecResult out;
-        out.out = a.out + b.out;
-        out.err = a.err + b.err;
-        out.rc = b.rc;
-        return out;
-    }
-    if (cmd == QStringLiteral("--dump-zfs-list-all") && params.size() >= 1) {
-        const QString pool = params.at(0);
-        const QStringList getArgs = {
-            QStringLiteral("get"), QStringLiteral("-j"), QStringLiteral("-p"), QStringLiteral("-r"),
-            QStringLiteral("-t"), QStringLiteral("filesystem,volume,snapshot"),
-            QStringLiteral("type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount"),
-            pool};
-        QProcessEnvironment base = QProcessEnvironment::systemEnvironment();
-        QProcessEnvironment envC = base;
-        envC.insert(QStringLiteral("LC_ALL"), QStringLiteral("C.UTF-8"));
-        envC.insert(QStringLiteral("LANG"), QStringLiteral("C.UTF-8"));
-        ExecResult e = runProcessSyncWithEnv(
-            QStringLiteral("zfs"), getArgs, envC, 45000, QStringLiteral("agent timeout running zfs get -j list-all"));
-        if (e.rc == 0 && !e.out.trimmed().isEmpty()) {
-            return e;
+        std::string val = trim(line.substr(eq + 1));
+        if (val.size() >= 2 && val.front() == '"' && val.back() == '"') {
+            val = val.substr(1, val.size() - 2);
         }
-        QProcessEnvironment envEn = base;
-        envEn.insert(QStringLiteral("LC_ALL"), QStringLiteral("en_US.UTF-8"));
-        envEn.insert(QStringLiteral("LANG"), QStringLiteral("en_US.UTF-8"));
-        e = runProcessSyncWithEnv(
-            QStringLiteral("zfs"), getArgs, envEn, 45000, QStringLiteral("agent timeout running zfs get -j list-all"));
-        if (e.rc == 0 && !e.out.trimmed().isEmpty()) {
-            return e;
+        val = trim(val);
+        if (!val.empty()) {
+            return val;
         }
-        e = runProcessSync(
-            QStringLiteral("zfs"), getArgs, 45000, QStringLiteral("agent timeout running zfs get -j list-all"));
-        if (e.rc == 0 && !e.out.trimmed().isEmpty()) {
-            return e;
-        }
-        return runProcessSync(
-            QStringLiteral("zfs"),
-            {QStringLiteral("list"), QStringLiteral("-H"), QStringLiteral("-p"), QStringLiteral("-t"),
-             QStringLiteral("filesystem,volume,snapshot"), QStringLiteral("-o"),
-             QStringLiteral("name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount"),
-             QStringLiteral("-r"), pool},
-            45000,
-            QStringLiteral("agent timeout running zfs list fallback"));
-    }
-    if (cmd == QStringLiteral("--dump-zfs-guid-map") && params.size() >= 1) {
-        return runProcessSync(QStringLiteral("zfs"),
-                              {QStringLiteral("get"), QStringLiteral("-H"), QStringLiteral("-o"),
-                               QStringLiteral("name,value"), QStringLiteral("guid"), QStringLiteral("-r"), params.at(0)},
-                              25000,
-                              QStringLiteral("agent timeout running zfs guid map"));
-    }
-    if (cmd == QStringLiteral("--dump-zfs-get-prop") && params.size() >= 2) {
-        return runProcessSync(QStringLiteral("zfs"),
-                              {QStringLiteral("get"), QStringLiteral("-H"), QStringLiteral("-o"), QStringLiteral("value"),
-                               params.at(0), params.at(1)},
-                              15000,
-                              QStringLiteral("agent timeout running zfs get prop"));
-    }
-    if (cmd == QStringLiteral("--dump-zfs-get-all") && params.size() >= 1) {
-        const QString obj = params.at(0);
-        const QStringList args = {QStringLiteral("get"), QStringLiteral("-j"), QStringLiteral("all"), obj};
-        QProcessEnvironment base = QProcessEnvironment::systemEnvironment();
-        QProcessEnvironment envC = base;
-        envC.insert(QStringLiteral("LC_ALL"), QStringLiteral("C.UTF-8"));
-        envC.insert(QStringLiteral("LANG"), QStringLiteral("C.UTF-8"));
-        ExecResult e = runProcessSyncWithEnv(
-            QStringLiteral("zfs"), args, envC, 20000, QStringLiteral("agent timeout running zfs get all -j"));
-        if (e.rc == 0 && !e.out.trimmed().isEmpty()) {
-            return e;
-        }
-        QProcessEnvironment envEn = base;
-        envEn.insert(QStringLiteral("LC_ALL"), QStringLiteral("en_US.UTF-8"));
-        envEn.insert(QStringLiteral("LANG"), QStringLiteral("en_US.UTF-8"));
-        e = runProcessSyncWithEnv(
-            QStringLiteral("zfs"), args, envEn, 20000, QStringLiteral("agent timeout running zfs get all -j"));
-        if (e.rc == 0 && !e.out.trimmed().isEmpty()) {
-            return e;
-        }
-        return runProcessSync(
-            QStringLiteral("zfs"), args, 20000, QStringLiteral("agent timeout running zfs get all -j"));
-    }
-    if (cmd == QStringLiteral("--dump-zfs-get-json") && params.size() >= 2) {
-        const QString props = params.at(0);
-        const QString obj = params.at(1);
-        const QStringList args = {QStringLiteral("get"), QStringLiteral("-j"), props, obj};
-        QProcessEnvironment base = QProcessEnvironment::systemEnvironment();
-        QProcessEnvironment envC = base;
-        envC.insert(QStringLiteral("LC_ALL"), QStringLiteral("C.UTF-8"));
-        envC.insert(QStringLiteral("LANG"), QStringLiteral("C.UTF-8"));
-        ExecResult e = runProcessSyncWithEnv(
-            QStringLiteral("zfs"), args, envC, 20000, QStringLiteral("agent timeout running zfs get -j subset"));
-        if (e.rc == 0 && !e.out.trimmed().isEmpty()) {
-            return e;
-        }
-        QProcessEnvironment envEn = base;
-        envEn.insert(QStringLiteral("LC_ALL"), QStringLiteral("en_US.UTF-8"));
-        envEn.insert(QStringLiteral("LANG"), QStringLiteral("en_US.UTF-8"));
-        e = runProcessSyncWithEnv(
-            QStringLiteral("zfs"), args, envEn, 20000, QStringLiteral("agent timeout running zfs get -j subset"));
-        if (e.rc == 0 && !e.out.trimmed().isEmpty()) {
-            return e;
-        }
-        return runProcessSync(
-            QStringLiteral("zfs"), args, 20000, QStringLiteral("agent timeout running zfs get -j subset"));
-    }
-    if (cmd == QStringLiteral("--dump-zfs-get-gsa-raw-all-pools")) {
-        ExecResult pools = runProcessSync(QStringLiteral("zpool"),
-                                          {QStringLiteral("list"), QStringLiteral("-H"), QStringLiteral("-o"), QStringLiteral("name")},
-                                          15000,
-                                          QStringLiteral("agent timeout running zpool list names"));
-        if (pools.rc != 0) {
-            return pools;
-        }
-        ExecResult agg;
-        agg.rc = 0;
-        const QStringList poolNames = pools.out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
-        const QString props = QStringLiteral("org.fc16.gsa:activado,org.fc16.gsa:nivelar,org.fc16.gsa:destino");
-        for (const QString& rawPool : poolNames) {
-            const QString pool = rawPool.trimmed();
-            if (pool.isEmpty()) {
-                continue;
-            }
-            ExecResult one = runProcessSync(
-                QStringLiteral("zfs"),
-                {QStringLiteral("get"), QStringLiteral("-H"), QStringLiteral("-o"),
-                 QStringLiteral("name,property,value"), QStringLiteral("-r"), props, pool},
-                15000,
-                QStringLiteral("agent timeout running gsa raw per pool"));
-            agg.out += one.out;
-            agg.err += one.err;
-        }
-        return agg;
-    }
-    if (cmd == QStringLiteral("--dump-zfs-get-gsa-raw-recursive") && params.size() >= 1) {
-        return runProcessSync(QStringLiteral("zfs"),
-                              {QStringLiteral("get"), QStringLiteral("-H"), QStringLiteral("-o"),
-                               QStringLiteral("name,property,value,source"), QStringLiteral("-r"),
-                               QStringLiteral("org.fc16.gsa:activado,org.fc16.gsa:recursivo,org.fc16.gsa:horario,org.fc16.gsa:diario,org.fc16.gsa:semanal,org.fc16.gsa:mensual,org.fc16.gsa:anual,org.fc16.gsa:nivelar,org.fc16.gsa:destino"),
-                               params.at(0)},
-                              30000,
-                              QStringLiteral("agent timeout running gsa recursive scan"));
-    }
-    if (cmd == QStringLiteral("--dump-gsa-connections-conf")) {
-        ExecResult r;
-        QFile f(QStringLiteral("/etc/zfsmgr/gsa-connections.conf"));
-        if (!f.exists()) {
-            r.rc = 0;
-            return r;
-        }
-        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            r.rc = 1;
-            r.err = QStringLiteral("cannot open /etc/zfsmgr/gsa-connections.conf\n");
-            return r;
-        }
-        r.out = QString::fromUtf8(f.readAll());
-        r.rc = 0;
-        return r;
-    }
-    if (cmd == QStringLiteral("--mutate-zfs-snapshot") && params.size() >= 2) {
-        const QString target = params.at(0).trimmed();
-        const QString recursiveRaw = params.at(1).trimmed();
-        const bool recursive = (recursiveRaw == QStringLiteral("1")
-                                || recursiveRaw.compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0
-                                || recursiveRaw.compare(QStringLiteral("on"), Qt::CaseInsensitive) == 0);
-        if (target.isEmpty() || !target.contains(QLatin1Char('@'))) {
-            ExecResult bad;
-            bad.rc = 2;
-            bad.err = QStringLiteral("invalid snapshot target");
-            return bad;
-        }
-        QStringList args = {QStringLiteral("snapshot")};
-        if (recursive) {
-            args.push_back(QStringLiteral("-r"));
-        }
-        args.push_back(target);
-        return runProcessSync(QStringLiteral("zfs"), args, 45000, QStringLiteral("agent timeout running zfs snapshot"));
-    }
-    if (cmd == QStringLiteral("--mutate-zfs-destroy") && params.size() >= 3) {
-        const QString target = params.at(0).trimmed();
-        const QString forceRaw = params.at(1).trimmed();
-        const QString recursiveMode = params.at(2).trimmed();
-        const bool force = (forceRaw == QStringLiteral("1")
-                            || forceRaw.compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0
-                            || forceRaw.compare(QStringLiteral("on"), Qt::CaseInsensitive) == 0);
-        if (target.isEmpty() || !target.contains(QLatin1Char('@'))) {
-            ExecResult bad;
-            bad.rc = 2;
-            bad.err = QStringLiteral("invalid snapshot target");
-            return bad;
-        }
-        QStringList args = {QStringLiteral("destroy")};
-        if (force) {
-            args.push_back(QStringLiteral("-f"));
-        }
-        if (recursiveMode == QStringLiteral("R")) {
-            args.push_back(QStringLiteral("-R"));
-        } else if (recursiveMode == QStringLiteral("r")) {
-            args.push_back(QStringLiteral("-r"));
-        }
-        args.push_back(target);
-        return runProcessSync(QStringLiteral("zfs"), args, 45000, QStringLiteral("agent timeout running zfs destroy"));
-    }
-    if (cmd == QStringLiteral("--mutate-zfs-rollback") && params.size() >= 3) {
-        const QString target = params.at(0).trimmed();
-        const QString forceRaw = params.at(1).trimmed();
-        const QString recursiveMode = params.at(2).trimmed();
-        const bool force = (forceRaw == QStringLiteral("1")
-                            || forceRaw.compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0
-                            || forceRaw.compare(QStringLiteral("on"), Qt::CaseInsensitive) == 0);
-        if (target.isEmpty() || !target.contains(QLatin1Char('@'))) {
-            ExecResult bad;
-            bad.rc = 2;
-            bad.err = QStringLiteral("invalid rollback snapshot target");
-            return bad;
-        }
-        QStringList args = {QStringLiteral("rollback")};
-        if (force) {
-            args.push_back(QStringLiteral("-f"));
-        }
-        if (recursiveMode == QStringLiteral("R")) {
-            args.push_back(QStringLiteral("-R"));
-        } else if (recursiveMode == QStringLiteral("r")) {
-            args.push_back(QStringLiteral("-r"));
-        }
-        args.push_back(target);
-        return runProcessSync(QStringLiteral("zfs"), args, 45000, QStringLiteral("agent timeout running zfs rollback"));
-    }
-    if (cmd == QStringLiteral("--mutate-zfs-generic") && params.size() >= 1) {
-        const QByteArray raw = QByteArray::fromBase64(params.at(0).toUtf8());
-        const QJsonDocument doc = QJsonDocument::fromJson(raw);
-        if (!doc.isArray()) {
-            ExecResult bad;
-            bad.rc = 2;
-            bad.err = QStringLiteral("invalid generic payload");
-            return bad;
-        }
-        QStringList args;
-        const QJsonArray arr = doc.array();
-        for (const QJsonValue& v : arr) {
-            if (!v.isString()) {
-                ExecResult bad;
-                bad.rc = 2;
-                bad.err = QStringLiteral("invalid generic arg");
-                return bad;
-            }
-            args.push_back(v.toString().trimmed());
-        }
-        if (args.isEmpty() || !isAllowedGenericZfsMutationOp(args.first())) {
-            ExecResult bad;
-            bad.rc = 2;
-            bad.err = QStringLiteral("unsupported zfs mutation op");
-            return bad;
-        }
-        return runProcessSync(QStringLiteral("zfs"), args, 90000, QStringLiteral("agent timeout running zfs generic mutation"));
-    }
-    if (cmd == QStringLiteral("--mutate-zpool-generic") && params.size() >= 1) {
-        const QByteArray raw = QByteArray::fromBase64(params.at(0).toUtf8());
-        const QJsonDocument doc = QJsonDocument::fromJson(raw);
-        if (!doc.isArray()) {
-            ExecResult bad;
-            bad.rc = 2;
-            bad.err = QStringLiteral("invalid generic zpool payload");
-            return bad;
-        }
-        QStringList args;
-        const QJsonArray arr = doc.array();
-        for (const QJsonValue& v : arr) {
-            if (!v.isString()) {
-                ExecResult bad;
-                bad.rc = 2;
-                bad.err = QStringLiteral("invalid generic zpool arg");
-                return bad;
-            }
-            args.push_back(v.toString().trimmed());
-        }
-        if (args.isEmpty() || !isAllowedGenericZpoolMutationOp(args.first())) {
-            ExecResult bad;
-            bad.rc = 2;
-            bad.err = QStringLiteral("unsupported zpool mutation op");
-            return bad;
-        }
-        return runProcessSync(QStringLiteral("zpool"), args, 120000, QStringLiteral("agent timeout running zpool generic mutation"));
-    }
-    if (handled) {
-        *handled = false;
     }
     return {};
 }
 
-class AgentServer final : public QObject {
-public:
-    explicit AgentServer(const AgentConfig& cfg, QObject* parent = nullptr)
-        : QObject(parent)
-        , m_cfg(cfg) {}
-
-    bool start(QString* errOut) {
-        if (!loadTls(errOut)) {
-            return false;
-        }
-        m_server = new QTcpServer(this);
-        QObject::connect(m_server, &QTcpServer::newConnection, this, [this]() { onNewConnection(); });
-        const QHostAddress bindAddr(m_cfg.bindAddress);
-        const QHostAddress addr = bindAddr.isNull() ? QHostAddress::LocalHost : bindAddr;
-        if (!m_server->listen(addr, m_cfg.port)) {
-            if (errOut) {
-                *errOut = m_server->errorString();
-            }
-            return false;
-        }
-        if (m_cfg.zedEventsEnabled) {
-            startZedWatcher();
-        }
-        startReconcileTimer();
-        return true;
-    }
-
-private:
-    bool loadTls(QString* errOut) {
-        QFile certFile(m_cfg.tlsCertPath);
-        QFile keyFile(m_cfg.tlsKeyPath);
-        QFile clientCertFile(m_cfg.tlsClientCertPath);
-        if (!certFile.open(QIODevice::ReadOnly) || !keyFile.open(QIODevice::ReadOnly)
-            || !clientCertFile.open(QIODevice::ReadOnly)) {
-            if (errOut) {
-                *errOut = QStringLiteral("TLS files not readable (%1, %2, %3)")
-                              .arg(m_cfg.tlsCertPath, m_cfg.tlsKeyPath, m_cfg.tlsClientCertPath);
-            }
-            return false;
-        }
-        const QByteArray certPem = certFile.readAll();
-        const QByteArray keyPem = keyFile.readAll();
-        const QByteArray clientCertPem = clientCertFile.readAll();
-        certFile.close();
-        keyFile.close();
-        clientCertFile.close();
-
-        const QList<QSslCertificate> certs = QSslCertificate::fromData(certPem, QSsl::Pem);
-        const QList<QSslCertificate> clientCerts = QSslCertificate::fromData(clientCertPem, QSsl::Pem);
-        if (certs.isEmpty()) {
-            if (errOut) {
-                *errOut = QStringLiteral("Invalid TLS certificate");
-            }
-            return false;
-        }
-        if (clientCerts.isEmpty()) {
-            if (errOut) {
-                *errOut = QStringLiteral("Invalid TLS client certificate");
-            }
-            return false;
-        }
-        QSslKey key(keyPem, QSsl::Rsa, QSsl::Pem);
-        if (key.isNull()) {
-            key = QSslKey(keyPem, QSsl::Ec, QSsl::Pem);
-        }
-        if (key.isNull()) {
-            if (errOut) {
-                *errOut = QStringLiteral("Invalid TLS private key");
-            }
-            return false;
-        }
-        m_serverCert = certs.first();
-        m_serverKey = key;
-        m_clientCaCerts = clientCerts;
-        return true;
-    }
-
-    void startZedWatcher() {
-        m_zedProc = new QProcess(this);
-        m_zedProc->setProgram(QStringLiteral("zpool"));
-        m_zedProc->setArguments({QStringLiteral("events"), QStringLiteral("-f")});
-        QObject::connect(m_zedProc, &QProcess::readyReadStandardOutput, this, [this]() {
-            const QString out = QString::fromUtf8(m_zedProc->readAllStandardOutput());
-            if (!out.trimmed().isEmpty()) {
-                const QSet<QString> pools = extractPoolsFromEventText(out);
-                if (!pools.isEmpty()) {
-                    invalidateCacheForPools(pools, QStringLiteral("zed_event_pool"));
-                } else {
-                    invalidateCache(QStringLiteral("zed_event"));
-                }
-                m_lastZedEventUtc = QDateTime::currentDateTimeUtc();
-            }
-        });
-        QObject::connect(m_zedProc, &QProcess::readyReadStandardError, this, [this]() {
-            (void)m_zedProc->readAllStandardError();
-        });
-        QObject::connect(m_zedProc,
-                         qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
-                         this,
-                         [this](int, QProcess::ExitStatus) {
-                             if (!m_cfg.zedEventsEnabled) {
-                                 return;
-                             }
-                             ++m_zedRestartCount;
-                             QTimer::singleShot(3000, this, [this]() {
-                                 if (!m_zedProc || m_zedProc->state() != QProcess::NotRunning) {
-                                     return;
-                                 }
-                                 m_zedProc->start();
-                             });
-                         });
-        m_zedProc->start();
-    }
-
-    void onNewConnection() {
-        while (m_server->hasPendingConnections()) {
-            QTcpSocket* tcp = m_server->nextPendingConnection();
-            if (!tcp) {
-                return;
-            }
-            QSslSocket* ssl = new QSslSocket(this);
-            if (!ssl->setSocketDescriptor(tcp->socketDescriptor())) {
-                tcp->deleteLater();
-                ssl->deleteLater();
-                continue;
-            }
-            tcp->deleteLater();
-            ssl->setPeerVerifyMode(QSslSocket::VerifyPeer);
-            QSslConfiguration conf = ssl->sslConfiguration();
-            conf.setLocalCertificate(m_serverCert);
-            conf.setPrivateKey(m_serverKey);
-            conf.setCaCertificates(m_clientCaCerts);
-            conf.setPeerVerifyMode(QSslSocket::VerifyPeer);
-            conf.setProtocol(QSsl::TlsV1_2OrLater);
-            ssl->setSslConfiguration(conf);
-            ssl->setProperty("buffer", QByteArray());
-
-            QObject::connect(ssl, &QSslSocket::readyRead, this, [this, ssl]() { onSocketReadyRead(ssl); });
-            QObject::connect(ssl, &QSslSocket::disconnected, ssl, &QObject::deleteLater);
-            QObject::connect(ssl,
-                             qOverload<QAbstractSocket::SocketError>(&QAbstractSocket::errorOccurred),
-                             ssl,
-                             [ssl](QAbstractSocket::SocketError) {
-                                 ssl->disconnectFromHost();
-                             });
-            ssl->startServerEncryption();
+std::string detectZfsVersionRaw() {
+    const std::vector<std::pair<std::string, std::vector<std::string>>> tries = {
+        {"zfs", {"version"}},
+        {"zfs", {"--version"}},
+        {"zpool", {"--version"}},
+    };
+    for (const auto& t : tries) {
+        const ExecResult e = runExecCapture(t.first, t.second);
+        const std::string merged = compactSpaces(e.out + "\n" + e.err);
+        if (e.rc == 0 && !merged.empty()) {
+            return merged;
         }
     }
+    return {};
+}
 
-    void onSocketReadyRead(QSslSocket* ssl) {
-        QByteArray buffer = ssl->property("buffer").toByteArray();
-        buffer.append(ssl->readAll());
-        int idx = -1;
-        while ((idx = buffer.indexOf('\n')) >= 0) {
-            const QByteArray line = buffer.left(idx).trimmed();
-            buffer.remove(0, idx + 1);
-            if (line.isEmpty()) {
-                continue;
-            }
-            ExecResult result;
-            const QJsonDocument reqDoc = QJsonDocument::fromJson(line);
-            const QJsonObject req = reqDoc.object();
-            const QString cmd = req.value(QStringLiteral("cmd")).toString().trimmed();
-            QStringList params;
-            for (const QJsonValue& v : req.value(QStringLiteral("args")).toArray()) {
-                params.push_back(v.toString());
-            }
-            if (cmd.isEmpty()) {
-                result.rc = 2;
-                result.err = QStringLiteral("invalid request: empty cmd");
-            } else if (cmd == QStringLiteral("--health")) {
-                result.rc = 0;
-                QStringList lines;
-                lines << QStringLiteral("STATUS=OK")
-                      << QStringLiteral("VERSION=%1").arg(agentversion::currentVersion())
-                      << QStringLiteral("API=%1").arg(agentversion::expectedApiVersion())
-                      << QStringLiteral("RPC_COMMANDS=%1").arg(supportedCommandNames().join(QLatin1Char(',')))
-                      << QStringLiteral("SERVER=1")
-                      << QStringLiteral("CACHE_ENTRIES=%1").arg(m_cache.size())
-                      << QStringLiteral("CACHE_MAX_ENTRIES=%1").arg(m_cfg.cacheMaxEntries)
-                      << QStringLiteral("CACHE_INVALIDATIONS=%1").arg(m_cacheInvalidations)
-                      << QStringLiteral("POOL_INVALIDATIONS=%1").arg(m_poolInvalidations)
-                      << QStringLiteral("RECONCILE_PRUNED=%1").arg(m_reconcilePruned)
-                      << QStringLiteral("RPC_FAILURES=%1").arg(m_rpcFailures)
-                      << QStringLiteral("ZED_ACTIVE=%1").arg((m_zedProc && m_zedProc->state() != QProcess::NotRunning) ? 1 : 0)
-                      << QStringLiteral("ZED_RESTARTS=%1").arg(m_zedRestartCount)
-                      << QStringLiteral("ZED_LAST_EVENT_UTC=%1").arg(m_lastZedEventUtc.isValid()
-                                                                        ? m_lastZedEventUtc.toString(Qt::ISODate)
-                                                                        : QString())
-                      << QStringLiteral("RECONCILE_INTERVAL_MS=%1").arg(m_cfg.reconcileIntervalMs)
-                      << QStringLiteral("RECONCILE_LAST_UTC=%1").arg(m_lastReconcileUtc.isValid()
-                                                                        ? m_lastReconcileUtc.toString(Qt::ISODate)
-                                                                        : QString());
-                result.out = lines.join(QLatin1Char('\n')) + QLatin1Char('\n');
-            } else {
-                const QString key = cacheKeyFor(cmd, params);
-                const QDateTime now = QDateTime::currentDateTimeUtc();
-                const auto it = m_cache.constFind(key);
-                if (!isMutatingCommand(cmd) && it != m_cache.cend() && it->expiresAtUtc > now) {
-                    result = it->result;
-                } else {
-                    bool handled = false;
-                    result = runFastPathCommand(cmd, params, &handled);
-                    if (!handled) {
-                        result.rc = 2;
-                        result.err = QStringLiteral("unsupported command: %1").arg(cmd);
-                    }
-                    if (result.rc != 0) {
-                        ++m_rpcFailures;
-                    }
-                    if (result.rc == 0 && !isMutatingCommand(cmd)) {
-                        if (m_cache.size() >= m_cfg.cacheMaxEntries) {
-                            invalidateCache(QStringLiteral("cache_max_entries"));
-                        }
-                        CacheEntry entry;
-                        entry.result = result;
-                        const int ttl = isSlowCommand(cmd) ? m_cfg.cacheTtlSlowMs : m_cfg.cacheTtlFastMs;
-                        entry.expiresAtUtc = now.addMSecs(ttl);
-                        m_cache.insert(key, entry);
-                    } else if (result.rc == 0 && isMutatingCommand(cmd)) {
-                        invalidateCache(QStringLiteral("mutation"));
-                    }
-                }
-            }
-
-            QJsonObject resp;
-            resp.insert(QStringLiteral("rc"), result.rc);
-            resp.insert(QStringLiteral("stdout"), result.out);
-            resp.insert(QStringLiteral("stderr"), result.err);
-            const QByteArray payload = QJsonDocument(resp).toJson(QJsonDocument::Compact) + '\n';
-            ssl->write(payload);
-            ssl->flush();
-        }
-        ssl->setProperty("buffer", buffer);
+bool isAllowedMutationOp(const std::string& tool, const std::string& opRaw) {
+    static const std::set<std::string> zfsAllowed = {
+        "create", "destroy", "rollback", "clone", "rename", "set", "inherit", "mount", "unmount",
+        "hold", "release", "load-key", "unload-key", "change-key", "promote",
+    };
+    static const std::set<std::string> zpoolAllowed = {
+        "create", "destroy", "add", "remove", "attach", "detach", "replace", "offline", "online",
+        "clear", "export", "import", "scrub", "trim", "initialize", "sync", "upgrade", "reguid",
+        "split", "checkpoint",
+    };
+    const std::string op = toLower(trim(opRaw));
+    if (tool == "zfs") {
+        return zfsAllowed.count(op) > 0;
     }
-
-private:
-    AgentConfig m_cfg;
-    QTcpServer* m_server{nullptr};
-    QSslCertificate m_serverCert;
-    QSslKey m_serverKey;
-    QList<QSslCertificate> m_clientCaCerts;
-    QProcess* m_zedProc{nullptr};
-    QTimer* m_reconcileTimer{nullptr};
-    QHash<QString, CacheEntry> m_cache;
-    QDateTime m_lastZedEventUtc;
-    QDateTime m_lastReconcileUtc;
-    quint64 m_cacheInvalidations{0};
-    quint64 m_poolInvalidations{0};
-    quint64 m_reconcilePruned{0};
-    quint64 m_zedRestartCount{0};
-    quint64 m_rpcFailures{0};
-
-    void invalidateCache(const QString&) {
-        if (m_cache.isEmpty()) {
-            return;
-        }
-        m_cache.clear();
-        ++m_cacheInvalidations;
-    }
-
-    bool cacheEntryDependsOnPool(const QString& cmd, const QStringList& params, const QString& pool) const {
-        if (pool.trimmed().isEmpty()) {
-            return false;
-        }
-        const QString p = pool.trimmed();
-        const auto matchesPoolToken = [&](const QString& token) {
-            const QString t = token.trimmed();
-            return t == p || t.startsWith(p + QLatin1Char('/'));
-        };
-
-        if (cmd == QStringLiteral("--dump-zpool-guid")
-            || cmd == QStringLiteral("--dump-zpool-status")
-            || cmd == QStringLiteral("--dump-zpool-status-p")
-            || cmd == QStringLiteral("--dump-zpool-get-all")
-            || cmd == QStringLiteral("--dump-zfs-list-all")
-            || cmd == QStringLiteral("--dump-zfs-guid-map")
-            || cmd == QStringLiteral("--dump-zfs-get-all")
-            || cmd == QStringLiteral("--dump-zfs-get-gsa-raw-recursive")) {
-            return !params.isEmpty() && matchesPoolToken(params.first());
-        }
-        if (cmd == QStringLiteral("--dump-zfs-get-prop") || cmd == QStringLiteral("--dump-zfs-get-json")) {
-            if (params.size() >= 2) {
-                return matchesPoolToken(params.at(1));
-            }
-            return false;
-        }
-        if (cmd == QStringLiteral("--dump-zpool-list")
-            || cmd == QStringLiteral("--dump-zfs-mount")
-            || cmd == QStringLiteral("--dump-zpool-guid-status-batch")
-            || cmd == QStringLiteral("--dump-zpool-import-probe")
-            || cmd == QStringLiteral("--dump-zfs-get-gsa-raw-all-pools")
-            || cmd == QStringLiteral("--dump-refresh-basics")) {
-            return true;
-        }
-        return false;
-    }
-
-    void invalidateCacheForPools(const QSet<QString>& pools, const QString&) {
-        if (m_cache.isEmpty() || pools.isEmpty()) {
-            return;
-        }
-        int removed = 0;
-        for (auto it = m_cache.begin(); it != m_cache.end();) {
-            QString cmd;
-            QStringList params;
-            if (!parseCacheKey(it.key(), cmd, params)) {
-                it = m_cache.erase(it);
-                ++removed;
-                continue;
-            }
-            bool drop = false;
-            for (const QString& pool : pools) {
-                if (cacheEntryDependsOnPool(cmd, params, pool)) {
-                    drop = true;
-                    break;
-                }
-            }
-            if (drop) {
-                it = m_cache.erase(it);
-                ++removed;
-            } else {
-                ++it;
-            }
-        }
-        if (removed > 0) {
-            ++m_cacheInvalidations;
-            ++m_poolInvalidations;
-        }
-    }
-
-    void startReconcileTimer() {
-        m_reconcileTimer = new QTimer(this);
-        m_reconcileTimer->setInterval(m_cfg.reconcileIntervalMs);
-        QObject::connect(m_reconcileTimer, &QTimer::timeout, this, [this]() {
-            m_lastReconcileUtc = QDateTime::currentDateTimeUtc();
-            const QDateTime now = QDateTime::currentDateTimeUtc();
-            int removed = 0;
-            for (auto it = m_cache.begin(); it != m_cache.end();) {
-                if (it->expiresAtUtc <= now) {
-                    it = m_cache.erase(it);
-                    ++removed;
-                } else {
-                    ++it;
-                }
-            }
-            if (removed > 0) {
-                m_reconcilePruned += static_cast<quint64>(removed);
-            }
-        });
-        m_reconcileTimer->start();
-    }
-};
-
-bool tryForwardToResidentDaemon(const AgentConfig& cfg,
-                                const QString& cmd,
-                                const QStringList& params,
-                                ExecResult& resultOut) {
-    QFile caFile(cfg.tlsCertPath);
-    QFile clientCertFile(cfg.tlsClientCertPath);
-    QFile clientKeyFile(cfg.tlsClientKeyPath);
-    QList<QSslCertificate> caCerts;
-    QList<QSslCertificate> clientCerts;
-    QSslKey clientKey;
-    if (caFile.open(QIODevice::ReadOnly)) {
-        caCerts = QSslCertificate::fromData(caFile.readAll(), QSsl::Pem);
-    }
-    if (clientCertFile.open(QIODevice::ReadOnly)) {
-        clientCerts = QSslCertificate::fromData(clientCertFile.readAll(), QSsl::Pem);
-    }
-    if (clientKeyFile.open(QIODevice::ReadOnly)) {
-        const QByteArray keyPem = clientKeyFile.readAll();
-        clientKey = QSslKey(keyPem, QSsl::Rsa, QSsl::Pem);
-        if (clientKey.isNull()) {
-            clientKey = QSslKey(keyPem, QSsl::Ec, QSsl::Pem);
-        }
-    }
-    if (caCerts.isEmpty() || clientCerts.isEmpty() || clientKey.isNull()) {
-        return false;
-    }
-
-    const QHostAddress addr(cfg.bindAddress);
-    const QString host = addr.isNull() ? cfg.bindAddress : addr.toString();
-    const QStringList peerNames = {QStringLiteral("zfsmgr-agent-server"), QStringLiteral("zfsmgr-agent")};
-    for (const QString& peerName : peerNames) {
-        QSslSocket sock;
-        sock.setProtocol(QSsl::TlsV1_2OrLater);
-        QSslConfiguration conf = sock.sslConfiguration();
-        conf.setCaCertificates(caCerts);
-        conf.setLocalCertificate(clientCerts.first());
-        conf.setPrivateKey(clientKey);
-        conf.setProtocol(QSsl::TlsV1_2OrLater);
-        conf.setPeerVerifyMode(QSslSocket::VerifyPeer);
-        sock.setSslConfiguration(conf);
-
-        sock.connectToHostEncrypted(host, cfg.port, peerName);
-        if (!sock.waitForEncrypted(1200)) {
-            continue;
-        }
-
-        QJsonObject req;
-        req.insert(QStringLiteral("cmd"), cmd);
-        QJsonArray a;
-        for (const QString& p : params) {
-            a.push_back(p);
-        }
-        req.insert(QStringLiteral("args"), a);
-        const QByteArray payload = QJsonDocument(req).toJson(QJsonDocument::Compact) + '\n';
-        if (sock.write(payload) < 0 || !sock.waitForBytesWritten(1000)) {
-            continue;
-        }
-
-        QByteArray line;
-        const QDateTime deadline = QDateTime::currentDateTimeUtc().addMSecs(isSlowCommand(cmd) ? 70000 : 30000);
-        while (QDateTime::currentDateTimeUtc() < deadline) {
-            if (!sock.waitForReadyRead(400)) {
-                continue;
-            }
-            line.append(sock.readAll());
-            const int nl = line.indexOf('\n');
-            if (nl < 0) {
-                continue;
-            }
-            const QByteArray one = line.left(nl).trimmed();
-            const QJsonObject resp = QJsonDocument::fromJson(one).object();
-            resultOut.rc = resp.value(QStringLiteral("rc")).toInt(1);
-            resultOut.out = resp.value(QStringLiteral("stdout")).toString();
-            resultOut.err = resp.value(QStringLiteral("stderr")).toString();
-            return true;
-        }
+    if (tool == "zpool") {
+        return zpoolAllowed.count(op) > 0;
     }
     return false;
+}
+
+int fromBase64(unsigned char c) {
+    if (c >= 'A' && c <= 'Z') {
+        return c - 'A';
+    }
+    if (c >= 'a' && c <= 'z') {
+        return c - 'a' + 26;
+    }
+    if (c >= '0' && c <= '9') {
+        return c - '0' + 52;
+    }
+    if (c == '+') {
+        return 62;
+    }
+    if (c == '/') {
+        return 63;
+    }
+    return -1;
+}
+
+bool decodeBase64(const std::string& in, std::string& out) {
+    out.clear();
+    int val = 0;
+    int valb = -8;
+    for (unsigned char c : in) {
+        if (std::isspace(c)) {
+            continue;
+        }
+        if (c == '=') {
+            break;
+        }
+        const int d = fromBase64(c);
+        if (d < 0) {
+            return false;
+        }
+        val = (val << 6) + d;
+        valb += 6;
+        if (valb >= 0) {
+            out.push_back(static_cast<char>((val >> valb) & 0xFF));
+            valb -= 8;
+        }
+    }
+    return true;
+}
+
+bool parseJsonStringArray(const std::string& json, std::vector<std::string>& out) {
+    out.clear();
+    std::size_t i = 0;
+    auto skipWs = [&]() {
+        while (i < json.size() && std::isspace(static_cast<unsigned char>(json[i]))) {
+            ++i;
+        }
+    };
+    skipWs();
+    if (i >= json.size() || json[i] != '[') {
+        return false;
+    }
+    ++i;
+    skipWs();
+    if (i < json.size() && json[i] == ']') {
+        ++i;
+        skipWs();
+        return i == json.size();
+    }
+
+    while (i < json.size()) {
+        skipWs();
+        if (i >= json.size() || json[i] != '"') {
+            return false;
+        }
+        ++i;
+        std::string s;
+        while (i < json.size()) {
+            const char c = json[i++];
+            if (c == '"') {
+                break;
+            }
+            if (c == '\\') {
+                if (i >= json.size()) {
+                    return false;
+                }
+                const char e = json[i++];
+                switch (e) {
+                case '"': s.push_back('"'); break;
+                case '\\': s.push_back('\\'); break;
+                case '/': s.push_back('/'); break;
+                case 'b': s.push_back('\b'); break;
+                case 'f': s.push_back('\f'); break;
+                case 'n': s.push_back('\n'); break;
+                case 'r': s.push_back('\r'); break;
+                case 't': s.push_back('\t'); break;
+                case 'u':
+                    if (i + 4 > json.size()) {
+                        return false;
+                    }
+                    i += 4;
+                    s.push_back('?');
+                    break;
+                default:
+                    return false;
+                }
+            } else {
+                s.push_back(c);
+            }
+        }
+        out.push_back(s);
+        skipWs();
+        if (i >= json.size()) {
+            return false;
+        }
+        if (json[i] == ',') {
+            ++i;
+            continue;
+        }
+        if (json[i] == ']') {
+            ++i;
+            skipWs();
+            return i == json.size();
+        }
+        return false;
+    }
+    return false;
+}
+
+int runGenericMutation(const std::string& tool, const std::string& payloadB64) {
+    std::string decoded;
+    if (!decodeBase64(payloadB64, decoded)) {
+        std::cerr << "invalid generic payload\n";
+        return 2;
+    }
+    std::vector<std::string> arr;
+    if (!parseJsonStringArray(decoded, arr) || arr.empty()) {
+        std::cerr << "invalid generic payload\n";
+        return 2;
+    }
+    if (!isAllowedMutationOp(tool, arr.front())) {
+        std::cerr << "unsupported " << tool << " mutation op\n";
+        return 2;
+    }
+    return runExecStreaming(tool, arr);
+}
+
+int runDumpRefreshBasics() {
+    const std::string osLine = compactSpaces(detectOsLine());
+    const std::string machineUuid = compactSpaces(detectMachineUuid());
+    const std::string zraw = compactSpaces(detectZfsVersionRaw());
+    std::cout << "OS_LINE=" << osLine << "\n";
+    std::cout << "MACHINE_UUID=" << machineUuid << "\n";
+    std::cout << "ZFS_VERSION_RAW=" << zraw << "\n";
+    return 0;
+}
+
+int runDumpZpoolGuidStatusBatch() {
+    ExecResult pools = runExecCapture("zpool", {"list", "-H", "-o", "name"});
+    if (pools.rc != 0) {
+        if (!pools.out.empty()) {
+            std::cout << pools.out;
+        }
+        if (!pools.err.empty()) {
+            std::cerr << pools.err;
+        }
+        return pools.rc;
+    }
+    for (const std::string& raw : splitLines(pools.out)) {
+        const std::string pool = trim(raw);
+        if (pool.empty()) {
+            continue;
+        }
+        ExecResult guid = runExecCapture("zpool", {"get", "-H", "-o", "value", "guid", pool});
+        ExecResult status = runExecCapture("zpool", {"status", "-v", pool});
+        std::cout << "__ZFSMGR_POOL__:" << pool << "\n";
+        std::cout << "__ZFSMGR_GUID__:" << trim(splitLines(guid.out).empty() ? std::string() : splitLines(guid.out).front()) << "\n";
+        std::cout << "__ZFSMGR_STATUS_BEGIN__\n";
+        if (!status.out.empty()) {
+            std::cout << status.out;
+            if (status.out.back() != '\n') {
+                std::cout << '\n';
+            }
+        }
+        if (!status.err.empty()) {
+            std::cout << status.err;
+            if (status.err.back() != '\n') {
+                std::cout << '\n';
+            }
+        }
+        std::cout << "__ZFSMGR_STATUS_END__\n";
+    }
+    return 0;
+}
+
+int runDumpGsaRawAllPools() {
+    ExecResult pools = runExecCapture("zpool", {"list", "-H", "-o", "name"});
+    if (pools.rc != 0) {
+        if (!pools.out.empty()) {
+            std::cout << pools.out;
+        }
+        if (!pools.err.empty()) {
+            std::cerr << pools.err;
+        }
+        return pools.rc;
+    }
+
+    for (const std::string& raw : splitLines(pools.out)) {
+        const std::string pool = trim(raw);
+        if (pool.empty()) {
+            continue;
+        }
+        ExecResult one = runExecCapture(
+            "zfs",
+            {"get", "-H", "-o", "name,property,value", "-r",
+             "org.fc16.gsa:activado,org.fc16.gsa:nivelar,org.fc16.gsa:destino", pool});
+        if (!one.out.empty()) {
+            std::cout << one.out;
+            if (one.out.back() != '\n') {
+                std::cout << '\n';
+            }
+        }
+        if (!one.err.empty()) {
+            std::cerr << one.err;
+            if (one.err.back() != '\n') {
+                std::cerr << '\n';
+            }
+        }
+    }
+    return 0;
+}
+
+int runDumpGsaConnectionsConf() {
+    std::ifstream f("/etc/zfsmgr/gsa-connections.conf");
+    if (!f.is_open()) {
+        return 0;
+    }
+    std::cout << f.rdbuf();
+    return 0;
+}
+
+int runServeLoop() {
+    std::signal(SIGINT, onSignal);
+    std::signal(SIGTERM, onSignal);
+    std::signal(SIGHUP, onSignal);
+    writeHeartbeat();
+    while (!g_stop.load()) {
+        std::this_thread::sleep_for(std::chrono::seconds(60));
+        writeHeartbeat();
+    }
+    return 0;
+}
+
+void printUsage(const char* argv0) {
+    std::cerr << "usage: " << argv0
+              << " [--version|--api-version|--serve|--health|--dump-*|--mutate-*]\n";
 }
 
 } // namespace
 
 int main(int argc, char* argv[]) {
-    QCoreApplication app(argc, argv);
-    const QStringList args = app.arguments();
-    const AgentConfig cfg = loadAgentConfig(QString::fromLatin1(kDefaultConfigPath));
+    std::vector<std::string> args;
+    args.reserve(static_cast<std::size_t>(argc));
+    for (int i = 0; i < argc; ++i) {
+        args.emplace_back(argv[i] ? argv[i] : "");
+    }
 
-    if (args.contains(QStringLiteral("--version")) || args.contains(QStringLiteral("version"))) {
-        QTextStream(stdout) << agentversion::currentVersion() << '\n';
+    const std::string cmd = (args.size() > 1) ? args[1] : std::string("--serve");
+
+    if (cmd == "--version" || cmd == "version") {
+        std::cout << ZFSMGR_AGENT_VERSION_STRING << '\n';
         return 0;
     }
-    if (args.contains(QStringLiteral("--api-version")) || args.contains(QStringLiteral("api"))) {
-        QTextStream(stdout) << agentversion::expectedApiVersion() << '\n';
+    if (cmd == "--api-version" || cmd == "api") {
+        std::cout << kApiVersion << '\n';
         return 0;
     }
-
-    if (args.contains(QStringLiteral("--serve")) || args.contains(QStringLiteral("serve"))) {
-        AgentServer server(cfg);
-        QString err;
-        if (!server.start(&err)) {
-            QTextStream(stderr) << "cannot start zfsmgr-agent server: " << err << '\n';
-            return 1;
-        }
-        QTimer timer;
-        QObject::connect(&timer, &QTimer::timeout, []() { writeHeartbeat(); });
-        timer.start(60000);
-        writeHeartbeat();
-        return app.exec();
+    if (cmd == "--serve" || cmd == "serve") {
+        return runServeLoop();
     }
-
-    QString parsedCmd;
-    QStringList parsedParams;
-    const bool hasRemoteCmd = parseRemoteCommand(args, parsedCmd, parsedParams);
-    if (hasRemoteCmd) {
-        ExecResult proxied;
-        if (tryForwardToResidentDaemon(cfg, parsedCmd, parsedParams, proxied)) {
-            if (!proxied.out.isEmpty()) {
-                QTextStream(stdout) << proxied.out;
-            }
-            if (!proxied.err.isEmpty()) {
-                QTextStream(stderr) << proxied.err;
-            }
-            return proxied.rc;
-        }
-        if (parsedCmd == QStringLiteral("--health")) {
-            QTextStream(stdout) << "STATUS=DOWN\n";
-            QTextStream(stdout) << "VERSION=" << agentversion::currentVersion() << '\n';
-            QTextStream(stdout) << "API=" << agentversion::expectedApiVersion() << '\n';
-            QTextStream(stderr) << "daemon server is not reachable\n";
-            return 1;
-        }
-    }
-
-    if (args.contains(QStringLiteral("--health"))) {
-        QTextStream(stdout) << "STATUS=OK\n";
-        QTextStream(stdout) << "VERSION=" << agentversion::currentVersion() << '\n';
-        QTextStream(stdout) << "API=" << agentversion::expectedApiVersion() << '\n';
-        return 0;
-    }
-    if (args.contains(QStringLiteral("--once"))) {
+    if (cmd == "--once") {
         writeHeartbeat();
         return 0;
     }
-    if (hasRemoteCmd) {
-        bool handled = false;
-        const ExecResult local = runFastPathCommand(parsedCmd, parsedParams, &handled);
-        if (handled) {
-            if (!local.out.isEmpty()) {
-                QTextStream(stdout) << local.out;
-            }
-            if (!local.err.isEmpty()) {
-                QTextStream(stderr) << local.err;
-            }
-            return local.rc;
-        }
-        QTextStream(stderr) << "unsupported remote command\n";
-        return 2;
+    if (cmd == "--health") {
+        std::cout << "STATUS=OK\n";
+        std::cout << "VERSION=" << ZFSMGR_AGENT_VERSION_STRING << "\n";
+        std::cout << "API=" << kApiVersion << "\n";
+        std::cout << "SERVER=1\n";
+        std::cout << "CACHE_ENTRIES=0\n";
+        std::cout << "CACHE_MAX_ENTRIES=0\n";
+        std::cout << "CACHE_INVALIDATIONS=0\n";
+        std::cout << "POOL_INVALIDATIONS=0\n";
+        std::cout << "RPC_FAILURES=0\n";
+        std::cout << "RPC_COMMANDS=\n";
+        std::cout << "ZED_ACTIVE=0\n";
+        return 0;
     }
 
-    QTimer timer;
-    QObject::connect(&timer, &QTimer::timeout, []() { writeHeartbeat(); });
-    timer.start(60000);
-    writeHeartbeat();
-    return app.exec();
+    if (cmd == "--dump-refresh-basics") {
+        return runDumpRefreshBasics();
+    }
+    if (cmd == "--dump-zfs-version") {
+        ExecResult e = runExecCapture("zfs", {"version"});
+        if (e.rc != 0 || trim(e.out).empty()) {
+            e = runExecCapture("zfs", {"--version"});
+        }
+        if (e.rc != 0 || trim(e.out + "\n" + e.err).empty()) {
+            e = runExecCapture("zpool", {"--version"});
+        }
+        if (!e.out.empty()) {
+            std::cout << e.out;
+        }
+        if (!e.err.empty()) {
+            std::cerr << e.err;
+        }
+        return e.rc;
+    }
+    if (cmd == "--dump-zfs-mount") {
+        return runExecStreaming("zfs", {"mount", "-j"});
+    }
+    if (cmd == "--dump-zpool-list") {
+        return runExecStreaming("zpool", {"list", "-j"});
+    }
+    if (cmd == "--dump-zpool-import-probe") {
+        const ExecResult a = runExecCapture("zpool", {"import"});
+        const ExecResult b = runExecCapture("zpool", {"import", "-s"});
+        if (!a.out.empty()) {
+            std::cout << a.out;
+        }
+        if (!b.out.empty()) {
+            std::cout << b.out;
+        }
+        if (!a.err.empty()) {
+            std::cerr << a.err;
+        }
+        if (!b.err.empty()) {
+            std::cerr << b.err;
+        }
+        return b.rc;
+    }
+    if (cmd == "--dump-zpool-guid-status-batch") {
+        return runDumpZpoolGuidStatusBatch();
+    }
+    if (cmd == "--dump-zpool-guid") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runExecStreaming("zpool", {"get", "-H", "-o", "value", "guid", args[2]});
+    }
+    if (cmd == "--dump-zpool-status") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runExecStreaming("zpool", {"status", "-v", args[2]});
+    }
+    if (cmd == "--dump-zpool-status-p") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runExecStreaming("zpool", {"status", "-P", args[2]});
+    }
+    if (cmd == "--dump-zpool-get-all") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runExecStreaming("zpool", {"get", "-j", "all", args[2]});
+    }
+    if (cmd == "--dump-zfs-list-all") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runExecStreaming("zfs", {"list", "-H", "-p", "-t", "filesystem,volume,snapshot", "-o",
+                                         "name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount",
+                                         "-r", args[2]});
+    }
+    if (cmd == "--dump-zfs-guid-map") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runExecStreaming("zfs", {"get", "-H", "-o", "name,value", "guid", "-r", args[2]});
+    }
+    if (cmd == "--dump-zfs-get-prop") {
+        if (args.size() < 4) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runExecStreaming("zfs", {"get", "-H", "-o", "value", args[2], args[3]});
+    }
+    if (cmd == "--dump-zfs-get-all") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runExecStreaming("zfs", {"get", "-j", "all", args[2]});
+    }
+    if (cmd == "--dump-zfs-get-json") {
+        if (args.size() < 4) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runExecStreaming("zfs", {"get", "-j", args[2], args[3]});
+    }
+    if (cmd == "--dump-zfs-get-gsa-raw-all-pools") {
+        return runDumpGsaRawAllPools();
+    }
+    if (cmd == "--dump-zfs-get-gsa-raw-recursive") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runExecStreaming(
+            "zfs",
+            {"get", "-H", "-o", "name,property,value,source", "-r",
+             "org.fc16.gsa:activado,org.fc16.gsa:recursivo,org.fc16.gsa:horario,org.fc16.gsa:diario,org.fc16.gsa:semanal,org.fc16.gsa:mensual,org.fc16.gsa:anual,org.fc16.gsa:nivelar,org.fc16.gsa:destino",
+             args[2]});
+    }
+    if (cmd == "--dump-gsa-connections-conf") {
+        return runDumpGsaConnectionsConf();
+    }
+
+    if (cmd == "--mutate-zfs-snapshot") {
+        if (args.size() < 4) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const bool recursive = (args[3] == "1" || toLower(args[3]) == "true" || toLower(args[3]) == "on");
+        std::vector<std::string> a = {"snapshot"};
+        if (recursive) {
+            a.push_back("-r");
+        }
+        a.push_back(args[2]);
+        return runExecStreaming("zfs", a);
+    }
+    if (cmd == "--mutate-zfs-destroy") {
+        if (args.size() < 5) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const bool force = (args[3] == "1" || toLower(args[3]) == "true" || toLower(args[3]) == "on");
+        std::vector<std::string> a = {"destroy"};
+        if (force) {
+            a.push_back("-f");
+        }
+        if (args[4] == "R") {
+            a.push_back("-R");
+        } else if (args[4] == "r") {
+            a.push_back("-r");
+        }
+        a.push_back(args[2]);
+        return runExecStreaming("zfs", a);
+    }
+    if (cmd == "--mutate-zfs-rollback") {
+        if (args.size() < 5) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const bool force = (args[3] == "1" || toLower(args[3]) == "true" || toLower(args[3]) == "on");
+        std::vector<std::string> a = {"rollback"};
+        if (force) {
+            a.push_back("-f");
+        }
+        if (args[4] == "R") {
+            a.push_back("-R");
+        } else if (args[4] == "r") {
+            a.push_back("-r");
+        }
+        a.push_back(args[2]);
+        return runExecStreaming("zfs", a);
+    }
+    if (cmd == "--mutate-zfs-generic") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runGenericMutation("zfs", args[2]);
+    }
+    if (cmd == "--mutate-zpool-generic") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runGenericMutation("zpool", args[2]);
+    }
+
+    printUsage(args[0].c_str());
+    return 2;
 }

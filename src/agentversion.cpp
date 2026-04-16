@@ -1,21 +1,9 @@
 #include "agentversion.h"
 
-#include <QCryptographicHash>
 #include <QRegularExpression>
 #include <QVector>
 
 namespace {
-
-constexpr const char* kAgentSchemaMarker =
-    "linux-service:/etc/systemd/system/zfsmgr-agent.service\n"
-    "linux-bin:/usr/local/libexec/zfsmgr-agent\n"
-    "linux-config:/etc/zfsmgr/agent.toml\n"
-    "linux-state:/var/lib/zfsmgr-agent/state.db\n"
-    "mac-plist:/Library/LaunchDaemons/org.zfsmgr.agent.plist\n"
-    "freebsd-rc:/usr/local/etc/rc.d/zfsmgr_agent\n"
-    "win-service:ZFSMgrAgent\n"
-    "tls:mtls-required\n"
-    "api:v1\n";
 
 QVector<int> versionOrderingKey(const QString& version) {
     QVector<int> out;
@@ -33,20 +21,12 @@ QVector<int> versionOrderingKey(const QString& version) {
     return out;
 }
 
-QString versionFingerprintSuffix() {
-    const QByteArray digest = QCryptographicHash::hash(QByteArray(kAgentSchemaMarker), QCryptographicHash::Sha256).toHex();
-    bool ok = false;
-    const quint32 raw = digest.left(8).toUInt(&ok, 16);
-    const quint32 folded = (ok ? raw : 0u) % 1000000000u;
-    return QString::number(folded);
-}
-
 } // namespace
 
 namespace agentversion {
 
 QString currentVersion() {
-    return QStringLiteral(ZFSMGR_APP_VERSION) + QStringLiteral(".") + versionFingerprintSuffix();
+    return QStringLiteral(ZFSMGR_AGENT_VERSION_STRING);
 }
 
 QString expectedApiVersion() {
@@ -76,4 +56,3 @@ int compareVersions(const QString& a, const QString& b) {
 }
 
 } // namespace agentversion
-

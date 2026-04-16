@@ -2053,13 +2053,7 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
         && m_states[connIdx].gsaInstalled;
     const bool canManageDaemon =
         hasConn && !actionsLocked() && !isDisconnected
-        && connIdx < m_states.size()
-        && daemonMenuLabelForConnection(connIdx).compare(
-               trk(QStringLiteral("t_daemon_ok_001"),
-                   QStringLiteral("Daemon actualizado y funcionando"),
-                   QStringLiteral("Daemon updated and running"),
-                   QStringLiteral("守护进程已更新并运行中")),
-               Qt::CaseInsensitive) != 0;
+        && connIdx < m_states.size();
     const bool canUninstallDaemon =
         hasConn && !actionsLocked() && !isDisconnected
         && connIdx < m_states.size()
@@ -2516,7 +2510,7 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
                     if (targetIdx < 0 || targetIdx >= m_profiles.size()) {
                         return;
                     }
-                    installOrUpdateDaemonForConnection(targetIdx);
+                    installOrUpdateDaemonForConnectionInternal(targetIdx, false);
                 });
             }
         }
@@ -2592,6 +2586,22 @@ void MainWindow::onAsyncRefreshDone(int generation) {
         appLog(QStringLiteral("INFO"),
                QStringLiteral("GSA requiere actualización en \"%1\": actualización automática").arg(connName));
         (void)installOrUpdateGsaForConnectionInternal(i, false);
+    }
+    // Daemon: auto-actualizar cuando haya desalineación de versión/API.
+    for (int i = 0; i < m_profiles.size() && i < m_states.size(); ++i) {
+        if (isConnectionDisconnected(i)) {
+            continue;
+        }
+        const ConnectionRuntimeState& st = m_states[i];
+        if (!st.daemonInstalled || !st.daemonNeedsAttention) {
+            continue;
+        }
+        const QString connName = m_profiles[i].name.trimmed().isEmpty()
+                                     ? m_profiles[i].id.trimmed()
+                                     : m_profiles[i].name.trimmed();
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("Daemon requiere actualización en \"%1\": actualización automática").arg(connName));
+        (void)installOrUpdateDaemonForConnectionInternal(i, false);
     }
 
     m_refreshInProgress = false;
@@ -3785,6 +3795,10 @@ QString MainWindow::daemonMenuLabelForConnection(int connIdx) const {
 }
 
 bool MainWindow::installOrUpdateDaemonForConnection(int idx) {
+    return installOrUpdateDaemonForConnectionInternal(idx, true);
+}
+
+bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool interactive) {
     if (actionsLocked()) {
         return false;
     }
@@ -3792,28 +3806,32 @@ bool MainWindow::installOrUpdateDaemonForConnection(int idx) {
         return false;
     }
     if (isConnectionDisconnected(idx)) {
-        QMessageBox::information(this,
-                                 QStringLiteral("ZFSMgr"),
-                                 trk(QStringLiteral("t_daemon_conn_disc_001"),
-                                     QStringLiteral("La conexión está desconectada."),
-                                     QStringLiteral("The connection is disconnected."),
-                                     QStringLiteral("该连接已断开。")));
+        if (interactive) {
+            QMessageBox::information(this,
+                                     QStringLiteral("ZFSMgr"),
+                                     trk(QStringLiteral("t_daemon_conn_disc_001"),
+                                         QStringLiteral("La conexión está desconectada."),
+                                         QStringLiteral("The connection is disconnected."),
+                                         QStringLiteral("该连接已断开。")));
+        }
         return false;
     }
 
     const ConnectionProfile& p = m_profiles[idx];
-    const auto confirm = QMessageBox::question(
-        this,
-        QStringLiteral("ZFSMgr"),
-        trk(QStringLiteral("t_daemon_install_confirm_001"),
-            QStringLiteral("ZFSMgr instalará o actualizará el daemon en \"%1\" y lo arrancará con el scheduler nativo.\n\n¿Continuar?"),
-            QStringLiteral("ZFSMgr will install or update the daemon on \"%1\" and start it with the native scheduler.\n\nContinue?"),
-            QStringLiteral("ZFSMgr 将在 \"%1\" 上安装或更新守护进程，并使用原生调度启动。\n\n是否继续？"))
-            .arg(p.name),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm != QMessageBox::Yes) {
-        return false;
+    if (interactive) {
+        const auto confirm = QMessageBox::question(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_daemon_install_confirm_001"),
+                QStringLiteral("ZFSMgr instalará o actualizará el daemon en \"%1\" y lo arrancará con el scheduler nativo.\n\n¿Continuar?"),
+                QStringLiteral("ZFSMgr will install or update the daemon on \"%1\" and start it with the native scheduler.\n\nContinue?"),
+                QStringLiteral("ZFSMgr 将在 \"%1\" 上安装或更新守护进程，并使用原生调度启动。\n\n是否继续？"))
+                .arg(p.name),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        if (confirm != QMessageBox::Yes) {
+            return false;
+        }
     }
 
     const QString daemonVersion = agentversion::currentVersion().trimmed();
@@ -3849,9 +3867,9 @@ bool MainWindow::installOrUpdateDaemonForConnection(int idx) {
         const QString tlsBootstrap = daemonpayload::tlsBootstrapShellCommand();
         QString deployBinCmd;
         const QString localAgentPath = QDir::cleanPath(QCoreApplication::applicationDirPath() + QStringLiteral("/zfsmgr_agent"));
-        const bool canDeployNativeLocalBinary =
+        const bool canDeployNativeLocalBinaryFromPath =
             isLocalConnection(idx) && QFileInfo::exists(localAgentPath) && QFileInfo(localAgentPath).isExecutable();
-        if (canDeployNativeLocalBinary) {
+        if (canDeployNativeLocalBinaryFromPath) {
             deployBinCmd = QStringLiteral("install -m 700 %1 %2;")
                                .arg(mwhelpers::shSingleQuote(localAgentPath), mwhelpers::shSingleQuote(daemonpayload::unixBinPath()));
         } else {
@@ -3938,6 +3956,7 @@ bool MainWindow::installOrUpdateDaemonForConnection(int idx) {
                                  daemonpayload::tlsClientKeyPath());
         }
         remoteCmd = withSudo(p, remoteCmd);
+
     }
 
     beginUiBusy();
@@ -3952,14 +3971,20 @@ bool MainWindow::installOrUpdateDaemonForConnection(int idx) {
                                              winMode);
     endUiBusy();
     if (!ok) {
-        QMessageBox::warning(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_daemon_install_fail_001"),
-                QStringLiteral("No se pudo instalar/actualizar el daemon en \"%1\".\n\n%2"),
-                QStringLiteral("Could not install/update daemon on \"%1\".\n\n%2"),
-                QStringLiteral("无法在 \"%1\" 上安装/更新守护进程。\n\n%2"))
-                .arg(p.name, detail.simplified().left(500)));
+        if (interactive) {
+            QMessageBox::warning(
+                this,
+                QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_daemon_install_fail_001"),
+                    QStringLiteral("No se pudo instalar/actualizar el daemon en \"%1\".\n\n%2"),
+                    QStringLiteral("Could not install/update daemon on \"%1\".\n\n%2"),
+                    QStringLiteral("无法在 \"%1\" 上安装/更新守护进程。\n\n%2"))
+                    .arg(p.name, detail.simplified().left(500)));
+        } else {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Actualización automática de daemon fallida en \"%1\": %2")
+                       .arg(p.name, detail.simplified().left(500)));
+        }
         refreshConnectionByIndex(idx);
         return false;
     }
