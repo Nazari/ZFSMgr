@@ -1308,13 +1308,26 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         QString mapOut;
         QString mapErr;
         int mapRc = -1;
-        const QString cmd =
+        const QString cmdClassic =
             useRemoteScripts
                 ? withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-gsa-connections-cat")))
                 : withSudo(
                       p,
                       QStringLiteral("if [ -f /etc/zfsmgr/gsa-connections.conf ]; then cat /etc/zfsmgr/gsa-connections.conf; fi"));
-        if (runSsh(p, cmd, 12000, mapOut, mapErr, mapRc) && mapRc == 0) {
+        const QString cmdDaemon = withSudo(
+            p, mwhelpers::withUnixSearchPathCommand(
+                   QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-gsa-connections-conf")));
+        bool mapOk = runSsh(p, (daemonReadApiOk ? cmdDaemon : cmdClassic), 12000, mapOut, mapErr, mapRc) && mapRc == 0;
+        if (!mapOk && daemonReadApiOk) {
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("%1: daemon gsa-connections fallback -> %2")
+                       .arg(p.name, oneLine(mapErr.isEmpty() ? mapOut : mapErr)));
+            mapOut.clear();
+            mapErr.clear();
+            mapRc = -1;
+            mapOk = runSsh(p, cmdClassic, 12000, mapOut, mapErr, mapRc) && mapRc == 0;
+        }
+        if (mapOk) {
             state.gsaKnownConnections = parseGsaKnownConnections(mapOut);
         }
     }

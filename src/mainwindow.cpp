@@ -720,13 +720,27 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
     if (datasetType.trimmed().isEmpty()) {
         QString tOut, tErr;
         int tRc = -1;
-        const QString typeCmd = withSudo(
+        const QString typeCmdClassic = withSudo(
             p,
             useRemoteScript
                 ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-get-type"), {trimmedObject})
                 : mwhelpers::withUnixSearchPathCommand(
                       QStringLiteral("zfs get -H -o value type %1").arg(mwhelpers::shSingleQuote(trimmedObject))));
-        if (runSsh(p, typeCmd, 12000, tOut, tErr, tRc) && tRc == 0) {
+        const QString typeCmdDaemon = withSudo(
+            p, mwhelpers::withUnixSearchPathCommand(
+                   QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-prop type %1")
+                       .arg(mwhelpers::shSingleQuote(trimmedObject))));
+        bool typeOk = runSsh(p, (daemonReadApiOk ? typeCmdDaemon : typeCmdClassic), 12000, tOut, tErr, tRc) && tRc == 0;
+        if (!typeOk && daemonReadApiOk) {
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("daemon zfs-get-type fallback %1::%2/%3 -> %4")
+                       .arg(p.name, trimmedPool, trimmedObject, mwhelpers::oneLine(tErr.isEmpty() ? tOut : tErr)));
+            tOut.clear();
+            tErr.clear();
+            tRc = -1;
+            typeOk = runSsh(p, typeCmdClassic, 12000, tOut, tErr, tRc) && tRc == 0;
+        }
+        if (typeOk) {
             const QString t = tOut.trimmed().toLower();
             if (!t.isEmpty()) {
                 datasetType = t;

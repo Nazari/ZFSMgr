@@ -438,6 +438,18 @@ int main(int argc, char* argv[]) {
             return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
         }
     }
+    if (args.contains(QStringLiteral("--dump-gsa-connections-conf"))) {
+        QFile f(QStringLiteral("/etc/zfsmgr/gsa-connections.conf"));
+        if (!f.exists()) {
+            return 0;
+        }
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QTextStream(stderr) << "cannot open /etc/zfsmgr/gsa-connections.conf\n";
+            return 1;
+        }
+        QTextStream(stdout) << QString::fromUtf8(f.readAll());
+        return 0;
+    }
 
     QTimer timer;
     QObject::connect(&timer, &QTimer::timeout, []() { writeHeartbeat(); });
