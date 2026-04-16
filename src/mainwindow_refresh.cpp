@@ -1099,10 +1099,25 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                                      .arg(oneLine(herr.isEmpty() ? hout : herr));
         } else {
             const QMap<QString, QString> hkv = parseKeyValueOutput(hout + QStringLiteral("\n") + herr);
-            if (hkv.value(QStringLiteral("STATUS")).trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) != 0) {
+            const bool statusOk =
+                hkv.value(QStringLiteral("STATUS")).trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
+            const bool serverOk = hkv.value(QStringLiteral("SERVER")).trimmed() == QStringLiteral("1");
+            if (!statusOk || !serverOk) {
                 daemonReadApiOk = false;
                 state.daemonActive = false;
-                state.daemonDetail = QStringLiteral("health check not OK");
+                state.daemonDetail = QStringLiteral("health check not OK (status=%1 server=%2)")
+                                         .arg(hkv.value(QStringLiteral("STATUS")).trimmed(),
+                                              hkv.value(QStringLiteral("SERVER")).trimmed());
+            } else {
+                const QString cacheEntries = hkv.value(QStringLiteral("CACHE_ENTRIES")).trimmed();
+                const QString zedActive = hkv.value(QStringLiteral("ZED_ACTIVE")).trimmed();
+                const QString zedLast = hkv.value(QStringLiteral("ZED_LAST_EVENT_UTC")).trimmed();
+                if (!cacheEntries.isEmpty() || !zedActive.isEmpty() || !zedLast.isEmpty()) {
+                    state.daemonDetail = QStringLiteral("cache=%1 zed_active=%2 zed_last=%3")
+                                             .arg(cacheEntries.isEmpty() ? QStringLiteral("-") : cacheEntries,
+                                                  zedActive.isEmpty() ? QStringLiteral("-") : zedActive,
+                                                  zedLast.isEmpty() ? QStringLiteral("-") : zedLast);
+                }
             }
         }
     }
