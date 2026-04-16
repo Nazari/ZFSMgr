@@ -352,12 +352,6 @@ private:
             ssl->setProperty("buffer", QByteArray());
 
             QObject::connect(ssl, &QSslSocket::readyRead, this, [this, ssl]() { onSocketReadyRead(ssl); });
-            QObject::connect(ssl,
-                             qOverload<const QList<QSslError>&>(&QSslSocket::sslErrors),
-                             ssl,
-                             [ssl](const QList<QSslError>&) {
-                                 ssl->ignoreSslErrors();
-                             });
             QObject::connect(ssl, &QSslSocket::disconnected, ssl, &QObject::deleteLater);
             QObject::connect(ssl,
                              qOverload<QAbstractSocket::SocketError>(&QAbstractSocket::errorOccurred),
