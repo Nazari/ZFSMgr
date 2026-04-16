@@ -919,6 +919,7 @@ private:
                       << QStringLiteral("CACHE_ENTRIES=%1").arg(m_cache.size())
                       << QStringLiteral("CACHE_MAX_ENTRIES=%1").arg(m_cfg.cacheMaxEntries)
                       << QStringLiteral("CACHE_INVALIDATIONS=%1").arg(m_cacheInvalidations)
+                      << QStringLiteral("POOL_INVALIDATIONS=%1").arg(m_poolInvalidations)
                       << QStringLiteral("RECONCILE_PRUNED=%1").arg(m_reconcilePruned)
                       << QStringLiteral("RPC_FAILURES=%1").arg(m_rpcFailures)
                       << QStringLiteral("ZED_ACTIVE=%1").arg((m_zedProc && m_zedProc->state() != QProcess::NotRunning) ? 1 : 0)
@@ -983,6 +984,7 @@ private:
     QDateTime m_lastZedEventUtc;
     QDateTime m_lastReconcileUtc;
     quint64 m_cacheInvalidations{0};
+    quint64 m_poolInvalidations{0};
     quint64 m_reconcilePruned{0};
     quint64 m_zedRestartCount{0};
     quint64 m_rpcFailures{0};
@@ -1061,6 +1063,7 @@ private:
         }
         if (removed > 0) {
             ++m_cacheInvalidations;
+            ++m_poolInvalidations;
         }
     }
 

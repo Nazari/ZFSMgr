@@ -1112,6 +1112,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 const QString cacheEntries = hkv.value(QStringLiteral("CACHE_ENTRIES")).trimmed();
                 const QString cacheMax = hkv.value(QStringLiteral("CACHE_MAX_ENTRIES")).trimmed();
                 const QString cacheInvalidations = hkv.value(QStringLiteral("CACHE_INVALIDATIONS")).trimmed();
+                const QString poolInvalidations = hkv.value(QStringLiteral("POOL_INVALIDATIONS")).trimmed();
+                const QString reconcilePruned = hkv.value(QStringLiteral("RECONCILE_PRUNED")).trimmed();
                 const QString rpcFailures = hkv.value(QStringLiteral("RPC_FAILURES")).trimmed();
                 const QString rpcCommands = hkv.value(QStringLiteral("RPC_COMMANDS")).trimmed();
                 const QString zedActive = hkv.value(QStringLiteral("ZED_ACTIVE")).trimmed();
@@ -1119,13 +1121,16 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 const QString zedLast = hkv.value(QStringLiteral("ZED_LAST_EVENT_UTC")).trimmed();
                 const QString reconcileLast = hkv.value(QStringLiteral("RECONCILE_LAST_UTC")).trimmed();
                 if (!cacheEntries.isEmpty() || !zedActive.isEmpty() || !zedLast.isEmpty()
-                    || !cacheInvalidations.isEmpty() || !reconcileLast.isEmpty() || !zedRestarts.isEmpty()
+                    || !cacheInvalidations.isEmpty() || !poolInvalidations.isEmpty() || !reconcilePruned.isEmpty()
+                    || !reconcileLast.isEmpty() || !zedRestarts.isEmpty()
                     || !rpcFailures.isEmpty()) {
                     const int rpcCmdCount = rpcCommands.isEmpty() ? 0 : rpcCommands.split(QLatin1Char(','), Qt::SkipEmptyParts).size();
-                    state.daemonDetail = QStringLiteral("cache=%1/%2 inval=%3 rpc_fail=%4 rpc_cmds=%5 zed_active=%6 zed_restarts=%7 zed_last=%8 rec_last=%9")
+                    state.daemonDetail = QStringLiteral("cache=%1/%2 inval=%3 pool_inval=%4 rec_pruned=%5 rpc_fail=%6 rpc_cmds=%7 zed_active=%8 zed_restarts=%9 zed_last=%10 rec_last=%11")
                                              .arg(cacheEntries.isEmpty() ? QStringLiteral("-") : cacheEntries,
                                                   cacheMax.isEmpty() ? QStringLiteral("-") : cacheMax,
                                                   cacheInvalidations.isEmpty() ? QStringLiteral("-") : cacheInvalidations,
+                                                  poolInvalidations.isEmpty() ? QStringLiteral("-") : poolInvalidations,
+                                                  reconcilePruned.isEmpty() ? QStringLiteral("-") : reconcilePruned,
                                                   rpcFailures.isEmpty() ? QStringLiteral("-") : rpcFailures,
                                                   rpcCmdCount <= 0 ? QStringLiteral("-") : QString::number(rpcCmdCount),
                                                   zedActive.isEmpty() ? QStringLiteral("-") : zedActive,
