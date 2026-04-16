@@ -213,11 +213,16 @@ Implementado actualmente:
   - cifrado TLS con `server.crt/server.key`
   - mTLS local con certificado cliente dedicado (`client.crt/client.key`) y validación mutua
   - API JSON line-based interna
+- `health` endurecido:
+  - `--health` falla si no hay daemon residente alcanzable (`STATUS=DOWN`, `rc!=0`)
+  - con daemon activo devuelve métricas de runtime (`SERVER=1`, `CACHE_ENTRIES`, `ZED_ACTIVE`, `ZED_LAST_EVENT_UTC`)
 - modo cliente transparente:
   - las invocaciones `--dump-*` intentan primero hablar con el daemon residente
   - si falla TLS/socket, hacen fallback automático a ejecución directa local
 - caché en memoria en daemon residente (TTL rápido/lento configurable)
 - invalidación reactiva de caché por eventos (`zpool events -f`)
+- optimización del servidor residente:
+  - comandos críticos (`zpool/zfs` más frecuentes) se ejecutan in-process en el daemon sin auto-spawn del binario
 
 Pendiente de esta fase:
 
