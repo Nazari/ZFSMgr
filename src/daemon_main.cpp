@@ -53,6 +53,44 @@ struct CacheEntry {
     QDateTime expiresAtUtc;
 };
 
+struct CommandSpec {
+    const char* name;
+    int argc;
+};
+
+const QVector<CommandSpec>& supportedCommandSpecs() {
+    static const QVector<CommandSpec> specs = {
+        {"--health", 0},
+        {"--dump-zpool-list", 0},
+        {"--dump-refresh-basics", 0},
+        {"--dump-zfs-version", 0},
+        {"--dump-zfs-mount", 0},
+        {"--dump-zpool-guid-status-batch", 0},
+        {"--dump-zpool-guid", 1},
+        {"--dump-zpool-status", 1},
+        {"--dump-zpool-status-p", 1},
+        {"--dump-zpool-get-all", 1},
+        {"--dump-zpool-import-probe", 0},
+        {"--dump-zfs-list-all", 1},
+        {"--dump-zfs-guid-map", 1},
+        {"--dump-zfs-get-prop", 2},
+        {"--dump-zfs-get-all", 1},
+        {"--dump-zfs-get-json", 2},
+        {"--dump-zfs-get-gsa-raw-all-pools", 0},
+        {"--dump-zfs-get-gsa-raw-recursive", 1},
+        {"--dump-gsa-connections-conf", 0},
+    };
+    return specs;
+}
+
+QStringList supportedCommandNames() {
+    QStringList names;
+    for (const CommandSpec& s : supportedCommandSpecs()) {
+        names.push_back(QString::fromLatin1(s.name));
+    }
+    return names;
+}
+
 void writeHeartbeat() {
     QFile f(QString::fromLatin1(kHeartbeatPath));
     if (!f.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
@@ -144,35 +182,9 @@ AgentConfig loadAgentConfig(const QString& path) {
 }
 
 bool parseRemoteCommand(const QStringList& args, QString& cmd, QStringList& params) {
-    struct CmdSpec {
-        const char* name;
-        int argc;
-    };
-    static const QVector<CmdSpec> specs = {
-        {"--health", 0},
-        {"--dump-zpool-list", 0},
-        {"--dump-refresh-basics", 0},
-        {"--dump-zfs-version", 0},
-        {"--dump-zfs-mount", 0},
-        {"--dump-zpool-guid-status-batch", 0},
-        {"--dump-zpool-guid", 1},
-        {"--dump-zpool-status", 1},
-        {"--dump-zpool-status-p", 1},
-        {"--dump-zpool-get-all", 1},
-        {"--dump-zpool-import-probe", 0},
-        {"--dump-zfs-list-all", 1},
-        {"--dump-zfs-guid-map", 1},
-        {"--dump-zfs-get-prop", 2},
-        {"--dump-zfs-get-all", 1},
-        {"--dump-zfs-get-json", 2},
-        {"--dump-zfs-get-gsa-raw-all-pools", 0},
-        {"--dump-zfs-get-gsa-raw-recursive", 1},
-        {"--dump-gsa-connections-conf", 0},
-    };
-
     for (int i = 0; i < args.size(); ++i) {
         const QString a = args.at(i);
-        for (const CmdSpec& spec : specs) {
+        for (const CommandSpec& spec : supportedCommandSpecs()) {
             const QString name = QString::fromLatin1(spec.name);
             if (a != name) {
                 continue;
@@ -849,6 +861,7 @@ private:
                 lines << QStringLiteral("STATUS=OK")
                       << QStringLiteral("VERSION=%1").arg(agentversion::currentVersion())
                       << QStringLiteral("API=%1").arg(agentversion::expectedApiVersion())
+                      << QStringLiteral("RPC_COMMANDS=%1").arg(supportedCommandNames().join(QLatin1Char(',')))
                       << QStringLiteral("SERVER=1")
                       << QStringLiteral("CACHE_ENTRIES=%1").arg(m_cache.size())
                       << QStringLiteral("CACHE_MAX_ENTRIES=%1").arg(m_cfg.cacheMaxEntries)

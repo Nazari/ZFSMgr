@@ -215,7 +215,7 @@ Implementado actualmente:
   - API JSON line-based interna
 - `health` endurecido:
   - `--health` falla si no hay daemon residente alcanzable (`STATUS=DOWN`, `rc!=0`)
-  - con daemon activo devuelve métricas de runtime (`SERVER=1`, `CACHE_ENTRIES`, `CACHE_MAX_ENTRIES`, `CACHE_INVALIDATIONS`, `RPC_FAILURES`, `ZED_ACTIVE`, `ZED_RESTARTS`, `ZED_LAST_EVENT_UTC`)
+  - con daemon activo devuelve métricas de runtime (`SERVER=1`, `RPC_COMMANDS`, `CACHE_ENTRIES`, `CACHE_MAX_ENTRIES`, `CACHE_INVALIDATIONS`, `RPC_FAILURES`, `ZED_ACTIVE`, `ZED_RESTARTS`, `ZED_LAST_EVENT_UTC`)
 - modo cliente transparente:
   - las invocaciones `--dump-*` intentan primero hablar con el daemon residente
   - si falla TLS/socket, hacen fallback automático a ejecución directa local

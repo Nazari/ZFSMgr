@@ -1113,6 +1113,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 const QString cacheMax = hkv.value(QStringLiteral("CACHE_MAX_ENTRIES")).trimmed();
                 const QString cacheInvalidations = hkv.value(QStringLiteral("CACHE_INVALIDATIONS")).trimmed();
                 const QString rpcFailures = hkv.value(QStringLiteral("RPC_FAILURES")).trimmed();
+                const QString rpcCommands = hkv.value(QStringLiteral("RPC_COMMANDS")).trimmed();
                 const QString zedActive = hkv.value(QStringLiteral("ZED_ACTIVE")).trimmed();
                 const QString zedRestarts = hkv.value(QStringLiteral("ZED_RESTARTS")).trimmed();
                 const QString zedLast = hkv.value(QStringLiteral("ZED_LAST_EVENT_UTC")).trimmed();
@@ -1120,11 +1121,13 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 if (!cacheEntries.isEmpty() || !zedActive.isEmpty() || !zedLast.isEmpty()
                     || !cacheInvalidations.isEmpty() || !reconcileLast.isEmpty() || !zedRestarts.isEmpty()
                     || !rpcFailures.isEmpty()) {
-                    state.daemonDetail = QStringLiteral("cache=%1/%2 inval=%3 rpc_fail=%4 zed_active=%5 zed_restarts=%6 zed_last=%7 rec_last=%8")
+                    const int rpcCmdCount = rpcCommands.isEmpty() ? 0 : rpcCommands.split(QLatin1Char(','), Qt::SkipEmptyParts).size();
+                    state.daemonDetail = QStringLiteral("cache=%1/%2 inval=%3 rpc_fail=%4 rpc_cmds=%5 zed_active=%6 zed_restarts=%7 zed_last=%8 rec_last=%9")
                                              .arg(cacheEntries.isEmpty() ? QStringLiteral("-") : cacheEntries,
                                                   cacheMax.isEmpty() ? QStringLiteral("-") : cacheMax,
                                                   cacheInvalidations.isEmpty() ? QStringLiteral("-") : cacheInvalidations,
                                                   rpcFailures.isEmpty() ? QStringLiteral("-") : rpcFailures,
+                                                  rpcCmdCount <= 0 ? QStringLiteral("-") : QString::number(rpcCmdCount),
                                                   zedActive.isEmpty() ? QStringLiteral("-") : zedActive,
                                                   zedRestarts.isEmpty() ? QStringLiteral("-") : zedRestarts,
                                                   zedLast.isEmpty() ? QStringLiteral("-") : zedLast,
