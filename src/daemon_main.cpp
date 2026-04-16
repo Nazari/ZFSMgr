@@ -37,6 +37,7 @@ struct AgentConfig {
     QString tlsClientKeyPath{QString::fromLatin1(kDefaultTlsClientKeyPath)};
     int cacheTtlFastMs{2000};
     int cacheTtlSlowMs{8000};
+    int cacheMaxEntries{512};
     int reconcileIntervalMs{60000};
     bool zedEventsEnabled{true};
 };
@@ -131,6 +132,8 @@ AgentConfig loadAgentConfig(const QString& path) {
             cfg.cacheTtlFastMs = qMax(100, parseIntValue(value, cfg.cacheTtlFastMs));
         } else if (key == QStringLiteral("CACHE_TTL_SLOW_MS")) {
             cfg.cacheTtlSlowMs = qMax(100, parseIntValue(value, cfg.cacheTtlSlowMs));
+        } else if (key == QStringLiteral("CACHE_MAX_ENTRIES")) {
+            cfg.cacheMaxEntries = qMax(32, parseIntValue(value, cfg.cacheMaxEntries));
         } else if (key == QStringLiteral("RECONCILE_INTERVAL_MS")) {
             cfg.reconcileIntervalMs = qMax(1000, parseIntValue(value, cfg.reconcileIntervalMs));
         } else if (key == QStringLiteral("ZED_EVENTS") || key == QStringLiteral("ZED_EVENTS_ENABLED")) {
@@ -871,6 +874,7 @@ private:
                       << QStringLiteral("API=%1").arg(agentversion::expectedApiVersion())
                       << QStringLiteral("SERVER=1")
                       << QStringLiteral("CACHE_ENTRIES=%1").arg(m_cache.size())
+                      << QStringLiteral("CACHE_MAX_ENTRIES=%1").arg(m_cfg.cacheMaxEntries)
                       << QStringLiteral("CACHE_INVALIDATIONS=%1").arg(m_cacheInvalidations)
                       << QStringLiteral("ZED_ACTIVE=%1").arg((m_zedProc && m_zedProc->state() != QProcess::NotRunning) ? 1 : 0)
                       << QStringLiteral("ZED_RESTARTS=%1").arg(m_zedRestartCount)
@@ -893,6 +897,9 @@ private:
                     result = runFastPathCommand(cmd, params, &handled);
                     if (!handled) {
                         result = runDirectViaChild(cmd, params);
+                    }
+                    if (m_cache.size() >= m_cfg.cacheMaxEntries) {
+                        invalidateCache(QStringLiteral("cache_max_entries"));
                     }
                     CacheEntry entry;
                     entry.result = result;

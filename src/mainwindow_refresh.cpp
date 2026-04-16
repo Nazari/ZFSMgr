@@ -1110,6 +1110,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                                               hkv.value(QStringLiteral("SERVER")).trimmed());
             } else {
                 const QString cacheEntries = hkv.value(QStringLiteral("CACHE_ENTRIES")).trimmed();
+                const QString cacheMax = hkv.value(QStringLiteral("CACHE_MAX_ENTRIES")).trimmed();
                 const QString cacheInvalidations = hkv.value(QStringLiteral("CACHE_INVALIDATIONS")).trimmed();
                 const QString zedActive = hkv.value(QStringLiteral("ZED_ACTIVE")).trimmed();
                 const QString zedRestarts = hkv.value(QStringLiteral("ZED_RESTARTS")).trimmed();
@@ -1117,8 +1118,9 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 const QString reconcileLast = hkv.value(QStringLiteral("RECONCILE_LAST_UTC")).trimmed();
                 if (!cacheEntries.isEmpty() || !zedActive.isEmpty() || !zedLast.isEmpty()
                     || !cacheInvalidations.isEmpty() || !reconcileLast.isEmpty() || !zedRestarts.isEmpty()) {
-                    state.daemonDetail = QStringLiteral("cache=%1 inval=%2 zed_active=%3 zed_restarts=%4 zed_last=%5 rec_last=%6")
+                    state.daemonDetail = QStringLiteral("cache=%1/%2 inval=%3 zed_active=%4 zed_restarts=%5 zed_last=%6 rec_last=%7")
                                              .arg(cacheEntries.isEmpty() ? QStringLiteral("-") : cacheEntries,
+                                                  cacheMax.isEmpty() ? QStringLiteral("-") : cacheMax,
                                                   cacheInvalidations.isEmpty() ? QStringLiteral("-") : cacheInvalidations,
                                                   zedActive.isEmpty() ? QStringLiteral("-") : zedActive,
                                                   zedRestarts.isEmpty() ? QStringLiteral("-") : zedRestarts,
