@@ -224,6 +224,7 @@ Implementado actualmente:
 - reconciliación periódica de seguridad (timer) que invalida caché aunque no lleguen eventos
 - optimización del servidor residente:
   - la mayoría de lecturas `--dump-*` se ejecutan in-process en el daemon sin auto-spawn del binario
+  - reducción de dependencia de `sh -lc` en lecturas clave (import probe, GSA scan, refresh basics, version)
 
 Pendiente de esta fase:
 

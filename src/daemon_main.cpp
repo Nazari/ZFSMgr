@@ -244,6 +244,176 @@ ExecResult runProcessSync(const QString& program, const QStringList& args, int t
     return r;
 }
 
+QString oneLineCompact(const QString& s) {
+    QString out = s;
+    out.replace(QLatin1Char('\r'), QLatin1Char(' '));
+    out.replace(QLatin1Char('\n'), QLatin1Char(' '));
+    out = out.simplified();
+    return out;
+}
+
+ExecResult runRefreshBasicsTyped() {
+    ExecResult r;
+    QString osLine;
+    QString machineUuid;
+    QString zfsRaw;
+
+    {
+        const ExecResult uname = runProcessSync(QStringLiteral("uname"),
+                                                {QStringLiteral("-s")},
+                                                8000,
+                                                QStringLiteral("timeout uname -s"));
+        const QString unameS = oneLineCompact(uname.out).trimmed();
+        const ExecResult unameA = runProcessSync(QStringLiteral("uname"),
+                                                 {QStringLiteral("-a")},
+                                                 8000,
+                                                 QStringLiteral("timeout uname -a"));
+        osLine = oneLineCompact(unameA.out).trimmed();
+        if (unameS == QStringLiteral("Linux")) {
+            QFile osr(QStringLiteral("/etc/os-release"));
+            if (osr.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                const QStringList lines = QString::fromUtf8(osr.readAll()).split(QLatin1Char('\n'));
+                QString name;
+                QString ver;
+                for (const QString& raw : lines) {
+                    const QString line = raw.trimmed();
+                    if (line.startsWith(QStringLiteral("NAME="))) {
+                        name = stripQuotes(line.mid(5));
+                    } else if (line.startsWith(QStringLiteral("VERSION_ID="))) {
+                        ver = stripQuotes(line.mid(QStringLiteral("VERSION_ID=").size()));
+                    }
+                }
+                if (!name.isEmpty()) {
+                    osLine = (name + QStringLiteral(" ") + ver).simplified();
+                } else if (osLine.isEmpty()) {
+                    osLine = QStringLiteral("Linux");
+                }
+            } else if (osLine.isEmpty()) {
+                osLine = QStringLiteral("Linux");
+            }
+        } else if (unameS == QStringLiteral("Darwin")) {
+            const ExecResult pn = runProcessSync(QStringLiteral("sw_vers"),
+                                                 {QStringLiteral("-productName")},
+                                                 8000,
+                                                 QStringLiteral("timeout sw_vers -productName"));
+            const ExecResult pv = runProcessSync(QStringLiteral("sw_vers"),
+                                                 {QStringLiteral("-productVersion")},
+                                                 8000,
+                                                 QStringLiteral("timeout sw_vers -productVersion"));
+            const QString mac = (oneLineCompact(pn.out) + QStringLiteral(" ") + oneLineCompact(pv.out)).simplified();
+            if (!mac.isEmpty()) {
+                osLine = mac;
+            } else if (osLine.isEmpty()) {
+                osLine = QStringLiteral("macOS");
+            }
+        } else if (unameS == QStringLiteral("FreeBSD")) {
+            ExecResult fv = runProcessSync(QStringLiteral("freebsd-version"),
+                                           {QStringLiteral("-k")},
+                                           8000,
+                                           QStringLiteral("timeout freebsd-version -k"));
+            if (fv.rc != 0 || oneLineCompact(fv.out).isEmpty()) {
+                fv = runProcessSync(QStringLiteral("freebsd-version"),
+                                    {},
+                                    8000,
+                                    QStringLiteral("timeout freebsd-version"));
+            }
+            QString ver = oneLineCompact(fv.out).trimmed();
+            if (ver.isEmpty()) {
+                const ExecResult ur = runProcessSync(QStringLiteral("uname"),
+                                                     {QStringLiteral("-r")},
+                                                     8000,
+                                                     QStringLiteral("timeout uname -r"));
+                ver = oneLineCompact(ur.out).trimmed();
+            }
+            if (!ver.isEmpty()) {
+                osLine = QStringLiteral("FreeBSD %1").arg(ver);
+            } else if (osLine.isEmpty()) {
+                osLine = QStringLiteral("FreeBSD");
+            }
+        }
+    }
+
+    {
+        const QStringList candidates = {
+            QStringLiteral("/etc/machine-id"),
+            QStringLiteral("/var/lib/dbus/machine-id"),
+        };
+        for (const QString& path : candidates) {
+            QFile f(path);
+            if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                continue;
+            }
+            machineUuid = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n')).value(0).trimmed();
+            if (!machineUuid.isEmpty()) {
+                break;
+            }
+        }
+        if (machineUuid.isEmpty()) {
+            const ExecResult io = runProcessSync(QStringLiteral("ioreg"),
+                                                 {QStringLiteral("-rd1"), QStringLiteral("-c"), QStringLiteral("IOPlatformExpertDevice")},
+                                                 8000,
+                                                 QStringLiteral("timeout ioreg"));
+            const QStringList lines = (io.out + QStringLiteral("\n") + io.err).split(QLatin1Char('\n'));
+            for (const QString& line : lines) {
+                if (!line.contains(QStringLiteral("IOPlatformUUID"))) {
+                    continue;
+                }
+                const int first = line.indexOf(QLatin1Char('\"'));
+                const int last = line.lastIndexOf(QLatin1Char('\"'));
+                if (first >= 0 && last > first) {
+                    machineUuid = line.mid(first + 1, last - first - 1).trimmed();
+                    if (!machineUuid.isEmpty()) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    {
+        struct CmdTry { QString prog; QStringList args; };
+        const QVector<CmdTry> tries = {
+            {QStringLiteral("zfs"), {QStringLiteral("version")}},
+            {QStringLiteral("zfs"), {QStringLiteral("--version")}},
+            {QStringLiteral("zpool"), {QStringLiteral("--version")}},
+        };
+        for (const CmdTry& t : tries) {
+            ExecResult e = runProcessSync(t.prog, t.args, 10000, QStringLiteral("timeout zfs/zpool version"));
+            const QString merged = oneLineCompact(e.out + QStringLiteral("\n") + e.err);
+            if (e.rc == 0 && !merged.isEmpty()) {
+                zfsRaw = merged;
+                break;
+            }
+        }
+    }
+
+    r.out = QStringLiteral("OS_LINE=%1\nMACHINE_UUID=%2\nZFS_VERSION_RAW=%3\n")
+                .arg(oneLineCompact(osLine), oneLineCompact(machineUuid), oneLineCompact(zfsRaw));
+    r.rc = 0;
+    return r;
+}
+
+ExecResult runZfsVersionTyped() {
+    struct CmdTry { QString prog; QStringList args; };
+    const QVector<CmdTry> tries = {
+        {QStringLiteral("zfs"), {QStringLiteral("version")}},
+        {QStringLiteral("zfs"), {QStringLiteral("--version")}},
+        {QStringLiteral("zpool"), {QStringLiteral("--version")}},
+    };
+    for (const CmdTry& t : tries) {
+        ExecResult e = runProcessSync(t.prog, t.args, 10000, QStringLiteral("timeout zfs version"));
+        const QString merged = (e.out + QStringLiteral("\n") + e.err).trimmed();
+        if (e.rc == 0 && !merged.isEmpty()) {
+            e.out = merged + QLatin1Char('\n');
+            e.err.clear();
+            return e;
+        }
+    }
+    ExecResult fail;
+    fail.rc = 1;
+    return fail;
+}
+
 ExecResult runFastPathCommand(const QString& cmd, const QStringList& params, bool* handled) {
     if (handled) {
         *handled = true;
@@ -255,57 +425,10 @@ ExecResult runFastPathCommand(const QString& cmd, const QStringList& params, boo
                               QStringLiteral("agent timeout running zpool list -j"));
     }
     if (cmd == QStringLiteral("--dump-refresh-basics")) {
-        return runProcessSync(
-            QStringLiteral("sh"),
-            {QStringLiteral("-lc"),
-             QStringLiteral(
-                 "set +e; "
-                 "PATH=\"$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin\"; "
-                 "one_line(){ printf '%s' \"$1\" | tr '\\r\\n' ' ' | sed 's/[[:space:]]\\+/ /g; s/^ //; s/ $//'; }; "
-                 "os_line=\"$(uname -a 2>/dev/null || true)\"; "
-                 "uname_s=\"$(uname -s 2>/dev/null || true)\"; "
-                 "if [ \"$uname_s\" = \"Linux\" ]; then "
-                 "  refined=\"$(sh -lc '. /etc/os-release 2>/dev/null; printf \\\"%s %s\\\" \\\"$NAME\\\" \\\"$VERSION_ID\\\"' 2>/dev/null)\"; "
-                 "  [ -n \"$refined\" ] && os_line=\"$refined\" || os_line='Linux'; "
-                 "elif [ \"$uname_s\" = \"Darwin\" ]; then "
-                 "  refined=\"$(sw_vers -productName 2>/dev/null) $(sw_vers -productVersion 2>/dev/null)\"; "
-                 "  refined=\"$(one_line \"$refined\")\"; [ -n \"$refined\" ] && os_line=\"$refined\" || os_line='macOS'; "
-                 "elif [ \"$uname_s\" = \"FreeBSD\" ]; then "
-                 "  refined=\"$(freebsd-version -k 2>/dev/null || freebsd-version 2>/dev/null || uname -r 2>/dev/null)\"; "
-                 "  refined=\"$(one_line \"$refined\")\"; [ -n \"$refined\" ] && os_line=\"FreeBSD $refined\" || os_line='FreeBSD'; "
-                 "fi; "
-                 "machine_uuid=''; "
-                 "for c in \"cat /etc/machine-id 2>/dev/null\" "
-                 "         \"cat /var/lib/dbus/machine-id 2>/dev/null\" "
-                 "         \"ioreg -rd1 -c IOPlatformExpertDevice 2>/dev/null | awk -F\\\\\\\" '/IOPlatformUUID/{print $(NF-1); exit}'\"; do "
-                 "  out=\"$(sh -lc \"$c\" 2>/dev/null | head -n1 | tr -d '\\r')\"; "
-                 "  if [ -n \"$out\" ]; then machine_uuid=\"$out\"; break; fi; "
-                 "done; "
-                 "zfs_raw=''; "
-                 "for c in \"zfs version\" \"zfs --version\" \"zpool --version\"; do "
-                 "  out=\"$(sh -lc \"$c\" 2>&1)\"; rc=$?; "
-                 "  if [ $rc -eq 0 ] && [ -n \"$out\" ]; then zfs_raw=\"$(one_line \"$out\")\"; break; fi; "
-                 "done; "
-                 "printf 'OS_LINE=%s\\n' \"$(one_line \"$os_line\")\"; "
-                 "printf 'MACHINE_UUID=%s\\n' \"$(one_line \"$machine_uuid\")\"; "
-                 "printf 'ZFS_VERSION_RAW=%s\\n' \"$(one_line \"$zfs_raw\")\"")},
-            20000,
-            QStringLiteral("agent timeout running refresh basics"));
+        return runRefreshBasicsTyped();
     }
     if (cmd == QStringLiteral("--dump-zfs-version")) {
-        return runProcessSync(
-            QStringLiteral("sh"),
-            {QStringLiteral("-lc"),
-             QStringLiteral(
-                 "set +e; "
-                 "PATH=\"$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin\"; "
-                 "for c in \"zfs version\" \"zfs --version\" \"zpool --version\"; do "
-                 "  out=\"$(sh -lc \"$c\" 2>&1)\"; rc=$?; "
-                 "  if [ $rc -eq 0 ] && [ -n \"$out\" ]; then printf '%s\\n' \"$out\"; exit 0; fi; "
-                 "done; "
-                 "exit 1")},
-            15000,
-            QStringLiteral("agent timeout running zfs version"));
+        return runZfsVersionTyped();
     }
     if (cmd == QStringLiteral("--dump-zfs-mount")) {
         return runProcessSync(QStringLiteral("zfs"),
@@ -333,16 +456,25 @@ ExecResult runFastPathCommand(const QString& cmd, const QStringList& params, boo
                               QStringLiteral("agent timeout running zpool status -P"));
     }
     if (cmd == QStringLiteral("--dump-zpool-get-all") && params.size() >= 1) {
-        return runProcessSync(QStringLiteral("sh"),
-                              {QStringLiteral("-lc"), QStringLiteral("zpool get -j all \"$1\""), QStringLiteral("--"), params.at(0)},
+        return runProcessSync(QStringLiteral("zpool"),
+                              {QStringLiteral("get"), QStringLiteral("-j"), QStringLiteral("all"), params.at(0)},
                               20000,
                               QStringLiteral("agent timeout running zpool get -j all"));
     }
     if (cmd == QStringLiteral("--dump-zpool-import-probe")) {
-        return runProcessSync(QStringLiteral("sh"),
-                              {QStringLiteral("-lc"), QStringLiteral("zpool import; zpool import -s")},
-                              25000,
-                              QStringLiteral("agent timeout running zpool import probe"));
+        ExecResult a = runProcessSync(QStringLiteral("zpool"),
+                                      {QStringLiteral("import")},
+                                      15000,
+                                      QStringLiteral("agent timeout running zpool import"));
+        ExecResult b = runProcessSync(QStringLiteral("zpool"),
+                                      {QStringLiteral("import"), QStringLiteral("-s")},
+                                      20000,
+                                      QStringLiteral("agent timeout running zpool import -s"));
+        ExecResult out;
+        out.out = a.out + b.out;
+        out.err = a.err + b.err;
+        out.rc = b.rc;
+        return out;
     }
     if (cmd == QStringLiteral("--dump-zfs-list-all") && params.size() >= 1) {
         return runProcessSync(
@@ -421,27 +553,38 @@ ExecResult runFastPathCommand(const QString& cmd, const QStringList& params, boo
                               QStringLiteral("agent timeout running zfs get -j subset"));
     }
     if (cmd == QStringLiteral("--dump-zfs-get-gsa-raw-all-pools")) {
-        return runProcessSync(QStringLiteral("sh"),
-                              {QStringLiteral("-lc"),
-                               QStringLiteral(
-                                   "props='org.fc16.gsa:activado,org.fc16.gsa:nivelar,org.fc16.gsa:destino'; "
-                                   "zpool list -H -o name 2>/dev/null | while IFS= read -r pool; do "
-                                   "  [ -n \"$pool\" ] || continue; "
-                                   "  zfs get -H -o name,property,value -r \"$props\" \"$pool\" 2>/dev/null || true; "
-                                   "done")},
-                              30000,
-                              QStringLiteral("agent timeout running gsa raw scan"));
+        ExecResult pools = runProcessSync(QStringLiteral("zpool"),
+                                          {QStringLiteral("list"), QStringLiteral("-H"), QStringLiteral("-o"), QStringLiteral("name")},
+                                          15000,
+                                          QStringLiteral("agent timeout running zpool list names"));
+        if (pools.rc != 0) {
+            return pools;
+        }
+        ExecResult agg;
+        agg.rc = 0;
+        const QStringList poolNames = pools.out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        const QString props = QStringLiteral("org.fc16.gsa:activado,org.fc16.gsa:nivelar,org.fc16.gsa:destino");
+        for (const QString& rawPool : poolNames) {
+            const QString pool = rawPool.trimmed();
+            if (pool.isEmpty()) {
+                continue;
+            }
+            ExecResult one = runProcessSync(
+                QStringLiteral("zfs"),
+                {QStringLiteral("get"), QStringLiteral("-H"), QStringLiteral("-o"),
+                 QStringLiteral("name,property,value"), QStringLiteral("-r"), props, pool},
+                15000,
+                QStringLiteral("agent timeout running gsa raw per pool"));
+            agg.out += one.out;
+            agg.err += one.err;
+        }
+        return agg;
     }
     if (cmd == QStringLiteral("--dump-zfs-get-gsa-raw-recursive") && params.size() >= 1) {
-        return runProcessSync(QStringLiteral("sh"),
-                              {QStringLiteral("-lc"),
-                               QStringLiteral(
-                                   "zfs get -H -o name,property,value,source -r "
-                                   "org.fc16.gsa:activado,org.fc16.gsa:recursivo,org.fc16.gsa:horario,"
-                                   "org.fc16.gsa:diario,org.fc16.gsa:semanal,org.fc16.gsa:mensual,"
-                                   "org.fc16.gsa:anual,org.fc16.gsa:nivelar,org.fc16.gsa:destino "
-                                   "\"$1\""),
-                               QStringLiteral("--"),
+        return runProcessSync(QStringLiteral("zfs"),
+                              {QStringLiteral("get"), QStringLiteral("-H"), QStringLiteral("-o"),
+                               QStringLiteral("name,property,value,source"), QStringLiteral("-r"),
+                               QStringLiteral("org.fc16.gsa:activado,org.fc16.gsa:recursivo,org.fc16.gsa:horario,org.fc16.gsa:diario,org.fc16.gsa:semanal,org.fc16.gsa:mensual,org.fc16.gsa:anual,org.fc16.gsa:nivelar,org.fc16.gsa:destino"),
                                params.at(0)},
                               30000,
                               QStringLiteral("agent timeout running gsa recursive scan"));
@@ -853,6 +996,19 @@ int main(int argc, char* argv[]) {
     if (args.contains(QStringLiteral("--once"))) {
         writeHeartbeat();
         return 0;
+    }
+    if (hasRemoteCmd) {
+        bool handled = false;
+        const ExecResult local = runFastPathCommand(parsedCmd, parsedParams, &handled);
+        if (handled) {
+            if (!local.out.isEmpty()) {
+                QTextStream(stdout) << local.out;
+            }
+            if (!local.err.isEmpty()) {
+                QTextStream(stderr) << local.err;
+            }
+            return local.rc;
+        }
     }
     if (args.contains(QStringLiteral("--dump-zpool-list"))) {
         QProcess p;
