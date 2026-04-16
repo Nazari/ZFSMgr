@@ -22,7 +22,7 @@ Descripción:
   - Linux nativo: .AppImage + .deb
   - Windows cross: zfsmgr_qt.exe (+ instalador Inno opcional en Linux)
   - FreeBSD cross: artefacto .pkg con zfsmgr_qt
-  - macOS cross: .app.zip (una por arquitectura en MACOS_ARCHES)
+  - macOS cross: .app.zip (una por arquitectura en MACOS_ARCHES) + nota de primer arranque
 
 Variables opcionales:
   OUTPUT_DIR      Directorio destino de artefactos (default: builds/artifacts/<timestamp>)
@@ -119,6 +119,35 @@ package_macos_app_zip() {
     # -y preserva symlinks del bundle .app; sin esto Gatekeeper puede marcar la app como dañada.
     zip -qry -y "${out_zip}" "${app_name}"
   )
+}
+
+write_macos_first_run_note() {
+  local out_file="$1"
+  cat > "${out_file}" <<'EOF'
+ZFSMgr macOS (cross-build) — primer arranque
+=============================================
+
+Estos artefactos .app.zip se construyen por cross-build en Linux y no van notarizados por Apple.
+En macOS puedes abrir la app aplicando excepción de seguridad.
+
+Pasos recomendados:
+
+1) Extraer el .zip y mover la app a /Applications (opcional).
+
+2) Eliminar cuarentena del bundle:
+   xattr -dr com.apple.quarantine "/ruta/ZFSMgr-<version>.app"
+
+3) Intentar abrir con clic derecho -> Abrir.
+   Si macOS lo bloquea, ve a:
+   Ajustes del sistema -> Privacidad y seguridad -> "Abrir igualmente".
+
+4) (Opcional) Re-firma ad-hoc local para estabilizar validaciones:
+   codesign --force --deep --sign - --timestamp=none "/ruta/ZFSMgr-<version>.app"
+
+Comprobación:
+   spctl -a -vv "/ruta/ZFSMgr-<version>.app"
+   codesign --verify --deep --strict --verbose=4 "/ruta/ZFSMgr-<version>.app"
+EOF
 }
 
 run_phase() {
@@ -251,6 +280,8 @@ if has_platform "freebsd"; then
 fi
 
 if has_platform "macos"; then
+  mac_note="${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-macOS-first-run.txt"
+  write_macos_first_run_note "${mac_note}"
   IFS=',' read -r -a _mac_arches <<< "${MACOS_ARCHES}"
   for _arch in "${_mac_arches[@]}"; do
     _arch="$(echo "${_arch}" | xargs)"

@@ -101,6 +101,7 @@ ARTIFACTS_DIR="${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}"
 BUILDALL_PLATFORM_LOG_DIR="${LOG_DIR}/buildall-platforms"
 MAC_ARTIFACTS=()
 MAC_ARTIFACTS_JSON=""
+MAC_FIRST_RUN_NOTE=""
 WIN_ARTIFACT=""
 LINUX_APPIMAGE=""
 LINUX_DEB=""
@@ -226,10 +227,12 @@ resolve_release_artifacts() {
   local windows_build_dir="${PROJECT_ROOT}/builds/windows"
   local cross_windows_build_dir="${PROJECT_ROOT}/builds/cross-windows"
   MAC_ARTIFACTS=()
+  MAC_FIRST_RUN_NOTE=""
   while IFS= read -r path; do
     [[ -n "${path}" ]] || continue
     MAC_ARTIFACTS+=("${path}")
   done < <(find_many_release_artifacts "${artifacts_dir}" "${fallback_dir}" "${cross_macos_build_dir}" "ZFSMgr-${VERSION}_*.dmg" "ZFSMgr-${VERSION}.dmg" "ZFSMgr-${VERSION}.app.zip" "ZFSMgr-${VERSION}-macos-*.app.zip" || true)
+  MAC_FIRST_RUN_NOTE="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${cross_macos_build_dir}" "ZFSMgr-${VERSION}-macOS-first-run.txt" "ZFSMgr-${VERSION}-macos-first-run.txt" || true)"
   MAC_ARTIFACTS_JSON="$(join_by ";" "${MAC_ARTIFACTS[@]}")"
   WIN_ARTIFACT="$(find_one_release_artifact "${artifacts_dir}" "${fallback_dir}" "${cross_windows_build_dir}" "ZFSMgr-Setup-${VERSION}*.exe" "ZFSMgr-${VERSION}-windows.exe" "zfsmgr_qt.exe" || true)"
   if [[ -z "${WIN_ARTIFACT}" || ! -f "${WIN_ARTIFACT}" ]]; then
@@ -445,6 +448,9 @@ GH_RELEASE_CMD=(gh release create "${TAG}"
 for _mac in "${MAC_ARTIFACTS[@]}"; do
   GH_RELEASE_CMD+=("${_mac}")
 done
+if [[ -n "${MAC_FIRST_RUN_NOTE}" && -f "${MAC_FIRST_RUN_NOTE}" ]]; then
+  GH_RELEASE_CMD+=("${MAC_FIRST_RUN_NOTE}")
+fi
 run_logged github-release "${GH_RELEASE_CMD[@]}"
 
 log "Release creada correctamente"
@@ -460,4 +466,7 @@ printf 'Artefactos:\n'
 for _mac in "${MAC_ARTIFACTS[@]}"; do
   printf '  %s\n' "${_mac}"
 done
+if [[ -n "${MAC_FIRST_RUN_NOTE}" && -f "${MAC_FIRST_RUN_NOTE}" ]]; then
+  printf '  %s\n' "${MAC_FIRST_RUN_NOTE}"
+fi
 printf '  %s\n' "${WIN_ARTIFACT}" "${LINUX_APPIMAGE}" "${LINUX_DEB}" "${FREEBSD_PKG}"
