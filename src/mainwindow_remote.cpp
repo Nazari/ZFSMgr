@@ -15,6 +15,7 @@
 #include <QSslConfiguration>
 #include <QSslKey>
 #include <QSslSocket>
+#include <QTcpServer>
 #include <QRegularExpression>
 #include <QSet>
 #include <QStandardPaths>
@@ -40,6 +41,25 @@ struct LocalAgentConfig {
     QString tlsClientCertPath{QString::fromLatin1(kDefaultAgentTlsClientCertPath)};
     QString tlsClientKeyPath{QString::fromLatin1(kDefaultAgentTlsClientKeyPath)};
 };
+
+struct RemoteDaemonTlsCacheEntry {
+    QByteArray serverCertPem;
+    QByteArray clientCertPem;
+    QByteArray clientKeyPem;
+    quint16 port{47653};
+    QDateTime fetchedAtUtc;
+};
+
+QMutex s_remoteDaemonTlsCacheMutex;
+QHash<QString, RemoteDaemonTlsCacheEntry> s_remoteDaemonTlsCache;
+
+QString remoteDaemonTlsCacheKey(const ConnectionProfile& p) {
+    return QStringLiteral("%1|%2|%3|%4")
+        .arg(p.username.trimmed().toLower(),
+             p.host.trimmed().toLower(),
+             QString::number((p.port > 0) ? p.port : 22),
+             p.keyPath.trimmed());
+}
 
 QString stripConfigQuotes(QString v) {
     v = v.trimmed();
@@ -224,6 +244,188 @@ bool tryRunLocalAgentRpc(const QStringList& agentArgs,
     return false;
 }
 
+bool runSshRawNoLog(const ConnectionProfile& p,
+                    const QString& remoteCmd,
+                    int timeoutMs,
+                    QString& out,
+                    QString& err,
+                    int& rc) {
+    out.clear();
+    err.clear();
+    rc = -1;
+
+    QString program = QStringLiteral("ssh");
+    QStringList sshpassPrefixArgs;
+    const bool hasPassword = !p.password.trimmed().isEmpty();
+    if (hasPassword) {
+        const QString sshpassExe = mwhelpers::findLocalExecutable(QStringLiteral("sshpass"));
+        if (!sshpassExe.isEmpty()) {
+            program = sshpassExe;
+            sshpassPrefixArgs << "-p" << p.password << "ssh";
+        }
+    }
+
+    QStringList args = sshpassPrefixArgs;
+    const QString familyOpt = mwhelpers::sshAddressFamilyOption(p);
+    if (!familyOpt.isEmpty()) {
+        args << familyOpt;
+    }
+    args << "-o" << "BatchMode=yes";
+    args << "-o" << "ConnectTimeout=10";
+    args << "-o" << "LogLevel=ERROR";
+    args << "-o" << "StrictHostKeyChecking=no";
+    args << "-o" << "UserKnownHostsFile=/dev/null";
+    if (hasPassword && !sshpassPrefixArgs.isEmpty()) {
+        args << "-o" << "BatchMode=no";
+        args << "-o" << "PreferredAuthentications=password,keyboard-interactive,publickey";
+        args << "-o" << "NumberOfPasswordPrompts=1";
+    }
+    if (p.port > 0) {
+        args << "-p" << QString::number(p.port);
+    }
+    if (!p.keyPath.isEmpty()) {
+        args << "-i" << p.keyPath;
+    }
+    args << mwhelpers::sshUserHost(p) << remoteCmd;
+
+    QProcess proc;
+    proc.start(program, args);
+    if (!proc.waitForStarted(4000)) {
+        err = QStringLiteral("cannot start ssh");
+        return false;
+    }
+    if (!proc.waitForFinished(timeoutMs > 0 ? timeoutMs : 15000)) {
+        proc.kill();
+        proc.waitForFinished(1000);
+        err = QStringLiteral("timeout");
+        rc = -1;
+        return false;
+    }
+    out = QString::fromUtf8(proc.readAllStandardOutput());
+    err = QString::fromUtf8(proc.readAllStandardError());
+    rc = proc.exitCode();
+    return true;
+}
+
+bool parseRemoteDaemonTlsBundle(const QString& text,
+                                QByteArray& serverCertPem,
+                                QByteArray& clientCertPem,
+                                QByteArray& clientKeyPem,
+                                quint16& portOut) {
+    serverCertPem.clear();
+    clientCertPem.clear();
+    clientKeyPem.clear();
+    portOut = 47653;
+
+    QString currentPath;
+    QByteArray currentContent;
+    const QStringList lines = text.split('\n', Qt::KeepEmptyParts);
+    for (const QString& rawLine : lines) {
+        const QString line = rawLine;
+        if (line.startsWith(QStringLiteral("__ZFSMGR_TLS_BEGIN__:"))) {
+            currentPath = line.mid(QStringLiteral("__ZFSMGR_TLS_BEGIN__:").size()).trimmed();
+            currentContent.clear();
+            continue;
+        }
+        if (line.startsWith(QStringLiteral("__ZFSMGR_TLS_END__:"))) {
+            const QString endPath = line.mid(QStringLiteral("__ZFSMGR_TLS_END__:").size()).trimmed();
+            if (!currentPath.isEmpty() && endPath == currentPath) {
+                const QByteArray content = currentContent.trimmed() + QByteArray("\n");
+                if (currentPath.endsWith(QStringLiteral("/server.crt"))) {
+                    serverCertPem = content;
+                } else if (currentPath.endsWith(QStringLiteral("/client.crt"))) {
+                    clientCertPem = content;
+                } else if (currentPath.endsWith(QStringLiteral("/client.key"))) {
+                    clientKeyPem = content;
+                }
+            }
+            currentPath.clear();
+            currentContent.clear();
+            continue;
+        }
+        if (line.startsWith(QStringLiteral("__ZFSMGR_AGENT_PORT__:"))) {
+            bool ok = false;
+            const int parsed = line.mid(QStringLiteral("__ZFSMGR_AGENT_PORT__:").size()).trimmed().toInt(&ok);
+            if (ok && parsed > 0 && parsed <= 65535) {
+                portOut = static_cast<quint16>(parsed);
+            }
+            continue;
+        }
+        if (!currentPath.isEmpty()) {
+            currentContent += rawLine.toUtf8();
+            currentContent += '\n';
+        }
+    }
+    return !serverCertPem.isEmpty() && !clientCertPem.isEmpty() && !clientKeyPem.isEmpty();
+}
+
+bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
+                                  QByteArray& serverCertPem,
+                                  QByteArray& clientCertPem,
+                                  QByteArray& clientKeyPem,
+                                  quint16& daemonPort) {
+    const QString key = remoteDaemonTlsCacheKey(p);
+    {
+        QMutexLocker lock(&s_remoteDaemonTlsCacheMutex);
+        const auto it = s_remoteDaemonTlsCache.constFind(key);
+        if (it != s_remoteDaemonTlsCache.constEnd()
+            && it->fetchedAtUtc.isValid()
+            && it->fetchedAtUtc.msecsTo(QDateTime::currentDateTimeUtc()) <= 5 * 60 * 1000) {
+            serverCertPem = it->serverCertPem;
+            clientCertPem = it->clientCertPem;
+            clientKeyPem = it->clientKeyPem;
+            daemonPort = it->port;
+            return true;
+        }
+    }
+
+    const QString bundleScript =
+        QStringLiteral("set -eu; "
+                       "for f in /etc/zfsmgr/tls/server.crt /etc/zfsmgr/tls/client.crt /etc/zfsmgr/tls/client.key; do "
+                       "  printf '__ZFSMGR_TLS_BEGIN__:%s\\n' \"$f\"; "
+                       "  cat \"$f\"; "
+                       "  printf '__ZFSMGR_TLS_END__:%s\\n' \"$f\"; "
+                       "done; "
+                       "if [ -r /etc/zfsmgr/agent.conf ]; then "
+                       "  port=$(awk -F= '/^[[:space:]]*AGENT_PORT[[:space:]]*=/{print $2}' /etc/zfsmgr/agent.conf | tail -n1 | tr -d \"' \\t\\r\"); "
+                       "  if [ -n \"$port\" ]; then printf '__ZFSMGR_AGENT_PORT__:%s\\n' \"$port\"; fi; "
+                       "fi");
+    const QString cmdPlain = QStringLiteral("sh -lc %1").arg(mwhelpers::shSingleQuote(bundleScript));
+    const QString cmdSudo = mwhelpers::withSudoCommand(p, cmdPlain);
+
+    QString out;
+    QString err;
+    int rc = -1;
+    bool ok = runSshRawNoLog(p, cmdPlain, 12000, out, err, rc) && rc == 0;
+    if (!ok) {
+        out.clear();
+        err.clear();
+        rc = -1;
+        ok = runSshRawNoLog(p, cmdSudo, 15000, out, err, rc) && rc == 0;
+    }
+    if (!ok) {
+        return false;
+    }
+
+    quint16 parsedPort = 47653;
+    if (!parseRemoteDaemonTlsBundle(out, serverCertPem, clientCertPem, clientKeyPem, parsedPort)) {
+        return false;
+    }
+    daemonPort = parsedPort;
+
+    RemoteDaemonTlsCacheEntry entry;
+    entry.serverCertPem = serverCertPem;
+    entry.clientCertPem = clientCertPem;
+    entry.clientKeyPem = clientKeyPem;
+    entry.port = daemonPort;
+    entry.fetchedAtUtc = QDateTime::currentDateTimeUtc();
+    {
+        QMutexLocker lock(&s_remoteDaemonTlsCacheMutex);
+        s_remoteDaemonTlsCache.insert(key, entry);
+    }
+    return true;
+}
+
 QString sanitizeWindowsCliXml(const QString& raw) {
     QString s = raw;
     if (s.isEmpty()) {
@@ -284,6 +486,173 @@ QString describeHostAddress(const QHostAddress& address) {
     return QStringLiteral("%1:%2").arg(protocol, address.toString());
 }
 } // namespace
+
+bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
+                                               const QStringList& agentArgs,
+                                               int timeoutMs,
+                                               QString& out,
+                                               QString& err,
+                                               int& rc) {
+    out.clear();
+    err.clear();
+    rc = -1;
+    if (agentArgs.isEmpty()) {
+        return false;
+    }
+    if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
+        return false;
+    }
+    if (isWindowsConnection(p)) {
+        return false;
+    }
+
+    QByteArray serverCertPem;
+    QByteArray clientCertPem;
+    QByteArray clientKeyPem;
+    quint16 daemonPort = 47653;
+    if (!fetchRemoteDaemonTlsMaterial(p, serverCertPem, clientCertPem, clientKeyPem, daemonPort)) {
+        return false;
+    }
+
+    const QList<QSslCertificate> caCerts = QSslCertificate::fromData(serverCertPem, QSsl::Pem);
+    const QList<QSslCertificate> clientCerts = QSslCertificate::fromData(clientCertPem, QSsl::Pem);
+    if (caCerts.isEmpty() || clientCerts.isEmpty()) {
+        return false;
+    }
+    QSslKey clientKey(clientKeyPem, QSsl::Rsa, QSsl::Pem);
+    if (clientKey.isNull()) {
+        clientKey = QSslKey(clientKeyPem, QSsl::Ec, QSsl::Pem);
+    }
+    if (clientKey.isNull()) {
+        return false;
+    }
+
+    QTcpServer portProbe;
+    if (!portProbe.listen(QHostAddress::LocalHost, 0)) {
+        return false;
+    }
+    const quint16 localPort = portProbe.serverPort();
+    portProbe.close();
+    if (localPort == 0) {
+        return false;
+    }
+
+    QString tunnelProgram = QStringLiteral("ssh");
+    QStringList tunnelArgs;
+    const bool hasPassword = !p.password.trimmed().isEmpty();
+    if (hasPassword) {
+        const QString sshpassExe = findLocalExecutable(QStringLiteral("sshpass"));
+        if (!sshpassExe.isEmpty()) {
+            tunnelProgram = sshpassExe;
+            tunnelArgs << "-p" << p.password << "ssh";
+        }
+    }
+    const QString familyOpt = sshAddressFamilyOption(p);
+    if (!familyOpt.isEmpty()) {
+        tunnelArgs << familyOpt;
+    }
+    tunnelArgs << "-o" << "BatchMode=yes";
+    tunnelArgs << "-o" << "ConnectTimeout=10";
+    tunnelArgs << "-o" << "LogLevel=ERROR";
+    tunnelArgs << "-o" << "StrictHostKeyChecking=no";
+    tunnelArgs << "-o" << "UserKnownHostsFile=/dev/null";
+    tunnelArgs << "-o" << "ExitOnForwardFailure=yes";
+    if (hasPassword && tunnelProgram != QStringLiteral("ssh")) {
+        tunnelArgs << "-o" << "BatchMode=no";
+        tunnelArgs << "-o" << "PreferredAuthentications=password,keyboard-interactive,publickey";
+        tunnelArgs << "-o" << "NumberOfPasswordPrompts=1";
+    }
+    if (p.port > 0) {
+        tunnelArgs << "-p" << QString::number(p.port);
+    }
+    if (!p.keyPath.isEmpty()) {
+        tunnelArgs << "-i" << p.keyPath;
+    }
+    tunnelArgs << "-L" << QStringLiteral("%1:127.0.0.1:%2").arg(localPort).arg(daemonPort);
+    tunnelArgs << "-N" << sshUserHost(p);
+
+    QProcess tunnel;
+    tunnel.start(tunnelProgram, tunnelArgs);
+    if (!tunnel.waitForStarted(5000)) {
+        return false;
+    }
+    QThread::msleep(180);
+    if (tunnel.state() == QProcess::NotRunning) {
+        return false;
+    }
+
+    auto stopTunnel = [&]() {
+        if (tunnel.state() != QProcess::NotRunning) {
+            tunnel.terminate();
+            if (!tunnel.waitForFinished(700)) {
+                tunnel.kill();
+                tunnel.waitForFinished(700);
+            }
+        }
+    };
+
+    const int connectTimeout = qBound(600, timeoutMs > 0 ? timeoutMs / 5 : 1200, 3500);
+    const int ioTimeout = qBound(1000, timeoutMs > 0 ? timeoutMs : 30000, 70000);
+    const QString cmd = agentArgs.first().trimmed();
+    const QStringList params = agentArgs.mid(1);
+    const QStringList peerNames = {QStringLiteral("zfsmgr-agent-server"), QStringLiteral("zfsmgr-agent")};
+
+    for (const QString& peerName : peerNames) {
+        QSslSocket sock;
+        sock.setProtocol(QSsl::TlsV1_2OrLater);
+        QSslConfiguration conf = sock.sslConfiguration();
+        conf.setCaCertificates(caCerts);
+        conf.setLocalCertificate(clientCerts.first());
+        conf.setPrivateKey(clientKey);
+        conf.setProtocol(QSsl::TlsV1_2OrLater);
+        conf.setPeerVerifyMode(QSslSocket::VerifyPeer);
+        sock.setSslConfiguration(conf);
+
+        sock.connectToHostEncrypted(QStringLiteral("127.0.0.1"), localPort, peerName);
+        if (!sock.waitForEncrypted(connectTimeout)) {
+            continue;
+        }
+
+        QJsonObject req;
+        req.insert(QStringLiteral("cmd"), cmd);
+        QJsonArray args;
+        for (const QString& pArg : params) {
+            args.push_back(pArg);
+        }
+        req.insert(QStringLiteral("args"), args);
+        const QByteArray payload = QJsonDocument(req).toJson(QJsonDocument::Compact) + '\n';
+        if (sock.write(payload) < 0 || !sock.waitForBytesWritten(connectTimeout)) {
+            continue;
+        }
+
+        QByteArray line;
+        QElapsedTimer timer;
+        timer.start();
+        while (timer.elapsed() < ioTimeout) {
+            if (!sock.waitForReadyRead(300)) {
+                if (tunnel.state() == QProcess::NotRunning) {
+                    break;
+                }
+                continue;
+            }
+            line.append(sock.readAll());
+            const int nl = line.indexOf('\n');
+            if (nl < 0) {
+                continue;
+            }
+            const QByteArray one = line.left(nl).trimmed();
+            const QJsonObject resp = QJsonDocument::fromJson(one).object();
+            rc = resp.value(QStringLiteral("rc")).toInt(1);
+            out = resp.value(QStringLiteral("stdout")).toString();
+            err = resp.value(QStringLiteral("stderr")).toString();
+            stopTunnel();
+            return true;
+        }
+    }
+
+    stopTunnel();
+    return false;
+}
 
 bool MainWindow::runSsh(const ConnectionProfile& p,
                         const QString& remoteCmd,
@@ -654,6 +1023,40 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
             appendConnectionLog(p.id, oneLine(err));
         }
         return true;
+    }
+
+    if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0 && !isWindowsConnection(p)) {
+        QStringList agentArgs;
+        if (extractLocalAgentArgs(remoteCmd.trimmed(), agentArgs)) {
+            if (tryRunRemoteAgentRpcViaTunnel(p, agentArgs, timeoutMs, out, err, rc)) {
+                const QString cmdLine = QStringLiteral("%1 $ [daemon-rpc] %2")
+                                            .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')));
+                appLog(QStringLiteral("INFO"), cmdLine);
+                appendConnectionLog(p.id, cmdLine);
+                const auto emitLines = [&](const QString& text, const std::function<void(const QString&)>& cb) {
+                    const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
+                    for (const QString& rawLine : lines) {
+                        const QString line = rawLine.trimmed();
+                        if (line.isEmpty()) {
+                            continue;
+                        }
+                        if (cb) {
+                            cb(line);
+                        }
+                        appendConnectionLog(p.id, line);
+                    }
+                };
+                emitLines(out, onStdoutLine);
+                emitLines(err, onStderrLine);
+                if (!out.trimmed().isEmpty()) {
+                    appendConnectionLog(p.id, oneLine(out));
+                }
+                if (!err.trimmed().isEmpty()) {
+                    appendConnectionLog(p.id, oneLine(err));
+                }
+                return true;
+            }
+        }
     }
 
     const bool hasPassword = !p.password.trimmed().isEmpty();

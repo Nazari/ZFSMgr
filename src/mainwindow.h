@@ -634,6 +634,12 @@ private:
                 const std::function<void(int)>& onIdleTimeoutRemaining = {},
                 WindowsCommandMode windowsMode = WindowsCommandMode::Auto,
                 const QByteArray& stdinPayload = {});
+    bool tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
+                                       const QStringList& agentArgs,
+                                       int timeoutMs,
+                                       QString& out,
+                                       QString& err,
+                                       int& rc);
     void closeAllSshControlMasters();
     QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
     QString withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const;
