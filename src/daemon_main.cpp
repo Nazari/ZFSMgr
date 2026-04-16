@@ -1060,6 +1060,10 @@ int main(int argc, char* argv[]) {
     QString parsedCmd;
     QStringList parsedParams;
     const bool hasRemoteCmd = parseRemoteCommand(args, parsedCmd, parsedParams);
+    if (directMode && !hasRemoteCmd) {
+        QTextStream(stderr) << "unknown or malformed --direct command\n";
+        return 2;
+    }
     if (hasRemoteCmd && !directMode) {
         ExecResult proxied;
         if (tryForwardToResidentDaemon(cfg, parsedCmd, parsedParams, proxied)) {
@@ -1101,6 +1105,10 @@ int main(int argc, char* argv[]) {
                 QTextStream(stderr) << local.err;
             }
             return local.rc;
+        }
+        if (directMode) {
+            QTextStream(stderr) << "unsupported --direct command\n";
+            return 2;
         }
     }
     if (args.contains(QStringLiteral("--dump-zpool-list"))) {
