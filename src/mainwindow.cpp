@@ -6,7 +6,10 @@
 #include <algorithm>
 #include <QComboBox>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
+#include <QProcess>
+#include <QSet>
 #include <QTableWidget>
 #include <QTreeWidget>
 
@@ -110,6 +113,33 @@ struct PoolAutoSnapshotLoadResult {
     QString errorText;
     QMap<QString, QMap<QString, QString>> loaded;
 };
+
+bool isAllowedGenericZpoolMutationOpClient(const QString& opRaw) {
+    const QString op = opRaw.trimmed().toLower();
+    static const QSet<QString> allowed = {
+        QStringLiteral("create"),
+        QStringLiteral("destroy"),
+        QStringLiteral("add"),
+        QStringLiteral("remove"),
+        QStringLiteral("attach"),
+        QStringLiteral("detach"),
+        QStringLiteral("replace"),
+        QStringLiteral("offline"),
+        QStringLiteral("online"),
+        QStringLiteral("clear"),
+        QStringLiteral("export"),
+        QStringLiteral("import"),
+        QStringLiteral("scrub"),
+        QStringLiteral("trim"),
+        QStringLiteral("initialize"),
+        QStringLiteral("sync"),
+        QStringLiteral("upgrade"),
+        QStringLiteral("reguid"),
+        QStringLiteral("split"),
+        QStringLiteral("checkpoint"),
+    };
+    return allowed.contains(op);
+}
 }
 
 MainWindow::MainWindow(const QString& masterPassword, const QString& language, QWidget* parent)
@@ -1778,6 +1808,45 @@ bool MainWindow::executePoolCommand(int connIdx,
         refreshSelectedPoolDetails(true, true);
     }
     return true;
+}
+
+QString MainWindow::daemonizeZpoolMutationCommand(int connIdx, const QString& rawCmd) const {
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return QString();
+    }
+    const ConnectionProfile& p = m_profiles[connIdx];
+    if (isWindowsConnection(p)) {
+        return QString();
+    }
+    if (connIdx < 0 || connIdx >= m_states.size()) {
+        return QString();
+    }
+    const ConnectionRuntimeState& st = m_states[connIdx];
+    if (!st.daemonInstalled || !st.daemonActive) {
+        return QString();
+    }
+    if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
+        return QString();
+    }
+    const QStringList parts = QProcess::splitCommand(rawCmd.trimmed());
+    if (parts.size() < 2 || parts.first().trimmed() != QStringLiteral("zpool")) {
+        return QString();
+    }
+    const QString op = parts.at(1).trimmed();
+    if (!isAllowedGenericZpoolMutationOpClient(op)) {
+        return QString();
+    }
+    QJsonArray arr;
+    for (int i = 1; i < parts.size(); ++i) {
+        arr.push_back(parts.at(i));
+    }
+    if (arr.isEmpty()) {
+        return QString();
+    }
+    const QString payloadB64 =
+        QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact).toBase64());
+    return QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zpool-generic %1")
+        .arg(mwhelpers::shSingleQuote(payloadB64));
 }
 
 bool MainWindow::fetchPoolCommandOutput(int connIdx,

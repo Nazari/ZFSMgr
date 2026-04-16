@@ -420,6 +420,9 @@ void MainWindow::exportPoolFromRow(int row) {
         parts << shSingleQuote(extraPool);
     }
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -655,6 +658,9 @@ void MainWindow::importPoolFromRow(int row) {
         }
     }
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -914,6 +920,9 @@ void MainWindow::importPoolRenamingFromRow(int row) {
         }
     }
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -1060,6 +1069,9 @@ void MainWindow::scrubPoolFromRow(int row) {
     }
     parts << shSingleQuote(poolName);
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -1183,6 +1195,9 @@ void MainWindow::upgradePoolFromRow(int row) {
         parts << extraEd->text().trimmed();
     }
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -1295,6 +1310,9 @@ void MainWindow::reguidPoolFromRow(int row) {
     }
     parts << shSingleQuote(poolName);
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -1417,6 +1435,9 @@ void MainWindow::clearPoolFromRow(int row) {
         parts << shSingleQuote(dev);
     }
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -1563,6 +1584,9 @@ void MainWindow::destroyPoolFromRow(int row) {
     }
     parts << shSingleQuote(poolName);
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -1679,6 +1703,9 @@ void MainWindow::syncPoolFromRow(int row) {
         parts << extraEd->text().trimmed();
     }
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -1850,6 +1877,9 @@ void MainWindow::trimPoolFromRow(int row) {
         parts << shSingleQuote(dev);
     }
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -1999,6 +2029,9 @@ void MainWindow::initializePoolFromRow(int row) {
         parts << shSingleQuote(dev);
     }
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }

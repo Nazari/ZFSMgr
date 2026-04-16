@@ -751,6 +751,7 @@ private:
                             QString* failureDetailOut = nullptr,
                             bool refreshPoolsTable = false,
                             bool refreshSelectedPoolDetailsAfter = false);
+    QString daemonizeZpoolMutationCommand(int connIdx, const QString& rawCmd) const;
     bool fetchPoolCommandOutput(int connIdx,
                                 const QString& poolName,
                                 const QString& actionName,

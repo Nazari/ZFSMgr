@@ -84,6 +84,7 @@ const QVector<CommandSpec>& supportedCommandSpecs() {
         {"--mutate-zfs-destroy", 3},
         {"--mutate-zfs-rollback", 3},
         {"--mutate-zfs-generic", 1},
+        {"--mutate-zpool-generic", 1},
     };
     return specs;
 }
@@ -222,7 +223,8 @@ bool isMutatingCommand(const QString& cmd) {
     return cmd == QStringLiteral("--mutate-zfs-snapshot")
         || cmd == QStringLiteral("--mutate-zfs-destroy")
         || cmd == QStringLiteral("--mutate-zfs-rollback")
-        || cmd == QStringLiteral("--mutate-zfs-generic");
+        || cmd == QStringLiteral("--mutate-zfs-generic")
+        || cmd == QStringLiteral("--mutate-zpool-generic");
 }
 
 bool isAllowedGenericZfsMutationOp(const QString& opRaw) {
@@ -243,6 +245,33 @@ bool isAllowedGenericZfsMutationOp(const QString& opRaw) {
         QStringLiteral("unload-key"),
         QStringLiteral("change-key"),
         QStringLiteral("promote"),
+    };
+    return allowed.contains(op);
+}
+
+bool isAllowedGenericZpoolMutationOp(const QString& opRaw) {
+    const QString op = opRaw.trimmed().toLower();
+    static const QSet<QString> allowed = {
+        QStringLiteral("create"),
+        QStringLiteral("destroy"),
+        QStringLiteral("add"),
+        QStringLiteral("remove"),
+        QStringLiteral("attach"),
+        QStringLiteral("detach"),
+        QStringLiteral("replace"),
+        QStringLiteral("offline"),
+        QStringLiteral("online"),
+        QStringLiteral("clear"),
+        QStringLiteral("export"),
+        QStringLiteral("import"),
+        QStringLiteral("scrub"),
+        QStringLiteral("trim"),
+        QStringLiteral("initialize"),
+        QStringLiteral("sync"),
+        QStringLiteral("upgrade"),
+        QStringLiteral("reguid"),
+        QStringLiteral("split"),
+        QStringLiteral("checkpoint"),
     };
     return allowed.contains(op);
 }
@@ -861,6 +890,34 @@ ExecResult runFastPathCommand(const QString& cmd, const QStringList& params, boo
             return bad;
         }
         return runProcessSync(QStringLiteral("zfs"), args, 90000, QStringLiteral("agent timeout running zfs generic mutation"));
+    }
+    if (cmd == QStringLiteral("--mutate-zpool-generic") && params.size() >= 1) {
+        const QByteArray raw = QByteArray::fromBase64(params.at(0).toUtf8());
+        const QJsonDocument doc = QJsonDocument::fromJson(raw);
+        if (!doc.isArray()) {
+            ExecResult bad;
+            bad.rc = 2;
+            bad.err = QStringLiteral("invalid generic zpool payload");
+            return bad;
+        }
+        QStringList args;
+        const QJsonArray arr = doc.array();
+        for (const QJsonValue& v : arr) {
+            if (!v.isString()) {
+                ExecResult bad;
+                bad.rc = 2;
+                bad.err = QStringLiteral("invalid generic zpool arg");
+                return bad;
+            }
+            args.push_back(v.toString().trimmed());
+        }
+        if (args.isEmpty() || !isAllowedGenericZpoolMutationOp(args.first())) {
+            ExecResult bad;
+            bad.rc = 2;
+            bad.err = QStringLiteral("unsupported zpool mutation op");
+            return bad;
+        }
+        return runProcessSync(QStringLiteral("zpool"), args, 120000, QStringLiteral("agent timeout running zpool generic mutation"));
     }
     if (handled) {
         *handled = false;
