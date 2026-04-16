@@ -124,29 +124,62 @@ package_macos_app_zip() {
 write_macos_first_run_note() {
   local out_file="$1"
   cat > "${out_file}" <<'EOF'
-ZFSMgr macOS (cross-build) — primer arranque
-=============================================
+ZFSMgr macOS (cross-build) — first run / primer arranque / 首次运行
+==================================================================
 
+[ES]
 Estos artefactos .app.zip se construyen por cross-build en Linux y no van notarizados por Apple.
 En macOS puedes abrir la app aplicando excepción de seguridad.
 
 Pasos recomendados:
-
 1) Extraer el .zip y mover la app a /Applications (opcional).
-
 2) Eliminar cuarentena del bundle:
    xattr -dr com.apple.quarantine "/ruta/ZFSMgr-<version>.app"
-
 3) Intentar abrir con clic derecho -> Abrir.
    Si macOS lo bloquea, ve a:
    Ajustes del sistema -> Privacidad y seguridad -> "Abrir igualmente".
-
 4) (Opcional) Re-firma ad-hoc local para estabilizar validaciones:
    codesign --force --deep --sign - --timestamp=none "/ruta/ZFSMgr-<version>.app"
 
 Comprobación:
    spctl -a -vv "/ruta/ZFSMgr-<version>.app"
    codesign --verify --deep --strict --verbose=4 "/ruta/ZFSMgr-<version>.app"
+
+[EN]
+These .app.zip artifacts are cross-built on Linux and are not Apple-notarized.
+On macOS you can still open the app by applying a local security exception.
+
+Recommended steps:
+1) Extract the .zip and move the app to /Applications (optional).
+2) Remove quarantine from the bundle:
+   xattr -dr com.apple.quarantine "/path/ZFSMgr-<version>.app"
+3) Try opening with right-click -> Open.
+   If macOS blocks it, go to:
+   System Settings -> Privacy & Security -> "Open Anyway".
+4) (Optional) Re-sign locally (ad-hoc) to stabilize validation:
+   codesign --force --deep --sign - --timestamp=none "/path/ZFSMgr-<version>.app"
+
+Verification:
+   spctl -a -vv "/path/ZFSMgr-<version>.app"
+   codesign --verify --deep --strict --verbose=4 "/path/ZFSMgr-<version>.app"
+
+[ZH]
+这些 .app.zip 构件是在 Linux 上交叉编译的，未经过 Apple 公证。
+在 macOS 上，你仍可通过本地安全例外来打开应用。
+
+建议步骤：
+1) 解压 .zip，并将应用移动到 /Applications（可选）。
+2) 移除应用包隔离属性：
+   xattr -dr com.apple.quarantine "/路径/ZFSMgr-<version>.app"
+3) 使用右键 -> 打开 尝试启动。
+   若被系统拦截，请前往：
+   系统设置 -> 隐私与安全性 -> “仍要打开”。
+4)（可选）本地 ad-hoc 重签名以提高校验稳定性：
+   codesign --force --deep --sign - --timestamp=none "/路径/ZFSMgr-<version>.app"
+
+校验：
+   spctl -a -vv "/路径/ZFSMgr-<version>.app"
+   codesign --verify --deep --strict --verbose=4 "/路径/ZFSMgr-<version>.app"
 EOF
 }
 
