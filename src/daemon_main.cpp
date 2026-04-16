@@ -458,6 +458,48 @@ ExecResult runFastPathCommand(const QString& cmd, const QStringList& params, boo
                               20000,
                               QStringLiteral("agent timeout running zfs mount -j"));
     }
+    if (cmd == QStringLiteral("--dump-zpool-guid-status-batch")) {
+        ExecResult pools = runProcessSync(QStringLiteral("zpool"),
+                                          {QStringLiteral("list"), QStringLiteral("-H"), QStringLiteral("-o"), QStringLiteral("name")},
+                                          15000,
+                                          QStringLiteral("agent timeout running zpool list names"));
+        if (pools.rc != 0) {
+            return pools;
+        }
+        ExecResult agg;
+        agg.rc = 0;
+        const QStringList poolNames = pools.out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        for (const QString& rawPool : poolNames) {
+            const QString pool = rawPool.trimmed();
+            if (pool.isEmpty()) {
+                continue;
+            }
+            const ExecResult guid = runProcessSync(
+                QStringLiteral("zpool"),
+                {QStringLiteral("get"), QStringLiteral("-H"), QStringLiteral("-o"),
+                 QStringLiteral("value"), QStringLiteral("guid"), pool},
+                12000,
+                QStringLiteral("agent timeout running zpool guid in batch"));
+            const ExecResult status = runProcessSync(
+                QStringLiteral("zpool"),
+                {QStringLiteral("status"), QStringLiteral("-v"), pool},
+                25000,
+                QStringLiteral("agent timeout running zpool status in batch"));
+
+            agg.out += QStringLiteral("__ZFSMGR_POOL__:%1\n").arg(pool);
+            agg.out += QStringLiteral("__ZFSMGR_GUID__:%1\n").arg(guid.out.section('\n', 0, 0).trimmed());
+            agg.out += QStringLiteral("__ZFSMGR_STATUS_BEGIN__\n");
+            agg.out += status.out;
+            if (!status.err.trimmed().isEmpty()) {
+                agg.out += status.err;
+                if (!status.err.endsWith(QLatin1Char('\n'))) {
+                    agg.out += QLatin1Char('\n');
+                }
+            }
+            agg.out += QStringLiteral("__ZFSMGR_STATUS_END__\n");
+        }
+        return agg;
+    }
     if (cmd == QStringLiteral("--dump-zpool-guid") && params.size() >= 1) {
         return runProcessSync(QStringLiteral("zpool"),
                               {QStringLiteral("get"), QStringLiteral("-H"), QStringLiteral("-o"),
