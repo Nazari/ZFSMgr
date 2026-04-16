@@ -31,6 +31,12 @@ int main(int argc, char* argv[]) {
         QTextStream(stdout) << agentversion::expectedApiVersion() << '\n';
         return 0;
     }
+    if (args.contains(QStringLiteral("--health"))) {
+        QTextStream(stdout) << "STATUS=OK\n";
+        QTextStream(stdout) << "VERSION=" << agentversion::currentVersion() << '\n';
+        QTextStream(stdout) << "API=" << agentversion::expectedApiVersion() << '\n';
+        return 0;
+    }
     if (args.contains(QStringLiteral("--once"))) {
         writeHeartbeat();
         return 0;

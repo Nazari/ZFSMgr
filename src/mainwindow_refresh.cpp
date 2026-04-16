@@ -1071,11 +1071,32 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                      isWinConn
                          ? QStringLiteral("zpool list -H -p -o name,size,alloc,free,cap,dedupratio")
                          : QStringLiteral("zpool list -j")));
-    const bool daemonReadApiOk =
+    const QString daemonHealthCmd = withSudo(
+        p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("/usr/local/libexec/zfsmgr-agent --health")));
+    bool daemonReadApiOk =
         !isWinConn
         && state.daemonInstalled
         && state.daemonActive
         && state.daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    if (daemonReadApiOk) {
+        QString hout;
+        QString herr;
+        int hrc = -1;
+        const bool healthOk = runSsh(p, daemonHealthCmd, 8000, hout, herr, hrc) && hrc == 0;
+        if (!healthOk) {
+            daemonReadApiOk = false;
+            state.daemonActive = false;
+            state.daemonDetail = QStringLiteral("health check failed: %1")
+                                     .arg(oneLine(herr.isEmpty() ? hout : herr));
+        } else {
+            const QMap<QString, QString> hkv = parseKeyValueOutput(hout + QStringLiteral("\n") + herr);
+            if (hkv.value(QStringLiteral("STATUS")).trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) != 0) {
+                daemonReadApiOk = false;
+                state.daemonActive = false;
+                state.daemonDetail = QStringLiteral("health check not OK");
+            }
+        }
+    }
     const QString zpoolListCmdDaemon = withSudo(
         p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-list")));
     const QString zpoolGuidStatusBatchCmdDaemon = withSudo(
