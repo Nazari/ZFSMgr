@@ -99,6 +99,28 @@ log() {
   printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
 }
 
+package_macos_app_zip() {
+  local app_path="$1"
+  local out_zip="$2"
+  local app_dir app_name
+  app_dir="$(cd "$(dirname "${app_path}")" && pwd)"
+  app_name="$(basename "${app_path}")"
+
+  rm -f "${out_zip}"
+  if command -v ditto >/dev/null 2>&1; then
+    (
+      cd "${app_dir}"
+      ditto -c -k --sequesterRsrc --keepParent "${app_name}" "${out_zip}"
+    )
+    return
+  fi
+  (
+    cd "${app_dir}"
+    # -y preserva symlinks del bundle .app; sin esto Gatekeeper puede marcar la app como dañada.
+    zip -qry -y "${out_zip}" "${app_name}"
+  )
+}
+
 run_phase() {
   local name="$1"
   shift
@@ -244,11 +266,7 @@ if has_platform "macos"; then
     mac_app="$(find "${_build_dir}" -maxdepth 1 -type d -name "ZFSMgr-*.app" | sort -V | tail -n1 || true)"
     [[ -n "${mac_app}" ]] || { echo "No se encontró .app de macOS cross (${_arch})" >&2; exit 1; }
     mac_zip="${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-macos-${_arch}.app.zip"
-    (
-      cd "${_build_dir}"
-      rm -f "${mac_zip}"
-      zip -qry "${mac_zip}" "$(basename "${mac_app}")"
-    )
+    package_macos_app_zip "${mac_app}" "${mac_zip}"
   done
 fi
 
