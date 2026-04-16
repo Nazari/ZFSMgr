@@ -250,6 +250,7 @@ Pendiente de esta fase:
 - extender el cliente RPC directo en GUI para conexiones remotas (sin invocar binario remoto por SSH en lecturas)
 - mutaciones migradas parcialmente a API daemon:
   - `zfs snapshot`, `zfs destroy ...@snap` y `zfs rollback ...@snap` se enrutan por `--mutate-*` cuando el daemon está activo
+  - además, comandos `zfs` mutables comunes (`create/destroy/rollback/clone/rename/set/inherit/mount/unmount/hold/release/load-key/unload-key/change-key/promote`) se enrutan por `--mutate-zfs-generic` con whitelist
   - mantiene fallback al flujo clásico si el daemon no está disponible
 
 ## Riesgos clave

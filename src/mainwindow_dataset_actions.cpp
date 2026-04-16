@@ -6,6 +6,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QJsonArray>
 #include <QInputDialog>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -122,6 +123,28 @@ struct DaemonMutationPlan {
     QString daemonCmd;
 };
 
+bool isAllowedGenericZfsMutationOpClient(const QString& opRaw) {
+    const QString op = opRaw.trimmed().toLower();
+    static const QSet<QString> allowed = {
+        QStringLiteral("create"),
+        QStringLiteral("destroy"),
+        QStringLiteral("rollback"),
+        QStringLiteral("clone"),
+        QStringLiteral("rename"),
+        QStringLiteral("set"),
+        QStringLiteral("inherit"),
+        QStringLiteral("mount"),
+        QStringLiteral("unmount"),
+        QStringLiteral("hold"),
+        QStringLiteral("release"),
+        QStringLiteral("load-key"),
+        QStringLiteral("unload-key"),
+        QStringLiteral("change-key"),
+        QStringLiteral("promote"),
+    };
+    return allowed.contains(op);
+}
+
 DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd) {
     DaemonMutationPlan plan;
     const QStringList parts = QProcess::splitCommand(rawCmd.trimmed());
@@ -209,6 +232,22 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd) {
                              .arg(shSingleQuote(target),
                                   force ? QStringLiteral("1") : QStringLiteral("0"),
                                   shSingleQuote(recursiveMode));
+        return plan;
+    }
+
+    if (isAllowedGenericZfsMutationOpClient(op)) {
+        QJsonArray arr;
+        for (int i = 1; i < parts.size(); ++i) {
+            arr.push_back(parts.at(i));
+        }
+        if (arr.isEmpty()) {
+            return plan;
+        }
+        const QString payloadB64 = QString::fromUtf8(
+            QJsonDocument(arr).toJson(QJsonDocument::Compact).toBase64());
+        plan.matched = true;
+        plan.daemonCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-generic %1")
+                             .arg(shSingleQuote(payloadB64));
         return plan;
     }
 

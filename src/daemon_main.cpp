@@ -83,6 +83,7 @@ const QVector<CommandSpec>& supportedCommandSpecs() {
         {"--mutate-zfs-snapshot", 2},
         {"--mutate-zfs-destroy", 3},
         {"--mutate-zfs-rollback", 3},
+        {"--mutate-zfs-generic", 1},
     };
     return specs;
 }
@@ -220,7 +221,30 @@ bool isSlowCommand(const QString& cmd) {
 bool isMutatingCommand(const QString& cmd) {
     return cmd == QStringLiteral("--mutate-zfs-snapshot")
         || cmd == QStringLiteral("--mutate-zfs-destroy")
-        || cmd == QStringLiteral("--mutate-zfs-rollback");
+        || cmd == QStringLiteral("--mutate-zfs-rollback")
+        || cmd == QStringLiteral("--mutate-zfs-generic");
+}
+
+bool isAllowedGenericZfsMutationOp(const QString& opRaw) {
+    const QString op = opRaw.trimmed().toLower();
+    static const QSet<QString> allowed = {
+        QStringLiteral("create"),
+        QStringLiteral("destroy"),
+        QStringLiteral("rollback"),
+        QStringLiteral("clone"),
+        QStringLiteral("rename"),
+        QStringLiteral("set"),
+        QStringLiteral("inherit"),
+        QStringLiteral("mount"),
+        QStringLiteral("unmount"),
+        QStringLiteral("hold"),
+        QStringLiteral("release"),
+        QStringLiteral("load-key"),
+        QStringLiteral("unload-key"),
+        QStringLiteral("change-key"),
+        QStringLiteral("promote"),
+    };
+    return allowed.contains(op);
 }
 
 QString cacheKeyFor(const QString& cmd, const QStringList& params) {
@@ -809,6 +833,34 @@ ExecResult runFastPathCommand(const QString& cmd, const QStringList& params, boo
         }
         args.push_back(target);
         return runProcessSync(QStringLiteral("zfs"), args, 45000, QStringLiteral("agent timeout running zfs rollback"));
+    }
+    if (cmd == QStringLiteral("--mutate-zfs-generic") && params.size() >= 1) {
+        const QByteArray raw = QByteArray::fromBase64(params.at(0).toUtf8());
+        const QJsonDocument doc = QJsonDocument::fromJson(raw);
+        if (!doc.isArray()) {
+            ExecResult bad;
+            bad.rc = 2;
+            bad.err = QStringLiteral("invalid generic payload");
+            return bad;
+        }
+        QStringList args;
+        const QJsonArray arr = doc.array();
+        for (const QJsonValue& v : arr) {
+            if (!v.isString()) {
+                ExecResult bad;
+                bad.rc = 2;
+                bad.err = QStringLiteral("invalid generic arg");
+                return bad;
+            }
+            args.push_back(v.toString().trimmed());
+        }
+        if (args.isEmpty() || !isAllowedGenericZfsMutationOp(args.first())) {
+            ExecResult bad;
+            bad.rc = 2;
+            bad.err = QStringLiteral("unsupported zfs mutation op");
+            return bad;
+        }
+        return runProcessSync(QStringLiteral("zfs"), args, 90000, QStringLiteral("agent timeout running zfs generic mutation"));
     }
     if (handled) {
         *handled = false;
