@@ -148,6 +148,60 @@ int main(int argc, char* argv[]) {
             return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
         }
     }
+    {
+        const int i = args.indexOf(QStringLiteral("--dump-zpool-status-p"));
+        if (i >= 0 && i + 1 < args.size()) {
+            const QString pool = args.at(i + 1).trimmed();
+            if (pool.isEmpty()) {
+                QTextStream(stderr) << "missing pool name for --dump-zpool-status-p\n";
+                return 2;
+            }
+            QProcess p;
+            p.setProgram(QStringLiteral("sh"));
+            p.setArguments({QStringLiteral("-lc"),
+                            QStringLiteral("zpool status -P \"$1\""),
+                            QStringLiteral("--"),
+                            pool});
+            p.start();
+            if (!p.waitForFinished(20000)) {
+                QTextStream(stderr) << "agent timeout running zpool status -P\n";
+                return 124;
+            }
+            QTextStream(stdout) << QString::fromUtf8(p.readAllStandardOutput());
+            const QByteArray err = p.readAllStandardError();
+            if (!err.isEmpty()) {
+                QTextStream(stderr) << QString::fromUtf8(err);
+            }
+            return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
+        }
+    }
+    {
+        const int i = args.indexOf(QStringLiteral("--dump-zpool-get-all"));
+        if (i >= 0 && i + 1 < args.size()) {
+            const QString pool = args.at(i + 1).trimmed();
+            if (pool.isEmpty()) {
+                QTextStream(stderr) << "missing pool name for --dump-zpool-get-all\n";
+                return 2;
+            }
+            QProcess p;
+            p.setProgram(QStringLiteral("sh"));
+            p.setArguments({QStringLiteral("-lc"),
+                            QStringLiteral("zpool get -j all \"$1\""),
+                            QStringLiteral("--"),
+                            pool});
+            p.start();
+            if (!p.waitForFinished(20000)) {
+                QTextStream(stderr) << "agent timeout running zpool get -j all\n";
+                return 124;
+            }
+            QTextStream(stdout) << QString::fromUtf8(p.readAllStandardOutput());
+            const QByteArray err = p.readAllStandardError();
+            if (!err.isEmpty()) {
+                QTextStream(stderr) << QString::fromUtf8(err);
+            }
+            return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
+        }
+    }
     if (args.contains(QStringLiteral("--dump-zpool-import-probe"))) {
         QProcess p;
         p.setProgram(QStringLiteral("sh"));
@@ -351,6 +405,38 @@ int main(int argc, char* argv[]) {
             QTextStream(stderr) << QString::fromUtf8(err);
         }
         return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
+    }
+    {
+        const int i = args.indexOf(QStringLiteral("--dump-zfs-get-gsa-raw-recursive"));
+        if (i >= 0 && i + 1 < args.size()) {
+            const QString pool = args.at(i + 1).trimmed();
+            if (pool.isEmpty()) {
+                QTextStream(stderr) << "missing pool for --dump-zfs-get-gsa-raw-recursive\n";
+                return 2;
+            }
+            QProcess p;
+            p.setProgram(QStringLiteral("sh"));
+            p.setArguments({QStringLiteral("-lc"),
+                            QStringLiteral(
+                                "zfs get -H -o name,property,value,source -r "
+                                "org.fc16.gsa:activado,org.fc16.gsa:recursivo,org.fc16.gsa:horario,"
+                                "org.fc16.gsa:diario,org.fc16.gsa:semanal,org.fc16.gsa:mensual,"
+                                "org.fc16.gsa:anual,org.fc16.gsa:nivelar,org.fc16.gsa:destino "
+                                "\"$1\""),
+                            QStringLiteral("--"),
+                            pool});
+            p.start();
+            if (!p.waitForFinished(30000)) {
+                QTextStream(stderr) << "agent timeout running gsa recursive scan\n";
+                return 124;
+            }
+            QTextStream(stdout) << QString::fromUtf8(p.readAllStandardOutput());
+            const QByteArray err = p.readAllStandardError();
+            if (!err.isEmpty()) {
+                QTextStream(stderr) << QString::fromUtf8(err);
+            }
+            return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
+        }
     }
 
     QTimer timer;
