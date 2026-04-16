@@ -1037,15 +1037,16 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         useRemoteScripts
             ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-import-probe"))
             : mwhelpers::withUnixSearchPathCommand(QStringLiteral("zpool import; zpool import -s")));
-    const QString mountedCmd = withSudo(
+    const QString mountedCmdClassic = withSudo(
         p,
         (!isWinConn)
             ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-mount-list"))
             : mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs mount")));
+    const QString mountedCmdDaemon = withSudo(
+        p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-mount")));
     QFuture<AsyncSshResult> gsaFuture = runAsyncCommand(gsaProbeCmd, 15000, gsaWinMode);
     QFuture<AsyncSshResult> agentFuture = runAsyncCommand(agentProbeCmd, 15000, agentWinMode);
     QFuture<AsyncSshResult> importFuture = runAsyncCommand(importProbeCmd, 18000, WindowsCommandMode::Auto);
-    QFuture<AsyncSshResult> mountsFuture = runAsyncCommand(mountedCmd, 18000, WindowsCommandMode::Auto);
 
     {
         const AsyncSshResult agentRes = agentFuture.result();
@@ -1278,7 +1279,20 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     cutPhase(QStringLiteral("import_probe"));
 
     QVector<QPair<QString, QString>> mountedRows;
-    const AsyncSshResult mountsRes = mountsFuture.result();
+    bool mountsViaDaemon = false;
+    AsyncSshResult mountsRes;
+    if (daemonReadApiOk) {
+        mountsRes = runAsyncCommand(mountedCmdDaemon, 18000, WindowsCommandMode::Auto).result();
+        mountsViaDaemon = mountsRes.ran && mountsRes.rc == 0;
+        if (!mountsViaDaemon) {
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("%1: daemon zfs mount fallback -> %2")
+                       .arg(p.name, oneLine(mountsRes.err.isEmpty() ? mountsRes.out : mountsRes.err)));
+        }
+    }
+    if (!mountsViaDaemon) {
+        mountsRes = runAsyncCommand(mountedCmdClassic, 18000, WindowsCommandMode::Auto).result();
+    }
     if (mountsRes.ran && mountsRes.rc == 0) {
         mountedRows = isWinConn
             ? mwhelpers::parseZfsMountOutput(mountsRes.out)
@@ -1406,7 +1420,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     appLog(
         QStringLiteral("INFO"),
         QStringLiteral(
-            "%1: refresh timings ms total=%2 basics=%3 commands=%4 helper=%5 gsa_probe=%6 agent_probe=%7 gsa_conn=%8 zpool_list=%9 pool_details=%10 import=%11 mounts=%12 gsa_eval=%13 zpool_via=%14")
+            "%1: refresh timings ms total=%2 basics=%3 commands=%4 helper=%5 gsa_probe=%6 agent_probe=%7 gsa_conn=%8 zpool_list=%9 pool_details=%10 import=%11 mounts=%12 gsa_eval=%13 zpool_via=%14 mounts_via=%15")
             .arg(p.name)
             .arg(refreshTimer.elapsed())
             .arg(phaseDurMs.value(QStringLiteral("basics"), -1))
@@ -1420,7 +1434,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             .arg(phaseDurMs.value(QStringLiteral("import_probe"), -1))
             .arg(phaseDurMs.value(QStringLiteral("mounts"), -1))
             .arg(phaseDurMs.value(QStringLiteral("gsa_eval"), -1))
-            .arg(zpoolListViaDaemon ? QStringLiteral("daemon") : QStringLiteral("ssh")));
+            .arg(zpoolListViaDaemon ? QStringLiteral("daemon") : QStringLiteral("ssh"))
+            .arg(mountsViaDaemon ? QStringLiteral("daemon") : QStringLiteral("ssh")));
 
     appLog(QStringLiteral("NORMAL"),
            trk(QStringLiteral("t_fin_refres_6eead9"),

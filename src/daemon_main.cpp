@@ -51,6 +51,22 @@ int main(int argc, char* argv[]) {
         }
         return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
     }
+    if (args.contains(QStringLiteral("--dump-zfs-mount"))) {
+        QProcess p;
+        p.setProgram(QStringLiteral("zfs"));
+        p.setArguments({QStringLiteral("mount"), QStringLiteral("-j")});
+        p.start();
+        if (!p.waitForFinished(20000)) {
+            QTextStream(stderr) << "agent timeout running zfs mount -j\n";
+            return 124;
+        }
+        QTextStream(stdout) << QString::fromUtf8(p.readAllStandardOutput());
+        const QByteArray err = p.readAllStandardError();
+        if (!err.isEmpty()) {
+            QTextStream(stderr) << QString::fromUtf8(err);
+        }
+        return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
+    }
 
     QTimer timer;
     QObject::connect(&timer, &QTimer::timeout, []() { writeHeartbeat(); });
