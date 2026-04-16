@@ -118,6 +118,46 @@ int main(int argc, char* argv[]) {
             return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
         }
     }
+    {
+        const int i = args.indexOf(QStringLiteral("--dump-zpool-status"));
+        if (i >= 0 && i + 1 < args.size()) {
+            const QString pool = args.at(i + 1).trimmed();
+            if (pool.isEmpty()) {
+                QTextStream(stderr) << "missing pool name for --dump-zpool-status\n";
+                return 2;
+            }
+            QProcess p;
+            p.setProgram(QStringLiteral("zpool"));
+            p.setArguments({QStringLiteral("status"), QStringLiteral("-v"), pool});
+            p.start();
+            if (!p.waitForFinished(20000)) {
+                QTextStream(stderr) << "agent timeout running zpool status -v\n";
+                return 124;
+            }
+            QTextStream(stdout) << QString::fromUtf8(p.readAllStandardOutput());
+            const QByteArray err = p.readAllStandardError();
+            if (!err.isEmpty()) {
+                QTextStream(stderr) << QString::fromUtf8(err);
+            }
+            return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
+        }
+    }
+    if (args.contains(QStringLiteral("--dump-zpool-import-probe"))) {
+        QProcess p;
+        p.setProgram(QStringLiteral("sh"));
+        p.setArguments({QStringLiteral("-lc"), QStringLiteral("zpool import; zpool import -s")});
+        p.start();
+        if (!p.waitForFinished(25000)) {
+            QTextStream(stderr) << "agent timeout running zpool import probe\n";
+            return 124;
+        }
+        QTextStream(stdout) << QString::fromUtf8(p.readAllStandardOutput());
+        const QByteArray err = p.readAllStandardError();
+        if (!err.isEmpty()) {
+            QTextStream(stderr) << QString::fromUtf8(err);
+        }
+        return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
+    }
 
     QTimer timer;
     QObject::connect(&timer, &QTimer::timeout, []() { writeHeartbeat(); });

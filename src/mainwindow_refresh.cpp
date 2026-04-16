@@ -1037,6 +1037,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         useRemoteScripts
             ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-import-probe"))
             : mwhelpers::withUnixSearchPathCommand(QStringLiteral("zpool import; zpool import -s")));
+    const QString importProbeCmdDaemon = withSudo(
+        p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-import-probe")));
     const QString mountedCmdClassic = withSudo(
         p,
         (!isWinConn)
@@ -1236,13 +1238,27 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         out.clear();
         err.clear();
         rc = -1;
-        const QString stCmd = withSudo(
+        const QString stCmdClassic = withSudo(
             p,
             useRemoteScripts
                 ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-status"), {poolName})
                 : mwhelpers::withUnixSearchPathCommand(
                       QStringLiteral("zpool status -v %1").arg(mwhelpers::shSingleQuote(poolName))));
-        if (runSsh(p, stCmd, 20000, out, err, rc) && rc == 0) {
+        const QString stCmdDaemon = withSudo(
+            p, mwhelpers::withUnixSearchPathCommand(
+                   QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-status %1")
+                       .arg(mwhelpers::shSingleQuote(poolName))));
+        bool statusOk = runSsh(p, (daemonReadApiOk ? stCmdDaemon : stCmdClassic), 20000, out, err, rc) && rc == 0;
+        if (!statusOk && daemonReadApiOk) {
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("%1: daemon zpool status fallback (%2) -> %3")
+                       .arg(p.name, poolName, oneLine(err.isEmpty() ? out : err)));
+            out.clear();
+            err.clear();
+            rc = -1;
+            statusOk = runSsh(p, stCmdClassic, 20000, out, err, rc) && rc == 0;
+        }
+        if (statusOk) {
             state.poolStatusByName.insert(poolName, out.trimmed());
         } else {
             const QString fallback = !out.trimmed().isEmpty() ? out.trimmed() : err.trimmed();
@@ -1284,7 +1300,20 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     cutPhase(QStringLiteral("gsa_connections"));
 
     {
-        const AsyncSshResult importRes = importFuture.result();
+        AsyncSshResult importRes;
+        bool importOk = false;
+        if (daemonReadApiOk) {
+            importRes = runAsyncCommand(importProbeCmdDaemon, 25000, WindowsCommandMode::Auto).result();
+            importOk = importRes.ran && importRes.rc == 0;
+            if (!importOk) {
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("%1: daemon zpool import probe fallback -> %2")
+                           .arg(p.name, oneLine(importRes.err.isEmpty() ? importRes.out : importRes.err)));
+            }
+        }
+        if (!importOk) {
+            importRes = importFuture.result();
+        }
         if (importRes.ran) {
             const QString merged = importRes.out + QStringLiteral("\n") + importRes.err;
             const QVector<mwhelpers::ImportablePoolInfo> parsed = mwhelpers::parseZpoolImportOutput(merged);
