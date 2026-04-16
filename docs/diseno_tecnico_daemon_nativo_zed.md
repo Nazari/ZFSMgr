@@ -229,6 +229,9 @@ Implementado actualmente:
 - reconciliación periódica selectiva:
   - el timer poda solo entradas expiradas de caché (sin vaciado global)
   - reduce churn y evita invalidaciones completas innecesarias
+- invalidación selectiva por eventos ZED:
+  - cuando el evento permite extraer `pool`, el daemon invalida solo claves de caché relacionadas con ese pool
+  - si no puede inferirse `pool`, mantiene fallback de invalidación global para preservar coherencia
 - optimización del servidor residente:
   - la mayoría de lecturas `--dump-*` se ejecutan in-process en el daemon sin auto-spawn del binario
   - reducción de dependencia de `sh -lc` en lecturas clave (import probe, GSA scan, refresh basics, version, get/list JSON, batch guid/status)

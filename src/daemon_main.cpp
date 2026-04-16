@@ -9,6 +9,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QSslCertificate>
 #include <QSslConfiguration>
 #include <QSslError>
@@ -215,6 +216,53 @@ bool isSlowCommand(const QString& cmd) {
 
 QString cacheKeyFor(const QString& cmd, const QStringList& params) {
     return cmd + QStringLiteral("\x1F") + params.join(QStringLiteral("\x1F"));
+}
+
+bool parseCacheKey(const QString& key, QString& cmdOut, QStringList& paramsOut) {
+    const QStringList parts = key.split(QStringLiteral("\x1F"));
+    if (parts.isEmpty()) {
+        cmdOut.clear();
+        paramsOut.clear();
+        return false;
+    }
+    cmdOut = parts.first();
+    paramsOut = parts.mid(1);
+    return !cmdOut.trimmed().isEmpty();
+}
+
+QSet<QString> extractPoolsFromEventText(const QString& text) {
+    QSet<QString> pools;
+    const QStringList lines = text.split('\n', Qt::SkipEmptyParts);
+    const QRegularExpression rxPoolEq(QStringLiteral("(?im)\\bpool\\s*=\\s*([A-Za-z0-9_.:-]+)"));
+    const QRegularExpression rxPoolColon(QStringLiteral("(?im)^\\s*pool\\s*:\\s*([A-Za-z0-9_.:-]+)\\s*$"));
+    const QRegularExpression rxDataset(QStringLiteral("(?im)\\b([A-Za-z0-9_.:-]+/[A-Za-z0-9_.:/-]+)\\b"));
+    for (const QString& line : lines) {
+        const QRegularExpressionMatch eq = rxPoolEq.match(line);
+        if (eq.hasMatch()) {
+            pools.insert(eq.captured(1).trimmed());
+        }
+        const QRegularExpressionMatch col = rxPoolColon.match(line);
+        if (col.hasMatch()) {
+            pools.insert(col.captured(1).trimmed());
+        }
+        QRegularExpressionMatchIterator it = rxDataset.globalMatch(line);
+        while (it.hasNext()) {
+            const QRegularExpressionMatch m = it.next();
+            const QString ds = m.captured(1).trimmed();
+            const int slash = ds.indexOf('/');
+            if (slash > 0) {
+                pools.insert(ds.left(slash));
+            }
+        }
+    }
+    QSet<QString> cleaned;
+    for (const QString& p : pools) {
+        const QString key = p.trimmed();
+        if (!key.isEmpty()) {
+            cleaned.insert(key);
+        }
+    }
+    return cleaned;
 }
 
 ExecResult runProcessSync(const QString& program, const QStringList& args, int timeoutMs, const QString& timeoutMsg) {
@@ -774,7 +822,12 @@ private:
         QObject::connect(m_zedProc, &QProcess::readyReadStandardOutput, this, [this]() {
             const QString out = QString::fromUtf8(m_zedProc->readAllStandardOutput());
             if (!out.trimmed().isEmpty()) {
-                invalidateCache(QStringLiteral("zed_event"));
+                const QSet<QString> pools = extractPoolsFromEventText(out);
+                if (!pools.isEmpty()) {
+                    invalidateCacheForPools(pools, QStringLiteral("zed_event_pool"));
+                } else {
+                    invalidateCache(QStringLiteral("zed_event"));
+                }
                 m_lastZedEventUtc = QDateTime::currentDateTimeUtc();
             }
         });
@@ -940,6 +993,75 @@ private:
         }
         m_cache.clear();
         ++m_cacheInvalidations;
+    }
+
+    bool cacheEntryDependsOnPool(const QString& cmd, const QStringList& params, const QString& pool) const {
+        if (pool.trimmed().isEmpty()) {
+            return false;
+        }
+        const QString p = pool.trimmed();
+        const auto matchesPoolToken = [&](const QString& token) {
+            const QString t = token.trimmed();
+            return t == p || t.startsWith(p + QLatin1Char('/'));
+        };
+
+        if (cmd == QStringLiteral("--dump-zpool-guid")
+            || cmd == QStringLiteral("--dump-zpool-status")
+            || cmd == QStringLiteral("--dump-zpool-status-p")
+            || cmd == QStringLiteral("--dump-zpool-get-all")
+            || cmd == QStringLiteral("--dump-zfs-list-all")
+            || cmd == QStringLiteral("--dump-zfs-guid-map")
+            || cmd == QStringLiteral("--dump-zfs-get-all")
+            || cmd == QStringLiteral("--dump-zfs-get-gsa-raw-recursive")) {
+            return !params.isEmpty() && matchesPoolToken(params.first());
+        }
+        if (cmd == QStringLiteral("--dump-zfs-get-prop") || cmd == QStringLiteral("--dump-zfs-get-json")) {
+            if (params.size() >= 2) {
+                return matchesPoolToken(params.at(1));
+            }
+            return false;
+        }
+        if (cmd == QStringLiteral("--dump-zpool-list")
+            || cmd == QStringLiteral("--dump-zfs-mount")
+            || cmd == QStringLiteral("--dump-zpool-guid-status-batch")
+            || cmd == QStringLiteral("--dump-zpool-import-probe")
+            || cmd == QStringLiteral("--dump-zfs-get-gsa-raw-all-pools")
+            || cmd == QStringLiteral("--dump-refresh-basics")) {
+            return true;
+        }
+        return false;
+    }
+
+    void invalidateCacheForPools(const QSet<QString>& pools, const QString&) {
+        if (m_cache.isEmpty() || pools.isEmpty()) {
+            return;
+        }
+        int removed = 0;
+        for (auto it = m_cache.begin(); it != m_cache.end();) {
+            QString cmd;
+            QStringList params;
+            if (!parseCacheKey(it.key(), cmd, params)) {
+                it = m_cache.erase(it);
+                ++removed;
+                continue;
+            }
+            bool drop = false;
+            for (const QString& pool : pools) {
+                if (cacheEntryDependsOnPool(cmd, params, pool)) {
+                    drop = true;
+                    break;
+                }
+            }
+            if (drop) {
+                it = m_cache.erase(it);
+                ++removed;
+            } else {
+                ++it;
+            }
+        }
+        if (removed > 0) {
+            ++m_cacheInvalidations;
+        }
     }
 
     void startReconcileTimer() {

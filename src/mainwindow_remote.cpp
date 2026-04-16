@@ -363,9 +363,10 @@ bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
                                   QByteArray& serverCertPem,
                                   QByteArray& clientCertPem,
                                   QByteArray& clientKeyPem,
-                                  quint16& daemonPort) {
+                                  quint16& daemonPort,
+                                  bool forceRefresh = false) {
     const QString key = remoteDaemonTlsCacheKey(p);
-    {
+    if (!forceRefresh) {
         QMutexLocker lock(&s_remoteDaemonTlsCacheMutex);
         const auto it = s_remoteDaemonTlsCache.constFind(key);
         if (it != s_remoteDaemonTlsCache.constEnd()
@@ -506,152 +507,158 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
         return false;
     }
 
-    QByteArray serverCertPem;
-    QByteArray clientCertPem;
-    QByteArray clientKeyPem;
-    quint16 daemonPort = 47653;
-    if (!fetchRemoteDaemonTlsMaterial(p, serverCertPem, clientCertPem, clientKeyPem, daemonPort)) {
-        return false;
-    }
-
-    const QList<QSslCertificate> caCerts = QSslCertificate::fromData(serverCertPem, QSsl::Pem);
-    const QList<QSslCertificate> clientCerts = QSslCertificate::fromData(clientCertPem, QSsl::Pem);
-    if (caCerts.isEmpty() || clientCerts.isEmpty()) {
-        return false;
-    }
-    QSslKey clientKey(clientKeyPem, QSsl::Rsa, QSsl::Pem);
-    if (clientKey.isNull()) {
-        clientKey = QSslKey(clientKeyPem, QSsl::Ec, QSsl::Pem);
-    }
-    if (clientKey.isNull()) {
-        return false;
-    }
-
-    QTcpServer portProbe;
-    if (!portProbe.listen(QHostAddress::LocalHost, 0)) {
-        return false;
-    }
-    const quint16 localPort = portProbe.serverPort();
-    portProbe.close();
-    if (localPort == 0) {
-        return false;
-    }
-
-    QString tunnelProgram = QStringLiteral("ssh");
-    QStringList tunnelArgs;
-    const bool hasPassword = !p.password.trimmed().isEmpty();
-    if (hasPassword) {
-        const QString sshpassExe = findLocalExecutable(QStringLiteral("sshpass"));
-        if (!sshpassExe.isEmpty()) {
-            tunnelProgram = sshpassExe;
-            tunnelArgs << "-p" << p.password << "ssh";
+    const auto attempt = [&](bool forceRefreshTls) -> bool {
+        QByteArray serverCertPem;
+        QByteArray clientCertPem;
+        QByteArray clientKeyPem;
+        quint16 daemonPort = 47653;
+        if (!fetchRemoteDaemonTlsMaterial(p, serverCertPem, clientCertPem, clientKeyPem, daemonPort, forceRefreshTls)) {
+            return false;
         }
-    }
-    const QString familyOpt = sshAddressFamilyOption(p);
-    if (!familyOpt.isEmpty()) {
-        tunnelArgs << familyOpt;
-    }
-    tunnelArgs << "-o" << "BatchMode=yes";
-    tunnelArgs << "-o" << "ConnectTimeout=10";
-    tunnelArgs << "-o" << "LogLevel=ERROR";
-    tunnelArgs << "-o" << "StrictHostKeyChecking=no";
-    tunnelArgs << "-o" << "UserKnownHostsFile=/dev/null";
-    tunnelArgs << "-o" << "ExitOnForwardFailure=yes";
-    if (hasPassword && tunnelProgram != QStringLiteral("ssh")) {
-        tunnelArgs << "-o" << "BatchMode=no";
-        tunnelArgs << "-o" << "PreferredAuthentications=password,keyboard-interactive,publickey";
-        tunnelArgs << "-o" << "NumberOfPasswordPrompts=1";
-    }
-    if (p.port > 0) {
-        tunnelArgs << "-p" << QString::number(p.port);
-    }
-    if (!p.keyPath.isEmpty()) {
-        tunnelArgs << "-i" << p.keyPath;
-    }
-    tunnelArgs << "-L" << QStringLiteral("%1:127.0.0.1:%2").arg(localPort).arg(daemonPort);
-    tunnelArgs << "-N" << sshUserHost(p);
 
-    QProcess tunnel;
-    tunnel.start(tunnelProgram, tunnelArgs);
-    if (!tunnel.waitForStarted(5000)) {
-        return false;
-    }
-    QThread::msleep(180);
-    if (tunnel.state() == QProcess::NotRunning) {
-        return false;
-    }
+        const QList<QSslCertificate> caCerts = QSslCertificate::fromData(serverCertPem, QSsl::Pem);
+        const QList<QSslCertificate> clientCerts = QSslCertificate::fromData(clientCertPem, QSsl::Pem);
+        if (caCerts.isEmpty() || clientCerts.isEmpty()) {
+            return false;
+        }
+        QSslKey clientKey(clientKeyPem, QSsl::Rsa, QSsl::Pem);
+        if (clientKey.isNull()) {
+            clientKey = QSslKey(clientKeyPem, QSsl::Ec, QSsl::Pem);
+        }
+        if (clientKey.isNull()) {
+            return false;
+        }
 
-    auto stopTunnel = [&]() {
-        if (tunnel.state() != QProcess::NotRunning) {
-            tunnel.terminate();
-            if (!tunnel.waitForFinished(700)) {
-                tunnel.kill();
-                tunnel.waitForFinished(700);
+        QTcpServer portProbe;
+        if (!portProbe.listen(QHostAddress::LocalHost, 0)) {
+            return false;
+        }
+        const quint16 localPort = portProbe.serverPort();
+        portProbe.close();
+        if (localPort == 0) {
+            return false;
+        }
+
+        QString tunnelProgram = QStringLiteral("ssh");
+        QStringList tunnelArgs;
+        const bool hasPassword = !p.password.trimmed().isEmpty();
+        if (hasPassword) {
+            const QString sshpassExe = findLocalExecutable(QStringLiteral("sshpass"));
+            if (!sshpassExe.isEmpty()) {
+                tunnelProgram = sshpassExe;
+                tunnelArgs << "-p" << p.password << "ssh";
             }
         }
+        const QString familyOpt = sshAddressFamilyOption(p);
+        if (!familyOpt.isEmpty()) {
+            tunnelArgs << familyOpt;
+        }
+        tunnelArgs << "-o" << "BatchMode=yes";
+        tunnelArgs << "-o" << "ConnectTimeout=10";
+        tunnelArgs << "-o" << "LogLevel=ERROR";
+        tunnelArgs << "-o" << "StrictHostKeyChecking=no";
+        tunnelArgs << "-o" << "UserKnownHostsFile=/dev/null";
+        tunnelArgs << "-o" << "ExitOnForwardFailure=yes";
+        if (hasPassword && tunnelProgram != QStringLiteral("ssh")) {
+            tunnelArgs << "-o" << "BatchMode=no";
+            tunnelArgs << "-o" << "PreferredAuthentications=password,keyboard-interactive,publickey";
+            tunnelArgs << "-o" << "NumberOfPasswordPrompts=1";
+        }
+        if (p.port > 0) {
+            tunnelArgs << "-p" << QString::number(p.port);
+        }
+        if (!p.keyPath.isEmpty()) {
+            tunnelArgs << "-i" << p.keyPath;
+        }
+        tunnelArgs << "-L" << QStringLiteral("%1:127.0.0.1:%2").arg(localPort).arg(daemonPort);
+        tunnelArgs << "-N" << sshUserHost(p);
+
+        QProcess tunnel;
+        tunnel.start(tunnelProgram, tunnelArgs);
+        if (!tunnel.waitForStarted(5000)) {
+            return false;
+        }
+        QThread::msleep(180);
+        if (tunnel.state() == QProcess::NotRunning) {
+            return false;
+        }
+
+        auto stopTunnel = [&]() {
+            if (tunnel.state() != QProcess::NotRunning) {
+                tunnel.terminate();
+                if (!tunnel.waitForFinished(700)) {
+                    tunnel.kill();
+                    tunnel.waitForFinished(700);
+                }
+            }
+        };
+
+        const int connectTimeout = qBound(600, timeoutMs > 0 ? timeoutMs / 5 : 1200, 3500);
+        const int ioTimeout = qBound(1000, timeoutMs > 0 ? timeoutMs : 30000, 70000);
+        const QString cmd = agentArgs.first().trimmed();
+        const QStringList params = agentArgs.mid(1);
+        const QStringList peerNames = {QStringLiteral("zfsmgr-agent-server"), QStringLiteral("zfsmgr-agent")};
+
+        for (const QString& peerName : peerNames) {
+            QSslSocket sock;
+            sock.setProtocol(QSsl::TlsV1_2OrLater);
+            QSslConfiguration conf = sock.sslConfiguration();
+            conf.setCaCertificates(caCerts);
+            conf.setLocalCertificate(clientCerts.first());
+            conf.setPrivateKey(clientKey);
+            conf.setProtocol(QSsl::TlsV1_2OrLater);
+            conf.setPeerVerifyMode(QSslSocket::VerifyPeer);
+            sock.setSslConfiguration(conf);
+
+            sock.connectToHostEncrypted(QStringLiteral("127.0.0.1"), localPort, peerName);
+            if (!sock.waitForEncrypted(connectTimeout)) {
+                continue;
+            }
+
+            QJsonObject req;
+            req.insert(QStringLiteral("cmd"), cmd);
+            QJsonArray args;
+            for (const QString& pArg : params) {
+                args.push_back(pArg);
+            }
+            req.insert(QStringLiteral("args"), args);
+            const QByteArray payload = QJsonDocument(req).toJson(QJsonDocument::Compact) + '\n';
+            if (sock.write(payload) < 0 || !sock.waitForBytesWritten(connectTimeout)) {
+                continue;
+            }
+
+            QByteArray line;
+            QElapsedTimer timer;
+            timer.start();
+            while (timer.elapsed() < ioTimeout) {
+                if (!sock.waitForReadyRead(300)) {
+                    if (tunnel.state() == QProcess::NotRunning) {
+                        break;
+                    }
+                    continue;
+                }
+                line.append(sock.readAll());
+                const int nl = line.indexOf('\n');
+                if (nl < 0) {
+                    continue;
+                }
+                const QByteArray one = line.left(nl).trimmed();
+                const QJsonObject resp = QJsonDocument::fromJson(one).object();
+                rc = resp.value(QStringLiteral("rc")).toInt(1);
+                out = resp.value(QStringLiteral("stdout")).toString();
+                err = resp.value(QStringLiteral("stderr")).toString();
+                stopTunnel();
+                return true;
+            }
+        }
+        stopTunnel();
+        return false;
     };
 
-    const int connectTimeout = qBound(600, timeoutMs > 0 ? timeoutMs / 5 : 1200, 3500);
-    const int ioTimeout = qBound(1000, timeoutMs > 0 ? timeoutMs : 30000, 70000);
-    const QString cmd = agentArgs.first().trimmed();
-    const QStringList params = agentArgs.mid(1);
-    const QStringList peerNames = {QStringLiteral("zfsmgr-agent-server"), QStringLiteral("zfsmgr-agent")};
-
-    for (const QString& peerName : peerNames) {
-        QSslSocket sock;
-        sock.setProtocol(QSsl::TlsV1_2OrLater);
-        QSslConfiguration conf = sock.sslConfiguration();
-        conf.setCaCertificates(caCerts);
-        conf.setLocalCertificate(clientCerts.first());
-        conf.setPrivateKey(clientKey);
-        conf.setProtocol(QSsl::TlsV1_2OrLater);
-        conf.setPeerVerifyMode(QSslSocket::VerifyPeer);
-        sock.setSslConfiguration(conf);
-
-        sock.connectToHostEncrypted(QStringLiteral("127.0.0.1"), localPort, peerName);
-        if (!sock.waitForEncrypted(connectTimeout)) {
-            continue;
-        }
-
-        QJsonObject req;
-        req.insert(QStringLiteral("cmd"), cmd);
-        QJsonArray args;
-        for (const QString& pArg : params) {
-            args.push_back(pArg);
-        }
-        req.insert(QStringLiteral("args"), args);
-        const QByteArray payload = QJsonDocument(req).toJson(QJsonDocument::Compact) + '\n';
-        if (sock.write(payload) < 0 || !sock.waitForBytesWritten(connectTimeout)) {
-            continue;
-        }
-
-        QByteArray line;
-        QElapsedTimer timer;
-        timer.start();
-        while (timer.elapsed() < ioTimeout) {
-            if (!sock.waitForReadyRead(300)) {
-                if (tunnel.state() == QProcess::NotRunning) {
-                    break;
-                }
-                continue;
-            }
-            line.append(sock.readAll());
-            const int nl = line.indexOf('\n');
-            if (nl < 0) {
-                continue;
-            }
-            const QByteArray one = line.left(nl).trimmed();
-            const QJsonObject resp = QJsonDocument::fromJson(one).object();
-            rc = resp.value(QStringLiteral("rc")).toInt(1);
-            out = resp.value(QStringLiteral("stdout")).toString();
-            err = resp.value(QStringLiteral("stderr")).toString();
-            stopTunnel();
-            return true;
-        }
+    if (attempt(false)) {
+        return true;
     }
-
-    stopTunnel();
-    return false;
+    return attempt(true);
 }
 
 bool MainWindow::runSsh(const ConnectionProfile& p,
