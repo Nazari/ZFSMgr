@@ -223,7 +223,7 @@ Implementado actualmente:
 - invalidación reactiva de caché por eventos (`zpool events -f`)
 - reconciliación periódica de seguridad (timer) que invalida caché aunque no lleguen eventos
 - optimización del servidor residente:
-  - comandos críticos (`zpool/zfs` más frecuentes) se ejecutan in-process en el daemon sin auto-spawn del binario
+  - la mayoría de lecturas `--dump-*` se ejecutan in-process en el daemon sin auto-spawn del binario
 
 Pendiente de esta fase:
 

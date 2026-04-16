@@ -285,6 +285,39 @@ ExecResult runFastPathCommand(const QString& cmd, const QStringList& params, boo
                               20000,
                               QStringLiteral("agent timeout running zpool get -j all"));
     }
+    if (cmd == QStringLiteral("--dump-zpool-import-probe")) {
+        return runProcessSync(QStringLiteral("sh"),
+                              {QStringLiteral("-lc"), QStringLiteral("zpool import; zpool import -s")},
+                              25000,
+                              QStringLiteral("agent timeout running zpool import probe"));
+    }
+    if (cmd == QStringLiteral("--dump-zfs-list-all") && params.size() >= 1) {
+        return runProcessSync(
+            QStringLiteral("sh"),
+            {QStringLiteral("-lc"),
+             QStringLiteral(
+                 "pool=$1; "
+                 "if LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j -p -r -t filesystem,volume,snapshot "
+                 "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount \"$pool\" >/dev/null 2>&1; then "
+                 "  LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j -p -r -t filesystem,volume,snapshot "
+                 "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount \"$pool\"; "
+                 "elif LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j -p -r -t filesystem,volume,snapshot "
+                 "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount \"$pool\" >/dev/null 2>&1; then "
+                 "  LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j -p -r -t filesystem,volume,snapshot "
+                 "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount \"$pool\"; "
+                 "elif zfs get -j -p -r -t filesystem,volume,snapshot "
+                 "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount \"$pool\" >/dev/null 2>&1; then "
+                 "  zfs get -j -p -r -t filesystem,volume,snapshot "
+                 "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount \"$pool\"; "
+                 "else "
+                 "  zfs list -H -p -t filesystem,volume,snapshot "
+                 "-o name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount -r \"$pool\"; "
+                 "fi"),
+             QStringLiteral("--"),
+             params.at(0)},
+            45000,
+            QStringLiteral("agent timeout running zfs list all"));
+    }
     if (cmd == QStringLiteral("--dump-zfs-guid-map") && params.size() >= 1) {
         return runProcessSync(QStringLiteral("zfs"),
                               {QStringLiteral("get"), QStringLiteral("-H"), QStringLiteral("-o"),
@@ -298,6 +331,67 @@ ExecResult runFastPathCommand(const QString& cmd, const QStringList& params, boo
                                params.at(0), params.at(1)},
                               15000,
                               QStringLiteral("agent timeout running zfs get prop"));
+    }
+    if (cmd == QStringLiteral("--dump-zfs-get-all") && params.size() >= 1) {
+        return runProcessSync(QStringLiteral("sh"),
+                              {QStringLiteral("-lc"),
+                               QStringLiteral(
+                                   "obj=$1; "
+                                   "if LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j all \"$obj\" >/dev/null 2>&1; then "
+                                   "  LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j all \"$obj\"; "
+                                   "elif LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j all \"$obj\" >/dev/null 2>&1; then "
+                                   "  LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j all \"$obj\"; "
+                                   "else "
+                                   "  zfs get -j all \"$obj\"; "
+                                   "fi"),
+                               QStringLiteral("--"),
+                               params.at(0)},
+                              20000,
+                              QStringLiteral("agent timeout running zfs get all -j"));
+    }
+    if (cmd == QStringLiteral("--dump-zfs-get-json") && params.size() >= 2) {
+        return runProcessSync(QStringLiteral("sh"),
+                              {QStringLiteral("-lc"),
+                               QStringLiteral(
+                                   "props=$1; obj=$2; "
+                                   "if LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j \"$props\" \"$obj\" >/dev/null 2>&1; then "
+                                   "  LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j \"$props\" \"$obj\"; "
+                                   "elif LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j \"$props\" \"$obj\" >/dev/null 2>&1; then "
+                                   "  LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j \"$props\" \"$obj\"; "
+                                   "else "
+                                   "  zfs get -j \"$props\" \"$obj\"; "
+                                   "fi"),
+                               QStringLiteral("--"),
+                               params.at(0),
+                               params.at(1)},
+                              20000,
+                              QStringLiteral("agent timeout running zfs get -j subset"));
+    }
+    if (cmd == QStringLiteral("--dump-zfs-get-gsa-raw-all-pools")) {
+        return runProcessSync(QStringLiteral("sh"),
+                              {QStringLiteral("-lc"),
+                               QStringLiteral(
+                                   "props='org.fc16.gsa:activado,org.fc16.gsa:nivelar,org.fc16.gsa:destino'; "
+                                   "zpool list -H -o name 2>/dev/null | while IFS= read -r pool; do "
+                                   "  [ -n \"$pool\" ] || continue; "
+                                   "  zfs get -H -o name,property,value -r \"$props\" \"$pool\" 2>/dev/null || true; "
+                                   "done")},
+                              30000,
+                              QStringLiteral("agent timeout running gsa raw scan"));
+    }
+    if (cmd == QStringLiteral("--dump-zfs-get-gsa-raw-recursive") && params.size() >= 1) {
+        return runProcessSync(QStringLiteral("sh"),
+                              {QStringLiteral("-lc"),
+                               QStringLiteral(
+                                   "zfs get -H -o name,property,value,source -r "
+                                   "org.fc16.gsa:activado,org.fc16.gsa:recursivo,org.fc16.gsa:horario,"
+                                   "org.fc16.gsa:diario,org.fc16.gsa:semanal,org.fc16.gsa:mensual,"
+                                   "org.fc16.gsa:anual,org.fc16.gsa:nivelar,org.fc16.gsa:destino "
+                                   "\"$1\""),
+                               QStringLiteral("--"),
+                               params.at(0)},
+                              30000,
+                              QStringLiteral("agent timeout running gsa recursive scan"));
     }
     if (cmd == QStringLiteral("--dump-gsa-connections-conf")) {
         ExecResult r;
