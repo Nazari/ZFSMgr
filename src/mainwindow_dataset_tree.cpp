@@ -5152,6 +5152,66 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
     appendReadOnlyInlineProps(gsaNode, gsaProps);
     gsaNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:gsa"), false));
 
+    auto* agentNode = new QTreeWidgetItem(infoNode);
+    agentNode->setFlags(agentNode->flags() & ~Qt::ItemIsUserCheckable);
+    agentNode->setData(0, kConnContentNodeRole, true);
+    agentNode->setData(0, kConnIdxRole, connIdx);
+    agentNode->setData(0, kConnStatePartRole, QStringLiteral("syn:agent"));
+    agentNode->setText(0, trk(QStringLiteral("t_conn_agent_001"),
+                              QStringLiteral("Daemon"),
+                              QStringLiteral("Daemon"),
+                              QStringLiteral("守护进程")));
+    agentNode->setIcon(0, treeStandardIcon(QStyle::SP_ComputerIcon));
+    const QString agentStatus = !st.daemonInstalled
+                                    ? trk(QStringLiteral("t_conn_agent_not_installed_001"),
+                                          QStringLiteral("no instalado"),
+                                          QStringLiteral("not installed"),
+                                          QStringLiteral("未安装"))
+                                    : QStringLiteral("%1 | %2 | %3")
+                                          .arg(st.daemonVersion.trimmed().isEmpty() ? QStringLiteral("-")
+                                                                                    : st.daemonVersion.trimmed(),
+                                               st.daemonScheduler.trimmed().isEmpty() ? QStringLiteral("-")
+                                                                                      : st.daemonScheduler.trimmed(),
+                                               st.daemonActive
+                                                   ? trk(QStringLiteral("t_conn_agent_active_001"),
+                                                         QStringLiteral("activo"),
+                                                         QStringLiteral("active"),
+                                                         QStringLiteral("活动"))
+                                                   : trk(QStringLiteral("t_conn_agent_inactive_001"),
+                                                         QStringLiteral("inactivo"),
+                                                         QStringLiteral("inactive"),
+                                                         QStringLiteral("非活动")));
+    QVector<QPair<QString, QString>> agentProps = {
+        {trk(QStringLiteral("t_conn_agent_label_001"),
+             QStringLiteral("Daemon"),
+             QStringLiteral("Daemon"),
+             QStringLiteral("守护进程")),
+         agentStatus},
+        {trk(QStringLiteral("t_conn_agent_api_label_001"),
+             QStringLiteral("API"),
+             QStringLiteral("API"),
+             QStringLiteral("API")),
+         st.daemonApiVersion.trimmed().isEmpty() ? QStringLiteral("-") : st.daemonApiVersion.trimmed()},
+    };
+    if (!st.daemonDetail.trimmed().isEmpty()) {
+        agentProps.push_back(
+            {trk(QStringLiteral("t_conn_agent_detail_001"),
+                 QStringLiteral("Detalle"),
+                 QStringLiteral("Detail"),
+                 QStringLiteral("详情")),
+             st.daemonDetail.trimmed()});
+    }
+    if (st.daemonNeedsAttention && !st.daemonAttentionReasons.isEmpty()) {
+        agentProps.push_back(
+            {trk(QStringLiteral("t_conn_agent_attention_001"),
+                 QStringLiteral("Atención daemon"),
+                 QStringLiteral("Daemon attention"),
+                 QStringLiteral("守护进程注意事项")),
+             st.daemonAttentionReasons.join(QStringLiteral(", "))});
+    }
+    appendReadOnlyInlineProps(agentNode, agentProps);
+    agentNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:agent"), false));
+
     auto* commandsNode = new QTreeWidgetItem(infoNode);
     commandsNode->setFlags(commandsNode->flags() & ~Qt::ItemIsUserCheckable);
     commandsNode->setData(0, kConnContentNodeRole, true);

@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
 #include "helperinstallcatalog.h"
+#include "agentversion.h"
 
 #include <algorithm>
 #include <QElapsedTimer>
@@ -861,6 +862,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
 
     QString gsaProbeCmd;
     WindowsCommandMode gsaWinMode = WindowsCommandMode::Auto;
+    QString agentProbeCmd;
+    WindowsCommandMode agentWinMode = WindowsCommandMode::Auto;
     if (isWinConn) {
         gsaWinMode = winPsMode;
         gsaProbeCmd = QStringLiteral(
@@ -880,8 +883,67 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 "Write-Output ('ACTIVE=' + ($(if($active){'1'}else{'0'}))); "
                 "Write-Output ('VERSION=' + $ver); "
                 "Write-Output ('DETAIL=' + $detail)");
+        agentWinMode = winPsMode;
+        agentProbeCmd = QStringLiteral(
+                "$serviceName='ZFSMgrAgent'; "
+                "$agentPath='C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.exe'; "
+                "$scheduler='service'; "
+                "$installed=$false; $active=$false; $ver=''; $api=''; $detail=''; "
+                "$svc=Get-Service -Name $serviceName -ErrorAction SilentlyContinue; "
+                "if ($svc) { $installed=$true; if ($svc.Status -eq 'Running') { $active=$true } } "
+                "if (Test-Path -LiteralPath $agentPath) { "
+                "  $installed=$true; "
+                "  try { $ver = (& $agentPath --version 2>$null | Select-Object -First 1) } catch {} "
+                "  try { $api = (& $agentPath --api-version 2>$null | Select-Object -First 1) } catch {} "
+                "} "
+                "Write-Output ('SCHEDULER=' + $scheduler); "
+                "Write-Output ('INSTALLED=' + ($(if($installed){'1'}else{'0'}))); "
+                "Write-Output ('ACTIVE=' + ($(if($active){'1'}else{'0'}))); "
+                "Write-Output ('VERSION=' + ($ver -as [string]).Trim()); "
+                "Write-Output ('API=' + ($api -as [string]).Trim()); "
+                "Write-Output ('DETAIL=' + $detail)");
     } else if (useRemoteScripts) {
         gsaProbeCmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-gsa-status")));
+        agentProbeCmd = withSudo(
+                p,
+                QStringLiteral(
+                    "set +e; scheduler=''; installed=0; active=0; version=''; api=''; detail=''; "
+                    "if [ \"$(uname -s 2>/dev/null)\" = 'Darwin' ]; then "
+                    "  scheduler='launchd'; "
+                    "  bin='/usr/local/libexec/zfsmgr-agent'; "
+                    "  plist='/Library/LaunchDaemons/org.zfsmgr.agent.plist'; "
+                    "  [ -x \"$bin\" ] && [ -f \"$plist\" ] && installed=1; "
+                    "  if [ \"$installed\" -eq 1 ]; then "
+                    "    version=$($bin --version 2>/dev/null | head -n1); "
+                    "    api=$($bin --api-version 2>/dev/null | head -n1); "
+                    "    launchctl print system/org.zfsmgr.agent >/dev/null 2>&1 && active=1; "
+                    "  fi; "
+                    "elif [ \"$(uname -s 2>/dev/null)\" = 'FreeBSD' ]; then "
+                    "  scheduler='rc.d'; "
+                    "  bin='/usr/local/libexec/zfsmgr-agent'; "
+                    "  rc='/usr/local/etc/rc.d/zfsmgr_agent'; "
+                    "  [ -x \"$bin\" ] && [ -f \"$rc\" ] && installed=1; "
+                    "  if [ \"$installed\" -eq 1 ]; then "
+                    "    version=$($bin --version 2>/dev/null | head -n1); "
+                    "    api=$($bin --api-version 2>/dev/null | head -n1); "
+                    "    service zfsmgr_agent onestatus >/dev/null 2>&1 && active=1; "
+                    "  fi; "
+                    "elif command -v systemctl >/dev/null 2>&1; then "
+                    "  scheduler='systemd'; "
+                    "  bin='/usr/local/libexec/zfsmgr-agent'; "
+                    "  service='/etc/systemd/system/zfsmgr-agent.service'; "
+                    "  [ -x \"$bin\" ] && [ -f \"$service\" ] && installed=1; "
+                    "  if [ \"$installed\" -eq 1 ]; then "
+                    "    version=$($bin --version 2>/dev/null | head -n1); "
+                    "    api=$($bin --api-version 2>/dev/null | head -n1); "
+                    "    systemctl is-enabled zfsmgr-agent.service >/dev/null 2>&1 && "
+                    "systemctl is-active zfsmgr-agent.service >/dev/null 2>&1 && active=1; "
+                    "  fi; "
+                    "else "
+                    "  detail='No native scheduler detected'; "
+                    "fi; "
+                    "printf 'SCHEDULER=%s\\nINSTALLED=%s\\nACTIVE=%s\\nVERSION=%s\\nAPI=%s\\nDETAIL=%s\\n' "
+                    "\"$scheduler\" \"$installed\" \"$active\" \"$version\" \"$api\" \"$detail\""));
     } else {
         gsaProbeCmd = withSudo(
                 p,
@@ -926,6 +988,47 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     "  detail='No native scheduler detected'; "
                     "fi; "
                     "printf 'SCHEDULER=%s\\nINSTALLED=%s\\nACTIVE=%s\\nVERSION=%s\\nDETAIL=%s\\nGUID_COMPARE=%s\\n' \"$scheduler\" \"$installed\" \"$active\" \"$version\" \"$detail\" \"$guid_compare\""));
+        agentProbeCmd = withSudo(
+                p,
+                QStringLiteral(
+                    "set +e; "
+                    "scheduler=''; installed=0; active=0; version=''; api=''; detail=''; "
+                    "if [ \"$(uname -s 2>/dev/null)\" = 'Darwin' ]; then "
+                    "  scheduler='launchd'; "
+                    "  bin='/usr/local/libexec/zfsmgr-agent'; "
+                    "  plist='/Library/LaunchDaemons/org.zfsmgr.agent.plist'; "
+                    "  [ -x \"$bin\" ] && [ -f \"$plist\" ] && installed=1; "
+                    "  if [ \"$installed\" -eq 1 ]; then "
+                    "    version=$($bin --version 2>/dev/null | head -n1); "
+                    "    api=$($bin --api-version 2>/dev/null | head -n1); "
+                    "    launchctl print system/org.zfsmgr.agent >/dev/null 2>&1 && active=1; "
+                    "  fi; "
+                    "elif [ \"$(uname -s 2>/dev/null)\" = 'FreeBSD' ]; then "
+                    "  scheduler='rc.d'; "
+                    "  bin='/usr/local/libexec/zfsmgr-agent'; "
+                    "  rc='/usr/local/etc/rc.d/zfsmgr_agent'; "
+                    "  [ -x \"$bin\" ] && [ -f \"$rc\" ] && installed=1; "
+                    "  if [ \"$installed\" -eq 1 ]; then "
+                    "    version=$($bin --version 2>/dev/null | head -n1); "
+                    "    api=$($bin --api-version 2>/dev/null | head -n1); "
+                    "    service zfsmgr_agent onestatus >/dev/null 2>&1 && active=1; "
+                    "  fi; "
+                    "elif command -v systemctl >/dev/null 2>&1; then "
+                    "  scheduler='systemd'; "
+                    "  bin='/usr/local/libexec/zfsmgr-agent'; "
+                    "  service='/etc/systemd/system/zfsmgr-agent.service'; "
+                    "  [ -x \"$bin\" ] && [ -f \"$service\" ] && installed=1; "
+                    "  if [ \"$installed\" -eq 1 ]; then "
+                    "    version=$($bin --version 2>/dev/null | head -n1); "
+                    "    api=$($bin --api-version 2>/dev/null | head -n1); "
+                    "    systemctl is-enabled zfsmgr-agent.service >/dev/null 2>&1 && "
+                    "systemctl is-active zfsmgr-agent.service >/dev/null 2>&1 && active=1; "
+                    "  fi; "
+                    "else "
+                    "  detail='No native scheduler detected'; "
+                    "fi; "
+                    "printf 'SCHEDULER=%s\\nINSTALLED=%s\\nACTIVE=%s\\nVERSION=%s\\nAPI=%s\\nDETAIL=%s\\n' "
+                    "\"$scheduler\" \"$installed\" \"$active\" \"$version\" \"$api\" \"$detail\""));
     }
     const QString importProbeCmd = withSudo(
         p,
@@ -938,6 +1041,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-mount-list"))
             : mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs mount")));
     QFuture<AsyncSshResult> gsaFuture = runAsyncCommand(gsaProbeCmd, 15000, gsaWinMode);
+    QFuture<AsyncSshResult> agentFuture = runAsyncCommand(agentProbeCmd, 15000, agentWinMode);
     QFuture<AsyncSshResult> importFuture = runAsyncCommand(importProbeCmd, 18000, WindowsCommandMode::Auto);
     QFuture<AsyncSshResult> mountsFuture = runAsyncCommand(mountedCmd, 18000, WindowsCommandMode::Auto);
 
@@ -1096,6 +1200,19 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         }
     }
     cutPhase(QStringLiteral("gsa_probe"));
+    {
+        const AsyncSshResult agentRes = agentFuture.result();
+        if (agentRes.ran) {
+            const QMap<QString, QString> kv = parseKeyValueOutput(agentRes.out + QStringLiteral("\n") + agentRes.err);
+            state.daemonScheduler = kv.value(QStringLiteral("SCHEDULER")).trimmed();
+            state.daemonVersion = kv.value(QStringLiteral("VERSION")).trimmed();
+            state.daemonApiVersion = kv.value(QStringLiteral("API")).trimmed();
+            state.daemonDetail = kv.value(QStringLiteral("DETAIL")).trimmed();
+            state.daemonInstalled = (kv.value(QStringLiteral("INSTALLED")).trimmed() == QStringLiteral("1"));
+            state.daemonActive = (kv.value(QStringLiteral("ACTIVE")).trimmed() == QStringLiteral("1"));
+        }
+    }
+    cutPhase(QStringLiteral("agent_probe"));
     if (state.gsaInstalled && !isWinConn) {
         QString mapOut;
         QString mapErr;
@@ -1245,17 +1362,32 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             }
         }
     }
+    if (state.daemonInstalled) {
+        const QString expectedAgentVersion = agentversion::currentVersion().trimmed();
+        const QString expectedApiVersion = agentversion::expectedApiVersion().trimmed();
+        if (!state.daemonVersion.trimmed().isEmpty()
+            && agentversion::compareVersions(state.daemonVersion.trimmed(), expectedAgentVersion) < 0) {
+            state.daemonNeedsAttention = true;
+            state.daemonAttentionReasons.push_back(QStringLiteral("versión daemon antigua"));
+        }
+        if (!expectedApiVersion.isEmpty() && !state.daemonApiVersion.trimmed().isEmpty()
+            && state.daemonApiVersion.trimmed() != expectedApiVersion) {
+            state.daemonNeedsAttention = true;
+            state.daemonAttentionReasons.push_back(QStringLiteral("API daemon incompatible"));
+        }
+    }
     cutPhase(QStringLiteral("gsa_eval"));
     appLog(
         QStringLiteral("INFO"),
         QStringLiteral(
-            "%1: refresh timings ms total=%2 basics=%3 commands=%4 helper=%5 gsa_probe=%6 gsa_conn=%7 zpool_list=%8 pool_details=%9 import=%10 mounts=%11 gsa_eval=%12")
+            "%1: refresh timings ms total=%2 basics=%3 commands=%4 helper=%5 gsa_probe=%6 agent_probe=%7 gsa_conn=%8 zpool_list=%9 pool_details=%10 import=%11 mounts=%12 gsa_eval=%13")
             .arg(p.name)
             .arg(refreshTimer.elapsed())
             .arg(phaseDurMs.value(QStringLiteral("basics"), -1))
             .arg(phaseDurMs.value(QStringLiteral("commands"), -1))
             .arg(phaseDurMs.value(QStringLiteral("helper_plan"), -1))
             .arg(phaseDurMs.value(QStringLiteral("gsa_probe"), -1))
+            .arg(phaseDurMs.value(QStringLiteral("agent_probe"), -1))
             .arg(phaseDurMs.value(QStringLiteral("gsa_connections"), -1))
             .arg(phaseDurMs.value(QStringLiteral("zpool_list"), -1))
             .arg(phaseDurMs.value(QStringLiteral("pool_details"), -1))

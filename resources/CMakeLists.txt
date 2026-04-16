@@ -72,6 +72,8 @@ set(ZFSMGR_CORE_SOURCES
     ../src/i18nmanager.h
     ../src/secretcipher.cpp
     ../src/secretcipher.h
+    ../src/agentversion.cpp
+    ../src/agentversion.h
     resources.qrc
 )
 

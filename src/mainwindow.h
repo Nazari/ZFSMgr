@@ -161,6 +161,14 @@ private:
         bool gsaNeedsAttention{false};
         bool gsaInstalled{false};
         bool gsaActive{false};
+        QString daemonScheduler;
+        QString daemonVersion;
+        QString daemonApiVersion;
+        QString daemonDetail;
+        QStringList daemonAttentionReasons;
+        bool daemonNeedsAttention{false};
+        bool daemonInstalled{false};
+        bool daemonActive{false};
     };
 
     struct DatasetRecord {
