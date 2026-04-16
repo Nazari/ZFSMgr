@@ -222,6 +222,102 @@ ExecResult runDirectViaChild(const QString& cmd, const QStringList& params) {
     return r;
 }
 
+ExecResult runProcessSync(const QString& program, const QStringList& args, int timeoutMs, const QString& timeoutMsg) {
+    ExecResult r;
+    QProcess p;
+    p.setProgram(program);
+    p.setArguments(args);
+    p.start();
+    if (!p.waitForFinished(timeoutMs)) {
+        p.kill();
+        p.waitForFinished(2000);
+        r.rc = 124;
+        r.err = timeoutMsg;
+        return r;
+    }
+    r.out = QString::fromUtf8(p.readAllStandardOutput());
+    r.err = QString::fromUtf8(p.readAllStandardError());
+    r.rc = (p.exitStatus() == QProcess::NormalExit) ? p.exitCode() : 125;
+    return r;
+}
+
+ExecResult runFastPathCommand(const QString& cmd, const QStringList& params, bool* handled) {
+    if (handled) {
+        *handled = true;
+    }
+    if (cmd == QStringLiteral("--dump-zpool-list")) {
+        return runProcessSync(QStringLiteral("zpool"),
+                              {QStringLiteral("list"), QStringLiteral("-j")},
+                              20000,
+                              QStringLiteral("agent timeout running zpool list -j"));
+    }
+    if (cmd == QStringLiteral("--dump-zfs-mount")) {
+        return runProcessSync(QStringLiteral("zfs"),
+                              {QStringLiteral("mount"), QStringLiteral("-j")},
+                              20000,
+                              QStringLiteral("agent timeout running zfs mount -j"));
+    }
+    if (cmd == QStringLiteral("--dump-zpool-guid") && params.size() >= 1) {
+        return runProcessSync(QStringLiteral("zpool"),
+                              {QStringLiteral("get"), QStringLiteral("-H"), QStringLiteral("-o"),
+                               QStringLiteral("value"), QStringLiteral("guid"), params.at(0)},
+                              15000,
+                              QStringLiteral("agent timeout running zpool get guid"));
+    }
+    if (cmd == QStringLiteral("--dump-zpool-status") && params.size() >= 1) {
+        return runProcessSync(QStringLiteral("zpool"),
+                              {QStringLiteral("status"), QStringLiteral("-v"), params.at(0)},
+                              20000,
+                              QStringLiteral("agent timeout running zpool status -v"));
+    }
+    if (cmd == QStringLiteral("--dump-zpool-status-p") && params.size() >= 1) {
+        return runProcessSync(QStringLiteral("sh"),
+                              {QStringLiteral("-lc"), QStringLiteral("zpool status -P \"$1\""), QStringLiteral("--"), params.at(0)},
+                              20000,
+                              QStringLiteral("agent timeout running zpool status -P"));
+    }
+    if (cmd == QStringLiteral("--dump-zpool-get-all") && params.size() >= 1) {
+        return runProcessSync(QStringLiteral("sh"),
+                              {QStringLiteral("-lc"), QStringLiteral("zpool get -j all \"$1\""), QStringLiteral("--"), params.at(0)},
+                              20000,
+                              QStringLiteral("agent timeout running zpool get -j all"));
+    }
+    if (cmd == QStringLiteral("--dump-zfs-guid-map") && params.size() >= 1) {
+        return runProcessSync(QStringLiteral("zfs"),
+                              {QStringLiteral("get"), QStringLiteral("-H"), QStringLiteral("-o"),
+                               QStringLiteral("name,value"), QStringLiteral("guid"), QStringLiteral("-r"), params.at(0)},
+                              25000,
+                              QStringLiteral("agent timeout running zfs guid map"));
+    }
+    if (cmd == QStringLiteral("--dump-zfs-get-prop") && params.size() >= 2) {
+        return runProcessSync(QStringLiteral("zfs"),
+                              {QStringLiteral("get"), QStringLiteral("-H"), QStringLiteral("-o"), QStringLiteral("value"),
+                               params.at(0), params.at(1)},
+                              15000,
+                              QStringLiteral("agent timeout running zfs get prop"));
+    }
+    if (cmd == QStringLiteral("--dump-gsa-connections-conf")) {
+        ExecResult r;
+        QFile f(QStringLiteral("/etc/zfsmgr/gsa-connections.conf"));
+        if (!f.exists()) {
+            r.rc = 0;
+            return r;
+        }
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            r.rc = 1;
+            r.err = QStringLiteral("cannot open /etc/zfsmgr/gsa-connections.conf\n");
+            return r;
+        }
+        r.out = QString::fromUtf8(f.readAll());
+        r.rc = 0;
+        return r;
+    }
+    if (handled) {
+        *handled = false;
+    }
+    return {};
+}
+
 class AgentServer final : public QObject {
 public:
     explicit AgentServer(const AgentConfig& cfg, QObject* parent = nullptr)
@@ -405,7 +501,11 @@ private:
                 if (it != m_cache.cend() && it->expiresAtUtc > now) {
                     result = it->result;
                 } else {
-                    result = runDirectViaChild(cmd, params);
+                    bool handled = false;
+                    result = runFastPathCommand(cmd, params, &handled);
+                    if (!handled) {
+                        result = runDirectViaChild(cmd, params);
+                    }
                     CacheEntry entry;
                     entry.result = result;
                     const int ttl = isSlowCommand(cmd) ? m_cfg.cacheTtlSlowMs : m_cfg.cacheTtlFastMs;
