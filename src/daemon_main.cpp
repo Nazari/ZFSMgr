@@ -858,8 +858,6 @@ bool tryForwardToResidentDaemon(const AgentConfig& cfg,
                                 const QString& cmd,
                                 const QStringList& params,
                                 ExecResult& resultOut) {
-    QSslSocket sock;
-    sock.setProtocol(QSsl::TlsV1_2OrLater);
     QFile caFile(cfg.tlsCertPath);
     QFile clientCertFile(cfg.tlsClientCertPath);
     QFile clientKeyFile(cfg.tlsClientKeyPath);
@@ -883,50 +881,55 @@ bool tryForwardToResidentDaemon(const AgentConfig& cfg,
         return false;
     }
 
-    QSslConfiguration conf = sock.sslConfiguration();
-    conf.setCaCertificates(caCerts);
-    conf.setLocalCertificate(clientCerts.first());
-    conf.setPrivateKey(clientKey);
-    conf.setProtocol(QSsl::TlsV1_2OrLater);
-    conf.setPeerVerifyMode(QSslSocket::VerifyPeer);
-    sock.setSslConfiguration(conf);
-
     const QHostAddress addr(cfg.bindAddress);
     const QString host = addr.isNull() ? cfg.bindAddress : addr.toString();
-    sock.connectToHostEncrypted(host, cfg.port, QStringLiteral("zfsmgr-agent"));
-    if (!sock.waitForEncrypted(1200)) {
-        return false;
-    }
+    const QStringList peerNames = {QStringLiteral("zfsmgr-agent-server"), QStringLiteral("zfsmgr-agent")};
+    for (const QString& peerName : peerNames) {
+        QSslSocket sock;
+        sock.setProtocol(QSsl::TlsV1_2OrLater);
+        QSslConfiguration conf = sock.sslConfiguration();
+        conf.setCaCertificates(caCerts);
+        conf.setLocalCertificate(clientCerts.first());
+        conf.setPrivateKey(clientKey);
+        conf.setProtocol(QSsl::TlsV1_2OrLater);
+        conf.setPeerVerifyMode(QSslSocket::VerifyPeer);
+        sock.setSslConfiguration(conf);
 
-    QJsonObject req;
-    req.insert(QStringLiteral("cmd"), cmd);
-    QJsonArray a;
-    for (const QString& p : params) {
-        a.push_back(p);
-    }
-    req.insert(QStringLiteral("args"), a);
-    const QByteArray payload = QJsonDocument(req).toJson(QJsonDocument::Compact) + '\n';
-    if (sock.write(payload) < 0 || !sock.waitForBytesWritten(1000)) {
-        return false;
-    }
-
-    QByteArray line;
-    const QDateTime deadline = QDateTime::currentDateTimeUtc().addMSecs(isSlowCommand(cmd) ? 70000 : 30000);
-    while (QDateTime::currentDateTimeUtc() < deadline) {
-        if (!sock.waitForReadyRead(400)) {
+        sock.connectToHostEncrypted(host, cfg.port, peerName);
+        if (!sock.waitForEncrypted(1200)) {
             continue;
         }
-        line.append(sock.readAll());
-        const int nl = line.indexOf('\n');
-        if (nl < 0) {
+
+        QJsonObject req;
+        req.insert(QStringLiteral("cmd"), cmd);
+        QJsonArray a;
+        for (const QString& p : params) {
+            a.push_back(p);
+        }
+        req.insert(QStringLiteral("args"), a);
+        const QByteArray payload = QJsonDocument(req).toJson(QJsonDocument::Compact) + '\n';
+        if (sock.write(payload) < 0 || !sock.waitForBytesWritten(1000)) {
             continue;
         }
-        const QByteArray one = line.left(nl).trimmed();
-        const QJsonObject resp = QJsonDocument::fromJson(one).object();
-        resultOut.rc = resp.value(QStringLiteral("rc")).toInt(1);
-        resultOut.out = resp.value(QStringLiteral("stdout")).toString();
-        resultOut.err = resp.value(QStringLiteral("stderr")).toString();
-        return true;
+
+        QByteArray line;
+        const QDateTime deadline = QDateTime::currentDateTimeUtc().addMSecs(isSlowCommand(cmd) ? 70000 : 30000);
+        while (QDateTime::currentDateTimeUtc() < deadline) {
+            if (!sock.waitForReadyRead(400)) {
+                continue;
+            }
+            line.append(sock.readAll());
+            const int nl = line.indexOf('\n');
+            if (nl < 0) {
+                continue;
+            }
+            const QByteArray one = line.left(nl).trimmed();
+            const QJsonObject resp = QJsonDocument::fromJson(one).object();
+            resultOut.rc = resp.value(QStringLiteral("rc")).toInt(1);
+            resultOut.out = resp.value(QStringLiteral("stdout")).toString();
+            resultOut.err = resp.value(QStringLiteral("stderr")).toString();
+            return true;
+        }
     }
     return false;
 }
