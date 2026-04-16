@@ -1076,6 +1076,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         && state.daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     const QString zpoolListCmdDaemon = withSudo(
         p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-list")));
+    const QString zpoolGuidStatusBatchCmdDaemon = withSudo(
+        p, mwhelpers::withUnixSearchPathCommand(QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-guid-status-batch")));
     out.clear(); err.clear(); rc = -1;
     bool zpoolListOk = false;
     bool zpoolListViaDaemon = false;
@@ -1145,7 +1147,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         QString bout;
         QString berr;
         int brc = -1;
-        const QString batchCmd = withSudo(
+        const QString batchCmdClassic = withSudo(
             p,
             useRemoteScripts
                 ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-guid-status-all"))
@@ -1160,8 +1162,19 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                           "zpool status -v \"$pool\" 2>&1 || true; "
                           "printf '__ZFSMGR_STATUS_END__\\n'; "
                           "done")));
+        const QString batchCmd = daemonReadApiOk ? zpoolGuidStatusBatchCmdDaemon : batchCmdClassic;
         if (state.poolStatusByName.isEmpty() || state.poolGuidByName.isEmpty()) {
-            if (runSsh(p, batchCmd, 45000, bout, berr, brc) && brc == 0) {
+            bool batchOk = runSsh(p, batchCmd, 45000, bout, berr, brc) && brc == 0;
+            if (!batchOk && daemonReadApiOk) {
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("%1: daemon zpool guid/status fallback -> %2")
+                           .arg(p.name, oneLine(berr.isEmpty() ? bout : berr)));
+                bout.clear();
+                berr.clear();
+                brc = -1;
+                batchOk = runSsh(p, batchCmdClassic, 45000, bout, berr, brc) && brc == 0;
+            }
+            if (batchOk) {
                 const QMap<QString, PoolGuidStatusEntry> parsed =
                     parsePoolGuidStatusBatch(bout + QStringLiteral("\n") + berr);
                 for (auto it = parsed.cbegin(); it != parsed.cend(); ++it) {
@@ -1190,13 +1203,27 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             QString gout;
             QString gerr;
             int grc = -1;
-            const QString guidCmd = withSudo(
+            const QString guidCmdClassic = withSudo(
                 p,
                 useRemoteScripts
                     ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-guid"), {poolName})
                     : mwhelpers::withUnixSearchPathCommand(
                           QStringLiteral("zpool get -H -o value guid %1").arg(mwhelpers::shSingleQuote(poolName))));
-            if (runSsh(p, guidCmd, 12000, gout, gerr, grc) && grc == 0) {
+            const QString guidCmdDaemon = withSudo(
+                p, mwhelpers::withUnixSearchPathCommand(
+                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-guid %1")
+                           .arg(mwhelpers::shSingleQuote(poolName))));
+            bool guidOk = runSsh(p, (daemonReadApiOk ? guidCmdDaemon : guidCmdClassic), 12000, gout, gerr, grc) && grc == 0;
+            if (!guidOk && daemonReadApiOk) {
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("%1: daemon zpool guid fallback (%2) -> %3")
+                           .arg(p.name, poolName, oneLine(gerr.isEmpty() ? gout : gerr)));
+                gout.clear();
+                gerr.clear();
+                grc = -1;
+                guidOk = runSsh(p, guidCmdClassic, 12000, gout, gerr, grc) && grc == 0;
+            }
+            if (guidOk) {
                 const QString guid = gout.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
                     state.poolGuidByName.insert(poolName, guid);

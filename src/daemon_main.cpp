@@ -67,6 +67,57 @@ int main(int argc, char* argv[]) {
         }
         return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
     }
+    if (args.contains(QStringLiteral("--dump-zpool-guid-status-batch"))) {
+        QProcess p;
+        p.setProgram(QStringLiteral("sh"));
+        p.setArguments({QStringLiteral("-lc"),
+                        QStringLiteral(
+                            "zpool list -H -o name 2>/dev/null | while IFS= read -r pool; do "
+                            "[ -n \"$pool\" ] || continue; "
+                            "guid=$(zpool get -H -o value guid \"$pool\" 2>/dev/null | head -n1 || true); "
+                            "printf '__ZFSMGR_POOL__:%s\\n' \"$pool\"; "
+                            "printf '__ZFSMGR_GUID__:%s\\n' \"$guid\"; "
+                            "printf '__ZFSMGR_STATUS_BEGIN__\\n'; "
+                            "zpool status -v \"$pool\" 2>&1 || true; "
+                            "printf '__ZFSMGR_STATUS_END__\\n'; "
+                            "done")});
+        p.start();
+        if (!p.waitForFinished(60000)) {
+            QTextStream(stderr) << "agent timeout running zpool guid/status batch\n";
+            return 124;
+        }
+        QTextStream(stdout) << QString::fromUtf8(p.readAllStandardOutput());
+        const QByteArray err = p.readAllStandardError();
+        if (!err.isEmpty()) {
+            QTextStream(stderr) << QString::fromUtf8(err);
+        }
+        return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
+    }
+    {
+        const int i = args.indexOf(QStringLiteral("--dump-zpool-guid"));
+        if (i >= 0 && i + 1 < args.size()) {
+            const QString pool = args.at(i + 1).trimmed();
+            if (pool.isEmpty()) {
+                QTextStream(stderr) << "missing pool name for --dump-zpool-guid\n";
+                return 2;
+            }
+            QProcess p;
+            p.setProgram(QStringLiteral("zpool"));
+            p.setArguments({QStringLiteral("get"), QStringLiteral("-H"), QStringLiteral("-o"), QStringLiteral("value"),
+                            QStringLiteral("guid"), pool});
+            p.start();
+            if (!p.waitForFinished(15000)) {
+                QTextStream(stderr) << "agent timeout running zpool get guid\n";
+                return 124;
+            }
+            QTextStream(stdout) << QString::fromUtf8(p.readAllStandardOutput());
+            const QByteArray err = p.readAllStandardError();
+            if (!err.isEmpty()) {
+                QTextStream(stderr) << QString::fromUtf8(err);
+            }
+            return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
+        }
+    }
 
     QTimer timer;
     QObject::connect(&timer, &QTimer::timeout, []() { writeHeartbeat(); });
