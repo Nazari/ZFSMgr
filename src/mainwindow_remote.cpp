@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
+#include "agentversion.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -1950,6 +1951,13 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
         return false;
     }
     const ConnectionProfile& p = m_profiles[connIdx];
+    const bool daemonReadApiOk =
+        !isWindowsConnection(p)
+        && connIdx >= 0
+        && connIdx < m_states.size()
+        && m_states[connIdx].daemonInstalled
+        && m_states[connIdx].daemonActive
+        && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     if (connIdx >= 0 && connIdx < m_states.size()) {
         const QString trimmedPool = poolName.trimmed();
         if (!trimmedPool.isEmpty()
@@ -1958,14 +1966,28 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
             QString gErr;
             int gRc = -1;
             const bool useRemoteScript = !isWindowsConnection(p);
-            const QString guidCmd = withSudo(
+            const QString guidCmdClassic = withSudo(
                 p,
                 useRemoteScript
                     ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-guid"), {trimmedPool})
                     : mwhelpers::withUnixSearchPathCommand(
                           QStringLiteral("zpool get -H -o value guid %1")
                               .arg(shSingleQuote(trimmedPool))));
-            if (runSsh(p, guidCmd, 12000, gOut, gErr, gRc) && gRc == 0) {
+            const QString guidCmdDaemon = withSudo(
+                p, mwhelpers::withUnixSearchPathCommand(
+                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-guid %1")
+                           .arg(shSingleQuote(trimmedPool))));
+            bool guidOk = runSsh(p, (daemonReadApiOk ? guidCmdDaemon : guidCmdClassic), 12000, gOut, gErr, gRc) && gRc == 0;
+            if (!guidOk && daemonReadApiOk) {
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("%1::%2 daemon guid fallback -> %3")
+                           .arg(p.name, trimmedPool, oneLine(gErr.isEmpty() ? gOut : gErr)));
+                gOut.clear();
+                gErr.clear();
+                gRc = -1;
+                guidOk = runSsh(p, guidCmdClassic, 12000, gOut, gErr, gRc) && gRc == 0;
+            }
+            if (guidOk) {
                 const QString guid = gOut.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
                     m_states[connIdx].poolGuidByName.insert(trimmedPool, guid);
@@ -2006,12 +2028,16 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
 
     if (!isWin) {
         const bool useRemoteScript = !isWindowsConnection(p);
-        QString jsonCmd = useRemoteScript
+        const QString jsonCmdClassic = useRemoteScript
             ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-list-all"), {poolName})
             : mwhelpers::withUnixSearchPathCommand(
                   QStringLiteral("zfs get -j -p -r -t filesystem,volume,snapshot type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount %1")
                       .arg(shSingleQuote(poolName)));
-        jsonCmd = withSudo(p, jsonCmd);
+        const QString jsonCmdDaemon = withSudo(
+            p, mwhelpers::withUnixSearchPathCommand(
+                   QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-list-all %1")
+                       .arg(shSingleQuote(poolName))));
+        const QString jsonCmd = daemonReadApiOk ? jsonCmdDaemon : withSudo(p, jsonCmdClassic);
         if (runSsh(p, jsonCmd, 35000, out, err, rc) && rc == 0) {
             QString jsonPayload = mwhelpers::stripToJson(out);
             QJsonParseError parseErr{};
@@ -2069,6 +2095,69 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
                     } else {
                         cache.datasets.push_back(rec);
                         cache.recordByName[name] = rec;
+                    }
+                }
+            }
+        } else if (daemonReadApiOk) {
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("%1::%2 daemon zfs list fallback -> %3")
+                       .arg(p.name, poolName, oneLine(err.isEmpty() ? out : err)));
+            out.clear();
+            err.clear();
+            rc = -1;
+            if (runSsh(p, withSudo(p, jsonCmdClassic), 35000, out, err, rc) && rc == 0) {
+                QString jsonPayload = mwhelpers::stripToJson(out);
+                QJsonParseError parseErr{};
+                QJsonDocument doc = QJsonDocument::fromJson(jsonPayload.toUtf8(), &parseErr);
+                if (parseErr.error != QJsonParseError::NoError) {
+                    const int lastBrace = jsonPayload.lastIndexOf(QLatin1Char('}'));
+                    if (lastBrace > 0) {
+                        jsonPayload = jsonPayload.left(lastBrace + 1);
+                        parseErr = QJsonParseError{};
+                        doc = QJsonDocument::fromJson(jsonPayload.toUtf8(), &parseErr);
+                    }
+                }
+                if (parseErr.error == QJsonParseError::NoError) {
+                    const QJsonObject datasets = doc.object().value(QStringLiteral("datasets")).toObject();
+                    if (!datasets.isEmpty()) {
+                        loadedFromJson = true;
+                        for (auto it = datasets.constBegin(); it != datasets.constEnd(); ++it) {
+                            const QString name = it.key().trimmed();
+                            if (name.isEmpty()) {
+                                continue;
+                            }
+                            const QJsonObject props = it.value().toObject()
+                                                      .value(QStringLiteral("properties")).toObject();
+                            auto propValue = [&props](const QString& prop) -> QString {
+                                return props.value(prop).toObject().value(QStringLiteral("value")).toString();
+                            };
+                            DatasetRecord rec{
+                                name,
+                                propValue(QStringLiteral("guid")),
+                                propValue(QStringLiteral("used")),
+                                propValue(QStringLiteral("compressratio")),
+                                propValue(QStringLiteral("encryption")),
+                                propValue(QStringLiteral("creation")),
+                                propValue(QStringLiteral("referenced")),
+                                propValue(QStringLiteral("mounted")),
+                                propValue(QStringLiteral("mountpoint")),
+                                propValue(QStringLiteral("canmount")),
+                            };
+                            if (!rec.guid.trimmed().isEmpty()) {
+                                cache.objectGuidByName.insert(name, rec.guid.trimmed());
+                            }
+                            const QString type = propValue(QStringLiteral("type")).trimmed().toLower();
+                            if (type == QStringLiteral("snapshot") || name.contains(QLatin1Char('@'))) {
+                                const QString ds = name.section('@', 0, 0);
+                                const QString snap = name.section('@', 1);
+                                if (!ds.isEmpty() && !snap.isEmpty()) {
+                                    snapshotMetaByDataset[ds].push_back(SnapshotMetaRow{rec.creation, snap, rec.guid});
+                                }
+                            } else {
+                                cache.datasets.push_back(rec);
+                                cache.recordByName[name] = rec;
+                            }
+                        }
                     }
                 }
             }

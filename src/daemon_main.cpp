@@ -164,6 +164,50 @@ int main(int argc, char* argv[]) {
         }
         return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
     }
+    {
+        const int i = args.indexOf(QStringLiteral("--dump-zfs-list-all"));
+        if (i >= 0 && i + 1 < args.size()) {
+            const QString pool = args.at(i + 1).trimmed();
+            if (pool.isEmpty()) {
+                QTextStream(stderr) << "missing pool name for --dump-zfs-list-all\n";
+                return 2;
+            }
+            QProcess p;
+            p.setProgram(QStringLiteral("sh"));
+            p.setArguments({QStringLiteral("-lc"),
+                            QStringLiteral(
+                                "pool=$1; "
+                                "if LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j -p -r -t filesystem,volume,snapshot "
+                                "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount \"$pool\" >/dev/null 2>&1; then "
+                                "  LC_ALL=C.UTF-8 LANG=C.UTF-8 zfs get -j -p -r -t filesystem,volume,snapshot "
+                                "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount \"$pool\"; "
+                                "elif LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j -p -r -t filesystem,volume,snapshot "
+                                "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount \"$pool\" >/dev/null 2>&1; then "
+                                "  LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 zfs get -j -p -r -t filesystem,volume,snapshot "
+                                "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount \"$pool\"; "
+                                "elif zfs get -j -p -r -t filesystem,volume,snapshot "
+                                "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount \"$pool\" >/dev/null 2>&1; then "
+                                "  zfs get -j -p -r -t filesystem,volume,snapshot "
+                                "type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount \"$pool\"; "
+                                "else "
+                                "  zfs list -H -p -t filesystem,volume,snapshot "
+                                "-o name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount -r \"$pool\"; "
+                                "fi"),
+                            QStringLiteral("--"),
+                            pool});
+            p.start();
+            if (!p.waitForFinished(45000)) {
+                QTextStream(stderr) << "agent timeout running zfs list all\n";
+                return 124;
+            }
+            QTextStream(stdout) << QString::fromUtf8(p.readAllStandardOutput());
+            const QByteArray err = p.readAllStandardError();
+            if (!err.isEmpty()) {
+                QTextStream(stderr) << QString::fromUtf8(err);
+            }
+            return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
+        }
+    }
 
     QTimer timer;
     QObject::connect(&timer, &QTimer::timeout, []() { writeHeartbeat(); });
