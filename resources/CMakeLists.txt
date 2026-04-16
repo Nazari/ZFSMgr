@@ -107,6 +107,7 @@ qt_add_executable(zfsmgr_agent
     ../src/agentversion.cpp
 )
 target_link_libraries(zfsmgr_agent PRIVATE Qt6::Core)
+target_link_libraries(zfsmgr_agent PRIVATE Qt6::Network)
 target_compile_definitions(zfsmgr_agent PRIVATE
     QT_NO_KEYWORDS
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"

@@ -208,12 +208,21 @@ Implementado actualmente:
 - bootstrap inicial automático (con confirmación) al conectar cuando falta daemon
 - bootstrap Unix con material TLS local:
   - creación de `server.crt` y `server.key` en `/etc/zfsmgr/tls` si no existen
+- `zfsmgr-agent --serve` operativo como daemon residente TLS:
+  - escucha TCP local (`127.0.0.1:47653` por defecto; configurable en `agent.conf`)
+  - cifrado TLS con `server.crt/server.key`
+  - API JSON line-based interna
+- modo cliente transparente:
+  - las invocaciones `--dump-*` intentan primero hablar con el daemon residente
+  - si falla TLS/socket, hacen fallback automático a ejecución directa local
+- caché en memoria en daemon residente (TTL rápido/lento configurable)
+- invalidación reactiva de caché por eventos (`zpool events -f`)
 
 Pendiente de esta fase:
 
-- daemon binario real (no stub) con API TLS/mTLS
-- canal de lecturas de ZFSMgr vía daemon (con fallback SSH)
-- ingesta real de eventos `zed` + reconciliación
+- endurecimiento a mTLS completo (cert cliente dedicado y validación mutua estricta)
+- reemplazar fallback por RPC tipado completo (sin spawn interno por petición)
+- reconciliación periódica de seguridad tras reinicio/corte de eventos
 
 ## Riesgos clave
 
