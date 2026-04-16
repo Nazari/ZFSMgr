@@ -1128,6 +1128,7 @@ private:
     QSet<QString> m_sshDisableMultiplexKeys;
     QSet<QString> m_loggedSshResolutionKeys;
     QSet<QString> m_daemonBootstrapPromptedConnIds;
+    QMap<QString, QDateTime> m_daemonRpcRetryAfterByConnKey;
     mutable QMutex m_sshRuntimeSetsMutex;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
     QMap<QString, DatasetPermissionsCacheEntry> m_datasetPermissionsCache;

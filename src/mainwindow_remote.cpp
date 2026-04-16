@@ -1035,7 +1035,22 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
     if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0 && !isWindowsConnection(p)) {
         QStringList agentArgs;
         if (extractLocalAgentArgs(remoteCmd.trimmed(), agentArgs)) {
-            if (tryRunRemoteAgentRpcViaTunnel(p, agentArgs, timeoutMs, out, err, rc)) {
+            const QString rpcConnKey = remoteDaemonTlsCacheKey(p);
+            bool allowRpcAttempt = true;
+            {
+                QMutexLocker lock(&m_sshRuntimeSetsMutex);
+                const auto it = m_daemonRpcRetryAfterByConnKey.constFind(rpcConnKey);
+                if (it != m_daemonRpcRetryAfterByConnKey.constEnd()
+                    && it.value().isValid()
+                    && QDateTime::currentDateTimeUtc() < it.value()) {
+                    allowRpcAttempt = false;
+                }
+            }
+            if (allowRpcAttempt && tryRunRemoteAgentRpcViaTunnel(p, agentArgs, timeoutMs, out, err, rc)) {
+                {
+                    QMutexLocker lock(&m_sshRuntimeSetsMutex);
+                    m_daemonRpcRetryAfterByConnKey.remove(rpcConnKey);
+                }
                 const QString cmdLine = QStringLiteral("%1 $ [daemon-rpc] %2")
                                             .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')));
                 appLog(QStringLiteral("INFO"), cmdLine);
@@ -1062,6 +1077,10 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                     appendConnectionLog(p.id, oneLine(err));
                 }
                 return true;
+            } else if (allowRpcAttempt) {
+                QMutexLocker lock(&m_sshRuntimeSetsMutex);
+                m_daemonRpcRetryAfterByConnKey.insert(
+                    rpcConnKey, QDateTime::currentDateTimeUtc().addSecs(20));
             }
         }
     }
