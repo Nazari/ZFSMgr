@@ -208,6 +208,31 @@ int main(int argc, char* argv[]) {
             return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
         }
     }
+    {
+        const int i = args.indexOf(QStringLiteral("--dump-zfs-guid-map"));
+        if (i >= 0 && i + 1 < args.size()) {
+            const QString pool = args.at(i + 1).trimmed();
+            if (pool.isEmpty()) {
+                QTextStream(stderr) << "missing pool name for --dump-zfs-guid-map\n";
+                return 2;
+            }
+            QProcess p;
+            p.setProgram(QStringLiteral("zfs"));
+            p.setArguments({QStringLiteral("get"), QStringLiteral("-H"), QStringLiteral("-o"),
+                            QStringLiteral("name,value"), QStringLiteral("guid"), QStringLiteral("-r"), pool});
+            p.start();
+            if (!p.waitForFinished(25000)) {
+                QTextStream(stderr) << "agent timeout running zfs guid map\n";
+                return 124;
+            }
+            QTextStream(stdout) << QString::fromUtf8(p.readAllStandardOutput());
+            const QByteArray err = p.readAllStandardError();
+            if (!err.isEmpty()) {
+                QTextStream(stderr) << QString::fromUtf8(err);
+            }
+            return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : 125;
+        }
+    }
 
     QTimer timer;
     QObject::connect(&timer, &QTimer::timeout, []() { writeHeartbeat(); });

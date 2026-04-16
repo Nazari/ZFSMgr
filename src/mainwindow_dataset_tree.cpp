@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
 #include "i18nmanager.h"
+#include "agentversion.h"
 
 #include <QCoreApplication>
 #include <QApplication>
@@ -5553,6 +5554,12 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             return false;
         }
         ConnectionProfile p = m_profiles[connIdx];
+        const bool daemonReadApiOk =
+            connIdx >= 0
+            && connIdx < m_states.size()
+            && m_states[connIdx].daemonInstalled
+            && m_states[connIdx].daemonActive
+            && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
         const bool remoteUnix = !isWindowsConnection(p);
         if (remoteUnix) {
             (void)ensureRemoteScriptsUpToDate(p);
@@ -5562,10 +5569,23 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             QString out;
             QString err;
             int rc = -1;
-            const QString cmd = withSudo(
+            const QString cmdClassic = withSudo(
                 p,
                 remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-guid"), {trimmedPool}));
-            (void)runSsh(p, cmd, 12000, out, err, rc);
+            const QString cmdDaemon = withSudo(
+                p, mwhelpers::withUnixSearchPathCommand(
+                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-guid %1")
+                           .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            bool ok = runSsh(p, (daemonReadApiOk ? cmdDaemon : cmdClassic), 12000, out, err, rc) && rc == 0;
+            if (!ok && daemonReadApiOk) {
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("%1::%2 daemon pool-guid fallback -> %3")
+                           .arg(p.name, trimmedPool, mwhelpers::oneLine(err.isEmpty() ? out : err)));
+                out.clear();
+                err.clear();
+                rc = -1;
+                ok = runSsh(p, cmdClassic, 12000, out, err, rc) && rc == 0;
+            }
             if (rc == 0) {
                 const QString guid = out.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
@@ -5594,10 +5614,23 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             QString out;
             QString err;
             int rc = -1;
-            const QString cmd = withSudo(
+            const QString cmdClassic = withSudo(
                 p,
                 remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-guid-map"), {trimmedPool}));
-            (void)runSsh(p, cmd, 25000, out, err, rc);
+            const QString cmdDaemon = withSudo(
+                p, mwhelpers::withUnixSearchPathCommand(
+                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-guid-map %1")
+                           .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            bool ok = runSsh(p, (daemonReadApiOk ? cmdDaemon : cmdClassic), 25000, out, err, rc) && rc == 0;
+            if (!ok && daemonReadApiOk) {
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("%1::%2 daemon zfs-guid-map fallback -> %3")
+                           .arg(p.name, trimmedPool, mwhelpers::oneLine(err.isEmpty() ? out : err)));
+                out.clear();
+                err.clear();
+                rc = -1;
+                ok = runSsh(p, cmdClassic, 25000, out, err, rc) && rc == 0;
+            }
             if (rc == 0) {
                 const QString cacheKey = datasetCacheKey(connIdx, trimmedPool);
                 PoolDatasetCache* cache = nullptr;
