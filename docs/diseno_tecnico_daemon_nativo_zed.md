@@ -215,7 +215,7 @@ Implementado actualmente:
   - API JSON line-based interna
 - `health` endurecido:
   - `--health` falla si no hay daemon residente alcanzable (`STATUS=DOWN`, `rc!=0`)
-  - con daemon activo devuelve métricas de runtime (`SERVER=1`, `CACHE_ENTRIES`, `ZED_ACTIVE`, `ZED_LAST_EVENT_UTC`)
+  - con daemon activo devuelve métricas de runtime (`SERVER=1`, `CACHE_ENTRIES`, `ZED_ACTIVE`, `ZED_RESTARTS`, `ZED_LAST_EVENT_UTC`)
 - modo cliente transparente:
   - las invocaciones `--dump-*` intentan primero hablar con el daemon residente
   - si falla TLS/socket, hacen fallback automático a ejecución directa local
@@ -225,6 +225,7 @@ Implementado actualmente:
 - optimización del servidor residente:
   - la mayoría de lecturas `--dump-*` se ejecutan in-process en el daemon sin auto-spawn del binario
   - reducción de dependencia de `sh -lc` en lecturas clave (import probe, GSA scan, refresh basics, version, get/list JSON, batch guid/status)
+  - watcher de eventos ZED lanzado de forma tipada (`zpool events -f`) sin shell wrapper
 
 Pendiente de esta fase:
 

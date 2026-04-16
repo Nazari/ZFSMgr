@@ -777,8 +777,8 @@ private:
 
     void startZedWatcher() {
         m_zedProc = new QProcess(this);
-        m_zedProc->setProgram(QStringLiteral("sh"));
-        m_zedProc->setArguments({QStringLiteral("-lc"), QStringLiteral("zpool events -f")});
+        m_zedProc->setProgram(QStringLiteral("zpool"));
+        m_zedProc->setArguments({QStringLiteral("events"), QStringLiteral("-f")});
         QObject::connect(m_zedProc, &QProcess::readyReadStandardOutput, this, [this]() {
             const QString out = QString::fromUtf8(m_zedProc->readAllStandardOutput());
             if (!out.trimmed().isEmpty()) {
@@ -796,6 +796,7 @@ private:
                              if (!m_cfg.zedEventsEnabled) {
                                  return;
                              }
+                             ++m_zedRestartCount;
                              QTimer::singleShot(3000, this, [this]() {
                                  if (!m_zedProc || m_zedProc->state() != QProcess::NotRunning) {
                                      return;
@@ -872,6 +873,7 @@ private:
                       << QStringLiteral("CACHE_ENTRIES=%1").arg(m_cache.size())
                       << QStringLiteral("CACHE_INVALIDATIONS=%1").arg(m_cacheInvalidations)
                       << QStringLiteral("ZED_ACTIVE=%1").arg((m_zedProc && m_zedProc->state() != QProcess::NotRunning) ? 1 : 0)
+                      << QStringLiteral("ZED_RESTARTS=%1").arg(m_zedRestartCount)
                       << QStringLiteral("ZED_LAST_EVENT_UTC=%1").arg(m_lastZedEventUtc.isValid()
                                                                         ? m_lastZedEventUtc.toString(Qt::ISODate)
                                                                         : QString())
@@ -923,6 +925,7 @@ private:
     QDateTime m_lastZedEventUtc;
     QDateTime m_lastReconcileUtc;
     quint64 m_cacheInvalidations{0};
+    quint64 m_zedRestartCount{0};
 
     void invalidateCache(const QString&) {
         if (m_cache.isEmpty()) {
