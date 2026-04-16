@@ -226,6 +226,8 @@ Implementado actualmente:
   - la mayoría de lecturas `--dump-*` se ejecutan in-process en el daemon sin auto-spawn del binario
   - reducción de dependencia de `sh -lc` en lecturas clave (import probe, GSA scan, refresh basics, version, get/list JSON, batch guid/status)
   - watcher de eventos ZED lanzado de forma tipada (`zpool events -f`) sin shell wrapper
+- limpieza de rutas duplicadas:
+  - eliminado bloque legacy local de `--dump-*`; las lecturas pasan por un único camino (proxy TLS + fast-path tipado)
 
 Pendiente de esta fase:
 
