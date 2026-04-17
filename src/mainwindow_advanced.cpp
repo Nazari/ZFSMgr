@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "agentversion.h"
 #include "mainwindow_helpers.h"
 
 #include <QtWidgets>
@@ -71,6 +72,13 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
         }
     };
     const ConnectionProfile& p = m_profiles[ctx.connIdx];
+    const bool daemonReadApiOk =
+        !isWindowsConnection(p)
+        && ctx.connIdx >= 0
+        && ctx.connIdx < m_states.size()
+        && m_states[ctx.connIdx].daemonInstalled
+        && m_states[ctx.connIdx].daemonActive
+        && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     QString mountedValue;
     if (!getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("mounted"), mountedValue)) {
         stopBusy();
@@ -127,7 +135,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                                     "  Write-Output ($rel -replace '\\\\','/') "
                                     "} | Sort-Object -Unique")
                                     .arg(dsPs);
-        if (!runSsh(p, withSudo(p, listCmd), 25000, listOut, listErr, listRc) || listRc != 0) {
+        if (!runSsh(p, withSudo(p, listCmd), 180000, listOut, listErr, listRc) || listRc != 0) {
             stopBusy();
                 QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_adv_break_ls01"), QStringLiteral("No se pudieron listar directorios para desglosar."),
@@ -159,7 +167,13 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
         QString remoteListScriptCmd;
         if (!isWindowsConnection(p)) {
             (void)ensureRemoteScriptsUpToDate(p);
-            remoteListScriptCmd = remoteScriptCommand(p, QStringLiteral("zfsmgr-advanced-breakdown-list"), {ds});
+            if (daemonReadApiOk) {
+                remoteListScriptCmd = mwhelpers::withUnixSearchPathCommand(
+                    QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-advanced-breakdown-list %1")
+                        .arg(shSingleQuote(ds)));
+            } else {
+                remoteListScriptCmd = remoteScriptCommand(p, QStringLiteral("zfsmgr-advanced-breakdown-list"), {ds});
+            }
         } else {
             listScript =
                 QStringLiteral("set -e; DATASET=%1; ZFSMGR_PASS_READ=0; ZFSMGR_KEY_PASS=''; %2"
@@ -221,7 +235,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                                       : remoteListScriptCmd);
         if (!runSsh(p,
                     effectiveListCmd,
-                    25000,
+                    180000,
                     listOut,
                     listErr,
                     listRc,
@@ -258,14 +272,21 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
     QString dsListCmd;
     if (!isWindowsConnection(p)) {
         (void)ensureRemoteScriptsUpToDate(p);
-        dsListCmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-list-children"), {ds}));
+        if (daemonReadApiOk) {
+            dsListCmd = withSudo(
+                p, mwhelpers::withUnixSearchPathCommand(
+                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-list-children %1")
+                           .arg(shSingleQuote(ds))));
+        } else {
+            dsListCmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-list-children"), {ds}));
+        }
     } else {
         dsListCmd = withSudo(
             p,
             QStringLiteral("zfs list -H -o name -r %1")
                 .arg(shSingleQuote(ds)));
     }
-    if (runSsh(p, dsListCmd, 25000, dsListOut, dsListErr, dsListRc) && dsListRc == 0) {
+    if (runSsh(p, dsListCmd, 180000, dsListOut, dsListErr, dsListRc) && dsListRc == 0) {
         datasetsDetected = dsListOut.split('\n', Qt::SkipEmptyParts);
         for (QString& n : datasetsDetected) {
             n = n.trimmed();
@@ -307,7 +328,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
             p,
             QStringLiteral("DATASET=%1; zfs mount | awk -v pfx=\"$DATASET/\" 'index($1,pfx)==1 {print $2}'")
                 .arg(shSingleQuote(ds)));
-        if (runSsh(p, mountedDescCmd, 25000, mountedDescOut, mountedDescErr, mountedDescRc) && mountedDescRc == 0) {
+        if (runSsh(p, mountedDescCmd, 180000, mountedDescOut, mountedDescErr, mountedDescRc) && mountedDescRc == 0) {
             mountedDescMountpoints = mountedDescOut.split('\n', Qt::SkipEmptyParts);
             for (QString& mp : mountedDescMountpoints) {
                 mp = mp.trimmed();
@@ -491,13 +512,26 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
     } else {
         if (!isWindowsConnection(p)) {
             (void)ensureRemoteScriptsUpToDate(p);
-            QStringList args;
-            args.reserve(1 + selectedDirs.size());
-            args.push_back(ds);
-            for (const QString& d : selectedDirs) {
-                args.push_back(d);
+            if (daemonReadApiOk) {
+                QStringList args;
+                args.reserve(1 + selectedDirs.size());
+                args.push_back(shSingleQuote(ds));
+                for (const QString& d : selectedDirs) {
+                    args.push_back(shSingleQuote(d));
+                }
+                cmd = withSudo(
+                    p, mwhelpers::withUnixSearchPathCommand(
+                           QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-advanced-breakdown %1")
+                               .arg(args.join(QLatin1Char(' ')))));
+            } else {
+                QStringList args;
+                args.reserve(1 + selectedDirs.size());
+                args.push_back(ds);
+                for (const QString& d : selectedDirs) {
+                    args.push_back(d);
+                }
+                cmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-advanced-breakdown"), args));
             }
-            cmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-advanced-breakdown"), args));
             executeDatasetAction(QStringLiteral("conncontent"), QStringLiteral("Desglosar"), ctx, cmd, 0, allowWindowsScript);
             return;
         }
@@ -584,6 +618,13 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
         }
     };
     const ConnectionProfile& p = m_profiles[ctx.connIdx];
+    const bool daemonReadApiOk =
+        !isWindowsConnection(p)
+        && ctx.connIdx >= 0
+        && ctx.connIdx < m_states.size()
+        && m_states[ctx.connIdx].daemonInstalled
+        && m_states[ctx.connIdx].daemonActive
+        && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     QString mountedValue;
     if (!getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("mounted"), mountedValue)) {
         stopBusy();
@@ -612,14 +653,21 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
     QString listCmd;
     if (!isWindowsConnection(p)) {
         (void)ensureRemoteScriptsUpToDate(p);
-        listCmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-list-children"), {ds}));
+        if (daemonReadApiOk) {
+            listCmd = withSudo(
+                p, mwhelpers::withUnixSearchPathCommand(
+                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-list-children %1")
+                           .arg(shSingleQuote(ds))));
+        } else {
+            listCmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-list-children"), {ds}));
+        }
     } else {
         listCmd = withSudo(
             p,
             QStringLiteral("zfs list -H -o name -r %1")
                 .arg(shSingleQuote(ds)));
     }
-    if (!runSsh(p, listCmd, 25000, listOut, listErr, listRc) || listRc != 0) {
+    if (!runSsh(p, listCmd, 180000, listOut, listErr, listRc) || listRc != 0) {
         stopBusy();
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_adv_ass_list01"), QStringLiteral("No se pudieron listar subdatasets para ensamblar."),
@@ -745,13 +793,26 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
     } else {
         if (!isWindowsConnection(p)) {
             (void)ensureRemoteScriptsUpToDate(p);
-            QStringList args;
-            args.reserve(1 + selectedChildren.size());
-            args.push_back(ds);
-            for (const QString& child : selectedChildren) {
-                args.push_back(child);
+            if (daemonReadApiOk) {
+                QStringList args;
+                args.reserve(1 + selectedChildren.size());
+                args.push_back(shSingleQuote(ds));
+                for (const QString& child : selectedChildren) {
+                    args.push_back(shSingleQuote(child));
+                }
+                cmd = withSudo(
+                    p, mwhelpers::withUnixSearchPathCommand(
+                           QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-advanced-assemble %1")
+                               .arg(args.join(QLatin1Char(' ')))));
+            } else {
+                QStringList args;
+                args.reserve(1 + selectedChildren.size());
+                args.push_back(ds);
+                for (const QString& child : selectedChildren) {
+                    args.push_back(child);
+                }
+                cmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-advanced-assemble"), args));
             }
-            cmd = withSudo(p, remoteScriptCommand(p, QStringLiteral("zfsmgr-advanced-assemble"), args));
             executeDatasetAction(QStringLiteral("conncontent"),
                                  QStringLiteral("Ensamblar"),
                                  ctx,

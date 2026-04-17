@@ -9,6 +9,7 @@
 #include <cstring>
 #include <ctime>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -24,6 +25,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <pwd.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #endif
@@ -32,6 +34,9 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <limits.h>
+#else
+#include <io.h>
 #endif
 
 namespace {
@@ -46,7 +51,7 @@ constexpr const char* kDefaultTlsClientCertPath = "/etc/zfsmgr/tls/client.crt";
 constexpr const char* kDefaultCommandPath =
     "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin";
 
-constexpr const char* kApiVersion = "1";
+constexpr const char* kApiVersion = "2";
 #ifndef ZFSMGR_AGENT_VERSION_STRING
 #define ZFSMGR_AGENT_VERSION_STRING ZFSMGR_APP_VERSION
 #endif
@@ -58,6 +63,8 @@ struct ExecResult {
     std::string out;
     std::string err;
 };
+
+ExecResult runExecCapture(const std::string& program, const std::vector<std::string>& args);
 
 struct AgentRuntimeConfig {
     std::string bind{kDefaultBind};
@@ -101,6 +108,401 @@ std::vector<std::string> splitLines(const std::string& s) {
         // std::getline descarta última línea vacía; no hace falta conservarla aquí.
     }
     return lines;
+}
+
+bool isExecutableProgram(const std::string& path) {
+    if (path.empty()) {
+        return false;
+    }
+#ifndef _WIN32
+    return ::access(path.c_str(), X_OK) == 0;
+#else
+    return ::_access(path.c_str(), 0) == 0;
+#endif
+}
+
+std::string resolveHelperProgram(const std::string& helperName) {
+    if (helperName.empty()) {
+        return {};
+    }
+    if (helperName.find('/') != std::string::npos) {
+        return isExecutableProgram(helperName) ? helperName : std::string();
+    }
+    std::vector<std::string> candidates;
+    candidates.push_back("/usr/local/libexec/" + helperName);
+    candidates.push_back("/usr/libexec/" + helperName);
+    candidates.push_back("/opt/homebrew/libexec/" + helperName);
+    candidates.push_back("/usr/local/bin/" + helperName);
+    candidates.push_back("/usr/bin/" + helperName);
+    candidates.push_back("/bin/" + helperName);
+
+#ifndef _WIN32
+    const auto addUserConfigBin = [&](const std::string& homeDir) {
+        if (homeDir.empty()) {
+            return;
+        }
+        candidates.push_back(homeDir + "/.config/ZFSMgr/bin/" + helperName);
+    };
+    addUserConfigBin(trim(std::getenv("HOME") ? std::getenv("HOME") : ""));
+    const char* sudoUser = std::getenv("SUDO_USER");
+    if (sudoUser && *sudoUser) {
+        struct passwd* pw = getpwnam(sudoUser);
+        if (pw && pw->pw_dir && pw->pw_dir[0] != '\0') {
+            addUserConfigBin(pw->pw_dir);
+        } else {
+            addUserConfigBin(std::string("/home/") + sudoUser);
+            addUserConfigBin(std::string("/Users/") + sudoUser);
+        }
+    }
+#endif
+
+    const char* envPath = std::getenv("PATH");
+    if (envPath && *envPath) {
+        const std::string pathEnv(envPath);
+        std::size_t start = 0;
+        while (start <= pathEnv.size()) {
+            const std::size_t sep = pathEnv.find(':', start);
+            const std::string dir = (sep == std::string::npos)
+                                        ? pathEnv.substr(start)
+                                        : pathEnv.substr(start, sep - start);
+            if (!dir.empty()) {
+                candidates.push_back(dir + "/" + helperName);
+            }
+            if (sep == std::string::npos) {
+                break;
+            }
+            start = sep + 1;
+        }
+    }
+
+    std::set<std::string> seen;
+    for (const std::string& c : candidates) {
+        if (!seen.insert(c).second) {
+            continue;
+        }
+        if (isExecutableProgram(c)) {
+            return c;
+        }
+    }
+    return {};
+}
+
+std::string firstLineTrimmed(const std::string& raw) {
+    const std::size_t nl = raw.find('\n');
+    return trim(nl == std::string::npos ? raw : raw.substr(0, nl));
+}
+
+bool isTruthyValue(const std::string& raw) {
+    const std::string v = toLower(trim(raw));
+    return v == "1" || v == "on" || v == "yes" || v == "true";
+}
+
+ExecResult getZfsPropertyCapture(const std::string& dataset, const std::string& prop) {
+    ExecResult r = runExecCapture("zfs", {"get", "-H", "-o", "value", prop, dataset});
+    if (r.rc != 0) {
+        return r;
+    }
+    r.out = firstLineTrimmed(r.out);
+    return r;
+}
+
+ExecResult getDatasetMountpointCapture(const std::string& dataset) {
+    ExecResult mounted = getZfsPropertyCapture(dataset, "mounted");
+    if (mounted.rc != 0) {
+        return mounted;
+    }
+    if (!isTruthyValue(mounted.out)) {
+        ExecResult ok;
+        ok.rc = 0;
+        return ok;
+    }
+    ExecResult mp = getZfsPropertyCapture(dataset, "mountpoint");
+    if (mp.rc != 0) {
+        return mp;
+    }
+    const std::string mountpoint = trim(mp.out);
+    if (mountpoint.empty()
+        || mountpoint == "-"
+        || mountpoint == "none"
+        || mountpoint == "legacy") {
+        ExecResult ok;
+        ok.rc = 0;
+        return ok;
+    }
+    ExecResult ok;
+    ok.rc = 0;
+    ok.out = mountpoint;
+    return ok;
+}
+
+std::string makeTempDir(const char* patternPrefix) {
+#ifndef _WIN32
+    char templ[PATH_MAX];
+    std::snprintf(templ, sizeof(templ), "/tmp/%sXXXXXX", patternPrefix);
+    char* out = ::mkdtemp(templ);
+    if (!out) {
+        return {};
+    }
+    return std::string(out);
+#else
+    (void)patternPrefix;
+    return {};
+#endif
+}
+
+ExecResult runRsyncCopyMoveCapture(const std::string& srcDir, const std::string& dstDir) {
+    return runExecCapture("rsync", {"-aHWS", srcDir + "/", dstDir + "/"});
+}
+
+ExecResult runDumpAdvancedBreakdownListCapture(const std::string& dataset) {
+    ExecResult mpRes = getDatasetMountpointCapture(dataset);
+    if (mpRes.rc != 0) {
+        return mpRes;
+    }
+    const std::string mountpoint = trim(mpRes.out);
+    ExecResult r;
+    r.rc = 0;
+    if (mountpoint.empty()) {
+        return r;
+    }
+
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path root(mountpoint);
+    if (!fs::exists(root, ec) || !fs::is_directory(root, ec)) {
+        return r;
+    }
+
+    std::vector<std::string> dirs;
+    fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec);
+    const fs::recursive_directory_iterator end;
+    while (!ec && it != end) {
+        const fs::directory_entry& e = *it;
+        std::error_code sec;
+        const fs::file_status st = e.symlink_status(sec);
+        if (!sec && fs::is_symlink(st)) {
+            it.disable_recursion_pending();
+            ++it;
+            continue;
+        }
+        if (!sec && fs::is_directory(st)) {
+            std::error_code rec;
+            fs::path rel = fs::relative(e.path(), root, rec);
+            if (!rec && !rel.empty()) {
+                bool skip = false;
+                for (const auto& c : rel) {
+                    if (c == ".zfs") {
+                        skip = true;
+                        break;
+                    }
+                }
+                if (skip) {
+                    it.disable_recursion_pending();
+                } else {
+                    const std::string relPath = rel.generic_string();
+                    if (!relPath.empty() && relPath != ".") {
+                        dirs.push_back(relPath);
+                    }
+                }
+            }
+        }
+        ++it;
+    }
+
+    std::sort(dirs.begin(), dirs.end());
+    dirs.erase(std::unique(dirs.begin(), dirs.end()), dirs.end());
+    r.out = "__MP__=" + mountpoint + "\n";
+    for (const std::string& d : dirs) {
+        r.out += d;
+        r.out.push_back('\n');
+    }
+    return r;
+}
+
+ExecResult runMutateAdvancedBreakdownCapture(const std::vector<std::string>& params) {
+    ExecResult r;
+    if (params.size() < 2) {
+        r.rc = 2;
+        r.err = "usage: --mutate-advanced-breakdown <dataset> <dir> [dir...]\n";
+        return r;
+    }
+    const std::string dataset = params[0];
+    ExecResult mpRes = getDatasetMountpointCapture(dataset);
+    if (mpRes.rc != 0) {
+        return mpRes;
+    }
+    const std::string mountpoint = trim(mpRes.out);
+    if (mountpoint.empty()) {
+        r.rc = 2;
+        r.err = "mountpoint=none\n";
+        return r;
+    }
+    namespace fs = std::filesystem;
+    for (std::size_t i = 1; i < params.size(); ++i) {
+        const std::string rel = trim(params[i]);
+        if (rel.empty()) {
+            continue;
+        }
+        const fs::path srcPath = fs::path(mountpoint) / fs::path(rel);
+        std::error_code ec;
+        if (!fs::exists(srcPath, ec) || !fs::is_directory(srcPath, ec) || fs::is_symlink(fs::symlink_status(srcPath, ec))) {
+            continue;
+        }
+        const std::string child = dataset + "/" + rel;
+        ExecResult childExists = runExecCapture("zfs", {"list", "-H", "-o", "name", child});
+        if (childExists.rc == 0) {
+            r.out += "child_exists=" + child + "\n";
+            continue;
+        }
+        const std::string tmpChild = makeTempDir("zfsmgr-breakdown-child-");
+        if (tmpChild.empty()) {
+            r.rc = 125;
+            r.err = "mkdtemp failed\n";
+            return r;
+        }
+        ExecResult create = runExecCapture("zfs", {"create", "-p", "-o", "mountpoint=" + tmpChild, child});
+        if (create.rc != 0) {
+            return create;
+        }
+        (void)runExecCapture("zfs", {"mount", child});
+        ExecResult rsync = runRsyncCopyMoveCapture(srcPath.string(), tmpChild);
+        if (rsync.rc != 0) {
+            return rsync;
+        }
+        std::error_code rmec;
+        fs::remove_all(srcPath, rmec);
+        if (rmec) {
+            r.rc = 1;
+            r.err = "remove_all failed for source directory\n";
+            return r;
+        }
+        ExecResult setMp = runExecCapture("zfs", {"set", "mountpoint=" + srcPath.string(), child});
+        if (setMp.rc != 0) {
+            return setMp;
+        }
+        (void)runExecCapture("zfs", {"mount", child});
+        std::error_code tmpEc;
+        fs::remove_all(tmpChild, tmpEc);
+        r.out += "[BREAKDOWN] ok " + rel + " -> " + child + "\n";
+    }
+    r.rc = 0;
+    return r;
+}
+
+ExecResult runMutateAdvancedAssembleCapture(const std::vector<std::string>& params) {
+    ExecResult r;
+    if (params.size() < 2) {
+        r.rc = 2;
+        r.err = "usage: --mutate-advanced-assemble <dataset> <child> [child...]\n";
+        return r;
+    }
+    const std::string dataset = params[0];
+    ExecResult mpRes = getDatasetMountpointCapture(dataset);
+    if (mpRes.rc != 0) {
+        return mpRes;
+    }
+    const std::string parentMp = trim(mpRes.out);
+    if (parentMp.empty()) {
+        r.rc = 2;
+        r.err = "mountpoint=none\n";
+        return r;
+    }
+    namespace fs = std::filesystem;
+    for (std::size_t i = 1; i < params.size(); ++i) {
+        const std::string child = trim(params[i]);
+        if (child.empty()) {
+            continue;
+        }
+        (void)runExecCapture("zfs", {"mount", child});
+        ExecResult cmpRes = getDatasetMountpointCapture(child);
+        if (cmpRes.rc != 0) {
+            return cmpRes;
+        }
+        const std::string childMp = trim(cmpRes.out);
+        if (childMp.empty()) {
+            continue;
+        }
+        const std::size_t pos = child.find_last_of('/');
+        const std::string bn = (pos == std::string::npos) ? child : child.substr(pos + 1);
+        if (bn.empty()) {
+            continue;
+        }
+        const std::string tmp = makeTempDir("zfsmgr-assemble-");
+        if (tmp.empty()) {
+            r.rc = 125;
+            r.err = "mkdtemp failed\n";
+            return r;
+        }
+        ExecResult rsA = runRsyncCopyMoveCapture(childMp, tmp);
+        if (rsA.rc != 0) {
+            return rsA;
+        }
+        ExecResult destroy = runExecCapture("zfs", {"destroy", "-r", child});
+        if (destroy.rc != 0) {
+            return destroy;
+        }
+        const fs::path dst = fs::path(parentMp) / bn;
+        std::error_code mkec;
+        fs::create_directories(dst, mkec);
+        if (mkec) {
+            r.rc = 1;
+            r.err = "create_directories failed\n";
+            return r;
+        }
+        ExecResult rsB = runRsyncCopyMoveCapture(tmp, dst.string());
+        if (rsB.rc != 0) {
+            return rsB;
+        }
+        std::error_code rmec;
+        fs::remove_all(tmp, rmec);
+        r.out += "[ASSEMBLE] ok " + child + " -> " + dst.string() + "\n";
+    }
+    r.rc = 0;
+    return r;
+}
+
+ExecResult runMutateAdvancedToDirCapture(const std::vector<std::string>& params) {
+    ExecResult r;
+    if (params.size() < 3) {
+        r.rc = 2;
+        r.err = "usage: --mutate-advanced-todir <dataset> <dst-dir> <delete-source-0|1>\n";
+        return r;
+    }
+    const std::string dataset = params[0];
+    const std::string dstDir = params[1];
+    const bool deleteSource = isTruthyValue(params[2]);
+    (void)runExecCapture("zfs", {"mount", dataset});
+    ExecResult mpRes = getDatasetMountpointCapture(dataset);
+    if (mpRes.rc != 0) {
+        return mpRes;
+    }
+    const std::string srcMp = trim(mpRes.out);
+    if (srcMp.empty()) {
+        r.rc = 2;
+        r.err = "mountpoint=none\n";
+        return r;
+    }
+    namespace fs = std::filesystem;
+    std::error_code mkec;
+    fs::create_directories(fs::path(dstDir), mkec);
+    if (mkec) {
+        r.rc = 1;
+        r.err = "cannot create destination directory\n";
+        return r;
+    }
+    ExecResult rs = runRsyncCopyMoveCapture(srcMp, dstDir);
+    if (rs.rc != 0) {
+        return rs;
+    }
+    if (deleteSource) {
+        ExecResult d = runExecCapture("zfs", {"destroy", "-r", dataset});
+        if (d.rc != 0) {
+            return d;
+        }
+    }
+    r.rc = 0;
+    r.out = "[TODIR] ok\n";
+    return r;
 }
 
 std::string stripQuotes(const std::string& s) {
@@ -954,7 +1356,7 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         r.out =
             "STATUS=OK\n"
             "VERSION=" ZFSMGR_AGENT_VERSION_STRING "\n"
-            "API=1\n"
+            "API=2\n"
             "SERVER=1\n"
             "CACHE_ENTRIES=0\n"
             "CACHE_MAX_ENTRIES=0\n"
@@ -1001,6 +1403,10 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zpool-status-p <pool>\n"; return r; }
         return runExecCapture("zpool", {"status", "-P", params[0]});
     }
+    if (cmd == "--dump-zpool-history") {
+        if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zpool-history <pool>\n"; return r; }
+        return runExecCapture("zpool", {"history", params[0]});
+    }
     if (cmd == "--dump-zpool-get-all") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zpool-get-all <pool>\n"; return r; }
         return runExecCapture("zpool", {"get", "-j", "all", params[0]});
@@ -1014,6 +1420,18 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     if (cmd == "--dump-zfs-guid-map") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-guid-map <dataset>\n"; return r; }
         return runExecCapture("zfs", {"get", "-H", "-o", "name,value", "guid", "-r", params[0]});
+    }
+    if (cmd == "--dump-zfs-list-children") {
+        if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-list-children <dataset>\n"; return r; }
+        const std::string helper = resolveHelperProgram("zfsmgr-zfs-list-children");
+        if (!helper.empty()) {
+            return runExecCapture(helper, {params[0]});
+        }
+        return runExecCapture("zfs", {"list", "-H", "-o", "name", "-r", params[0]});
+    }
+    if (cmd == "--dump-advanced-breakdown-list") {
+        if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-advanced-breakdown-list <dataset>\n"; return r; }
+        return runDumpAdvancedBreakdownListCapture(params[0]);
     }
     if (cmd == "--dump-zfs-get-prop") {
         if (params.size() < 2) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-get-prop <prop> <dataset>\n"; return r; }
@@ -1069,6 +1487,30 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     if (cmd == "--mutate-zfs-generic") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-generic <payload-b64>\n"; return r; }
         return runGenericMutationCapture("zfs", params[0]);
+    }
+    if (cmd == "--mutate-advanced-breakdown") {
+        if (params.size() < 2) {
+            r.rc = 2;
+            r.err = std::string("usage: ") + argv0 + " --mutate-advanced-breakdown <dataset> <dir> [dir...]\n";
+            return r;
+        }
+        return runMutateAdvancedBreakdownCapture(params);
+    }
+    if (cmd == "--mutate-advanced-assemble") {
+        if (params.size() < 2) {
+            r.rc = 2;
+            r.err = std::string("usage: ") + argv0 + " --mutate-advanced-assemble <dataset> <child> [child...]\n";
+            return r;
+        }
+        return runMutateAdvancedAssembleCapture(params);
+    }
+    if (cmd == "--mutate-advanced-todir") {
+        if (params.size() < 3) {
+            r.rc = 2;
+            r.err = std::string("usage: ") + argv0 + " --mutate-advanced-todir <dataset> <dst-dir> <delete-source-0|1>\n";
+            return r;
+        }
+        return runMutateAdvancedToDirCapture(params);
     }
     if (cmd == "--mutate-zpool-generic") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zpool-generic <payload-b64>\n"; return r; }
@@ -1771,6 +2213,13 @@ int main(int argc, char* argv[]) {
         }
         return runExecStreaming("zpool", {"status", "-P", args[2]});
     }
+    if (cmd == "--dump-zpool-history") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runExecStreaming("zpool", {"history", args[2]});
+    }
     if (cmd == "--dump-zpool-get-all") {
         if (args.size() < 3) {
             printUsage(args[0].c_str());
@@ -1793,6 +2242,31 @@ int main(int argc, char* argv[]) {
             return 2;
         }
         return runExecStreaming("zfs", {"get", "-H", "-o", "name,value", "guid", "-r", args[2]});
+    }
+    if (cmd == "--dump-zfs-list-children") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const std::string helper = resolveHelperProgram("zfsmgr-zfs-list-children");
+        if (!helper.empty()) {
+            return runExecStreaming(helper, {args[2]});
+        }
+        return runExecStreaming("zfs", {"list", "-H", "-o", "name", "-r", args[2]});
+    }
+    if (cmd == "--dump-advanced-breakdown-list") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const ExecResult e = runDumpAdvancedBreakdownListCapture(args[2]);
+        if (!e.out.empty()) {
+            std::cout << e.out;
+        }
+        if (!e.err.empty()) {
+            std::cerr << e.err;
+        }
+        return e.rc;
     }
     if (cmd == "--dump-zfs-get-prop") {
         if (args.size() < 4) {
@@ -1888,6 +2362,51 @@ int main(int argc, char* argv[]) {
             return 2;
         }
         return runGenericMutation("zfs", args[2]);
+    }
+    if (cmd == "--mutate-advanced-breakdown") {
+        if (args.size() < 4) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const std::vector<std::string> params(args.begin() + 2, args.end());
+        const ExecResult e = runMutateAdvancedBreakdownCapture(params);
+        if (!e.out.empty()) {
+            std::cout << e.out;
+        }
+        if (!e.err.empty()) {
+            std::cerr << e.err;
+        }
+        return e.rc;
+    }
+    if (cmd == "--mutate-advanced-assemble") {
+        if (args.size() < 4) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const std::vector<std::string> params(args.begin() + 2, args.end());
+        const ExecResult e = runMutateAdvancedAssembleCapture(params);
+        if (!e.out.empty()) {
+            std::cout << e.out;
+        }
+        if (!e.err.empty()) {
+            std::cerr << e.err;
+        }
+        return e.rc;
+    }
+    if (cmd == "--mutate-advanced-todir") {
+        if (args.size() < 5) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const std::vector<std::string> params(args.begin() + 2, args.end());
+        const ExecResult e = runMutateAdvancedToDirCapture(params);
+        if (!e.out.empty()) {
+            std::cout << e.out;
+        }
+        if (!e.err.empty()) {
+            std::cerr << e.err;
+        }
+        return e.rc;
     }
     if (cmd == "--mutate-zpool-generic") {
         if (args.size() < 3) {

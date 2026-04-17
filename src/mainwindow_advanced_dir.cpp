@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "agentversion.h"
 #include "mainwindow_helpers.h"
 
 #include <QtWidgets>
@@ -1031,17 +1032,33 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
 
     const bool isWin = isWindowsConnection(ctx.connIdx);
     const ConnectionProfile& profile = m_profiles[ctx.connIdx];
+    const bool daemonReadApiOk =
+        !isWindowsConnection(profile)
+        && ctx.connIdx >= 0
+        && ctx.connIdx < m_states.size()
+        && m_states[ctx.connIdx].daemonInstalled
+        && m_states[ctx.connIdx].daemonActive
+        && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     QString cmd;
     bool allowWindowsScript = false;
     if (!isWin) {
         if (!isWindowsConnection(profile)) {
             (void)ensureRemoteScriptsUpToDate(profile);
-            QStringList args;
-            args.reserve(3);
-            args.push_back(ds);
-            args.push_back(localDir);
-            args.push_back(deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0"));
-            cmd = withSudo(profile, remoteScriptCommand(profile, QStringLiteral("zfsmgr-advanced-todir"), args));
+            if (daemonReadApiOk) {
+                cmd = withSudo(
+                    profile, mwhelpers::withUnixSearchPathCommand(
+                                 QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-advanced-todir %1 %2 %3")
+                                     .arg(shSingleQuote(ds),
+                                          shSingleQuote(localDir),
+                                          deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0"))));
+            } else {
+                QStringList args;
+                args.reserve(3);
+                args.push_back(ds);
+                args.push_back(localDir);
+                args.push_back(deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0"));
+                cmd = withSudo(profile, remoteScriptCommand(profile, QStringLiteral("zfsmgr-advanced-todir"), args));
+            }
             executeDatasetAction(QStringLiteral("conncontent"),
                                  trk(QStringLiteral("t_advdir_auto035"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")),
                                  ctx,

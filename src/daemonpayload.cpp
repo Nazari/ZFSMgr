@@ -135,6 +135,9 @@ case "$cmd" in
   --dump-zpool-status-p)
     exec zpool status -P "$2"
     ;;
+  --dump-zpool-history)
+    exec zpool history "$2"
+    ;;
   --dump-zpool-get-all)
     exec zpool get -j all "$2"
     ;;
@@ -145,6 +148,15 @@ case "$cmd" in
   --dump-zfs-guid-map)
     if h="$(find_helper zfsmgr-zfs-guid-map 2>/dev/null)"; then exec "$h" "$2"; fi
     exec zfs list -H -o name,guid -r "$2"
+    ;;
+  --dump-zfs-list-children)
+    if h="$(find_helper zfsmgr-zfs-list-children 2>/dev/null)"; then exec "$h" "$2"; fi
+    exec zfs list -H -o name -r "$2"
+    ;;
+  --dump-advanced-breakdown-list)
+    if h="$(find_helper zfsmgr-advanced-breakdown-list 2>/dev/null)"; then exec "$h" "$2"; fi
+    echo "helper zfsmgr-advanced-breakdown-list not found" >&2
+    exit 127
     ;;
   --dump-zfs-get-prop)
     exec zfs get -H -o value "$2" "$3"
@@ -190,6 +202,21 @@ case "$cmd" in
     ;;
   --mutate-zfs-generic)
     run_generic_payload zfs "$2"
+    ;;
+  --mutate-advanced-breakdown)
+    if h="$(find_helper zfsmgr-advanced-breakdown 2>/dev/null)"; then shift 1; exec "$h" "$@"; fi
+    echo "helper zfsmgr-advanced-breakdown not found" >&2
+    exit 127
+    ;;
+  --mutate-advanced-assemble)
+    if h="$(find_helper zfsmgr-advanced-assemble 2>/dev/null)"; then shift 1; exec "$h" "$@"; fi
+    echo "helper zfsmgr-advanced-assemble not found" >&2
+    exit 127
+    ;;
+  --mutate-advanced-todir)
+    if h="$(find_helper zfsmgr-advanced-todir 2>/dev/null)"; then shift 1; exec "$h" "$@"; fi
+    echo "helper zfsmgr-advanced-todir not found" >&2
+    exit 127
     ;;
   --mutate-zpool-generic)
     run_generic_payload zpool "$2"

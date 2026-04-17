@@ -561,6 +561,37 @@ bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
     return true;
 }
 
+bool tryReviveRemoteDaemonService(const ConnectionProfile& p) {
+    const QString reviveScript = QStringLiteral(
+        "set +e; "
+        "if command -v systemctl >/dev/null 2>&1; then "
+        "  systemctl daemon-reload >/dev/null 2>&1 || true; "
+        "  systemctl enable zfsmgr-agent.service >/dev/null 2>&1 || true; "
+        "  systemctl restart zfsmgr-agent.service >/dev/null 2>&1 || "
+        "    systemctl start zfsmgr-agent.service >/dev/null 2>&1 || true; "
+        "fi; "
+        "if command -v launchctl >/dev/null 2>&1; then "
+        "  launchctl bootstrap system /Library/LaunchDaemons/org.zfsmgr.agent.plist >/dev/null 2>&1 || true; "
+        "  launchctl enable system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
+        "  launchctl kickstart -k system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
+        "fi; "
+        "if command -v service >/dev/null 2>&1; then "
+        "  service zfsmgr_agent onestart >/dev/null 2>&1 || "
+        "    service zfsmgr_agent start >/dev/null 2>&1 || "
+        "    service zfsmgr-agent start >/dev/null 2>&1 || true; "
+        "fi; "
+        "if [ -x /etc/rc.d/zfsmgr_agent ]; then /etc/rc.d/zfsmgr_agent onestart >/dev/null 2>&1 || true; fi; "
+        "if [ -x /usr/local/etc/rc.d/zfsmgr_agent ]; then /usr/local/etc/rc.d/zfsmgr_agent onestart >/dev/null 2>&1 || true; fi; "
+        "if [ -x /etc/init.d/zfsmgr-agent ]; then /etc/init.d/zfsmgr-agent restart >/dev/null 2>&1 || /etc/init.d/zfsmgr-agent start >/dev/null 2>&1 || true; fi; "
+        "exit 0");
+    QString out;
+    QString err;
+    int rc = -1;
+    const QString cmd = mwhelpers::withSudoCommand(
+        p, QStringLiteral("sh -lc %1").arg(mwhelpers::shSingleQuote(reviveScript)));
+    return runSshRawNoLog(p, cmd, 15000, out, err, rc);
+}
+
 QString sanitizeWindowsCliXml(const QString& raw) {
     QString s = raw;
     if (s.isEmpty()) {
@@ -961,6 +992,16 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
 
     if (attempt(false)) {
         return true;
+    }
+    const QString firstFailure = lastAttemptReason.trimmed().toLower();
+    if (firstFailure.contains(QStringLiteral("handshake tls daemon-rpc"))
+        || firstFailure.contains(QStringLiteral("daemon-rpc sin respuesta válida"))
+        || firstFailure.contains(QStringLiteral("túnel ssh daemon-rpc finalizado"))) {
+        if (tryReviveRemoteDaemonService(p)) {
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("daemon-rpc revive requested on %1 after failure: %2")
+                       .arg(p.name, lastAttemptReason));
+        }
     }
     if (attempt(true)) {
         return true;

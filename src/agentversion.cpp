@@ -30,7 +30,7 @@ QString currentVersion() {
 }
 
 QString expectedApiVersion() {
-    return QStringLiteral("1");
+    return QStringLiteral("2");
 }
 
 int compareVersions(const QString& a, const QString& b) {
