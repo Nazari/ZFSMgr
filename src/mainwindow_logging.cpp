@@ -752,24 +752,18 @@ void MainWindow::refreshConnectionGsaLogAsync(int idx) {
     }
 
     const bool isWindows = isWindowsConnection(profile);
-    const bool useRemoteScripts = !isWindows;
     const QString gsaLogPath = QDir::cleanPath(configDir + QStringLiteral("/GSA.log"));
     const QString remoteCmd = isWindows
         ? QStringLiteral(
               "$f='%1\\GSA.log'; "
               "if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f -Raw }")
               .arg(configDir)
-        : (useRemoteScripts
-               ? withSudo(profile, remoteScriptCommand(profile, QStringLiteral("zfsmgr-gsa-log-cat"), {gsaLogPath}))
-               : withSudo(profile,
-                          QStringLiteral("f=%1; if [ -f \"$f\" ]; then cat \"$f\"; fi")
-                              .arg(mwhelpers::shSingleQuote(gsaLogPath))));
+        : withSudo(profile,
+                   QStringLiteral("f=%1; if [ -f \"$f\" ]; then cat \"$f\"; fi")
+                       .arg(mwhelpers::shSingleQuote(gsaLogPath)));
     const WindowsCommandMode mode = isWindows ? WindowsCommandMode::PowerShellNative
                                               : WindowsCommandMode::Auto;
 
-    if (useRemoteScripts) {
-        (void)ensureRemoteScriptsUpToDate(profile);
-    }
     QString out;
     QString err;
     int rc = -1;

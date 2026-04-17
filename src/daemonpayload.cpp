@@ -27,14 +27,6 @@ QString unixStubScript(const QString& version, const QString& apiVersion) {
 # ZFSMgr Agent API: __API__
 set -eu
 
-find_helper() {
-  helper="$1"
-  for d in "/home/${SUDO_USER:-}/.config/ZFSMgr/bin" "/Users/${SUDO_USER:-}/.config/ZFSMgr/bin" "$HOME/.config/ZFSMgr/bin"; do
-    [ -x "$d/$helper" ] && { printf '%s\n' "$d/$helper"; return 0; }
-  done
-  return 1
-}
-
 run_generic_payload() {
   tool="$1"
   payload="$2"
@@ -106,7 +98,6 @@ case "$cmd" in
     printf 'STATUS=OK\nSERVER=1\nCACHE_ENTRIES=0\nCACHE_MAX_ENTRIES=0\nCACHE_INVALIDATIONS=0\nPOOL_INVALIDATIONS=0\nRPC_FAILURES=0\nRPC_COMMANDS=\nZED_ACTIVE=0\n'
     ;;
   --dump-refresh-basics)
-    if h="$(find_helper zfsmgr-refresh-basics 2>/dev/null)"; then exec "$h"; fi
     os_line="$(uname -s 2>/dev/null) $(uname -r 2>/dev/null)"
     if [ -r /etc/os-release ]; then
       os_line="$(. /etc/os-release 2>/dev/null; printf '%s %s' "${NAME:-$(uname -s)}" "${VERSION_ID:-}")"
@@ -118,23 +109,18 @@ case "$cmd" in
     printf 'OS_LINE=%s\nMACHINE_UUID=%s\nZFS_VERSION_RAW=%s\nZFS_VERSION_SEMVER=%s\n' "$os_line" "$machine_uuid" "$zraw" "$zsem"
     ;;
   --dump-zfs-version)
-    if h="$(find_helper zfsmgr-zfs-version 2>/dev/null)"; then exec "$h"; fi
     exec zfs --version
     ;;
   --dump-zfs-mount)
-    if h="$(find_helper zfsmgr-zfs-mount-list 2>/dev/null)"; then exec "$h"; fi
     exec zfs mount -H
     ;;
   --dump-zpool-list)
-    if h="$(find_helper zfsmgr-zpool-list-json 2>/dev/null)"; then exec "$h"; fi
     exec zpool list -j
     ;;
   --dump-zpool-import-probe)
-    if h="$(find_helper zfsmgr-zpool-import-probe 2>/dev/null)"; then exec "$h"; fi
     (zpool import || true; zpool import -s || true)
     ;;
   --dump-zpool-guid-status-batch)
-    if h="$(find_helper zfsmgr-zpool-guid-status-all 2>/dev/null)"; then exec "$h"; fi
     zpool list -H -o name 2>/dev/null | while IFS= read -r pool; do
       [ -z "$pool" ] && continue
       guid="$(zpool get -H -o value guid "$pool" 2>/dev/null | head -n1 || true)"
@@ -160,42 +146,51 @@ case "$cmd" in
     exec zpool get -j all "$2"
     ;;
   --dump-zfs-list-all)
-    if h="$(find_helper zfsmgr-zfs-list-all 2>/dev/null)"; then exec "$h" "$2"; fi
     exec zfs list -H -p -t filesystem,volume,snapshot -o name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount -r "$2"
     ;;
   --dump-zfs-guid-map)
-    if h="$(find_helper zfsmgr-zfs-guid-map 2>/dev/null)"; then exec "$h" "$2"; fi
     exec zfs list -H -o name,guid -r "$2"
     ;;
   --dump-zfs-list-children)
-    if h="$(find_helper zfsmgr-zfs-list-children 2>/dev/null)"; then exec "$h" "$2"; fi
     exec zfs list -H -o name -r "$2"
     ;;
   --dump-advanced-breakdown-list)
-    if h="$(find_helper zfsmgr-advanced-breakdown-list 2>/dev/null)"; then exec "$h" "$2"; fi
-    echo "helper zfsmgr-advanced-breakdown-list not found" >&2
-    exit 127
+    ds="${2:-}"
+    [ -n "$ds" ] || exit 2
+    mp="$(zfs mount 2>/dev/null | awk -v d="$ds" '$1==d{print $2; exit}')"
+    [ -n "$mp" ] || exit 0
+    [ -d "$mp" ] || exit 0
+    printf '__MP__=%s\n' "$mp"
+    find "$mp" -mindepth 1 -type d -print 2>/dev/null | while IFS= read -r d; do
+      rel="$d"
+      case "$rel" in
+        "$mp"/*) rel=${rel#"$mp"/} ;;
+        *) rel='' ;;
+      esac
+      [ -n "$rel" ] || continue
+      case "$rel" in
+        .zfs|.zfs/*) continue ;;
+      esac
+      printf '%s\n' "$rel"
+    done | sort -u
+    exit 0
     ;;
   --dump-zfs-get-prop)
     exec zfs get -H -o value "$2" "$3"
     ;;
   --dump-zfs-get-all)
-    if h="$(find_helper zfsmgr-zfs-get-all-json 2>/dev/null)"; then exec "$h" "$2"; fi
     exec zfs get -j all "$2"
     ;;
   --dump-zfs-get-json)
-    if h="$(find_helper zfsmgr-zfs-get-json 2>/dev/null)"; then exec "$h" "$2" "$3"; fi
     exec zfs get -j "$2" "$3"
     ;;
   --dump-zfs-get-gsa-raw-all-pools)
-    if h="$(find_helper zfsmgr-zfs-get-gsa-raw-all-pools 2>/dev/null)"; then exec "$h"; fi
     zpool list -H -o name 2>/dev/null | while IFS= read -r pool; do
       [ -z "$pool" ] && continue
       zfs get -H -o name,property,value,source -r org.fc16.gsa:activado,org.fc16.gsa:recursivo,org.fc16.gsa:horario,org.fc16.gsa:diario,org.fc16.gsa:semanal,org.fc16.gsa:mensual,org.fc16.gsa:anual,org.fc16.gsa:nivelar,org.fc16.gsa:destino "$pool" 2>/dev/null || true
     done
     ;;
   --dump-zfs-get-gsa-raw-recursive)
-    if h="$(find_helper zfsmgr-zfs-get-gsa-raw-recursive 2>/dev/null)"; then exec "$h" "$2"; fi
     exec zfs get -H -o name,property,value,source -r org.fc16.gsa:activado,org.fc16.gsa:recursivo,org.fc16.gsa:horario,org.fc16.gsa:diario,org.fc16.gsa:semanal,org.fc16.gsa:mensual,org.fc16.gsa:anual,org.fc16.gsa:nivelar,org.fc16.gsa:destino "$2"
     ;;
   --dump-gsa-connections-conf)
@@ -222,19 +217,71 @@ case "$cmd" in
     run_generic_payload zfs "$2"
     ;;
   --mutate-advanced-breakdown)
-    if h="$(find_helper zfsmgr-advanced-breakdown 2>/dev/null)"; then shift 1; exec "$h" "$@"; fi
-    echo "helper zfsmgr-advanced-breakdown not found" >&2
-    exit 127
+    DATASET="${2:-}"
+    shift 2 || true
+    [ -n "$DATASET" ] || exit 2
+    MP="$(zfs mount 2>/dev/null | awk -v d="$DATASET" '$1==d{print $2;exit}')"
+    [ -n "$MP" ] || { echo 'mountpoint=none'; exit 2; }
+    for rel in "$@"; do
+      [ -n "$rel" ] || continue
+      SRC="$MP/$rel"
+      [ -d "$SRC" ] || continue
+      CHILD="$DATASET/$rel"
+      if zfs list -H -o name "$CHILD" >/dev/null 2>&1; then
+        echo "child_exists=$CHILD"
+        continue
+      fi
+      TMP_CHILD_MP="$(mktemp -d /tmp/zfsmgr-breakdown-child-XXXXXX)"
+      zfs create -p -o mountpoint="$TMP_CHILD_MP" "$CHILD"
+      zfs mount "$CHILD" >/dev/null 2>&1 || true
+      rsync -aHWS "$SRC"/ "$TMP_CHILD_MP"/
+      rm -rf "$SRC"
+      zfs set mountpoint="$SRC" "$CHILD"
+      zfs mount "$CHILD" >/dev/null 2>&1 || true
+      rm -rf "$TMP_CHILD_MP" >/dev/null 2>&1 || true
+      echo "[BREAKDOWN] ok $rel -> $CHILD"
+    done
+    exit 0
     ;;
   --mutate-advanced-assemble)
-    if h="$(find_helper zfsmgr-advanced-assemble 2>/dev/null)"; then shift 1; exec "$h" "$@"; fi
-    echo "helper zfsmgr-advanced-assemble not found" >&2
-    exit 127
+    DATASET="${2:-}"
+    shift 2 || true
+    [ -n "$DATASET" ] || exit 2
+    PARENT_MP="$(zfs mount 2>/dev/null | awk -v d="$DATASET" '$1==d{print $2;exit}')"
+    [ -n "$PARENT_MP" ] || { echo 'mountpoint=none'; exit 2; }
+    for child in "$@"; do
+      [ -n "$child" ] || continue
+      zfs mount "$child" >/dev/null 2>&1 || true
+      CMP="$(zfs mount 2>/dev/null | awk -v d="$child" '$1==d{print $2;exit}')"
+      [ -n "$CMP" ] || continue
+      BN="$(basename "$child")"
+      [ -n "$BN" ] || continue
+      TMP="$(mktemp -d /tmp/zfsmgr-assemble-XXXXXX)"
+      rsync -aHWS "$CMP"/ "$TMP"/
+      zfs destroy -r "$child"
+      mkdir -p "$PARENT_MP/$BN"
+      rsync -aHWS "$TMP"/ "$PARENT_MP/$BN"/
+      rm -rf "$TMP" >/dev/null 2>&1 || true
+      echo "[ASSEMBLE] ok $child -> $PARENT_MP/$BN"
+    done
+    exit 0
     ;;
   --mutate-advanced-todir)
-    if h="$(find_helper zfsmgr-advanced-todir 2>/dev/null)"; then shift 1; exec "$h" "$@"; fi
-    echo "helper zfsmgr-advanced-todir not found" >&2
-    exit 127
+    DATASET="${2:-}"
+    DST_DIR="${3:-}"
+    DELETE_SRC="${4:-0}"
+    [ -n "$DATASET" ] || exit 2
+    [ -n "$DST_DIR" ] || exit 2
+    zfs mount "$DATASET" >/dev/null 2>&1 || true
+    SRC_MP="$(zfs mount 2>/dev/null | awk -v d="$DATASET" '$1==d{print $2;exit}')"
+    [ -n "$SRC_MP" ] || { echo 'mountpoint=none'; exit 2; }
+    mkdir -p "$DST_DIR"
+    rsync -aHWS "$SRC_MP"/ "$DST_DIR"/
+    if [ "$DELETE_SRC" = "1" ]; then
+      zfs destroy -r "$DATASET"
+    fi
+    echo "[TODIR] ok"
+    exit 0
     ;;
   --mutate-zpool-generic)
     run_generic_payload zpool "$2"

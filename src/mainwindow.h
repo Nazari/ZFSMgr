@@ -659,16 +659,6 @@ private:
     bool isWindowsConnection(const ConnectionProfile& p) const;
     bool isWindowsConnection(int connIdx) const;
     bool supportsAlternateDatasetMount(int connIdx) const;
-    bool ensureRemoteScriptsUpToDate(const ConnectionProfile& p);
-    QString remoteScriptsVersionTag() const;
-    QString remoteScriptsBasePath(const ConnectionProfile& p) const;
-    QString remoteScriptsVersionFilePath(const ConnectionProfile& p) const;
-    QMap<QString, QString> remoteScriptPayloads() const;
-    QString remoteScriptCommand(const ConnectionProfile& p,
-                                const QString& scriptName,
-                                const QStringList& args = {}) const;
-    QString buildRemoteScriptsInstallCommand(const QMap<QString, QString>& payloads,
-                                             const QString& versionTag) const;
     QString wrapRemoteCommand(const ConnectionProfile& p,
                               const QString& remoteCmd,
                               WindowsCommandMode windowsMode = WindowsCommandMode::Auto) const;
@@ -761,6 +751,7 @@ private:
                             QString* failureDetailOut = nullptr,
                             bool refreshPoolsTable = false,
                             bool refreshSelectedPoolDetailsAfter = false);
+    QString daemonizeZfsMutationCommand(int connIdx, const QString& rawCmd) const;
     QString daemonizeZpoolMutationCommand(int connIdx, const QString& rawCmd) const;
     QString daemonizeShellMutationCommand(int connIdx, const QString& rawShell) const;
     bool fetchPoolCommandOutput(int connIdx,
@@ -810,6 +801,10 @@ private:
     void reloadConnContentPoolNow(int connIdx, const QString& poolName);
     void reloadConnContentPool(int connIdx, const QString& poolName);
     void reloadDatasetSide(const QString& side);
+    int pendingShellSingleConnectionIdx(const PendingShellActionDraft& draft) const;
+    bool tryExecutePendingShellActionRemotely(const PendingShellActionDraft& draft,
+                                              bool* handledOut,
+                                              QString* failureDetailOut = nullptr);
     void refreshPendingShellActionDraft(const PendingShellActionDraft& draft);
     void updateConnectionActionsState();
     bool isTransferVersionAllowed(const DatasetSelectionContext& src,

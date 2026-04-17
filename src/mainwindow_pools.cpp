@@ -274,10 +274,8 @@ void MainWindow::refreshPoolStatusNow(int connIdx, const QString& poolName) {
         && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     const QString cmdClassic = withSudo(
         profile,
-        (isWindowsConnection(profile) || isLocalConnection(profile))
-            ? mwhelpers::withUnixSearchPathCommand(
-                  QStringLiteral("zpool status -v %1").arg(shSingleQuote(trimmedPool)))
-            : remoteScriptCommand(profile, QStringLiteral("zfsmgr-zpool-status"), {trimmedPool}));
+        mwhelpers::withUnixSearchPathCommand(
+            QStringLiteral("zpool status -v %1").arg(shSingleQuote(trimmedPool))));
     const QString cmdDaemon = withSudo(
         profile, mwhelpers::withUnixSearchPathCommand(
                      QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-status %1")

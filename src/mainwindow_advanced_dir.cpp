@@ -911,11 +911,25 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     steps.push_back(QStringLiteral("echo '[FROMDIR] done'"));
     const QString localCmd = steps.join(QStringLiteral(" && "));
     const QString displayLabel = QStringLiteral("Desde Dir %1::%2").arg(dstProfile.name, opt.datasetPath);
-    if (!runLocalCommand(displayLabel, localCmd, 0, false, true)) {
+    DatasetSelectionContext srcCtx;
+    srcCtx.valid = false;
+    QString errorText;
+    if (!queuePendingShellAction(PendingShellActionDraft{
+            pendingTransferScopeLabel(srcCtx, ctx),
+            displayLabel,
+            localCmd,
+            0,
+            true,
+            srcCtx,
+            ctx,
+            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
         return;
     }
-    reloadConnContentPool(ctx.connIdx, ctx.poolName);
-    refreshConnContentPropertiesFor(m_connContentTree);
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Cambio pendiente añadido: %1  %2")
+               .arg(pendingTransferScopeLabel(srcCtx, ctx), displayLabel));
+    updateApplyPropsButtonState();
 }
 
 void MainWindow::actionAdvancedToDir() {
@@ -1043,22 +1057,13 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
     bool allowWindowsScript = false;
     if (!isWin) {
         if (!isWindowsConnection(profile)) {
-            (void)ensureRemoteScriptsUpToDate(profile);
-            if (daemonReadApiOk) {
-                cmd = withSudo(
-                    profile, mwhelpers::withUnixSearchPathCommand(
-                                 QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-advanced-todir %1 %2 %3")
-                                     .arg(shSingleQuote(ds),
-                                          shSingleQuote(localDir),
-                                          deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0"))));
-            } else {
-                QStringList args;
-                args.reserve(3);
-                args.push_back(ds);
-                args.push_back(localDir);
-                args.push_back(deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0"));
-                cmd = withSudo(profile, remoteScriptCommand(profile, QStringLiteral("zfsmgr-advanced-todir"), args));
-            }
+            Q_UNUSED(daemonReadApiOk);
+            cmd = withSudo(
+                profile, mwhelpers::withUnixSearchPathCommand(
+                             QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-advanced-todir %1 %2 %3")
+                                 .arg(shSingleQuote(ds),
+                                      shSingleQuote(localDir),
+                                      deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0"))));
             executeDatasetAction(QStringLiteral("conncontent"),
                                  trk(QStringLiteral("t_advdir_auto035"), QStringLiteral("Hacia Dir"), QStringLiteral("To Dir"), QStringLiteral("到目录")),
                                  ctx,

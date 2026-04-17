@@ -110,83 +110,6 @@ std::vector<std::string> splitLines(const std::string& s) {
     return lines;
 }
 
-bool isExecutableProgram(const std::string& path) {
-    if (path.empty()) {
-        return false;
-    }
-#ifndef _WIN32
-    return ::access(path.c_str(), X_OK) == 0;
-#else
-    return ::_access(path.c_str(), 0) == 0;
-#endif
-}
-
-std::string resolveHelperProgram(const std::string& helperName) {
-    if (helperName.empty()) {
-        return {};
-    }
-    if (helperName.find('/') != std::string::npos) {
-        return isExecutableProgram(helperName) ? helperName : std::string();
-    }
-    std::vector<std::string> candidates;
-    candidates.push_back("/usr/local/libexec/" + helperName);
-    candidates.push_back("/usr/libexec/" + helperName);
-    candidates.push_back("/opt/homebrew/libexec/" + helperName);
-    candidates.push_back("/usr/local/bin/" + helperName);
-    candidates.push_back("/usr/bin/" + helperName);
-    candidates.push_back("/bin/" + helperName);
-
-#ifndef _WIN32
-    const auto addUserConfigBin = [&](const std::string& homeDir) {
-        if (homeDir.empty()) {
-            return;
-        }
-        candidates.push_back(homeDir + "/.config/ZFSMgr/bin/" + helperName);
-    };
-    addUserConfigBin(trim(std::getenv("HOME") ? std::getenv("HOME") : ""));
-    const char* sudoUser = std::getenv("SUDO_USER");
-    if (sudoUser && *sudoUser) {
-        struct passwd* pw = getpwnam(sudoUser);
-        if (pw && pw->pw_dir && pw->pw_dir[0] != '\0') {
-            addUserConfigBin(pw->pw_dir);
-        } else {
-            addUserConfigBin(std::string("/home/") + sudoUser);
-            addUserConfigBin(std::string("/Users/") + sudoUser);
-        }
-    }
-#endif
-
-    const char* envPath = std::getenv("PATH");
-    if (envPath && *envPath) {
-        const std::string pathEnv(envPath);
-        std::size_t start = 0;
-        while (start <= pathEnv.size()) {
-            const std::size_t sep = pathEnv.find(':', start);
-            const std::string dir = (sep == std::string::npos)
-                                        ? pathEnv.substr(start)
-                                        : pathEnv.substr(start, sep - start);
-            if (!dir.empty()) {
-                candidates.push_back(dir + "/" + helperName);
-            }
-            if (sep == std::string::npos) {
-                break;
-            }
-            start = sep + 1;
-        }
-    }
-
-    std::set<std::string> seen;
-    for (const std::string& c : candidates) {
-        if (!seen.insert(c).second) {
-            continue;
-        }
-        if (isExecutableProgram(c)) {
-            return c;
-        }
-    }
-    return {};
-}
-
 std::string firstLineTrimmed(const std::string& raw) {
     const std::size_t nl = raw.find('\n');
     return trim(nl == std::string::npos ? raw : raw.substr(0, nl));
@@ -1454,10 +1377,6 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     }
     if (cmd == "--dump-zfs-list-children") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-list-children <dataset>\n"; return r; }
-        const std::string helper = resolveHelperProgram("zfsmgr-zfs-list-children");
-        if (!helper.empty()) {
-            return runExecCapture(helper, {params[0]});
-        }
         return runExecCapture("zfs", {"list", "-H", "-o", "name", "-r", params[0]});
     }
     if (cmd == "--dump-advanced-breakdown-list") {
@@ -2282,10 +2201,6 @@ int main(int argc, char* argv[]) {
         if (args.size() < 3) {
             printUsage(args[0].c_str());
             return 2;
-        }
-        const std::string helper = resolveHelperProgram("zfsmgr-zfs-list-children");
-        if (!helper.empty()) {
-            return runExecStreaming(helper, {args[2]});
         }
         return runExecStreaming("zfs", {"list", "-H", "-o", "name", "-r", args[2]});
     }

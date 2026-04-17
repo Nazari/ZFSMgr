@@ -5560,10 +5560,6 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             && m_states[connIdx].daemonInstalled
             && m_states[connIdx].daemonActive
             && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
-        const bool remoteUnix = !isWindowsConnection(p);
-        if (remoteUnix) {
-            (void)ensureRemoteScriptsUpToDate(p);
-        }
         bool changed = false;
         if (poolInfo->key.poolGuid.trimmed().isEmpty()) {
             QString out;
@@ -5571,7 +5567,9 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             int rc = -1;
             const QString cmdClassic = withSudo(
                 p,
-                remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-guid"), {trimmedPool}));
+                mwhelpers::withUnixSearchPathCommand(
+                    QStringLiteral("zpool get -H -o value guid %1")
+                        .arg(mwhelpers::shSingleQuote(trimmedPool))));
             const QString cmdDaemon = withSudo(
                 p, mwhelpers::withUnixSearchPathCommand(
                        QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-guid %1")
@@ -5608,7 +5606,9 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             int rc = -1;
             const QString cmdClassic = withSudo(
                 p,
-                remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-guid-map"), {trimmedPool}));
+                mwhelpers::withUnixSearchPathCommand(
+                    QStringLiteral("zfs list -H -o name,guid -r %1")
+                        .arg(mwhelpers::shSingleQuote(trimmedPool))));
             const QString cmdDaemon = withSudo(
                 p, mwhelpers::withUnixSearchPathCommand(
                        QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-guid-map %1")

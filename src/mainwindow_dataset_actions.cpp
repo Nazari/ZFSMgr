@@ -859,7 +859,6 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
     const QStringList poolProps = poolSizePropertyNames();
     const QString propsCsv = poolProps.join(QLatin1Char(','));
     const bool poolWin = isWindowsConnection(connIdx);
-    const bool useRemoteScript = !poolWin;
     const bool daemonReadApiOk =
         !poolWin
         && connIdx >= 0
@@ -869,14 +868,12 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
         && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     const QString poolCmdClassic = withSudo(
         profile,
-        useRemoteScript
-            ? remoteScriptCommand(profile, QStringLiteral("zfsmgr-zpool-get-all-json"), {trimmedPool})
-            : mwhelpers::withUnixSearchPathCommand(
-                  poolWin
-                      ? QStringLiteral("zpool get -H -o property,value,source %1 %2")
-                            .arg(propsCsv, shSingleQuote(trimmedPool))
-                      : QStringLiteral("zpool get -j %1 %2")
-                            .arg(propsCsv, shSingleQuote(trimmedPool))));
+        mwhelpers::withUnixSearchPathCommand(
+            poolWin
+                ? QStringLiteral("zpool get -H -o property,value,source %1 %2")
+                      .arg(propsCsv, shSingleQuote(trimmedPool))
+                : QStringLiteral("zpool get -j %1 %2")
+                      .arg(propsCsv, shSingleQuote(trimmedPool))));
     const QString poolCmdDaemon = withSudo(
         profile, mwhelpers::withUnixSearchPathCommand(
                      QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-get-all %1")
@@ -979,19 +976,29 @@ bool MainWindow::executePendingDatasetRenameDraft(const PendingDatasetRenameDraf
         }
         return false;
     }
-    const QString renameCmd = isWindowsConnection(p)
-                                  ? pendingDatasetRenameCommand(draft)
-                                  : mwhelpers::withUnixSearchPathCommand(pendingDatasetRenameCommand(draft));
-    const QString remoteCmd = withSudo(sudoProfile, renameCmd);
+    const QString renameRawCmd = pendingDatasetRenameCommand(draft);
+    QString renameExecCmd = renameRawCmd;
+    if (!isWindowsConnection(p)) {
+        if (const QString daemonCmd = daemonizeZfsMutationCommand(draft.connIdx, renameRawCmd);
+            !daemonCmd.isEmpty()) {
+            renameExecCmd = daemonCmd;
+        }
+        renameExecCmd = mwhelpers::withUnixSearchPathCommand(renameExecCmd);
+    }
+    const QString remoteCmd = withSudo(sudoProfile, renameExecCmd);
     appLog(QStringLiteral("NORMAL"),
            QStringLiteral("Aplicar renombrado %1::%2")
                .arg(p.name, draft.sourceName.trimmed()));
     updateStatus(QStringLiteral("Aplicar renombrado %1::%2").arg(p.name, draft.sourceName.trimmed()));
-    QString out;
-    QString err;
-    int rc = -1;
-    if (!runSsh(p, remoteCmd, 60000, out, err, rc) || rc != 0) {
-        const QString failureDetail = err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err;
+    QString failureDetail;
+    if (!executeConnectionCommand(draft.connIdx,
+                                  QStringLiteral("Aplicar renombrado"),
+                                  remoteCmd,
+                                  60000,
+                                  &failureDetail)) {
+        if (failureDetail.trimmed().isEmpty()) {
+            failureDetail = QStringLiteral("exit 1");
+        }
         if (failureDetailOut) {
             *failureDetailOut = failureDetail;
         }
@@ -1010,9 +1017,6 @@ bool MainWindow::executePendingDatasetRenameDraft(const PendingDatasetRenameDraf
                     .arg(QStringLiteral("Aplicar renombrado"), failureDetail));
         }
         return false;
-    }
-    if (!out.trimmed().isEmpty()) {
-        appLog(QStringLiteral("INFO"), oneLine(out));
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Aplicar renombrado finalizado"));
     invalidatePoolDatasetListingCache(draft.connIdx, draft.poolName.trimmed());
@@ -1652,7 +1656,6 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
     QString mountedErr;
     int mountedRc = -1;
     const bool isWinConn = isWindowsConnection(p);
-    const bool useRemoteScript = !isWinConn;
     const bool daemonReadApiOk =
         !isWinConn
         && ctx.connIdx >= 0
@@ -1662,11 +1665,9 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
         && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     const QString mountedCmdClassic = withSudo(
         p,
-        useRemoteScript
-            ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-mount-list"))
-            : mwhelpers::withUnixSearchPathCommand(
-                  isWinConn ? QStringLiteral("zfs mount")
-                            : QStringLiteral("zfs mount -j")));
+        mwhelpers::withUnixSearchPathCommand(
+            isWinConn ? QStringLiteral("zfs mount")
+                      : QStringLiteral("zfs mount -j")));
     const QString mountedCmdDaemon = withSudo(
         p, mwhelpers::withUnixSearchPathCommand(
                QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-mount")));
@@ -1678,7 +1679,7 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
             ? mwhelpers::parseZfsMountOutput(mountedOut)
             : mwhelpers::parseZfsMountJsonOutput(mountedOut);
     }
-    if (!isWinConn && mountedRows.isEmpty() && !useRemoteScript && !daemonReadApiOk) {
+    if (!isWinConn && mountedRows.isEmpty() && !daemonReadApiOk) {
         QString fallbackOut;
         QString fallbackErr;
         int fallbackRc = -1;

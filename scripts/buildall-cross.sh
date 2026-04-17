@@ -200,7 +200,16 @@ cache_agent_binary() {
   [[ -f "${src}" ]] || return 1
   local cache_dir="${PROJECT_ROOT}/builds/agents/${platform_arch}"
   mkdir -p "${cache_dir}"
-  cp -f "${src}" "${cache_dir}/zfsmgr_agent${ext}"
+  local dst="${cache_dir}/zfsmgr_agent${ext}"
+  if [[ -e "${dst}" ]]; then
+    local src_real dst_real
+    src_real="$(readlink -f "${src}" 2>/dev/null || printf '%s' "${src}")"
+    dst_real="$(readlink -f "${dst}" 2>/dev/null || printf '%s' "${dst}")"
+    if [[ "${src_real}" == "${dst_real}" ]]; then
+      return 0
+    fi
+  fi
+  cp -f "${src}" "${dst}"
 }
 
 has_platform() {
