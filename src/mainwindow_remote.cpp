@@ -573,7 +573,7 @@ bool tryReviveRemoteDaemonService(const ConnectionProfile& p) {
         "if command -v launchctl >/dev/null 2>&1; then "
         "  launchctl bootstrap system /Library/LaunchDaemons/org.zfsmgr.agent.plist >/dev/null 2>&1 || true; "
         "  launchctl enable system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
-        "  launchctl kickstart -k system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
+        "  launchctl kickstart system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
         "fi; "
         "if command -v service >/dev/null 2>&1; then "
         "  service zfsmgr_agent onestart >/dev/null 2>&1 || "
