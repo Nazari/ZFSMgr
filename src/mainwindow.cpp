@@ -1796,6 +1796,33 @@ QString MainWindow::daemonizeZpoolMutationCommand(int connIdx, const QString& ra
         .arg(mwhelpers::shSingleQuote(payloadB64));
 }
 
+QString MainWindow::daemonizeShellMutationCommand(int connIdx, const QString& rawShell) const {
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return QString();
+    }
+    const ConnectionProfile& p = m_profiles[connIdx];
+    if (isWindowsConnection(p)) {
+        return QString();
+    }
+    if (connIdx < 0 || connIdx >= m_states.size()) {
+        return QString();
+    }
+    const ConnectionRuntimeState& st = m_states[connIdx];
+    if (!st.daemonInstalled || !st.daemonActive) {
+        return QString();
+    }
+    if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
+        return QString();
+    }
+    const QByteArray utf8 = rawShell.trimmed().toUtf8();
+    if (utf8.isEmpty()) {
+        return QString();
+    }
+    const QString payloadB64 = QString::fromLatin1(utf8.toBase64());
+    return QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-shell-generic %1")
+        .arg(mwhelpers::shSingleQuote(payloadB64));
+}
+
 bool MainWindow::fetchPoolCommandOutput(int connIdx,
                                         const QString& poolName,
                                         const QString& actionName,

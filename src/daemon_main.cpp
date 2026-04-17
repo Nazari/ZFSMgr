@@ -51,7 +51,7 @@ constexpr const char* kDefaultTlsClientCertPath = "/etc/zfsmgr/tls/client.crt";
 constexpr const char* kDefaultCommandPath =
     "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin";
 
-constexpr const char* kApiVersion = "2";
+constexpr const char* kApiVersion = "3";
 #ifndef ZFSMGR_AGENT_VERSION_STRING
 #define ZFSMGR_AGENT_VERSION_STRING ZFSMGR_APP_VERSION
 #endif
@@ -1141,6 +1141,37 @@ ExecResult runGenericMutationCapture(const std::string& tool, const std::string&
     return runExecCapture(tool, arr);
 }
 
+int runMutateShellGeneric(const std::string& payloadB64) {
+    std::string decoded;
+    if (!decodeBase64(payloadB64, decoded)) {
+        std::cerr << "invalid shell payload\n";
+        return 2;
+    }
+    decoded = trim(decoded);
+    if (decoded.empty()) {
+        std::cerr << "empty shell payload\n";
+        return 2;
+    }
+    return runExecStreaming("sh", {"-lc", decoded});
+}
+
+ExecResult runMutateShellGenericCapture(const std::string& payloadB64) {
+    ExecResult r;
+    std::string decoded;
+    if (!decodeBase64(payloadB64, decoded)) {
+        r.rc = 2;
+        r.err = "invalid shell payload\n";
+        return r;
+    }
+    decoded = trim(decoded);
+    if (decoded.empty()) {
+        r.rc = 2;
+        r.err = "empty shell payload\n";
+        return r;
+    }
+    return runExecCapture("sh", {"-lc", decoded});
+}
+
 int runDumpRefreshBasics() {
     const std::string osLine = compactSpaces(detectOsLine());
     const std::string machineUuid = compactSpaces(detectMachineUuid());
@@ -1356,7 +1387,7 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         r.out =
             "STATUS=OK\n"
             "VERSION=" ZFSMGR_AGENT_VERSION_STRING "\n"
-            "API=2\n"
+            "API=3\n"
             "SERVER=1\n"
             "CACHE_ENTRIES=0\n"
             "CACHE_MAX_ENTRIES=0\n"
@@ -1515,6 +1546,10 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     if (cmd == "--mutate-zpool-generic") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zpool-generic <payload-b64>\n"; return r; }
         return runGenericMutationCapture("zpool", params[0]);
+    }
+    if (cmd == "--mutate-shell-generic") {
+        if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-shell-generic <payload-b64>\n"; return r; }
+        return runMutateShellGenericCapture(params[0]);
     }
 
     r.rc = 2;
@@ -2414,6 +2449,13 @@ int main(int argc, char* argv[]) {
             return 2;
         }
         return runGenericMutation("zpool", args[2]);
+    }
+    if (cmd == "--mutate-shell-generic") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        return runMutateShellGeneric(args[2]);
     }
 
     printUsage(args[0].c_str());

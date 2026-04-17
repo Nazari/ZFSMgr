@@ -762,6 +762,7 @@ private:
                             bool refreshPoolsTable = false,
                             bool refreshSelectedPoolDetailsAfter = false);
     QString daemonizeZpoolMutationCommand(int connIdx, const QString& rawCmd) const;
+    QString daemonizeShellMutationCommand(int connIdx, const QString& rawShell) const;
     bool fetchPoolCommandOutput(int connIdx,
                                 const QString& poolName,
                                 const QString& actionName,

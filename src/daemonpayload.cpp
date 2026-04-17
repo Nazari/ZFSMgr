@@ -79,6 +79,24 @@ sys.exit(subprocess.call([tool] + arr))
 PY
 }
 
+run_shell_payload() {
+  /usr/bin/env python3 - "$1" <<'PY'
+import base64, subprocess, sys
+if len(sys.argv) < 2:
+    print("invalid shell payload", file=sys.stderr)
+    sys.exit(2)
+try:
+    script = base64.b64decode(sys.argv[1]).decode("utf-8", "strict").strip()
+except Exception:
+    print("invalid shell payload", file=sys.stderr)
+    sys.exit(2)
+if not script:
+    print("empty shell payload", file=sys.stderr)
+    sys.exit(2)
+sys.exit(subprocess.call(["sh", "-lc", script]))
+PY
+}
+
 cmd="${1:---serve}"
 case "$cmd" in
   --version|version) printf '%s\n' '__VERSION__'; exit 0 ;;
@@ -220,6 +238,9 @@ case "$cmd" in
     ;;
   --mutate-zpool-generic)
     run_generic_payload zpool "$2"
+    ;;
+  --mutate-shell-generic)
+    run_shell_payload "$2"
     ;;
   *)
     printf 'usage: %s [--version|--api-version|--serve|--health|--dump-*|--mutate-*]\n' "$0" >&2
