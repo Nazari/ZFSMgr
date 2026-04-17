@@ -3945,6 +3945,13 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
         }
     }
 
+    beginUiBusy();
+    struct InstallDaemonBusyGuard {
+        MainWindow* w;
+        ~InstallDaemonBusyGuard() { w->endUiBusy(); }
+    } busyGuard{this};
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
+
     const QString daemonVersion = agentversion::currentVersion().trimmed();
     const QString apiVersion = agentversion::expectedApiVersion().trimmed();
     QString remoteCmd;
@@ -4158,7 +4165,6 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
 
     }
 
-    beginUiBusy();
     updateStatus(daemonMenuLabelForConnection(idx) + QStringLiteral("..."));
     QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
     QString detail;
@@ -4169,7 +4175,6 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                                              &detail,
                                              winMode,
                                              remoteStdinPayload);
-    endUiBusy();
     if (!ok) {
         if (interactive) {
             QMessageBox::warning(
@@ -4236,6 +4241,13 @@ bool MainWindow::uninstallDaemonForConnection(int idx) {
     if (confirm != QMessageBox::Yes) {
         return false;
     }
+
+    beginUiBusy();
+    struct UninstallDaemonBusyGuard {
+        MainWindow* w;
+        ~UninstallDaemonBusyGuard() { w->endUiBusy(); }
+    } busyGuard{this};
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
 
     QString remoteCmd;
     WindowsCommandMode winMode = WindowsCommandMode::Auto;
@@ -4317,7 +4329,6 @@ bool MainWindow::uninstallDaemonForConnection(int idx) {
         remoteCmd = withSudo(p, remoteCmd);
     }
 
-    beginUiBusy();
     updateStatus(trk(QStringLiteral("t_daemon_uninstall_progress_001"),
                      QStringLiteral("Desinstalando daemon de %1..."),
                      QStringLiteral("Uninstalling daemon from %1..."),
@@ -4330,7 +4341,6 @@ bool MainWindow::uninstallDaemonForConnection(int idx) {
                                              120000,
                                              &detail,
                                              winMode);
-    endUiBusy();
     if (!ok) {
         QMessageBox::warning(
             this,
