@@ -196,6 +196,18 @@ case "$cmd" in
   --dump-gsa-connections-conf)
     [ -r /etc/zfsmgr/gsa-connections.conf ] && cat /etc/zfsmgr/gsa-connections.conf || true
     ;;
+  --wait-for-event)
+    # Block until a ZED event arrives or timeout expires.
+    # zpool events -f -H follows the event stream; we read one line and exit.
+    timeout="${2:-30}"
+    line="$(command -v timeout >/dev/null 2>&1 \
+      && timeout "$timeout" sh -c 'zpool events -f -H 2>/dev/null | head -1' \
+      || zpool events -f -H 2>/dev/null | head -1)"
+    if [ -n "$line" ]; then
+      printf 'EVENT_TYPE=zed\n'; exit 0
+    fi
+    printf 'TIMEOUT=1\n'; exit 1
+    ;;
   --dump-zfs-exists)
     zfs list -H -o name "$2" >/dev/null 2>&1 && echo "EXISTS=yes" || { echo "EXISTS=no"; exit 1; }
     ;;

@@ -1881,6 +1881,7 @@ int runServeLoop() {
     std::atomic<long long> zedRestarts{0};
     std::atomic<bool> zedActive{false};
     std::atomic<bool> zedInvalidateRequested{false};
+    std::atomic<long long> zedEventSeq{0}; // monotonically increments on each ZED event
     std::string zedLastEventUtc;
 
     std::thread zedThread([&]() {
@@ -1898,6 +1899,7 @@ int runServeLoop() {
                     break;
                 }
                 zedInvalidateRequested.store(true);
+                zedEventSeq.fetch_add(1);
                 const std::string nowUtc = utcNowIsoString();
                 if (!nowUtc.empty()) {
                     std::lock_guard<std::mutex> lock(runtimeMutex);
@@ -2020,6 +2022,38 @@ int runServeLoop() {
                 }
                 exec.rc = 0;
                 exec.out = hs.str();
+            } else if (cmd == "--wait-for-event") {
+                int timeoutSecs = 30;
+                if (!rpcArgs.empty()) {
+                    try { timeoutSecs = std::stoi(rpcArgs[0]); } catch (...) {}
+                }
+                timeoutSecs = std::max(1, std::min(timeoutSecs, 120));
+                const long long initialSeq = zedEventSeq.load();
+                const auto deadline =
+                    std::chrono::steady_clock::now() + std::chrono::seconds(timeoutSecs);
+                while (std::chrono::steady_clock::now() < deadline && !g_stop.load()) {
+                    if (zedEventSeq.load() != initialSeq) {
+                        break;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                }
+                if (zedEventSeq.load() != initialSeq) {
+                    std::string lastEvent;
+                    {
+                        std::lock_guard<std::mutex> lock(runtimeMutex);
+                        lastEvent = zedLastEventUtc;
+                    }
+                    std::ostringstream ws;
+                    ws << "EVENT_TYPE=zed\n";
+                    if (!lastEvent.empty()) {
+                        ws << "EVENT_AT=" << lastEvent << "\n";
+                    }
+                    exec.rc = 0;
+                    exec.out = ws.str();
+                } else {
+                    exec.rc = 1;
+                    exec.out = "TIMEOUT=1\n";
+                }
             } else {
             const bool dumpCmd = isDumpCommand(cmd);
             const bool mutateCmd = isMutateCommand(cmd);

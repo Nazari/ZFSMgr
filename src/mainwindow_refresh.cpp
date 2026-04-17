@@ -1115,6 +1115,25 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 const QString zedRestarts = hkv.value(QStringLiteral("ZED_RESTARTS")).trimmed();
                 const QString zedLast = hkv.value(QStringLiteral("ZED_LAST_EVENT_UTC")).trimmed();
                 const QString reconcileLast = hkv.value(QStringLiteral("RECONCILE_LAST_UTC")).trimmed();
+                // If the daemon has seen new ZED events since our last health poll,
+                // schedule an immediate follow-up refresh to pick up the changed state.
+                if (!zedLast.isEmpty()
+                    && zedLast != state.daemonLastSeenZedEvent
+                    && !state.daemonLastSeenZedEvent.isEmpty()) {
+                    appLog(QStringLiteral("INFO"),
+                           QStringLiteral("%1: ZED event detectado (ts=%2), programando refresh")
+                               .arg(p.name, zedLast));
+                    const QString profileId = p.id;
+                    QMetaObject::invokeMethod(this, [this, profileId]() {
+                        for (int i = 0; i < m_profiles.size(); ++i) {
+                            if (m_profiles[i].id == profileId) {
+                                refreshConnectionByIndex(i);
+                                break;
+                            }
+                        }
+                    }, Qt::QueuedConnection);
+                }
+                state.daemonLastSeenZedEvent = zedLast;
                 if (!cacheEntries.isEmpty() || !zedActive.isEmpty() || !zedLast.isEmpty()
                     || !cacheInvalidations.isEmpty() || !poolInvalidations.isEmpty() || !reconcilePruned.isEmpty()
                     || !reconcileLast.isEmpty() || !zedRestarts.isEmpty()

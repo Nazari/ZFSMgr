@@ -170,6 +170,7 @@ private:
         bool daemonInstalled{false};
         bool daemonActive{false};
         bool daemonNativeBinary{false};
+        QString daemonLastSeenZedEvent; // last ZED_LAST_EVENT_UTC value from health
     };
 
     struct DatasetRecord {
