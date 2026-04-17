@@ -129,6 +129,31 @@ target_compile_definitions(zfsmgr_agent PRIVATE
 if(NOT WIN32)
     target_link_libraries(zfsmgr_agent PRIVATE OpenSSL::SSL OpenSSL::Crypto)
     target_link_libraries(zfsmgr_agent PRIVATE Threads::Threads)
+
+    # Optional libzfs_core + libnvpair for efficient native ZFS operations.
+    # Subprocess fallback is used automatically when not available.
+    # Override with -DLIBZFS_CORE_INCLUDE_DIR=<path> if headers are non-standard.
+    find_library(LIBZFS_CORE_LIB NAMES zfs_core libzfs_core.so.3 libzfs_core.so)
+    find_library(LIBNVPAIR_LIB   NAMES nvpair   libnvpair.so.3   libnvpair.so)
+    if(NOT DEFINED LIBZFS_CORE_INCLUDE_DIR)
+        find_path(LIBZFS_CORE_INCLUDE_DIR libzfs_core.h
+            PATHS
+                /usr/include
+                /usr/local/include
+                /usr/include/libzfs
+                /usr/local/include/libzfs
+                /opt/homebrew/include
+                /opt/homebrew/include/libzfs
+        )
+    endif()
+    if(LIBZFS_CORE_LIB AND LIBNVPAIR_LIB AND LIBZFS_CORE_INCLUDE_DIR)
+        message(STATUS "zfsmgr_agent: libzfs_core=${LIBZFS_CORE_LIB} headers=${LIBZFS_CORE_INCLUDE_DIR}")
+        target_compile_definitions(zfsmgr_agent PRIVATE HAVE_LIBZFS_CORE=1)
+        target_include_directories(zfsmgr_agent PRIVATE ${LIBZFS_CORE_INCLUDE_DIR})
+        target_link_libraries(zfsmgr_agent PRIVATE ${LIBZFS_CORE_LIB} ${LIBNVPAIR_LIB})
+    else()
+        message(STATUS "zfsmgr_agent: libzfs_core not found — subprocess fallback active")
+    endif()
 endif()
 
 if(WIN32)

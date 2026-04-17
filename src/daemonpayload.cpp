@@ -196,6 +196,12 @@ case "$cmd" in
   --dump-gsa-connections-conf)
     [ -r /etc/zfsmgr/gsa-connections.conf ] && cat /etc/zfsmgr/gsa-connections.conf || true
     ;;
+  --dump-zfs-exists)
+    zfs list -H -o name "$2" >/dev/null 2>&1 && echo "EXISTS=yes" || { echo "EXISTS=no"; exit 1; }
+    ;;
+  --mutate-zfs-clone)
+    exec zfs clone "$2" "$3"
+    ;;
   --mutate-zfs-snapshot)
     [ "${3:-0}" = "1" ] && exec zfs snapshot -r "$2" || exec zfs snapshot "$2"
     ;;

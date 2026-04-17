@@ -30,6 +30,19 @@
 #include <openssl/ssl.h>
 #endif
 
+#ifdef HAVE_LIBZFS_CORE
+#include <libzfs_core.h>
+#include <libnvpair.h>
+#ifndef ZFS_MAX_DATASET_NAME_LEN
+#define ZFS_MAX_DATASET_NAME_LEN 256
+#endif
+// boolean_t / B_TRUE / B_FALSE: defined by ZFS kernel headers on illumos/FreeBSD,
+// but on Linux with OpenZFS userspace they may not be pulled in automatically.
+#ifndef B_FALSE
+typedef enum { B_FALSE = 0, B_TRUE = 1 } boolean_t;
+#endif
+#endif
+
 #ifndef _WIN32
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -1095,6 +1108,79 @@ ExecResult runMutateShellGenericCapture(const std::string& payloadB64) {
     return runExecCapture("sh", {"-lc", decoded});
 }
 
+#ifdef HAVE_LIBZFS_CORE
+// ── libzfs_core native helpers (subprocess fallback used on any lzc error) ──
+
+static bool s_lzcReady = false;
+
+static bool lzcEnsureInit() {
+    if (!s_lzcReady) {
+        s_lzcReady = (libzfs_core_init() == 0);
+    }
+    return s_lzcReady;
+}
+
+static ExecResult lzcSnapshotOne(const std::string& snapName) {
+    ExecResult r;
+    if (!lzcEnsureInit()) { r.rc = -1; r.err = "libzfs_core_init failed\n"; return r; }
+    nvlist_t* snaps = nullptr;
+    if (nvlist_alloc(&snaps, NV_UNIQUE_NAME, 0) != 0) {
+        r.rc = ENOMEM; r.err = "nvlist_alloc failed\n"; return r;
+    }
+    nvlist_add_boolean(snaps, snapName.c_str());
+    nvlist_t* errlist = nullptr;
+    r.rc = lzc_snapshot(snaps, nullptr, &errlist);
+    nvlist_free(snaps);
+    if (r.rc != 0) {
+        r.err = std::string("cannot create snapshot '") + snapName + "': " + strerror(r.rc) + "\n";
+        if (errlist) nvlist_free(errlist);
+    }
+    return r;
+}
+
+static ExecResult lzcDestroyOneSnap(const std::string& snapName) {
+    ExecResult r;
+    if (!lzcEnsureInit()) { r.rc = -1; r.err = "libzfs_core_init failed\n"; return r; }
+    nvlist_t* snaps = nullptr;
+    if (nvlist_alloc(&snaps, NV_UNIQUE_NAME, 0) != 0) {
+        r.rc = ENOMEM; r.err = "nvlist_alloc failed\n"; return r;
+    }
+    nvlist_add_boolean(snaps, snapName.c_str());
+    nvlist_t* errlist = nullptr;
+    r.rc = lzc_destroy_snaps(snaps, B_FALSE, &errlist);
+    nvlist_free(snaps);
+    if (r.rc != 0) {
+        r.err = std::string("cannot destroy '") + snapName + "': " + strerror(r.rc) + "\n";
+        if (errlist) nvlist_free(errlist);
+    }
+    return r;
+}
+
+static ExecResult lzcRollbackTo(const std::string& dataset, const std::string& snapName) {
+    ExecResult r;
+    if (!lzcEnsureInit()) { r.rc = -1; r.err = "libzfs_core_init failed\n"; return r; }
+    r.rc = lzc_rollback_to(dataset.c_str(), snapName.c_str());
+    if (r.rc != 0) {
+        r.err = std::string("cannot rollback '") + dataset + "' to '" + snapName + "': " + strerror(r.rc) + "\n";
+    }
+    return r;
+}
+
+static ExecResult lzcClone(const std::string& snapOrigin, const std::string& newDataset) {
+    ExecResult r;
+    if (!lzcEnsureInit()) { r.rc = -1; r.err = "libzfs_core_init failed\n"; return r; }
+    r.rc = lzc_clone(newDataset.c_str(), snapOrigin.c_str(), nullptr);
+    if (r.rc != 0) {
+        r.err = std::string("cannot clone '") + snapOrigin + "' to '" + newDataset + "': " + strerror(r.rc) + "\n";
+    }
+    return r;
+}
+
+static bool lzcExists(const std::string& name) {
+    return lzcEnsureInit() && lzc_exists(name.c_str()) != B_FALSE;
+}
+#endif // HAVE_LIBZFS_CORE
+
 int runDumpRefreshBasics() {
     const std::string osLine = compactSpaces(detectOsLine());
     const std::string machineUuid = compactSpaces(detectMachineUuid());
@@ -1409,6 +1495,12 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     if (cmd == "--mutate-zfs-snapshot") {
         if (params.size() < 2) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-snapshot <target> <recursive>\n"; return r; }
         const bool recursive = (params[1] == "1" || toLower(params[1]) == "true" || toLower(params[1]) == "on");
+#ifdef HAVE_LIBZFS_CORE
+        if (!recursive) {
+            ExecResult lr = lzcSnapshotOne(params[0]);
+            if (lr.rc == 0) return lr;
+        }
+#endif
         std::vector<std::string> a = {"snapshot"};
         if (recursive) a.push_back("-r");
         a.push_back(params[0]);
@@ -1417,22 +1509,64 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     if (cmd == "--mutate-zfs-destroy") {
         if (params.size() < 3) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-destroy <target> <force> <scope>\n"; return r; }
         const bool force = (params[1] == "1" || toLower(params[1]) == "true" || toLower(params[1]) == "on");
+        const std::string& scope = params[2];
+        const bool isSnap = params[0].find('@') != std::string::npos;
+        const bool noScope = (scope != "R" && scope != "r");
+#ifdef HAVE_LIBZFS_CORE
+        // lzc_destroy_snaps handles single snapshots without scope/force cleanly
+        if (isSnap && noScope && !force) {
+            ExecResult lr = lzcDestroyOneSnap(params[0]);
+            if (lr.rc == 0) return lr;
+        }
+#endif
         std::vector<std::string> a = {"destroy"};
         if (force) a.push_back("-f");
-        if (params[2] == "R") a.push_back("-R");
-        else if (params[2] == "r") a.push_back("-r");
+        if (scope == "R") a.push_back("-R");
+        else if (scope == "r") a.push_back("-r");
         a.push_back(params[0]);
         return runExecCapture("zfs", a);
     }
     if (cmd == "--mutate-zfs-rollback") {
         if (params.size() < 3) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-rollback <snap> <force> <scope>\n"; return r; }
         const bool force = (params[1] == "1" || toLower(params[1]) == "true" || toLower(params[1]) == "on");
+        const std::string& scope = params[2];
+        const bool noScope = (scope != "R" && scope != "r");
+#ifdef HAVE_LIBZFS_CORE
+        if (!force && noScope) {
+            const auto atPos = params[0].find('@');
+            if (atPos != std::string::npos) {
+                ExecResult lr = lzcRollbackTo(params[0].substr(0, atPos), params[0]);
+                if (lr.rc == 0) return lr;
+            }
+        }
+#endif
         std::vector<std::string> a = {"rollback"};
         if (force) a.push_back("-f");
-        if (params[2] == "R") a.push_back("-R");
-        else if (params[2] == "r") a.push_back("-r");
+        if (scope == "R") a.push_back("-R");
+        else if (scope == "r") a.push_back("-r");
         a.push_back(params[0]);
         return runExecCapture("zfs", a);
+    }
+    if (cmd == "--dump-zfs-exists") {
+        if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --dump-zfs-exists <dataset>\n"; return r; }
+#ifdef HAVE_LIBZFS_CORE
+        const bool exists = lzcExists(params[0]);
+        r.rc = exists ? 0 : 1;
+        r.out = exists ? "EXISTS=yes\n" : "EXISTS=no\n";
+        return r;
+#endif
+        ExecResult sub = runExecCapture("zfs", {"list", "-H", "-o", "name", params[0]});
+        r.rc = (sub.rc == 0) ? 0 : 1;
+        r.out = (sub.rc == 0) ? "EXISTS=yes\n" : "EXISTS=no\n";
+        return r;
+    }
+    if (cmd == "--mutate-zfs-clone") {
+        if (params.size() < 2) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-clone <origin-snap> <new-dataset>\n"; return r; }
+#ifdef HAVE_LIBZFS_CORE
+        ExecResult lr = lzcClone(params[0], params[1]);
+        if (lr.rc == 0) return lr;
+#endif
+        return runExecCapture("zfs", {"clone", params[0], params[1]});
     }
     if (cmd == "--mutate-zfs-generic") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-generic <payload-b64>\n"; return r; }
@@ -2257,12 +2391,32 @@ int main(int argc, char* argv[]) {
         return runDumpGsaConnectionsConf();
     }
 
+    if (cmd == "--dump-zfs-exists") {
+        if (args.size() < 3) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+#ifdef HAVE_LIBZFS_CORE
+        const bool exists = lzcExists(args[2]);
+        std::cout << (exists ? "EXISTS=yes\n" : "EXISTS=no\n");
+        return exists ? 0 : 1;
+#endif
+        const ExecResult sub = runExecCapture("zfs", {"list", "-H", "-o", "name", args[2]});
+        std::cout << (sub.rc == 0 ? "EXISTS=yes\n" : "EXISTS=no\n");
+        return sub.rc == 0 ? 0 : 1;
+    }
     if (cmd == "--mutate-zfs-snapshot") {
         if (args.size() < 4) {
             printUsage(args[0].c_str());
             return 2;
         }
         const bool recursive = (args[3] == "1" || toLower(args[3]) == "true" || toLower(args[3]) == "on");
+#ifdef HAVE_LIBZFS_CORE
+        if (!recursive) {
+            const ExecResult lr = lzcSnapshotOne(args[2]);
+            if (lr.rc == 0) return 0;
+        }
+#endif
         std::vector<std::string> a = {"snapshot"};
         if (recursive) {
             a.push_back("-r");
@@ -2276,13 +2430,22 @@ int main(int argc, char* argv[]) {
             return 2;
         }
         const bool force = (args[3] == "1" || toLower(args[3]) == "true" || toLower(args[3]) == "on");
+        const std::string& scope = args[4];
+        const bool isSnap = args[2].find('@') != std::string::npos;
+        const bool noScope = (scope != "R" && scope != "r");
+#ifdef HAVE_LIBZFS_CORE
+        if (isSnap && noScope && !force) {
+            const ExecResult lr = lzcDestroyOneSnap(args[2]);
+            if (lr.rc == 0) return 0;
+        }
+#endif
         std::vector<std::string> a = {"destroy"};
         if (force) {
             a.push_back("-f");
         }
-        if (args[4] == "R") {
+        if (scope == "R") {
             a.push_back("-R");
-        } else if (args[4] == "r") {
+        } else if (scope == "r") {
             a.push_back("-r");
         }
         a.push_back(args[2]);
@@ -2294,17 +2457,39 @@ int main(int argc, char* argv[]) {
             return 2;
         }
         const bool force = (args[3] == "1" || toLower(args[3]) == "true" || toLower(args[3]) == "on");
+        const std::string& scope = args[4];
+        const bool noScope = (scope != "R" && scope != "r");
+#ifdef HAVE_LIBZFS_CORE
+        if (!force && noScope) {
+            const auto atPos = args[2].find('@');
+            if (atPos != std::string::npos) {
+                const ExecResult lr = lzcRollbackTo(args[2].substr(0, atPos), args[2]);
+                if (lr.rc == 0) return 0;
+            }
+        }
+#endif
         std::vector<std::string> a = {"rollback"};
         if (force) {
             a.push_back("-f");
         }
-        if (args[4] == "R") {
+        if (scope == "R") {
             a.push_back("-R");
-        } else if (args[4] == "r") {
+        } else if (scope == "r") {
             a.push_back("-r");
         }
         a.push_back(args[2]);
         return runExecStreaming("zfs", a);
+    }
+    if (cmd == "--mutate-zfs-clone") {
+        if (args.size() < 4) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+#ifdef HAVE_LIBZFS_CORE
+        const ExecResult lr = lzcClone(args[2], args[3]);
+        if (lr.rc == 0) return 0;
+#endif
+        return runExecStreaming("zfs", {"clone", args[2], args[3]});
     }
     if (cmd == "--mutate-zfs-generic") {
         if (args.size() < 3) {
