@@ -130,6 +130,106 @@ QString stripLeadingSudoForExecution(QString cmd) {
     return cmd.trimmed();
 }
 
+QString normalizedTargetPlatformId(bool isMac, bool isFreeBsd, bool isWindows) {
+    if (isWindows) {
+        return QStringLiteral("windows");
+    }
+    if (isMac) {
+        return QStringLiteral("macos");
+    }
+    if (isFreeBsd) {
+        return QStringLiteral("freebsd");
+    }
+    return QStringLiteral("linux");
+}
+
+QStringList archAliasesForTarget(const QString& archHintRaw) {
+    const QString arch = archHintRaw.trimmed().toLower();
+    if (arch.contains(QStringLiteral("aarch64")) || arch.contains(QStringLiteral("arm64"))) {
+        return {QStringLiteral("arm64"), QStringLiteral("aarch64")};
+    }
+    if (arch.contains(QStringLiteral("x86_64")) || arch.contains(QStringLiteral("amd64"))) {
+        return {QStringLiteral("x86_64"), QStringLiteral("amd64")};
+    }
+    if (arch.contains(QStringLiteral("i686")) || arch.contains(QStringLiteral("i386"))) {
+        return {QStringLiteral("i686"), QStringLiteral("i386")};
+    }
+    QStringList out;
+    if (!arch.isEmpty()) {
+        out << arch;
+    }
+    out << QStringLiteral("x86_64") << QStringLiteral("amd64") << QStringLiteral("arm64") << QStringLiteral("aarch64");
+    out.removeDuplicates();
+    return out;
+}
+
+QString findDeployableAgentBinaryPath(const QString& platformId, const QString& archHintRaw) {
+    const QString ext = (platformId == QStringLiteral("windows")) ? QStringLiteral(".exe") : QString();
+    const QString appDir = QCoreApplication::applicationDirPath();
+    QStringList roots = {
+        appDir,
+        QDir(appDir).absoluteFilePath(QStringLiteral("..")),
+        QDir(appDir).absoluteFilePath(QStringLiteral("../..")),
+        QDir::currentPath()
+    };
+    for (QString& r : roots) {
+        r = QDir::cleanPath(r);
+    }
+    roots.removeDuplicates();
+
+    const QStringList archAliases = archAliasesForTarget(archHintRaw);
+
+    // 1) Buscar primero en bundle empaquetado dentro de la propia app/instalación.
+    for (const QString& arch : archAliases) {
+        const QString rel = platformId + QStringLiteral("-") + arch + QStringLiteral("/zfsmgr_agent") + ext;
+        const QStringList packagedCandidates = {
+            QDir::cleanPath(appDir + QStringLiteral("/agents/") + rel),
+            QDir::cleanPath(appDir + QStringLiteral("/../agents/") + rel),
+            QDir::cleanPath(appDir + QStringLiteral("/../Resources/agents/") + rel),
+            QDir::cleanPath(appDir + QStringLiteral("/../share/zfsmgr/agents/") + rel),
+            QDir::cleanPath(appDir + QStringLiteral("/../../share/zfsmgr/agents/") + rel)
+        };
+        for (const QString& c : packagedCandidates) {
+            const QFileInfo fi(c);
+            if (fi.exists() && fi.isFile()) {
+                return fi.absoluteFilePath();
+            }
+        }
+    }
+
+    // 2) Buscar en artefactos/builds locales del workspace (entorno dev).
+    for (const QString& root : roots) {
+        for (const QString& arch : archAliases) {
+            const QString stable = QDir::cleanPath(
+                root + QStringLiteral("/builds/agents/") + platformId + QStringLiteral("-") + arch
+                + QStringLiteral("/zfsmgr_agent") + ext);
+            const QFileInfo fi(stable);
+            if (fi.exists() && fi.isFile()) {
+                return fi.absoluteFilePath();
+            }
+        }
+        for (const QString& arch : archAliases) {
+            const QString crossDir =
+                QDir::cleanPath(root + QStringLiteral("/builds/cross-") + platformId + QStringLiteral("-") + arch);
+            const QFileInfo fi(QDir::cleanPath(crossDir + QStringLiteral("/zfsmgr_agent") + ext));
+            if (fi.exists() && fi.isFile()) {
+                return fi.absoluteFilePath();
+            }
+        }
+        const QFileInfo genericCross(
+            QDir::cleanPath(root + QStringLiteral("/builds/cross-") + platformId + QStringLiteral("/zfsmgr_agent") + ext));
+        if (genericCross.exists() && genericCross.isFile()) {
+            return genericCross.absoluteFilePath();
+        }
+    }
+
+    const QFileInfo localFi(QDir::cleanPath(appDir + QStringLiteral("/zfsmgr_agent") + ext));
+    if (localFi.exists() && localFi.isFile()) {
+        return localFi.absoluteFilePath();
+    }
+    return QString();
+}
+
 QVector<int> versionOrderingKey(const QString& version) {
     QVector<int> out;
     const QRegularExpression rx(QStringLiteral("^(\\d+)\\.(\\d+)\\.(\\d+)(?:rc(\\d+))?(?:[.-](\\d+))?$"),
@@ -3865,6 +3965,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                      || osHint.contains(QStringLiteral("launchd"));
         bool isFreeBsd = osHint.contains(QStringLiteral("freebsd"))
                          || osHint.contains(QStringLiteral("rc.d"));
+        QString remoteArchHint;
         if (!isMac && !isFreeBsd) {
             QString osOut;
             QString osErr;
@@ -3878,18 +3979,39 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                 }
             }
         }
+        {
+            QString archOut;
+            QString archErr;
+            int archRc = -1;
+            if (runSsh(p, QStringLiteral("uname -m"), 8000, archOut, archErr, archRc) && archRc == 0) {
+                remoteArchHint = archOut.trimmed();
+            }
+        }
         const QString daemonScript = daemonpayload::unixStubScript(daemonVersion, apiVersion);
         const QString configPayload = daemonpayload::simpleConfigPayload(daemonVersion, apiVersion);
         const QString tlsBootstrap = daemonpayload::tlsBootstrapShellCommand();
         QString deployBinCmd;
-        const QString localAgentPath = QDir::cleanPath(QCoreApplication::applicationDirPath() + QStringLiteral("/zfsmgr_agent"));
+        const QString platformId = normalizedTargetPlatformId(isMac, isFreeBsd, false);
+        const QString localAgentPath = findDeployableAgentBinaryPath(platformId, remoteArchHint);
         const bool canDeployNativeLocalBinaryFromPath =
-            isLocalConnection(idx) && QFileInfo::exists(localAgentPath) && QFileInfo(localAgentPath).isExecutable();
+            !localAgentPath.isEmpty() && QFileInfo::exists(localAgentPath) && QFileInfo(localAgentPath).isFile();
         if (canDeployNativeLocalBinaryFromPath) {
             deployBinCmd = QStringLiteral("install -m 700 %1 %2;")
                                .arg(mwhelpers::shSingleQuote(localAgentPath), mwhelpers::shSingleQuote(daemonpayload::unixBinPath()));
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("Daemon deploy %1: usando binario nativo local %2")
+                       .arg(p.name, localAgentPath));
         } else {
-            deployBinCmd = QStringLiteral("cat > %1 <<'EOF_AGENT'\n%2\nEOF_AGENT\nchmod 700 %1;")
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Daemon deploy %1: no se encontró binario nativo para %2/%3; se mantiene fallback stub")
+                       .arg(p.name, platformId, remoteArchHint.isEmpty() ? QStringLiteral("?") : remoteArchHint));
+            deployBinCmd = QStringLiteral(
+                               "if [ -x %1 ] && %1 --api-version >/dev/null 2>&1; then "
+                               "  :; "
+                               "else "
+                               "  cat > %1 <<'EOF_AGENT'\n%2\nEOF_AGENT\n"
+                               "  chmod 700 %1; "
+                               "fi;")
                                .arg(daemonpayload::unixBinPath(), daemonScript);
         }
         if (isMac) {

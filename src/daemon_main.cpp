@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -27,9 +28,11 @@
 #include <openssl/ssl.h>
 #endif
 
+#ifndef _WIN32
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 
 namespace {
 
@@ -179,7 +182,11 @@ std::string readFirstLineFile(const char* path) {
 std::string utcNowIsoString() {
     std::time_t now = std::time(nullptr);
     std::tm tm{};
+#ifdef _WIN32
+    gmtime_s(&tm, &now);
+#else
     gmtime_r(&now, &tm);
+#endif
     char buf[32];
     if (std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm) == 0) {
         return {};
@@ -206,6 +213,7 @@ std::string compactSpaces(std::string s) {
 }
 
 int decodeWaitStatus(int status) {
+#ifndef _WIN32
     if (WIFEXITED(status)) {
         return WEXITSTATUS(status);
     }
@@ -213,9 +221,20 @@ int decodeWaitStatus(int status) {
         return 128 + WTERMSIG(status);
     }
     return 125;
+#else
+    if (status < 0) {
+        return 125;
+    }
+    // En Windows/system() y pclose() suelen devolver directamente el RC.
+    if (status > 255) {
+        return (status >> 8) & 0xff;
+    }
+    return status & 0xff;
+#endif
 }
 
 int runExecStreaming(const std::string& program, const std::vector<std::string>& args) {
+#ifndef _WIN32
     std::vector<char*> argv;
     argv.reserve(args.size() + 2);
     argv.push_back(const_cast<char*>(program.c_str()));
@@ -240,10 +259,32 @@ int runExecStreaming(const std::string& program, const std::vector<std::string>&
         return 125;
     }
     return decodeWaitStatus(status);
+#else
+    auto quoteArg = [](const std::string& a) -> std::string {
+        std::string q = "\"";
+        for (char c : a) {
+            if (c == '"') {
+                q += "\\\"";
+            } else {
+                q.push_back(c);
+            }
+        }
+        q.push_back('"');
+        return q;
+    };
+    std::string cmd = quoteArg(program);
+    for (const std::string& a : args) {
+        cmd.push_back(' ');
+        cmd += quoteArg(a);
+    }
+    const int rc = std::system(cmd.c_str());
+    return decodeWaitStatus(rc);
+#endif
 }
 
 ExecResult runExecCapture(const std::string& program, const std::vector<std::string>& args) {
     ExecResult r;
+#ifndef _WIN32
     int outPipe[2] = {-1, -1};
     int errPipe[2] = {-1, -1};
     if (pipe(outPipe) != 0 || pipe(errPipe) != 0) {
@@ -330,6 +371,40 @@ ExecResult runExecCapture(const std::string& program, const std::vector<std::str
     }
     r.rc = decodeWaitStatus(status);
     return r;
+#else
+    auto quoteArg = [](const std::string& a) -> std::string {
+        std::string q = "\"";
+        for (char c : a) {
+            if (c == '"') {
+                q += "\\\"";
+            } else {
+                q.push_back(c);
+            }
+        }
+        q.push_back('"');
+        return q;
+    };
+    std::string cmd = quoteArg(program);
+    for (const std::string& a : args) {
+        cmd.push_back(' ');
+        cmd += quoteArg(a);
+    }
+    cmd += " 2>&1";
+
+    FILE* fp = popen(cmd.c_str(), "r");
+    if (!fp) {
+        r.rc = 125;
+        r.err = "popen failed";
+        return r;
+    }
+    char buf[4096];
+    while (std::fgets(buf, sizeof(buf), fp) != nullptr) {
+        r.out += buf;
+    }
+    const int prc = pclose(fp);
+    r.rc = decodeWaitStatus(prc);
+    return r;
+#endif
 }
 
 bool startsWith(const std::string& s, const std::string& pref) {
@@ -347,7 +422,11 @@ void writeHeartbeat() {
     }
     std::time_t now = std::time(nullptr);
     std::tm tm{};
+#ifdef _WIN32
+    gmtime_s(&tm, &now);
+#else
     gmtime_r(&now, &tm);
+#endif
     char buf[64];
     if (std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm) == 0) {
         return;
@@ -1551,7 +1630,6 @@ int runServeLoop() {
 #else
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
-    std::signal(SIGHUP, onSignal);
     writeHeartbeat();
     while (!g_stop.load()) {
         std::this_thread::sleep_for(std::chrono::seconds(60));

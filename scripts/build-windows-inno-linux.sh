@@ -17,6 +17,7 @@ APP_EXE="zfsmgr_qt.exe"
 APP_VERSION=""
 QT6_PREFIX="${QT6_WINDOWS_PREFIX:-}"
 MINGW_TRIPLE="${CROSS_TRIPLE_WINDOWS:-x86_64-w64-mingw32}"
+AGENT_BUNDLE_DIR="${AGENT_BUNDLE_DIR:-}"
 
 usage() {
   cat <<'EOF'
@@ -33,6 +34,7 @@ Opciones:
   --mingw-triple <t>    Triple MinGW para localizar DLLs de runtime (default: x86_64-w64-mingw32)
   --wineprefix <dir>    WINEPREFIX para Inno Setup (default: ~/.wine-zfsmgr-inno)
   --inno-iscc <path>    Ruta a ISCC.exe o iscc nativo
+  --agent-bundle-dir <dir> Directorio con agentes multi-OS para incluir en installer
   -h, --help            Muestra esta ayuda
 
 Descripción:
@@ -52,6 +54,7 @@ while [[ $# -gt 0 ]]; do
     --mingw-triple) shift; MINGW_TRIPLE="${1:-}"; shift ;;
     --wineprefix) shift; WINEPREFIX="${1:-}"; shift ;;
     --inno-iscc) shift; INNO_ISCC="${1:-}"; shift ;;
+    --agent-bundle-dir) shift; AGENT_BUNDLE_DIR="${1:-}"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Opción desconocida: $1" >&2; usage >&2; exit 1 ;;
   esac
@@ -219,6 +222,13 @@ prepare_payload() {
 
   # Copiar DLLs de runtime MinGW
   copy_mingw_runtime "${PAYLOAD_DIR}"
+
+  # Incluir bundle multi-OS de agentes, si está disponible.
+  if [[ -n "${AGENT_BUNDLE_DIR}" && -d "${AGENT_BUNDLE_DIR}" ]]; then
+    mkdir -p "${PAYLOAD_DIR}/agents"
+    cp -a "${AGENT_BUNDLE_DIR}/." "${PAYLOAD_DIR}/agents/"
+    echo "[payload] Bundle de agentes incluido desde: ${AGENT_BUNDLE_DIR}"
+  fi
 
   return 0
 }

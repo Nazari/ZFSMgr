@@ -186,7 +186,11 @@ ensure_build_dir_source_match() {
 
 if [[ "${BUILD_APPIMAGE}" -eq 0 && "${BUILD_DEB}" -eq 0 ]]; then
   ensure_build_dir_source_match
-  cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
+  cmake_args=(-S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release)
+  if [[ -n "${ZFSMGR_AGENT_BUNDLE_DIR:-}" ]]; then
+    cmake_args+=("-DZFSMGR_AGENT_BUNDLE_DIR=${ZFSMGR_AGENT_BUNDLE_DIR}")
+  fi
+  cmake "${cmake_args[@]}" "${EXTRA_ARGS[@]}"
   cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
   echo "Build completado: ${BUILD_DIR}/zfsmgr_qt"
   exit 0
@@ -210,7 +214,11 @@ download_if_missing() {
 
 echo "Configuring and building Release binary..."
 ensure_build_dir_source_match
-cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
+cmake_args=(-S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release)
+if [[ -n "${ZFSMGR_AGENT_BUNDLE_DIR:-}" ]]; then
+  cmake_args+=("-DZFSMGR_AGENT_BUNDLE_DIR=${ZFSMGR_AGENT_BUNDLE_DIR}")
+fi
+cmake "${cmake_args[@]}" "${EXTRA_ARGS[@]}"
 cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
 
 if [[ "${BUILD_DEB}" -eq 1 ]]; then

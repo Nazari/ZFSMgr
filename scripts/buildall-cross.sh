@@ -23,6 +23,7 @@ Descripción:
   - Windows cross: zfsmgr_qt.exe (+ instalador Inno opcional en Linux)
   - FreeBSD cross: artefacto .pkg con zfsmgr_qt
   - macOS cross: .app.zip (una por arquitectura en MACOS_ARCHES) + nota de primer arranque
+  - Agente: binarios zfsmgr_agent por plataforma/arquitectura en OUTPUT_DIR y builds/agents/
 
 Variables opcionales:
   OUTPUT_DIR      Directorio destino de artefactos (default: builds/artifacts/<timestamp>)
@@ -192,6 +193,16 @@ run_phase() {
   log "Completado ${name}"
 }
 
+cache_agent_binary() {
+  local src="$1"
+  local platform_arch="$2"
+  local ext="$3"
+  [[ -f "${src}" ]] || return 1
+  local cache_dir="${PROJECT_ROOT}/builds/agents/${platform_arch}"
+  mkdir -p "${cache_dir}"
+  cp -f "${src}" "${cache_dir}/zfsmgr_agent${ext}"
+}
+
 has_platform() {
   local needle="$1"
   [[ ",${PLATFORMS}," == *",${needle},"* ]]
@@ -268,53 +279,90 @@ ensure_macos_openssl() {
   printf '%s\n' "${openssl_prefix}"
 }
 
+AGENT_BUNDLE_DIR="${PROJECT_ROOT}/builds/agent-bundle"
+declare -A AGENT_BIN_PATHS=()
+
+set_agent_path_if_exists() {
+  local key="$1"
+  local path="$2"
+  if [[ -f "${path}" ]]; then
+    AGENT_BIN_PATHS["${key}"]="${path}"
+  fi
+}
+
+resolve_agent_source() {
+  local key="$1"
+  local ext="$2"
+  local found="${AGENT_BIN_PATHS[${key}]:-}"
+  if [[ -n "${found}" && -f "${found}" ]]; then
+    printf '%s\n' "${found}"
+    return 0
+  fi
+  local cache="${PROJECT_ROOT}/builds/agents/${key}/zfsmgr_agent${ext}"
+  if [[ -f "${cache}" ]]; then
+    printf '%s\n' "${cache}"
+    return 0
+  fi
+  return 1
+}
+
+build_agent_bundle_dir() {
+  rm -rf "${AGENT_BUNDLE_DIR}"
+  mkdir -p "${AGENT_BUNDLE_DIR}"
+  local key src ext dst
+  for key in linux-x86_64 windows-x86_64 freebsd-x86_64 macos-amd64 macos-arm64; do
+    ext=""
+    [[ "${key}" == windows-* ]] && ext=".exe"
+    src="$(resolve_agent_source "${key}" "${ext}" || true)"
+    [[ -n "${src}" ]] || { echo "No se pudo resolver agente ${key}" >&2; return 1; }
+    dst="${AGENT_BUNDLE_DIR}/${key}"
+    mkdir -p "${dst}"
+    cp -f "${src}" "${dst}/zfsmgr_agent${ext}"
+    chmod 0644 "${dst}/zfsmgr_agent${ext}" || true
+    cache_agent_binary "${src}" "${key}" "${ext}"
+    cp -f "${src}" "${OUTPUT_DIR}/zfsmgr-agent-${APP_VERSION}-${key}${ext}"
+  done
+}
+
+inject_agent_bundle_into_macos_app() {
+  local app_path="$1"
+  local dst="${app_path}/Contents/Resources/agents"
+  mkdir -p "${dst}"
+  cp -a "${AGENT_BUNDLE_DIR}/." "${dst}/"
+}
+
+package_freebsd_with_agent_bundle() {
+  local out_pkg="$1"
+  local stage
+  stage="$(mktemp -d "/tmp/zfsmgr-fbsd-pkg.XXXXXX")"
+  cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_qt" "${stage}/zfsmgr_qt"
+  mkdir -p "${stage}/agents"
+  cp -a "${AGENT_BUNDLE_DIR}/." "${stage}/agents/"
+  tar -C "${stage}" -czf "${out_pkg}" zfsmgr_qt agents
+  rm -rf "${stage}"
+}
+
+# 1) Compilación base de todos los targets para obtener agentes.
 if has_platform "linux"; then
-  run_phase linux-local "${SCRIPT_DIR}/build-linux.sh" --appimage --deb
-  linux_appimage="$(find "${PROJECT_ROOT}/builds/linux" -maxdepth 1 -type f -name "ZFSMgr-${APP_VERSION}-*.AppImage" | sort -V | tail -n1 || true)"
-  linux_deb="$(find "${PROJECT_ROOT}/builds/linux" -maxdepth 1 -type f -name "zfsmgr_${APP_VERSION}_*.deb" | sort -V | tail -n1 || true)"
-  [[ -n "${linux_appimage}" ]] || { echo "No se encontró AppImage Linux" >&2; exit 1; }
-  [[ -n "${linux_deb}" ]] || { echo "No se encontró .deb Linux" >&2; exit 1; }
-  cp -f "${linux_appimage}" "${OUTPUT_DIR}/"
-  cp -f "${linux_deb}" "${OUTPUT_DIR}/"
+  run_phase linux-local-pre "${SCRIPT_DIR}/build-linux.sh"
+  set_agent_path_if_exists "linux-x86_64" "${PROJECT_ROOT}/builds/linux/zfsmgr_agent"
 fi
 
 if has_platform "windows"; then
-  # Autodetect QT6_WINDOWS_PREFIX if not set, so it can be passed to the Inno step
   if [[ -z "${QT6_WINDOWS_PREFIX:-}" ]]; then
     _qt_win_guess="$(autodetect_path_glob "${HOME}/Qt/*/mingw_64")"
     [[ -n "${_qt_win_guess}" ]] && QT6_WINDOWS_PREFIX="${_qt_win_guess}" && export QT6_WINDOWS_PREFIX
   fi
-
   run_phase windows-local "${SCRIPT_DIR}/build-cross.sh" --target windows --jobs "${JOBS}"
-  win_exe="${PROJECT_ROOT}/builds/cross-windows/zfsmgr_qt.exe"
-  [[ -f "${win_exe}" ]] || { echo "No se encontró zfsmgr_qt.exe de Windows cross" >&2; exit 1; }
-  cp -f "${win_exe}" "${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-windows.exe"
-  if [[ "${WINDOWS_INSTALLER}" == "1" ]]; then
-    _inno_extra_args=()
-    [[ -n "${QT6_WINDOWS_PREFIX:-}" ]] && _inno_extra_args+=(--qt-prefix "${QT6_WINDOWS_PREFIX}")
-    run_phase windows-installer-local "${SCRIPT_DIR}/build-windows-inno-linux.sh" \
-      --input-dir "${PROJECT_ROOT}/builds/cross-windows" \
-      --output-dir "${PROJECT_ROOT}/builds/windows-installer" \
-      --version "${APP_VERSION}" \
-      --exe "zfsmgr_qt.exe" \
-      "${_inno_extra_args[@]}"
-    win_setup="$(find "${PROJECT_ROOT}/builds/windows-installer" -maxdepth 1 -type f -name "ZFSMgr-Setup-${APP_VERSION}*.exe" | sort -V | tail -n1 || true)"
-    [[ -n "${win_setup}" ]] || { echo "No se encontró instalador Inno generado" >&2; exit 1; }
-    cp -f "${win_setup}" "${OUTPUT_DIR}/"
-  fi
+  set_agent_path_if_exists "windows-x86_64" "${PROJECT_ROOT}/builds/cross-windows/zfsmgr_agent.exe"
 fi
 
 if has_platform "freebsd"; then
   run_phase freebsd-local "${SCRIPT_DIR}/build-cross.sh" --target freebsd --jobs "${JOBS}"
-  fbsd_exe="${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_qt"
-  [[ -f "${fbsd_exe}" ]] || { echo "No se encontró zfsmgr_qt de FreeBSD cross" >&2; exit 1; }
-  fbsd_pkg="${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-FreeBSD.pkg"
-  tar -C "${PROJECT_ROOT}/builds/cross-freebsd" -czf "${fbsd_pkg}" zfsmgr_qt
+  set_agent_path_if_exists "freebsd-x86_64" "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_agent"
 fi
 
 if has_platform "macos"; then
-  mac_note="${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-macOS-first-run.txt"
-  write_macos_first_run_note "${mac_note}"
   IFS=',' read -r -a _mac_arches <<< "${MACOS_ARCHES}"
   for _arch in "${_mac_arches[@]}"; do
     _arch="$(echo "${_arch}" | xargs)"
@@ -327,8 +375,63 @@ if has_platform "macos"; then
       OSXCROSS_TARGET="${_target}" \
       OPENSSL_ROOT_DIR="${_openssl_prefix}" \
       "${SCRIPT_DIR}/build-cross.sh" --target macos --build-dir "${_build_dir}" --jobs "${JOBS}"
+    set_agent_path_if_exists "macos-${_arch}" "${_build_dir}/zfsmgr_agent"
+  done
+fi
+
+# 2) Construir bundle multi-OS de agentes.
+build_agent_bundle_dir
+
+# 3) Empaquetado final por plataforma incluyendo bundle de agentes.
+if has_platform "linux"; then
+  run_phase linux-local env \
+    ZFSMGR_AGENT_BUNDLE_DIR="${AGENT_BUNDLE_DIR}" \
+    "${SCRIPT_DIR}/build-linux.sh" --appimage --deb
+  linux_appimage="$(find "${PROJECT_ROOT}/builds/linux" -maxdepth 1 -type f -name "ZFSMgr-${APP_VERSION}-*.AppImage" | sort -V | tail -n1 || true)"
+  linux_deb="$(find "${PROJECT_ROOT}/builds/linux" -maxdepth 1 -type f -name "zfsmgr_${APP_VERSION}_*.deb" | sort -V | tail -n1 || true)"
+  [[ -n "${linux_appimage}" ]] || { echo "No se encontró AppImage Linux" >&2; exit 1; }
+  [[ -n "${linux_deb}" ]] || { echo "No se encontró .deb Linux" >&2; exit 1; }
+  cp -f "${linux_appimage}" "${OUTPUT_DIR}/"
+  cp -f "${linux_deb}" "${OUTPUT_DIR}/"
+fi
+
+if has_platform "windows"; then
+  win_exe="${PROJECT_ROOT}/builds/cross-windows/zfsmgr_qt.exe"
+  [[ -f "${win_exe}" ]] || { echo "No se encontró zfsmgr_qt.exe de Windows cross" >&2; exit 1; }
+  cp -f "${win_exe}" "${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-windows.exe"
+  if [[ "${WINDOWS_INSTALLER}" == "1" ]]; then
+    _inno_extra_args=()
+    [[ -n "${QT6_WINDOWS_PREFIX:-}" ]] && _inno_extra_args+=(--qt-prefix "${QT6_WINDOWS_PREFIX}")
+    run_phase windows-installer-local "${SCRIPT_DIR}/build-windows-inno-linux.sh" \
+      --input-dir "${PROJECT_ROOT}/builds/cross-windows" \
+      --output-dir "${PROJECT_ROOT}/builds/windows-installer" \
+      --version "${APP_VERSION}" \
+      --exe "zfsmgr_qt.exe" \
+      --agent-bundle-dir "${AGENT_BUNDLE_DIR}" \
+      "${_inno_extra_args[@]}"
+    win_setup="$(find "${PROJECT_ROOT}/builds/windows-installer" -maxdepth 1 -type f -name "ZFSMgr-Setup-${APP_VERSION}*.exe" | sort -V | tail -n1 || true)"
+    [[ -n "${win_setup}" ]] || { echo "No se encontró instalador Inno generado" >&2; exit 1; }
+    cp -f "${win_setup}" "${OUTPUT_DIR}/"
+  fi
+fi
+
+if has_platform "freebsd"; then
+  [[ -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_qt" ]] || { echo "No se encontró zfsmgr_qt de FreeBSD cross" >&2; exit 1; }
+  fbsd_pkg="${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-FreeBSD.pkg"
+  package_freebsd_with_agent_bundle "${fbsd_pkg}"
+fi
+
+if has_platform "macos"; then
+  mac_note="${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-macOS-first-run.txt"
+  write_macos_first_run_note "${mac_note}"
+  IFS=',' read -r -a _mac_arches <<< "${MACOS_ARCHES}"
+  for _arch in "${_mac_arches[@]}"; do
+    _arch="$(echo "${_arch}" | xargs)"
+    [[ -n "${_arch}" ]] || continue
+    _build_dir="${PROJECT_ROOT}/builds/cross-macos-${_arch}"
     mac_app="$(find "${_build_dir}" -maxdepth 1 -type d -name "ZFSMgr-*.app" | sort -V | tail -n1 || true)"
     [[ -n "${mac_app}" ]] || { echo "No se encontró .app de macOS cross (${_arch})" >&2; exit 1; }
+    inject_agent_bundle_into_macos_app "${mac_app}"
     mac_zip="${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-macos-${_arch}.app.zip"
     package_macos_app_zip "${mac_app}" "${mac_zip}"
   done

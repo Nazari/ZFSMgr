@@ -37,6 +37,7 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Core Gui Concurrent Network Test)
 find_package(OpenSSL REQUIRED)
+find_package(Threads REQUIRED)
 
 set(ZFSMGR_CORE_SOURCES
     ../src/mainwindow.cpp
@@ -127,6 +128,7 @@ target_compile_definitions(zfsmgr_agent PRIVATE
 )
 if(NOT WIN32)
     target_link_libraries(zfsmgr_agent PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    target_link_libraries(zfsmgr_agent PRIVATE Threads::Threads)
 endif()
 
 if(WIN32)
@@ -161,6 +163,12 @@ install(TARGETS zfsmgr_agent
     RUNTIME DESTINATION bin
 )
 
+if(DEFINED ZFSMGR_AGENT_BUNDLE_DIR AND EXISTS "${ZFSMGR_AGENT_BUNDLE_DIR}")
+    install(DIRECTORY "${ZFSMGR_AGENT_BUNDLE_DIR}/"
+        DESTINATION share/zfsmgr/agents
+    )
+endif()
+
 if(UNIX AND NOT APPLE)
     file(WRITE "${ZFSMGR_LINUX_DESKTOP_FILE}" [=[
 [Desktop Entry]
@@ -191,7 +199,13 @@ Terminal=false
     set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Nazari")
     set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
     set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
-    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+    if(DEFINED ZFSMGR_AGENT_BUNDLE_DIR AND EXISTS "${ZFSMGR_AGENT_BUNDLE_DIR}")
+        # Cuando incluimos agentes multi-OS, dpkg-shlibdeps intenta resolver ELFs
+        # de FreeBSD dentro del .deb y falla (no existen esas libs en Linux).
+        set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
+    else()
+        set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+    endif()
     include(CPack)
 endif()
 

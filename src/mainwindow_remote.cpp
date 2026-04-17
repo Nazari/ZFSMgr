@@ -127,9 +127,19 @@ bool extractLocalAgentArgs(const QString& remoteCmd, QStringList& argsOut) {
     if (tail.isEmpty()) {
         return false;
     }
-    const int sep = tail.indexOf(QRegularExpression(QStringLiteral("[;&|]")));
+    // El comando puede venir envuelto en `sh -c '... /usr/local/libexec/zfsmgr-agent --dump-x'`.
+    // Cortamos en separadores de shell y limpiamos comillas residuales.
+    const int sep = tail.indexOf(QRegularExpression(QStringLiteral("[;&|\\n\\r]")));
     if (sep >= 0) {
         tail = tail.left(sep).trimmed();
+    }
+    while (!tail.isEmpty() && (tail.endsWith(QLatin1Char('\'')) || tail.endsWith(QLatin1Char('"')))) {
+        tail.chop(1);
+        tail = tail.trimmed();
+    }
+    while (!tail.isEmpty() && (tail.startsWith(QLatin1Char('\'')) || tail.startsWith(QLatin1Char('"')))) {
+        tail.remove(0, 1);
+        tail = tail.trimmed();
     }
     if (tail.isEmpty()) {
         return false;
@@ -1204,7 +1214,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 return true;
             } else if (allowRpcAttempt) {
                 QMutexLocker lock(&m_sshRuntimeSetsMutex);
-                constexpr int kDaemonRpcRetryBackoffSec = 180;
+                constexpr int kDaemonRpcRetryBackoffSec = 30;
                 m_daemonRpcRetryAfterByConnKey.insert(
                     rpcConnKey, QDateTime::currentDateTimeUtc().addSecs(kDaemonRpcRetryBackoffSec));
             }
