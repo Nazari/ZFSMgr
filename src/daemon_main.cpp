@@ -31,15 +31,31 @@
 #endif
 
 #ifdef HAVE_LIBZFS_CORE
+// libzfs_core userspace headers (e.g. from libzfslinux-dev on Ubuntu) rely on
+// Solaris/illumos compat types that are not automatically pulled in on Linux.
+// Define the minimum set needed before including the ZFS headers.
+#include <stdint.h>
+#include <stdarg.h>
+#include <sys/types.h>
+#ifndef B_FALSE
+typedef enum { B_FALSE = 0, B_TRUE = 1 } boolean_t;
+#endif
+#ifndef _UINT_T
+#define _UINT_T
+typedef unsigned int  uint_t;
+#endif
+#ifndef _UCHAR_T
+#define _UCHAR_T
+typedef unsigned char uchar_t;
+#endif
+#ifndef _HRTIME_T
+#define _HRTIME_T
+typedef int64_t hrtime_t;
+#endif
 #include <libzfs_core.h>
 #include <libnvpair.h>
 #ifndef ZFS_MAX_DATASET_NAME_LEN
 #define ZFS_MAX_DATASET_NAME_LEN 256
-#endif
-// boolean_t / B_TRUE / B_FALSE: defined by ZFS kernel headers on illumos/FreeBSD,
-// but on Linux with OpenZFS userspace they may not be pulled in automatically.
-#ifndef B_FALSE
-typedef enum { B_FALSE = 0, B_TRUE = 1 } boolean_t;
 #endif
 #endif
 
