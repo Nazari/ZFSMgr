@@ -881,16 +881,8 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
         profile, mwhelpers::withUnixSearchPathCommand(
                      QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-get-all %1")
                          .arg(shSingleQuote(trimmedPool))));
-    bool poolPropsOk = runSsh(profile, (daemonReadApiOk ? poolCmdDaemon : poolCmdClassic), 15000, out, err, rc) && rc == 0;
-    if (!poolPropsOk && daemonReadApiOk) {
-        appLog(QStringLiteral("INFO"),
-               QStringLiteral("daemon zpool-get-all fallback %1::%2 -> %3")
-                   .arg(profile.name, trimmedPool, oneLine(err.isEmpty() ? out : err)));
-        out.clear();
-        err.clear();
-        rc = -1;
-        poolPropsOk = runSsh(profile, poolCmdClassic, 15000, out, err, rc) && rc == 0;
-    }
+    const QString selectedPoolCmd = daemonReadApiOk ? poolCmdDaemon : poolCmdClassic;
+    bool poolPropsOk = runSsh(profile, selectedPoolCmd, 15000, out, err, rc) && rc == 0;
     if (poolPropsOk) {
         const QString cacheKey = poolDetailsCacheKey(connIdx, trimmedPool);
         PoolDetailsCacheEntry entry = m_poolDetailsCache.value(cacheKey);
@@ -1679,23 +1671,14 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
         p, mwhelpers::withUnixSearchPathCommand(
                QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-mount")));
     QVector<QPair<QString, QString>> mountedRows;
-    bool mountListOk = runSsh(p, (daemonReadApiOk ? mountedCmdDaemon : mountedCmdClassic), 20000, mountedOut, mountedErr, mountedRc)
-                       && mountedRc == 0;
-    if (!mountListOk && daemonReadApiOk) {
-        appLog(QStringLiteral("INFO"),
-               QStringLiteral("daemon zfs-mount fallback %1 -> %2")
-                   .arg(p.name, oneLine(mountedErr.isEmpty() ? mountedOut : mountedErr)));
-        mountedOut.clear();
-        mountedErr.clear();
-        mountedRc = -1;
-        mountListOk = runSsh(p, mountedCmdClassic, 20000, mountedOut, mountedErr, mountedRc) && mountedRc == 0;
-    }
+    const QString selectedMountCmd = daemonReadApiOk ? mountedCmdDaemon : mountedCmdClassic;
+    bool mountListOk = runSsh(p, selectedMountCmd, 20000, mountedOut, mountedErr, mountedRc) && mountedRc == 0;
     if (mountListOk) {
         mountedRows = isWinConn
             ? mwhelpers::parseZfsMountOutput(mountedOut)
             : mwhelpers::parseZfsMountJsonOutput(mountedOut);
     }
-    if (!isWinConn && mountedRows.isEmpty() && !useRemoteScript) {
+    if (!isWinConn && mountedRows.isEmpty() && !useRemoteScript && !daemonReadApiOk) {
         QString fallbackOut;
         QString fallbackErr;
         int fallbackRc = -1;

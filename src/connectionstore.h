@@ -20,6 +20,10 @@ struct ConnectionProfile {
     QString password;
     QString keyPath;
     bool useSudo{false};
+    QString daemonTlsServerCertPem;
+    QString daemonTlsClientCertPem;
+    QString daemonTlsClientKeyPem;
+    int daemonTlsPort{47653};
 };
 
 struct LoadResult {

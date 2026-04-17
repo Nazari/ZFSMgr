@@ -169,6 +169,7 @@ private:
         bool daemonNeedsAttention{false};
         bool daemonInstalled{false};
         bool daemonActive{false};
+        bool daemonNativeBinary{false};
     };
 
     struct DatasetRecord {
@@ -639,7 +640,16 @@ private:
                                        int timeoutMs,
                                        QString& out,
                                        QString& err,
-                                       int& rc);
+                                       int& rc,
+                                       QString* failureReason = nullptr);
+    bool persistDaemonTlsMaterialForConnection(const ConnectionProfile& p,
+                                               const QByteArray& serverCertPem,
+                                               const QByteArray& clientCertPem,
+                                               const QByteArray& clientKeyPem,
+                                               quint16 daemonPort,
+                                               QString* errorOut = nullptr);
+    bool cacheDaemonTlsMaterialForConnection(const ConnectionProfile& p, QString* errorOut = nullptr);
+    bool cleanupRemoteDaemonClientPrivateKey(const ConnectionProfile& p, QString* errorOut = nullptr);
     void closeAllRemoteDaemonRpcTunnels();
     void closeAllSshControlMasters();
     QString withSudo(const ConnectionProfile& p, const QString& cmd) const;

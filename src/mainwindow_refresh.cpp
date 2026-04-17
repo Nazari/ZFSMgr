@@ -918,7 +918,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         agentProbeCmd = withSudo(
                 p,
                 QStringLiteral(
-                    "set +e; scheduler=''; installed=0; active=0; version=''; api=''; detail=''; "
+                    "set +e; scheduler=''; installed=0; active=0; native=0; version=''; api=''; detail=''; "
                     "if [ \"$(uname -s 2>/dev/null)\" = 'Darwin' ]; then "
                     "  scheduler='launchd'; "
                     "  bin='/usr/local/libexec/zfsmgr-agent'; "
@@ -927,6 +927,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     "  if [ \"$installed\" -eq 1 ]; then "
                     "    version=$($bin --version 2>/dev/null | head -n1); "
                     "    api=$($bin --api-version 2>/dev/null | head -n1); "
+                    "    file_out=$(file -b \"$bin\" 2>/dev/null || true); "
+                    "    case \"$file_out\" in *Mach-O*|*ELF*|*PE32*) native=1;; esac; "
                     "    launchctl print system/org.zfsmgr.agent >/dev/null 2>&1 && active=1; "
                     "  fi; "
                     "elif [ \"$(uname -s 2>/dev/null)\" = 'FreeBSD' ]; then "
@@ -937,6 +939,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     "  if [ \"$installed\" -eq 1 ]; then "
                     "    version=$($bin --version 2>/dev/null | head -n1); "
                     "    api=$($bin --api-version 2>/dev/null | head -n1); "
+                    "    file_out=$(file -b \"$bin\" 2>/dev/null || true); "
+                    "    case \"$file_out\" in *Mach-O*|*ELF*|*PE32*) native=1;; esac; "
                     "    service zfsmgr_agent onestatus >/dev/null 2>&1 && active=1; "
                     "  fi; "
                     "elif command -v systemctl >/dev/null 2>&1; then "
@@ -947,14 +951,16 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     "  if [ \"$installed\" -eq 1 ]; then "
                     "    version=$($bin --version 2>/dev/null | head -n1); "
                     "    api=$($bin --api-version 2>/dev/null | head -n1); "
+                    "    file_out=$(file -b \"$bin\" 2>/dev/null || true); "
+                    "    case \"$file_out\" in *Mach-O*|*ELF*|*PE32*) native=1;; esac; "
                     "    systemctl is-enabled zfsmgr-agent.service >/dev/null 2>&1 && "
                     "systemctl is-active zfsmgr-agent.service >/dev/null 2>&1 && active=1; "
                     "  fi; "
                     "else "
                     "  detail='No native scheduler detected'; "
                     "fi; "
-                    "printf 'SCHEDULER=%s\\nINSTALLED=%s\\nACTIVE=%s\\nVERSION=%s\\nAPI=%s\\nDETAIL=%s\\n' "
-                    "\"$scheduler\" \"$installed\" \"$active\" \"$version\" \"$api\" \"$detail\""));
+                    "printf 'SCHEDULER=%s\\nINSTALLED=%s\\nACTIVE=%s\\nNATIVE=%s\\nVERSION=%s\\nAPI=%s\\nDETAIL=%s\\n' "
+                    "\"$scheduler\" \"$installed\" \"$active\" \"$native\" \"$version\" \"$api\" \"$detail\""));
     } else {
         gsaProbeCmd = withSudo(
                 p,
@@ -1003,7 +1009,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 p,
                 QStringLiteral(
                     "set +e; "
-                    "scheduler=''; installed=0; active=0; version=''; api=''; detail=''; "
+                    "scheduler=''; installed=0; active=0; native=0; version=''; api=''; detail=''; "
                     "if [ \"$(uname -s 2>/dev/null)\" = 'Darwin' ]; then "
                     "  scheduler='launchd'; "
                     "  bin='/usr/local/libexec/zfsmgr-agent'; "
@@ -1012,6 +1018,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     "  if [ \"$installed\" -eq 1 ]; then "
                     "    version=$($bin --version 2>/dev/null | head -n1); "
                     "    api=$($bin --api-version 2>/dev/null | head -n1); "
+                    "    file_out=$(file -b \"$bin\" 2>/dev/null || true); "
+                    "    case \"$file_out\" in *Mach-O*|*ELF*|*PE32*) native=1;; esac; "
                     "    launchctl print system/org.zfsmgr.agent >/dev/null 2>&1 && active=1; "
                     "  fi; "
                     "elif [ \"$(uname -s 2>/dev/null)\" = 'FreeBSD' ]; then "
@@ -1022,6 +1030,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     "  if [ \"$installed\" -eq 1 ]; then "
                     "    version=$($bin --version 2>/dev/null | head -n1); "
                     "    api=$($bin --api-version 2>/dev/null | head -n1); "
+                    "    file_out=$(file -b \"$bin\" 2>/dev/null || true); "
+                    "    case \"$file_out\" in *Mach-O*|*ELF*|*PE32*) native=1;; esac; "
                     "    service zfsmgr_agent onestatus >/dev/null 2>&1 && active=1; "
                     "  fi; "
                     "elif command -v systemctl >/dev/null 2>&1; then "
@@ -1032,14 +1042,16 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                     "  if [ \"$installed\" -eq 1 ]; then "
                     "    version=$($bin --version 2>/dev/null | head -n1); "
                     "    api=$($bin --api-version 2>/dev/null | head -n1); "
+                    "    file_out=$(file -b \"$bin\" 2>/dev/null || true); "
+                    "    case \"$file_out\" in *Mach-O*|*ELF*|*PE32*) native=1;; esac; "
                     "    systemctl is-enabled zfsmgr-agent.service >/dev/null 2>&1 && "
                     "systemctl is-active zfsmgr-agent.service >/dev/null 2>&1 && active=1; "
                     "  fi; "
                     "else "
                     "  detail='No native scheduler detected'; "
                     "fi; "
-                    "printf 'SCHEDULER=%s\\nINSTALLED=%s\\nACTIVE=%s\\nVERSION=%s\\nAPI=%s\\nDETAIL=%s\\n' "
-                    "\"$scheduler\" \"$installed\" \"$active\" \"$version\" \"$api\" \"$detail\""));
+                    "printf 'SCHEDULER=%s\\nINSTALLED=%s\\nACTIVE=%s\\nNATIVE=%s\\nVERSION=%s\\nAPI=%s\\nDETAIL=%s\\n' "
+                    "\"$scheduler\" \"$installed\" \"$active\" \"$native\" \"$version\" \"$api\" \"$detail\""));
     }
     const QString importProbeCmd = withSudo(
         p,
@@ -1069,6 +1081,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             state.daemonDetail = kv.value(QStringLiteral("DETAIL")).trimmed();
             state.daemonInstalled = (kv.value(QStringLiteral("INSTALLED")).trimmed() == QStringLiteral("1"));
             state.daemonActive = (kv.value(QStringLiteral("ACTIVE")).trimmed() == QStringLiteral("1"));
+            state.daemonNativeBinary = (kv.value(QStringLiteral("NATIVE")).trimmed() == QStringLiteral("1"));
         }
     }
     cutPhase(QStringLiteral("agent_probe"));
@@ -1086,6 +1099,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         !isWinConn
         && state.daemonInstalled
         && state.daemonActive
+        && state.daemonNativeBinary
         && state.daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     if (daemonReadApiOk) {
         QString hout;
@@ -1151,13 +1165,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     if (daemonReadApiOk) {
         zpoolListOk = runSsh(p, zpoolListCmdDaemon, 18000, out, err, rc) && rc == 0;
         zpoolListViaDaemon = zpoolListOk;
-        if (!zpoolListOk) {
-            appLog(QStringLiteral("INFO"),
-                   QStringLiteral("%1: daemon zpool list fallback -> %2").arg(p.name, oneLine(err)));
-            out.clear();
-            err.clear();
-            rc = -1;
-        }
     }
     if (!zpoolListOk) {
         zpoolListOk = runSsh(p, zpoolListCmdClassic, 18000, out, err, rc) && rc == 0;
@@ -1232,15 +1239,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         const QString batchCmd = daemonReadApiOk ? zpoolGuidStatusBatchCmdDaemon : batchCmdClassic;
         if (state.poolStatusByName.isEmpty() || state.poolGuidByName.isEmpty()) {
             bool batchOk = runSsh(p, batchCmd, 45000, bout, berr, brc) && brc == 0;
-            if (!batchOk && daemonReadApiOk) {
-                appLog(QStringLiteral("INFO"),
-                       QStringLiteral("%1: daemon zpool guid/status fallback -> %2")
-                           .arg(p.name, oneLine(berr.isEmpty() ? bout : berr)));
-                bout.clear();
-                berr.clear();
-                brc = -1;
-                batchOk = runSsh(p, batchCmdClassic, 45000, bout, berr, brc) && brc == 0;
-            }
             if (batchOk) {
                 const QMap<QString, PoolGuidStatusEntry> parsed =
                     parsePoolGuidStatusBatch(bout + QStringLiteral("\n") + berr);
@@ -1280,16 +1278,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 p, mwhelpers::withUnixSearchPathCommand(
                        QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-guid %1")
                            .arg(mwhelpers::shSingleQuote(poolName))));
-            bool guidOk = runSsh(p, (daemonReadApiOk ? guidCmdDaemon : guidCmdClassic), 12000, gout, gerr, grc) && grc == 0;
-            if (!guidOk && daemonReadApiOk) {
-                appLog(QStringLiteral("INFO"),
-                       QStringLiteral("%1: daemon zpool guid fallback (%2) -> %3")
-                           .arg(p.name, poolName, oneLine(gerr.isEmpty() ? gout : gerr)));
-                gout.clear();
-                gerr.clear();
-                grc = -1;
-                guidOk = runSsh(p, guidCmdClassic, 12000, gout, gerr, grc) && grc == 0;
-            }
+            const QString selectedGuidCmd = daemonReadApiOk ? guidCmdDaemon : guidCmdClassic;
+            bool guidOk = runSsh(p, selectedGuidCmd, 12000, gout, gerr, grc) && grc == 0;
             if (guidOk) {
                 const QString guid = gout.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
@@ -1313,16 +1303,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             p, mwhelpers::withUnixSearchPathCommand(
                    QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-status %1")
                        .arg(mwhelpers::shSingleQuote(poolName))));
-        bool statusOk = runSsh(p, (daemonReadApiOk ? stCmdDaemon : stCmdClassic), 20000, out, err, rc) && rc == 0;
-        if (!statusOk && daemonReadApiOk) {
-            appLog(QStringLiteral("INFO"),
-                   QStringLiteral("%1: daemon zpool status fallback (%2) -> %3")
-                       .arg(p.name, poolName, oneLine(err.isEmpty() ? out : err)));
-            out.clear();
-            err.clear();
-            rc = -1;
-            statusOk = runSsh(p, stCmdClassic, 20000, out, err, rc) && rc == 0;
-        }
+        const QString selectedStatusCmd = daemonReadApiOk ? stCmdDaemon : stCmdClassic;
+        bool statusOk = runSsh(p, selectedStatusCmd, 20000, out, err, rc) && rc == 0;
         if (statusOk) {
             state.poolStatusByName.insert(poolName, out.trimmed());
         } else {
@@ -1361,16 +1343,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         const QString cmdDaemon = withSudo(
             p, mwhelpers::withUnixSearchPathCommand(
                    QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-gsa-connections-conf")));
-        bool mapOk = runSsh(p, (daemonReadApiOk ? cmdDaemon : cmdClassic), 12000, mapOut, mapErr, mapRc) && mapRc == 0;
-        if (!mapOk && daemonReadApiOk) {
-            appLog(QStringLiteral("INFO"),
-                   QStringLiteral("%1: daemon gsa-connections fallback -> %2")
-                       .arg(p.name, oneLine(mapErr.isEmpty() ? mapOut : mapErr)));
-            mapOut.clear();
-            mapErr.clear();
-            mapRc = -1;
-            mapOk = runSsh(p, cmdClassic, 12000, mapOut, mapErr, mapRc) && mapRc == 0;
-        }
+        const QString selectedMapCmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
+        bool mapOk = runSsh(p, selectedMapCmd, 12000, mapOut, mapErr, mapRc) && mapRc == 0;
         if (mapOk) {
             state.gsaKnownConnections = parseGsaKnownConnections(mapOut);
         }
@@ -1383,11 +1357,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         if (daemonReadApiOk) {
             importRes = runAsyncCommand(importProbeCmdDaemon, 25000, WindowsCommandMode::Auto).result();
             importOk = importRes.ran && importRes.rc == 0;
-            if (!importOk) {
-                appLog(QStringLiteral("INFO"),
-                       QStringLiteral("%1: daemon zpool import probe fallback -> %2")
-                           .arg(p.name, oneLine(importRes.err.isEmpty() ? importRes.out : importRes.err)));
-            }
         }
         if (!importOk) {
             importRes = importFuture.result();
@@ -1418,11 +1387,6 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     if (daemonReadApiOk) {
         mountsRes = runAsyncCommand(mountedCmdDaemon, 18000, WindowsCommandMode::Auto).result();
         mountsViaDaemon = mountsRes.ran && mountsRes.rc == 0;
-        if (!mountsViaDaemon) {
-            appLog(QStringLiteral("INFO"),
-                   QStringLiteral("%1: daemon zfs mount fallback -> %2")
-                       .arg(p.name, oneLine(mountsRes.err.isEmpty() ? mountsRes.out : mountsRes.err)));
-        }
     }
     if (!mountsViaDaemon) {
         mountsRes = runAsyncCommand(mountedCmdClassic, 18000, WindowsCommandMode::Auto).result();
@@ -1432,7 +1396,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             ? mwhelpers::parseZfsMountOutput(mountsRes.out)
             : mwhelpers::parseZfsMountJsonOutput(mountsRes.out);
     }
-    if (!isWinConn && mountedRows.isEmpty() && !useRemoteScripts) {
+    if (!isWinConn && mountedRows.isEmpty() && !useRemoteScripts && !daemonReadApiOk) {
         QString fbOut;
         QString fbErr;
         int fbRc = -1;
@@ -1493,16 +1457,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 p, mwhelpers::withUnixSearchPathCommand(
                        QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-gsa-raw-all-pools")));
             if (propsByDataset.isEmpty()) {
-                bool gsaPropsOk = runSsh(p, (daemonReadApiOk ? gcmdDaemon : gcmdClassic), 30000, gout, gerr, grc) && grc == 0;
-                if (!gsaPropsOk && daemonReadApiOk) {
-                    appLog(QStringLiteral("INFO"),
-                           QStringLiteral("%1: daemon gsa raw scan fallback -> %2")
-                               .arg(p.name, oneLine(gerr.isEmpty() ? gout : gerr)));
-                    gout.clear();
-                    gerr.clear();
-                    grc = -1;
-                    gsaPropsOk = runSsh(p, gcmdClassic, 30000, gout, gerr, grc) && grc == 0;
-                }
+                const QString selectedGsaCmd = daemonReadApiOk ? gcmdDaemon : gcmdClassic;
+                bool gsaPropsOk = runSsh(p, selectedGsaCmd, 30000, gout, gerr, grc) && grc == 0;
                 if (gsaPropsOk) {
                     const QString merged = gout + QStringLiteral("\n") + gerr;
                     const QStringList lines = merged.split('\n', Qt::SkipEmptyParts);
@@ -1552,6 +1508,10 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     if (state.daemonInstalled) {
         const QString expectedAgentVersion = agentversion::currentVersion().trimmed();
         const QString expectedApiVersion = agentversion::expectedApiVersion().trimmed();
+        if (!isWinConn && !state.daemonNativeBinary) {
+            state.daemonNeedsAttention = true;
+            state.daemonAttentionReasons.push_back(QStringLiteral("daemon no nativo (RPC TLS no disponible)"));
+        }
         if (!state.daemonVersion.trimmed().isEmpty()
             && agentversion::compareVersions(state.daemonVersion.trimmed(), expectedAgentVersion) < 0) {
             state.daemonNeedsAttention = true;

@@ -43,6 +43,8 @@ constexpr int kDefaultPort = 47653;
 constexpr const char* kDefaultTlsCertPath = "/etc/zfsmgr/tls/server.crt";
 constexpr const char* kDefaultTlsKeyPath = "/etc/zfsmgr/tls/server.key";
 constexpr const char* kDefaultTlsClientCertPath = "/etc/zfsmgr/tls/client.crt";
+constexpr const char* kDefaultCommandPath =
+    "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin";
 
 constexpr const char* kApiVersion = "1";
 #ifndef ZFSMGR_AGENT_VERSION_STRING
@@ -63,6 +65,7 @@ struct AgentRuntimeConfig {
     std::string tlsCert{kDefaultTlsCertPath};
     std::string tlsKey{kDefaultTlsKeyPath};
     std::string tlsClientCert{kDefaultTlsClientCertPath};
+    std::string commandPath{kDefaultCommandPath};
     int cacheTtlFastMs{2000};
     int cacheMaxEntries{512};
 };
@@ -148,6 +151,8 @@ AgentRuntimeConfig loadRuntimeConfig() {
             cfg.tlsKey = value;
         } else if (key == "TLS_CLIENT_CERT" && !value.empty()) {
             cfg.tlsClientCert = value;
+        } else if (key == "AGENT_PATH" && !value.empty()) {
+            cfg.commandPath = value;
         } else if (key == "CACHE_TTL_FAST_MS" && !value.empty()) {
             try {
                 const int parsed = std::stoi(value);
@@ -167,6 +172,17 @@ AgentRuntimeConfig loadRuntimeConfig() {
         }
     }
     return cfg;
+}
+
+void applyRuntimeEnvironment(const AgentRuntimeConfig& cfg) {
+    if (cfg.commandPath.empty()) {
+        return;
+    }
+#ifdef _WIN32
+    _putenv_s("PATH", cfg.commandPath.c_str());
+#else
+    setenv("PATH", cfg.commandPath.c_str(), 1);
+#endif
 }
 
 std::string readFirstLineFile(const char* path) {
@@ -1251,6 +1267,7 @@ std::string dumpClassForCommand(const std::string& cmd) {
 int runServeLoop() {
 #ifndef _WIN32
     const AgentRuntimeConfig cfg = loadRuntimeConfig();
+    applyRuntimeEnvironment(cfg);
     SSL_library_init();
     SSL_load_error_strings();
     OpenSSL_add_ssl_algorithms();
@@ -1647,6 +1664,9 @@ void printUsage(const char* argv0) {
 } // namespace
 
 int main(int argc, char* argv[]) {
+    const AgentRuntimeConfig runtimeCfg = loadRuntimeConfig();
+    applyRuntimeEnvironment(runtimeCfg);
+
     std::vector<std::string> args;
     args.reserve(static_cast<std::size_t>(argc));
     for (int i = 0; i < argc; ++i) {

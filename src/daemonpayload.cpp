@@ -16,6 +16,9 @@ QString tlsServerCertPath() { return QStringLiteral("/etc/zfsmgr/tls/server.crt"
 QString tlsServerKeyPath() { return QStringLiteral("/etc/zfsmgr/tls/server.key"); }
 QString tlsClientCertPath() { return QStringLiteral("/etc/zfsmgr/tls/client.crt"); }
 QString tlsClientKeyPath() { return QStringLiteral("/etc/zfsmgr/tls/client.key"); }
+QString defaultAgentPath() {
+    return QStringLiteral("/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin");
+}
 
 QString unixStubScript(const QString& version, const QString& apiVersion) {
     QString daemonScript = QString::fromUtf8(R"SH(
@@ -273,18 +276,20 @@ QString simpleConfigPayload(const QString& version, const QString& apiVersion) {
                "API=%2\n"
                "AGENT_BIND=%3\n"
                "AGENT_PORT=%4\n"
-               "CACHE_TTL_FAST_MS=%5\n"
-               "CACHE_TTL_SLOW_MS=%6\n"
-               "CACHE_MAX_ENTRIES=%7\n"
-               "RECONCILE_INTERVAL_MS=%8\n"
-               "ZED_EVENTS_ENABLED=%9\n"
-               "TLS_DIR=%10\n"
-               "TLS_CERT=%11\n"
-               "TLS_KEY=%12\n")
+               "AGENT_PATH=%5\n"
+               "CACHE_TTL_FAST_MS=%6\n"
+               "CACHE_TTL_SLOW_MS=%7\n"
+               "CACHE_MAX_ENTRIES=%8\n"
+               "RECONCILE_INTERVAL_MS=%9\n"
+               "ZED_EVENTS_ENABLED=%10\n"
+               "TLS_DIR=%11\n"
+               "TLS_CERT=%12\n"
+               "TLS_KEY=%13\n")
         .arg(mwhelpers::shSingleQuote(version.trimmed()),
              mwhelpers::shSingleQuote(apiVersion.trimmed()),
              mwhelpers::shSingleQuote(QStringLiteral("127.0.0.1")),
              mwhelpers::shSingleQuote(QStringLiteral("47653")),
+             mwhelpers::shSingleQuote(defaultAgentPath()),
              mwhelpers::shSingleQuote(QStringLiteral("2000")),
              mwhelpers::shSingleQuote(QStringLiteral("8000")),
              mwhelpers::shSingleQuote(QStringLiteral("512")),

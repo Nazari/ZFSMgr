@@ -52,6 +52,7 @@ struct RemoteDaemonTlsCacheEntry {
 
 QMutex s_remoteDaemonTlsCacheMutex;
 QHash<QString, RemoteDaemonTlsCacheEntry> s_remoteDaemonTlsCache;
+QMutex s_remoteDaemonTlsPersistMutex;
 
 QString remoteDaemonTlsCacheKey(const ConnectionProfile& p) {
     return QStringLiteral("%1|%2|%3|%4")
@@ -116,6 +117,48 @@ LocalAgentConfig loadLocalAgentConfig() {
     return cfg;
 }
 
+// Parser POSIX mínimo: entiende '...' y "..." y el patrón '"'"' de shSingleQuote.
+// QProcess::splitCommand solo maneja "..." (no '...') y produce resultados incorrectos
+// cuando los args vienen de shSingleQuote embebido en otro shSingleQuote.
+static QStringList posixShellSplitArgs(const QString& s) {
+    QStringList result;
+    QString current;
+    bool inSQ = false, inDQ = false;
+    for (int i = 0; i < s.size(); ++i) {
+        const QChar c = s.at(i);
+        if (inSQ) {
+            if (c == QLatin1Char('\'')) { inSQ = false; }
+            else { current += c; }
+        } else if (inDQ) {
+            if (c == QLatin1Char('"')) { inDQ = false; }
+            else if (c == QLatin1Char('\\') && i + 1 < s.size()) {
+                const QChar next = s.at(++i);
+                if (next == QLatin1Char('"') || next == QLatin1Char('\\')
+                    || next == QLatin1Char('$') || next == QLatin1Char('`')) {
+                    current += next;
+                } else {
+                    current += c;
+                    current += next;
+                }
+            } else {
+                current += c;
+            }
+        } else {
+            if (c == QLatin1Char('\'')) { inSQ = true; }
+            else if (c == QLatin1Char('"')) { inDQ = true; }
+            else if (c == QLatin1Char('\\') && i + 1 < s.size()) {
+                current += s.at(++i);
+            } else if (c.isSpace()) {
+                if (!current.isEmpty()) { result += current; current.clear(); }
+            } else {
+                current += c;
+            }
+        }
+    }
+    if (!current.isEmpty()) { result += current; }
+    return result;
+}
+
 bool extractLocalAgentArgs(const QString& remoteCmd, QStringList& argsOut) {
     argsOut.clear();
     const QString marker = QStringLiteral("/usr/local/libexec/zfsmgr-agent");
@@ -127,24 +170,20 @@ bool extractLocalAgentArgs(const QString& remoteCmd, QStringList& argsOut) {
     if (tail.isEmpty()) {
         return false;
     }
-    // El comando puede venir envuelto en `sh -c '... /usr/local/libexec/zfsmgr-agent --dump-x'`.
-    // Cortamos en separadores de shell y limpiamos comillas residuales.
+    // Cortamos en el primer separador de shell no entrecomillado
     const int sep = tail.indexOf(QRegularExpression(QStringLiteral("[;&|\\n\\r]")));
     if (sep >= 0) {
         tail = tail.left(sep).trimmed();
     }
-    while (!tail.isEmpty() && (tail.endsWith(QLatin1Char('\'')) || tail.endsWith(QLatin1Char('"')))) {
-        tail.chop(1);
-        tail = tail.trimmed();
-    }
-    while (!tail.isEmpty() && (tail.startsWith(QLatin1Char('\'')) || tail.startsWith(QLatin1Char('"')))) {
-        tail.remove(0, 1);
-        tail = tail.trimmed();
-    }
+    // Los args vienen del comando construido con shSingleQuote() luego envuelto en otro
+    // shSingleQuote() para el argumento de `sh -c '...'`.  El patrón '"'"' representa un
+    // carácter ' escapado en ese doble-envoltorio.  Reemplazarlo antes de parsear evita
+    // que el parser interprete los " como delimitadores adicionales de cita.
+    tail.replace(QStringLiteral("'\"'\"'"), QStringLiteral("'"));
     if (tail.isEmpty()) {
         return false;
     }
-    const QStringList parsed = QProcess::splitCommand(tail);
+    const QStringList parsed = posixShellSplitArgs(tail);
     if (parsed.isEmpty()) {
         return false;
     }
@@ -323,11 +362,15 @@ bool parseRemoteDaemonTlsBundle(const QString& text,
                                 QByteArray& serverCertPem,
                                 QByteArray& clientCertPem,
                                 QByteArray& clientKeyPem,
-                                quint16& portOut) {
+                                quint16& portOut,
+                                bool* clientKeyIncludedOut = nullptr) {
     serverCertPem.clear();
     clientCertPem.clear();
     clientKeyPem.clear();
     portOut = 47653;
+    if (clientKeyIncludedOut) {
+        *clientKeyIncludedOut = false;
+    }
 
     QString currentPath;
     QByteArray currentContent;
@@ -349,6 +392,9 @@ bool parseRemoteDaemonTlsBundle(const QString& text,
                     clientCertPem = content;
                 } else if (currentPath.endsWith(QStringLiteral("/client.key"))) {
                     clientKeyPem = content;
+                    if (clientKeyIncludedOut) {
+                        *clientKeyIncludedOut = true;
+                    }
                 }
             }
             currentPath.clear();
@@ -368,7 +414,7 @@ bool parseRemoteDaemonTlsBundle(const QString& text,
             currentContent += '\n';
         }
     }
-    return !serverCertPem.isEmpty() && !clientCertPem.isEmpty() && !clientKeyPem.isEmpty();
+    return !serverCertPem.isEmpty() && !clientCertPem.isEmpty();
 }
 
 bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
@@ -376,7 +422,19 @@ bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
                                   QByteArray& clientCertPem,
                                   QByteArray& clientKeyPem,
                                   quint16& daemonPort,
-                                  bool forceRefresh = false) {
+                                  bool forceRefresh = false,
+                                  bool* fetchedFromRemoteOut = nullptr,
+                                  bool* clientKeyFetchedFromRemoteOut = nullptr,
+                                  QString* failureReason = nullptr) {
+    if (failureReason) {
+        failureReason->clear();
+    }
+    if (fetchedFromRemoteOut) {
+        *fetchedFromRemoteOut = false;
+    }
+    if (clientKeyFetchedFromRemoteOut) {
+        *clientKeyFetchedFromRemoteOut = false;
+    }
     const QString key = remoteDaemonTlsCacheKey(p);
     if (!forceRefresh) {
         QMutexLocker lock(&s_remoteDaemonTlsCacheMutex);
@@ -391,13 +449,35 @@ bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
             return true;
         }
     }
+    if (!forceRefresh
+        && p.daemonTlsServerCertPem.contains(QStringLiteral("BEGIN CERTIFICATE"))
+        && p.daemonTlsClientCertPem.contains(QStringLiteral("BEGIN CERTIFICATE"))
+        && p.daemonTlsClientKeyPem.contains(QStringLiteral("BEGIN"))) {
+        serverCertPem = p.daemonTlsServerCertPem.toUtf8();
+        clientCertPem = p.daemonTlsClientCertPem.toUtf8();
+        clientKeyPem = p.daemonTlsClientKeyPem.toUtf8();
+        daemonPort = (p.daemonTlsPort > 0 && p.daemonTlsPort <= 65535)
+                         ? static_cast<quint16>(p.daemonTlsPort)
+                         : static_cast<quint16>(47653);
+        RemoteDaemonTlsCacheEntry entry;
+        entry.serverCertPem = serverCertPem;
+        entry.clientCertPem = clientCertPem;
+        entry.clientKeyPem = clientKeyPem;
+        entry.port = daemonPort;
+        entry.fetchedAtUtc = QDateTime::currentDateTimeUtc();
+        QMutexLocker lock(&s_remoteDaemonTlsCacheMutex);
+        s_remoteDaemonTlsCache.insert(key, entry);
+        return true;
+    }
 
     const QString bundleScript =
         QStringLiteral("set -eu; "
                        "for f in /etc/zfsmgr/tls/server.crt /etc/zfsmgr/tls/client.crt /etc/zfsmgr/tls/client.key; do "
-                       "  printf '__ZFSMGR_TLS_BEGIN__:%s\\n' \"$f\"; "
-                       "  cat \"$f\"; "
-                       "  printf '__ZFSMGR_TLS_END__:%s\\n' \"$f\"; "
+                       "  if [ -r \"$f\" ]; then "
+                       "    printf '__ZFSMGR_TLS_BEGIN__:%s\\n' \"$f\"; "
+                       "    cat \"$f\"; "
+                       "    printf '__ZFSMGR_TLS_END__:%s\\n' \"$f\"; "
+                       "  fi; "
                        "done; "
                        "if [ -r /etc/zfsmgr/agent.conf ]; then "
                        "  port=$(awk -F= '/^[[:space:]]*AGENT_PORT[[:space:]]*=/{print $2}' /etc/zfsmgr/agent.conf | tail -n1 | tr -d \"' \\t\\r\"); "
@@ -406,25 +486,67 @@ bool fetchRemoteDaemonTlsMaterial(const ConnectionProfile& p,
     const QString cmdPlain = QStringLiteral("sh -lc %1").arg(mwhelpers::shSingleQuote(bundleScript));
     const QString cmdSudo = mwhelpers::withSudoCommand(p, cmdPlain);
 
+    auto readBundle = [&](const QString& cmd,
+                          int timeoutMs,
+                          QString& outText,
+                          QString& errText) -> bool {
+        int runRc = -1;
+        outText.clear();
+        errText.clear();
+        return runSshRawNoLog(p, cmd, timeoutMs, outText, errText, runRc) && runRc == 0;
+    };
+
     QString out;
     QString err;
-    int rc = -1;
-    bool ok = runSshRawNoLog(p, cmdPlain, 12000, out, err, rc) && rc == 0;
+    bool ok = readBundle(cmdPlain, 12000, out, err);
     if (!ok) {
-        out.clear();
-        err.clear();
-        rc = -1;
-        ok = runSshRawNoLog(p, cmdSudo, 15000, out, err, rc) && rc == 0;
+        ok = readBundle(cmdSudo, 15000, out, err);
+    } else if (!out.contains(QStringLiteral("__ZFSMGR_TLS_BEGIN__:"))) {
+        // En instalaciones con TLS 600 root:root, la lectura sin sudo puede
+        // devolver rc=0 pero sin material. Reintentar con sudo.
+        QString sudoOut;
+        QString sudoErr;
+        if (readBundle(cmdSudo, 15000, sudoOut, sudoErr)
+            && sudoOut.contains(QStringLiteral("__ZFSMGR_TLS_BEGIN__:"))) {
+            out = sudoOut;
+            err = sudoErr;
+        }
     }
     if (!ok) {
+        if (failureReason) {
+            const QString detail = mwhelpers::oneLine(err).trimmed();
+            *failureReason = detail.isEmpty()
+                                 ? QStringLiteral("no se pudo leer material TLS del daemon remoto")
+                                 : QStringLiteral("lectura TLS remota fallida: %1").arg(detail);
+        }
         return false;
     }
 
     quint16 parsedPort = 47653;
-    if (!parseRemoteDaemonTlsBundle(out, serverCertPem, clientCertPem, clientKeyPem, parsedPort)) {
+    bool remoteIncludedClientKey = false;
+    if (!parseRemoteDaemonTlsBundle(out, serverCertPem, clientCertPem, clientKeyPem, parsedPort, &remoteIncludedClientKey)) {
+        if (failureReason) {
+            *failureReason =
+                QStringLiteral("bundle TLS inválido o incompleto en respuesta remota");
+        }
+        return false;
+    }
+    if (clientKeyPem.isEmpty() && !p.daemonTlsClientKeyPem.trimmed().isEmpty()) {
+        clientKeyPem = p.daemonTlsClientKeyPem.toUtf8();
+    }
+    if (clientKeyPem.isEmpty()) {
+        if (failureReason) {
+            *failureReason = QStringLiteral("clave TLS cliente no disponible (local ni remota)");
+        }
         return false;
     }
     daemonPort = parsedPort;
+    if (fetchedFromRemoteOut) {
+        *fetchedFromRemoteOut = true;
+    }
+    if (clientKeyFetchedFromRemoteOut) {
+        *clientKeyFetchedFromRemoteOut = remoteIncludedClientKey;
+    }
 
     RemoteDaemonTlsCacheEntry entry;
     entry.serverCertPem = serverCertPem;
@@ -505,11 +627,18 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                                                int timeoutMs,
                                                QString& out,
                                                QString& err,
-                                               int& rc) {
+                                               int& rc,
+                                               QString* failureReason) {
     // Este camino mantiene/crea QProcess asociados a estado de MainWindow.
     // Si se ejecuta desde un worker de QtConcurrent puede crear QObject hijos
     // con parent en otro hilo (warning/crash de afinidad).
+    if (failureReason) {
+        failureReason->clear();
+    }
     if (QThread::currentThread() != thread()) {
+        if (failureReason) {
+            *failureReason = QStringLiteral("rpc invocado fuera del hilo UI");
+        }
         return false;
     }
 
@@ -517,12 +646,21 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
     err.clear();
     rc = -1;
     if (agentArgs.isEmpty()) {
+        if (failureReason) {
+            *failureReason = QStringLiteral("argumentos de agente vacíos");
+        }
         return false;
     }
     if (p.connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
+        if (failureReason) {
+            *failureReason = QStringLiteral("tipo de conexión no SSH");
+        }
         return false;
     }
     if (isWindowsConnection(p)) {
+        if (failureReason) {
+            *failureReason = QStringLiteral("rpc por túnel no soportado para Windows");
+        }
         return false;
     }
 
@@ -682,18 +820,50 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
         return true;
     };
 
+    QString lastAttemptReason;
     const auto attempt = [&](bool forceRefreshTls) -> bool {
         QByteArray serverCertPem;
         QByteArray clientCertPem;
         QByteArray clientKeyPem;
         quint16 daemonPort = 47653;
-        if (!fetchRemoteDaemonTlsMaterial(p, serverCertPem, clientCertPem, clientKeyPem, daemonPort, forceRefreshTls)) {
+        bool fetchedFromRemote = false;
+        bool clientKeyFetchedFromRemote = false;
+        if (!fetchRemoteDaemonTlsMaterial(
+                p,
+                serverCertPem,
+                clientCertPem,
+                clientKeyPem,
+                daemonPort,
+                forceRefreshTls,
+                &fetchedFromRemote,
+                &clientKeyFetchedFromRemote,
+                &lastAttemptReason)) {
             return false;
+        }
+        if (fetchedFromRemote) {
+            QString persistErr;
+            if (!persistDaemonTlsMaterialForConnection(
+                    p, serverCertPem, clientCertPem, clientKeyPem, daemonPort, &persistErr)) {
+                appLog(QStringLiteral("WARN"),
+                       QStringLiteral("daemon-rpc TLS persist fallback %1 -> %2")
+                           .arg(p.name, persistErr.isEmpty() ? QStringLiteral("upsert failed") : persistErr));
+            } else if (clientKeyFetchedFromRemote) {
+                QString cleanupErr;
+                if (!cleanupRemoteDaemonClientPrivateKey(p, &cleanupErr)) {
+                    appLog(QStringLiteral("WARN"),
+                           QStringLiteral("daemon-rpc TLS cleanup remote key %1 -> %2")
+                               .arg(p.name, cleanupErr.isEmpty() ? QStringLiteral("cleanup failed") : cleanupErr));
+                } else {
+                    appLog(QStringLiteral("INFO"),
+                           QStringLiteral("daemon-rpc TLS cleanup remote key %1 -> ok").arg(p.name));
+                }
+            }
         }
 
         const QList<QSslCertificate> caCerts = QSslCertificate::fromData(serverCertPem, QSsl::Pem);
         const QList<QSslCertificate> clientCerts = QSslCertificate::fromData(clientCertPem, QSsl::Pem);
         if (caCerts.isEmpty() || clientCerts.isEmpty()) {
+            lastAttemptReason = QStringLiteral("certificados TLS del daemon inválidos");
             return false;
         }
         QSslKey clientKey(clientKeyPem, QSsl::Rsa, QSsl::Pem);
@@ -701,11 +871,13 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
             clientKey = QSslKey(clientKeyPem, QSsl::Ec, QSsl::Pem);
         }
         if (clientKey.isNull()) {
+            lastAttemptReason = QStringLiteral("clave TLS cliente inválida");
             return false;
         }
         quint16 localPort = 0;
         QPointer<QProcess> tunnelProc;
         if (!ensureTunnel(rpcConnKey, daemonPort, localPort, tunnelProc) || localPort == 0 || !tunnelProc) {
+            lastAttemptReason = QStringLiteral("no se pudo establecer túnel SSH local->daemon");
             return false;
         }
 
@@ -728,6 +900,8 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
 
             sock.connectToHostEncrypted(QStringLiteral("127.0.0.1"), localPort, peerName);
             if (!sock.waitForEncrypted(connectTimeout)) {
+                lastAttemptReason = QStringLiteral("fallo handshake TLS daemon-rpc (peer=%1)")
+                                        .arg(peerName);
                 continue;
             }
 
@@ -740,6 +914,7 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
             req.insert(QStringLiteral("args"), args);
             const QByteArray payload = QJsonDocument(req).toJson(QJsonDocument::Compact) + '\n';
             if (sock.write(payload) < 0 || !sock.waitForBytesWritten(connectTimeout)) {
+                lastAttemptReason = QStringLiteral("fallo al enviar solicitud RPC");
                 continue;
             }
 
@@ -749,6 +924,7 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
             while (timer.elapsed() < ioTimeout) {
                 if (!sock.waitForReadyRead(300)) {
                     if (!tunnelProc || tunnelProc->state() == QProcess::NotRunning) {
+                        lastAttemptReason = QStringLiteral("túnel SSH daemon-rpc finalizado durante espera");
                         break;
                     }
                     continue;
@@ -772,15 +948,158 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
                 }
                 return true;
             }
+            if (lastAttemptReason.isEmpty()) {
+                lastAttemptReason = QStringLiteral("timeout esperando respuesta RPC");
+            }
         }
         closeTunnelForKey(rpcConnKey);
+        if (lastAttemptReason.isEmpty()) {
+            lastAttemptReason = QStringLiteral("daemon-rpc sin respuesta válida");
+        }
         return false;
     };
 
     if (attempt(false)) {
         return true;
     }
-    return attempt(true);
+    if (attempt(true)) {
+        return true;
+    }
+    if (failureReason && !lastAttemptReason.isEmpty()) {
+        *failureReason = lastAttemptReason;
+    }
+    return false;
+}
+
+bool MainWindow::persistDaemonTlsMaterialForConnection(const ConnectionProfile& p,
+                                                       const QByteArray& serverCertPem,
+                                                       const QByteArray& clientCertPem,
+                                                       const QByteArray& clientKeyPem,
+                                                       quint16 daemonPort,
+                                                       QString* errorOut) {
+    if (errorOut) {
+        errorOut->clear();
+    }
+    const QString connId = p.id.trimmed();
+    if (connId.isEmpty()) {
+        if (errorOut) {
+            *errorOut = QStringLiteral("id de conexión vacío");
+        }
+        return false;
+    }
+    ConnectionProfile updated;
+    bool found = false;
+    for (const ConnectionProfile& cp : std::as_const(m_profiles)) {
+        if (cp.id.trimmed().compare(connId, Qt::CaseInsensitive) == 0) {
+            updated = cp;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        updated = p;
+    }
+    updated.daemonTlsServerCertPem = QString::fromUtf8(serverCertPem);
+    updated.daemonTlsClientCertPem = QString::fromUtf8(clientCertPem);
+    updated.daemonTlsClientKeyPem = QString::fromUtf8(clientKeyPem);
+    updated.daemonTlsPort = (daemonPort > 0) ? static_cast<int>(daemonPort) : 47653;
+
+    // Actualizar el estado en memoria antes de intentar el persist a disco:
+    // así la sesión actual usa siempre el material TLS recién obtenido del
+    // daemon remoto, aunque el upsertConnection falle por cualquier motivo.
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        if (m_profiles[i].id.trimmed().compare(connId, Qt::CaseInsensitive) == 0) {
+            m_profiles[i].daemonTlsServerCertPem = updated.daemonTlsServerCertPem;
+            m_profiles[i].daemonTlsClientCertPem = updated.daemonTlsClientCertPem;
+            m_profiles[i].daemonTlsClientKeyPem = updated.daemonTlsClientKeyPem;
+            m_profiles[i].daemonTlsPort = updated.daemonTlsPort;
+            break;
+        }
+    }
+
+    QString storeErr;
+    {
+        QMutexLocker lock(&s_remoteDaemonTlsPersistMutex);
+        if (!m_store.upsertConnection(updated, storeErr)) {
+            if (errorOut) {
+                *errorOut = storeErr;
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
+bool MainWindow::cacheDaemonTlsMaterialForConnection(const ConnectionProfile& p, QString* errorOut) {
+    if (errorOut) {
+        errorOut->clear();
+    }
+    QByteArray serverCertPem;
+    QByteArray clientCertPem;
+    QByteArray clientKeyPem;
+    quint16 daemonPort = 47653;
+    bool fetchedFromRemote = false;
+    bool clientKeyFetchedFromRemote = false;
+    QString fetchReason;
+    if (!fetchRemoteDaemonTlsMaterial(
+            p,
+            serverCertPem,
+            clientCertPem,
+            clientKeyPem,
+            daemonPort,
+            true,
+            &fetchedFromRemote,
+            &clientKeyFetchedFromRemote,
+            &fetchReason)) {
+        if (errorOut) {
+            *errorOut = fetchReason.isEmpty() ? QStringLiteral("no se pudo obtener bundle TLS") : fetchReason;
+        }
+        return false;
+    }
+    QString persistErr;
+    if (!persistDaemonTlsMaterialForConnection(
+            p, serverCertPem, clientCertPem, clientKeyPem, daemonPort, &persistErr)) {
+        if (errorOut) {
+            *errorOut = persistErr.isEmpty() ? QStringLiteral("no se pudo persistir TLS en config") : persistErr;
+        }
+        return false;
+    }
+    if (fetchedFromRemote && clientKeyFetchedFromRemote) {
+        QString cleanupErr;
+        if (!cleanupRemoteDaemonClientPrivateKey(p, &cleanupErr)) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("daemon TLS cache cleanup %1 -> %2")
+                       .arg(p.name, cleanupErr.isEmpty() ? QStringLiteral("cleanup failed") : cleanupErr));
+        }
+    }
+    return true;
+}
+
+bool MainWindow::cleanupRemoteDaemonClientPrivateKey(const ConnectionProfile& p, QString* errorOut) {
+    if (errorOut) {
+        errorOut->clear();
+    }
+    QString out;
+    QString err;
+    int rc = -1;
+    const QString cmd = withSudo(
+        p,
+        QStringLiteral(
+            "sh -lc %1")
+            .arg(shSingleQuote(
+                QStringLiteral("set -eu; "
+                               "rm -f /etc/zfsmgr/tls/client.key; "
+                               "if [ -r /etc/zfsmgr/agent.conf ]; then "
+                               "  tmp='/tmp/zfsmgr-agent-conf.$$'; "
+                               "  awk '!/^[[:space:]]*TLS_CLIENT_KEY[[:space:]]*=/' /etc/zfsmgr/agent.conf > \"$tmp\"; "
+                               "  install -m 600 \"$tmp\" /etc/zfsmgr/agent.conf; "
+                               "  rm -f \"$tmp\"; "
+                               "fi"))));
+    const bool ok = runSshRawNoLog(p, cmd, 12000, out, err, rc) && rc == 0;
+    if (!ok && errorOut) {
+        *errorOut = mwhelpers::oneLine(err).trimmed();
+    }
+    return ok;
 }
 
 bool MainWindow::runSsh(const ConnectionProfile& p,
@@ -1159,6 +1478,7 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
         if (extractLocalAgentArgs(remoteCmd.trimmed(), agentArgs)) {
             const QString rpcConnKey = remoteDaemonTlsCacheKey(p);
             bool allowRpcAttempt = true;
+            QString suppressedReason;
             {
                 QMutexLocker lock(&m_sshRuntimeSetsMutex);
                 const auto it = m_daemonRpcRetryAfterByConnKey.constFind(rpcConnKey);
@@ -1166,17 +1486,22 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                     && it.value().isValid()
                     && QDateTime::currentDateTimeUtc() < it.value()) {
                     allowRpcAttempt = false;
+                    suppressedReason = QStringLiteral("backoff activo %1s")
+                                           .arg(QDateTime::currentDateTimeUtc().secsTo(it.value()));
                 }
             }
             bool rpcAttemptOk = false;
+            QString rpcFailureReason;
             if (allowRpcAttempt) {
                 if (QThread::currentThread() == thread()) {
-                    rpcAttemptOk = tryRunRemoteAgentRpcViaTunnel(p, agentArgs, timeoutMs, out, err, rc);
+                    rpcAttemptOk =
+                        tryRunRemoteAgentRpcViaTunnel(p, agentArgs, timeoutMs, out, err, rc, &rpcFailureReason);
                 } else {
                     QMetaObject::invokeMethod(
                         this,
-                        [this, &p, &agentArgs, timeoutMs, &out, &err, &rc, &rpcAttemptOk]() {
-                            rpcAttemptOk = tryRunRemoteAgentRpcViaTunnel(p, agentArgs, timeoutMs, out, err, rc);
+                        [this, &p, &agentArgs, timeoutMs, &out, &err, &rc, &rpcAttemptOk, &rpcFailureReason]() {
+                            rpcAttemptOk = tryRunRemoteAgentRpcViaTunnel(
+                                p, agentArgs, timeoutMs, out, err, rc, &rpcFailureReason);
                         },
                         Qt::BlockingQueuedConnection);
                 }
@@ -1213,10 +1538,24 @@ bool MainWindow::runSsh(const ConnectionProfile& p,
                 }
                 return true;
             } else if (allowRpcAttempt) {
+                const QString reason = rpcFailureReason.trimmed().isEmpty()
+                                           ? QStringLiteral("motivo no especificado")
+                                           : rpcFailureReason.trimmed();
+                const QString fallbackLine =
+                    QStringLiteral("%1 $ [daemon-rpc:fallback] %2 -> %3")
+                        .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')), reason);
+                appLog(QStringLiteral("INFO"), fallbackLine);
+                appendConnectionLog(p.id, fallbackLine);
                 QMutexLocker lock(&m_sshRuntimeSetsMutex);
                 constexpr int kDaemonRpcRetryBackoffSec = 30;
                 m_daemonRpcRetryAfterByConnKey.insert(
                     rpcConnKey, QDateTime::currentDateTimeUtc().addSecs(kDaemonRpcRetryBackoffSec));
+            } else if (!suppressedReason.isEmpty()) {
+                const QString skippedLine =
+                    QStringLiteral("%1 $ [daemon-rpc:skip] %2 -> %3")
+                        .arg(sshUserHostPort(p), agentArgs.join(QLatin1Char(' ')), suppressedReason);
+                appLog(QStringLiteral("INFO"), skippedLine);
+                appendConnectionLog(p.id, skippedLine);
             }
         }
     }
@@ -2641,15 +2980,6 @@ bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const Q
     QString err;
     int rc = -1;
     bool ok = runSsh(p, cmd, 15000, out, err, rc) && rc == 0;
-    if (!ok && daemonReadApiOk) {
-        appLog(QStringLiteral("INFO"),
-               QStringLiteral("daemon zfs-get-prop fallback %1::%2[%3] -> %4")
-                   .arg(p.name, dataset, prop, oneLine(err.isEmpty() ? out : err)));
-        out.clear();
-        err.clear();
-        rc = -1;
-        ok = runSsh(p, withSudo(p, cmdClassic), 15000, out, err, rc) && rc == 0;
-    }
     if (!ok) {
         return false;
     }
@@ -2703,15 +3033,6 @@ bool MainWindow::ensureObjectGuidLoaded(int connIdx,
                        .arg(shSingleQuote(trimmedObject))));
         const QString guidCmd = daemonReadApiOk ? guidCmdDaemon : withSudo(p, guidCmdClassic);
         bool ok = runSsh(p, guidCmd, 15000, out, err, rc) && rc == 0;
-        if (!ok && daemonReadApiOk) {
-            appLog(QStringLiteral("INFO"),
-                   QStringLiteral("daemon zfs-get-guid fallback %1::%2/%3 -> %4")
-                       .arg(p.name, trimmedPool, trimmedObject, oneLine(err.isEmpty() ? out : err)));
-            out.clear();
-            err.clear();
-            rc = -1;
-            ok = runSsh(p, withSudo(p, guidCmdClassic), 15000, out, err, rc) && rc == 0;
-        }
         if (!ok) {
             appLog(QStringLiteral("WARN"),
                    QStringLiteral("No se pudo cargar GUID de objeto %1::%2/%3 -> %4")
@@ -2840,16 +3161,8 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
                 p, mwhelpers::withUnixSearchPathCommand(
                        QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-guid %1")
                            .arg(shSingleQuote(trimmedPool))));
-            bool guidOk = runSsh(p, (daemonReadApiOk ? guidCmdDaemon : guidCmdClassic), 12000, gOut, gErr, gRc) && gRc == 0;
-            if (!guidOk && daemonReadApiOk) {
-                appLog(QStringLiteral("INFO"),
-                       QStringLiteral("%1::%2 daemon guid fallback -> %3")
-                           .arg(p.name, trimmedPool, oneLine(gErr.isEmpty() ? gOut : gErr)));
-                gOut.clear();
-                gErr.clear();
-                gRc = -1;
-                guidOk = runSsh(p, guidCmdClassic, 12000, gOut, gErr, gRc) && gRc == 0;
-            }
+            const QString selectedGuidCmd = daemonReadApiOk ? guidCmdDaemon : guidCmdClassic;
+            bool guidOk = runSsh(p, selectedGuidCmd, 12000, gOut, gErr, gRc) && gRc == 0;
             if (guidOk) {
                 const QString guid = gOut.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
@@ -2958,69 +3271,6 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
                     } else {
                         cache.datasets.push_back(rec);
                         cache.recordByName[name] = rec;
-                    }
-                }
-            }
-        } else if (daemonReadApiOk) {
-            appLog(QStringLiteral("INFO"),
-                   QStringLiteral("%1::%2 daemon zfs list fallback -> %3")
-                       .arg(p.name, poolName, oneLine(err.isEmpty() ? out : err)));
-            out.clear();
-            err.clear();
-            rc = -1;
-            if (runSsh(p, withSudo(p, jsonCmdClassic), 35000, out, err, rc) && rc == 0) {
-                QString jsonPayload = mwhelpers::stripToJson(out);
-                QJsonParseError parseErr{};
-                QJsonDocument doc = QJsonDocument::fromJson(jsonPayload.toUtf8(), &parseErr);
-                if (parseErr.error != QJsonParseError::NoError) {
-                    const int lastBrace = jsonPayload.lastIndexOf(QLatin1Char('}'));
-                    if (lastBrace > 0) {
-                        jsonPayload = jsonPayload.left(lastBrace + 1);
-                        parseErr = QJsonParseError{};
-                        doc = QJsonDocument::fromJson(jsonPayload.toUtf8(), &parseErr);
-                    }
-                }
-                if (parseErr.error == QJsonParseError::NoError) {
-                    const QJsonObject datasets = doc.object().value(QStringLiteral("datasets")).toObject();
-                    if (!datasets.isEmpty()) {
-                        loadedFromJson = true;
-                        for (auto it = datasets.constBegin(); it != datasets.constEnd(); ++it) {
-                            const QString name = it.key().trimmed();
-                            if (name.isEmpty()) {
-                                continue;
-                            }
-                            const QJsonObject props = it.value().toObject()
-                                                      .value(QStringLiteral("properties")).toObject();
-                            auto propValue = [&props](const QString& prop) -> QString {
-                                return props.value(prop).toObject().value(QStringLiteral("value")).toString();
-                            };
-                            DatasetRecord rec{
-                                name,
-                                propValue(QStringLiteral("guid")),
-                                propValue(QStringLiteral("used")),
-                                propValue(QStringLiteral("compressratio")),
-                                propValue(QStringLiteral("encryption")),
-                                propValue(QStringLiteral("creation")),
-                                propValue(QStringLiteral("referenced")),
-                                propValue(QStringLiteral("mounted")),
-                                propValue(QStringLiteral("mountpoint")),
-                                propValue(QStringLiteral("canmount")),
-                            };
-                            if (!rec.guid.trimmed().isEmpty()) {
-                                cache.objectGuidByName.insert(name, rec.guid.trimmed());
-                            }
-                            const QString type = propValue(QStringLiteral("type")).trimmed().toLower();
-                            if (type == QStringLiteral("snapshot") || name.contains(QLatin1Char('@'))) {
-                                const QString ds = name.section('@', 0, 0);
-                                const QString snap = name.section('@', 1);
-                                if (!ds.isEmpty() && !snap.isEmpty()) {
-                                    snapshotMetaByDataset[ds].push_back(SnapshotMetaRow{rec.creation, snap, rec.guid});
-                                }
-                            } else {
-                                cache.datasets.push_back(rec);
-                                cache.recordByName[name] = rec;
-                            }
-                        }
                     }
                 }
             }

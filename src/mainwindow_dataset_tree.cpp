@@ -5576,16 +5576,8 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                 p, mwhelpers::withUnixSearchPathCommand(
                        QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-guid %1")
                            .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            bool ok = runSsh(p, (daemonReadApiOk ? cmdDaemon : cmdClassic), 12000, out, err, rc) && rc == 0;
-            if (!ok && daemonReadApiOk) {
-                appLog(QStringLiteral("INFO"),
-                       QStringLiteral("%1::%2 daemon pool-guid fallback -> %3")
-                           .arg(p.name, trimmedPool, mwhelpers::oneLine(err.isEmpty() ? out : err)));
-                out.clear();
-                err.clear();
-                rc = -1;
-                ok = runSsh(p, cmdClassic, 12000, out, err, rc) && rc == 0;
-            }
+            const QString selectedCmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
+            bool ok = runSsh(p, selectedCmd, 12000, out, err, rc) && rc == 0;
             if (rc == 0) {
                 const QString guid = out.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
@@ -5621,16 +5613,8 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                 p, mwhelpers::withUnixSearchPathCommand(
                        QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-guid-map %1")
                            .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            bool ok = runSsh(p, (daemonReadApiOk ? cmdDaemon : cmdClassic), 25000, out, err, rc) && rc == 0;
-            if (!ok && daemonReadApiOk) {
-                appLog(QStringLiteral("INFO"),
-                       QStringLiteral("%1::%2 daemon zfs-guid-map fallback -> %3")
-                           .arg(p.name, trimmedPool, mwhelpers::oneLine(err.isEmpty() ? out : err)));
-                out.clear();
-                err.clear();
-                rc = -1;
-                ok = runSsh(p, cmdClassic, 25000, out, err, rc) && rc == 0;
-            }
+            const QString selectedCmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
+            bool ok = runSsh(p, selectedCmd, 25000, out, err, rc) && rc == 0;
             if (rc == 0) {
                 const QString cacheKey = datasetCacheKey(connIdx, trimmedPool);
                 PoolDatasetCache* cache = nullptr;

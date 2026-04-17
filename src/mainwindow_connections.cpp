@@ -1359,6 +1359,11 @@ QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
     lines << QStringLiteral("API daemon: %1")
                  .arg(st.daemonApiVersion.trimmed().isEmpty() ? QStringLiteral("-")
                                                               : st.daemonApiVersion.trimmed());
+    lines << QStringLiteral("Binario daemon: %1")
+                 .arg(isWindowsConnection(connIdx)
+                          ? QStringLiteral("script")
+                          : (st.daemonNativeBinary ? QStringLiteral("nativo")
+                                                   : QStringLiteral("script/no nativo")));
     if (st.daemonNeedsAttention && !st.daemonAttentionReasons.isEmpty()) {
         lines << QStringLiteral("Atención daemon: %1")
                      .arg(st.daemonAttentionReasons.join(QStringLiteral(", ")));
@@ -2153,7 +2158,13 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
         && m_states[connIdx].gsaInstalled;
     const bool canManageDaemon =
         hasConn && !actionsLocked() && !isDisconnected
-        && connIdx < m_states.size();
+        && connIdx < m_states.size()
+        && daemonMenuLabelForConnection(connIdx).compare(
+               trk(QStringLiteral("t_daemon_ok_001"),
+                   QStringLiteral("Daemon actualizado y funcionando"),
+                   QStringLiteral("Daemon updated and running"),
+                   QStringLiteral("守护进程已更新并运行中")),
+               Qt::CaseInsensitive) != 0;
     const bool canUninstallDaemon =
         hasConn && !actionsLocked() && !isDisconnected
         && connIdx < m_states.size()
@@ -3937,6 +3948,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
     const QString daemonVersion = agentversion::currentVersion().trimmed();
     const QString apiVersion = agentversion::expectedApiVersion().trimmed();
     QString remoteCmd;
+    QByteArray remoteStdinPayload;
     WindowsCommandMode winMode = WindowsCommandMode::Auto;
 
     if (isWindowsConnection(idx)) {
@@ -3987,7 +3999,6 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                 remoteArchHint = archOut.trimmed();
             }
         }
-        const QString daemonScript = daemonpayload::unixStubScript(daemonVersion, apiVersion);
         const QString configPayload = daemonpayload::simpleConfigPayload(daemonVersion, apiVersion);
         const QString tlsBootstrap = daemonpayload::tlsBootstrapShellCommand();
         QString deployBinCmd;
@@ -3996,23 +4007,61 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
         const bool canDeployNativeLocalBinaryFromPath =
             !localAgentPath.isEmpty() && QFileInfo::exists(localAgentPath) && QFileInfo(localAgentPath).isFile();
         if (canDeployNativeLocalBinaryFromPath) {
-            deployBinCmd = QStringLiteral("install -m 700 %1 %2;")
-                               .arg(mwhelpers::shSingleQuote(localAgentPath), mwhelpers::shSingleQuote(daemonpayload::unixBinPath()));
+            QFile localAgentFile(localAgentPath);
+            if (!localAgentFile.open(QIODevice::ReadOnly)) {
+                const QString reason = trk(
+                                           QStringLiteral("t_daemon_native_read_fail_001"),
+                                           QStringLiteral("No se pudo leer el binario nativo del daemon (%1)."),
+                                           QStringLiteral("Could not read native daemon binary (%1)."),
+                                           QStringLiteral("无法读取原生守护进程二进制文件（%1）。"))
+                                           .arg(localAgentPath);
+                appLog(QStringLiteral("WARN"), QStringLiteral("Daemon deploy %1: %2").arg(p.name, reason));
+                if (interactive) {
+                    QMessageBox::warning(this, QStringLiteral("ZFSMgr"), reason);
+                }
+                refreshConnectionByIndex(idx);
+                return false;
+            }
+            remoteStdinPayload = localAgentFile.readAll();
+            if (remoteStdinPayload.isEmpty()) {
+                const QString reason = trk(
+                                           QStringLiteral("t_daemon_native_empty_001"),
+                                           QStringLiteral("El binario nativo del daemon está vacío (%1)."),
+                                           QStringLiteral("Native daemon binary is empty (%1)."),
+                                           QStringLiteral("原生守护进程二进制文件为空（%1）。"))
+                                           .arg(localAgentPath);
+                appLog(QStringLiteral("WARN"), QStringLiteral("Daemon deploy %1: %2").arg(p.name, reason));
+                if (interactive) {
+                    QMessageBox::warning(this, QStringLiteral("ZFSMgr"), reason);
+                }
+                refreshConnectionByIndex(idx);
+                return false;
+            }
+            deployBinCmd = QStringLiteral(
+                               "tmp_bin='/tmp/zfsmgr-agent.bin.$$'; "
+                               "cat > \"$tmp_bin\"; "
+                               "install -m 700 \"$tmp_bin\" %1; "
+                               "rm -f \"$tmp_bin\"; ")
+                               .arg(mwhelpers::shSingleQuote(daemonpayload::unixBinPath()));
             appLog(QStringLiteral("INFO"),
                    QStringLiteral("Daemon deploy %1: usando binario nativo local %2")
                        .arg(p.name, localAgentPath));
         } else {
-            appLog(QStringLiteral("WARN"),
-                   QStringLiteral("Daemon deploy %1: no se encontró binario nativo para %2/%3; se mantiene fallback stub")
-                       .arg(p.name, platformId, remoteArchHint.isEmpty() ? QStringLiteral("?") : remoteArchHint));
-            deployBinCmd = QStringLiteral(
-                               "if [ -x %1 ] && %1 --api-version >/dev/null 2>&1; then "
-                               "  :; "
-                               "else "
-                               "  cat > %1 <<'EOF_AGENT'\n%2\nEOF_AGENT\n"
-                               "  chmod 700 %1; "
-                               "fi;")
-                               .arg(daemonpayload::unixBinPath(), daemonScript);
+            const QString reason = trk(
+                                       QStringLiteral("t_daemon_native_missing_001"),
+                                       QStringLiteral("No se encontró binario nativo del daemon para %1/%2 en este equipo. "
+                                                      "No se instala fallback script porque no soporta daemon-rpc TLS."),
+                                       QStringLiteral("No native daemon binary found for %1/%2 on this machine. "
+                                                      "Script fallback is not installed because it does not support daemon-rpc TLS."),
+                                       QStringLiteral("当前机器缺少适用于 %1/%2 的原生守护进程二进制文件。"
+                                                      "不会安装脚本回退，因为其不支持 daemon-rpc TLS。"))
+                                       .arg(platformId, remoteArchHint.isEmpty() ? QStringLiteral("?") : remoteArchHint);
+            appLog(QStringLiteral("WARN"), QStringLiteral("Daemon deploy %1: %2").arg(p.name, reason));
+            if (interactive) {
+                QMessageBox::warning(this, QStringLiteral("ZFSMgr"), reason);
+            }
+            refreshConnectionByIndex(idx);
+            return false;
         }
         if (isMac) {
             const QString plistPayload = daemonpayload::macLaunchdPlist();
@@ -4026,9 +4075,20 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                 "chown root:wheel %2 %3 %5; "
                 "chown root:wheel %8 %9 %10 %11 %12; "
                 "launchctl bootout system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
-                "launchctl bootstrap system %5; "
-                "launchctl enable system/org.zfsmgr.agent; "
-                "launchctl kickstart -k system/org.zfsmgr.agent >/dev/null 2>&1 || true")
+                "launchctl bootstrap system %5 >/dev/null 2>&1 || true; "
+                "launchctl enable system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
+                "ok=0; "
+                "i=0; "
+                "while [ \"$i\" -lt 30 ]; do "
+                "  if launchctl print system/org.zfsmgr.agent >/dev/null 2>&1; then ok=1; break; fi; "
+                "  launchctl kickstart system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
+                "  i=$((i+1)); "
+                "  sleep 1; "
+                "done; "
+                "if [ \"$ok\" -ne 1 ]; then "
+                "  echo 'launchd agent not active after install' >&2; "
+                "  exit 1; "
+                "fi")
                             .arg(deployBinCmd,
                                  daemonpayload::unixBinPath(),
                                  daemonpayload::unixConfigPath(),
@@ -4093,7 +4153,8 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                                  daemonpayload::tlsClientCertPath(),
                                  daemonpayload::tlsClientKeyPath());
         }
-        remoteCmd = withSudo(p, remoteCmd);
+        remoteCmd = remoteStdinPayload.isEmpty() ? withSudo(p, remoteCmd)
+                                                 : withSudoStreamInput(p, remoteCmd);
 
     }
 
@@ -4106,7 +4167,8 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                                              remoteCmd,
                                              180000,
                                              &detail,
-                                             winMode);
+                                             winMode,
+                                             remoteStdinPayload);
     endUiBusy();
     if (!ok) {
         if (interactive) {
@@ -4125,6 +4187,17 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
         }
         refreshConnectionByIndex(idx);
         return false;
+    }
+    {
+        QString tlsCacheErr;
+        if (!cacheDaemonTlsMaterialForConnection(p, &tlsCacheErr)) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("No se pudo cachear TLS daemon para \"%1\": %2")
+                       .arg(p.name, tlsCacheErr.simplified()));
+        } else {
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("TLS daemon cacheado en config para \"%1\"").arg(p.name));
+        }
     }
     refreshConnectionByIndex(idx);
     return true;

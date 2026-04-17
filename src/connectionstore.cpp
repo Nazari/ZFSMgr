@@ -133,6 +133,10 @@ QJsonObject connectionToJson(const ConnectionProfile& inProfile) {
     obj.insert(QStringLiteral("password"), p.password);
     obj.insert(QStringLiteral("key_path"), p.keyPath.trimmed());
     obj.insert(QStringLiteral("use_sudo"), p.useSudo);
+    obj.insert(QStringLiteral("daemon_tls_server_cert_pem"), p.daemonTlsServerCertPem);
+    obj.insert(QStringLiteral("daemon_tls_client_cert_pem"), p.daemonTlsClientCertPem);
+    obj.insert(QStringLiteral("daemon_tls_client_key_pem"), p.daemonTlsClientKeyPem);
+    obj.insert(QStringLiteral("daemon_tls_port"), p.daemonTlsPort > 0 ? p.daemonTlsPort : 47653);
     return obj;
 }
 
@@ -152,6 +156,13 @@ ConnectionProfile connectionFromJson(const QJsonObject& obj) {
     p.password = obj.value(QStringLiteral("password")).toString();
     p.keyPath = obj.value(QStringLiteral("key_path")).toString();
     p.useSudo = obj.value(QStringLiteral("use_sudo")).toBool(false);
+    p.daemonTlsServerCertPem = obj.value(QStringLiteral("daemon_tls_server_cert_pem")).toString();
+    p.daemonTlsClientCertPem = obj.value(QStringLiteral("daemon_tls_client_cert_pem")).toString();
+    p.daemonTlsClientKeyPem = obj.value(QStringLiteral("daemon_tls_client_key_pem")).toString();
+    p.daemonTlsPort = obj.value(QStringLiteral("daemon_tls_port")).toInt(47653);
+    if (p.daemonTlsPort <= 0 || p.daemonTlsPort > 65535) {
+        p.daemonTlsPort = 47653;
+    }
     p.machineUid = normalizeMachineUidForStorage(p, p.machineUid);
     if (shouldForceLocalSudo(p)) {
         p.useSudo = true;
@@ -343,6 +354,15 @@ bool ConnectionStore::validateMasterPassword(QString& error) const {
             return false;
         }
         if (!checkOne(p.password, QStringLiteral("password"))) {
+            return false;
+        }
+        if (!checkOne(p.daemonTlsServerCertPem, QStringLiteral("daemon_tls_server_cert_pem"))) {
+            return false;
+        }
+        if (!checkOne(p.daemonTlsClientCertPem, QStringLiteral("daemon_tls_client_cert_pem"))) {
+            return false;
+        }
+        if (!checkOne(p.daemonTlsClientKeyPem, QStringLiteral("daemon_tls_client_key_pem"))) {
             return false;
         }
     }
@@ -633,6 +653,36 @@ LoadResult ConnectionStore::loadConnections() const {
             }
         }
 
+        const auto decryptField = [&](QString& value, const QString& suffix, const QString& fallbackTrKey) {
+            if (!SecretCipher::isEncrypted(value)) {
+                return;
+            }
+            QString dec;
+            QString err;
+            if (!m_masterPassword.isEmpty() && SecretCipher::decryptEncv1(value, m_masterPassword, dec, err)) {
+                value = dec;
+            } else {
+                result.warnings.push_back(
+                    QStringLiteral("%1.%2: %3").arg(p.name.isEmpty() ? p.id : p.name,
+                                                    suffix,
+                                                    err.isEmpty()
+                                                        ? trk(fallbackTrKey,
+                                                              QStringLiteral("no se pudo descifrar"),
+                                                              QStringLiteral("could not decrypt"),
+                                                              QStringLiteral("无法解密"))
+                                                        : err));
+            }
+        };
+        decryptField(p.daemonTlsServerCertPem,
+                     QStringLiteral("daemon_tls_server_cert_pem"),
+                     QStringLiteral("t_cstore_auto_tls_dec_001"));
+        decryptField(p.daemonTlsClientCertPem,
+                     QStringLiteral("daemon_tls_client_cert_pem"),
+                     QStringLiteral("t_cstore_auto_tls_dec_002"));
+        decryptField(p.daemonTlsClientKeyPem,
+                     QStringLiteral("daemon_tls_client_key_pem"),
+                     QStringLiteral("t_cstore_auto_tls_dec_003"));
+
         if (!p.name.isEmpty()) {
             result.profiles.push_back(p);
         }
@@ -737,8 +787,38 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
     }
 
     ConnectionProfile toSave = profile;
+    {
+        const int existingIdx = indexOfConnectionById(connections, id);
+        if (existingIdx >= 0) {
+            const ConnectionProfile existing = connectionFromJson(connections.at(existingIdx).toObject());
+            const bool endpointStable =
+                existing.host.trimmed().compare(profile.host.trimmed(), Qt::CaseInsensitive) == 0
+                && ensurePort(existing.connType, existing.port) == ensurePort(profile.connType, profile.port)
+                && existing.username.trimmed().compare(profile.username.trimmed(), Qt::CaseInsensitive) == 0
+                && existing.keyPath.trimmed() == profile.keyPath.trimmed();
+            if (endpointStable) {
+                if (toSave.daemonTlsServerCertPem.trimmed().isEmpty()) {
+                    toSave.daemonTlsServerCertPem = existing.daemonTlsServerCertPem;
+                }
+                if (toSave.daemonTlsClientCertPem.trimmed().isEmpty()) {
+                    toSave.daemonTlsClientCertPem = existing.daemonTlsClientCertPem;
+                }
+                if (toSave.daemonTlsClientKeyPem.trimmed().isEmpty()) {
+                    toSave.daemonTlsClientKeyPem = existing.daemonTlsClientKeyPem;
+                }
+            }
+            if (endpointStable && (toSave.daemonTlsPort <= 0 || toSave.daemonTlsPort > 65535)) {
+                toSave.daemonTlsPort = (existing.daemonTlsPort > 0 && existing.daemonTlsPort <= 65535)
+                                           ? existing.daemonTlsPort
+                                           : 47653;
+            }
+        }
+    }
     toSave.id = id;
     toSave.port = ensurePort(profile.connType, profile.port);
+    if (toSave.daemonTlsPort <= 0 || toSave.daemonTlsPort > 65535) {
+        toSave.daemonTlsPort = 47653;
+    }
     QString storedPassword = profile.password;
     if (!storedPassword.isEmpty() && !SecretCipher::isEncrypted(storedPassword)) {
         if (m_masterPassword.isEmpty()) {
@@ -758,6 +838,42 @@ bool ConnectionStore::upsertConnection(const ConnectionProfile& profile, QString
         storedPassword = encrypted;
     }
     toSave.password = storedPassword;
+
+    auto encryptIfNeeded = [&](QString& value, const QString& fieldLabel) -> bool {
+        if (value.isEmpty() || SecretCipher::isEncrypted(value)) {
+            return true;
+        }
+        if (m_masterPassword.isEmpty()) {
+            error = trk(QStringLiteral("t_cstore_tls_mp_required_001"),
+                        QStringLiteral("Password maestro requerido para cifrar %1"),
+                        QStringLiteral("Master password required to encrypt %1"),
+                        QStringLiteral("加密 %1 需要主密码"))
+                        .arg(fieldLabel);
+            return false;
+        }
+        QString encErr;
+        QString encrypted;
+        if (!SecretCipher::encryptEncv1(value, m_masterPassword, encrypted, encErr)) {
+            error = trk(QStringLiteral("t_cstore_tls_enc_fail_001"),
+                        QStringLiteral("No se pudo cifrar %1: %2"),
+                        QStringLiteral("Could not encrypt %1: %2"),
+                        QStringLiteral("无法加密 %1：%2"))
+                        .arg(fieldLabel, encErr);
+            return false;
+        }
+        value = encrypted;
+        return true;
+    };
+    if (!encryptIfNeeded(toSave.daemonTlsServerCertPem, QStringLiteral("daemon_tls_server_cert_pem"))) {
+        return false;
+    }
+    if (!encryptIfNeeded(toSave.daemonTlsClientCertPem, QStringLiteral("daemon_tls_client_cert_pem"))) {
+        return false;
+    }
+    if (!encryptIfNeeded(toSave.daemonTlsClientKeyPem, QStringLiteral("daemon_tls_client_key_pem"))) {
+        return false;
+    }
+
     if (!upsertConnectionJson(connections, toSave)) {
         error = trk(QStringLiteral("t_cstore_json_upsert_err"),
                     QStringLiteral("No se pudo guardar la conexión"),
@@ -833,6 +949,47 @@ bool ConnectionStore::encryptStoredPasswords(QString& error) {
             p.password = encrypted;
             connections[i] = connectionToJson(p);
         }
+        auto encryptField = [&](QString& value) -> bool {
+            if (value.isEmpty() || SecretCipher::isEncrypted(value)) {
+                return true;
+            }
+            QString encErr;
+            QString encrypted;
+            if (!SecretCipher::encryptEncv1(value, m_masterPassword, encrypted, encErr)) {
+                error = QStringLiteral("%1: %2").arg(p.name.isEmpty() ? p.id : p.name, encErr);
+                return false;
+            }
+            value = encrypted;
+            return true;
+        };
+        bool touched = false;
+        QString server = p.daemonTlsServerCertPem;
+        QString clientCert = p.daemonTlsClientCertPem;
+        QString clientKey = p.daemonTlsClientKeyPem;
+        if (!server.isEmpty() && !SecretCipher::isEncrypted(server)) {
+            if (!encryptField(server)) {
+                return false;
+            }
+            touched = true;
+        }
+        if (!clientCert.isEmpty() && !SecretCipher::isEncrypted(clientCert)) {
+            if (!encryptField(clientCert)) {
+                return false;
+            }
+            touched = true;
+        }
+        if (!clientKey.isEmpty() && !SecretCipher::isEncrypted(clientKey)) {
+            if (!encryptField(clientKey)) {
+                return false;
+            }
+            touched = true;
+        }
+        if (touched) {
+            p.daemonTlsServerCertPem = server;
+            p.daemonTlsClientCertPem = clientCert;
+            p.daemonTlsClientKeyPem = clientKey;
+            connections[i] = connectionToJson(p);
+        }
     }
     root.insert(QStringLiteral("connections"), connections);
     return saveConfigJson(root, &error);
@@ -877,6 +1034,56 @@ bool ConnectionStore::rotateMasterPassword(const QString& oldMasterPassword, con
                 return false;
             }
             p.password = encrypted;
+            connections[i] = connectionToJson(p);
+        }
+
+        auto rotateField = [&](QString& value) -> bool {
+            if (value.isEmpty()) {
+                return true;
+            }
+            QString plainField = value;
+            if (SecretCipher::isEncrypted(value)) {
+                QString decErr;
+                if (!SecretCipher::decryptEncv1(value, oldMasterPassword, plainField, decErr)) {
+                    error = QStringLiteral("%1: %2").arg(p.name.isEmpty() ? p.id : p.name, decErr);
+                    return false;
+                }
+            }
+            QString encErr;
+            QString encryptedField;
+            if (!SecretCipher::encryptEncv1(plainField, newMasterPassword, encryptedField, encErr)) {
+                error = QStringLiteral("%1: %2").arg(p.name.isEmpty() ? p.id : p.name, encErr);
+                return false;
+            }
+            value = encryptedField;
+            return true;
+        };
+        bool tlsTouched = false;
+        QString server = p.daemonTlsServerCertPem;
+        QString clientCert = p.daemonTlsClientCertPem;
+        QString clientKey = p.daemonTlsClientKeyPem;
+        if (!server.isEmpty()) {
+            if (!rotateField(server)) {
+                return false;
+            }
+            tlsTouched = true;
+        }
+        if (!clientCert.isEmpty()) {
+            if (!rotateField(clientCert)) {
+                return false;
+            }
+            tlsTouched = true;
+        }
+        if (!clientKey.isEmpty()) {
+            if (!rotateField(clientKey)) {
+                return false;
+            }
+            tlsTouched = true;
+        }
+        if (tlsTouched) {
+            p.daemonTlsServerCertPem = server;
+            p.daemonTlsClientCertPem = clientCert;
+            p.daemonTlsClientKeyPem = clientKey;
             connections[i] = connectionToJson(p);
         }
     }

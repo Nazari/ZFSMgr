@@ -760,16 +760,8 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
             p, mwhelpers::withUnixSearchPathCommand(
                    QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-prop type %1")
                        .arg(mwhelpers::shSingleQuote(trimmedObject))));
-        bool typeOk = runSsh(p, (daemonReadApiOk ? typeCmdDaemon : typeCmdClassic), 12000, tOut, tErr, tRc) && tRc == 0;
-        if (!typeOk && daemonReadApiOk) {
-            appLog(QStringLiteral("INFO"),
-                   QStringLiteral("daemon zfs-get-type fallback %1::%2/%3 -> %4")
-                       .arg(p.name, trimmedPool, trimmedObject, mwhelpers::oneLine(tErr.isEmpty() ? tOut : tErr)));
-            tOut.clear();
-            tErr.clear();
-            tRc = -1;
-            typeOk = runSsh(p, typeCmdClassic, 12000, tOut, tErr, tRc) && tRc == 0;
-        }
+        const QString selectedTypeCmd = daemonReadApiOk ? typeCmdDaemon : typeCmdClassic;
+        bool typeOk = runSsh(p, selectedTypeCmd, 12000, tOut, tErr, tRc) && tRc == 0;
         if (typeOk) {
             const QString t = tOut.trimmed().toLower();
             if (!t.isEmpty()) {
@@ -794,16 +786,8 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
         p, mwhelpers::withUnixSearchPathCommand(
                QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-all %1")
                    .arg(mwhelpers::shSingleQuote(trimmedObject))));
-    bool propsOk = runSsh(p, (daemonReadApiOk ? propsCmdDaemon : propsCmdClassic), 20000, out, err, rc) && rc == 0;
-    if (!propsOk && daemonReadApiOk) {
-        appLog(QStringLiteral("INFO"),
-               QStringLiteral("daemon zfs-get-all fallback %1::%2/%3 -> %4")
-                   .arg(p.name, trimmedPool, trimmedObject, mwhelpers::oneLine(err.isEmpty() ? out : err)));
-        out.clear();
-        err.clear();
-        rc = -1;
-        propsOk = runSsh(p, propsCmdClassic, 20000, out, err, rc) && rc == 0;
-    }
+    const QString selectedPropsCmd = daemonReadApiOk ? propsCmdDaemon : propsCmdClassic;
+    bool propsOk = runSsh(p, selectedPropsCmd, 20000, out, err, rc) && rc == 0;
     if (!propsOk) {
         if (dsInfo) {
             dsInfo->runtime.propertiesState = LoadState::Error;
@@ -945,16 +929,8 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
                QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-json %1 %2")
                    .arg(mwhelpers::shSingleQuote(wantedProps.join(QLatin1Char(','))),
                         mwhelpers::shSingleQuote(trimmedObject))));
-    bool propsOk = runSsh(p, (daemonReadApiOk ? propsCmdDaemon : propsCmdClassic), 20000, out, err, rc) && rc == 0;
-    if (!propsOk && daemonReadApiOk) {
-        appLog(QStringLiteral("INFO"),
-               QStringLiteral("daemon zfs-get-json fallback %1::%2/%3 -> %4")
-                   .arg(p.name, trimmedPool, trimmedObject, mwhelpers::oneLine(err.isEmpty() ? out : err)));
-        out.clear();
-        err.clear();
-        rc = -1;
-        propsOk = runSsh(p, propsCmdClassic, 20000, out, err, rc) && rc == 0;
-    }
+    const QString selectedPropsCmd = daemonReadApiOk ? propsCmdDaemon : propsCmdClassic;
+    bool propsOk = runSsh(p, selectedPropsCmd, 20000, out, err, rc) && rc == 0;
     if (!propsOk) {
         dsInfo->runtime.propertiesState = LoadState::Error;
         dsInfo->runtime.errorText = err.trimmed();
@@ -1347,16 +1323,8 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
                 profile, mwhelpers::withUnixSearchPathCommand(
                              QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-get-all %1")
                                  .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            bool propsOk = runSsh(profile, (daemonReadApiOk ? propsCmdDaemon : propsCmdClassic), 20000, out, err, rc) && rc == 0;
-            if (!propsOk && daemonReadApiOk) {
-                appLog(QStringLiteral("INFO"),
-                       QStringLiteral("daemon zpool-get-all fallback %1::%2 -> %3")
-                           .arg(profile.name, trimmedPool, mwhelpers::oneLine(err.isEmpty() ? out : err)));
-                out.clear();
-                err.clear();
-                rc = -1;
-                propsOk = runSsh(profile, propsCmdClassic, 20000, out, err, rc) && rc == 0;
-            }
+            const QString selectedPropsCmd = daemonReadApiOk ? propsCmdDaemon : propsCmdClassic;
+            bool propsOk = runSsh(profile, selectedPropsCmd, 20000, out, err, rc) && rc == 0;
             if (propsOk) {
                 if (poolWin) {
                     const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
@@ -1399,16 +1367,8 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
                 profile, mwhelpers::withUnixSearchPathCommand(
                              QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-status %1")
                                  .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            bool statusOk = runSsh(profile, (daemonReadApiOk ? stCmdDaemon : stCmdClassic), 20000, out, err, rc) && rc == 0;
-            if (!statusOk && daemonReadApiOk) {
-                appLog(QStringLiteral("INFO"),
-                       QStringLiteral("daemon zpool-status fallback %1::%2 -> %3")
-                           .arg(profile.name, trimmedPool, mwhelpers::oneLine(err.isEmpty() ? out : err)));
-                out.clear();
-                err.clear();
-                rc = -1;
-                statusOk = runSsh(profile, stCmdClassic, 20000, out, err, rc) && rc == 0;
-            }
+            const QString selectedStatusCmd = daemonReadApiOk ? stCmdDaemon : stCmdClassic;
+            bool statusOk = runSsh(profile, selectedStatusCmd, 20000, out, err, rc) && rc == 0;
             if (statusOk) {
                 fresh.statusText = out.trimmed();
             } else {
@@ -1434,13 +1394,8 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
                 profile, mwhelpers::withUnixSearchPathCommand(
                              QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-status-p %1")
                                  .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            bool statusPOk = runSsh(profile, (daemonReadApiOk ? stPCmdDaemon : stPCmdClassic), 20000, out, err, rc) && rc == 0;
-            if (!statusPOk && daemonReadApiOk) {
-                out.clear();
-                err.clear();
-                rc = -1;
-                statusPOk = runSsh(profile, stPCmdClassic, 20000, out, err, rc) && rc == 0;
-            }
+            const QString selectedStatusPCmd = daemonReadApiOk ? stPCmdDaemon : stPCmdClassic;
+            bool statusPOk = runSsh(profile, selectedStatusPCmd, 20000, out, err, rc) && rc == 0;
             if (statusPOk) {
                 fresh.statusPText = out.trimmed();
             } else {
@@ -1628,16 +1583,8 @@ bool MainWindow::schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& po
         QString out;
         QString err;
         int rc = -1;
-        bool scanOk = runSsh(profile, (daemonReadApiOk ? cmdDaemon : cmdClassic), 20000, out, err, rc) && rc == 0;
-        if (!scanOk && daemonReadApiOk) {
-            appLog(QStringLiteral("INFO"),
-                   QStringLiteral("daemon gsa recursive fallback %1::%2 -> %3")
-                       .arg(profile.name, trimmedPool, mwhelpers::oneLine(err.isEmpty() ? out : err)));
-            out.clear();
-            err.clear();
-            rc = -1;
-            scanOk = runSsh(profile, cmdClassic, 20000, out, err, rc) && rc == 0;
-        }
+        const QString selectedScanCmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
+        bool scanOk = runSsh(profile, selectedScanCmd, 20000, out, err, rc) && rc == 0;
         if (!scanOk) {
             result.errorText = err.trimmed();
         } else {
