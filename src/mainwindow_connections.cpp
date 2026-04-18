@@ -1879,20 +1879,20 @@ void MainWindow::onAsyncRefreshDone(int generation) {
         endUiBusy();
     }
 
-    // Schedule periodic auto-refresh when any SSH daemon connection is active.
-    // This makes ZED event detection in health checks pick up changes even without
-    // user interaction. 30s is fast enough to notice events; ZED watcher threads
-    // provide faster (sub-second) notification when the daemon is native.
-    bool hasDaemonConn = false;
+    // Schedule periodic auto-refresh only for SSH daemon connections that do NOT
+    // have an active ZED watcher thread. Connections with a watcher get sub-second
+    // event-driven refreshes and don't need polling.
+    bool hasDaemonConnWithoutWatcher = false;
     for (int i = 0; i < m_profiles.size() && i < m_states.size(); ++i) {
         if (m_states[i].daemonActive
             && !isLocalConnection(i)
-            && m_profiles[i].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0) {
-            hasDaemonConn = true;
+            && m_profiles[i].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0
+            && !m_daemonWatchers.contains(m_profiles[i].id)) {
+            hasDaemonConnWithoutWatcher = true;
             break;
         }
     }
-    if (hasDaemonConn) {
+    if (hasDaemonConnWithoutWatcher) {
         if (!m_autoRefreshTimer) {
             m_autoRefreshTimer = new QTimer(this);
             m_autoRefreshTimer->setSingleShot(true);
