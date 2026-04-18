@@ -151,7 +151,15 @@ if(NOT WIN32)
                 /opt/homebrew/include/libzfs
         )
     endif()
-    if(LIBZFS_CORE_LIB AND LIBNVPAIR_LIB AND LIBZFS_CORE_INCLUDE_DIR)
+    # libnvpair.h must be reachable from the same include dir as libzfs_core.h.
+    # Check with file(EXISTS) so we stay strictly within the resolved sysroot
+    # path and don't accidentally pick up host-system headers during cross builds.
+    if(LIBZFS_CORE_INCLUDE_DIR AND EXISTS "${LIBZFS_CORE_INCLUDE_DIR}/libnvpair.h")
+        set(_LIBNVPAIR_HEADER_OK TRUE)
+    else()
+        set(_LIBNVPAIR_HEADER_OK FALSE)
+    endif()
+    if(LIBZFS_CORE_LIB AND LIBNVPAIR_LIB AND LIBZFS_CORE_INCLUDE_DIR AND _LIBNVPAIR_HEADER_OK)
         message(STATUS "zfsmgr_agent: libzfs_core=${LIBZFS_CORE_LIB} headers=${LIBZFS_CORE_INCLUDE_DIR}")
         target_compile_definitions(zfsmgr_agent PRIVATE HAVE_LIBZFS_CORE=1)
         target_include_directories(zfsmgr_agent PRIVATE ${LIBZFS_CORE_INCLUDE_DIR})
