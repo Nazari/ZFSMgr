@@ -19,7 +19,12 @@ mac-plist:/Library/LaunchDaemons/org.zfsmgr.agent.plist
 freebsd-rc:/usr/local/etc/rc.d/zfsmgr_agent
 win-service:ZFSMgrAgent
 tls:mtls-required
-api:v1
+api:v3
+cmd:--dump-zfs-exists
+cmd:--mutate-zfs-clone
+cmd:--mutate-shell-generic
+cmd:--wait-for-event
+zed:event-watcher
 ]=])
 string(SHA256 ZFSMGR_AGENT_SCHEMA_SHA "${ZFSMGR_AGENT_SCHEMA_MARKER}")
 string(SUBSTRING "${ZFSMGR_AGENT_SCHEMA_SHA}" 0 8 ZFSMGR_AGENT_SCHEMA_HEX)
