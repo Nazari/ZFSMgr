@@ -1,13 +1,19 @@
-# Atajos y estados
+# Navegación y estados
 
-- Los botones se desactivan cuando hay una accion en curso.
 - El cursor cambia a ocupado durante acciones y refrescos.
-- Algunas acciones requieren seleccion valida (dataset o snapshot segun el caso).
-- Si origen y destino son iguales, ciertas transferencias se bloquean.
-
-Estados comunes:
-
-- OK: conexion operativa.
-- KO/Error: fallo de conexion o comando.
-- Montado/Desmontado: estado actual del dataset.
-
+- El árbol unificado es ahora la fuente principal de navegación.
+- La selección visual del árbol no sustituye a `Origen` y `Destino`.
+- `Origen` y `Destino` se fijan explícitamente desde el menú contextual del dataset.
+- La línea `Source/Target` en la caja `Acciones` refleja esa selección lógica.
+- Si una conexión está desconectada:
+  - la conexión sigue visible
+  - no muestra hijos
+- `Clonar` solo se habilita cuando:
+  - origen es snapshot
+  - destino es dataset
+  - misma conexión
+  - mismo pool
+- Los snapshots se seleccionan desde el nodo `@` (ya no hay menú `Seleccionar snapshot`).
+- Si origen o destino usan OpenZFS `< 2.3.3`, `Copiar`, `Nivelar` y `Sincronizar` se bloquean.
+- `Aplicar cambios` solo se activa si hay cambios reales en `Pending changes`.
+- La navegación normal usa caché; el refresco ocurre por acción explícita o tras cambios que lo requieran.

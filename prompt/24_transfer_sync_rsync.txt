@@ -1,0 +1,21 @@
+Comando: sync via rsync
+PATH remoto usado:
+- wrapper PATH Unix + sudo wrapper.
+Argumentos:
+- RSYNC_OPTS base: -aHWS [--delete] [--dry-run]
+- Extras dinamicos:
+  - -A si soportado
+  - -X o --extended-attributes si soportado
+- Resolucion mountpoints:
+  - zfs get -H -o value mountpoint <dataset>
+- Plantillas:
+  - Mismo host remoto: rsync ... "$SRC_MP"/ "$DST_MP"/
+  - Distinto host remoto: rsync ... -e '<ssh dst>' "$SRC_MP"/ <dst_user@dst_host>:"$DST_MP"/
+- Subdatasets: secuencia de multiples rsync encadenados.
+Evento detonador:
+- Accion Sync (dialogo con --delete y dry-run check).
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_transfer.cpp:1024
+- /Users/linarese/work/ZFSMgr/src/mainwindow_transfer.cpp:1344
+- /Users/linarese/work/ZFSMgr/src/mainwindow_transfer.cpp:1563
+

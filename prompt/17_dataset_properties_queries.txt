@@ -1,0 +1,20 @@
+Comando: lectura de propiedades de dataset/snapshot
+PATH remoto usado:
+- wrapper PATH Unix + sudo wrapper.
+Argumentos:
+- Tipo: zfs get -H -o value type <objeto>
+- Todas (Unix): zfs get -j all <objeto>
+- Todas (Windows): zfs get -H -o property,value,source all <objeto>
+- Subconjunto (Unix): zfs get -j <prop1,prop2,...> <objeto>
+- Subconjunto (Windows): zfs get -H -o property,value,source <prop1,prop2,...> <objeto>
+- Holds snapshot: zfs holds -H <dataset@snapshot>
+Evento detonador:
+- Expandir "Dataset properties"/"Snapshot properties".
+- Gestion de visualizacion de propiedades.
+- Expandir nodo Holds de snapshot.
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow.cpp:714
+- /Users/linarese/work/ZFSMgr/src/mainwindow.cpp:730
+- /Users/linarese/work/ZFSMgr/src/mainwindow.cpp:845
+- /Users/linarese/work/ZFSMgr/src/mainwindow.cpp:1712
+

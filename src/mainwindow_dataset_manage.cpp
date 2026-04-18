@@ -1,10 +1,13 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
+#include "agentversion.h"
 
+#include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QFormLayout>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -13,11 +16,36 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSizePolicy>
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include <functional>
+
 namespace {
 using mwhelpers::shSingleQuote;
+
+void setRequiredLabelState(QLabel* label, bool required) {
+    if (!label) {
+        return;
+    }
+    label->setStyleSheet(required
+                             ? QStringLiteral("QLabel { color: #b00020; font-weight: 600; }")
+                             : QString());
+}
+
+void bindRequiredLineEditLabel(QLineEdit* edit, QLabel* label, const std::function<bool()>& requirementActive) {
+    if (!edit || !label) {
+        return;
+    }
+    auto refresh = [edit, label, requirementActive]() {
+        setRequiredLabelState(label, requirementActive() && edit->text().trimmed().isEmpty());
+    };
+    QObject::connect(edit, &QLineEdit::textChanged, label, [refresh](const QString&) {
+        refresh();
+    });
+    refresh();
+}
 
 struct CreateDatasetOptions {
     QString datasetPath;
@@ -30,6 +58,7 @@ struct CreateDatasetOptions {
     bool snapshotRecursive{false};
     QStringList properties;
     QString extraArgs;
+    QString encryptionPassphrase;
 };
 
 QString buildZfsCreateCmd(const CreateDatasetOptions& opt) {
@@ -85,10 +114,14 @@ QString buildZfsCreateCmd(const CreateDatasetOptions& opt) {
 } // namespace
 
 void MainWindow::actionCreateChildDataset(const QString& side) {
+    actionCreateChildDataset(side, currentDatasetSelection(side));
+}
+
+void MainWindow::actionCreateChildDataset(const QString& side, const DatasetSelectionContext& explicitCtx) {
     if (actionsLocked()) {
         return;
     }
-    const DatasetSelectionContext ctx = currentDatasetSelection(side);
+    const DatasetSelectionContext ctx = explicitCtx.valid ? explicitCtx : currentDatasetSelection(side);
     if (!ctx.valid || !ctx.snapshotName.isEmpty()) {
         return;
     }
@@ -109,13 +142,16 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
                            QStringLiteral("Create dataset"),
                            QStringLiteral("创建数据集")));
     dlg.setModal(true);
-    dlg.resize(900, 760);
+    dlg.setFont(QApplication::font());
+    dlg.resize(700, 660);
+    dlg.setMinimumSize(620, 560);
 
     QVBoxLayout* root = new QVBoxLayout(&dlg);
     root->setContentsMargins(10, 10, 10, 10);
     root->setSpacing(8);
 
     QWidget* formWidget = new QWidget(&dlg);
+    formWidget->setFont(QApplication::font());
     QGridLayout* form = new QGridLayout(formWidget);
     form->setHorizontalSpacing(10);
     form->setVerticalSpacing(6);
@@ -211,6 +247,28 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
     form->addWidget(extraEdit, row, 1, 1, 3);
     row++;
 
+    QLabel* encPassLabel = new QLabel(trk(QStringLiteral("t_create_ds_encpass_001"),
+                                          QStringLiteral("Passphrase cifrado"),
+                                          QStringLiteral("Encryption passphrase"),
+                                          QStringLiteral("加密口令")),
+                                      formWidget);
+    QLineEdit* encPassEdit = new QLineEdit(formWidget);
+    encPassEdit->setEchoMode(QLineEdit::Password);
+    form->addWidget(encPassLabel, row, 0);
+    form->addWidget(encPassEdit, row, 1, 1, 3);
+    row++;
+
+    QLabel* encPass2Label = new QLabel(trk(QStringLiteral("t_create_ds_encpass_002"),
+                                           QStringLiteral("Repetir passphrase"),
+                                           QStringLiteral("Repeat passphrase"),
+                                           QStringLiteral("重复口令")),
+                                       formWidget);
+    QLineEdit* encPass2Edit = new QLineEdit(formWidget);
+    encPass2Edit->setEchoMode(QLineEdit::Password);
+    form->addWidget(encPass2Label, row, 0);
+    form->addWidget(encPass2Edit, row, 1, 1, 3);
+    row++;
+
     root->addWidget(formWidget);
 
     QGroupBox* propsGroup = new QGroupBox(trk(QStringLiteral("t_props_tab_001"),
@@ -218,13 +276,16 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
                                               QStringLiteral("Properties"),
                                               QStringLiteral("属性")),
                                           &dlg);
+    propsGroup->setFont(QApplication::font());
     QVBoxLayout* propsGroupLay = new QVBoxLayout(propsGroup);
     propsGroupLay->setContentsMargins(6, 6, 6, 6);
     propsGroupLay->setSpacing(4);
 
     QScrollArea* propsScroll = new QScrollArea(propsGroup);
+    propsScroll->setFont(QApplication::font());
     propsScroll->setWidgetResizable(true);
     QWidget* propsContainer = new QWidget(propsScroll);
+    propsContainer->setFont(QApplication::font());
     QGridLayout* propsGrid = new QGridLayout(propsContainer);
     propsGrid->setHorizontalSpacing(8);
     propsGrid->setVerticalSpacing(4);
@@ -285,6 +346,51 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
         }
         propEditors.push_back(editor);
     }
+
+    auto propValue = [&](const QString& name) -> QString {
+        for (const PropEditor& pe : propEditors) {
+            if (pe.name.compare(name, Qt::CaseInsensitive) != 0) {
+                continue;
+            }
+            if (pe.combo) {
+                return pe.combo->currentText().trimmed();
+            }
+            if (pe.edit) {
+                return pe.edit->text().trimmed();
+            }
+            return QString();
+        }
+        return QString();
+    };
+    auto updateEncryptionPassphraseUi = [&]() {
+        const QString enc = propValue(QStringLiteral("encryption")).toLower();
+        const QString keyformat = propValue(QStringLiteral("keyformat")).toLower();
+        const QString keylocation = propValue(QStringLiteral("keylocation")).trimmed().toLower();
+        const bool needsPromptPassphrase =
+            (enc == QStringLiteral("on") || enc.startsWith(QStringLiteral("aes-")))
+            && keyformat == QStringLiteral("passphrase")
+            && keylocation == QStringLiteral("prompt");
+        encPassLabel->setVisible(needsPromptPassphrase);
+        encPassEdit->setVisible(needsPromptPassphrase);
+        encPass2Label->setVisible(needsPromptPassphrase);
+        encPass2Edit->setVisible(needsPromptPassphrase);
+        setRequiredLabelState(encPassLabel, needsPromptPassphrase);
+        setRequiredLabelState(encPass2Label, needsPromptPassphrase);
+        if (!needsPromptPassphrase) {
+            encPassEdit->clear();
+            encPass2Edit->clear();
+        }
+    };
+    for (const PropEditor& pe : propEditors) {
+        if (pe.name.compare(QStringLiteral("encryption"), Qt::CaseInsensitive) == 0 && pe.combo) {
+            QObject::connect(pe.combo, qOverload<int>(&QComboBox::currentIndexChanged), &dlg, updateEncryptionPassphraseUi);
+        } else if (pe.name.compare(QStringLiteral("keyformat"), Qt::CaseInsensitive) == 0 && pe.combo) {
+            QObject::connect(pe.combo, qOverload<int>(&QComboBox::currentIndexChanged), &dlg, updateEncryptionPassphraseUi);
+        } else if (pe.name.compare(QStringLiteral("keylocation"), Qt::CaseInsensitive) == 0 && pe.edit) {
+            QObject::connect(pe.edit, &QLineEdit::textChanged, &dlg, updateEncryptionPassphraseUi);
+        }
+    }
+    updateEncryptionPassphraseUi();
     propsContainer->setLayout(propsGrid);
     propsScroll->setWidget(propsContainer);
     propsGroupLay->addWidget(propsScroll);
@@ -305,14 +411,55 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
     root->addWidget(buttons);
     QObject::connect(cancelBtn, &QPushButton::clicked, &dlg, &QDialog::reject);
 
+    const QFont baseFont = QApplication::font();
+    const QList<QWidget*> allWidgets = dlg.findChildren<QWidget*>();
+    for (QWidget* w : allWidgets) {
+        if (w) {
+            w->setFont(baseFont);
+        }
+    }
+    setRequiredLabelState(pathLabel, true);
+    setRequiredLabelState(volsizeLabel, false);
+    setRequiredLabelState(encPassLabel, false);
+    setRequiredLabelState(encPass2Label, false);
+    bindRequiredLineEditLabel(pathEdit, pathLabel, []() { return true; });
+    bindRequiredLineEditLabel(volsizeEdit, volsizeLabel, [typeCombo]() {
+        return typeCombo && typeCombo->currentData().toString() == QStringLiteral("volume");
+    });
+    bindRequiredLineEditLabel(encPassEdit, encPassLabel, [&, typeCombo]() {
+        Q_UNUSED(typeCombo);
+        const QString enc = propValue(QStringLiteral("encryption")).toLower();
+        const QString keyformat = propValue(QStringLiteral("keyformat")).toLower();
+        const QString keylocation = propValue(QStringLiteral("keylocation")).trimmed().toLower();
+        return (enc == QStringLiteral("on") || enc.startsWith(QStringLiteral("aes-")))
+               && keyformat == QStringLiteral("passphrase")
+               && keylocation == QStringLiteral("prompt");
+    });
+    bindRequiredLineEditLabel(encPass2Edit, encPass2Label, [&, typeCombo]() {
+        Q_UNUSED(typeCombo);
+        const QString enc = propValue(QStringLiteral("encryption")).toLower();
+        const QString keyformat = propValue(QStringLiteral("keyformat")).toLower();
+        const QString keylocation = propValue(QStringLiteral("keylocation")).trimmed().toLower();
+        return (enc == QStringLiteral("on") || enc.startsWith(QStringLiteral("aes-")))
+               && keyformat == QStringLiteral("passphrase")
+               && keylocation == QStringLiteral("prompt");
+    });
+
     auto setSuggestedPath = [&]() {
         const QString t = typeCombo->currentData().toString();
         const bool isSnapshot = t == QStringLiteral("snapshot");
         QString suggested = QStringLiteral("new_dataset");
         if (t == QStringLiteral("volume")) {
             suggested = QStringLiteral("new_volume");
-        } else if (isSnapshot) {
-            suggested = QStringLiteral("new_snapshot");
+        }
+
+        if (isSnapshot) {
+            const QString snapPath = ctx.datasetName + QStringLiteral("@snap");
+            pathEdit->setText(snapPath);
+            pathEdit->setFocus();
+            const int snapPos = snapPath.indexOf('@');
+            pathEdit->setSelection(snapPos >= 0 ? snapPos + 1 : snapPath.size(), QStringLiteral("snap").size());
+            return;
         }
 
         QString current = pathEdit->text().trimmed();
@@ -329,8 +476,7 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
             prefix = ctx.datasetName + QStringLiteral("/");
         }
 
-        const QString newPath = isSnapshot ? (prefix + suggested + QStringLiteral("@snap"))
-                                           : (prefix + suggested);
+        const QString newPath = prefix + suggested;
         pathEdit->setText(newPath);
         pathEdit->setFocus();
         pathEdit->setSelection(prefix.size(), suggested.size());
@@ -343,6 +489,7 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
 
         volsizeLabel->setVisible(isVolume);
         volsizeEdit->setVisible(isVolume);
+        setRequiredLabelState(volsizeLabel, isVolume);
         if (!isVolume) {
             volsizeEdit->clear();
         }
@@ -364,12 +511,11 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
             snapRecursiveChk->setChecked(false);
         }
         setSuggestedPath();
+        setRequiredLabelState(pathLabel, true);
     };
     QObject::connect(typeCombo, qOverload<int>(&QComboBox::currentIndexChanged), &dlg, [&]() { applyTypeUi(); });
     applyTypeUi();
 
-    bool accepted = false;
-    CreateDatasetOptions opt;
     QObject::connect(createBtn, &QPushButton::clicked, &dlg, [&]() {
         const QString path = pathEdit->text().trimmed();
         const QString dsType = typeCombo->currentData().toString().trimmed().toLower();
@@ -412,6 +558,33 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
             }
         }
 
+        const QString enc = propValue(QStringLiteral("encryption")).toLower();
+        const QString keyformat = propValue(QStringLiteral("keyformat")).toLower();
+        const QString keylocation = propValue(QStringLiteral("keylocation")).trimmed().toLower();
+        const bool needsPromptPassphrase =
+            (enc == QStringLiteral("on") || enc.startsWith(QStringLiteral("aes-")))
+            && keyformat == QStringLiteral("passphrase")
+            && keylocation == QStringLiteral("prompt");
+        if (needsPromptPassphrase) {
+            if (encPassEdit->text().isEmpty() || encPass2Edit->text().isEmpty()) {
+                QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
+                                     trk(QStringLiteral("t_create_ds_encpass_req_001"),
+                                         QStringLiteral("Debe indicar y repetir la passphrase de cifrado."),
+                                         QStringLiteral("You must enter and repeat the encryption passphrase."),
+                                         QStringLiteral("必须输入并重复加密口令。")));
+                return;
+            }
+            if (encPassEdit->text() != encPass2Edit->text()) {
+                QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
+                                     trk(QStringLiteral("t_create_ds_encpass_req_002"),
+                                         QStringLiteral("Las passphrases de cifrado no coinciden."),
+                                         QStringLiteral("Encryption passphrases do not match."),
+                                         QStringLiteral("加密口令不匹配。")));
+                return;
+            }
+        }
+
+        CreateDatasetOptions opt;
         opt.datasetPath = path;
         opt.dsType = dsType;
         opt.volsize = volsize;
@@ -422,161 +595,222 @@ void MainWindow::actionCreateChildDataset(const QString& side) {
         opt.snapshotRecursive = snapRecursiveChk->isChecked();
         opt.properties = properties;
         opt.extraArgs = extraEdit->text().trimmed();
-        accepted = true;
-        dlg.accept();
+        opt.encryptionPassphrase = needsPromptPassphrase ? encPassEdit->text() : QString();
+
+        const QString actionLabel = (opt.dsType == QStringLiteral("snapshot"))
+                                        ? trk(QStringLiteral("t_create_snap001"),
+                                              QStringLiteral("Crear snapshot"),
+                                              QStringLiteral("Create snapshot"),
+                                              QStringLiteral("创建快照"))
+                                        : trk(QStringLiteral("t_create_ds_001"),
+                                              QStringLiteral("Crear dataset"),
+                                              QStringLiteral("Create dataset"),
+                                              QStringLiteral("创建数据集"));
+        const QString cmd = buildZfsCreateCmd(opt);
+        QByteArray stdinPayload;
+        if (!opt.encryptionPassphrase.isEmpty()) {
+            stdinPayload = opt.encryptionPassphrase.toUtf8();
+            stdinPayload += '\n';
+            stdinPayload += opt.encryptionPassphrase.toUtf8();
+            stdinPayload += '\n';
+        }
+        const auto refreshAfterCreate = [this, side, ctx]() {
+            invalidatePoolDatasetListingCache(ctx.connIdx, ctx.poolName);
+            if (side == QStringLiteral("conncontent")) {
+                reloadConnContentPool(ctx.connIdx, ctx.poolName);
+            } else {
+                reloadDatasetSide(side);
+            }
+        };
+        if (executeDatasetAction(side,
+                                 actionLabel,
+                                 ctx,
+                                 cmd,
+                                 45000,
+                                 false,
+                                 stdinPayload,
+                                 false,
+                                 refreshAfterCreate)) {
+            dlg.accept();
+        }
     });
 
-    if (dlg.exec() != QDialog::Accepted || !accepted) {
+    if (dlg.exec() != QDialog::Accepted) {
         return;
     }
-
-    const QString actionLabel = (opt.dsType == QStringLiteral("snapshot"))
-                                    ? trk(QStringLiteral("t_create_snap001"),
-                                          QStringLiteral("Crear snapshot"),
-                                          QStringLiteral("Create snapshot"),
-                                          QStringLiteral("创建快照"))
-                                    : trk(QStringLiteral("t_create_ds_001"),
-                                          QStringLiteral("Crear dataset"),
-                                          QStringLiteral("Create dataset"),
-                                          QStringLiteral("创建数据集"));
-    const QString cmd = buildZfsCreateCmd(opt);
-    executeDatasetAction(side, actionLabel, ctx, cmd);
 }
 
 void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side) {
+    actionDeleteDatasetOrSnapshot(side, currentDatasetSelection(side));
+}
+
+void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const DatasetSelectionContext& explicitCtx) {
     if (actionsLocked()) {
         return;
     }
-    const DatasetSelectionContext ctx = currentDatasetSelection(side);
+    const DatasetSelectionContext ctx = explicitCtx.valid ? explicitCtx : currentDatasetSelection(side);
     if (!ctx.valid) {
         return;
     }
     const QString target = ctx.snapshotName.isEmpty() ? ctx.datasetName : (ctx.datasetName + QStringLiteral("@") + ctx.snapshotName);
-    const auto confirm1 = QMessageBox::question(
-        this,
-        trk(QStringLiteral("t_confirm_del_001"),
-            QStringLiteral("Confirmar borrado"),
-            QStringLiteral("Confirm deletion"),
-            QStringLiteral("确认删除")),
-        trk(QStringLiteral("t_confirm_del_msg1"),
-            QStringLiteral("Se va a borrar:\n%1\n¿Continuar?"),
-            QStringLiteral("This will be deleted:\n%1\nContinue?"),
-            QStringLiteral("将要删除：\n%1\n是否继续？")).arg(target),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm1 != QMessageBox::Yes) {
-        return;
-    }
-    const auto confirm2 = QMessageBox::question(
-        this,
-        trk(QStringLiteral("t_confirm_del_002"),
-            QStringLiteral("Confirmar borrado (2/2)"),
-            QStringLiteral("Confirm deletion (2/2)"),
-            QStringLiteral("确认删除（2/2）")),
-        trk(QStringLiteral("t_confirm_del_msg2"),
-            QStringLiteral("Confirmación final de borrado:\n%1"),
-            QStringLiteral("Final deletion confirmation:\n%1"),
-            QStringLiteral("最终删除确认：\n%1")).arg(target),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm2 != QMessageBox::Yes) {
-        return;
-    }
+    QDialog dlg(this);
+    dlg.setWindowTitle(trk(QStringLiteral("t_delete_params_title_001"),
+                           QStringLiteral("Borrar dataset/snapshot"),
+                           QStringLiteral("Delete dataset/snapshot"),
+                           QStringLiteral("删除数据集/快照")));
+    dlg.setModal(true);
+    dlg.setMinimumWidth(760);
+    auto* vbox = new QVBoxLayout(&dlg);
+    vbox->setSpacing(10);
+    vbox->setContentsMargins(12, 12, 12, 12);
+    auto* intro = new QLabel(
+        trk(QStringLiteral("t_delete_params_intro_001"),
+            QStringLiteral("Configure los parámetros de borrado para:\n%1"),
+            QStringLiteral("Configure delete parameters for:\n%1"),
+            QStringLiteral("为以下对象配置删除参数：\n%1"))
+            .arg(target),
+        &dlg);
+    intro->setWordWrap(true);
+    intro->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    intro->setMinimumWidth(680);
+    vbox->addWidget(intro);
 
-    const auto askRec = QMessageBox::question(
-        this,
-        trk(QStringLiteral("t_recursive_del01"),
-            QStringLiteral("Borrado recursivo"),
-            QStringLiteral("Recursive deletion"),
-            QStringLiteral("递归删除")),
-        ctx.snapshotName.isEmpty()
-            ? trk(QStringLiteral("t_recursive_q_ds1"),
-                  QStringLiteral("¿Borrar recursivamente datasets/snapshots hijos?"),
-                  QStringLiteral("Delete child datasets/snapshots recursively?"),
-                  QStringLiteral("是否递归删除子数据集/快照？"))
-            : trk(QStringLiteral("t_recursive_q_sn1"),
-                  QStringLiteral("¿Borrar recursivamente este snapshot en hijos descendientes?"),
-                  QStringLiteral("Delete this snapshot recursively on descendant children?"),
-                  QStringLiteral("是否在后代子项上递归删除此快照？")),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    const bool recursive = (askRec == QMessageBox::Yes);
-    QString cmd;
-    cmd = recursive ? QStringLiteral("zfs destroy -r %1").arg(shSingleQuote(target))
-                    : QStringLiteral("zfs destroy %1").arg(shSingleQuote(target));
-    executeDatasetAction(side, QStringLiteral("Borrar"), ctx, cmd, 90000);
-}
+    auto* form = new QFormLayout();
+    form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+    form->setLabelAlignment(Qt::AlignTop | Qt::AlignLeft);
+    form->setFormAlignment(Qt::AlignTop | Qt::AlignLeft);
+    form->setVerticalSpacing(10);
+    form->setHorizontalSpacing(12);
+    form->setContentsMargins(0, 4, 0, 4);
 
-void MainWindow::actionDeleteAllSnapshots(const QString& side) {
-    if (actionsLocked()) {
-        return;
-    }
-    const DatasetSelectionContext ctx = currentDatasetSelection(side);
-    if (!ctx.valid || ctx.datasetName.isEmpty() || !ctx.snapshotName.isEmpty()) {
-        return;
-    }
+    auto tuneDescLabel = [](QLabel* lbl) {
+        if (!lbl) {
+            return;
+        }
+        lbl->setWordWrap(true);
+        lbl->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        lbl->setMinimumWidth(620);
+    };
 
-    const QString targetDataset = ctx.datasetName;
-    const auto confirm1 = QMessageBox::question(
-        this,
-        trk(QStringLiteral("t_confirm_del_001"),
-            QStringLiteral("Confirmar borrado"),
-            QStringLiteral("Confirm deletion"),
-            QStringLiteral("确认删除")),
-        trk(QStringLiteral("t_del_all_snaps_q1"),
-            QStringLiteral("Se van a borrar TODOS los snapshots del dataset:\n%1\n¿Continuar?"),
-            QStringLiteral("ALL snapshots from dataset will be deleted:\n%1\nContinue?"),
-            QStringLiteral("将删除此数据集的所有快照：\n%1\n是否继续？")).arg(targetDataset),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm1 != QMessageBox::Yes) {
-        return;
-    }
-    const auto confirm2 = QMessageBox::question(
-        this,
-        trk(QStringLiteral("t_confirm_del_002"),
-            QStringLiteral("Confirmar borrado (2/2)"),
-            QStringLiteral("Confirm deletion (2/2)"),
-            QStringLiteral("确认删除（2/2）")),
-        trk(QStringLiteral("t_del_all_snaps_q2"),
-            QStringLiteral("Confirmación final:\nBorrar todos los snapshots de\n%1"),
-            QStringLiteral("Final confirmation:\nDelete all snapshots from\n%1"),
-            QStringLiteral("最终确认：\n删除此数据集的所有快照\n%1")).arg(targetDataset),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm2 != QMessageBox::Yes) {
-        return;
-    }
+    QCheckBox* recursiveCb = new QCheckBox(QStringLiteral("-r"), &dlg);
+    auto* recursiveLbl = new QLabel(
+        trk(QStringLiteral("t_delete_params_r_desc_001"),
+            QStringLiteral("Borra recursivamente datasets/snapshots descendientes."),
+            QStringLiteral("Delete descendant datasets/snapshots recursively."),
+            QStringLiteral("递归删除后代数据集/快照。")),
+        &dlg);
+    tuneDescLabel(recursiveLbl);
+    recursiveCb->setToolTip(recursiveLbl->text());
+    form->addRow(recursiveCb, recursiveLbl);
 
-    const ConnectionProfile& p = m_profiles[ctx.connIdx];
-    QString cmd;
-    bool allowWindowsScript = false;
-    if (isWindowsConnection(p)) {
-        QString dsPs = targetDataset;
-        dsPs.replace('\'', QStringLiteral("''"));
-        cmd = QStringLiteral(
-                  "$ds='%1'; "
-                  "$snaps=@(zfs list -H -t snapshot -o name -d 1 $ds 2>$null); "
-                  "if($snaps.Count -eq 0){ Write-Output '[DELALLSNAP] none'; exit 0 }; "
-                  "foreach($s in $snaps){ "
-                  "  if([string]::IsNullOrWhiteSpace($s)){ continue }; "
-                  "  Write-Output ('[DELALLSNAP] deleting ' + $s); "
-                  "  zfs destroy $s; "
-                  "  if($LASTEXITCODE -ne 0){ throw ('zfs destroy failed for ' + $s) } "
-                  "}")
-                  .arg(dsPs);
-        allowWindowsScript = true;
-    } else {
-        cmd = QStringLiteral(
-                  "set -e; DATASET=%1; "
-                  "SNAPS=$(zfs list -H -t snapshot -o name -d 1 \"$DATASET\" 2>/dev/null || true); "
-                  "[ -n \"$SNAPS\" ] || { echo '[DELALLSNAP] none'; exit 0; }; "
-                  "printf '%s\\n' \"$SNAPS\" | while IFS= read -r s; do "
-                  "  [ -n \"$s\" ] || continue; "
-                  "  echo \"[DELALLSNAP] deleting $s\"; "
-                  "  zfs destroy \"$s\"; "
-                  "done")
-                  .arg(shSingleQuote(targetDataset));
+    QCheckBox* recursiveDestroyCb = new QCheckBox(QStringLiteral("-R"), &dlg);
+    auto* recursiveDestroyLbl = new QLabel(
+        trk(QStringLiteral("t_delete_params_R_desc_001"),
+            QStringLiteral("Como -r, y además destruye clones/dependencias de snapshots."),
+            QStringLiteral("Like -r, and also destroys snapshot clones/dependencies."),
+            QStringLiteral("与 -r 类似，并额外销毁快照克隆/依赖。")),
+        &dlg);
+    tuneDescLabel(recursiveDestroyLbl);
+    recursiveDestroyCb->setToolTip(recursiveDestroyLbl->text());
+    form->addRow(recursiveDestroyCb, recursiveDestroyLbl);
+
+    QCheckBox* forceCb = new QCheckBox(QStringLiteral("-f"), &dlg);
+    auto* forceLbl = new QLabel(
+        trk(QStringLiteral("t_delete_params_f_desc_001"),
+            QStringLiteral("Fuerza el desmontaje previo si el filesystem está montado."),
+            QStringLiteral("Force unmount first if the filesystem is mounted."),
+            QStringLiteral("如果文件系统已挂载，则先强制卸载。")),
+        &dlg);
+    tuneDescLabel(forceLbl);
+    forceCb->setToolTip(forceLbl->text());
+    form->addRow(forceCb, forceLbl);
+
+    QObject::connect(recursiveDestroyCb, &QCheckBox::toggled, &dlg, [recursiveCb](bool on) {
+        if (on) {
+            recursiveCb->setChecked(true);
+        }
+    });
+
+    vbox->addLayout(form);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    QObject::connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    QObject::connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    vbox->addWidget(bb);
+    dlg.resize(820, dlg.sizeHint().height());
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
     }
-    executeDatasetAction(side, QStringLiteral("Borrar todos los snapshots"), ctx, cmd, 120000, allowWindowsScript);
+    QStringList flags;
+    if (forceCb->isChecked()) {
+        flags.push_back(QStringLiteral("-f"));
+    }
+    const bool force = forceCb->isChecked();
+    QString recursiveMode = QStringLiteral("none");
+    if (recursiveDestroyCb->isChecked()) {
+        flags.push_back(QStringLiteral("-R"));
+        recursiveMode = QStringLiteral("R");
+    } else if (recursiveCb->isChecked()) {
+        flags.push_back(QStringLiteral("-r"));
+        recursiveMode = QStringLiteral("r");
+    }
+    const bool recursive = recursiveCb->isChecked() || recursiveDestroyCb->isChecked();
+    const QString cmd = flags.isEmpty()
+                            ? QStringLiteral("zfs destroy %1").arg(shSingleQuote(target))
+                            : QStringLiteral("zfs destroy %1 %2")
+                                  .arg(flags.join(QLatin1Char(' ')),
+                                       shSingleQuote(target));
+    ConnectionProfile cp = m_profiles[ctx.connIdx];
+    if (isLocalConnection(cp) && !isWindowsConnection(cp)) {
+        cp.useSudo = true;
+        if (!ensureLocalSudoCredentials(cp)) {
+            appLog(QStringLiteral("INFO"), QStringLiteral("Borrar cancelado: faltan credenciales sudo locales"));
+            return;
+        }
+    }
+    const bool daemonMutateApiOk =
+        !isWindowsConnection(cp)
+        && ctx.connIdx >= 0
+        && ctx.connIdx < m_states.size()
+        && m_states[ctx.connIdx].daemonInstalled
+        && m_states[ctx.connIdx].daemonActive
+        && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    QString queueCmd = cmd;
+    if (daemonMutateApiOk && target.contains(QLatin1Char('@'))) {
+        queueCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-destroy %1 %2 %3")
+                       .arg(shSingleQuote(target),
+                            force ? QStringLiteral("1") : QStringLiteral("0"),
+                            shSingleQuote(recursiveMode));
+    }
+    const QString fullCmd = sshExecFromLocal(cp, withSudo(cp, mwhelpers::withUnixSearchPathCommand(queueCmd)));
+    auto connPoolLabel = [this](const DatasetSelectionContext& selCtx) {
+        if (!selCtx.valid || selCtx.connIdx < 0 || selCtx.connIdx >= m_profiles.size() || selCtx.poolName.trimmed().isEmpty()) {
+            return QString();
+        }
+        const ConnectionProfile& p = m_profiles.at(selCtx.connIdx);
+        const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
+        return QStringLiteral("%1::%2").arg(connLabel, selCtx.poolName.trimmed());
+    };
+    QString errorText;
+    if (!queuePendingShellAction(PendingShellActionDraft{
+            connPoolLabel(ctx),
+            recursive
+                ? QStringLiteral("Borrar recursivamente %1").arg(target)
+                : QStringLiteral("Borrar %1").arg(target),
+            fullCmd,
+            90000,
+            false,
+            {},
+            ctx,
+            PendingShellActionDraft::RefreshScope::TargetOnly},
+            &errorText)) {
+        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
+        return;
+    }
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("Cambio pendiente añadido: %1  %2")
+               .arg(connPoolLabel(ctx),
+                    recursive
+                        ? QStringLiteral("Borrar recursivamente %1").arg(target)
+                        : QStringLiteral("Borrar %1").arg(target)));
+    updateApplyPropsButtonState();
 }

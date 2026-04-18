@@ -1,0 +1,450 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SOURCE_DIR="${PROJECT_ROOT}/resources"
+TS="$(date '+%Y%m%d-%H%M%S')"
+OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_ROOT}/builds/artifacts/${TS}}"
+LOG_DIR="${BUILDALL_LOG_DIR:-${PROJECT_ROOT}/builds/logs/buildall-cross-${TS}}"
+PLATFORMS="${BUILD_PLATFORMS:-linux,windows,freebsd,macos}"
+JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
+MACOS_ARCHES="${MACOS_ARCHES:-amd64,arm64}"
+WINDOWS_INSTALLER="${WINDOWS_INSTALLER:-1}"
+
+usage() {
+  cat <<'EOF'
+Uso:
+  buildall-cross.sh [--platforms linux,windows,freebsd,macos] [--macos-arches amd64,arm64] [--windows-installer 0|1] [--output-dir <dir>] [--log-dir <dir>] [--jobs <n>]
+
+Descripción:
+  Ejecuta builds locales en fc16 y deja artefactos en OUTPUT_DIR.
+  - Linux nativo: .AppImage + .deb
+  - Windows cross: zfsmgr_qt.exe (+ instalador Inno opcional en Linux)
+  - FreeBSD cross: artefacto .pkg con zfsmgr_qt
+  - macOS cross: .app.zip (una por arquitectura en MACOS_ARCHES) + nota de primer arranque
+  - Agente: binarios zfsmgr_agent por plataforma/arquitectura en OUTPUT_DIR y builds/agents/
+
+Variables opcionales:
+  OUTPUT_DIR      Directorio destino de artefactos (default: builds/artifacts/<timestamp>)
+  BUILDALL_LOG_DIR Directorio de logs por plataforma
+  BUILD_PLATFORMS Lista separada por comas
+  MACOS_ARCHES    Lista separada por comas (default: amd64,arm64)
+  WINDOWS_INSTALLER  1=genera setup Inno por Wine, 0=solo exe (default: 1)
+  JOBS            Paralelismo para build-cross
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --platforms)
+      shift
+      [[ $# -gt 0 ]] || { echo "Falta valor para --platforms" >&2; exit 1; }
+      PLATFORMS="$1"
+      shift
+      ;;
+    --output-dir)
+      shift
+      [[ $# -gt 0 ]] || { echo "Falta valor para --output-dir" >&2; exit 1; }
+      OUTPUT_DIR="$1"
+      shift
+      ;;
+    --macos-arches)
+      shift
+      [[ $# -gt 0 ]] || { echo "Falta valor para --macos-arches" >&2; exit 1; }
+      MACOS_ARCHES="$1"
+      shift
+      ;;
+    --log-dir)
+      shift
+      [[ $# -gt 0 ]] || { echo "Falta valor para --log-dir" >&2; exit 1; }
+      LOG_DIR="$1"
+      shift
+      ;;
+    --jobs)
+      shift
+      [[ $# -gt 0 ]] || { echo "Falta valor para --jobs" >&2; exit 1; }
+      JOBS="$1"
+      shift
+      ;;
+    --windows-installer)
+      shift
+      [[ $# -gt 0 ]] || { echo "Falta valor para --windows-installer" >&2; exit 1; }
+      WINDOWS_INSTALLER="$1"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Opción desconocida: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+mkdir -p "${OUTPUT_DIR}" "${LOG_DIR}"
+OUTPUT_DIR="$(cd "${OUTPUT_DIR}" && pwd)"
+LOG_DIR="$(cd "${LOG_DIR}" && pwd)"
+
+version_from_cmake() {
+  sed -nE 's/^[[:space:]]*set\([[:space:]]*ZFSMGR_APP_VERSION_STRING[[:space:]]*"([^"]+)".*/\1/p' "${SOURCE_DIR}/CMakeLists.txt" | head -n1
+}
+
+APP_VERSION="$(version_from_cmake)"
+[[ -n "${APP_VERSION}" ]] || APP_VERSION="0.10.0rc1"
+
+log() {
+  printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
+}
+
+package_macos_app_zip() {
+  local app_path="$1"
+  local out_zip="$2"
+  local app_dir app_name
+  app_dir="$(cd "$(dirname "${app_path}")" && pwd)"
+  app_name="$(basename "${app_path}")"
+
+  rm -f "${out_zip}"
+  if command -v ditto >/dev/null 2>&1; then
+    (
+      cd "${app_dir}"
+      ditto -c -k --sequesterRsrc --keepParent "${app_name}" "${out_zip}"
+    )
+    return
+  fi
+  (
+    cd "${app_dir}"
+    # -y preserva symlinks del bundle .app; sin esto Gatekeeper puede marcar la app como dañada.
+    zip -qry -y "${out_zip}" "${app_name}"
+  )
+}
+
+write_macos_first_run_note() {
+  local out_file="$1"
+  cat > "${out_file}" <<'EOF'
+ZFSMgr macOS (cross-build) — first run / primer arranque / 首次运行
+==================================================================
+
+[ES]
+Estos artefactos .app.zip se construyen por cross-build en Linux y no van notarizados por Apple.
+En macOS puedes abrir la app aplicando excepción de seguridad.
+
+Pasos recomendados:
+1) Extraer el .zip y mover la app a /Applications (opcional).
+2) Eliminar cuarentena del bundle:
+   xattr -dr com.apple.quarantine "/ruta/ZFSMgr-<version>.app"
+3) Intentar abrir con clic derecho -> Abrir.
+   Si macOS lo bloquea, ve a:
+   Ajustes del sistema -> Privacidad y seguridad -> "Abrir igualmente".
+4) (Opcional) Re-firma ad-hoc local para estabilizar validaciones:
+   codesign --force --deep --sign - --timestamp=none "/ruta/ZFSMgr-<version>.app"
+
+Comprobación:
+   spctl -a -vv "/ruta/ZFSMgr-<version>.app"
+   codesign --verify --deep --strict --verbose=4 "/ruta/ZFSMgr-<version>.app"
+
+[EN]
+These .app.zip artifacts are cross-built on Linux and are not Apple-notarized.
+On macOS you can still open the app by applying a local security exception.
+
+Recommended steps:
+1) Extract the .zip and move the app to /Applications (optional).
+2) Remove quarantine from the bundle:
+   xattr -dr com.apple.quarantine "/path/ZFSMgr-<version>.app"
+3) Try opening with right-click -> Open.
+   If macOS blocks it, go to:
+   System Settings -> Privacy & Security -> "Open Anyway".
+4) (Optional) Re-sign locally (ad-hoc) to stabilize validation:
+   codesign --force --deep --sign - --timestamp=none "/path/ZFSMgr-<version>.app"
+
+Verification:
+   spctl -a -vv "/path/ZFSMgr-<version>.app"
+   codesign --verify --deep --strict --verbose=4 "/path/ZFSMgr-<version>.app"
+
+[ZH]
+这些 .app.zip 构件是在 Linux 上交叉编译的，未经过 Apple 公证。
+在 macOS 上，你仍可通过本地安全例外来打开应用。
+
+建议步骤：
+1) 解压 .zip，并将应用移动到 /Applications（可选）。
+2) 移除应用包隔离属性：
+   xattr -dr com.apple.quarantine "/路径/ZFSMgr-<version>.app"
+3) 使用右键 -> 打开 尝试启动。
+   若被系统拦截，请前往：
+   系统设置 -> 隐私与安全性 -> “仍要打开”。
+4)（可选）本地 ad-hoc 重签名以提高校验稳定性：
+   codesign --force --deep --sign - --timestamp=none "/路径/ZFSMgr-<version>.app"
+
+校验：
+   spctl -a -vv "/路径/ZFSMgr-<version>.app"
+   codesign --verify --deep --strict --verbose=4 "/路径/ZFSMgr-<version>.app"
+EOF
+}
+
+run_phase() {
+  local name="$1"
+  shift
+  local logfile="${LOG_DIR}/${name}.log"
+  log "Iniciando ${name} (log: ${logfile})"
+  "$@" >"${logfile}" 2>&1
+  log "Completado ${name}"
+}
+
+cache_agent_binary() {
+  local src="$1"
+  local platform_arch="$2"
+  local ext="$3"
+  [[ -f "${src}" ]] || return 1
+  local cache_dir="${PROJECT_ROOT}/builds/agents/${platform_arch}"
+  mkdir -p "${cache_dir}"
+  local dst="${cache_dir}/zfsmgr_agent${ext}"
+  if [[ -e "${dst}" ]]; then
+    local src_real dst_real
+    src_real="$(readlink -f "${src}" 2>/dev/null || printf '%s' "${src}")"
+    dst_real="$(readlink -f "${dst}" 2>/dev/null || printf '%s' "${dst}")"
+    if [[ "${src_real}" == "${dst_real}" ]]; then
+      return 0
+    fi
+  fi
+  cp -f "${src}" "${dst}"
+}
+
+has_platform() {
+  local needle="$1"
+  [[ ",${PLATFORMS}," == *",${needle},"* ]]
+}
+
+autodetect_path_glob() {
+  local glob_pattern="$1"
+  local found=""
+  shopt -s nullglob
+  local candidates=(${glob_pattern})
+  shopt -u nullglob
+  if [[ ${#candidates[@]} -gt 0 ]]; then
+    found="$(printf '%s\n' "${candidates[@]}" | sort -V | tail -n1)"
+  fi
+  echo "${found}"
+}
+
+find_osxcross_target() {
+  local arch="$1"
+  local pattern=""
+  local candidates
+  case "${arch}" in
+    amd64) pattern='^x86_64-apple-darwin' ;;
+    arm64) pattern='^(arm64|aarch64)-apple-darwin' ;;
+    *) return 1 ;;
+  esac
+  candidates="$(ls -1 /opt/osxcross/target/bin/*-apple-darwin*-clang 2>/dev/null | sed -E 's|.*/([^/]+)-clang$|\1|' | grep -E "${pattern}" | sort -V || true)"
+  [[ -n "${candidates}" ]] || return 1
+  printf '%s\n' "${candidates}" | tail -n1
+}
+
+ensure_macos_openssl() {
+  local arch="$1"
+  local osxcross_target="$2"
+  local sdk
+  sdk="$(ls -d /opt/osxcross/target/SDK/MacOSX*.sdk 2>/dev/null | sort -V | tail -n1 || true)"
+  [[ -n "${sdk}" ]] || { echo "No se encontró SDK de macOS en /opt/osxcross/target/SDK" >&2; return 1; }
+  local openssl_prefix=""
+  local openssl_target=""
+  case "${arch}" in
+    amd64)
+      openssl_prefix="${HOME}/opt/openssl-macos-x86_64"
+      openssl_target="darwin64-x86_64-cc"
+      ;;
+    arm64)
+      openssl_prefix="${HOME}/opt/openssl-macos-arm64"
+      openssl_target="darwin64-arm64-cc"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  if [[ -f "${openssl_prefix}/include/openssl/evp.h" && ( -f "${openssl_prefix}/lib/libcrypto.a" || -f "${openssl_prefix}/lib/libcrypto.dylib" ) ]]; then
+    printf '%s\n' "${openssl_prefix}"
+    return 0
+  fi
+
+  local work="/tmp/openssl-macos-${arch}-build"
+  mkdir -p "${work}" "$(dirname "${openssl_prefix}")"
+  rm -rf "${work:?}"/*
+  curl -fL -o "${work}/openssl.tar.gz" "https://www.openssl.org/source/openssl-3.3.1.tar.gz" >&2
+  tar -xf "${work}/openssl.tar.gz" -C "${work}" >&2
+  (
+    cd "${work}/openssl-3.3.1"
+    export PATH="/opt/osxcross/target/bin:${PATH}"
+    export SDKROOT="${sdk}"
+    export CFLAGS="-isysroot ${sdk} -mmacosx-version-min=10.15"
+    export LDFLAGS="-isysroot ${sdk} -mmacosx-version-min=10.15"
+    ./Configure "${openssl_target}" --cross-compile-prefix="${osxcross_target}-" --prefix="${openssl_prefix}" --libdir=lib no-tests no-shared >&2
+    make -j"${JOBS}" >&2
+    make install_sw >&2
+  ) >&2
+  printf '%s\n' "${openssl_prefix}"
+}
+
+AGENT_BUNDLE_DIR="${PROJECT_ROOT}/builds/agent-bundle"
+declare -A AGENT_BIN_PATHS=()
+
+set_agent_path_if_exists() {
+  local key="$1"
+  local path="$2"
+  if [[ -f "${path}" ]]; then
+    AGENT_BIN_PATHS["${key}"]="${path}"
+  fi
+}
+
+resolve_agent_source() {
+  local key="$1"
+  local ext="$2"
+  local found="${AGENT_BIN_PATHS[${key}]:-}"
+  if [[ -n "${found}" && -f "${found}" ]]; then
+    printf '%s\n' "${found}"
+    return 0
+  fi
+  local cache="${PROJECT_ROOT}/builds/agents/${key}/zfsmgr_agent${ext}"
+  if [[ -f "${cache}" ]]; then
+    printf '%s\n' "${cache}"
+    return 0
+  fi
+  return 1
+}
+
+build_agent_bundle_dir() {
+  rm -rf "${AGENT_BUNDLE_DIR}"
+  mkdir -p "${AGENT_BUNDLE_DIR}"
+  local key src ext dst
+  for key in linux-x86_64 windows-x86_64 freebsd-x86_64 macos-amd64 macos-arm64; do
+    ext=""
+    [[ "${key}" == windows-* ]] && ext=".exe"
+    src="$(resolve_agent_source "${key}" "${ext}" || true)"
+    [[ -n "${src}" ]] || { echo "No se pudo resolver agente ${key}" >&2; return 1; }
+    dst="${AGENT_BUNDLE_DIR}/${key}"
+    mkdir -p "${dst}"
+    cp -f "${src}" "${dst}/zfsmgr_agent${ext}"
+    chmod 0644 "${dst}/zfsmgr_agent${ext}" || true
+    cache_agent_binary "${src}" "${key}" "${ext}"
+    cp -f "${src}" "${OUTPUT_DIR}/zfsmgr-agent-${APP_VERSION}-${key}${ext}"
+  done
+}
+
+inject_agent_bundle_into_macos_app() {
+  local app_path="$1"
+  local dst="${app_path}/Contents/Resources/agents"
+  mkdir -p "${dst}"
+  cp -a "${AGENT_BUNDLE_DIR}/." "${dst}/"
+}
+
+package_freebsd_with_agent_bundle() {
+  local out_pkg="$1"
+  local stage
+  stage="$(mktemp -d "/tmp/zfsmgr-fbsd-pkg.XXXXXX")"
+  cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_qt" "${stage}/zfsmgr_qt"
+  mkdir -p "${stage}/agents"
+  cp -a "${AGENT_BUNDLE_DIR}/." "${stage}/agents/"
+  tar -C "${stage}" -czf "${out_pkg}" zfsmgr_qt agents
+  rm -rf "${stage}"
+}
+
+# 1) Compilación base de todos los targets para obtener agentes.
+if has_platform "linux"; then
+  run_phase linux-local-pre "${SCRIPT_DIR}/build-linux.sh"
+  set_agent_path_if_exists "linux-x86_64" "${PROJECT_ROOT}/builds/linux/zfsmgr_agent"
+fi
+
+if has_platform "windows"; then
+  if [[ -z "${QT6_WINDOWS_PREFIX:-}" ]]; then
+    _qt_win_guess="$(autodetect_path_glob "${HOME}/Qt/*/mingw_64")"
+    [[ -n "${_qt_win_guess}" ]] && QT6_WINDOWS_PREFIX="${_qt_win_guess}" && export QT6_WINDOWS_PREFIX
+  fi
+  run_phase windows-local "${SCRIPT_DIR}/build-cross.sh" --target windows --jobs "${JOBS}"
+  set_agent_path_if_exists "windows-x86_64" "${PROJECT_ROOT}/builds/cross-windows/zfsmgr_agent.exe"
+fi
+
+if has_platform "freebsd"; then
+  run_phase freebsd-local "${SCRIPT_DIR}/build-cross.sh" --target freebsd --jobs "${JOBS}"
+  set_agent_path_if_exists "freebsd-x86_64" "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_agent"
+fi
+
+if has_platform "macos"; then
+  IFS=',' read -r -a _mac_arches <<< "${MACOS_ARCHES}"
+  for _arch in "${_mac_arches[@]}"; do
+    _arch="$(echo "${_arch}" | xargs)"
+    [[ -n "${_arch}" ]] || continue
+    _target="$(find_osxcross_target "${_arch}" || true)"
+    [[ -n "${_target}" ]] || { echo "No se encontró OSXCROSS_TARGET para macOS/${_arch}" >&2; exit 1; }
+    _openssl_prefix="$(ensure_macos_openssl "${_arch}" "${_target}")"
+    _build_dir="${PROJECT_ROOT}/builds/cross-macos-${_arch}"
+    run_phase "macos-local-${_arch}" env \
+      OSXCROSS_TARGET="${_target}" \
+      OPENSSL_ROOT_DIR="${_openssl_prefix}" \
+      "${SCRIPT_DIR}/build-cross.sh" --target macos --build-dir "${_build_dir}" --jobs "${JOBS}"
+    set_agent_path_if_exists "macos-${_arch}" "${_build_dir}/zfsmgr_agent"
+  done
+fi
+
+# 2) Construir bundle multi-OS de agentes.
+build_agent_bundle_dir
+
+# 3) Empaquetado final por plataforma incluyendo bundle de agentes.
+if has_platform "linux"; then
+  run_phase linux-local env \
+    ZFSMGR_AGENT_BUNDLE_DIR="${AGENT_BUNDLE_DIR}" \
+    "${SCRIPT_DIR}/build-linux.sh" --appimage --deb
+  linux_appimage="$(find "${PROJECT_ROOT}/builds/linux" -maxdepth 1 -type f -name "ZFSMgr-${APP_VERSION}-*.AppImage" | sort -V | tail -n1 || true)"
+  linux_deb="$(find "${PROJECT_ROOT}/builds/linux" -maxdepth 1 -type f -name "zfsmgr_${APP_VERSION}_*.deb" | sort -V | tail -n1 || true)"
+  [[ -n "${linux_appimage}" ]] || { echo "No se encontró AppImage Linux" >&2; exit 1; }
+  [[ -n "${linux_deb}" ]] || { echo "No se encontró .deb Linux" >&2; exit 1; }
+  cp -f "${linux_appimage}" "${OUTPUT_DIR}/"
+  cp -f "${linux_deb}" "${OUTPUT_DIR}/"
+fi
+
+if has_platform "windows"; then
+  win_exe="${PROJECT_ROOT}/builds/cross-windows/zfsmgr_qt.exe"
+  [[ -f "${win_exe}" ]] || { echo "No se encontró zfsmgr_qt.exe de Windows cross" >&2; exit 1; }
+  cp -f "${win_exe}" "${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-windows.exe"
+  if [[ "${WINDOWS_INSTALLER}" == "1" ]]; then
+    _inno_extra_args=()
+    [[ -n "${QT6_WINDOWS_PREFIX:-}" ]] && _inno_extra_args+=(--qt-prefix "${QT6_WINDOWS_PREFIX}")
+    run_phase windows-installer-local "${SCRIPT_DIR}/build-windows-inno-linux.sh" \
+      --input-dir "${PROJECT_ROOT}/builds/cross-windows" \
+      --output-dir "${PROJECT_ROOT}/builds/windows-installer" \
+      --version "${APP_VERSION}" \
+      --exe "zfsmgr_qt.exe" \
+      --agent-bundle-dir "${AGENT_BUNDLE_DIR}" \
+      "${_inno_extra_args[@]}"
+    win_setup="$(find "${PROJECT_ROOT}/builds/windows-installer" -maxdepth 1 -type f -name "ZFSMgr-Setup-${APP_VERSION}*.exe" | sort -V | tail -n1 || true)"
+    [[ -n "${win_setup}" ]] || { echo "No se encontró instalador Inno generado" >&2; exit 1; }
+    cp -f "${win_setup}" "${OUTPUT_DIR}/"
+  fi
+fi
+
+if has_platform "freebsd"; then
+  [[ -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_qt" ]] || { echo "No se encontró zfsmgr_qt de FreeBSD cross" >&2; exit 1; }
+  fbsd_pkg="${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-FreeBSD.pkg"
+  package_freebsd_with_agent_bundle "${fbsd_pkg}"
+fi
+
+if has_platform "macos"; then
+  mac_note="${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-macOS-first-run.txt"
+  write_macos_first_run_note "${mac_note}"
+  IFS=',' read -r -a _mac_arches <<< "${MACOS_ARCHES}"
+  for _arch in "${_mac_arches[@]}"; do
+    _arch="$(echo "${_arch}" | xargs)"
+    [[ -n "${_arch}" ]] || continue
+    _build_dir="${PROJECT_ROOT}/builds/cross-macos-${_arch}"
+    mac_app="$(find "${_build_dir}" -maxdepth 1 -type d -name "ZFSMgr-*.app" | sort -V | tail -n1 || true)"
+    [[ -n "${mac_app}" ]] || { echo "No se encontró .app de macOS cross (${_arch})" >&2; exit 1; }
+    inject_agent_bundle_into_macos_app "${mac_app}"
+    mac_zip="${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-macos-${_arch}.app.zip"
+    package_macos_app_zip "${mac_app}" "${mac_zip}"
+  done
+fi
+
+log "Artefactos en ${OUTPUT_DIR}:"
+find "${OUTPUT_DIR}" -maxdepth 1 -type f -printf '  %f\n' | sort

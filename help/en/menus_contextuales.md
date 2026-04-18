@@ -1,40 +1,84 @@
 # Context menus
 
-ZFSMgr uses right-click context menus in several views.
+ZFSMgr uses context menus on the unified tree.
 
-## Where they appear
+## On a connection
 
-- Dataset trees (Source, Target, Advanced).
-- Connections list.
+![Connection context menu](qrc:/help/img/auto/connection-context-menu.png)
 
-## Datasets (trees)
+- The menu that used to belong to the connections table now belongs to the connection root node.
+- Current order on connection nodes:
+  - `Connect`
+  - `Disconnect`
+  - `Refresh`
+  - separator
+  - `New connection`
+  - `Edit`
+  - `Delete`
+  - separator
+  - `GSA`
+  - separator
+  - `New pool`
+  - separator
+  - `Split and root` (submenu: `Right`, `Left`, `Below`, `Above`)
+  - separator
+  - `Install MSYS2`
+  - `Install helper commands`
 
-On a dataset/snapshot you can use:
+## On the merged pool root
 
-- Mount
-- Mount with all children
-- Unmount
-- Create child
-- Modify
-- Delete
-- Delete all snapshots
-- Rollback (when a snapshot is selected)
+![Imported pool context menu](qrc:/help/img/auto/pool-context-menu-imported.png)
 
-Notes:
+- The first submenu is `Pool`.
+- Inside `Pool` you get the pool actions:
+  - `Refresh status`
+  - `Import`
+  - `Import with rename`
+  - `Export`
+  - `History`
+  - `Management`
+- `Management` runs immediate actions (`sync`, `scrub`, `upgrade`, `reguid`, `trim`, `initialize`, `clear`, `destroy`) with a parameter dialog when applicable.
+- After the `Pool` submenu, the normal dataset actions continue for that same merged node.
 
-- Some options are disabled depending on mounted/unmounted state.
-- If an action is running, menus may be locked.
+## On datasets and snapshots
 
-## Connections (list)
+- On filesystem datasets (and on the merged pool node):
+  - `Manage properties`
+  - `Dataset`
+  - `Actions`
+  - `Split and root` (submenu: `Right`, `Left`, `Below`, `Above`)
+  - `Select as source`
+  - `Select as destination`
+- `Dataset` submenu:
+  - `Create`
+  - `Rename`
+  - `Delete`
+  - `Encryption key` (`Load key`, `Unload key`, `Change key`)
+  - `Schedule snapshots`
+  - `Permissions` (`New set`, `New delegation`)
+- `Actions` submenu:
+  - `Break down`
+  - `Assemble`
+  - `From Dir`
+  - `To Dir`
+- On snapshots:
+  - `Manage properties`
+  - `Delete snapshot`
+  - `Rollback`
+  - `New Hold`
+  - `Select as source`
+- On hold nodes:
+  - `Release`
 
-On a connection you can use:
+## On the root node of a split panel
 
-- Refresh
-- Edit
-- Delete
+- If the node is the root of a split panel, an additional option appears:
+  - `Close`: closes that panel and releases its space in the splitter.
 
-## Recommendations
+## Rules
 
-- Select target node first, then open the menu.
-- Always review the confirmation window before accepting destructive actions.
-
+- Destructive actions ask for confirmation.
+- Several actions are deferred and accumulate in `Pending changes`.
+- `Select as source` and `Select as destination` update the `Source/Target` line in `Actions`.
+- There is no context menu on `Dataset properties`, `Snapshot properties`, or the `@` node.
+- On suspended pools, most context menu actions are disabled.

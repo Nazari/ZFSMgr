@@ -3,9 +3,25 @@ __pycache__/
 connections.ini
 
 .DS_Store
+.vscode/
 dist/
 build/
 build-macos/
 build-linux/
 build-windows/
+builds/
 *.spec
+.tools/
+AppDir/
+ccodex-linux
+ccodex.macos
+scripts/collect-artifacts
+scripts/recopila.sh
+
+.release-artifacts/
+buildall-logs/
+prompts/
+claude.mmela
+cclaude.linux
+.codex
+/r

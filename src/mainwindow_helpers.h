@@ -11,6 +11,7 @@ namespace mwhelpers {
 
 struct ImportablePoolInfo {
     QString pool;
+    QString guid;
     QString state;
     QString reason;
 };
@@ -65,6 +66,7 @@ QMap<QString, QStringList> duplicateMountpoints(const QMap<QString, QString>& da
 QVector<MountpointConflict> externalMountpointConflicts(const QMap<QString, QString>& targetDatasetMountpoints,
                                                         const QMap<QString, QStringList>& mountedByMountpoint);
 QVector<QPair<QString, QString>> parseZfsMountOutput(const QString& text);
+QVector<QPair<QString, QString>> parseZfsMountJsonOutput(const QString& text);
 QString buildHasMountedChildrenCommand(bool isWindows, const QString& datasetName);
 QString buildRecursiveUmountCommand(bool isWindows, const QString& datasetName);
 QString buildSingleUmountCommand(bool isWindows, const QString& datasetName);
@@ -72,8 +74,10 @@ QString buildSingleMountCommand(const QString& datasetName);
 QString buildMountChildrenCommand(bool isWindows, const QString& datasetName);
 QString buildWindowsMountPrecheckCommand(const QString& datasetName, const QString& effectiveMountpoint);
 QString sshControlPath();
+QString findLocalExecutable(const QString& name);
 QString sshUserHost(const ConnectionProfile& p);
 QString sshUserHostPort(const ConnectionProfile& p);
+QString sshAddressFamilyOption(const ConnectionProfile& p);
 QString sshBaseCommand(const ConnectionProfile& p);
 QString buildSshTargetPrefix(const ConnectionProfile& p);
 QString buildSimpleSshInvocation(const ConnectionProfile& p, const QString& remoteCmd);
@@ -83,8 +87,11 @@ QString streamCodecName(StreamCodec codec);
 StreamCodec chooseStreamCodec(bool hasZstdBoth, bool hasGzipBoth);
 QString buildTarSourceCommand(bool isWindows, const QString& mountPath, StreamCodec codec);
 QString buildTarDestinationCommand(bool isWindows, const QString& mountPath, StreamCodec codec);
+QString withUnixSearchPathCommand(const QString& cmd);
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd);
 QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cmd);
 QString buildSshPreviewCommandText(const ConnectionProfile& p, const QString& remoteCmd);
+// Strips any leading non-JSON text (e.g. MOTD banners) before the first '{'.
+QString stripToJson(const QString& output);
 
 } // namespace mwhelpers

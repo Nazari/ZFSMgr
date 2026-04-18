@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "agentversion.h"
 #include "mainwindow_helpers.h"
 
 #include <QtWidgets>
@@ -11,95 +12,55 @@ using mwhelpers::isMountedValueTrue;
 using mwhelpers::oneLine;
 using mwhelpers::shSingleQuote;
 
-struct CreateDatasetOptions {
-    QString datasetPath;
-    QString dsType;
-    QString volsize;
-    QString blocksize;
-    bool parents{true};
-    bool sparse{false};
-    bool nomount{false};
-    bool snapshotRecursive{false};
-    QStringList properties;
-    QString extraArgs;
-};
-
-QString buildZfsCreateCmd(const CreateDatasetOptions& opt) {
-    const QString dsType = opt.dsType.trimmed().toLower();
-    if (dsType == QStringLiteral("snapshot")) {
-        QStringList parts;
-        parts << QStringLiteral("zfs") << QStringLiteral("snapshot");
-        if (opt.snapshotRecursive) {
-            parts << QStringLiteral("-r");
-        }
-        for (const QString& p : opt.properties) {
-            const QString pp = p.trimmed();
-            if (!pp.isEmpty()) {
-                parts << QStringLiteral("-o") << shSingleQuote(pp);
-            }
-        }
-        if (!opt.extraArgs.trimmed().isEmpty()) {
-            parts << opt.extraArgs.trimmed();
-        }
-        parts << shSingleQuote(opt.datasetPath.trimmed());
-        return parts.join(' ');
-    }
-
-    QStringList parts;
-    parts << QStringLiteral("zfs") << QStringLiteral("create");
-    if (opt.parents) {
-        parts << QStringLiteral("-p");
-    }
-    if (opt.sparse) {
-        parts << QStringLiteral("-s");
-    }
-    if (opt.nomount) {
-        parts << QStringLiteral("-u");
-    }
-    if (!opt.blocksize.trimmed().isEmpty()) {
-        parts << QStringLiteral("-b") << shSingleQuote(opt.blocksize.trimmed());
-    }
-    if (dsType == QStringLiteral("volume") && !opt.volsize.trimmed().isEmpty()) {
-        parts << QStringLiteral("-V") << shSingleQuote(opt.volsize.trimmed());
-    }
-    for (const QString& p : opt.properties) {
-        const QString pp = p.trimmed();
-        if (!pp.isEmpty()) {
-            parts << QStringLiteral("-o") << shSingleQuote(pp);
-        }
-    }
-    if (!opt.extraArgs.trimmed().isEmpty()) {
-        parts << opt.extraArgs.trimmed();
-    }
-    parts << shSingleQuote(opt.datasetPath.trimmed());
-    return parts.join(' ');
+QString unixAlternateMountHelpersScript() {
+    return QStringLiteral(
+        "mount_alt_zfs(){ ds=\"$1\"; mp=\"$2\"; "
+        "saved_prop='org.fc16.zfsmgr:savedmountpoint'; "
+        "current_mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
+        "zfs set \"$saved_prop=$current_mp\" \"$ds\"; "
+        "zfs set mountpoint=\"$mp\" \"$ds\"; "
+        "zfs mount \"$ds\" >/dev/null 2>&1 || true; }; "
+        "umount_alt_zfs(){ ds=\"$1\"; mp=\"$2\"; "
+        "saved_prop='org.fc16.zfsmgr:savedmountpoint'; "
+        "zfs unmount \"$ds\" >/dev/null 2>&1 || zfs unmount \"$mp\" >/dev/null 2>&1 || true; "
+        "saved_mp=$(zfs get -H -o value \"$saved_prop\" \"$ds\" 2>/dev/null || true); "
+        "if [ -n \"$saved_mp\" ] && [ \"$saved_mp\" != \"-\" ]; then zfs set mountpoint=\"$saved_mp\" \"$ds\" >/dev/null 2>&1 || true; fi; "
+        "zfs inherit \"$saved_prop\" \"$ds\" >/dev/null 2>&1 || true; }; "
+        "resolve_mp(){ ds=\"$1\"; zfs mount 2>/dev/null | awk -v d=\"$ds\" '$1==d{print $2; exit}'; }; "
+        "load_key_if_needed(){ ds=\"$1\"; "
+        "ks=$(zfs get -H -o value keystatus \"$ds\" 2>/dev/null || true); "
+        "[ \"$ks\" = \"available\" ] && return 0; "
+        "kl=$(zfs get -H -o value keylocation \"$ds\" 2>/dev/null || true); "
+        "if [ \"$kl\" = \"prompt\" ]; then "
+        "  if [ \"$ZFSMGR_PASS_READ\" != 1 ]; then IFS= read -r ZFSMGR_KEY_PASS || return 1; ZFSMGR_PASS_READ=1; fi; "
+        "  printf '%s\\n' \"$ZFSMGR_KEY_PASS\" | zfs load-key \"$ds\" >/dev/null; "
+        "else "
+        "  zfs load-key \"$ds\" >/dev/null 2>&1 || true; "
+        "fi; }; ");
 }
 } // namespace
 
 void MainWindow::actionAdvancedBreakdown() {
-    const auto selected = m_advTree->selectedItems();
-    if (selected.isEmpty()) {
+    actionAdvancedBreakdown(currentConnContentSelection(m_connContentTree));
+}
+
+void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicitCtx) {
+    const DatasetSelectionContext curr = explicitCtx.valid ? explicitCtx : currentConnContentSelection(m_connContentTree);
+    if (!curr.valid || curr.datasetName.isEmpty() || !curr.snapshotName.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_adv_sel_ds_001"), QStringLiteral("Seleccione un dataset en Avanzado."),
                                      QStringLiteral("Select a dataset in Advanced."),
                                      QStringLiteral("请在高级页选择一个数据集。")));
         return;
     }
-    const QString ds = selected.first()->data(0, Qt::UserRole).toString();
+    const QString ds = curr.datasetName;
     if (ds.isEmpty()) {
         return;
     }
-    const QString token = m_advPoolCombo->currentData().toString();
-    const int sep = token.indexOf(QStringLiteral("::"));
-    if (sep <= 0) {
-        return;
-    }
-    const int connIdx = token.left(sep).toInt();
-    const QString poolName = token.mid(sep + 2);
     DatasetSelectionContext ctx;
     ctx.valid = true;
-    ctx.connIdx = connIdx;
-    ctx.poolName = poolName;
+    ctx.connIdx = curr.connIdx;
+    ctx.poolName = curr.poolName;
     ctx.datasetName = ds;
     ctx.snapshotName.clear();
     beginUiBusy();
@@ -110,15 +71,16 @@ void MainWindow::actionAdvancedBreakdown() {
             busyActive = false;
         }
     };
-
-    const ConnectionProfile& p = m_profiles[connIdx];
-    QString mountOut;
-    QString mountErr;
-    int mountRc = -1;
-    const QString mountCheckCmd = withSudo(
-        p,
-        QStringLiteral("zfs get -H -o name,value -r mounted %1").arg(shSingleQuote(ds)));
-    if (!runSsh(p, mountCheckCmd, 25000, mountOut, mountErr, mountRc) || mountRc != 0) {
+    const ConnectionProfile& p = m_profiles[ctx.connIdx];
+    const bool daemonReadApiOk =
+        !isWindowsConnection(p)
+        && ctx.connIdx >= 0
+        && ctx.connIdx < m_states.size()
+        && m_states[ctx.connIdx].daemonInstalled
+        && m_states[ctx.connIdx].daemonActive
+        && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    QString mountedValue;
+    if (!getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("mounted"), mountedValue)) {
         stopBusy();
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_adv_chk_mnt_01"), QStringLiteral("No se pudo comprobar el estado de montaje del dataset."),
@@ -126,34 +88,9 @@ void MainWindow::actionAdvancedBreakdown() {
                                  QStringLiteral("无法检查数据集挂载状态。")));
         return;
     }
-    QStringList unmounted;
-    for (const QString& ln : mountOut.split('\n', Qt::SkipEmptyParts)) {
-        const QStringList parts = ln.split('\t');
-        if (parts.size() < 2) {
-            continue;
-        }
-        const QString name = parts[0].trimmed();
-        const QString mountedVal = parts[1].trimmed();
-        if (name.isEmpty() || name.contains('@')) {
-            continue; // ignorar snapshots
-        }
-        if (!isMountedValueTrue(mountedVal)) {
-            unmounted << name;
-        }
-    }
-    if (!unmounted.isEmpty()) {
-        stopBusy();
-        QMessageBox::warning(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_adv_break_mnt1"), QStringLiteral("Desglosar requiere dataset y descendientes montados.\nNo montados:\n%1")
-                    .arg(unmounted.join('\n')),
-                QStringLiteral("Break down requires dataset and descendants mounted.\nNot mounted:\n%1")
-                    .arg(unmounted.join('\n')),
-                QStringLiteral("拆分要求数据集及其所有后代已挂载。\n未挂载：\n%1")
-                    .arg(unmounted.join('\n'))));
-        return;
-    }
+    const bool rootMounted = isMountedValueTrue(mountedValue);
+    const bool canTempMount = supportsAlternateDatasetMount(ctx.connIdx);
+    QByteArray mountStdinPayload;
 
     QStringList dirs;
     QString resolvedMp;
@@ -186,9 +123,19 @@ void MainWindow::actionAdvancedBreakdown() {
                                     "$mp=Resolve-Mp $ds; "
                                     "if (-not [string]::IsNullOrWhiteSpace($mp)) { Write-Output ('__MP__=' + $mp) }; "
                                     "if ([string]::IsNullOrWhiteSpace($mp) -or -not (Test-Path -LiteralPath $mp)) { exit 0 }; "
-                                    "Get-ChildItem -LiteralPath $mp -Directory -Force | Select-Object -ExpandProperty Name | Sort-Object -Unique")
+                                    "$base=[System.IO.Path]::GetFullPath($mp).TrimEnd('\\\\'); "
+                                    "Get-ChildItem -LiteralPath $mp -Directory -Recurse -Force | "
+                                    "Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } | "
+                                    "ForEach-Object { "
+                                    "  $full=[System.IO.Path]::GetFullPath($_.FullName).TrimEnd('\\\\'); "
+                                    "  if (-not $full.StartsWith($base,[System.StringComparison]::OrdinalIgnoreCase)) { return }; "
+                                    "  $rel=$full.Substring($base.Length).TrimStart('\\\\'); "
+                                    "  if ([string]::IsNullOrWhiteSpace($rel)) { return }; "
+                                    "  if ($rel.StartsWith('.zfs\\\\',[System.StringComparison]::OrdinalIgnoreCase) -or $rel.Equals('.zfs',[System.StringComparison]::OrdinalIgnoreCase)) { return }; "
+                                    "  Write-Output ($rel -replace '\\\\','/') "
+                                    "} | Sort-Object -Unique")
                                     .arg(dsPs);
-        if (!runSsh(p, withSudo(p, listCmd), 25000, listOut, listErr, listRc) || listRc != 0) {
+        if (!runSsh(p, withSudo(p, listCmd), 180000, listOut, listErr, listRc) || listRc != 0) {
             stopBusy();
                 QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_adv_break_ls01"), QStringLiteral("No se pudieron listar directorios para desglosar."),
@@ -206,18 +153,93 @@ void MainWindow::actionAdvancedBreakdown() {
             }
         }
     } else {
-        const QString listCmd = withSudo(
-            p,
-            QStringLiteral("set -e; DATASET=%1; "
-                           "resolve_mp(){ ds=\"$1\"; mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
-                           "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$ds\" '$1==d{print $2; exit}');; esac; "
-                           "printf '%s' \"$mp\"; }; "
-                           "MP=$(resolve_mp \"$DATASET\"); "
-                           "[ -n \"$MP\" ] || exit 0; "
-                           "[ -d \"$MP\" ] || exit 0; "
-                           "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); [ -n \"$bn\" ] && printf '%s\\n' \"$bn\"; done | sort -u")
-                .arg(shSingleQuote(ds)));
-        if (!runSsh(p, listCmd, 25000, listOut, listErr, listRc) || listRc != 0) {
+        if (!rootMounted && !canTempMount) {
+            stopBusy();
+            QMessageBox::warning(
+                this,
+                QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_adv_break_mnt1"), QStringLiteral("Desglosar requiere dataset montado, o un sistema que permita montaje temporal alternativo."),
+                    QStringLiteral("Break down requires the dataset mounted, or a system that supports temporary alternate mounts."),
+                    QStringLiteral("拆分要求数据集已挂载，或系统支持临时替代挂载。")));
+            return;
+        }
+        QString listScript;
+        QString remoteListScriptCmd;
+        if (!isWindowsConnection(p)) {
+            remoteListScriptCmd = mwhelpers::withUnixSearchPathCommand(
+                QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-advanced-breakdown-list %1")
+                    .arg(shSingleQuote(ds)));
+        } else {
+            listScript =
+                QStringLiteral("set -e; DATASET=%1; ZFSMGR_PASS_READ=0; ZFSMGR_KEY_PASS=''; %2"
+                               "TMP_ROOT=''; "
+                               "cleanup(){ "
+                               "if [ -n \"$TMP_ROOT\" ]; then umount_alt_zfs \"$DATASET\" \"$TMP_ROOT\" >/dev/null 2>&1 || true; fi; "
+                               "if [ -n \"$TMP_ROOT\" ]; then rmdir \"$TMP_ROOT\" >/dev/null 2>&1 || true; fi; "
+                               "}; "
+                               "trap cleanup EXIT INT TERM; "
+                               "MP=$(resolve_mp \"$DATASET\"); "
+                               "if [ -z \"$MP\" ]; then "
+                               "  load_key_if_needed \"$DATASET\"; "
+                               "  TMP_ROOT=$(mktemp -d /tmp/zfsmgr-break-root-XXXXXX); "
+                               "  mount_alt_zfs \"$DATASET\" \"$TMP_ROOT\"; "
+                               "  MP=$(resolve_mp \"$DATASET\"); "
+                               "fi; "
+                               "[ -n \"$MP\" ] || exit 0; "
+                               "[ -d \"$MP\" ] || exit 0; "
+                               "printf '__MP__=%s\\n' \"$MP\"; "
+                               "find \"$MP\" -mindepth 1 -type d -print 2>/dev/null | while IFS= read -r d; do "
+                               "  rel=\"$d\"; case \"$rel\" in \"$MP\"/*) rel=${rel#\"$MP\"/} ;; *) rel='' ;; esac; "
+                               "  [ -n \"$rel\" ] || continue; "
+                               "  case \"$rel\" in .zfs|.zfs/*) continue ;; esac; "
+                               "  printf '%s\\n' \"$rel\"; "
+                               "done | sort -u")
+                    .arg(shSingleQuote(ds), unixAlternateMountHelpersScript());
+        }
+        QString keyLocation;
+        getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("keylocation"), keyLocation);
+        keyLocation = keyLocation.trimmed().toLower();
+        QString keyStatus;
+        getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("keystatus"), keyStatus);
+        keyStatus = keyStatus.trimmed().toLower();
+        if (!rootMounted
+            && keyLocation == QStringLiteral("prompt")
+            && keyStatus != QStringLiteral("available")) {
+            bool ok = false;
+            const QString passphrase = QInputDialog::getText(
+                this,
+                QStringLiteral("Load key"),
+                QStringLiteral("Clave"),
+                QLineEdit::Password,
+                QString(),
+                &ok);
+            if (!ok || passphrase.isEmpty()) {
+                stopBusy();
+                return;
+            }
+            mountStdinPayload = (passphrase + QStringLiteral("\n")).toUtf8();
+        }
+        const QString effectiveListCmd = mountStdinPayload.isEmpty()
+            ? withSudo(p,
+                       remoteListScriptCmd.isEmpty()
+                           ? mwhelpers::withUnixSearchPathCommand(listScript)
+                           : remoteListScriptCmd)
+            : withSudoStreamInput(p,
+                                  remoteListScriptCmd.isEmpty()
+                                      ? mwhelpers::withUnixSearchPathCommand(listScript)
+                                      : remoteListScriptCmd);
+        if (!runSsh(p,
+                    effectiveListCmd,
+                    180000,
+                    listOut,
+                    listErr,
+                    listRc,
+                    {},
+                    {},
+                    {},
+                    WindowsCommandMode::Auto,
+                    mountStdinPayload)
+            || listRc != 0) {
             stopBusy();
             QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_adv_break_ls01"), QStringLiteral("No se pudieron listar directorios para desglosar."),
@@ -225,35 +247,43 @@ void MainWindow::actionAdvancedBreakdown() {
                                      QStringLiteral("无法列出可拆分目录。")));
             return;
         }
-        dirs = listOut.split('\n', Qt::SkipEmptyParts);
-        for (QString& d : dirs) {
-            d = d.trimmed();
+        const QStringList lines = listOut.split('\n', Qt::SkipEmptyParts);
+        for (const QString& raw : lines) {
+            const QString ln = raw.trimmed();
+            if (ln.startsWith(QStringLiteral("__MP__="))) {
+                resolvedMp = ln.mid(QStringLiteral("__MP__=").size()).trimmed();
+            } else if (!ln.isEmpty()) {
+                dirs << ln;
+            }
         }
         dirs.removeAll(QString());
-        QString mpOut;
-        QString mpErr;
-        int mpRc = -1;
-        const QString mpCmd = withSudo(
-            p,
-            QStringLiteral("DATASET=%1; "
-                           "mp=$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true); "
-                           "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$DATASET\" '$1==d{print $2; exit}');; esac; "
-                           "printf '%s' \"$mp\"")
-                .arg(shSingleQuote(ds)));
-        runSsh(p, mpCmd, 20000, mpOut, mpErr, mpRc);
-        resolvedMp = mpOut.trimmed();
     }
 
     QString dsListOut;
     QString dsListErr;
     int dsListRc = -1;
     QStringList datasetsDetected;
-    QSet<QString> childDatasetNames;
-    const QString dsListCmd = withSudo(
-        p,
-        QStringLiteral("zfs list -H -o name -r %1")
-            .arg(shSingleQuote(ds)));
-    if (runSsh(p, dsListCmd, 25000, dsListOut, dsListErr, dsListRc) && dsListRc == 0) {
+    QSet<QString> childDatasetPathsLower;
+    QString dsListCmd;
+    if (!isWindowsConnection(p)) {
+        if (daemonReadApiOk) {
+            dsListCmd = withSudo(
+                p, mwhelpers::withUnixSearchPathCommand(
+                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-list-children %1")
+                           .arg(shSingleQuote(ds))));
+        } else {
+            dsListCmd = withSudo(
+                p, mwhelpers::withUnixSearchPathCommand(
+                       QStringLiteral("zfs list -H -o name -r %1")
+                           .arg(shSingleQuote(ds))));
+        }
+    } else {
+        dsListCmd = withSudo(
+            p,
+            QStringLiteral("zfs list -H -o name -r %1")
+                .arg(shSingleQuote(ds)));
+    }
+    if (runSsh(p, dsListCmd, 180000, dsListOut, dsListErr, dsListRc) && dsListRc == 0) {
         datasetsDetected = dsListOut.split('\n', Qt::SkipEmptyParts);
         for (QString& n : datasetsDetected) {
             n = n.trimmed();
@@ -264,16 +294,26 @@ void MainWindow::actionAdvancedBreakdown() {
             if (!datasetName.startsWith(prefix)) {
                 continue;
             }
-            const QString childPath = datasetName.mid(prefix.size());
-            const QString childName = childPath.section('/', 0, 0).trimmed();
-            if (!childName.isEmpty()) {
-                childDatasetNames.insert(childName);
+            const QString childPath = datasetName.mid(prefix.size()).trimmed();
+            if (!childPath.isEmpty()) {
+                childDatasetPathsLower.insert(childPath.toLower());
             }
         }
     }
-    if (!childDatasetNames.isEmpty()) {
+    if (!childDatasetPathsLower.isEmpty()) {
         dirs.erase(std::remove_if(dirs.begin(), dirs.end(),
-                                  [&](const QString& d) { return childDatasetNames.contains(d); }),
+                                  [&](const QString& d) {
+                                      const QString path = d.trimmed().toLower();
+                                      if (path.isEmpty()) {
+                                          return true;
+                                      }
+                                      for (const QString& dsPath : childDatasetPathsLower) {
+                                          if (path == dsPath || path.startsWith(dsPath + QStringLiteral("/"))) {
+                                              return true;
+                                          }
+                                      }
+                                      return false;
+                                  }),
                    dirs.end());
     }
     QStringList mountedDescMountpoints;
@@ -285,7 +325,7 @@ void MainWindow::actionAdvancedBreakdown() {
             p,
             QStringLiteral("DATASET=%1; zfs mount | awk -v pfx=\"$DATASET/\" 'index($1,pfx)==1 {print $2}'")
                 .arg(shSingleQuote(ds)));
-        if (runSsh(p, mountedDescCmd, 25000, mountedDescOut, mountedDescErr, mountedDescRc) && mountedDescRc == 0) {
+        if (runSsh(p, mountedDescCmd, 180000, mountedDescOut, mountedDescErr, mountedDescRc) && mountedDescRc == 0) {
             mountedDescMountpoints = mountedDescOut.split('\n', Qt::SkipEmptyParts);
             for (QString& mp : mountedDescMountpoints) {
                 mp = mp.trimmed();
@@ -346,7 +386,49 @@ void MainWindow::actionAdvancedBreakdown() {
     }
     stopBusy();
     QStringList selectedDirs;
-    if (!selectItemsDialog(
+    QMap<QString, QString> invalidDirReasons;
+    auto invalidDatasetPathReason = [](const QString& path) -> QString {
+        const QString p = path.trimmed();
+        if (p.isEmpty()) {
+            return QStringLiteral("empty");
+        }
+        const QStringList parts = p.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+        if (parts.isEmpty()) {
+            return QStringLiteral("empty");
+        }
+        for (const QString& rawPart : parts) {
+            const QString n = rawPart.trimmed();
+            if (n.isEmpty()) {
+                return QStringLiteral("empty path component");
+            }
+            if (n == QStringLiteral(".") || n == QStringLiteral("..")) {
+                return QStringLiteral("reserved name");
+            }
+            for (const QChar c : n) {
+                const ushort uc = c.unicode();
+                if (uc < 0x20 || uc == 0x7F) {
+                    return QStringLiteral("control character");
+                }
+            }
+            if (n.contains(QLatin1Char('@'))) {
+                return QStringLiteral("contains '@'");
+            }
+            if (n.contains(QLatin1Char('#'))) {
+                return QStringLiteral("contains '#'");
+            }
+            if (n.contains(QLatin1Char(','))) {
+                return QStringLiteral("contains ','");
+            }
+        }
+        return QString();
+    };
+    for (const QString& dir : dirs) {
+        const QString reason = invalidDatasetPathReason(dir);
+        if (!reason.isEmpty()) {
+            invalidDirReasons.insert(dir, reason);
+        }
+    }
+    if (!selectTreeItemsDialog(
             trk(QStringLiteral("t_adv_break_tit1"), QStringLiteral("Desglosar: seleccionar directorios"),
                 QStringLiteral("Break down: select directories"),
                 QStringLiteral("拆分：选择目录")),
@@ -354,7 +436,12 @@ void MainWindow::actionAdvancedBreakdown() {
                 QStringLiteral("Select directories to split into subdatasets."),
                 QStringLiteral("请选择要拆分为子数据集的目录。")),
             dirs,
-            selectedDirs)) {
+            selectedDirs,
+            trk(QStringLiteral("t_adv_break_mp001"),
+                QStringLiteral("Mountpoint usado para explorar directorios: %1").arg(resolvedMp),
+                QStringLiteral("Mountpoint used to scan directories: %1").arg(resolvedMp),
+                QStringLiteral("用于扫描目录的挂载点：%1").arg(resolvedMp)),
+            invalidDirReasons)) {
         appLog(QStringLiteral("INFO"),
                trk(QStringLiteral("t_adv_break_can1"), QStringLiteral("Desglosar cancelado o sin selección."),
                    QStringLiteral("Break down canceled or no selection."),
@@ -400,9 +487,11 @@ void MainWindow::actionAdvancedBreakdown() {
                   "if ([string]::IsNullOrWhiteSpace($mp) -or -not (Test-Path -LiteralPath $mp)) { throw 'mountpoint=none' }; "
                   "foreach($bn in $selected){ "
                   "  $src=Join-Path $mp $bn; if (-not (Test-Path -LiteralPath $src -PathType Container)) { continue }; "
+                  "  $srcItem=Get-Item -LiteralPath $src -Force -ErrorAction SilentlyContinue; "
+                  "  if ($srcItem -and ($srcItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }; "
                   "  Write-Output ('[BREAKDOWN] start ' + $bn); "
                   "  $child=\"$ds/$bn\"; "
-                  "  zfs list -H -o name $child 2>$null | Out-Null; if ($LASTEXITCODE -ne 0) { zfs create $child | Out-Null; if($LASTEXITCODE -ne 0){ throw \"zfs create failed for $child\" } }; "
+                  "  zfs list -H -o name $child 2>$null | Out-Null; if ($LASTEXITCODE -ne 0) { zfs create -p $child | Out-Null; if($LASTEXITCODE -ne 0){ throw \"zfs create failed for $child\" } }; "
                   "  zfs mount $child 2>$null | Out-Null; "
                   "  $cmp=Resolve-Mp $child; if ([string]::IsNullOrWhiteSpace($cmp)) { throw \"cannot resolve mountpoint for $child\" }; "
                   "  if (-not (Test-Path -LiteralPath $cmp)) { New-Item -ItemType Directory -Force -Path $cmp | Out-Null }; "
@@ -418,6 +507,20 @@ void MainWindow::actionAdvancedBreakdown() {
                   .arg(dsPs, selectedPs.join(QStringLiteral(",")));
         allowWindowsScript = true;
     } else {
+        if (!isWindowsConnection(p)) {
+            QStringList args;
+            args.reserve(1 + selectedDirs.size());
+            args.push_back(shSingleQuote(ds));
+            for (const QString& d : selectedDirs) {
+                args.push_back(shSingleQuote(d));
+            }
+            cmd = withSudo(
+                p, mwhelpers::withUnixSearchPathCommand(
+                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-advanced-breakdown %1")
+                           .arg(args.join(QLatin1Char(' ')))));
+            executeDatasetAction(QStringLiteral("conncontent"), QStringLiteral("Desglosar"), ctx, cmd, 0, allowWindowsScript);
+            return;
+        }
         QStringList selectedQuoted;
         selectedQuoted.reserve(selectedDirs.size());
         for (const QString& d : selectedDirs) {
@@ -425,28 +528,33 @@ void MainWindow::actionAdvancedBreakdown() {
         }
         const QString selectedList = selectedQuoted.join(' ');
         cmd =
-            QStringLiteral("set -e; DATASET=%1; "
+                           QStringLiteral("set -e; DATASET=%1; %3"
                            "RSYNC_OPTS='-aHWS'; "
+                           "RSYNC_PROGRESS='--info=progress2'; "
+                           "rsync --help 2>/dev/null | grep -q -- '--info' || RSYNC_PROGRESS='--progress'; "
                            "rsync -A --version >/dev/null 2>&1 && RSYNC_OPTS=\"$RSYNC_OPTS -A\"; "
                            "if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS=\"$RSYNC_OPTS -X\"; "
                            "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; fi; "
-                           "resolve_mp(){ ds=\"$1\"; mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
-                           "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$ds\" '$1==d{print $2; exit}');; esac; "
-                           "printf '%s' \"$mp\"; }; "
+                           "TMP_ROOT=''; "
+                           "cleanup(){ "
+                           "  if [ -n \"$TMP_ROOT\" ]; then umount_alt_zfs \"$DATASET\" \"$TMP_ROOT\" >/dev/null 2>&1 || true; rmdir \"$TMP_ROOT\" >/dev/null 2>&1 || true; fi; "
+                           "}; "
+                           "trap cleanup EXIT INT TERM; "
                            "MP=$(resolve_mp \"$DATASET\"); "
+                           "if [ -z \"$MP\" ]; then TMP_ROOT=$(mktemp -d /tmp/zfsmgr-break-root-XXXXXX); mount_alt_zfs \"$DATASET\" \"$TMP_ROOT\"; MP=\"$TMP_ROOT\"; fi; "
                            "[ -n \"$MP\" ] || { echo \"mountpoint=none\"; exit 2; }; "
                            "SELECTED_DIRS=(%2); is_selected_dir(){ for s in \"${SELECTED_DIRS[@]}\"; do [ \"$s\" = \"$1\" ] && return 0; done; return 1; }; "
-                           "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; bn=$(basename \"$d\"); is_selected_dir \"$bn\" || continue; "
+                           "for d in \"$MP\"/.[!.]* \"$MP\"/..?* \"$MP\"/*; do [ -d \"$d\" ] || continue; [ -L \"$d\" ] && continue; bn=$(basename \"$d\"); is_selected_dir \"$bn\" || continue; "
                            "echo \"[BREAKDOWN] start $bn\"; "
                            "child=\"$DATASET/$bn\"; "
                            "zfs list -H -o name \"$child\" >/dev/null 2>&1 && { echo \"child_exists=$child\"; continue; }; "
                            "FINAL_MP=\"$MP/$bn\"; "
                            "TMP_CHILD_MP=$(mktemp -d /tmp/zfsmgr-breakdown-child-XXXXXX); "
-                           "zfs create -o mountpoint=\"$TMP_CHILD_MP\" \"$child\"; "
+                           "zfs create -p -o mountpoint=\"$TMP_CHILD_MP\" \"$child\"; "
                            "zfs mount \"$child\" >/dev/null 2>&1 || true; "
                            "try=0; "
                            "while :; do "
-                           "  rsync $RSYNC_OPTS \"$d\"/ \"$TMP_CHILD_MP\"/; "
+                           "  rsync $RSYNC_OPTS $RSYNC_PROGRESS \"$d\"/ \"$TMP_CHILD_MP\"/; "
                            "  PENDING=$(rsync -rni --ignore-existing \"$d\"/ \"$TMP_CHILD_MP\"/ | awk 'length($0)>11{c=substr($0,1,11); if(substr(c,1,1)==\">\" && substr(c,2,1)==\"f\") n++} END{print n+0}'); "
                            "  [ \"$PENDING\" = \"0\" ] && break; "
                            "  try=$((try+1)); "
@@ -459,37 +567,32 @@ void MainWindow::actionAdvancedBreakdown() {
                            "rmdir \"$TMP_CHILD_MP\" >/dev/null 2>&1 || true; "
                            "echo \"[BREAKDOWN] ok $bn -> $child\"; "
                            "done")
-                .arg(shSingleQuote(ds), selectedList);
+                .arg(shSingleQuote(ds), selectedList, unixAlternateMountHelpersScript());
     }
-    if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Desglosar"), ctx, cmd, 0, allowWindowsScript)) {
-        updateAdvancedSelectionUi(ds, QString());
-    }
+    executeDatasetAction(QStringLiteral("conncontent"), QStringLiteral("Desglosar"), ctx, cmd, 0, allowWindowsScript);
 }
 
 void MainWindow::actionAdvancedAssemble() {
-    const auto selected = m_advTree->selectedItems();
-    if (selected.isEmpty()) {
+    actionAdvancedAssemble(currentConnContentSelection(m_connContentTree));
+}
+
+void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitCtx) {
+    const DatasetSelectionContext curr = explicitCtx.valid ? explicitCtx : currentConnContentSelection(m_connContentTree);
+    if (!curr.valid || curr.datasetName.isEmpty() || !curr.snapshotName.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),
                                  trk(QStringLiteral("t_adv_sel_ds_001"), QStringLiteral("Seleccione un dataset en Avanzado."),
                                      QStringLiteral("Select a dataset in Advanced."),
                                      QStringLiteral("请在高级页选择一个数据集。")));
         return;
     }
-    const QString ds = selected.first()->data(0, Qt::UserRole).toString();
+    const QString ds = curr.datasetName;
     if (ds.isEmpty()) {
         return;
     }
-    const QString token = m_advPoolCombo->currentData().toString();
-    const int sep = token.indexOf(QStringLiteral("::"));
-    if (sep <= 0) {
-        return;
-    }
-    const int connIdx = token.left(sep).toInt();
-    const QString poolName = token.mid(sep + 2);
     DatasetSelectionContext ctx;
     ctx.valid = true;
-    ctx.connIdx = connIdx;
-    ctx.poolName = poolName;
+    ctx.connIdx = curr.connIdx;
+    ctx.poolName = curr.poolName;
     ctx.datasetName = ds;
     ctx.snapshotName.clear();
     beginUiBusy();
@@ -500,15 +603,16 @@ void MainWindow::actionAdvancedAssemble() {
             busyActive = false;
         }
     };
-
-    const ConnectionProfile& p = m_profiles[connIdx];
-    QString mountOut;
-    QString mountErr;
-    int mountRc = -1;
-    const QString mountCheckCmd = withSudo(
-        p,
-        QStringLiteral("zfs get -H -o name,value -r mounted %1").arg(shSingleQuote(ds)));
-    if (!runSsh(p, mountCheckCmd, 25000, mountOut, mountErr, mountRc) || mountRc != 0) {
+    const ConnectionProfile& p = m_profiles[ctx.connIdx];
+    const bool daemonReadApiOk =
+        !isWindowsConnection(p)
+        && ctx.connIdx >= 0
+        && ctx.connIdx < m_states.size()
+        && m_states[ctx.connIdx].daemonInstalled
+        && m_states[ctx.connIdx].daemonActive
+        && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    QString mountedValue;
+    if (!getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("mounted"), mountedValue)) {
         stopBusy();
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_adv_chk_mnt_01"), QStringLiteral("No se pudo comprobar el estado de montaje del dataset."),
@@ -516,43 +620,35 @@ void MainWindow::actionAdvancedAssemble() {
                                  QStringLiteral("无法检查数据集挂载状态。")));
         return;
     }
-    QStringList unmounted;
-    for (const QString& ln : mountOut.split('\n', Qt::SkipEmptyParts)) {
-        const QStringList parts = ln.split('\t');
-        if (parts.size() < 2) {
-            continue;
-        }
-        const QString name = parts[0].trimmed();
-        const QString mountedVal = parts[1].trimmed();
-        if (name.isEmpty() || name.contains('@')) {
-            continue; // ignorar snapshots
-        }
-        if (!isMountedValueTrue(mountedVal)) {
-            unmounted << name;
-        }
-    }
-    if (!unmounted.isEmpty()) {
+    const bool rootMounted = isMountedValueTrue(mountedValue);
+    const bool canTempMount = supportsAlternateDatasetMount(ctx.connIdx);
+    if (!rootMounted && !canTempMount) {
         stopBusy();
         QMessageBox::warning(
             this,
             QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_adv_ass_mnt01"), QStringLiteral("Ensamblar requiere dataset y descendientes montados.\nNo montados:\n%1")
-                    .arg(unmounted.join('\n')),
-                QStringLiteral("Assemble requires dataset and descendants mounted.\nNot mounted:\n%1")
-                    .arg(unmounted.join('\n')),
-                QStringLiteral("组装要求数据集及其所有后代已挂载。\n未挂载：\n%1")
-                    .arg(unmounted.join('\n'))));
+            trk(QStringLiteral("t_adv_ass_mnt01"), QStringLiteral("Ensamblar requiere dataset montado, o un sistema que permita montaje temporal alternativo."),
+                QStringLiteral("Assemble requires the dataset mounted, or a system that supports temporary alternate mounts."),
+                QStringLiteral("组装要求数据集已挂载，或系统支持临时替代挂载。")));
         return;
     }
 
     QString listOut;
     QString listErr;
     int listRc = -1;
-    const QString listCmd = withSudo(
-        p,
-        QStringLiteral("zfs list -H -o name -r %1")
-            .arg(shSingleQuote(ds)));
-    if (!runSsh(p, listCmd, 25000, listOut, listErr, listRc) || listRc != 0) {
+    QString listCmd;
+    if (!isWindowsConnection(p)) {
+        listCmd = withSudo(
+            p, mwhelpers::withUnixSearchPathCommand(
+                   QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-list-children %1")
+                       .arg(shSingleQuote(ds))));
+    } else {
+        listCmd = withSudo(
+            p,
+            QStringLiteral("zfs list -H -o name -r %1")
+                .arg(shSingleQuote(ds)));
+    }
+    if (!runSsh(p, listCmd, 180000, listOut, listErr, listRc) || listRc != 0) {
         stopBusy();
         QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
                              trk(QStringLiteral("t_adv_ass_list01"), QStringLiteral("No se pudieron listar subdatasets para ensamblar."),
@@ -575,16 +671,46 @@ void MainWindow::actionAdvancedAssemble() {
         return;
     }
     stopBusy();
-    QStringList selectedChildren;
-    if (!selectItemsDialog(
+    QStringList childPaths;
+    childPaths.reserve(children.size());
+    QMap<QString, QString> childPathToDataset;
+    const QString childPrefix = ds + QStringLiteral("/");
+    for (const QString& childDataset : children) {
+        if (!childDataset.startsWith(childPrefix)) {
+            continue;
+        }
+        const QString rel = childDataset.mid(childPrefix.size()).trimmed();
+        if (rel.isEmpty()) {
+            continue;
+        }
+        childPaths.push_back(rel);
+        childPathToDataset.insert(rel, childDataset);
+    }
+    QStringList selectedChildPaths;
+    if (!selectTreeItemsDialog(
             trk(QStringLiteral("t_adv_ass_tit001"), QStringLiteral("Ensamblar: seleccionar subdatasets"),
                 QStringLiteral("Assemble: select child datasets"),
                 QStringLiteral("组装：选择子数据集")),
             trk(QStringLiteral("t_adv_ass_msg001"), QStringLiteral("Seleccione los subdatasets que desea ensamblar en el dataset padre."),
                 QStringLiteral("Select child datasets to assemble into parent dataset."),
                 QStringLiteral("请选择要组装回父数据集的子数据集。")),
-            children,
-            selectedChildren)) {
+            childPaths,
+            selectedChildPaths)) {
+        appLog(QStringLiteral("INFO"),
+               trk(QStringLiteral("t_adv_ass_can001"), QStringLiteral("Ensamblar cancelado o sin selección."),
+                   QStringLiteral("Assemble canceled or no selection."),
+                   QStringLiteral("组装已取消或无选择。")));
+        return;
+    }
+    QStringList selectedChildren;
+    selectedChildren.reserve(selectedChildPaths.size());
+    for (const QString& rel : selectedChildPaths) {
+        const QString full = childPathToDataset.value(rel).trimmed();
+        if (!full.isEmpty()) {
+            selectedChildren.push_back(full);
+        }
+    }
+    if (selectedChildren.isEmpty()) {
         appLog(QStringLiteral("INFO"),
                trk(QStringLiteral("t_adv_ass_can001"), QStringLiteral("Ensamblar cancelado o sin selección."),
                    QStringLiteral("Assemble canceled or no selection."),
@@ -596,6 +722,7 @@ void MainWindow::actionAdvancedAssemble() {
     }
     QString cmd;
     bool allowWindowsScript = false;
+    QByteArray mountStdinPayload;
     if (isWindowsConnection(p)) {
         QStringList selectedPs;
         selectedPs.reserve(selectedChildren.size());
@@ -645,6 +772,60 @@ void MainWindow::actionAdvancedAssemble() {
                   .arg(dsPs, selectedPs.join(QStringLiteral(",")));
         allowWindowsScript = true;
     } else {
+        if (!isWindowsConnection(p)) {
+            QStringList args;
+            args.reserve(1 + selectedChildren.size());
+            args.push_back(shSingleQuote(ds));
+            for (const QString& child : selectedChildren) {
+                args.push_back(shSingleQuote(child));
+            }
+            cmd = withSudo(
+                p, mwhelpers::withUnixSearchPathCommand(
+                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-advanced-assemble %1")
+                           .arg(args.join(QLatin1Char(' ')))));
+            executeDatasetAction(QStringLiteral("conncontent"),
+                                 QStringLiteral("Ensamblar"),
+                                 ctx,
+                                 cmd,
+                                 0,
+                                 allowWindowsScript,
+                                 mountStdinPayload);
+            return;
+        }
+        QStringList promptKeyDatasets;
+        auto appendPromptDatasetIfNeeded = [&](const QString& datasetName) {
+            QString keyLocation;
+            getDatasetProperty(ctx.connIdx, datasetName, QStringLiteral("keylocation"), keyLocation);
+            keyLocation = keyLocation.trimmed().toLower();
+            QString keyStatus;
+            getDatasetProperty(ctx.connIdx, datasetName, QStringLiteral("keystatus"), keyStatus);
+            keyStatus = keyStatus.trimmed().toLower();
+            if (keyLocation == QStringLiteral("prompt") && keyStatus != QStringLiteral("available")) {
+                promptKeyDatasets << datasetName;
+            }
+        };
+        if (!rootMounted) {
+            appendPromptDatasetIfNeeded(ds);
+        }
+        for (const QString& child : selectedChildren) {
+            appendPromptDatasetIfNeeded(child);
+        }
+        promptKeyDatasets.removeDuplicates();
+        if (!promptKeyDatasets.isEmpty()) {
+            bool ok = false;
+            const QString passphrase = QInputDialog::getText(
+                this,
+                QStringLiteral("Load key"),
+                QStringLiteral("Clave"),
+                QLineEdit::Password,
+                QString(),
+                &ok);
+            if (!ok || passphrase.isEmpty()) {
+                stopBusy();
+                return;
+            }
+            mountStdinPayload = (passphrase + QStringLiteral("\n")).toUtf8();
+        }
         QStringList selectedQuoted;
         selectedQuoted.reserve(selectedChildren.size());
         for (const QString& c : selectedChildren) {
@@ -652,32 +833,41 @@ void MainWindow::actionAdvancedAssemble() {
         }
         const QString selectedList = selectedQuoted.join(' ');
         cmd =
-            QStringLiteral("set -e; DATASET=%1; "
+                           QStringLiteral("set -e; DATASET=%1; %3"
                            "RSYNC_OPTS='-aHWS'; "
+                           "RSYNC_PROGRESS='--info=progress2'; "
+                           "rsync --help 2>/dev/null | grep -q -- '--info' || RSYNC_PROGRESS='--progress'; "
                            "rsync -A --version >/dev/null 2>&1 && RSYNC_OPTS=\"$RSYNC_OPTS -A\"; "
                            "if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS=\"$RSYNC_OPTS -X\"; "
                            "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; fi; "
-                           "resolve_mp(){ ds=\"$1\"; mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
-                           "case \"$mp\" in \"\"|none|legacy|-) mp=$(zfs mount | awk -v d=\"$ds\" '$1==d{print $2; exit}');; esac; "
-                           "printf '%s' \"$mp\"; }; "
+                           "TMP_PARENT=''; "
+                           "cleanup(){ if [ -n \"$TMP_PARENT\" ]; then umount_alt_zfs \"$DATASET\" \"$TMP_PARENT\" >/dev/null 2>&1 || true; rmdir \"$TMP_PARENT\" >/dev/null 2>&1 || true; fi; }; "
+                           "trap cleanup EXIT INT TERM; "
                            "MP=$(resolve_mp \"$DATASET\"); "
+                           "if [ -z \"$MP\" ]; then load_key_if_needed \"$DATASET\"; TMP_PARENT=$(mktemp -d /tmp/zfsmgr-assemble-parent-XXXXXX); mount_alt_zfs \"$DATASET\" \"$TMP_PARENT\"; MP=\"$TMP_PARENT\"; fi; "
                            "[ -n \"$MP\" ] || { echo \"mountpoint=none\"; exit 2; }; "
                            "SELECTED_CHILDREN=(%2); "
                            "for child in \"${SELECTED_CHILDREN[@]}\"; do bn=${child##*/}; "
                            "echo \"[ASSEMBLE] start $child\"; "
-                           "CMP=$(resolve_mp \"$child\"); [ -n \"$CMP\" ] || continue; "
+                           "CMP=$(resolve_mp \"$child\"); "
+                           "CHILD_TMP=''; "
+                           "if [ -z \"$CMP\" ]; then load_key_if_needed \"$child\"; CHILD_TMP=$(mktemp -d /tmp/zfsmgr-assemble-child-XXXXXX); mount_alt_zfs \"$child\" \"$CHILD_TMP\"; CMP=\"$CHILD_TMP\"; fi; "
                            "TMP=$(mktemp -d /tmp/zfsmgr-assemble-XXXXXX); "
-                           "rsync $RSYNC_OPTS \"$CMP\"/ \"$TMP\"/; "
+                           "rsync $RSYNC_OPTS $RSYNC_PROGRESS \"$CMP\"/ \"$TMP\"/; "
+                           "if [ -n \"$CHILD_TMP\" ]; then umount_alt_zfs \"$child\" \"$CHILD_TMP\" >/dev/null 2>&1 || true; rmdir \"$CHILD_TMP\" >/dev/null 2>&1 || true; fi; "
                            "zfs destroy -r \"$child\"; "
                            "mkdir -p \"$MP/$bn\"; "
-                           "rsync $RSYNC_OPTS \"$TMP\"/ \"$MP/$bn\"/; "
+                           "rsync $RSYNC_OPTS $RSYNC_PROGRESS \"$TMP\"/ \"$MP/$bn\"/; "
                            "rm -rf \"$TMP\"; "
                            "echo \"[ASSEMBLE] ok $child -> $MP/$bn\"; "
                            "done")
-                .arg(shSingleQuote(ds), selectedList);
+                .arg(shSingleQuote(ds), selectedList, unixAlternateMountHelpersScript());
     }
-    if (executeDatasetAction(QStringLiteral("origin"), QStringLiteral("Ensamblar"), ctx, cmd, 0, allowWindowsScript)) {
-        updateAdvancedSelectionUi(ds, QString());
-        refreshConnectionByIndex(ctx.connIdx);
-    }
+    executeDatasetAction(QStringLiteral("conncontent"),
+                         QStringLiteral("Ensamblar"),
+                         ctx,
+                         cmd,
+                         0,
+                         allowWindowsScript,
+                         mountStdinPayload);
 }

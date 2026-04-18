@@ -1,0 +1,31 @@
+Comando: acciones zpool (ejecucion)
+PATH remoto usado:
+- wrapper PATH Unix + sudo wrapper.
+Argumentos y plantillas:
+- zpool export [flags] <pool>
+- zpool import [flags] <pool|guid> [newName]
+- zpool scrub [flags] <pool>
+- zpool upgrade [flags] <pool>
+- zpool reguid [flags] <pool>
+- zpool clear [flags] <pool> [devices...]
+- zpool destroy [flags] <pool>
+- zpool sync [flags] <pool>
+- zpool trim [flags] <pool> [devices...]
+- zpool initialize [flags] <pool> [devices...]
+- zpool history <pool>
+- zpool status -v <pool> (Refresh status inmediato)
+Evento detonador:
+- Menu contextual de Pool (gestion, history, refresh status, etc).
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_pools.cpp:353
+- /Users/linarese/work/ZFSMgr/src/mainwindow_pools.cpp:539
+- /Users/linarese/work/ZFSMgr/src/mainwindow_pools.cpp:980
+- /Users/linarese/work/ZFSMgr/src/mainwindow_pools.cpp:1106
+- /Users/linarese/work/ZFSMgr/src/mainwindow_pools.cpp:1222
+- /Users/linarese/work/ZFSMgr/src/mainwindow_pools.cpp:1341
+- /Users/linarese/work/ZFSMgr/src/mainwindow_pools.cpp:1490
+- /Users/linarese/work/ZFSMgr/src/mainwindow_pools.cpp:1604
+- /Users/linarese/work/ZFSMgr/src/mainwindow_pools.cpp:1764
+- /Users/linarese/work/ZFSMgr/src/mainwindow_pools.cpp:1919
+- /Users/linarese/work/ZFSMgr/src/mainwindow_pools.cpp:1986
+

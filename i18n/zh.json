@@ -11,7 +11,7 @@
     "t_clave_ssh_37a1aa": "SSH 密钥",
     "t_complete_a_77b969": "至少填写主机和用户后再测试连接。",
     "t_conexi_n_d70cf0": "连接",
-    "t_conexi_n_s_62acc8": "SSH 连接成功：%1@%2:%3",
+    "t_conexi_n_s_62acc8": "SSH 连接成功：%1@%2:%3\n系统：%4",
     "t_copiar_mod_b1d73e": "复制：远端本地模式（源和目标在同一连接）",
     "t_could_not__25cbd2": "无法迁移已保存密码。\n%1",
     "t_could_not__c30942": "无法修改主密码。\n%1",

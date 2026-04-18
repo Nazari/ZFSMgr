@@ -1,0 +1,13 @@
+Comando: deteccion version OpenZFS
+PATH remoto usado:
+- Unix: wrapper PATH Unix.
+- Windows: wrapper PowerShell con rutas OpenZFS.
+Argumentos:
+- Unix candidatos: zfs version; zfs --version; zpool --version
+- Windows: script que busca zfs.exe/zpool.exe y prueba version/--version
+Evento detonador:
+- Refresh de conexion para version minima/compatibilidad.
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_refresh.cpp:454
+- /Users/linarese/work/ZFSMgr/src/mainwindow_refresh.cpp:414
+

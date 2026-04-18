@@ -1,9 +1,47 @@
 #include "mainwindow_helpers.h"
 
 #include <QDir>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonValue>
 #include <QRegularExpression>
+#include <QStandardPaths>
 
 namespace mwhelpers {
+
+QString findLocalExecutable(const QString& name) {
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty()) {
+        return QString();
+    }
+
+    const QString fromPath = QStandardPaths::findExecutable(trimmed);
+    if (!fromPath.isEmpty()) {
+        return fromPath;
+    }
+
+    QStringList fallbackDirs;
+#if defined(Q_OS_MACOS)
+    fallbackDirs << QStringLiteral("/opt/homebrew/bin")
+                 << QStringLiteral("/opt/homebrew/sbin")
+                 << QStringLiteral("/usr/local/bin")
+                 << QStringLiteral("/usr/local/sbin");
+#endif
+    fallbackDirs << QStringLiteral("/usr/bin")
+                 << QStringLiteral("/usr/sbin")
+                 << QStringLiteral("/bin")
+                 << QStringLiteral("/sbin");
+
+    for (const QString& dir : fallbackDirs) {
+        const QString candidate = QDir(dir).filePath(trimmed);
+        const QFileInfo fi(candidate);
+        if (fi.exists() && fi.isFile() && fi.isExecutable()) {
+            return fi.absoluteFilePath();
+        }
+    }
+    return QString();
+}
 
 QString oneLine(const QString& v, int maxLen) {
     QString x = v.simplified();
@@ -216,6 +254,7 @@ QVector<ImportablePoolInfo> parseZpoolImportOutput(const QString& text) {
     QVector<ImportablePoolInfo> rows;
     const QRegularExpression poolNameRx(QStringLiteral("^[A-Za-z0-9_.:-]+$"));
     QString currentPool;
+    QString currentGuid;
     QString currentState;
     QString currentReason;
     bool collectingStatus = false;
@@ -226,6 +265,7 @@ QVector<ImportablePoolInfo> parseZpoolImportOutput(const QString& text) {
         }
         if (!poolNameRx.match(currentPool).hasMatch()) {
             currentPool.clear();
+            currentGuid.clear();
             currentState.clear();
             currentReason.clear();
             collectingStatus = false;
@@ -233,15 +273,18 @@ QVector<ImportablePoolInfo> parseZpoolImportOutput(const QString& text) {
         }
         if (currentState.isEmpty() && currentReason.isEmpty()) {
             currentPool.clear();
+            currentGuid.clear();
             collectingStatus = false;
             return;
         }
         rows.push_back(ImportablePoolInfo{
             currentPool,
+            currentGuid,
             currentState.isEmpty() ? QStringLiteral("UNKNOWN") : currentState,
             currentReason,
         });
         currentPool.clear();
+        currentGuid.clear();
         currentState.clear();
         currentReason.clear();
         collectingStatus = false;
@@ -261,6 +304,10 @@ QVector<ImportablePoolInfo> parseZpoolImportOutput(const QString& text) {
         if (line.startsWith(QStringLiteral("state: "))) {
             currentState = line.mid(QStringLiteral("state: ").size()).trimmed();
             collectingStatus = false;
+            continue;
+        }
+        if (line.startsWith(QStringLiteral("id: "))) {
+            currentGuid = line.mid(QStringLiteral("id: ").size()).trimmed();
             continue;
         }
         if (line.startsWith(QStringLiteral("status: "))) {
@@ -382,6 +429,58 @@ QVector<QPair<QString, QString>> parseZfsMountOutput(const QString& text) {
             continue;
         }
         out.push_back(qMakePair(ds, mp));
+    }
+    return out;
+}
+
+QVector<QPair<QString, QString>> parseZfsMountJsonOutput(const QString& text) {
+    QVector<QPair<QString, QString>> out;
+    const QJsonDocument doc = QJsonDocument::fromJson(text.toUtf8());
+    if (!doc.isObject()) {
+        return out;
+    }
+    const QJsonObject root = doc.object();
+    auto extractMountpoint = [](const QJsonValue& v) -> QString {
+        if (v.isString()) {
+            return v.toString().trimmed();
+        }
+        if (!v.isObject()) {
+            return QString();
+        }
+        const QJsonObject o = v.toObject();
+        if (o.contains(QStringLiteral("value"))) {
+            return o.value(QStringLiteral("value")).toString().trimmed();
+        }
+        if (o.contains(QStringLiteral("mountpoint"))) {
+            const QJsonValue inner = o.value(QStringLiteral("mountpoint"));
+            if (inner.isString()) {
+                return inner.toString().trimmed();
+            }
+            if (inner.isObject()) {
+                return inner.toObject().value(QStringLiteral("value")).toString().trimmed();
+            }
+        }
+        return QString();
+    };
+    auto appendFromMap = [&out, &extractMountpoint](const QJsonObject& mapObj) {
+        for (auto it = mapObj.constBegin(); it != mapObj.constEnd(); ++it) {
+            const QString ds = it.key().trimmed();
+            if (ds.isEmpty()) {
+                continue;
+            }
+            const QString mp = extractMountpoint(it.value());
+            if (mp.isEmpty()) {
+                continue;
+            }
+            out.push_back(qMakePair(ds, mp));
+        }
+    };
+    if (root.contains(QStringLiteral("datasets")) && root.value(QStringLiteral("datasets")).isObject()) {
+        appendFromMap(root.value(QStringLiteral("datasets")).toObject());
+    } else if (root.contains(QStringLiteral("mounts")) && root.value(QStringLiteral("mounts")).isObject()) {
+        appendFromMap(root.value(QStringLiteral("mounts")).toObject());
+    } else {
+        appendFromMap(root);
     }
     return out;
 }
@@ -513,10 +612,25 @@ QString sshUserHostPort(const ConnectionProfile& p) {
     return QStringLiteral("%1:%2").arg(sshUserHost(p), port);
 }
 
+QString sshAddressFamilyOption(const ConnectionProfile& p) {
+    const QString family = p.sshAddressFamily.trimmed().toLower();
+    if (family == QStringLiteral("ipv4")) {
+        return QStringLiteral("-4");
+    }
+    if (family == QStringLiteral("ipv6")) {
+        return QStringLiteral("-6");
+    }
+    return QString();
+}
+
 QString sshBaseCommand(const ConnectionProfile& p) {
     QString cmd = QStringLiteral("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-                                 " -o ControlMaster=auto -o ControlPersist=300 -o ControlPath=%1")
+                                 " -o ControlMaster=auto -o ControlPersist=yes -o ControlPath=%1")
                       .arg(shSingleQuote(sshControlPath()));
+    const QString familyOpt = sshAddressFamilyOption(p);
+    if (!familyOpt.isEmpty()) {
+        cmd += QStringLiteral(" ") + familyOpt;
+    }
     if (p.port > 0) {
         cmd += QStringLiteral(" -p ") + QString::number(p.port);
     }
@@ -603,44 +717,73 @@ QString buildTarDestinationCommand(bool isWindows, const QString& mountPath, Str
         .arg(shSingleQuote(mountPath), decodePipe);
 }
 
+QString withUnixSearchPathCommand(const QString& cmd) {
+    return QStringLiteral(
+               "PATH=\"$PATH:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin\"; "
+               "export PATH; %1")
+        .arg(cmd);
+}
+
+bool isRemoteZfsMgrScriptCommand(const QString& cmd) {
+    const QString trimmed = cmd.trimmed();
+    if (trimmed.isEmpty()) {
+        return false;
+    }
+    return trimmed.contains(QStringLiteral("/.config/ZFSMgr/bin/zfsmgr-"))
+           || trimmed.startsWith(QStringLiteral("zfsmgr-"));
+}
+
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {
     if (isWindowsOsType(p.osType)) {
         return cmd;
     }
+    const QString preparedCmd =
+        isRemoteZfsMgrScriptCommand(cmd) ? cmd : withUnixSearchPathCommand(cmd);
     if (!p.useSudo) {
-        return cmd;
+        return preparedCmd;
     }
     if (!p.password.isEmpty()) {
-        return QStringLiteral("printf '%s\\n' %1 | sudo -S -p '' sh -lc %2")
-            .arg(shSingleQuote(p.password), shSingleQuote(cmd));
+        return QStringLiteral("printf '%s\\n' %1 | sudo -k -S -p '' sh -c %2")
+            .arg(shSingleQuote(p.password), shSingleQuote(preparedCmd));
     }
-    return QStringLiteral("sudo -n ") + cmd;
+    return QStringLiteral("sudo -n ") + preparedCmd;
 }
 
 QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cmd) {
     if (isWindowsOsType(p.osType)) {
         return cmd;
     }
+    const QString preparedCmd =
+        isRemoteZfsMgrScriptCommand(cmd) ? cmd : withUnixSearchPathCommand(cmd);
     if (!p.useSudo) {
-        return cmd;
+        return preparedCmd;
     }
     if (!p.password.isEmpty()) {
-        return QStringLiteral("{ printf '%s\\n' %1; cat; } | sudo -S -p '' sh -lc %2")
-            .arg(shSingleQuote(p.password), shSingleQuote(cmd));
+        return QStringLiteral("{ printf '%s\\n' %1; cat; } | sudo -k -S -p '' sh -c %2")
+            .arg(shSingleQuote(p.password), shSingleQuote(preparedCmd));
     }
-    return QStringLiteral("sudo -n sh -lc %1").arg(shSingleQuote(cmd));
+    return QStringLiteral("sudo -n sh -c %1").arg(shSingleQuote(preparedCmd));
+}
+
+QString stripToJson(const QString& output) {
+    const int idx = output.indexOf('{');
+    return idx >= 0 ? output.mid(idx) : output;
 }
 
 QString buildSshPreviewCommandText(const ConnectionProfile& p, const QString& remoteCmd) {
     QStringList parts;
     parts << QStringLiteral("ssh");
+    const QString familyOpt = sshAddressFamilyOption(p);
+    if (!familyOpt.isEmpty()) {
+        parts << familyOpt;
+    }
     parts << QStringLiteral("-o BatchMode=yes");
     parts << QStringLiteral("-o ConnectTimeout=10");
     parts << QStringLiteral("-o LogLevel=ERROR");
     parts << QStringLiteral("-o StrictHostKeyChecking=no");
     parts << QStringLiteral("-o UserKnownHostsFile=/dev/null");
     parts << QStringLiteral("-o ControlMaster=auto");
-    parts << QStringLiteral("-o ControlPersist=300");
+    parts << QStringLiteral("-o ControlPersist=yes");
     parts << QStringLiteral("-o ControlPath=%1").arg(shSingleQuote(sshControlPath()));
     if (p.port > 0) {
         parts << QStringLiteral("-p %1").arg(p.port);

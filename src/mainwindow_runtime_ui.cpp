@@ -1,12 +1,39 @@
 #include "mainwindow.h"
 
 #include <QApplication>
+#include <QCoreApplication>
 #include <QCloseEvent>
 #include <QMessageBox>
+#include <QListWidget>
+#include <QPlainTextEdit>
 #include <QProcess>
 #include <QPushButton>
+#include <QTableWidget>
+#include <QTabBar>
+#include <QTabWidget>
 #include <QTextEdit>
 #include <QThread>
+#include <QTreeWidget>
+
+MainWindow::~MainWindow() {
+    m_closing = true;
+    QCoreApplication::removePostedEvents(this);
+    stopAllDaemonEventWatchers();
+    closeAllRemoteDaemonRpcTunnels();
+
+    auto quiesceObject = [](QObject* obj) {
+        if (!obj) {
+            return;
+        }
+        obj->blockSignals(true);
+        QCoreApplication::removePostedEvents(obj);
+    };
+
+    quiesceObject(m_connContentTree);
+    quiesceObject(m_connContentPropsTable);
+    quiesceObject(m_pendingChangesList);
+    quiesceObject(m_logsTabs);
+}
 
 void MainWindow::updateStatus(const QString& text) {
     if (QThread::currentThread() != thread()) {
@@ -16,7 +43,8 @@ void MainWindow::updateStatus(const QString& text) {
         return;
     }
     if (m_statusText) {
-        m_statusText->setPlainText(maskSecrets(text));
+        const QString masked = maskSecrets(text.trimmed());
+        m_statusText->setPlainText(masked.isEmpty() ? defaultStatusTextForCurrentState() : masked);
     }
 }
 
@@ -43,7 +71,9 @@ void MainWindow::terminateProcessTree(qint64 rootPid) {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
+    m_closing = true;
     if (m_actionsLocked) {
+        m_closing = false;
         QMessageBox::warning(
             this,
             QStringLiteral("ZFSMgr"),
@@ -54,6 +84,21 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         event->ignore();
         return;
     }
+    if (m_refreshInProgress) {
+        m_closing = false;
+        QMessageBox::warning(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_close_refresh_block_001"),
+                QStringLiteral("Hay un refresco de conexiones en curso. Espere a que termine antes de cerrar la aplicación."),
+                QStringLiteral("A connection refresh is in progress. Wait for it to finish before closing the application."),
+                QStringLiteral("连接刷新正在进行中。请等待其完成后再关闭应用。")));
+        event->ignore();
+        return;
+    }
+    saveUiSettings();
+    closeAllRemoteDaemonRpcTunnels();
+    closeAllSshControlMasters();
     QMainWindow::closeEvent(event);
 }
 
@@ -69,6 +114,45 @@ void MainWindow::endUiBusy() {
     updateBusyCursor();
 }
 
+void MainWindow::beginTransientUiBusy(const QString& statusText) {
+    m_transientStatusStack.push_back(m_statusText ? m_statusText->toPlainText() : QString());
+    beginUiBusy();
+    if (!statusText.trimmed().isEmpty()) {
+        updateStatus(statusText);
+    }
+}
+
+void MainWindow::endTransientUiBusy() {
+    const QString previous = m_transientStatusStack.isEmpty() ? QString() : m_transientStatusStack.takeLast();
+    endUiBusy();
+    updateStatus(previous);
+}
+
+QString MainWindow::defaultStatusTextForCurrentState() const {
+    if (!m_initialRefreshCompleted) {
+        return trk(QStringLiteral("t_status_loading_001"),
+                   QStringLiteral("Loading..."),
+                   QStringLiteral("Loading..."),
+                   QStringLiteral("加载中..."));
+    }
+    if (m_refreshInProgress) {
+        return trk(QStringLiteral("t_status_refreshing_001"),
+                   QStringLiteral("Refreshing connections..."),
+                   QStringLiteral("Refreshing connections..."),
+                   QStringLiteral("正在刷新连接..."));
+    }
+    if (m_actionsLocked || m_uiBusyDepth > 0) {
+        return trk(QStringLiteral("t_status_busy_001"),
+                   QStringLiteral("Working..."),
+                   QStringLiteral("Working..."),
+                   QStringLiteral("处理中..."));
+    }
+    return trk(QStringLiteral("t_status_ready_001"),
+               QStringLiteral("Ready"),
+               QStringLiteral("Ready"),
+               QStringLiteral("就绪"));
+}
+
 void MainWindow::updateBusyCursor() {
     const bool shouldShow = m_actionsLocked || m_refreshInProgress || (m_uiBusyDepth > 0);
     if (shouldShow) {
@@ -76,22 +160,34 @@ void MainWindow::updateBusyCursor() {
             QApplication::setOverrideCursor(Qt::BusyCursor);
             m_waitCursorActive = true;
         }
+        if (m_statusText && m_statusText->toPlainText().trimmed().isEmpty()) {
+            m_statusText->setPlainText(defaultStatusTextForCurrentState());
+        }
     } else if (m_waitCursorActive) {
         QApplication::restoreOverrideCursor();
         m_waitCursorActive = false;
+        if (m_statusText && m_statusText->toPlainText().trimmed().isEmpty()) {
+            m_statusText->setPlainText(defaultStatusTextForCurrentState());
+        }
+    } else if (m_statusText && m_statusText->toPlainText().trimmed().isEmpty()) {
+        m_statusText->setPlainText(defaultStatusTextForCurrentState());
     }
+}
+
+void MainWindow::updateConnectivityMatrixButtonState() {
+    if (!m_connectivityMatrixAction) {
+        return;
+    }
+    const bool enabled = !m_refreshInProgress && !m_connectivityMatrixInProgress;
+    m_connectivityMatrixAction->setEnabled(enabled);
 }
 
 void MainWindow::setActionsLocked(bool locked) {
     m_actionsLocked = locked;
     updateBusyCursor();
-    if (m_logCancelBtn) {
-        m_logCancelBtn->setVisible(locked);
-        m_logCancelBtn->setEnabled(locked);
+    if (m_menuExitAction) {
+        m_menuExitAction->setEnabled(!locked);
     }
-    if (m_btnNew) m_btnNew->setEnabled(!locked);
-    if (m_btnRefreshAll) m_btnRefreshAll->setEnabled(!locked);
-    if (m_btnPoolNew) m_btnPoolNew->setEnabled(!locked && selectedConnectionIndexForPoolManagement() >= 0);
     if (m_poolStatusRefreshBtn) {
         const bool canRefresh = m_poolStatusRefreshBtn->property("zfsmgr_can_refresh").toBool();
         m_poolStatusRefreshBtn->setEnabled(!locked && canRefresh);
@@ -100,20 +196,12 @@ void MainWindow::setActionsLocked(bool locked) {
     if (m_poolStatusExportBtn) m_poolStatusExportBtn->setEnabled(!locked && m_poolStatusExportBtn->isEnabled());
     if (m_poolStatusScrubBtn) m_poolStatusScrubBtn->setEnabled(!locked && m_poolStatusScrubBtn->isEnabled());
     if (m_poolStatusDestroyBtn) m_poolStatusDestroyBtn->setEnabled(!locked && m_poolStatusDestroyBtn->isEnabled());
-    if (m_btnApplyDatasetProps) m_btnApplyDatasetProps->setEnabled(!locked && m_btnApplyDatasetProps->isEnabled());
-    if (m_btnApplyAdvancedProps) m_btnApplyAdvancedProps->setEnabled(!locked && m_btnApplyAdvancedProps->isEnabled());
-    if (locked) {
-        if (m_btnCopy) m_btnCopy->setEnabled(false);
-        if (m_btnLevel) m_btnLevel->setEnabled(false);
-        if (m_btnSync) m_btnSync->setEnabled(false);
-        if (m_btnAdvancedBreakdown) m_btnAdvancedBreakdown->setEnabled(false);
-        if (m_btnAdvancedAssemble) m_btnAdvancedAssemble->setEnabled(false);
-        if (m_btnAdvancedFromDir) m_btnAdvancedFromDir->setEnabled(false);
-        if (m_btnAdvancedToDir) m_btnAdvancedToDir->setEnabled(false);
-    } else {
-        updateTransferButtonsState();
+    if (m_btnApplyConnContentProps) m_btnApplyConnContentProps->setEnabled(!locked && m_btnApplyConnContentProps->isEnabled());
+    if (!locked) {
+        m_activeConnActionName.clear();
         updateApplyPropsButtonState();
-        refreshSelectedPoolDetails();
+        refreshSelectedPoolDetails(false, false);
         updatePoolManagementBoxTitle();
     }
+    updateConnectionActionsState();
 }

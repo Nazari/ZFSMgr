@@ -1,0 +1,18 @@
+Comando: lectura permisos ZFS
+PATH remoto usado:
+- wrapper PATH Unix + sudo wrapper.
+Argumentos:
+- Individual: zfs allow <dataset>
+- Batch pool: for ds in ...; zfs allow "$ds" 2>&1; (con marcadores __ZFSMGR_ALLOW_*)
+- Cuentas sistema:
+  - macOS users/groups: dscl . -list /Users|/Groups (fallback /etc/passwd,/etc/group)
+  - Unix users/groups: (getent passwd|group || cat /etc/passwd|group) | cut -d: -f1
+Evento detonador:
+- Expandir nodo Permissions de dataset.
+- Carga inicial de permisos por pool.
+- Formularios "Nueva delegacion"/"Nuevo set".
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_permissions.cpp:638
+- /Users/linarese/work/ZFSMgr/src/mainwindow_permissions.cpp:841
+- /Users/linarese/work/ZFSMgr/src/mainwindow_permissions.cpp:118
+

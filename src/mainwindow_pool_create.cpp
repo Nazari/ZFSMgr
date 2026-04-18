@@ -2,12 +2,18 @@
 #include "mainwindow_helpers.h"
 
 #include <QAbstractItemView>
+#include <QApplication>
 #include <QBrush>
 #include <QCheckBox>
 #include <QColor>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDrag>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMouseEvent>
+#include <QFile>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QGridLayout>
@@ -18,18 +24,24 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMap>
+#include <QMenu>
 #include <QMessageBox>
+#include <QMimeData>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <QSet>
 #include <QSignalBlocker>
-#include <QTableWidget>
-#include <QTableWidgetItem>
+#include <QSplitter>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 #include <QTextEdit>
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <functional>
 
 namespace {
 using mwhelpers::oneLine;
@@ -38,47 +50,178 @@ using mwhelpers::sshUserHostPort;
 using mwhelpers::formatWindowsFsTypeDetail;
 using mwhelpers::windowsPartitionTypeIsProtected;
 
-QString parentDiskDevicePath(const QString& rawPath) {
-    const QString path = rawPath.trimmed();
-    if (path.isEmpty()) {
-        return QString();
+void setRequiredLabelState(QLabel* label, bool required) {
+    if (!label) {
+        return;
     }
-    static const QList<QRegularExpression> rules = {
-        QRegularExpression(QStringLiteral(R"(^(.*\/nvme\d+n\d+)p\d+$)")),
-        QRegularExpression(QStringLiteral(R"(^(.*\/mmcblk\d+)p\d+$)")),
-        QRegularExpression(QStringLiteral(R"(^(.*\/disk\d+)s\d+$)")),
-        QRegularExpression(QStringLiteral(R"(^(.*\/(?:sd[a-z]+|vd[a-z]+|xvd[a-z]+))\d+$)")),
-    };
-    for (const auto& rx : rules) {
-        const QRegularExpressionMatch m = rx.match(path);
-        if (m.hasMatch()) {
-            return m.captured(1);
-        }
-    }
-    return QString();
+    label->setStyleSheet(required
+                             ? QStringLiteral("QLabel { color: #b00020; font-weight: 600; }")
+                             : QString());
 }
 
-QString wrapDeviceDisplayText(const QString& raw, int softWidth = 42) {
-    const QString s = raw;
-    if (s.size() <= softWidth) {
-        return s;
+void bindRequiredLineEditLabel(QLineEdit* edit, QLabel* label) {
+    if (!edit || !label) {
+        return;
     }
-    QString out;
-    out.reserve(s.size() + (s.size() / softWidth) + 4);
-    int col = 0;
-    for (int i = 0; i < s.size(); ++i) {
-        const QChar ch = s[i];
-        out += ch;
-        ++col;
-        const bool breakChar = (ch == QChar('/') || ch == QChar('\\') || ch == QChar(' '));
-        if ((breakChar && col >= (softWidth / 2)) || col >= softWidth) {
-            if (i + 1 < s.size()) {
-                out += QChar('\n');
+    auto refresh = [edit, label]() {
+        setRequiredLabelState(label, edit->text().trimmed().isEmpty());
+    };
+    QObject::connect(edit, &QLineEdit::textChanged, label, [refresh](const QString&) {
+        refresh();
+    });
+    refresh();
+}
+
+constexpr int kRoleDevicePath = Qt::UserRole;
+constexpr int kRoleSelectable = Qt::UserRole + 1;
+constexpr int kRoleDevType = Qt::UserRole + 4;
+constexpr int kRoleNodeKind = Qt::UserRole + 5;
+constexpr int kRoleVdevPrefix = Qt::UserRole + 6;
+constexpr int kRoleIntrinsicSelectable = Qt::UserRole + 7;
+
+QStringList draggedDevicePaths(const QMimeData* mimeData) {
+    if (!mimeData || !mimeData->hasFormat(QStringLiteral("application/x-zfsmgr-device-paths"))) {
+        return {};
+    }
+    const QString payload = QString::fromUtf8(
+        mimeData->data(QStringLiteral("application/x-zfsmgr-device-paths")));
+    return payload.split('\n', Qt::SkipEmptyParts);
+}
+
+class DeviceDragTreeWidget : public QTreeWidget {
+public:
+    using QTreeWidget::QTreeWidget;
+};
+
+class PoolLayoutTreeWidget : public QTreeWidget {
+public:
+    std::function<void(const QStringList&, QTreeWidgetItem*)> handleExternalDrop;
+    std::function<void()> handleInternalDrop;
+    std::function<bool(const QList<QTreeWidgetItem*>&, QTreeWidgetItem*)> canAcceptInternalDrop;
+
+    using QTreeWidget::QTreeWidget;
+
+protected:
+    void dragEnterEvent(QDragEnterEvent* event) override {
+        if (event && event->mimeData()
+            && event->mimeData()->hasFormat(QStringLiteral("application/x-zfsmgr-device-paths"))) {
+            event->acceptProposedAction();
+            return;
+        }
+        QTreeWidget::dragEnterEvent(event);
+    }
+
+    void dragMoveEvent(QDragMoveEvent* event) override {
+        if (event && event->mimeData()
+            && event->mimeData()->hasFormat(QStringLiteral("application/x-zfsmgr-device-paths"))) {
+            event->acceptProposedAction();
+            return;
+        }
+        if (event && canAcceptInternalDrop) {
+            if (!canAcceptInternalDrop(selectedItems(), itemAt(event->position().toPoint()))) {
+                event->ignore();
+                return;
             }
-            col = 0;
+        }
+        QTreeWidget::dragMoveEvent(event);
+    }
+
+    void dropEvent(QDropEvent* event) override {
+        if (event && event->mimeData()
+            && event->mimeData()->hasFormat(QStringLiteral("application/x-zfsmgr-device-paths"))) {
+            if (handleExternalDrop) {
+                handleExternalDrop(draggedDevicePaths(event->mimeData()), itemAt(event->position().toPoint()));
+            }
+            event->acceptProposedAction();
+            return;
+        }
+        if (event && canAcceptInternalDrop
+            && !canAcceptInternalDrop(selectedItems(), itemAt(event->position().toPoint()))) {
+            event->ignore();
+            return;
+        }
+        QTreeWidget::dropEvent(event);
+        if (handleInternalDrop) {
+            handleInternalDrop();
         }
     }
-    return out;
+};
+
+struct ZPoolCreationDefaults {
+    bool force{true};
+    QString altroot;
+    QString ashift{QStringLiteral("12")};
+    QString autotrim{QStringLiteral("on")};
+    QString compatibility{QStringLiteral("openzfs-2.4-linux")};
+    QString fsProps{
+        QStringLiteral("acltype=posixacl,"
+                       "xattr=sa,"
+                       "dnodesize=auto,"
+                       "compression=lz4,"
+                       "normalization=formD,"
+                       "relatime=on,"
+                       "canmount=noauto,"
+                       "mountpoint=none")};
+};
+
+ZPoolCreationDefaults loadZPoolCreationDefaults(const QString& configPath) {
+    ZPoolCreationDefaults d;
+    if (configPath.trimmed().isEmpty()) {
+        return d;
+    }
+    QFile f(configPath);
+    if (!f.open(QIODevice::ReadOnly)) {
+        return d;
+    }
+    QJsonParseError parseErr;
+    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &parseErr);
+    if (parseErr.error != QJsonParseError::NoError || !doc.isObject()) {
+        return d;
+    }
+    const QJsonObject obj = doc.object().value(QStringLiteral("ZPoolCreationDefaults")).toObject();
+    bool touched = false;
+    auto ensure = [&](const QString& key) {
+        if (!obj.contains(key)) {
+            touched = true;
+        }
+    };
+    ensure(QStringLiteral("force"));
+    ensure(QStringLiteral("altroot"));
+    ensure(QStringLiteral("ashift"));
+    ensure(QStringLiteral("autotrim"));
+    ensure(QStringLiteral("compatibility"));
+    ensure(QStringLiteral("fs_properties"));
+
+    d.force = obj.value(QStringLiteral("force")).toBool(d.force);
+    d.altroot = obj.value(QStringLiteral("altroot")).toString(d.altroot).trimmed();
+    d.ashift = obj.value(QStringLiteral("ashift")).toString(d.ashift).trimmed();
+    d.autotrim = obj.value(QStringLiteral("autotrim")).toString(d.autotrim).trimmed();
+    d.compatibility = obj.value(QStringLiteral("compatibility")).toString(d.compatibility).trimmed();
+    d.fsProps = obj.value(QStringLiteral("fs_properties")).toString(d.fsProps).trimmed();
+    if (touched) {
+        QFile wf(configPath);
+        if (wf.open(QIODevice::ReadOnly)) {
+            QJsonParseError pe;
+            const QJsonDocument ddoc = QJsonDocument::fromJson(wf.readAll(), &pe);
+            wf.close();
+            if (pe.error == QJsonParseError::NoError && ddoc.isObject()) {
+                QJsonObject root = ddoc.object();
+                QJsonObject out = root.value(QStringLiteral("ZPoolCreationDefaults")).toObject();
+                if (!out.contains(QStringLiteral("force"))) out.insert(QStringLiteral("force"), d.force);
+                if (!out.contains(QStringLiteral("altroot"))) out.insert(QStringLiteral("altroot"), d.altroot);
+                if (!out.contains(QStringLiteral("ashift"))) out.insert(QStringLiteral("ashift"), d.ashift);
+                if (!out.contains(QStringLiteral("autotrim"))) out.insert(QStringLiteral("autotrim"), d.autotrim);
+                if (!out.contains(QStringLiteral("compatibility"))) out.insert(QStringLiteral("compatibility"), d.compatibility);
+                if (!out.contains(QStringLiteral("fs_properties"))) out.insert(QStringLiteral("fs_properties"), d.fsProps);
+                root.insert(QStringLiteral("ZPoolCreationDefaults"), out);
+                if (wf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                    wf.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+                    wf.close();
+                }
+            }
+        }
+    }
+    return d;
 }
 
 bool isRootDevicePath(const QString& rawPath) {
@@ -87,7 +230,7 @@ bool isRootDevicePath(const QString& rawPath) {
         return true;
     }
     static const QList<QRegularExpression> rootPatterns = {
-        QRegularExpression(QStringLiteral(R"(^/dev/(sd[a-z]+|vd[a-z]+|xvd[a-z]+)$)")),
+        QRegularExpression(QStringLiteral(R"(^/dev/(sd[a-z]+|vd[a-z]+|xvd[a-z]+|vtbd\d+|vtdb\d+)$)")),
         QRegularExpression(QStringLiteral(R"(^/dev/nvme\d+n\d+$)")),
         QRegularExpression(QStringLiteral(R"(^/dev/mmcblk\d+$)")),
         QRegularExpression(QStringLiteral(R"(^/dev/disk\d+$)")),
@@ -101,6 +244,78 @@ bool isRootDevicePath(const QString& rawPath) {
     }
     return false;
 }
+
+QString deviceTreeParentPath(const QString& rawPath) {
+    const QString path = rawPath.trimmed();
+    if (path.isEmpty()) {
+        return QString();
+    }
+
+    {
+        static const QRegularExpression rx(
+            QStringLiteral(R"(^(\\\\\.\\PhysicalDrive\d+)(?:\\Partition\d+)?$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch m = rx.match(path);
+        if (m.hasMatch()) {
+            const QString parent = m.captured(1);
+            return parent.compare(path, Qt::CaseInsensitive) == 0 ? QString() : parent;
+        }
+    }
+    {
+        static const QRegularExpression rx(
+            QStringLiteral(R"(^(\\\\\?\\PhysicalDrive\d+)(?:\\Partition\d+)?$)"),
+            QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch m = rx.match(path);
+        if (m.hasMatch()) {
+            const QString parent = m.captured(1);
+            return parent.compare(path, Qt::CaseInsensitive) == 0 ? QString() : parent;
+        }
+    }
+    {
+        static const QRegularExpression rx(QStringLiteral(R"(^(/dev/disk\d+s\d+)s\d+$)"));
+        const QRegularExpressionMatch m = rx.match(path);
+        if (m.hasMatch()) {
+            return m.captured(1);
+        }
+    }
+    {
+        static const QRegularExpression rx(QStringLiteral(R"(^(/dev/disk\d+)s\d+$)"));
+        const QRegularExpressionMatch m = rx.match(path);
+        if (m.hasMatch()) {
+            return m.captured(1);
+        }
+    }
+    {
+        static const QRegularExpression rx(QStringLiteral(R"(^(/dev/nvme\d+n\d+)p\d+$)"));
+        const QRegularExpressionMatch m = rx.match(path);
+        if (m.hasMatch()) {
+            return m.captured(1);
+        }
+    }
+    {
+        static const QRegularExpression rx(QStringLiteral(R"(^(/dev/mmcblk\d+)p\d+$)"));
+        const QRegularExpressionMatch m = rx.match(path);
+        if (m.hasMatch()) {
+            return m.captured(1);
+        }
+    }
+    {
+        static const QRegularExpression rx(QStringLiteral(R"(^(/dev/(?:sd[a-z]+|vd[a-z]+|xvd[a-z]+))\d+$)"));
+        const QRegularExpressionMatch m = rx.match(path);
+        if (m.hasMatch()) {
+            return m.captured(1);
+        }
+    }
+    {
+        static const QRegularExpression rx(QStringLiteral(R"(^(/dev/(?:vtbd|vtdb)\d+)p\d+$)"));
+        const QRegularExpressionMatch m = rx.match(path);
+        if (m.hasMatch()) {
+            return m.captured(1);
+        }
+    }
+    return QString();
+}
+
 } // namespace
 
 void MainWindow::createPoolForSelectedConnection() {
@@ -144,19 +359,16 @@ void MainWindow::createPoolForSelectedConnection() {
         QString mountpoint;
         QString fsType;
         QString devType;
+        bool zfsSignature{false};
+        bool synthesized{false};
         bool inPool{false};
-        bool mounted{false};
-        bool childBusy{false};
     };
 
     auto runRemote = [this, &p](const QString& cmd, int timeoutMs, QString& outText) -> bool {
         QString err;
         int rc = -1;
         outText.clear();
-        if (!runSsh(p, cmd, timeoutMs, outText, err, rc) || rc != 0) {
-            return false;
-        }
-        return true;
+        return runSsh(p, cmd, timeoutMs, outText, err, rc) && rc == 0;
     };
     QStringList compatibilityNames;
     {
@@ -210,32 +422,124 @@ void MainWindow::createPoolForSelectedConnection() {
             "  $mbr = '-'; if($_.MbrType){ $mbr = [string]$_.MbrType }; "
             "  $ptype = ($fs + '|gpt=' + $gpt + '|type=' + $ptypeRaw + '|mbr=' + $mbr); "
             "  Write-Output ($path + \"`t\" + $size + \"`t\" + $mp + \"`t\" + $path + \"`t\" + $ptype + \"`tpart\") "
+            "}; "
+            "Get-Disk | "
+            "Where-Object { "
+            "  $parts = @(Get-Partition -DiskNumber $_.Number -ErrorAction SilentlyContinue); "
+            "  if ($parts.Count -eq 0) { $true } "
+            "  else { "
+            "    $nonEfi = @($parts | Where-Object { "
+            "      $g = if($_.GptType){ $_.GptType.ToString().Trim('{}').ToLower() } else { '' }; "
+            "      $t = if($_.Type){ $_.Type.ToString().Trim().ToLower() } else { '' }; "
+            "      ($g -ne 'c12a7328-f81f-11d2-ba4b-00a0c93ec93b') -and ($g -ne 'e3c9e316-0b5c-4db8-817d-f92df00215ae') -and ($t -ne 'reserved') "
+            "    }); "
+            "    $nonEfi.Count -eq 0 "
+            "  } "
+            "} | "
+            "ForEach-Object { "
+            "  $path = ('\\\\.\\PhysicalDrive' + $_.Number); "
+            "  $size = if($_.Size){ [string]([math]::Round($_.Size/1GB,2)) + 'G' } else { '-' }; "
+            "  $ptype = 'diskstyle=' + [string]$_.PartitionStyle + '|bus=' + [string]$_.BusType + '|model=' + [string]$_.FriendlyName + '|type=EFI_OR_RESERVED_ONLY_OR_EMPTY'; "
+            "  Write-Output ($path + \"`t\" + $size + \"`t-`t\" + $path + \"`t\" + $ptype + \"`tdisk\") "
             "}");
     } else {
         devCmd = QStringLiteral(
-            "if [ \"$(uname -s 2>/dev/null)\" = \"Darwin\" ] && [ -d /private/var/run/disk/by-id ]; then "
-            "  for id in /private/var/run/disk/by-id/*; do "
-            "    [ -e \"$id\" ] || continue; "
-            "    real=\"$(perl -MCwd=realpath -e 'print realpath($ARGV[0])' \"$id\" 2>/dev/null)\"; "
-            "    [ -n \"$real\" ] || continue; "
-            "    base=\"$(basename \"$real\")\"; "
-            "    parent=\"${base%%s*}\"; "
-            "    if diskutil list | awk -v d=\"$parent\" '$1==\"/dev/\"d { if (index(tolower($0),\"synthesized\")>0) { found=1 } } END{ exit(found?0:1) }'; then "
-            "      continue; "
-            "    fi; "
-            "    info=\"$(diskutil info \"$real\" 2>/dev/null || true)\"; "
-            "    ptype=\"$(diskutil list | awk -v id=\"$base\" '$NF==id { t=$2; if($2==\"APFS\" && ($3==\"Volume\" || $3==\"Snapshot\")){ t=$2\" \"$3 } print t; exit }')\"; "
-            "    [ -n \"$ptype\" ] || ptype=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Partition Type:/ {print $2; exit}')\"; "
-            "    [ -n \"$ptype\" ] || ptype=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Type \\(Bundle\\):/ {print $2; exit}')\"; "
-            "    [ -n \"$ptype\" ] || ptype='-'; "
-            "    mnt=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Mount Point:/ {print $2; exit}')\"; "
-            "    [ -n \"$mnt\" ] || mnt='-'; "
-            "    size=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Disk Size:/ {print $2; exit}')\"; "
-            "    [ -n \"$size\" ] || size='-'; "
-            "    printf '%s\\t%s\\t%s\\t%s\\t%s\\tpart\\n' \"$id\" \"$size\" \"$mnt\" \"$real\" \"$ptype\"; "
-            "  done | awk -F '\\t' '!seen[$4]++'; "
+            "if [ \"$(uname -s 2>/dev/null)\" = \"Darwin\" ]; then "
+            "  { "
+            "    for iddir in /var/run/disk/by-id /private/var/run/disk/by-id; do "
+            "      [ -d \"$iddir\" ] || continue; "
+            "      for id in \"$iddir\"/*; do "
+            "        [ -e \"$id\" ] || continue; "
+            "        real=\"$(perl -MCwd=realpath -e 'print realpath($ARGV[0])' \"$id\" 2>/dev/null)\"; "
+            "        [ -n \"$real\" ] || continue; "
+            "        base=\"$(basename \"$real\")\"; "
+            "        parent=\"${base%%s*}\"; "
+            "        if diskutil list | awk -v d=\"$parent\" '$1==\"/dev/\"d { if (index(tolower($0),\"synthesized\")>0) { found=1 } } END{ exit(found?0:1) }'; then "
+            "          continue; "
+            "        fi; "
+            "        info=\"$(diskutil info \"$real\" 2>/dev/null || true)\"; "
+            "        ptype=\"$(diskutil list | awk -v id=\"$base\" '$NF==id { t=$2; if($2==\"APFS\" && ($3==\"Volume\" || $3==\"Snapshot\")){ t=$2\" \"$3 } print t; exit }')\"; "
+            "        [ -n \"$ptype\" ] || ptype=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Partition Type:/ {print $2; exit}')\"; "
+            "        [ -n \"$ptype\" ] || ptype=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Type \\(Bundle\\):/ {print $2; exit}')\"; "
+            "        [ -n \"$ptype\" ] || ptype='-'; "
+            "        mnt=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Mount Point:/ {print $2; exit}')\"; "
+            "        [ -n \"$mnt\" ] || mnt='-'; "
+            "        size=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Disk Size:/ {print $2; exit}')\"; "
+            "        [ -n \"$size\" ] || size='-'; "
+            "        printf '%s\\t%s\\t%s\\t%s\\t%s\\tpart\\n' \"$id\" \"$size\" \"$mnt\" \"$real\" \"$ptype\"; "
+            "      done; "
+            "    done; "
+            "    diskutil list | awk '"
+            "      /^\\/dev\\/disk[0-9]+/ { "
+            "        current=$1; sub(/:$/, \"\", current); "
+            "        print current; "
+            "      }"
+            "    ' | while read -r real; do "
+            "      [ -n \"$real\" ] || continue; "
+            "      info=\"$(diskutil info \"$real\" 2>/dev/null || true)\"; "
+            "      dtype=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Device \\/ Media Name:/ {print $2; exit}')\"; "
+            "      [ -n \"$dtype\" ] || dtype=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Type \\(Bundle\\):/ {print $2; exit}')\"; "
+            "      [ -n \"$dtype\" ] || dtype='disk'; "
+            "      mnt=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Mount Point:/ {print $2; exit}')\"; "
+            "      [ -n \"$mnt\" ] || mnt='-'; "
+            "      size=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Disk Size:/ {print $2; exit}')\"; "
+            "      [ -n \"$size\" ] || size='-'; "
+            "      printf '%s\\t%s\\t%s\\t%s\\t%s\\tdisk\\n' \"$real\" \"$size\" \"$mnt\" \"$real\" \"$dtype\"; "
+            "    done; "
+            "    diskutil list | awk '"
+            "      /^\\/dev\\/disk[0-9]+/ { "
+            "        current=$1; sub(/:$/, \"\", current); "
+            "        synth=(index(tolower($0),\"synthesized\")>0); "
+            "        next; "
+            "      } "
+            "      { "
+            "        id=$NF; "
+            "        if(id ~ /^disk[0-9]+s[0-9]+$/){ "
+            "          if(synth){ next; } "
+            "          t=$2; "
+            "          if(t==\"APFS\" && ($3==\"Volume\" || $3==\"Snapshot\")){ t=t\" \"$3 } "
+            "          print \"/dev/\"id\"\\t-\\t-\\t/dev/\"id\"\\t\"t\"\\tpart\"; "
+            "        } "
+            "      }"
+            "    '; "
+            "    for real in /dev/disk*; do "
+            "      [ -e \"$real\" ] || continue; "
+            "      base=\"$(basename \"$real\")\"; "
+            "      case \"$base\" in "
+            "        disk[0-9]|disk[0-9][0-9]|disk[0-9][0-9][0-9]) "
+            "          info=\"$(diskutil info \"$real\" 2>/dev/null || true)\"; "
+            "          dtype=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Device \\/ Media Name:/ {print $2; exit}')\"; "
+            "          [ -n \"$dtype\" ] || dtype=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Type \\(Bundle\\):/ {print $2; exit}')\"; "
+            "          [ -n \"$dtype\" ] || dtype='disk'; "
+            "          mnt=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Mount Point:/ {print $2; exit}')\"; "
+            "          [ -n \"$mnt\" ] || mnt='-'; "
+            "          size=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Disk Size:/ {print $2; exit}')\"; "
+            "          [ -n \"$size\" ] || size='-'; "
+            "          printf '/dev/%s\\t%s\\t%s\\t/dev/%s\\t%s\\tdisk\\n' \"$base\" \"$size\" \"$mnt\" \"$base\" \"$dtype\"; "
+            "          continue ;; "
+            "        disk[0-9]s[0-9]*|disk[0-9][0-9]s[0-9]*|disk[0-9][0-9][0-9]s[0-9]*) ;; "
+            "        *) continue ;; "
+            "      esac; "
+            "      parent=\"${base%%s*}\"; "
+            "      if diskutil list | awk -v d=\"$parent\" '$1==\"/dev/\"d { if (index(tolower($0),\"synthesized\")>0) { found=1 } } END{ exit(found?0:1) }'; then "
+            "        continue; "
+            "      fi; "
+            "      info=\"$(diskutil info \"$real\" 2>/dev/null || true)\"; "
+            "      ptype=\"$(diskutil list | awk -v id=\"$base\" '$NF==id { t=$2; if($2==\"APFS\" && ($3==\"Volume\" || $3==\"Snapshot\")){ t=$2\" \"$3 } print t; exit }')\"; "
+            "      [ -n \"$ptype\" ] || ptype=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Partition Type:/ {print $2; exit}')\"; "
+            "      [ -n \"$ptype\" ] || ptype=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Type \\(Bundle\\):/ {print $2; exit}')\"; "
+            "      [ -n \"$ptype\" ] || ptype='-'; "
+            "      mnt=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Mount Point:/ {print $2; exit}')\"; "
+            "      [ -n \"$mnt\" ] || mnt='-'; "
+            "      size=\"$(printf '%s\\n' \"$info\" | awk -F': ' '/Disk Size:/ {print $2; exit}')\"; "
+            "      [ -n \"$size\" ] || size='-'; "
+            "      printf '/dev/%s\\t%s\\t%s\\t/dev/%s\\t%s\\tpart\\n' \"$base\" \"$size\" \"$mnt\" \"$base\" \"$ptype\"; "
+            "    done; "
+            "  } | awk -F '\\t' '!seen[$4]++'; "
             "elif command -v lsblk >/dev/null 2>&1; then "
-            "  lsblk -fpPno NAME,SIZE,FSTYPE,MOUNTPOINTS,TYPE; "
+            "  (lsblk -fpPno NAME,SIZE,FSTYPE,MOUNTPOINTS,TYPE 2>/dev/null "
+            "   || lsblk -fpPno NAME,SIZE,FSTYPE,MOUNTPOINT,TYPE 2>/dev/null "
+            "   || lsblk -fpno NAME,SIZE,FSTYPE,MOUNTPOINT,TYPE 2>/dev/null); "
             "elif command -v diskutil >/dev/null 2>&1; then "
             "  diskutil list | awk '"
             "    /^\\/dev\\/disk[0-9]+/ { "
@@ -254,7 +558,7 @@ void MainWindow::createPoolForSelectedConnection() {
             "    }"
             "  '; "
             "else "
-            "  for d in /dev/sd?* /dev/vd?* /dev/xvd?* /dev/nvme*n* /dev/disk?s*; do [ -e \"$d\" ] && printf \"%s\\t-\\t-\\t%s\\t-\\tpart\\n\" \"$d\" \"$d\"; done; "
+            "  for d in /dev/sd?* /dev/vd?* /dev/xvd?* /dev/nvme*n* /dev/disk?s* /dev/ada* /dev/da* /dev/nvd* /dev/nvme*ns* /dev/vtbd* /dev/vtdb*; do [ -e \"$d\" ] && printf \"%s\\t-\\t-\\t%s\\t-\\tpart\\n\" \"$d\" \"$d\"; done; "
             "fi");
     }
     if (runRemote(devCmd, 25000, out)) {
@@ -277,6 +581,9 @@ void MainWindow::createPoolForSelectedConnection() {
                 size = parseKv(line, QStringLiteral("SIZE")).trimmed();
                 fsType = parseKv(line, QStringLiteral("FSTYPE")).trimmed();
                 mp = parseKv(line, QStringLiteral("MOUNTPOINTS")).trimmed();
+                if (mp.isEmpty()) {
+                    mp = parseKv(line, QStringLiteral("MOUNTPOINT")).trimmed();
+                }
                 type = parseKv(line, QStringLiteral("TYPE")).trimmed().toLower();
                 resolved = path;
                 if (type != QStringLiteral("disk") && type != QStringLiteral("part")) {
@@ -303,10 +610,18 @@ void MainWindow::createPoolForSelectedConnection() {
             DeviceEntry e;
             e.resolvedPath = resolved.isEmpty() ? path : resolved;
             e.path = path;
-            if (path.startsWith(QStringLiteral("/private/var/run/disk/by-id/"))) {
+            if (path.startsWith(QStringLiteral("/var/run/disk/by-id/"))
+                || path.startsWith(QStringLiteral("/private/var/run/disk/by-id/"))
+                || path.startsWith(QStringLiteral("/dev/disk/by-id/"))
+                || path.startsWith(QStringLiteral("/dev/diskid/"))
+                || path.startsWith(QStringLiteral("/dev/gptid/"))) {
                 e.byIdAlias = QFileInfo(path).fileName();
             }
-            if (e.path.startsWith(QStringLiteral("/private/var/run/disk/by-id/"))
+            if ((e.path.startsWith(QStringLiteral("/var/run/disk/by-id/"))
+                 || e.path.startsWith(QStringLiteral("/private/var/run/disk/by-id/"))
+                 || e.path.startsWith(QStringLiteral("/dev/disk/by-id/"))
+                 || e.path.startsWith(QStringLiteral("/dev/diskid/"))
+                 || e.path.startsWith(QStringLiteral("/dev/gptid/")))
                 && !e.resolvedPath.isEmpty()) {
                 e.path = e.resolvedPath;
             }
@@ -338,7 +653,7 @@ void MainWindow::createPoolForSelectedConnection() {
                 || fsLower.contains(QStringLiteral("zfs"))
                 || fsLower.contains(QStringLiteral("6a945a3b-1dd2-11b2-99a6-080020736631"))
                 || fsLower.contains(QStringLiteral("6a898cc3-1dd2-11b2-99a6-080020736631"))) {
-                e.inPool = true;
+                e.zfsSignature = true;
             }
             const QString dedupeKey = (e.resolvedPath.isEmpty() ? e.path : e.resolvedPath).trimmed();
             if (!dedupeKey.isEmpty()) {
@@ -348,6 +663,53 @@ void MainWindow::createPoolForSelectedConnection() {
                 dedupeKeys.insert(dedupeKey);
             }
             devicesByPath[path] = e;
+        }
+    }
+    QMap<QString, QSet<QString>> byIdAliasesByPath;
+    for (auto it = devicesByPath.cbegin(); it != devicesByPath.cend(); ++it) {
+        QSet<QString> aliases;
+        const QString byId = it.value().byIdAlias.trimmed();
+        if (!byId.isEmpty()) {
+            aliases.insert(byId);
+        }
+        if (!aliases.isEmpty()) {
+            byIdAliasesByPath[it.key()] = aliases;
+        }
+    }
+    if (!isWindowsConnection(p)) {
+        QString byIdOut;
+        const QString byIdCmd = QStringLiteral(
+            "for d in /var/run/disk/by-id /private/var/run/disk/by-id /dev/disk/by-id /dev/diskid /dev/gptid; do "
+            "  [ -d \"$d\" ] || continue; "
+            "  for id in \"$d\"/*; do "
+            "    [ -e \"$id\" ] || continue; "
+            "    real=\"$(perl -MCwd=realpath -e 'print realpath($ARGV[0])' \"$id\" 2>/dev/null)\"; "
+            "    [ -n \"$real\" ] || continue; "
+            "    printf '%s\\t%s\\t%s\\n' \"$id\" \"$real\" \"$(basename \"$id\")\"; "
+            "  done; "
+            "done");
+        if (runRemote(byIdCmd, 15000, byIdOut)) {
+            const QStringList lines = byIdOut.split('\n', Qt::SkipEmptyParts);
+            for (const QString& line : lines) {
+                const QStringList cols = line.split('\t');
+                const QString aliasPath = cols.value(0).trimmed();
+                const QString realPath = cols.value(1).trimmed();
+                const QString aliasName = cols.value(2).trimmed();
+                if (realPath.isEmpty()) {
+                    continue;
+                }
+                for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
+                    if (it.value().path == realPath || it.value().resolvedPath == realPath) {
+                        auto& aliases = byIdAliasesByPath[it.key()];
+                        if (!aliasPath.isEmpty()) {
+                            aliases.insert(aliasPath);
+                        }
+                        if (!aliasName.isEmpty()) {
+                            aliases.insert(aliasName);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -406,34 +768,71 @@ void MainWindow::createPoolForSelectedConnection() {
             return QString();
         }
         const QString d = m.captured(1);
-        const QString p = m.captured(2);
-        return p.isEmpty() ? QStringLiteral("physicaldrive%1").arg(d)
-                           : QStringLiteral("physicaldrive%1/partition%2").arg(d, p);
+        const QString partNo = m.captured(2);
+        return partNo.isEmpty() ? QStringLiteral("physicaldrive%1").arg(d)
+                                : QStringLiteral("physicaldrive%1/partition%2").arg(d, partNo);
     };
-    auto markDevicesInPoolByTokens = [&devicesByPath, &normalizeWinPhysPart](const QSet<QString>& usedTokens) {
+    auto markDevicesInPoolByTokens = [&devicesByPath, &byIdAliasesByPath, &normalizeWinPhysPart](const QSet<QString>& usedTokens) {
+        auto canonicalUnixDev = [](QString s) -> QString {
+            s = s.trimmed().toLower();
+            if (s.startsWith(QStringLiteral("/dev/rdisk"))) {
+                s.replace(0, QStringLiteral("/dev/r").size(), QStringLiteral("/dev/"));
+            }
+            return s;
+        };
+        auto canonicalBase = [](const QString& pathOrToken) -> QString {
+            QString b = QFileInfo(pathOrToken.trimmed()).fileName().toLower();
+            if (b.startsWith(QStringLiteral("rdisk"))) {
+                b.remove(0, 1); // rdiskN -> diskN
+            }
+            return b;
+        };
         if (usedTokens.isEmpty()) {
             return;
         }
         for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
             const QString pth = it.value().path.trimmed();
             const QString real = it.value().resolvedPath.trimmed();
-            const QString alias = it.value().byIdAlias.trimmed();
             const QString pthBase = QFileInfo(pth).fileName();
             const QString realBase = QFileInfo(real).fileName();
             const QString pthLower = pth.toLower();
             const QString realLower = real.toLower();
+            const QString pthCanon = canonicalUnixDev(pth);
+            const QString realCanon = canonicalUnixDev(real);
+            const QString pthBaseCanon = canonicalBase(pth);
+            const QString realBaseCanon = canonicalBase(real);
             const QString pthNorm = normalizeWinPhysPart(pthLower);
             const QString realNorm = normalizeWinPhysPart(realLower);
+            QSet<QString> aliases = byIdAliasesByPath.value(it.key());
+            const QString alias = it.value().byIdAlias.trimmed();
+            if (!alias.isEmpty()) {
+                aliases.insert(alias);
+            }
             for (const QString& tkRaw : usedTokens) {
                 const QString tk = tkRaw.trimmed();
                 if (tk.isEmpty()) {
                     continue;
                 }
                 const QString tkLower = tk.toLower();
+                const QString tkCanon = canonicalUnixDev(tk);
+                const QString tkBaseCanon = canonicalBase(tk);
                 const QString tkNorm = normalizeWinPhysPart(tkLower);
+                bool matchesAlias = false;
+                for (const QString& a : aliases) {
+                    if (a.compare(tk, Qt::CaseInsensitive) == 0
+                        || a.toLower().contains(tkLower)
+                        || tkLower.contains(a.toLower())) {
+                        matchesAlias = true;
+                        break;
+                    }
+                }
                 if (tk == pth || tk == real || tk == alias
                     || tk == pthBase || tk == realBase
+                    || tkCanon == pthCanon || tkCanon == realCanon
+                    || (!tkBaseCanon.isEmpty() && (tkBaseCanon == pthBaseCanon || tkBaseCanon == realBaseCanon))
+                    || matchesAlias
                     || pthLower.contains(tkLower) || realLower.contains(tkLower)
+                    || pthCanon.contains(tkCanon) || realCanon.contains(tkCanon)
                     || (!tkNorm.isEmpty() && (tkNorm == pthNorm || tkNorm == realNorm))) {
                     it.value().inPool = true;
                     break;
@@ -476,9 +875,18 @@ void MainWindow::createPoolForSelectedConnection() {
         }
     };
 
+    const QString zpoolLocateScript = QStringLiteral(
+        "PATH=\"/usr/local/zfs/bin:/usr/local/bin:/opt/homebrew/bin:/usr/sbin:/sbin:/usr/bin:$PATH\"; "
+        "ZPOOL=\"$(command -v zpool 2>/dev/null || true)\"; "
+        "if [ -z \"$ZPOOL\" ]; then "
+        "  for c in /usr/local/zfs/bin/zpool /usr/local/bin/zpool /opt/homebrew/bin/zpool /usr/sbin/zpool /sbin/zpool /usr/bin/zpool; do "
+        "    [ -x \"$c\" ] && ZPOOL=\"$c\" && break; "
+        "  done; "
+        "fi; "
+        "[ -n \"$ZPOOL\" ] || exit 0; ");
     out.clear();
-    const QString inPoolCmd = withSudo(p, QStringLiteral(
-        "(zpool status -LP 2>/dev/null || zpool status -P 2>/dev/null || zpool status -L 2>/dev/null || zpool status 2>/dev/null)"));
+    const QString inPoolCmd = withSudo(p, zpoolLocateScript + QStringLiteral(
+        "($ZPOOL status -LP 2>/dev/null || $ZPOOL status -P 2>/dev/null || $ZPOOL status -L 2>/dev/null || $ZPOOL status)"));
     if (runRemote(inPoolCmd, 25000, out)) {
         markDevicesInPoolByTokens(collectPoolTokens(out));
         if (isWindowsConnection(p)) {
@@ -486,7 +894,7 @@ void MainWindow::createPoolForSelectedConnection() {
         }
     }
     QString outListV;
-    const QString listVCmd = withSudo(p, QStringLiteral("(zpool list -v -P 2>/dev/null || zpool list -v 2>/dev/null)"));
+    const QString listVCmd = withSudo(p, zpoolLocateScript + QStringLiteral("($ZPOOL list -v -P 2>/dev/null || $ZPOOL list -v)"));
     if (runRemote(listVCmd, 25000, outListV)) {
         markDevicesInPoolByTokens(collectPoolTokens(outListV));
         if (isWindowsConnection(p)) {
@@ -517,7 +925,7 @@ void MainWindow::createPoolForSelectedConnection() {
     // Also probe importable (not imported) pools and mark their devices as in-pool.
     out.clear();
     QString outImp;
-    const QString importProbeCmd = withSudo(p, QStringLiteral("(zpool import 2>/dev/null; zpool import -s 2>/dev/null)"));
+    const QString importProbeCmd = withSudo(p, zpoolLocateScript + QStringLiteral("($ZPOOL import; $ZPOOL import -s)"));
     if (runRemote(importProbeCmd, 25000, outImp)) {
         markDevicesInPoolByTokens(collectPoolTokens(outImp));
         if (isWindowsConnection(p)) {
@@ -534,84 +942,118 @@ void MainWindow::createPoolForSelectedConnection() {
         }
     }
 
-    out.clear();
-    QString mountedCmd;
-    if (isWindowsConnection(p)) {
-        mountedCmd = QStringLiteral(
-            "$ErrorActionPreference='SilentlyContinue'; "
-            "Get-CimInstance Win32_LogicalDisk | "
-            "Where-Object { $_.DriveType -eq 3 } | "
-            "ForEach-Object { Write-Output ($_.DeviceID + \"`t\" + $_.DeviceID + \"\\\\\") }");
-    } else {
-        mountedCmd = QStringLiteral("mount | awk '{print $1\"\\t\"$3}'");
-    }
-    if (runRemote(mountedCmd, 20000, out)) {
-        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-        for (const QString& line : lines) {
-            const QStringList cols = line.split('\t');
-            if (cols.isEmpty()) {
-                continue;
-            }
-            const QString dev = cols.value(0).trimmed();
-            const QString mp = cols.value(1).trimmed();
-            if (dev.isEmpty()) {
-                continue;
-            }
-            for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
-                const QString real = it.value().resolvedPath.isEmpty() ? it.value().path : it.value().resolvedPath;
-                if (it.value().path == dev || real == dev) {
-                    it.value().mounted = true;
-                    if (!mp.isEmpty()) {
-                        it.value().mountpoint = mp;
-                    }
+    QSet<QString> macSynthesizedRootPaths;
+    if (isMacConn) {
+        QString synthOut;
+        const QString synthCmd = QStringLiteral(
+            "diskutil list | awk '"
+            "  /^\\/dev\\/disk[0-9]+/ { "
+            "    current=$1; sub(/:$/, \"\", current); "
+            "    if (index(tolower($0),\"synthesized\")>0) print current; "
+            "  }'");
+        if (runRemote(synthCmd, 15000, synthOut)) {
+            const QStringList lines = synthOut.split('\n', Qt::SkipEmptyParts);
+            for (const QString& line : lines) {
+                const QString path = line.trimmed();
+                if (!path.isEmpty()) {
+                    macSynthesizedRootPaths.insert(path);
                 }
             }
         }
     }
 
-    // Propagate partition usage to parent disk:
-    // if /dev/disk0s1 or /dev/sda1 is mounted/in-pool, /dev/disk0 or /dev/sda must not appear free.
-    const QStringList allPaths = devicesByPath.keys();
-    for (const QString& path : allPaths) {
-        const DeviceEntry child = devicesByPath.value(path);
-        if (!child.mounted && !child.inPool) {
-            continue;
+    {
+        QMap<QString, DeviceEntry> synthesizedRoots;
+        for (auto it = devicesByPath.cbegin(); it != devicesByPath.cend(); ++it) {
+            const DeviceEntry& e = it.value();
+            const QString parentPath = deviceTreeParentPath(e.path);
+            const QString parentResolved = deviceTreeParentPath(e.resolvedPath);
+            QString rootPath = parentPath;
+            if (rootPath.isEmpty()) {
+                rootPath = parentResolved;
+            }
+            if (rootPath.isEmpty() || devicesByPath.contains(rootPath) || synthesizedRoots.contains(rootPath)) {
+                continue;
+            }
+            DeviceEntry root;
+            root.path = rootPath;
+            root.resolvedPath = rootPath;
+            root.size = QStringLiteral("-");
+            root.mountpoint = QStringLiteral("-");
+            root.fsType = QStringLiteral("disk");
+            root.devType = QStringLiteral("disk");
+            root.zfsSignature = e.zfsSignature;
+            root.synthesized = macSynthesizedRootPaths.contains(rootPath);
+            root.inPool = e.inPool;
+            synthesizedRoots.insert(rootPath, root);
         }
-        const QString childReal = child.resolvedPath.isEmpty() ? child.path : child.resolvedPath;
-        const QString parent = parentDiskDevicePath(childReal);
-        if (parent.isEmpty()) {
-            continue;
+        for (auto it = synthesizedRoots.cbegin(); it != synthesizedRoots.cend(); ++it) {
+            devicesByPath.insert(it.key(), it.value());
         }
-        for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
-            const QString real = it.value().resolvedPath.isEmpty() ? it.value().path : it.value().resolvedPath;
-            if (it.value().path == parent || real == parent) {
-                it.value().childBusy = true;
+    }
+    for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
+        QString probe = it.value().resolvedPath.isEmpty() ? it.value().path : it.value().resolvedPath;
+        if (probe.isEmpty()) {
+            probe = it.value().path;
+        }
+        QString root = probe;
+        for (;;) {
+            const QString parent = deviceTreeParentPath(root);
+            if (parent.isEmpty()) {
+                break;
+            }
+            root = parent;
+        }
+        it.value().synthesized = macSynthesizedRootPaths.contains(it.value().path)
+                                 || macSynthesizedRootPaths.contains(probe)
+                                 || macSynthesizedRootPaths.contains(root);
+    }
+    {
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
+                if (it.value().inPool) {
+                    QString parentPath = deviceTreeParentPath(it.value().path);
+                    if (parentPath.isEmpty()) {
+                        parentPath = deviceTreeParentPath(it.value().resolvedPath);
+                    }
+                    if (parentPath.isEmpty()) {
+                        continue;
+                    }
+                    auto parentIt = devicesByPath.find(parentPath);
+                    if (parentIt != devicesByPath.end() && !parentIt->inPool) {
+                        parentIt->inPool = true;
+                        changed = true;
+                    }
+                }
             }
         }
     }
-
     QDialog dlg(this);
+    const QFont baseUiFont = QApplication::font();
+    dlg.setFont(baseUiFont);
     dlg.setWindowTitle(
         trk(QStringLiteral("t_poolcrt_auto002"), QStringLiteral("Crear pool en %1"), QStringLiteral("Create pool on %1"), QStringLiteral("在 %1 创建池"))
             .arg(p.name));
     dlg.setModal(true);
-    dlg.resize(1180, 760);
+    dlg.resize(1180, 912);
     auto* lay = new QVBoxLayout(&dlg);
 
-    auto* body = new QHBoxLayout();
-    body->setSpacing(8);
+    auto* splitter = new QSplitter(Qt::Horizontal, &dlg);
     auto* leftPane = new QWidget(&dlg);
     auto* leftLay = new QVBoxLayout(leftPane);
     leftLay->setContentsMargins(0, 0, 0, 0);
     leftLay->setSpacing(8);
-
     auto* baseBox = new QGroupBox(
         trk(QStringLiteral("t_poolcrt_auto003"), QStringLiteral("Parámetros del pool"), QStringLiteral("Pool parameters"), QStringLiteral("池参数")), leftPane);
     auto* form = new QFormLayout(baseBox);
+    form->setContentsMargins(6, 6, 6, 6);
+    form->setVerticalSpacing(3);
+    form->setHorizontalSpacing(8);
+    baseBox->setStyleSheet(QStringLiteral(
+        "QGroupBox QLineEdit, QGroupBox QComboBox { min-height: 18px; max-height: 18px; }"));
     QLineEdit* poolNameEd = new QLineEdit(baseBox);
-    QComboBox* quickLayoutCb = new QComboBox(baseBox);
-    quickLayoutCb->addItems({QStringLiteral("stripe"), QStringLiteral("mirror"), QStringLiteral("raidz"),
-                             QStringLiteral("raidz2"), QStringLiteral("raidz3")});
     QCheckBox* forceCb = new QCheckBox(QStringLiteral("-f"), baseBox);
     QCheckBox* dryRunCb = new QCheckBox(QStringLiteral("-n"), baseBox);
     QLineEdit* mountpointEd = new QLineEdit(baseBox);
@@ -638,26 +1080,167 @@ void MainWindow::createPoolForSelectedConnection() {
     QLineEdit* poolOptsEd = new QLineEdit(baseBox);
     QLineEdit* fsPropsEd = new QLineEdit(baseBox);
     QLineEdit* extraEd = new QLineEdit(baseBox);
-    form->addRow(trk(QStringLiteral("t_poolcrt_auto004"), QStringLiteral("Nombre"), QStringLiteral("Name"), QStringLiteral("名称")), poolNameEd);
-    form->addRow(trk(QStringLiteral("t_poolcrt_auto005"), QStringLiteral("Tipo rápido (si no hay spec vdev)"),
-                     QStringLiteral("Quick type (if no vdev spec)"),
-                     QStringLiteral("快速类型（若无 vdev 规格）")),
-                 quickLayoutCb);
+    QComboBox* canmountCb = new QComboBox(baseBox);
+    canmountCb->addItems({QString(), QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("noauto")});
+    QLineEdit* dsMountpointEd = new QLineEdit(baseBox);
+    QComboBox* relatimeCb = new QComboBox(baseBox);
+    relatimeCb->addItems({QString(), QStringLiteral("on"), QStringLiteral("off")});
+    QComboBox* compressionCb = new QComboBox(baseBox);
+    compressionCb->setEditable(true);
+    compressionCb->addItems({QString(), QStringLiteral("off"), QStringLiteral("on"), QStringLiteral("lz4"),
+                             QStringLiteral("zstd"), QStringLiteral("gzip"),
+                             QStringLiteral("zstd-1"), QStringLiteral("zstd-3"), QStringLiteral("zstd-5"),
+                             QStringLiteral("zstd-9"), QStringLiteral("zstd-19"),
+                             QStringLiteral("gzip-1"), QStringLiteral("gzip-6"), QStringLiteral("gzip-9")});
+    QComboBox* normalizationCb = new QComboBox(baseBox);
+    normalizationCb->addItems({QString(), QStringLiteral("none"), QStringLiteral("formC"),
+                               QStringLiteral("formD"), QStringLiteral("formKC"), QStringLiteral("formKD")});
+    QComboBox* acltypeCb = new QComboBox(baseBox);
+    acltypeCb->addItems({QString(), QStringLiteral("off"), QStringLiteral("posix"), QStringLiteral("nfsv4"), QStringLiteral("posixacl")});
+    QComboBox* xattrCb = new QComboBox(baseBox);
+    xattrCb->addItems({QString(), QStringLiteral("on"), QStringLiteral("off"), QStringLiteral("sa"), QStringLiteral("dir")});
+    QComboBox* dnodesizeCb = new QComboBox(baseBox);
+    dnodesizeCb->setEditable(true);
+    dnodesizeCb->addItems({QString(), QStringLiteral("legacy"), QStringLiteral("auto"),
+                           QStringLiteral("1k"), QStringLiteral("2k"), QStringLiteral("4k"),
+                           QStringLiteral("8k"), QStringLiteral("16k")});
+    const ZPoolCreationDefaults zdefs = loadZPoolCreationDefaults(m_store.iniPath());
+    forceCb->setChecked(zdefs.force);
+    altrootEd->setText(zdefs.altroot);
+    ashiftCb->setCurrentText(zdefs.ashift);
+    autotrimCb->setCurrentText(zdefs.autotrim);
+    if (!zdefs.compatibility.isEmpty() && compatibilityCb->findText(zdefs.compatibility) < 0) {
+        compatibilityCb->addItem(zdefs.compatibility);
+    }
+    compatibilityCb->setCurrentText(zdefs.compatibility);
+
+    QMap<QString, QString> fsDefaults;
+    for (const QString& item : zdefs.fsProps.split(',', Qt::SkipEmptyParts)) {
+        const QString t = item.trimmed();
+        if (t.isEmpty()) {
+            continue;
+        }
+        const int eq = t.indexOf('=');
+        if (eq <= 0) {
+            continue;
+        }
+        fsDefaults.insert(t.left(eq).trimmed().toLower(), t.mid(eq + 1).trimmed());
+    }
+    auto applyFsDefaultCombo = [&fsDefaults](QComboBox* cb, const QString& key) {
+        const QString val = fsDefaults.value(key.toLower()).trimmed();
+        if (val.isEmpty()) {
+            return;
+        }
+        if (cb->findText(val) < 0) {
+            cb->addItem(val);
+        }
+        cb->setCurrentText(val);
+    };
+    auto applyFsDefaultEdit = [&fsDefaults](QLineEdit* ed, const QString& key) {
+        const QString val = fsDefaults.value(key.toLower()).trimmed();
+        if (!val.isEmpty()) {
+            ed->setText(val);
+        }
+    };
+    applyFsDefaultCombo(canmountCb, QStringLiteral("canmount"));
+    applyFsDefaultEdit(dsMountpointEd, QStringLiteral("mountpoint"));
+    applyFsDefaultCombo(relatimeCb, QStringLiteral("relatime"));
+    applyFsDefaultCombo(compressionCb, QStringLiteral("compression"));
+    applyFsDefaultCombo(normalizationCb, QStringLiteral("normalization"));
+    applyFsDefaultCombo(acltypeCb, QStringLiteral("acltype"));
+    applyFsDefaultCombo(xattrCb, QStringLiteral("xattr"));
+    applyFsDefaultCombo(dnodesizeCb, QStringLiteral("dnodesize"));
+    {
+        QStringList others;
+        for (const QString& item : zdefs.fsProps.split(',', Qt::SkipEmptyParts)) {
+            const QString t = item.trimmed();
+            if (t.isEmpty()) {
+                continue;
+            }
+            const int eq = t.indexOf('=');
+            if (eq <= 0) {
+                others << t;
+                continue;
+            }
+            const QString key = t.left(eq).trimmed().toLower();
+            if (key == QStringLiteral("canmount")
+                || key == QStringLiteral("mountpoint")
+                || key == QStringLiteral("relatime")
+                || key == QStringLiteral("compression")
+                || key == QStringLiteral("normalization")
+                || key == QStringLiteral("acltype")
+                || key == QStringLiteral("xattr")
+                || key == QStringLiteral("dnodesize")) {
+                continue;
+            }
+            others << t;
+        }
+        fsPropsEd->setText(others.join(QStringLiteral(",")));
+    }
+    auto* poolNameLabel = new QLabel(
+        trk(QStringLiteral("t_poolcrt_auto004"), QStringLiteral("Nombre"), QStringLiteral("Name"), QStringLiteral("名称")),
+        baseBox);
+    setRequiredLabelState(poolNameLabel, true);
+    bindRequiredLineEditLabel(poolNameEd, poolNameLabel);
+    form->addRow(poolNameLabel, poolNameEd);
     auto* flagsRow = new QHBoxLayout();
     flagsRow->addWidget(forceCb);
     flagsRow->addWidget(dryRunCb);
     flagsRow->addStretch(1);
     form->addRow(trk(QStringLiteral("t_poolcrt_auto006"), QStringLiteral("Flags"), QStringLiteral("Flags"), QStringLiteral("标志")), flagsRow);
-    form->addRow(QStringLiteral("mountpoint (-m)"), mountpointEd);
-    form->addRow(QStringLiteral("altroot (-R)"), altrootEd);
-    form->addRow(QStringLiteral("ashift (-o ashift=)"), ashiftCb);
-    form->addRow(QStringLiteral("autotrim (-o autotrim=)"), autotrimCb);
-    form->addRow(QStringLiteral("autoexpand (-o autoexpand=)"), autoexpandCb);
-    form->addRow(QStringLiteral("compatibility (-o compatibility=)"), compatibilityCb);
-    form->addRow(QStringLiteral("bootfs (-o bootfs=)"), bootfsEd);
-    form->addRow(QStringLiteral("-o (coma: k=v,k=v)"), poolOptsEd);
-    form->addRow(QStringLiteral("-O (coma: k=v,k=v)"), fsPropsEd);
+    auto* poolCoreGrid = new QGridLayout();
+    poolCoreGrid->setContentsMargins(0, 0, 0, 0);
+    poolCoreGrid->setHorizontalSpacing(6);
+    poolCoreGrid->setVerticalSpacing(3);
+    poolCoreGrid->addWidget(new QLabel(QStringLiteral("mountpoint"), baseBox), 0, 0);
+    poolCoreGrid->addWidget(mountpointEd, 0, 1);
+    poolCoreGrid->addWidget(new QLabel(QStringLiteral("altroot"), baseBox), 0, 2);
+    poolCoreGrid->addWidget(altrootEd, 0, 3);
+    poolCoreGrid->addWidget(new QLabel(QStringLiteral("ashift"), baseBox), 1, 0);
+    poolCoreGrid->addWidget(ashiftCb, 1, 1);
+    poolCoreGrid->addWidget(new QLabel(QStringLiteral("autotrim"), baseBox), 1, 2);
+    poolCoreGrid->addWidget(autotrimCb, 1, 3);
+    poolCoreGrid->addWidget(new QLabel(QStringLiteral("autoexpand"), baseBox), 2, 0);
+    poolCoreGrid->addWidget(autoexpandCb, 2, 1);
+    poolCoreGrid->addWidget(new QLabel(QStringLiteral("compatibility"), baseBox), 2, 2);
+    poolCoreGrid->addWidget(compatibilityCb, 2, 3);
+    poolCoreGrid->addWidget(new QLabel(QStringLiteral("bootfs"), baseBox), 3, 0);
+    poolCoreGrid->addWidget(bootfsEd, 3, 1, 1, 3);
+    form->addRow(QStringLiteral("-o"), poolCoreGrid);
+    form->addRow(QStringLiteral("otros -o"), poolOptsEd);
+
+    auto* fsGrid = new QGridLayout();
+    fsGrid->setContentsMargins(0, 0, 0, 0);
+    fsGrid->setHorizontalSpacing(6);
+    fsGrid->setVerticalSpacing(3);
+    fsGrid->addWidget(new QLabel(QStringLiteral("canmount"), baseBox), 0, 0);
+    fsGrid->addWidget(canmountCb, 0, 1);
+    fsGrid->addWidget(new QLabel(QStringLiteral("mountpoint"), baseBox), 0, 2);
+    fsGrid->addWidget(dsMountpointEd, 0, 3);
+    fsGrid->addWidget(new QLabel(QStringLiteral("relatime"), baseBox), 1, 0);
+    fsGrid->addWidget(relatimeCb, 1, 1);
+    fsGrid->addWidget(new QLabel(QStringLiteral("compression"), baseBox), 1, 2);
+    fsGrid->addWidget(compressionCb, 1, 3);
+    fsGrid->addWidget(new QLabel(QStringLiteral("normalization"), baseBox), 2, 0);
+    fsGrid->addWidget(normalizationCb, 2, 1);
+    fsGrid->addWidget(new QLabel(QStringLiteral("acltype"), baseBox), 2, 2);
+    fsGrid->addWidget(acltypeCb, 2, 3);
+    fsGrid->addWidget(new QLabel(QStringLiteral("xattr"), baseBox), 3, 0);
+    fsGrid->addWidget(xattrCb, 3, 1);
+    fsGrid->addWidget(new QLabel(QStringLiteral("dnodesize"), baseBox), 3, 2);
+    fsGrid->addWidget(dnodesizeCb, 3, 3);
+    form->addRow(QStringLiteral("-O"), fsGrid);
+    fsPropsEd->setPlaceholderText(QStringLiteral("otros -O: k=v,k=v"));
+    form->addRow(QStringLiteral("otros -O"), fsPropsEd);
     form->addRow(QStringLiteral("extra args"), extraEd);
+    if (baseBox->layout()) {
+        baseBox->layout()->activate();
+    }
+    const QSize fixedBaseSize = baseBox->sizeHint();
+    baseBox->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    baseBox->setFixedSize(fixedBaseSize);
+    leftPane->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    leftPane->setMinimumWidth(fixedBaseSize.width());
     leftLay->addWidget(baseBox, 0);
 
     auto* vdevBox =
@@ -666,85 +1249,82 @@ void MainWindow::createPoolForSelectedConnection() {
                           QStringLiteral("VDEV 构建器")),
                       leftPane);
     auto* vdevLay = new QVBoxLayout(vdevBox);
-    auto* row1 = new QHBoxLayout();
-    QComboBox* vdevClassCb = new QComboBox(vdevBox);
-    vdevClassCb->addItem(QStringLiteral("data"));
-    vdevClassCb->addItem(QStringLiteral("special"));
-    vdevClassCb->addItem(QStringLiteral("log"));
-    vdevClassCb->addItem(QStringLiteral("cache"));
-    vdevClassCb->addItem(QStringLiteral("dedup"));
-    vdevClassCb->addItem(QStringLiteral("spare"));
-    QComboBox* vdevTypeCb = new QComboBox(vdevBox);
-    vdevTypeCb->addItems({QStringLiteral("stripe"), QStringLiteral("mirror"), QStringLiteral("raidz"),
-                          QStringLiteral("raidz2"), QStringLiteral("raidz3")});
-    auto* addVdevBtn =
-        new QPushButton(trk(QStringLiteral("t_poolcrt_auto008"), QStringLiteral("Añadir con seleccionados"),
-                            QStringLiteral("Add from selected"),
-                            QStringLiteral("从已选添加")),
-                        vdevBox);
-    row1->addWidget(new QLabel(trk(QStringLiteral("t_poolcrt_auto009"), QStringLiteral("Clase"), QStringLiteral("Class"), QStringLiteral("类别")), vdevBox));
-    row1->addWidget(vdevClassCb);
-    row1->addWidget(new QLabel(trk(QStringLiteral("t_poolcrt_auto010"), QStringLiteral("Tipo"), QStringLiteral("Type"), QStringLiteral("类型")), vdevBox));
-    row1->addWidget(vdevTypeCb);
-    row1->addWidget(addVdevBtn, 1);
-    vdevLay->addLayout(row1);
-    auto* row2 = new QHBoxLayout();
+    auto* vdevButtonsRow = new QHBoxLayout();
+    auto* addSelectedBtn = new QPushButton(
+        trk(QStringLiteral("t_poolcrt_auto011b"),
+            QStringLiteral("Añadir seleccionados"),
+            QStringLiteral("Add selected"),
+            QStringLiteral("添加所选设备")),
+        vdevBox);
     auto* clearSelBtn = new QPushButton(trk(QStringLiteral("t_poolcrt_auto011"), QStringLiteral("Limpiar selección dispositivos"),
                                             QStringLiteral("Clear device selection"),
                                             QStringLiteral("清除设备选择")),
                                         vdevBox);
-    auto* clearSpecBtn =
-        new QPushButton(trk(QStringLiteral("t_poolcrt_auto012"), QStringLiteral("Limpiar spec"), QStringLiteral("Clear spec"), QStringLiteral("清除规格")), vdevBox);
-    row2->addWidget(clearSelBtn);
-    row2->addWidget(clearSpecBtn);
-    row2->addStretch(1);
-    vdevLay->addLayout(row2);
+    addSelectedBtn->setFont(baseUiFont);
+    clearSelBtn->setFont(baseUiFont);
+    vdevButtonsRow->addWidget(addSelectedBtn, 0);
+    vdevButtonsRow->addWidget(clearSelBtn, 0);
+    vdevButtonsRow->addStretch(1);
+    vdevLay->addLayout(vdevButtonsRow, 0);
     auto* vdevHelp =
-        new QLabel(trk(QStringLiteral("t_poolcrt_auto013"), QStringLiteral("Puede construir algo como: raidz2 d1 d2 d3 d4 d5 d6 | raidz2 d7 d8 d9 d10 d11 d12 | special mirror nvme0 nvme1 | log mirror nvme2 nvme3 | cache nvme4 | dedup mirror nvme5 nvme6 | spare d13"),
-                       QStringLiteral("Build specs like: raidz2 d1 d2 d3 d4 d5 d6 | raidz2 d7 d8 d9 d10 d11 d12 | special mirror nvme0 nvme1 | log mirror nvme2 nvme3 | cache nvme4 | dedup mirror nvme5 nvme6 | spare d13"),
-                       QStringLiteral("可构建如下规格：raidz2 d1 d2 d3 d4 d5 d6 | raidz2 d7 d8 d9 d10 d11 d12 | special mirror nvme0 nvme1 | log mirror nvme2 nvme3 | cache nvme4 | dedup mirror nvme5 nvme6 | spare d13")),
+        new QLabel(trk(QStringLiteral("t_poolcrt_auto013"),
+                       QStringLiteral("Cree nodos con el menú contextual del árbol, marque block devices y pulse Añadir seleccionados."),
+                       QStringLiteral("Create nodes with the tree context menu, check block devices, and click Add selected."),
+                       QStringLiteral("通过树的上下文菜单创建节点，勾选块设备后点击添加所选设备。")),
                    vdevBox);
     vdevHelp->setWordWrap(true);
     vdevLay->addWidget(vdevHelp, 0);
-    QPlainTextEdit* vdevSpecEdit = new QPlainTextEdit(vdevBox);
-    vdevSpecEdit->setPlaceholderText(
-        trk(QStringLiteral("t_poolcrt_auto014"), QStringLiteral("Una línea por grupo o use '|' en una línea.\nEjemplo:\nraidz2 /dev/sda /dev/sdb /dev/sdc /dev/sdd /dev/sde /dev/sdf\nraidz2 /dev/sdg /dev/sdh /dev/sdi /dev/sdj /dev/sdk /dev/sdl\nspecial mirror /dev/nvme0n1 /dev/nvme1n1\nlog mirror /dev/nvme2n1 /dev/nvme3n1\ncache /dev/nvme4n1\ndedup mirror /dev/nvme5n1 /dev/nvme6n1\nspare /dev/sdm"),
-            QStringLiteral("One line per group or use '|' in one line.\nExample:\nraidz2 /dev/sda /dev/sdb /dev/sdc /dev/sdd /dev/sde /dev/sdf\nraidz2 /dev/sdg /dev/sdh /dev/sdi /dev/sdj /dev/sdk /dev/sdl\nspecial mirror /dev/nvme0n1 /dev/nvme1n1\nlog mirror /dev/nvme2n1 /dev/nvme3n1\ncache /dev/nvme4n1\ndedup mirror /dev/nvme5n1 /dev/nvme6n1\nspare /dev/sdm"),
-            QStringLiteral("每行一个组，或在一行里用“|”。\n示例：\nraidz2 /dev/sda /dev/sdb /dev/sdc /dev/sdd /dev/sde /dev/sdf\nraidz2 /dev/sdg /dev/sdh /dev/sdi /dev/sdj /dev/sdk /dev/sdl\nspecial mirror /dev/nvme0n1 /dev/nvme1n1\nlog mirror /dev/nvme2n1 /dev/nvme3n1\ncache /dev/nvme4n1\ndedup mirror /dev/nvme5n1 /dev/nvme6n1\nspare /dev/sdm")));
-    vdevLay->addWidget(vdevSpecEdit, 1);
+    PoolLayoutTreeWidget* poolTree = new PoolLayoutTreeWidget(vdevBox);
+    poolTree->setFont(baseUiFont);
+    poolTree->setHeaderHidden(true);
+    poolTree->setContextMenuPolicy(Qt::CustomContextMenu);
+    poolTree->setDragEnabled(true);
+    poolTree->setAcceptDrops(true);
+    poolTree->setDropIndicatorShown(true);
+    poolTree->setDragDropMode(QAbstractItemView::InternalMove);
+    poolTree->setDefaultDropAction(Qt::MoveAction);
+    if (poolTree->viewport()) {
+        poolTree->viewport()->setAcceptDrops(true);
+    }
+    auto* poolRootItem = new QTreeWidgetItem(QStringList{QStringLiteral("Pool")});
+    poolRootItem->setData(0, kRoleNodeKind, QStringLiteral("root"));
+    poolRootItem->setFlags((poolRootItem->flags() | Qt::ItemIsDropEnabled) & ~Qt::ItemIsDragEnabled);
+    poolTree->addTopLevelItem(poolRootItem);
+    poolRootItem->setExpanded(true);
+    vdevLay->addWidget(poolTree, 1);
+    vdevBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    vdevBox->setMinimumWidth(fixedBaseSize.width());
     leftLay->addWidget(vdevBox, 1);
 
     auto* devicesBox = new QGroupBox(
         trk(QStringLiteral("t_poolcrt_auto015"), QStringLiteral("Block devices disponibles"),
             QStringLiteral("Available block devices"),
             QStringLiteral("可用块设备")),
-        leftPane);
+        &dlg);
     auto* devicesLayout = new QVBoxLayout(devicesBox);
-    QTableWidget* devicesTable = new QTableWidget(devicesBox);
-    devicesTable->setColumnCount(6);
-    devicesTable->setHorizontalHeaderLabels({
-        trk(QStringLiteral("t_poolcrt_auto016"), QStringLiteral("Usar"), QStringLiteral("Use"), QStringLiteral("使用")),
+    DeviceDragTreeWidget* devicesTree = new DeviceDragTreeWidget(devicesBox);
+    devicesTree->setFont(baseUiFont);
+    devicesTree->setColumnCount(4);
+    devicesTree->setHeaderLabels({
         trk(QStringLiteral("t_poolcrt_auto017"), QStringLiteral("Device"), QStringLiteral("Device"), QStringLiteral("设备")),
         trk(QStringLiteral("t_poolcrt_auto018"), QStringLiteral("Tamaño"), QStringLiteral("Size"), QStringLiteral("大小")),
-        trk(QStringLiteral("t_poolcrt_auto019"), QStringLiteral("Mount"), QStringLiteral("Mount"), QStringLiteral("挂载")),
-        trk(QStringLiteral("t_poolcrt_auto020"), QStringLiteral("Estado"), QStringLiteral("State"), QStringLiteral("状态")),
-        trk(QStringLiteral("t_poolcrt_auto021"), QStringLiteral("Detalle"), QStringLiteral("Detail"), QStringLiteral("详情")),
+        trk(QStringLiteral("t_poolcrt_auto034"), QStringLiteral("Tipo partición"), QStringLiteral("Partition type"), QStringLiteral("分区类型")),
+        trk(QStringLiteral("t_poolcrt_auto036"), QStringLiteral("En pool"), QStringLiteral("In pool"), QStringLiteral("在池中")),
     });
-    devicesTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    devicesTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    devicesTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    devicesTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
-    devicesTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
-    devicesTable->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Stretch);
-    devicesTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    devicesTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    devicesTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    devicesTable->setWordWrap(true);
-    devicesTable->setTextElideMode(Qt::ElideNone);
-    devicesTable->verticalHeader()->setVisible(false);
-    devicesTable->verticalHeader()->setDefaultSectionSize(22);
+    for (int c = 0; c < devicesTree->columnCount(); ++c) {
+        devicesTree->header()->setSectionResizeMode(c, QHeaderView::Interactive);
+    }
+    devicesTree->header()->setStretchLastSection(false);
+    devicesTree->setSelectionBehavior(QAbstractItemView::SelectRows);
+    devicesTree->setSelectionMode(QAbstractItemView::SingleSelection);
+    devicesTree->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    devicesTree->setRootIsDecorated(true);
+    devicesTree->setUniformRowHeights(false);
+    devicesTree->setDragEnabled(false);
+    devicesTree->setAcceptDrops(false);
+    devicesTree->setDropIndicatorShown(false);
+    devicesTree->setDragDropMode(QAbstractItemView::NoDragDrop);
     const QColor stRed("#ffcccc");
-    const QColor stYellow("#fff5bf");
     const QColor stGreen("#d7f7d7");
 
     struct DeviceRenderRow {
@@ -752,13 +1332,37 @@ void MainWindow::createPoolForSelectedConnection() {
         QString stateText;
         QString detailText;
         QColor bgColor;
-        int colorRank{2}; // 0=green, 1=yellow, 2=red
+        int colorRank{1}; // 0=green, 1=red
         bool selectable{true};
     };
     QVector<DeviceRenderRow> renderRows;
     renderRows.reserve(devicesByPath.size());
-    QSet<QString> yellowDevicePaths;
+    QMap<QString, DeviceRenderRow> renderRowsByPath;
+    QMap<QString, QStringList> childPathsByRoot;
     QStringList paths = devicesByPath.keys();
+    for (const QString& path : paths) {
+        const DeviceEntry& e = devicesByPath[path];
+        QString parentPath = deviceTreeParentPath(e.path);
+        if (parentPath.isEmpty()) {
+            parentPath = deviceTreeParentPath(e.resolvedPath);
+        }
+        if (!parentPath.isEmpty()) {
+            childPathsByRoot[parentPath].append(e.path);
+        }
+    }
+    auto isApfsLikeFsType = [](const QString& fsType) -> bool {
+        const QString fs = fsType.trimmed().toLower();
+        return fs.contains(QStringLiteral("apfs"));
+    };
+    QSet<QString> importedPoolNames;
+    if (idx >= 0 && idx < m_states.size()) {
+        for (const PoolImported& pool : m_states[idx].importedPools) {
+            const QString name = pool.pool.trimmed().toLower();
+            if (!name.isEmpty()) {
+                importedPoolNames.insert(name);
+            }
+        }
+    }
     auto hasProtectedSystemMount = [](const DeviceEntry& e) -> bool {
         const QString fs = e.fsType.trimmed().toLower();
         if (windowsPartitionTypeIsProtected(e.fsType)) {
@@ -805,23 +1409,63 @@ void MainWindow::createPoolForSelectedConnection() {
     for (const QString& path : paths) {
         const DeviceEntry e = devicesByPath.value(path);
         const QString realPath = e.resolvedPath.isEmpty() ? e.path : e.resolvedPath;
-        if (e.devType == QStringLiteral("disk") || isRootDevicePath(e.path) || isRootDevicePath(realPath)) {
-            continue;
-        }
         DeviceRenderRow rr;
         rr.entry = e;
+        const bool isDiskRoot = (e.devType == QStringLiteral("disk")
+                                 || isRootDevicePath(e.path)
+                                 || isRootDevicePath(realPath));
+        bool macRootHasApfsChildren = false;
+        if (isMacConn && isDiskRoot) {
+            const QStringList childPaths = childPathsByRoot.value(e.path) + childPathsByRoot.value(realPath);
+            for (const QString& childPath : childPaths) {
+                const DeviceEntry child = devicesByPath.value(childPath);
+                if (isApfsLikeFsType(child.fsType)) {
+                    macRootHasApfsChildren = true;
+                    break;
+                }
+            }
+        }
+        const bool isWinEfiOrReservedOnlyOrEmptyDisk =
+            isDiskRoot && e.fsType.contains(QStringLiteral("type=EFI_OR_RESERVED_ONLY_OR_EMPTY"), Qt::CaseInsensitive);
         const bool protectedMount = hasProtectedSystemMount(e);
-        if (protectedMount || e.inPool || e.childBusy) {
+        const bool isMacDisk0Root =
+            isMacConn && isDiskRoot
+            && (e.path == QStringLiteral("/dev/disk0") || realPath == QStringLiteral("/dev/disk0"));
+        const bool macImportedPoolVirtualDisk =
+            isMacConn && isDiskRoot
+            && importedPoolNames.contains(e.fsType.trimmed().toLower());
+        const bool macSynthesizedDevice =
+            isMacConn && e.synthesized;
+        const bool macApfsRootBlocked =
+            isMacConn && isDiskRoot
+            && (isMacDisk0Root || e.synthesized || macRootHasApfsChildren || isApfsLikeFsType(e.fsType));
+        if (isWinEfiOrReservedOnlyOrEmptyDisk) {
+            rr.stateText = trk(QStringLiteral("t_poolcrt_auto028"), QStringLiteral("LIBRE"), QStringLiteral("FREE"), QStringLiteral("空闲"));
+            rr.detailText = trk(QStringLiteral("t_poolcrt_auto029"), QStringLiteral("Disponible"), QStringLiteral("Available"), QStringLiteral("可用"));
+            rr.bgColor = stGreen;
+            rr.colorRank = 0;
+            rr.selectable = true;
+        } else if (protectedMount || e.inPool || macApfsRootBlocked || macImportedPoolVirtualDisk || macSynthesizedDevice) {
             rr.stateText = trk(QStringLiteral("t_poolcrt_auto022"), QStringLiteral("EN_POOL"), QStringLiteral("IN_POOL"), QStringLiteral("在池中"));
             if (protectedMount) {
                 rr.stateText = trk(QStringLiteral("t_poolcrt_auto023"), QStringLiteral("SISTEMA"), QStringLiteral("SYSTEM"), QStringLiteral("系统"));
                 rr.detailText = trk(QStringLiteral("t_poolcrt_auto024"), QStringLiteral("Dispositivo de sistema (/ /boot /boot/efi o SWAP)"),
                                     QStringLiteral("System device (/ /boot /boot/efi or SWAP)"),
                                     QStringLiteral("系统设备（/ /boot /boot/efi 或 SWAP）"));
-            } else if (e.childBusy) {
-                rr.detailText = trk(QStringLiteral("t_poolcrt_auto025"), QStringLiteral("Alguna partición está montada o pertenece a un pool"),
-                                    QStringLiteral("A child partition is mounted or belongs to a pool"),
-                                    QStringLiteral("某个子分区已挂载或属于池"));
+            } else if (macSynthesizedDevice && !isDiskRoot) {
+                rr.stateText = QStringLiteral("POOL");
+                rr.detailText = QStringLiteral("Partición de disco sintetizado por ZFS/macOS");
+            } else if (macImportedPoolVirtualDisk) {
+                rr.stateText = QStringLiteral("POOL");
+                rr.detailText = QStringLiteral("Disco virtual sintetizado por ZFS para un pool ya importado");
+            } else if (isMacDisk0Root) {
+                rr.stateText = QStringLiteral("APFS");
+                rr.detailText = QStringLiteral("Disco físico interno de macOS no seleccionable");
+            } else if (macApfsRootBlocked) {
+                rr.stateText = QStringLiteral("APFS");
+                rr.detailText = e.synthesized
+                                    ? QStringLiteral("Disco APFS sintetizado por macOS")
+                                    : QStringLiteral("Disco contenedor APFS no seleccionable");
             } else {
                 rr.detailText = trk(QStringLiteral("t_poolcrt_auto026"), QStringLiteral("Ya pertenece a un pool"),
                                     QStringLiteral("Already part of a pool"),
@@ -830,15 +1474,13 @@ void MainWindow::createPoolForSelectedConnection() {
             rr.bgColor = stRed;
             rr.colorRank = 2;
             rr.selectable = false;
-        } else if (e.mounted || (!e.mountpoint.isEmpty() && e.mountpoint != QStringLiteral("-"))) {
-            rr.stateText = trk(QStringLiteral("t_poolcrt_auto027"), QStringLiteral("MONTADO"), QStringLiteral("MOUNTED"), QStringLiteral("已挂载"));
-            rr.detailText = e.mountpoint;
-            rr.bgColor = stYellow;
-            rr.colorRank = 1;
-            yellowDevicePaths.insert(e.path);
         } else {
             rr.stateText = trk(QStringLiteral("t_poolcrt_auto028"), QStringLiteral("LIBRE"), QStringLiteral("FREE"), QStringLiteral("空闲"));
-            rr.detailText = trk(QStringLiteral("t_poolcrt_auto029"), QStringLiteral("Disponible"), QStringLiteral("Available"), QStringLiteral("可用"));
+            if (e.zfsSignature) {
+                rr.detailText = QStringLiteral("Firma ZFS detectada, pero no aparece en zpool status/import");
+            } else {
+                rr.detailText = trk(QStringLiteral("t_poolcrt_auto029"), QStringLiteral("Disponible"), QStringLiteral("Available"), QStringLiteral("可用"));
+            }
             rr.bgColor = stGreen;
             rr.colorRank = 0;
         }
@@ -849,276 +1491,994 @@ void MainWindow::createPoolForSelectedConnection() {
             rr.detailText = rr.detailText + QStringLiteral(" | ") + e.resolvedPath;
         }
         renderRows.push_back(rr);
+        renderRowsByPath.insert(e.path, rr);
     }
     std::sort(renderRows.begin(), renderRows.end(), [](const DeviceRenderRow& a, const DeviceRenderRow& b) {
         if (a.colorRank != b.colorRank) {
-            return a.colorRank < b.colorRank; // green, yellow, red
+            return a.colorRank < b.colorRank; // green, red
         }
         return a.entry.path < b.entry.path;
     });
-    for (const DeviceRenderRow& rr : renderRows) {
+
+    auto createDeviceTreeItem = [&](const DeviceRenderRow& rr) -> QTreeWidgetItem* {
         const DeviceEntry& e = rr.entry;
-        const int row = devicesTable->rowCount();
-        devicesTable->insertRow(row);
-
-        auto* useItem = new QTableWidgetItem();
-        Qt::ItemFlags uf = (useItem->flags() & ~Qt::ItemIsEditable);
+        auto* item = new QTreeWidgetItem();
+        item->setText(0, e.path);
+        item->setText(1, e.size);
+        item->setText(2, e.fsType);
+        item->setText(3, e.inPool ? QStringLiteral("Sí") : QStringLiteral("No"));
+        item->setData(0, kRoleDevicePath, e.path);
+        item->setData(0, kRoleSelectable, rr.selectable);
+        item->setData(0, kRoleIntrinsicSelectable, rr.selectable);
+        item->setData(0, kRoleDevType, e.devType);
+        Qt::ItemFlags flags = item->flags() | Qt::ItemIsSelectable | Qt::ItemIsEnabled;
         if (rr.selectable) {
-            uf |= Qt::ItemIsUserCheckable;
-            useItem->setCheckState(Qt::Unchecked);
+            flags |= Qt::ItemIsUserCheckable;
         } else {
-            uf &= ~Qt::ItemIsUserCheckable;
-            useItem->setText(QStringLiteral("—"));
+            flags &= ~Qt::ItemIsUserCheckable;
         }
-        useItem->setFlags(uf);
-        devicesTable->setItem(row, 0, useItem);
-
-        auto* devItem = new QTableWidgetItem(wrapDeviceDisplayText(e.path));
-        devItem->setData(Qt::UserRole, e.path);
-        devItem->setToolTip(e.path);
-        devicesTable->setItem(row, 1, devItem);
-        devicesTable->setItem(row, 2, new QTableWidgetItem(e.size));
-        devicesTable->setItem(row, 3, new QTableWidgetItem(e.mountpoint));
-        auto* stateItem = new QTableWidgetItem(rr.stateText);
-        if (!e.fsType.isEmpty() && e.fsType != QStringLiteral("-")) {
-            stateItem->setToolTip(QStringLiteral("fstype=%1").arg(e.fsType));
+        flags &= ~Qt::ItemIsEditable;
+        item->setFlags(flags);
+        item->setCheckState(0, Qt::Unchecked);
+        item->setToolTip(0, rr.detailText);
+        item->setToolTip(2, rr.detailText);
+        for (int c = 0; c < devicesTree->columnCount(); ++c) {
+            item->setBackground(c, rr.bgColor);
         }
-        auto* detailItem = new QTableWidgetItem(rr.detailText);
-        devicesTable->setItem(row, 4, stateItem);
-        devicesTable->setItem(row, 5, detailItem);
-        for (int c = 0; c < devicesTable->columnCount(); ++c) {
-            if (QTableWidgetItem* cell = devicesTable->item(row, c)) {
-                cell->setBackground(rr.bgColor);
-            }
-        }
-    }
-    devicesTable->resizeRowsToContents();
-    devicesLayout->addWidget(devicesTable, 1);
-    body->addWidget(leftPane, 1);
-    body->addWidget(devicesBox, 1);
-    lay->addLayout(body, 1);
-
-    auto checkedDevices = [devicesTable]() -> QStringList {
-        QStringList selected;
-        for (int r = 0; r < devicesTable->rowCount(); ++r) {
-            QTableWidgetItem* use = devicesTable->item(r, 0);
-            QTableWidgetItem* dev = devicesTable->item(r, 1);
-            if (!use || !dev) {
-                continue;
-            }
-            if (use->checkState() == Qt::Checked) {
-                QString d = dev->data(Qt::UserRole).toString().trimmed();
-                if (d.isEmpty()) {
-                    d = dev->text();
-                    d.replace('\n', QString());
-                    d = d.trimmed();
-                }
-                if (!d.isEmpty()) {
-                    selected << d;
-                }
-            }
-        }
-        return selected;
+        return item;
     };
-    connect(clearSelBtn, &QPushButton::clicked, &dlg, [devicesTable]() {
-        for (int r = 0; r < devicesTable->rowCount(); ++r) {
-            if (QTableWidgetItem* use = devicesTable->item(r, 0)) {
-                use->setCheckState(Qt::Unchecked);
-            }
-        }
-    });
-    connect(clearSpecBtn, &QPushButton::clicked, &dlg, [vdevSpecEdit]() {
-        vdevSpecEdit->clear();
-    });
-    connect(addVdevBtn, &QPushButton::clicked, &dlg, [&]() {
-        QStringList selected = checkedDevices();
-        if (selected.isEmpty()) {
-            QMessageBox::information(
-                &dlg, QStringLiteral("ZFSMgr"),
-                trk(QStringLiteral("t_poolcrt_auto030"), QStringLiteral("Seleccione dispositivos en la tabla de la derecha."),
-                    QStringLiteral("Select devices in the table on the right."),
-                    QStringLiteral("请在右侧表格中选择设备。")));
+
+    auto applyRowColor = [&](QTreeWidgetItem* item, const QColor& color) {
+        if (!item) {
             return;
         }
-        QStringList line;
-        const QString klass = vdevClassCb->currentText().trimmed().toLower();
-        const QString vtype = vdevTypeCb->currentText().trimmed().toLower();
-        if (klass != QStringLiteral("data")) {
-            line << klass;
+        for (int c = 0; c < devicesTree->columnCount(); ++c) {
+            item->setBackground(c, color);
         }
-        const bool noRedundancyClass = (klass == QStringLiteral("cache") || klass == QStringLiteral("spare"));
-        if (!noRedundancyClass && vtype != QStringLiteral("stripe")) {
-            line << vtype;
+    };
+
+    QMap<QString, QTreeWidgetItem*> rootItemsByPath;
+    QVector<DeviceRenderRow> rootRows;
+    QSet<QString> addedRootPaths;
+    for (const DeviceRenderRow& rr : renderRows) {
+        const QString parentPath = deviceTreeParentPath(rr.entry.path);
+        const QString resolvedParentPath = deviceTreeParentPath(rr.entry.resolvedPath);
+        if (!parentPath.isEmpty() && renderRowsByPath.contains(parentPath)) {
+            continue;
         }
-        for (const QString& d : selected) {
-            line << d;
+        if (!resolvedParentPath.isEmpty() && renderRowsByPath.contains(resolvedParentPath)) {
+            continue;
         }
-        const QString textLine = line.join(' ');
-        QString cur = vdevSpecEdit->toPlainText().trimmed();
-        if (!cur.isEmpty()) {
-            cur += QLatin1Char('\n');
+        const QString rootKey = rr.entry.path.trimmed();
+        if (rootKey.isEmpty() || addedRootPaths.contains(rootKey)) {
+            continue;
         }
-        cur += textLine;
-        vdevSpecEdit->setPlainText(cur);
-        for (int r = 0; r < devicesTable->rowCount(); ++r) {
-            QTableWidgetItem* use = devicesTable->item(r, 0);
-            if (use) {
-                use->setCheckState(Qt::Unchecked);
+        addedRootPaths.insert(rootKey);
+        rootRows.push_back(rr);
+    }
+    std::sort(rootRows.begin(), rootRows.end(), [](const DeviceRenderRow& a, const DeviceRenderRow& b) {
+        return a.entry.path.localeAwareCompare(b.entry.path) < 0;
+    });
+    for (const DeviceRenderRow& rr : rootRows) {
+        auto* item = createDeviceTreeItem(rr);
+        devicesTree->addTopLevelItem(item);
+        rootItemsByPath.insert(rr.entry.path, item);
+        if (!rr.entry.resolvedPath.isEmpty()) {
+            rootItemsByPath.insert(rr.entry.resolvedPath, item);
+        }
+    }
+    for (const DeviceRenderRow& rr : renderRows) {
+        const QString parentPath = deviceTreeParentPath(rr.entry.path);
+        const QString resolvedParentPath = deviceTreeParentPath(rr.entry.resolvedPath);
+        QTreeWidgetItem* parentItem = nullptr;
+        if (!parentPath.isEmpty()) {
+            parentItem = rootItemsByPath.value(parentPath, nullptr);
+        }
+        if (!parentItem && !resolvedParentPath.isEmpty()) {
+            parentItem = rootItemsByPath.value(resolvedParentPath, nullptr);
+        }
+        if (!parentItem) {
+            continue;
+        }
+        const QString itemPath = rr.entry.path;
+        const QString parentRootPath = parentItem->data(0, kRoleDevicePath).toString();
+        const QString parentResolved = devicesByPath.value(parentRootPath).resolvedPath;
+        if (itemPath == parentRootPath || (!parentResolved.isEmpty() && itemPath == parentResolved)) {
+            continue;
+        }
+        auto* childItem = createDeviceTreeItem(rr);
+        parentItem->addChild(childItem);
+    }
+    devicesTree->expandAll();
+    devicesTree->setColumnWidth(0, 360);
+    devicesTree->resizeColumnToContents(1);
+    devicesTree->setColumnWidth(2, 180);
+    devicesTree->setColumnWidth(3, 90);
+    devicesLayout->addWidget(devicesTree, 1);
+    splitter->addWidget(leftPane);
+    splitter->addWidget(devicesBox);
+    splitter->setStretchFactor(0, 0);
+    splitter->setStretchFactor(1, 1);
+    lay->addWidget(splitter, 1);
+    auto* poolCmdPreview = new QLabel(&dlg);
+    poolCmdPreview->setFont(baseUiFont);
+    poolCmdPreview->setWordWrap(true);
+    poolCmdPreview->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    lay->addWidget(poolCmdPreview, 0);
+
+    bool syncDeviceChecks = false;
+    connect(devicesTree, &QTreeWidget::itemChanged, &dlg, [&](QTreeWidgetItem* item, int column) {
+        if (!item || column != 0 || syncDeviceChecks) {
+            return;
+        }
+        if (!item->data(0, kRoleSelectable).toBool()) {
+            return;
+        }
+        syncDeviceChecks = true;
+        const Qt::CheckState state = item->checkState(0);
+        for (int i = 0; i < item->childCount(); ++i) {
+            QTreeWidgetItem* child = item->child(i);
+            if (child && child->data(0, kRoleSelectable).toBool()) {
+                child->setCheckState(0, state);
             }
         }
+        if (QTreeWidgetItem* parent = item->parent()) {
+            int checkedChildren = 0;
+            int partialChildren = 0;
+            int selectableChildren = 0;
+            for (int i = 0; i < parent->childCount(); ++i) {
+                QTreeWidgetItem* child = parent->child(i);
+                if (!child || !child->data(0, kRoleSelectable).toBool()) {
+                    continue;
+                }
+                ++selectableChildren;
+                if (child->checkState(0) == Qt::Checked) {
+                    ++checkedChildren;
+                } else if (child->checkState(0) == Qt::PartiallyChecked) {
+                    ++partialChildren;
+                }
+            }
+            if (selectableChildren > 0) {
+                if (checkedChildren == selectableChildren) {
+                    parent->setCheckState(0, Qt::Checked);
+                } else if (checkedChildren == 0 && partialChildren == 0) {
+                    parent->setCheckState(0, Qt::Unchecked);
+                } else {
+                    parent->setCheckState(0, Qt::PartiallyChecked);
+                }
+            }
+        }
+        syncDeviceChecks = false;
+    });
+    auto checkedDevices = [devicesTree]() -> QStringList {
+        QStringList selected;
+        std::function<void(QTreeWidgetItem*)> visit = [&](QTreeWidgetItem* item) {
+            if (!item) {
+                return;
+            }
+            const bool selectable = item->data(0, kRoleSelectable).toBool();
+            const Qt::CheckState state = item->checkState(0);
+            if (selectable && state == Qt::Checked) {
+                const QString path = item->data(0, kRoleDevicePath).toString().trimmed();
+                if (!path.isEmpty()) {
+                    selected << path;
+                }
+            }
+            for (int i = 0; i < item->childCount(); ++i) {
+                visit(item->child(i));
+            }
+        };
+        for (int i = 0; i < devicesTree->topLevelItemCount(); ++i) {
+            visit(devicesTree->topLevelItem(i));
+        }
+        selected.removeDuplicates();
+        return selected;
+    };
+
+    auto clearDeviceChecks = [&]() {
+        QSignalBlocker blocker(devicesTree);
+        std::function<void(QTreeWidgetItem*)> visit = [&](QTreeWidgetItem* item) {
+            if (!item) {
+                return;
+            }
+            if (item->data(0, kRoleSelectable).toBool()) {
+                item->setCheckState(0, Qt::Unchecked);
+            }
+            for (int i = 0; i < item->childCount(); ++i) {
+                visit(item->child(i));
+            }
+        };
+        for (int i = 0; i < devicesTree->topLevelItemCount(); ++i) {
+            visit(devicesTree->topLevelItem(i));
+        }
+    };
+    connect(clearSelBtn, &QPushButton::clicked, &dlg, clearDeviceChecks);
+
+    auto poolNodeKind = [](QTreeWidgetItem* item) -> QString {
+        return item ? item->data(0, kRoleNodeKind).toString() : QString();
+    };
+    auto poolNodePrefix = [](QTreeWidgetItem* item) -> QString {
+        return item ? item->data(0, kRoleVdevPrefix).toString().trimmed().toLower() : QString();
+    };
+    auto isRedundantVdevPrefix = [&](const QString& prefix) -> bool {
+        return prefix == QStringLiteral("mirror")
+               || prefix == QStringLiteral("raidz")
+               || prefix == QStringLiteral("raidz1")
+               || prefix == QStringLiteral("raidz2")
+               || prefix == QStringLiteral("raidz3");
+    };
+    auto isTopLevelClassPrefix = [&](const QString& prefix) -> bool {
+        return prefix == QStringLiteral("log")
+               || prefix == QStringLiteral("cache")
+               || prefix == QStringLiteral("spare")
+               || prefix == QStringLiteral("special")
+               || prefix == QStringLiteral("dedup");
+    };
+    auto isNormalTopLevelVdevPrefix = [&](const QString& prefix) -> bool {
+        return prefix == QStringLiteral("mirror")
+               || prefix == QStringLiteral("raidz")
+               || prefix == QStringLiteral("raidz1")
+               || prefix == QStringLiteral("raidz2")
+               || prefix == QStringLiteral("raidz3");
+    };
+    auto classAllowsNestedVdev = [&](const QString& classPrefix, const QString& childPrefix) -> bool {
+        if (classPrefix == QStringLiteral("log")) {
+            return childPrefix == QStringLiteral("mirror");
+        }
+        if (classPrefix == QStringLiteral("special") || classPrefix == QStringLiteral("dedup")) {
+            return isRedundantVdevPrefix(childPrefix);
+        }
+        return false;
+    };
+    auto canParentPoolNode = [&](QTreeWidgetItem* parentNode, const QString& childKind, const QString& childPrefix) -> bool {
+        const QString parentKind = poolNodeKind(parentNode);
+        const QString parentPrefix = poolNodePrefix(parentNode);
+        if (parentKind == QStringLiteral("root")) {
+            if (childKind == QStringLiteral("device")) {
+                return true;
+            }
+            if (childKind == QStringLiteral("class")) {
+                return isTopLevelClassPrefix(childPrefix);
+            }
+            if (childKind == QStringLiteral("vdev")) {
+                return isNormalTopLevelVdevPrefix(childPrefix);
+            }
+            return false;
+        }
+        if (parentKind == QStringLiteral("vdev")) {
+            return childKind == QStringLiteral("device");
+        }
+        if (parentKind == QStringLiteral("class")) {
+            if (childKind == QStringLiteral("device")) {
+                return true;
+            }
+            if (childKind == QStringLiteral("vdev")) {
+                return classAllowsNestedVdev(parentPrefix, childPrefix);
+            }
+            return false;
+        }
+        return false;
+    };
+
+    std::function<void(QTreeWidgetItem*, QStringList&)> collectPoolTreeTokens =
+        [&](QTreeWidgetItem* node, QStringList& tokens) {
+            if (!node) {
+                return;
+            }
+            const QString kind = node->data(0, kRoleNodeKind).toString();
+            if (kind == QStringLiteral("device")) {
+                const QString path = node->data(0, kRoleDevicePath).toString().trimmed();
+                if (!path.isEmpty()) {
+                    tokens << path;
+                }
+                return;
+            }
+            if (kind == QStringLiteral("class") || kind == QStringLiteral("vdev")) {
+                const QString prefix = node->data(0, kRoleVdevPrefix).toString().trimmed();
+                if (!prefix.isEmpty()) {
+                    tokens << prefix.split(' ', Qt::SkipEmptyParts);
+                }
+            }
+            for (int i = 0; i < node->childCount(); ++i) {
+                collectPoolTreeTokens(node->child(i), tokens);
+            }
+        };
+
+    auto poolTreeSpecLines = [&]() -> QStringList {
+        QStringList lines;
+        for (int i = 0; i < poolRootItem->childCount(); ++i) {
+            QTreeWidgetItem* group = poolRootItem->child(i);
+            const QString kind = poolNodeKind(group);
+            if (!group || (kind != QStringLiteral("vdev") && kind != QStringLiteral("class")
+                           && kind != QStringLiteral("device"))) {
+                continue;
+            }
+            QStringList tokens;
+            if (kind == QStringLiteral("device")) {
+                const QString path = group->data(0, kRoleDevicePath).toString().trimmed();
+                if (!path.isEmpty()) {
+                    tokens << path;
+                }
+            } else {
+                collectPoolTreeTokens(group, tokens);
+            }
+            if (!tokens.isEmpty()) {
+                lines << tokens.join(' ');
+            }
+        }
+        return lines;
+    };
+
+    auto poolTreeContainsDevice = [&](const QString& path) -> bool {
+        if (path.trimmed().isEmpty()) {
+            return false;
+        }
+        std::function<bool(QTreeWidgetItem*)> visit = [&](QTreeWidgetItem* item) -> bool {
+            if (!item) {
+                return false;
+            }
+            if (item->data(0, kRoleNodeKind).toString() == QStringLiteral("device")
+                && item->data(0, kRoleDevicePath).toString() == path) {
+                return true;
+            }
+            for (int i = 0; i < item->childCount(); ++i) {
+                if (visit(item->child(i))) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        return visit(poolRootItem);
+    };
+
+    auto createPoolGroupNode = [&](QTreeWidgetItem* parentNode, const QString& label, const QString& prefix) -> QTreeWidgetItem* {
+        if (!parentNode || poolNodeKind(parentNode) == QStringLiteral("device")) {
+            parentNode = parentNode && parentNode->parent() ? parentNode->parent() : poolRootItem;
+        }
+        const QString childKind = isTopLevelClassPrefix(prefix) ? QStringLiteral("class") : QStringLiteral("vdev");
+        if (!canParentPoolNode(parentNode, childKind, prefix)) {
+            return nullptr;
+        }
+        auto* item = new QTreeWidgetItem(QStringList{label});
+        item->setData(0, kRoleNodeKind, childKind);
+        item->setData(0, kRoleVdevPrefix, prefix);
+        item->setFlags(item->flags() | Qt::ItemIsDropEnabled | Qt::ItemIsDragEnabled);
+        parentNode->addChild(item);
+        item->setExpanded(true);
+        parentNode->setExpanded(true);
+        return item;
+    };
+
+    auto usedPoolDevicePaths = [&]() -> QSet<QString> {
+        QSet<QString> used;
+        std::function<void(QTreeWidgetItem*)> visit = [&](QTreeWidgetItem* item) {
+            if (!item) {
+                return;
+            }
+            if (poolNodeKind(item) == QStringLiteral("device")) {
+                const QString path = item->data(0, kRoleDevicePath).toString().trimmed();
+                if (!path.isEmpty()) {
+                    used.insert(path);
+                }
+            }
+            for (int i = 0; i < item->childCount(); ++i) {
+                visit(item->child(i));
+            }
+        };
+        visit(poolRootItem);
+        return used;
+    };
+
+    auto syncDeviceAvailability = [&]() {
+        const QSet<QString> used = usedPoolDevicePaths();
+        std::function<void(QTreeWidgetItem*)> visit = [&](QTreeWidgetItem* item) {
+            if (!item) {
+                return;
+            }
+            const bool intrinsicSelectable = item->data(0, kRoleIntrinsicSelectable).toBool();
+            const QString path = item->data(0, kRoleDevicePath).toString().trimmed();
+            const bool isUsed = !path.isEmpty() && used.contains(path);
+            const bool effectiveSelectable = intrinsicSelectable && !isUsed;
+            item->setData(0, kRoleSelectable, effectiveSelectable);
+            Qt::ItemFlags flags = item->flags() | Qt::ItemIsSelectable | Qt::ItemIsEnabled;
+            if (effectiveSelectable) {
+                flags |= Qt::ItemIsUserCheckable;
+            } else {
+                flags &= ~Qt::ItemIsUserCheckable;
+                item->setCheckState(0, Qt::Unchecked);
+            }
+            item->setFlags(flags);
+            if (isUsed) {
+                item->setCheckState(0, Qt::Unchecked);
+                item->setToolTip(0, QStringLiteral("Ya usado en la estructura del pool"));
+                for (int c = 0; c < devicesTree->columnCount(); ++c) {
+                    item->setBackground(c, QColor("#e0e0e0"));
+                }
+            } else if (intrinsicSelectable) {
+                const bool inPool = item->text(3) == QStringLiteral("Sí");
+                applyRowColor(item, inPool ? stRed : stGreen);
+            }
+            for (int i = 0; i < item->childCount(); ++i) {
+                visit(item->child(i));
+            }
+        };
+        for (int i = 0; i < devicesTree->topLevelItemCount(); ++i) {
+            visit(devicesTree->topLevelItem(i));
+        }
+    };
+
+    std::function<int(QTreeWidgetItem*)> countEffectiveDevices = [&](QTreeWidgetItem* node) -> int {
+        if (!node) {
+            return 0;
+        }
+        const QString kind = node->data(0, kRoleNodeKind).toString();
+        if (kind == QStringLiteral("device")) {
+            return 1;
+        }
+        int total = 0;
+        for (int i = 0; i < node->childCount(); ++i) {
+            total += countEffectiveDevices(node->child(i));
+        }
+        return total;
+    };
+
+    std::function<bool(QTreeWidgetItem*, QString&)> validatePoolNode =
+        [&](QTreeWidgetItem* node, QString& error) -> bool {
+            if (!node) {
+                error = QStringLiteral("Estructura vacía");
+                return false;
+            }
+            const QString kind = poolNodeKind(node);
+            if (kind == QStringLiteral("device")) {
+                const QString path = node->data(0, kRoleDevicePath).toString().trimmed();
+                if (path.isEmpty()) {
+                    error = QStringLiteral("Hay un nodo device sin ruta");
+                    return false;
+                }
+                return true;
+            }
+
+            if (kind == QStringLiteral("class")) {
+                const QString prefix = poolNodePrefix(node);
+                if (!isTopLevelClassPrefix(prefix)) {
+                    error = QStringLiteral("Clase especial inválida '%1'").arg(node->text(0));
+                    return false;
+                }
+                if (node->parent() != poolRootItem) {
+                    error = QStringLiteral("La clase '%1' debe colgar de Pool").arg(node->text(0));
+                    return false;
+                }
+                if ((prefix == QStringLiteral("cache") || prefix == QStringLiteral("spare"))
+                    && node->childCount() == 0) {
+                    error = QStringLiteral("La clase '%1' no contiene devices").arg(node->text(0));
+                    return false;
+                }
+            }
+
+            if (kind == QStringLiteral("vdev")) {
+                const int deviceCount = countEffectiveDevices(node);
+                if (deviceCount == 0) {
+                    error = QStringLiteral("El nodo '%1' no contiene devices").arg(node->text(0));
+                    return false;
+                }
+                const QString prefix = poolNodePrefix(node);
+                const QString parentKind = poolNodeKind(node->parent());
+                const QString parentPrefix = poolNodePrefix(node->parent());
+                if (node->parent() == poolRootItem && !isNormalTopLevelVdevPrefix(prefix)) {
+                    error = QStringLiteral("El VDEV '%1' no puede ser root").arg(node->text(0));
+                    return false;
+                }
+                if (parentKind == QStringLiteral("vdev")) {
+                    error = QStringLiteral("No se permiten VDEVs dentro de VDEVs").arg(node->text(0));
+                    return false;
+                }
+                if (parentKind == QStringLiteral("class") && !classAllowsNestedVdev(parentPrefix, prefix)) {
+                    error = QStringLiteral("El nodo '%1' no está permitido dentro de '%2'").arg(node->text(0), node->parent()->text(0));
+                    return false;
+                }
+                if (parentKind != QStringLiteral("root") && parentKind != QStringLiteral("class")) {
+                    error = QStringLiteral("Ubicación inválida para '%1'").arg(node->text(0));
+                    return false;
+                }
+                if ((prefix == QStringLiteral("mirror"))
+                    && deviceCount < 2) {
+                    error = QStringLiteral("El nodo '%1' necesita al menos 2 devices").arg(node->text(0));
+                    return false;
+                }
+                if (prefix == QStringLiteral("raidz") && deviceCount < 2) {
+                    error = QStringLiteral("El nodo '%1' necesita al menos 2 devices").arg(node->text(0));
+                    return false;
+                }
+                if (prefix == QStringLiteral("raidz2") && deviceCount < 3) {
+                    error = QStringLiteral("El nodo '%1' necesita al menos 3 devices").arg(node->text(0));
+                    return false;
+                }
+                if (prefix == QStringLiteral("raidz3") && deviceCount < 4) {
+                    error = QStringLiteral("El nodo '%1' necesita al menos 4 devices").arg(node->text(0));
+                    return false;
+                }
+            }
+
+            for (int i = 0; i < node->childCount(); ++i) {
+                if (!validatePoolNode(node->child(i), error)) {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+    auto updatePoolCommandPreview = [&]() {
+        QStringList parts;
+        parts << QStringLiteral("zpool create");
+        if (forceCb->isChecked()) {
+            parts << QStringLiteral("-f");
+        }
+        if (dryRunCb->isChecked()) {
+            parts << QStringLiteral("-n");
+        }
+        if (!mountpointEd->text().trimmed().isEmpty()) {
+            parts << QStringLiteral("-m") << shSingleQuote(mountpointEd->text().trimmed());
+        }
+        if (!altrootEd->text().trimmed().isEmpty()) {
+            parts << QStringLiteral("-R") << shSingleQuote(altrootEd->text().trimmed());
+        }
+        auto addPreviewOpt = [&parts](const QString& key, const QString& value) {
+            if (!value.trimmed().isEmpty()) {
+                parts << QStringLiteral("-o") << shSingleQuote(key + QStringLiteral("=") + value.trimmed());
+            }
+        };
+        addPreviewOpt(QStringLiteral("ashift"), ashiftCb->currentText());
+        addPreviewOpt(QStringLiteral("autotrim"), autotrimCb->currentText());
+        addPreviewOpt(QStringLiteral("autoexpand"), autoexpandCb->currentText());
+        addPreviewOpt(QStringLiteral("compatibility"), compatibilityCb->currentText());
+        addPreviewOpt(QStringLiteral("bootfs"), bootfsEd->text());
+        for (const QString& item : poolOptsEd->text().split(',', Qt::SkipEmptyParts)) {
+            const QString t = item.trimmed();
+            if (!t.isEmpty()) {
+                parts << QStringLiteral("-o") << shSingleQuote(t);
+            }
+        }
+        auto addPreviewFsProp = [&parts](const QString& key, const QString& value) {
+            if (!value.trimmed().isEmpty()) {
+                parts << QStringLiteral("-O") << shSingleQuote(key + QStringLiteral("=") + value.trimmed());
+            }
+        };
+        addPreviewFsProp(QStringLiteral("canmount"), canmountCb->currentText());
+        addPreviewFsProp(QStringLiteral("mountpoint"), dsMountpointEd->text());
+        addPreviewFsProp(QStringLiteral("relatime"), relatimeCb->currentText());
+        addPreviewFsProp(QStringLiteral("compression"), compressionCb->currentText());
+        addPreviewFsProp(QStringLiteral("normalization"), normalizationCb->currentText());
+        addPreviewFsProp(QStringLiteral("acltype"), acltypeCb->currentText());
+        addPreviewFsProp(QStringLiteral("xattr"), xattrCb->currentText());
+        addPreviewFsProp(QStringLiteral("dnodesize"), dnodesizeCb->currentText());
+        const QSet<QString> explicitFsKeys = {
+            QStringLiteral("canmount"), QStringLiteral("mountpoint"), QStringLiteral("relatime"),
+            QStringLiteral("compression"), QStringLiteral("normalization"), QStringLiteral("acltype"),
+            QStringLiteral("xattr"), QStringLiteral("dnodesize")
+        };
+        for (const QString& item : fsPropsEd->text().split(',', Qt::SkipEmptyParts)) {
+            const QString t = item.trimmed();
+            if (t.isEmpty()) {
+                continue;
+            }
+            const int eq = t.indexOf('=');
+            if (eq > 0) {
+                const QString k = t.left(eq).trimmed().toLower();
+                if (explicitFsKeys.contains(k)) {
+                    continue;
+                }
+            }
+            parts << QStringLiteral("-O") << shSingleQuote(t);
+        }
+        const QString previewPool = poolNameEd->text().trimmed().isEmpty()
+                                        ? QStringLiteral("<pool>")
+                                        : poolNameEd->text().trimmed();
+        parts << previewPool;
+        parts << poolTreeSpecLines();
+        if (!extraEd->text().trimmed().isEmpty()) {
+            parts << extraEd->text().trimmed();
+        }
+        poolCmdPreview->setText(parts.join(' '));
+        QString error;
+        bool valid = !poolNameEd->text().trimmed().isEmpty();
+        if (!valid) {
+            error = QStringLiteral("El nombre del pool está vacío");
+        } else if (poolRootItem->childCount() == 0) {
+            valid = false;
+            error = QStringLiteral("No hay ningún VDEV definido");
+        } else {
+            bool hasNormalRoot = false;
+            for (int i = 0; i < poolRootItem->childCount(); ++i) {
+                QTreeWidgetItem* child = poolRootItem->child(i);
+                if (poolNodeKind(child) == QStringLiteral("vdev")
+                    || poolNodeKind(child) == QStringLiteral("device")) {
+                    hasNormalRoot = true;
+                }
+                if (!validatePoolNode(child, error)) {
+                    valid = false;
+                    break;
+                }
+            }
+            if (valid && !hasNormalRoot) {
+                valid = false;
+                error = QStringLiteral("Debe existir al menos un VDEV de datos en la raíz");
+            }
+        }
+        if (!valid) {
+            poolCmdPreview->setStyleSheet(QStringLiteral("color: #b00020;"));
+            poolCmdPreview->setToolTip(error);
+        } else {
+            poolCmdPreview->setStyleSheet(QString());
+            poolCmdPreview->setToolTip(QString());
+        }
+    };
+
+    auto removePoolNode = [&]() {
+        if (QTreeWidgetItem* current = poolTree->currentItem()) {
+            if (current == poolRootItem) {
+                return;
+            }
+            delete current;
+            syncDeviceAvailability();
+            updatePoolCommandPreview();
+        }
+    };
+
+    connect(poolTree, &QTreeWidget::customContextMenuRequested, &dlg, [&](const QPoint& pos) {
+        QTreeWidgetItem* item = poolTree->itemAt(pos);
+        if (!item) {
+            item = poolRootItem;
+        }
+        if (poolNodeKind(item) == QStringLiteral("device")) {
+            item = item->parent() ? item->parent() : poolRootItem;
+        }
+
+        QMenu menu(poolTree);
+        struct GroupActionDef {
+            QString label;
+            QString prefix;
+        };
+        QVector<GroupActionDef> defs;
+        const QString kind = poolNodeKind(item);
+        const QString prefix = poolNodePrefix(item);
+        if (kind == QStringLiteral("root")) {
+            defs = {
+                {QStringLiteral("Mirror"), QStringLiteral("mirror")},
+                {QStringLiteral("RAIDZ"), QStringLiteral("raidz")},
+                {QStringLiteral("RAIDZ2"), QStringLiteral("raidz2")},
+                {QStringLiteral("RAIDZ3"), QStringLiteral("raidz3")},
+                {QStringLiteral("Log"), QStringLiteral("log")},
+                {QStringLiteral("Cache"), QStringLiteral("cache")},
+                {QStringLiteral("Special"), QStringLiteral("special")},
+                {QStringLiteral("Dedup"), QStringLiteral("dedup")},
+                {QStringLiteral("Spare"), QStringLiteral("spare")},
+            };
+        } else if (kind == QStringLiteral("class")) {
+            if (prefix == QStringLiteral("log")) {
+                defs = {{QStringLiteral("Mirror"), QStringLiteral("mirror")}};
+            } else if (prefix == QStringLiteral("special") || prefix == QStringLiteral("dedup")) {
+                defs = {
+                    {QStringLiteral("Mirror"), QStringLiteral("mirror")},
+                    {QStringLiteral("RAIDZ"), QStringLiteral("raidz")},
+                    {QStringLiteral("RAIDZ2"), QStringLiteral("raidz2")},
+                    {QStringLiteral("RAIDZ3"), QStringLiteral("raidz3")},
+                };
+            }
+        }
+        for (const GroupActionDef& def : defs) {
+            QAction* action = menu.addAction(def.label);
+            QObject::connect(action, &QAction::triggered, &dlg, [&, def, item]() {
+                if (createPoolGroupNode(item, def.label, def.prefix)) {
+                    updatePoolCommandPreview();
+                }
+            });
+        }
+        if (poolTree->currentItem() && poolTree->currentItem() != poolRootItem) {
+            menu.addSeparator();
+            QAction* removeAction = menu.addAction(QStringLiteral("Eliminar nodo"));
+            QObject::connect(removeAction, &QAction::triggered, &dlg, removePoolNode);
+        }
+        menu.exec(poolTree->viewport()->mapToGlobal(pos));
     });
 
+    poolTree->handleExternalDrop = [&](const QStringList& pathsToAdd, QTreeWidgetItem* targetItem) {
+        QTreeWidgetItem* groupItem = targetItem;
+        if (!groupItem || groupItem == poolRootItem || poolNodeKind(groupItem) == QStringLiteral("root")) {
+            groupItem = poolRootItem;
+        } else if (poolNodeKind(groupItem) == QStringLiteral("device")) {
+            groupItem = groupItem->parent();
+        }
+        if (!groupItem) {
+            return;
+        }
+        const QString targetKind = poolNodeKind(groupItem);
+        const QString targetPrefix = poolNodePrefix(groupItem);
+        if (!canParentPoolNode(groupItem, QStringLiteral("device"), QString())) {
+            if (targetKind == QStringLiteral("class") && (targetPrefix == QStringLiteral("cache")
+                || targetPrefix == QStringLiteral("spare") || targetPrefix == QStringLiteral("log")
+                || targetPrefix == QStringLiteral("special") || targetPrefix == QStringLiteral("dedup"))) {
+                // allowed direct-device classes already covered above
+            } else {
+                return;
+            }
+        }
+        if (targetKind != QStringLiteral("vdev") && targetKind != QStringLiteral("class")
+            && targetKind != QStringLiteral("root")) {
+            return;
+        }
+        for (const QString& rawPath : pathsToAdd) {
+            const QString path = rawPath.trimmed();
+            if (path.isEmpty() || poolTreeContainsDevice(path)) {
+                continue;
+            }
+            auto* leaf = new QTreeWidgetItem(QStringList{path});
+            leaf->setData(0, kRoleNodeKind, QStringLiteral("device"));
+            leaf->setData(0, kRoleDevicePath, path);
+            leaf->setFlags((leaf->flags() | Qt::ItemIsDragEnabled) & ~Qt::ItemIsDropEnabled & ~Qt::ItemIsUserCheckable);
+            groupItem->addChild(leaf);
+        }
+        groupItem->setExpanded(true);
+        syncDeviceAvailability();
+        updatePoolCommandPreview();
+    };
+    connect(addSelectedBtn, &QPushButton::clicked, &dlg, [&]() {
+        const QStringList selectedPaths = checkedDevices();
+        if (selectedPaths.isEmpty()) {
+            return;
+        }
+        QTreeWidgetItem* targetItem = poolTree->currentItem();
+        if (!targetItem) {
+            targetItem = poolRootItem;
+        }
+        poolTree->handleExternalDrop(selectedPaths, targetItem);
+        clearDeviceChecks();
+    });
+    poolTree->canAcceptInternalDrop = [&](const QList<QTreeWidgetItem*>& draggedItems, QTreeWidgetItem* targetItem) -> bool {
+        if (draggedItems.isEmpty()) {
+            return false;
+        }
+        QTreeWidgetItem* effectiveTarget = targetItem ? targetItem : poolRootItem;
+        if (poolNodeKind(effectiveTarget) == QStringLiteral("device")) {
+            effectiveTarget = effectiveTarget->parent() ? effectiveTarget->parent() : poolRootItem;
+        }
+        for (QTreeWidgetItem* dragged : draggedItems) {
+            if (!dragged || dragged == poolRootItem || dragged == effectiveTarget) {
+                return false;
+            }
+            for (QTreeWidgetItem* p = effectiveTarget; p; p = p->parent()) {
+                if (p == dragged) {
+                    return false;
+                }
+            }
+            const QString draggedKind = poolNodeKind(dragged);
+            const QString draggedPrefix = poolNodePrefix(dragged);
+            if (!canParentPoolNode(effectiveTarget, draggedKind, draggedPrefix)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    poolTree->handleInternalDrop = [&]() {
+        syncDeviceAvailability();
+        updatePoolCommandPreview();
+    };
+
+    connect(poolNameEd, &QLineEdit::textChanged, &dlg, [&, updatePoolCommandPreview](const QString&) {
+        updatePoolCommandPreview();
+    });
+    connect(forceCb, &QCheckBox::toggled, &dlg, [&, updatePoolCommandPreview](bool) {
+        updatePoolCommandPreview();
+    });
+    connect(dryRunCb, &QCheckBox::toggled, &dlg, [&, updatePoolCommandPreview](bool) {
+        updatePoolCommandPreview();
+    });
+    auto connectPreviewLineEdit = [&](QLineEdit* edit) {
+        QObject::connect(edit, &QLineEdit::textChanged, &dlg, [&, updatePoolCommandPreview](const QString&) {
+            updatePoolCommandPreview();
+        });
+    };
+    auto connectPreviewCombo = [&](QComboBox* combo) {
+        QObject::connect(combo, &QComboBox::currentTextChanged, &dlg, [&, updatePoolCommandPreview](const QString&) {
+            updatePoolCommandPreview();
+        });
+    };
+    connectPreviewLineEdit(mountpointEd);
+    connectPreviewLineEdit(altrootEd);
+    connectPreviewLineEdit(bootfsEd);
+    connectPreviewLineEdit(poolOptsEd);
+    connectPreviewLineEdit(dsMountpointEd);
+    connectPreviewLineEdit(fsPropsEd);
+    connectPreviewLineEdit(extraEd);
+    connectPreviewCombo(ashiftCb);
+    connectPreviewCombo(autotrimCb);
+    connectPreviewCombo(autoexpandCb);
+    connectPreviewCombo(compatibilityCb);
+    connectPreviewCombo(canmountCb);
+    connectPreviewCombo(relatimeCb);
+    connectPreviewCombo(compressionCb);
+    connectPreviewCombo(normalizationCb);
+    connectPreviewCombo(acltypeCb);
+    connectPreviewCombo(xattrCb);
+    connectPreviewCombo(dnodesizeCb);
+    syncDeviceAvailability();
+    updatePoolCommandPreview();
+
     auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    bb->setFont(baseUiFont);
+    QObject::connect(&dlg, &QDialog::finished, &dlg, [devicesTree]() {
+        if (!devicesTree) {
+            return;
+        }
+        const auto combos = devicesTree->findChildren<QComboBox*>();
+        for (QComboBox* combo : combos) {
+            QObject::disconnect(combo, nullptr, nullptr, nullptr);
+        }
+        QObject::disconnect(devicesTree, nullptr, nullptr, nullptr);
+    });
     connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     lay->addWidget(bb);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, [&]() {
+        const QString poolName = poolNameEd->text().trimmed();
+        if (poolName.isEmpty()) {
+            QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
+                                 trk(QStringLiteral("t_poolcrt_auto031"), QStringLiteral("Nombre de pool vacío."),
+                                     QStringLiteral("Pool name is empty."),
+                                     QStringLiteral("池名称为空。")));
+            return;
+        }
+
+        QStringList selectedDevices = checkedDevices();
+
+        QStringList parts;
+        parts << QStringLiteral("zpool create");
+        if (forceCb->isChecked()) {
+            parts << QStringLiteral("-f");
+        }
+        if (dryRunCb->isChecked()) {
+            parts << QStringLiteral("-n");
+        }
+        if (!mountpointEd->text().trimmed().isEmpty()) {
+            parts << QStringLiteral("-m") << shSingleQuote(mountpointEd->text().trimmed());
+        }
+        if (!altrootEd->text().trimmed().isEmpty()) {
+            parts << QStringLiteral("-R") << shSingleQuote(altrootEd->text().trimmed());
+        }
+        auto addOpt = [&parts](const QString& key, const QString& value) {
+            if (!value.trimmed().isEmpty()) {
+                parts << QStringLiteral("-o") << shSingleQuote(key + QStringLiteral("=") + value.trimmed());
+            }
+        };
+        addOpt(QStringLiteral("ashift"), ashiftCb->currentText());
+        addOpt(QStringLiteral("autotrim"), autotrimCb->currentText());
+        addOpt(QStringLiteral("autoexpand"), autoexpandCb->currentText());
+        addOpt(QStringLiteral("compatibility"), compatibilityCb->currentText());
+        addOpt(QStringLiteral("bootfs"), bootfsEd->text());
+        for (const QString& item : poolOptsEd->text().split(',', Qt::SkipEmptyParts)) {
+            const QString t = item.trimmed();
+            if (!t.isEmpty()) {
+                parts << QStringLiteral("-o") << shSingleQuote(t);
+            }
+        }
+        auto addFsProp = [&parts](const QString& key, const QString& value) {
+            if (!value.trimmed().isEmpty()) {
+                parts << QStringLiteral("-O") << shSingleQuote(key + QStringLiteral("=") + value.trimmed());
+            }
+        };
+        addFsProp(QStringLiteral("canmount"), canmountCb->currentText());
+        addFsProp(QStringLiteral("mountpoint"), dsMountpointEd->text());
+        addFsProp(QStringLiteral("relatime"), relatimeCb->currentText());
+        addFsProp(QStringLiteral("compression"), compressionCb->currentText());
+        addFsProp(QStringLiteral("normalization"), normalizationCb->currentText());
+        addFsProp(QStringLiteral("acltype"), acltypeCb->currentText());
+        addFsProp(QStringLiteral("xattr"), xattrCb->currentText());
+        addFsProp(QStringLiteral("dnodesize"), dnodesizeCb->currentText());
+
+        const QSet<QString> explicitFsKeys = {
+            QStringLiteral("canmount"), QStringLiteral("mountpoint"), QStringLiteral("relatime"),
+            QStringLiteral("compression"), QStringLiteral("normalization"), QStringLiteral("acltype"),
+            QStringLiteral("xattr"), QStringLiteral("dnodesize")
+        };
+        for (const QString& item : fsPropsEd->text().split(',', Qt::SkipEmptyParts)) {
+            const QString t = item.trimmed();
+            if (!t.isEmpty()) {
+                const int eq = t.indexOf('=');
+                if (eq > 0) {
+                    const QString k = t.left(eq).trimmed().toLower();
+                    if (explicitFsKeys.contains(k)) {
+                        continue;
+                    }
+                }
+                parts << QStringLiteral("-O") << shSingleQuote(t);
+            }
+        }
+
+        parts << shSingleQuote(poolName);
+        QStringList specLines = poolTreeSpecLines();
+        if (specLines.isEmpty()) {
+            if (selectedDevices.isEmpty()) {
+                QMessageBox::warning(
+                    this, QStringLiteral("ZFSMgr"),
+                    trk(QStringLiteral("t_poolcrt_auto032"), QStringLiteral("Defina la estructura del pool en el árbol o seleccione dispositivos para modo rápido."),
+                        QStringLiteral("Build the pool layout in the tree or select devices for quick mode."),
+                        QStringLiteral("请在树中构建池结构，或在快速模式中选择设备。")));
+                return;
+            }
+            specLines << selectedDevices.join(' ');
+        }
+        for (const QString& line : specLines) {
+            const QStringList toks = line.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+            for (const QString& tok : toks) {
+                parts << shSingleQuote(tok.trimmed());
+            }
+        }
+        if (!extraEd->text().trimmed().isEmpty()) {
+            parts << extraEd->text().trimmed();
+        }
+        const QString createCmd = parts.join(' ');
+        ConnectionProfile execProfile = p;
+        QString cmd = createCmd;
+        if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, cmd); !daemonCmd.isEmpty()) {
+            cmd = daemonCmd;
+        }
+        if (!isWindowsConnection(execProfile)) {
+            cmd = mwhelpers::withUnixSearchPathCommand(cmd);
+        }
+        if (isLocalConnection(execProfile) && !isWindowsConnection(execProfile)) {
+            execProfile.useSudo = true;
+            if (!ensureLocalSudoCredentials(execProfile)) {
+                appLog(QStringLiteral("INFO"), QStringLiteral("Crear pool cancelada: faltan credenciales sudo locales"));
+                return;
+            }
+        }
+        cmd = withSudo(execProfile, cmd);
+        const QString preview = QStringLiteral("[%1]\n%2")
+                                    .arg(sshUserHostPort(execProfile))
+                                    .arg(buildSshPreviewCommand(execProfile, cmd));
+        if (!confirmActionExecution(QStringLiteral("Crear pool"), {preview})) {
+            return;
+        }
+        QString errorText;
+        if (!executePoolCommand(idx,
+                                poolName,
+                                QStringLiteral("Create"),
+                                cmd,
+                                120000,
+                                &errorText,
+                                true,
+                                false)) {
+            QMessageBox::critical(
+                this,
+                trk(QStringLiteral("t_poolcrt_exec_err_t001"),
+                    QStringLiteral("Crear pool"),
+                    QStringLiteral("Create pool"),
+                    QStringLiteral("创建池")),
+                trk(QStringLiteral("t_poolcrt_exec_err_q001"),
+                    QStringLiteral("No se pudo crear el pool:\n%1"),
+                    QStringLiteral("Could not create pool:\n%1"),
+                    QStringLiteral("无法创建存储池：\n%1"))
+                    .arg(errorText));
+            return;
+        }
+        dlg.accept();
+    });
+    if (dlg.layout()) {
+        dlg.layout()->activate();
+    }
+    for (QWidget* w : dlg.findChildren<QWidget*>()) {
+        if (w) {
+            w->setFont(baseUiFont);
+        }
+    }
+    if (devicesTree->header()) {
+        devicesTree->header()->setFont(baseUiFont);
+    }
+    if (poolTree->header()) {
+        poolTree->header()->setFont(baseUiFont);
+    }
+    dlg.setMinimumHeight(dlg.sizeHint().height());
 
     busyGuard.release();
     if (dlg.exec() != QDialog::Accepted) {
         return;
     }
-    const QString poolName = poolNameEd->text().trimmed();
-    if (poolName.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             trk(QStringLiteral("t_poolcrt_auto031"), QStringLiteral("Nombre de pool vacío."),
-                                 QStringLiteral("Pool name is empty."),
-                                 QStringLiteral("池名称为空。")));
-        return;
-    }
-
-    QStringList selectedDevices = checkedDevices();
-
-    QStringList parts;
-    parts << QStringLiteral("zpool create");
-    if (forceCb->isChecked()) {
-        parts << QStringLiteral("-f");
-    }
-    if (dryRunCb->isChecked()) {
-        parts << QStringLiteral("-n");
-    }
-    if (!mountpointEd->text().trimmed().isEmpty()) {
-        parts << QStringLiteral("-m") << shSingleQuote(mountpointEd->text().trimmed());
-    }
-    if (!altrootEd->text().trimmed().isEmpty()) {
-        parts << QStringLiteral("-R") << shSingleQuote(altrootEd->text().trimmed());
-    }
-    auto addOpt = [&parts](const QString& key, const QString& value) {
-        if (!value.trimmed().isEmpty()) {
-            parts << QStringLiteral("-o") << shSingleQuote(key + QStringLiteral("=") + value.trimmed());
-        }
-    };
-    addOpt(QStringLiteral("ashift"), ashiftCb->currentText());
-    addOpt(QStringLiteral("autotrim"), autotrimCb->currentText());
-    addOpt(QStringLiteral("autoexpand"), autoexpandCb->currentText());
-    addOpt(QStringLiteral("compatibility"), compatibilityCb->currentText());
-    addOpt(QStringLiteral("bootfs"), bootfsEd->text());
-    for (const QString& item : poolOptsEd->text().split(',', Qt::SkipEmptyParts)) {
-        const QString t = item.trimmed();
-        if (!t.isEmpty()) {
-            parts << QStringLiteral("-o") << shSingleQuote(t);
-        }
-    }
-    for (const QString& item : fsPropsEd->text().split(',', Qt::SkipEmptyParts)) {
-        const QString t = item.trimmed();
-        if (!t.isEmpty()) {
-            parts << QStringLiteral("-O") << shSingleQuote(t);
-        }
-    }
-
-    parts << shSingleQuote(poolName);
-    QString vdevSpec = vdevSpecEdit->toPlainText();
-    QStringList specLines;
-    for (QString ln : vdevSpec.split('\n')) {
-        ln = ln.trimmed();
-        if (ln.isEmpty()) {
-            continue;
-        }
-        const int hash = ln.indexOf('#');
-        if (hash >= 0) {
-            ln = ln.left(hash).trimmed();
-        }
-        if (ln.isEmpty()) {
-            continue;
-        }
-        ln.replace('|', '\n');
-        const QStringList splitByPipe = ln.split('\n', Qt::SkipEmptyParts);
-        for (QString seg : splitByPipe) {
-            seg = seg.trimmed();
-            if (!seg.isEmpty()) {
-                specLines << seg;
-            }
-        }
-    }
-    if (specLines.isEmpty()) {
-        if (selectedDevices.isEmpty()) {
-            QMessageBox::warning(
-                this, QStringLiteral("ZFSMgr"),
-                trk(QStringLiteral("t_poolcrt_auto032"), QStringLiteral("Defina una especificación VDEV o seleccione dispositivos para modo rápido."),
-                    QStringLiteral("Provide a VDEV spec or select devices for quick mode."),
-                    QStringLiteral("请提供 VDEV 规格，或在快速模式中选择设备。")));
-            return;
-        }
-        QStringList quick;
-        const QString quickType = quickLayoutCb->currentText().trimmed().toLower();
-        if (!quickType.isEmpty() && quickType != QStringLiteral("stripe")) {
-            quick << quickType;
-        }
-        quick.append(selectedDevices);
-        specLines << quick.join(' ');
-    }
-    for (const QString& line : specLines) {
-        const QStringList toks = line.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
-        for (const QString& tok : toks) {
-            parts << shSingleQuote(tok.trimmed());
-        }
-    }
-    if (!extraEd->text().trimmed().isEmpty()) {
-        parts << extraEd->text().trimmed();
-    }
-    const QString createCmd = parts.join(' ');
-    QString cmd = createCmd;
-    if (isMacConn) {
-        QStringList selectedYellow;
-        for (const QString& d : selectedDevices) {
-            if (yellowDevicePaths.contains(d)) {
-                selectedYellow << d;
-            }
-        }
-        if (!selectedYellow.isEmpty()) {
-            QStringList pre;
-            for (const QString& d : selectedYellow) {
-                pre << QStringLiteral("diskutil unmount %1").arg(shSingleQuote(d));
-            }
-            cmd = QStringLiteral("set -e; %1; %2").arg(pre.join(QStringLiteral("; ")), createCmd);
-        }
-    }
-    cmd = withSudo(p, cmd);
-    const QString preview = QStringLiteral("[%1]\n%2")
-                                .arg(sshUserHostPort(p))
-                                .arg(buildSshPreviewCommand(p, cmd));
-    if (!confirmActionExecution(QStringLiteral("Crear pool"), {preview})) {
-        return;
-    }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Inicio crear pool en %1: %2").arg(p.name, poolName));
-    setActionsLocked(true);
-    QString cmdOut;
-    QString cmdErr;
-    int rc = -1;
-    if (!runSsh(p, cmd, 120000, cmdOut, cmdErr, rc) || rc != 0) {
-        appLog(QStringLiteral("NORMAL"),
-               QStringLiteral("Error creando pool en %1::%2 -> %3")
-                   .arg(p.name, poolName, oneLine(cmdErr.isEmpty() ? QStringLiteral("exit %1").arg(rc) : cmdErr)));
-        QMessageBox::critical(
-            this, QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_poolcrt_auto033"), QStringLiteral("Crear pool falló:\n%1"),
-                QStringLiteral("Pool creation failed:\n%1"),
-                QStringLiteral("创建池失败：\n%1")).arg(cmdErr.isEmpty() ? QStringLiteral("exit %1").arg(rc) : cmdErr));
-        setActionsLocked(false);
-        return;
-    }
-    appLog(QStringLiteral("NORMAL"), QStringLiteral("Fin crear pool en %1: %2").arg(p.name, poolName));
-    setActionsLocked(false);
-    refreshConnectionByIndex(idx);
-    populateAllPoolsTables();
-    refreshSelectedPoolDetails();
 }

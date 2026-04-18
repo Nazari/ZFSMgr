@@ -1,27 +1,263 @@
 #include "mainwindow.h"
+#include "mainwindow_helpers.h"
 
 #include <QApplication>
 #include <QClipboard>
 #include <QComboBox>
 #include <QDateTime>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QFont>
-#include <QFontDatabase>
 #include <QMetaObject>
 #include <QPlainTextEdit>
 #include <QRegularExpression>
+#include <QScrollBar>
 #include <QTabWidget>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextStream>
 #include <QThread>
+#include <QSet>
+#include <QSysInfo>
 #include <QVBoxLayout>
 
+#include <QtConcurrent/QtConcurrent>
+
+#if defined(Q_OS_LINUX) || defined(Q_OS_FREEBSD)
+#include <syslog.h>
+#endif
+
+#ifdef Q_OS_MACOS
+#include <os/log.h>
+#endif
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
+#include <string>
+
 namespace {
+constexpr const char* kGsaLinuxRuntimeDirPath = "/var/lib/zfsmgr";
+constexpr const char* kGsaFreeBsdRuntimeDirPath = "/var/db/zfsmgr";
+
 QString tsNowForLog() {
     return QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
 }
+
+QString normalizeHostTokenForLogs(QString host) {
+    host = host.trimmed().toLower();
+    if (host.startsWith('[') && host.endsWith(']') && host.size() > 2) {
+        host = host.mid(1, host.size() - 2);
+    }
+    while (host.endsWith('.')) {
+        host.chop(1);
+    }
+    return host;
+}
+
+QString localizeLegacyAppLogMessage(const QString& language, QString msg) {
+    if (language.trimmed().toLower() != QStringLiteral("en")) {
+        return msg;
+    }
+    msg.replace(QStringLiteral("cancelada: faltan credenciales sudo locales"),
+                QStringLiteral("cancelled: missing local sudo credentials"));
+    msg.replace(QStringLiteral("cancelado: faltan credenciales sudo locales"),
+                QStringLiteral("cancelled: missing local sudo credentials"));
+    msg.replace(QStringLiteral("Cambio pendiente añadido:"), QStringLiteral("Pending change added:"));
+    msg.replace(QStringLiteral("Idioma cambiado a"), QStringLiteral("Language changed to"));
+    msg.replace(QStringLiteral("Motivo:"), QStringLiteral("Reason:"));
+    return msg;
+}
+
+bool isLocalHostForLogs(const QString& host) {
+    const QString h = normalizeHostTokenForLogs(host);
+    if (h.isEmpty()) {
+        return false;
+    }
+    if (h == QStringLiteral("localhost")
+        || h == QStringLiteral("127.0.0.1")
+        || h == QStringLiteral("::1")) {
+        return true;
+    }
+    static const QSet<QString> aliases = []() {
+        QSet<QString> s;
+        s.insert(QStringLiteral("localhost"));
+        s.insert(QStringLiteral("127.0.0.1"));
+        s.insert(QStringLiteral("::1"));
+        const QString local = normalizeHostTokenForLogs(QSysInfo::machineHostName());
+        if (!local.isEmpty()) {
+            s.insert(local);
+            s.insert(local + QStringLiteral(".local"));
+            const int dot = local.indexOf('.');
+            if (dot > 0) {
+                const QString shortName = local.left(dot);
+                s.insert(shortName);
+                s.insert(shortName + QStringLiteral(".local"));
+            }
+        }
+        return s;
+    }();
+    return aliases.contains(h);
+}
+
+struct CompactLogParts {
+    QString date;
+    QString time;
+    QString conn;
+    QString level;
+    QString msg;
+};
+
+CompactLogParts parseCompactLogParts(const QString& fullLine) {
+    CompactLogParts out;
+    static const QRegularExpression lineRx(
+        QStringLiteral("^\\[(\\d{4}-\\d{2}-\\d{2})\\s+(\\d{2}:\\d{2}:\\d{2})\\]\\s+\\[([^\\]]+)\\]\\s*(.*)$"));
+    static const QRegularExpression sshRx(QStringLiteral("^\\[SSH\\s+([^\\]]+)\\]\\s*(.*)$"));
+
+    const QRegularExpressionMatch m = lineRx.match(fullLine.trimmed());
+    if (!m.hasMatch()) {
+        out.date = QStringLiteral("-");
+        out.time = QStringLiteral("-");
+        out.level = QStringLiteral("-");
+        out.conn = QStringLiteral("-");
+        out.msg = fullLine.trimmed();
+        return out;
+    }
+    out.date = m.captured(1).trimmed();
+    out.time = m.captured(2).trimmed();
+    out.level = m.captured(3).trimmed();
+    out.msg = m.captured(4).trimmed();
+    out.conn = QStringLiteral("-");
+    const QRegularExpressionMatch sm = sshRx.match(out.msg);
+    if (sm.hasMatch()) {
+        out.conn = sm.captured(1).trimmed();
+        out.msg = sm.captured(2).trimmed();
+    }
+    if (out.msg.isEmpty()) {
+        out.msg = QStringLiteral("-");
+    }
+    return out;
+}
+
+CompactLogParts parseGsaLogParts(const QString& line, const QString& connName) {
+    CompactLogParts out;
+    static const QRegularExpression gsaRx(
+        QStringLiteral("^(\\d{4}-\\d{2}-\\d{2})\\s+(\\d{2}:\\d{2}:\\d{2})\\s+(.*)$"));
+    const QString trimmed = line.trimmed();
+    const QRegularExpressionMatch m = gsaRx.match(trimmed);
+    if (m.hasMatch()) {
+        out.date = m.captured(1).trimmed();
+        out.time = m.captured(2).trimmed();
+        out.msg = m.captured(3).trimmed();
+    } else {
+        out.date = QStringLiteral("-");
+        out.time = QStringLiteral("-");
+        out.msg = trimmed;
+    }
+    out.conn = connName.trimmed().isEmpty() ? QStringLiteral("-") : connName.trimmed();
+    out.level = QStringLiteral("GSA");
+    if (out.msg.isEmpty()) {
+        out.msg = QStringLiteral("-");
+    }
+    return out;
+}
+
+bool parseLeadingLogDateTime(const QString& line, QDateTime* outDt) {
+    if (!outDt) {
+        return false;
+    }
+    static const QRegularExpression tsRx(
+        QStringLiteral("^(\\d{4}-\\d{2}-\\d{2})\\s+(\\d{2}:\\d{2}:\\d{2})\\b"));
+    const QRegularExpressionMatch m = tsRx.match(line.trimmed());
+    if (!m.hasMatch()) {
+        return false;
+    }
+    const QDateTime dt = QDateTime::fromString(
+        m.captured(1).trimmed() + QStringLiteral(" ") + m.captured(2).trimmed(),
+        QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    if (!dt.isValid()) {
+        return false;
+    }
+    *outDt = dt;
+    return true;
+}
+
+int countLogDateTimeStamps(const QString& line) {
+    static const QRegularExpression tsRx(
+        QStringLiteral("\\b\\d{4}-\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}:\\d{2}\\b"));
+    int count = 0;
+    auto it = tsRx.globalMatch(line);
+    while (it.hasNext()) {
+        it.next();
+        ++count;
+    }
+    return count;
+}
+
+bool looksLikeGsaRuntimeLine(const QString& line) {
+    const QString s = line.trimmed();
+    if (s.isEmpty()) {
+        return false;
+    }
+    static const QRegularExpression gsaStamped(
+        QStringLiteral("^\\d{4}-\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}:\\d{2}\\s+GSA\\b"));
+    if (gsaStamped.match(s).hasMatch()) {
+        return true;
+    }
+    const QString low = s.toLower();
+    return low.startsWith(QStringLiteral("gsa "))
+           || low.contains(QStringLiteral(" zfsmgr-gsa"))
+           || low.contains(QStringLiteral(" gsa "))
+           || low.contains(QStringLiteral("org.fc16.gsa:"));
+}
+
+void ensureLogHorizontalScrollTracking(QPlainTextEdit* view) {
+    if (!view) {
+        return;
+    }
+    if (view->property("zfsmgr_hscroll_track_init").toBool()) {
+        return;
+    }
+    view->setProperty("zfsmgr_hscroll_track_init", true);
+    view->setProperty("zfsmgr_hscroll_user_override", false);
+    QScrollBar* h = view->horizontalScrollBar();
+    if (!h) {
+        return;
+    }
+    QObject::connect(h, &QScrollBar::valueChanged, view, [view, h](int value) {
+        if (h->property("zfsmgr_hscroll_programmatic").toBool()) {
+            return;
+        }
+        if (value != h->minimum()) {
+            view->setProperty("zfsmgr_hscroll_user_override", true);
+        }
+    });
+}
+
+void scrollLogViewToLatest(QPlainTextEdit* view) {
+    if (!view) {
+        return;
+    }
+    ensureLogHorizontalScrollTracking(view);
+    auto apply = [view]() {
+        if (QScrollBar* h = view->horizontalScrollBar()) {
+            const bool userOverride = view->property("zfsmgr_hscroll_user_override").toBool();
+            if (!userOverride) {
+                h->setProperty("zfsmgr_hscroll_programmatic", true);
+                h->setValue(h->minimum());
+                h->setProperty("zfsmgr_hscroll_programmatic", false);
+            }
+        }
+        if (QScrollBar* v = view->verticalScrollBar()) {
+            v->setValue(v->maximum());
+        }
+    };
+    apply();
+    QMetaObject::invokeMethod(view, apply, Qt::QueuedConnection);
+}
+
 } // namespace
 
 void MainWindow::initLogPersistence() {
@@ -71,9 +307,86 @@ void MainWindow::appendLogToFile(const QString& line) {
     ts.flush();
 }
 
+void MainWindow::appendLogToNative(const QString& level, const QString& line) {
+    const QString msg = maskSecrets(line).trimmed();
+    if (msg.isEmpty()) {
+        return;
+    }
+
+#ifdef Q_OS_MACOS
+    static os_log_t nativeLog = os_log_create("com.zfsmgr.app", "application");
+    os_log_type_t type = OS_LOG_TYPE_DEFAULT;
+    const QString lvl = level.trimmed().toLower();
+    if (lvl == QStringLiteral("error")) {
+        type = OS_LOG_TYPE_ERROR;
+    } else if (lvl == QStringLiteral("warn")) {
+        type = OS_LOG_TYPE_FAULT;
+    } else if (lvl == QStringLiteral("info")) {
+        type = OS_LOG_TYPE_INFO;
+    } else if (lvl == QStringLiteral("debug")) {
+        type = OS_LOG_TYPE_DEBUG;
+    }
+    const QByteArray utf8 = msg.toUtf8();
+    os_log_with_type(nativeLog, type, "%{public}s", utf8.constData());
+#elif defined(Q_OS_WIN)
+    WORD eventType = EVENTLOG_INFORMATION_TYPE;
+    const QString lvl = level.trimmed().toLower();
+    if (lvl == QStringLiteral("error")) {
+        eventType = EVENTLOG_ERROR_TYPE;
+    } else if (lvl == QStringLiteral("warn")) {
+        eventType = EVENTLOG_WARNING_TYPE;
+    }
+    HANDLE handle = RegisterEventSourceW(nullptr, L"ZFSMgr");
+    if (!handle) {
+        handle = RegisterEventSourceW(nullptr, L"Application");
+    }
+    if (!handle) {
+        return;
+    }
+    const std::wstring wide = msg.toStdWString();
+    LPCWSTR strings[1] = { wide.c_str() };
+    ReportEventW(handle, eventType, 0, 0x1000, nullptr, 1, 0, strings, nullptr);
+    DeregisterEventSource(handle);
+#elif defined(Q_OS_LINUX) || defined(Q_OS_FREEBSD)
+    static bool nativeOpen = false;
+    if (!nativeOpen) {
+        openlog("ZFSMgr", LOG_PID | LOG_NDELAY, LOG_USER);
+        nativeOpen = true;
+    }
+    int priority = LOG_NOTICE;
+    const QString lvl = level.trimmed().toLower();
+    if (lvl == QStringLiteral("error")) {
+        priority = LOG_ERR;
+    } else if (lvl == QStringLiteral("warn")) {
+        priority = LOG_WARNING;
+    } else if (lvl == QStringLiteral("info")) {
+        priority = LOG_INFO;
+    } else if (lvl == QStringLiteral("debug")) {
+        priority = LOG_DEBUG;
+    }
+    const QByteArray utf8 = msg.toUtf8();
+    syslog(priority, "%s", utf8.constData());
+#else
+    Q_UNUSED(level);
+    Q_UNUSED(msg);
+#endif
+}
+
 void MainWindow::clearAppLog() {
     m_logView->clear();
+    m_compactPrevValid = false;
+    m_compactPrevDate.clear();
+    m_compactPrevTime.clear();
+    m_compactPrevConn.clear();
+    m_compactPrevLevel.clear();
+    m_connCompactState.clear();
+    m_connGsaCompactState.clear();
     for (auto it = m_connectionLogViews.begin(); it != m_connectionLogViews.end(); ++it) {
+        if (it.value()) {
+            it.value()->clear();
+        }
+    }
+    for (auto it = m_connectionGsaLogViews.begin(); it != m_connectionGsaLogViews.end(); ++it) {
         if (it.value()) {
             it.value()->clear();
         }
@@ -140,8 +453,10 @@ void MainWindow::appLog(const QString& level, const QString& msg) {
         }, Qt::QueuedConnection);
         return;
     }
-    const QString line = QStringLiteral("[%1] [%2] %3").arg(tsNowForLog(), level, maskSecrets(msg));
-    const QString current = m_logLevelCombo ? m_logLevelCombo->currentText().toLower() : QStringLiteral("normal");
+    const QString normalizedMsg = localizeLegacyAppLogMessage(m_language, msg);
+    const QString line = QStringLiteral("[%1] [%2] %3").arg(tsNowForLog(), level, maskSecrets(normalizedMsg));
+    const QString current = m_logLevelSetting.isEmpty() ? QStringLiteral("normal")
+                                                         : m_logLevelSetting.toLower();
     auto rank = [](const QString& l) -> int {
         const QString x = l.toLower();
         if (x == QStringLiteral("debug")) {
@@ -155,19 +470,101 @@ void MainWindow::appLog(const QString& level, const QString& msg) {
     const QString lvl = level.toLower();
     const bool always = (lvl == QStringLiteral("warn") || lvl == QStringLiteral("error"));
     if (always || rank(lvl) <= rank(current)) {
-        m_logView->appendPlainText(line);
-        trimLogWidget(m_logView);
+        appendAppLogLineToView(line);
     }
     if (m_lastDetailText) {
         m_lastDetailText->setPlainText(line);
     }
     appendLogToFile(line);
+    appendLogToNative(level, line);
+}
+
+void MainWindow::debugTrace(const QString& msg) {
+    appLog(QStringLiteral("DEBUG"), msg);
+}
+
+void MainWindow::appendAppLogLineToView(const QString& fullLine) {
+    if (!m_logView) {
+        return;
+    }
+    const CompactLogParts p = parseCompactLogParts(fullLine);
+    QStringList changed;
+    if (!m_compactPrevValid || p.date != m_compactPrevDate) {
+        changed << p.date;
+    }
+    if (!m_compactPrevValid || p.time != m_compactPrevTime) {
+        changed << p.time;
+    }
+    if (!m_compactPrevValid || p.conn != m_compactPrevConn) {
+        changed << QStringLiteral("ssh=%1").arg(p.conn);
+    }
+    if (!m_compactPrevValid || p.level != m_compactPrevLevel) {
+        changed << QStringLiteral("lvl=%1").arg(p.level);
+    }
+    const QString head = changed.isEmpty() ? QStringLiteral("...") : changed.join(' ');
+    m_logView->appendPlainText(QStringLiteral("%1 | %2").arg(head, p.msg));
+    trimLogWidget(m_logView);
+    m_compactPrevValid = true;
+    m_compactPrevDate = p.date;
+    m_compactPrevTime = p.time;
+    m_compactPrevConn = p.conn;
+    m_compactPrevLevel = p.level;
+}
+
+void MainWindow::loadPersistedAppLogToView() {
+    if (!m_logView || m_appLogPath.isEmpty()) {
+        return;
+    }
+    QStringList allLines;
+    const QFileInfo currentFi(m_appLogPath);
+    const QString baseName = currentFi.fileName();
+    const QString baseDir = currentFi.absolutePath();
+    // Read rotated logs from oldest to newest, then current file.
+    for (int i = 5; i >= 1; --i) {
+        const QString fp = QStringLiteral("%1/%2.%3").arg(baseDir, baseName).arg(i);
+        QFile f(fp);
+        if (!f.exists() || !f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            continue;
+        }
+        QTextStream ts(&f);
+        while (!ts.atEnd()) {
+            const QString ln = ts.readLine();
+            if (!ln.trimmed().isEmpty()) {
+                allLines.append(ln);
+            }
+        }
+    }
+    QFile current(m_appLogPath);
+    if (current.exists() && current.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream ts(&current);
+        while (!ts.atEnd()) {
+            const QString ln = ts.readLine();
+            if (!ln.trimmed().isEmpty()) {
+                allLines.append(ln);
+            }
+        }
+    }
+    if (allLines.isEmpty()) {
+        return;
+    }
+    const int limit = qMax(1, maxLogLines());
+    if (allLines.size() > limit) {
+        allLines = allLines.mid(allLines.size() - limit);
+    }
+    m_logView->clear();
+    m_compactPrevValid = false;
+    m_compactPrevDate.clear();
+    m_compactPrevTime.clear();
+    m_compactPrevConn.clear();
+    m_compactPrevLevel.clear();
+    for (const QString& ln : allLines) {
+        appendAppLogLineToView(maskSecrets(ln));
+    }
 }
 
 int MainWindow::maxLogLines() const {
-    bool ok = false;
-    const int v = m_logMaxLinesCombo ? m_logMaxLinesCombo->currentText().toInt(&ok) : 500;
-    if (!ok || v <= 0) {
+    const int v = m_logMaxLinesSetting;
+    if (v != 100 && v != 200 && v != 500 && v != 1000) {
         return 500;
     }
     return v;
@@ -196,21 +593,64 @@ void MainWindow::syncConnectionLogTabs() {
         return;
     }
     QSet<QString> wanted;
-    for (const auto& p : m_profiles) {
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        if (isConnectionDisconnected(i)) {
+            continue;
+        }
+        const auto& p = m_profiles[i];
+        const bool localConn = isLocalConnection(p);
+        const QString st = (i < m_states.size()) ? m_states[i].status.trimmed().toUpper() : QString();
+        const bool redirectedLocal = (!localConn && st == QStringLiteral("OK") && isLocalHostForLogs(p.host));
+        if (redirectedLocal) {
+            continue;
+        }
         wanted.insert(p.id);
         if (m_connectionLogViews.contains(p.id)) {
+            refreshConnectionGsaLogAsync(i);
             continue;
         }
         auto* tab = new QWidget(m_logsTabs);
         auto* lay = new QVBoxLayout(tab);
-        auto* view = new QPlainTextEdit(tab);
-        view->setReadOnly(true);
-        QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-        mono.setPointSize(8);
-        view->setFont(mono);
-        lay->addWidget(view, 1);
+        lay->setContentsMargins(0, 0, 0, 0);
+        lay->setSpacing(0);
+
+        auto* innerTabs = new QTabWidget(tab);
+        auto* terminalPage = new QWidget(innerTabs);
+        auto* terminalLay = new QVBoxLayout(terminalPage);
+        terminalLay->setContentsMargins(0, 0, 0, 0);
+        terminalLay->setSpacing(0);
+        auto* terminalView = new QPlainTextEdit(terminalPage);
+        terminalView->setReadOnly(true);
+        terminalView->setLineWrapMode(QPlainTextEdit::NoWrap);
+        terminalView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        terminalView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        if (m_logView) {
+            terminalView->setFont(m_logView->font());
+        }
+        terminalLay->addWidget(terminalView, 1);
+        innerTabs->addTab(terminalPage, QStringLiteral("Terminal"));
+
+        auto* gsaPage = new QWidget(innerTabs);
+        auto* gsaLay = new QVBoxLayout(gsaPage);
+        gsaLay->setContentsMargins(0, 0, 0, 0);
+        gsaLay->setSpacing(0);
+        auto* gsaView = new QPlainTextEdit(gsaPage);
+        gsaView->setReadOnly(true);
+        gsaView->setLineWrapMode(QPlainTextEdit::NoWrap);
+        gsaView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        gsaView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        if (m_logView) {
+            gsaView->setFont(m_logView->font());
+        }
+        gsaLay->addWidget(gsaView, 1);
+        innerTabs->addTab(gsaPage, QStringLiteral("GSA"));
+
+        lay->addWidget(innerTabs, 1);
         m_logsTabs->addTab(tab, p.name);
-        m_connectionLogViews.insert(p.id, view);
+        m_connectionLogViews.insert(p.id, terminalView);
+        m_connectionGsaLogViews.insert(p.id, gsaView);
+        m_connectionLogTabs.insert(p.id, tab);
+        refreshConnectionGsaLogAsync(i);
     }
 
     for (auto it = m_connectionLogViews.begin(); it != m_connectionLogViews.end();) {
@@ -218,7 +658,7 @@ void MainWindow::syncConnectionLogTabs() {
             ++it;
             continue;
         }
-        QWidget* tab = it.value() ? it.value()->parentWidget() : nullptr;
+        QWidget* tab = m_connectionLogTabs.value(it.key(), nullptr);
         const int idx = tab ? m_logsTabs->indexOf(tab) : -1;
         if (idx >= 0) {
             m_logsTabs->removeTab(idx);
@@ -226,17 +666,183 @@ void MainWindow::syncConnectionLogTabs() {
         if (tab) {
             tab->deleteLater();
         }
+        m_connectionGsaLogViews.remove(it.key());
+        m_connectionLogTabs.remove(it.key());
+        m_connCompactState.remove(it.key());
+        m_connGsaCompactState.remove(it.key());
         it = m_connectionLogViews.erase(it);
     }
 
     for (int i = 0; i < m_profiles.size(); ++i) {
-        QWidget* tab = m_connectionLogViews.value(m_profiles[i].id)
-                           ? m_connectionLogViews.value(m_profiles[i].id)->parentWidget()
-                           : nullptr;
+        if (isConnectionDisconnected(i)) {
+            continue;
+        }
+        const QString id = m_profiles[i].id;
+        if (!wanted.contains(id)) {
+            continue;
+        }
+        QWidget* tab = m_connectionLogTabs.value(id, nullptr);
         const int idx = tab ? m_logsTabs->indexOf(tab) : -1;
         if (idx >= 0) {
             m_logsTabs->setTabText(idx, m_profiles[i].name);
         }
+    }
+}
+
+void MainWindow::refreshConnectionGsaLogAsync(int idx) {
+    if (idx < 0 || idx >= m_profiles.size()) {
+        return;
+    }
+    const QString connId = m_profiles[idx].id;
+    QPlainTextEdit* target = m_connectionGsaLogViews.value(connId, nullptr);
+    if (!target) {
+        return;
+    }
+    if (isConnectionDisconnected(idx)) {
+        target->clear();
+        scrollLogViewToLatest(target);
+        return;
+    }
+
+    const ConnectionProfile profile = m_profiles[idx];
+    const ConnectionRuntimeState state = (idx < m_states.size()) ? m_states[idx] : ConnectionRuntimeState{};
+    if (!state.gsaInstalled) {
+        target->setPlainText(QStringLiteral("GSA no instalado."));
+        scrollLogViewToLatest(target);
+        return;
+    }
+
+    const auto gsaConfigDir = [this](const ConnectionProfile& cp, const ConnectionRuntimeState& st) {
+        if (isLocalConnection(cp)) {
+            return QString::fromLatin1(kGsaLinuxRuntimeDirPath);
+        }
+        const QString osHint = (cp.osType + QStringLiteral(" ") + st.osLine).trimmed().toLower();
+        const bool isMac = osHint.contains(QStringLiteral("darwin")) || osHint.contains(QStringLiteral("mac"));
+        const bool isFreeBsd = osHint.contains(QStringLiteral("freebsd"));
+        const bool isWindows = osHint.contains(QStringLiteral("windows"));
+        QString user = cp.username.trimmed();
+        if (isWindows) {
+            const int slash = qMax(user.lastIndexOf(QLatin1Char('\\')), user.lastIndexOf(QLatin1Char('/')));
+            if (slash >= 0) {
+                user = user.mid(slash + 1);
+            }
+            if (user.isEmpty()) {
+                user = QStringLiteral("Default");
+            }
+            return QStringLiteral("C:\\Users\\%1\\.config\\ZFSMgr").arg(user);
+        }
+        if (user.isEmpty()) {
+            user = QStringLiteral("root");
+        }
+        if (isMac) {
+            return (user == QStringLiteral("root"))
+                       ? QStringLiteral("/var/root/.config/ZFSMgr")
+                       : QStringLiteral("/Users/%1/.config/ZFSMgr").arg(user);
+        }
+        if (isFreeBsd) {
+            return QString::fromLatin1(kGsaFreeBsdRuntimeDirPath);
+        }
+        return QString::fromLatin1(kGsaLinuxRuntimeDirPath);
+    };
+
+    const QString configDir = gsaConfigDir(profile, state);
+    if (configDir.isEmpty()) {
+        target->clear();
+        return;
+    }
+
+    const bool isWindows = isWindowsConnection(profile);
+    const QString gsaLogPath = QDir::cleanPath(configDir + QStringLiteral("/GSA.log"));
+    const QString remoteCmd = isWindows
+        ? QStringLiteral(
+              "$f='%1\\GSA.log'; "
+              "if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f -Raw }")
+              .arg(configDir)
+        : withSudo(profile,
+                   QStringLiteral("f=%1; if [ -f \"$f\" ]; then cat \"$f\"; fi")
+                       .arg(mwhelpers::shSingleQuote(gsaLogPath)));
+    const WindowsCommandMode mode = isWindows ? WindowsCommandMode::PowerShellNative
+                                              : WindowsCommandMode::Auto;
+
+    QString out;
+    QString err;
+    int rc = -1;
+    const bool ok = runSsh(profile, remoteCmd, 15000, out, err, rc, {}, {}, {}, mode) && rc == 0;
+    QString text;
+    if (!state.gsaKnownConnections.isEmpty()) {
+        text += QStringLiteral("Conexiones dadas de alta en GSA: %1\n\n")
+                    .arg(state.gsaKnownConnections.join(QStringLiteral(", ")));
+    }
+    if (ok) {
+        text += out;
+    }
+    if (QPlainTextEdit* view = m_connectionGsaLogViews.value(connId, nullptr)) {
+        QString connName = connId;
+        for (const auto& p : m_profiles) {
+            if (p.id == connId) {
+                connName = p.name.trimmed().isEmpty() ? p.id : p.name;
+                break;
+            }
+        }
+        view->clear();
+        ConnCompactState st;
+        const QStringList lines = maskSecrets(text).split('\n');
+        int startIdx = 0;
+        QDateTime startTs;
+        for (int i = 0; i < lines.size(); ++i) {
+            const QString t = lines.at(i).trimmed();
+            if (!t.contains(QStringLiteral(" GSA start version "))) {
+                continue;
+            }
+            QDateTime dt;
+            if (!parseLeadingLogDateTime(t, &dt)) {
+                continue;
+            }
+            if (!startTs.isValid() || dt >= startTs) {
+                startTs = dt;
+                startIdx = i;
+            }
+        }
+        for (int i = startIdx; i < lines.size(); ++i) {
+            const QString rawLine = lines.at(i);
+            const QString trimmed = rawLine.trimmed();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            if (countLogDateTimeStamps(trimmed) > 1) {
+                continue;
+            }
+            if (startTs.isValid()) {
+                QDateTime lineTs;
+                if (parseLeadingLogDateTime(trimmed, &lineTs) && lineTs < startTs) {
+                    continue;
+                }
+            }
+            const CompactLogParts p = parseGsaLogParts(trimmed, connName);
+            QStringList changed;
+            if (!st.valid || p.date != st.date) {
+                changed << p.date;
+            }
+            if (!st.valid || p.time != st.time) {
+                changed << p.time;
+            }
+            if (!st.valid || p.conn != st.conn) {
+                changed << QStringLiteral("ssh=%1").arg(p.conn);
+            }
+            if (!st.valid || p.level != st.level) {
+                changed << QStringLiteral("lvl=%1").arg(p.level);
+            }
+            const QString head = changed.isEmpty() ? QStringLiteral("...") : changed.join(' ');
+            view->appendPlainText(QStringLiteral("%1 | %2").arg(head, p.msg));
+            st.valid = true;
+            st.date = p.date;
+            st.time = p.time;
+            st.conn = p.conn;
+            st.level = p.level;
+        }
+        m_connGsaCompactState[connId] = st;
+        trimLogWidget(view);
+        scrollLogViewToLatest(view);
     }
 }
 
@@ -247,10 +853,49 @@ void MainWindow::appendConnectionLog(const QString& connId, const QString& line)
         }, Qt::QueuedConnection);
         return;
     }
-    QPlainTextEdit* view = m_connectionLogViews.value(connId, nullptr);
+    QString connName = connId;
+    for (const auto& p : m_profiles) {
+        if (p.id == connId) {
+            connName = p.name.trimmed().isEmpty() ? p.id : p.name;
+            break;
+        }
+    }
+    const QString maskedLine = maskSecrets(line);
+    const bool routeToGsa = looksLikeGsaRuntimeLine(maskedLine);
+    appLog(QStringLiteral("NORMAL"),
+           QStringLiteral("[SSH %1] %2").arg(connName, maskedLine));
+
+    QPlainTextEdit* view = routeToGsa ? m_connectionGsaLogViews.value(connId, nullptr)
+                                      : m_connectionLogViews.value(connId, nullptr);
     if (!view) {
         return;
     }
-    view->appendPlainText(QStringLiteral("[%1] %2").arg(tsNowForLog(), maskSecrets(line)));
+    const CompactLogParts p = routeToGsa
+        ? parseGsaLogParts(maskedLine, connName)
+        : parseCompactLogParts(QStringLiteral("[%1] [NORMAL] [SSH %2] %3")
+                                   .arg(tsNowForLog(), connName, maskedLine));
+    ConnCompactState& st = routeToGsa ? m_connGsaCompactState[connId]
+                                      : m_connCompactState[connId];
+    QStringList changed;
+    if (!st.valid || p.date != st.date) {
+        changed << p.date;
+    }
+    if (!st.valid || p.time != st.time) {
+        changed << p.time;
+    }
+    if (!st.valid || p.conn != st.conn) {
+        changed << QStringLiteral("ssh=%1").arg(p.conn);
+    }
+    if (!st.valid || p.level != st.level) {
+        changed << QStringLiteral("lvl=%1").arg(p.level);
+    }
+    const QString head = changed.isEmpty() ? QStringLiteral("...") : changed.join(' ');
+    view->appendPlainText(QStringLiteral("%1 | %2").arg(head, p.msg));
+    st.valid = true;
+    st.date = p.date;
+    st.time = p.time;
+    st.conn = p.conn;
+    st.level = p.level;
     trimLogWidget(view);
+    scrollLogViewToLatest(view);
 }

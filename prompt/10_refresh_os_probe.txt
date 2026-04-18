@@ -1,0 +1,16 @@
+Comando: identificacion SO remota
+PATH remoto usado:
+- Sin wrapper PATH (comandos del sistema).
+Argumentos:
+- uname -a / uname -s
+- Linux: sh -lc '. /etc/os-release ...'
+- macOS: system_profiler SPSoftwareDataType | sed ...
+- FreeBSD: freebsd-version -k || freebsd-version || uname -r
+- Windows: [System.Environment]::OSVersion.VersionString
+Evento detonador:
+- Refresh de conexion.
+- Test connection (validacion de SO remoto).
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_refresh.cpp:342
+- /Users/linarese/work/ZFSMgr/src/mainwindow_refresh.cpp:197
+

@@ -1,0 +1,25 @@
+Comando: prechecks y desmontaje recursivo
+PATH remoto usado:
+- Unix: wrapper PATH Unix + sudo.
+- Windows: PowerShell (wrapper Windows).
+Argumentos:
+- Precheck mountpoint Windows:
+  - inspeccion de ruta existente y colision en `zfs mount`
+- Hijos montados:
+  - Unix: zfs mount | awk ...
+  - Windows: zfs list -r + zfs get mounted
+- Umount recursivo:
+  - Unix: zfs mount | awk/sort | zfs umount
+  - Windows: zfs list -r | zfs unmount por longitud descendente
+- Mount/umount simple:
+  - zfs mount <dataset>
+  - zfs umount|unmount <dataset>
+Evento detonador:
+- Acciones Mount/Unmount dataset.
+- Validaciones antes de desmontar.
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_helpers.cpp:488
+- /Users/linarese/work/ZFSMgr/src/mainwindow_helpers.cpp:511
+- /Users/linarese/work/ZFSMgr/src/mainwindow_helpers.cpp:531
+- /Users/linarese/work/ZFSMgr/src/mainwindow_helpers.cpp:569
+

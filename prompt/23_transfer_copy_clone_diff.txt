@@ -1,0 +1,20 @@
+Comando: copy/clone/diff
+PATH remoto usado:
+- En cada extremo: wrappers sudo + PATH Unix o wrapper Windows.
+Argumentos:
+- Copy stream:
+  - zfs send -wLecR <src@snap>
+  - zfs recv -Fus <dst>
+  - Pipeline ssh origen|destino (same conn, direct remote->remote o via host local)
+- Clone:
+  - zfs clone [-p] <src@snap> <dst_dataset>
+- Diff:
+  - zfs diff <src_obj> <dst_obj>
+Evento detonador:
+- Botones/acciones Copy, Clone, Diff.
+- Copy/Clone normalmente a Pending changes; Diff ejecucion inmediata.
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_transfer.cpp:188
+- /Users/linarese/work/ZFSMgr/src/mainwindow_transfer.cpp:406
+- /Users/linarese/work/ZFSMgr/src/mainwindow_transfer.cpp:528
+

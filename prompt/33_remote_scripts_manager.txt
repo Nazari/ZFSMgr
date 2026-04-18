@@ -1,0 +1,41 @@
+Comando: instalacion/actualizacion automatica de scripts remotos ZFSMgr
+PATH remoto usado:
+- wrapper PATH Unix + sudo wrapper.
+
+Argumentos:
+- Sin argumentos directos del usuario.
+- Usa base remota: ~<user>/.config/ZFSMgr/bin
+- Usa fichero de version: .zfsmgr_remote_scripts_version
+
+Evento detonador:
+- Refresh de conexion remota Unix (linux/freebsd/macos).
+- Tambien antes de acciones de Sync que usan scripts remotos.
+
+Que hace:
+- Comprueba version remota de scripts.
+- Si falta o no coincide, crea/actualiza scripts ejecutables y version file.
+- Scripts desplegados actualmente:
+  - zfsmgr-rsync-opts
+  - zfsmgr-zpool-guid
+  - zfsmgr-zfs-guid-map
+  - zfsmgr-zfs-mount-list
+  - zfsmgr-zpool-status
+  - zfsmgr-zfs-list-all
+  - zfsmgr-zfs-mountpoint
+  - zfsmgr-zfs-allow-batch
+  - zfsmgr-zfs-list-children
+  - zfsmgr-advanced-breakdown-list
+  - zfsmgr-advanced-breakdown
+  - zfsmgr-advanced-assemble
+  - zfsmgr-advanced-fromdir
+  - zfsmgr-advanced-todir
+  - zfsmgr-sync-temp-tar-source
+  - zfsmgr-sync-temp-tar-dest
+  - zfsmgr-copy-fallback-source
+  - zfsmgr-copy-fallback-dest
+
+Codigo fuente:
+- src/mainwindow_remote.cpp
+- src/mainwindow_refresh.cpp
+- src/mainwindow_transfer.cpp
+- src/mainwindow_permissions.cpp

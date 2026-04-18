@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import hashlib
 import json
 import re
@@ -51,6 +52,11 @@ def make_id(text: str, used: set[str]) -> str:
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Migra las claves legacy de i18n a ids cortos y actualiza legacy_keys.json."
+    )
+    parser.parse_args()
+
     docs = [load_json(p) for p in FILES]
     all_keys = []
     seen = set()

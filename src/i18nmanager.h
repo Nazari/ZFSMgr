@@ -2,6 +2,7 @@
 
 #include <QHash>
 #include <QString>
+#include <QStringList>
 
 class I18nManager final {
 public:
@@ -16,6 +17,7 @@ public:
                          const QString& fallbackEs = QString(),
                          const QString& fallbackEn = QString(),
                          const QString& fallbackZh = QString());
+    bool areJsonCatalogsAvailable(QStringList* missingLanguages = nullptr) const;
 
 private:
     I18nManager() = default;

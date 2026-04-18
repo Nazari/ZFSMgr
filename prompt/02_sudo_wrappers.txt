@@ -1,0 +1,13 @@
+Comando: wrappers sudo remoto
+PATH remoto usado:
+- Usa wrapper PATH Unix antes de sudo.
+Argumentos:
+- withSudoCommand: sudo -n o printf '<pass>' | sudo -S -p '' sh -c '<cmd>'
+- withSudoStreamInputCommand: { printf '<pass>'; cat; } | sudo -S -p '' sh -c '<cmd>'
+Evento detonador:
+- Acciones/consultas que requieren privilegios.
+- Flujo con stdin (ej. zfs recv, load-key, scripts tar).
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_helpers.cpp:727
+- /Users/linarese/work/ZFSMgr/src/mainwindow_helpers.cpp:742
+

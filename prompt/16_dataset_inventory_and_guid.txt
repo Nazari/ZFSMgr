@@ -1,0 +1,18 @@
+Comando: carga de datasets/snapshots y GUID
+PATH remoto usado:
+- wrapper PATH Unix + sudo wrapper.
+Argumentos:
+- Preferente Unix: zfs get -j -p -r -t filesystem,volume,snapshot type,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount <pool>
+- Fallback: zfs list -H -p -t filesystem,volume,snapshot -o name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount -r <pool>
+- GUID puntual objeto: zfs get -H -o value guid <objeto>
+- GUID pool puntual: zpool get -H -o value guid <pool>
+- GUID masivo: zfs get -H -o name,value guid -r <pool>
+Evento detonador:
+- Expansión/carga de arbol de pool/datasets.
+- Reparacion de IDs unicos por GUID.
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_remote.cpp:1026
+- /Users/linarese/work/ZFSMgr/src/mainwindow_remote.cpp:1078
+- /Users/linarese/work/ZFSMgr/src/mainwindow_remote.cpp:867
+- /Users/linarese/work/ZFSMgr/src/mainwindow_dataset_tree.cpp:4981
+

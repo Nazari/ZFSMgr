@@ -1,0 +1,22 @@
+Comando: consulta estado GSA y propiedades GSA
+PATH remoto usado:
+- Unix: sudo + shell script inline.
+- Windows: PowerShell native.
+Argumentos:
+- Probe GSA:
+  - Linux systemd / macOS launchd / FreeBSD cron checks
+  - Windows scheduled task + script version extraction
+- Mapa conexiones GSA:
+  - if [ -f /etc/zfsmgr/gsa-connections.conf ]; then cat ...
+- Propiedades GSA por pool:
+  - Unix: zfs get -j -r org.fc16.gsa:* <pool>
+  - Windows: zfs get -H -o name,property,value -r 'org.fc16.gsa:...' <pool>
+Evento detonador:
+- Refresh de conexion.
+- Validacion previa instalar/actualizar GSA.
+Codigo fuente:
+- /Users/linarese/work/ZFSMgr/src/mainwindow_refresh.cpp:648
+- /Users/linarese/work/ZFSMgr/src/mainwindow_refresh.cpp:720
+- /Users/linarese/work/ZFSMgr/src/mainwindow_refresh.cpp:897
+- /Users/linarese/work/ZFSMgr/src/mainwindow_connections.cpp:3738
+
