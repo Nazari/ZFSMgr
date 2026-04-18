@@ -655,6 +655,7 @@ private:
     bool cacheDaemonTlsMaterialForConnection(const ConnectionProfile& p, QString* errorOut = nullptr);
     bool cleanupRemoteDaemonClientPrivateKey(const ConnectionProfile& p, QString* errorOut = nullptr);
     void closeAllRemoteDaemonRpcTunnels();
+    void clearDaemonRpcStateForConnection(const ConnectionProfile& p);
     void closeAllSshControlMasters();
     QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
     QString withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const;

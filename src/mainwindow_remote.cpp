@@ -1906,6 +1906,37 @@ void MainWindow::closeAllSshControlMasters() {
     }
 }
 
+void MainWindow::clearDaemonRpcStateForConnection(const ConnectionProfile& p) {
+    const QString key = remoteDaemonTlsCacheKey(p);
+    // Close the SSH tunnel so a fresh one is opened after daemon restart.
+    QPointer<QProcess> proc;
+    {
+        QMutexLocker lock(&m_sshRuntimeSetsMutex);
+        const auto it = m_remoteDaemonRpcTunnelsByConnKey.find(key);
+        if (it != m_remoteDaemonRpcTunnelsByConnKey.end()) {
+            proc = it->process;
+            m_remoteDaemonRpcTunnelsByConnKey.erase(it);
+        }
+        // Clear backoff so the first RPC after restart is not suppressed.
+        m_daemonRpcRetryAfterByConnKey.remove(key);
+    }
+    if (proc && proc->state() != QProcess::NotRunning) {
+        proc->terminate();
+        if (!proc->waitForFinished(700)) {
+            proc->kill();
+            proc->waitForFinished(700);
+        }
+    }
+    if (proc) {
+        proc->deleteLater();
+    }
+    // Evict in-memory TLS cache so next fetch reads the new certs.
+    {
+        QMutexLocker lock(&s_remoteDaemonTlsCacheMutex);
+        s_remoteDaemonTlsCache.remove(key);
+    }
+}
+
 void MainWindow::closeAllRemoteDaemonRpcTunnels() {
     QVector<QPointer<QProcess>> procs;
     {

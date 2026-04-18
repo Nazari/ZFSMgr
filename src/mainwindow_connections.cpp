@@ -2679,15 +2679,22 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
     m_states[targetIdx] = state;
     {
         const QString watchConnId = m_profiles[targetIdx].id;
-        const bool canWatch = state.daemonActive
-                              && !isLocalConnection(targetIdx)
-                              && m_profiles[targetIdx].connType.trimmed().compare(
-                                     QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
-        if (canWatch) {
+        // Start watcher as soon as the daemon is (or was) installed on an SSH
+        // connection. zpool events runs directly via SSH — it does not depend on
+        // the daemon process being up, so we keep the thread alive across daemon
+        // restarts (e.g. auto-update). Only stop when the connection itself goes
+        // away (isConnectionDisconnected) or SSH is not the transport.
+        const bool isSSH = !isLocalConnection(targetIdx)
+                           && m_profiles[targetIdx].connType.trimmed().compare(
+                                  QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
+        const bool hasDaemon = state.daemonInstalled || state.daemonActive;
+        if (isSSH && hasDaemon && !isConnectionDisconnected(targetIdx)) {
             startDaemonEventWatcher(targetIdx);
-        } else {
+        } else if (!isSSH || isConnectionDisconnected(targetIdx)) {
             stopDaemonEventWatcher(watchConnId);
         }
+        // If isSSH && !hasDaemon: leave existing watcher running if present
+        // (daemon may be temporarily inactive during update).
     }
     {
         const QString connKey = m_profiles[targetIdx].id.trimmed().isEmpty()
@@ -4319,6 +4326,9 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
         refreshConnectionByIndex(idx);
         return false;
     }
+    // Daemon was restarted — drop the stale RPC tunnel, clear the backoff,
+    // and evict the in-memory TLS cache before fetching new certs.
+    clearDaemonRpcStateForConnection(p);
     {
         QString tlsCacheErr;
         if (!cacheDaemonTlsMaterialForConnection(p, &tlsCacheErr)) {
