@@ -1502,10 +1502,26 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             state.daemonNeedsAttention = true;
             state.daemonAttentionReasons.push_back(QStringLiteral("daemon no nativo (RPC TLS no disponible)"));
         }
-        if (!state.daemonVersion.trimmed().isEmpty()
-            && agentversion::compareVersions(state.daemonVersion.trimmed(), expectedAgentVersion) < 0) {
-            state.daemonNeedsAttention = true;
-            state.daemonAttentionReasons.push_back(QStringLiteral("versión daemon antigua"));
+        {
+            // The version suffix is a hash (not a sequence number), so numeric
+            // ordering of the full string is meaningless. Strategy:
+            //  - If full strings match → up to date, nothing to do.
+            //  - If base versions (major.minor.patch) differ → only update when
+            //    remote base is strictly older (avoid downgrading a future agent).
+            //  - If base versions are equal but full strings differ (different
+            //    suffix/build) → update unconditionally.
+            const QString remoteVer = state.daemonVersion.trimmed();
+            if (!remoteVer.isEmpty() && remoteVer != expectedAgentVersion) {
+                const auto baseOf = [](const QString& v) -> QString {
+                    const QStringList p = v.split(QLatin1Char('.'));
+                    return p.size() >= 3 ? QStringList{p[0], p[1], p[2]}.join(QLatin1Char('.')) : v;
+                };
+                const int baseCmp = agentversion::compareVersions(baseOf(remoteVer), baseOf(expectedAgentVersion));
+                if (baseCmp <= 0) {
+                    state.daemonNeedsAttention = true;
+                    state.daemonAttentionReasons.push_back(QStringLiteral("versión daemon desactualizada"));
+                }
+            }
         }
         if (!expectedApiVersion.isEmpty() && !state.daemonApiVersion.trimmed().isEmpty()
             && state.daemonApiVersion.trimmed() != expectedApiVersion) {
