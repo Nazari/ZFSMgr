@@ -41,6 +41,16 @@
 
 #include <QtConcurrent/QtConcurrent>
 
+#include <chrono>
+
+// Defined in mainwindow_remote.cpp — free function, thread-safe.
+bool runSshRawNoLog(const ConnectionProfile& p,
+                    const QString& remoteCmd,
+                    int timeoutMs,
+                    QString& out,
+                    QString& err,
+                    int& rc);
+
 namespace {
 constexpr int kConnIdxRole = Qt::UserRole + 10;
 constexpr int kIsConnectionRootRole = Qt::UserRole + 36;
@@ -2541,6 +2551,82 @@ void MainWindow::refreshSelectedConnection() {
     });
 }
 
+void MainWindow::startDaemonEventWatcher(int connIdx) {
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return;
+    }
+    const ConnectionProfile p = m_profiles[connIdx];
+    const QString connId = p.id;
+    if (connId.isEmpty() || m_daemonWatchers.contains(connId)) {
+        return;
+    }
+    auto watcher = std::make_shared<DaemonEventWatcher>();
+    m_daemonWatchers.insert(connId, watcher);
+
+    watcher->thread = std::thread([this, p, connId, watcher]() {
+        // Long-poll ZED events directly via SSH. Each iteration blocks up to 27s.
+        // On timeout the daemon side returns TIMEOUT=1 (rc=1) and we loop immediately.
+        // On SSH error we back off before retrying.
+        const QString cmd =
+            QStringLiteral("timeout 27 sh -c 'zpool events -f -H 2>/dev/null | head -1'");
+        while (!watcher->stop.load()) {
+            QString out, err;
+            int rc = -1;
+            const bool ok = runSshRawNoLog(p, cmd, 35000, out, err, rc);
+            if (watcher->stop.load()) {
+                break;
+            }
+            if (ok && rc == 0 && !out.trimmed().isEmpty()) {
+                // A ZED event occurred — request refresh on the UI thread.
+                QMetaObject::invokeMethod(this, [this, connId]() {
+                    if (m_closing || m_refreshInProgress) {
+                        return;
+                    }
+                    for (int i = 0; i < m_profiles.size(); ++i) {
+                        if (m_profiles[i].id == connId) {
+                            refreshConnectionByIndex(i);
+                            break;
+                        }
+                    }
+                }, Qt::QueuedConnection);
+                // Brief pause so a burst of events causes only one refresh.
+                for (int i = 0; i < 30 && !watcher->stop.load(); ++i) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+            } else if (!ok) {
+                // SSH failure — back off before retrying.
+                for (int i = 0; i < 50 && !watcher->stop.load(); ++i) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                }
+            }
+            // rc==1 (timeout) or rc==0 with empty output: loop immediately.
+        }
+    });
+}
+
+void MainWindow::stopDaemonEventWatcher(const QString& connId) {
+    auto it = m_daemonWatchers.find(connId);
+    if (it == m_daemonWatchers.end()) {
+        return;
+    }
+    auto watcher = it.value();
+    m_daemonWatchers.erase(it);
+    watcher->stop.store(true);
+    if (watcher->thread.joinable()) {
+        watcher->thread.detach();
+    }
+}
+
+void MainWindow::stopAllDaemonEventWatchers() {
+    for (auto& watcher : m_daemonWatchers) {
+        watcher->stop.store(true);
+        if (watcher->thread.joinable()) {
+            watcher->thread.detach();
+        }
+    }
+    m_daemonWatchers.clear();
+}
+
 void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& connId, const ConnectionRuntimeState& state) {
     if (generation != m_refreshGeneration) {
         return;
@@ -2591,6 +2677,18 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
         }
     }
     m_states[targetIdx] = state;
+    {
+        const QString watchConnId = m_profiles[targetIdx].id;
+        const bool canWatch = state.daemonActive
+                              && !isLocalConnection(targetIdx)
+                              && m_profiles[targetIdx].connType.trimmed().compare(
+                                     QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
+        if (canWatch) {
+            startDaemonEventWatcher(targetIdx);
+        } else {
+            stopDaemonEventWatcher(watchConnId);
+        }
+    }
     {
         const QString connKey = m_profiles[targetIdx].id.trimmed().isEmpty()
                                     ? m_profiles[targetIdx].name.trimmed().toLower()
@@ -2722,6 +2820,34 @@ void MainWindow::onAsyncRefreshDone(int generation) {
     if (m_busyOnImportRefresh) {
         m_busyOnImportRefresh = false;
         endUiBusy();
+    }
+
+    // Schedule periodic auto-refresh when any SSH daemon connection is active.
+    // This makes ZED event detection in health checks pick up changes even without
+    // user interaction. 30s is fast enough to notice events; ZED watcher threads
+    // provide faster (sub-second) notification when the daemon is native.
+    bool hasDaemonConn = false;
+    for (int i = 0; i < m_profiles.size() && i < m_states.size(); ++i) {
+        if (m_states[i].daemonActive
+            && !isLocalConnection(i)
+            && m_profiles[i].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0) {
+            hasDaemonConn = true;
+            break;
+        }
+    }
+    if (hasDaemonConn) {
+        if (!m_autoRefreshTimer) {
+            m_autoRefreshTimer = new QTimer(this);
+            m_autoRefreshTimer->setSingleShot(true);
+            connect(m_autoRefreshTimer, &QTimer::timeout, this, [this]() {
+                if (!m_closing && !m_refreshInProgress && !m_actionsLocked) {
+                    refreshAllConnections();
+                }
+            });
+        }
+        m_autoRefreshTimer->start(30000);
+    } else if (m_autoRefreshTimer) {
+        m_autoRefreshTimer->stop();
     }
 }
 

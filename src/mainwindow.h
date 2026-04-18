@@ -16,7 +16,10 @@
 #include <QPointer>
 #include <QSet>
 #include <QVector>
+#include <atomic>
 #include <functional>
+#include <memory>
+#include <thread>
 
 class QTimer;
 class QComboBox;
@@ -872,6 +875,9 @@ private:
     void refreshConnectionGsaLogAsync(int idx);
     void onAsyncRefreshResult(int generation, int idx, const QString& connId, const ConnectionRuntimeState& state);
     void onAsyncRefreshDone(int generation);
+    void startDaemonEventWatcher(int connIdx);
+    void stopDaemonEventWatcher(const QString& connId);
+    void stopAllDaemonEventWatchers();
     int findConnectionIndexByName(const QString& name) const;
     bool isConnectionRedirectedToLocal(int idx) const;
     QString connectionPersistKey(int idx) const;
@@ -1113,6 +1119,7 @@ private:
     QMap<QString, PendingItemStatus> m_pendingItemStatus;
     QStringList m_pendingOrderedDisplayLines;
     QTimer* m_pendingSpinnerTimer{nullptr};
+    QTimer* m_autoRefreshTimer{nullptr};
     int m_pendingSpinnerFrame{0};
     bool m_pendingApplyInProgress{false};
     bool m_pendingApplyFinishSuppressed{false};
@@ -1147,6 +1154,11 @@ private:
         QDateTime lastUsedUtc;
     };
     QMap<QString, RemoteRpcTunnelState> m_remoteDaemonRpcTunnelsByConnKey;
+    struct DaemonEventWatcher {
+        std::atomic<bool> stop{false};
+        std::thread thread;
+    };
+    QMap<QString, std::shared_ptr<DaemonEventWatcher>> m_daemonWatchers;
     mutable QMutex m_sshRuntimeSetsMutex;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
     QMap<QString, DatasetPermissionsCacheEntry> m_datasetPermissionsCache;

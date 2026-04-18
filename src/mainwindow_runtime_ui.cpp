@@ -18,6 +18,7 @@
 MainWindow::~MainWindow() {
     m_closing = true;
     QCoreApplication::removePostedEvents(this);
+    stopAllDaemonEventWatchers();
     closeAllRemoteDaemonRpcTunnels();
 
     auto quiesceObject = [](QObject* obj) {

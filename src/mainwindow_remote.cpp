@@ -295,6 +295,8 @@ bool tryRunLocalAgentRpc(const QStringList& agentArgs,
     return false;
 }
 
+} // end anonymous namespace — runSshRawNoLog must be externally linkable for background watcher threads.
+
 bool runSshRawNoLog(const ConnectionProfile& p,
                     const QString& remoteCmd,
                     int timeoutMs,
@@ -357,6 +359,8 @@ bool runSshRawNoLog(const ConnectionProfile& p,
     rc = proc.exitCode();
     return true;
 }
+
+namespace {
 
 bool parseRemoteDaemonTlsBundle(const QString& text,
                                 QByteArray& serverCertPem,
