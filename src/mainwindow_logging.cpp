@@ -706,12 +706,6 @@ void MainWindow::refreshConnectionGsaLogAsync(int idx) {
 
     const ConnectionProfile profile = m_profiles[idx];
     const ConnectionRuntimeState state = (idx < m_states.size()) ? m_states[idx] : ConnectionRuntimeState{};
-    if (!state.gsaInstalled) {
-        target->setPlainText(QStringLiteral("GSA no instalado."));
-        scrollLogViewToLatest(target);
-        return;
-    }
-
     const auto gsaConfigDir = [this](const ConnectionProfile& cp, const ConnectionRuntimeState& st) {
         if (isLocalConnection(cp)) {
             return QString::fromLatin1(kGsaLinuxRuntimeDirPath);
@@ -769,10 +763,6 @@ void MainWindow::refreshConnectionGsaLogAsync(int idx) {
     int rc = -1;
     const bool ok = runSsh(profile, remoteCmd, 15000, out, err, rc, {}, {}, {}, mode) && rc == 0;
     QString text;
-    if (!state.gsaKnownConnections.isEmpty()) {
-        text += QStringLiteral("Conexiones dadas de alta en GSA: %1\n\n")
-                    .arg(state.gsaKnownConnections.join(QStringLiteral(", ")));
-    }
     if (ok) {
         text += out;
     }

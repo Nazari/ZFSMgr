@@ -24,9 +24,6 @@ struct ConnectionContextMenuState {
     bool canConnect{false};
     bool canDisconnect{false};
     bool canInstallMsys{false};
-    bool canManageGsa{false};
-    bool canUninstallGsa{false};
-    bool gsaSubmenuEnabled{false};
     bool canRefreshThis{false};
     bool canRefreshAll{false};
     bool canEditDelete{false};
@@ -44,9 +41,7 @@ ConnectionContextMenuState buildConnectionContextMenuState(bool hasConn,
                                                            bool isLocalConnection,
                                                            bool isRedirectedToLocal,
                                                            bool isWindowsConnection,
-                                                           bool hasWindowsUnixLayerReady,
-                                                           bool canManageGsa,
-                                                           bool canUninstallGsa);
+                                                           bool hasWindowsUnixLayerReady);
 
 bool isValidPoolRenameCandidate(const QString& name, QString* errorOut = nullptr);
 bool isPoolNameInUse(const QStringList& importedPools,

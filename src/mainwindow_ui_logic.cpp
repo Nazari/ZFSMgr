@@ -34,17 +34,12 @@ ConnectionContextMenuState buildConnectionContextMenuState(bool hasConn,
                                                            bool isLocalConnection,
                                                            bool isRedirectedToLocal,
                                                            bool isWindowsConnection,
-                                                           bool hasWindowsUnixLayerReady,
-                                                           bool canManageGsa,
-                                                           bool canUninstallGsa) {
+                                                           bool hasWindowsUnixLayerReady) {
     ConnectionContextMenuState state;
     state.canConnect = !actionsLocked && hasConn && isDisconnected;
     state.canDisconnect = !actionsLocked && hasConn && !isDisconnected;
     state.canInstallMsys =
         hasConn && !actionsLocked && !isDisconnected && isWindowsConnection && !hasWindowsUnixLayerReady;
-    state.canManageGsa = canManageGsa;
-    state.canUninstallGsa = canUninstallGsa;
-    state.gsaSubmenuEnabled = canManageGsa || canUninstallGsa;
     state.canRefreshThis = hasConn && !isDisconnected && !actionsLocked;
     state.canRefreshAll = !actionsLocked;
     state.canEditDelete = hasConn && !actionsLocked && !isLocalConnection && !isRedirectedToLocal;

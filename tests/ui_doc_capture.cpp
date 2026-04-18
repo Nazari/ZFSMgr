@@ -312,13 +312,11 @@ int main(int argc, char** argv) {
 
     const QStringList connectionMenuLabels = window.connectionContextMenuTopLevelLabelsForTest();
     const QStringList refreshMenuLabels = window.connectionRefreshMenuLabelsForTest();
-    const QStringList gsaMenuLabels = window.connectionGsaMenuLabelsForTest();
     const QStringList importedPoolLabels = window.poolContextMenuLabelsForTest(QStringLiteral("tank1"), false);
     const QStringList importablePoolLabels = window.poolContextMenuLabelsForTest(QStringLiteral("tank2"), false);
 
     QMap<QString, QStringList> connectionSubmenus;
     connectionSubmenus.insert(QStringLiteral("Refrescar"), refreshMenuLabels);
-    connectionSubmenus.insert(QStringLiteral("GSA"), gsaMenuLabels);
     if (!savePixmap(renderMenuPixmap(QStringLiteral("Conexión"), connectionMenuLabels, connectionSubmenus),
                     outputPath(outDir, QStringLiteral("connection-context-menu.png")),
                     &error)) {
@@ -327,12 +325,6 @@ int main(int argc, char** argv) {
     }
     if (!savePixmap(renderMenuPixmap(QStringLiteral("Refrescar"), refreshMenuLabels),
                     outputPath(outDir, QStringLiteral("connection-refresh-menu.png")),
-                    &error)) {
-        fprintf(stderr, "%s\n", error.toLocal8Bit().constData());
-        return 1;
-    }
-    if (!savePixmap(renderMenuPixmap(QStringLiteral("GSA"), gsaMenuLabels),
-                    outputPath(outDir, QStringLiteral("connection-gsa-menu.png")),
                     &error)) {
         fprintf(stderr, "%s\n", error.toLocal8Bit().constData());
         return 1;

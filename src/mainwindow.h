@@ -100,7 +100,6 @@ public:
     void rebuildConnContentTreeForTest(const QString& datasetToSelect, bool bottom = false);
     QStringList connectionContextMenuTopLevelLabelsForTest() const;
     QStringList connectionRefreshMenuLabelsForTest() const;
-    QStringList connectionGsaMenuLabelsForTest() const;
     QStringList poolContextMenuLabelsForTest(const QString& poolName, bool bottom = false) const;
 
 protected:
@@ -155,15 +154,6 @@ private:
         QMap<QString, QString> poolGuidByName;
         QVector<QPair<QString, QString>> mountedDatasets; // dataset, mountpoint
         QMap<QString, QString> poolStatusByName;
-        QString gsaScheduler;
-        QString gsaVersion;
-        QString gsaDetail;
-        QStringList gsaKnownConnections;
-        QStringList gsaRequiredConnections;
-        QStringList gsaAttentionReasons;
-        bool gsaNeedsAttention{false};
-        bool gsaInstalled{false};
-        bool gsaActive{false};
         QString daemonScheduler;
         QString daemonVersion;
         QString daemonApiVersion;
@@ -618,14 +608,11 @@ private:
                                        const QString& objectName,
                                        const QString& prop,
                                        bool inherit);
-    QString gsaMenuLabelForConnection(int connIdx) const;
     QString daemonMenuLabelForConnection(int connIdx) const;
-    bool installOrUpdateGsaForConnection(int connIdx);
     bool installOrUpdateDaemonForConnection(int connIdx);
-    bool uninstallGsaForConnection(int connIdx);
     bool uninstallDaemonForConnection(int connIdx);
-    bool validatePendingGsaDrafts(QString* errorOut = nullptr);
     bool showAutomaticSnapshots() const;
+    bool validatePendingGsaDrafts(QString* errorOut = nullptr);
 
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
     bool runSsh(const ConnectionProfile& p,
@@ -885,9 +872,7 @@ private:
     bool isConnectionDisconnected(int idx) const;
     void setConnectionDisconnected(int idx, bool disconnected);
     void refreshConnectionByIndex(int idx);
-    bool installOrUpdateGsaForConnectionInternal(int idx, bool interactive);
     bool installOrUpdateDaemonForConnectionInternal(int idx, bool interactive);
-    void refreshInstalledGsaAfterConnectionChange(const QString& changedConnectionName);
     struct PoolListEntry {
         QString connection;
         QString pool;

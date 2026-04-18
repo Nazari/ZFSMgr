@@ -5111,45 +5111,13 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
     gsaNode->setData(0, kConnStatePartRole, QStringLiteral("syn:gsa"));
     gsaNode->setText(0, QStringLiteral("GSA"));
     gsaNode->setIcon(0, treeStandardIcon(QStyle::SP_BrowserReload));
-    const QString gsaStatus = !st.gsaInstalled
-                                  ? trk(QStringLiteral("t_gsa_not_installed_001"),
-                                        QStringLiteral("no instalado"),
-                                        QStringLiteral("not installed"),
-                                        QStringLiteral("未安装"))
-                                               : QStringLiteral("%1 | %2 | %3")
-                                                     .arg(st.gsaVersion.trimmed().isEmpty() ? QStringLiteral("-")
-                                                                                            : st.gsaVersion.trimmed(),
-                                                          st.gsaScheduler.trimmed().isEmpty() ? QStringLiteral("-")
-                                                                                              : st.gsaScheduler.trimmed(),
-                                                          st.gsaActive
-                                                              ? trk(QStringLiteral("t_gsa_active_001"),
-                                                                    QStringLiteral("activo"),
-                                                                    QStringLiteral("active"),
-                                                                    QStringLiteral("活动"))
-                                                              : trk(QStringLiteral("t_gsa_inactive_001"),
-                                                                    QStringLiteral("inactivo"),
-                                                                    QStringLiteral("inactive"),
-                                                                    QStringLiteral("非活动")));
-    QVector<QPair<QString, QString>> gsaProps = {
+    const QString gsaStatus = trk(QStringLiteral("t_gsa_daemon_managed_001"),
+                                   QStringLiteral("gestionado por daemon"),
+                                   QStringLiteral("managed by daemon"),
+                                   QStringLiteral("由守护进程管理"));
+    const QVector<QPair<QString, QString>> gsaProps = {
         {QStringLiteral("GSA"), gsaStatus},
-        {trk(QStringLiteral("t_gsa_known_conns_001"),
-             QStringLiteral("Conexiones dadas de alta en GSA"),
-             QStringLiteral("Connections configured in GSA"),
-             QStringLiteral("GSA 已配置连接")),
-         listOrNone(st.gsaKnownConnections)},
-        {trk(QStringLiteral("t_gsa_required_conns_001"),
-             QStringLiteral("Conexiones requeridas por GSA"),
-             QStringLiteral("Connections required by GSA"),
-             QStringLiteral("GSA 所需连接")),
-         listOrNone(st.gsaRequiredConnections)}
     };
-    if (st.gsaNeedsAttention && !st.gsaAttentionReasons.isEmpty()) {
-        gsaProps.push_back({trk(QStringLiteral("t_gsa_attention_001"),
-                                QStringLiteral("Atención GSA"),
-                                QStringLiteral("GSA attention"),
-                                QStringLiteral("GSA 注意")),
-                            st.gsaAttentionReasons.join(QStringLiteral(", "))});
-    }
     appendReadOnlyInlineProps(gsaNode, gsaProps);
     gsaNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:gsa"), false));
 
@@ -5430,7 +5398,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
     };
     auto connectionRootTitle = [&]() -> QString {
         QString connName = (connIdx >= 0 && connIdx < m_profiles.size()) ? m_profiles[connIdx].name : QStringLiteral("?");
-        if (connIdx >= 0 && connIdx < m_states.size() && m_states[connIdx].gsaNeedsAttention) {
+        if (connIdx >= 0 && connIdx < m_states.size() && m_states[connIdx].daemonNeedsAttention) {
             connName += QStringLiteral(" (*)");
         }
         const QString connPrefix =
@@ -6325,7 +6293,7 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
                 QString connName = m_profiles[connIdx].name.trimmed().isEmpty()
                                        ? m_profiles[connIdx].id.trimmed()
                                        : m_profiles[connIdx].name.trimmed();
-                if (connIdx >= 0 && connIdx < m_states.size() && m_states[connIdx].gsaNeedsAttention) {
+                if (connIdx >= 0 && connIdx < m_states.size() && m_states[connIdx].daemonNeedsAttention) {
                     connName += QStringLiteral(" (*)");
                 }
                 const QString connPrefix =
