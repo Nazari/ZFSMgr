@@ -3113,6 +3113,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
     QString remoteCmd;
     QByteArray remoteStdinPayload;
     WindowsCommandMode winMode = WindowsCommandMode::Auto;
+    bool isMac = false;
 
     if (isWindowsConnection(idx)) {
         winMode = WindowsCommandMode::PowerShellNative;
@@ -3135,9 +3136,9 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                                 + ((idx < m_states.size()) ? m_states[idx].osLine : QString()))
                                    .trimmed()
                                    .toLower();
-        bool isMac = osHint.contains(QStringLiteral("darwin"))
-                     || osHint.contains(QStringLiteral("macos"))
-                     || osHint.contains(QStringLiteral("launchd"));
+        isMac = osHint.contains(QStringLiteral("darwin"))
+                || osHint.contains(QStringLiteral("macos"))
+                || osHint.contains(QStringLiteral("launchd"));
         bool isFreeBsd = osHint.contains(QStringLiteral("freebsd"))
                          || osHint.contains(QStringLiteral("rc.d"));
         QString remoteArchHint;
@@ -3375,6 +3376,26 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
         }
     }
     refreshConnectionByIndex(idx);
+    if (isMac && interactive) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_daemon_macos_full_disk_access_001"),
+                QStringLiteral("Daemon instalado en \"%1\".\n\n"
+                               "Para que el daemon pueda detectar pools disponibles para importar, "
+                               "concédele acceso completo al disco en el Mac remoto:\n\n"
+                               "Configuración del Sistema → Privacidad y Seguridad → "
+                               "Acceso completo al disco → zfsmgr-agent"),
+                QStringLiteral("Daemon installed on \"%1\".\n\n"
+                               "To allow the daemon to detect pools available for import, "
+                               "grant it Full Disk Access on the remote Mac:\n\n"
+                               "System Settings → Privacy & Security → "
+                               "Full Disk Access → zfsmgr-agent"),
+                QStringLiteral("守护进程已安装在 \"%1\" 上。\n\n"
+                               "为使守护进程能检测可导入的存储池，请在远程 Mac 上授予完整磁盘访问权限：\n\n"
+                               "系统设置 → 隐私与安全性 → 完整磁盘访问权限 → zfsmgr-agent"))
+                .arg(p.name));
+    }
     return true;
 }
 

@@ -1162,8 +1162,17 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
             importRes = importFuture.result();
         }
         if (importRes.ran) {
-            const QString merged = importRes.out + QStringLiteral("\n") + importRes.err;
-            const QVector<mwhelpers::ImportablePoolInfo> parsed = mwhelpers::parseZpoolImportOutput(merged);
+            QString merged = importRes.out + QStringLiteral("\n") + importRes.err;
+            QVector<mwhelpers::ImportablePoolInfo> parsed = mwhelpers::parseZpoolImportOutput(merged);
+            if (parsed.isEmpty() && importOk) {
+                // daemon ran OK but found no importable pools — fall back to classic SSH result
+                // (on macOS the daemon's zpool import may lack disk access that sudo SSH has)
+                const AsyncSshResult classicRes = importFuture.result();
+                if (classicRes.ran) {
+                    merged = classicRes.out + QStringLiteral("\n") + classicRes.err;
+                    parsed = mwhelpers::parseZpoolImportOutput(merged);
+                }
+            }
             if (!parsed.isEmpty()) {
                 state.importablePools.clear();
                 for (const auto& row : parsed) {
