@@ -52,6 +52,8 @@ constexpr int kConnPoolAutoSnapshotsDatasetRole = Qt::UserRole + 35;
 constexpr int kConnSnapshotItemRole = Qt::UserRole + 43;
 constexpr int kConnSnapshotsNodeRole = Qt::UserRole + 41;
 constexpr int kIsSplitRootRole = Qt::UserRole + 50;
+constexpr int kConnFileBrowserNodeRole = Qt::UserRole + 53;
+constexpr int kConnFileBrowserLoadedRole = Qt::UserRole + 56;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 
 QString datasetLeafNameUi(const QString& datasetName) {
@@ -1552,6 +1554,11 @@ void MainWindowConnectionDatasetTreeDelegate::itemExpanded(QTreeWidget* tree, QT
         }
     }
     m_mainWindow->resizeTreeColumnsToVisibleContent(tree);
+    if (item->data(0, kConnFileBrowserNodeRole).toBool()
+        && !item->data(0, kConnFileBrowserLoadedRole).toBool()) {
+        m_mainWindow->populateFileBrowserNode(tree, item);
+        m_mainWindow->resizeTreeColumnsToVisibleContent(tree);
+    }
     if (!item->data(0, kConnPermissionsNodeRole).toBool()) {
         return;
     }

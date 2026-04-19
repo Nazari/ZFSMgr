@@ -711,6 +711,7 @@ private:
     QVector<QPair<QString, QString>> datasetSnapshotHolds(int connIdx, const QString& poolName, const QString& objectName) const;
     void invalidateDatasetPermissionsCacheForPool(int connIdx, const QString& poolName);
     void populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetItem* datasetItem, bool forceReload = false);
+    void populateFileBrowserNode(QTreeWidget* tree, QTreeWidgetItem* browserNode);
     QStringList availableDelegablePermissions(const QString& datasetName,
                                               int connIdx,
                                               const QString& poolName,

@@ -75,6 +75,10 @@ constexpr int kConnSnapshotGroupIdRole = Qt::UserRole + 49;
 constexpr int kIsSplitRootRole = Qt::UserRole + 50;
 constexpr int kConnDebugBaseTextRole = Qt::UserRole + 51;
 constexpr int kConnDebugLastIdRole = Qt::UserRole + 52;
+constexpr int kConnFileBrowserNodeRole = Qt::UserRole + 53;
+constexpr int kConnFileBrowserPathRole = Qt::UserRole + 54;
+constexpr int kConnFileBrowserIsDirRole = Qt::UserRole + 55;
+constexpr int kConnFileBrowserLoadedRole = Qt::UserRole + 56;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 
 
@@ -5734,6 +5738,21 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             permissionsNode->setFlags(permissionsNode->flags() & ~Qt::ItemIsUserCheckable);
             permissionsNode->setExpanded(false);
         }
+        if (!effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
+            auto* contentNode = new QTreeWidgetItem(item);
+            contentNode->setText(0, QStringLiteral("Contenido"));
+            contentNode->setIcon(0, treeStandardIcon(QStyle::SP_DirIcon));
+            contentNode->setData(0, kConnFileBrowserNodeRole, true);
+            contentNode->setData(0, kConnFileBrowserPathRole, effectiveMp);
+            contentNode->setData(0, kConnFileBrowserLoadedRole, false);
+            contentNode->setData(0, kConnIdxRole, connIdx);
+            contentNode->setData(0, kConnPoolGuidRole, poolInfo->key.poolGuid.trimmed());
+            contentNode->setFlags(contentNode->flags() & ~Qt::ItemIsUserCheckable);
+            contentNode->setExpanded(false);
+            auto* placeholder = new QTreeWidgetItem(contentNode);
+            placeholder->setText(0, QStringLiteral("..."));
+            placeholder->setFlags(placeholder->flags() & ~Qt::ItemIsUserCheckable);
+        }
         if (!snaps.isEmpty()) {
             auto* snapshotsNode = new QTreeWidgetItem(item);
             snapshotsNode->setText(0, QStringLiteral("@"));
@@ -5782,6 +5801,22 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                                .arg(QString::number(connIdx), poolName, fullSnapshotName));
                 }
                 snapItem->setFlags(snapItem->flags() & ~Qt::ItemIsUserCheckable);
+                if (!effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
+                    const QString snapPath = effectiveMp + QStringLiteral("/.zfs/snapshot/") + snapName.trimmed();
+                    auto* snapContentNode = new QTreeWidgetItem(snapItem);
+                    snapContentNode->setText(0, QStringLiteral("Contenido"));
+                    snapContentNode->setIcon(0, treeStandardIcon(QStyle::SP_DirIcon));
+                    snapContentNode->setData(0, kConnFileBrowserNodeRole, true);
+                    snapContentNode->setData(0, kConnFileBrowserPathRole, snapPath);
+                    snapContentNode->setData(0, kConnFileBrowserLoadedRole, false);
+                    snapContentNode->setData(0, kConnIdxRole, connIdx);
+                    snapContentNode->setData(0, kConnPoolGuidRole, poolInfo->key.poolGuid.trimmed());
+                    snapContentNode->setFlags(snapContentNode->flags() & ~Qt::ItemIsUserCheckable);
+                    snapContentNode->setExpanded(false);
+                    auto* snapPlaceholder = new QTreeWidgetItem(snapContentNode);
+                    snapPlaceholder->setText(0, QStringLiteral("..."));
+                    snapPlaceholder->setFlags(snapPlaceholder->flags() & ~Qt::ItemIsUserCheckable);
+                }
             };
 
             QStringList manualSnapshots;
