@@ -200,20 +200,29 @@ void MainWindow::actionCopySnapshot() {
     auto buildDestViaSource = [&](const QString& remoteCmd) {
         const QString wrappedDst = wrapRemoteCommand(dp, remoteCmd);
         const QString target = shSingleQuote(sshUserHost(dp));
+        // Build a minimal SSH command without -i so the source machine uses its own
+        // default key (~/.ssh/id_*). The local keyPath refers to this machine's key
+        // and does not exist on the remote source.
+        QString minSsh = QStringLiteral("ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
+        if (dp.port > 0) {
+            minSsh += QStringLiteral(" -p %1").arg(dp.port);
+        }
         if (!dp.password.trimmed().isEmpty()) {
+            // Try publickey first (key set up via "Authorize SSH key"); fall back to
+            // password/keyboard-interactive via sshpass if key auth fails.
             return QStringLiteral(
                        "if command -v sshpass >/dev/null 2>&1; then "
                        "SSHPASS=%1 sshpass -e %2 -o BatchMode=no "
-                       "-o PreferredAuthentications=password,keyboard-interactive,publickey "
+                       "-o PreferredAuthentications=publickey,password,keyboard-interactive "
                        "-o NumberOfPasswordPrompts=1 %3 %4; "
                        "else echo %5 >&2; exit 127; fi")
                 .arg(shSingleQuote(dp.password),
-                     sshBaseCommand(dp),
+                     minSsh,
                      target,
                      shSingleQuote(wrappedDst),
                      shSingleQuote(QStringLiteral("ZFSMgr: sshpass no disponible en el origen para conectar al destino")));
         }
-        return sshBaseCommand(dp) + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrappedDst);
+        return minSsh + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrappedDst);
     };
     auto buildSourceExecutionCommand = [&](const QString& sourceShellCmd) {
         const QString daemonCmd = daemonizeShellMutationCommand(src.connIdx, sourceShellCmd);
@@ -928,20 +937,29 @@ void MainWindow::actionLevelSnapshot() {
     auto buildDestViaSource = [&](const QString& remoteCmd) {
         const QString wrappedDst = wrapRemoteCommand(dp, remoteCmd);
         const QString target = shSingleQuote(sshUserHost(dp));
+        // Build a minimal SSH command without -i so the source machine uses its own
+        // default key (~/.ssh/id_*). The local keyPath refers to this machine's key
+        // and does not exist on the remote source.
+        QString minSsh = QStringLiteral("ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
+        if (dp.port > 0) {
+            minSsh += QStringLiteral(" -p %1").arg(dp.port);
+        }
         if (!dp.password.trimmed().isEmpty()) {
+            // Try publickey first (key set up via "Authorize SSH key"); fall back to
+            // password/keyboard-interactive via sshpass if key auth fails.
             return QStringLiteral(
                        "if command -v sshpass >/dev/null 2>&1; then "
                        "SSHPASS=%1 sshpass -e %2 -o BatchMode=no "
-                       "-o PreferredAuthentications=password,keyboard-interactive,publickey "
+                       "-o PreferredAuthentications=publickey,password,keyboard-interactive "
                        "-o NumberOfPasswordPrompts=1 %3 %4; "
                        "else echo %5 >&2; exit 127; fi")
                 .arg(shSingleQuote(dp.password),
-                     sshBaseCommand(dp),
+                     minSsh,
                      target,
                      shSingleQuote(wrappedDst),
                      shSingleQuote(QStringLiteral("ZFSMgr: sshpass no disponible en el origen para conectar al destino")));
         }
-        return sshBaseCommand(dp) + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrappedDst);
+        return minSsh + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrappedDst);
     };
     auto buildSourceExecutionCommand = [&](const QString& sourceShellCmd) {
         const QString daemonCmd = daemonizeShellMutationCommand(src.connIdx, sourceShellCmd);
