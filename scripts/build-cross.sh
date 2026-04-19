@@ -515,8 +515,8 @@ if [[ "${DO_CONFIGURE}" -eq 1 ]]; then
     # works on any FreeBSD version regardless of the base system SSL soname
     # (FreeBSD 13 ships libssl.so.111 / LibreSSL; FreeBSD 14+ changed soname).
     if [[ -n "${FREEBSD_SYSROOT:-}" ]]; then
-      local fbsd_ssl_a="${FREEBSD_SYSROOT}/usr/lib/libssl.a"
-      local fbsd_crypto_a="${FREEBSD_SYSROOT}/usr/lib/libcrypto.a"
+      fbsd_ssl_a="${FREEBSD_SYSROOT}/usr/lib/libssl.a"
+      fbsd_crypto_a="${FREEBSD_SYSROOT}/usr/lib/libcrypto.a"
       if [[ -f "${fbsd_ssl_a}" ]] && [[ -f "${fbsd_crypto_a}" ]]; then
         target_extra_args+=("-DOPENSSL_SSL_LIBRARY=${fbsd_ssl_a}")
         target_extra_args+=("-DOPENSSL_CRYPTO_LIBRARY=${fbsd_crypto_a}")
