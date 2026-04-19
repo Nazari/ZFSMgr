@@ -21,9 +21,11 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPointer>
 #include <QPushButton>
 #include <QScopedValueRollback>
 #include <QTableWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <functional>
 
@@ -1587,6 +1589,15 @@ void MainWindowConnectionDatasetTreeDelegate::itemCollapsed(QTreeWidget* tree, Q
         }
     }
     m_mainWindow->resizeTreeColumnsToVisibleContent(tree);
+    QPointer<QTreeWidget> treePtr = tree;
+    QPointer<MainWindow> mainWindowPtr = m_mainWindow;
+    QTimer::singleShot(0, tree, [treePtr, mainWindowPtr]() {
+        if (!treePtr || !mainWindowPtr) {
+            return;
+        }
+        // Ensure column width recalculation is the last action after collapse handling settles.
+        mainWindowPtr->resizeTreeColumnsToVisibleContent(treePtr);
+    });
 }
 
 void MainWindowConnectionDatasetTreeDelegate::beforeContextMenu(QTreeWidget* tree) {

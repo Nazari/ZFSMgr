@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
+#include "agentversion.h"
 
 #include <QCheckBox>
 #include <QColor>
@@ -231,6 +232,55 @@ void MainWindow::actionCopySnapshot() {
         }
         return sshExecFromLocal(sp, withSudo(sp, sourceShellCmd));
     };
+    auto tryBuildDaemonToDaemonCopyPipeline = [&](const QString& snap,
+                                                   const QString& dstDataset,
+                                                   const QString& baseSnap) -> QString {
+        if (!directRemoteToRemote) return {};
+        const auto isDaemonReady = [&](int idx) {
+            return idx >= 0 && idx < m_states.size()
+                   && m_states[idx].daemonInstalled && m_states[idx].daemonActive
+                   && m_states[idx].daemonApiVersion.trimmed()
+                          == agentversion::expectedApiVersion().trimmed();
+        };
+        if (!isDaemonReady(dst.connIdx)) return {};
+        QStringList recvArgs;
+        recvArgs << QStringLiteral("--zfs-recv-listen") << dstDataset << QStringLiteral("1");
+        QString recvOut, recvErr;
+        int recvRc = -1;
+        if (!tryRunRemoteAgentRpcViaTunnel(dp, recvArgs, 12000, recvOut, recvErr, recvRc)
+            || recvRc != 0) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Copiar: daemon-to-daemon recv-listen falló en %1 (%2) — fallback")
+                       .arg(dp.name, recvErr.trimmed()));
+            return {};
+        }
+        int dstPort = 0;
+        QString dstToken;
+        for (const QString& line : recvOut.split('\n')) {
+            if (line.startsWith(QStringLiteral("PORT="))) dstPort = line.mid(5).trimmed().toInt();
+            if (line.startsWith(QStringLiteral("TOKEN="))) dstToken = line.mid(6).trimmed();
+        }
+        if (dstPort <= 0 || dstToken.size() != 64) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Copiar: daemon-to-daemon recv-listen respuesta inválida (%1:%2) — fallback")
+                       .arg(QString::number(dstPort), dstToken));
+            return {};
+        }
+        const QString kAgentBin = QStringLiteral("/usr/local/libexec/zfsmgr-agent");
+        QString sendCmd2 = kAgentBin
+            + QStringLiteral(" --zfs-send-to-peer ")
+            + shSingleQuote(snap)
+            + QStringLiteral(" ") + shSingleQuote(dp.host.trimmed())
+            + QStringLiteral(" ") + QString::number(dstPort)
+            + QStringLiteral(" ") + shSingleQuote(dstToken);
+        if (!baseSnap.trimmed().isEmpty()) {
+            sendCmd2 += QStringLiteral(" ") + shSingleQuote(baseSnap.trimmed());
+        }
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("Copiar: modo daemon-a-daemon (%1 -> %2:%3)")
+                   .arg(sp.name, dp.name, QString::number(dstPort)));
+        return sshExecFromLocal(sp, withSudo(sp, sendCmd2));
+    };
     if (sameConnection) {
         appLog(QStringLiteral("INFO"),
                trk(QStringLiteral("t_copiar_mod_b1d73e"),
@@ -239,7 +289,11 @@ void MainWindow::actionCopySnapshot() {
                    QStringLiteral("复制：远端本地模式（源和目标在同一连接）")));
         const QString sourceShell = buildPipedTransferCommand(sendRawCmd, recvRawCmd);
         pipeline = buildSourceExecutionCommand(sourceShell);
+    } else if (directRemoteToRemote
+               && !(pipeline = tryBuildDaemonToDaemonCopyPipeline(srcSnap, recvTarget, QString())).isEmpty()) {
+        // pipeline already set by the lambda
     } else if (directRemoteToRemote) {
+        pipeline.clear();
         appLog(QStringLiteral("INFO"),
                QStringLiteral("Copiar: modo remoto a remoto directo (%1 -> %2), sin pasar datos por el host local")
                    .arg(sp.name, dp.name));
@@ -968,6 +1022,55 @@ void MainWindow::actionLevelSnapshot() {
         }
         return sshExecFromLocal(sp, withSudo(sp, sourceShellCmd));
     };
+    auto tryBuildDaemonToDaemonCopyPipeline = [&](const QString& snap,
+                                                   const QString& dstDataset,
+                                                   const QString& baseSnap) -> QString {
+        if (!directRemoteToRemote) return {};
+        const auto isDaemonReady = [&](int idx) {
+            return idx >= 0 && idx < m_states.size()
+                   && m_states[idx].daemonInstalled && m_states[idx].daemonActive
+                   && m_states[idx].daemonApiVersion.trimmed()
+                          == agentversion::expectedApiVersion().trimmed();
+        };
+        if (!isDaemonReady(dst.connIdx)) return {};
+        QStringList recvArgs;
+        recvArgs << QStringLiteral("--zfs-recv-listen") << dstDataset << QStringLiteral("1");
+        QString recvOut, recvErr;
+        int recvRc = -1;
+        if (!tryRunRemoteAgentRpcViaTunnel(dp, recvArgs, 12000, recvOut, recvErr, recvRc)
+            || recvRc != 0) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Nivelar: daemon-to-daemon recv-listen falló en %1 (%2) — fallback")
+                       .arg(dp.name, recvErr.trimmed()));
+            return {};
+        }
+        int dstPort = 0;
+        QString dstToken;
+        for (const QString& line : recvOut.split('\n')) {
+            if (line.startsWith(QStringLiteral("PORT="))) dstPort = line.mid(5).trimmed().toInt();
+            if (line.startsWith(QStringLiteral("TOKEN="))) dstToken = line.mid(6).trimmed();
+        }
+        if (dstPort <= 0 || dstToken.size() != 64) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Nivelar: daemon-to-daemon recv-listen respuesta inválida (%1:%2) — fallback")
+                       .arg(QString::number(dstPort), dstToken));
+            return {};
+        }
+        const QString kAgentBin = QStringLiteral("/usr/local/libexec/zfsmgr-agent");
+        QString sendCmd2 = kAgentBin
+            + QStringLiteral(" --zfs-send-to-peer ")
+            + shSingleQuote(snap)
+            + QStringLiteral(" ") + shSingleQuote(dp.host.trimmed())
+            + QStringLiteral(" ") + QString::number(dstPort)
+            + QStringLiteral(" ") + shSingleQuote(dstToken);
+        if (!baseSnap.trimmed().isEmpty()) {
+            sendCmd2 += QStringLiteral(" ") + shSingleQuote(baseSnap.trimmed());
+        }
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("Nivelar: modo daemon-a-daemon (%1 -> %2:%3)")
+                   .arg(sp.name, dp.name, QString::number(dstPort)));
+        return sshExecFromLocal(sp, withSudo(sp, sendCmd2));
+    };
     if (sameConnection) {
         appLog(QStringLiteral("INFO"),
                trk(QStringLiteral("t_nivelar_mo_2edd21"),
@@ -976,7 +1079,11 @@ void MainWindow::actionLevelSnapshot() {
                    QStringLiteral("同步快照：远端本地模式（源和目标在同一连接）")));
         const QString sourceShell = buildPipedTransferCommand(sendRawCmd, recvRawCmd);
         pipeline = buildSourceExecutionCommand(sourceShell);
+    } else if (directRemoteToRemote
+               && !(pipeline = tryBuildDaemonToDaemonCopyPipeline(srcSnap, recvTarget, fromSnap)).isEmpty()) {
+        // pipeline already set by the lambda
     } else if (directRemoteToRemote) {
+        pipeline.clear();
         appLog(QStringLiteral("INFO"),
                QStringLiteral("Nivelar: modo remoto a remoto directo (%1 -> %2), sin pasar datos por el host local")
                    .arg(sp.name, dp.name));

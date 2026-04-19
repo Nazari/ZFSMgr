@@ -105,6 +105,7 @@ struct AgentRuntimeConfig {
     std::string commandPath{kDefaultCommandPath};
     int cacheTtlFastMs{2000};
     int cacheMaxEntries{512};
+    std::string transferBindAddr{"0.0.0.0"};
 };
 
 std::string trim(const std::string& s) {
@@ -524,6 +525,8 @@ AgentRuntimeConfig loadRuntimeConfig() {
                 }
             } catch (...) {
             }
+        } else if (key == "TRANSFER_BIND_ADDR" && !value.empty()) {
+            cfg.transferBindAddr = value;
         }
     }
     return cfg;
@@ -2142,6 +2145,167 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-shell-generic <payload-b64>\n"; return r; }
         return runMutateShellGenericCapture(params[0]);
     }
+
+#ifndef _WIN32
+    if (cmd == "--zfs-recv-listen") {
+        // params: dataset [force=0|1]
+        if (params.empty()) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --zfs-recv-listen <dataset> [force=1]\n"; return r; }
+        const std::string dataset = params[0];
+        const bool force = params.size() > 1 && (params[1] == "1" || toLower(params[1]) == "true");
+
+        // Generate 32-byte (64-hex-char) random token
+        auto genToken = []() -> std::string {
+            unsigned char buf[32] = {};
+            int fd = open("/dev/urandom", O_RDONLY);
+            if (fd >= 0) { (void)read(fd, buf, sizeof(buf)); close(fd); }
+            else { for (int i = 0; i < 32; ++i) buf[i] = static_cast<unsigned char>(std::rand() & 0xff); }
+            static const char hex[] = "0123456789abcdef";
+            std::string out; out.reserve(64);
+            for (int i = 0; i < 32; ++i) {
+                out.push_back(hex[(buf[i] >> 4) & 0xf]);
+                out.push_back(hex[buf[i] & 0xf]);
+            }
+            return out;
+        };
+        const std::string token = genToken();
+
+        // Open ephemeral TCP listener
+        const AgentRuntimeConfig cfg2 = loadRuntimeConfig();
+        const std::string bindAddr = cfg2.transferBindAddr.empty() ? std::string("0.0.0.0") : cfg2.transferBindAddr;
+        struct addrinfo hints2{};
+        hints2.ai_family = AF_INET;
+        hints2.ai_socktype = SOCK_STREAM;
+        hints2.ai_flags = AI_PASSIVE;
+        struct addrinfo* res2 = nullptr;
+        if (getaddrinfo(bindAddr.c_str(), nullptr, &hints2, &res2) != 0 || !res2) {
+            r.rc = 1; r.err = "getaddrinfo failed for transfer bind\n"; return r;
+        }
+        int listenFd = socket(res2->ai_family, res2->ai_socktype, res2->ai_protocol);
+        if (listenFd < 0) { freeaddrinfo(res2); r.rc = 1; r.err = "socket failed\n"; return r; }
+        int one = 1;
+        setsockopt(listenFd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+        if (bind(listenFd, res2->ai_addr, static_cast<socklen_t>(res2->ai_addrlen)) != 0) {
+            close(listenFd); freeaddrinfo(res2); r.rc = 1; r.err = "bind failed\n"; return r;
+        }
+        freeaddrinfo(res2);
+        if (listen(listenFd, 1) != 0) {
+            close(listenFd); r.rc = 1; r.err = "listen failed\n"; return r;
+        }
+        // Determine actual port
+        struct sockaddr_in bound{};
+        socklen_t blen = sizeof(bound);
+        getsockname(listenFd, reinterpret_cast<struct sockaddr*>(&bound), &blen);
+        const int assignedPort = static_cast<int>(ntohs(bound.sin_port));
+
+        // Spawn background thread: accept one connection, verify token, pipe to zfs recv
+        struct RecvState { int listenFd; std::string token; std::string dataset; bool force; };
+        auto* state = new RecvState{listenFd, token, dataset, force};
+        std::thread([state]() {
+            struct RecvState s = *state;
+            delete state;
+            // Wait up to 300 seconds for source to connect
+            struct timeval tv{}; tv.tv_sec = 300;
+            fd_set rfds; FD_ZERO(&rfds); FD_SET(s.listenFd, &rfds);
+            const int sel = select(s.listenFd + 1, &rfds, nullptr, nullptr, &tv);
+            if (sel <= 0) { close(s.listenFd); return; }
+            const int clientFd = accept(s.listenFd, nullptr, nullptr);
+            close(s.listenFd);
+            if (clientFd < 0) return;
+            // Read token line (64 hex chars + '\n')
+            std::string recvToken;
+            recvToken.reserve(65);
+            char ch = 0;
+            while (recvToken.size() < 65) {
+                const ssize_t n = read(clientFd, &ch, 1);
+                if (n <= 0) break;
+                if (ch == '\n') break;
+                recvToken.push_back(ch);
+            }
+            if (recvToken != s.token) { close(clientFd); return; }
+            // Fork zfs recv with stdin from clientFd
+            std::vector<std::string> args = {"recv"};
+            if (s.force) args.push_back("-F");
+            args.push_back("-u");
+            args.push_back("-s");
+            args.push_back(s.dataset);
+            std::vector<char*> argv2;
+            argv2.push_back(const_cast<char*>("zfs"));
+            for (const std::string& a : args) argv2.push_back(const_cast<char*>(a.c_str()));
+            argv2.push_back(nullptr);
+            const pid_t pid = fork();
+            if (pid == 0) {
+                dup2(clientFd, STDIN_FILENO);
+                close(clientFd);
+                execvp("zfs", argv2.data());
+                _exit(127);
+            }
+            close(clientFd);
+            if (pid > 0) waitpid(pid, nullptr, 0);
+        }).detach();
+
+        r.rc = 0;
+        r.out = "PORT=" + std::to_string(assignedPort) + "\nTOKEN=" + token + "\n";
+        return r;
+    }
+
+    if (cmd == "--zfs-send-to-peer") {
+        // params: snap peer_host peer_port token [base_snap]
+        if (params.size() < 4) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --zfs-send-to-peer <snap> <peer_host> <peer_port> <token> [<base_snap>]\n"; return r; }
+        const std::string snap     = params[0];
+        const std::string peerHost = params[1];
+        int peerPort = 0;
+        try { peerPort = std::stoi(params[2]); } catch (...) {}
+        const std::string token    = params[3];
+        const std::string baseSnap = params.size() > 4 ? params[4] : "";
+        if (snap.empty() || peerHost.empty() || peerPort <= 0 || token.size() != 64) {
+            r.rc = 2; r.err = "invalid arguments for --zfs-send-to-peer\n"; return r;
+        }
+        // Connect TCP to peer
+        struct addrinfo hints3{};
+        hints3.ai_family = AF_UNSPEC;
+        hints3.ai_socktype = SOCK_STREAM;
+        struct addrinfo* res3 = nullptr;
+        const std::string portStr = std::to_string(peerPort);
+        if (getaddrinfo(peerHost.c_str(), portStr.c_str(), &hints3, &res3) != 0 || !res3) {
+            r.rc = 1; r.err = "cannot resolve peer host: " + peerHost + "\n"; return r;
+        }
+        int sockFd = -1;
+        for (struct addrinfo* it = res3; it; it = it->ai_next) {
+            int fd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
+            if (fd < 0) continue;
+            if (connect(fd, it->ai_addr, static_cast<socklen_t>(it->ai_addrlen)) == 0) {
+                sockFd = fd; break;
+            }
+            close(fd);
+        }
+        freeaddrinfo(res3);
+        if (sockFd < 0) { r.rc = 1; r.err = "cannot connect to peer " + peerHost + ":" + portStr + "\n"; return r; }
+        // Send token line
+        const std::string tokenLine = token + "\n";
+        (void)write(sockFd, tokenLine.c_str(), tokenLine.size());
+        // Fork zfs send with stdout to sockFd
+        std::vector<std::string> sendArgs = {"send", "-wLecR"};
+        if (!baseSnap.empty()) { sendArgs.push_back("-I"); sendArgs.push_back(baseSnap); }
+        sendArgs.push_back(snap);
+        std::vector<char*> argv3;
+        argv3.push_back(const_cast<char*>("zfs"));
+        for (const std::string& a : sendArgs) argv3.push_back(const_cast<char*>(a.c_str()));
+        argv3.push_back(nullptr);
+        const pid_t pid = fork();
+        if (pid == 0) {
+            dup2(sockFd, STDOUT_FILENO);
+            close(sockFd);
+            execvp("zfs", argv3.data());
+            _exit(127);
+        }
+        close(sockFd);
+        int status = 0;
+        if (pid > 0) waitpid(pid, &status, 0);
+        r.rc = decodeWaitStatus(status);
+        if (r.rc != 0) r.err = "zfs send failed (exit " + std::to_string(r.rc) + ")\n";
+        return r;
+    }
+#endif
 
     r.rc = 2;
     r.err = std::string("unknown command: ") + cmd + "\n";
