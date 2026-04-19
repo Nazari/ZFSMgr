@@ -186,7 +186,7 @@ void MainWindow::actionCopySnapshot() {
         }
     }
 
-    const QString sendRawCmd = QStringLiteral("zfs send -wLecR %1").arg(shSingleQuote(srcSnap));
+    const QString sendRawCmd = QStringLiteral("zfs send -LecR %1").arg(shSingleQuote(srcSnap));
     const QString recvRawCmd = QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget));
     QString sendCmd = withSudo(sp, sendRawCmd);
     QString recvCmd = withSudoStreamInput(dp, recvRawCmd);
@@ -974,7 +974,7 @@ void MainWindow::actionLevelSnapshot() {
     const bool sameConnection = (src.connIdx == dst.connIdx);
     const QString fromSnap = src.datasetName + QStringLiteral("@") + srcBaseSnapByGuid;
     const QString srcSnap = src.datasetName + QStringLiteral("@") + targetSnapName;
-    const QString sendRawCmd = QStringLiteral("zfs send -wLecR -I %1 %2").arg(shSingleQuote(fromSnap), shSingleQuote(srcSnap));
+    const QString sendRawCmd = QStringLiteral("zfs send -LecR -I %1 %2").arg(shSingleQuote(fromSnap), shSingleQuote(srcSnap));
     QString sendCmd = withSudo(sp, sendRawCmd);
     const QString recvTarget = dst.datasetName;
 
