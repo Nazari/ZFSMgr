@@ -3269,6 +3269,12 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
             remoteCmd = QStringLiteral(
                 "mkdir -p /usr/local/libexec /etc/zfsmgr /usr/local/etc/rc.d; "
                 "%1 "
+                "ldd_missing=$(ldd %2 2>&1 | grep 'not found' || true); "
+                "if [ -n \"$ldd_missing\" ]; then "
+                "  printf 'ERROR: el daemon tiene dependencias sin resolver:\\n%s\\n' \"$ldd_missing\" >&2; "
+                "  printf 'Instala OpenSSL con: pkg install openssl\\n' >&2; "
+                "  exit 1; "
+                "fi; "
                 "cat > %3 <<'EOF_AGENT_CONF'\n%4\nEOF_AGENT_CONF\n"
                 "cat > %5 <<'EOF_AGENT_RC'\n%6\nEOF_AGENT_RC\n"
                 "%7; "
@@ -3276,7 +3282,12 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
                 "chown root:wheel %2 %3 %5; "
                 "chown root:wheel %8 %9 %10 %11 %12; "
                 "service zfsmgr_agent stop >/dev/null 2>&1 || true; "
-                "service zfsmgr_agent start")
+                "service zfsmgr_agent start; "
+                "sleep 2; "
+                "if ! service zfsmgr_agent onestatus >/dev/null 2>&1; then "
+                "  printf 'ERROR: el daemon no permanece activo tras el arranque\\n' >&2; "
+                "  exit 1; "
+                "fi")
                             .arg(deployBinCmd,
                                  daemonpayload::unixBinPath(),
                                  daemonpayload::unixConfigPath(),
