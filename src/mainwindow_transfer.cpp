@@ -3,6 +3,9 @@
 #include "agentversion.h"
 
 #include <QCheckBox>
+#include <QLabel>
+#include <QFrame>
+#include <QGroupBox>
 #include <QColor>
 #include <QCoreApplication>
 #include <QDialog>
@@ -35,6 +38,90 @@ using mwhelpers::chooseStreamCodec;
 using mwhelpers::streamCodecName;
 using mwhelpers::sshBaseCommand;
 using mwhelpers::sshUserHost;
+
+struct ZfsSendOptions {
+    bool flagL = true;
+    bool flagE = true;
+    bool flagC = true;
+    bool flagW = false;
+    bool flagR = false;
+};
+
+bool showZfsSendOptionsDialog(QWidget* parent,
+                               const QString& srcSnap,
+                               const QString& recvTarget,
+                               const QString& baseSnap,
+                               ZfsSendOptions* opts)
+{
+    QDialog dlg(parent);
+    dlg.setWindowTitle(QStringLiteral("Opciones de transferencia ZFS"));
+    dlg.setMinimumWidth(420);
+
+    auto* layout = new QVBoxLayout(&dlg);
+
+    auto* infoLabel = new QLabel(
+        QStringLiteral("<b>Origen:</b> %1<br><b>Destino:</b> %2%3")
+            .arg(srcSnap.toHtmlEscaped(),
+                 recvTarget.toHtmlEscaped(),
+                 baseSnap.isEmpty()
+                     ? QString{}
+                     : QStringLiteral("<br><b>Base incremental:</b> %1").arg(baseSnap.toHtmlEscaped())),
+        &dlg);
+    infoLabel->setWordWrap(true);
+    layout->addWidget(infoLabel);
+
+    auto* sep = new QFrame(&dlg);
+    sep->setFrameShape(QFrame::HLine);
+    layout->addWidget(sep);
+
+    auto* grpLabel = new QLabel(QStringLiteral("<b>Flags de zfs send:</b>"), &dlg);
+    layout->addWidget(grpLabel);
+
+    auto* cbL = new QCheckBox(QStringLiteral("-L  Bloques grandes (large blocks)"), &dlg);
+    auto* cbE = new QCheckBox(QStringLiteral("-e  Datos embebidos (embedded data)"), &dlg);
+    auto* cbC = new QCheckBox(QStringLiteral("-c  Bloques comprimidos (compressed)"), &dlg);
+    auto* cbW = new QCheckBox(QStringLiteral("-w  Raw/cifrado (preservar ciphertext — falla en datasets no cifrados)"), &dlg);
+    auto* cbR = new QCheckBox(QStringLiteral("-R  Replicación recursiva (todos los hijos deben tener el mismo snapshot)"), &dlg);
+
+    cbL->setChecked(opts->flagL);
+    cbE->setChecked(opts->flagE);
+    cbC->setChecked(opts->flagC);
+    cbW->setChecked(opts->flagW);
+    cbR->setChecked(opts->flagR);
+
+    layout->addWidget(cbL);
+    layout->addWidget(cbE);
+    layout->addWidget(cbC);
+    layout->addWidget(cbW);
+    layout->addWidget(cbR);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    layout->addWidget(buttons);
+
+    if (dlg.exec() != QDialog::Accepted) {
+        return false;
+    }
+    opts->flagL = cbL->isChecked();
+    opts->flagE = cbE->isChecked();
+    opts->flagC = cbC->isChecked();
+    opts->flagW = cbW->isChecked();
+    opts->flagR = cbR->isChecked();
+    return true;
+}
+
+QString buildZfsSendFlags(const ZfsSendOptions& opts)
+{
+    QString flags = QStringLiteral("-");
+    if (opts.flagW) flags += 'w';
+    if (opts.flagL) flags += 'L';
+    if (opts.flagE) flags += 'e';
+    if (opts.flagC) flags += 'c';
+    if (opts.flagR) flags += 'R';
+    if (flags == QStringLiteral("-")) flags.clear();
+    return flags;
+}
 
 QString buildDirectWindowsBashSshInvocation(const ConnectionProfile& p, const QString& remoteCmd) {
     const QString sshBase = sshBaseCommand(p);
@@ -186,7 +273,14 @@ void MainWindow::actionCopySnapshot() {
         }
     }
 
-    const QString sendRawCmd = QStringLiteral("zfs send -Lec %1").arg(shSingleQuote(srcSnap));
+    ZfsSendOptions sendOpts;
+    if (!showZfsSendOptionsDialog(this, srcSnap, recvTarget, QString{}, &sendOpts)) {
+        return;
+    }
+    const QString sendFlags = buildZfsSendFlags(sendOpts);
+    const QString sendRawCmd = sendFlags.isEmpty()
+        ? QStringLiteral("zfs send %1").arg(shSingleQuote(srcSnap))
+        : QStringLiteral("zfs send %1 %2").arg(sendFlags, shSingleQuote(srcSnap));
     const QString recvRawCmd = QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget));
     QString sendCmd = withSudo(sp, sendRawCmd);
     QString recvCmd = withSudoStreamInput(dp, recvRawCmd);
@@ -974,9 +1068,17 @@ void MainWindow::actionLevelSnapshot() {
     const bool sameConnection = (src.connIdx == dst.connIdx);
     const QString fromSnap = src.datasetName + QStringLiteral("@") + srcBaseSnapByGuid;
     const QString srcSnap = src.datasetName + QStringLiteral("@") + targetSnapName;
-    const QString sendRawCmd = QStringLiteral("zfs send -Lec -I %1 %2").arg(shSingleQuote(fromSnap), shSingleQuote(srcSnap));
-    QString sendCmd = withSudo(sp, sendRawCmd);
     const QString recvTarget = dst.datasetName;
+
+    ZfsSendOptions sendOpts;
+    if (!showZfsSendOptionsDialog(this, srcSnap, recvTarget, fromSnap, &sendOpts)) {
+        return;
+    }
+    const QString sendFlags = buildZfsSendFlags(sendOpts);
+    const QString sendRawCmd = sendFlags.isEmpty()
+        ? QStringLiteral("zfs send -I %1 %2").arg(shSingleQuote(fromSnap), shSingleQuote(srcSnap))
+        : QStringLiteral("zfs send %1 -I %2 %3").arg(sendFlags, shSingleQuote(fromSnap), shSingleQuote(srcSnap));
+    QString sendCmd = withSudo(sp, sendRawCmd);
 
     const QString recvRawCmd = QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget));
     QString recvCmd = withSudoStreamInput(dp, recvRawCmd);

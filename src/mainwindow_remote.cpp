@@ -3,6 +3,7 @@
 #include "agentversion.h"
 
 #include <QCoreApplication>
+#include <QMessageBox>
 #include <QDateTime>
 #include <QDir>
 #include <QElapsedTimer>
@@ -2706,6 +2707,18 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
     if (rc != 0) {
         appLog(QStringLiteral("NORMAL"), QStringLiteral("Comando finalizó con error %1").arg(rc));
         updateStatus(QStringLiteral("%1 (ERROR %2)").arg(displayLabel).arg(rc));
+        const QString errorDetail = err.isEmpty() ? out : err;
+        if (!errorDetail.isEmpty()) {
+            const QStringList lines = errorDetail.split('\n', Qt::SkipEmptyParts);
+            const int maxLines = 15;
+            QStringList shown = lines.mid(qMax(0, lines.size() - maxLines));
+            QString msg = QStringLiteral("<b>%1</b> — error %2:<br><br><pre>%3</pre>")
+                              .arg(displayLabel.toHtmlEscaped(),
+                                   QString::number(rc),
+                                   shown.join('\n').toHtmlEscaped());
+            QMessageBox errBox(QMessageBox::Critical, QStringLiteral("ZFSMgr — Error"), msg, QMessageBox::Ok, this);
+            errBox.exec();
+        }
         m_activeLocalProcess = nullptr;
         m_activeLocalPid = -1;
         setActionsLocked(false);
