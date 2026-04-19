@@ -1428,6 +1428,14 @@ QIcon datasetNodeIcon(QTreeWidgetItem* item) {
     return treeStandardIcon(QStyle::SP_DirIcon);
 }
 
+QIcon contentNodeIcon() {
+    const QIcon themed = QIcon::fromTheme(QStringLiteral("folder-open"));
+    if (!themed.isNull()) {
+        return themed;
+    }
+    return treeStandardIcon(QStyle::SP_DirOpenIcon);
+}
+
 void applySnapshotVisualState(QTreeWidgetItem* item) {
     if (!item) {
         return;
@@ -3663,20 +3671,76 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
                                      QStringLiteral("设备")));
             devicesNode->setIcon(0, treeStandardIcon(QStyle::SP_DriveHDIcon));
             devicesNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:pool_devices"), false));
+            auto vdevKind = [](const QString& rawName) -> QString {
+                const QString lower = rawName.trimmed().toLower();
+                if (lower == QStringLiteral("logs"))    return QStringLiteral("logs");
+                if (lower == QStringLiteral("spares"))  return QStringLiteral("spares");
+                if (lower == QStringLiteral("cache"))   return QStringLiteral("cache");
+                if (lower == QStringLiteral("special")) return QStringLiteral("special");
+                if (lower == QStringLiteral("dedup"))   return QStringLiteral("dedup");
+                if (lower.startsWith(QStringLiteral("mirror")))  return QStringLiteral("mirror");
+                if (lower.startsWith(QStringLiteral("raidz3")))  return QStringLiteral("raidz3");
+                if (lower.startsWith(QStringLiteral("raidz2")))  return QStringLiteral("raidz2");
+                if (lower.startsWith(QStringLiteral("raidz1")))  return QStringLiteral("raidz1");
+                if (lower.startsWith(QStringLiteral("raidz")))   return QStringLiteral("raidz");
+                if (lower.startsWith(QStringLiteral("draid")))   return QStringLiteral("draid");
+                return QStringLiteral("disk");
+            };
+            auto vdevIcon = [&](const QString& kind, bool hasChildren) -> QIcon {
+                if (kind == QStringLiteral("logs"))    return treeStandardIcon(QStyle::SP_ArrowForward);
+                if (kind == QStringLiteral("spares"))  return treeStandardIcon(QStyle::SP_DesktopIcon);
+                if (kind == QStringLiteral("cache"))   return treeStandardIcon(QStyle::SP_ComputerIcon);
+                if (kind == QStringLiteral("special")) return treeStandardIcon(QStyle::SP_FileDialogDetailedView);
+                if (kind == QStringLiteral("dedup"))   return treeStandardIcon(QStyle::SP_FileDialogContentsView);
+                if (kind == QStringLiteral("mirror") || kind.startsWith(QStringLiteral("raidz"))
+                    || kind == QStringLiteral("draid")) {
+                    return treeStandardIcon(QStyle::SP_DriveHDIcon);
+                }
+                Q_UNUSED(hasChildren);
+                return treeStandardIcon(QStyle::SP_DriveFDIcon);
+            };
+            auto vdevStateColor = [&](const QString& state) -> QColor {
+                const QString s = state.trimmed().toUpper();
+                if (s == QStringLiteral("ONLINE"))   return QColor();
+                if (s == QStringLiteral("DEGRADED")) return QColor(200, 120, 0);
+                if (s == QStringLiteral("AVAIL"))    return QColor(80, 160, 80);
+                return QColor(180, 40, 40);
+            };
+            auto vdevLabel = [](const QString& kind, const QString& rawName) -> QString {
+                if (kind == QStringLiteral("logs"))    return QStringLiteral("log");
+                if (kind == QStringLiteral("spares"))  return QStringLiteral("spare");
+                if (kind == QStringLiteral("cache"))   return QStringLiteral("cache");
+                if (kind == QStringLiteral("special")) return QStringLiteral("special");
+                if (kind == QStringLiteral("dedup"))   return QStringLiteral("dedup");
+                if (kind == QStringLiteral("mirror"))  return QStringLiteral("mirror");
+                if (kind == QStringLiteral("raidz3"))  return QStringLiteral("raidz3");
+                if (kind == QStringLiteral("raidz2"))  return QStringLiteral("raidz2");
+                if (kind == QStringLiteral("raidz1"))  return QStringLiteral("raidz1");
+                if (kind == QStringLiteral("raidz"))   return QStringLiteral("raidz");
+                if (kind == QStringLiteral("draid"))   return rawName.trimmed().toLower();
+                return rawName.trimmed();
+            };
             std::function<void(QTreeWidgetItem*, const PoolDeviceStatusNode&)> addDeviceRec =
                 [&](QTreeWidgetItem* parent, const PoolDeviceStatusNode& node) {
                     if (!parent) {
                         return;
                     }
-                    const bool isGroup = !node.children.isEmpty()
-                                         || !node.name.trimmed().startsWith(QLatin1Char('/'));
+                    const QString kind = vdevKind(node.name);
+                    const bool isDisk = (kind == QStringLiteral("disk"));
                     auto* item = new QTreeWidgetItem(parent);
                     item->setFlags(item->flags() & ~Qt::ItemIsUserCheckable);
                     item->setData(0, kConnContentNodeRole, true);
-                    item->setText(0, isGroup ? poolDeviceDisplayName(node.name) : node.name.trimmed());
-                    item->setIcon(0, treeStandardIcon(isGroup ? QStyle::SP_DirIcon : QStyle::SP_DriveFDIcon));
-                    if (!node.state.trimmed().isEmpty()) {
-                        item->setToolTip(0, node.state.trimmed());
+                    item->setText(0, isDisk ? node.name.trimmed()
+                                            : vdevLabel(kind, node.name));
+                    item->setIcon(0, vdevIcon(kind, !node.children.isEmpty()));
+                    const QString state = node.state.trimmed();
+                    if (!state.isEmpty()) {
+                        item->setText(1, state);
+                        const QColor col = vdevStateColor(state);
+                        if (col.isValid()) {
+                            item->setForeground(1, QBrush(col));
+                        }
+                        item->setToolTip(0, state);
                     }
                     for (const PoolDeviceStatusNode& child : node.children) {
                         addDeviceRec(item, child);
@@ -5167,6 +5231,12 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
                                  QStringLiteral("Comandos"),
                                  QStringLiteral("Commands"),
                                  QStringLiteral("命令")));
+    {
+        const QIcon terminalIcon = QIcon::fromTheme(QStringLiteral("utilities-terminal"));
+        commandsNode->setIcon(0, terminalIcon.isNull()
+                                     ? treeStandardIcon(QStyle::SP_CommandLink)
+                                     : terminalIcon);
+    }
     auto appendCommandRows = [&](QTreeWidgetItem* parent,
                                  const QVector<QPair<QString, bool>>& entries) {
         if (!parent || entries.isEmpty()) {
@@ -5741,7 +5811,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         if (!effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
             auto* contentNode = new QTreeWidgetItem(item);
             contentNode->setText(0, QStringLiteral("Contenido"));
-            contentNode->setIcon(0, treeStandardIcon(QStyle::SP_DirIcon));
+            contentNode->setIcon(0, contentNodeIcon());
             contentNode->setData(0, kConnFileBrowserNodeRole, true);
             contentNode->setData(0, kConnFileBrowserPathRole, effectiveMp);
             contentNode->setData(0, kConnFileBrowserLoadedRole, false);
@@ -5805,7 +5875,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                     const QString snapPath = effectiveMp + QStringLiteral("/.zfs/snapshot/") + snapName.trimmed();
                     auto* snapContentNode = new QTreeWidgetItem(snapItem);
                     snapContentNode->setText(0, QStringLiteral("Contenido"));
-                    snapContentNode->setIcon(0, treeStandardIcon(QStyle::SP_DirIcon));
+                    snapContentNode->setIcon(0, contentNodeIcon());
                     snapContentNode->setData(0, kConnFileBrowserNodeRole, true);
                     snapContentNode->setData(0, kConnFileBrowserPathRole, snapPath);
                     snapContentNode->setData(0, kConnFileBrowserLoadedRole, false);
