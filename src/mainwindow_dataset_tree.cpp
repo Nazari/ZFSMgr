@@ -56,7 +56,7 @@ constexpr int kConnPermissionsScopeRole = Qt::UserRole + 27;
 constexpr int kConnPermissionsTargetTypeRole = Qt::UserRole + 28;
 constexpr int kConnPermissionsTargetNameRole = Qt::UserRole + 29;
 constexpr int kConnPermissionsEntryNameRole = Qt::UserRole + 30;
-constexpr int kConnGsaNodeRole = Qt::UserRole + 33;
+
 constexpr int kConnPoolAutoSnapshotsNodeRole = Qt::UserRole + 34;
 constexpr int kConnPoolAutoSnapshotsDatasetRole = Qt::UserRole + 35;
 constexpr int kConnRootSectionRole = Qt::UserRole + 37;
@@ -76,7 +76,7 @@ constexpr int kIsSplitRootRole = Qt::UserRole + 50;
 constexpr int kConnDebugBaseTextRole = Qt::UserRole + 51;
 constexpr int kConnDebugLastIdRole = Qt::UserRole + 52;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
-constexpr char kGsaBlockInfoKey[] = "__gsa_block_info__";
+
 
 using DatasetTreeContext = MainWindow::DatasetTreeContext;
 
@@ -728,9 +728,6 @@ QString connContentNodeLocalStableId(QTreeWidgetItem* node) {
     if (node->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
         return QStringLiteral("syn:pool_information");
     }
-    if (node->data(0, kConnGsaNodeRole).toBool()) {
-        return QStringLiteral("syn:gsa");
-    }
     if (node->data(0, kConnPropGroupNodeRole).toBool()) {
         const QString groupName = node->data(0, kConnPropGroupNameRole).toString().trimmed();
         if (groupName.isEmpty()) {
@@ -882,9 +879,6 @@ QString connContentChildStableId(QTreeWidgetItem* node) {
     }
     if (node->data(0, kConnSnapshotHoldItemRole).toBool()) {
         return QStringLiteral("hold|%1").arg(node->data(0, kConnSnapshotHoldTagRole).toString().trimmed());
-    }
-    if (node->data(0, kConnGsaNodeRole).toBool()) {
-        return QStringLiteral("syn:gsa");
     }
     if (node->data(0, kConnSnapshotsNodeRole).toBool()) {
         return QStringLiteral("syn:snapshots_root");
@@ -1826,9 +1820,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
                     && (c->data(0, kConnStatePartRole).toString().trimmed() == QStringLiteral("syn:ds_prop")
                         || c->data(0, kConnStatePartRole).toString().trimmed() == QStringLiteral("syn:snap_prop")
                         || c->data(0, kConnStatePartRole).toString().trimmed().isEmpty());
-                const bool isGsaNode = c->data(0, kConnGsaNodeRole).toBool()
-                                       || c->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kGsaBlockInfoKey);
-                if (isMainPropsNode || isGsaNode) {
+                if (isMainPropsNode) {
                     self(self, c);
                 } else {
                     delete n->takeChild(i);
@@ -2669,10 +2661,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
             }
             continue;
         }
-        if (child->data(0, kConnGsaNodeRole).toBool()
-            || child->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kGsaBlockInfoKey)) {
-            delete sel->takeChild(i);
-        }
+
     }
     if (!propsNode) {
         propsNode = new QTreeWidgetItem();
@@ -5104,22 +5093,6 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
     appendReadOnlyInlineProps(generalNode, infoProps);
     generalNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:general"), true));
 
-    auto* gsaNode = new QTreeWidgetItem(infoNode);
-    gsaNode->setFlags(gsaNode->flags() & ~Qt::ItemIsUserCheckable);
-    gsaNode->setData(0, kConnContentNodeRole, true);
-    gsaNode->setData(0, kConnIdxRole, connIdx);
-    gsaNode->setData(0, kConnStatePartRole, QStringLiteral("syn:gsa"));
-    gsaNode->setText(0, QStringLiteral("GSA"));
-    gsaNode->setIcon(0, treeStandardIcon(QStyle::SP_BrowserReload));
-    const QString gsaStatus = trk(QStringLiteral("t_gsa_daemon_managed_001"),
-                                   QStringLiteral("gestionado por daemon"),
-                                   QStringLiteral("managed by daemon"),
-                                   QStringLiteral("由守护进程管理"));
-    const QVector<QPair<QString, QString>> gsaProps = {
-        {QStringLiteral("GSA"), gsaStatus},
-    };
-    appendReadOnlyInlineProps(gsaNode, gsaProps);
-    gsaNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:gsa"), false));
 
     auto* agentNode = new QTreeWidgetItem(infoNode);
     agentNode->setFlags(agentNode->flags() & ~Qt::ItemIsUserCheckable);
