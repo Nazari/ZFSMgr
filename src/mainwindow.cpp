@@ -1747,6 +1747,34 @@ bool MainWindow::executePoolCommand(int connIdx,
     return true;
 }
 
+// QProcess::splitCommand only handles double-quoted strings; single-quoted arguments
+// (produced by shSingleQuote) would be passed to execvp with literal quote characters.
+static QStringList splitShellCommand(const QString& cmd) {
+    QStringList result;
+    QString current;
+    bool inSingle = false;
+    bool inDouble = false;
+    for (const QChar c : cmd) {
+        if (inSingle) {
+            if (c == QLatin1Char('\'')) inSingle = false;
+            else current += c;
+        } else if (inDouble) {
+            if (c == QLatin1Char('"')) inDouble = false;
+            else current += c;
+        } else if (c == QLatin1Char('\'')) {
+            inSingle = true;
+        } else if (c == QLatin1Char('"')) {
+            inDouble = true;
+        } else if (c.isSpace()) {
+            if (!current.isEmpty()) { result << current; current.clear(); }
+        } else {
+            current += c;
+        }
+    }
+    if (!current.isEmpty()) result << current;
+    return result;
+}
+
 QString MainWindow::daemonizeZpoolMutationCommand(int connIdx, const QString& rawCmd) const {
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
         return QString();
@@ -1765,7 +1793,7 @@ QString MainWindow::daemonizeZpoolMutationCommand(int connIdx, const QString& ra
     if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
         return QString();
     }
-    const QStringList parts = QProcess::splitCommand(rawCmd.trimmed());
+    const QStringList parts = splitShellCommand(rawCmd.trimmed());
     if (parts.size() < 2 || parts.first().trimmed() != QStringLiteral("zpool")) {
         return QString();
     }
@@ -1804,7 +1832,7 @@ QString MainWindow::daemonizeZfsMutationCommand(int connIdx, const QString& rawC
     if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
         return QString();
     }
-    const QStringList parts = QProcess::splitCommand(rawCmd.trimmed());
+    const QStringList parts = splitShellCommand(rawCmd.trimmed());
     if (parts.size() < 2 || parts.first().trimmed() != QStringLiteral("zfs")) {
         return QString();
     }
