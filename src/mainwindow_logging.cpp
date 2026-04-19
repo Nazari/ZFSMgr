@@ -11,6 +11,7 @@
 #include <QFont>
 #include <QMetaObject>
 #include <QPlainTextEdit>
+#include <QQueue>
 #include <QRegularExpression>
 #include <QScrollBar>
 #include <QTabWidget>
@@ -39,6 +40,17 @@
 #include <string>
 
 namespace {
+constexpr int kMaxUiLogLineChars = 4096;
+
+QString truncateLogLineForUi(const QString& line) {
+    if (line.size() <= kMaxUiLogLineChars) {
+        return line;
+    }
+    const int dropped = line.size() - kMaxUiLogLineChars;
+    return line.left(kMaxUiLogLineChars)
+           + QStringLiteral(" ... [truncated %1 chars]").arg(dropped);
+}
+
 constexpr const char* kGsaLinuxRuntimeDirPath = "/var/lib/zfsmgr";
 constexpr const char* kGsaFreeBsdRuntimeDirPath = "/var/db/zfsmgr";
 
@@ -454,7 +466,8 @@ void MainWindow::appLog(const QString& level, const QString& msg) {
         return;
     }
     const QString normalizedMsg = localizeLegacyAppLogMessage(m_language, msg);
-    const QString line = QStringLiteral("[%1] [%2] %3").arg(tsNowForLog(), level, maskSecrets(normalizedMsg));
+    const QString safeMsg = truncateLogLineForUi(maskSecrets(normalizedMsg));
+    const QString line = QStringLiteral("[%1] [%2] %3").arg(tsNowForLog(), level, safeMsg);
     const QString current = m_logLevelSetting.isEmpty() ? QStringLiteral("normal")
                                                          : m_logLevelSetting.toLower();
     auto rank = [](const QString& l) -> int {
@@ -515,7 +528,18 @@ void MainWindow::loadPersistedAppLogToView() {
     if (!m_logView || m_appLogPath.isEmpty()) {
         return;
     }
-    QStringList allLines;
+    QQueue<QString> allLines;
+    const int limit = qMax(1, maxLogLines());
+    auto pushLine = [&](const QString& rawLine) {
+        const QString ln = rawLine.trimmed();
+        if (ln.isEmpty()) {
+            return;
+        }
+        allLines.enqueue(truncateLogLineForUi(ln));
+        while (allLines.size() > limit) {
+            allLines.dequeue();
+        }
+    };
     const QFileInfo currentFi(m_appLogPath);
     const QString baseName = currentFi.fileName();
     const QString baseDir = currentFi.absolutePath();
@@ -528,28 +552,18 @@ void MainWindow::loadPersistedAppLogToView() {
         }
         QTextStream ts(&f);
         while (!ts.atEnd()) {
-            const QString ln = ts.readLine();
-            if (!ln.trimmed().isEmpty()) {
-                allLines.append(ln);
-            }
+            pushLine(ts.readLine());
         }
     }
     QFile current(m_appLogPath);
     if (current.exists() && current.open(QIODevice::ReadOnly | QIODevice::Text)) {
         QTextStream ts(&current);
         while (!ts.atEnd()) {
-            const QString ln = ts.readLine();
-            if (!ln.trimmed().isEmpty()) {
-                allLines.append(ln);
-            }
+            pushLine(ts.readLine());
         }
     }
     if (allLines.isEmpty()) {
         return;
-    }
-    const int limit = qMax(1, maxLogLines());
-    if (allLines.size() > limit) {
-        allLines = allLines.mid(allLines.size() - limit);
     }
     m_logView->clear();
     m_compactPrevValid = false;
@@ -850,7 +864,7 @@ void MainWindow::appendConnectionLog(const QString& connId, const QString& line)
             break;
         }
     }
-    const QString maskedLine = maskSecrets(line);
+    const QString maskedLine = truncateLogLineForUi(maskSecrets(line));
     const bool routeToGsa = looksLikeGsaRuntimeLine(maskedLine);
     appLog(QStringLiteral("NORMAL"),
            QStringLiteral("[SSH %1] %2").arg(connName, maskedLine));
