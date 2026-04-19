@@ -1344,6 +1344,34 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
             QStringLiteral("Instalar comandos auxiliares"),
             QStringLiteral("Install helper commands"),
             QStringLiteral("安装辅助命令")));
+    const bool isThisSshConn = hasConn && !isWindowsConnection(connIdx)
+                               && m_profiles[connIdx].connType.compare(
+                                      QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
+    QMenu* aAuthorizeKeyMenu = menu.addMenu(
+        trk(QStringLiteral("t_authorize_key_menu_001"),
+            QStringLiteral("Autorizar clave SSH en..."),
+            QStringLiteral("Authorize SSH key on..."),
+            QStringLiteral("授权 SSH 密钥到...")));
+    QList<QPair<int, QAction*>> authorizeKeyActions;
+    if (isThisSshConn && !isDisconnected && !actionsLocked()) {
+        for (int i = 0; i < m_profiles.size(); ++i) {
+            if (i == connIdx) {
+                continue;
+            }
+            if (m_profiles[i].connType.compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
+                continue;
+            }
+            if (isConnectionDisconnected(i)) {
+                continue;
+            }
+            QAction* a = aAuthorizeKeyMenu->addAction(m_profiles[i].name);
+            authorizeKeyActions.append({i, a});
+        }
+    }
+    aAuthorizeKeyMenu->setEnabled(isThisSshConn && !isDisconnected && !actionsLocked()
+                                  && !authorizeKeyActions.isEmpty());
+    menu.addSeparator();
+
     aConnect->setEnabled(menuState.canConnect);
     aDisconnect->setEnabled(menuState.canDisconnect);
     aInstallMsys->setEnabled(menuState.canInstallMsys);
@@ -1455,6 +1483,14 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
     } else if (chosen == aNewPool) {
         logUiAction(QStringLiteral("Nuevo pool (menú conexiones)"));
         createPoolForSelectedConnection();
+    } else {
+        for (const auto& [dstIdx, a] : authorizeKeyActions) {
+            if (chosen == a) {
+                logUiAction(QStringLiteral("Autorizar clave SSH (menú conexiones)"));
+                authorizePublicKeyOnConnection(connIdx, dstIdx);
+                break;
+            }
+        }
     }
 }
 
@@ -3609,4 +3645,78 @@ void MainWindow::deleteConnection() {
     updateConnectivityMatrixButtonState();
     updateBusyCursor();
     loadConnections();
+}
+
+void MainWindow::authorizePublicKeyOnConnection(int srcIdx, int dstIdx)
+{
+    if (srcIdx < 0 || srcIdx >= m_profiles.size() || dstIdx < 0 || dstIdx >= m_profiles.size()) {
+        return;
+    }
+    const ConnectionProfile& sp = m_profiles[srcIdx];
+    const ConnectionProfile& dp = m_profiles[dstIdx];
+
+    beginUiBusy();
+    struct BusyGuard { MainWindow* w; ~BusyGuard() { w->endUiBusy(); } } g{this};
+
+    // 1. Get the source machine's default SSH public key.
+    const QString getPubKeyCmd = withSudo(
+        sp,
+        mwhelpers::withUnixSearchPathCommand(
+            QStringLiteral("cat ~/.ssh/id_ed25519.pub 2>/dev/null "
+                           "|| cat ~/.ssh/id_rsa.pub 2>/dev/null "
+                           "|| cat ~/.ssh/id_ecdsa.pub 2>/dev/null "
+                           "|| cat ~/.ssh/id_*.pub 2>/dev/null | head -1")));
+    QString pubKey, err;
+    int rc = -1;
+    if (!runSsh(sp, getPubKeyCmd, 12000, pubKey, err, rc) || rc != 0 || pubKey.trimmed().isEmpty()) {
+        QMessageBox::warning(
+            this, QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_auth_key_no_pubkey_001"),
+                QStringLiteral("No se encontró clave pública SSH en \"%1\".\n\n"
+                               "Genera una con: ssh-keygen -t ed25519"),
+                QStringLiteral("No SSH public key found on \"%1\".\n\n"
+                               "Generate one with: ssh-keygen -t ed25519"),
+                QStringLiteral("在 \"%1\" 上未找到 SSH 公钥。\n\n"
+                               "请使用以下命令生成：ssh-keygen -t ed25519"))
+                .arg(sp.name));
+        return;
+    }
+    pubKey = pubKey.trimmed().split('\n').first().trimmed();
+
+    // 2. Append the public key to the destination's authorized_keys (idempotent).
+    const QString escapedKey = mwhelpers::shSingleQuote(pubKey);
+    const QString installCmd = withSudo(
+        dp,
+        mwhelpers::withUnixSearchPathCommand(
+            QStringLiteral("mkdir -p ~/.ssh && chmod 700 ~/.ssh && "
+                           "(grep -qF %1 ~/.ssh/authorized_keys 2>/dev/null "
+                           " || printf '\\n%2\\n' >> ~/.ssh/authorized_keys) && "
+                           "chmod 600 ~/.ssh/authorized_keys")
+                .arg(escapedKey, pubKey)));
+    QString out2, err2;
+    int rc2 = -1;
+    if (!runSsh(dp, installCmd, 12000, out2, err2, rc2) || rc2 != 0) {
+        const QString detail = (err2.trimmed().isEmpty() ? out2 : err2).simplified().left(400);
+        QMessageBox::warning(
+            this, QStringLiteral("ZFSMgr"),
+            trk(QStringLiteral("t_auth_key_install_fail_001"),
+                QStringLiteral("No se pudo instalar la clave en \"%1\":\n\n%2"),
+                QStringLiteral("Could not install the key on \"%1\":\n\n%2"),
+                QStringLiteral("无法在 \"%1\" 上安装密钥：\n\n%2"))
+                .arg(dp.name, detail));
+        return;
+    }
+
+    QMessageBox::information(
+        this, QStringLiteral("ZFSMgr"),
+        trk(QStringLiteral("t_auth_key_ok_001"),
+            QStringLiteral("Clave pública de \"%1\" instalada en \"%2\".\n\n"
+                           "Las transferencias directas entre estas conexiones "
+                           "ya no necesitarán contraseña."),
+            QStringLiteral("Public key from \"%1\" installed on \"%2\".\n\n"
+                           "Direct transfers between these connections "
+                           "will no longer require a password."),
+            QStringLiteral("已将 \"%1\" 的公钥安装到 \"%2\"。\n\n"
+                           "这两个连接之间的直接传输将不再需要密码。"))
+            .arg(sp.name, dp.name));
 }

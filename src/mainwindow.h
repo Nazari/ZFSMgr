@@ -611,6 +611,7 @@ private:
     QString daemonMenuLabelForConnection(int connIdx) const;
     bool installOrUpdateDaemonForConnection(int connIdx);
     bool uninstallDaemonForConnection(int connIdx);
+    void authorizePublicKeyOnConnection(int srcIdx, int dstIdx);
     bool showAutomaticSnapshots() const;
     bool validatePendingGsaDrafts(QString* errorOut = nullptr);
 
