@@ -24,7 +24,9 @@ cmd:--dump-zfs-exists
 cmd:--mutate-zfs-clone
 cmd:--mutate-shell-generic
 cmd:--wait-for-event
+cmd:--dump-gsa-log
 zed:event-watcher
+gsa:scheduler
 ]=])
 string(SHA256 ZFSMGR_AGENT_SCHEMA_SHA "${ZFSMGR_AGENT_SCHEMA_MARKER}")
 string(SUBSTRING "${ZFSMGR_AGENT_SCHEMA_SHA}" 0 8 ZFSMGR_AGENT_SCHEMA_HEX)

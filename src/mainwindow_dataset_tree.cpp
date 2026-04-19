@@ -56,7 +56,7 @@ constexpr int kConnPermissionsScopeRole = Qt::UserRole + 27;
 constexpr int kConnPermissionsTargetTypeRole = Qt::UserRole + 28;
 constexpr int kConnPermissionsTargetNameRole = Qt::UserRole + 29;
 constexpr int kConnPermissionsEntryNameRole = Qt::UserRole + 30;
-constexpr int kConnGsaNodeRole = Qt::UserRole + 33;
+
 constexpr int kConnPoolAutoSnapshotsNodeRole = Qt::UserRole + 34;
 constexpr int kConnPoolAutoSnapshotsDatasetRole = Qt::UserRole + 35;
 constexpr int kConnRootSectionRole = Qt::UserRole + 37;
@@ -76,7 +76,7 @@ constexpr int kIsSplitRootRole = Qt::UserRole + 50;
 constexpr int kConnDebugBaseTextRole = Qt::UserRole + 51;
 constexpr int kConnDebugLastIdRole = Qt::UserRole + 52;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
-constexpr char kGsaBlockInfoKey[] = "__gsa_block_info__";
+
 
 using DatasetTreeContext = MainWindow::DatasetTreeContext;
 
@@ -728,9 +728,6 @@ QString connContentNodeLocalStableId(QTreeWidgetItem* node) {
     if (node->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
         return QStringLiteral("syn:pool_information");
     }
-    if (node->data(0, kConnGsaNodeRole).toBool()) {
-        return QStringLiteral("syn:gsa");
-    }
     if (node->data(0, kConnPropGroupNodeRole).toBool()) {
         const QString groupName = node->data(0, kConnPropGroupNameRole).toString().trimmed();
         if (groupName.isEmpty()) {
@@ -882,9 +879,6 @@ QString connContentChildStableId(QTreeWidgetItem* node) {
     }
     if (node->data(0, kConnSnapshotHoldItemRole).toBool()) {
         return QStringLiteral("hold|%1").arg(node->data(0, kConnSnapshotHoldTagRole).toString().trimmed());
-    }
-    if (node->data(0, kConnGsaNodeRole).toBool()) {
-        return QStringLiteral("syn:gsa");
     }
     if (node->data(0, kConnSnapshotsNodeRole).toBool()) {
         return QStringLiteral("syn:snapshots_root");
@@ -1826,9 +1820,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
                     && (c->data(0, kConnStatePartRole).toString().trimmed() == QStringLiteral("syn:ds_prop")
                         || c->data(0, kConnStatePartRole).toString().trimmed() == QStringLiteral("syn:snap_prop")
                         || c->data(0, kConnStatePartRole).toString().trimmed().isEmpty());
-                const bool isGsaNode = c->data(0, kConnGsaNodeRole).toBool()
-                                       || c->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kGsaBlockInfoKey);
-                if (isMainPropsNode || isGsaNode) {
+                if (isMainPropsNode) {
                     self(self, c);
                 } else {
                     delete n->takeChild(i);
@@ -2669,10 +2661,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
             }
             continue;
         }
-        if (child->data(0, kConnGsaNodeRole).toBool()
-            || child->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kGsaBlockInfoKey)) {
-            delete sel->takeChild(i);
-        }
+
     }
     if (!propsNode) {
         propsNode = new QTreeWidgetItem();
@@ -5104,54 +5093,6 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
     appendReadOnlyInlineProps(generalNode, infoProps);
     generalNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:general"), true));
 
-    auto* gsaNode = new QTreeWidgetItem(infoNode);
-    gsaNode->setFlags(gsaNode->flags() & ~Qt::ItemIsUserCheckable);
-    gsaNode->setData(0, kConnContentNodeRole, true);
-    gsaNode->setData(0, kConnIdxRole, connIdx);
-    gsaNode->setData(0, kConnStatePartRole, QStringLiteral("syn:gsa"));
-    gsaNode->setText(0, QStringLiteral("GSA"));
-    gsaNode->setIcon(0, treeStandardIcon(QStyle::SP_BrowserReload));
-    const QString gsaStatus = !st.gsaInstalled
-                                  ? trk(QStringLiteral("t_gsa_not_installed_001"),
-                                        QStringLiteral("no instalado"),
-                                        QStringLiteral("not installed"),
-                                        QStringLiteral("未安装"))
-                                               : QStringLiteral("%1 | %2 | %3")
-                                                     .arg(st.gsaVersion.trimmed().isEmpty() ? QStringLiteral("-")
-                                                                                            : st.gsaVersion.trimmed(),
-                                                          st.gsaScheduler.trimmed().isEmpty() ? QStringLiteral("-")
-                                                                                              : st.gsaScheduler.trimmed(),
-                                                          st.gsaActive
-                                                              ? trk(QStringLiteral("t_gsa_active_001"),
-                                                                    QStringLiteral("activo"),
-                                                                    QStringLiteral("active"),
-                                                                    QStringLiteral("活动"))
-                                                              : trk(QStringLiteral("t_gsa_inactive_001"),
-                                                                    QStringLiteral("inactivo"),
-                                                                    QStringLiteral("inactive"),
-                                                                    QStringLiteral("非活动")));
-    QVector<QPair<QString, QString>> gsaProps = {
-        {QStringLiteral("GSA"), gsaStatus},
-        {trk(QStringLiteral("t_gsa_known_conns_001"),
-             QStringLiteral("Conexiones dadas de alta en GSA"),
-             QStringLiteral("Connections configured in GSA"),
-             QStringLiteral("GSA 已配置连接")),
-         listOrNone(st.gsaKnownConnections)},
-        {trk(QStringLiteral("t_gsa_required_conns_001"),
-             QStringLiteral("Conexiones requeridas por GSA"),
-             QStringLiteral("Connections required by GSA"),
-             QStringLiteral("GSA 所需连接")),
-         listOrNone(st.gsaRequiredConnections)}
-    };
-    if (st.gsaNeedsAttention && !st.gsaAttentionReasons.isEmpty()) {
-        gsaProps.push_back({trk(QStringLiteral("t_gsa_attention_001"),
-                                QStringLiteral("Atención GSA"),
-                                QStringLiteral("GSA attention"),
-                                QStringLiteral("GSA 注意")),
-                            st.gsaAttentionReasons.join(QStringLiteral(", "))});
-    }
-    appendReadOnlyInlineProps(gsaNode, gsaProps);
-    gsaNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:gsa"), false));
 
     auto* agentNode = new QTreeWidgetItem(infoNode);
     agentNode->setFlags(agentNode->flags() & ~Qt::ItemIsUserCheckable);
@@ -5430,7 +5371,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
     };
     auto connectionRootTitle = [&]() -> QString {
         QString connName = (connIdx >= 0 && connIdx < m_profiles.size()) ? m_profiles[connIdx].name : QStringLiteral("?");
-        if (connIdx >= 0 && connIdx < m_states.size() && m_states[connIdx].gsaNeedsAttention) {
+        if (connIdx >= 0 && connIdx < m_states.size() && m_states[connIdx].daemonNeedsAttention) {
             connName += QStringLiteral(" (*)");
         }
         const QString connPrefix =
@@ -6325,7 +6266,7 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
                 QString connName = m_profiles[connIdx].name.trimmed().isEmpty()
                                        ? m_profiles[connIdx].id.trimmed()
                                        : m_profiles[connIdx].name.trimmed();
-                if (connIdx >= 0 && connIdx < m_states.size() && m_states[connIdx].gsaNeedsAttention) {
+                if (connIdx >= 0 && connIdx < m_states.size() && m_states[connIdx].daemonNeedsAttention) {
                     connName += QStringLiteral(" (*)");
                 }
                 const QString connPrefix =

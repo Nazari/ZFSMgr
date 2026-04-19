@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <mutex>
 #include <set>
@@ -1403,6 +1404,518 @@ ExecResult runDumpGsaConnectionsConfCapture() {
     return r;
 }
 
+// ── GSA scheduler ────────────────────────────────────────────────────────────
+
+constexpr const char* kGsaConfPath         = "/etc/zfsmgr/gsa.conf";
+constexpr const char* kGsaDefaultLogFile   = "/var/lib/zfsmgr/gsa.log";
+constexpr const char* kGsaDefaultConnFile  = "/etc/zfsmgr/gsa-connections.conf";
+constexpr long long   kGsaLogMaxBytes      = 1048576; // 1 MiB
+
+using KVMap = std::unordered_map<std::string, std::string>;
+
+bool gsaBoolOn(const std::string& s) {
+    std::string lo = s;
+    for (char& c : lo) { c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); }
+    return lo == "on" || lo == "yes" || lo == "true" || lo == "1";
+}
+
+int gsaIntVal(const std::string& s) {
+    if (s.empty()) return 0;
+    for (unsigned char c : s) { if (!std::isdigit(c)) return 0; }
+    try { return std::stoi(s); } catch (...) { return 0; }
+}
+
+// Reads KEY=VALUE pairs from a shell-sourceable conf file.
+KVMap gsaReadKV(const std::string& path) {
+    KVMap out;
+    std::ifstream f(path);
+    if (!f.is_open()) return out;
+    std::string line;
+    while (std::getline(f, line)) {
+        const std::string t = trim(line);
+        if (t.empty() || t[0] == '#') continue;
+        const std::size_t eq = t.find('=');
+        if (eq == std::string::npos) continue;
+        out[trim(t.substr(0, eq))] = stripQuotes(t.substr(eq + 1));
+    }
+    return out;
+}
+
+struct GsaConf {
+    std::string configDir;
+    std::string logFile;
+    std::string connectionsFile;
+};
+
+GsaConf gsaLoadConf() {
+    GsaConf c;
+    const KVMap kv = gsaReadKV(kGsaConfPath);
+    auto get = [&](const char* k, const std::string& def) -> std::string {
+        const auto it = kv.find(k);
+        return (it != kv.end() && !it->second.empty()) ? it->second : def;
+    };
+    c.configDir       = get("CONFIG_DIR", "/var/lib/zfsmgr");
+    c.logFile         = get("LOG_FILE", kGsaDefaultLogFile);
+    c.connectionsFile = get("CONNECTIONS_FILE", kGsaDefaultConnFile);
+    return c;
+}
+
+struct GsaTargetConn {
+    std::string mode; // "local" or "ssh"
+    std::string host;
+    std::string user;
+    std::string port;
+    std::string key;
+    std::string pass;
+    bool useSudo{false};
+    std::string knownHostsFile;
+};
+
+bool gsaResolveTarget(const KVMap& connKv, const std::string& connId,
+                      const std::string& selfConn, GsaTargetConn& out) {
+    if (connId == selfConn) {
+        out.mode = "local";
+        return true;
+    }
+    const std::string prefix = "connection_" + connId + "_";
+    auto get = [&](const char* suffix) -> std::string {
+        const auto it = connKv.find(prefix + suffix);
+        return (it != connKv.end()) ? it->second : std::string();
+    };
+    const std::string mode = get("MODE");
+    if (mode.empty()) return false;
+    out.mode    = mode;
+    out.host    = get("HOST");
+    out.user    = get("USER");
+    out.port    = get("PORT");
+    out.key     = get("KEY");
+    out.pass    = get("PASS");
+    out.useSudo = gsaBoolOn(get("USE_SUDO"));
+    const auto kh = connKv.find("KNOWN_HOSTS_FILE");
+    if (kh != connKv.end()) out.knownHostsFile = kh->second;
+    return !out.host.empty() && !out.user.empty();
+}
+
+void gsaRotateLog(const std::string& logFile) {
+    std::ifstream f(logFile, std::ios::ate | std::ios::binary);
+    if (!f.is_open()) return;
+    const auto sz = static_cast<long long>(f.tellg());
+    f.close();
+    if (sz < kGsaLogMaxBytes) return;
+    for (int i = 3; i >= 1; --i) {
+        const std::string from = logFile + "." + std::to_string(i);
+        const std::string to   = logFile + "." + std::to_string(i + 1);
+        std::remove(to.c_str());
+        std::rename(from.c_str(), to.c_str());
+    }
+    std::rename(logFile.c_str(), (logFile + ".1").c_str());
+}
+
+// Returns a logger function that appends timestamped lines to the GSA log.
+std::function<void(const std::string&)> gsaMakeLogger(const std::string& logFile) {
+    return [logFile](const std::string& msg) {
+        const std::string ts = utcNowIsoString();
+        const std::string line = ts + " " + msg + "\n";
+        std::ofstream f(logFile, std::ios::app);
+        if (f.is_open()) f << line;
+    };
+}
+
+// Returns "YYYYMMDD-HHMMSS" in local time.
+std::string gsaLocalTimestamp() {
+    std::time_t now = std::time(nullptr);
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &now);
+#else
+    localtime_r(&now, &tm);
+#endif
+    char buf[32];
+    if (std::strftime(buf, sizeof(buf), "%Y%m%d-%H%M%S", &tm) == 0) return "00000000-000000";
+    return buf;
+}
+
+struct GsaTimeFields {
+    int hour{0};  // 0-23
+    int dow{0};   // 1=Mon … 7=Sun
+    int dom{0};   // 1-31
+    int month{0}; // 1-12
+};
+
+GsaTimeFields gsaLocalTimeFields() {
+    std::time_t now = std::time(nullptr);
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &now);
+#else
+    localtime_r(&now, &tm);
+#endif
+    GsaTimeFields f;
+    f.hour  = tm.tm_hour;
+    f.dom   = tm.tm_mday;
+    f.month = tm.tm_mon + 1;
+    // tm_wday: 0=Sun … 6=Sat → convert to ISO 8601: 1=Mon … 7=Sun
+    f.dow   = (tm.tm_wday == 0) ? 7 : tm.tm_wday;
+    return f;
+}
+
+// Returns the snapshot classes that are due given the retention counts and time.
+std::vector<std::string> gsaDueClasses(int hourly, int daily, int weekly,
+                                       int monthly, int yearly,
+                                       const GsaTimeFields& tf) {
+    std::vector<std::string> due;
+    if (hourly  > 0)                                          due.push_back("hourly");
+    if (daily   > 0 && tf.hour == 0)                         due.push_back("daily");
+    if (weekly  > 0 && tf.hour == 0 && tf.dow == 7)          due.push_back("weekly");
+    if (monthly > 0 && tf.hour == 0 && tf.dom == 1)          due.push_back("monthly");
+    if (yearly  > 0 && tf.hour == 0 && tf.dom == 1 && tf.month == 1) due.push_back("yearly");
+    return due;
+}
+
+std::string gsaPropValue(const std::string& ds, const std::string& prop, bool localOnly) {
+    std::vector<std::string> args = {"get", "-H", "-o", "value"};
+    if (localOnly) { args.push_back("-s"); args.push_back("local"); }
+    args.push_back(prop);
+    args.push_back(ds);
+    const ExecResult r = runExecCapture("zfs", args);
+    if (r.rc != 0) return {};
+    const std::string val = trim(r.out);
+    return (val == "-") ? std::string() : val;
+}
+
+// Creates a snapshot; returns the snapshot short name on success.
+std::string gsaCreateSnapshot(const std::string& ds, const std::string& klass,
+                               bool recursive,
+                               const std::function<void(const std::string&)>& log) {
+    const std::string stamp    = gsaLocalTimestamp();
+    const std::string snapName = "GSA-" + klass + "-" + stamp;
+    const std::string full     = ds + "@" + snapName;
+    log("GSA snapshot attempt for " + ds + ": class=" + klass
+        + " recursive=" + (recursive ? "yes" : "no") + " snap=" + snapName);
+    // Already exists?
+    const ExecResult check = runExecCapture("zfs",
+        {"list", "-H", "-t", "snapshot", "-o", "name", full});
+    if (check.rc == 0 && trim(check.out).find(full) != std::string::npos) {
+        log("GSA snapshot skip for " + ds + ": " + snapName + " ya existe");
+        return snapName;
+    }
+    std::vector<std::string> args = {"snapshot"};
+    if (recursive) args.push_back("-r");
+    args.push_back(full);
+    const ExecResult r = runExecCapture("zfs", args);
+    if (r.rc != 0) {
+        log("GSA snapshot error for " + ds + ": " + trim(r.err));
+        return {};
+    }
+    log("GSA snapshot created for " + ds + ": " + snapName);
+    return snapName;
+}
+
+void gsaPruneSnapshots(const std::string& ds, const std::string& klass,
+                       int keep, bool recursive,
+                       const std::function<void(const std::string&)>& log) {
+    if (keep <= 0) return;
+    const ExecResult lst = runExecCapture("zfs",
+        {"list", "-H", "-t", "snapshot", "-o", "name", "-s", "creation", "-r", ds});
+    if (lst.rc != 0) return;
+    const std::string prefix = ds + "@GSA-" + klass + "-";
+    std::vector<std::string> matching;
+    for (const std::string& rawLine : splitLines(lst.out)) {
+        const std::string line = trim(rawLine);
+        if (line.empty()) continue;
+        if (line.size() >= prefix.size() && line.compare(0, prefix.size(), prefix) == 0)
+            matching.push_back(line);
+    }
+    const int total = static_cast<int>(matching.size());
+    if (total <= keep) return;
+    const int removeCount = total - keep;
+    for (int i = 0; i < removeCount; ++i) {
+        const std::string& full = matching[static_cast<std::size_t>(i)];
+        const std::string shortName = full.substr(ds.size() + 1); // after "@"
+        std::vector<std::string> args = {"destroy"};
+        if (recursive) args.push_back("-r");
+        args.push_back(ds + "@" + shortName);
+        const ExecResult r = runExecCapture("zfs", args);
+        if (r.rc != 0)
+            log("GSA prune error for " + ds + "@" + shortName + ": " + trim(r.err));
+        else
+            log("GSA pruned " + ds + "@" + shortName);
+    }
+}
+
+// Run a command on the SSH target, return combined exit code.
+int gsaRunViaSsh(const GsaTargetConn& tc, const std::string& remoteCmd) {
+    std::vector<std::string> sshArgs;
+    sshArgs.push_back("-o"); sshArgs.push_back("BatchMode=yes");
+    sshArgs.push_back("-o"); sshArgs.push_back("ConnectTimeout=10");
+    sshArgs.push_back("-o"); sshArgs.push_back("LogLevel=ERROR");
+    if (!tc.knownHostsFile.empty()) {
+        sshArgs.push_back("-o"); sshArgs.push_back("StrictHostKeyChecking=yes");
+        sshArgs.push_back("-o"); sshArgs.push_back("UserKnownHostsFile=" + tc.knownHostsFile);
+    }
+    if (!tc.port.empty()) { sshArgs.push_back("-p"); sshArgs.push_back(tc.port); }
+    if (!tc.key.empty())  { sshArgs.push_back("-i"); sshArgs.push_back(tc.key); }
+    sshArgs.push_back(tc.user + "@" + tc.host);
+    sshArgs.push_back(remoteCmd);
+    const ExecResult r = runExecCapture("ssh", sshArgs);
+    return r.rc;
+}
+
+void gsaLevelSnapshot(const std::string& ds, bool recursive,
+                      const std::string& snapName, const std::string& dstSpec,
+                      bool levelOn, const GsaTargetConn& target,
+                      const std::function<void(const std::string&)>& log) {
+    if (!levelOn || snapName.empty() || dstSpec.empty()) return;
+    const std::size_t sep = dstSpec.find("::");
+    if (sep == std::string::npos || sep == 0 || sep + 2 >= dstSpec.size()) {
+        log("GSA level skip for " + ds + ": invalid destination " + dstSpec);
+        return;
+    }
+    const std::string dstDataset = dstSpec.substr(sep + 2);
+    if (dstDataset.empty()) {
+        log("GSA level skip for " + ds + ": empty destination dataset in " + dstSpec);
+        return;
+    }
+
+    const bool isLocal = (target.mode == "local");
+    std::string recvOpts = "-u";
+    std::string sendOpts = "-wLEc";
+    if (recursive) { recvOpts = "-u -s"; sendOpts = "-wLEcR"; }
+
+    // Check if destination dataset exists and get its latest snapshot.
+    std::string baseSnap;
+    bool targetExists = false;
+    if (isLocal) {
+        const ExecResult chk = runExecCapture("zfs",
+            {"list", "-H", "-o", "name", dstDataset});
+        targetExists = (chk.rc == 0);
+        if (targetExists) {
+            const ExecResult snaps = runExecCapture("zfs",
+                {"list", "-H", "-t", "snapshot", "-o", "name", "-s", "creation", "-d", "1", dstDataset});
+            if (snaps.rc == 0 && !trim(snaps.out).empty()) {
+                const std::vector<std::string> lines = splitLines(snaps.out);
+                for (int i = static_cast<int>(lines.size()) - 1; i >= 0; --i) {
+                    const std::string l = trim(lines[static_cast<std::size_t>(i)]);
+                    if (!l.empty()) { baseSnap = l.substr(dstDataset.size() + 1); break; }
+                }
+            }
+        }
+    } else {
+        if (gsaRunViaSsh(target, "true") != 0) {
+            log("GSA level skip for " + ds + ": SSH not available to " + target.host);
+            return;
+        }
+        const int chkRc = gsaRunViaSsh(target,
+            "zfs list -H -o name " + dstDataset + " >/dev/null 2>&1");
+        targetExists = (chkRc == 0);
+        if (targetExists) {
+            std::vector<std::string> sshArgs;
+            sshArgs.push_back("-o"); sshArgs.push_back("BatchMode=yes");
+            sshArgs.push_back("-o"); sshArgs.push_back("ConnectTimeout=10");
+            sshArgs.push_back("-o"); sshArgs.push_back("LogLevel=ERROR");
+            if (!target.knownHostsFile.empty()) {
+                sshArgs.push_back("-o"); sshArgs.push_back("StrictHostKeyChecking=yes");
+                sshArgs.push_back("-o"); sshArgs.push_back("UserKnownHostsFile=" + target.knownHostsFile);
+            }
+            if (!target.port.empty()) { sshArgs.push_back("-p"); sshArgs.push_back(target.port); }
+            if (!target.key.empty())  { sshArgs.push_back("-i"); sshArgs.push_back(target.key); }
+            sshArgs.push_back(target.user + "@" + target.host);
+            sshArgs.push_back("zfs list -H -t snapshot -o name -s creation -d 1 " + dstDataset + " 2>/dev/null");
+            const ExecResult snaps = runExecCapture("ssh", sshArgs);
+            if (snaps.rc == 0 && !trim(snaps.out).empty()) {
+                const std::vector<std::string> lines = splitLines(snaps.out);
+                for (int i = static_cast<int>(lines.size()) - 1; i >= 0; --i) {
+                    const std::string l = trim(lines[static_cast<std::size_t>(i)]);
+                    if (!l.empty()) { baseSnap = l.substr(dstDataset.size() + 1); break; }
+                }
+            }
+        }
+    }
+
+    if (!baseSnap.empty()) {
+        if (baseSnap.compare(0, 4, "GSA-") != 0) {
+            log("GSA level error for " + ds + ": destination has manual snapshots (" + dstDataset + "@" + baseSnap + ")");
+            return;
+        }
+        const ExecResult chkSrc = runExecCapture("zfs",
+            {"list", "-H", "-t", "snapshot", "-o", "name", ds + "@" + baseSnap});
+        if (chkSrc.rc != 0) {
+            log("GSA level skip for " + ds + ": base snapshot " + baseSnap + " not in source");
+            return;
+        }
+        recvOpts = isLocal ? "-u -F" : "-u -F";
+        if (recursive) recvOpts = "-u -s -F";
+    }
+
+    std::string recvCmd;
+    if (target.useSudo) {
+        recvCmd = "sudo -n sh -lc 'zfs recv " + recvOpts + " " + dstDataset + "'";
+    } else {
+        recvCmd = "zfs recv " + recvOpts + " " + dstDataset;
+    }
+
+    std::string sendCmd = "zfs send " + sendOpts;
+    if (!baseSnap.empty()) sendCmd += " -i @" + baseSnap;
+    sendCmd += " " + ds + "@" + snapName;
+
+    std::string fullCmd;
+    if (isLocal) {
+        fullCmd = sendCmd + " | sh -lc '" + recvCmd + "'";
+    } else {
+        std::string sshPrefix = "ssh -o BatchMode=yes -o ConnectTimeout=10 -o LogLevel=ERROR";
+        if (!target.knownHostsFile.empty())
+            sshPrefix += " -o StrictHostKeyChecking=yes -o UserKnownHostsFile=" + target.knownHostsFile;
+        if (!target.port.empty()) sshPrefix += " -p " + target.port;
+        if (!target.key.empty())  sshPrefix += " -i " + target.key;
+        sshPrefix += " " + target.user + "@" + target.host;
+        fullCmd = sendCmd + " | " + sshPrefix + " " + recvCmd;
+    }
+
+    log("GSA level start for " + ds + " -> " + dstDataset);
+    const int rc = std::system(fullCmd.c_str()); // NOLINT
+    if (rc != 0)
+        log("GSA level error for " + ds + ": exit " + std::to_string(rc));
+    else
+        log("GSA level done for " + ds + " -> " + dstDataset);
+}
+
+void gsaRunOnce(const std::function<void(const std::string&)>& log) {
+    // Load GSA conf; skip silently if not configured.
+    std::ifstream confCheck(kGsaConfPath);
+    if (!confCheck.is_open()) return;
+    confCheck.close();
+
+    const GsaConf conf  = gsaLoadConf();
+    const KVMap connKv  = gsaReadKV(conf.connectionsFile);
+    const std::string selfConn = [&]() -> std::string {
+        const auto it = connKv.find("SELF_CONNECTION");
+        return (it != connKv.end()) ? it->second : "local";
+    }();
+
+    const ExecResult dsResult = runExecCapture("zfs", {"list", "-H", "-o", "name", "-t", "filesystem"});
+    if (dsResult.rc != 0 || trim(dsResult.out).empty()) return;
+
+    const GsaTimeFields tf = gsaLocalTimeFields();
+    std::vector<std::string> processedRecursiveRoots;
+
+    auto isDescendant = [](const std::string& ds, const std::string& root) {
+        return ds.size() > root.size() + 1
+               && ds.compare(0, root.size(), root) == 0
+               && ds[root.size()] == '/';
+    };
+
+    for (const std::string& rawLine : splitLines(dsResult.out)) {
+        if (g_stop.load()) break;
+        const std::string ds = trim(rawLine);
+        if (ds.empty()) continue;
+
+        const std::string enabledVal = gsaPropValue(ds, "org.fc16.gsa:activado", /*local=*/true);
+        if (!gsaBoolOn(enabledVal)) continue;
+
+        // Skip if already covered by a recursive ancestor.
+        bool coveredByRoot = false;
+        for (const std::string& root : processedRecursiveRoots) {
+            if (isDescendant(ds, root)) { coveredByRoot = true; break; }
+        }
+        if (coveredByRoot) continue;
+
+        // Skip if a recursive GSA ancestor exists.
+        bool hasRecursiveAncestor = false;
+        std::string probe = ds;
+        while (true) {
+            const std::size_t slash = probe.rfind('/');
+            if (slash == std::string::npos) break;
+            probe = probe.substr(0, slash);
+            if (gsaBoolOn(gsaPropValue(probe, "org.fc16.gsa:activado", /*local=*/true))
+                && gsaBoolOn(gsaPropValue(probe, "org.fc16.gsa:recursivo", /*local=*/false))) {
+                hasRecursiveAncestor = true;
+                break;
+            }
+        }
+        if (hasRecursiveAncestor) continue;
+
+        const bool recursive = gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:recursivo", false));
+        const int hourly     = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:horario",   false));
+        const int daily      = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:diario",    false));
+        const int weekly     = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:semanal",   false));
+        const int monthly    = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:mensual",   false));
+        const int yearly     = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:anual",     false));
+        const bool levelOn   = gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:nivelar",  false));
+        const std::string dstSpec = gsaPropValue(ds, "org.fc16.gsa:destino",        false);
+
+        const std::vector<std::string> due = gsaDueClasses(hourly, daily, weekly, monthly, yearly, tf);
+        {
+            std::string dueStr;
+            for (const std::string& c : due) { if (!dueStr.empty()) dueStr += ','; dueStr += c; }
+            log("GSA evaluate " + ds + ": recursive=" + (recursive ? "yes" : "no")
+                + " hourly=" + std::to_string(hourly) + " daily=" + std::to_string(daily)
+                + " weekly=" + std::to_string(weekly) + " monthly=" + std::to_string(monthly)
+                + " yearly=" + std::to_string(yearly) + " due=" + dueStr);
+        }
+        if (due.empty()) continue;
+
+        // Resolve destination connection once per dataset.
+        GsaTargetConn target;
+        bool targetResolved = false;
+        if (levelOn && !dstSpec.empty()) {
+            const std::size_t sep = dstSpec.find("::");
+            if (sep != std::string::npos) {
+                const std::string connId = dstSpec.substr(0, sep);
+                targetResolved = gsaResolveTarget(connKv, connId, selfConn, target);
+                if (!targetResolved)
+                    log("GSA level skip for " + ds + ": connection not resolvable (" + connId + ")");
+            }
+        }
+
+        for (const std::string& klass : due) {
+            if (g_stop.load()) break;
+            const std::string snapName = gsaCreateSnapshot(ds, klass, recursive, log);
+            if (snapName.empty()) continue;
+            const int keep = (klass == "hourly") ? hourly
+                           : (klass == "daily")   ? daily
+                           : (klass == "weekly")  ? weekly
+                           : (klass == "monthly") ? monthly
+                           : (klass == "yearly")  ? yearly : 0;
+            gsaPruneSnapshots(ds, klass, keep, recursive, log);
+            if (levelOn && targetResolved)
+                gsaLevelSnapshot(ds, recursive, snapName, dstSpec, true, target, log);
+        }
+
+        if (recursive) processedRecursiveRoots.push_back(ds);
+    }
+}
+
+void runGsaSchedulerThread() {
+    // Wait until just after the next hour boundary, then run each hour.
+    while (!g_stop.load()) {
+        std::time_t now = std::time(nullptr);
+        std::tm tm{};
+#ifdef _WIN32
+        localtime_s(&tm, &now);
+#else
+        localtime_r(&now, &tm);
+#endif
+        // Seconds remaining until next :00:00
+        const int secsUntilHour = 3600 - (tm.tm_min * 60 + tm.tm_sec);
+        // Wait in 1-second increments so we can respond to g_stop.
+        for (int i = 0; i < secsUntilHour && !g_stop.load(); ++i)
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        if (g_stop.load()) break;
+
+        const GsaConf conf = gsaLoadConf();
+        gsaRotateLog(conf.logFile);
+        const auto log = gsaMakeLogger(conf.logFile);
+        log("GSA scheduler wake version " ZFSMGR_AGENT_VERSION_STRING);
+        try {
+            gsaRunOnce(log);
+        } catch (...) {
+            log("GSA scheduler: uncaught exception in gsaRunOnce");
+        }
+        log("GSA scheduler done");
+    }
+}
+
+
 ExecResult executeAgentCommandCapture(const std::string& cmd,
                                       const std::vector<std::string>& params,
                                       const char* argv0) {
@@ -1507,6 +2020,15 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
              params[0]});
     }
     if (cmd == "--dump-gsa-connections-conf") return runDumpGsaConnectionsConfCapture();
+    if (cmd == "--dump-gsa-log") {
+        const GsaConf conf = gsaLoadConf();
+        ExecResult lr;
+        std::ifstream f(conf.logFile);
+        if (!f.is_open()) { lr.rc = 0; return lr; }
+        std::ostringstream ss; ss << f.rdbuf();
+        lr.rc = 0; lr.out = ss.str();
+        return lr;
+    }
 
     if (cmd == "--mutate-zfs-snapshot") {
         if (params.size() < 2) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-snapshot <target> <recursive>\n"; return r; }
@@ -1795,7 +2317,8 @@ std::string makeRpcCacheKey(const std::string& cmd, const std::vector<std::strin
 std::string dumpClassForCommand(const std::string& cmd) {
     if (cmd == "--dump-zfs-get-gsa-raw-all-pools"
         || cmd == "--dump-zfs-get-gsa-raw-recursive"
-        || cmd == "--dump-gsa-connections-conf") {
+        || cmd == "--dump-gsa-connections-conf"
+        || cmd == "--dump-gsa-log") {
         return "gsa";
     }
     if (startsWith(cmd, "--dump-zfs-")) {
@@ -1914,6 +2437,8 @@ int runServeLoop() {
             }
         }
     });
+
+    std::thread gsaThread(runGsaSchedulerThread);
 
     while (!g_stop.load()) {
         const auto now = std::chrono::steady_clock::now();
@@ -2221,6 +2746,9 @@ int runServeLoop() {
     if (zedThread.joinable()) {
         zedThread.join();
     }
+    if (gsaThread.joinable()) {
+        gsaThread.join();
+    }
     close(listenFd);
     SSL_CTX_free(ctx);
     EVP_cleanup();
@@ -2439,6 +2967,13 @@ int main(int argc, char* argv[]) {
     }
     if (cmd == "--dump-gsa-connections-conf") {
         return runDumpGsaConnectionsConf();
+    }
+    if (cmd == "--dump-gsa-log") {
+        const GsaConf conf = gsaLoadConf();
+        std::ifstream f(conf.logFile);
+        if (!f.is_open()) return 0;
+        std::cout << f.rdbuf();
+        return 0;
     }
 
     if (cmd == "--dump-zfs-exists") {

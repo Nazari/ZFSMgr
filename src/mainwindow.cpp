@@ -290,16 +290,7 @@ void MainWindow::setShowAutomaticSnapshotsForTest(bool visible) {
     rebuildConnectionDetailsForTest();
 }
 
-void MainWindow::setConnectionGsaStateForTest(int connIdx, bool installed, bool active, const QString& version) {
-    if (connIdx < 0 || connIdx >= m_states.size()) {
-        return;
-    }
-    ConnectionRuntimeState& state = m_states[connIdx];
-    state.gsaInstalled = installed;
-    state.gsaActive = active;
-    if (!version.trimmed().isEmpty()) {
-        state.gsaVersion = version.trimmed();
-    }
+void MainWindow::setConnectionGsaStateForTest(int /*connIdx*/, bool /*installed*/, bool /*active*/, const QString& /*version*/) {
 }
 
 void MainWindow::configureDatasetPropertiesForTest(int connIdx,
@@ -1504,9 +1495,6 @@ void MainWindow::preloadPoolAutoSnapshotInfoForConnection(int connIdx) {
     }
     const ConnectionRuntimeState state =
         (connIdx < m_states.size()) ? m_states[connIdx] : ConnectionRuntimeState{};
-    if (!state.gsaInstalled) {
-        return;
-    }
     int startedLoads = 0;
     for (const PoolImported& pool : state.importedPools) {
         const QString trimmedPool = pool.pool.trimmed();
@@ -1759,6 +1747,34 @@ bool MainWindow::executePoolCommand(int connIdx,
     return true;
 }
 
+// QProcess::splitCommand only handles double-quoted strings; single-quoted arguments
+// (produced by shSingleQuote) would be passed to execvp with literal quote characters.
+static QStringList splitShellCommand(const QString& cmd) {
+    QStringList result;
+    QString current;
+    bool inSingle = false;
+    bool inDouble = false;
+    for (const QChar c : cmd) {
+        if (inSingle) {
+            if (c == QLatin1Char('\'')) inSingle = false;
+            else current += c;
+        } else if (inDouble) {
+            if (c == QLatin1Char('"')) inDouble = false;
+            else current += c;
+        } else if (c == QLatin1Char('\'')) {
+            inSingle = true;
+        } else if (c == QLatin1Char('"')) {
+            inDouble = true;
+        } else if (c.isSpace()) {
+            if (!current.isEmpty()) { result << current; current.clear(); }
+        } else {
+            current += c;
+        }
+    }
+    if (!current.isEmpty()) result << current;
+    return result;
+}
+
 QString MainWindow::daemonizeZpoolMutationCommand(int connIdx, const QString& rawCmd) const {
     if (connIdx < 0 || connIdx >= m_profiles.size()) {
         return QString();
@@ -1777,7 +1793,7 @@ QString MainWindow::daemonizeZpoolMutationCommand(int connIdx, const QString& ra
     if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
         return QString();
     }
-    const QStringList parts = QProcess::splitCommand(rawCmd.trimmed());
+    const QStringList parts = splitShellCommand(rawCmd.trimmed());
     if (parts.size() < 2 || parts.first().trimmed() != QStringLiteral("zpool")) {
         return QString();
     }
@@ -1816,7 +1832,7 @@ QString MainWindow::daemonizeZfsMutationCommand(int connIdx, const QString& rawC
     if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
         return QString();
     }
-    const QStringList parts = QProcess::splitCommand(rawCmd.trimmed());
+    const QStringList parts = splitShellCommand(rawCmd.trimmed());
     if (parts.size() < 2 || parts.first().trimmed() != QStringLiteral("zfs")) {
         return QString();
     }
@@ -2426,31 +2442,7 @@ QStringList MainWindow::connectionContextMenuTopLevelLabelsForTest() const {
         && m_states[connIdx].unixFromMsysOrMingw
         && m_states[connIdx].missingUnixCommands.isEmpty()
         && !m_states[connIdx].detectedUnixCommands.isEmpty();
-    const bool canManageGsa =
-        hasConn && !actionsLocked() && !isDisconnected
-        && connIdx < m_states.size()
-        && gsaMenuLabelForConnection(connIdx).compare(
-               trk(QStringLiteral("t_gsa_ok_001"),
-                   QStringLiteral("GSA actualizado y funcionando"),
-                   QStringLiteral("GSA updated and running"),
-                   QStringLiteral("GSA 已更新并运行中")),
-               Qt::CaseInsensitive) != 0;
-    const bool canUninstallGsa =
-        hasConn && !actionsLocked() && !isDisconnected
-        && connIdx < m_states.size()
-        && m_states[connIdx].gsaInstalled;
-    const zfsmgr::uilogic::ConnectionContextMenuState menuState =
-        zfsmgr::uilogic::buildConnectionContextMenuState(
-            hasConn,
-            isDisconnected,
-            actionsLocked(),
-            hasConn && isLocalConnection(connIdx),
-            hasConn && isConnectionRedirectedToLocal(connIdx),
-            hasConn && isWindowsConnection(connIdx),
-            hasWindowsUnixLayerReady,
-            canManageGsa,
-            canUninstallGsa);
-    Q_UNUSED(menuState);
+    Q_UNUSED(hasWindowsUnixLayerReady);
     return {
         trk(QStringLiteral("t_connect_ctx_001"),
             QStringLiteral("Conectar"),
@@ -2478,8 +2470,6 @@ QStringList MainWindow::connectionContextMenuTopLevelLabelsForTest() const {
             QStringLiteral("Delete"),
             QStringLiteral("删除")),
         QString(),
-        QStringLiteral("GSA"),
-        QString(),
         trk(QStringLiteral("t_new_pool_ctx_001"),
             QStringLiteral("Nuevo Pool"),
             QStringLiteral("New Pool"),
@@ -2506,23 +2496,6 @@ QStringList MainWindow::connectionRefreshMenuLabelsForTest() const {
             QStringLiteral("Todas las conexiones"),
             QStringLiteral("All connections"),
             QStringLiteral("所有连接")),
-    };
-}
-
-QStringList MainWindow::connectionGsaMenuLabelsForTest() const {
-    const int connIdx = m_topDetailConnIdx;
-    const bool hasConn = (connIdx >= 0 && connIdx < m_profiles.size());
-    const QString manageLabel = hasConn ? gsaMenuLabelForConnection(connIdx)
-                                        : trk(QStringLiteral("t_gsa_install_001"),
-                                              QStringLiteral("Instalar gestor de snapshots"),
-                                              QStringLiteral("Install snapshot manager"),
-                                              QStringLiteral("安装快照管理器"));
-    return {
-        manageLabel,
-        trk(QStringLiteral("t_gsa_uninstall_001"),
-            QStringLiteral("Desinstalar el GSA"),
-            QStringLiteral("Uninstall GSA"),
-            QStringLiteral("卸载 GSA")),
     };
 }
 
