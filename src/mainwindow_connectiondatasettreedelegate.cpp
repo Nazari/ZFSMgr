@@ -2565,6 +2565,27 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         && !item->data(0, kConnPropRowRole).toBool()
         && !item->data(0, kConnPropGroupNodeRole).toBool()
         && !item->data(0, kConnPermissionsNodeRole).toBool();
+
+    // Pre-fetch the minimal set of properties required by the context menu when they
+    // haven't been loaded yet. This ensures encryption/mount menu items are correctly
+    // enabled without requiring the user to open the properties panel first.
+    if (menuOpenedOnDatasetNode && connIdx >= 0 && !poolName.isEmpty()) {
+        const QString dsName = item->data(0, Qt::UserRole).toString().trimmed();
+        if (!dsName.isEmpty() && !dsName.contains(QLatin1Char('@'))) {
+            static const QStringList kMenuProps = {
+                QStringLiteral("type"),
+                QStringLiteral("encryptionroot"),
+                QStringLiteral("keystatus"),
+                QStringLiteral("keylocation"),
+                QStringLiteral("keyformat"),
+                QStringLiteral("mounted"),
+                QStringLiteral("canmount"),
+                QStringLiteral("mountpoint"),
+            };
+            m_mainWindow->ensureDatasetPropertySubsetLoaded(connIdx, poolName, dsName, kMenuProps);
+        }
+    }
+
     auto datasetPropFromModel = [this](const SelectionSnapshot& c, const QString& prop) -> QString {
         if (!c.valid || c.datasetName.isEmpty() || !c.snapshotName.isEmpty()) {
             return QString();
