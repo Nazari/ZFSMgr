@@ -346,7 +346,6 @@ Important characteristics:
 
 - User config location: `~/.config/ZFSMgr/` on Linux (Qt-equivalent path on macOS/Windows).
 - Main config file: `config.ini`.
-- One file per connection: `conn_*.ini`.
 - Master password used to protect credentials in configuration.
 
 Persistent configuration includes, among other things:
