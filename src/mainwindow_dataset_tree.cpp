@@ -5105,7 +5105,10 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
     };
 
     auto listOrNone = [&](const QStringList& values) -> QString {
-        return values.isEmpty() ? QStringLiteral("(ninguno)")
+        return values.isEmpty() ? trk(QStringLiteral("t_none_001"),
+                                      QStringLiteral("(ninguno)"),
+                                      QStringLiteral("(none)"),
+                                      QStringLiteral("(无)"))
                                 : values.join(QStringLiteral(", "));
     };
     const QString statusText = st.status.trimmed().isEmpty() ? QStringLiteral("-") : st.status.trimmed();
@@ -5123,29 +5126,87 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
                                        ? QStringLiteral("-")
                                        : QStringLiteral("%1%2")
                                              .arg(st.helperPackageManagerLabel.trimmed(),
-                                                  st.helperPackageManagerDetected ? QStringLiteral(" (detectado)")
-                                                                                  : QStringLiteral(" (no detectado)"));
+                                                  st.helperPackageManagerDetected
+                                                      ? trk(QStringLiteral("t_detected_001"),
+                                                            QStringLiteral(" (detectado)"),
+                                                            QStringLiteral(" (detected)"),
+                                                            QStringLiteral(" (已检测)"))
+                                                      : trk(QStringLiteral("t_not_detected_001"),
+                                                            QStringLiteral(" (no detectado)"),
+                                                            QStringLiteral(" (not detected)"),
+                                                            QStringLiteral(" (未检测)")));
     QVector<QPair<QString, QString>> infoProps = {
-        {QStringLiteral("Estado"), statusText},
-        {QStringLiteral("Sistema operativo"), osText},
-        {QStringLiteral("Método de conexión"), methodText},
+        {trk(QStringLiteral("t_status_001"),
+             QStringLiteral("Estado"),
+             QStringLiteral("Status"),
+             QStringLiteral("状态")),
+         statusText},
+        {trk(QStringLiteral("t_os_001"),
+             QStringLiteral("Sistema operativo"),
+             QStringLiteral("Operating system"),
+             QStringLiteral("操作系统")),
+         osText},
+        {trk(QStringLiteral("t_conn_method_001"),
+             QStringLiteral("Método de conexión"),
+             QStringLiteral("Connection method"),
+             QStringLiteral("连接方式")),
+         methodText},
         {QStringLiteral("OpenZFS"), zfsText},
-        {QStringLiteral("Plataforma instalación auxiliar"),
+        {trk(QStringLiteral("t_helper_platform_001"),
+             QStringLiteral("Plataforma instalación auxiliar"),
+             QStringLiteral("Helper install platform"),
+             QStringLiteral("辅助安装平台")),
          st.helperPlatformLabel.trimmed().isEmpty() ? QStringLiteral("-") : st.helperPlatformLabel.trimmed()},
-        {QStringLiteral("Gestor de paquetes"), packageMgrText},
-        {QStringLiteral("Instalación asistida"), st.helperInstallSupported ? QStringLiteral("sí") : QStringLiteral("no")},
-        {QStringLiteral("Comandos instalables desde ZFSMgr"), listOrNone(st.helperInstallableCommands)},
-        {QStringLiteral("Comandos no soportados por instalador"), listOrNone(st.helperUnsupportedCommands)}
+        {trk(QStringLiteral("t_package_manager_001"),
+             QStringLiteral("Gestor de paquetes"),
+             QStringLiteral("Package manager"),
+             QStringLiteral("包管理器")),
+         packageMgrText},
+        {trk(QStringLiteral("t_assisted_install_001"),
+             QStringLiteral("Instalación asistida"),
+             QStringLiteral("Assisted install"),
+             QStringLiteral("辅助安装")),
+         st.helperInstallSupported
+             ? trk(QStringLiteral("t_yes_001"),
+                   QStringLiteral("sí"),
+                   QStringLiteral("yes"),
+                   QStringLiteral("是"))
+             : trk(QStringLiteral("t_no_001"),
+                   QStringLiteral("no"),
+                   QStringLiteral("no"),
+                   QStringLiteral("否"))},
+        {trk(QStringLiteral("t_installable_commands_001"),
+             QStringLiteral("Comandos instalables desde ZFSMgr"),
+             QStringLiteral("Commands installable from ZFSMgr"),
+             QStringLiteral("可由 ZFSMgr 安装的命令")),
+         listOrNone(st.helperInstallableCommands)},
+        {trk(QStringLiteral("t_unsupported_installer_commands_001"),
+             QStringLiteral("Comandos no soportados por instalador"),
+             QStringLiteral("Commands not supported by installer"),
+             QStringLiteral("安装器不支持的命令")),
+         listOrNone(st.helperUnsupportedCommands)}
     };
     if (!colorReason.isEmpty()) {
-        infoProps.insert(1, {QStringLiteral("Motivo del color"), colorReason});
+        infoProps.insert(1,
+                         {trk(QStringLiteral("t_color_reason_001"),
+                              QStringLiteral("Motivo del color"),
+                              QStringLiteral("Color reason"),
+                              QStringLiteral("颜色原因")),
+                          colorReason});
     }
     if (!st.helperInstallReason.trimmed().isEmpty()) {
-        infoProps.push_back({QStringLiteral("Motivo instalación asistida"), st.helperInstallReason.trimmed()});
+        infoProps.push_back({trk(QStringLiteral("t_assisted_install_reason_001"),
+                                 QStringLiteral("Motivo instalación asistida"),
+                                 QStringLiteral("Assisted install reason"),
+                                 QStringLiteral("辅助安装原因")),
+                             st.helperInstallReason.trimmed()});
     }
     if (st.commandsLayer.trimmed().compare(QStringLiteral("Powershell"), Qt::CaseInsensitive) == 0
         && !st.powershellFallbackCommands.isEmpty()) {
-        infoProps.push_back({QStringLiteral("Comandos PowerShell usados"),
+        infoProps.push_back({trk(QStringLiteral("t_powershell_commands_used_001"),
+                                 QStringLiteral("Comandos PowerShell usados"),
+                                 QStringLiteral("PowerShell commands used"),
+                                 QStringLiteral("已使用的 PowerShell 命令")),
                              st.powershellFallbackCommands.join(QStringLiteral(", "))});
     }
     auto* generalNode = new QTreeWidgetItem(infoNode);
@@ -5748,7 +5809,11 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             }
             snaps = filtered;
         }
-        item->setText(1, snaps.isEmpty() ? QString() : QStringLiteral("(ninguno)"));
+        item->setText(1, snaps.isEmpty() ? QString()
+                                         : trk(QStringLiteral("t_none_001"),
+                                               QStringLiteral("(ninguno)"),
+                                               QStringLiteral("(none)"),
+                                               QStringLiteral("(无)")));
         item->setData(1, Qt::UserRole, QString());
         item->setData(0, Qt::UserRole, fullName);
         item->setData(1, kSnapshotListRole, snaps);
@@ -5810,7 +5875,10 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         }
         if (!effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
             auto* contentNode = new QTreeWidgetItem(item);
-            contentNode->setText(0, QStringLiteral("Contenido"));
+            contentNode->setText(0, trk(QStringLiteral("t_content_node_001"),
+                                        QStringLiteral("Contenido"),
+                                        QStringLiteral("Content"),
+                                        QStringLiteral("内容")));
             contentNode->setIcon(0, contentNodeIcon());
             contentNode->setData(0, kConnFileBrowserNodeRole, true);
             contentNode->setData(0, kConnFileBrowserPathRole, effectiveMp);
@@ -5874,7 +5942,10 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                 if (!effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
                     const QString snapPath = effectiveMp + QStringLiteral("/.zfs/snapshot/") + snapName.trimmed();
                     auto* snapContentNode = new QTreeWidgetItem(snapItem);
-                    snapContentNode->setText(0, QStringLiteral("Contenido"));
+                    snapContentNode->setText(0, trk(QStringLiteral("t_content_node_001"),
+                                                    QStringLiteral("Contenido"),
+                                                    QStringLiteral("Content"),
+                                                    QStringLiteral("内容")));
                     snapContentNode->setIcon(0, contentNodeIcon());
                     snapContentNode->setData(0, kConnFileBrowserNodeRole, true);
                     snapContentNode->setData(0, kConnFileBrowserPathRole, snapPath);
