@@ -3223,10 +3223,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             return;
         }
         if (picked == aLoadKey || picked == aUnloadKey || picked == aChangeKey) {
-            auto shQuote = [](QString s) {
-                s.replace('\'', QStringLiteral("'\"'\"'"));
-                return QStringLiteral("'%1'").arg(s);
-            };
             QString actionName;
             QString cmd;
             QByteArray stdinPayload;
@@ -3235,17 +3231,17 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                                                QStringLiteral("Cargar clave"),
                                                QStringLiteral("Load key"),
                                                QStringLiteral("加载密钥"));
-                cmd = QStringLiteral("zfs load-key %1").arg(shQuote(ctx.datasetName));
+                cmd = QStringLiteral("zfs load-key %1").arg(ctx.datasetName);
             } else if (picked == aUnloadKey) {
                 actionName = QStringLiteral("Unload key");
-                cmd = QStringLiteral("zfs unload-key %1").arg(shQuote(ctx.datasetName));
+                cmd = QStringLiteral("zfs unload-key %1").arg(ctx.datasetName);
             } else {
                 actionName = QStringLiteral("Change key");
                 cmd = QStringLiteral("zfs change-key -o keylocation=prompt%1 %2")
                           .arg(keyFormat == QStringLiteral("passphrase")
                                    ? QStringLiteral(" -o keyformat=passphrase")
                                    : QString(),
-                               shQuote(ctx.datasetName));
+                               ctx.datasetName);
             }
             if (picked == aChangeKey) {
                 QString newPassphrase;
