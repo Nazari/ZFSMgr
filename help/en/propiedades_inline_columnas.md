@@ -14,7 +14,7 @@ ZFSMgr shows dataset and pool properties directly inside the unified tree.
 - On connections, under `Connection properties`.
 - On connections, `Info` is grouped into:
   - `General`
-  - `GSA`
+  - `Daemon`
   - `Commands`
 
 ## Visual layout

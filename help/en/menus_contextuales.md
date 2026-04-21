@@ -16,7 +16,7 @@ ZFSMgr uses context menus on the unified tree.
   - `Edit`
   - `Delete`
   - separator
-  - `GSA`
+  - `Daemon`
   - separator
   - `New pool`
   - separator
@@ -24,6 +24,10 @@ ZFSMgr uses context menus on the unified tree.
   - separator
   - `Install MSYS2`
   - `Install helper commands`
+
+`Daemon` includes:
+- `Install/update daemon` (or `Daemon updated and running` when already up to date)
+- `Uninstall daemon`
 
 ## On the merged pool root
 

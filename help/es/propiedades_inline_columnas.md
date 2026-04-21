@@ -14,7 +14,7 @@ ZFSMgr muestra propiedades de dataset y pool directamente dentro del árbol unif
 - En conexiones, bajo `Propiedades de conexión`.
 - En conexiones, `Info` agrupa:
   - `General`
-  - `GSA`
+  - `Daemon`
   - `Commands`
 
 ## Visualización
