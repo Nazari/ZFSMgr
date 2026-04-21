@@ -11,6 +11,9 @@ PLATFORMS="${BUILD_PLATFORMS:-linux,windows,freebsd,macos}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
 MACOS_ARCHES="${MACOS_ARCHES:-amd64,arm64}"
 WINDOWS_INSTALLER="${WINDOWS_INSTALLER:-1}"
+FREEBSD_PKG_OSMAJOR="${FREEBSD_PKG_OSMAJOR:-15}"
+FREEBSD_PKG_ABI="${FREEBSD_PKG_ABI:-FreeBSD:${FREEBSD_PKG_OSMAJOR}:amd64}"
+FREEBSD_PKG_ARCH="${FREEBSD_PKG_ARCH:-freebsd:${FREEBSD_PKG_OSMAJOR}:x86:64}"
 
 usage() {
   cat <<'EOF'
@@ -342,12 +345,79 @@ inject_agent_bundle_into_macos_app() {
 
 package_freebsd_with_agent_bundle() {
   local out_pkg="$1"
-  local stage
+  local stage payload manifest compact
   stage="$(mktemp -d "/tmp/zfsmgr-fbsd-pkg.XXXXXX")"
-  cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_qt" "${stage}/zfsmgr_qt"
-  mkdir -p "${stage}/agents"
-  cp -a "${AGENT_BUNDLE_DIR}/." "${stage}/agents/"
-  tar -C "${stage}" -czf "${out_pkg}" zfsmgr_qt agents
+  payload="${stage}/payload"
+  manifest="${stage}/+MANIFEST"
+  compact="${stage}/+COMPACT_MANIFEST"
+  mkdir -p "${payload}/usr/local/bin" "${payload}/usr/local/share/zfsmgr/agents"
+
+  cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_qt" "${payload}/usr/local/bin/zfsmgr_qt"
+  cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_agent" "${payload}/usr/local/bin/zfsmgr_agent"
+  chmod 0755 "${payload}/usr/local/bin/zfsmgr_qt" "${payload}/usr/local/bin/zfsmgr_agent" || true
+  cp -a "${AGENT_BUNDLE_DIR}/." "${payload}/usr/local/share/zfsmgr/agents/"
+
+  python3 - "${payload}" "${APP_VERSION}" "${manifest}" "${compact}" <<'PY'
+import hashlib
+import json
+import os
+import sys
+
+payload_root = os.path.abspath(sys.argv[1])
+version = sys.argv[2]
+manifest_path = sys.argv[3]
+compact_path = sys.argv[4]
+abi = os.environ.get("FREEBSD_PKG_ABI", "FreeBSD:15:amd64")
+arch = os.environ.get("FREEBSD_PKG_ARCH", "freebsd:15:x86:64")
+
+entries = {}
+flatsize = 0
+
+for root, _, files in os.walk(payload_root):
+    for name in files:
+        full = os.path.join(root, name)
+        rel = os.path.relpath(full, payload_root).replace(os.sep, '/')
+        pkg_path = '/' + rel
+        with open(full, 'rb') as fh:
+            data = fh.read()
+        flatsize += len(data)
+        digest = "1$" + hashlib.sha256(data).hexdigest()
+        # Formato de máxima compatibilidad para pkg:
+        # mapa files: path -> checksum (string).
+        entries[pkg_path] = digest
+        entries["/" + pkg_path] = digest
+
+common = {
+    "name": "zfsmgr",
+    "origin": "sysutils/zfsmgr",
+    "version": version,
+    "comment": "Cross-platform OpenZFS GUI manager",
+    "maintainer": "linarese@localdomain",
+    "www": "https://github.com/Nazari/ZFSMgr",
+    "abi": abi,
+    "arch": arch,
+    "prefix": "/usr/local",
+    "flatsize": flatsize,
+    "desc": "ZFSMgr is a cross-platform GUI manager for OpenZFS."
+}
+
+full_manifest = dict(common)
+full_manifest["files"] = dict(sorted(entries.items()))
+
+with open(manifest_path, "w", encoding="utf-8") as fh:
+    json.dump(full_manifest, fh, ensure_ascii=False, separators=(",", ":"))
+
+with open(compact_path, "w", encoding="utf-8") as fh:
+    json.dump(common, fh, ensure_ascii=False, separators=(",", ":"))
+PY
+
+  # Formato pkg: +MANIFEST/+COMPACT_MANIFEST en raíz y payload con rutas //usr/...
+  local file_list="${stage}/payload-files-abs.list"
+  find "${payload}/usr" \( -type f -o -type l \) | sort > "${file_list}"
+  tar -cJf "${out_pkg}" \
+    -C "${stage}" +COMPACT_MANIFEST +MANIFEST \
+    --transform "s#^${payload}#/#" \
+    -P -T "${file_list}"
   rm -rf "${stage}"
 }
 
