@@ -120,6 +120,7 @@ bool containsAnyToken(const QString& haystackLower, const QStringList& needles) 
 
 struct DaemonMutationPlan {
     bool matched{false};
+    bool embedsStdin{false};
     QString daemonCmd;
 };
 
@@ -147,7 +148,7 @@ bool isAllowedGenericZfsMutationOpClient(const QString& opRaw) {
     return allowed.contains(op);
 }
 
-DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd) {
+DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QByteArray& stdinPayload = {}) {
     DaemonMutationPlan plan;
     const QString trimmedRaw = rawCmd.trimmed();
 
@@ -265,6 +266,39 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd) {
                                   force ? QStringLiteral("1") : QStringLiteral("0"),
                                   shSingleQuote(recursiveMode));
         return plan;
+    }
+
+    // load-key with passphrase in stdin: route via --mutate-zfs-load-key
+    if (op == QStringLiteral("load-key") && !stdinPayload.isEmpty()) {
+        const QString target = lastTarget().trimmed();
+        if (!target.isEmpty()) {
+            const QString datasetB64  = QString::fromLatin1(target.toUtf8().toBase64());
+            const QString passphraseB64 = QString::fromLatin1(stdinPayload.toBase64());
+            plan.matched = true;
+            plan.embedsStdin = true;
+            plan.daemonCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-load-key %1 %2")
+                                 .arg(shSingleQuote(datasetB64), shSingleQuote(passphraseB64));
+            return plan;
+        }
+    }
+
+    // change-key with passphrase in stdin: route via --mutate-zfs-change-key
+    if (op == QStringLiteral("change-key") && !stdinPayload.isEmpty()) {
+        const QString target = lastTarget().trimmed();
+        if (!target.isEmpty()) {
+            QStringList flagTokens;
+            for (int i = 2; i < parts.size() - 1; ++i) {
+                flagTokens << parts.at(i);
+            }
+            const QString datasetB64  = QString::fromLatin1(target.toUtf8().toBase64());
+            const QString passphraseB64 = QString::fromLatin1(stdinPayload.toBase64());
+            const QString flagsB64 = QString::fromLatin1(flagTokens.join(QLatin1Char(' ')).toUtf8().toBase64());
+            plan.matched = true;
+            plan.embedsStdin = true;
+            plan.daemonCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-change-key %1 %2 %3")
+                                 .arg(shSingleQuote(datasetB64), shSingleQuote(passphraseB64), shSingleQuote(flagsB64));
+            return plan;
+        }
     }
 
     if (isAllowedGenericZfsMutationOpClient(op)) {
@@ -605,14 +639,17 @@ bool MainWindow::executeDatasetAction(const QString& side,
     const bool usesStreamInput = !stdinPayload.isEmpty();
     QString effectiveCmd =
         isWindowsConnection(p) ? cmd : mwhelpers::withUnixSearchPathCommand(cmd);
-    if (!usesStreamInput && daemonMutateApiOk) {
-        const DaemonMutationPlan mutatePlan = daemonMutationPlanForCommand(cmd);
+    bool embeddedStdin = false;
+    if (daemonMutateApiOk) {
+        const DaemonMutationPlan mutatePlan = daemonMutationPlanForCommand(cmd, stdinPayload);
         if (mutatePlan.matched && !mutatePlan.daemonCmd.trimmed().isEmpty()) {
             effectiveCmd = mwhelpers::withUnixSearchPathCommand(mutatePlan.daemonCmd);
+            embeddedStdin = mutatePlan.embedsStdin;
         }
     }
-    QString remoteCmd = usesStreamInput ? withSudoStreamInput(sudoProfile, effectiveCmd)
-                                        : withSudo(sudoProfile, effectiveCmd);
+    const bool effectivelyStreamInput = usesStreamInput && !embeddedStdin;
+    QString remoteCmd = effectivelyStreamInput ? withSudoStreamInput(sudoProfile, effectiveCmd)
+                                               : withSudo(sudoProfile, effectiveCmd);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(QStringLiteral("%1@%2:%3").arg(p.username, p.host).arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
                                 .arg(buildSshPreviewCommand(p, remoteCmd));
@@ -650,9 +687,10 @@ bool MainWindow::executeDatasetAction(const QString& side,
     };
     const bool withRealtimeProgress =
         (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction || isFromDirAction || isToDirAction);
+    const QByteArray effectiveStdin = embeddedStdin ? QByteArray{} : stdinPayload;
     const bool ok = withRealtimeProgress
-                        ? runSsh(p, remoteCmd, timeoutMs, out, err, rc, progressLogger, progressLogger, {}, WindowsCommandMode::Auto, stdinPayload)
-                        : runSsh(p, remoteCmd, timeoutMs, out, err, rc, {}, {}, {}, WindowsCommandMode::Auto, stdinPayload);
+                        ? runSsh(p, remoteCmd, timeoutMs, out, err, rc, progressLogger, progressLogger, {}, WindowsCommandMode::Auto, effectiveStdin)
+                        : runSsh(p, remoteCmd, timeoutMs, out, err, rc, {}, {}, {}, WindowsCommandMode::Auto, effectiveStdin);
     if (!ok || rc != 0) {
         if (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction || isFromDirAction || isToDirAction) {
             if (!loggedProgressRealtime) {

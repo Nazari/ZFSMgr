@@ -782,6 +782,75 @@ ExecResult runExecCapture(const std::string& program, const std::vector<std::str
 #endif
 }
 
+#ifndef _WIN32
+static ExecResult runExecCaptureWithStdin(const std::string& program,
+                                           const std::vector<std::string>& args,
+                                           const std::string& stdinData) {
+    ExecResult r;
+    int inPipe[2]  = {-1, -1};
+    int outPipe[2] = {-1, -1};
+    int errPipe[2] = {-1, -1};
+    if (pipe(inPipe) != 0 || pipe(outPipe) != 0 || pipe(errPipe) != 0) {
+        r.rc = 125; r.err = "pipe failed\n";
+        for (int fd : {inPipe[0], inPipe[1], outPipe[0], outPipe[1], errPipe[0], errPipe[1]}) {
+            if (fd >= 0) close(fd);
+        }
+        return r;
+    }
+    std::vector<char*> argv;
+    argv.reserve(args.size() + 2);
+    argv.push_back(const_cast<char*>(program.c_str()));
+    for (const std::string& a : args) argv.push_back(const_cast<char*>(a.c_str()));
+    argv.push_back(nullptr);
+
+    const pid_t pid = fork();
+    if (pid < 0) {
+        r.rc = 125; r.err = "fork failed\n";
+        for (int fd : {inPipe[0], inPipe[1], outPipe[0], outPipe[1], errPipe[0], errPipe[1]}) close(fd);
+        return r;
+    }
+    if (pid == 0) {
+        dup2(inPipe[0],  STDIN_FILENO);
+        dup2(outPipe[1], STDOUT_FILENO);
+        dup2(errPipe[1], STDERR_FILENO);
+        for (int fd : {inPipe[0], inPipe[1], outPipe[0], outPipe[1], errPipe[0], errPipe[1]}) close(fd);
+        execvp(program.c_str(), argv.data());
+        std::perror("execvp"); _exit(127);
+    }
+    close(inPipe[0]); close(outPipe[1]); close(errPipe[1]);
+
+    // Write stdin data, then close write end so child sees EOF
+    if (!stdinData.empty()) {
+        std::size_t written = 0;
+        while (written < stdinData.size()) {
+            const ssize_t n = write(inPipe[1], stdinData.data() + written, stdinData.size() - written);
+            if (n < 0) { if (errno == EINTR) continue; break; }
+            written += static_cast<std::size_t>(n);
+        }
+    }
+    close(inPipe[1]);
+
+    auto readAllFd = [](int fd) {
+        std::string out; char buf[4096];
+        while (true) {
+            const ssize_t n = read(fd, buf, sizeof(buf));
+            if (n == 0) break;
+            if (n < 0) { if (errno == EINTR) continue; break; }
+            out.append(buf, static_cast<std::size_t>(n));
+        }
+        return out;
+    };
+    r.out = readAllFd(outPipe[0]);
+    r.err = readAllFd(errPipe[0]);
+    close(outPipe[0]); close(errPipe[0]);
+
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0) { r.rc = 125; r.err += "\nwaitpid failed"; return r; }
+    r.rc = decodeWaitStatus(status);
+    return r;
+}
+#endif
+
 bool startsWith(const std::string& s, const std::string& pref) {
     return s.size() >= pref.size() && s.compare(0, pref.size(), pref) == 0;
 }
@@ -2222,6 +2291,42 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
 #endif
         return runExecCapture("zfs", {"clone", params[0], params[1]});
     }
+    if (cmd == "--mutate-zfs-load-key") {
+#ifndef _WIN32
+        if (params.size() < 2) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-load-key <dataset-b64> <passphrase-b64>\n"; return r; }
+        std::string dataset, passphrase;
+        if (!decodeBase64(params[0], dataset) || !decodeBase64(params[1], passphrase)) {
+            r.rc = 2; r.err = "invalid base64 argument\n"; return r;
+        }
+        dataset = trim(dataset);
+        if (dataset.empty()) { r.rc = 2; r.err = "empty dataset\n"; return r; }
+        return runExecCaptureWithStdin("zfs", {"load-key", dataset}, passphrase + "\n");
+#else
+        r.rc = 2; r.err = "not supported on Windows\n"; return r;
+#endif
+    }
+    if (cmd == "--mutate-zfs-change-key") {
+#ifndef _WIN32
+        if (params.size() < 3) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-change-key <dataset-b64> <passphrase-b64> <flags-b64>\n"; return r; }
+        std::string dataset, passphrase, flagsStr;
+        if (!decodeBase64(params[0], dataset) || !decodeBase64(params[1], passphrase) || !decodeBase64(params[2], flagsStr)) {
+            r.rc = 2; r.err = "invalid base64 argument\n"; return r;
+        }
+        dataset = trim(dataset);
+        flagsStr = trim(flagsStr);
+        if (dataset.empty()) { r.rc = 2; r.err = "empty dataset\n"; return r; }
+        std::vector<std::string> changeArgs = {"change-key"};
+        {
+            std::istringstream iss(flagsStr);
+            std::string tok;
+            while (iss >> tok) changeArgs.push_back(tok);
+        }
+        changeArgs.push_back(dataset);
+        return runExecCaptureWithStdin("zfs", changeArgs, passphrase + "\n" + passphrase + "\n");
+#else
+        r.rc = 2; r.err = "not supported on Windows\n"; return r;
+#endif
+    }
     if (cmd == "--mutate-zfs-generic") {
         if (params.size() < 1) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-zfs-generic <payload-b64>\n"; return r; }
         return runGenericMutationCapture("zfs", params[0]);
@@ -3298,6 +3403,48 @@ int main(int argc, char* argv[]) {
         if (lr.rc == 0) return 0;
 #endif
         return runExecStreaming("zfs", {"clone", args[2], args[3]});
+    }
+    if (cmd == "--mutate-zfs-load-key") {
+#ifndef _WIN32
+        if (args.size() < 4) { printUsage(args[0].c_str()); return 2; }
+        std::string dataset, passphrase;
+        if (!decodeBase64(args[2], dataset) || !decodeBase64(args[3], passphrase)) {
+            std::cerr << "invalid base64 argument\n"; return 2;
+        }
+        dataset = trim(dataset);
+        if (dataset.empty()) { std::cerr << "empty dataset\n"; return 2; }
+        const ExecResult e = runExecCaptureWithStdin("zfs", {"load-key", dataset}, passphrase + "\n");
+        if (!e.out.empty()) std::cout << e.out;
+        if (!e.err.empty()) std::cerr << e.err;
+        return e.rc;
+#else
+        std::cerr << "not supported on Windows\n"; return 2;
+#endif
+    }
+    if (cmd == "--mutate-zfs-change-key") {
+#ifndef _WIN32
+        if (args.size() < 5) { printUsage(args[0].c_str()); return 2; }
+        std::string dataset, passphrase, flagsStr;
+        if (!decodeBase64(args[2], dataset) || !decodeBase64(args[3], passphrase) || !decodeBase64(args[4], flagsStr)) {
+            std::cerr << "invalid base64 argument\n"; return 2;
+        }
+        dataset = trim(dataset);
+        flagsStr = trim(flagsStr);
+        if (dataset.empty()) { std::cerr << "empty dataset\n"; return 2; }
+        std::vector<std::string> changeArgs = {"change-key"};
+        {
+            std::istringstream iss(flagsStr);
+            std::string tok;
+            while (iss >> tok) changeArgs.push_back(tok);
+        }
+        changeArgs.push_back(dataset);
+        const ExecResult e = runExecCaptureWithStdin("zfs", changeArgs, passphrase + "\n" + passphrase + "\n");
+        if (!e.out.empty()) std::cout << e.out;
+        if (!e.err.empty()) std::cerr << e.err;
+        return e.rc;
+#else
+        std::cerr << "not supported on Windows\n"; return 2;
+#endif
     }
     if (cmd == "--mutate-zfs-generic") {
         if (args.size() < 3) {
