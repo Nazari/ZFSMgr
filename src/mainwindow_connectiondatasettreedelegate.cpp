@@ -3336,41 +3336,16 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             if (!actx.valid || actx.datasetName.trimmed().isEmpty() || !actx.snapshotName.trimmed().isEmpty()) {
                 return;
             }
-            QString q = actx.datasetName.trimmed();
-            q.replace('\'', "'\"'\"'");
-            const QString cmd = QStringLiteral("zfs mount '%1'").arg(q);
-            ConnectionProfile cp = m_mainWindow->m_profiles[actx.connIdx];
-            if (m_mainWindow->isLocalConnection(cp) && !m_mainWindow->isWindowsConnection(cp)) {
-                cp.useSudo = true;
-                if (!m_mainWindow->ensureLocalSudoCredentials(cp)) {
-                    m_mainWindow->appLog(QStringLiteral("INFO"), QStringLiteral("Mount cancelado: faltan credenciales sudo locales"));
-                    return;
-                }
-            }
-            const QString fullCmd = m_mainWindow->sshExecFromLocal(cp, m_mainWindow->withSudo(cp, cmd));
-            MainWindow::DatasetSelectionContext refreshTarget;
-            refreshTarget.valid = true;
-            refreshTarget.connIdx = actx.connIdx;
-            refreshTarget.poolName = actx.poolName;
-            refreshTarget.datasetName = actx.datasetName;
-            const QString connLabel = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
-            QString errorText;
-            if (!m_mainWindow->queuePendingShellAction(MainWindow::PendingShellActionDraft{
-                    QStringLiteral("%1::%2").arg(connLabel, actx.poolName),
-                    QStringLiteral("Mount dataset %1").arg(actx.datasetName),
-                    fullCmd,
-                    90000,
-                    false,
-                    {},
-                    refreshTarget,
-                    MainWindow::PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
-                QMessageBox::warning(m_mainWindow, QStringLiteral("ZFSMgr"), errorText);
-                return;
-            }
-            m_mainWindow->appLog(QStringLiteral("NORMAL"),
-                                 QStringLiteral("Cambio pendiente añadido: %1::%2  Mount dataset %3")
-                                     .arg(connLabel, actx.poolName, actx.datasetName));
-            m_mainWindow->updateApplyPropsButtonState();
+            MainWindow::DatasetSelectionContext mwCtx;
+            mwCtx.valid = true;
+            mwCtx.connIdx = actx.connIdx;
+            mwCtx.poolName = actx.poolName;
+            mwCtx.datasetName = actx.datasetName;
+            const QString cmd = QStringLiteral("zfs mount %1").arg(actx.datasetName.trimmed());
+            m_mainWindow->executeDatasetAction(
+                QStringLiteral("conncontent"),
+                QStringLiteral("Mount dataset %1").arg(actx.datasetName),
+                mwCtx, cmd, 90000);
             return;
         }
         if (picked == aSplitVertical || picked == aSplitHorizontal

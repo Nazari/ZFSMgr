@@ -1592,8 +1592,7 @@ void MainWindow::applyDatasetPropertyChanges() {
                     QStringLiteral("%1  %2").arg(pendingLinePrefix(item.ctx.connIdx, item.ctx.poolName),
                                                  op.displayLine.trimmed());
                 markPendingRunning(displayLine);
-                const QString cmd = isWin ? op.command
-                                          : QStringLiteral("set -e; %1").arg(op.command);
+                const QString cmd = op.command;
                 if (!executeDatasetAction(QStringLiteral("conncontent"),
                                           QStringLiteral("Aplicar propiedades"),
                                           item.ctx,
