@@ -2684,6 +2684,9 @@ bool MainWindow::runLocalCommand(const QString& displayLabel, const QString& com
         if (streamProgress) {
             flushLines(outRemainder, outChunk, QStringLiteral("INFO"), true);
             flushLines(errRemainder, errChunk, QStringLiteral("INFO"), true);
+            if (!lastProgressSnippet.isEmpty()) {
+                updateStatus(displayLabel + QStringLiteral(" — ") + lastProgressSnippet);
+            }
             if (!sawProgressOutput && heartbeatTimer.elapsed() >= 2000) {
                 heartbeatTimer.restart();
                 appLog(QStringLiteral("INFO"), QStringLiteral("[progress] running..."));

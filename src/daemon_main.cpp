@@ -1920,6 +1920,118 @@ void runGsaSchedulerThread() {
 }
 
 
+#ifndef _WIN32
+static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params) {
+    ExecResult r;
+    // params: snap peer_host peer_port token [base_snap [send_flags]]
+    if (params.size() < 4) {
+        r.rc = 2;
+        r.err = "usage: zfsmgr-agent --zfs-send-to-peer <snap> <peer_host> <peer_port> <token> [<base_snap> [<send_flags>]]\n";
+        return r;
+    }
+    const std::string snap     = params[0];
+    const std::string peerHost = params[1];
+    int peerPort = 0;
+    try { peerPort = std::stoi(params[2]); } catch (...) {}
+    const std::string token    = params[3];
+    const std::string baseSnap = (params.size() > 4 && !params[4].empty()) ? params[4] : "";
+    const std::string flagsStr = params.size() > 5 ? params[5] : "";
+    if (snap.empty() || peerHost.empty() || peerPort <= 0 || token.size() != 64) {
+        r.rc = 2; r.err = "invalid arguments for --zfs-send-to-peer\n"; return r;
+    }
+    struct addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    struct addrinfo* res = nullptr;
+    const std::string portStr = std::to_string(peerPort);
+    if (getaddrinfo(peerHost.c_str(), portStr.c_str(), &hints, &res) != 0 || !res) {
+        r.rc = 1; r.err = "cannot resolve peer host: " + peerHost + "\n"; return r;
+    }
+    int sockFd = -1;
+    for (struct addrinfo* it = res; it; it = it->ai_next) {
+        int fd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
+        if (fd < 0) continue;
+        if (connect(fd, it->ai_addr, static_cast<socklen_t>(it->ai_addrlen)) == 0) { sockFd = fd; break; }
+        close(fd);
+    }
+    freeaddrinfo(res);
+    if (sockFd < 0) { r.rc = 1; r.err = "cannot connect to peer " + peerHost + ":" + portStr + "\n"; return r; }
+    const std::string tokenLine = token + "\n";
+    (void)write(sockFd, tokenLine.c_str(), tokenLine.size());
+    std::vector<std::string> sendArgs = {"send"};
+    if (!flagsStr.empty()) {
+        std::istringstream iss(flagsStr);
+        std::string tok;
+        while (iss >> tok) sendArgs.push_back(tok);
+    }
+    if (!baseSnap.empty()) { sendArgs.push_back("-I"); sendArgs.push_back(baseSnap); }
+    sendArgs.push_back(snap);
+    std::vector<char*> argv2;
+    argv2.push_back(const_cast<char*>("zfs"));
+    for (const std::string& a : sendArgs) argv2.push_back(const_cast<char*>(a.c_str()));
+    argv2.push_back(nullptr);
+    int pipeFds[2];
+    if (pipe(pipeFds) != 0) { close(sockFd); r.rc = 1; r.err = "pipe() failed\n"; return r; }
+    const pid_t sendPid = fork();
+    if (sendPid == 0) {
+        close(pipeFds[0]);
+        dup2(pipeFds[1], STDOUT_FILENO);
+        close(pipeFds[1]);
+        close(sockFd);
+        execvp("zfs", argv2.data());
+        _exit(127);
+    }
+    close(pipeFds[1]);
+    if (sendPid < 0) { close(pipeFds[0]); close(sockFd); r.rc = 1; r.err = "fork() failed\n"; return r; }
+    uint64_t totalBytes = 0;
+    const auto t0 = std::chrono::steady_clock::now();
+    auto lastReport = t0;
+    char buf[65536];
+    bool relayOk = true;
+    for (;;) {
+        const ssize_t n = read(pipeFds[0], buf, sizeof(buf));
+        if (n <= 0) break;
+        ssize_t done = 0;
+        while (done < n) {
+            const ssize_t w = write(sockFd, buf + done, static_cast<size_t>(n - done));
+            if (w <= 0) { relayOk = false; break; }
+            done += w;
+        }
+        if (!relayOk) break;
+        totalBytes += static_cast<uint64_t>(n);
+        const auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - lastReport).count() >= 2) {
+            const long elapsed = static_cast<long>(std::chrono::duration_cast<std::chrono::seconds>(now - t0).count());
+            const double mib = static_cast<double>(totalBytes) / (1024.0 * 1024.0);
+            const double rate = elapsed > 0 ? mib / static_cast<double>(elapsed) : 0.0;
+            char line[256];
+            snprintf(line, sizeof(line), "BYTES=%llu  %.1f MiB  @ %.1f MiB/s  elapsed %lds\n",
+                     (unsigned long long)totalBytes, mib, rate, elapsed);
+            (void)write(STDOUT_FILENO, line, strlen(line));
+            lastReport = now;
+        }
+    }
+    close(pipeFds[0]);
+    close(sockFd);
+    {
+        const auto now = std::chrono::steady_clock::now();
+        const long elapsed = static_cast<long>(std::chrono::duration_cast<std::chrono::seconds>(now - t0).count());
+        const double mib = static_cast<double>(totalBytes) / (1024.0 * 1024.0);
+        const double rate = elapsed > 0 ? mib / static_cast<double>(elapsed) : mib;
+        char line[256];
+        snprintf(line, sizeof(line), "BYTES=%llu  %.1f MiB  @ %.1f MiB/s  elapsed %lds [done]\n",
+                 (unsigned long long)totalBytes, mib, rate, elapsed);
+        (void)write(STDOUT_FILENO, line, strlen(line));
+    }
+    int status = 0;
+    if (sendPid > 0) waitpid(sendPid, &status, 0);
+    r.rc = decodeWaitStatus(status);
+    if (r.rc != 0) r.err = "zfs send failed (exit " + std::to_string(r.rc) + ")\n";
+    else if (!relayOk) { r.rc = 1; r.err = "relay write to peer failed\n"; }
+    return r;
+}
+#endif // _WIN32
+
 ExecResult executeAgentCommandCapture(const std::string& cmd,
                                       const std::vector<std::string>& params,
                                       const char* argv0) {
@@ -2250,61 +2362,7 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     }
 
     if (cmd == "--zfs-send-to-peer") {
-        // params: snap peer_host peer_port token [base_snap]
-        if (params.size() < 4) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --zfs-send-to-peer <snap> <peer_host> <peer_port> <token> [<base_snap>]\n"; return r; }
-        const std::string snap     = params[0];
-        const std::string peerHost = params[1];
-        int peerPort = 0;
-        try { peerPort = std::stoi(params[2]); } catch (...) {}
-        const std::string token    = params[3];
-        const std::string baseSnap = params.size() > 4 ? params[4] : "";
-        if (snap.empty() || peerHost.empty() || peerPort <= 0 || token.size() != 64) {
-            r.rc = 2; r.err = "invalid arguments for --zfs-send-to-peer\n"; return r;
-        }
-        // Connect TCP to peer
-        struct addrinfo hints3{};
-        hints3.ai_family = AF_UNSPEC;
-        hints3.ai_socktype = SOCK_STREAM;
-        struct addrinfo* res3 = nullptr;
-        const std::string portStr = std::to_string(peerPort);
-        if (getaddrinfo(peerHost.c_str(), portStr.c_str(), &hints3, &res3) != 0 || !res3) {
-            r.rc = 1; r.err = "cannot resolve peer host: " + peerHost + "\n"; return r;
-        }
-        int sockFd = -1;
-        for (struct addrinfo* it = res3; it; it = it->ai_next) {
-            int fd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
-            if (fd < 0) continue;
-            if (connect(fd, it->ai_addr, static_cast<socklen_t>(it->ai_addrlen)) == 0) {
-                sockFd = fd; break;
-            }
-            close(fd);
-        }
-        freeaddrinfo(res3);
-        if (sockFd < 0) { r.rc = 1; r.err = "cannot connect to peer " + peerHost + ":" + portStr + "\n"; return r; }
-        // Send token line
-        const std::string tokenLine = token + "\n";
-        (void)write(sockFd, tokenLine.c_str(), tokenLine.size());
-        // Fork zfs send with stdout to sockFd
-        std::vector<std::string> sendArgs = {"send", "-wLecR"};
-        if (!baseSnap.empty()) { sendArgs.push_back("-I"); sendArgs.push_back(baseSnap); }
-        sendArgs.push_back(snap);
-        std::vector<char*> argv3;
-        argv3.push_back(const_cast<char*>("zfs"));
-        for (const std::string& a : sendArgs) argv3.push_back(const_cast<char*>(a.c_str()));
-        argv3.push_back(nullptr);
-        const pid_t pid = fork();
-        if (pid == 0) {
-            dup2(sockFd, STDOUT_FILENO);
-            close(sockFd);
-            execvp("zfs", argv3.data());
-            _exit(127);
-        }
-        close(sockFd);
-        int status = 0;
-        if (pid > 0) waitpid(pid, &status, 0);
-        r.rc = decodeWaitStatus(status);
-        if (r.rc != 0) r.err = "zfs send failed (exit " + std::to_string(r.rc) + ")\n";
-        return r;
+        return runZfsSendToPeerCapture(params);
     }
 #endif
 
@@ -3307,6 +3365,20 @@ int main(int argc, char* argv[]) {
         }
         return runMutateShellGeneric(args[2]);
     }
+
+#ifndef _WIN32
+    if (cmd == "--zfs-send-to-peer") {
+        if (args.size() < 6) {
+            printUsage(args[0].c_str());
+            return 2;
+        }
+        const std::vector<std::string> params(args.begin() + 2, args.end());
+        const ExecResult e = runZfsSendToPeerCapture(params);
+        if (!e.out.empty()) std::cout << e.out;
+        if (!e.err.empty()) std::cerr << e.err;
+        return e.rc;
+    }
+#endif
 
     printUsage(args[0].c_str());
     return 2;
