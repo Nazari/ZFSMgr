@@ -159,6 +159,8 @@ bool isAllowedGenericZfsMutationOpClient(const QString& opRaw) {
         QStringLiteral("unload-key"),
         QStringLiteral("change-key"),
         QStringLiteral("promote"),
+        QStringLiteral("allow"),
+        QStringLiteral("unallow"),
     };
     return allowed.contains(op);
 }

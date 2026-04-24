@@ -918,7 +918,7 @@ std::string detectZfsVersionRaw() {
 bool isAllowedMutationOp(const std::string& tool, const std::string& opRaw) {
     static const std::set<std::string> zfsAllowed = {
         "create", "destroy", "rollback", "clone", "rename", "set", "inherit", "mount", "unmount",
-        "hold", "release", "load-key", "unload-key", "change-key", "promote",
+        "hold", "release", "load-key", "unload-key", "change-key", "promote", "allow", "unallow",
     };
     static const std::set<std::string> zpoolAllowed = {
         "create", "destroy", "add", "remove", "attach", "detach", "replace", "offline", "online",

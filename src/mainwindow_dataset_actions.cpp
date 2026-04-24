@@ -141,13 +141,45 @@ bool isAllowedGenericZfsMutationOpClient(const QString& opRaw) {
         QStringLiteral("unload-key"),
         QStringLiteral("change-key"),
         QStringLiteral("promote"),
+        QStringLiteral("allow"),
+        QStringLiteral("unallow"),
     };
     return allowed.contains(op);
 }
 
 DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd) {
     DaemonMutationPlan plan;
-    const QStringList parts = QProcess::splitCommand(rawCmd.trimmed());
+    const QString trimmedRaw = rawCmd.trimmed();
+
+    // Detect semicolon-joined sequences of zfs allow/unallow and route via
+    // --mutate-shell-generic to keep them as a single atomic daemon call.
+    if (trimmedRaw.contains(QStringLiteral("; "))) {
+        const QStringList subCmds = trimmedRaw.split(QStringLiteral("; "), Qt::SkipEmptyParts);
+        bool allAllowUnallow = !subCmds.isEmpty();
+        for (const QString& sub : subCmds) {
+            const QStringList subParts = QProcess::splitCommand(sub.trimmed());
+            if (subParts.size() < 2 || subParts.at(0) != QStringLiteral("zfs")) {
+                allAllowUnallow = false;
+                break;
+            }
+            const QString subOp = subParts.at(1).trimmed().toLower();
+            if (subOp != QStringLiteral("allow") && subOp != QStringLiteral("unallow")) {
+                allAllowUnallow = false;
+                break;
+            }
+        }
+        if (allAllowUnallow) {
+            const QString payloadB64 =
+                QString::fromLatin1(trimmedRaw.toUtf8().toBase64());
+            plan.matched = true;
+            plan.daemonCmd =
+                QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-shell-generic %1")
+                    .arg(shSingleQuote(payloadB64));
+            return plan;
+        }
+    }
+
+    const QStringList parts = QProcess::splitCommand(trimmedRaw);
     if (parts.size() < 3) {
         return plan;
     }

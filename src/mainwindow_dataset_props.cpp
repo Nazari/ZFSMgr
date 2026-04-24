@@ -1834,15 +1834,14 @@ void MainWindow::applyDatasetPropertyChanges() {
                         continue;
                     }
                     if (had && has && beforeTokens != afterTokens) {
-                        QString cmd = QStringLiteral("zfs unallow %1%2")
-                                          .arg(beforeFlags, shSingleQuote(datasetName));
+                        subcmds << QStringLiteral("zfs unallow %1%2")
+                                       .arg(beforeFlags, shSingleQuote(datasetName));
                         if (!afterTokens.isEmpty()) {
-                            cmd += QStringLiteral(" && zfs allow %1%2 %3")
-                                       .arg(afterFlags,
-                                            afterTokens.join(','),
-                                            shSingleQuote(datasetName));
+                            subcmds << QStringLiteral("zfs allow %1%2 %3")
+                                           .arg(afterFlags,
+                                                afterTokens.join(','),
+                                                shSingleQuote(datasetName));
                         }
-                        subcmds << cmd;
                     }
                 }
             };
@@ -1853,13 +1852,12 @@ void MainWindow::applyDatasetPropertyChanges() {
             const QStringList originalCreate = normalizeTokens(entry.originalCreatePermissions);
             const QStringList currentCreate = normalizeTokens(entry.createPermissions);
             if (originalCreate != currentCreate) {
-                QString cmd = QStringLiteral("zfs unallow -c %1").arg(shSingleQuote(datasetName));
+                subcmds << QStringLiteral("zfs unallow -c %1").arg(shSingleQuote(datasetName));
                 if (!currentCreate.isEmpty()) {
-                    cmd += QStringLiteral(" && zfs allow -c %1 %2")
-                               .arg(currentCreate.join(','),
-                                    shSingleQuote(datasetName));
+                    subcmds << QStringLiteral("zfs allow -c %1 %2")
+                                   .arg(currentCreate.join(','),
+                                        shSingleQuote(datasetName));
                 }
-                subcmds << cmd;
             }
 
             QMap<QString, DatasetPermissionSet> origSets;
@@ -1895,15 +1893,14 @@ void MainWindow::applyDatasetPropertyChanges() {
                     continue;
                 }
                 if (had && has && (before.name != after.name || beforeTokens != afterTokens)) {
-                    QString cmd = QStringLiteral("zfs unallow -s %1 %2")
-                                      .arg(before.name, shSingleQuote(datasetName));
+                    subcmds << QStringLiteral("zfs unallow -s %1 %2")
+                                   .arg(before.name, shSingleQuote(datasetName));
                     if (!afterTokens.isEmpty()) {
-                        cmd += QStringLiteral(" && zfs allow -s %1 %2 %3")
-                                   .arg(after.name,
-                                        afterTokens.join(','),
-                                        shSingleQuote(datasetName));
+                        subcmds << QStringLiteral("zfs allow -s %1 %2 %3")
+                                       .arg(after.name,
+                                            afterTokens.join(','),
+                                            shSingleQuote(datasetName));
                     }
-                    subcmds << cmd;
                 }
             }
 
@@ -1925,7 +1922,7 @@ void MainWindow::applyDatasetPropertyChanges() {
                     .arg(pendingLinePrefix(connIdx, poolName),
                          QStringLiteral("Actualizar permisos en %1").arg(datasetName));
             markPendingRunning(permissionDisplayLine);
-            const QString cmd = QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
+            const QString cmd = subcmds.join(QStringLiteral("; "));
             if (!executeDatasetAction(QStringLiteral("conncontent"),
                                       QStringLiteral("Aplicar permisos"),
                                       ctx,
