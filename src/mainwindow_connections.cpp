@@ -1659,6 +1659,9 @@ void MainWindow::startDaemonEventWatcher(int connIdx) {
         return;
     }
     const ConnectionProfile p = m_profiles[connIdx];
+    if (isWindowsConnection(p)) {
+        return;
+    }
     const QString connId = p.id;
     if (connId.isEmpty() || m_daemonWatchers.contains(connId)) {
         return;
@@ -1670,8 +1673,10 @@ void MainWindow::startDaemonEventWatcher(int connIdx) {
         // Long-poll ZED events directly via SSH. Each iteration blocks up to 27s.
         // On timeout the daemon side returns TIMEOUT=1 (rc=1) and we loop immediately.
         // On SSH error we back off before retrying.
-        const QString cmd =
-            QStringLiteral("timeout 27 sh -c 'zpool events -f -H 2>/dev/null | head -1'");
+        // zpool events requires root on Linux — wrap with sudo so it can read the
+        // kernel event log (without sudo it fails silently and head -1 times out).
+        const QString cmd = withSudo(
+            p, QStringLiteral("timeout 27 sh -c 'zpool events -f -H 2>/dev/null | head -1'"));
         while (!watcher->stop.load()) {
             QString out, err;
             int rc = -1;
