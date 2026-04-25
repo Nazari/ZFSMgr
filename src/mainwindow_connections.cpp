@@ -2397,6 +2397,20 @@ void MainWindow::refreshConnectionByIndex(int idx) {
     if (idx < 0 || idx >= m_profiles.size() || isConnectionDisconnected(idx)) {
         return;
     }
+    // Guard against re-entrant calls for the same connection index.
+    // runSsh() calls processEvents() while waiting for SSH results; that can
+    // dispatch a queued refreshConnectionByIndex (e.g. from the ZED watcher)
+    // while ensureDatasetsLoaded holds a reference into m_poolDatasetCache.
+    // A nested call would erase those entries, leaving a dangling reference.
+    if (m_refreshingByIndex.contains(idx)) {
+        return;
+    }
+    m_refreshingByIndex.insert(idx);
+    struct RefreshGuard {
+        QSet<int>& set;
+        int key;
+        ~RefreshGuard() { set.remove(key); }
+    } guard{m_refreshingByIndex, idx};
     // Al refrescar una conexión, invalidar toda la caché asociada a todos sus pools.
     {
         const QString connPrefix = QStringLiteral("%1::").arg(idx);

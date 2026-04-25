@@ -1200,6 +1200,7 @@ private:
     int m_refreshPending{0};
     int m_refreshTotal{0};
     bool m_refreshInProgress{false};
+    QSet<int> m_refreshingByIndex;
     bool m_initialRefreshCompleted{false};
     QString m_localSudoUsername;
     QString m_localSudoPassword;
