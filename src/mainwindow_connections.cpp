@@ -87,14 +87,30 @@ QString connContentStateTokenForTree(QTreeWidget* tree) {
             return token;
         }
     }
+    // Unified trees (groupPoolsByConnectionRoots) have connection roots at the top
+    // level, not pool roots. Walk into each connection root to find the first pool
+    // root and derive a token from it so the state key is never empty.
     for (int i = 0; i < tree->topLevelItemCount(); ++i) {
         QTreeWidgetItem* root = tree->topLevelItem(i);
-        if (!root || !root->data(0, kIsPoolRootRole).toBool()) {
+        if (!root) {
             continue;
         }
-        const QString token = tokenFromItem(root);
-        if (!token.isEmpty()) {
-            return token;
+        if (root->data(0, kIsPoolRootRole).toBool()) {
+            const QString token = tokenFromItem(root);
+            if (!token.isEmpty()) {
+                return token;
+            }
+        } else if (root->data(0, kIsConnectionRootRole).toBool()) {
+            // Unified tree: look for pool roots among this connection root's children.
+            for (int j = 0; j < root->childCount(); ++j) {
+                QTreeWidgetItem* child = root->child(j);
+                if (child && child->data(0, kIsPoolRootRole).toBool()) {
+                    const QString token = tokenFromItem(child);
+                    if (!token.isEmpty()) {
+                        return token;
+                    }
+                }
+            }
         }
     }
     return QString();
