@@ -134,10 +134,11 @@ target_compile_definitions(zfsmgr_agent PRIVATE
     ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
     ZFSMGR_AGENT_VERSION_STRING="${ZFSMGR_AGENT_VERSION_STRING}"
 )
+target_link_libraries(zfsmgr_agent PRIVATE OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+if(WIN32)
+    target_link_libraries(zfsmgr_agent PRIVATE ws2_32 crypt32 iphlpapi ncrypt bcrypt)
+endif()
 if(NOT WIN32)
-    target_link_libraries(zfsmgr_agent PRIVATE OpenSSL::SSL OpenSSL::Crypto)
-    target_link_libraries(zfsmgr_agent PRIVATE Threads::Threads)
-
     # Optional libzfs_core + libnvpair for efficient native ZFS operations.
     # Subprocess fallback is used automatically when not available.
     # Override with -DLIBZFS_CORE_INCLUDE_DIR=<path> if headers are non-standard.

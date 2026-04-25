@@ -28,9 +28,15 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <pwd.h>
+#else
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#endif
 #include <openssl/err.h>
 #include <openssl/ssl.h>
-#endif
 
 #ifdef HAVE_LIBZFS_CORE
 // libzfs_core userspace headers (e.g. from libzfslinux-dev on Ubuntu) rely on
@@ -71,6 +77,16 @@ typedef int64_t hrtime_t;
 #endif
 
 namespace {
+
+#ifdef _WIN32
+using NativeSock = SOCKET;
+constexpr NativeSock kInvalidSock = INVALID_SOCKET;
+inline void closeSock(NativeSock s) { closesocket(s); }
+#else
+using NativeSock = int;
+constexpr NativeSock kInvalidSock = -1;
+inline void closeSock(NativeSock s) { close(s); }
+#endif
 
 constexpr const char* kHeartbeatPath = "/tmp/zfsmgr-agent-heartbeat.log";
 constexpr const char* kDefaultAgentConfigPath = "/etc/zfsmgr/agent.conf";
@@ -2662,7 +2678,10 @@ std::string dumpClassForCommand(const std::string& cmd) {
 }
 
 int runServeLoop() {
-#ifndef _WIN32
+#ifdef _WIN32
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) return 2;
+#endif
     const AgentRuntimeConfig cfg = loadRuntimeConfig();
     applyRuntimeEnvironment(cfg);
     SSL_library_init();
@@ -2670,6 +2689,9 @@ int runServeLoop() {
     OpenSSL_add_ssl_algorithms();
     SSL_CTX* ctx = SSL_CTX_new(TLS_server_method());
     if (!ctx) {
+#ifdef _WIN32
+        WSACleanup();
+#endif
         return 2;
     }
     SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
@@ -2678,11 +2700,14 @@ int runServeLoop() {
         || SSL_CTX_check_private_key(ctx) != 1
         || SSL_CTX_load_verify_locations(ctx, cfg.tlsClientCert.c_str(), nullptr) != 1) {
         SSL_CTX_free(ctx);
+#ifdef _WIN32
+        WSACleanup();
+#endif
         return 2;
     }
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
 
-    int listenFd = -1;
+    NativeSock listenFd = kInvalidSock;
     struct addrinfo hints {};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -2692,29 +2717,37 @@ int runServeLoop() {
     const std::string bindPort = std::to_string(cfg.port > 0 ? cfg.port : kDefaultPort);
     if (getaddrinfo(bindHost.c_str(), bindPort.c_str(), &hints, &res) != 0) {
         SSL_CTX_free(ctx);
+#ifdef _WIN32
+        WSACleanup();
+#endif
         return 2;
     }
     for (struct addrinfo* it = res; it; it = it->ai_next) {
-        const int fd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
-        if (fd < 0) continue;
+        const NativeSock fd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
+        if (fd == kInvalidSock) continue;
         int one = 1;
-        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&one), sizeof(one));
         if (bind(fd, it->ai_addr, static_cast<socklen_t>(it->ai_addrlen)) == 0
             && listen(fd, 32) == 0) {
             listenFd = fd;
             break;
         }
-        close(fd);
+        closeSock(fd);
     }
     freeaddrinfo(res);
-    if (listenFd < 0) {
+    if (listenFd == kInvalidSock) {
         SSL_CTX_free(ctx);
+#ifdef _WIN32
+        WSACleanup();
+#endif
         return 2;
     }
 
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
+#ifndef _WIN32
     std::signal(SIGHUP, onSignal);
+#endif
     auto lastHeartbeat = std::chrono::steady_clock::now() - std::chrono::minutes(2);
     struct CacheEntry {
         ExecResult result;
@@ -2736,6 +2769,7 @@ int runServeLoop() {
     std::string zedLastEventUtc;
 
     std::thread zedThread([&]() {
+#ifndef _WIN32
         while (!g_stop.load()) {
             FILE* fp = popen("zpool events -f -H 2>/dev/null", "r");
             if (!fp) {
@@ -2764,6 +2798,7 @@ int runServeLoop() {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
         }
+#endif
     });
 
     std::thread gsaThread(runGsaSchedulerThread);
@@ -2788,25 +2823,25 @@ int runServeLoop() {
         struct timeval tv {};
         tv.tv_sec = 1;
         tv.tv_usec = 0;
-        const int sel = select(listenFd + 1, &rfds, nullptr, nullptr, &tv);
+        const int sel = select(static_cast<int>(listenFd + 1), &rfds, nullptr, nullptr, &tv);
         if (sel <= 0 || !FD_ISSET(listenFd, &rfds)) {
             continue;
         }
-        const int clientFd = accept(listenFd, nullptr, nullptr);
-        if (clientFd < 0) {
+        const NativeSock clientFd = accept(listenFd, nullptr, nullptr);
+        if (clientFd == kInvalidSock) {
             continue;
         }
 
         SSL* ssl = SSL_new(ctx);
         if (!ssl) {
-            close(clientFd);
+            closeSock(clientFd);
             continue;
         }
-        SSL_set_fd(ssl, clientFd);
+        SSL_set_fd(ssl, static_cast<int>(clientFd));
         if (SSL_accept(ssl) != 1) {
             SSL_shutdown(ssl);
             SSL_free(ssl);
-            close(clientFd);
+            closeSock(clientFd);
             continue;
         }
 
@@ -3069,7 +3104,7 @@ int runServeLoop() {
         (void)SSL_write(ssl, response.data(), static_cast<int>(response.size()));
         SSL_shutdown(ssl);
         SSL_free(ssl);
-        close(clientFd);
+        closeSock(clientFd);
     }
     if (zedThread.joinable()) {
         zedThread.join();
@@ -3077,17 +3112,11 @@ int runServeLoop() {
     if (gsaThread.joinable()) {
         gsaThread.join();
     }
-    close(listenFd);
+    closeSock(listenFd);
     SSL_CTX_free(ctx);
     EVP_cleanup();
-#else
-    std::signal(SIGINT, onSignal);
-    std::signal(SIGTERM, onSignal);
-    writeHeartbeat();
-    while (!g_stop.load()) {
-        std::this_thread::sleep_for(std::chrono::seconds(60));
-        writeHeartbeat();
-    }
+#ifdef _WIN32
+    WSACleanup();
 #endif
     return 0;
 }

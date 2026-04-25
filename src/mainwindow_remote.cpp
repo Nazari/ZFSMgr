@@ -693,13 +693,6 @@ bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
         }
         return false;
     }
-    if (isWindowsConnection(p)) {
-        if (failureReason) {
-            *failureReason = QStringLiteral("rpc por túnel no soportado para Windows");
-        }
-        return false;
-    }
-
     const QString rpcConnKey = remoteDaemonTlsCacheKey(p);
     const auto closeTunnelForKey = [&](const QString& key) {
         QPointer<QProcess> proc;
