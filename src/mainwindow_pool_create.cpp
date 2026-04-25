@@ -2417,6 +2417,9 @@ void MainWindow::createPoolForSelectedConnection() {
         const QString createCmd = parts.join(' ');
         ConnectionProfile execProfile = p;
         QString cmd = createCmd;
+        if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, cmd); !daemonCmd.isEmpty()) {
+            cmd = daemonCmd;
+        }
         if (!isWindowsConnection(execProfile)) {
             cmd = mwhelpers::withUnixSearchPathCommand(cmd);
         }

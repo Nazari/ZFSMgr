@@ -16,7 +16,7 @@ ZFSMgr 在统一树上使用上下文菜单。
   - `Edit`
   - `Delete`
   - 分隔线
-  - `GSA`
+  - `Daemon`
   - 分隔线
   - `New pool`
   - 分隔线
@@ -24,6 +24,10 @@ ZFSMgr 在统一树上使用上下文菜单。
   - 分隔线
   - `Install MSYS2`
   - `Install helper commands`
+
+`Daemon` 子菜单包括：
+- `Install/update daemon`（若已最新则显示 `Daemon updated and running`）
+- `Uninstall daemon`
 
 ## 在合并后的池根节点上
 

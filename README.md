@@ -1,6 +1,6 @@
 # ZFSMgr: OpenZFS GUI Manager for Local and Remote Systems
 
-**ZFSMgr** is a **full OpenZFS GUI manager** built with **C++17 + Qt6** for **Linux, FeeBSD, macOS, and Windows**.
+**ZFSMgr** is a **full OpenZFS GUI manager** built with **C++17 + Qt6** for **Linux, FreeBSD, macOS, and Windows**.
 
 If you are looking for a **ZFS GUI manager**, **OpenZFS GUI**, **remote ZFS manager**, or a **desktop ZFS administration tool**, ZFSMgr is designed to cover the whole workflow from one interface:
 
@@ -80,7 +80,7 @@ It gives you:
 - a **connectivity matrix** between connections with `SSH` and `rsync` checks,
 - **inline editing** of dataset and pool properties directly in the treeview,
 - **permission delegation management** with `zfs allow` / `zfs unallow`,
-- **automatic snapshot scheduling (GSA)** using the native scheduler of each OS,
+- **automatic snapshot scheduling and leveling** using the remote daemon scheduler,
 - **snapshot-oriented workflows** such as copy, clone, diff, rollback and level/sync,
 - a **graphical pool builder** with OpenZFS-aware VDEV validation,
 - **encrypted dataset creation and mount flows** with passphrase prompts when `keylocation=prompt`,
@@ -142,37 +142,25 @@ It gives you:
   - inspect hold timestamp,
   - release hold.
 
-### Automatic snapshot scheduling (GSA)
+### Automatic snapshot scheduling and leveling
 
-- Per-connection GSA management from the connection context menu.
-- Dynamic GSA actions depending on state:
-  - install,
-  - update,
-  - enable,
-  - uninstall,
-  - up-to-date/running state.
-- Native scheduler integration:
-  - `launchd` on macOS,
-  - `systemd timer` on Linux,
-  - `Task Scheduler` on Windows.
-- Inline dataset scheduling properties stored as ZFS user properties (`org.fc16.gsa:*`):
+- Per-dataset scheduling is defined with ZFS user properties (`org.fc16.gsa:*`):
   - enabled,
   - recursive,
   - hourly/daily/weekly/monthly/yearly retention,
   - leveling,
   - destination dataset.
 - Destination values use the `Connection::Pool/Dataset` format.
-- GSA does not dynamically read the connection list from the machine running ZFSMgr.
-  Instead, when ZFSMgr installs or updates GSA on a connection, it deploys a payload that includes a static destination map for that connection.
-- Operational consequence:
-  when a connection changes (`host`, `port`, `username`, `password`, SSH key or `sudo` settings), previously installed GSA payloads may become outdated until they are refreshed.
-- ZFSMgr can refresh installed GSA payloads automatically after connection changes, but the current design still depends on deployed static payloads.
-- Validation to avoid conflicting recursive schedules between parent and child datasets.
-- Sequential leveling support toward configured destination datasets.
-- Scheduler log rotation in `GSA.log` inside the ZFSMgr configuration directory.
-- High-level GSA events are also forwarded to the native OS log.
-- Current platform note:
-  Unix/macOS payloads resolve remote destinations through the embedded connection map, while Windows does not yet have full parity for arbitrary remote leveling routes.
+- Scheduling execution is handled by the installed remote daemon (`zfsmgr-agent`), not by GUI polling.
+- The daemon owns scheduler integration with the host OS.
+- Connection context menu exposes daemon lifecycle:
+  - install/update (single action),
+  - uninstall,
+  - up-to-date/running state.
+- ZFSMgr auto-checks daemon version/API on refresh/connect and can auto-update when required.
+- Validation avoids conflicting recursive schedules between parent and child datasets.
+- Sequential leveling toward configured destinations is supported.
+- Scheduler events are appended to `GSA.log` and surfaced in the UI log tabs.
 
 ### Inline property management
 
@@ -188,7 +176,7 @@ It gives you:
   - `Datasets programados`
   - `Info`
     - `General`
-    - `GSA`
+    - `Daemon`
     - `Commands`
 - Reorder visible properties by drag and drop.
 - Persist visible properties and order in configuration.
@@ -267,7 +255,7 @@ The `Diff` action includes a dedicated results window with grouped tree output f
 - Red cells expose the concrete failure reason in a tooltip.
 - On Unix/macOS, the probe expands `PATH` before checking helper tools such as `sshpass` and `rsync`, so non-interactive shells still see standard Homebrew and `/usr/local` locations.
 - If a direct route is not available, transfers may need to pass through the local machine running ZFSMgr, which is more expensive than a direct remote-to-remote path.
-- GSA warns before installation or update if a required remote leveling route does not have `SSH` connectivity.
+- The daemon/scheduler path warns when a required leveling route does not have `SSH` connectivity.
 
 ### Logging and safety
 
@@ -281,17 +269,13 @@ The `Diff` action includes a dedicated results window with grouped tree output f
 - Command previews and execution traces.
 - Busy-state locking for unsafe concurrent actions.
 - Async refresh safeguards to avoid stale refresh results being applied to the wrong connection.
-- Current GSA security model:
-  - GSA is functional, but its deployed payload is not yet fully hardened.
-  - Unix/macOS payloads may embed destination connection details for remote leveling.
-  - If password-based SSH or password-based `sudo` is used, those secrets may become part of the deployed payload.
-  - The current remote-leveling path prioritizes operability and compatibility over strict SSH trust validation.
-- Recommended hardening direction:
-  - separate the stable GSA script from a protected deployed connection-config file,
-  - deploy only the minimum destination map required by each source connection,
-  - tighten file permissions,
-  - and replace permissive SSH trust handling with pinned host-key validation.
-- See [docs/propuesta_endurecimiento_gsa.md](docs/propuesta_endurecimiento_gsa.md) for the hardening proposal.
+- Current daemon model security notes:
+  - daemon-rpc uses TLS/mTLS material deployed per connection,
+  - remote execution keeps SSH fallback while daemon-rpc is unavailable,
+  - scheduler events remain auditable via `GSA.log` + app logs.
+- See:
+  - `docs/diseno_tecnico_daemon_nativo_zed.md`
+  - `docs/diseno_y_funcionamiento_gsa.md`
 
 ## Remote ZFS management
 
@@ -320,15 +304,14 @@ If required components are missing, the UI reports the situation clearly in conn
 
 ## UI model
 
-- Left panel:
-  - `Selected datasets`,
-  - source/target action buttons,
-  - `Status and progress`.
-- Right panel:
-  - one unified tree with connections as roots,
-  - `Pending changes` below the tree.
+- Top area:
+  - one unified tree with connections as roots.
+- Middle row:
+  - `Status` and `Progress`,
+  - `Actions` box (`Source`/`Target` + transfer actions),
+  - `Pending changes`.
 - Bottom area:
-  - logs (`Application` and `SSHs`).
+  - logs (`Settings`, `Combined log`, `Terminal`, `GSA`).
 
 Important characteristics:
 

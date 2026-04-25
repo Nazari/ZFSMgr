@@ -1,5 +1,6 @@
 #include "mainwindow_connectiondatasettreedelegate.h"
 
+#include "agentversion.h"
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
 #include "mainwindow_ui_logic.h"
@@ -14,13 +15,17 @@
 #include <QEventLoop>
 #include <QFormLayout>
 #include <QInputDialog>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPointer>
 #include <QPushButton>
 #include <QScopedValueRollback>
 #include <QTableWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <functional>
 
@@ -49,6 +54,8 @@ constexpr int kConnPoolAutoSnapshotsDatasetRole = Qt::UserRole + 35;
 constexpr int kConnSnapshotItemRole = Qt::UserRole + 43;
 constexpr int kConnSnapshotsNodeRole = Qt::UserRole + 41;
 constexpr int kIsSplitRootRole = Qt::UserRole + 50;
+constexpr int kConnFileBrowserNodeRole = Qt::UserRole + 53;
+constexpr int kConnFileBrowserLoadedRole = Qt::UserRole + 56;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
 
 QString datasetLeafNameUi(const QString& datasetName) {
@@ -1154,7 +1161,26 @@ void MainWindowConnectionDatasetTreeDelegate::createSnapshotHold(QTreeWidget* tr
             return;
         }
     }
-    const QString fullCmd = m_mainWindow->sshExecFromLocal(cp, m_mainWindow->withSudo(cp, cmd));
+    const bool daemonMutateApiOk =
+        !m_mainWindow->isWindowsConnection(cp)
+        && connIdx >= 0
+        && connIdx < m_mainWindow->m_states.size()
+        && m_mainWindow->m_states[connIdx].daemonInstalled
+        && m_mainWindow->m_states[connIdx].daemonActive
+        && m_mainWindow->m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    QString queueCmd = cmd;
+    if (daemonMutateApiOk) {
+        QJsonArray arr;
+        arr.push_back(QStringLiteral("hold"));
+        arr.push_back(holdName);
+        arr.push_back(objectName);
+        const QString payloadB64 = QString::fromUtf8(
+            QJsonDocument(arr).toJson(QJsonDocument::Compact).toBase64());
+        queueCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-generic %1")
+                       .arg(mwhelpers::shSingleQuote(payloadB64));
+    }
+    const QString fullCmd = m_mainWindow->sshExecFromLocal(
+        cp, m_mainWindow->withSudo(cp, mwhelpers::withUnixSearchPathCommand(queueCmd)));
     const QString connLabel = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
     QString errorText;
     if (!m_mainWindow->queuePendingShellAction(MainWindow::PendingShellActionDraft{
@@ -1239,7 +1265,26 @@ void MainWindowConnectionDatasetTreeDelegate::releaseSnapshotHold(QTreeWidget* t
             return;
         }
     }
-    const QString fullCmd = m_mainWindow->sshExecFromLocal(cp, m_mainWindow->withSudo(cp, cmd));
+    const bool daemonMutateApiOk =
+        !m_mainWindow->isWindowsConnection(cp)
+        && connIdx >= 0
+        && connIdx < m_mainWindow->m_states.size()
+        && m_mainWindow->m_states[connIdx].daemonInstalled
+        && m_mainWindow->m_states[connIdx].daemonActive
+        && m_mainWindow->m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    QString queueCmd = cmd;
+    if (daemonMutateApiOk) {
+        QJsonArray arr;
+        arr.push_back(QStringLiteral("release"));
+        arr.push_back(holdName);
+        arr.push_back(objectName);
+        const QString payloadB64 = QString::fromUtf8(
+            QJsonDocument(arr).toJson(QJsonDocument::Compact).toBase64());
+        queueCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-generic %1")
+                       .arg(mwhelpers::shSingleQuote(payloadB64));
+    }
+    const QString fullCmd = m_mainWindow->sshExecFromLocal(
+        cp, m_mainWindow->withSudo(cp, mwhelpers::withUnixSearchPathCommand(queueCmd)));
     const QString connLabel = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
     QString errorText;
     if (!m_mainWindow->queuePendingShellAction(MainWindow::PendingShellActionDraft{
@@ -1511,6 +1556,11 @@ void MainWindowConnectionDatasetTreeDelegate::itemExpanded(QTreeWidget* tree, QT
         }
     }
     m_mainWindow->resizeTreeColumnsToVisibleContent(tree);
+    if (item->data(0, kConnFileBrowserNodeRole).toBool()
+        && !item->data(0, kConnFileBrowserLoadedRole).toBool()) {
+        m_mainWindow->populateFileBrowserNode(tree, item);
+        m_mainWindow->resizeTreeColumnsToVisibleContent(tree);
+    }
     if (!item->data(0, kConnPermissionsNodeRole).toBool()) {
         return;
     }
@@ -1539,6 +1589,15 @@ void MainWindowConnectionDatasetTreeDelegate::itemCollapsed(QTreeWidget* tree, Q
         }
     }
     m_mainWindow->resizeTreeColumnsToVisibleContent(tree);
+    QPointer<QTreeWidget> treePtr = tree;
+    QPointer<MainWindow> mainWindowPtr = m_mainWindow;
+    QTimer::singleShot(0, tree, [treePtr, mainWindowPtr]() {
+        if (!treePtr || !mainWindowPtr) {
+            return;
+        }
+        // Ensure column width recalculation is the last action after collapse handling settles.
+        mainWindowPtr->resizeTreeColumnsToVisibleContent(treePtr);
+    });
 }
 
 void MainWindowConnectionDatasetTreeDelegate::beforeContextMenu(QTreeWidget* tree) {
@@ -2506,6 +2565,27 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         && !item->data(0, kConnPropRowRole).toBool()
         && !item->data(0, kConnPropGroupNodeRole).toBool()
         && !item->data(0, kConnPermissionsNodeRole).toBool();
+
+    // Pre-fetch the minimal set of properties required by the context menu when they
+    // haven't been loaded yet. This ensures encryption/mount menu items are correctly
+    // enabled without requiring the user to open the properties panel first.
+    if (menuOpenedOnDatasetNode && connIdx >= 0 && !poolName.isEmpty()) {
+        const QString dsName = item->data(0, Qt::UserRole).toString().trimmed();
+        if (!dsName.isEmpty() && !dsName.contains(QLatin1Char('@'))) {
+            static const QStringList kMenuProps = {
+                QStringLiteral("type"),
+                QStringLiteral("encryptionroot"),
+                QStringLiteral("keystatus"),
+                QStringLiteral("keylocation"),
+                QStringLiteral("keyformat"),
+                QStringLiteral("mounted"),
+                QStringLiteral("canmount"),
+                QStringLiteral("mountpoint"),
+            };
+            m_mainWindow->ensureDatasetPropertySubsetLoaded(connIdx, poolName, dsName, kMenuProps);
+        }
+    }
+
     auto datasetPropFromModel = [this](const SelectionSnapshot& c, const QString& prop) -> QString {
         if (!c.valid || c.datasetName.isEmpty() || !c.snapshotName.isEmpty()) {
             return QString();
@@ -2833,13 +2913,17 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             QString q = snapObj;
             q.replace('\'', "'\"'\"'");
             QStringList rollbackFlags;
+            const bool rollbackForce = rollbackForceCb->isChecked();
+            QString rollbackRecursiveMode = QStringLiteral("none");
             if (rollbackForceCb->isChecked()) {
                 rollbackFlags.push_back(QStringLiteral("-f"));
             }
             if (rollbackRecursiveDestroyCb->isChecked()) {
                 rollbackFlags.push_back(QStringLiteral("-R"));
+                rollbackRecursiveMode = QStringLiteral("R");
             } else if (rollbackRecursiveCb->isChecked()) {
                 rollbackFlags.push_back(QStringLiteral("-r"));
+                rollbackRecursiveMode = QStringLiteral("r");
             }
             const QString cmd = rollbackFlags.isEmpty()
                                     ? QStringLiteral("zfs rollback '%1'").arg(q)
@@ -2859,7 +2943,22 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                     return;
                 }
             }
-            const QString fullCmd = m_mainWindow->sshExecFromLocal(cp, m_mainWindow->withSudo(cp, cmd));
+            const bool daemonMutateApiOk =
+                !m_mainWindow->isWindowsConnection(cp)
+                && actx.connIdx >= 0
+                && actx.connIdx < m_mainWindow->m_states.size()
+                && m_mainWindow->m_states[actx.connIdx].daemonInstalled
+                && m_mainWindow->m_states[actx.connIdx].daemonActive
+                && m_mainWindow->m_states[actx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+            QString queueCmd = cmd;
+            if (daemonMutateApiOk) {
+                queueCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-rollback %1 %2 %3")
+                               .arg(mwhelpers::shSingleQuote(snapObj),
+                                    rollbackForce ? QStringLiteral("1") : QStringLiteral("0"),
+                                    mwhelpers::shSingleQuote(rollbackRecursiveMode));
+            }
+            const QString fullCmd = m_mainWindow->sshExecFromLocal(
+                cp, m_mainWindow->withSudo(cp, mwhelpers::withUnixSearchPathCommand(queueCmd)));
             MainWindow::DatasetSelectionContext refreshTarget = mwActx;
             refreshTarget.snapshotName.clear();
             const QString connLabel = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
@@ -3124,10 +3223,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             return;
         }
         if (picked == aLoadKey || picked == aUnloadKey || picked == aChangeKey) {
-            auto shQuote = [](QString s) {
-                s.replace('\'', QStringLiteral("'\"'\"'"));
-                return QStringLiteral("'%1'").arg(s);
-            };
             QString actionName;
             QString cmd;
             QByteArray stdinPayload;
@@ -3136,17 +3231,17 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                                                QStringLiteral("Cargar clave"),
                                                QStringLiteral("Load key"),
                                                QStringLiteral("加载密钥"));
-                cmd = QStringLiteral("zfs load-key %1").arg(shQuote(ctx.datasetName));
+                cmd = QStringLiteral("zfs load-key %1").arg(ctx.datasetName);
             } else if (picked == aUnloadKey) {
                 actionName = QStringLiteral("Unload key");
-                cmd = QStringLiteral("zfs unload-key %1").arg(shQuote(ctx.datasetName));
+                cmd = QStringLiteral("zfs unload-key %1").arg(ctx.datasetName);
             } else {
                 actionName = QStringLiteral("Change key");
                 cmd = QStringLiteral("zfs change-key -o keylocation=prompt%1 %2")
                           .arg(keyFormat == QStringLiteral("passphrase")
                                    ? QStringLiteral(" -o keyformat=passphrase")
                                    : QString(),
-                               shQuote(ctx.datasetName));
+                               ctx.datasetName);
             }
             if (picked == aChangeKey) {
                 QString newPassphrase;
@@ -3241,41 +3336,16 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             if (!actx.valid || actx.datasetName.trimmed().isEmpty() || !actx.snapshotName.trimmed().isEmpty()) {
                 return;
             }
-            QString q = actx.datasetName.trimmed();
-            q.replace('\'', "'\"'\"'");
-            const QString cmd = QStringLiteral("zfs mount '%1'").arg(q);
-            ConnectionProfile cp = m_mainWindow->m_profiles[actx.connIdx];
-            if (m_mainWindow->isLocalConnection(cp) && !m_mainWindow->isWindowsConnection(cp)) {
-                cp.useSudo = true;
-                if (!m_mainWindow->ensureLocalSudoCredentials(cp)) {
-                    m_mainWindow->appLog(QStringLiteral("INFO"), QStringLiteral("Mount cancelado: faltan credenciales sudo locales"));
-                    return;
-                }
-            }
-            const QString fullCmd = m_mainWindow->sshExecFromLocal(cp, m_mainWindow->withSudo(cp, cmd));
-            MainWindow::DatasetSelectionContext refreshTarget;
-            refreshTarget.valid = true;
-            refreshTarget.connIdx = actx.connIdx;
-            refreshTarget.poolName = actx.poolName;
-            refreshTarget.datasetName = actx.datasetName;
-            const QString connLabel = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
-            QString errorText;
-            if (!m_mainWindow->queuePendingShellAction(MainWindow::PendingShellActionDraft{
-                    QStringLiteral("%1::%2").arg(connLabel, actx.poolName),
-                    QStringLiteral("Mount dataset %1").arg(actx.datasetName),
-                    fullCmd,
-                    90000,
-                    false,
-                    {},
-                    refreshTarget,
-                    MainWindow::PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
-                QMessageBox::warning(m_mainWindow, QStringLiteral("ZFSMgr"), errorText);
-                return;
-            }
-            m_mainWindow->appLog(QStringLiteral("NORMAL"),
-                                 QStringLiteral("Cambio pendiente añadido: %1::%2  Mount dataset %3")
-                                     .arg(connLabel, actx.poolName, actx.datasetName));
-            m_mainWindow->updateApplyPropsButtonState();
+            MainWindow::DatasetSelectionContext mwCtx;
+            mwCtx.valid = true;
+            mwCtx.connIdx = actx.connIdx;
+            mwCtx.poolName = actx.poolName;
+            mwCtx.datasetName = actx.datasetName;
+            const QString cmd = QStringLiteral("zfs mount %1").arg(actx.datasetName.trimmed());
+            m_mainWindow->executeDatasetAction(
+                QStringLiteral("conncontent"),
+                QStringLiteral("Mount dataset %1").arg(actx.datasetName),
+                mwCtx, cmd, 90000);
             return;
         }
         if (picked == aSplitVertical || picked == aSplitHorizontal

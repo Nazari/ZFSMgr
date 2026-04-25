@@ -14,7 +14,7 @@ ZFSMgr 会在统一树中直接显示数据集和池属性。
 - 连接节点下可显示 `Connection properties`。
 - 连接节点下的 `Info` 分组为：
   - `General`
-  - `GSA`
+  - `Daemon`
   - `Commands`
 
 ## 显示

@@ -511,6 +511,17 @@ if [[ "${DO_CONFIGURE}" -eq 1 ]]; then
     [[ -n "${QT_HOST_PATH:-}" ]] && target_extra_args+=("-DQT_HOST_PATH=${QT_HOST_PATH}")
     [[ -n "${QT_HOST_PATH_CMAKE_DIR:-}" ]] && target_extra_args+=("-DQT_HOST_PATH_CMAKE_DIR=${QT_HOST_PATH_CMAKE_DIR}")
     target_extra_args+=("-DCMAKE_DISABLE_FIND_PACKAGE_WrapVulkanHeaders=TRUE")
+    # Link the daemon agent against static libssl/libcrypto so the binary
+    # works on any FreeBSD version regardless of the base system SSL soname
+    # (FreeBSD 13 ships libssl.so.111 / LibreSSL; FreeBSD 14+ changed soname).
+    if [[ -n "${FREEBSD_SYSROOT:-}" ]]; then
+      fbsd_ssl_a="${FREEBSD_SYSROOT}/usr/lib/libssl.a"
+      fbsd_crypto_a="${FREEBSD_SYSROOT}/usr/lib/libcrypto.a"
+      if [[ -f "${fbsd_ssl_a}" ]] && [[ -f "${fbsd_crypto_a}" ]]; then
+        target_extra_args+=("-DOPENSSL_SSL_LIBRARY=${fbsd_ssl_a}")
+        target_extra_args+=("-DOPENSSL_CRYPTO_LIBRARY=${fbsd_crypto_a}")
+      fi
+    fi
   elif [[ "${TARGET}" == "macos" ]]; then
     if [[ -z "${MACOSX_DEPLOYMENT_TARGET:-}" ]]; then
       MACOSX_DEPLOYMENT_TARGET="10.15"

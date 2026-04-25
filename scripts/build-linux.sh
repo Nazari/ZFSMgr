@@ -186,7 +186,11 @@ ensure_build_dir_source_match() {
 
 if [[ "${BUILD_APPIMAGE}" -eq 0 && "${BUILD_DEB}" -eq 0 ]]; then
   ensure_build_dir_source_match
-  cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
+  cmake_args=(-S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release)
+  if [[ -n "${ZFSMGR_AGENT_BUNDLE_DIR:-}" ]]; then
+    cmake_args+=("-DZFSMGR_AGENT_BUNDLE_DIR=${ZFSMGR_AGENT_BUNDLE_DIR}")
+  fi
+  cmake "${cmake_args[@]}" "${EXTRA_ARGS[@]}"
   cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
   echo "Build completado: ${BUILD_DIR}/zfsmgr_qt"
   exit 0
@@ -208,9 +212,36 @@ download_if_missing() {
   chmod +x "${out}"
 }
 
+extract_appimage_tool() {
+  local appimage_path="$1"
+  local extract_dir="$2"
+  local marker="${extract_dir}/AppRun"
+  if [[ -x "${marker}" ]]; then
+    printf '%s\n' "${marker}"
+    return 0
+  fi
+  rm -rf "${extract_dir}"
+  mkdir -p "${extract_dir}"
+  (
+    cd "${extract_dir}"
+    APPIMAGE_EXTRACT_AND_RUN=1 "${appimage_path}" --appimage-extract >/dev/null
+  )
+  if [[ ! -x "${extract_dir}/squashfs-root/AppRun" ]]; then
+    echo "Error: no se pudo extraer ${appimage_path}" >&2
+    return 1
+  fi
+  mv "${extract_dir}/squashfs-root/"* "${extract_dir}/"
+  rm -rf "${extract_dir}/squashfs-root"
+  printf '%s\n' "${extract_dir}/AppRun"
+}
+
 echo "Configuring and building Release binary..."
 ensure_build_dir_source_match
-cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release "${EXTRA_ARGS[@]}"
+cmake_args=(-S "${SOURCE_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release)
+if [[ -n "${ZFSMGR_AGENT_BUNDLE_DIR:-}" ]]; then
+  cmake_args+=("-DZFSMGR_AGENT_BUNDLE_DIR=${ZFSMGR_AGENT_BUNDLE_DIR}")
+fi
+cmake "${cmake_args[@]}" "${EXTRA_ARGS[@]}"
 cmake --build "${BUILD_DIR}" -j"$(nproc 2>/dev/null || echo 4)"
 
 if [[ "${BUILD_DEB}" -eq 1 ]]; then
@@ -231,6 +262,7 @@ mkdir -p "${TOOLS_DIR}"
 
 LINUXDEPLOY_APPIMAGE="${TOOLS_DIR}/linuxdeploy-x86_64.AppImage"
 LINUXDEPLOY_QT_PLUGIN="${TOOLS_DIR}/linuxdeploy-plugin-qt-x86_64.AppImage"
+APPIMAGE_RUNTIME_FILE="${TOOLS_DIR}/runtime-x86_64"
 
 download_if_missing \
   "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage" \
@@ -238,6 +270,14 @@ download_if_missing \
 download_if_missing \
   "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage" \
   "${LINUXDEPLOY_QT_PLUGIN}"
+download_if_missing \
+  "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64" \
+  "${APPIMAGE_RUNTIME_FILE}"
+
+# Si quedó un wrapper temporal de una ejecución previa, restaurar el plugin real.
+if [[ -f "${LINUXDEPLOY_QT_PLUGIN}.real" ]]; then
+  mv -f "${LINUXDEPLOY_QT_PLUGIN}.real" "${LINUXDEPLOY_QT_PLUGIN}"
+fi
 
 echo "Preparing AppDir..."
 rm -rf "${APPDIR}"
@@ -262,11 +302,17 @@ cp -f "${PROJECT_ROOT}/icons/ZFSMgr-512.png" "${APPDIR}/usr/share/icons/hicolor/
 echo "Building AppImage..."
 export OUTPUT="${BUILD_DIR}/ZFSMgr-${APP_VERSION}-${ARCH}.AppImage"
 export QMAKE="${QMAKE:-$(command -v qmake6 || command -v qmake || true)}"
+LINUXDEPLOY_BIN="${LINUXDEPLOY_APPIMAGE}"
 if [[ -z "${QMAKE}" ]]; then
   echo "Warning: qmake/qmake6 not found in PATH. linuxdeploy-plugin-qt may fail." >&2
 fi
+if [[ ! -c /dev/fuse ]] || { ! command -v fusermount >/dev/null 2>&1 && ! command -v fusermount3 >/dev/null 2>&1; }; then
+  # En entornos sin FUSE, forzar modo extract-and-run para los AppImage tools.
+  export APPIMAGE_EXTRACT_AND_RUN=1
+fi
+export LDAI_RUNTIME_FILE="${APPIMAGE_RUNTIME_FILE}"
 
-"${LINUXDEPLOY_APPIMAGE}" \
+"${LINUXDEPLOY_BIN}" \
   --appdir "${APPDIR}" \
   --desktop-file "${APPDIR}/usr/share/applications/zfsmgr.desktop" \
   --icon-file "${APPDIR}/usr/share/icons/hicolor/512x512/apps/ZFSMgr.png" \

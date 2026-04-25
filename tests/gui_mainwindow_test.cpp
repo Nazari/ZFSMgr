@@ -256,7 +256,7 @@ private Q_SLOTS:
 
         const QStringList topLevel = window.connectionContextMenuTopLevelLabelsForTest();
         QVERIFY(topLevel.contains(QStringLiteral("Refresh")));
-        QVERIFY(topLevel.contains(QStringLiteral("GSA")));
+        QVERIFY(!topLevel.contains(QStringLiteral("GSA")));
         QVERIFY(!topLevel.contains(QStringLiteral("Refresh all connections")));
 
         const QStringList refreshLabels = window.connectionRefreshMenuLabelsForTest();
@@ -264,13 +264,6 @@ private Q_SLOTS:
         QCOMPARE(refreshLabels.at(0), QStringLiteral("This connection"));
         QCOMPARE(refreshLabels.at(1), QStringLiteral("All connections"));
 
-        const QStringList gsaLabels = window.connectionGsaMenuLabelsForTest();
-        QVERIFY(!gsaLabels.isEmpty());
-        QVERIFY(gsaLabels.first().contains(QStringLiteral("snapshot"))
-                || gsaLabels.first().contains(QStringLiteral("gestor"))
-                || gsaLabels.first().contains(QStringLiteral("GSA")));
-        QVERIFY(gsaLabels.contains(QStringLiteral("Desinstalar el GSA"))
-                || gsaLabels.contains(QStringLiteral("Uninstall GSA")));
     }
 
     void poolContextMenuIncludesImportRenameAndReguid() {

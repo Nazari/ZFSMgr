@@ -1,10 +1,12 @@
 #include "mainwindow.h"
+#include "agentversion.h"
 #include "mainwindow_helpers.h"
 
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QJsonArray>
 #include <QInputDialog>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -12,6 +14,7 @@
 #include <QMessageBox>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QRegularExpression>
 #include <QSet>
 #include <QSysInfo>
 #include <QTimer>
@@ -113,6 +116,208 @@ bool containsAnyToken(const QString& haystackLower, const QStringList& needles) 
         }
     }
     return false;
+}
+
+struct DaemonMutationPlan {
+    bool matched{false};
+    bool embedsStdin{false};
+    QString daemonCmd;
+};
+
+bool isAllowedGenericZfsMutationOpClient(const QString& opRaw) {
+    const QString op = opRaw.trimmed().toLower();
+    static const QSet<QString> allowed = {
+        QStringLiteral("create"),
+        QStringLiteral("destroy"),
+        QStringLiteral("rollback"),
+        QStringLiteral("clone"),
+        QStringLiteral("rename"),
+        QStringLiteral("set"),
+        QStringLiteral("inherit"),
+        QStringLiteral("mount"),
+        QStringLiteral("unmount"),
+        QStringLiteral("hold"),
+        QStringLiteral("release"),
+        QStringLiteral("load-key"),
+        QStringLiteral("unload-key"),
+        QStringLiteral("change-key"),
+        QStringLiteral("promote"),
+        QStringLiteral("allow"),
+        QStringLiteral("unallow"),
+    };
+    return allowed.contains(op);
+}
+
+DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QByteArray& stdinPayload = {}) {
+    DaemonMutationPlan plan;
+    const QString trimmedRaw = rawCmd.trimmed();
+
+    // Detect semicolon-joined sequences of zfs allow/unallow and route via
+    // --mutate-shell-generic to keep them as a single atomic daemon call.
+    if (trimmedRaw.contains(QStringLiteral("; "))) {
+        const QStringList subCmds = trimmedRaw.split(QStringLiteral("; "), Qt::SkipEmptyParts);
+        bool allAllowUnallow = !subCmds.isEmpty();
+        for (const QString& sub : subCmds) {
+            const QStringList subParts = QProcess::splitCommand(sub.trimmed());
+            if (subParts.size() < 2 || subParts.at(0) != QStringLiteral("zfs")) {
+                allAllowUnallow = false;
+                break;
+            }
+            const QString subOp = subParts.at(1).trimmed().toLower();
+            if (subOp != QStringLiteral("allow") && subOp != QStringLiteral("unallow")) {
+                allAllowUnallow = false;
+                break;
+            }
+        }
+        if (allAllowUnallow) {
+            const QString payloadB64 =
+                QString::fromLatin1(trimmedRaw.toUtf8().toBase64());
+            plan.matched = true;
+            plan.daemonCmd =
+                QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-shell-generic %1")
+                    .arg(shSingleQuote(payloadB64));
+            return plan;
+        }
+    }
+
+    const QStringList parts = QProcess::splitCommand(trimmedRaw);
+    if (parts.size() < 3) {
+        return plan;
+    }
+    if (parts.at(0) != QStringLiteral("zfs")) {
+        return plan;
+    }
+    const QString op = parts.at(1).trimmed().toLower();
+    auto lastTarget = [&]() -> QString {
+        for (int i = parts.size() - 1; i >= 2; --i) {
+            const QString token = parts.at(i).trimmed();
+            if (token.isEmpty() || token.startsWith(QLatin1Char('-'))) {
+                continue;
+            }
+            return token;
+        }
+        return QString();
+    };
+
+    if (op == QStringLiteral("snapshot")) {
+        const QString target = lastTarget().trimmed();
+        if (target.isEmpty() || !target.contains(QLatin1Char('@'))) {
+            return plan;
+        }
+        bool recursive = false;
+        for (int i = 2; i < parts.size(); ++i) {
+            const QString token = parts.at(i).trimmed();
+            if (token == QStringLiteral("-r")) {
+                recursive = true;
+            }
+        }
+        plan.matched = true;
+        plan.daemonCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-snapshot %1 %2")
+                             .arg(shSingleQuote(target),
+                                  recursive ? QStringLiteral("1") : QStringLiteral("0"));
+        return plan;
+    }
+
+    if (op == QStringLiteral("destroy")) {
+        const QString target = lastTarget().trimmed();
+        if (target.isEmpty() || !target.contains(QLatin1Char('@'))) {
+            return plan;
+        }
+        bool force = false;
+        QString recursiveMode = QStringLiteral("none");
+        for (int i = 2; i < parts.size(); ++i) {
+            const QString token = parts.at(i).trimmed();
+            if (token == QStringLiteral("-f")) {
+                force = true;
+            } else if (token == QStringLiteral("-R")) {
+                recursiveMode = QStringLiteral("R");
+            } else if (token == QStringLiteral("-r") && recursiveMode != QStringLiteral("R")) {
+                recursiveMode = QStringLiteral("r");
+            }
+        }
+        plan.matched = true;
+        plan.daemonCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-destroy %1 %2 %3")
+                             .arg(shSingleQuote(target),
+                                  force ? QStringLiteral("1") : QStringLiteral("0"),
+                                  shSingleQuote(recursiveMode));
+        return plan;
+    }
+
+    if (op == QStringLiteral("rollback")) {
+        const QString target = lastTarget().trimmed();
+        if (target.isEmpty() || !target.contains(QLatin1Char('@'))) {
+            return plan;
+        }
+        bool force = false;
+        QString recursiveMode = QStringLiteral("none");
+        for (int i = 2; i < parts.size(); ++i) {
+            const QString token = parts.at(i).trimmed();
+            if (token == QStringLiteral("-f")) {
+                force = true;
+            } else if (token == QStringLiteral("-R")) {
+                recursiveMode = QStringLiteral("R");
+            } else if (token == QStringLiteral("-r") && recursiveMode != QStringLiteral("R")) {
+                recursiveMode = QStringLiteral("r");
+            }
+        }
+        plan.matched = true;
+        plan.daemonCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-rollback %1 %2 %3")
+                             .arg(shSingleQuote(target),
+                                  force ? QStringLiteral("1") : QStringLiteral("0"),
+                                  shSingleQuote(recursiveMode));
+        return plan;
+    }
+
+    // load-key with passphrase in stdin: route via --mutate-zfs-load-key
+    if (op == QStringLiteral("load-key") && !stdinPayload.isEmpty()) {
+        const QString target = lastTarget().trimmed();
+        if (!target.isEmpty()) {
+            const QString datasetB64  = QString::fromLatin1(target.toUtf8().toBase64());
+            const QString passphraseB64 = QString::fromLatin1(stdinPayload.toBase64());
+            plan.matched = true;
+            plan.embedsStdin = true;
+            plan.daemonCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-load-key %1 %2")
+                                 .arg(shSingleQuote(datasetB64), shSingleQuote(passphraseB64));
+            return plan;
+        }
+    }
+
+    // change-key with passphrase in stdin: route via --mutate-zfs-change-key
+    if (op == QStringLiteral("change-key") && !stdinPayload.isEmpty()) {
+        const QString target = lastTarget().trimmed();
+        if (!target.isEmpty()) {
+            QStringList flagTokens;
+            for (int i = 2; i < parts.size() - 1; ++i) {
+                flagTokens << parts.at(i);
+            }
+            const QString datasetB64  = QString::fromLatin1(target.toUtf8().toBase64());
+            const QString passphraseB64 = QString::fromLatin1(stdinPayload.toBase64());
+            const QString flagsB64 = QString::fromLatin1(flagTokens.join(QLatin1Char(' ')).toUtf8().toBase64());
+            plan.matched = true;
+            plan.embedsStdin = true;
+            plan.daemonCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-change-key %1 %2 %3")
+                                 .arg(shSingleQuote(datasetB64), shSingleQuote(passphraseB64), shSingleQuote(flagsB64));
+            return plan;
+        }
+    }
+
+    if (isAllowedGenericZfsMutationOpClient(op)) {
+        QJsonArray arr;
+        for (int i = 1; i < parts.size(); ++i) {
+            arr.push_back(parts.at(i));
+        }
+        if (arr.isEmpty()) {
+            return plan;
+        }
+        const QString payloadB64 = QString::fromUtf8(
+            QJsonDocument(arr).toJson(QJsonDocument::Compact).toBase64());
+        plan.matched = true;
+        plan.daemonCmd = QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-generic %1")
+                             .arg(shSingleQuote(payloadB64));
+        return plan;
+    }
+
+    return plan;
 }
 } // namespace
 
@@ -424,11 +629,27 @@ bool MainWindow::executeDatasetAction(const QString& side,
         appLog(QStringLiteral("INFO"), QStringLiteral("%1 cancelada: faltan credenciales sudo locales").arg(actionName));
         return false;
     }
+    const bool daemonMutateApiOk =
+        !isWindowsConnection(p)
+        && ctx.connIdx >= 0
+        && ctx.connIdx < m_states.size()
+        && m_states[ctx.connIdx].daemonInstalled
+        && m_states[ctx.connIdx].daemonActive
+        && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     const bool usesStreamInput = !stdinPayload.isEmpty();
-    const QString effectiveCmd =
+    QString effectiveCmd =
         isWindowsConnection(p) ? cmd : mwhelpers::withUnixSearchPathCommand(cmd);
-    QString remoteCmd = usesStreamInput ? withSudoStreamInput(sudoProfile, effectiveCmd)
-                                        : withSudo(sudoProfile, effectiveCmd);
+    bool embeddedStdin = false;
+    if (daemonMutateApiOk) {
+        const DaemonMutationPlan mutatePlan = daemonMutationPlanForCommand(cmd, stdinPayload);
+        if (mutatePlan.matched && !mutatePlan.daemonCmd.trimmed().isEmpty()) {
+            effectiveCmd = mwhelpers::withUnixSearchPathCommand(mutatePlan.daemonCmd);
+            embeddedStdin = mutatePlan.embedsStdin;
+        }
+    }
+    const bool effectivelyStreamInput = usesStreamInput && !embeddedStdin;
+    QString remoteCmd = effectivelyStreamInput ? withSudoStreamInput(sudoProfile, effectiveCmd)
+                                               : withSudo(sudoProfile, effectiveCmd);
     const QString preview = QStringLiteral("[%1]\n%2")
                                 .arg(QStringLiteral("%1@%2:%3").arg(p.username, p.host).arg(p.port > 0 ? QString::number(p.port) : QStringLiteral("22")))
                                 .arg(buildSshPreviewCommand(p, remoteCmd));
@@ -466,9 +687,10 @@ bool MainWindow::executeDatasetAction(const QString& side,
     };
     const bool withRealtimeProgress =
         (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction || isFromDirAction || isToDirAction);
+    const QByteArray effectiveStdin = embeddedStdin ? QByteArray{} : stdinPayload;
     const bool ok = withRealtimeProgress
-                        ? runSsh(p, remoteCmd, timeoutMs, out, err, rc, progressLogger, progressLogger, {}, WindowsCommandMode::Auto, stdinPayload)
-                        : runSsh(p, remoteCmd, timeoutMs, out, err, rc, {}, {}, {}, WindowsCommandMode::Auto, stdinPayload);
+                        ? runSsh(p, remoteCmd, timeoutMs, out, err, rc, progressLogger, progressLogger, {}, WindowsCommandMode::Auto, effectiveStdin)
+                        : runSsh(p, remoteCmd, timeoutMs, out, err, rc, {}, {}, {}, WindowsCommandMode::Auto, effectiveStdin);
     if (!ok || rc != 0) {
         if (isBreakdownAction || isAssembleAction || isDeleteAllSnapsAction || isFromDirAction || isToDirAction) {
             if (!loggedProgressRealtime) {
@@ -707,18 +929,28 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
     const QStringList poolProps = poolSizePropertyNames();
     const QString propsCsv = poolProps.join(QLatin1Char(','));
     const bool poolWin = isWindowsConnection(connIdx);
-    const bool useRemoteScript = !poolWin;
-    const QString poolCmd = withSudo(
+    const bool daemonReadApiOk =
+        !poolWin
+        && connIdx >= 0
+        && connIdx < m_states.size()
+        && m_states[connIdx].daemonInstalled
+        && m_states[connIdx].daemonActive
+        && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    const QString poolCmdClassic = withSudo(
         profile,
-        useRemoteScript
-            ? remoteScriptCommand(profile, QStringLiteral("zfsmgr-zpool-get-all-json"), {trimmedPool})
-            : mwhelpers::withUnixSearchPathCommand(
-                  poolWin
-                      ? QStringLiteral("zpool get -H -o property,value,source %1 %2")
-                            .arg(propsCsv, shSingleQuote(trimmedPool))
-                      : QStringLiteral("zpool get -j %1 %2")
-                            .arg(propsCsv, shSingleQuote(trimmedPool))));
-    if (runSsh(profile, poolCmd, 15000, out, err, rc) && rc == 0) {
+        mwhelpers::withUnixSearchPathCommand(
+            poolWin
+                ? QStringLiteral("zpool get -H -o property,value,source %1 %2")
+                      .arg(propsCsv, shSingleQuote(trimmedPool))
+                : QStringLiteral("zpool get -j %1 %2")
+                      .arg(propsCsv, shSingleQuote(trimmedPool))));
+    const QString poolCmdDaemon = withSudo(
+        profile, mwhelpers::withUnixSearchPathCommand(
+                     QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-get-all %1")
+                         .arg(shSingleQuote(trimmedPool))));
+    const QString selectedPoolCmd = daemonReadApiOk ? poolCmdDaemon : poolCmdClassic;
+    bool poolPropsOk = runSsh(profile, selectedPoolCmd, 15000, out, err, rc) && rc == 0;
+    if (poolPropsOk) {
         const QString cacheKey = poolDetailsCacheKey(connIdx, trimmedPool);
         PoolDetailsCacheEntry entry = m_poolDetailsCache.value(cacheKey);
         QMap<QString, QStringList> rowsByProp;
@@ -814,19 +1046,29 @@ bool MainWindow::executePendingDatasetRenameDraft(const PendingDatasetRenameDraf
         }
         return false;
     }
-    const QString renameCmd = isWindowsConnection(p)
-                                  ? pendingDatasetRenameCommand(draft)
-                                  : mwhelpers::withUnixSearchPathCommand(pendingDatasetRenameCommand(draft));
-    const QString remoteCmd = withSudo(sudoProfile, renameCmd);
+    const QString renameRawCmd = pendingDatasetRenameCommand(draft);
+    QString renameExecCmd = renameRawCmd;
+    if (!isWindowsConnection(p)) {
+        if (const QString daemonCmd = daemonizeZfsMutationCommand(draft.connIdx, renameRawCmd);
+            !daemonCmd.isEmpty()) {
+            renameExecCmd = daemonCmd;
+        }
+        renameExecCmd = mwhelpers::withUnixSearchPathCommand(renameExecCmd);
+    }
+    const QString remoteCmd = withSudo(sudoProfile, renameExecCmd);
     appLog(QStringLiteral("NORMAL"),
            QStringLiteral("Aplicar renombrado %1::%2")
                .arg(p.name, draft.sourceName.trimmed()));
     updateStatus(QStringLiteral("Aplicar renombrado %1::%2").arg(p.name, draft.sourceName.trimmed()));
-    QString out;
-    QString err;
-    int rc = -1;
-    if (!runSsh(p, remoteCmd, 60000, out, err, rc) || rc != 0) {
-        const QString failureDetail = err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err;
+    QString failureDetail;
+    if (!executeConnectionCommand(draft.connIdx,
+                                  QStringLiteral("Aplicar renombrado"),
+                                  remoteCmd,
+                                  60000,
+                                  &failureDetail)) {
+        if (failureDetail.trimmed().isEmpty()) {
+            failureDetail = QStringLiteral("exit 1");
+        }
         if (failureDetailOut) {
             *failureDetailOut = failureDetail;
         }
@@ -845,9 +1087,6 @@ bool MainWindow::executePendingDatasetRenameDraft(const PendingDatasetRenameDraf
                     .arg(QStringLiteral("Aplicar renombrado"), failureDetail));
         }
         return false;
-    }
-    if (!out.trimmed().isEmpty()) {
-        appLog(QStringLiteral("INFO"), oneLine(out));
     }
     appLog(QStringLiteral("NORMAL"), QStringLiteral("Aplicar renombrado finalizado"));
     invalidatePoolDatasetListingCache(draft.connIdx, draft.poolName.trimmed());
@@ -1487,21 +1726,30 @@ bool MainWindow::ensureNoMountpointConflictsBeforeMount(const DatasetSelectionCo
     QString mountedErr;
     int mountedRc = -1;
     const bool isWinConn = isWindowsConnection(p);
-    const bool useRemoteScript = !isWinConn;
-    const QString mountedCmd = withSudo(
+    const bool daemonReadApiOk =
+        !isWinConn
+        && ctx.connIdx >= 0
+        && ctx.connIdx < m_states.size()
+        && m_states[ctx.connIdx].daemonInstalled
+        && m_states[ctx.connIdx].daemonActive
+        && m_states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    const QString mountedCmdClassic = withSudo(
         p,
-        useRemoteScript
-            ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-mount-list"))
-            : mwhelpers::withUnixSearchPathCommand(
-                  isWinConn ? QStringLiteral("zfs mount")
-                            : QStringLiteral("zfs mount -j")));
+        mwhelpers::withUnixSearchPathCommand(
+            isWinConn ? QStringLiteral("zfs mount")
+                      : QStringLiteral("zfs mount -j")));
+    const QString mountedCmdDaemon = withSudo(
+        p, mwhelpers::withUnixSearchPathCommand(
+               QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-mount")));
     QVector<QPair<QString, QString>> mountedRows;
-    if (runSsh(p, mountedCmd, 20000, mountedOut, mountedErr, mountedRc) && mountedRc == 0) {
+    const QString selectedMountCmd = daemonReadApiOk ? mountedCmdDaemon : mountedCmdClassic;
+    bool mountListOk = runSsh(p, selectedMountCmd, 20000, mountedOut, mountedErr, mountedRc) && mountedRc == 0;
+    if (mountListOk) {
         mountedRows = isWinConn
             ? mwhelpers::parseZfsMountOutput(mountedOut)
             : mwhelpers::parseZfsMountJsonOutput(mountedOut);
     }
-    if (!isWinConn && mountedRows.isEmpty() && !useRemoteScript) {
+    if (!isWinConn && mountedRows.isEmpty() && !daemonReadApiOk) {
         QString fallbackOut;
         QString fallbackErr;
         int fallbackRc = -1;

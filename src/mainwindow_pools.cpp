@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
 #include "mainwindow_ui_logic.h"
+#include "agentversion.h"
 
 #include <QBrush>
 #include <QApplication>
@@ -264,24 +265,23 @@ void MainWindow::refreshPoolStatusNow(int connIdx, const QString& poolName) {
     QString out;
     QString err;
     int rc = -1;
-    const QString cmd = withSudo(
+    const bool daemonReadApiOk =
+        !isWindowsConnection(profile)
+        && connIdx >= 0
+        && connIdx < m_states.size()
+        && m_states[connIdx].daemonInstalled
+        && m_states[connIdx].daemonActive
+        && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    const QString cmdClassic = withSudo(
         profile,
-        (isWindowsConnection(profile) || isLocalConnection(profile))
-            ? mwhelpers::withUnixSearchPathCommand(
-                  QStringLiteral("zpool status -v %1").arg(shSingleQuote(trimmedPool)))
-            : remoteScriptCommand(profile, QStringLiteral("zfsmgr-zpool-status"), {trimmedPool}));
-    if ((!runSsh(profile, cmd, 20000, out, err, rc) || rc != 0)
-        && !isWindowsConnection(profile)
-        && isLocalConnection(profile)) {
-        const QString fallbackCmd = withSudo(
-            profile,
-            mwhelpers::withUnixSearchPathCommand(
-                QStringLiteral("zpool status -v %1").arg(shSingleQuote(trimmedPool))));
-        out.clear();
-        err.clear();
-        rc = -1;
-        (void)runSsh(profile, fallbackCmd, 20000, out, err, rc);
-    }
+        mwhelpers::withUnixSearchPathCommand(
+            QStringLiteral("zpool status -v %1").arg(shSingleQuote(trimmedPool))));
+    const QString cmdDaemon = withSudo(
+        profile, mwhelpers::withUnixSearchPathCommand(
+                     QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-status %1")
+                         .arg(shSingleQuote(trimmedPool))));
+    const QString cmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
+    (void)runSsh(profile, cmd, 20000, out, err, rc);
     if (rc != 0) {
         const QString errText = err.trimmed().isEmpty() ? oneLine(out).trimmed() : err.trimmed();
         appLog(QStringLiteral("WARN"),
@@ -420,6 +420,9 @@ void MainWindow::exportPoolFromRow(int row) {
         parts << shSingleQuote(extraPool);
     }
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -655,6 +658,9 @@ void MainWindow::importPoolFromRow(int row) {
         }
     }
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -914,6 +920,9 @@ void MainWindow::importPoolRenamingFromRow(int row) {
         }
     }
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -1060,6 +1069,9 @@ void MainWindow::scrubPoolFromRow(int row) {
     }
     parts << shSingleQuote(poolName);
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -1183,6 +1195,9 @@ void MainWindow::upgradePoolFromRow(int row) {
         parts << extraEd->text().trimmed();
     }
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -1295,6 +1310,9 @@ void MainWindow::reguidPoolFromRow(int row) {
     }
     parts << shSingleQuote(poolName);
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -1417,6 +1435,9 @@ void MainWindow::clearPoolFromRow(int row) {
         parts << shSingleQuote(dev);
     }
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -1563,6 +1584,9 @@ void MainWindow::destroyPoolFromRow(int row) {
     }
     parts << shSingleQuote(poolName);
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -1679,6 +1703,9 @@ void MainWindow::syncPoolFromRow(int row) {
         parts << extraEd->text().trimmed();
     }
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -1850,6 +1877,9 @@ void MainWindow::trimPoolFromRow(int row) {
         parts << shSingleQuote(dev);
     }
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -1999,6 +2029,9 @@ void MainWindow::initializePoolFromRow(int row) {
         parts << shSingleQuote(dev);
     }
     QString rawCmd = parts.join(' ');
+    if (const QString daemonCmd = daemonizeZpoolMutationCommand(idx, rawCmd); !daemonCmd.isEmpty()) {
+        rawCmd = daemonCmd;
+    }
     if (!isWindowsConnection(p)) {
         rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
     }
@@ -2050,11 +2083,23 @@ void MainWindow::showPoolHistoryFromRow(int row) {
     }
 
     const ConnectionProfile& p = m_profiles[idx];
-    QString rawCmd = QStringLiteral("zpool history %1").arg(shSingleQuote(poolName));
+    const bool daemonReadApiOk =
+        !isWindowsConnection(p)
+        && idx >= 0
+        && idx < m_states.size()
+        && m_states[idx].daemonInstalled
+        && m_states[idx].daemonActive
+        && m_states[idx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    QString historyClassic = QStringLiteral("zpool history %1").arg(shSingleQuote(poolName));
     if (!isWindowsConnection(p)) {
-        rawCmd = mwhelpers::withUnixSearchPathCommand(rawCmd);
+        historyClassic = mwhelpers::withUnixSearchPathCommand(historyClassic);
     }
-    const QString cmd = withSudo(p, rawCmd);
+    const QString cmdClassic = withSudo(p, historyClassic);
+    const QString cmdDaemon = withSudo(
+        p, mwhelpers::withUnixSearchPathCommand(
+               QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-history %1")
+                   .arg(shSingleQuote(poolName))));
+    const QString cmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
     QString out;
     QString detail;
     if (!fetchPoolCommandOutput(idx, poolName, QStringLiteral("Historial"), cmd, &out, &detail, 45000)) {

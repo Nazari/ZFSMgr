@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
 #include "i18nmanager.h"
+#include "agentversion.h"
 
 #include <QCoreApplication>
 #include <QApplication>
@@ -55,7 +56,7 @@ constexpr int kConnPermissionsScopeRole = Qt::UserRole + 27;
 constexpr int kConnPermissionsTargetTypeRole = Qt::UserRole + 28;
 constexpr int kConnPermissionsTargetNameRole = Qt::UserRole + 29;
 constexpr int kConnPermissionsEntryNameRole = Qt::UserRole + 30;
-constexpr int kConnGsaNodeRole = Qt::UserRole + 33;
+
 constexpr int kConnPoolAutoSnapshotsNodeRole = Qt::UserRole + 34;
 constexpr int kConnPoolAutoSnapshotsDatasetRole = Qt::UserRole + 35;
 constexpr int kConnRootSectionRole = Qt::UserRole + 37;
@@ -74,8 +75,12 @@ constexpr int kConnSnapshotGroupIdRole = Qt::UserRole + 49;
 constexpr int kIsSplitRootRole = Qt::UserRole + 50;
 constexpr int kConnDebugBaseTextRole = Qt::UserRole + 51;
 constexpr int kConnDebugLastIdRole = Qt::UserRole + 52;
+constexpr int kConnFileBrowserNodeRole = Qt::UserRole + 53;
+constexpr int kConnFileBrowserPathRole = Qt::UserRole + 54;
+constexpr int kConnFileBrowserIsDirRole = Qt::UserRole + 55;
+constexpr int kConnFileBrowserLoadedRole = Qt::UserRole + 56;
 constexpr char kPoolBlockInfoKey[] = "__pool_block_info__";
-constexpr char kGsaBlockInfoKey[] = "__gsa_block_info__";
+
 
 using DatasetTreeContext = MainWindow::DatasetTreeContext;
 
@@ -727,9 +732,6 @@ QString connContentNodeLocalStableId(QTreeWidgetItem* node) {
     if (node->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kPoolBlockInfoKey)) {
         return QStringLiteral("syn:pool_information");
     }
-    if (node->data(0, kConnGsaNodeRole).toBool()) {
-        return QStringLiteral("syn:gsa");
-    }
     if (node->data(0, kConnPropGroupNodeRole).toBool()) {
         const QString groupName = node->data(0, kConnPropGroupNameRole).toString().trimmed();
         if (groupName.isEmpty()) {
@@ -881,9 +883,6 @@ QString connContentChildStableId(QTreeWidgetItem* node) {
     }
     if (node->data(0, kConnSnapshotHoldItemRole).toBool()) {
         return QStringLiteral("hold|%1").arg(node->data(0, kConnSnapshotHoldTagRole).toString().trimmed());
-    }
-    if (node->data(0, kConnGsaNodeRole).toBool()) {
-        return QStringLiteral("syn:gsa");
     }
     if (node->data(0, kConnSnapshotsNodeRole).toBool()) {
         return QStringLiteral("syn:snapshots_root");
@@ -1429,6 +1428,14 @@ QIcon datasetNodeIcon(QTreeWidgetItem* item) {
     return treeStandardIcon(QStyle::SP_DirIcon);
 }
 
+QIcon contentNodeIcon() {
+    const QIcon themed = QIcon::fromTheme(QStringLiteral("folder-open"));
+    if (!themed.isNull()) {
+        return themed;
+    }
+    return treeStandardIcon(QStyle::SP_DirOpenIcon);
+}
+
 void applySnapshotVisualState(QTreeWidgetItem* item) {
     if (!item) {
         return;
@@ -1825,9 +1832,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
                     && (c->data(0, kConnStatePartRole).toString().trimmed() == QStringLiteral("syn:ds_prop")
                         || c->data(0, kConnStatePartRole).toString().trimmed() == QStringLiteral("syn:snap_prop")
                         || c->data(0, kConnStatePartRole).toString().trimmed().isEmpty());
-                const bool isGsaNode = c->data(0, kConnGsaNodeRole).toBool()
-                                       || c->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kGsaBlockInfoKey);
-                if (isMainPropsNode || isGsaNode) {
+                if (isMainPropsNode) {
                     self(self, c);
                 } else {
                     delete n->takeChild(i);
@@ -2668,10 +2673,7 @@ void MainWindow::syncConnContentPropertyColumns(QTreeWidget* tree) {
             }
             continue;
         }
-        if (child->data(0, kConnGsaNodeRole).toBool()
-            || child->data(0, kConnPropKeyRole).toString() == QString::fromLatin1(kGsaBlockInfoKey)) {
-            delete sel->takeChild(i);
-        }
+
     }
     if (!propsNode) {
         propsNode = new QTreeWidgetItem();
@@ -3669,20 +3671,76 @@ void MainWindow::syncConnContentPoolColumns(QTreeWidget* tree, const QString& to
                                      QStringLiteral("设备")));
             devicesNode->setIcon(0, treeStandardIcon(QStyle::SP_DriveHDIcon));
             devicesNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:pool_devices"), false));
+            auto vdevKind = [](const QString& rawName) -> QString {
+                const QString lower = rawName.trimmed().toLower();
+                if (lower == QStringLiteral("logs"))    return QStringLiteral("logs");
+                if (lower == QStringLiteral("spares"))  return QStringLiteral("spares");
+                if (lower == QStringLiteral("cache"))   return QStringLiteral("cache");
+                if (lower == QStringLiteral("special")) return QStringLiteral("special");
+                if (lower == QStringLiteral("dedup"))   return QStringLiteral("dedup");
+                if (lower.startsWith(QStringLiteral("mirror")))  return QStringLiteral("mirror");
+                if (lower.startsWith(QStringLiteral("raidz3")))  return QStringLiteral("raidz3");
+                if (lower.startsWith(QStringLiteral("raidz2")))  return QStringLiteral("raidz2");
+                if (lower.startsWith(QStringLiteral("raidz1")))  return QStringLiteral("raidz1");
+                if (lower.startsWith(QStringLiteral("raidz")))   return QStringLiteral("raidz");
+                if (lower.startsWith(QStringLiteral("draid")))   return QStringLiteral("draid");
+                return QStringLiteral("disk");
+            };
+            auto vdevIcon = [&](const QString& kind, bool hasChildren) -> QIcon {
+                if (kind == QStringLiteral("logs"))    return treeStandardIcon(QStyle::SP_ArrowForward);
+                if (kind == QStringLiteral("spares"))  return treeStandardIcon(QStyle::SP_DesktopIcon);
+                if (kind == QStringLiteral("cache"))   return treeStandardIcon(QStyle::SP_ComputerIcon);
+                if (kind == QStringLiteral("special")) return treeStandardIcon(QStyle::SP_FileDialogDetailedView);
+                if (kind == QStringLiteral("dedup"))   return treeStandardIcon(QStyle::SP_FileDialogContentsView);
+                if (kind == QStringLiteral("mirror") || kind.startsWith(QStringLiteral("raidz"))
+                    || kind == QStringLiteral("draid")) {
+                    return treeStandardIcon(QStyle::SP_DriveHDIcon);
+                }
+                Q_UNUSED(hasChildren);
+                return treeStandardIcon(QStyle::SP_DriveFDIcon);
+            };
+            auto vdevStateColor = [&](const QString& state) -> QColor {
+                const QString s = state.trimmed().toUpper();
+                if (s == QStringLiteral("ONLINE"))   return QColor();
+                if (s == QStringLiteral("DEGRADED")) return QColor(200, 120, 0);
+                if (s == QStringLiteral("AVAIL"))    return QColor(80, 160, 80);
+                return QColor(180, 40, 40);
+            };
+            auto vdevLabel = [](const QString& kind, const QString& rawName) -> QString {
+                if (kind == QStringLiteral("logs"))    return QStringLiteral("log");
+                if (kind == QStringLiteral("spares"))  return QStringLiteral("spare");
+                if (kind == QStringLiteral("cache"))   return QStringLiteral("cache");
+                if (kind == QStringLiteral("special")) return QStringLiteral("special");
+                if (kind == QStringLiteral("dedup"))   return QStringLiteral("dedup");
+                if (kind == QStringLiteral("mirror"))  return QStringLiteral("mirror");
+                if (kind == QStringLiteral("raidz3"))  return QStringLiteral("raidz3");
+                if (kind == QStringLiteral("raidz2"))  return QStringLiteral("raidz2");
+                if (kind == QStringLiteral("raidz1"))  return QStringLiteral("raidz1");
+                if (kind == QStringLiteral("raidz"))   return QStringLiteral("raidz");
+                if (kind == QStringLiteral("draid"))   return rawName.trimmed().toLower();
+                return rawName.trimmed();
+            };
             std::function<void(QTreeWidgetItem*, const PoolDeviceStatusNode&)> addDeviceRec =
                 [&](QTreeWidgetItem* parent, const PoolDeviceStatusNode& node) {
                     if (!parent) {
                         return;
                     }
-                    const bool isGroup = !node.children.isEmpty()
-                                         || !node.name.trimmed().startsWith(QLatin1Char('/'));
+                    const QString kind = vdevKind(node.name);
+                    const bool isDisk = (kind == QStringLiteral("disk"));
                     auto* item = new QTreeWidgetItem(parent);
                     item->setFlags(item->flags() & ~Qt::ItemIsUserCheckable);
                     item->setData(0, kConnContentNodeRole, true);
-                    item->setText(0, isGroup ? poolDeviceDisplayName(node.name) : node.name.trimmed());
-                    item->setIcon(0, treeStandardIcon(isGroup ? QStyle::SP_DirIcon : QStyle::SP_DriveFDIcon));
-                    if (!node.state.trimmed().isEmpty()) {
-                        item->setToolTip(0, node.state.trimmed());
+                    item->setText(0, isDisk ? node.name.trimmed()
+                                            : vdevLabel(kind, node.name));
+                    item->setIcon(0, vdevIcon(kind, !node.children.isEmpty()));
+                    const QString state = node.state.trimmed();
+                    if (!state.isEmpty()) {
+                        item->setText(1, state);
+                        const QColor col = vdevStateColor(state);
+                        if (col.isValid()) {
+                            item->setForeground(1, QBrush(col));
+                        }
+                        item->setToolTip(0, state);
                     }
                     for (const PoolDeviceStatusNode& child : node.children) {
                         addDeviceRec(item, child);
@@ -5047,7 +5105,10 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
     };
 
     auto listOrNone = [&](const QStringList& values) -> QString {
-        return values.isEmpty() ? QStringLiteral("(ninguno)")
+        return values.isEmpty() ? trk(QStringLiteral("t_none_001"),
+                                      QStringLiteral("(ninguno)"),
+                                      QStringLiteral("(none)"),
+                                      QStringLiteral("(无)"))
                                 : values.join(QStringLiteral(", "));
     };
     const QString statusText = st.status.trimmed().isEmpty() ? QStringLiteral("-") : st.status.trimmed();
@@ -5065,29 +5126,87 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
                                        ? QStringLiteral("-")
                                        : QStringLiteral("%1%2")
                                              .arg(st.helperPackageManagerLabel.trimmed(),
-                                                  st.helperPackageManagerDetected ? QStringLiteral(" (detectado)")
-                                                                                  : QStringLiteral(" (no detectado)"));
+                                                  st.helperPackageManagerDetected
+                                                      ? trk(QStringLiteral("t_detected_001"),
+                                                            QStringLiteral(" (detectado)"),
+                                                            QStringLiteral(" (detected)"),
+                                                            QStringLiteral(" (已检测)"))
+                                                      : trk(QStringLiteral("t_not_detected_001"),
+                                                            QStringLiteral(" (no detectado)"),
+                                                            QStringLiteral(" (not detected)"),
+                                                            QStringLiteral(" (未检测)")));
     QVector<QPair<QString, QString>> infoProps = {
-        {QStringLiteral("Estado"), statusText},
-        {QStringLiteral("Sistema operativo"), osText},
-        {QStringLiteral("Método de conexión"), methodText},
+        {trk(QStringLiteral("t_status_001"),
+             QStringLiteral("Estado"),
+             QStringLiteral("Status"),
+             QStringLiteral("状态")),
+         statusText},
+        {trk(QStringLiteral("t_os_001"),
+             QStringLiteral("Sistema operativo"),
+             QStringLiteral("Operating system"),
+             QStringLiteral("操作系统")),
+         osText},
+        {trk(QStringLiteral("t_conn_method_001"),
+             QStringLiteral("Método de conexión"),
+             QStringLiteral("Connection method"),
+             QStringLiteral("连接方式")),
+         methodText},
         {QStringLiteral("OpenZFS"), zfsText},
-        {QStringLiteral("Plataforma instalación auxiliar"),
+        {trk(QStringLiteral("t_helper_platform_001"),
+             QStringLiteral("Plataforma instalación auxiliar"),
+             QStringLiteral("Helper install platform"),
+             QStringLiteral("辅助安装平台")),
          st.helperPlatformLabel.trimmed().isEmpty() ? QStringLiteral("-") : st.helperPlatformLabel.trimmed()},
-        {QStringLiteral("Gestor de paquetes"), packageMgrText},
-        {QStringLiteral("Instalación asistida"), st.helperInstallSupported ? QStringLiteral("sí") : QStringLiteral("no")},
-        {QStringLiteral("Comandos instalables desde ZFSMgr"), listOrNone(st.helperInstallableCommands)},
-        {QStringLiteral("Comandos no soportados por instalador"), listOrNone(st.helperUnsupportedCommands)}
+        {trk(QStringLiteral("t_package_manager_001"),
+             QStringLiteral("Gestor de paquetes"),
+             QStringLiteral("Package manager"),
+             QStringLiteral("包管理器")),
+         packageMgrText},
+        {trk(QStringLiteral("t_assisted_install_001"),
+             QStringLiteral("Instalación asistida"),
+             QStringLiteral("Assisted install"),
+             QStringLiteral("辅助安装")),
+         st.helperInstallSupported
+             ? trk(QStringLiteral("t_yes_001"),
+                   QStringLiteral("sí"),
+                   QStringLiteral("yes"),
+                   QStringLiteral("是"))
+             : trk(QStringLiteral("t_no_001"),
+                   QStringLiteral("no"),
+                   QStringLiteral("no"),
+                   QStringLiteral("否"))},
+        {trk(QStringLiteral("t_installable_commands_001"),
+             QStringLiteral("Comandos instalables desde ZFSMgr"),
+             QStringLiteral("Commands installable from ZFSMgr"),
+             QStringLiteral("可由 ZFSMgr 安装的命令")),
+         listOrNone(st.helperInstallableCommands)},
+        {trk(QStringLiteral("t_unsupported_installer_commands_001"),
+             QStringLiteral("Comandos no soportados por instalador"),
+             QStringLiteral("Commands not supported by installer"),
+             QStringLiteral("安装器不支持的命令")),
+         listOrNone(st.helperUnsupportedCommands)}
     };
     if (!colorReason.isEmpty()) {
-        infoProps.insert(1, {QStringLiteral("Motivo del color"), colorReason});
+        infoProps.insert(1,
+                         {trk(QStringLiteral("t_color_reason_001"),
+                              QStringLiteral("Motivo del color"),
+                              QStringLiteral("Color reason"),
+                              QStringLiteral("颜色原因")),
+                          colorReason});
     }
     if (!st.helperInstallReason.trimmed().isEmpty()) {
-        infoProps.push_back({QStringLiteral("Motivo instalación asistida"), st.helperInstallReason.trimmed()});
+        infoProps.push_back({trk(QStringLiteral("t_assisted_install_reason_001"),
+                                 QStringLiteral("Motivo instalación asistida"),
+                                 QStringLiteral("Assisted install reason"),
+                                 QStringLiteral("辅助安装原因")),
+                             st.helperInstallReason.trimmed()});
     }
     if (st.commandsLayer.trimmed().compare(QStringLiteral("Powershell"), Qt::CaseInsensitive) == 0
         && !st.powershellFallbackCommands.isEmpty()) {
-        infoProps.push_back({QStringLiteral("Comandos PowerShell usados"),
+        infoProps.push_back({trk(QStringLiteral("t_powershell_commands_used_001"),
+                                 QStringLiteral("Comandos PowerShell usados"),
+                                 QStringLiteral("PowerShell commands used"),
+                                 QStringLiteral("已使用的 PowerShell 命令")),
                              st.powershellFallbackCommands.join(QStringLiteral(", "))});
     }
     auto* generalNode = new QTreeWidgetItem(infoNode);
@@ -5103,54 +5222,66 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
     appendReadOnlyInlineProps(generalNode, infoProps);
     generalNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:general"), true));
 
-    auto* gsaNode = new QTreeWidgetItem(infoNode);
-    gsaNode->setFlags(gsaNode->flags() & ~Qt::ItemIsUserCheckable);
-    gsaNode->setData(0, kConnContentNodeRole, true);
-    gsaNode->setData(0, kConnIdxRole, connIdx);
-    gsaNode->setData(0, kConnStatePartRole, QStringLiteral("syn:gsa"));
-    gsaNode->setText(0, QStringLiteral("GSA"));
-    gsaNode->setIcon(0, treeStandardIcon(QStyle::SP_BrowserReload));
-    const QString gsaStatus = !st.gsaInstalled
-                                  ? trk(QStringLiteral("t_gsa_not_installed_001"),
-                                        QStringLiteral("no instalado"),
-                                        QStringLiteral("not installed"),
-                                        QStringLiteral("未安装"))
-                                               : QStringLiteral("%1 | %2 | %3")
-                                                     .arg(st.gsaVersion.trimmed().isEmpty() ? QStringLiteral("-")
-                                                                                            : st.gsaVersion.trimmed(),
-                                                          st.gsaScheduler.trimmed().isEmpty() ? QStringLiteral("-")
-                                                                                              : st.gsaScheduler.trimmed(),
-                                                          st.gsaActive
-                                                              ? trk(QStringLiteral("t_gsa_active_001"),
-                                                                    QStringLiteral("activo"),
-                                                                    QStringLiteral("active"),
-                                                                    QStringLiteral("活动"))
-                                                              : trk(QStringLiteral("t_gsa_inactive_001"),
-                                                                    QStringLiteral("inactivo"),
-                                                                    QStringLiteral("inactive"),
-                                                                    QStringLiteral("非活动")));
-    QVector<QPair<QString, QString>> gsaProps = {
-        {QStringLiteral("GSA"), gsaStatus},
-        {trk(QStringLiteral("t_gsa_known_conns_001"),
-             QStringLiteral("Conexiones dadas de alta en GSA"),
-             QStringLiteral("Connections configured in GSA"),
-             QStringLiteral("GSA 已配置连接")),
-         listOrNone(st.gsaKnownConnections)},
-        {trk(QStringLiteral("t_gsa_required_conns_001"),
-             QStringLiteral("Conexiones requeridas por GSA"),
-             QStringLiteral("Connections required by GSA"),
-             QStringLiteral("GSA 所需连接")),
-         listOrNone(st.gsaRequiredConnections)}
+
+    auto* agentNode = new QTreeWidgetItem(infoNode);
+    agentNode->setFlags(agentNode->flags() & ~Qt::ItemIsUserCheckable);
+    agentNode->setData(0, kConnContentNodeRole, true);
+    agentNode->setData(0, kConnIdxRole, connIdx);
+    agentNode->setData(0, kConnStatePartRole, QStringLiteral("syn:agent"));
+    agentNode->setText(0, trk(QStringLiteral("t_conn_agent_001"),
+                              QStringLiteral("Daemon"),
+                              QStringLiteral("Daemon"),
+                              QStringLiteral("守护进程")));
+    agentNode->setIcon(0, treeStandardIcon(QStyle::SP_ComputerIcon));
+    const QString agentStatus = !st.daemonInstalled
+                                    ? trk(QStringLiteral("t_conn_agent_not_installed_001"),
+                                          QStringLiteral("no instalado"),
+                                          QStringLiteral("not installed"),
+                                          QStringLiteral("未安装"))
+                                    : QStringLiteral("%1 | %2 | %3")
+                                          .arg(st.daemonVersion.trimmed().isEmpty() ? QStringLiteral("-")
+                                                                                    : st.daemonVersion.trimmed(),
+                                               st.daemonScheduler.trimmed().isEmpty() ? QStringLiteral("-")
+                                                                                      : st.daemonScheduler.trimmed(),
+                                               st.daemonActive
+                                                   ? trk(QStringLiteral("t_conn_agent_active_001"),
+                                                         QStringLiteral("activo"),
+                                                         QStringLiteral("active"),
+                                                         QStringLiteral("活动"))
+                                                   : trk(QStringLiteral("t_conn_agent_inactive_001"),
+                                                         QStringLiteral("inactivo"),
+                                                         QStringLiteral("inactive"),
+                                                         QStringLiteral("非活动")));
+    QVector<QPair<QString, QString>> agentProps = {
+        {trk(QStringLiteral("t_conn_agent_label_001"),
+             QStringLiteral("Daemon"),
+             QStringLiteral("Daemon"),
+             QStringLiteral("守护进程")),
+         agentStatus},
+        {trk(QStringLiteral("t_conn_agent_api_label_001"),
+             QStringLiteral("API"),
+             QStringLiteral("API"),
+             QStringLiteral("API")),
+         st.daemonApiVersion.trimmed().isEmpty() ? QStringLiteral("-") : st.daemonApiVersion.trimmed()},
     };
-    if (st.gsaNeedsAttention && !st.gsaAttentionReasons.isEmpty()) {
-        gsaProps.push_back({trk(QStringLiteral("t_gsa_attention_001"),
-                                QStringLiteral("Atención GSA"),
-                                QStringLiteral("GSA attention"),
-                                QStringLiteral("GSA 注意")),
-                            st.gsaAttentionReasons.join(QStringLiteral(", "))});
+    if (!st.daemonDetail.trimmed().isEmpty()) {
+        agentProps.push_back(
+            {trk(QStringLiteral("t_conn_agent_detail_001"),
+                 QStringLiteral("Detalle"),
+                 QStringLiteral("Detail"),
+                 QStringLiteral("详情")),
+             st.daemonDetail.trimmed()});
     }
-    appendReadOnlyInlineProps(gsaNode, gsaProps);
-    gsaNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:gsa"), false));
+    if (st.daemonNeedsAttention && !st.daemonAttentionReasons.isEmpty()) {
+        agentProps.push_back(
+            {trk(QStringLiteral("t_conn_agent_attention_001"),
+                 QStringLiteral("Atención daemon"),
+                 QStringLiteral("Daemon attention"),
+                 QStringLiteral("守护进程注意事项")),
+             st.daemonAttentionReasons.join(QStringLiteral(", "))});
+    }
+    appendReadOnlyInlineProps(agentNode, agentProps);
+    agentNode->setExpanded(infoChildExpandedById.value(QStringLiteral("syn:agent"), false));
 
     auto* commandsNode = new QTreeWidgetItem(infoNode);
     commandsNode->setFlags(commandsNode->flags() & ~Qt::ItemIsUserCheckable);
@@ -5161,6 +5292,12 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
                                  QStringLiteral("Comandos"),
                                  QStringLiteral("Commands"),
                                  QStringLiteral("命令")));
+    {
+        const QIcon terminalIcon = QIcon::fromTheme(QStringLiteral("utilities-terminal"));
+        commandsNode->setIcon(0, terminalIcon.isNull()
+                                     ? treeStandardIcon(QStyle::SP_CommandLink)
+                                     : terminalIcon);
+    }
     auto appendCommandRows = [&](QTreeWidgetItem* parent,
                                  const QVector<QPair<QString, bool>>& entries) {
         if (!parent || entries.isEmpty()) {
@@ -5369,7 +5506,7 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
     };
     auto connectionRootTitle = [&]() -> QString {
         QString connName = (connIdx >= 0 && connIdx < m_profiles.size()) ? m_profiles[connIdx].name : QStringLiteral("?");
-        if (connIdx >= 0 && connIdx < m_states.size() && m_states[connIdx].gsaNeedsAttention) {
+        if (connIdx >= 0 && connIdx < m_states.size() && m_states[connIdx].daemonNeedsAttention) {
             connName += QStringLiteral(" (*)");
         }
         const QString connPrefix =
@@ -5493,19 +5630,28 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             return false;
         }
         ConnectionProfile p = m_profiles[connIdx];
-        const bool remoteUnix = !isWindowsConnection(p);
-        if (remoteUnix) {
-            (void)ensureRemoteScriptsUpToDate(p);
-        }
+        const bool daemonReadApiOk =
+            connIdx >= 0
+            && connIdx < m_states.size()
+            && m_states[connIdx].daemonInstalled
+            && m_states[connIdx].daemonActive
+            && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
         bool changed = false;
         if (poolInfo->key.poolGuid.trimmed().isEmpty()) {
             QString out;
             QString err;
             int rc = -1;
-            const QString cmd = withSudo(
+            const QString cmdClassic = withSudo(
                 p,
-                remoteScriptCommand(p, QStringLiteral("zfsmgr-zpool-guid"), {trimmedPool}));
-            (void)runSsh(p, cmd, 12000, out, err, rc);
+                mwhelpers::withUnixSearchPathCommand(
+                    QStringLiteral("zpool get -H -o value guid %1")
+                        .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            const QString cmdDaemon = withSudo(
+                p, mwhelpers::withUnixSearchPathCommand(
+                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-guid %1")
+                           .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            const QString selectedCmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
+            bool ok = runSsh(p, selectedCmd, 12000, out, err, rc) && rc == 0;
             if (rc == 0) {
                 const QString guid = out.section('\n', 0, 0).trimmed();
                 if (!guid.isEmpty() && guid != QStringLiteral("-")) {
@@ -5534,10 +5680,17 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             QString out;
             QString err;
             int rc = -1;
-            const QString cmd = withSudo(
+            const QString cmdClassic = withSudo(
                 p,
-                remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-guid-map"), {trimmedPool}));
-            (void)runSsh(p, cmd, 25000, out, err, rc);
+                mwhelpers::withUnixSearchPathCommand(
+                    QStringLiteral("zfs list -H -o name,guid -r %1")
+                        .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            const QString cmdDaemon = withSudo(
+                p, mwhelpers::withUnixSearchPathCommand(
+                       QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-guid-map %1")
+                           .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            const QString selectedCmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
+            bool ok = runSsh(p, selectedCmd, 25000, out, err, rc) && rc == 0;
             if (rc == 0) {
                 const QString cacheKey = datasetCacheKey(connIdx, trimmedPool);
                 PoolDatasetCache* cache = nullptr;
@@ -5656,7 +5809,11 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             }
             snaps = filtered;
         }
-        item->setText(1, snaps.isEmpty() ? QString() : QStringLiteral("(ninguno)"));
+        item->setText(1, snaps.isEmpty() ? QString()
+                                         : trk(QStringLiteral("t_none_001"),
+                                               QStringLiteral("(ninguno)"),
+                                               QStringLiteral("(none)"),
+                                               QStringLiteral("(无)")));
         item->setData(1, Qt::UserRole, QString());
         item->setData(0, Qt::UserRole, fullName);
         item->setData(1, kSnapshotListRole, snaps);
@@ -5716,6 +5873,24 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
             permissionsNode->setFlags(permissionsNode->flags() & ~Qt::ItemIsUserCheckable);
             permissionsNode->setExpanded(false);
         }
+        if (!effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
+            auto* contentNode = new QTreeWidgetItem(item);
+            contentNode->setText(0, trk(QStringLiteral("t_content_node_001"),
+                                        QStringLiteral("Contenido"),
+                                        QStringLiteral("Content"),
+                                        QStringLiteral("内容")));
+            contentNode->setIcon(0, contentNodeIcon());
+            contentNode->setData(0, kConnFileBrowserNodeRole, true);
+            contentNode->setData(0, kConnFileBrowserPathRole, effectiveMp);
+            contentNode->setData(0, kConnFileBrowserLoadedRole, false);
+            contentNode->setData(0, kConnIdxRole, connIdx);
+            contentNode->setData(0, kConnPoolGuidRole, poolInfo->key.poolGuid.trimmed());
+            contentNode->setFlags(contentNode->flags() & ~Qt::ItemIsUserCheckable);
+            contentNode->setExpanded(false);
+            auto* placeholder = new QTreeWidgetItem(contentNode);
+            placeholder->setText(0, QStringLiteral("..."));
+            placeholder->setFlags(placeholder->flags() & ~Qt::ItemIsUserCheckable);
+        }
         if (!snaps.isEmpty()) {
             auto* snapshotsNode = new QTreeWidgetItem(item);
             snapshotsNode->setText(0, QStringLiteral("@"));
@@ -5764,6 +5939,25 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
                                .arg(QString::number(connIdx), poolName, fullSnapshotName));
                 }
                 snapItem->setFlags(snapItem->flags() & ~Qt::ItemIsUserCheckable);
+                if (!effectiveMp.isEmpty() && effectiveMp != QStringLiteral("none")) {
+                    const QString snapPath = effectiveMp + QStringLiteral("/.zfs/snapshot/") + snapName.trimmed();
+                    auto* snapContentNode = new QTreeWidgetItem(snapItem);
+                    snapContentNode->setText(0, trk(QStringLiteral("t_content_node_001"),
+                                                    QStringLiteral("Contenido"),
+                                                    QStringLiteral("Content"),
+                                                    QStringLiteral("内容")));
+                    snapContentNode->setIcon(0, contentNodeIcon());
+                    snapContentNode->setData(0, kConnFileBrowserNodeRole, true);
+                    snapContentNode->setData(0, kConnFileBrowserPathRole, snapPath);
+                    snapContentNode->setData(0, kConnFileBrowserLoadedRole, false);
+                    snapContentNode->setData(0, kConnIdxRole, connIdx);
+                    snapContentNode->setData(0, kConnPoolGuidRole, poolInfo->key.poolGuid.trimmed());
+                    snapContentNode->setFlags(snapContentNode->flags() & ~Qt::ItemIsUserCheckable);
+                    snapContentNode->setExpanded(false);
+                    auto* snapPlaceholder = new QTreeWidgetItem(snapContentNode);
+                    snapPlaceholder->setText(0, QStringLiteral("..."));
+                    snapPlaceholder->setFlags(snapPlaceholder->flags() & ~Qt::ItemIsUserCheckable);
+                }
             };
 
             QStringList manualSnapshots;
@@ -6248,7 +6442,7 @@ void MainWindow::onDatasetTreeItemChanged(QTreeWidget* tree, QTreeWidgetItem* it
                 QString connName = m_profiles[connIdx].name.trimmed().isEmpty()
                                        ? m_profiles[connIdx].id.trimmed()
                                        : m_profiles[connIdx].name.trimmed();
-                if (connIdx >= 0 && connIdx < m_states.size() && m_states[connIdx].gsaNeedsAttention) {
+                if (connIdx >= 0 && connIdx < m_states.size() && m_states[connIdx].daemonNeedsAttention) {
                     connName += QStringLiteral(" (*)");
                 }
                 const QString connPrefix =

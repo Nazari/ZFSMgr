@@ -9,6 +9,7 @@
 #include <QLocale>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QProcess>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScopedValueRollback>
@@ -1591,8 +1592,7 @@ void MainWindow::applyDatasetPropertyChanges() {
                     QStringLiteral("%1  %2").arg(pendingLinePrefix(item.ctx.connIdx, item.ctx.poolName),
                                                  op.displayLine.trimmed());
                 markPendingRunning(displayLine);
-                const QString cmd = isWin ? op.command
-                                          : QStringLiteral("set -e; %1").arg(op.command);
+                const QString cmd = op.command;
                 if (!executeDatasetAction(QStringLiteral("conncontent"),
                                           QStringLiteral("Aplicar propiedades"),
                                           item.ctx,
@@ -1834,15 +1834,14 @@ void MainWindow::applyDatasetPropertyChanges() {
                         continue;
                     }
                     if (had && has && beforeTokens != afterTokens) {
-                        QString cmd = QStringLiteral("zfs unallow %1%2")
-                                          .arg(beforeFlags, shSingleQuote(datasetName));
+                        subcmds << QStringLiteral("zfs unallow %1%2")
+                                       .arg(beforeFlags, shSingleQuote(datasetName));
                         if (!afterTokens.isEmpty()) {
-                            cmd += QStringLiteral(" && zfs allow %1%2 %3")
-                                       .arg(afterFlags,
-                                            afterTokens.join(','),
-                                            shSingleQuote(datasetName));
+                            subcmds << QStringLiteral("zfs allow %1%2 %3")
+                                           .arg(afterFlags,
+                                                afterTokens.join(','),
+                                                shSingleQuote(datasetName));
                         }
-                        subcmds << cmd;
                     }
                 }
             };
@@ -1853,13 +1852,12 @@ void MainWindow::applyDatasetPropertyChanges() {
             const QStringList originalCreate = normalizeTokens(entry.originalCreatePermissions);
             const QStringList currentCreate = normalizeTokens(entry.createPermissions);
             if (originalCreate != currentCreate) {
-                QString cmd = QStringLiteral("zfs unallow -c %1").arg(shSingleQuote(datasetName));
+                subcmds << QStringLiteral("zfs unallow -c %1").arg(shSingleQuote(datasetName));
                 if (!currentCreate.isEmpty()) {
-                    cmd += QStringLiteral(" && zfs allow -c %1 %2")
-                               .arg(currentCreate.join(','),
-                                    shSingleQuote(datasetName));
+                    subcmds << QStringLiteral("zfs allow -c %1 %2")
+                                   .arg(currentCreate.join(','),
+                                        shSingleQuote(datasetName));
                 }
-                subcmds << cmd;
             }
 
             QMap<QString, DatasetPermissionSet> origSets;
@@ -1895,15 +1893,14 @@ void MainWindow::applyDatasetPropertyChanges() {
                     continue;
                 }
                 if (had && has && (before.name != after.name || beforeTokens != afterTokens)) {
-                    QString cmd = QStringLiteral("zfs unallow -s %1 %2")
-                                      .arg(before.name, shSingleQuote(datasetName));
+                    subcmds << QStringLiteral("zfs unallow -s %1 %2")
+                                   .arg(before.name, shSingleQuote(datasetName));
                     if (!afterTokens.isEmpty()) {
-                        cmd += QStringLiteral(" && zfs allow -s %1 %2 %3")
-                                   .arg(after.name,
-                                        afterTokens.join(','),
-                                        shSingleQuote(datasetName));
+                        subcmds << QStringLiteral("zfs allow -s %1 %2 %3")
+                                       .arg(after.name,
+                                            afterTokens.join(','),
+                                            shSingleQuote(datasetName));
                     }
-                    subcmds << cmd;
                 }
             }
 
@@ -1925,7 +1922,7 @@ void MainWindow::applyDatasetPropertyChanges() {
                     .arg(pendingLinePrefix(connIdx, poolName),
                          QStringLiteral("Actualizar permisos en %1").arg(datasetName));
             markPendingRunning(permissionDisplayLine);
-            const QString cmd = QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
+            const QString cmd = subcmds.join(QStringLiteral("; "));
             if (!executeDatasetAction(QStringLiteral("conncontent"),
                                       QStringLiteral("Aplicar permisos"),
                                       ctx,
@@ -2069,7 +2066,11 @@ void MainWindow::applyDatasetPropertyChanges() {
             const QString shellDisplayLine =
                 QStringLiteral("%1  %2").arg(scope, draft.displayLabel.trimmed());
             markPendingRunning(shellDisplayLine);
-            if (!runLocalCommand(draft.displayLabel, draft.command, draft.timeoutMs, false, draft.streamProgress)) {
+            PendingChange shellPending;
+            shellPending.kind = PendingChange::Kind::ShellAction;
+            shellPending.shellDraft = draft;
+            shellPending.executableIndividually = true;
+            if (!executePendingChange(shellPending)) {
                 markPendingDone(shellDisplayLine, false);
                 QMessageBox::warning(
                     this,
@@ -2084,16 +2085,6 @@ void MainWindow::applyDatasetPropertyChanges() {
                 return;
             }
             markPendingDone(shellDisplayLine, true);
-            for (int i = m_pendingChangesModel.size() - 1; i >= 0; --i) {
-                const PendingChange& existing = m_pendingChangesModel.at(i);
-                if (existing.kind == PendingChange::Kind::ShellAction
-                    && existing.shellDraft.displayLabel.trimmed() == draft.displayLabel.trimmed()
-                    && existing.shellDraft.command.trimmed() == draft.command.trimmed()) {
-                    m_pendingChangesModel.removeAt(i);
-                    break;
-                }
-            }
-            refreshPendingShellActionDraft(draft);
         }
 
         for (int connIdx : std::as_const(connectionsToRefresh)) {
@@ -2982,13 +2973,201 @@ QStringList MainWindow::pendingConnContentApplyDisplayLines() const {
     return lines;
 }
 
+int MainWindow::pendingShellSingleConnectionIdx(const PendingShellActionDraft& draft) const {
+    QSet<int> connIdxs;
+    if (draft.refreshSource.valid && draft.refreshSource.connIdx >= 0) {
+        connIdxs.insert(draft.refreshSource.connIdx);
+    }
+    if (draft.refreshTarget.valid && draft.refreshTarget.connIdx >= 0) {
+        connIdxs.insert(draft.refreshTarget.connIdx);
+    }
+    if (connIdxs.size() != 1) {
+        return -1;
+    }
+    const int connIdx = *connIdxs.cbegin();
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return -1;
+    }
+    return connIdx;
+}
+
+bool MainWindow::tryExecutePendingShellActionRemotely(const PendingShellActionDraft& draft,
+                                                       bool* handledOut,
+                                                       QString* failureDetailOut) {
+    if (handledOut) {
+        *handledOut = false;
+    }
+    const int connIdx = pendingShellSingleConnectionIdx(draft);
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        appLog(QStringLiteral("DEBUG"),
+               QStringLiteral("Pending shell daemon-rpc skip: conexión no resolvible (single-conn) para \"%1\"")
+                   .arg(draft.displayLabel.trimmed()));
+        return true;
+    }
+    const ConnectionProfile& p = m_profiles.at(connIdx);
+    if (isWindowsConnection(p)) {
+        appLog(QStringLiteral("DEBUG"),
+               QStringLiteral("Pending shell daemon-rpc skip: Windows no soportado para \"%1\" en %2")
+                   .arg(draft.displayLabel.trimmed(), p.name));
+        return true;
+    }
+
+    QString rawCmd = draft.command.trimmed();
+    if (rawCmd.isEmpty()) {
+        appLog(QStringLiteral("DEBUG"),
+               QStringLiteral("Pending shell daemon-rpc skip: comando vacío para \"%1\" en %2")
+                   .arg(draft.displayLabel.trimmed(), p.name));
+        return true;
+    }
+    // Si el pendiente viene envuelto con sshExecFromLocal(conn, remoteCmd),
+    // desempaquetar remoteCmd para intentar daemon-rpc directamente.
+    if (!isLocalConnection(p)) {
+        const QStringList outerParts = QProcess::splitCommand(rawCmd);
+        if (outerParts.size() >= 3 && outerParts.first().trimmed() == QStringLiteral("ssh")) {
+            const QString expectedTarget = mwhelpers::sshUserHost(p).trimmed();
+            int targetIdx = -1;
+            auto sshOptionNeedsValue = [](const QString& tok) {
+                static const QSet<QString> opts = {
+                    QStringLiteral("-B"), QStringLiteral("-b"), QStringLiteral("-c"),
+                    QStringLiteral("-D"), QStringLiteral("-E"), QStringLiteral("-e"),
+                    QStringLiteral("-F"), QStringLiteral("-I"), QStringLiteral("-i"),
+                    QStringLiteral("-J"), QStringLiteral("-L"), QStringLiteral("-l"),
+                    QStringLiteral("-m"), QStringLiteral("-O"), QStringLiteral("-o"),
+                    QStringLiteral("-p"), QStringLiteral("-Q"), QStringLiteral("-R"),
+                    QStringLiteral("-S"), QStringLiteral("-W"), QStringLiteral("-w")
+                };
+                if (opts.contains(tok)) {
+                    return true;
+                }
+                // Opciones compactas tipo -p22, -oStrictHostKeyChecking=no, -i/path
+                const QString t = tok.trimmed();
+                if (t.startsWith(QStringLiteral("-p")) && t.size() > 2) return false;
+                if (t.startsWith(QStringLiteral("-o")) && t.size() > 2) return false;
+                if (t.startsWith(QStringLiteral("-i")) && t.size() > 2) return false;
+                if (t.startsWith(QStringLiteral("-F")) && t.size() > 2) return false;
+                if (t.startsWith(QStringLiteral("-J")) && t.size() > 2) return false;
+                if (t.startsWith(QStringLiteral("-S")) && t.size() > 2) return false;
+                if (t.startsWith(QStringLiteral("-W")) && t.size() > 2) return false;
+                return false;
+            };
+            for (int i = 1; i < outerParts.size(); ++i) {
+                const QString tok = outerParts.at(i).trimmed();
+                if (tok.startsWith(QLatin1Char('-'))) {
+                    if (sshOptionNeedsValue(tok) && i + 1 < outerParts.size()) {
+                        ++i;
+                    }
+                    continue;
+                }
+                if (tok == expectedTarget) {
+                    targetIdx = i;
+                    break;
+                }
+            }
+            if (targetIdx >= 1 && targetIdx + 1 == outerParts.size() - 1) {
+                const QString unwrapped = outerParts.last().trimmed();
+                if (!unwrapped.isEmpty()) {
+                    rawCmd = unwrapped;
+                }
+            }
+        }
+    }
+
+    const QStringList parts = QProcess::splitCommand(rawCmd);
+    if (parts.size() < 2) {
+        appLog(QStringLiteral("DEBUG"),
+               QStringLiteral("Pending shell daemon-rpc skip: comando no parseable para \"%1\" en %2")
+                   .arg(draft.displayLabel.trimmed(), p.name));
+        return true;
+    }
+    const QString tool = parts.at(0).trimmed().toLower();
+    QString execCmd;
+    QString remoteActionLabel =
+        draft.displayLabel.trimmed().isEmpty()
+            ? QStringLiteral("Pending shell")
+            : draft.displayLabel.trimmed();
+    if (tool == QStringLiteral("zfs")) {
+        execCmd = daemonizeZfsMutationCommand(connIdx, rawCmd);
+    } else if (tool == QStringLiteral("zpool")) {
+        execCmd = daemonizeZpoolMutationCommand(connIdx, rawCmd);
+    } else {
+        // Evita comandos que dependen de orquestación local (ssh/powershell/pscp/scp).
+        const QString lc = rawCmd.toLower();
+        if (lc.contains(QStringLiteral("ssh "))
+            || lc.contains(QStringLiteral("\tssh "))
+            || lc.contains(QStringLiteral(" powershell "))
+            || lc.contains(QStringLiteral(" pwsh "))
+            || lc.contains(QStringLiteral(" scp "))
+            || lc.contains(QStringLiteral(" pscp "))) {
+            appLog(QStringLiteral("DEBUG"),
+                   QStringLiteral("Pending shell daemon-rpc skip: comando de orquestación local para \"%1\" en %2")
+                       .arg(draft.displayLabel.trimmed(), p.name));
+            return true;
+        }
+        execCmd = daemonizeShellMutationCommand(connIdx, rawCmd);
+        remoteActionLabel =
+            draft.displayLabel.trimmed().isEmpty()
+                ? QStringLiteral("Pending shell generic")
+                : draft.displayLabel.trimmed();
+    }
+    if (execCmd.trimmed().isEmpty()) {
+        appLog(QStringLiteral("DEBUG"),
+               QStringLiteral("Pending shell daemon-rpc skip: comando no permitido/no compatible para \"%1\" en %2")
+                   .arg(draft.displayLabel.trimmed(), p.name));
+        return true;
+    }
+    if (handledOut) {
+        *handledOut = true;
+    }
+    appLog(QStringLiteral("DEBUG"),
+           QStringLiteral("Pending shell daemon-rpc: ejecutando \"%1\" en %2")
+               .arg(remoteActionLabel, p.name));
+
+    ConnectionProfile sudoProfile = p;
+    if (!ensureLocalSudoCredentials(sudoProfile)) {
+        if (failureDetailOut) {
+            *failureDetailOut = QStringLiteral("faltan credenciales sudo locales");
+        }
+        appLog(QStringLiteral("DEBUG"),
+               QStringLiteral("Pending shell daemon-rpc fallo: sudo local no disponible para \"%1\" en %2")
+                   .arg(remoteActionLabel, p.name));
+        return false;
+    }
+    const QString remoteCmd =
+        withSudo(sudoProfile, mwhelpers::withUnixSearchPathCommand(execCmd));
+    QString detail;
+    const bool ok = executeConnectionCommand(connIdx,
+                                             remoteActionLabel,
+                                             remoteCmd,
+                                             draft.timeoutMs > 0 ? draft.timeoutMs : 60000,
+                                             &detail);
+    if (!ok) {
+        if (failureDetailOut) {
+            *failureDetailOut = detail;
+        }
+        appLog(QStringLiteral("DEBUG"),
+               QStringLiteral("Pending shell daemon-rpc fallo en \"%1\" (%2): %3")
+                   .arg(remoteActionLabel, p.name, mwhelpers::oneLine(detail)));
+        return false;
+    }
+    appLog(QStringLiteral("DEBUG"),
+           QStringLiteral("Pending shell daemon-rpc OK: \"%1\" en %2")
+               .arg(remoteActionLabel, p.name));
+    return true;
+}
+
 bool MainWindow::executePendingChange(const PendingChange& change) {
     if (!change.executableIndividually) {
         return false;
     }
     if (change.kind == PendingChange::Kind::ShellAction) {
         const PendingShellActionDraft& draft = change.shellDraft;
-        if (!runLocalCommand(draft.displayLabel, draft.command, draft.timeoutMs, false, draft.streamProgress)) {
+        bool handledRemotely = false;
+        QString remoteFailure;
+        if (!tryExecutePendingShellActionRemotely(draft, &handledRemotely, &remoteFailure)) {
+            return false;
+        }
+        if (!handledRemotely
+            && !runLocalCommand(draft.displayLabel, draft.command, draft.timeoutMs, false, draft.streamProgress)) {
             return false;
         }
         for (int i = 0; i < m_pendingChangesModel.size(); ++i) {

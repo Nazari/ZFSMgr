@@ -18,6 +18,8 @@
 MainWindow::~MainWindow() {
     m_closing = true;
     QCoreApplication::removePostedEvents(this);
+    stopAllDaemonEventWatchers();
+    closeAllRemoteDaemonRpcTunnels();
 
     auto quiesceObject = [](QObject* obj) {
         if (!obj) {
@@ -95,6 +97,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         return;
     }
     saveUiSettings();
+    closeAllRemoteDaemonRpcTunnels();
     closeAllSshControlMasters();
     QMainWindow::closeEvent(event);
 }

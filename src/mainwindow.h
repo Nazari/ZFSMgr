@@ -16,7 +16,10 @@
 #include <QPointer>
 #include <QSet>
 #include <QVector>
+#include <atomic>
 #include <functional>
+#include <memory>
+#include <thread>
 
 class QTimer;
 class QComboBox;
@@ -97,7 +100,6 @@ public:
     void rebuildConnContentTreeForTest(const QString& datasetToSelect, bool bottom = false);
     QStringList connectionContextMenuTopLevelLabelsForTest() const;
     QStringList connectionRefreshMenuLabelsForTest() const;
-    QStringList connectionGsaMenuLabelsForTest() const;
     QStringList poolContextMenuLabelsForTest(const QString& poolName, bool bottom = false) const;
 
 protected:
@@ -152,15 +154,16 @@ private:
         QMap<QString, QString> poolGuidByName;
         QVector<QPair<QString, QString>> mountedDatasets; // dataset, mountpoint
         QMap<QString, QString> poolStatusByName;
-        QString gsaScheduler;
-        QString gsaVersion;
-        QString gsaDetail;
-        QStringList gsaKnownConnections;
-        QStringList gsaRequiredConnections;
-        QStringList gsaAttentionReasons;
-        bool gsaNeedsAttention{false};
-        bool gsaInstalled{false};
-        bool gsaActive{false};
+        QString daemonScheduler;
+        QString daemonVersion;
+        QString daemonApiVersion;
+        QString daemonDetail;
+        QStringList daemonAttentionReasons;
+        bool daemonNeedsAttention{false};
+        bool daemonInstalled{false};
+        bool daemonActive{false};
+        bool daemonNativeBinary{false};
+        QString daemonLastSeenZedEvent; // last ZED_LAST_EVENT_UTC value from health
     };
 
     struct DatasetRecord {
@@ -605,11 +608,12 @@ private:
                                        const QString& objectName,
                                        const QString& prop,
                                        bool inherit);
-    QString gsaMenuLabelForConnection(int connIdx) const;
-    bool installOrUpdateGsaForConnection(int connIdx);
-    bool uninstallGsaForConnection(int connIdx);
-    bool validatePendingGsaDrafts(QString* errorOut = nullptr);
+    QString daemonMenuLabelForConnection(int connIdx) const;
+    bool installOrUpdateDaemonForConnection(int connIdx);
+    bool uninstallDaemonForConnection(int connIdx);
+    void authorizePublicKeyOnConnection(int srcIdx, int dstIdx);
     bool showAutomaticSnapshots() const;
+    bool validatePendingGsaDrafts(QString* errorOut = nullptr);
 
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
     bool runSsh(const ConnectionProfile& p,
@@ -623,6 +627,23 @@ private:
                 const std::function<void(int)>& onIdleTimeoutRemaining = {},
                 WindowsCommandMode windowsMode = WindowsCommandMode::Auto,
                 const QByteArray& stdinPayload = {});
+    bool tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
+                                       const QStringList& agentArgs,
+                                       int timeoutMs,
+                                       QString& out,
+                                       QString& err,
+                                       int& rc,
+                                       QString* failureReason = nullptr);
+    bool persistDaemonTlsMaterialForConnection(const ConnectionProfile& p,
+                                               const QByteArray& serverCertPem,
+                                               const QByteArray& clientCertPem,
+                                               const QByteArray& clientKeyPem,
+                                               quint16 daemonPort,
+                                               QString* errorOut = nullptr);
+    bool cacheDaemonTlsMaterialForConnection(const ConnectionProfile& p, QString* errorOut = nullptr);
+    bool cleanupRemoteDaemonClientPrivateKey(const ConnectionProfile& p, QString* errorOut = nullptr);
+    void closeAllRemoteDaemonRpcTunnels();
+    void clearDaemonRpcStateForConnection(const ConnectionProfile& p);
     void closeAllSshControlMasters();
     QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
     QString withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const;
@@ -631,16 +652,6 @@ private:
     bool isWindowsConnection(const ConnectionProfile& p) const;
     bool isWindowsConnection(int connIdx) const;
     bool supportsAlternateDatasetMount(int connIdx) const;
-    bool ensureRemoteScriptsUpToDate(const ConnectionProfile& p);
-    QString remoteScriptsVersionTag() const;
-    QString remoteScriptsBasePath(const ConnectionProfile& p) const;
-    QString remoteScriptsVersionFilePath(const ConnectionProfile& p) const;
-    QMap<QString, QString> remoteScriptPayloads() const;
-    QString remoteScriptCommand(const ConnectionProfile& p,
-                                const QString& scriptName,
-                                const QStringList& args = {}) const;
-    QString buildRemoteScriptsInstallCommand(const QMap<QString, QString>& payloads,
-                                             const QString& versionTag) const;
     QString wrapRemoteCommand(const ConnectionProfile& p,
                               const QString& remoteCmd,
                               WindowsCommandMode windowsMode = WindowsCommandMode::Auto) const;
@@ -700,6 +711,7 @@ private:
     QVector<QPair<QString, QString>> datasetSnapshotHolds(int connIdx, const QString& poolName, const QString& objectName) const;
     void invalidateDatasetPermissionsCacheForPool(int connIdx, const QString& poolName);
     void populateDatasetPermissionsNode(QTreeWidget* tree, QTreeWidgetItem* datasetItem, bool forceReload = false);
+    void populateFileBrowserNode(QTreeWidget* tree, QTreeWidgetItem* browserNode);
     QStringList availableDelegablePermissions(const QString& datasetName,
                                               int connIdx,
                                               const QString& poolName,
@@ -733,6 +745,9 @@ private:
                             QString* failureDetailOut = nullptr,
                             bool refreshPoolsTable = false,
                             bool refreshSelectedPoolDetailsAfter = false);
+    QString daemonizeZfsMutationCommand(int connIdx, const QString& rawCmd) const;
+    QString daemonizeZpoolMutationCommand(int connIdx, const QString& rawCmd) const;
+    QString daemonizeShellMutationCommand(int connIdx, const QString& rawShell) const;
     bool fetchPoolCommandOutput(int connIdx,
                                 const QString& poolName,
                                 const QString& actionName,
@@ -780,6 +795,10 @@ private:
     void reloadConnContentPoolNow(int connIdx, const QString& poolName);
     void reloadConnContentPool(int connIdx, const QString& poolName);
     void reloadDatasetSide(const QString& side);
+    int pendingShellSingleConnectionIdx(const PendingShellActionDraft& draft) const;
+    bool tryExecutePendingShellActionRemotely(const PendingShellActionDraft& draft,
+                                              bool* handledOut,
+                                              QString* failureDetailOut = nullptr);
     void refreshPendingShellActionDraft(const PendingShellActionDraft& draft);
     void updateConnectionActionsState();
     bool isTransferVersionAllowed(const DatasetSelectionContext& src,
@@ -846,14 +865,16 @@ private:
     void refreshConnectionGsaLogAsync(int idx);
     void onAsyncRefreshResult(int generation, int idx, const QString& connId, const ConnectionRuntimeState& state);
     void onAsyncRefreshDone(int generation);
+    void startDaemonEventWatcher(int connIdx);
+    void stopDaemonEventWatcher(const QString& connId);
+    void stopAllDaemonEventWatchers();
     int findConnectionIndexByName(const QString& name) const;
     bool isConnectionRedirectedToLocal(int idx) const;
     QString connectionPersistKey(int idx) const;
     bool isConnectionDisconnected(int idx) const;
     void setConnectionDisconnected(int idx, bool disconnected);
     void refreshConnectionByIndex(int idx);
-    bool installOrUpdateGsaForConnectionInternal(int idx, bool interactive);
-    void refreshInstalledGsaAfterConnectionChange(const QString& changedConnectionName);
+    bool installOrUpdateDaemonForConnectionInternal(int idx, bool interactive);
     struct PoolListEntry {
         QString connection;
         QString pool;
@@ -1086,6 +1107,7 @@ private:
     QMap<QString, PendingItemStatus> m_pendingItemStatus;
     QStringList m_pendingOrderedDisplayLines;
     QTimer* m_pendingSpinnerTimer{nullptr};
+    QTimer* m_autoRefreshTimer{nullptr};
     int m_pendingSpinnerFrame{0};
     bool m_pendingApplyInProgress{false};
     bool m_pendingApplyFinishSuppressed{false};
@@ -1110,6 +1132,21 @@ private:
     QMap<QString, ConnCompactState> m_connGsaCompactState;
     QSet<QString> m_sshDisableMultiplexKeys;
     QSet<QString> m_loggedSshResolutionKeys;
+    QSet<QString> m_daemonBootstrapPromptedConnIds;
+    QMap<QString, QDateTime> m_daemonRpcRetryAfterByConnKey;
+    struct RemoteRpcTunnelState {
+        QPointer<QProcess> process;
+        quint16 localPort{0};
+        quint16 remotePort{0};
+        QDateTime startedAtUtc;
+        QDateTime lastUsedUtc;
+    };
+    QMap<QString, RemoteRpcTunnelState> m_remoteDaemonRpcTunnelsByConnKey;
+    struct DaemonEventWatcher {
+        std::atomic<bool> stop{false};
+        std::thread thread;
+    };
+    QMap<QString, std::shared_ptr<DaemonEventWatcher>> m_daemonWatchers;
     mutable QMutex m_sshRuntimeSetsMutex;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
     QMap<QString, DatasetPermissionsCacheEntry> m_datasetPermissionsCache;

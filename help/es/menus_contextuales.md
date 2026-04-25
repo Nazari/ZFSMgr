@@ -16,7 +16,7 @@ ZFSMgr usa menús contextuales sobre el árbol unificado.
   - `Editar`
   - `Borrar`
   - separador
-  - `GSA`
+  - `Daemon`
   - separador
   - `Nuevo pool`
   - separador
@@ -24,6 +24,10 @@ ZFSMgr usa menús contextuales sobre el árbol unificado.
   - separador
   - `Instalar MSYS2`
   - `Instalar comandos auxiliares`
+
+`Daemon` incluye:
+- `Instalar/actualizar daemon` (o `Daemon actualizado y funcionando` si ya está al día)
+- `Desinstalar daemon`
 
 ## Sobre el nodo raíz del pool fusionado
 

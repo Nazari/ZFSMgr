@@ -1,11 +1,15 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
 #include "mainwindow_ui_logic.h"
+#include "agentversion.h"
 
 #include <algorithm>
 #include <QComboBox>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
+#include <QProcess>
+#include <QSet>
 #include <QTableWidget>
 #include <QTreeWidget>
 
@@ -109,6 +113,57 @@ struct PoolAutoSnapshotLoadResult {
     QString errorText;
     QMap<QString, QMap<QString, QString>> loaded;
 };
+
+bool isAllowedGenericZpoolMutationOpClient(const QString& opRaw) {
+    const QString op = opRaw.trimmed().toLower();
+    static const QSet<QString> allowed = {
+        QStringLiteral("create"),
+        QStringLiteral("destroy"),
+        QStringLiteral("add"),
+        QStringLiteral("remove"),
+        QStringLiteral("attach"),
+        QStringLiteral("detach"),
+        QStringLiteral("replace"),
+        QStringLiteral("offline"),
+        QStringLiteral("online"),
+        QStringLiteral("clear"),
+        QStringLiteral("export"),
+        QStringLiteral("import"),
+        QStringLiteral("scrub"),
+        QStringLiteral("trim"),
+        QStringLiteral("initialize"),
+        QStringLiteral("sync"),
+        QStringLiteral("upgrade"),
+        QStringLiteral("reguid"),
+        QStringLiteral("split"),
+        QStringLiteral("checkpoint"),
+    };
+    return allowed.contains(op);
+}
+
+bool isAllowedGenericZfsMutationOpClient(const QString& opRaw) {
+    const QString op = opRaw.trimmed().toLower();
+    static const QSet<QString> allowed = {
+        QStringLiteral("create"),
+        QStringLiteral("destroy"),
+        QStringLiteral("rollback"),
+        QStringLiteral("clone"),
+        QStringLiteral("rename"),
+        QStringLiteral("set"),
+        QStringLiteral("inherit"),
+        QStringLiteral("mount"),
+        QStringLiteral("unmount"),
+        QStringLiteral("hold"),
+        QStringLiteral("release"),
+        QStringLiteral("load-key"),
+        QStringLiteral("unload-key"),
+        QStringLiteral("change-key"),
+        QStringLiteral("promote"),
+        QStringLiteral("allow"),
+        QStringLiteral("unallow"),
+    };
+    return allowed.contains(op);
+}
 }
 
 MainWindow::MainWindow(const QString& masterPassword, const QString& language, QWidget* parent)
@@ -237,16 +292,7 @@ void MainWindow::setShowAutomaticSnapshotsForTest(bool visible) {
     rebuildConnectionDetailsForTest();
 }
 
-void MainWindow::setConnectionGsaStateForTest(int connIdx, bool installed, bool active, const QString& version) {
-    if (connIdx < 0 || connIdx >= m_states.size()) {
-        return;
-    }
-    ConnectionRuntimeState& state = m_states[connIdx];
-    state.gsaInstalled = installed;
-    state.gsaActive = active;
-    if (!version.trimmed().isEmpty()) {
-        state.gsaVersion = version.trimmed();
-    }
+void MainWindow::setConnectionGsaStateForTest(int /*connIdx*/, bool /*installed*/, bool /*active*/, const QString& /*version*/) {
 }
 
 void MainWindow::configureDatasetPropertiesForTest(int connIdx,
@@ -703,7 +749,13 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
     }
 
     const ConnectionProfile& p = m_profiles[connIdx];
-    const bool useRemoteScript = !isWindowsConnection(connIdx);
+    const bool daemonReadApiOk =
+        !isWindowsConnection(connIdx)
+        && connIdx >= 0
+        && connIdx < m_states.size()
+        && m_states[connIdx].daemonInstalled
+        && m_states[connIdx].daemonActive
+        && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     QString datasetType = trimmedObject.contains(QLatin1Char('@')) ? QStringLiteral("snapshot") : QStringLiteral("filesystem");
     if (dsInfo && !dsInfo->runtime.datasetType.trimmed().isEmpty()) {
         datasetType = dsInfo->runtime.datasetType.trimmed();
@@ -712,13 +764,17 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
     if (datasetType.trimmed().isEmpty()) {
         QString tOut, tErr;
         int tRc = -1;
-        const QString typeCmd = withSudo(
+        const QString typeCmdClassic = withSudo(
             p,
-            useRemoteScript
-                ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-get-type"), {trimmedObject})
-                : mwhelpers::withUnixSearchPathCommand(
-                      QStringLiteral("zfs get -H -o value type %1").arg(mwhelpers::shSingleQuote(trimmedObject))));
-        if (runSsh(p, typeCmd, 12000, tOut, tErr, tRc) && tRc == 0) {
+            mwhelpers::withUnixSearchPathCommand(
+                QStringLiteral("zfs get -H -o value type %1").arg(mwhelpers::shSingleQuote(trimmedObject))));
+        const QString typeCmdDaemon = withSudo(
+            p, mwhelpers::withUnixSearchPathCommand(
+                   QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-prop type %1")
+                       .arg(mwhelpers::shSingleQuote(trimmedObject))));
+        const QString selectedTypeCmd = daemonReadApiOk ? typeCmdDaemon : typeCmdClassic;
+        bool typeOk = runSsh(p, selectedTypeCmd, 12000, tOut, tErr, tRc) && tRc == 0;
+        if (typeOk) {
             const QString t = tOut.trimmed().toLower();
             if (!t.isEmpty()) {
                 datasetType = t;
@@ -730,15 +786,19 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
     QString err;
     int rc = -1;
     const bool dsWin = isWindowsConnection(connIdx);
-    const QString propsCmd = withSudo(
+    const QString propsCmdClassic = withSudo(
         p,
-        (useRemoteScript && !dsWin)
-            ? remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-get-all-json"), {trimmedObject})
-            : mwhelpers::withUnixSearchPathCommand(
-                  dsWin
-                      ? QStringLiteral("zfs get -H -o property,value,source all %1").arg(mwhelpers::shSingleQuote(trimmedObject))
-                      : QStringLiteral("zfs get -j all %1").arg(mwhelpers::shSingleQuote(trimmedObject))));
-    if (!runSsh(p, propsCmd, 20000, out, err, rc) || rc != 0) {
+        mwhelpers::withUnixSearchPathCommand(
+            dsWin
+                ? QStringLiteral("zfs get -H -o property,value,source all %1").arg(mwhelpers::shSingleQuote(trimmedObject))
+                : QStringLiteral("zfs get -j all %1").arg(mwhelpers::shSingleQuote(trimmedObject))));
+    const QString propsCmdDaemon = withSudo(
+        p, mwhelpers::withUnixSearchPathCommand(
+               QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-all %1")
+                   .arg(mwhelpers::shSingleQuote(trimmedObject))));
+    const QString selectedPropsCmd = daemonReadApiOk ? propsCmdDaemon : propsCmdClassic;
+    bool propsOk = runSsh(p, selectedPropsCmd, 20000, out, err, rc) && rc == 0;
+    if (!propsOk) {
         if (dsInfo) {
             dsInfo->runtime.propertiesState = LoadState::Error;
             dsInfo->runtime.errorText = err.trimmed();
@@ -832,6 +892,13 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
     }
 
     const ConnectionProfile& p = m_profiles[connIdx];
+    const bool daemonReadApiOk =
+        !isWindowsConnection(connIdx)
+        && connIdx >= 0
+        && connIdx < m_states.size()
+        && m_states[connIdx].daemonInstalled
+        && m_states[connIdx].daemonActive
+        && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     QString datasetType = dsInfo->runtime.datasetType.trimmed();
     if (datasetType.isEmpty()) {
         datasetType = trimmedObject.contains(QLatin1Char('@')) ? QStringLiteral("snapshot")
@@ -845,29 +912,30 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
     for (const QString& propName : wantedProps) {
         quotedProps.push_back(mwhelpers::shSingleQuote(propName.trimmed()));
     }
-    const bool useRemoteScript = !subWin;
-    QString propsCmd;
+    QString propsCmdClassic;
     if (subWin) {
-        propsCmd = withSudo(
+        propsCmdClassic = withSudo(
             p,
             mwhelpers::withUnixSearchPathCommand(
                 QStringLiteral("zfs get -H -o property,value,source %1 %2")
                     .arg(quotedProps.join(QLatin1Char(',')),
                          mwhelpers::shSingleQuote(trimmedObject))));
-    } else if (useRemoteScript) {
-        propsCmd = withSudo(
-            p,
-            remoteScriptCommand(p, QStringLiteral("zfsmgr-zfs-get-json"),
-                                {wantedProps.join(QLatin1Char(',')), trimmedObject}));
     } else {
-        propsCmd = withSudo(
+        propsCmdClassic = withSudo(
             p,
             mwhelpers::withUnixSearchPathCommand(
                 QStringLiteral("zfs get -j %1 %2")
                     .arg(wantedProps.join(QLatin1Char(',')),
                          mwhelpers::shSingleQuote(trimmedObject))));
     }
-    if (!runSsh(p, propsCmd, 20000, out, err, rc) || rc != 0) {
+    const QString propsCmdDaemon = withSudo(
+        p, mwhelpers::withUnixSearchPathCommand(
+               QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-json %1 %2")
+                   .arg(mwhelpers::shSingleQuote(wantedProps.join(QLatin1Char(','))),
+                        mwhelpers::shSingleQuote(trimmedObject))));
+    const QString selectedPropsCmd = daemonReadApiOk ? propsCmdDaemon : propsCmdClassic;
+    bool propsOk = runSsh(p, selectedPropsCmd, 20000, out, err, rc) && rc == 0;
+    if (!propsOk) {
         dsInfo->runtime.propertiesState = LoadState::Error;
         dsInfo->runtime.errorText = err.trimmed();
         return false;
@@ -1229,7 +1297,14 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
     }
     m_poolDetailsLoadsInFlight.insert(key);
     const ConnectionProfile profile = m_profiles[connIdx];
-    (void)QtConcurrent::run([this, profile, connIdx, trimmedPool]() {
+    const bool daemonReadApiOk =
+        !isWindowsConnection(connIdx)
+        && connIdx >= 0
+        && connIdx < m_states.size()
+        && m_states[connIdx].daemonInstalled
+        && m_states[connIdx].daemonActive
+        && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    (void)QtConcurrent::run([this, profile, connIdx, trimmedPool, daemonReadApiOk]() {
         PoolDetailsCacheEntry fresh;
         QString errorText;
         {
@@ -1237,18 +1312,21 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
             QString err;
             int rc = -1;
             const bool poolWin = isWindowsConnection(connIdx);
-            const bool useRemoteScript = !poolWin;
-            const QString propsCmd = withSudo(
+            const QString propsCmdClassic = withSudo(
                 profile,
-                (useRemoteScript && !poolWin)
-                    ? remoteScriptCommand(profile, QStringLiteral("zfsmgr-zpool-get-all-json"), {trimmedPool})
-                    : mwhelpers::withUnixSearchPathCommand(
-                          poolWin
-                              ? QStringLiteral("zpool get -H -o property,value,source all %1")
-                                    .arg(mwhelpers::shSingleQuote(trimmedPool))
-                              : QStringLiteral("zpool get -j all %1")
-                                    .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            if (runSsh(profile, propsCmd, 20000, out, err, rc) && rc == 0) {
+                mwhelpers::withUnixSearchPathCommand(
+                    poolWin
+                        ? QStringLiteral("zpool get -H -o property,value,source all %1")
+                              .arg(mwhelpers::shSingleQuote(trimmedPool))
+                        : QStringLiteral("zpool get -j all %1")
+                              .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            const QString propsCmdDaemon = withSudo(
+                profile, mwhelpers::withUnixSearchPathCommand(
+                             QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-get-all %1")
+                                 .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            const QString selectedPropsCmd = daemonReadApiOk ? propsCmdDaemon : propsCmdClassic;
+            bool propsOk = runSsh(profile, selectedPropsCmd, 20000, out, err, rc) && rc == 0;
+            if (propsOk) {
                 if (poolWin) {
                     const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
                     for (const QString& line : lines) {
@@ -1279,14 +1357,18 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
             out.clear();
             err.clear();
             rc = -1;
-            const QString stCmd = withSudo(
+            const QString stCmdClassic = withSudo(
                 profile,
-                useRemoteScript
-                    ? remoteScriptCommand(profile, QStringLiteral("zfsmgr-zpool-status"), {trimmedPool})
-                    : mwhelpers::withUnixSearchPathCommand(
-                          QStringLiteral("zpool status -v %1")
-                              .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            if (runSsh(profile, stCmd, 20000, out, err, rc) && rc == 0) {
+                mwhelpers::withUnixSearchPathCommand(
+                    QStringLiteral("zpool status -v %1")
+                        .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            const QString stCmdDaemon = withSudo(
+                profile, mwhelpers::withUnixSearchPathCommand(
+                             QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-status %1")
+                                 .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            const QString selectedStatusCmd = daemonReadApiOk ? stCmdDaemon : stCmdClassic;
+            bool statusOk = runSsh(profile, selectedStatusCmd, 20000, out, err, rc) && rc == 0;
+            if (statusOk) {
                 fresh.statusText = out.trimmed();
             } else {
                 const QString statusErr = err.trimmed();
@@ -1299,7 +1381,7 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
             out.clear();
             err.clear();
             rc = -1;
-            const QString stPCmd = withSudo(
+            const QString stPCmdClassic = withSudo(
                 profile,
                 poolWin
                     ? QStringLiteral("zpool status -P %1")
@@ -1307,7 +1389,13 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
                     : mwhelpers::withUnixSearchPathCommand(
                           QStringLiteral("zpool status -P %1")
                               .arg(mwhelpers::shSingleQuote(trimmedPool))));
-            if (runSsh(profile, stPCmd, 20000, out, err, rc) && rc == 0) {
+            const QString stPCmdDaemon = withSudo(
+                profile, mwhelpers::withUnixSearchPathCommand(
+                             QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zpool-status-p %1")
+                                 .arg(mwhelpers::shSingleQuote(trimmedPool))));
+            const QString selectedStatusPCmd = daemonReadApiOk ? stPCmdDaemon : stPCmdClassic;
+            bool statusPOk = runSsh(profile, selectedStatusPCmd, 20000, out, err, rc) && rc == 0;
+            if (statusPOk) {
                 fresh.statusPText = out.trimmed();
             } else {
                 fresh.statusPText.clear();
@@ -1409,9 +1497,6 @@ void MainWindow::preloadPoolAutoSnapshotInfoForConnection(int connIdx) {
     }
     const ConnectionRuntimeState state =
         (connIdx < m_states.size()) ? m_states[connIdx] : ConnectionRuntimeState{};
-    if (!state.gsaInstalled) {
-        return;
-    }
     int startedLoads = 0;
     for (const PoolImported& pool : state.importedPools) {
         const QString trimmedPool = pool.pool.trimmed();
@@ -1460,7 +1545,14 @@ bool MainWindow::schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& po
     m_poolAutoSnapshotPendingLoadsByConn[connIdx] =
         m_poolAutoSnapshotPendingLoadsByConn.value(connIdx, 0) + 1;
     const ConnectionProfile profile = m_profiles[connIdx];
-    (void)QtConcurrent::run([this, profile, connIdx, trimmedPool]() {
+    const bool daemonReadApiOk =
+        !isWindowsConnection(connIdx)
+        && connIdx >= 0
+        && connIdx < m_states.size()
+        && m_states[connIdx].daemonInstalled
+        && m_states[connIdx].daemonActive
+        && m_states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
+    (void)QtConcurrent::run([this, profile, connIdx, trimmedPool, daemonReadApiOk]() {
         PoolAutoSnapshotLoadResult result;
         result.connIdx = connIdx;
         result.poolName = trimmedPool;
@@ -1469,20 +1561,23 @@ bool MainWindow::schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& po
         for (const QString& prop : gsaProps) {
             propArgs << mwhelpers::shSingleQuote(prop);
         }
-        const bool useRemoteScript = !isWindowsConnection(profile);
-        const QString cmd =
+        const QString cmdClassic =
             withSudo(profile,
-                     useRemoteScript
-                         ? remoteScriptCommand(profile, QStringLiteral("zfsmgr-zfs-get-gsa-raw-recursive"),
-                                               {trimmedPool})
-                         : mwhelpers::withUnixSearchPathCommand(
-                               QStringLiteral("zfs get -H -o name,property,value,source -r %1 %2")
-                                   .arg(propArgs.join(QLatin1Char(',')),
-                                        mwhelpers::shSingleQuote(trimmedPool))));
+                     mwhelpers::withUnixSearchPathCommand(
+                         QStringLiteral("zfs get -H -o name,property,value,source -r %1 %2")
+                             .arg(propArgs.join(QLatin1Char(',')),
+                                  mwhelpers::shSingleQuote(trimmedPool))));
+        const QString cmdDaemon =
+            withSudo(profile,
+                     mwhelpers::withUnixSearchPathCommand(
+                         QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-get-gsa-raw-recursive %1")
+                             .arg(mwhelpers::shSingleQuote(trimmedPool))));
         QString out;
         QString err;
         int rc = -1;
-        if (!runSsh(profile, cmd, 20000, out, err, rc) || rc != 0) {
+        const QString selectedScanCmd = daemonReadApiOk ? cmdDaemon : cmdClassic;
+        bool scanOk = runSsh(profile, selectedScanCmd, 20000, out, err, rc) && rc == 0;
+        if (!scanOk) {
             result.errorText = err.trimmed();
         } else {
             auto isLocallyConfiguredGsaSource = [](const QString& source) {
@@ -1652,6 +1747,139 @@ bool MainWindow::executePoolCommand(int connIdx,
         refreshSelectedPoolDetails(true, true);
     }
     return true;
+}
+
+// QProcess::splitCommand only handles double-quoted strings; single-quoted arguments
+// (produced by shSingleQuote) would be passed to execvp with literal quote characters.
+static QStringList splitShellCommand(const QString& cmd) {
+    QStringList result;
+    QString current;
+    bool inSingle = false;
+    bool inDouble = false;
+    for (const QChar c : cmd) {
+        if (inSingle) {
+            if (c == QLatin1Char('\'')) inSingle = false;
+            else current += c;
+        } else if (inDouble) {
+            if (c == QLatin1Char('"')) inDouble = false;
+            else current += c;
+        } else if (c == QLatin1Char('\'')) {
+            inSingle = true;
+        } else if (c == QLatin1Char('"')) {
+            inDouble = true;
+        } else if (c.isSpace()) {
+            if (!current.isEmpty()) { result << current; current.clear(); }
+        } else {
+            current += c;
+        }
+    }
+    if (!current.isEmpty()) result << current;
+    return result;
+}
+
+QString MainWindow::daemonizeZpoolMutationCommand(int connIdx, const QString& rawCmd) const {
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return QString();
+    }
+    const ConnectionProfile& p = m_profiles[connIdx];
+    if (isWindowsConnection(p)) {
+        return QString();
+    }
+    if (connIdx < 0 || connIdx >= m_states.size()) {
+        return QString();
+    }
+    const ConnectionRuntimeState& st = m_states[connIdx];
+    if (!st.daemonInstalled || !st.daemonActive) {
+        return QString();
+    }
+    if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
+        return QString();
+    }
+    const QStringList parts = splitShellCommand(rawCmd.trimmed());
+    if (parts.size() < 2 || parts.first().trimmed() != QStringLiteral("zpool")) {
+        return QString();
+    }
+    const QString op = parts.at(1).trimmed();
+    if (!isAllowedGenericZpoolMutationOpClient(op)) {
+        return QString();
+    }
+    QJsonArray arr;
+    for (int i = 1; i < parts.size(); ++i) {
+        arr.push_back(parts.at(i));
+    }
+    if (arr.isEmpty()) {
+        return QString();
+    }
+    const QString payloadB64 =
+        QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact).toBase64());
+    return QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zpool-generic %1")
+        .arg(mwhelpers::shSingleQuote(payloadB64));
+}
+
+QString MainWindow::daemonizeZfsMutationCommand(int connIdx, const QString& rawCmd) const {
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return QString();
+    }
+    const ConnectionProfile& p = m_profiles[connIdx];
+    if (isWindowsConnection(p)) {
+        return QString();
+    }
+    if (connIdx < 0 || connIdx >= m_states.size()) {
+        return QString();
+    }
+    const ConnectionRuntimeState& st = m_states[connIdx];
+    if (!st.daemonInstalled || !st.daemonActive) {
+        return QString();
+    }
+    if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
+        return QString();
+    }
+    const QStringList parts = splitShellCommand(rawCmd.trimmed());
+    if (parts.size() < 2 || parts.first().trimmed() != QStringLiteral("zfs")) {
+        return QString();
+    }
+    const QString op = parts.at(1).trimmed();
+    if (!isAllowedGenericZfsMutationOpClient(op)) {
+        return QString();
+    }
+    QJsonArray arr;
+    for (int i = 1; i < parts.size(); ++i) {
+        arr.push_back(parts.at(i));
+    }
+    if (arr.isEmpty()) {
+        return QString();
+    }
+    const QString payloadB64 =
+        QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact).toBase64());
+    return QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-generic %1")
+        .arg(mwhelpers::shSingleQuote(payloadB64));
+}
+
+QString MainWindow::daemonizeShellMutationCommand(int connIdx, const QString& rawShell) const {
+    if (connIdx < 0 || connIdx >= m_profiles.size()) {
+        return QString();
+    }
+    const ConnectionProfile& p = m_profiles[connIdx];
+    if (isWindowsConnection(p)) {
+        return QString();
+    }
+    if (connIdx < 0 || connIdx >= m_states.size()) {
+        return QString();
+    }
+    const ConnectionRuntimeState& st = m_states[connIdx];
+    if (!st.daemonInstalled || !st.daemonActive) {
+        return QString();
+    }
+    if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
+        return QString();
+    }
+    const QByteArray utf8 = rawShell.trimmed().toUtf8();
+    if (utf8.isEmpty()) {
+        return QString();
+    }
+    const QString payloadB64 = QString::fromLatin1(utf8.toBase64());
+    return QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-shell-generic %1")
+        .arg(mwhelpers::shSingleQuote(payloadB64));
 }
 
 bool MainWindow::fetchPoolCommandOutput(int connIdx,
@@ -2216,31 +2444,7 @@ QStringList MainWindow::connectionContextMenuTopLevelLabelsForTest() const {
         && m_states[connIdx].unixFromMsysOrMingw
         && m_states[connIdx].missingUnixCommands.isEmpty()
         && !m_states[connIdx].detectedUnixCommands.isEmpty();
-    const bool canManageGsa =
-        hasConn && !actionsLocked() && !isDisconnected
-        && connIdx < m_states.size()
-        && gsaMenuLabelForConnection(connIdx).compare(
-               trk(QStringLiteral("t_gsa_ok_001"),
-                   QStringLiteral("GSA actualizado y funcionando"),
-                   QStringLiteral("GSA updated and running"),
-                   QStringLiteral("GSA 已更新并运行中")),
-               Qt::CaseInsensitive) != 0;
-    const bool canUninstallGsa =
-        hasConn && !actionsLocked() && !isDisconnected
-        && connIdx < m_states.size()
-        && m_states[connIdx].gsaInstalled;
-    const zfsmgr::uilogic::ConnectionContextMenuState menuState =
-        zfsmgr::uilogic::buildConnectionContextMenuState(
-            hasConn,
-            isDisconnected,
-            actionsLocked(),
-            hasConn && isLocalConnection(connIdx),
-            hasConn && isConnectionRedirectedToLocal(connIdx),
-            hasConn && isWindowsConnection(connIdx),
-            hasWindowsUnixLayerReady,
-            canManageGsa,
-            canUninstallGsa);
-    Q_UNUSED(menuState);
+    Q_UNUSED(hasWindowsUnixLayerReady);
     return {
         trk(QStringLiteral("t_connect_ctx_001"),
             QStringLiteral("Conectar"),
@@ -2268,8 +2472,6 @@ QStringList MainWindow::connectionContextMenuTopLevelLabelsForTest() const {
             QStringLiteral("Delete"),
             QStringLiteral("删除")),
         QString(),
-        QStringLiteral("GSA"),
-        QString(),
         trk(QStringLiteral("t_new_pool_ctx_001"),
             QStringLiteral("Nuevo Pool"),
             QStringLiteral("New Pool"),
@@ -2296,23 +2498,6 @@ QStringList MainWindow::connectionRefreshMenuLabelsForTest() const {
             QStringLiteral("Todas las conexiones"),
             QStringLiteral("All connections"),
             QStringLiteral("所有连接")),
-    };
-}
-
-QStringList MainWindow::connectionGsaMenuLabelsForTest() const {
-    const int connIdx = m_topDetailConnIdx;
-    const bool hasConn = (connIdx >= 0 && connIdx < m_profiles.size());
-    const QString manageLabel = hasConn ? gsaMenuLabelForConnection(connIdx)
-                                        : trk(QStringLiteral("t_gsa_install_001"),
-                                              QStringLiteral("Instalar gestor de snapshots"),
-                                              QStringLiteral("Install snapshot manager"),
-                                              QStringLiteral("安装快照管理器"));
-    return {
-        manageLabel,
-        trk(QStringLiteral("t_gsa_uninstall_001"),
-            QStringLiteral("Desinstalar el GSA"),
-            QStringLiteral("Uninstall GSA"),
-            QStringLiteral("卸载 GSA")),
     };
 }
 

@@ -743,7 +743,7 @@ QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {
         return preparedCmd;
     }
     if (!p.password.isEmpty()) {
-        return QStringLiteral("printf '%s\\n' %1 | sudo -S -p '' sh -c %2")
+        return QStringLiteral("printf '%s\\n' %1 | sudo -k -S -p '' sh -c %2")
             .arg(shSingleQuote(p.password), shSingleQuote(preparedCmd));
     }
     return QStringLiteral("sudo -n ") + preparedCmd;
@@ -759,7 +759,7 @@ QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cm
         return preparedCmd;
     }
     if (!p.password.isEmpty()) {
-        return QStringLiteral("{ printf '%s\\n' %1; cat; } | sudo -S -p '' sh -c %2")
+        return QStringLiteral("{ printf '%s\\n' %1; cat; } | sudo -k -S -p '' sh -c %2")
             .arg(shSingleQuote(p.password), shSingleQuote(preparedCmd));
     }
     return QStringLiteral("sudo -n sh -c %1").arg(shSingleQuote(preparedCmd));

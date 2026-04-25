@@ -26,7 +26,7 @@ ZFSMgr gestiona conexiones y acciones ZFS desde un árbol unificado.
 - En el nombre de conexión se muestra el modo activo:
   - `(libzfs_core)` cuando el daemon remoto está activo
   - `(ssh)` en fallback
-- Si una conexión necesita atención GSA, su nombre aparece con `(*)`.
+- Si una conexión necesita atención del daemon, su nombre aparece con `(*)`.
 - Los nodos `Conexión` y `Pool` se muestran en negrita y con prefijo de tipo.
 - El nodo raíz del pool está fusionado con el dataset raíz del pool:
   - mantiene icono de pool
@@ -48,7 +48,7 @@ ZFSMgr gestiona conexiones y acciones ZFS desde un árbol unificado.
   - `Propiedades de conexión` (inline, con permisos de edición por tipo de conexión)
   - `Info`
     - `General` (estado y metadatos de conexión)
-    - `GSA`
+    - `Daemon`
     - `Commands`
 
 - Las propiedades inline pueden editarse directamente en el árbol.

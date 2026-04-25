@@ -1,7 +1,11 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
+#include "agentversion.h"
 
 #include <QCheckBox>
+#include <QLabel>
+#include <QFrame>
+#include <QGroupBox>
 #include <QColor>
 #include <QCoreApplication>
 #include <QDialog>
@@ -34,6 +38,90 @@ using mwhelpers::chooseStreamCodec;
 using mwhelpers::streamCodecName;
 using mwhelpers::sshBaseCommand;
 using mwhelpers::sshUserHost;
+
+struct ZfsSendOptions {
+    bool flagL = true;
+    bool flagE = true;
+    bool flagC = true;
+    bool flagW = false;
+    bool flagR = false;
+};
+
+bool showZfsSendOptionsDialog(QWidget* parent,
+                               const QString& srcSnap,
+                               const QString& recvTarget,
+                               const QString& baseSnap,
+                               ZfsSendOptions* opts)
+{
+    QDialog dlg(parent);
+    dlg.setWindowTitle(QStringLiteral("Opciones de transferencia ZFS"));
+    dlg.setMinimumWidth(420);
+
+    auto* layout = new QVBoxLayout(&dlg);
+
+    auto* infoLabel = new QLabel(
+        QStringLiteral("<b>Origen:</b> %1<br><b>Destino:</b> %2%3")
+            .arg(srcSnap.toHtmlEscaped(),
+                 recvTarget.toHtmlEscaped(),
+                 baseSnap.isEmpty()
+                     ? QString{}
+                     : QStringLiteral("<br><b>Base incremental:</b> %1").arg(baseSnap.toHtmlEscaped())),
+        &dlg);
+    infoLabel->setWordWrap(true);
+    layout->addWidget(infoLabel);
+
+    auto* sep = new QFrame(&dlg);
+    sep->setFrameShape(QFrame::HLine);
+    layout->addWidget(sep);
+
+    auto* grpLabel = new QLabel(QStringLiteral("<b>Flags de zfs send:</b>"), &dlg);
+    layout->addWidget(grpLabel);
+
+    auto* cbL = new QCheckBox(QStringLiteral("-L  Bloques grandes (large blocks)"), &dlg);
+    auto* cbE = new QCheckBox(QStringLiteral("-e  Datos embebidos (embedded data)"), &dlg);
+    auto* cbC = new QCheckBox(QStringLiteral("-c  Bloques comprimidos (compressed)"), &dlg);
+    auto* cbW = new QCheckBox(QStringLiteral("-w  Raw/cifrado (preservar ciphertext — falla en datasets no cifrados)"), &dlg);
+    auto* cbR = new QCheckBox(QStringLiteral("-R  Replicación recursiva (todos los hijos deben tener el mismo snapshot)"), &dlg);
+
+    cbL->setChecked(opts->flagL);
+    cbE->setChecked(opts->flagE);
+    cbC->setChecked(opts->flagC);
+    cbW->setChecked(opts->flagW);
+    cbR->setChecked(opts->flagR);
+
+    layout->addWidget(cbL);
+    layout->addWidget(cbE);
+    layout->addWidget(cbC);
+    layout->addWidget(cbW);
+    layout->addWidget(cbR);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    layout->addWidget(buttons);
+
+    if (dlg.exec() != QDialog::Accepted) {
+        return false;
+    }
+    opts->flagL = cbL->isChecked();
+    opts->flagE = cbE->isChecked();
+    opts->flagC = cbC->isChecked();
+    opts->flagW = cbW->isChecked();
+    opts->flagR = cbR->isChecked();
+    return true;
+}
+
+QString buildZfsSendFlags(const ZfsSendOptions& opts)
+{
+    QString flags = QStringLiteral("-");
+    if (opts.flagW) flags += 'w';
+    if (opts.flagL) flags += 'L';
+    if (opts.flagE) flags += 'e';
+    if (opts.flagC) flags += 'c';
+    if (opts.flagR) flags += 'R';
+    if (flags == QStringLiteral("-")) flags.clear();
+    return flags;
+}
 
 QString buildDirectWindowsBashSshInvocation(const ConnectionProfile& p, const QString& remoteCmd) {
     const QString sshBase = sshBaseCommand(p);
@@ -185,7 +273,14 @@ void MainWindow::actionCopySnapshot() {
         }
     }
 
-    const QString sendRawCmd = QStringLiteral("zfs send -wLecR %1").arg(shSingleQuote(srcSnap));
+    ZfsSendOptions sendOpts;
+    if (!showZfsSendOptionsDialog(this, srcSnap, recvTarget, QString{}, &sendOpts)) {
+        return;
+    }
+    const QString sendFlags = buildZfsSendFlags(sendOpts);
+    const QString sendRawCmd = sendFlags.isEmpty()
+        ? QStringLiteral("zfs send %1").arg(shSingleQuote(srcSnap))
+        : QStringLiteral("zfs send %1 %2").arg(sendFlags, shSingleQuote(srcSnap));
     const QString recvRawCmd = QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget));
     QString sendCmd = withSudo(sp, sendRawCmd);
     QString recvCmd = withSudoStreamInput(dp, recvRawCmd);
@@ -200,35 +295,106 @@ void MainWindow::actionCopySnapshot() {
     auto buildDestViaSource = [&](const QString& remoteCmd) {
         const QString wrappedDst = wrapRemoteCommand(dp, remoteCmd);
         const QString target = shSingleQuote(sshUserHost(dp));
+        // Build a minimal SSH command without -i so the source machine uses its own
+        // default key (~/.ssh/id_*). The local keyPath refers to this machine's key
+        // and does not exist on the remote source.
+        QString minSsh = QStringLiteral("ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
+        if (dp.port > 0) {
+            minSsh += QStringLiteral(" -p %1").arg(dp.port);
+        }
         if (!dp.password.trimmed().isEmpty()) {
+            // Try publickey first (key set up via "Authorize SSH key"); fall back to
+            // password/keyboard-interactive via sshpass if key auth fails.
             return QStringLiteral(
                        "if command -v sshpass >/dev/null 2>&1; then "
                        "SSHPASS=%1 sshpass -e %2 -o BatchMode=no "
-                       "-o PreferredAuthentications=password,keyboard-interactive,publickey "
+                       "-o PreferredAuthentications=publickey,password,keyboard-interactive "
                        "-o NumberOfPasswordPrompts=1 %3 %4; "
                        "else echo %5 >&2; exit 127; fi")
                 .arg(shSingleQuote(dp.password),
-                     sshBaseCommand(dp),
+                     minSsh,
                      target,
                      shSingleQuote(wrappedDst),
                      shSingleQuote(QStringLiteral("ZFSMgr: sshpass no disponible en el origen para conectar al destino")));
         }
-        return sshBaseCommand(dp) + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrappedDst);
+        return minSsh + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrappedDst);
     };
-    if (sameConnection) {
+    auto buildSourceExecutionCommand = [&](const QString& sourceShellCmd) {
+        const QString daemonCmd = daemonizeShellMutationCommand(src.connIdx, sourceShellCmd);
+        if (!daemonCmd.isEmpty()) {
+            return sshExecFromLocal(sp, withSudo(sp, daemonCmd));
+        }
+        return sshExecFromLocal(sp, withSudo(sp, sourceShellCmd));
+    };
+    const auto isDaemonReady = [&](int idx) {
+        return idx >= 0 && idx < m_states.size()
+               && m_states[idx].daemonInstalled && m_states[idx].daemonActive
+               && m_states[idx].daemonApiVersion.trimmed()
+                      == agentversion::expectedApiVersion().trimmed();
+    };
+    auto tryBuildDaemonToDaemonCopyPipeline = [&](const QString& snap,
+                                                   const QString& dstDataset,
+                                                   const QString& baseSnap,
+                                                   const QString& flags) -> QString {
+        if (!isDaemonReady(dst.connIdx)) return {};
+        if (!sameConnection && !isDaemonReady(src.connIdx)) return {};
+        if (isWindowsConnection(sp) || isWindowsConnection(dp)) return {};
+        QStringList recvArgs;
+        recvArgs << QStringLiteral("--zfs-recv-listen") << dstDataset << QStringLiteral("1");
+        QString recvOut, recvErr;
+        int recvRc = -1;
+        if (!tryRunRemoteAgentRpcViaTunnel(dp, recvArgs, 12000, recvOut, recvErr, recvRc)
+            || recvRc != 0) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Copiar: daemon-to-daemon recv-listen falló en %1 (%2) — fallback")
+                       .arg(dp.name, recvErr.trimmed()));
+            return {};
+        }
+        int dstPort = 0;
+        QString dstToken;
+        for (const QString& line : recvOut.split('\n')) {
+            if (line.startsWith(QStringLiteral("PORT="))) dstPort = line.mid(5).trimmed().toInt();
+            if (line.startsWith(QStringLiteral("TOKEN="))) dstToken = line.mid(6).trimmed();
+        }
+        if (dstPort <= 0 || dstToken.size() != 64) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Copiar: daemon-to-daemon recv-listen respuesta inválida (%1:%2) — fallback")
+                       .arg(QString::number(dstPort), dstToken));
+            return {};
+        }
+        // For same-connection transfers, src daemon connects to itself via loopback
+        const QString peerHost = sameConnection ? QStringLiteral("127.0.0.1") : dp.host.trimmed();
+        const QString kAgentBin = QStringLiteral("/usr/local/libexec/zfsmgr-agent");
+        QString sendCmd2 = kAgentBin
+            + QStringLiteral(" --zfs-send-to-peer ")
+            + shSingleQuote(snap)
+            + QStringLiteral(" ") + shSingleQuote(peerHost)
+            + QStringLiteral(" ") + QString::number(dstPort)
+            + QStringLiteral(" ") + shSingleQuote(dstToken)
+            + QStringLiteral(" ") + shSingleQuote(baseSnap.trimmed())
+            + QStringLiteral(" ") + shSingleQuote(flags.trimmed());
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("Copiar: modo daemon-a-daemon (%1 -> %2:%3)")
+                   .arg(sp.name, dp.name, QString::number(dstPort)));
+        return sshExecFromLocal(sp, withSudo(sp, sendCmd2));
+    };
+    if (!(pipeline = tryBuildDaemonToDaemonCopyPipeline(srcSnap, recvTarget, QString(), sendFlags)).isEmpty()) {
+        // daemon-to-daemon pipeline set (covers same-connection and remote-to-remote)
+    } else if (sameConnection) {
         appLog(QStringLiteral("INFO"),
                trk(QStringLiteral("t_copiar_mod_b1d73e"),
                    QStringLiteral("Copiar: modo local remoto (origen y destino en la misma conexión)"),
                    QStringLiteral("Copy: remote-local mode (source and target on same connection)"),
                    QStringLiteral("复制：远端本地模式（源和目标在同一连接）")));
-        const QString remotePipe = withSudo(sp, buildPipedTransferCommand(sendRawCmd, recvRawCmd));
-        pipeline = sshExecFromLocal(sp, remotePipe);
+        const QString sourceShell = buildPipedTransferCommand(sendRawCmd, recvRawCmd);
+        pipeline = buildSourceExecutionCommand(sourceShell);
     } else if (directRemoteToRemote) {
+        pipeline.clear();
         appLog(QStringLiteral("INFO"),
                QStringLiteral("Copiar: modo remoto a remoto directo (%1 -> %2), sin pasar datos por el host local")
                    .arg(sp.name, dp.name));
-        const QString remotePipe = buildPipedTransferCommand(sendCmd, buildDestViaSource(recvCmd));
-        pipeline = sshExecFromLocal(sp, remotePipe);
+        const QString sourceShell = buildPipedTransferCommand(sendRawCmd, buildDestViaSource(recvCmd));
+        pipeline = buildSourceExecutionCommand(sourceShell);
     } else {
         const QString srcSeg = isWindowsConnection(sp)
                                    ? buildDirectWindowsBashSshInvocation(sp, sendCmd)
@@ -274,20 +440,6 @@ void MainWindow::actionCopySnapshot() {
                 "if [ \"$WAS_MOUNTED\" != \"yes\" ]; then if ! zfs unmount \"$DATASET\" >/dev/null 2>&1; then :; fi; fi; "
                 "exit $RC")
                                           .arg(shSingleQuote(recvTarget));
-            if (!isWindowsConnection(sp) && !isLocalConnection(sp)) {
-                (void)ensureRemoteScriptsUpToDate(sp);
-                srcScript = remoteScriptCommand(
-                    sp,
-                    QStringLiteral("zfsmgr-copy-fallback-source"),
-                    {src.datasetName, src.snapshotName});
-            }
-            if (!isWindowsConnection(dp) && !isLocalConnection(dp)) {
-                (void)ensureRemoteScriptsUpToDate(dp);
-                dstScript = remoteScriptCommand(
-                    dp,
-                    QStringLiteral("zfsmgr-copy-fallback-dest"),
-                    {recvTarget});
-            }
             if (directRemoteToRemote) {
                 pendingCommand = sshExecFromLocal(
                     sp,
@@ -918,9 +1070,17 @@ void MainWindow::actionLevelSnapshot() {
     const bool sameConnection = (src.connIdx == dst.connIdx);
     const QString fromSnap = src.datasetName + QStringLiteral("@") + srcBaseSnapByGuid;
     const QString srcSnap = src.datasetName + QStringLiteral("@") + targetSnapName;
-    const QString sendRawCmd = QStringLiteral("zfs send -wLecR -I %1 %2").arg(shSingleQuote(fromSnap), shSingleQuote(srcSnap));
-    QString sendCmd = withSudo(sp, sendRawCmd);
     const QString recvTarget = dst.datasetName;
+
+    ZfsSendOptions sendOpts;
+    if (!showZfsSendOptionsDialog(this, srcSnap, recvTarget, fromSnap, &sendOpts)) {
+        return;
+    }
+    const QString sendFlags = buildZfsSendFlags(sendOpts);
+    const QString sendRawCmd = sendFlags.isEmpty()
+        ? QStringLiteral("zfs send -I %1 %2").arg(shSingleQuote(fromSnap), shSingleQuote(srcSnap))
+        : QStringLiteral("zfs send %1 -I %2 %3").arg(sendFlags, shSingleQuote(fromSnap), shSingleQuote(srcSnap));
+    QString sendCmd = withSudo(sp, sendRawCmd);
 
     const QString recvRawCmd = QStringLiteral("zfs recv -Fus %1").arg(shSingleQuote(recvTarget));
     QString recvCmd = withSudoStreamInput(dp, recvRawCmd);
@@ -935,35 +1095,105 @@ void MainWindow::actionLevelSnapshot() {
     auto buildDestViaSource = [&](const QString& remoteCmd) {
         const QString wrappedDst = wrapRemoteCommand(dp, remoteCmd);
         const QString target = shSingleQuote(sshUserHost(dp));
+        // Build a minimal SSH command without -i so the source machine uses its own
+        // default key (~/.ssh/id_*). The local keyPath refers to this machine's key
+        // and does not exist on the remote source.
+        QString minSsh = QStringLiteral("ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null");
+        if (dp.port > 0) {
+            minSsh += QStringLiteral(" -p %1").arg(dp.port);
+        }
         if (!dp.password.trimmed().isEmpty()) {
+            // Try publickey first (key set up via "Authorize SSH key"); fall back to
+            // password/keyboard-interactive via sshpass if key auth fails.
             return QStringLiteral(
                        "if command -v sshpass >/dev/null 2>&1; then "
                        "SSHPASS=%1 sshpass -e %2 -o BatchMode=no "
-                       "-o PreferredAuthentications=password,keyboard-interactive,publickey "
+                       "-o PreferredAuthentications=publickey,password,keyboard-interactive "
                        "-o NumberOfPasswordPrompts=1 %3 %4; "
                        "else echo %5 >&2; exit 127; fi")
                 .arg(shSingleQuote(dp.password),
-                     sshBaseCommand(dp),
+                     minSsh,
                      target,
                      shSingleQuote(wrappedDst),
                      shSingleQuote(QStringLiteral("ZFSMgr: sshpass no disponible en el origen para conectar al destino")));
         }
-        return sshBaseCommand(dp) + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrappedDst);
+        return minSsh + QStringLiteral(" ") + target + QStringLiteral(" ") + shSingleQuote(wrappedDst);
     };
-    if (sameConnection) {
+    auto buildSourceExecutionCommand = [&](const QString& sourceShellCmd) {
+        const QString daemonCmd = daemonizeShellMutationCommand(src.connIdx, sourceShellCmd);
+        if (!daemonCmd.isEmpty()) {
+            return sshExecFromLocal(sp, withSudo(sp, daemonCmd));
+        }
+        return sshExecFromLocal(sp, withSudo(sp, sourceShellCmd));
+    };
+    const auto isDaemonReady = [&](int idx) {
+        return idx >= 0 && idx < m_states.size()
+               && m_states[idx].daemonInstalled && m_states[idx].daemonActive
+               && m_states[idx].daemonApiVersion.trimmed()
+                      == agentversion::expectedApiVersion().trimmed();
+    };
+    auto tryBuildDaemonToDaemonCopyPipeline = [&](const QString& snap,
+                                                   const QString& dstDataset,
+                                                   const QString& baseSnap,
+                                                   const QString& flags) -> QString {
+        if (!isDaemonReady(dst.connIdx)) return {};
+        if (!sameConnection && !isDaemonReady(src.connIdx)) return {};
+        if (isWindowsConnection(sp) || isWindowsConnection(dp)) return {};
+        QStringList recvArgs;
+        recvArgs << QStringLiteral("--zfs-recv-listen") << dstDataset << QStringLiteral("1");
+        QString recvOut, recvErr;
+        int recvRc = -1;
+        if (!tryRunRemoteAgentRpcViaTunnel(dp, recvArgs, 12000, recvOut, recvErr, recvRc)
+            || recvRc != 0) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Nivelar: daemon-to-daemon recv-listen falló en %1 (%2) — fallback")
+                       .arg(dp.name, recvErr.trimmed()));
+            return {};
+        }
+        int dstPort = 0;
+        QString dstToken;
+        for (const QString& line : recvOut.split('\n')) {
+            if (line.startsWith(QStringLiteral("PORT="))) dstPort = line.mid(5).trimmed().toInt();
+            if (line.startsWith(QStringLiteral("TOKEN="))) dstToken = line.mid(6).trimmed();
+        }
+        if (dstPort <= 0 || dstToken.size() != 64) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Nivelar: daemon-to-daemon recv-listen respuesta inválida (%1:%2) — fallback")
+                       .arg(QString::number(dstPort), dstToken));
+            return {};
+        }
+        const QString peerHost = sameConnection ? QStringLiteral("127.0.0.1") : dp.host.trimmed();
+        const QString kAgentBin = QStringLiteral("/usr/local/libexec/zfsmgr-agent");
+        QString sendCmd2 = kAgentBin
+            + QStringLiteral(" --zfs-send-to-peer ")
+            + shSingleQuote(snap)
+            + QStringLiteral(" ") + shSingleQuote(peerHost)
+            + QStringLiteral(" ") + QString::number(dstPort)
+            + QStringLiteral(" ") + shSingleQuote(dstToken)
+            + QStringLiteral(" ") + shSingleQuote(baseSnap.trimmed())
+            + QStringLiteral(" ") + shSingleQuote(flags.trimmed());
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("Nivelar: modo daemon-a-daemon (%1 -> %2:%3)")
+                   .arg(sp.name, dp.name, QString::number(dstPort)));
+        return sshExecFromLocal(sp, withSudo(sp, sendCmd2));
+    };
+    if (!(pipeline = tryBuildDaemonToDaemonCopyPipeline(srcSnap, recvTarget, fromSnap, sendFlags)).isEmpty()) {
+        // daemon-to-daemon pipeline set (covers same-connection and remote-to-remote)
+    } else if (sameConnection) {
         appLog(QStringLiteral("INFO"),
                trk(QStringLiteral("t_nivelar_mo_2edd21"),
                    QStringLiteral("Nivelar: modo local remoto (origen y destino en la misma conexión)"),
                    QStringLiteral("Level: remote-local mode (source and target on same connection)"),
                    QStringLiteral("同步快照：远端本地模式（源和目标在同一连接）")));
-        const QString remotePipe = withSudo(sp, buildPipedTransferCommand(sendRawCmd, recvRawCmd));
-        pipeline = sshExecFromLocal(sp, remotePipe);
+        const QString sourceShell = buildPipedTransferCommand(sendRawCmd, recvRawCmd);
+        pipeline = buildSourceExecutionCommand(sourceShell);
     } else if (directRemoteToRemote) {
+        pipeline.clear();
         appLog(QStringLiteral("INFO"),
                QStringLiteral("Nivelar: modo remoto a remoto directo (%1 -> %2), sin pasar datos por el host local")
                    .arg(sp.name, dp.name));
-        const QString remotePipe = buildPipedTransferCommand(sendCmd, buildDestViaSource(recvCmd));
-        pipeline = sshExecFromLocal(sp, remotePipe);
+        const QString sourceShell = buildPipedTransferCommand(sendRawCmd, buildDestViaSource(recvCmd));
+        pipeline = buildSourceExecutionCommand(sourceShell);
     } else {
         const QString srcSeg = isWindowsConnection(sp)
                                    ? buildDirectWindowsBashSshInvocation(sp, sendCmd)
@@ -1035,6 +1265,13 @@ void MainWindow::actionSyncDatasets() {
     const bool dstCanmountOff = (dstCanmount.trimmed().toLower() == QStringLiteral("off"));
 
     const QString srcSsh = buildSshTargetPrefix(sp);
+    auto buildSourceExecutionCommand = [&](const QString& sourceShellCmd) {
+        const QString daemonCmd = daemonizeShellMutationCommand(src.connIdx, sourceShellCmd);
+        if (!daemonCmd.isEmpty()) {
+            return sshExecFromLocal(sp, withSudo(sp, daemonCmd));
+        }
+        return srcSsh + QStringLiteral(" ") + shSingleQuote(withSudo(sp, sourceShellCmd));
+    };
     auto buildRsyncOptsProbeInline = [](bool includeDelete, bool dryRun) {
         QString opts = QStringLiteral("-aHWS");
         if (includeDelete) {
@@ -1059,22 +1296,9 @@ void MainWindow::actionSyncDatasets() {
                                    ConnectionProfile& profile,
                                    bool includeDelete,
                                    bool dryRun) {
-        const bool remoteUnix = !isWindowsConnection(connIdx) && !isLocalConnection(profile);
-        if (!remoteUnix) {
-            return buildRsyncOptsProbeInline(includeDelete, dryRun);
-        }
-        (void)ensureRemoteScriptsUpToDate(profile);
-        QStringList args;
-        if (includeDelete) {
-            args << QStringLiteral("--delete");
-        }
-        if (dryRun) {
-            args << QStringLiteral("--dry-run");
-        }
-        const QString scriptCmd = remoteScriptCommand(profile, QStringLiteral("zfsmgr-rsync-opts"), args);
-        return QStringLiteral("if %1 >/dev/null 2>&1; then eval \"$(%1)\"; else %2; fi")
-            .arg(scriptCmd,
-                 buildRsyncOptsProbeInline(includeDelete, dryRun));
+        Q_UNUSED(connIdx);
+        Q_UNUSED(profile);
+        return buildRsyncOptsProbeInline(includeDelete, dryRun);
     };
     const QString dstSsh = buildSshTargetPrefix(dp);
     const QString srcEffectiveMp = effectiveMountPath(src.connIdx, src.poolName, src.datasetName, srcMp, srcMounted);
@@ -1378,48 +1602,22 @@ void MainWindow::actionSyncDatasets() {
         }
         auto buildRsyncSyncCommand = [&](bool useDelete, bool dryRun) -> QString {
             const QString rsyncOptsProbe = buildRsyncOptsProbe(src.connIdx, sp, useDelete, dryRun);
-            QString srcMpCmd;
-            if (!isWindowsConnection(src.connIdx) && !isLocalConnection(sp)) {
-                (void)ensureRemoteScriptsUpToDate(sp);
-                srcMpCmd = remoteScriptCommand(sp, QStringLiteral("zfsmgr-zfs-mountpoint"), {src.datasetName});
-            } else {
-                srcMpCmd = mwhelpers::withUnixSearchPathCommand(
-                    QStringLiteral("zfs get -H -o value mountpoint %1")
-                        .arg(shSingleQuote(src.datasetName)));
-            }
-            QString dstMpCmd;
-            if (!isWindowsConnection(dst.connIdx) && !isLocalConnection(dp)) {
-                (void)ensureRemoteScriptsUpToDate(dp);
-                dstMpCmd = remoteScriptCommand(dp, QStringLiteral("zfsmgr-zfs-mountpoint"), {dst.datasetName});
-            } else {
-                dstMpCmd = mwhelpers::withUnixSearchPathCommand(
-                    QStringLiteral("zfs get -H -o value mountpoint %1")
-                        .arg(shSingleQuote(dst.datasetName)));
-            }
             if (sameConnection) {
                 QString remoteRsync =
-                    QStringLiteral("%1; SRC_MP=$(%2); DST_MP=$(%3); rsync $RSYNC_OPTS $RSYNC_PROGRESS \"$SRC_MP\"/ \"$DST_MP\"/")
+                    QStringLiteral("%1; SRC_MP=%2; DST_MP=%3; rsync $RSYNC_OPTS $RSYNC_PROGRESS \"$SRC_MP\"/ \"$DST_MP\"/")
                         .arg(rsyncOptsProbe,
-                             srcMpCmd,
-                             dstMpCmd);
-                remoteRsync = withSudo(sp, remoteRsync);
-                return srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
+                             shSingleQuote(srcEffectiveMp),
+                             shSingleQuote(dstEffectiveMp));
+                return buildSourceExecutionCommand(remoteRsync);
             }
-            const QString dstRemoteMpCmd = withSudo(dp, dstMpCmd);
-            const QString dstRemoteProbe =
-                QStringLiteral("%1 %2 %3")
-                    .arg(sshBaseCommand(dp),
-                         shSingleQuote(sshUserHost(dp)),
-                         shSingleQuote(dstRemoteMpCmd));
             QString remoteRsync =
-                QStringLiteral("%1; SRC_MP=$(%2); DST_MP=$(%3); rsync $RSYNC_OPTS $RSYNC_PROGRESS -e %4 \"$SRC_MP\"/ %5:\"$DST_MP\"/")
+                QStringLiteral("%1; SRC_MP=%2; DST_MP=%3; rsync $RSYNC_OPTS $RSYNC_PROGRESS -e %4 \"$SRC_MP\"/ %5:\"$DST_MP\"/")
                     .arg(rsyncOptsProbe,
-                         srcMpCmd,
-                         dstRemoteProbe,
+                         shSingleQuote(srcEffectiveMp),
+                         shSingleQuote(dstEffectiveMp),
                          shSingleQuote(sshBaseCommand(dp)),
                          shSingleQuote(sshUserHost(dp)));
-            remoteRsync = withSudo(sp, remoteRsync);
-            return srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
+            return buildSourceExecutionCommand(remoteRsync);
         };
         bool useDelete = true;
         if (!showSyncOptionsDialog(true, buildRsyncSyncCommand, &useDelete)) {
@@ -1442,41 +1640,12 @@ void MainWindow::actionSyncDatasets() {
     if ((!srcRootMounted && !srcCanmountOff) || (!dstRootMounted && !dstCanmountOff)) {
         if (!isWindowsConnection(sp) && !isWindowsConnection(dp) && canTempMountSrc && canTempMountDst) {
             const mwhelpers::StreamCodec codec = chooseCodec();
-            auto codecArg = [&](mwhelpers::StreamCodec c) -> QString {
-                if (c == mwhelpers::StreamCodec::Zstd) {
-                    return QStringLiteral("zstd");
-                }
-                if (c == mwhelpers::StreamCodec::Gzip) {
-                    return QStringLiteral("gzip");
-                }
-                return QStringLiteral("none");
-            };
             auto buildTempTarCommand = [&](bool /*useDelete*/, bool dryRun) -> QString {
                 if (dryRun) {
                     return QString();
                 }
-                QString srcScript;
-                QString dstScript;
-                const bool srcRemoteUnix = !isWindowsConnection(sp) && !isLocalConnection(sp);
-                const bool dstRemoteUnix = !isWindowsConnection(dp) && !isLocalConnection(dp);
-                if (srcRemoteUnix) {
-                    (void)ensureRemoteScriptsUpToDate(sp);
-                    srcScript = remoteScriptCommand(
-                        sp,
-                        QStringLiteral("zfsmgr-sync-temp-tar-source"),
-                        {src.datasetName, codecArg(codec)});
-                } else {
-                    srcScript = buildUnixTemporaryTarSourceScript(src.datasetName, codec);
-                }
-                if (dstRemoteUnix) {
-                    (void)ensureRemoteScriptsUpToDate(dp);
-                    dstScript = remoteScriptCommand(
-                        dp,
-                        QStringLiteral("zfsmgr-sync-temp-tar-dest"),
-                        {dst.datasetName, codecArg(codec)});
-                } else {
-                    dstScript = buildUnixTemporaryTarDestinationScript(dst.datasetName, codec);
-                }
+                const QString srcScript = buildUnixTemporaryTarSourceScript(src.datasetName, codec);
+                const QString dstScript = buildUnixTemporaryTarDestinationScript(dst.datasetName, codec);
                 if (sameConnection) {
                     const QString remotePipe =
                         buildPipedTransferCommand(withSudo(sp, srcScript), withSudoStreamInput(dp, dstScript));
@@ -1654,8 +1823,7 @@ void MainWindow::actionSyncDatasets() {
             QString remoteRsync = QStringLiteral("set -e; %1; %2")
                                       .arg(buildRsyncOptsProbe(src.connIdx, sp, useDelete, dryRun),
                                            cmds.join(QStringLiteral(" && ")));
-            remoteRsync = withSudo(sp, remoteRsync);
-            return srcSsh + QStringLiteral(" ") + shSingleQuote(remoteRsync);
+            return buildSourceExecutionCommand(remoteRsync);
         };
         bool useDelete = true;
         if (!showSyncOptionsDialog(true, buildSubdatasetRsyncCommand, &useDelete)) {

@@ -11,6 +11,7 @@
 #include <QFont>
 #include <QMetaObject>
 #include <QPlainTextEdit>
+#include <QQueue>
 #include <QRegularExpression>
 #include <QScrollBar>
 #include <QTabWidget>
@@ -39,6 +40,17 @@
 #include <string>
 
 namespace {
+constexpr int kMaxUiLogLineChars = 4096;
+
+QString truncateLogLineForUi(const QString& line) {
+    if (line.size() <= kMaxUiLogLineChars) {
+        return line;
+    }
+    const int dropped = line.size() - kMaxUiLogLineChars;
+    return line.left(kMaxUiLogLineChars)
+           + QStringLiteral(" ... [truncated %1 chars]").arg(dropped);
+}
+
 constexpr const char* kGsaLinuxRuntimeDirPath = "/var/lib/zfsmgr";
 constexpr const char* kGsaFreeBsdRuntimeDirPath = "/var/db/zfsmgr";
 
@@ -454,7 +466,8 @@ void MainWindow::appLog(const QString& level, const QString& msg) {
         return;
     }
     const QString normalizedMsg = localizeLegacyAppLogMessage(m_language, msg);
-    const QString line = QStringLiteral("[%1] [%2] %3").arg(tsNowForLog(), level, maskSecrets(normalizedMsg));
+    const QString safeMsg = truncateLogLineForUi(maskSecrets(normalizedMsg));
+    const QString line = QStringLiteral("[%1] [%2] %3").arg(tsNowForLog(), level, safeMsg);
     const QString current = m_logLevelSetting.isEmpty() ? QStringLiteral("normal")
                                                          : m_logLevelSetting.toLower();
     auto rank = [](const QString& l) -> int {
@@ -515,7 +528,18 @@ void MainWindow::loadPersistedAppLogToView() {
     if (!m_logView || m_appLogPath.isEmpty()) {
         return;
     }
-    QStringList allLines;
+    QQueue<QString> allLines;
+    const int limit = qMax(1, maxLogLines());
+    auto pushLine = [&](const QString& rawLine) {
+        const QString ln = rawLine.trimmed();
+        if (ln.isEmpty()) {
+            return;
+        }
+        allLines.enqueue(truncateLogLineForUi(ln));
+        while (allLines.size() > limit) {
+            allLines.dequeue();
+        }
+    };
     const QFileInfo currentFi(m_appLogPath);
     const QString baseName = currentFi.fileName();
     const QString baseDir = currentFi.absolutePath();
@@ -528,28 +552,18 @@ void MainWindow::loadPersistedAppLogToView() {
         }
         QTextStream ts(&f);
         while (!ts.atEnd()) {
-            const QString ln = ts.readLine();
-            if (!ln.trimmed().isEmpty()) {
-                allLines.append(ln);
-            }
+            pushLine(ts.readLine());
         }
     }
     QFile current(m_appLogPath);
     if (current.exists() && current.open(QIODevice::ReadOnly | QIODevice::Text)) {
         QTextStream ts(&current);
         while (!ts.atEnd()) {
-            const QString ln = ts.readLine();
-            if (!ln.trimmed().isEmpty()) {
-                allLines.append(ln);
-            }
+            pushLine(ts.readLine());
         }
     }
     if (allLines.isEmpty()) {
         return;
-    }
-    const int limit = qMax(1, maxLogLines());
-    if (allLines.size() > limit) {
-        allLines = allLines.mid(allLines.size() - limit);
     }
     m_logView->clear();
     m_compactPrevValid = false;
@@ -706,14 +720,19 @@ void MainWindow::refreshConnectionGsaLogAsync(int idx) {
 
     const ConnectionProfile profile = m_profiles[idx];
     const ConnectionRuntimeState state = (idx < m_states.size()) ? m_states[idx] : ConnectionRuntimeState{};
-    if (!state.gsaInstalled) {
-        target->setPlainText(QStringLiteral("GSA no instalado."));
-        scrollLogViewToLatest(target);
-        return;
-    }
-
     const auto gsaConfigDir = [this](const ConnectionProfile& cp, const ConnectionRuntimeState& st) {
         if (isLocalConnection(cp)) {
+            if (isWindowsConnection(cp)) {
+                QString user = cp.username.trimmed();
+                const int slash = qMax(user.lastIndexOf(QLatin1Char('\\')), user.lastIndexOf(QLatin1Char('/')));
+                if (slash >= 0) {
+                    user = user.mid(slash + 1);
+                }
+                if (user.isEmpty()) {
+                    user = QStringLiteral("Default");
+                }
+                return QStringLiteral("C:\\Users\\%1\\.config\\ZFSMgr").arg(user);
+            }
             return QString::fromLatin1(kGsaLinuxRuntimeDirPath);
         }
         const QString osHint = (cp.osType + QStringLiteral(" ") + st.osLine).trimmed().toLower();
@@ -752,33 +771,23 @@ void MainWindow::refreshConnectionGsaLogAsync(int idx) {
     }
 
     const bool isWindows = isWindowsConnection(profile);
-    const bool useRemoteScripts = !isWindows;
     const QString gsaLogPath = QDir::cleanPath(configDir + QStringLiteral("/GSA.log"));
     const QString remoteCmd = isWindows
         ? QStringLiteral(
               "$f='%1\\GSA.log'; "
               "if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f -Raw }")
               .arg(configDir)
-        : (useRemoteScripts
-               ? withSudo(profile, remoteScriptCommand(profile, QStringLiteral("zfsmgr-gsa-log-cat"), {gsaLogPath}))
-               : withSudo(profile,
-                          QStringLiteral("f=%1; if [ -f \"$f\" ]; then cat \"$f\"; fi")
-                              .arg(mwhelpers::shSingleQuote(gsaLogPath))));
+        : withSudo(profile,
+                   QStringLiteral("f=%1; if [ -f \"$f\" ]; then cat \"$f\"; fi")
+                       .arg(mwhelpers::shSingleQuote(gsaLogPath)));
     const WindowsCommandMode mode = isWindows ? WindowsCommandMode::PowerShellNative
                                               : WindowsCommandMode::Auto;
 
-    if (useRemoteScripts) {
-        (void)ensureRemoteScriptsUpToDate(profile);
-    }
     QString out;
     QString err;
     int rc = -1;
     const bool ok = runSsh(profile, remoteCmd, 15000, out, err, rc, {}, {}, {}, mode) && rc == 0;
     QString text;
-    if (!state.gsaKnownConnections.isEmpty()) {
-        text += QStringLiteral("Conexiones dadas de alta en GSA: %1\n\n")
-                    .arg(state.gsaKnownConnections.join(QStringLiteral(", ")));
-    }
     if (ok) {
         text += out;
     }
@@ -866,7 +875,7 @@ void MainWindow::appendConnectionLog(const QString& connId, const QString& line)
             break;
         }
     }
-    const QString maskedLine = maskSecrets(line);
+    const QString maskedLine = truncateLogLineForUi(maskSecrets(line));
     const bool routeToGsa = looksLikeGsaRuntimeLine(maskedLine);
     appLog(QStringLiteral("NORMAL"),
            QStringLiteral("[SSH %1] %2").arg(connName, maskedLine));

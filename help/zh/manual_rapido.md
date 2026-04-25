@@ -26,7 +26,7 @@ ZFSMgr 通过统一树管理连接和 ZFS 操作。
 - 连接名会显示当前模式：
   - 远端 daemon 可用时显示 `(libzfs_core)`
   - 回退时显示 `(ssh)`
-- 如果连接需要 GSA 注意，名称会显示 `(*)`。
+- 如果连接需要 daemon 注意，名称会显示 `(*)`。
 - `Connection` 与 `Pool` 节点使用粗体并带类型前缀。
 - 池根节点与池根数据集合并：
   - 保留池图标
@@ -48,7 +48,7 @@ ZFSMgr 通过统一树管理连接和 ZFS 操作。
   - `Connection properties`（内联显示，按连接类型控制可编辑字段）
   - `Info`
     - `General`（状态与连接元数据）
-    - `GSA`
+    - `Daemon`
     - `Commands`
 
 - 内联属性可直接在树中编辑。
