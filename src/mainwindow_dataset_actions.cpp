@@ -118,6 +118,58 @@ bool containsAnyToken(const QString& haystackLower, const QStringList& needles) 
     return false;
 }
 
+// QProcess::splitCommand only handles double quotes, not single quotes.
+// Commands built with shSingleQuote() need a proper POSIX-aware splitter
+// so that 'sd1' is parsed as sd1, not as the literal string "'sd1'".
+QStringList shellSplit(const QString& cmd) {
+    QStringList result;
+    QString current;
+    bool inSingle = false;
+    bool inDouble = false;
+    for (int i = 0; i < cmd.size(); ++i) {
+        const QChar c = cmd.at(i);
+        if (inSingle) {
+            if (c == QLatin1Char('\'')) {
+                inSingle = false;
+            } else {
+                current += c;
+            }
+        } else if (inDouble) {
+            if (c == QLatin1Char('"')) {
+                inDouble = false;
+            } else if (c == QLatin1Char('\\') && i + 1 < cmd.size()) {
+                const QChar next = cmd.at(i + 1);
+                if (next == QLatin1Char('"') || next == QLatin1Char('\\')
+                    || next == QLatin1Char('$') || next == QLatin1Char('`')) {
+                    current += next;
+                    ++i;
+                } else {
+                    current += c;
+                }
+            } else {
+                current += c;
+            }
+        } else {
+            if (c == QLatin1Char('\'')) {
+                inSingle = true;
+            } else if (c == QLatin1Char('"')) {
+                inDouble = true;
+            } else if (c.isSpace()) {
+                if (!current.isEmpty()) {
+                    result.append(current);
+                    current.clear();
+                }
+            } else {
+                current += c;
+            }
+        }
+    }
+    if (!current.isEmpty()) {
+        result.append(current);
+    }
+    return result;
+}
+
 struct DaemonMutationPlan {
     bool matched{false};
     bool embedsStdin{false};
@@ -158,7 +210,7 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
         const QStringList subCmds = trimmedRaw.split(QStringLiteral("; "), Qt::SkipEmptyParts);
         bool allAllowUnallow = !subCmds.isEmpty();
         for (const QString& sub : subCmds) {
-            const QStringList subParts = QProcess::splitCommand(sub.trimmed());
+            const QStringList subParts = shellSplit(sub.trimmed());
             if (subParts.size() < 2 || subParts.at(0) != QStringLiteral("zfs")) {
                 allAllowUnallow = false;
                 break;
@@ -180,7 +232,7 @@ DaemonMutationPlan daemonMutationPlanForCommand(const QString& rawCmd, const QBy
         }
     }
 
-    const QStringList parts = QProcess::splitCommand(trimmedRaw);
+    const QStringList parts = shellSplit(trimmedRaw);
     if (parts.size() < 3) {
         return plan;
     }
