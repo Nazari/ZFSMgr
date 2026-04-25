@@ -1693,11 +1693,27 @@ void MainWindow::startDaemonEventWatcher(int connIdx) {
         // watcherStartTs advances after each trigger so the next iteration does not
         // re-fire on the event we just handled.
         // zpool events requires root on Linux — wrap with sudo.
+        // awk program: parse verbose (-v) event blocks, skip historical events and
+        // non-tree-relevant classes/operations, print+exit on the first match.
+        // No single quotes in the program — it is wrapped in single quotes by the
+        // shell command below, so double quotes and awk $-fields are all literal.
+        static const QString kZedAwkProg = QStringLiteral(
+            R"(/^[0-9]/{et=$1;cls=$2;op="";)"
+            R"(if(et>ts&&(cls~/^sysevent\.fs\.zfs\.(dataset|snapshot)_/)){print;exit};next} )"
+            R"(et>ts&&cls~/^history_event$/&&/history_internal_name/)"
+            R"({n=split($0,a,/=/);val=a[n];gsub(/[^a-z]/,"",val);op=val;)"
+            R"(if(op~/^(snapshot|destroy|create|clone|rename|rollback|receive|hold|release)$/){print;exit}})");
+
         QString watcherStartTs = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
         while (!watcher->stop.load()) {
+            // Build: timeout 27 sh -c 'zpool events -f -H -v 2>/dev/null | awk -v ts=TS '"'"'PROG'"'"''
+            // The '"'"' idiom embeds a literal ' inside the sh -c single-quoted argument.
             const QString cmd = withSudo(p,
-                QStringLiteral(R"(timeout 27 sh -c 'zpool events -f -H 2>/dev/null | awk -v t=%1 "\$1>t{print;exit}"')")
-                    .arg(watcherStartTs));
+                QStringLiteral("timeout 27 sh -c 'zpool events -f -H -v 2>/dev/null | awk -v ts=")
+                + watcherStartTs
+                + QStringLiteral(" '\"'\"'")   // = '"'"' — opens awk's single-quoted program
+                + kZedAwkProg
+                + QStringLiteral("'\"'\"''"));  // = '"'"'' — closes awk's single-quoted program
             QString out, err;
             int rc = -1;
             const bool ok = runSshRawNoLog(p, cmd, 35000, out, err, rc);

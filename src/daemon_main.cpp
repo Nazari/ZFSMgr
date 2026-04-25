@@ -2770,28 +2770,92 @@ int runServeLoop() {
 
     std::thread zedThread([&]() {
 #ifndef _WIN32
+        // Recorded once before the restart loop so that even if zpool events
+        // exits and restarts (re-reading the full kernel event log), historical
+        // events are always filtered out.
+        const std::string startTs = utcNowIsoString();
+
+        // Tree-modifying operations we care about (from history_internal_name).
+        static const std::set<std::string> kTreeOps = {
+            "snapshot", "destroy", "create", "clone",
+            "rename",   "rollback", "receive", "hold", "release",
+        };
+
         while (!g_stop.load()) {
-            FILE* fp = popen("zpool events -f -H 2>/dev/null", "r");
+            FILE* fp = popen("zpool events -f -H -v 2>/dev/null", "r");
             if (!fp) {
                 zedActive.store(false);
                 std::this_thread::sleep_for(std::chrono::seconds(5));
                 continue;
             }
             zedActive.store(true);
-            char line[2048];
-            while (!g_stop.load()) {
-                if (!fgets(line, sizeof(line), fp)) {
-                    break;
+
+            // Current event block state (reset on each new event header line).
+            std::string evTs, evClass, evOp;
+            bool evClassRelevant = false;
+
+            // Fire if the accumulated event is relevant and post-startup.
+            auto fireIfRelevant = [&]() {
+                if (evTs.empty() || evTs <= startTs) return;
+                bool fire = false;
+                if (evClass.compare(0, 24, "sysevent.fs.zfs.dataset_") == 0
+                    || evClass.compare(0, 25, "sysevent.fs.zfs.snapshot_") == 0) {
+                    fire = true;
+                } else if (evClass == "history_event" && kTreeOps.count(evOp) > 0) {
+                    fire = true;
                 }
-                zedInvalidateRequested.store(true);
-                zedEventSeq.fetch_add(1);
-                const std::string nowUtc = utcNowIsoString();
-                if (!nowUtc.empty()) {
-                    std::lock_guard<std::mutex> lock(runtimeMutex);
-                    zedLastEventUtc = nowUtc;
+                if (fire) {
+                    zedInvalidateRequested.store(true);
+                    zedEventSeq.fetch_add(1);
+                    const std::string nowUtc = utcNowIsoString();
+                    if (!nowUtc.empty()) {
+                        std::lock_guard<std::mutex> lock(runtimeMutex);
+                        zedLastEventUtc = nowUtc;
+                    }
+                }
+            };
+
+            char line[4096];
+            while (!g_stop.load()) {
+                if (!fgets(line, sizeof(line), fp)) break;
+                std::string s(line);
+                while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
+                if (s.empty()) continue;
+
+                if (std::isdigit(static_cast<unsigned char>(s[0]))) {
+                    // New event header: process the completed previous event,
+                    // then reset state for this one.
+                    fireIfRelevant();
+                    const size_t tab = s.find('\t');
+                    evTs = (tab != std::string::npos) ? s.substr(0, tab) : s;
+                    evClass = (tab != std::string::npos) ? s.substr(tab + 1) : "";
+                    while (!evClass.empty()
+                           && (evClass.back() == '\r' || evClass.back() == ' ')) {
+                        evClass.pop_back();
+                    }
+                    evOp.clear();
+                    evClassRelevant = (evClass == "history_event")
+                                   || (evClass.compare(0, 24, "sysevent.fs.zfs.dataset_") == 0)
+                                   || (evClass.compare(0, 25, "sysevent.fs.zfs.snapshot_") == 0);
+                } else if (evClassRelevant && evClass == "history_event" && evOp.empty()
+                           && s.find("history_internal_name") != std::string::npos) {
+                    // Extract the operation name from the quoted value.
+                    const size_t q1 = s.find('"');
+                    const size_t q2 = (q1 != std::string::npos)
+                                          ? s.find('"', q1 + 1)
+                                          : std::string::npos;
+                    if (q1 != std::string::npos && q2 != std::string::npos) {
+                        evOp = s.substr(q1 + 1, q2 - q1 - 1);
+                    }
                 }
             }
+            fireIfRelevant(); // process the last event before pclose
+
             pclose(fp);
+            evTs.clear();
+            evClass.clear();
+            evOp.clear();
+            evClassRelevant = false;
             zedActive.store(false);
             if (!g_stop.load()) {
                 zedRestarts.fetch_add(1);
