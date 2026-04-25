@@ -47,7 +47,16 @@ bool shouldForceLocalSudo(const ConnectionProfile& p) {
 }
 
 QString currentLocalMachineUid() {
-#if defined(Q_OS_MACOS)
+#if defined(Q_OS_WIN)
+    {
+        QSettings reg(QStringLiteral("HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Cryptography"),
+                      QSettings::NativeFormat);
+        const QString guid = reg.value(QStringLiteral("MachineGuid")).toString().trimmed();
+        if (!guid.isEmpty()) {
+            return guid;
+        }
+    }
+#elif defined(Q_OS_MACOS)
     QProcess proc;
     proc.start(QStringLiteral("sh"),
                QStringList{QStringLiteral("-lc"),
@@ -638,11 +647,31 @@ LoadResult ConnectionStore::loadConnections() const {
         }
     }
 
+    // Determine the platform-correct values for the local profile.
+    const QString localPlatformOsType =
+#ifdef Q_OS_WIN
+        QStringLiteral("Windows");
+#elif defined(Q_OS_MACOS)
+        QStringLiteral("macOS");
+#elif defined(Q_OS_FREEBSD)
+        QStringLiteral("FreeBSD");
+#else
+        QStringLiteral("Linux");
+#endif
+    const QString localFreshMachineUid = currentLocalMachineUid();
+
     bool hasLocal = false;
-    for (const ConnectionProfile& p : result.profiles) {
+    for (ConnectionProfile& p : result.profiles) {
         if (p.id.compare(QStringLiteral("local"), Qt::CaseInsensitive) == 0
             || p.connType.compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0) {
             hasLocal = true;
+            // Always overwrite osType and machineUid with current platform values
+            // so a profile saved from a different build or with a wrong default is corrected.
+            p.osType = localPlatformOsType;
+            if (!localFreshMachineUid.isEmpty()) {
+                p.machineUid = localFreshMachineUid;
+            }
+            p.useSudo = shouldForceLocalSudo(p);
             break;
         }
     }
@@ -650,7 +679,7 @@ LoadResult ConnectionStore::loadConnections() const {
         ConnectionProfile local;
         local.id = QStringLiteral("local");
         local.name = QStringLiteral("Local");
-        local.machineUid = currentLocalMachineUid();
+        local.machineUid = localFreshMachineUid;
         local.connType = QStringLiteral("LOCAL");
         local.port = 0;
         local.host = QStringLiteral("localhost");
@@ -658,15 +687,7 @@ LoadResult ConnectionStore::loadConnections() const {
         const QString userEnv = QProcessEnvironment::systemEnvironment().value(QStringLiteral("USER"));
         const QString userEnvWin = QProcessEnvironment::systemEnvironment().value(QStringLiteral("USERNAME"));
         local.username = !userEnv.trimmed().isEmpty() ? userEnv.trimmed() : userEnvWin.trimmed();
-#ifdef Q_OS_WIN
-        local.osType = QStringLiteral("Windows");
-#elif defined(Q_OS_MACOS)
-        local.osType = QStringLiteral("macOS");
-#elif defined(Q_OS_FREEBSD)
-        local.osType = QStringLiteral("FreeBSD");
-#else
-        local.osType = QStringLiteral("Linux");
-#endif
+        local.osType = localPlatformOsType;
         local.useSudo = shouldForceLocalSudo(local);
         if (local.username.isEmpty()) {
             local.username = QStringLiteral("local");
