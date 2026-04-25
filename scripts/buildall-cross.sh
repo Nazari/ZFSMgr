@@ -382,10 +382,7 @@ for root, _, files in os.walk(payload_root):
             data = fh.read()
         flatsize += len(data)
         digest = "1$" + hashlib.sha256(data).hexdigest()
-        # Formato de máxima compatibilidad para pkg:
-        # mapa files: path -> checksum (string).
         entries[pkg_path] = digest
-        entries["/" + pkg_path] = digest
 
 common = {
     "name": "zfsmgr",
