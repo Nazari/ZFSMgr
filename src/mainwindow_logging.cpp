@@ -722,6 +722,17 @@ void MainWindow::refreshConnectionGsaLogAsync(int idx) {
     const ConnectionRuntimeState state = (idx < m_states.size()) ? m_states[idx] : ConnectionRuntimeState{};
     const auto gsaConfigDir = [this](const ConnectionProfile& cp, const ConnectionRuntimeState& st) {
         if (isLocalConnection(cp)) {
+            if (isWindowsConnection(cp)) {
+                QString user = cp.username.trimmed();
+                const int slash = qMax(user.lastIndexOf(QLatin1Char('\\')), user.lastIndexOf(QLatin1Char('/')));
+                if (slash >= 0) {
+                    user = user.mid(slash + 1);
+                }
+                if (user.isEmpty()) {
+                    user = QStringLiteral("Default");
+                }
+                return QStringLiteral("C:\\Users\\%1\\.config\\ZFSMgr").arg(user);
+            }
             return QString::fromLatin1(kGsaLinuxRuntimeDirPath);
         }
         const QString osHint = (cp.osType + QStringLiteral(" ") + st.osLine).trimmed().toLower();

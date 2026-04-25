@@ -3162,7 +3162,7 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
             "schtasks /Delete /F /TN $taskName >$null 2>&1; "
             "$action = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"' + $script + '\"'; "
             "schtasks /Create /SC ONSTART /RL HIGHEST /RU SYSTEM /TN $taskName /TR $action /F >$null; "
-            "schtasks /Run /TN $taskName >$null 2>&1 || $true")
+            "schtasks /Run /TN $taskName 2>&1 | Out-Null; exit 0")
                         .arg(daemonpayload::windowsDirPath(),
                              daemonpayload::windowsScriptPath(),
                              payload,
