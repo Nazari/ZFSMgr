@@ -1675,6 +1675,12 @@ void MainWindow::startDaemonEventWatcher(int connIdx) {
         // On SSH error we back off before retrying.
         // zpool events requires root on Linux — wrap with sudo so it can read the
         // kernel event log (without sudo it fails silently and head -1 times out).
+        //
+        // Record start time so we can discard historical events that predate this
+        // watcher session. zpool events -f replays the full kernel event log before
+        // streaming new events; without this guard every historical entry fires a
+        // refresh, causing a rapid-fire storm on startup.
+        const QString watcherStartTs = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
         const QString cmd = withSudo(
             p, QStringLiteral("timeout 27 sh -c 'zpool events -f -H 2>/dev/null | head -1'"));
         while (!watcher->stop.load()) {
@@ -1685,7 +1691,20 @@ void MainWindow::startDaemonEventWatcher(int connIdx) {
                 break;
             }
             if (ok && rc == 0 && !out.trimmed().isEmpty()) {
-                // A ZED event occurred — request refresh on the UI thread.
+                // Parse event timestamp (first whitespace-delimited token of the
+                // tab-separated zpool events -H output, e.g. "2026-04-25T14:38:46.123").
+                // Skip if the event predates the watcher start — it's a historical
+                // kernel log entry, not a new pool event.
+                const QString trimmedOut = out.trimmed();
+                int sep = trimmedOut.indexOf(QLatin1Char('\t'));
+                if (sep < 0) {
+                    sep = trimmedOut.indexOf(QLatin1Char(' '));
+                }
+                const QString eventTs = (sep > 0) ? trimmedOut.left(sep) : trimmedOut;
+                if (!eventTs.isEmpty() && eventTs < watcherStartTs) {
+                    continue;
+                }
+                // A new ZED event occurred — request refresh on the UI thread.
                 QMetaObject::invokeMethod(this, [this, connId]() {
                     if (m_closing || m_refreshInProgress) {
                         return;
