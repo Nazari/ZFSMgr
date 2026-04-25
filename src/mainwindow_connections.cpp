@@ -1687,19 +1687,17 @@ void MainWindow::startDaemonEventWatcher(int connIdx) {
 
     watcher->thread = std::thread([this, p, connId, watcher]() {
         // Long-poll ZED events directly via SSH. Each iteration blocks up to 27s.
-        // On timeout the daemon side returns TIMEOUT=1 (rc=1) and we loop immediately.
-        // On SSH error we back off before retrying.
-        // zpool events requires root on Linux — wrap with sudo so it can read the
-        // kernel event log (without sudo it fails silently and head -1 times out).
-        //
-        // Record start time so we can discard historical events that predate this
-        // watcher session. zpool events -f replays the full kernel event log before
-        // streaming new events; without this guard every historical entry fires a
-        // refresh, causing a rapid-fire storm on startup.
-        const QString watcherStartTs = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-        const QString cmd = withSudo(
-            p, QStringLiteral("timeout 27 sh -c 'zpool events -f -H 2>/dev/null | head -1'"));
+        // awk drains the full kernel event log in-process, skipping events older
+        // than watcherStartTs, then blocks until a new event arrives — one SSH
+        // connection per poll cycle instead of one per historical event.
+        // watcherStartTs advances after each trigger so the next iteration does not
+        // re-fire on the event we just handled.
+        // zpool events requires root on Linux — wrap with sudo.
+        QString watcherStartTs = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
         while (!watcher->stop.load()) {
+            const QString cmd = withSudo(p,
+                QStringLiteral(R"(timeout 27 sh -c 'zpool events -f -H 2>/dev/null | awk -v t=%1 "\$1>t{print;exit}"')")
+                    .arg(watcherStartTs));
             QString out, err;
             int rc = -1;
             const bool ok = runSshRawNoLog(p, cmd, 35000, out, err, rc);
@@ -1707,19 +1705,8 @@ void MainWindow::startDaemonEventWatcher(int connIdx) {
                 break;
             }
             if (ok && rc == 0 && !out.trimmed().isEmpty()) {
-                // Parse event timestamp (first whitespace-delimited token of the
-                // tab-separated zpool events -H output, e.g. "2026-04-25T14:38:46.123").
-                // Skip if the event predates the watcher start — it's a historical
-                // kernel log entry, not a new pool event.
-                const QString trimmedOut = out.trimmed();
-                int sep = trimmedOut.indexOf(QLatin1Char('\t'));
-                if (sep < 0) {
-                    sep = trimmedOut.indexOf(QLatin1Char(' '));
-                }
-                const QString eventTs = (sep > 0) ? trimmedOut.left(sep) : trimmedOut;
-                if (!eventTs.isEmpty() && eventTs < watcherStartTs) {
-                    continue;
-                }
+                // Advance timestamp so the next iteration skips this event.
+                watcherStartTs = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
                 // A new ZED event occurred — request refresh on the UI thread.
                 QMetaObject::invokeMethod(this, [this, connId]() {
                     if (m_closing || m_refreshInProgress) {
@@ -1742,7 +1729,7 @@ void MainWindow::startDaemonEventWatcher(int connIdx) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(200));
                 }
             }
-            // rc==1 (timeout) or rc==0 with empty output: loop immediately.
+            // rc=124 (timeout) or rc=0 with empty output: loop immediately.
         }
     });
 }
