@@ -952,6 +952,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 const QString zedActive = hkv.value(QStringLiteral("ZED_ACTIVE")).trimmed();
                 const QString zedRestarts = hkv.value(QStringLiteral("ZED_RESTARTS")).trimmed();
                 const QString zedLast = hkv.value(QStringLiteral("ZED_LAST_EVENT_UTC")).trimmed();
+                state.daemonJobsSupported =
+                    (hkv.value(QStringLiteral("JOBS_SUPPORT")).trimmed() == QStringLiteral("1"));
                 const QString reconcileLast = hkv.value(QStringLiteral("RECONCILE_LAST_UTC")).trimmed();
                 // Store current ZED_LAST_EVENT_UTC for comparison in onAsyncRefreshResult
                 // (where m_states[targetIdx] holds the persisted previous value).

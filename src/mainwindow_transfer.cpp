@@ -24,6 +24,8 @@
 #include <QProcess>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QListWidget>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -378,6 +380,21 @@ void MainWindow::actionCopySnapshot() {
                    .arg(sp.name, dp.name, QString::number(dstPort)));
         return sshExecFromLocal(sp, withSudo(sp, sendCmd2));
     };
+    // Prefer async daemon job: no GUI blocking, survives GUI close.
+    // Only when both daemons support JOBS_SUPPORT (or same connection with dst daemon).
+    const bool srcJobsOk = src.connIdx >= 0 && src.connIdx < m_states.size()
+                           && m_states[src.connIdx].daemonJobsSupported;
+    const bool dstJobsOk = dst.connIdx >= 0 && dst.connIdx < m_states.size()
+                           && m_states[dst.connIdx].daemonJobsSupported;
+    if (!isWindowsConnection(sp) && !isWindowsConnection(dp)
+        && dstJobsOk && (sameConnection || srcJobsOk)) {
+        if (launchDaemonJobTransfer(srcSnap, recvTarget, QString(), sendFlags,
+                                    src.connIdx, dst.connIdx)) {
+            return;
+        }
+        // fallthrough on failure — continue with synchronous path
+    }
+
     if (!(pipeline = tryBuildDaemonToDaemonCopyPipeline(srcSnap, recvTarget, QString(), sendFlags)).isEmpty()) {
         // daemon-to-daemon pipeline set (covers same-connection and remote-to-remote)
     } else if (sameConnection) {
@@ -1177,6 +1194,21 @@ void MainWindow::actionLevelSnapshot() {
                    .arg(sp.name, dp.name, QString::number(dstPort)));
         return sshExecFromLocal(sp, withSudo(sp, sendCmd2));
     };
+    // Prefer async daemon job (survives GUI close) when both daemons support JOBS_SUPPORT.
+    {
+        const bool srcJobsOk2 = src.connIdx >= 0 && src.connIdx < m_states.size()
+                                && m_states[src.connIdx].daemonJobsSupported;
+        const bool dstJobsOk2 = dst.connIdx >= 0 && dst.connIdx < m_states.size()
+                                && m_states[dst.connIdx].daemonJobsSupported;
+        if (!isWindowsConnection(sp) && !isWindowsConnection(dp)
+            && dstJobsOk2 && (sameConnection || srcJobsOk2)) {
+            if (launchDaemonJobTransfer(srcSnap, recvTarget, fromSnap, sendFlags,
+                                        src.connIdx, dst.connIdx)) {
+                return;
+            }
+        }
+    }
+
     if (!(pipeline = tryBuildDaemonToDaemonCopyPipeline(srcSnap, recvTarget, fromSnap, sendFlags)).isEmpty()) {
         // daemon-to-daemon pipeline set (covers same-connection and remote-to-remote)
     } else if (sameConnection) {
@@ -1834,5 +1866,218 @@ void MainWindow::actionSyncDatasets() {
                              .arg(src.datasetName, dst.datasetName)
                              .arg(syncPairs.size()),
                          command);
+    }
+}
+
+// ── Daemon background job support ────────────────────────────────────────────
+
+bool MainWindow::launchDaemonJobTransfer(const QString& srcSnap,
+                                         const QString& recvTarget,
+                                         const QString& fromSnap,
+                                         const QString& sendFlags,
+                                         int srcConnIdx,
+                                         int dstConnIdx)
+{
+    if (srcConnIdx < 0 || srcConnIdx >= m_profiles.size()) return false;
+    if (dstConnIdx < 0 || dstConnIdx >= m_profiles.size()) return false;
+    const ConnectionProfile& sp = m_profiles[srcConnIdx];
+    const ConnectionProfile& dp = m_profiles[dstConnIdx];
+    const bool sameConn = (srcConnIdx == dstConnIdx);
+
+    // Step 1: --zfs-recv-listen on dest daemon
+    QStringList recvArgs;
+    recvArgs << QStringLiteral("--zfs-recv-listen") << recvTarget << QStringLiteral("1");
+    QString recvOut, recvErr;
+    int recvRc = -1;
+    if (!tryRunRemoteAgentRpcViaTunnel(dp, recvArgs, 12000, recvOut, recvErr, recvRc) || recvRc != 0) {
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("Job async: recv-listen falló en %1 (%2) — fallback síncrono")
+                   .arg(dp.name, recvErr.trimmed()));
+        return false;
+    }
+    int dstPort = 0;
+    QString dstToken;
+    for (const QString& line : recvOut.split('\n')) {
+        if (line.startsWith(QStringLiteral("PORT=")))  dstPort  = line.mid(5).trimmed().toInt();
+        if (line.startsWith(QStringLiteral("TOKEN="))) dstToken = line.mid(6).trimmed();
+    }
+    if (dstPort <= 0 || dstToken.size() != 64) {
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("Job async: recv-listen respuesta inválida — fallback síncrono"));
+        return false;
+    }
+
+    // Step 2: --zfs-send-to-peer-async on src daemon
+    const QString peerHost = sameConn ? QStringLiteral("127.0.0.1") : dp.host.trimmed();
+    QStringList sendArgs;
+    sendArgs << QStringLiteral("--zfs-send-to-peer-async")
+             << srcSnap
+             << peerHost
+             << QString::number(dstPort)
+             << dstToken
+             << fromSnap.trimmed()
+             << sendFlags.trimmed();
+    QString sendOut, sendErr;
+    int sendRc = -1;
+    const ConnectionProfile& sendProfile = sameConn ? dp : sp;
+    if (!tryRunRemoteAgentRpcViaTunnel(sendProfile, sendArgs, 10000, sendOut, sendErr, sendRc)
+        || sendRc != 0) {
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("Job async: send-to-peer-async falló en %1 (%2) — fallback síncrono")
+                   .arg(sp.name, sendErr.trimmed()));
+        return false;
+    }
+
+    QString jobId;
+    for (const QString& line : sendOut.split('\n')) {
+        if (line.startsWith(QStringLiteral("JOB_ID="))) { jobId = line.mid(7).trimmed(); break; }
+    }
+    if (jobId.isEmpty()) {
+        appLog(QStringLiteral("WARN"),
+               QStringLiteral("Job async: respuesta sin JOB_ID — fallback síncrono"));
+        return false;
+    }
+
+    // Step 3: Track job in GUI
+    ActiveDaemonJob job;
+    job.srcConnIdx    = srcConnIdx;
+    job.dstConnIdx    = dstConnIdx;
+    job.jobId         = jobId;
+    job.displayLabel  = QStringLiteral("%1 → %2").arg(srcSnap, recvTarget);
+    job.state         = QStringLiteral("running");
+    m_activeDaemonJobs.append(job);
+
+    appLog(QStringLiteral("INFO"),
+           QStringLiteral("Job async lanzado: %1 (%2 → %3, job=%4)")
+               .arg(sp.name, srcSnap, recvTarget, jobId));
+
+    // Open jobs tab and start poll timer
+    if (m_logsTabs) {
+        for (int i = 0; i < m_logsTabs->count(); ++i) {
+            if (m_logsTabs->tabText(i) == tr("Transferencias")) {
+                m_logsTabs->setCurrentIndex(i);
+                break;
+            }
+        }
+    }
+    updateJobsListWidget();
+    if (m_jobPollTimer && !m_jobPollTimer->isActive())
+        m_jobPollTimer->start();
+
+    return true;
+}
+
+void MainWindow::pollDaemonJobs() {
+    bool anyRunning = false;
+    for (ActiveDaemonJob& job : m_activeDaemonJobs) {
+        if (job.state != QStringLiteral("running")) continue;
+        anyRunning = true;
+        if (job.srcConnIdx < 0 || job.srcConnIdx >= m_profiles.size()) continue;
+        const ConnectionProfile& sp = m_profiles[job.srcConnIdx];
+        QStringList args;
+        args << QStringLiteral("--job-status") << job.jobId;
+        QString out, err;
+        int rc = -1;
+        if (!tryRunRemoteAgentRpcViaTunnel(sp, args, 5000, out, err, rc) || rc != 0) continue;
+
+        for (const QString& line : out.split('\n')) {
+            if (line.startsWith(QStringLiteral("STATE=")))
+                job.state = line.mid(6).trimmed();
+            else if (line.startsWith(QStringLiteral("BYTES=")))
+                job.bytesTransferred = line.mid(6).trimmed().toULongLong();
+            else if (line.startsWith(QStringLiteral("RATE_MIB_S=")))
+                job.rateMiBs = line.mid(11).trimmed().toDouble();
+            else if (line.startsWith(QStringLiteral("ELAPSED_SECS=")))
+                job.elapsedSecs = line.mid(13).trimmed().toLong();
+            else if (line.startsWith(QStringLiteral("PROGRESS_LINE=")))
+                job.lastProgressLine = line.mid(14).trimmed();
+            else if (line.startsWith(QStringLiteral("ERROR=")))
+                job.errorText = line.mid(6).trimmed();
+        }
+
+        if (job.state == QStringLiteral("done")) {
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("Job %1 completado: %2").arg(job.jobId, job.displayLabel));
+            // Trigger dataset tree refresh on destination
+            if (job.dstConnIdx >= 0 && job.dstConnIdx < m_profiles.size()) {
+                QTimer::singleShot(0, this, [this, dstIdx = job.dstConnIdx]() {
+                    refreshConnectionByIndex(dstIdx);
+                });
+            }
+        } else if (job.state == QStringLiteral("failed")) {
+            appLog(QStringLiteral("WARN"),
+                   QStringLiteral("Job %1 falló: %2 — %3")
+                       .arg(job.jobId, job.displayLabel, job.errorText));
+        }
+    }
+
+    updateJobsListWidget();
+    if (!anyRunning && m_jobPollTimer) m_jobPollTimer->stop();
+}
+
+void MainWindow::scanOrphanedJobsForConnection(int connIdx) {
+    if (connIdx < 0 || connIdx >= m_profiles.size()) return;
+    const ConnectionProfile& sp = m_profiles[connIdx];
+    QStringList args;
+    args << QStringLiteral("--job-list");
+    QString out, err;
+    int rc = -1;
+    if (!tryRunRemoteAgentRpcViaTunnel(sp, args, 8000, out, err, rc) || rc != 0) return;
+
+    for (const QString& line : out.split('\n')) {
+        if (!line.startsWith(QStringLiteral("JOB="))) continue;
+        const QString json = line.mid(4);
+        // Extract id and state from inline JSON
+        auto extractStr = [&](const QString& key) -> QString {
+            const QString pat = QStringLiteral("\"%1\":\"").arg(key);
+            const int p = json.indexOf(pat);
+            if (p < 0) return {};
+            const int start = p + pat.size();
+            const int end = json.indexOf('"', start);
+            return end > start ? json.mid(start, end - start) : QString();
+        };
+        const QString jobId = extractStr(QStringLiteral("id"));
+        const QString state = extractStr(QStringLiteral("state"));
+        if (jobId.isEmpty() || state != QStringLiteral("running")) continue;
+
+        // Already tracked?
+        bool known = false;
+        for (const ActiveDaemonJob& j : m_activeDaemonJobs) {
+            if (j.jobId == jobId) { known = true; break; }
+        }
+        if (known) continue;
+
+        ActiveDaemonJob job;
+        job.srcConnIdx   = connIdx;
+        job.dstConnIdx   = connIdx;
+        job.jobId        = jobId;
+        job.state        = state;
+        job.displayLabel = extractStr(QStringLiteral("snap"));
+        m_activeDaemonJobs.append(job);
+        appLog(QStringLiteral("INFO"),
+               QStringLiteral("Job activo recuperado tras reconexión: %1 en %2")
+                   .arg(jobId, sp.name));
+    }
+
+    if (!m_activeDaemonJobs.isEmpty()) {
+        updateJobsListWidget();
+        if (m_jobPollTimer && !m_jobPollTimer->isActive()) m_jobPollTimer->start();
+    }
+}
+
+void MainWindow::updateJobsListWidget() {
+    if (!m_jobsListWidget) return;
+    m_jobsListWidget->clear();
+    for (const ActiveDaemonJob& job : m_activeDaemonJobs) {
+        const double gib = static_cast<double>(job.bytesTransferred) / (1024.0 * 1024.0 * 1024.0);
+        const QString text = QStringLiteral("[%1]  %2   %3 GiB @ %4 MiB/s  %5s")
+                                 .arg(job.state,
+                                      job.displayLabel,
+                                      QString::number(gib, 'f', 2),
+                                      QString::number(job.rateMiBs, 'f', 1),
+                                      QString::number(job.elapsedSecs));
+        auto* item = new QListWidgetItem(text, m_jobsListWidget);
+        item->setData(Qt::UserRole, job.jobId);
+        item->setData(Qt::UserRole + 1, job.srcConnIdx);
     }
 }

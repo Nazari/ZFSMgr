@@ -1744,6 +1744,13 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
     cachePoolStatusTextsForConnection(targetIdx, state);
     rebuildConnInfoFor(targetIdx);
     preloadPoolAutoSnapshotInfoForConnection(targetIdx);
+    // Scan for orphaned running jobs when the connection first becomes active with job support
+    if (state.daemonActive && state.daemonJobsSupported
+        && !m_states[targetIdx].daemonActive) {
+        QTimer::singleShot(0, this, [this, targetIdx]() {
+            scanOrphanedJobsForConnection(targetIdx);
+        });
+    }
     const bool bulkRefresh = (m_refreshTotal > 1);
     if (!bulkRefresh) {
         rebuildConnectionsTable();

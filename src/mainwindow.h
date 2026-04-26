@@ -163,6 +163,7 @@ private:
         bool daemonInstalled{false};
         bool daemonActive{false};
         bool daemonNativeBinary{false};
+        bool daemonJobsSupported{false};
         QString daemonLastSeenZedEvent{QStringLiteral("@")}; // "@" = never polled; "" = polled/no events; "T" = last event
     };
 
@@ -863,6 +864,12 @@ private:
     void refreshConnectionDaemonLogAsync(int idx, bool fullReset = false);
     void runDaemonHeartbeat(const QString& connId);
     void pollDaemonZedAllConnections();
+    bool launchDaemonJobTransfer(const QString& srcSnap, const QString& recvTarget,
+                                 const QString& fromSnap, const QString& sendFlags,
+                                 int srcConnIdx, int dstConnIdx);
+    void pollDaemonJobs();
+    void scanOrphanedJobsForConnection(int connIdx);
+    void updateJobsListWidget();
     void onAsyncRefreshResult(int generation, int idx, const QString& connId, const ConnectionRuntimeState& state);
     void onAsyncRefreshDone(int generation);
     QString nodeStablePath(QTreeWidgetItem* item) const;
@@ -1111,6 +1118,23 @@ private:
     QStringList m_pendingOrderedDisplayLines;
     QTimer* m_pendingSpinnerTimer{nullptr};
     QTimer* m_autoRefreshTimer{nullptr};
+    QTimer* m_jobPollTimer{nullptr};
+
+    struct ActiveDaemonJob {
+        int     srcConnIdx{-1};
+        int     dstConnIdx{-1};
+        QString jobId;
+        QString displayLabel;
+        QString state;    // "running"|"done"|"failed"|"cancelled"
+        quint64 bytesTransferred{0};
+        double  rateMiBs{0.0};
+        long    elapsedSecs{0};
+        QString lastProgressLine;
+        QString startedAt;
+        QString errorText;
+    };
+    QList<ActiveDaemonJob> m_activeDaemonJobs;
+    QListWidget* m_jobsListWidget{nullptr};
     int m_pendingSpinnerFrame{0};
     bool m_pendingApplyInProgress{false};
     bool m_pendingApplyFinishSuppressed{false};

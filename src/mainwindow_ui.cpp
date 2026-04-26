@@ -2688,6 +2688,58 @@ void MainWindow::buildUi() {
                            QStringLiteral("Log combinado"),
                            QStringLiteral("Combined log"),
                            QStringLiteral("组合日志")));
+
+    // ── Transfer Jobs tab ──────────────────────────────────────────────────
+    {
+        auto* jobsTab = new QWidget(m_logsTabs);
+        auto* jobsLay = new QVBoxLayout(jobsTab);
+        jobsLay->setContentsMargins(4, 4, 4, 4);
+        jobsLay->setSpacing(4);
+        m_jobsListWidget = new QListWidget(jobsTab);
+        m_jobsListWidget->setAlternatingRowColors(true);
+        m_jobsListWidget->setSelectionMode(QAbstractItemView::SingleSelection);
+        auto* jobsBtnRow = new QWidget(jobsTab);
+        auto* jobsBtnLay = new QHBoxLayout(jobsBtnRow);
+        jobsBtnLay->setContentsMargins(0, 0, 0, 0);
+        auto* cancelBtn  = new QPushButton(tr("Cancelar seleccionado"), jobsBtnRow);
+        auto* refreshBtn = new QPushButton(tr("Refrescar"), jobsBtnRow);
+        jobsBtnLay->addWidget(refreshBtn);
+        jobsBtnLay->addWidget(cancelBtn);
+        jobsBtnLay->addStretch(1);
+        jobsLay->addWidget(m_jobsListWidget, 1);
+        jobsLay->addWidget(jobsBtnRow, 0);
+        m_logsTabs->addTab(jobsTab, tr("Transferencias"));
+
+        connect(refreshBtn, &QPushButton::clicked, this, &MainWindow::pollDaemonJobs);
+        connect(cancelBtn, &QPushButton::clicked, this, [this]() {
+            if (!m_jobsListWidget) return;
+            auto* item = m_jobsListWidget->currentItem();
+            if (!item) return;
+            const QString jobId   = item->data(Qt::UserRole).toString();
+            const int srcConnIdx  = item->data(Qt::UserRole + 1).toInt();
+            if (jobId.isEmpty() || srcConnIdx < 0 || srcConnIdx >= m_profiles.size()) return;
+            const ConnectionProfile& sp = m_profiles[srcConnIdx];
+            QStringList args;
+            args << QStringLiteral("--job-cancel") << jobId;
+            QString out, err;
+            int rc = -1;
+            tryRunRemoteAgentRpcViaTunnel(sp, args, 5000, out, err, rc);
+            if (rc == 0) {
+                for (ActiveDaemonJob& j : m_activeDaemonJobs) {
+                    if (j.jobId == jobId) { j.state = QStringLiteral("cancelled"); break; }
+                }
+                updateJobsListWidget();
+                appLog(QStringLiteral("INFO"),
+                       QStringLiteral("Job %1 cancelado por el usuario").arg(jobId));
+            }
+        });
+
+        m_jobPollTimer = new QTimer(this);
+        m_jobPollTimer->setSingleShot(false);
+        m_jobPollTimer->setInterval(2500);
+        connect(m_jobPollTimer, &QTimer::timeout, this, &MainWindow::pollDaemonJobs);
+    }
+
     m_logsTabs->setCurrentIndex(1);
 
     auto* bottomTabsPane = new QWidget(central);

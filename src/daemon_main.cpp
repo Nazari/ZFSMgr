@@ -92,6 +92,7 @@ inline void closeSock(NativeSock s) { close(s); }
 constexpr const char* kHeartbeatPath = "/tmp/zfsmgr-agent-heartbeat.log";
 constexpr const char* kDaemonLogFile = "/var/lib/zfsmgr/daemon.log";
 constexpr long long kDaemonLogMaxBytes = 2 * 1048576LL;
+constexpr const char* kJobsFilePath = "/var/lib/zfsmgr/jobs.json";
 constexpr const char* kDefaultAgentConfigPath = "/etc/zfsmgr/agent.conf";
 constexpr const char* kDefaultBind = "127.0.0.1";
 constexpr int kDefaultPort = 47653;
@@ -110,6 +111,42 @@ std::atomic<bool> g_stop{false};
 std::mutex g_daemonLogMutex;
 
 void daemonLog(const std::string& level, const std::string& msg); // forward decl
+
+// ── Background job registry ──────────────────────────────────────────────────
+
+enum class JobState { Queued, Running, Done, Failed, Cancelled };
+
+struct DaemonJob {
+    std::string id;
+    std::string type;          // "send-to-peer" | "pipe-local"
+    std::string snap;
+    std::string peerHost;
+    int         peerPort{0};
+    std::string token;
+    std::string baseSnap;
+    std::string sendFlags;
+    std::string pipeCmd;       // base64-encoded shell command (pipe-local only)
+    std::string dstDataset;    // destination dataset (pipe-local only)
+
+    JobState    state{JobState::Queued};
+    pid_t       sendPid{-1};
+    uint64_t    bytesTransferred{0};
+    double      rateMiBs{0.0};
+    long        elapsedSecs{0};
+    std::string startedAtUtc;
+    std::string finishedAtUtc;
+    std::string errorText;
+    std::vector<std::string> progressLines; // ring buffer, max 5
+};
+
+std::mutex g_jobsMutex;
+std::unordered_map<std::string, DaemonJob> g_jobs;
+
+// Forward declarations — defined after jsonEscape
+static void persistJobsLocked();
+static void loadPersistedJobsAtStartup();
+static void runZfsSendToPeerAsync(const std::string& jobId);
+static void runZfsPipeLocalAsync(const std::string& jobId);
 
 struct ExecResult {
     int rc{1};
@@ -2146,6 +2183,277 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
     else if (!relayOk) { r.rc = 1; r.err = "relay write to peer failed\n"; }
     return r;
 }
+
+// Async variant: runs the same relay loop in a background thread started by
+// the --zfs-send-to-peer-async RPC handler. Updates g_jobs[jobId] in place.
+static void runZfsSendToPeerAsync(const std::string& jobId) {
+    std::string snap, peerHost, baseSnap, sendFlags, token;
+    int peerPort = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_jobsMutex);
+        auto it = g_jobs.find(jobId);
+        if (it == g_jobs.end()) return;
+        snap      = it->second.snap;
+        peerHost  = it->second.peerHost;
+        peerPort  = it->second.peerPort;
+        token     = it->second.token;
+        baseSnap  = it->second.baseSnap;
+        sendFlags = it->second.sendFlags;
+    }
+
+    auto setFailed = [&](const std::string& msg) {
+        std::lock_guard<std::mutex> lock(g_jobsMutex);
+        auto it = g_jobs.find(jobId);
+        if (it == g_jobs.end()) return;
+        it->second.state        = JobState::Failed;
+        it->second.errorText    = msg;
+        it->second.finishedAtUtc = utcNowIsoString();
+        persistJobsLocked();
+    };
+
+    // Resolve and connect
+    struct addrinfo hints{};
+    hints.ai_family   = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    struct addrinfo* res = nullptr;
+    const std::string portStr = std::to_string(peerPort);
+    if (getaddrinfo(peerHost.c_str(), portStr.c_str(), &hints, &res) != 0 || !res) {
+        setFailed("cannot resolve peer host: " + peerHost); return;
+    }
+    int sockFd = -1;
+    for (struct addrinfo* it = res; it; it = it->ai_next) {
+        int fd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
+        if (fd < 0) continue;
+        if (connect(fd, it->ai_addr, static_cast<socklen_t>(it->ai_addrlen)) == 0) { sockFd = fd; break; }
+        close(fd);
+    }
+    freeaddrinfo(res);
+    if (sockFd < 0) { setFailed("cannot connect to peer " + peerHost + ":" + portStr); return; }
+
+    const std::string tokenLine = token + "\n";
+    (void)write(sockFd, tokenLine.c_str(), tokenLine.size());
+
+    // Build zfs send argv
+    std::vector<std::string> sendArgs = {"send"};
+    if (!sendFlags.empty()) {
+        std::istringstream iss(sendFlags);
+        std::string tok;
+        while (iss >> tok) sendArgs.push_back(tok);
+    }
+    if (!baseSnap.empty()) { sendArgs.push_back("-I"); sendArgs.push_back(baseSnap); }
+    sendArgs.push_back(snap);
+    std::vector<char*> argv2;
+    argv2.push_back(const_cast<char*>("zfs"));
+    for (const std::string& a : sendArgs) argv2.push_back(const_cast<char*>(a.c_str()));
+    argv2.push_back(nullptr);
+
+    int pipeFds[2];
+    if (pipe(pipeFds) != 0) { close(sockFd); setFailed("pipe() failed"); return; }
+    const pid_t sendPid = fork();
+    if (sendPid < 0) { close(pipeFds[0]); close(pipeFds[1]); close(sockFd); setFailed("fork() failed"); return; }
+    if (sendPid == 0) {
+        close(pipeFds[0]);
+        dup2(pipeFds[1], STDOUT_FILENO);
+        close(pipeFds[1]);
+        close(sockFd);
+        execvp("zfs", argv2.data());
+        _exit(127);
+    }
+    close(pipeFds[1]);
+
+    // Store PID immediately so --job-cancel can kill it
+    {
+        std::lock_guard<std::mutex> lock(g_jobsMutex);
+        auto it = g_jobs.find(jobId);
+        if (it != g_jobs.end()) it->second.sendPid = sendPid;
+    }
+
+    uint64_t totalBytes = 0;
+    const auto t0 = std::chrono::steady_clock::now();
+    auto lastReport = t0;
+    char buf[65536];
+    bool relayOk = true;
+
+    for (;;) {
+        // Check for cancellation
+        {
+            std::lock_guard<std::mutex> lock(g_jobsMutex);
+            auto it = g_jobs.find(jobId);
+            if (it != g_jobs.end() && it->second.state == JobState::Cancelled) break;
+        }
+        const ssize_t n = read(pipeFds[0], buf, sizeof(buf));
+        if (n <= 0) break;
+        ssize_t done = 0;
+        while (done < n) {
+            const ssize_t w = write(sockFd, buf + done, static_cast<size_t>(n - done));
+            if (w <= 0) { relayOk = false; break; }
+            done += w;
+        }
+        if (!relayOk) break;
+        totalBytes += static_cast<uint64_t>(n);
+
+        const auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - lastReport).count() >= 2) {
+            const long elapsed = static_cast<long>(
+                std::chrono::duration_cast<std::chrono::seconds>(now - t0).count());
+            const double mib  = static_cast<double>(totalBytes) / (1024.0 * 1024.0);
+            const double rate = elapsed > 0 ? mib / static_cast<double>(elapsed) : 0.0;
+            char line[256];
+            snprintf(line, sizeof(line), "BYTES=%llu  %.1f MiB  @ %.1f MiB/s  elapsed %lds",
+                     (unsigned long long)totalBytes, mib, rate, elapsed);
+            {
+                std::lock_guard<std::mutex> lock(g_jobsMutex);
+                auto it = g_jobs.find(jobId);
+                if (it != g_jobs.end()) {
+                    it->second.bytesTransferred = totalBytes;
+                    it->second.rateMiBs         = rate;
+                    it->second.elapsedSecs      = elapsed;
+                    it->second.progressLines.push_back(line);
+                    if (it->second.progressLines.size() > 5)
+                        it->second.progressLines.erase(it->second.progressLines.begin());
+                }
+            }
+            daemonLog("DEBUG", std::string("job ") + jobId + " " + line);
+            lastReport = now;
+        }
+    }
+    close(pipeFds[0]);
+    close(sockFd);
+
+    int status = 0;
+    if (sendPid > 0) waitpid(sendPid, &status, 0);
+    const int rc = decodeWaitStatus(status);
+
+    std::lock_guard<std::mutex> lock(g_jobsMutex);
+    auto it = g_jobs.find(jobId);
+    if (it == g_jobs.end()) return;
+    if (it->second.state == JobState::Cancelled) {
+        // already marked cancelled by --job-cancel handler
+    } else if (rc != 0) {
+        it->second.state     = JobState::Failed;
+        it->second.errorText = "zfs send exited " + std::to_string(rc);
+    } else if (!relayOk) {
+        it->second.state     = JobState::Failed;
+        it->second.errorText = "relay write to peer failed";
+    } else {
+        it->second.state = JobState::Done;
+    }
+    it->second.bytesTransferred = totalBytes;
+    it->second.finishedAtUtc    = utcNowIsoString();
+    daemonLog("INFO", "job " + jobId + " finished state=" + (it->second.errorText.empty() ? "done" : "failed"));
+    persistJobsLocked();
+}
+
+// Async pipe-local: runs a shell pipe command on this host as a background job.
+static void runZfsPipeLocalAsync(const std::string& jobId) {
+    std::string pipeCmd;
+    {
+        std::lock_guard<std::mutex> lock(g_jobsMutex);
+        auto it = g_jobs.find(jobId);
+        if (it == g_jobs.end()) return;
+        pipeCmd = it->second.pipeCmd;
+    }
+    if (pipeCmd.empty()) {
+        std::lock_guard<std::mutex> lock(g_jobsMutex);
+        auto it = g_jobs.find(jobId);
+        if (it != g_jobs.end()) {
+            it->second.state = JobState::Failed;
+            it->second.errorText = "empty pipe command";
+            it->second.finishedAtUtc = utcNowIsoString();
+            persistJobsLocked();
+        }
+        return;
+    }
+
+    // Decode base64 pipeCmd via shell: printf '%s' ... | base64 -d
+    // We run: sh -c <decoded_cmd>
+    std::vector<char*> argv2;
+    argv2.push_back(const_cast<char*>("sh"));
+    argv2.push_back(const_cast<char*>("-c"));
+    argv2.push_back(const_cast<char*>(pipeCmd.c_str()));
+    argv2.push_back(nullptr);
+
+    int errFds[2];
+    if (pipe(errFds) != 0) {
+        std::lock_guard<std::mutex> lock(g_jobsMutex);
+        auto it = g_jobs.find(jobId);
+        if (it != g_jobs.end()) {
+            it->second.state = JobState::Failed;
+            it->second.errorText = "pipe() failed";
+            it->second.finishedAtUtc = utcNowIsoString();
+            persistJobsLocked();
+        }
+        return;
+    }
+
+    const pid_t childPid = fork();
+    if (childPid < 0) {
+        close(errFds[0]); close(errFds[1]);
+        std::lock_guard<std::mutex> lock(g_jobsMutex);
+        auto it = g_jobs.find(jobId);
+        if (it != g_jobs.end()) {
+            it->second.state = JobState::Failed;
+            it->second.errorText = "fork() failed";
+            it->second.finishedAtUtc = utcNowIsoString();
+            persistJobsLocked();
+        }
+        return;
+    }
+    if (childPid == 0) {
+        close(errFds[0]);
+        dup2(errFds[1], STDERR_FILENO);
+        close(errFds[1]);
+        int devnull = open("/dev/null", O_RDONLY);
+        if (devnull >= 0) { dup2(devnull, STDIN_FILENO); close(devnull); }
+        execvp("sh", argv2.data());
+        _exit(127);
+    }
+    close(errFds[1]);
+
+    {
+        std::lock_guard<std::mutex> lock(g_jobsMutex);
+        auto it = g_jobs.find(jobId);
+        if (it != g_jobs.end()) it->second.sendPid = childPid;
+    }
+
+    // Drain stderr to progress ring buffer
+    char line[4096];
+    std::string errAccum;
+    while (true) {
+        {
+            std::lock_guard<std::mutex> lock(g_jobsMutex);
+            auto it = g_jobs.find(jobId);
+            if (it != g_jobs.end() && it->second.state == JobState::Cancelled) break;
+        }
+        const ssize_t n = read(errFds[0], line, sizeof(line) - 1);
+        if (n <= 0) break;
+        line[n] = '\0';
+        errAccum += line;
+        std::lock_guard<std::mutex> lock(g_jobsMutex);
+        auto it = g_jobs.find(jobId);
+        if (it != g_jobs.end()) {
+            it->second.progressLines.push_back(std::string(line, static_cast<size_t>(n)));
+            if (it->second.progressLines.size() > 5)
+                it->second.progressLines.erase(it->second.progressLines.begin());
+        }
+    }
+    close(errFds[0]);
+
+    int status = 0;
+    waitpid(childPid, &status, 0);
+    const int rc = decodeWaitStatus(status);
+
+    std::lock_guard<std::mutex> lock(g_jobsMutex);
+    auto it = g_jobs.find(jobId);
+    if (it == g_jobs.end()) return;
+    if (it->second.state != JobState::Cancelled) {
+        it->second.state = (rc == 0) ? JobState::Done : JobState::Failed;
+        if (rc != 0) it->second.errorText = "sh exited " + std::to_string(rc);
+    }
+    it->second.finishedAtUtc = utcNowIsoString();
+    persistJobsLocked();
+}
+
 #endif // _WIN32
 
 ExecResult executeAgentCommandCapture(const std::string& cmd,
@@ -2549,6 +2857,147 @@ std::string jsonEscape(const std::string& s) {
     return out;
 }
 
+// ── Job persistence ──────────────────────────────────────────────────────────
+
+static const char* jobStateName(JobState s) {
+    switch (s) {
+    case JobState::Queued:    return "queued";
+    case JobState::Running:   return "running";
+    case JobState::Done:      return "done";
+    case JobState::Failed:    return "failed";
+    case JobState::Cancelled: return "cancelled";
+    }
+    return "unknown";
+}
+
+static JobState jobStateFromName(const std::string& s) {
+    if (s == "queued")    return JobState::Queued;
+    if (s == "running")   return JobState::Running;
+    if (s == "done")      return JobState::Done;
+    if (s == "cancelled") return JobState::Cancelled;
+    return JobState::Failed;
+}
+
+// Called under g_jobsMutex. Serialises g_jobs to kJobsFilePath.
+// Retains at most 20 jobs; prunes oldest terminal (Done/Failed/Cancelled) entries first.
+static void persistJobsLocked() {
+    // Collect ordered by startedAtUtc for pruning
+    std::vector<std::pair<std::string, const DaemonJob*>> all;
+    all.reserve(g_jobs.size());
+    for (const auto& kv : g_jobs) all.push_back({kv.first, &kv.second});
+
+    // Prune old terminal jobs beyond 20 total
+    while (all.size() > 20) {
+        // find oldest terminal
+        auto oldest = all.end();
+        for (auto it = all.begin(); it != all.end(); ++it) {
+            const JobState st = it->second->state;
+            if (st == JobState::Done || st == JobState::Failed || st == JobState::Cancelled) {
+                if (oldest == all.end() || it->second->startedAtUtc < oldest->second->startedAtUtc)
+                    oldest = it;
+            }
+        }
+        if (oldest == all.end()) break;
+        g_jobs.erase(oldest->first);
+        all.erase(oldest);
+    }
+
+    std::ofstream f(kJobsFilePath, std::ios::trunc);
+    if (!f.is_open()) return;
+    f << "[\n";
+    bool first = true;
+    for (const auto& kv : g_jobs) {
+        const DaemonJob& j = kv.second;
+        if (!first) f << ",\n";
+        first = false;
+        f << "{\"id\":\"" << jsonEscape(j.id)
+          << "\",\"type\":\"" << jsonEscape(j.type)
+          << "\",\"state\":\"" << jobStateName(j.state)
+          << "\",\"snap\":\"" << jsonEscape(j.snap)
+          << "\",\"peerHost\":\"" << jsonEscape(j.peerHost)
+          << "\",\"peerPort\":" << j.peerPort
+          << ",\"baseSnap\":\"" << jsonEscape(j.baseSnap)
+          << "\",\"sendFlags\":\"" << jsonEscape(j.sendFlags)
+          << "\",\"pipeCmd\":\"" << jsonEscape(j.pipeCmd)
+          << "\",\"dstDataset\":\"" << jsonEscape(j.dstDataset)
+          << "\",\"bytes\":" << j.bytesTransferred
+          << ",\"rateMiBs\":" << j.rateMiBs
+          << ",\"elapsedSecs\":" << j.elapsedSecs
+          << ",\"startedAt\":\"" << jsonEscape(j.startedAtUtc)
+          << "\",\"finishedAt\":\"" << jsonEscape(j.finishedAtUtc)
+          << "\",\"error\":\"" << jsonEscape(j.errorText)
+          << "\"}";
+    }
+    f << "\n]\n";
+}
+
+// Called once at daemon startup, before the accept loop. Reads persisted jobs;
+// any job left in Running state is marked Failed (daemon restarted mid-transfer).
+static void loadPersistedJobsAtStartup() {
+    std::ifstream f(kJobsFilePath, std::ios::binary);
+    if (!f.is_open()) return;
+    std::string raw((std::istreambuf_iterator<char>(f)),
+                     std::istreambuf_iterator<char>());
+
+    // Minimal JSON array parser: extract objects via key=value text matching.
+    // We look for repeated {...} blobs and parse known keys with simple search.
+    std::lock_guard<std::mutex> lock(g_jobsMutex);
+    std::string::size_type pos = 0;
+    while (true) {
+        const auto ob = raw.find('{', pos);
+        if (ob == std::string::npos) break;
+        const auto cb = raw.find('}', ob);
+        if (cb == std::string::npos) break;
+        const std::string blob = raw.substr(ob, cb - ob + 1);
+        pos = cb + 1;
+
+        auto getStr = [&](const std::string& key) -> std::string {
+            const std::string pat = "\"" + key + "\":\"";
+            auto p = blob.find(pat);
+            if (p == std::string::npos) return {};
+            p += pat.size();
+            auto q = blob.find('"', p);
+            if (q == std::string::npos) return {};
+            return blob.substr(p, q - p);
+        };
+        auto getNum = [&](const std::string& key) -> long long {
+            const std::string pat = "\"" + key + "\":";
+            auto p = blob.find(pat);
+            if (p == std::string::npos) return 0;
+            p += pat.size();
+            try { return std::stoll(blob.substr(p)); } catch (...) { return 0; }
+        };
+
+        DaemonJob j;
+        j.id            = getStr("id");
+        j.type          = getStr("type");
+        j.state         = jobStateFromName(getStr("state"));
+        j.snap          = getStr("snap");
+        j.peerHost      = getStr("peerHost");
+        j.peerPort      = static_cast<int>(getNum("peerPort"));
+        j.baseSnap      = getStr("baseSnap");
+        j.sendFlags     = getStr("sendFlags");
+        j.pipeCmd       = getStr("pipeCmd");
+        j.dstDataset    = getStr("dstDataset");
+        j.bytesTransferred = static_cast<uint64_t>(getNum("bytes"));
+        j.rateMiBs      = static_cast<double>(getNum("rateMiBs"));
+        j.elapsedSecs   = static_cast<long>(getNum("elapsedSecs"));
+        j.startedAtUtc  = getStr("startedAt");
+        j.finishedAtUtc = getStr("finishedAt");
+        j.errorText     = getStr("error");
+
+        if (j.id.empty()) continue;
+
+        // Jobs still Running when the daemon stopped can never be recovered
+        if (j.state == JobState::Running || j.state == JobState::Queued) {
+            j.state        = JobState::Failed;
+            j.errorText    = "daemon restarted while running";
+            j.finishedAtUtc = utcNowIsoString();
+        }
+        g_jobs[j.id] = std::move(j);
+    }
+}
+
 bool parseJsonStringAt(const std::string& s, std::size_t& i, std::string& out) {
     out.clear();
     if (i >= s.size() || s[i] != '"') {
@@ -2779,6 +3228,7 @@ int runServeLoop() {
 #ifndef _WIN32
     std::signal(SIGHUP, onSignal);
 #endif
+    loadPersistedJobsAtStartup();
     daemonLog("INFO", std::string("daemon started version=") + ZFSMGR_AGENT_VERSION_STRING
                       + " api=" + kApiVersion
                       + " bind=" + bindHost + ":" + bindPort);
@@ -3095,6 +3545,9 @@ int runServeLoop() {
                 if (!lastEvent.empty()) {
                     hs << "ZED_LAST_EVENT_UTC=" << lastEvent << "\n";
                 }
+#ifndef _WIN32
+                hs << "JOBS_SUPPORT=1\n";
+#endif
                 exec.rc = 0;
                 exec.out = hs.str();
             } else if (cmd == "--wait-for-event") {
@@ -3129,6 +3582,154 @@ int runServeLoop() {
                     exec.rc = 1;
                     exec.out = "TIMEOUT=1\n";
                 }
+#ifndef _WIN32
+            } else if (cmd == "--zfs-send-to-peer-async") {
+                // args: snap peerHost peerPort token [baseSnap [sendFlags]]
+                if (rpcArgs.size() < 4) {
+                    exec.rc = 1;
+                    exec.err = "usage: --zfs-send-to-peer-async <snap> <peerHost> <peerPort> <token> [<baseSnap> [<sendFlags>]]\n";
+                } else {
+                    DaemonJob job;
+                    // Generate a 16-hex job ID from /dev/urandom
+                    {
+                        unsigned char rnd[8] = {};
+                        int urfd = open("/dev/urandom", O_RDONLY);
+                        if (urfd >= 0) { (void)read(urfd, rnd, sizeof(rnd)); close(urfd); }
+                        static const char hx[] = "0123456789abcdef";
+                        for (int i = 0; i < 8; ++i) {
+                            job.id.push_back(hx[(rnd[i] >> 4) & 0xf]);
+                            job.id.push_back(hx[rnd[i] & 0xf]);
+                        }
+                    }
+                    job.type      = "send-to-peer";
+                    job.snap      = rpcArgs[0];
+                    job.peerHost  = rpcArgs[1];
+                    try { job.peerPort = std::stoi(rpcArgs[2]); } catch (...) {}
+                    job.token     = rpcArgs[3];
+                    job.baseSnap  = (rpcArgs.size() > 4) ? rpcArgs[4] : "";
+                    job.sendFlags = (rpcArgs.size() > 5) ? rpcArgs[5] : "";
+                    job.state     = JobState::Running;
+                    job.startedAtUtc = utcNowIsoString();
+                    const std::string jobId = job.id;
+                    {
+                        std::lock_guard<std::mutex> jlock(g_jobsMutex);
+                        g_jobs[jobId] = job;
+                        persistJobsLocked();
+                    }
+                    daemonLog("INFO", "job " + jobId + " started type=send-to-peer snap=" + job.snap);
+                    std::thread([jobId]() { runZfsSendToPeerAsync(jobId); }).detach();
+                    exec.rc  = 0;
+                    exec.out = "JOB_ID=" + jobId + "\nSTATE=running\n";
+                }
+            } else if (cmd == "--zfs-pipe-local-async") {
+                // args: dstDataset pipeCmd(shell command, NOT base64)
+                if (rpcArgs.size() < 2) {
+                    exec.rc = 1;
+                    exec.err = "usage: --zfs-pipe-local-async <dstDataset> <pipeCmd>\n";
+                } else {
+                    DaemonJob job;
+                    {
+                        unsigned char rnd[8] = {};
+                        int urfd = open("/dev/urandom", O_RDONLY);
+                        if (urfd >= 0) { (void)read(urfd, rnd, sizeof(rnd)); close(urfd); }
+                        static const char hx[] = "0123456789abcdef";
+                        for (int i = 0; i < 8; ++i) {
+                            job.id.push_back(hx[(rnd[i] >> 4) & 0xf]);
+                            job.id.push_back(hx[rnd[i] & 0xf]);
+                        }
+                    }
+                    job.type       = "pipe-local";
+                    job.dstDataset = rpcArgs[0];
+                    job.pipeCmd    = rpcArgs[1];
+                    job.state      = JobState::Running;
+                    job.startedAtUtc = utcNowIsoString();
+                    const std::string jobId = job.id;
+                    {
+                        std::lock_guard<std::mutex> jlock(g_jobsMutex);
+                        g_jobs[jobId] = job;
+                        persistJobsLocked();
+                    }
+                    daemonLog("INFO", "job " + jobId + " started type=pipe-local dst=" + job.dstDataset);
+                    std::thread([jobId]() { runZfsPipeLocalAsync(jobId); }).detach();
+                    exec.rc  = 0;
+                    exec.out = "JOB_ID=" + jobId + "\nSTATE=running\n";
+                }
+            } else if (cmd == "--job-status") {
+                if (rpcArgs.empty()) {
+                    exec.rc = 1; exec.err = "usage: --job-status <jobId>\n";
+                } else {
+                    std::lock_guard<std::mutex> jlock(g_jobsMutex);
+                    auto it = g_jobs.find(rpcArgs[0]);
+                    if (it == g_jobs.end()) {
+                        exec.rc = 1; exec.out = "ERROR=job not found\n";
+                    } else {
+                        const DaemonJob& j = it->second;
+                        std::ostringstream js;
+                        js << "JOB_ID=" << j.id << "\n"
+                           << "STATE=" << jobStateName(j.state) << "\n"
+                           << "BYTES=" << j.bytesTransferred << "\n"
+                           << "RATE_MIB_S=" << j.rateMiBs << "\n"
+                           << "ELAPSED_SECS=" << j.elapsedSecs << "\n"
+                           << "STARTED_AT=" << j.startedAtUtc << "\n"
+                           << "FINISHED_AT=" << j.finishedAtUtc << "\n"
+                           << "ERROR=" << j.errorText << "\n";
+                        if (!j.progressLines.empty())
+                            js << "PROGRESS_LINE=" << j.progressLines.back() << "\n";
+                        exec.rc = 0; exec.out = js.str();
+                    }
+                }
+            } else if (cmd == "--job-list") {
+                std::lock_guard<std::mutex> jlock(g_jobsMutex);
+                std::ostringstream jl;
+                // Sort by startedAt descending
+                std::vector<const DaemonJob*> sorted;
+                sorted.reserve(g_jobs.size());
+                for (const auto& kv : g_jobs) sorted.push_back(&kv.second);
+                std::sort(sorted.begin(), sorted.end(), [](const DaemonJob* a, const DaemonJob* b) {
+                    return a->startedAtUtc > b->startedAtUtc;
+                });
+                int count = 0;
+                for (const DaemonJob* j : sorted) {
+                    if (count >= 20) break;
+                    jl << "JOB={\"id\":\"" << jsonEscape(j->id)
+                       << "\",\"state\":\"" << jobStateName(j->state)
+                       << "\",\"type\":\"" << jsonEscape(j->type)
+                       << "\",\"snap\":\"" << jsonEscape(j->snap)
+                       << "\",\"bytes\":" << j->bytesTransferred
+                       << ",\"rate\":" << j->rateMiBs
+                       << ",\"elapsed\":" << j->elapsedSecs
+                       << ",\"started\":\"" << jsonEscape(j->startedAtUtc)
+                       << "\",\"finished\":\"" << jsonEscape(j->finishedAtUtc)
+                       << "\",\"error\":\"" << jsonEscape(j->errorText)
+                       << "\"}\n";
+                    ++count;
+                }
+                jl << "JOBS_COUNT=" << count << "\n";
+                exec.rc = 0; exec.out = jl.str();
+            } else if (cmd == "--job-cancel") {
+                if (rpcArgs.empty()) {
+                    exec.rc = 1; exec.err = "usage: --job-cancel <jobId>\n";
+                } else {
+                    std::lock_guard<std::mutex> jlock(g_jobsMutex);
+                    auto it = g_jobs.find(rpcArgs[0]);
+                    if (it == g_jobs.end()) {
+                        exec.rc = 1; exec.out = "ERROR=job not found\n";
+                    } else {
+                        DaemonJob& j = it->second;
+                        if (j.state != JobState::Running) {
+                            exec.rc = 1; exec.out = "ERROR=job not running\n";
+                        } else {
+                            if (j.sendPid > 0) kill(j.sendPid, SIGTERM);
+                            j.state        = JobState::Cancelled;
+                            j.finishedAtUtc = utcNowIsoString();
+                            persistJobsLocked();
+                            daemonLog("INFO", "job " + j.id + " cancelled");
+                            exec.rc  = 0;
+                            exec.out = "JOB_ID=" + j.id + "\nCANCELLED=1\n";
+                        }
+                    }
+                }
+#endif // _WIN32
             } else {
             daemonLog("DEBUG", "rpc cmd=" + cmd);
             const bool dumpCmd = isDumpCommand(cmd);
@@ -3357,6 +3958,9 @@ int main(int argc, char* argv[]) {
         std::cout << "RPC_FAILURES=0\n";
         std::cout << "RPC_COMMANDS=\n";
         std::cout << "ZED_ACTIVE=0\n";
+#ifndef _WIN32
+        std::cout << "JOBS_SUPPORT=1\n";
+#endif
         return 0;
     }
 

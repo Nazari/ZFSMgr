@@ -96,6 +96,28 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         event->ignore();
         return;
     }
+    // Warn if daemon background jobs are still running
+    {
+        int runningJobs = 0;
+        for (const ActiveDaemonJob& j : m_activeDaemonJobs) {
+            if (j.state == QStringLiteral("running")) ++runningJobs;
+        }
+        if (runningJobs > 0) {
+            const auto choice = QMessageBox::question(
+                this,
+                QStringLiteral("ZFSMgr"),
+                tr("%n transferencia(s) siguen ejecutándose en el daemon.\n"
+                   "¿Cerrar de todas formas? Los jobs continuarán en background.",
+                   "", runningJobs),
+                QMessageBox::Yes | QMessageBox::No,
+                QMessageBox::No);
+            if (choice != QMessageBox::Yes) {
+                m_closing = false;
+                event->ignore();
+                return;
+            }
+        }
+    }
     saveUiSettings();
     closeAllRemoteDaemonRpcTunnels();
     closeAllSshControlMasters();
