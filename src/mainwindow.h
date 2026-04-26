@@ -163,7 +163,7 @@ private:
         bool daemonInstalled{false};
         bool daemonActive{false};
         bool daemonNativeBinary{false};
-        QString daemonLastSeenZedEvent; // last ZED_LAST_EVENT_UTC value from health
+        QString daemonLastSeenZedEvent{QStringLiteral("@")}; // "@" = never polled; "" = polled/no events; "T" = last event
     };
 
     struct DatasetRecord {
@@ -608,9 +608,6 @@ private:
                                        const QString& objectName,
                                        const QString& prop,
                                        bool inherit);
-    QString daemonMenuLabelForConnection(int connIdx) const;
-    bool installOrUpdateDaemonForConnection(int connIdx);
-    bool uninstallDaemonForConnection(int connIdx);
     void authorizePublicKeyOnConnection(int srcIdx, int dstIdx);
     bool showAutomaticSnapshots() const;
     bool validatePendingGsaDrafts(QString* errorOut = nullptr);
@@ -863,10 +860,16 @@ private:
     void syncConnectionLogTabs();
     void appendConnectionLog(const QString& connId, const QString& line);
     void refreshConnectionGsaLogAsync(int idx);
+    void refreshConnectionDaemonLogAsync(int idx, bool fullReset = false);
+    void runDaemonHeartbeat(const QString& connId);
+    void pollDaemonZedAllConnections();
     void onAsyncRefreshResult(int generation, int idx, const QString& connId, const ConnectionRuntimeState& state);
     void onAsyncRefreshDone(int generation);
-    void startDaemonEventWatcher(int connIdx);
-    void stopDaemonEventWatcher(const QString& connId);
+    QString nodeStablePath(QTreeWidgetItem* item) const;
+    QString userExpandedKey(QTreeWidget* tree, QTreeWidgetItem* item) const;
+    void applyUserExpandedState(QTreeWidget* tree);
+    void loadUserExpandedState();
+    void saveUserExpandedState();
     void stopAllDaemonEventWatchers();
     int findConnectionIndexByName(const QString& name) const;
     bool isConnectionRedirectedToLocal(int idx) const;
@@ -1130,6 +1133,7 @@ private:
     };
     QMap<QString, ConnCompactState> m_connCompactState;
     QMap<QString, ConnCompactState> m_connGsaCompactState;
+    QMap<QString, qint64> m_connectionDaemonLogOffset;
     QSet<QString> m_sshDisableMultiplexKeys;
     QSet<QString> m_loggedSshResolutionKeys;
     QSet<QString> m_daemonBootstrapPromptedConnIds;
@@ -1142,11 +1146,6 @@ private:
         QDateTime lastUsedUtc;
     };
     QMap<QString, RemoteRpcTunnelState> m_remoteDaemonRpcTunnelsByConnKey;
-    struct DaemonEventWatcher {
-        std::atomic<bool> stop{false};
-        std::thread thread;
-    };
-    QMap<QString, std::shared_ptr<DaemonEventWatcher>> m_daemonWatchers;
     mutable QMutex m_sshRuntimeSetsMutex;
     QMap<QString, PoolDatasetCache> m_poolDatasetCache;
     QMap<QString, DatasetPermissionsCacheEntry> m_datasetPermissionsCache;
@@ -1200,6 +1199,9 @@ private:
     int m_refreshPending{0};
     int m_refreshTotal{0};
     bool m_refreshInProgress{false};
+    int m_zedPollPending{0};
+    QMap<QString, bool> m_userNodeExpanded;
+    QTimer* m_userExpandedSaveTimer{nullptr};
     QSet<int> m_refreshingByIndex;
     bool m_initialRefreshCompleted{false};
     QString m_localSudoUsername;

@@ -25,6 +25,9 @@
 #include <QSet>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QWheelEvent>
@@ -6780,4 +6783,77 @@ void MainWindow::setSelectedDataset(const QString& side, const QString& datasetN
         m_bottomDatasetTreeWidget ? m_bottomDatasetTreeWidget->tree() : nullptr);
     setConnectionDestinationSelection(ctx);
     refreshDatasetProperties(QStringLiteral("dest"));
+}
+
+QString MainWindow::nodeStablePath(QTreeWidgetItem* item) const {
+    return connContentNodeStablePath(item);
+}
+
+static QString userExpandedTreePrefix(QTreeWidget* tree) {
+    if (!tree || !tree->property("zfsmgr.isSplitTree").toBool()) {
+        return QStringLiteral("main");
+    }
+    const QString splitKey = tree->property("zfsmgr.splitTreeKey").toString().trimmed();
+    return QStringLiteral("split:") + (splitKey.isEmpty() ? QStringLiteral("?") : splitKey);
+}
+
+QString MainWindow::userExpandedKey(QTreeWidget* tree, QTreeWidgetItem* item) const {
+    const QString path = connContentNodeStablePath(item).trimmed();
+    if (path.isEmpty()) {
+        return QString();
+    }
+    return userExpandedTreePrefix(tree) + QStringLiteral(":") + path;
+}
+
+void MainWindow::applyUserExpandedState(QTreeWidget* tree) {
+    if (!tree || m_userNodeExpanded.isEmpty()) {
+        return;
+    }
+    const QString prefix = userExpandedTreePrefix(tree) + QStringLiteral(":");
+    std::function<void(QTreeWidgetItem*)> rec = [&](QTreeWidgetItem* n) {
+        if (!n) {
+            return;
+        }
+        const QString path = connContentNodeStablePath(n).trimmed();
+        if (!path.isEmpty()) {
+            const auto it = m_userNodeExpanded.constFind(prefix + path);
+            if (it != m_userNodeExpanded.cend()) {
+                n->setExpanded(it.value());
+            }
+        }
+        for (int i = 0; i < n->childCount(); ++i) {
+            rec(n->child(i));
+        }
+    };
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        rec(tree->topLevelItem(i));
+    }
+}
+
+void MainWindow::loadUserExpandedState() {
+    m_userNodeExpanded.clear();
+    const QJsonObject root = m_store.loadConfigJson();
+    const QJsonObject map = root[QStringLiteral("tree_expanded")].toObject();
+    for (auto it = map.constBegin(); it != map.constEnd(); ++it) {
+        if (it.value().isBool()) {
+            m_userNodeExpanded.insert(it.key(), it.value().toBool());
+        }
+    }
+}
+
+void MainWindow::saveUserExpandedState() {
+    if (!m_userExpandedSaveTimer) {
+        m_userExpandedSaveTimer = new QTimer(this);
+        m_userExpandedSaveTimer->setSingleShot(true);
+        connect(m_userExpandedSaveTimer, &QTimer::timeout, this, [this]() {
+            QJsonObject root = m_store.loadConfigJson();
+            QJsonObject map;
+            for (auto it = m_userNodeExpanded.cbegin(); it != m_userNodeExpanded.cend(); ++it) {
+                map.insert(it.key(), QJsonValue(it.value()));
+            }
+            root[QStringLiteral("tree_expanded")] = map;
+            m_store.saveConfigJson(root);
+        });
+    }
+    m_userExpandedSaveTimer->start(500);
 }

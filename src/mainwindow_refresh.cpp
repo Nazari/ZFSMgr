@@ -412,9 +412,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
         const QString basicsCmd = withSudo(
             p,
             mwhelpers::withUnixSearchPathCommand(
-                QStringLiteral("if [ -x /usr/local/libexec/zfsmgr-agent ]; then "
-                               "/usr/local/libexec/zfsmgr-agent --dump-refresh-basics; "
-                               "else uname -a; fi")));
+                QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-refresh-basics")));
         if (runSsh(p, basicsCmd, 15000, bOut, bErr, bRc, {}, {}, {}, MainWindow::WindowsCommandMode::Auto)
             && bRc == 0) {
             const QMap<QString, QString> kv = parseKeyValueOutput(bOut + QStringLiteral("\n") + bErr);
@@ -580,9 +578,7 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
     } else if (!unixBasicsLoaded || state.zfsVersion.trimmed().isEmpty()) {
         const QStringList zfsVersionCandidates = {
             mwhelpers::withUnixSearchPathCommand(
-                QStringLiteral("if [ -x /usr/local/libexec/zfsmgr-agent ]; then "
-                               "/usr/local/libexec/zfsmgr-agent --dump-zfs-version; "
-                               "else false; fi")),
+                QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-version")),
             mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs version")),
             mwhelpers::withUnixSearchPathCommand(QStringLiteral("zfs --version")),
             mwhelpers::withUnixSearchPathCommand(QStringLiteral("zpool --version")),
@@ -957,24 +953,8 @@ MainWindow::ConnectionRuntimeState MainWindow::refreshConnection(const Connectio
                 const QString zedRestarts = hkv.value(QStringLiteral("ZED_RESTARTS")).trimmed();
                 const QString zedLast = hkv.value(QStringLiteral("ZED_LAST_EVENT_UTC")).trimmed();
                 const QString reconcileLast = hkv.value(QStringLiteral("RECONCILE_LAST_UTC")).trimmed();
-                // If the daemon has seen new ZED events since our last health poll,
-                // schedule an immediate follow-up refresh to pick up the changed state.
-                if (!zedLast.isEmpty()
-                    && zedLast != state.daemonLastSeenZedEvent
-                    && !state.daemonLastSeenZedEvent.isEmpty()) {
-                    appLog(QStringLiteral("INFO"),
-                           QStringLiteral("%1: ZED event detectado (ts=%2), programando refresh")
-                               .arg(p.name, zedLast));
-                    const QString profileId = p.id;
-                    QMetaObject::invokeMethod(this, [this, profileId]() {
-                        for (int i = 0; i < m_profiles.size(); ++i) {
-                            if (m_profiles[i].id == profileId) {
-                                refreshConnectionByIndex(i);
-                                break;
-                            }
-                        }
-                    }, Qt::QueuedConnection);
-                }
+                // Store current ZED_LAST_EVENT_UTC for comparison in onAsyncRefreshResult
+                // (where m_states[targetIdx] holds the persisted previous value).
                 state.daemonLastSeenZedEvent = zedLast;
                 if (!cacheEntries.isEmpty() || !zedActive.isEmpty() || !zedLast.isEmpty()
                     || !cacheInvalidations.isEmpty() || !poolInvalidations.isEmpty() || !reconcilePruned.isEmpty()

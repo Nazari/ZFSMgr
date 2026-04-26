@@ -1543,6 +1543,13 @@ void MainWindowConnectionDatasetTreeDelegate::itemExpanded(QTreeWidget* tree, QT
                              QStringLiteral("tree.itemExpanded path=%1")
                                  .arg(debugConnTreeNodePath(item)));
     }
+    {
+        const QString key = m_mainWindow->userExpandedKey(tree, item);
+        if (!key.isEmpty()) {
+            m_mainWindow->m_userNodeExpanded[key] = true;
+            m_mainWindow->saveUserExpandedState();
+        }
+    }
     if (QTreeWidgetItem* owner = ownerItemForNode(item)) {
         const QString token = tokenForOwnerItem(owner);
         if (!token.isEmpty()) {
@@ -1581,6 +1588,13 @@ void MainWindowConnectionDatasetTreeDelegate::itemCollapsed(QTreeWidget* tree, Q
         m_mainWindow->appLog(QStringLiteral("DEBUG"),
                              QStringLiteral("tree.itemCollapsed path=%1")
                                  .arg(debugConnTreeNodePath(item)));
+    }
+    {
+        const QString key = m_mainWindow->userExpandedKey(tree, item);
+        if (!key.isEmpty()) {
+            m_mainWindow->m_userNodeExpanded[key] = false;
+            m_mainWindow->saveUserExpandedState();
+        }
     }
     if (QTreeWidgetItem* owner = ownerItemForNode(item)) {
         const QString token = tokenForOwnerItem(owner);

@@ -4,7 +4,6 @@
 
 #include <QDialog>
 
-class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
@@ -48,9 +47,6 @@ private:
     QLineEdit* m_passwordEdit{nullptr};
     QLineEdit* m_keyEdit{nullptr};
     QPushButton* m_keyBrowseBtn{nullptr};
-    QWidget* m_privilegesRow{nullptr};
-    QCheckBox* m_sudoCheck{nullptr};
-
     QString m_id;
     QString m_lastAutoPort;
     QString m_language{QStringLiteral("es")};

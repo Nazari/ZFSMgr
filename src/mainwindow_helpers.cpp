@@ -724,21 +724,11 @@ QString withUnixSearchPathCommand(const QString& cmd) {
         .arg(cmd);
 }
 
-bool isRemoteZfsMgrScriptCommand(const QString& cmd) {
-    const QString trimmed = cmd.trimmed();
-    if (trimmed.isEmpty()) {
-        return false;
-    }
-    return trimmed.contains(QStringLiteral("/.config/ZFSMgr/bin/zfsmgr-"))
-           || trimmed.startsWith(QStringLiteral("zfsmgr-"));
-}
-
 QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {
     if (isWindowsOsType(p.osType)) {
         return cmd;
     }
-    const QString preparedCmd =
-        isRemoteZfsMgrScriptCommand(cmd) ? cmd : withUnixSearchPathCommand(cmd);
+    const QString preparedCmd = withUnixSearchPathCommand(cmd);
     if (!p.useSudo) {
         return preparedCmd;
     }
@@ -753,8 +743,7 @@ QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cm
     if (isWindowsOsType(p.osType)) {
         return cmd;
     }
-    const QString preparedCmd =
-        isRemoteZfsMgrScriptCommand(cmd) ? cmd : withUnixSearchPathCommand(cmd);
+    const QString preparedCmd = withUnixSearchPathCommand(cmd);
     if (!p.useSudo) {
         return preparedCmd;
     }

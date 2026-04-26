@@ -183,6 +183,7 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
     m_store.setMasterPassword(masterPassword);
     initLogPersistence();
     buildUi();
+    loadUserExpandedState();
     if (!zfsmgrTestModeEnabled()) {
         loadConnections();
         restoreSplitTreeLayoutFromState(m_splitTreeLayoutState);

@@ -190,6 +190,7 @@ bool extractLocalAgentArgs(const QString& remoteCmd, QStringList& argsOut) {
     }
     const QString cmd = parsed.first().trimmed();
     if (!(cmd == QStringLiteral("--health")
+          || cmd == QStringLiteral("--heartbeat")
           || cmd.startsWith(QStringLiteral("--dump-"))
           || cmd.startsWith(QStringLiteral("--mutate-")))) {
         return false;

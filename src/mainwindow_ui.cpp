@@ -931,6 +931,11 @@ void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, bool inser
     auto* splitTree = splitWidget->tree();
     if (splitTree) {
         splitTree->setProperty("zfsmgr.isSplitTree", true);
+        // Stable key for this split tree: persists the user-expanded state independently.
+        const QString splitKey = connStableIdForIndex(connIdx)
+                                 + QStringLiteral("|") + trimmedPool
+                                 + QStringLiteral("|") + trimmedRoot;
+        splitTree->setProperty("zfsmgr.splitTreeKey", splitKey);
         splitTree->setItemDelegate(new ConnContentPropBorderDelegate(splitTree));
         installConnContentTreeHeaderContextMenu(splitTree);
         if (isConnectionLevel) {
@@ -938,6 +943,7 @@ void MainWindow::splitAndRootConnContent(Qt::Orientation orientation, bool inser
         } else {
             appendSplitDatasetTree(splitTree, connIdx, trimmedPool, trimmedRoot, displayRoot);
         }
+        applyUserExpandedState(splitTree);
     }
 
     // Find the widget that was right-clicked (the panel to split)
@@ -1110,11 +1116,15 @@ void MainWindow::rebuildAllSplitTrees() {
         if (!t) {
             continue;
         }
-        t->clear();
-        if (entry.poolName.trimmed().isEmpty()) {
-            appendSplitDatasetTreeForConnection(t, entry.connIdx);
-        } else {
-            appendSplitDatasetTree(t, entry.connIdx, entry.poolName, entry.rootDataset, entry.displayRoot);
+        {
+            const QSignalBlocker blocker(t);
+            t->clear();
+            if (entry.poolName.trimmed().isEmpty()) {
+                appendSplitDatasetTreeForConnection(t, entry.connIdx);
+            } else {
+                appendSplitDatasetTree(t, entry.connIdx, entry.poolName, entry.rootDataset, entry.displayRoot);
+            }
+            applyUserExpandedState(t);
         }
     }
 }

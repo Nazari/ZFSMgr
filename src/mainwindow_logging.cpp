@@ -21,6 +21,8 @@
 #include <QThread>
 #include <QSet>
 #include <QSysInfo>
+#include <QHBoxLayout>
+#include <QPushButton>
 #include <QVBoxLayout>
 
 #include <QtConcurrent/QtConcurrent>
@@ -393,6 +395,7 @@ void MainWindow::clearAppLog() {
     m_compactPrevLevel.clear();
     m_connCompactState.clear();
     m_connGsaCompactState.clear();
+    m_connectionDaemonLogOffset.clear();
     for (auto it = m_connectionLogViews.begin(); it != m_connectionLogViews.end(); ++it) {
         if (it.value()) {
             it.value()->clear();
@@ -620,7 +623,13 @@ void MainWindow::syncConnectionLogTabs() {
         }
         wanted.insert(p.id);
         if (m_connectionLogViews.contains(p.id)) {
-            refreshConnectionGsaLogAsync(i);
+            // Daemon log: solo refresca si aún no hay contenido (primera carga).
+            // Las actualizaciones se disparan por eventos ZED o por el botón Heartbeat.
+            if (QPlainTextEdit* dv = m_connectionGsaLogViews.value(p.id, nullptr)) {
+                if (dv->document()->isEmpty()) {
+                    refreshConnectionDaemonLogAsync(i);
+                }
+            }
             continue;
         }
         auto* tab = new QWidget(m_logsTabs);
@@ -648,6 +657,13 @@ void MainWindow::syncConnectionLogTabs() {
         auto* gsaLay = new QVBoxLayout(gsaPage);
         gsaLay->setContentsMargins(0, 0, 0, 0);
         gsaLay->setSpacing(0);
+        auto* daemonBtnRow = new QWidget(gsaPage);
+        auto* daemonBtnLay = new QHBoxLayout(daemonBtnRow);
+        daemonBtnLay->setContentsMargins(4, 2, 4, 2);
+        auto* heartbeatBtn = new QPushButton(QStringLiteral("Heartbeat"), daemonBtnRow);
+        daemonBtnLay->addWidget(heartbeatBtn);
+        daemonBtnLay->addStretch(1);
+        gsaLay->addWidget(daemonBtnRow, 0);
         auto* gsaView = new QPlainTextEdit(gsaPage);
         gsaView->setReadOnly(true);
         gsaView->setLineWrapMode(QPlainTextEdit::NoWrap);
@@ -657,14 +673,20 @@ void MainWindow::syncConnectionLogTabs() {
             gsaView->setFont(m_logView->font());
         }
         gsaLay->addWidget(gsaView, 1);
-        innerTabs->addTab(gsaPage, QStringLiteral("GSA"));
+        innerTabs->addTab(gsaPage, QStringLiteral("Daemon"));
+        {
+            const QString capturedId = p.id;
+            connect(heartbeatBtn, &QPushButton::clicked, this, [this, capturedId]() {
+                runDaemonHeartbeat(capturedId);
+            });
+        }
 
         lay->addWidget(innerTabs, 1);
         m_logsTabs->addTab(tab, p.name);
         m_connectionLogViews.insert(p.id, terminalView);
         m_connectionGsaLogViews.insert(p.id, gsaView);
         m_connectionLogTabs.insert(p.id, tab);
-        refreshConnectionGsaLogAsync(i);
+        refreshConnectionDaemonLogAsync(i);
     }
 
     for (auto it = m_connectionLogViews.begin(); it != m_connectionLogViews.end();) {
@@ -684,6 +706,7 @@ void MainWindow::syncConnectionLogTabs() {
         m_connectionLogTabs.remove(it.key());
         m_connCompactState.remove(it.key());
         m_connGsaCompactState.remove(it.key());
+        m_connectionDaemonLogOffset.remove(it.key());
         it = m_connectionLogViews.erase(it);
     }
 
@@ -913,4 +936,112 @@ void MainWindow::appendConnectionLog(const QString& connId, const QString& line)
     st.level = p.level;
     trimLogWidget(view);
     scrollLogViewToLatest(view);
+}
+
+void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset)
+{
+    if (idx < 0 || idx >= m_profiles.size()) {
+        return;
+    }
+    const QString connId = m_profiles[idx].id;
+    QPlainTextEdit* view = m_connectionGsaLogViews.value(connId, nullptr);
+    if (!view) {
+        return;
+    }
+    if (isConnectionDisconnected(idx)) {
+        return;
+    }
+    const ConnectionProfile profile = m_profiles[idx];
+    if (isLocalConnection(profile) || isWindowsConnection(profile)) {
+        return;
+    }
+
+    if (fullReset) {
+        view->clear();
+        m_connectionDaemonLogOffset.remove(connId);
+    }
+    const qint64 offset = m_connectionDaemonLogOffset.value(connId, 0);
+
+    const QString cmd = withSudo(
+        profile,
+        mwhelpers::withUnixSearchPathCommand(
+            QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-daemon-log %1").arg(offset)));
+
+    (void)QtConcurrent::run([this, profile, connId, cmd, offset]() {
+        QString out, err;
+        int rc = -1;
+        const bool ok = runSsh(profile, cmd, 15000, out, err, rc) && rc == 0;
+        QMetaObject::invokeMethod(this, [this, connId, out, offset, ok]() {
+            QPlainTextEdit* v = m_connectionGsaLogViews.value(connId, nullptr);
+            if (!v || !ok || out.isEmpty()) {
+                return;
+            }
+            const qint64 newOffset = offset + static_cast<qint64>(out.toUtf8().size());
+            m_connectionDaemonLogOffset[connId] = newOffset;
+            const QStringList lines = out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+            for (const QString& line : lines) {
+                const QString t = line.trimmed();
+                if (!t.isEmpty()) {
+                    v->appendPlainText(t);
+                }
+            }
+            trimLogWidget(v);
+            scrollLogViewToLatest(v);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void MainWindow::runDaemonHeartbeat(const QString& connId)
+{
+    int idx = -1;
+    for (int i = 0; i < m_profiles.size(); ++i) {
+        if (m_profiles[i].id == connId) {
+            idx = i;
+            break;
+        }
+    }
+    if (idx < 0 || isConnectionDisconnected(idx)) {
+        return;
+    }
+    if (isLocalConnection(m_profiles[idx]) || isWindowsConnection(m_profiles[idx])) {
+        return;
+    }
+    QPlainTextEdit* view = m_connectionGsaLogViews.value(connId, nullptr);
+    if (view) {
+        view->appendPlainText(QStringLiteral("--- heartbeat ---"));
+    }
+    const ConnectionProfile profile = m_profiles[idx];
+
+    const QString hbCmd = withSudo(
+        profile,
+        mwhelpers::withUnixSearchPathCommand(
+            QStringLiteral("/usr/local/libexec/zfsmgr-agent --heartbeat")));
+
+    (void)QtConcurrent::run([this, idx, connId, hbCmd, profile]() {
+        QString out, err;
+        int rc = -1;
+        const bool ok = runSsh(profile, hbCmd, 10000, out, err, rc);
+        QMetaObject::invokeMethod(this, [this, connId, out, err, ok, rc, idx]() {
+            QPlainTextEdit* v = m_connectionGsaLogViews.value(connId, nullptr);
+            if (!v) return;
+            if (ok && rc == 0 && !out.trimmed().isEmpty()) {
+                const QStringList lines = out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+                for (const QString& line : lines) {
+                    const QString t = line.trimmed();
+                    if (!t.isEmpty()) {
+                        v->appendPlainText(t);
+                    }
+                }
+            } else {
+                v->appendPlainText(
+                    QStringLiteral("heartbeat failed rc=%1 %2")
+                        .arg(rc)
+                        .arg(err.trimmed().isEmpty() ? out.trimmed() : err.trimmed()));
+            }
+            // Also fetch new daemon log entries since last offset
+            refreshConnectionDaemonLogAsync(idx);
+            trimLogWidget(v);
+            scrollLogViewToLatest(v);
+        }, Qt::QueuedConnection);
+    });
 }

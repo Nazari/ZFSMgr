@@ -1271,19 +1271,6 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
         && m_states[connIdx].unixFromMsysOrMingw
         && m_states[connIdx].missingUnixCommands.isEmpty()
         && !m_states[connIdx].detectedUnixCommands.isEmpty();
-    const bool canManageDaemon =
-        hasConn && !actionsLocked() && !isDisconnected
-        && connIdx < m_states.size()
-        && daemonMenuLabelForConnection(connIdx).compare(
-               trk(QStringLiteral("t_daemon_ok_001"),
-                   QStringLiteral("Daemon actualizado y funcionando"),
-                   QStringLiteral("Daemon updated and running"),
-                   QStringLiteral("守护进程已更新并运行中")),
-               Qt::CaseInsensitive) != 0;
-    const bool canUninstallDaemon =
-        hasConn && !actionsLocked() && !isDisconnected
-        && connIdx < m_states.size()
-        && m_states[connIdx].daemonInstalled;
     const zfsmgr::uilogic::ConnectionContextMenuState menuState =
         zfsmgr::uilogic::buildConnectionContextMenuState(
             hasConn,
@@ -1326,23 +1313,6 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
             QStringLiteral("Borrar"),
             QStringLiteral("Delete"),
             QStringLiteral("删除")));
-    menu.addSeparator();
-    QMenu* daemonMenu = menu.addMenu(
-        trk(QStringLiteral("t_daemon_menu_001"),
-            QStringLiteral("Daemon"),
-            QStringLiteral("Daemon"),
-            QStringLiteral("守护进程")));
-    QAction* aManageDaemon = daemonMenu->addAction(
-        hasConn ? daemonMenuLabelForConnection(connIdx)
-                : trk(QStringLiteral("t_daemon_install_001"),
-                      QStringLiteral("Instalar daemon"),
-                      QStringLiteral("Install daemon"),
-                      QStringLiteral("安装守护进程")));
-    QAction* aUninstallDaemon = daemonMenu->addAction(
-        trk(QStringLiteral("t_daemon_uninstall_001"),
-            QStringLiteral("Desinstalar daemon"),
-            QStringLiteral("Uninstall daemon"),
-            QStringLiteral("卸载守护进程")));
     menu.addSeparator();
     QAction* aNewPool = menu.addAction(
         trk(QStringLiteral("t_new_pool_ctx_001"),
@@ -1396,9 +1366,6 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
         && connIdx < m_states.size()
         && m_states[connIdx].helperInstallSupported;
     aInstallHelpers->setEnabled(canInstallHelpers);
-    aManageDaemon->setEnabled(canManageDaemon);
-    aUninstallDaemon->setEnabled(canUninstallDaemon);
-    daemonMenu->setEnabled(hasConn && !actionsLocked() && !isDisconnected);
     aRefresh->setEnabled(menuState.canRefreshThis);
     aEdit->setEnabled(menuState.canEditDelete);
     aDelete->setEnabled(menuState.canEditDelete);
@@ -1487,12 +1454,6 @@ void MainWindow::showConnectionContextMenu(int connIdx, const QPoint& globalPos,
     } else if (chosen == aInstallHelpers) {
         logUiAction(QStringLiteral("Instalar comandos auxiliares (menú conexiones)"));
         installHelperCommandsForSelectedConnection();
-    } else if (chosen == aManageDaemon && hasConn) {
-        logUiAction(QStringLiteral("Gestionar daemon (menú conexiones)"));
-        installOrUpdateDaemonForConnection(connIdx);
-    } else if (chosen == aUninstallDaemon && hasConn) {
-        logUiAction(QStringLiteral("Desinstalar daemon (menú conexiones)"));
-        uninstallDaemonForConnection(connIdx);
     } else if (chosen == aNewConn) {
         logUiAction(QStringLiteral("Nueva conexión (menú conexiones)"));
         createConnection();
@@ -1670,108 +1631,7 @@ void MainWindow::refreshSelectedConnection() {
     });
 }
 
-void MainWindow::startDaemonEventWatcher(int connIdx) {
-    if (connIdx < 0 || connIdx >= m_profiles.size()) {
-        return;
-    }
-    const ConnectionProfile p = m_profiles[connIdx];
-    if (isWindowsConnection(p)) {
-        return;
-    }
-    const QString connId = p.id;
-    if (connId.isEmpty() || m_daemonWatchers.contains(connId)) {
-        return;
-    }
-    auto watcher = std::make_shared<DaemonEventWatcher>();
-    m_daemonWatchers.insert(connId, watcher);
-
-    watcher->thread = std::thread([this, p, connId, watcher]() {
-        // Long-poll ZED events directly via SSH. Each iteration blocks up to 27s.
-        // awk drains the full kernel event log in-process, skipping events older
-        // than watcherStartTs, then blocks until a new event arrives — one SSH
-        // connection per poll cycle instead of one per historical event.
-        // watcherStartTs advances after each trigger so the next iteration does not
-        // re-fire on the event we just handled.
-        // zpool events requires root on Linux — wrap with sudo.
-        // awk program: parse verbose (-v) event blocks, skip historical events and
-        // non-tree-relevant classes/operations, print+exit on the first match.
-        // No single quotes in the program — it is wrapped in single quotes by the
-        // shell command below, so double quotes and awk $-fields are all literal.
-        static const QString kZedAwkProg = QStringLiteral(
-            R"(/^[0-9]/{et=$1;cls=$2;op="";)"
-            R"(if(et>ts&&(cls~/^sysevent\.fs\.zfs\.(dataset|snapshot)_/)){print;exit};next} )"
-            R"(et>ts&&cls~/^history_event$/&&/history_internal_name/)"
-            R"({n=split($0,a,/=/);val=a[n];gsub(/[^a-z]/,"",val);op=val;)"
-            R"(if(op~/^(snapshot|destroy|create|clone|rename|rollback|receive|hold|release)$/){print;exit}})");
-
-        QString watcherStartTs = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-        while (!watcher->stop.load()) {
-            // Build: timeout 27 sh -c 'zpool events -f -H -v 2>/dev/null | awk -v ts=TS '"'"'PROG'"'"''
-            // The '"'"' idiom embeds a literal ' inside the sh -c single-quoted argument.
-            const QString cmd = withSudo(p,
-                QStringLiteral("timeout 27 sh -c 'zpool events -f -H -v 2>/dev/null | awk -v ts=")
-                + watcherStartTs
-                + QStringLiteral(" '\"'\"'")   // = '"'"' — opens awk's single-quoted program
-                + kZedAwkProg
-                + QStringLiteral("'\"'\"''"));  // = '"'"'' — closes awk's single-quoted program
-            QString out, err;
-            int rc = -1;
-            const bool ok = runSshRawNoLog(p, cmd, 35000, out, err, rc);
-            if (watcher->stop.load()) {
-                break;
-            }
-            if (ok && rc == 0 && !out.trimmed().isEmpty()) {
-                // Advance timestamp so the next iteration skips this event.
-                watcherStartTs = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-                // A new ZED event occurred — request refresh on the UI thread.
-                QMetaObject::invokeMethod(this, [this, connId]() {
-                    if (m_closing || m_refreshInProgress) {
-                        return;
-                    }
-                    for (int i = 0; i < m_profiles.size(); ++i) {
-                        if (m_profiles[i].id == connId) {
-                            refreshConnectionByIndex(i);
-                            break;
-                        }
-                    }
-                }, Qt::QueuedConnection);
-                // Brief pause so a burst of events causes only one refresh.
-                for (int i = 0; i < 30 && !watcher->stop.load(); ++i) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                }
-            } else if (!ok) {
-                // SSH failure — back off before retrying.
-                for (int i = 0; i < 50 && !watcher->stop.load(); ++i) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-                }
-            }
-            // rc=124 (timeout) or rc=0 with empty output: loop immediately.
-        }
-    });
-}
-
-void MainWindow::stopDaemonEventWatcher(const QString& connId) {
-    auto it = m_daemonWatchers.find(connId);
-    if (it == m_daemonWatchers.end()) {
-        return;
-    }
-    auto watcher = it.value();
-    m_daemonWatchers.erase(it);
-    watcher->stop.store(true);
-    if (watcher->thread.joinable()) {
-        watcher->thread.detach();
-    }
-}
-
-void MainWindow::stopAllDaemonEventWatchers() {
-    for (auto& watcher : m_daemonWatchers) {
-        watcher->stop.store(true);
-        if (watcher->thread.joinable()) {
-            watcher->thread.detach();
-        }
-    }
-    m_daemonWatchers.clear();
-}
+void MainWindow::stopAllDaemonEventWatchers() {}
 
 void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& connId, const ConnectionRuntimeState& state) {
     if (generation != m_refreshGeneration) {
@@ -1822,31 +1682,37 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
             }
         }
     }
-    m_states[targetIdx] = state;
+    // ZED detection: compare previous daemonLastSeenZedEvent (from persisted m_states)
+    // against the new value returned by refreshConnection(). The "@" sentinel means
+    // "never polled" — once a first poll establishes any baseline (even empty),
+    // subsequent ZED timestamps trigger an immediate follow-up refresh.
     {
-        const QString watchConnId = m_profiles[targetIdx].id;
-        // Start watcher as soon as the daemon is (or was) installed on an SSH
-        // connection. zpool events runs directly via SSH — it does not depend on
-        // the daemon process being up, so we keep the thread alive across daemon
-        // restarts (e.g. auto-update). Only stop when the connection itself goes
-        // away (isConnectionDisconnected) or SSH is not the transport.
-        const bool isSSH = !isLocalConnection(targetIdx)
-                           && m_profiles[targetIdx].connType.trimmed().compare(
-                                  QStringLiteral("SSH"), Qt::CaseInsensitive) == 0;
-        const bool hasDaemon = state.daemonInstalled || state.daemonActive;
-        if (isSSH && hasDaemon && !isConnectionDisconnected(targetIdx)) {
-            startDaemonEventWatcher(targetIdx);
-        } else if (!isSSH || isConnectionDisconnected(targetIdx)) {
-            stopDaemonEventWatcher(watchConnId);
+        const QString prevZed = m_states[targetIdx].daemonLastSeenZedEvent;
+        const QString newZed = state.daemonLastSeenZedEvent;
+        if (!newZed.isEmpty()
+            && newZed != prevZed
+            && prevZed != QStringLiteral("@")) {
+            appLog(QStringLiteral("INFO"),
+                   QStringLiteral("%1: ZED event detectado (ts=%2), programando refresh")
+                       .arg(m_profiles[targetIdx].name, newZed));
+            const QString profileId = m_profiles[targetIdx].id;
+            QTimer::singleShot(0, this, [this, profileId]() {
+                for (int i = 0; i < m_profiles.size(); ++i) {
+                    if (m_profiles[i].id == profileId) {
+                        refreshConnectionByIndex(i);
+                        refreshConnectionDaemonLogAsync(i);
+                        break;
+                    }
+                }
+            });
         }
-        // If isSSH && !hasDaemon: leave existing watcher running if present
-        // (daemon may be temporarily inactive during update).
     }
+    m_states[targetIdx] = state;
     {
         const QString connKey = m_profiles[targetIdx].id.trimmed().isEmpty()
                                     ? m_profiles[targetIdx].name.trimmed().toLower()
                                     : m_profiles[targetIdx].id.trimmed().toLower();
-        if (state.daemonInstalled) {
+        if (state.daemonInstalled && !state.daemonNeedsAttention) {
             m_daemonBootstrapPromptedConnIds.remove(connKey);
         } else if (m_refreshTotal <= 1
                    && !connKey.isEmpty()
@@ -1854,27 +1720,14 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
                    && !isConnectionDisconnected(targetIdx)
                    && !m_daemonBootstrapPromptedConnIds.contains(connKey)) {
             m_daemonBootstrapPromptedConnIds.insert(connKey);
-            const QString connName = m_profiles[targetIdx].name.trimmed().isEmpty()
-                                         ? m_profiles[targetIdx].id.trimmed()
-                                         : m_profiles[targetIdx].name.trimmed();
-            const auto ans = QMessageBox::question(
-                this,
-                QStringLiteral("ZFSMgr"),
-                trk(QStringLiteral("t_daemon_autoinstall_prompt_001"),
-                    QStringLiteral("La conexión \"%1\" no tiene daemon nativo activo.\n\n¿Desea instalarlo/actualizarlo ahora?"),
-                    QStringLiteral("Connection \"%1\" has no active native daemon.\n\nDo you want to install/update it now?"),
-                    QStringLiteral("连接 \"%1\" 没有活动的原生守护进程。\n\n是否现在安装/更新？"))
-                    .arg(connName),
-                QMessageBox::Yes | QMessageBox::No,
-                QMessageBox::Yes);
-            if (ans == QMessageBox::Yes) {
-                QTimer::singleShot(0, this, [this, targetIdx]() {
-                    if (targetIdx < 0 || targetIdx >= m_profiles.size()) {
-                        return;
-                    }
-                    installOrUpdateDaemonForConnectionInternal(targetIdx, false);
-                });
-            }
+            QTimer::singleShot(0, this, [this, targetIdx]() {
+                if (targetIdx < 0 || targetIdx >= m_profiles.size()) {
+                    return;
+                }
+                if (!installOrUpdateDaemonForConnectionInternal(targetIdx, false)) {
+                    setConnectionDisconnected(targetIdx, true);
+                }
+            });
         }
     }
     {
@@ -1904,6 +1757,94 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
     }
     if (m_refreshPending == 0) {
         onAsyncRefreshDone(generation);
+    }
+}
+
+void MainWindow::pollDaemonZedAllConnections() {
+    if (m_zedPollPending > 0) return;
+
+    QVector<int> toCheck;
+    for (int i = 0; i < m_profiles.size() && i < m_states.size(); ++i) {
+        if (m_states[i].daemonActive
+            && !isLocalConnection(i)
+            && m_profiles[i].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0) {
+            toCheck.append(i);
+        }
+    }
+
+    if (toCheck.isEmpty()) {
+        if (!m_closing && m_autoRefreshTimer) {
+            m_autoRefreshTimer->start(10000);
+        }
+        return;
+    }
+
+    m_zedPollPending = toCheck.size();
+
+    for (int idx : std::as_const(toCheck)) {
+        const ConnectionProfile profile = m_profiles[idx];
+        const QString healthCmd = withSudo(
+            profile, mwhelpers::withUnixSearchPathCommand(
+                         QStringLiteral("/usr/local/libexec/zfsmgr-agent --health")));
+        const QString connId = profile.id;
+
+        (void)QtConcurrent::run([this, idx, connId, profile, healthCmd]() {
+            QString hout, herr;
+            int hrc = -1;
+            const bool ok = runSsh(profile, healthCmd, 8000, hout, herr, hrc) && hrc == 0;
+            QString newZed;
+            bool statusOk = false;
+            if (ok) {
+                const QString combined = hout + QStringLiteral("\n") + herr;
+                for (const QString& line : combined.split(QLatin1Char('\n'), Qt::SkipEmptyParts)) {
+                    if (line.startsWith(QStringLiteral("ZED_LAST_EVENT_UTC="))) {
+                        newZed = line.mid(19).trimmed();
+                    } else if (line.startsWith(QStringLiteral("STATUS=OK"))) {
+                        statusOk = true;
+                    }
+                }
+            }
+            const bool healthFailed = !ok || !statusOk;
+
+            QMetaObject::invokeMethod(this, [this, idx, connId, newZed, healthFailed]() {
+                int targetIdx = -1;
+                if (idx >= 0 && idx < m_profiles.size() && m_profiles[idx].id == connId) {
+                    targetIdx = idx;
+                } else {
+                    for (int i = 0; i < m_profiles.size(); ++i) {
+                        if (m_profiles[i].id == connId) { targetIdx = i; break; }
+                    }
+                }
+
+                if (targetIdx >= 0 && targetIdx < m_states.size()) {
+                    if (healthFailed) {
+                        appLog(QStringLiteral("INFO"),
+                               QStringLiteral("%1: ZED poll: health falló, forzando refresh")
+                                   .arg(m_profiles[targetIdx].name));
+                        refreshConnectionByIndex(targetIdx);
+                    } else {
+                        const QString prevZed = m_states[targetIdx].daemonLastSeenZedEvent;
+                        if (prevZed == QStringLiteral("@")) {
+                            m_states[targetIdx].daemonLastSeenZedEvent = newZed;
+                        } else if (!newZed.isEmpty() && newZed != prevZed) {
+                            appLog(QStringLiteral("INFO"),
+                                   QStringLiteral("%1: ZED poll detectó evento (ts=%2)")
+                                       .arg(m_profiles[targetIdx].name, newZed));
+                            m_states[targetIdx].daemonLastSeenZedEvent = newZed;
+                            refreshConnectionByIndex(targetIdx);
+                            refreshConnectionDaemonLogAsync(targetIdx);
+                        }
+                    }
+                }
+
+                if (--m_zedPollPending <= 0) {
+                    m_zedPollPending = 0;
+                    if (!m_closing && m_autoRefreshTimer && !m_refreshInProgress) {
+                        m_autoRefreshTimer->start(10000);
+                    }
+                }
+            }, Qt::QueuedConnection);
+        });
     }
 }
 
@@ -1958,30 +1899,32 @@ void MainWindow::onAsyncRefreshDone(int generation) {
         endUiBusy();
     }
 
-    // Schedule periodic auto-refresh only for SSH daemon connections that do NOT
-    // have an active ZED watcher thread. Connections with a watcher get sub-second
-    // event-driven refreshes and don't need polling.
-    bool hasDaemonConnWithoutWatcher = false;
+    // Schedule periodic auto-refresh for SSH daemon connections so the health
+    // poll can detect ZED events (daemon zedThread updates zedLastEventUtc;
+    // health poll sees the change and schedules an immediate follow-up refresh).
+    bool hasDaemonSshConn = false;
     for (int i = 0; i < m_profiles.size() && i < m_states.size(); ++i) {
         if (m_states[i].daemonActive
             && !isLocalConnection(i)
-            && m_profiles[i].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0
-            && !m_daemonWatchers.contains(m_profiles[i].id)) {
-            hasDaemonConnWithoutWatcher = true;
+            && m_profiles[i].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0) {
+            hasDaemonSshConn = true;
             break;
         }
     }
-    if (hasDaemonConnWithoutWatcher) {
+    if (hasDaemonSshConn) {
         if (!m_autoRefreshTimer) {
             m_autoRefreshTimer = new QTimer(this);
             m_autoRefreshTimer->setSingleShot(true);
             connect(m_autoRefreshTimer, &QTimer::timeout, this, [this]() {
-                if (!m_closing && !m_refreshInProgress && !m_actionsLocked) {
-                    refreshAllConnections();
+                if (m_closing) return;
+                if (m_refreshInProgress || m_actionsLocked) {
+                    m_autoRefreshTimer->start(2000);
+                    return;
                 }
+                pollDaemonZedAllConnections();
             });
         }
-        m_autoRefreshTimer->start(30000);
+        m_autoRefreshTimer->start(10000);
     } else if (m_autoRefreshTimer) {
         m_autoRefreshTimer->stop();
     }
@@ -2110,6 +2053,7 @@ void MainWindow::rebuildConnContentDetailTree(QTreeWidget* tree,
             }
         }
     }
+    applyUserExpandedState(tree);
     applyDebugNodeIdsToTree(tree);
     if (saveTreeState) {
         saveTreeState(connIdx);
@@ -2670,7 +2614,18 @@ void MainWindow::createConnection() {
     for (int i = 0; i < m_profiles.size(); ++i) {
         if (m_profiles[i].id == createdId) {
             setCurrentConnectionInUi(i);
-            refreshSelectedConnection();
+            if (!isLocalConnection(i)) {
+                QTimer::singleShot(0, this, [this, i]() {
+                    if (i < 0 || i >= m_profiles.size()) {
+                        return;
+                    }
+                    if (!installOrUpdateDaemonForConnectionInternal(i, false)) {
+                        setConnectionDisconnected(i, true);
+                    }
+                });
+            } else {
+                refreshSelectedConnection();
+            }
             break;
         }
     }
@@ -3122,42 +3077,6 @@ void MainWindow::installHelperCommandsForSelectedConnection() {
 }
 
 
-QString MainWindow::daemonMenuLabelForConnection(int connIdx) const {
-    if (connIdx < 0 || connIdx >= m_profiles.size() || connIdx >= m_states.size()) {
-        return trk(QStringLiteral("t_daemon_install_001"),
-                   QStringLiteral("Instalar daemon"),
-                   QStringLiteral("Install daemon"),
-                   QStringLiteral("安装守护进程"));
-    }
-    const ConnectionRuntimeState& st = m_states[connIdx];
-    if (!st.daemonInstalled) {
-        return trk(QStringLiteral("t_daemon_install_001"),
-                   QStringLiteral("Instalar daemon"),
-                   QStringLiteral("Install daemon"),
-                   QStringLiteral("安装守护进程"));
-    }
-    if (st.daemonNeedsAttention) {
-        return trk(QStringLiteral("t_daemon_update_001"),
-                   QStringLiteral("Actualizar daemon"),
-                   QStringLiteral("Update daemon"),
-                   QStringLiteral("更新守护进程"));
-    }
-    if (!st.daemonActive) {
-        return trk(QStringLiteral("t_daemon_enable_001"),
-                   QStringLiteral("Activar daemon"),
-                   QStringLiteral("Enable daemon"),
-                   QStringLiteral("启用守护进程"));
-    }
-    return trk(QStringLiteral("t_daemon_ok_001"),
-               QStringLiteral("Daemon actualizado y funcionando"),
-               QStringLiteral("Daemon updated and running"),
-               QStringLiteral("守护进程已更新并运行中"));
-}
-
-bool MainWindow::installOrUpdateDaemonForConnection(int idx) {
-    return installOrUpdateDaemonForConnectionInternal(idx, true);
-}
-
 bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool interactive) {
     if (actionsLocked()) {
         return false;
@@ -3426,7 +3345,10 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
 
     }
 
-    updateStatus(daemonMenuLabelForConnection(idx) + QStringLiteral("..."));
+    updateStatus(trk(QStringLiteral("t_daemon_installing_001"),
+                     QStringLiteral("Instalando/Actualizando daemon..."),
+                     QStringLiteral("Installing/Updating daemon..."),
+                     QStringLiteral("正在安装/更新守护进程...")));
     QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
     QString detail;
     const bool ok = executeConnectionCommand(idx,
@@ -3491,156 +3413,6 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
     }
     return true;
 }
-
-bool MainWindow::uninstallDaemonForConnection(int idx) {
-    if (actionsLocked()) {
-        return false;
-    }
-    if (idx < 0 || idx >= m_profiles.size()) {
-        return false;
-    }
-    if (isConnectionDisconnected(idx)) {
-        QMessageBox::information(this,
-                                 QStringLiteral("ZFSMgr"),
-                                 trk(QStringLiteral("t_daemon_conn_disc_001"),
-                                     QStringLiteral("La conexión está desconectada."),
-                                     QStringLiteral("The connection is disconnected."),
-                                     QStringLiteral("该连接已断开。")));
-        return false;
-    }
-    if (idx >= m_states.size() || !m_states[idx].daemonInstalled) {
-        return false;
-    }
-    const ConnectionProfile& p = m_profiles[idx];
-    const auto confirm = QMessageBox::question(
-        this,
-        QStringLiteral("ZFSMgr"),
-        trk(QStringLiteral("t_daemon_uninstall_confirm_001"),
-            QStringLiteral("ZFSMgr desinstalará el daemon de \"%1\" y eliminará su programación nativa.\n\n¿Continuar?"),
-            QStringLiteral("ZFSMgr will uninstall daemon from \"%1\" and remove its native schedule.\n\nContinue?"),
-            QStringLiteral("ZFSMgr 将从 \"%1\" 卸载守护进程并删除其原生调度。\n\n是否继续？"))
-            .arg(p.name),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm != QMessageBox::Yes) {
-        return false;
-    }
-
-    beginUiBusy();
-    struct UninstallDaemonBusyGuard {
-        MainWindow* w;
-        ~UninstallDaemonBusyGuard() { w->endUiBusy(); }
-    } busyGuard{this};
-    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
-
-    QString remoteCmd;
-    WindowsCommandMode winMode = WindowsCommandMode::Auto;
-    if (isWindowsConnection(idx)) {
-        winMode = WindowsCommandMode::PowerShellNative;
-        remoteCmd = QStringLiteral(
-            "$taskName='%1'; $dir='%2'; "
-            "schtasks /Delete /F /TN $taskName >$null 2>&1; "
-            "if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Force -Recurse -ErrorAction SilentlyContinue }")
-                        .arg(daemonpayload::windowsTaskName(),
-                             daemonpayload::windowsDirPath());
-    } else {
-        const QString osHint = (p.osType + QStringLiteral(" ")
-                                + ((idx < m_states.size()) ? m_states[idx].osLine : QString()))
-                                   .trimmed()
-                                   .toLower();
-        bool isMac = osHint.contains(QStringLiteral("darwin"))
-                     || osHint.contains(QStringLiteral("macos"))
-                     || osHint.contains(QStringLiteral("launchd"));
-        bool isFreeBsd = osHint.contains(QStringLiteral("freebsd"))
-                         || osHint.contains(QStringLiteral("rc.d"));
-        if (!isMac && !isFreeBsd) {
-            QString osOut;
-            QString osErr;
-            int osRc = -1;
-            if (runSsh(p, QStringLiteral("uname -s"), 8000, osOut, osErr, osRc) && osRc == 0) {
-                const QString unameS = osOut.trimmed().toLower();
-                if (unameS.contains(QStringLiteral("darwin"))) {
-                    isMac = true;
-                } else if (unameS.contains(QStringLiteral("freebsd"))) {
-                    isFreeBsd = true;
-                }
-            }
-        }
-        if (isMac) {
-            remoteCmd = QStringLiteral(
-                "launchctl bootout system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
-                "launchctl disable system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
-                "rm -f %1 %2 %3 %4 %5 %6 %7; "
-                "rmdir %8 >/dev/null 2>&1 || true")
-                            .arg(daemonpayload::macPlistPath(),
-                                 daemonpayload::unixBinPath(),
-                                 daemonpayload::unixConfigPath(),
-                                 daemonpayload::tlsServerCertPath(),
-                                 daemonpayload::tlsServerKeyPath(),
-                                 daemonpayload::tlsClientCertPath(),
-                                 daemonpayload::tlsClientKeyPath(),
-                                 daemonpayload::tlsDirPath());
-        } else if (isFreeBsd) {
-            remoteCmd = QStringLiteral(
-                "service zfsmgr_agent stop >/dev/null 2>&1 || true; "
-                "rm -f %1 %2 %3 %4 %5 %6 %7; "
-                "rmdir %8 >/dev/null 2>&1 || true")
-                            .arg(daemonpayload::freeBsdRcPath(),
-                                 daemonpayload::unixBinPath(),
-                                 daemonpayload::unixConfigPath(),
-                                 daemonpayload::tlsServerCertPath(),
-                                 daemonpayload::tlsServerKeyPath(),
-                                 daemonpayload::tlsClientCertPath(),
-                                 daemonpayload::tlsClientKeyPath(),
-                                 daemonpayload::tlsDirPath());
-        } else {
-            remoteCmd = QStringLiteral(
-                "if command -v systemctl >/dev/null 2>&1; then "
-                "  systemctl disable --now zfsmgr-agent.service >/dev/null 2>&1 || true; "
-                "  systemctl daemon-reload >/dev/null 2>&1 || true; "
-                "fi; "
-                "rm -f %1 %2 %3 %4 %5 %6 %7; "
-                "rmdir %8 >/dev/null 2>&1 || true")
-                            .arg(daemonpayload::linuxServicePath(),
-                                 daemonpayload::unixBinPath(),
-                                 daemonpayload::unixConfigPath(),
-                                 daemonpayload::tlsServerCertPath(),
-                                 daemonpayload::tlsServerKeyPath(),
-                                 daemonpayload::tlsClientCertPath(),
-                                 daemonpayload::tlsClientKeyPath(),
-                                 daemonpayload::tlsDirPath());
-        }
-        remoteCmd = withSudo(p, remoteCmd);
-    }
-
-    updateStatus(trk(QStringLiteral("t_daemon_uninstall_progress_001"),
-                     QStringLiteral("Desinstalando daemon de %1..."),
-                     QStringLiteral("Uninstalling daemon from %1..."),
-                     QStringLiteral("正在从 %1 卸载守护进程...")).arg(p.name));
-    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
-    QString detail;
-    const bool ok = executeConnectionCommand(idx,
-                                             QStringLiteral("Desinstalar daemon"),
-                                             remoteCmd,
-                                             120000,
-                                             &detail,
-                                             winMode);
-    if (!ok) {
-        QMessageBox::warning(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_daemon_uninstall_fail_001"),
-                QStringLiteral("No se pudo desinstalar el daemon de \"%1\".\n\n%2"),
-                QStringLiteral("Could not uninstall daemon from \"%1\".\n\n%2"),
-                QStringLiteral("无法从 \"%1\" 卸载守护进程。\n\n%2"))
-                .arg(p.name, mwhelpers::oneLine(detail)));
-        refreshConnectionByIndex(idx);
-        return false;
-    }
-    refreshConnectionByIndex(idx);
-    return true;
-}
-
 
 
 void MainWindow::deleteConnection() {

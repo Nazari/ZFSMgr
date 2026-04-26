@@ -26,6 +26,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <pwd.h>
 #else
@@ -89,6 +90,8 @@ inline void closeSock(NativeSock s) { close(s); }
 #endif
 
 constexpr const char* kHeartbeatPath = "/tmp/zfsmgr-agent-heartbeat.log";
+constexpr const char* kDaemonLogFile = "/var/lib/zfsmgr/daemon.log";
+constexpr long long kDaemonLogMaxBytes = 2 * 1048576LL;
 constexpr const char* kDefaultAgentConfigPath = "/etc/zfsmgr/agent.conf";
 constexpr const char* kDefaultBind = "127.0.0.1";
 constexpr int kDefaultPort = 47653;
@@ -104,6 +107,9 @@ constexpr const char* kApiVersion = "3";
 #endif
 
 std::atomic<bool> g_stop{false};
+std::mutex g_daemonLogMutex;
+
+void daemonLog(const std::string& level, const std::string& msg); // forward decl
 
 struct ExecResult {
     int rc{1};
@@ -892,6 +898,31 @@ void writeHeartbeat() {
         return;
     }
     f << buf << " agent alive\n";
+    daemonLog("HBEAT", "agent alive");
+}
+
+static void rotateDaemonLog() {
+    std::ifstream check(kDaemonLogFile, std::ios::ate | std::ios::binary);
+    if (!check.is_open()) return;
+    const auto sz = check.tellg();
+    check.close();
+    if (sz < static_cast<std::streamoff>(kDaemonLogMaxBytes)) return;
+    for (int i = 4; i >= 1; --i) {
+        const std::string from = std::string(kDaemonLogFile) + "." + std::to_string(i);
+        const std::string to   = std::string(kDaemonLogFile) + "." + std::to_string(i + 1);
+        std::rename(from.c_str(), to.c_str());
+    }
+    std::rename(kDaemonLogFile, (std::string(kDaemonLogFile) + ".1").c_str());
+}
+
+void daemonLog(const std::string& level, const std::string& msg) {
+    const std::string ts = utcNowIsoString();
+    if (ts.empty()) return;
+    std::lock_guard<std::mutex> lock(g_daemonLogMutex);
+    rotateDaemonLog();
+    std::ofstream f(kDaemonLogFile, std::ios::app);
+    if (!f.is_open()) return;
+    f << ts << " " << level << " " << msg << "\n";
 }
 
 std::string detectOsLine() {
@@ -2748,6 +2779,9 @@ int runServeLoop() {
 #ifndef _WIN32
     std::signal(SIGHUP, onSignal);
 #endif
+    daemonLog("INFO", std::string("daemon started version=") + ZFSMGR_AGENT_VERSION_STRING
+                      + " api=" + kApiVersion
+                      + " bind=" + bindHost + ":" + bindPort);
     auto lastHeartbeat = std::chrono::steady_clock::now() - std::chrono::minutes(2);
     struct CacheEntry {
         ExecResult result;
@@ -2770,11 +2804,6 @@ int runServeLoop() {
 
     std::thread zedThread([&]() {
 #ifndef _WIN32
-        // Recorded once before the restart loop so that even if zpool events
-        // exits and restarts (re-reading the full kernel event log), historical
-        // events are always filtered out.
-        const std::string startTs = utcNowIsoString();
-
         // Tree-modifying operations we care about (from history_internal_name).
         static const std::set<std::string> kTreeOps = {
             "snapshot", "destroy", "create", "clone",
@@ -2782,29 +2811,85 @@ int runServeLoop() {
         };
 
         while (!g_stop.load()) {
-            FILE* fp = popen("zpool events -f -H -v 2>/dev/null", "r");
+            // stdbuf -oL forces line-buffered output so each event flushes immediately
+            // when stdout is a pipe (default full-buffering hides events until 4-8KB fills).
+            FILE* fp = popen("PATH=\"$PATH:/sbin:/usr/sbin:/usr/local/sbin:/usr/local/bin\""
+                             " stdbuf -oL zpool events -f -H -v 2>/dev/null"
+                             " || zpool events -f -H -v 2>/dev/null", "r");
             if (!fp) {
                 zedActive.store(false);
                 std::this_thread::sleep_for(std::chrono::seconds(5));
                 continue;
             }
+
+            // Phase 1: drain historical events that arrive immediately after popen.
+            // zpool events dumps the full event log on start — we skip this initial
+            // burst by reading with a short select() timeout. Once no data arrives
+            // within 300 ms, the historical flush is considered complete.
+            {
+                int fd = fileno(fp);
+                char drainBuf[4096];
+                bool eof = false;
+                auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+                while (!eof && !g_stop.load()) {
+                    auto rem = std::chrono::duration_cast<std::chrono::microseconds>(
+                        deadline - std::chrono::steady_clock::now()).count();
+                    if (rem <= 0) break;
+                    fd_set rfds;
+                    FD_ZERO(&rfds);
+                    FD_SET(fd, &rfds);
+                    struct timeval tv;
+                    tv.tv_sec = 0;
+                    tv.tv_usec = static_cast<suseconds_t>(std::min<long long>(rem, 100000));
+                    const int ready = select(fd + 1, &rfds, nullptr, nullptr, &tv);
+                    if (ready <= 0) break; // timeout — no more immediate data
+                    if (!fgets(drainBuf, sizeof(drainBuf), fp)) { eof = true; }
+                    // reset deadline on each line received
+                    deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+                }
+                if (eof) {
+                    pclose(fp);
+                    zedActive.store(false);
+                    if (!g_stop.load()) {
+                        zedRestarts.fetch_add(1);
+                        std::this_thread::sleep_for(std::chrono::seconds(1));
+                    }
+                    continue;
+                }
+            }
+
             zedActive.store(true);
+            daemonLog("INFO", "ZED thread active (zpool events running)");
 
-            // Current event block state (reset on each new event header line).
-            std::string evTs, evClass, evOp;
+            // Phase 2: block-read new events and fire for relevant ones.
+            // Header lines start with any non-whitespace character (format varies
+            // by platform: ISO "2026-..." or locale "Apr 25 2026...").
+            // Class is always the last tab-separated field on the header line.
+            std::string evClass, evOp;
             bool evClassRelevant = false;
+            // Debounce: coalesce bursts (e.g. "zfs snap -r" fires one event per
+            // child dataset). Fire at most once per 2 seconds.
+            // Initialize far enough in the past so the first event always fires.
+            // Do NOT use time_point::min() — subtracting it from now() wraps to negative.
+            auto lastFireTime = std::chrono::steady_clock::now() - std::chrono::seconds(10);
 
-            // Fire if the accumulated event is relevant and post-startup.
+            auto isHistoryClass = [](const std::string& cls) {
+                return cls == "history_event" || cls == "sysevent.fs.zfs.history_event";
+            };
+
             auto fireIfRelevant = [&]() {
-                if (evTs.empty() || evTs <= startTs) return;
+                if (evClass.empty()) return;
                 bool fire = false;
                 if (evClass.compare(0, 24, "sysevent.fs.zfs.dataset_") == 0
                     || evClass.compare(0, 25, "sysevent.fs.zfs.snapshot_") == 0) {
                     fire = true;
-                } else if (evClass == "history_event" && kTreeOps.count(evOp) > 0) {
+                } else if (isHistoryClass(evClass) && kTreeOps.count(evOp) > 0) {
                     fire = true;
                 }
                 if (fire) {
+                    const auto now = std::chrono::steady_clock::now();
+                    if (now - lastFireTime < std::chrono::seconds(2)) return;
+                    lastFireTime = now;
                     zedInvalidateRequested.store(true);
                     zedEventSeq.fetch_add(1);
                     const std::string nowUtc = utcNowIsoString();
@@ -2812,6 +2897,7 @@ int runServeLoop() {
                         std::lock_guard<std::mutex> lock(runtimeMutex);
                         zedLastEventUtc = nowUtc;
                     }
+                    daemonLog("INFO", "ZED event cls=" + evClass + " op=" + evOp + " ts=" + nowUtc);
                 }
             };
 
@@ -2820,24 +2906,35 @@ int runServeLoop() {
                 if (!fgets(line, sizeof(line), fp)) break;
                 std::string s(line);
                 while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
-                if (s.empty()) continue;
-
-                if (std::isdigit(static_cast<unsigned char>(s[0]))) {
-                    // New event header: process the completed previous event,
-                    // then reset state for this one.
+                // Blank line = event separator: fire now rather than waiting for next
+                // event's header (which may never arrive, e.g. last event in stream).
+                if (s.empty()) {
                     fireIfRelevant();
-                    const size_t tab = s.find('\t');
-                    evTs = (tab != std::string::npos) ? s.substr(0, tab) : s;
+                    evClass.clear();
+                    evOp.clear();
+                    evClassRelevant = false;
+                    continue;
+                }
+
+                if (!std::isspace(static_cast<unsigned char>(s[0]))) {
+                    // New event header — also fire for any preceding event not yet
+                    // fired (guards against streams without blank line separators).
+                    fireIfRelevant();
+                    evClass.clear();
+                    evOp.clear();
+                    evClassRelevant = false;
+                    // Class is the last tab-separated token (works for both ISO
+                    // "TS\tCLASS" and locale "Apr DD YYYY HH:MM:SS\tCLASS" formats).
+                    const size_t tab = s.rfind('\t');
                     evClass = (tab != std::string::npos) ? s.substr(tab + 1) : "";
                     while (!evClass.empty()
                            && (evClass.back() == '\r' || evClass.back() == ' ')) {
                         evClass.pop_back();
                     }
-                    evOp.clear();
-                    evClassRelevant = (evClass == "history_event")
+                    evClassRelevant = isHistoryClass(evClass)
                                    || (evClass.compare(0, 24, "sysevent.fs.zfs.dataset_") == 0)
                                    || (evClass.compare(0, 25, "sysevent.fs.zfs.snapshot_") == 0);
-                } else if (evClassRelevant && evClass == "history_event" && evOp.empty()
+                } else if (evClassRelevant && isHistoryClass(evClass) && evOp.empty()
                            && s.find("history_internal_name") != std::string::npos) {
                     // Extract the operation name from the quoted value.
                     const size_t q1 = s.find('"');
@@ -2849,16 +2946,16 @@ int runServeLoop() {
                     }
                 }
             }
-            fireIfRelevant(); // process the last event before pclose
+            fireIfRelevant();
 
             pclose(fp);
-            evTs.clear();
             evClass.clear();
             evOp.clear();
             evClassRelevant = false;
             zedActive.store(false);
             if (!g_stop.load()) {
                 zedRestarts.fetch_add(1);
+                daemonLog("WARN", "ZED thread restart (zpool events exited)");
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
         }
@@ -2939,10 +3036,36 @@ int runServeLoop() {
                 std::lock_guard<std::mutex> lock(runtimeMutex);
                 rpcCommands.insert(cmd);
             }
-            if (cmd == "--health") {
+            if (cmd == "--heartbeat") {
+                const std::string ts = utcNowIsoString();
+                daemonLog("INFO", "heartbeat via RPC");
+                std::ostringstream bs;
+                bs << "ALIVE=yes\n";
+                bs << "VERSION=" << ZFSMGR_AGENT_VERSION_STRING << "\n";
+                bs << "TS=" << ts << "\n";
+                exec.rc = 0;
+                exec.out = bs.str();
+            } else if (cmd == "--dump-daemon-log") {
+                long long offset = 0;
+                if (!rpcArgs.empty()) {
+                    try { offset = std::stoll(rpcArgs[0]); } catch (...) {}
+                }
+                std::ifstream lf(kDaemonLogFile, std::ios::binary);
+                if (lf.is_open()) {
+                    if (offset > 0) lf.seekg(offset);
+                    std::ostringstream oss;
+                    oss << lf.rdbuf();
+                    exec.rc = 0;
+                    exec.out = oss.str();
+                } else {
+                    exec.rc = 0;
+                    exec.out.clear();
+                }
+            } else if (cmd == "--health") {
                 long long cacheEntries = 0;
                 std::string commandList;
                 std::string lastEvent;
+                daemonLog("DEBUG", "healthcheck via RPC");
                 {
                     std::lock_guard<std::mutex> lock(runtimeMutex);
                     cacheEntries = static_cast<long long>(rpcCache.size());
@@ -3007,6 +3130,7 @@ int runServeLoop() {
                     exec.out = "TIMEOUT=1\n";
                 }
             } else {
+            daemonLog("DEBUG", "rpc cmd=" + cmd);
             const bool dumpCmd = isDumpCommand(cmd);
             const bool mutateCmd = isMutateCommand(cmd);
             struct InvalidationProfile {
@@ -3220,10 +3344,12 @@ int main(int argc, char* argv[]) {
         return 0;
     }
     if (cmd == "--health") {
+        // This is a direct CLI invocation — not a live query to a running daemon.
+        // Real ZED/cache state is only available via RPC when --serve is running.
         std::cout << "STATUS=OK\n";
         std::cout << "VERSION=" << ZFSMGR_AGENT_VERSION_STRING << "\n";
         std::cout << "API=" << kApiVersion << "\n";
-        std::cout << "SERVER=1\n";
+        std::cout << "SERVER=0\n";
         std::cout << "CACHE_ENTRIES=0\n";
         std::cout << "CACHE_MAX_ENTRIES=0\n";
         std::cout << "CACHE_INVALIDATIONS=0\n";
@@ -3394,6 +3520,25 @@ int main(int argc, char* argv[]) {
         std::ifstream f(conf.logFile);
         if (!f.is_open()) return 0;
         std::cout << f.rdbuf();
+        return 0;
+    }
+    if (cmd == "--dump-daemon-log") {
+        long long offset = 0;
+        if (args.size() > 2) {
+            try { offset = std::stoll(args[2]); } catch (...) {}
+        }
+        std::ifstream f(kDaemonLogFile, std::ios::binary);
+        if (!f.is_open()) return 0;
+        if (offset > 0) f.seekg(offset);
+        std::cout << f.rdbuf();
+        return 0;
+    }
+    if (cmd == "--heartbeat") {
+        const std::string ts = utcNowIsoString();
+        daemonLog("INFO", "heartbeat request (cli)");
+        std::cout << "ALIVE=yes\n";
+        std::cout << "VERSION=" << ZFSMGR_AGENT_VERSION_STRING << "\n";
+        std::cout << "TS=" << ts << "\n";
         return 0;
     }
 

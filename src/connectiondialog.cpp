@@ -275,26 +275,6 @@ ConnectionDialog::ConnectionDialog(const QString& language, QWidget* parent)
     keyLayout->addWidget(m_keyBrowseBtn, 0);
     form->addRow(QString(), keyRow);
 
-    m_sudoCheck = new QCheckBox(trk(QStringLiteral("t_usar_sudo_e14aff"),
-                                    QStringLiteral("Usar sudo"),
-                                    QStringLiteral("Use sudo"),
-                                    QStringLiteral("使用 sudo")),
-                                this);
-    m_privilegesRow = new QWidget(this);
-    auto* privLayout = new QHBoxLayout(m_privilegesRow);
-    privLayout->setContentsMargins(0, 0, 0, 0);
-    privLayout->setSpacing(8);
-    auto* privLbl = new QLabel(trk(QStringLiteral("t_privilegio_1cb58a"),
-                                   QStringLiteral("Privilegios"),
-                                   QStringLiteral("Privileges"),
-                                   QStringLiteral("权限")), m_privilegesRow);
-    privLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    privLbl->setMinimumWidth(76);
-    privLayout->addWidget(privLbl, 0);
-    privLayout->addWidget(m_sudoCheck, 0, Qt::AlignLeft);
-    privLayout->addStretch(1);
-    form->addRow(QString(), m_privilegesRow);
-
     connect(m_connTypeCombo, &QComboBox::currentTextChanged, this, [this](const QString&) {
         updateConnectionModeUi();
     });
@@ -355,7 +335,6 @@ void ConnectionDialog::setProfile(const ConnectionProfile& profile) {
     m_userEdit->setText(profile.username);
     m_passwordEdit->setText(profile.password);
     m_keyEdit->setText(profile.keyPath);
-    m_sudoCheck->setChecked(profile.useSudo);
     updateConnectionModeUi();
 }
 
@@ -378,7 +357,7 @@ ConnectionProfile ConnectionDialog::profile() const {
     p.username = m_userEdit->text().trimmed();
     p.password = m_passwordEdit->text();
     p.keyPath = m_keyEdit->text().trimmed();
-    p.useSudo = m_sudoCheck->isChecked();
+    p.useSudo = (p.connType.compare(QStringLiteral("PSRP"), Qt::CaseInsensitive) != 0);
     return p;
 }
 
@@ -402,13 +381,6 @@ void ConnectionDialog::updateConnectionModeUi() {
     }
     if (psrpMode) {
         m_keyEdit->clear();
-    }
-    m_sudoCheck->setEnabled(!psrpMode);
-    if (psrpMode) {
-        m_sudoCheck->setChecked(false);
-    }
-    if (m_privilegesRow) {
-        m_privilegesRow->setVisible(!psrpMode);
     }
     if (m_sshFamilyCombo) {
         m_sshFamilyCombo->setEnabled(!psrpMode);
