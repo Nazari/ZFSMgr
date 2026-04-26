@@ -194,7 +194,7 @@ Fase 5
 Fase 6
 - Windows port (servicio + estrategia de eventos alternativa).
 
-## Estado de implementación (rama `daemonize`)
+## Estado de implementación (rama `main`, continuación de `daemonize`)
 
 Implementado actualmente:
 
@@ -244,6 +244,36 @@ Implementado actualmente:
   - eliminado bloque legacy local de `--dump-*`; las lecturas pasan por un único camino (proxy TLS + fast-path tipado)
   - eliminado fallback interno por auto-spawn del propio binario en servidor; comandos no soportados fallan explícitamente
   - eliminado modo interno `--direct`; el flujo queda simplificado a `proxy residente` o `ejecución tipada local`
+
+### Correcciones en detección de eventos ZED (2026-04-26)
+
+Se detectaron y corrigieron tres bugs independientes que impedían que las operaciones ZFS remotas dispararan el refresco automático de la UI:
+
+1. **Blank-line handler**: el separador de eventos (línea en blanco) se ignoraba con `continue` sin llamar a `fireIfRelevant()`. El último evento del stream nunca se disparaba. **Corrección**: `fireIfRelevant()` + reset de estado en líneas en blanco.
+
+2. **Buffering de stdout en pipe**: `zpool events -f` usa buffering completo de stdio cuando stdout es un pipe (4-8 KB). Un evento (~300-500 bytes) quedaba atrapado en el buffer interno de `zpool events` y nunca llegaba al `fgets()` del daemon. **Corrección**: envolver con `stdbuf -oL` para forzar buffering por línea; con fallback a `zpool events -f` directo si `stdbuf` no está disponible.
+
+3. **Overflow en debounce**: `lastFireTime` se inicializaba a `time_point::min()`. La resta `now() - time_point::min()` produce overflow → duración negativa muy grande → el chequeo `< 2 segundos` siempre era verdadero → el debounce bloqueaba todos los disparos. **Corrección**: inicializar `lastFireTime = now() - seconds(10)`.
+
+### Log de daemon y tab Daemon (2026-04-26)
+
+- Log persistente en `/var/lib/zfsmgr/daemon.log` con rotación a 2 MB (hasta 5 archivos).
+- RPC `--dump-daemon-log [offset]` para leer el log de forma incremental desde la GUI.
+- RPC `--heartbeat` para confirmar que el daemon responde.
+- Tab `Daemon` en la GUI (renombrado de `GSA`) con visor de log incremental y botón `Heartbeat`.
+
+### Jobs de transferencia en background (2026-04-26)
+
+Las operaciones Copy/Level pueden ejecutarse enteramente entre daemons sin bloquear la GUI ni requerir que permanezca abierta. Diseño completo en `docs/daemon2daemon.md`.
+
+Implementado:
+- `DaemonJob` struct con persistencia en `/var/lib/zfsmgr/jobs.json`.
+- Jobs en estado `Running` al reiniciar el daemon se marcan `Failed` automáticamente.
+- `runZfsSendToPeerAsync()`: relay loop async en hilo independiente, actualiza progreso cada 2 s, almacena PID para cancelación.
+- `runZfsPipeLocalAsync()`: pipe local async para Mode 2 (mismo host).
+- Nuevos RPCs: `--zfs-send-to-peer-async`, `--job-status`, `--job-list`, `--job-cancel`, `--zfs-pipe-local-async`.
+- `JOBS_SUPPORT=1` en respuesta de `--health` (flag de capacidad, sin cambio de versión de API).
+- GUI: tab `Transferencias`, polling cada 2,5 s, recuperación de jobs al reconectar, diálogo de confirmación al cerrar con jobs activos.
 
 Pendiente de esta fase:
 

@@ -245,6 +245,23 @@ The `Diff` action includes a dedicated results window with grouped tree output f
 - modified files,
 - renamed files.
 
+### Background daemon-to-daemon transfers
+
+Copy and Level operations support **background execution**: when both endpoints have an active `zfsmgr-agent`, the transfer runs entirely between the two remote daemons without data passing through the local machine.
+
+Key characteristics:
+
+- The GUI submits the job and returns immediately — **no GUI blocking** during the transfer.
+- The user can **close the GUI** while the transfer runs; the daemon continues independently.
+- Progress is polled every 2.5 seconds and shown in the **Transferencias** tab.
+- Each job can be **cancelled** from the tab, which sends `SIGTERM` to the `zfs send` child process.
+- On reconnect, the GUI automatically recovers any jobs that were running while it was closed.
+- If one or both daemons do not advertise job support (`JOBS_SUPPORT=1` in `--health`), the operation falls back silently to the synchronous pipeline path.
+
+The **Transferencias** tab shows one row per job with state, dataset labels, bytes transferred, rate, and elapsed time.
+
+Design reference: `docs/daemon2daemon.md`
+
 ### Connectivity matrix
 
 - `Check connectivity` action in the main application menu.
@@ -273,9 +290,12 @@ The `Diff` action includes a dedicated results window with grouped tree output f
   - daemon-rpc uses TLS/mTLS material deployed per connection,
   - remote execution keeps SSH fallback while daemon-rpc is unavailable,
   - scheduler events remain auditable via `GSA.log` + app logs.
+- Daemon log tab (`Daemon`): rotating log at `/var/lib/zfsmgr/daemon.log` viewable from the GUI, with a `Heartbeat` button to confirm liveness.
+- ZED event detection is driven by `zpool events -f` in a background thread inside the daemon; the GUI polls `--health` every ~10 s and triggers a tree refresh when a new ZED event timestamp appears.
 - See:
   - `docs/diseno_tecnico_daemon_nativo_zed.md`
   - `docs/diseno_y_funcionamiento_gsa.md`
+  - `docs/daemon2daemon.md`
 
 ## Remote ZFS management
 
@@ -311,7 +331,8 @@ If required components are missing, the UI reports the situation clearly in conn
   - `Actions` box (`Source`/`Target` + transfer actions),
   - `Pending changes`.
 - Bottom area:
-  - logs (`Settings`, `Combined log`, `Terminal`, `GSA`).
+  - logs (`Settings`, `Combined log`, `Terminal`, `Daemon`).
+  - `Transferencias` tab: running and recent background daemon transfer jobs.
 
 Important characteristics:
 
