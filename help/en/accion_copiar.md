@@ -11,9 +11,13 @@ Conditions:
 Behavior:
 
 - Uses `zfs send` and `zfs recv`.
-- If source and target are two different remote SSH connections, ZFSMgr tries to run the transfer directly from source to target.
-  In that case, the data stream does not pass through the machine running ZFSMgr; only control and progress reporting do.
-- Shows progress in combined log.
-- The action is queued first in `Pending changes`; it runs only when pending changes are applied.
+- When both connections have an active daemon with job support (`JOBS_SUPPORT=1`), the transfer runs as a **background job**:
+  - Data flows directly between daemons; it does not pass through the machine running ZFSMgr.
+  - The GUI does not block; the job starts immediately and the application stays fully usable.
+  - Progress is shown in the **Transferencias** tab (bytes, speed, elapsed time).
+  - The GUI can be closed while the transfer continues running on the remote daemon.
+  - When the GUI is reopened or the connection is re-established, running jobs are recovered automatically.
+  - Any job can be cancelled from the Transferencias tab (`SIGTERM` is sent to the `zfs send` process).
+- If any daemon does not support jobs, the action falls back to synchronous mode: it is queued in `Pending changes` and runs when changes are applied.
 - Refreshes affected connections/trees when done.
 - If any side is below `2.3.3`, the action is blocked.

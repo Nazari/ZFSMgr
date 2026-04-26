@@ -16,8 +16,6 @@ ZFSMgr 在统一树上使用上下文菜单。
   - `Edit`
   - `Delete`
   - 分隔线
-  - `Daemon`
-  - 分隔线
   - `New pool`
   - 分隔线
   - `Split and root`（子菜单：`向右`、`向左`、`向下`、`向上`）

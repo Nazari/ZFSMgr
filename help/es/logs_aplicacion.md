@@ -5,7 +5,24 @@ La parte inferior de la ventana usa pestañas:
 - `Ajustes`: opciones de log y confirmación de acciones.
 - `Log combinado`: log principal de aplicación.
 - `Terminal`: salida técnica de comandos locales/remotos.
-- `GSA`: eventos específicos de programación automática de snapshots.
+- `Daemon`: log del daemon remoto (`/var/lib/zfsmgr/daemon.log`) y botón `Heartbeat`.
+- `Transferencias`: lista de jobs de transferencia en background (Copy/Level daemon-a-daemon).
+
+## Pestaña Daemon
+
+- Muestra el log del daemon remoto leído de forma incremental.
+- El botón `Heartbeat` envía un ping al daemon para confirmar que responde.
+- El log se actualiza al detectar un evento ZED o al pulsar `Heartbeat`.
+- El log no se borra al refrescar la conexión; solo se resetea si el daemon ha sido reinstalado.
+
+## Pestaña Transferencias
+
+- Muestra una fila por cada job de transferencia (Copy/Level daemon-a-daemon).
+- Cada fila incluye: estado, datasets origen/destino, bytes transferidos, velocidad y tiempo.
+- Estados posibles: `running`, `done`, `failed`, `cancelled`.
+- El botón `Refrescar` fuerza una consulta de estado a los daemons.
+- El botón `Cancelar seleccionado` envía `SIGTERM` al proceso `zfs send` del job seleccionado.
+- Los jobs en curso se recuperan automáticamente al reconectar.
 
 `Log combinado`:
 

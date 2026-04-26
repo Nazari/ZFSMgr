@@ -11,7 +11,7 @@ ZFSMgr gestiona conexiones y acciones ZFS desde un árbol unificado.
   - línea `Estado` y `Progreso`
   - caja `Acciones` (incluye `Source` y `Target` en una sola línea)
   - caja `Cambios pendientes` a la derecha de `Acciones`
-- Zona inferior: pestañas de logs (`Ajustes`, `Log combinado`, `Terminal`, `GSA`).
+- Zona inferior: pestañas de logs (`Ajustes`, `Log combinado`, `Terminal`, `Daemon`, `Transferencias`).
 
 ## Árbol unificado
 

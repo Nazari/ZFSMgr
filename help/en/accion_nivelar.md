@@ -12,7 +12,11 @@ Behavior:
 
 - Computes command based on selection and remote state.
 - Executes transfer with pre-checks.
-- If source and target are two different remote SSH connections, it tries to transfer directly from source to target without routing data through the machine running ZFSMgr.
+- When both connections have an active daemon with job support (`JOBS_SUPPORT=1`), the transfer runs as a **background job**:
+  - Data flows directly between daemons without passing through the machine running ZFSMgr.
+  - The GUI does not block; progress is shown in the **Transferencias** tab.
+  - The GUI can be closed while the transfer continues on the daemon.
+  - Jobs can be cancelled from the Transferencias tab.
+- If any daemon does not support jobs, the action falls back to synchronous mode: queued in `Pending changes` and run when changes are applied.
 - Logs subcommands at INFO level.
-- The action is queued first in `Pending changes` and runs only when changes are applied.
 - If any side is below `2.3.3`, the action is blocked.

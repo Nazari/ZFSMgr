@@ -11,7 +11,7 @@ ZFSMgr manages connections and ZFS actions from a unified tree.
   - `Status` and `Progress` row
   - `Actions` box (includes `Source` and `Target` in one line)
   - `Pending changes` box to the right of `Actions`
-- Bottom area: log tabs (`Settings`, `Combined log`, `Terminal`, `GSA`).
+- Bottom area: log tabs (`Settings`, `Combined log`, `Terminal`, `Daemon`, `Transferencias`).
 
 ## Unified tree
 

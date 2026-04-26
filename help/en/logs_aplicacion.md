@@ -5,7 +5,24 @@ The bottom area uses tabs:
 - `Settings`: log options and action confirmation.
 - `Combined log`: main application log.
 - `Terminal`: technical output of local/remote commands.
-- `GSA`: events specific to automatic snapshot scheduling.
+- `Daemon`: remote daemon log (`/var/lib/zfsmgr/daemon.log`) and `Heartbeat` button.
+- `Transferencias`: list of background daemon transfer jobs (Copy/Level daemon-to-daemon).
+
+## Daemon tab
+
+- Shows the remote daemon log read incrementally from `/var/lib/zfsmgr/daemon.log`.
+- The `Heartbeat` button pings the daemon to confirm it is responsive.
+- The log updates when a ZED event is detected or when `Heartbeat` is pressed.
+- The log is not cleared on connection refresh; it resets only if the daemon is reinstalled.
+
+## Transferencias tab
+
+- Shows one row per background transfer job (daemon-to-daemon Copy or Level).
+- Each row shows: state, source/target datasets, bytes transferred, speed, elapsed time.
+- Possible states: `running`, `done`, `failed`, `cancelled`.
+- `Refrescar` forces an immediate status query to the daemons.
+- `Cancelar seleccionado` sends `SIGTERM` to the `zfs send` process of the selected job.
+- Running jobs are recovered automatically on reconnect.
 
 `Combined log`:
 

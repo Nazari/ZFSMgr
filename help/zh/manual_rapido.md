@@ -11,7 +11,7 @@ ZFSMgr 通过统一树管理连接和 ZFS 操作。
   - `Status` 与 `Progress` 一行
   - `Actions` 框（同一行显示 `Source` 与 `Target`）
   - `Pending changes` 在 `Actions` 右侧
-- 底部区域：日志分页（`Settings`、`Combined log`、`Terminal`、`GSA`）。
+- 底部区域：日志分页（`Settings`、`Combined log`、`Terminal`、`Daemon`、`Transferencias`）。
 
 ## 统一树
 
