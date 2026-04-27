@@ -1774,6 +1774,7 @@ void MainWindow::pollDaemonZedAllConnections() {
     for (int i = 0; i < m_profiles.size() && i < m_states.size(); ++i) {
         if (m_states[i].daemonActive
             && !isLocalConnection(i)
+            && !isWindowsConnection(m_profiles[i])
             && m_profiles[i].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0) {
             toCheck.append(i);
         }
