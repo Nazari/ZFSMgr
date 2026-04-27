@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "mainwindow_helpers.h"
+#include "agentversion.h"
 
 #include <QCheckBox>
 #include <QColor>
